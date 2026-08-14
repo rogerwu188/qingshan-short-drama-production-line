@@ -1,0 +1,684 @@
+{
+  "schema": "qingshan.final_cut_objective_metrics.v1",
+  "measured_from": "DECODED_FINAL_MP4",
+  "video": "/sessions/zen-amazing-dijkstra/mnt/qingshan_short_drama/exports/e19r/final_package_v15_20260718/qingshan_E19R_final_subtitled_nalu_20260718.mp4",
+  "duration_seconds": 181.709,
+  "shot_count": 68,
+  "sampled_shot_count": 68,
+  "sampling_basis": "per_shot_midpoint",
+  "asl_seconds": 2.672,
+  "sub_1s_shot_pct": 8.824,
+  "longest_shot_seconds": 6.875,
+  "picture_repetition": {
+    "algorithm": "8x8-average-hash",
+    "hamming_threshold": 5,
+    "near_duplicate_shot_pct": 29.412,
+    "near_duplicate_shot_pct_non_adjacent": 29.412,
+    "blocking_figure": "near_duplicate_shot_pct_non_adjacent",
+    "clusters": [
+      [
+        9,
+        48
+      ],
+      [
+        12,
+        14,
+        16
+      ],
+      [
+        19,
+        33
+      ],
+      [
+        20,
+        23,
+        58
+      ],
+      [
+        35,
+        43,
+        46
+      ],
+      [
+        37,
+        42
+      ],
+      [
+        38,
+        40,
+        44
+      ],
+      [
+        62,
+        64
+      ]
+    ],
+    "non_adjacent_clusters": [
+      [
+        9,
+        48
+      ],
+      [
+        12,
+        14,
+        16
+      ],
+      [
+        19,
+        33
+      ],
+      [
+        20,
+        23,
+        58
+      ],
+      [
+        35,
+        43,
+        46
+      ],
+      [
+        37,
+        42
+      ],
+      [
+        38,
+        40,
+        44
+      ],
+      [
+        62,
+        64
+      ]
+    ]
+  },
+  "palette_uniformity_ADVISORY": {
+    "status": "NOT_VALIDATED_DO_NOT_GATE_ON_THIS",
+    "algorithm": "3x3-rgb-colour-signature",
+    "distance_metric": "mean_absolute_difference",
+    "distance_threshold": 0.08,
+    "clusters": 9,
+    "dominant_cluster_pct": 86.471,
+    "known_false_positive": "E16 is visibly multi-location (clinic interior, courtyard, street) but scores 88.8% because the whole episode shares one dark-blue candlelit grade. E19R scores 86.5% and genuinely is one alley. The metric cannot tell 'one room' from 'many rooms, one grade'."
+  },
+  "video_continuity": {
+    "shot_luma": [
+      80.97,
+      56.26,
+      65.75,
+      46.34,
+      79.07,
+      58.06,
+      55.53,
+      50.35,
+      51.01,
+      49.55,
+      49.88,
+      64.85,
+      42.89,
+      55.01,
+      45.15,
+      68.34,
+      44.31,
+      29.37,
+      61.02,
+      54.77,
+      68.18,
+      71.88,
+      70.09,
+      67.72,
+      31.67,
+      63.13,
+      61.78,
+      54.74,
+      60.74,
+      69.66,
+      63.87,
+      55.66,
+      61.3,
+      54.04,
+      57.98,
+      57.53,
+      67.38,
+      50.32,
+      60.08,
+      64.2,
+      60.24,
+      55.17,
+      50.35,
+      57.52,
+      60.23,
+      41.04,
+      57.44,
+      55.1,
+      49.31,
+      66.7,
+      51.6,
+      62.97,
+      59.38,
+      64.34,
+      67.4,
+      54.06,
+      72.68,
+      64.94,
+      68.25,
+      32.27,
+      48.57,
+      39.55,
+      34.67,
+      45.07,
+      33.4,
+      57.68,
+      45.19,
+      2.01
+    ]
+  },
+  "audio": {
+    "shot_levels": [
+      {
+        "shot": 0,
+        "start": 0.0,
+        "mean_dbfs": -57.5
+      },
+      {
+        "shot": 1,
+        "start": 2.417,
+        "mean_dbfs": -19.5
+      },
+      {
+        "shot": 2,
+        "start": 4.792,
+        "mean_dbfs": -22.4
+      },
+      {
+        "shot": 3,
+        "start": 7.458,
+        "mean_dbfs": -26.4
+      },
+      {
+        "shot": 4,
+        "start": 9.833,
+        "mean_dbfs": -21.6
+      },
+      {
+        "shot": 5,
+        "start": 12.083,
+        "mean_dbfs": -55.2
+      },
+      {
+        "shot": 6,
+        "start": 16.0,
+        "mean_dbfs": -17.4
+      },
+      {
+        "shot": 7,
+        "start": 18.375,
+        "mean_dbfs": -22.1
+      },
+      {
+        "shot": 8,
+        "start": 20.75,
+        "mean_dbfs": -24.2
+      },
+      {
+        "shot": 9,
+        "start": 23.125,
+        "mean_dbfs": -55.5
+      },
+      {
+        "shot": 10,
+        "start": 26.292,
+        "mean_dbfs": -43.7
+      },
+      {
+        "shot": 11,
+        "start": 27.125,
+        "mean_dbfs": -21.7
+      },
+      {
+        "shot": 12,
+        "start": 29.792,
+        "mean_dbfs": -38.6
+      },
+      {
+        "shot": 13,
+        "start": 36.125,
+        "mean_dbfs": -23.5
+      },
+      {
+        "shot": 14,
+        "start": 38.125,
+        "mean_dbfs": -19.2
+      },
+      {
+        "shot": 15,
+        "start": 40.5,
+        "mean_dbfs": -20.9
+      },
+      {
+        "shot": 16,
+        "start": 42.875,
+        "mean_dbfs": -55.3
+      },
+      {
+        "shot": 17,
+        "start": 46.833,
+        "mean_dbfs": -28.1
+      },
+      {
+        "shot": 18,
+        "start": 48.917,
+        "mean_dbfs": -22.3
+      },
+      {
+        "shot": 19,
+        "start": 51.875,
+        "mean_dbfs": -55.6
+      },
+      {
+        "shot": 20,
+        "start": 54.75,
+        "mean_dbfs": -54.4
+      },
+      {
+        "shot": 21,
+        "start": 55.583,
+        "mean_dbfs": -19.5
+      },
+      {
+        "shot": 22,
+        "start": 58.375,
+        "mean_dbfs": -24.8
+      },
+      {
+        "shot": 23,
+        "start": 61.625,
+        "mean_dbfs": -55.5
+      },
+      {
+        "shot": 24,
+        "start": 65.333,
+        "mean_dbfs": -23.1
+      },
+      {
+        "shot": 25,
+        "start": 67.833,
+        "mean_dbfs": -55.4
+      },
+      {
+        "shot": 26,
+        "start": 71.5,
+        "mean_dbfs": -23.9
+      },
+      {
+        "shot": 27,
+        "start": 73.708,
+        "mean_dbfs": -55.6
+      },
+      {
+        "shot": 28,
+        "start": 77.333,
+        "mean_dbfs": -20.9
+      },
+      {
+        "shot": 29,
+        "start": 79.708,
+        "mean_dbfs": -23.9
+      },
+      {
+        "shot": 30,
+        "start": 82.0,
+        "mean_dbfs": -55.4
+      },
+      {
+        "shot": 31,
+        "start": 85.625,
+        "mean_dbfs": -20.8
+      },
+      {
+        "shot": 32,
+        "start": 88.0,
+        "mean_dbfs": -21.4
+      },
+      {
+        "shot": 33,
+        "start": 91.042,
+        "mean_dbfs": -55.3
+      },
+      {
+        "shot": 34,
+        "start": 94.667,
+        "mean_dbfs": -23.7
+      },
+      {
+        "shot": 35,
+        "start": 96.667,
+        "mean_dbfs": -55.6
+      },
+      {
+        "shot": 36,
+        "start": 100.167,
+        "mean_dbfs": -22.0
+      },
+      {
+        "shot": 37,
+        "start": 104.083,
+        "mean_dbfs": -55.4
+      },
+      {
+        "shot": 38,
+        "start": 106.792,
+        "mean_dbfs": -55.7
+      },
+      {
+        "shot": 39,
+        "start": 107.583,
+        "mean_dbfs": -26.7
+      },
+      {
+        "shot": 40,
+        "start": 110.208,
+        "mean_dbfs": -55.4
+      },
+      {
+        "shot": 41,
+        "start": 113.708,
+        "mean_dbfs": -25.9
+      },
+      {
+        "shot": 42,
+        "start": 116.083,
+        "mean_dbfs": -55.4
+      },
+      {
+        "shot": 43,
+        "start": 118.792,
+        "mean_dbfs": -55.5
+      },
+      {
+        "shot": 44,
+        "start": 119.583,
+        "mean_dbfs": -55.7
+      },
+      {
+        "shot": 45,
+        "start": 123.083,
+        "mean_dbfs": -25.5
+      },
+      {
+        "shot": 46,
+        "start": 125.458,
+        "mean_dbfs": -55.3
+      },
+      {
+        "shot": 47,
+        "start": 128.958,
+        "mean_dbfs": -19.9
+      },
+      {
+        "shot": 48,
+        "start": 131.333,
+        "mean_dbfs": -55.3
+      },
+      {
+        "shot": 49,
+        "start": 134.792,
+        "mean_dbfs": -26.2
+      },
+      {
+        "shot": 50,
+        "start": 137.333,
+        "mean_dbfs": -55.4
+      },
+      {
+        "shot": 51,
+        "start": 139.667,
+        "mean_dbfs": -55.8
+      },
+      {
+        "shot": 52,
+        "start": 140.458,
+        "mean_dbfs": -17.6
+      },
+      {
+        "shot": 53,
+        "start": 143.167,
+        "mean_dbfs": -27.8
+      },
+      {
+        "shot": 54,
+        "start": 145.0,
+        "mean_dbfs": -55.3
+      },
+      {
+        "shot": 55,
+        "start": 147.333,
+        "mean_dbfs": -29.0
+      },
+      {
+        "shot": 56,
+        "start": 150.167,
+        "mean_dbfs": -55.3
+      },
+      {
+        "shot": 57,
+        "start": 153.292,
+        "mean_dbfs": -24.4
+      },
+      {
+        "shot": 58,
+        "start": 154.917,
+        "mean_dbfs": -55.2
+      },
+      {
+        "shot": 59,
+        "start": 158.0,
+        "mean_dbfs": -25.9
+      },
+      {
+        "shot": 60,
+        "start": 160.208,
+        "mean_dbfs": -26.4
+      },
+      {
+        "shot": 61,
+        "start": 162.708,
+        "mean_dbfs": -55.1
+      },
+      {
+        "shot": 62,
+        "start": 164.25,
+        "mean_dbfs": -55.1
+      },
+      {
+        "shot": 63,
+        "start": 165.042,
+        "mean_dbfs": -24.2
+      },
+      {
+        "shot": 64,
+        "start": 167.25,
+        "mean_dbfs": -26.5
+      },
+      {
+        "shot": 65,
+        "start": 174.125,
+        "mean_dbfs": -28.7
+      },
+      {
+        "shot": 66,
+        "start": 176.333,
+        "mean_dbfs": -20.4
+      },
+      {
+        "shot": 67,
+        "start": 178.708,
+        "mean_dbfs": -31.2
+      }
+    ],
+    "digital_zero_shots": [],
+    "level_jump_over_12db_count": 43,
+    "level_jumps": [
+      {
+        "at": 2.417,
+        "delta_db": 38.0
+      },
+      {
+        "at": 12.083,
+        "delta_db": -33.6
+      },
+      {
+        "at": 16.0,
+        "delta_db": 37.8
+      },
+      {
+        "at": 23.125,
+        "delta_db": -31.3
+      },
+      {
+        "at": 27.125,
+        "delta_db": 22.0
+      },
+      {
+        "at": 29.792,
+        "delta_db": -16.9
+      },
+      {
+        "at": 36.125,
+        "delta_db": 15.1
+      },
+      {
+        "at": 42.875,
+        "delta_db": -34.4
+      },
+      {
+        "at": 46.833,
+        "delta_db": 27.2
+      },
+      {
+        "at": 51.875,
+        "delta_db": -33.3
+      },
+      {
+        "at": 55.583,
+        "delta_db": 34.9
+      },
+      {
+        "at": 61.625,
+        "delta_db": -30.7
+      },
+      {
+        "at": 65.333,
+        "delta_db": 32.4
+      },
+      {
+        "at": 67.833,
+        "delta_db": -32.3
+      },
+      {
+        "at": 71.5,
+        "delta_db": 31.5
+      },
+      {
+        "at": 73.708,
+        "delta_db": -31.7
+      },
+      {
+        "at": 77.333,
+        "delta_db": 34.7
+      },
+      {
+        "at": 82.0,
+        "delta_db": -31.5
+      },
+      {
+        "at": 85.625,
+        "delta_db": 34.6
+      },
+      {
+        "at": 91.042,
+        "delta_db": -33.9
+      },
+      {
+        "at": 94.667,
+        "delta_db": 31.6
+      },
+      {
+        "at": 96.667,
+        "delta_db": -31.9
+      },
+      {
+        "at": 100.167,
+        "delta_db": 33.6
+      },
+      {
+        "at": 104.083,
+        "delta_db": -33.4
+      },
+      {
+        "at": 107.583,
+        "delta_db": 29.0
+      },
+      {
+        "at": 110.208,
+        "delta_db": -28.7
+      },
+      {
+        "at": 113.708,
+        "delta_db": 29.5
+      },
+      {
+        "at": 116.083,
+        "delta_db": -29.5
+      },
+      {
+        "at": 123.083,
+        "delta_db": 30.2
+      },
+      {
+        "at": 125.458,
+        "delta_db": -29.8
+      },
+      {
+        "at": 128.958,
+        "delta_db": 35.4
+      },
+      {
+        "at": 131.333,
+        "delta_db": -35.4
+      },
+      {
+        "at": 134.792,
+        "delta_db": 29.1
+      },
+      {
+        "at": 137.333,
+        "delta_db": -29.2
+      },
+      {
+        "at": 140.458,
+        "delta_db": 38.2
+      },
+      {
+        "at": 145.0,
+        "delta_db": -27.5
+      },
+      {
+        "at": 147.333,
+        "delta_db": 26.3
+      },
+      {
+        "at": 150.167,
+        "delta_db": -26.3
+      },
+      {
+        "at": 153.292,
+        "delta_db": 30.9
+      },
+      {
+        "at": 154.917,
+        "delta_db": -30.8
+      }
+    ]
+  }
+}

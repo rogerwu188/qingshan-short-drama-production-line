@@ -1,0 +1,201 @@
+{
+  "schema": "qingshan.final_cut_objective_metrics.v1",
+  "measured_from": "DECODED_FINAL_MP4",
+  "video": "/sessions/zen-amazing-dijkstra/mnt/qingshan_short_drama/exports/e14/final_package_20260711/qingshan_E14_final_subtitled_nalu_20260711.mp4",
+  "duration_seconds": 109.603,
+  "shot_count": 29,
+  "sampled_shot_count": 29,
+  "sampling_basis": "per_shot_midpoint",
+  "asl_seconds": 3.779,
+  "sub_1s_shot_pct": 20.69,
+  "longest_shot_seconds": 16.233,
+  "picture_repetition": {
+    "algorithm": "8x8-average-hash",
+    "hamming_threshold": 5,
+    "near_duplicate_shot_pct": 6.897,
+    "near_duplicate_shot_pct_non_adjacent": 6.897,
+    "blocking_figure": "near_duplicate_shot_pct_non_adjacent",
+    "clusters": [
+      [
+        20,
+        22
+      ]
+    ],
+    "non_adjacent_clusters": [
+      [
+        20,
+        22
+      ]
+    ]
+  },
+  "palette_uniformity_ADVISORY": {
+    "status": "NOT_VALIDATED_DO_NOT_GATE_ON_THIS",
+    "algorithm": "3x3-rgb-colour-signature",
+    "distance_metric": "mean_absolute_difference",
+    "distance_threshold": 0.08,
+    "clusters": 15,
+    "dominant_cluster_pct": 47.262,
+    "known_false_positive": "E16 is visibly multi-location (clinic interior, courtyard, street) but scores 88.8% because the whole episode shares one dark-blue candlelit grade. E19R scores 86.5% and genuinely is one alley. The metric cannot tell 'one room' from 'many rooms, one grade'."
+  },
+  "audio": {
+    "shot_levels": [
+      {
+        "shot": 0,
+        "start": 0.0,
+        "mean_dbfs": -18.9
+      },
+      {
+        "shot": 1,
+        "start": 4.1,
+        "mean_dbfs": -18.4
+      },
+      {
+        "shot": 2,
+        "start": 10.167,
+        "mean_dbfs": -19.2
+      },
+      {
+        "shot": 3,
+        "start": 12.433,
+        "mean_dbfs": -20.1
+      },
+      {
+        "shot": 4,
+        "start": 13.867,
+        "mean_dbfs": -20.0
+      },
+      {
+        "shot": 5,
+        "start": 15.267,
+        "mean_dbfs": -16.6
+      },
+      {
+        "shot": 6,
+        "start": 21.333,
+        "mean_dbfs": -23.5
+      },
+      {
+        "shot": 7,
+        "start": 27.433,
+        "mean_dbfs": -18.5
+      },
+      {
+        "shot": 8,
+        "start": 32.467,
+        "mean_dbfs": -16.3
+      },
+      {
+        "shot": 9,
+        "start": 36.567,
+        "mean_dbfs": -15.7
+      },
+      {
+        "shot": 10,
+        "start": 41.133,
+        "mean_dbfs": -16.3
+      },
+      {
+        "shot": 11,
+        "start": 41.633,
+        "mean_dbfs": -22.1
+      },
+      {
+        "shot": 12,
+        "start": 42.6,
+        "mean_dbfs": -16.0
+      },
+      {
+        "shot": 13,
+        "start": 43.533,
+        "mean_dbfs": -19.5
+      },
+      {
+        "shot": 14,
+        "start": 45.7,
+        "mean_dbfs": -31.3
+      },
+      {
+        "shot": 15,
+        "start": 47.7,
+        "mean_dbfs": -18.5
+      },
+      {
+        "shot": 16,
+        "start": 63.933,
+        "mean_dbfs": -21.0
+      },
+      {
+        "shot": 17,
+        "start": 68.033,
+        "mean_dbfs": -21.3
+      },
+      {
+        "shot": 18,
+        "start": 72.1,
+        "mean_dbfs": -18.6
+      },
+      {
+        "shot": 19,
+        "start": 78.167,
+        "mean_dbfs": -24.9
+      },
+      {
+        "shot": 20,
+        "start": 81.167,
+        "mean_dbfs": -14.5
+      },
+      {
+        "shot": 21,
+        "start": 81.667,
+        "mean_dbfs": -10.8
+      },
+      {
+        "shot": 22,
+        "start": 81.833,
+        "mean_dbfs": -12.2
+      },
+      {
+        "shot": 23,
+        "start": 82.267,
+        "mean_dbfs": -21.6
+      },
+      {
+        "shot": 24,
+        "start": 88.367,
+        "mean_dbfs": -21.4
+      },
+      {
+        "shot": 25,
+        "start": 93.467,
+        "mean_dbfs": -15.9
+      },
+      {
+        "shot": 26,
+        "start": 99.5,
+        "mean_dbfs": -20.1
+      },
+      {
+        "shot": 27,
+        "start": 104.067,
+        "mean_dbfs": -15.4
+      },
+      {
+        "shot": 28,
+        "start": 106.567,
+        "mean_dbfs": -76.9
+      }
+    ],
+    "digital_zero_shots": [],
+    "level_jump_over_12db_count": 2,
+    "level_jumps": [
+      {
+        "at": 47.7,
+        "delta_db": 12.8
+      },
+      {
+        "at": 106.567,
+        "delta_db": -61.5
+      }
+    ]
+  }
+}

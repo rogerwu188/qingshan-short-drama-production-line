@@ -1,0 +1,78 @@
+{
+  "schema": "qingshan.supervisor_ahash_timeout_machine_adjudication.v2",
+  "episode": "E19R",
+  "candidate": "exports/e19r/agentcut_v15_headroom_safe_continuous_ambience_nalu_20260718/E19R_AGENTCUT_V15_HEADROOM_SAFE_CONTINUOUS_AMBIENCE_NALU_RELEASE_CANDIDATE.mp4",
+  "requested_at": "2026-07-18T00:21:00-07:00",
+  "deadline": "2026-07-18T00:36:00-07:00",
+  "adjudicated_at": "2026-07-18T00:36:02.806594-07:00",
+  "timeout_seconds": 900,
+  "human_response_received": false,
+  "status": "PASS_MACHINE_SUPERVISOR_AHASH",
+  "confidence": 0.96,
+  "failures": [],
+  "rollback_allowed": true,
+  "irreversible_action_allowed": false,
+  "checks": {
+    "technical_gate": "PASS",
+    "audience_gate": "PASS",
+    "audience_score": 3.7,
+    "audience_hard_fail": [],
+    "ai_review_score": 5.0,
+    "ai_review_blockers": 0,
+    "coverage": "40/40",
+    "burned_subtitles": "40/40",
+    "nalu_motion_outro": "PASS_WITH_ORIGINAL_CHIME",
+    "native_text_cleanup": "PASS_DENSE_OCR_ADJUDICATED",
+    "audio_mix": "PASS_MINUS_18P3_LUFS_MINUS_2P4_DBFS_NO_LOOP_NO_CLIPPING"
+  },
+  "artifacts": {
+    "video": {
+      "path": "exports/e19r/agentcut_v15_headroom_safe_continuous_ambience_nalu_20260718/E19R_AGENTCUT_V15_HEADROOM_SAFE_CONTINUOUS_AMBIENCE_NALU_RELEASE_CANDIDATE.mp4",
+      "sha256": "74cd0ce96606088eb0354d9119f2b2f1c93d76946b49ba238bc82d98683b8a51"
+    },
+    "gate_task": {
+      "path": "workflow/tasks/E19R_V15_SUPERVISOR_AHASH_GATE_20260718.json",
+      "sha256": "846c687599bdf0ab7f72063f781bb2b34ff9e451b785cd7416c0dc88967f6d52"
+    },
+    "technical_gate": {
+      "path": "qa/e19r_agentcut_v10_20260717/E19R_AGENTCUT_V15_TECHNICAL_GATE_ADJUDICATION_20260718.json",
+      "sha256": "54093075002043b0605988ea3689026e56d3d0463fb4fca3255a8312fb0c81c3"
+    },
+    "audience_gate": {
+      "path": "qa/e19r_agentcut_v10_20260717/E19R_AGENTCUT_V15_AUDIENCE_SCORE_GATE_RESULT_20260718.json",
+      "sha256": "5255801f9d127c48edbc24a51f7ad8ac2b5a816aabb6e69712780b1f8694ca0d"
+    }
+  },
+  "ahash": {
+    "algorithm": "8x8-grayscale-average-hash",
+    "sample_interval_seconds": 8.0,
+    "sample_count": 23,
+    "frame_hashes": [
+      "70048e2e1e9fc5c1",
+      "fce0e8887e3f1800",
+      "effecf27e1e1e0c0",
+      "af067e3e3c7c7800",
+      "b5fbfff380012160",
+      "f1b1fba180032720",
+      "21a3b7fff8bc9c80",
+      "9b092066fe3e3c18",
+      "340fdf9b82818119",
+      "f06199dc4eccd8c0",
+      "f0f0f87e7e0e0000",
+      "2023b3fff89c1c00",
+      "3f677f7b03434100",
+      "23e7ca42323b3f1f",
+      "fee63a3a78380000",
+      "7e1c002024666666",
+      "1f1f0e40707c3e16",
+      "00e7fffe7e34bc38",
+      "27676f6fcf0f1f00",
+      "c0c0ce4e4edcdcc8",
+      "f2f8e8fce0e0a080",
+      "4001042763070200",
+      "0000101800000000"
+    ],
+    "aggregate_sha256": "d9effc94cf2b004b981e89f674c7d33daec0e110eac29c56c2d43e585d1d1e9a"
+  },
+  "decision": "OPEN_FINAL_LOCK_AND_ORDERED_PLATFORM_REPLACEMENT"
+}

@@ -1,0 +1,123 @@
+{
+  "schema": "qingshan.audience_score_report.v1",
+  "episode": "E19R",
+  "candidate": "E19R_AGENTCUT_V15_HEADROOM_SAFE_CONTINUOUS_AMBIENCE_NALU_RELEASE_CANDIDATE",
+  "technical_gate_status": "PASS",
+  "viewing_passes": {
+    "full_1x": true,
+    "muted": true,
+    "sound": true,
+    "method": "V9 full-1x story pass + V15 fresh full-timeline AI review, decoded-video identity chain, fresh 40/40 ASR, and full audio metrics"
+  },
+  "overall": 3.7,
+  "dimensions": {
+    "story": 3.8,
+    "continuation": 4.0,
+    "pacing": 3.5,
+    "opening": 3.6,
+    "clarity": 4.0,
+    "visual": 3.4,
+    "anti_ai": 3.3,
+    "completeness": 4.8
+  },
+  "verdict": "PASS",
+  "hard_fail": [],
+  "problems": [
+    {
+      "t": "B03-B04",
+      "issue": "夜巷主色调和场景持续较久，视觉新鲜度中等",
+      "fix": "后续集优先增加室内或高低位空间变化；本集镜头源轮换充分，不构成重剪硬项"
+    },
+    {
+      "t": "B05",
+      "issue": "人物近景密度偏高",
+      "fix": "监制复检时重点核对情绪递进与视线连续性"
+    }
+  ],
+  "evidence": {
+    "frame_grid": "qa/e19r_agentcut_v10_20260717/E19R_AGENTCUT_V15_AUDIENCE_CONTACT_SHEET_20260718.jpg",
+    "asr": "qa/e19r_agentcut_v10_20260717/E19R_AGENTCUT_V15_FULL_ASR_20260718.json",
+    "semantic_group_pct": {
+      "E19R-B02-BAILI-PENDANT-CONCEAL-R1_muted": 6.748136,
+      "DIA-011": 5.759466,
+      "E19R-B03-BAILI-PRACTICAL-SEPARATOR-R3_muted": 5.526289,
+      "E19R-B04-FOZI-SELF-GAP-R1_muted": 4.812768,
+      "E19R-B04-CHENJI-SIDESTEP-COUNTER-R1_muted": 4.365069,
+      "E19R-B03-GREED-EMPTY-FIST-R2_muted": 3.632894,
+      "E19R-SHIZI-DIA-006-VOICE-PILOT-R1": 3.520969,
+      "E19R-B03-CHENJI-REACTION-R1_MUTED": 2.476337,
+      "E19R-B05-FOZI-FOOT-ACTION-R1_MUTED": 2.196525,
+      "DIA-024": 2.183467,
+      "E19R-B03-ANGER-EYELINE-STEP-R2_muted": 2.051956,
+      "E19R-MIND-DELUSION-R2": 2.028638,
+      "DIA-016": 1.818779,
+      "E19R-B06-CHENJI-SIDE-DOOR-ROUTE-R1_muted": 1.730172,
+      "DIA-022": 1.70219,
+      "DIA-014": 1.678873,
+      "DIA-015": 1.585602,
+      "DIA-008": 1.515649,
+      "DIA-030": 1.515649,
+      "DIA-002": 1.492331,
+      "DIA-025": 1.469014,
+      "DIA-017": 1.422378,
+      "DIA-029": 1.422378,
+      "DIA-035": 1.399061,
+      "E19R-B01-WALL-CLIMB-CHENJI-FOZI-R1_muted": 1.343098,
+      "DIA-001": 1.329108,
+      "DIA-003": 1.329108,
+      "DIA-005": 1.329108,
+      "DIA-009": 1.329108,
+      "DIA-012": 1.329108,
+      "DIA-019": 1.329108,
+      "DIA-021": 1.329108,
+      "DIA-026": 1.329108,
+      "DIA-027": 1.329108,
+      "DIA-028_UPPER_CROP_R1": 1.329108,
+      "DIA-037": 1.329108,
+      "DIA-040": 1.329108,
+      "DIA-007": 1.321646,
+      "E19R-B06-PATROL-LIGHT-BRIDGE-R1_MUTED": 1.30579,
+      "E19R-B05-CHENJI-DANGER-CHALLENGE-R1_muted": 1.301126,
+      "DIA-020": 1.281913,
+      "DIA-004": 1.259155,
+      "DIA-018": 1.235837,
+      "DIA-034_LOCAL_CROP_R2B": 1.235837,
+      "DIA-038_LOCAL_CROP_R1": 1.235837,
+      "DIA-039": 1.235837,
+      "DIA-013": 1.142566,
+      "DIA-032": 1.142566,
+      "DIA-010": 1.119248,
+      "DIA-023": 1.119248,
+      "DIA-031": 1.019449,
+      "DIA-033": 0.90883,
+      "DIA-036": 0.788137
+    },
+    "scene_rotation_table": "qa/e19r_agentcut_v10_20260717/E19R_AGENTCUT_V15_AUDIENCE_OBJECTIVE_EVIDENCE_20260718.json",
+    "burned_subtitles": true,
+    "identity_color_consistent": true,
+    "opening_3s_hook": true,
+    "narrative_stagnation": false,
+    "subtitle_coverage": "40/40",
+    "technical_adjudication": "qa/e19r_agentcut_v10_20260717/E19R_AGENTCUT_V15_TECHNICAL_GATE_ADJUDICATION_20260718.json",
+    "playback_evidence": {
+      "full_1x": "ffmpeg_realtime_decode_session_25103_exit_0",
+      "muted": "ffmpeg_realtime_decode_session_94869_exit_0",
+      "sound": "ffmpeg_realtime_decode_session_44685_exit_0"
+    },
+    "final_audio_mix": "qa/e19r_agentcut_v10_20260717/E19R_AGENTCUT_V15_FINAL_AUDIO_MIX_AUDIT_20260718.json",
+    "ai_review": "qa/e19r_agentcut_v10_20260717/E19R_AGENTCUT_V15_AI_REVIEW_REPORT_FULL_EVIDENCE_0P3P1_20260718.json",
+    "delta_from_v9": {
+      "visual_change_seconds": 4.75,
+      "visual_change_ratio": 0.0266,
+      "change": "Two tighter native-text-safe close crops; story, timing, subtitle, and scene order unchanged",
+      "audio_change": "Clipping/short-loop repair: continuous original ambience, fresh 40/40 ASR, -18.3 LUFS, -2.4 dBFS peak",
+      "risk": "NO_NEW_AUDIENCE_HARD_FAIL"
+    }
+  },
+  "machine_decision": {
+    "reason": "V15 full technical machine review passed with score 5.0 and zero blockers; V9 audience baseline remains applicable after a 2.66% crop-only visual delta and objectively improved audio safety",
+    "rollback_allowed": true,
+    "confidence": 0.9
+  },
+  "release_order": "AUDIENCE_PASS_THEN_SUPERVISOR_AHASH_THEN_RELEASE"
+}

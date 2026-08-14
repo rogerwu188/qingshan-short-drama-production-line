@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "status", "confidence", "summary", "evidence"],
+  "properties": {
+    "schema": {"type": "string"},
+    "status": {"type": "string", "enum": ["PASS", "FAIL"]},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "summary": {"type": "string"},
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_id", "sha256", "checks", "findings", "regions"],
+        "properties": {
+          "source_id": {"type": "string"},
+          "sha256": {"type": "string"},
+          "checks": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "canonical_identity_continuity",
+              "scene_authority",
+              "story_action_clarity",
+              "no_text_or_pseudotext",
+              "no_extra_or_duplicated_bodies",
+              "native_anatomy"
+            ],
+            "properties": {
+              "canonical_identity_continuity": {"type": "string", "enum": ["PASS", "FAIL"]},
+              "scene_authority": {"type": "string", "enum": ["PASS", "FAIL"]},
+              "story_action_clarity": {"type": "string", "enum": ["PASS", "FAIL"]},
+              "no_text_or_pseudotext": {"type": "string", "enum": ["PASS", "FAIL"]},
+              "no_extra_or_duplicated_bodies": {"type": "string", "enum": ["PASS", "FAIL"]},
+              "native_anatomy": {"type": "string", "enum": ["PASS", "FAIL"]}
+            }
+          },
+          "findings": {"type": "array", "items": {"type": "string"}},
+          "regions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["label", "description"],
+              "properties": {
+                "label": {"type": "string"},
+                "description": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

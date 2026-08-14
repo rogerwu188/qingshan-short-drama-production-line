@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+import hashlib,json,os,sys
+from pathlib import Path
+from datetime import datetime,timezone
+ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/'tools'));import run_e40_u29c_v17_atomic_link_publish_gate as base
+Q=ROOT/'qa/e40_preproduction_20260808/u29c_v49_evidence_extension_key_vocabulary_v1/E40_U29C_V49_EVIDENCE_EXTENSION_KEY_VOCABULARY_AUDIT_V1.json';S=ROOT/'qa/e40_preproduction_20260808/u29c_v53_summary_serialization_integrity_v1/E40_U29C_V53_SUMMARY_SERIALIZATION_INTEGRITY_SPEC_V1.json';O=S.parent/'E40_U29C_V53_SUMMARY_SERIALIZATION_INTEGRITY_AUDIT_V1.json'
+def main():
+ q=json.loads(Q.read_text());a=json.dumps({'vocabulary':q['vocabulary'],'frequency':q['vocabulary_frequency']},sort_keys=True,separators=(',',':'),ensure_ascii=False).encode();b=json.dumps({'frequency':q['vocabulary_frequency'],'vocabulary':q['vocabulary']},sort_keys=True,separators=(',',':'),ensure_ascii=False).encode();d=hashlib.sha256(a).hexdigest();ok=a==b and d=='37909ee21a8d33e3d2e7738d011a4081b4a84a9357e003902721be473195e3c5';o={'schema':'qingshan.e40.u29c.v53.summary_serialization_integrity_audit.v1','episode':'E40','unit_id':'U29C','recorded_at':datetime.now(timezone.utc).isoformat().replace('+00:00','Z'),'status':'PASS_CANONICAL_SERIALIZATION_ORDER_INDEPENDENT_DIGEST_EXACT_NO_SUBMIT' if ok else 'FAIL','digest':d,'byte_length':len(a),'execution_permitted':False,'provider_post_allowed':False,'maximum_new_submissions':0,'side_effects':{'provider_calls':0,'transactions':0,'credits':0,'retries':0,'agentcut':0,'assembly':0},'next_action':'Register V54 pinned serialization regression.'};fd=os.open(O,base.create_flags(),0o600);base.write_all(fd,(json.dumps(o,indent=2)+'\n').encode());os.fsync(fd);os.close(fd);print(json.dumps({'status':o['status']}));return 0 if ok else 1
+if __name__=='__main__':raise SystemExit(main())

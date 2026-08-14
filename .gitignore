@@ -1,0 +1,21 @@
+# This repository is a code-only mirror of the local production workspace.
+# Runtime media, QA evidence, transactions, credentials, and operator logs stay local.
+/*
+!/.gitignore
+!/README.md
+!/tools/
+!/agent_factory/
+
+# Generated/runtime material inside the tracked code trees.
+**/__pycache__/
+**/*.py[cod]
+**/.DS_Store
+**/*.bak
+**/*.bak_*
+**/*.tmp
+**/.env
+**/.env.*
+**/*secret*
+**/*credential*
+**/*token*.json
+

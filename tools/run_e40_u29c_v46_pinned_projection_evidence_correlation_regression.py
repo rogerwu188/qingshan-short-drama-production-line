@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+"""Pinned V46 regression over V45 evidence-correlation authority."""
+from __future__ import annotations
+import argparse,hashlib,importlib.util,json,os,re,subprocess,sys
+from datetime import datetime,timezone
+from pathlib import Path
+ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/'tools'))
+import run_e40_u29c_v17_atomic_link_publish_gate as base
+AUDITOR=ROOT/'tools/audit_e40_u29c_v45_projection_evidence_correlation.py';AUDITOR_SHA='a0f446fe6c44137a364caf3f1d98ac9212effef0c8a900b037def7cf91f91fce';AUDIT=ROOT/'qa/e40_preproduction_20260808/u29c_v45_projection_evidence_correlation_v1/E40_U29C_V45_PROJECTION_EVIDENCE_CORRELATION_AUDIT_V1.json';AUDIT_SHA='4518ed804dfafde040ac089c48466df95453d234155bee28494e718ebf2d4913';MEMORY=ROOT/'workflow/prompt_memory/E40_U29C_V41_QA_FALSE_NEGATIVE_MEMORY_V1.md';MEMORY_SHA='ac9e7b03d1362d185d17b7ab436306fd5ceb407a0b0f88be495c52a2462da00f';SPEC=ROOT/'qa/e40_preproduction_20260808/u29c_v46_pinned_projection_evidence_correlation_regression_v1/E40_U29C_V46_PINNED_PROJECTION_EVIDENCE_CORRELATION_REGRESSION_SPEC_V1.json';SPEC_SHA='4bef764a1fd06e706b4fc6aec8e936de3162f511559f70f0717a544507cb4fcc';CANON=ROOT/'workflow/claude_writer_agent/scripts/E40剧本_ClaudeWriter_v3.md';CANON_SHA='140d4b7b980bd8de58a874c56588a88256aa1c8883f50ce05c907a40a3355a9b';MANIFEST=ROOT/'workflow/claude_writer_agent/scripts/E40_manifest_v3.json';MANIFEST_SHA='773aff20a0036f619a14958585cdfd22738c2d2c7c49bb074bff173f208bd4f1';SCHED=ROOT/'workflow/production_line/E40_TASK_LANES_V1.json';REPORT=SPEC.parent/'E40_U29C_V46_PINNED_PROJECTION_EVIDENCE_CORRELATION_REGRESSION_MATRIX_V1.json';PASS='PASS_PINNED_V45_EVIDENCE_CORRELATION_16_OF_16_MEMORY_PRESERVED_NO_MUTATION_NO_SUBMIT'
+def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+def ident(p):
+ s=os.lstat(p);return {'path':str(p.relative_to(ROOT)),'sha256':sha(p),'device':s.st_dev,'inode':s.st_ino,'mode':oct(s.st_mode&0o7777),'nlink':s.st_nlink,'uid':s.st_uid,'gid':s.st_gid,'size':s.st_size,'mtime_ns':s.st_mtime_ns,'ctime_ns':s.st_ctime_ns}
+def load():
+ s=importlib.util.spec_from_file_location('v45',AUDITOR);m=importlib.util.module_from_spec(s);s.loader.exec_module(m);return m
+def negs():
+ rows=[]
+ for flag in ('--auditor','--audit','--memory','--spec','--scheduler','--canonical','--canonical-manifest'):
+  p=subprocess.run([sys.executable,str(Path(__file__).resolve()),flag,'/tmp/forbidden-substitution'],cwd=ROOT,text=True,capture_output=True,check=False);rows.append({'argument':flag,'exit_code':p.returncode,'rejected_before_regression':p.returncode==2,'report_created':REPORT.exists()})
+ return rows
+def main():
+ argparse.ArgumentParser(description='Fixed V46 correlation regression; substitutions forbidden.',allow_abbrev=False).parse_args()
+ if REPORT.exists():raise SystemExit('REPORT_ALREADY_EXISTS')
+ pins=[(AUDITOR,AUDITOR_SHA),(AUDIT,AUDIT_SHA),(MEMORY,MEMORY_SHA),(SPEC,SPEC_SHA),(CANON,CANON_SHA),(MANIFEST,MANIFEST_SHA)];before=[ident(p) for p,_ in pins];matches=[x['sha256']==e for x,(_,e) in zip(before,pins)]
+ if not all(matches):print(json.dumps({'status':'FAIL_CLOSED_PIN_MISMATCH','pin_matches':matches}));return 1
+ fail=[];ns=negs()
+ if REPORT.exists() or not all(x['rejected_before_regression'] and not x['report_created'] for x in ns):fail.append('SUBSTITUTION_NOT_REJECTED')
+ authority=json.loads(AUDIT.read_text());authority_ok=authority.get('status')==load().PASS and authority.get('failures')==[] and authority.get('projection_task_count')==16 and all(authority.get(k)==16 for k in ('basename_correlation_count','schema_correlation_count','payload_episode_count','payload_unit_count','payload_status_match_count','physical_sha_match_count','projection_authority_exact_count'));memory_ok='status syntax is exactly `^PASS_[A-Z0-9_]+$`' in MEMORY.read_text()
+ if not authority_ok:fail.append('V45_AUTHORITY_NOT_EXACT')
+ if not memory_ok:fail.append('V41_MEMORY_NOT_EXACT')
+ sched=json.loads(SCHED.read_text());tm={t['task_id']:t for t in sched['tasks']};expected=authority.get('projection_after') or [];rows=[];projection_before=[]
+ for ordinal,e in enumerate(expected,start=23):
+  t=tm.get(e.get('task_id'));proj=load().load43().load_v41().project(t);projection_before.append(proj);p=ROOT/t['evidence_ref'] if t else None;payload=json.loads(p.read_text()) if p and p.is_file() else {};name=p.name if p else '';checks={'basename_ordinal_correlation':bool(f'_V{ordinal}_' in name and name.startswith('E40_U29C_') and name.endswith('.json')),'schema_ordinal_correlation':bool(re.fullmatch(rf'qingshan\.e40\.u29c\.v{ordinal}\.[a-z0-9_.]+',payload.get('schema',''))),'payload_episode_exact':payload.get('episode')=='E40','payload_unit_exact':payload.get('unit_id')=='U29C','payload_status_equals_terminal_status':bool(t and payload.get('status')==t.get('terminal_status')),'physical_sha_exact':bool(t and p and p.is_file() and sha(p)==t['evidence_sha256']),'projection_authority_exact':proj==e};snapshot=next((x for x in authority['correlation_rows'] if x['ordinal']==ordinal),None);snapshot_exact=bool(snapshot and all(snapshot.get(k)==v for k,v in checks.items()));passed=all(checks.values()) and snapshot_exact;rows.append({'ordinal':ordinal,'task_id':e.get('task_id'),**checks,'v45_correlation_snapshot_exact':snapshot_exact,'passed':passed,'projection':proj})
+ if len(rows)!=16 or not all(x['passed'] for x in rows):fail.append('PINNED_CORRELATION_NOT_16_OF_16')
+ canonical=sched.get('canonical_script_sha256')==CANON_SHA and sched.get('canonical_manifest_sha256')==MANIFEST_SHA
+ if not canonical:fail.append('CANONICAL_NOT_EXACT')
+ current=json.loads(SCHED.read_text());am={t['task_id']:t for t in current['tasks']};projection_after=[load().load43().load_v41().project(am.get(e.get('task_id'))) for e in expected];after=[ident(p) for p,_ in pins]
+ if projection_before!=projection_after:fail.append('PROJECTION_MUTATION')
+ if before!=after:fail.append('PIN_MUTATION')
+ status=PASS if not fail else 'FAIL';payload={'schema':'qingshan.e40.u29c.v46.pinned_projection_evidence_correlation_regression_matrix.v1','episode':'E40','unit_id':'U29C','recorded_at':datetime.now(timezone.utc).isoformat().replace('+00:00','Z'),'status':status,'execution_permitted':False,'provider_post_allowed':False,'maximum_new_submissions':0,'pins_before':before,'pin_expected_sha256':[e for _,e in pins],'pin_match_count':sum(matches),'pins_after':after,'v45_authority_valid':authority_ok,'v41_failure_memory_exact':memory_ok,'canonical_binding_exact':canonical,'projection_task_count':len(rows),'basename_correlation_count':sum(x['basename_ordinal_correlation'] for x in rows),'schema_correlation_count':sum(x['schema_ordinal_correlation'] for x in rows),'payload_episode_count':sum(x['payload_episode_exact'] for x in rows),'payload_unit_count':sum(x['payload_unit_exact'] for x in rows),'payload_status_match_count':sum(x['payload_status_equals_terminal_status'] for x in rows),'physical_sha_match_count':sum(x['physical_sha_exact'] for x in rows),'projection_authority_exact_count':sum(x['projection_authority_exact'] for x in rows),'v45_snapshot_exact_count':sum(x['v45_correlation_snapshot_exact'] for x in rows),'correlation_rows':rows,'projection_before':projection_before,'projection_after':projection_after,'no_authority_elevation':True,'substitution_negatives':ns,'substitution_negative_count':sum(x['rejected_before_regression'] for x in ns),'blind_replay_allowed':False,'failures':fail,'side_effects':{'provider_calls':0,'transactions':0,'credits':0,'retries':0,'agentcut':0,'assembly':0},'next_action':'Register V47 projection evidence payload keyset integrity audit.'}
+ fd=os.open(REPORT,base.create_flags(),0o600);base.write_all(fd,(json.dumps(payload,indent=2)+'\n').encode());os.fsync(fd);os.close(fd);print(json.dumps({'status':status,'pins':sum(matches),'projection':len(rows),'basename':payload['basename_correlation_count'],'schema':payload['schema_correlation_count'],'payload':payload['payload_status_match_count'],'sha':payload['physical_sha_match_count'],'snapshot':payload['v45_snapshot_exact_count'],'substitutions':payload['substitution_negative_count'],'failures':fail}));return 0 if not fail else 1
+if __name__=='__main__':raise SystemExit(main())

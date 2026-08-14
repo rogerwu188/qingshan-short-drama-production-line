@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+import hashlib,json,os,sys
+from datetime import datetime,timezone
+from pathlib import Path
+ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/'tools'));import run_e40_u29c_v17_atomic_link_publish_gate as base
+Q=ROOT/'qa/e40_preproduction_20260808/u29c_v49_evidence_extension_key_vocabulary_v1/E40_U29C_V49_EVIDENCE_EXTENSION_KEY_VOCABULARY_AUDIT_V1.json';M=ROOT/'qa/e40_preproduction_20260808/u29c_v50_pinned_extension_vocabulary_regression_v1/E40_U29C_V50_PINNED_EXTENSION_VOCABULARY_REGRESSION_MATRIX_V1.json';S=ROOT/'qa/e40_preproduction_20260808/u29c_v51_extension_vocabulary_summary_v1/E40_U29C_V51_EXTENSION_VOCABULARY_SUMMARY_SPEC_V1.json';OUT=S.parent/'E40_U29C_V51_EXTENSION_VOCABULARY_SUMMARY_AUDIT_V1.json'
+def main():
+ q=json.loads(Q.read_text());m=json.loads(M.read_text());blob=json.dumps({'vocabulary':q['vocabulary'],'frequency':q['vocabulary_frequency']},sort_keys=True,separators=(',',':')).encode();dig=hashlib.sha256(blob).hexdigest();ok=len(q['vocabulary'])==106 and m['vocabulary_exact'] and m['frequency_exact'];o={'schema':'qingshan.e40.u29c.v51.extension_vocabulary_summary_audit.v1','episode':'E40','unit_id':'U29C','recorded_at':datetime.now(timezone.utc).isoformat().replace('+00:00','Z'),'status':'PASS_106_KEY_DETERMINISTIC_SUMMARY_DIGEST_NO_SUBMIT' if ok else 'FAIL','vocabulary_size':106,'summary_sha256':dig,'execution_permitted':False,'provider_post_allowed':False,'maximum_new_submissions':0,'side_effects':{'provider_calls':0,'transactions':0,'credits':0,'retries':0,'agentcut':0,'assembly':0},'next_action':'Register V52 pinned summary digest regression.'};fd=os.open(OUT,base.create_flags(),0o600);base.write_all(fd,(json.dumps(o,indent=2)+'\n').encode());os.fsync(fd);os.close(fd);print(json.dumps({'status':o['status'],'digest':dig}));return 0 if ok else 1
+if __name__=='__main__':raise SystemExit(main())
