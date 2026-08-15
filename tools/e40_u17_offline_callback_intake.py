@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Fail-closed, offline-only one-shot intake for the paid E40 U17 result.
 
-The command consumes an explicit local video and an explicit local sidecar.  It
-does not contact Giggle (or any other network service), poll, download, submit,
-or mutate shared scheduling state.  Only after every authority, credit, SHA,
-and media check passes is a complete bundle renamed atomically into the fixed
-U17 inbox.
+The command can first create a source-bound sidecar from an explicit local
+video, then consume that video and sidecar.  It does not contact Giggle (or any
+other network service), poll, download, submit, or mutate shared scheduling
+state.  Only after every authority, credit, SHA, and media check passes is a
+complete bundle renamed atomically into the fixed U17 inbox.
 
 All validation failures return exit code 2 and leave no accepted bundle.
 """
@@ -437,6 +437,109 @@ def map_validated_source(source: Path, target: Path, expected_sha256: str) -> di
     return {"path": target, "sha256": expected_sha256, "reused": False}
 
 
+def write_source_bound_sidecar(
+    repo_root: Path,
+    source: Path,
+    output: Path,
+    media_probe: Callable[[Path], dict[str, Any]] = probe_media,
+) -> dict[str, Any]:
+    """Atomically write the only sidecar accepted for the pinned U17 task."""
+
+    repo_root = repo_root.resolve()
+    source = source.resolve()
+    output = output.resolve()
+    inbox = (repo_root / INBOX_REL).resolve()
+    require(repo_root.is_dir(), f"repo root missing: {repo_root}")
+    require(source.is_file(), f"source is missing: {source}")
+    require(not output.exists(), f"sidecar output already exists: {output}")
+    for candidate, label in ((source, "source"), (output, "sidecar output")):
+        try:
+            candidate.relative_to(inbox)
+        except ValueError:
+            pass
+        else:
+            raise IntakeError(f"{label} must remain outside the fixed inbox")
+
+    authorities = (
+        ("transaction", TRANSACTION_REL, TRANSACTION_SHA256),
+        ("submission_report", SUBMISSION_REPORT_REL, SUBMISSION_REPORT_SHA256),
+        ("submit_receipt", SUBMIT_RECEIPT_REL, SUBMIT_RECEIPT_SHA256),
+        ("authorized_manifest", AUTHORIZED_MANIFEST_REL, AUTHORIZED_MANIFEST_SHA256),
+    )
+    authority_bindings: dict[str, dict[str, str]] = {}
+    for label, relative, expected_sha in authorities:
+        path = (repo_root / relative).resolve()
+        require(path.is_file(), f"pinned {label} authority missing: {relative}")
+        require(
+            sha256_file(path) == expected_sha,
+            f"pinned {label} authority SHA mismatch",
+        )
+        authority_bindings[label] = {
+            "path": relative.as_posix(),
+            "sha256": expected_sha,
+        }
+
+    media = media_probe(source)
+    require(media.get("width") == 720, "source width must be 720")
+    require(media.get("height") == 1280, "source height must be 1280")
+    require(media.get("fps") == Fraction(24, 1), "source fps must be exactly 24")
+    frames = media.get("frames")
+    require(isinstance(frames, int) and frames >= 96, "source must contain at least 96 decoded frames")
+    source_sha = sha256_file(source)
+    payload = {
+        "schema": SIDECAR_SCHEMA,
+        "episode": "E40",
+        "unit_id": "U17",
+        "task_key": TASK_KEY,
+        "task_id": TASK_ID,
+        "model": MODEL,
+        "resolution": "720p",
+        "aspect_ratio": "9:16",
+        "credits": {"pay": 64, "refund": 0},
+        "source": {
+            "sha256": source_sha,
+            "bytes": source.stat().st_size,
+            "width": 720,
+            "height": 1280,
+            "fps": "24/1",
+            "frames": frames,
+            "is_synthetic": False,
+            "is_failed_or_quarantined_asset": False,
+        },
+        "transaction": authority_bindings["transaction"],
+        "submission_report": authority_bindings["submission_report"],
+        "submit_receipt": authority_bindings["submit_receipt"],
+        "authorized_manifest": authority_bindings["authorized_manifest"],
+        "side_effect_contract": {
+            "network": False,
+            "provider_query": False,
+            "provider_poll": False,
+            "provider_download": False,
+            "provider_submit": False,
+        },
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{output.name}.", dir=output.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, output)
+        _fsync_dir(output.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return {
+        "status": "WROTE_PINNED_SOURCE_BOUND_SIDECAR",
+        "path": output,
+        "sha256": sha256_file(output),
+        "source_sha256": source_sha,
+        "frames": frames,
+    }
+
+
 def run_intake(
     repo_root: Path,
     source: Path,
@@ -548,7 +651,9 @@ def run_intake(
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", required=True, type=Path)
-    parser.add_argument("--sidecar", required=True, type=Path)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--sidecar", type=Path)
+    mode.add_argument("--write-sidecar", type=Path)
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
     return parser.parse_args(argv)
 
@@ -556,7 +661,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
-        result = run_intake(args.repo_root, args.source, args.sidecar)
+        if args.write_sidecar is not None:
+            result = write_source_bound_sidecar(args.repo_root, args.source, args.write_sidecar)
+            result["path"] = str(result["path"])
+        else:
+            result = run_intake(args.repo_root, args.source, args.sidecar)
     except IntakeError as exc:
         print(json.dumps({"status": "REJECTED", "error": str(exc)}, ensure_ascii=False))
         return 2

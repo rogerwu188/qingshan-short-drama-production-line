@@ -99,6 +99,40 @@ class U17OfflineCallbackIntakeTest(unittest.TestCase):
         self.assertFalse(mapping["reused"])
         self.assertEqual(digest(successor), accepted["source_sha256"])
 
+    def test_writes_pinned_source_bound_sidecar_then_accepts_it(self):
+        generated = self.root / "operator-drop/U17-sidecar.json"
+        result = MODULE.write_source_bound_sidecar(
+            self.root, self.source, generated, self.probe
+        )
+        self.assertEqual(result["frames"], 97)
+        payload = json.loads(generated.read_text())
+        self.assertEqual(payload["task_id"], MODULE.TASK_ID)
+        self.assertEqual(payload["model"], "seedance-2.0-fast")
+        self.assertEqual(payload["credits"], {"pay": 64, "refund": 0})
+        self.assertEqual(payload["source"]["sha256"], digest(self.source))
+        self.assertEqual(
+            payload["transaction"],
+            {"path": MODULE.TRANSACTION_REL.as_posix(), "sha256": MODULE.TRANSACTION_SHA256},
+        )
+        intake = MODULE.run_intake(self.root, self.source, generated, self.probe)
+        self.assertEqual(intake["status"], "ACCEPTED_ATOMIC_OFFLINE_CALLBACK")
+
+    def test_sidecar_writer_rejects_under96_and_overwrite(self):
+        generated = self.root / "operator-drop/U17-sidecar.json"
+        with self.assertRaises(MODULE.IntakeError):
+            MODULE.write_source_bound_sidecar(
+                self.root,
+                self.source,
+                generated,
+                lambda _path: self.probe(_path, frames=95),
+            )
+        self.assertFalse(generated.exists())
+        MODULE.write_source_bound_sidecar(self.root, self.source, generated, self.probe)
+        original_sha = digest(generated)
+        with self.assertRaises(MODULE.IntakeError):
+            MODULE.write_source_bound_sidecar(self.root, self.source, generated, self.probe)
+        self.assertEqual(digest(generated), original_sha)
+
     def test_rejects_under_96_frames_without_partial_bundle(self):
         with self.assertRaises(MODULE.IntakeError):
             MODULE.run_intake(
