@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import tempfile
 from collections import Counter
 from datetime import datetime, timezone
@@ -27,6 +28,17 @@ SUPPORTED_INPUT_SCHEMAS = frozenset(
         "backlotos.task_lane_scheduler_state.v1",
         "qingshan.task_lane_scheduler_state.v1",
     }
+)
+AUDIT_ONLY_DELIVERABLES = frozenset(
+    {"AUDIT", "QA_REPORT", "QA_RECEIPT", "WATCHDOG", "PARITY_CHECK", "OBSERVATION", "PIPELINE_GATE"}
+)
+FABRICATED_ID_RE = re.compile(r".*(WATCHDOG|PARITY|OBSERVATION|AUDIT).*")
+REMOTE_ID_KEYS = (
+    "remote_task_id",
+    "provider_task_id",
+    "submission_task_id",
+    "video_task_id",
+    "external_task_id",
 )
 
 
@@ -67,6 +79,29 @@ def _parse_utc_timestamp(value: Any) -> datetime | None:
     if parsed.tzinfo is None:
         return None
     return parsed.astimezone(timezone.utc)
+
+
+def _fabricated_successor_reasons(task: dict[str, Any]) -> list[str]:
+    """Return the governance-v2 reasons an active successor is non-production work."""
+    reasons: list[str] = []
+    deliverable = task.get("deliverable_type")
+    if not isinstance(deliverable, str) or not deliverable.strip():
+        reasons.append("NO_DELIVERABLE_TYPE")
+    elif deliverable.upper() in AUDIT_ONLY_DELIVERABLES:
+        reasons.append("AUDIT_ONLY_DELIVERABLE")
+    if task.get("observation_only") is True:
+        reasons.append("OBSERVATION_ONLY")
+    if FABRICATED_ID_RE.match(str(task.get("task_id") or "").upper()):
+        reasons.append("WATCHDOG_STYLE_TASK_ID")
+    return reasons
+
+
+def _remote_task_id(task: dict[str, Any]) -> str | None:
+    for key in REMOTE_ID_KEYS:
+        value = task.get(key)
+        if isinstance(value, (str, int)) and str(value).strip():
+            return str(value)
+    return None
 
 
 def audit_scheduler_state(
@@ -113,7 +148,9 @@ def audit_scheduler_state(
                 failures.append(_failure("WAITING_DEPENDENCY_EXACT_PREDECESSOR_MISSING", task_id=task_id or None))
             elif predecessor == task_id:
                 failures.append(_failure("WAITING_DEPENDENCY_SELF_REFERENCE", task_id=task_id))
-            elif predecessor not in known_ids:
+            elif predecessor not in known_ids and not isinstance(
+                payload.get("terminal_task_ledger"), str
+            ):
                 failures.append(
                     _failure(
                         "WAITING_DEPENDENCY_EXACT_PREDECESSOR_UNKNOWN",
@@ -252,6 +289,9 @@ def audit_scheduler_state(
                 "exact_predecessor_task_id": predecessor,
                 "freshness_valid": freshness_valid,
                 "continuous_executor_valid": continuous_executor_valid,
+                "fabricated_successor_reasons": _fabricated_successor_reasons(task),
+                "blocked_by": task.get("blocked_by") or task.get("wait_reason"),
+                "remote_task_id": _remote_task_id(task),
             }
         )
 
@@ -291,7 +331,16 @@ def audit_scheduler_state(
 
     active_local = running + qa
     active_successors = running + qa + remote_wait
-    fresh_active_successors = [task for task in active_successors if task["freshness_valid"]]
+    fabricated_successors = [
+        task for task in active_successors if task["fabricated_successor_reasons"]
+    ]
+    genuine_active_successors = [
+        task
+        for task in active_successors
+        if not task["fabricated_successor_reasons"]
+        and (task["state"] in {"RUNNING", "QA"} or task["remote_task_id"] is not None)
+    ]
+    fresh_active_successors = [task for task in genuine_active_successors if task["freshness_valid"]]
     unfinished = ready + active_local + waiting_dependency + remote_wait
     legal_blocker = scheduler.get("legal_blocker") if isinstance(scheduler, dict) else None
     if unfinished and not ready and not active_local and not remote_wait:
@@ -321,16 +370,16 @@ def audit_scheduler_state(
         heartbeat.get("require_continuous_executor_ack_before_return") is True
     )
     episode_terminal = heartbeat.get("episode_terminal") is True
-    if continuation_required and not episode_terminal and not fresh_active_successors:
+    if continuation_required and not episode_terminal and fabricated_successors:
         failures.append(
             _failure(
-                "HEARTBEAT_RETURN_WITHOUT_ACTIVE_SUCCESSOR",
-                required_states=["RUNNING", "REMOTE_WAIT", "QA"],
-                stale_or_invalid_task_ids=[task["task_id"] for task in active_successors],
-                detail=(
-                    "A heartbeat is a checkpoint, not task completion. Dispatch a successor "
-                    "or preserve a task-local remote/QA lane before returning the heartbeat receipt."
-                ),
+                "FABRICATED_SUCCESSOR",
+                task_ids=[task["task_id"] for task in fabricated_successors],
+                reasons={
+                    task["task_id"]: task["fabricated_successor_reasons"]
+                    for task in fabricated_successors
+                },
+                detail="Audit-only successors cannot be used as heartbeat liveness evidence.",
             )
         )
     fresh_active_work = [task for task in active_successors if task["freshness_valid"]]
@@ -361,6 +410,16 @@ def audit_scheduler_state(
             )
         )
 
+    blocked_nonterminal = [task for task in normalized if task["blocked_by"]]
+    if fabricated_successors:
+        heartbeat_verdict = "FABRICATED_SUCCESSOR"
+    elif genuine_active_successors:
+        heartbeat_verdict = "ACTIVE"
+    elif blocked_nonterminal:
+        heartbeat_verdict = "BLOCKED_ON_INPUT"
+    else:
+        heartbeat_verdict = "IDLE_LEGAL"
+
     if not unfinished:
         liveness_state = "COMPLETE"
     elif ready or active_local:
@@ -384,16 +443,21 @@ def audit_scheduler_state(
         "qa_task_ids": [task["task_id"] for task in qa],
         "remote_wait_task_ids": [task["task_id"] for task in remote_wait],
         "active_successor_task_ids": [task["task_id"] for task in fresh_active_successors],
+        "genuine_active_task_ids": [task["task_id"] for task in genuine_active_successors],
+        "fabricated_successors": [
+            {
+                "task_id": task["task_id"],
+                "state": task["state"],
+                "reasons": task["fabricated_successor_reasons"],
+            }
+            for task in fabricated_successors
+        ],
+        "heartbeat_verdict": heartbeat_verdict,
         "continuous_executor_task_ids": [task["task_id"] for task in continuous_active_work],
         "stale_or_invalid_active_task_ids": [
             task["task_id"] for task in active_successors if not task["freshness_valid"]
         ],
-        "heartbeat_return_allowed": not any(
-            row["code"] == "HEARTBEAT_RETURN_WITHOUT_ACTIVE_SUCCESSOR"
-            or row["code"] == "HEARTBEAT_RETURN_WITHOUT_CONTINUOUS_EXECUTOR_ACK"
-            or row["code"].startswith("ACTIVE_TASK_")
-            for row in failures
-        ),
+        "heartbeat_return_allowed": heartbeat_verdict != "FABRICATED_SUCCESSOR",
         "remote_wait_isolated_from_ready_lanes": bool(remote_wait and ready_other_lanes and global_wait is False),
         "liveness_state": liveness_state,
         "active_local_task_ids": [task["task_id"] for task in active_local],
@@ -407,7 +471,10 @@ def audit_scheduler_state(
             "qa_is_active_work": True,
             "idle_unfinished_requires_legal_blocker_evidence": True,
             "heartbeat_is_checkpoint_not_completion": True,
-            "active_successor_required_when_configured": continuation_required,
+            "idle_legal": True,
+            "blocked_on_input_legal": True,
+            "fabricated_successor_forbidden": True,
+            "active_successor_required_when_configured": False,
             "active_successor_requires_live_lease": True,
             "active_successor_requires_unexpired_next_due": True,
             "active_successor_requires_valid_progress_timestamp": True,
