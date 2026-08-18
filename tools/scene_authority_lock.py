@@ -10,6 +10,11 @@ import time
 from pathlib import Path
 from typing import Any
 
+try:
+    from global_space_layout_gate import evaluate_batch as evaluate_global_space_map
+except ModuleNotFoundError:
+    from tools.global_space_layout_gate import evaluate_batch as evaluate_global_space_map
+
 
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_SCENE_FIELDS = ("scene_id", "location", "time_of_day", "weather", "event_summary")
@@ -126,6 +131,17 @@ def evaluate_batch(
             "recorded_at": now(),
         }
     config = load_json(batch_config)
+    global_space_map = evaluate_global_space_map(
+        config.get("episode_global_space_map_ref"),
+        config.get("tasks") or [],
+        episode=config.get("episode"),
+        required=config.get("global_space_map_gate_required"),
+    )
+    if global_space_map.get("status") == "FAIL":
+        failures.extend(
+            {"check": "global_space_map", **row}
+            for row in global_space_map.get("failures") or []
+        )
     scenes = state.get("scene_state")
     if not isinstance(scenes, list) or not scenes:
         failures.append({"check": "scene_state", "reason": "missing_or_empty"})
@@ -224,6 +240,7 @@ def evaluate_batch(
         "status": "PASS" if not failures else "FAIL",
         "failures": failures,
         "evidence": evidence,
+        "global_space_map": global_space_map,
         "confidence": 0.98 if not failures else 0.99,
         "rollback": "No remote submission occurs on FAIL; correct the prompt or restore the last approved scene_state.",
         "recorded_at": now(),

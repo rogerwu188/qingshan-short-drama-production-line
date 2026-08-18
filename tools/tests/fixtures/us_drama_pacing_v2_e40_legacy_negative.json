@@ -1,0 +1,29 @@
+{
+  "episode": "E40",
+  "runtime_target_seconds": {"min": 155, "target": 163, "max": 172},
+  "structure": [{"beat_id": "GEN-LEGACY", "target_seconds": 163}],
+  "event_density": {
+    "planned_event_count": 30,
+    "hard_min_per_minute": 4,
+    "max_information_gap_seconds": 18,
+    "non_advancing_percentage": 10
+  },
+  "pacing_v2": {
+    "scene_count": 5,
+    "scene_seconds": [30, 31, 31, 28, 33],
+    "max_scene_seconds": 33,
+    "distinct_locations": 1,
+    "location_list": ["INTERIOR_A"],
+    "max_consecutive_same_location": 5,
+    "time_jumps": 0,
+    "parallel_threads": 1,
+    "cross_cuts": 0,
+    "new_locations_added": 0,
+    "countable_events": 30,
+    "events_per_minute": 11,
+    "event_list": ["GENERIC_ACT→GENERIC_CHANGE"],
+    "scenes_without_turn": 0,
+    "dialogue_ratio": 0.3,
+    "action_scene_dialogue_ratio": 0.1
+  }
+}

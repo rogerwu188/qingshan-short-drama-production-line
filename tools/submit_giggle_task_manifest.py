@@ -35,6 +35,7 @@ try:
         validate_tail_chained_submission,
     )
     from anachronism_lock_gate import evaluate as evaluate_anachronism_lock
+    from shot_media_admission_gate import evaluate_path as evaluate_shot_media_admission
 except ImportError:
     from tools.episode_video_generation_guard import (
         credit_report_path,
@@ -57,6 +58,7 @@ except ImportError:
         validate_tail_chained_submission,
     )
     from tools.anachronism_lock_gate import evaluate as evaluate_anachronism_lock
+    from tools.shot_media_admission_gate import evaluate_path as evaluate_shot_media_admission
 
 
 BASE = Path(
@@ -298,11 +300,43 @@ def validate_ready_task_contracts(ready: list[dict[str, Any]]) -> list[str]:
     return problems
 
 
+def validate_keyframe_admissions(manifest: dict[str, Any], ready: list[dict[str, Any]]) -> list[str]:
+    """Close the direct-submitter path around E40+ formal start-frame admission."""
+    match = re.match(r"E(\d+)(?:\D|$)", str(manifest.get("episode") or "").upper())
+    if not match or int(match.group(1)) < 40:
+        return []
+    problems: list[str] = []
+    for task in ready:
+        source_id = str(task.get("source_id") or task.get("dialogue_id") or "unknown")
+        value = task.get("start_frame_admission_ref")
+        if not value:
+            problems.append(f"FAIL_START_FRAME_ADMISSION_MISSING:{source_id}")
+            continue
+        path = Path(value)
+        path = path if path.is_absolute() else BASE / path
+        try:
+            result = evaluate_shot_media_admission(path, BASE)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            problems.append(f"FAIL_START_FRAME_ADMISSION_UNREADABLE:{source_id}:{type(exc).__name__}")
+            continue
+        if result.get("status") != "ADMITTED_FOR_VIDEO_SUBMIT":
+            problems.append(f"FAIL_START_FRAME_NOT_CONTENT_ADMITTED:{source_id}")
+            continue
+        references = task.get("reference_image_sequence") or []
+        first = references[0] if references else {}
+        first_path = first.get("path") or ((resolve_reference_images(task) or [None])[0])
+        if not first_path or (BASE / first_path).resolve() != Path(result["asset_path"]).resolve():
+            problems.append(f"FAIL_FIRST_REFERENCE_NOT_ADMITTED_START_FRAME:{source_id}")
+        if str(task.get("start_frame_sha256") or "") != str(result.get("asset_sha256") or ""):
+            problems.append(f"FAIL_START_FRAME_SHA_NOT_BOUND_TO_ADMISSION:{source_id}")
+    return problems
+
+
 def validate_corrected_pipeline_reports(
     manifest: dict[str, Any], ready: list[dict[str, Any]]
 ) -> list[str]:
     """Prevent E28+ direct manifests from bypassing the corrected pipeline gates."""
-    match = re.fullmatch(r"E(\d+)", str(manifest.get("episode") or "").upper())
+    match = re.match(r"E(\d+)(?:\D|$)", str(manifest.get("episode") or "").upper())
     episode_number = int(match.group(1)) if match else 0
     required = (
         episode_number >= 28
@@ -691,6 +725,7 @@ def main() -> int:
     )
     manifest_problems = validate_manifest_constitution(manifest, ready)
     manifest_problems.extend(validate_ready_task_contracts(ready))
+    manifest_problems.extend(validate_keyframe_admissions(manifest, ready))
     manifest_problems.extend(validate_corrected_pipeline_reports(manifest, ready))
     if ready and submission_gate["status"] != "PASS":
         manifest_problems.extend(

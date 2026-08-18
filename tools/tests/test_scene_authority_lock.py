@@ -38,7 +38,8 @@ class SceneAuthorityLockTest(unittest.TestCase):
         return {"episode": "E22", "scene_state": [scene]}
 
     def task(self, prompt, **overrides):
-        task = {"task_key": "T1", "scene_id": "S1", "visual_zone": "ZONE-A", "prompt_file": prompt}
+        task = {"task_key": "T1", "scene_id": "S1", "visual_zone": "ZONE-A", "prompt_file": prompt,
+                "spatial_layout_stage": "CHARACTER_IDENTITY"}
         task.update(overrides)
         return {"episode": "E22", "tasks": [task]}
 
@@ -85,7 +86,8 @@ class SceneAuthorityLockTest(unittest.TestCase):
     def test_adjacent_zone_repeat_fails(self):
         prompt = self.prompt("Afternoon Buddhist hall")
         config = self.task(prompt)
-        config["tasks"].append({"task_key": "T2", "scene_id": "S1", "visual_zone": "ZONE-A", "prompt_file": prompt})
+        config["tasks"].append({"task_key": "T2", "scene_id": "S1", "visual_zone": "ZONE-A", "prompt_file": prompt,
+                                "spatial_layout_stage": "CHARACTER_IDENTITY"})
         report = evaluate_batch(self.state(), config)
         self.assertTrue(any(row["check"] == "adjacent_visual_zone" for row in report["failures"]))
 
@@ -99,6 +101,7 @@ class SceneAuthorityLockTest(unittest.TestCase):
             "variant_group": "B03-R3",
             "variant_label": "PROFILE",
             "prompt_file": prompt,
+            "spatial_layout_stage": "CHARACTER_IDENTITY",
         })
         report = evaluate_batch(self.state(), config)
         self.assertEqual(report["status"], "PASS")
@@ -113,6 +116,7 @@ class SceneAuthorityLockTest(unittest.TestCase):
             "variant_group": "B03-R3",
             "variant_label": "FRONTAL",
             "prompt_file": prompt,
+            "spatial_layout_stage": "CHARACTER_IDENTITY",
         })
         report = evaluate_batch(self.state(), config)
         self.assertTrue(any(row["check"] == "adjacent_visual_zone" for row in report["failures"]))

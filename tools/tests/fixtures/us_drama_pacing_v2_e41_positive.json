@@ -1,0 +1,40 @@
+{
+  "episode": "E41",
+  "runtime_target_seconds": {"min": 142, "target": 150, "max": 160},
+  "structure": [{"beat_id": "GEN-01", "target_seconds": 150}],
+  "event_density": {
+    "planned_event_count": 18,
+    "hard_min_per_minute": 4,
+    "max_information_gap_seconds": 18,
+    "non_advancing_percentage": 10
+  },
+  "dialogue_draft": [{"text": "generic line"}],
+  "pacing_v2": {
+    "scene_count": 11,
+    "scene_seconds": [20, 7, 11, 18, 6, 12, 20, 15, 6, 15, 20],
+    "max_scene_seconds": 20,
+    "distinct_locations": 8,
+    "location_list": ["LOCATION_01", "LOCATION_02", "LOCATION_03", "LOCATION_04", "LOCATION_05", "LOCATION_06", "LOCATION_07", "LOCATION_08"],
+    "max_consecutive_same_location": 2,
+    "time_jumps": 3,
+    "parallel_threads": 2,
+    "cross_cuts": 6,
+    "new_locations_added": 2,
+    "countable_events": 18,
+    "events_per_minute": 7.2,
+    "event_list": [
+      "GENERIC_ACT_01→GENERIC_CHANGE_01", "GENERIC_ACT_02→GENERIC_CHANGE_02",
+      "GENERIC_ACT_03→GENERIC_CHANGE_03", "GENERIC_ACT_04→GENERIC_CHANGE_04",
+      "GENERIC_ACT_05→GENERIC_CHANGE_05", "GENERIC_ACT_06→GENERIC_CHANGE_06",
+      "GENERIC_ACT_07→GENERIC_CHANGE_07", "GENERIC_ACT_08→GENERIC_CHANGE_08",
+      "GENERIC_ACT_09→GENERIC_CHANGE_09", "GENERIC_ACT_10→GENERIC_CHANGE_10",
+      "GENERIC_ACT_11→GENERIC_CHANGE_11", "GENERIC_ACT_12→GENERIC_CHANGE_12",
+      "GENERIC_ACT_13→GENERIC_CHANGE_13", "GENERIC_ACT_14→GENERIC_CHANGE_14",
+      "GENERIC_ACT_15→GENERIC_CHANGE_15", "GENERIC_ACT_16→GENERIC_CHANGE_16",
+      "GENERIC_ACT_17→GENERIC_CHANGE_17", "GENERIC_ACT_18→GENERIC_CHANGE_18"
+    ],
+    "scenes_without_turn": 0,
+    "dialogue_ratio": 0.3,
+    "action_scene_dialogue_ratio": 0.1
+  }
+}

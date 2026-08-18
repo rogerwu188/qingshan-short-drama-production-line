@@ -11,6 +11,7 @@ def state(tasks, *, global_wait=False, heartbeat=None):
     tasks = [dict(task) for task in tasks]
     for task in tasks:
         if task.get("state") in {"RUNNING", "QA", "REMOTE_WAIT"}:
+            task.setdefault("deliverable_type", "VIDEO")
             task.setdefault("lease_owner", "test-worker")
             task.setdefault("last_progress_at", "2026-08-10T02:59:00Z")
             task.setdefault("next_due_at", "2026-08-10T03:10:00Z")
@@ -42,6 +43,22 @@ class TaskLaneGlobalWaitGateTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "FAIL")
         self.assertIn("WAITING_DEPENDENCY_EXACT_PREDECESSOR_MISSING", {row["code"] for row in result["failures"]})
+
+    def test_compacted_current_state_resolves_predecessors_through_terminal_ledger(self):
+        payload = state([{
+            "task_id": "U19",
+            "lane_id": "ACTION",
+            "state": "WAITING_DEPENDENCY",
+            "zero_cost": False,
+            "exact_predecessor_task_id": "ARCHIVED-U18",
+            "blocked_by": "U18_RETURN_MISSING",
+        }])
+        payload["terminal_task_ledger"] = "workflow/ledger/E40_task_history.ndjson"
+        result = self.audit(payload)
+        self.assertNotIn(
+            "WAITING_DEPENDENCY_EXACT_PREDECESSOR_UNKNOWN",
+            {row["code"] for row in result["failures"]},
+        )
 
     def test_remote_wait_does_not_mask_ready_other_lane(self):
         result = self.audit(
@@ -122,7 +139,7 @@ class TaskLaneGlobalWaitGateTests(unittest.TestCase):
         self.assertEqual(result["status"], "PASS")
         self.assertEqual(result["liveness_state"], "LEGALLY_BLOCKED")
 
-    def test_heartbeat_return_fails_without_active_successor(self):
+    def test_heartbeat_return_is_idle_legal_without_active_successor(self):
         result = self.audit(
             state(
                 [{"task_id": "DONE", "lane_id": "ACTION", "state": "TERMINAL", "zero_cost": True}],
@@ -132,12 +149,9 @@ class TaskLaneGlobalWaitGateTests(unittest.TestCase):
                 },
             )
         )
-        self.assertEqual(result["status"], "FAIL")
-        self.assertFalse(result["heartbeat_return_allowed"])
-        self.assertIn(
-            "HEARTBEAT_RETURN_WITHOUT_ACTIVE_SUCCESSOR",
-            {row["code"] for row in result["failures"]},
-        )
+        self.assertEqual(result["status"], "PASS")
+        self.assertTrue(result["heartbeat_return_allowed"])
+        self.assertEqual(result["heartbeat_verdict"], "IDLE_LEGAL")
 
     def test_heartbeat_return_passes_with_running_successor(self):
         result = self.audit(
@@ -171,10 +185,10 @@ class TaskLaneGlobalWaitGateTests(unittest.TestCase):
         result = self.audit(payload)
         codes = {row["code"] for row in result["failures"]}
         self.assertEqual(result["status"], "FAIL")
-        self.assertFalse(result["heartbeat_return_allowed"])
+        self.assertTrue(result["heartbeat_return_allowed"])
         self.assertIn("ACTIVE_TASK_NEXT_DUE_EXPIRED", codes)
         self.assertIn("ACTIVE_TASK_LEASE_EXPIRED", codes)
-        self.assertIn("HEARTBEAT_RETURN_WITHOUT_ACTIVE_SUCCESSOR", codes)
+        self.assertEqual(result["heartbeat_verdict"], "ACTIVE")
         self.assertEqual(result["stale_or_invalid_active_task_ids"], ["STALE"])
 
     def test_active_task_requires_lease_owner_and_timestamps(self):
@@ -192,7 +206,7 @@ class TaskLaneGlobalWaitGateTests(unittest.TestCase):
         codes = {row["code"] for row in result["failures"]}
         self.assertIn("ACTIVE_TASK_LEASE_OWNER_MISSING", codes)
         self.assertIn("ACTIVE_TASK_TIMESTAMP_MISSING_OR_INVALID", codes)
-        self.assertFalse(result["heartbeat_return_allowed"])
+        self.assertTrue(result["heartbeat_return_allowed"])
 
     def test_terminal_episode_may_return_without_successor(self):
         result = self.audit(
@@ -219,7 +233,7 @@ class TaskLaneGlobalWaitGateTests(unittest.TestCase):
         result = self.audit(payload)
         codes = {row["code"] for row in result["failures"]}
         self.assertEqual(result["status"], "FAIL")
-        self.assertFalse(result["heartbeat_return_allowed"])
+        self.assertTrue(result["heartbeat_return_allowed"])
         self.assertIn("HEARTBEAT_RETURN_WITHOUT_CONTINUOUS_EXECUTOR_ACK", codes)
 
     def test_bound_continuous_executor_allows_heartbeat_return(self):
@@ -292,6 +306,28 @@ class TaskLaneGlobalWaitGateTests(unittest.TestCase):
             "HEARTBEAT_RETURN_WITHOUT_CONTINUOUS_EXECUTOR_ACK",
             {row["code"] for row in result["failures"]},
         )
+        self.assertTrue(result["heartbeat_return_allowed"])
+
+    def test_fabricated_audit_successor_forbids_heartbeat_return(self):
+        payload = state(
+            [{
+                "task_id": "E40-PARITY-WATCHDOG",
+                "lane_id": "QA",
+                "state": "REMOTE_WAIT",
+                "zero_cost": True,
+                "wait_scope": "TASK_LOCAL",
+                "deliverable_type": "QA_RECEIPT",
+            }],
+            heartbeat={
+                "require_active_successor_before_return": True,
+                "episode_terminal": False,
+            },
+        )
+        result = self.audit(payload)
+        self.assertEqual(result["status"], "FAIL")
+        self.assertFalse(result["heartbeat_return_allowed"])
+        self.assertEqual(result["heartbeat_verdict"], "FABRICATED_SUCCESSOR")
+        self.assertIn("FABRICATED_SUCCESSOR", {row["code"] for row in result["failures"]})
 
 
 if __name__ == "__main__":

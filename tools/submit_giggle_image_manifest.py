@@ -18,10 +18,12 @@ try:
     from giggle_api_client import _image_list, _request
     from giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from shot_space_camera_constraint_gate import evaluate_task as evaluate_spatial_task
+    from global_space_layout_gate import evaluate_batch as evaluate_global_space_map
 except ModuleNotFoundError:  # Imported as tools.submit_giggle_image_manifest.
     from tools.giggle_api_client import _image_list, _request
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from tools.shot_space_camera_constraint_gate import evaluate_task as evaluate_spatial_task
+    from tools.global_space_layout_gate import evaluate_batch as evaluate_global_space_map
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -372,6 +374,21 @@ def main() -> int:
     if not gates:
         raise SystemExit("Image manifest has no machine_gate_reports")
     validate_anchor_count_gate_requirement(manifest, gates)
+    global_space_map_gate = evaluate_global_space_map(
+        manifest.get("episode_global_space_map_ref"),
+        all_tasks,
+        episode=manifest.get("episode"),
+        required=manifest.get("global_space_map_gate_required"),
+    )
+    if global_space_map_gate.get("status") == "FAIL":
+        codes = sorted({
+            f"{row.get('check')}:{row.get('reason')}"
+            for row in global_space_map_gate.get("failures") or []
+        })
+        raise ValueError(
+            "SCENE-AUTHORITY-LOCK global space-map component failed: "
+            + ", ".join(codes)
+        )
     tasks = all_tasks
     if args.task_key:
         requested = set(args.task_key)
@@ -463,6 +480,7 @@ def main() -> int:
         "concurrency": max(1, args.concurrency),
         "task_filter": sorted(args.task_key),
         "machine_gates": gates,
+        "global_space_map_gate": global_space_map_gate,
         "status": "PASS" if generation_pass and cost_pass else "FAIL",
         "submitted": sum(row["status"] == "submitted" for row in results),
         "newly_submitted": sum(
