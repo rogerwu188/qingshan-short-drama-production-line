@@ -5,6 +5,19 @@
 !/README.md
 !/tools/
 !/agent_factory/
+!/configs/
+/configs/*
+!/configs/GATE_REGISTRY_v3_20260716.json
+!/codex_docs/
+/codex_docs/*
+!/codex_docs/美剧叙事节奏标准_v2_结构层_20260818.md
+!/workflow/
+/workflow/*
+!/workflow/claude_writer_agent/
+/workflow/claude_writer_agent/*
+!/workflow/claude_writer_agent/宪章_ClaudeWriterAgent_v1.md
+!/workflow/claude_writer_agent/青山编剧Claude_云端可移植宪章_v1.md
+!/workflow/claude_writer_agent/WRITER_TASK_E41_E82_RESTRUCTURE.md
 
 # Generated/runtime material inside the tracked code trees.
 **/__pycache__/
@@ -18,4 +31,3 @@
 **/*secret*
 **/*credential*
 **/*token*.json
-

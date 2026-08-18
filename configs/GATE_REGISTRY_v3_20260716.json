@@ -1,0 +1,1747 @@
+{
+  "schema": "qingshan.gate_registry.v3",
+  "authorization_refs": [
+    "ROGER-20260716-E19-REMAKE",
+    "ROGER-20260716-TRANSITION-SMOOTHNESS",
+    "ROGER-20260716-SYMBOLIC-SHOT-LEGIBILITY",
+    "CL2X-194",
+    "CL2X-195",
+    "CL2X-200",
+    "CL2X-205",
+    "CL2X-206",
+    "CL2X-212",
+    "CL2X-226",
+    "CL2X-247",
+    "CL2X-277",
+    "CL2X-280",
+    "ROGER-20260718-GATE-REPAIR",
+    "CL2X-301",
+    "ROGER-20260718-SCENE-FIDELITY-LOCK",
+    "ROGER-20260721-SUPERVISOR-SCRIPT-GATE",
+    "CL2X-499",
+    "ROGER-20260723-NATURAL-PERFORMANCE-SPLIT-STANDARD",
+    "ROGER-20260724-SOURCE-CANON-READ-BINDING",
+    "ROGER-20260727-PIPELINE-ASSET-LIBRARY",
+    "ROGER-20260727-PIPELINE-NATIVE-DIALOGUE-ASR",
+    "ROGER-20260727-POST-PUBLISH-STORAGE-RETENTION",
+    "ROGER-20260818-US-PACING-V2-RESTRUCTURE"
+  ],
+  "meta_rule": "A new lesson is not frozen until mailbox_ref, code_or_manual_checklist, test_or_required_fields, and registry_entry all exist.",
+  "gates": [
+    {
+      "gate_id": "INITIAL-PRODUCTION-ASSET-LIBRARY",
+      "stage": "GENERATION_SUBMIT",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/initial_asset_library.py",
+        "tools/episode_stage_gate_runner.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_initial_asset_library.py",
+        "tools/tests/test_episode_stage_gate_runner.py"
+      ],
+      "parameters": {
+        "full_series_asset_requirements_required": true,
+        "series_core_locked_before_paid_generation": true,
+        "current_episode_assets_locked_before_paid_generation": true,
+        "rights_qa_sha_and_provenance_required": true,
+        "changed_requirements_invalidate_lock": true,
+        "history_and_supersedes_preserved": true
+      },
+      "authorization_ref": "ROGER-20260727-PIPELINE-ASSET-LIBRARY",
+      "last_backtest_date": "2026-07-27",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "SCENE-AUTHORITY-LOCK",
+      "stage": "GENERATION_SUBMIT",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/scene_authority_lock.py",
+        "tools/episode_parallel_batch_supervisor.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_scene_authority_lock.py"
+      ],
+      "parameters": {
+        "scene_state_required": true,
+        "scene_id_and_visual_zone_required_per_task": true,
+        "undeclared_location_time_weather_forbidden": true,
+        "adjacent_same_scene_visual_zone_repeat_forbidden": true,
+        "three_episode_night_run_requires_continuity_reason": true,
+        "no_remote_submission_on_fail": true
+      },
+      "authorization_ref": "CL2X-301",
+      "last_backtest_date": "2026-07-18",
+      "stage_runner_paths": [
+        "tools/episode_parallel_batch_supervisor.py"
+      ]
+    },
+    {
+      "gate_id": "GATE-REGISTRY-INTEGRITY",
+      "stage": "CI_START",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/gate_registry_v3_check.py",
+        "tools/run_regression_ci.py",
+        "tools/regression_ci_component_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_gate_registry_v3_check.py",
+        "tools/tests/test_gate_registry_ci_integration.py",
+        "tools/tests/test_regression_ci_component_gate.py"
+      ],
+      "parameters": {
+        "run_registered_tests": true
+      },
+      "authorization_ref": "CL2X-194",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/run_regression_ci.py",
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "SOURCE-READ-COMPLETENESS",
+      "stage": "SOURCE",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/source_canon_binding_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_source_canon_binding_gate.py"
+      ],
+      "parameters": {
+        "locked_source_scope_required": true,
+        "every_locked_chapter_must_be_read": true,
+        "chapter_content_sha256_required": true,
+        "canon_fact_source_binding_required": true,
+        "chapter_to_episode_beat_map_required": true,
+        "major_transformation_requires_separate_approval": true,
+        "no_writer_admission_on_fail": true
+      },
+      "authorization_ref": "ROGER-20260724-SOURCE-CANON-READ-BINDING",
+      "last_backtest_date": "2026-07-24",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "SCRIPT-SOURCE-CANON-BINDING",
+      "stage": "SCRIPT",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/source_canon_binding_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_source_canon_binding_gate.py"
+      ],
+      "parameters": {
+        "every_episode_bound_to_source_chapters": true,
+        "every_episode_bound_to_canon_facts": true,
+        "every_episode_bound_to_source_events": true,
+        "script_sha256_binding_required": true,
+        "full_series_episode_coverage_required": true,
+        "no_pipeline_admission_on_fail": true
+      },
+      "authorization_ref": "ROGER-20260724-SOURCE-CANON-READ-BINDING",
+      "last_backtest_date": "2026-07-24",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "FULL-SERIES-SOURCE-FIDELITY",
+      "stage": "FULL_SERIES_SCRIPT_GATE",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/source_canon_binding_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_source_canon_binding_gate.py"
+      ],
+      "parameters": {
+        "independent_audit_agent_required": "qingshan-ai-aduit",
+        "minimum_score_100": 90,
+        "every_episode_must_pass": true,
+        "critical_comparisons": [
+          "protagonist",
+          "world",
+          "era",
+          "weather_daylight",
+          "opening_event"
+        ],
+        "structure_or_hash_pass_cannot_substitute": true,
+        "prior_script_pass_revoked_on_fail": true
+      },
+      "authorization_ref": "ROGER-20260724-SOURCE-CANON-READ-BINDING",
+      "last_backtest_date": "2026-07-24",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "SCRIPT-READINESS-EXCITEMENT-SHA",
+      "stage": "SCRIPT",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/script_readiness_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_script_readiness_gate.py"
+      ],
+      "parameters": {
+        "dialogue_lines_per_minute_quota": "CLOSED_SUPERSEDED_BY_TRUE_EVENT_DENSITY_AND_ANTI_PADDING",
+        "sha_binding": true,
+        "symbolic_shot_declaration_required": true,
+        "blind_tests_report_pass_required": true,
+        "blind_tests_beat_sheet_sha_binding": true,
+        "blind_tests_report_sha_binding": true,
+        "blind_tests_project_relative_binding": true
+      },
+      "authorization_ref": "CL2X-178",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "SCRIPT-DENSITY-GENERATION-PREFLIGHT",
+      "stage": "GENERATION_SUBMIT",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/script_density_gate_preflight.py",
+        "tools/submit_giggle_task_manifest.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_script_density_gate_preflight.py"
+      ],
+      "parameters": {
+        "pass_artifact_required": true,
+        "exact_script_sha256_binding_required": true,
+        "missing_or_revise_blocks_generation": true,
+        "time_ledger_blocked_by": "SCRIPT_DENSITY_GATE",
+        "audit_capability_gap_signal_required": true,
+        "minimum_true_events_per_minute": 4.0,
+        "target_true_events_per_minute": 6.0,
+        "maximum_event_gap_seconds": 20.0,
+        "maximum_non_progress_atmosphere_pct": 15.0,
+        "numeric_metrics_must_recompute_from_counts_and_duration": true
+      },
+      "authorization_ref": "CL2X-277",
+      "last_backtest_date": "2026-07-17",
+      "stage_runner_paths": [
+        "tools/submit_giggle_task_manifest.py"
+      ]
+    },
+    {
+      "gate_id": "SCRIPT-COUNCIL-FINAL-APPROVAL",
+      "stage": "SCRIPT_APPROVAL_BEFORE_GENERATION",
+      "implementation_type": "MANUAL_GATE",
+      "code_paths": [],
+      "test_paths": [],
+      "manual_checklist_path": "workflow/cloud_factory_migration_v1_20260724/charters/青山AI_剧本创作_云端可移植宪章.md",
+      "parameters": {
+        "five_independent_advisors_required": true,
+        "chair_verdict_required": true,
+        "pass_required_before_generation": true,
+        "machine_metrics_cannot_replace_council": true,
+        "applies_to_episodes": "E21_PLUS"
+      },
+      "authorization_ref": "CL2X-280",
+      "last_backtest_date": "2026-07-17"
+    },
+    {
+      "gate_id": "SCRIPT-SCENE-DIVERSITY-PREFLIGHT",
+      "stage": "SCRIPT_APPROVAL_BEFORE_GENERATION",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/script_scene_diversity_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_script_scene_diversity_gate.py"
+      ],
+      "parameters": {
+        "adjacent_episode_scene_time_weather_triple_repeat_forbidden": true,
+        "multi_time_period_per_arc_required": true,
+        "multi_weather_per_arc_required": true,
+        "interior_exterior_and_warm_cool_alternation_required": true,
+        "rain_as_default_background_forbidden": true,
+        "applies_to_episodes": "E21_PLUS"
+      },
+      "authorization_ref": "CL2X-280",
+      "last_backtest_date": "2026-07-23",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "EDIT-PLAN-NATIVE-CADENCE",
+      "stage": "EDIT_ADMISSION",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/edit_plan_integrity_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_edit_plan_integrity_gate.py"
+      ],
+      "parameters": {
+        "speed_change_forbidden": true,
+        "frame_interpolation_forbidden": true
+      },
+      "authorization_ref": "CL2X-166",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "FINAL-FRAME-CADENCE-FREEZE",
+      "stage": "FINAL_CI",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/frame_cadence_audit.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_frame_cadence_audit.py"
+      ],
+      "parameters": {
+        "freeze_min_seconds": 0.5,
+        "freeze_motion_threshold": 0.15,
+        "native_fps_required": true,
+        "periodic_duplicate_threshold": 0.35,
+        "periodic_duplicate_interval_frames": [
+          4,
+          6
+        ],
+        "periodic_duplicate_min_events": 5
+      },
+      "authorization_ref": "CL2X-166",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "FINAL-OCR-POLICY",
+      "stage": "FINAL_CI",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/final_video_ocr_audit.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_final_video_ocr_policy.py"
+      ],
+      "parameters": {
+        "critical_text_failures_max": 0
+      },
+      "authorization_ref": "BASELINE-V2-FINAL",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "SOURCE-BRIGHTNESS-JUMP",
+      "stage": "SOURCE_QA",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/source_brightness_jump_audit.py",
+        "tools/run_regression_ci.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_source_brightness_jump_audit.py"
+      ],
+      "parameters": {
+        "sample_fps": 1,
+        "max_adjacent_yavg_jump": 25,
+        "threshold_relaxation_forbidden": true,
+        "final_ci_requires_all_admitted_source_audits": true
+      },
+      "authorization_ref": "CL2X-189",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py",
+        "tools/run_regression_ci.py"
+      ]
+    },
+    {
+      "gate_id": "PICTURE-ONLY-REPAIR-SUBMISSION",
+      "stage": "GENERATION_SUBMIT",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/submit_giggle_task_manifest.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_giggle_picture_only_repair_gate.py"
+      ],
+      "parameters": {
+        "candidate_audio_must_be_empty": true,
+        "evidence_sha_required": true
+      },
+      "authorization_ref": "ROGER-20260716-E17-REMAKE",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/submit_giggle_task_manifest.py"
+      ]
+    },
+    {
+      "gate_id": "RELEASE-SIGNOFF-INTEGRITY",
+      "stage": "RELEASE",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/release_signoff_integrity_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_release_signoff_integrity_gate.py"
+      ],
+      "parameters": {
+        "watch_can_reject_not_approve": true,
+        "roger_override_trace_required": true
+      },
+      "authorization_ref": "C2SC-318",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "FINAL-PACKAGE-BLOCKERS",
+      "stage": "PACKAGE",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/final_package_blocker_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_final_package_blocker_gate.py"
+      ],
+      "parameters": {
+        "unresolved_blockers_max": 0
+      },
+      "authorization_ref": "BASELINE-V2-FINAL",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "RELEASE-BRANDING-CONTRACT",
+      "stage": "AGENTCUT_RENDER_AND_PACKAGE",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/release_branding_contract_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_release_branding_contract_gate.py"
+      ],
+      "parameters": {
+        "burned_subtitles_required": true,
+        "ordered_canonical_dialogue_coverage_required": true,
+        "subtitle_contract_exact_coverage_required": true,
+        "nalu_motion_outro_required": true,
+        "outro_minimum_seconds": 2.5,
+        "outro_must_end_at_timeline_end": true,
+        "render_manifest_final_sha_binding_required": true,
+        "agentcut_release_gate_required": true
+      },
+      "authorization_ref": "ROGER_DIRECT_E37_SUBTITLE_OUTRO_CORRECTION_20260803",
+      "last_backtest_date": "2026-08-03",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "TRANSITION-SMOOTHNESS",
+      "stage": "FINAL_MIX",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/transition_smoothness_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_transition_smoothness_gate.py"
+      ],
+      "parameters": {
+        "contract_path": "configs/transition_smoothness_contract_v1_20260716.json",
+        "jl_cut_ratio_min": 0.6,
+        "same_frame_cut_ratio_max": 0.2
+      },
+      "authorization_ref": "ROGER-20260716-TRANSITION-SMOOTHNESS",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "AUDIO-SOURCE-PUBLISHED-MIX-BINDING",
+      "stage": "EDIT_ASSEMBLY",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/audio_source_binding_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_audio_source_binding_gate.py"
+      ],
+      "parameters": {
+        "published_mix_file_sha_required": true,
+        "published_mix_audio_fingerprint_required": true,
+        "candidate_audio_discard_required": true
+      },
+      "authorization_ref": "CL2X-203",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "INSERT-SOURCE-NONADJACENCY",
+      "stage": "EDIT_ASSEMBLY",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/transition_smoothness_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_transition_smoothness_gate.py"
+      ],
+      "parameters": {
+        "same_source_back_to_back_allowed": false,
+        "conditional_second_use_requires_new_information": true,
+        "diagnostic_trial_exemption_only": true
+      },
+      "authorization_ref": "CL2X-202",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "CHARACTER-IDENTITY-ADMISSION",
+      "stage": "SOURCE_QA_AND_ASSEMBLY",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/character_identity_admission_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_character_identity_admission_gate.py"
+      ],
+      "manual_checklist_path": "workflow/CHARACTER_IDENTITY_QA_CHECKLIST_TEMPLATE_20260716.json",
+      "parameters": {
+        "canonical_views_min": 3,
+        "sample_frames_per_source_min": 3,
+        "warning_downgrade_allowed": false,
+        "machine_embedding_status": "PENDING"
+      },
+      "authorization_ref": "CL2X-192",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "SYMBOLIC-SHOT-LEGIBILITY",
+      "stage": "SCRIPT_SOURCE_QA_AND_FINAL_SIGNOFF",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/symbolic_shot_legibility_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_symbolic_shot_legibility_gate.py"
+      ],
+      "manual_checklist_path": "workflow/tasks/EPISODE_TASK_TEMPLATE.md",
+      "parameters": {
+        "symbolic_declaration_required": true,
+        "differentiation_dimensions_min": 3,
+        "separate_prompt_per_entity": true,
+        "script_hidden_visual_blind_test_required": true
+      },
+      "authorization_ref": "ROGER-20260716-SYMBOLIC-SHOT-LEGIBILITY",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "FINAL-AUDIO-BED-CONTINUITY",
+      "stage": "FINAL_CI",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/run_regression_ci.py",
+        "tools/regression_ci_component_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_regression_ci_threshold_profile.py",
+        "tools/tests/test_regression_ci_component_gate.py"
+      ],
+      "parameters": {
+        "digital_zero_db": -90,
+        "unmotivated_silence_seconds_max": 1,
+        "adjacent_rms_jump_db_max": 12
+      },
+      "authorization_ref": "CL2X-166",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/run_regression_ci.py",
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "FINAL-STATIC-HOLD",
+      "stage": "FINAL_CI",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/run_regression_ci.py",
+        "tools/regression_ci_component_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_regression_ci_threshold_profile.py",
+        "tools/tests/test_regression_ci_component_gate.py"
+      ],
+      "parameters": {
+        "motion_max": 1.5,
+        "seconds_max": 4,
+        "dialogue_absent_required": true
+      },
+      "authorization_ref": "CL2X-170",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/run_regression_ci.py",
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "FROZEN-THRESHOLD-PROFILE",
+      "stage": "CI_START",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/run_regression_ci.py",
+        "tools/regression_ci_component_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_regression_ci_threshold_profile.py",
+        "tools/tests/test_regression_ci_component_gate.py"
+      ],
+      "parameters": {
+        "profile": "v2-final+v2.1+v2.2+v2.3-frozen",
+        "unauthorized_override_allowed": false
+      },
+      "authorization_ref": "C2SC-310",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/run_regression_ci.py",
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "FINAL-AUDIT-COMPLETENESS",
+      "stage": "FINAL_CI",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/run_regression_ci.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_final_video_ocr_policy.py",
+        "tools/tests/test_regression_ci_threshold_profile.py"
+      ],
+      "parameters": {
+        "ocr_required": true,
+        "sentence_cut_required": true,
+        "action_realtime_required": true,
+        "brightness_required": true
+      },
+      "authorization_ref": "CL2X-191",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/run_regression_ci.py",
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "GIGGLE-REROLL-COST-GUARD",
+      "stage": "PRE_SUBMISSION",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/reroll_cost_guard.py",
+        "configs/reroll_cost_guard_policy_v1_20260716.json"
+      ],
+      "test_paths": [
+        "tools/tests/test_reroll_cost_guard.py"
+      ],
+      "parameters": {
+        "auto_reroll_block_tier_only": true,
+        "advise_margin_fraction": 0.1,
+        "max_rerolls_per_shot": 2,
+        "episode_reroll_shot_fraction": 0.15,
+        "same_reason_distinct_shot_limit": 2,
+        "roi_ledger_required": true,
+        "roi_review_interval_episodes": 3
+      },
+      "authorization_ref": "CL2X-226",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "GIGGLE-CREDIT-LEDGER-CLOSURE",
+      "stage": "RELEASE_FINANCE_CLOSURE",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/build_giggle_credit_ledger.py",
+        "tools/giggle_credit_closure_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_giggle_credit_closure_gate.py"
+      ],
+      "parameters": {
+        "receipt_backed_task_counts_required": true,
+        "actual_credits_total_required_for_closure": true,
+        "verified_bill_or_balance_delta_only": true,
+        "original_and_remake_ledgers_separate": true
+      },
+      "authorization_ref": "CL2X-212",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "FINAL-AUDIO-PROVENANCE",
+      "stage": "FINAL_CI",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/final_audio_provenance_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_final_audio_provenance_gate.py"
+      ],
+      "parameters": {
+        "candidate_whole_track_fingerprint_required": true,
+        "processed_intervals_must_be_declared": true,
+        "unchanged_interval_segment_fingerprints_must_match": true,
+        "candidate_source_audio_forbidden": true
+      },
+      "authorization_ref": "CL2X-205",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "MARKET-CALIBRATION-ANTI-OVERFIT",
+      "stage": "POST_RELEASE_STRATEGY",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/market_calibration_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_market_calibration_gate.py"
+      ],
+      "parameters": {
+        "decision_window": "T+72h",
+        "minimum_plays_for_inference": 500,
+        "same_direction_hypotheses_required": 3,
+        "maximum_episodes_affected_per_change": 5,
+        "event_layer_frozen": true,
+        "codex_claude_roger_approval_chain_required": true
+      },
+      "authorization_ref": "CL2X-206",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "AGENT-WATCH-LISTEN",
+      "stage": "FINAL_SIGNOFF",
+      "implementation_type": "MANUAL_GATE",
+      "code_paths": [],
+      "test_paths": [],
+      "manual_checklist_path": "workflow/AGENT_WATCH_LISTEN_GATE_TEMPLATE.json",
+      "parameters": {
+        "all_required_fields_must_be_filled": true
+      },
+      "authorization_ref": "CL2X-166",
+      "last_backtest_date": "2026-07-16"
+    },
+    {
+      "gate_id": "PACING-STYLE-BAN-V2_3",
+      "stage": "SOURCE_QA_AND_FINAL_WATCH",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/pacing_style_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_pacing_style_gate.py"
+      ],
+      "parameters": {
+        "empty_insert_filler_forbidden": true,
+        "stretch_loop_freeze_filler_forbidden": true,
+        "insert_max_seconds": 2
+      },
+      "authorization_ref": "CL2X-170",
+      "last_backtest_date": "2026-07-23",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "FRAME-EXACT-RENDER-MATERIALIZATION",
+      "stage": "EDIT_ASSEMBLY",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/render_frame_exact_video_plan.py",
+        "tools/frame_exact_materialization_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_render_frame_exact_video_plan.py",
+        "tools/tests/test_frame_exact_materialization_gate.py"
+      ],
+      "parameters": {
+        "actual_segment_frame_count_required": true,
+        "actual_output_frame_count_required": true,
+        "candidate_audio_forbidden_in_diagnostic": true,
+        "transform_overrides_audited": true,
+        "retime_freeze_loop_forbidden": true
+      },
+      "authorization_ref": "CL2X-224",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "AGENT-MISTAKE-ANTI-RECURRENCE",
+      "stage": "ALL_STAGES",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/validate_agent_mistake_ledger.py",
+        "workflow/agent_mistake_ledger.json"
+      ],
+      "test_paths": [
+        "tools/tests/test_validate_agent_mistake_ledger.py"
+      ],
+      "parameters": {
+        "append_only": true,
+        "confirmed_mistake_same_turn_record_required": true,
+        "closed_requires_four_part_closure": true,
+        "secret_material_forbidden": true,
+        "unfinished_current_episode_requires_active_critical_path_item": true
+      },
+      "authorization_ref": "ROGER-20260716-MISTAKE-MEMORY",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "THREE-EPISODE-CONCURRENCY",
+      "stage": "PRODUCTION_SCHEDULING",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/validate_three_episode_concurrency.py",
+        "workflow/production_line/THREE_EPISODE_CONCURRENCY_POLICY.json"
+      ],
+      "test_paths": [
+        "tools/tests/test_validate_three_episode_concurrency.py"
+      ],
+      "parameters": {
+        "target_concurrent_episode_lines": 3,
+        "slot_refill_required": true,
+        "active_work_or_referenced_blocker_required": true,
+        "idle_sla_seconds": 1800,
+        "release_order_independent": true,
+        "override_roles": [
+          "SUPERVISOR",
+          "PRODUCER"
+        ]
+      },
+      "authorization_ref": "ROGER-20260716-THREE-EPISODE-CONCURRENCY",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "LINE-HEARTBEAT-WATCHDOG",
+      "stage": "PRODUCTION_SCHEDULING",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "workflow/dashboard/build_status.py",
+        "workflow/time_ledger/E17_time_ledger.json",
+        "tools/poll_giggle_submit_report.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_dashboard_line_heartbeat_watchdog.py",
+        "tools/tests/test_poll_giggle_submit_report.py"
+      ],
+      "parameters": {
+        "blocked_by_required": true,
+        "last_heartbeat_at_required": true,
+        "none_idle_limit_seconds": 1800,
+        "remote_generation_limit_seconds": 4800,
+        "session_ended_exempt": true,
+        "completed_downloaded_harvest_auto_closes_remote_generation": true,
+        "sla_breaches_written_to_status_json": true
+      },
+      "authorization_ref": "CL2X-247",
+      "last_backtest_date": "2026-07-16",
+      "stage_runner_paths": [
+        "tools/production_liveness_probe.py"
+      ]
+    },
+    {
+      "gate_id": "S3-RELAY-PUBLIC-UPLOAD-SAFETY",
+      "stage": "COMMUNICATION_AND_PUBLIC_DELIVERY",
+      "implementation_type": "MANUAL_GATE",
+      "code_paths": [],
+      "test_paths": [],
+      "manual_checklist_path": "workflow/s3_relay/S3_RELAY_UPLOAD_SAFETY_CHECKLIST.json",
+      "parameters": {
+        "all_required_fields_must_be_true": true,
+        "permanent_public_download_assumed": true,
+        "credential_and_prefix_upload_forbidden": true,
+        "unpublished_script_fulltext_forbidden": true,
+        "platform_account_and_personal_information_forbidden": true,
+        "non_spoiler_slug_required": true
+      },
+      "authorization_ref": "ROGER-20260716-S3-RELAY",
+      "last_backtest_date": "2026-07-16"
+    },
+    {
+      "gate_id": "AUDIENCE-SCORE-PRE-RELEASE",
+      "stage": "POST_TECHNICAL_PRE_SUPERVISOR_RELEASE",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/audience_score_gate.py",
+        "codex_docs/模拟观众审片门_发行前_规范v1_20260717.md"
+      ],
+      "test_paths": [
+        "tools/tests/test_audience_score_gate.py"
+      ],
+      "parameters": {
+        "technical_gate_must_pass": true,
+        "viewing_passes": [
+          "FULL_1X",
+          "MUTED",
+          "SOUND"
+        ],
+        "minimum_overall_score": 3.0,
+        "overall_not_arithmetic_mean": true,
+        "hard_fail": [
+          "MISSING_BURNED_SUBTITLES",
+          "IDENTITY_COLOR_MISMATCH",
+          "SEMANTIC_GROUP_OVER_15_PERCENT",
+          "OPENING_10S_NO_HOOK",
+          "TAIL_5S_HOOK_BROKEN"
+        ],
+        "supervisor_ahash_still_required": true
+      },
+      "authorization_ref": "CL2X-284",
+      "last_backtest_date": "2026-07-17",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "FINAL-CUT-VIEWING-EVIDENCE",
+      "stage": "PRE_RELEASE_AUDIENCE",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/final_cut_quality_gates.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_final_cut_quality_gates_portable.py"
+      ],
+      "parameters": {
+        "decode_receipt_forbidden": true,
+        "per_shot_notes_required": true,
+        "min_note_chars": 8
+      },
+      "authorization_ref": "CL2X-293",
+      "last_backtest_date": "2026-07-18",
+      "note": "E19R R1: full_1x/muted/sound 的证据是 ffmpeg exit_0。解码不是观看。",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "FINAL-CUT-PICTURE-REPETITION",
+      "stage": "PRE_RELEASE_AUDIENCE",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/final_cut_objective_metrics.py",
+        "tools/final_cut_quality_gates.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_final_cut_quality_gates_portable.py"
+      ],
+      "parameters": {
+        "max_near_duplicate_shot_pct": 10.0,
+        "hamming_threshold": 5,
+        "sampling_basis": "per_shot_midpoint",
+        "sampling_must_cover_every_shot": true,
+        "source_identity_basis_forbidden": true,
+        "blocking_figure": "near_duplicate_shot_pct_non_adjacent",
+        "adjacent_pairs_excluded": true
+      },
+      "authorization_ref": "CL2X-293",
+      "last_backtest_date": "2026-07-18",
+      "note": "E19R R2/R3: 文件名去重报 max 6.7%,像素实测 29.4%;8s 固定采样对 2.67s ASL 盲。 2026-07-18 修正:阻断值改用非相邻复用,排除快切集的切点碎片假象(E16 原始 54.7%→阻断值 43.5%;E19R 29.4% 全为非相邻,不受影响)。",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "FINAL-CUT-GATE-NAMING-HONESTY",
+      "stage": "PRE_RELEASE_ADJUDICATION",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/final_cut_quality_gates.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_final_cut_quality_gates_portable.py"
+      ],
+      "parameters": {
+        "fingerprint_may_not_claim_repetition_name": true,
+        "fixed_interval_sampling_forbidden": true,
+        "confidence_requires_computation": true
+      },
+      "authorization_ref": "CL2X-293",
+      "last_backtest_date": "2026-07-18",
+      "note": "E19R R3: supervisor_ahash 门内无 hamming/duplicate 字段,confidence=0.96 无计算来源。",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "FINAL-CUT-WEAKEST-LINK-SCORING",
+      "stage": "PRE_RELEASE_AUDIENCE",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/final_cut_quality_gates.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_final_cut_quality_gates_portable.py"
+      ],
+      "parameters": {
+        "min_craft_dimension": 3.5,
+        "mean_scoring_forbidden": true,
+        "completeness_excluded_from_score": true
+      },
+      "authorization_ref": "CL2X-293",
+      "last_backtest_date": "2026-07-18",
+      "note": "E19R R5: completeness 4.8 把 visual 3.4/anti_ai 3.3 拉到均分 3.7 过 3.0 线。",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "FINAL-CUT-NO-SELF-WAIVER",
+      "stage": "PRE_RELEASE_AUDIENCE",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/final_cut_quality_gates.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_final_cut_quality_gates_portable.py"
+      ],
+      "parameters": {
+        "self_issued_waiver_forbidden": true,
+        "problems_nonempty_forces_escalation": true
+      },
+      "authorization_ref": "CL2X-293",
+      "last_backtest_date": "2026-07-18",
+      "note": "E19R R4: issue 与 fix 同句自我免责(不构成重剪硬项)。",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "FINAL-CUT-EVENT-LEDGER",
+      "stage": "PRE_RELEASE_AUDIENCE",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/final_cut_quality_gates.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_final_cut_quality_gates_portable.py"
+      ],
+      "parameters": {
+        "max_event_gap_seconds": 20.0,
+        "absent_ledger_is_invalid": true
+      },
+      "authorization_ref": "CL2X-293",
+      "last_backtest_date": "2026-07-18",
+      "note": "E19R 剧本 13 句/min 过门,成片仅 3 件事、中段约 150s 无外部事件。句≠事件。",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "FINAL-CUT-DIALOGUE-LEGIBILITY",
+      "stage": "SCRIPT_AND_FINAL_CUT",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/final_cut_quality_gates.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_final_cut_quality_gates_portable.py"
+      ],
+      "parameters": {
+        "max_metaphor_line_pct": 40.0
+      },
+      "authorization_ref": "CL2X-293",
+      "last_backtest_date": "2026-07-18",
+      "note": "E19R 42 句近乎全为机锋隐喻,观众无直白信息可抓。",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "EDIT-CUT-MOTIVATION",
+      "stage": "EDIT_PLAN_PRE_RENDER",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/cut_motivation_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_cut_motivation_gate_portable.py"
+      ],
+      "parameters": {
+        "every_cut_requires_substantiated_reason": true,
+        "closed_reason_vocabulary": [
+          "SPEAKER_CHANGE",
+          "NEW_INFORMATION",
+          "NEW_SPACE",
+          "ACTION_BEAT",
+          "REACTION_NEW_EMOTION",
+          "ESTABLISH_ONCE",
+          "SHOT_SIZE_CHANGE",
+          "COMPOSITION_INTENT"
+        ],
+        "metric_language_forbidden_in_justification": true,
+        "insert_must_carry_new_information": true,
+        "recycled_image_may_not_serve_as_insert": true,
+        "insert_share_is_diagnostic_not_threshold": true,
+        "picture_and_aesthetic_reasons_first_class": true
+      },
+      "authorization_ref": "ROGER-20260718-NO-UNMOTIVATED-CUTS / CL2X-295",
+      "last_backtest_date": "2026-07-18",
+      "note": "Roger 直示:「不改切的地方就别切,不能为了指标拼命切」。E19R V15 回测:71 刀 71 刀无理由、32 个插入镜 32 个无新信息、20 个插入镜用的是已出现过的画面、插入镜占片长 46%。刻意不设配额阈值——规则是动机不是比例,有理由的切永远允许,没理由的切永远不允许。ASL/镜头数降为诊断量,不得作为切点理由(G9B 反 Goodhart)。 2026-07-18 扩展(Roger 追加直示):切点理由包含\"为了剧情/为了画面/为了审美\"三类,画面类理由 SHOT_SIZE_CHANGE(景别必须真的变)与 COMPOSITION_INTENT(必须写出构图意图)为一等理由;既有 insert_reason 字段被接受为等价载体(E19R 8 个 clip 已在用)。",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "EDIT-VIEWING-CONSISTENCY",
+      "stage": "EDIT_PLAN_PRE_RENDER",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/cut_motivation_gate.py",
+        "tools/final_cut_objective_metrics.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_cut_motivation_gate_portable.py"
+      ],
+      "parameters": {
+        "continuity_fields_required_on_every_cut": [
+          "scene_id",
+          "light_key",
+          "axis_line",
+          "eyeline"
+        ],
+        "light_key_stable_within_scene": true,
+        "axis_cross_requires_justification": true,
+        "shot_reverse_must_reverse_eyeline": true,
+        "jump_cut_same_group_same_size_blocked": true,
+        "declared_size_change_must_actually_change": true,
+        "machine_cross_check_max_luma_jump": 25.0
+      },
+      "authorization_ref": "ROGER-20260718-NO-UNMOTIVATED-CUTS / CL2X-296",
+      "last_backtest_date": "2026-07-18",
+      "note": "Roger 直示「不能破坏观看一致性」。A/B coverage 生成侧本已要求同 scene_id/light_key/axis_line 且视线反向(DIRECTOR_COVERAGE_SCHEMA.md),但这些字段从未带进剪辑工程——E19R 71 刀全部无连贯性字段,剪辑可任意把 A 接 B 而无人反对。本门把连贯性搬到落刀处,并用成片实测亮度跳变(≤25)做机器交叉校验:E19R 实测 6 处越线(最大 Δ=-43.2 @178.7s)。",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "SHOT-PROMPT-PROFESSIONALISM",
+      "stage": "GENERATION_PRE_SUBMISSION",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/shot_prompt_professionalism_gate.py",
+        "tools/episode_parallel_batch_supervisor.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_shot_prompt_professionalism_gate.py",
+        "tools/tests/test_episode_parallel_batch_supervisor.py"
+      ],
+      "parameters": {
+        "image_contract_requires": [
+          "entity_binding",
+          "scene_authority",
+          "identity_or_prop_lock",
+          "single_decisive_moment",
+          "framing_and_composition",
+          "palette_and_light",
+          "negative_constraints"
+        ],
+        "video_contract_requires": [
+          "seedance2_storyboard_list",
+          "per_shot_camera_design",
+          "concrete_physical_action_beats",
+          "dialogue_slot",
+          "action_sfx",
+          "palette_and_light",
+          "establishing_scale",
+          "environmental_power"
+        ],
+        "blocked_legacy_patterns": [
+          "Animate the supplied still",
+          "one continuous N-second shot"
+        ],
+        "batch_shot_scale_coverage": {
+          "episode_requires_grand_wide_or_aerial_establishing": true,
+          "each_scene_requires_grand_wide_or_aerial_establishing": true,
+          "episode_requires_full_range": [
+            "wide",
+            "medium",
+            "close"
+          ],
+          "failed_only_retry_may_use_preserved_exact_sha_prompt_evidence": true,
+          "all_medium_or_close_only_batch_blocked": true
+        },
+        "failure_action": "BLOCK_SUBMIT_FAILED_ITEMS_ONLY"
+      },
+      "authorization_ref": "CL2X-437 / CL2X-440 / ROGER-20260720-PROFESSIONAL-SHOT-PROMPT",
+      "last_backtest_date": "2026-07-20",
+      "note": "Image prompts preserve one decisive frame; video prompts require a Seedance2 shot list. Batch-level coverage blocks an episode with no grand establishing shot, any scene without a wide/aerial establishing shot, and an incomplete wide-medium-close range. Failed-only retries may bind exact-SHA evidence from preserved prompts instead of regenerating admitted items. The gate runs before API-key validation and remote submission, so an unprofessional prompt cannot consume credits.",
+      "stage_runner_paths": [
+        "tools/episode_parallel_batch_supervisor.py"
+      ]
+    },
+    {
+      "gate_id": "LOCAL-CLAUDE-SCRIPT-SUPERVISION",
+      "stage": "E28_PLUS_PRE_PRODUCTION",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/supervisor_script_gate.py",
+        "tools/episode_parallel_batch_supervisor.py",
+        "tools/submit_giggle_task_manifest.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_supervisor_script_gate.py",
+        "tools/tests/test_episode_parallel_batch_supervisor.py",
+        "tools/tests/test_giggle_picture_only_repair_gate.py"
+      ],
+      "parameters": {
+        "minimum_episode": 28,
+        "reviewer_role": "LOCAL_CLAUDE_SUPERVISOR",
+        "required_status": "PASS",
+        "generation_allowed": true,
+        "exact_sha_bindings": [
+          "generated_script_sha256",
+          "compiled_script_sha256"
+        ],
+        "per_shot_required_passes": [
+          "status",
+          "source_basis",
+          "script_alignment",
+          "treatment_alignment"
+        ],
+        "applies_to_repair_manifests": true,
+        "failure_action": "BLOCK_ALL_IMAGE_VIDEO_AGENTCUT_AND_AI_REVIEW_STARTS"
+      },
+      "authorization_ref": "ROGER-20260721-SUPERVISOR-SCRIPT-GATE / CL2X-499",
+      "last_backtest_date": "2026-07-21",
+      "note": "E28 and later episodes must use the upgraded Writer Agent and receive a complete local-Claude per-shot PASS bound to exact generated and compiled SHA-256 values. Missing, stale, partial or non-PASS supervision keeps generation_allowed=false before every batch or direct submission path.",
+      "stage_runner_paths": [
+        "tools/episode_parallel_batch_supervisor.py"
+      ]
+    },
+    {
+      "gate_id": "SCRIPT-COUNCIL-DRAMATIC-QUALITY",
+      "stage": "SCRIPT_APPROVAL_BEFORE_GENERATION",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/dramatic_quality_gate.py",
+        "tools/episode_parallel_batch_supervisor.py",
+        "tools/submit_giggle_task_manifest.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_dramatic_quality_gate.py",
+        "tools/tests/test_submit_corrected_pipeline_gate.py"
+      ],
+      "parameters": {
+        "six_independent_seats_required": true,
+        "chair_pass_required": true,
+        "canonical_techniques": [
+          "cold_open",
+          "late_in_early_out",
+          "every_scene_turns",
+          "cross_cutting",
+          "button",
+          "dangle_setup_payoff",
+          "act_out",
+          "overlap_interrupt"
+        ],
+        "canonical_beat_fields_required": true,
+        "cross_cutting_required_only_for_dual_line_episode": true,
+        "unresolved_dangle_count_minimum": 2,
+        "act_out_interval_seconds_maximum": 50,
+        "revise_cascades_to_unproduced_affected_episodes": true,
+        "fs1_two_episode_true_fight_minimum": 1,
+        "fs1_minimum_fight_seconds": 15,
+        "fs1_skip_requires_roger": true
+      },
+      "authorization_ref": "ROGER-20260723-SUPERVISOR-LEDGER-CORRECTION",
+      "last_backtest_date": "2026-07-23",
+      "stage_runner_paths": [
+        "tools/episode_parallel_batch_supervisor.py"
+      ]
+    },
+    {
+      "gate_id": "DEFECT-TIER-TOLERANCE",
+      "stage": "SOURCE_QA_EDIT_ADMISSION_AND_PRE_RELEASE",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/defect_tolerance_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_defect_tolerance_gate.py"
+      ],
+      "parameters": {
+        "blocker_tolerance": 0,
+        "maximum_minor_shot_pct": 10.0,
+        "same_minor_consecutive_escalation_count": 3,
+        "opening_zero_tolerance_seconds": 10.0,
+        "tail_zero_tolerance_seconds": 5.0,
+        "conditional_admission_cannot_override": [
+          "AUDIENCE_SCORE_PRE_RELEASE",
+          "WATCH_LISTEN",
+          "ROGER_VETO"
+        ]
+      },
+      "authorization_ref": "ROGER-20260723-SUPERVISOR-LEDGER-CORRECTION",
+      "last_backtest_date": "2026-07-23",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "SPEAKER-VOICE-GENDER-BINDING",
+      "stage": "VIDEO_GENERATION_SUBMIT",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/multimodal_character_binding_guard.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_multimodal_character_binding_guard.py"
+      ],
+      "parameters": {
+        "gender_mismatch_action": "BLOCK",
+        "missing_voice_asset_status": "UNSUPPORTED",
+        "generic_tts_fallback_forbidden": true,
+        "nonexempt_roles_require_agentcut_registered_voice": true
+      },
+      "authorization_ref": "CL2X-607 / ROGER-20260723-SUPERVISOR-LEDGER-CORRECTION",
+      "last_backtest_date": "2026-07-23",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "MECHANICAL-DEFAULT-META-GATE",
+      "stage": "SCRIPT_PLAN_AND_GENERATION_SUBMIT",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/mechanical_default_gate.py",
+        "tools/episode_parallel_batch_supervisor.py",
+        "tools/submit_giggle_task_manifest.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_mechanical_default_gate.py",
+        "tools/tests/test_submit_corrected_pipeline_gate.py"
+      ],
+      "parameters": {
+        "all_variable_dimensions_covered": true,
+        "uniform_four_plus_units_require_independence_audit": true,
+        "new_global_default_requires_supervisor_review": true,
+        "case_specific_blacklist_is_insufficient": true
+      },
+      "authorization_ref": "ROGER-20260723-SUPERVISOR-LEDGER-CORRECTION",
+      "last_backtest_date": "2026-07-23",
+      "stage_runner_paths": [
+        "tools/episode_parallel_batch_supervisor.py"
+      ]
+    },
+    {
+      "gate_id": "VIDEO-UNIT-DYNAMIC-ANCHOR-COUNT",
+      "stage": "IMAGE_PLAN_AND_VIDEO_GENERATION_SUBMIT",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/video_unit_anchor_count_gate.py",
+        "tools/video_unit_state_plan_gate.py",
+        "tools/episode_parallel_batch_supervisor.py",
+        "tools/submit_giggle_task_manifest.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_video_unit_anchor_count_gate.py",
+        "tools/tests/test_video_unit_state_plan_gate.py",
+        "tools/tests/test_episode_parallel_batch_supervisor.py",
+        "tools/tests/test_submit_corrected_pipeline_gate.py"
+      ],
+      "parameters": {
+        "fixed_one_forbidden": true,
+        "fixed_multi_forbidden": true,
+        "per_unit_action_and_model_capability_decision_required": true,
+        "single_anchor_allowed_when_continuous_motion_is_supported": true,
+        "multi_anchor_requires_physical_interpolation_pass": true,
+        "planned_and_submitted_counts_must_match_exactly": true,
+        "uniform_four_plus_units_require_independence_audit": true
+      },
+      "authorization_ref": "ROGER-20260723-DYNAMIC-ANCHOR-COUNT / ROGER-20260723-SUPERVISOR-LEDGER-CORRECTION",
+      "last_backtest_date": "2026-07-23",
+      "stage_runner_paths": [
+        "tools/episode_parallel_batch_supervisor.py"
+      ]
+    },
+    {
+      "gate_id": "COMMON-SENSE-CAUSALITY-COUNTERFACTUAL",
+      "stage": "SCRIPT_PLAN_AND_GENERATION_SUBMIT",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/common_sense_causality_gate.py",
+        "tools/episode_parallel_batch_supervisor.py",
+        "tools/submit_giggle_task_manifest.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_common_sense_causality_gate.py",
+        "tools/tests/test_episode_stage_gate_runner.py",
+        "tools/tests/test_episode_parallel_batch_supervisor.py",
+        "tools/tests/test_submit_corrected_pipeline_gate.py"
+      ],
+      "parameters": {
+        "purpose_required": true,
+        "preconditions_required": true,
+        "mechanism_chain_required": true,
+        "visible_causality_required": true,
+        "counterfactual_opponent_bypass_must_be_disproved": true,
+        "prop_function_pass_required": true,
+        "missing_evidence_blocks_submission": true
+      },
+      "authorization_ref": "codex_常识因果审查模块_v3.2.md / CL2X-620",
+      "last_backtest_date": "2026-07-23",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py",
+        "tools/episode_parallel_batch_supervisor.py",
+        "tools/submit_giggle_task_manifest.py"
+      ]
+    },
+    {
+      "gate_id": "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF",
+      "stage": "VIDEO_UNIT_PLAN_AND_GENERATION_SUBMIT",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/action_shot_design_gate.py",
+        "tools/episode_parallel_batch_supervisor.py",
+        "tools/submit_giggle_task_manifest.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_action_shot_design_gate.py",
+        "tools/tests/test_submit_corrected_pipeline_gate.py"
+      ],
+      "parameters": {
+        "action_shot_is_core_80": true,
+        "one_primary_contact_per_action_shot": true,
+        "pre_contact_force_result_fields_required": true,
+        "cross_shot_state_handoff_required": true,
+        "maximum_information_beats_per_shot": 2,
+        "maximum_camera_moves_per_shot": 1,
+        "maximum_camera_family_share": 0.35,
+        "maximum_consecutive_camera_family": 2,
+        "maximum_action_result_read_seconds": 0.8,
+        "reset_or_replay_forbidden": true
+      },
+      "authorization_ref": "ROGER_DIRECT_E37_PROMPT_COMPOSITION_CORRECTION_20260803",
+      "last_backtest_date": "2026-08-03",
+      "stage_runner_paths": [
+        "tools/episode_parallel_batch_supervisor.py",
+        "tools/submit_giggle_task_manifest.py"
+      ]
+    },
+    {
+      "gate_id": "PERIOD-ANACHRONISM-LOCK",
+      "stage": "WORLD_PLAN_AND_GENERATION_SUBMIT",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/anachronism_lock_gate.py",
+        "tools/episode_parallel_batch_supervisor.py",
+        "tools/submit_giggle_task_manifest.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_anachronism_lock_gate.py",
+        "tools/tests/test_episode_stage_gate_runner.py",
+        "tools/tests/test_episode_parallel_batch_supervisor.py",
+        "tools/tests/test_submit_corrected_pipeline_gate.py"
+      ],
+      "parameters": {
+        "period_contract_required": true,
+        "visible_elements_review_required_per_unit": true,
+        "known_anachronism_detection_required": true,
+        "exceptions_require_roger_approval": true,
+        "missing_evidence_blocks_submission": true
+      },
+      "authorization_ref": "codex_常识因果审查模块_v3.2.md:C5 / CL2X-620",
+      "last_backtest_date": "2026-07-23",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py",
+        "tools/episode_parallel_batch_supervisor.py",
+        "tools/submit_giggle_task_manifest.py"
+      ]
+    },
+    {
+      "gate_id": "COMPLETE-VIDEO-PROMPT-MANIFEST",
+      "stage": "VIDEO_GENERATION_SUBMIT",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/episode_parallel_batch_supervisor.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_episode_parallel_batch_supervisor.py"
+      ],
+      "parameters": {
+        "minimum_episode": 32,
+        "all_episode_units_compiled_before_first_paid_video": true,
+        "source_plan_sha_binding_required": true,
+        "scene_authority_sha_binding_required": true,
+        "task_prompt_sha_must_match_manifest": true,
+        "stream_ready_units_after_complete_compile": true,
+        "corrected_pipeline_direct_submit_forbidden": true
+      },
+      "authorization_ref": "ROGER-20260723-COMPLETE-PROMPT-MANIFEST",
+      "last_backtest_date": "2026-07-23",
+      "stage_runner_paths": [
+        "tools/episode_parallel_batch_supervisor.py"
+      ]
+    },
+    {
+      "gate_id": "EXACT-DIALOGUE-AUDIO-MANIFEST-COVERAGE",
+      "stage": "VIDEO_GENERATION_SUBMIT",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/episode_parallel_batch_supervisor.py",
+        "tools/multimodal_character_binding_guard.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_episode_parallel_batch_supervisor.py",
+        "tools/tests/test_multimodal_character_binding_guard.py"
+      ],
+      "parameters": {
+        "every_scripted_line_must_match_unit_manifest_order": true,
+        "exact_target_dialogue_audio_required": true,
+        "native_dialogue_required_for_dialogue_units": true,
+        "prompt_text_only_is_not_audio_evidence": true,
+        "dynamic_n_of_n_coverage_required": true
+      },
+      "authorization_ref": "ROGER-20260723-EXACT-DIALOGUE-AUDIO",
+      "last_backtest_date": "2026-07-23",
+      "stage_runner_paths": [
+        "tools/episode_parallel_batch_supervisor.py"
+      ]
+    },
+    {
+      "gate_id": "SOURCE-VIDEO-NATIVE-DIALOGUE-ASR",
+      "stage": "VIDEO_GENERATION_SUBMIT_AND_SOURCE_ADMISSION",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/source_video_dialogue_gate.py",
+        "tools/qa_multimodal_dialogue_batch.py",
+        "tools/episode_parallel_batch_supervisor.py",
+        "tools/portable_runtime.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_source_video_dialogue_gate.py",
+        "tools/tests/test_qa_multimodal_dialogue_batch.py",
+        "tools/tests/test_episode_parallel_batch_supervisor.py"
+      ],
+      "parameters": {
+        "audio_stream_required_for_every_source_video": true,
+        "native_mandarin_required_when_script_has_dialogue": true,
+        "exact_dialogue_order_and_recall_required": true,
+        "sentence_tail_must_not_be_clipped": true,
+        "portable_ffprobe_and_whisper_resolution_required": true,
+        "failed_only_repair_required": true
+      },
+      "authorization_ref": "ROGER-20260727-PIPELINE-NATIVE-DIALOGUE-ASR",
+      "last_backtest_date": "2026-07-27",
+      "stage_runner_paths": [
+        "tools/episode_parallel_batch_supervisor.py"
+      ]
+    },
+    {
+      "gate_id": "POST-PUBLISH-EPISODE-STORAGE-RETENTION",
+      "stage": "STORAGE_RETENTION",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/s3_episode_archive.py",
+        "tools/episode_post_publish_cleanup.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_s3_episode_archive.py",
+        "tools/tests/test_episode_post_publish_cleanup.py"
+      ],
+      "parameters": {
+        "all_required_release_targets_must_be_published": true,
+        "minimum_hold_hours": 24,
+        "latest_final_sha_must_be_verified_before_archive": true,
+        "s3_head_and_stream_readback_sha_required": true,
+        "episode_scope_only": true,
+        "project_shared_assets_and_other_episodes_forbidden": true,
+        "all_local_episode_files_including_final_deleted_after_s3_verify": true,
+        "central_minimal_s3_archive_and_cleanup_receipts_retained": true,
+        "dry_run_before_apply_required": true
+      },
+      "authorization_ref": "ROGER-20260727-POST-PUBLISH-STORAGE-RETENTION",
+      "last_backtest_date": "2026-07-27",
+      "stage_runner_paths": [
+        "tools/episode_post_publish_cleanup.py"
+      ]
+    },
+    {
+      "gate_id": "BGM-SOURCE-PRIORITY-AUTHENTICITY",
+      "stage": "FINAL_MIX",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/bgm_authenticity_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_bgm_authenticity_gate.py"
+      ],
+      "parameters": {
+        "primary_source": "GENERATED_EPISODE_BGM",
+        "fallback_source": "LIBRARY_FALLBACK",
+        "fallback_reason_required": true,
+        "library_cross_episode_similarity_pass_required": true,
+        "generated_account_provenance_required": true,
+        "real_stem_required": true,
+        "dialogue_duck_db_min": -10,
+        "dialogue_duck_db_max": -6
+      },
+      "authorization_ref": "ROGER-20260723-AGENT-GENERATED-BGM-PROVENANCE",
+      "last_backtest_date": "2026-07-23",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "SCRIPT-US-DRAMA-EVENT-DENSITY",
+      "stage": "SCRIPT_APPROVAL_BEFORE_GENERATION",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/us_drama_event_density_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_us_drama_event_density_gate.py"
+      ],
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ],
+      "parameters": {
+        "event_density_min_per_minute": 4.0,
+        "event_density_target_max_per_minute": 6.0,
+        "maximum_information_gap_seconds": 20,
+        "maximum_non_advancing_atmosphere_pct": 15.0,
+        "scene_count_range": [
+          8,
+          12
+        ],
+        "maximum_scene_seconds": 22,
+        "minimum_distinct_locations": 4,
+        "location_count_basis": "manifest.pacing_v2.location_list",
+        "maximum_consecutive_same_location": 2,
+        "minimum_time_jumps": 1,
+        "minimum_parallel_threads": 2,
+        "minimum_cross_cuts": 3,
+        "maximum_scenes_without_turn": 0,
+        "maximum_new_locations": 2,
+        "maximum_dialogue_ratio": 0.35,
+        "maximum_action_scene_dialogue_ratio": 0.2,
+        "structure_enforced_from_episode": "E41",
+        "legacy_backtest_mode": "WARNING_ONLY",
+        "scope": "R-49_NUMERIC_PLUS_STRUCTURE_V2"
+      },
+      "authorization_ref": "ROGER-20260818-US-PACING-V2-RESTRUCTURE",
+      "last_backtest_date": "2026-08-18"
+    },
+    {
+      "gate_id": "VIDEO-PERFORMANCE-NATURAL-SPLIT",
+      "stage": "VIDEO_GENERATION_SUBMIT_AND_SOURCE_ADMISSION",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/performance_unit_split_gate.py",
+        "tools/episode_parallel_batch_supervisor.py",
+        "tools/episode_stage_gate_runner.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_performance_unit_split_gate.py"
+      ],
+      "parameters": {
+        "natural_authored_boundary_required": true,
+        "equal_duration_partition_forbidden": true,
+        "original_duration_floor_forbidden": true,
+        "reference_count_is_dynamic_per_unit": true,
+        "same_speaker_contiguous_dialogue_uses_one_beat_aligned_audio": true,
+        "each_independently_ready_unit_submitted_immediately": true,
+        "episode_wide_wait_forbidden": true,
+        "passed_sibling_rerun_forbidden": true,
+        "failed_only_repair_requires_changed_input": true,
+        "post_generation_exact_replacement_coverage_required": true,
+        "conditional_admission_requires_original_fail_confidence_rollback_and_replacement_condition": true
+      },
+      "authorization_ref": "ROGER-20260723-NATURAL-PERFORMANCE-SPLIT-STANDARD",
+      "last_backtest_date": "2026-07-23",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    }
+  ],
+  "withdrawn_gates": [
+    {
+      "former_gate_id": "FINAL-CUT-LOCATION-DIVERSITY",
+      "withdrawn_on": "2026-07-18",
+      "withdrawn_by": "Claude 监制",
+      "authorization_ref": "CL2X-294",
+      "reason": "原为 LOCATION-DIVERSITY 阻断门,2026-07-18 被 E16 证伪后撤销阻断力。同一代码:E19R 86.5%(实为一条巷子,真阳性)/E16 88.8%(实为医馆+庭院+街巷,假阳性)。该指标量的是调色与光线统一度,不等于场景数;结构签名判别试验反使排序更错(E16 32.2% vs E19R 21.0% 相近配对)。\"是否一景到底\"暂由监制看图人工判定。",
+      "falsifier": {
+        "episode": "E16",
+        "measured_pct": 88.791,
+        "true_state": "多场景(医馆内景+庭院+街巷)",
+        "comparison": {
+          "E19R": 86.471,
+          "E19R_true_state": "确为单一巷道"
+        }
+      },
+      "emitted_as": "OBSERVE finding G6_PALETTE_UNIFORMITY_ADVISORY, 无阻断力",
+      "reinstatement_condition": "新指标必须先在 E16 上低于 E19R,方可重新获得阻断力",
+      "interim_control": "\"是否一景到底\" 由监制看 contact sheet 人工判定",
+      "code_paths": [
+        "tools/final_cut_objective_metrics.py",
+        "tools/final_cut_quality_gates.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_final_cut_quality_gates_portable.py::PortableFinalCutGateTests.test_palette_uniformity_is_advisory"
+      ]
+    }
+  ],
+  "version": "v3.5-natural-performance-split-runtime-contract",
+  "meta_rules": [
+    {
+      "rule_id": "REGISTRY-META-05-RUNTIME-INVOCATION",
+      "rule": "A CODED gate is not complete until at least one declared stage runner invokes it and writes per-episode invoked/status evidence. Missing evidence is fail-closed.",
+      "effective_from_episode": "E28",
+      "authorization_ref": "CL2X-620"
+    }
+  ]
+}
