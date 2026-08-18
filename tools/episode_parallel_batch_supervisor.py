@@ -121,6 +121,7 @@ SEEDANCE_REFERENCE_IMAGE_MAX_BYTES = 30 * 1024 * 1024
 SEEDANCE_REFERENCE_IMAGE_MIN_SHORT_EDGE = 512
 TERMINAL_TASK_STATES = {
     "qa_pass",
+    "technical_pass_content_unreviewed",
     "admitted_for_assembly",
     "image_pass",
     "qa_failed_terminal",
