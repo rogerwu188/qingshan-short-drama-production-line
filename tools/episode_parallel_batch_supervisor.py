@@ -58,6 +58,7 @@ try:
         validate_task_bindings as validate_action_shot_bindings,
         validate_tail_chained_submission,
     )
+    from shot_media_admission_gate import evaluate_path as evaluate_shot_media_admission
     from anachronism_lock_gate import evaluate as evaluate_anachronism_lock
     from cut_motivation_gate import evaluate as evaluate_cut_motivation
     from performance_unit_split_gate import evaluate as evaluate_performance_unit_split
@@ -102,6 +103,7 @@ except ModuleNotFoundError:  # Imported as tools.episode_parallel_batch_supervis
         validate_task_bindings as validate_action_shot_bindings,
         validate_tail_chained_submission,
     )
+    from tools.shot_media_admission_gate import evaluate_path as evaluate_shot_media_admission
     from tools.anachronism_lock_gate import evaluate as evaluate_anachronism_lock
     from tools.cut_motivation_gate import evaluate as evaluate_cut_motivation
     from tools.performance_unit_split_gate import evaluate as evaluate_performance_unit_split
@@ -119,6 +121,7 @@ SEEDANCE_REFERENCE_IMAGE_MAX_BYTES = 30 * 1024 * 1024
 SEEDANCE_REFERENCE_IMAGE_MIN_SHORT_EDGE = 512
 TERMINAL_TASK_STATES = {
     "qa_pass",
+    "admitted_for_assembly",
     "image_pass",
     "qa_failed_terminal",
     "remote_failed_terminal",
@@ -128,7 +131,7 @@ TERMINAL_TASK_STATES = {
     "tool_blocked",
     "complete",
 }
-SUCCESS_TASK_STATES = {"qa_pass", "image_pass", "tool_pass", "complete"}
+SUCCESS_TASK_STATES = {"qa_pass", "admitted_for_assembly", "image_pass", "tool_pass", "complete"}
 CREDIT_KEYS = {
     "credit",
     "credits",
@@ -1072,7 +1075,7 @@ def abs_path(value: str | Path) -> Path:
 
 
 def validate_corrected_pipeline_quality(config: dict) -> dict:
-    episode_match = re.fullmatch(r"E(\d+)", str(config.get("episode") or "").upper())
+    episode_match = re.match(r"E(\d+)(?:\D|$)", str(config.get("episode") or "").upper())
     episode_number = int(episode_match.group(1)) if episode_match else 0
     required = episode_number >= 28 or config.get("effective_ruleset") == "QINGSHAN_PIPELINE_EFFECTIVE_RULESET_V1"
     if not required:
@@ -1158,6 +1161,57 @@ def validate_corrected_pipeline_quality(config: dict) -> dict:
         "required": True,
         "status": "PASS" if not failures else "FAIL",
         "reports": reports,
+        "failures": failures,
+    }
+
+
+def validate_keyframe_admissions(config: dict) -> dict:
+    """Require exact-SHA content-admitted start frames before E40+ video spend."""
+    match = re.match(r"E(\d+)(?:\D|$)", str(config.get("episode") or "").upper())
+    episode_number = int(match.group(1)) if match else 0
+    failures: list[str] = []
+    decisions: list[dict] = []
+    if episode_number < 40:
+        return {"status": "NOT_APPLICABLE", "required": False, "decisions": [], "failures": []}
+    for task in config.get("tasks") or []:
+        if task.get("tool_type", "video_generation") != "video_generation" or not task_config_is_ready(task):
+            continue
+        task_id = str(task.get("task_key") or task.get("source_id") or "UNKNOWN")
+        value = task.get("start_frame_admission_ref")
+        if not value:
+            failures.append(f"{task_id}:start_frame_admission_ref_missing")
+            continue
+        path = abs_path(value)
+        if not path.is_file():
+            failures.append(f"{task_id}:start_frame_admission_not_found:{path}")
+            continue
+        try:
+            result = evaluate_shot_media_admission(path, ROOT)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            failures.append(f"{task_id}:start_frame_admission_unreadable:{type(exc).__name__}")
+            continue
+        decisions.append({"task_key": task_id, "path": str(path), "result": result})
+        if result.get("status") != "ADMITTED_FOR_VIDEO_SUBMIT":
+            failures.append(f"{task_id}:start_frame_not_admitted")
+            continue
+        admitted_path = Path(str(result.get("asset_path") or ""))
+        references = task.get("reference_image_sequence") or []
+        first = references[0] if references else {}
+        task_reference = first.get("path") or ((task.get("reference_images") or [None])[0])
+        if not task_reference or abs_path(task_reference).resolve() != admitted_path.resolve():
+            failures.append(f"{task_id}:first_temporal_reference_is_not_admitted_start_frame")
+        if first and first.get("role") not in {
+            "ADMITTED_EXACT_START_FRAME",
+            "EXACT_PREDECESSOR_ACCEPTED_TAIL_AND_START_FRAME",
+        }:
+            failures.append(f"{task_id}:first_reference_role_not_admitted_start_frame")
+        if str(task.get("start_frame_sha256") or "") != str(result.get("asset_sha256") or ""):
+            failures.append(f"{task_id}:start_frame_sha256_not_bound_to_admission")
+    return {
+        "schema": "qingshan.keyframe_video_submit_admission.v1",
+        "required": True,
+        "status": "PASS" if not failures else "FAIL",
+        "decisions": decisions,
         "failures": failures,
     }
 
@@ -1525,6 +1579,28 @@ def submit_one(task: dict, receipt: dict) -> dict:
     if tool_type not in {"video_generation", "image_generation"}:
         return {"state": "tool_failed_terminal", "tool_error": f"unsupported_tool_type:{tool_type}"}
     if tool_type == "video_generation":
+        match = re.match(r"E(\d+)(?:\D|$)", str(receipt.get("episode") or "").upper())
+        if match and int(match.group(1)) >= 40:
+            admission_ref = task.get("start_frame_admission_ref")
+            if not admission_ref:
+                return {
+                    "status": "submit_blocked", "state": "tool_blocked",
+                    "block_code": "BLOCK_START_FRAME_CONTENT_ADMISSION_MISSING",
+                }
+            try:
+                admission = evaluate_shot_media_admission(abs_path(admission_ref), ROOT)
+            except (OSError, json.JSONDecodeError, ValueError) as exc:
+                return {
+                    "status": "submit_blocked", "state": "tool_blocked",
+                    "block_code": "BLOCK_START_FRAME_CONTENT_ADMISSION_UNREADABLE",
+                    "error": type(exc).__name__,
+                }
+            if admission.get("status") != "ADMITTED_FOR_VIDEO_SUBMIT":
+                return {
+                    "status": "submit_blocked", "state": "tool_blocked",
+                    "block_code": "BLOCK_START_FRAME_NOT_CONTENT_ADMITTED",
+                    "admission": admission,
+                }
         binding_gate = evaluate_multimodal_character_task(task)
         if binding_gate.get("status") != "PASS":
             return {
@@ -1773,7 +1849,9 @@ def run_qa(task: dict, output: Path, batch_receipt: dict) -> dict:
         "output_path": str(qa_output),
         "sha256": sha,
         "qa": {
-            "status": "PASS" if not failures else "FAIL_WITH_AUTOMATIC_RETRY",
+            "status": "TECHNICAL_PASS_CONTENT_UNREVIEWED" if not failures else "TECHNICAL_FAIL",
+            "scope": "TECHNICAL_AND_MACHINE_CHECKS_ONLY",
+            "content_admission_status": "PENDING_ORIGINAL_RESOLUTION_REVIEW" if not failures else "NOT_APPLICABLE",
             "failures": failures,
             "frame_cadence": str(cadence_gate_path),
             "raw_frame_cadence": str(cadence_path),
@@ -1786,7 +1864,10 @@ def run_qa(task: dict, output: Path, batch_receipt: dict) -> dict:
             "recorded_at": now(),
         },
     })
-    return {"status": "qa_pass" if not failures else "qa_failed", "failures": failures}
+    return {
+        "status": "technical_pass_content_unreviewed" if not failures else "qa_failed",
+        "failures": failures,
+    }
 
 
 def submission_scope_tasks(config: dict) -> list[dict]:
@@ -2158,8 +2239,9 @@ def harvest_completed_task(task: dict, result: dict, receipt: dict) -> None:
         task.update({"state": "image_pass", "output_path": str(output), "sha256": subprocess.check_output(["shasum", "-a", "256", str(output)], text=True).split()[0], "recorded_at": now()})
         return
     qa = run_qa(task, output, receipt)
-    if qa["status"] == "qa_pass":
-        task["state"] = "qa_pass"
+    if qa["status"] == "technical_pass_content_unreviewed":
+        match = re.match(r"E(\d+)(?:\D|$)", str(receipt.get("episode") or "").upper())
+        task["state"] = "technical_pass_content_unreviewed" if match and int(match.group(1)) >= 40 else "qa_pass"
         return
     task["failure_evidence"] = qa["failures"]
     # Preserve the charged remote asset for prompt-aware failed-only repair.
@@ -2718,6 +2800,22 @@ def main() -> int:
             "recorded_at": now(),
         })
         return 2
+    keyframe_gate = validate_keyframe_admissions(config)
+    keyframe_gate_path = abs_path(config.get("qa_dir", "qa")) / f"{safe(config.get('episode', 'episode'))}_KEYFRAME_VIDEO_SUBMIT_ADMISSION.json"
+    atomic_json(keyframe_gate_path, keyframe_gate)
+    if keyframe_gate.get("status") == "FAIL":
+        atomic_blocked_receipt(receipt_path, {
+            "schema": "qingshan.episode_parallel_batch.v1",
+            "episode": config.get("episode"),
+            "status": "BLOCKED_KEYFRAME_CONTENT_ADMISSION",
+            "local_pid": None,
+            "config": str(config_path),
+            "keyframe_admission_report": str(keyframe_gate_path),
+            "failures": keyframe_gate.get("failures", []),
+            "rollback": "Create an exact-SHA formal start-frame admission from registered identity, scene, action-state, and period gates; advisory or technical-only evidence cannot authorize paid video submission.",
+            "recorded_at": now(),
+        })
+        return 2
     qa_runtime_path = abs_path(config.get("qa_dir", "qa")) / f"{safe(config.get('episode', 'episode'))}_SOURCE_VIDEO_QA_RUNTIME.json"
     qa_python, qa_runtime = resolve_qa_python()
     atomic_json(qa_runtime_path, qa_runtime)
@@ -2753,6 +2851,7 @@ def main() -> int:
             "prompt_professionalism_report": str(prompt_gate_path),
             "multimodal_character_binding_report": str(binding_gate_path),
             "scene_authority_report": str(scene_gate_path),
+            "keyframe_admission_report": str(keyframe_gate_path),
             "qa_runtime_report": str(qa_runtime_path),
             "qa_python": qa_python,
             "task_keys": [task.get("task_key") for task in config.get("tasks", [])],

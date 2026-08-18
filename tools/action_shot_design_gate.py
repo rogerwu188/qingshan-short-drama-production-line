@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,20 @@ ACTION_REQUIRED_FIELDS = (
     "force_direction",
     "force_feedback",
     "result_state",
+)
+SPATIAL_ACTION_REQUIRED_FIELDS = (
+    "episode_global_space_map_id",
+    "global_space_map_id",
+    "subspace_id",
+    "room_id",
+    "angle_id",
+    "axis_id",
+    "script_action",
+    "script_action_sha256",
+    "canonical_script_path",
+    "canonical_script_sha256",
+    "start_state_token",
+    "end_state_token",
 )
 
 
@@ -37,6 +52,7 @@ def contract_payload(shot: dict[str, Any]) -> dict[str, Any]:
         "continuity_group": shot.get("continuity_group"),
         "entry_state_token": shot.get("entry_state_token"),
         "exit_state_token": shot.get("exit_state_token"),
+        "spatial_action_contract": shot.get("spatial_action_contract"),
     }
 
 
@@ -49,6 +65,30 @@ def contract_sha256(shot: dict[str, Any]) -> str:
 
 def prompt_marker(shot: dict[str, Any]) -> str:
     return f"[ACTION_SHOT_CONTRACT_V1:{contract_sha256(shot)}]"
+
+
+def prompt_spatial_block(shot: dict[str, Any]) -> str:
+    """Compile the spatial contract into provider-readable prompt text."""
+    spatial = shot.get("spatial_action_contract") or {}
+    trajectories = []
+    for row in spatial.get("trajectories") or []:
+        points = [row.get("start"), *(row.get("waypoints") or []), row.get("end")]
+        trajectories.append(
+            f"{row.get('entity_id')}:{json.dumps(points, ensure_ascii=False, separators=(',', ':'))}"
+            f"=>{row.get('end_state')}"
+        )
+    return "\n".join([
+        "[SPATIAL_ACTION_CONTRACT_V1]",
+        f"整集空间地图ID={spatial.get('episode_global_space_map_id')}",
+        f"地点空间地图ID={spatial.get('global_space_map_id')}",
+        f"镜头子空间ID={spatial.get('subspace_id')}",
+        f"房间/机位/轴={spatial.get('room_id')}/{spatial.get('angle_id')}/{spatial.get('axis_id')}",
+        f"剧本原动作={spatial.get('script_action')}",
+        f"动作轨迹={'；'.join(trajectories)}",
+        f"遮挡约束={'；'.join(str(value) for value in spatial.get('occlusion_constraints') or [])}",
+        f"退路与反制={'；'.join(str(value) for value in spatial.get('escape_and_counter_paths') or [])}",
+        "[/SPATIAL_ACTION_CONTRACT_V1]",
+    ])
 
 
 def validate_task_bindings(
@@ -74,6 +114,42 @@ def validate_task_bindings(
         expected = contract_sha256(shots[shot_id])
         if task.get("action_design_contract_sha256") != expected:
             failures.append(f"{task_id}:action_design_contract_sha256_mismatch")
+        spatial = shots[shot_id].get("spatial_action_contract") or {}
+        task_subspace = task.get("subspace_layout") or {}
+        for field, task_value in (
+            ("episode_global_space_map_id", task.get("episode_global_space_map_id")),
+            ("global_space_map_id", task.get("global_space_map_id")),
+            ("subspace_id", task_subspace.get("subspace_id")),
+            ("room_id", task.get("room_id")),
+            ("angle_id", task.get("angle_id")),
+            ("axis_id", task_subspace.get("axis_id")),
+        ):
+            if spatial and spatial.get(field) != task_value:
+                failures.append(f"{task_id}:spatial_action_{field}_mismatch")
+        if spatial:
+            source_action = str((task.get("prompt_contract") or {}).get("source_action") or "")
+            if source_action != spatial.get("script_action"):
+                failures.append(f"{task_id}:spatial_action_source_action_mismatch")
+            start_rows = {
+                str(row.get("character_id") or row.get("prop_id")): row
+                for row in [
+                    *((task.get("blocking") or {}).get("characters") or []),
+                    *((task.get("blocking") or {}).get("props") or []),
+                ]
+            }
+            end_rows = {
+                str(row.get("character_id") or row.get("prop_id")): row
+                for row in [
+                    *((task.get("action_end_blocking") or {}).get("characters") or []),
+                    *((task.get("action_end_blocking") or {}).get("props") or []),
+                ]
+            }
+            for trajectory in spatial.get("trajectories") or []:
+                entity_id = str(trajectory.get("entity_id") or "")
+                if (start_rows.get(entity_id) or {}).get("position") != trajectory.get("start"):
+                    failures.append(f"{task_id}:spatial_action_{entity_id}_start_not_bound_to_task_blocking")
+                if (end_rows.get(entity_id) or {}).get("position") != trajectory.get("end"):
+                    failures.append(f"{task_id}:spatial_action_{entity_id}_end_not_bound_to_task_end_blocking")
         prompt_value = task.get("prompt_path") or task.get("prompt_file")
         if not prompt_value:
             failures.append(f"{task_id}:compiled_prompt_path_missing")
@@ -86,6 +162,8 @@ def validate_task_bindings(
             continue
         if prompt_marker(shots[shot_id]) not in prompt_path.read_text(encoding="utf-8"):
             failures.append(f"{task_id}:action_design_contract_not_compiled_into_prompt")
+        elif spatial and prompt_spatial_block(shots[shot_id]) not in prompt_path.read_text(encoding="utf-8"):
+            failures.append(f"{task_id}:spatial_action_contract_not_readable_in_prompt")
     for shot_id in sorted(required_action_shots - set(bound_action_shots)):
         failures.append(f"{shot_id}:action_design_shot_unbound")
     for shot_id, count in Counter(bound_action_shots).items():
@@ -148,6 +226,152 @@ def _text(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def _episode_number(value: Any) -> int:
+    text = str(value or "").upper()
+    match = re.match(r"E(\d+)(?:\D|$)", text)
+    return int(match.group(1)) if match else 0
+
+
+def _point(value: Any) -> bool:
+    return (
+        isinstance(value, list)
+        and len(value) in {2, 3}
+        and all(isinstance(item, (int, float)) for item in value)
+    )
+
+
+def _point_in_polygon(point: list[float], polygon: list[list[float]]) -> bool:
+    """Boundary-inclusive 2D ray casting; z, when present, is ignored."""
+    x, y = point[:2]
+    inside = False
+    for index, first in enumerate(polygon):
+        second = polygon[(index + 1) % len(polygon)]
+        x1, y1 = first[:2]
+        x2, y2 = second[:2]
+        cross = (x - x1) * (y2 - y1) - (y - y1) * (x2 - x1)
+        if abs(cross) < 1e-9 and min(x1, x2) <= x <= max(x1, x2) and min(y1, y2) <= y <= max(y1, y2):
+            return True
+        if (y1 > y) != (y2 > y):
+            crossing_x = (x2 - x1) * (y - y1) / (y2 - y1) + x1
+            if x < crossing_x:
+                inside = not inside
+    return inside
+
+
+def _orientation(a: list[float], b: list[float], c: list[float]) -> float:
+    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+
+def _segments_intersect(a: list[float], b: list[float], c: list[float], d: list[float]) -> bool:
+    first = _orientation(a, b, c)
+    second = _orientation(a, b, d)
+    third = _orientation(c, d, a)
+    fourth = _orientation(c, d, b)
+    return (
+        ((first > 0 > second) or (first < 0 < second))
+        and ((third > 0 > fourth) or (third < 0 < fourth))
+    )
+
+
+def _polyline_crosses_polygon(points: list[list[float]], polygon: list[list[float]]) -> bool:
+    if any(_point_in_polygon(point, polygon) for point in points):
+        return True
+    edges = list(zip(polygon, polygon[1:] + polygon[:1]))
+    return any(
+        _segments_intersect(start, end, edge_start, edge_end)
+        for start, end in zip(points, points[1:])
+        for edge_start, edge_end in edges
+    )
+
+
+def _validate_spatial_action(shot: dict[str, Any]) -> list[str]:
+    failures: list[str] = []
+    contract = shot.get("spatial_action_contract")
+    if not isinstance(contract, dict):
+        return ["spatial_action_contract_missing"]
+    for field in SPATIAL_ACTION_REQUIRED_FIELDS:
+        if not _text(contract.get(field)):
+            failures.append(f"spatial_action_{field}_missing")
+    script_action = str(contract.get("script_action") or "")
+    actual_script_sha = hashlib.sha256(script_action.encode("utf-8")).hexdigest()
+    if contract.get("script_action_sha256") != actual_script_sha:
+        failures.append("spatial_action_script_sha256_mismatch")
+    canonical_path_value = str(contract.get("canonical_script_path") or "")
+    canonical_path = Path(canonical_path_value)
+    if canonical_path_value and not canonical_path.is_absolute():
+        canonical_path = Path(__file__).resolve().parents[1] / canonical_path
+    if canonical_path_value:
+        if not canonical_path.is_file():
+            failures.append("spatial_action_canonical_script_missing")
+        else:
+            canonical_bytes = canonical_path.read_bytes()
+            if contract.get("canonical_script_sha256") != hashlib.sha256(canonical_bytes).hexdigest():
+                failures.append("spatial_action_canonical_script_sha256_mismatch")
+            elif script_action not in canonical_bytes.decode("utf-8"):
+                failures.append("spatial_action_script_action_not_verbatim_in_canonical")
+    if contract.get("start_state_token") != shot.get("entry_state_token"):
+        failures.append("spatial_action_start_state_token_mismatch")
+    if contract.get("end_state_token") != shot.get("exit_state_token"):
+        failures.append("spatial_action_end_state_token_mismatch")
+    polygon = contract.get("subspace_polygon")
+    if not isinstance(polygon, list) or len(polygon) < 3 or not all(_point(point) for point in polygon):
+        failures.append("spatial_action_subspace_polygon_invalid")
+        polygon = []
+    obstacles = contract.get("non_traversable_obstacles")
+    if not isinstance(obstacles, list):
+        failures.append("spatial_action_obstacles_not_declared")
+        obstacles = []
+    else:
+        for obstacle in obstacles:
+            if not _text(obstacle.get("element_id")) or not isinstance(obstacle.get("polygon"), list) or len(obstacle["polygon"]) < 3:
+                failures.append("spatial_action_obstacle_invalid")
+    trajectories = contract.get("trajectories")
+    if not isinstance(trajectories, list) or not trajectories:
+        failures.append("spatial_action_trajectories_missing")
+        trajectories = []
+    for trajectory_index, trajectory in enumerate(trajectories, 1):
+        prefix = f"spatial_action_trajectory_{trajectory_index}"
+        for field in ("entity_id", "trajectory_type", "start", "waypoints", "end", "end_state"):
+            if trajectory.get(field) in (None, ""):
+                failures.append(f"{prefix}_{field}_missing")
+        points = [trajectory.get("start"), *(trajectory.get("waypoints") or []), trajectory.get("end")]
+        if not all(_point(point) for point in points):
+            failures.append(f"{prefix}_points_invalid")
+            continue
+        if polygon and any(not _point_in_polygon(point, polygon) for point in points):
+            failures.append(f"{prefix}_leaves_locked_subspace")
+        allowed_contacts = set(trajectory.get("allowed_obstacle_contact_ids") or [])
+        for obstacle in obstacles:
+            obstacle_polygon = obstacle.get("polygon") or []
+            if len(obstacle_polygon) < 3:
+                continue
+            if obstacle.get("element_id") in allowed_contacts:
+                continue
+            if _polyline_crosses_polygon(points, obstacle_polygon):
+                failures.append(f"{prefix}_crosses_non_traversable:{obstacle.get('element_id')}")
+        if trajectory.get("start") != trajectory.get("blocking_start_position"):
+            failures.append(f"{prefix}_start_not_equal_locked_blocking")
+        if trajectory.get("end") != trajectory.get("declared_end_position"):
+            failures.append(f"{prefix}_end_not_equal_declared_end_state")
+        if trajectory.get("zone_transition") is True and not trajectory.get("portal_ids"):
+            failures.append(f"{prefix}_zone_transition_without_portal")
+    if contract.get("camera_readability") not in {"PASS", True}:
+        failures.append("spatial_action_camera_readability_not_locked")
+    if not isinstance(contract.get("occlusion_constraints"), list) or not contract.get("occlusion_constraints"):
+        failures.append("spatial_action_occlusion_constraints_not_declared")
+    if not isinstance(contract.get("escape_and_counter_paths"), list) or not contract.get("escape_and_counter_paths"):
+        failures.append("spatial_action_escape_and_counter_paths_not_declared")
+    declared_portals = set(contract.get("declared_portal_ids") or [])
+    used_portals = {
+        portal
+        for trajectory in trajectories
+        for portal in trajectory.get("portal_ids") or []
+    }
+    if not used_portals.issubset(declared_portals):
+        failures.append("spatial_action_uses_undeclared_portal")
+    return failures
+
+
 def evaluate(plan: dict[str, Any]) -> dict[str, Any]:
     shots = plan.get("shots")
     failures: list[str] = []
@@ -161,6 +385,10 @@ def evaluate(plan: dict[str, Any]) -> dict[str, Any]:
     maximum_information_beats = int(plan.get("maximum_information_beats_per_shot", 2))
     maximum_camera_family_share = float(plan.get("maximum_camera_family_share", 0.35))
     maximum_consecutive_camera_family = int(plan.get("maximum_consecutive_camera_family", 2))
+    spatial_action_required = (
+        plan.get("spatial_action_layout_required") is True
+        or _episode_number(plan.get("episode")) >= 40
+    )
 
     for index, shot in enumerate(shots, 1):
         shot_id = str(shot.get("shot_id") or f"SHOT_{index}")
@@ -190,6 +418,9 @@ def evaluate(plan: dict[str, Any]) -> dict[str, Any]:
             shot_failures.append("camera_moves_not_explicit")
         elif len(moves) > 1:
             shot_failures.append(f"camera_move_budget_exceeded:{len(moves)}>1")
+
+        if spatial_action_required:
+            shot_failures.extend(_validate_spatial_action(shot))
 
         if action_unit is True:
             if str(shot.get("visual_tier") or "").upper() != "CORE":
@@ -282,6 +513,9 @@ def evaluate(plan: dict[str, Any]) -> dict[str, Any]:
             "maximum_consecutive_camera_family": maximum_consecutive_camera_family,
             "maximum_action_result_read_seconds": 0.8,
             "cross_shot_state_token_match_required": True,
+            "spatial_action_layout_required": spatial_action_required,
+            "trajectory_must_stay_inside_locked_subspace": spatial_action_required,
+            "blocking_start_and_declared_end_must_match_trajectory": spatial_action_required,
         },
         "shot_count": len(shots),
         "decisions": decisions,

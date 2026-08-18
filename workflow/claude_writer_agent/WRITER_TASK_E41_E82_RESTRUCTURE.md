@@ -86,6 +86,8 @@
 8. **动作可视化四步**（每动作镜）：问目的/赌注 → 找无形要素 → 给每个无形一个从角色能力推出的可见现象 → 遮剧本自检观众能否读懂「发生什么+为什么」。
 9. **提速 M-032**：主线三问每集至少一问给能复述的硬答案；新名字每 4 集 ≤1 个且须活到结算；延宕每卷 ≤1 次；每 2 集一个可复述大揭示。
 10. **逐镜 `shot_treatment` 由剧本决定**（景别/机位/运镜/图数/时长），禁固定模板；时长逐镜 **4–15s 不均匀**，禁静止起手措辞。
+11. **整集全局空间地图**：先定义覆盖全部地点的 `EPISODE-GLOBAL-SPACE-MAP-ID`，再为每地点定义可跨集继承的 `GLOBAL-SPACE-MAP-ID`，逐镜绑定 `ROOM-ID / ZONE-ID / ANGLE-ID / SUBSPACE-ID`，最后才写人物/物品站位。完整继承必须保持 ID、版本、拓扑 SHA、地图图 SHA 一致；部分继承新增地点必须新建整集集合 ID。
+12. **动作轨迹服从空间**：每个动作镜在锁定 `SUBSPACE-ID` 和人物/物品起始站位后填写 `spatial_action_contract`，包含剧本动作原文及 SHA、轨迹起点/中间点/终点、接触/受力、不可穿越物、跨区入口、遮挡、退路、反制和终态；动作不得出子空间、穿固定物或与剧本终态冲突。
 
 ---
 
@@ -112,6 +114,8 @@
 ```
 
 `distinct_locations` 的机器计数唯一事实源是 `location_list` 的项目数。连续三集 `scene_count` 相同且确有剧情依据时，另填非空 `scene_count_justification`。交监制前必须运行 `tools/us_drama_event_density_gate.py`，不得只做文档自检。
+
+同一 manifest 还必须填写 `episode_global_space_map_id`、`global_space_map_refs` 和逐镜 `shot_subspace_bindings`。空间地图由 Pipeline 生成/准入媒体并补齐 SHA；Writer 负责先完成拓扑、分区、机位和走位合同，不能把空间设计留给生图模型猜测。
 
 ---
 

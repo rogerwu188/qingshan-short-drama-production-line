@@ -24,7 +24,8 @@
     "ROGER-20260727-PIPELINE-ASSET-LIBRARY",
     "ROGER-20260727-PIPELINE-NATIVE-DIALOGUE-ASR",
     "ROGER-20260727-POST-PUBLISH-STORAGE-RETENTION",
-    "ROGER-20260818-US-PACING-V2-RESTRUCTURE"
+    "ROGER-20260818-US-PACING-V2-RESTRUCTURE",
+    "ROGER-20260818-EPISODE-GLOBAL-SPACE-MAP"
   ],
   "meta_rule": "A new lesson is not frozen until mailbox_ref, code_or_manual_checklist, test_or_required_fields, and registry_entry all exist.",
   "gates": [
@@ -60,21 +61,38 @@
       "implementation_type": "CODED",
       "code_paths": [
         "tools/scene_authority_lock.py",
+        "tools/global_space_layout_gate.py",
+        "tools/submit_giggle_image_manifest.py",
         "tools/episode_parallel_batch_supervisor.py"
       ],
       "test_paths": [
-        "tools/tests/test_scene_authority_lock.py"
+        "tools/tests/test_scene_authority_lock.py",
+        "tools/tests/test_global_space_layout_gate.py",
+        "tools/tests/test_submit_giggle_image_manifest.py"
       ],
       "parameters": {
         "scene_state_required": true,
         "scene_id_and_visual_zone_required_per_task": true,
+        "episode_global_space_map_id_required": true,
+        "global_space_map_id_cross_episode_inheritance_allowed": true,
+        "inherited_map_id_version_topology_and_image_sha_must_match": true,
+        "episode_map_must_cover_all_episode_locations": true,
+        "shot_subspace_must_derive_from_locked_place_map": true,
+        "character_and_prop_blocking_must_resolve_after_subspace_lock": true,
+        "required_resolution_order": [
+          "EPISODE_GLOBAL_SPACE_MAP",
+          "GLOBAL_SPACE_MAP",
+          "SHOT_SUBSPACE_LAYOUT",
+          "CHARACTER_PROP_BLOCKING"
+        ],
+        "effective_from_episode": "E40",
         "undeclared_location_time_weather_forbidden": true,
         "adjacent_same_scene_visual_zone_repeat_forbidden": true,
         "three_episode_night_run_requires_continuity_reason": true,
         "no_remote_submission_on_fail": true
       },
-      "authorization_ref": "CL2X-301",
-      "last_backtest_date": "2026-07-18",
+      "authorization_ref": "ROGER-20260818-EPISODE-GLOBAL-SPACE-MAP",
+      "last_backtest_date": "2026-08-18",
       "stage_runner_paths": [
         "tools/episode_parallel_batch_supervisor.py"
       ]
@@ -520,22 +538,33 @@
       "stage": "SOURCE_QA_AND_ASSEMBLY",
       "implementation_type": "CODED",
       "code_paths": [
-        "tools/character_identity_admission_gate.py"
+        "tools/character_identity_admission_gate.py",
+        "tools/shot_media_admission_gate.py",
+        "tools/episode_parallel_batch_supervisor.py",
+        "tools/submit_giggle_task_manifest.py"
       ],
       "test_paths": [
-        "tools/tests/test_character_identity_admission_gate.py"
+        "tools/tests/test_character_identity_admission_gate.py",
+        "tools/tests/test_shot_media_admission_gate.py",
+        "tools/tests/test_episode_parallel_batch_supervisor.py",
+        "tools/tests/test_submit_keyframe_admission_gate.py"
       ],
       "manual_checklist_path": "workflow/CHARACTER_IDENTITY_QA_CHECKLIST_TEMPLATE_20260716.json",
       "parameters": {
         "canonical_views_min": 3,
         "sample_frames_per_source_min": 3,
         "warning_downgrade_allowed": false,
-        "machine_embedding_status": "PENDING"
+        "machine_embedding_status": "PENDING",
+        "exact_asset_sha_binding_required": true,
+        "advisory_cannot_authorize_video_submit_or_assembly": true,
+        "original_resolution_review_required": true
       },
       "authorization_ref": "CL2X-192",
       "last_backtest_date": "2026-07-16",
       "stage_runner_paths": [
-        "tools/episode_stage_gate_runner.py"
+        "tools/episode_stage_gate_runner.py",
+        "tools/episode_parallel_batch_supervisor.py",
+        "tools/submit_giggle_task_manifest.py"
       ]
     },
     {
@@ -1306,10 +1335,12 @@
       "stage": "SOURCE_QA_EDIT_ADMISSION_AND_PRE_RELEASE",
       "implementation_type": "CODED",
       "code_paths": [
-        "tools/defect_tolerance_gate.py"
+        "tools/defect_tolerance_gate.py",
+        "tools/shot_media_admission_gate.py"
       ],
       "test_paths": [
-        "tools/tests/test_defect_tolerance_gate.py"
+        "tools/tests/test_defect_tolerance_gate.py",
+        "tools/tests/test_shot_media_admission_gate.py"
       ],
       "parameters": {
         "blocker_tolerance": 0,
@@ -1321,7 +1352,9 @@
           "AUDIENCE_SCORE_PRE_RELEASE",
           "WATCH_LISTEN",
           "ROGER_VETO"
-        ]
+        ],
+        "unregistered_aesthetic_metrics_are_diagnostic_only": true,
+        "technical_pass_is_not_content_admission": true
       },
       "authorization_ref": "ROGER-20260723-SUPERVISOR-LEDGER-CORRECTION",
       "last_backtest_date": "2026-07-23",
@@ -1462,10 +1495,19 @@
         "maximum_camera_family_share": 0.35,
         "maximum_consecutive_camera_family": 2,
         "maximum_action_result_read_seconds": 0.8,
-        "reset_or_replay_forbidden": true
+        "reset_or_replay_forbidden": true,
+        "action_trajectory_must_derive_from_locked_subspace": true,
+        "trajectory_start_must_equal_character_prop_blocking": true,
+        "trajectory_end_must_equal_script_end_state": true,
+        "trajectory_must_remain_inside_subspace": true,
+        "non_traversable_fixed_elements_cannot_be_crossed": true,
+        "zone_transition_requires_declared_portal": true,
+        "camera_contact_occlusion_escape_and_counter_paths_required": true,
+        "spatial_action_contract_must_be_compiled_into_video_prompt": true,
+        "effective_from_episode": "E40"
       },
-      "authorization_ref": "ROGER_DIRECT_E37_PROMPT_COMPOSITION_CORRECTION_20260803",
-      "last_backtest_date": "2026-08-03",
+      "authorization_ref": "ROGER-20260818-EPISODE-GLOBAL-SPACE-MAP",
+      "last_backtest_date": "2026-08-18",
       "stage_runner_paths": [
         "tools/episode_parallel_batch_supervisor.py",
         "tools/submit_giggle_task_manifest.py"

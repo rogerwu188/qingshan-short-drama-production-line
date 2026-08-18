@@ -35,6 +35,7 @@ from tools.episode_parallel_batch_supervisor import (
     validate_dialogue_manifest_coverage,
     validate_entity_reference_task,
     validate_initial_asset_library,
+    validate_keyframe_admissions,
     validate_supervisor_script_gate,
     validate_writer_agent_provenance,
 )
@@ -66,6 +67,14 @@ def write_test_jpeg(path: Path, width: int = 512, height: int = 512) -> None:
 
 
 class EpisodeParallelBatchSupervisorActivityTest(unittest.TestCase):
+    def test_e40_variant_requires_formal_start_frame_admission(self):
+        report = validate_keyframe_admissions({
+            "episode": "E40-REMAKE-V1",
+            "tasks": [{"task_key": "R01", "tool_type": "video_generation", "state": "ready"}],
+        })
+        self.assertEqual(report["status"], "FAIL")
+        self.assertIn("R01:start_frame_admission_ref_missing", report["failures"])
+
     def test_parallel_wave_runs_independent_tasks_and_one_head_per_chain(self):
         def chained(key: str, chain: str, index: int) -> dict:
             return {

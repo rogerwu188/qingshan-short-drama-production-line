@@ -1,4 +1,5 @@
 import unittest
+import hashlib
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -7,6 +8,7 @@ from tools.action_shot_design_gate import (
     contract_sha256,
     evaluate,
     prompt_marker,
+    prompt_spatial_block,
     validate_tail_chained_submission,
     validate_task_bindings,
 )
@@ -40,6 +42,41 @@ def action_shot(shot_id="S1", entry="READY", exit_state="CONTACT_DONE", family="
         "entry_state_token": entry,
         "exit_state_token": exit_state,
     }
+
+
+def add_spatial_action(shot, canonical_script_path=None):
+    script_action = "陈迹从门槛内侧前移一步，以刀背格开右侧来箭后停在阿栓身前"
+    if canonical_script_path is None:
+        canonical_script_path = Path(__file__)
+        script_action = "def add_spatial_action(shot, canonical_script_path=None):"
+    shot["spatial_action_contract"] = {
+        "episode_global_space_map_id": "EGSM-E40-WANGFU-001",
+        "global_space_map_id": "GSM-WANGFU-001",
+        "subspace_id": "SUBSPACE-R06A",
+        "room_id": "ROOM-WANGFU-HALL",
+        "angle_id": "ANGLE-SOUTH-WIDE",
+        "axis_id": "AXIS-ASHUAN-ARROW",
+        "script_action": script_action,
+        "script_action_sha256": __import__("hashlib").sha256(script_action.encode("utf-8")).hexdigest(),
+        "canonical_script_path": str(canonical_script_path),
+        "canonical_script_sha256": hashlib.sha256(Path(canonical_script_path).read_bytes()).hexdigest(),
+        "start_state_token": shot["entry_state_token"],
+        "end_state_token": shot["exit_state_token"],
+        "subspace_polygon": [[0, 0], [10, 0], [10, 10], [0, 10]],
+        "non_traversable_obstacles": [{"element_id": "LONG-TABLE", "polygon": [[7, 7], [9, 7], [9, 9], [7, 9]]}],
+        "trajectories": [{
+            "entity_id": "CHAR-CHENJI", "trajectory_type": "DEFENSIVE_STEP",
+            "start": [3, 3], "blocking_start_position": [3, 3],
+            "waypoints": [[4, 4]], "end": [5, 5], "declared_end_position": [5, 5],
+            "end_state": "between arrow and Ashuan", "zone_transition": False,
+            "allowed_obstacle_contact_ids": [],
+        }],
+        "camera_readability": "PASS",
+        "occlusion_constraints": ["contact point remains visible"],
+        "escape_and_counter_paths": ["left rear remains open for Ashuan"],
+        "declared_portal_ids": [],
+    }
+    return shot
 
 
 class ActionShotDesignGateTests(unittest.TestCase):
@@ -137,6 +174,76 @@ class ActionShotDesignGateTests(unittest.TestCase):
         self.assertTrue(any("parallel_submission_forbidden" in value for value in failures))
         self.assertTrue(any("exact_predecessor_tail_not_materialized" in value for value in failures))
         self.assertTrue(any("first_reference_is_not_exact_predecessor_tail" in value for value in failures))
+
+    def test_e40_action_requires_space_derived_trajectory(self):
+        shot = action_shot()
+        report = evaluate({"episode": "E40", "shots": [shot]})
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("spatial_action_contract_missing" in value for value in report["failures"]))
+
+    def test_space_derived_trajectory_passes(self):
+        shot = add_spatial_action(action_shot())
+        report = evaluate({"episode": "E40", "shots": [shot]})
+        self.assertEqual(report["status"], "PASS", report["failures"])
+
+    def test_trajectory_crossing_fixed_obstacle_fails(self):
+        shot = add_spatial_action(action_shot())
+        trajectory = shot["spatial_action_contract"]["trajectories"][0]
+        trajectory.update({
+            "start": [3, 8], "blocking_start_position": [3, 8],
+            "waypoints": [], "end": [9.5, 8], "declared_end_position": [9.5, 8],
+        })
+        report = evaluate({"episode": "E40", "shots": [shot]})
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("crosses_non_traversable:LONG-TABLE" in value for value in report["failures"]))
+
+    def test_action_prompt_binding_checks_same_subspace_ids(self):
+        shot = add_spatial_action(action_shot())
+        plan = {"episode": "E40", "shots": [shot]}
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            prompt = root / "prompt.txt"
+            prompt.write_text(prompt_marker(shot) + "\n" + prompt_spatial_block(shot), encoding="utf-8")
+            task = {
+                "task_key": "T1", "tool_type": "video_generation",
+                "action_design_shot_id": "S1",
+                "action_design_contract_sha256": contract_sha256(shot),
+                "prompt_path": "prompt.txt",
+                "episode_global_space_map_id": "WRONG",
+                "global_space_map_id": "GSM-WANGFU-001",
+                "room_id": "ROOM-WANGFU-HALL", "angle_id": "ANGLE-SOUTH-WIDE",
+                "subspace_layout": {"subspace_id": "SUBSPACE-R06A", "axis_id": "AXIS-ASHUAN-ARROW"},
+                "prompt_contract": {"source_action": shot["spatial_action_contract"]["script_action"]},
+                "blocking": {"characters": [{"character_id": "CHAR-CHENJI", "position": [3, 3]}], "props": []},
+                "action_end_blocking": {"characters": [{"character_id": "CHAR-CHENJI", "position": [5, 5]}], "props": []},
+            }
+            failures = validate_task_bindings(plan, [task], root)
+            self.assertTrue(any("spatial_action_episode_global_space_map_id_mismatch" in value for value in failures))
+
+    def test_e40_variant_name_still_requires_spatial_action(self):
+        report = evaluate({"episode": "E40-REMAKE-V1", "shots": [action_shot()]})
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("spatial_action_contract_missing" in value for value in report["failures"]))
+
+    def test_e40_non_combat_shot_still_requires_spatial_motion_contract(self):
+        shot = action_shot()
+        shot["action_unit"] = False
+        report = evaluate({"episode": "E40", "shots": [shot]})
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("spatial_action_contract_missing" in value for value in report["failures"]))
+
+    def test_canonical_action_must_be_verbatim(self):
+        shot = add_spatial_action(action_shot())
+        # Build the invalid action at runtime so the literal does not appear in
+        # this test file, which is also the canonical fixture for passing cases.
+        invalid_action = "这句不在" + "权威剧本里" + "-runtime-only"
+        shot["spatial_action_contract"]["script_action"] = invalid_action
+        shot["spatial_action_contract"]["script_action_sha256"] = hashlib.sha256(
+            invalid_action.encode("utf-8")
+        ).hexdigest()
+        report = evaluate({"episode": "E40", "shots": [shot]})
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("not_verbatim_in_canonical" in value for value in report["failures"]))
 
 
 if __name__ == "__main__":
