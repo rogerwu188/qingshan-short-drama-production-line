@@ -25,7 +25,8 @@
     "ROGER-20260727-PIPELINE-NATIVE-DIALOGUE-ASR",
     "ROGER-20260727-POST-PUBLISH-STORAGE-RETENTION",
     "ROGER-20260818-US-PACING-V2-RESTRUCTURE",
-    "ROGER-20260818-EPISODE-GLOBAL-SPACE-MAP"
+    "ROGER-20260818-EPISODE-GLOBAL-SPACE-MAP",
+    "ROGER-20260818-QA-PREGEN-GATE"
   ],
   "meta_rule": "A new lesson is not frozen until mailbox_ref, code_or_manual_checklist, test_or_required_fields, and registry_entry all exist.",
   "gates": [
@@ -557,10 +558,29 @@
         "machine_embedding_status": "PENDING",
         "exact_asset_sha_binding_required": true,
         "advisory_cannot_authorize_video_submit_or_assembly": true,
-        "original_resolution_review_required": true
+        "original_resolution_review_required": true,
+        "require_anchor_for_every_canonical_character": true,
+        "require_anchor_for_canonical_props": true,
+        "check_stage": "BEFORE_PAID_SUBMIT",
+        "input_template_failure_threshold": 2,
+        "input_template_grouping_preserves_full_parallel_submit": true,
+        "failure_attribution_closed_vocabulary": [
+          "MISSING_REFERENCE_ANCHOR",
+          "PROMPT_SEMANTICS",
+          "SPACE_CHAIN_MISMATCH",
+          "CANONICAL_MISMATCH",
+          "MODEL_STOCHASTIC"
+        ],
+        "retry_changed_variable_must_match_attribution": true,
+        "same_attribution_twice_requires_switch_coverage": true,
+        "admission_tiers": [
+          "ADMITTED",
+          "ADMITTED_WITH_P2",
+          "FAIL"
+        ]
       },
-      "authorization_ref": "CL2X-192",
-      "last_backtest_date": "2026-07-16",
+      "authorization_ref": "ROGER-20260818-QA-PREGEN-GATE",
+      "last_backtest_date": "2026-08-20",
       "stage_runner_paths": [
         "tools/episode_stage_gate_runner.py",
         "tools/episode_parallel_batch_supervisor.py",

@@ -35,7 +35,12 @@ try:
         validate_tail_chained_submission,
     )
     from anachronism_lock_gate import evaluate as evaluate_anachronism_lock
-    from shot_media_admission_gate import evaluate_path as evaluate_shot_media_admission
+    from shot_media_admission_gate import (
+        compute_input_template_id,
+        evaluate_path as evaluate_shot_media_admission,
+        precheck_submission_inputs,
+        validate_retry_change,
+    )
 except ImportError:
     from tools.episode_video_generation_guard import (
         credit_report_path,
@@ -58,7 +63,12 @@ except ImportError:
         validate_tail_chained_submission,
     )
     from tools.anachronism_lock_gate import evaluate as evaluate_anachronism_lock
-    from tools.shot_media_admission_gate import evaluate_path as evaluate_shot_media_admission
+    from tools.shot_media_admission_gate import (
+        compute_input_template_id,
+        evaluate_path as evaluate_shot_media_admission,
+        precheck_submission_inputs,
+        validate_retry_change,
+    )
 
 
 BASE = Path(
@@ -266,6 +276,20 @@ def validate_ready_task_contracts(ready: list[dict[str, Any]]) -> list[str]:
     problems: list[str] = []
     for task in ready:
         source_id = task.get("source_id") or task.get("dialogue_id") or "unknown"
+        task["input_template_id"] = task.get("input_template_id") or compute_input_template_id(task)
+        input_precheck = precheck_submission_inputs(task)
+        if input_precheck["status"] != "PASS":
+            if not input_precheck["missing_characters"] and not input_precheck["missing_props"]:
+                problems.append(
+                    f"{input_precheck['failure_code']}:{source_id}"
+                )
+            for entity_id in input_precheck["missing_characters"] + input_precheck["missing_props"]:
+                problems.append(
+                    f"MISSING_ANCHOR_FOR_CANONICAL_ENTITY:{source_id}:{entity_id}"
+                )
+        if task.get("state") == "retry_pending" or task.get("retry_count"):
+            retry_gate = validate_retry_change(task)
+            problems.extend(f"{value}:{source_id}" for value in retry_gate["failures"])
         prompt_path = BASE / task["prompt_path"]
         problems.extend(validate_duration_task(task))
         if task.get("generation_mode") == "entity_reference_sequence":
@@ -319,7 +343,7 @@ def validate_keyframe_admissions(manifest: dict[str, Any], ready: list[dict[str,
         except (OSError, json.JSONDecodeError, ValueError) as exc:
             problems.append(f"FAIL_START_FRAME_ADMISSION_UNREADABLE:{source_id}:{type(exc).__name__}")
             continue
-        if result.get("status") != "ADMITTED_FOR_VIDEO_SUBMIT":
+        if result.get("status") not in {"ADMITTED", "ADMITTED_WITH_P2"}:
             problems.append(f"FAIL_START_FRAME_NOT_CONTENT_ADMITTED:{source_id}")
             continue
         references = task.get("reference_image_sequence") or []
@@ -596,6 +620,11 @@ def submit_one(task: dict[str, Any]) -> dict[str, Any]:
     prompt_path = BASE / task["prompt_path"]
     receipt_stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(task.get("source_id") or task.get("dialogue_id") or "task"))
     contract_problems = validate_prompt_contract(task, prompt_path)
+    input_precheck = precheck_submission_inputs(task)
+    if input_precheck["status"] != "PASS":
+        contract_problems.append("MISSING_ANCHOR_FOR_CANONICAL_ENTITY")
+    if task.get("state") == "retry_pending" or task.get("retry_count"):
+        contract_problems.extend(validate_retry_change(task)["failures"])
     if contract_problems:
         failure = {
             "dialogue_id": task.get("dialogue_id"),
