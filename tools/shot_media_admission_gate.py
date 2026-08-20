@@ -26,6 +26,22 @@ KEYFRAME_REQUIRED_GATES = (
 VIDEO_REQUIRED_GATES = (*KEYFRAME_REQUIRED_GATES, "DEFECT-TIER-TOLERANCE")
 ADVISORY_STATUSES = {"ADVISORY", "ADVISORY_NOT_A_GATE", "DIAGNOSTIC", "WARNING"}
 PASS_STATUSES = {"PASS", "PASS_EXACT_SHA", "PASS_ORIGINAL_RESOLUTION"}
+FAILURE_ATTRIBUTIONS = frozenset({
+    "MISSING_REFERENCE_ANCHOR",
+    "PROMPT_SEMANTICS",
+    "SPACE_CHAIN_MISMATCH",
+    "CANONICAL_MISMATCH",
+    "MODEL_STOCHASTIC",
+})
+ATTRIBUTION_REQUIRED_CHANGE = {
+    "MISSING_REFERENCE_ANCHOR": "REFERENCE_ANCHORS",
+    "PROMPT_SEMANTICS": "PROMPT",
+    "SPACE_CHAIN_MISMATCH": "SPACE_CHAIN",
+    "CANONICAL_MISMATCH": "QA_TARGET",
+    "MODEL_STOCHASTIC": "NONE",
+}
+CHARACTER_ROLES = frozenset({"CHARACTER", "IDENTITY", "CHARACTER_REFERENCE", "SPEAKER"})
+PROP_ROLES = frozenset({"PROP", "PROP_REFERENCE", "OBJECT", "OBJECT_REFERENCE"})
 
 
 def sha256_file(path: Path) -> str:
@@ -43,6 +59,205 @@ def _resolve(value: Any, root: Path) -> Path:
 
 def _registered_gate_ids(registry: dict[str, Any]) -> set[str]:
     return {str(row.get("gate_id")) for row in registry.get("gates") or [] if row.get("gate_id")}
+
+
+def _entity_ids(rows: Any, key: str) -> set[str]:
+    if not isinstance(rows, list):
+        return set()
+    values: set[str] = set()
+    for row in rows:
+        value = row.get(key) if isinstance(row, dict) else row
+        if value:
+            values.add(str(value))
+    return values
+
+
+def _canonical_entities(task: dict[str, Any]) -> tuple[set[str], set[str]]:
+    """Return the exact characters/props declared visible in this unit.
+
+    The function intentionally does not mine free-form prompt text.  A paid
+    task must carry a mechanical canonical declaration (directly, through its
+    prompt contract, or through the locked blocking plan).
+    """
+    contract = task.get("prompt_contract") or {}
+    characters = set(map(str, task.get("canonical_characters") or []))
+    characters.update(map(str, task.get("visible_characters") or []))
+    characters.update(map(str, contract.get("visible_characters") or []))
+    props = set(map(str, task.get("canonical_props") or []))
+    props.update(map(str, contract.get("canonical_props") or []))
+    for key in ("blocking", "action_end_blocking"):
+        block = task.get(key) or {}
+        characters.update(_entity_ids(block.get("characters"), "character_id"))
+        props.update(_entity_ids(block.get("props"), "prop_id"))
+    return {value for value in characters if value}, {value for value in props if value}
+
+
+def _normalize_reference_path(value: Any, root: Path) -> str:
+    path = Path(str(value or ""))
+    return str((path if path.is_absolute() else root / path).resolve()) if value else ""
+
+
+def _transmitted_reference_paths(task: dict[str, Any], root: Path) -> set[str]:
+    rows = task.get("reference_image_sequence")
+    if isinstance(rows, list) and rows:
+        return {
+            _normalize_reference_path(row.get("path") or row.get("asset_path"), root)
+            for row in rows if isinstance(row, dict) and (row.get("path") or row.get("asset_path"))
+        }
+    return {_normalize_reference_path(value, root) for value in task.get("reference_images") or [] if value}
+
+
+def _reference_bindings(task: dict[str, Any]) -> list[dict[str, Any]]:
+    sequence = task.get("reference_image_sequence")
+    if isinstance(sequence, list) and sequence:
+        return [row for row in sequence if isinstance(row, dict)]
+    rows = task.get("reference_bindings")
+    if not isinstance(rows, list):
+        rows = (task.get("prompt_contract") or {}).get("reference_bindings")
+    if not isinstance(rows, list):
+        rows = task.get("reference_entity_bindings")
+    return [row for row in (rows or []) if isinstance(row, dict)]
+
+
+def precheck_submission_inputs(
+    task: dict[str, Any],
+    asset_catalog: dict[str, Any] | None = None,
+    *,
+    enforce: bool = True,
+    root: Path = ROOT,
+) -> dict[str, Any]:
+    """Check canonical entity anchors before any paid image/video POST."""
+    characters, props = _canonical_entities(task)
+    contract = task.get("prompt_contract") or {}
+    declaration_present = any(
+        key in task for key in (
+            "canonical_characters", "visible_characters", "canonical_props",
+            "blocking", "action_end_blocking",
+        )
+    ) or any(key in contract for key in ("visible_characters", "canonical_props"))
+    transmitted = _transmitted_reference_paths(task, root)
+    bindings = _reference_bindings(task)
+    bound_characters: set[str] = set()
+    bound_props: set[str] = set()
+    for row in bindings:
+        entity_id = str(row.get("entity_id") or "")
+        role = str(row.get("role") or "").upper()
+        path = _normalize_reference_path(row.get("path") or row.get("asset_path"), root)
+        # A catalog entry or manifest binding is not enough: the referenced
+        # file must also be in the exact sequence sent to the provider.
+        if not entity_id or not path or (transmitted and path not in transmitted):
+            continue
+        if role in CHARACTER_ROLES or entity_id.startswith("CHAR-"):
+            bound_characters.add(entity_id)
+        if role in PROP_ROLES or entity_id.startswith("PROP-"):
+            bound_props.add(entity_id)
+    missing_characters = sorted(characters - bound_characters)
+    missing_props = sorted(props - bound_props)
+    catalog = asset_catalog or task.get("anchor_asset_catalog") or {}
+    available = catalog.get("entities") if isinstance(catalog, dict) else {}
+    if not isinstance(available, dict):
+        available = {}
+    missing = missing_characters + missing_props
+    failures: list[str] = []
+    if not declaration_present:
+        failures.append("CANONICAL_ENTITY_DECLARATION_MISSING")
+    if missing:
+        failures.append("MISSING_ANCHOR_FOR_CANONICAL_ENTITY")
+    status = "PASS" if not failures else ("FAIL" if enforce else "WARNING")
+    return {
+        "schema": "qingshan.submission_input_precheck.v2",
+        "gate_id": "CHARACTER-IDENTITY-ADMISSION",
+        "check_stage": "BEFORE_PAID_SUBMIT",
+        "status": status,
+        "failure_code": failures[0] if failures else None,
+        "failure_attribution": (
+            "MISSING_REFERENCE_ANCHOR" if missing else "CANONICAL_MISMATCH" if failures else None
+        ),
+        "failures": failures,
+        "canonical_entity_declaration_present": declaration_present,
+        "canonical_characters": sorted(characters),
+        "canonical_props": sorted(props),
+        "bound_characters": sorted(bound_characters),
+        "bound_props": sorted(bound_props),
+        "missing_characters": missing_characters,
+        "missing_props": missing_props,
+        "available_library_anchors": {
+            entity_id: available.get(entity_id) for entity_id in missing if available.get(entity_id)
+        },
+        "enforced": enforce,
+    }
+
+
+def compute_input_template_id(task: dict[str, Any]) -> str:
+    """Stable grouping key; computing it never serializes provider submits."""
+    characters, _props = _canonical_entities(task)
+    payload = {
+        "space_chain_id": task.get("space_chain_id") or task.get("global_space_map_id"),
+        "reference_spec": [
+            {"role": row.get("role"), "entity_id": row.get("entity_id")}
+            for row in _reference_bindings(task)
+        ],
+        "prompt_template": task.get("prompt_template_id") or task.get("prompt_contract_version"),
+        "character_group": sorted(characters),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def aggregate_template_defects(tasks: list[dict[str, Any]]) -> dict[str, Any]:
+    """Find repeated same-cause failures without introducing a canary wait."""
+    groups: dict[tuple[str, str], list[str]] = {}
+    for task in tasks:
+        state = str(task.get("state") or "")
+        if state and state not in {
+            "retry_pending", "submit_failed", "submit_failed_terminal",
+            "qa_failed_terminal", "remote_failed_terminal", "template_defect_pending",
+        }:
+            continue
+        attribution = str(task.get("failure_attribution") or "")
+        if attribution not in FAILURE_ATTRIBUTIONS:
+            continue
+        template_id = str(task.get("input_template_id") or compute_input_template_id(task))
+        groups.setdefault((template_id, attribution), []).append(
+            str(task.get("task_key") or task.get("unit_id") or "UNKNOWN")
+        )
+    defects = [
+        {"input_template_id": template_id, "failure_attribution": attribution,
+         "status": "TEMPLATE_DEFECT", "affected_task_keys": sorted(keys)}
+        for (template_id, attribution), keys in sorted(groups.items()) if len(keys) >= 2
+    ]
+    return {
+        "status": "TEMPLATE_DEFECT" if defects else "PASS_NO_TEMPLATE_DEFECT",
+        "template_defects": defects,
+        "serial_wait_introduced": False,
+    }
+
+
+def validate_retry_change(task: dict[str, Any]) -> dict[str, Any]:
+    attribution = str(task.get("failure_attribution") or "")
+    changed = {str(value).upper() for value in task.get("changed_variables") or []}
+    failures: list[str] = []
+    if attribution not in FAILURE_ATTRIBUTIONS:
+        failures.append("FAILURE_ATTRIBUTION_INVALID")
+    else:
+        required = ATTRIBUTION_REQUIRED_CHANGE[attribution]
+        if required != "NONE" and required not in changed:
+            failures.append("RETRY_CHANGED_WRONG_VARIABLE")
+        if attribution == "MODEL_STOCHASTIC" and changed:
+            failures.append("RETRY_CHANGED_WRONG_VARIABLE")
+        if attribution == "CANONICAL_MISMATCH":
+            failures.append("CANONICAL_MISMATCH_MEDIA_RETRY_FORBIDDEN")
+    same_count = int(task.get("same_attribution_consecutive_count") or 0)
+    if same_count >= 2:
+        failures.append("SWITCH_COVERAGE_REQUIRED")
+    return {
+        "status": "PASS" if not failures else "FAIL",
+        "failure_attribution": attribution,
+        "required_changed_variable": ATTRIBUTION_REQUIRED_CHANGE.get(attribution),
+        "changed_variables": sorted(changed),
+        "failures": failures,
+    }
 
 
 def evaluate(
@@ -65,6 +280,8 @@ def evaluate(
 
     registered = _registered_gate_ids(registry)
     passing: set[str] = set()
+    conditional_p2: set[str] = set()
+    p2_defects: list[dict[str, Any]] = []
     original_resolution_review = False
     evidence_rows = admission.get("evidence")
     if not isinstance(evidence_rows, list):
@@ -105,10 +322,19 @@ def evaluate(
         if declared_status and declared_status not in PASS_STATUSES and status in PASS_STATUSES:
             failures.append(f"{prefix}:evidence_payload_not_pass:{declared_status}")
             continue
+        defect_tier = str(row.get("defect_tier") or "").upper()
+        p2_within_budget = row.get("p2_within_budget") is True
         if status in PASS_STATUSES:
             passing.add(gate_id)
+        elif defect_tier == "P2" and p2_within_budget:
+            conditional_p2.add(gate_id)
+            p2_defects.append({
+                "gate_id": gate_id,
+                "evidence_path": str(evidence_path),
+                "defect": row.get("defect") or row.get("finding"),
+            })
         else:
-            defect_tier = str(row.get("defect_tier") or "UNCLASSIFIED").upper()
+            defect_tier = defect_tier or "UNCLASSIFIED"
             failures.append(f"{prefix}:registered_gate_not_pass:{status}:{defect_tier}")
         if row.get("original_resolution_review") is True and str(row.get("reviewer_type") or "").upper() in {
             "HUMAN", "AI_VISUAL", "HUMAN_AND_AI"
@@ -116,7 +342,7 @@ def evaluate(
             original_resolution_review = True
 
     for gate_id in required:
-        if gate_id not in passing:
+        if gate_id not in passing and gate_id not in conditional_p2:
             failures.append(f"required_registered_gate_not_pass:{gate_id}")
     if not original_resolution_review:
         failures.append("original_resolution_content_review_missing")
@@ -130,18 +356,24 @@ def evaluate(
     elif technical.get("status") in {"PASS", "QA_PASS", "ADMITTED_FOR_ASSEMBLY"}:
         failures.append("keyframe_technical_status_misrepresented_as_content_admission")
 
-    admitted_status = (
+    downstream_status = (
         "ADMITTED_FOR_VIDEO_SUBMIT" if kind == "KEYFRAME_VIDEO_SUBMIT"
         else "ADMITTED_FOR_ASSEMBLY"
     )
+    status = "FAIL"
+    if not failures:
+        status = "ADMITTED_WITH_P2" if conditional_p2 else "ADMITTED"
     return {
-        "schema": "qingshan.shot_media_admission.v1",
+        "schema": "qingshan.shot_media_admission.v2",
         "kind": kind,
         "asset_path": str(asset_path),
         "asset_sha256": declared_asset_sha,
-        "status": admitted_status if not failures else "FAIL_NOT_ADMITTED",
+        "status": status,
+        "downstream_status": downstream_status if not failures else "FAIL_NOT_ADMITTED",
         "required_registered_gates": list(required),
         "passing_registered_gates": sorted(passing),
+        "conditional_p2_registered_gates": sorted(conditional_p2),
+        "p2_defect_ledger": p2_defects,
         "original_resolution_content_review": original_resolution_review,
         "failures": failures,
         "diagnostics": diagnostics,
@@ -174,7 +406,7 @@ def main() -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"status": result["status"], "failures": result["failures"]}, ensure_ascii=False))
-    return 0 if result["status"].startswith("ADMITTED_") else 2
+    return 0 if result["status"] in {"ADMITTED", "ADMITTED_WITH_P2"} else 2
 
 
 if __name__ == "__main__":

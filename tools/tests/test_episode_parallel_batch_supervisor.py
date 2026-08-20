@@ -3,6 +3,7 @@ import sys
 import json
 import hashlib
 import struct
+import threading
 import zlib
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -29,6 +30,7 @@ from tools.episode_parallel_batch_supervisor import (
     select_parallel_submission_wave,
     settle_credit_attempt,
     submit_one,
+    submit_pending,
     upsert_activity_line,
     validate_script_readiness,
     validate_complete_video_prompt_manifest,
@@ -94,6 +96,47 @@ class EpisodeParallelBatchSupervisorActivityTest(unittest.TestCase):
 
         self.assertEqual({task["task_key"] for task in selected}, {"A1", "B1", "FREE"})
         self.assertEqual([task["task_key"] for task in deferred], ["A2"])
+
+    @patch("tools.episode_parallel_batch_supervisor.record_submit_credit_attempt")
+    @patch("tools.episode_parallel_batch_supervisor.submit_one")
+    def test_input_precheck_does_not_reduce_eight_lane_submit_concurrency(
+        self, mock_submit_one, _mock_credit
+    ):
+        barrier = threading.Barrier(8, timeout=2)
+        lock = threading.Lock()
+        active = 0
+        max_active = 0
+
+        def concurrent_submit(task, _receipt):
+            nonlocal active, max_active
+            with lock:
+                active += 1
+                max_active = max(max_active, active)
+            barrier.wait()
+            with lock:
+                active -= 1
+            return {"task_id": f"remote-{task['task_key']}"}
+
+        mock_submit_one.side_effect = concurrent_submit
+        receipt = {
+            "tasks": [
+                {
+                    "task_key": f"U{index}",
+                    "state": "pending",
+                    "generation_schedule_mode": "INDEPENDENT_PARALLEL",
+                    "retry_count": 0,
+                }
+                for index in range(8)
+            ],
+            "max_retries": 2,
+            "max_submit_workers": 8,
+        }
+
+        submit_pending(receipt)
+
+        self.assertEqual(max_active, 8)
+        self.assertEqual(receipt["concurrency_wave"]["max_submit_workers"], 8)
+        self.assertEqual(receipt["concurrency_wave"]["deferred_same_chain_task_keys"], [])
 
     def test_initial_asset_library_blocks_before_any_provider_submission(self):
         with TemporaryDirectory() as tmp:
@@ -724,6 +767,8 @@ class EpisodeParallelBatchSupervisorActivityTest(unittest.TestCase):
                     "task_key": "storyboard-poc",
                     "tool_type": "video_generation",
                     "character_free_unit": True,
+                    "canonical_characters": [],
+                    "canonical_props": [],
                     "prompt_file": str(prompt),
                     "reference_images": [str(Path(tmp) / "char.png"), str(Path(tmp) / "scene.png")],
                     "resolved_reference_image_asset_ids": ["char-image", "scene-image"],
@@ -758,6 +803,8 @@ class EpisodeParallelBatchSupervisorActivityTest(unittest.TestCase):
                 {
                     "task_key": "image-unit",
                     "tool_type": "image_generation",
+                    "canonical_characters": [],
+                    "canonical_props": [],
                     "prompt_file": str(prompt),
                     "reference_images": [str(image)],
                     "resolved_reference_image_asset_ids": ["video-only-asset-id"],
@@ -787,6 +834,8 @@ class EpisodeParallelBatchSupervisorActivityTest(unittest.TestCase):
                     "task_key": "inline-unit",
                     "tool_type": "video_generation",
                     "character_free_unit": True,
+                    "canonical_characters": [],
+                    "canonical_props": [],
                     "prompt_file": str(prompt),
                     "reference_images": [str(image)],
                     "reference_image_transport": "inline_base64",
@@ -814,6 +863,8 @@ class EpisodeParallelBatchSupervisorActivityTest(unittest.TestCase):
                 "task_key": "url-unit",
                 "tool_type": "video_generation",
                 "character_free_unit": True,
+                "canonical_characters": [],
+                "canonical_props": [],
                 "prompt_file": str(prompt),
                 "reference_image_transport": "direct_url",
                 "reference_images": [str(image)],
@@ -859,6 +910,8 @@ class EpisodeParallelBatchSupervisorActivityTest(unittest.TestCase):
                     "task_key": "entity-unit",
                     "tool_type": "video_generation",
                     "character_free_unit": True,
+                    "canonical_characters": [],
+                    "canonical_props": [],
                     "generation_mode": "entity_reference_sequence",
                     "batch_id": "E27-B01",
                     "unit_id": "U01",

@@ -58,7 +58,13 @@ try:
         validate_task_bindings as validate_action_shot_bindings,
         validate_tail_chained_submission,
     )
-    from shot_media_admission_gate import evaluate_path as evaluate_shot_media_admission
+    from shot_media_admission_gate import (
+        aggregate_template_defects,
+        compute_input_template_id,
+        evaluate_path as evaluate_shot_media_admission,
+        precheck_submission_inputs,
+        validate_retry_change,
+    )
     from anachronism_lock_gate import evaluate as evaluate_anachronism_lock
     from cut_motivation_gate import evaluate as evaluate_cut_motivation
     from performance_unit_split_gate import evaluate as evaluate_performance_unit_split
@@ -103,7 +109,13 @@ except ModuleNotFoundError:  # Imported as tools.episode_parallel_batch_supervis
         validate_task_bindings as validate_action_shot_bindings,
         validate_tail_chained_submission,
     )
-    from tools.shot_media_admission_gate import evaluate_path as evaluate_shot_media_admission
+    from tools.shot_media_admission_gate import (
+        aggregate_template_defects,
+        compute_input_template_id,
+        evaluate_path as evaluate_shot_media_admission,
+        precheck_submission_inputs,
+        validate_retry_change,
+    )
     from tools.anachronism_lock_gate import evaluate as evaluate_anachronism_lock
     from tools.cut_motivation_gate import evaluate as evaluate_cut_motivation
     from tools.performance_unit_split_gate import evaluate as evaluate_performance_unit_split
@@ -1192,7 +1204,7 @@ def validate_keyframe_admissions(config: dict) -> dict:
             failures.append(f"{task_id}:start_frame_admission_unreadable:{type(exc).__name__}")
             continue
         decisions.append({"task_key": task_id, "path": str(path), "result": result})
-        if result.get("status") != "ADMITTED_FOR_VIDEO_SUBMIT":
+        if result.get("status") not in {"ADMITTED", "ADMITTED_WITH_P2"}:
             failures.append(f"{task_id}:start_frame_not_admitted")
             continue
         admitted_path = Path(str(result.get("asset_path") or ""))
@@ -1579,6 +1591,25 @@ def submit_one(task: dict, receipt: dict) -> dict:
         return run_local_tool(task, receipt)
     if tool_type not in {"video_generation", "image_generation"}:
         return {"state": "tool_failed_terminal", "tool_error": f"unsupported_tool_type:{tool_type}"}
+    task["input_template_id"] = task.get("input_template_id") or compute_input_template_id(task)
+    input_precheck = precheck_submission_inputs(task)
+    if input_precheck.get("status") != "PASS":
+        return {
+            "status": "submit_blocked",
+            "state": "tool_blocked",
+            "block_code": "MISSING_ANCHOR_FOR_CANONICAL_ENTITY",
+            "failure_attribution": "MISSING_REFERENCE_ANCHOR",
+            "input_precheck": input_precheck,
+        }
+    if task.get("state") == "retry_pending" or task.get("retry_count"):
+        retry_gate = validate_retry_change(task)
+        if retry_gate.get("status") != "PASS":
+            return {
+                "status": "submit_blocked",
+                "state": "tool_blocked",
+                "block_code": (retry_gate.get("failures") or ["RETRY_CHANGED_WRONG_VARIABLE"])[0],
+                "retry_gate": retry_gate,
+            }
     if tool_type == "video_generation":
         match = re.match(r"E(\d+)(?:\D|$)", str(receipt.get("episode") or "").upper())
         if match and int(match.group(1)) >= 40:
@@ -1596,7 +1627,7 @@ def submit_one(task: dict, receipt: dict) -> dict:
                     "block_code": "BLOCK_START_FRAME_CONTENT_ADMISSION_UNREADABLE",
                     "error": type(exc).__name__,
                 }
-            if admission.get("status") != "ADMITTED_FOR_VIDEO_SUBMIT":
+            if admission.get("status") not in {"ADMITTED", "ADMITTED_WITH_P2"}:
                 return {
                     "status": "submit_blocked", "state": "tool_blocked",
                     "block_code": "BLOCK_START_FRAME_NOT_CONTENT_ADMITTED",
@@ -2209,12 +2240,36 @@ def reconcile_completed_image_credits(receipt: dict) -> None:
 
 
 def mark_retry_or_terminal(task: dict, receipt: dict, terminal_state: str) -> None:
+    task["failure_attribution"] = task.get("failure_attribution") or "MODEL_STOCHASTIC"
+    previous = task.get("previous_failure_attribution")
+    task["same_attribution_consecutive_count"] = (
+        int(task.get("same_attribution_consecutive_count") or 0) + 1
+        if previous == task["failure_attribution"] else 1
+    )
+    task["previous_failure_attribution"] = task["failure_attribution"]
     task["retry_count"] = int(task.get("retry_count", 0)) + 1
     task["state"] = (
         "retry_pending"
         if task["retry_count"] <= int(receipt.get("max_retries", 2))
         else terminal_state
     )
+
+
+def apply_template_defect_policy(receipt: dict) -> dict:
+    """Suspend repeated same-cause retries as one template repair batch."""
+    report = aggregate_template_defects(receipt.get("tasks") or [])
+    receipt["template_defect_report"] = report
+    affected: set[str] = set()
+    for defect in report.get("template_defects") or []:
+        affected.update(defect.get("affected_task_keys") or [])
+    for task in receipt.get("tasks") or []:
+        key = str(task.get("task_key") or task.get("unit_id") or "UNKNOWN")
+        if key in affected and task.get("state") in {
+            "retry_pending", "submit_failed", "qa_failed_terminal", "remote_failed_terminal"
+        }:
+            task["state"] = "template_defect_pending"
+            task["required_action"] = "REPAIR_INPUT_TEMPLATE_THEN_PARALLEL_RESUBMIT_GROUP"
+    return report
 
 
 def harvest_completed_task(task: dict, result: dict, receipt: dict) -> None:
@@ -2245,6 +2300,17 @@ def harvest_completed_task(task: dict, result: dict, receipt: dict) -> None:
         task["state"] = "technical_pass_content_unreviewed" if match and int(match.group(1)) >= 40 else "qa_pass"
         return
     task["failure_evidence"] = qa["failures"]
+    task["failure_attribution"] = (
+        qa.get("failure_attribution")
+        or task.get("failure_attribution")
+        or "MODEL_STOCHASTIC"
+    )
+    previous = task.get("previous_failure_attribution")
+    task["same_attribution_consecutive_count"] = (
+        int(task.get("same_attribution_consecutive_count") or 0) + 1
+        if previous == task["failure_attribution"] else 1
+    )
+    task["previous_failure_attribution"] = task["failure_attribution"]
     # Preserve the charged remote asset for prompt-aware failed-only repair.
     task["retry_count"] = int(task.get("retry_count", 0)) + 1
     task["state"] = "qa_failed_terminal"
@@ -2299,9 +2365,11 @@ def poll_and_harvest(receipt: dict) -> None:
         elif status in {"failed", "error", "cancelled", "timeout"}:
             task["failure_reason"] = (result.get("data") or {}).get("error") or status
             mark_retry_or_terminal(task, receipt, "remote_failed_terminal")
+    apply_template_defect_policy(receipt)
 
 
 def retry_failed(receipt: dict) -> None:
+    apply_template_defect_policy(receipt)
     for task in receipt["tasks"]:
         if task.get("state") == "retry_pending" and task.get("retry_count", 0) <= receipt.get("max_retries", 2):
             task.pop("task_id", None)
