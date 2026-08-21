@@ -19,6 +19,10 @@
 !/workflow/claude_writer_agent/青山编剧Claude_云端可移植宪章_v1.md
 !/workflow/claude_writer_agent/WRITER_TASK_E41_E82_RESTRUCTURE.md
 
+# Portable agent installers/templates are code, never runtime state.
+!/agent_factory/claude_writer/
+!/agent_factory/claude_writer/**
+
 # Generated/runtime material inside the tracked code trees.
 **/__pycache__/
 **/*.py[cod]

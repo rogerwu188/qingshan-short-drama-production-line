@@ -1,0 +1,11 @@
+{
+  "_schema": "supervisor_orders_v1",
+  "_purpose": "Authorized order queue for Claude Writer. A clean install starts empty.",
+  "_authority": "Project owner or configured producer/supervisor",
+  "updated_at_pdt": null,
+  "latest_order_seq": 0,
+  "orders": [],
+  "state_snapshot": {},
+  "_ordering_contract": "Consumers must compare latest_order_seq with last_consumed_order_seq; array position is not authority.",
+  "updated_at_utc": null
+}
