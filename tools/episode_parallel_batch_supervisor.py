@@ -229,6 +229,10 @@ RELEASED_STATUS_PREFIXES = (
     "BOTH_PLATFORMS_PUBLIC",
     "GRANDFATHERED_PUBLIC",
 )
+try:
+    from action_video_prompt_compiler import validate_action_contract
+except ModuleNotFoundError:
+    from tools.action_video_prompt_compiler import validate_action_contract
 
 RUNTIME_GATE_IDS = frozenset({
     "SCENE-AUTHORITY-LOCK",
@@ -1591,6 +1595,19 @@ def submit_one(task: dict, receipt: dict) -> dict:
         return run_local_tool(task, receipt)
     if tool_type not in {"video_generation", "image_generation"}:
         return {"state": "tool_failed_terminal", "tool_error": f"unsupported_tool_type:{tool_type}"}
+    episode_match = re.match(r"E(\d+)(?:\D|$)", str(receipt.get("episode") or "").upper())
+    if episode_match and int(episode_match.group(1)) >= 40:
+        task["media_stage"] = "VIDEO" if tool_type == "video_generation" else "KEYFRAME"
+        task["require_semantic_anchor_evidence"] = True
+        task.setdefault("semantic_anchor_policy_version", "1.0.0")
+        if tool_type == "video_generation":
+            action_failures = validate_action_contract(task)
+            if action_failures:
+                return {
+                    "status": "submit_blocked", "state": "tool_blocked",
+                    "block_code": "BLOCK_STRUCTURED_ACTION_CONTRACT_INVALID",
+                    "action_contract_failures": action_failures,
+                }
     task["input_template_id"] = task.get("input_template_id") or compute_input_template_id(task)
     input_precheck = precheck_submission_inputs(task)
     if input_precheck.get("status") != "PASS":
@@ -1611,7 +1628,7 @@ def submit_one(task: dict, receipt: dict) -> dict:
                 "retry_gate": retry_gate,
             }
     if tool_type == "video_generation":
-        match = re.match(r"E(\d+)(?:\D|$)", str(receipt.get("episode") or "").upper())
+        match = episode_match
         if match and int(match.group(1)) >= 40:
             admission_ref = task.get("start_frame_admission_ref")
             if not admission_ref:

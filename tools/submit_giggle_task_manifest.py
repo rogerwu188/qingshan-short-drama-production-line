@@ -188,6 +188,10 @@ PC_T1_ACTION_DELTA_TERMS: tuple[str, ...] = (
     "推开", "拉近", "挡住", "逼近", "伸手", "指向", "掀开", "擦拭",
     "滑到", "落到", "雨水", "灯火", "证物", "箱盖", "铜扣", "尸布",
 )
+try:
+    from action_video_prompt_compiler import validate_action_contract
+except ModuleNotFoundError:
+    from tools.action_video_prompt_compiler import validate_action_contract
 
 PC_S3_RISKY_TEMPLATE_PHRASES: tuple[str, ...] = (
     "stable a-side speaker coverage",
@@ -287,6 +291,11 @@ def validate_ready_task_contracts(ready: list[dict[str, Any]]) -> list[str]:
                 problems.append(
                     f"MISSING_ANCHOR_FOR_CANONICAL_ENTITY:{source_id}:{entity_id}"
                 )
+        if str(task.get("media_stage") or "").upper() == "VIDEO":
+            problems.extend(
+                f"FAIL_STRUCTURED_ACTION_CONTRACT:{source_id}:{value}"
+                for value in validate_action_contract(task)
+            )
         if task.get("state") == "retry_pending" or task.get("retry_count"):
             retry_gate = validate_retry_change(task)
             problems.extend(f"{value}:{source_id}" for value in retry_gate["failures"])
@@ -747,6 +756,12 @@ def main() -> int:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     episode_match = re.match(r"E(\d+)(?:\D|$)", str(manifest.get("episode") or "").upper())
     ready = [task for task in manifest.get("tasks", []) if task.get("status") == "READY_TO_SUBMIT"]
+    episode_match = re.match(r"E(\d+)(?:\D|$)", str(manifest.get("episode") or "").upper())
+    if episode_match and int(episode_match.group(1)) >= 40:
+        for task in ready:
+            task["media_stage"] = "VIDEO"
+            task["require_semantic_anchor_evidence"] = True
+            task.setdefault("semantic_anchor_policy_version", "1.0.0")
     submission_gate = resolve_submission_gate(
         manifest,
         args.beat_sheet,

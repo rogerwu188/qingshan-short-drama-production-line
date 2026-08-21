@@ -17,6 +17,17 @@ from typing import Any
 
 from PIL import Image, ImageOps
 
+try:
+    from human_realism_prompt_contract import (
+        CONTRACT_VERSION as HUMAN_REALISM_CONTRACT_VERSION,
+        build_keyframe_realism_block,
+    )
+except ModuleNotFoundError:  # package import in unit tests
+    from tools.human_realism_prompt_contract import (
+        CONTRACT_VERSION as HUMAN_REALISM_CONTRACT_VERSION,
+        build_keyframe_realism_block,
+    )
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PLAN = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/E40_SPATIAL_SHOT_PLAN_LOCKED_V1.json"
@@ -30,6 +41,7 @@ ASSET_QA = "qa/e40_remake_20260817/fresh_asset_harvest_v1/E40_REMAKE_FRESH_ASSET
 SPACE_QA = "qa/e40_remake_20260818/global_space_maps_v1/E40_GLOBAL_SPACE_LAYOUT_GATE_V1.json"
 PROP_QA = "qa/e40_remake_20260820/qa_v2_anchor_library/E40_QA_V2_PROP_ANCHOR_ADMISSION.json"
 CHARACTER_REGISTRY = ROOT / "configs/series_character_asset_registry_20260712.json"
+PROP_REGISTRY = ROOT / "configs/series_prop_asset_registry_v1.json"
 IDENTITY_QA = "configs/series_character_asset_registry_20260712.json"
 
 ASSETS: dict[str, dict[str, str]] = {
@@ -51,19 +63,6 @@ ASSETS: dict[str, dict[str, str]] = {
         "qa_report": ASSET_QA,
         "asset_origin": "EPISODE_NEW_ASSET",
     },
-}
-
-PROP_ASSETS: dict[str, str] = {
-    "PROP-E40-FOUR-FROST-MARKS": "working_assets/e40_remake_20260820/qa_v2_anchor_library/E40-EVIDENCE-PROPS-QA-V2.png",
-    "PROP-E40-FROST-POWDER": "working_assets/e40_remake_20260820/qa_v2_anchor_library/E40-EVIDENCE-PROPS-QA-V2.png",
-    "PROP-E40-SEAL-RUBBING": "working_assets/e40_remake_20260820/qa_v2_anchor_library/E40-EVIDENCE-PROPS-QA-V2.png",
-    "PROP-E40-PAPER-FIGURE-1": "working_assets/e40_remake_20260820/qa_v2_anchor_library/E40-COMBAT-PROPS-QA-V2.png",
-    "PROP-E40-PAPER-FIGURE-2": "working_assets/e40_remake_20260820/qa_v2_anchor_library/E40-COMBAT-PROPS-QA-V2.png",
-    "PROP-E40-DAGGER-1": "working_assets/e40_remake_20260820/qa_v2_anchor_library/E40-COMBAT-PROPS-QA-V2.png",
-    "PROP-E40-COLD-ARROW-1": "working_assets/e40_remake_20260820/qa_v2_anchor_library/E40-COMBAT-PROPS-QA-V2.png",
-    "PROP-E40-COLD-ARROW-3": "working_assets/e40_remake_20260820/qa_v2_anchor_library/E40-COMBAT-PROPS-QA-V2.png",
-    "PROP-E40-COUNTER-ARROW": "working_assets/e40_remake_20260820/qa_v2_anchor_library/E40-COMBAT-PROPS-QA-V2.png",
-    "PROP-E40-RED-JADE": "working_assets/e40_remake_20260820/qa_v2_anchor_library/E40-RED-JADE-QA-V2.png",
 }
 
 SCENE_ASSET = {
@@ -128,6 +127,14 @@ def canonical_character_assets() -> dict[str, dict[str, Any]]:
     return characters
 
 
+def canonical_prop_assets() -> dict[str, dict[str, Any]]:
+    registry = json.loads(PROP_REGISTRY.read_text(encoding="utf-8"))
+    props = registry.get("props") or {}
+    if not isinstance(props, dict):
+        raise ValueError("canonical prop registry has no props mapping")
+    return props
+
+
 def resolve_character_asset(character_id: str) -> dict[str, str]:
     canonical = canonical_character_assets().get(character_id)
     if canonical is not None:
@@ -185,11 +192,23 @@ def character_bindings(task: dict[str, Any]) -> list[dict[str, Any]]:
 
 def prop_bindings(task: dict[str, Any]) -> list[dict[str, Any]]:
     rows = []
+    registry = canonical_prop_assets()
     for prop_id in task.get("canonical_props") or []:
         prop_id = str(prop_id)
-        if prop_id not in PROP_ASSETS:
-            raise ValueError(f"{task.get('unit_id')} has no admitted prop binding for {prop_id}")
-        rows.append(binding("prop", prop_id, PROP_ASSETS[prop_id], PROP_QA))
+        asset = registry.get(prop_id)
+        if not asset or not str(asset.get("status") or "").startswith("LOCKED"):
+            raise ValueError(f"{task.get('unit_id')} has no locked prop-registry binding for {prop_id}")
+        path = str(asset.get("generation_reference_image") or "")
+        expected_sha = str(asset.get("generation_reference_sha256") or "")
+        row = binding(
+            "prop", prop_id, path,
+            str(asset.get("generation_reference_qa") or PROP_REGISTRY),
+            asset_origin="CANONICAL_PROP_REGISTRY",
+        )
+        if not expected_sha or row["sha256"] != expected_sha:
+            raise ValueError(f"prop registry SHA mismatch for {prop_id}")
+        row["semantic_lock"] = str(asset.get("semantic_lock") or "")
+        rows.append(row)
     return rows
 
 
@@ -320,6 +339,15 @@ def make_prompt(task: dict[str, Any], references: list[dict[str, Any]]) -> str:
         + "；仅承担所列角色、道具、场景或空间约束。"
         for index, members in enumerate(grouped.values(), 1)
     )
+    realism = build_keyframe_realism_block(
+        character_ids=list(task.get("visible_characters") or []),
+        character_locks=canonical_character_assets(),
+        shot_scale=str(task.get("shot_scale") or task.get("framing") or "中景"),
+        lens_intent=str(task.get("lens_intent") or task.get("angle_id") or "真实电影镜头"),
+        action=str(task.get("canonical_script_action") or ""),
+        expression_arc=str(task.get("expression_arc") or "") or None,
+        eyeline_target=str(task.get("eyeline_target") or "") or None,
+    )
     return f"""用途：historical-scene；E40 竖屏短剧的单一连续电影首帧，不是拼贴板、角色卡或空间示意图。
 剧本原文（逐字绑定）：{task['canonical_script_action']}
 
@@ -337,6 +365,8 @@ def make_prompt(task: dict[str, Any], references: list[dict[str, Any]]) -> str:
 
 输入参考：
 {reference_lines}
+
+{realism}
 
 生成要求：把前三类空间图只当作几何/机位蓝图，不把图中的线条、标注、网格或文字画进正片。以场景参考建立真实王府花厅，以人物参考锁定年龄、脸型、发型、服饰与性别；同一人物只能出现一次。首帧必须呈现剧本动作的真实起始瞬间，并让后续动作轨迹在锁定子空间内物理可执行。保持古装时代、9:16 电影写实、真实透视、人物脚底落地、固定廊柱/长案/帘幕关系清楚。
 禁止：身份漂移、增删或合并人物、现代物件、错误武器、错误动作因果、穿墙、穿柱、瞬移、镜像翻转、分屏、拼贴、角色设定板、俯视平面图、任何文字/字幕/LOGO/水印。
@@ -380,6 +410,8 @@ def compile_task(task: dict[str, Any], prompt_dir: Path, source_script_sha: str)
         },
         "status": "PASS",
         "failures": [],
+        "human_realism_contract_version": HUMAN_REALISM_CONTRACT_VERSION,
+        "semantic_anchor_policy_version": "1.0.0",
     }
     compiled = deepcopy(task)
     compiled.update({
@@ -391,6 +423,10 @@ def compile_task(task: dict[str, Any], prompt_dir: Path, source_script_sha: str)
         "reference_image_sequence": transported_references,
         "reference_bindings": references,
         "prompt_contract": prompt_contract,
+        "media_stage": "KEYFRAME",
+        "require_semantic_anchor_evidence": True,
+        "semantic_anchor_policy_version": "1.0.0",
+        "prompt_realism_contract_version": HUMAN_REALISM_CONTRACT_VERSION,
         "spatial_continuity": prompt_contract["spatial_continuity"],
         "model": "gpt-image-2-pro",
         "aspect_ratio": "9:16",

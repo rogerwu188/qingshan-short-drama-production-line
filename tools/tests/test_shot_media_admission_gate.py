@@ -120,6 +120,59 @@ class ShotMediaAdmissionGateTests(unittest.TestCase):
         }
         self.assertEqual(precheck_submission_inputs(task)["status"], "PASS")
 
+    def test_semantic_keyframe_policy_rejects_label_only_contact_sheet(self):
+        task = {
+            "media_stage": "KEYFRAME",
+            "require_semantic_anchor_evidence": True,
+            "canonical_characters": ["CHAR-A"],
+            "reference_image_sequence": [
+                {"role": "character", "entity_id": "CHAR-A", "path": "contact-sheet.png"}
+            ],
+        }
+        report = precheck_submission_inputs(task)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertIn("SEMANTIC_ANCHOR_EVIDENCE_MISSING", report["failures"])
+
+    def test_semantic_keyframe_policy_accepts_exact_source_and_qa(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "native.png"
+            qa = root / "qa.json"
+            source.write_bytes(b"native")
+            qa.write_text("{}", encoding="utf-8")
+            task = {
+                "media_stage": "KEYFRAME",
+                "require_semantic_anchor_evidence": True,
+                "canonical_props": ["PROP-X"],
+                "reference_image_sequence": [{
+                    "role": "prop", "entity_id": "PROP-X", "path": str(source),
+                    "sha256": digest(source), "qa_report": str(qa),
+                    "asset_origin": "CANONICAL_PROP_REGISTRY",
+                }],
+            }
+            self.assertEqual(precheck_submission_inputs(task, root=root)["status"], "PASS")
+
+    def test_semantic_video_policy_requires_q1_exact_sha(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            frame = root / "frame.png"
+            frame.write_bytes(b"frame")
+            frame_sha = digest(frame)
+            q1 = root / "q1.json"
+            q1.write_text(json.dumps({
+                "status": "ADMITTED", "downstream_status": "ADMITTED_FOR_VIDEO_SUBMIT",
+                "asset_sha256": frame_sha,
+            }), encoding="utf-8")
+            task = {
+                "media_stage": "VIDEO", "require_semantic_anchor_evidence": True,
+                "canonical_characters": ["CHAR-A"], "exact_first_frame_sha256": frame_sha,
+                "start_frame_admission_ref": str(q1),
+                "reference_image_sequence": [
+                    {"role": "character", "entity_id": "CHAR-A", "path": str(frame)}
+                ],
+            }
+            self.assertEqual(precheck_submission_inputs(task, root=root)["status"], "PASS")
+
     def test_p2_within_budget_is_conditionally_admitted(self):
         with TemporaryDirectory() as directory:
             payload = self.fixture(Path(directory))
