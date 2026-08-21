@@ -24,6 +24,11 @@ KEYFRAME_REQUIRED_GATES = (
     "PERIOD-ANACHRONISM-LOCK",
 )
 VIDEO_REQUIRED_GATES = (*KEYFRAME_REQUIRED_GATES, "DEFECT-TIER-TOLERANCE")
+P0_HUMAN_REQUIRED_GATES = frozenset({
+    "CHARACTER-IDENTITY-ADMISSION",
+    "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF",
+    "PERIOD-ANACHRONISM-LOCK",
+})
 ADVISORY_STATUSES = {"ADVISORY", "ADVISORY_NOT_A_GATE", "DIAGNOSTIC", "WARNING"}
 PASS_STATUSES = {"PASS", "PASS_EXACT_SHA", "PASS_ORIGINAL_RESOLUTION"}
 FAILURE_ATTRIBUTIONS = frozenset({
@@ -158,8 +163,17 @@ def precheck_submission_inputs(
     if not isinstance(available, dict):
         available = {}
     missing = missing_characters + missing_props
-    semantic_policy = bool(task.get("require_semantic_anchor_evidence"))
     media_stage = str(task.get("media_stage") or "KEYFRAME").upper()
+    semantic_policy_declared = "require_semantic_anchor_evidence" in task
+    semantic_policy = (
+        True if media_stage == "VIDEO"
+        else bool(task.get("require_semantic_anchor_evidence"))
+    )
+    semantic_policy_failures: list[str] = []
+    if media_stage == "VIDEO" and not semantic_policy_declared:
+        semantic_policy_failures.append("SEMANTIC_ANCHOR_POLICY_NOT_DECLARED")
+    elif media_stage == "VIDEO" and task.get("require_semantic_anchor_evidence") is not True:
+        semantic_policy_failures.append("SEMANTIC_ANCHOR_POLICY_DISABLED_FOR_VIDEO")
     semantic_evidence_missing: list[str] = []
     semantic_evidence_invalid: list[str] = []
     start_frame_admission: dict[str, Any] | None = None
@@ -212,7 +226,7 @@ def precheck_submission_inputs(
                     break
             if not valid:
                 semantic_evidence_missing.append(entity_id)
-    failures: list[str] = []
+    failures: list[str] = list(semantic_policy_failures)
     if not declaration_present:
         failures.append("CANONICAL_ENTITY_DECLARATION_MISSING")
     if missing:
@@ -246,6 +260,7 @@ def precheck_submission_inputs(
         },
         "media_stage": media_stage,
         "semantic_anchor_policy_enforced": semantic_policy,
+        "semantic_anchor_policy_declared": semantic_policy_declared,
         "semantic_evidence_missing": semantic_evidence_missing,
         "semantic_evidence_invalid": semantic_evidence_invalid,
         "enforced": enforce,
@@ -354,12 +369,20 @@ def evaluate(
     for index, row in enumerate(evidence_rows, 1):
         gate_id = str(row.get("gate_id") or "")
         status = str(row.get("status") or "").upper()
+        reviewer_type = str(row.get("reviewer_type") or "").upper()
         prefix = f"evidence_{index}:{gate_id or 'UNKNOWN'}"
         if gate_id not in registered:
             diagnostics.append(f"{prefix}:unregistered_gate_downgraded_to_diagnostic")
             continue
         if status in ADVISORY_STATUSES or row.get("advisory_only") is True:
             diagnostics.append(f"{prefix}:advisory_not_admission")
+            continue
+        if (
+            gate_id in P0_HUMAN_REQUIRED_GATES
+            and status in PASS_STATUSES
+            and reviewer_type not in {"HUMAN", "HUMAN_AND_AI"}
+        ):
+            failures.append(f"{prefix}:p0_gate_requires_human_reviewer:{reviewer_type or 'MISSING'}")
             continue
         reviewed_sha = str(row.get("reviewed_asset_sha256") or "")
         if reviewed_sha != declared_asset_sha:
@@ -400,7 +423,7 @@ def evaluate(
         else:
             defect_tier = defect_tier or "UNCLASSIFIED"
             failures.append(f"{prefix}:registered_gate_not_pass:{status}:{defect_tier}")
-        if row.get("original_resolution_review") is True and str(row.get("reviewer_type") or "").upper() in {
+        if row.get("original_resolution_review") is True and reviewer_type in {
             "HUMAN", "AI_VISUAL", "HUMAN_AND_AI"
         }:
             original_resolution_review = True
