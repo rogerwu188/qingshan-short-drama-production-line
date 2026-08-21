@@ -114,7 +114,42 @@ def validate_gate(path: str) -> dict[str, Any]:
     report = json.loads(report_path.read_text(encoding="utf-8"))
     if report.get("status") != "PASS":
         raise ValueError(f"Gate is not PASS: {path}")
-    return {"path": path, "status": "PASS", "schema": report.get("schema")}
+    return {
+        "path": path,
+        "status": "PASS",
+        "schema": report.get("schema"),
+        "gate_id": report.get("gate_id"),
+        "reviewed_manifest_sha256": report.get("reviewed_manifest_sha256"),
+    }
+
+
+def validate_submission_authority(
+    manifest: dict[str, Any],
+    tasks: list[dict[str, Any]],
+    gates: list[dict[str, Any]],
+    manifest_path: Path,
+) -> None:
+    """Fail closed before paid POST when a precheck-only manifest is misused."""
+    if manifest.get("provider_post_allowed") is not True:
+        raise ValueError("manifest provider_post_allowed must be true for paid submission")
+    maximum = manifest.get("maximum_new_submissions")
+    if not isinstance(maximum, int) or maximum < len(tasks):
+        raise ValueError("manifest maximum_new_submissions is below the selected task count")
+    if not manifest.get("authorization_ref"):
+        raise ValueError("manifest authorization_ref is required for paid submission")
+    for task in tasks:
+        if task.get("status") != "READY_TO_SUBMIT":
+            raise ValueError(f"{task.get('task_key')} is not READY_TO_SUBMIT")
+        if task.get("provider_post_allowed") is not True:
+            raise ValueError(f"{task.get('task_key')} provider_post_allowed must be true")
+        if task.get("maximum_new_submissions") != 1:
+            raise ValueError(f"{task.get('task_key')} maximum_new_submissions must equal 1")
+    manifest_sha = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    budget_gates = [gate for gate in gates if gate.get("gate_id") == "GIGGLE-REROLL-COST-GUARD"]
+    if len(budget_gates) != 1:
+        raise ValueError("paid submission requires exactly one registered GIGGLE-REROLL-COST-GUARD report")
+    if budget_gates[0].get("reviewed_manifest_sha256") != manifest_sha:
+        raise ValueError("GIGGLE-REROLL-COST-GUARD does not bind the exact submission manifest SHA")
 
 
 def validate_anchor_count_gate_requirement(
@@ -426,6 +461,8 @@ def main() -> int:
         if unknown:
             raise SystemExit(f"Unknown image task keys: {', '.join(unknown)}")
         tasks = [task for task in all_tasks if task.get("task_key") in requested]
+    if not args.precheck_only:
+        validate_submission_authority(manifest, tasks, gates, manifest_path)
     for task in tasks:
         validate_task(task)
     if not args.precheck_only and not os.environ.get("GIGGLE_API_KEY", "").strip():

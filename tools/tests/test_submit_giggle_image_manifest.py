@@ -8,10 +8,46 @@ from tools.submit_giggle_image_manifest import (
     submit_one,
     validate_anchor_count_gate_requirement,
     validate_mask_transport,
+    validate_submission_authority,
 )
 
 
 class SubmitGiggleImageManifestTest(unittest.TestCase):
+    def test_paid_submit_rejects_precheck_only_manifest(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "manifest.json"
+            path.write_text("{}", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "provider_post_allowed"):
+                validate_submission_authority(
+                    {"provider_post_allowed": False},
+                    [{"task_key": "T1"}],
+                    [],
+                    path,
+                )
+
+    def test_paid_submit_requires_exact_budget_gate_manifest_sha(self):
+        manifest = {
+            "provider_post_allowed": True,
+            "maximum_new_submissions": 1,
+            "authorization_ref": "ROGER",
+        }
+        task = {
+            "task_key": "T1",
+            "status": "READY_TO_SUBMIT",
+            "provider_post_allowed": True,
+            "maximum_new_submissions": 1,
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "manifest.json"
+            path.write_text("{}", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "exact submission manifest SHA"):
+                validate_submission_authority(
+                    manifest,
+                    [task],
+                    [{"gate_id": "GIGGLE-REROLL-COST-GUARD", "reviewed_manifest_sha256": "wrong"}],
+                    path,
+                )
+
     def test_submit_one_rechecks_input_anchors_before_transaction_or_post(self):
         task = {
             "task_key": "MISSING-PROP",
