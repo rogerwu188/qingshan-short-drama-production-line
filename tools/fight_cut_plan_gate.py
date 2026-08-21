@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -52,19 +53,36 @@ from cut_motivation_gate import (  # noqa: E402
     required_cut_metadata,
 )
 
-# Fight baseline v2.1, frozen 2026-07-13. Not re-derived here on purpose: a
-# gate that recalculates its own pass mark is a gate that can be argued with.
-FIGHT_MAX_ASL = 2.2
-FIGHT_MIN_SUB_SECOND_SHARE = 0.15
-FIGHT_MIN_PHASE_ROUNDS = 3
+ROOT = Path(__file__).resolve().parents[1]
+GATE_ID = "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF"
+GATE_REGISTRY = ROOT / "configs/GATE_REGISTRY_v3_20260716.json"
+
+
+def _registered_parameters() -> dict[str, Any]:
+    registry = json.loads(GATE_REGISTRY.read_text(encoding="utf-8"))
+    gate = next((row for row in registry.get("gates") or [] if row.get("gate_id") == GATE_ID), None)
+    if gate is None:
+        raise RuntimeError("FIGHT_CUT_PLAN_GATE_AUTHORITY_NOT_REGISTERED")
+    return gate.get("parameters") or {}
+
+
+PARAMETERS = _registered_parameters()
+
+# All thresholds are read from the existing registered action gate. The edit
+# gate does not own a second set of numbers.
+FIGHT_MAX_ASL = float(PARAMETERS["fight_cut_max_asl_seconds"])
+FIGHT_MIN_SUB_SECOND_SHARE = float(PARAMETERS["fight_cut_min_sub_second_share"])
+FIGHT_MIN_PHASE_ROUNDS = int(PARAMETERS["fight_cut_min_phase_rounds"])
+FIGHT_MIN_SUB_CUTS_PER_UNIT = int(PARAMETERS["combat_editorial_cuts_per_generation_min"])
+FIGHT_MAX_SUB_CUTS_PER_UNIT = int(PARAMETERS["combat_editorial_cuts_per_generation_max"])
 
 # Below this, a "shot" is not a shot. Anything shorter is either a subliminal
 # flash or the residue of a retime, and both are already banned elsewhere.
-MIN_SUB_CUT_SECONDS = 0.30
+MIN_SUB_CUT_SECONDS = float(PARAMETERS["fight_cut_min_sub_cut_seconds"])
 
 # Tolerance for sub-cut durations summing back to the generated unit. One frame
 # at 30fps is 0.033s; 0.05 allows rounding in the plan, not a missing shot.
-SUM_TOLERANCE_SECONDS = 0.05
+SUM_TOLERANCE_SECONDS = float(PARAMETERS["fight_cut_sum_tolerance_seconds"])
 
 # Only these phases exist in the breathing structure (呼吸结构门).
 PHASES = ("windup", "burst", "result")
@@ -72,6 +90,11 @@ PHASES = ("windup", "burst", "result")
 # A retime is not a cutting decision, it is the thing this gate exists to make
 # unnecessary. Declaring one anywhere in a fight plan is an immediate BLOCK.
 RETIME_KEYS = ("speed_ramp", "retime", "time_stretch", "slowmo", "speed_factor")
+CANONICAL_COMBAT_PATTERNS = (
+    re.compile(r"△【打斗(?:[·・][^】]*)?】"),
+    re.compile(r"FS-1\s*完整打斗"),
+    re.compile(r"FS-1\s*窗口锚"),
+)
 
 # --- 净打斗秒数: one implementation, and it always says which ruler it used ---
 #
@@ -176,6 +199,16 @@ def check_unit(unit: dict[str, Any], *, scene_id: str) -> tuple[list[dict], list
             )
         )
         return findings, []
+
+    if not FIGHT_MIN_SUB_CUTS_PER_UNIT <= len(plan) <= FIGHT_MAX_SUB_CUTS_PER_UNIT:
+        findings.append(
+            _fail(
+                "F1_PLAN_PRESENT",
+                f"{unit_id} has {len(plan)} sub-cuts; registered range is "
+                f"{FIGHT_MIN_SUB_CUTS_PER_UNIT}-{FIGHT_MAX_SUB_CUTS_PER_UNIT}",
+                unit_id=unit_id,
+            )
+        )
 
     if not isinstance(generated, (int, float)) or generated <= 0:
         findings.append(_fail("F2_SUM_MATCH", f"{unit_id} has no generated_duration", unit_id=unit_id))
@@ -330,12 +363,25 @@ def check_scene(scene: dict[str, Any]) -> dict[str, Any]:
     return {"scene_id": scene_id, "metrics": metrics, "findings": findings}
 
 
-def run(plan: dict[str, Any]) -> dict[str, Any]:
+def run(plan: dict[str, Any], *, canonical_text: str | None = None) -> dict[str, Any]:
     scenes = [check_scene(s) for s in plan.get("fight_scenes") or []]
     findings = [f for s in scenes for f in s["findings"]]
+    canonical_combat = (
+        any(pattern.search(canonical_text) for pattern in CANONICAL_COMBAT_PATTERNS)
+        if canonical_text is not None else None
+    )
     if not scenes:
-        status = "INVALID"
-        findings = [_fail("F0_INPUT", "no fight_scenes in plan")]
+        if plan.get("applicable") is False and canonical_combat is False:
+            status = "PASS"
+        else:
+            status = "INVALID"
+            findings = [_fail("F0_INPUT", "no fight_scenes in plan or no canonical no-fight proof")]
+    elif plan.get("applicable") is False:
+        status = "BLOCK"
+        findings.append(_fail("F0_INPUT", "fight_scenes exist but plan declares applicable=false"))
+    elif canonical_combat is False:
+        status = "BLOCK"
+        findings.append(_fail("F0_INPUT", "fight plan exists but canonical has no registered combat marker"))
     elif any(f["severity"] == "BLOCK" for f in findings):
         status = "BLOCK"
     elif findings:
@@ -344,8 +390,10 @@ def run(plan: dict[str, Any]) -> dict[str, Any]:
         status = "PASS"
     return {
         "schema": "qingshan.fight_cut_plan_gate_result.v1",
-        "authorization_ref": "B7-ADV-01",
+        "gate_id": GATE_ID,
+        "authorization_ref": "B7-ADV-01 / CL2X-1224",
         "episode": plan.get("episode"),
+        "applicability": "NOT_APPLICABLE" if not scenes and status == "PASS" else "APPLICABLE",
         "gate_status": status,
         "scenes": scenes,
         "findings": findings,
@@ -394,12 +442,17 @@ def diagnose_unplanned(scene: dict[str, Any]) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("plan", type=Path)
+    parser.add_argument("plan_positional", nargs="?", type=Path)
+    parser.add_argument("--plan", type=Path)
+    parser.add_argument("--canonical-script", type=Path)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--diagnose", action="store_true", help="report the gap, admit nothing")
     args = parser.parse_args()
 
-    plan = json.loads(args.plan.read_text(encoding="utf-8"))
+    plan_path = args.plan or args.plan_positional
+    if plan_path is None:
+        parser.error("a plan path or --plan is required")
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
     if args.diagnose:
         result = {
             "schema": "qingshan.fight_cut_plan_diagnosis.v1",
@@ -407,7 +460,8 @@ def main() -> int:
             "scenes": [diagnose_unplanned(s) for s in plan.get("fight_scenes") or []],
         }
     else:
-        result = run(plan)
+        canonical_text = args.canonical_script.read_text(encoding="utf-8") if args.canonical_script else None
+        result = run(plan, canonical_text=canonical_text)
 
     text = json.dumps(result, ensure_ascii=False, indent=2)
     if args.out:

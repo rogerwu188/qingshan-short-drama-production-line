@@ -28,6 +28,12 @@ DEFAULT_REGISTRY = ROOT / "configs/GATE_REGISTRY_v3_20260716.json"
 
 
 EXECUTORS: dict[str, dict[str, Any]] = {
+    "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF": {
+        "tool": "tools/fight_cut_plan_gate.py",
+        "arguments": [("--plan", "fight_cut_plan")],
+        "optional_arguments": [("--canonical-script", "canonical_script")],
+        "passing_statuses": ("PASS", "ADVISE"),
+    },
     "SOURCE-READ-COMPLETENESS": {
         "tool": "tools/source_canon_binding_gate.py",
         "arguments": [
@@ -320,6 +326,7 @@ for gate_id in FINAL_CUT_GATE_IDS:
     }
 
 RUNTIME_GATE_IDS = frozenset({
+    "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF",
     "AGENT-MISTAKE-ANTI-RECURRENCE",
     "AUDIENCE-SCORE-PRE-RELEASE",
     "AUDIO-SOURCE-PUBLISHED-MIX-BINDING",
@@ -391,6 +398,7 @@ PHASE_GATES: dict[str, tuple[str, ...]] = {
         "PERIOD-ANACHRONISM-LOCK",
     ),
     "edit": (
+        "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF",
         "EDIT-PLAN-NATIVE-CADENCE",
         "EDIT-CUT-MOTIVATION",
         "EDIT-VIEWING-CONSISTENCY",
@@ -488,6 +496,7 @@ def execute_gate(
     evidence: dict[str, Any],
     out_dir: Path,
 ) -> dict[str, Any]:
+    out_dir.mkdir(parents=True, exist_ok=True)
     spec = EXECUTORS.get(gate_id)
     if not spec:
         return {
@@ -590,8 +599,10 @@ def execute_gate(
     cmd.extend(["--out", str(out_path)])
     proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=False)
     result_status = _result_status(out_path)
-    passed = proc.returncode == 0 and (
-        result_status.startswith("PASS") or result_status == "APPROVED"
+    passing_statuses = tuple(spec.get("passing_statuses") or ("PASS", "APPROVED"))
+    passed = proc.returncode == 0 and any(
+        result_status == value or result_status.startswith(f"{value}_")
+        for value in passing_statuses
     )
     return {
         "gate_id": gate_id,
@@ -607,42 +618,42 @@ def execute_gate(
     }
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--episode", required=True)
-    parser.add_argument("--gate", action="append", default=[])
-    parser.add_argument("--phase", action="append", choices=sorted(PHASE_GATES), default=[])
-    parser.add_argument("--evidence-bundle", required=True, type=Path)
-    parser.add_argument("--registry", default=str(DEFAULT_REGISTRY), type=Path)
-    parser.add_argument("--out-dir", required=True, type=Path)
-    args = parser.parse_args()
-
-    registry = _load(args.registry.resolve())
+def run_registered_gates(
+    *,
+    episode: str,
+    gates: list[str],
+    phases: list[str],
+    evidence_bundle: Path,
+    out_dir: Path,
+    registry_path: Path = DEFAULT_REGISTRY,
+) -> dict[str, Any]:
+    """Run registered gates for CLI callers and release builders alike."""
+    registry = _load(registry_path.resolve())
     registered = {row.get("gate_id") for row in registry.get("gates", [])}
-    requested = list(args.gate)
-    for phase in args.phase:
+    requested = list(gates)
+    for phase in phases:
         requested.extend(PHASE_GATES[phase])
     requested = list(dict.fromkeys(requested))
     if not requested:
-        parser.error("at least one --gate or --phase is required")
+        raise ValueError("at least one gate or phase is required")
     unknown = sorted(set(requested) - registered)
-    evidence = _load(args.evidence_bundle.resolve())
-    args.out_dir.mkdir(parents=True, exist_ok=True)
+    evidence = _load(evidence_bundle.resolve())
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     results = []
     for gate_id in requested:
         if gate_id not in registered:
             continue
-        result = execute_gate(gate_id, args.episode, evidence, args.out_dir)
+        result = execute_gate(gate_id, episode, evidence, out_dir)
         results.append(result)
         if result.get("invoked") is True:
             write_gate_result(
-                args.episode,
+                episode,
                 gate_id,
                 invoked=True,
                 status=result["status"],
                 runner="tools/episode_stage_gate_runner.py",
-                evidence=result.get("output") or args.out_dir,
+                evidence=result.get("output") or out_dir,
             )
         if gate_id == "FINAL-AUDIT-COMPLETENESS" and result.get("output"):
             evidence["ci_report"] = result["output"]
@@ -652,22 +663,75 @@ def main() -> int:
     )
     summary = {
         "schema": "qingshan.episode_stage_gate_execution.v1",
-        "episode": args.episode,
+        "episode": episode,
         "status": "PASS" if not failures else "FAIL",
         "fail_closed": True,
         "requested_gate_count": len(requested),
-        "requested_phases": args.phase,
+        "requested_phases": phases,
         "invoked_gate_count": sum(1 for row in results if row.get("invoked")),
         "all_requested_gates_invoked": bool(results) and all(row.get("invoked") for row in results),
         "results": results,
         "failures": failures,
         "recorded_at": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
-    summary_path = args.out_dir / "episode_stage_gate_execution_summary.json"
+    summary_path = out_dir / "episode_stage_gate_execution_summary.json"
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    print(json.dumps({"status": summary["status"], "out": str(summary_path), "failures": failures}, ensure_ascii=False))
+    summary["summary_path"] = str(summary_path)
+    return summary
+
+
+def require_release_builder_gate_admission(
+    *,
+    episode: str,
+    evidence_bundle: Path,
+    out_dir: Path,
+    registry_path: Path = DEFAULT_REGISTRY,
+) -> dict[str, Any]:
+    """Fail closed before a per-episode release builder may render media."""
+    if not evidence_bundle.is_file():
+        raise RuntimeError(f"RELEASE_EDIT_GATE_EVIDENCE_BUNDLE_MISSING:{evidence_bundle}")
+    summary = run_registered_gates(
+        episode=episode,
+        gates=[],
+        phases=["edit"],
+        evidence_bundle=evidence_bundle,
+        out_dir=out_dir,
+        registry_path=registry_path,
+    )
+    if summary["status"] != "PASS" or not summary["all_requested_gates_invoked"]:
+        raise RuntimeError(
+            f"RELEASE_RENDER_BLOCKED_BY_UNIFIED_EDIT_GATES:{summary['summary_path']}"
+        )
+    return summary
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--episode", required=True)
+    parser.add_argument("--gate", action="append", default=[])
+    parser.add_argument("--phase", action="append", choices=sorted(PHASE_GATES), default=[])
+    parser.add_argument("--evidence-bundle", required=True, type=Path)
+    parser.add_argument("--registry", default=str(DEFAULT_REGISTRY), type=Path)
+    parser.add_argument("--out-dir", required=True, type=Path)
+    args = parser.parse_args()
+    try:
+        summary = run_registered_gates(
+            episode=args.episode,
+            gates=args.gate,
+            phases=args.phase,
+            evidence_bundle=args.evidence_bundle,
+            out_dir=args.out_dir,
+            registry_path=args.registry,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+    print(json.dumps({
+        "status": summary["status"],
+        "out": summary["summary_path"],
+        "failures": summary["failures"],
+    }, ensure_ascii=False))
     return 0 if summary["status"] == "PASS" else 2
 
 

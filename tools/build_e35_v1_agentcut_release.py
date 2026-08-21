@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import re
@@ -10,6 +11,11 @@ import subprocess
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+
+try:
+    from tools.episode_stage_gate_runner import require_release_builder_gate_admission
+except ModuleNotFoundError:
+    from episode_stage_gate_runner import require_release_builder_gate_admission
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +33,8 @@ RUNTIME_POLICY = ROOT / "configs/youtube_shorts_runtime_policy_v1.json"
 SOURCE_LOCK = PRODUCTION / "video_performance_v1/E35_V1_LOCKED_SOURCE_MANIFEST.json"
 PROJECT = ROOT / "configs/e35_agentcut_v1_release_20260723.json"
 OUTPUT = ROOT / "exports/e35/v1_release_20260723/E35_V1_AGENTCUT_SUBTITLED_BGM_OUTRO_NOT_FINAL.mp4"
+EDIT_GATE_EVIDENCE = ROOT / "workflow/agentcut/release_gate_evidence/E35_V1_RELEASE_EDIT_GATE_EVIDENCE_BUNDLE.json"
+EDIT_GATE_OUT = ROOT / "qa/e35_v1_release_20260723/unified_edit_gates"
 BGM_STEM = ROOT / "exports/e35/v1_release_20260723/E35_V1_BGM_STEM.wav"
 BUILD_RECEIPT = ROOT / "workflow/tasks/E35_AGENTCUT_V1_RELEASE_BUILD_RECEIPT_20260723.json"
 U19_CLEAN = ROOT / "working_assets/e35_agentcut_repairs_20260723/E35_CW_U19_LOWER_EDGE_TEXT_CROP.mp4"
@@ -151,6 +159,15 @@ def build_bgm_stem(source: Path, start: float, content_duration: float) -> None:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--edit-gate-evidence-bundle", type=Path, default=EDIT_GATE_EVIDENCE)
+    parser.add_argument("--edit-gate-out-dir", type=Path, default=EDIT_GATE_OUT)
+    args = parser.parse_args()
+    require_release_builder_gate_admission(
+        episode="E35",
+        evidence_bundle=args.edit_gate_evidence_bundle,
+        out_dir=args.edit_gate_out_dir,
+    )
     required = [RECEIPT, MANIFEST, SUBTITLES, OUTRO, AUDIO_MANIFEST, OCR_ADMISSIONS,
                 BGM_RECEIPT, BGM_CREDIT, BGM_QA, RUNTIME_POLICY, FFPROBE, FFMPEG]
     for path in required:

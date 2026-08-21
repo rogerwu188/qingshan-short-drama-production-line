@@ -3,7 +3,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.episode_stage_gate_runner import PHASE_GATES, execute_gate
+from tools.episode_stage_gate_runner import (
+    PHASE_GATES,
+    execute_gate,
+    require_release_builder_gate_admission,
+)
 
 
 class EpisodeStageGateRunnerTests(unittest.TestCase):
@@ -148,6 +152,57 @@ class EpisodeStageGateRunnerTests(unittest.TestCase):
         self.assertEqual(result["status"], "FAIL")
         self.assertFalse(result["invoked"])
         self.assertTrue(any(row.startswith("script_binding_sha_mismatch") for row in result["failures"]))
+
+    def test_twelve_second_fight_unit_used_as_one_edit_shot_is_blocked_by_runner(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            canonical = self._canonical(root)
+            script = Path(canonical["canonical_script"])
+            script.write_text("△【打斗·起·12s】完整打斗生成单元。", encoding="utf-8")
+            import hashlib
+            canonical["canonical_script_sha256"] = hashlib.sha256(script.read_bytes()).hexdigest()
+            plan = root / "fight-plan.json"
+            plan.write_text(json.dumps({
+                "episode": "E41",
+                "fight_scenes": [{
+                    "scene_id": "14-7",
+                    "units": [{
+                        "unit_id": "14-7-U1",
+                        "generated_duration": 12.0,
+                        "scene_id": "14-7",
+                        "light_key": "LOCKED",
+                        "axis_line": "A_TO_B",
+                        "eyeline": "TARGET",
+                        "cut_plan": [{
+                            "duration": 12.0,
+                            "phase": "burst",
+                            "cut_reason": "ACTION_BEAT",
+                            "action": "整段生成片未拆分",
+                            "cut_reason_note": "整段生成片未拆分",
+                        }],
+                    }],
+                }],
+            }), encoding="utf-8")
+            result = execute_gate(
+                "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF",
+                "E41",
+                {**canonical, "fight_cut_plan": str(plan)},
+                root / "out",
+            )
+            payload = json.loads(Path(result["output"]).read_text(encoding="utf-8"))
+        self.assertTrue(result["invoked"])
+        self.assertEqual(result["status"], "FAIL")
+        self.assertEqual(result["implementation_status"], "BLOCK")
+        self.assertTrue(any(row["gate"] == "F1_PLAN_PRESENT" for row in payload["findings"]))
+
+    def test_release_builder_guard_fails_before_runner_when_bundle_is_missing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(RuntimeError, "RELEASE_EDIT_GATE_EVIDENCE_BUNDLE_MISSING"):
+                require_release_builder_gate_admission(
+                    episode="E99",
+                    evidence_bundle=Path(temp) / "missing.json",
+                    out_dir=Path(temp) / "out",
+                )
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import copy
 import hashlib
 import json
@@ -10,6 +11,11 @@ import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+
+try:
+    from tools.episode_stage_gate_runner import require_release_builder_gate_admission
+except ModuleNotFoundError:
+    from episode_stage_gate_runner import require_release_builder_gate_admission
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +27,8 @@ ADMISSION = ROOT / "qa/e35_v1_release_20260723/E35_REPAIRED_SOURCE_CONDITIONAL_A
 PROJECT = ROOT / "configs/e35_agentcut_v2_release_20260724.json"
 SOURCE_LOCK = ROOT / "workflow/claude_writer_agent/production/e35_claude_writer_v1_416d09e2_20260723/video_performance_v1/E35_V2_LOCKED_SOURCE_MANIFEST.json"
 OUTPUT = ROOT / "exports/e35/v2_release_20260724/E35_V2_AGENTCUT_SUBTITLED_BGM_OUTRO_NOT_FINAL.mp4"
+EDIT_GATE_EVIDENCE = ROOT / "workflow/agentcut/release_gate_evidence/E35_V2_RELEASE_EDIT_GATE_EVIDENCE_BUNDLE.json"
+EDIT_GATE_OUT = ROOT / "qa/e35_v2_release_20260724/unified_edit_gates"
 RECEIPT = ROOT / "workflow/tasks/E35_AGENTCUT_V2_RELEASE_BUILD_RECEIPT_20260724.json"
 FFPROBE = ROOT / ".agentcut_env/lib/python3.14/site-packages/agentcut/vendor/darwin-arm64/ffprobe"
 U22_CADENCE_REPAIR = ROOT / "working_assets/e35_agentcut_repairs_20260724/E35_CW_U22_PERIODIC_DUPLICATE_INTERPOLATED.mp4"
@@ -97,6 +105,15 @@ def split_caption_span(ids: list[str], start: float, end: float, dialogue: dict[
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--edit-gate-evidence-bundle", type=Path, default=EDIT_GATE_EVIDENCE)
+    parser.add_argument("--edit-gate-out-dir", type=Path, default=EDIT_GATE_OUT)
+    args = parser.parse_args()
+    require_release_builder_gate_admission(
+        episode="E35",
+        evidence_bundle=args.edit_gate_evidence_bundle,
+        out_dir=args.edit_gate_out_dir,
+    )
     for path in (BASE_PROJECT, FINAL_ASR, ORIGINAL_ALIGNMENT, AUDIO_MANIFEST, ADMISSION, FFPROBE):
         if not path.is_file():
             raise SystemExit(f"missing E35 v2 input: {path}")

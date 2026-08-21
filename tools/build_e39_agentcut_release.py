@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import shutil
@@ -10,6 +11,10 @@ import subprocess
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
+try:
+    from tools.episode_stage_gate_runner import require_release_builder_gate_admission
+except ModuleNotFoundError:
+    from episode_stage_gate_runner import require_release_builder_gate_admission
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +23,8 @@ OUT_DIR = ROOT / "exports/e39/agentcut_release_20260806"
 WORK = OUT_DIR / "work"
 OUTPUT = OUT_DIR / "E39_青山_借刀查案_FINAL.mp4"
 PROJECT = OUT_DIR / "E39_AGENTCUT_RELEASE_PROJECT.json"
+EDIT_GATE_EVIDENCE = ROOT / "workflow/agentcut/e39_r3_postproduction/E39_RELEASE_EDIT_GATE_EVIDENCE_BUNDLE.json"
+EDIT_GATE_OUT = ROOT / "qa/e39_agentcut_release_20260806/unified_edit_gates"
 
 SOURCES = [
     ("U01", "working_assets/e39_video_v1/independent_video_r4_u01/E39-U01-R4-SILENT-OFFSCREEN.mp4", "exact"),
@@ -192,6 +199,15 @@ def build_outro() -> Path:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--edit-gate-evidence-bundle", type=Path, default=EDIT_GATE_EVIDENCE)
+    parser.add_argument("--edit-gate-out-dir", type=Path, default=EDIT_GATE_OUT)
+    args = parser.parse_args()
+    require_release_builder_gate_admission(
+        episode="E39",
+        evidence_bundle=args.edit_gate_evidence_bundle,
+        out_dir=args.edit_gate_out_dir,
+    )
     plan = json.loads(PLAN.read_text(encoding="utf-8"))
     plan_by_unit = {row["unit_id"]: row for row in plan["units"]}
     missing = [str(ROOT / rel) for _, rel, _ in SOURCES if not (ROOT / rel).exists()]
