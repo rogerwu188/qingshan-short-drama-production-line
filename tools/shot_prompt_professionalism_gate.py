@@ -8,6 +8,11 @@ import hashlib
 import re
 from pathlib import Path
 
+try:
+    from .human_realism_prompt_contract import CONTRACT_VERSION, validate_human_realism_prompt
+except ImportError:
+    from human_realism_prompt_contract import CONTRACT_VERSION, validate_human_realism_prompt
+
 
 ROOT = Path(__file__).resolve().parents[1]
 GATE_VERSION = "1.4.1"
@@ -168,6 +173,11 @@ def validate_task(task: dict) -> dict:
             if tool_type == "image_generation"
             else validate_video_prompt(text, require_establishing=task.get("inherits_establishing_coverage") is not True)
         )
+        if task.get("prompt_realism_contract_version"):
+            if task.get("prompt_realism_contract_version") != CONTRACT_VERSION:
+                failures.append(_fail("human_realism_contract_version", "unsupported human-realism prompt contract version"))
+            else:
+                failures.extend(validate_human_realism_prompt(text))
     return {
         "task_key": task.get("task_key"),
         "tool_type": tool_type,

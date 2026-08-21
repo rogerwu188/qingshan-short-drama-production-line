@@ -8,6 +8,7 @@ from tools.shot_prompt_professionalism_gate import (
     evaluate_batch,
     validate_task,
 )
+from tools.human_realism_prompt_contract import build_keyframe_realism_block
 
 
 class ShotPromptProfessionalismGateTest(unittest.TestCase):
@@ -112,6 +113,34 @@ class ShotPromptProfessionalismGateTest(unittest.TestCase):
     def test_generic_image_prompt_is_blocked(self):
         report = validate_task({"task_key": "GENERIC", "tool_type": "image_generation", "prompt": "cinematic hero in a beautiful room"})
         self.assertEqual(report["status"], "BLOCK_SUBMIT")
+
+    def test_opted_in_character_prompt_requires_human_realism_contract(self):
+        report = validate_task({
+            "task_key": "GENERIC-REALISM",
+            "tool_type": "image_generation",
+            "prompt": self.image_prompt("近景特写"),
+            "prompt_realism_contract_version": "1.0.0",
+        })
+        self.assertEqual(report["status"], "BLOCK_SUBMIT")
+        self.assertTrue(any(row["check"] == "skin_microtexture" for row in report["failures"]))
+
+    def test_opted_in_character_prompt_with_contract_passes(self):
+        realism = build_keyframe_realism_block(
+            character_ids=["char_chenji"],
+            character_locks={"char_chenji": {"name": "陈迹", "immutable": {"age": "二十余岁"}}},
+            shot_scale="近景特写",
+            lens_intent="85mm肖像",
+            action="陈迹抬眼",
+            expression_arc="迟疑到确认",
+            eyeline_target="门外来人",
+        )
+        report = validate_task({
+            "task_key": "CONTRACT-REALISM",
+            "tool_type": "image_generation",
+            "prompt": self.image_prompt("近景特写") + realism,
+            "prompt_realism_contract_version": "1.0.0",
+        })
+        self.assertEqual(report["status"], "PASS")
 
     def test_batch_reports_only_blocked_tasks(self):
         report = evaluate_batch({
