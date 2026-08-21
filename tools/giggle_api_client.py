@@ -91,6 +91,10 @@ def _request(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
             "paid video submission blocked: model must be seedance-2.0-fast; "
             "Pro, Mini, and the unpriced bare seedance-2.0 SKU are forbidden"
         )
+    if path.startswith("/api/v1/generation/") and os.environ.get("QINGSHAN_DURABLE_SUBMITTER_CONTEXT") != "1":
+        raise SystemExit(
+            "paid generation blocked before network: durable transaction context is required"
+        )
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
         f"{BASE_URL}{path}",
@@ -222,7 +226,7 @@ def main() -> int:
     vid.add_argument("--prompt", required=True)
     vid.add_argument("--start-frame")
     vid.add_argument("--end-frame")
-    vid.add_argument("--model", default="seedance-2.0")
+    vid.add_argument("--model", default=PRODUCTION_VIDEO_MODEL)
     vid.add_argument("--duration", type=int, default=4)
     vid.add_argument("--aspect-ratio", default="9:16")
     vid.add_argument("--resolution", default="720p")
@@ -239,7 +243,7 @@ def main() -> int:
     omni.add_argument("--audio-asset-id", action="append")
     omni.add_argument("--video", action="append")
     omni.add_argument("--video-asset-id", action="append")
-    omni.add_argument("--model", default="seedance-2.0")
+    omni.add_argument("--model", default=PRODUCTION_VIDEO_MODEL)
     omni.add_argument("--duration", type=int, default=4)
     omni.add_argument("--aspect-ratio", default="9:16")
     omni.add_argument("--resolution", default="720p")
@@ -252,6 +256,11 @@ def main() -> int:
     query.set_defaults(func=query_task)
 
     args = parser.parse_args()
+    if args.cmd != "query" and os.environ.get("QINGSHAN_DURABLE_SUBMITTER_CONTEXT") != "1":
+        raise SystemExit(
+            "direct paid generation CLI is disabled: use a durable transaction submitter "
+            "(submit_giggle_image_manifest.py or deployed submit_giggle_video_manifest_v2.py)"
+        )
     result = args.func(args)
     if getattr(args, "out", None):
         output = Path(args.out).expanduser()

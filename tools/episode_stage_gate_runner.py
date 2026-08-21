@@ -199,7 +199,7 @@ EXECUTORS: dict[str, dict[str, Any]] = {
             ("--reroll-number", "reroll_number"),
             ("--failure-tier", "failure_tier"),
             ("--failure-reason", "failure_reason"),
-            ("--total-shots", "total_shots"),
+            ("--total-paid-tasks", "total_paid_tasks"),
         ],
     },
     "GIGGLE-CREDIT-LEDGER-CLOSURE": {

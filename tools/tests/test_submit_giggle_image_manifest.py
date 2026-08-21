@@ -5,12 +5,30 @@ from unittest.mock import patch
 
 from tools.submit_giggle_image_manifest import (
     submit_all,
+    submit_one,
     validate_anchor_count_gate_requirement,
     validate_mask_transport,
 )
 
 
 class SubmitGiggleImageManifestTest(unittest.TestCase):
+    def test_submit_one_rechecks_input_anchors_before_transaction_or_post(self):
+        task = {
+            "task_key": "MISSING-PROP",
+            "prompt_file": "unused.txt",
+            "canonical_props": ["PROP-REQUIRED"],
+            "reference_images": [],
+            "reference_bindings": [],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir, patch(
+            "tools.submit_giggle_image_manifest._request"
+        ) as request:
+            root = Path(temp_dir)
+            with self.assertRaisesRegex(ValueError, "PROP-REQUIRED"):
+                submit_one(task, root / "receipts", root / "transactions")
+            request.assert_not_called()
+            self.assertEqual(list((root / "transactions").glob("*.json")), [])
+
     def test_image_without_edit_mask_does_not_require_mask_transport(self):
         validate_mask_transport({"task_key": "PLAIN", "reference_bindings": []})
 

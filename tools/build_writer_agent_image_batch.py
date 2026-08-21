@@ -17,11 +17,12 @@ except ImportError:
 ROOT = Path(__file__).resolve().parents[1]
 
 CHARACTER_REFERENCES = {
-    "c_chenji": "assets/reference/e10_20260709/characters/CHAR-chenji-young-apprentice-canonical-v2-20260709.jpg",
+    "c_chenji": "assets/reference/e37_plus_20260729/characters/CHAR-chenji-age20-user-turnaround-canonical-v1-20260729.png",
     "c_yao": "assets/reference/e08_api_fallback_20260709/characters/CHAR-yao-taiyi-card-clean-20260709.jpg",
     "c_jiaotu": "assets/reference/characters_canonical_20260709/images/CHAR-jiaotu-ancient-card-20260709.jpg",
     "c_baili": "assets/reference/characters_canonical_20260709/images/CHAR-baili-ancient-card-20260709.jpg",
-    "c_yunyang": "working_assets/api_reference_images_20260704/male_yunyang_ancient_ref_20260704_api.jpg",
+    "c_yunyang": "assets/reference/e36_20260729/characters/CHAR-yunyang-age17-canonical-v1-20260729.png",
+    "c_wuyun": "ref_images/cat_wuyun_reference.jpg",
     "c_survivor": "working_assets/e28_protected_clerk_identity_v1_20260719/candidates/E28_E28-PROTECTED-CLERK-IDENTITY-V1_478230ec-fa36-489a-ba08-128d8bd0ddc4.png",
 }
 
@@ -178,7 +179,31 @@ def build(compiled_path: Path, generated_path: Path, out_root: Path) -> dict:
         prompt_path = prompts_dir / f"{shot['shot_id']}.txt"
         prompt_path.write_text(prompt, encoding="utf-8")
         prompt_manifest.extend([f"## {shot['shot_id']}", "", prompt.rstrip(), ""])
-        refs = [CHARACTER_REFERENCES[character_id] for character_id in shot.get("character_ids", []) if character_id in CHARACTER_REFERENCES]
+        character_ids = list(shot.get("character_ids") or [])
+        episode_new_character_ids = [
+            character_id for character_id in character_ids if character_id not in CHARACTER_REFERENCES
+        ]
+        refs = [CHARACTER_REFERENCES[character_id] for character_id in character_ids if character_id in CHARACTER_REFERENCES]
+        missing_files = [path for path in refs if not (ROOT / path).is_file()]
+        if missing_files:
+            raise FileNotFoundError(
+                f"{shot['shot_id']} asset-library identity files are missing: "
+                + ", ".join(missing_files)
+            )
+        reference_bindings = [
+            {
+                "role": "character",
+                "entity_id": character_id,
+                "path": path,
+                "sha256": sha256(ROOT / path),
+                "asset_origin": "CANONICAL_NATIVE_ASSET_LIBRARY",
+            }
+            for character_id, path in (
+                (character_id, CHARACTER_REFERENCES[character_id])
+                for character_id in character_ids
+                if character_id in CHARACTER_REFERENCES
+            )
+        ]
         is_character_keyframe = bool(shot.get("character_ids"))
         task = {
             "task_key": f"{shot['shot_id']}-WRITER-AGENT-STILL-V1",
@@ -189,6 +214,15 @@ def build(compiled_path: Path, generated_path: Path, out_root: Path) -> dict:
             "prompt_file": str(prompt_path.relative_to(ROOT)),
             "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
             "reference_images": refs,
+            "reference_bindings": reference_bindings,
+            "asset_library_lookup": {
+                "performed_before_prompt_compilation": True,
+                "resolved_canonical_character_ids": [
+                    character_id for character_id in character_ids if character_id in CHARACTER_REFERENCES
+                ],
+                "episode_new_character_ids_without_native_match": episode_new_character_ids,
+                "policy": "RETURNING_CHARACTERS_REQUIRE_NATIVE_ANCHOR; EPISODE_NEW_ROLES_MAY_BE_CREATED_ONLY_AFTER_RECORDED_LOOKUP",
+            },
             "model": "gpt-image-2-pro",
             "aspect_ratio": "9:16",
             "resolution": "2K",

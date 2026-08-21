@@ -1709,7 +1709,7 @@ def submit_one(task: dict, receipt: dict) -> dict:
             command.extend(["--audio-asset-id", str(asset_id)])
         for asset_id in [*task.get("reference_video_asset_ids", []), *task.get("resolved_reference_video_asset_ids", [])]:
             command.extend(["--video-asset-id", str(asset_id)])
-    command.extend(["--model", task.get("model", "gpt-image-2-pro" if tool_type == "image_generation" else "seedance-2.0-pro")])
+    command.extend(["--model", task.get("model", "gpt-image-2-pro" if tool_type == "image_generation" else "seedance-2.0-fast")])
     if tool_type == "video_generation":
         try:
             duration = cli_int_duration(task.get("duration", 4))
@@ -2564,6 +2564,22 @@ def main() -> int:
     config_path = abs_path(args.config)
     receipt_path = abs_path(args.receipt)
     config = read_json(config_path)
+    episode_match = re.match(r"E(\d+)(?:\D|$)", str(config.get("episode") or "").upper())
+    if episode_match and int(episode_match.group(1)) >= 40 and not args.precheck_only:
+        atomic_blocked_receipt(receipt_path, {
+            "schema": "qingshan.episode_parallel_batch.v1",
+            "episode": config.get("episode"),
+            "status": "BLOCKED_LEGACY_NON_TRANSACTIONAL_SUBMITTER",
+            "local_pid": None,
+            "config": str(config_path),
+            "failures": ["E40_PLUS_REQUIRES_DURABLE_TRANSACTION_SUBMITTERS"],
+            "rollback": (
+                "Use submit_giggle_image_manifest.py for images and the deployed "
+                "submit_giggle_video_manifest_v2.py for video; preserve precheck-only use here."
+            ),
+            "recorded_at": now(),
+        })
+        return 2
     asset_gate, asset_gate_path = validate_initial_asset_library(config)
     if asset_gate is not None:
         record_gate_result(

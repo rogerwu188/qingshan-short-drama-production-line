@@ -2,25 +2,18 @@
 
 本文件是 agent 运行时的硬规则。遇到冲突时，以用户最新指令和本文件中的 P0/P1 门禁优先。
 
-## P0 最新恢复点：E16 已发行，E17 正在剧本/资产/首波生成前门禁
+## P0 当前恢复点必须动态解析，禁止写死集号
 
-当前最新闭环：
+每轮先从 `workflow/work_queue.json` 的 `current`、canonical/manifest 与对应
+`workflow/production_line/E##_TASK_LANES_V1.json` 解析当前活动集和下一真实工位。
+历史集的发行链接与恢复点只作为账本证据，不得覆盖当前 work queue，也不得让旧集号
+（例如 E17）重新成为生产入口。
 
-```text
-E16_STATUS=已发布完成;不再重做/重传已通过最终 QA 且已发布的 E16 成片
-E16_YOUTUBE=https://youtube.com/shorts/hv0GpOrh5HM?feature=share
-E16_STORYCLAW_POST_AUDIT=/Users/rogerwu/qingshan_short_drama/workflow/storyclaw_outbox/SC2X-005_E16_review.txt
-E17_TASK=/Users/rogerwu/qingshan_short_drama/workflow/tasks/E17_TASK.md
-E17_SCRIPT=/Users/rogerwu/qingshan_short_drama/codex_docs/共享审稿_青山E17剧本对白_v0_20260714.md
-E17_DIALOGUE_BEAT=/Users/rogerwu/qingshan_short_drama/configs/e17_dialogue_beat_sheet_20260714.json
-E17_RUNTIME_MANIFEST=/Users/rogerwu/qingshan_short_drama/configs/e17_runtime_prompt_manifest_skeleton_20260714.json
-E17_GATE=/Users/rogerwu/qingshan_short_drama/qa/e17_preflight_20260714/E17_GENERATION_GATE_STATUS_20260714.json
-E17_SC2X_REVIEW=/Users/rogerwu/qingshan_short_drama/workflow/storyclaw_outbox/SC2X-006_E17_script_review.txt
-E17_WUYUN_VOICE_REMOTE=z8048tlie3t
-NEXT=refresh E17 runtime prompts -> first-wave short-controlled video sources -> QA -> edit/package -> CI -> AGENT_WATCH_GATE -> release
-```
-
-E17 P0 必须继承 E16 V3 sentence-hold 观看节奏：不要在一句话未说完时机械切多个镜头；对话段允许更长、更稳的句持镜，但必须保持动作/证据/反应 delta。SC2X-006 已采纳：补验尸官“布角也泡烂了。”、DIA-022 只留“办案”、DIA-013 口语化、火漆功能写清。E17 未进入正式视频生成前，必须保持视觉 prompt 无对白、乌云自己说话、资产继承、因果/常识、coverage 与 production method 门禁。
+当前付费图片只允许经持久化事务提交器进入；E40 及以后的视频只允许
+`seedance-2.0-fast`，并经当前部署的 durable transaction submitter 提交。
+`tools/giggle_api_client.py`、旧 supervisor、一次性 E##_ 脚本和浏览器操作均不是可直接
+POST 的默认入口。若工具注册表与本段冲突，以当前用户授权、注册门、事务账本和
+`work_queue` 的活动集状态为准。
 
 ## P0 StoryClaw/Claude 双监制异步通信
 

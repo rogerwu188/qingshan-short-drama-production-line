@@ -657,7 +657,7 @@ def submit_one(task: dict[str, Any]) -> dict[str, Any]:
         args.extend(["--reference-image", str(BASE / reference_image)])
     args.extend([
         "--model",
-        task.get("model", "seedance-2.0-pro"),
+        task.get("model", "seedance-2.0-fast"),
         "--duration",
         str(task.get("duration", 4)),
         "--aspect-ratio",
@@ -745,6 +745,7 @@ def main() -> int:
     if not manifest_path.is_absolute():
         manifest_path = BASE / manifest_path
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    episode_match = re.match(r"E(\d+)(?:\D|$)", str(manifest.get("episode") or "").upper())
     ready = [task for task in manifest.get("tasks", []) if task.get("status") == "READY_TO_SUBMIT"]
     submission_gate = resolve_submission_gate(
         manifest,
@@ -753,6 +754,11 @@ def main() -> int:
         args.script_density_review,
     )
     manifest_problems = validate_manifest_constitution(manifest, ready)
+    if episode_match and int(episode_match.group(1)) >= 40 and ready and not args.precheck_only:
+        manifest_problems.append(
+            "E40_PLUS_LEGACY_NON_TRANSACTIONAL_SUBMIT_DISABLED: use "
+            "submit_giggle_image_manifest.py or deployed submit_giggle_video_manifest_v2.py"
+        )
     manifest_problems.extend(validate_ready_task_contracts(ready))
     manifest_problems.extend(validate_keyframe_admissions(manifest, ready))
     manifest_problems.extend(validate_corrected_pipeline_reports(manifest, ready))
