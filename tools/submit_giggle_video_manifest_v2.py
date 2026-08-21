@@ -363,10 +363,31 @@ def main() -> int:
 
 
 def exec_deployed_submitter() -> None:
+    forwarded = list(sys.argv[1:])
+    try:
+        manifest_value = forwarded[forwarded.index("--manifest") + 1]
+    except (ValueError, IndexError) as exc:
+        raise RuntimeError("--manifest is required") from exc
+    manifest_path = resolve(manifest_value)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from tools.shot_media_admission_gate import compute_input_template_id, precheck_submission_inputs
+
+    for task in manifest.get("tasks") or []:
+        expected_template_id = compute_input_template_id(task)
+        if task.get("input_template_id") != expected_template_id:
+            raise RuntimeError(f"{task.get('task_key')} missing or stale input_template_id")
+        precheck = precheck_submission_inputs(task, enforce=True, root=ROOT)
+        if precheck.get("status") != "PASS":
+            missing = [*(precheck.get("missing_characters") or []), *(precheck.get("missing_props") or [])]
+            raise RuntimeError(
+                f"{task.get('task_key')} input completeness failed: "
+                f"{precheck.get('failure_code')} missing={','.join(missing)}"
+            )
     deployed = authoritative_pipeline_tools_dir() / "submit_giggle_video_manifest_v2.py"
     if not deployed.is_file():
         raise RuntimeError("Deployed BacklotOS video submitter is unavailable")
-    forwarded = list(sys.argv[1:])
     if "--project-root" not in forwarded:
         forwarded = ["--project-root", str(ROOT), *forwarded]
     os.execv(sys.executable, [sys.executable, str(deployed), *forwarded])

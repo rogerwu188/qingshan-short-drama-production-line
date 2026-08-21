@@ -188,6 +188,10 @@ PC_T1_ACTION_DELTA_TERMS: tuple[str, ...] = (
     "推开", "拉近", "挡住", "逼近", "伸手", "指向", "掀开", "擦拭",
     "滑到", "落到", "雨水", "灯火", "证物", "箱盖", "铜扣", "尸布",
 )
+try:
+    from action_video_prompt_compiler import validate_action_contract
+except ModuleNotFoundError:
+    from tools.action_video_prompt_compiler import validate_action_contract
 
 PC_S3_RISKY_TEMPLATE_PHRASES: tuple[str, ...] = (
     "stable a-side speaker coverage",
@@ -287,6 +291,11 @@ def validate_ready_task_contracts(ready: list[dict[str, Any]]) -> list[str]:
                 problems.append(
                     f"MISSING_ANCHOR_FOR_CANONICAL_ENTITY:{source_id}:{entity_id}"
                 )
+        if str(task.get("media_stage") or "").upper() == "VIDEO":
+            problems.extend(
+                f"FAIL_STRUCTURED_ACTION_CONTRACT:{source_id}:{value}"
+                for value in validate_action_contract(task)
+            )
         if task.get("state") == "retry_pending" or task.get("retry_count"):
             retry_gate = validate_retry_change(task)
             problems.extend(f"{value}:{source_id}" for value in retry_gate["failures"])
@@ -657,7 +666,7 @@ def submit_one(task: dict[str, Any]) -> dict[str, Any]:
         args.extend(["--reference-image", str(BASE / reference_image)])
     args.extend([
         "--model",
-        task.get("model", "seedance-2.0-pro"),
+        task.get("model", "seedance-2.0-fast"),
         "--duration",
         str(task.get("duration", 4)),
         "--aspect-ratio",
@@ -745,7 +754,14 @@ def main() -> int:
     if not manifest_path.is_absolute():
         manifest_path = BASE / manifest_path
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    episode_match = re.match(r"E(\d+)(?:\D|$)", str(manifest.get("episode") or "").upper())
     ready = [task for task in manifest.get("tasks", []) if task.get("status") == "READY_TO_SUBMIT"]
+    episode_match = re.match(r"E(\d+)(?:\D|$)", str(manifest.get("episode") or "").upper())
+    if episode_match and int(episode_match.group(1)) >= 40:
+        for task in ready:
+            task["media_stage"] = "VIDEO"
+            task["require_semantic_anchor_evidence"] = True
+            task.setdefault("semantic_anchor_policy_version", "1.0.0")
     submission_gate = resolve_submission_gate(
         manifest,
         args.beat_sheet,
@@ -753,6 +769,11 @@ def main() -> int:
         args.script_density_review,
     )
     manifest_problems = validate_manifest_constitution(manifest, ready)
+    if episode_match and int(episode_match.group(1)) >= 40 and ready and not args.precheck_only:
+        manifest_problems.append(
+            "E40_PLUS_LEGACY_NON_TRANSACTIONAL_SUBMIT_DISABLED: use "
+            "submit_giggle_image_manifest.py or deployed submit_giggle_video_manifest_v2.py"
+        )
     manifest_problems.extend(validate_ready_task_contracts(ready))
     manifest_problems.extend(validate_keyframe_admissions(manifest, ready))
     manifest_problems.extend(validate_corrected_pipeline_reports(manifest, ready))

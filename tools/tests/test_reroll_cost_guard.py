@@ -19,7 +19,7 @@ class RerollCostGuardTests(unittest.TestCase):
             reroll_number=2,
             failure_tier="BLOCK",
             failure_reason="FREEZE",
-            total_shots=20,
+            total_paid_tasks=20,
         )
         self.assertEqual(result["status"], "PASS_AUTO_REROLL_ALLOWED")
         self.assertIn("FINAL_AUTOMATIC_REROLL_FOR_SHOT", result["warnings"])
@@ -32,7 +32,7 @@ class RerollCostGuardTests(unittest.TestCase):
             reroll_number=1,
             failure_tier="ADVISE",
             failure_reason="BRIGHTNESS_EDGE",
-            total_shots=20,
+            total_paid_tasks=20,
         )
         self.assertEqual(result["status"], "BLOCK_AUTO_REROLL")
 
@@ -44,7 +44,7 @@ class RerollCostGuardTests(unittest.TestCase):
             reroll_number=3,
             failure_tier="BLOCK",
             failure_reason="FREEZE",
-            total_shots=20,
+            total_paid_tasks=20,
         )
         self.assertIn("PER_SHOT_REROLL_LIMIT_EXCEEDED", result["failures"])
 
@@ -63,7 +63,7 @@ class RerollCostGuardTests(unittest.TestCase):
             reroll_number=1,
             failure_tier="BLOCK",
             failure_reason="FREEZE",
-            total_shots=20,
+            total_paid_tasks=20,
         )
         self.assertIn("EPISODE_REROLL_BUDGET_EXCEEDED", result["failures"])
 
@@ -89,7 +89,7 @@ class RerollCostGuardTests(unittest.TestCase):
             reroll_number=1,
             failure_tier="BLOCK",
             failure_reason="IDENTITY_DRIFT",
-            total_shots=30,
+            total_paid_tasks=30,
         )
         self.assertIn(
             "REPEATED_REASON_REQUIRES_PROMPT_OR_ASSET_FIX", result["failures"]

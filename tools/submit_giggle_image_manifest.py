@@ -19,11 +19,13 @@ try:
     from giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from shot_space_camera_constraint_gate import evaluate_task as evaluate_spatial_task
     from global_space_layout_gate import evaluate_batch as evaluate_global_space_map
+    from shot_media_admission_gate import precheck_submission_inputs
 except ModuleNotFoundError:  # Imported as tools.submit_giggle_image_manifest.
     from tools.giggle_api_client import _image_list, _request
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from tools.shot_space_camera_constraint_gate import evaluate_task as evaluate_spatial_task
     from tools.global_space_layout_gate import evaluate_batch as evaluate_global_space_map
+    from tools.shot_media_admission_gate import precheck_submission_inputs
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -112,7 +114,42 @@ def validate_gate(path: str) -> dict[str, Any]:
     report = json.loads(report_path.read_text(encoding="utf-8"))
     if report.get("status") != "PASS":
         raise ValueError(f"Gate is not PASS: {path}")
-    return {"path": path, "status": "PASS", "schema": report.get("schema")}
+    return {
+        "path": path,
+        "status": "PASS",
+        "schema": report.get("schema"),
+        "gate_id": report.get("gate_id"),
+        "reviewed_manifest_sha256": report.get("reviewed_manifest_sha256"),
+    }
+
+
+def validate_submission_authority(
+    manifest: dict[str, Any],
+    tasks: list[dict[str, Any]],
+    gates: list[dict[str, Any]],
+    manifest_path: Path,
+) -> None:
+    """Fail closed before paid POST when a precheck-only manifest is misused."""
+    if manifest.get("provider_post_allowed") is not True:
+        raise ValueError("manifest provider_post_allowed must be true for paid submission")
+    maximum = manifest.get("maximum_new_submissions")
+    if not isinstance(maximum, int) or maximum < len(tasks):
+        raise ValueError("manifest maximum_new_submissions is below the selected task count")
+    if not manifest.get("authorization_ref"):
+        raise ValueError("manifest authorization_ref is required for paid submission")
+    for task in tasks:
+        if task.get("status") != "READY_TO_SUBMIT":
+            raise ValueError(f"{task.get('task_key')} is not READY_TO_SUBMIT")
+        if task.get("provider_post_allowed") is not True:
+            raise ValueError(f"{task.get('task_key')} provider_post_allowed must be true")
+        if task.get("maximum_new_submissions") != 1:
+            raise ValueError(f"{task.get('task_key')} maximum_new_submissions must equal 1")
+    manifest_sha = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    budget_gates = [gate for gate in gates if gate.get("gate_id") == "GIGGLE-REROLL-COST-GUARD"]
+    if len(budget_gates) != 1:
+        raise ValueError("paid submission requires exactly one registered GIGGLE-REROLL-COST-GUARD report")
+    if budget_gates[0].get("reviewed_manifest_sha256") != manifest_sha:
+        raise ValueError("GIGGLE-REROLL-COST-GUARD does not bind the exact submission manifest SHA")
 
 
 def validate_anchor_count_gate_requirement(
@@ -202,7 +239,8 @@ def validate_task(task: dict[str, Any]) -> None:
     if bindings != contract.get("reference_bindings"):
         raise ValueError(f"{task['task_key']} reference bindings differ from prompt contract")
     character_ids = [row.get("entity_id") for row in bindings if row.get("role") == "character"]
-    if character_ids != contract.get("visible_characters"):
+    visible_characters = list(contract.get("visible_characters") or [])
+    if character_ids != visible_characters:
         raise ValueError(f"{task['task_key']} visible-character/reference mismatch")
     if any(row.get("qa_status") != "PASS" for row in bindings if row.get("role") == "character"):
         raise ValueError(f"{task['task_key']} has an unverified character identity asset")
@@ -212,14 +250,33 @@ def validate_task(task: dict[str, Any]) -> None:
         path = resolve(binding["path"])
         if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != binding.get("sha256"):
             raise ValueError(f"{task['task_key']} reference binding SHA mismatch: {binding.get('path')}")
-    if task.get("reference_images") != [row["path"] for row in bindings]:
+    transport_rows = task.get("reference_image_sequence") or bindings
+    bound_transport_paths = list(dict.fromkeys(row["path"] for row in transport_rows))
+    if task.get("reference_images") != bound_transport_paths:
         raise ValueError(f"{task['task_key']} reference image order differs from bound contract")
+    input_precheck = precheck_submission_inputs(task)
+    if input_precheck["status"] != "PASS":
+        missing = input_precheck["missing_characters"] + input_precheck["missing_props"]
+        raise ValueError(
+            f"{task['task_key']} submission input precheck failed: "
+            + ", ".join(missing or input_precheck["failures"])
+        )
 
 
 def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -> dict[str, Any]:
     recovered = prior_submission_result(task, transaction_dir)
     if recovered:
         return recovered
+    # Re-run immediately before transaction creation/provider POST.  A batch
+    # may sit between manifest validation and dispatch, so this is deliberately
+    # not treated as a one-time compile check.
+    input_precheck = precheck_submission_inputs(task)
+    if input_precheck["status"] != "PASS":
+        missing = input_precheck["missing_characters"] + input_precheck["missing_props"]
+        raise ValueError(
+            f"{task['task_key']} submission input precheck failed before POST: "
+            + ", ".join(missing or input_precheck["failures"])
+        )
     prompt = resolve(task["prompt_file"]).read_text(encoding="utf-8")
     references = [str(resolve(path)) for path in task["reference_images"]]
     payload = {
@@ -245,6 +302,8 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
     }
     atomic_json(transaction, intent)
+    previous_context = os.environ.get("QINGSHAN_DURABLE_SUBMITTER_CONTEXT")
+    os.environ["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = "1"
     try:
         response = _request("/api/v1/generation/image-to-image", payload)
     except (Exception, SystemExit) as exc:
@@ -255,6 +314,11 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         })
         atomic_json(transaction, intent)
         raise
+    finally:
+        if previous_context is None:
+            os.environ.pop("QINGSHAN_DURABLE_SUBMITTER_CONTEXT", None)
+        else:
+            os.environ["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = previous_context
     task_id = (response.get("data") or {}).get("task_id")
     if not task_id:
         intent.update({
@@ -397,6 +461,8 @@ def main() -> int:
         if unknown:
             raise SystemExit(f"Unknown image task keys: {', '.join(unknown)}")
         tasks = [task for task in all_tasks if task.get("task_key") in requested]
+    if not args.precheck_only:
+        validate_submission_authority(manifest, tasks, gates, manifest_path)
     for task in tasks:
         validate_task(task)
     if not args.precheck_only and not os.environ.get("GIGGLE_API_KEY", "").strip():

@@ -20,17 +20,25 @@ class Seedance2PromptCompilerTest(unittest.TestCase):
             "mode": "storyboard",
             "shots": [
                 {"framing": "远景", "camera": "推近", "action": "陈迹入画", "expression_arc": "平静到警觉", "cut_reason": "动作接"},
-                {"framing": "近景", "camera": "固定", "action": "陈迹抬眼", "expression_arc": "警觉到确认", "dialogue": {"speaker": "陈迹", "text": "谁提的？"}, "sound": "算盘停", "cut_reason": "视线接"},
+                {"framing": "近景", "camera": "固定", "action": "陈迹抬眼", "expression_arc": "警觉到确认", "dialogue": {
+                    "speaker": "陈迹", "text": "谁提的？", "psychological_state": "已经警觉并试探来人",
+                    "emotion": "克制怀疑", "emotion_intensity": 2, "pace": "稍慢",
+                    "pause_map": "谁 / 提的", "emphasis_words": ["谁"], "volume_arc": "低声到略收紧",
+                    "breath_pattern": "开口前短吸气", "delivery_transition": "平静转审视",
+                    "body_sync": "抬眼后下颌微收",
+                }, "sound": "算盘停", "cut_reason": "视线接"},
             ],
         })
         prompt, manifest = compile_prompt(spec)
         self.assertIn("镜头1", prompt)
         self.assertIn("镜头2", prompt)
         self.assertIn("{谁提的？}", prompt)
+        for clause in ("真人微表演", "视线", "手指张力", "AI式标准微笑"):
+            self.assertIn(clause, prompt)
         self.assertEqual(manifest["route"], "/api/v1/generation/omni-video")
         self.assertEqual(manifest["shot_count"], 2)
 
-    def test_storyboard_precompiles_local_failure_memory(self):
+    def test_storyboard_compiles_human_expression_contract(self):
         spec = self.base()
         spec.update({
             "mode": "storyboard",
@@ -40,9 +48,9 @@ class Seedance2PromptCompilerTest(unittest.TestCase):
             ],
         })
         prompt, manifest = compile_prompt(spec)
-        self.assertIn("本地LoRA失败记忆预编译", prompt)
-        self.assertIn("LORA-SD2-004-GENERATED-PROP-PSEUDOTEXT", manifest["local_lora_memory"]["applied_sample_ids"])
-        self.assertTrue(manifest["local_lora_memory"]["precompiled_before_paid_generation"])
+        self.assertIn("真人微表演", prompt)
+        self.assertIn("情绪结束后留有未完全归零的残余", prompt)
+        self.assertNotIn("local_lora_memory", manifest)
 
     def test_storyboard_rejects_missing_cut_reason(self):
         spec = self.base()

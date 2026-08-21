@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import time
@@ -111,7 +112,13 @@ def submit(
     duration: int,
     ratio: str,
     resolution: str,
+    *,
+    transaction_intent: dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
+    if not transaction_intent or transaction_intent.get("state") != "INTENT_RECORDED":
+        raise SystemExit("paid video submission blocked before network: durable transaction intent is required")
+    if transaction_intent.get("model") != model:
+        raise SystemExit("paid video submission blocked: transaction model mismatch")
     if len(images) > 9:
         raise SystemExit("omni-video supports at most 9 reference images.")
     payload = {
@@ -147,20 +154,42 @@ def main() -> int:
     parser.add_argument("--audio-asset-id", action="append", default=[], help="Giggle audio asset_id. Repeat as needed.")
     parser.add_argument("--audio-url", action="append", default=[], help="Public audio URL. Repeat as needed.")
     parser.add_argument("--out-dir", required=True)
-    parser.add_argument("--model", default="seedance-2.0-pro")
+    parser.add_argument("--model", default="seedance-2.0-fast")
     parser.add_argument("--duration", type=int, default=4)
     parser.add_argument("--ratio", default="9:16")
     parser.add_argument("--resolution", default="720p")
     parser.add_argument("--poll-seconds", type=int, default=15)
     parser.add_argument("--timeout-minutes", type=int, default=30)
     parser.add_argument("--api-key-env", default="GIGGLE_API_KEY")
+    parser.add_argument(
+        "--transaction-intent",
+        required=True,
+        help="Durable JSON transaction already persisted with state=INTENT_RECORDED",
+    )
     args = parser.parse_args()
+
+    if args.model != "seedance-2.0-fast":
+        raise SystemExit(
+            "paid video submission blocked: E40+ requires seedance-2.0-fast; "
+            "Pro, Mini, bare seedance-2.0, and unknown models are forbidden"
+        )
 
     api_key = os.environ.get(args.api_key_env)
     if not api_key:
         raise SystemExit(f"Missing API key env var: {args.api_key_env}")
 
     prompt = Path(args.prompt_file).expanduser().read_text(encoding="utf-8")
+    transaction_path = Path(args.transaction_intent).expanduser().resolve()
+    if not transaction_path.is_file():
+        raise SystemExit(f"Missing durable transaction intent: {transaction_path}")
+    transaction = read_json(str(transaction_path))
+    if transaction.get("state") != "INTENT_RECORDED":
+        raise SystemExit("Durable transaction must be persisted in INTENT_RECORDED state before POST")
+    if transaction.get("model") != args.model:
+        raise SystemExit("Durable transaction model does not match submit model")
+    prompt_sha = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+    if transaction.get("prompt_sha256") != prompt_sha:
+        raise SystemExit("Durable transaction prompt SHA does not match prompt file")
     images = [Path(item).expanduser().resolve() for item in args.image]
     for path in images:
         if not path.exists():
@@ -174,7 +203,17 @@ def main() -> int:
     out_dir = Path(args.out_dir).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    submit_response = submit(api_key, prompt, images, audios, args.model, args.duration, args.ratio, args.resolution)
+    submit_response = submit(
+        api_key,
+        prompt,
+        images,
+        audios,
+        args.model,
+        args.duration,
+        args.ratio,
+        args.resolution,
+        transaction_intent=transaction,
+    )
     (out_dir / "submit_response.json").write_text(json.dumps(submit_response, ensure_ascii=False, indent=2), encoding="utf-8")
     task_id = (submit_response.get("data") or {}).get("task_id")
     if not task_id:

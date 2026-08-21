@@ -158,11 +158,69 @@ def precheck_submission_inputs(
     if not isinstance(available, dict):
         available = {}
     missing = missing_characters + missing_props
+    semantic_policy = bool(task.get("require_semantic_anchor_evidence"))
+    media_stage = str(task.get("media_stage") or "KEYFRAME").upper()
+    semantic_evidence_missing: list[str] = []
+    semantic_evidence_invalid: list[str] = []
+    start_frame_admission: dict[str, Any] | None = None
+    if semantic_policy and media_stage == "VIDEO":
+        admission_value = task.get("start_frame_admission_ref") or task.get("q1_admission_result")
+        admission_path = _resolve(admission_value, root)
+        if not admission_value or not admission_path.is_file():
+            semantic_evidence_missing.append("Q1_ADMITTED_START_FRAME")
+        else:
+            try:
+                start_frame_admission = json.loads(admission_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                semantic_evidence_invalid.append("Q1_ADMISSION_UNREADABLE")
+            if start_frame_admission is not None:
+                status = str(start_frame_admission.get("status") or "")
+                downstream = str(start_frame_admission.get("downstream_status") or "")
+                admitted_sha = str(start_frame_admission.get("asset_sha256") or "")
+                expected_sha = str(task.get("exact_first_frame_sha256") or task.get("start_frame_sha256") or "")
+                if status not in {"ADMITTED", "ADMITTED_WITH_P2"}:
+                    semantic_evidence_invalid.append("Q1_START_FRAME_NOT_ADMITTED")
+                if downstream and downstream != "ADMITTED_FOR_VIDEO_SUBMIT":
+                    semantic_evidence_invalid.append("Q1_DOWNSTREAM_STATUS_INVALID")
+                if not expected_sha or admitted_sha != expected_sha:
+                    semantic_evidence_invalid.append("Q1_START_FRAME_SHA_MISMATCH")
+    elif semantic_policy:
+        entity_rows: dict[str, list[dict[str, Any]]] = {}
+        for row in bindings:
+            entity_id = str(row.get("entity_id") or "")
+            if entity_id in characters or entity_id in props:
+                entity_rows.setdefault(entity_id, []).append(row)
+        for entity_id in sorted(characters | props):
+            rows = entity_rows.get(entity_id) or []
+            valid = False
+            for row in rows:
+                source_value = row.get("source_component_path") or row.get("path") or row.get("asset_path")
+                source_path = _resolve(source_value, root)
+                declared_source_sha = str(row.get("source_component_sha256") or row.get("sha256") or "")
+                qa_value = row.get("qa_report") or row.get("semantic_qa_report")
+                origin = str(row.get("asset_origin") or "")
+                if (
+                    source_value and source_path.is_file()
+                    and declared_source_sha == sha256_file(source_path)
+                    and qa_value and _resolve(qa_value, root).is_file()
+                    and origin in {
+                        "CANONICAL_NATIVE_REGISTRY", "CANONICAL_PROP_REGISTRY",
+                        "ADMITTED_PRIOR_EPISODE_NATIVE", "EPISODE_NEW_ASSET",
+                    }
+                ):
+                    valid = True
+                    break
+            if not valid:
+                semantic_evidence_missing.append(entity_id)
     failures: list[str] = []
     if not declaration_present:
         failures.append("CANONICAL_ENTITY_DECLARATION_MISSING")
     if missing:
         failures.append("MISSING_ANCHOR_FOR_CANONICAL_ENTITY")
+    if semantic_evidence_missing:
+        failures.append("SEMANTIC_ANCHOR_EVIDENCE_MISSING")
+    if semantic_evidence_invalid:
+        failures.append("SEMANTIC_ANCHOR_EVIDENCE_INVALID")
     status = "PASS" if not failures else ("FAIL" if enforce else "WARNING")
     return {
         "schema": "qingshan.submission_input_precheck.v2",
@@ -171,7 +229,9 @@ def precheck_submission_inputs(
         "status": status,
         "failure_code": failures[0] if failures else None,
         "failure_attribution": (
-            "MISSING_REFERENCE_ANCHOR" if missing else "CANONICAL_MISMATCH" if failures else None
+            "MISSING_REFERENCE_ANCHOR"
+            if missing or semantic_evidence_missing or semantic_evidence_invalid
+            else "CANONICAL_MISMATCH" if failures else None
         ),
         "failures": failures,
         "canonical_entity_declaration_present": declaration_present,
@@ -184,6 +244,10 @@ def precheck_submission_inputs(
         "available_library_anchors": {
             entity_id: available.get(entity_id) for entity_id in missing if available.get(entity_id)
         },
+        "media_stage": media_stage,
+        "semantic_anchor_policy_enforced": semantic_policy,
+        "semantic_evidence_missing": semantic_evidence_missing,
+        "semantic_evidence_invalid": semantic_evidence_invalid,
         "enforced": enforce,
     }
 

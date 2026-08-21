@@ -23,7 +23,7 @@ def evaluate(
     reroll_number: int,
     failure_tier: str,
     failure_reason: str,
-    total_shots: int,
+    total_paid_tasks: int,
 ) -> dict:
     failures = []
     warnings = []
@@ -38,16 +38,15 @@ def evaluate(
     if reroll_number > max_per_shot:
         failures.append("PER_SHOT_REROLL_LIMIT_EXCEEDED")
 
-    rerolled_shots = {
-        event["shot_id"]
-        for event in events
+    paid_reroll_events = [
+        event for event in events
         if event.get("outcome") in {"SUBMITTED", "COMPLETED"}
-    }
-    rerolled_shots.add(shot_id)
-    max_rerolled_shots = max(
-        1, math.floor(total_shots * float(policy["episode_reroll_shot_fraction"]))
+    ]
+    paid_reroll_count_after_submit = len(paid_reroll_events) + 1
+    max_paid_rerolls = max(
+        1, math.floor(total_paid_tasks * float(policy["episode_reroll_shot_fraction"]))
     )
-    if len(rerolled_shots) > max_rerolled_shots:
+    if paid_reroll_count_after_submit > max_paid_rerolls:
         failures.append("EPISODE_REROLL_BUDGET_EXCEEDED")
 
     recent_same_reason = []
@@ -73,8 +72,9 @@ def evaluate(
         "reroll_number": reroll_number,
         "failure_tier": failure_tier,
         "failure_reason": failure_reason,
-        "episode_rerolled_shot_count_after_submit": len(rerolled_shots),
-        "episode_rerolled_shot_limit": max_rerolled_shots,
+        "episode_paid_reroll_count_after_submit": paid_reroll_count_after_submit,
+        "episode_paid_reroll_limit": max_paid_rerolls,
+        "episode_total_paid_task_count": total_paid_tasks,
         "failures": failures,
         "warnings": warnings,
     }
@@ -88,7 +88,7 @@ def main() -> int:
     parser.add_argument("--reroll-number", required=True, type=int)
     parser.add_argument("--failure-tier", required=True, choices=["BLOCK", "ADVISE"])
     parser.add_argument("--failure-reason", required=True)
-    parser.add_argument("--total-shots", required=True, type=int)
+    parser.add_argument("--total-paid-tasks", required=True, type=int)
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
 
@@ -99,7 +99,7 @@ def main() -> int:
         reroll_number=args.reroll_number,
         failure_tier=args.failure_tier,
         failure_reason=args.failure_reason,
-        total_shots=args.total_shots,
+        total_paid_tasks=args.total_paid_tasks,
     )
     output = Path(args.out)
     output.parent.mkdir(parents=True, exist_ok=True)

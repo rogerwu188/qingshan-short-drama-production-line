@@ -11,8 +11,10 @@ from pathlib import Path
 
 try:
     from .local_lora_memory_sync import auto_sync
+    from .human_realism_prompt_contract import build_expression_realism_block
 except ImportError:  # Direct script execution from components/pipeline-tools.
     from local_lora_memory_sync import auto_sync
+    from human_realism_prompt_contract import build_expression_realism_block
 
 
 MODES = {"storyboard", "continuous_long_take", "multi_keyframe_long_take"}
@@ -614,7 +616,8 @@ def compile_shot(shot: dict, index: int) -> str:
     action = require(shot.get("action"), f"shot {index} action is required")
     expression = require(shot.get("expression_arc"), f"shot {index} expression_arc is required")
     cut_reason = require(shot.get("cut_reason"), f"shot {index} cut_reason is required")
-    line = f"镜头{index}：【{framing}，{camera}】{action}。表情弧：{expression}。"
+    realism = build_expression_realism_block(expression_arc=expression, action=action, framing=framing)
+    line = f"镜头{index}：【{framing}，{camera}】{action}。表情弧：{expression}。{realism}"
     dialogue = shot.get("dialogue")
     if dialogue:
         speaker = require(dialogue.get("speaker"), f"shot {index} dialogue speaker is required")
@@ -924,7 +927,9 @@ def compile_prompt(spec: dict) -> tuple[str, dict]:
         expression = require(shot.get("expression_arc"), "continuous shot expression_arc is required")
         body = (
             f"镜头1：【15秒一镜到底，{framing}，{camera}】{action}。"
-            f"表情弧：{expression}。全程不得出现切镜、转场、分段镜头编号或机位重置。"
+            f"表情弧：{expression}。"
+            f"{build_expression_realism_block(expression_arc=expression, action=action, framing=framing)}"
+            "全程不得出现切镜、转场、分段镜头编号或机位重置。"
         )
         if visual_contract:
             body += "\n" + compile_visual_direction(shot, 1)

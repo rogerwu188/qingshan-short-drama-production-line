@@ -26,7 +26,8 @@
     "ROGER-20260727-POST-PUBLISH-STORAGE-RETENTION",
     "ROGER-20260818-US-PACING-V2-RESTRUCTURE",
     "ROGER-20260818-EPISODE-GLOBAL-SPACE-MAP",
-    "ROGER-20260818-QA-PREGEN-GATE"
+    "ROGER-20260818-QA-PREGEN-GATE",
+    "ROGER-20260820-HUMAN-REALISM-PROMPT"
   ],
   "meta_rule": "A new lesson is not frozen until mailbox_ref, code_or_manual_checklist, test_or_required_fields, and registry_entry all exist.",
   "gates": [
@@ -540,12 +541,14 @@
       "implementation_type": "CODED",
       "code_paths": [
         "tools/character_identity_admission_gate.py",
+        "tools/human_realism_prompt_contract.py",
         "tools/shot_media_admission_gate.py",
         "tools/episode_parallel_batch_supervisor.py",
         "tools/submit_giggle_task_manifest.py"
       ],
       "test_paths": [
         "tools/tests/test_character_identity_admission_gate.py",
+        "tools/tests/test_human_realism_prompt_contract.py",
         "tools/tests/test_shot_media_admission_gate.py",
         "tools/tests/test_episode_parallel_batch_supervisor.py",
         "tools/tests/test_submit_keyframe_admission_gate.py"
@@ -577,7 +580,16 @@
           "ADMITTED",
           "ADMITTED_WITH_P2",
           "FAIL"
-        ]
+        ],
+        "new_character_keyframe_human_realism_prompt_contract_required": true,
+        "human_realism_prompt_contract_version": "1.0.0",
+        "human_realism_rollout_scope": "NEWLY_COMPILED_TASKS_ONLY_NO_ACTIVE_TASK_MUTATION",
+        "identity_and_age_precede_beautification": true,
+        "skin_microtexture_and_natural_asymmetry_required": true,
+        "motivated_expression_and_body_support_required": true,
+        "real_lens_aperture_and_motivated_light_required": true,
+        "plastic_skin_wax_face_beauty_filter_and_ai_expression_forbidden": true,
+        "human_realism_authorization_ref": "ROGER-20260820-HUMAN-REALISM-PROMPT"
       },
       "authorization_ref": "ROGER-20260818-QA-PREGEN-GATE",
       "last_backtest_date": "2026-08-20",

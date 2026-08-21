@@ -24,6 +24,18 @@ class WriterAgentImageBatchTest(unittest.TestCase):
             self.assertTrue(all((ROOT / task["prompt_file"]).is_file() for task in config["tasks"]))
             self.assertIn("clear daytime", Path(tmp, "prompts", "E27-N01.txt").read_text(encoding="utf-8"))
             self.assertIn("female", Path(tmp, "prompts", "E27-N05.txt").read_text(encoding="utf-8"))
+            character_tasks = [task for task in config["tasks"] if task["character_keyframe"]]
+            self.assertTrue(character_tasks)
+            self.assertTrue(all(task["asset_library_lookup"]["performed_before_prompt_compilation"] for task in character_tasks))
+            self.assertTrue(all(
+                binding["asset_origin"] == "CANONICAL_NATIVE_ASSET_LIBRARY"
+                for task in character_tasks
+                for binding in task["reference_bindings"]
+            ))
+            self.assertTrue(all(task["prompt_realism_contract_version"] == "1.0.0" for task in character_tasks))
+            character_prompt = (ROOT / character_tasks[0]["prompt_file"]).read_text(encoding="utf-8")
+            for clause in ("真人面孔与表演合同", "毛孔", "不对称", "湿润反射", "磨皮"):
+                self.assertIn(clause, character_prompt)
             manifest = Path(result["prompt_manifest"]).read_text(encoding="utf-8")
             self.assertEqual(24, manifest.count("## E27-N"))
 

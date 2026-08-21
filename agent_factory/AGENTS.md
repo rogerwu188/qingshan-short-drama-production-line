@@ -2,25 +2,18 @@
 
 本文件是 agent 运行时的硬规则。遇到冲突时，以用户最新指令和本文件中的 P0/P1 门禁优先。
 
-## P0 最新恢复点：E16 已发行，E17 正在剧本/资产/首波生成前门禁
+## P0 当前恢复点必须动态解析，禁止写死集号
 
-当前最新闭环：
+每轮先从 `workflow/work_queue.json` 的 `current`、canonical/manifest 与对应
+`workflow/production_line/E##_TASK_LANES_V1.json` 解析当前活动集和下一真实工位。
+历史集的发行链接与恢复点只作为账本证据，不得覆盖当前 work queue，也不得让旧集号
+（例如 E17）重新成为生产入口。
 
-```text
-E16_STATUS=已发布完成;不再重做/重传已通过最终 QA 且已发布的 E16 成片
-E16_YOUTUBE=https://youtube.com/shorts/hv0GpOrh5HM?feature=share
-E16_STORYCLAW_POST_AUDIT=/Users/rogerwu/qingshan_short_drama/workflow/storyclaw_outbox/SC2X-005_E16_review.txt
-E17_TASK=/Users/rogerwu/qingshan_short_drama/workflow/tasks/E17_TASK.md
-E17_SCRIPT=/Users/rogerwu/qingshan_short_drama/codex_docs/共享审稿_青山E17剧本对白_v0_20260714.md
-E17_DIALOGUE_BEAT=/Users/rogerwu/qingshan_short_drama/configs/e17_dialogue_beat_sheet_20260714.json
-E17_RUNTIME_MANIFEST=/Users/rogerwu/qingshan_short_drama/configs/e17_runtime_prompt_manifest_skeleton_20260714.json
-E17_GATE=/Users/rogerwu/qingshan_short_drama/qa/e17_preflight_20260714/E17_GENERATION_GATE_STATUS_20260714.json
-E17_SC2X_REVIEW=/Users/rogerwu/qingshan_short_drama/workflow/storyclaw_outbox/SC2X-006_E17_script_review.txt
-E17_WUYUN_VOICE_REMOTE=z8048tlie3t
-NEXT=refresh E17 runtime prompts -> first-wave short-controlled video sources -> QA -> edit/package -> CI -> AGENT_WATCH_GATE -> release
-```
-
-E17 P0 必须继承 E16 V3 sentence-hold 观看节奏：不要在一句话未说完时机械切多个镜头；对话段允许更长、更稳的句持镜，但必须保持动作/证据/反应 delta。SC2X-006 已采纳：补验尸官“布角也泡烂了。”、DIA-022 只留“办案”、DIA-013 口语化、火漆功能写清。E17 未进入正式视频生成前，必须保持视觉 prompt 无对白、乌云自己说话、资产继承、因果/常识、coverage 与 production method 门禁。
+当前付费图片只允许经持久化事务提交器进入；E40 及以后的视频只允许
+`seedance-2.0-fast`，并经当前部署的 durable transaction submitter 提交。
+`tools/giggle_api_client.py`、旧 supervisor、一次性 E##_ 脚本和浏览器操作均不是可直接
+POST 的默认入口。若工具注册表与本段冲突，以当前用户授权、注册门、事务账本和
+`work_queue` 的活动集状态为准。
 
 ## P0 StoryClaw/Claude 双监制异步通信
 
@@ -111,6 +104,10 @@ T+7d  -> 周复盘，更新系列级规则
 ## P0 人类导演感升级门禁
 
 关键帧/视频 QA 的状态必须诚实分层：技术可解码只写 `TECHNICAL_PASS_CONTENT_UNREVIEWED`；`ADVISORY_NOT_A_GATE` 不得当作准入。E40 起视频提交前必须有准确 SHA 的 `ADMITTED_FOR_VIDEO_SUBMIT` 首帧，视频只有在身份、空间动作、时代与缺陷容忍注册门全部通过并完成原分辨率内容审看后，才可写 `ADMITTED_FOR_ASSEMBLY`。未注册像素、骨架、几何审美指标只作 DIAGNOSTIC，不得触发付费重做。
+
+自 `ROGER-20260820-HUMAN-REALISM-PROMPT` 起，新编译的人物关键帧必须使用 `tools/human_realism_prompt_contract.py`：身份与年龄先于美化；保留毛孔、细汗毛、唇纹、眼球湿润反光和轻微面部不对称；按景别选择真实 35/50/85mm 光学与合理光圈；动机光必须来自场景。禁止磨皮、美颜、镜像对称脸、塑料皮、蜡像感、玻璃眼、虚假 HDR、广告棚拍和网红摆拍。该规则只作用于新编译任务，不修改或重启已经绑定 task_id 的远端任务。
+
+人物表情提示词不得只写“笑、怒、惊、冷”。必须编译“事件刺激 → 视线落点 → 眉眼/鼻翼/嘴角/下颌中一至两处微变化 → 呼吸/吞咽/肩颈/身体重心/手指张力中的身体支持 → 未完全归零的残余状态”。不同面部区域禁止同时等幅运动；非说话角色也要有呼吸与倾听反应；禁止 AI 标准微笑、同时挑眉瞪眼张嘴、橡胶嘴、僵硬背景板和全程同一表情。
 
 E10 起必须执行以下四个文件：
 
@@ -211,7 +208,7 @@ project/
 
 ## 正式生产路线
 
-默认使用 Chrome 视觉操作，不使用早期 Giggle API 1.0。官方 Giggle OpenAPI 只作为卡死镜头兜底：当 UI 参考图上传、模型供应商链路或单镜任务创建反复失败时，才可用当前官方文档接口生成单镜，并必须继承同一角色、道具、场景、声音和中文对白锚点。
+E40 及以后付费图片/视频生成以当前部署的 durable transaction submitter 为唯一默认入口：先持久化事务，再调用 Giggle OpenAPI，成功后立即绑定 task_id。Chrome 视觉操作只用于平台本身没有等价 API 的人工界面流程或只读排障，不得成为绕过事务、输入完整性门、模型白名单或重复提交保护的第二付费入口。所有入口必须继承同一角色、道具、场景、声音和中文对白锚点。
 
 ```text
 AI Director 2.0

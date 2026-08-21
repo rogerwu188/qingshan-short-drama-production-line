@@ -73,7 +73,7 @@ class ParallelPromptBatchTests(unittest.TestCase):
             self.assertEqual(len(data["image_tasks"]), 1)
             self.assertEqual(len(data["video_tasks"]), 1)
             self.assertEqual(data["video_tasks"][0]["duration_seconds"], 4)
-            self.assertEqual(data["video_tasks"][0]["model"], "seedance-2.0")
+            self.assertEqual(data["video_tasks"][0]["model"], "seedance-2.0-fast")
             self.assertEqual(data["video_tasks"][0]["duration_plan"]["policy"], "qingshan.shot_generation_duration.v5")
             self.assertEqual(data["video_tasks"][0]["action_density_gate"]["status"], "PASS")
             image_prompt = Path(data["image_tasks"][0]["prompt_file"]).read_text()
