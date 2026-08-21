@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from statistics import median
 from typing import Any, Protocol
@@ -86,16 +87,32 @@ def _verify_files(paths: list[Path], declared: dict[str, str], prefix: str) -> l
     return failures
 
 
+def _utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def evaluate(
     manifest: dict[str, Any],
     registry: dict[str, Any],
     backend: EmbeddingBackend | None = None,
+    now_utc: datetime | None = None,
 ) -> dict[str, Any]:
     parameters = registry.get("parameters") or {}
     canonical_min = int(parameters.get("canonical_views_min", 3))
     samples_min = int(parameters.get("sample_frames_per_source_min", 3))
     pass_threshold = float(parameters.get("embedding_cosine_pass_threshold", 0.45))
     fail_threshold = float(parameters.get("embedding_cosine_fail_threshold", 0.30))
+    boundary_midpoint = float(parameters.get("embedding_cosine_boundary_auto_decision_midpoint", 0.375))
+    timeout_minutes = int(parameters.get("boundary_human_timeout_minutes", 15))
+    now_utc = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    requested_value = str(manifest.get("boundary_human_review_requested_at") or "")
+    requested_at = _utc(requested_value) if requested_value else None
+    timeout_reached = bool(
+        requested_at and (now_utc - requested_at).total_seconds() >= timeout_minutes * 60
+    )
     failures: list[str] = []
     boundary: list[str] = []
     decisions: list[dict[str, Any]] = []
@@ -146,8 +163,14 @@ def evaluate(
                 decision = "FAIL"
                 failures.append(f"identity_embedding_below_fail_threshold:{prefix}:{aggregate:.6f}")
             else:
-                decision = "BOUNDARY_REQUIRES_HUMAN"
-                boundary.append(prefix)
+                if timeout_reached and aggregate >= boundary_midpoint:
+                    decision = "ADMIT_BEST_EFFORT"
+                elif timeout_reached:
+                    decision = "SWITCH_COVERAGE"
+                    failures.append(f"identity_boundary_auto_switch_coverage:{prefix}:{aggregate:.6f}")
+                else:
+                    decision = "BOUNDARY_REQUIRES_HUMAN"
+                    boundary.append(prefix)
             decisions.append({
                 "source_id": source_id,
                 "character_id": character_id,
@@ -156,9 +179,18 @@ def evaluate(
                 "decision": decision,
             })
 
+    if boundary and requested_at is None:
+        requested_at = now_utc
+    auto_resolved = timeout_reached and any(
+        row["decision"] in {"ADMIT_BEST_EFFORT", "SWITCH_COVERAGE"} for row in decisions
+    )
+    auto_directions = sorted({
+        row["decision"] for row in decisions
+        if row["decision"] in {"ADMIT_BEST_EFFORT", "SWITCH_COVERAGE"}
+    })
     status = "FAIL" if failures else "BOUNDARY_REQUIRES_HUMAN" if boundary else "PASS"
     return {
-        "schema": "qingshan.character_identity_admission_gate.v2",
+        "schema": "qingshan.character_identity_admission_gate.v3",
         "gate_id": GATE_ID,
         "status": status,
         "source_count": len(sources),
@@ -168,12 +200,22 @@ def evaluate(
             "decision": status,
             "pass_threshold": pass_threshold,
             "fail_threshold": fail_threshold,
+            "boundary_auto_decision_midpoint": boundary_midpoint,
+            "boundary_human_timeout_minutes": timeout_minutes,
             "canonical_views_min": canonical_min,
             "sample_frames_per_source_min": samples_min,
             "boundary_requires_human": True,
             "decisions": decisions,
         },
         "boundary_items": boundary,
+        "boundary_human_review_requested_at": requested_at.isoformat().replace("+00:00", "Z") if requested_at else None,
+        "boundary_auto_resolved_after_timeout": auto_resolved,
+        "boundary_auto_resolution_directions": auto_directions,
+        "admission_tier": (
+            "FAIL" if status == "FAIL" else
+            "ADMITTED_WITH_P2" if "ADMIT_BEST_EFFORT" in auto_directions else
+            "ADMITTED" if status == "PASS" else "PENDING_HUMAN"
+        ),
         "failures": failures,
     }
 
@@ -183,6 +225,7 @@ def main() -> int:
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--registry", required=True)
     parser.add_argument("--gate-registry", default=str(DEFAULT_GATE_REGISTRY))
+    parser.add_argument("--prior-report")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
     character_registry = json.loads(Path(args.registry).read_text(encoding="utf-8"))
@@ -194,10 +237,11 @@ def main() -> int:
     if policy is None:
         raise SystemExit("CHARACTER_IDENTITY_GATE_POLICY_NOT_REGISTERED")
     character_registry = {**character_registry, "parameters": policy}
-    report = evaluate(
-        json.loads(Path(args.manifest).read_text(encoding="utf-8")),
-        character_registry,
-    )
+    manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
+    if args.prior_report and not manifest.get("boundary_human_review_requested_at"):
+        prior = json.loads(Path(args.prior_report).read_text(encoding="utf-8"))
+        manifest["boundary_human_review_requested_at"] = prior.get("boundary_human_review_requested_at")
+    report = evaluate(manifest, character_registry)
     Path(args.out).write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"status": report["status"], "failures": report["failures"]}))
     return 0 if report["status"] == "PASS" else 2

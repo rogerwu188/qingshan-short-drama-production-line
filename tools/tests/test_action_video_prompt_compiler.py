@@ -1,4 +1,6 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from tools.action_video_prompt_compiler import compile_action_video_prompt, validate_action_contract
 
@@ -6,6 +8,7 @@ from tools.action_video_prompt_compiler import compile_action_video_prompt, vali
 class ActionVideoPromptCompilerTest(unittest.TestCase):
     def fixture(self):
         return {
+            "shot_type": "DIALOGUE",
             "canonical_characters": ["CHAR-A"],
             "canonical_props": ["PROP-X"],
             "space_chain_id": "EGSM-1->GSM-1->SUBSPACE-1",
@@ -46,6 +49,7 @@ class ActionVideoPromptCompilerTest(unittest.TestCase):
         task = self.fixture()
         task.update({
             "shot_type": "COMBAT",
+            "canonical_unit_text": "△【打斗·起·4s·冰壁护钥】双方立即接触。",
             "duration_seconds": 10,
             "cut_plan": [{"duration": 2.0} for _ in range(5)],
             "fight_scene_breathing_contract": {"rounds": [
@@ -92,6 +96,36 @@ class ActionVideoPromptCompilerTest(unittest.TestCase):
         task["shot_type"] = "DIALOGUE"
         task["duration_seconds"] = 4
         self.assertEqual(validate_action_contract(task), [])
+
+    def test_missing_shot_type_on_canonical_combat_fails(self):
+        task = self.combat_fixture()
+        del task["shot_type"]
+        failures = validate_action_contract(task)
+        self.assertIn("SHOT_TYPE_NOT_DECLARED", failures)
+        self.assertIn("SHOT_TYPE_MISMATCH_CANONICAL_COMBAT", failures)
+
+    def test_declared_combat_matching_canonical_passes(self):
+        self.assertEqual(validate_action_contract(self.combat_fixture()), [])
+
+    def test_combat_declaration_on_noncombat_canonical_fails(self):
+        task = self.combat_fixture()
+        task["canonical_unit_text"] = "△【近景·4s·静水承注】人物抬眼听话。"
+        self.assertIn("SHOT_TYPE_COMBAT_NOT_IN_CANONICAL", validate_action_contract(task))
+
+    def test_reads_only_bound_canonical_unit(self):
+        with TemporaryDirectory() as directory:
+            script = Path(directory) / "E41.md"
+            script.write_text(
+                "**14-6．内库**（12s）\n△【特写】开锁。\n"
+                "**14-7．内库**（20s｜FS-1 完整打斗 16s 起承转合）\n"
+                "△【打斗·起·4s】护钥。\n"
+                "**14-8．暗格前**（15s）\n△【近景】查看空格。\n",
+                encoding="utf-8",
+            )
+            task = self.combat_fixture()
+            task.pop("canonical_unit_text")
+            task.update({"canonical_script_path": str(script), "canonical_unit_id": "14-7"})
+            self.assertEqual(validate_action_contract(task), [])
 
 
 if __name__ == "__main__":

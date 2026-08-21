@@ -563,6 +563,11 @@
         "embedding_model": "buffalo_l",
         "embedding_cosine_pass_threshold": 0.45,
         "embedding_cosine_fail_threshold": 0.3,
+        "embedding_cosine_boundary_auto_decision_midpoint": 0.375,
+        "boundary_human_timeout_minutes": 15,
+        "boundary_timeout_authorization_ref": "ROGER-20260717-HUMAN-GATE-15MIN-AUTOMACHINE",
+        "boundary_timeout_admit_direction": "ADMIT_BEST_EFFORT_AS_P2",
+        "boundary_timeout_fail_direction": "SWITCH_COVERAGE",
         "embedding_boundary_requires_human": true,
         "strong_machine_pass_may_admit_without_human": true,
         "periodic_threshold_calibration_required": true,
@@ -598,8 +603,8 @@
         "plastic_skin_wax_face_beauty_filter_and_ai_expression_forbidden": true,
         "human_realism_authorization_ref": "ROGER-20260820-HUMAN-REALISM-PROMPT"
       },
-      "authorization_ref": "ROGER-20260818-QA-PREGEN-GATE",
-      "last_backtest_date": "2026-08-20",
+      "authorization_ref": "ROGER-20260818-QA-PREGEN-GATE / ROGER-20260717-HUMAN-GATE-15MIN-AUTOMACHINE / CL2X-1222",
+      "last_backtest_date": "2026-08-21",
       "stage_runner_paths": [
         "tools/episode_stage_gate_runner.py",
         "tools/episode_parallel_batch_supervisor.py",
@@ -1531,11 +1536,14 @@
       "implementation_type": "CODED",
       "code_paths": [
         "tools/action_shot_design_gate.py",
+        "tools/action_video_prompt_compiler.py",
         "tools/episode_parallel_batch_supervisor.py",
-        "tools/submit_giggle_task_manifest.py"
+        "tools/submit_giggle_task_manifest.py",
+        "tools/submit_giggle_video_manifest_v2.py"
       ],
       "test_paths": [
         "tools/tests/test_action_shot_design_gate.py",
+        "tools/tests/test_action_video_prompt_compiler.py",
         "tools/tests/test_submit_corrected_pipeline_gate.py"
       ],
       "parameters": {
@@ -1574,13 +1582,21 @@
         "fight_buildup_seconds_min": 1,
         "fight_buildup_seconds_max": 2,
         "fight_burst_motion_per_second_min": 10,
+        "shot_type_declaration_required": true,
+        "shot_type_must_match_canonical_combat_markers": true,
+        "canonical_combat_markers": [
+          "△【打斗·…】",
+          "FS-1 完整打斗",
+          "FS-1 窗口锚"
+        ],
         "effective_from_episode": "E40"
       },
-      "authorization_ref": "ROGER-20260818-EPISODE-GLOBAL-SPACE-MAP",
-      "last_backtest_date": "2026-08-18",
+      "authorization_ref": "ROGER-20260818-EPISODE-GLOBAL-SPACE-MAP / CL2X-1222",
+      "last_backtest_date": "2026-08-21",
       "stage_runner_paths": [
         "tools/episode_parallel_batch_supervisor.py",
-        "tools/submit_giggle_task_manifest.py"
+        "tools/submit_giggle_task_manifest.py",
+        "tools/submit_giggle_video_manifest_v2.py"
       ]
     },
     {
