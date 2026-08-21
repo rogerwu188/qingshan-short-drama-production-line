@@ -1,0 +1,26 @@
+{
+  "schema": "qingshan.claude_writer.portable_package.v1",
+  "agent_name": "qingshan-claude-writer-agent",
+  "schedule_minutes": 30,
+  "source_skill": "agent_factory/claude_writer/SKILL.md",
+  "default_deploy_relative_to_home": "Documents/Claude/Scheduled/qingshan-claude-writer-agent/SKILL.md",
+  "runtime_templates": {
+    "workflow/claude_writer_agent/SUPERVISOR_ORDERS.json": "agent_factory/claude_writer/runtime_templates/SUPERVISOR_ORDERS.json",
+    "workflow/claude_writer_agent/PROGRESS.json": "agent_factory/claude_writer/runtime_templates/PROGRESS.json",
+    "workflow/claude_writer_agent/MEMORY.md": "agent_factory/claude_writer/runtime_templates/MEMORY.md",
+    "workflow/claude_writer_agent/观众已知清单.md": "agent_factory/claude_writer/runtime_templates/观众已知清单.md"
+  },
+  "required_repository_files": [
+    "tools/canonical_writer_dispatcher.py",
+    "tools/canonical_writer_provenance.py",
+    "tools/episode_stage_gate_runner.py",
+    "tools/us_drama_event_density_gate.py",
+    "configs/GATE_REGISTRY_v3_20260716.json",
+    "configs/schemas/narrative_canonical_v3.schema.json",
+    "codex_docs/canonical剧本生成完整工艺工序_v1_20260821.md",
+    "codex_docs/美剧叙事节奏标准_v3_因果层_20260821.md",
+    "workflow/claude_writer_agent/宪章_ClaudeWriterAgent_v1.md",
+    "workflow/claude_writer_agent/青山编剧Claude_云端可移植宪章_v1.md",
+    "workflow/cloud_factory_migration_v1_20260724/prompt_files/qingshan-claude-writer/AGENTS.md"
+  ]
+}
