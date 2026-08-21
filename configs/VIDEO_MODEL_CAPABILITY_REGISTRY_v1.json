@@ -1,0 +1,80 @@
+{
+  "schema": "qingshan.video_model_capability_registry.v1",
+  "portable_contract_version": "1.0.0",
+  "active_execution_policy": {
+    "effective_from_episode": "E40",
+    "allowed_paid_profile_ids": ["SEEDANCE_2_FAST_GIGGLE"],
+    "reason": "Current Roger authorization remains seedance-2.0-fast only; compatibility profiles do not grant paid authority."
+  },
+  "portable_required_fields": [
+    "prompt", "duration_seconds", "aspect_ratio", "blocking",
+    "action_end_blocking", "trajectory_overlays", "space_chain_id"
+  ],
+  "profiles": [
+    {
+      "profile_id": "SEEDANCE_2_FAST_GIGGLE",
+      "family": "seedance2",
+      "aliases": ["seedance-2.0-fast"],
+      "provider": "giggle",
+      "provider_model_id": "seedance-2.0-fast",
+      "adapter_status": "DEPLOYED",
+      "supports": {
+        "text_to_video": true,
+        "image_to_video": true,
+        "exact_first_frame": true,
+        "multiple_image_references": true,
+        "audio_reference": true
+      },
+      "provider_limits": {
+        "duration_seconds_min": 4,
+        "duration_seconds_max": 15,
+        "resolution_values": ["720p"],
+        "aspect_ratio_values": ["9:16"]
+      }
+    },
+    {
+      "profile_id": "SORA_2_PORTABLE",
+      "family": "sora2",
+      "aliases": ["sora2", "sora-2"],
+      "provider": "openai",
+      "provider_model_id": null,
+      "adapter_status": "CONTRACT_READY_PROVIDER_CONFIG_REQUIRED",
+      "supports": {},
+      "provider_limits": {},
+      "deployment_requirements": ["provider_model_id", "credentials", "capability_probe", "cost_authority"]
+    },
+    {
+      "profile_id": "KLING_PORTABLE",
+      "family": "kling",
+      "aliases": ["kling"],
+      "provider": "kling",
+      "provider_model_id": null,
+      "adapter_status": "CONTRACT_READY_PROVIDER_CONFIG_REQUIRED",
+      "supports": {},
+      "provider_limits": {},
+      "deployment_requirements": ["provider_model_id", "credentials", "capability_probe", "cost_authority"]
+    },
+    {
+      "profile_id": "H3_PORTABLE",
+      "family": "h3",
+      "aliases": ["h3"],
+      "provider": null,
+      "provider_model_id": null,
+      "adapter_status": "CONTRACT_READY_PROVIDER_CONFIG_REQUIRED",
+      "supports": {},
+      "provider_limits": {},
+      "deployment_requirements": ["provider_identity", "provider_model_id", "credentials", "capability_probe", "cost_authority"]
+    },
+    {
+      "profile_id": "WAN_2_7_PORTABLE",
+      "family": "wan2.7",
+      "aliases": ["wan2.7", "wan-2.7"],
+      "provider": null,
+      "provider_model_id": null,
+      "adapter_status": "CONTRACT_READY_PROVIDER_CONFIG_REQUIRED",
+      "supports": {},
+      "provider_limits": {},
+      "deployment_requirements": ["provider_identity", "provider_model_id", "credentials", "capability_probe", "cost_authority"]
+    }
+  ]
+}

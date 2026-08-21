@@ -1,0 +1,58 @@
+{
+  "schema": "qingshan.image_model_capability_registry.v1",
+  "portable_contract_version": "1.0.0",
+  "active_execution_policy": {
+    "effective_from_episode": "E40",
+    "allowed_paid_profile_ids": ["GPT_IMAGE_2_PRO_GIGGLE"],
+    "reason": "Current keyframe execution remains gpt-image-2-pro; compatibility profiles do not grant paid authority."
+  },
+  "portable_required_fields": [
+    "prompt", "aspect_ratio", "reference_bindings", "space_chain_id",
+    "canonical_entity_declaration"
+  ],
+  "profiles": [
+    {
+      "profile_id": "GPT_IMAGE_2_PRO_GIGGLE",
+      "family": "gpt-image",
+      "aliases": ["gpt-image-2-pro"],
+      "provider": "giggle",
+      "provider_model_id": "gpt-image-2-pro",
+      "adapter_status": "DEPLOYED",
+      "supports": {"text_to_image": true, "image_references": true, "exact_reference_transport": true},
+      "provider_limits": {"aspect_ratio_values": ["9:16"], "resolution_values": ["1K", "2K"]}
+    },
+    {
+      "profile_id": "SD2_PORTABLE",
+      "family": "sd2",
+      "aliases": ["sd2", "stable-diffusion-2"],
+      "provider": null,
+      "provider_model_id": null,
+      "adapter_status": "CONTRACT_READY_PROVIDER_CONFIG_REQUIRED",
+      "supports": {},
+      "provider_limits": {},
+      "deployment_requirements": ["provider_identity", "provider_model_id", "reference_transport_probe", "credentials", "cost_authority"]
+    },
+    {
+      "profile_id": "SEED_IMAGE_PORTABLE",
+      "family": "seed-image",
+      "aliases": ["seed", "seed-image"],
+      "provider": null,
+      "provider_model_id": null,
+      "adapter_status": "CONTRACT_READY_PROVIDER_CONFIG_REQUIRED",
+      "supports": {},
+      "provider_limits": {},
+      "deployment_requirements": ["provider_identity", "provider_model_id", "reference_transport_probe", "credentials", "cost_authority"]
+    },
+    {
+      "profile_id": "GOOGLE_NANO_BANANA_PORTABLE",
+      "family": "google-nano-banana",
+      "aliases": ["nano-banana", "nanobanana", "nanubanner", "google-nano-banana"],
+      "provider": "google",
+      "provider_model_id": null,
+      "adapter_status": "CONTRACT_READY_PROVIDER_CONFIG_REQUIRED",
+      "supports": {},
+      "provider_limits": {},
+      "deployment_requirements": ["provider_model_id", "reference_transport_probe", "credentials", "cost_authority"]
+    }
+  ]
+}

@@ -42,6 +42,57 @@ class ActionVideoPromptCompilerTest(unittest.TestCase):
         del task["trajectory_overlays"][0]["visible_consequence"]
         self.assertIn("TRAJECTORY_FIELD_MISSING:0:visible_consequence", validate_action_contract(task))
 
+    def combat_fixture(self):
+        task = self.fixture()
+        task.update({
+            "shot_type": "COMBAT",
+            "duration_seconds": 10,
+            "cut_plan": [{"duration": 2.0} for _ in range(5)],
+            "fight_scene_breathing_contract": {"rounds": [
+                {"burst_seconds": 2.0, "buildup_seconds": 1.0, "burst_motion_per_second": 12}
+                for _ in range(3)
+            ]},
+        })
+        task["performance_tempo_contract"].update({
+            "contact_by_seconds": 0.2,
+            "primary_exchange_complete_by_seconds": 1.5,
+            "aftermath_in_same_edit_shot": False,
+            "exchange_plan": [
+                {"action": "甲突入，乙格挡"},
+                {"action": "乙反击，甲闪避"},
+                {"action": "甲借柱转位再压制"},
+            ],
+        })
+        return task
+
+    def test_combat_compiles_multi_exchange_editorial_contract(self):
+        task = self.combat_fixture()
+        self.assertEqual(validate_action_contract(task), [])
+        prompt = compile_action_video_prompt(task)
+        self.assertIn("0.2秒内发生接触", prompt)
+        self.assertIn("拆成4至6个短镜", prompt)
+
+    def test_combat_rejects_old_slow_single_action_template(self):
+        task = self.combat_fixture()
+        task["duration_seconds"] = 4
+        task["performance_tempo_contract"].update({
+            "contact_by_seconds": 0.8,
+            "primary_exchange_complete_by_seconds": 1.8,
+            "aftermath_in_same_edit_shot": True,
+            "exchange_plan": [{"action": "single slow strike"}],
+        })
+        task["cut_plan"] = [{"duration": 4.0}]
+        failures = validate_action_contract(task)
+        self.assertIn("COMBAT_CONTACT_MUST_BEGIN_BY_0P2_SECONDS", failures)
+        self.assertIn("COMBAT_AFTERMATH_HOLD_FORBIDDEN_IN_SAME_EDIT_SHOT", failures)
+        self.assertIn("COMBAT_GENERATION_REQUIRES_3_TO_4_EXCHANGES", failures)
+
+    def test_dialogue_is_not_forced_through_combat_timing(self):
+        task = self.fixture()
+        task["shot_type"] = "DIALOGUE"
+        task["duration_seconds"] = 4
+        self.assertEqual(validate_action_contract(task), [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -41,6 +41,8 @@ try:
         precheck_submission_inputs,
         validate_retry_change,
     )
+    from video_model_adapter import require_paid_model_contract
+    from image_model_adapter import require_paid_image_model_contract
 except ImportError:
     from tools.episode_video_generation_guard import (
         credit_report_path,
@@ -69,6 +71,8 @@ except ImportError:
         precheck_submission_inputs,
         validate_retry_change,
     )
+    from tools.video_model_adapter import require_paid_model_contract
+    from tools.image_model_adapter import require_paid_image_model_contract
 
 
 BASE = Path(
@@ -292,10 +296,21 @@ def validate_ready_task_contracts(ready: list[dict[str, Any]]) -> list[str]:
                     f"MISSING_ANCHOR_FOR_CANONICAL_ENTITY:{source_id}:{entity_id}"
                 )
         if str(task.get("media_stage") or "").upper() == "VIDEO":
+            try:
+                require_paid_model_contract(task, str(task.get("episode") or ""))
+            except ValueError as exc:
+                problems.append(f"FAIL_VIDEO_MODEL_ADAPTER:{source_id}:{exc}")
             problems.extend(
                 f"FAIL_STRUCTURED_ACTION_CONTRACT:{source_id}:{value}"
                 for value in validate_action_contract(task)
             )
+        elif task.get("tool_type") == "image_generation" and str(task.get("episode") or "").upper().startswith("E"):
+            try:
+                episode_number = int(str(task.get("episode"))[1:].split("-")[0])
+                if episode_number >= 40:
+                    require_paid_image_model_contract(task, str(task.get("episode")))
+            except (ValueError, TypeError) as exc:
+                problems.append(f"FAIL_IMAGE_MODEL_ADAPTER:{source_id}:{exc}")
         if task.get("state") == "retry_pending" or task.get("retry_count"):
             retry_gate = validate_retry_change(task)
             problems.extend(f"{value}:{source_id}" for value in retry_gate["failures"])

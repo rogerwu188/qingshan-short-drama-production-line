@@ -6,7 +6,8 @@ from tempfile import TemporaryDirectory
 
 from tools.shot_media_admission_gate import (
     KEYFRAME_REQUIRED_GATES,
-    P0_HUMAN_REQUIRED_GATES,
+    P0_OBJECTIVE_GATES,
+    P0_OBJECTIVE_METHODS,
     VIDEO_REQUIRED_GATES,
     aggregate_template_defects,
     compute_input_template_id,
@@ -22,7 +23,14 @@ def digest(path: Path) -> str:
 
 class ShotMediaAdmissionGateTests(unittest.TestCase):
     def setUp(self):
-        self.registry = {"gates": [{"gate_id": value} for value in VIDEO_REQUIRED_GATES]}
+        self.registry = {"gates": [
+            {"gate_id": value, "parameters": {
+                "canonical_views_min": 3,
+                "sample_frames_per_source_min": 3,
+                "embedding_cosine_pass_threshold": 0.45,
+            } if value == "CHARACTER-IDENTITY-ADMISSION" else {}}
+            for value in VIDEO_REQUIRED_GATES
+        ]}
 
     def fixture(self, root: Path, kind="KEYFRAME_VIDEO_SUBMIT"):
         asset = root / "asset.png"
@@ -40,7 +48,7 @@ class ShotMediaAdmissionGateTests(unittest.TestCase):
                 "evidence_path": str(report),
                 "evidence_sha256": digest(report),
                 "original_resolution_review": index == 0,
-                "reviewer_type": "HUMAN_AND_AI" if gate_id in P0_HUMAN_REQUIRED_GATES else "AI_VISUAL",
+                "reviewer_type": "HUMAN_AND_AI" if gate_id in P0_OBJECTIVE_GATES else "AI_VISUAL",
             })
         payload = {
             "kind": kind,
@@ -187,15 +195,41 @@ class ShotMediaAdmissionGateTests(unittest.TestCase):
         self.assertIn("SEMANTIC_ANCHOR_POLICY_NOT_DECLARED", report["failures"])
         self.assertTrue(report["semantic_anchor_policy_enforced"])
 
-    def test_every_p0_gate_rejects_ai_visual_only_reviewer(self):
-        for gate_id in P0_HUMAN_REQUIRED_GATES:
+    def test_every_p0_gate_accepts_only_structured_objective_ai_evidence(self):
+        for gate_id in P0_OBJECTIVE_GATES:
             with self.subTest(gate_id=gate_id), TemporaryDirectory() as directory:
                 payload = self.fixture(Path(directory))
                 evidence = next(row for row in payload["evidence"] if row["gate_id"] == gate_id)
                 evidence["reviewer_type"] = "AI_VISUAL"
+                evidence_path = Path(evidence["evidence_path"])
+                verification = {
+                    "method": P0_OBJECTIVE_METHODS[gate_id],
+                    "decision": "PASS",
+                    "checks": [{"question": "closed", "answer": "PASS"}],
+                }
+                if gate_id == "CHARACTER-IDENTITY-ADMISSION":
+                    verification.update({
+                        "pass_threshold": 0.45,
+                        "canonical_views_min": 3,
+                        "sample_frames_per_source_min": 3,
+                        "decisions": [{"character_id": "CHAR-A", "decision": "PASS"}],
+                    })
+                evidence_path.write_text(json.dumps({
+                    "gate_id": gate_id, "status": "PASS",
+                    "objective_verification": verification,
+                }), encoding="utf-8")
+                evidence["evidence_sha256"] = digest(evidence_path)
                 report = evaluate(payload, self.registry, Path(directory))
-                self.assertEqual(report["status"], "FAIL")
-                self.assertTrue(any("p0_gate_requires_human_reviewer" in row for row in report["failures"]))
+                self.assertEqual(report["status"], "ADMITTED", report["failures"])
+
+    def test_p0_ai_visual_cannot_self_assert_unstructured_pass(self):
+        with TemporaryDirectory() as directory:
+            payload = self.fixture(Path(directory))
+            evidence = next(row for row in payload["evidence"] if row["gate_id"] == "CHARACTER-IDENTITY-ADMISSION")
+            evidence["reviewer_type"] = "AI_VISUAL"
+            report = evaluate(payload, self.registry, Path(directory))
+            self.assertEqual(report["status"], "FAIL")
+            self.assertTrue(any("p0_objective_method_invalid" in row for row in report["failures"]))
 
     def test_p2_within_budget_is_conditionally_admitted(self):
         with TemporaryDirectory() as directory:
