@@ -50,6 +50,30 @@ class AgentCutFromAdmittedSourcesTests(unittest.TestCase):
             result = build("E99", [receipt], [full, retry], project, admission, root / "out.mp4", 2)
             self.assertEqual(result["slots"], 2)
 
+    def test_speaking_visual_replacement_cannot_reuse_old_candidate_audio(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            old = root / "old.mp4"
+            clean = root / "clean.mp4"
+            old.write_bytes(b"old")
+            clean.write_bytes(b"clean")
+            first = root / "first.json"
+            first.write_text(json.dumps({"tasks": [{
+                "source_id": "B01-P1", "status": "qa_failed_terminal",
+                "output_path": str(old), "duration": 4,
+                "metadata": {"selected_dialogue": [{"text": "原生台词"}]},
+            }]}))
+            retry = root / "retry.json"
+            retry.write_text(json.dumps({"tasks": [{
+                "source_id": "B01-P1", "status": "qa_pass",
+                "output_path": str(clean), "duration": 4,
+                "metadata": {"silent_visual_replacement": True},
+            }]}))
+            review = root / "review.json"
+            review.write_text(json.dumps({"passed_items": [{"path": str(clean)}]}))
+            with self.assertRaisesRegex(ValueError, "cannot reuse dialogue audio"):
+                build("E99", [first, retry], review, root / "project.json", root / "admission.json", root / "out.mp4", 1)
+
     def test_ai_review_pass_can_adjudicate_raw_ocr_failure(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

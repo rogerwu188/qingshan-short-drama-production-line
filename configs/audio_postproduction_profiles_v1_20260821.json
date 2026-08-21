@@ -1,0 +1,38 @@
+{
+  "schema": "qingshan.audio_postproduction_profiles.v1",
+  "effective_from": "2026-08-21",
+  "sample_rate_hz": 48000,
+  "channels": 2,
+  "profiles": {
+    "NATIVE_MULTIMODAL_NO_EXTERNAL_BGM": {
+      "description": "Keep admitted source-native dialogue, ambience, foley and SFX. External BGM is forbidden.",
+      "sound_design_mode": "NATIVE_EMBEDDED",
+      "source_audio_policy": "PRESERVE_NATIVE_MULTIMODAL_AUDIO",
+      "native_dialogue_replacement_allowed": false,
+      "external_bgm_allowed": false,
+      "bgm_mode": "FORBIDDEN",
+      "bgm_track_required": false,
+      "bgm_contract_required": false
+    },
+    "NATIVE_MULTIMODAL_SELECTIVE_BGM": {
+      "description": "Keep Seedance multimodal native dialogue, ambience, foley and SFX. Add BGM only on explicitly motivated narrative cues.",
+      "sound_design_mode": "NATIVE_EMBEDDED",
+      "source_audio_policy": "PRESERVE_NATIVE_MULTIMODAL_AUDIO",
+      "native_dialogue_replacement_allowed": false,
+      "external_bgm_allowed": true,
+      "bgm_mode": "SELECTIVE",
+      "bgm_track_required": false,
+      "bgm_contract_required": false
+    },
+    "LAYERED_POST_WITH_BGM": {
+      "description": "Use explicit dialogue/ambience/foley/SFX layers plus a provenance-bound BGM track.",
+      "sound_design_mode": "LAYERED_CUES",
+      "source_audio_policy": "NO_NATIVE_DIALOGUE_WITH_EVIDENCE",
+      "native_dialogue_replacement_allowed": false,
+      "external_bgm_allowed": true,
+      "bgm_mode": "REQUIRED",
+      "bgm_track_required": true,
+      "bgm_contract_required": true
+    }
+  }
+}
