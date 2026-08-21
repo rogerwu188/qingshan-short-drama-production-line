@@ -231,8 +231,12 @@ RELEASED_STATUS_PREFIXES = (
 )
 try:
     from action_video_prompt_compiler import validate_action_contract
+    from video_model_adapter import require_paid_model_contract
+    from image_model_adapter import require_paid_image_model_contract
 except ModuleNotFoundError:
     from tools.action_video_prompt_compiler import validate_action_contract
+    from tools.video_model_adapter import require_paid_model_contract
+    from tools.image_model_adapter import require_paid_image_model_contract
 
 RUNTIME_GATE_IDS = frozenset({
     "SCENE-AUTHORITY-LOCK",
@@ -1601,12 +1605,29 @@ def submit_one(task: dict, receipt: dict) -> dict:
         task["require_semantic_anchor_evidence"] = True
         task.setdefault("semantic_anchor_policy_version", "1.0.0")
         if tool_type == "video_generation":
+            try:
+                require_paid_model_contract(task, str(receipt.get("episode") or ""))
+            except ValueError as exc:
+                return {
+                    "status": "submit_blocked", "state": "tool_blocked",
+                    "block_code": "BLOCK_VIDEO_MODEL_ADAPTER_INVALID",
+                    "model_adapter_error": str(exc),
+                }
             action_failures = validate_action_contract(task)
             if action_failures:
                 return {
                     "status": "submit_blocked", "state": "tool_blocked",
                     "block_code": "BLOCK_STRUCTURED_ACTION_CONTRACT_INVALID",
                     "action_contract_failures": action_failures,
+                }
+        else:
+            try:
+                require_paid_image_model_contract(task, str(receipt.get("episode") or ""))
+            except ValueError as exc:
+                return {
+                    "status": "submit_blocked", "state": "tool_blocked",
+                    "block_code": "BLOCK_IMAGE_MODEL_ADAPTER_INVALID",
+                    "model_adapter_error": str(exc),
                 }
     task["input_template_id"] = task.get("input_template_id") or compute_input_template_id(task)
     input_precheck = precheck_submission_inputs(task)

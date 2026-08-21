@@ -20,9 +20,11 @@ from typing import Any
 try:
     from giggle_api_client import _image_list, _request
     from giggle_credit_statements import fetch_pay_statements, reconcile_rows
+    from video_model_adapter import require_paid_model_contract
 except ModuleNotFoundError:
     from tools.giggle_api_client import _image_list, _request
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
+    from tools.video_model_adapter import require_paid_model_contract
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -145,6 +147,7 @@ def transaction_path(transaction_dir: Path, task: dict[str, Any]) -> Path:
 
 
 def validate_task(task: dict[str, Any]) -> None:
+    require_paid_model_contract(task, str(task.get("episode") or "E40"))
     for field in ("task_key", "prompt_file", "prompt_sha256", "reference_images", "reference_sha256"):
         if not task.get(field):
             raise ValueError(f"{task.get('task_key', 'UNKNOWN')} missing {field}")

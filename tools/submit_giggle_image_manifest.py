@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -20,12 +21,14 @@ try:
     from shot_space_camera_constraint_gate import evaluate_task as evaluate_spatial_task
     from global_space_layout_gate import evaluate_batch as evaluate_global_space_map
     from shot_media_admission_gate import precheck_submission_inputs
+    from image_model_adapter import require_paid_image_model_contract
 except ModuleNotFoundError:  # Imported as tools.submit_giggle_image_manifest.
     from tools.giggle_api_client import _image_list, _request
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from tools.shot_space_camera_constraint_gate import evaluate_task as evaluate_spatial_task
     from tools.global_space_layout_gate import evaluate_batch as evaluate_global_space_map
     from tools.shot_media_admission_gate import precheck_submission_inputs
+    from tools.image_model_adapter import require_paid_image_model_contract
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -209,6 +212,9 @@ def validate_mask_transport(task: dict[str, Any]) -> None:
 
 
 def validate_task(task: dict[str, Any]) -> None:
+    episode_match = re.match(r"E(\d+)", str(task.get("episode") or "").upper())
+    if episode_match and int(episode_match.group(1)) >= 40:
+        require_paid_image_model_contract(task, str(task.get("episode")))
     for field in ("task_key", "prompt_file", "reference_images"):
         if not task.get(field):
             raise ValueError(f"{task.get('task_key', 'UNKNOWN')} missing {field}")

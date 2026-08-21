@@ -24,11 +24,16 @@ KEYFRAME_REQUIRED_GATES = (
     "PERIOD-ANACHRONISM-LOCK",
 )
 VIDEO_REQUIRED_GATES = (*KEYFRAME_REQUIRED_GATES, "DEFECT-TIER-TOLERANCE")
-P0_HUMAN_REQUIRED_GATES = frozenset({
+P0_OBJECTIVE_GATES = frozenset({
     "CHARACTER-IDENTITY-ADMISSION",
     "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF",
     "PERIOD-ANACHRONISM-LOCK",
 })
+P0_OBJECTIVE_METHODS = {
+    "CHARACTER-IDENTITY-ADMISSION": "INSIGHTFACE_COSINE_V1",
+    "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF": "VLM_STRUCTURED_STATE_QA_V1",
+    "PERIOD-ANACHRONISM-LOCK": "CLOSED_SET_ANACHRONISM_OCR_V1",
+}
 ADVISORY_STATUSES = {"ADVISORY", "ADVISORY_NOT_A_GATE", "DIAGNOSTIC", "WARNING"}
 PASS_STATUSES = {"PASS", "PASS_EXACT_SHA", "PASS_ORIGINAL_RESOLUTION"}
 FAILURE_ATTRIBUTIONS = frozenset({
@@ -64,6 +69,45 @@ def _resolve(value: Any, root: Path) -> Path:
 
 def _registered_gate_ids(registry: dict[str, Any]) -> set[str]:
     return {str(row.get("gate_id")) for row in registry.get("gates") or [] if row.get("gate_id")}
+
+
+def _gate_parameters(registry: dict[str, Any], gate_id: str) -> dict[str, Any]:
+    for row in registry.get("gates") or []:
+        if row.get("gate_id") == gate_id:
+            return row.get("parameters") or {}
+    return {}
+
+
+def _objective_p0_pass(
+    gate_id: str, payload: dict[str, Any], registry: dict[str, Any]
+) -> tuple[bool, str]:
+    verification = payload.get("objective_verification") or {}
+    method = str(verification.get("method") or "")
+    expected = P0_OBJECTIVE_METHODS.get(gate_id)
+    if method != expected:
+        return False, f"p0_objective_method_invalid:{method or 'MISSING'}"
+    if str(verification.get("decision") or "").upper() != "PASS":
+        return False, "p0_objective_decision_not_pass"
+    if gate_id == "CHARACTER-IDENTITY-ADMISSION":
+        parameters = _gate_parameters(registry, gate_id)
+        if float(verification.get("pass_threshold", -1)) != float(
+            parameters.get("embedding_cosine_pass_threshold", -2)
+        ):
+            return False, "p0_identity_threshold_not_registry_bound"
+        decisions = verification.get("decisions") or []
+        if not decisions or any(str(row.get("decision") or "") != "PASS" for row in decisions):
+            return False, "p0_identity_sample_decision_not_pass"
+        if int(verification.get("canonical_views_min") or 0) < int(parameters.get("canonical_views_min", 3)):
+            return False, "p0_identity_canonical_views_below_registry"
+        if int(verification.get("sample_frames_per_source_min") or 0) < int(
+            parameters.get("sample_frames_per_source_min", 3)
+        ):
+            return False, "p0_identity_samples_below_registry"
+    else:
+        checks = verification.get("checks") or []
+        if not checks or any(str(row.get("answer") or row.get("status") or "").upper() != "PASS" for row in checks):
+            return False, "p0_structured_checks_not_pass"
+    return True, ""
 
 
 def _entity_ids(rows: Any, key: str) -> set[str]:
@@ -377,13 +421,6 @@ def evaluate(
         if status in ADVISORY_STATUSES or row.get("advisory_only") is True:
             diagnostics.append(f"{prefix}:advisory_not_admission")
             continue
-        if (
-            gate_id in P0_HUMAN_REQUIRED_GATES
-            and status in PASS_STATUSES
-            and reviewer_type not in {"HUMAN", "HUMAN_AND_AI"}
-        ):
-            failures.append(f"{prefix}:p0_gate_requires_human_reviewer:{reviewer_type or 'MISSING'}")
-            continue
         reviewed_sha = str(row.get("reviewed_asset_sha256") or "")
         if reviewed_sha != declared_asset_sha:
             failures.append(f"{prefix}:reviewed_asset_sha256_mismatch")
@@ -409,6 +446,17 @@ def evaluate(
         if declared_status and declared_status not in PASS_STATUSES and status in PASS_STATUSES:
             failures.append(f"{prefix}:evidence_payload_not_pass:{declared_status}")
             continue
+        if gate_id in P0_OBJECTIVE_GATES and status in PASS_STATUSES:
+            if reviewer_type in {"HUMAN", "HUMAN_AND_AI"}:
+                pass
+            elif reviewer_type == "AI_VISUAL":
+                objective_ok, reason = _objective_p0_pass(gate_id, evidence_payload, registry)
+                if not objective_ok:
+                    failures.append(f"{prefix}:{reason}")
+                    continue
+            else:
+                failures.append(f"{prefix}:p0_verifier_missing:{reviewer_type or 'MISSING'}")
+                continue
         defect_tier = str(row.get("defect_tier") or "").upper()
         p2_within_budget = row.get("p2_within_budget") is True
         if status in PASS_STATUSES:
@@ -469,6 +517,8 @@ def evaluate(
             "advisory_is_not_admission": True,
             "unregistered_criteria_are_diagnostic_only": True,
             "exact_asset_sha_binding_required": True,
+            "p0_requires_objective_verification_not_blanket_human_review": True,
+            "p0_machine_boundary_requires_human_arbitration": True,
         },
     }
 
