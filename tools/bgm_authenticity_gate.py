@@ -16,6 +16,11 @@ try:
 except ModuleNotFoundError:  # Imported as tools.bgm_authenticity_gate.
     from tools.media_binary import resolve_media_binary
 
+try:
+    from tools.audio_postproduction_contract import validate_audio_profile
+except ModuleNotFoundError:  # Direct execution from tools/.
+    from audio_postproduction_contract import validate_audio_profile  # type: ignore
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_TYPES = {"GENERATED_EPISODE_BGM", "LIBRARY_FALLBACK"}
@@ -46,11 +51,12 @@ def volume(path: Path) -> dict:
 
 
 def validate_bgm_contract(project: dict) -> list[str]:
-    failures: list[str] = []
+    failures: list[str] = validate_audio_profile(project, require_music=True)
     contract = (project.get("metadata") or {}).get("bgm_contract") or {}
     source_type = str(contract.get("source_type") or "")
     if source_type not in SOURCE_TYPES:
-        return ["BGM_SOURCE_PRIORITY_CONTRACT_MISSING"]
+        failures.append("BGM_SOURCE_PRIORITY_CONTRACT_MISSING")
+        return failures
     duck = contract.get("dialogue_duck_db")
     if not isinstance(duck, (int, float)) or isinstance(duck, bool) or not -10.0 <= float(duck) <= -6.0:
         failures.append("BGM_DIALOGUE_DUCK_MUST_BE_MINUS_10_TO_MINUS_6_DB")

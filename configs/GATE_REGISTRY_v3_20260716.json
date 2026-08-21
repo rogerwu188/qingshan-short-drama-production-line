@@ -635,16 +635,30 @@
       "implementation_type": "CODED",
       "code_paths": [
         "tools/run_regression_ci.py",
-        "tools/regression_ci_component_gate.py"
+        "tools/regression_ci_component_gate.py",
+        "tools/sound_cue_contract.py",
+        "tools/audio_postproduction_contract.py",
+        "tools/render_agentcut_audio_master.py"
       ],
       "test_paths": [
         "tools/tests/test_regression_ci_threshold_profile.py",
-        "tools/tests/test_regression_ci_component_gate.py"
+        "tools/tests/test_regression_ci_component_gate.py",
+        "tools/tests/test_sound_cue_contract.py",
+        "tools/tests/test_audio_postproduction_contract.py",
+        "tools/tests/test_render_agentcut_audio_master.py"
       ],
       "parameters": {
         "digital_zero_db": -90,
         "unmotivated_silence_seconds_max": 1,
-        "adjacent_rms_jump_db_max": 12
+        "adjacent_rms_jump_db_max": 12,
+        "explicit_audio_profile_required": true,
+        "sound_design_modes": [
+          "NATIVE_EMBEDDED",
+          "LAYERED_CUES"
+        ],
+        "layered_cue_source_sha_required": true,
+        "layered_cue_rights_evidence_required": true,
+        "layered_cue_cause_or_subjective_intent_required": true
       },
       "authorization_ref": "CL2X-166",
       "last_backtest_date": "2026-07-16",
@@ -1660,12 +1674,16 @@
         "tools/source_video_dialogue_gate.py",
         "tools/qa_multimodal_dialogue_batch.py",
         "tools/episode_parallel_batch_supervisor.py",
-        "tools/portable_runtime.py"
+        "tools/portable_runtime.py",
+        "tools/audio_postproduction_contract.py",
+        "tools/render_agentcut_audio_master.py"
       ],
       "test_paths": [
         "tools/tests/test_source_video_dialogue_gate.py",
         "tools/tests/test_qa_multimodal_dialogue_batch.py",
-        "tools/tests/test_episode_parallel_batch_supervisor.py"
+        "tools/tests/test_episode_parallel_batch_supervisor.py",
+        "tools/tests/test_audio_postproduction_contract.py",
+        "tools/tests/test_render_agentcut_audio_master.py"
       ],
       "parameters": {
         "audio_stream_required_for_every_source_video": true,
@@ -1673,7 +1691,12 @@
         "exact_dialogue_order_and_recall_required": true,
         "sentence_tail_must_not_be_clipped": true,
         "portable_ffprobe_and_whisper_resolution_required": true,
-        "failed_only_repair_required": true
+        "failed_only_repair_required": true,
+        "speaking_multimodal_video_audio_must_be_preserved": true,
+        "external_tts_redub_of_native_dialogue_forbidden": true,
+        "speaking_video_and_audio_source_id_must_match": true,
+        "speaking_video_and_audio_multimodal_task_id_must_match": true,
+        "speaking_audio_reuse_from_other_candidate_forbidden": true
       },
       "authorization_ref": "ROGER-20260727-PIPELINE-NATIVE-DIALOGUE-ASR",
       "last_backtest_date": "2026-07-27",
@@ -1715,10 +1738,12 @@
       "stage": "FINAL_MIX",
       "implementation_type": "CODED",
       "code_paths": [
-        "tools/bgm_authenticity_gate.py"
+        "tools/bgm_authenticity_gate.py",
+        "tools/audio_postproduction_contract.py"
       ],
       "test_paths": [
-        "tools/tests/test_bgm_authenticity_gate.py"
+        "tools/tests/test_bgm_authenticity_gate.py",
+        "tools/tests/test_audio_postproduction_contract.py"
       ],
       "parameters": {
         "primary_source": "GENERATED_EPISODE_BGM",
@@ -1728,7 +1753,12 @@
         "generated_account_provenance_required": true,
         "real_stem_required": true,
         "dialogue_duck_db_min": -10,
-        "dialogue_duck_db_max": -6
+        "dialogue_duck_db_max": -6,
+        "explicit_audio_profile_required": true,
+        "external_bgm_profile": "LAYERED_POST_WITH_BGM",
+        "native_selective_bgm_profile": "NATIVE_MULTIMODAL_SELECTIVE_BGM",
+        "native_no_external_bgm_profile": "NATIVE_MULTIMODAL_NO_EXTERNAL_BGM",
+        "release_audio_sample_rate_hz": 48000
       },
       "authorization_ref": "ROGER-20260723-AGENT-GENERATED-BGM-PROVENANCE",
       "last_backtest_date": "2026-07-23",

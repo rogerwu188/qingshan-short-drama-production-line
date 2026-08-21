@@ -6,6 +6,13 @@ import hashlib
 import json
 from pathlib import Path
 
+try:
+    from tools.audio_postproduction_contract import PROFILE_CONFIG, validate_audio_profile
+    from tools.sound_cue_contract import evaluate as evaluate_sound_cues
+except ModuleNotFoundError:  # Direct execution from tools/.
+    from audio_postproduction_contract import PROFILE_CONFIG, validate_audio_profile  # type: ignore
+    from sound_cue_contract import evaluate as evaluate_sound_cues  # type: ignore
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -62,9 +69,18 @@ def build(episode, receipts, review_results, out_project, out_admission, output_
         if not audio_task or not _abs(audio_task["output_path"]).is_file():
             raise ValueError(f"missing admitted dialogue audio source for {source_id}")
         audio_source = _abs(audio_task["output_path"])
+        audio_metadata = audio_task.get("metadata") or {}
+        audio_dialogue_lines = audio_metadata.get("selected_dialogue") or []
+        audio_expected_text = "".join(str(row.get("text") or "") for row in audio_dialogue_lines)
+        if silent and audio_expected_text.strip():
+            raise ValueError(
+                f"speaking silent-visual replacement for {source_id} cannot reuse dialogue audio "
+                "from another multimodal candidate"
+            )
         clip_metadata = {
             "episode": episode,
             "source_id": source_id,
+            "multimodal_task_id": task.get("task_id"),
             "beat_id": metadata.get("beat_id"),
             "source_qa": "PASS_OBJECTIVE_AND_AI_REVIEW",
             "visual_replacement_only": silent,
@@ -88,9 +104,12 @@ def build(episode, receipts, review_results, out_project, out_admission, output_
             "volume": 0.78,
             "metadata": {
                 "source_id": source_id,
+                "multimodal_task_id": audio_task.get("task_id"),
                 "beat_id": metadata.get("beat_id"),
                 "dialogue_lines": dialogue_lines,
                 "expected_text": expected_text,
+                "audio_origin": "NATIVE_MULTIMODAL_SOURCE",
+                "dialogue_classification": "SPEAKING" if expected_text.strip() else "NON_SPEAKING",
                 "reused_for_silent_visual": silent,
             },
         })
@@ -117,7 +136,16 @@ def build(episode, receipts, review_results, out_project, out_admission, output_
             "episode": episode,
             "status": "STANDARD_STORYBOARD_AGENTCUT_NOT_FINAL",
             "source_review_batches": [str(_abs(path)) for path in review_results],
-            "audio_policy": "NATIVE_MULTIMODAL_DIALOGUE_SFX_AMBIENCE_NO_EXTERNAL_BGM",
+            "audio_policy": "PRESERVE_NATIVE_MULTIMODAL_DIALOGUE_SFX_AMBIENCE_WITH_SELECTIVE_BGM_BY_CUE",
+            "source_audio_policy": "PRESERVE_NATIVE_MULTIMODAL_AUDIO",
+            "audio_profile_id": "NATIVE_MULTIMODAL_SELECTIVE_BGM",
+            "audio_profile_contract": str(PROFILE_CONFIG.relative_to(ROOT)),
+            "sound_design_contract": {
+                "mode": "NATIVE_EMBEDDED",
+                "required_layers": ["DIALOGUE", "FOLEY", "AMBIENCE", "SFX"],
+                "source_track_ids": [f"{episode}_NATIVE_AUDIO"],
+                "external_bgm_allowed": True,
+            },
             "no_padding": True,
             "runtime_seconds": round(cursor, 6),
             "change_scope": "Assemble all admitted storyboard slots; silent visual repairs reuse the latest non-silent source audio for the same slot.",
@@ -130,6 +158,7 @@ def build(episode, receipts, review_results, out_project, out_admission, output_
             "videoCodec": "libx264",
             "audioCodec": "aac",
             "audioBitrate": "192k",
+            "audioSampleRate": 48000,
             "pixelFormat": "yuv420p",
             "threads": 4,
         },
@@ -141,6 +170,7 @@ def build(episode, receipts, review_results, out_project, out_admission, output_
             "loudnessTargetLufs": -16,
             "loudnessRangeLu": 11,
             "maxClippedSamples": 0,
+            "sampleRateHz": 48000,
         },
         "timeline": {
             "videoTracks": [{"id": f"{episode}_STANDARD_STORYBOARD_VIDEO", "clips": video_clips}],
@@ -148,6 +178,12 @@ def build(episode, receipts, review_results, out_project, out_admission, output_
             "subtitleTracks": [],
         },
     }
+    profile_failures = validate_audio_profile(project)
+    if profile_failures:
+        raise ValueError(f"audio profile contract failed: {profile_failures}")
+    sound_report = evaluate_sound_cues(project, root=ROOT)
+    if sound_report["status"] != "PASS":
+        raise ValueError(f"sound cue contract failed: {sound_report['failures']}")
     project_path.write_text(json.dumps(project, ensure_ascii=False, indent=2) + "\n")
     admission_path.write_text(json.dumps({
         "schema": "qingshan.standard_storyboard_agentcut_admission.v1",
