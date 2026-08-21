@@ -1801,10 +1801,13 @@
       "stage": "SCRIPT_APPROVAL_BEFORE_GENERATION",
       "implementation_type": "CODED",
       "code_paths": [
-        "tools/us_drama_event_density_gate.py"
+        "tools/us_drama_event_density_gate.py",
+        "tools/canonical_writer_provenance.py",
+        "tools/canonical_writer_dispatcher.py"
       ],
       "test_paths": [
-        "tools/tests/test_us_drama_event_density_gate.py"
+        "tools/tests/test_us_drama_event_density_gate.py",
+        "tools/tests/test_canonical_writer_dispatcher.py"
       ],
       "stage_runner_paths": [
         "tools/episode_stage_gate_runner.py"
@@ -1844,7 +1847,17 @@
         "unique_causal_cluster_per_countable_move": true,
         "stable_location_id_pattern": "^LOC-[A-Z0-9][A-Z0-9_-]*$",
         "stable_time_block_id_pattern": "^TIME-[A-Z0-9][A-Z0-9_-]*$",
-        "scene_location_time_crosscut_counts_are_diagnostic": true
+        "scene_location_time_crosscut_counts_are_diagnostic": true,
+        "writer_provenance_schema": "qingshan.canonical_writer_provenance.v1",
+        "writer_run_receipt_schema": "qingshan.canonical_writer_run_receipt.v1",
+        "writer_provenance_required_from_episode": "E41",
+        "writer_exact_provider_model_session_required": true,
+        "writer_generic_model_aliases_forbidden": true,
+        "writer_input_bundle_and_rules_sha_required": true,
+        "writer_authority_output_sha_required": true,
+        "writer_receipt_exact_binding_required": true,
+        "writer_exclusive_episode_version_lease_required": true,
+        "writer_dispatcher_path": "tools/canonical_writer_dispatcher.py"
       },
       "authorization_ref": "ROGER-20260818-US-PACING-V2-RESTRUCTURE;ROGER-20260821-NARRATIVE-CANONICAL-CAUSAL-V3",
       "last_backtest_date": "2026-08-21"

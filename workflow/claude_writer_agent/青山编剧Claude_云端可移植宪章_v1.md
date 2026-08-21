@@ -29,6 +29,8 @@
 
 E41 起 manifest 必须包含 `pacing_v2` 与 `narrative_canonical`。v2 场数、地点、钟表时间和跨切数量只作诊断；v3 强制真实文本/SHA、稳定 `LOC-*/TIME-*`、唯一因果簇、起终状态、正文逐字 evidence、前后依赖、主动行为比例与连续发现上限。本地/云端交付前运行 `tools/us_drama_event_density_gate.py`，E41+ FAIL 不得进入导演/生成层。
 
+本地与云端都必须由 `tools/canonical_writer_dispatcher.py` 建立 run receipt 和同集同版本写锁。必须记录 exact provider、exact model ID、session/task ID、输入包 SHA、规则包 SHA 和 authority 输出 SHA；营销别名或角色名称不能代替实际模型身份。云端接管前必须成功取得共享 lease，取得失败即待命，禁止双写。
+
 ## 四、硬要求(生产层教训已内化,写剧本即遵守)
 类型忠实玄幻武打为主(冰流=陈迹/阴神=皎兔/皮影=云羊/异象各按角色按剧情)/每集≥1场逐镜真打斗(真不需要须说明)/**时长逐镜按内容 4-15s,禁均匀化、禁一刀切时长模板㉙、禁保底膨胀**/**禁"稳定站位"等静止起手措辞(573/574)**/**逐时段有实质动作、禁空段占位(572)**/场场button/末场cliffhanger开新问题/无可读文字入画/乌云=黑毛黑猫/恢弘精美只在剧本该处。
 

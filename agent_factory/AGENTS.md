@@ -15,6 +15,8 @@
 POST 的默认入口。若工具注册表与本段冲突，以当前用户授权、注册门、事务账本和
 `work_queue` 的活动集状态为准。
 
+E41+ canonical Writer 的唯一运行登记入口为 `tools/canonical_writer_dispatcher.py`。本地 Claude/Cowork 或 StoryClaw 开写前必须取得同集同版本独占 lease，完成后固化 exact provider/model/session、输入与规则 SHA、authority SHA；缺完成 receipt 的正文不得通过 script phase。Codex 维护生产线和门，但不是默认 canonical 作者，除非 Roger 明确授权改稿。
+
 ## P0 StoryClaw/Claude 双监制异步通信
 
 - 当前临时路由以 `workflow/SUPERVISOR_COMMUNICATION_MODE.json` 为准。`LOCAL_CLAUDE_PRIMARY` 时，本地 Claude 是唯一主动监制信箱；StoryClaw 远程读写暂停并保留待恢复队列，禁止双写、重复执行或让远程恢复阻塞生产。

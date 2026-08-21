@@ -126,7 +126,10 @@ EXECUTORS: dict[str, dict[str, Any]] = {
     "SCRIPT-US-DRAMA-EVENT-DENSITY": {
         "tool": "tools/us_drama_event_density_gate.py",
         "arguments": [("--script", "script")],
-        "optional_arguments": [("--narrative-canonical", "narrative_canonical")],
+        "optional_arguments": [
+            ("--narrative-canonical", "narrative_canonical"),
+            ("--writer-receipt", "writer_receipt"),
+        ],
         "script_bound_arguments": ["script"],
     },
     "SCRIPT-COUNCIL-DRAMATIC-QUALITY": {

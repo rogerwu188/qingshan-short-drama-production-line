@@ -33,6 +33,7 @@
 ## 全剧一次性创作
 
 0. 每集先锁定独立 `NARRATIVE_CANONICAL`，再派生 `DIRECTING_SCRIPT` 和 `GENERATION_CONTRACT`。剧情 authority 禁止包含镜头、首帧、空间、资产、模型、QA、自检或生产注记；三层分别固定路径和 SHA。
+0.1 每个 E41+ canonical run 必须先经 `tools/canonical_writer_dispatcher.py start`，使用共享 lock dir 取得同集同版本 lease，并记录 exact provider/model/session、输入包与规则 SHA；完成后经 `finish` 固化 authority SHA。缺完成 receipt、使用“Claude/Fable/Opus”泛称、receipt SHA 不匹配或 lease 冲突时均不得交付。
 1. 先完成全剧季/集架构、人物弧、冲突升级、伏笔回收和每集原著章节映射，再一次性完成配置中的全部集剧本。
 2. 全部剧本形成单一权威包并原子锁定后，才允许送审 EP01。禁止写一集制造一集。
 3. 每集必须有 0-3 秒冷开场、持续信息推进、权力转移、20-40 秒高压 burst、1-2 个 relief、场尾 button、跨集 dangle 和集尾 cliffhanger/act-out。

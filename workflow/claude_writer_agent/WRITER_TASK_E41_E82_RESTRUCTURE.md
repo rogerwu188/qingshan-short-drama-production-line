@@ -10,6 +10,8 @@
 
 **E41–E82 共 42 集全部重构**，产 `E{NN}剧本_ClaudeWriter_v{n+1}.md` + `E{NN}_manifest_v{n+1}.json`。
 
+现行 v3 重写不得继续只产旧单体文件。每集开写前先由 `tools/canonical_writer_dispatcher.py start` 取得独占 lease，记录 exact agent/provider/model/session 与输入/规则 SHA；完成 story-only `E{NN}_NARRATIVE_CANONICAL_v{n}.md` 后运行 `finish` 固化 authority SHA，并把完成 receipt 精确绑定进 manifest。缺 receipt 或 receipt SHA 不符时不得交付导演稿或 generation contract。
+
 **三集一批，写完即停**，交监制前置门 CL2X-499，PASS 才开下一批。
 **批 1 = E41 + E42 + E43。** 未过审不得开批 2。
 

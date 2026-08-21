@@ -156,8 +156,11 @@ class CloudFactoryBundleBuilderTest(unittest.TestCase):
                 )
                 if receipt["role"] == "qingshan-claude-writer":
                     for required_path in (
+                        "tools/canonical_writer_provenance.py",
+                        "tools/canonical_writer_dispatcher.py",
                         "tools/shot_duration_policy.py",
                         "tools/common_sense_causality_gate.py",
+                        "tools/tests/test_canonical_writer_dispatcher.py",
                         "tools/tests/test_shot_duration_policy.py",
                         "tools/tests/test_common_sense_causality_gate.py",
                     ):
