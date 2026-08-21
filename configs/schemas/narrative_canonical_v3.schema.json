@@ -4,9 +4,47 @@
   "title": "Qingshan Narrative Canonical v3 Manifest Contract",
   "type": "object",
   "additionalProperties": true,
-  "required": ["episode", "runtime_target_seconds", "narrative_canonical"],
+  "required": ["episode", "runtime_target_seconds", "writer_provenance", "narrative_canonical"],
   "properties": {
     "episode": {"type": "string", "pattern": "^E[0-9]+$"},
+    "writer_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "writer_run_id",
+        "receipt_path",
+        "receipt_sha256",
+        "agent_id",
+        "provider",
+        "model_id",
+        "session_or_task_id",
+        "input_bundle_sha256",
+        "writer_rules_sha256",
+        "authority_output_sha256",
+        "started_at",
+        "completed_at"
+      ],
+      "properties": {
+        "schema": {"const": "qingshan.canonical_writer_provenance.v1"},
+        "writer_run_id": {"type": "string", "pattern": "^WRITER-E[0-9]+-V[0-9]+-[A-Z0-9][A-Z0-9_-]*$"},
+        "receipt_path": {"type": "string", "minLength": 1},
+        "receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "agent_id": {"enum": ["qingshan-claude-writer-agent", "qingshan-claude-writer"]},
+        "provider": {"type": "string", "minLength": 1},
+        "model_id": {
+          "type": "string",
+          "minLength": 1,
+          "not": {"enum": ["Claude", "claude", "Fable", "Fable 5", "fable 5", "Opus", "opus", "default", "auto"]}
+        },
+        "session_or_task_id": {"type": "string", "minLength": 1},
+        "input_bundle_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "writer_rules_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "authority_output_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "started_at": {"type": "string", "format": "date-time"},
+        "completed_at": {"type": "string", "format": "date-time"}
+      }
+    },
     "narrative_canonical": {
       "type": "object",
       "additionalProperties": false,

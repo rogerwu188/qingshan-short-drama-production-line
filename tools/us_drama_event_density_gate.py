@@ -22,6 +22,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
+try:
+    from canonical_writer_provenance import validate_writer_provenance
+except ModuleNotFoundError:
+    from tools.canonical_writer_provenance import validate_writer_provenance
+
 
 STRUCTURE_AUTHORIZATION = "ROGER-20260818-US-PACING-V2-RESTRUCTURE"
 CAUSAL_AUTHORIZATION = "ROGER-20260821-NARRATIVE-CANONICAL-CAUSAL-V3"
@@ -492,6 +497,8 @@ def evaluate(
     history_manifests: Iterable[dict] = (),
     structure_mode: str = "auto",
     narrative_text: str | None = None,
+    writer_receipt: dict[str, Any] | None = None,
+    writer_receipt_sha256: str | None = None,
 ) -> dict:
     numeric_failures, numeric_observed = _numeric_evaluation(manifest)
     structure_failures, structure_warnings, structure_observed = _structure_evaluation(
@@ -499,6 +506,13 @@ def evaluate(
     )
     causal_failures, causal_warnings, causal_observed = _causal_contract_evaluation(
         manifest, narrative_text=narrative_text
+    )
+    authority_sha = str((manifest.get("narrative_canonical") or {}).get("authority_sha256") or "")
+    provenance_failures, provenance_observed = validate_writer_provenance(
+        manifest,
+        receipt=writer_receipt,
+        receipt_sha256=writer_receipt_sha256,
+        authority_sha256=authority_sha,
     )
     episode_number = _episode_number(manifest.get("episode"))
     if structure_mode not in {"auto", "enforce", "warn"}:
@@ -515,10 +529,12 @@ def evaluate(
         warnings.extend(f"BACKTEST_ONLY:{failure}" for failure in structure_failures)
     if not narrative_enforced:
         warnings.extend(f"BACKTEST_ONLY:{failure}" for failure in causal_failures)
+        warnings.extend(f"BACKTEST_ONLY:{failure}" for failure in provenance_failures)
     blocking_failures = (
         numeric_failures
         + (structure_failures if structure_enforced else [])
         + (causal_failures if narrative_enforced else [])
+        + (provenance_failures if narrative_enforced else [])
     )
 
     return {
@@ -564,10 +580,12 @@ def evaluate(
             "structure_v2": structure_observed,
             "structure_v2_diagnostic": structure_observed,
             "narrative_causal_v3": causal_observed,
+            "writer_provenance": provenance_observed,
         },
         "numeric_failures": numeric_failures,
         "structure_failures": structure_failures,
         "narrative_causal_failures": causal_failures,
+        "writer_provenance_failures": provenance_failures,
         "warnings": list(dict.fromkeys(warnings)),
         "failures": blocking_failures,
         "machine_decision": True,
@@ -600,6 +618,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--script", "--manifest", dest="manifest", required=True, type=Path)
     parser.add_argument("--narrative-canonical", type=Path)
+    parser.add_argument("--writer-receipt", type=Path)
     parser.add_argument("--history-manifest", action="append", default=[], type=Path)
     parser.add_argument("--structure-mode", choices=("auto", "enforce", "warn"), default="auto")
     parser.add_argument("--out", required=True, type=Path)
@@ -621,6 +640,27 @@ def main() -> int:
         if narrative_path is not None and narrative_path.exists()
         else None
     )
+    receipt_path = args.writer_receipt
+    if receipt_path is None:
+        configured = (manifest.get("writer_provenance") or {}).get("receipt_path")
+        if configured:
+            configured_path = Path(str(configured))
+            candidates = [
+                configured_path,
+                args.manifest.parent / configured_path,
+                Path(__file__).resolve().parents[1] / configured_path,
+            ]
+            receipt_path = next((path for path in candidates if path.exists()), configured_path)
+    writer_receipt = (
+        json.loads(receipt_path.read_text(encoding="utf-8"))
+        if receipt_path is not None and receipt_path.exists()
+        else None
+    )
+    writer_receipt_sha256 = (
+        file_sha256(receipt_path)
+        if receipt_path is not None and receipt_path.exists()
+        else None
+    )
     history_paths = args.history_manifest or discover_history_manifests(args.manifest, manifest.get("episode"))
     history = [json.loads(path.read_text(encoding="utf-8")) for path in history_paths]
     report = evaluate(
@@ -628,11 +668,14 @@ def main() -> int:
         history_manifests=history,
         structure_mode=args.structure_mode,
         narrative_text=narrative_text,
+        writer_receipt=writer_receipt,
+        writer_receipt_sha256=writer_receipt_sha256,
     )
     report["manifest"] = str(args.manifest)
     report["manifest_sha256"] = file_sha256(args.manifest)
     report["history_manifests"] = [str(path) for path in history_paths]
     report["narrative_canonical"] = str(narrative_path) if narrative_path else None
+    report["writer_receipt"] = str(receipt_path) if receipt_path else None
     report["recorded_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

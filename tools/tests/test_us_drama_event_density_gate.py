@@ -84,11 +84,55 @@ class UsDramaEventDensityGateTests(unittest.TestCase):
             ],
             "story_moves": moves,
         }
+        authority_sha = data["narrative_canonical"]["authority_sha256"]
+        self.writer_receipt = {
+            "schema": "qingshan.canonical_writer_run_receipt.v1",
+            "status": "COMPLETED",
+            "writer_run_id": "WRITER-E41-V5-TEST",
+            "episode": "E41",
+            "version": 5,
+            "agent_id": "qingshan-claude-writer",
+            "provider": "storyclaw",
+            "model_id": "storyclaw/claude-opus-4-8",
+            "session_or_task_id": "session-test-e41-v5",
+            "input_bundle": {"path": "input.json", "sha256": "1" * 64},
+            "writer_rules": {"files": [], "combined_sha256": "2" * 64},
+            "authority_output": {
+                "path": "E41_NARRATIVE_CANONICAL_v5.md",
+                "sha256": authority_sha,
+            },
+            "started_at": "2026-08-21T19:00:00+00:00",
+            "completed_at": "2026-08-21T19:01:00+00:00",
+            "write_lease": "E41_V5.writer.lock.json",
+        }
+        receipt_bytes = (json.dumps(self.writer_receipt, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+        self.writer_receipt_sha256 = hashlib.sha256(receipt_bytes).hexdigest()
+        data["writer_provenance"] = {
+            "schema": "qingshan.canonical_writer_provenance.v1",
+            "writer_run_id": self.writer_receipt["writer_run_id"],
+            "receipt_path": "E41_WRITER_RUN_RECEIPT_v5.json",
+            "receipt_sha256": self.writer_receipt_sha256,
+            "agent_id": self.writer_receipt["agent_id"],
+            "provider": self.writer_receipt["provider"],
+            "model_id": self.writer_receipt["model_id"],
+            "session_or_task_id": self.writer_receipt["session_or_task_id"],
+            "input_bundle_sha256": "1" * 64,
+            "writer_rules_sha256": "2" * 64,
+            "authority_output_sha256": authority_sha,
+            "started_at": self.writer_receipt["started_at"],
+            "completed_at": self.writer_receipt["completed_at"],
+        }
         self.narrative_text = narrative
         return data
 
     def run_gate(self, data, **kwargs):
-        return evaluate(data, narrative_text=self.narrative_text, **kwargs)
+        return evaluate(
+            data,
+            narrative_text=self.narrative_text,
+            writer_receipt=getattr(self, "writer_receipt", None),
+            writer_receipt_sha256=getattr(self, "writer_receipt_sha256", None),
+            **kwargs,
+        )
 
     def test_e41_v4_sanitized_structure_fixture_passes(self):
         report = self.run_gate(self.sample())
@@ -237,8 +281,31 @@ class UsDramaEventDensityGateTests(unittest.TestCase):
 
     def test_missing_real_narrative_text_fails_e41(self):
         data = self.sample()
-        report = evaluate(data, narrative_text=None)
+        report = evaluate(
+            data,
+            narrative_text=None,
+            writer_receipt=self.writer_receipt,
+            writer_receipt_sha256=self.writer_receipt_sha256,
+        )
         self.assertIn("NARRATIVE_CANONICAL_TEXT_UNAVAILABLE", report["failures"])
+
+    def test_writer_provenance_is_required_for_e41(self):
+        data = self.sample()
+        del data["writer_provenance"]
+        report = self.run_gate(data)
+        self.assertIn("WRITER_PROVENANCE_MISSING", report["failures"])
+
+    def test_generic_writer_model_alias_is_rejected(self):
+        data = self.sample()
+        data["writer_provenance"]["model_id"] = "Claude"
+        report = self.run_gate(data)
+        self.assertIn("WRITER_MODEL_ID_NOT_EXACT", report["failures"])
+
+    def test_writer_receipt_sha_must_match_real_receipt(self):
+        data = self.sample()
+        data["writer_provenance"]["receipt_sha256"] = "f" * 64
+        report = self.run_gate(data)
+        self.assertIn("WRITER_RUN_RECEIPT_SHA_MISMATCH", report["failures"])
 
     def test_history_discovery_selects_latest_prior_episode_manifests(self):
         with tempfile.TemporaryDirectory() as temporary:

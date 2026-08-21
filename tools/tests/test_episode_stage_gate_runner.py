@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from tools.episode_stage_gate_runner import (
+    EXECUTORS,
     PHASE_GATES,
     execute_gate,
     require_release_builder_gate_admission,
@@ -23,6 +24,10 @@ class EpisodeStageGateRunnerTests(unittest.TestCase):
     def test_phase_contract_has_no_duplicate_gates_within_each_phase(self):
         for phase, gates in PHASE_GATES.items():
             self.assertEqual(len(gates), len(set(gates)), phase)
+
+    def test_script_density_entry_forwards_writer_receipt(self):
+        optional = EXECUTORS["SCRIPT-US-DRAMA-EVENT-DENSITY"]["optional_arguments"]
+        self.assertIn(("--writer-receipt", "writer_receipt"), optional)
 
     def test_missing_evidence_fails_closed_without_invocation(self):
         with tempfile.TemporaryDirectory() as temp:

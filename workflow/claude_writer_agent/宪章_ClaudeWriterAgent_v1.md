@@ -9,17 +9,17 @@
 ## 二、写作依据(必读清单,均在项目 codex_docs/ 与 configs/)
 主线快进心法 v1(七项自检)/专业剧本生成agent规范 v1(§2.4 恢弘精美按剧本)/打斗提示词写法标准 v1(逐镜/B武侠/三段)/E27专业版 LOCKED+E28监制编剧版(金样本)/CL2X-496/497(镜头处理由剧本决定,逐镜 shot_treatment+原著依据,禁先验规则与固定模板)/原著对照档案/83集事件层总表/玄幻回补重构单/角色表演圣经/既有 beat 表。
 
-### 二·补．美剧节奏 v2 结构层（E41 起，ROGER-20260818-US-PACING-V2-RESTRUCTURE）
+### 二·补．美剧节奏 v2 结构层（历史诊断层）
 
-E41 起开工前完整读取 `codex_docs/美剧叙事节奏标准_v2_结构层_20260818.md`，并执行注册门 `SCRIPT-US-DRAMA-EVENT-DENSITY`。每集必须为 8–12 场、单场 ≤22s、按 manifest `pacing_v2.location_list` 计不同地点 ≥4、同地点连续 ≤2、时间跳跃 ≥1、并行线 ≥2、跨线切换 ≥3、无转折场 =0、新增地点 ≤2；连续三集 `scene_count` 相同须写 `scene_count_justification`。全集对白占比 ≤35%，动作场对白占比 ≤20%。`event_list` 每条必须为非空「行为→外部改变」因果句；看见、意识到、确认或纯情绪不得冒充事件。
-
-逐集 manifest 必填 `pacing_v2`：`scene_count/scene_seconds/max_scene_seconds/distinct_locations/location_list/max_consecutive_same_location/time_jumps/parallel_threads/cross_cuts/new_locations_added/countable_events/event_list/scenes_without_turn/dialogue_ratio/action_scene_dialogue_ratio`。先运行 `tools/us_drama_event_density_gate.py`；E41+ 结构 FAIL 必须修订，禁止越门生成。
+v2 的场数、地点数量、钟表时间跳跃和 cross-cut 数量只保留为诊断，不得机械要求每集凑成 8–12 场、≥4 个地点或 ≥3 次跨切，也不得用这些数量证明剧情快。仍保留的非游戏化保护包括：单场不得无故拖长、同地点不得停滞、场景必须发生转折、对白比例不得压倒行动。正式速度权威以 v3 story move 因果 DAG 为准。
 
 ### 二·补二．美剧节奏 v3 因果层（E41 起新写/重写，ROGER-20260821-NARRATIVE-CANONICAL-CAUSAL-V3）
 
 v3 取代“场数/地点/切换数量=剧情快”的机械理解。先输出独立 `E{NN}_NARRATIVE_CANONICAL_v{n}.md`，只保留剧情行动、外部变化、必要对白和终局新状态；导演稿和 generation contract 后置派生。场数、地点、时间跳跃、跨切数量仅作诊断，不能替代真实 story move。
 
 manifest 必填 `narrative_canonical`：真实 authority 路径/SHA、`production_contracts_externalized=true`、稳定 `LOC-*/TIME-*` 场景序列，以及具有唯一因果簇、起终 state token、正文逐字 evidence、前后依赖的 `story_moves`。同一调查链禁止拆分刷数；连续发现/解释不得超过一个；主动行为型 move 占比至少 50%；150 秒至少 8 个真实推进。完整执行 `codex_docs/美剧叙事节奏标准_v3_因果层_20260821.md`。
+
+E41+ 开写必须先运行 `tools/canonical_writer_dispatcher.py start`，取得同集同版本独占写锁并记录 exact `agent_id/provider/model_id/session_or_task_id/input_bundle_sha/rules_sha`；正文完成后运行 `finish` 固化 authority SHA。manifest 必须逐字段绑定已完成 receipt。只写“Claude”“Fable 5”“Opus”或目录名均不构成模型溯源，缺 receipt 不得通过 script phase。
 
 ## 三、每集输出
 `scripts/E{NN}_NARRATIVE_CANONICAL_v{n}.md`（唯一剧情 authority）+ `E{NN}_DIRECTING_SCRIPT_v{n}.md`（派生导演拍摄稿）+ `E{NN}_GENERATION_CONTRACT_v{n}.json`（派生生产合同）+ `E{NN}_manifest.json`（分层路径/SHA、因果链、时长与主线推进）。旧 `E{NN}剧本_ClaudeWriter_v{n}.md` 仅作为兼容导演稿，不再兼任 narrative canonical。
