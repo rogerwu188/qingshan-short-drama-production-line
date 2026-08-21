@@ -92,6 +92,8 @@ ROLE_SEEDS = {
         "requirements": "runtime_requirements/青山AI_剧本创作_requirements.md",
         "stage_tokens": (),
         "files": {
+            "configs/schemas/narrative_canonical_v3.schema.json",
+            "codex_docs/美剧叙事节奏标准_v3_因果层_20260821.md",
             "tools/script_readiness_gate.py",
             "tools/script_density_gate_preflight.py",
             "tools/script_scene_diversity_gate.py",

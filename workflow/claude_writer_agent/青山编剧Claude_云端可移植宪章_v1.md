@@ -19,15 +19,15 @@
 - 源材料:`codex_docs/原著对照档案_*.md`、`configs/full_series_information_node_map_v0_20260716.json`(83集事件层)、`codex_docs/青山玄幻回补重构单_v0_20260719.md`、既有 `configs/e{NN}_dialogue_beat_sheet_*.json`、`configs/character_performance_bible_20260712.json`
 - 自身状态:`workflow/claude_writer_agent/宪章_ClaudeWriterAgent_v1.md`(本地宪章)、`观众已知清单.md`(滚动)、`MEMORY.md`(经验只增)、`PROGRESS.json`(进度)
 - 美剧节奏 v2：`codex_docs/美剧叙事节奏标准_v2_结构层_20260818.md` + 注册门 `tools/us_drama_event_density_gate.py`（授权 `ROGER-20260818-US-PACING-V2-RESTRUCTURE`）。
+- 美剧节奏 v3：`codex_docs/美剧叙事节奏标准_v3_因果层_20260821.md`（授权 `ROGER-20260821-NARRATIVE-CANONICAL-CAUSAL-V3`）；真实 narrative 文本/SHA 与 story move 因果 DAG 才是速度事实源。
 
-## 三、每集四件套输出(落 `workflow/claude_writer_agent/scripts/`)
-1. `E{NN}剧本_ClaudeWriter_v{n}.md` — 可读专业拍摄剧本:头部=标题/梗概/人物小传+**七项自检**(mainline_movement/net_new_info≥6零复证/thread_budget/deletion_test/antagonist_move/stakes_ladder/hook_opens);正文分场逐镜:△逐拍电影化动作行+潜台词对白(带表演提示)+【景别/机位/运镜】+palette/音效+**[原著/剧本依据]**。
-2. `E{NN}_GENERATED.json` — Schema 兼容结构稿(scenes[]/shots[] 全字段,含每镜 shot_treatment,duration 按内容 4-15s 不均匀),供 codex validate/compile 直接消费。
-3. 图片合约(并入每镜 `still_prompt_contract`):角色/场景/道具绑定、单一决定性关键帧、正向+禁止项(无可读伪文字/无水印/身份锁)。
-4. 视频合约(并入 `video_motion_contract`):按每场连续分镜实际秒数自然分组，数量由分组结果产生；表演生成范式以连续动作脚本驱动；锚图数量逐单元裁定，**禁止固定 1 张，也禁止固定多张**。一张足够锁身份/场景并让模型按脚本完成动作就用一张；实体生成/分离、多人空间拓扑、道具归属跨状态或关键终态无法由单锚可靠约束时增加锚图，每张额外锚须写理由且相邻锚可物理插值。A2/A3 必须等上一锚收割验收后，把上一锚作为第一真实图像参考再生成；只暂停该单元，不阻塞其他单元。每个动作镜先按 CL2X-605 四步写目的/无形要素/能力逻辑外化/受力反馈/表情弧/观众读法，再落 wind_up→contact→force_transfer→result；角色/场景/道具/音频槽绑定+对白 speaker→audio_slot→voice_asset_id，视频模型用精确对白音频原生生成普通话口型，缺声线才标 UNSUPPORTED。
-另 `E{NN}_manifest.json`(sha256/场镜数/总秒数/mainline_movement)。
+## 三、每集分层四件套输出(落 `workflow/claude_writer_agent/scripts/`)
+1. `E{NN}_NARRATIVE_CANONICAL_v{n}.md`：唯一剧情 authority，只写场景、角色行动、外部变化、必要对白和终局新状态。
+2. `E{NN}_DIRECTING_SCRIPT_v{n}.md`：由 authority 派生的镜头、表演、声音与剪辑设计。
+3. `E{NN}_GENERATION_CONTRACT_v{n}.json`：由导演稿派生的图片/视频/资产/空间/动作与模型合同。
+4. `E{NN}_manifest.json`：固定三层路径/SHA、story move DAG、时长和主线推进。旧 `E{NN}剧本_ClaudeWriter_v{n}.md` 仅为导演稿兼容名，不再兼任剧情 authority。
 
-E41 起 manifest 还必须包含 `pacing_v2`：8–12 场、单场 ≤22s、以 `location_list` 为地点计数事实源且不同地点 ≥4、同地点连续 ≤2、时间跳跃 ≥1、并行线 ≥2、跨线切换 ≥3、无转折场 =0、新增地点 ≤2、对白占比 ≤35%、动作场对白占比 ≤20%。`event_list` 每项必须是非空「行为→外部改变」；连续三集场数相同须有 `scene_count_justification`。本地/云端交付前运行 `tools/us_drama_event_density_gate.py`，E41+ FAIL 不得进入生成。
+E41 起 manifest 必须包含 `pacing_v2` 与 `narrative_canonical`。v2 场数、地点、钟表时间和跨切数量只作诊断；v3 强制真实文本/SHA、稳定 `LOC-*/TIME-*`、唯一因果簇、起终状态、正文逐字 evidence、前后依赖、主动行为比例与连续发现上限。本地/云端交付前运行 `tools/us_drama_event_density_gate.py`，E41+ FAIL 不得进入导演/生成层。
 
 ## 四、硬要求(生产层教训已内化,写剧本即遵守)
 类型忠实玄幻武打为主(冰流=陈迹/阴神=皎兔/皮影=云羊/异象各按角色按剧情)/每集≥1场逐镜真打斗(真不需要须说明)/**时长逐镜按内容 4-15s,禁均匀化、禁一刀切时长模板㉙、禁保底膨胀**/**禁"稳定站位"等静止起手措辞(573/574)**/**逐时段有实质动作、禁空段占位(572)**/场场button/末场cliffhanger开新问题/无可读文字入画/乌云=黑毛黑猫/恢弘精美只在剧本该处。

@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qingshan.narrative_canonical.v3",
+  "title": "Qingshan Narrative Canonical v3 Manifest Contract",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["episode", "runtime_target_seconds", "narrative_canonical"],
+  "properties": {
+    "episode": {"type": "string", "pattern": "^E[0-9]+$"},
+    "narrative_canonical": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "authority_path",
+        "authority_sha256",
+        "production_contracts_externalized",
+        "scene_sequence",
+        "time_blocks",
+        "story_moves"
+      ],
+      "properties": {
+        "schema": {"const": "qingshan.narrative_canonical.v3"},
+        "authority_path": {"type": "string", "minLength": 1},
+        "authority_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "production_contracts_externalized": {"const": true},
+        "scene_sequence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["scene_id", "location_id", "time_block_id", "thread_id", "story_move_ids"],
+            "properties": {
+              "scene_id": {"type": "string", "minLength": 1},
+              "location_id": {"type": "string", "pattern": "^LOC-[A-Z0-9][A-Z0-9_-]*$"},
+              "time_block_id": {"type": "string", "pattern": "^TIME-[A-Z0-9][A-Z0-9_-]*$"},
+              "thread_id": {"type": "string", "minLength": 1},
+              "story_move_ids": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"type": "string", "pattern": "^MOVE-[A-Z0-9][A-Z0-9_-]*$"}
+              }
+            }
+          }
+        },
+        "time_blocks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["time_block_id", "before_condition_token", "after_condition_token", "action_condition_change"],
+            "properties": {
+              "time_block_id": {"type": "string", "pattern": "^TIME-[A-Z0-9][A-Z0-9_-]*$"},
+              "before_condition_token": {"type": "string", "minLength": 1},
+              "after_condition_token": {"type": "string", "minLength": 1},
+              "action_condition_change": {"type": "string"}
+            }
+          }
+        },
+        "story_moves": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "story_move_id",
+              "causal_cluster_id",
+              "move_type",
+              "cause_state_token",
+              "action",
+              "external_change",
+              "result_state_token",
+              "scene_id",
+              "evidence_text",
+              "predecessor_move_ids",
+              "forces_next_story_move_id"
+            ],
+            "properties": {
+              "story_move_id": {"type": "string", "pattern": "^MOVE-[A-Z0-9][A-Z0-9_-]*$"},
+              "causal_cluster_id": {"type": "string", "minLength": 1},
+              "move_type": {
+                "enum": [
+                  "IRREVERSIBLE_ACTION",
+                  "POWER_SHIFT",
+                  "RELATIONSHIP_SHIFT",
+                  "FORCED_CHOICE",
+                  "MATERIAL_FACT",
+                  "PAYOFF"
+                ]
+              },
+              "cause_state_token": {"type": "string", "pattern": "^STATE-[A-Z0-9][A-Z0-9_.:-]*$"},
+              "action": {"type": "string", "minLength": 1},
+              "external_change": {"type": "string", "minLength": 1},
+              "result_state_token": {"type": "string", "pattern": "^STATE-[A-Z0-9][A-Z0-9_.:-]*$"},
+              "scene_id": {"type": "string", "minLength": 1},
+              "evidence_text": {"type": "string", "minLength": 1},
+              "predecessor_move_ids": {"type": "array", "items": {"type": "string"}},
+              "forces_next_story_move_id": {"type": "string"}
+            }
+          }
+        }
+      }
+    }
+  }
+}
