@@ -47,7 +47,7 @@ def unit(unit_id, generated, subs):
 
 
 def good_plan():
-    """Four 5s units -> 12 shots, ASL 1.67s, 25% under 1s, 4 rounds."""
+    """Four 5s units -> 16 shots, ASL 1.25s, 25% under 1s, 4 rounds."""
     units = []
     for i in range(4):
         units.append(
@@ -55,9 +55,10 @@ def good_plan():
                 f"30-1-U{i + 1}",
                 5.0,
                 [
-                    sub(2.2, "windup", f"U{i+1} 沉肩收势，霜纹在刃口聚起"),
-                    sub(0.9, "burst", f"U{i+1} 掌风撞上灯杆，火星横扫"),
-                    sub(1.9, "burst", f"U{i+1} 受力反转，来者被牵劲带偏半步"),
+                    sub(1.5, "windup", f"U{i+1} 沉肩收势，霜纹在刃口聚起"),
+                    sub(0.8, "burst", f"U{i+1} 掌风撞上灯杆，火星横扫"),
+                    sub(1.2, "result", f"U{i+1} 灯杆震颤，来者重心外偏"),
+                    sub(1.5, "burst", f"U{i+1} 借偏势转腕，把短刃压离中线"),
                 ],
             )
         )
@@ -69,7 +70,7 @@ class TestFightCutPlanGate(unittest.TestCase):
         result = run(good_plan())
         self.assertEqual(result["gate_status"], "PASS", result["findings"])
         metrics = result["scenes"][0]["metrics"]
-        self.assertEqual(metrics["shot_count"], 12)
+        self.assertEqual(metrics["shot_count"], 16)
         self.assertLessEqual(metrics["asl"], 2.2)
         self.assertGreaterEqual(metrics["sub_second_share"], 0.15)
         self.assertGreaterEqual(metrics["phase_rounds"], 3)
@@ -93,6 +94,18 @@ class TestFightCutPlanGate(unittest.TestCase):
         self.assertIn("F5_BASELINE_V21", gates)
         metrics = result["scenes"][0]["metrics"]
         self.assertEqual(metrics["sub_second_share"], 0.0)
+
+    def test_single_12_second_generation_used_as_one_edit_shot_blocks(self):
+        plan = {
+            "episode": "E41",
+            "fight_scenes": [{
+                "scene_id": "14-7",
+                "units": [unit("14-7-U1", 12.0, [sub(12.0, "burst", "整段生成片未拆分")])],
+            }],
+        }
+        result = run(plan)
+        self.assertEqual(result["gate_status"], "BLOCK")
+        self.assertTrue(any(f["gate"] == "F1_PLAN_PRESENT" for f in result["findings"]))
 
     def test_durations_must_sum_to_the_generated_unit(self):
         plan = good_plan()
@@ -187,6 +200,14 @@ class TestFightCutPlanGate(unittest.TestCase):
     def test_empty_input_is_invalid_not_pass(self):
         result = run({"episode": "E57", "fight_scenes": []})
         self.assertEqual(result["gate_status"], "INVALID")
+
+    def test_explicit_no_fight_passes_only_with_canonical_no_fight_proof(self):
+        plan = {"episode": "E50", "applicable": False, "fight_scenes": []}
+        result = run(plan, canonical_text="△【近景·对白】人物在灯下交谈。")
+        self.assertEqual(result["gate_status"], "PASS")
+        self.assertEqual(result["applicability"], "NOT_APPLICABLE")
+        mismatch = run(plan, canonical_text="△【打斗·起·4s】双方立即交手。")
+        self.assertEqual(mismatch["gate_status"], "INVALID")
 
 
 class TestNetFightSecondsSingleImplementation(unittest.TestCase):

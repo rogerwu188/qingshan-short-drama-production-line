@@ -1537,6 +1537,8 @@
       "code_paths": [
         "tools/action_shot_design_gate.py",
         "tools/action_video_prompt_compiler.py",
+        "tools/fight_cut_plan_gate.py",
+        "tools/episode_stage_gate_runner.py",
         "tools/episode_parallel_batch_supervisor.py",
         "tools/submit_giggle_task_manifest.py",
         "tools/submit_giggle_video_manifest_v2.py"
@@ -1544,6 +1546,9 @@
       "test_paths": [
         "tools/tests/test_action_shot_design_gate.py",
         "tools/tests/test_action_video_prompt_compiler.py",
+        "tools/tests/test_fight_cut_plan_gate.py",
+        "tools/tests/test_episode_stage_gate_runner.py",
+        "tools/tests/test_agentcut_release_builder_gate_coverage.py",
         "tools/tests/test_submit_corrected_pipeline_gate.py"
       ],
       "parameters": {
@@ -1582,6 +1587,14 @@
         "fight_buildup_seconds_min": 1,
         "fight_buildup_seconds_max": 2,
         "fight_burst_motion_per_second_min": 10,
+        "fight_cut_plan_required": true,
+        "fight_cut_max_asl_seconds": 2.2,
+        "fight_cut_min_sub_second_share": 0.15,
+        "fight_cut_min_phase_rounds": 3,
+        "fight_cut_min_sub_cut_seconds": 0.3,
+        "fight_cut_sum_tolerance_seconds": 0.05,
+        "fight_cut_retime_forbidden": true,
+        "fight_cut_no_fight_requires_canonical_crosscheck": true,
         "shot_type_declaration_required": true,
         "shot_type_must_match_canonical_combat_markers": true,
         "canonical_combat_markers": [
@@ -1591,9 +1604,10 @@
         ],
         "effective_from_episode": "E40"
       },
-      "authorization_ref": "ROGER-20260818-EPISODE-GLOBAL-SPACE-MAP / CL2X-1222",
+      "authorization_ref": "ROGER-20260818-EPISODE-GLOBAL-SPACE-MAP / CL2X-1222 / CL2X-1224",
       "last_backtest_date": "2026-08-21",
       "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py",
         "tools/episode_parallel_batch_supervisor.py",
         "tools/submit_giggle_task_manifest.py",
         "tools/submit_giggle_video_manifest_v2.py"

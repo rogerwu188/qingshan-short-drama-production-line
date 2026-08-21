@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import re
@@ -10,6 +11,11 @@ import subprocess
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+
+try:
+    from tools.episode_stage_gate_runner import require_release_builder_gate_admission
+except ModuleNotFoundError:
+    from episode_stage_gate_runner import require_release_builder_gate_admission
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +38,8 @@ RUNTIME_POLICY = ROOT / "configs/youtube_shorts_runtime_policy_v1.json"
 SOURCE_LOCK = PRODUCTION / "video_performance_v2/E34_V2_LOCKED_SOURCE_MANIFEST.json"
 PROJECT = ROOT / "configs/e34_agentcut_v2_release_20260723.json"
 OUTPUT = ROOT / "exports/e34/v2_release_20260723/E34_V2_AGENTCUT_SUBTITLED_BGM_OUTRO_NOT_FINAL.mp4"
+EDIT_GATE_EVIDENCE = ROOT / "workflow/agentcut/release_gate_evidence/E34_V2_RELEASE_EDIT_GATE_EVIDENCE_BUNDLE.json"
+EDIT_GATE_OUT = ROOT / "qa/e34_v2_streaming_video_compile_20260723/unified_edit_gates"
 BGM_STEM = ROOT / "exports/e34/v2_release_20260723/E34_V2_BGM_STEM.wav"
 BUILD_RECEIPT = ROOT / "workflow/tasks/E34_AGENTCUT_V2_RELEASE_BUILD_RECEIPT_20260723.json"
 FFPROBE = ROOT / ".agentcut_env/lib/python3.14/site-packages/agentcut/vendor/darwin-arm64/ffprobe"
@@ -189,6 +197,15 @@ def build_bgm_stem(segments: list[dict], content_duration: float) -> None:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--edit-gate-evidence-bundle", type=Path, default=EDIT_GATE_EVIDENCE)
+    parser.add_argument("--edit-gate-out-dir", type=Path, default=EDIT_GATE_OUT)
+    args = parser.parse_args()
+    require_release_builder_gate_admission(
+        episode="E34",
+        evidence_bundle=args.edit_gate_evidence_bundle,
+        out_dir=args.edit_gate_out_dir,
+    )
     required = [
         CONFIG, MAIN_RECEIPT, SPLIT_RECEIPT, MANIFEST, SUBTITLES, OUTRO, AUDIO_MANIFEST,
         BGM_RECEIPT, BGM_CREDIT, BGM_QA, BGM_SOURCE, OCR_ADMISSIONS, U15_ASR_ADJUDICATION,
