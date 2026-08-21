@@ -15,8 +15,14 @@ E41 起开工前完整读取 `codex_docs/美剧叙事节奏标准_v2_结构层_2
 
 逐集 manifest 必填 `pacing_v2`：`scene_count/scene_seconds/max_scene_seconds/distinct_locations/location_list/max_consecutive_same_location/time_jumps/parallel_threads/cross_cuts/new_locations_added/countable_events/event_list/scenes_without_turn/dialogue_ratio/action_scene_dialogue_ratio`。先运行 `tools/us_drama_event_density_gate.py`；E41+ 结构 FAIL 必须修订，禁止越门生成。
 
+### 二·补二．美剧节奏 v3 因果层（E41 起新写/重写，ROGER-20260821-NARRATIVE-CANONICAL-CAUSAL-V3）
+
+v3 取代“场数/地点/切换数量=剧情快”的机械理解。先输出独立 `E{NN}_NARRATIVE_CANONICAL_v{n}.md`，只保留剧情行动、外部变化、必要对白和终局新状态；导演稿和 generation contract 后置派生。场数、地点、时间跳跃、跨切数量仅作诊断，不能替代真实 story move。
+
+manifest 必填 `narrative_canonical`：真实 authority 路径/SHA、`production_contracts_externalized=true`、稳定 `LOC-*/TIME-*` 场景序列，以及具有唯一因果簇、起终 state token、正文逐字 evidence、前后依赖的 `story_moves`。同一调查链禁止拆分刷数；连续发现/解释不得超过一个；主动行为型 move 占比至少 50%；150 秒至少 8 个真实推进。完整执行 `codex_docs/美剧叙事节奏标准_v3_因果层_20260821.md`。
+
 ## 三、每集输出
-`scripts/E{NN}剧本_ClaudeWriter_v{n}.md`(头部七项自检+人物小传;正文分场逐镜:△逐拍动作行/潜台词对白/【景别机位运镜】/palette/音效/[原著依据])+ `E{NN}_manifest.json`(sha256/场镜数/时长/mainline_movement)。
+`scripts/E{NN}_NARRATIVE_CANONICAL_v{n}.md`（唯一剧情 authority）+ `E{NN}_DIRECTING_SCRIPT_v{n}.md`（派生导演拍摄稿）+ `E{NN}_GENERATION_CONTRACT_v{n}.json`（派生生产合同）+ `E{NN}_manifest.json`（分层路径/SHA、因果链、时长与主线推进）。旧 `E{NN}剧本_ClaudeWriter_v{n}.md` 仅作为兼容导演稿，不再兼任 narrative canonical。
 硬要求:类型忠实玄幻武打为主/**FS-1 打斗配额=每2集≥1场完整真打斗(≥15s,含起承转合);短灭口/刺杀 beat 不计 set-piece,窗口由邻集承载(2026-07-23 取代旧"每集≥1场"口径)**/时长逐镜4-15s禁均匀/场场button/末场cliffhanger开新问题/无可读文字/乌云=黑猫。
 
 ### 三·补．整集全局空间地图（E40 起，ROGER-20260818-EPISODE-GLOBAL-SPACE-MAP）

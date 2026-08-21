@@ -32,6 +32,8 @@
 
 `codex_docs/美剧叙事节奏标准_v2_结构层_20260818.md` —— **开工前整篇读完**。
 
+自 2026-08-21 起，同时执行 `codex_docs/美剧叙事节奏标准_v3_因果层_20260821.md`。v3 纠正“拆场/换地点/多跨切=剧情快”的错误：v2 数量项降为诊断，正式阻断依据改为真实 narrative canonical 的 story move 因果 DAG。E41–E43 旧 v4 仅可作结构参考，不再是 narrative canonical 金样本；下一次进入生产前必须补分层 authority 并通过 v3。
+
 ### 四条结构硬指标（缺一即 REVISE）
 
 | # | 项 | 现状（要改掉的） | v2 要求 |
@@ -91,7 +93,7 @@
 
 ---
 
-## 六、manifest 必填 `pacing_v2`（缺 = blocker）
+## 六、manifest 必填 `pacing_v2` 与 `narrative_canonical`（缺 = blocker）
 
 ```json
 "pacing_v2": {
@@ -116,6 +118,8 @@
 `distinct_locations` 的机器计数唯一事实源是 `location_list` 的项目数。连续三集 `scene_count` 相同且确有剧情依据时，另填非空 `scene_count_justification`。交监制前必须运行 `tools/us_drama_event_density_gate.py`，不得只做文档自检。
 
 同一 manifest 还必须填写 `episode_global_space_map_id`、`global_space_map_refs` 和逐镜 `shot_subspace_bindings`。空间地图由 Pipeline 生成/准入媒体并补齐 SHA；Writer 负责先完成拓扑、分区、机位和走位合同，不能把空间设计留给生图模型猜测。
+
+`narrative_canonical` 必须固定独立 story-only 文件路径/SHA、`production_contracts_externalized=true`、稳定 `LOC-*/TIME-*` 场景序列和 story move DAG。导演、空间、首帧、资产、声音、模型和 QA 字段必须在后续派生文件，禁止回填 narrative 正文。
 
 ---
 

@@ -1810,7 +1810,7 @@
         "tools/episode_stage_gate_runner.py"
       ],
       "parameters": {
-        "event_density_min_per_minute": 4.0,
+        "legacy_event_density_min_per_minute": 4.0,
         "event_density_target_max_per_minute": 6.0,
         "maximum_information_gap_seconds": 20,
         "maximum_non_advancing_atmosphere_pct": 15.0,
@@ -1820,7 +1820,7 @@
         ],
         "maximum_scene_seconds": 22,
         "minimum_distinct_locations": 4,
-        "location_count_basis": "manifest.pacing_v2.location_list",
+        "location_count_basis": "manifest.narrative_canonical.scene_sequence[*].location_id",
         "maximum_consecutive_same_location": 2,
         "minimum_time_jumps": 1,
         "minimum_parallel_threads": 2,
@@ -1831,10 +1831,23 @@
         "maximum_action_scene_dialogue_ratio": 0.2,
         "structure_enforced_from_episode": "E41",
         "legacy_backtest_mode": "WARNING_ONLY",
-        "scope": "R-49_NUMERIC_PLUS_STRUCTURE_V2"
+        "scope": "R-49_NARRATIVE_CAUSAL_V3",
+        "narrative_canonical_schema": "qingshan.narrative_canonical.v3",
+        "narrative_canonical_schema_path": "configs/schemas/narrative_canonical_v3.schema.json",
+        "narrative_canonical_separate_authority_required": true,
+        "production_contracts_externalized_required": true,
+        "narrative_text_sha_and_literal_evidence_required": true,
+        "story_moves_min_per_minute": 3.2,
+        "agency_move_ratio_minimum": 0.5,
+        "maximum_consecutive_discovery_moves": 1,
+        "maximum_narrative_characters_per_minute": 1400,
+        "unique_causal_cluster_per_countable_move": true,
+        "stable_location_id_pattern": "^LOC-[A-Z0-9][A-Z0-9_-]*$",
+        "stable_time_block_id_pattern": "^TIME-[A-Z0-9][A-Z0-9_-]*$",
+        "scene_location_time_crosscut_counts_are_diagnostic": true
       },
-      "authorization_ref": "ROGER-20260818-US-PACING-V2-RESTRUCTURE",
-      "last_backtest_date": "2026-08-18"
+      "authorization_ref": "ROGER-20260818-US-PACING-V2-RESTRUCTURE;ROGER-20260821-NARRATIVE-CANONICAL-CAUSAL-V3",
+      "last_backtest_date": "2026-08-21"
     },
     {
       "gate_id": "VIDEO-PERFORMANCE-NATURAL-SPLIT",
