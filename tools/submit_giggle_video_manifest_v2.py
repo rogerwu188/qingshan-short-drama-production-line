@@ -372,9 +372,16 @@ def exec_deployed_submitter() -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
+    from tools.action_video_prompt_compiler import validate_action_contract
     from tools.shot_media_admission_gate import compute_input_template_id, precheck_submission_inputs
 
     for task in manifest.get("tasks") or []:
+        action_failures = validate_action_contract(task)
+        if action_failures:
+            raise RuntimeError(
+                f"{task.get('task_key')} BLOCK_STRUCTURED_ACTION_CONTRACT_INVALID: "
+                f"{','.join(action_failures)}"
+            )
         expected_template_id = compute_input_template_id(task)
         if task.get("input_template_id") != expected_template_id:
             raise RuntimeError(f"{task.get('task_key')} missing or stale input_template_id")

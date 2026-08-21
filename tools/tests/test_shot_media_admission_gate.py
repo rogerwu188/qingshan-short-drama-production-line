@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 
 from tools.shot_media_admission_gate import (
     KEYFRAME_REQUIRED_GATES,
+    P0_HUMAN_REQUIRED_GATES,
     VIDEO_REQUIRED_GATES,
     aggregate_template_defects,
     compute_input_template_id,
@@ -39,7 +40,7 @@ class ShotMediaAdmissionGateTests(unittest.TestCase):
                 "evidence_path": str(report),
                 "evidence_sha256": digest(report),
                 "original_resolution_review": index == 0,
-                "reviewer_type": "HUMAN" if index == 0 else "AI_VISUAL",
+                "reviewer_type": "HUMAN_AND_AI" if gate_id in P0_HUMAN_REQUIRED_GATES else "AI_VISUAL",
             })
         payload = {
             "kind": kind,
@@ -172,6 +173,29 @@ class ShotMediaAdmissionGateTests(unittest.TestCase):
                 ],
             }
             self.assertEqual(precheck_submission_inputs(task, root=root)["status"], "PASS")
+
+    def test_video_missing_semantic_policy_declaration_fails_loudly(self):
+        task = {
+            "media_stage": "VIDEO",
+            "canonical_characters": ["CHAR-A"],
+            "reference_image_sequence": [
+                {"role": "character", "entity_id": "CHAR-A", "path": "frame.png"}
+            ],
+        }
+        report = precheck_submission_inputs(task)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertIn("SEMANTIC_ANCHOR_POLICY_NOT_DECLARED", report["failures"])
+        self.assertTrue(report["semantic_anchor_policy_enforced"])
+
+    def test_every_p0_gate_rejects_ai_visual_only_reviewer(self):
+        for gate_id in P0_HUMAN_REQUIRED_GATES:
+            with self.subTest(gate_id=gate_id), TemporaryDirectory() as directory:
+                payload = self.fixture(Path(directory))
+                evidence = next(row for row in payload["evidence"] if row["gate_id"] == gate_id)
+                evidence["reviewer_type"] = "AI_VISUAL"
+                report = evaluate(payload, self.registry, Path(directory))
+                self.assertEqual(report["status"], "FAIL")
+                self.assertTrue(any("p0_gate_requires_human_reviewer" in row for row in report["failures"]))
 
     def test_p2_within_budget_is_conditionally_admitted(self):
         with TemporaryDirectory() as directory:

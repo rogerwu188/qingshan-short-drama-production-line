@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce two paid attempts and a terminal coverage decision per unit."""
+"""Enforce three paid attempts and a terminal coverage decision per unit."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 
-MAX_ATTEMPTS = 2
+MAX_ATTEMPTS = 3
 P0_DEFECTS = {
     "IDENTITY_DRIFT", "WRONG_CHARACTER", "COPYRIGHT", "RIGHTS_MISSING",
     "MEDIA_CORRUPT", "PLOT_BREAK", "MISSING_DIALOGUE", "NO_SUBTITLE",
@@ -87,7 +87,7 @@ def evaluate_unit(unit: dict) -> dict:
 def evaluate(payload: dict) -> dict:
     results = [evaluate_unit(unit) for unit in payload.get("units") or []]
     return {
-        "rule": "maximum two paid attempts per unit; terminal decision required",
+        "rule": "maximum three paid attempts per unit; terminal decision required",
         "units_checked": len(results),
         "units_violating": sum(row["verdict"] != "OK" for row in results),
         "units_stalled": sum(
