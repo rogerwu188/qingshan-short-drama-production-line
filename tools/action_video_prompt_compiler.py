@@ -4,15 +4,67 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 from typing import Any
 
 
-CONTRACT_VERSION = "2.0.0"
+CONTRACT_VERSION = "2.1.0"
 COMBAT_TYPES = {"COMBAT", "FIGHT", "ACTION_COMBAT"}
+ROOT = Path(__file__).resolve().parents[1]
+CANONICAL_COMBAT_MARKERS = (
+    re.compile(r"△【打斗(?:[·・][^】]*)?】"),
+    re.compile(r"FS-1\s*完整打斗"),
+    re.compile(r"FS-1\s*窗口锚"),
+)
 
 
 def _shot_type(task: dict[str, Any]) -> str:
-    return str(task.get("shot_type") or task.get("shot_class") or "GENERAL").upper()
+    return str(task.get("shot_type") or "").strip().upper()
+
+
+def _canonical_unit_context(task: dict[str, Any]) -> str:
+    """Return only the bound canonical unit, never the whole episode by default."""
+    direct = task.get("canonical_unit_text") or task.get("canonical_script_excerpt")
+    if direct:
+        return str(direct)
+    path_value = task.get("canonical_script_path") or task.get("canonical_script")
+    unit_id = str(task.get("canonical_unit_id") or task.get("scene_id") or "").strip()
+    if not path_value or not unit_id:
+        return ""
+    path = Path(str(path_value))
+    if not path.is_absolute():
+        path = ROOT / path
+    if not path.is_file():
+        return ""
+    text = path.read_text(encoding="utf-8")
+    heading = re.compile(rf"^\*\*{re.escape(unit_id)}[．.]", re.MULTILINE)
+    match = heading.search(text)
+    if not match:
+        return ""
+    next_heading = re.search(r"^\*\*\d+-\d+[．.]", text[match.end():], re.MULTILINE)
+    end = match.end() + next_heading.start() if next_heading else len(text)
+    return text[match.start():end]
+
+
+def _canonical_declares_combat(task: dict[str, Any]) -> bool:
+    context = _canonical_unit_context(task)
+    return any(pattern.search(context) for pattern in CANONICAL_COMBAT_MARKERS)
+
+
+def _validate_shot_type(task: dict[str, Any], failures: list[str]) -> str:
+    shot_type = _shot_type(task)
+    canonical_combat = _canonical_declares_combat(task)
+    if not shot_type:
+        failures.append("SHOT_TYPE_NOT_DECLARED")
+        if canonical_combat:
+            failures.append("SHOT_TYPE_MISMATCH_CANONICAL_COMBAT")
+        return shot_type
+    if canonical_combat and shot_type not in COMBAT_TYPES:
+        failures.append("SHOT_TYPE_MISMATCH_CANONICAL_COMBAT")
+    elif shot_type in COMBAT_TYPES and not canonical_combat:
+        failures.append("SHOT_TYPE_COMBAT_NOT_IN_CANONICAL")
+    return shot_type
 
 
 def _number(value: Any, default: float = 999.0) -> float:
@@ -64,6 +116,7 @@ def _ids(block: dict[str, Any]) -> set[str]:
 
 def validate_action_contract(task: dict[str, Any]) -> list[str]:
     failures: list[str] = []
+    shot_type = _validate_shot_type(task, failures)
     start = task.get("blocking") or {}
     end = task.get("action_end_blocking") or {}
     trajectories = task.get("trajectory_overlays") or []
@@ -96,7 +149,7 @@ def validate_action_contract(task: dict[str, Any]) -> list[str]:
     windows = (task.get("performance_tempo_contract") or {}).get("atomic_action_windows") or []
     if not windows:
         failures.append("ACTION_TIME_WINDOWS_MISSING")
-    if _shot_type(task) in COMBAT_TYPES:
+    if shot_type in COMBAT_TYPES:
         _validate_combat_contract(task, failures)
     return failures
 

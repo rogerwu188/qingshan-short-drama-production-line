@@ -1,6 +1,7 @@
 import hashlib
 import math
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -14,6 +15,8 @@ REGISTRY = {
         "sample_frames_per_source_min": 3,
         "embedding_cosine_pass_threshold": 0.45,
         "embedding_cosine_fail_threshold": 0.30,
+        "embedding_cosine_boundary_auto_decision_midpoint": 0.375,
+        "boundary_human_timeout_minutes": 15,
     },
 }
 
@@ -60,6 +63,35 @@ class CharacterIdentityAdmissionGateTests(unittest.TestCase):
             manifest, backend = fixture(Path(directory), [0.4, math.sqrt(0.84)])
             report = evaluate(manifest, REGISTRY, backend)
             self.assertEqual(report["status"], "BOUNDARY_REQUIRES_HUMAN")
+            self.assertFalse(report["boundary_auto_resolved_after_timeout"])
+
+    def test_boundary_timeout_nearer_pass_admits_best_effort_as_p2(self):
+        with TemporaryDirectory() as directory:
+            manifest, backend = fixture(Path(directory), [0.4, math.sqrt(0.84)])
+            manifest["boundary_human_review_requested_at"] = "2026-08-21T00:00:00Z"
+            report = evaluate(
+                manifest, REGISTRY, backend,
+                now_utc=datetime(2026, 8, 21, 0, 16, tzinfo=timezone.utc),
+            )
+            self.assertEqual(report["status"], "PASS")
+            self.assertEqual(report["admission_tier"], "ADMITTED_WITH_P2")
+            self.assertTrue(report["boundary_auto_resolved_after_timeout"])
+            self.assertEqual(report["boundary_auto_resolution_directions"], ["ADMIT_BEST_EFFORT"])
+
+    def test_boundary_timeout_nearer_fail_switches_coverage(self):
+        with TemporaryDirectory() as directory:
+            manifest, backend = fixture(Path(directory), [0.34, math.sqrt(1 - 0.34 ** 2)])
+            manifest["boundary_human_review_requested_at"] = "2026-08-21T00:00:00Z"
+            report = evaluate(
+                manifest, REGISTRY, backend,
+                now_utc=datetime(2026, 8, 21, 0, 16, tzinfo=timezone.utc),
+            )
+            self.assertEqual(report["status"], "FAIL")
+            self.assertTrue(report["boundary_auto_resolved_after_timeout"])
+            self.assertEqual(report["boundary_auto_resolution_directions"], ["SWITCH_COVERAGE"])
+            self.assertAlmostEqual(
+                report["objective_verification"]["decisions"][0]["aggregate_median"], 0.34
+            )
 
     def test_low_embedding_fails_objectively(self):
         with TemporaryDirectory() as directory:
