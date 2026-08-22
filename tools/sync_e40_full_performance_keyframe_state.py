@@ -36,6 +36,8 @@ RECOVERY_VIDEO_RETRY_MANIFEST = ROOT / "workflow/claude_writer_agent/production/
 RECOVERY_VIDEO_RETRY_SUBMISSION = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_RECOVERY2_I2V_NATIVE_TEXT_RETRY2_SUBMISSION_V1.json"
 I2V_WAITING_WAVE = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_VIDEO_I2V_WAITING_WAVE_V1.json"
 KEYFRAME_REPAIR_WAVE = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_KEYFRAME_REPAIR_WAVE_V2.json"
+KEYFRAME_REPAIR_SELECTED = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_KEYFRAME_REPAIR_SELECTED_V2.json"
+KEYFRAME_REPAIR_SUBMISSION = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/keyframes_repair_v2/E40_FULL_PERFORMANCE_KEYFRAME_REPAIR_SELECTED_SUBMISSION_V2.json"
 I2V_PILOT = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_V2.json"
 I2V_PILOT_PRECHECK = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_PRECHECK_V2.json"
 I2V_PILOT_CREDIT = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_CREDIT_STATUS_V2.json"
@@ -448,6 +450,7 @@ def main() -> int:
         else:
             tasks.append(assembly_task)
     recovery_video_active = 0
+    keyframe_repair_active = 0
     recovery_submission_path = RECOVERY_VIDEO_RETRY_SUBMISSION if RECOVERY_VIDEO_RETRY_SUBMISSION.is_file() else RECOVERY_VIDEO_SUBMISSION
     recovery_manifest_path = RECOVERY_VIDEO_RETRY_MANIFEST if RECOVERY_VIDEO_RETRY_MANIFEST.is_file() else RECOVERY_VIDEO_MANIFEST
     for row in tasks:
@@ -550,11 +553,46 @@ def main() -> int:
         else:
             tasks.append(repair_row)
             by_id[repair_id] = repair_row
+    if KEYFRAME_REPAIR_SUBMISSION.is_file():
+        repair_submit = json.loads(KEYFRAME_REPAIR_SUBMISSION.read_text(encoding="utf-8"))
+        for item in repair_submit.get("results") or []:
+            remote_id = item.get("task_id")
+            if not remote_id:
+                continue
+            remote_row_id = f"{item['task_key']}-REMOTE"
+            remote_row = {
+                "task_id": remote_row_id,
+                "lane_id": "E40_FULL_PERFORMANCE_KEYFRAME_REPAIR",
+                "state": "REMOTE_WAIT",
+                "wait_scope": "TASK_LOCAL",
+                "zero_cost": False,
+                "deliverable_type": "NATIVE_REGISTRY_IDENTITY_REPAIR_KEYFRAME",
+                "liveness_role": "REMOTE_PROVIDER_TASK",
+                "remote_task_id": remote_id,
+                "provider_post_allowed": False,
+                "provider_query_allowed": True,
+                "download_allowed": True,
+                "maximum_new_submissions": 0,
+                "progress": "TRANSACTION_BOUND_REMOTE_RUNNING",
+                "last_progress_at": now,
+                "next_due_at": next_due,
+                "lease_owner": "codex-e40-keyframe-repair",
+                "lease_expires_at": lease_expires,
+                "evidence_ref": portable(KEYFRAME_REPAIR_SUBMISSION),
+                "evidence_sha256": sha(KEYFRAME_REPAIR_SUBMISSION),
+                "next_action": "Query/download only this task, then run fresh exact-SHA registered Q1; never reuse the failed image.",
+            }
+            if remote_row_id in by_id:
+                by_id[remote_row_id].update(remote_row)
+            else:
+                tasks.append(remote_row)
+                by_id[remote_row_id] = remote_row
+            keyframe_repair_active += 1
     scheduler.update({
         "updated_at": now,
         "status": "ACTIVE_RECOVERY2_NATIVE_TEXT_VIDEO_REMOTE_WAIT" if recovery_video_active else "ACTIVE_R04_TERMINAL_COVERAGE_LOCAL_SUCCESSORS",
         "target_slots": 3,
-        "real_active_handle_count": (0 if credit_terminal else 1) + (0 if audio_terminal else 1) + (0 if asr_terminal else 1) + (0 if video_submit_terminal else 1) + (0 if video_credit_terminal else 1) + (1 if pilot_active else 0) + (1 if final_active else 0) + recovery_video_active,
+        "real_active_handle_count": (0 if credit_terminal else 1) + (0 if audio_terminal else 1) + (0 if asr_terminal else 1) + (0 if video_submit_terminal else 1) + (0 if video_credit_terminal else 1) + (1 if pilot_active else 0) + (1 if final_active else 0) + recovery_video_active + keyframe_repair_active,
     })
     scheduler.setdefault("heartbeat_integration", {}).update({
         "state": "ACTIVE",
@@ -691,6 +729,21 @@ def main() -> int:
             "provider_post_allowed": False,
             "maximum_new_submissions": 0,
             "next_action": "Run registered retry/cost admission; after generation, fresh exact-SHA Q1 is mandatory before video.",
+        }
+    if KEYFRAME_REPAIR_SUBMISSION.is_file():
+        repair_submit = json.loads(KEYFRAME_REPAIR_SUBMISSION.read_text(encoding="utf-8"))
+        remote_ids = [row.get("task_id") for row in repair_submit.get("results") or [] if row.get("task_id")]
+        queue["latest_e40_keyframe_repair_submission"] = {
+            "status": "REMOTE_RUNNING" if remote_ids else "NOT_BOUND",
+            "manifest": portable(KEYFRAME_REPAIR_SELECTED),
+            "manifest_sha256": sha(KEYFRAME_REPAIR_SELECTED),
+            "submission": portable(KEYFRAME_REPAIR_SUBMISSION),
+            "submission_sha256": sha(KEYFRAME_REPAIR_SUBMISSION),
+            "remote_task_ids": remote_ids,
+            "newly_submitted": len(remote_ids),
+            "charged_credits": (repair_submit.get("credit_reconciliation") or {}).get("charged_credits"),
+            "duplicate_post_forbidden": True,
+            "next_action": "Query/download only, then fresh exact-SHA Q1 before any video compile.",
         }
     write(QUEUE, queue)
     print(json.dumps({"status": "PASS", "scheduler_sha256": sha(SCHEDULER), "queue_sha256": sha(QUEUE), "real_active_handle_count": scheduler["real_active_handle_count"]}, ensure_ascii=False))
