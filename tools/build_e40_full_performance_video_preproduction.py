@@ -30,12 +30,13 @@ BASE = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/fu
 PLAN = BASE / "E40_FULL_PERFORMANCE_NATIVE_DIALOGUE_PLAN_V1.json"
 KEYFRAMES = BASE / "E40_FULL_PERFORMANCE_KEYFRAME_BATCH_V1.json"
 Q1 = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/keyframes/q1_registered/E40_FULL_PERFORMANCE_KEYFRAME_Q1_INDEX_V1.json"
-OUT = BASE / "E40_FULL_PERFORMANCE_VIDEO_PREPRODUCTION_V1.json"
+OUT = BASE / "E40_FULL_PERFORMANCE_VIDEO_PREPRODUCTION_V2.json"
+PRIOR = BASE / "E40_FULL_PERFORMANCE_VIDEO_PREPRODUCTION_V1.json"
 AUDIO_PLAN = BASE / "E40_FULL_PERFORMANCE_EXACT_DIALOGUE_AUDIO_REFERENCE_PLAN_V1.json"
 ASR_QA = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/audio_refs_v1/E40_FULL_PERFORMANCE_AUDIO_REFERENCE_ASR_QA_V1.json"
 AUDIO_REGISTRY = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/audio_refs_v1/E40_FULL_PERFORMANCE_AUDIO_PROVIDER_ASSET_REGISTRY_V1.json"
-COST_GATE = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_COST_GATE_V1.json"
-PROMPTS = BASE / "video_prompts_v1"
+COST_GATE = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_COST_GATE_V2.json"
+PROMPTS = BASE / "video_prompts_v2"
 
 VOICE_BINDINGS = {
     "陈迹": {"voice_id": "clone_20251011_081924_812352", "name": "寒玉孤音(蓝忘机)", "emotion": "冷静克制、锋利、自然普通话、非旁白腔"},
@@ -76,7 +77,13 @@ def main() -> int:
     kf_tasks = {row["task_key"]: row for row in keyframes["tasks"]}
     q1_rows = {row["task_key"]: row for row in q1["results"]}
     audio_registry_payload = json.loads(AUDIO_REGISTRY.read_text(encoding="utf-8")) if AUDIO_REGISTRY.is_file() else None
-    audio_assets = {row["audio_key"]: row["remote_asset_id"] for row in (audio_registry_payload or {}).get("items", []) if row.get("status") == "PASS"}
+    prior_payload = json.loads(PRIOR.read_text(encoding="utf-8"))
+    prior_tasks = {row["task_key"].removesuffix("-VIDEO-V1"): row for row in prior_payload["tasks"]}
+    audio_assets = {
+        row["audio_key"]: row
+        for row in (audio_registry_payload or {}).get("items", [])
+        if row.get("status") == "PASS" and row.get("public_audio_url")
+    }
     audio_ready = bool(audio_registry_payload and audio_registry_payload.get("status") == "PASS" and ASR_QA.is_file())
     audio_rows = []
     tasks = []
@@ -118,7 +125,7 @@ def main() -> int:
             (start.get("characters") or [{}])[0].get("character_id"),
         )
         task = {
-            "task_key": f"{unit_id}-VIDEO-V1",
+            "task_key": f"{unit_id}-VIDEO-V2",
             "episode": "E40",
             "unit_id": unit["source_unit"],
             "canonical_unit_id": unit["source_unit"],
@@ -140,8 +147,10 @@ def main() -> int:
             "dialogue_lines": [line["text"] for line in unit["spoken_lines"]],
             "dialogue_ids": unit["dialogue_ids"],
             "required_audio_intent_keys": audio_intents,
-            "exact_dialogue_audio_asset_ids": [audio_assets[value] for value in audio_intents] if audio_ready else [],
+            "exact_dialogue_audio_asset_ids": [audio_assets[value]["remote_asset_id"] for value in audio_intents] if audio_ready else [],
+            "exact_dialogue_audio_urls": [audio_assets[value]["public_audio_url"] for value in audio_intents] if audio_ready else [],
             "reference_audio_asset_ids": [],
+            "reference_audio_urls": [],
             "source_subtitle_policy": "FORBID",
             "native_audio_policy": "PRESERVE_SAME_PROVIDER_TASK_DIALOGUE_AMBIENCE_FOLEY_AND_SFX_NO_POST_REDUB",
             "reference_images": [rel(frame)],
@@ -193,14 +202,27 @@ def main() -> int:
                 "道具换位", "静态念稿", "夸张舞台表演", "删除原生音轨", "后配TTS覆盖可见口型",
             ],
             "action_video_prompt_contract_version": ACTION_CONTRACT_VERSION,
-            "retry_attempt": 1,
-            "retry_kind": "FIRST_PASS_FULL_PERFORMANCE_NATIVE_DIALOGUE",
+            "retry_attempt": 2,
+            "retry_kind": "PROVIDER_TRANSPORT_REPAIR_ASSET_ID_TO_PUBLIC_URL",
+            "prior_failure_code": "PROVIDER_ROUTER_MAPPING_NOT_FOUND",
+            "failure_memory": {
+                "attempt": 1,
+                "provider_terminal_error": "router mapping not found",
+                "root_cause": "Omni audio was transported as asset_id although the current provider contract requires public URL.",
+                "do_not_repeat": "Never send audio/video references to Giggle Omni as asset_id.",
+            },
+            "material_change_from_prior_attempt": "Changed Omni audio transport from provider asset_id to ordered public HTTPS URL and made that binding explicit in the prompt.",
+            "prior_prompt_sha256": [prior_tasks[unit_id]["prompt_sha256"]],
         }
         failures = validate_action_contract(task)
         if failures:
             raise ValueError(f"{task['task_key']} action contract: {failures}")
         prompt_path = PROMPTS / f"{task['task_key']}.txt"
-        prompt_path.write_text(compile_action_video_prompt(task), encoding="utf-8")
+        prompt_path.write_text(
+            compile_action_video_prompt(task)
+            + "\n传输锁：按编号使用同一任务绑定的公开音频引用，逐句驱动原生口型、呼吸与声场；禁止把音频资产编号当作可播放音源。\n",
+            encoding="utf-8",
+        )
         task["prompt_file"] = rel(prompt_path)
         task["prompt_sha256"] = sha(prompt_path)
         task["input_template_id"] = compute_input_template_id(task)
@@ -217,7 +239,7 @@ def main() -> int:
         "items": audio_rows,
     })
     manifest = {
-        "schema": "qingshan.e40.full_performance_video_preproduction.v1",
+        "schema": "qingshan.e40.full_performance_video_preproduction.v2",
         "episode": "E40",
         "status": "READY_TO_SUBMIT" if audio_ready else "WAITING_DEPENDENCY_EXACT_DIALOGUE_AUDIO_ASSET_BINDING",
         "provider": "giggle",
@@ -241,6 +263,7 @@ def main() -> int:
         "tasks": tasks,
         "blocked_keyframes": q1.get("failed_task_keys") or [],
         "release_audio_rule": "Keep same Seedance task native dialogue/ambience/foley/SFX; never replace visible-lip audio in post.",
+        "transport_repair": "Giggle Omni audio/video references use public URL; provider asset_id is retained only as provenance.",
     }
     write(OUT, manifest)
     if audio_ready:

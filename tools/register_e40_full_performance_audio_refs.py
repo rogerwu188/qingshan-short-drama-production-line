@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Register exact-ASR-passing E40 audio references as provider assets."""
+"""Bind exact-ASR-passing E40 audio to provider-native public URLs.
+
+Giggle Omni accepts audio/video references by URL.  A generated speech task
+already owns a public audio asset, so re-uploading the downloaded WAV and then
+passing the new ``asset_id`` creates an unnecessary, provider-incompatible
+transport hop.
+"""
 
 from __future__ import annotations
 
@@ -9,9 +15,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 try:
-    from upload_giggle_asset import upload
+    from giggle_api_client import _get
 except ModuleNotFoundError:
-    from tools.upload_giggle_asset import upload
+    from tools.giggle_api_client import _get
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,15 +35,29 @@ def main() -> int:
         raise SystemExit("Exact dialogue ASR QA is not fully PASS")
     results = []
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = {pool.submit(upload, ROOT / row["wav_path"], True): row for row in qa["rows"]}
+        futures = {
+            pool.submit(
+                _get,
+                "/api/v1/generation/task/query",
+                {"task_id": row["provider_audio_task_id"]},
+            ): row
+            for row in qa["rows"]
+        }
         for future in as_completed(futures):
             row = futures[future]
             try:
                 response = future.result()
                 data = response.get("data") or response
-                asset_id = str(data.get("asset_id") or "")
-                if not asset_id:
-                    raise RuntimeError("asset_id missing")
+                if data.get("status") != "completed":
+                    raise RuntimeError(f"source audio task is not completed: {data.get('status')}")
+                assets = data.get("asset_info") or []
+                if len(assets) != 1:
+                    raise RuntimeError(f"expected one source audio asset, got {len(assets)}")
+                asset = assets[0]
+                asset_id = str(asset.get("asset_id") or "")
+                public_url = str(asset.get("signed_url") or "")
+                if not asset_id or not public_url or asset.get("file_type") != "audio":
+                    raise RuntimeError("provider-native audio asset_id/public URL/type missing")
                 results.append({
                     "audio_key": row["audio_key"],
                     "dialogue_id": row["dialogue_id"],
@@ -45,6 +65,8 @@ def main() -> int:
                     "wav_sha256": row["wav_sha256"],
                     "provider_audio_task_id": row["provider_audio_task_id"],
                     "remote_asset_id": asset_id,
+                    "public_audio_url": public_url,
+                    "transport": "OMNI_AUDIO_PUBLIC_URL",
                     "status": "PASS",
                 })
             except Exception as exc:
@@ -59,7 +81,7 @@ def main() -> int:
         "source_asr_qa": str(ASR.relative_to(ROOT)),
         "source_asr_qa_sha256": sha(ASR),
         "items": results,
-        "credit_policy": "ASSET_REGISTRATION_ZERO_GENERATION_CREDIT",
+        "credit_policy": "SOURCE_TASK_ASSET_LOOKUP_ZERO_GENERATION_CREDIT",
         "purpose": "SEEDANCE_SAME_TASK_EXACT_DIALOGUE_REFERENCE_ONLY_NOT_POST_DUB",
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
