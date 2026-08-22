@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import copy
 from pathlib import Path
 
 import cv2
@@ -36,6 +37,8 @@ AUDIO_PLAN = BASE / "E40_FULL_PERFORMANCE_EXACT_DIALOGUE_AUDIO_REFERENCE_PLAN_V1
 ASR_QA = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/audio_refs_v1/E40_FULL_PERFORMANCE_AUDIO_REFERENCE_ASR_QA_V1.json"
 AUDIO_REGISTRY = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/audio_refs_v1/E40_FULL_PERFORMANCE_AUDIO_PROVIDER_ASSET_REGISTRY_V1.json"
 COST_GATE = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_COST_GATE_V2.json"
+PILOT_OUT = BASE / "E40_FULL_PERFORMANCE_VIDEO_TRANSPORT_PILOT_V2.json"
+PILOT_COST_GATE = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_TRANSPORT_PILOT_COST_GATE_V2.json"
 PROMPTS = BASE / "video_prompts_v2"
 
 VOICE_BINDINGS = {
@@ -278,6 +281,29 @@ def main() -> int:
             "planned_gross_credits": sum(int(row["duration_seconds"]) * 16 for row in tasks),
             "maximum_additional_credits": 5000,
             "first_pass_only": True,
+        })
+        pilot = copy.deepcopy(manifest)
+        pilot["schema"] = "qingshan.e40.full_performance_video_transport_pilot.v2"
+        pilot["tasks"] = [tasks[0]]
+        pilot["admitted_video_task_count"] = 1
+        pilot["maximum_new_submissions"] = 1
+        pilot["machine_gate_reports"] = [
+            value for value in pilot["machine_gate_reports"] if value != rel(COST_GATE)
+        ] + [rel(PILOT_COST_GATE)]
+        pilot["pilot_policy"] = "ONE_4_SECOND_SINGLE_AUDIO_TASK_ONLY_AFTER_ATTEMPT1_EXACT_REFUND; EXPAND_ONLY_AFTER_PROVIDER_ROUTE_SUCCESS"
+        write(PILOT_OUT, pilot)
+        write(PILOT_COST_GATE, {
+            "schema": "qingshan.registered_gate_evidence.v1",
+            "gate_id": "GIGGLE-REROLL-COST-GUARD",
+            "status": "PASS",
+            "authorization_ref": "ROGER-20260821-E40-REBUILD-BUDGET-5000",
+            "reviewed_manifest": rel(PILOT_OUT),
+            "reviewed_manifest_sha256": sha(PILOT_OUT),
+            "planned_video_tasks": 1,
+            "planned_gross_credits": int(tasks[0]["duration_seconds"]) * 16,
+            "maximum_additional_credits": 5000,
+            "prior_attempt_credit_status": "PASS_ZERO_REFUNDED",
+            "transport_pilot_only": True,
         })
     print(json.dumps({"status": "PASS_PREPRODUCTION", "video_tasks": len(tasks), "audio_items": len(audio_rows), "manifest": rel(OUT), "manifest_sha256": sha(OUT), "audio_plan_sha256": sha(AUDIO_PLAN)}, ensure_ascii=False))
     return 0

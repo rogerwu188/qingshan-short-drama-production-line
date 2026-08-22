@@ -38,6 +38,20 @@ class SourceCaptionSafeDialogueTest(unittest.TestCase):
         }
         validate_source_caption_safe_dialogue(task, "角色按音频1同步口型，紧张耳语；画面不出现任何转写文字")
 
+    def test_accepts_same_task_native_text_dialogue_with_canonical_copy(self):
+        task = {
+            "task_key": "E99-U01-R3",
+            "native_dialogue_required": True,
+            "source_subtitle_policy": "FORBID",
+            "dialogue_transport": "MODEL_NATIVE_TEXT_DIALOGUE",
+            "model_native_text_dialogue": True,
+            "dialogue_lines": ["别动。"],
+        }
+        validate_source_caption_safe_dialogue(
+            task,
+            "角色自然说：‘别动。’ 同一生成任务保留原生声音与口型，画面禁止字幕。",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

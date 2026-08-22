@@ -76,12 +76,21 @@ def validate_source_caption_safe_dialogue(task: dict[str, Any], prompt_text: str
     policy = task.get("source_subtitle_policy", "FORBID")
     if policy != "FORBID":
         return
-    if task.get("dialogue_transport") != "EXACT_LINE_AUDIO_REFERENCE":
+    transport = task.get("dialogue_transport")
+    lines = [str(value) for value in task.get("dialogue_lines") or []]
+    if transport == "MODEL_NATIVE_TEXT_DIALOGUE":
+        if task.get("model_native_text_dialogue") is not True or not lines:
+            raise ValueError(f"{task['task_key']} native text dialogue contract is incomplete")
+        normalized_prompt = normalized_han(prompt_text)
+        missing = [line for line in lines if normalized_han(line) not in normalized_prompt]
+        if missing:
+            raise ValueError(f"{task['task_key']} canonical native text dialogue is missing from prompt")
+        return
+    if transport != "EXACT_LINE_AUDIO_REFERENCE":
         raise ValueError(
             f"{task['task_key']} source-caption-forbidden dialogue requires "
             "dialogue_transport=EXACT_LINE_AUDIO_REFERENCE"
         )
-    lines = [str(value) for value in task.get("dialogue_lines") or []]
     exact_urls = task.get("exact_dialogue_audio_urls") or []
     if not lines or len(exact_urls) != len(lines):
         raise ValueError(f"{task['task_key']} requires one ordered exact-line public audio URL per dialogue line")
@@ -175,7 +184,7 @@ def validate_task(task: dict[str, Any]) -> None:
         *(task.get("exact_dialogue_audio_urls") or []),
         *(task.get("reference_audio_urls") or []),
     ]
-    if task.get("native_dialogue_required") and not audio_urls:
+    if task.get("native_dialogue_required") and task.get("dialogue_transport") == "EXACT_LINE_AUDIO_REFERENCE" and not audio_urls:
         raise ValueError(f"{task['task_key']} native dialogue lacks public audio URLs")
     if any(not isinstance(value, str) or not value.startswith("https://") for value in audio_urls):
         raise ValueError(f"{task['task_key']} audio references must be public HTTPS URLs")
