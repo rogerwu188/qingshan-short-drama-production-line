@@ -32,6 +32,9 @@ I2V_PILOT_CREDIT = ROOT / "qa/e40_remake_20260822/full_performance_native_dialog
 I2V_FINAL = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_FINAL_V3.json"
 I2V_FINAL_PRECHECK = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_FINAL_PRECHECK_V3.json"
 I2V_FINAL_CREDIT = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_FINAL_CREDIT_STATUS_V3.json"
+I2V_FINAL_HARVEST = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_FINAL_Q2_HARVEST_V3.json"
+R04_TERMINAL_COVERAGE = ROOT / "working_assets/e40_remake_20260822/full_performance_native_dialogue_v1/terminal_switch_coverage_v1/E40_R04_YUNFEI_OFFSCREEN_COVERAGE_V1.mp4"
+R04_TERMINAL_COVERAGE_QA = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/terminal_switch_coverage_v1/E40_R04_YUNFEI_OFFSCREEN_COVERAGE_V1_QA.json"
 VIDEO_TX_DIR = ROOT / "workflow/tasks/giggle_video_submit_transactions/E40"
 
 
@@ -356,28 +359,34 @@ def main() -> int:
     if I2V_FINAL.is_file() and len(final_transactions) == 1:
         final_tx = json.loads(final_transactions[0].read_text(encoding="utf-8"))
         final_bound = final_tx.get("state") == "SUBMITTED_TASK_ID_BOUND" and bool(final_tx.get("task_id"))
+        final_coverage_terminal = (
+            final_tx.get("state") == "TERMINAL_FAILED_REFUNDED"
+            and R04_TERMINAL_COVERAGE.is_file()
+            and R04_TERMINAL_COVERAGE_QA.is_file()
+        )
         final_active = bool(final_bound)
         final_id = "E40-FP-R04-YUNFEI-B1-V1-VIDEO-V3-I2V-NATIVE-TEXT-FINAL"
         final_task = {
             "task_id": final_id,
             "lane_id": "E40_FULL_PERFORMANCE_VIDEO_PROVIDER_ROUTE_FINAL",
-            "state": "REMOTE_WAIT" if final_bound else "WAITING_DEPENDENCY",
-            "wait_scope": "TASK_LOCAL",
+            "state": "TERMINAL" if final_coverage_terminal else "REMOTE_WAIT" if final_bound else "WAITING_DEPENDENCY",
+            "wait_scope": "NONE" if final_coverage_terminal else "TASK_LOCAL",
             "zero_cost": False,
             "deliverable_type": "SEEDANCE_FAST_REDUCED_LOAD_I2V_NATIVE_DIALOGUE_VIDEO",
-            "liveness_role": "REMOTE_PROVIDER_TASK" if final_bound else "DEPENDENCY",
+            "liveness_role": "TERMINAL_EVIDENCE" if final_coverage_terminal else "REMOTE_PROVIDER_TASK" if final_bound else "DEPENDENCY",
             "remote_task_id": final_tx.get("task_id"),
             "provider_post_allowed": False,
             "provider_query_allowed": bool(final_bound),
             "maximum_new_submissions": 0,
-            "progress": "I2V_NATIVE_TEXT_FINAL_REMOTE_RUNNING" if final_bound else str(final_tx.get("state")),
+            "progress": "ATTEMPT3_FAILED_REFUNDED_SWITCH_COVERAGE_BUILT_NO_V4" if final_coverage_terminal else "I2V_NATIVE_TEXT_FINAL_REMOTE_RUNNING" if final_bound else str(final_tx.get("state")),
             "last_progress_at": now,
             "next_due_at": next_due if final_bound else None,
             "lease_owner": "codex-e40-i2v-native-text-final" if final_bound else None,
             "lease_expires_at": lease_expires if final_bound else None,
-            "evidence_ref": portable(final_transactions[0]),
-            "evidence_sha256": sha(final_transactions[0]),
-            "next_action": "Query only the bound final task; completion enters registered Q2, failure forces SWITCH_COVERAGE_NO_V4.",
+            "evidence_ref": portable(R04_TERMINAL_COVERAGE_QA) if final_coverage_terminal else portable(final_transactions[0]),
+            "evidence_sha256": sha(R04_TERMINAL_COVERAGE_QA) if final_coverage_terminal else sha(final_transactions[0]),
+            "completed_at": now if final_coverage_terminal else None,
+            "next_action": "Insert the admitted zero-cost R04 visual coverage into assembly; do not submit V4." if final_coverage_terminal else "Query only the bound final task; completion enters registered Q2, failure forces SWITCH_COVERAGE_NO_V4.",
         }
         if final_id in by_id:
             by_id[final_id].update(final_task)
@@ -385,7 +394,7 @@ def main() -> int:
             tasks.append(final_task)
     scheduler.update({
         "updated_at": now,
-        "status": "ACTIVE_LEDGER_RECONCILIATION_AND_I2V_NATIVE_DIALOGUE_FINAL_ATTEMPT",
+        "status": "ACTIVE_LEDGER_RECONCILIATION_AND_R04_TERMINAL_COVERAGE" if R04_TERMINAL_COVERAGE_QA.is_file() else "ACTIVE_LEDGER_RECONCILIATION_AND_I2V_NATIVE_DIALOGUE_FINAL_ATTEMPT",
         "target_slots": 3,
         "real_active_handle_count": (0 if CREDIT.is_file() else 1) + (0 if audio_terminal else 1) + (0 if asr_terminal else 1) + (0 if video_submit_terminal else 1) + (0 if video_credit_terminal else 1) + (1 if pilot_active else 0) + (1 if final_active else 0),
     })
@@ -394,18 +403,18 @@ def main() -> int:
         "real_active_handle_count": scheduler["real_active_handle_count"],
         "episode_terminal": False,
         "blocking_units": ["R01", "R02", "R03", "R06A", "R07", "R08"],
-        "解除条件": "Harvest the bound R04 final image-to-video native-dialogue attempt and finish authoritative classification of response-lost image/video transactions.",
+        "解除条件": "Finish authoritative classification of response-lost image/video transactions, then assemble the admitted R04 coverage with the remaining full-performance units." if R04_TERMINAL_COVERAGE_QA.is_file() else "Harvest the bound R04 final image-to-video native-dialogue attempt and finish authoritative classification of response-lost image/video transactions.",
     })
     write(SCHEDULER, scheduler)
 
     queue = json.loads(QUEUE.read_text(encoding="utf-8"))
     queue.update({
         "updated_at": now,
-        "mode": "FULL_PERFORMANCE_I2V_NATIVE_DIALOGUE_FINAL_ATTEMPT_AND_LEDGER_RECONCILIATION",
-        "status": "ACTIVE_I2V_NATIVE_DIALOGUE_FINAL_ATTEMPT_AND_TWO_LEDGER_RECONCILIATIONS",
+        "mode": "FULL_PERFORMANCE_R04_TERMINAL_COVERAGE_AND_LEDGER_RECONCILIATION" if R04_TERMINAL_COVERAGE_QA.is_file() else "FULL_PERFORMANCE_I2V_NATIVE_DIALOGUE_FINAL_ATTEMPT_AND_LEDGER_RECONCILIATION",
+        "status": "ACTIVE_R04_TERMINAL_COVERAGE_AND_TWO_LEDGER_RECONCILIATIONS" if R04_TERMINAL_COVERAGE_QA.is_file() else "ACTIVE_I2V_NATIVE_DIALOGUE_FINAL_ATTEMPT_AND_TWO_LEDGER_RECONCILIATIONS",
         "target_slots": 3,
         "real_active_handle_count": scheduler["real_active_handle_count"],
-        "next_action": "Harvest the bound R04 final image-to-video native-dialogue attempt; if it passes provider and Q2, expand only to eligible units. Failure forces coverage with no V4.",
+        "next_action": "Insert the admitted R04 zero-cost visual coverage into assembly and continue missing full-performance units; no V4." if R04_TERMINAL_COVERAGE_QA.is_file() else "Harvest the bound R04 final image-to-video native-dialogue attempt; if it passes provider and Q2, expand only to eligible units. Failure forces coverage with no V4.",
     })
     queue["latest_e40_full_performance_i2v_native_text_pilot_v2"] = {
         "manifest": portable(I2V_PILOT) if I2V_PILOT.is_file() else None,
@@ -425,14 +434,20 @@ def main() -> int:
         "precheck": portable(I2V_FINAL_PRECHECK) if I2V_FINAL_PRECHECK.is_file() else None,
         "precheck_sha256": sha(I2V_FINAL_PRECHECK) if I2V_FINAL_PRECHECK.is_file() else None,
         "remote_task_id": final_tx.get("task_id") if I2V_FINAL.is_file() and len(final_transactions) == 1 else None,
-        "status": "REMOTE_RUNNING_FINAL_ATTEMPT" if final_active else "NOT_BOUND",
+        "status": "TERMINAL_FAILED_REFUNDED_SWITCH_COVERAGE_NO_V4" if R04_TERMINAL_COVERAGE_QA.is_file() else "REMOTE_RUNNING_FINAL_ATTEMPT" if final_active else "NOT_BOUND",
         "credit_status": portable(I2V_FINAL_CREDIT) if I2V_FINAL_CREDIT.is_file() else None,
         "credit_status_sha256": sha(I2V_FINAL_CREDIT) if I2V_FINAL_CREDIT.is_file() else None,
         "retry_attempt": 3,
         "no_further_automatic_retry": True,
         "terminal_decision_if_failed": "SWITCH_COVERAGE_NO_V4",
         "duplicate_post_forbidden": True,
-        "next_action": "Query/download only this final task; completion enters registered Q2, failure terminalizes R04 automatic retry.",
+        "harvest": portable(I2V_FINAL_HARVEST) if I2V_FINAL_HARVEST.is_file() else None,
+        "harvest_sha256": sha(I2V_FINAL_HARVEST) if I2V_FINAL_HARVEST.is_file() else None,
+        "terminal_coverage": portable(R04_TERMINAL_COVERAGE) if R04_TERMINAL_COVERAGE.is_file() else None,
+        "terminal_coverage_sha256": sha(R04_TERMINAL_COVERAGE) if R04_TERMINAL_COVERAGE.is_file() else None,
+        "terminal_coverage_qa": portable(R04_TERMINAL_COVERAGE_QA) if R04_TERMINAL_COVERAGE_QA.is_file() else None,
+        "terminal_coverage_qa_sha256": sha(R04_TERMINAL_COVERAGE_QA) if R04_TERMINAL_COVERAGE_QA.is_file() else None,
+        "next_action": "Insert terminal coverage into assembly; no V4." if R04_TERMINAL_COVERAGE_QA.is_file() else "Query/download only this final task; completion enters registered Q2, failure terminalizes R04 automatic retry.",
     }
     if final_active and I2V_FINAL_CREDIT.is_file():
         final_credit = json.loads(I2V_FINAL_CREDIT.read_text(encoding="utf-8"))
