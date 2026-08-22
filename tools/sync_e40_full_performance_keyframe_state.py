@@ -28,6 +28,7 @@ VIDEO_HARVEST = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_
 VIDEO_CREDIT = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_CREDIT_RECONCILIATION_V1.json"
 I2V_PILOT = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_V2.json"
 I2V_PILOT_PRECHECK = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_PRECHECK_V2.json"
+I2V_PILOT_CREDIT = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_CREDIT_STATUS_V2.json"
 VIDEO_TX_DIR = ROOT / "workflow/tasks/giggle_video_submit_transactions/E40"
 
 
@@ -377,9 +378,20 @@ def main() -> int:
         "precheck_sha256": sha(I2V_PILOT_PRECHECK) if I2V_PILOT_PRECHECK.is_file() else None,
         "remote_task_id": pilot_tx.get("task_id") if I2V_PILOT.is_file() and len(pilot_transactions) == 1 else None,
         "status": "REMOTE_RUNNING" if pilot_active else "NOT_BOUND",
+        "credit_status": portable(I2V_PILOT_CREDIT) if I2V_PILOT_CREDIT.is_file() else None,
+        "credit_status_sha256": sha(I2V_PILOT_CREDIT) if I2V_PILOT_CREDIT.is_file() else None,
         "duplicate_post_forbidden": True,
         "next_action": "Query/download only this task and run exact-frame plus native-dialogue Q2 before any batch expansion.",
     }
+    if pilot_active and I2V_PILOT_CREDIT.is_file():
+        pilot_credit = json.loads(I2V_PILOT_CREDIT.read_text(encoding="utf-8"))
+        queue.setdefault("e40_credits", {}).update({
+            "active_remote_video_pay": pilot_credit.get("net_charged_credits"),
+            "active_remote_video_task_id": pilot_tx.get("task_id"),
+            "pending_remote_video_task_count": 1,
+            "pending_remote_video_task_ids": [pilot_tx.get("task_id")],
+            "status": "R04_I2V_NATIVE_TEXT_PILOT_RUNNING_EXACT_PAY128_REFUND0; RESPONSE_LOST_POSTS_REMAIN_ISOLATED",
+        })
     queue["latest_e40_full_performance_keyframes"] = {
         "manifest": portable(MANIFEST),
         "manifest_sha256": sha(MANIFEST),
