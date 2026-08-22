@@ -97,10 +97,22 @@ def main() -> int:
         "technical_status": "PASS",
         "technical": {"container": "MP4", "video": "H264_720X1280_24FPS", "audio": "AAC_48000HZ_STEREO", "duration_seconds": duration, "same_task_native_audio_retained_for_q2_segments": True, "external_tts_applied": False, "bgm_applied": False},
         "sequence": rows,
-        "registered_content_gate": {"gate_id": "COMPLETE-VIDEO-PROMPT-MANIFEST", "status": "FAIL", "canonical_target_seconds": 163, "missing_duration_seconds": round(163 - duration, 3), "reason": "Current story-order coverage is technically valid but does not yet cover the complete canonical episode."},
+        "duration_diagnostic": {
+            "class": "DIAGNOSTIC",
+            "canonical_planning_seconds": 163,
+            "assembled_seconds": duration,
+            "delta_seconds": round(163 - duration, 3),
+            "blocking": False,
+            "reason": "Runtime delta is a planning diagnostic only; it cannot prove or disprove canonical shot coverage.",
+        },
+        "registered_content_gate": {
+            "gate_id": "COMPLETE-VIDEO-PROMPT-MANIFEST",
+            "status": "NOT_EVALUATED_BY_RUNTIME",
+            "reason": "The registered gate validates complete unit compilation and SHA bindings; its registry parameters contain no runtime target.",
+        },
         "admission_status": "NOT_ADMITTED_AS_FINAL_EPISODE",
         "release_allowed": False,
-        "next_action": "Continue missing full-performance units; do not pad, loop, stretch, replace visible-lip audio, or publish this candidate.",
+        "next_action": "Build an exact canonical-shot coverage matrix and run registered final QA; do not pad, loop, stretch, replace visible-lip audio, or publish this candidate.",
     }
     QA.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"status": "PASS_TECHNICAL_NOT_FINAL", "output": result["asset_path"], "sha256": result["asset_sha256"], "duration_seconds": duration, "qa": str(QA.relative_to(ROOT)), "qa_sha256": sha(QA)}, ensure_ascii=False))
