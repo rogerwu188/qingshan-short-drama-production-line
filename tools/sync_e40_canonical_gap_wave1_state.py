@@ -61,7 +61,7 @@ def main() -> int:
             "task_id": row["task_key"],
             "lane_id": lane_id,
             "state": "REMOTE_WAIT",
-            "wait_scope": "TASK_LOCAL_REMOTE_PROVIDER",
+            "wait_scope": "TASK_LOCAL",
             "zero_cost": False,
             "deliverable_type": "SEEDANCE_FAST_CANONICAL_GAP_VIDEO_WITH_SAME_TASK_NATIVE_AUDIO",
             "priority": 240,
