@@ -51,8 +51,8 @@ I2V_FINAL_CREDIT = ROOT / "qa/e40_remake_20260822/full_performance_native_dialog
 I2V_FINAL_HARVEST = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_FINAL_Q2_HARVEST_V3.json"
 R04_TERMINAL_COVERAGE = ROOT / "working_assets/e40_remake_20260822/full_performance_native_dialogue_v1/terminal_switch_coverage_v1/E40_R04_YUNFEI_OFFSCREEN_COVERAGE_V1.mp4"
 R04_TERMINAL_COVERAGE_QA = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/terminal_switch_coverage_v1/E40_R04_YUNFEI_OFFSCREEN_COVERAGE_V1_QA.json"
-ASSEMBLY_V3 = ROOT / "working_assets/e40_remake_20260822/assembly_candidate_v1/E40_CURRENT_ALL_UNIT_COVERAGE_SEQUENCE_V4_R02_R03_R04_TERMINAL.mp4"
-ASSEMBLY_V3_QA = ROOT / "qa/e40_remake_20260822/assembly_candidate_v1/E40_CURRENT_ALL_UNIT_COVERAGE_SEQUENCE_V4_R02_R03_R04_TERMINAL_QA.json"
+ASSEMBLY_V3 = ROOT / "working_assets/e40_remake_20260822/assembly_candidate_v1/E40_CURRENT_ALL_UNIT_COVERAGE_SEQUENCE_V6_ALL_DIALOGUE_COVERED.mp4"
+ASSEMBLY_V3_QA = ROOT / "qa/e40_remake_20260822/assembly_candidate_v1/E40_CURRENT_ALL_UNIT_COVERAGE_SEQUENCE_V6_ALL_DIALOGUE_COVERED_QA.json"
 VIDEO_TX_DIR = ROOT / "workflow/tasks/giggle_video_submit_transactions/E40"
 
 

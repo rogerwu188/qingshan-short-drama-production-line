@@ -11,20 +11,31 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "working_assets/e40_remake_20260822/assembly_candidate_v1/E40_CURRENT_ALL_UNIT_COVERAGE_SEQUENCE_V4_R02_R03_R04_TERMINAL.mp4"
-QA = ROOT / "qa/e40_remake_20260822/assembly_candidate_v1/E40_CURRENT_ALL_UNIT_COVERAGE_SEQUENCE_V4_R02_R03_R04_TERMINAL_QA.json"
+OUT = ROOT / "working_assets/e40_remake_20260822/assembly_candidate_v1/E40_CURRENT_ALL_UNIT_COVERAGE_SEQUENCE_V6_ALL_DIALOGUE_COVERED.mp4"
+QA = ROOT / "qa/e40_remake_20260822/assembly_candidate_v1/E40_CURRENT_ALL_UNIT_COVERAGE_SEQUENCE_V6_ALL_DIALOGUE_COVERED_QA.json"
 
 SEGMENTS = [
     ("R01", "working_assets/e40_remake_20260822/terminal_switch_coverage_v1/E40_R01_FAN_SHADOW_EDITORIAL_INSERT_V1.mp4", False),
+    ("R01-YUNFEI-A", "working_assets/e40_remake_20260822/full_performance_native_dialogue_v1/final_missing_dialogue_coverage_v1/E40_R01-YUNFEI-A_DIALOGUE_COVERAGE_V1.mp4", False),
+    ("R01-DIALOGUE", "working_assets/e40_remake_20260822/full_performance_native_dialogue_v1/remaining_dialogue_terminal_coverage_v1/E40_R01_DIALOGUE_TERMINAL_COVERAGE_V1.mp4", False),
     ("R02", "working_assets/e40_remake_20260822/full_performance_native_dialogue_v1/terminal_dialogue_coverage_v1/E40_R02_CHENJI_BACKVIEW_DIALOGUE_COVERAGE_V1.mp4", False),
     ("R03", "working_assets/e40_remake_20260822/full_performance_native_dialogue_v1/terminal_dialogue_coverage_v1/E40_R03_VEILED_REACTION_DIALOGUE_COVERAGE_V1.mp4", False),
+    ("R03-YUNFEI-B", "working_assets/e40_remake_20260822/full_performance_native_dialogue_v1/final_missing_dialogue_coverage_v1/E40_R03-YUNFEI-B_DIALOGUE_COVERAGE_V1.mp4", False),
     ("R04", "working_assets/e40_remake_20260822/full_performance_native_dialogue_v1/terminal_switch_coverage_v1/E40_R04_YUNFEI_OFFSCREEN_COVERAGE_V1.mp4", False),
+    ("R04-CHENJI-A", "working_assets/e40_remake_20260822/full_performance_native_dialogue_v1/final_missing_dialogue_coverage_v1/E40_R04-CHENJI-A_DIALOGUE_COVERAGE_V1.mp4", False),
+    ("R04-YUNFEI-B", "working_assets/e40_remake_20260822/full_performance_native_dialogue_v1/final_missing_dialogue_coverage_v1/E40_R04-YUNFEI-B_DIALOGUE_COVERAGE_V1.mp4", False),
     ("R05", "working_assets/e40_remake_20260821/native_registry_paid_exception_v1/videos/E40-R05-VIDEO-NATIVE-EXCEPTION-V1.mp4", True),
+    ("R05-DIALOGUE", "working_assets/e40_remake_20260822/full_performance_native_dialogue_v1/remaining_dialogue_terminal_coverage_v1/E40_R05_DIALOGUE_TERMINAL_COVERAGE_V1.mp4", False),
     ("R06A", "working_assets/e40_remake_20260821/switch_coverage_wave2_v1/editorial_coverage/E40_R06A_ARROW_CURTAIN_MACRO_SWITCH_COVERAGE_V1.mp4", False),
+    ("R06-ASHUAN-A", "working_assets/e40_remake_20260822/full_performance_native_dialogue_v1/final_missing_dialogue_coverage_v1/E40_R06-ASHUAN-A_DIALOGUE_COVERAGE_V1.mp4", False),
     ("R06B", "working_assets/e40_remake_20260821/native_registry_paid_exception_v1/videos/E40-R06B-VIDEO-NATIVE-EXCEPTION-V1.mp4", True),
     ("R06C", "working_assets/e40_remake_20260821/native_registry_paid_exception_v1/videos/E40-R06C-VIDEO-NATIVE-EXCEPTION-V1.mp4", True),
     ("R07", "working_assets/e40_remake_20260822/terminal_switch_coverage_v1/E40_R07_THREE_ARROW_EDITORIAL_INSERT_V1.mp4", False),
+    ("R07-DIALOGUE", "working_assets/e40_remake_20260822/full_performance_native_dialogue_v1/remaining_dialogue_terminal_coverage_v1/E40_R07_DIALOGUE_TERMINAL_COVERAGE_V1.mp4", False),
     ("R08", "working_assets/e40_remake_20260821/native_registry_paid_exception_v1/videos/E40-R08-VIDEO-NATIVE-EXCEPTION-V1.mp4", True),
+    ("R08-YUNFEI-A", "working_assets/e40_remake_20260822/full_performance_native_dialogue_v1/final_missing_dialogue_coverage_v1/E40_R08-YUNFEI-A_DIALOGUE_COVERAGE_V1.mp4", False),
+    ("R08-DIALOGUE", "working_assets/e40_remake_20260822/full_performance_native_dialogue_v1/remaining_dialogue_terminal_coverage_v1/E40_R08_DIALOGUE_TERMINAL_COVERAGE_V1.mp4", False),
+    ("R08-YUNFEI-C", "working_assets/e40_remake_20260822/full_performance_native_dialogue_v1/final_missing_dialogue_coverage_v1/E40_R08-YUNFEI-C_DIALOGUE_COVERAGE_V1.mp4", False),
 ]
 
 
