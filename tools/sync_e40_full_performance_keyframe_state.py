@@ -32,6 +32,8 @@ VIDEO_HARVEST = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_
 VIDEO_CREDIT = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_CREDIT_RECONCILIATION_V1.json"
 RECOVERY_VIDEO_MANIFEST = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_VIDEO_RECOVERY2_NATIVE_TEXT_V1.json"
 RECOVERY_VIDEO_SUBMISSION = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_RECOVERY2_NATIVE_TEXT_SUBMISSION_V1.json"
+RECOVERY_VIDEO_RETRY_MANIFEST = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_VIDEO_RECOVERY2_I2V_NATIVE_TEXT_RETRY2_V1.json"
+RECOVERY_VIDEO_RETRY_SUBMISSION = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_RECOVERY2_I2V_NATIVE_TEXT_RETRY2_SUBMISSION_V1.json"
 I2V_PILOT = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_V2.json"
 I2V_PILOT_PRECHECK = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_PRECHECK_V2.json"
 I2V_PILOT_CREDIT = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_CREDIT_STATUS_V2.json"
@@ -444,8 +446,21 @@ def main() -> int:
         else:
             tasks.append(assembly_task)
     recovery_video_active = 0
-    if RECOVERY_VIDEO_SUBMISSION.is_file():
-        recovery_submit = json.loads(RECOVERY_VIDEO_SUBMISSION.read_text(encoding="utf-8"))
+    recovery_submission_path = RECOVERY_VIDEO_RETRY_SUBMISSION if RECOVERY_VIDEO_RETRY_SUBMISSION.is_file() else RECOVERY_VIDEO_SUBMISSION
+    recovery_manifest_path = RECOVERY_VIDEO_RETRY_MANIFEST if RECOVERY_VIDEO_RETRY_MANIFEST.is_file() else RECOVERY_VIDEO_MANIFEST
+    for row in tasks:
+        if row.get("lane_id") == "E40_FULL_PERFORMANCE_RECOVERY2_NATIVE_TEXT_VIDEO":
+            row.update({
+                "state": "TERMINAL",
+                "wait_scope": "NONE",
+                "provider_query_allowed": False,
+                "download_allowed": False,
+                "progress": "PRIOR_OMNI_ROUTE_FAILED_ZERO_REFUNDED_REPLACED_BY_I2V_RETRY",
+                "completed_at": now,
+                "next_due_at": None,
+            })
+    if recovery_submission_path.is_file():
+        recovery_submit = json.loads(recovery_submission_path.read_text(encoding="utf-8"))
         for item in recovery_submit.get("tasks") or []:
             remote_id = item.get("task_id")
             if not remote_id:
@@ -469,8 +484,8 @@ def main() -> int:
                 "next_due_at": next_due,
                 "lease_owner": "codex-e40-recovery2-native-text-video",
                 "lease_expires_at": lease_expires,
-                "evidence_ref": portable(RECOVERY_VIDEO_SUBMISSION),
-                "evidence_sha256": sha(RECOVERY_VIDEO_SUBMISSION),
+                "evidence_ref": portable(recovery_submission_path),
+                "evidence_sha256": sha(recovery_submission_path),
                 "next_action": "Query/download only this bound task, then run registered original-resolution Q2 with native audio preserved.",
             }
             if task_id in by_id:
@@ -591,10 +606,10 @@ def main() -> int:
     }
     queue["latest_e40_recovery2_native_text_videos"] = {
         "status": "REMOTE_RUNNING" if recovery_video_active else "NOT_BOUND",
-        "manifest": portable(RECOVERY_VIDEO_MANIFEST) if RECOVERY_VIDEO_MANIFEST.is_file() else None,
-        "manifest_sha256": sha(RECOVERY_VIDEO_MANIFEST) if RECOVERY_VIDEO_MANIFEST.is_file() else None,
-        "submission": portable(RECOVERY_VIDEO_SUBMISSION) if RECOVERY_VIDEO_SUBMISSION.is_file() else None,
-        "submission_sha256": sha(RECOVERY_VIDEO_SUBMISSION) if RECOVERY_VIDEO_SUBMISSION.is_file() else None,
+        "manifest": portable(recovery_manifest_path) if recovery_manifest_path.is_file() else None,
+        "manifest_sha256": sha(recovery_manifest_path) if recovery_manifest_path.is_file() else None,
+        "submission": portable(recovery_submission_path) if recovery_submission_path.is_file() else None,
+        "submission_sha256": sha(recovery_submission_path) if recovery_submission_path.is_file() else None,
         "remote_task_count": recovery_video_active,
         "native_audio_policy": "PRESERVE_SAME_TASK_NATIVE_DIALOGUE_AMBIENCE_FOLEY_SFX_NO_POST_REDUB",
         "next_action": "Query and download without duplicate POST, then registered Q2.",

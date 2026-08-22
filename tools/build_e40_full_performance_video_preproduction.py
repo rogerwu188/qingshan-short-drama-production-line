@@ -78,6 +78,9 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=OUT)
     parser.add_argument("--prompts-dir", type=Path, default=PROMPTS)
     parser.add_argument("--native-text", action="store_true")
+    parser.add_argument("--image-to-video", action="store_true")
+    parser.add_argument("--task-version", default="V2")
+    parser.add_argument("--prior-manifest", type=Path)
     parser.add_argument("--skip-pilot", action="store_true")
     args = parser.parse_args()
     q1_path = args.q1 if args.q1.is_absolute() else ROOT / args.q1
@@ -91,8 +94,10 @@ def main() -> int:
     kf_tasks = {row["task_key"]: row for row in keyframes["tasks"]}
     q1_rows = {row["task_key"]: row for row in q1["results"]}
     audio_registry_payload = json.loads(AUDIO_REGISTRY.read_text(encoding="utf-8")) if AUDIO_REGISTRY.is_file() else None
-    prior_payload = json.loads(PRIOR.read_text(encoding="utf-8"))
-    prior_tasks = {row["task_key"].removesuffix("-VIDEO-V1"): row for row in prior_payload["tasks"]}
+    prior_path = args.prior_manifest if args.prior_manifest else PRIOR
+    prior_path = prior_path if prior_path.is_absolute() else ROOT / prior_path
+    prior_payload = json.loads(prior_path.read_text(encoding="utf-8"))
+    prior_tasks = {row["task_key"].rsplit("-VIDEO-", 1)[0]: row for row in prior_payload["tasks"]}
     audio_assets = {
         row["audio_key"]: row
         for row in (audio_registry_payload or {}).get("items", [])
@@ -141,7 +146,7 @@ def main() -> int:
         prior = prior_tasks.get(unit_id)
         ready = args.native_text or audio_ready
         task = {
-            "task_key": f"{unit_id}-VIDEO-V2",
+            "task_key": f"{unit_id}-VIDEO-{args.task_version}",
             "episode": "E40",
             "unit_id": unit["source_unit"],
             "canonical_unit_id": unit["source_unit"],
@@ -237,6 +242,46 @@ def main() -> int:
                 "material_change_from_prior_attempt": "Changed Omni audio transport from provider asset_id to ordered public HTTPS URL and made that binding explicit in the prompt.",
                 "prior_prompt_sha256": [prior["prompt_sha256"]],
             })
+        if args.image_to_video:
+            task.update({
+                "reference_roles": ["EXACT_FIRST_FRAME"],
+                "exact_first_frame_sha256": sha(frame),
+                "video_transport": {
+                    "mode": "image_to_video_start_frame",
+                    "endpoint": "/api/v1/generation/image-to-video",
+                    "start_frame_path": rel(frame),
+                    "start_frame_sha256": sha(frame),
+                    "ordinary_images": [],
+                },
+                "frame0_authority_contract": {
+                    "source_sha256": sha(frame),
+                    "pre_encode_raw_rgb_sha256_required": True,
+                    "raw_rgb_sha256": raw_rgb_sha(frame),
+                },
+                "post_harvest_exact_frame_gate": {
+                    "required": True,
+                    "single_frame_prepend_allowed": False,
+                    "single_frame_replacement_allowed": False,
+                    "frame0_thresholds": {
+                        "minimum_ssim": 0.98,
+                        "maximum_mae": 3.0,
+                        "maximum_phash_hamming": 3,
+                    },
+                    "frame0_to_frame1_continuity_required": True,
+                },
+            })
+            if prior:
+                task.update({
+                    "retry_kind": "PROVIDER_ROUTE_REPAIR_IMAGE_TO_VIDEO_NATIVE_TEXT_DIALOGUE",
+                    "prior_failure_code": "PROVIDER_ROUTER_MAPPING_NOT_FOUND",
+                    "failure_memory": {
+                        "attempt": int(prior.get("retry_attempt") or 1),
+                        "provider_terminal_error": "router mapping not found",
+                        "root_cause": "The prior task was routed through omni-video despite using no external audio.",
+                        "do_not_repeat": "Do not submit this retry through omni-video.",
+                    },
+                    "material_change_from_prior_attempt": "Changed the physical provider route from omni-video to image-to-video/start_frame while keeping same-task native dialogue.",
+                })
         prompt_path = prompts_dir / f"{task['task_key']}.txt"
         prompt_path.write_text(
             compile_action_video_prompt(task)
@@ -247,6 +292,12 @@ def main() -> int:
                "\n传输锁：按编号使用同一任务绑定的公开音频引用，逐句驱动原生口型、呼吸与声场；禁止把音频资产编号当作可播放音源。\n"),
             encoding="utf-8",
         )
+        if args.image_to_video:
+            with prompt_path.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    "物理路由修复：本次必须以已准入关键帧作为 image-to-video/start_frame 的不可改写第一帧；"
+                    "禁止回落到 omni-video，首帧后只延续同空间中的真人微表演和同任务原生对白。\n"
+                )
         task["prompt_file"] = rel(prompt_path)
         task["prompt_sha256"] = sha(prompt_path)
         task["input_template_id"] = compute_input_template_id(task)
