@@ -542,19 +542,30 @@
       "code_paths": [
         "tools/character_identity_admission_gate.py",
         "tools/human_realism_prompt_contract.py",
+        "tools/image_model_adapter.py",
         "tools/shot_media_admission_gate.py",
         "tools/episode_parallel_batch_supervisor.py",
+        "tools/submit_giggle_image_manifest.py",
         "tools/submit_giggle_task_manifest.py"
       ],
       "test_paths": [
         "tools/tests/test_character_identity_admission_gate.py",
         "tools/tests/test_human_realism_prompt_contract.py",
+        "tools/tests/test_media_model_adapters.py",
+        "tools/tests/test_image_submission_entrypoint_contract_coverage.py",
         "tools/tests/test_shot_media_admission_gate.py",
         "tools/tests/test_episode_parallel_batch_supervisor.py",
         "tools/tests/test_submit_keyframe_admission_gate.py"
       ],
       "manual_checklist_path": "workflow/CHARACTER_IDENTITY_QA_CHECKLIST_TEMPLATE_20260716.json",
       "parameters": {
+        "identity_reference_transport_contract_required_before_paid_submit": true,
+        "flat_reference_transport_is_not_identity_lock": true,
+        "flat_reference_allowed_mode": "LABELED_FLAT_REFERENCE_WITH_EXACT_OUTPUT_GATE",
+        "flat_reference_transport_guarantee": "SOFT_REFERENCE_REQUIRES_EXACT_OUTPUT_GATE",
+        "provider_native_identity_lock_must_be_capability_registered": true,
+        "identity_authority_map_required_for_every_canonical_character": true,
+        "identity_output_verification_required_even_for_human_and_ai_reviewer": true,
         "canonical_views_min": 3,
         "sample_frames_per_source_min": 3,
         "warning_downgrade_allowed": false,

@@ -461,15 +461,15 @@ def evaluate(
             failures.append(f"{prefix}:evidence_payload_not_pass:{declared_status}")
             continue
         if gate_id in P0_OBJECTIVE_GATES and status in PASS_STATUSES:
-            if reviewer_type in {"HUMAN", "HUMAN_AND_AI"}:
-                pass
-            elif reviewer_type == "AI_VISUAL":
-                objective_ok, reason = _objective_p0_pass(gate_id, evidence_payload, registry)
-                if not objective_ok:
-                    failures.append(f"{prefix}:{reason}")
-                    continue
-            else:
+            # Reviewer labels never substitute for the registered objective
+            # method.  Human involvement is useful for boundary arbitration,
+            # but "HUMAN_AND_AI" must not become a self-asserted P0 bypass.
+            if reviewer_type not in {"HUMAN", "AI_VISUAL", "HUMAN_AND_AI"}:
                 failures.append(f"{prefix}:p0_verifier_missing:{reviewer_type or 'MISSING'}")
+                continue
+            objective_ok, reason = _objective_p0_pass(gate_id, evidence_payload, registry)
+            if not objective_ok:
+                failures.append(f"{prefix}:{reason}")
                 continue
         defect_tier = str(row.get("defect_tier") or "").upper()
         p2_within_budget = row.get("p2_within_budget") is True

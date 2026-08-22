@@ -41,7 +41,22 @@ class ShotMediaAdmissionGateTests(unittest.TestCase):
         evidence = []
         for index, gate_id in enumerate(required):
             report = root / f"evidence-{index}.json"
-            report.write_text(json.dumps({"gate_id": gate_id, "status": "PASS"}), encoding="utf-8")
+            report_payload = {"gate_id": gate_id, "status": "PASS"}
+            if gate_id in P0_OBJECTIVE_GATES:
+                verification = {
+                    "method": P0_OBJECTIVE_METHODS[gate_id],
+                    "decision": "PASS",
+                    "checks": [{"question": "closed", "answer": "PASS"}],
+                }
+                if gate_id == "CHARACTER-IDENTITY-ADMISSION":
+                    verification.update({
+                        "pass_threshold": 0.45,
+                        "canonical_views_min": 3,
+                        "sample_frames_per_source_min": 3,
+                        "decisions": [{"character_id": "CHAR-A", "decision": "PASS"}],
+                    })
+                report_payload["objective_verification"] = verification
+            report.write_text(json.dumps(report_payload), encoding="utf-8")
             evidence.append({
                 "gate_id": gate_id,
                 "status": "PASS",
@@ -228,9 +243,34 @@ class ShotMediaAdmissionGateTests(unittest.TestCase):
             payload = self.fixture(Path(directory))
             evidence = next(row for row in payload["evidence"] if row["gate_id"] == "CHARACTER-IDENTITY-ADMISSION")
             evidence["reviewer_type"] = "AI_VISUAL"
+            evidence_path = Path(evidence["evidence_path"])
+            evidence_path.write_text(json.dumps({
+                "gate_id": "CHARACTER-IDENTITY-ADMISSION",
+                "status": "PASS",
+            }), encoding="utf-8")
+            evidence["evidence_sha256"] = digest(evidence_path)
             report = evaluate(payload, self.registry, Path(directory))
             self.assertEqual(report["status"], "FAIL")
             self.assertTrue(any("p0_objective_method_invalid" in row for row in report["failures"]))
+
+    def test_p0_human_and_ai_label_cannot_bypass_objective_identity_evidence(self):
+        with TemporaryDirectory() as directory:
+            payload = self.fixture(Path(directory))
+            evidence = next(
+                row for row in payload["evidence"]
+                if row["gate_id"] == "CHARACTER-IDENTITY-ADMISSION"
+            )
+            evidence_path = Path(evidence["evidence_path"])
+            evidence_path.write_text(json.dumps({
+                "gate_id": "CHARACTER-IDENTITY-ADMISSION",
+                "status": "PASS",
+            }), encoding="utf-8")
+            evidence["evidence_sha256"] = digest(evidence_path)
+            report = evaluate(payload, self.registry, Path(directory))
+            self.assertEqual(report["status"], "FAIL")
+            self.assertTrue(any(
+                "p0_objective_method_invalid" in row for row in report["failures"]
+            ))
 
     def test_character_free_insert_can_objectively_pass_identity_scope(self):
         with TemporaryDirectory() as directory:

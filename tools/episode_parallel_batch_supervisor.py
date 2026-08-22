@@ -1706,6 +1706,17 @@ def submit_one(task: dict, receipt: dict) -> dict:
         }
     prompt_file = abs_path(task["prompt_file"]) if task.get("prompt_file") else None
     prompt = prompt_file.read_text(encoding="utf-8") if prompt_file else str(task.get("prompt") or "")
+    if tool_type == "image_generation" and episode_match and int(episode_match.group(1)) >= 40:
+        try:
+            require_paid_image_model_contract(
+                task, str(receipt.get("episode") or ""), prompt_text=prompt
+            )
+        except ValueError as exc:
+            return {
+                "status": "submit_blocked", "state": "tool_blocked",
+                "block_code": "BLOCK_IMAGE_IDENTITY_TRANSPORT_INVALID",
+                "model_adapter_error": str(exc),
+            }
     args = [
         "--prompt-file", str(prompt_file),
     ]
