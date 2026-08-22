@@ -120,6 +120,20 @@ def duration_seconds(path: Path, ffmpeg: str) -> float:
     return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
 
 
+def source_video_fps(path: Path, ffmpeg: str) -> float:
+    """Read the encoded source frame rate; never invent a 30 fps default."""
+    proc = run([ffmpeg, "-hide_banner", "-i", str(path)], check=False)
+    text = proc.stderr + proc.stdout
+    video_line = next((line for line in text.splitlines() if " Video: " in line), "")
+    match = re.search(r"(?:,|\s)(\d+(?:\.\d+)?)\s+fps(?:,|\s)", video_line)
+    if not match:
+        raise SystemExit(f"Could not parse source video fps for {path}; pass --fps explicitly")
+    fps = float(match.group(1))
+    if fps <= 0:
+        raise SystemExit(f"Invalid source video fps for {path}: {fps}")
+    return fps
+
+
 def audio_window_mean_db(ffmpeg: str, video: Path, start: float, end: float) -> float:
     proc = run(
         [
@@ -1135,7 +1149,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=FROZEN_THRESHOLDS["min_freeze_seconds"],
     )
-    parser.add_argument("--fps", type=float, default=30.0)
+    parser.add_argument(
+        "--fps",
+        type=float,
+        help="Explicit canonical-manifest fps. If omitted, use the encoded source fps; never assume 30.",
+    )
     parser.add_argument(
         "--near-duplicate-ratio-max",
         type=float,
@@ -1217,6 +1235,7 @@ def main() -> int:
     if not args.ffmpeg or not Path(args.ffmpeg).exists():
         raise SystemExit("Missing ffmpeg. Use --ffmpeg or install ffmpeg.")
     ffmpeg = str(Path(args.ffmpeg).resolve())
+    effective_fps = args.fps if args.fps is not None else source_video_fps(video, ffmpeg)
 
     out_path = Path(args.out).expanduser().resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1227,7 +1246,7 @@ def main() -> int:
         motion_metadata = tmp_root / "motion_metadata.txt"
         motion_values = adjacent_motion_values(ffmpeg, video, motion_metadata)
         whole_motion = statistics.mean(motion_values) if motion_values else 0.0
-        freeze = freeze_stats(motion_values, args.fps, args.freeze_motion, args.min_freeze_seconds, whole_duration)
+        freeze = freeze_stats(motion_values, effective_fps, args.freeze_motion, args.min_freeze_seconds, whole_duration)
         cuts = scene_cut_times(ffmpeg, video)
         asl = asl_stats(cuts, whole_duration)
         repeats = frame_repeat_stats(perceptual_hashes(ffmpeg, video))
@@ -1245,7 +1264,7 @@ def main() -> int:
     )
     static_holds = static_hold_stats(
         motion_values,
-        args.fps,
+        effective_fps,
         cuts,
         whole_duration,
         asr_payload,
@@ -1347,6 +1366,8 @@ def main() -> int:
         "gate_registry_integrity": gate_registry_integrity,
         "video": str(video),
         "runtime_seconds": whole_duration,
+        "fps": effective_fps,
+        "fps_source": "canonical_manifest_override" if args.fps is not None else "encoded_source",
         "motion_mean": whole_motion,
         "motion_method": "ffmpeg tblend=all_mode=difference + signalstats YAVG on final MP4 native frames",
         "asl": asl,

@@ -8,6 +8,7 @@ from tools.shot_media_admission_gate import (
     KEYFRAME_REQUIRED_GATES,
     P0_OBJECTIVE_GATES,
     P0_OBJECTIVE_METHODS,
+    NO_CHARACTER_IDENTITY_METHOD,
     VIDEO_REQUIRED_GATES,
     aggregate_template_defects,
     compute_input_template_id,
@@ -230,6 +231,32 @@ class ShotMediaAdmissionGateTests(unittest.TestCase):
             report = evaluate(payload, self.registry, Path(directory))
             self.assertEqual(report["status"], "FAIL")
             self.assertTrue(any("p0_objective_method_invalid" in row for row in report["failures"]))
+
+    def test_character_free_insert_can_objectively_pass_identity_scope(self):
+        with TemporaryDirectory() as directory:
+            payload = self.fixture(Path(directory))
+            evidence = next(
+                row for row in payload["evidence"]
+                if row["gate_id"] == "CHARACTER-IDENTITY-ADMISSION"
+            )
+            evidence["reviewer_type"] = "AI_VISUAL"
+            evidence_path = Path(evidence["evidence_path"])
+            evidence_path.write_text(json.dumps({
+                "gate_id": "CHARACTER-IDENTITY-ADMISSION",
+                "status": "PASS",
+                "objective_verification": {
+                    "method": NO_CHARACTER_IDENTITY_METHOD,
+                    "decision": "PASS",
+                    "canonical_characters": [],
+                    "checks": [
+                        {"question": "No human or animal character is visible", "answer": "PASS"},
+                        {"question": "No extra character was generated", "answer": "PASS"},
+                    ],
+                },
+            }), encoding="utf-8")
+            evidence["evidence_sha256"] = digest(evidence_path)
+            report = evaluate(payload, self.registry, Path(directory))
+            self.assertEqual(report["status"], "ADMITTED", report["failures"])
 
     def test_p2_within_budget_is_conditionally_admitted(self):
         with TemporaryDirectory() as directory:

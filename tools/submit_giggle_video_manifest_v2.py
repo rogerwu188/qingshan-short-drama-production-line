@@ -21,10 +21,12 @@ try:
     from giggle_api_client import _image_list, _request
     from giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from video_model_adapter import require_paid_model_contract
+    from retry_cap_gate import validate_submission_attempt
 except ModuleNotFoundError:
     from tools.giggle_api_client import _image_list, _request
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from tools.video_model_adapter import require_paid_model_contract
+    from tools.retry_cap_gate import validate_submission_attempt
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -379,6 +381,12 @@ def exec_deployed_submitter() -> None:
     from tools.shot_media_admission_gate import compute_input_template_id, precheck_submission_inputs
 
     for task in manifest.get("tasks") or []:
+        retry_failures = validate_submission_attempt(task)
+        if retry_failures:
+            raise RuntimeError(
+                f"{task.get('task_key')} BLOCK_RETRY_CAP_GATE: "
+                f"{','.join(retry_failures)}"
+            )
         action_failures = validate_action_contract(task)
         if action_failures:
             raise RuntimeError(

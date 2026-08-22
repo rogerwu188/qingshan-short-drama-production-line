@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.gate_registry_v3_check import validate, write_report
+from tools.gate_registry_v3_check import live_unregistered_blockers, validate, write_report
 
 
 def coded_gate():
@@ -20,6 +20,33 @@ def coded_gate():
 
 
 class GateRegistryV3Tests(unittest.TestCase):
+    def test_reverse_scan_rejects_live_unregistered_blocker(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            (base / "tools").mkdir()
+            (base / "tools/example_guard.py").write_text(
+                'def check():\n    return "FAIL_CLOSED"\n', encoding="utf-8"
+            )
+            (base / "tools/build_example.py").write_text(
+                'from example_guard import check\ncheck()\n', encoding="utf-8"
+            )
+            failures = live_unregistered_blockers({"gates": []}, base)
+            self.assertEqual(len(failures), 1)
+            self.assertIn("UNREGISTERED_BLOCKER_IN_LIVE_PATH:tools/example_guard.py", failures[0])
+
+    def test_reverse_scan_accepts_registered_live_blocker(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            (base / "tools").mkdir()
+            (base / "tools/example_guard.py").write_text(
+                'def check():\n    return "BLOCK_SUBMIT"\n', encoding="utf-8"
+            )
+            (base / "tools/submit_example.py").write_text(
+                'from example_guard import check\ncheck()\n', encoding="utf-8"
+            )
+            registry = {"gates": [{"code_paths": ["tools/example_guard.py"]}]}
+            self.assertEqual(live_unregistered_blockers(registry, base), [])
+
     def test_passes_coded_and_manual_evidence(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)

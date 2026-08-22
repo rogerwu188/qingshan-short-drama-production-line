@@ -26,6 +26,9 @@ CODED_REQUIRED = {
     "stage_runner_paths",
 }
 
+LIVE_PREFIXES = ("build_", "compile_", "episode_", "submit_")
+BLOCKING_MARKERS = ("BLOCK_SUBMIT", "FAIL_CLOSED", "FAIL_HARD")
+
 
 def declared_runtime_gate_ids(path: Path) -> set[str]:
     """Read the runner's literal runtime contract without importing production code."""
@@ -92,6 +95,54 @@ def called_function_names(path: Path) -> set[str]:
         elif isinstance(node.func, ast.Attribute):
             names.add(node.func.attr)
     return names
+
+
+def imported_tool_modules(path: Path) -> set[str]:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, SyntaxError):
+        return set()
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            modules.add(node.module.split(".")[-1])
+        elif isinstance(node, ast.Import):
+            modules.update(alias.name.split(".")[-1] for alias in node.names)
+    return modules
+
+
+def live_unregistered_blockers(registry: dict, base: Path) -> list[str]:
+    """Find gate/guard modules that can block live builders but lack registry authority."""
+    declared = {
+        path
+        for gate in registry.get("gates", [])
+        for path in (gate.get("code_paths") or [])
+    }
+    tools_dir = base / "tools"
+    live_callers = [
+        path for path in tools_dir.glob("*.py")
+        if path.name.startswith(LIVE_PREFIXES)
+    ]
+    imported_by_live: dict[str, list[str]] = {}
+    for caller in live_callers:
+        for module in imported_tool_modules(caller):
+            imported_by_live.setdefault(module, []).append(str(caller.relative_to(base)))
+    failures: list[str] = []
+    for path in sorted(tools_dir.glob("*.py")):
+        if not (path.stem.endswith("_gate") or path.stem.endswith("_guard")):
+            continue
+        callers = imported_by_live.get(path.stem) or []
+        if not callers:
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        if not any(marker in text for marker in BLOCKING_MARKERS):
+            continue
+        relative = str(path.relative_to(base))
+        if relative not in declared:
+            failures.append(
+                f"UNREGISTERED_BLOCKER_IN_LIVE_PATH:{relative}:callers={','.join(sorted(callers))}"
+            )
+    return failures
 
 
 def executable_runtime_gate_ids(path: Path) -> set[str]:
@@ -164,6 +215,7 @@ def validate(registry: dict, base: Path) -> dict:
         for gate in gates
         if gate.get("implementation_type") == "CODED"
     }
+    failures.extend(live_unregistered_blockers(registry, base))
     return {
         "schema": "qingshan.gate_registry_integrity_report.v1",
         "status": "PASS" if not failures else "FAIL",

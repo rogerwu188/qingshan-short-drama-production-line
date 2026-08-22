@@ -1,5 +1,8 @@
 import argparse
 import unittest
+from pathlib import Path
+from subprocess import CompletedProcess
+from unittest.mock import patch
 
 from tools.run_regression_ci import (
     FROZEN_THRESHOLDS,
@@ -7,6 +10,7 @@ from tools.run_regression_ci import (
     evaluate_audio_bed_rows,
     resolve_audio_cut_times,
     static_hold_stats,
+    source_video_fps,
     threshold_override_audit,
 )
 
@@ -19,8 +23,17 @@ class RegressionCIThresholdProfileTests(unittest.TestCase):
 
     def test_cli_defaults_match_frozen_profile(self):
         args = self.parse()
+        self.assertIsNone(args.fps)
         for key, expected in FROZEN_THRESHOLDS.items():
             self.assertEqual(getattr(args, key), expected)
+
+    def test_source_fps_is_read_instead_of_assuming_30(self):
+        probe = CompletedProcess(
+            args=[], returncode=1, stdout="",
+            stderr="Stream #0:0: Video: h264, yuv420p, 720x1280, 24 fps, 24 tbr\n",
+        )
+        with patch("tools.run_regression_ci.run", return_value=probe):
+            self.assertEqual(source_video_fps(Path("/tmp/source.mp4"), "/tmp/ffmpeg"), 24.0)
 
     def test_report_only_metrics_do_not_change_frozen_thresholds(self):
         args = self.parse(
