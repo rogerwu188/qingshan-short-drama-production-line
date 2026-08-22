@@ -12,6 +12,20 @@ def _windows():
 
 
 class PerformanceTempoCombatContractTest(unittest.TestCase):
+    def test_dialogue_performance_is_not_misclassified_as_atomic_action(self):
+        task = {
+            "task_key": "DIALOGUE-8S",
+            "shot_type": "DIALOGUE_PERFORMANCE",
+            "action_unit": False,
+            "duration_seconds": 8,
+            "prompt": "Natural dialogue performance with breathing and micro-expression action.",
+            "performance_tempo_contract": {
+                "playback_speed": "REAL_TIME_1X",
+                "atomic_action_windows": [{"start_seconds": 0.0, "end_seconds": 1.0, "action": "begin speaking"}],
+            },
+        }
+        self.assertEqual(evaluate_batch([task])["status"], "PASS")
+
     def test_structured_combat_accepts_registered_eight_second_generation_unit(self):
         task = {
         "task_key": "COMBAT-8S",

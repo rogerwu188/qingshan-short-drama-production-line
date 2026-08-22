@@ -19,6 +19,7 @@ MAX_ATOMIC_BEAT_SECONDS = 2.0
 MAX_FIGHT_BEAT_SECONDS = 1.2
 MAX_ACTION_IDLE_GAP_SECONDS = 0.25
 COMBAT_TYPES = {"COMBAT", "FIGHT", "ACTION_COMBAT"}
+DIALOGUE_TYPES = {"DIALOGUE", "DIALOGUE_PERFORMANCE", "REACTION_DIALOGUE", "EMOTIONAL_DIALOGUE"}
 
 
 def _prompt_text(task: dict[str, Any]) -> str:
@@ -32,6 +33,9 @@ def _prompt_text(task: dict[str, Any]) -> str:
 
 
 def _looks_like_action(task: dict[str, Any], text: str) -> bool:
+    shot_type = str(task.get("shot_type") or "").upper()
+    if shot_type in DIALOGUE_TYPES and task.get("action_unit") is not True:
+        return False
     if task.get("action_unit") is True:
         return True
     if any(task.get(name) for name in ("combat_choreography_contract", "action_sequence_contract", "action_timeline", "performance_tempo_contract")):

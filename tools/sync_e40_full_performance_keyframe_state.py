@@ -18,6 +18,14 @@ HARVEST = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/key
 Q1 = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/keyframes/q1_registered/E40_FULL_PERFORMANCE_KEYFRAME_Q1_INDEX_V1.json"
 BOUND = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/keyframes/E40_FULL_PERFORMANCE_KEYFRAME_BOUND_TASKS_V1.json"
 CREDIT = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/keyframes/E40_FULL_PERFORMANCE_KEYFRAME_CREDIT_RECONCILIATION_V1.json"
+VIDEO_PREPROD = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_VIDEO_PREPRODUCTION_V1.json"
+AUDIO_PLAN = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_EXACT_DIALOGUE_AUDIO_REFERENCE_PLAN_V1.json"
+AUDIO_RECEIPT = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/audio_refs_v1/E40_FULL_PERFORMANCE_AUDIO_REFERENCE_EXECUTION_V1.json"
+AUDIO_ASR = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/audio_refs_v1/E40_FULL_PERFORMANCE_AUDIO_REFERENCE_ASR_QA_V1.json"
+VIDEO_PRECHECK = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_PRECHECK_V4.json"
+VIDEO_SUBMISSION = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_SUBMISSION_V1.json"
+VIDEO_HARVEST = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_HARVEST_LATEST.json"
+VIDEO_CREDIT = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_CREDIT_RECONCILIATION_V1.json"
 
 
 def sha(path: Path) -> str:
@@ -144,11 +152,170 @@ def main() -> int:
         by_id[reconciliation_id].update(reconciliation)
     else:
         tasks.append(reconciliation)
+    video_compile_id = "E40-FULL-PERFORMANCE-ADMITTED-VIDEO-PREPRODUCTION-V1"
+    video_compile = {
+        "task_id": video_compile_id,
+        "lane_id": "E40_FULL_PERFORMANCE_VIDEO_PREPRODUCTION",
+        "state": "TERMINAL" if VIDEO_PREPROD.is_file() else "WAITING_DEPENDENCY",
+        "wait_scope": "NONE",
+        "zero_cost": True,
+        "deliverable_type": "SIX_Q1_ADMITTED_NATIVE_DIALOGUE_VIDEO_CONTRACTS",
+        "liveness_role": "TERMINAL" if VIDEO_PREPROD.is_file() else "DEPENDENCY",
+        "provider_post_allowed": False,
+        "progress": "COMPILED_6_VIDEO_TASKS_AND_8_AUDIO_INTENTS" if VIDEO_PREPROD.is_file() else "WAITING_FOR_Q1_ADMITTED_INPUTS",
+        "last_progress_at": now,
+        "next_due_at": None,
+        "evidence_ref": portable(VIDEO_PREPROD) if VIDEO_PREPROD.is_file() else portable(Q1),
+        "evidence_sha256": sha(VIDEO_PREPROD) if VIDEO_PREPROD.is_file() else sha(Q1),
+        "next_action": "Bind exact dialogue audio provider assets, then rerun paid video precheck; no video POST before binding.",
+    }
+    if video_compile_id in by_id:
+        by_id[video_compile_id].update(video_compile)
+    else:
+        tasks.append(video_compile)
+    audio_id = "E40-FULL-PERFORMANCE-EXACT-AUDIO-REFERENCE-EXECUTION-V1"
+    audio_terminal = AUDIO_RECEIPT.is_file()
+    audio_task = {
+        "task_id": audio_id,
+        "lane_id": "E40_FULL_PERFORMANCE_EXACT_AUDIO_REFERENCE",
+        "state": "TERMINAL" if audio_terminal else "RUNNING",
+        "wait_scope": "NONE",
+        "zero_cost": False,
+        "deliverable_type": "EIGHT_EXACT_DIALOGUE_REFERENCE_AUDIO_ASSETS",
+        "liveness_role": "TERMINAL" if audio_terminal else "PRODUCING",
+        "provider_post_allowed": False,
+        "provider_query_allowed": not audio_terminal,
+        "maximum_new_submissions": 0,
+        "progress": "EXECUTION_RECEIPT_PERSISTED" if audio_terminal else "TRANSACTIONS_PERSISTED_PROVIDER_EXECUTOR_ACTIVE",
+        "last_progress_at": now,
+        "next_due_at": None if audio_terminal else next_due,
+        "lease_owner": None if audio_terminal else "codex-e40-full-performance-audio",
+        "lease_expires_at": None if audio_terminal else lease_expires,
+        "executor_handle": None if audio_terminal else "unified_exec_session:37891",
+        "executor_task_id": None if audio_terminal else audio_id,
+        "evidence_ref": portable(AUDIO_RECEIPT) if audio_terminal else portable(AUDIO_PLAN),
+        "evidence_sha256": sha(AUDIO_RECEIPT) if audio_terminal else sha(AUDIO_PLAN),
+        "next_action": "ASR exactness and provider asset upload, then bind only admitted keyframes into Seedance Fast tasks.",
+    }
+    if audio_id in by_id:
+        by_id[audio_id].update(audio_task)
+    else:
+        tasks.append(audio_task)
+    asr_id = "E40-FULL-PERFORMANCE-EXACT-AUDIO-ASR-QA-V1"
+    asr_terminal = AUDIO_ASR.is_file()
+    asr_task = {
+        "task_id": asr_id,
+        "lane_id": "E40_FULL_PERFORMANCE_EXACT_AUDIO_REFERENCE",
+        "state": "TERMINAL" if asr_terminal else "RUNNING",
+        "wait_scope": "NONE",
+        "zero_cost": True,
+        "deliverable_type": "EIGHT_EXACT_DIALOGUE_REFERENCE_ASR_QA",
+        "liveness_role": "TERMINAL" if asr_terminal else "PRODUCING",
+        "provider_post_allowed": False,
+        "maximum_new_submissions": 0,
+        "progress": "ASR_QA_PERSISTED" if asr_terminal else "LOCAL_ASR_QA_PROCESS_ACTIVE",
+        "last_progress_at": now,
+        "next_due_at": None if asr_terminal else next_due,
+        "lease_owner": None if asr_terminal else "codex-e40-full-performance-audio-asr",
+        "lease_expires_at": None if asr_terminal else lease_expires,
+        "executor_handle": None if asr_terminal else "unified_exec_session:71164",
+        "executor_task_id": None if asr_terminal else asr_id,
+        "evidence_ref": portable(AUDIO_ASR) if asr_terminal else portable(AUDIO_RECEIPT),
+        "evidence_sha256": sha(AUDIO_ASR) if asr_terminal else sha(AUDIO_RECEIPT),
+        "next_action": "Upload only exact-ASR-passing audio as provider assets and bind them to six video manifests.",
+    }
+    if asr_id in by_id:
+        by_id[asr_id].update(asr_task)
+    else:
+        tasks.append(asr_task)
+    video_submit_id = "E40-FULL-PERFORMANCE-SEEDANCE-FAST-SUBMISSION-V1"
+    video_submit_terminal = VIDEO_SUBMISSION.is_file()
+    video_submit_task = {
+        "task_id": video_submit_id,
+        "lane_id": "E40_FULL_PERFORMANCE_VIDEO_SUBMISSION",
+        "state": "TERMINAL" if video_submit_terminal else "RUNNING",
+        "wait_scope": "NONE",
+        "zero_cost": False,
+        "deliverable_type": "SIX_SEEDANCE_FAST_NATIVE_DIALOGUE_REMOTE_TASK_BINDINGS",
+        "liveness_role": "TERMINAL" if video_submit_terminal else "PRODUCING",
+        "provider_post_allowed": False,
+        "provider_query_allowed": False,
+        "maximum_new_submissions": 0,
+        "progress": "SUBMISSION_RECEIPT_PERSISTED" if video_submit_terminal else "TRANSACTION_FIRST_SUBMITTER_ACTIVE",
+        "last_progress_at": now,
+        "next_due_at": None if video_submit_terminal else next_due,
+        "lease_owner": None if video_submit_terminal else "codex-e40-full-performance-video-submit",
+        "lease_expires_at": None if video_submit_terminal else lease_expires,
+        "executor_handle": None if video_submit_terminal else "unified_exec_session:68948",
+        "executor_task_id": None if video_submit_terminal else video_submit_id,
+        "evidence_ref": portable(VIDEO_SUBMISSION) if video_submit_terminal else portable(VIDEO_PRECHECK),
+        "evidence_sha256": sha(VIDEO_SUBMISSION) if video_submit_terminal else sha(VIDEO_PRECHECK),
+        "next_action": "Harvest each bound task independently; response-lost transactions require ledger classification and no replay.",
+    }
+    if video_submit_id in by_id:
+        by_id[video_submit_id].update(video_submit_task)
+    else:
+        tasks.append(video_submit_task)
+    video_credit_id = "E40-FULL-PERFORMANCE-VIDEO-CREDIT-RECONCILIATION-V1"
+    video_credit_terminal = VIDEO_CREDIT.is_file()
+    video_credit_task = {
+        "task_id": video_credit_id,
+        "lane_id": "E40_FULL_PERFORMANCE_VIDEO_LEDGER_RECONCILIATION",
+        "state": "TERMINAL" if video_credit_terminal else "RUNNING",
+        "wait_scope": "NONE",
+        "zero_cost": True,
+        "deliverable_type": "AUTHORITATIVE_SIX_VIDEO_POST_CREDIT_CLASSIFICATION",
+        "liveness_role": "TERMINAL" if video_credit_terminal else "PRODUCING",
+        "provider_post_allowed": False,
+        "maximum_new_submissions": 0,
+        "progress": "LEDGER_CLASSIFICATION_PERSISTED" if video_credit_terminal else "VIDEO_LEDGER_RETRY_PROCESS_ACTIVE",
+        "last_progress_at": now,
+        "next_due_at": None if video_credit_terminal else next_due,
+        "lease_owner": None if video_credit_terminal else "codex-e40-full-performance-video-credit",
+        "lease_expires_at": None if video_credit_terminal else lease_expires,
+        "executor_handle": None if video_credit_terminal else "unified_exec_session:23956",
+        "executor_task_id": None if video_credit_terminal else video_credit_id,
+        "evidence_ref": portable(VIDEO_CREDIT) if video_credit_terminal else portable(VIDEO_HARVEST),
+        "evidence_sha256": sha(VIDEO_CREDIT) if video_credit_terminal else sha(VIDEO_HARVEST),
+        "next_action": "Classify five router failures and one response-lost transaction; no re-POST before authoritative result.",
+    }
+    if video_credit_id in by_id:
+        by_id[video_credit_id].update(video_credit_task)
+    else:
+        tasks.append(video_credit_task)
+    if VIDEO_HARVEST.is_file():
+        video_harvest = json.loads(VIDEO_HARVEST.read_text(encoding="utf-8"))
+        for row in video_harvest.get("results") or []:
+            task_id = f"{row['task_key']}-PROVIDER-V1"
+            terminal = row.get("status") in {"failed", "error", "canceled", "cancelled", "completed"}
+            remote = {
+                "task_id": task_id,
+                "lane_id": "E40_FULL_PERFORMANCE_VIDEO_PROVIDER",
+                "state": "TERMINAL" if terminal else "WAITING_DEPENDENCY",
+                "wait_scope": "TASK_LOCAL" if not terminal else "NONE",
+                "zero_cost": False,
+                "deliverable_type": "SEEDANCE_FAST_NATIVE_DIALOGUE_VIDEO",
+                "liveness_role": "TERMINAL" if terminal else "DEPENDENCY",
+                "remote_task_id": row.get("task_id"),
+                "provider_post_allowed": False,
+                "maximum_new_submissions": 0,
+                "progress": "PROVIDER_ROUTER_MAPPING_FAILED_PENDING_REFUND_CLASSIFICATION" if row.get("status") == "failed" else str(row.get("status")),
+                "last_progress_at": now,
+                "next_due_at": None,
+                "exact_predecessor_task_id": video_credit_id if not terminal else None,
+                "evidence_ref": portable(VIDEO_HARVEST),
+                "evidence_sha256": sha(VIDEO_HARVEST),
+                "next_action": "Classify exact task Pay/Refund; no replay. Router repair may proceed only after material transport correction.",
+            }
+            if task_id in by_id:
+                by_id[task_id].update(remote)
+            else:
+                tasks.append(remote)
     scheduler.update({
         "updated_at": now,
         "status": "ACTIVE_KEYFRAME_LEDGER_RECONCILIATION_AND_ADMITTED_VIDEO_COMPILE_PENDING",
         "target_slots": 2,
-        "real_active_handle_count": 0 if CREDIT.is_file() else 1,
+        "real_active_handle_count": (0 if CREDIT.is_file() else 1) + (0 if audio_terminal else 1) + (0 if asr_terminal else 1) + (0 if video_submit_terminal else 1) + (0 if video_credit_terminal else 1),
     })
     write(SCHEDULER, scheduler)
 
@@ -168,6 +335,16 @@ def main() -> int:
         "response_lost_pending_ledger": 5,
         "credit_reconciliation_active": not CREDIT.is_file(),
         "credit_reconciliation_executor": None if CREDIT.is_file() else "unified_exec_session:88090",
+        "video_preproduction_manifest": portable(VIDEO_PREPROD) if VIDEO_PREPROD.is_file() else None,
+        "video_preproduction_manifest_sha256": sha(VIDEO_PREPROD) if VIDEO_PREPROD.is_file() else None,
+        "exact_audio_reference_plan": portable(AUDIO_PLAN) if AUDIO_PLAN.is_file() else None,
+        "exact_audio_reference_plan_sha256": sha(AUDIO_PLAN) if AUDIO_PLAN.is_file() else None,
+        "exact_audio_executor": None if audio_terminal else "unified_exec_session:37891",
+        "exact_audio_asr_qa": portable(AUDIO_ASR) if asr_terminal else None,
+        "exact_audio_asr_executor": None if asr_terminal else "unified_exec_session:71164",
+        "video_precheck": portable(VIDEO_PRECHECK) if VIDEO_PRECHECK.is_file() else None,
+        "video_submission_executor": None if video_submit_terminal else "unified_exec_session:68948",
+        "video_credit_reconciliation_executor": None if video_credit_terminal else "unified_exec_session:23956",
         "q1_index": portable(Q1),
         "q1_index_sha256": sha(Q1),
         "next_action": "Compile six admitted exact-SHA Seedance Fast native-dialogue video manifests while ledger reconciliation continues; never submit from the two failed SHAs.",
