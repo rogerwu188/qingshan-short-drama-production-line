@@ -26,6 +26,9 @@ VIDEO_PRECHECK = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue
 VIDEO_SUBMISSION = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_SUBMISSION_V1.json"
 VIDEO_HARVEST = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_HARVEST_LATEST.json"
 VIDEO_CREDIT = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_CREDIT_RECONCILIATION_V1.json"
+I2V_PILOT = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_V2.json"
+I2V_PILOT_PRECHECK = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_PRECHECK_V2.json"
+VIDEO_TX_DIR = ROOT / "workflow/tasks/giggle_video_submit_transactions/E40"
 
 
 def sha(path: Path) -> str:
@@ -311,20 +314,72 @@ def main() -> int:
                 by_id[task_id].update(remote)
             else:
                 tasks.append(remote)
+    pilot_active = False
+    pilot_transactions = sorted(VIDEO_TX_DIR.glob("E40-FP-R04-YUNFEI-B-V1-VIDEO-V2__*.json"))
+    if I2V_PILOT.is_file() and len(pilot_transactions) == 1:
+        pilot_tx = json.loads(pilot_transactions[0].read_text(encoding="utf-8"))
+        pilot_bound = pilot_tx.get("state") == "SUBMITTED_TASK_ID_BOUND" and bool(pilot_tx.get("task_id"))
+        pilot_active = bool(pilot_bound)
+        pilot_id = "E40-FP-R04-YUNFEI-B-V1-VIDEO-V2-I2V-NATIVE-TEXT-PILOT"
+        pilot_task = {
+            "task_id": pilot_id,
+            "lane_id": "E40_FULL_PERFORMANCE_VIDEO_PROVIDER_ROUTE_PILOT",
+            "state": "REMOTE_WAIT" if pilot_bound else "WAITING_DEPENDENCY",
+            "wait_scope": "TASK_LOCAL",
+            "zero_cost": False,
+            "deliverable_type": "SEEDANCE_FAST_I2V_SAME_TASK_NATIVE_DIALOGUE_VIDEO",
+            "liveness_role": "REMOTE_PROVIDER_TASK" if pilot_bound else "DEPENDENCY",
+            "remote_task_id": pilot_tx.get("task_id"),
+            "provider_post_allowed": False,
+            "provider_query_allowed": bool(pilot_bound),
+            "maximum_new_submissions": 0,
+            "progress": "I2V_NATIVE_TEXT_PILOT_REMOTE_RUNNING" if pilot_bound else str(pilot_tx.get("state")),
+            "last_progress_at": now,
+            "next_due_at": next_due if pilot_bound else None,
+            "lease_owner": "codex-e40-i2v-native-text-pilot" if pilot_bound else None,
+            "lease_expires_at": lease_expires if pilot_bound else None,
+            "evidence_ref": portable(pilot_transactions[0]),
+            "evidence_sha256": sha(pilot_transactions[0]),
+            "next_action": "Query only the bound task; on completion download once and run exact-frame, native-audio and registered Q2 QA. Never repeat POST.",
+        }
+        if pilot_id in by_id:
+            by_id[pilot_id].update(pilot_task)
+        else:
+            tasks.append(pilot_task)
     scheduler.update({
         "updated_at": now,
-        "status": "ACTIVE_KEYFRAME_LEDGER_RECONCILIATION_AND_ADMITTED_VIDEO_COMPILE_PENDING",
-        "target_slots": 2,
-        "real_active_handle_count": (0 if CREDIT.is_file() else 1) + (0 if audio_terminal else 1) + (0 if asr_terminal else 1) + (0 if video_submit_terminal else 1) + (0 if video_credit_terminal else 1),
+        "status": "ACTIVE_LEDGER_RECONCILIATION_AND_I2V_NATIVE_DIALOGUE_ROUTE_PILOT",
+        "target_slots": 3,
+        "real_active_handle_count": (0 if CREDIT.is_file() else 1) + (0 if audio_terminal else 1) + (0 if asr_terminal else 1) + (0 if video_submit_terminal else 1) + (0 if video_credit_terminal else 1) + (1 if pilot_active else 0),
+    })
+    scheduler.setdefault("heartbeat_integration", {}).update({
+        "state": "ACTIVE",
+        "real_active_handle_count": scheduler["real_active_handle_count"],
+        "episode_terminal": False,
+        "blocking_units": ["R01", "R02", "R03", "R06A", "R07", "R08"],
+        "解除条件": "Harvest the bound R04 image-to-video native-dialogue pilot and finish authoritative classification of response-lost image/video transactions.",
     })
     write(SCHEDULER, scheduler)
 
     queue = json.loads(QUEUE.read_text(encoding="utf-8"))
     queue.update({
         "updated_at": now,
-        "mode": "FULL_PERFORMANCE_KEYFRAME_Q1_AND_LEDGER_RECONCILIATION",
-        "status": "ACTIVE_8_COMPLETED_6_Q1_ADMITTED_2_Q1_FAILED_5_RESPONSE_LOST_NO_REPOST",
+        "mode": "FULL_PERFORMANCE_I2V_NATIVE_DIALOGUE_ROUTE_PILOT_AND_LEDGER_RECONCILIATION",
+        "status": "ACTIVE_I2V_NATIVE_DIALOGUE_ROUTE_PILOT_AND_TWO_LEDGER_RECONCILIATIONS",
+        "target_slots": 3,
+        "real_active_handle_count": scheduler["real_active_handle_count"],
+        "next_action": "Harvest the bound R04 image-to-video native-dialogue pilot; if it passes provider and Q2, expand only to eligible units. Keep response-lost transactions isolated.",
     })
+    queue["latest_e40_full_performance_i2v_native_text_pilot_v2"] = {
+        "manifest": portable(I2V_PILOT) if I2V_PILOT.is_file() else None,
+        "manifest_sha256": sha(I2V_PILOT) if I2V_PILOT.is_file() else None,
+        "precheck": portable(I2V_PILOT_PRECHECK) if I2V_PILOT_PRECHECK.is_file() else None,
+        "precheck_sha256": sha(I2V_PILOT_PRECHECK) if I2V_PILOT_PRECHECK.is_file() else None,
+        "remote_task_id": pilot_tx.get("task_id") if I2V_PILOT.is_file() and len(pilot_transactions) == 1 else None,
+        "status": "REMOTE_RUNNING" if pilot_active else "NOT_BOUND",
+        "duplicate_post_forbidden": True,
+        "next_action": "Query/download only this task and run exact-frame plus native-dialogue Q2 before any batch expansion.",
+    }
     queue["latest_e40_full_performance_keyframes"] = {
         "manifest": portable(MANIFEST),
         "manifest_sha256": sha(MANIFEST),
