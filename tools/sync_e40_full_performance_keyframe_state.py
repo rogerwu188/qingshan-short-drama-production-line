@@ -38,6 +38,7 @@ I2V_WAITING_WAVE = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1
 KEYFRAME_REPAIR_WAVE = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_KEYFRAME_REPAIR_WAVE_V2.json"
 KEYFRAME_REPAIR_SELECTED = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_KEYFRAME_REPAIR_SELECTED_V2.json"
 KEYFRAME_REPAIR_SUBMISSION = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/keyframes_repair_v2/E40_FULL_PERFORMANCE_KEYFRAME_REPAIR_SELECTED_SUBMISSION_V2.json"
+KEYFRAME_REPAIR_Q1 = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/keyframes_repair_v2/q1_registered/E40_FULL_PERFORMANCE_KEYFRAME_Q1_INDEX_V1.json"
 I2V_PILOT = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_V2.json"
 I2V_PILOT_PRECHECK = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_PRECHECK_V2.json"
 I2V_PILOT_CREDIT = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_CREDIT_STATUS_V2.json"
@@ -555,39 +556,48 @@ def main() -> int:
             by_id[repair_id] = repair_row
     if KEYFRAME_REPAIR_SUBMISSION.is_file():
         repair_submit = json.loads(KEYFRAME_REPAIR_SUBMISSION.read_text(encoding="utf-8"))
+        repair_q1_rows = {}
+        if KEYFRAME_REPAIR_Q1.is_file():
+            repair_q1_rows = {
+                row["task_key"]: row
+                for row in json.loads(KEYFRAME_REPAIR_Q1.read_text(encoding="utf-8")).get("results") or []
+            }
         for item in repair_submit.get("results") or []:
             remote_id = item.get("task_id")
             if not remote_id:
                 continue
             remote_row_id = f"{item['task_key']}-REMOTE"
+            q1_row = repair_q1_rows.get(item["task_key"])
+            terminal = q1_row is not None
             remote_row = {
                 "task_id": remote_row_id,
                 "lane_id": "E40_FULL_PERFORMANCE_KEYFRAME_REPAIR",
-                "state": "REMOTE_WAIT",
-                "wait_scope": "TASK_LOCAL",
+                "state": "TERMINAL" if terminal else "REMOTE_WAIT",
+                "wait_scope": "NONE" if terminal else "TASK_LOCAL",
                 "zero_cost": False,
                 "deliverable_type": "NATIVE_REGISTRY_IDENTITY_REPAIR_KEYFRAME",
-                "liveness_role": "REMOTE_PROVIDER_TASK",
+                "liveness_role": "TERMINAL_EVIDENCE" if terminal else "REMOTE_PROVIDER_TASK",
                 "remote_task_id": remote_id,
                 "provider_post_allowed": False,
-                "provider_query_allowed": True,
-                "download_allowed": True,
+                "provider_query_allowed": not terminal,
+                "download_allowed": not terminal,
                 "maximum_new_submissions": 0,
-                "progress": "TRANSACTION_BOUND_REMOTE_RUNNING",
+                "progress": q1_row["downstream_status"] if terminal else "TRANSACTION_BOUND_REMOTE_RUNNING",
                 "last_progress_at": now,
-                "next_due_at": next_due,
-                "lease_owner": "codex-e40-keyframe-repair",
-                "lease_expires_at": lease_expires,
-                "evidence_ref": portable(KEYFRAME_REPAIR_SUBMISSION),
-                "evidence_sha256": sha(KEYFRAME_REPAIR_SUBMISSION),
-                "next_action": "Query/download only this task, then run fresh exact-SHA registered Q1; never reuse the failed image.",
+                "next_due_at": None if terminal else next_due,
+                "lease_owner": None if terminal else "codex-e40-keyframe-repair",
+                "lease_expires_at": None if terminal else lease_expires,
+                "evidence_ref": q1_row["admission_result"] if terminal else portable(KEYFRAME_REPAIR_SUBMISSION),
+                "evidence_sha256": q1_row["admission_result_sha256"] if terminal else sha(KEYFRAME_REPAIR_SUBMISSION),
+                "next_action": "Isolate failed repair SHA; no video submit." if terminal else "Query/download only this task, then run fresh exact-SHA registered Q1; never reuse the failed image.",
             }
             if remote_row_id in by_id:
                 by_id[remote_row_id].update(remote_row)
             else:
                 tasks.append(remote_row)
                 by_id[remote_row_id] = remote_row
-            keyframe_repair_active += 1
+            if not terminal:
+                keyframe_repair_active += 1
     scheduler.update({
         "updated_at": now,
         "status": "ACTIVE_RECOVERY2_NATIVE_TEXT_VIDEO_REMOTE_WAIT" if recovery_video_active else "ACTIVE_R04_TERMINAL_COVERAGE_LOCAL_SUCCESSORS",
@@ -733,8 +743,9 @@ def main() -> int:
     if KEYFRAME_REPAIR_SUBMISSION.is_file():
         repair_submit = json.loads(KEYFRAME_REPAIR_SUBMISSION.read_text(encoding="utf-8"))
         remote_ids = [row.get("task_id") for row in repair_submit.get("results") or [] if row.get("task_id")]
+        q1_terminal = KEYFRAME_REPAIR_Q1.is_file()
         queue["latest_e40_keyframe_repair_submission"] = {
-            "status": "REMOTE_RUNNING" if remote_ids else "NOT_BOUND",
+            "status": "TERMINAL_Q1_FAIL_NOT_ADMITTED" if q1_terminal else "REMOTE_RUNNING" if remote_ids else "NOT_BOUND",
             "manifest": portable(KEYFRAME_REPAIR_SELECTED),
             "manifest_sha256": sha(KEYFRAME_REPAIR_SELECTED),
             "submission": portable(KEYFRAME_REPAIR_SUBMISSION),
@@ -742,6 +753,8 @@ def main() -> int:
             "remote_task_ids": remote_ids,
             "newly_submitted": len(remote_ids),
             "charged_credits": (repair_submit.get("credit_reconciliation") or {}).get("charged_credits"),
+            "q1_index": portable(KEYFRAME_REPAIR_Q1) if q1_terminal else None,
+            "q1_index_sha256": sha(KEYFRAME_REPAIR_Q1) if q1_terminal else None,
             "duplicate_post_forbidden": True,
             "next_action": "Query/download only, then fresh exact-SHA Q1 before any video compile.",
         }
