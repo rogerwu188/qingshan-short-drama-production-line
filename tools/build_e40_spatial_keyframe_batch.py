@@ -50,7 +50,7 @@ ASSETS: dict[str, dict[str, str]] = {
     # override is never allowed to shadow a canonical registry identity.
     "CHAR-阿栓-古装": {
         "path": "working_assets/e38_replacement_v7_20260805/character_assets/ashuan/CHAR-E38-ashuan.jpg",
-        "qa_report": "qa/e38_replacement_v7_20260805/character_assets/ashuan/CHAR_E38_ASHUAN_ADMISSION.json",
+        "qa_report": "qa/e38_replacement_v7_20260805/E38_V7_CHARACTER_ASSET_FINAL_ADMISSION.json",
         "asset_origin": "ADMITTED_PRIOR_EPISODE_NATIVE",
     },
     "CHAR-E40-AMBUSH-1": {
@@ -71,6 +71,16 @@ SCENE_ASSET = {
     "path": "working_assets/e40_remake_20260817/fresh_assets_v1/wangfu_hall.png",
     "qa_status": "PASS",
     "qa_report": ASSET_QA,
+}
+
+# Episode appearance is narrower than series identity.  The registry locks who
+# a character is; these locks define how that identity must appear in E40.
+EPISODE_APPEARANCE_LOCKS = {
+    "CHAR-陈迹-古装": "20岁年轻男性，素白细布直裰，清瘦挺拔，不得成熟化、老龄化或驼背。",
+    "CHAR-白鲤-古装": "素白衣、面纱必须覆面、窄直静立轮廓，垂眼克制，不露脸微笑；红玉仅在授权的末场特写显露。",
+    "CHAR-云妃-古装": "全程在长帘后，只见高髻、广袖、团扇剪影，禁止出帘、露脸或露手正面。",
+    "CHAR-阿栓-古装": "15岁少年，圆脸稚气，靛蓝短褐，发散一缕且衣皱，不得生成成年体态。",
+    "CHAR-乌云-猫": "资产库原图锁定的棕色虎斑长毛灵猫，毛色、条纹、体态不得改成黑猫或其他品种。",
 }
 
 
@@ -339,6 +349,11 @@ def make_prompt(task: dict[str, Any], references: list[dict[str, Any]]) -> str:
         + "；仅承担所列角色、道具、场景或空间约束。"
         for index, members in enumerate(grouped.values(), 1)
     )
+    appearance_lines = "\n".join(
+        f"- {character_id}：{EPISODE_APPEARANCE_LOCKS[character_id]}"
+        for character_id in task.get("visible_characters") or []
+        if character_id in EPISODE_APPEARANCE_LOCKS
+    ) or "- 本镜无需额外的集级人物外观锁。"
     realism = build_keyframe_realism_block(
         character_ids=list(task.get("visible_characters") or []),
         character_locks=canonical_character_assets(),
@@ -365,6 +380,9 @@ def make_prompt(task: dict[str, Any], references: list[dict[str, Any]]) -> str:
 
 输入参考：
 {reference_lines}
+
+E40 集级出镜外观硬锁（不可被通用“古装美感”改写）：
+{appearance_lines}
 
 {realism}
 

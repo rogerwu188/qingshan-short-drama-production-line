@@ -48,6 +48,29 @@ class BuildE40SpatialKeyframeBatchTest(unittest.TestCase):
             persisted = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(len(persisted["tasks"]), 2)
 
+    def test_episode_appearance_locks_and_existing_ashuan_evidence_are_compiled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = build(
+                DEFAULT_PLAN,
+                root / "prompts",
+                root / "manifest.json",
+                {"R01", "R06A"},
+            )
+            tasks = {task["unit_id"]: task for task in manifest["tasks"]}
+            r01_prompt = Path(tasks["R01"]["prompt_file"]).read_text(encoding="utf-8")
+            self.assertIn("面纱必须覆面", r01_prompt)
+            self.assertIn("不露脸微笑", r01_prompt)
+            ashuan = next(
+                row for row in tasks["R06A"]["reference_bindings"]
+                if row.get("entity_id") == "CHAR-阿栓-古装"
+            )
+            self.assertEqual(
+                ashuan["qa_report"],
+                "qa/e38_replacement_v7_20260805/E38_V7_CHARACTER_ASSET_FINAL_ADMISSION.json",
+            )
+            self.assertTrue(Path(ashuan["qa_report"]).is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

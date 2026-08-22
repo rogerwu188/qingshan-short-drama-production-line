@@ -17,6 +17,34 @@ P0_DEFECTS = {
 TERMINAL_DECISIONS = {"ADMIT_BEST_EFFORT", "SWITCH_COVERAGE"}
 
 
+def validate_submission_attempt(task: dict) -> list[str]:
+    """Enforce the paid-attempt contract at provider entrypoints."""
+    failures: list[str] = []
+    raw_attempt = task.get("retry_attempt", 1)
+    if not isinstance(raw_attempt, int) or isinstance(raw_attempt, bool):
+        return ["RETRY_ATTEMPT_NOT_INTEGER"]
+    attempt = int(raw_attempt)
+    if attempt < 1 or attempt > MAX_ATTEMPTS:
+        return ["RETRY_ATTEMPT_CAP_EXCEEDED"]
+    if attempt == 1:
+        return failures
+    if not task.get("failure_memory"):
+        failures.append("RETRY_FAILURE_MEMORY_MISSING")
+    if not str(task.get("material_change_from_prior_attempt") or "").strip():
+        failures.append("RETRY_MATERIAL_CHANGE_MISSING")
+    prior = [str(value) for value in task.get("prior_prompt_sha256") or [] if value]
+    current = str(task.get("prompt_sha256") or "")
+    if len(prior) < attempt - 1:
+        failures.append("RETRY_PRIOR_PROMPT_HISTORY_INCOMPLETE")
+    if not current:
+        failures.append("RETRY_CURRENT_PROMPT_SHA_MISSING")
+    elif current in prior:
+        failures.append("PROMPT_UNCHANGED_RETRY")
+    if attempt == MAX_ATTEMPTS and task.get("no_further_automatic_retry") is not True:
+        failures.append("FINAL_ATTEMPT_MUST_CLOSE_AUTOMATIC_RETRY")
+    return failures
+
+
 def evaluate_unit(unit: dict) -> dict:
     attempts = unit.get("attempts") or []
     decision = unit.get("terminal_decision")

@@ -560,6 +560,8 @@
         "warning_downgrade_allowed": false,
         "machine_embedding_status": "ACTIVE",
         "embedding_method": "INSIGHTFACE_COSINE_V1",
+        "character_free_insert_objective_method": "STRUCTURED_NO_VISIBLE_CHARACTER_V1",
+        "character_free_insert_requires_empty_canonical_character_scope": true,
         "embedding_model": "buffalo_l",
         "embedding_cosine_pass_threshold": 0.45,
         "embedding_cosine_fail_threshold": 0.3,
@@ -749,10 +751,16 @@
       "implementation_type": "CODED",
       "code_paths": [
         "tools/reroll_cost_guard.py",
+        "tools/retry_cap_gate.py",
+        "tools/episode_video_generation_guard.py",
+        "tools/submit_giggle_video_manifest_v2.py",
+        "tools/submit_giggle_image_manifest.py",
         "configs/reroll_cost_guard_policy_v1_20260716.json"
       ],
       "test_paths": [
-        "tools/tests/test_reroll_cost_guard.py"
+        "tools/tests/test_reroll_cost_guard.py",
+        "tools/tests/test_retry_cap_gate.py",
+        "tools/tests/test_episode_video_generation_guard.py"
       ],
       "parameters": {
         "auto_reroll_block_tier_only": true,
@@ -1652,9 +1660,13 @@
       "implementation_type": "CODED",
       "code_paths": [
         "tools/episode_parallel_batch_supervisor.py"
+        ,"tools/generation_first_pass_policy_gate.py"
+        ,"tools/video_prompt_action_density_gate.py"
       ],
       "test_paths": [
-        "tools/tests/test_episode_parallel_batch_supervisor.py"
+        "tools/tests/test_episode_parallel_batch_supervisor.py",
+        "tools/tests/test_generation_first_pass_policy_gate.py",
+        "tools/tests/test_video_prompt_action_density_gate.py"
       ],
       "parameters": {
         "minimum_episode": 32,

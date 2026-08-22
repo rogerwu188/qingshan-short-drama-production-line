@@ -34,6 +34,7 @@ P0_OBJECTIVE_METHODS = {
     "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF": "VLM_STRUCTURED_STATE_QA_V1",
     "PERIOD-ANACHRONISM-LOCK": "CLOSED_SET_ANACHRONISM_OCR_V1",
 }
+NO_CHARACTER_IDENTITY_METHOD = "STRUCTURED_NO_VISIBLE_CHARACTER_V1"
 ADVISORY_STATUSES = {"ADVISORY", "ADVISORY_NOT_A_GATE", "DIAGNOSTIC", "WARNING"}
 PASS_STATUSES = {"PASS", "PASS_EXACT_SHA", "PASS_ORIGINAL_RESOLUTION"}
 FAILURE_ATTRIBUTIONS = frozenset({
@@ -84,6 +85,19 @@ def _objective_p0_pass(
     verification = payload.get("objective_verification") or {}
     method = str(verification.get("method") or "")
     expected = P0_OBJECTIVE_METHODS.get(gate_id)
+    if (
+        gate_id == "CHARACTER-IDENTITY-ADMISSION"
+        and method == NO_CHARACTER_IDENTITY_METHOD
+    ):
+        checks = verification.get("checks") or []
+        if verification.get("canonical_characters") not in ([], None):
+            return False, "p0_no_character_scope_has_canonical_character"
+        if not checks or any(
+            str(row.get("answer") or row.get("status") or "").upper() != "PASS"
+            for row in checks
+        ):
+            return False, "p0_no_character_structured_checks_not_pass"
+        return True, ""
     if method != expected:
         return False, f"p0_objective_method_invalid:{method or 'MISSING'}"
     if str(verification.get("decision") or "").upper() != "PASS":

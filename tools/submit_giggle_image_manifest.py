@@ -22,6 +22,7 @@ try:
     from global_space_layout_gate import evaluate_batch as evaluate_global_space_map
     from shot_media_admission_gate import precheck_submission_inputs
     from image_model_adapter import require_paid_image_model_contract
+    from retry_cap_gate import validate_submission_attempt
 except ModuleNotFoundError:  # Imported as tools.submit_giggle_image_manifest.
     from tools.giggle_api_client import _image_list, _request
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
@@ -29,6 +30,7 @@ except ModuleNotFoundError:  # Imported as tools.submit_giggle_image_manifest.
     from tools.global_space_layout_gate import evaluate_batch as evaluate_global_space_map
     from tools.shot_media_admission_gate import precheck_submission_inputs
     from tools.image_model_adapter import require_paid_image_model_contract
+    from tools.retry_cap_gate import validate_submission_attempt
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -212,6 +214,11 @@ def validate_mask_transport(task: dict[str, Any]) -> None:
 
 
 def validate_task(task: dict[str, Any]) -> None:
+    retry_failures = validate_submission_attempt(task)
+    if retry_failures:
+        raise ValueError(
+            f"{task.get('task_key')} BLOCK_RETRY_CAP_GATE: {','.join(retry_failures)}"
+        )
     episode_match = re.match(r"E(\d+)", str(task.get("episode") or "").upper())
     if episode_match and int(episode_match.group(1)) >= 40:
         require_paid_image_model_contract(task, str(task.get("episode")))
