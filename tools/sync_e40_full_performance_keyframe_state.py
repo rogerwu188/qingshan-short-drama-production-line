@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -35,7 +35,10 @@ def write(path: Path, value: dict) -> None:
 
 
 def main() -> int:
-    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    observed_at = datetime.now(timezone.utc)
+    now = observed_at.isoformat().replace("+00:00", "Z")
+    next_due = (observed_at + timedelta(minutes=10)).isoformat().replace("+00:00", "Z")
+    lease_expires = (observed_at + timedelta(minutes=15)).isoformat().replace("+00:00", "Z")
     scheduler = json.loads(SCHEDULER.read_text(encoding="utf-8"))
     tasks = scheduler.setdefault("tasks", [])
     by_id = {row.get("task_id"): row for row in tasks}
@@ -128,7 +131,9 @@ def main() -> int:
         "maximum_new_submissions": 0,
         "progress": "LEDGER_RETRY_PROCESS_ACTIVE" if not CREDIT.is_file() else "LEDGER_CLASSIFICATION_PERSISTED",
         "last_progress_at": now,
-        "next_due_at": now if not CREDIT.is_file() else None,
+        "next_due_at": next_due if not CREDIT.is_file() else None,
+        "lease_owner": "codex-e40-credit-reconciliation" if not CREDIT.is_file() else None,
+        "lease_expires_at": lease_expires if not CREDIT.is_file() else None,
         "executor_handle": None if CREDIT.is_file() else "unified_exec_session:88090",
         "executor_task_id": reconciliation_id if not CREDIT.is_file() else None,
         "evidence_ref": portable(CREDIT) if CREDIT.is_file() else portable(BOUND),
