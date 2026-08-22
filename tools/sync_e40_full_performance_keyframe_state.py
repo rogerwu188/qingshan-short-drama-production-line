@@ -35,6 +35,8 @@ I2V_FINAL_CREDIT = ROOT / "qa/e40_remake_20260822/full_performance_native_dialog
 I2V_FINAL_HARVEST = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_FINAL_Q2_HARVEST_V3.json"
 R04_TERMINAL_COVERAGE = ROOT / "working_assets/e40_remake_20260822/full_performance_native_dialogue_v1/terminal_switch_coverage_v1/E40_R04_YUNFEI_OFFSCREEN_COVERAGE_V1.mp4"
 R04_TERMINAL_COVERAGE_QA = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/terminal_switch_coverage_v1/E40_R04_YUNFEI_OFFSCREEN_COVERAGE_V1_QA.json"
+ASSEMBLY_V3 = ROOT / "working_assets/e40_remake_20260822/assembly_candidate_v1/E40_CURRENT_ALL_UNIT_COVERAGE_SEQUENCE_V3_R04_TERMINAL.mp4"
+ASSEMBLY_V3_QA = ROOT / "qa/e40_remake_20260822/assembly_candidate_v1/E40_CURRENT_ALL_UNIT_COVERAGE_SEQUENCE_V3_R04_TERMINAL_QA.json"
 VIDEO_TX_DIR = ROOT / "workflow/tasks/giggle_video_submit_transactions/E40"
 
 
@@ -50,6 +52,15 @@ def write(path: Path, value: dict) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.replace(temporary, path)
+
+
+def report_passed(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        return json.loads(path.read_text(encoding="utf-8")).get("status") == "PASS"
+    except (OSError, json.JSONDecodeError):
+        return False
 
 
 def main() -> int:
@@ -135,10 +146,11 @@ def main() -> int:
             by_id[task_id] = row
 
     reconciliation_id = "E40-FULL-PERFORMANCE-KEYFRAME-CREDIT-RECONCILIATION-V1"
+    credit_terminal = report_passed(CREDIT)
     reconciliation = {
         "task_id": reconciliation_id,
         "lane_id": "E40_FULL_PERFORMANCE_KEYFRAME_LEDGER_RECONCILIATION",
-        "state": "RUNNING" if not CREDIT.is_file() else "TERMINAL",
+        "state": "TERMINAL" if credit_terminal else "RUNNING",
         "wait_scope": "NONE",
         "zero_cost": True,
         "deliverable_type": "AUTHORITATIVE_13_POST_CREDIT_WINDOW_CLASSIFICATION",
@@ -147,13 +159,13 @@ def main() -> int:
         "provider_query_allowed": False,
         "download_allowed": False,
         "maximum_new_submissions": 0,
-        "progress": "LEDGER_RETRY_PROCESS_ACTIVE" if not CREDIT.is_file() else "LEDGER_CLASSIFICATION_PERSISTED",
+        "progress": "LEDGER_CLASSIFICATION_PERSISTED" if credit_terminal else "LEDGER_RETRY_PROCESS_ACTIVE",
         "last_progress_at": now,
-        "next_due_at": next_due if not CREDIT.is_file() else None,
-        "lease_owner": "codex-e40-credit-reconciliation" if not CREDIT.is_file() else None,
-        "lease_expires_at": lease_expires if not CREDIT.is_file() else None,
-        "executor_handle": None if CREDIT.is_file() else "unified_exec_session:88090",
-        "executor_task_id": reconciliation_id if not CREDIT.is_file() else None,
+        "next_due_at": None if credit_terminal else next_due,
+        "lease_owner": None if credit_terminal else "codex-e40-credit-reconciliation",
+        "lease_expires_at": None if credit_terminal else lease_expires,
+        "executor_handle": None if credit_terminal else "unified_exec_session:88090",
+        "executor_task_id": None if credit_terminal else reconciliation_id,
         "evidence_ref": portable(CREDIT) if CREDIT.is_file() else portable(BOUND),
         "evidence_sha256": sha(CREDIT) if CREDIT.is_file() else sha(BOUND),
         "next_action": "Persist exact Pay count and classify all five response-lost transactions; no re-POST.",
@@ -267,7 +279,7 @@ def main() -> int:
     else:
         tasks.append(video_submit_task)
     video_credit_id = "E40-FULL-PERFORMANCE-VIDEO-CREDIT-RECONCILIATION-V1"
-    video_credit_terminal = VIDEO_CREDIT.is_file()
+    video_credit_terminal = report_passed(VIDEO_CREDIT)
     video_credit_task = {
         "task_id": video_credit_id,
         "lane_id": "E40_FULL_PERFORMANCE_VIDEO_LEDGER_RECONCILIATION",
@@ -392,11 +404,39 @@ def main() -> int:
             by_id[final_id].update(final_task)
         else:
             tasks.append(final_task)
+    if ASSEMBLY_V3.is_file() and ASSEMBLY_V3_QA.is_file():
+        assembly_id = "E40-CURRENT-ASSEMBLY-V3-R04-TERMINAL-COVERAGE"
+        assembly_task = {
+            "task_id": assembly_id,
+            "lane_id": "E40_FULL_EPISODE_RUNTIME_COMPLETION",
+            "state": "TERMINAL",
+            "wait_scope": "NONE",
+            "zero_cost": True,
+            "deliverable_type": "ORDERED_ASSEMBLY_WITH_R04_TERMINAL_COVERAGE",
+            "liveness_role": "TERMINAL_EVIDENCE",
+            "provider_post_allowed": False,
+            "provider_query_allowed": False,
+            "download_allowed": False,
+            "maximum_new_submissions": 0,
+            "progress": "R04_TERMINAL_COVERAGE_REPLACED_IN_PLACE_TECHNICAL_PASS_FINAL_COMPLETENESS_FAIL",
+            "last_progress_at": now,
+            "completed_at": now,
+            "next_due_at": None,
+            "evidence_ref": portable(ASSEMBLY_V3_QA),
+            "evidence_sha256": sha(ASSEMBLY_V3_QA),
+            "assembly_candidate": portable(ASSEMBLY_V3),
+            "assembly_candidate_sha256": sha(ASSEMBLY_V3),
+            "next_action": "Continue missing full-performance units; candidate is not releaseable.",
+        }
+        if assembly_id in by_id:
+            by_id[assembly_id].update(assembly_task)
+        else:
+            tasks.append(assembly_task)
     scheduler.update({
         "updated_at": now,
         "status": "ACTIVE_LEDGER_RECONCILIATION_AND_R04_TERMINAL_COVERAGE" if R04_TERMINAL_COVERAGE_QA.is_file() else "ACTIVE_LEDGER_RECONCILIATION_AND_I2V_NATIVE_DIALOGUE_FINAL_ATTEMPT",
         "target_slots": 3,
-        "real_active_handle_count": (0 if CREDIT.is_file() else 1) + (0 if audio_terminal else 1) + (0 if asr_terminal else 1) + (0 if video_submit_terminal else 1) + (0 if video_credit_terminal else 1) + (1 if pilot_active else 0) + (1 if final_active else 0),
+        "real_active_handle_count": (0 if credit_terminal else 1) + (0 if audio_terminal else 1) + (0 if asr_terminal else 1) + (0 if video_submit_terminal else 1) + (0 if video_credit_terminal else 1) + (1 if pilot_active else 0) + (1 if final_active else 0),
     })
     scheduler.setdefault("heartbeat_integration", {}).update({
         "state": "ACTIVE",
@@ -414,7 +454,7 @@ def main() -> int:
         "status": "ACTIVE_R04_TERMINAL_COVERAGE_AND_TWO_LEDGER_RECONCILIATIONS" if R04_TERMINAL_COVERAGE_QA.is_file() else "ACTIVE_I2V_NATIVE_DIALOGUE_FINAL_ATTEMPT_AND_TWO_LEDGER_RECONCILIATIONS",
         "target_slots": 3,
         "real_active_handle_count": scheduler["real_active_handle_count"],
-        "next_action": "Insert the admitted R04 zero-cost visual coverage into assembly and continue missing full-performance units; no V4." if R04_TERMINAL_COVERAGE_QA.is_file() else "Harvest the bound R04 final image-to-video native-dialogue attempt; if it passes provider and Q2, expand only to eligible units. Failure forces coverage with no V4.",
+        "next_action": "Compile the next eligible missing full-performance unit after R04 coverage was inserted in sequence order; no V4 and no release of the 23.404-second candidate." if ASSEMBLY_V3_QA.is_file() else "Insert the admitted R04 zero-cost visual coverage into assembly and continue missing full-performance units; no V4." if R04_TERMINAL_COVERAGE_QA.is_file() else "Harvest the bound R04 final image-to-video native-dialogue attempt; if it passes provider and Q2, expand only to eligible units. Failure forces coverage with no V4.",
     })
     queue["latest_e40_full_performance_i2v_native_text_pilot_v2"] = {
         "manifest": portable(I2V_PILOT) if I2V_PILOT.is_file() else None,
@@ -449,6 +489,17 @@ def main() -> int:
         "terminal_coverage_qa_sha256": sha(R04_TERMINAL_COVERAGE_QA) if R04_TERMINAL_COVERAGE_QA.is_file() else None,
         "next_action": "Insert terminal coverage into assembly; no V4." if R04_TERMINAL_COVERAGE_QA.is_file() else "Query/download only this final task; completion enters registered Q2, failure terminalizes R04 automatic retry.",
     }
+    if ASSEMBLY_V3.is_file() and ASSEMBLY_V3_QA.is_file():
+        queue["latest_e40_assembly_candidate_v3"] = {
+            "status": "TECHNICAL_PASS_NOT_FINAL_COMPLETE_VIDEO_GATE_FAIL",
+            "sequence": portable(ASSEMBLY_V3),
+            "sequence_sha256": sha(ASSEMBLY_V3),
+            "qa": portable(ASSEMBLY_V3_QA),
+            "qa_sha256": sha(ASSEMBLY_V3_QA),
+            "duration_seconds": 23.404,
+            "canonical_target_seconds": 163,
+            "release_allowed": False,
+        }
     if final_active and I2V_FINAL_CREDIT.is_file():
         final_credit = json.loads(I2V_FINAL_CREDIT.read_text(encoding="utf-8"))
         queue.setdefault("e40_credits", {}).update({
@@ -475,8 +526,8 @@ def main() -> int:
         "q1_admitted": 6,
         "q1_failed": 2,
         "response_lost_pending_ledger": 5,
-        "credit_reconciliation_active": not CREDIT.is_file(),
-        "credit_reconciliation_executor": None if CREDIT.is_file() else "unified_exec_session:88090",
+        "credit_reconciliation_active": not credit_terminal,
+        "credit_reconciliation_executor": None if credit_terminal else "unified_exec_session:88090",
         "video_preproduction_manifest": portable(VIDEO_PREPROD) if VIDEO_PREPROD.is_file() else None,
         "video_preproduction_manifest_sha256": sha(VIDEO_PREPROD) if VIDEO_PREPROD.is_file() else None,
         "exact_audio_reference_plan": portable(AUDIO_PLAN) if AUDIO_PLAN.is_file() else None,
