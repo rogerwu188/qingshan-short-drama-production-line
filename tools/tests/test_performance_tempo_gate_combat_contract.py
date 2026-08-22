@@ -1,0 +1,71 @@
+import unittest
+
+from tools.performance_tempo_gate import evaluate_batch
+
+
+def _windows():
+    return [
+        {"start_seconds": 0.0, "end_seconds": 1.0, "action": "exchange 1"},
+        {"start_seconds": 1.1, "end_seconds": 2.1, "action": "exchange 2"},
+        {"start_seconds": 2.2, "end_seconds": 3.2, "action": "exchange 3"},
+    ]
+
+
+class PerformanceTempoCombatContractTest(unittest.TestCase):
+    def test_structured_combat_accepts_registered_eight_second_generation_unit(self):
+        task = {
+        "task_key": "COMBAT-8S",
+        "shot_type": "COMBAT",
+        "action_unit": True,
+        "duration_seconds": 8,
+        "prompt": "fast combat exchange",
+        "performance_tempo_contract": {
+            "playback_speed": "REAL_TIME_1X",
+            "primary_exchange_complete_by_seconds": 1.5,
+            "aftermath_in_same_edit_shot": False,
+            "atomic_action_windows": _windows(),
+        },
+        }
+        self.assertEqual(evaluate_batch([task])["status"], "PASS")
+
+
+    def test_noncombat_atomic_action_still_rejects_duration_over_four_seconds(self):
+        task = {
+        "task_key": "NONCOMBAT-5S",
+        "shot_type": "GENERAL",
+        "action_unit": True,
+        "duration_seconds": 5,
+        "prompt": "a character opens the door",
+        "performance_tempo_contract": {
+            "playback_speed": "REAL_TIME_1X",
+            "primary_action_complete_by_seconds": 1.0,
+            "result_hold_seconds": 0.5,
+            "atomic_action_windows": [{"start_seconds": 0.0, "end_seconds": 1.0, "action": "open"}],
+        },
+        }
+        result = evaluate_batch([task])
+        self.assertEqual(result["status"], "FAIL")
+        self.assertIn("ATOMIC_ACTION_DURATION_INVITES_SLOW_MOTION", {row["code"] for row in result["failures"]})
+
+
+    def test_structured_combat_rejects_generation_unit_below_eight_seconds(self):
+        task = {
+        "task_key": "COMBAT-4S",
+        "shot_type": "COMBAT",
+        "action_unit": True,
+        "duration_seconds": 4,
+        "prompt": "fast combat exchange",
+        "performance_tempo_contract": {
+            "playback_speed": "REAL_TIME_1X",
+            "primary_exchange_complete_by_seconds": 1.5,
+            "aftermath_in_same_edit_shot": False,
+            "atomic_action_windows": _windows(),
+        },
+        }
+        result = evaluate_batch([task])
+        self.assertEqual(result["status"], "FAIL")
+        self.assertIn("COMBAT_GENERATION_DURATION_INVALID", {row["code"] for row in result["failures"]})
+
+
+if __name__ == "__main__":
+    unittest.main()
