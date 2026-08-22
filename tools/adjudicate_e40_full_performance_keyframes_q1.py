@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
@@ -46,7 +47,18 @@ def write(path: Path, payload: dict) -> None:
 
 
 def main() -> int:
-    harvest = json.loads(HARVEST.read_text(encoding="utf-8"))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--harvest", type=Path, default=HARVEST)
+    parser.add_argument("--out-dir", type=Path, default=OUT)
+    parser.add_argument("--failure-overrides", type=Path)
+    args = parser.parse_args()
+    harvest_path = args.harvest if args.harvest.is_absolute() else ROOT / args.harvest
+    out_dir = args.out_dir if args.out_dir.is_absolute() else ROOT / args.out_dir
+    failures = dict(FAILURES)
+    if args.failure_overrides:
+        overrides_path = args.failure_overrides if args.failure_overrides.is_absolute() else ROOT / args.failure_overrides
+        failures.update(json.loads(overrides_path.read_text(encoding="utf-8")))
+    harvest = json.loads(harvest_path.read_text(encoding="utf-8"))
     registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
     index = []
     for row in harvest["results"]:
@@ -54,7 +66,7 @@ def main() -> int:
         asset = Path(row["output_path"])
         if sha(asset) != row["sha256"]:
             raise ValueError(f"SHA mismatch: {task_key}")
-        task_failures = FAILURES.get(task_key, {})
+        task_failures = failures.get(task_key, {})
         findings = {
             "CHARACTER-IDENTITY-ADMISSION": task_failures.get(
                 "CHARACTER-IDENTITY-ADMISSION",
@@ -67,7 +79,7 @@ def main() -> int:
             ),
             "PERIOD-ANACHRONISM-LOCK": "PASS: 未见现代物、字幕、LOGO、水印或时代冲突物。",
         }
-        unit_dir = OUT / task_key
+        unit_dir = out_dir / task_key
         review = {
             "schema": "qingshan.registered_visual_evidence_bundle.v1",
             "episode": "E40",
@@ -135,7 +147,7 @@ def main() -> int:
         "video_submission_allowed_task_keys": [row["task_key"] for row in index if row["downstream_status"] == "ADMITTED_FOR_VIDEO_SUBMIT"],
         "failed_task_keys": [row["task_key"] for row in index if row["downstream_status"] == "FAIL_NOT_ADMITTED"],
     }
-    out = OUT / "E40_FULL_PERFORMANCE_KEYFRAME_Q1_INDEX_V1.json"
+    out = out_dir / "E40_FULL_PERFORMANCE_KEYFRAME_Q1_INDEX_V1.json"
     write(out, payload)
     print(json.dumps({"status": payload["status"], "admitted": passed, "failed": len(index) - passed, "out": portable(out), "sha256": sha(out)}, ensure_ascii=False))
     return 0

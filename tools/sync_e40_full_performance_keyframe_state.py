@@ -16,6 +16,10 @@ QUEUE = ROOT / "workflow/work_queue.json"
 MANIFEST = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_KEYFRAME_BATCH_V1.json"
 HARVEST = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/keyframes/E40_FULL_PERFORMANCE_KEYFRAME_HARVEST_V1.json"
 Q1 = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/keyframes/q1_registered/E40_FULL_PERFORMANCE_KEYFRAME_Q1_INDEX_V1.json"
+RECOVERY_Q1 = [
+    ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/keyframes/q1_recovery5_registered/E40_FULL_PERFORMANCE_KEYFRAME_Q1_INDEX_V1.json",
+    ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/keyframes/q1_recovery4_registered/E40_FULL_PERFORMANCE_KEYFRAME_Q1_INDEX_V1.json",
+]
 BOUND = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/keyframes/E40_FULL_PERFORMANCE_KEYFRAME_BOUND_TASKS_V1.json"
 CREDIT = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/keyframes/E40_FULL_PERFORMANCE_KEYFRAME_CREDIT_RECONCILIATION_V1.json"
 VIDEO_PREPROD = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_VIDEO_PREPRODUCTION_V1.json"
@@ -26,6 +30,8 @@ VIDEO_PRECHECK = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue
 VIDEO_SUBMISSION = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_SUBMISSION_V1.json"
 VIDEO_HARVEST = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_HARVEST_LATEST.json"
 VIDEO_CREDIT = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_CREDIT_RECONCILIATION_V1.json"
+RECOVERY_VIDEO_MANIFEST = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_VIDEO_RECOVERY2_NATIVE_TEXT_V1.json"
+RECOVERY_VIDEO_SUBMISSION = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_RECOVERY2_NATIVE_TEXT_SUBMISSION_V1.json"
 I2V_PILOT = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_V2.json"
 I2V_PILOT_PRECHECK = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_PRECHECK_V2.json"
 I2V_PILOT_CREDIT = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_CREDIT_STATUS_V2.json"
@@ -84,7 +90,11 @@ def main() -> int:
     })
 
     q1 = json.loads(Q1.read_text(encoding="utf-8"))
-    for item in q1["results"]:
+    all_q1_rows = list(q1["results"])
+    for recovery_q1_path in RECOVERY_Q1:
+        if recovery_q1_path.is_file():
+            all_q1_rows.extend(json.loads(recovery_q1_path.read_text(encoding="utf-8"))["results"])
+    for item in all_q1_rows:
         task_id = f"{item['task_key']}-REMOTE"
         row = {
             "task_id": task_id,
@@ -117,27 +127,28 @@ def main() -> int:
     for transaction in bound["ambiguous_transactions"]:
         tx = json.loads((ROOT / transaction).read_text(encoding="utf-8"))
         task_id = f"{tx['task_key']}-AMBIGUOUS-POST"
+        recovered = tx.get("state") == "SUBMITTED_TASK_ID_BOUND" and bool(tx.get("task_id"))
         row = {
             "task_id": task_id,
             "lane_id": "E40_FULL_PERFORMANCE_KEYFRAME_LEDGER_RECONCILIATION",
-            "state": "WAITING_DEPENDENCY",
-            "wait_scope": "TASK_LOCAL",
+            "state": "TERMINAL" if recovered else "WAITING_DEPENDENCY",
+            "wait_scope": "NONE" if recovered else "TASK_LOCAL",
             "zero_cost": False,
             "deliverable_type": "PAID_POST_AMBIGUITY_LEDGER_CLASSIFICATION",
-            "liveness_role": "BLOCKED_EVIDENCE",
+            "liveness_role": "TERMINAL_EVIDENCE" if recovered else "BLOCKED_EVIDENCE",
             "provider_post_allowed": False,
             "provider_query_allowed": False,
             "download_allowed": False,
             "maximum_new_submissions": 0,
-            "remote_task_id": None,
-            "progress": "RESPONSE_LOST_PENDING_AUTHORITATIVE_LEDGER_RECONCILIATION",
+            "remote_task_id": tx.get("task_id"),
+            "progress": "RECOVERED_TASK_ID_BOUND_AND_Q1_TERMINAL" if recovered else "RESPONSE_LOST_PENDING_AUTHORITATIVE_LEDGER_RECONCILIATION",
             "last_progress_at": now,
-            "next_due_at": now,
+            "next_due_at": None if recovered else now,
             "waiting_on_predecessor_task_id": "E40-FULL-PERFORMANCE-KEYFRAME-CREDIT-RECONCILIATION-V1",
             "exact_predecessor_task_id": "E40-FULL-PERFORMANCE-KEYFRAME-CREDIT-RECONCILIATION-V1",
             "evidence_ref": transaction,
             "evidence_sha256": sha(ROOT / transaction),
-            "next_action": "Never repeat POST; await exact ledger-window classification.",
+            "next_action": "No duplicate POST; recovered provider task is terminalized by exact-SHA Q1." if recovered else "Never repeat POST; await exact ledger-window classification.",
         }
         if task_id in by_id:
             by_id[task_id].update(row)
@@ -432,26 +443,62 @@ def main() -> int:
             by_id[assembly_id].update(assembly_task)
         else:
             tasks.append(assembly_task)
+    recovery_video_active = 0
+    if RECOVERY_VIDEO_SUBMISSION.is_file():
+        recovery_submit = json.loads(RECOVERY_VIDEO_SUBMISSION.read_text(encoding="utf-8"))
+        for item in recovery_submit.get("tasks") or []:
+            remote_id = item.get("task_id")
+            if not remote_id:
+                continue
+            task_id = f"{item['task_key']}-REMOTE"
+            row = {
+                "task_id": task_id,
+                "lane_id": "E40_FULL_PERFORMANCE_RECOVERY2_NATIVE_TEXT_VIDEO",
+                "state": "REMOTE_WAIT",
+                "wait_scope": "TASK_LOCAL",
+                "zero_cost": False,
+                "deliverable_type": "SEEDANCE_FAST_SAME_TASK_NATIVE_DIALOGUE_VIDEO",
+                "liveness_role": "REMOTE_PROVIDER_TASK",
+                "remote_task_id": remote_id,
+                "provider_post_allowed": False,
+                "provider_query_allowed": True,
+                "download_allowed": True,
+                "maximum_new_submissions": 0,
+                "progress": "TRANSACTION_BOUND_REMOTE_RUNNING",
+                "last_progress_at": now,
+                "next_due_at": next_due,
+                "lease_owner": "codex-e40-recovery2-native-text-video",
+                "lease_expires_at": lease_expires,
+                "evidence_ref": portable(RECOVERY_VIDEO_SUBMISSION),
+                "evidence_sha256": sha(RECOVERY_VIDEO_SUBMISSION),
+                "next_action": "Query/download only this bound task, then run registered original-resolution Q2 with native audio preserved.",
+            }
+            if task_id in by_id:
+                by_id[task_id].update(row)
+            else:
+                tasks.append(row)
+                by_id[task_id] = row
+            recovery_video_active += 1
     scheduler.update({
         "updated_at": now,
-        "status": "ACTIVE_LEDGER_RECONCILIATION_AND_R04_TERMINAL_COVERAGE" if R04_TERMINAL_COVERAGE_QA.is_file() else "ACTIVE_LEDGER_RECONCILIATION_AND_I2V_NATIVE_DIALOGUE_FINAL_ATTEMPT",
+        "status": "ACTIVE_RECOVERY2_NATIVE_TEXT_VIDEO_REMOTE_WAIT" if recovery_video_active else "ACTIVE_R04_TERMINAL_COVERAGE_LOCAL_SUCCESSORS",
         "target_slots": 3,
-        "real_active_handle_count": (0 if credit_terminal else 1) + (0 if audio_terminal else 1) + (0 if asr_terminal else 1) + (0 if video_submit_terminal else 1) + (0 if video_credit_terminal else 1) + (1 if pilot_active else 0) + (1 if final_active else 0),
+        "real_active_handle_count": (0 if credit_terminal else 1) + (0 if audio_terminal else 1) + (0 if asr_terminal else 1) + (0 if video_submit_terminal else 1) + (0 if video_credit_terminal else 1) + (1 if pilot_active else 0) + (1 if final_active else 0) + recovery_video_active,
     })
     scheduler.setdefault("heartbeat_integration", {}).update({
         "state": "ACTIVE",
         "real_active_handle_count": scheduler["real_active_handle_count"],
         "episode_terminal": False,
-        "blocking_units": ["R01", "R02", "R03", "R06A", "R07", "R08"],
-        "解除条件": "Finish authoritative classification of response-lost image/video transactions, then assemble the admitted R04 coverage with the remaining full-performance units." if R04_TERMINAL_COVERAGE_QA.is_file() else "Harvest the bound R04 final image-to-video native-dialogue attempt and finish authoritative classification of response-lost image/video transactions.",
+        "blocking_units": ["R01", "R03", "R04", "R06A", "R07", "R08"],
+        "解除条件": "Harvest the two bound R02/R03 native-dialogue videos into registered Q2; isolate the three failed recovered keyframes and continue equivalent coverage for remaining runtime.",
     })
     write(SCHEDULER, scheduler)
 
     queue = json.loads(QUEUE.read_text(encoding="utf-8"))
     queue.update({
         "updated_at": now,
-        "mode": "FULL_PERFORMANCE_R04_TERMINAL_COVERAGE_AND_LEDGER_RECONCILIATION" if R04_TERMINAL_COVERAGE_QA.is_file() else "FULL_PERFORMANCE_I2V_NATIVE_DIALOGUE_FINAL_ATTEMPT_AND_LEDGER_RECONCILIATION",
-        "status": "ACTIVE_R04_TERMINAL_COVERAGE_AND_TWO_LEDGER_RECONCILIATIONS" if R04_TERMINAL_COVERAGE_QA.is_file() else "ACTIVE_I2V_NATIVE_DIALOGUE_FINAL_ATTEMPT_AND_TWO_LEDGER_RECONCILIATIONS",
+        "mode": "FULL_PERFORMANCE_RECOVERY2_NATIVE_TEXT_VIDEO_AND_TERMINAL_COVERAGE",
+        "status": "ACTIVE_TWO_BOUND_RECOVERY_NATIVE_TEXT_VIDEOS" if recovery_video_active else "ACTIVE_LOCAL_SUCCESSORS_NO_REMOTE",
         "target_slots": 3,
         "real_active_handle_count": scheduler["real_active_handle_count"],
         "next_action": "Compile the next eligible missing full-performance unit after R04 coverage was inserted in sequence order; no V4 and no release of the 23.404-second candidate." if ASSEMBLY_V3_QA.is_file() else "Insert the admitted R04 zero-cost visual coverage into assembly and continue missing full-performance units; no V4." if R04_TERMINAL_COVERAGE_QA.is_file() else "Harvest the bound R04 final image-to-video native-dialogue attempt; if it passes provider and Q2, expand only to eligible units. Failure forces coverage with no V4.",
@@ -521,11 +568,11 @@ def main() -> int:
     queue["latest_e40_full_performance_keyframes"] = {
         "manifest": portable(MANIFEST),
         "manifest_sha256": sha(MANIFEST),
-        "bound_task_ids": 8,
-        "completed_downloaded": 8,
-        "q1_admitted": 6,
-        "q1_failed": 2,
-        "response_lost_pending_ledger": 5,
+        "bound_task_ids": 13,
+        "completed_downloaded": 13,
+        "q1_admitted": 8,
+        "q1_failed": 5,
+        "response_lost_pending_ledger": 0,
         "credit_reconciliation_active": not credit_terminal,
         "credit_reconciliation_executor": None if credit_terminal else "unified_exec_session:88090",
         "video_preproduction_manifest": portable(VIDEO_PREPROD) if VIDEO_PREPROD.is_file() else None,
@@ -540,7 +587,17 @@ def main() -> int:
         "video_credit_reconciliation_executor": None if video_credit_terminal else "unified_exec_session:23956",
         "q1_index": portable(Q1),
         "q1_index_sha256": sha(Q1),
-        "next_action": "Compile six admitted exact-SHA Seedance Fast native-dialogue video manifests while ledger reconciliation continues; never submit from the two failed SHAs.",
+        "next_action": "Harvest the two newly bound native-text Seedance Fast videos and run registered Q2; never submit video from the five failed keyframe SHAs.",
+    }
+    queue["latest_e40_recovery2_native_text_videos"] = {
+        "status": "REMOTE_RUNNING" if recovery_video_active else "NOT_BOUND",
+        "manifest": portable(RECOVERY_VIDEO_MANIFEST) if RECOVERY_VIDEO_MANIFEST.is_file() else None,
+        "manifest_sha256": sha(RECOVERY_VIDEO_MANIFEST) if RECOVERY_VIDEO_MANIFEST.is_file() else None,
+        "submission": portable(RECOVERY_VIDEO_SUBMISSION) if RECOVERY_VIDEO_SUBMISSION.is_file() else None,
+        "submission_sha256": sha(RECOVERY_VIDEO_SUBMISSION) if RECOVERY_VIDEO_SUBMISSION.is_file() else None,
+        "remote_task_count": recovery_video_active,
+        "native_audio_policy": "PRESERVE_SAME_TASK_NATIVE_DIALOGUE_AMBIENCE_FOLEY_SFX_NO_POST_REDUB",
+        "next_action": "Query and download without duplicate POST, then registered Q2.",
     }
     write(QUEUE, queue)
     print(json.dumps({"status": "PASS", "scheduler_sha256": sha(SCHEDULER), "queue_sha256": sha(QUEUE), "real_active_handle_count": scheduler["real_active_handle_count"]}, ensure_ascii=False))

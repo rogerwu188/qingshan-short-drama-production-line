@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import copy
@@ -72,9 +73,19 @@ def raw_rgb_sha(path: Path) -> str:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--q1", type=Path, default=Q1)
+    parser.add_argument("--out", type=Path, default=OUT)
+    parser.add_argument("--prompts-dir", type=Path, default=PROMPTS)
+    parser.add_argument("--native-text", action="store_true")
+    parser.add_argument("--skip-pilot", action="store_true")
+    args = parser.parse_args()
+    q1_path = args.q1 if args.q1.is_absolute() else ROOT / args.q1
+    out_path = args.out if args.out.is_absolute() else ROOT / args.out
+    prompts_dir = args.prompts_dir if args.prompts_dir.is_absolute() else ROOT / args.prompts_dir
     plan = json.loads(PLAN.read_text(encoding="utf-8"))
     keyframes = json.loads(KEYFRAMES.read_text(encoding="utf-8"))
-    q1 = json.loads(Q1.read_text(encoding="utf-8"))
+    q1 = json.loads(q1_path.read_text(encoding="utf-8"))
     admitted = set(q1.get("video_submission_allowed_task_keys") or [])
     units = {row["task_id"]: row for row in plan["units"]}
     kf_tasks = {row["task_key"]: row for row in keyframes["tasks"]}
@@ -90,7 +101,7 @@ def main() -> int:
     audio_ready = bool(audio_registry_payload and audio_registry_payload.get("status") == "PASS" and ASR_QA.is_file())
     audio_rows = []
     tasks = []
-    PROMPTS.mkdir(parents=True, exist_ok=True)
+    prompts_dir.mkdir(parents=True, exist_ok=True)
 
     for key in sorted(admitted):
         unit_id = key.removesuffix("-KF-QA-V2")
@@ -127,6 +138,8 @@ def main() -> int:
             (row["character_id"] for row in start.get("characters", []) if unit["speaker"] in row.get("character_id", "")),
             (start.get("characters") or [{}])[0].get("character_id"),
         )
+        prior = prior_tasks.get(unit_id)
+        ready = args.native_text or audio_ready
         task = {
             "task_key": f"{unit_id}-VIDEO-V2",
             "episode": "E40",
@@ -138,20 +151,21 @@ def main() -> int:
             "duration_seconds": unit["duration_seconds"],
             "aspect_ratio": "9:16",
             "resolution": "720p",
-            "status": "READY_TO_SUBMIT" if audio_ready else "WAITING_DEPENDENCY_EXACT_DIALOGUE_AUDIO_ASSET_BINDING",
-            "provider_post_allowed": audio_ready,
-            "maximum_new_submissions": 1 if audio_ready else 0,
+            "status": "READY_TO_SUBMIT" if ready else "WAITING_DEPENDENCY_EXACT_DIALOGUE_AUDIO_ASSET_BINDING",
+            "provider_post_allowed": ready,
+            "maximum_new_submissions": 1 if ready else 0,
             "media_stage": "VIDEO",
             "action_unit": False,
             "require_semantic_anchor_evidence": True,
             "native_dialogue_required": True,
             "native_audio_required": True,
-            "dialogue_transport": "EXACT_LINE_AUDIO_REFERENCE",
+            "dialogue_transport": "MODEL_NATIVE_TEXT_DIALOGUE" if args.native_text else "EXACT_LINE_AUDIO_REFERENCE",
+            "model_native_text_dialogue": bool(args.native_text),
             "dialogue_lines": [line["text"] for line in unit["spoken_lines"]],
             "dialogue_ids": unit["dialogue_ids"],
             "required_audio_intent_keys": audio_intents,
-            "exact_dialogue_audio_asset_ids": [audio_assets[value]["remote_asset_id"] for value in audio_intents] if audio_ready else [],
-            "exact_dialogue_audio_urls": [audio_assets[value]["public_audio_url"] for value in audio_intents] if audio_ready else [],
+            "exact_dialogue_audio_asset_ids": [audio_assets[value]["remote_asset_id"] for value in audio_intents] if audio_ready and not args.native_text else [],
+            "exact_dialogue_audio_urls": [audio_assets[value]["public_audio_url"] for value in audio_intents] if audio_ready and not args.native_text else [],
             "reference_audio_asset_ids": [],
             "reference_audio_urls": [],
             "source_subtitle_policy": "FORBID",
@@ -205,25 +219,32 @@ def main() -> int:
                 "道具换位", "静态念稿", "夸张舞台表演", "删除原生音轨", "后配TTS覆盖可见口型",
             ],
             "action_video_prompt_contract_version": ACTION_CONTRACT_VERSION,
-            "retry_attempt": 2,
-            "retry_kind": "PROVIDER_TRANSPORT_REPAIR_ASSET_ID_TO_PUBLIC_URL",
-            "prior_failure_code": "PROVIDER_ROUTER_MAPPING_NOT_FOUND",
-            "failure_memory": {
-                "attempt": 1,
-                "provider_terminal_error": "router mapping not found",
-                "root_cause": "Omni audio was transported as asset_id although the current provider contract requires public URL.",
-                "do_not_repeat": "Never send audio/video references to Giggle Omni as asset_id.",
-            },
-            "material_change_from_prior_attempt": "Changed Omni audio transport from provider asset_id to ordered public HTTPS URL and made that binding explicit in the prompt.",
-            "prior_prompt_sha256": [prior_tasks[unit_id]["prompt_sha256"]],
+            "retry_attempt": 2 if prior else 1,
+            "retry_kind": "PROVIDER_TRANSPORT_REPAIR_ASSET_ID_TO_PUBLIC_URL" if prior else "FIRST_VIDEO_ATTEMPT",
         }
         failures = validate_action_contract(task)
         if failures:
             raise ValueError(f"{task['task_key']} action contract: {failures}")
-        prompt_path = PROMPTS / f"{task['task_key']}.txt"
+        if prior:
+            task.update({
+                "prior_failure_code": "PROVIDER_ROUTER_MAPPING_NOT_FOUND",
+                "failure_memory": {
+                    "attempt": 1,
+                    "provider_terminal_error": "router mapping not found",
+                    "root_cause": "Omni audio was transported as asset_id although the current provider contract requires public URL.",
+                    "do_not_repeat": "Never send audio/video references to Giggle Omni as asset_id.",
+                },
+                "material_change_from_prior_attempt": "Changed Omni audio transport from provider asset_id to ordered public HTTPS URL and made that binding explicit in the prompt.",
+                "prior_prompt_sha256": [prior["prompt_sha256"]],
+            })
+        prompt_path = prompts_dir / f"{task['task_key']}.txt"
         prompt_path.write_text(
             compile_action_video_prompt(task)
-            + "\n传输锁：按编号使用同一任务绑定的公开音频引用，逐句驱动原生口型、呼吸与声场；禁止把音频资产编号当作可播放音源。\n",
+            + ("\n原生对白锁：同一 Seedance 任务按顺序逐字只说一次："
+               + "；".join(task["dialogue_lines"])
+               + "。声音、口型、呼吸、环境与拟音必须由同一任务生成并保留；禁止字幕、旁白和后配音。\n"
+               if args.native_text else
+               "\n传输锁：按编号使用同一任务绑定的公开音频引用，逐句驱动原生口型、呼吸与声场；禁止把音频资产编号当作可播放音源。\n"),
             encoding="utf-8",
         )
         task["prompt_file"] = rel(prompt_path)
@@ -231,52 +252,53 @@ def main() -> int:
         task["input_template_id"] = compute_input_template_id(task)
         tasks.append(task)
 
-    write(AUDIO_PLAN, {
-        "schema": "qingshan.e40.full_performance_exact_dialogue_audio_reference_plan.v1",
-        "episode": "E40",
-        "status": "READY_FOR_TRANSACTION_FIRST_AUDIO_EXECUTOR",
-        "purpose": "INPUT_REFERENCE_FOR_SAME_SEEDANCE_TASK_NOT_POST_DUB",
-        "postproduction_replacement_forbidden": True,
-        "authorization_refs": ["ROGER_AUTONOMOUS_ROUTINE_PRODUCTION_CHOICES_20260814", "ROGER-20260821-E40-REBUILD-BUDGET-5000"],
-        "audio_count": len(audio_rows),
-        "items": audio_rows,
-    })
+    if not args.native_text:
+        write(AUDIO_PLAN, {
+            "schema": "qingshan.e40.full_performance_exact_dialogue_audio_reference_plan.v1",
+            "episode": "E40",
+            "status": "READY_FOR_TRANSACTION_FIRST_AUDIO_EXECUTOR",
+            "purpose": "INPUT_REFERENCE_FOR_SAME_SEEDANCE_TASK_NOT_POST_DUB",
+            "postproduction_replacement_forbidden": True,
+            "authorization_refs": ["ROGER_AUTONOMOUS_ROUTINE_PRODUCTION_CHOICES_20260814", "ROGER-20260821-E40-REBUILD-BUDGET-5000"],
+            "audio_count": len(audio_rows),
+            "items": audio_rows,
+        })
     manifest = {
         "schema": "qingshan.e40.full_performance_video_preproduction.v2",
         "episode": "E40",
-        "status": "READY_TO_SUBMIT" if audio_ready else "WAITING_DEPENDENCY_EXACT_DIALOGUE_AUDIO_ASSET_BINDING",
+        "status": "READY_TO_SUBMIT" if (args.native_text or audio_ready) else "WAITING_DEPENDENCY_EXACT_DIALOGUE_AUDIO_ASSET_BINDING",
         "provider": "giggle",
         "allowed_video_models": ["seedance-2.0-fast"],
-        "provider_post_allowed": audio_ready,
-        "maximum_new_submissions": len(tasks) if audio_ready else 0,
+        "provider_post_allowed": bool(args.native_text or audio_ready),
+        "maximum_new_submissions": len(tasks) if (args.native_text or audio_ready) else 0,
         "authorization_ref": "ROGER-20260821-E40-REBUILD-BUDGET-5000",
         "source_plan": rel(PLAN),
         "source_plan_sha256": sha(PLAN),
-        "q1_index": rel(Q1),
-        "q1_index_sha256": sha(Q1),
+        "q1_index": rel(q1_path),
+        "q1_index_sha256": sha(q1_path),
         "audio_reference_plan": rel(AUDIO_PLAN),
         "audio_reference_plan_sha256": sha(AUDIO_PLAN),
-        "machine_gate_reports": [
+        "machine_gate_reports": ([rel(COST_GATE)] if args.native_text else [
             "qa/e40_remake_20260818/global_space_maps_v1/E40_GLOBAL_SPACE_LAYOUT_GATE_V1.json",
             rel(ASR_QA),
             rel(AUDIO_REGISTRY),
             rel(COST_GATE),
-        ] if audio_ready else [],
+        ] if audio_ready else []),
         "admitted_video_task_count": len(tasks),
         "tasks": tasks,
         "blocked_keyframes": q1.get("failed_task_keys") or [],
         "release_audio_rule": "Keep same Seedance task native dialogue/ambience/foley/SFX; never replace visible-lip audio in post.",
         "transport_repair": "Giggle Omni audio/video references use public URL; provider asset_id is retained only as provenance.",
     }
-    write(OUT, manifest)
-    if audio_ready:
+    write(out_path, manifest)
+    if args.native_text or audio_ready:
         write(COST_GATE, {
             "schema": "qingshan.registered_gate_evidence.v1",
             "gate_id": "GIGGLE-REROLL-COST-GUARD",
             "status": "PASS",
             "authorization_ref": "ROGER-20260821-E40-REBUILD-BUDGET-5000",
-            "reviewed_manifest": rel(OUT),
-            "reviewed_manifest_sha256": sha(OUT),
+            "reviewed_manifest": rel(out_path),
+            "reviewed_manifest_sha256": sha(out_path),
             "planned_video_tasks": len(tasks),
             "planned_gross_credits": sum(int(row["duration_seconds"]) * 16 for row in tasks),
             "maximum_additional_credits": 5000,
@@ -291,21 +313,22 @@ def main() -> int:
             value for value in pilot["machine_gate_reports"] if value != rel(COST_GATE)
         ] + [rel(PILOT_COST_GATE)]
         pilot["pilot_policy"] = "ONE_4_SECOND_SINGLE_AUDIO_TASK_ONLY_AFTER_ATTEMPT1_EXACT_REFUND; EXPAND_ONLY_AFTER_PROVIDER_ROUTE_SUCCESS"
-        write(PILOT_OUT, pilot)
-        write(PILOT_COST_GATE, {
-            "schema": "qingshan.registered_gate_evidence.v1",
-            "gate_id": "GIGGLE-REROLL-COST-GUARD",
-            "status": "PASS",
-            "authorization_ref": "ROGER-20260821-E40-REBUILD-BUDGET-5000",
-            "reviewed_manifest": rel(PILOT_OUT),
-            "reviewed_manifest_sha256": sha(PILOT_OUT),
-            "planned_video_tasks": 1,
-            "planned_gross_credits": int(tasks[0]["duration_seconds"]) * 16,
-            "maximum_additional_credits": 5000,
-            "prior_attempt_credit_status": "PASS_ZERO_REFUNDED",
-            "transport_pilot_only": True,
-        })
-    print(json.dumps({"status": "PASS_PREPRODUCTION", "video_tasks": len(tasks), "audio_items": len(audio_rows), "manifest": rel(OUT), "manifest_sha256": sha(OUT), "audio_plan_sha256": sha(AUDIO_PLAN)}, ensure_ascii=False))
+        if not args.skip_pilot:
+            write(PILOT_OUT, pilot)
+            write(PILOT_COST_GATE, {
+                "schema": "qingshan.registered_gate_evidence.v1",
+                "gate_id": "GIGGLE-REROLL-COST-GUARD",
+                "status": "PASS",
+                "authorization_ref": "ROGER-20260821-E40-REBUILD-BUDGET-5000",
+                "reviewed_manifest": rel(PILOT_OUT),
+                "reviewed_manifest_sha256": sha(PILOT_OUT),
+                "planned_video_tasks": 1,
+                "planned_gross_credits": int(tasks[0]["duration_seconds"]) * 16,
+                "maximum_additional_credits": 5000,
+                "prior_attempt_credit_status": "PASS_ZERO_REFUNDED",
+                "transport_pilot_only": True,
+            })
+    print(json.dumps({"status": "PASS_PREPRODUCTION", "video_tasks": len(tasks), "audio_items": len(audio_rows), "manifest": rel(out_path), "manifest_sha256": sha(out_path), "audio_plan_sha256": sha(AUDIO_PLAN)}, ensure_ascii=False))
     return 0
 
 
