@@ -34,6 +34,7 @@ RECOVERY_VIDEO_MANIFEST = ROOT / "workflow/claude_writer_agent/production/e40_re
 RECOVERY_VIDEO_SUBMISSION = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_RECOVERY2_NATIVE_TEXT_SUBMISSION_V1.json"
 RECOVERY_VIDEO_RETRY_MANIFEST = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_VIDEO_RECOVERY2_I2V_NATIVE_TEXT_RETRY2_V1.json"
 RECOVERY_VIDEO_RETRY_SUBMISSION = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_RECOVERY2_I2V_NATIVE_TEXT_RETRY2_SUBMISSION_V1.json"
+I2V_WAITING_WAVE = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_VIDEO_I2V_WAITING_WAVE_V1.json"
 I2V_PILOT = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_V2.json"
 I2V_PILOT_PRECHECK = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_PRECHECK_V2.json"
 I2V_PILOT_CREDIT = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_I2V_NATIVE_TEXT_PILOT_CREDIT_STATUS_V2.json"
@@ -494,6 +495,33 @@ def main() -> int:
                 tasks.append(row)
                 by_id[task_id] = row
             recovery_video_active += 1
+    if I2V_WAITING_WAVE.is_file():
+        waiting_id = "E40-FULL-PERFORMANCE-I2V-WAITING-WAVE-V1"
+        waiting_row = {
+            "task_id": waiting_id,
+            "lane_id": "E40_FULL_PERFORMANCE_I2V_PREPRODUCTION",
+            "state": "TERMINAL",
+            "wait_scope": "NONE",
+            "zero_cost": True,
+            "deliverable_type": "FOUR_PRECOMPILED_I2V_NATIVE_DIALOGUE_TASKS",
+            "liveness_role": "TERMINAL_EVIDENCE",
+            "provider_post_allowed": False,
+            "provider_query_allowed": False,
+            "download_allowed": False,
+            "maximum_new_submissions": 0,
+            "progress": "PRECOMPILED_WAITING_PROVIDER_ROUTE_PROOF_NO_POST",
+            "last_progress_at": now,
+            "completed_at": now,
+            "next_due_at": None,
+            "evidence_ref": portable(I2V_WAITING_WAVE),
+            "evidence_sha256": sha(I2V_WAITING_WAVE),
+            "next_action": "Promote only after a recovery2 I2V result passes registered Q2; keep POST disabled meanwhile.",
+        }
+        if waiting_id in by_id:
+            by_id[waiting_id].update(waiting_row)
+        else:
+            tasks.append(waiting_row)
+            by_id[waiting_id] = waiting_row
     scheduler.update({
         "updated_at": now,
         "status": "ACTIVE_RECOVERY2_NATIVE_TEXT_VIDEO_REMOTE_WAIT" if recovery_video_active else "ACTIVE_R04_TERMINAL_COVERAGE_LOCAL_SUCCESSORS",
@@ -614,6 +642,17 @@ def main() -> int:
         "native_audio_policy": "PRESERVE_SAME_TASK_NATIVE_DIALOGUE_AMBIENCE_FOLEY_SFX_NO_POST_REDUB",
         "next_action": "Query and download without duplicate POST, then registered Q2.",
     }
+    if I2V_WAITING_WAVE.is_file():
+        waiting = json.loads(I2V_WAITING_WAVE.read_text(encoding="utf-8"))
+        queue["latest_e40_i2v_waiting_wave"] = {
+            "status": waiting.get("status"),
+            "manifest": portable(I2V_WAITING_WAVE),
+            "manifest_sha256": sha(I2V_WAITING_WAVE),
+            "task_count": len(waiting.get("tasks") or []),
+            "provider_post_allowed": False,
+            "maximum_new_submissions": 0,
+            "next_action": "Promote only after the active I2V route proves provider success and registered-Q2 admission.",
+        }
     write(QUEUE, queue)
     print(json.dumps({"status": "PASS", "scheduler_sha256": sha(SCHEDULER), "queue_sha256": sha(QUEUE), "real_active_handle_count": scheduler["real_active_handle_count"]}, ensure_ascii=False))
     return 0
