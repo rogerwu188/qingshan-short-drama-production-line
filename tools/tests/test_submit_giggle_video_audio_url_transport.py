@@ -20,7 +20,7 @@ class GiggleVideoAudioUrlTransportTests(unittest.TestCase):
         }
         validate_source_caption_safe_dialogue(task, "自然说话，不显示字幕")
 
-    def test_asset_id_without_url_fails_closed(self):
+    def test_provider_asset_id_without_url_is_admitted(self):
         task = {
             "task_key": "E40-U01-V2",
             "native_dialogue_required": True,
@@ -29,7 +29,18 @@ class GiggleVideoAudioUrlTransportTests(unittest.TestCase):
             "dialogue_lines": ["别动。"],
             "exact_dialogue_audio_asset_ids": ["legacy-id"],
         }
-        with self.assertRaisesRegex(ValueError, "public audio URL"):
+        validate_source_caption_safe_dialogue(task, "自然说话，不显示字幕")
+
+    def test_asset_id_count_must_cover_every_dialogue_line(self):
+        task = {
+            "task_key": "E40-U01-V2",
+            "native_dialogue_required": True,
+            "source_subtitle_policy": "FORBID",
+            "dialogue_transport": "EXACT_LINE_AUDIO_REFERENCE",
+            "dialogue_lines": ["别动。", "退后。"],
+            "exact_dialogue_audio_asset_ids": ["provider-id-1"],
+        }
+        with self.assertRaisesRegex(ValueError, "per dialogue line"):
             validate_source_caption_safe_dialogue(task, "自然说话，不显示字幕")
 
     def test_audio_url_changes_submission_fingerprint(self):

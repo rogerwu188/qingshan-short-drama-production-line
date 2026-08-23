@@ -91,9 +91,17 @@ def validate_source_caption_safe_dialogue(task: dict[str, Any], prompt_text: str
             f"{task['task_key']} source-caption-forbidden dialogue requires "
             "dialogue_transport=EXACT_LINE_AUDIO_REFERENCE"
         )
+    exact_asset_ids = task.get("exact_dialogue_audio_asset_ids") or []
     exact_urls = task.get("exact_dialogue_audio_urls") or []
-    if not lines or len(exact_urls) != len(lines):
-        raise ValueError(f"{task['task_key']} requires one ordered exact-line public audio URL per dialogue line")
+    if not lines or not (
+        len(exact_asset_ids) == len(lines) or len(exact_urls) == len(lines)
+    ):
+        raise ValueError(
+            f"{task['task_key']} requires one ordered exact-line provider asset ID "
+            "or public audio URL per dialogue line"
+        )
+    if any(not isinstance(value, str) or not value.strip() for value in exact_asset_ids):
+        raise ValueError(f"{task['task_key']} exact dialogue audio asset IDs are invalid")
     if any(not isinstance(value, str) or not value.startswith("https://") for value in exact_urls):
         raise ValueError(f"{task['task_key']} exact dialogue audio URLs must be public HTTPS URLs")
     normalized_prompt = normalized_han(prompt_text)
@@ -176,20 +184,23 @@ def validate_task(task: dict[str, Any]) -> None:
     for path, expected in zip(references, task["reference_sha256"]):
         if not path.is_file() or sha256(path) != expected:
             raise ValueError(f"{task['task_key']} reference SHA mismatch: {portable(path)}")
-    audio_asset_ids = task.get("reference_audio_asset_ids") or []
+    audio_asset_ids = [
+        *(task.get("exact_dialogue_audio_asset_ids") or []),
+        *(task.get("reference_audio_asset_ids") or []),
+    ]
     if any(not isinstance(value, str) or not value.strip() for value in audio_asset_ids):
         raise ValueError(f"{task['task_key']} has invalid reference_audio_asset_ids")
-    exact_audio_asset_ids = task.get("exact_dialogue_audio_asset_ids") or []
     audio_urls = [
         *(task.get("exact_dialogue_audio_urls") or []),
         *(task.get("reference_audio_urls") or []),
     ]
-    if task.get("native_dialogue_required") and task.get("dialogue_transport") == "EXACT_LINE_AUDIO_REFERENCE" and not audio_urls:
-        raise ValueError(f"{task['task_key']} native dialogue lacks public audio URLs")
+    if task.get("native_dialogue_required") and task.get("dialogue_transport") == "EXACT_LINE_AUDIO_REFERENCE" and not (audio_asset_ids or audio_urls):
+        raise ValueError(f"{task['task_key']} native dialogue lacks provider audio asset IDs or public audio URLs")
     if any(not isinstance(value, str) or not value.startswith("https://") for value in audio_urls):
         raise ValueError(f"{task['task_key']} audio references must be public HTTPS URLs")
     validate_source_caption_safe_dialogue(task, prompt_text)
-    if len(audio_urls) >= 3:
+    selected_audio_references = audio_asset_ids or audio_urls
+    if len(selected_audio_references) >= 3:
         raise ValueError(f"{task['task_key']} Giggle accepts fewer than 3 total audio references")
     if task.get("model") != "seedance-2.0-fast":
         raise ValueError(f"{task['task_key']} requires seedance-2.0-fast; Pro, Mini, bare seedance-2.0, and unknown models are forbidden")
@@ -249,11 +260,17 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         "generating_count": 1,
         "images": _image_list([str(resolve(value)) for value in task["reference_images"]]),
     }
+    audio_asset_ids = [
+        *(task.get("exact_dialogue_audio_asset_ids") or []),
+        *(task.get("reference_audio_asset_ids") or []),
+    ]
     audio_urls = [
         *(task.get("exact_dialogue_audio_urls") or []),
         *(task.get("reference_audio_urls") or []),
     ]
-    if audio_urls:
+    if audio_asset_ids:
+        payload["audios"] = [{"asset_id": value} for value in audio_asset_ids]
+    elif audio_urls:
         payload["audios"] = [{"url": value} for value in audio_urls]
     try:
         response = _request("/api/v1/generation/omni-video", payload)
