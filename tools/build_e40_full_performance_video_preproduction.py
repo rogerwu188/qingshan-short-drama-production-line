@@ -34,7 +34,7 @@ KEYFRAMES = BASE / "E40_FULL_PERFORMANCE_KEYFRAME_BATCH_V1.json"
 Q1 = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/keyframes/q1_registered/E40_FULL_PERFORMANCE_KEYFRAME_Q1_INDEX_V1.json"
 OUT = BASE / "E40_FULL_PERFORMANCE_VIDEO_PREPRODUCTION_V2.json"
 PRIOR = BASE / "E40_FULL_PERFORMANCE_VIDEO_PREPRODUCTION_V1.json"
-AUDIO_PLAN = BASE / "E40_FULL_PERFORMANCE_EXACT_DIALOGUE_AUDIO_REFERENCE_PLAN_V1.json"
+AUDIO_PLAN = BASE / "E40_FULL_PERFORMANCE_EXACT_DIALOGUE_AUDIO_REFERENCE_PLAN_20_V2.json"
 ASR_QA = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/audio_refs_v1/E40_FULL_PERFORMANCE_AUDIO_REFERENCE_ASR_QA_V1.json"
 AUDIO_REGISTRY = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/audio_refs_v1/E40_FULL_PERFORMANCE_AUDIO_PROVIDER_ASSET_REGISTRY_V1.json"
 COST_GATE = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/videos/E40_FULL_PERFORMANCE_VIDEO_COST_GATE_V2.json"
@@ -304,16 +304,9 @@ def main() -> int:
         tasks.append(task)
 
     if not args.native_text:
-        write(AUDIO_PLAN, {
-            "schema": "qingshan.e40.full_performance_exact_dialogue_audio_reference_plan.v1",
-            "episode": "E40",
-            "status": "READY_FOR_TRANSACTION_FIRST_AUDIO_EXECUTOR",
-            "purpose": "INPUT_REFERENCE_FOR_SAME_SEEDANCE_TASK_NOT_POST_DUB",
-            "postproduction_replacement_forbidden": True,
-            "authorization_refs": ["ROGER_AUTONOMOUS_ROUTINE_PRODUCTION_CHOICES_20260814", "ROGER-20260821-E40-REBUILD-BUDGET-5000"],
-            "audio_count": len(audio_rows),
-            "items": audio_rows,
-        })
+        full_audio_plan = json.loads(AUDIO_PLAN.read_text(encoding="utf-8"))
+        if full_audio_plan.get("audio_count") != 20 or len(full_audio_plan.get("items") or []) != 20:
+            raise ValueError("Complete 20-line audio plan missing; video preproduction may not replace it with an admitted subset")
     manifest = {
         "schema": "qingshan.e40.full_performance_video_preproduction.v2",
         "episode": "E40",

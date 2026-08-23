@@ -25,7 +25,7 @@ try:
 except ModuleNotFoundError as exc:
     raise SystemExit("Run with .agentcut_env/bin/python so agentcut speech is available") from exc
 
-PLAN = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_EXACT_DIALOGUE_AUDIO_REFERENCE_PLAN_V1.json"
+PLAN = ROOT / "workflow/claude_writer_agent/production/e40_remake_v1_20260817/full_performance_native_dialogue_v1/E40_FULL_PERFORMANCE_EXACT_DIALOGUE_AUDIO_REFERENCE_PLAN_20_V2.json"
 TX_DIR = ROOT / "workflow/tasks/giggle_audio_submit_transactions/E40/full_performance_native_dialogue_v1"
 OUT_DIR = ROOT / "working_assets/e40_remake_20260822/full_performance_native_dialogue_v1/audio_refs_v1"
 RECEIPT = ROOT / "qa/e40_remake_20260822/full_performance_native_dialogue_v1/audio_refs_v1/E40_FULL_PERFORMANCE_AUDIO_REFERENCE_EXECUTION_V1.json"
@@ -131,6 +131,12 @@ def execute() -> int:
             rows[item["audio_key"]] = {"status": tx.get("state"), "task_id": tx.get("task_id")}
             continue
         rows[item["audio_key"]] = {"status": tx.get("state"), "task_id": tx.get("task_id")}
+        if tx.get("state") == "TERMINAL_COMPLETED_DOWNLOADED":
+            wav = tx.get("output_wav")
+            wav_sha256 = tx.get("output_wav_sha256")
+            if not isinstance(wav, str) or not wav or not isinstance(wav_sha256, str) or not wav_sha256:
+                raise SystemExit(f"COMPLETED_TRANSACTION_OUTPUT_MISSING:{item['audio_key']}")
+            rows[item["audio_key"]].update({"wav": wav, "wav_sha256": wav_sha256})
 
     deadline = time.monotonic() + 300
     pending = {item["audio_key"]: item for item in plan["items"] if rows.get(item["audio_key"], {}).get("status") == "REMOTE_TASK_BOUND_POLLING"}
@@ -157,7 +163,11 @@ def execute() -> int:
                 OUT_DIR.mkdir(parents=True, exist_ok=True)
                 mp3 = OUT_DIR / f"{audio_key}.mp3"
                 wav = OUT_DIR / f"{audio_key}.wav"
-                downloaded = _download(urls[0], mp3, overwrite=False)
+                # A materially changed failed-only retry intentionally keeps the
+                # canonical audio_key.  Replacement is safe only here, after the
+                # newly bound task is authoritatively completed; no provider POST
+                # occurs on this resume path.
+                downloaded = _download(urls[0], mp3, overwrite=True)
                 subprocess.run([FFMPEG, "-y", "-i", str(mp3), "-vn", "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", str(wav)], capture_output=True, check=True)
                 tx.update({
                     "state": "TERMINAL_COMPLETED_DOWNLOADED",
