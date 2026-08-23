@@ -9,6 +9,7 @@ def attempt(number: int) -> dict:
         "prompt_sha256": f"prompt-{number}",
         "qa_verdict": "FAIL",
         "defect_class": "PROMPT_SEMANTICS",
+        "failure_memory": {"do_not_repeat": f"prompt-semantic-error-{number}"},
     }
 
 
@@ -56,9 +57,9 @@ class RetryCapGateTest(unittest.TestCase):
 
     def test_second_failure_advances_to_third_changed_prompt(self):
         result = evaluate_unit({"unit_id": "R02", "attempts": [attempt(1), attempt(2)]})
-        self.assertEqual(result["next_action"], "ATTEMPT_3_WITH_CHANGED_PROMPT")
+        self.assertEqual(result["next_action"], "AUTO_REWRITE_PROMPT_AND_SUBMIT_ATTEMPT_3")
 
-    def test_refunded_provider_timeouts_do_not_exhaust_creative_attempts(self):
+    def test_refunded_provider_timeouts_stop_for_human_without_exhausting_attempts(self):
         attempts = [
             {
                 "attempt_no": number,
@@ -77,7 +78,7 @@ class RetryCapGateTest(unittest.TestCase):
         self.assertFalse(result["attempts_exhausted"])
         self.assertEqual(
             result["next_action"],
-            "RETRY_AFTER_PROVIDER_RECOVERY_WITH_CHANGED_PROMPT_OR_TRANSPORT",
+            "BLOCKED_ON_INPUT_PROVIDER_FAILURE_REQUIRES_HUMAN",
         )
 
     def test_provider_failure_cannot_auto_switch_to_coverage(self):
@@ -125,9 +126,24 @@ class RetryCapGateTest(unittest.TestCase):
             ],
             "failure_memory": {"rule_id": "PF-PROVIDER"},
             "material_change_from_prior_attempt": "simplified prompt and repaired route",
-            "provider_recovery_action": "verified asset mapping and healthy pilot route",
+            "provider_resolution_status": "VERIFIED_RESOLVED",
+            "provider_resolution_ref": "workflow/provider_resolutions/route-incident-1.json",
         }
         self.assertEqual(validate_submission_attempt(task), [])
+
+    def test_provider_failure_cannot_retry_without_human_resolution(self):
+        task = {
+            "retry_attempt": 2,
+            "creative_attempt_ordinal": 1,
+            "prompt_sha256": "second-submission",
+            "prior_prompt_sha256": ["first"],
+            "prior_failure_classifications": ["PROVIDER_TRANSIENT_FAILURE"],
+            "failure_memory": {"rule_id": "PF-PROVIDER"},
+            "material_change_from_prior_attempt": "reduced prompt",
+        }
+        failures = validate_submission_attempt(task)
+        self.assertIn("PROVIDER_FAILURE_REQUIRES_HUMAN_RESOLUTION", failures)
+        self.assertIn("PROVIDER_RESOLUTION_EVIDENCE_MISSING", failures)
 
 
 if __name__ == "__main__":

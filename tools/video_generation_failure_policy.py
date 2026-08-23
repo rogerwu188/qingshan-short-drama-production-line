@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Classify video-generation failures and select the only safe successor.
 
-Provider transport/capacity failures are not creative failures.  They must not
-consume a paid/creative attempt or automatically authorize editorial coverage.
+Provider failures stop the line for human resolution.  With a healthy provider,
+prompt/candidate failures automatically rewrite the prompt up to three times.
 """
 
 from __future__ import annotations
@@ -153,6 +153,25 @@ def consumes_creative_attempt(attempt: dict[str, Any]) -> bool:
     return classify_attempt(attempt) in CREATIVE_FAILURE_CLASSES | {SUCCESS_CLASS}
 
 
+def prompt_failure_record(attempt: dict[str, Any]) -> dict[str, Any]:
+    reason = (
+        attempt.get("prompt_failure_reason")
+        or attempt.get("failure_reason")
+        or attempt.get("defect_class")
+        or attempt.get("err_msg")
+        or attempt.get("error")
+        or "UNSPECIFIED_GENERATION_FAILURE"
+    )
+    do_not_repeat = attempt.get("do_not_repeat") or attempt.get("failure_memory")
+    return {
+        "attempt_no": attempt.get("attempt_no", attempt.get("attempt")),
+        "prompt_sha256": attempt.get("prompt_sha256"),
+        "failure_class": classify_attempt(attempt),
+        "failure_reason": str(reason),
+        "do_not_repeat": do_not_repeat,
+    }
+
+
 def evaluate_failure_workflow(unit: dict[str, Any]) -> dict[str, Any]:
     attempts = list(unit.get("attempts") or [])
     rows = [
@@ -174,6 +193,34 @@ def evaluate_failure_workflow(unit: dict[str, Any]) -> dict[str, Any]:
     decision = unit.get("terminal_decision") or {}
     action = decision.get("action")
     violations: list[dict[str, Any]] = []
+    provider_resolution = unit.get("provider_resolution") or {}
+    provider_resolved = (
+        provider_resolution.get("status") == "VERIFIED_RESOLVED"
+        and bool(provider_resolution.get("evidence_ref"))
+    )
+    prompt_failures = [
+        prompt_failure_record(attempt)
+        for attempt in attempts
+        if classify_attempt(attempt) in CREATIVE_FAILURE_CLASSES
+    ]
+    prompt_memory_failures: list[dict[str, Any]] = []
+    for record in prompt_failures:
+        if not record["prompt_sha256"]:
+            prompt_memory_failures.append({
+                "code": "FAILED_PROMPT_SHA_MISSING",
+                "attempt_no": record["attempt_no"],
+            })
+        if record["failure_reason"] == "UNSPECIFIED_GENERATION_FAILURE":
+            prompt_memory_failures.append({
+                "code": "PROMPT_FAILURE_REASON_MISSING",
+                "attempt_no": record["attempt_no"],
+            })
+        if not record["do_not_repeat"]:
+            prompt_memory_failures.append({
+                "code": "PROMPT_DO_NOT_REPEAT_RULE_MISSING",
+                "attempt_no": record["attempt_no"],
+            })
+    violations.extend(prompt_memory_failures)
 
     if latest_class in PROVIDER_FAILURE_CLASSES and action in {
         "SWITCH_COVERAGE",
@@ -196,34 +243,78 @@ def evaluate_failure_workflow(unit: dict[str, Any]) -> dict[str, Any]:
         next_action = "PASS_ADMITTED"
     elif not attempts:
         next_action = "ATTEMPT_1"
+    elif latest_class in PROVIDER_FAILURE_CLASSES and not provider_resolved:
+        next_action = "BLOCKED_ON_INPUT_PROVIDER_FAILURE_REQUIRES_HUMAN"
     elif latest_class in PROVIDER_FAILURE_CLASSES:
-        next_action = "RETRY_AFTER_PROVIDER_RECOVERY_WITH_CHANGED_PROMPT_OR_TRANSPORT"
-    elif latest_class == "PROMPT_OR_POLICY_REJECTION":
-        next_action = "RETRY_WITH_MATERIALLY_CHANGED_PROMPT"
+        next_action = "RESUME_GENERATION_AFTER_VERIFIED_PROVIDER_RESOLUTION"
     elif latest_class == UNKNOWN_CLASS:
-        next_action = "HUMAN_ADJUDICATION_REQUIRED_UNKNOWN_FAILURE"
+        next_action = "BLOCKED_ON_INPUT_UNKNOWN_FAILURE_REQUIRES_HUMAN"
+    elif prompt_memory_failures:
+        next_action = "BLOCKED_ON_INPUT_PROMPT_FAILURE_MEMORY_INCOMPLETE"
     elif creative_count < MAX_CREATIVE_ATTEMPTS:
-        next_action = f"ATTEMPT_{creative_count + 1}_WITH_CHANGED_PROMPT"
-    elif not action:
-        next_action = "HUMAN_DECISION_REQUIRED_AFTER_THREE_REAL_CREATIVE_ATTEMPTS"
-    elif not violations:
+        next_action = f"AUTO_REWRITE_PROMPT_AND_SUBMIT_ATTEMPT_{creative_count + 1}"
+    elif action and decision.get("human_approval_ref") and not violations:
         next_action = f"TERMINAL_{action}"
     else:
-        next_action = "BLOCK_INVALID_FALLBACK"
+        next_action = "BLOCKED_ON_INPUT_PROMPT_ATTEMPTS_EXHAUSTED_REQUIRES_HUMAN"
+
+    if any_pass or not attempts or next_action.startswith("AUTO_REWRITE_") or next_action.startswith("RESUME_"):
+        status = "PASS"
+    elif next_action.startswith("BLOCKED_ON_INPUT_PROVIDER_FAILURE"):
+        status = "BLOCKED_ON_INPUT_PROVIDER_FAILURE"
+    elif next_action.startswith("BLOCKED_ON_INPUT_PROMPT_ATTEMPTS"):
+        status = "BLOCKED_ON_INPUT_PROMPT_ATTEMPTS_EXHAUSTED"
+    elif next_action.startswith("BLOCKED_ON_INPUT_UNKNOWN"):
+        status = "BLOCKED_ON_INPUT_UNKNOWN_FAILURE"
+    elif next_action.startswith("BLOCKED_ON_INPUT_PROMPT_FAILURE_MEMORY"):
+        status = "BLOCKED_ON_INPUT_PROMPT_FAILURE_MEMORY_INCOMPLETE"
+    else:
+        status = "BLOCK_INVALID_SUCCESSOR" if violations else "PASS"
+
+    if latest_class in PROVIDER_FAILURE_CLASSES and not provider_resolved:
+        notification = {
+            "notify_human": True,
+            "reason": "Provider failure stopped all downstream work until verified resolution.",
+            "provider_failure_class": latest_class,
+            "required_resolution_fields": ["status=VERIFIED_RESOLVED", "evidence_ref"],
+        }
+    elif creative_count >= MAX_CREATIVE_ATTEMPTS and not any_pass:
+        notification = {
+            "notify_human": True,
+            "reason": "Three provider-healthy generation attempts failed.",
+            "prompt_failure_records": prompt_failures,
+        }
+    else:
+        notification = {"notify_human": False}
+
+    rewrite_contract = None
+    if next_action.startswith("AUTO_REWRITE_PROMPT_AND_SUBMIT_ATTEMPT_"):
+        rewrite_contract = {
+            "next_creative_attempt": creative_count + 1,
+            "forbidden_prompt_sha256": [row["prompt_sha256"] for row in prompt_failures],
+            "must_fix_reasons": [row["failure_reason"] for row in prompt_failures],
+            "do_not_repeat": [row["do_not_repeat"] for row in prompt_failures],
+            "material_change_required": True,
+            "canonical_story_and_native_audio_must_be_preserved": True,
+        }
 
     return {
-        "schema": "qingshan.video_generation_failure_workflow.v1",
-        "status": "PASS" if not violations else "BLOCK_INVALID_SUCCESSOR",
+        "schema": "qingshan.video_generation_failure_workflow.v2",
+        "status": status,
         "attempt_classifications": rows,
         "submission_attempt_count": len(rows),
         "paid_attempt_count": paid_count,
         "creative_attempt_count": creative_count,
         "provider_failure_count": provider_count,
         "latest_failure_class": latest_class,
+        "provider_resolved": provider_resolved,
+        "prompt_failure_records": prompt_failures,
+        "human_notification": notification,
+        "prompt_rewrite_contract": rewrite_contract,
         "any_pass": any_pass,
         "next_action": next_action,
         "violations": violations,
-        "fallback_eligible": creative_count >= MAX_CREATIVE_ATTEMPTS and provider_count == 0,
+        "automatic_fallback_eligible": False,
     }
 
 
@@ -234,7 +325,7 @@ def main(argv: list[str] | None = None) -> int:
     raw = Path(args.input).read_text(encoding="utf-8") if args.input else sys.stdin.read()
     result = evaluate_failure_workflow(json.loads(raw))
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0 if result["status"] == "PASS" else 2
+    return 0 if result["status"] == "PASS" else 3 if result["status"].startswith("BLOCKED_ON_INPUT") else 2
 
 
 if __name__ == "__main__":

@@ -30,7 +30,8 @@ def evaluate(
     failure_reason: str,
     total_paid_tasks: int,
     failure_class: str = "CANDIDATE_QA_FAILURE",
-    provider_recovery_action: str | None = None,
+    provider_resolution_status: str | None = None,
+    provider_resolution_ref: str | None = None,
 ) -> dict:
     failures = []
     warnings = []
@@ -39,8 +40,11 @@ def evaluate(
     normalized_class = str(failure_class or "").upper()
     provider_failure = normalized_class in PROVIDER_FAILURE_CLASSES
 
-    if provider_failure and not str(provider_recovery_action or "").strip():
-        failures.append("PROVIDER_RECOVERY_ACTION_REQUIRED")
+    if provider_failure and (
+        provider_resolution_status != "VERIFIED_RESOLVED"
+        or not str(provider_resolution_ref or "").strip()
+    ):
+        failures.append("PROVIDER_FAILURE_REQUIRES_HUMAN_RESOLUTION")
     elif not provider_failure and failure_tier == "ADVISE":
         failures.append("ADVISE_FAILURE_MUST_NOT_AUTO_REROLL")
     elif not provider_failure and failure_tier != "BLOCK":
@@ -85,7 +89,7 @@ def evaluate(
     return {
         "schema": "qingshan.reroll_cost_guard_result.v1",
         "status": (
-            "PASS_PROVIDER_RECOVERY_RETRY_ALLOWED"
+            "PASS_PROVIDER_RESOLVED_RETRY_ALLOWED"
             if provider_failure and not failures
             else "PASS_AUTO_REROLL_ALLOWED"
             if not failures
@@ -96,7 +100,8 @@ def evaluate(
         "failure_tier": failure_tier,
         "failure_reason": failure_reason,
         "failure_class": normalized_class,
-        "provider_recovery_action": provider_recovery_action,
+        "provider_resolution_status": provider_resolution_status,
+        "provider_resolution_ref": provider_resolution_ref,
         "episode_paid_reroll_count_after_submit": paid_reroll_count_after_submit,
         "episode_paid_reroll_limit": max_paid_rerolls,
         "episode_total_paid_task_count": total_paid_tasks,
@@ -115,7 +120,8 @@ def main() -> int:
     parser.add_argument("--failure-reason", required=True)
     parser.add_argument("--total-paid-tasks", required=True, type=int)
     parser.add_argument("--failure-class", default="CANDIDATE_QA_FAILURE")
-    parser.add_argument("--provider-recovery-action")
+    parser.add_argument("--provider-resolution-status")
+    parser.add_argument("--provider-resolution-ref")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
 
@@ -128,7 +134,8 @@ def main() -> int:
         failure_reason=args.failure_reason,
         total_paid_tasks=args.total_paid_tasks,
         failure_class=args.failure_class,
-        provider_recovery_action=args.provider_recovery_action,
+        provider_resolution_status=args.provider_resolution_status,
+        provider_resolution_ref=args.provider_resolution_ref,
     )
     output = Path(args.out)
     output.parent.mkdir(parents=True, exist_ok=True)

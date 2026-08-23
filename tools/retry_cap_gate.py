@@ -47,11 +47,15 @@ def validate_submission_attempt(task: dict) -> list[str]:
     if attempt < 1 or creative_attempt < 1 or creative_attempt > MAX_ATTEMPTS:
         return ["RETRY_ATTEMPT_CAP_EXCEEDED"]
     prior_classes = [str(value).upper() for value in task.get("prior_failure_classifications") or []]
+    prior_provider_failure = bool(prior_classes and prior_classes[-1] in PROVIDER_FAILURE_CLASSES)
+    if prior_provider_failure:
+        if task.get("provider_resolution_status") != "VERIFIED_RESOLVED":
+            failures.append("PROVIDER_FAILURE_REQUIRES_HUMAN_RESOLUTION")
+        if not str(task.get("provider_resolution_ref") or "").strip():
+            failures.append("PROVIDER_RESOLUTION_EVIDENCE_MISSING")
     if attempt > MAX_ATTEMPTS:
         if not prior_classes or any(value not in PROVIDER_FAILURE_CLASSES for value in prior_classes):
             failures.append("SUBMISSION_ATTEMPT_ABOVE_CAP_REQUIRES_PROVIDER_FAILURE_HISTORY")
-        if not str(task.get("provider_recovery_action") or "").strip():
-            failures.append("PROVIDER_RECOVERY_ACTION_MISSING")
     if attempt == 1:
         return failures
     if not task.get("failure_memory"):
@@ -104,6 +108,8 @@ def evaluate_unit(unit: dict) -> dict:
         action = decision.get("action") if decision else None
         if not decision:
             violations.append({"code": "STALLED_NO_TERMINAL_DECISION"})
+        elif not decision.get("human_approval_ref"):
+            violations.append({"code": "THREE_FAILED_PROMPTS_REQUIRE_HUMAN_APPROVAL"})
         elif action not in TERMINAL_DECISIONS:
             violations.append({"code": "INVALID_TERMINAL_DECISION", "got": action})
         else:
