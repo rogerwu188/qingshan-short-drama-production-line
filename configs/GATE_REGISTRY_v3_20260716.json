@@ -763,6 +763,7 @@
       "code_paths": [
         "tools/reroll_cost_guard.py",
         "tools/retry_cap_gate.py",
+        "tools/video_generation_failure_policy.py",
         "tools/episode_video_generation_guard.py",
         "tools/submit_giggle_video_manifest_v2.py",
         "tools/submit_giggle_image_manifest.py",
@@ -771,6 +772,7 @@
       "test_paths": [
         "tools/tests/test_reroll_cost_guard.py",
         "tools/tests/test_retry_cap_gate.py",
+        "tools/tests/test_video_generation_failure_policy.py",
         "tools/tests/test_episode_video_generation_guard.py"
       ],
       "parameters": {
@@ -779,6 +781,11 @@
         "max_rerolls_per_shot": 2,
         "episode_reroll_shot_fraction": 0.15,
         "same_reason_distinct_shot_limit": 2,
+        "provider_infrastructure_failures_do_not_consume_creative_attempts": true,
+        "fully_refunded_provider_failures_do_not_consume_paid_attempts": true,
+        "provider_failure_requires_recovery_retry_not_creative_fallback": true,
+        "script_equivalent_requires_explicit_human_approval": true,
+        "dialogue_retirement_requires_specific_human_approval": true,
         "roi_ledger_required": true,
         "roi_review_interval_episodes": 3
       },

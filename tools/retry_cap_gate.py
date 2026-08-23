@@ -8,13 +8,30 @@ import json
 import sys
 from pathlib import Path
 
+try:
+    from video_generation_failure_policy import (
+        MAX_CREATIVE_ATTEMPTS,
+        PROVIDER_FAILURE_CLASSES,
+        evaluate_failure_workflow,
+    )
+except ImportError:
+    from tools.video_generation_failure_policy import (
+        MAX_CREATIVE_ATTEMPTS,
+        PROVIDER_FAILURE_CLASSES,
+        evaluate_failure_workflow,
+    )
 
-MAX_ATTEMPTS = 3
+
+MAX_ATTEMPTS = MAX_CREATIVE_ATTEMPTS
 P0_DEFECTS = {
     "IDENTITY_DRIFT", "WRONG_CHARACTER", "COPYRIGHT", "RIGHTS_MISSING",
     "MEDIA_CORRUPT", "PLOT_BREAK", "MISSING_DIALOGUE", "NO_SUBTITLE",
 }
-TERMINAL_DECISIONS = {"ADMIT_BEST_EFFORT", "SWITCH_COVERAGE"}
+TERMINAL_DECISIONS = {
+    "ADMIT_BEST_EFFORT",
+    "SWITCH_COVERAGE",
+    "SCRIPT_EQUIVALENT_ADJUSTMENT",
+}
 
 
 def validate_submission_attempt(task: dict) -> list[str]:
@@ -24,8 +41,17 @@ def validate_submission_attempt(task: dict) -> list[str]:
     if not isinstance(raw_attempt, int) or isinstance(raw_attempt, bool):
         return ["RETRY_ATTEMPT_NOT_INTEGER"]
     attempt = int(raw_attempt)
-    if attempt < 1 or attempt > MAX_ATTEMPTS:
+    creative_attempt = task.get("creative_attempt_ordinal", task.get("paid_attempt_ordinal", attempt))
+    if not isinstance(creative_attempt, int) or isinstance(creative_attempt, bool):
+        return ["CREATIVE_ATTEMPT_ORDINAL_NOT_INTEGER"]
+    if attempt < 1 or creative_attempt < 1 or creative_attempt > MAX_ATTEMPTS:
         return ["RETRY_ATTEMPT_CAP_EXCEEDED"]
+    prior_classes = [str(value).upper() for value in task.get("prior_failure_classifications") or []]
+    if attempt > MAX_ATTEMPTS:
+        if not prior_classes or any(value not in PROVIDER_FAILURE_CLASSES for value in prior_classes):
+            failures.append("SUBMISSION_ATTEMPT_ABOVE_CAP_REQUIRES_PROVIDER_FAILURE_HISTORY")
+        if not str(task.get("provider_recovery_action") or "").strip():
+            failures.append("PROVIDER_RECOVERY_ACTION_MISSING")
     if attempt == 1:
         return failures
     if not task.get("failure_memory"):
@@ -40,7 +66,7 @@ def validate_submission_attempt(task: dict) -> list[str]:
         failures.append("RETRY_CURRENT_PROMPT_SHA_MISSING")
     elif current in prior:
         failures.append("PROMPT_UNCHANGED_RETRY")
-    if attempt == MAX_ATTEMPTS and task.get("no_further_automatic_retry") is not True:
+    if creative_attempt == MAX_ATTEMPTS and task.get("no_further_automatic_retry") is not True:
         failures.append("FINAL_ATTEMPT_MUST_CLOSE_AUTOMATIC_RETRY")
     return failures
 
@@ -49,6 +75,8 @@ def evaluate_unit(unit: dict) -> dict:
     attempts = unit.get("attempts") or []
     decision = unit.get("terminal_decision")
     violations: list[dict] = []
+    workflow = evaluate_failure_workflow(unit)
+    violations.extend(workflow["violations"])
     seen: dict[str, object] = {}
     for attempt in attempts:
         prompt_sha = attempt.get("prompt_sha256")
@@ -64,11 +92,14 @@ def evaluate_unit(unit: dict) -> dict:
         else:
             seen[str(prompt_sha)] = number
 
-    if len(attempts) > MAX_ATTEMPTS:
-        violations.append({"code": "ATTEMPT_CAP_EXCEEDED", "attempts": len(attempts)})
+    if workflow["creative_attempt_count"] > MAX_ATTEMPTS:
+        violations.append({
+            "code": "ATTEMPT_CAP_EXCEEDED",
+            "attempts": workflow["creative_attempt_count"],
+        })
 
-    passed = [row for row in attempts if str(row.get("qa_verdict") or "").upper() == "PASS"]
-    exhausted = len(attempts) >= MAX_ATTEMPTS and not passed
+    passed = workflow["any_pass"]
+    exhausted = workflow["creative_attempt_count"] >= MAX_ATTEMPTS and not passed
     if exhausted:
         action = decision.get("action") if decision else None
         if not decision:
@@ -84,24 +115,20 @@ def evaluate_unit(unit: dict) -> dict:
                     violations.append({"code": "BEST_EFFORT_WITHOUT_SELECTION"})
                 if not decision.get("selection_reason"):
                     violations.append({"code": "BEST_EFFORT_WITHOUT_REASON"})
-            elif not decision.get("replacement_plan"):
+            elif action == "SWITCH_COVERAGE" and not decision.get("replacement_plan"):
                 violations.append({"code": "SWITCH_WITHOUT_PLAN"})
 
-    if passed:
-        next_action = "PASS_ADMITTED"
-    elif not attempts:
-        next_action = "ATTEMPT_1"
-    elif len(attempts) < MAX_ATTEMPTS:
-        next_action = f"ATTEMPT_{len(attempts) + 1}_WITH_CHANGED_PROMPT"
-    elif decision and decision.get("action") in TERMINAL_DECISIONS and not violations:
+    next_action = workflow["next_action"]
+    if exhausted and decision and decision.get("action") in TERMINAL_DECISIONS and not violations:
         next_action = f"TERMINAL_{decision['action']}"
-    else:
-        p0 = {str(row.get("defect_class") or "").upper() for row in attempts} & P0_DEFECTS
-        next_action = "MUST_DECIDE_NOW: SWITCH_COVERAGE" if p0 else "MUST_DECIDE_NOW: ADMIT_BEST_EFFORT"
 
     return {
         "unit_id": unit.get("unit_id", "?"),
-        "attempts_used": len(attempts),
+        "attempts_used": workflow["creative_attempt_count"],
+        "submission_attempt_count": workflow["submission_attempt_count"],
+        "paid_attempt_count": workflow["paid_attempt_count"],
+        "provider_failure_count": workflow["provider_failure_count"],
+        "attempt_classifications": workflow["attempt_classifications"],
         "max_attempts": MAX_ATTEMPTS,
         "any_pass": bool(passed),
         "attempts_exhausted": exhausted,

@@ -58,6 +58,77 @@ class RetryCapGateTest(unittest.TestCase):
         result = evaluate_unit({"unit_id": "R02", "attempts": [attempt(1), attempt(2)]})
         self.assertEqual(result["next_action"], "ATTEMPT_3_WITH_CHANGED_PROMPT")
 
+    def test_refunded_provider_timeouts_do_not_exhaust_creative_attempts(self):
+        attempts = [
+            {
+                "attempt_no": number,
+                "task_id": f"task-{number}",
+                "provider_error": "provider timeout",
+                "actual_charged_credits": 0,
+                "charge_status": "FAILED_ZERO_NET_AFTER_REFUND",
+                "prompt_sha256": f"prompt-{number}",
+            }
+            for number in (1, 2, 3)
+        ]
+        result = evaluate_unit({"unit_id": "R02", "attempts": attempts})
+        self.assertEqual(result["attempts_used"], 0)
+        self.assertEqual(result["paid_attempt_count"], 0)
+        self.assertEqual(result["provider_failure_count"], 3)
+        self.assertFalse(result["attempts_exhausted"])
+        self.assertEqual(
+            result["next_action"],
+            "RETRY_AFTER_PROVIDER_RECOVERY_WITH_CHANGED_PROMPT_OR_TRANSPORT",
+        )
+
+    def test_provider_failure_cannot_auto_switch_to_coverage(self):
+        result = evaluate_unit({
+            "unit_id": "R02",
+            "attempts": [{
+                "attempt_no": 1,
+                "provider_error": "router mapping not found",
+                "actual_charged_credits": 0,
+                "prompt_sha256": "prompt-1",
+            }],
+            "terminal_decision": {
+                "action": "SWITCH_COVERAGE",
+                "replacement_plan": "silent still montage",
+            },
+        })
+        self.assertIn(
+            "PROVIDER_FAILURE_CANNOT_TRIGGER_CREATIVE_FALLBACK",
+            {row["code"] for row in result["violations"]},
+        )
+
+    def test_dialogue_retirement_requires_specific_human_approval(self):
+        result = evaluate_unit({
+            "unit_id": "R02",
+            "attempts": [attempt(1), attempt(2), attempt(3)],
+            "terminal_decision": {
+                "action": "SCRIPT_EQUIVALENT_ADJUSTMENT",
+                "retires_spoken_dialogue": True,
+            },
+        })
+        codes = {row["code"] for row in result["violations"]}
+        self.assertIn("SCRIPT_EQUIVALENT_REQUIRES_EXPLICIT_HUMAN_APPROVAL", codes)
+        self.assertIn("DIALOGUE_RETIREMENT_REQUIRES_EXPLICIT_HUMAN_APPROVAL", codes)
+
+    def test_submission_ordinal_can_exceed_three_after_only_provider_failures(self):
+        task = {
+            "retry_attempt": 4,
+            "creative_attempt_ordinal": 1,
+            "prompt_sha256": "fourth-submission-first-creative",
+            "prior_prompt_sha256": ["first", "second", "third"],
+            "prior_failure_classifications": [
+                "PROVIDER_TRANSPORT_FAILURE",
+                "PROVIDER_TRANSIENT_FAILURE",
+                "SUBMISSION_NOT_ACCEPTED",
+            ],
+            "failure_memory": {"rule_id": "PF-PROVIDER"},
+            "material_change_from_prior_attempt": "simplified prompt and repaired route",
+            "provider_recovery_action": "verified asset mapping and healthy pilot route",
+        }
+        self.assertEqual(validate_submission_attempt(task), [])
+
 
 if __name__ == "__main__":
     unittest.main()
