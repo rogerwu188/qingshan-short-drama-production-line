@@ -82,6 +82,7 @@ def main() -> int:
     parser.add_argument("--task-version", default="V2")
     parser.add_argument("--prior-manifest", type=Path)
     parser.add_argument("--skip-pilot", action="store_true")
+    parser.add_argument("--q1-aliases", type=Path, help="JSON map of target KF task key to an admitted visual-source KF task key")
     args = parser.parse_args()
     q1_path = args.q1 if args.q1.is_absolute() else ROOT / args.q1
     out_path = args.out if args.out.is_absolute() else ROOT / args.out
@@ -89,7 +90,10 @@ def main() -> int:
     plan = json.loads(PLAN.read_text(encoding="utf-8"))
     keyframes = json.loads(KEYFRAMES.read_text(encoding="utf-8"))
     q1 = json.loads(q1_path.read_text(encoding="utf-8"))
-    admitted = set(q1.get("video_submission_allowed_task_keys") or [])
+    alias_path = args.q1_aliases
+    alias_path = alias_path if alias_path is None or alias_path.is_absolute() else ROOT / alias_path
+    aliases = json.loads(alias_path.read_text(encoding="utf-8")) if alias_path else {}
+    admitted = set(aliases) if aliases else set(q1.get("video_submission_allowed_task_keys") or [])
     units = {row["task_id"]: row for row in plan["units"]}
     kf_tasks = {row["task_key"]: row for row in keyframes["tasks"]}
     q1_rows = {row["task_key"]: row for row in q1["results"]}
@@ -111,8 +115,10 @@ def main() -> int:
     for key in sorted(admitted):
         unit_id = key.removesuffix("-KF-QA-V2")
         unit = units[unit_id]
-        kf = kf_tasks[key]
-        admission = q1_rows[key]
+        visual_source_key = aliases.get(key, key)
+        kf = kf_tasks[visual_source_key]
+        admission = q1_rows[visual_source_key]
+        offscreen_coverage = visual_source_key != key
         frame = ROOT / admission["asset_path"]
         if sha(frame) != admission["asset_sha256"]:
             raise ValueError(f"Exact first-frame SHA mismatch: {key}")
@@ -192,6 +198,9 @@ def main() -> int:
             "q1_admission_result": admission["admission_result"],
             "q1_admission_result_sha256": admission["admission_result_sha256"],
             "start_frame_admission_ref": admission["admission_result"],
+            "visual_source_task_key": visual_source_key,
+            "script_equivalent_coverage": "OFFSCREEN_OR_BACKVIEW_NO_VISIBLE_LIP" if offscreen_coverage else None,
+            "visible_speaker_required": not offscreen_coverage,
             "episode_global_space_map_id": kf["episode_global_space_map_id"],
             "global_space_map_id": kf["global_space_map_id"],
             "subspace_id": kf["subspace_layout"]["subspace_id"],
@@ -205,8 +214,10 @@ def main() -> int:
                 "entity_id": speaker_entity,
                 "from": "首帧锁定站位、未开口的呼吸与视线预备状态",
                 "to": "最后一句完整说完后的克制反应终态，站位和轴线不变",
-                "action": "按精确音频自然说话，口型、下颌、呼吸、眼神和微表情同步推进",
-                "visible_consequence": "对白完整可听且口型同步；人物身份、空间、道具状态和对手关系连续",
+                "action": ("保持已准入人物背面或反应构图，以眼神、呼吸和微动作承接画外原生对白；禁止生成说话口型"
+                           if offscreen_coverage else "按精确音频自然说话，口型、下颌、呼吸、眼神和微表情同步推进"),
+                "visible_consequence": ("对白完整可听；画面无人出现可见说话口型，身份、空间、道具状态连续"
+                                        if offscreen_coverage else "对白完整可听且口型同步；人物身份、空间、道具状态和对手关系连续"),
             }],
             "performance_tempo_contract": {
                 "playback_speed": "REAL_TIME_1X",
@@ -214,7 +225,8 @@ def main() -> int:
                 "atomic_action_windows": [{
                     "start_seconds": 0.0,
                     "end_seconds": min(1.0, float(unit["duration_seconds"])),
-                    "action": "首句在自然吸气后立即开始，口型与精确音频同步",
+                    "action": ("首句立即以同任务画外原生对白开始；画内人物只作无口型反应"
+                               if offscreen_coverage else "首句在自然吸气后立即开始，口型与精确音频同步"),
                 }],
                 "final_timing_policy": "FOLLOW_BOUND_EXACT_AUDIO_NO_TIME_STRETCH",
             },
@@ -292,6 +304,12 @@ def main() -> int:
                "\n传输锁：按编号使用同一任务绑定的公开音频引用，逐句驱动原生口型、呼吸与声场；禁止把音频资产编号当作可播放音源。\n"),
             encoding="utf-8",
         )
+        if offscreen_coverage:
+            with prompt_path.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    "等价覆盖锁：声音来自画外或背对镜头的说话者；保持已准入首帧的人物身份与构图，"
+                    "任何画内人物都不得形成可见说话口型。禁止新增、替换或重塑人物面孔。\n"
+                )
         if args.image_to_video:
             with prompt_path.open("a", encoding="utf-8") as handle:
                 handle.write(
@@ -346,7 +364,8 @@ def main() -> int:
             "planned_video_tasks": len(tasks),
             "planned_gross_credits": sum(int(row["duration_seconds"]) * 16 for row in tasks),
             "maximum_additional_credits": 5000,
-            "first_pass_only": True,
+            "first_pass_only": all(int(row.get("retry_attempt") or 1) == 1 for row in tasks),
+            "attempt_numbers": sorted({int(row.get("retry_attempt") or 1) for row in tasks}),
         })
         pilot = copy.deepcopy(manifest)
         pilot["schema"] = "qingshan.e40.full_performance_video_transport_pilot.v2"
