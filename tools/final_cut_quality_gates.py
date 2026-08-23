@@ -51,7 +51,7 @@ MAX_DOMINANT_LOCATION_PCT = 60.0
 # including it in a mean is what let 3.4/3.3 pass as 3.7.
 CRAFT_DIMENSIONS = ("story", "continuation", "pacing", "opening", "clarity", "visual", "anti_ai")
 MIN_CRAFT_DIMENSION = 3.5
-COMPLIANCE_PREREQUISITES = ("burned_subtitles", "identity_color_consistent", "opening_3s_hook")
+COMPLIANCE_PREREQUISITES = ("identity_color_consistent", "opening_3s_hook")
 
 # --- G1 viewing evidence --------------------------------------------------
 MIN_SHOT_NOTE_CHARS = 8
@@ -267,6 +267,25 @@ def gate_weakest_link(report: dict, findings: list[dict]) -> float | None:
                 floor=MIN_CRAFT_DIMENSION,
             )
     evidence = report.get("evidence") or {}
+    # Subtitles are mandatory when the final cut contains spoken dialogue.  A
+    # deliberately silent/script-equivalent cut may mark them N/A, but only
+    # with machine-readable evidence that makes a producer's self-waiver
+    # impossible: the adjusted spoken-line count must be zero, whole-track ASR
+    # must have found zero segments, and both evidence artifacts must be named.
+    subtitles_satisfied = evidence.get("burned_subtitles") is True
+    if not subtitles_satisfied:
+        subtitle_requirement = evidence.get("subtitle_requirement") or {}
+        subtitles_satisfied = (
+            subtitle_requirement.get("status") == "NOT_APPLICABLE_ZERO_DIALOGUE"
+            and subtitle_requirement.get("adjusted_spoken_line_count") == 0
+            and subtitle_requirement.get("whole_track_asr_segment_count") == 0
+            and isinstance(subtitle_requirement.get("script_adjustment_evidence_ref"), str)
+            and bool(subtitle_requirement.get("script_adjustment_evidence_ref", "").strip())
+            and isinstance(subtitle_requirement.get("whole_track_asr_evidence_ref"), str)
+            and bool(subtitle_requirement.get("whole_track_asr_evidence_ref", "").strip())
+        )
+    if not subtitles_satisfied:
+        _blocker(findings, "G4B_COMPLIANCE_PREREQ", "compliance prerequisite not met: burned_subtitles")
     for name in COMPLIANCE_PREREQUISITES:
         if evidence.get(name) is not True:
             _blocker(findings, "G4B_COMPLIANCE_PREREQ", f"compliance prerequisite not met: {name}")

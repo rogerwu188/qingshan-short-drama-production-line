@@ -979,6 +979,28 @@ def speech_density_stats(
     }
 
 
+def zero_dialogue_contract_stats(adjustment_payload: Any, asr_payload: Any) -> Dict[str, Any]:
+    """Constitute the strict zero-dialogue exception to speech-only CI checks."""
+    policy = adjustment_payload.get("spoken_dialogue_policy") if isinstance(adjustment_payload, dict) else None
+    transcript = asr_payload.get("transcript_segments") if isinstance(asr_payload, dict) else None
+    valid = (
+        isinstance(policy, dict)
+        and policy.get("spoken_dialogue_count") == 0
+        and policy.get("burned_dialogue_subtitle_count") == 0
+        and adjustment_payload.get("canonical_script_unchanged") is True
+        and str(adjustment_payload.get("status") or "").startswith("ACTIVE_SCRIPT_EQUIVALENT_NO_SPOKEN_DIALOGUE")
+        and transcript == []
+        and asr_payload.get("detected_spoken_dialogue_count") == 0
+        and asr_payload.get("postdub_used") is False
+    )
+    return {
+        "status": "PASS_NOT_APPLICABLE_ZERO_DIALOGUE" if valid else "NOT_REQUESTED_OR_INVALID",
+        "valid": valid,
+        "spoken_dialogue_count": policy.get("spoken_dialogue_count") if isinstance(policy, dict) else None,
+        "asr_segment_count": len(transcript) if isinstance(transcript, list) else None,
+    }
+
+
 def freeze_stats(values: List[float], fps: float, freeze_motion: float, min_freeze_seconds: float, runtime: float) -> Dict[str, Any]:
     min_frames = max(1, int(round(fps * min_freeze_seconds)))
     frozen_runs: List[Dict[str, float]] = []
@@ -1209,6 +1231,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--action-audit-json")
     parser.add_argument("--sentence-audit-json")
     parser.add_argument("--asr-json")
+    parser.add_argument("--zero-dialogue-adjustment-json")
+    parser.add_argument("--zero-dialogue-asr-json")
     parser.add_argument("--scene-brightness-json")
     parser.add_argument(
         "--source-brightness-audit-json",
@@ -1255,6 +1279,10 @@ def main() -> int:
     action_realtime = action_realtime_stats(load_json_optional(args.action_audit_json))
     sentence_audit = sentence_audit_stats(load_json_optional(args.sentence_audit_json))
     asr_payload = load_json_optional(args.asr_json)
+    zero_dialogue_contract = zero_dialogue_contract_stats(
+        load_json_optional(args.zero_dialogue_adjustment_json),
+        load_json_optional(args.zero_dialogue_asr_json),
+    )
     opening_audio = opening_audio_metrics(ffmpeg, video, asr_payload)
     speech_density = speech_density_stats(
         asr_payload,
@@ -1280,6 +1308,15 @@ def main() -> int:
         args.require_source_brightness_audits,
     )
     ocr_audit = ocr_audit_stats(load_json_optional(args.ocr_audit_json))
+    if zero_dialogue_contract["valid"] and ocr_audit.get("failures"):
+        # A zero-dialogue cut has no dialogue-subtitle lexicon to configure.
+        # OCR still blocks on unwanted Latin/numeric/critical text; only the
+        # subtitle-specific lexicon prerequisite becomes not applicable.
+        ocr_audit["failures"] = [
+            failure for failure in ocr_audit["failures"]
+            if failure != "ocr_lexicon_policy_missing"
+        ]
+        ocr_audit["status"] = "PASS_ZERO_DIALOGUE_NO_SUBTITLE_LEXICON" if not ocr_audit["failures"] else "FAIL"
     coverage_payload = load_json_optional(args.coverage_manifest_json)
     approval_audit_text = load_text_files(args.approval_audit_file)
     threshold_override = threshold_override_audit(args, approval_audit_text)
@@ -1352,10 +1389,11 @@ def main() -> int:
     failures.extend(threshold_override["failures"])
     failures.extend(audio_bed_continuity["failures"])
     failures.extend(action_realtime["failures"])
-    failures.extend(sentence_audit["failures"])
-    if opening_audio["status"] != "PASS":
-        failures.append("opening_10s_speech_energy_fail")
-    failures.extend(speech_density["failures"])
+    if not zero_dialogue_contract["valid"]:
+        failures.extend(sentence_audit["failures"])
+        if opening_audio["status"] != "PASS":
+            failures.append("opening_10s_speech_energy_fail")
+        failures.extend(speech_density["failures"])
     failures.extend(static_holds["failures"])
     failures.extend(scene_brightness["failures"])
     failures.extend(source_brightness_audits["failures"])
@@ -1381,6 +1419,7 @@ def main() -> int:
         "asr_sentence_audit": sentence_audit,
         "opening_10s_speech_energy": opening_audio,
         "speech_density": speech_density,
+        "zero_dialogue_contract": zero_dialogue_contract,
         "static_hold_gate": static_holds,
         "scene_brightness": scene_brightness,
         "source_brightness_audits": source_brightness_audits,
