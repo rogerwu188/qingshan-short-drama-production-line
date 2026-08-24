@@ -55,6 +55,24 @@ class RetryCapGateTest(unittest.TestCase):
         })
         self.assertIn("ATTEMPT_CAP_EXCEEDED", {row["code"] for row in result["violations"]})
 
+    def test_image_fourth_attempt_is_allowed_with_changed_prompt_memory(self):
+        task = {
+            "media_type": "IMAGE",
+            "retry_attempt": 4,
+            "creative_attempt_ordinal": 4,
+            "prompt_sha256": "fourth-image-prompt",
+            "prior_prompt_sha256": ["first", "second", "third"],
+            "failure_memory": {"rule_id": "IMAGE-CONTENT-FAILURE-3"},
+            "material_change_from_prior_attempt": "remove split screen and keep one frame",
+        }
+        self.assertEqual(validate_submission_attempt(task), [])
+
+    def test_image_attempt_cap_is_ten(self):
+        attempts = [dict(attempt(number), output_path=f"candidate-{number}.png") for number in range(1, 11)]
+        result = evaluate_unit({"unit_id": "KF-01", "media_type": "IMAGE", "attempts": attempts})
+        self.assertEqual(result["max_attempts"], 10)
+        self.assertTrue(result["attempts_exhausted"])
+
     def test_second_failure_advances_to_third_changed_prompt(self):
         result = evaluate_unit({"unit_id": "R02", "attempts": [attempt(1), attempt(2)]})
         self.assertEqual(result["next_action"], "AUTO_REWRITE_PROMPT_AND_SUBMIT_ATTEMPT_3")

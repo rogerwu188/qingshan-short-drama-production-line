@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Classify video-generation failures and select the only safe successor.
+"""Classify media-generation failures and select the only safe successor.
 
 Provider failures stop the line for human resolution.  With a healthy provider,
-prompt/candidate failures automatically rewrite the prompt up to three times.
+prompt/candidate failures automatically rewrite the prompt up to the media cap:
+ten attempts for still images/keyframes and three attempts for video.
 """
 
 from __future__ import annotations
@@ -14,7 +15,10 @@ from pathlib import Path
 import sys
 
 
-MAX_CREATIVE_ATTEMPTS = 3
+MAX_VIDEO_CREATIVE_ATTEMPTS = 3
+MAX_IMAGE_CREATIVE_ATTEMPTS = 10
+# Backwards-compatible import used by video-only callers.
+MAX_CREATIVE_ATTEMPTS = MAX_VIDEO_CREATIVE_ATTEMPTS
 
 PROVIDER_FAILURE_CLASSES = frozenset({
     "PROVIDER_TRANSPORT_FAILURE",
@@ -62,6 +66,27 @@ PROMPT_REJECTION_TERMS = (
     "unsafe prompt",
     "invalid prompt",
 )
+
+
+def media_kind(payload: dict[str, Any]) -> str:
+    """Return IMAGE only when the payload explicitly identifies still generation."""
+    declared = " ".join(
+        str(payload.get(key) or "")
+        for key in ("media_type", "generation_type", "generation_stage", "deliverable_type")
+    ).upper()
+    if any(token in declared for token in ("IMAGE", "KEYFRAME", "STILL")):
+        return "IMAGE"
+    if "VIDEO" in declared:
+        return "VIDEO"
+    for attempt in payload.get("attempts") or []:
+        candidate = str(attempt.get("output_path") or attempt.get("candidate_ref") or "").lower()
+        if candidate.endswith((".png", ".jpg", ".jpeg", ".webp")):
+            return "IMAGE"
+    return "VIDEO"
+
+
+def max_creative_attempts(payload: dict[str, Any]) -> int:
+    return MAX_IMAGE_CREATIVE_ATTEMPTS if media_kind(payload) == "IMAGE" else MAX_VIDEO_CREATIVE_ATTEMPTS
 
 
 def _failure_text(attempt: dict[str, Any]) -> str:
@@ -173,6 +198,8 @@ def prompt_failure_record(attempt: dict[str, Any]) -> dict[str, Any]:
 
 
 def evaluate_failure_workflow(unit: dict[str, Any]) -> dict[str, Any]:
+    kind = media_kind(unit)
+    attempt_limit = max_creative_attempts(unit)
     attempts = list(unit.get("attempts") or [])
     rows = [
         {
@@ -251,7 +278,7 @@ def evaluate_failure_workflow(unit: dict[str, Any]) -> dict[str, Any]:
         next_action = "BLOCKED_ON_INPUT_UNKNOWN_FAILURE_REQUIRES_HUMAN"
     elif prompt_memory_failures:
         next_action = "BLOCKED_ON_INPUT_PROMPT_FAILURE_MEMORY_INCOMPLETE"
-    elif creative_count < MAX_CREATIVE_ATTEMPTS:
+    elif creative_count < attempt_limit:
         next_action = f"AUTO_REWRITE_PROMPT_AND_SUBMIT_ATTEMPT_{creative_count + 1}"
     elif action and decision.get("human_approval_ref") and not violations:
         next_action = f"TERMINAL_{action}"
@@ -278,10 +305,10 @@ def evaluate_failure_workflow(unit: dict[str, Any]) -> dict[str, Any]:
             "provider_failure_class": latest_class,
             "required_resolution_fields": ["status=VERIFIED_RESOLVED", "evidence_ref"],
         }
-    elif creative_count >= MAX_CREATIVE_ATTEMPTS and not any_pass:
+    elif creative_count >= attempt_limit and not any_pass:
         notification = {
             "notify_human": True,
-            "reason": "Three provider-healthy generation attempts failed.",
+            "reason": f"{attempt_limit} provider-healthy {kind.lower()} generation attempts failed.",
             "prompt_failure_records": prompt_failures,
         }
     else:
@@ -299,7 +326,9 @@ def evaluate_failure_workflow(unit: dict[str, Any]) -> dict[str, Any]:
         }
 
     return {
-        "schema": "qingshan.video_generation_failure_workflow.v2",
+        "schema": "qingshan.media_generation_failure_workflow.v3",
+        "media_kind": kind,
+        "creative_attempt_limit": attempt_limit,
         "status": status,
         "attempt_classifications": rows,
         "submission_attempt_count": len(rows),

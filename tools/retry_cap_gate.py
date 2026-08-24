@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce three paid attempts and a terminal coverage decision per unit."""
+"""Enforce media-specific creative-attempt caps and durable failure memory."""
 
 from __future__ import annotations
 
@@ -11,12 +11,14 @@ from pathlib import Path
 try:
     from video_generation_failure_policy import (
         MAX_CREATIVE_ATTEMPTS,
+        max_creative_attempts,
         PROVIDER_FAILURE_CLASSES,
         evaluate_failure_workflow,
     )
 except ImportError:
     from tools.video_generation_failure_policy import (
         MAX_CREATIVE_ATTEMPTS,
+        max_creative_attempts,
         PROVIDER_FAILURE_CLASSES,
         evaluate_failure_workflow,
     )
@@ -44,7 +46,8 @@ def validate_submission_attempt(task: dict) -> list[str]:
     creative_attempt = task.get("creative_attempt_ordinal", task.get("paid_attempt_ordinal", attempt))
     if not isinstance(creative_attempt, int) or isinstance(creative_attempt, bool):
         return ["CREATIVE_ATTEMPT_ORDINAL_NOT_INTEGER"]
-    if attempt < 1 or creative_attempt < 1 or creative_attempt > MAX_ATTEMPTS:
+    attempt_limit = max_creative_attempts(task)
+    if attempt < 1 or creative_attempt < 1 or creative_attempt > attempt_limit:
         return ["RETRY_ATTEMPT_CAP_EXCEEDED"]
     prior_classes = [str(value).upper() for value in task.get("prior_failure_classifications") or []]
     prior_provider_failure = bool(prior_classes and prior_classes[-1] in PROVIDER_FAILURE_CLASSES)
@@ -53,7 +56,7 @@ def validate_submission_attempt(task: dict) -> list[str]:
             failures.append("PROVIDER_FAILURE_REQUIRES_HUMAN_RESOLUTION")
         if not str(task.get("provider_resolution_ref") or "").strip():
             failures.append("PROVIDER_RESOLUTION_EVIDENCE_MISSING")
-    if attempt > MAX_ATTEMPTS:
+    if attempt > attempt_limit:
         if not prior_classes or any(value not in PROVIDER_FAILURE_CLASSES for value in prior_classes):
             failures.append("SUBMISSION_ATTEMPT_ABOVE_CAP_REQUIRES_PROVIDER_FAILURE_HISTORY")
     if attempt == 1:
@@ -70,12 +73,13 @@ def validate_submission_attempt(task: dict) -> list[str]:
         failures.append("RETRY_CURRENT_PROMPT_SHA_MISSING")
     elif current in prior:
         failures.append("PROMPT_UNCHANGED_RETRY")
-    if creative_attempt == MAX_ATTEMPTS and task.get("no_further_automatic_retry") is not True:
+    if creative_attempt == attempt_limit and task.get("no_further_automatic_retry") is not True:
         failures.append("FINAL_ATTEMPT_MUST_CLOSE_AUTOMATIC_RETRY")
     return failures
 
 
 def evaluate_unit(unit: dict) -> dict:
+    attempt_limit = max_creative_attempts(unit)
     attempts = unit.get("attempts") or []
     decision = unit.get("terminal_decision")
     violations: list[dict] = []
@@ -96,14 +100,14 @@ def evaluate_unit(unit: dict) -> dict:
         else:
             seen[str(prompt_sha)] = number
 
-    if workflow["creative_attempt_count"] > MAX_ATTEMPTS:
+    if workflow["creative_attempt_count"] > attempt_limit:
         violations.append({
             "code": "ATTEMPT_CAP_EXCEEDED",
             "attempts": workflow["creative_attempt_count"],
         })
 
     passed = workflow["any_pass"]
-    exhausted = workflow["creative_attempt_count"] >= MAX_ATTEMPTS and not passed
+    exhausted = workflow["creative_attempt_count"] >= attempt_limit and not passed
     if exhausted:
         action = decision.get("action") if decision else None
         if not decision:
@@ -135,7 +139,7 @@ def evaluate_unit(unit: dict) -> dict:
         "paid_attempt_count": workflow["paid_attempt_count"],
         "provider_failure_count": workflow["provider_failure_count"],
         "attempt_classifications": workflow["attempt_classifications"],
-        "max_attempts": MAX_ATTEMPTS,
+        "max_attempts": attempt_limit,
         "any_pass": bool(passed),
         "attempts_exhausted": exhausted,
         "terminal_decision": decision.get("action") if decision else None,
@@ -148,7 +152,7 @@ def evaluate_unit(unit: dict) -> dict:
 def evaluate(payload: dict) -> dict:
     results = [evaluate_unit(unit) for unit in payload.get("units") or []]
     return {
-        "rule": "maximum three paid attempts per unit; terminal decision required",
+        "rule": "maximum ten image attempts or three video attempts per unit; terminal decision required",
         "units_checked": len(results),
         "units_violating": sum(row["verdict"] != "OK" for row in results),
         "units_stalled": sum(

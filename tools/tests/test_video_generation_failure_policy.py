@@ -84,6 +84,24 @@ class VideoGenerationFailurePolicyTest(unittest.TestCase):
             "dialogue truncated at clip end",
         )
 
+    def test_three_image_failures_advance_to_attempt_four(self):
+        attempts = [
+            {
+                "attempt_no": number,
+                "prompt_sha256": f"image-prompt-{number}",
+                "failure_class": "CANDIDATE_QA_FAILURE",
+                "failure_reason": f"image defect {number}",
+                "do_not_repeat": f"avoid image defect {number}",
+                "output_path": f"candidate-{number}.png",
+                "qa_verdict": "FAIL",
+            }
+            for number in range(1, 4)
+        ]
+        result = evaluate_failure_workflow({"media_type": "IMAGE", "attempts": attempts})
+        self.assertEqual(result["creative_attempt_limit"], 10)
+        self.assertEqual(result["next_action"], "AUTO_REWRITE_PROMPT_AND_SUBMIT_ATTEMPT_4")
+        self.assertFalse(result["human_notification"]["notify_human"])
+
 
 if __name__ == "__main__":
     unittest.main()
