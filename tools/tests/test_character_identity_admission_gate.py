@@ -29,6 +29,12 @@ class FakeBackend:
         return self.vectors[path.name]
 
 
+class MultiFaceReferenceBackend(FakeBackend):
+    def embed_all(self, path):
+        value = self.vectors[path.name]
+        return value if value and isinstance(value[0], list) else [value]
+
+
 def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -114,6 +120,34 @@ class CharacterIdentityAdmissionGateTests(unittest.TestCase):
             manifest["sources"][0]["characters"][0]["character_id"] = "CHAR-MISSING"
             report = evaluate(manifest, REGISTRY, backend)
             self.assertTrue(any("character_not_registered" in item for item in report["failures"]))
+
+    def test_designated_multiview_card_may_supply_multiple_reference_faces(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            card = root / "three-view-card.png"
+            card.write_bytes(b"card")
+            samples = [root / f"sample-{index}.jpg" for index in range(3)]
+            for path in samples:
+                path.write_bytes(path.name.encode())
+            row = {
+                "character_id": "CHAR-A",
+                "canonical_view_count": 3,
+                "canonical_reference_paths": [str(card)],
+                "canonical_reference_sha256": {str(card): sha(card)},
+                "sample_frame_paths": [str(path) for path in samples],
+                "sample_frame_sha256": {str(path): sha(path) for path in samples},
+            }
+            vectors = {card.name: [[1.0, 0.0], [0.98, 0.02]]}
+            vectors.update({path.name: [1.0, 0.0] for path in samples})
+            report = evaluate(
+                {"sources": [{"source_id": "S1", "characters": [row]}]},
+                REGISTRY,
+                MultiFaceReferenceBackend(vectors),
+            )
+            self.assertEqual(report["status"], "PASS", report["failures"])
+            decision = report["objective_verification"]["decisions"][0]
+            self.assertEqual(decision["canonical_view_count"], 3)
+            self.assertEqual(decision["canonical_face_embedding_count"], 2)
 
 
 if __name__ == "__main__":
