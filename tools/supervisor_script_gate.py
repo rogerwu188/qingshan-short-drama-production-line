@@ -13,6 +13,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "qingshan.local_claude_script_supervision.v1"
+PREGATE_SCHEMA = "qingshan.supervisor_script_pregate.v1"
 
 
 def _path(value: str | Path) -> Path:
@@ -45,6 +46,88 @@ def _is_pass(value: Any) -> bool:
     return re.match(r"^PASS(?:\s*[—:\-]\s+.+)?$", str(value or "").strip(), re.IGNORECASE) is not None
 
 
+def _verify_pregate_report(
+    episode: Any,
+    generated_script: str | Path | None,
+    compiled_script: str | Path | None,
+    report_path: Path,
+    report: dict[str, Any],
+) -> dict[str, Any]:
+    """Verify a newer SHA-bound CL2X-499 pregate receipt."""
+    failures: list[dict[str, Any]] = []
+    expected_episode = _episode_number(episode)
+    if _episode_number(report.get("episode")) != expected_episode:
+        failures.append({"check": "review_episode", "expected": expected_episode, "actual": report.get("episode")})
+    if report.get("gate_ref") != "CL2X-499":
+        failures.append({"check": "gate_ref", "expected": "CL2X-499", "actual": report.get("gate_ref")})
+    if str(report.get("verdict") or "").upper() != "PASS":
+        failures.append({"check": "review_status", "expected": "PASS", "actual": report.get("verdict")})
+    if "CLAUDE" not in str(report.get("ruled_by") or "").upper():
+        failures.append({"check": "reviewer_role", "expected": "LOCAL_CLAUDE_SUPERVISOR", "actual": report.get("ruled_by")})
+
+    gates = report.get("registered_gates") or {}
+    if not (
+        int(gates.get("count", -1)) > 0
+        and gates.get("count") == gates.get("pass")
+        and int(gates.get("fail", -1)) == 0
+        and int(gates.get("failures_total", -1)) == 0
+    ):
+        failures.append({"check": "registered_gate_coverage", "actual": gates})
+
+    bindings = report.get("sha_recompute") or {}
+    actual_shas: dict[str, str | None] = {"generated_script": None, "compiled_script": None}
+    for name, value, report_key in (
+        ("generated_script", generated_script, "directing_script"),
+        ("compiled_script", compiled_script, "generation_contract"),
+    ):
+        if not value:
+            failures.append({"check": f"{name}_binding", "error": "missing"})
+            continue
+        path = _path(value)
+        if not path.is_file():
+            failures.append({"check": f"{name}_exists", "path": str(path)})
+            continue
+        actual_sha = _sha256(path)
+        actual_shas[name] = actual_sha
+        binding = bindings.get(report_key) or {}
+        if binding.get("sha256") != actual_sha:
+            failures.append({
+                "check": f"{name}_sha256_binding",
+                "expected": actual_sha,
+                "actual": binding.get("sha256") or "MISSING",
+            })
+        bound_path = binding.get("path")
+        if not bound_path or _path(bound_path).resolve() != path.resolve():
+            failures.append({"check": f"{name}_path_binding", "expected": str(path), "actual": bound_path or "MISSING"})
+
+    structure = report.get("structure_cross_check") or {}
+    path_a = structure.get("path_a_manifest") or {}
+    path_b = structure.get("path_b_contract_recompute") or {}
+    expected_shots = int(path_a.get("shots", 0) or 0)
+    reviewed_shots = int(path_b.get("units", 0) or 0)
+    if structure.get("consistent") is not True or expected_shots <= 0 or reviewed_shots != expected_shots:
+        failures.append({
+            "check": "shot_review_coverage",
+            "expected": expected_shots,
+            "actual": reviewed_shots,
+            "consistent": structure.get("consistent"),
+        })
+
+    return {
+        "schema": "qingshan.supervisor_script_gate_result.v1",
+        "episode": f"E{expected_episode:02d}" if expected_episode else str(episode),
+        "status": "PASS" if not failures else "FAIL",
+        "generation_allowed": not failures,
+        "generated_script_sha256": actual_shas["generated_script"],
+        "compiled_script_sha256": actual_shas["compiled_script"],
+        "expected_shot_count": expected_shots,
+        "reviewed_shot_count": reviewed_shots,
+        "review_report": str(report_path),
+        "review_schema": PREGATE_SCHEMA,
+        "failures": failures,
+    }
+
+
 def verify_supervisor_script_gate(
     episode: Any,
     generated_script: str | Path | None,
@@ -52,6 +135,21 @@ def verify_supervisor_script_gate(
     review_report: str | Path | None,
 ) -> dict[str, Any]:
     """Return PASS only for an exact-SHA, complete per-shot local-Claude PASS."""
+    if review_report:
+        candidate = _path(review_report)
+        if candidate.is_file():
+            try:
+                candidate_payload = json.loads(candidate.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                candidate_payload = {}
+            if candidate_payload.get("schema") == PREGATE_SCHEMA:
+                return _verify_pregate_report(
+                    episode,
+                    generated_script,
+                    compiled_script,
+                    candidate,
+                    candidate_payload,
+                )
     failures: list[dict[str, Any]] = []
     expected_episode = _episode_number(episode)
     paths: dict[str, Path] = {}

@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tools.supervisor_script_gate import SCHEMA, verify_supervisor_script_gate
+from tools.supervisor_script_gate import PREGATE_SCHEMA, SCHEMA, verify_supervisor_script_gate
 
 
 class SupervisorScriptGateTest(unittest.TestCase):
@@ -87,6 +87,65 @@ class SupervisorScriptGateTest(unittest.TestCase):
             report.write_text(json.dumps(payload), encoding="utf-8")
             result = verify_supervisor_script_gate("E28", generated, compiled, report)
         self.assertEqual(result["status"], "FAIL")
+
+    def test_sha_bound_cl2x499_pregate_pass_is_accepted(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            generated = root / "directing.md"
+            compiled = root / "contract.json"
+            generated.write_text("# E41 directing\n", encoding="utf-8")
+            compiled.write_text(json.dumps({"episode": "E41", "units": [1, 2]}), encoding="utf-8")
+            report = root / "pregate.json"
+            report.write_text(json.dumps({
+                "schema": PREGATE_SCHEMA,
+                "gate_ref": "CL2X-499",
+                "episode": "E41",
+                "verdict": "PASS",
+                "ruled_by": "Claude 本地监制/制片",
+                "registered_gates": {"count": 9, "pass": 9, "fail": 0, "failures_total": 0},
+                "sha_recompute": {
+                    "directing_script": {"path": str(generated), "sha256": hashlib.sha256(generated.read_bytes()).hexdigest()},
+                    "generation_contract": {"path": str(compiled), "sha256": hashlib.sha256(compiled.read_bytes()).hexdigest()},
+                },
+                "structure_cross_check": {
+                    "path_a_manifest": {"shots": 110},
+                    "path_b_contract_recompute": {"units": 110},
+                    "consistent": True,
+                },
+            }), encoding="utf-8")
+            result = verify_supervisor_script_gate("E41", generated, compiled, report)
+        self.assertEqual(result["status"], "PASS")
+        self.assertTrue(result["generation_allowed"])
+        self.assertEqual(result["reviewed_shot_count"], 110)
+
+    def test_pregate_sha_mismatch_blocks_generation(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            generated = root / "directing.md"
+            compiled = root / "contract.json"
+            generated.write_text("# E41 directing\n", encoding="utf-8")
+            compiled.write_text(json.dumps({"episode": "E41"}), encoding="utf-8")
+            report = root / "pregate.json"
+            report.write_text(json.dumps({
+                "schema": PREGATE_SCHEMA,
+                "gate_ref": "CL2X-499",
+                "episode": "E41",
+                "verdict": "PASS",
+                "ruled_by": "Claude 本地监制/制片",
+                "registered_gates": {"count": 9, "pass": 9, "fail": 0, "failures_total": 0},
+                "sha_recompute": {
+                    "directing_script": {"path": str(generated), "sha256": "bad"},
+                    "generation_contract": {"path": str(compiled), "sha256": hashlib.sha256(compiled.read_bytes()).hexdigest()},
+                },
+                "structure_cross_check": {
+                    "path_a_manifest": {"shots": 110},
+                    "path_b_contract_recompute": {"units": 110},
+                    "consistent": True,
+                },
+            }), encoding="utf-8")
+            result = verify_supervisor_script_gate("E41", generated, compiled, report)
+        self.assertEqual(result["status"], "FAIL")
+        self.assertTrue(any(row["check"] == "generated_script_sha256_binding" for row in result["failures"]))
 
 
 if __name__ == "__main__":
