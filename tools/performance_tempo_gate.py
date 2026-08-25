@@ -18,6 +18,7 @@ MAX_FIGHT_ONSET_SECONDS = 0.5
 MAX_ATOMIC_BEAT_SECONDS = 2.0
 MAX_FIGHT_BEAT_SECONDS = 1.2
 MAX_ACTION_IDLE_GAP_SECONDS = 0.25
+MAX_GROUPED_EDITORIAL_BEAT_SECONDS = 3.0
 COMBAT_TYPES = {"COMBAT", "FIGHT", "ACTION_COMBAT"}
 DIALOGUE_TYPES = {"DIALOGUE", "DIALOGUE_PERFORMANCE", "REACTION_DIALOGUE", "EMOTIONAL_DIALOGUE"}
 
@@ -102,6 +103,29 @@ def evaluate_batch(tasks: list[dict[str, Any]]) -> dict[str, Any]:
             continue
         if contract.get("playback_speed") != "REAL_TIME_1X":
             failures.append({"code": "ACTION_NOT_AUTHORED_AT_REAL_TIME", "task_key": key})
+        if task.get("semantic_video_unit") is True:
+            if not 3.0 <= duration <= 12.0:
+                failures.append({"code": "GROUPED_VIDEO_UNIT_DURATION_INVALID", "task_key": key, "actual_seconds": duration})
+            windows = contract.get("atomic_action_windows") or []
+            if not windows:
+                failures.append({"code": "GROUPED_EDITORIAL_BEAT_WINDOWS_MISSING", "task_key": key})
+                continue
+            previous_end = 0.0
+            for index, window in enumerate(windows, 1):
+                try:
+                    start = float(window["start_seconds"])
+                    end = float(window["end_seconds"])
+                except (KeyError, TypeError, ValueError):
+                    failures.append({"code": "GROUPED_EDITORIAL_BEAT_WINDOW_INVALID", "task_key": key, "index": index})
+                    continue
+                if start < previous_end - 0.01 or start - previous_end > MAX_ACTION_IDLE_GAP_SECONDS:
+                    failures.append({"code": "GROUPED_EDITORIAL_BEAT_SEQUENCE_GAP_OR_OVERLAP", "task_key": key, "index": index})
+                if end <= start or end - start > MAX_GROUPED_EDITORIAL_BEAT_SECONDS + 0.01:
+                    failures.append({"code": "GROUPED_EDITORIAL_BEAT_DURATION_INVALID", "task_key": key, "index": index, "actual_seconds": round(end - start, 3)})
+                previous_end = max(previous_end, end)
+            if int(contract.get("grouped_editorial_beat_count") or 0) != len(windows):
+                failures.append({"code": "GROUPED_EDITORIAL_BEAT_COUNT_MISMATCH", "task_key": key})
+            continue
         if structured_combat:
             first_exchange = float(contract.get("primary_exchange_complete_by_seconds") or 0.0)
             if first_exchange <= 0.0 or first_exchange > 1.5:

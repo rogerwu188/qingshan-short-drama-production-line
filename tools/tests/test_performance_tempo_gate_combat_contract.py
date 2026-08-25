@@ -12,6 +12,48 @@ def _windows():
 
 
 class PerformanceTempoCombatContractTest(unittest.TestCase):
+    def test_semantic_grouped_unit_allows_multiple_ordered_editorial_beats(self):
+        task = {
+            "task_key": "GROUPED-8S",
+            "shot_type": "SEMANTIC_GROUPED_SCENE_PERFORMANCE",
+            "semantic_video_unit": True,
+            "action_unit": True,
+            "duration_seconds": 8,
+            "prompt": "ordered continuous action and dialogue beats",
+            "performance_tempo_contract": {
+                "playback_speed": "REAL_TIME_1X",
+                "grouped_editorial_beat_count": 4,
+                "atomic_action_windows": [
+                    {"start_seconds": 0.0, "end_seconds": 1.9, "action": "beat 1"},
+                    {"start_seconds": 1.9, "end_seconds": 3.4, "action": "beat 2"},
+                    {"start_seconds": 3.4, "end_seconds": 5.3, "action": "beat 3"},
+                    {"start_seconds": 5.3, "end_seconds": 7.7, "action": "beat 4"},
+                ],
+            },
+        }
+        self.assertEqual(evaluate_batch([task])["status"], "PASS")
+
+    def test_semantic_grouped_unit_rejects_a_stretched_editorial_beat(self):
+        task = {
+            "task_key": "GROUPED-STRETCHED",
+            "shot_type": "SEMANTIC_GROUPED_SCENE_PERFORMANCE",
+            "semantic_video_unit": True,
+            "action_unit": True,
+            "duration_seconds": 8,
+            "prompt": "ordered continuous action",
+            "performance_tempo_contract": {
+                "playback_speed": "REAL_TIME_1X",
+                "grouped_editorial_beat_count": 2,
+                "atomic_action_windows": [
+                    {"start_seconds": 0.0, "end_seconds": 4.0, "action": "stretched beat"},
+                    {"start_seconds": 4.0, "end_seconds": 8.0, "action": "stretched beat"},
+                ],
+            },
+        }
+        result = evaluate_batch([task])
+        self.assertEqual(result["status"], "FAIL")
+        self.assertIn("GROUPED_EDITORIAL_BEAT_DURATION_INVALID", {row["code"] for row in result["failures"]})
+
     def test_dialogue_performance_is_not_misclassified_as_atomic_action(self):
         task = {
             "task_key": "DIALOGUE-8S",
