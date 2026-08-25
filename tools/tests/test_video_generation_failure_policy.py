@@ -7,6 +7,33 @@ from tools.video_generation_failure_policy import (
 
 
 class VideoGenerationFailurePolicyTest(unittest.TestCase):
+    def test_insufficient_credits_is_provider_failure_and_does_not_consume_attempt(self):
+        result = evaluate_failure_workflow({
+            "media_kind": "VIDEO",
+            "attempts": [{
+                "attempt_no": 1,
+                "error": "Giggle API: insufficient credits",
+                "charge_status": "VERIFIED_ZERO",
+            }],
+        })
+        self.assertEqual(result["latest_failure_class"], "PROVIDER_INSUFFICIENT_CREDITS")
+        self.assertEqual(result["creative_attempt_count"], 0)
+        self.assertEqual(result["paid_attempt_count"], 0)
+        self.assertEqual(result["status"], "BLOCKED_ON_INPUT_PROVIDER_FAILURE")
+        self.assertIn("credits_restored=true", result["human_notification"]["required_resolution_fields"])
+
+    def test_insufficient_credits_resumes_after_verified_replenishment(self):
+        result = evaluate_failure_workflow({
+            "media_kind": "VIDEO",
+            "attempts": [{"attempt_no": 1, "error": "积分不足", "charge_status": "VERIFIED_ZERO"}],
+            "provider_resolution": {
+                "status": "VERIFIED_RESOLVED",
+                "evidence_ref": "workflow/tasks/credits_restored.json",
+                "credits_restored": True,
+            },
+        })
+        self.assertEqual(result["next_action"], "RESUME_GENERATION_AFTER_VERIFIED_PROVIDER_RESOLUTION")
+
     def test_router_mapping_is_transport_not_prompt_failure(self):
         self.assertEqual(
             classify_attempt({"error": "router mapping not found"}),

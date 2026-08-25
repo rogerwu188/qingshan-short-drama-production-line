@@ -17,6 +17,17 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+
+INSUFFICIENT_CREDIT_TERMS = (
+    "insufficient credit", "insufficient credits", "insufficient balance",
+    "not enough credit", "not enough credits", "credit balance too low",
+    "余额不足", "积分不足", "额度不足",
+)
+
+
+class ProviderInsufficientCreditsError(RuntimeError):
+    """The provider rejected submission because the account cannot fund it."""
+
 try:
     from giggle_api_client import _image_list, _request
     from giggle_credit_statements import fetch_pay_statements, reconcile_rows
@@ -135,6 +146,28 @@ def atomic_json(path: Path, payload: dict[str, Any]) -> None:
     temporary = path.with_suffix(path.suffix + ".part")
     temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.replace(temporary, path)
+
+
+def provider_response_text(value: Any) -> str:
+    if isinstance(value, dict):
+        return " ".join(provider_response_text(item) for item in value.values()).casefold()
+    if isinstance(value, list):
+        return " ".join(provider_response_text(item) for item in value).casefold()
+    return str(value or "").casefold()
+
+
+def classify_no_task_id_response(response: dict[str, Any]) -> dict[str, str]:
+    if any(term in provider_response_text(response) for term in INSUFFICIENT_CREDIT_TERMS):
+        return {
+            "state": "PROVIDER_INSUFFICIENT_CREDITS_BLOCKED",
+            "failure_classification": "PROVIDER_INSUFFICIENT_CREDITS",
+            "retry_guard": "DO_NOT_RESUBMIT_UNTIL_CREDITS_RESTORED_AND_LEDGER_RECONCILED",
+        }
+    return {
+        "state": "PROVIDER_RESPONSE_NO_TASK_ID_PENDING_CLASSIFICATION",
+        "failure_classification": "PROVIDER_RESPONSE_RECEIVED_NO_TASK_ID",
+        "retry_guard": "DO_NOT_RESUBMIT_UNTIL_PROVIDER_RESPONSE_CLASSIFIED_AND_LEDGER_RECONCILED",
+    }
 
 
 def validate_gate(path_value: str) -> dict[str, Any]:
@@ -283,16 +316,19 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         response_sha256 = hashlib.sha256(
             json.dumps(response, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
+        classification = classify_no_task_id_response(response)
         intent.update({
-            "state": "PROVIDER_RESPONSE_NO_TASK_ID_PENDING_CLASSIFICATION",
             "response_received_at": utc_now(),
             "error": "response missing task_id",
             "provider_response": response,
             "provider_response_sha256": response_sha256,
-            "failure_classification": "PROVIDER_RESPONSE_RECEIVED_NO_TASK_ID",
-            "retry_guard": "DO_NOT_RESUBMIT_UNTIL_PROVIDER_RESPONSE_CLASSIFIED_AND_LEDGER_RECONCILED",
+            **classification,
         })
         atomic_json(transaction, intent)
+        if classification["failure_classification"] == "PROVIDER_INSUFFICIENT_CREDITS":
+            raise ProviderInsufficientCreditsError(
+                f"provider insufficient credits: {json.dumps(response, ensure_ascii=False)}"
+            )
         raise RuntimeError(f"response missing task_id: {json.dumps(response, ensure_ascii=False)}")
     receipt = receipt_dir / f"{task['task_key']}_submit_receipt.json"
     atomic_json(receipt, response)
@@ -366,14 +402,30 @@ def main() -> int:
     if args.precheck_only:
         results = [{"task_key": task["task_key"], "state": "precheck_pass"} for task in tasks]
     else:
-        with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as pool:
-            futures = {pool.submit(submit_one, task, receipts, transactions): task for task in tasks}
-            for future in as_completed(futures):
-                task = futures[future]
-                try:
-                    results.append(future.result())
-                except (Exception, SystemExit) as exc:
-                    failures.append({"task_key": task["task_key"], "state": "submit_response_lost", "error": str(exc), "transaction": portable(transaction_path(transactions, task))})
+        concurrency = max(1, args.concurrency)
+        credit_fuse_tripped = False
+        for offset in range(0, len(tasks), concurrency):
+            wave = tasks[offset:offset + concurrency]
+            with ThreadPoolExecutor(max_workers=concurrency) as pool:
+                futures = {pool.submit(submit_one, task, receipts, transactions): task for task in wave}
+                for future in as_completed(futures):
+                    task = futures[future]
+                    try:
+                        results.append(future.result())
+                    except ProviderInsufficientCreditsError as exc:
+                        credit_fuse_tripped = True
+                        failures.append({"task_key": task["task_key"], "state": "provider_insufficient_credits", "error": str(exc), "transaction": portable(transaction_path(transactions, task))})
+                    except (Exception, SystemExit) as exc:
+                        failures.append({"task_key": task["task_key"], "state": "submit_failed", "error": str(exc), "transaction": portable(transaction_path(transactions, task))})
+            if credit_fuse_tripped:
+                for task in tasks[offset + len(wave):]:
+                    failures.append({
+                        "task_key": task["task_key"],
+                        "state": "not_submitted_provider_insufficient_credits",
+                        "error": "batch dispatch stopped after provider insufficient-credits response",
+                        "transaction": portable(transaction_path(transactions, task)),
+                    })
+                break
     credit = None
     ambiguity = "NOT_APPLICABLE"
     if not args.precheck_only:

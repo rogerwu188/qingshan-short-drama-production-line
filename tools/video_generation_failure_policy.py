@@ -23,6 +23,7 @@ MAX_CREATIVE_ATTEMPTS = MAX_VIDEO_CREATIVE_ATTEMPTS
 PROVIDER_FAILURE_CLASSES = frozenset({
     "PROVIDER_TRANSPORT_FAILURE",
     "PROVIDER_TRANSIENT_FAILURE",
+    "PROVIDER_INSUFFICIENT_CREDITS",
     "SUBMISSION_NOT_ACCEPTED",
 })
 CREATIVE_FAILURE_CLASSES = frozenset({
@@ -57,6 +58,17 @@ TRANSIENT_TERMS = (
     "internal server error",
     "bad gateway",
     "service unavailable",
+)
+INSUFFICIENT_CREDIT_TERMS = (
+    "insufficient credit",
+    "insufficient credits",
+    "insufficient balance",
+    "not enough credit",
+    "not enough credits",
+    "credit balance too low",
+    "余额不足",
+    "积分不足",
+    "额度不足",
 )
 PROMPT_REJECTION_TERMS = (
     "prompt rejected",
@@ -127,6 +139,8 @@ def classify_attempt(attempt: dict[str, Any]) -> str:
         return "CANDIDATE_QA_FAILURE"
 
     text = _failure_text(attempt)
+    if any(term in text for term in INSUFFICIENT_CREDIT_TERMS):
+        return "PROVIDER_INSUFFICIENT_CREDITS"
     if any(term in text for term in TRANSPORT_TERMS):
         return "PROVIDER_TRANSPORT_FAILURE"
     if any(term in text for term in TRANSIENT_TERMS):
@@ -299,11 +313,14 @@ def evaluate_failure_workflow(unit: dict[str, Any]) -> dict[str, Any]:
         status = "BLOCK_INVALID_SUCCESSOR" if violations else "PASS"
 
     if latest_class in PROVIDER_FAILURE_CLASSES and not provider_resolved:
+        required_fields = ["status=VERIFIED_RESOLVED", "evidence_ref"]
+        if latest_class == "PROVIDER_INSUFFICIENT_CREDITS":
+            required_fields.append("credits_restored=true")
         notification = {
             "notify_human": True,
             "reason": "Provider failure stopped all downstream work until verified resolution.",
             "provider_failure_class": latest_class,
-            "required_resolution_fields": ["status=VERIFIED_RESOLVED", "evidence_ref"],
+            "required_resolution_fields": required_fields,
         }
     elif creative_count >= attempt_limit and not any_pass:
         notification = {
