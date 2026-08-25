@@ -9,7 +9,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from video_prompt_action_density_gate import validate_action_timeline
+try:
+    from tools.video_prompt_action_density_gate import validate_action_timeline
+except ModuleNotFoundError:  # Direct CLI execution from tools/.
+    from video_prompt_action_density_gate import validate_action_timeline
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -215,12 +218,18 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
         paths = anchor.get("reference_image_paths") or []
         if len(paths) != int(anchor.get("planned_reference_image_count", -1)):
             raise ValueError(f"{unit_id} anchor count mismatch")
+        roles = (anchor.get("anchor_count_decision") or {}).get("anchor_roles") or []
+        if len(roles) != len(paths):
+            raise ValueError(f"{unit_id} anchor role count mismatch")
+        transport = str(anchor.get("reference_transport_strategy") or "")
+        if transport not in {"IMAGE_TO_VIDEO_EXACT_FIRST_FRAME", "OMNI_MULTI_REFERENCE"}:
+            raise ValueError(f"{unit_id} unsupported reference transport strategy: {transport}")
         references = []
-        for value in paths:
+        for value, role in zip(paths, roles):
             path = resolve(value)
             if not path.is_file():
                 raise ValueError(f"{unit_id} anchor missing: {value}")
-            references.append({"path": value, "sha256": digest(path), "role": "SCENE_START_ANCHOR"})
+            references.append({"path": value, "sha256": digest(path), "role": role})
         shots = [shot_by_id[shot_id] for shot_id in unit["editorial_shot_ids"]]
         if any(row.get("model") != "seedance-2.0-fast" for row in shots):
             raise ValueError(f"{unit_id} contains forbidden model")
@@ -236,6 +245,8 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             "editorial_shot_ids": unit["editorial_shot_ids"],
             "narrative_beat": unit["narrative_beat"],
             "reference_images": references,
+            "reference_transport_strategy": transport,
+            "semantic_reference_coverage_gate": anchor.get("semantic_reference_coverage_gate"),
             "ordered_prompt_specs": prompt_specs,
             "native_audio_contract": "SAME_VIDEO_TASK_NATIVE_DIALOGUE_AMBIENCE_FOLEY_ACTION_SOUND",
             "submission_status": "NOT_AUTHORIZED_UNTIL_REGISTERED_GROUPED_PREFLIGHT_PASS",
