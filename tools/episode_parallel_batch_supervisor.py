@@ -52,6 +52,10 @@ try:
     from dramatic_quality_gate import evaluate as evaluate_dramatic_quality
     from mechanical_default_gate import evaluate as evaluate_mechanical_defaults
     from video_unit_anchor_count_gate import evaluate as evaluate_anchor_counts
+    from video_unit_grouping_gate import (
+        evaluate as evaluate_video_unit_grouping,
+        validate_task_bindings as validate_video_unit_grouping_bindings,
+    )
     from common_sense_causality_gate import evaluate as evaluate_common_sense_causality
     from action_shot_design_gate import (
         evaluate as evaluate_action_shot_design,
@@ -103,6 +107,10 @@ except ModuleNotFoundError:  # Imported as tools.episode_parallel_batch_supervis
     from tools.dramatic_quality_gate import evaluate as evaluate_dramatic_quality
     from tools.mechanical_default_gate import evaluate as evaluate_mechanical_defaults
     from tools.video_unit_anchor_count_gate import evaluate as evaluate_anchor_counts
+    from tools.video_unit_grouping_gate import (
+        evaluate as evaluate_video_unit_grouping,
+        validate_task_bindings as validate_video_unit_grouping_bindings,
+    )
     from tools.common_sense_causality_gate import evaluate as evaluate_common_sense_causality
     from tools.action_shot_design_gate import (
         evaluate as evaluate_action_shot_design,
@@ -1111,6 +1119,7 @@ def validate_corrected_pipeline_quality(config: dict) -> dict:
     for key, evaluator in (
         ("dramatic_quality_report_ref", evaluate_dramatic_quality),
         ("mechanical_default_plan_ref", evaluate_mechanical_defaults),
+        ("video_unit_grouping_plan_ref", evaluate_video_unit_grouping),
         ("anchor_count_plan_ref", evaluate_anchor_counts),
         ("common_sense_causality_plan_ref", evaluate_common_sense_causality),
         ("action_shot_design_plan_ref", evaluate_action_shot_design),
@@ -1133,6 +1142,12 @@ def validate_corrected_pipeline_quality(config: dict) -> dict:
             failures.extend(
                 f"corrected_pipeline_action_prompt_binding:{value}"
                 for value in validate_action_shot_bindings(plan, config.get("tasks") or [], ROOT)
+            )
+        if key == "video_unit_grouping_plan_ref" and result.get("status") == "PASS":
+            plan = read_json(path)
+            failures.extend(
+                f"corrected_pipeline_video_unit_grouping_binding:{value}"
+                for value in validate_video_unit_grouping_bindings(plan, ready_tasks)
             )
         if key == "anchor_count_plan_ref" and result.get("status") == "PASS":
             planned_by_unit = {
@@ -2752,6 +2767,7 @@ def main() -> int:
     corrected_gate_ids = {
         "dramatic_quality_report_ref": "SCRIPT-COUNCIL-DRAMATIC-QUALITY",
         "mechanical_default_plan_ref": "MECHANICAL-DEFAULT-META-GATE",
+        "video_unit_grouping_plan_ref": "VIDEO-UNIT-SEMANTIC-GROUPING",
         "anchor_count_plan_ref": "VIDEO-UNIT-DYNAMIC-ANCHOR-COUNT",
         "common_sense_causality_plan_ref": "COMMON-SENSE-CAUSALITY-COUNTERFACTUAL",
         "action_shot_design_plan_ref": "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF",

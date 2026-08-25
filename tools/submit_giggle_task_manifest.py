@@ -28,6 +28,10 @@ try:
     from dramatic_quality_gate import evaluate as evaluate_dramatic_quality
     from mechanical_default_gate import evaluate as evaluate_mechanical_defaults
     from video_unit_anchor_count_gate import evaluate as evaluate_anchor_counts
+    from video_unit_grouping_gate import (
+        evaluate as evaluate_video_unit_grouping,
+        validate_task_bindings as validate_video_unit_grouping_bindings,
+    )
     from common_sense_causality_gate import evaluate as evaluate_common_sense_causality
     from action_shot_design_gate import (
         evaluate as evaluate_action_shot_design,
@@ -58,6 +62,10 @@ except ImportError:
     from tools.dramatic_quality_gate import evaluate as evaluate_dramatic_quality
     from tools.mechanical_default_gate import evaluate as evaluate_mechanical_defaults
     from tools.video_unit_anchor_count_gate import evaluate as evaluate_anchor_counts
+    from tools.video_unit_grouping_gate import (
+        evaluate as evaluate_video_unit_grouping,
+        validate_task_bindings as validate_video_unit_grouping_bindings,
+    )
     from tools.common_sense_causality_gate import evaluate as evaluate_common_sense_causality
     from tools.action_shot_design_gate import (
         evaluate as evaluate_action_shot_design,
@@ -91,6 +99,7 @@ RUNTIME_GATE_IDS = frozenset({
     "SCRIPT-COUNCIL-DRAMATIC-QUALITY",
     "MECHANICAL-DEFAULT-META-GATE",
     "VIDEO-UNIT-DYNAMIC-ANCHOR-COUNT",
+    "VIDEO-UNIT-SEMANTIC-GROUPING",
     "COMMON-SENSE-CAUSALITY-COUNTERFACTUAL",
     "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF",
     "PERIOD-ANACHRONISM-LOCK",
@@ -102,6 +111,7 @@ RUNTIME_GATE_BINDINGS = {
     "SCRIPT-COUNCIL-DRAMATIC-QUALITY": "validate_corrected_pipeline_reports",
     "MECHANICAL-DEFAULT-META-GATE": "validate_corrected_pipeline_reports",
     "VIDEO-UNIT-DYNAMIC-ANCHOR-COUNT": "validate_corrected_pipeline_reports",
+    "VIDEO-UNIT-SEMANTIC-GROUPING": "validate_corrected_pipeline_reports",
     "COMMON-SENSE-CAUSALITY-COUNTERFACTUAL": "validate_corrected_pipeline_reports",
     "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF": "validate_corrected_pipeline_reports",
     "PERIOD-ANACHRONISM-LOCK": "validate_corrected_pipeline_reports",
@@ -403,6 +413,7 @@ def validate_corrected_pipeline_reports(
     for key, evaluator in (
         ("dramatic_quality_report_ref", evaluate_dramatic_quality),
         ("mechanical_default_plan_ref", evaluate_mechanical_defaults),
+        ("video_unit_grouping_plan_ref", evaluate_video_unit_grouping),
         ("anchor_count_plan_ref", evaluate_anchor_counts),
         ("common_sense_causality_plan_ref", evaluate_common_sense_causality),
         ("action_shot_design_plan_ref", evaluate_action_shot_design),
@@ -425,6 +436,12 @@ def validate_corrected_pipeline_reports(
             problems.extend(
                 f"FAIL_ACTION_SHOT_PROMPT_BINDING:{value}"
                 for value in validate_action_shot_bindings(plan, ready, BASE)
+            )
+        if key == "video_unit_grouping_plan_ref" and result.get("status") == "PASS":
+            plan = json.loads(path.read_text(encoding="utf-8"))
+            problems.extend(
+                f"FAIL_VIDEO_UNIT_GROUPING_BINDING:{value}"
+                for value in validate_video_unit_grouping_bindings(plan, ready)
             )
         if key == "anchor_count_plan_ref":
             anchor_result = result

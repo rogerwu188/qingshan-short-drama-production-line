@@ -788,6 +788,12 @@
         "failed_prompt_sha_and_reason_memory_required": true,
         "provider_healthy_image_prompt_attempt_limit": 10,
         "provider_healthy_video_prompt_attempt_limit": 3,
+        "still_keyframe_closed_mouth_alone_is_non_blocking": true,
+        "still_keyframe_is_not_phoneme_lipsync_evidence": true,
+        "native_dialogue_visible_lipsync_is_evaluated_on_same_task_video_audio": true,
+        "still_keyframe_basic_viability_passes": true,
+        "still_keyframe_minor_performance_composition_and_aesthetic_variance_non_blocking": true,
+        "still_keyframe_blockers_limited_to_technical_obvious_visual_registered_gate_or_material_canonical_errors": true,
         "media_cap_failure_stops_and_notifies_human_with_reasons": true,
         "script_equivalent_requires_explicit_human_approval": true,
         "dialogue_retirement_requires_specific_human_approval": true,
@@ -1496,6 +1502,41 @@
       "last_backtest_date": "2026-07-23",
       "stage_runner_paths": [
         "tools/episode_parallel_batch_supervisor.py"
+      ]
+    },
+    {
+      "gate_id": "VIDEO-UNIT-SEMANTIC-GROUPING",
+      "stage": "VIDEO_MANIFEST_COMPILE_AND_GENERATION_SUBMIT",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/build_video_unit_grouping_spec.py",
+        "tools/compile_video_unit_plan.py",
+        "tools/video_unit_grouping_gate.py",
+        "tools/episode_parallel_batch_supervisor.py",
+        "tools/submit_giggle_task_manifest.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_build_video_unit_grouping_spec.py",
+        "tools/tests/test_compile_video_unit_plan.py",
+        "tools/tests/test_video_unit_grouping_gate.py",
+        "tools/tests/test_episode_parallel_batch_supervisor.py",
+        "tools/tests/test_submit_corrected_pipeline_gate.py"
+      ],
+      "parameters": {
+        "editorial_shot_is_not_video_unit": true,
+        "scene_local_contiguous_semantic_grouping_required": true,
+        "preferred_duration_seconds": [5, 8],
+        "hard_duration_seconds": [3, 12],
+        "one_to_one_mapping_forbidden_for_long_form_manifests": true,
+        "maximum_short_exception_ratio": 0.25,
+        "unit_count_must_emerge_from_groups": true,
+        "paid_task_binding_must_match_grouping_plan": true
+      },
+      "authorization_ref": "ROGER-20260825-EDITORIAL-BEATS-NOT-VIDEO-UNITS",
+      "last_backtest_date": "2026-08-25",
+      "stage_runner_paths": [
+        "tools/episode_parallel_batch_supervisor.py",
+        "tools/submit_giggle_task_manifest.py"
       ]
     },
     {
