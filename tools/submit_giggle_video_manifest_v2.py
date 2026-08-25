@@ -280,11 +280,17 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         raise
     task_id = (response.get("data") or {}).get("task_id") or response.get("task_id")
     if not task_id:
+        response_sha256 = hashlib.sha256(
+            json.dumps(response, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
         intent.update({
-            "state": "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION",
-            "response_lost_at": utc_now(),
+            "state": "PROVIDER_RESPONSE_NO_TASK_ID_PENDING_CLASSIFICATION",
+            "response_received_at": utc_now(),
             "error": "response missing task_id",
             "provider_response": response,
+            "provider_response_sha256": response_sha256,
+            "failure_classification": "PROVIDER_RESPONSE_RECEIVED_NO_TASK_ID",
+            "retry_guard": "DO_NOT_RESUBMIT_UNTIL_PROVIDER_RESPONSE_CLASSIFIED_AND_LEDGER_RECONCILED",
         })
         atomic_json(transaction, intent)
         raise RuntimeError(f"response missing task_id: {json.dumps(response, ensure_ascii=False)}")
