@@ -16,6 +16,21 @@ except ModuleNotFoundError:  # Direct CLI execution from tools/.
 
 
 ROOT = Path(__file__).resolve().parents[1]
+MODEL_PROMPT_POLICY_VERSION = "qingshan.seedance_model_prompt_compact.v1"
+MAX_MODEL_PROMPT_CHARS = 1600
+FORBIDDEN_MODEL_PROMPT_TOKENS = (
+    "sha256",
+    "GLOBAL-SPACE-",
+    "LOC-",
+    "SUB-",
+    "PF-",
+    "generation_prompt_failure_memory_ref",
+    "identity_card_required",
+    "【空间层级】",
+    "【起始锚点】",
+    "【逐节拍完整合同】",
+    "【历史失败防复犯绑定】",
+)
 
 
 def load(path: Path) -> dict[str, Any]:
@@ -33,6 +48,20 @@ def resolve(value: str) -> Path:
 
 def relative(path: Path) -> str:
     return str(path.resolve().relative_to(ROOT))
+
+
+def build_writer_agent_provenance(
+    directing_script_path: Path, generation_contract_path: Path
+) -> dict[str, str]:
+    """Bind immutable Writer sources every time a preflight config is rebuilt."""
+    return {
+        "status": "PASS",
+        "provenance_type": "claude_writer_script",
+        "source_script": relative(directing_script_path),
+        "source_script_sha256": digest(directing_script_path),
+        "production_manifest": relative(generation_contract_path),
+        "production_manifest_sha256": digest(generation_contract_path),
+    }
 
 
 def normalized_weather(value: object) -> str:
@@ -69,26 +98,115 @@ def action_timeline(unit: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]]) -> str:
+def _unique(values: list[str]) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if text and text not in result:
+            result.append(text)
+    return result
+
+
+def _spoken_text(raw: str) -> str:
+    speaker, separator, spoken = raw.partition("：")
+    return spoken.strip() if separator and speaker.strip() else raw.strip()
+
+
+def _same_phrase(left: str, right: str) -> bool:
+    punctuation = "，。！？；：、,.!?;:‘’“”\"' "
+    return left.strip(punctuation) == right.strip(punctuation)
+
+
+def _trim_sentence_end(value: str) -> str:
+    return value.strip().rstrip("。！？；,.!?; ")
+
+
+def compact_beat_line(spec: dict[str, Any], timeline: dict[str, Any]) -> str:
+    action = spec.get("action") or {}
+    dialogue = str(spec.get("dialogue") or "").strip()
+    spoken = _spoken_text(dialogue)
+    primary = _trim_sentence_end(str(action.get("primary_action") or ""))
+    terminal = _trim_sentence_end(str(action.get("completion_state") or ""))
+    start = float(timeline["start_seconds"])
+    end = float(timeline["end_seconds"])
+    cast = _unique([str(row.get("character") or "") for row in spec.get("cast") or []])
+    subject = "、".join(cast)
+    if dialogue and _same_phrase(primary, spoken):
+        visual = terminal or _trim_sentence_end(str(action.get("start_state") or ""))
+    else:
+        visual = primary or terminal
+        if terminal and not _same_phrase(visual, terminal):
+            visual = f"{_trim_sentence_end(visual)}，最终{terminal}"
+    starts_with_named_cast = any(visual.startswith(name) for name in cast)
+    performance = f"{subject}：{visual}" if subject and visual and not starts_with_named_cast else visual or subject
+    if dialogue:
+        speaker, _, words = dialogue.partition("：")
+        words = words.strip()
+        performance = f"{_trim_sentence_end(performance)}；{speaker.strip()}说：“{words}”" if performance else f"{speaker.strip()}说：“{words}”"
+    suffix = "" if len(performance) >= 2 and performance.endswith("”") and performance[-2] in "。！？" else "。"
+    return f"{start:g}–{end:g}秒：{performance}{suffix}"
+
+
+def validate_model_prompt(text: str, *, source_id: str) -> dict[str, Any]:
+    failures: list[str] = []
+    if len(text) > MAX_MODEL_PROMPT_CHARS:
+        failures.append(f"MODEL_PROMPT_TOO_LONG:{source_id}:{len(text)}>{MAX_MODEL_PROMPT_CHARS}")
+    for token in FORBIDDEN_MODEL_PROMPT_TOKENS:
+        if token in text:
+            failures.append(f"MODEL_PROMPT_CONTAINS_MACHINE_TOKEN:{source_id}:{token}")
+    if text.count("【天气硬合同】") != 1:
+        failures.append(f"MODEL_PROMPT_WEATHER_CONTRACT_COUNT:{source_id}:{text.count('【天气硬合同】')}")
+    if "【节拍】" not in text or "【同任务原生声音】" not in text:
+        failures.append(f"MODEL_PROMPT_REQUIRED_SECTION_MISSING:{source_id}")
+    return {
+        "policy": MODEL_PROMPT_POLICY_VERSION,
+        "status": "PASS" if not failures else "FAIL",
+        "source_id": source_id,
+        "character_count": len(text),
+        "max_character_count": MAX_MODEL_PROMPT_CHARS,
+        "forbidden_tokens": list(FORBIDDEN_MODEL_PROMPT_TOKENS),
+        "failures": failures,
+    }
+
+
+def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None = None) -> str:
     specs = unit["ordered_prompt_specs"]
     first = specs[0]
     weather = normalized_weather((first.get("scene_state") or {}).get("weather"))
-    dialogue = [str(spec.get("dialogue") or "").strip() for spec in specs if str(spec.get("dialogue") or "").strip()]
+    cast = _unique([
+        str(row.get("character") or "")
+        for spec in specs
+        for row in spec.get("cast") or []
+    ])
+    props = _unique([
+        str(row.get("prop") or "")
+        for spec in specs
+        for row in spec.get("props") or []
+    ])
+    palette = str((first.get("scene_state") or {}).get("palette") or "").strip()
+    beat_lines = [compact_beat_line(spec, timeline) for spec, timeline in zip(specs, unit["action_timeline"])]
+    scene_parts = [weather]
+    if palette:
+        scene_parts.append(f"综合色调={palette}")
+    if cast:
+        scene_parts.append("人物=" + "、".join(cast))
+    if props:
+        scene_parts.append("关键道具=" + "、".join(props))
     lines = [
-        f"【视频单元】{unit['unit_id']} scene={unit['scene_id']} duration={unit['duration_seconds']}s",
-        "【模型硬合同】model=seedance-2.0-fast resolution=720p",
+        f"【视频任务】{unit['duration_seconds']}秒，16:9，720p，seedance-2.0-fast；写实古装悬疑电影质感。",
         f"【天气硬合同】weather={weather}",
-        f"【空间层级】{json.dumps([spec.get('space') for spec in specs], ensure_ascii=False)}",
-        f"【起始锚点】{json.dumps(unit['reference_images'], ensure_ascii=False)}",
-        f"【连续动作轨迹】{json.dumps(unit['action_timeline'], ensure_ascii=False)}",
-        f"【精确原生对白】{json.dumps(dialogue, ensure_ascii=False)}",
-        "【同任务原生声场】上述对白、环境声、拟音、动作声必须由本次同一视频 task 原生生成并保留；禁止 TTS、旧 candidate、跨 task 音轨或默认 BGM 覆盖。无对白人物闭口；对白只说一次、不改词、不换说话人。",
-        f"【逐节拍完整合同】{json.dumps(specs, ensure_ascii=False)}",
-        "【禁止】静态帧、数字推拉替代表演、循环动作、噪声音轨、可读字幕与水印、人物身份漂移、漏拍或重排节拍。",
-        "【历史失败防复犯绑定】rules=" + ",".join(str(row.get("id")) for row in memory_rules if row.get("id"))
-        + "；完整规则由 batch config 中 generation_prompt_failure_memory_ref+SHA 锁定；本 prompt 已落实精确单次对白、说话人/闭口锁、全时段物理动作、身份/道具/空间连续性、禁静帧循环噪音与文字。",
+        "【场景与人物】" + "；".join(scene_parts) + "。使用随任务传入的参考图保持人物面孔、服装、场景和道具一致。",
+        "【镜头】把下列节拍演成一段连续、自然的表演；镜头随主要动作平稳调整景别，不把每个节拍机械切成独立镜头。",
+        "【节拍】",
+        *beat_lines,
+        "【同任务原生声音】精确保留上述对白及本任务生成的环境声、拟音和动作声；对白只说一次、不改词、不换说话人，无对白人物闭口；禁止 TTS、旧音轨、跨任务音轨和默认 BGM。",
+        "【关键限制】无字幕、水印、可读文字、人物身份漂移、静态帧、数字推拉、循环动作、冻结或变速补时；不得漏拍或重排节拍。",
     ]
-    return "\n".join(lines) + "\n"
+    text = "\n".join(lines) + "\n"
+    validation = validate_model_prompt(text, source_id=str(unit["unit_id"]))
+    if validation["status"] != "PASS":
+        raise ValueError(";".join(validation["failures"]))
+    return text
 
 
 def write_preflight_artifacts(
@@ -123,6 +241,7 @@ def write_preflight_artifacts(
         prompt_path = prompt_dir / f"{unit['unit_id']}.txt"
         prompt_path.write_text(prompt_text(unit, memory_rules), encoding="utf-8")
         prompt_sha = digest(prompt_path)
+        model_prompt_contract = validate_model_prompt(prompt_path.read_text(encoding="utf-8"), source_id=unit["unit_id"])
         task_dialogue: list[dict[str, str]] = []
         for spec in unit["ordered_prompt_specs"]:
             raw = str(spec.get("dialogue") or "").strip()
@@ -145,6 +264,8 @@ def write_preflight_artifacts(
         prompt_rows.append({
             "unit_id": unit["unit_id"], "scene_id": unit["scene_id"], "weather": weather,
             "prompt_path": relative(prompt_path), "prompt_sha256": prompt_sha,
+            "model_prompt_contract": model_prompt_contract,
+            "machine_contract_location": "GROUPED_MANIFEST_UNIT_FIELDS_NOT_MODEL_PROMPT",
         })
         tasks.append({
             "task_key": f"{unit['unit_id']}-VIDEO-A1", "unit_id": unit["unit_id"],
@@ -154,6 +275,15 @@ def write_preflight_artifacts(
             "visual_tier": "CORE", "minimum_score_100": 80.0,
             "prompt_failure_modes_applied": known_failure_ids,
             "prompt_failure_modes_not_applicable": [],
+            "model_prompt_contract": model_prompt_contract,
+            "machine_contract": {
+                "grouped_manifest_unit_id": unit["unit_id"],
+                "weather": weather,
+                "reference_images": unit["reference_images"],
+                "action_timeline": unit["action_timeline"],
+                "ordered_prompt_specs": unit["ordered_prompt_specs"],
+                "prompt_failure_mode_ids": known_failure_ids,
+            },
             "provider_post_allowed": False, "remote_task_id": None, "paid_attempt": 0,
         })
     scene_authority_path.parent.mkdir(parents=True, exist_ok=True)
@@ -197,10 +327,9 @@ def write_preflight_artifacts(
             "review": relative(script_density_report_path),
             "episode": manifest["episode"],
         },
-        "writer_agent_provenance": {
-            "generated_script": relative(directing_script_path),
-            "compiled_script": relative(generation_contract_path),
-        },
+        "writer_agent_provenance": build_writer_agent_provenance(
+            directing_script_path, generation_contract_path
+        ),
         "supervisor_script_gate_report": relative(supervisor_report_path),
         "tasks": tasks,
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

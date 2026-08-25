@@ -138,6 +138,7 @@ except ModuleNotFoundError:  # Imported as tools.episode_parallel_batch_supervis
 
 ROOT = Path(__file__).resolve().parents[1]
 SEEDANCE_REFERENCE_IMAGE_MAX_BYTES = 30 * 1024 * 1024
+COMPACT_MODEL_PROMPT_POLICY = "qingshan.seedance_model_prompt_compact.v1"
 SEEDANCE_REFERENCE_IMAGE_MIN_SHORT_EDGE = 512
 TERMINAL_TASK_STATES = {
     "qa_pass",
@@ -733,6 +734,41 @@ def validate_complete_video_prompt_manifest(config: dict) -> dict:
                     "unit_id": unit_id,
                     "expected_token": f"【天气硬合同】weather={expected_weather}",
                 })
+            prompt_contract = row.get("model_prompt_contract")
+            if prompt_contract is not None:
+                if not isinstance(prompt_contract, dict) or prompt_contract.get("policy") != COMPACT_MODEL_PROMPT_POLICY:
+                    row_failures.append({
+                        "check": "model_prompt_compact_policy",
+                        "unit_id": unit_id,
+                        "expected": COMPACT_MODEL_PROMPT_POLICY,
+                        "actual": prompt_contract,
+                    })
+                else:
+                    max_chars = int(prompt_contract.get("max_character_count") or 0)
+                    if prompt_contract.get("status") != "PASS" or max_chars <= 0 or len(prompt_text) > max_chars:
+                        row_failures.append({
+                            "check": "model_prompt_compact_length",
+                            "unit_id": unit_id,
+                            "actual_characters": len(prompt_text),
+                            "max_characters": max_chars,
+                        })
+                    if int(prompt_contract.get("character_count") or -1) != len(prompt_text):
+                        row_failures.append({
+                            "check": "model_prompt_compact_character_count",
+                            "unit_id": unit_id,
+                            "expected": prompt_contract.get("character_count"),
+                            "actual": len(prompt_text),
+                        })
+                    leaked = [
+                        str(token) for token in prompt_contract.get("forbidden_tokens") or []
+                        if str(token) and str(token) in prompt_text
+                    ]
+                    if leaked:
+                        row_failures.append({
+                            "check": "model_prompt_machine_contract_leak",
+                            "unit_id": unit_id,
+                            "tokens": leaked,
+                        })
         rows_by_unit[unit_id] = row
         failures.extend(row_failures)
         results.append({
@@ -760,6 +796,24 @@ def validate_complete_video_prompt_manifest(config: dict) -> dict:
                 "actual": task_prompt_sha or "MISSING",
                 "task_prompt_file": str(task_prompt_path),
             })
+        task_prompt_contract = task.get("model_prompt_contract")
+        if task_prompt_contract is not None and task_prompt_contract != row.get("model_prompt_contract"):
+            failures.append({
+                "check": "task_model_prompt_contract_matches_complete_manifest",
+                "unit_id": unit_id,
+            })
+        if task_prompt_contract is not None and task_prompt_path.is_file():
+            task_prompt_text = task_prompt_path.read_text(encoding="utf-8")
+            for dialogue in task.get("dialogue") or []:
+                spoken_text = str(dialogue.get("spoken_text") or "").strip()
+                if spoken_text and task_prompt_text.count(spoken_text) != 1:
+                    failures.append({
+                        "check": "model_prompt_exact_dialogue_once",
+                        "unit_id": unit_id,
+                        "dia_id": dialogue.get("dia_id"),
+                        "spoken_text": spoken_text,
+                        "actual_count": task_prompt_text.count(spoken_text),
+                    })
 
     distinct_authority_weather = set(expected_weather_by_scene.values())
     distinct_manifest_weather = {_normalized_scene_weather(row.get("weather")) for row in rows}
