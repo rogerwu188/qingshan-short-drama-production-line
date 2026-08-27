@@ -65,12 +65,14 @@
         "tools/scene_authority_lock.py",
         "tools/global_space_layout_gate.py",
         "tools/submit_giggle_image_manifest.py",
+        "tools/submit_giggle_video_manifest_v2.py",
         "tools/episode_parallel_batch_supervisor.py"
       ],
       "test_paths": [
         "tools/tests/test_scene_authority_lock.py",
         "tools/tests/test_global_space_layout_gate.py",
-        "tools/tests/test_submit_giggle_image_manifest.py"
+        "tools/tests/test_submit_giggle_image_manifest.py",
+        "/Users/rogerwu/code/backlot-os/components/pipeline-tools/tests/test_production_video_submission_gate.py"
       ],
       "parameters": {
         "scene_state_required": true,
@@ -81,6 +83,8 @@
         "episode_map_must_cover_all_episode_locations": true,
         "shot_subspace_must_derive_from_locked_place_map": true,
         "character_and_prop_blocking_must_resolve_after_subspace_lock": true,
+        "e42_complete_map_mode_non_bypassable": true,
+        "paid_video_entrypoint_revalidates_current_map_files_and_sha": true,
         "required_resolution_order": [
           "EPISODE_GLOBAL_SPACE_MAP",
           "GLOBAL_SPACE_MAP",
@@ -93,8 +97,8 @@
         "three_episode_night_run_requires_continuity_reason": true,
         "no_remote_submission_on_fail": true
       },
-      "authorization_ref": "ROGER-20260818-EPISODE-GLOBAL-SPACE-MAP",
-      "last_backtest_date": "2026-08-18",
+      "authorization_ref": "ROGER-20260827-E42-COMPLETE-MAP-MODE",
+      "last_backtest_date": "2026-08-27",
       "stage_runner_paths": [
         "tools/episode_parallel_batch_supervisor.py"
       ]

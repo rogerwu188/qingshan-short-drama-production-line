@@ -177,24 +177,49 @@ def media(path: Path, kind: str, **extra: Any) -> dict[str, Any]:
 def build(template: dict[str, Any], plan: dict[str, Any], asset_dir: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     authority = copy.deepcopy(template)
     tasks = copy.deepcopy(plan)
-    if len(authority.get("space_maps") or []) != 1:
-        raise ValueError("renderer currently requires exactly one concrete place map")
-    place = authority["space_maps"][0]
-    episode_path = asset_dir / "E40_EPISODE_GLOBAL_SPACE_MAP_V1.png"
-    place_path = asset_dir / "GSM_WANGFU_HALL_001_V1.png"
-    render_map(place, episode_path, title="E40 整集全局空间地图")
-    render_map(place, place_path, title="王府花厅完整地点空间图")
+    places = authority.get("space_maps") or []
+    if not places:
+        raise ValueError("renderer requires at least one concrete place map")
+    episode = str(authority.get("episode") or tasks.get("episode") or "EPISODE")
+    version = int(authority.get("map_version") or 1)
+    place_by_id: dict[str, dict[str, Any]] = {}
+    for place in places:
+        map_id = str(place.get("global_space_map_id") or "")
+        if not map_id or map_id in place_by_id:
+            raise ValueError(f"missing or duplicate global_space_map_id: {map_id!r}")
+        place_by_id[map_id] = place
+    # The episode image is a deterministic overview sheet.  Render every
+    # concrete place independently and tile the results into one top-down
+    # authority image so the episode asset covers all declared locations.
+    overview_tiles: list[Image.Image] = []
+    for place in places:
+        temporary = asset_dir / ".overview" / f"{place['global_space_map_id']}.png"
+        render_map(place, temporary, title=f"{episode} {place.get('name') or place['global_space_map_id']}")
+        overview_tiles.append(Image.open(temporary).convert("RGB"))
+    episode_path = asset_dir / f"{episode}_EPISODE_GLOBAL_SPACE_MAP_V{version}.png"
+    overview = Image.new("RGB", (CANVAS[0] * len(overview_tiles), CANVAS[1]), (242, 239, 230))
+    for index, tile in enumerate(overview_tiles):
+        overview.paste(tile, (CANVAS[0] * index, 0))
+    episode_path.parent.mkdir(parents=True, exist_ok=True)
+    overview.save(episode_path, format="PNG", optimize=True)
     authority["map_image"] = media(episode_path, "EPISODE_TOP_DOWN_COMPLETE_SPACE_MAP")
-    place["layout_image"] = media(place_path, "PLACE_TOP_DOWN_COMPLETE_SPACE_MAP")
-    place["status"] = "LOCKED"
+    for place in places:
+        place_version = int(place.get("map_version") or 1)
+        place_path = asset_dir / "places" / f"{place['global_space_map_id']}_V{place_version}.png"
+        render_map(place, place_path, title=f"{episode} {place.get('name') or place['global_space_map_id']} 俯视拓扑图")
+        place["layout_image"] = media(place_path, "PLACE_TOP_DOWN_COMPLETE_SPACE_MAP")
+        place["status"] = "LOCKED"
     subspaces = []
     task_by_id = {}
     for task in tasks.get("tasks") or []:
         task_by_id[task["task_key"]] = task
+        place = place_by_id.get(str(task.get("global_space_map_id") or ""))
+        if not place:
+            raise ValueError(f"{task['task_key']} references an unknown global_space_map_id")
         subspace = task["subspace_layout"]
         shot_path = asset_dir / "subspaces" / f"{subspace['subspace_id']}.png"
         render_map(
-            place, shot_path, title=f"E40 {task.get('unit_id')} 镜头子空间与动作路径",
+            place, shot_path, title=f"{episode} {task.get('unit_id')} 镜头子空间与动作路径",
             subspace=subspace, blocking=task.get("blocking"),
             end_blocking=task.get("action_end_blocking"), trajectories=task.get("trajectory_overlays"),
         )
@@ -210,12 +235,17 @@ def build(template: dict[str, Any], plan: dict[str, Any], asset_dir: Path) -> tu
             *(task.get("entity_reference_bindings") or []),
         ]
         subspaces.append({
+            "task_key": task["task_key"],
             "subspace_id": subspace["subspace_id"], "unit_id": task.get("unit_id"),
             "polygon": subspace["polygon"], "zone_ids": subspace["zone_ids"],
             "angle_id": subspace["angle_id"], "axis_id": subspace["axis_id"],
             "reference_image": reference,
         })
-    place["subspaces"] = subspaces
+    for place in places:
+        place["subspaces"] = [
+            row for row in subspaces
+            if task_by_id[row["task_key"]].get("global_space_map_id") == place.get("global_space_map_id")
+        ]
     authority["shot_bindings"] = [
         {"task_key": row["task_key"], "unit_id": row.get("unit_id"), "subspace_id": row["subspace_layout"]["subspace_id"]}
         for row in tasks.get("tasks") or []
@@ -233,7 +263,7 @@ def build(template: dict[str, Any], plan: dict[str, Any], asset_dir: Path) -> tu
         "episode_global_space_map_id": authority.get("episode_global_space_map_id"),
         "global_space_map_ids": [row.get("global_space_map_id") for row in authority["space_maps"]],
         "topology_sha256": authority["topology_sha256"],
-        "episode_map": authority["map_image"], "place_maps": [place["layout_image"]],
+        "episode_map": authority["map_image"], "place_maps": [place["layout_image"] for place in places],
         "subspace_count": len(subspaces), "subspaces": subspaces,
     }
     return authority, tasks, receipt

@@ -48,6 +48,44 @@ class RenderGlobalSpaceMapAssetsTest(unittest.TestCase):
             __import__("json").dumps(locked["space_maps"], ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest())
 
+    def test_renderer_supports_multiple_place_maps(self):
+        authority = {
+            "schema": "qingshan.episode_global_space_map.v1", "episode": "E42",
+            "episode_global_space_map_id": "EGSM-E42", "map_version": 1,
+            "authority_ref": "ROGER-20260827-E42-COMPLETE-MAP-MODE", "status": "PENDING",
+            "inheritance": {"mode": "NEW"}, "map_image": {}, "space_maps": [],
+        }
+        tasks = []
+        for index in range(2):
+            map_id, scene_id = f"GSM-{index}", f"S{index}"
+            room_id, zone_id, angle_id = f"ROOM-{index}", f"ZONE-{index}", f"ANGLE-{index}"
+            authority["space_maps"].append({
+                "global_space_map_id": map_id, "map_version": 1, "name": f"Place {index}",
+                "coordinate_system": {"origin": "south", "x_axis": "east", "y_axis": "north", "unit": "m"},
+                "overall_bounds": {"width": 10, "depth": 10}, "layout_image": {},
+                "rooms": [{
+                    "room_id": room_id,
+                    "zones": [{"zone_id": zone_id, "name": "Zone", "polygon": [[0, 0], [10, 0], [10, 10], [0, 10]]}],
+                    "fixed_elements": [{"element_id": f"FIXED-{index}", "type": "table", "zone_id": zone_id, "position": [8, 8], "traversable": False}],
+                    "entrances": [{"entrance_id": f"ENTRY-{index}", "zone_id": zone_id, "position": [5, 0]}],
+                    "axes": [{"axis_id": f"AXIS-{index}", "endpoint_a": [1, 5], "endpoint_b": [9, 5], "default_screen_direction": "A_LEFT", "crossing_policy": "NO_CROSS"}],
+                    "camera_positions": [{"angle_id": angle_id, "zone_id": zone_id, "position": [5, 1], "facing": "north", "axis_id": f"AXIS-{index}", "screen_direction": "A_LEFT"}],
+                }],
+                "scene_mappings": [{"scene_id": scene_id, "room_id": room_id, "zone_ids": [zone_id]}],
+            })
+            tasks.append({
+                "task_key": f"T{index}", "unit_id": f"R{index}", "tool_type": "video_generation", "spatial_layout_stage": "VIDEO_GENERATION",
+                "scene_id": scene_id, "episode_global_space_map_id": "EGSM-E42", "global_space_map_id": map_id,
+                "room_id": room_id, "zone_id": zone_id, "angle_id": angle_id, "resolution_order": RESOLUTION_ORDER,
+                "subspace_layout": {"subspace_id": f"SUB-{index}", "derived_from_episode_global_space_map_id": "EGSM-E42", "derived_from_global_space_map_id": map_id, "room_id": room_id, "zone_ids": [zone_id], "angle_id": angle_id, "camera_position_id": angle_id, "axis_id": f"AXIS-{index}", "visible_fixed_element_ids": [f"FIXED-{index}"], "polygon": [[0, 0], [10, 0], [10, 10], [0, 10]]},
+                "blocking": {"resolved_after_subspace_lock": True, "characters": [], "props": []},
+            })
+        with tempfile.TemporaryDirectory() as directory:
+            locked, plan, receipt = build(authority, {"episode": "E42", "tasks": tasks}, Path(directory))
+            report = evaluate_batch(locked, plan["tasks"], episode="E42")
+        self.assertEqual(len(receipt["place_maps"]), 2)
+        self.assertEqual(report["status"], "PASS", report["failures"])
+
 
 if __name__ == "__main__":
     unittest.main()
