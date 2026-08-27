@@ -21,7 +21,7 @@ class DeployedGiggleVideoAudioAssetTransportTests(unittest.TestCase):
         module = load_transport()
         task = {
             "task_key": "E40-TRANSPORT-REGRESSION",
-            "model": "seedance-2.0-fast",
+            "model": "seedance-2.0-pro",
             "duration_seconds": 4,
             "aspect_ratio": "9:16",
             "resolution": "720p",
@@ -45,7 +45,7 @@ class DeployedGiggleVideoAudioAssetTransportTests(unittest.TestCase):
         module = load_transport()
         task = {
             "task_key": "E40-TRANSPORT-URL-FALLBACK",
-            "model": "seedance-2.0-fast",
+            "model": "seedance-2.0-pro",
             "duration_seconds": 4,
             "aspect_ratio": "9:16",
             "resolution": "720p",

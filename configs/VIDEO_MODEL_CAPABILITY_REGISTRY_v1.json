@@ -2,9 +2,9 @@
   "schema": "qingshan.video_model_capability_registry.v1",
   "portable_contract_version": "1.0.0",
   "active_execution_policy": {
-    "effective_from_episode": "E40",
-    "allowed_paid_profile_ids": ["SEEDANCE_2_FAST_GIGGLE"],
-    "reason": "Current Roger authorization remains seedance-2.0-fast only; compatibility profiles do not grant paid authority."
+    "effective_from_episode": "E41",
+    "allowed_paid_profile_ids": ["SEEDANCE_2_STANDARD_GIGGLE"],
+    "reason": "Roger explicitly authorized SD2 standard for E41 after the Fast route compatibility failure."
   },
   "portable_required_fields": [
     "prompt", "duration_seconds", "aspect_ratio", "blocking",
@@ -12,11 +12,11 @@
   ],
   "profiles": [
     {
-      "profile_id": "SEEDANCE_2_FAST_GIGGLE",
+      "profile_id": "SEEDANCE_2_STANDARD_GIGGLE",
       "family": "seedance2",
-      "aliases": ["seedance-2.0-fast"],
+      "aliases": ["seedance-2.0-pro"],
       "provider": "giggle",
-      "provider_model_id": "seedance-2.0-fast",
+      "provider_model_id": "seedance-2.0-pro",
       "adapter_status": "DEPLOYED",
       "supports": {
         "text_to_video": true,

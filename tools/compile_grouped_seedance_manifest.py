@@ -193,7 +193,7 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
     if props:
         scene_parts.append("关键道具=" + "、".join(props))
     lines = [
-        f"【视频任务】{unit['duration_seconds']}秒，16:9，720p，seedance-2.0-fast；写实古装悬疑电影质感。",
+        f"【视频任务】{unit['duration_seconds']}秒，竖屏9:16，720p，seedance-2.0-pro（SD2 标准版）；写实古装悬疑电影质感。",
         f"【天气硬合同】weather={weather}",
         "【场景与人物】" + "；".join(scene_parts) + "。使用随任务传入的参考图保持人物面孔、服装、场景和道具一致。",
         "【镜头】把下列节拍演成一段连续、自然的表演；镜头随主要动作平稳调整景别，不把每个节拍机械切成独立镜头。",
@@ -269,7 +269,7 @@ def write_preflight_artifacts(
         })
         tasks.append({
             "task_key": f"{unit['unit_id']}-VIDEO-A1", "unit_id": unit["unit_id"],
-            "tool_type": "video_generation", "model": "seedance-2.0-fast", "resolution": "720p",
+            "tool_type": "video_generation", "model": "seedance-2.0-pro", "resolution": "720p",
             "prompt_file": relative(prompt_path), "prompt_sha256": prompt_sha,
             "dialogue": task_dialogue, "native_dialogue_required": bool(task_dialogue),
             "visual_tier": "CORE", "minimum_score_100": 80.0,
@@ -350,9 +350,7 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
         roles = (anchor.get("anchor_count_decision") or {}).get("anchor_roles") or []
         if len(roles) != len(paths):
             raise ValueError(f"{unit_id} anchor role count mismatch")
-        transport = str(anchor.get("reference_transport_strategy") or "")
-        if transport not in {"IMAGE_TO_VIDEO_EXACT_FIRST_FRAME", "OMNI_MULTI_REFERENCE"}:
-            raise ValueError(f"{unit_id} unsupported reference transport strategy: {transport}")
+        source_transport = str(anchor.get("reference_transport_strategy") or "")
         references = []
         for value, role in zip(paths, roles):
             path = resolve(value)
@@ -360,7 +358,7 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
                 raise ValueError(f"{unit_id} anchor missing: {value}")
             references.append({"path": value, "sha256": digest(path), "role": role})
         shots = [shot_by_id[shot_id] for shot_id in unit["editorial_shot_ids"]]
-        if any(row.get("model") != "seedance-2.0-fast" for row in shots):
+        if any(row.get("model") != "seedance-2.0-pro" for row in shots):
             raise ValueError(f"{unit_id} contains forbidden model")
         if any(row.get("resolution") != "720p" for row in shots):
             raise ValueError(f"{unit_id} contains forbidden resolution")
@@ -369,12 +367,15 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             "unit_id": unit_id,
             "scene_id": unit["scene_id"],
             "duration_seconds": unit["duration_seconds"],
-            "model": "seedance-2.0-fast",
+            "model": "seedance-2.0-pro",
             "resolution": "720p",
             "editorial_shot_ids": unit["editorial_shot_ids"],
             "narrative_beat": unit["narrative_beat"],
             "reference_images": references,
-            "reference_transport_strategy": transport,
+            # The production contract deliberately exposes one route. Reference count no
+            # longer creates separate I2V/Omni admission gates for the operator.
+            "reference_transport_strategy": "STANDARD_MULTI_REFERENCE",
+            "source_reference_transport_strategy": source_transport or None,
             "semantic_reference_coverage_gate": anchor.get("semantic_reference_coverage_gate"),
             "ordered_prompt_specs": prompt_specs,
             "native_audio_contract": "SAME_VIDEO_TASK_NATIVE_DIALOGUE_AMBIENCE_FOLEY_ACTION_SOUND",

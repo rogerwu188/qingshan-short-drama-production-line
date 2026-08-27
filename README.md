@@ -24,4 +24,4 @@ The installer deploys the versioned `SKILL.md` to Claude Desktop's Scheduled fol
 
 See [`agent_factory/claude_writer/README.md`](agent_factory/claude_writer/README.md) for the complete local/cloud Writer deployment contract and clean-clone smoke test.
 
-For E40 and later Seedance 2.0 video jobs, the authorized model is `seedance-2.0-fast`; `seedance-2.0-pro`, `seedance-2.0-mini`, and an unversioned bare `seedance-2.0` are prohibited.
+For E41 and later Seedance 2.0 video jobs, the authorized model is `seedance-2.0-pro` (SD2 standard); `seedance-2.0-fast`, `seedance-2.0-mini`, and an unversioned bare `seedance-2.0` are prohibited. E40 remains abandoned and private.

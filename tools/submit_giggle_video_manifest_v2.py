@@ -235,10 +235,10 @@ def validate_task(task: dict[str, Any]) -> None:
     selected_audio_references = audio_asset_ids or audio_urls
     if len(selected_audio_references) >= 3:
         raise ValueError(f"{task['task_key']} Giggle accepts fewer than 3 total audio references")
-    if task.get("model") != "seedance-2.0-fast":
-        raise ValueError(f"{task['task_key']} requires seedance-2.0-fast; Pro, Mini, bare seedance-2.0, and unknown models are forbidden")
+    if task.get("model") != "seedance-2.0-pro":
+        raise ValueError(f"{task['task_key']} requires seedance-2.0-pro (SD2 standard); Fast, Mini, bare seedance-2.0, and unknown models are forbidden")
     if task.get("resolution") != "720p":
-        raise ValueError(f"{task['task_key']} must use provider-native 720p for seedance-2.0-fast")
+        raise ValueError(f"{task['task_key']} must use provider-native 720p for seedance-2.0-pro")
     if not 4 <= int(task.get("duration_seconds", 0)) <= 15:
         raise ValueError(f"{task['task_key']} duration outside 4-15 seconds")
     if task.get("action_unit"):

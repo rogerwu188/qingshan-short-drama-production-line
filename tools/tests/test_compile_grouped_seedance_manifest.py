@@ -62,6 +62,10 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
 
         self.assertEqual(result["status"], "PASS")
         self.assertLessEqual(len(text), MAX_MODEL_PROMPT_CHARS)
+        self.assertIn("竖屏9:16", text)
+        self.assertIn("seedance-2.0-pro", text)
+        self.assertNotIn("seedance-2.0-fast", text)
+        self.assertNotIn("16:9", text)
         self.assertNotIn("GLOBAL-SPACE-", text)
         self.assertNotIn("sha256", text)
         self.assertNotIn("PF-", text)
@@ -96,12 +100,13 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
                 "semantic_reference_coverage_gate": {"status": "PASS"},
             }]}
             editorial = {"shots": [
-                {"shot_id": "S1-1", "model": "seedance-2.0-fast", "resolution": "720p", "prompt_spec": {}},
-                {"shot_id": "S1-2", "model": "seedance-2.0-fast", "resolution": "720p", "prompt_spec": {}},
+                {"shot_id": "S1-1", "model": "seedance-2.0-pro", "resolution": "720p", "prompt_spec": {}},
+                {"shot_id": "S1-2", "model": "seedance-2.0-pro", "resolution": "720p", "prompt_spec": {}},
             ]}
             result = compile_manifest(grouping, anchors, editorial)
             unit = result["units"][0]
-            self.assertEqual(unit["reference_transport_strategy"], "OMNI_MULTI_REFERENCE")
+            self.assertEqual(unit["reference_transport_strategy"], "STANDARD_MULTI_REFERENCE")
+            self.assertEqual(unit["source_reference_transport_strategy"], "OMNI_MULTI_REFERENCE")
             self.assertEqual(
                 [row["role"] for row in unit["reference_images"]],
                 ["ADMITTED_SCENE_START_STATE", "IDENTITY_OR_PROP_REANCHOR"],

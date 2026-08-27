@@ -52,6 +52,18 @@ def raw_rgb_sha(path: Path) -> str:
     return hashlib.sha256(width.to_bytes(8, "big") + height.to_bytes(8, "big") + rgb.tobytes()).hexdigest()
 
 
+def portrait_dimensions(path: Path) -> tuple[int, int]:
+    bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if bgr is None:
+        raise ValueError(f"cannot decode {path}")
+    height, width = bgr.shape[:2]
+    if width >= height:
+        raise ValueError(
+            f"VERTICAL_SHORT_DRAMA_REFERENCE_NOT_PORTRAIT: {rel(path)} is {width}x{height}"
+        )
+    return width, height
+
+
 def entity_id(kind: str, name: str) -> str:
     return f"{kind}-E41-{name}"
 
@@ -114,23 +126,62 @@ def block(spec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def standard_reference_transport() -> dict[str, str]:
+    """Return the only operator-visible SD2 standard reference route."""
+    return {
+        "mode": "standard_multi_reference",
+        "endpoint": "/api/v1/generation/omni-video",
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--grouped", required=True)
     parser.add_argument("--base-config", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--admission-dir", required=True)
+    parser.add_argument(
+        "--unit-id", action="append", default=[],
+        help="Compile only the named already-admissible unit; repeat to stream a safe subset.",
+    )
     args = parser.parse_args()
     grouped_path = resolve(args.grouped)
     base_path = resolve(args.base_config)
     grouped = load(grouped_path)
     base = load(base_path)
     base_tasks = {row["unit_id"]: row for row in base.get("tasks") or []}
-    units = grouped.get("units") or []
-    durations = allocate_integer_durations(units, 180)
+    all_units = grouped.get("units") or []
+    durations = allocate_integer_durations(all_units, 180)
+    if args.unit_id:
+        requested = set(args.unit_id)
+        available = {str(row["unit_id"]) for row in all_units}
+        unknown = sorted(requested - available)
+        if unknown:
+            raise ValueError(f"unknown grouped unit ids: {unknown}")
+        units = [row for row in all_units if str(row["unit_id"]) in requested]
+    else:
+        units = all_units
     admission_dir = resolve(args.admission_dir)
     admission_dir.mkdir(parents=True, exist_ok=True)
     tasks: list[dict[str, Any]] = []
+
+    orientation_failures: list[str] = []
+    for unit in units:
+        uid = str(unit["unit_id"])
+        for ref in unit.get("reference_images") or []:
+            path = resolve(str(ref["path"]))
+            if not path.is_file():
+                orientation_failures.append(f"{uid}:REFERENCE_MISSING:{rel(path)}")
+                continue
+            if sha(path) != str(ref["sha256"]):
+                orientation_failures.append(f"{uid}:REFERENCE_SHA_MISMATCH:{rel(path)}")
+                continue
+            try:
+                portrait_dimensions(path)
+            except ValueError as exc:
+                orientation_failures.append(f"{uid}:{exc}")
+    if orientation_failures:
+        raise ValueError("VERTICAL_SHORT_DRAMA_REFERENCE_GATE_FAILED | " + " | ".join(orientation_failures))
 
     for unit in units:
         uid = str(unit["unit_id"])
@@ -238,12 +289,12 @@ def main() -> int:
             "provider": "giggle",
             "duration_seconds": durations[uid],
             "source_duration_seconds": unit["duration_seconds"],
-            "aspect_ratio": "16:9",
-            "model": "seedance-2.0-fast",
+            "aspect_ratio": "9:16",
+            "model": "seedance-2.0-pro",
             "resolution": "720p",
             "reference_images": [str(row["path"]) for row in refs],
             "reference_sha256": [str(row["sha256"]) for row in refs],
-            "reference_roles": ["EXACT_FIRST_FRAME"] if unit.get("reference_transport_strategy") == "IMAGE_TO_VIDEO_EXACT_FIRST_FRAME" else ["SEMANTIC_REFERENCE"] * len(refs),
+            "reference_roles": ["SEMANTIC_REFERENCE"] * len(refs),
             "reference_image_sequence": bindings,
             "reference_bindings": bindings,
             "canonical_characters": all_characters,
@@ -274,34 +325,13 @@ def main() -> int:
             "creative_attempt_ordinal": 1,
             "paid_attempt": 0,
             "provider_post_allowed": False,
+            "vertical_short_drama_contract": {
+                "required": True,
+                "aspect_ratio": "9:16",
+                "all_reference_images_portrait": True,
+            },
         }
-        if unit.get("reference_transport_strategy") == "IMAGE_TO_VIDEO_EXACT_FIRST_FRAME":
-            exact_path = resolve(str(first_ref["path"]))
-            task.update({
-                "exact_first_frame_sha256": first_ref["sha256"],
-                "video_transport": {
-                    "mode": "image_to_video_start_frame",
-                    "endpoint": "/api/v1/generation/image-to-video",
-                    "start_frame_path": first_ref["path"],
-                    "start_frame_sha256": first_ref["sha256"],
-                    "ordinary_images": [],
-                },
-                "frame0_authority_contract": {
-                    "source_sha256": first_ref["sha256"],
-                    "pre_encode_raw_rgb_sha256_required": True,
-                    "raw_rgb_sha256": raw_rgb_sha(exact_path),
-                    "raw_rgb_sha256_algorithm": "SHA256(WIDTH_UINT64_BE || HEIGHT_UINT64_BE || DECODED_RGB_BYTES)",
-                },
-                "post_harvest_exact_frame_gate": {
-                    "required": True,
-                    "single_frame_prepend_allowed": False,
-                    "single_frame_replacement_allowed": False,
-                    "frame0_thresholds": {"minimum_ssim": 0.98, "maximum_mae": 3.0, "maximum_phash_hamming": 3},
-                    "frame0_to_frame1_continuity_required": True,
-                },
-            })
-        else:
-            task["video_transport"] = {"mode": "omni_multi_reference", "endpoint": "/api/v1/generation/omni-video"}
+        task["video_transport"] = standard_reference_transport()
         task["input_template_id"] = compute_input_template_id(task)
         tasks.append(task)
 
@@ -309,12 +339,19 @@ def main() -> int:
         "schema": "qingshan.giggle_video_transaction_manifest.v1",
         "episode": "E41",
         "provider": "giggle",
-        "allowed_video_models": ["seedance-2.0-fast"],
+        "format_contract": {
+            "vertical_short_drama_required": True,
+            "aspect_ratio": "9:16",
+            "all_reference_images_portrait": True,
+        },
+        "allowed_video_models": ["seedance-2.0-pro"],
         "source_grouped_manifest": rel(grouped_path),
         "source_grouped_manifest_sha256": sha(grouped_path),
         "source_base_config": rel(base_path),
         "source_base_config_sha256": sha(base_path),
         "video_unit_count": len(tasks),
+        "source_video_unit_count": len(all_units),
+        "excluded_unit_ids": [str(row["unit_id"]) for row in all_units if row not in units],
         "reference_image_count": sum(len(row["reference_images"]) for row in tasks),
         "runtime_seconds": sum(row["duration_seconds"] for row in tasks),
         "machine_gate_reports": [

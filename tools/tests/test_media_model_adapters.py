@@ -39,7 +39,7 @@ def image_task(model):
 
 class MediaModelAdapterTests(unittest.TestCase):
     def test_current_video_model_is_deployed_and_paid_authorized(self):
-        self.assertEqual(validate_model_contract(video_task("seedance-2.0-fast"), mode="PAID_SUBMIT")["status"], "PASS")
+        self.assertEqual(validate_model_contract(video_task("seedance-2.0-pro"), mode="PAID_SUBMIT")["status"], "PASS")
 
     def test_future_video_families_have_contract_but_no_paid_bypass(self):
         for model in ("sora2", "kling", "h3", "wan2.7"):
