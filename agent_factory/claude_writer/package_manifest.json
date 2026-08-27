@@ -21,6 +21,23 @@
     "codex_docs/美剧叙事节奏标准_v3_因果层_20260821.md",
     "workflow/claude_writer_agent/宪章_ClaudeWriterAgent_v1.md",
     "workflow/claude_writer_agent/青山编剧Claude_云端可移植宪章_v1.md",
-    "workflow/cloud_factory_migration_v1_20260724/prompt_files/qingshan-claude-writer/AGENTS.md"
+    "workflow/cloud_factory_migration_v1_20260724/prompt_files/qingshan-claude-writer/AGENTS.md",
+    "codex_docs/美剧叙事节奏标准_20260718.md",
+    "configs/episode_source_map_v2_observed_20260821.json"
+  ],
+  "package_version": "v2.0.0-20260827",
+  "updated_at_utc": "2026-08-27T21:15:30.374740+00:00",
+  "changelog_head": [
+    "v2.0.0-20260827：并入 SUPERVISOR_ORDERS seq=36/37/38 与 ROGER-20260827-CHARACTERIZATION-NOT-COMPRESSIBLE。",
+    "① FS-1 由『每2集≥1场』均匀配额改为『每10集≥3场』按段配额；动作簇内不得让渡；文戏簇须申报等价张力替代物；废止逐集窗口丢失记账。",
+    "② 新增『取舍与压缩』：按戏剧权重合并，两条前提（不影响动作/高潮戏、不得让观众看得莫名其妙）＋三条合并判定标准；忠实门口径由逐拍覆盖率改为主线因果链完整性＋关键转折与关键台词落地；manifest 必填 beat_disposition。",
+    "③ 新增『人物刻画不可压缩』：主角反应必须落在主角身上、重要决定必须有可表演过程、导演稿必填 expression_arc。",
+    "④ 新增『禁机械模板』：禁 ~10场/~100镜/ASL1.5s 固定组合；对话段 ASL 回 2.5–3.5s；解除 9 字自限（爆发段 ≤16 字）；末场 button 必须落在人身上。",
+    "⑤ 写锁新增两条运行经验：开写前必查上游集是否已覆盖本集源章（E41 v17 吸收 ch42+43+44 导致 E42 重复的实例）；lease unlink 受限时按改名释放。"
+  ],
+  "source_skill_sha256": "217e80fae9b09a7bc45782c71e52a3bb91b91572058deda5412c6534f12c6511",
+  "redeploy_verification": [
+    "install.py 部署后，读 SKILL.md 应能查到：FS-1 按段配额／取舍与压缩两条前提／人物刻画不可压缩／禁机械模板 四节。缺任一节即为旧版包。",
+    "SUPERVISOR_ORDERS.json 的 latest_order_seq 应 ≥38。"
   ]
 }
