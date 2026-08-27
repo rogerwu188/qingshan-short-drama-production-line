@@ -57,6 +57,22 @@ def authoritative_pipeline_tools_dir() -> Path:
 
 
 def run_authoritative_submission_gate(manifest: dict[str, Any], manifest_path: Path) -> dict[str, Any]:
+    # Defense in depth: the project-owned map authority contains the current
+    # asset paths and SHA bindings, so validate it before loading the deployed
+    # BacklotOS gate. E42+ cannot opt out with an explicit false value.
+    try:
+        from tools.global_space_layout_gate import evaluate_batch as evaluate_complete_map_mode
+    except ModuleNotFoundError:
+        from global_space_layout_gate import evaluate_batch as evaluate_complete_map_mode
+    map_report = evaluate_complete_map_mode(
+        manifest.get("episode_global_space_map_ref"),
+        manifest.get("tasks") or [],
+        episode=manifest.get("episode"),
+        required=manifest.get("global_space_map_gate_required"),
+    )
+    if map_report.get("status") not in {"PASS", "N_A"}:
+        checks = sorted({str(row.get("check") or "UNKNOWN") for row in map_report.get("failures") or []})
+        raise ValueError(f"Complete map mode gate failed: {','.join(checks)}")
     tools_dir = authoritative_pipeline_tools_dir()
     module_path = tools_dir / "production_video_submission_gate.py"
     sys.path.insert(0, str(tools_dir))
@@ -73,6 +89,7 @@ def run_authoritative_submission_gate(manifest: dict[str, Any], manifest_path: P
     if report.get("status") != "PASS":
         codes = sorted({str(row.get("code") or "UNKNOWN") for row in report.get("failures") or []})
         raise ValueError(f"Authoritative BacklotOS production gate failed: {','.join(codes)}")
+    report["project_complete_map_mode"] = map_report
     return report
 
 
