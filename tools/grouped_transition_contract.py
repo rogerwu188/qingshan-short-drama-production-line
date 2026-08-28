@@ -280,8 +280,19 @@ def compile_transition_prompt(unit: dict[str, Any]) -> str:
             f"剧情动机={outgoing['plot_motivation']}"
         )
     else:
+        specs = unit.get("ordered_prompt_specs") or []
+        terminal = str(
+            (((specs[-1] if specs else {}).get("action") or {}).get("completion_state"))
+            or ((unit.get("camera_plan") or {}).get("end_framing"))
+            or "本段已声明完成态"
+        ).strip()
         clauses.append(
-            "出场边界=SEQUENCE_END；片尾转场预留=0秒；"
-            "本单元为当前生成序列末段，末帧保持已声明完成态，不擅自制造下一场"
+            "出场边界=SEQUENCE_END；片尾转场预留=0.8秒；转场方式=MOTIVATED_CUT；"
+            f"出场交棒=把视觉注意力保持在“{terminal}”，供正片在剧情结果上切出；"
+            f"片尾剧情动作=最后0.8秒完成并保持“{terminal}”，不复位、不另起动作；"
+            f"末态必须保持={terminal}；"
+            "声尾=保留当前真实接触声与空间混响自然衰减，供片尾切出，禁止默认BGM与突兀静音；"
+            "剧情动机=以本段最终因果结果作为本集收束和下一集悬念的落点，不擅自制造下一场；"
+            "轴线=保持本段既定轴侧到最终切点"
         )
     return "；".join(clauses) + "。"

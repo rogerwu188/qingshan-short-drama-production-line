@@ -6,6 +6,7 @@ from pathlib import Path
 
 from tools.compile_grouped_seedance_manifest import (
     MAX_MODEL_PROMPT_CHARS,
+    action_timeline,
     build_writer_agent_provenance,
     compile_manifest,
     prompt_text,
@@ -82,6 +83,33 @@ def creative_contract(*, dialogue=""):
 
 
 class CompileGroupedSeedanceManifestTest(unittest.TestCase):
+    def test_long_authored_beat_expands_into_non_repeating_physical_phases(self):
+        unit = {
+            "duration_seconds": 6.6,
+            "ordered_prompt_specs": [{
+                "space": {"location": "LOC-POND", "subspace": "SUB-TABLE"},
+                "cast": [{"character": "陈问孝"}],
+                "props": [],
+                "action": {
+                    "t0_seconds": 0,
+                    "t1_seconds": 6.6,
+                    "start_state": "倚坐",
+                    "primary_action": "把腰背坐直并报出数目",
+                    "completion_state": "直立坐稳，手指停在案面",
+                    "motion_direction": "上身向上挺直，手指向下落到案面",
+                },
+            }],
+        }
+
+        rows = action_timeline(unit)
+
+        self.assertEqual(len(rows), 3)
+        self.assertTrue(all(row["end_seconds"] - row["start_seconds"] <= 3.0 for row in rows))
+        self.assertEqual(rows[-1]["end_seconds"], 6.6)
+        self.assertIn("接触点已成立", rows[0]["actions"][0])
+        self.assertIn("眼神与下颌", rows[1]["actions"][0])
+        self.assertIn("直立坐稳", rows[-1]["actions"][0])
+
     def test_writer_agent_provenance_binds_paths_and_sha(self):
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as tmp:
             script = Path(tmp) / "script.md"

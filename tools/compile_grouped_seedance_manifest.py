@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -100,7 +101,68 @@ def normalized_weather(value: object) -> str:
 
 
 def action_timeline(unit: dict[str, Any]) -> list[dict[str, Any]]:
+    """Expand authored beats into <=3s physical phases for the density gate.
+
+    A long spoken beat is not permission for the model to hold or repeat one
+    gesture.  Each phase advances contact -> reaction -> settled result while
+    preserving one causal action and one final state.
+    """
     rows: list[dict[str, Any]] = []
+    cursor = 0.0
+    specs = unit["ordered_prompt_specs"]
+    for index, spec in enumerate(specs):
+        action = spec.get("action") or {}
+        source_duration = float(action.get("t1_seconds", 0)) - float(action.get("t0_seconds", 0))
+        cast = [str(row.get("character")) for row in spec.get("cast") or [] if row.get("character")]
+        props = [str(row.get("prop")) for row in spec.get("props") or [] if row.get("prop")]
+        space = spec.get("space") or {}
+        subject = "、".join(cast or props) or "场内物件"
+        contact = "、".join(props) or str(space.get("subspace") or space.get("location") or "地面与空气")
+        primary = str(action.get("primary_action") or action.get("start_state") or "").strip()
+        terminal = str(action.get("completion_state") or primary).strip()
+        phase_count = max(1, int(math.ceil(source_duration / 3.0)))
+        phase_duration = source_duration / phase_count
+        for phase_index in range(phase_count):
+            start = cursor
+            end = round(cursor + phase_duration, 3)
+            if index == len(specs) - 1 and phase_index == phase_count - 1:
+                end = float(unit["duration_seconds"])
+            if phase_count == 1:
+                phase_action = primary
+                phase_terminal = terminal
+                phase_state = f"{action.get('start_state') or primary} -> {terminal}"
+            elif phase_index == 0:
+                phase_action = f"{primary}；先完成接触或开口起势"
+                phase_terminal = "接触点已成立，视线开始承接事件"
+                phase_state = f"{action.get('start_state') or primary} -> 接触点成立"
+            elif phase_index == phase_count - 1:
+                phase_action = "眼神、下颌与肩颈沿既定因果继续响应"
+                phase_terminal = terminal
+                phase_state = f"接触后的身体响应 -> {terminal}"
+            else:
+                phase_action = "接触后的眼神与下颌承接事件，重心继续沿既定方向移动"
+                phase_terminal = "肩颈与重心抵达终态前的连续中间态"
+                phase_state = "接触点成立 -> 身体响应中间态"
+            rows.append({
+                "start_seconds": start,
+                "end_seconds": end,
+                "source_spec_index": index,
+                "phase_index": phase_index + 1,
+                "phase_count": phase_count,
+                "actions": [
+                    f"主体={subject}；动作={phase_action}；接触点={contact}；"
+                    f"方向={action.get('motion_direction') or '由起态连续走向结果态'}；终态={phase_terminal}"
+                ],
+                "state_change": phase_state,
+                "action_budget_seconds": round(end - start, 3),
+            })
+            cursor = end
+    return rows
+
+
+def beat_timeline(unit: dict[str, Any]) -> list[dict[str, float]]:
+    """Return one full prompt span per authored beat, independent of density phases."""
+    rows: list[dict[str, float]] = []
     cursor = 0.0
     specs = unit["ordered_prompt_specs"]
     for index, spec in enumerate(specs):
@@ -109,22 +171,7 @@ def action_timeline(unit: dict[str, Any]) -> list[dict[str, Any]]:
         end = round(cursor + source_duration, 3)
         if index == len(specs) - 1:
             end = float(unit["duration_seconds"])
-        cast = [str(row.get("character")) for row in spec.get("cast") or [] if row.get("character")]
-        props = [str(row.get("prop")) for row in spec.get("props") or [] if row.get("prop")]
-        space = spec.get("space") or {}
-        subject = "、".join(cast or props) or "场内物件"
-        contact = "、".join(props) or str(space.get("subspace") or space.get("location") or "地面与空气")
-        primary = str(action.get("primary_action") or action.get("start_state") or "").strip()
-        terminal = str(action.get("completion_state") or primary).strip()
-        rows.append({
-            "start_seconds": cursor,
-            "end_seconds": end,
-            "actions": [
-                f"主体={subject}；动作={primary}；接触点={contact}；方向=由起态连续走向所述结果；终态={terminal}"
-            ],
-            "state_change": f"{action.get('start_state') or primary} -> {terminal}",
-            "action_budget_seconds": round(end - cursor, 3),
-        })
+        rows.append({"start_seconds": cursor, "end_seconds": end})
         cursor = end
     return rows
 
@@ -260,7 +307,7 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
         for row in spec.get("props") or []
     ])
     palette = str((first.get("scene_state") or {}).get("palette") or "").strip()
-    beat_lines = [compact_beat_line(spec, timeline) for spec, timeline in zip(specs, unit["action_timeline"])]
+    beat_lines = [compact_beat_line(spec, timeline) for spec, timeline in zip(specs, beat_timeline(unit))]
     camera_line = compile_camera_prompt(unit.get("camera_plan"), source_id=str(unit["unit_id"]))
     visual_sound_line = compile_visual_sound_clause(specs)
     scene_parts = [weather]

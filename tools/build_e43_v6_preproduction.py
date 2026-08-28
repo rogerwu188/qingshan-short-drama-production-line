@@ -205,6 +205,11 @@ def zone_for(location: str, subspace: str) -> str:
 
 def visible_cast(shot: dict[str, Any]) -> list[str]:
     scene = shot["scene_id"]
+    subspace = str(shot.get("subspace_id") or "")
+    if any(token in subspace for token in ("LIANNEI", "YUQI", "LIANJIAO", "LIANMIAN")):
+        # Jingfei is never visible in E43. Interior-curtain and curtain-detail
+        # shots carry only her same-task native voice plus physical cloth motion.
+        return []
     text = f"{shot.get('frame_content', '')} {shot.get('dialogue', '')} {shot.get('camera', '')}"
     result = [name for name in CHAR_IDS if name in text]
     if "静妃" in result:
@@ -237,6 +242,21 @@ def visible_cast(shot: dict[str, Any]) -> list[str]:
 def visible_props(shot: dict[str, Any]) -> list[str]:
     text = f"{shot.get('frame_content', '')} {shot.get('dialogue', '')} {shot.get('first_frame_motion_state', '')}"
     return list(dict.fromkeys(PROP_IDS[word] for word in PROP_IDS if word in text))
+
+
+def playable_completion(shot: dict[str, Any]) -> str:
+    """Convert source-faithful stillness into one visible, non-looping reaction.
+
+    Narrative non-understanding is a result, not a direction to freeze actors.
+    The completion keeps that result while giving Seedance a causal action path.
+    """
+    completion = str(shot.get("first_frame_motion_state") or shot["frame_content"])
+    if "保持不动" in completion:
+        return (
+            "众人先在话音落点停顿半拍，目光各自错向邻座；"
+            "一人扇面落低、另一人杯箸碰案，各自停在新的位置"
+        )
+    return completion
 
 
 def build_complete_map(source: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -347,11 +367,57 @@ def build_editorial(source: dict[str, Any], map_plan: dict[str, Any]) -> dict[st
                 "character": "静妃", "screen_slot": "OFFSCREEN", "depth_plane": "BEHIND_CURTAIN",
                 "face_visibility": "OFFSCREEN_VOICE_ONLY", "identity_card_required": False,
             })
+        visible_names = [item["character"] for item in cast]
         props = [{
             "prop": prop_names.get(prop["prop_id"], prop["prop_id"]), "anchor": "PRIMARY_ACTION_PLANE",
             "continuity_scope": "SCENE_OR_RECURRING_PROP",
         } for prop in (map_row["blocking"] or {}).get("props") or []]
-        completion = str(row.get("first_frame_motion_state") or row["frame_content"])
+        completion = playable_completion(row)
+        performance = {
+            "psychological_state": "人物只处理当前交易、判断或关系压力，不预演下一拍",
+            "emotion": "克制而有明确因果落点",
+            "emotion_intensity": 2,
+            "expression_arc": "动作起点的克制观察→事件落点后的细微确认并保持",
+            "continuous_micro_action": "呼吸连续，眼神先于头部改变一次，眼睑与下颌只在因果点响应",
+            "event_reaction": f"只对“{row['frame_content']}”发生一次可见反应，随后保持结果态",
+            "body_sync": "视线先动，随后下颌、肩颈与重心按同一方向完成响应，不循环复位",
+            "actor_performance": {
+                name: {
+                    "expression_arc": "原有表情→因当前事件产生一次细微变化并保持",
+                    "continuous_micro_action": "自然呼吸持续，眼睑与瞳孔只在台词重音或动作接触点变化一次",
+                    "event_reaction": f"对“{row['frame_content']}”作角色内反应，不抢先进入下一镜",
+                    "body_sync": "眼神先行，下颌与肩颈随后，手部或重心最后完成动作",
+                } for name in visible_names
+            },
+        }
+        dialogue_delivery = None
+        if dialogue:
+            spoken = dialogue.partition("：")[2].strip()
+            emphasis = spoken.strip("？！。，“”‘’；：") or spoken
+            dialogue_delivery = {
+                "pace": "自然克制，不均匀播报",
+                "pause_map": "只在原文逗号、问号或因果转折处短停，句末留半拍给对方反应",
+                "emphasis_words": [emphasis],
+                "volume_arc": "贴近现场音量起句，重音轻抬，句末收回而不戏剧化喊叫",
+                "breath_pattern": "开口前一次短吸气，长句在原文停连处补气，不切断词组",
+                "delivery_transition": "从试探、陈述或反问进入本句明确落点，句末转为观察听者",
+            }
+        visual_design = {
+            "depth_layers": ["前景固定物或衣料边缘", "中景人物与当前动作", "背景建筑、水面或街巷纵深"],
+            "scale_anchor": "柱径、石栏、桌案高度与人物肩宽保持真实比例",
+            "key_light": f"动机光只来自{scene['time_of_day_state']}的自然光与现场实用灯",
+            "atmosphere": scene["weather_state"],
+            "environmental_motion": ["风只推动帘、衣摆、柳枝或蒸汽中的相关一项", "水面或街面反光低幅连续变化"],
+            "material_detail": ["丝帘细密经纬与受力褶皱", "石栏水汽旧磨痕或木桌油润使用痕迹", "瓷器与粗布只出现真实高光"],
+            "still_prompt_contract": "首帧同时交代空间、人物/画外声方向、关键物证与动作起点",
+            "video_motion_contract": "环境仅维持微风、反光与衣料惯性；人物动作一次完成并保持结果态",
+            "palette": {"dominant": scene["palette_temperature"], "contrast": "冷灰与暖肤色", "accent": "瓷青或帘紫只作小面积强调"},
+        }
+        sound_design = {
+            "ambience": "同任务原生场景底声：池水、风、远席或街市按所在场景保持空间混响",
+            "foley": "同任务原生衣料、瓷器、帘布、脚步或碗筷的真实接触声",
+            "action_sound": "只强化当前一次因果动作的接触声，不加跨任务音轨或默认BGM",
+        }
         shots.append({
             "shot_id": row["shot_id"], "scene_id": row["scene_id"],
             "duration_seconds": row["duration_seconds"], "model": "seedance-2.0-pro",
@@ -364,12 +430,19 @@ def build_editorial(source: dict[str, Any], map_plan: dict[str, Any]) -> dict[st
                 "action": {
                     "t0_seconds": row["start_seconds"], "start_state": completion,
                     "primary_action": row["frame_content"], "completion_state": completion,
+                    "contact_point": f"当前镜明确接触或反应落点：{completion}",
+                    "motion_direction": "眼神/布料/手部从既定起点沿单一方向到达结果态",
+                    "physical_causality": "接触或台词先发生，眼神与下颌随后，肩颈和重心最后完成并保持",
                     "t1_seconds": round(float(row["start_seconds"]) + float(row["duration_seconds"]), 3),
                     "freeze_or_speed_ramp_forbidden": True,
                     "microexpression_design": "眼神先于头部，呼吸与下颌随后；只做一次因果可见变化，变化后保持结果态",
                     "physical_action_design": "接触先由手指/唇/视线发生，再由下颌、肩颈和重心响应，动作一次完成不循环",
                 },
+                "performance": performance,
                 "dialogue": dialogue,
+                "dialogue_delivery": dialogue_delivery,
+                "visual_design": visual_design,
+                "sound_design": sound_design,
                 "audio_contract": "SAME_VIDEO_TASK_NATIVE_AUDIO" if dialogue else "DIEGETIC_OR_SILENT_NO_TTS",
                 "negative_prompts": row.get("negative_prompts") or [],
             },
