@@ -16,7 +16,11 @@ def evaluate(plan: dict[str, Any]) -> dict[str, Any]:
     preferred_minimum = float(preferred.get("minimum", 5))
     preferred_maximum = float(preferred.get("maximum", 8))
 
-    if plan.get("schema") != "qingshan.video_unit_grouping_plan.v1":
+    accepted_schemas = {
+        "qingshan.video_unit_grouping_plan.v1",
+        "qingshan.video_unit_grouping_plan.v2_transition_contract",
+    }
+    if plan.get("schema") not in accepted_schemas:
         failures.append("grouping_plan_schema_invalid")
     if not isinstance(editorial_count, int) or not isinstance(unit_count, int):
         failures.append("grouping_counts_missing")

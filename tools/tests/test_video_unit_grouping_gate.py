@@ -21,6 +21,11 @@ class VideoUnitGroupingGateTests(unittest.TestCase):
     def test_accepts_semantically_grouped_units(self):
         self.assertEqual(evaluate(self.plan())["status"], "PASS")
 
+    def test_accepts_transition_contract_v2_schema(self):
+        plan = self.plan()
+        plan["schema"] = "qingshan.video_unit_grouping_plan.v2_transition_contract"
+        self.assertEqual(evaluate(plan)["status"], "PASS")
+
     def test_rejects_one_video_per_editorial_shot(self):
         plan = self.plan()
         plan["video_unit_count"] = 12
