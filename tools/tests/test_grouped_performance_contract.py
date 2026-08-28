@@ -5,7 +5,7 @@ from tools.grouped_performance_contract import (
     compile_performance_clause,
     validate_grouped_beat_contract,
 )
-from tools.submit_giggle_video_manifest_v2 import validate_grouped_creative_task
+from tools.submit_giggle_video_manifest_v2 import grouped_sequence_unit, validate_grouped_creative_task
 
 
 def valid_spec():
@@ -86,6 +86,21 @@ class GroupedPerformanceContractTest(unittest.TestCase):
         task = {"task_key": "E42-VU-001-VIDEO-A1", "semantic_video_unit": True}
         with self.assertRaisesRegex(ValueError, "camera_plan"):
             validate_grouped_creative_task(task, "legacy generic prompt")
+
+    def test_submission_binding_preserves_both_transition_contracts(self):
+        incoming = {"boundary_id": "BND-E43-VU-001-E43-VU-002"}
+        outgoing = {"boundary_id": "BND-E43-VU-002-E43-VU-003"}
+        task = {
+            "unit_id": "E43-VU-002",
+            "machine_contract": {
+                "incoming_transition_contract": incoming,
+                "outgoing_transition_contract": outgoing,
+            },
+        }
+        unit = grouped_sequence_unit(task)
+        self.assertEqual(unit["transition_contract"], incoming)
+        self.assertEqual(unit["incoming_transition_contract"], incoming)
+        self.assertEqual(unit["outgoing_transition_contract"], outgoing)
 
 
 if __name__ == "__main__":

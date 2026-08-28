@@ -274,7 +274,12 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
         "scene_id": task.get("scene_id") or machine.get("scene_id"),
         "camera_plan": machine.get("camera_plan") or task.get("camera_plan"),
         "ordered_prompt_specs": machine.get("ordered_prompt_specs") or task.get("ordered_prompt_specs") or [],
-        "transition_contract": machine.get("incoming_transition_contract") or task.get("incoming_transition_contract"),
+        "transition_contract": machine.get("incoming_transition_contract")
+        or task.get("incoming_transition_contract"),
+        "incoming_transition_contract": machine.get("incoming_transition_contract")
+        or task.get("incoming_transition_contract"),
+        "outgoing_transition_contract": machine.get("outgoing_transition_contract")
+        or task.get("outgoing_transition_contract"),
     }
 
 
