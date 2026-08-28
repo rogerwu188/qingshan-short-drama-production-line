@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from compile_grouped_seedance_manifest import action_timeline, prompt_text, validate_model_prompt
+from grouped_internal_continuity_contract import (
+    find_same_slot_character_replacements,
+    validate_internal_transition_sequence,
+)
 from shot_media_admission_gate import compute_input_template_id
 
 
@@ -137,6 +141,21 @@ def main() -> int:
     for source_unit in grouped["units"]:
         uid = str(source_unit["unit_id"])
         unit = dict(source_unit)
+        unit["internal_transition_contracts"] = validate_internal_transition_sequence(unit)
+        same_slot = find_same_slot_character_replacements(unit, map_rows)
+        if same_slot:
+            contracts = {
+                (row["from_shot_id"], row["to_shot_id"]): row
+                for row in unit["internal_transition_contracts"]
+            }
+            unresolved = []
+            for finding in same_slot:
+                contract = contracts.get((finding["from_shot_id"], finding["to_shot_id"])) or {}
+                reference = contract.get("reference_bridge") or {}
+                if not reference.get("same_slot_reuse_allowed"):
+                    unresolved.append(finding)
+            if unresolved:
+                raise ValueError(f"{uid} different-character exact-slot replacement must be split or explicitly cut: {unresolved}")
         unit["duration_seconds"] = durations[uid]
         unit["action_timeline"] = action_timeline(unit)
         prompt_path = PROMPT_DIR / f"{uid}.txt"

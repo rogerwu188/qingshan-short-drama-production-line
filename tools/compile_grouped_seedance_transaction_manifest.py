@@ -15,8 +15,10 @@ import cv2
 
 try:
     from tools.shot_media_admission_gate import compute_input_template_id
+    from tools.grouped_internal_continuity_contract import validate_internal_transition_sequence
 except ModuleNotFoundError:
     from shot_media_admission_gate import compute_input_template_id
+    from grouped_internal_continuity_contract import validate_internal_transition_sequence
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -185,6 +187,7 @@ def main() -> int:
 
     for unit in units:
         uid = str(unit["unit_id"])
+        unit["internal_transition_contracts"] = validate_internal_transition_sequence(unit)
         original = dict(base_tasks[uid])
         refs = unit.get("reference_images") or []
         specs = unit.get("ordered_prompt_specs") or []
@@ -308,6 +311,7 @@ def main() -> int:
             "scene_id": unit["scene_id"],
             "incoming_transition_contract": unit.get("incoming_transition_contract"),
             "outgoing_transition_contract": unit.get("outgoing_transition_contract"),
+            "internal_transition_contracts": unit.get("internal_transition_contracts"),
             "start_frame_semantic_contract": unit.get("start_frame_semantic_contract"),
             "action_unit": True,
             "blocking": start_block,
@@ -342,6 +346,7 @@ def main() -> int:
             "ordered_prompt_specs": specs,
             "incoming_transition_contract": unit.get("incoming_transition_contract"),
             "outgoing_transition_contract": unit.get("outgoing_transition_contract"),
+            "internal_transition_contracts": unit.get("internal_transition_contracts"),
             "start_frame_semantic_contract": unit.get("start_frame_semantic_contract"),
         })
         task["machine_contract"] = machine_contract

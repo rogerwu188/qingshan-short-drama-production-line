@@ -28,6 +28,10 @@ try:
         validate_transition_sequence,
     )
     from tools.grouped_anchor_semantic_contract import validate_start_anchor_semantics
+    from tools.grouped_internal_continuity_contract import (
+        compile_internal_transition_prompt,
+        validate_internal_transition_sequence,
+    )
 except ModuleNotFoundError:  # Direct CLI execution from tools/.
     from video_prompt_action_density_gate import validate_action_timeline
     from grouped_camera_contract import (
@@ -43,10 +47,14 @@ except ModuleNotFoundError:  # Direct CLI execution from tools/.
     )
     from grouped_transition_contract import compile_transition_prompt, validate_transition_sequence
     from grouped_anchor_semantic_contract import validate_start_anchor_semantics
+    from grouped_internal_continuity_contract import (
+        compile_internal_transition_prompt,
+        validate_internal_transition_sequence,
+    )
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODEL_PROMPT_POLICY_VERSION = "qingshan.seedance_model_prompt_complete.v5_bound_transition_handles"
+MODEL_PROMPT_POLICY_VERSION = "qingshan.seedance_model_prompt_complete.v6_internal_continuity"
 # Giggle accepts prompts up to 10,000 characters.  Keep transport headroom but
 # never compact away cinematography, performance, visual, or sound contracts.
 MAX_MODEL_PROMPT_CHARS = 8000
@@ -244,7 +252,7 @@ def validate_model_prompt(text: str, *, source_id: str) -> dict[str, Any]:
         failures.append(f"MODEL_PROMPT_WEATHER_CONTRACT_COUNT:{source_id}:{text.count('【天气硬合同】')}")
     required_sections = (
         "【节拍】", "【同任务原生声音】", "【镜头硬合同】",
-        "【视觉与现场声硬合同】", "【转场硬合同】",
+        "【视觉与现场声硬合同】", "【转场硬合同】", "【节拍内连续性硬合同】",
     )
     if any(section not in text for section in required_sections):
         failures.append(f"MODEL_PROMPT_REQUIRED_SECTION_MISSING:{source_id}")
@@ -293,6 +301,7 @@ def validate_transition_prompt_binding(text: str, unit: dict[str, Any]) -> dict[
 
 
 def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None = None) -> str:
+    unit["internal_transition_contracts"] = validate_internal_transition_sequence(unit)
     specs = unit["ordered_prompt_specs"]
     first = specs[0]
     weather = normalized_weather((first.get("scene_state") or {}).get("weather"))
@@ -323,8 +332,9 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
         "【场景与人物】" + "；".join(scene_parts) + "。使用随任务传入的参考图保持人物面孔、服装、场景和道具一致。",
         "【镜头硬合同】" + camera_line,
         "【转场硬合同】" + compile_transition_prompt(unit),
+        "【节拍内连续性硬合同】" + compile_internal_transition_prompt(unit),
         "【视觉与现场声硬合同】" + visual_sound_line,
-        "【表演连续性】把下列节拍演成一段连续、自然的表演，不把每个节拍机械切成独立镜头；摄影机只执行镜头硬合同声明的运动。",
+        "【表演连续性】严格按节拍内连续性硬合同执行连续动作、揭示或明确切镜；不得把不同人物变成同一个人，不得用变脸、换衣或同位置替换冒充角色交接；摄影机只执行镜头硬合同声明的运动。",
         "【节拍】",
         *beat_lines,
         "【同任务原生声音】精确保留上述对白及本任务生成的环境声、拟音和动作声；对白只说一次、不改词、不换说话人，无对白人物闭口；禁止 TTS、旧音轨、跨任务音轨和默认 BGM。",
@@ -523,7 +533,7 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             ),
             root=ROOT,
         )
-        units.append({
+        compiled_unit = {
             "unit_id": unit_id,
             "scene_id": unit["scene_id"],
             "duration_seconds": unit["duration_seconds"],
@@ -540,12 +550,15 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             "ordered_prompt_specs": prompt_specs,
             "camera_plan": camera_plan,
             "transition_contract": transition_contract,
+            "internal_transition_contracts": unit.get("internal_transition_contracts") or [],
             "start_frame_semantic_contract": semantic_contract,
             "native_audio_contract": "SAME_VIDEO_TASK_NATIVE_DIALOGUE_AMBIENCE_FOLEY_ACTION_SOUND",
             "submission_status": "NOT_AUTHORIZED_UNTIL_REGISTERED_GROUPED_PREFLIGHT_PASS",
             "paid_attempt": 0,
             "remote_task_id": None,
-        })
+        }
+        compiled_unit["internal_transition_contracts"] = validate_internal_transition_sequence(compiled_unit)
+        units.append(compiled_unit)
     validate_camera_sequence(units)
     validate_transition_sequence(units, require_prompt_specs=True)
     if len(units) != int(grouping.get("video_unit_count", -1)):

@@ -82,6 +82,63 @@ def creative_contract(*, dialogue=""):
     return contract
 
 
+def internal_contract(unit_id, from_shot, to_shot, previous, current, mode="CAMERA_REFRAME"):
+    def visible(spec):
+        return sorted({row["character"] for row in spec.get("cast", []) if row.get("character") and row.get("face_visibility") != "OFFSCREEN_VOICE_ONLY"})
+
+    def props(spec):
+        return sorted({row["prop"] for row in spec.get("props", []) if row.get("prop")})
+
+    def space(spec):
+        source = spec.get("space") or {}
+        return {key: str(source.get(key) or "") for key in ("global", "location", "subspace")}
+
+    def sound(spec):
+        source = spec.get("sound_design") or {}
+        return {key: str(source.get(key) or "") for key in ("ambience", "foley", "action_sound")}
+
+    previous_terminal = previous["action"]["completion_state"]
+    current_start = current["action"]["start_state"]
+    return {
+        "boundary_id": f"INT-{unit_id}-{from_shot}-{to_shot}",
+        "from_shot_id": from_shot,
+        "to_shot_id": to_shot,
+        "transition_mode": mode,
+        "authorship": "DIRECTOR_AUTHORED",
+        "cast_bridge": {
+            "from_visible_characters": visible(previous),
+            "to_visible_characters": visible(current),
+            "identity_preservation": "所有既有人物脸、发型和服装保持原身份不漂移",
+            "entry_exit_or_reveal": "摄影机重新构图并明确保留或揭示当前人物，不发生身份替换",
+        },
+        "scene_bridge": {
+            "from_space": space(previous),
+            "to_space": space(current),
+            "continuity": "保持同一地点的建筑、光线、时间与天气，若子空间变化则由镜头明确建立",
+        },
+        "prop_bridge": {
+            "from_props": props(previous),
+            "to_props": props(current),
+            "ownership_or_handoff": "道具由当前持有人连续保管，新增或离场道具通过可见动作交接",
+        },
+        "sound_bridge": {
+            "from_sound": sound(previous),
+            "to_sound": sound(current),
+            "bridge": "同一环境底声连续，接触声只在真实动作点发生，对白说话人不变更",
+        },
+        "camera_bridge": {
+            "axis_strategy": "保持既定轴侧，换侧前以固定物重新建立方向",
+            "transition_execution": "按当前镜头计划完成一次重新构图，不用人物变形代替转场",
+        },
+        "action_bridge": f"前拍保持“{previous_terminal}”，随后从“{current_start}”继续，不复位",
+        "reference_bridge": {
+            "entity_mapping": "每张参考图只绑定其具名人物、场景和道具，不把后图人物覆盖前图人物",
+            "different_character_same_slot_forbidden": True,
+            "same_slot_reuse_allowed": False,
+        },
+    }
+
+
 class CompileGroupedSeedanceManifestTest(unittest.TestCase):
     def test_long_authored_beat_expands_into_non_repeating_physical_phases(self):
         unit = {
@@ -164,6 +221,14 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
             "reference_images": [{"path": "frame.png", "sha256": "not-for-model", "role": "SCENE_START_ANCHOR"}],
             "camera_plan": locked_camera(),
         }
+        unit["editorial_shot_ids"] = [f"E41-S14-{index + 1:02d}" for index in range(len(specs))]
+        unit["internal_transition_contracts"] = [
+            internal_contract(
+                unit["unit_id"], unit["editorial_shot_ids"][index], unit["editorial_shot_ids"][index + 1],
+                specs[index], specs[index + 1],
+            )
+            for index in range(len(specs) - 1)
+        ]
 
         text = prompt_text(unit, [{"id": "PF-001"}, {"id": "PF-042"}])
         result = validate_model_prompt(text, source_id=unit["unit_id"])
@@ -217,6 +282,7 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
                     "unit_id": "VU-1", "scene_id": "S1", "duration_seconds": 6,
                     "editorial_shot_ids": ["S1-1", "S1-2"], "narrative_beat": "beat",
                     "camera_plan": locked_camera(),
+                    "internal_transition_contracts": [],
                 }],
             }
             anchors = {"units": [{
@@ -255,6 +321,9 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
                 {"shot_id": "S1-1", "model": "seedance-2.0-pro", "resolution": "720p", "prompt_spec": prompt_spec},
                 {"shot_id": "S1-2", "model": "seedance-2.0-pro", "resolution": "720p", "prompt_spec": prompt_spec},
             ]}
+            grouping["units"][0]["internal_transition_contracts"] = [
+                internal_contract("VU-1", "S1-1", "S1-2", prompt_spec, prompt_spec)
+            ]
             result = compile_manifest(grouping, anchors, editorial)
             unit = result["units"][0]
             self.assertEqual(unit["reference_transport_strategy"], "STANDARD_MULTI_REFERENCE")

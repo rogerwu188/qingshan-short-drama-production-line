@@ -25,3 +25,19 @@ The installer deploys the versioned `SKILL.md` to Claude Desktop's Scheduled fol
 See [`agent_factory/claude_writer/README.md`](agent_factory/claude_writer/README.md) for the complete local/cloud Writer deployment contract and clean-clone smoke test.
 
 For E41 and later Seedance 2.0 video jobs, the authorized model is `seedance-2.0-pro` (SD2 standard); `seedance-2.0-fast`, `seedance-2.0-mini`, and an unversioned bare `seedance-2.0` are prohibited. E40 remains abandoned and private.
+
+## Grouped-video continuity gate
+
+Every boundary between editorial beats packed into one provider video task must carry an authored `internal_transition_contract`. The compiler and submitter fail closed unless that contract is bound to both beats' exact:
+
+- visible cast and dialogue speaker;
+- global map, location, and shot subspace;
+- prop set and ownership/handoff;
+- ambience, foley, and action sound;
+- previous action terminal state and successor initial state;
+- camera transition and axis strategy; and
+- reference-image entity mapping.
+
+Different characters may not reuse the same mapped screen slot as an implicit identity transformation. That handoff must be split or expressed as an authored cut, reveal, or reframe. The compiled model prompt contains the full `【节拍内连续性硬合同】`; the same contract is fingerprinted and revalidated immediately before any paid provider POST.
+
+Creative continuity is a pre-submission gate. Post-generation rejection is limited to technical integrity and basic plot/identity correctness; action taste, choreography preference, and micro-expression precision do not consume regeneration attempts after a technically usable result exists.

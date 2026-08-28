@@ -36,6 +36,7 @@ try:
     from grouped_camera_contract import validate_camera_plan, validate_camera_sequence
     from grouped_transition_contract import validate_transition_sequence
     from grouped_performance_contract import validate_grouped_beat_contract
+    from grouped_internal_continuity_contract import validate_internal_transition_sequence
     from compile_grouped_seedance_manifest import validate_model_prompt, validate_transition_prompt_binding
 except ModuleNotFoundError:
     from tools.giggle_api_client import _image_list, _request
@@ -45,6 +46,7 @@ except ModuleNotFoundError:
     from tools.grouped_camera_contract import validate_camera_plan, validate_camera_sequence
     from tools.grouped_transition_contract import validate_transition_sequence
     from tools.grouped_performance_contract import validate_grouped_beat_contract
+    from tools.grouped_internal_continuity_contract import validate_internal_transition_sequence
     from tools.compile_grouped_seedance_manifest import validate_model_prompt, validate_transition_prompt_binding
 
 
@@ -225,6 +227,9 @@ def task_fingerprint(task: dict[str, Any]) -> str:
         or task.get("outgoing_transition_contract"),
         "start_frame_semantic_contract": (task.get("machine_contract") or {}).get("start_frame_semantic_contract")
         or task.get("start_frame_semantic_contract"),
+        "internal_transition_contracts": (task.get("machine_contract") or {}).get("internal_transition_contracts")
+        or task.get("internal_transition_contracts")
+        or [],
     }
     return hashlib.sha256(json.dumps(contract, sort_keys=True).encode("utf-8")).hexdigest()
 
@@ -241,6 +246,17 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
         raise ValueError(f"{task.get('task_key')} grouped creative beat contracts are missing")
     for index, spec in enumerate(specs, start=1):
         validate_grouped_beat_contract(spec, source_id=f"{task.get('task_key')}:beat-{index}")
+    internal_unit = {
+        "unit_id": task.get("unit_id") or task.get("task_key"),
+        "editorial_shot_ids": machine.get("editorial_shot_ids")
+        or task.get("editorial_shot_ids")
+        or [],
+        "ordered_prompt_specs": specs,
+        "internal_transition_contracts": machine.get("internal_transition_contracts")
+        or task.get("internal_transition_contracts")
+        or [],
+    }
+    task["internal_transition_contracts"] = validate_internal_transition_sequence(internal_unit)
     prompt_report = validate_model_prompt(prompt_text, source_id=str(task.get("task_key")))
     if prompt_report.get("status") != "PASS":
         raise ValueError(
@@ -274,6 +290,10 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
         "scene_id": task.get("scene_id") or machine.get("scene_id"),
         "camera_plan": machine.get("camera_plan") or task.get("camera_plan"),
         "ordered_prompt_specs": machine.get("ordered_prompt_specs") or task.get("ordered_prompt_specs") or [],
+        "editorial_shot_ids": machine.get("editorial_shot_ids") or task.get("editorial_shot_ids") or [],
+        "internal_transition_contracts": machine.get("internal_transition_contracts")
+        or task.get("internal_transition_contracts")
+        or [],
         "transition_contract": machine.get("incoming_transition_contract")
         or task.get("incoming_transition_contract"),
         "incoming_transition_contract": machine.get("incoming_transition_contract")
@@ -481,7 +501,12 @@ def main() -> int:
         if task.get("semantic_video_unit"):
             grouped_camera_units.append(grouped_sequence_unit(task))
     validate_camera_sequence(grouped_camera_units)
-    validate_transition_sequence(grouped_camera_units, require_prompt_specs=True)
+    # A scoped repair batch may contain non-adjacent units from the full
+    # episode.  Each unit still validates its own inbound/outbound prompt
+    # binding above, but the subset must not be mistaken for a new contiguous
+    # episode whose first/last units have no external neighbors.
+    if not manifest.get("partial_repair_scope"):
+        validate_transition_sequence(grouped_camera_units, require_prompt_specs=True)
     if not args.precheck_only and not os.environ.get("GIGGLE_API_KEY", "").strip():
         raise SystemExit("GIGGLE_API_KEY is not set")
     out = resolve(args.out)
@@ -593,7 +618,8 @@ def exec_deployed_submitter() -> None:
                 f"{precheck.get('failure_code')} missing={','.join(missing)}"
             )
     validate_camera_sequence(grouped_camera_units)
-    validate_transition_sequence(grouped_camera_units, require_prompt_specs=True)
+    if not manifest.get("partial_repair_scope"):
+        validate_transition_sequence(grouped_camera_units, require_prompt_specs=True)
     deployed = authoritative_pipeline_tools_dir() / "submit_giggle_video_manifest_v2.py"
     if not deployed.is_file():
         raise RuntimeError("Deployed BacklotOS video submitter is unavailable")
