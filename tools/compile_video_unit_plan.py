@@ -139,6 +139,10 @@ def compile_grouping_spec(production: dict[str, Any], spec: dict[str, Any]) -> d
             "editorial_shot_ids": shot_ids,
             "camera_plan": camera_plan,
             "transition_contract": group.get("transition_contract"),
+            # Preserve director-authored beat-to-beat continuity. The semantic
+            # compiler validates exact cast/scene/prop/sound/action bindings
+            # after editorial prompt specs are attached.
+            "internal_transition_contracts": group.get("internal_transition_contracts") or [],
         }
         if exception_reason:
             unit["duration_exception_reason"] = exception_reason
@@ -218,6 +222,7 @@ def validate_compiled_plan(production: dict[str, Any], plan: dict[str, Any]) -> 
             "narrative_beat": unit.get("narrative_beat") or "Legacy compiled semantic group",
             "camera_plan": unit.get("camera_plan"),
             "transition_contract": unit.get("transition_contract"),
+            "internal_transition_contracts": unit.get("internal_transition_contracts") or [],
             "duration_exception_reason": unit.get("duration_exception_reason"),
         })
     spec = {

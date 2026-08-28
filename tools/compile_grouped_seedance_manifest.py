@@ -72,6 +72,21 @@ FORBIDDEN_MODEL_PROMPT_TOKENS = (
     "【历史失败防复犯绑定】",
 )
 
+NATIVE_VIDEO_MODEL_RESOLUTIONS = {
+    # Giggle's registered SD2 multi-reference route is provider-native 720p
+    # (480p is intentionally not a production target).  Higher delivery
+    # rasters must be produced by the release upscaler, never mislabeled here.
+    "seedance-2.0-pro": {"720p"},
+    "MiniMax-H3": {"768p"},
+}
+
+
+def model_display_name(model: str) -> str:
+    return {
+        "seedance-2.0-pro": "seedance-2.0-pro（SD2 标准版）",
+        "MiniMax-H3": "MiniMax-H3",
+    }.get(model, model)
+
 
 def load(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -326,8 +341,11 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
         scene_parts.append("人物=" + "、".join(cast))
     if props:
         scene_parts.append("关键道具=" + "、".join(props))
+    model = str(unit.get("model") or "seedance-2.0-pro")
+    resolution = str(unit.get("resolution") or "720p")
+    aspect_ratio = str(unit.get("aspect_ratio") or "9:16")
     lines = [
-        f"【视频任务】{unit['duration_seconds']}秒，竖屏9:16，720p，seedance-2.0-pro（SD2 标准版）；写实古装悬疑电影质感。",
+        f"【视频任务】{unit['duration_seconds']}秒，竖屏{aspect_ratio}，{resolution}，{model_display_name(model)}；写实古装悬疑电影质感。",
         f"【天气硬合同】weather={weather}",
         "【场景与人物】" + "；".join(scene_parts) + "。使用随任务传入的参考图保持人物面孔、服装、场景和道具一致。",
         "【镜头硬合同】" + camera_line,
@@ -418,7 +436,7 @@ def write_preflight_artifacts(
         })
         tasks.append({
             "task_key": f"{unit['unit_id']}-VIDEO-A1", "unit_id": unit["unit_id"],
-            "tool_type": "video_generation", "model": "seedance-2.0-pro", "resolution": "720p",
+            "tool_type": "video_generation", "model": unit["model"], "resolution": unit["resolution"],
             "prompt_file": relative(prompt_path), "prompt_sha256": prompt_sha,
             "dialogue": task_dialogue, "native_dialogue_required": bool(task_dialogue),
             "visual_tier": "CORE", "minimum_score_100": 80.0,
@@ -513,10 +531,20 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
                 raise ValueError(f"{unit_id} anchor missing: {value}")
             references.append({"path": value, "sha256": digest(path), "role": role})
         shots = [shot_by_id[shot_id] for shot_id in unit["editorial_shot_ids"]]
-        if any(row.get("model") != "seedance-2.0-pro" for row in shots):
-            raise ValueError(f"{unit_id} contains forbidden model")
-        if any(row.get("resolution") != "720p" for row in shots):
-            raise ValueError(f"{unit_id} contains forbidden resolution")
+        models = {str(row.get("model") or "") for row in shots}
+        resolutions = {str(row.get("resolution") or "") for row in shots}
+        aspect_ratios = {str(row.get("aspect_ratio") or "9:16") for row in shots}
+        if len(models) != 1 or len(resolutions) != 1 or len(aspect_ratios) != 1:
+            raise ValueError(f"{unit_id} mixes model, resolution, or aspect-ratio contracts")
+        model = next(iter(models))
+        resolution = next(iter(resolutions))
+        aspect_ratio = next(iter(aspect_ratios))
+        if model not in NATIVE_VIDEO_MODEL_RESOLUTIONS:
+            raise ValueError(f"{unit_id} contains forbidden model: {model}")
+        if resolution not in NATIVE_VIDEO_MODEL_RESOLUTIONS[model]:
+            raise ValueError(f"{unit_id} contains non-native resolution {resolution} for {model}")
+        if aspect_ratio != "9:16":
+            raise ValueError(f"{unit_id} must remain vertical 9:16")
         prompt_specs = [row.get("prompt_spec") or {} for row in shots]
         for shot, prompt_spec in zip(shots, prompt_specs):
             validate_grouped_beat_contract(prompt_spec, source_id=str(shot["shot_id"]))
@@ -537,8 +565,9 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             "unit_id": unit_id,
             "scene_id": unit["scene_id"],
             "duration_seconds": unit["duration_seconds"],
-            "model": "seedance-2.0-pro",
-            "resolution": "720p",
+            "model": model,
+            "resolution": resolution,
+            "aspect_ratio": aspect_ratio,
             "editorial_shot_ids": unit["editorial_shot_ids"],
             "narrative_beat": unit["narrative_beat"],
             "reference_images": references,

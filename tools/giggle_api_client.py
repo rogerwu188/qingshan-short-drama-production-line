@@ -231,7 +231,7 @@ def main() -> int:
     vid.add_argument("--model", default=PRODUCTION_VIDEO_MODEL)
     vid.add_argument("--duration", type=int, default=4)
     vid.add_argument("--aspect-ratio", default="9:16")
-    vid.add_argument("--resolution", default="1080p")
+    vid.add_argument("--resolution", default="720p")
     vid.add_argument("--count", type=int, default=1)
     vid.set_defaults(func=generate_video)
 
@@ -248,7 +248,7 @@ def main() -> int:
     omni.add_argument("--model", default=PRODUCTION_VIDEO_MODEL)
     omni.add_argument("--duration", type=int, default=4)
     omni.add_argument("--aspect-ratio", default="9:16")
-    omni.add_argument("--resolution", default="1080p")
+    omni.add_argument("--resolution", default="720p")
     omni.add_argument("--count", type=int, default=1)
     omni.add_argument("--out")
     omni.set_defaults(func=generate_omni_video)

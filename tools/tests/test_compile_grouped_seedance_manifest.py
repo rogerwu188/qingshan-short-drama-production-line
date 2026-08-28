@@ -334,6 +334,50 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
             )
             self.assertEqual(unit["semantic_reference_coverage_gate"]["status"], "PASS")
 
+    def test_compile_rejects_non_native_1080p_sd2_contract(self):
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as tmp:
+            anchor = Path(tmp) / "anchor.png"
+            anchor.write_bytes(b"portrait-reference")
+            first_sha = hashlib.sha256(anchor.read_bytes()).hexdigest()
+            evidence = Path(tmp) / "evidence.json"
+            evidence_payload = {
+                "status": "PASS", "reference_path": str(anchor), "reference_sha256": first_sha,
+                "observed_visible_characters": ["梁狗儿", "陈迹"], "observed_visible_props": [],
+                "observed_space_anchors": ["L", "S"], "camera_start_framing_match": True,
+                "space_match": True, "empty_establishing_frame": False,
+            }
+            evidence.write_text(json.dumps(evidence_payload, ensure_ascii=False), encoding="utf-8")
+            grouping = {"episode": "E44", "video_unit_count": 1, "runtime_seconds": 6.0, "units": [{
+                "unit_id": "E44-VU-001", "scene_id": "E44-S01", "duration_seconds": 6.0,
+                "editorial_shot_ids": ["E44-S01-01"], "narrative_beat": "人物完成一次交接",
+                "camera_plan": locked_camera(), "transition_contract": None,
+            }]}
+            anchors = {"units": [{
+                "unit_id": "E44-VU-001", "planned_reference_image_count": 1,
+                "reference_image_paths": [str(anchor)],
+                "reference_transport_strategy": "STANDARD_MULTI_REFERENCE",
+                "anchor_count_decision": {"anchor_roles": ["ADMITTED_SCENE_START_STATE"]},
+                "semantic_reference_coverage_gate": {"status": "PASS"},
+                "required_start_space_anchors": ["L", "S"],
+                "start_frame_semantic_contract": {
+                    "status": "PASS", "reference_path": str(anchor), "reference_sha256": first_sha,
+                    "evidence_ref": str(evidence), "observed_visible_characters": ["梁狗儿", "陈迹"],
+                    "observed_visible_props": [], "observed_space_anchors": ["L", "S"],
+                    "camera_start_framing_match": True, "space_match": True,
+                    "empty_establishing_frame": False,
+                },
+            }]}
+            spec = {
+                "space": {"global": "G", "location": "L", "subspace": "S"},
+                "scene_state": {"weather": "晴", "palette": "灰青"},
+                "cast": [{"character": "梁狗儿"}, {"character": "陈迹"}], "props": [],
+                "action": {"t0_seconds": 0, "t1_seconds": 6, "start_state": "站定", "primary_action": "递出物件", "completion_state": "手臂收回", "contact_point": "手与物件", "motion_direction": "向前后收回", "physical_causality": "接触先于收手"},
+                "dialogue": "", **creative_contract(),
+            }
+            editorial = {"shots": [{"shot_id": "E44-S01-01", "model": "seedance-2.0-pro", "resolution": "1080p", "aspect_ratio": "9:16", "prompt_spec": spec}]}
+            with self.assertRaisesRegex(ValueError, "non-native resolution 1080p"):
+                compile_manifest(grouping, anchors, editorial)
+
 
 if __name__ == "__main__":
     unittest.main()

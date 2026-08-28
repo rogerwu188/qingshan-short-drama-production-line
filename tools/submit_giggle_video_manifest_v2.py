@@ -351,10 +351,11 @@ def validate_task(task: dict[str, Any]) -> None:
         )
     resolution = task.get("resolution")
     if required_model == "seedance-2.0-pro":
-        if resolution not in {"720p", "1080p"}:
-            raise ValueError(f"{task['task_key']} must use a provider-native seedance-2.0-pro resolution")
-        if episode_number == 44 and resolution != "1080p":
-            raise ValueError(f"{task['task_key']} must use provider-native 1080p for E44")
+        if resolution != "720p":
+            raise ValueError(
+                f"{task['task_key']} must use Giggle SD2 multi-reference provider-native 720p; "
+                "higher release rasters require a separate upscale stage"
+            )
         minimum_duration = 4
     else:
         if resolution != "768p":
