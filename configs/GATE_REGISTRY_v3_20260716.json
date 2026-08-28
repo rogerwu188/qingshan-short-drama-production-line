@@ -1995,6 +1995,80 @@
       "stage_runner_paths": [
         "tools/episode_stage_gate_runner.py"
       ]
+    },
+    {
+      "gate_id": "VIDEO-UNIT-GROUPED-CONTINUITY-PREFLIGHT",
+      "stage": "VIDEO_GENERATION_SUBMIT_AND_SOURCE_ADMISSION",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/grouped_transition_contract.py",
+        "tools/grouped_anchor_semantic_contract.py",
+        "tools/grouped_continuity_gate.py",
+        "tools/compile_video_unit_plan.py",
+        "tools/compile_grouped_seedance_manifest.py",
+        "tools/submit_giggle_video_manifest_v2.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_grouped_transition_contract.py",
+        "tools/tests/test_grouped_anchor_semantic_contract.py",
+        "tools/tests/test_compile_video_unit_plan.py",
+        "tools/tests/test_compile_grouped_seedance_manifest.py"
+      ],
+      "parameters": {
+        "effective_from_episode": "E43",
+        "every_adjacent_boundary_requires_authored_transition_contract": true,
+        "deterministic_shared_boundary_id_required": true,
+        "plot_motivation_required": true,
+        "transition_device_required": true,
+        "outgoing_and_incoming_handle_seconds_range": [
+          0.6,
+          1.5
+        ],
+        "every_rendered_prompt_requires_exact_transition_binding_pass": true,
+        "allowed_authorship": [
+          "DIRECTOR_AUTHORED",
+          "EDITOR_AUTHORED"
+        ],
+        "visual_action_sound_axis_bridge_required": true,
+        "space_change_requires_explicit_new_space_cut_reason": true,
+        "target_visible_cast_and_props_bound_to_first_beat": true,
+        "empty_start_frame_forbidden_when_first_beat_has_visible_cast": true,
+        "start_anchor_exact_path_sha_and_semantic_evidence_required": true,
+        "camera_start_and_end_framing_exact_binding_required": true
+      },
+      "authorization_ref": "ROGER-20260828-E43-BOUND-PLOT-TRANSITION-HANDLES",
+      "last_backtest_date": "2026-08-28",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "VIDEO-UNIT-BOUNDARY-CONTINUITY",
+      "stage": "EDIT_BEFORE_ASSEMBLY",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/video_unit_boundary_continuity_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_video_unit_boundary_continuity_gate.py"
+      ],
+      "parameters": {
+        "effective_from_episode": "E43",
+        "exact_predecessor_and_successor_media_sha_required": true,
+        "transition_contract_sha_required": true,
+        "visual_bridge_match_required": true,
+        "action_bridge_match_required": true,
+        "sound_bridge_match_required": true,
+        "axis_strategy_match_required": true,
+        "target_subject_present_at_required_start": true,
+        "uncontracted_space_jump_forbidden": true,
+        "assembly_fail_closed_without_boundary_decision": true
+      },
+      "authorization_ref": "ROGER-20260828-E43-BOUND-PLOT-TRANSITION-HANDLES",
+      "last_backtest_date": "2026-08-28",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
     }
   ],
   "withdrawn_gates": [
@@ -2025,7 +2099,7 @@
       ]
     }
   ],
-  "version": "v3.5-natural-performance-split-runtime-contract",
+  "version": "v3.7-bound-plot-transition-handles-and-prompt-audit",
   "meta_rules": [
     {
       "rule_id": "REGISTRY-META-05-RUNTIME-INVOCATION",

@@ -19,6 +19,46 @@ def locked_camera(label="人物中景"):
     }
 
 
+def transition(previous_id="U01", current_id="U02", previous_scene="S01", current_scene="S02"):
+    return {
+        "boundary_id": f"BND-{previous_id}-{current_id}",
+        "from_unit_id": previous_id,
+        "to_unit_id": current_id,
+        "authorship": "DIRECTOR_AUTHORED",
+        "transition_device": "ACTION_MATCH",
+        "outgoing_handle_seconds": 0.8,
+        "incoming_handle_seconds": 0.8,
+        "plot_motivation": "以前一人物转身的结果直接触发下一空间人物的反应",
+        "cut_reason": "NEW_SPACE_MATCH_CUT",
+        "space_relation": "NEW_LOCATION_SAME_GLOBAL",
+        "visual_bridge": "以前一单元人物中景中的垂直门框匹配下一单元人物反应中景的立柱",
+        "action_bridge": "前一人物完成转身后切到下一人物已经接住其视线并开始反应",
+        "sound_bridge": "前一空间的脚步尾音跨切半拍进入下一空间",
+        "axis_strategy": "切换空间后以中性轴位重新建立方向，再进入新轴线",
+        "continuity_intent": "明确换场但保持因果与观看方向连续，不把空景当作剧情主体",
+        "source_terminal_state": {
+            "scene_id": previous_scene,
+            "space": {"global": "G", "location": previous_scene, "subspace": previous_scene},
+            "camera_framing": "双人中景",
+            "camera_side": "AXIS_A",
+            "blocking": "前一人物停在画面右侧并完成转身",
+        },
+        "target_initial_state": {
+            "scene_id": current_scene,
+            "space": {"global": "G", "location": current_scene, "subspace": current_scene},
+            "camera_framing": "人物反应中景",
+            "camera_side": "AXIS_A",
+            "blocking": "下一人物位于画面左侧并接住前一视线",
+        },
+        "anchor_semantic_requirements": {
+            "target_visible_characters": [],
+            "target_visible_props": [],
+            "target_space_anchors": ["立柱"],
+            "empty_establishing_frame_allowed": True,
+        },
+    }
+
+
 class CompileVideoUnitPlanTest(unittest.TestCase):
     def setUp(self):
         self.production = {
@@ -49,6 +89,7 @@ class CompileVideoUnitPlanTest(unittest.TestCase):
                     "action_unit": False,
                     "narrative_beat": "Scene two reaction.",
                     "camera_plan": locked_camera("人物反应中景"),
+                    "transition_contract": transition(),
                 },
             ],
         }
@@ -104,6 +145,12 @@ class CompileVideoUnitPlanTest(unittest.TestCase):
         del self.spec["groups"][0]["camera_plan"]
 
         with self.assertRaisesRegex(ValueError, "camera_plan"):
+            compile_grouping_spec(self.production, self.spec)
+
+    def test_rejects_missing_transition_contract(self):
+        del self.spec["groups"][1]["transition_contract"]
+
+        with self.assertRaisesRegex(ValueError, "transition_contract is required"):
             compile_grouping_spec(self.production, self.spec)
 
     def test_rejects_adjacent_repeated_dynamic_camera_direction(self):

@@ -305,6 +305,10 @@ def main() -> int:
             "start_frame_admission_ref": rel(admission_path),
             "shot_type": "SEMANTIC_GROUPED_SCENE_PERFORMANCE",
             "semantic_video_unit": True,
+            "scene_id": unit["scene_id"],
+            "incoming_transition_contract": unit.get("incoming_transition_contract"),
+            "outgoing_transition_contract": unit.get("outgoing_transition_contract"),
+            "start_frame_semantic_contract": unit.get("start_frame_semantic_contract"),
             "action_unit": True,
             "blocking": start_block,
             "action_end_blocking": end_block,
@@ -331,6 +335,16 @@ def main() -> int:
                 "all_reference_images_portrait": True,
             },
         }
+        machine_contract = dict(task.get("machine_contract") or {})
+        machine_contract.update({
+            "scene_id": unit["scene_id"],
+            "camera_plan": unit.get("camera_plan"),
+            "ordered_prompt_specs": specs,
+            "incoming_transition_contract": unit.get("incoming_transition_contract"),
+            "outgoing_transition_contract": unit.get("outgoing_transition_contract"),
+            "start_frame_semantic_contract": unit.get("start_frame_semantic_contract"),
+        })
+        task["machine_contract"] = machine_contract
         task["video_transport"] = standard_reference_transport()
         task["input_template_id"] = compute_input_template_id(task)
         tasks.append(task)

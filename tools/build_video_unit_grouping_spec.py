@@ -237,6 +237,14 @@ def build(manifest: dict[str, Any], source_sha: str) -> tuple[dict[str, Any], di
         "duration_policy_seconds": {"minimum": 3, "maximum": 12, "authority": "ROGER-20260825"},
         "preferred_duration_seconds": {"minimum": 5, "maximum": 8},
         "groups": spec_groups,
+        "transition_authoring_required": [
+            {
+                "from_unit_id": spec_groups[index - 1]["unit_id"],
+                "to_unit_id": spec_groups[index]["unit_id"],
+                "status": "BLOCKED_UNTIL_DIRECTOR_OR_EDITOR_AUTHORS_TRANSITION_CONTRACT",
+            }
+            for index in range(1, len(spec_groups))
+        ],
     }
     return production, spec
 

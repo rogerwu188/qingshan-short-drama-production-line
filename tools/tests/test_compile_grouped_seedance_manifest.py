@@ -1,5 +1,7 @@
 import tempfile
 import unittest
+import hashlib
+import json
 from pathlib import Path
 
 from tools.compile_grouped_seedance_manifest import (
@@ -8,6 +10,7 @@ from tools.compile_grouped_seedance_manifest import (
     compile_manifest,
     prompt_text,
     validate_model_prompt,
+    validate_transition_prompt_binding,
 )
 
 
@@ -148,6 +151,10 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
         self.assertNotIn("PF-", text)
         self.assertNotIn("【逐节拍完整合同】", text)
         self.assertIn("【镜头硬合同】", text)
+        self.assertIn("【转场硬合同】", text)
+        self.assertIn("入场边界=SEQUENCE_START", text)
+        self.assertIn("出场边界=SEQUENCE_END", text)
+        self.assertEqual(validate_transition_prompt_binding(text, unit)["status"], "PASS")
         self.assertIn("全段锁定机位", text)
         self.assertNotIn("镜头随主要动作平稳调整景别", text)
         self.assertEqual(text.count("不许再提。"), 1)
@@ -161,6 +168,19 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
             later = Path(tmp) / "later.png"
             first.write_bytes(b"first")
             later.write_bytes(b"later")
+            first_sha = hashlib.sha256(first.read_bytes()).hexdigest()
+            evidence = Path(tmp) / "semantic-evidence.json"
+            evidence.write_text(json.dumps({
+                "status": "PASS",
+                "reference_path": str(first),
+                "reference_sha256": first_sha,
+                "observed_visible_characters": ["梁狗儿", "陈迹"],
+                "observed_visible_props": [],
+                "observed_space_anchors": ["院墙"],
+                "camera_start_framing_match": True,
+                "space_match": True,
+                "empty_establishing_frame": False,
+            }), encoding="utf-8")
             grouping = {
                 "episode": "E41",
                 "video_unit_count": 1,
@@ -179,6 +199,19 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
                     "anchor_roles": ["ADMITTED_SCENE_START_STATE", "IDENTITY_OR_PROP_REANCHOR"],
                 },
                 "semantic_reference_coverage_gate": {"status": "PASS"},
+                "required_start_space_anchors": ["院墙"],
+                "start_frame_semantic_contract": {
+                    "status": "PASS",
+                    "reference_path": str(first),
+                    "reference_sha256": first_sha,
+                    "evidence_ref": str(evidence),
+                    "observed_visible_characters": ["梁狗儿", "陈迹"],
+                    "observed_visible_props": [],
+                    "observed_space_anchors": ["院墙"],
+                    "camera_start_framing_match": True,
+                    "space_match": True,
+                    "empty_establishing_frame": False,
+                },
             }]}
             prompt_spec = {
                 "action": {

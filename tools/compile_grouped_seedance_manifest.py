@@ -22,6 +22,11 @@ try:
         compile_visual_sound_clause,
         validate_grouped_beat_contract,
     )
+    from tools.grouped_transition_contract import (
+        compile_transition_prompt,
+        validate_transition_sequence,
+    )
+    from tools.grouped_anchor_semantic_contract import validate_start_anchor_semantics
 except ModuleNotFoundError:  # Direct CLI execution from tools/.
     from video_prompt_action_density_gate import validate_action_timeline
     from grouped_camera_contract import (
@@ -35,10 +40,12 @@ except ModuleNotFoundError:  # Direct CLI execution from tools/.
         compile_visual_sound_clause,
         validate_grouped_beat_contract,
     )
+    from grouped_transition_contract import compile_transition_prompt, validate_transition_sequence
+    from grouped_anchor_semantic_contract import validate_start_anchor_semantics
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODEL_PROMPT_POLICY_VERSION = "qingshan.seedance_model_prompt_complete.v3_creative_contract"
+MODEL_PROMPT_POLICY_VERSION = "qingshan.seedance_model_prompt_complete.v5_bound_transition_handles"
 # Giggle accepts prompts up to 10,000 characters.  Keep transport headroom but
 # never compact away cinematography, performance, visual, or sound contracts.
 MAX_MODEL_PROMPT_CHARS = 8000
@@ -188,9 +195,15 @@ def validate_model_prompt(text: str, *, source_id: str) -> dict[str, Any]:
             failures.append(f"MODEL_PROMPT_CONTAINS_MACHINE_TOKEN:{source_id}:{token}")
     if text.count("【天气硬合同】") != 1:
         failures.append(f"MODEL_PROMPT_WEATHER_CONTRACT_COUNT:{source_id}:{text.count('【天气硬合同】')}")
-    required_sections = ("【节拍】", "【同任务原生声音】", "【镜头硬合同】", "【视觉与现场声硬合同】")
+    required_sections = (
+        "【节拍】", "【同任务原生声音】", "【镜头硬合同】",
+        "【视觉与现场声硬合同】", "【转场硬合同】",
+    )
     if any(section not in text for section in required_sections):
         failures.append(f"MODEL_PROMPT_REQUIRED_SECTION_MISSING:{source_id}")
+    for marker in ("入场边界=", "入场预留=", "出场边界=", "片尾转场预留="):
+        if text.count(marker) != 1:
+            failures.append(f"MODEL_PROMPT_TRANSITION_MARKER_COUNT:{source_id}:{marker}:{text.count(marker)}")
     for phrase in ("镜头随主要动作平稳调整景别", "跟随主要动作", "平稳调整景别"):
         if phrase in text:
             failures.append(f"MODEL_PROMPT_GENERIC_CAMERA_LANGUAGE:{source_id}:{phrase}")
@@ -201,6 +214,33 @@ def validate_model_prompt(text: str, *, source_id: str) -> dict[str, Any]:
         "character_count": len(text),
         "max_character_count": MAX_MODEL_PROMPT_CHARS,
         "forbidden_tokens": list(FORBIDDEN_MODEL_PROMPT_TOKENS),
+        "failures": failures,
+    }
+
+
+def validate_transition_prompt_binding(text: str, unit: dict[str, Any]) -> dict[str, Any]:
+    source_id = str(unit.get("unit_id") or "UNKNOWN")
+    expected_clause = "【转场硬合同】" + compile_transition_prompt(unit)
+    failures: list[str] = []
+    if text.count(expected_clause) != 1:
+        failures.append(f"TRANSITION_PROMPT_EXACT_BINDING_MISMATCH:{source_id}")
+    incoming = unit.get("incoming_transition_contract")
+    outgoing = unit.get("outgoing_transition_contract")
+    expected_ids = [
+        incoming["boundary_id"] if incoming else "SEQUENCE_START",
+        outgoing["boundary_id"] if outgoing else "SEQUENCE_END",
+    ]
+    for boundary in expected_ids:
+        if text.count(boundary) != 1:
+            failures.append(f"TRANSITION_PROMPT_BOUNDARY_ID_COUNT:{source_id}:{boundary}:{text.count(boundary)}")
+    return {
+        "schema": "qingshan.transition_prompt_binding.v1",
+        "status": "PASS" if not failures else "FAIL",
+        "unit_id": source_id,
+        "incoming_boundary_id": expected_ids[0],
+        "outgoing_boundary_id": expected_ids[1],
+        "incoming_transition_present": incoming is not None,
+        "outgoing_transition_present": outgoing is not None,
         "failures": failures,
     }
 
@@ -235,6 +275,7 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
         f"【天气硬合同】weather={weather}",
         "【场景与人物】" + "；".join(scene_parts) + "。使用随任务传入的参考图保持人物面孔、服装、场景和道具一致。",
         "【镜头硬合同】" + camera_line,
+        "【转场硬合同】" + compile_transition_prompt(unit),
         "【视觉与现场声硬合同】" + visual_sound_line,
         "【表演连续性】把下列节拍演成一段连续、自然的表演，不把每个节拍机械切成独立镜头；摄影机只执行镜头硬合同声明的运动。",
         "【节拍】",
@@ -246,6 +287,9 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
     validation = validate_model_prompt(text, source_id=str(unit["unit_id"]))
     if validation["status"] != "PASS":
         raise ValueError(";".join(validation["failures"]))
+    transition_binding = validate_transition_prompt_binding(text, unit)
+    if transition_binding["status"] != "PASS":
+        raise ValueError(";".join(transition_binding["failures"]))
     return text
 
 
@@ -282,6 +326,11 @@ def write_preflight_artifacts(
         prompt_path.write_text(prompt_text(unit, memory_rules), encoding="utf-8")
         prompt_sha = digest(prompt_path)
         model_prompt_contract = validate_model_prompt(prompt_path.read_text(encoding="utf-8"), source_id=unit["unit_id"])
+        transition_prompt_binding = validate_transition_prompt_binding(
+            prompt_path.read_text(encoding="utf-8"), unit
+        )
+        if transition_prompt_binding["status"] != "PASS":
+            raise ValueError(";".join(transition_prompt_binding["failures"]))
         task_dialogue: list[dict[str, str]] = []
         for spec in unit["ordered_prompt_specs"]:
             raw = str(spec.get("dialogue") or "").strip()
@@ -307,6 +356,7 @@ def write_preflight_artifacts(
             "camera_signature": camera_signature(unit["camera_plan"]),
             "camera_plan": unit["camera_plan"],
             "model_prompt_contract": model_prompt_contract,
+            "transition_prompt_binding": transition_prompt_binding,
             "machine_contract_location": "GROUPED_MANIFEST_UNIT_FIELDS_NOT_MODEL_PROMPT",
         })
         tasks.append({
@@ -318,13 +368,18 @@ def write_preflight_artifacts(
             "prompt_failure_modes_applied": known_failure_ids,
             "prompt_failure_modes_not_applicable": [],
             "model_prompt_contract": model_prompt_contract,
+            "transition_prompt_binding": transition_prompt_binding,
             "machine_contract": {
                 "grouped_manifest_unit_id": unit["unit_id"],
+                "scene_id": unit["scene_id"],
                 "weather": weather,
                 "reference_images": unit["reference_images"],
                 "action_timeline": unit["action_timeline"],
                 "ordered_prompt_specs": unit["ordered_prompt_specs"],
                 "camera_plan": unit["camera_plan"],
+                "incoming_transition_contract": unit.get("incoming_transition_contract"),
+                "outgoing_transition_contract": unit.get("outgoing_transition_contract"),
+                "start_frame_semantic_contract": unit.get("start_frame_semantic_contract"),
                 "prompt_failure_mode_ids": known_failure_ids,
             },
             "provider_post_allowed": False, "remote_task_id": None, "paid_attempt": 0,
@@ -409,6 +464,18 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
         for shot, prompt_spec in zip(shots, prompt_specs):
             validate_grouped_beat_contract(prompt_spec, source_id=str(shot["shot_id"]))
         camera_plan = validate_camera_plan(unit.get("camera_plan"), source_id=unit_id)
+        transition_contract = unit.get("transition_contract")
+        semantic_contract = validate_start_anchor_semantics(
+            anchor.get("start_frame_semantic_contract"),
+            unit_id=unit_id,
+            first_reference=references[0],
+            first_prompt_spec=prompt_specs[0],
+            camera_plan=camera_plan,
+            required_space_anchors=(transition_contract or {}).get("anchor_semantic_requirements", {}).get(
+                "target_space_anchors", anchor.get("required_start_space_anchors") or []
+            ),
+            root=ROOT,
+        )
         units.append({
             "unit_id": unit_id,
             "scene_id": unit["scene_id"],
@@ -425,19 +492,22 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             "semantic_reference_coverage_gate": anchor.get("semantic_reference_coverage_gate"),
             "ordered_prompt_specs": prompt_specs,
             "camera_plan": camera_plan,
+            "transition_contract": transition_contract,
+            "start_frame_semantic_contract": semantic_contract,
             "native_audio_contract": "SAME_VIDEO_TASK_NATIVE_DIALOGUE_AMBIENCE_FOLEY_ACTION_SOUND",
             "submission_status": "NOT_AUTHORIZED_UNTIL_REGISTERED_GROUPED_PREFLIGHT_PASS",
             "paid_attempt": 0,
             "remote_task_id": None,
         })
     validate_camera_sequence(units)
+    validate_transition_sequence(units, require_prompt_specs=True)
     if len(units) != int(grouping.get("video_unit_count", -1)):
         raise ValueError("compiled unit count mismatch")
     runtime = round(sum(float(row["duration_seconds"]) for row in units), 6)
     if runtime != round(float(grouping.get("runtime_seconds", -1)), 6):
         raise ValueError("compiled runtime mismatch")
     return {
-        "schema": "qingshan.grouped_seedance_manifest.v2_camera_contract",
+        "schema": "qingshan.grouped_seedance_manifest.v3_transition_and_anchor_semantics",
         "episode": grouping.get("episode"),
         "video_unit_count": len(units),
         "runtime_seconds": runtime,

@@ -119,7 +119,7 @@ def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Pat
             } if count > 1 else {}),
         })
     return {
-        "schema": "qingshan.video_unit_anchor_plan.v1",
+        "schema": "qingshan.video_unit_anchor_plan.v2_semantic_review_required",
         "episode": grouping.get("episode"),
         "video_unit_grouping_plan_sha256": None,
         "planned_reference_image_count": sum(row["planned_reference_image_count"] for row in units),
@@ -130,6 +130,13 @@ def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Pat
             "reason": "Each scene-local unit was independently checked for re-anchor and terminal-state requirements.",
         },
         "missing_anchor_shot_ids": missing,
+        "start_frame_semantic_authoring_required": [
+            {
+                "unit_id": row["unit_id"],
+                "status": "BLOCKED_UNTIL_EXACT_SHA_START_FRAME_SEMANTIC_EVIDENCE_PASS",
+            }
+            for row in units
+        ],
         "units": units,
     }
 

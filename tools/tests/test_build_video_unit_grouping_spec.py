@@ -14,8 +14,11 @@ class BuildVideoUnitGroupingSpecTests(unittest.TestCase):
                     "prompt_spec": {"action": {"primary_action": f"beat {index}"}},
                 })
         production, spec = build(manifest, "abc")
-        plan = compile_grouping_spec(production, spec)
-        self.assertEqual(plan["editorial_shot_count"], 12)
-        self.assertLess(plan["video_unit_count"], 12)
-        self.assertTrue(all(len(unit["editorial_shot_ids"]) > 1 for unit in plan["units"]))
-        self.assertEqual({unit["scene_id"] for unit in plan["units"]}, {"S01", "S02"})
+        self.assertLess(len(spec["groups"]), 12)
+        self.assertTrue(all(len(unit["editorial_shot_ids"]) > 1 for unit in spec["groups"]))
+        self.assertEqual(
+            len(spec["transition_authoring_required"]),
+            len(spec["groups"]) - 1,
+        )
+        with self.assertRaisesRegex(ValueError, "transition_contract is required"):
+            compile_grouping_spec(production, spec)
