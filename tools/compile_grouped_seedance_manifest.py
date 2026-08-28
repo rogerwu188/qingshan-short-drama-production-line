@@ -11,13 +11,37 @@ from typing import Any
 
 try:
     from tools.video_prompt_action_density_gate import validate_action_timeline
+    from tools.grouped_camera_contract import (
+        camera_signature,
+        compile_camera_prompt,
+        validate_camera_plan,
+        validate_camera_sequence,
+    )
+    from tools.grouped_performance_contract import (
+        compile_performance_clause,
+        compile_visual_sound_clause,
+        validate_grouped_beat_contract,
+    )
 except ModuleNotFoundError:  # Direct CLI execution from tools/.
     from video_prompt_action_density_gate import validate_action_timeline
+    from grouped_camera_contract import (
+        camera_signature,
+        compile_camera_prompt,
+        validate_camera_plan,
+        validate_camera_sequence,
+    )
+    from grouped_performance_contract import (
+        compile_performance_clause,
+        compile_visual_sound_clause,
+        validate_grouped_beat_contract,
+    )
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODEL_PROMPT_POLICY_VERSION = "qingshan.seedance_model_prompt_compact.v1"
-MAX_MODEL_PROMPT_CHARS = 1600
+MODEL_PROMPT_POLICY_VERSION = "qingshan.seedance_model_prompt_complete.v3_creative_contract"
+# Giggle accepts prompts up to 10,000 characters.  Keep transport headroom but
+# never compact away cinematography, performance, visual, or sound contracts.
+MAX_MODEL_PROMPT_CHARS = 8000
 FORBIDDEN_MODEL_PROMPT_TOKENS = (
     "sha256",
     "GLOBAL-SPACE-",
@@ -144,7 +168,15 @@ def compact_beat_line(spec: dict[str, Any], timeline: dict[str, Any]) -> str:
         words = words.strip()
         performance = f"{_trim_sentence_end(performance)}；{speaker.strip()}说：“{words}”" if performance else f"{speaker.strip()}说：“{words}”"
     suffix = "" if len(performance) >= 2 and performance.endswith("”") and performance[-2] in "。！？" else "。"
-    return f"{start:g}–{end:g}秒：{performance}{suffix}"
+    performance_contract = compile_performance_clause(spec)
+    physics = (
+        f"接触={action['contact_point']}；方向={action['motion_direction']}；"
+        f"因果={action['physical_causality']}"
+    )
+    return (
+        f"{start:g}–{end:g}秒：{performance}{suffix} 物理动作链：{physics}。"
+        f"表演硬锁：{performance_contract}。"
+    )
 
 
 def validate_model_prompt(text: str, *, source_id: str) -> dict[str, Any]:
@@ -156,8 +188,12 @@ def validate_model_prompt(text: str, *, source_id: str) -> dict[str, Any]:
             failures.append(f"MODEL_PROMPT_CONTAINS_MACHINE_TOKEN:{source_id}:{token}")
     if text.count("【天气硬合同】") != 1:
         failures.append(f"MODEL_PROMPT_WEATHER_CONTRACT_COUNT:{source_id}:{text.count('【天气硬合同】')}")
-    if "【节拍】" not in text or "【同任务原生声音】" not in text:
+    required_sections = ("【节拍】", "【同任务原生声音】", "【镜头硬合同】", "【视觉与现场声硬合同】")
+    if any(section not in text for section in required_sections):
         failures.append(f"MODEL_PROMPT_REQUIRED_SECTION_MISSING:{source_id}")
+    for phrase in ("镜头随主要动作平稳调整景别", "跟随主要动作", "平稳调整景别"):
+        if phrase in text:
+            failures.append(f"MODEL_PROMPT_GENERIC_CAMERA_LANGUAGE:{source_id}:{phrase}")
     return {
         "policy": MODEL_PROMPT_POLICY_VERSION,
         "status": "PASS" if not failures else "FAIL",
@@ -185,6 +221,8 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
     ])
     palette = str((first.get("scene_state") or {}).get("palette") or "").strip()
     beat_lines = [compact_beat_line(spec, timeline) for spec, timeline in zip(specs, unit["action_timeline"])]
+    camera_line = compile_camera_prompt(unit.get("camera_plan"), source_id=str(unit["unit_id"]))
+    visual_sound_line = compile_visual_sound_clause(specs)
     scene_parts = [weather]
     if palette:
         scene_parts.append(f"综合色调={palette}")
@@ -196,7 +234,9 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
         f"【视频任务】{unit['duration_seconds']}秒，竖屏9:16，720p，seedance-2.0-pro（SD2 标准版）；写实古装悬疑电影质感。",
         f"【天气硬合同】weather={weather}",
         "【场景与人物】" + "；".join(scene_parts) + "。使用随任务传入的参考图保持人物面孔、服装、场景和道具一致。",
-        "【镜头】把下列节拍演成一段连续、自然的表演；镜头随主要动作平稳调整景别，不把每个节拍机械切成独立镜头。",
+        "【镜头硬合同】" + camera_line,
+        "【视觉与现场声硬合同】" + visual_sound_line,
+        "【表演连续性】把下列节拍演成一段连续、自然的表演，不把每个节拍机械切成独立镜头；摄影机只执行镜头硬合同声明的运动。",
         "【节拍】",
         *beat_lines,
         "【同任务原生声音】精确保留上述对白及本任务生成的环境声、拟音和动作声；对白只说一次、不改词、不换说话人，无对白人物闭口；禁止 TTS、旧音轨、跨任务音轨和默认 BGM。",
@@ -264,6 +304,8 @@ def write_preflight_artifacts(
         prompt_rows.append({
             "unit_id": unit["unit_id"], "scene_id": unit["scene_id"], "weather": weather,
             "prompt_path": relative(prompt_path), "prompt_sha256": prompt_sha,
+            "camera_signature": camera_signature(unit["camera_plan"]),
+            "camera_plan": unit["camera_plan"],
             "model_prompt_contract": model_prompt_contract,
             "machine_contract_location": "GROUPED_MANIFEST_UNIT_FIELDS_NOT_MODEL_PROMPT",
         })
@@ -282,6 +324,7 @@ def write_preflight_artifacts(
                 "reference_images": unit["reference_images"],
                 "action_timeline": unit["action_timeline"],
                 "ordered_prompt_specs": unit["ordered_prompt_specs"],
+                "camera_plan": unit["camera_plan"],
                 "prompt_failure_mode_ids": known_failure_ids,
             },
             "provider_post_allowed": False, "remote_task_id": None, "paid_attempt": 0,
@@ -363,6 +406,9 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
         if any(row.get("resolution") != "720p" for row in shots):
             raise ValueError(f"{unit_id} contains forbidden resolution")
         prompt_specs = [row.get("prompt_spec") or {} for row in shots]
+        for shot, prompt_spec in zip(shots, prompt_specs):
+            validate_grouped_beat_contract(prompt_spec, source_id=str(shot["shot_id"]))
+        camera_plan = validate_camera_plan(unit.get("camera_plan"), source_id=unit_id)
         units.append({
             "unit_id": unit_id,
             "scene_id": unit["scene_id"],
@@ -378,18 +424,20 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             "source_reference_transport_strategy": source_transport or None,
             "semantic_reference_coverage_gate": anchor.get("semantic_reference_coverage_gate"),
             "ordered_prompt_specs": prompt_specs,
+            "camera_plan": camera_plan,
             "native_audio_contract": "SAME_VIDEO_TASK_NATIVE_DIALOGUE_AMBIENCE_FOLEY_ACTION_SOUND",
             "submission_status": "NOT_AUTHORIZED_UNTIL_REGISTERED_GROUPED_PREFLIGHT_PASS",
             "paid_attempt": 0,
             "remote_task_id": None,
         })
+    validate_camera_sequence(units)
     if len(units) != int(grouping.get("video_unit_count", -1)):
         raise ValueError("compiled unit count mismatch")
     runtime = round(sum(float(row["duration_seconds"]) for row in units), 6)
     if runtime != round(float(grouping.get("runtime_seconds", -1)), 6):
         raise ValueError("compiled runtime mismatch")
     return {
-        "schema": "qingshan.grouped_seedance_manifest.v1",
+        "schema": "qingshan.grouped_seedance_manifest.v2_camera_contract",
         "episode": grouping.get("episode"),
         "video_unit_count": len(units),
         "runtime_seconds": runtime,

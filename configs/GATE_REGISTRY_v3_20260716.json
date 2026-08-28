@@ -1524,6 +1524,9 @@
       "code_paths": [
         "tools/build_video_unit_grouping_spec.py",
         "tools/compile_video_unit_plan.py",
+        "tools/grouped_camera_contract.py",
+        "tools/grouped_performance_contract.py",
+        "tools/compile_grouped_seedance_manifest.py",
         "tools/video_unit_grouping_gate.py",
         "tools/episode_parallel_batch_supervisor.py",
         "tools/submit_giggle_task_manifest.py"
@@ -1531,6 +1534,9 @@
       "test_paths": [
         "tools/tests/test_build_video_unit_grouping_spec.py",
         "tools/tests/test_compile_video_unit_plan.py",
+        "tools/tests/test_grouped_camera_contract.py",
+        "tools/tests/test_grouped_performance_contract.py",
+        "tools/tests/test_compile_grouped_seedance_manifest.py",
         "tools/tests/test_video_unit_grouping_gate.py",
         "tools/tests/test_episode_parallel_batch_supervisor.py",
         "tools/tests/test_submit_corrected_pipeline_gate.py"
@@ -1543,10 +1549,18 @@
         "one_to_one_mapping_forbidden_for_long_form_manifests": true,
         "maximum_short_exception_ratio": 0.25,
         "unit_count_must_emerge_from_groups": true,
-        "paid_task_binding_must_match_grouping_plan": true
+        "paid_task_binding_must_match_grouping_plan": true,
+        "structured_camera_plan_required": true,
+        "adjacent_dynamic_camera_direction_repeat_forbidden": true,
+        "generic_follow_action_camera_language_forbidden": true,
+        "per_beat_action_physics_required": true,
+        "per_actor_micro_expression_and_motion_coverage_required": true,
+        "dialogue_psychology_and_prosody_required": true,
+        "visual_and_diegetic_sound_contract_required": true,
+        "creative_contract_must_reach_model_prompt": true
       },
-      "authorization_ref": "ROGER-20260825-EDITORIAL-BEATS-NOT-VIDEO-UNITS",
-      "last_backtest_date": "2026-08-25",
+      "authorization_ref": "ROGER-20260827-RESTORE-COMPLETE-CAMERA-PERFORMANCE-CONTRACT",
+      "last_backtest_date": "2026-08-27",
       "stage_runner_paths": [
         "tools/episode_parallel_batch_supervisor.py",
         "tools/submit_giggle_task_manifest.py"

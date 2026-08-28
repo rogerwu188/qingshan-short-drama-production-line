@@ -10,6 +10,11 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+try:
+    from tools.grouped_camera_contract import validate_camera_plan, validate_camera_sequence
+except ModuleNotFoundError:  # Direct CLI execution from tools/.
+    from grouped_camera_contract import validate_camera_plan, validate_camera_sequence
+
 
 ROOT = Path(__file__).resolve().parents[1]
 FORBIDDEN_FORMULA_KEYS = {
@@ -122,6 +127,7 @@ def compile_grouping_spec(production: dict[str, Any], spec: dict[str, Any]) -> d
         if not preferred_minimum <= duration <= preferred_maximum and not exception_reason:
             raise ValueError(f"{unit_id} needs a preferred-duration exception reason")
 
+        camera_plan = validate_camera_plan(group.get("camera_plan"), source_id=unit_id)
         unit = {
             "unit_id": unit_id,
             "scene_id": next(iter(scene_ids)),
@@ -129,12 +135,15 @@ def compile_grouping_spec(production: dict[str, Any], spec: dict[str, Any]) -> d
             "action_unit": bool(group.get("action_unit")),
             "narrative_beat": narrative_beat.strip(),
             "editorial_shot_ids": shot_ids,
+            "camera_plan": camera_plan,
         }
         if exception_reason:
             unit["duration_exception_reason"] = exception_reason
         units.append(unit)
         unit_ids.append(unit_id)
         assigned_shots.extend(shot_ids)
+
+    validate_camera_sequence(units)
 
     if duplicate_values(unit_ids):
         raise ValueError(f"duplicate unit IDs: {duplicate_values(unit_ids)}")
@@ -202,6 +211,7 @@ def validate_compiled_plan(production: dict[str, Any], plan: dict[str, Any]) -> 
             "editorial_shot_ids": unit.get("editorial_shot_ids"),
             "action_unit": unit.get("action_unit"),
             "narrative_beat": unit.get("narrative_beat") or "Legacy compiled semantic group",
+            "camera_plan": unit.get("camera_plan"),
             "duration_exception_reason": unit.get("duration_exception_reason"),
         })
     spec = {

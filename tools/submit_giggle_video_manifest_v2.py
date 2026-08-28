@@ -33,11 +33,17 @@ try:
     from giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from video_model_adapter import require_paid_model_contract
     from retry_cap_gate import validate_submission_attempt
+    from grouped_camera_contract import validate_camera_plan, validate_camera_sequence
+    from grouped_performance_contract import validate_grouped_beat_contract
+    from compile_grouped_seedance_manifest import validate_model_prompt
 except ModuleNotFoundError:
     from tools.giggle_api_client import _image_list, _request
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from tools.video_model_adapter import require_paid_model_contract
     from tools.retry_cap_gate import validate_submission_attempt
+    from tools.grouped_camera_contract import validate_camera_plan, validate_camera_sequence
+    from tools.grouped_performance_contract import validate_grouped_beat_contract
+    from tools.compile_grouped_seedance_manifest import validate_model_prompt
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -215,6 +221,27 @@ def task_fingerprint(task: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(contract, sort_keys=True).encode("utf-8")).hexdigest()
 
 
+def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> None:
+    if not task.get("semantic_video_unit"):
+        return
+    machine = task.get("machine_contract") or {}
+    camera_plan = validate_camera_plan(
+        machine.get("camera_plan") or task.get("camera_plan"), source_id=str(task.get("task_key"))
+    )
+    specs = machine.get("ordered_prompt_specs") or task.get("ordered_prompt_specs") or []
+    if not specs:
+        raise ValueError(f"{task.get('task_key')} grouped creative beat contracts are missing")
+    for index, spec in enumerate(specs, start=1):
+        validate_grouped_beat_contract(spec, source_id=f"{task.get('task_key')}:beat-{index}")
+    prompt_report = validate_model_prompt(prompt_text, source_id=str(task.get("task_key")))
+    if prompt_report.get("status") != "PASS":
+        raise ValueError(
+            f"{task.get('task_key')} grouped complete prompt contract failed: "
+            + ",".join(prompt_report.get("failures") or [])
+        )
+    task["camera_plan"] = camera_plan
+
+
 def transaction_path(transaction_dir: Path, task: dict[str, Any]) -> Path:
     return transaction_dir / f"{task['task_key']}__{task_fingerprint(task)[:16]}.json"
 
@@ -228,6 +255,7 @@ def validate_task(task: dict[str, Any]) -> None:
     if not prompt.is_file() or sha256(prompt) != task["prompt_sha256"]:
         raise ValueError(f"{task['task_key']} prompt SHA mismatch")
     prompt_text = prompt.read_text(encoding="utf-8")
+    validate_grouped_creative_task(task, prompt_text)
     references = [resolve(value) for value in task["reference_images"]]
     if len(references) != len(task["reference_sha256"]):
         raise ValueError(f"{task['task_key']} reference count/SHA count mismatch")
@@ -406,8 +434,15 @@ def main() -> int:
     tasks = manifest.get("tasks") or []
     if not gates or not tasks:
         raise SystemExit("Video manifest requires passing gates and tasks")
+    grouped_camera_units = []
     for task in tasks:
         validate_task(task)
+        if task.get("semantic_video_unit"):
+            grouped_camera_units.append({
+                "unit_id": task.get("unit_id") or task.get("task_key"),
+                "camera_plan": task.get("camera_plan"),
+            })
+    validate_camera_sequence(grouped_camera_units)
     if not args.precheck_only and not os.environ.get("GIGGLE_API_KEY", "").strip():
         raise SystemExit("GIGGLE_API_KEY is not set")
     out = resolve(args.out)
@@ -491,7 +526,14 @@ def exec_deployed_submitter() -> None:
     from tools.action_video_prompt_compiler import validate_action_contract
     from tools.shot_media_admission_gate import compute_input_template_id, precheck_submission_inputs
 
+    grouped_camera_units = []
     for task in manifest.get("tasks") or []:
+        validate_task(task)
+        if task.get("semantic_video_unit"):
+            grouped_camera_units.append({
+                "unit_id": task.get("unit_id") or task.get("task_key"),
+                "camera_plan": task.get("camera_plan"),
+            })
         retry_failures = validate_submission_attempt(task)
         if retry_failures:
             raise RuntimeError(
@@ -514,6 +556,7 @@ def exec_deployed_submitter() -> None:
                 f"{task.get('task_key')} input completeness failed: "
                 f"{precheck.get('failure_code')} missing={','.join(missing)}"
             )
+    validate_camera_sequence(grouped_camera_units)
     deployed = authoritative_pipeline_tools_dir() / "submit_giggle_video_manifest_v2.py"
     if not deployed.is_file():
         raise RuntimeError("Deployed BacklotOS video submitter is unavailable")

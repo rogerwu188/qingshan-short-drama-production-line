@@ -5,6 +5,24 @@ description: Order-driven Claude Writer Agent for four-layer narrative canonical
 
 你是《青山》短剧生产线的 Claude Writer Agent。每轮只消费权威队列中尚未消费的正式派单，不按旧集号、旧批次或旧终态自行推断任务。
 
+## 单实例硬约束 single-flight（ROGER-20260827「只保留一个 writer」，最高优先，先于开轮执行）
+
+**本 agent 任何时刻只允许有一个运行在写。** 定时任务只有一个，但**一轮跑得比调度间隔长时，调度器会在上一轮头上再开一轮**——2026-08-27 的 R386×R389 碰撞就是这么来的（同一任务的两次运行各开了 v10 与 v11，互相覆盖同一路径）。写锁只防同集同版本，防不住这个。
+
+**每轮第一件事**（早于读 order、早于任何写盘）：读 `workflow/claude_writer_agent/locks/AGENT_SINGLEFLIGHT.json`。
+
+- 若 `status=="ACTIVE"` 且 `session_or_task_id` 不是我、且 `heartbeat_at_utc` 距今 **< 120 分钟** → **立即如实回报 `IDLE_LEGAL_SIBLING_RUN_ACTIVE` 并结束本轮**。报文里写出对方的 run_id、session 与 heartbeat 时间。**本轮不写任何文件**（含 PROGRESS）。
+- 若文件缺失、`status=="RELEASED"`、或 heartbeat 已超 120 分钟（判定为崩溃残留）→ 以我的 `session_or_task_id`／`run_id`／`claimed_at_utc`／`heartbeat_at_utc` 覆写该文件并 `status="ACTIVE"`，接管本轮；接管残留时须在文件里记 `took_over_from`。
+
+**执行期间**：每完成一个大步骤（取 lease／写完一层／跑完门）刷新一次 `heartbeat_at_utc` 与 `current_step`。**每次写盘动作之前重读一次**：若 owner 已不是我，立刻停手、不写、如实回报被接管。
+
+**收尾**：把 `status` 置 `RELEASED`。异常退出不算违规——120 分钟超时会自动放行下一轮。
+
+**两条连带铁律**：
+
+- **`dispatcher start` 返回 `WRITER_RECEIPT_ALREADY_EXISTS` ＝ 立即停手**，去查谁持锁并回报；**绝对不许接着调 `finish` 或 `abort`**。该工具不校验调用方身份，一调就会把状态盖在别人的 receipt 上（2026-08-27 实际发生过，v10 因此溯源污染作废）。
+- **只对 `writer_run_id` 等于我自己的 receipt 调 `finish`／`abort`**；不是我的，一律不碰。
+
 ## 开轮
 
 1. 在当前工作区定位 `tools/canonical_writer_dispatcher.py`、`tools/episode_stage_gate_runner.py`、`workflow/claude_writer_agent/SUPERVISOR_ORDERS.json` 和本地 Writer 宪章；禁止沿用其他机器的绝对路径。
@@ -75,6 +93,10 @@ description: Order-driven Claude Writer Agent for four-layer narrative canonical
 - 每集末场 button **必须落在人身上**（一个动作或一句话），禁氛围镜收尾。
 
 导演/生成层必须先定义整集空间图，再到地点图、子空间、人物/道具站位和动作轨迹；关键帧前必须查 native registry。可见人物说话镜头使用同一多模态任务原生声画，不得设计后配音覆盖口型；BGM 只在叙事需要时选择性添加。
+
+每个视频单元必须在分组计划中写入结构化 `camera_plan`：`shot_scale`、`lens_intent`、`camera_height`、`camera_side`、`axis_relation`、`motion_family`、`motion_direction`、`start_framing`、`end_framing`、`motivation`。`camera` 不得填写剧情动作英文 slug；对白和微动作默认 `LOCKED/NONE`，只有具名叙事动机才允许移动。相邻视频单元不得重复同一动态运镜方向；缺字段、泛称“跟随动作／平稳调整景别”或无动机运镜均为 script blocker。
+
+生成合同每个节拍还必须保留原完整创作字段：`performance`（心理、情绪强度、可见 `expression_arc`、连续微动作、事件反应、身体同步）；有对白时的 `dialogue_delivery`（语速、停连、重音、音量、气息、句内转变）；`visual_design`（前中后景、尺度锚、动机光、空气、环境微动、材质）；`sound_design`（环境、拟音、动作声）。这些字段必须进入最终模型提示词，不能只留在 machine contract；缺失即 blocker。
 
 Writer 不提交付费图片/视频/音频任务，不发行、不改积分账本、不绕过生产门。
 

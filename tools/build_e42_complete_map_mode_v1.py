@@ -142,8 +142,43 @@ CHARACTERS = {
     "陈问孝": "CHAR-E42-CHENWENXIAO", "静妃": "CHAR-E42-JINGFEI", "佘登科": "CHAR-E42-SHEDENGKE",
     "刘曲星": "CHAR-E42-LIUQUXING", "白鲤": "CHAR-E42-BAILI", "世子": "CHAR-E42-SHIZI",
     "文人甲": "CHAR-E42-WENREN-JIA",
+    "文人乙": "CHAR-E42-WENREN-YI",
+    "席间宾客若干": "CHAR-E42-BANQUET-GUESTS",
 }
 PROPS = {"杯": "PROP-E42-CUP", "帘": "PROP-E42-CURTAIN", "桌": "PROP-E42-BANQUET-TABLE", "信": "PROP-E42-LETTER", "图": "PROP-E42-ARSENAL-DRAWING"}
+
+# The canonical uses omitted subjects and pronouns extensively.  Exact visible
+# cast is therefore authored per shot; substring mining is not an admissible
+# identity source for complete-map blocking.
+VISIBLE_CAST_BY_SHOT = {
+    "E42-S01-01": ["春华", "陈迹"], "E42-S01-02": ["陈迹"],
+    "E42-S01-03": ["陈迹", "席间宾客若干"], "E42-S01-04": ["陈迹", "春华"],
+    "E42-S01-05": ["春华", "陈迹"], "E42-S01-06": ["陈迹"],
+    "E42-S02-01": ["文人甲", "陈问宗"], "E42-S02-02": ["陈问宗"],
+    "E42-S02-03": ["文人乙", "陈问宗", "陈问孝"], "E42-S02-04": ["陈问宗"],
+    "E42-S02-05": ["陈问孝"],
+    "E42-S03-01": [], "E42-S03-02": [], "E42-S03-03": ["陈迹"], "E42-S03-04": [],
+    "E42-S03-05": ["陈迹"], "E42-S03-06": ["陈迹"], "E42-S03-07": ["陈迹"], "E42-S03-08": [],
+    "E42-S04-01": ["陈问孝"], "E42-S04-02": ["陈问孝"],
+    "E42-S04-03": ["席间宾客若干"], "E42-S04-04": ["陈问孝"],
+    "E42-S04-05": ["席间宾客若干"], "E42-S04-06": ["佘登科"],
+    "E42-S05-01": [], "E42-S05-02": ["陈迹"], "E42-S05-03": ["陈迹"],
+    "E42-S05-04": [], "E42-S05-05": ["陈迹"],
+    "E42-S06-01": [], "E42-S06-02": [], "E42-S06-03": ["陈迹"], "E42-S06-04": [],
+    "E42-S06-05": [], "E42-S06-06": ["陈迹"], "E42-S06-07": [],
+    "E42-S07-01": ["佘登科"], "E42-S07-02": ["佘登科"],
+    "E42-S07-03": ["席间宾客若干"], "E42-S07-04": ["席间宾客若干"],
+    "E42-S07-05": ["刘曲星", "佘登科"], "E42-S07-06": ["白鲤"],
+    "E42-S08-01": ["文人甲", "佘登科"], "E42-S08-02": ["席间宾客若干"],
+    "E42-S08-03": ["文人乙", "刘曲星"], "E42-S08-04": ["佘登科"],
+    "E42-S09-01": ["陈迹"], "E42-S09-02": ["陈迹"], "E42-S09-03": [],
+    "E42-S09-04": ["陈迹"], "E42-S09-05": ["陈迹"], "E42-S09-06": [],
+    "E42-S10-01": ["白鲤"], "E42-S10-02": ["白鲤"], "E42-S10-03": ["白鲤"],
+    "E42-S10-04": ["席间宾客若干"], "E42-S10-05": ["白鲤"],
+    "E42-S10-06": ["世子", "席间宾客若干"],
+    "E42-S11-01": ["席间宾客若干"], "E42-S11-02": ["世子"], "E42-S11-03": ["世子"],
+    "E42-S11-04": ["刘曲星"], "E42-S11-05": ["白鲤"], "E42-S11-06": ["陈迹"],
+}
 
 
 def placement_for(location: str, subspace: str) -> tuple[str, str, str, list[list[float]], str]:
@@ -184,7 +219,9 @@ def main() -> int:
         text, _duration, speaker, _kind, camera, subspace, motion, _move_type, scene = source
         location = scene["location_id"]
         room, zid, angle, poly, fixed = placement_for(location, subspace)
-        names = [name for name in CHARACTERS if name in f"{speaker}{text}{camera}{subspace}"]
+        names = VISIBLE_CAST_BY_SHOT.get(shot["shot_id"])
+        if names is None:
+            raise ValueError(f"Missing exact visible-cast contract for {shot['shot_id']}")
         props = [word for word in PROPS if word in text or word in motion]
         center_x = sum(point[0] for point in poly) / len(poly)
         center_y = sum(point[1] for point in poly) / len(poly)

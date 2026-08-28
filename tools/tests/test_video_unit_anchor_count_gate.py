@@ -72,6 +72,15 @@ class VideoUnitAnchorCountGateTest(unittest.TestCase):
         value["semantic_reference_coverage_gate"] = {"status": "PASS", "references_checked": 2}
         self.assertEqual(evaluate({"units": [value], "planned_reference_image_count": 2})["status"], "PASS")
 
+    def test_standard_multi_reference_with_semantic_coverage_passes(self):
+        value = unit(
+            2,
+            "A later spatial plane is absent from frame one and requires a separately bound semantic reference.",
+        )
+        value["reference_transport_strategy"] = "STANDARD_MULTI_REFERENCE"
+        value["semantic_reference_coverage_gate"] = {"status": "PASS", "references_checked": 2}
+        self.assertEqual(evaluate({"units": [value], "planned_reference_image_count": 2})["status"], "PASS")
+
     def test_mechanical_uniform_batch_without_audit_fails(self):
         plan = {
             "units": [

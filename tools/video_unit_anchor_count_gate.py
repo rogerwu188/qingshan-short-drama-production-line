@@ -100,10 +100,10 @@ def evaluate(plan: dict) -> dict:
 
         if isinstance(count, int) and count > 1:
             strategy = unit.get("reference_transport_strategy")
-            if strategy == "OMNI_MULTI_REFERENCE":
+            if strategy in {"OMNI_MULTI_REFERENCE", "STANDARD_MULTI_REFERENCE"}:
                 coverage = unit.get("semantic_reference_coverage_gate")
                 if not isinstance(coverage, dict) or coverage.get("status") != "PASS":
-                    reasons.append("Omni multi-reference unit lacks a passing semantic reference coverage gate")
+                    reasons.append("multi-reference unit lacks a passing semantic reference coverage gate")
                 elif coverage.get("references_checked") != count:
                     reasons.append("semantic reference coverage gate did not check every reference")
             else:
