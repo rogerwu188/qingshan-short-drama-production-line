@@ -341,12 +341,34 @@ def validate_task(task: dict[str, Any]) -> None:
     selected_audio_references = audio_asset_ids or audio_urls
     if len(selected_audio_references) >= 3:
         raise ValueError(f"{task['task_key']} Giggle accepts fewer than 3 total audio references")
-    if task.get("model") != "seedance-2.0-pro":
-        raise ValueError(f"{task['task_key']} requires seedance-2.0-pro (SD2 standard); Fast, Mini, bare seedance-2.0, and unknown models are forbidden")
-    if task.get("resolution") != "720p":
-        raise ValueError(f"{task['task_key']} must use provider-native 720p for seedance-2.0-pro")
-    if not 4 <= int(task.get("duration_seconds", 0)) <= 15:
-        raise ValueError(f"{task['task_key']} duration outside 4-15 seconds")
+    episode = str(task.get("episode") or "")
+    episode_number = int(episode[1:]) if episode.startswith("E") and episode[1:].isdigit() else 0
+    required_model = "MiniMax-H3" if episode_number >= 45 else "seedance-2.0-pro"
+    if task.get("model") != required_model:
+        raise ValueError(
+            f"{task['task_key']} requires {required_model} for {episode or 'this episode'}; "
+            "cross-episode model fallback and unknown models are forbidden"
+        )
+    resolution = task.get("resolution")
+    if required_model == "seedance-2.0-pro":
+        if resolution not in {"720p", "1080p"}:
+            raise ValueError(f"{task['task_key']} must use a provider-native seedance-2.0-pro resolution")
+        if episode_number == 44 and resolution != "1080p":
+            raise ValueError(f"{task['task_key']} must use provider-native 1080p for E44")
+        minimum_duration = 4
+    else:
+        if resolution != "768p":
+            raise ValueError(
+                f"{task['task_key']} must use MiniMax-H3 provider-native 768p; "
+                "1080p and 2K must not be represented as native H3 output"
+            )
+        if len(references) > 9:
+            raise ValueError(f"{task['task_key']} MiniMax-H3 omni accepts at most 9 images")
+        if audio_asset_ids:
+            raise ValueError(f"{task['task_key']} MiniMax-H3 audio/video references require public HTTPS URLs")
+        minimum_duration = 3
+    if not minimum_duration <= int(task.get("duration_seconds", 0)) <= 15:
+        raise ValueError(f"{task['task_key']} duration outside {minimum_duration}-15 seconds")
     if task.get("action_unit"):
         tempo = task.get("performance_tempo_contract") or {}
         windows = tempo.get("atomic_action_windows") or []

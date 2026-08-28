@@ -24,7 +24,15 @@ The installer deploys the versioned `SKILL.md` to Claude Desktop's Scheduled fol
 
 See [`agent_factory/claude_writer/README.md`](agent_factory/claude_writer/README.md) for the complete local/cloud Writer deployment contract and clean-clone smoke test.
 
-For E41 and later Seedance 2.0 video jobs, the authorized model is `seedance-2.0-pro` (SD2 standard); `seedance-2.0-fast`, `seedance-2.0-mini`, and an unversioned bare `seedance-2.0` are prohibited. E40 remains abandoned and private.
+For E41–E44 Seedance 2.0 video jobs, the authorized model is `seedance-2.0-pro` (SD2 standard); `seedance-2.0-fast`, `seedance-2.0-mini`, and an unversioned bare `seedance-2.0` are prohibited. E44 uses provider-native `1080p` 9:16 generation (1080×1920 delivery). Beginning with E45, the authorized video model is Giggle `MiniMax-H3`, 9:16, provider-native `768p`, using the official `giggle-minimax-h3-gen` contract; any 1080p delivery derived from H3 must be labeled as an upscale, and synthetic `2K` must never be represented as native generation. E40 remains abandoned and private.
+
+Install the official H3 prompt/API skill on an execution host before starting E45:
+
+```bash
+npx skills add https://github.com/giggle-official/skills --skill giggle-minimax-h3-gen
+```
+
+The durable project submitter remains the only paid-POST entrypoint. The installed skill supplies the official H3 capability and prompt contract; it does not bypass transaction recording, task-id binding, credit reconciliation, complete-map gates, or pre-submit continuity QA.
 
 ## Grouped-video continuity gate
 

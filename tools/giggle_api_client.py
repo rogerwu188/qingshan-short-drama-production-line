@@ -32,6 +32,8 @@ GENERATION_POST_TIMEOUT_SECONDS = float(os.environ.get("GIGGLE_GENERATION_POST_T
 RETRYABLE_HTTP_CODES = {408, 409, 425, 429}
 PRODUCTION_VIDEO_MODEL = "seedance-2.0-pro"
 STANDARD_VIDEO_MODEL = PRODUCTION_VIDEO_MODEL
+MINIMAX_H3_VIDEO_MODEL = "MiniMax-H3"
+AUTHORIZED_VIDEO_MODELS = {PRODUCTION_VIDEO_MODEL, MINIMAX_H3_VIDEO_MODEL}
 VIDEO_GENERATION_ENDPOINTS = {
     "/api/v1/generation/text-to-video",
     "/api/v1/generation/image-to-video",
@@ -86,10 +88,10 @@ def _urlopen_json(
 
 
 def _request(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    if path in VIDEO_GENERATION_ENDPOINTS and payload.get("model") != PRODUCTION_VIDEO_MODEL:
+    if path in VIDEO_GENERATION_ENDPOINTS and payload.get("model") not in AUTHORIZED_VIDEO_MODELS:
         raise SystemExit(
             "paid video submission blocked: model must be seedance-2.0-pro "
-            "(SD2 standard); Fast, Mini, and the bare seedance-2.0 SKU are forbidden"
+            "or MiniMax-H3; Fast, Mini, the bare seedance-2.0 SKU, and unknown models are forbidden"
         )
     if path.startswith("/api/v1/generation/") and os.environ.get("QINGSHAN_DURABLE_SUBMITTER_CONTEXT") != "1":
         raise SystemExit(
@@ -229,7 +231,7 @@ def main() -> int:
     vid.add_argument("--model", default=PRODUCTION_VIDEO_MODEL)
     vid.add_argument("--duration", type=int, default=4)
     vid.add_argument("--aspect-ratio", default="9:16")
-    vid.add_argument("--resolution", default="720p")
+    vid.add_argument("--resolution", default="1080p")
     vid.add_argument("--count", type=int, default=1)
     vid.set_defaults(func=generate_video)
 
@@ -246,7 +248,7 @@ def main() -> int:
     omni.add_argument("--model", default=PRODUCTION_VIDEO_MODEL)
     omni.add_argument("--duration", type=int, default=4)
     omni.add_argument("--aspect-ratio", default="9:16")
-    omni.add_argument("--resolution", default="720p")
+    omni.add_argument("--resolution", default="1080p")
     omni.add_argument("--count", type=int, default=1)
     omni.add_argument("--out")
     omni.set_defaults(func=generate_omni_video)

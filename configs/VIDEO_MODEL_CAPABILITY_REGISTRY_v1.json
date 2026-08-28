@@ -2,9 +2,9 @@
   "schema": "qingshan.video_model_capability_registry.v1",
   "portable_contract_version": "1.0.0",
   "active_execution_policy": {
-    "effective_from_episode": "E41",
-    "allowed_paid_profile_ids": ["SEEDANCE_2_STANDARD_GIGGLE"],
-    "reason": "Roger explicitly authorized SD2 standard for E41 after the Fast route compatibility failure."
+    "effective_from_episode": "E45",
+    "allowed_paid_profile_ids": ["MINIMAX_H3_GIGGLE"],
+    "reason": "Roger explicitly kept E44 on SD2 standard and selected the official Giggle MiniMax-H3 route for E45 and later episodes."
   },
   "portable_required_fields": [
     "prompt", "duration_seconds", "aspect_ratio", "blocking",
@@ -28,7 +28,7 @@
       "provider_limits": {
         "duration_seconds_min": 4,
         "duration_seconds_max": 15,
-        "resolution_values": ["720p"],
+        "resolution_values": ["720p", "1080p"],
         "aspect_ratio_values": ["9:16"]
       }
     },
@@ -55,15 +55,31 @@
       "deployment_requirements": ["provider_model_id", "credentials", "capability_probe", "cost_authority"]
     },
     {
-      "profile_id": "H3_PORTABLE",
-      "family": "h3",
-      "aliases": ["h3"],
-      "provider": null,
-      "provider_model_id": null,
-      "adapter_status": "CONTRACT_READY_PROVIDER_CONFIG_REQUIRED",
-      "supports": {},
-      "provider_limits": {},
-      "deployment_requirements": ["provider_identity", "provider_model_id", "credentials", "capability_probe", "cost_authority"]
+      "profile_id": "MINIMAX_H3_GIGGLE",
+      "family": "minimax-h3",
+      "aliases": ["h3", "minimax-h3", "MiniMax-H3"],
+      "provider": "giggle",
+      "provider_model_id": "MiniMax-H3",
+      "adapter_status": "DEPLOYED",
+      "official_skill_source": "https://github.com/giggle-official/skills/tree/main/skills/giggle-minimax-h3-gen",
+      "supports": {
+        "text_to_video": true,
+        "image_to_video": true,
+        "exact_first_frame": true,
+        "exact_end_frame": true,
+        "multiple_image_references": true,
+        "audio_reference": true,
+        "video_reference": true
+      },
+      "provider_limits": {
+        "duration_seconds_min": 3,
+        "duration_seconds_max": 15,
+        "resolution_values": ["480p", "768p"],
+        "aspect_ratio_values": ["1:1", "9:16", "16:9", "4:3", "3:4"],
+        "omni_image_reference_max": 9,
+        "audio_video_reference_transport": "PUBLIC_HTTPS_URL_ONLY",
+        "fictional_identity_reference_policy": "SYNTHETIC_FICTIONAL_CHARACTERS_ONLY"
+      }
     },
     {
       "profile_id": "WAN_2_7_PORTABLE",

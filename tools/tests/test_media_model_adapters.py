@@ -9,10 +9,10 @@ from tools.image_model_adapter import (
 from tools.video_model_adapter import validate_model_contract
 
 
-def video_task(model):
+def video_task(model, episode="E40", resolution="720p"):
     return {
-        "episode": "E40", "model": model, "prompt_file": "prompt.txt",
-        "duration_seconds": 10, "aspect_ratio": "9:16", "resolution": "720p",
+        "episode": episode, "model": model, "prompt_file": "prompt.txt",
+        "duration_seconds": 10, "aspect_ratio": "9:16", "resolution": resolution,
         "blocking": {"characters": [{"character_id": "A"}]},
         "action_end_blocking": {"characters": [{"character_id": "A"}]},
         "trajectory_overlays": [{"entity_id": "A"}],
@@ -41,8 +41,34 @@ class MediaModelAdapterTests(unittest.TestCase):
     def test_current_video_model_is_deployed_and_paid_authorized(self):
         self.assertEqual(validate_model_contract(video_task("seedance-2.0-pro"), mode="PAID_SUBMIT")["status"], "PASS")
 
+    def test_e44_stays_sd2_1080_and_e45_switches_to_h3_768(self):
+        e44 = validate_model_contract(
+            video_task("seedance-2.0-pro", episode="E44", resolution="1080p"),
+            episode="E44", mode="PAID_SUBMIT",
+        )
+        e45 = validate_model_contract(
+            video_task("MiniMax-H3", episode="E45", resolution="768p"),
+            episode="E45", mode="PAID_SUBMIT",
+        )
+        self.assertEqual(e44["status"], "PASS", e44)
+        self.assertEqual(e45["status"], "PASS", e45)
+        self.assertEqual(
+            validate_model_contract(
+                video_task("seedance-2.0-pro", episode="E45", resolution="1080p"),
+                episode="E45", mode="PAID_SUBMIT",
+            )["status"],
+            "FAIL",
+        )
+        self.assertEqual(
+            validate_model_contract(
+                video_task("MiniMax-H3", episode="E45", resolution="1080p"),
+                episode="E45", mode="PAID_SUBMIT",
+            )["status"],
+            "FAIL",
+        )
+
     def test_future_video_families_have_contract_but_no_paid_bypass(self):
-        for model in ("sora2", "kling", "h3", "wan2.7"):
+        for model in ("sora2", "kling", "wan2.7"):
             with self.subTest(model=model):
                 self.assertEqual(
                     validate_model_contract(video_task(model))["status"],
