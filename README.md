@@ -54,6 +54,16 @@ Different characters may not reuse the same mapped screen slot as an implicit id
 
 Creative continuity is a pre-submission gate. Post-generation rejection is limited to technical integrity and basic plot/identity correctness; action taste, choreography preference, and micro-expression precision do not consume regeneration attempts after a technically usable result exists.
 
+## Automatic BGM profile binding
+
+The writer/director keeps creative authority over music through the generation contract's `audio_contract.bgm` declaration. AgentCut does not choose a postproduction audio mode independently. `tools/audio_profile_binding.py` deterministically compiles that declaration into exactly one registered profile:
+
+- no-BGM declarations → `NATIVE_MULTIMODAL_NO_EXTERNAL_BGM`;
+- explicitly limited narrative windows → `NATIVE_MULTIMODAL_SELECTIVE_BGM`; and
+- an explicit whole-episode/layered requirement → `LAYERED_POST_WITH_BGM`.
+
+Every new AgentCut assembly requires `--generation-contract`. The resolved profile, creative declaration, contract path, and both contract/declaration SHA-256 values are embedded in the project and admission receipt. Manual profile overrides, later contract mutation, episode mismatch, unknown prose, forbidden BGM tracks, or a missing required BGM track fail closed before release.
+
 ## License
 
 The source code in this repository is released under the [MIT License](LICENSE). You may use, copy, modify, merge, publish, distribute, sublicense, and sell copies subject to the license notice. Generated media, source novels/scripts, credentials, third-party models, provider services, and other separately supplied assets are not automatically relicensed by this repository.

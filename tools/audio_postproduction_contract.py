@@ -102,6 +102,13 @@ def validate_audio_profile(project: dict, *, require_music: bool = False) -> lis
     if not profile:
         return [f"AUDIO_PROFILE_UNKNOWN:{profile_id}"]
 
+    if "audio_profile_binding" in metadata:
+        try:
+            from tools.audio_profile_binding import validate_audio_profile_binding
+        except ModuleNotFoundError:  # Direct execution from tools/.
+            from audio_profile_binding import validate_audio_profile_binding  # type: ignore
+        failures.extend(validate_audio_profile_binding(project))
+
     failures.extend(_native_dialogue_binding_failures(project, profile))
 
     declared_contract = str(metadata.get("audio_profile_contract") or "")

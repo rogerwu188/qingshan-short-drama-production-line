@@ -1872,11 +1872,13 @@
       "implementation_type": "CODED",
       "code_paths": [
         "tools/bgm_authenticity_gate.py",
-        "tools/audio_postproduction_contract.py"
+        "tools/audio_postproduction_contract.py",
+        "tools/audio_profile_binding.py"
       ],
       "test_paths": [
         "tools/tests/test_bgm_authenticity_gate.py",
-        "tools/tests/test_audio_postproduction_contract.py"
+        "tools/tests/test_audio_postproduction_contract.py",
+        "tools/tests/test_audio_profile_binding.py"
       ],
       "parameters": {
         "primary_source": "GENERATED_EPISODE_BGM",
@@ -1891,6 +1893,7 @@
         "external_bgm_profile": "LAYERED_POST_WITH_BGM",
         "native_selective_bgm_profile": "NATIVE_MULTIMODAL_SELECTIVE_BGM",
         "native_no_external_bgm_profile": "NATIVE_MULTIMODAL_NO_EXTERNAL_BGM",
+        "generation_contract_audio_profile_auto_binding_required": true,
         "release_audio_sample_rate_hz": 48000
       },
       "authorization_ref": "ROGER-20260723-AGENT-GENERATED-BGM-PROVENANCE",

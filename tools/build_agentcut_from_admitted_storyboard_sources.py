@@ -8,9 +8,11 @@ from pathlib import Path
 
 try:
     from tools.audio_postproduction_contract import PROFILE_CONFIG, validate_audio_profile
+    from tools.audio_profile_binding import apply_audio_profile_binding, validate_audio_profile_binding
     from tools.sound_cue_contract import evaluate as evaluate_sound_cues
 except ModuleNotFoundError:  # Direct execution from tools/.
     from audio_postproduction_contract import PROFILE_CONFIG, validate_audio_profile  # type: ignore
+    from audio_profile_binding import apply_audio_profile_binding, validate_audio_profile_binding  # type: ignore
     from sound_cue_contract import evaluate as evaluate_sound_cues  # type: ignore
 
 
@@ -26,7 +28,24 @@ def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def build(episode, receipts, review_results, out_project, out_admission, output_video, expected_slots):
+def build(
+    episode,
+    receipts,
+    review_results,
+    out_project,
+    out_admission,
+    output_video,
+    expected_slots,
+    generation_contract=None,
+):
+    if generation_contract is None:
+        raise ValueError("generation_contract is required for automatic audio-profile binding")
+    generation_contract_path = _abs(generation_contract)
+    generation_contract_payload = json.loads(generation_contract_path.read_text(encoding="utf-8"))
+    if generation_contract_payload.get("episode") != episode:
+        raise ValueError(
+            f"generation contract episode mismatch: {generation_contract_payload.get('episode')} vs {episode}"
+        )
     if isinstance(review_results, (str, Path)):
         review_results = [review_results]
     passed_paths = set()
@@ -136,15 +155,9 @@ def build(episode, receipts, review_results, out_project, out_admission, output_
             "episode": episode,
             "status": "STANDARD_STORYBOARD_AGENTCUT_NOT_FINAL",
             "source_review_batches": [str(_abs(path)) for path in review_results],
-            "audio_policy": "PRESERVE_NATIVE_MULTIMODAL_DIALOGUE_SFX_AMBIENCE_WITH_SELECTIVE_BGM_BY_CUE",
-            "source_audio_policy": "PRESERVE_NATIVE_MULTIMODAL_AUDIO",
-            "audio_profile_id": "NATIVE_MULTIMODAL_SELECTIVE_BGM",
-            "audio_profile_contract": str(PROFILE_CONFIG.relative_to(ROOT)),
             "sound_design_contract": {
-                "mode": "NATIVE_EMBEDDED",
                 "required_layers": ["DIALOGUE", "FOLEY", "AMBIENCE", "SFX"],
                 "source_track_ids": [f"{episode}_NATIVE_AUDIO"],
-                "external_bgm_allowed": True,
             },
             "no_padding": True,
             "runtime_seconds": round(cursor, 6),
@@ -178,6 +191,14 @@ def build(episode, receipts, review_results, out_project, out_admission, output_
             "subtitleTracks": [],
         },
     }
+    binding = apply_audio_profile_binding(
+        project,
+        generation_contract_payload,
+        contract_path=generation_contract_path,
+    )
+    binding_failures = validate_audio_profile_binding(project)
+    if binding_failures:
+        raise ValueError(f"audio profile automatic binding failed: {binding_failures}")
     profile_failures = validate_audio_profile(project)
     if profile_failures:
         raise ValueError(f"audio profile contract failed: {profile_failures}")
@@ -193,6 +214,7 @@ def build(episode, receipts, review_results, out_project, out_admission, output_
         "project": str(project_path),
         "output": str(output_path),
         "runtime_seconds": round(cursor, 6),
+        "audio_profile_binding": binding,
         "sources": admissions,
     }, ensure_ascii=False, indent=2) + "\n")
     return {"status": "PASS", "episode": episode, "slots": len(admissions), "runtime_seconds": round(cursor, 6), "project": str(project_path)}
@@ -207,8 +229,18 @@ def main():
     parser.add_argument("--out-admission", required=True)
     parser.add_argument("--output-video", required=True)
     parser.add_argument("--expected-slots", type=int, required=True)
+    parser.add_argument("--generation-contract", required=True)
     args = parser.parse_args()
-    print(json.dumps(build(args.episode, args.receipt, args.review_result, args.out_project, args.out_admission, args.output_video, args.expected_slots), ensure_ascii=False))
+    print(json.dumps(build(
+        args.episode,
+        args.receipt,
+        args.review_result,
+        args.out_project,
+        args.out_admission,
+        args.output_video,
+        args.expected_slots,
+        args.generation_contract,
+    ), ensure_ascii=False))
 
 
 if __name__ == "__main__":
