@@ -7,6 +7,15 @@ from tools.build_agentcut_from_admitted_storyboard_sources import build
 
 
 class AgentCutFromAdmittedSourcesTests(unittest.TestCase):
+    @staticmethod
+    def generation_contract(root, bgm="NONE_WHOLE_EPISODE"):
+        path = root / "generation_contract.json"
+        path.write_text(json.dumps({
+            "episode": "E99",
+            "audio_contract": {"bgm": bgm, "native_dialogue_only": True},
+        }))
+        return path
+
     def test_silent_visual_reuses_previous_non_silent_audio(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -22,12 +31,17 @@ class AgentCutFromAdmittedSourcesTests(unittest.TestCase):
             review.write_text(json.dumps({"passed_items": [{"path": str(clean)}]}))
             project = root / "project.json"
             admission = root / "admission.json"
-            build("E99", [first, retry], review, project, admission, root / "out.mp4", 1)
+            build(
+                "E99", [first, retry], review, project, admission, root / "out.mp4", 1,
+                self.generation_contract(root),
+            )
             payload = json.loads(project.read_text())
             self.assertEqual(payload["timeline"]["videoTracks"][0]["clips"][0]["source"], str(clean))
             self.assertEqual(payload["timeline"]["audioTracks"][0]["clips"][0]["source"], str(old))
             self.assertEqual(payload["metadata"]["runtime_seconds"], 12.0)
             self.assertTrue(payload["masterAudioPolicy"]["required"])
+            self.assertEqual(payload["metadata"]["audio_profile_id"], "NATIVE_MULTIMODAL_NO_EXTERNAL_BGM")
+            self.assertTrue(payload["metadata"]["audio_profile_binding"]["automatic"])
 
     def test_combines_passes_from_failed_only_review(self):
         with tempfile.TemporaryDirectory() as td:
@@ -47,7 +61,10 @@ class AgentCutFromAdmittedSourcesTests(unittest.TestCase):
             retry.write_text(json.dumps({"passed_items": [{"path": str(two)}]}))
             project = root / "project.json"
             admission = root / "admission.json"
-            result = build("E99", [receipt], [full, retry], project, admission, root / "out.mp4", 2)
+            result = build(
+                "E99", [receipt], [full, retry], project, admission, root / "out.mp4", 2,
+                self.generation_contract(root),
+            )
             self.assertEqual(result["slots"], 2)
 
     def test_speaking_visual_replacement_cannot_reuse_old_candidate_audio(self):
@@ -72,7 +89,10 @@ class AgentCutFromAdmittedSourcesTests(unittest.TestCase):
             review = root / "review.json"
             review.write_text(json.dumps({"passed_items": [{"path": str(clean)}]}))
             with self.assertRaisesRegex(ValueError, "cannot reuse dialogue audio"):
-                build("E99", [first, retry], review, root / "project.json", root / "admission.json", root / "out.mp4", 1)
+                build(
+                    "E99", [first, retry], review, root / "project.json", root / "admission.json",
+                    root / "out.mp4", 1, self.generation_contract(root),
+                )
 
     def test_ai_review_pass_can_adjudicate_raw_ocr_failure(self):
         with tempfile.TemporaryDirectory() as td:
@@ -83,8 +103,17 @@ class AgentCutFromAdmittedSourcesTests(unittest.TestCase):
             receipt.write_text(json.dumps({"tasks": [{"source_id": "B01", "status": "qa_failed_terminal", "output_path": str(video), "duration": 12, "metadata": {}}]}))
             review = root / "review.json"
             review.write_text(json.dumps({"passed_items": [{"path": str(video)}]}))
-            result = build("E99", [receipt], review, root / "project.json", root / "admission.json", root / "out.mp4", 1)
+            result = build(
+                "E99", [receipt], review, root / "project.json", root / "admission.json",
+                root / "out.mp4", 1, self.generation_contract(root),
+            )
             self.assertEqual(result["slots"], 1)
+
+    def test_generation_contract_is_required(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with self.assertRaisesRegex(ValueError, "generation_contract is required"):
+                build("E99", [], [], root / "project.json", root / "admission.json", root / "out.mp4", 0)
 
 
 if __name__ == "__main__":

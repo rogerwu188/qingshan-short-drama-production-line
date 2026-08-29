@@ -13,6 +13,7 @@ from typing import Any
 
 
 SCHEMA = "qingshan.wardrobe_identity_contract.v1_role_and_peer_distinction"
+H3_ADULT_FEMALE_VISUAL_POLICY = "qingshan.h3_adult_female_visual.v2_mature_curvy_role_bound"
 REQUIRED_FIELDS = (
     "character",
     "social_tier",
@@ -41,6 +42,12 @@ DISTINCTION_FIELDS = (
 )
 ANIMAL_MARKERS = {"ANIMAL", "CAT", "DOG", "HORSE", "BIRD"}
 VAGUE_ONLY = {"古装", "古代服装", "布衣", "麻布", "粗布", "朴素", "常服", "默认服装"}
+_FEMALE_MARKERS = {"FEMALE", "WOMAN", "女", "女性", "女子", "女人"}
+_CONFIRMED_ADULT_MARKERS = {"CONFIRMED_ADULT", "ADULT", "成年", "成年人", "明确成年"}
+_EXPLICIT_VISUAL_TERMS = {
+    "裸体", "全裸", "裸胸", "露点", "透视露点", "生殖器", "性行为", "色情",
+    "nude", "naked", "nipples", "genitals", "pornographic", "sex act",
+}
 
 
 def _text(value: object) -> str:
@@ -167,6 +174,58 @@ def wardrobe_prompt_block(unit: dict[str, Any], *, concise: bool = False) -> str
                 f"配饰={row['accessory']}；新旧状态={row['condition']}；连续性键={row['continuity_key']}"
             )
     return "；".join(clauses) + "。同阶人物仍须保持各自轮廓、颜色、材质和配饰差异，禁止全员默认麻布或粗布。"
+
+
+def h3_adult_female_visual_block(unit: dict[str, Any]) -> str:
+    """Return H3-only tasteful mature styling for explicitly adult women.
+
+    The Seedance compiler intentionally does not call this function.  A row
+    must explicitly establish both female presentation and adult status;
+    unknown or ambiguous age silently receives no sensual styling.  Explicit
+    sexual or nude directions fail closed rather than entering a model prompt.
+    """
+    contract = unit.get("wardrobe_contract") or {}
+    clauses: list[str] = []
+    for row in contract.get("characters") or []:
+        gender = _text(row.get("gender_presentation"))
+        adult_status = _text(row.get("adult_status"))
+        custom = _text(row.get("mature_visual_direction"))
+        is_female = gender.upper() in _FEMALE_MARKERS or gender in _FEMALE_MARKERS
+        is_adult = adult_status.upper() in _CONFIRMED_ADULT_MARKERS or adult_status in _CONFIRMED_ADULT_MARKERS
+        if custom and any(term.lower() in custom.lower() for term in _EXPLICIT_VISUAL_TERMS):
+            raise ValueError(
+                f"{_text(unit.get('unit_id')) or 'UNKNOWN'}:H3_ADULT_FEMALE_EXPLICIT_VISUAL_FORBIDDEN:"
+                f"{_text(row.get('character'))}"
+            )
+        if not (is_female and is_adult):
+            continue
+        direction = custom or (
+            "明确成年、成熟丰满且比例自然，胸腰臀曲线比默认造型更鲜明但不夸张；"
+            "以符合角色身份与时代的合身剪裁、明确腰线、肩颈线、面料垂坠和克制妆发展现健康性感；"
+            "保持完整衣着，不裸露、不透视、不低俗"
+        )
+        clauses.append(f"{_text(row.get('character'))}={direction}")
+    if not clauses:
+        return ""
+    return (
+        "成年女性造型锁（仅H3）：" + "；".join(clauses) +
+        "。性感只来自成年体态、剪裁、色彩、质感与表演气质，必须服从剧情、身份、年代和角色连续性。"
+    )
+
+
+def model_specific_adult_female_visual_block(
+    unit: dict[str, Any], *, target_video_model: str
+) -> str:
+    """Share the H3 adult-woman style contract with still and video prompts.
+
+    Keyframes that will feed an H3 episode must carry the same character-shape
+    authority as the H3 video prompt.  Seedance inputs intentionally return an
+    empty block so its established compiler contract is unchanged.
+    """
+    model = _text(target_video_model).lower()
+    if model not in {"minimax-h3", "h3"}:
+        return ""
+    return h3_adult_female_visual_block(unit)
 
 
 def wardrobe_rows_for_cast(
