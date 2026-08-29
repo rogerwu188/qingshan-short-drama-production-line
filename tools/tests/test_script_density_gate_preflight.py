@@ -98,6 +98,33 @@ class ScriptDensityGatePreflightTests(unittest.TestCase):
             self.assertIn("max_event_gap_exceeds_20_seconds", result["failures"])
             self.assertIn("non_progress_atmosphere_exceeds_15_percent", result["failures"])
 
+    def test_registered_v3_density_json_is_accepted_with_exact_manifest_sha(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = root / "manifest.json"
+            review = root / "density.json"
+            script.write_text('{"episode":"E41"}\n', encoding="utf-8")
+            script_sha = hashlib.sha256(script.read_bytes()).hexdigest()
+            review.write_text(json.dumps({
+                "schema": "qingshan.us_drama_event_density_gate.v3",
+                "episode": "E41",
+                "status": "PASS",
+                "manifest_sha256": script_sha,
+                "observed": {
+                    "structure_target_seconds": 180.0,
+                    "planned_event_count": 110,
+                    "max_information_gap_seconds": 8.7,
+                    "non_advancing_percentage": 0.0,
+                    "narrative_causal_v3": {
+                        "story_move_count": 110,
+                        "story_moves_per_minute": 36.667,
+                    },
+                },
+            }), encoding="utf-8")
+            result = evaluate_density_gate("E41", script, root, review)
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["matched_review"]["review_schema"], "qingshan.us_drama_event_density_gate.v3")
+
 
 if __name__ == "__main__":
     unittest.main()

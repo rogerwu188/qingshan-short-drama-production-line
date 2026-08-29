@@ -81,9 +81,15 @@ def _task_stage(task: dict[str, Any]) -> str:
 
 
 def requires_space_map(episode: Any, tasks: list[dict[str, Any]], explicit: Any = None) -> bool:
+    number = episode_number(episode)
+    # ROGER-20260827-E42-COMPLETE-MAP-MODE: E42+ shot production may
+    # never opt out of the complete visual map chain.  Historical manifests
+    # used ``global_space_map_gate_required=false`` as a repair escape hatch;
+    # retaining that behaviour for E42+ would make the policy advisory.
+    if number is not None and number >= 42:
+        return any(_task_stage(task) not in EXEMPT_STAGES for task in tasks)
     if explicit is not None:
         return bool(explicit)
-    number = episode_number(episode)
     if number is None or number < 40:
         return False
     return any(_task_stage(task) not in EXEMPT_STAGES for task in tasks)

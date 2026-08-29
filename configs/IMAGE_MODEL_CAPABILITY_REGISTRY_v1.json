@@ -18,7 +18,14 @@
       "provider": "giggle",
       "provider_model_id": "gpt-image-2-pro",
       "adapter_status": "DEPLOYED",
-      "supports": {"text_to_image": true, "image_references": true, "exact_reference_transport": true},
+      "supports": {
+        "text_to_image": true,
+        "image_references": true,
+        "exact_reference_byte_transport": true,
+        "flat_reference_images": true,
+        "semantic_role_transport": false,
+        "provider_native_identity_lock": false
+      },
       "provider_limits": {"aspect_ratio_values": ["9:16"], "resolution_values": ["1K", "2K"]}
     },
     {

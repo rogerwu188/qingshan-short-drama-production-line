@@ -2,9 +2,10 @@
   "schema": "qingshan.video_model_capability_registry.v1",
   "portable_contract_version": "1.0.0",
   "active_execution_policy": {
-    "effective_from_episode": "E40",
-    "allowed_paid_profile_ids": ["SEEDANCE_2_FAST_GIGGLE"],
-    "reason": "Current Roger authorization remains seedance-2.0-fast only; compatibility profiles do not grant paid authority."
+    "effective_from_episode": "E45",
+    "allowed_paid_profile_ids": ["SEEDANCE_2_STANDARD_GIGGLE", "MINIMAX_H3_GIGGLE"],
+    "selection_policy": "EXPLICIT_PER_EPISODE_OR_TASK_MODEL_WITH_MODEL_SPECIFIC_PROMPT_COMPILER",
+    "reason": "Roger authorized one production line to support both SD2 standard and MiniMax-H3. Each paid task must select one registered model and pass that model's dedicated prompt compiler and validator."
   },
   "portable_required_fields": [
     "prompt", "duration_seconds", "aspect_ratio", "blocking",
@@ -12,12 +13,14 @@
   ],
   "profiles": [
     {
-      "profile_id": "SEEDANCE_2_FAST_GIGGLE",
+      "profile_id": "SEEDANCE_2_STANDARD_GIGGLE",
       "family": "seedance2",
-      "aliases": ["seedance-2.0-fast"],
+      "aliases": ["seedance-2.0-pro"],
       "provider": "giggle",
-      "provider_model_id": "seedance-2.0-fast",
+      "provider_model_id": "seedance-2.0-pro",
       "adapter_status": "DEPLOYED",
+      "prompt_compiler": "tools.compile_grouped_seedance_manifest:prompt_text",
+      "prompt_validator": "tools.compile_grouped_seedance_manifest:validate_model_prompt",
       "supports": {
         "text_to_video": true,
         "image_to_video": true,
@@ -28,7 +31,7 @@
       "provider_limits": {
         "duration_seconds_min": 4,
         "duration_seconds_max": 15,
-        "resolution_values": ["720p"],
+        "resolution_values": ["720p", "1080p"],
         "aspect_ratio_values": ["9:16"]
       }
     },
@@ -55,15 +58,33 @@
       "deployment_requirements": ["provider_model_id", "credentials", "capability_probe", "cost_authority"]
     },
     {
-      "profile_id": "H3_PORTABLE",
-      "family": "h3",
-      "aliases": ["h3"],
-      "provider": null,
-      "provider_model_id": null,
-      "adapter_status": "CONTRACT_READY_PROVIDER_CONFIG_REQUIRED",
-      "supports": {},
-      "provider_limits": {},
-      "deployment_requirements": ["provider_identity", "provider_model_id", "credentials", "capability_probe", "cost_authority"]
+      "profile_id": "MINIMAX_H3_GIGGLE",
+      "family": "minimax-h3",
+      "aliases": ["h3", "minimax-h3", "MiniMax-H3"],
+      "provider": "giggle",
+      "provider_model_id": "MiniMax-H3",
+      "adapter_status": "DEPLOYED",
+      "prompt_compiler": "tools.minimax_h3_prompt_compiler:compile_h3_prompt",
+      "prompt_validator": "tools.minimax_h3_prompt_compiler:validate_h3_prompt",
+      "official_skill_source": "https://github.com/giggle-official/skills/tree/main/skills/giggle-minimax-h3-gen",
+      "supports": {
+        "text_to_video": true,
+        "image_to_video": true,
+        "exact_first_frame": true,
+        "exact_end_frame": true,
+        "multiple_image_references": true,
+        "audio_reference": true,
+        "video_reference": true
+      },
+      "provider_limits": {
+        "duration_seconds_min": 3,
+        "duration_seconds_max": 15,
+        "resolution_values": ["480p", "768p"],
+        "aspect_ratio_values": ["1:1", "9:16", "16:9", "4:3", "3:4"],
+        "omni_image_reference_max": 9,
+        "audio_video_reference_transport": "PUBLIC_HTTPS_URL_ONLY",
+        "fictional_identity_reference_policy": "SYNTHETIC_FICTIONAL_CHARACTERS_ONLY"
+      }
     },
     {
       "profile_id": "WAN_2_7_PORTABLE",

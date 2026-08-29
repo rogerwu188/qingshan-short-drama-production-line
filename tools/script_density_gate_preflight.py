@@ -40,6 +40,37 @@ def find_reviews(review_dir: Path, episode: str) -> list[Path]:
 
 def parse_review(path: Path) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8")
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        payload = None
+    if isinstance(payload, dict) and payload.get("schema") == "qingshan.us_drama_event_density_gate.v3":
+        observed = payload.get("observed") or {}
+        narrative = observed.get("narrative_causal_v3") or {}
+        duration = observed.get("structure_target_seconds") or observed.get("runtime_target_seconds")
+        event_count = narrative.get("story_move_count") or observed.get("planned_event_count")
+        event_rate = narrative.get("story_moves_per_minute") or observed.get("events_per_minute")
+        max_gap = observed.get("max_information_gap_seconds")
+        total_shots = observed.get("planned_event_count")
+        non_progress_pct = observed.get("non_advancing_percentage")
+        non_progress_count = None
+        if total_shots is not None and non_progress_pct is not None:
+            non_progress_count = round(float(total_shots) * float(non_progress_pct) / 100.0)
+        return {
+            "path": str(path),
+            "status": str(payload.get("status") or "UNKNOWN").upper(),
+            "script_sha256": str(payload.get("manifest_sha256") or "").lower() or None,
+            "metrics": {
+                "duration_seconds": float(duration) if duration is not None else None,
+                "true_event_count": int(event_count) if event_count is not None else None,
+                "event_rate_per_minute": float(event_rate) if event_rate is not None else None,
+                "max_event_gap_seconds": float(max_gap) if max_gap is not None else None,
+                "non_progress_atmosphere_shot_count": int(non_progress_count) if non_progress_count is not None else None,
+                "total_shot_count": int(total_shots) if total_shots is not None else None,
+                "non_progress_atmosphere_pct": float(non_progress_pct) if non_progress_pct is not None else None,
+            },
+            "review_schema": payload.get("schema"),
+        }
     hashes = SHA_MARKER.findall(text)
     if REVISE_MARKER.search(text):
         status = "REVISE"

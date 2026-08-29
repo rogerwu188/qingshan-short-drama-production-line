@@ -52,6 +52,10 @@ try:
     from dramatic_quality_gate import evaluate as evaluate_dramatic_quality
     from mechanical_default_gate import evaluate as evaluate_mechanical_defaults
     from video_unit_anchor_count_gate import evaluate as evaluate_anchor_counts
+    from video_unit_grouping_gate import (
+        evaluate as evaluate_video_unit_grouping,
+        validate_task_bindings as validate_video_unit_grouping_bindings,
+    )
     from common_sense_causality_gate import evaluate as evaluate_common_sense_causality
     from action_shot_design_gate import (
         evaluate as evaluate_action_shot_design,
@@ -103,6 +107,10 @@ except ModuleNotFoundError:  # Imported as tools.episode_parallel_batch_supervis
     from tools.dramatic_quality_gate import evaluate as evaluate_dramatic_quality
     from tools.mechanical_default_gate import evaluate as evaluate_mechanical_defaults
     from tools.video_unit_anchor_count_gate import evaluate as evaluate_anchor_counts
+    from tools.video_unit_grouping_gate import (
+        evaluate as evaluate_video_unit_grouping,
+        validate_task_bindings as validate_video_unit_grouping_bindings,
+    )
     from tools.common_sense_causality_gate import evaluate as evaluate_common_sense_causality
     from tools.action_shot_design_gate import (
         evaluate as evaluate_action_shot_design,
@@ -130,6 +138,7 @@ except ModuleNotFoundError:  # Imported as tools.episode_parallel_batch_supervis
 
 ROOT = Path(__file__).resolve().parents[1]
 SEEDANCE_REFERENCE_IMAGE_MAX_BYTES = 30 * 1024 * 1024
+COMPACT_MODEL_PROMPT_POLICY = "qingshan.seedance_model_prompt_compact.v1"
 SEEDANCE_REFERENCE_IMAGE_MIN_SHORT_EDGE = 512
 TERMINAL_TASK_STATES = {
     "qa_pass",
@@ -725,6 +734,41 @@ def validate_complete_video_prompt_manifest(config: dict) -> dict:
                     "unit_id": unit_id,
                     "expected_token": f"【天气硬合同】weather={expected_weather}",
                 })
+            prompt_contract = row.get("model_prompt_contract")
+            if prompt_contract is not None:
+                if not isinstance(prompt_contract, dict) or prompt_contract.get("policy") != COMPACT_MODEL_PROMPT_POLICY:
+                    row_failures.append({
+                        "check": "model_prompt_compact_policy",
+                        "unit_id": unit_id,
+                        "expected": COMPACT_MODEL_PROMPT_POLICY,
+                        "actual": prompt_contract,
+                    })
+                else:
+                    max_chars = int(prompt_contract.get("max_character_count") or 0)
+                    if prompt_contract.get("status") != "PASS" or max_chars <= 0 or len(prompt_text) > max_chars:
+                        row_failures.append({
+                            "check": "model_prompt_compact_length",
+                            "unit_id": unit_id,
+                            "actual_characters": len(prompt_text),
+                            "max_characters": max_chars,
+                        })
+                    if int(prompt_contract.get("character_count") or -1) != len(prompt_text):
+                        row_failures.append({
+                            "check": "model_prompt_compact_character_count",
+                            "unit_id": unit_id,
+                            "expected": prompt_contract.get("character_count"),
+                            "actual": len(prompt_text),
+                        })
+                    leaked = [
+                        str(token) for token in prompt_contract.get("forbidden_tokens") or []
+                        if str(token) and str(token) in prompt_text
+                    ]
+                    if leaked:
+                        row_failures.append({
+                            "check": "model_prompt_machine_contract_leak",
+                            "unit_id": unit_id,
+                            "tokens": leaked,
+                        })
         rows_by_unit[unit_id] = row
         failures.extend(row_failures)
         results.append({
@@ -752,6 +796,24 @@ def validate_complete_video_prompt_manifest(config: dict) -> dict:
                 "actual": task_prompt_sha or "MISSING",
                 "task_prompt_file": str(task_prompt_path),
             })
+        task_prompt_contract = task.get("model_prompt_contract")
+        if task_prompt_contract is not None and task_prompt_contract != row.get("model_prompt_contract"):
+            failures.append({
+                "check": "task_model_prompt_contract_matches_complete_manifest",
+                "unit_id": unit_id,
+            })
+        if task_prompt_contract is not None and task_prompt_path.is_file():
+            task_prompt_text = task_prompt_path.read_text(encoding="utf-8")
+            for dialogue in task.get("dialogue") or []:
+                spoken_text = str(dialogue.get("spoken_text") or "").strip()
+                if spoken_text and task_prompt_text.count(spoken_text) != 1:
+                    failures.append({
+                        "check": "model_prompt_exact_dialogue_once",
+                        "unit_id": unit_id,
+                        "dia_id": dialogue.get("dia_id"),
+                        "spoken_text": spoken_text,
+                        "actual_count": task_prompt_text.count(spoken_text),
+                    })
 
     distinct_authority_weather = set(expected_weather_by_scene.values())
     distinct_manifest_weather = {_normalized_scene_weather(row.get("weather")) for row in rows}
@@ -1111,6 +1173,7 @@ def validate_corrected_pipeline_quality(config: dict) -> dict:
     for key, evaluator in (
         ("dramatic_quality_report_ref", evaluate_dramatic_quality),
         ("mechanical_default_plan_ref", evaluate_mechanical_defaults),
+        ("video_unit_grouping_plan_ref", evaluate_video_unit_grouping),
         ("anchor_count_plan_ref", evaluate_anchor_counts),
         ("common_sense_causality_plan_ref", evaluate_common_sense_causality),
         ("action_shot_design_plan_ref", evaluate_action_shot_design),
@@ -1133,6 +1196,12 @@ def validate_corrected_pipeline_quality(config: dict) -> dict:
             failures.extend(
                 f"corrected_pipeline_action_prompt_binding:{value}"
                 for value in validate_action_shot_bindings(plan, config.get("tasks") or [], ROOT)
+            )
+        if key == "video_unit_grouping_plan_ref" and result.get("status") == "PASS":
+            plan = read_json(path)
+            failures.extend(
+                f"corrected_pipeline_video_unit_grouping_binding:{value}"
+                for value in validate_video_unit_grouping_bindings(plan, ready_tasks)
             )
         if key == "anchor_count_plan_ref" and result.get("status") == "PASS":
             planned_by_unit = {
@@ -1706,6 +1775,17 @@ def submit_one(task: dict, receipt: dict) -> dict:
         }
     prompt_file = abs_path(task["prompt_file"]) if task.get("prompt_file") else None
     prompt = prompt_file.read_text(encoding="utf-8") if prompt_file else str(task.get("prompt") or "")
+    if tool_type == "image_generation" and episode_match and int(episode_match.group(1)) >= 40:
+        try:
+            require_paid_image_model_contract(
+                task, str(receipt.get("episode") or ""), prompt_text=prompt
+            )
+        except ValueError as exc:
+            return {
+                "status": "submit_blocked", "state": "tool_blocked",
+                "block_code": "BLOCK_IMAGE_IDENTITY_TRANSPORT_INVALID",
+                "model_adapter_error": str(exc),
+            }
     args = [
         "--prompt-file", str(prompt_file),
     ]
@@ -2741,6 +2821,7 @@ def main() -> int:
     corrected_gate_ids = {
         "dramatic_quality_report_ref": "SCRIPT-COUNCIL-DRAMATIC-QUALITY",
         "mechanical_default_plan_ref": "MECHANICAL-DEFAULT-META-GATE",
+        "video_unit_grouping_plan_ref": "VIDEO-UNIT-SEMANTIC-GROUPING",
         "anchor_count_plan_ref": "VIDEO-UNIT-DYNAMIC-ANCHOR-COUNT",
         "common_sense_causality_plan_ref": "COMMON-SENSE-CAUSALITY-COUNTERFACTUAL",
         "action_shot_design_plan_ref": "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF",

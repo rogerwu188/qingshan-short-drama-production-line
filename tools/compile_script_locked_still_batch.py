@@ -11,8 +11,10 @@ from typing import Any
 
 try:
     from tools.compile_video_unit_plan import validate_compiled_plan
+    from tools.image_model_adapter import compile_labeled_flat_identity_transport
 except ModuleNotFoundError:
     from compile_video_unit_plan import validate_compiled_plan
+    from image_model_adapter import compile_labeled_flat_identity_transport
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -308,8 +310,7 @@ def main() -> int:
             if repair_bundle:
                 validate_repair_feedback(repair_bundle, shot, source_sha, state_id)
             prompt_path = out_dir / f"{state_id}.txt"
-            prompt_path.write_text(
-                render_prompt(
+            prompt_body = render_prompt(
                     manifest,
                     shot,
                     scene,
@@ -319,9 +320,14 @@ def main() -> int:
                     state_index,
                     target_state_count,
                     repair_bundle,
-                ) + "\n",
-                encoding="utf-8",
             )
+            transport_bindings, identity_transport, effective_prompt = (
+                compile_labeled_flat_identity_transport(
+                    f"{state_id}-STILL-{args.task_version}", reference_bindings, prompt_body
+                ) if visible_characters else (reference_bindings, {}, prompt_body)
+            )
+            references = [binding["path"] for binding in transport_bindings]
+            prompt_path.write_text(effective_prompt + "\n", encoding="utf-8")
             prompt_contract = {
                 "schema": "qingshan.image_prompt_contract.v2",
                 "shot_id": state_id,
@@ -330,7 +336,7 @@ def main() -> int:
                 "source_action_sha256": text_sha256(shot["action"]),
                 "visible_characters": visible_characters,
                 "character_binding_mode": character_mode,
-                "reference_bindings": reference_bindings,
+                "reference_bindings": transport_bindings,
                 "editorial_shot_id": shot["shot_id"],
                 "video_unit_id": video_unit_id,
                 "video_unit_duration_seconds": video_unit["duration_seconds"],
@@ -360,7 +366,11 @@ def main() -> int:
                 "prompt_file": rel(prompt_path),
                 "prompt_sha256": sha256(prompt_path),
                 "reference_images": references,
-                "reference_bindings": reference_bindings,
+                "reference_image_sequence": transport_bindings,
+                "reference_bindings": transport_bindings,
+                "identity_reference_transport": identity_transport or None,
+                "generation_stage": "SCENE_KEYFRAME",
+                "canonical_characters": visible_characters,
                 "prompt_contract": prompt_contract,
                 "model": "gpt-image-2-pro",
                 "aspect_ratio": "9:16",

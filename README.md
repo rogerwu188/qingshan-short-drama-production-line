@@ -24,4 +24,30 @@ The installer deploys the versioned `SKILL.md` to Claude Desktop's Scheduled fol
 
 See [`agent_factory/claude_writer/README.md`](agent_factory/claude_writer/README.md) for the complete local/cloud Writer deployment contract and clean-clone smoke test.
 
-For E40 and later Seedance 2.0 video jobs, the authorized model is `seedance-2.0-fast`; `seedance-2.0-pro`, `seedance-2.0-mini`, and an unversioned bare `seedance-2.0` are prohibited.
+The production line supports two explicitly selected video models: Giggle `seedance-2.0-pro` (SD2 standard, provider-native 720p 9:16 in the current production contract) and Giggle `MiniMax-H3` (provider-native 768p 9:16). SD2 keeps its established complete prompt grammar unchanged. H3 uses a separate native audiovisual compiler with structured reference definitions, stable speaker IDs, `<d>`-isolated literal dialogue, separated soundscape/music fields, and a no-unprompted-speech gate. `seedance-2.0-fast`, `seedance-2.0-mini`, and an unversioned bare `seedance-2.0` remain prohibited. Any higher-resolution delivery derived from H3 must be labeled as an upscale; synthetic `2K` must never be represented as native generation. E40 remains abandoned and private.
+
+Long-form episodes are compiled with media-safe segmentation: dialogue must finish before a safety pad and a 0.6–1.5 second bridge handle, every outgoing tail keeps residual breathing/clothing/environment motion instead of a freeze, and every adjacent pair receives real-media frame/audio evidence. Release is fail-closed until plot, identity/wardrobe, pose/blocking, complete-map axis, props, sound, and transition motivation all pass the boundary acceptance report. Character wardrobe is role/status-driven and same-tier characters must remain visually distinguishable by silhouette, palette, material, fastening, or accessories.
+
+Install the official H3 prompt/API skill on an execution host before starting E45:
+
+```bash
+npx skills add https://github.com/giggle-official/skills --skill giggle-minimax-h3-gen
+```
+
+The durable project submitter remains the only paid-POST entrypoint. The installed skill supplies the official H3 capability and prompt contract; it does not bypass transaction recording, task-id binding, credit reconciliation, complete-map gates, or pre-submit continuity QA.
+
+## Grouped-video continuity gate
+
+Every boundary between editorial beats packed into one provider video task must carry an authored `internal_transition_contract`. The compiler and submitter fail closed unless that contract is bound to both beats' exact:
+
+- visible cast and dialogue speaker;
+- global map, location, and shot subspace;
+- prop set and ownership/handoff;
+- ambience, foley, and action sound;
+- previous action terminal state and successor initial state;
+- camera transition and axis strategy; and
+- reference-image entity mapping.
+
+Different characters may not reuse the same mapped screen slot as an implicit identity transformation. That handoff must be split or expressed as an authored cut, reveal, or reframe. The compiled model prompt contains the full `【节拍内连续性硬合同】`; the same contract is fingerprinted and revalidated immediately before any paid provider POST.
+
+Creative continuity is a pre-submission gate. Post-generation rejection is limited to technical integrity and basic plot/identity correctness; action taste, choreography preference, and micro-expression precision do not consume regeneration attempts after a technically usable result exists.

@@ -220,8 +220,6 @@ def validate_task(task: dict[str, Any]) -> None:
             f"{task.get('task_key')} BLOCK_RETRY_CAP_GATE: {','.join(retry_failures)}"
         )
     episode_match = re.match(r"E(\d+)", str(task.get("episode") or "").upper())
-    if episode_match and int(episode_match.group(1)) >= 40:
-        require_paid_image_model_contract(task, str(task.get("episode")))
     for field in ("task_key", "prompt_file", "reference_images"):
         if not task.get(field):
             raise ValueError(f"{task.get('task_key', 'UNKNOWN')} missing {field}")
@@ -242,6 +240,10 @@ def validate_task(task: dict[str, Any]) -> None:
     if contract.get("source_action_sha256") != hashlib.sha256(str(contract.get("source_action", "")).encode("utf-8")).hexdigest():
         raise ValueError(f"{task['task_key']} source action SHA mismatch")
     prompt_text = prompt_path.read_text(encoding="utf-8")
+    if episode_match and int(episode_match.group(1)) >= 40:
+        require_paid_image_model_contract(
+            task, str(task.get("episode")), prompt_text=prompt_text
+        )
     if contract.get("source_action") not in prompt_text:
         raise ValueError(f"{task['task_key']} prompt omits exact source action")
     spatial = evaluate_spatial_task(task, prompt_text)
@@ -291,6 +293,13 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
             + ", ".join(missing or input_precheck["failures"])
         )
     prompt = resolve(task["prompt_file"]).read_text(encoding="utf-8")
+    episode_match = re.match(r"E(\d+)", str(task.get("episode") or "").upper())
+    if episode_match and int(episode_match.group(1)) >= 40:
+        # Repeat at the paid boundary. A prior batch-level validation is not
+        # sufficient because manifests may wait before dispatch.
+        require_paid_image_model_contract(
+            task, str(task.get("episode")), prompt_text=prompt
+        )
     references = [str(resolve(path)) for path in task["reference_images"]]
     payload = {
         "prompt": prompt,

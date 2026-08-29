@@ -10,8 +10,10 @@ from pathlib import Path
 
 try:
     from .human_realism_prompt_contract import CONTRACT_VERSION, build_keyframe_realism_block
+    from .wardrobe_identity_contract import REQUIRED_FIELDS
 except ImportError:
     from human_realism_prompt_contract import CONTRACT_VERSION, build_keyframe_realism_block
+    from wardrobe_identity_contract import REQUIRED_FIELDS
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,7 +44,18 @@ def character_text(ids: list[str], locks: dict[str, dict]) -> str:
         row = locks.get(character_id, {"name": character_id, "immutable": {}})
         immutable = row.get("immutable") or {}
         facts = "，".join(f"{key}={value}" for key, value in immutable.items())
-        parts.append(f"{row.get('name', character_id)}[[{character_id}]]" + (f"（{facts}）" if facts else ""))
+        wardrobe = row.get("wardrobe_contract") or {}
+        wardrobe_facts = "，".join(
+            f"{key}={wardrobe[key]}" for key in REQUIRED_FIELDS[1:] if str(wardrobe.get(key) or "").strip()
+        )
+        if wardrobe and len(wardrobe_facts.split("，")) != len(REQUIRED_FIELDS) - 1:
+            raise ValueError(f"{character_id} has incomplete itemized wardrobe_contract")
+        identity = f"{row.get('name', character_id)}[[{character_id}]]"
+        if facts:
+            identity += f"（身份={facts}）"
+        if wardrobe_facts:
+            identity += f"（服装身份={wardrobe_facts}）"
+        parts.append(identity)
     return "；".join(parts)
 
 

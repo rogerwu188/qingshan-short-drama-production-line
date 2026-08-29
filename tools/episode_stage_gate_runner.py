@@ -259,6 +259,22 @@ EXECUTORS: dict[str, dict[str, Any]] = {
             ("--admission", "split_performance_admission"),
         ],
     },
+    "VIDEO-UNIT-GROUPED-CONTINUITY-PREFLIGHT": {
+        "tool": "tools/grouped_continuity_gate.py",
+        "arguments": [
+            ("--grouping-plan", "video_unit_grouping_plan"),
+            ("--anchor-plan", "video_unit_anchor_plan"),
+            ("--editorial-seedance-manifest", "editorial_seedance_manifest"),
+        ],
+    },
+    "VIDEO-UNIT-BOUNDARY-CONTINUITY": {
+        "tool": "tools/video_unit_boundary_continuity_gate.py",
+        "arguments": [
+            ("--grouped-manifest", "grouped_seedance_manifest"),
+            ("--media-map", "accepted_media_map"),
+            ("--decision-dir", "boundary_continuity_decision_dir"),
+        ],
+    },
     "BGM-SOURCE-PRIORITY-AUTHENTICITY": {
         "tool": "tools/bgm_authenticity_gate.py",
         "arguments": [("--project", "edit_project"), ("--stem", "bgm_stem"), ("--final", "final_video")],
@@ -385,6 +401,8 @@ RUNTIME_GATE_IDS = frozenset({
     "THREE-EPISODE-CONCURRENCY",
     "TRANSITION-SMOOTHNESS",
     "VIDEO-PERFORMANCE-NATURAL-SPLIT",
+    "VIDEO-UNIT-GROUPED-CONTINUITY-PREFLIGHT",
+    "VIDEO-UNIT-BOUNDARY-CONTINUITY",
 })
 assert RUNTIME_GATE_IDS == frozenset(EXECUTORS), "runtime gate list must match executable dispatch map"
 
@@ -410,6 +428,7 @@ PHASE_GATES: dict[str, tuple[str, ...]] = {
         "AUDIO-SOURCE-PUBLISHED-MIX-BINDING",
         "TRANSITION-SMOOTHNESS",
         "INSERT-SOURCE-NONADJACENCY",
+        "VIDEO-UNIT-BOUNDARY-CONTINUITY",
     ),
     "source": (
         "SOURCE-READ-COMPLETENESS",
@@ -417,6 +436,7 @@ PHASE_GATES: dict[str, tuple[str, ...]] = {
         "CHARACTER-IDENTITY-ADMISSION",
         "SYMBOLIC-SHOT-LEGIBILITY",
         "DEFECT-TIER-TOLERANCE",
+        "VIDEO-UNIT-GROUPED-CONTINUITY-PREFLIGHT",
     ),
     "final": (
         "FINAL-AUDIT-COMPLETENESS",

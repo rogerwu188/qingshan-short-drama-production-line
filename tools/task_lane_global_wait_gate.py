@@ -410,7 +410,11 @@ def audit_scheduler_state(
             )
         )
 
-    blocked_nonterminal = [task for task in normalized if task["blocked_by"]]
+    blocked_nonterminal = [
+        task
+        for task in normalized
+        if task["state"] != "TERMINAL" and task["blocked_by"]
+    ]
     if fabricated_successors:
         heartbeat_verdict = "FABRICATED_SUCCESSOR"
     elif genuine_active_successors:

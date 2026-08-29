@@ -127,7 +127,7 @@ def submit(row: dict, output_dir: Path, transaction_dir: Path, model: str, resol
     transaction = transaction_path(transaction_dir, row, model, resolution)
     intent = {
         "schema": "qingshan.giggle_submit_transaction.v1",
-        "episode": "E40", "task_key": row["id"], "attempt_id": str(uuid.uuid4()),
+        "episode": str(row.get("episode") or "UNKNOWN"), "task_key": row["id"], "attempt_id": str(uuid.uuid4()),
         "submission_fingerprint": submission_fingerprint(row, model, resolution),
         "state": "INTENT_RECORDED", "intent_recorded_at": utc_now(),
         "model": model, "prompt_sha256": row["prompt_sha256"],
@@ -136,12 +136,19 @@ def submit(row: dict, output_dir: Path, transaction_dir: Path, model: str, resol
         "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
     }
     atomic_json(transaction, intent)
+    previous_context = os.environ.get("QINGSHAN_DURABLE_SUBMITTER_CONTEXT")
+    os.environ["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = "1"
     try:
         response = _request(endpoint, payload)
     except (Exception, SystemExit) as exc:
         intent.update({"state": "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION", "error": str(exc), "response_lost_at": utc_now()})
         atomic_json(transaction, intent)
         raise
+    finally:
+        if previous_context is None:
+            os.environ.pop("QINGSHAN_DURABLE_SUBMITTER_CONTEXT", None)
+        else:
+            os.environ["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = previous_context
     task_id = (response.get("data") or {}).get("task_id")
     if not task_id:
         intent.update({"state": "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION", "error": "response has no task_id", "response_lost_at": utc_now()})
@@ -168,6 +175,8 @@ def main() -> int:
         raise SystemExit("character asset plan contains zero new_asset_groups")
     if plan.get("quality") != "pro":
         raise SystemExit("character asset plan must use pro quality")
+    for row in rows:
+        row.setdefault("episode", plan.get("episode"))
     gate_paths = plan.get("machine_gate_reports") or []
     if not gate_paths:
         raise SystemExit("character asset plan has no machine_gate_reports")

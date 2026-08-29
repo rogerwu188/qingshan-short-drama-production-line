@@ -141,6 +141,45 @@ def validate_release_branding(line: dict, root: Path) -> dict:
     return result
 
 
+def validate_media_boundary_acceptance(line: dict, root: Path) -> dict:
+    report_path = _resolve_evidence_path(
+        line.get("media_boundary_acceptance")
+        or line.get("media_boundary_acceptance_report"),
+        root,
+    )
+    result = {
+        "valid": False,
+        "report": str(report_path) if report_path else None,
+        "boundary_count": None,
+        "reason": None,
+    }
+    if not report_path or not report_path.is_file():
+        result["reason"] = "media_boundary_acceptance_missing"
+        return result
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        result["reason"] = "media_boundary_acceptance_invalid"
+        return result
+    if (
+        report.get("schema") != "qingshan.media_boundary_acceptance.v1_safe_cut_and_real_transition"
+        or report.get("status") != "PASS"
+        or report.get("failures")
+    ):
+        result["reason"] = "media_boundary_acceptance_not_pass"
+        return result
+    rows = report.get("rows") or []
+    if int(report.get("boundary_count") or -1) != len(rows) or any(
+        row.get("status") != "PASS" for row in rows
+    ):
+        result["reason"] = "media_boundary_rows_incomplete"
+        return result
+    result["valid"] = True
+    result["boundary_count"] = len(rows)
+    result["reason"] = "verified_media_boundary_acceptance"
+    return result
+
+
 def evaluate_release_preflight(episode: str, work_queue: dict, root: Path = ROOT) -> dict:
     episode_upper = episode.strip().upper()
     gate = work_queue.get("schedule_gate") or {}
@@ -154,12 +193,15 @@ def evaluate_release_preflight(episode: str, work_queue: dict, root: Path = ROOT
     line_holds = []
     verified_final_locks = []
     branding_checks = []
+    boundary_checks = []
     for line in (work_queue.get("lines") or {}).values():
         if str(line.get("episode") or "").upper() != episode_upper:
             if str(line.get("canonical_script") or "").find(f"/{episode_upper}") < 0:
                 continue
         if (_episode_number(episode_upper) or 0) >= 37:
             branding_checks.append(validate_release_branding(line, root))
+        if (_episode_number(episode_upper) or 0) >= 45:
+            boundary_checks.append(validate_media_boundary_acceptance(line, root))
         status = str(line.get("status") or "").upper()
         stage = str(line.get("stage") or "").upper()
         if stage.startswith("FINAL_LOCKED_"):
@@ -178,6 +220,9 @@ def evaluate_release_preflight(episode: str, work_queue: dict, root: Path = ROOT
     if (_episode_number(episode_upper) or 0) >= 37:
         if not branding_checks or not any(row["valid"] for row in branding_checks):
             reasons.append("release_branding_render_gate_not_verified")
+    if (_episode_number(episode_upper) or 0) >= 45:
+        if not boundary_checks or not any(row["valid"] for row in boundary_checks):
+            reasons.append("media_boundary_acceptance_not_verified")
 
     allowed = not reasons
     return {
@@ -190,6 +235,7 @@ def evaluate_release_preflight(episode: str, work_queue: dict, root: Path = ROOT
         "line_hold_states": line_holds,
         "verified_final_locks": verified_final_locks,
         "release_branding_checks": branding_checks,
+        "media_boundary_acceptance_checks": boundary_checks,
         "reasons": reasons,
         "checked_at": now_iso(),
     }

@@ -80,6 +80,35 @@ def good_ledger() -> dict:
 
 
 class WeakestLinkTest(unittest.TestCase):
+    def test_zero_dialogue_cut_requires_complete_machine_evidence_for_subtitle_na(self):
+        report = good_report()
+        report["evidence"]["burned_subtitles"] = False
+        report["evidence"]["subtitle_requirement"] = {
+            "status": "NOT_APPLICABLE_ZERO_DIALOGUE",
+            "adjusted_spoken_line_count": 0,
+            "whole_track_asr_segment_count": 0,
+            "script_adjustment_evidence_ref": "qa/script_adjustment.json",
+            "whole_track_asr_evidence_ref": "qa/whole_track_asr.json",
+        }
+
+        result = evaluate(report, good_metrics(), event_ledger=good_ledger())
+
+        self.assertEqual(result["gate_status"], "PASS")
+
+    def test_zero_dialogue_subtitle_na_cannot_be_self_asserted_without_asr_ref(self):
+        report = good_report()
+        report["evidence"]["burned_subtitles"] = False
+        report["evidence"]["subtitle_requirement"] = {
+            "status": "NOT_APPLICABLE_ZERO_DIALOGUE",
+            "adjusted_spoken_line_count": 0,
+            "whole_track_asr_segment_count": 0,
+            "script_adjustment_evidence_ref": "qa/script_adjustment.json",
+        }
+
+        result = evaluate(report, good_metrics(), event_ledger=good_ledger())
+
+        self.assertEqual(result["gate_status"], "REJECT_RECUT")
+
     def test_compliance_score_cannot_lift_weak_craft_dimensions(self):
         """E19R R5: completeness 4.8 pulled visual 3.4 / anti_ai 3.3 to a passing 3.7."""
         report = good_report()

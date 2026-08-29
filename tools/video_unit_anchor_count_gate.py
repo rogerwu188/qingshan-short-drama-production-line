@@ -99,11 +99,19 @@ def evaluate(plan: dict) -> dict:
             reasons.append("anchor_count_decision.action_design_class is required")
 
         if isinstance(count, int) and count > 1:
-            continuity = unit.get("keyframe_interpolation_gate")
-            if not isinstance(continuity, dict) or continuity.get("status") != "PASS":
-                reasons.append("multi-anchor unit lacks a passing physical interpolation gate")
-            elif continuity.get("adjacent_pairs_checked") != count - 1:
-                reasons.append("physical interpolation gate did not check every adjacent anchor pair")
+            strategy = unit.get("reference_transport_strategy")
+            if strategy in {"OMNI_MULTI_REFERENCE", "STANDARD_MULTI_REFERENCE"}:
+                coverage = unit.get("semantic_reference_coverage_gate")
+                if not isinstance(coverage, dict) or coverage.get("status") != "PASS":
+                    reasons.append("multi-reference unit lacks a passing semantic reference coverage gate")
+                elif coverage.get("references_checked") != count:
+                    reasons.append("semantic reference coverage gate did not check every reference")
+            else:
+                continuity = unit.get("keyframe_interpolation_gate")
+                if not isinstance(continuity, dict) or continuity.get("status") != "PASS":
+                    reasons.append("multi-anchor unit lacks a passing physical interpolation gate")
+                elif continuity.get("adjacent_pairs_checked") != count - 1:
+                    reasons.append("physical interpolation gate did not check every adjacent anchor pair")
 
         decisions.append({
             "unit_id": unit_id,

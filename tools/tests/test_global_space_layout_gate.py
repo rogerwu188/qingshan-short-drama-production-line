@@ -152,6 +152,16 @@ class GlobalSpaceLayoutGateTest(unittest.TestCase):
         )
         self.assertEqual(report["status"], "FAIL")
 
+    def test_e42_explicit_false_cannot_bypass_complete_map_mode(self):
+        report = evaluate_batch(
+            None,
+            [{"task_key": "E42-SHOT", "tool_type": "video_generation"}],
+            episode="E42",
+            required=False,
+        )
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any(row.get("check") == "authority_load" for row in report["failures"]))
+
 
 if __name__ == "__main__":
     unittest.main()

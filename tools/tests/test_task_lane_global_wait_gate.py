@@ -153,6 +153,24 @@ class TaskLaneGlobalWaitGateTests(unittest.TestCase):
         self.assertTrue(result["heartbeat_return_allowed"])
         self.assertEqual(result["heartbeat_verdict"], "IDLE_LEGAL")
 
+    def test_terminal_task_with_historical_blocked_by_is_not_current_input_blocker(self):
+        result = self.audit(
+            state(
+                [
+                    {
+                        "task_id": "DONE-WITH-HISTORY",
+                        "lane_id": "ACTION",
+                        "state": "TERMINAL",
+                        "zero_cost": False,
+                        "blocked_by": ["HISTORICAL_PROVIDER_FAILURE"],
+                    }
+                ]
+            )
+        )
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["liveness_state"], "COMPLETE")
+        self.assertEqual(result["heartbeat_verdict"], "IDLE_LEGAL")
+
     def test_heartbeat_return_passes_with_running_successor(self):
         result = self.audit(
             state(

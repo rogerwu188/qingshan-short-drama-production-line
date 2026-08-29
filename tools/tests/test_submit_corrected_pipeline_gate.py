@@ -22,6 +22,10 @@ class SubmitCorrectedPipelineGateTests(unittest.TestCase):
             failures,
         )
         self.assertIn(
+            "FAIL_CORRECTED_PIPELINE_REPORT_MISSING:video_unit_grouping_plan_ref",
+            failures,
+        )
+        self.assertIn(
             "FAIL_CORRECTED_PIPELINE_REPORT_MISSING:common_sense_causality_plan_ref",
             failures,
         )

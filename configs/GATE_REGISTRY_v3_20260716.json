@@ -65,12 +65,14 @@
         "tools/scene_authority_lock.py",
         "tools/global_space_layout_gate.py",
         "tools/submit_giggle_image_manifest.py",
+        "tools/submit_giggle_video_manifest_v2.py",
         "tools/episode_parallel_batch_supervisor.py"
       ],
       "test_paths": [
         "tools/tests/test_scene_authority_lock.py",
         "tools/tests/test_global_space_layout_gate.py",
-        "tools/tests/test_submit_giggle_image_manifest.py"
+        "tools/tests/test_submit_giggle_image_manifest.py",
+        "/Users/rogerwu/code/backlot-os/components/pipeline-tools/tests/test_production_video_submission_gate.py"
       ],
       "parameters": {
         "scene_state_required": true,
@@ -81,6 +83,8 @@
         "episode_map_must_cover_all_episode_locations": true,
         "shot_subspace_must_derive_from_locked_place_map": true,
         "character_and_prop_blocking_must_resolve_after_subspace_lock": true,
+        "e42_complete_map_mode_non_bypassable": true,
+        "paid_video_entrypoint_revalidates_current_map_files_and_sha": true,
         "required_resolution_order": [
           "EPISODE_GLOBAL_SPACE_MAP",
           "GLOBAL_SPACE_MAP",
@@ -93,8 +97,8 @@
         "three_episode_night_run_requires_continuity_reason": true,
         "no_remote_submission_on_fail": true
       },
-      "authorization_ref": "ROGER-20260818-EPISODE-GLOBAL-SPACE-MAP",
-      "last_backtest_date": "2026-08-18",
+      "authorization_ref": "ROGER-20260827-E42-COMPLETE-MAP-MODE",
+      "last_backtest_date": "2026-08-27",
       "stage_runner_paths": [
         "tools/episode_parallel_batch_supervisor.py"
       ]
@@ -542,19 +546,30 @@
       "code_paths": [
         "tools/character_identity_admission_gate.py",
         "tools/human_realism_prompt_contract.py",
+        "tools/image_model_adapter.py",
         "tools/shot_media_admission_gate.py",
         "tools/episode_parallel_batch_supervisor.py",
+        "tools/submit_giggle_image_manifest.py",
         "tools/submit_giggle_task_manifest.py"
       ],
       "test_paths": [
         "tools/tests/test_character_identity_admission_gate.py",
         "tools/tests/test_human_realism_prompt_contract.py",
+        "tools/tests/test_media_model_adapters.py",
+        "tools/tests/test_image_submission_entrypoint_contract_coverage.py",
         "tools/tests/test_shot_media_admission_gate.py",
         "tools/tests/test_episode_parallel_batch_supervisor.py",
         "tools/tests/test_submit_keyframe_admission_gate.py"
       ],
       "manual_checklist_path": "workflow/CHARACTER_IDENTITY_QA_CHECKLIST_TEMPLATE_20260716.json",
       "parameters": {
+        "identity_reference_transport_contract_required_before_paid_submit": true,
+        "flat_reference_transport_is_not_identity_lock": true,
+        "flat_reference_allowed_mode": "LABELED_FLAT_REFERENCE_WITH_EXACT_OUTPUT_GATE",
+        "flat_reference_transport_guarantee": "SOFT_REFERENCE_REQUIRES_EXACT_OUTPUT_GATE",
+        "provider_native_identity_lock_must_be_capability_registered": true,
+        "identity_authority_map_required_for_every_canonical_character": true,
+        "identity_output_verification_required_even_for_human_and_ai_reviewer": true,
         "canonical_views_min": 3,
         "sample_frames_per_source_min": 3,
         "warning_downgrade_allowed": false,
@@ -752,6 +767,7 @@
       "code_paths": [
         "tools/reroll_cost_guard.py",
         "tools/retry_cap_gate.py",
+        "tools/video_generation_failure_policy.py",
         "tools/episode_video_generation_guard.py",
         "tools/submit_giggle_video_manifest_v2.py",
         "tools/submit_giggle_image_manifest.py",
@@ -760,7 +776,9 @@
       "test_paths": [
         "tools/tests/test_reroll_cost_guard.py",
         "tools/tests/test_retry_cap_gate.py",
-        "tools/tests/test_episode_video_generation_guard.py"
+        "tools/tests/test_video_generation_failure_policy.py",
+        "tools/tests/test_episode_video_generation_guard.py",
+        "tools/tests/test_submit_giggle_video_response_evidence.py"
       ],
       "parameters": {
         "auto_reroll_block_tier_only": true,
@@ -768,6 +786,30 @@
         "max_rerolls_per_shot": 2,
         "episode_reroll_shot_fraction": 0.15,
         "same_reason_distinct_shot_limit": 2,
+        "provider_infrastructure_failures_do_not_consume_creative_attempts": true,
+        "fully_refunded_provider_failures_do_not_consume_paid_attempts": true,
+        "provider_failure_stops_downstream_until_verified_human_resolution": true,
+        "insufficient_credits_is_provider_failure": true,
+        "insufficient_credits_stops_new_batch_dispatch": true,
+        "credits_replenished_owner_confirmation_is_resolution_evidence": true,
+        "zero_charge_unaccepted_credit_failures_are_retryable_after_resolution": true,
+        "confirmed_credit_failure_forbids_blind_history_search": true,
+        "received_provider_response_without_task_id_must_be_persisted_with_sha": true,
+        "received_provider_response_must_not_be_labeled_response_lost": true,
+        "missing_provider_response_evidence_forbids_blind_resubmission": true,
+        "provider_healthy_generation_failure_auto_rewrites_prompt": true,
+        "failed_prompt_sha_and_reason_memory_required": true,
+        "provider_healthy_image_prompt_attempt_limit": 10,
+        "provider_healthy_video_prompt_attempt_limit": 3,
+        "still_keyframe_closed_mouth_alone_is_non_blocking": true,
+        "still_keyframe_is_not_phoneme_lipsync_evidence": true,
+        "native_dialogue_visible_lipsync_is_evaluated_on_same_task_video_audio": true,
+        "still_keyframe_basic_viability_passes": true,
+        "still_keyframe_minor_performance_composition_and_aesthetic_variance_non_blocking": true,
+        "still_keyframe_blockers_limited_to_technical_obvious_visual_registered_gate_or_material_canonical_errors": true,
+        "media_cap_failure_stops_and_notifies_human_with_reasons": true,
+        "script_equivalent_requires_explicit_human_approval": true,
+        "dialogue_retirement_requires_specific_human_approval": true,
         "roi_ledger_required": true,
         "roi_review_interval_episodes": 3
       },
@@ -1476,6 +1518,55 @@
       ]
     },
     {
+      "gate_id": "VIDEO-UNIT-SEMANTIC-GROUPING",
+      "stage": "VIDEO_MANIFEST_COMPILE_AND_GENERATION_SUBMIT",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/build_video_unit_grouping_spec.py",
+        "tools/compile_video_unit_plan.py",
+        "tools/grouped_camera_contract.py",
+        "tools/grouped_performance_contract.py",
+        "tools/compile_grouped_seedance_manifest.py",
+        "tools/video_unit_grouping_gate.py",
+        "tools/episode_parallel_batch_supervisor.py",
+        "tools/submit_giggle_task_manifest.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_build_video_unit_grouping_spec.py",
+        "tools/tests/test_compile_video_unit_plan.py",
+        "tools/tests/test_grouped_camera_contract.py",
+        "tools/tests/test_grouped_performance_contract.py",
+        "tools/tests/test_compile_grouped_seedance_manifest.py",
+        "tools/tests/test_video_unit_grouping_gate.py",
+        "tools/tests/test_episode_parallel_batch_supervisor.py",
+        "tools/tests/test_submit_corrected_pipeline_gate.py"
+      ],
+      "parameters": {
+        "editorial_shot_is_not_video_unit": true,
+        "scene_local_contiguous_semantic_grouping_required": true,
+        "preferred_duration_seconds": [5, 8],
+        "hard_duration_seconds": [3, 12],
+        "one_to_one_mapping_forbidden_for_long_form_manifests": true,
+        "maximum_short_exception_ratio": 0.25,
+        "unit_count_must_emerge_from_groups": true,
+        "paid_task_binding_must_match_grouping_plan": true,
+        "structured_camera_plan_required": true,
+        "adjacent_dynamic_camera_direction_repeat_forbidden": true,
+        "generic_follow_action_camera_language_forbidden": true,
+        "per_beat_action_physics_required": true,
+        "per_actor_micro_expression_and_motion_coverage_required": true,
+        "dialogue_psychology_and_prosody_required": true,
+        "visual_and_diegetic_sound_contract_required": true,
+        "creative_contract_must_reach_model_prompt": true
+      },
+      "authorization_ref": "ROGER-20260827-RESTORE-COMPLETE-CAMERA-PERFORMANCE-CONTRACT",
+      "last_backtest_date": "2026-08-27",
+      "stage_runner_paths": [
+        "tools/episode_parallel_batch_supervisor.py",
+        "tools/submit_giggle_task_manifest.py"
+      ]
+    },
+    {
       "gate_id": "VIDEO-UNIT-DYNAMIC-ANCHOR-COUNT",
       "stage": "IMAGE_PLAN_AND_VIDEO_GENERATION_SUBMIT",
       "implementation_type": "CODED",
@@ -1904,6 +1995,80 @@
       "stage_runner_paths": [
         "tools/episode_stage_gate_runner.py"
       ]
+    },
+    {
+      "gate_id": "VIDEO-UNIT-GROUPED-CONTINUITY-PREFLIGHT",
+      "stage": "VIDEO_GENERATION_SUBMIT_AND_SOURCE_ADMISSION",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/grouped_transition_contract.py",
+        "tools/grouped_anchor_semantic_contract.py",
+        "tools/grouped_continuity_gate.py",
+        "tools/compile_video_unit_plan.py",
+        "tools/compile_grouped_seedance_manifest.py",
+        "tools/submit_giggle_video_manifest_v2.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_grouped_transition_contract.py",
+        "tools/tests/test_grouped_anchor_semantic_contract.py",
+        "tools/tests/test_compile_video_unit_plan.py",
+        "tools/tests/test_compile_grouped_seedance_manifest.py"
+      ],
+      "parameters": {
+        "effective_from_episode": "E43",
+        "every_adjacent_boundary_requires_authored_transition_contract": true,
+        "deterministic_shared_boundary_id_required": true,
+        "plot_motivation_required": true,
+        "transition_device_required": true,
+        "outgoing_and_incoming_handle_seconds_range": [
+          0.6,
+          1.5
+        ],
+        "every_rendered_prompt_requires_exact_transition_binding_pass": true,
+        "allowed_authorship": [
+          "DIRECTOR_AUTHORED",
+          "EDITOR_AUTHORED"
+        ],
+        "visual_action_sound_axis_bridge_required": true,
+        "space_change_requires_explicit_new_space_cut_reason": true,
+        "target_visible_cast_and_props_bound_to_first_beat": true,
+        "empty_start_frame_forbidden_when_first_beat_has_visible_cast": true,
+        "start_anchor_exact_path_sha_and_semantic_evidence_required": true,
+        "camera_start_and_end_framing_exact_binding_required": true
+      },
+      "authorization_ref": "ROGER-20260828-E43-BOUND-PLOT-TRANSITION-HANDLES",
+      "last_backtest_date": "2026-08-28",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
+    },
+    {
+      "gate_id": "VIDEO-UNIT-BOUNDARY-CONTINUITY",
+      "stage": "EDIT_BEFORE_ASSEMBLY",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/video_unit_boundary_continuity_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_video_unit_boundary_continuity_gate.py"
+      ],
+      "parameters": {
+        "effective_from_episode": "E43",
+        "exact_predecessor_and_successor_media_sha_required": true,
+        "transition_contract_sha_required": true,
+        "visual_bridge_match_required": true,
+        "action_bridge_match_required": true,
+        "sound_bridge_match_required": true,
+        "axis_strategy_match_required": true,
+        "target_subject_present_at_required_start": true,
+        "uncontracted_space_jump_forbidden": true,
+        "assembly_fail_closed_without_boundary_decision": true
+      },
+      "authorization_ref": "ROGER-20260828-E43-BOUND-PLOT-TRANSITION-HANDLES",
+      "last_backtest_date": "2026-08-28",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ]
     }
   ],
   "withdrawn_gates": [
@@ -1934,7 +2099,7 @@
       ]
     }
   ],
-  "version": "v3.5-natural-performance-split-runtime-contract",
+  "version": "v3.7-bound-plot-transition-handles-and-prompt-audit",
   "meta_rules": [
     {
       "rule_id": "REGISTRY-META-05-RUNTIME-INVOCATION",

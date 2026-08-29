@@ -22,10 +22,13 @@ def audio_fingerprint(
     start_seconds: float | None = None,
     end_seconds: float | None = None,
 ) -> str:
-    command = [str(ffmpeg), "-v", "error"]
+    command = [str(ffmpeg), "-v", "error", "-i", str(path)]
+    # Seek after demuxing. Input-side seeking can land on different AAC packet
+    # boundaries for an audio-only master and an MP4 candidate even when both
+    # carry the exact same encoded audio stream, creating a false provenance
+    # mismatch. Output-side seeking compares the decoded sample interval.
     if start_seconds is not None:
         command.extend(["-ss", f"{start_seconds:.6f}"])
-    command.extend(["-i", str(path)])
     if start_seconds is not None and end_seconds is not None:
         command.extend(["-t", f"{end_seconds - start_seconds:.6f}"])
     command.extend(

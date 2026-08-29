@@ -40,14 +40,20 @@ class InsightFaceBackend:
         self._app = FaceAnalysis(name=model_name, providers=["CPUExecutionProvider"])
         self._app.prepare(ctx_id=-1, det_size=(640, 640))
 
-    def embed(self, path: Path) -> list[float]:
+    def embed_all(self, path: Path) -> list[list[float]]:
         image = self._cv2.imread(str(path))
         if image is None:
             raise RuntimeError(f"IMAGE_DECODE_FAILED:{path}")
         faces = self._app.get(image)
-        if len(faces) != 1:
-            raise RuntimeError(f"FACE_COUNT_NOT_ONE:{path}:{len(faces)}")
-        return [float(value) for value in faces[0].normed_embedding]
+        if not faces:
+            raise RuntimeError(f"FACE_COUNT_ZERO:{path}")
+        return [[float(value) for value in face.normed_embedding] for face in faces]
+
+    def embed(self, path: Path) -> list[float]:
+        embeddings = self.embed_all(path)
+        if len(embeddings) != 1:
+            raise RuntimeError(f"FACE_COUNT_NOT_ONE:{path}:{len(embeddings)}")
+        return embeddings[0]
 
 
 def _sha256(path: Path) -> str:
@@ -140,8 +146,9 @@ def evaluate(
             references = _paths(row, "canonical_reference_paths")
             samples = _paths(row, "sample_frame_paths")
             local_failures: list[str] = []
-            if len(references) < canonical_min:
-                local_failures.append(f"canonical_views_below_min:{prefix}:{len(references)}<{canonical_min}")
+            canonical_view_count = int(row.get("canonical_view_count") or len(references))
+            if canonical_view_count < canonical_min:
+                local_failures.append(f"canonical_views_below_min:{prefix}:{canonical_view_count}<{canonical_min}")
             if len(samples) < samples_min:
                 local_failures.append(f"identity_sample_frames_below_min:{prefix}:{len(samples)}<{samples_min}")
             local_failures.extend(_verify_files(references, row.get("canonical_reference_sha256") or {}, "canonical_reference"))
@@ -150,7 +157,13 @@ def evaluate(
             if backend is None or local_failures:
                 continue
             try:
-                reference_embeddings = [backend.embed(path) for path in references]
+                reference_embeddings: list[list[float]] = []
+                for path in references:
+                    embed_all = getattr(backend, "embed_all", None)
+                    if callable(embed_all):
+                        reference_embeddings.extend(embed_all(path))
+                    else:
+                        reference_embeddings.append(backend.embed(path))
                 sample_embeddings = [backend.embed(path) for path in samples]
                 scores = [max(_cosine(sample, ref) for ref in reference_embeddings) for sample in sample_embeddings]
             except (RuntimeError, ValueError) as exc:
@@ -174,6 +187,8 @@ def evaluate(
             decisions.append({
                 "source_id": source_id,
                 "character_id": character_id,
+                "canonical_view_count": canonical_view_count,
+                "canonical_face_embedding_count": len(reference_embeddings),
                 "sample_scores": [round(value, 6) for value in scores],
                 "aggregate_median": round(aggregate, 6),
                 "decision": decision,

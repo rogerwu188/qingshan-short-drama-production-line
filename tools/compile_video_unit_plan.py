@@ -10,6 +10,13 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+try:
+    from tools.grouped_camera_contract import validate_camera_plan, validate_camera_sequence
+    from tools.grouped_transition_contract import validate_transition_sequence
+except ModuleNotFoundError:  # Direct CLI execution from tools/.
+    from grouped_camera_contract import validate_camera_plan, validate_camera_sequence
+    from grouped_transition_contract import validate_transition_sequence
+
 
 ROOT = Path(__file__).resolve().parents[1]
 FORBIDDEN_FORMULA_KEYS = {
@@ -38,6 +45,12 @@ def sha256(path: str | Path) -> str:
 
 def duplicate_values(values: list[str]) -> list[str]:
     return sorted(value for value, count in Counter(values).items() if count > 1)
+
+
+def _number(value: Any, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{label} must be numeric")
+    return round(float(value), 6)
 
 
 def find_forbidden_formula_keys(value: Any, prefix: str = "") -> list[str]:
@@ -73,12 +86,14 @@ def compile_grouping_spec(production: dict[str, Any], spec: dict[str, Any]) -> d
         raise ValueError("production manifest has invalid shot IDs")
     shot_by_id = {shot["shot_id"]: shot for shot in shots}
 
-    duration_policy = spec.get("duration_policy_seconds") or {"minimum": 4, "maximum": 15}
-    preferred_policy = spec.get("preferred_duration_seconds") or {"minimum": 8, "maximum": 15}
-    minimum = int(duration_policy.get("minimum", 4))
-    maximum = int(duration_policy.get("maximum", 15))
-    preferred_minimum = int(preferred_policy.get("minimum", minimum))
-    preferred_maximum = int(preferred_policy.get("maximum", maximum))
+    duration_policy = spec.get("duration_policy_seconds") or {"minimum": 3, "maximum": 12}
+    preferred_policy = spec.get("preferred_duration_seconds") or {"minimum": 5, "maximum": 8}
+    minimum = _number(duration_policy.get("minimum", 3), "duration minimum")
+    maximum = _number(duration_policy.get("maximum", 12), "duration maximum")
+    preferred_minimum = _number(preferred_policy.get("minimum", 5), "preferred minimum")
+    preferred_maximum = _number(preferred_policy.get("maximum", 8), "preferred maximum")
+    if not 0 < minimum <= preferred_minimum <= preferred_maximum <= maximum:
+        raise ValueError("duration policy must satisfy 0 < hard min <= preferred min <= preferred max <= hard max")
 
     groups = spec.get("groups")
     if not isinstance(groups, list) or not groups:
@@ -104,13 +119,17 @@ def compile_grouping_spec(production: dict[str, Any], spec: dict[str, Any]) -> d
         scene_ids = {shot_by_id[shot_id].get("scene_id") for shot_id in shot_ids}
         if len(scene_ids) != 1:
             raise ValueError(f"{unit_id} crosses scene boundaries")
-        duration = sum(int(shot_by_id[shot_id]["duration_seconds"]) for shot_id in shot_ids)
+        duration = round(sum(
+            _number(shot_by_id[shot_id]["duration_seconds"], f"{shot_id} duration_seconds")
+            for shot_id in shot_ids
+        ), 6)
         if not minimum <= duration <= maximum:
             raise ValueError(f"{unit_id} duration {duration} is outside {minimum}-{maximum} seconds")
         exception_reason = group.get("duration_exception_reason")
         if not preferred_minimum <= duration <= preferred_maximum and not exception_reason:
             raise ValueError(f"{unit_id} needs a preferred-duration exception reason")
 
+        camera_plan = validate_camera_plan(group.get("camera_plan"), source_id=unit_id)
         unit = {
             "unit_id": unit_id,
             "scene_id": next(iter(scene_ids)),
@@ -118,12 +137,20 @@ def compile_grouping_spec(production: dict[str, Any], spec: dict[str, Any]) -> d
             "action_unit": bool(group.get("action_unit")),
             "narrative_beat": narrative_beat.strip(),
             "editorial_shot_ids": shot_ids,
+            "camera_plan": camera_plan,
+            "transition_contract": group.get("transition_contract"),
+            # Preserve director-authored beat-to-beat continuity. The semantic
+            # compiler validates exact cast/scene/prop/sound/action bindings
+            # after editorial prompt specs are attached.
+            "internal_transition_contracts": group.get("internal_transition_contracts") or [],
         }
         if exception_reason:
             unit["duration_exception_reason"] = exception_reason
         units.append(unit)
         unit_ids.append(unit_id)
         assigned_shots.extend(shot_ids)
+
+    validate_camera_sequence(units)
 
     if duplicate_values(unit_ids):
         raise ValueError(f"duplicate unit IDs: {duplicate_values(unit_ids)}")
@@ -136,17 +163,30 @@ def compile_grouping_spec(production: dict[str, Any], spec: dict[str, Any]) -> d
             f"missing={missing} unknown={unknown} duplicates={duplicates}"
         )
 
-    runtime_seconds = sum(unit["duration_seconds"] for unit in units)
-    if runtime_seconds != production.get("runtime_seconds"):
+    runtime_seconds = round(sum(unit["duration_seconds"] for unit in units), 6)
+    production_runtime = _number(production.get("runtime_seconds"), "production runtime_seconds")
+    if abs(runtime_seconds - production_runtime) > 0.001:
         raise ValueError("compiled unit runtime does not equal production runtime")
 
+    short_exception_count = sum(
+        1 for unit in units if unit["duration_seconds"] < preferred_minimum
+    )
+    if len(shots) >= 12 and len(units) == len(shots):
+        raise ValueError("editorial shots may not map one-to-one to video units; semantic grouping is required")
+    if len(units) >= 8 and short_exception_count / len(units) > 0.25:
+        raise ValueError("too many sub-preferred video units; regroup continuous editorial beats")
+
+    validate_transition_sequence(units)
+
     return {
-        "schema": "qingshan.video_unit_grouping_plan.v1",
+        "schema": "qingshan.video_unit_grouping_plan.v2_transition_contract",
         "episode": episode,
         "source_script_sha256": script_sha,
         "editorial_shot_count": len(shots),
         "video_unit_count": len(units),
         "runtime_seconds": runtime_seconds,
+        "average_video_unit_duration_seconds": round(runtime_seconds / len(units), 3),
+        "short_exception_count": short_exception_count,
         "derivation": {
             "method": "SCENE_LOCAL_CONTIGUOUS_NARRATIVE_GROUPING_FIRST",
             "unit_count_selected_in_advance": False,
@@ -180,6 +220,9 @@ def validate_compiled_plan(production: dict[str, Any], plan: dict[str, Any]) -> 
             "editorial_shot_ids": unit.get("editorial_shot_ids"),
             "action_unit": unit.get("action_unit"),
             "narrative_beat": unit.get("narrative_beat") or "Legacy compiled semantic group",
+            "camera_plan": unit.get("camera_plan"),
+            "transition_contract": unit.get("transition_contract"),
+            "internal_transition_contracts": unit.get("internal_transition_contracts") or [],
             "duration_exception_reason": unit.get("duration_exception_reason"),
         })
     spec = {
