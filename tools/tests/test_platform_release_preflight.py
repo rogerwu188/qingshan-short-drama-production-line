@@ -154,6 +154,37 @@ class PlatformReleasePreflightTests(unittest.TestCase):
             "verified_release_branding_render_gate",
         )
 
+    def test_e45_requires_real_media_boundary_acceptance(self):
+        result = evaluate_release_preflight(
+            "E45", {"lines": {"slot": {"episode": "E45", "status": "ACTIVE_RELEASE"}}}
+        )
+        self.assertFalse(result["release_allowed"])
+        self.assertIn("media_boundary_acceptance_not_verified", result["reasons"])
+
+    def test_e45_accepts_complete_boundary_report_when_other_gates_pass(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            final = root / "final.mp4"
+            final.write_bytes(b"branded-final")
+            digest = hashlib.sha256(final.read_bytes()).hexdigest()
+            branding = root / "branding.json"
+            branding.write_text(json.dumps({
+                "status": "PASS", "hard_gate_passed": True, "final_sha256": digest,
+            }), encoding="utf-8")
+            boundary = root / "boundary.json"
+            boundary.write_text(json.dumps({
+                "schema": "qingshan.media_boundary_acceptance.v1_safe_cut_and_real_transition",
+                "status": "PASS", "boundary_count": 1, "failures": [],
+                "rows": [{"boundary_id": "B1", "status": "PASS", "failures": []}],
+            }), encoding="utf-8")
+            result = evaluate_release_preflight("E45", {"lines": {"slot": {
+                "episode": "E45", "status": "ACTIVE_RELEASE",
+                "production_master": str(final),
+                "latest_release_branding_render_gate": str(branding),
+                "media_boundary_acceptance": str(boundary),
+            }}}, root=root)
+        self.assertTrue(result["release_allowed"])
+
 
 if __name__ == "__main__":
     unittest.main()

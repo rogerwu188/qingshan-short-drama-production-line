@@ -32,6 +32,13 @@ try:
         compile_internal_transition_prompt,
         validate_internal_transition_sequence,
     )
+    from tools.dialogue_cut_safety import compile_dialogue_windows
+    from tools.wardrobe_identity_contract import (
+        validate_wardrobe_contract,
+        wardrobe_prompt_block,
+        wardrobe_rows_for_cast,
+    )
+    from tools.pose_transition_anchor_gate import evaluate as evaluate_pose_anchors
 except ModuleNotFoundError:  # Direct CLI execution from tools/.
     from video_prompt_action_density_gate import validate_action_timeline
     from grouped_camera_contract import (
@@ -51,6 +58,13 @@ except ModuleNotFoundError:  # Direct CLI execution from tools/.
         compile_internal_transition_prompt,
         validate_internal_transition_sequence,
     )
+    from dialogue_cut_safety import compile_dialogue_windows
+    from wardrobe_identity_contract import (
+        validate_wardrobe_contract,
+        wardrobe_prompt_block,
+        wardrobe_rows_for_cast,
+    )
+    from pose_transition_anchor_gate import evaluate as evaluate_pose_anchors
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -268,6 +282,7 @@ def validate_model_prompt(text: str, *, source_id: str) -> dict[str, Any]:
     required_sections = (
         "【节拍】", "【同任务原生声音】", "【镜头硬合同】",
         "【视觉与现场声硬合同】", "【转场硬合同】", "【节拍内连续性硬合同】",
+        "【服装身份硬合同】", "【对白安全切点】",
     )
     if any(section not in text for section in required_sections):
         failures.append(f"MODEL_PROMPT_REQUIRED_SECTION_MISSING:{source_id}")
@@ -316,6 +331,11 @@ def validate_transition_prompt_binding(text: str, unit: dict[str, Any]) -> dict[
 
 
 def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None = None) -> str:
+    model = str(unit.get("model") or "seedance-2.0-pro")
+    if model != "seedance-2.0-pro":
+        raise ValueError(
+            f"Seedance prompt compiler cannot serialize {model}; use tools.video_prompt_compiler"
+        )
     unit["internal_transition_contracts"] = validate_internal_transition_sequence(unit)
     specs = unit["ordered_prompt_specs"]
     first = specs[0]
@@ -334,6 +354,17 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
     beat_lines = [compact_beat_line(spec, timeline) for spec, timeline in zip(specs, beat_timeline(unit))]
     camera_line = compile_camera_prompt(unit.get("camera_plan"), source_id=str(unit["unit_id"]))
     visual_sound_line = compile_visual_sound_clause(specs)
+    wardrobe_line = wardrobe_prompt_block(unit)
+    dialogue_windows = compile_dialogue_windows(unit)
+    dialogue_safety_line = (
+        "本单元无对白；转场预留内只保留现场声与动作结果。"
+        if not dialogue_windows
+        else "；".join(
+            f"节拍{row['spec_index'] + 1}对白仅在{row['start_seconds']:g}–{row['end_seconds']:g}秒，"
+            f"随后闭口并至少保留{row['safety_pad_seconds']:g}秒安全尾柄"
+            for row in dialogue_windows
+        ) + "。任何对白不得进入片尾转场预留，不得以裁字、抢速或硬切完成时长。"
+    )
     scene_parts = [weather]
     if palette:
         scene_parts.append(f"综合色调={palette}")
@@ -341,17 +372,18 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
         scene_parts.append("人物=" + "、".join(cast))
     if props:
         scene_parts.append("关键道具=" + "、".join(props))
-    model = str(unit.get("model") or "seedance-2.0-pro")
     resolution = str(unit.get("resolution") or "720p")
     aspect_ratio = str(unit.get("aspect_ratio") or "9:16")
     lines = [
         f"【视频任务】{unit['duration_seconds']}秒，竖屏{aspect_ratio}，{resolution}，{model_display_name(model)}；写实古装悬疑电影质感。",
         f"【天气硬合同】weather={weather}",
         "【场景与人物】" + "；".join(scene_parts) + "。使用随任务传入的参考图保持人物面孔、服装、场景和道具一致。",
+        "【服装身份硬合同】" + wardrobe_line,
         "【镜头硬合同】" + camera_line,
         "【转场硬合同】" + compile_transition_prompt(unit),
         "【节拍内连续性硬合同】" + compile_internal_transition_prompt(unit),
         "【视觉与现场声硬合同】" + visual_sound_line,
+        "【对白安全切点】" + dialogue_safety_line,
         "【表演连续性】严格按节拍内连续性硬合同执行连续动作、揭示或明确切镜；不得把不同人物变成同一个人，不得用变脸、换衣或同位置替换冒充角色交接；摄影机只执行镜头硬合同声明的运动。",
         "【节拍】",
         *beat_lines,
@@ -577,6 +609,10 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             "source_reference_transport_strategy": source_transport or None,
             "semantic_reference_coverage_gate": anchor.get("semantic_reference_coverage_gate"),
             "ordered_prompt_specs": prompt_specs,
+            "wardrobe_contract": wardrobe_rows_for_cast(
+                {"unit_id": unit_id, "ordered_prompt_specs": prompt_specs},
+                grouping.get("wardrobe_bible") or {},
+            ),
             "camera_plan": camera_plan,
             "transition_contract": transition_contract,
             "internal_transition_contracts": unit.get("internal_transition_contracts") or [],
@@ -587,6 +623,14 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             "remote_task_id": None,
         }
         compiled_unit["internal_transition_contracts"] = validate_internal_transition_sequence(compiled_unit)
+        wardrobe_report = validate_wardrobe_contract(compiled_unit, source_id=unit_id)
+        if wardrobe_report["status"] != "PASS":
+            raise ValueError(";".join(wardrobe_report["failures"]))
+        compiled_unit["dialogue_cut_safety"] = compile_dialogue_windows(compiled_unit)
+        pose_anchor_report = evaluate_pose_anchors(compiled_unit)
+        if pose_anchor_report["status"] != "PASS":
+            raise ValueError(";".join(pose_anchor_report["failures"]))
+        compiled_unit["pose_transition_anchor_gate"] = pose_anchor_report
         units.append(compiled_unit)
     validate_camera_sequence(units)
     validate_transition_sequence(units, require_prompt_specs=True)

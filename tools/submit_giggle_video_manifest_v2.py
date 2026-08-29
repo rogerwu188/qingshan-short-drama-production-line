@@ -37,7 +37,10 @@ try:
     from grouped_transition_contract import validate_transition_sequence
     from grouped_performance_contract import validate_grouped_beat_contract
     from grouped_internal_continuity_contract import validate_internal_transition_sequence
-    from compile_grouped_seedance_manifest import validate_model_prompt, validate_transition_prompt_binding
+    from video_prompt_compiler import (
+        validate_model_prompt_for_model,
+        validate_transition_prompt_for_model,
+    )
 except ModuleNotFoundError:
     from tools.giggle_api_client import _image_list, _request
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
@@ -47,7 +50,10 @@ except ModuleNotFoundError:
     from tools.grouped_transition_contract import validate_transition_sequence
     from tools.grouped_performance_contract import validate_grouped_beat_contract
     from tools.grouped_internal_continuity_contract import validate_internal_transition_sequence
-    from tools.compile_grouped_seedance_manifest import validate_model_prompt, validate_transition_prompt_binding
+    from tools.video_prompt_compiler import (
+        validate_model_prompt_for_model,
+        validate_transition_prompt_for_model,
+    )
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -257,7 +263,22 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
         or [],
     }
     task["internal_transition_contracts"] = validate_internal_transition_sequence(internal_unit)
-    prompt_report = validate_model_prompt(prompt_text, source_id=str(task.get("task_key")))
+    prompt_unit = grouped_sequence_unit(task)
+    prompt_unit["model"] = task.get("model")
+    prompt_unit["duration_seconds"] = task.get("duration_seconds")
+    prompt_unit["reference_images"] = [
+        {"path": path, "role": role}
+        for path, role in zip(
+            task.get("reference_images") or [],
+            task.get("reference_roles") or ["SEMANTIC_REFERENCE"] * len(task.get("reference_images") or []),
+        )
+    ]
+    prompt_report = validate_model_prompt_for_model(
+        prompt_text,
+        model=task.get("model"),
+        source_id=str(task.get("task_key")),
+        unit=prompt_unit,
+    )
     if prompt_report.get("status") != "PASS":
         raise ValueError(
             f"{task.get('task_key')} grouped complete prompt contract failed: "
@@ -266,7 +287,9 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
     semantic = machine.get("start_frame_semantic_contract") or task.get("start_frame_semantic_contract")
     if not isinstance(semantic, dict) or semantic.get("status") != "PASS":
         raise ValueError(f"{task.get('task_key')} start-frame semantic contract is missing or not PASS")
-    transition_binding = validate_transition_prompt_binding(prompt_text, grouped_sequence_unit(task))
+    transition_binding = validate_transition_prompt_for_model(
+        prompt_text, grouped_sequence_unit(task), model=task.get("model")
+    )
     if transition_binding["status"] != "PASS":
         raise ValueError(
             f"{task.get('task_key')} transition prompt binding failed: "
@@ -341,23 +364,16 @@ def validate_task(task: dict[str, Any]) -> None:
     selected_audio_references = audio_asset_ids or audio_urls
     if len(selected_audio_references) >= 3:
         raise ValueError(f"{task['task_key']} Giggle accepts fewer than 3 total audio references")
-    episode = str(task.get("episode") or "")
-    episode_number = int(episode[1:]) if episode.startswith("E") and episode[1:].isdigit() else 0
-    required_model = "MiniMax-H3" if episode_number >= 45 else "seedance-2.0-pro"
-    if task.get("model") != required_model:
-        raise ValueError(
-            f"{task['task_key']} requires {required_model} for {episode or 'this episode'}; "
-            "cross-episode model fallback and unknown models are forbidden"
-        )
+    model = task.get("model")
     resolution = task.get("resolution")
-    if required_model == "seedance-2.0-pro":
+    if model == "seedance-2.0-pro":
         if resolution != "720p":
             raise ValueError(
                 f"{task['task_key']} must use Giggle SD2 multi-reference provider-native 720p; "
                 "higher release rasters require a separate upscale stage"
             )
         minimum_duration = 4
-    else:
+    elif model == "MiniMax-H3":
         if resolution != "768p":
             raise ValueError(
                 f"{task['task_key']} must use MiniMax-H3 provider-native 768p; "
@@ -368,6 +384,8 @@ def validate_task(task: dict[str, Any]) -> None:
         if audio_asset_ids:
             raise ValueError(f"{task['task_key']} MiniMax-H3 audio/video references require public HTTPS URLs")
         minimum_duration = 3
+    else:
+        raise ValueError(f"{task['task_key']} has no deployed prompt/submission adapter for model {model}")
     if not minimum_duration <= int(task.get("duration_seconds", 0)) <= 15:
         raise ValueError(f"{task['task_key']} duration outside {minimum_duration}-15 seconds")
     if task.get("action_unit"):
@@ -523,7 +541,8 @@ def main() -> int:
         validate_task(task)
         if task.get("semantic_video_unit"):
             grouped_camera_units.append(grouped_sequence_unit(task))
-    validate_camera_sequence(grouped_camera_units)
+    if not manifest.get("partial_repair_scope"):
+        validate_camera_sequence(grouped_camera_units)
     # A scoped repair batch may contain non-adjacent units from the full
     # episode.  Each unit still validates its own inbound/outbound prompt
     # binding above, but the subset must not be mistaken for a new contiguous
@@ -640,7 +659,8 @@ def exec_deployed_submitter() -> None:
                 f"{task.get('task_key')} input completeness failed: "
                 f"{precheck.get('failure_code')} missing={','.join(missing)}"
             )
-    validate_camera_sequence(grouped_camera_units)
+    if not manifest.get("partial_repair_scope"):
+        validate_camera_sequence(grouped_camera_units)
     if not manifest.get("partial_repair_scope"):
         validate_transition_sequence(grouped_camera_units, require_prompt_specs=True)
     deployed = authoritative_pipeline_tools_dir() / "submit_giggle_video_manifest_v2.py"

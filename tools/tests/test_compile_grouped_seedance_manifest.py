@@ -26,6 +26,20 @@ def locked_camera(label="双人中景"):
     }
 
 
+def wardrobe_row(character, tier, primary, secondary, silhouette, accessory):
+    return {
+        "character": character, "social_tier": tier,
+        "role_basis": f"剧本声明的{tier}身份与当前职业",
+        "silhouette": silhouette, "outer_layer": f"{primary}交领外衫",
+        "inner_layer": f"{secondary}窄袖内衫", "primary_color": primary,
+        "secondary_color": secondary, "material": "细密棉绸混纺",
+        "pattern": "领缘低对比几何暗纹", "belt_or_fastening": f"{secondary}束带",
+        "footwear": "深色软底短靴", "accessory": accessory,
+        "condition": "整洁但带符合剧情的一线使用痕迹",
+        "continuity_key": f"{character}-{primary}-{secondary}-V1",
+    }
+
+
 def creative_contract(*, dialogue=""):
     contract = {
         "performance": {
@@ -184,13 +198,13 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
     def test_model_prompt_is_compact_and_does_not_leak_machine_contract(self):
         specs = []
         timeline = []
-        dialogue = ["", "梁狗儿：不许再提。", "梁狗儿：你学刀做什么。", "陈迹：自保。", "梁狗儿：想保命，就握不住刀。"]
+        dialogue = ["", "梁狗儿：不许再提。", "梁狗儿：你学刀做什么。", "陈迹：自保。", "梁狗儿：握刀难保命。"]
         actions = [
             ("梁狗儿醉醒过来，一把把陈迹拽过去。", "一把拽住臂弯把人带转半圈，两人错开半步站定"),
             ("不许再提。", "说话时另一只手指着院子那一头"),
             ("你学刀做什么。", "问的时候手还抓着对方的袖子"),
             ("自保。", "答得极快，答完没有补话"),
-            ("想保命，就握不住刀。", "说完松开袖子，手往下一甩"),
+            ("握刀难保命。", "说完松开袖子，手往下一甩"),
         ]
         boundaries = [(0, 1.5), (1.5, 2.6), (2.6, 4.1), (4.1, 5.0), (5.0, 7.6)]
         for index, ((primary, terminal), raw_dialogue, (start, end)) in enumerate(zip(actions, dialogue, boundaries)):
@@ -215,11 +229,15 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
         unit = {
             "unit_id": "E41-VU-015",
             "scene_id": "S14",
-            "duration_seconds": 7.6,
+            "duration_seconds": 15.0,
             "ordered_prompt_specs": specs,
             "action_timeline": timeline,
             "reference_images": [{"path": "frame.png", "sha256": "not-for-model", "role": "SCENE_START_ANCHOR"}],
             "camera_plan": locked_camera(),
+            "wardrobe_contract": {"characters": [
+                wardrobe_row("梁狗儿", "LOW_RANK_ENFORCER", "暗赭", "旧金", "短阔肩外衫", "旧铜酒牌"),
+                wardrobe_row("陈迹", "MODEST_SCHOLAR", "烟青", "深靛", "窄身长线条", "素木药囊扣"),
+            ]},
         }
         unit["editorial_shot_ids"] = [f"E41-S14-{index + 1:02d}" for index in range(len(specs))]
         unit["internal_transition_contracts"] = [
@@ -253,7 +271,7 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
         self.assertEqual(text.count("不许再提。"), 1)
         self.assertEqual(text.count("你学刀做什么。"), 1)
         self.assertEqual(text.count("自保。"), 1)
-        self.assertEqual(text.count("想保命，就握不住刀。"), 1)
+        self.assertEqual(text.count("握刀难保命。"), 1)
 
     def test_preserves_transport_strategy_and_reference_roles(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -278,6 +296,10 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
                 "episode": "E41",
                 "video_unit_count": 1,
                 "runtime_seconds": 6,
+                "wardrobe_bible": {"bible_id": "E41-WARDROBE-V1", "characters": [
+                    wardrobe_row("梁狗儿", "LOW_RANK_ENFORCER", "暗赭", "旧金", "短阔肩外衫", "旧铜酒牌"),
+                    wardrobe_row("陈迹", "MODEST_SCHOLAR", "烟青", "深靛", "窄身长线条", "素木药囊扣"),
+                ]},
                 "units": [{
                     "unit_id": "VU-1", "scene_id": "S1", "duration_seconds": 6,
                     "editorial_shot_ids": ["S1-1", "S1-2"], "narrative_beat": "beat",

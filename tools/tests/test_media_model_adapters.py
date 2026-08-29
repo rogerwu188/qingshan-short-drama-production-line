@@ -41,9 +41,9 @@ class MediaModelAdapterTests(unittest.TestCase):
     def test_current_video_model_is_deployed_and_paid_authorized(self):
         self.assertEqual(validate_model_contract(video_task("seedance-2.0-pro"), mode="PAID_SUBMIT")["status"], "PASS")
 
-    def test_e44_stays_sd2_1080_and_e45_switches_to_h3_768(self):
+    def test_sd2_and_h3_are_both_paid_authorized_after_e45(self):
         e44 = validate_model_contract(
-            video_task("seedance-2.0-pro", episode="E44", resolution="1080p"),
+            video_task("seedance-2.0-pro", episode="E44", resolution="720p"),
             episode="E44", mode="PAID_SUBMIT",
         )
         e45 = validate_model_contract(
@@ -54,10 +54,10 @@ class MediaModelAdapterTests(unittest.TestCase):
         self.assertEqual(e45["status"], "PASS", e45)
         self.assertEqual(
             validate_model_contract(
-                video_task("seedance-2.0-pro", episode="E45", resolution="1080p"),
+                video_task("seedance-2.0-pro", episode="E45", resolution="720p"),
                 episode="E45", mode="PAID_SUBMIT",
             )["status"],
-            "FAIL",
+            "PASS",
         )
         self.assertEqual(
             validate_model_contract(

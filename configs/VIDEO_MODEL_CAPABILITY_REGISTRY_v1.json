@@ -3,8 +3,9 @@
   "portable_contract_version": "1.0.0",
   "active_execution_policy": {
     "effective_from_episode": "E45",
-    "allowed_paid_profile_ids": ["MINIMAX_H3_GIGGLE"],
-    "reason": "Roger explicitly kept E44 on SD2 standard and selected the official Giggle MiniMax-H3 route for E45 and later episodes."
+    "allowed_paid_profile_ids": ["SEEDANCE_2_STANDARD_GIGGLE", "MINIMAX_H3_GIGGLE"],
+    "selection_policy": "EXPLICIT_PER_EPISODE_OR_TASK_MODEL_WITH_MODEL_SPECIFIC_PROMPT_COMPILER",
+    "reason": "Roger authorized one production line to support both SD2 standard and MiniMax-H3. Each paid task must select one registered model and pass that model's dedicated prompt compiler and validator."
   },
   "portable_required_fields": [
     "prompt", "duration_seconds", "aspect_ratio", "blocking",
@@ -18,6 +19,8 @@
       "provider": "giggle",
       "provider_model_id": "seedance-2.0-pro",
       "adapter_status": "DEPLOYED",
+      "prompt_compiler": "tools.compile_grouped_seedance_manifest:prompt_text",
+      "prompt_validator": "tools.compile_grouped_seedance_manifest:validate_model_prompt",
       "supports": {
         "text_to_video": true,
         "image_to_video": true,
@@ -61,6 +64,8 @@
       "provider": "giggle",
       "provider_model_id": "MiniMax-H3",
       "adapter_status": "DEPLOYED",
+      "prompt_compiler": "tools.minimax_h3_prompt_compiler:compile_h3_prompt",
+      "prompt_validator": "tools.minimax_h3_prompt_compiler:validate_h3_prompt",
       "official_skill_source": "https://github.com/giggle-official/skills/tree/main/skills/giggle-minimax-h3-gen",
       "supports": {
         "text_to_video": true,

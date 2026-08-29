@@ -264,7 +264,8 @@ def compile_transition_prompt(unit: dict[str, Any]) -> str:
             f"入场边界={incoming['boundary_id']}；入场预留={incoming['incoming_handle_seconds']:g}秒；"
             f"转场方式={incoming['transition_device']}；入场承接={incoming['visual_bridge']}；"
             f"动作承接={incoming['action_bridge']}；声桥={incoming['sound_bridge']}；"
-            f"轴线={incoming['axis_strategy']}；剧情动机={incoming['plot_motivation']}"
+            f"轴线={incoming['axis_strategy']}；剧情动机={incoming['plot_motivation']}；"
+            "入场残余运动=从上一段末态的呼吸、衣料惯性、环境风声与既定视线继续，不复位、不重演"
         )
     else:
         clauses.append(
@@ -277,7 +278,8 @@ def compile_transition_prompt(unit: dict[str, Any]) -> str:
             f"转场方式={outgoing['transition_device']}；出场交棒={outgoing['visual_bridge']}；"
             f"片尾剧情动作={outgoing['action_bridge']}；末态必须保持="
             f"{outgoing['source_terminal_state']['blocking']}；声尾={outgoing['sound_bridge']}；"
-            f"剧情动机={outgoing['plot_motivation']}"
+            f"剧情动机={outgoing['plot_motivation']}；"
+            "尾帧延续微动=动作结果落稳后仍保持自然呼吸、衣料惯性与环境微动，禁止冻结、循环或另起新动作"
         )
     else:
         specs = unit.get("ordered_prompt_specs") or []
@@ -294,5 +296,6 @@ def compile_transition_prompt(unit: dict[str, Any]) -> str:
             "声尾=保留当前真实接触声与空间混响自然衰减，供片尾切出，禁止默认BGM与突兀静音；"
             "剧情动机=以本段最终因果结果作为本集收束和下一集悬念的落点，不擅自制造下一场；"
             "轴线=保持本段既定轴侧到最终切点"
+            "；尾帧延续微动=动作结果落稳后仍保持自然呼吸、衣料惯性与环境微动，禁止冻结、循环或另起新动作"
         )
     return "；".join(clauses) + "。"
