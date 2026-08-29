@@ -14,13 +14,21 @@ from typing import Any
 
 try:
     from tools.dialogue_cut_safety import compile_dialogue_windows
-    from tools.wardrobe_identity_contract import validate_wardrobe_contract, wardrobe_prompt_block
+    from tools.wardrobe_identity_contract import (
+        model_specific_adult_female_visual_block,
+        validate_wardrobe_contract,
+        wardrobe_prompt_block,
+    )
 except ModuleNotFoundError:
     from dialogue_cut_safety import compile_dialogue_windows
-    from wardrobe_identity_contract import validate_wardrobe_contract, wardrobe_prompt_block
+    from wardrobe_identity_contract import (
+        model_specific_adult_female_visual_block,
+        validate_wardrobe_contract,
+        wardrobe_prompt_block,
+    )
 
 
-H3_MODEL_PROMPT_POLICY_VERSION = "qingshan.minimax_h3_prompt.v1_native_audiovisual"
+H3_MODEL_PROMPT_POLICY_VERSION = "qingshan.minimax_h3_prompt.v2_dialogue_isolation"
 MAX_H3_PROMPT_CHARS = 7000
 H3_CORE_FIELDS = (
     "subject_definitions:",
@@ -39,6 +47,14 @@ SD2_ONLY_MARKERS = (
     "表演硬锁：",
 )
 _DIALOGUE_TAG = re.compile(r"<d>\[Chinese\]\s*(.*?)</d>", re.DOTALL)
+H3_FORBIDDEN_OUTSIDE_DIALOGUE_PATTERNS = (
+    "说这句时",
+    "说完这句时",
+    "台词期间",
+    "对白期间",
+    "本镜头结果",
+    "本节拍",
+)
 
 
 def _unique(values: list[str]) -> list[str]:
@@ -101,6 +117,16 @@ def _trim(value: object) -> str:
     return str(value or "").strip().rstrip("。！？；,.!?; ")
 
 
+def _sanitize_visual_state(value: object) -> str:
+    """Remove speech/editorial scaffolding while retaining physical action."""
+    text = _trim(value)
+    text = re.sub(r"^(?:在)?(?:他|她|人物)?说(?:这句|完这句|完)(?:话)?时[，,:：]?", "", text)
+    text = re.sub(r"^(?:台词|对白)(?:期间|结束后|开始时)[，,:：]?", "", text)
+    text = text.replace("保持为本镜头结果", "保持该姿态")
+    text = text.replace("保持为本节拍结果", "保持该姿态")
+    return _trim(text)
+
+
 def _camera_motion(plan: dict[str, Any] | None) -> str:
     plan = plan or {}
     family = str(plan.get("motion_family") or "STATIC").upper()
@@ -158,7 +184,7 @@ def _transition_notes(unit: dict[str, Any]) -> list[str]:
         target = incoming.get("target_initial_state") or {}
         handle = float(incoming.get("incoming_handle_seconds") or 0.8)
         notes.append(
-            f"开场前{handle:g}秒承接上一视频单元的现场声与因果结果，从{_trim(target.get('blocking'))}继续，"
+            f"开场前{handle:g}秒承接上一视频单元的现场声与因果结果，从{_sanitize_visual_state(target.get('blocking'))}继续，"
             "不复位、不重演，也不新增无关动作；呼吸、衣料惯性、环境风声和既定视线从上一段残余运动自然接续"
         )
     outgoing = unit.get("outgoing_transition_contract")
@@ -166,7 +192,7 @@ def _transition_notes(unit: dict[str, Any]) -> list[str]:
         source = outgoing.get("source_terminal_state") or {}
         handle = float(outgoing.get("outgoing_handle_seconds") or 1.0)
         notes.append(
-            f"结尾最后{handle:g}秒完成并保持{_trim(source.get('blocking'))}，"
+            f"结尾最后{handle:g}秒完成并保持{_sanitize_visual_state(source.get('blocking'))}，"
             f"让{_trim(outgoing.get('sound_bridge'))}，为下一视频单元留下可剪辑声画接点；"
             "动作结果落稳后仍保持自然呼吸、衣料惯性和环境微动，禁止冻结、循环或另起新动作"
         )
@@ -196,9 +222,9 @@ def _performance_sentence(spec: dict[str, Any]) -> str:
 
 def _visual_action(spec: dict[str, Any]) -> str:
     action = spec.get("action") or {}
-    start = _trim(action.get("start_state"))
-    primary = _trim(action.get("primary_action"))
-    result = _trim(action.get("completion_state"))
+    start = _sanitize_visual_state(action.get("start_state"))
+    primary = _sanitize_visual_state(action.get("primary_action"))
+    result = _sanitize_visual_state(action.get("completion_state"))
     raw_dialogue = str(spec.get("dialogue") or "").strip()
     if raw_dialogue:
         _, spoken = _dialogue_parts(raw_dialogue)
@@ -211,7 +237,9 @@ def _visual_action(spec: dict[str, Any]) -> str:
         if primary:
             return f"从{start}开始，{primary}，动作连续到达{result}并保持"
         return f"从{start}开始，动作连续到达{result}并保持"
-    return f"{primary or result}；{result}保持为本镜头结果" if result else primary
+    if result:
+        return f"{primary or result}；动作完成后维持该身体与道具状态"
+    return primary
 
 
 def _soundscape(unit: dict[str, Any]) -> str:
@@ -249,6 +277,9 @@ def compile_h3_prompt(unit: dict[str, Any]) -> str:
         int(row["spec_index"]): row for row in compile_dialogue_windows(unit)
     }
     wardrobe = wardrobe_prompt_block(unit, concise=True)
+    h3_adult_female = model_specific_adult_female_visual_block(
+        unit, target_video_model="MiniMax-H3"
+    )
     first_scene = specs[0].get("scene_state") or {}
     cast = _unique([
         str(row.get("character") or "")
@@ -281,6 +312,8 @@ def compile_h3_prompt(unit: dict[str, Any]) -> str:
         f"场景时间与空间状态为{_trim(first_scene.get('time'))}；{_trim(first_scene.get('weather'))}。"
         f"{_camera_motion(unit.get('camera_plan'))}。",
     ]
+    if h3_adult_female:
+        description.insert(2, h3_adult_female)
     for index, (spec, (start, end)) in enumerate(zip(specs, timeline), start=1):
         prefix = "" if index == 1 else (
             f"[Shot {index}] At {_clock(start)}, {_internal_transition(unit, index)}。"
@@ -299,13 +332,13 @@ def compile_h3_prompt(unit: dict[str, Any]) -> str:
             sentence += (
                 f"{speaker}（{speakers[speaker]}）只在{window['start_seconds']:g}至"
                 f"{window['end_seconds']:g}秒之间，以{pace}的现场音量说"
-                f"：<d>[Chinese] {words}</d>。说完立即闭口，台词不跨越本节拍。"
+                f"：<d>[Chinese] {words}</d>。发声结束后立即闭口，人声不得跨越当前时间窗。"
             )
         description.append(sentence)
     if speakers:
         description.append(
-            "唯一的人声事件是上述<d>标签内的逐字台词；人物只在自己的台词时段张口，其他人物和其他时段全部闭口，"
-            "没有旁白、画外解释、歌唱、补充对白或对动作文字的朗读。"
+            "唯一的人声事件是上述<d>标签内的逐字内容；人物只在自己的发声时间窗张口，其他人物和其他时段全部闭口，"
+            "没有旁白、画外解释、歌唱、补充人声，也不把任何视觉动作说明转成声音。"
         )
     else:
         description.append(
@@ -385,6 +418,9 @@ def validate_h3_prompt(
     outside_dialogue = _DIALOGUE_TAG.sub("", text)
     if any(mark in outside_dialogue for mark in ("“", "”")):
         failures.append(f"H3_NON_DIALOGUE_TEXT_QUOTED:{source_id}")
+    for marker in H3_FORBIDDEN_OUTSIDE_DIALOGUE_PATTERNS:
+        if marker in outside_dialogue:
+            failures.append(f"H3_SPEAKABLE_META_OUTSIDE_DIALOGUE:{source_id}:{marker}")
     if unit is not None:
         wardrobe = validate_wardrobe_contract(unit, source_id=source_id)
         failures.extend(wardrobe["failures"])
@@ -399,7 +435,7 @@ def validate_h3_prompt(
             if text.count(words) != 1:
                 failures.append(f"H3_DIALOGUE_LITERAL_COUNT:{source_id}:{speaker}:{text.count(words)}")
         if expected:
-            if "唯一的人声事件是上述<d>标签内的逐字台词" not in text:
+            if "唯一的人声事件是上述<d>标签内的逐字内容" not in text:
                 failures.append(f"H3_EXCLUSIVE_DIALOGUE_RULE_MISSING:{source_id}")
         else:
             if tagged_dialogue:
