@@ -311,6 +311,10 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
     return {
         "unit_id": task.get("unit_id") or task.get("task_key"),
         "scene_id": task.get("scene_id") or machine.get("scene_id"),
+        "wardrobe_contract": machine.get("wardrobe_contract") or task.get("wardrobe_contract"),
+        "dialogue_cut_safety": machine.get("dialogue_cut_safety") or task.get("dialogue_cut_safety"),
+        "pose_transition_anchor_gate": machine.get("pose_transition_anchor_gate")
+        or task.get("pose_transition_anchor_gate"),
         "camera_plan": machine.get("camera_plan") or task.get("camera_plan"),
         "ordered_prompt_specs": machine.get("ordered_prompt_specs") or task.get("ordered_prompt_specs") or [],
         "editorial_shot_ids": machine.get("editorial_shot_ids") or task.get("editorial_shot_ids") or [],

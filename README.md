@@ -1,6 +1,8 @@
 # Qingshan Short Drama Production Line
 
-Private, code-only mirror of the local short-drama production pipeline. A clean clone contains the deployable pipeline definitions and installers; project media, credentials and episode runtime state are supplied separately.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+An open-source production line that helps ordinary creators build a genuinely commercial-ready AI film and short-drama workflow. A clean clone contains the deployable pipeline definitions and installers; project media, credentials and episode runtime state are supplied separately.
 
 Tracked scope:
 
@@ -51,3 +53,7 @@ Every boundary between editorial beats packed into one provider video task must 
 Different characters may not reuse the same mapped screen slot as an implicit identity transformation. That handoff must be split or expressed as an authored cut, reveal, or reframe. The compiled model prompt contains the full `【节拍内连续性硬合同】`; the same contract is fingerprinted and revalidated immediately before any paid provider POST.
 
 Creative continuity is a pre-submission gate. Post-generation rejection is limited to technical integrity and basic plot/identity correctness; action taste, choreography preference, and micro-expression precision do not consume regeneration attempts after a technically usable result exists.
+
+## License
+
+The source code in this repository is released under the [MIT License](LICENSE). You may use, copy, modify, merge, publish, distribute, sublicense, and sell copies subject to the license notice. Generated media, source novels/scripts, credentials, third-party models, provider services, and other separately supplied assets are not automatically relicensed by this repository.

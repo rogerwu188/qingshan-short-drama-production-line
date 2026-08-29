@@ -102,6 +102,20 @@ class GroupedPerformanceContractTest(unittest.TestCase):
         self.assertEqual(unit["incoming_transition_contract"], incoming)
         self.assertEqual(unit["outgoing_transition_contract"], outgoing)
 
+    def test_submission_binding_preserves_identity_and_safe_cut_contracts(self):
+        wardrobe = {"characters": [{"character": "陈迹"}]}
+        cut_safety = {"status": "PASS", "tail_handle_seconds": 0.8}
+        pose_gate = {"status": "PASS", "checked_boundary_count": 1}
+        unit = grouped_sequence_unit({
+            "unit_id": "E45-VU-002",
+            "wardrobe_contract": wardrobe,
+            "dialogue_cut_safety": cut_safety,
+            "pose_transition_anchor_gate": pose_gate,
+        })
+        self.assertEqual(unit["wardrobe_contract"], wardrobe)
+        self.assertEqual(unit["dialogue_cut_safety"], cut_safety)
+        self.assertEqual(unit["pose_transition_anchor_gate"], pose_gate)
+
 
 if __name__ == "__main__":
     unittest.main()
