@@ -17,6 +17,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LIBRARY = ROOT / "configs/COMBAT_ACTION_LIBRARY_V1.json"
+DEFAULT_ACTION_METHOD = ROOT / "configs/ACTION_VIDEO_GENERATION_METHOD_V2.json"
 REQUIRED_PHASES = (
     "preparation_and_weight_shift",
     "displacement_and_action_path",
@@ -32,6 +33,30 @@ def _text(value: object) -> str:
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+@lru_cache(maxsize=4)
+def load_action_video_method(path: str = str(DEFAULT_ACTION_METHOD)) -> dict[str, Any]:
+    source = Path(path)
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    failures: list[str] = []
+    if payload.get("schema") != "qingshan.action_video_generation_method.v2":
+        failures.append("ACTION_VIDEO_METHOD_SCHEMA_INVALID")
+    if payload.get("status") != "ACTIVE":
+        failures.append("ACTION_VIDEO_METHOD_NOT_ACTIVE")
+    h3 = payload.get("h3_execution_contract") or {}
+    if h3.get("must_state_power_path") != "脚→髋→肩→肘/腕":
+        failures.append("ACTION_VIDEO_METHOD_H3_POWER_PATH_INVALID")
+    retry = payload.get("failure_redesign_contract") or {}
+    if retry.get("same_prompt_micro_tuning_forbidden") is not True:
+        failures.append("ACTION_VIDEO_METHOD_MICRO_TUNING_NOT_FORBIDDEN")
+    if retry.get("new_prompt_sha256_required") is not True:
+        failures.append("ACTION_VIDEO_METHOD_NEW_PROMPT_SHA_NOT_REQUIRED")
+    if failures:
+        raise ValueError(";".join(failures))
+    payload["path"] = str(source)
+    payload["sha256"] = sha256(source)
+    return payload
 
 
 @lru_cache(maxsize=4)
@@ -80,6 +105,7 @@ def validate_binding(unit: dict[str, Any]) -> dict[str, Any]:
         }
     failures: list[str] = []
     library = load_library()
+    method = load_action_video_method()
     if binding.get("schema") != "qingshan.combat_action_library_binding.v1":
         failures.append("COMBAT_ACTION_LIBRARY_BINDING_SCHEMA_INVALID")
     if binding.get("canonical_match") is not True:
@@ -105,6 +131,8 @@ def validate_binding(unit: dict[str, Any]) -> dict[str, Any]:
         "status": "PASS" if not failures else "FAIL",
         "library_ref": library["path"],
         "library_sha256": library["sha256"],
+        "action_video_method_ref": method["path"],
+        "action_video_method_sha256": method["sha256"],
         "move_ids": move_ids,
         "failures": failures,
     }
@@ -128,7 +156,9 @@ def compile_binding_prompt(unit: dict[str, Any], *, model_family: str) -> str:
             f"镜头={move['camera_recipe']}；同期声={move['sound_recipe']}"
         )
     model_note = (
-        "H3按播放顺序连续执行可观察状态变化，优先写清正向物理过程，关键限制放在动作结果之后"
+        "H3按播放顺序连续执行可观察状态变化；首个爆发动作0.5秒内发生；显式写清脚→髋→肩→肘/腕传力、"
+        "攻防双方、单一力向、受力位移、环境反馈与结果态；禁止握手、掌心相对、太极推手、缓慢递手、"
+        "静态站桩、图组和循环；参考图只作为语义锚点，不宣称自动插值"
         if model_family == "minimax-h3"
         else "Seedance沿现有标准版打斗语法执行，不改变既有SD2镜头提示词规则"
     )

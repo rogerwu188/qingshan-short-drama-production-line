@@ -1,4 +1,5 @@
 import unittest
+from copy import deepcopy
 from unittest.mock import patch
 
 from tools.minimax_h3_prompt_compiler import (
@@ -6,6 +7,8 @@ from tools.minimax_h3_prompt_compiler import (
     H3_MINIMAL_AUDIO_RESCUE_PROFILE,
     H3_ANTI_CAPTION_CLAUSE,
     H3_SPEECH_ISOLATION_REPAIR_PROFILE,
+    H3_CONCISE_COMBAT_REPAIR_PROFILE,
+    compile_h3_concise_combat_repair_prompt,
     compile_h3_prompt,
     validate_h3_prompt,
 )
@@ -109,6 +112,95 @@ def h3_unit(*, dialogue="", transitions=False):
 
 
 class VideoPromptCompilerTest(unittest.TestCase):
+    def test_h3_concise_combat_repair_prioritizes_owner_scale_and_physics(self):
+        unit = h3_unit()
+        unit.update({
+            "unit_id": "E47-COMBAT-REPAIR-TEST",
+            "duration_seconds": 8,
+            "action_classification": "COMBAT",
+            "shot_type": "COMBAT",
+            "combat_or_chase": True,
+            "fight_or_chase": True,
+            "h3_prompt_profile": H3_CONCISE_COMBAT_REPAIR_PROFILE,
+            "combat_action_library_binding": {
+                "schema": "qingshan.combat_action_library_binding.v1",
+                "canonical_match": True,
+                "canonical_action_source_sha256": "a" * 64,
+                "move_ids": ["GROUNDED_TWO_FINGER_BLADE_INTERCEPT"],
+                "role_bindings": {
+                    "initiator": "来人", "target": "陈迹",
+                    "weapon_or_prop_owner": "来人", "winner": "来人", "loser": "陈迹",
+                },
+                "library_may_invent_story_action": False,
+            },
+            "combat_contact_geometry_override": (
+                "15厘米短刀由来人右手握柄；陈迹两指只触刀身侧面并水平拨向空处；"
+                "绝不剁地、扎地、劈地；每拍必须有起势、位移、唯一接触、受力反馈和新站位"
+            ),
+        })
+        spec = unit["ordered_prompt_specs"][0]
+        unit["ordered_prompt_specs"] = [deepcopy(spec) for _ in range(4)]
+        for index, row in enumerate(unit["ordered_prompt_specs"]):
+            row["action"]["t0_seconds"] = index * 2
+            row["action"]["t1_seconds"] = (index + 1) * 2
+            row["action"]["contact_point"] = "唯一接触点"
+        text = compile_h3_concise_combat_repair_prompt(unit)
+        report = validate_model_prompt_for_model(
+            text, model="MiniMax-H3", source_id=unit["unit_id"], unit=unit
+        )
+        self.assertEqual(report["status"], "PASS", report["failures"])
+        self.assertLess(len(text), 3600)
+        self.assertIn("短刀唯一主人=来人", text)
+        self.assertIn("15厘米短刀由来人右手握柄", text)
+        self.assertIn("绝不剁地、扎地、劈地", text)
+        self.assertIn("首个爆发动作必须在0.5秒内开始", text)
+        self.assertIn("脚→髋→肩→肘/腕", text)
+        self.assertIn("禁止握手、掌心相对、太极推手、缓慢递手", text)
+        self.assertIn("参考图只锁定语义状态，不宣称自动插值", text)
+        self.assertNotIn("subject_definitions:", text)
+
+    def test_h3_concise_combat_atomic_three_second_insert_accepts_three_beats(self):
+        unit = h3_unit()
+        unit.update({
+            "unit_id": "E47-COMBAT-ATOMIC-THREE-SECOND-TEST",
+            "duration_seconds": 3,
+            "action_classification": "COMBAT",
+            "shot_type": "COMBAT",
+            "combat_or_chase": True,
+            "fight_or_chase": True,
+            "combat_generation_mode": "ATOMIC_COVERAGE_REDESIGN",
+            "h3_prompt_profile": H3_CONCISE_COMBAT_REPAIR_PROFILE,
+            "combat_action_library_binding": {
+                "schema": "qingshan.combat_action_library_binding.v1",
+                "canonical_match": True,
+                "canonical_action_source_sha256": "b" * 64,
+                "move_ids": ["GROUNDED_TWO_FINGER_BLADE_INTERCEPT"],
+                "role_bindings": {
+                    "initiator": "来人", "target": "陈迹",
+                    "weapon_or_prop_owner": "来人", "winner": "来人", "loser": "陈迹",
+                },
+                "library_may_invent_story_action": False,
+            },
+            "combat_contact_geometry_override": (
+                "15厘米短刀由来人右手握柄；绝不剁地、扎地、劈地；"
+                "每拍必须有起势、位移、唯一接触、受力反馈和新站位"
+            ),
+        })
+        spec = unit["ordered_prompt_specs"][0]
+        unit["ordered_prompt_specs"] = [deepcopy(spec) for _ in range(3)]
+        for index, row in enumerate(unit["ordered_prompt_specs"]):
+            row["action"]["t0_seconds"] = index
+            row["action"]["t1_seconds"] = index + 1
+            row["action"]["contact_point"] = "唯一接触点"
+        text = compile_h3_concise_combat_repair_prompt(unit)
+        self.assertIn("【三拍物理链】", text)
+        self.assertEqual(
+            validate_model_prompt_for_model(
+                text, model="MiniMax-H3", source_id=unit["unit_id"], unit=unit
+            )["status"],
+            "PASS",
+        )
+
     def test_router_keeps_seedance_on_unchanged_compiler(self):
         unit = {"model": "seedance-2.0-pro"}
         with patch("tools.video_prompt_compiler.compile_seedance_prompt", return_value="sd2-exact") as compile_sd2:

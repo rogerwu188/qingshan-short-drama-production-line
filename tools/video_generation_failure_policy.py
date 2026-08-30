@@ -2,8 +2,11 @@
 """Classify media-generation failures and select the only safe successor.
 
 Provider failures stop the line for human resolution.  With a healthy provider,
-prompt/candidate failures automatically rewrite the prompt up to the media cap:
-ten attempts for still images/keyframes and three attempts for video.
+image failures may rewrite the prompt up to ten attempts.  After the first
+reviewable video failure, every successor must replace the full coverage design
+(prompt, shot structure, camera plan, action timeline, and reference strategy)
+rather than tune or reuse the failed prompt; video remains capped at three
+creative attempts.
 """
 
 from __future__ import annotations
@@ -293,13 +296,22 @@ def evaluate_failure_workflow(unit: dict[str, Any]) -> dict[str, Any]:
     elif prompt_memory_failures:
         next_action = "BLOCKED_ON_INPUT_PROMPT_FAILURE_MEMORY_INCOMPLETE"
     elif creative_count < attempt_limit:
-        next_action = f"AUTO_REWRITE_PROMPT_AND_SUBMIT_ATTEMPT_{creative_count + 1}"
+        if kind == "VIDEO":
+            next_action = f"AUTO_COVERAGE_REDESIGN_AND_SUBMIT_ATTEMPT_{creative_count + 1}"
+        else:
+            next_action = f"AUTO_REWRITE_PROMPT_AND_SUBMIT_ATTEMPT_{creative_count + 1}"
     elif action and decision.get("human_approval_ref") and not violations:
         next_action = f"TERMINAL_{action}"
     else:
         next_action = "BLOCKED_ON_INPUT_PROMPT_ATTEMPTS_EXHAUSTED_REQUIRES_HUMAN"
 
-    if any_pass or not attempts or next_action.startswith("AUTO_REWRITE_") or next_action.startswith("RESUME_"):
+    if (
+        any_pass
+        or not attempts
+        or next_action.startswith("AUTO_REWRITE_")
+        or next_action.startswith("AUTO_COVERAGE_REDESIGN_")
+        or next_action.startswith("RESUME_")
+    ):
         status = "PASS"
     elif next_action.startswith("BLOCKED_ON_INPUT_PROVIDER_FAILURE"):
         status = "BLOCKED_ON_INPUT_PROVIDER_FAILURE"
@@ -342,6 +354,34 @@ def evaluate_failure_workflow(unit: dict[str, Any]) -> dict[str, Any]:
             "canonical_story_and_native_audio_must_be_preserved": True,
         }
 
+    coverage_redesign_requirements = None
+    if next_action.startswith("AUTO_COVERAGE_REDESIGN_AND_SUBMIT_ATTEMPT_"):
+        coverage_redesign_requirements = {
+            "schema": "qingshan.video_coverage_prompt_redesign.v1",
+            "next_creative_attempt": creative_count + 1,
+            "retry_design_mode": "COVERAGE_REDESIGN",
+            "failed_prompt_sha256": [row["prompt_sha256"] for row in prompt_failures],
+            "must_fix_reasons": [row["failure_reason"] for row in prompt_failures],
+            "do_not_repeat": [row["do_not_repeat"] for row in prompt_failures],
+            "required_changed_variables": [
+                "PROMPT",
+                "SHOT_STRUCTURE",
+                "CAMERA_PLAN",
+                "ACTION_TIMELINE",
+                "REFERENCE_STRATEGY",
+            ],
+            "prompt_rewritten_from_scratch": True,
+            "shot_structure_redesigned": True,
+            "camera_plan_redesigned": True,
+            "action_timeline_redesigned": True,
+            "reference_strategy_redesigned": True,
+            "micro_edit_reuse_forbidden": True,
+            "wording_only_change_forbidden": True,
+            "negative_prompt_only_change_forbidden": True,
+            "parameter_only_change_forbidden": True,
+            "canonical_story_and_native_audio_must_be_preserved": True,
+        }
+
     return {
         "schema": "qingshan.media_generation_failure_workflow.v3",
         "media_kind": kind,
@@ -357,6 +397,7 @@ def evaluate_failure_workflow(unit: dict[str, Any]) -> dict[str, Any]:
         "prompt_failure_records": prompt_failures,
         "human_notification": notification,
         "prompt_rewrite_contract": rewrite_contract,
+        "coverage_redesign_requirements": coverage_redesign_requirements,
         "any_pass": any_pass,
         "next_action": next_action,
         "violations": violations,

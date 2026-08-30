@@ -61,9 +61,17 @@ class VideoGenerationFailurePolicyTest(unittest.TestCase):
         })
         self.assertEqual(result["creative_attempt_count"], 1)
         self.assertEqual(result["paid_attempt_count"], 1)
-        self.assertEqual(result["next_action"], "AUTO_REWRITE_PROMPT_AND_SUBMIT_ATTEMPT_2")
+        self.assertEqual(result["next_action"], "AUTO_COVERAGE_REDESIGN_AND_SUBMIT_ATTEMPT_2")
         self.assertEqual(result["prompt_failure_records"][0]["prompt_sha256"], "bad-prompt")
-        self.assertEqual(result["prompt_rewrite_contract"]["next_creative_attempt"], 2)
+        self.assertIsNone(result["prompt_rewrite_contract"])
+        requirements = result["coverage_redesign_requirements"]
+        self.assertEqual(requirements["next_creative_attempt"], 2)
+        self.assertTrue(requirements["prompt_rewritten_from_scratch"])
+        self.assertTrue(requirements["micro_edit_reuse_forbidden"])
+        self.assertEqual(
+            set(requirements["required_changed_variables"]),
+            {"PROMPT", "SHOT_STRUCTURE", "CAMERA_PLAN", "ACTION_TIMELINE", "REFERENCE_STRATEGY"},
+        )
 
     def test_zero_task_id_submit_failure_stops_for_human(self):
         result = evaluate_failure_workflow({
@@ -127,6 +135,8 @@ class VideoGenerationFailurePolicyTest(unittest.TestCase):
         result = evaluate_failure_workflow({"media_type": "IMAGE", "attempts": attempts})
         self.assertEqual(result["creative_attempt_limit"], 10)
         self.assertEqual(result["next_action"], "AUTO_REWRITE_PROMPT_AND_SUBMIT_ATTEMPT_4")
+        self.assertIsNotNone(result["prompt_rewrite_contract"])
+        self.assertIsNone(result["coverage_redesign_requirements"])
         self.assertFalse(result["human_notification"]["notify_human"])
 
 

@@ -91,6 +91,26 @@ class ActionVideoPromptCompilerTest(unittest.TestCase):
         self.assertIn("COMBAT_AFTERMATH_HOLD_FORBIDDEN_IN_SAME_EDIT_SHOT", failures)
         self.assertIn("COMBAT_GENERATION_REQUIRES_3_TO_4_EXCHANGES", failures)
 
+    def test_registered_atomic_combat_coverage_accepts_one_exchange(self):
+        task = self.combat_fixture()
+        task.update({
+            "combat_generation_mode": "ATOMIC_COVERAGE_REDESIGN",
+            "coverage_redesign_origin": {
+                "replaces_failed_unit_id": "OLD",
+                "decision_ref": "qa/redesign.json",
+            },
+            "duration_seconds": 4,
+            "cut_plan": [{"duration": 1.0} for _ in range(4)],
+        })
+        task["performance_tempo_contract"].update({
+            "action_onset_by_seconds": 0.0,
+            "contact_by_seconds": 3.0,
+            "primary_exchange_complete_by_seconds": 4.0,
+            "exchange_plan": [{"action": "直刺、侧移、接触、偏刀"}],
+            "result_hold_seconds": 0.2,
+        })
+        self.assertEqual(validate_action_contract(task), [])
+
     def test_dialogue_is_not_forced_through_combat_timing(self):
         task = self.fixture()
         task["shot_type"] = "DIALOGUE"

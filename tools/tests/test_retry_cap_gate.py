@@ -3,6 +3,27 @@ import unittest
 from tools.retry_cap_gate import evaluate_unit, validate_submission_attempt
 
 
+def coverage_redesign() -> dict:
+    return {
+        "retry_design_mode": "COVERAGE_REDESIGN",
+        "coverage_redesign_contract": {
+            "schema": "qingshan.video_coverage_prompt_redesign.v1",
+            "status": "PASS",
+            "prompt_rewritten_from_scratch": True,
+            "shot_structure_redesigned": True,
+            "camera_plan_redesigned": True,
+            "action_timeline_redesigned": True,
+            "reference_strategy_redesigned": True,
+            "micro_edit_reuse_forbidden": True,
+            "previous_design_sha256": "a" * 64,
+            "design_sha256": "b" * 64,
+        },
+        "changed_variables": [
+            "PROMPT", "SHOT_STRUCTURE", "CAMERA_PLAN", "ACTION_TIMELINE", "REFERENCE_STRATEGY",
+        ],
+    }
+
+
 def attempt(number: int) -> dict:
     return {
         "attempt_no": number,
@@ -28,6 +49,7 @@ class RetryCapGateTest(unittest.TestCase):
             "failure_memory": {"rule_id": "PF-TEST"},
             "material_change_from_prior_attempt": "changed motion and transport",
             "no_further_automatic_retry": True,
+            **coverage_redesign(),
         }
         self.assertEqual(validate_submission_attempt(task), [])
 
@@ -41,6 +63,34 @@ class RetryCapGateTest(unittest.TestCase):
             "material_change_from_prior_attempt": "claimed change",
         }
         self.assertIn("PROMPT_UNCHANGED_RETRY", validate_submission_attempt(task))
+
+    def test_video_content_retry_rejects_wording_only_prompt_tweak(self):
+        task = {
+            "retry_attempt": 2,
+            "creative_attempt_ordinal": 2,
+            "prompt_sha256": "new",
+            "prior_prompt_sha256": ["old"],
+            "prior_failure_classifications": ["PROMPT_SEMANTICS"],
+            "failure_memory": {"rule_id": "CONTENT-1"},
+            "material_change_from_prior_attempt": "added negative words",
+            "changed_variables": ["PROMPT"],
+        }
+        failures = validate_submission_attempt(task)
+        self.assertIn("VIDEO_CONTENT_RETRY_REQUIRES_COVERAGE_REDESIGN", failures)
+        self.assertIn("VIDEO_COVERAGE_REDESIGN_CONTRACT_MISSING", failures)
+
+    def test_video_content_retry_accepts_full_coverage_redesign(self):
+        task = {
+            "retry_attempt": 2,
+            "creative_attempt_ordinal": 2,
+            "prompt_sha256": "new",
+            "prior_prompt_sha256": ["old"],
+            "prior_failure_classifications": ["PROMPT_SEMANTICS"],
+            "failure_memory": {"rule_id": "CONTENT-1"},
+            "material_change_from_prior_attempt": "new coverage, camera, timing and refs",
+            **coverage_redesign(),
+        }
+        self.assertEqual(validate_submission_attempt(task), [])
 
     def test_third_failure_requires_terminal_decision(self):
         result = evaluate_unit({"unit_id": "R02", "attempts": [attempt(1), attempt(2), attempt(3)]})
@@ -75,7 +125,7 @@ class RetryCapGateTest(unittest.TestCase):
 
     def test_second_failure_advances_to_third_changed_prompt(self):
         result = evaluate_unit({"unit_id": "R02", "attempts": [attempt(1), attempt(2)]})
-        self.assertEqual(result["next_action"], "AUTO_REWRITE_PROMPT_AND_SUBMIT_ATTEMPT_3")
+        self.assertEqual(result["next_action"], "AUTO_COVERAGE_REDESIGN_AND_SUBMIT_ATTEMPT_3")
 
     def test_refunded_provider_timeouts_stop_for_human_without_exhausting_attempts(self):
         attempts = [
