@@ -41,6 +41,7 @@ try:
         validate_model_prompt_for_model,
         validate_transition_prompt_for_model,
     )
+    from production_efficiency_contract import DEFAULT_WAVE_SIZE, episode_number, require_e47_efficiency_contract
 except ModuleNotFoundError:
     from tools.giggle_api_client import _image_list, _request
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
@@ -54,6 +55,7 @@ except ModuleNotFoundError:
         validate_model_prompt_for_model,
         validate_transition_prompt_for_model,
     )
+    from tools.production_efficiency_contract import DEFAULT_WAVE_SIZE, episode_number, require_e47_efficiency_contract
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -537,6 +539,7 @@ def main() -> int:
     args = parser.parse_args()
     manifest_path = resolve(args.manifest)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    efficiency_gate = require_e47_efficiency_contract(manifest)
     authoritative_gate = run_authoritative_submission_gate(manifest, manifest_path)
     gates = [validate_gate(value) for value in manifest.get("machine_gate_reports") or []]
     tasks = manifest.get("tasks") or []
@@ -613,6 +616,7 @@ def main() -> int:
         "manifest": portable(manifest_path), "manifest_sha256": sha256(manifest_path), "recorded_at": utc_now(),
         "precheck_only": args.precheck_only, "concurrency": max(1, args.concurrency), "machine_gates": gates,
         "authoritative_production_gate": authoritative_gate,
+        "production_efficiency_gate": efficiency_gate,
         "status": "PASS" if len(results) == len(tasks) and not failures and (args.precheck_only or (credit or {}).get("status") == "PASS_BOUNDED") else "FAIL",
         "submitted": sum(row.get("state") == "remote_running" for row in results),
         "precheck_pass": sum(row.get("state") == "precheck_pass" for row in results),
@@ -633,6 +637,7 @@ def exec_deployed_submitter() -> None:
         raise RuntimeError("--manifest is required") from exc
     manifest_path = resolve(manifest_value)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    require_e47_efficiency_contract(manifest)
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
     from tools.action_video_prompt_compiler import validate_action_contract
@@ -674,6 +679,16 @@ def exec_deployed_submitter() -> None:
         raise RuntimeError("Deployed BacklotOS video submitter is unavailable")
     if "--project-root" not in forwarded:
         forwarded = ["--project-root", str(ROOT), *forwarded]
+    episode_value = episode_number(manifest.get("episode"))
+    if episode_value is not None and episode_value >= 47 and "--concurrency" in forwarded:
+        try:
+            concurrency = int(forwarded[forwarded.index("--concurrency") + 1])
+        except (ValueError, IndexError) as exc:
+            raise RuntimeError("--concurrency requires an integer from 1 to 6") from exc
+        if concurrency < 1 or concurrency > DEFAULT_WAVE_SIZE:
+            raise RuntimeError("E47+ rolling submission concurrency must be from 1 to 6")
+    elif episode_value is not None and episode_value >= 47:
+        forwarded.extend(["--concurrency", str(DEFAULT_WAVE_SIZE)])
     os.execv(sys.executable, [sys.executable, str(deployed), *forwarded])
 
 

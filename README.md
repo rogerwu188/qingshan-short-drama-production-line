@@ -54,6 +54,18 @@ Different characters may not reuse the same mapped screen slot as an implicit id
 
 Creative continuity is a pre-submission gate. Post-generation rejection is limited to technical integrity and basic plot/identity correctness; action taste, choreography preference, and micro-expression precision do not consume regeneration attempts after a technically usable result exists.
 
+## E47+ production-efficiency contract
+
+`tools/production_efficiency_contract.py` turns the next-episode speed policy into a fail-closed preflight instead of an informal convention. It preserves every identity, map, wardrobe, prop, sound, transition, transaction, and real-media boundary gate while removing repeat work:
+
+- character cards, map anchors, wardrobe cards, and scene anchors are reused by exact SHA across episodes; a new keyframe is generated only for semantic novelty such as a new identity, subspace, wardrobe state, non-interpolable physical state, or transition-critical terminal state;
+- MiniMax-H3 dialogue units default to 6–10 seconds and no more than two lines, while silent or continuous-action units may run up to 15 seconds; an authored, named exception is required to exceed the dialogue limits;
+- generation runs in rolling waves of at most six units, with completed handles harvested and technically checked immediately instead of waiting for a whole batch;
+- exact model/prompt/reference hashes form the generation cache key, so a completed identical request is reused and never posted twice; and
+- local release encoding prefers Apple VideoToolbox H.264, caches normalized segments by content hash, and performs one final subtitle/outro/upscale composite. Software `libx264` remains the deterministic fallback.
+
+The optimization changes scheduling and reuse only. It does not lower prompt QA, paid-task durability, post-generation technical/basic-plot checks, or publication gates.
+
 ## Automatic BGM profile binding
 
 The writer/director keeps creative authority over music through the generation contract's `audio_contract.bgm` declaration. AgentCut does not choose a postproduction audio mode independently. `tools/audio_profile_binding.py` deterministically compiles that declaration into exactly one registered profile:

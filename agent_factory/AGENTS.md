@@ -9,11 +9,26 @@
 历史集的发行链接与恢复点只作为账本证据，不得覆盖当前 work queue，也不得让旧集号
 （例如 E17）重新成为生产入口。
 
-当前付费图片只允许经持久化事务提交器进入；E40 及以后的视频只允许
-`seedance-2.0-fast`，并经当前部署的 durable transaction submitter 提交。
+当前付费图片只允许经持久化事务提交器进入；视频模型必须使用当前活动集明确绑定的
+模型合同（现行支持 `seedance-2.0-pro` 与 `MiniMax-H3`），并经当前部署的 durable
+transaction submitter 提交。禁止把历史 fast-only 规则恢复为当前事实。
 `tools/giggle_api_client.py`、旧 supervisor、一次性 E##_ 脚本和浏览器操作均不是可直接
 POST 的默认入口。若工具注册表与本段冲突，以当前用户授权、注册门、事务账本和
 `work_queue` 的活动集状态为准。
+
+## P0 E47 起生产效率硬合同
+
+从 E47 起，付费生成前必须运行 `tools/production_efficiency_contract.py`。提速只能消除
+重复劳动，不得削弱地图、人物、服装、道具、声音、转场、付费事务和真实媒体边界门禁。
+
+- 角色卡、地图锚点、服装卡和场景图按精确 SHA 跨集复用；新关键帧只用于新人物、
+  新空间、新服装状态、不可插值的道具/身体终态或关键转场终态。禁止机械执行“一镜一图”。
+- H3 有对白单元默认 6–10 秒且不超过两句；无对白连续动作单元可到 15 秒。超限必须
+  具名记录 `efficiency_exception_reason`，否则预检失败。
+- 最多 6 单元组成一个滚动波次；任一远端任务完成后立即收割并开始技术 QA 与边界预检，
+  不等待整批。精确内容哈希缓存命中不得重复 POST。
+- 本地发行优先 `h264_videotoolbox`，不可用时回退 `libx264`；归一化分段按内容哈希缓存，
+  最终只做一次字幕、片尾和 2K 合成。原生分辨率必须如实标注。
 
 E41+ canonical Writer 的唯一运行登记入口为 `tools/canonical_writer_dispatcher.py`。本地 Claude/Cowork 或 StoryClaw 开写前必须取得同集同版本独占 lease，完成后固化 exact provider/model/session、输入与规则 SHA、authority SHA；缺完成 receipt 的正文不得通过 script phase。Codex 维护生产线和门，但不是默认 canonical 作者，除非 Roger 明确授权改稿。
 
