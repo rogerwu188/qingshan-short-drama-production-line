@@ -89,6 +89,16 @@ class CombatActionLibraryTest(unittest.TestCase):
         self.assertIn("禁止字幕、UI、来源身份、IP名称和文字拟声", text)
         self.assertEqual(text.count(compile_binding_prompt(unit, model_family="minimax-h3")), 1)
 
+    def test_h3_combat_fails_closed_without_library_binding(self):
+        unit = h3_unit()
+        unit["ordered_prompt_specs"][0]["action"].update({
+            "start_state": "袭击者仍把短刀藏在右袖内",
+            "primary_action": "袭击者拔出短刀直刺目标胸口",
+            "completion_state": "刀尖到达目标胸口前方",
+        })
+        with self.assertRaisesRegex(ValueError, "COMBAT_ACTION_LIBRARY_BINDING_REQUIRED"):
+            compile_h3_prompt(unit)
+
 
 if __name__ == "__main__":
     unittest.main()
