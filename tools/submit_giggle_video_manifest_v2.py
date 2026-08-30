@@ -265,6 +265,7 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
     task["internal_transition_contracts"] = validate_internal_transition_sequence(internal_unit)
     prompt_unit = grouped_sequence_unit(task)
     prompt_unit["model"] = task.get("model")
+    prompt_unit["h3_prompt_profile"] = task.get("h3_prompt_profile")
     prompt_unit["duration_seconds"] = task.get("duration_seconds")
     prompt_unit["reference_images"] = [
         {"path": path, "role": role}
@@ -310,6 +311,7 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
     machine = task.get("machine_contract") or {}
     return {
         "unit_id": task.get("unit_id") or task.get("task_key"),
+        "h3_prompt_profile": task.get("h3_prompt_profile"),
         "scene_id": task.get("scene_id") or machine.get("scene_id"),
         "wardrobe_contract": machine.get("wardrobe_contract") or task.get("wardrobe_contract"),
         "dialogue_cut_safety": machine.get("dialogue_cut_safety") or task.get("dialogue_cut_safety"),

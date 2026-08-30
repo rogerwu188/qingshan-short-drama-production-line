@@ -28,7 +28,16 @@ except ModuleNotFoundError:
     )
 
 
-H3_MODEL_PROMPT_POLICY_VERSION = "qingshan.minimax_h3_prompt.v2_dialogue_isolation"
+H3_MODEL_PROMPT_POLICY_VERSION = "qingshan.minimax_h3_prompt.v3_dialogue_isolation_zero_text_frame"
+H3_SPEECH_ISOLATION_REPAIR_PROFILE = "H3_CONCISE_QUOTED_DIALOGUE_REPAIR_V1"
+H3_SPEECH_ISOLATION_REPAIR_POLICY = "qingshan.minimax_h3_prompt.v4_concise_quoted_dialogue_zero_text_frame"
+H3_MINIMAL_AUDIO_RESCUE_PROFILE = "H3_MINIMAL_AUDIO_RESCUE_V1"
+H3_MINIMAL_AUDIO_RESCUE_POLICY = "qingshan.minimax_h3_prompt.v5_minimal_audio_rescue_zero_text_frame"
+H3_ANTI_CAPTION_CLAUSE = (
+    "视觉输出必须是严格零文字画面（TEXT-FREE FRAME）：台词只能作为同期人声存在，禁止把对白或提示词可视化；"
+    "任何画面区域、任何帧都不得生成汉字、拼音、字母、数字、标点、字幕条、对白框、题词、标签、牌匾、"
+    "书写、界面文字、片头片尾字、标识、LOGO或水印；参考图中的文字也不得临摹、补全或重新生成"
+)
 MAX_H3_PROMPT_CHARS = 7000
 H3_CORE_FIELDS = (
     "subject_definitions:",
@@ -127,6 +136,16 @@ def _sanitize_visual_state(value: object) -> str:
     return _trim(text)
 
 
+def _sanitize_transition_value(value: object) -> str:
+    """Keep transition semantics while removing speech-like scaffolding."""
+    text = _trim(value)
+    for marker in H3_FORBIDDEN_OUTSIDE_DIALOGUE_PATTERNS:
+        text = text.replace(marker, "")
+    text = text.replace("“", "〔").replace("”", "〕")
+    text = re.sub(r"\s+", " ", text)
+    return _trim(text)
+
+
 def _camera_motion(plan: dict[str, Any] | None) -> str:
     plan = plan or {}
     family = str(plan.get("motion_family") or "STATIC").upper()
@@ -203,9 +222,33 @@ def _internal_transition(unit: dict[str, Any], index: int) -> str:
     rows = unit.get("internal_transition_contracts") or []
     row = rows[index - 1] if 0 <= index - 1 < len(rows) else {}
     mode = str(row.get("transition_mode") or "MOTIVATED_CUT").upper()
-    if "CUT" in mode:
-        return "镜头在前一动作结果落稳后明确切换，切换以固定空间物和真实现场声重新建立方向"
-    return "摄影机在前一动作结果落稳后连续重新构图，不切断动作与现场声"
+    if not row:
+        return (
+            "镜头在前一动作结果落稳后明确切换，切换以固定空间物和真实现场声重新建立方向"
+            if "CUT" in mode
+            else "摄影机在前一动作结果落稳后连续重新构图，不切断动作与现场声"
+        )
+    cast = row.get("cast_bridge") or {}
+    scene = row.get("scene_bridge") or {}
+    props = row.get("prop_bridge") or {}
+    sound = row.get("sound_bridge") or {}
+    camera = row.get("camera_bridge") or {}
+    reference = row.get("reference_bridge") or {}
+    execution = (
+        "前一动作结果落稳后明确切镜"
+        if "CUT" in mode
+        else "前一动作结果落稳后连续重新构图"
+    )
+    return (
+        f"节拍内转场[{mode}]：{execution}；"
+        f"人物交接={_sanitize_transition_value(cast.get('entry_exit_or_reveal'))}，{_sanitize_transition_value(cast.get('identity_preservation'))}；"
+        f"地图交接={_sanitize_transition_value(scene.get('continuity'))}；"
+        f"道具交接={_sanitize_transition_value(props.get('ownership_or_handoff'))}；"
+        f"动作交接={_sanitize_transition_value(row.get('action_bridge'))}；"
+        f"声音交接={_sanitize_transition_value(sound.get('bridge'))}；"
+        f"镜头交接={_sanitize_transition_value(camera.get('transition_execution'))}，{_sanitize_transition_value(camera.get('axis_strategy'))}；"
+        f"参考图交接={_sanitize_transition_value(reference.get('entity_mapping'))}"
+    )
 
 
 def _performance_sentence(spec: dict[str, Any]) -> str:
@@ -316,7 +359,7 @@ def compile_h3_prompt(unit: dict[str, Any]) -> str:
         description.insert(2, h3_adult_female)
     for index, (spec, (start, end)) in enumerate(zip(specs, timeline), start=1):
         prefix = "" if index == 1 else (
-            f"[Shot {index}] At {_clock(start)}, {_internal_transition(unit, index)}。"
+            f"[Shot {index}] At {_clock(start)}, {_internal_transition(unit, index - 1)}。"
         )
         action = _visual_action(spec)
         performance = _performance_sentence(spec)
@@ -346,7 +389,7 @@ def compile_h3_prompt(unit: dict[str, Any]) -> str:
         )
     description.extend(note + "。" for note in _transition_notes(unit))
     description.append(
-        "画面不出现字幕、水印、LOGO或可读文字；不变脸、不换人、不换衣、不改变地图方向，不用循环、冻结或变速补足时长。"
+        f"{H3_ANTI_CAPTION_CLAUSE}；不变脸、不换人、不换衣、不改变地图方向，不用循环、冻结或变速补足时长。"
     )
 
     text = "\n".join([
@@ -375,6 +418,178 @@ def compile_h3_prompt(unit: dict[str, Any]) -> str:
     return text
 
 
+def compile_h3_speech_isolation_repair_prompt(unit: dict[str, Any]) -> str:
+    """Compile a terse H3 repair prompt after visual directions leaked into speech.
+
+    This profile deliberately removes free-form action prose from the provider
+    prompt.  The admitted chronological reference frames carry the visual
+    states while the machine-readable unit contract continues to gate plot,
+    map, identity, wardrobe, props, action and transitions before submission.
+    """
+    specs = unit.get("ordered_prompt_specs") or []
+    references = unit.get("reference_images") or []
+    if not specs or not references or len(references) > 9:
+        raise ValueError("H3 concise repair requires ordered specs and 1-9 reference images")
+    duration = float(unit.get("duration_seconds") or 0)
+    if duration < 3 or duration > 15:
+        raise ValueError("H3 concise repair duration must be 3-15 seconds")
+    dialogues = _dialogues(unit)
+    speaker_ids = _speaker_ids(unit)
+    visual_order = " → ".join(f"@图片{index}" for index in range(1, len(references) + 1))
+    dialogue_lines: list[str] = []
+    if dialogues:
+        usable_end = max(1.8, duration - 1.25)
+        span = max(1.0, usable_end - 0.75)
+        step = span / len(dialogues)
+        for index, (speaker, words) in enumerate(dialogues):
+            start = 0.75 + index * step
+            end = min(usable_end, start + max(0.9, step * 0.78))
+            dialogue_lines.append(
+                f"{speaker_ids[speaker]}（{speaker}）在{start:.2f}-{end:.2f}秒仅说一次：“{words}”"
+            )
+    else:
+        dialogue_lines.append("无台词；所有人物全程闭口。")
+    incoming = unit.get("incoming_transition_contract")
+    outgoing = unit.get("outgoing_transition_contract")
+    transition_lines = [
+        "按参考图顺序完成连续视觉状态；镜头内切换只发生在动作结果落稳之后。",
+    ]
+    if incoming:
+        transition_lines.append("开场承接上一单元的现场声、视线、姿态和物体位置，不复位。")
+    if outgoing:
+        transition_lines.append("结尾最后1秒停止说话，保持结果姿态、自然呼吸、衣料惯性和环境微动。")
+    text = "\n".join([
+        "【H3短剧技术修复】",
+        f"9:16真人实拍古装悬疑短剧，时长{duration:g}秒。",
+        "【参考图】",
+        *[f"@图片{index}：只锁定该图中的人物身份、服装、场景、道具、构图和光向。" for index in range(1, len(references) + 1)],
+        "【画面】",
+        f"依次采用{visual_order}的剧情状态；人物、地图、服装、道具、天气和光向连续，不换人、不换衣、不改方向。",
+        *transition_lines,
+        "【唯一可发声台词】",
+        *dialogue_lines,
+        "【原生声音】",
+        "保留同任务生成的现场对白、环境声、衣料声、脚步声和真实动作接触声；无旁白、无解说、无歌唱、无外加BGM。",
+        "【声音隔离】",
+        "只有“唯一可发声台词”中的引号文字可以成为人声；不得朗读画面、参考图、转场、动作、表演、声音或限制文字。",
+        "【限制】",
+        f"{H3_ANTI_CAPTION_CLAUSE}；不循环、不冻结、不变速补时。",
+        "",
+    ])
+    report = validate_h3_speech_isolation_repair_prompt(
+        text, source_id=str(unit.get("unit_id") or "UNKNOWN"), unit=unit
+    )
+    if report["status"] != "PASS":
+        raise ValueError(";".join(report["failures"]))
+    return text
+
+
+def validate_h3_speech_isolation_repair_prompt(
+    text: str, *, source_id: str, unit: dict[str, Any]
+) -> dict[str, Any]:
+    failures: list[str] = []
+    if H3_ANTI_CAPTION_CLAUSE not in text:
+        failures.append(f"H3_REPAIR_ANTI_CAPTION_CLAUSE_MISSING:{source_id}")
+    required = (
+        "【H3短剧技术修复】", "【参考图】", "【画面】", "【唯一可发声台词】",
+        "【原生声音】", "【声音隔离】", "【限制】",
+    )
+    for marker in required:
+        if text.count(marker) != 1:
+            failures.append(f"H3_REPAIR_MARKER_COUNT:{source_id}:{marker}:{text.count(marker)}")
+    if len(text) > 2400:
+        failures.append(f"H3_REPAIR_PROMPT_TOO_LONG:{source_id}:{len(text)}>2400")
+    for index in range(1, len(unit.get("reference_images") or []) + 1):
+        if f"@图片{index}" not in text:
+            failures.append(f"H3_REPAIR_REFERENCE_MISSING:{source_id}:{index}")
+    for speaker, words in _dialogues(unit):
+        literal = f"“{words}”"
+        if text.count(literal) != 1 or text.count(words) != 1:
+            failures.append(f"H3_REPAIR_DIALOGUE_LITERAL_COUNT:{source_id}:{speaker}:{text.count(words)}")
+    if not _dialogues(unit) and "无台词；所有人物全程闭口。" not in text:
+        failures.append(f"H3_REPAIR_SILENT_RULE_MISSING:{source_id}")
+    if "无外加BGM" not in text:
+        failures.append(f"H3_REPAIR_EXTERNAL_BGM_FORBIDDEN_MISSING:{source_id}")
+    if unit.get("incoming_transition_contract") and "开场承接上一单元" not in text:
+        failures.append(f"H3_REPAIR_INCOMING_TRANSITION_MISSING:{source_id}")
+    if unit.get("outgoing_transition_contract") and "结尾最后1秒停止说话" not in text:
+        failures.append(f"H3_REPAIR_OUTGOING_TRANSITION_MISSING:{source_id}")
+    return {
+        "policy": H3_SPEECH_ISOLATION_REPAIR_POLICY,
+        "profile": H3_SPEECH_ISOLATION_REPAIR_PROFILE,
+        "status": "PASS" if not failures else "FAIL",
+        "source_id": source_id,
+        "character_count": len(text),
+        "max_character_count": 2400,
+        "dialogue_count": len(_dialogues(unit)),
+        "failures": failures,
+    }
+
+
+def compile_h3_minimal_audio_rescue_prompt(unit: dict[str, Any]) -> str:
+    """Compile a last-attempt H3 prompt with the smallest speakable surface.
+
+    H3 may vocalize descriptive Chinese prose even when it is framed as a
+    negative instruction.  This profile therefore relies on already-admitted
+    chronological reference frames for visual continuity and emits only one
+    compact visual sentence, the literal dialogue (if any), native ambience,
+    and the no-visible-text constraint.  Full directing contracts remain in
+    the manifest and are still checked before the provider call.
+    """
+    references = unit.get("reference_images") or []
+    duration = int(float(unit.get("duration_seconds") or 0))
+    if not references or len(references) > 9 or duration < 3 or duration > 15:
+        raise ValueError("H3 minimal rescue requires 1-9 references and 3-15 seconds")
+    order = "→".join(f"@图片{index}" for index in range(1, len(references) + 1))
+    dialogues = _dialogues(unit)
+    lines = [f"9:16真人古装短剧，{duration}秒；按{order}连续演进，人物身份、服装、场景、道具和方向不变。"]
+    if dialogues:
+        for speaker, words in dialogues:
+            lines.append(f"{speaker}（克制自然）：“{words}”")
+        lines.append("台词只说一遍；说完闭口，末尾1秒仅自然呼吸和环境微动。")
+    else:
+        lines.append("人物始终闭口；只有同期环境声、衣料声和动作接触声。")
+    lines.append(f"{H3_ANTI_CAPTION_CLAUSE}；无旁白、无歌唱、无外加音乐。")
+    text = "\n".join(lines) + "\n"
+    report = validate_h3_minimal_audio_rescue_prompt(
+        text, source_id=str(unit.get("unit_id") or "UNKNOWN"), unit=unit
+    )
+    if report["status"] != "PASS":
+        raise ValueError(";".join(report["failures"]))
+    return text
+
+
+def validate_h3_minimal_audio_rescue_prompt(
+    text: str, *, source_id: str, unit: dict[str, Any]
+) -> dict[str, Any]:
+    failures: list[str] = []
+    if len(text) > 700:
+        failures.append(f"H3_MINIMAL_RESCUE_TOO_LONG:{source_id}:{len(text)}>700")
+    for index in range(1, len(unit.get("reference_images") or []) + 1):
+        if text.count(f"@图片{index}") != 1:
+            failures.append(f"H3_MINIMAL_RESCUE_REFERENCE_COUNT:{source_id}:{index}")
+    dialogues = _dialogues(unit)
+    for speaker, words in dialogues:
+        if text.count(f"{speaker}（克制自然）：“{words}”") != 1 or text.count(words) != 1:
+            failures.append(f"H3_MINIMAL_RESCUE_DIALOGUE_COUNT:{source_id}:{speaker}")
+    if dialogues and "末尾1秒仅自然呼吸和环境微动" not in text:
+        failures.append(f"H3_MINIMAL_RESCUE_TAIL_MISSING:{source_id}")
+    if not dialogues and "人物始终闭口" not in text:
+        failures.append(f"H3_MINIMAL_RESCUE_SILENT_RULE_MISSING:{source_id}")
+    if H3_ANTI_CAPTION_CLAUSE not in text:
+        failures.append(f"H3_MINIMAL_RESCUE_VISIBLE_TEXT_RULE_MISSING:{source_id}")
+    return {
+        "policy": H3_MINIMAL_AUDIO_RESCUE_POLICY,
+        "profile": H3_MINIMAL_AUDIO_RESCUE_PROFILE,
+        "status": "PASS" if not failures else "FAIL",
+        "source_id": source_id,
+        "character_count": len(text),
+        "max_character_count": 700,
+        "dialogue_count": len(dialogues),
+        "failures": failures,
+    }
+
+
 def validate_h3_transition_prompt_binding(text: str, unit: dict[str, Any]) -> dict[str, Any]:
     failures: list[str] = []
     expected = _transition_notes(unit)
@@ -398,6 +613,8 @@ def validate_h3_prompt(
     unit: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     failures: list[str] = []
+    if H3_ANTI_CAPTION_CLAUSE not in text:
+        failures.append(f"H3_ANTI_CAPTION_CLAUSE_MISSING:{source_id}")
     if len(text) > MAX_H3_PROMPT_CHARS:
         failures.append(f"H3_PROMPT_TOO_LONG:{source_id}:{len(text)}>{MAX_H3_PROMPT_CHARS}")
     positions = []
@@ -444,6 +661,15 @@ def validate_h3_prompt(
                 failures.append(f"H3_SILENT_UNIT_RULE_MISSING:{source_id}")
         transition = validate_h3_transition_prompt_binding(text, unit)
         failures.extend(transition["failures"])
+        internal_rows = unit.get("internal_transition_contracts") or []
+        for index, row in enumerate(internal_rows, start=1):
+            note = _internal_transition(unit, index)
+            count = text.count(note)
+            if count != 1:
+                failures.append(
+                    f"H3_INTERNAL_TRANSITION_NOTE_COUNT:{source_id}:"
+                    f"{row.get('boundary_id') or index}:{count}"
+                )
     return {
         "policy": H3_MODEL_PROMPT_POLICY_VERSION,
         "status": "PASS" if not failures else "FAIL",
