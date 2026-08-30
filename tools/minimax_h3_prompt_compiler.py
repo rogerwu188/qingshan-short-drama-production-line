@@ -50,7 +50,7 @@ except ModuleNotFoundError:
     )
 
 
-H3_MODEL_PROMPT_POLICY_VERSION = "qingshan.minimax_h3_prompt.v7_physical_continuity_combat_dialogue_isolation"
+H3_MODEL_PROMPT_POLICY_VERSION = "qingshan.minimax_h3_prompt.v8_physics_first_combat_library_dialogue_isolation"
 H3_SPEECH_ISOLATION_REPAIR_PROFILE = "H3_CONCISE_QUOTED_DIALOGUE_REPAIR_V1"
 H3_SPEECH_ISOLATION_REPAIR_POLICY = "qingshan.minimax_h3_prompt.v6_concise_voice_binding_zero_text_frame"
 H3_MINIMAL_AUDIO_RESCUE_PROFILE = "H3_MINIMAL_AUDIO_RESCUE_V1"

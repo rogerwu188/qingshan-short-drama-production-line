@@ -1,0 +1,273 @@
+{
+  "schema": "qingshan.combat_action_library.v1",
+  "version": "1.0.0",
+  "purpose": "Source-faithful physical recipes for compiling readable combat. Library moves serialize an authorized canonical action; they never authorize a new action, power, weapon, injury or outcome.",
+  "reference_lineage": {
+    "status": "INFERRED_RECONSTRUCTED_NOT_ORIGINAL",
+    "profiles": ["EASTERN_WUXIA", "EASTERN_KUNGFU"],
+    "adapter_sha256": {
+      "EASTERN_WUXIA": "acbe3aaa61b15a823604082c7886a6d5ee96a062808971fddfcea1e88ad08985",
+      "EASTERN_KUNGFU": "2a145dbb301e83e819aae2322ae664c509938eec98f983e23e2eba4f3445ef8d"
+    },
+    "ice_lake_reference_candidate_sha256": "935aed5cfc6a5bc66ddedd5329daa6952643e8393dc8bf706d08234851f8ba80",
+    "policy": "The lineage is a camera-and-physics writing reference only. It is not an original source prompt, identity source, dialogue source, music source or authorization to reproduce unseen hits, injuries or powers."
+  },
+  "global_contract": {
+    "source_fidelity": "A move may be selected only when canonical_match=true and the source action, participants, prop ownership and terminal outcome are already authorized by the canonical script.",
+    "physical_formula": [
+      "preparation_and_weight_shift",
+      "displacement_and_action_path",
+      "single_contact_or_visible_evasion",
+      "force_transfer_and_reaction",
+      "new_stable_end_state"
+    ],
+    "camera_rule": "One motivated camera job per physical beat; keep the action axis readable and make cuts only after a contact/result or to reveal new causal information.",
+    "sound_rule": "Synchronize footwork, cloth, weapon air movement, contact, breath and environment response to their visible causes.",
+    "forbidden": [
+      "inventing combat absent from canonical source",
+      "swapping initiator target winner loser or weapon owner",
+      "static pose slideshow used as combat",
+      "unmotivated orbit drift or repeated same-direction camera move",
+      "slow motion freeze replay or duration-filling unless canonical explicitly requires it",
+      "environment destruction not caused and authorized by the scripted force",
+      "detached extra fused or owner-swapped limbs",
+      "subtitles captions UI labels logos or written sound effects",
+      "source identity franchise title character IP or training-source disclosure inside generated media",
+      "unseen or unauthorized hit injury blood power or damage",
+      "dialogue music or sound effects inferred when the task has no authorized audio contract"
+    ]
+  },
+  "moves": [
+    {
+      "id": "GROUNDED_BLADE_LUNGE",
+      "name_zh": "袖中短刀直刺",
+      "style_class": "GROUNDED_REALISM",
+      "aliases": ["近身直刺", "短刀突刺"],
+      "physical_phases": ["持刀侧肩肘后收并压低重心", "前脚跨入同时肩肘腕沿同一线送出刀身", "刀尖只指向具名目标的具名接触点", "目标完成一次明确闪避或拦截", "双方落到新的可持续站位"],
+      "camera_recipe": "中景或中全景固定动作轴，短促跟随刀路；接触前同时看见武器主人、刀柄、刀身和目标。",
+      "sound_recipe": "落脚、衣袖、短刃破风与接触声按因果顺序出现。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "GROUNDED_TWO_FINGER_BLADE_INTERCEPT",
+      "name_zh": "两指夹刃卸力",
+      "style_class": "GROUNDED_OR_SOURCE_AUTHORIZED_WUXIA",
+      "aliases": ["两指捏住刀尖", "夹刃"],
+      "physical_phases": ["拦截者先侧移让开胸口攻击线", "拇食二指从刀尖侧面接近而非正面迎刃", "唯一接触点建立后手腕沿来力方向微退卸力", "刀路被偏转并降低", "武器主人仍握刀柄且双方左右手归属不变"],
+      "camera_recipe": "先用双人中景读清刀路，再以一次小幅推进强调唯一接触点；不得切成两张静态姿势。",
+      "sound_recipe": "衣料擦动、短刃轻颤和脚下换重心同步，不添加夸张爆炸声。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "GROUNDED_WRIST_ELBOW_WEAPON_CONTROL",
+      "name_zh": "扣腕压刃控制",
+      "style_class": "GROUNDED_REALISM",
+      "aliases": ["腕肘控制", "下压短刀"],
+      "physical_phases": ["承接上一拍既有接触不复位", "控制者一手限制持刀腕另一手控制肘线", "髋部转向并以身体重量下压刀路", "持刀者肩肘随受力屈曲失去进攻线", "刀尖、门槛和两人站位落到具名终态"],
+      "camera_recipe": "同轴横移半步保持腕、肘、刀柄、刀尖同框，结果落稳后才切镜。",
+      "sound_recipe": "鞋底摩擦、衣袖绞紧、刀身碰触固定物的声音逐次对应。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "GROUNDED_FRONT_THROAT_VERTICAL_LIFT",
+      "name_zh": "正面锁喉垂直提起",
+      "style_class": "SOURCE_AUTHORIZED_SUPPRESSION",
+      "aliases": ["掐喉提起", "锁喉提离地面"],
+      "physical_phases": ["发力者双脚定住并让髋肩垂直对齐", "具名手掌从正面建立在咽喉或颈前的唯一接触", "肩背与肘部同时收紧向上发力", "目标下颌、肩颈、躯干和脚依次响应", "目标双脚离地且发力者仍保持完整支撑链"],
+      "camera_recipe": "中全景保持双方全身和脚底同框，禁止误写成抓肩、抓衣领或押解姿势。",
+      "sound_recipe": "鞋底承重、衣领绷紧、短促呼吸和身体抬离地面的摩擦声同步。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "RAPID_CLOSE_DISTANCE_DASH",
+      "name_zh": "极速瞬身突袭",
+      "style_class": "SOURCE_AUTHORIZED_WUXIA",
+      "aliases": ["残影突袭", "瞬杀近身"],
+      "physical_phases": ["前脚蹬地且躯干前倾蓄势", "后腿伸展推动重心沿单一路径前移", "衣摆与尘气滞后于身体形成速度反馈", "主体进入对手一臂距离", "双脚重新落地而非瞬移消失"],
+      "camera_recipe": "低机位短距离平行跟随或固定轴让主体穿过画面，禁止环绕。",
+      "sound_recipe": "蹬地、衣摆破风和落脚三次声音对应三个可见事件。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "AERIAL_FORWARD_KICK",
+      "name_zh": "凌空飞踢",
+      "style_class": "SOURCE_AUTHORIZED_WUXIA",
+      "aliases": ["腾空踢击", "凌空制敌"],
+      "physical_phases": ["双脚蹬地起跳并收拢非攻击腿", "髋部朝目标旋转同时攻击腿伸展", "脚部只接触具名目标部位或明确擦空", "身体因反作用力减速或改变角动量", "攻击腿回收并以可解释落点着地"],
+      "camera_recipe": "中全景让起跳、接触和落地均可见；最多一次轻微仰拍。",
+      "sound_recipe": "蹬地、破风、接触和落地依次同步。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "REVERSE_HAND_BLOCK",
+      "name_zh": "反手格挡防御",
+      "style_class": "GROUNDED_REALISM",
+      "aliases": ["卸力格挡", "侧身防御"],
+      "physical_phases": ["防守者先收下颌并侧移重心", "前臂从身体中线外旋进入来击路径", "前臂或武器形成唯一格挡接触点", "来击力量沿防守者转髋方向被偏转", "防守者保持平衡且攻击者进入新空门"],
+      "camera_recipe": "双人中景保持攻防路径同框，接触点可小幅推进但不切断肢体归属。",
+      "sound_recipe": "落脚、衣袖和格挡接触声紧密同步。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "POWER_STRAIGHT_PUNCH",
+      "name_zh": "蓄力重拳冲击",
+      "style_class": "GROUNDED_OR_STYLIZED",
+      "aliases": ["崩拳重击", "蛮力冲击"],
+      "physical_phases": ["后脚压地、同侧髋肩后收形成短蓄势", "后脚蹬地并让髋肩肘腕顺序展开", "拳面在具名部位形成一次接触", "发力者肩背出现反作用减速且目标沿力线失衡", "双方不复位并落到明确终态"],
+      "camera_recipe": "近中景侧轴读清整条发力链，命中时只允许一次短促推进或轻微物理震动。",
+      "sound_recipe": "蹬地、呼气、衣料收紧和一次钝击同步。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "LATERAL_EVASION_FOOTWORK",
+      "name_zh": "侧身闪避走位",
+      "style_class": "GROUNDED_REALISM",
+      "aliases": ["错位躲闪", "极致身法"],
+      "physical_phases": ["目光先确认来击路径", "近侧脚向轴外跨出并压低重心", "躯干随后侧转让攻击擦过", "远侧脚补步恢复支撑面", "人物停在可反击但未自动反击的新站位"],
+      "camera_recipe": "固定轴或小幅横移，保留攻击起点、闪避路径和新站位。",
+      "sound_recipe": "脚步、衣料擦身和来击破风分别可辨。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "AERIAL_SPINNING_SLASH",
+      "name_zh": "腾空旋转斩击",
+      "style_class": "SOURCE_AUTHORIZED_WUXIA",
+      "aliases": ["旋风斩", "空转绝杀"],
+      "physical_phases": ["持武器者蹬地并将武器收在身体近侧", "髋肩带动身体与武器绕同一角动量轴旋转", "刃口沿清晰圆弧路径通过目标线", "接触或擦空后武器继续减速而非瞬停", "人物以可解释朝向和脚位落地"],
+      "camera_recipe": "中全景固定或短跟，禁止摄影机与人物同速环绕造成动作不可读。",
+      "sound_recipe": "蹬地、连续刃风、一次接触和落地声依次出现。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "LOW_SLIDING_ENTRY",
+      "name_zh": "低空滑步突袭",
+      "style_class": "SOURCE_AUTHORIZED_STYLIZED",
+      "aliases": ["贴地疾冲", "滑步近身"],
+      "physical_phases": ["双膝屈曲并把重心降到髋下", "后脚蹬地推动前脚沿地面短滑", "躯干保持在支撑面内接近目标", "滑步末端完成一次具名攻击或停入攻击距离", "前脚制动后后脚跟进恢复平衡"],
+      "camera_recipe": "贴地侧轴短跟脚步与重心，动作终点保持双方距离可读。",
+      "sound_recipe": "鞋底摩擦、衣摆低掠和制动声同步。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "CROSS_ARM_GUARD",
+      "name_zh": "双臂交叉防御",
+      "style_class": "GROUNDED_OR_STYLIZED",
+      "aliases": ["硬抗防守", "交叉守御"],
+      "physical_phases": ["双脚扩大支撑面并收紧核心", "双前臂在胸前交叉形成明确防守面", "来击只落在交叉前臂的唯一接触区", "肘肩后移并由膝髋吸收力量", "防守者保持站立或按剧本后退到明确位置"],
+      "camera_recipe": "正侧三分之二中景，同时看见来力和全身吸收反应。",
+      "sound_recipe": "接触声、鞋底摩擦和受力呼气同步。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "LEAN_BACK_EVADE_COUNTER",
+      "name_zh": "后仰规避反击",
+      "style_class": "GROUNDED_REALISM",
+      "aliases": ["避击反打", "后撤反击"],
+      "physical_phases": ["前脚保持抓地同时髋部后移", "上身从髋部后仰让攻击从面前通过", "目光持续锁定攻击者而非仰头失去目标", "攻击通过后髋肩回正", "再按剧本完成一次明确反击或保持防守"],
+      "camera_recipe": "侧面中景读清攻击与面部距离，不用慢动作拉长。",
+      "sound_recipe": "来击破风、衣料后摆、回正落脚与反击声按顺序。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "LOW_SWEEP_KICK",
+      "name_zh": "横扫腿击",
+      "style_class": "GROUNDED_REALISM",
+      "aliases": ["地扫千军", "横踢破势"],
+      "physical_phases": ["支撑脚转向并压低髋部", "攻击腿贴地沿水平弧线展开", "脚背或小腿只接触目标下肢具名部位", "目标支撑面被移出重心线并失衡", "攻击腿回收且支撑者保持可解释姿势"],
+      "camera_recipe": "低机位全景保持支撑脚、扫腿弧线和目标脚位同框。",
+      "sound_recipe": "支撑脚旋转、裤料破风、下肢接触和失衡落脚同步。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "AERIAL_COMBINATION",
+      "name_zh": "空中滞空连击",
+      "style_class": "SOURCE_AUTHORIZED_WUXIA",
+      "aliases": ["浮空连打", "凌空续招"],
+      "physical_phases": ["一次起跳建立初始角动量和高度", "空中每一招由躯干旋转或肢体回收提供下一招动力", "每个接触点和目标反应各发生一次", "高度持续下降且不凭空二次起跳", "最后一招后明确落地并吸收冲击"],
+      "camera_recipe": "中全景短跟主体下降轨迹，禁止镜头切成连续静态英雄姿势。",
+      "sound_recipe": "起跳、连续破风、有限接触和最终落地声随高度变化。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "ARMORED_BODY_CHARGE",
+      "name_zh": "蓄力霸体冲击",
+      "style_class": "SOURCE_AUTHORIZED_STYLIZED",
+      "aliases": ["霸体突进", "硬刚冲击"],
+      "physical_phases": ["双脚分开并屈膝压低重心", "肩胯对齐向前加速", "前臂或肩部在具名部位形成一次冲撞接触", "双方沿质量差异出现不同位移", "发力者减速站稳而非穿过目标"],
+      "camera_recipe": "正侧中全景读清质量差和位移，轻微震动只发生在接触瞬间。",
+      "sound_recipe": "连续脚步、压低呼吸、一次重接触和地面制动声。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "SIDE_DRAW_QUICK_SLASH",
+      "name_zh": "侧身拔刀斩",
+      "style_class": "SOURCE_AUTHORIZED_SWORDPLAY",
+      "aliases": ["瞬拔绝杀", "侧身快斩"],
+      "physical_phases": ["持鞘手固定鞘口且拔刀手握柄", "身体侧转同时刀身沿鞘口单一路径抽出", "刀刃顺势横向通过具名目标线", "腕肘肩连续减速避免刀身瞬停", "刀手落到明确护身或收势位置"],
+      "camera_recipe": "腰平中景先锁鞘口与双手，再沿刀路小幅横移。",
+      "sound_recipe": "刀身出鞘、衣料旋转和一次刃风或接触声同步。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "RETREAT_LOAD_FINISHING_STRIKE",
+      "name_zh": "后撤蓄力重击",
+      "style_class": "GROUNDED_OR_STYLIZED",
+      "aliases": ["退身蓄势", "一击必杀"],
+      "physical_phases": ["先向后撤一步拉开距离", "后脚制动并把重心与髋肩压向发力侧", "前脚重新进入并释放单次重击", "接触后双方出现相反方向的受力反馈", "发力者不重复出招并保持结果站位"],
+      "camera_recipe": "宽中景保留后撤距离和重新进入路径，不能只拍最终姿势。",
+      "sound_recipe": "后撤脚步、吸气、进入脚步、呼气和一次重击同步。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "PALM_FORCE_REPULSE",
+      "name_zh": "抬手震气击退",
+      "style_class": "SOURCE_AUTHORIZED_WUXIA",
+      "aliases": ["气劲震退", "掌风推敌"],
+      "physical_phases": ["发力者压低重心并把掌心对准目标", "肩肘腕连续向前推出而非手掌独立漂移", "可见气流只从掌前沿力线传播", "目标先在胸肩接收力量再由脚步后退", "气流衰减且双方落到具名距离"],
+      "camera_recipe": "侧轴中全景同时看清掌、力线、目标和后退脚步，禁止无因全场爆炸。",
+      "sound_recipe": "衣袖、低频气流、受力呼气和后退脚步对应可见事件。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "AGILE_LEAP_ENTRY",
+      "name_zh": "灵活跳跃突袭",
+      "style_class": "SOURCE_AUTHORIZED_STYLIZED",
+      "aliases": ["跳跃近身", "跃击突袭"],
+      "physical_phases": ["双膝屈曲并以双脚蹬地", "躯干前倾沿抛物线接近目标", "空中保持单一攻击准备姿态", "攻击或落点在目标附近唯一发生", "屈膝落地后重心稳定"],
+      "camera_recipe": "中全景跟随完整抛物线，不用推拉制造虚假位移。",
+      "sound_recipe": "蹬地、衣摆、空中破风和落地声连续。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "CLOSE_QUARTERS_COMBINATION",
+      "name_zh": "贴身缠斗快打",
+      "style_class": "GROUNDED_REALISM",
+      "aliases": ["近身互搏", "极速快招"],
+      "physical_phases": ["双方进入一臂以内并明确各自护架", "每次出手从肩胯发起且另一方完成一次格挡或闪避", "攻防手脚不交叉换主且不同时多处命中", "每个短接触立即改变下一拍站位", "组合在有限拍数后以具名控制或分离终止"],
+      "camera_recipe": "肩高近中景沿单一动作轴短跟，必要切镜必须落在接触结果后。",
+      "sound_recipe": "呼吸、脚步、衣料和有限钝击逐拍同步，禁止拟声词被说出口。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "GROUND_IMPACT_LANDING",
+      "name_zh": "落地震地重击",
+      "style_class": "SOURCE_AUTHORIZED_STYLIZED",
+      "aliases": ["坠地轰击", "裂地重击"],
+      "physical_phases": ["主体从可见高度下降并收拢四肢", "双脚或具名武器先接触地面", "膝髋屈曲吸收自身冲击", "仅在授权范围内由接触点向外传播裂纹、尘土或碎石", "主体保持支撑且环境余波逐渐衰减"],
+      "camera_recipe": "低机位中全景保留下降、接触和环境响应；接触瞬间允许一次短震。",
+      "sound_recipe": "下落风声、一次重落地、碎石和余震按可见范围衰减。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "WATER_SURFACE_WEAPON_CONTACT_STABILIZE",
+      "name_zh": "贴水兵器接触承重站稳",
+      "style_class": "EASTERN_WUXIA_INFERRED_REFERENCE",
+      "aliases": ["冰湖贴水兵器接触", "水花反馈承重"],
+      "physical_phases": ["宽刃或具名兵器沿可见斜线接近浅水或薄冰", "刃口建立唯一介质接触并立即掀起受力方向一致的水花", "持兵器者屈膝下沉让脚、髋、肩、腕形成连续承重链", "水花从峰值向两侧扩散并逐渐回落", "人物借兵器完成稳定并从低姿态站稳到具名结果状态"],
+      "camera_recipe": "先以贴水近景跟随兵器接触，再小幅抬升承接屈膝承重；下一镜可用越肩宽景重建轴线和站稳结果，不添加未显示的命中。",
+      "sound_recipe": "兵器贴水、一次水花、鞋底承重、衣料下沉与水滴回落只按可见事件同步；未提供原音时不推断对白、音乐或具体拟音。",
+      "source_authorization_required": true,
+      "reference_status": "INFERRED_RECONSTRUCTED_NOT_ORIGINAL"
+    }
+  ]
+}
