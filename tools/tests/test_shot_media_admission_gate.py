@@ -217,6 +217,113 @@ class ShotMediaAdmissionGateTests(unittest.TestCase):
             }
             self.assertEqual(precheck_submission_inputs(task, root=root)["status"], "PASS")
 
+    def test_physical_video_requires_exact_action_role_verification(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            frame = root / "frame.png"
+            frame.write_bytes(b"physical-frame")
+            frame_sha = digest(frame)
+            q1 = root / "q1.json"
+            q1.write_text(json.dumps({
+                "status": "ADMITTED",
+                "downstream_status": "ADMITTED_FOR_VIDEO_SUBMIT",
+                "asset_sha256": frame_sha,
+            }), encoding="utf-8")
+            task = {
+                "media_stage": "VIDEO",
+                "require_semantic_anchor_evidence": True,
+                "require_exact_output_action_role_evidence": True,
+                "canonical_characters": ["CHAR-A"],
+                "exact_first_frame_sha256": frame_sha,
+                "start_frame_admission_ref": str(q1),
+                "reference_image_sequence": [
+                    {"role": "character", "entity_id": "CHAR-A", "path": str(frame)}
+                ],
+            }
+            report = precheck_submission_inputs(task, root=root)
+            self.assertEqual(report["status"], "FAIL")
+            self.assertIn("Q1_ACTION_ROLE_VERIFICATION_MISSING", report["failures"])
+
+    def test_physical_video_accepts_exact_action_role_verification(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            frame = root / "frame.png"
+            frame.write_bytes(b"physical-frame")
+            frame_sha = digest(frame)
+            q1 = root / "q1.json"
+            q1.write_text(json.dumps({
+                "status": "ADMITTED",
+                "downstream_status": "ADMITTED_FOR_VIDEO_SUBMIT",
+                "asset_sha256": frame_sha,
+                "action_role_verification": {
+                    "schema": "qingshan.exact_output_action_role_verification.v1",
+                    "status": "PASS",
+                    "reviewed_asset_sha256": frame_sha,
+                    "interaction_state": "PRE_CONTACT",
+                    "initiator_entity_id": "CHAR-ATTACKER",
+                    "target_entity_id": "CHAR-A",
+                    "prop_ownership": [{
+                        "prop_id": "PROP-KNIFE",
+                        "owner_entity_id": "CHAR-ATTACKER",
+                    }],
+                    "forbidden_role_reversal": True,
+                },
+            }), encoding="utf-8")
+            task = {
+                "media_stage": "VIDEO",
+                "require_semantic_anchor_evidence": True,
+                "machine_contract": {
+                    "interaction_topology_contract": {"required": True},
+                },
+                "canonical_characters": ["CHAR-A"],
+                "exact_first_frame_sha256": frame_sha,
+                "start_frame_admission_ref": str(q1),
+                "reference_image_sequence": [
+                    {"role": "character", "entity_id": "CHAR-A", "path": str(frame)}
+                ],
+            }
+            report = precheck_submission_inputs(task, root=root)
+            self.assertEqual(report["status"], "PASS", report)
+            self.assertEqual(report["action_role_evidence_status"], "PASS")
+
+    def test_physical_video_rejects_wrong_action_sha_and_missing_target(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            frame = root / "frame.png"
+            frame.write_bytes(b"physical-frame")
+            frame_sha = digest(frame)
+            q1 = root / "q1.json"
+            q1.write_text(json.dumps({
+                "status": "ADMITTED",
+                "downstream_status": "ADMITTED_FOR_VIDEO_SUBMIT",
+                "asset_sha256": frame_sha,
+                "action_role_verification": {
+                    "schema": "qingshan.exact_output_action_role_verification.v1",
+                    "status": "PASS",
+                    "reviewed_asset_sha256": "wrong-sha",
+                    "interaction_state": "CONTACT_RESULT",
+                    "initiator_entity_id": "CHAR-ATTACKER",
+                    "target_entity_id": "",
+                    "prop_ownership": [],
+                    "forbidden_role_reversal": True,
+                },
+            }), encoding="utf-8")
+            task = {
+                "media_stage": "VIDEO",
+                "require_semantic_anchor_evidence": True,
+                "interaction_topology_contract": {"required": True},
+                "canonical_characters": ["CHAR-A"],
+                "exact_first_frame_sha256": frame_sha,
+                "start_frame_admission_ref": str(q1),
+                "reference_image_sequence": [
+                    {"role": "character", "entity_id": "CHAR-A", "path": str(frame)}
+                ],
+            }
+            report = precheck_submission_inputs(task, root=root)
+            self.assertEqual(report["status"], "FAIL")
+            self.assertIn("Q1_ACTION_ROLE_SHA_MISMATCH", report["failures"])
+            self.assertIn("Q1_ACTION_ROLE_TARGET_MISSING", report["failures"])
+
     def test_video_missing_semantic_policy_declaration_fails_loudly(self):
         task = {
             "media_stage": "VIDEO",
