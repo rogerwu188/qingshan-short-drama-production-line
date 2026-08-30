@@ -108,6 +108,23 @@ class PerformanceTempoCombatContractTest(unittest.TestCase):
         }
         self.assertEqual(evaluate_batch([task])["status"], "PASS")
 
+    def test_structured_combat_classification_precedes_semantic_grouped_flag(self):
+        task = {
+            "task_key": "COMBAT-SEMANTIC-13S",
+            "shot_type": "COMBAT",
+            "semantic_video_unit": True,
+            "action_unit": True,
+            "duration_seconds": 13,
+            "prompt": "continuous combat exchange",
+            "performance_tempo_contract": {
+                "playback_speed": "REAL_TIME_1X",
+                "primary_exchange_complete_by_seconds": 1.5,
+                "aftermath_in_same_edit_shot": False,
+                "atomic_action_windows": _windows(),
+            },
+        }
+        self.assertEqual(evaluate_batch([task])["status"], "PASS")
+
 
     def test_noncombat_atomic_action_still_rejects_duration_over_four_seconds(self):
         task = {
@@ -145,6 +162,36 @@ class PerformanceTempoCombatContractTest(unittest.TestCase):
         result = evaluate_batch([task])
         self.assertEqual(result["status"], "FAIL")
         self.assertIn("COMBAT_GENERATION_DURATION_INVALID", {row["code"] for row in result["failures"]})
+
+    def test_registered_atomic_combat_coverage_allows_single_exchange_four_seconds(self):
+        task = {
+            "task_key": "COMBAT-RC-C01",
+            "shot_type": "COMBAT",
+            "combat_generation_mode": "ATOMIC_COVERAGE_REDESIGN",
+            "coverage_redesign_origin": {
+                "replaces_failed_unit_id": "OLD",
+                "decision_ref": "qa/redesign.json",
+            },
+            "action_unit": True,
+            "duration_seconds": 4,
+            "prompt": "短刀直刺，两指横向拨开",
+            "performance_tempo_contract": {
+                "playback_speed": "REAL_TIME_1X",
+                "action_onset_by_seconds": 0.0,
+                "contact_by_seconds": 3.0,
+                "primary_exchange_complete_by_seconds": 4.0,
+                "aftermath_in_same_edit_shot": False,
+                "result_hold_seconds": 0.2,
+                "exchange_plan": [{"action": "one exchange"}],
+                "atomic_action_windows": [
+                    {"start_seconds": 0.0, "end_seconds": 1.0, "action": "thrust"},
+                    {"start_seconds": 1.0, "end_seconds": 2.0, "action": "sidestep"},
+                    {"start_seconds": 2.0, "end_seconds": 3.0, "action": "contact"},
+                    {"start_seconds": 3.0, "end_seconds": 4.0, "action": "deflect"},
+                ],
+            },
+        }
+        self.assertEqual(evaluate_batch([task])["status"], "PASS")
 
 
 if __name__ == "__main__":

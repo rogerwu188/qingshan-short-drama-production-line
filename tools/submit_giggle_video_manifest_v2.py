@@ -337,6 +337,18 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
         or task.get("incoming_transition_contract"),
         "outgoing_transition_contract": machine.get("outgoing_transition_contract")
         or task.get("outgoing_transition_contract"),
+        "action_classification": machine.get("action_classification")
+        or task.get("action_classification"),
+        "combat_or_chase": machine.get("combat_or_chase")
+        if "combat_or_chase" in machine else task.get("combat_or_chase"),
+        "fight_or_chase": machine.get("fight_or_chase")
+        if "fight_or_chase" in machine else task.get("fight_or_chase"),
+        "combat_choreography_contract": machine.get("combat_choreography_contract")
+        or task.get("combat_choreography_contract"),
+        "combat_action_library_binding": machine.get("combat_action_library_binding")
+        or task.get("combat_action_library_binding"),
+        "reference_exclusion_recomposition_rule": machine.get("reference_exclusion_recomposition_rule")
+        or task.get("reference_exclusion_recomposition_rule"),
     }
 
 

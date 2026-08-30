@@ -116,6 +116,25 @@ class GroupedPerformanceContractTest(unittest.TestCase):
         self.assertEqual(unit["dialogue_cut_safety"], cut_safety)
         self.assertEqual(unit["pose_transition_anchor_gate"], pose_gate)
 
+    def test_submission_binding_preserves_combat_library_contract(self):
+        binding = {
+            "schema": "qingshan.combat_action_library_binding.v1",
+            "canonical_match": True,
+            "move_ids": ["GROUNDED_BLADE_LUNGE"],
+            "role_bindings": {"initiator": "来人", "target": "陈迹"},
+            "library_may_invent_story_action": False,
+        }
+        choreography = {"initiator": "来人", "objective": "直刺后反扣腕"}
+        unit = grouped_sequence_unit({
+            "unit_id": "E47-COMBAT-COVERAGE",
+            "combat_or_chase": True,
+            "combat_choreography_contract": choreography,
+            "combat_action_library_binding": binding,
+        })
+        self.assertTrue(unit["combat_or_chase"])
+        self.assertEqual(unit["combat_choreography_contract"], choreography)
+        self.assertEqual(unit["combat_action_library_binding"], binding)
+
 
 if __name__ == "__main__":
     unittest.main()

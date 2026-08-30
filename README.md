@@ -60,6 +60,12 @@ Different characters may not reuse the same mapped screen slot as an implicit id
 
 Creative continuity is a pre-submission gate. Post-generation rejection is limited to technical integrity and basic plot/identity correctness; action taste, choreography preference, and micro-expression precision do not consume regeneration attempts after a technically usable result exists.
 
+## Physics-first action generation
+
+Action units are compiled through [`configs/ACTION_VIDEO_GENERATION_METHOD_V2.json`](configs/ACTION_VIDEO_GENERATION_METHOD_V2.json) and the source-faithful combat library. The shared contract locks initiator/target roles, weapon ownership, force direction, contact/evasion, target displacement, environment feedback, and terminal state before either model compiler runs. SD2 retains its existing provider-facing grammar. H3 additionally requires the first explosive action within 0.5 seconds, an explicit `feet → hips → shoulders → elbow/wrist` power path, both sides of the exchange, causally synchronized sound anchors, and rejection of handshake-like contact, slow push-hands, static tableaux, pose slideshows, loops, and reverse-force outcomes.
+
+Omni reference images are treated as semantic state anchors, not guaranteed frame interpolation. After a reviewable video-content failure, wording-only or negative-prompt-only tuning is prohibited: the next attempt must receive a new candidate ID and prompt SHA plus a material redesign of coverage, start frame/reference strategy, blocking, camera, action timeline, or provider transport. Pre-generation QA remains comprehensive; post-generation QA remains technical plus basic plot/outcome presence unless the owner explicitly requests a detailed action review.
+
 ## E47+ production-efficiency contract
 
 `tools/production_efficiency_contract.py` turns the next-episode speed policy into a fail-closed preflight instead of an informal convention. It preserves every identity, map, wardrobe, prop, sound, transition, transaction, and real-media boundary gate while removing repeat work:
