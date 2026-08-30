@@ -53,6 +53,12 @@ ATTRIBUTION_REQUIRED_CHANGE = {
 }
 CHARACTER_ROLES = frozenset({"CHARACTER", "IDENTITY", "CHARACTER_REFERENCE", "SPEAKER"})
 PROP_ROLES = frozenset({"PROP", "PROP_REFERENCE", "OBJECT", "OBJECT_REFERENCE"})
+ACTION_ROLE_VERIFICATION_SCHEMA = "qingshan.exact_output_action_role_verification.v1"
+ACTION_ROLE_STATES = frozenset({
+    "PRE_CONTACT",
+    "CONTACT_RESULT",
+    "BRIDGE_STATE_NO_ACTION_OWNER_VISIBLE",
+})
 
 
 def sha256_file(path: Path) -> str:
@@ -197,6 +203,57 @@ def _reference_bindings(task: dict[str, Any]) -> list[dict[str, Any]]:
     return [row for row in (rows or []) if isinstance(row, dict)]
 
 
+def _requires_exact_action_role_evidence(task: dict[str, Any]) -> bool:
+    """Return whether a video start frame must prove physical role topology.
+
+    Identity/scene admission cannot establish who initiates an interaction,
+    who receives it, or who owns a weapon/prop.  Physical-interaction and
+    combat units therefore opt into a separate exact-output proof that is
+    checked before any paid provider submission.
+    """
+    machine_contract = task.get("machine_contract") or {}
+    topology = (
+        task.get("interaction_topology_contract")
+        or machine_contract.get("interaction_topology_contract")
+        or {}
+    )
+    combat = task.get("combat_contract") or machine_contract.get("combat_contract") or {}
+    return bool(
+        task.get("require_exact_output_action_role_evidence") is True
+        or (isinstance(topology, dict) and topology.get("required") is True)
+        or (isinstance(combat, dict) and combat.get("required") is True)
+        or task.get("combat_unit") is True
+    )
+
+
+def _validate_action_role_verification(
+    verification: Any,
+    *,
+    expected_sha: str,
+) -> list[str]:
+    failures: list[str] = []
+    if not isinstance(verification, dict):
+        return ["Q1_ACTION_ROLE_VERIFICATION_MISSING"]
+    if verification.get("schema") != ACTION_ROLE_VERIFICATION_SCHEMA:
+        failures.append("Q1_ACTION_ROLE_VERIFICATION_INVALID")
+    if str(verification.get("status") or "").upper() != "PASS":
+        failures.append("Q1_ACTION_ROLE_VERIFICATION_INVALID")
+    reviewed_sha = str(verification.get("reviewed_asset_sha256") or "")
+    if not expected_sha or reviewed_sha != expected_sha:
+        failures.append("Q1_ACTION_ROLE_SHA_MISMATCH")
+    if str(verification.get("interaction_state") or "").upper() not in ACTION_ROLE_STATES:
+        failures.append("Q1_ACTION_ROLE_VERIFICATION_INVALID")
+    if not str(verification.get("initiator_entity_id") or ""):
+        failures.append("Q1_ACTION_ROLE_INITIATOR_MISSING")
+    if not str(verification.get("target_entity_id") or ""):
+        failures.append("Q1_ACTION_ROLE_TARGET_MISSING")
+    if verification.get("forbidden_role_reversal") is not True:
+        failures.append("Q1_ACTION_ROLE_REVERSAL_NOT_FORBIDDEN")
+    if not isinstance(verification.get("prop_ownership"), list):
+        failures.append("Q1_ACTION_ROLE_VERIFICATION_INVALID")
+    return list(dict.fromkeys(failures))
+
+
 def precheck_submission_inputs(
     task: dict[str, Any],
     asset_catalog: dict[str, Any] | None = None,
@@ -249,6 +306,10 @@ def precheck_submission_inputs(
         semantic_policy_failures.append("SEMANTIC_ANCHOR_POLICY_DISABLED_FOR_VIDEO")
     semantic_evidence_missing: list[str] = []
     semantic_evidence_invalid: list[str] = []
+    action_role_evidence_required = (
+        media_stage == "VIDEO" and _requires_exact_action_role_evidence(task)
+    )
+    action_role_evidence_failures: list[str] = []
     start_frame_admission: dict[str, Any] | None = None
     if semantic_policy and media_stage == "VIDEO":
         admission_value = task.get("start_frame_admission_ref") or task.get("q1_admission_result")
@@ -271,6 +332,13 @@ def precheck_submission_inputs(
                     semantic_evidence_invalid.append("Q1_DOWNSTREAM_STATUS_INVALID")
                 if not expected_sha or admitted_sha != expected_sha:
                     semantic_evidence_invalid.append("Q1_START_FRAME_SHA_MISMATCH")
+                if action_role_evidence_required:
+                    action_role_evidence_failures.extend(
+                        _validate_action_role_verification(
+                            start_frame_admission.get("action_role_verification"),
+                            expected_sha=expected_sha,
+                        )
+                    )
     elif semantic_policy:
         entity_rows: dict[str, list[dict[str, Any]]] = {}
         for row in bindings:
@@ -308,6 +376,7 @@ def precheck_submission_inputs(
         failures.append("SEMANTIC_ANCHOR_EVIDENCE_MISSING")
     if semantic_evidence_invalid:
         failures.append("SEMANTIC_ANCHOR_EVIDENCE_INVALID")
+    failures.extend(action_role_evidence_failures)
     status = "PASS" if not failures else ("FAIL" if enforce else "WARNING")
     return {
         "schema": "qingshan.submission_input_precheck.v2",
@@ -336,6 +405,13 @@ def precheck_submission_inputs(
         "semantic_anchor_policy_declared": semantic_policy_declared,
         "semantic_evidence_missing": semantic_evidence_missing,
         "semantic_evidence_invalid": semantic_evidence_invalid,
+        "action_role_evidence_required": action_role_evidence_required,
+        "action_role_evidence_status": (
+            "PASS" if action_role_evidence_required and not action_role_evidence_failures
+            else "FAIL" if action_role_evidence_required
+            else "NOT_REQUIRED"
+        ),
+        "action_role_evidence_failures": action_role_evidence_failures,
         "enforced": enforce,
     }
 
