@@ -175,6 +175,7 @@ class VideoPromptCompilerTest(unittest.TestCase):
         self.assertIn("肢体与接触拓扑硬锁", text)
         self.assertIn("肩→上臂→肘→前臂→腕→手掌→手指", text)
         self.assertIn("不得从门板、墙体、桌柜、衣物或画外凭空长出", text)
+        self.assertIn("不得在肩、肘或腕处被画框、门框、柱子、家具、动物或前景物裁断", text)
 
     def test_h3_combat_uses_real_motion_contract_not_reference_tableaux(self):
         unit = h3_unit()
@@ -183,6 +184,32 @@ class VideoPromptCompilerTest(unittest.TestCase):
             "primary_action": "袭击者短刀直刺，白鲤侧步格挡并反扣手腕",
             "completion_state": "短刀落地，袭击者手腕被扣在身后",
         })
+        unit["combat_choreography_contract"] = {
+            "initiator": "袭击者",
+            "objective": "右手持短刀直刺白鲤",
+            "spatial_axis": "袭击者右肩到刀尖再到白鲤胸口",
+            "causal_beats": [{
+                "attack_intent": "袭击者跨步直刺",
+                "defense_response": "白鲤侧步格挡并反扣手腕",
+                "visible_consequence": "短刀偏离攻击线并落地",
+                "end_state": "袭击者手腕被扣在身后",
+            }],
+            "terminal_state": {
+                "winner": "白鲤", "loser": "袭击者",
+                "physical_result": "短刀落地且袭击者手腕受控",
+            },
+        }
+        unit["combat_action_library_binding"] = {
+            "schema": "qingshan.combat_action_library_binding.v1",
+            "canonical_match": True,
+            "canonical_action_source_sha256": "c" * 64,
+            "move_ids": ["GROUNDED_BLADE_LUNGE", "GROUNDED_WRIST_ELBOW_WEAPON_CONTROL"],
+            "role_bindings": {
+                "initiator": "袭击者", "target": "白鲤", "weapon_or_prop_owner": "袭击者",
+                "winner": "白鲤", "loser": "袭击者",
+            },
+            "library_may_invent_story_action": False,
+        }
         text = compile_h3_prompt(unit)
         self.assertIn("打斗镜头语言硬合同", text)
         self.assertIn("不把参考图之间的姿势当作静态幻灯片", text)
