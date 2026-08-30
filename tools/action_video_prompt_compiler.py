@@ -11,6 +11,7 @@ from typing import Any
 
 CONTRACT_VERSION = "2.1.0"
 COMBAT_TYPES = {"COMBAT", "FIGHT", "ACTION_COMBAT"}
+ATOMIC_COMBAT_COVERAGE_MODE = "ATOMIC_COVERAGE_REDESIGN"
 ROOT = Path(__file__).resolve().parents[1]
 CANONICAL_COMBAT_MARKERS = (
     re.compile(r"△【打斗(?:[·・][^】]*)?】"),
@@ -74,6 +75,26 @@ def _number(value: Any, default: float = 999.0) -> float:
 def _validate_combat_contract(task: dict[str, Any], failures: list[str]) -> None:
     tempo = task.get("performance_tempo_contract") or {}
     duration = task.get("duration_seconds") or task.get("duration")
+    atomic_coverage = task.get("combat_generation_mode") == ATOMIC_COMBAT_COVERAGE_MODE
+    if atomic_coverage:
+        origin = task.get("coverage_redesign_origin") or {}
+        if not origin.get("replaces_failed_unit_id") or not origin.get("decision_ref"):
+            failures.append("ATOMIC_COMBAT_COVERAGE_REDESIGN_ORIGIN_MISSING")
+        if not isinstance(duration, (int, float)) or not 3 <= float(duration) <= 7:
+            failures.append("ATOMIC_COMBAT_COVERAGE_DURATION_MUST_BE_3_TO_7_SECONDS")
+        if _number(tempo.get("action_onset_by_seconds")) > 0.5:
+            failures.append("ATOMIC_COMBAT_ACTION_MUST_BEGIN_BY_0P5_SECONDS")
+        if _number(tempo.get("contact_by_seconds")) > 3.0:
+            failures.append("ATOMIC_COMBAT_CONTACT_MUST_BEGIN_BY_3_SECONDS")
+        if _number(tempo.get("primary_exchange_complete_by_seconds")) > float(duration or 0):
+            failures.append("ATOMIC_COMBAT_EXCHANGE_MUST_COMPLETE_WITHIN_UNIT")
+        if tempo.get("aftermath_in_same_edit_shot") is not False:
+            failures.append("COMBAT_AFTERMATH_HOLD_FORBIDDEN_IN_SAME_EDIT_SHOT")
+        if len(tempo.get("exchange_plan") or []) != 1:
+            failures.append("ATOMIC_COMBAT_COVERAGE_REQUIRES_ONE_EXCHANGE")
+        if not 3 <= len(task.get("cut_plan") or []) <= 6:
+            failures.append("ATOMIC_COMBAT_COVERAGE_REQUIRES_3_TO_6_PHYSICAL_BEATS")
+        return
     if not isinstance(duration, (int, float)) or not 8 <= float(duration) <= 15:
         failures.append("COMBAT_GENERATION_DURATION_MUST_BE_8_TO_15_SECONDS")
     if _number(tempo.get("contact_by_seconds")) > 0.2:
@@ -171,11 +192,18 @@ def compile_action_video_prompt(task: dict[str, Any]) -> str:
     combat = ""
     if _shot_type(task) in COMBAT_TYPES:
         exchanges = "；".join(str(row.get("action") or row) for row in tempo["exchange_plan"])
-        combat = (
-            "本单元是供剪辑拆分的连续打斗表演，不是一个慢镜头：0.2秒内发生接触，"
-            "1.5秒内完成第一回合并在动作击中瞬间切点；随后连续编排3至4个攻防回合，"
-            f"回合={exchanges}；成片从本段拆成4至6个短镜，余震交给下一镜，不在同一剪辑镜头停站喘气。"
-        )
+        if task.get("combat_generation_mode") == ATOMIC_COMBAT_COVERAGE_MODE:
+            combat = (
+                "本单元是失败后重新设计的原子打斗覆盖，只完成一个攻防交换，不预演后续招式："
+                f"交换={exchanges}；动作立即开始，接触、受力反馈和结果在本单元内完成，"
+                "末尾只保留不超过0.3秒的真实余动，下一覆盖单元必须使用本段真实尾帧续拍。"
+            )
+        else:
+            combat = (
+                "本单元是供剪辑拆分的连续打斗表演，不是一个慢镜头：0.2秒内发生接触，"
+                "1.5秒内完成第一回合并在动作击中瞬间切点；随后连续编排3至4个攻防回合，"
+                f"回合={exchanges}；成片从本段拆成4至6个短镜，余震交给下一镜，不在同一剪辑镜头停站喘气。"
+            )
     return (
         "以输入图片作为不可改写的第一帧。"
         f"空间继承链={task['space_chain_id']}；固定机位={task.get('camera_contract') or '保持首帧机位与轴线'}。"

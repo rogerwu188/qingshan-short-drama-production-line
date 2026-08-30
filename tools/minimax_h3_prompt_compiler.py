@@ -13,6 +13,7 @@ import re
 from typing import Any
 
 try:
+    from tools.combat_action_library import validate_binding
     from tools.dialogue_cut_safety import compile_dialogue_windows
     from tools.speaker_voice_contract import (
         speaker_voice_prompt_block,
@@ -31,6 +32,7 @@ try:
         validate_physical_prompt_binding,
     )
 except ModuleNotFoundError:
+    from combat_action_library import validate_binding
     from dialogue_cut_safety import compile_dialogue_windows
     from speaker_voice_contract import (
         speaker_voice_prompt_block,
@@ -55,6 +57,8 @@ H3_SPEECH_ISOLATION_REPAIR_PROFILE = "H3_CONCISE_QUOTED_DIALOGUE_REPAIR_V1"
 H3_SPEECH_ISOLATION_REPAIR_POLICY = "qingshan.minimax_h3_prompt.v6_concise_voice_binding_zero_text_frame"
 H3_MINIMAL_AUDIO_RESCUE_PROFILE = "H3_MINIMAL_AUDIO_RESCUE_V1"
 H3_MINIMAL_AUDIO_RESCUE_POLICY = "qingshan.minimax_h3_prompt.v6_minimal_audio_rescue_voice_binding_zero_text_frame"
+H3_CONCISE_COMBAT_REPAIR_PROFILE = "H3_CONCISE_COMBAT_REPAIR_V1"
+H3_CONCISE_COMBAT_REPAIR_POLICY = "qingshan.minimax_h3_prompt.v11_physics_path_force_vector_anti_push_hands"
 H3_ANTI_CAPTION_CLAUSE = (
     "视觉输出必须是严格零文字画面（TEXT-FREE FRAME）：台词只能作为同期人声存在，禁止把对白或提示词可视化；"
     "任何画面区域、任何帧都不得生成汉字、拼音、字母、数字、标点、字幕条、对白框、题词、标签、牌匾、"
@@ -207,8 +211,10 @@ def _shot_scale(plan: dict[str, Any] | None) -> str:
 
 def _reference_role(role: str, index: int) -> str:
     role = role.upper()
-    if index == 1 or "START" in role:
+    if "EXACT_FIRST_FRAME" in role:
         return "目标视频在0.00秒完整采用的首帧，锁定开场构图、人物、服装、道具、场景和光向"
+    if index == 1 or "START" in role:
+        return "首要开场视觉参考，锁定人物、服装、道具权属、场景、光向和初始空间关系；Omni路由不宣称像素级首帧复刻"
     if "RESULT" in role or "TERMINAL" in role or "END" in role:
         return "结果状态参考，锁定本段结束前必须到达的人物、道具和构图状态"
     if "IDENTITY" in role or "CHARACTER" in role:
@@ -465,6 +471,178 @@ def compile_h3_prompt(unit: dict[str, Any]) -> str:
     if report["status"] != "PASS":
         raise ValueError(";".join(report["failures"]))
     return text
+
+
+def compile_h3_concise_combat_repair_prompt(unit: dict[str, Any]) -> str:
+    """Compile an H3 combat retry without burying the physical chain in prose.
+
+    The full map, identity, wardrobe, transition and action-library contracts
+    remain machine-bound in the transaction manifest.  This provider-facing
+    profile emits only the observable real-time action chain, weapon ownership,
+    contact geometry and terminal state.  It is intended for a content retry
+    after a verbose prompt produced a tableau, pose slideshow or implausible
+    prop/body topology.
+    """
+    references = unit.get("reference_images") or []
+    if not is_combat_unit(unit):
+        raise ValueError("H3 concise combat repair requires a combat unit")
+    if not references or len(references) > 9:
+        raise ValueError("H3 concise combat repair requires 1-9 reference images")
+    duration = float(unit.get("duration_seconds") or 0)
+    if duration < 3 or duration > 15:
+        raise ValueError("H3 concise combat repair duration must be 3-15 seconds")
+    specs = unit.get("ordered_prompt_specs") or []
+    if not specs:
+        raise ValueError("H3 concise combat repair requires ordered prompt specs")
+    dialogues = _dialogues(unit)
+    if dialogues:
+        raise ValueError("H3 concise combat repair currently requires a silent combat unit")
+
+    bindings = (unit.get("combat_action_library_binding") or {}).get("role_bindings") or {}
+    initiator = _trim(bindings.get("initiator"))
+    target = _trim(bindings.get("target"))
+    weapon_owner = _trim(bindings.get("weapon_or_prop_owner"))
+    if not initiator or not target or not weapon_owner:
+        raise ValueError("H3 concise combat repair requires explicit combat role bindings")
+
+    timeline = _timeline(unit)
+    beat_count = len(specs)
+    beat_heading = {
+        3: "【三拍物理链】", 4: "【四拍物理链】", 5: "【五拍物理链】",
+        6: "【六拍物理链】", 7: "【七拍物理链】",
+    }.get(beat_count, "【物理链】")
+    action_rows: list[str] = []
+    for index, (spec, (start, end)) in enumerate(zip(specs, timeline), 1):
+        action = spec.get("action") or {}
+        action_rows.append(
+            f"{start:g}-{end:g}秒（第{index}拍）："
+            f"{_sanitize_visual_state(action.get('primary_action'))}；"
+            f"结果={_sanitize_visual_state(action.get('completion_state'))}；"
+            f"唯一接触={_sanitize_visual_state(action.get('contact_point'))}。"
+        )
+    transition_rows = []
+    if unit.get("incoming_transition_contract"):
+        transition_rows.append("开场承接上一单元两人直立门槛两侧的站位、视线、雨声与衣料余动，不复位。")
+    if unit.get("outgoing_transition_contract"):
+        transition_rows.append("结尾到达室内关门的真实结果，最后0.3秒只保留呼吸、衣料与雨声，供下一单元安全切入。")
+
+    contact_geometry = _trim(unit.get("combat_contact_geometry_override")) or (
+        "短刀只以小于30度的浅斜角擦过凸起木门槛侧缘，横向刮起极少木屑；绝不竖直向下，绝不剁地、扎地、劈地，"
+        "绝不把刀放大成长刀；任何刀刃或肢体都不得穿透门板、地面或人体。每拍必须有起势、位移、唯一接触、受力反馈和新站位"
+    )
+
+    atomic_coverage = unit.get("combat_generation_mode") == "ATOMIC_COVERAGE_REDESIGN"
+    sound_line = (
+        "本段无台词，所有人物闭口；只保留雨声、脚步、衣料、短刀破风和本段唯一接触声，"
+        "不提前生成木屑、撞门、跨门或关门声，无旁白、无歌唱、无外加音乐。"
+        if atomic_coverage else
+        "本段无台词，所有人物闭口；只保留雨声、脚步、衣料、短刀破风、木屑擦响、肩背触门与关门声，无旁白、无歌唱、无外加音乐。"
+    )
+
+    text = "\n".join([
+        "【H3短促打斗物理修复】",
+        f"9:16真人实拍古装悬疑短剧，{duration:g}秒，实时1倍速，连续完成一次攻防，不停顿摆姿势，不做静态图组或幻灯片。",
+        "【参考绑定】",
+        *[
+            f"@图片{index}：{_reference_role(str(ref.get('role') or ''), index)}；只锁定身份、服装、地图、道具形制和起始空间，不复制旧动作姿势。"
+            for index, ref in enumerate(references, 1)
+        ],
+        "【角色与道具权属】",
+        f"发起者={initiator}；目标={target}；短刀唯一主人={weapon_owner}。短刀始终是手掌长度的小型短刀，"
+        f"{weapon_owner}的右手始终握住刀柄；{target}只从刀身侧面偏转，不持刀、不夺刀。两人全程直立，"
+        "躯干、肩、肘、腕、手与短刀连接连续可追溯，不跪、不趴、不断肢、不多手、不换人。",
+        "【动作生成硬约束】",
+        "首个爆发动作必须在0.5秒内开始；每次攻防必须写清脚→髋→肩→肘/腕的连续传力，发起者动作与目标的防守、"
+        "受力、位移同时可见；全段只有一个既定力向，禁止产生相反方向结果；环境反馈只能紧跟可见接触发生。",
+        "【镜头】",
+        "35mm双人中全景，门槛、门板、双方躯干与四条手臂始终可读；固定轴线只横移半步跟随，不环绕、不扫景。",
+        beat_heading,
+        *action_rows,
+        "【接触几何硬锁】",
+        contact_geometry + "。",
+        "【转场】",
+        *transition_rows,
+        "【声音】",
+        sound_line,
+        "【限制】",
+        f"{H3_ANTI_CAPTION_CLAUSE}；禁止握手、掌心相对、太极推手、缓慢递手、静态站桩、图组和循环；"
+        "参考图只锁定语义状态，不宣称自动插值；不变脸、不换衣、不改地图方向、不冻结、不变速补时。",
+        "",
+    ])
+    report = validate_h3_concise_combat_repair_prompt(
+        text, source_id=str(unit.get("unit_id") or "UNKNOWN"), unit=unit
+    )
+    if report["status"] != "PASS":
+        raise ValueError(";".join(report["failures"]))
+    return text
+
+
+def validate_h3_concise_combat_repair_prompt(
+    text: str, *, source_id: str, unit: dict[str, Any]
+) -> dict[str, Any]:
+    failures: list[str] = []
+    beat_count = len(unit.get("ordered_prompt_specs") or [])
+    beat_heading = {
+        3: "【三拍物理链】", 4: "【四拍物理链】", 5: "【五拍物理链】",
+        6: "【六拍物理链】", 7: "【七拍物理链】",
+    }.get(beat_count, "【物理链】")
+    required = (
+        "【H3短促打斗物理修复】", "【参考绑定】", "【角色与道具权属】", "【动作生成硬约束】",
+        "【镜头】", beat_heading, "【接触几何硬锁】", "【转场】",
+        "【声音】", "【限制】",
+    )
+    for marker in required:
+        if text.count(marker) != 1:
+            failures.append(f"H3_COMBAT_REPAIR_MARKER_COUNT:{source_id}:{marker}:{text.count(marker)}")
+    if len(text) > 3600:
+        failures.append(f"H3_COMBAT_REPAIR_TOO_LONG:{source_id}:{len(text)}>3600")
+    for index in range(1, len(unit.get("reference_images") or []) + 1):
+        if text.count(f"@图片{index}") != 1:
+            failures.append(f"H3_COMBAT_REPAIR_REFERENCE_COUNT:{source_id}:{index}")
+    binding = unit.get("combat_action_library_binding") or {}
+    roles = binding.get("role_bindings") or {}
+    for label, field in (("发起者", "initiator"), ("目标", "target"), ("短刀唯一主人", "weapon_or_prop_owner")):
+        literal = f"{label}={_trim(roles.get(field))}"
+        if not _trim(roles.get(field)) or text.count(literal) != 1:
+            failures.append(f"H3_COMBAT_REPAIR_ROLE_BINDING:{source_id}:{field}")
+    for clause in (
+        "实时1倍速", "两人全程直立", "短刀始终是手掌长度的小型短刀",
+        "绝不剁地、扎地、劈地", "每拍必须有起势、位移、唯一接触、受力反馈和新站位",
+        "首个爆发动作必须在0.5秒内开始", "脚→髋→肩→肘/腕", "全段只有一个既定力向",
+        "禁止握手、掌心相对、太极推手、缓慢递手", "参考图只锁定语义状态，不宣称自动插值",
+        "本段无台词，所有人物闭口", H3_ANTI_CAPTION_CLAUSE,
+    ):
+        if clause not in text:
+            failures.append(f"H3_COMBAT_REPAIR_REQUIRED_CLAUSE:{source_id}:{clause[:24]}")
+    atomic_coverage = unit.get("combat_generation_mode") == "ATOMIC_COVERAGE_REDESIGN"
+    duration = float(unit.get("duration_seconds") or 0)
+    if atomic_coverage:
+        if not 3 <= beat_count <= 7:
+            failures.append(f"H3_COMBAT_REPAIR_ATOMIC_BEAT_COUNT:{source_id}:{beat_count}:expected_3_to_7")
+        if duration.is_integer() and 3 <= duration <= 7 and beat_count != int(duration):
+            failures.append(
+                f"H3_COMBAT_REPAIR_ATOMIC_BEAT_DURATION_MISMATCH:{source_id}:{beat_count}!={int(duration)}"
+            )
+    elif beat_count != 4:
+        failures.append(f"H3_COMBAT_REPAIR_REQUIRES_FOUR_BEATS:{source_id}")
+    if "无外加音乐" not in text:
+        failures.append(f"H3_COMBAT_REPAIR_EXTERNAL_MUSIC_FORBIDDEN:{source_id}")
+    if unit.get("incoming_transition_contract") and "开场承接上一单元" not in text:
+        failures.append(f"H3_COMBAT_REPAIR_INCOMING_TRANSITION_MISSING:{source_id}")
+    if unit.get("outgoing_transition_contract") and "结尾到达室内关门" not in text:
+        failures.append(f"H3_COMBAT_REPAIR_OUTGOING_TRANSITION_MISSING:{source_id}")
+    library_report = validate_binding(unit)
+    if library_report.get("status") != "PASS":
+        failures.extend(library_report.get("failures") or ["H3_COMBAT_REPAIR_LIBRARY_BINDING_REQUIRED"])
+    return {
+        "policy": H3_CONCISE_COMBAT_REPAIR_POLICY,
+        "profile": H3_CONCISE_COMBAT_REPAIR_PROFILE,
+        "status": "PASS" if not failures else "FAIL",
+        "source_id": source_id,
+        "character_count": len(text),
+        "max_character_count": 3600,
+        "failures": failures,
+    }
 
 
 def compile_h3_speech_isolation_repair_prompt(unit: dict[str, Any]) -> str:

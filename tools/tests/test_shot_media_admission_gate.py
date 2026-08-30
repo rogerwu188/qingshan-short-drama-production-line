@@ -453,6 +453,16 @@ class ShotMediaAdmissionGateTests(unittest.TestCase):
         })
         self.assertIn("SWITCH_COVERAGE_REQUIRED", report["failures"])
 
+    def test_first_video_content_failure_requires_full_coverage_redesign(self):
+        report = validate_retry_change({
+            "retry_attempt": 2,
+            "failure_attribution": "PROMPT_SEMANTICS",
+            "prior_failure_classifications": ["PROMPT_SEMANTICS"],
+            "changed_variables": ["PROMPT"],
+        })
+        self.assertEqual(report["status"], "FAIL")
+        self.assertIn("VIDEO_CONTENT_RETRY_REQUIRES_COVERAGE_REDESIGN", report["failures"])
+
     def test_model_stochastic_retry_keeps_input_unchanged(self):
         self.assertEqual(validate_retry_change({
             "failure_attribution": "MODEL_STOCHASTIC",

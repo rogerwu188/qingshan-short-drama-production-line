@@ -479,6 +479,16 @@ def validate_retry_change(task: dict[str, Any]) -> dict[str, Any]:
     same_count = int(task.get("same_attribution_consecutive_count") or 0)
     if same_count >= 2:
         failures.append("SWITCH_COVERAGE_REQUIRED")
+    # Provider entrypoints also enforce this in retry_cap_gate.  Keep the
+    # admission-level diagnostic so builders fail before they can reach a
+    # paid submission: after one video content failure, wording-only prompt
+    # edits are forbidden and the whole coverage design must be rebuilt.
+    if int(task.get("retry_attempt") or 1) > 1 and str(task.get("media_type") or "VIDEO").upper() != "IMAGE":
+        try:
+            from tools.retry_cap_gate import validate_video_coverage_redesign
+        except ModuleNotFoundError:
+            from retry_cap_gate import validate_video_coverage_redesign
+        failures.extend(validate_video_coverage_redesign(task))
     return {
         "status": "PASS" if not failures else "FAIL",
         "failure_attribution": attribution,

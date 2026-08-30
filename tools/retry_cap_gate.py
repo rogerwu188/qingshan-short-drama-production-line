@@ -34,6 +34,56 @@ TERMINAL_DECISIONS = {
     "SWITCH_COVERAGE",
     "SCRIPT_EQUIVALENT_ADJUSTMENT",
 }
+VIDEO_COVERAGE_REDESIGN_SCHEMA = "qingshan.video_coverage_prompt_redesign.v1"
+VIDEO_COVERAGE_REDESIGN_REQUIRED_VARIABLES = {
+    "PROMPT", "SHOT_STRUCTURE", "CAMERA_PLAN", "ACTION_TIMELINE", "REFERENCE_STRATEGY",
+}
+
+
+def validate_video_coverage_redesign(task: dict) -> list[str]:
+    """Require a from-scratch coverage design after the first content failure.
+
+    Provider/transport failures are exempt because they yielded no reviewable
+    media.  Image retries retain their separate ten-attempt policy.  A video
+    content retry may not pass by changing wording or negative clauses alone.
+    """
+    raw_attempt = task.get("retry_attempt", 1)
+    if not isinstance(raw_attempt, int) or isinstance(raw_attempt, bool) or raw_attempt <= 1:
+        return []
+    if str(task.get("media_type") or "VIDEO").upper() == "IMAGE":
+        return []
+    prior_classes = [str(value).upper() for value in task.get("prior_failure_classifications") or []]
+    if prior_classes and prior_classes[-1] in PROVIDER_FAILURE_CLASSES:
+        return []
+    failures: list[str] = []
+    if task.get("retry_design_mode") != "COVERAGE_REDESIGN":
+        failures.append("VIDEO_CONTENT_RETRY_REQUIRES_COVERAGE_REDESIGN")
+    contract = task.get("coverage_redesign_contract")
+    if not isinstance(contract, dict):
+        return [*failures, "VIDEO_COVERAGE_REDESIGN_CONTRACT_MISSING"]
+    if contract.get("schema") != VIDEO_COVERAGE_REDESIGN_SCHEMA:
+        failures.append("VIDEO_COVERAGE_REDESIGN_SCHEMA_INVALID")
+    if contract.get("status") != "PASS":
+        failures.append("VIDEO_COVERAGE_REDESIGN_NOT_PASS")
+    for field in (
+        "prompt_rewritten_from_scratch", "shot_structure_redesigned",
+        "camera_plan_redesigned", "action_timeline_redesigned",
+        "reference_strategy_redesigned", "micro_edit_reuse_forbidden",
+    ):
+        if contract.get(field) is not True:
+            failures.append(f"VIDEO_COVERAGE_REDESIGN_FIELD_REQUIRED:{field}")
+    prior_sha = str(contract.get("previous_design_sha256") or "")
+    current_sha = str(contract.get("design_sha256") or "")
+    for label, value in (("PREVIOUS", prior_sha), ("CURRENT", current_sha)):
+        if len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value.lower()):
+            failures.append(f"VIDEO_COVERAGE_REDESIGN_{label}_SHA_INVALID")
+    if prior_sha and current_sha and prior_sha == current_sha:
+        failures.append("VIDEO_COVERAGE_REDESIGN_UNCHANGED")
+    changed = {str(value).upper() for value in task.get("changed_variables") or []}
+    missing = sorted(VIDEO_COVERAGE_REDESIGN_REQUIRED_VARIABLES - changed)
+    if missing:
+        failures.append("VIDEO_COVERAGE_REDESIGN_VARIABLES_MISSING:" + ",".join(missing))
+    return failures
 
 
 def validate_submission_attempt(task: dict) -> list[str]:
@@ -61,6 +111,7 @@ def validate_submission_attempt(task: dict) -> list[str]:
             failures.append("SUBMISSION_ATTEMPT_ABOVE_CAP_REQUIRES_PROVIDER_FAILURE_HISTORY")
     if attempt == 1:
         return failures
+    failures.extend(validate_video_coverage_redesign(task))
     if not task.get("failure_memory"):
         failures.append("RETRY_FAILURE_MEMORY_MISSING")
     if not str(task.get("material_change_from_prior_attempt") or "").strip():
