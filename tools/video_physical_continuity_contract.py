@@ -98,7 +98,9 @@ def interaction_topology_prompt_block(unit: dict[str, Any]) -> str:
         "肢体与接触拓扑硬锁：每一只可见手都必须归属于画面内具名角色，并由该角色的肩→上臂→肘→前臂→腕→手掌→手指"
         "形成连续、自然、数量唯一的解剖链；脚腿同样必须从髋部连续连接。手、脚、武器和道具不得从门板、墙体、桌柜、衣物或"
         "画外凭空长出，不得穿透固定物，不得多肢、断肢、反关节或交换主人。发生接触时必须先看见发力者和运动路径，再发生唯一"
-        "接触点，随后出现符合受力方向的反馈与结果；遮挡只能暂时遮住连续肢体，不能改变其主人、侧别、数量或空间路径。"
+        "接触点，随后出现符合受力方向的反馈与结果；遮挡只能暂时遮住连续肢体，不能改变其主人、侧别、数量或空间路径。只要手掌"
+        "仍在画内，主人躯干以及肩到手的完整链条必须同时在构图内可追溯，不得在肩、肘或腕处被画框、门框、柱子、家具、动物或前景"
+        "物裁断成孤立手臂；如果镜头切到猫、道具或环境特写，人物手臂必须整体退出画面，不能只留下画外伸入的前臂或手掌。"
     )
 
 
@@ -156,7 +158,9 @@ def validate_physical_prompt_binding(
     if combat and text.count(combat) != 1:
         failures.append("COMBAT_CAMERA_LANGUAGE_PROMPT_NOT_EXACTLY_ONCE")
     library_report = validate_binding(unit)
-    if library_report["status"] == "FAIL":
+    if combat and library_report["status"] == "NOT_BOUND":
+        failures.append("COMBAT_ACTION_LIBRARY_BINDING_REQUIRED")
+    elif library_report["status"] == "FAIL":
         failures.extend(library_report["failures"])
     elif library_report["status"] == "PASS":
         library_text = compile_binding_prompt(unit, model_family=model_family)
