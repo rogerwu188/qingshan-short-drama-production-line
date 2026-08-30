@@ -44,8 +44,18 @@ def evaluate(payload: dict) -> dict:
             failures.append(f"canonical_face_not_pass:{dia_id}")
         if row.get("canonical_voice_verification") != "PASS":
             failures.append(f"canonical_voice_not_pass:{dia_id}")
+        if row.get("speaker_diarization_verification") != "PASS":
+            failures.append(f"speaker_diarization_not_pass:{dia_id}")
+        if row.get("visible_lip_owner_verification") != "PASS":
+            failures.append(f"visible_lip_owner_not_pass:{dia_id}")
+        if row.get("canonical_voice_similarity_verification") != "PASS":
+            failures.append(f"canonical_voice_similarity_not_pass:{dia_id}")
         if not row.get("machine_verifier") or not isinstance(row.get("confidence"), (int, float)):
             failures.append(f"machine_verifier_evidence_missing:{dia_id}")
+        if not isinstance(row.get("voice_similarity_confidence"), (int, float)):
+            failures.append(f"voice_similarity_confidence_missing:{dia_id}")
+        if not isinstance(row.get("lip_owner_confidence"), (int, float)):
+            failures.append(f"lip_owner_confidence_missing:{dia_id}")
 
         frame_path = _absolute(str(row.get("speaking_frame") or ""))
         ref_path = _absolute(str(row.get("canonical_face_reference") or ""))
@@ -63,7 +73,7 @@ def evaluate(payload: dict) -> dict:
             failures.append(f"canonical_voice_asset_mismatch:{dia_id}")
 
     return {
-        "schema": "qingshan.speaker_identity_voice_release_gate.v1",
+        "schema": "qingshan.speaker_identity_voice_release_gate.v2_diarization_lip_owner_voice_similarity",
         "episode": payload.get("episode"),
         "status": "PASS" if not failures else "FAIL",
         "required_dialogue_count": len(required_ids),

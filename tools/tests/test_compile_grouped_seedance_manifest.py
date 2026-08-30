@@ -13,6 +13,7 @@ from tools.compile_grouped_seedance_manifest import (
     validate_model_prompt,
     validate_transition_prompt_binding,
 )
+from tools.speaker_voice_contract import attach_speaker_voice_contract
 
 
 def locked_camera(label="双人中景"):
@@ -247,6 +248,13 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
             )
             for index in range(len(specs) - 1)
         ]
+        attach_speaker_voice_contract(unit, {"characters": [{
+            "character": "梁狗儿",
+            "entity_id": "lianggouer",
+            "status": "LOCKED_PRODUCTION_READY",
+            "remote_asset_id": "test-lianggouer-voice",
+            "remote_url": "https://example.invalid/lianggouer.wav",
+        }]})
 
         text = prompt_text(unit, [{"id": "PF-001"}, {"id": "PF-042"}])
         result = validate_model_prompt(text, source_id=unit["unit_id"])
@@ -262,6 +270,8 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
         self.assertNotIn("PF-", text)
         self.assertNotIn("【逐节拍完整合同】", text)
         self.assertIn("【镜头硬合同】", text)
+        self.assertIn("【角色声线与发声实体硬合同】", text)
+        self.assertIn("SD2发声实体锁：", text)
         self.assertIn("【转场硬合同】", text)
         self.assertIn("入场边界=SEQUENCE_START", text)
         self.assertIn("出场边界=SEQUENCE_END", text)

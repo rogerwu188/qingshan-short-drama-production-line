@@ -33,12 +33,28 @@ try:
         validate_internal_transition_sequence,
     )
     from tools.dialogue_cut_safety import compile_dialogue_windows
+    from tools.speaker_voice_contract import (
+        attach_speaker_voice_contract,
+        speaker_voice_prompt_block,
+        task_voice_transport,
+        validate_speaker_voice_contract,
+    )
     from tools.wardrobe_identity_contract import (
         validate_wardrobe_contract,
         wardrobe_prompt_block,
         wardrobe_rows_for_cast,
     )
     from tools.pose_transition_anchor_gate import evaluate as evaluate_pose_anchors
+    from tools.minimax_h3_prompt_compiler import (
+        compile_h3_prompt,
+        validate_h3_prompt,
+        validate_h3_transition_prompt_binding,
+    )
+    from tools.video_physical_continuity_contract import (
+        combat_prompt_block,
+        interaction_topology_prompt_block,
+        validate_physical_prompt_binding,
+    )
 except ModuleNotFoundError:  # Direct CLI execution from tools/.
     from video_prompt_action_density_gate import validate_action_timeline
     from grouped_camera_contract import (
@@ -59,16 +75,32 @@ except ModuleNotFoundError:  # Direct CLI execution from tools/.
         validate_internal_transition_sequence,
     )
     from dialogue_cut_safety import compile_dialogue_windows
+    from speaker_voice_contract import (
+        attach_speaker_voice_contract,
+        speaker_voice_prompt_block,
+        task_voice_transport,
+        validate_speaker_voice_contract,
+    )
     from wardrobe_identity_contract import (
         validate_wardrobe_contract,
         wardrobe_prompt_block,
         wardrobe_rows_for_cast,
     )
     from pose_transition_anchor_gate import evaluate as evaluate_pose_anchors
+    from minimax_h3_prompt_compiler import (
+        compile_h3_prompt,
+        validate_h3_prompt,
+        validate_h3_transition_prompt_binding,
+    )
+    from video_physical_continuity_contract import (
+        combat_prompt_block,
+        interaction_topology_prompt_block,
+        validate_physical_prompt_binding,
+    )
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODEL_PROMPT_POLICY_VERSION = "qingshan.seedance_model_prompt_complete.v6_internal_continuity"
+MODEL_PROMPT_POLICY_VERSION = "qingshan.seedance_model_prompt_complete.v7_speaker_voice_binding"
 # Giggle accepts prompts up to 10,000 characters.  Keep transport headroom but
 # never compact away cinematography, performance, visual, or sound contracts.
 MAX_MODEL_PROMPT_CHARS = 8000
@@ -283,6 +315,7 @@ def validate_model_prompt(text: str, *, source_id: str) -> dict[str, Any]:
         "【节拍】", "【同任务原生声音】", "【镜头硬合同】",
         "【视觉与现场声硬合同】", "【转场硬合同】", "【节拍内连续性硬合同】",
         "【服装身份硬合同】", "【对白安全切点】",
+        "【角色声线与发声实体硬合同】",
     )
     if any(section not in text for section in required_sections):
         failures.append(f"MODEL_PROMPT_REQUIRED_SECTION_MISSING:{source_id}")
@@ -356,6 +389,10 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
     visual_sound_line = compile_visual_sound_clause(specs)
     wardrobe_line = wardrobe_prompt_block(unit)
     dialogue_windows = compile_dialogue_windows(unit)
+    voice_contract = validate_speaker_voice_contract(unit)
+    if voice_contract["status"] != "PASS":
+        raise ValueError(";".join(voice_contract["failures"]))
+    voice_line = speaker_voice_prompt_block(unit, model_family="seedance2")
     dialogue_safety_line = (
         "本单元无对白；转场预留内只保留现场声与动作结果。"
         if not dialogue_windows
@@ -379,15 +416,18 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
         f"【天气硬合同】weather={weather}",
         "【场景与人物】" + "；".join(scene_parts) + "。使用随任务传入的参考图保持人物面孔、服装、场景和道具一致。",
         "【服装身份硬合同】" + wardrobe_line,
+        "【角色声线与发声实体硬合同】" + voice_line,
         "【镜头硬合同】" + camera_line,
         "【转场硬合同】" + compile_transition_prompt(unit),
         "【节拍内连续性硬合同】" + compile_internal_transition_prompt(unit),
         "【视觉与现场声硬合同】" + visual_sound_line,
         "【对白安全切点】" + dialogue_safety_line,
         "【表演连续性】严格按节拍内连续性硬合同执行连续动作、揭示或明确切镜；不得把不同人物变成同一个人，不得用变脸、换衣或同位置替换冒充角色交接；摄影机只执行镜头硬合同声明的运动。",
+        "【肢体与接触拓扑】" + interaction_topology_prompt_block(unit) if interaction_topology_prompt_block(unit) else "【肢体与接触拓扑】本单元无需要额外声明的肢体/道具接触。",
+        "【打斗镜头语言】" + combat_prompt_block(unit, model_family="seedance2") if combat_prompt_block(unit, model_family="seedance2") else "【打斗镜头语言】本单元不是打斗单元。",
         "【节拍】",
         *beat_lines,
-        "【同任务原生声音】精确保留上述对白及本任务生成的环境声、拟音和动作声；对白只说一次、不改词、不换说话人，无对白人物闭口；禁止 TTS、旧音轨、跨任务音轨和默认 BGM。",
+        "【同任务原生声音】精确保留上述对白及本任务生成的环境声、拟音和动作声；对白只说一次、不改词、不换说话人；每句只由角色声线硬合同指定的具名角色发声并匹配该角色口型，无对白人物闭口；禁止 TTS、旧音轨、跨任务音轨和默认 BGM。",
         "【关键限制】无字幕、水印、可读文字、人物身份漂移、静态帧、数字推拉、循环动作、冻结或变速补时；不得漏拍或重排节拍。",
     ]
     text = "\n".join(lines) + "\n"
@@ -397,6 +437,11 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
     transition_binding = validate_transition_prompt_binding(text, unit)
     if transition_binding["status"] != "PASS":
         raise ValueError(";".join(transition_binding["failures"]))
+    physical_binding = validate_physical_prompt_binding(
+        text, unit, model_family="seedance2"
+    )
+    if physical_binding["status"] != "PASS":
+        raise ValueError(";".join(physical_binding["failures"]))
     return text
 
 
@@ -430,12 +475,20 @@ def write_preflight_artifacts(
             seen_scenes.add(unit["scene_id"])
             scene_rows.append({"scene_id": unit["scene_id"], "weather": weather})
         prompt_path = prompt_dir / f"{unit['unit_id']}.txt"
-        prompt_path.write_text(prompt_text(unit, memory_rules), encoding="utf-8")
+        if unit["model"] == "MiniMax-H3":
+            compiled_prompt = compile_h3_prompt(unit)
+        else:
+            compiled_prompt = prompt_text(unit, memory_rules)
+        prompt_path.write_text(compiled_prompt, encoding="utf-8")
         prompt_sha = digest(prompt_path)
-        model_prompt_contract = validate_model_prompt(prompt_path.read_text(encoding="utf-8"), source_id=unit["unit_id"])
-        transition_prompt_binding = validate_transition_prompt_binding(
-            prompt_path.read_text(encoding="utf-8"), unit
-        )
+        if unit["model"] == "MiniMax-H3":
+            model_prompt_contract = validate_h3_prompt(
+                compiled_prompt, source_id=unit["unit_id"], unit=unit
+            )
+            transition_prompt_binding = validate_h3_transition_prompt_binding(compiled_prompt, unit)
+        else:
+            model_prompt_contract = validate_model_prompt(compiled_prompt, source_id=unit["unit_id"])
+            transition_prompt_binding = validate_transition_prompt_binding(compiled_prompt, unit)
         if transition_prompt_binding["status"] != "PASS":
             raise ValueError(";".join(transition_prompt_binding["failures"]))
         task_dialogue: list[dict[str, str]] = []
@@ -452,9 +505,29 @@ def write_preflight_artifacts(
             dialogue_rows.append({
                 "dia_id": dia_id, "video_unit_id": unit["unit_id"], "speaker": speaker.strip(),
                 "spoken_text": spoken_text.strip(), "status": "PASS",
-                "audio_mode": "RIGHTS_CLEARED_MODEL_NATIVE_TEXT_ONLY",
-                "rights_cleared_model_native": True, "external_voice_reference": False,
-                "unverified_clone_prohibited": True, "path": None, "remote_asset_id": None,
+                "speaker_id": next(
+                    row["speaker_entity_id"]
+                    for row in unit["speaker_voice_contract"]["bindings"]
+                    if row["speaker"] == speaker.strip()
+                ),
+                "audio_mode": "CANONICAL_NATIVE_VOICE_STYLE_REFERENCE_WITH_EXACT_TEXT_PROMPT",
+                "rights_cleared_model_native": True, "external_voice_reference": True,
+                "unverified_clone_prohibited": True,
+                "path": next(
+                    row.get("voice_reference")
+                    for row in unit["speaker_voice_contract"]["bindings"]
+                    if row["speaker"] == speaker.strip()
+                ),
+                "sha256": next(
+                    row.get("voice_reference_sha256")
+                    for row in unit["speaker_voice_contract"]["bindings"]
+                    if row["speaker"] == speaker.strip()
+                ),
+                "remote_asset_id": next(
+                    row["voice_reference_asset_id"]
+                    for row in unit["speaker_voice_contract"]["bindings"]
+                    if row["speaker"] == speaker.strip()
+                ),
                 "same_video_task_native_audio_required": True,
             })
         prompt_rows.append({
@@ -466,6 +539,7 @@ def write_preflight_artifacts(
             "transition_prompt_binding": transition_prompt_binding,
             "machine_contract_location": "GROUPED_MANIFEST_UNIT_FIELDS_NOT_MODEL_PROMPT",
         })
+        voice_transport = task_voice_transport(unit, task_dialogue)
         tasks.append({
             "task_key": f"{unit['unit_id']}-VIDEO-A1", "unit_id": unit["unit_id"],
             "tool_type": "video_generation", "model": unit["model"], "resolution": unit["resolution"],
@@ -476,6 +550,7 @@ def write_preflight_artifacts(
             "prompt_failure_modes_not_applicable": [],
             "model_prompt_contract": model_prompt_contract,
             "transition_prompt_binding": transition_prompt_binding,
+            **voice_transport,
             "machine_contract": {
                 "grouped_manifest_unit_id": unit["unit_id"],
                 "scene_id": unit["scene_id"],
@@ -483,6 +558,12 @@ def write_preflight_artifacts(
                 "reference_images": unit["reference_images"],
                 "action_timeline": unit["action_timeline"],
                 "ordered_prompt_specs": unit["ordered_prompt_specs"],
+                "speaker_voice_contract": unit["speaker_voice_contract"],
+                "wardrobe_contract": unit["wardrobe_contract"],
+                "dialogue_cut_safety": unit["dialogue_cut_safety"],
+                "pose_transition_anchor_gate": unit["pose_transition_anchor_gate"],
+                "editorial_shot_ids": unit["editorial_shot_ids"],
+                "internal_transition_contracts": unit["internal_transition_contracts"],
                 "camera_plan": unit["camera_plan"],
                 "incoming_transition_contract": unit.get("incoming_transition_contract"),
                 "outgoing_transition_contract": unit.get("outgoing_transition_contract"),
@@ -513,7 +594,7 @@ def write_preflight_artifacts(
     dialogue_path.write_text(json.dumps({
         "schema": "qingshan.dialogue_manifest.v1", "episode": manifest["episode"],
         "status": "PASS", "line_count": len(dialogue_rows), "rows": dialogue_rows,
-        "audio_policy": "RIGHTS_CLEARED_MODEL_NATIVE_TEXT_ONLY_SAME_VIDEO_TASK_NO_EXTERNAL_REFERENCE",
+        "audio_policy": "MODEL_NATIVE_PERFORMANCE_WITH_CANONICAL_VOICE_REFERENCE_AND_EXACT_SPEAKER_BINDING",
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     config_path.write_text(json.dumps({
         "schema": "qingshan.episode_parallel_batch.config.v1", "episode": manifest["episode"],
@@ -622,6 +703,7 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             "paid_attempt": 0,
             "remote_task_id": None,
         }
+        attach_speaker_voice_contract(compiled_unit, grouping.get("voice_bible") or {})
         compiled_unit["internal_transition_contracts"] = validate_internal_transition_sequence(compiled_unit)
         wardrobe_report = validate_wardrobe_contract(compiled_unit, source_id=unit_id)
         if wardrobe_report["status"] != "PASS":

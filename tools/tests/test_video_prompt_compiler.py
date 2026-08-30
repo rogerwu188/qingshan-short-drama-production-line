@@ -19,6 +19,7 @@ from tools.video_prompt_compiler import (
     model_family,
     validate_model_prompt_for_model,
 )
+from tools.speaker_voice_contract import attach_speaker_voice_contract
 
 
 def h3_spec(*, dialogue=""):
@@ -96,6 +97,14 @@ def h3_unit(*, dialogue="", transitions=False):
             "source_terminal_state": {"blocking": "帘布停在一侧，目光落在门口"},
             "sound_bridge": "晨风和帘布声连续进入下一段",
         }
+    if dialogue:
+        attach_speaker_voice_contract(unit, {"characters": [{
+            "character": "白鲤",
+            "entity_id": "baili",
+            "status": "LOCKED_PRODUCTION_READY",
+            "remote_asset_id": "test-baili-voice",
+            "remote_url": "https://example.invalid/baili.wav",
+        }]})
     return unit
 
 
@@ -131,11 +140,19 @@ class VideoPromptCompilerTest(unittest.TestCase):
         self.assertNotIn("“", text)
         self.assertNotIn("【节拍】", text)
         self.assertIn("白鲤（S1）", text)
+        self.assertIn("@音频1：白鲤的已登记固定声线参考", text)
+        self.assertIn("H3发声实体锁：", text)
         self.assertIn("服装身份锁：", text)
         self.assertIn("象牙白", text)
         self.assertIn("唯一的人声事件是上述<d>标签内的逐字内容", text)
         self.assertIn("overall_soundscape:", text)
         self.assertIn("non_diegetic_music:\nN/A", text)
+
+    def test_h3_dialogue_fails_closed_without_speaker_voice_contract(self):
+        unit = h3_unit(dialogue="白鲤：陈迹。")
+        unit.pop("speaker_voice_contract")
+        with self.assertRaisesRegex(ValueError, "SPEAKER_VOICE_CONTRACT"):
+            compile_h3_prompt(unit)
 
     def test_h3_silent_unit_explicitly_closes_mouths(self):
         unit = h3_unit()
@@ -145,6 +162,32 @@ class VideoPromptCompilerTest(unittest.TestCase):
         self.assertEqual(report["status"], "PASS", report["failures"])
         self.assertNotIn("<d>", text)
         self.assertIn("本段没有人声事件；所有人物全程闭口", text)
+
+    def test_h3_contact_action_binds_limb_ownership_and_occlusion_topology(self):
+        unit = h3_unit()
+        action = unit["ordered_prompt_specs"][0]["action"]
+        action.update({
+            "start_state": "陈迹右手尚未接触门闩",
+            "primary_action": "陈迹右手抬起门闩",
+            "completion_state": "陈迹右手仍连接右臂并停在门闩内侧",
+        })
+        text = compile_h3_prompt(unit)
+        self.assertIn("肢体与接触拓扑硬锁", text)
+        self.assertIn("肩→上臂→肘→前臂→腕→手掌→手指", text)
+        self.assertIn("不得从门板、墙体、桌柜、衣物或画外凭空长出", text)
+
+    def test_h3_combat_uses_real_motion_contract_not_reference_tableaux(self):
+        unit = h3_unit()
+        unit["ordered_prompt_specs"][0]["action"].update({
+            "start_state": "刀仍在袭击者袖中，双方相距一步",
+            "primary_action": "袭击者短刀直刺，白鲤侧步格挡并反扣手腕",
+            "completion_state": "短刀落地，袭击者手腕被扣在身后",
+        })
+        text = compile_h3_prompt(unit)
+        self.assertIn("打斗镜头语言硬合同", text)
+        self.assertIn("不把参考图之间的姿势当作静态幻灯片", text)
+        self.assertIn("state_target_only_no_pose_hold", text)
+        self.assertNotIn("动作完成后维持该身体与道具状态", text)
 
     def test_h3_transition_contract_is_serialized_as_semantics_not_ids(self):
         unit = h3_unit(transitions=True)

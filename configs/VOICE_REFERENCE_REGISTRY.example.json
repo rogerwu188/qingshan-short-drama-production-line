@@ -1,0 +1,14 @@
+{
+  "schema": "qingshan.voice_reference_registry.example.v1",
+  "major_roles": [
+    {
+      "character": "角色显示名",
+      "entity_id": "stable-role-id",
+      "status": "LOCKED_PRODUCTION_READY",
+      "remote_asset_id": "provider-registered-audio-asset-id-for-sd2",
+      "remote_url": "https://public.example/voice-reference-for-h3.wav",
+      "local_reference": "runtime_assets/voices/stable-role-id.wav",
+      "local_sha256": "replace-with-sha256"
+    }
+  ]
+}
