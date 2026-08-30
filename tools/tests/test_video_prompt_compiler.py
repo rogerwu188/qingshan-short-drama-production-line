@@ -3,6 +3,9 @@ from unittest.mock import patch
 
 from tools.minimax_h3_prompt_compiler import (
     H3_MODEL_PROMPT_POLICY_VERSION,
+    H3_MINIMAL_AUDIO_RESCUE_PROFILE,
+    H3_ANTI_CAPTION_CLAUSE,
+    H3_SPEECH_ISOLATION_REPAIR_PROFILE,
     compile_h3_prompt,
     validate_h3_prompt,
 )
@@ -155,6 +158,36 @@ class VideoPromptCompilerTest(unittest.TestCase):
             "PASS",
         )
 
+    def test_h3_internal_transition_rows_bind_in_exact_shot_order(self):
+        unit = h3_unit()
+        unit["ordered_prompt_specs"] = [h3_spec(), h3_spec(), h3_spec()]
+        unit["internal_transition_contracts"] = [
+            {
+                "boundary_id": "INT-ONE-TWO",
+                "transition_mode": "MATCH_CUT",
+                "action_bridge": "FIRST_UNIQUE_ACTION_BRIDGE",
+            },
+            {
+                "boundary_id": "INT-TWO-THREE",
+                "transition_mode": "MOTIVATED_CUT",
+                "action_bridge": "SECOND_UNIQUE_ACTION_BRIDGE",
+            },
+        ]
+
+        text = compile_h3_prompt(unit)
+        shot_two = text.index("[Shot 2]")
+        shot_three = text.index("[Shot 3]")
+
+        self.assertLess(shot_two, text.index("FIRST_UNIQUE_ACTION_BRIDGE"))
+        self.assertLess(text.index("FIRST_UNIQUE_ACTION_BRIDGE"), shot_three)
+        self.assertLess(shot_three, text.index("SECOND_UNIQUE_ACTION_BRIDGE"))
+        self.assertEqual(text.count("FIRST_UNIQUE_ACTION_BRIDGE"), 1)
+        self.assertEqual(text.count("SECOND_UNIQUE_ACTION_BRIDGE"), 1)
+        self.assertEqual(
+            validate_h3_prompt(text, source_id=unit["unit_id"], unit=unit)["status"],
+            "PASS",
+        )
+
     def test_h3_validator_rejects_seedance_grammar_and_unisolated_dialogue(self):
         unit = h3_unit(dialogue="白鲤：陈迹。")
         bad = compile_h3_prompt(unit).replace(
@@ -186,6 +219,50 @@ class VideoPromptCompilerTest(unittest.TestCase):
         report = validate_h3_prompt(text, source_id=unit["unit_id"], unit=unit)
         self.assertEqual(report["status"], "FAIL")
         self.assertTrue(any("H3_SPEAKABLE_META_OUTSIDE_DIALOGUE" in row for row in report["failures"]))
+
+    def test_h3_speech_isolation_repair_profile_is_terse_and_dialogue_bounded(self):
+        unit = h3_unit(dialogue="白鲤：陈迹。", transitions=True)
+        unit["h3_prompt_profile"] = H3_SPEECH_ISOLATION_REPAIR_PROFILE
+        text = compile_model_prompt(unit)
+        report = validate_model_prompt_for_model(
+            text, model="MiniMax-H3", source_id=unit["unit_id"], unit=unit
+        )
+
+        self.assertEqual(report["status"], "PASS", report["failures"])
+        self.assertIn("【唯一可发声台词】", text)
+        self.assertIn("“陈迹。”", text)
+        self.assertEqual(text.count("陈迹。"), 1)
+        self.assertIn("结尾最后1秒停止说话", text)
+        self.assertNotIn("白鲤掀开车帘并看向门口", text)
+        self.assertLess(len(text), 2400)
+
+    def test_h3_minimal_audio_rescue_has_one_literal_dialogue_and_tiny_surface(self):
+        unit = h3_unit(dialogue="白鲤：陈迹。", transitions=True)
+        unit["h3_prompt_profile"] = H3_MINIMAL_AUDIO_RESCUE_PROFILE
+        text = compile_model_prompt(unit)
+        report = validate_model_prompt_for_model(
+            text, model="MiniMax-H3", source_id=unit["unit_id"], unit=unit
+        )
+
+        self.assertEqual(report["status"], "PASS", report["failures"])
+        self.assertEqual(text.count("陈迹。"), 1)
+        self.assertIn("白鲤（克制自然）：“陈迹。”", text)
+        self.assertIn(H3_ANTI_CAPTION_CLAUSE, text)
+        self.assertNotIn("【声音隔离】", text)
+        self.assertLess(len(text), 700)
+
+    def test_h3_all_profiles_fail_closed_without_zero_text_frame_contract(self):
+        for profile in (None, H3_SPEECH_ISOLATION_REPAIR_PROFILE, H3_MINIMAL_AUDIO_RESCUE_PROFILE):
+            unit = h3_unit(dialogue="白鲤：陈迹。", transitions=True)
+            if profile:
+                unit["h3_prompt_profile"] = profile
+            text = compile_model_prompt(unit)
+            weakened = text.replace(H3_ANTI_CAPTION_CLAUSE, "画面尽量不要有字幕")
+            report = validate_model_prompt_for_model(
+                weakened, model="MiniMax-H3", source_id=unit["unit_id"], unit=unit
+            )
+            self.assertEqual(report["status"], "FAIL", profile)
+            self.assertTrue(any("CAPTION" in failure or "VISIBLE_TEXT" in failure for failure in report["failures"]))
 
     def test_h3_adult_female_visual_is_explicitly_adult_and_model_specific(self):
         unit = h3_unit()
