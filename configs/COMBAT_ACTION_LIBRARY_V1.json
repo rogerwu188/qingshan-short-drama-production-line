@@ -1,7 +1,8 @@
 {
   "schema": "qingshan.combat_action_library.v1",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "purpose": "Source-faithful physical recipes for compiling readable combat. Library moves serialize an authorized canonical action; they never authorize a new action, power, weapon, injury or outcome.",
+  "action_generation_method_ref": "configs/ACTION_VIDEO_GENERATION_METHOD_V2.json",
   "reference_lineage": {
     "status": "INFERRED_RECONSTRUCTED_NOT_ORIGINAL",
     "profiles": ["EASTERN_WUXIA", "EASTERN_KUNGFU"],
@@ -23,6 +24,9 @@
     ],
     "camera_rule": "One motivated camera job per physical beat; keep the action axis readable and make cuts only after a contact/result or to reveal new causal information.",
     "sound_rule": "Synchronize footwork, cloth, weapon air movement, contact, breath and environment response to their visible causes.",
+    "force_direction_rule": "Compile one explicit force vector and the target's corresponding displacement; forbid the reverse vector when it would invert the canonical result.",
+    "h3_execution_rule": "Start the first explosive action within 0.5 seconds and state feet-to-hips-to-shoulders-to-elbow-or-wrist power transfer, both sides of the exchange, environment response and terminal state. References are semantic anchors, not guaranteed interpolation.",
+    "retry_redesign_rule": "After one content failure, create a new candidate and prompt SHA with a material redesign; never micro-tune or repost the same prompt.",
     "forbidden": [
       "inventing combat absent from canonical source",
       "swapping initiator target winner loser or weapon owner",
@@ -66,6 +70,25 @@
       "physical_phases": ["承接上一拍既有接触不复位", "控制者一手限制持刀腕另一手控制肘线", "髋部转向并以身体重量下压刀路", "持刀者肩肘随受力屈曲失去进攻线", "刀尖、门槛和两人站位落到具名终态"],
       "camera_recipe": "同轴横移半步保持腕、肘、刀柄、刀尖同框，结果落稳后才切镜。",
       "sound_recipe": "鞋底摩擦、衣袖绞紧、刀身碰触固定物的声音逐次对应。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "GROUNDED_FINGER_INTERCEPT_TO_REVERSE_WRIST_PIN",
+      "name_zh": "夹刃后反扣腕压门",
+      "style_class": "GROUNDED_REALISM",
+      "aliases": [
+        "两指夹刃后的反制",
+        "反拧手腕按门"
+      ],
+      "physical_phases": [
+        "承接拦截者两指仍在刀尖侧面的既有接触且持刀者仍握刀柄",
+        "持刀者用空着的另一只手沿可见路径扣住拦截者手腕",
+        "持刀者转髋沉肩并反向旋转该手腕，拦截者肘肩随关节受力转向",
+        "拦截者躯干被连续带向门板并以肩背承受一次可见接触反馈",
+        "持刀者保持反扣关系跨过门槛进入室内并把门带上"
+      ],
+      "camera_recipe": "双人中全景固定门槛轴，始终同框显示两人躯干、两侧肩肘腕、刀柄刀身与门板；接触处只允许一次短促推进，结果落稳后再切。",
+      "sound_recipe": "刀尖触木、手掌扣腕、鞋底转髋、肩背碰门与门轴闭合按因果顺序出现。",
       "source_authorization_required": true
     },
     {

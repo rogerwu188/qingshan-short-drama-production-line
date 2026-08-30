@@ -2,8 +2,10 @@ import hashlib
 import unittest
 
 from tools.combat_action_library import (
+    DEFAULT_ACTION_METHOD,
     DEFAULT_LIBRARY,
     compile_binding_prompt,
+    load_action_video_method,
     load_library,
     validate_binding,
 )
@@ -20,12 +22,20 @@ class CombatActionLibraryTest(unittest.TestCase):
         self.assertIn("极速瞬身突袭", names)
         self.assertIn("贴身缠斗快打", names)
         self.assertIn("两指夹刃卸力", names)
+        self.assertIn("夹刃后反扣腕压门", names)
         self.assertIn("贴水兵器接触承重站稳", names)
         self.assertEqual(
             library["reference_lineage"]["status"],
             "INFERRED_RECONSTRUCTED_NOT_ORIGINAL",
         )
         self.assertEqual(library["sha256"], hashlib.sha256(DEFAULT_LIBRARY.read_bytes()).hexdigest())
+
+    def test_action_video_method_forbids_prompt_micro_tuning(self):
+        method = load_action_video_method()
+        self.assertEqual(method["version"], "2.0.0")
+        self.assertEqual(method["h3_execution_contract"]["must_state_power_path"], "脚→髋→肩→肘/腕")
+        self.assertTrue(method["failure_redesign_contract"]["same_prompt_micro_tuning_forbidden"])
+        self.assertEqual(method["sha256"], hashlib.sha256(DEFAULT_ACTION_METHOD.read_bytes()).hexdigest())
 
     def test_binding_fails_closed_when_story_invention_is_not_forbidden(self):
         unit = {
@@ -86,6 +96,10 @@ class CombatActionLibraryTest(unittest.TestCase):
         self.assertIn("袖中短刀直刺/GROUNDED_BLADE_LUNGE", text)
         self.assertIn("两指夹刃卸力/GROUNDED_TWO_FINGER_BLADE_INTERCEPT", text)
         self.assertIn("动作库只翻译已授权剧情", text)
+        self.assertIn("首个爆发动作0.5秒内发生", text)
+        self.assertIn("脚→髋→肩→肘/腕", text)
+        self.assertIn("禁止握手、掌心相对、太极推手、缓慢递手", text)
+        self.assertIn("参考图只作为语义锚点，不宣称自动插值", text)
         self.assertIn("禁止字幕、UI、来源身份、IP名称和文字拟声", text)
         self.assertEqual(text.count(compile_binding_prompt(unit, model_family="minimax-h3")), 1)
 
