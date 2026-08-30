@@ -111,6 +111,21 @@ def _objective_p0_pass(
         decisions = verification.get("decisions") or []
         if not decisions or any(str(row.get("decision") or "") != "PASS" for row in decisions):
             return False, "p0_identity_sample_decision_not_pass"
+        expected_entities = {
+            str(value) for value in verification.get("canonical_characters") or [] if value
+        }
+        verified_entities = {
+            str(row.get("character_id") or row.get("entity_id") or "")
+            for row in decisions if isinstance(row, dict)
+        }
+        if expected_entities and not expected_entities.issubset(verified_entities):
+            return False, "p0_identity_canonical_character_coverage_incomplete"
+        output_sha = str(verification.get("output_sha256") or "")
+        if output_sha and any(
+            str(row.get("output_sha256") or output_sha) != output_sha
+            for row in decisions if isinstance(row, dict)
+        ):
+            return False, "p0_identity_decision_output_sha_mismatch"
         if int(verification.get("canonical_views_min") or 0) < int(parameters.get("canonical_views_min", 3)):
             return False, "p0_identity_canonical_views_below_registry"
         if int(verification.get("sample_frames_per_source_min") or 0) < int(

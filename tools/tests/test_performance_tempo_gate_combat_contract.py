@@ -54,6 +54,30 @@ class PerformanceTempoCombatContractTest(unittest.TestCase):
         self.assertEqual(result["status"], "FAIL")
         self.assertIn("GROUPED_EDITORIAL_BEAT_DURATION_INVALID", {row["code"] for row in result["failures"]})
 
+    def test_semantic_grouped_chinese_knife_exchange_cannot_bypass_combat_gate(self):
+        task = {
+            "task_key": "GROUPED-KNIFE",
+            "shot_type": "SEMANTIC_GROUPED_SCENE_PERFORMANCE",
+            "semantic_video_unit": True,
+            "action_unit": True,
+            "duration_seconds": 6,
+            "prompt": "短刀直刺胸口，两指捏住刀尖后反拧手腕",
+            "performance_tempo_contract": {
+                "playback_speed": "REAL_TIME_1X",
+                "grouped_editorial_beat_count": 2,
+                "atomic_action_windows": [
+                    {"start_seconds": 0.0, "end_seconds": 3.0, "action": "短刀直刺"},
+                    {"start_seconds": 3.0, "end_seconds": 6.0, "action": "捏住刀尖"},
+                ],
+            },
+        }
+        result = evaluate_batch([task])
+        codes = {row["code"] for row in result["failures"]}
+        self.assertEqual(result["status"], "FAIL")
+        self.assertIn("GROUPED_EDITORIAL_BEAT_DURATION_INVALID", codes)
+        self.assertIn("GROUPED_COMBAT_CONTINUOUS_REAL_TIME_LOCK_MISSING", codes)
+        self.assertIn("GROUPED_COMBAT_TABLEAU_FORBIDDEN_LOCK_MISSING", codes)
+
     def test_dialogue_performance_is_not_misclassified_as_atomic_action(self):
         task = {
             "task_key": "DIALOGUE-8S",

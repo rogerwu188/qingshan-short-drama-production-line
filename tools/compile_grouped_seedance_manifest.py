@@ -50,6 +50,11 @@ try:
         validate_h3_prompt,
         validate_h3_transition_prompt_binding,
     )
+    from tools.video_physical_continuity_contract import (
+        combat_prompt_block,
+        interaction_topology_prompt_block,
+        validate_physical_prompt_binding,
+    )
 except ModuleNotFoundError:  # Direct CLI execution from tools/.
     from video_prompt_action_density_gate import validate_action_timeline
     from grouped_camera_contract import (
@@ -86,6 +91,11 @@ except ModuleNotFoundError:  # Direct CLI execution from tools/.
         compile_h3_prompt,
         validate_h3_prompt,
         validate_h3_transition_prompt_binding,
+    )
+    from video_physical_continuity_contract import (
+        combat_prompt_block,
+        interaction_topology_prompt_block,
+        validate_physical_prompt_binding,
     )
 
 
@@ -413,6 +423,8 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
         "【视觉与现场声硬合同】" + visual_sound_line,
         "【对白安全切点】" + dialogue_safety_line,
         "【表演连续性】严格按节拍内连续性硬合同执行连续动作、揭示或明确切镜；不得把不同人物变成同一个人，不得用变脸、换衣或同位置替换冒充角色交接；摄影机只执行镜头硬合同声明的运动。",
+        "【肢体与接触拓扑】" + interaction_topology_prompt_block(unit) if interaction_topology_prompt_block(unit) else "【肢体与接触拓扑】本单元无需要额外声明的肢体/道具接触。",
+        "【打斗镜头语言】" + combat_prompt_block(unit, model_family="seedance2") if combat_prompt_block(unit, model_family="seedance2") else "【打斗镜头语言】本单元不是打斗单元。",
         "【节拍】",
         *beat_lines,
         "【同任务原生声音】精确保留上述对白及本任务生成的环境声、拟音和动作声；对白只说一次、不改词、不换说话人；每句只由角色声线硬合同指定的具名角色发声并匹配该角色口型，无对白人物闭口；禁止 TTS、旧音轨、跨任务音轨和默认 BGM。",
@@ -425,6 +437,11 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
     transition_binding = validate_transition_prompt_binding(text, unit)
     if transition_binding["status"] != "PASS":
         raise ValueError(";".join(transition_binding["failures"]))
+    physical_binding = validate_physical_prompt_binding(
+        text, unit, model_family="seedance2"
+    )
+    if physical_binding["status"] != "PASS":
+        raise ValueError(";".join(physical_binding["failures"]))
     return text
 
 

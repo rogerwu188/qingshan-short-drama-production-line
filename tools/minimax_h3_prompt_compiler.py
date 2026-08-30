@@ -23,6 +23,13 @@ try:
         validate_wardrobe_contract,
         wardrobe_prompt_block,
     )
+    from tools.video_physical_continuity_contract import (
+        combat_prompt_block,
+        enrich_unit_contract,
+        interaction_topology_prompt_block,
+        is_combat_unit,
+        validate_physical_prompt_binding,
+    )
 except ModuleNotFoundError:
     from dialogue_cut_safety import compile_dialogue_windows
     from speaker_voice_contract import (
@@ -34,9 +41,16 @@ except ModuleNotFoundError:
         validate_wardrobe_contract,
         wardrobe_prompt_block,
     )
+    from video_physical_continuity_contract import (
+        combat_prompt_block,
+        enrich_unit_contract,
+        interaction_topology_prompt_block,
+        is_combat_unit,
+        validate_physical_prompt_binding,
+    )
 
 
-H3_MODEL_PROMPT_POLICY_VERSION = "qingshan.minimax_h3_prompt.v6_dialogue_isolation_voice_binding_zero_text_frame"
+H3_MODEL_PROMPT_POLICY_VERSION = "qingshan.minimax_h3_prompt.v7_physical_continuity_combat_dialogue_isolation"
 H3_SPEECH_ISOLATION_REPAIR_PROFILE = "H3_CONCISE_QUOTED_DIALOGUE_REPAIR_V1"
 H3_SPEECH_ISOLATION_REPAIR_POLICY = "qingshan.minimax_h3_prompt.v6_concise_voice_binding_zero_text_frame"
 H3_MINIMAL_AUDIO_RESCUE_PROFILE = "H3_MINIMAL_AUDIO_RESCUE_V1"
@@ -271,7 +285,7 @@ def _performance_sentence(spec: dict[str, Any]) -> str:
     return f"{'、'.join(cast)}的表演保持克制；" + "；".join(clauses[:3]) if clauses else ""
 
 
-def _visual_action(spec: dict[str, Any]) -> str:
+def _visual_action(spec: dict[str, Any], *, combat: bool = False) -> str:
     action = spec.get("action") or {}
     start = _sanitize_visual_state(action.get("start_state"))
     primary = _sanitize_visual_state(action.get("primary_action"))
@@ -286,9 +300,13 @@ def _visual_action(spec: dict[str, Any]) -> str:
             primary = ""
     if start and result and start != result:
         if primary:
-            return f"从{start}开始，{primary}，动作连续到达{result}并保持"
-        return f"从{start}开始，动作连续到达{result}并保持"
+            tail = "，随后立即推进下一攻防拍" if combat else "并保持"
+            return f"从{start}开始，{primary}，动作连续到达{result}{tail}"
+        tail = "，随后立即推进下一攻防拍" if combat else "并保持"
+        return f"从{start}开始，动作连续到达{result}{tail}"
     if result:
+        if combat:
+            return f"{primary or result}；该攻防结果只作为下一拍起点，不停住摆姿势"
         return f"{primary or result}；动作完成后维持该身体与道具状态"
     return primary
 
@@ -316,6 +334,7 @@ def compile_h3_prompt(unit: dict[str, Any]) -> str:
     """Serialize a model-neutral grouped unit as H3 full-reference prompt text."""
     if str(unit.get("model") or "MiniMax-H3").lower() not in {"minimax-h3", "h3"}:
         raise ValueError("compile_h3_prompt only accepts MiniMax-H3 units")
+    enrich_unit_contract(unit)
     specs = unit.get("ordered_prompt_specs") or []
     if not specs:
         raise ValueError("H3 unit has no ordered_prompt_specs")
@@ -332,6 +351,7 @@ def compile_h3_prompt(unit: dict[str, Any]) -> str:
     h3_adult_female = model_specific_adult_female_visual_block(
         unit, target_video_model="MiniMax-H3"
     )
+    combat = is_combat_unit(unit)
     first_scene = specs[0].get("scene_state") or {}
     cast = _unique([
         str(row.get("character") or "")
@@ -356,10 +376,16 @@ def compile_h3_prompt(unit: dict[str, Any]) -> str:
         f"关键道具为{'、'.join(props)}" if props else "不新增无关道具",
         "@图片1锁定首帧，其余参考图只锁定各自对应的人物、道具或结果状态",
     ]
-    retention = [
-        f"@图片{index}：fully_preserved - {_reference_role(str(ref.get('role') or ''), index)}。"
-        for index, ref in enumerate(references, 1)
-    ]
+    retention = []
+    for index, ref in enumerate(references, 1):
+        role_text = _reference_role(str(ref.get("role") or ""), index)
+        if combat and index > 1:
+            retention.append(
+                f"@图片{index}：state_target_only_no_pose_hold - {role_text}；"
+                "只锁定身份、空间、接触结果和构图目标，不把该静帧姿势插值成停顿或幻灯片。"
+            )
+        else:
+            retention.append(f"@图片{index}：fully_preserved - {role_text}。")
 
     description: list[str] = [
         "目标视频为真人实拍、写实古装悬疑电影质感，保持同一人物身份、服装、场景地图、道具、天气和光向。",
@@ -371,11 +397,20 @@ def compile_h3_prompt(unit: dict[str, Any]) -> str:
     ]
     if h3_adult_female:
         description.insert(2, h3_adult_female)
+    exclusion_rule = _trim(unit.get("reference_exclusion_recomposition_rule"))
+    if exclusion_rule:
+        description.append(f"排除参考重构锁：{exclusion_rule}。")
+    topology_block = interaction_topology_prompt_block(unit)
+    if topology_block:
+        description.append(topology_block)
+    fight_block = combat_prompt_block(unit, model_family="minimax-h3")
+    if fight_block:
+        description.append(fight_block)
     for index, (spec, (start, end)) in enumerate(zip(specs, timeline), start=1):
         prefix = "" if index == 1 else (
             f"[Shot {index}] At {_clock(start)}, {_internal_transition(unit, index - 1)}。"
         )
-        action = _visual_action(spec)
+        action = _visual_action(spec, combat=combat)
         performance = _performance_sentence(spec)
         sentence = f"{prefix}{action}。"
         if performance:
@@ -682,6 +717,10 @@ def validate_h3_prompt(
                 failures.append(f"H3_SILENT_UNIT_RULE_MISSING:{source_id}")
         transition = validate_h3_transition_prompt_binding(text, unit)
         failures.extend(transition["failures"])
+        physical = validate_physical_prompt_binding(
+            text, unit, model_family="minimax-h3"
+        )
+        failures.extend(physical["failures"])
         internal_rows = unit.get("internal_transition_contracts") or []
         for index, row in enumerate(internal_rows, start=1):
             note = _internal_transition(unit, index)

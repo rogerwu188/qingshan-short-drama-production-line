@@ -85,6 +85,25 @@ class ShotMediaAdmissionGateTests(unittest.TestCase):
             self.assertEqual(report["status"], "ADMITTED", report["failures"])
             self.assertEqual(report["downstream_status"], "ADMITTED_FOR_VIDEO_SUBMIT")
 
+    def test_identity_evidence_must_cover_every_declared_character(self):
+        with TemporaryDirectory() as directory:
+            payload = self.fixture(Path(directory))
+            identity = next(
+                row for row in payload["evidence"]
+                if row["gate_id"] == "CHARACTER-IDENTITY-ADMISSION"
+            )
+            evidence_path = Path(identity["evidence_path"])
+            evidence_payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+            evidence_payload["objective_verification"]["canonical_characters"] = ["CHAR-A", "CHAR-B"]
+            evidence_path.write_text(json.dumps(evidence_payload), encoding="utf-8")
+            identity["evidence_sha256"] = digest(evidence_path)
+            report = evaluate(payload, self.registry, Path(directory))
+            self.assertEqual(report["status"], "FAIL")
+            self.assertTrue(any(
+                "p0_identity_canonical_character_coverage_incomplete" in row
+                for row in report["failures"]
+            ))
+
     def test_advisory_and_unregistered_metric_cannot_admit_or_block(self):
         with TemporaryDirectory() as directory:
             payload = self.fixture(Path(directory))

@@ -163,6 +163,32 @@ class VideoPromptCompilerTest(unittest.TestCase):
         self.assertNotIn("<d>", text)
         self.assertIn("本段没有人声事件；所有人物全程闭口", text)
 
+    def test_h3_contact_action_binds_limb_ownership_and_occlusion_topology(self):
+        unit = h3_unit()
+        action = unit["ordered_prompt_specs"][0]["action"]
+        action.update({
+            "start_state": "陈迹右手尚未接触门闩",
+            "primary_action": "陈迹右手抬起门闩",
+            "completion_state": "陈迹右手仍连接右臂并停在门闩内侧",
+        })
+        text = compile_h3_prompt(unit)
+        self.assertIn("肢体与接触拓扑硬锁", text)
+        self.assertIn("肩→上臂→肘→前臂→腕→手掌→手指", text)
+        self.assertIn("不得从门板、墙体、桌柜、衣物或画外凭空长出", text)
+
+    def test_h3_combat_uses_real_motion_contract_not_reference_tableaux(self):
+        unit = h3_unit()
+        unit["ordered_prompt_specs"][0]["action"].update({
+            "start_state": "刀仍在袭击者袖中，双方相距一步",
+            "primary_action": "袭击者短刀直刺，白鲤侧步格挡并反扣手腕",
+            "completion_state": "短刀落地，袭击者手腕被扣在身后",
+        })
+        text = compile_h3_prompt(unit)
+        self.assertIn("打斗镜头语言硬合同", text)
+        self.assertIn("不把参考图之间的姿势当作静态幻灯片", text)
+        self.assertIn("state_target_only_no_pose_hold", text)
+        self.assertNotIn("动作完成后维持该身体与道具状态", text)
+
     def test_h3_transition_contract_is_serialized_as_semantics_not_ids(self):
         unit = h3_unit(transitions=True)
         text = compile_h3_prompt(unit)

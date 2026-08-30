@@ -6,6 +6,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+try:
+    from tools.video_physical_continuity_contract import is_combat_unit
+except ModuleNotFoundError:
+    from video_physical_continuity_contract import is_combat_unit
+
 
 ACTION_CUES = (
     "fight", "combat", "attack", "lunge", "intercept", "strike", "punch",
@@ -45,7 +50,9 @@ def _looks_like_action(task: dict[str, Any], text: str) -> bool:
 
 
 def _fight_or_chase(text: str, task: dict[str, Any]) -> bool:
-    return bool(task.get("combat_choreography_contract")) or any(cue in text for cue in FIGHT_PURPOSE_CUES)
+    # Keep the legacy literal cues, but do not let Chinese physical exchanges
+    # hidden inside a semantic grouped unit evade combat classification.
+    return is_combat_unit(task) or any(cue in text for cue in FIGHT_PURPOSE_CUES)
 
 
 def _evaluate_atomic_windows(key: str, contract: dict[str, Any], *, fight_or_chase: bool) -> list[dict[str, Any]]:
@@ -111,6 +118,10 @@ def evaluate_batch(tasks: list[dict[str, Any]]) -> dict[str, Any]:
                 failures.append({"code": "GROUPED_EDITORIAL_BEAT_WINDOWS_MISSING", "task_key": key})
                 continue
             previous_end = 0.0
+            maximum_grouped_beat = (
+                MAX_FIGHT_BEAT_SECONDS if fight_or_chase
+                else MAX_GROUPED_EDITORIAL_BEAT_SECONDS
+            )
             for index, window in enumerate(windows, 1):
                 try:
                     start = float(window["start_seconds"])
@@ -120,11 +131,17 @@ def evaluate_batch(tasks: list[dict[str, Any]]) -> dict[str, Any]:
                     continue
                 if start < previous_end - 0.01 or start - previous_end > MAX_ACTION_IDLE_GAP_SECONDS:
                     failures.append({"code": "GROUPED_EDITORIAL_BEAT_SEQUENCE_GAP_OR_OVERLAP", "task_key": key, "index": index})
-                if end <= start or end - start > MAX_GROUPED_EDITORIAL_BEAT_SECONDS + 0.01:
-                    failures.append({"code": "GROUPED_EDITORIAL_BEAT_DURATION_INVALID", "task_key": key, "index": index, "actual_seconds": round(end - start, 3)})
+                if end <= start or end - start > maximum_grouped_beat + 0.01:
+                    failures.append({"code": "GROUPED_EDITORIAL_BEAT_DURATION_INVALID", "task_key": key, "index": index, "actual_seconds": round(end - start, 3), "maximum_seconds": maximum_grouped_beat})
                 previous_end = max(previous_end, end)
             if int(contract.get("grouped_editorial_beat_count") or 0) != len(windows):
                 failures.append({"code": "GROUPED_EDITORIAL_BEAT_COUNT_MISMATCH", "task_key": key})
+            if fight_or_chase:
+                failures.extend(_evaluate_atomic_windows(key, contract, fight_or_chase=True))
+                if contract.get("continuous_real_time_combat") is not True:
+                    failures.append({"code": "GROUPED_COMBAT_CONTINUOUS_REAL_TIME_LOCK_MISSING", "task_key": key})
+                if contract.get("tableau_or_pose_slideshow_forbidden") is not True:
+                    failures.append({"code": "GROUPED_COMBAT_TABLEAU_FORBIDDEN_LOCK_MISSING", "task_key": key})
             continue
         if structured_combat:
             first_exchange = float(contract.get("primary_exchange_complete_by_seconds") or 0.0)
