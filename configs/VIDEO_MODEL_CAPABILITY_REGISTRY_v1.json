@@ -26,7 +26,17 @@
         "image_to_video": true,
         "exact_first_frame": true,
         "multiple_image_references": true,
-        "audio_reference": true
+        "audio_reference": true,
+        "canonical_voice_reference_binding": true,
+        "named_speaker_entity_binding": true,
+        "postgen_speaker_diarization_gate": true,
+        "postgen_visible_lip_owner_gate": true
+      },
+      "dialogue_contract": {
+        "speaker_voice_contract_required": true,
+        "distinct_audio_slot_per_speaker": true,
+        "model_native_text_only_without_voice_reference_forbidden": true,
+        "human_listening_exception_without_machine_evidence_forbidden": true
       },
       "provider_limits": {
         "duration_seconds_min": 4,
@@ -74,7 +84,17 @@
         "exact_end_frame": true,
         "multiple_image_references": true,
         "audio_reference": true,
-        "video_reference": true
+        "video_reference": true,
+        "canonical_voice_reference_binding": true,
+        "named_speaker_entity_binding": true,
+        "postgen_speaker_diarization_gate": true,
+        "postgen_visible_lip_owner_gate": true
+      },
+      "dialogue_contract": {
+        "speaker_voice_contract_required": true,
+        "distinct_audio_slot_per_speaker": true,
+        "model_native_text_only_without_voice_reference_forbidden": true,
+        "human_listening_exception_without_machine_evidence_forbidden": true
       },
       "provider_limits": {
         "duration_seconds_min": 3,

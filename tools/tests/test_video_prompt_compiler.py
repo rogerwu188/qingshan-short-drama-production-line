@@ -19,6 +19,7 @@ from tools.video_prompt_compiler import (
     model_family,
     validate_model_prompt_for_model,
 )
+from tools.speaker_voice_contract import attach_speaker_voice_contract
 
 
 def h3_spec(*, dialogue=""):
@@ -96,6 +97,14 @@ def h3_unit(*, dialogue="", transitions=False):
             "source_terminal_state": {"blocking": "帘布停在一侧，目光落在门口"},
             "sound_bridge": "晨风和帘布声连续进入下一段",
         }
+    if dialogue:
+        attach_speaker_voice_contract(unit, {"characters": [{
+            "character": "白鲤",
+            "entity_id": "baili",
+            "status": "LOCKED_PRODUCTION_READY",
+            "remote_asset_id": "test-baili-voice",
+            "remote_url": "https://example.invalid/baili.wav",
+        }]})
     return unit
 
 
@@ -131,11 +140,19 @@ class VideoPromptCompilerTest(unittest.TestCase):
         self.assertNotIn("“", text)
         self.assertNotIn("【节拍】", text)
         self.assertIn("白鲤（S1）", text)
+        self.assertIn("@音频1：白鲤的已登记固定声线参考", text)
+        self.assertIn("H3发声实体锁：", text)
         self.assertIn("服装身份锁：", text)
         self.assertIn("象牙白", text)
         self.assertIn("唯一的人声事件是上述<d>标签内的逐字内容", text)
         self.assertIn("overall_soundscape:", text)
         self.assertIn("non_diegetic_music:\nN/A", text)
+
+    def test_h3_dialogue_fails_closed_without_speaker_voice_contract(self):
+        unit = h3_unit(dialogue="白鲤：陈迹。")
+        unit.pop("speaker_voice_contract")
+        with self.assertRaisesRegex(ValueError, "SPEAKER_VOICE_CONTRACT"):
+            compile_h3_prompt(unit)
 
     def test_h3_silent_unit_explicitly_closes_mouths(self):
         unit = h3_unit()

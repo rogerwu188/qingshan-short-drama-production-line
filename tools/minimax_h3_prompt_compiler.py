@@ -14,6 +14,10 @@ from typing import Any
 
 try:
     from tools.dialogue_cut_safety import compile_dialogue_windows
+    from tools.speaker_voice_contract import (
+        speaker_voice_prompt_block,
+        validate_speaker_voice_contract,
+    )
     from tools.wardrobe_identity_contract import (
         model_specific_adult_female_visual_block,
         validate_wardrobe_contract,
@@ -21,6 +25,10 @@ try:
     )
 except ModuleNotFoundError:
     from dialogue_cut_safety import compile_dialogue_windows
+    from speaker_voice_contract import (
+        speaker_voice_prompt_block,
+        validate_speaker_voice_contract,
+    )
     from wardrobe_identity_contract import (
         model_specific_adult_female_visual_block,
         validate_wardrobe_contract,
@@ -28,11 +36,11 @@ except ModuleNotFoundError:
     )
 
 
-H3_MODEL_PROMPT_POLICY_VERSION = "qingshan.minimax_h3_prompt.v3_dialogue_isolation_zero_text_frame"
+H3_MODEL_PROMPT_POLICY_VERSION = "qingshan.minimax_h3_prompt.v6_dialogue_isolation_voice_binding_zero_text_frame"
 H3_SPEECH_ISOLATION_REPAIR_PROFILE = "H3_CONCISE_QUOTED_DIALOGUE_REPAIR_V1"
-H3_SPEECH_ISOLATION_REPAIR_POLICY = "qingshan.minimax_h3_prompt.v4_concise_quoted_dialogue_zero_text_frame"
+H3_SPEECH_ISOLATION_REPAIR_POLICY = "qingshan.minimax_h3_prompt.v6_concise_voice_binding_zero_text_frame"
 H3_MINIMAL_AUDIO_RESCUE_PROFILE = "H3_MINIMAL_AUDIO_RESCUE_V1"
-H3_MINIMAL_AUDIO_RESCUE_POLICY = "qingshan.minimax_h3_prompt.v5_minimal_audio_rescue_zero_text_frame"
+H3_MINIMAL_AUDIO_RESCUE_POLICY = "qingshan.minimax_h3_prompt.v6_minimal_audio_rescue_voice_binding_zero_text_frame"
 H3_ANTI_CAPTION_CLAUSE = (
     "视觉输出必须是严格零文字画面（TEXT-FREE FRAME）：台词只能作为同期人声存在，禁止把对白或提示词可视化；"
     "任何画面区域、任何帧都不得生成汉字、拼音、字母、数字、标点、字幕条、对白框、题词、标签、牌匾、"
@@ -315,6 +323,7 @@ def compile_h3_prompt(unit: dict[str, Any]) -> str:
     if not references or len(references) > 9:
         raise ValueError("H3 full-reference prompt requires 1-9 reference images")
     speakers = _speaker_ids(unit)
+    voice_block = speaker_voice_prompt_block(unit, model_family="minimax-h3")
     timeline = _timeline(unit)
     dialogue_windows = {
         int(row["spec_index"]): row for row in compile_dialogue_windows(unit)
@@ -337,6 +346,10 @@ def compile_h3_prompt(unit: dict[str, Any]) -> str:
         f"@图片{index}：{_reference_role(str(ref.get('role') or ''), index)}。"
         for index, ref in enumerate(references, 1)
     ]
+    definitions.extend(
+        f"{row['audio_slot']}：{row['speaker']}的已登记固定声线参考；只锁定该角色音色、年龄和说话质感。"
+        for row in (unit.get("speaker_voice_contract") or {}).get("bindings") or []
+    )
     summary_parts = [
         f"[reference generation + keyframe completion] 生成{float(unit['duration_seconds']):g}秒9:16真人实拍古装悬疑短剧",
         f"人物为{'、'.join(cast)}" if cast else "本段以场景和道具为主体",
@@ -351,6 +364,7 @@ def compile_h3_prompt(unit: dict[str, Any]) -> str:
     description: list[str] = [
         "目标视频为真人实拍、写实古装悬疑电影质感，保持同一人物身份、服装、场景地图、道具、天气和光向。",
         f"服装身份锁：{wardrobe}",
+        voice_block,
         f"[Shot 1] {_shot_scale(unit.get('camera_plan'))}从@图片1的构图和状态开始。"
         f"场景时间与空间状态为{_trim(first_scene.get('time'))}；{_trim(first_scene.get('weather'))}。"
         f"{_camera_motion(unit.get('camera_plan'))}。",
@@ -434,6 +448,7 @@ def compile_h3_speech_isolation_repair_prompt(unit: dict[str, Any]) -> str:
     if duration < 3 or duration > 15:
         raise ValueError("H3 concise repair duration must be 3-15 seconds")
     dialogues = _dialogues(unit)
+    voice_block = speaker_voice_prompt_block(unit, model_family="minimax-h3")
     speaker_ids = _speaker_ids(unit)
     visual_order = " → ".join(f"@图片{index}" for index in range(1, len(references) + 1))
     dialogue_lines: list[str] = []
@@ -467,6 +482,7 @@ def compile_h3_speech_isolation_repair_prompt(unit: dict[str, Any]) -> str:
         f"依次采用{visual_order}的剧情状态；人物、地图、服装、道具、天气和光向连续，不换人、不换衣、不改方向。",
         *transition_lines,
         "【唯一可发声台词】",
+        voice_block,
         *dialogue_lines,
         "【原生声音】",
         "保留同任务生成的现场对白、环境声、衣料声、脚步声和真实动作接触声；无旁白、无解说、无歌唱、无外加BGM。",
@@ -544,6 +560,7 @@ def compile_h3_minimal_audio_rescue_prompt(unit: dict[str, Any]) -> str:
     dialogues = _dialogues(unit)
     lines = [f"9:16真人古装短剧，{duration}秒；按{order}连续演进，人物身份、服装、场景、道具和方向不变。"]
     if dialogues:
+        lines.append(speaker_voice_prompt_block(unit, model_family="minimax-h3"))
         for speaker, words in dialogues:
             lines.append(f"{speaker}（克制自然）：“{words}”")
         lines.append("台词只说一遍；说完闭口，末尾1秒仅自然呼吸和环境微动。")
@@ -639,6 +656,10 @@ def validate_h3_prompt(
         if marker in outside_dialogue:
             failures.append(f"H3_SPEAKABLE_META_OUTSIDE_DIALOGUE:{source_id}:{marker}")
     if unit is not None:
+        voice_contract = validate_speaker_voice_contract(unit)
+        failures.extend(voice_contract["failures"])
+        if _dialogues(unit) and "H3发声实体锁：" not in text:
+            failures.append(f"H3_SPEAKER_VOICE_BLOCK_MISSING:{source_id}")
         wardrobe = validate_wardrobe_contract(unit, source_id=source_id)
         failures.extend(wardrobe["failures"])
         if wardrobe["status"] == "PASS" and "服装身份锁：" not in text:

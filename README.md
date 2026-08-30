@@ -38,6 +38,12 @@ npx skills add https://github.com/giggle-official/skills --skill giggle-minimax-
 
 The durable project submitter remains the only paid-POST entrypoint. The installed skill supplies the official H3 capability and prompt contract; it does not bypass transaction recording, task-id binding, credit reconciliation, complete-map gates, or pre-submit continuity QA.
 
+## Canonical speaker/voice binding
+
+Dialogue generation for both MiniMax-H3 and SD2 is fail-closed. Every distinct speaker must be bound to a stable entity, a registered canonical voice, a dedicated audio slot, and the visible lip owner. Configure the runtime registry with `QINGSHAN_VOICE_REGISTRY`; its schema is shown in [`configs/VOICE_REFERENCE_REGISTRY.example.json`](configs/VOICE_REFERENCE_REGISTRY.example.json). The real registry and voice media stay outside Git.
+
+H3 transports each canonical voice through its public HTTPS reference URL. SD2 transports the provider-registered audio asset ID. A dialogue unit is rejected before a paid request when its speaker is missing, the model-specific transport is unavailable, two speakers share an implicit slot, or the prompt omits the binding. Release additionally requires machine evidence for speaker diarization, canonical-voice similarity, and visible lip ownership; ASR text correctness alone cannot pass.
+
 ## Grouped-video continuity gate
 
 Every boundary between editorial beats packed into one provider video task must carry an authored `internal_transition_contract`. The compiler and submitter fail closed unless that contract is bound to both beats' exact:

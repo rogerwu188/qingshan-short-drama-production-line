@@ -42,6 +42,7 @@ try:
         validate_transition_prompt_for_model,
     )
     from production_efficiency_contract import DEFAULT_WAVE_SIZE, episode_number, require_e47_efficiency_contract
+    from speaker_voice_contract import POLICY_VERSION as SPEAKER_VOICE_POLICY_VERSION
 except ModuleNotFoundError:
     from tools.giggle_api_client import _image_list, _request
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
@@ -56,6 +57,7 @@ except ModuleNotFoundError:
         validate_transition_prompt_for_model,
     )
     from tools.production_efficiency_contract import DEFAULT_WAVE_SIZE, episode_number, require_e47_efficiency_contract
+    from tools.speaker_voice_contract import POLICY_VERSION as SPEAKER_VOICE_POLICY_VERSION
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -225,6 +227,8 @@ def task_fingerprint(task: dict[str, Any]) -> str:
         "reference_audio_urls": task.get("reference_audio_urls") or [],
         "exact_dialogue_audio_urls": task.get("exact_dialogue_audio_urls") or [],
         "dialogue_transport": task.get("dialogue_transport"),
+        "speaker_voice_contract": task.get("speaker_voice_contract")
+        or (task.get("machine_contract") or {}).get("speaker_voice_contract"),
         "model": task.get("model"),
         "duration": task.get("duration_seconds"),
         "aspect_ratio": task.get("aspect_ratio"),
@@ -316,6 +320,8 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
         "h3_prompt_profile": task.get("h3_prompt_profile"),
         "scene_id": task.get("scene_id") or machine.get("scene_id"),
         "wardrobe_contract": machine.get("wardrobe_contract") or task.get("wardrobe_contract"),
+        "speaker_voice_contract": machine.get("speaker_voice_contract")
+        or task.get("speaker_voice_contract"),
         "dialogue_cut_safety": machine.get("dialogue_cut_safety") or task.get("dialogue_cut_safety"),
         "pose_transition_anchor_gate": machine.get("pose_transition_anchor_gate")
         or task.get("pose_transition_anchor_gate"),
@@ -347,6 +353,34 @@ def validate_task(task: dict[str, Any]) -> None:
     if not prompt.is_file() or sha256(prompt) != task["prompt_sha256"]:
         raise ValueError(f"{task['task_key']} prompt SHA mismatch")
     prompt_text = prompt.read_text(encoding="utf-8")
+    if task.get("native_dialogue_required") is True and str(task.get("model") or "") in {
+        "MiniMax-H3", "minimax-h3", "h3", "seedance-2.0-pro"
+    }:
+        voice_contract = task.get("speaker_voice_contract") or (
+            task.get("machine_contract") or {}
+        ).get("speaker_voice_contract") or {}
+        if voice_contract.get("schema") != SPEAKER_VOICE_POLICY_VERSION or voice_contract.get("status") != "PASS":
+            raise ValueError(f"{task['task_key']} missing PASS canonical speaker_voice_contract")
+        expected_speakers = []
+        for row in task.get("dialogue") or []:
+            speaker = str(row.get("speaker") or "").strip()
+            if speaker and speaker not in expected_speakers:
+                expected_speakers.append(speaker)
+        bindings = voice_contract.get("bindings") or []
+        if [str(row.get("speaker") or "") for row in bindings] != expected_speakers:
+            raise ValueError(f"{task['task_key']} speaker_voice_contract dialogue coverage mismatch")
+        for row in bindings:
+            slot = str(row.get("audio_slot") or "")
+            if not slot or slot not in prompt_text:
+                raise ValueError(f"{task['task_key']} canonical speaker audio slot missing from prompt")
+        if str(task.get("model") or "").lower() in {"minimax-h3", "h3"}:
+            expected_transport = [str(row.get("voice_reference_url") or "") for row in bindings]
+            if expected_transport != list(task.get("reference_audio_urls") or []):
+                raise ValueError(f"{task['task_key']} H3 speaker voice URL transport mismatch")
+        else:
+            expected_transport = [str(row.get("voice_reference_asset_id") or "") for row in bindings]
+            if expected_transport != list(task.get("reference_audio_asset_ids") or []):
+                raise ValueError(f"{task['task_key']} SD2 speaker voice asset transport mismatch")
     validate_grouped_creative_task(task, prompt_text)
     references = [resolve(value) for value in task["reference_images"]]
     if len(references) != len(task["reference_sha256"]):
