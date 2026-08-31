@@ -97,7 +97,17 @@ def validate_submission_attempt(task: dict) -> list[str]:
     if not isinstance(creative_attempt, int) or isinstance(creative_attempt, bool):
         return ["CREATIVE_ATTEMPT_ORDINAL_NOT_INTEGER"]
     attempt_limit = max_creative_attempts(task)
-    if attempt < 1 or creative_attempt < 1 or creative_attempt > attempt_limit:
+    explicit_override = (
+        task.get("user_attempt_cap_override") is True
+        and bool(str(task.get("user_attempt_cap_override_ref") or "").strip())
+        and task.get("user_attempt_cap_override_reason") == "OFFICIAL_PROVIDER_SCHEMA_MIGRATION"
+        and creative_attempt == attempt_limit + 1
+        and attempt == attempt_limit + 1
+        and task.get("no_further_automatic_retry") is True
+    )
+    if attempt < 1 or creative_attempt < 1 or (
+        creative_attempt > attempt_limit and not explicit_override
+    ):
         return ["RETRY_ATTEMPT_CAP_EXCEEDED"]
     prior_classes = [str(value).upper() for value in task.get("prior_failure_classifications") or []]
     prior_provider_failure = bool(prior_classes and prior_classes[-1] in PROVIDER_FAILURE_CLASSES)
@@ -106,7 +116,7 @@ def validate_submission_attempt(task: dict) -> list[str]:
             failures.append("PROVIDER_FAILURE_REQUIRES_HUMAN_RESOLUTION")
         if not str(task.get("provider_resolution_ref") or "").strip():
             failures.append("PROVIDER_RESOLUTION_EVIDENCE_MISSING")
-    if attempt > attempt_limit:
+    if attempt > attempt_limit and not explicit_override:
         if not prior_classes or any(value not in PROVIDER_FAILURE_CLASSES for value in prior_classes):
             failures.append("SUBMISSION_ATTEMPT_ABOVE_CAP_REQUIRES_PROVIDER_FAILURE_HISTORY")
     if attempt == 1:

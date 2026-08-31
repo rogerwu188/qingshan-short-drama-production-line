@@ -33,6 +33,10 @@ try:
     from giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from video_model_adapter import require_paid_model_contract
     from retry_cap_gate import validate_submission_attempt
+    from role_semantic_prompt_gate import (
+        validate_role_semantics,
+        validate_role_semantics_structure,
+    )
     from grouped_camera_contract import validate_camera_plan, validate_camera_sequence
     from grouped_transition_contract import validate_transition_sequence
     from grouped_performance_contract import validate_grouped_beat_contract
@@ -48,6 +52,10 @@ except ModuleNotFoundError:
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from tools.video_model_adapter import require_paid_model_contract
     from tools.retry_cap_gate import validate_submission_attempt
+    from tools.role_semantic_prompt_gate import (
+        validate_role_semantics,
+        validate_role_semantics_structure,
+    )
     from tools.grouped_camera_contract import validate_camera_plan, validate_camera_sequence
     from tools.grouped_transition_contract import validate_transition_sequence
     from tools.grouped_performance_contract import validate_grouped_beat_contract
@@ -343,12 +351,18 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
         if "combat_or_chase" in machine else task.get("combat_or_chase"),
         "fight_or_chase": machine.get("fight_or_chase")
         if "fight_or_chase" in machine else task.get("fight_or_chase"),
+        "combat_classification_override": machine.get("combat_classification_override")
+        or task.get("combat_classification_override"),
+        "combat_source_authority": machine.get("combat_source_authority")
+        or task.get("combat_source_authority"),
         "combat_choreography_contract": machine.get("combat_choreography_contract")
         or task.get("combat_choreography_contract"),
         "combat_action_library_binding": machine.get("combat_action_library_binding")
         or task.get("combat_action_library_binding"),
         "reference_exclusion_recomposition_rule": machine.get("reference_exclusion_recomposition_rule")
         or task.get("reference_exclusion_recomposition_rule"),
+        "h3_ref2va_contract": machine.get("h3_ref2va_contract")
+        or task.get("h3_ref2va_contract"),
     }
 
 
@@ -365,6 +379,20 @@ def validate_task(task: dict[str, Any]) -> None:
     if not prompt.is_file() or sha256(prompt) != task["prompt_sha256"]:
         raise ValueError(f"{task['task_key']} prompt SHA mismatch")
     prompt_text = prompt.read_text(encoding="utf-8")
+    official_h3_ref2va = (
+        str(task.get("model") or "").lower() in {"minimax-h3", "h3"}
+        and task.get("h3_prompt_profile") == "H3_OFFICIAL_REF2VA_V1"
+    )
+    role_failures = (
+        validate_role_semantics_structure(task)
+        if official_h3_ref2va
+        else validate_role_semantics(task, prompt_text)
+    )
+    if role_failures:
+        raise ValueError(
+            f"{task['task_key']} character-role ambiguity gate failed: "
+            + ",".join(role_failures)
+        )
     if task.get("native_dialogue_required") is True and str(task.get("model") or "") in {
         "MiniMax-H3", "minimax-h3", "h3", "seedance-2.0-pro"
     }:
@@ -381,10 +409,27 @@ def validate_task(task: dict[str, Any]) -> None:
         bindings = voice_contract.get("bindings") or []
         if [str(row.get("speaker") or "") for row in bindings] != expected_speakers:
             raise ValueError(f"{task['task_key']} speaker_voice_contract dialogue coverage mismatch")
+        english_machine_rescue = task.get("h3_prompt_profile") in {
+            "H3_ENGLISH_MACHINE_AUDIO_RESCUE_V1", "H3_OFFICIAL_REF2VA_V1"
+        }
         for row in bindings:
             slot = str(row.get("audio_slot") or "")
-            if not slot or slot not in prompt_text:
+            if not slot:
+                raise ValueError(f"{task['task_key']} canonical speaker audio slot missing")
+            # H3's last-attempt English-machine rescue intentionally removes
+            # canonical Chinese names and verbose voice-slot prose from the
+            # provider prompt because H3 may vocalize them.  Voice identity is
+            # still transported by the bound reference audio URLs, while the
+            # provider-facing prompt uses opaque entity tokens plus exact
+            # <d>[Chinese] dialogue literals.
+            if not english_machine_rescue and slot not in prompt_text:
                 raise ValueError(f"{task['task_key']} canonical speaker audio slot missing from prompt")
+        if english_machine_rescue:
+            if not task.get("provider_entity_token_map"):
+                raise ValueError(f"{task['task_key']} English rescue lacks provider entity token map")
+            outside_dialogue = re.sub(r"<d>\[Chinese\].*?</d>", "", prompt_text, flags=re.DOTALL)
+            if re.search(r"[\u3400-\u9fff]", outside_dialogue):
+                raise ValueError(f"{task['task_key']} English rescue exposes CJK outside dialogue")
         if str(task.get("model") or "").lower() in {"minimax-h3", "h3"}:
             expected_transport = [str(row.get("voice_reference_url") or "") for row in bindings]
             if expected_transport != list(task.get("reference_audio_urls") or []):
