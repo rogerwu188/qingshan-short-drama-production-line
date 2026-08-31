@@ -49,6 +49,8 @@ def unit_text(unit: dict[str, Any]) -> str:
 
 
 def is_combat_unit(unit: dict[str, Any]) -> bool:
+    if str(unit.get("combat_classification_override") or "").upper() == "NON_COMBAT_SOURCE_AUTHORITY":
+        return False
     explicit = (
         unit.get("fight_or_chase") is True
         or unit.get("combat_or_chase") is True
