@@ -14,16 +14,24 @@ try:
     from tools.minimax_h3_prompt_compiler import (
         H3_SPEECH_ISOLATION_REPAIR_PROFILE,
         H3_MINIMAL_AUDIO_RESCUE_PROFILE,
+        H3_ENGLISH_MACHINE_AUDIO_RESCUE_PROFILE,
         H3_CONCISE_COMBAT_REPAIR_PROFILE,
         compile_h3_concise_combat_repair_prompt,
         compile_h3_prompt,
         compile_h3_minimal_audio_rescue_prompt,
+        compile_h3_english_machine_audio_rescue_prompt,
         compile_h3_speech_isolation_repair_prompt,
         validate_h3_prompt,
         validate_h3_minimal_audio_rescue_prompt,
+        validate_h3_english_machine_audio_rescue_prompt,
         validate_h3_concise_combat_repair_prompt,
         validate_h3_speech_isolation_repair_prompt,
         validate_h3_transition_prompt_binding,
+    )
+    from tools.minimax_h3_ref2va_prompt_compiler import (
+        H3_OFFICIAL_REF2VA_PROFILE,
+        compile_h3_official_ref2va_prompt,
+        validate_h3_official_ref2va_prompt,
     )
 except ModuleNotFoundError:
     from compile_grouped_seedance_manifest import (
@@ -34,16 +42,24 @@ except ModuleNotFoundError:
     from minimax_h3_prompt_compiler import (
         H3_SPEECH_ISOLATION_REPAIR_PROFILE,
         H3_MINIMAL_AUDIO_RESCUE_PROFILE,
+        H3_ENGLISH_MACHINE_AUDIO_RESCUE_PROFILE,
         H3_CONCISE_COMBAT_REPAIR_PROFILE,
         compile_h3_concise_combat_repair_prompt,
         compile_h3_prompt,
         compile_h3_minimal_audio_rescue_prompt,
+        compile_h3_english_machine_audio_rescue_prompt,
         compile_h3_speech_isolation_repair_prompt,
         validate_h3_prompt,
         validate_h3_minimal_audio_rescue_prompt,
+        validate_h3_english_machine_audio_rescue_prompt,
         validate_h3_concise_combat_repair_prompt,
         validate_h3_speech_isolation_repair_prompt,
         validate_h3_transition_prompt_binding,
+    )
+    from minimax_h3_ref2va_prompt_compiler import (
+        H3_OFFICIAL_REF2VA_PROFILE,
+        compile_h3_official_ref2va_prompt,
+        validate_h3_official_ref2va_prompt,
     )
 
 
@@ -68,10 +84,14 @@ def compile_model_prompt(
     if family == "seedance2":
         # Deliberately call the established compiler unchanged.
         return compile_seedance_prompt(unit, memory_rules)
+    if unit.get("h3_prompt_profile") == H3_OFFICIAL_REF2VA_PROFILE:
+        return compile_h3_official_ref2va_prompt(unit)
     if unit.get("h3_prompt_profile") == H3_SPEECH_ISOLATION_REPAIR_PROFILE:
         return compile_h3_speech_isolation_repair_prompt(unit)
     if unit.get("h3_prompt_profile") == H3_MINIMAL_AUDIO_RESCUE_PROFILE:
         return compile_h3_minimal_audio_rescue_prompt(unit)
+    if unit.get("h3_prompt_profile") == H3_ENGLISH_MACHINE_AUDIO_RESCUE_PROFILE:
+        return compile_h3_english_machine_audio_rescue_prompt(unit)
     if unit.get("h3_prompt_profile") == H3_CONCISE_COMBAT_REPAIR_PROFILE:
         return compile_h3_concise_combat_repair_prompt(unit)
     return compile_h3_prompt(unit)
@@ -87,10 +107,16 @@ def validate_model_prompt_for_model(
     family = model_family(model)
     if family == "seedance2":
         return validate_seedance_prompt(text, source_id=source_id)
+    if unit and unit.get("h3_prompt_profile") == H3_OFFICIAL_REF2VA_PROFILE:
+        return validate_h3_official_ref2va_prompt(
+            text, source_id=source_id, unit=unit
+        )
     if unit and unit.get("h3_prompt_profile") == H3_SPEECH_ISOLATION_REPAIR_PROFILE:
         return validate_h3_speech_isolation_repair_prompt(text, source_id=source_id, unit=unit)
     if unit and unit.get("h3_prompt_profile") == H3_MINIMAL_AUDIO_RESCUE_PROFILE:
         return validate_h3_minimal_audio_rescue_prompt(text, source_id=source_id, unit=unit)
+    if unit and unit.get("h3_prompt_profile") == H3_ENGLISH_MACHINE_AUDIO_RESCUE_PROFILE:
+        return validate_h3_english_machine_audio_rescue_prompt(text, source_id=source_id, unit=unit)
     if unit and unit.get("h3_prompt_profile") == H3_CONCISE_COMBAT_REPAIR_PROFILE:
         return validate_h3_concise_combat_repair_prompt(text, source_id=source_id, unit=unit)
     return validate_h3_prompt(text, source_id=source_id, unit=unit)
@@ -105,6 +131,16 @@ def validate_transition_prompt_for_model(
     family = model_family(model)
     if family == "seedance2":
         return validate_seedance_transition(text, unit)
+    if unit.get("h3_prompt_profile") == H3_OFFICIAL_REF2VA_PROFILE:
+        report = validate_h3_official_ref2va_prompt(
+            text, source_id=str(unit.get("unit_id") or "UNKNOWN"), unit=unit
+        )
+        return {
+            "schema": "qingshan.minimax_h3_official_ref2va_transition_binding.v1",
+            "status": report["status"],
+            "unit_id": str(unit.get("unit_id") or "UNKNOWN"),
+            "failures": report["failures"],
+        }
     if unit.get("h3_prompt_profile") == H3_SPEECH_ISOLATION_REPAIR_PROFILE:
         report = validate_h3_speech_isolation_repair_prompt(
             text, source_id=str(unit.get("unit_id") or "UNKNOWN"), unit=unit
@@ -121,6 +157,16 @@ def validate_transition_prompt_for_model(
         )
         return {
             "schema": "qingshan.minimax_h3_minimal_rescue_transition_binding.v1",
+            "status": report["status"],
+            "unit_id": str(unit.get("unit_id") or "UNKNOWN"),
+            "failures": report["failures"],
+        }
+    if unit.get("h3_prompt_profile") == H3_ENGLISH_MACHINE_AUDIO_RESCUE_PROFILE:
+        report = validate_h3_english_machine_audio_rescue_prompt(
+            text, source_id=str(unit.get("unit_id") or "UNKNOWN"), unit=unit
+        )
+        return {
+            "schema": "qingshan.minimax_h3_english_audio_rescue_transition_binding.v1",
             "status": report["status"],
             "unit_id": str(unit.get("unit_id") or "UNKNOWN"),
             "failures": report["failures"],
