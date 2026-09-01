@@ -307,13 +307,22 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
             )
             for index in range(len(specs) - 1)
         ]
-        attach_speaker_voice_contract(unit, {"characters": [{
-            "character": "梁狗儿",
-            "entity_id": "lianggouer",
-            "status": "LOCKED_PRODUCTION_READY",
-            "remote_asset_id": "test-lianggouer-voice",
-            "remote_url": "https://example.invalid/lianggouer.wav",
-        }]})
+        attach_speaker_voice_contract(unit, {"characters": [
+            {
+                "character": "梁狗儿",
+                "entity_id": "lianggouer",
+                "status": "LOCKED_PRODUCTION_READY",
+                "remote_asset_id": "test-lianggouer-voice",
+                "remote_url": "https://example.invalid/lianggouer.wav",
+            },
+            {
+                "character": "陈迹",
+                "entity_id": "chenji",
+                "status": "LOCKED_PRODUCTION_READY",
+                "remote_asset_id": "test-chenji-voice",
+                "remote_url": "https://example.invalid/chenji.wav",
+            },
+        ]})
 
         text = prompt_text(unit, [{"id": "PF-001"}, {"id": "PF-042"}])
         result = validate_model_prompt(text, source_id=unit["unit_id"])
