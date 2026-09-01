@@ -16,6 +16,38 @@ PROFILE_CONFIG = ROOT / "configs/audio_postproduction_profiles_v1_20260821.json"
 REQUIRED_SAMPLE_RATE_HZ = 48000
 
 
+def _profile_loudness_failures(profile: dict) -> list[str]:
+    failures: list[str] = []
+    unit = profile.get("native_unit_loudness") or {}
+    release = profile.get("release_loudness") or {}
+    if unit.get("enabled"):
+        if unit.get("target_stage") != "PREMASTER_BEFORE_RELEASE_NORMALIZATION":
+            failures.append("NATIVE_UNIT_LOUDNESS_TARGET_STAGE_INVALID")
+        for field in (
+            "dialogue_target_lufs",
+            "action_target_lufs",
+            "ambience_target_lufs",
+            "max_gain_db",
+            "max_attenuation_db",
+            "true_peak_ceiling_dbtp",
+            "max_adjacent_delta_lu",
+        ):
+            if not isinstance(unit.get(field), (int, float)) or isinstance(unit.get(field), bool):
+                failures.append(f"NATIVE_UNIT_LOUDNESS_{field.upper()}_INVALID")
+    for field in ("target_lufs", "max_loudness_range_lu", "true_peak_max_dbtp"):
+        if not isinstance(release.get(field), (int, float)) or isinstance(release.get(field), bool):
+            failures.append(f"RELEASE_LOUDNESS_{field.upper()}_INVALID")
+    accepted = release.get("accepted_range_lufs")
+    if (
+        not isinstance(accepted, list)
+        or len(accepted) != 2
+        or not all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in accepted)
+        or accepted[0] >= accepted[1]
+    ):
+        failures.append("RELEASE_LOUDNESS_ACCEPTED_RANGE_LUFS_INVALID")
+    return failures
+
+
 def load_profiles(path: Path = PROFILE_CONFIG) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -101,6 +133,8 @@ def validate_audio_profile(project: dict, *, require_music: bool = False) -> lis
     profile = profiles.get(profile_id)
     if not profile:
         return [f"AUDIO_PROFILE_UNKNOWN:{profile_id}"]
+
+    failures.extend(_profile_loudness_failures(profile))
 
     if "audio_profile_binding" in metadata:
         try:
