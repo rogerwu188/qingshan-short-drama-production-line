@@ -80,6 +80,21 @@ class ProductionEfficiencyContractTests(unittest.TestCase):
         self.assertEqual(report["status"], "FAIL")
         self.assertTrue(any("DUPLICATE_EXACT_GENERATION_REQUEST" in row for row in report["failures"]))
 
+    def test_release_resolution_is_bound_from_episode_contract_not_upscaled_constant(self):
+        report = evaluate_grouped_manifest({
+            "episode": "E50",
+            "delivery_resolution_contract": "720x1280_NATIVE_NO_UPSCALE",
+            "tasks": [{
+                "task_key": "E50-VU-001", "model": "seedance-2.0-pro",
+                "duration_seconds": 8, "prompt_sha256": "prompt-one",
+            }],
+        })
+        self.assertEqual(
+            report["release_encoding"]["delivery_resolution"],
+            "720x1280_NATIVE_NO_UPSCALE",
+        )
+        self.assertTrue(report["release_encoding"]["silent_upscale_forbidden"])
+
 
 if __name__ == "__main__":
     unittest.main()
