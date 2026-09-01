@@ -344,6 +344,12 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
     machine = task.get("machine_contract") or {}
     return {
         "unit_id": task.get("unit_id") or task.get("task_key"),
+        # Dialogue-safe window recompilation is duration dependent.  Dropping
+        # this field at the final paid boundary turns a real dialogue unit into
+        # a false "no dialogue" result and can either block a valid task or,
+        # worse, bypass the exact safe-cut contract.
+        "duration_seconds": task.get("duration_seconds")
+        or machine.get("duration_seconds"),
         "h3_prompt_profile": task.get("h3_prompt_profile"),
         "scene_id": task.get("scene_id") or machine.get("scene_id"),
         "wardrobe_contract": machine.get("wardrobe_contract") or task.get("wardrobe_contract"),

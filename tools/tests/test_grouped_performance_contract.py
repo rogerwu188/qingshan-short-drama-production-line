@@ -116,6 +116,14 @@ class GroupedPerformanceContractTest(unittest.TestCase):
         self.assertEqual(unit["dialogue_cut_safety"], cut_safety)
         self.assertEqual(unit["pose_transition_anchor_gate"], pose_gate)
 
+    def test_submission_binding_preserves_duration_for_dialogue_safe_window_recompile(self):
+        unit = grouped_sequence_unit({
+            "unit_id": "E50-VU-002",
+            "duration_seconds": 6,
+            "machine_contract": {"ordered_prompt_specs": [valid_spec()]},
+        })
+        self.assertEqual(unit["duration_seconds"], 6)
+
     def test_submission_binding_preserves_non_bypass_ecology_weather_and_audio(self):
         ecology = {"status": "PASS", "groups": [{"group_id": "A"}]}
         weather = {"status": "PASS", "visibility_mode": "OFFSCREEN_AUDIBLE_ONLY"}
