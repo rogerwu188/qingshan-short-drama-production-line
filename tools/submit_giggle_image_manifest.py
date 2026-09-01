@@ -23,6 +23,7 @@ try:
     from shot_media_admission_gate import precheck_submission_inputs
     from image_model_adapter import require_paid_image_model_contract
     from retry_cap_gate import validate_submission_attempt
+    from role_semantic_prompt_gate import validate_role_semantics
 except ModuleNotFoundError:  # Imported as tools.submit_giggle_image_manifest.
     from tools.giggle_api_client import _image_list, _request
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
@@ -31,6 +32,7 @@ except ModuleNotFoundError:  # Imported as tools.submit_giggle_image_manifest.
     from tools.shot_media_admission_gate import precheck_submission_inputs
     from tools.image_model_adapter import require_paid_image_model_contract
     from tools.retry_cap_gate import validate_submission_attempt
+    from tools.role_semantic_prompt_gate import validate_role_semantics
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -240,6 +242,12 @@ def validate_task(task: dict[str, Any]) -> None:
     if contract.get("source_action_sha256") != hashlib.sha256(str(contract.get("source_action", "")).encode("utf-8")).hexdigest():
         raise ValueError(f"{task['task_key']} source action SHA mismatch")
     prompt_text = prompt_path.read_text(encoding="utf-8")
+    role_failures = validate_role_semantics(task, prompt_text)
+    if role_failures:
+        raise ValueError(
+            f"{task['task_key']} character-role ambiguity gate failed: "
+            + ",".join(role_failures)
+        )
     if episode_match and int(episode_match.group(1)) >= 40:
         require_paid_image_model_contract(
             task, str(task.get("episode")), prompt_text=prompt_text

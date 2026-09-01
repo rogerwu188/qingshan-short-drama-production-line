@@ -33,34 +33,51 @@ try:
     from giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from video_model_adapter import require_paid_model_contract
     from retry_cap_gate import validate_submission_attempt
+    from role_semantic_prompt_gate import (
+        validate_role_semantics,
+        validate_role_semantics_structure,
+    )
     from grouped_camera_contract import validate_camera_plan, validate_camera_sequence
     from grouped_transition_contract import validate_transition_sequence
     from grouped_performance_contract import validate_grouped_beat_contract
     from grouped_internal_continuity_contract import validate_internal_transition_sequence
     from video_prompt_compiler import (
+        compile_model_prompt,
         validate_model_prompt_for_model,
         validate_transition_prompt_for_model,
     )
     from production_efficiency_contract import DEFAULT_WAVE_SIZE, episode_number, require_e47_efficiency_contract
     from speaker_voice_contract import POLICY_VERSION as SPEAKER_VOICE_POLICY_VERSION
+    from sd2_required_prompt_field_gate import validate_required_sd2_field_coverage
 except ModuleNotFoundError:
     from tools.giggle_api_client import _image_list, _request
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from tools.video_model_adapter import require_paid_model_contract
     from tools.retry_cap_gate import validate_submission_attempt
+    from tools.role_semantic_prompt_gate import (
+        validate_role_semantics,
+        validate_role_semantics_structure,
+    )
     from tools.grouped_camera_contract import validate_camera_plan, validate_camera_sequence
     from tools.grouped_transition_contract import validate_transition_sequence
     from tools.grouped_performance_contract import validate_grouped_beat_contract
     from tools.grouped_internal_continuity_contract import validate_internal_transition_sequence
     from tools.video_prompt_compiler import (
+        compile_model_prompt,
         validate_model_prompt_for_model,
         validate_transition_prompt_for_model,
     )
     from tools.production_efficiency_contract import DEFAULT_WAVE_SIZE, episode_number, require_e47_efficiency_contract
     from tools.speaker_voice_contract import POLICY_VERSION as SPEAKER_VOICE_POLICY_VERSION
+    from tools.sd2_required_prompt_field_gate import validate_required_sd2_field_coverage
 
 
 ROOT = Path(__file__).resolve().parents[1]
+RUNTIME_GATE_IDS = frozenset({"WRITER-TO-PROVIDER-PROMPT-FIELD-LINEAGE"})
+RUNTIME_GATE_BINDINGS = {
+    "WRITER-TO-PROVIDER-PROMPT-FIELD-LINEAGE": "validate_required_sd2_field_coverage",
+}
+assert frozenset(RUNTIME_GATE_BINDINGS) == RUNTIME_GATE_IDS
 
 
 def authoritative_pipeline_tools_dir() -> Path:
@@ -233,6 +250,8 @@ def task_fingerprint(task: dict[str, Any]) -> str:
         "duration": task.get("duration_seconds"),
         "aspect_ratio": task.get("aspect_ratio"),
         "resolution": task.get("resolution"),
+        "generation_audio_profile_id": task.get("generation_audio_profile_id"),
+        "audio_profile_binding": task.get("audio_profile_binding"),
         "incoming_transition_contract": (task.get("machine_contract") or {}).get("incoming_transition_contract")
         or task.get("incoming_transition_contract"),
         "outgoing_transition_contract": (task.get("machine_contract") or {}).get("outgoing_transition_contract")
@@ -273,6 +292,8 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
     prompt_unit["model"] = task.get("model")
     prompt_unit["h3_prompt_profile"] = task.get("h3_prompt_profile")
     prompt_unit["duration_seconds"] = task.get("duration_seconds")
+    prompt_unit["resolution"] = task.get("resolution")
+    prompt_unit["aspect_ratio"] = task.get("aspect_ratio")
     prompt_unit["reference_images"] = [
         {"path": path, "role": role}
         for path, role in zip(
@@ -291,6 +312,12 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
             f"{task.get('task_key')} grouped complete prompt contract failed: "
             + ",".join(prompt_report.get("failures") or [])
         )
+    if str(task.get("model") or "").strip().lower() == "seedance-2.0-pro":
+        expected_prompt = compile_model_prompt(prompt_unit)
+        if prompt_text != expected_prompt:
+            raise ValueError(
+                f"{task.get('task_key')} provider prompt is not the exact output of the current SD2 compiler"
+            )
     semantic = machine.get("start_frame_semantic_contract") or task.get("start_frame_semantic_contract")
     if not isinstance(semantic, dict) or semantic.get("status") != "PASS":
         raise ValueError(f"{task.get('task_key')} start-frame semantic contract is missing or not PASS")
@@ -343,12 +370,31 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
         if "combat_or_chase" in machine else task.get("combat_or_chase"),
         "fight_or_chase": machine.get("fight_or_chase")
         if "fight_or_chase" in machine else task.get("fight_or_chase"),
+        "combat_classification_override": machine.get("combat_classification_override")
+        or task.get("combat_classification_override"),
+        "combat_source_authority": machine.get("combat_source_authority")
+        or task.get("combat_source_authority"),
         "combat_choreography_contract": machine.get("combat_choreography_contract")
         or task.get("combat_choreography_contract"),
         "combat_action_library_binding": machine.get("combat_action_library_binding")
         or task.get("combat_action_library_binding"),
+        "interaction_topology_contract": machine.get("interaction_topology_contract")
+        or task.get("interaction_topology_contract"),
+        "performance_tempo_contract": machine.get("performance_tempo_contract")
+        or task.get("performance_tempo_contract"),
         "reference_exclusion_recomposition_rule": machine.get("reference_exclusion_recomposition_rule")
         or task.get("reference_exclusion_recomposition_rule"),
+        "reference_images": task.get("reference_images") or [],
+        "start_frame_semantic_contract": machine.get("start_frame_semantic_contract")
+        or task.get("start_frame_semantic_contract"),
+        "background_ecology_contract": machine.get("background_ecology_contract")
+        or task.get("background_ecology_contract"),
+        "weather_visibility_contract": machine.get("weather_visibility_contract")
+        or task.get("weather_visibility_contract"),
+        "native_audio_contract": machine.get("native_audio_contract")
+        or task.get("native_audio_contract"),
+        "h3_ref2va_contract": machine.get("h3_ref2va_contract")
+        or task.get("h3_ref2va_contract"),
     }
 
 
@@ -365,6 +411,20 @@ def validate_task(task: dict[str, Any]) -> None:
     if not prompt.is_file() or sha256(prompt) != task["prompt_sha256"]:
         raise ValueError(f"{task['task_key']} prompt SHA mismatch")
     prompt_text = prompt.read_text(encoding="utf-8")
+    official_h3_ref2va = (
+        str(task.get("model") or "").lower() in {"minimax-h3", "h3"}
+        and task.get("h3_prompt_profile") == "H3_OFFICIAL_REF2VA_V1"
+    )
+    role_failures = (
+        validate_role_semantics_structure(task)
+        if official_h3_ref2va
+        else validate_role_semantics(task, prompt_text)
+    )
+    if role_failures:
+        raise ValueError(
+            f"{task['task_key']} character-role ambiguity gate failed: "
+            + ",".join(role_failures)
+        )
     if task.get("native_dialogue_required") is True and str(task.get("model") or "") in {
         "MiniMax-H3", "minimax-h3", "h3", "seedance-2.0-pro"
     }:
@@ -381,10 +441,27 @@ def validate_task(task: dict[str, Any]) -> None:
         bindings = voice_contract.get("bindings") or []
         if [str(row.get("speaker") or "") for row in bindings] != expected_speakers:
             raise ValueError(f"{task['task_key']} speaker_voice_contract dialogue coverage mismatch")
+        english_machine_rescue = task.get("h3_prompt_profile") in {
+            "H3_ENGLISH_MACHINE_AUDIO_RESCUE_V1", "H3_OFFICIAL_REF2VA_V1"
+        }
         for row in bindings:
             slot = str(row.get("audio_slot") or "")
-            if not slot or slot not in prompt_text:
+            if not slot:
+                raise ValueError(f"{task['task_key']} canonical speaker audio slot missing")
+            # H3's last-attempt English-machine rescue intentionally removes
+            # canonical Chinese names and verbose voice-slot prose from the
+            # provider prompt because H3 may vocalize them.  Voice identity is
+            # still transported by the bound reference audio URLs, while the
+            # provider-facing prompt uses opaque entity tokens plus exact
+            # <d>[Chinese] dialogue literals.
+            if not english_machine_rescue and slot not in prompt_text:
                 raise ValueError(f"{task['task_key']} canonical speaker audio slot missing from prompt")
+        if english_machine_rescue:
+            if not task.get("provider_entity_token_map"):
+                raise ValueError(f"{task['task_key']} English rescue lacks provider entity token map")
+            outside_dialogue = re.sub(r"<d>\[Chinese\].*?</d>", "", prompt_text, flags=re.DOTALL)
+            if re.search(r"[\u3400-\u9fff]", outside_dialogue):
+                raise ValueError(f"{task['task_key']} English rescue exposes CJK outside dialogue")
         if str(task.get("model") or "").lower() in {"minimax-h3", "h3"}:
             expected_transport = [str(row.get("voice_reference_url") or "") for row in bindings]
             if expected_transport != list(task.get("reference_audio_urls") or []):
@@ -394,6 +471,33 @@ def validate_task(task: dict[str, Any]) -> None:
             if expected_transport != list(task.get("reference_audio_asset_ids") or []):
                 raise ValueError(f"{task['task_key']} SD2 speaker voice asset transport mismatch")
     validate_grouped_creative_task(task, prompt_text)
+    # Final paid-submission boundary: SD2 required fields must survive all the
+    # way from the writer contract into the exact provider-facing prompt.
+    # Earlier compiler/QA reports are evidence, not an authorization bypass.
+    if str(task.get("model") or "").strip().lower() == "seedance-2.0-pro":
+        coverage = validate_required_sd2_field_coverage(
+            grouped_sequence_unit(task), prompt_text
+        )
+        if coverage.get("status") != "PASS":
+            raise ValueError(
+                f"{task['task_key']} SD2 required prompt fields failed at paid boundary: "
+                + ",".join(coverage.get("failures") or [])
+            )
+        episode_value = episode_number(task.get("episode"))
+        if episode_value is not None and episode_value >= 50:
+            binding = task.get("audio_profile_binding")
+            profile_id = str(task.get("generation_audio_profile_id") or "")
+            if not isinstance(binding, dict) or binding.get("automatic") is not True:
+                raise ValueError(f"{task['task_key']} missing automatic writer/director audio-profile binding")
+            if binding.get("resolved_audio_profile_id") != profile_id:
+                raise ValueError(f"{task['task_key']} audio-profile ID/binding mismatch")
+            allowed_profiles = {
+                "NATIVE_MULTIMODAL_NO_EXTERNAL_BGM",
+                "NATIVE_MULTIMODAL_SELECTIVE_BGM",
+                "LAYERED_POST_WITH_BGM",
+            }
+            if profile_id not in allowed_profiles:
+                raise ValueError(f"{task['task_key']} unsupported generation audio profile: {profile_id}")
     references = [resolve(value) for value in task["reference_images"]]
     if len(references) != len(task["reference_sha256"]):
         raise ValueError(f"{task['task_key']} reference count/SHA count mismatch")

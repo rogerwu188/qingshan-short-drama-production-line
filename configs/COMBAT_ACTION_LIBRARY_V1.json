@@ -291,6 +291,46 @@
       "sound_recipe": "兵器贴水、一次水花、鞋底承重、衣料下沉与水滴回落只按可见事件同步；未提供原音时不推断对白、音乐或具体拟音。",
       "source_authorization_required": true,
       "reference_status": "INFERRED_RECONSTRUCTED_NOT_ORIGINAL"
+    },
+    {
+      "id": "GROUNDED_DOOR_KICK_FORCED_ENTRY",
+      "name_zh": "蹬门破闩强行入场",
+      "style_class": "GROUNDED_REALISM",
+      "aliases": ["踹门破闩", "破门入场"],
+      "physical_phases": ["支撑脚在门外落稳并把髋肩压向门板", "发力腿由屈膝沿单一路径蹬向门板受力点", "脚掌与门板形成唯一接触且门闩先承力断裂", "门板向内翻开、断闩沿受力方向飞行而发力腿回收", "人物跨过门槛落到屋内明确站位"],
+      "camera_recipe": "门内侧中全景保留支撑脚、发力腿、门板、门闩和跨槛结果；接触瞬间只允许一次短震。",
+      "sound_recipe": "支撑脚制动、一次蹬门、木闩断裂、门板撞限位和跨槛脚步按因果顺序出现。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "CLOAK_PROJECTILE_WRAP_INTERCEPT",
+      "name_zh": "横抖大氅卷收箭阵",
+      "style_class": "SOURCE_AUTHORIZED_WUXIA",
+      "aliases": ["氅面卷箭", "披风拦箭"],
+      "physical_phases": ["持氅者双脚错步承重并让肩肘先带动氅边", "氅面横向展开形成单一迎箭弧面", "飞箭与氅面依次接触并被布面包裹而非凭空消失", "箭的动量使氅面鼓起且持氅者肩髋出现对应反作用力", "氅面合拢、箭杆留在布内互相磕碰且人物站位不变"],
+      "camera_recipe": "同轴中全景同时看清箭主人、箭路、氅面和持氅者承重；不得切成静态姿势组。",
+      "sound_recipe": "弩弦、箭破风、布面连续受击、箭杆入布与合拢后轻碰按先后同步。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "GROUNDED_ELBOW_RAILING_KNOCKBACK",
+      "name_zh": "近身肘击越栏位移",
+      "style_class": "GROUNDED_REALISM",
+      "aliases": ["肘击撞栏", "一肘击退"],
+      "physical_phases": ["发力者前脚落稳、髋部先转并让肘部贴近身体蓄力", "肩髋带动肘部沿短直线撞向具名目标胸肩", "肘部形成唯一接触且双方躯干仍可追溯", "目标胸肩先受力后脚步失衡并沿同一力向撞向栏杆", "目标越过栏杆或停在授权终态，发力者制动站稳"],
+      "camera_recipe": "肩高侧轴中全景保留落脚、转髋、肘路、接触、栏杆和目标位移；禁止掌心相对或太极推手。",
+      "sound_recipe": "落脚、衣料绷紧、一次肘部钝接触、栏杆受力和目标位移声同步。",
+      "source_authorization_required": true
+    },
+    {
+      "id": "WAIST_GRAPPLE_WINDOW_FALL",
+      "name_zh": "受伤抱腰撞窗共同坠落",
+      "style_class": "SOURCE_AUTHORIZED_GROUNDED_STUNT",
+      "aliases": ["抱腰撞窗", "缠抱坠楼"],
+      "physical_phases": ["受伤者屈膝压低重心并用双臂从可见路径环抱目标腰部", "双脚蹬地、髋肩前送使两具身体重心沿同一方向移动", "目标用刀柄或前臂在具名部位形成一次反制接触但未解除抱腰", "两人共同撞上窗棂并由木格断裂吸收部分冲击", "两具身体保持抱持关系越过窗沿，沿重力方向坠向授权落点"],
+      "camera_recipe": "同轴中全景持续保留两人躯干、抱腰双臂、反制手、窗棂与越窗路径；不得把坠落拆成静态图。",
+      "sound_recipe": "受伤呼气、蹬地、衣料收紧、一次反制接触、窗棂断裂和坠出后的雨声按因果顺序出现。",
+      "source_authorization_required": true
     }
   ]
 }

@@ -22,3 +22,19 @@ class BuildVideoUnitGroupingSpecTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "transition_contract is required"):
             compile_grouping_spec(production, spec)
+
+    def test_never_packs_more_than_three_beats(self):
+        manifest = {"episode": "E99", "shots": []}
+        for index in range(5):
+            manifest["shots"].append({
+                "shot_id": f"E99-S01-{index:02d}", "scene_id": "S01",
+                "duration_seconds": 2,
+                "prompt_spec": {
+                    "action": {
+                        "primary_action": f"combat beat {index}",
+                        "action_kind": "COMBAT" if index < 3 else "PHYSICAL_ACTION",
+                    },
+                },
+            })
+        _production, spec = build(manifest, "abc")
+        self.assertTrue(all(len(row["editorial_shot_ids"]) <= 3 for row in spec["groups"]))

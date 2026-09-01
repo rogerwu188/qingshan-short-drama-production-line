@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import json
 import os
 import sys
@@ -39,6 +40,18 @@ VIDEO_GENERATION_ENDPOINTS = {
     "/api/v1/generation/image-to-video",
     "/api/v1/generation/omni-video",
 }
+_PAID_VIDEO_SUBMISSION_CONTEXT_DEPTH = 0
+
+
+@contextlib.contextmanager
+def paid_video_submission_context():
+    """Permit video transport only inside an already validated submitter call."""
+    global _PAID_VIDEO_SUBMISSION_CONTEXT_DEPTH
+    _PAID_VIDEO_SUBMISSION_CONTEXT_DEPTH += 1
+    try:
+        yield
+    finally:
+        _PAID_VIDEO_SUBMISSION_CONTEXT_DEPTH -= 1
 
 
 def _api_key() -> str:
@@ -88,6 +101,11 @@ def _urlopen_json(
 
 
 def _request(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    if path in VIDEO_GENERATION_ENDPOINTS and _PAID_VIDEO_SUBMISSION_CONTEXT_DEPTH <= 0:
+        raise SystemExit(
+            "paid video transport blocked before network: invoke the durable video submitter; "
+            "direct low-level POST cannot bypass transaction and prompt-lineage gates"
+        )
     if path in VIDEO_GENERATION_ENDPOINTS and payload.get("model") not in AUTHORIZED_VIDEO_MODELS:
         raise SystemExit(
             "paid video submission blocked: model must be seedance-2.0-pro "

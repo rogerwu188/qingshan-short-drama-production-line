@@ -13,6 +13,11 @@ import re
 from typing import Any
 
 try:
+    from tools.role_semantic_prompt_gate import (
+        role_semantic_compact_prompt_block,
+        role_semantic_prompt_block,
+        validate_role_semantics,
+    )
     from tools.combat_action_library import validate_binding
     from tools.dialogue_cut_safety import compile_dialogue_windows
     from tools.speaker_voice_contract import (
@@ -32,6 +37,11 @@ try:
         validate_physical_prompt_binding,
     )
 except ModuleNotFoundError:
+    from role_semantic_prompt_gate import (
+        role_semantic_compact_prompt_block,
+        role_semantic_prompt_block,
+        validate_role_semantics,
+    )
     from combat_action_library import validate_binding
     from dialogue_cut_safety import compile_dialogue_windows
     from speaker_voice_contract import (
@@ -57,6 +67,8 @@ H3_SPEECH_ISOLATION_REPAIR_PROFILE = "H3_CONCISE_QUOTED_DIALOGUE_REPAIR_V1"
 H3_SPEECH_ISOLATION_REPAIR_POLICY = "qingshan.minimax_h3_prompt.v6_concise_voice_binding_zero_text_frame"
 H3_MINIMAL_AUDIO_RESCUE_PROFILE = "H3_MINIMAL_AUDIO_RESCUE_V1"
 H3_MINIMAL_AUDIO_RESCUE_POLICY = "qingshan.minimax_h3_prompt.v6_minimal_audio_rescue_voice_binding_zero_text_frame"
+H3_ENGLISH_MACHINE_AUDIO_RESCUE_PROFILE = "H3_ENGLISH_MACHINE_AUDIO_RESCUE_V1"
+H3_ENGLISH_MACHINE_AUDIO_RESCUE_POLICY = "qingshan.minimax_h3_prompt.v9_english_machine_contract_chinese_dialogue_only"
 H3_CONCISE_COMBAT_REPAIR_PROFILE = "H3_CONCISE_COMBAT_REPAIR_V1"
 H3_CONCISE_COMBAT_REPAIR_POLICY = "qingshan.minimax_h3_prompt.v11_physics_path_force_vector_anti_push_hands"
 H3_ANTI_CAPTION_CLAUSE = (
@@ -416,6 +428,8 @@ def compile_h3_prompt(unit: dict[str, Any]) -> str:
         prefix = "" if index == 1 else (
             f"[Shot {index}] At {_clock(start)}, {_internal_transition(unit, index - 1)}。"
         )
+        role_row = spec.get("role_semantic_disambiguation") or {}
+        description.append(role_semantic_prompt_block(role_row))
         action = _visual_action(spec, combat=combat)
         performance = _performance_sentence(spec)
         sentence = f"{prefix}{action}。"
@@ -686,6 +700,10 @@ def compile_h3_speech_isolation_repair_prompt(unit: dict[str, Any]) -> str:
         transition_lines.append("开场承接上一单元的现场声、视线、姿态和物体位置，不复位。")
     if outgoing:
         transition_lines.append("结尾最后1秒停止说话，保持结果姿态、自然呼吸、衣料惯性和环境微动。")
+    role_locks = [
+        role_semantic_compact_prompt_block(spec.get("role_semantic_disambiguation") or {})
+        for spec in specs
+    ]
     text = "\n".join([
         "【H3短剧技术修复】",
         f"9:16真人实拍古装悬疑短剧，时长{duration:g}秒。",
@@ -694,6 +712,8 @@ def compile_h3_speech_isolation_repair_prompt(unit: dict[str, Any]) -> str:
         "【画面】",
         f"依次采用{visual_order}的剧情状态；人物、地图、服装、道具、天气和光向连续，不换人、不换衣、不改方向。",
         *transition_lines,
+        "【角色硬锁（机器合同，不可发声）】",
+        *role_locks,
         "【唯一可发声台词】",
         voice_block,
         *dialogue_lines,
@@ -721,7 +741,7 @@ def validate_h3_speech_isolation_repair_prompt(
         failures.append(f"H3_REPAIR_ANTI_CAPTION_CLAUSE_MISSING:{source_id}")
     required = (
         "【H3短剧技术修复】", "【参考图】", "【画面】", "【唯一可发声台词】",
-        "【原生声音】", "【声音隔离】", "【限制】",
+        "【角色硬锁（机器合同，不可发声）】", "【原生声音】", "【声音隔离】", "【限制】",
     )
     for marker in required:
         if text.count(marker) != 1:
@@ -743,6 +763,7 @@ def validate_h3_speech_isolation_repair_prompt(
         failures.append(f"H3_REPAIR_INCOMING_TRANSITION_MISSING:{source_id}")
     if unit.get("outgoing_transition_contract") and "结尾最后1秒停止说话" not in text:
         failures.append(f"H3_REPAIR_OUTGOING_TRANSITION_MISSING:{source_id}")
+    failures.extend(validate_role_semantics(unit, text))
     return {
         "policy": H3_SPEECH_ISOLATION_REPAIR_POLICY,
         "profile": H3_SPEECH_ISOLATION_REPAIR_PROFILE,
@@ -816,6 +837,110 @@ def validate_h3_minimal_audio_rescue_prompt(
         "character_count": len(text),
         "max_character_count": 700,
         "dialogue_count": len(dialogues),
+        "failures": failures,
+    }
+
+
+def compile_h3_english_machine_audio_rescue_prompt(unit: dict[str, Any]) -> str:
+    """Last-attempt H3 audio prompt with Chinese allowed only inside dialogue tags.
+
+    H3 occasionally vocalizes Chinese directing prose even when the prose is
+    labelled as silent metadata.  This profile removes that ambiguity at the
+    lexical level: every machine instruction and role token is ASCII/English;
+    the only CJK characters exposed to the provider are the exact authorized
+    dialogue literals inside ``<d>[Chinese]`` tags.  Silent units contain no
+    CJK characters at all.
+    """
+    references = unit.get("reference_images") or []
+    specs = unit.get("ordered_prompt_specs") or []
+    duration = float(unit.get("duration_seconds") or 0)
+    if not references or len(references) > 9 or not specs or not 3 <= duration <= 15:
+        raise ValueError("H3 English rescue requires 1-9 references, specs, and 3-15 seconds")
+    dialogues = _dialogues(unit)
+    order = " -> ".join(f"@Image{index}" for index in range(1, len(references) + 1))
+    role_locks = [
+        role_semantic_compact_prompt_block(spec.get("role_semantic_disambiguation") or {})
+        for spec in specs
+    ]
+    lines = [
+        "H3 LIVE-ACTION SHORT-DRAMA AUDIO RESCUE. MACHINE METADATA IS NEVER SPOKEN.",
+        f"FORMAT=VERTICAL_9_16;DURATION={duration:g}s;REAL_TIME=1X;STYLE=LIVE_ACTION_ANCIENT_CHINA.",
+        f"VISUAL_SEQUENCE={order}.",
+        "REFERENCES_LOCK=IDENTITY|WARDROBE|LOCATION|PROPS|SCREEN_DIRECTION|LIGHTING.",
+        "CONTINUITY=NO_IDENTITY_SWAP|NO_WARDROBE_SWAP|NO_MAP_JUMP|NO_DIRECTION_REVERSAL|NO_PROP_REASSIGNMENT.",
+        *role_locks,
+        "ROLE_RULE=NEVER_SWAP_MERGE_SPLIT_INVENT_OR_REVOICE;ONLY_BOUND_SPEAKER_MAY_MOVE_LIPS.",
+    ]
+    if dialogues:
+        usable_end = max(1.6, duration - 1.5)
+        span = max(0.8, usable_end - 0.55)
+        step = span / len(dialogues)
+        for index, (speaker, words) in enumerate(dialogues, 1):
+            start = 0.55 + (index - 1) * step
+            end = min(usable_end, start + max(0.8, step * 0.76))
+            lines.append(
+                f"VOICE_EVENT_{index}=BOUND_SPEAKER_{index};WINDOW={start:.2f}-{end:.2f}s;"
+                f"SAY_EXACTLY_ONCE=<d>[Chinese]{words}</d>."
+            )
+        lines.extend([
+            "VOCAL_RULE=ONLY_TEXT_INSIDE_D_TAGS_MAY_BECOME_SPEECH;NO_OTHER_WORDS_OR_SOUNDS_ARE_SPEECH.",
+            "TAIL=AFTER_LAST_DIALOGUE_KEEP_MOUTHS_CLOSED_FOR_AT_LEAST_1.50s_WITH_NATURAL_BREATHING.",
+        ])
+    else:
+        lines.append("VOCAL_RULE=NO_HUMAN_SPEECH;ALL_MOUTHS_CLOSED_FOR_THE_ENTIRE_CLIP.")
+    lines.extend([
+        "NATIVE_AUDIO=LOCATION_AMBIENCE|CLOTH|FOOTSTEPS|AUTHORIZED_CONTACT_SOUNDS_ONLY.",
+        "NO_NARRATION|NO_EXPLANATION|NO_SINGING|NO_EXTERNAL_BGM.",
+        "FRAME_TEXT=NONE;NO_CAPTIONS|NO_SUBTITLES|NO_TITLES|NO_UI|NO_LOGO|NO_WATERMARK|NO_WRITING.",
+        "MOTION=CONTINUOUS_REAL_TIME;NO_FREEZE|NO_LOOP|NO_SPEED_RAMP|NO_RESET.",
+    ])
+    text = "\n".join(lines) + "\n"
+    report = validate_h3_english_machine_audio_rescue_prompt(
+        text, source_id=str(unit.get("unit_id") or "UNKNOWN"), unit=unit
+    )
+    if report["status"] != "PASS":
+        raise ValueError(";".join(report["failures"]))
+    return text
+
+
+def validate_h3_english_machine_audio_rescue_prompt(
+    text: str, *, source_id: str, unit: dict[str, Any]
+) -> dict[str, Any]:
+    failures: list[str] = []
+    dialogues = _dialogues(unit)
+    tagged = _DIALOGUE_TAG.findall(text)
+    outside = _DIALOGUE_TAG.sub("", text)
+    if re.search(r"[\u3400-\u9fff]", outside):
+        failures.append(f"H3_ENGLISH_RESCUE_CJK_OUTSIDE_DIALOGUE:{source_id}")
+    expected = [words for _, words in dialogues]
+    if tagged != expected:
+        failures.append(f"H3_ENGLISH_RESCUE_DIALOGUE_TAG_MISMATCH:{source_id}")
+    for words in expected:
+        if text.count(words) != 1:
+            failures.append(f"H3_ENGLISH_RESCUE_DIALOGUE_LITERAL_COUNT:{source_id}:{text.count(words)}")
+    if dialogues:
+        for clause in (
+            "ONLY_TEXT_INSIDE_D_TAGS_MAY_BECOME_SPEECH",
+            "KEEP_MOUTHS_CLOSED_FOR_AT_LEAST_1.50s",
+        ):
+            if clause not in text:
+                failures.append(f"H3_ENGLISH_RESCUE_REQUIRED_CLAUSE:{source_id}:{clause}")
+    elif re.search(r"[\u3400-\u9fff]", text):
+        failures.append(f"H3_ENGLISH_RESCUE_SILENT_UNIT_CONTAINS_CJK:{source_id}")
+    elif "NO_HUMAN_SPEECH;ALL_MOUTHS_CLOSED" not in text:
+        failures.append(f"H3_ENGLISH_RESCUE_SILENT_RULE_MISSING:{source_id}")
+    for index in range(1, len(unit.get("reference_images") or []) + 1):
+        if text.count(f"@Image{index}") != 1:
+            failures.append(f"H3_ENGLISH_RESCUE_REFERENCE_COUNT:{source_id}:{index}")
+    failures.extend(validate_role_semantics(unit, text))
+    return {
+        "policy": H3_ENGLISH_MACHINE_AUDIO_RESCUE_POLICY,
+        "profile": H3_ENGLISH_MACHINE_AUDIO_RESCUE_PROFILE,
+        "status": "PASS" if not failures else "FAIL",
+        "source_id": source_id,
+        "character_count": len(text),
+        "dialogue_count": len(dialogues),
+        "cjk_outside_dialogue_count": len(re.findall(r"[\u3400-\u9fff]", outside)),
         "failures": failures,
     }
 
@@ -899,6 +1024,7 @@ def validate_h3_prompt(
             text, unit, model_family="minimax-h3"
         )
         failures.extend(physical["failures"])
+        failures.extend(validate_role_semantics(unit, text))
         internal_rows = unit.get("internal_transition_contracts") or []
         for index, row in enumerate(internal_rows, start=1):
             note = _internal_transition(unit, index)

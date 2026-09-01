@@ -49,6 +49,20 @@ class GiggleVideoAudioUrlTransportTests(unittest.TestCase):
         task["exact_dialogue_audio_urls"] = ["https://assets/b.mp3"]
         self.assertNotEqual(first, task_fingerprint(task))
 
+    def test_audio_profile_binding_changes_submission_fingerprint(self):
+        task = {
+            "task_key": "E50-VU-001-VIDEO-A1",
+            "generation_audio_profile_id": "NATIVE_MULTIMODAL_NO_EXTERNAL_BGM",
+            "audio_profile_binding": {
+                "automatic": True,
+                "resolved_audio_profile_id": "NATIVE_MULTIMODAL_NO_EXTERNAL_BGM",
+            },
+        }
+        first = task_fingerprint(task)
+        task["generation_audio_profile_id"] = "NATIVE_MULTIMODAL_SELECTIVE_BGM"
+        task["audio_profile_binding"]["resolved_audio_profile_id"] = "NATIVE_MULTIMODAL_SELECTIVE_BGM"
+        self.assertNotEqual(first, task_fingerprint(task))
+
 
 if __name__ == "__main__":
     unittest.main()

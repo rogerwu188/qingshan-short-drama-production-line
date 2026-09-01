@@ -116,6 +116,25 @@ class GroupedPerformanceContractTest(unittest.TestCase):
         self.assertEqual(unit["dialogue_cut_safety"], cut_safety)
         self.assertEqual(unit["pose_transition_anchor_gate"], pose_gate)
 
+    def test_submission_binding_preserves_non_bypass_ecology_weather_and_audio(self):
+        ecology = {"status": "PASS", "groups": [{"group_id": "A"}]}
+        weather = {"status": "PASS", "visibility_mode": "OFFSCREEN_AUDIBLE_ONLY"}
+        native_audio = {"mode": "SAME_VIDEO_TASK_NATIVE_AUDIO"}
+        references = ["anchors/first.png"]
+        unit = grouped_sequence_unit({
+            "unit_id": "E50-VU-001",
+            "reference_images": references,
+            "machine_contract": {
+                "background_ecology_contract": ecology,
+                "weather_visibility_contract": weather,
+                "native_audio_contract": native_audio,
+            },
+        })
+        self.assertEqual(unit["reference_images"], references)
+        self.assertEqual(unit["background_ecology_contract"], ecology)
+        self.assertEqual(unit["weather_visibility_contract"], weather)
+        self.assertEqual(unit["native_audio_contract"], native_audio)
+
     def test_submission_binding_preserves_combat_library_contract(self):
         binding = {
             "schema": "qingshan.combat_action_library_binding.v1",
