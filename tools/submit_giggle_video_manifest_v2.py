@@ -346,6 +346,13 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
     machine = task.get("machine_contract") or {}
     return {
         "unit_id": task.get("unit_id") or task.get("task_key"),
+        # Shared execution-plan recompilation at the final paid boundary is
+        # model-aware.  Keep transport identity in this projection; otherwise
+        # the compact SD2/H3 coverage gate sees an empty model and fails for
+        # the wrong reason after the exact compiler has already passed.
+        "model": task.get("model") or machine.get("model"),
+        "resolution": task.get("resolution") or machine.get("resolution"),
+        "aspect_ratio": task.get("aspect_ratio") or machine.get("aspect_ratio"),
         # Dialogue-safe window recompilation is duration dependent.  Dropping
         # this field at the final paid boundary turns a real dialogue unit into
         # a false "no dialogue" result and can either block a valid task or,
