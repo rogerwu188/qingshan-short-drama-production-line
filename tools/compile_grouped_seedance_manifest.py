@@ -356,6 +356,27 @@ def compact_beat_line(spec: dict[str, Any], timeline: dict[str, Any]) -> str:
 
 
 def validate_model_prompt(text: str, *, source_id: str) -> dict[str, Any]:
+    if "【任务】" in text and "【时间轴】" in text:
+        try:
+            from tools.provider_contract_boundary import validate_provider_prompt_boundary
+        except ModuleNotFoundError:
+            from provider_contract_boundary import validate_provider_prompt_boundary
+        failures = [
+            f"MODEL_PROMPT_REQUIRED_SECTION_MISSING:{source_id}:{marker}"
+            for marker in ("【任务】", "【锚点】", "【时间轴】", "【摄影】", "【声音】", "【限制】")
+            if marker not in text
+        ]
+        boundary = validate_provider_prompt_boundary(
+            text, source_id=source_id, model_family="SEEDANCE_2"
+        )
+        failures.extend(boundary["failures"])
+        return {
+            "policy": "qingshan.seedance2_prompt.v2_compact_execution_ir",
+            "status": "PASS" if not failures else "FAIL",
+            "source_id": source_id,
+            "character_count": len(text),
+            "failures": failures,
+        }
     failures: list[str] = []
     if len(text) > MAX_MODEL_PROMPT_CHARS:
         failures.append(f"MODEL_PROMPT_TOO_LONG:{source_id}:{len(text)}>{MAX_MODEL_PROMPT_CHARS}")
@@ -394,6 +415,17 @@ def validate_model_prompt(text: str, *, source_id: str) -> dict[str, Any]:
 
 def validate_transition_prompt_binding(text: str, unit: dict[str, Any]) -> dict[str, Any]:
     source_id = str(unit.get("unit_id") or "UNKNOWN")
+    if "【任务】" in text and "【时间轴】" in text:
+        transition = unit.get("incoming_transition_contract") or unit.get("outgoing_transition_contract")
+        failures = []
+        if transition and not any(marker in text for marker in ("开场承接：", "结尾交棒：")):
+            failures.append(f"TRANSITION_SEMANTIC_BRIDGE_MISSING:{source_id}")
+        return {
+            "schema": "qingshan.transition_prompt_binding.v2_compact_semantic_bridge",
+            "status": "PASS" if not failures else "FAIL",
+            "unit_id": source_id,
+            "failures": failures,
+        }
     expected_clause = "【转场硬合同】" + compile_transition_prompt(unit)
     failures: list[str] = []
     if text.count(expected_clause) != 1:
@@ -425,6 +457,40 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
         raise ValueError(
             f"Seedance prompt compiler cannot serialize {model}; use tools.video_prompt_compiler"
         )
+    # V2 compiler: contracts remain structured and immutable; only compact
+    # provider-executable semantics cross this boundary.
+    try:
+        from tools.provider_contract_boundary import (
+            assert_structured_contract_unchanged,
+            begin_provider_compile,
+        )
+        from tools.sd2_provider_prompt_renderer import render_sd2_prompt
+        from tools.video_execution_plan_compiler import compile_video_execution_plan
+        from tools.role_semantic_prompt_gate import validate_role_semantics_structure
+    except ModuleNotFoundError:
+        from provider_contract_boundary import (
+            assert_structured_contract_unchanged,
+            begin_provider_compile,
+        )
+        from sd2_provider_prompt_renderer import render_sd2_prompt
+        from video_execution_plan_compiler import compile_video_execution_plan
+        from role_semantic_prompt_gate import validate_role_semantics_structure
+    working, source_sha = begin_provider_compile(unit)
+    working["model"] = model
+    role_failures = validate_role_semantics_structure(working)
+    if role_failures:
+        raise ValueError(";".join(role_failures))
+    plan = compile_video_execution_plan(working)
+    compact_text, _receipt = render_sd2_prompt(working, plan)
+    immutable = assert_structured_contract_unchanged(
+        unit, source_sha, source_id=str(unit.get("unit_id") or "UNKNOWN")
+    )
+    if immutable["status"] != "PASS":
+        raise ValueError(";".join(immutable["failures"]))
+    return compact_text
+
+    # Legacy compiler retained below only as migration reference; execution
+    # returns above and cannot dump its machine contracts into provider text.
     unit.setdefault("background_ecology_contract", build_background_ecology_contract(unit))
     unit.setdefault("weather_visibility_contract", build_weather_visibility_contract(unit))
     unit["internal_transition_contracts"] = validate_internal_transition_sequence(unit)
@@ -570,20 +636,28 @@ def write_preflight_artifacts(
             seen_scenes.add(unit["scene_id"])
             scene_rows.append({"scene_id": unit["scene_id"], "weather": weather})
         prompt_path = prompt_dir / f"{unit['unit_id']}.txt"
-        if unit["model"] == "MiniMax-H3":
-            compiled_prompt = compile_h3_prompt(unit)
-        else:
-            compiled_prompt = prompt_text(unit, memory_rules)
+        try:
+            from tools.video_prompt_compiler import (
+                compile_model_prompt,
+                validate_model_prompt_for_model,
+                validate_transition_prompt_for_model,
+            )
+        except ModuleNotFoundError:
+            from video_prompt_compiler import (
+                compile_model_prompt,
+                validate_model_prompt_for_model,
+                validate_transition_prompt_for_model,
+            )
+        compiled_prompt = compile_model_prompt(unit, memory_rules)
         prompt_path.write_text(compiled_prompt, encoding="utf-8")
         prompt_sha = digest(prompt_path)
-        if unit["model"] == "MiniMax-H3":
-            model_prompt_contract = validate_h3_prompt(
-                compiled_prompt, source_id=unit["unit_id"], unit=unit
-            )
-            transition_prompt_binding = validate_h3_transition_prompt_binding(compiled_prompt, unit)
-        else:
-            model_prompt_contract = validate_model_prompt(compiled_prompt, source_id=unit["unit_id"])
-            transition_prompt_binding = validate_transition_prompt_binding(compiled_prompt, unit)
+        model_prompt_contract = validate_model_prompt_for_model(
+            compiled_prompt, model=unit["model"], source_id=unit["unit_id"], unit=unit
+        )
+        transition_prompt_binding = validate_transition_prompt_for_model(
+            compiled_prompt, unit, model=unit["model"]
+        )
+        if unit["model"] != "MiniMax-H3":
             required_prompt_field_coverage = validate_required_sd2_field_coverage(unit, compiled_prompt)
         if transition_prompt_binding["status"] != "PASS":
             raise ValueError(";".join(transition_prompt_binding["failures"]))

@@ -738,6 +738,45 @@ def action_realtime_stats(payload: Any) -> Dict[str, Any]:
     return {"status": "PASS" if not failures else "FAIL", "rows": normalized, "failures": failures}
 
 
+def combat_motion_energy_audit_stats(payload: Any, required: bool) -> Dict[str, Any]:
+    """Admit objective per-source combat energy receipts into final CI."""
+    failures: List[str] = []
+    if payload is None:
+        if required:
+            failures.append("combat_motion_energy_audit_missing")
+        return {
+            "status": "FAIL" if failures else "NOT_REQUIRED",
+            "required": required, "rows": [], "failures": failures,
+        }
+    rows = payload.get("rows", payload if isinstance(payload, list) else [])
+    if not isinstance(rows, list):
+        rows = []
+        failures.append("combat_motion_energy_rows_invalid")
+    applicable = 0
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            failures.append(f"combat_motion_energy_row_invalid:{index}")
+            continue
+        status = str(row.get("status") or "")
+        if status != "NOT_APPLICABLE":
+            applicable += 1
+        if status not in {"PASS", "WARN", "NOT_APPLICABLE"}:
+            failures.append(
+                f"combat_motion_energy_not_accepted:{row.get('source_id', index)}:{status or 'MISSING'}"
+            )
+        if status in {"PASS", "WARN"} and row.get("peak_median_ratio") is None:
+            failures.append(f"combat_motion_energy_ratio_missing:{row.get('source_id', index)}")
+    if required and applicable == 0:
+        failures.append("combat_motion_energy_no_applicable_combat_receipts")
+    return {
+        "status": "PASS" if not failures else "FAIL",
+        "required": required,
+        "applicable_count": applicable,
+        "rows": rows,
+        "failures": failures,
+    }
+
+
 def sentence_audit_stats(payload: Any) -> Dict[str, Any]:
     if payload is None:
         return {"status": "MISSING", "rows": [], "failures": ["asr_sentence_audit_missing"]}
@@ -1229,6 +1268,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=FROZEN_THRESHOLDS["static_hold_seconds_max"],
     )
     parser.add_argument("--action-audit-json")
+    parser.add_argument("--combat-motion-energy-audit-json")
+    parser.add_argument("--require-combat-motion-energy-audit", action="store_true")
     parser.add_argument("--sentence-audit-json")
     parser.add_argument("--asr-json")
     parser.add_argument("--zero-dialogue-adjustment-json")
@@ -1277,6 +1318,10 @@ def main() -> int:
         pure_black_frames = pure_black_frame_stats(ffmpeg, video)
 
     action_realtime = action_realtime_stats(load_json_optional(args.action_audit_json))
+    combat_motion_energy = combat_motion_energy_audit_stats(
+        load_json_optional(args.combat_motion_energy_audit_json),
+        args.require_combat_motion_energy_audit,
+    )
     sentence_audit = sentence_audit_stats(load_json_optional(args.sentence_audit_json))
     asr_payload = load_json_optional(args.asr_json)
     zero_dialogue_contract = zero_dialogue_contract_stats(
@@ -1389,6 +1434,7 @@ def main() -> int:
     failures.extend(threshold_override["failures"])
     failures.extend(audio_bed_continuity["failures"])
     failures.extend(action_realtime["failures"])
+    failures.extend(combat_motion_energy["failures"])
     if not zero_dialogue_contract["valid"]:
         failures.extend(sentence_audit["failures"])
         if opening_audio["status"] != "PASS":
@@ -1416,6 +1462,7 @@ def main() -> int:
         "manifest_shot_reconciliation": shot_reconciliation,
         "nonfight_under08": nonfight_short_shots,
         "action_realtime": action_realtime,
+        "combat_motion_energy": combat_motion_energy,
         "asr_sentence_audit": sentence_audit,
         "opening_10s_speech_energy": opening_audio,
         "speech_density": speech_density,
@@ -1451,6 +1498,7 @@ def main() -> int:
             "static_hold_seconds_max": args.static_hold_seconds_max,
             "forward_source_gates_required": args.require_forward_source_gates,
             "source_brightness_audits_required": args.require_source_brightness_audits,
+            "combat_motion_energy_audit_required": args.require_combat_motion_energy_audit,
             "freeze_motion": args.freeze_motion,
             "min_freeze_seconds": args.min_freeze_seconds,
             "min_speech_segments_per_minute": args.min_speech_segments_per_minute,

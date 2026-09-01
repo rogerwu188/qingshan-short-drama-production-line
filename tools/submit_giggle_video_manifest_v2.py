@@ -49,6 +49,7 @@ try:
     from production_efficiency_contract import DEFAULT_WAVE_SIZE, episode_number, require_e47_efficiency_contract
     from speaker_voice_contract import POLICY_VERSION as SPEAKER_VOICE_POLICY_VERSION
     from sd2_required_prompt_field_gate import validate_required_sd2_field_coverage
+    from video_sequence_rhythm_gate import validate_combat_sequence_rhythm
 except ModuleNotFoundError:
     from tools.giggle_api_client import _image_list, _request
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
@@ -70,6 +71,7 @@ except ModuleNotFoundError:
     from tools.production_efficiency_contract import DEFAULT_WAVE_SIZE, episode_number, require_e47_efficiency_contract
     from tools.speaker_voice_contract import POLICY_VERSION as SPEAKER_VOICE_POLICY_VERSION
     from tools.sd2_required_prompt_field_gate import validate_required_sd2_field_coverage
+    from tools.video_sequence_rhythm_gate import validate_combat_sequence_rhythm
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -301,6 +303,12 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
             task.get("reference_roles") or ["SEMANTIC_REFERENCE"] * len(task.get("reference_images") or []),
         )
     ]
+    expected_prompt = compile_model_prompt(prompt_unit)
+    if prompt_text != expected_prompt:
+        raise ValueError(
+            f"{task.get('task_key')} provider prompt is not the exact output of the current "
+            f"{task.get('model')} compiler"
+        )
     prompt_report = validate_model_prompt_for_model(
         prompt_text,
         model=task.get("model"),
@@ -312,12 +320,6 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
             f"{task.get('task_key')} grouped complete prompt contract failed: "
             + ",".join(prompt_report.get("failures") or [])
         )
-    if str(task.get("model") or "").strip().lower() == "seedance-2.0-pro":
-        expected_prompt = compile_model_prompt(prompt_unit)
-        if prompt_text != expected_prompt:
-            raise ValueError(
-                f"{task.get('task_key')} provider prompt is not the exact output of the current SD2 compiler"
-            )
     semantic = machine.get("start_frame_semantic_contract") or task.get("start_frame_semantic_contract")
     if not isinstance(semantic, dict) or semantic.get("status") != "PASS":
         raise ValueError(f"{task.get('task_key')} start-frame semantic contract is missing or not PASS")
@@ -388,6 +390,8 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
         or task.get("interaction_topology_contract"),
         "performance_tempo_contract": machine.get("performance_tempo_contract")
         or task.get("performance_tempo_contract"),
+        "h3_provider_english_contract": machine.get("h3_provider_english_contract")
+        or task.get("h3_provider_english_contract"),
         "reference_exclusion_recomposition_rule": machine.get("reference_exclusion_recomposition_rule")
         or task.get("reference_exclusion_recomposition_rule"),
         "reference_images": task.get("reference_images") or [],
@@ -714,6 +718,9 @@ def main() -> int:
     # episode whose first/last units have no external neighbors.
     if not manifest.get("partial_repair_scope"):
         validate_transition_sequence(grouped_camera_units, require_prompt_specs=True)
+        rhythm = validate_combat_sequence_rhythm(grouped_camera_units)
+        if rhythm["status"] != "PASS":
+            raise ValueError("Combat sequence rhythm gate failed: " + ",".join(rhythm["failures"]))
     if not args.precheck_only and not os.environ.get("GIGGLE_API_KEY", "").strip():
         raise SystemExit("GIGGLE_API_KEY is not set")
     out = resolve(args.out)
@@ -830,6 +837,9 @@ def exec_deployed_submitter() -> None:
         validate_camera_sequence(grouped_camera_units)
     if not manifest.get("partial_repair_scope"):
         validate_transition_sequence(grouped_camera_units, require_prompt_specs=True)
+        rhythm = validate_combat_sequence_rhythm(grouped_camera_units)
+        if rhythm["status"] != "PASS":
+            raise RuntimeError("Combat sequence rhythm gate failed: " + ",".join(rhythm["failures"]))
     deployed = authoritative_pipeline_tools_dir() / "submit_giggle_video_manifest_v2.py"
     if not deployed.is_file():
         raise RuntimeError("Deployed BacklotOS video submitter is unavailable")

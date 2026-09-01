@@ -24,3 +24,29 @@ Keyframes pass when they are technically valid and have no obvious identity, ana
 ## E41 correction
 
 E41 keeps all 110 editorial beats, but its per-shot Seedance precompile is not eligible for paid submission. It must first be recompiled into semantic video units, expected naturally to be in the broad range implied by 5–8 second units rather than fixed in advance. Paid video work remains restricted to `seedance-2.0-fast` at 720p and retains native same-task dialogue and sound.
+
+## Shared SD2/H3 execution contract (2026-09-01)
+
+Before paid submission, every grouped unit must pass the shared execution-plan
+compiler and its model-native renderer. Map, weather, camera type/direction/axis,
+identity, wardrobe, props, voice, speaker, ecology and BGM decisions remain in
+the immutable structured contract. SD2 and H3 may differ only in provider
+grammar; each renderer must independently prove 100% rendered-text coverage of
+the same required fact set.
+
+Every beat declares typed state-delta evidence with `entry`, `exit`,
+`entry_code`, and `exit_code`; the codes must differ. A COMBAT impulse additionally
+declares one visible setup/contact-or-evasion/force-feedback/new-position chain.
+For a same-scene run of at least five COMBAT units, the manifest must contain at
+least two provider durations, one complete exchange of at least seven seconds,
+and no more than four identical durations in a row, unless a named approved
+override is recorded.
+
+H3 requires a source-SHA-bound English execution contract. CJK is allowed only
+as exact dialogue inside `<d>[Chinese]…</d>`; quoted CJK or CJK outside the tag
+fails closed. SD2 retains its existing provider grammar.
+
+Post-generation motion-energy absolute scores are advisory until at least six
+accepted samples calibrate the model/genre threshold. When an A/B predecessor
+exists, the replacement must still achieve at least 1.8 times its motion-energy
+ratio. A failed paid attempt may not be retried with the same prompt SHA.

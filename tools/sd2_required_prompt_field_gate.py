@@ -72,6 +72,39 @@ def _require_value_in_prompt(
 
 
 def validate_required_sd2_field_coverage(unit: dict[str, Any], prompt: str) -> dict[str, Any]:
+    if "【任务】" in prompt and "【时间轴】" in prompt:
+        try:
+            from tools.provider_contract_boundary import validate_provider_prompt_boundary
+            from tools.role_semantic_prompt_gate import validate_role_semantics_structure
+            from tools.video_execution_plan_compiler import compile_video_execution_plan
+        except ModuleNotFoundError:
+            from provider_contract_boundary import validate_provider_prompt_boundary
+            from role_semantic_prompt_gate import validate_role_semantics_structure
+            from video_execution_plan_compiler import compile_video_execution_plan
+        failures = validate_role_semantics_structure(unit)
+        try:
+            plan = compile_video_execution_plan(unit)
+        except ValueError as exc:
+            failures.append(f"EXECUTION_PLAN_INVALID:{exc}")
+            plan = None
+        boundary = validate_provider_prompt_boundary(
+            prompt,
+            source_id=str(unit.get("unit_id") or "UNKNOWN"),
+            model_family="SEEDANCE_2",
+        )
+        failures.extend(boundary["failures"])
+        for marker in ("【任务】", "【锚点】", "【时间轴】", "【摄影】", "【声音】", "【限制】"):
+            if prompt.count(marker) != 1:
+                failures.append(f"COMPACT_SECTION_COUNT:{marker}:{prompt.count(marker)}")
+        return {
+            "schema": "qingshan.sd2_required_prompt_field_coverage.v2_structured_complete_compact_provider",
+            "status": "PASS" if not failures else "FAIL",
+            "unit_id": unit.get("unit_id"),
+            "structured_contract_complete": plan is not None,
+            "provider_prompt_contract_dump_forbidden": True,
+            "provider_boundary": boundary,
+            "failures": failures,
+        }
     failures: list[str] = []
     specs = unit.get("ordered_prompt_specs") or []
     for name, marker in REQUIRED_PROMPT_SECTIONS.items():

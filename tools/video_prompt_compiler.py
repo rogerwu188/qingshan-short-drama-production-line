@@ -6,6 +6,31 @@ from __future__ import annotations
 from typing import Any
 
 try:
+    from tools.h3_provider_prompt_renderer import render_h3_prompt
+    from tools.h3_provider_english_contract import validate_h3_provider_text_boundary
+    from tools.provider_contract_boundary import (
+        assert_structured_contract_unchanged,
+        begin_provider_compile,
+        validate_provider_prompt_boundary,
+    )
+    from tools.sd2_provider_prompt_renderer import render_sd2_prompt
+    from tools.video_execution_plan_compiler import compile_video_execution_plan
+    from tools.role_semantic_prompt_gate import validate_role_semantics_structure
+    from tools.speaker_voice_contract import validate_speaker_voice_contract
+except ModuleNotFoundError:
+    from h3_provider_prompt_renderer import render_h3_prompt
+    from h3_provider_english_contract import validate_h3_provider_text_boundary
+    from provider_contract_boundary import (
+        assert_structured_contract_unchanged,
+        begin_provider_compile,
+        validate_provider_prompt_boundary,
+    )
+    from sd2_provider_prompt_renderer import render_sd2_prompt
+    from video_execution_plan_compiler import compile_video_execution_plan
+    from role_semantic_prompt_gate import validate_role_semantics_structure
+    from speaker_voice_contract import validate_speaker_voice_contract
+
+try:
     from tools.compile_grouped_seedance_manifest import (
         prompt_text as compile_seedance_prompt,
         validate_model_prompt as validate_seedance_prompt,
@@ -80,21 +105,39 @@ def compile_model_prompt(
     unit: dict[str, Any],
     memory_rules: list[dict[str, Any]] | None = None,
 ) -> str:
+    # Both families consume one validated execution plan.  Only provider
+    # grammar differs.  Compile on a copy and prove the authoritative contract
+    # was not mutated by enrichment or serialization.
     family = model_family(unit.get("model"))
+    working, source_sha = begin_provider_compile(unit)
+    role_failures = validate_role_semantics_structure(working)
+    if role_failures:
+        raise ValueError(";".join(role_failures))
+    if any(str(spec.get("dialogue") or "").strip() for spec in working.get("ordered_prompt_specs") or []):
+        voice = validate_speaker_voice_contract(working)
+        if voice["status"] != "PASS":
+            raise ValueError(";".join(voice["failures"]))
+    plan = compile_video_execution_plan(working)
     if family == "seedance2":
-        # Deliberately call the established compiler unchanged.
-        return compile_seedance_prompt(unit, memory_rules)
-    if unit.get("h3_prompt_profile") == H3_OFFICIAL_REF2VA_PROFILE:
-        return compile_h3_official_ref2va_prompt(unit)
-    if unit.get("h3_prompt_profile") == H3_SPEECH_ISOLATION_REPAIR_PROFILE:
-        return compile_h3_speech_isolation_repair_prompt(unit)
-    if unit.get("h3_prompt_profile") == H3_MINIMAL_AUDIO_RESCUE_PROFILE:
-        return compile_h3_minimal_audio_rescue_prompt(unit)
-    if unit.get("h3_prompt_profile") == H3_ENGLISH_MACHINE_AUDIO_RESCUE_PROFILE:
-        return compile_h3_english_machine_audio_rescue_prompt(unit)
-    if unit.get("h3_prompt_profile") == H3_CONCISE_COMBAT_REPAIR_PROFILE:
-        return compile_h3_concise_combat_repair_prompt(unit)
-    return compile_h3_prompt(unit)
+        text, receipt = render_sd2_prompt(working, plan)
+    else:
+        text, receipt = render_h3_prompt(working, plan)
+    immutability = assert_structured_contract_unchanged(
+        unit, source_sha, source_id=str(unit.get("unit_id") or "UNKNOWN")
+    )
+    if immutability["status"] != "PASS":
+        raise ValueError(";".join(immutability["failures"]))
+    unit_id = str(unit.get("unit_id") or "UNKNOWN")
+    COMPILE_RECEIPTS[unit_id] = {**receipt, "immutability": immutability}
+    return text
+
+
+COMPILE_RECEIPTS: dict[str, dict[str, Any]] = {}
+
+
+def compile_receipt(source_id: str) -> dict[str, Any] | None:
+    """Return the last semantic/provider receipt without serializing it."""
+    return COMPILE_RECEIPTS.get(str(source_id))
 
 
 def validate_model_prompt_for_model(
@@ -105,21 +148,45 @@ def validate_model_prompt_for_model(
     unit: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     family = model_family(model)
-    if family == "seedance2":
-        return validate_seedance_prompt(text, source_id=source_id)
-    if unit and unit.get("h3_prompt_profile") == H3_OFFICIAL_REF2VA_PROFILE:
-        return validate_h3_official_ref2va_prompt(
-            text, source_id=source_id, unit=unit
+    failures: list[str] = []
+    required = (
+        ("【任务】", "【锚点】", "【时间轴】", "【摄影】", "【声音】", "【限制】")
+        if family == "seedance2"
+        else ("subject_definitions:", "summary:", "retention_analysis:",
+              "detailed_description:", "camera:", "overall_soundscape:",
+              "non_diegetic_music:", "negative_constraints:", "TEXT-FREE FRAME")
+    )
+    failures.extend(
+        f"PROVIDER_PROMPT_REQUIRED_SECTION_MISSING:{source_id}:{marker}"
+        for marker in required if marker not in text
+    )
+    boundary = validate_provider_prompt_boundary(
+        text,
+        source_id=source_id,
+        model_family="SEEDANCE_2" if family == "seedance2" else "MINIMAX_H3",
+    )
+    failures.extend(boundary["failures"])
+    if family == "minimax-h3":
+        failures.extend(
+            validate_h3_provider_text_boundary(text, source_id=source_id)["failures"]
         )
-    if unit and unit.get("h3_prompt_profile") == H3_SPEECH_ISOLATION_REPAIR_PROFILE:
-        return validate_h3_speech_isolation_repair_prompt(text, source_id=source_id, unit=unit)
-    if unit and unit.get("h3_prompt_profile") == H3_MINIMAL_AUDIO_RESCUE_PROFILE:
-        return validate_h3_minimal_audio_rescue_prompt(text, source_id=source_id, unit=unit)
-    if unit and unit.get("h3_prompt_profile") == H3_ENGLISH_MACHINE_AUDIO_RESCUE_PROFILE:
-        return validate_h3_english_machine_audio_rescue_prompt(text, source_id=source_id, unit=unit)
-    if unit and unit.get("h3_prompt_profile") == H3_CONCISE_COMBAT_REPAIR_PROFILE:
-        return validate_h3_concise_combat_repair_prompt(text, source_id=source_id, unit=unit)
-    return validate_h3_prompt(text, source_id=source_id, unit=unit)
+    receipt = COMPILE_RECEIPTS.get(source_id)
+    if unit is not None:
+        receipt = receipt or COMPILE_RECEIPTS.get(str(unit.get("unit_id") or ""))
+        if not receipt:
+            failures.append(f"SEMANTIC_COVERAGE_RECEIPT_MISSING:{source_id}")
+    if receipt:
+        coverage = receipt.get("provider_semantic_coverage_receipt") or {}
+        if coverage.get("status") != "PASS":
+            failures.append(f"SEMANTIC_COVERAGE_RECEIPT_NOT_PASS:{source_id}")
+    return {
+        "schema": "qingshan.provider_prompt_validation.v2_shared_semantics_model_native_renderers",
+        "status": "PASS" if not failures else "FAIL",
+        "source_id": source_id,
+        "model_family": family,
+        "semantic_receipt": receipt,
+        "failures": failures,
+    }
 
 
 def validate_transition_prompt_for_model(
@@ -128,57 +195,13 @@ def validate_transition_prompt_for_model(
     *,
     model: object,
 ) -> dict[str, Any]:
-    family = model_family(model)
-    if family == "seedance2":
-        return validate_seedance_transition(text, unit)
-    if unit.get("h3_prompt_profile") == H3_OFFICIAL_REF2VA_PROFILE:
-        report = validate_h3_official_ref2va_prompt(
-            text, source_id=str(unit.get("unit_id") or "UNKNOWN"), unit=unit
-        )
-        return {
-            "schema": "qingshan.minimax_h3_official_ref2va_transition_binding.v1",
-            "status": report["status"],
-            "unit_id": str(unit.get("unit_id") or "UNKNOWN"),
-            "failures": report["failures"],
-        }
-    if unit.get("h3_prompt_profile") == H3_SPEECH_ISOLATION_REPAIR_PROFILE:
-        report = validate_h3_speech_isolation_repair_prompt(
-            text, source_id=str(unit.get("unit_id") or "UNKNOWN"), unit=unit
-        )
-        return {
-            "schema": "qingshan.minimax_h3_repair_transition_prompt_binding.v1",
-            "status": report["status"],
-            "unit_id": str(unit.get("unit_id") or "UNKNOWN"),
-            "failures": report["failures"],
-        }
-    if unit.get("h3_prompt_profile") == H3_MINIMAL_AUDIO_RESCUE_PROFILE:
-        report = validate_h3_minimal_audio_rescue_prompt(
-            text, source_id=str(unit.get("unit_id") or "UNKNOWN"), unit=unit
-        )
-        return {
-            "schema": "qingshan.minimax_h3_minimal_rescue_transition_binding.v1",
-            "status": report["status"],
-            "unit_id": str(unit.get("unit_id") or "UNKNOWN"),
-            "failures": report["failures"],
-        }
-    if unit.get("h3_prompt_profile") == H3_ENGLISH_MACHINE_AUDIO_RESCUE_PROFILE:
-        report = validate_h3_english_machine_audio_rescue_prompt(
-            text, source_id=str(unit.get("unit_id") or "UNKNOWN"), unit=unit
-        )
-        return {
-            "schema": "qingshan.minimax_h3_english_audio_rescue_transition_binding.v1",
-            "status": report["status"],
-            "unit_id": str(unit.get("unit_id") or "UNKNOWN"),
-            "failures": report["failures"],
-        }
-    if unit.get("h3_prompt_profile") == H3_CONCISE_COMBAT_REPAIR_PROFILE:
-        report = validate_h3_concise_combat_repair_prompt(
-            text, source_id=str(unit.get("unit_id") or "UNKNOWN"), unit=unit
-        )
-        return {
-            "schema": "qingshan.minimax_h3_concise_combat_transition_binding.v1",
-            "status": report["status"],
-            "unit_id": str(unit.get("unit_id") or "UNKNOWN"),
-            "failures": report["failures"],
-        }
-    return validate_h3_transition_prompt_binding(text, unit)
+    uid = str(unit.get("unit_id") or "UNKNOWN")
+    transition = (COMPILE_RECEIPTS.get(uid) or {}).get("motion_density_gate")
+    failures = [] if transition else [f"TRANSITION_EXECUTION_RECEIPT_MISSING:{uid}"]
+    return {
+        "schema": "qingshan.transition_prompt_binding.v2_structured_receipt",
+        "status": "PASS" if not failures else "FAIL",
+        "unit_id": uid,
+        "model_family": model_family(model),
+        "failures": failures,
+    }

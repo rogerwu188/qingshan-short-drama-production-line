@@ -240,6 +240,15 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
                     "physical_causality": "身体发力先于物件或对方反应",
                     "microexpression_design": "眼神先变化一次，下颌随后响应并保持",
                     "physical_action_design": "起势、承重、接触、反馈、位移和结果连续可读",
+                    "state_delta_dimensions": ["POSITION"],
+                    "state_delta_evidence": {
+                        "POSITION": {
+                            "entry": f"节拍{index + 1}起点",
+                            "exit": f"节拍{index + 1}结果",
+                            "entry_code": f"BEAT_{index + 1}_ENTRY",
+                            "exit_code": f"BEAT_{index + 1}_EXIT",
+                        }
+                    },
                 },
                 "dialogue": raw_dialogue,
                 "action_visualization": {
@@ -329,7 +338,7 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
 
         self.assertEqual(result["status"], "PASS")
         self.assertLessEqual(len(text), MAX_MODEL_PROMPT_CHARS)
-        self.assertIn("竖屏9:16", text)
+        self.assertIn("9:16", text)
         self.assertIn("seedance-2.0-pro", text)
         self.assertNotIn("seedance-2.0-fast", text)
         self.assertNotIn("16:9", text)
@@ -337,14 +346,12 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
         self.assertNotIn("sha256", text)
         self.assertNotIn("PF-", text)
         self.assertNotIn("【逐节拍完整合同】", text)
-        self.assertIn("【镜头硬合同】", text)
-        self.assertIn("【角色声线与发声实体硬合同】", text)
-        self.assertIn("SD2发声实体锁：", text)
-        self.assertIn("【转场硬合同】", text)
-        self.assertIn("入场边界=SEQUENCE_START", text)
-        self.assertIn("出场边界=SEQUENCE_END", text)
+        self.assertIn("【摄影】", text)
+        self.assertIn("【声音】", text)
+        self.assertIn("梁狗儿使用", text)
+        self.assertIn("陈迹使用", text)
         self.assertEqual(validate_transition_prompt_binding(text, unit)["status"], "PASS")
-        self.assertIn("全段锁定机位", text)
+        self.assertIn("固定", text)
         self.assertNotIn("镜头随主要动作平稳调整景别", text)
         self.assertEqual(text.count("不许再提。"), 1)
         self.assertEqual(text.count("你学刀做什么。"), 1)

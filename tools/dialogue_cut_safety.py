@@ -9,7 +9,7 @@ import re
 from typing import Any
 
 
-SCHEMA = "qingshan.dialogue_cut_safety.v1"
+SCHEMA = "qingshan.dialogue_cut_safety.v2_content_driven_duration"
 DEFAULT_SAFETY_PAD_SECONDS = 0.32
 DEFAULT_CHINESE_CHARACTERS_PER_SECOND = 4.2
 
@@ -107,8 +107,18 @@ def allocate_dialogue_safe_integer_durations(
         for row in units
     }
     if total_seconds is None:
-        for uid, authored_seconds in authored.items():
-            result[uid] = min(maximum, max(result[uid], math.ceil(authored_seconds)))
+        # Do not pad every dialogue unit back to an inherited authored length.
+        # Extra time is legal only when the director explicitly declares a
+        # dramatic pause; otherwise use the shortest provider-valid duration.
+        for row in units:
+            uid = str(row["unit_id"])
+            pause = float(
+                row.get("explicit_dramatic_pause_seconds")
+                or (row.get("duration_plan") or {}).get("explicit_dramatic_pause_seconds")
+                or 0.0
+            )
+            if pause > 0:
+                result[uid] = min(maximum, max(result[uid], math.ceil(result[uid] + pause)))
         return result
     current = sum(result.values())
     if current > total_seconds:
