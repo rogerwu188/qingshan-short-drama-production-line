@@ -62,7 +62,20 @@ def is_combat_unit(unit: dict[str, Any]) -> bool:
             "COMBAT", "FIGHT", "ACTION_COMBAT", "SET_PIECE_COMBAT",
         }
     )
-    return explicit or any(cue in unit_text(unit) for cue in COMBAT_CUES)
+    if explicit:
+        return True
+    # Current structured writers classify every beat.  Once that authority is
+    # present, do not let substring heuristics turn ordinary prose such as
+    # “劈开的水膜” into combat.  Text cues remain only as a fail-safe for
+    # legacy/unclassified manifests.
+    action_kinds = [
+        str((spec.get("action") or {}).get("action_kind") or "").strip().upper()
+        for spec in unit.get("ordered_prompt_specs") or []
+    ]
+    declared = [value for value in action_kinds if value]
+    if declared and len(declared) == len(action_kinds):
+        return any(value == "COMBAT" for value in declared)
+    return any(cue in unit_text(unit) for cue in COMBAT_CUES)
 
 
 def requires_interaction_topology(unit: dict[str, Any]) -> bool:

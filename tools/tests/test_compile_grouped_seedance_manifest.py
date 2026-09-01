@@ -43,6 +43,9 @@ def wardrobe_row(character, tier, primary, secondary, silhouette, accessory):
 
 def creative_contract(*, dialogue=""):
     contract = {
+        "writer_camera_instruction": "稳定中景保持人物视线轴与手部动作可读",
+        "writer_shot_treatment": "由当前动作因果触发一次明确构图变化",
+        "writer_expression_arc": "目光停住后下颌微收并保持",
         "performance": {
             "psychological_state": "压住即时反应",
             "emotion": "克制",
@@ -82,7 +85,13 @@ def creative_contract(*, dialogue=""):
             "foley": "衣袖摩擦",
             "action_sound": "杯底轻触桌面",
         },
+        "ambient_life": {
+            "grade": "B", "motion_trend": "帘角、呼吸与视线错峰持续",
+            "first_frame_state": "所有可见人物和环境介质均已在微动中",
+            "reaction_progression": "主事件后由近及远依次反应并保持",
+        },
         "negative_prompts": ["无字幕", "无水印", "无循环动作"],
+        "audio_contract": "SAME_VIDEO_TASK_NATIVE_AUDIO" if dialogue else "DIEGETIC_OR_SILENT_NO_TTS",
     }
     if dialogue:
         spoken = dialogue.partition("：")[2]
@@ -163,6 +172,7 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
                 "cast": [{"character": "陈问孝"}],
                 "props": [],
                 "action": {
+                    "action_kind": "PHYSICAL_ACTION",
                     "t0_seconds": 0,
                     "t1_seconds": 6.6,
                     "start_state": "倚坐",
@@ -211,18 +221,33 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
         for index, ((primary, terminal), raw_dialogue, (start, end)) in enumerate(zip(actions, dialogue, boundaries)):
             spec = {
                 "space": {"global": "GLOBAL-SPACE-E41", "location": "LOC-COURTYARD", "subspace": f"SUB-{index}"},
-                "scene_state": {"weather": "上午，日头爬到院墙上沿", "palette": "warm"},
+                "scene_state": {
+                    "time": "上午", "weather": "上午，日头爬到院墙上沿", "palette": "warm",
+                    "weather_provenance": {
+                        "source_type": "WRITER_SCENE", "source_ref": "E41-S14",
+                        "visibility_mode": "VISIBLE_EXTERIOR",
+                    },
+                },
                 "cast": [{"character": "梁狗儿"}, {"character": "陈迹"}],
                 "props": [{"prop": "刀"}] if index in {2, 4} else [],
                 "action": {
+                    "action_kind": "DIALOGUE_PERFORMANCE" if raw_dialogue else "PHYSICAL_ACTION",
                     "start_state": "动作尚未完成",
                     "primary_action": primary,
                     "completion_state": terminal,
                     "contact_point": "手部与袖口或道具",
                     "motion_direction": "由当前姿态连续走向终态",
                     "physical_causality": "身体发力先于物件或对方反应",
+                    "microexpression_design": "眼神先变化一次，下颌随后响应并保持",
+                    "physical_action_design": "起势、承重、接触、反馈、位移和结果连续可读",
                 },
                 "dialogue": raw_dialogue,
+                "action_visualization": {
+                    "purpose_and_stake": "当前动作改变双方关系",
+                    "invisible_factor": "试探与受力",
+                    "visible_phenomenon": terminal,
+                    "readability_self_check": "遮掉文字仍能读懂动作因果",
+                },
             }
             spec.update(creative_contract(dialogue=raw_dialogue))
             specs.append(spec)
@@ -235,12 +260,46 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
             "action_timeline": timeline,
             "reference_images": [{"path": "frame.png", "sha256": "not-for-model", "role": "SCENE_START_ANCHOR"}],
             "camera_plan": locked_camera(),
+            "start_frame_semantic_contract": {
+                "status": "PASS", "space_match": True,
+                "empty_establishing_frame": False,
+            },
             "wardrobe_contract": {"characters": [
                 wardrobe_row("梁狗儿", "LOW_RANK_ENFORCER", "暗赭", "旧金", "短阔肩外衫", "旧铜酒牌"),
                 wardrobe_row("陈迹", "MODEST_SCHOLAR", "烟青", "深靛", "窄身长线条", "素木药囊扣"),
             ]},
         }
         unit["editorial_shot_ids"] = [f"E41-S14-{index + 1:02d}" for index in range(len(specs))]
+        for index, spec in enumerate(specs):
+            speaker = spec["dialogue"].partition("：")[0] if "：" in spec["dialogue"] else ""
+            actor = "陈迹" if index == 3 else "梁狗儿"
+            listener = "梁狗儿" if speaker == "陈迹" else ("陈迹" if speaker else "")
+            spec["role_semantic_disambiguation"] = {
+                "schema": "qingshan.role_semantic_disambiguation.v1",
+                "status": "PASS",
+                "shot_id": unit["editorial_shot_ids"][index],
+                "primary_actor": actor,
+                "primary_actor_kind": "CHARACTER",
+                "dialogue_speaker": speaker,
+                "dialogue_listener": listener,
+                "action_patient": "陈迹" if actor == "梁狗儿" else "",
+                "first_person_pronoun": speaker,
+                "second_person_pronoun": listener,
+                "action_pronoun_referent": actor,
+                "action_counterparty_referent": "陈迹" if actor == "梁狗儿" else "梁狗儿",
+                "dialogue_third_person_referent": "",
+                "body_part_owner": actor,
+                "entity_states": {
+                    "梁狗儿": "身份锁定为梁狗儿，按当前节拍执行或倾听",
+                    "陈迹": "身份锁定为陈迹，按当前节拍执行或反应",
+                },
+                "entity_presence": {
+                    "梁狗儿": "VISIBLE_AND_IDENTITY_LOCKED",
+                    "陈迹": "VISIBLE_AND_IDENTITY_LOCKED",
+                },
+                "forbidden_role_swaps": True,
+                "unresolved": [],
+            }
         unit["internal_transition_contracts"] = [
             internal_contract(
                 unit["unit_id"], unit["editorial_shot_ids"][index], unit["editorial_shot_ids"][index + 1],
@@ -340,10 +399,21 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
                 },
             }]}
             prompt_spec = {
+                "space": {"global": "G", "location": "L", "subspace": "S"},
+                "scene_state": {
+                    "time": "上午", "weather": "晴", "palette": "灰青",
+                    "weather_provenance": {
+                        "source_type": "TEST_SOURCE", "source_ref": "S1",
+                        "visibility_mode": "VISIBLE_EXTERIOR",
+                    },
+                },
                 "action": {
+                    "action_kind": "PHYSICAL_ACTION",
                     "start_state": "手在桌边", "primary_action": "抬起杯子", "completion_state": "杯到唇边",
                     "contact_point": "手指与杯壁", "motion_direction": "由桌面向唇边上移",
                     "physical_causality": "手指收紧后杯子才离开桌面",
+                    "microexpression_design": "目光先落杯沿再抬起",
+                    "physical_action_design": "手指收紧、提杯、抵达唇边连续完成",
                 },
                 "dialogue": "",
                 "cast": [{"character": "梁狗儿"}, {"character": "陈迹"}],

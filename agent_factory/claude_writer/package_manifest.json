@@ -13,6 +13,7 @@
   "required_repository_files": [
     "tools/canonical_writer_dispatcher.py",
     "tools/canonical_writer_provenance.py",
+    "tools/writer_receipt_resolver.py",
     "tools/episode_stage_gate_runner.py",
     "tools/us_drama_event_density_gate.py",
     "configs/GATE_REGISTRY_v3_20260716.json",

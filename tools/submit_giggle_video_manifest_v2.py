@@ -42,11 +42,13 @@ try:
     from grouped_performance_contract import validate_grouped_beat_contract
     from grouped_internal_continuity_contract import validate_internal_transition_sequence
     from video_prompt_compiler import (
+        compile_model_prompt,
         validate_model_prompt_for_model,
         validate_transition_prompt_for_model,
     )
     from production_efficiency_contract import DEFAULT_WAVE_SIZE, episode_number, require_e47_efficiency_contract
     from speaker_voice_contract import POLICY_VERSION as SPEAKER_VOICE_POLICY_VERSION
+    from sd2_required_prompt_field_gate import validate_required_sd2_field_coverage
 except ModuleNotFoundError:
     from tools.giggle_api_client import _image_list, _request
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
@@ -61,14 +63,21 @@ except ModuleNotFoundError:
     from tools.grouped_performance_contract import validate_grouped_beat_contract
     from tools.grouped_internal_continuity_contract import validate_internal_transition_sequence
     from tools.video_prompt_compiler import (
+        compile_model_prompt,
         validate_model_prompt_for_model,
         validate_transition_prompt_for_model,
     )
     from tools.production_efficiency_contract import DEFAULT_WAVE_SIZE, episode_number, require_e47_efficiency_contract
     from tools.speaker_voice_contract import POLICY_VERSION as SPEAKER_VOICE_POLICY_VERSION
+    from tools.sd2_required_prompt_field_gate import validate_required_sd2_field_coverage
 
 
 ROOT = Path(__file__).resolve().parents[1]
+RUNTIME_GATE_IDS = frozenset({"WRITER-TO-PROVIDER-PROMPT-FIELD-LINEAGE"})
+RUNTIME_GATE_BINDINGS = {
+    "WRITER-TO-PROVIDER-PROMPT-FIELD-LINEAGE": "validate_required_sd2_field_coverage",
+}
+assert frozenset(RUNTIME_GATE_BINDINGS) == RUNTIME_GATE_IDS
 
 
 def authoritative_pipeline_tools_dir() -> Path:
@@ -241,6 +250,8 @@ def task_fingerprint(task: dict[str, Any]) -> str:
         "duration": task.get("duration_seconds"),
         "aspect_ratio": task.get("aspect_ratio"),
         "resolution": task.get("resolution"),
+        "generation_audio_profile_id": task.get("generation_audio_profile_id"),
+        "audio_profile_binding": task.get("audio_profile_binding"),
         "incoming_transition_contract": (task.get("machine_contract") or {}).get("incoming_transition_contract")
         or task.get("incoming_transition_contract"),
         "outgoing_transition_contract": (task.get("machine_contract") or {}).get("outgoing_transition_contract")
@@ -281,6 +292,8 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
     prompt_unit["model"] = task.get("model")
     prompt_unit["h3_prompt_profile"] = task.get("h3_prompt_profile")
     prompt_unit["duration_seconds"] = task.get("duration_seconds")
+    prompt_unit["resolution"] = task.get("resolution")
+    prompt_unit["aspect_ratio"] = task.get("aspect_ratio")
     prompt_unit["reference_images"] = [
         {"path": path, "role": role}
         for path, role in zip(
@@ -299,6 +312,12 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
             f"{task.get('task_key')} grouped complete prompt contract failed: "
             + ",".join(prompt_report.get("failures") or [])
         )
+    if str(task.get("model") or "").strip().lower() == "seedance-2.0-pro":
+        expected_prompt = compile_model_prompt(prompt_unit)
+        if prompt_text != expected_prompt:
+            raise ValueError(
+                f"{task.get('task_key')} provider prompt is not the exact output of the current SD2 compiler"
+            )
     semantic = machine.get("start_frame_semantic_contract") or task.get("start_frame_semantic_contract")
     if not isinstance(semantic, dict) or semantic.get("status") != "PASS":
         raise ValueError(f"{task.get('task_key')} start-frame semantic contract is missing or not PASS")
@@ -359,8 +378,21 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
         or task.get("combat_choreography_contract"),
         "combat_action_library_binding": machine.get("combat_action_library_binding")
         or task.get("combat_action_library_binding"),
+        "interaction_topology_contract": machine.get("interaction_topology_contract")
+        or task.get("interaction_topology_contract"),
+        "performance_tempo_contract": machine.get("performance_tempo_contract")
+        or task.get("performance_tempo_contract"),
         "reference_exclusion_recomposition_rule": machine.get("reference_exclusion_recomposition_rule")
         or task.get("reference_exclusion_recomposition_rule"),
+        "reference_images": task.get("reference_images") or [],
+        "start_frame_semantic_contract": machine.get("start_frame_semantic_contract")
+        or task.get("start_frame_semantic_contract"),
+        "background_ecology_contract": machine.get("background_ecology_contract")
+        or task.get("background_ecology_contract"),
+        "weather_visibility_contract": machine.get("weather_visibility_contract")
+        or task.get("weather_visibility_contract"),
+        "native_audio_contract": machine.get("native_audio_contract")
+        or task.get("native_audio_contract"),
         "h3_ref2va_contract": machine.get("h3_ref2va_contract")
         or task.get("h3_ref2va_contract"),
     }
@@ -439,6 +471,33 @@ def validate_task(task: dict[str, Any]) -> None:
             if expected_transport != list(task.get("reference_audio_asset_ids") or []):
                 raise ValueError(f"{task['task_key']} SD2 speaker voice asset transport mismatch")
     validate_grouped_creative_task(task, prompt_text)
+    # Final paid-submission boundary: SD2 required fields must survive all the
+    # way from the writer contract into the exact provider-facing prompt.
+    # Earlier compiler/QA reports are evidence, not an authorization bypass.
+    if str(task.get("model") or "").strip().lower() == "seedance-2.0-pro":
+        coverage = validate_required_sd2_field_coverage(
+            grouped_sequence_unit(task), prompt_text
+        )
+        if coverage.get("status") != "PASS":
+            raise ValueError(
+                f"{task['task_key']} SD2 required prompt fields failed at paid boundary: "
+                + ",".join(coverage.get("failures") or [])
+            )
+        episode_value = episode_number(task.get("episode"))
+        if episode_value is not None and episode_value >= 50:
+            binding = task.get("audio_profile_binding")
+            profile_id = str(task.get("generation_audio_profile_id") or "")
+            if not isinstance(binding, dict) or binding.get("automatic") is not True:
+                raise ValueError(f"{task['task_key']} missing automatic writer/director audio-profile binding")
+            if binding.get("resolved_audio_profile_id") != profile_id:
+                raise ValueError(f"{task['task_key']} audio-profile ID/binding mismatch")
+            allowed_profiles = {
+                "NATIVE_MULTIMODAL_NO_EXTERNAL_BGM",
+                "NATIVE_MULTIMODAL_SELECTIVE_BGM",
+                "LAYERED_POST_WITH_BGM",
+            }
+            if profile_id not in allowed_profiles:
+                raise ValueError(f"{task['task_key']} unsupported generation audio profile: {profile_id}")
     references = [resolve(value) for value in task["reference_images"]]
     if len(references) != len(task["reference_sha256"]):
         raise ValueError(f"{task['task_key']} reference count/SHA count mismatch")

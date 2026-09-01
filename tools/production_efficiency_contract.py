@@ -27,19 +27,31 @@ def _dialogues(unit: dict[str, Any]) -> list[str]:
 
 def generation_cache_key(task: dict[str, Any]) -> str:
     """Stable content key; remote task IDs and mutable status never participate."""
+    image_digests = {str(value) for value in task.get("reference_sha256") or [] if str(value)}
+    for row in task.get("reference_images") or []:
+        if isinstance(row, dict):
+            digest = str(row.get("sha256") or row.get("media_sha256") or "")
+            if digest:
+                image_digests.add(digest)
+    audio_digests: set[str] = set()
+    for row in task.get("reference_audios") or []:
+        if isinstance(row, dict):
+            digest = str(row.get("sha256") or "")
+            if digest:
+                audio_digests.add(digest)
+    for row in task.get("dialogue_audio_assets") or []:
+        if isinstance(row, dict):
+            digest = str(row.get("sha256") or "")
+            if digest:
+                audio_digests.add(digest)
     payload = {
         "model": task.get("model"),
         "duration_seconds": task.get("duration_seconds"),
         "aspect_ratio": task.get("aspect_ratio"),
         "resolution": task.get("resolution"),
         "prompt_sha256": task.get("prompt_sha256"),
-        "reference_image_sha256s": sorted({
-            str(row.get("sha256") or row.get("media_sha256") or "")
-            for row in task.get("reference_images") or []
-        } | {str(value) for value in task.get("reference_sha256") or []}),
-        "reference_audio_sha256s": sorted(
-            str(row.get("sha256") or "") for row in task.get("reference_audios") or []
-        ),
+        "reference_image_sha256s": sorted(image_digests),
+        "reference_audio_sha256s": sorted(audio_digests),
     }
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()

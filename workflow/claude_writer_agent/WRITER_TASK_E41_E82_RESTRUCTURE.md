@@ -1,16 +1,58 @@
-# 【派单卡】E41–E82 美剧节奏 v2 结构重构（Roger 2026-08-18 直令）
+# 【派单卡】E41–E82 v3 因果层重写（Roger 2026-08-21 直令「重写」）
 
-> 授权号 `ROGER-20260818-US-PACING-V2-RESTRUCTURE` · 指令 CL2X-1193
-> Roger 原话：「现在节奏太慢，要快速的美剧节奏，每集要更多情节推进」+「重构 e41 起」
+> **🔴 战役状态：REOPENED。** 上一轮 v2 结构重构 14 批全部 PASS_SUPERVISOR、写手线曾判 `TERMINAL`；
+> **该终态已作废**，本卡以 v3 因果层为准重新开工。写手线读到本行即视为有可执行工作，不得再返 `STANDBY_NO_EXECUTABLE_WORK`。
+>
+> 授权号 `ROGER-20260821-E41-E82-NARRATIVE-V3-REWRITE` · 指令 CL2X-1226
+> Roger 原话（2026-08-21，回应 CL2X-1225 巡检问句「这 42 集按新规矩只能重写不能补丁，要不要立刻开这条重写战役、是否 42 集全做」）：**「重写」**
+> **口径说明（透明记录）**：Roger 的回答是**无限定**的，故按 **E41–E82 全 42 集**执行；若本意为更小范围，Roger 一句话即可收窄。
+>
+> 前授权号 `ROGER-20260818-US-PACING-V2-RESTRUCTURE`（CL2X-1193，v2 结构层，成果保留作内容参考）
+> 上游依据 `ROGER-20260821-NARRATIVE-CANONICAL-CAUSAL-V3`（v2 数量项降为诊断，阻断依据改为 story move 因果 DAG）
 > **本卡取代 `WRITER_TASK_E38_PLUS_20260728.md`（E38/E39 已完成，该卡归档不再执行）。**
+
+---
+
+## 〇、为什么要重写（一次说清，别再当成"再改一遍结构"）
+
+监制 2026-08-21 20:15Z 对 E41–E82 **逐集实跑**已注册门 `SCRIPT-US-DRAMA-EVENT-DENSITY`（E41/E42 取其 v4 manifest，余取 v3）：
+
+- **42/42 FAIL**，失败码逐集**完全相同**的两条：`NARRATIVE_CANONICAL_CONTRACT_MISSING` + `WRITER_PROVENANCE_MISSING`
+- **零集出现密度类或结构类失败**
+
+即：**不是稿子写得不够快，是「分层 authority 正文」与「运行身份 receipt」这两件新增物在 42 集上一件都不存在。**
+
+**为什么不能打补丁**：`WRITER_PROVENANCE_MISSING` 要求的 receipt 必须在**开写那一刻**由 dispatcher `start` 取 lease 并记录 exact agent/provider/model/session，`finish` 固化 authority SHA；门会复算 receipt SHA 逐字段核对。而生产线已明文自律「**不为历史剧本伪造模型 receipt**」。所以既有 42 集的文本再怎么改，这一条永远补不上——**唯一合规路径是经 dispatcher 重新走一遍写作流程。**
+
+**既有成果不是废纸**：v2 那 14 批的结构成果（逐场天气 481/481、FS-1 21/21 窗口、并行线与跨线切换设计、事件严格计数）**全部可作为重写的内容起点**；作废的只是它们的「生产准入资格」，不是内容。
 
 ---
 
 ## 一、任务
 
-**E41–E82 共 42 集全部重构**，产 `E{NN}剧本_ClaudeWriter_v{n+1}.md` + `E{NN}_manifest_v{n+1}.json`。
+**E41–E82 共 42 集全部重写**，每集产三件（缺一不可）：
 
-现行 v3 重写不得继续只产旧单体文件。每集开写前先由 `tools/canonical_writer_dispatcher.py start` 取得独占 lease，记录 exact agent/provider/model/session 与输入/规则 SHA；完成 story-only `E{NN}_NARRATIVE_CANONICAL_v{n}.md` 后运行 `finish` 固化 authority SHA，并把完成 receipt 精确绑定进 manifest。缺 receipt 或 receipt SHA 不符时不得交付导演稿或 generation contract。
+1. story-only 叙事权威正文 `E{NN}_NARRATIVE_CANONICAL_v{n}.md` —— **只写故事事实与可表演正文**，禁混入景别／运镜／首帧／负向提示词／声线／空间生成字段
+2. 导演稿 `E{NN}剧本_ClaudeWriter_v{n+1}.md`
+3. `E{NN}_manifest_v{n+1}.json`（含 `narrative_canonical` 与 dispatcher 完成 receipt 的精确绑定）
+
+**不得再只产旧单体文件。** 每集流程固定为：
+
+```
+python3 tools/canonical_writer_dispatcher.py start \
+  --episode E{NN} --version {n} --writer-run-id <本轮唯一ID> \
+  --agent-id <本 agent 标识> --provider <真实 provider> --model-id <exact model ID> \
+  --session-or-task-id <本次会话/任务 ID> \
+  --input-bundle <输入包路径> --rule <规则文件> --receipt <receipt 路径>
+   ↓  写 story-only E{NN}_NARRATIVE_CANONICAL_v{n}.md
+python3 tools/canonical_writer_dispatcher.py finish ...   # 固化 authority 输出 SHA、释放 lease
+   ↓  写导演稿 + manifest，把完成 receipt 精确绑定进 manifest
+python3 tools/us_drama_event_density_gate.py --script <manifest> --out <QA 路径>   # 自检必跑
+```
+
+**硬性**：`--model-id` 必须是 **exact model ID**，`Claude`／`Fable 5`／`Opus`／`default`／`auto` 等泛称会被拒；
+lease 同集同版本独占（`O_EXCL`）；`finish` 只接受 lease 所有者；**历史完成 receipt 不可覆盖**。
+缺 receipt、receipt SHA 不符、或 receipt 未完成 → 门 fail closed，**不得交付导演稿或 generation contract**。
 
 **三集一批，写完即停**，交监制前置门 CL2X-499，PASS 才开下一批。
 **批 1 = E41 + E42 + E43。** 未过审不得开批 2。
@@ -23,7 +65,10 @@
 
 **`workflow/claude_writer_agent/scripts/E41剧本_ClaudeWriter_v4.md`** = 监制直接改稿产出的 **E41 重构标杆**，
 已达四条结构指标（12 场／最长 20s／7 地点／2 线／6 次跨线切换／22 事件严格计数）。
-**E42 起照此结构办；E41 不必重写，直接沿用 v4。**
+**⚠️ 2026-08-21 更正（v3 上线后此段有一句已作废）**：原文写「E41 不必重写，直接沿用 v4」——**该句作废**。
+E41 v4 与其余 41 集同码 FAIL（`NARRATIVE_CANONICAL_CONTRACT_MISSING` + `WRITER_PROVENANCE_MISSING`），
+**E41 同样必须经 dispatcher 重走一遍**并产 story-only authority，receipt 不得回填。
+**但 v4 的文本与结构仍是最好的起草基础**——重写 ≠ 推翻重想，是把已有内容经合规流程重新产出并补足因果 DAG 与字面证据绑定。E42 起同理沿用各自 v3 已有内容。
 
 样例里最值得复制的三招：
 1. **把既有的"事后交代"改成实时并行线**——E41 把「取纸之手」从只在阴神重演里出现，改成当夜 B 线（封纸→出角门→马蹄没入雪幕），观众先于主角知情，看着他们拼死打开一个空格子。**零新增角色、零新增台词**，只多了 2 个 location。
@@ -34,7 +79,20 @@
 
 `codex_docs/美剧叙事节奏标准_v2_结构层_20260818.md` —— **开工前整篇读完**。
 
-自 2026-08-21 起，同时执行 `codex_docs/美剧叙事节奏标准_v3_因果层_20260821.md`。v3 纠正“拆场/换地点/多跨切=剧情快”的错误：v2 数量项降为诊断，正式阻断依据改为真实 narrative canonical 的 story move 因果 DAG。E41–E43 旧 v4 仅可作结构参考，不再是 narrative canonical 金样本；下一次进入生产前必须补分层 authority 并通过 v3。
+自 2026-08-21 起，**首要标准改为** `codex_docs/美剧叙事节奏标准_v3_因果层_20260821.md`（v2 降为结构参考）。
+v3 纠正「拆场／换地点／多跨切＝剧情快」的错误：**v2 数量项降为诊断**，正式阻断依据改为真实 narrative canonical 的 **story move 因果 DAG**。
+
+**⚠️ 范围更正（2026-08-21 20:15Z 实测）**：本节原写「E41–E43 旧 v4 ……下一次进入生产前必须补分层 authority」，读起来像**只有 E41–E43** 需处理。
+**实测是 E41–E82 全 42 集同码 FAIL**，故范围＝**全 42 集**，一集不例外。
+
+v3 每个可计数 story move 的硬要求（照做，别自报）：
+
+- exact-SHA 绑定**真实正文中的唯一字面证据**（写不出字面证据的，不得计数）
+- 唯一 causal cluster + 具名前驱 move；**非首 move 的 cause state 必须来自具名前驱的 result state**
+- 可核验的 cause/result state、角色动作或外部变化、**对下一步的强迫关系**
+
+注册参数（门实读，不是建议值）：**story move ≥3.2/分钟**；**agency move 占比 ≥0.50**；**连续 discovery/payoff ≤1**；**正文每分钟可见字符 ≤1400**。
+固定场次数、地点数、时间跳跃数、cross-cut 数**已降为 diagnostic**，不再能作为「节奏快」的替代证据。
 
 ### 四条结构硬指标（缺一即 REVISE）
 
@@ -92,6 +150,7 @@
 10. **逐镜 `shot_treatment` 由剧本决定**（景别/机位/运镜/图数/时长），禁固定模板；时长逐镜 **4–15s 不均匀**，禁静止起手措辞。
 11. **整集全局空间地图**：先定义覆盖全部地点的 `EPISODE-GLOBAL-SPACE-MAP-ID`，再为每地点定义可跨集继承的 `GLOBAL-SPACE-MAP-ID`，逐镜绑定 `ROOM-ID / ZONE-ID / ANGLE-ID / SUBSPACE-ID`，最后才写人物/物品站位。完整继承必须保持 ID、版本、拓扑 SHA、地图图 SHA 一致；部分继承新增地点必须新建整集集合 ID。
 12. **动作轨迹服从空间**：每个动作镜在锁定 `SUBSPACE-ID` 和人物/物品起始站位后填写 `spatial_action_contract`，包含剧本动作原文及 SHA、轨迹起点/中间点/终点、接触/受力、不可穿越物、跨区入口、遮挡、退路、反制和终态；动作不得出子空间、穿固定物或与剧本终态冲突。
+13. **逐镜不可绕过 `prompt_spec`**：generation contract 的每个 shot 必须由写手/导演直接给出完整结构化 `prompt_spec`，覆盖 `space`、`scene_state`（含原样 `ambient_life` 与 `weather_provenance`）、`cast`、`props`、`action`（分类/起态/主动作/结果态/接触点/方向/物理因果/微表情/物理动作）、`action_visualization`、`performance`（含逐人覆盖）、`dialogue_delivery`、`visual_design`、`sound_design`、`role_semantic_disambiguation`、逐拍负面限制和 `audio_contract`。其中 `writer_camera_instruction / writer_shot_treatment / writer_expression_arc / source_first_frame_motion_state / dialogue / negative_prompts / subspace` 必须逐字绑定同一 shot 的源字段；生产端只准序列化和分组，不准用默认模板补造缺项。缺一项即拒绝写手封缄。
 
 ---
 

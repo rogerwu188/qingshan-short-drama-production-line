@@ -166,18 +166,54 @@ def compile_performance_clause(spec: dict[str, Any]) -> str:
 
 def compile_visual_sound_clause(specs: list[dict[str, Any]]) -> str:
     first_visual = specs[0]["visual_design"]
+    depth_layers: list[str] = []
+    scale_anchors: list[str] = []
+    key_lights: list[str] = []
+    environmental_motion: list[str] = []
+    material_detail: list[str] = []
+    video_motion: list[str] = []
+    atmosphere: list[str] = []
+    still_contracts: list[str] = []
+    palette_rows: list[str] = []
     sound_rows = []
     for spec in specs:
+        visual = spec["visual_design"]
+        for value in visual["depth_layers"]:
+            if value not in depth_layers:
+                depth_layers.append(value)
+        for value, target in (
+            (visual["scale_anchor"], scale_anchors),
+            (visual["key_light"], key_lights),
+            (visual["still_prompt_contract"], still_contracts),
+        ):
+            if value not in target:
+                target.append(value)
+        for value in visual["environmental_motion"]:
+            if value not in environmental_motion:
+                environmental_motion.append(value)
+        for value in visual["material_detail"]:
+            if value not in material_detail:
+                material_detail.append(value)
+        for value in (visual["video_motion_contract"],):
+            if value not in video_motion:
+                video_motion.append(value)
+        for value in (visual["atmosphere"],):
+            if value not in atmosphere:
+                atmosphere.append(value)
+        palette = visual["palette"]
+        palette_row = f"{palette['dominant']}/{palette['contrast']}/{palette['accent']}"
+        if palette_row not in palette_rows:
+            palette_rows.append(palette_row)
         sound = spec["sound_design"]
         row = f"{sound['ambience']}／{sound['foley']}／{sound['action_sound']}"
         if row not in sound_rows:
             sound_rows.append(row)
     return (
-        f"空间层次={' / '.join(first_visual['depth_layers'])}；尺度锚={first_visual['scale_anchor']}；"
-        f"动机光={first_visual['key_light']}；空气={first_visual['atmosphere']}；"
-        f"环境微动={' / '.join(first_visual['environmental_motion'])}；"
-        f"材质={' / '.join(first_visual['material_detail'])}；"
-        f"色彩={first_visual['palette']['dominant']}/{first_visual['palette']['contrast']}/{first_visual['palette']['accent']}；"
-        f"静帧={first_visual['still_prompt_contract']}；视频运动={first_visual['video_motion_contract']}；"
+        f"空间层次={' / '.join(depth_layers)}；尺度锚={' / '.join(scale_anchors)}；"
+        f"动机光={' / '.join(key_lights)}；空气={' / '.join(atmosphere)}；"
+        f"环境微动={' / '.join(environmental_motion)}；"
+        f"材质={' / '.join(material_detail)}；"
+        f"色彩={' / '.join(palette_rows)}；"
+        f"静帧={' / '.join(still_contracts)}；视频运动={' / '.join(video_motion)}；"
         f"现场声={'；'.join(sound_rows)}。"
     )

@@ -74,7 +74,7 @@ MAP_DEFS = {
 CHAR_IDS = {
     "陈迹": "CHAR-E46-CHENJI", "姚老头": "CHAR-E46-YAO-CURRENT",
     "年轻姚老头": "CHAR-E46-YAO-YOUNG", "幼年养子": "CHAR-E46-SON-CHILD",
-    "十六岁养子": "CHAR-E46-SON-SIXTEEN", "成年养子": "CHAR-E46-SON-ADULT",
+    "十六岁养子": "CHAR-E46-SON-SIXTEEN",
     "工部监丞": "CHAR-E46-OFFICIAL", "乌云": "CHAR-E46-WUYUN", "乌鸦": "CHAR-E46-CROW",
 }
 ANIMALS = {"乌云", "乌鸦"}
@@ -114,11 +114,6 @@ WARDROBE_BIBLE = {
          "primary_color": "青灰", "secondary_color": "淡米白", "material": "细棉与薄呢", "pattern": "袖口单道深青压线",
          "belt_or_fastening": "深青织带", "footwear": "灰黑软底靴", "accessory": "小药囊", "condition": "整洁",
          "continuity_key": "E46-SON-SIXTEEN-BLUEGRAY-V1"},
-        {"character": "成年养子", "social_tier": "DISGRACED_PHYSICIAN", "role_basis": "犯错后在雪中认错的成年养子",
-         "silhouette": "成年修长、衣摆被雪压重的医者袍", "outer_layer": "暗青长袍", "inner_layer": "灰白细棉内衫",
-         "primary_color": "暗青", "secondary_color": "灰白", "material": "细棉与旧薄呢", "pattern": "无显眼纹样",
-         "belt_or_fastening": "暗灰织带", "footwear": "湿透黑靴", "accessory": "旧药囊", "condition": "跪雪后湿冷有折痕",
-         "continuity_key": "E46-SON-ADULT-DARKTEAL-V1"},
         {"character": "工部监丞", "social_tier": "COURT_OFFICIAL", "role_basis": "病榻上的工部官员",
          "silhouette": "病中官袍宽肩轮廓", "outer_layer": "黯绯无字官常服", "inner_layer": "米白中衣",
          "primary_color": "黯绯", "secondary_color": "米白", "material": "细呢与绢", "pattern": "不可辨识低对比织纹",
@@ -179,7 +174,7 @@ def cast_for(shot: dict[str, Any]) -> list[str]:
         if sid.endswith(("01", "02", "03", "04")): return ["年轻姚老头", "幼年养子"]
         if sid.endswith("06"): return ["十六岁养子", "工部监丞"]
         return ["十六岁养子"]
-    if scene == "E46-S10": return ["成年养子", "姚老头"]
+    if scene == "E46-S10": return ["十六岁养子", "姚老头"]
     if scene == "E46-S11": return ["陈迹", "姚老头"] + (["乌鸦"] if sid.endswith("04") else []) + (["乌云"] if sid.endswith("05") else [])
     if scene == "E46-S12": return ["陈迹", "姚老头", "乌云"]
     return []
@@ -235,7 +230,7 @@ def build_editorial(source: dict[str, Any], map_plan: dict[str, Any]) -> dict[st
                "depth_plane":"PRIMARY_ACTION_PLANE" if i<2 else "REACTION_PLANE","face_visibility":"VISIBLE_PER_FRAME_CONTENT",
                "identity_card_required":n not in ANIMALS} for i,n in enumerate(names)]
         speaker=dialogue.partition("：")[0].strip() if "：" in dialogue else ""
-        aliases={"养子":"成年养子"}
+        aliases={"养子":"十六岁养子"}
         actual_speaker=aliases.get(speaker,speaker)
         if actual_speaker and actual_speaker not in names:
             cast.append({"character":actual_speaker,"entity_type":"HUMAN","screen_slot":"OFFSCREEN","depth_plane":"OFFSCREEN_SOURCE",

@@ -44,6 +44,19 @@ class VideoSubmissionEntrypointContractCoverageTest(unittest.TestCase):
         ]
         self.assertEqual([], missing, f"video submit paths bypass model adapter gate: {missing}")
 
+    def test_authoritative_video_submitter_rechecks_sd2_required_prompt_fields(self):
+        relative = "tools/submit_giggle_video_manifest_v2.py"
+        self.assertIn(
+            "validate_required_sd2_field_coverage",
+            called_functions(ROOT / relative),
+            "paid SD2 submission can bypass writer-to-provider field lineage",
+        )
+        self.assertIn(
+            "compile_model_prompt",
+            called_functions(ROOT / relative),
+            "paid SD2 submission does not exact-recompile the provider prompt",
+        )
+
     def test_entrypoint_inventory_exists_and_is_python(self):
         for relative in VIDEO_SUBMISSION_ENTRYPOINTS + IMAGE_SUBMISSION_ENTRYPOINTS:
             path = ROOT / relative
