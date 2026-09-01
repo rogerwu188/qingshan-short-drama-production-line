@@ -1,4 +1,5 @@
 import json
+import math
 import shutil
 import struct
 import subprocess
@@ -22,7 +23,11 @@ class RenderAgentCutAudioMasterTests(unittest.TestCase):
                 wav.setnchannels(1)
                 wav.setsampwidth(2)
                 wav.setframerate(48000)
-                wav.writeframes(struct.pack("<h", 1000) * 48000)
+                samples = (
+                    struct.pack("<h", round(4000 * math.sin(2 * math.pi * 440 * index / 48000)))
+                    for index in range(48000)
+                )
+                wav.writeframes(b"".join(samples))
             project = {
                 "metadata": {
                     "audio_profile_id": "NATIVE_MULTIMODAL_NO_EXTERNAL_BGM",

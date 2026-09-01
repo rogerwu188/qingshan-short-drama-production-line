@@ -12,7 +12,24 @@
       "external_bgm_allowed": false,
       "bgm_mode": "FORBIDDEN",
       "bgm_track_required": false,
-      "bgm_contract_required": false
+      "bgm_contract_required": false,
+      "native_unit_loudness": {
+        "enabled": true,
+        "target_stage": "PREMASTER_BEFORE_RELEASE_NORMALIZATION",
+        "dialogue_target_lufs": -18.0,
+        "action_target_lufs": -20.0,
+        "ambience_target_lufs": -22.0,
+        "max_gain_db": 12.0,
+        "max_attenuation_db": 8.0,
+        "true_peak_ceiling_dbtp": -1.5,
+        "max_adjacent_delta_lu": 8.0
+      },
+      "release_loudness": {
+        "target_lufs": -16.0,
+        "accepted_range_lufs": [-17.0, -15.0],
+        "max_loudness_range_lu": 12.0,
+        "true_peak_max_dbtp": -1.0
+      }
     },
     "NATIVE_MULTIMODAL_SELECTIVE_BGM": {
       "description": "Keep Seedance multimodal native dialogue, ambience, foley and SFX. Add BGM only on explicitly motivated narrative cues.",
@@ -22,7 +39,25 @@
       "external_bgm_allowed": true,
       "bgm_mode": "SELECTIVE",
       "bgm_track_required": false,
-      "bgm_contract_required": false
+      "bgm_contract_required": false,
+      "native_unit_loudness": {
+        "enabled": true,
+        "target_stage": "PREMASTER_BEFORE_RELEASE_NORMALIZATION",
+        "dialogue_target_lufs": -18.0,
+        "action_target_lufs": -20.0,
+        "ambience_target_lufs": -22.0,
+        "music_target_lufs": -23.0,
+        "max_gain_db": 12.0,
+        "max_attenuation_db": 8.0,
+        "true_peak_ceiling_dbtp": -1.5,
+        "max_adjacent_delta_lu": 8.0
+      },
+      "release_loudness": {
+        "target_lufs": -16.0,
+        "accepted_range_lufs": [-17.0, -15.0],
+        "max_loudness_range_lu": 12.0,
+        "true_peak_max_dbtp": -1.0
+      }
     },
     "LAYERED_POST_WITH_BGM": {
       "description": "Use explicit dialogue/ambience/foley/SFX layers plus a provenance-bound BGM track.",
@@ -32,7 +67,17 @@
       "external_bgm_allowed": true,
       "bgm_mode": "REQUIRED",
       "bgm_track_required": true,
-      "bgm_contract_required": true
+      "bgm_contract_required": true,
+      "native_unit_loudness": {
+        "enabled": false,
+        "reason": "Layered stems use the explicit mix and dialogue-ducking contract."
+      },
+      "release_loudness": {
+        "target_lufs": -16.0,
+        "accepted_range_lufs": [-17.0, -15.0],
+        "max_loudness_range_lu": 12.0,
+        "true_peak_max_dbtp": -1.0
+      }
     }
   }
 }
