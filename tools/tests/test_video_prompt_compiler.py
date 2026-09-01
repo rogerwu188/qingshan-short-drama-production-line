@@ -16,6 +16,7 @@ from tools.video_prompt_compiler import (
     model_family,
     validate_model_prompt_for_model,
 )
+from tools.submit_giggle_video_manifest_v2 import uses_structured_role_gate
 
 
 def _spec(*, dialogue: str = "") -> dict:
@@ -178,6 +179,14 @@ class VideoPromptCompilerTest(unittest.TestCase):
         text = compile_model_prompt(unit)
         self.assertIn("【时间轴】", text)
         self.assertNotIn("subject_definitions:", text)
+
+    def test_shared_sd2_prompt_uses_structured_role_gate_not_legacy_role_dump(self):
+        unit = _unit(dialogue="白鲤：陈迹。")
+        unit["model"] = "seedance-2.0-pro"
+        text = compile_model_prompt(unit)
+        self.assertNotIn("ROLE_LOCK[", text)
+        self.assertNotIn("角色语义消歧硬锁", text)
+        self.assertTrue(uses_structured_role_gate({"model": unit["model"]}, text))
 
     def test_h3_requires_sha_bound_english_execution_contract(self):
         with self.assertRaisesRegex(ValueError, "H3_ENGLISH_CONTRACT"):

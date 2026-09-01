@@ -408,6 +408,20 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def uses_structured_role_gate(task: dict[str, Any], prompt_text: str) -> bool:
+    """Return true for compiler-native prompts that intentionally omit role dumps."""
+    shared_ir_prompt = (
+        "【任务】" in prompt_text and "【时间轴】" in prompt_text
+    ) or (
+        "subject_definitions:" in prompt_text and "retention_analysis:" in prompt_text
+    )
+    official_h3_ref2va = (
+        str(task.get("model") or "").lower() in {"minimax-h3", "h3"}
+        and task.get("h3_prompt_profile") == "H3_OFFICIAL_REF2VA_V1"
+    )
+    return shared_ir_prompt or official_h3_ref2va
+
+
 def transaction_path(transaction_dir: Path, task: dict[str, Any]) -> Path:
     return transaction_dir / f"{task['task_key']}__{task_fingerprint(task)[:16]}.json"
 
@@ -421,13 +435,15 @@ def validate_task(task: dict[str, Any]) -> None:
     if not prompt.is_file() or sha256(prompt) != task["prompt_sha256"]:
         raise ValueError(f"{task['task_key']} prompt SHA mismatch")
     prompt_text = prompt.read_text(encoding="utf-8")
-    official_h3_ref2va = (
-        str(task.get("model") or "").lower() in {"minimax-h3", "h3"}
-        and task.get("h3_prompt_profile") == "H3_OFFICIAL_REF2VA_V1"
-    )
+    # Shared-IR provider prompts deliberately do not serialize the legacy
+    # ROLE_LOCK/schema dump.  Character disambiguation remains fail-closed in
+    # the structured graph, and the exact current compiler plus its rendered
+    # semantic-coverage receipt are checked below.  Requiring the old prose
+    # block here would contradict the provider-boundary contract and force
+    # internal machine text back into both SD2 and H3 prompts.
     role_failures = (
         validate_role_semantics_structure(task)
-        if official_h3_ref2va
+        if uses_structured_role_gate(task, prompt_text)
         else validate_role_semantics(task, prompt_text)
     )
     if role_failures:
