@@ -145,8 +145,11 @@ def evaluate_grouped_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
             "fallback_encoder": "libx264",
             "segment_normalization_cache": True,
             "final_composite_passes": 1,
-            "delivery_resolution": "1440x2560",
+            "delivery_resolution": manifest.get("delivery_resolution_contract")
+            or manifest.get("native_resolution_contract")
+            or "NATIVE_PROVIDER_RESOLUTION",
             "native_resolution_must_remain_honestly_labeled": True,
+            "silent_upscale_forbidden": True,
         },
         "units": rows,
         "failures": failures,
