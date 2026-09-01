@@ -51,8 +51,20 @@ def _looks_like_action(task: dict[str, Any], text: str) -> bool:
 
 
 def _fight_or_chase(text: str, task: dict[str, Any]) -> bool:
-    # Keep the legacy literal cues, but do not let Chinese physical exchanges
-    # hidden inside a semantic grouped unit evade combat classification.
+    # A current structured writer's explicit classification outranks literal
+    # prompt scanning.  Negative constraints routinely contain phrases such as
+    # "禁止战斗化表演"; treating those words as positive evidence silently
+    # converts ordinary performance into combat at the paid boundary.
+    if task.get("combat_choreography_contract"):
+        return True
+    declared = [
+        task[name]
+        for name in ("fight_or_chase", "combat_or_chase")
+        if isinstance(task.get(name), bool)
+    ]
+    if declared:
+        return any(declared)
+    # Legacy/unclassified manifests still receive fail-safe cue detection.
     return is_combat_unit(task) or any(cue in text for cue in FIGHT_PURPOSE_CUES)
 
 

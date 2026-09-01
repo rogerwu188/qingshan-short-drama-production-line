@@ -92,6 +92,29 @@ class PerformanceTempoCombatContractTest(unittest.TestCase):
         }
         self.assertEqual(evaluate_batch([task])["status"], "PASS")
 
+    def test_explicit_noncombat_is_not_overridden_by_negative_combat_wording(self):
+        task = {
+            "task_key": "STRUCTURED-NONCOMBAT",
+            "shot_type": "SEMANTIC_GROUPED_SCENE_PERFORMANCE",
+            "semantic_video_unit": True,
+            "action_unit": True,
+            "fight_or_chase": False,
+            "combat_or_chase": False,
+            "duration_seconds": 4,
+            "prompt": "人物端起茶杯，禁止战斗化表演。",
+            "performance_tempo_contract": {
+                "playback_speed": "REAL_TIME_1X",
+                "grouped_editorial_beat_count": 2,
+                "atomic_action_windows": [
+                    {"start_seconds": 0.0, "end_seconds": 2.0, "action": "端杯"},
+                    {"start_seconds": 2.0, "end_seconds": 4.0, "action": "放稳"},
+                ],
+            },
+        }
+        result = evaluate_batch([task])
+        self.assertEqual(result["status"], "PASS", result)
+        self.assertFalse(result["rows"][0]["fight_or_chase"])
+
     def test_structured_combat_accepts_registered_eight_second_generation_unit(self):
         task = {
         "task_key": "COMBAT-8S",
