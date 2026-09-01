@@ -352,6 +352,38 @@ def compile_h3_prompt(unit: dict[str, Any]) -> str:
     """Serialize a model-neutral grouped unit as H3 full-reference prompt text."""
     if str(unit.get("model") or "MiniMax-H3").lower() not in {"minimax-h3", "h3"}:
         raise ValueError("compile_h3_prompt only accepts MiniMax-H3 units")
+    try:
+        from tools.h3_provider_prompt_renderer import render_h3_prompt
+        from tools.provider_contract_boundary import (
+            assert_structured_contract_unchanged,
+            begin_provider_compile,
+        )
+        from tools.video_execution_plan_compiler import compile_video_execution_plan
+    except ModuleNotFoundError:
+        from h3_provider_prompt_renderer import render_h3_prompt
+        from provider_contract_boundary import (
+            assert_structured_contract_unchanged,
+            begin_provider_compile,
+        )
+        from video_execution_plan_compiler import compile_video_execution_plan
+    working, source_sha = begin_provider_compile(unit)
+    try:
+        from tools.role_semantic_prompt_gate import validate_role_semantics_structure
+    except ModuleNotFoundError:
+        from role_semantic_prompt_gate import validate_role_semantics_structure
+    role_failures = validate_role_semantics_structure(working)
+    if role_failures:
+        raise ValueError(";".join(role_failures))
+    plan = compile_video_execution_plan(working)
+    compact_text, _receipt = render_h3_prompt(working, plan)
+    immutable = assert_structured_contract_unchanged(
+        unit, source_sha, source_id=str(unit.get("unit_id") or "UNKNOWN")
+    )
+    if immutable["status"] != "PASS":
+        raise ValueError(";".join(immutable["failures"]))
+    return compact_text
+
+    # Legacy serializer retained below as migration reference only.
     enrich_unit_contract(unit)
     specs = unit.get("ordered_prompt_specs") or []
     if not specs:
@@ -946,6 +978,16 @@ def validate_h3_english_machine_audio_rescue_prompt(
 
 
 def validate_h3_transition_prompt_binding(text: str, unit: dict[str, Any]) -> dict[str, Any]:
+    if "detailed_description:" in text and "negative_constraints:" in text:
+        expected = bool(unit.get("incoming_transition_contract") or unit.get("outgoing_transition_contract"))
+        present = "开场直接承接" in text or "结尾完成" in text
+        failures = [] if not expected or present else ["H3_TRANSITION_SEMANTIC_BRIDGE_MISSING"]
+        return {
+            "schema": "qingshan.minimax_h3_transition_prompt_binding.v2_compact_semantic_bridge",
+            "status": "PASS" if not failures else "FAIL",
+            "unit_id": str(unit.get("unit_id") or "UNKNOWN"),
+            "failures": failures,
+        }
     failures: list[str] = []
     expected = _transition_notes(unit)
     for index, note in enumerate(expected, start=1):
@@ -967,6 +1009,42 @@ def validate_h3_prompt(
     source_id: str,
     unit: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if "detailed_description:" in text and "negative_constraints:" in text:
+        try:
+            from tools.h3_provider_english_contract import validate_h3_provider_text_boundary
+            from tools.provider_contract_boundary import validate_provider_prompt_boundary
+            from tools.role_semantic_prompt_gate import validate_role_semantics_structure
+        except ModuleNotFoundError:
+            from h3_provider_english_contract import validate_h3_provider_text_boundary
+            from provider_contract_boundary import validate_provider_prompt_boundary
+            from role_semantic_prompt_gate import validate_role_semantics_structure
+        required = (
+            "subject_definitions:", "summary:", "retention_analysis:",
+            "detailed_description:", "camera:", "overall_soundscape:",
+            "non_diegetic_music:", "negative_constraints:", "TEXT-FREE FRAME",
+        )
+        failures = [
+            f"H3_COMPACT_REQUIRED_FIELD_MISSING:{source_id}:{field}"
+            for field in required if field not in text
+        ]
+        boundary = validate_provider_prompt_boundary(
+            text, source_id=source_id, model_family="MINIMAX_H3"
+        )
+        failures.extend(boundary["failures"])
+        failures.extend(validate_h3_provider_text_boundary(text, source_id=source_id)["failures"])
+        if unit is not None:
+            failures.extend(validate_role_semantics_structure(unit))
+            expected = [words for _, words in _dialogues(unit)]
+            tagged = _DIALOGUE_TAG.findall(text)
+            if tagged != expected:
+                failures.append(f"H3_DIALOGUE_TAG_CONTENT_MISMATCH:{source_id}")
+        return {
+            "policy": "qingshan.minimax_h3_prompt.v12_shared_execution_ir_native_renderer",
+            "status": "PASS" if not failures else "FAIL",
+            "source_id": source_id,
+            "character_count": len(text),
+            "failures": failures,
+        }
     failures: list[str] = []
     if H3_ANTI_CAPTION_CLAUSE not in text:
         failures.append(f"H3_ANTI_CAPTION_CLAUSE_MISSING:{source_id}")
