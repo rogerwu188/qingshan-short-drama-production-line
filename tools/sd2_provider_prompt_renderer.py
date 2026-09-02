@@ -107,6 +107,14 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         physical_rules.append(
             "打斗按起势与位移→唯一接触或明确闪避→受力反馈→新站位的实时物理链完成；不摆拍、不太极推手、不用静帧插值"
         )
+    wuxia_profile = plan.get("wuxia_combat_profile_selection") or {}
+    if wuxia_profile.get("status") == "SELECTED":
+        physical_rules.append(
+            "武侠动作镜头原型[INFERRED_RECONSTRUCTED_NOT_ORIGINAL]："
+            + str(wuxia_profile.get("prompt_module_zh") or "")
+            + "；该原型只翻译既有Action-IR，不新增招式、命中、伤势、效果、胜负或剧情结果"
+        )
+        negatives.extend(wuxia_profile.get("negative_constraints_zh") or [])
     text = "\n".join([
         f"【任务】{plan['duration_seconds']:g}秒，9:16，{unit.get('resolution') or '720p'}，seedance-2.0-pro，真人实拍电影质感。",
         f"【锚点】{plan['identity_prop_fact']}；{plan['space_weather_fact']}。",
@@ -128,7 +136,13 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
     if plan.get("interaction_topology_required"):
         clause_evidence["PHYSICAL.INTERACTION_TOPOLOGY"] = physical_rules[0]
     if plan.get("combat_execution_required"):
-        clause_evidence["COMBAT.EXECUTION_RULE"] = physical_rules[-1]
+        clause_evidence["COMBAT.EXECUTION_RULE"] = next(
+            value for value in physical_rules if value.startswith("打斗按起势与位移")
+        )
+    if wuxia_profile.get("status") == "SELECTED":
+        clause_evidence["COMBAT.WUXIA_PROFILE_MODULE"] = next(
+            value for value in physical_rules if value.startswith("武侠动作镜头原型")
+        )
     if transition.get("incoming"):
         clause_evidence["TRANSITION.INCOMING"] = transition["incoming"]
     if transition.get("outgoing"):
@@ -188,6 +202,7 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         "immutable_contract_sha256": plan["immutable_contract_sha256"],
         "execution_semantics_sha256": plan["execution_semantics_sha256"],
         "camera_language_selection": plan["camera_language_selection"],
+        "wuxia_combat_profile_selection": wuxia_profile,
         "motion_density_gate": plan["motion_density_gate"],
         "provider_semantic_coverage_receipt": coverage,
         "provider_boundary": boundary,

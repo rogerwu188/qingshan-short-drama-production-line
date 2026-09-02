@@ -18,6 +18,14 @@ def _unit(model: str = "seedance-2.0-pro") -> dict:
         "resolution": "720p",
         "aspect_ratio": "9:16",
         "reference_images": [{"path": "anchor.png", "role": "START"}],
+        "wuxia_combat_profile_required": True,
+        "wuxia_combat_profile_signals": {
+            "weapon_type": "BLADE",
+            "cast_count": 2,
+            "interaction_modes": ["CONTACT"],
+            "environment_tags": ["RAIN"],
+            "profile_ids": ["WXC-SWORD-02", "WXC-ENV-01"],
+        },
         "camera_plan": {
             "shot_scale": "MEDIUM",
             "camera_height": "EYE_LEVEL",
@@ -118,6 +126,16 @@ class SharedVideoExecutionCompilerTest(unittest.TestCase):
         self.assertIn("estimated 35mm focal length", h3_prompt)
         self.assertEqual(sd2_receipt["camera_language_selection"]["mode"], "HYBRID")
         self.assertEqual(h3_receipt["camera_language_selection"]["mode"], "HYBRID")
+        self.assertEqual(
+            sd2_receipt["wuxia_combat_profile_selection"]["selected_profile_ids"],
+            ["WXC-SWORD-02", "WXC-ENV-01"],
+        )
+        self.assertEqual(
+            sd2_receipt["wuxia_combat_profile_selection"]["selected_profile_ids"],
+            h3_receipt["wuxia_combat_profile_selection"]["selected_profile_ids"],
+        )
+        self.assertIn("武侠动作镜头原型", sd2_prompt)
+        self.assertIn("Wuxia action-camera profile", h3_prompt)
         self.assertNotIn("ROLE_LOCK[", sd2_prompt + h3_prompt)
         self.assertEqual(compile_receipt("E99-VU-001")["motion_density_gate"]["status"], "PASS")
         self.assertEqual(
