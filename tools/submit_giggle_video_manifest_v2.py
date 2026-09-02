@@ -359,6 +359,17 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
         # worse, bypass the exact safe-cut contract.
         "duration_seconds": task.get("duration_seconds")
         or machine.get("duration_seconds"),
+        # Shared Action-IR duration authority must survive the paid-boundary
+        # task projection.  Falling back to source beat spans alone can turn a
+        # valid provider integer duration plus its authorized tail handle into
+        # a false DURATION_EXCEEDS_AUTHORIZED_CONTENT rejection.
+        "source_duration_seconds": task.get("source_duration_seconds")
+        or machine.get("source_duration_seconds"),
+        "authorized_content_seconds": task.get("authorized_content_seconds")
+        or machine.get("authorized_content_seconds"),
+        "authorized_tail_handle_seconds": task.get("authorized_tail_handle_seconds")
+        if task.get("authorized_tail_handle_seconds") is not None
+        else machine.get("authorized_tail_handle_seconds"),
         "h3_prompt_profile": task.get("h3_prompt_profile"),
         "scene_id": task.get("scene_id") or machine.get("scene_id"),
         "wardrobe_contract": machine.get("wardrobe_contract") or task.get("wardrobe_contract"),
