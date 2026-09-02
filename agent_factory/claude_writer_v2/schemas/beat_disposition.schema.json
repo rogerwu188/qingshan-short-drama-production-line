@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qingshan.writer.beat_disposition.v2",
+  "title": "源章逐拍处置",
+  "description": "v2 只接受 list 形态，且 landed_at 必须写到场次粒度。见 CHARTER §3.1。",
+  "type": "array",
+  "minItems": 1,
+  "items": {
+    "type": "object",
+    "required": ["event_id","disposition","landed_at","summary"],
+    "properties": {
+      "event_id": {"type":"string","pattern":"^E\\d+-EV-\\d+$"},
+      "disposition": {"enum":["landed","merged","dropped"]},
+      "landed_at": {"type":"string","pattern":"E\\d+-S\\d+",
+        "description":"必须含场次号，如 'E51-S03（两镜）'。只写 event_id 或只写章节号一律不合规。"},
+      "summary": {"type":"string","minLength":8}
+    },
+    "additionalProperties": true
+  }
+}

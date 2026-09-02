@@ -190,3 +190,57 @@ v3 每个可计数 story move 的硬要求（照做，别自报）：
 - 连续性：承上集 + 校 E±1 埋线 + 写完更新 `观众已知清单.md`。
 - 落 `workflow/claude_writer_agent/scripts/`；写完更新 `PROGRESS.json`、`MEMORY.md`（只增）。
 - **三集写完即停，交监制前置门，不自行开下一批。**
+
+---
+
+## 八、★场次来源申报（BLOCK，2026-09-02 立，E51 v4 实证）
+
+### 规则
+
+`manifest.structure` 里的**每一个** `scene_id`，必须至少满足其一：
+
+- **A｜有源**：出现在 `beat_disposition` 的落点里（该场承载源章某一拍）；
+- **B｜已申报**：出现在 `★authorized_insertions` 的 `scene_id` / `shots` 里。
+
+两者都不满足 = **无源且未申报** = 该轮不得交付。
+
+`beat_disposition` 的落点**必须写到场次粒度**（如 `"landed_at": "E51-S03（两镜）"`）。只列 `event_id` 不写落在哪一场的，本门无法审计，一律判 WARN 并要求补齐后重跑。
+
+### 门
+
+```bash
+python3 tools/writer_scene_source_declaration_gate.py \
+  workflow/claude_writer_agent/scripts/E<NN>_manifest_v<V>.json \
+  --out qa/<round>/SCENE_SOURCE_DECLARATION_V1.json
+```
+
+`status != PASS` ⇒ 不得 `finish`，不得移交镜头设计，不得进入付费生成。
+
+### 立门缘由（写在明处，别再犯）
+
+E51 v4 的 **S03／S08／S11** 三场线B（赌坊搜捕交叉剪辑，共 20.8 秒，占目标片长 11.6%）：
+
+- 不在 ch56 十拍的 `beat_disposition` 内——**不是源章内容**；
+- 也不在 `★authorized_insertions` 里（v4 只登记了 INS-E51-01＝S01-05）——**没有申报**；
+- 就这么混在源章内容中间通过了 script phase，一路走到付费生成和成片。
+
+问题不在于"加了戏"。交叉剪辑本身合理，S03／S08／S11 承担的是"包围圈一步步收紧到陈迹头上"这个真实功能。**问题在于加了戏没报备**——监制无法从 manifest 上分辨哪些是原著、哪些是写手编的，忠实度自限也就无从计算。
+
+E51 v5 已补登为 INS-E51-02（自扣 −1.5 分），并顺手修了它引出的承接口径错误（v4 的 S03 把 E50 结尾"上百件蓑衣涌向赌坊的门"的攻势倒退成"还堵成一堵墙"）。
+
+### 全库回扫结果（2026-09-02，E43–E75 现行版本）
+
+| 集 | 无源未申报场次 | 处置 |
+|---|---|---|
+| E51 | ~~S03／S08／S11~~ | **已在 v5 补登并修正，PASS** |
+| E47 | S05（后院空镜） | 待补登 |
+| E61 | S02／S07（猫群对峙线B） | 待补登 |
+| E65 | S02（对面铺面窥视线C） | 待补登 |
+| E48 | 无法审计 | `beat_disposition` 只列 event_id，未记场次落点，需补齐后重跑 |
+
+其余 28 集 PASS。**下一轮 writer 起来时先清这四集的申报缺口，再开新集。**
+
+### 写手侧的自查口径
+
+每写完一场就问一句：**"这一场是原著第几拍？"**
+答不上来 ⇒ 它就是插入项，当场写进 `★authorized_insertions`，把 `source_basis`（依据哪一集哪一句已落地的字节）、`new_information`（能在落地场次正文里逐格对上的内容）、`self_deduction`（负值带单位）一并写完，**不要留到最后补**。
