@@ -43,11 +43,34 @@ def _camera(plan: dict[str, Any]) -> str:
     mapping = {
         "STATIC": "locked camera", "LOCKED": "locked camera",
         "DOLLY": "one short dolly move", "PAN": "one short pan",
-        "TRUCK": "one short lateral truck", "TRACKING": "one motivated axial follow",
+        "TRUCK": "one short lateral truck", "TRACK": "one short lateral track",
+        "TRACKING": "one motivated axial follow",
         "CRANE": "one motivated vertical move", "TILT": "one motivated tilt",
         "ARC": "one motivated arc move",
     }
-    return f"shot scale={scale}; {mapping.get(family, family)}; direction={direction}; execute the declared move once"
+    optical = []
+    if plan.get("lens_mm"):
+        optical.append(f"estimated {int(plan['lens_mm'])}mm focal length")
+    shutter = {
+        "NATURAL_MOTION_CLARITY": "natural real-time motion with clear contours",
+        "CRISP_ACTION_DIRECTION": "crisp action direction and readable contact without long trails",
+        "DIRECTIONAL_ACTION_BLUR": "slight directional blur only on fast-moving limbs while identities remain clear",
+    }.get(str(plan.get("shutter_visual_intent") or ""))
+    if shutter:
+        optical.append(shutter)
+    dof = {
+        "DEEP_SPATIAL_READABILITY": "deep enough focus to read subjects, contact path, and spatial relation",
+        "BALANCED_SUBJECT_SPACE": "balanced depth of field preserving essential space",
+        "CONTROLLED_SUBJECT_SEPARATION": "controlled subject separation without blurring the opponent or key prop",
+    }.get(str(plan.get("depth_of_field_intent") or ""))
+    if dof:
+        optical.append(dof)
+    if plan.get("atmosphere_intent"):
+        optical.append(f"authorized atmosphere effect only: {plan['atmosphere_intent']}")
+    if plan.get("effect_intent"):
+        optical.append(f"authorized visual effect only: {plan['effect_intent']}")
+    suffix = "; " + "; ".join(optical) if optical else ""
+    return f"shot scale={scale}; {mapping.get(family, family)}; direction={direction}; execute the declared move once{suffix}"
 
 
 def _beat(
@@ -264,6 +287,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         "h3_prompt_profile": profile or "STANDARD",
         "immutable_contract_sha256": plan["immutable_contract_sha256"],
         "execution_semantics_sha256": plan["execution_semantics_sha256"],
+        "camera_language_selection": plan["camera_language_selection"],
         "motion_density_gate": plan["motion_density_gate"],
         "provider_semantic_coverage_receipt": coverage,
         "provider_boundary": boundary,

@@ -1,0 +1,49 @@
+{
+  "schema": "qingshan.camera_language_profiles.v1",
+  "version": "1.0.0",
+  "selection_default": "HYBRID",
+  "authoritative_fields_never_overwritten": [
+    "shot_scale",
+    "camera_height",
+    "camera_side",
+    "axis_relation",
+    "motion_family",
+    "motion_direction",
+    "start_framing",
+    "end_framing",
+    "motivation",
+    "lens_intent"
+  ],
+  "profiles": {
+    "CAM-DIALOGUE-CONTROLLED-V1": {
+      "unit_classes": ["DIALOGUE"],
+      "lens_mm": 50,
+      "shutter_visual_intent": "NATURAL_MOTION_CLARITY",
+      "depth_of_field_intent": "CONTROLLED_SUBJECT_SEPARATION"
+    },
+    "CAM-ATMOSPHERE-SPATIAL-V1": {
+      "unit_classes": ["ATMOSPHERE"],
+      "lens_mm": 28,
+      "shutter_visual_intent": "NATURAL_MOTION_CLARITY",
+      "depth_of_field_intent": "DEEP_SPATIAL_READABILITY"
+    },
+    "CAM-PHYSICAL-ACTION-CLEAR-V1": {
+      "unit_classes": ["PHYSICAL_ACTION"],
+      "lens_mm": 35,
+      "shutter_visual_intent": "CRISP_ACTION_DIRECTION",
+      "depth_of_field_intent": "BALANCED_SUBJECT_SPACE"
+    },
+    "CAM-COMBAT-IMPULSE-CLEAR-V1": {
+      "unit_classes": ["COMBAT_IMPULSE"],
+      "lens_mm": 35,
+      "shutter_visual_intent": "CRISP_ACTION_DIRECTION",
+      "depth_of_field_intent": "DEEP_SPATIAL_READABILITY"
+    },
+    "CAM-COMBAT-EXCHANGE-CLEAR-V1": {
+      "unit_classes": ["COMBAT_EXCHANGE"],
+      "lens_mm": 28,
+      "shutter_visual_intent": "DIRECTIONAL_ACTION_BLUR",
+      "depth_of_field_intent": "DEEP_SPATIAL_READABILITY"
+    }
+  }
+}

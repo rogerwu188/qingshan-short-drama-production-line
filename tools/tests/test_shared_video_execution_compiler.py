@@ -114,6 +114,10 @@ class SharedVideoExecutionCompilerTest(unittest.TestCase):
         h3_receipt = deepcopy(compile_receipt("E99-VU-001"))
         self.assertIn("【时间轴】", sd2_prompt)
         self.assertIn("detailed_description:", h3_prompt)
+        self.assertIn("估算35mm焦段", sd2_prompt)
+        self.assertIn("estimated 35mm focal length", h3_prompt)
+        self.assertEqual(sd2_receipt["camera_language_selection"]["mode"], "HYBRID")
+        self.assertEqual(h3_receipt["camera_language_selection"]["mode"], "HYBRID")
         self.assertNotIn("ROLE_LOCK[", sd2_prompt + h3_prompt)
         self.assertEqual(compile_receipt("E99-VU-001")["motion_density_gate"]["status"], "PASS")
         self.assertEqual(

@@ -20,6 +20,13 @@ MOTION_DIRECTIONS = {
     "RISE", "FALL", "CLOCKWISE", "COUNTERCLOCKWISE",
 }
 MOTION_FAMILIES = {"LOCKED", "PAN", "TRACK", "DOLLY", "CRANE", "ARC"}
+SELECTION_MODES = {"AUTO", "HYBRID", "LOCKED"}
+SHUTTER_VISUAL_INTENTS = {
+    "NATURAL_MOTION_CLARITY", "CRISP_ACTION_DIRECTION", "DIRECTIONAL_ACTION_BLUR",
+}
+DEPTH_OF_FIELD_INTENTS = {
+    "DEEP_SPATIAL_READABILITY", "BALANCED_SUBJECT_SPACE", "CONTROLLED_SUBJECT_SEPARATION",
+}
 
 _MOTION_DIRECTION_COMPATIBILITY = {
     "LOCKED": {"NONE"},
@@ -66,6 +73,17 @@ _ZH = {
     "FALL": "下降",
     "CLOCKWISE": "顺时针",
     "COUNTERCLOCKWISE": "逆时针",
+}
+
+_SHUTTER_ZH = {
+    "NATURAL_MOTION_CLARITY": "自然实速与清晰动作轮廓",
+    "CRISP_ACTION_DIRECTION": "保留清楚的动作方向与接触瞬间，不拖成长残影",
+    "DIRECTIONAL_ACTION_BLUR": "仅快速运动肢体保留顺运动方向的轻微动态模糊，主体身份仍清楚",
+}
+_DOF_ZH = {
+    "DEEP_SPATIAL_READABILITY": "较深景深，人物、接触路径与空间关系同时可读",
+    "BALANCED_SUBJECT_SPACE": "中等景深，主体清楚且保留必要环境关系",
+    "CONTROLLED_SUBJECT_SEPARATION": "受控主体分离，人物清楚但不得虚化关键道具或对手",
 }
 
 
@@ -118,6 +136,19 @@ def validate_camera_plan(plan: Any, *, source_id: str) -> dict[str, Any]:
     if motion_family != "LOCKED" and start_framing == end_framing:
         raise ValueError(f"{source_id} moving camera must declare distinct start/end framing")
 
+    selection_mode = str(plan.get("selection_mode") or "HYBRID").upper()
+    if selection_mode not in SELECTION_MODES:
+        raise ValueError(f"{source_id} unsupported camera selection_mode: {selection_mode}")
+    shutter_intent = str(plan.get("shutter_visual_intent") or "").upper()
+    if shutter_intent and shutter_intent not in SHUTTER_VISUAL_INTENTS:
+        raise ValueError(f"{source_id} unsupported shutter_visual_intent: {shutter_intent}")
+    dof_intent = str(plan.get("depth_of_field_intent") or "").upper()
+    if dof_intent and dof_intent not in DEPTH_OF_FIELD_INTENTS:
+        raise ValueError(f"{source_id} unsupported depth_of_field_intent: {dof_intent}")
+    lens_mm = plan.get("lens_mm")
+    if lens_mm not in (None, "") and not (18 <= int(lens_mm) <= 135):
+        raise ValueError(f"{source_id} camera lens_mm out of range: {lens_mm}")
+
     normalized = dict(plan)
     normalized.update({
         "shot_scale": shot_scale,
@@ -131,6 +162,7 @@ def validate_camera_plan(plan: Any, *, source_id: str) -> dict[str, Any]:
         "end_framing": end_framing,
         "motivation": motivation,
         "signature": f"{motion_family}:{motion_direction}",
+        "selection_mode": selection_mode,
     })
     return normalized
 
@@ -179,9 +211,21 @@ def compile_camera_prompt(plan: dict[str, Any], *, source_id: str) -> str:
         if plan["motion_family"] == "LOCKED"
         else f"仅执行一次{_ZH[plan['motion_family']]}，{_ZH[plan['motion_direction']]}，禁止反向复位或重复运动"
     )
+    optical = []
+    if plan.get("lens_mm"):
+        optical.append(f"估算{int(plan['lens_mm'])}mm焦段")
+    if plan.get("shutter_visual_intent"):
+        optical.append(_SHUTTER_ZH[plan["shutter_visual_intent"]])
+    if plan.get("depth_of_field_intent"):
+        optical.append(_DOF_ZH[plan["depth_of_field_intent"]])
+    if plan.get("atmosphere_intent"):
+        optical.append(f"仅执行已授权氛围效果{plan['atmosphere_intent']}")
+    if plan.get("effect_intent"):
+        optical.append(f"仅执行已授权视觉效果{plan['effect_intent']}")
+    optical_clause = ("；" + "；".join(optical)) if optical else ""
     return (
         f"景别{_ZH[plan['shot_scale']]}，{plan['lens_intent']}，{_ZH[plan['camera_height']]}，"
         f"机位在{_ZH[plan['camera_side']]}并{plan['axis_relation']}；"
         f"起始{plan['start_framing']}，结束{plan['end_framing']}；{stable}；"
-        f"运镜动机：{plan['motivation']}。"
+        f"运镜动机：{plan['motivation']}{optical_clause}。"
     )

@@ -16,6 +16,7 @@ try:
         unique_text,
     )
     from tools.video_motion_density_gate import validate_execution_plan
+    from tools.camera_language_selector import select_camera_language
     from tools.video_physical_continuity_contract import (
         is_combat_unit,
         requires_interaction_topology,
@@ -28,10 +29,11 @@ except ModuleNotFoundError:
         unique_text,
     )
     from video_motion_density_gate import validate_execution_plan
+    from camera_language_selector import select_camera_language
     from video_physical_continuity_contract import is_combat_unit, requires_interaction_topology
 
 
-SCHEMA = "qingshan.video_execution_plan.v3_shared_sd2_h3_action_ir"
+SCHEMA = "qingshan.video_execution_plan.v4_shared_action_ir_camera_language"
 ACTION_IR_SCHEMA = "qingshan.action_ir.v1_single_causal_chain_per_beat"
 MODEL_FAMILY_BY_NAME = {
     "seedance-2.0-pro": "SEEDANCE_2",
@@ -241,6 +243,12 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
         for row in (unit.get("speaker_voice_contract") or {}).get("bindings") or []
         if str(row.get("speaker") or row.get("character") or "").strip()
     ]
+    selected_camera_plan, camera_language_selection = select_camera_language(
+        deepcopy(unit.get("camera_plan") or {}),
+        unit_class=unit_class,
+        unit=unit,
+        source_id=str(unit.get("unit_id") or "UNKNOWN"),
+    )
     plan = {
         "schema": SCHEMA,
         "unit_id": str(unit.get("unit_id") or "UNKNOWN"),
@@ -259,7 +267,8 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
         "unit_class": unit_class,
         "identity_prop_fact": identity_fact,
         "space_weather_fact": space_fact,
-        "camera_plan": deepcopy(unit.get("camera_plan") or {}),
+        "camera_plan": selected_camera_plan,
+        "camera_language_selection": camera_language_selection,
         "transition": _compact_transition(unit),
         "beats": beats,
         "action_ir": {
@@ -285,6 +294,7 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
             "identity_prop_fact": identity_lineage,
             "space_weather_fact": space_lineage,
             "camera_plan": ["camera_plan"],
+            "camera_language_selection": ["camera_plan", "camera_language_mode", "camera_style_authorizations"],
             "beats": [f"ordered_prompt_specs[{index}]" for index in range(len(specs))],
             "sounds": [f"ordered_prompt_specs[{index}].sound_design" for index in range(len(specs))],
             "environment_motion": [
@@ -301,7 +311,7 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
         key: deepcopy(plan[key])
         for key in (
             "duration_seconds", "unit_class", "identity_prop_fact", "space_weather_fact",
-            "duration_authority", "camera_plan", "transition", "beats", "sounds", "environment_motion",
+            "duration_authority", "camera_plan", "camera_language_selection", "transition", "beats", "sounds", "environment_motion",
             "action_ir", "voice_bindings", "negative_constraints", "native_audio_contract",
             "interaction_topology_required", "combat_execution_required",
         )

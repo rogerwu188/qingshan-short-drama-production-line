@@ -39,6 +39,20 @@ class GroupedCameraContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "repeat camera motion"):
             validate_camera_sequence(units)
 
+    def test_compiles_optional_camera_language_without_replacing_geometry(self):
+        plan = track()
+        plan.update({
+            "lens_mm": 35,
+            "shutter_visual_intent": "CRISP_ACTION_DIRECTION",
+            "depth_of_field_intent": "DEEP_SPATIAL_READABILITY",
+            "camera_profile_id": "CAM-COMBAT-IMPULSE-CLEAR-V1",
+        })
+        text = compile_camera_prompt(plan, source_id="U1")
+        self.assertIn("估算35mm焦段", text)
+        self.assertIn("接触瞬间", text)
+        self.assertIn("空间关系同时可读", text)
+        self.assertIn("由画面左向右", text)
+
 
 if __name__ == "__main__":
     unittest.main()
