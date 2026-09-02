@@ -71,6 +71,13 @@ def require_h3_provider_english_contract(
         for key in optional_if_source:
             if source.get(key) and not str(row.get(key) or "").strip():
                 failures.append(f"H3_ENGLISH_CONTRACT_BEAT_FIELD_MISSING:{uid}:{index + 1}:{key}")
+        source_secondary = source.get("secondary_feedback") or []
+        translated_secondary = row.get("secondary_feedback") or []
+        if len(translated_secondary) != len(source_secondary):
+            failures.append(
+                f"H3_ENGLISH_CONTRACT_SECONDARY_FEEDBACK_COUNT:{uid}:{index + 1}:"
+                f"{len(translated_secondary)}!={len(source_secondary)}"
+            )
         for key, value in row.items():
             if isinstance(value, str) and CJK.search(value):
                 failures.append(f"H3_ENGLISH_CONTRACT_CJK:{uid}:beats[{index}].{key}")

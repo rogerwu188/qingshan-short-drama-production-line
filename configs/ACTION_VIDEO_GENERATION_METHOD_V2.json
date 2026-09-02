@@ -1,6 +1,6 @@
 {
   "schema": "qingshan.action_video_generation_method.v2",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "status": "ACTIVE",
   "purpose": "Compile source-authorized action into readable moving-image causality instead of pose lists, hand-waving, static tableaux or slideshow coverage.",
   "scope": {
@@ -30,6 +30,22 @@
     "environment_feedback",
     "new_stable_end_state_and_safe_cut_handle"
   ],
+  "action_ir": {
+    "schema": "qingshan.action_ir.v1_single_causal_chain_per_beat",
+    "interaction_mode_exactly_one_of": ["CONTACT", "EVASION", "THREAT_THRESHOLD"],
+    "required_per_combat_beat": [
+      "force_origin",
+      "primary_action",
+      "one_unambiguous_interaction_mode",
+      "one_primary_feedback",
+      "at_most_one_secondary_feedback",
+      "observable_irreversible_state_delta"
+    ],
+    "duration_underfill_code": "DURATION_EXCEEDS_AUTHORIZED_CONTENT",
+    "duration_underfill_action": "SHORTEN_DURATION_OR_REDESIGN_UNIT_BOUNDARY_BEFORE_SUBMISSION",
+    "action_capacity_score": "OBSERVE_ONLY_UNTIL_EMPIRICALLY_CALIBRATED",
+    "failure_code_map": "configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json"
+  },
   "h3_execution_contract": {
     "first_explosive_action_onset_max_seconds": 0.5,
     "maximum_seconds_per_combat_beat": 1.2,
@@ -56,19 +72,27 @@
     "same_prompt_micro_tuning_forbidden": true,
     "new_prompt_sha256_required": true,
     "new_unit_or_candidate_id_required": true,
-    "material_redesign_must_change_at_least_one": [
-      "coverage boundary",
-      "start-frame strategy",
-      "reference strategy",
-      "blocking and force direction",
-      "camera job",
-      "provider transport"
+    "complete_execution_prompt_recompile_required": true,
+    "action_ir_redesign_required": true,
+    "immutable_structured_contract_must_not_change": [
+      "canonical story",
+      "identity",
+      "wardrobe",
+      "map",
+      "weather",
+      "shot type",
+      "camera type",
+      "axis",
+      "prop ownership",
+      "voice binding",
+      "native audio intent"
     ],
-    "known_failed_prompt_sha_must_be_do_not_repeat": true
+    "known_failed_prompt_sha_must_be_do_not_repeat": true,
+    "same_failure_twice": "REDUCE_ACTION_BUDGET_AND_DO_NOT_INCREASE_PROVIDER_PROMPT_LENGTH"
   },
   "qa_contract": {
     "pre_generation": "Full detailed prompt QA: canonical plot, dialogue, action, identity, wardrobe, map, props, sound, camera, incoming/outgoing continuity, force chain and terminal state.",
-    "post_generation": "Technical QA plus basic plot/outcome presence only. Do not reopen fine-grained action-rationality or performance-detail review after generation unless the owner explicitly requests it.",
+    "post_generation": "Basic technical QA plus basic plot/outcome presence only. Do not run optical flow, motion-energy scoring, action-velocity analysis, dynamic-causality scoring, or fine-grained action/performance review after generation.",
     "owner_acceptance": "The owner may accept media with named known limitations. Persist that disposition and stop automatic regeneration."
   }
 }

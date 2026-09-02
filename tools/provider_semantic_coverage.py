@@ -38,15 +38,23 @@ def required_fact_ids(plan: dict[str, Any]) -> list[str]:
         ids.append("TRANSITION.INCOMING")
     if transition.get("outgoing"):
         ids.append("TRANSITION.OUTGOING")
-    for index, beat in enumerate(plan.get("beats") or [], 1):
+    beats = (plan.get("action_ir") or {}).get("causal_chains") or plan.get("beats") or []
+    for index, beat in enumerate(beats, 1):
         prefix = f"BEAT.{index}"
-        ids.extend((f"{prefix}.ENTRY", f"{prefix}.ACTION", f"{prefix}.EXIT"))
+        ids.extend((
+            f"{prefix}.ENTRY", f"{prefix}.FORCE_ORIGIN", f"{prefix}.ACTION",
+            f"{prefix}.EXIT",
+        ))
+        if str(beat.get("interaction_mode") or "NONE") != "NONE":
+            ids.append(f"{prefix}.INTERACTION_MODE")
         if beat.get("contact_time_seconds") is not None:
             ids.append(f"{prefix}.CONTACT_TIME")
         if beat.get("contact_point"):
             ids.append(f"{prefix}.CONTACT_POINT")
-        if beat.get("force_feedback"):
-            ids.append(f"{prefix}.FORCE_FEEDBACK")
+        if beat.get("primary_feedback"):
+            ids.append(f"{prefix}.PRIMARY_FEEDBACK")
+        for secondary_index, _ in enumerate(beat.get("secondary_feedback") or [], 1):
+            ids.append(f"{prefix}.SECONDARY_FEEDBACK.{secondary_index}")
         if beat.get("dialogue"):
             ids.append(f"{prefix}.DIALOGUE")
         if beat.get("microexpression_cue"):

@@ -10,6 +10,7 @@
 !/configs/GATE_REGISTRY_v3_20260716.json
 !/configs/VOICE_REFERENCE_REGISTRY.example.json
 !/configs/COMBAT_ACTION_LIBRARY_V1.json
+!/configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json
 !/codex_docs/
 /codex_docs/*
 !/codex_docs/美剧叙事节奏标准_v2_结构层_20260818.md

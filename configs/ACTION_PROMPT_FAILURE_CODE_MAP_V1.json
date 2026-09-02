@@ -1,0 +1,64 @@
+{
+  "schema": "qingshan.action_prompt_failure_code_map.v1",
+  "status": "ACTIVE",
+  "owner_policy": {
+    "pre_submission": "FAIL_CLOSED_STRUCTURAL_PROMPT_QA",
+    "post_generation": "TECHNICAL_AND_BASIC_PLOT_ONLY",
+    "post_generation_dynamic_media_analysis": "FORBIDDEN"
+  },
+  "canonical_codes": [
+    {
+      "code": "DURATION_EXCEEDS_AUTHORIZED_CONTENT",
+      "stage": "PRE_SUBMISSION",
+      "meaning": "Requested duration exceeds authorized action span plus the permitted tail handle.",
+      "action": "SHORTEN_DURATION_OR_REDESIGN_UNIT_BOUNDARY",
+      "automatic_prompt_retry": false
+    },
+    {
+      "code": "AMBIGUOUS_CONTACT_TYPE",
+      "stage": "PRE_SUBMISSION",
+      "meaning": "One beat mixes CONTACT with EVASION or THREAT_THRESHOLD semantics.",
+      "action": "RECOMPILE_ONE_UNAMBIGUOUS_INTERACTION_MODE",
+      "automatic_prompt_retry": false
+    },
+    {
+      "code": "COMBAT_FORCE_ORIGIN_MISSING",
+      "stage": "PRE_SUBMISSION",
+      "meaning": "The causal chain lacks an explicit force origin or loading state.",
+      "action": "ADD_FORCE_ORIGIN_TO_ACTION_IR",
+      "automatic_prompt_retry": false
+    },
+    {
+      "code": "COMBAT_PRIMARY_FEEDBACK_MISSING",
+      "stage": "PRE_SUBMISSION",
+      "meaning": "The beat lacks one dominant visible force response.",
+      "action": "ADD_ONE_PRIMARY_FEEDBACK",
+      "automatic_prompt_retry": false
+    },
+    {
+      "code": "COMBAT_SECONDARY_FEEDBACK_LIMIT",
+      "stage": "PRE_SUBMISSION",
+      "meaning": "More than one secondary feedback competes with the dominant impact response.",
+      "action": "REDUCE_TO_AT_MOST_ONE_SECONDARY_FEEDBACK",
+      "automatic_prompt_retry": false
+    },
+    {
+      "code": "STATE_DELTA_EVIDENCE_NO_CHANGE",
+      "stage": "PRE_SUBMISSION",
+      "meaning": "The declared result state is reversible pose holding rather than an observable irreversible delta.",
+      "action": "REWRITE_EXIT_STATE_WITH_CHANGED_POSITION_POSTURE_CONTACT_POSSESSION_INTEGRITY_OR_MOMENTUM",
+      "automatic_prompt_retry": false
+    }
+  ],
+  "aliases": {
+    "POSE_HOLDING": "STATE_DELTA_EVIDENCE_NO_CHANGE",
+    "UNRESOLVED_END_STATE": "STATE_DELTA_EVIDENCE_NO_CHANGE",
+    "CONTACT_AND_NON_CONTACT": "AMBIGUOUS_CONTACT_TYPE",
+    "DURATION_UNDERFILL": "DURATION_EXCEEDS_AUTHORIZED_CONTENT"
+  },
+  "calibration": {
+    "action_capacity_score": "OBSERVE_ONLY_UNTIL_EMPIRICALLY_CALIBRATED",
+    "numeric_quality_pass_line": "NOT_DEFINED",
+    "reason": "No arbitrary threshold may become a blocking gate without measured first-pass outcome data."
+  }
+}

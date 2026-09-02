@@ -33,6 +33,13 @@ class VideoSequenceRhythmGateTest(unittest.TestCase):
             _combat(duration, index) for index, duration in enumerate((4, 4, 4, 4, 8), 1)
         ])
         self.assertEqual(report["status"], "PASS", report["failures"])
+        sequence = report["sequences"][0]
+        self.assertEqual(sequence["duration_distribution"], {4.0: 4, 8.0: 1})
+        self.assertIn("camera_signature_distribution", sequence)
+        self.assertEqual(
+            sequence["camera_distribution_policy"],
+            "PRE_SUBMISSION_OBSERVABILITY_ONLY_NO_AUTOMATIC_SHOT_TYPE_MUTATION",
+        )
 
     def test_named_director_override_is_auditable(self) -> None:
         report = validate_combat_sequence_rhythm([
