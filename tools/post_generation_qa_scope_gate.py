@@ -27,6 +27,8 @@ FORBIDDEN_POST_GENERATION_CHECKS = {
     "action_reasonableness", "gesture_precision", "hand_contact_precision",
     "microexpression_precision", "task_detail_compliance", "camera_action_detail",
     "prop_trajectory_precision", "boundary_action_match", "choreography_precision",
+    "optical_flow", "motion_energy", "action_velocity", "impact_velocity",
+    "temporal_action_continuity", "dynamic_causality_scoring", "freeze_ratio",
 }
 
 
@@ -41,6 +43,7 @@ def evaluate(requested_checks: list[str]) -> dict[str, Any]:
         "status": "PASS" if not failures else "FAIL",
         "strict_creative_continuity_stage": "PRE_SUBMISSION_ONLY",
         "post_generation_scope": "TECHNICAL_AND_BASIC_PLOT_ONLY",
+        "dynamic_media_analysis": "NOT_RUN_BY_OWNER_POLICY",
         "allowed_technical_checks": sorted(ALLOWED_TECHNICAL_CHECKS),
         "allowed_basic_plot_checks": sorted(ALLOWED_BASIC_PLOT_CHECKS),
         "explicitly_forbidden_post_generation_checks": sorted(FORBIDDEN_POST_GENERATION_CHECKS),

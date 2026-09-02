@@ -38,14 +38,25 @@ def _beat_line(beat: dict[str, Any]) -> str:
         primary = "按起态、表演和身体同步完成本拍对白"
     line = (
         f"{beat['start_seconds']:g}–{beat['end_seconds']:g}秒：从{beat['entry_state']}开始，"
-        f"{primary}"
+        f"力源={beat['force_origin']}；{primary}"
     )
+    interaction_mode = str(beat.get("interaction_mode") or "NONE")
+    interaction_label = {
+        "CONTACT": "真实接触",
+        "EVASION": "明确闪避",
+        "THREAT_THRESHOLD": "威胁临界点",
+    }.get(interaction_mode, "无人物交互")
     if beat.get("contact_time_seconds") is not None:
-        line += f"；{float(beat['contact_time_seconds']):g}秒发生{beat.get('contact_point') or '明确接触'}"
+        line += (
+            f"；交互类型={interaction_label}；{float(beat['contact_time_seconds']):g}秒到达"
+            f"{beat.get('contact_point') or interaction_label}"
+        )
     elif beat.get("contact_point"):
-        line += f"；接触点={beat['contact_point']}"
-    if beat.get("force_feedback"):
-        line += f"；受力反馈为{beat['force_feedback']}"
+        line += f"；交互类型={interaction_label}；交互位置={beat['contact_point']}"
+    if beat.get("primary_feedback"):
+        line += f"；主反馈={beat['primary_feedback']}"
+    if beat.get("secondary_feedback"):
+        line += f"；次反馈={beat['secondary_feedback'][0]}"
     line += f"；最后到达{beat['exit_state']}"
     line += _dialogue(beat)
     if beat.get("performance_cue"):
@@ -66,7 +77,8 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
     timeline = []
     if transition.get("incoming"):
         timeline.append(f"开场承接：{transition['incoming']}，从该结果继续，不复位不重演。")
-    timeline.extend(_beat_line(beat) for beat in plan["beats"])
+    action_beats = (plan.get("action_ir") or {}).get("causal_chains") or plan["beats"]
+    timeline.extend(_beat_line(beat) for beat in action_beats)
     if transition.get("outgoing"):
         timeline.append(f"结尾交棒：完成{transition['outgoing']}后保留自然微动和现场声尾，不另起动作。")
     sound_parts = []
@@ -121,7 +133,7 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         clause_evidence["TRANSITION.INCOMING"] = transition["incoming"]
     if transition.get("outgoing"):
         clause_evidence["TRANSITION.OUTGOING"] = transition["outgoing"]
-    for index, beat in enumerate(plan["beats"], 1):
+    for index, beat in enumerate(action_beats, 1):
         prefix = f"BEAT.{index}"
         clause_evidence[f"{prefix}.ENTRY"] = beat["entry_state"]
         dialogue_words = str(beat.get("dialogue") or "").partition("：")[2].strip()
@@ -130,13 +142,21 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
             if dialogue_words and re.sub(r"\W", "", str(beat["primary_action"])) == re.sub(r"\W", "", dialogue_words)
             else beat["primary_action"]
         )
+        clause_evidence[f"{prefix}.FORCE_ORIGIN"] = beat["force_origin"]
+        clause_evidence[f"{prefix}.INTERACTION_MODE"] = {
+            "CONTACT": "真实接触",
+            "EVASION": "明确闪避",
+            "THREAT_THRESHOLD": "威胁临界点",
+        }.get(str(beat.get("interaction_mode") or "NONE"), "无人物交互")
         clause_evidence[f"{prefix}.EXIT"] = beat["exit_state"]
         if beat.get("contact_time_seconds") is not None:
             clause_evidence[f"{prefix}.CONTACT_TIME"] = f"{float(beat['contact_time_seconds']):g}秒"
         if beat.get("contact_point"):
             clause_evidence[f"{prefix}.CONTACT_POINT"] = beat["contact_point"]
-        if beat.get("force_feedback"):
-            clause_evidence[f"{prefix}.FORCE_FEEDBACK"] = beat["force_feedback"]
+        if beat.get("primary_feedback"):
+            clause_evidence[f"{prefix}.PRIMARY_FEEDBACK"] = beat["primary_feedback"]
+        for secondary_index, value in enumerate(beat.get("secondary_feedback") or [], 1):
+            clause_evidence[f"{prefix}.SECONDARY_FEEDBACK.{secondary_index}"] = value
         if beat.get("dialogue"):
             clause_evidence[f"{prefix}.DIALOGUE"] = beat["dialogue"].partition("：")[2]
         if beat.get("microexpression_cue"):

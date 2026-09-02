@@ -61,17 +61,18 @@ class VideoGenerationFailurePolicyTest(unittest.TestCase):
         })
         self.assertEqual(result["creative_attempt_count"], 1)
         self.assertEqual(result["paid_attempt_count"], 1)
-        self.assertEqual(result["next_action"], "AUTO_COVERAGE_REDESIGN_AND_SUBMIT_ATTEMPT_2")
+        self.assertEqual(result["next_action"], "AUTO_EXECUTION_PROMPT_REDESIGN_AND_SUBMIT_ATTEMPT_2")
         self.assertEqual(result["prompt_failure_records"][0]["prompt_sha256"], "bad-prompt")
         self.assertIsNone(result["prompt_rewrite_contract"])
-        requirements = result["coverage_redesign_requirements"]
+        requirements = result["execution_prompt_redesign_requirements"]
         self.assertEqual(requirements["next_creative_attempt"], 2)
         self.assertTrue(requirements["prompt_rewritten_from_scratch"])
         self.assertTrue(requirements["micro_edit_reuse_forbidden"])
         self.assertEqual(
             set(requirements["required_changed_variables"]),
-            {"PROMPT", "SHOT_STRUCTURE", "CAMERA_PLAN", "ACTION_TIMELINE", "REFERENCE_STRATEGY"},
+            {"PROMPT", "ACTION_IR"},
         )
+        self.assertTrue(requirements["immutable_contract_preserved"])
 
     def test_zero_task_id_submit_failure_stops_for_human(self):
         result = evaluate_failure_workflow({
@@ -137,6 +138,26 @@ class VideoGenerationFailurePolicyTest(unittest.TestCase):
         self.assertEqual(result["next_action"], "AUTO_REWRITE_PROMPT_AND_SUBMIT_ATTEMPT_4")
         self.assertIsNotNone(result["prompt_rewrite_contract"])
         self.assertIsNone(result["coverage_redesign_requirements"])
+
+    def test_same_video_failure_twice_requires_lower_action_budget(self):
+        attempts = [
+            {
+                "attempt_no": number,
+                "task_id": f"task-{number}",
+                "remote_status": "completed",
+                "output_path": f"candidate-{number}.mp4",
+                "qa_verdict": "FAIL",
+                "actual_charged_credits": 64,
+                "prompt_sha256": f"prompt-{number}",
+                "failure_reason": "too many simultaneous action chains",
+                "do_not_repeat": "one causal chain per beat",
+            }
+            for number in (1, 2)
+        ]
+        result = evaluate_failure_workflow({"attempts": attempts})
+        requirements = result["execution_prompt_redesign_requirements"]
+        self.assertTrue(requirements["action_budget_must_decrease"])
+        self.assertTrue(requirements["provider_prompt_length_must_not_increase"])
         self.assertFalse(result["human_notification"]["notify_human"])
 
 

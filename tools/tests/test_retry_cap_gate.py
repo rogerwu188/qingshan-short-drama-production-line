@@ -24,6 +24,30 @@ def coverage_redesign() -> dict:
     }
 
 
+def execution_redesign(**overrides) -> dict:
+    contract = {
+        "schema": "qingshan.video_execution_prompt_redesign.v2",
+        "status": "PASS",
+        "prompt_rewritten_from_scratch": True,
+        "action_ir_redesigned": True,
+        "immutable_contract_preserved": True,
+        "do_not_repeat_registered": True,
+        "micro_edit_reuse_forbidden": True,
+        "previous_prompt_sha256": "a" * 64,
+        "prompt_sha256": "b" * 64,
+        "previous_action_ir_sha256": "c" * 64,
+        "action_ir_sha256": "d" * 64,
+        "previous_immutable_contract_sha256": "e" * 64,
+        "immutable_contract_sha256": "e" * 64,
+    }
+    contract.update(overrides)
+    return {
+        "retry_design_mode": "EXECUTION_PROMPT_REDESIGN",
+        "execution_prompt_redesign_contract": contract,
+        "changed_variables": ["PROMPT", "ACTION_IR"],
+    }
+
+
 def attempt(number: int) -> dict:
     return {
         "attempt_no": number,
@@ -76,8 +100,8 @@ class RetryCapGateTest(unittest.TestCase):
             "changed_variables": ["PROMPT"],
         }
         failures = validate_submission_attempt(task)
-        self.assertIn("VIDEO_CONTENT_RETRY_REQUIRES_COVERAGE_REDESIGN", failures)
-        self.assertIn("VIDEO_COVERAGE_REDESIGN_CONTRACT_MISSING", failures)
+        self.assertIn("VIDEO_CONTENT_RETRY_REQUIRES_EXECUTION_PROMPT_REDESIGN", failures)
+        self.assertIn("VIDEO_EXECUTION_PROMPT_REDESIGN_CONTRACT_MISSING", failures)
 
     def test_video_content_retry_accepts_full_coverage_redesign(self):
         task = {
@@ -89,6 +113,52 @@ class RetryCapGateTest(unittest.TestCase):
             "failure_memory": {"rule_id": "CONTENT-1"},
             "material_change_from_prior_attempt": "new coverage, camera, timing and refs",
             **coverage_redesign(),
+        }
+        self.assertEqual(validate_submission_attempt(task), [])
+
+    def test_video_content_retry_accepts_action_ir_redesign_without_structural_drift(self):
+        task = {
+            "retry_attempt": 2,
+            "creative_attempt_ordinal": 2,
+            "prompt_sha256": "b" * 64,
+            "prior_prompt_sha256": ["a" * 64],
+            "prior_failure_classifications": ["PROMPT_SEMANTICS"],
+            "failure_memory": {"rule_id": "CONTENT-IR-1"},
+            "material_change_from_prior_attempt": "recompiled Action IR from scratch",
+            **execution_redesign(),
+        }
+        self.assertEqual(validate_submission_attempt(task), [])
+
+    def test_video_content_retry_rejects_immutable_contract_change(self):
+        task = {
+            "retry_attempt": 2,
+            "creative_attempt_ordinal": 2,
+            "prompt_sha256": "b" * 64,
+            "prior_prompt_sha256": ["a" * 64],
+            "prior_failure_classifications": ["PROMPT_SEMANTICS"],
+            "failure_memory": {"rule_id": "CONTENT-IR-2"},
+            "material_change_from_prior_attempt": "changed map while retrying",
+            **execution_redesign(immutable_contract_sha256="f" * 64),
+        }
+        failures = validate_submission_attempt(task)
+        self.assertIn("VIDEO_EXECUTION_PROMPT_REDESIGN_IMMUTABLE_CONTRACT_CHANGED", failures)
+
+    def test_repeated_failure_requires_reduced_action_budget_and_nonlonger_prompt(self):
+        task = {
+            "retry_attempt": 3,
+            "creative_attempt_ordinal": 3,
+            "prompt_sha256": "b" * 64,
+            "prior_prompt_sha256": ["0" * 64, "a" * 64],
+            "prior_failure_classifications": ["PROMPT_SEMANTICS", "PROMPT_SEMANTICS"],
+            "failure_memory": {"rule_id": "CONTENT-IR-3"},
+            "material_change_from_prior_attempt": "reduced to one action chain",
+            "same_failure_consecutive_count": 2,
+            "no_further_automatic_retry": True,
+            **execution_redesign(
+                action_budget_reduced=True,
+                previous_provider_prompt_chars=800,
+                provider_prompt_chars=620,
+            ),
         }
         self.assertEqual(validate_submission_attempt(task), [])
 
@@ -125,7 +195,7 @@ class RetryCapGateTest(unittest.TestCase):
 
     def test_second_failure_advances_to_third_changed_prompt(self):
         result = evaluate_unit({"unit_id": "R02", "attempts": [attempt(1), attempt(2)]})
-        self.assertEqual(result["next_action"], "AUTO_COVERAGE_REDESIGN_AND_SUBMIT_ATTEMPT_3")
+        self.assertEqual(result["next_action"], "AUTO_EXECUTION_PROMPT_REDESIGN_AND_SUBMIT_ATTEMPT_3")
 
     def test_refunded_provider_timeouts_stop_for_human_without_exhausting_attempts(self):
         attempts = [

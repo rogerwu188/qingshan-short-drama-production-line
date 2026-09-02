@@ -38,14 +38,27 @@ VIDEO_COVERAGE_REDESIGN_SCHEMA = "qingshan.video_coverage_prompt_redesign.v1"
 VIDEO_COVERAGE_REDESIGN_REQUIRED_VARIABLES = {
     "PROMPT", "SHOT_STRUCTURE", "CAMERA_PLAN", "ACTION_TIMELINE", "REFERENCE_STRATEGY",
 }
+VIDEO_EXECUTION_REDESIGN_SCHEMA = "qingshan.video_execution_prompt_redesign.v2"
+VIDEO_EXECUTION_REDESIGN_REQUIRED_VARIABLES = {"PROMPT", "ACTION_IR"}
+IMMUTABLE_STRUCTURED_VARIABLES = {
+    "CANONICAL_STORY", "IDENTITY", "WARDROBE", "MAP", "WEATHER", "SHOT_TYPE",
+    "CAMERA_TYPE", "AXIS", "PROP_OWNERSHIP", "VOICE_BINDING",
+}
+
+
+def _valid_sha(value: object) -> bool:
+    text = str(value or "")
+    return len(text) == 64 and all(ch in "0123456789abcdef" for ch in text.lower())
 
 
 def validate_video_coverage_redesign(task: dict) -> list[str]:
-    """Require a from-scratch coverage design after the first content failure.
+    """Require a from-scratch execution prompt after the first content failure.
 
     Provider/transport failures are exempt because they yielded no reviewable
     media.  Image retries retain their separate ten-attempt policy.  A video
     content retry may not pass by changing wording or negative clauses alone.
+    New work uses the v2 Action-IR redesign contract while v1 is accepted only
+    so historic completed receipts remain verifiable.
     """
     raw_attempt = task.get("retry_attempt", 1)
     if not isinstance(raw_attempt, int) or isinstance(raw_attempt, bool) or raw_attempt <= 1:
@@ -56,15 +69,66 @@ def validate_video_coverage_redesign(task: dict) -> list[str]:
     if prior_classes and prior_classes[-1] in PROVIDER_FAILURE_CLASSES:
         return []
     failures: list[str] = []
-    if task.get("retry_design_mode") != "COVERAGE_REDESIGN":
-        failures.append("VIDEO_CONTENT_RETRY_REQUIRES_COVERAGE_REDESIGN")
+    mode = str(task.get("retry_design_mode") or "")
+    if mode not in {"COVERAGE_REDESIGN", "EXECUTION_PROMPT_REDESIGN"}:
+        failures.append("VIDEO_CONTENT_RETRY_REQUIRES_EXECUTION_PROMPT_REDESIGN")
     contract = task.get("coverage_redesign_contract")
     if not isinstance(contract, dict):
-        return [*failures, "VIDEO_COVERAGE_REDESIGN_CONTRACT_MISSING"]
-    if contract.get("schema") != VIDEO_COVERAGE_REDESIGN_SCHEMA:
-        failures.append("VIDEO_COVERAGE_REDESIGN_SCHEMA_INVALID")
+        contract = task.get("execution_prompt_redesign_contract")
+    if not isinstance(contract, dict):
+        return [*failures, "VIDEO_EXECUTION_PROMPT_REDESIGN_CONTRACT_MISSING"]
+    schema = contract.get("schema")
+    if schema not in {VIDEO_COVERAGE_REDESIGN_SCHEMA, VIDEO_EXECUTION_REDESIGN_SCHEMA}:
+        failures.append("VIDEO_EXECUTION_PROMPT_REDESIGN_SCHEMA_INVALID")
     if contract.get("status") != "PASS":
-        failures.append("VIDEO_COVERAGE_REDESIGN_NOT_PASS")
+        failures.append("VIDEO_EXECUTION_PROMPT_REDESIGN_NOT_PASS")
+    changed = {str(value).upper() for value in task.get("changed_variables") or []}
+    if schema == VIDEO_EXECUTION_REDESIGN_SCHEMA:
+        for field in (
+            "prompt_rewritten_from_scratch", "action_ir_redesigned",
+            "immutable_contract_preserved", "do_not_repeat_registered",
+            "micro_edit_reuse_forbidden",
+        ):
+            if contract.get(field) is not True:
+                failures.append(f"VIDEO_EXECUTION_PROMPT_REDESIGN_FIELD_REQUIRED:{field}")
+        for label, field in (
+            ("PREVIOUS_PROMPT", "previous_prompt_sha256"),
+            ("CURRENT_PROMPT", "prompt_sha256"),
+            ("PREVIOUS_ACTION_IR", "previous_action_ir_sha256"),
+            ("CURRENT_ACTION_IR", "action_ir_sha256"),
+            ("PREVIOUS_IMMUTABLE", "previous_immutable_contract_sha256"),
+            ("CURRENT_IMMUTABLE", "immutable_contract_sha256"),
+        ):
+            if not _valid_sha(contract.get(field)):
+                failures.append(f"VIDEO_EXECUTION_PROMPT_REDESIGN_{label}_SHA_INVALID")
+        if contract.get("previous_prompt_sha256") == contract.get("prompt_sha256"):
+            failures.append("VIDEO_EXECUTION_PROMPT_REDESIGN_PROMPT_UNCHANGED")
+        if contract.get("previous_action_ir_sha256") == contract.get("action_ir_sha256"):
+            failures.append("VIDEO_EXECUTION_PROMPT_REDESIGN_ACTION_IR_UNCHANGED")
+        if contract.get("previous_immutable_contract_sha256") != contract.get("immutable_contract_sha256"):
+            failures.append("VIDEO_EXECUTION_PROMPT_REDESIGN_IMMUTABLE_CONTRACT_CHANGED")
+        current_prompt = str(task.get("prompt_sha256") or "")
+        if current_prompt and current_prompt != contract.get("prompt_sha256"):
+            failures.append("VIDEO_EXECUTION_PROMPT_REDESIGN_PROMPT_SHA_MISMATCH")
+        missing = sorted(VIDEO_EXECUTION_REDESIGN_REQUIRED_VARIABLES - changed)
+        if missing:
+            failures.append("VIDEO_EXECUTION_PROMPT_REDESIGN_VARIABLES_MISSING:" + ",".join(missing))
+        forbidden = sorted(changed & IMMUTABLE_STRUCTURED_VARIABLES)
+        if forbidden:
+            failures.append("VIDEO_EXECUTION_PROMPT_REDESIGN_IMMUTABLE_VARIABLE_CHANGED:" + ",".join(forbidden))
+        same_failure_count = int(task.get("same_failure_consecutive_count") or 0)
+        if same_failure_count >= 2:
+            if contract.get("action_budget_reduced") is not True:
+                failures.append("REPEATED_FAILURE_REQUIRES_ACTION_BUDGET_REDUCTION")
+            prior_chars = contract.get("previous_provider_prompt_chars")
+            current_chars = contract.get("provider_prompt_chars")
+            if not isinstance(prior_chars, int) or not isinstance(current_chars, int):
+                failures.append("REPEATED_FAILURE_PROMPT_LENGTH_EVIDENCE_MISSING")
+            elif current_chars > prior_chars:
+                failures.append("REPEATED_FAILURE_PROVIDER_PROMPT_LENGTH_INCREASED")
+        return failures
+
+    # Legacy v1 coverage contracts remain readable for old completed episodes.
     for field in (
         "prompt_rewritten_from_scratch", "shot_structure_redesigned",
         "camera_plan_redesigned", "action_timeline_redesigned",
@@ -75,11 +139,10 @@ def validate_video_coverage_redesign(task: dict) -> list[str]:
     prior_sha = str(contract.get("previous_design_sha256") or "")
     current_sha = str(contract.get("design_sha256") or "")
     for label, value in (("PREVIOUS", prior_sha), ("CURRENT", current_sha)):
-        if len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value.lower()):
+        if not _valid_sha(value):
             failures.append(f"VIDEO_COVERAGE_REDESIGN_{label}_SHA_INVALID")
     if prior_sha and current_sha and prior_sha == current_sha:
         failures.append("VIDEO_COVERAGE_REDESIGN_UNCHANGED")
-    changed = {str(value).upper() for value in task.get("changed_variables") or []}
     missing = sorted(VIDEO_COVERAGE_REDESIGN_REQUIRED_VARIABLES - changed)
     if missing:
         failures.append("VIDEO_COVERAGE_REDESIGN_VARIABLES_MISSING:" + ",".join(missing))

@@ -4,6 +4,7 @@ from copy import deepcopy
 import unittest
 
 from tools.video_prompt_compiler import compile_model_prompt, compile_receipt
+from tools.video_execution_plan_compiler import compile_video_execution_plan
 from tools.h3_provider_english_contract import bind_h3_provider_english_contract
 from tools.provider_semantic_coverage import assert_equivalent_required_fact_sets
 
@@ -153,6 +154,49 @@ class SharedVideoExecutionCompilerTest(unittest.TestCase):
                 unit["ordered_prompt_specs"][0]["action"].update(bad_action)
                 with self.assertRaisesRegex(ValueError, match):
                     compile_model_prompt(unit)
+
+    def test_action_ir_is_shared_and_capacity_is_observe_only(self) -> None:
+        plan = compile_video_execution_plan(_unit())
+        self.assertEqual(
+            plan["action_ir"]["schema"],
+            "qingshan.action_ir.v1_single_causal_chain_per_beat",
+        )
+        beat = plan["action_ir"]["causal_chains"][0]
+        self.assertEqual(beat["interaction_mode"], "CONTACT")
+        self.assertEqual(beat["action_capacity"]["tier"], "UNCALIBRATED_OBSERVE_ONLY")
+        self.assertFalse(beat["action_capacity"]["hard_rejection"])
+        self.assertFalse(plan["action_ir"]["post_generation_dynamic_media_qa_required"])
+
+    def test_duration_underfill_fails_before_submission(self) -> None:
+        unit = _unit()
+        unit["authorized_content_seconds"] = 2.0
+        with self.assertRaisesRegex(ValueError, "DURATION_EXCEEDS_AUTHORIZED_CONTENT"):
+            compile_model_prompt(unit)
+
+    def test_threat_threshold_cannot_claim_contact_state_delta(self) -> None:
+        unit = _unit()
+        action = unit["ordered_prompt_specs"][0]["action"]
+        action["contact_point"] = "刀尖抵达陈迹胸前一掌距离，刀刃尚未接触衣襟"
+        with self.assertRaisesRegex(ValueError, "AMBIGUOUS_CONTACT_TYPE"):
+            compile_model_prompt(unit)
+
+    def test_only_one_secondary_feedback_is_allowed(self) -> None:
+        unit = _unit()
+        unit["ordered_prompt_specs"][0]["action"]["secondary_feedback"] = [
+            "雨水飞散", "灯焰熄灭",
+        ]
+        with self.assertRaisesRegex(ValueError, "COMBAT_SECONDARY_FEEDBACK_LIMIT"):
+            compile_model_prompt(unit)
+
+    def test_h3_accepts_official_three_second_minimum(self) -> None:
+        unit = _unit("MiniMax-H3")
+        unit["duration_seconds"] = 3
+        unit["authorized_content_seconds"] = 3
+        action = unit["ordered_prompt_specs"][0]["action"]
+        action["t1_seconds"] = 3
+        action["contact_time_seconds"] = 1.0
+        plan = compile_video_execution_plan(unit)
+        self.assertEqual(plan["duration_seconds"], 3.0)
 
 
 if __name__ == "__main__":

@@ -120,6 +120,7 @@ def validate_combat_impulse(
         failures.append(
             f"COMBAT_EXTEND_WORD_FORBIDDEN:{source_id}:{','.join(extend_hits)}"
         )
+    failures.extend(validate_combat_causal_chain(beat, source_id=source_id))
     delta = validate_state_delta(beat, combat=True, source_id=source_id)
     failures.extend(delta["failures"])
     return {
@@ -136,11 +137,42 @@ def validate_combat_impulse(
     }
 
 
+def validate_combat_causal_chain(beat: dict[str, Any], *, source_id: str) -> list[str]:
+    failures: list[str] = []
+    interaction_mode = str(beat.get("interaction_mode") or "").upper()
+    if interaction_mode not in {"CONTACT", "EVASION", "THREAT_THRESHOLD"}:
+        failures.append(f"COMBAT_INTERACTION_MODE_INVALID:{source_id}:{interaction_mode or 'MISSING'}")
+    if not str(beat.get("force_origin") or "").strip():
+        failures.append(f"COMBAT_FORCE_ORIGIN_MISSING:{source_id}")
+    if not str(beat.get("primary_feedback") or beat.get("force_feedback") or "").strip():
+        failures.append(f"COMBAT_PRIMARY_FEEDBACK_MISSING:{source_id}")
+    if len(beat.get("secondary_feedback") or []) > 1:
+        failures.append(f"COMBAT_SECONDARY_FEEDBACK_LIMIT:{source_id}")
+    contact_text = " ".join(str(beat.get(key) or "") for key in (
+        "contact_point", "primary_action", "exit_state"
+    ))
+    non_contact = any(token in contact_text for token in (
+        "一掌距离", "尚未接触", "没有接触", "未碰到", "尚未碰到", "接触前"
+    ))
+    dimensions = set(beat.get("state_delta_dimensions") or [])
+    if interaction_mode == "CONTACT" and non_contact:
+        failures.append(f"AMBIGUOUS_CONTACT_TYPE:{source_id}:CONTACT_AND_NON_CONTACT")
+    if interaction_mode in {"EVASION", "THREAT_THRESHOLD"} and "CONTACT" in dimensions:
+        failures.append(f"AMBIGUOUS_CONTACT_TYPE:{source_id}:{interaction_mode}_WITH_CONTACT_DELTA")
+    return failures
+
+
 def validate_execution_plan(plan: dict[str, Any]) -> dict[str, Any]:
     failures: list[str] = []
     unit_id = str(plan.get("unit_id") or "UNKNOWN")
     unit_class = str(plan.get("unit_class") or "")
     duration = float(plan.get("duration_seconds") or 0.0)
+    duration_authority = plan.get("duration_authority") or {}
+    underfill = float(duration_authority.get("underfill_seconds") or 0.0)
+    if underfill > 0.05:
+        failures.append(
+            f"DURATION_EXCEEDS_AUTHORIZED_CONTENT:{unit_id}:{underfill:.3f}s"
+        )
     beats = plan.get("beats") or []
     if not beats:
         failures.append(f"EXECUTION_BEATS_MISSING:{unit_id}")
@@ -163,6 +195,11 @@ def validate_execution_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 combat=unit_class in {"COMBAT_EXCHANGE"},
                 source_id=source_id,
             )
+            if unit_class == "COMBAT_EXCHANGE":
+                report["failures"].extend(
+                    validate_combat_causal_chain(beat, source_id=source_id)
+                )
+                report["status"] = "PASS" if not report["failures"] else "FAIL"
         reports.append(report)
         failures.extend(report["failures"])
     if abs(cursor - duration) > 0.02:

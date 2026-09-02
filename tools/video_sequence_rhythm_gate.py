@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from itertools import groupby
 from typing import Any
 
@@ -43,6 +44,21 @@ def validate_combat_sequence_rhythm(units: list[dict[str, Any]]) -> dict[str, An
             if len(run) < 5:
                 continue
             durations = [float(row.get("duration_seconds") or 0) for row in run]
+            camera_signatures = [
+                str(
+                    (row.get("camera_plan") or {}).get("signature")
+                    or ":".join((
+                        str((row.get("camera_plan") or {}).get("shot_scale") or "UNKNOWN"),
+                        str((row.get("camera_plan") or {}).get("motion_family") or "UNKNOWN"),
+                        str((row.get("camera_plan") or {}).get("motion_direction") or "UNKNOWN"),
+                    ))
+                )
+                for row in run
+            ]
+            shot_scales = [
+                str((row.get("camera_plan") or {}).get("shot_scale") or "UNKNOWN")
+                for row in run
+            ]
             overridden = all(_approved_override(row) for row in run)
             local: list[str] = []
             if len(set(durations)) < 2:
@@ -61,6 +77,10 @@ def validate_combat_sequence_rhythm(units: list[dict[str, Any]]) -> dict[str, An
                 "run_index": run_index,
                 "unit_count": len(run),
                 "durations": durations,
+                "duration_distribution": dict(Counter(durations)),
+                "camera_signature_distribution": dict(Counter(camera_signatures)),
+                "shot_scale_distribution": dict(Counter(shot_scales)),
+                "camera_distribution_policy": "PRE_SUBMISSION_OBSERVABILITY_ONLY_NO_AUTOMATIC_SHOT_TYPE_MUTATION",
                 "longest_identical_duration_run": longest,
                 "approved_override": overridden,
                 "failures": [] if overridden else local,

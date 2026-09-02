@@ -461,7 +461,7 @@ class ShotMediaAdmissionGateTests(unittest.TestCase):
             "changed_variables": ["PROMPT"],
         })
         self.assertEqual(report["status"], "FAIL")
-        self.assertIn("VIDEO_CONTENT_RETRY_REQUIRES_COVERAGE_REDESIGN", report["failures"])
+        self.assertIn("VIDEO_CONTENT_RETRY_REQUIRES_EXECUTION_PROMPT_REDESIGN", report["failures"])
 
     def test_model_stochastic_retry_keeps_input_unchanged(self):
         self.assertEqual(validate_retry_change({

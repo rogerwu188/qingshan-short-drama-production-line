@@ -31,7 +31,8 @@ except ModuleNotFoundError:
     from video_physical_continuity_contract import is_combat_unit, requires_interaction_topology
 
 
-SCHEMA = "qingshan.video_execution_plan.v2_shared_sd2_h3_typed_state_delta"
+SCHEMA = "qingshan.video_execution_plan.v3_shared_sd2_h3_action_ir"
+ACTION_IR_SCHEMA = "qingshan.action_ir.v1_single_causal_chain_per_beat"
 MODEL_FAMILY_BY_NAME = {
     "seedance-2.0-pro": "SEEDANCE_2",
     "minimax-h3": "MINIMAX_H3",
@@ -64,6 +65,40 @@ def classify_unit(unit: dict[str, Any]) -> str:
     if not any(spec.get("cast") for spec in specs):
         return "ATMOSPHERE"
     return "PHYSICAL_ACTION"
+
+
+def _interaction_mode(action: dict[str, Any]) -> str:
+    declared = str(action.get("interaction_mode") or "").strip().upper()
+    if declared:
+        return declared
+    contact = str(action.get("contact_point") or "").strip()
+    if any(token in contact for token in ("一掌距离", "尚未接触", "没有接触", "未碰到", "尚未碰到", "接触前")):
+        return "THREAT_THRESHOLD"
+    if contact:
+        return "CONTACT"
+    if str(action.get("evasion_result") or "").strip():
+        return "EVASION"
+    if str(action.get("threat_threshold") or "").strip():
+        return "THREAT_THRESHOLD"
+    return "NONE"
+
+
+def _action_risk(beat: dict[str, Any]) -> dict[str, Any]:
+    """Return advisory action capacity telemetry, never a post-generation gate."""
+    interaction = 0 if beat["interaction_mode"] == "NONE" else 1
+    secondary_count = len(beat.get("secondary_feedback") or [])
+    score = (3 if beat.get("primary_action") else 0) + interaction * 2 + (
+        2 if beat.get("primary_feedback") else 0
+    ) + secondary_count + (
+        2 if "POSITION" in beat.get("state_delta_dimensions", []) else 0
+    )
+    return {
+        "score": score,
+        "tier": "UNCALIBRATED_OBSERVE_ONLY",
+        "hard_rejection": False,
+        "purpose": "PER_BEAT_PRE_SUBMISSION_OBSERVABILITY_ONLY",
+        "calibration_rule": "Derive thresholds from measured first-pass success data; do not block on this score.",
+    }
 
 
 def _compact_transition(unit: dict[str, Any]) -> dict[str, str]:
@@ -99,8 +134,23 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
     if not specs:
         raise ValueError(f"{unit.get('unit_id')}:ORDERED_PROMPT_SPECS_MISSING")
     duration = float(unit.get("duration_seconds") or 0.0)
-    if duration < 4 or duration > 15:
+    minimum_duration = 3.0 if family == "MINIMAX_H3" else 4.0
+    if duration < minimum_duration or duration > 15:
         raise ValueError(f"{unit.get('unit_id')}:VIDEO_DURATION_OUT_OF_RANGE:{duration}")
+    source_spans = [
+        max(
+            0.0,
+            float((spec.get("action") or {}).get("t1_seconds") or 0.0)
+            - float((spec.get("action") or {}).get("t0_seconds") or 0.0),
+        )
+        for spec in specs
+    ]
+    authorized_content_seconds = float(
+        unit.get("authorized_content_seconds")
+        or unit.get("source_duration_seconds")
+        or sum(source_spans)
+    )
+    tail_handle_seconds = float(unit.get("authorized_tail_handle_seconds") or 0.6)
     identity_fact, identity_lineage = compact_identity_prop_fact(unit)
     space_fact, space_lineage = compact_space_weather_fact(unit)
     unit_class = classify_unit(unit)
@@ -119,6 +169,24 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
             "force_feedback": str(
                 action.get("force_feedback") or action.get("physical_causality") or ""
             ).strip(),
+            "force_origin": str(
+                action.get("force_origin")
+                or action.get("power_path")
+                or action.get("start_state")
+                or ""
+            ).strip(),
+            "interaction_mode": _interaction_mode(action),
+            "primary_feedback": str(
+                action.get("primary_feedback")
+                or action.get("force_feedback")
+                or action.get("physical_causality")
+                or ""
+            ).strip(),
+            "secondary_feedback": [
+                str(value).strip()
+                for value in action.get("secondary_feedback") or []
+                if str(value).strip()
+            ],
             "exit_state": str(action.get("completion_state") or "").strip(),
             "state_delta_dimensions": list(action.get("state_delta_dimensions") or []),
             "state_delta_evidence": deepcopy(action.get("state_delta_evidence") or {}),
@@ -143,6 +211,7 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
                 or ""
             ).strip(),
         }
+        beat["action_capacity"] = _action_risk(beat)
         beats.append(beat)
     sounds = {
         key: unique_text([
@@ -177,12 +246,33 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
         "unit_id": str(unit.get("unit_id") or "UNKNOWN"),
         "model_family": family,
         "duration_seconds": duration,
+        "duration_authority": {
+            "authorized_content_seconds": authorized_content_seconds,
+            "authorized_tail_handle_seconds": tail_handle_seconds,
+            "requested_duration_seconds": duration,
+            "underfill_seconds": round(
+                max(0.0, duration - authorized_content_seconds - tail_handle_seconds), 3
+            ),
+            "failure_code": "DURATION_EXCEEDS_AUTHORIZED_CONTENT",
+            "failure_action": "REDESIGN_UNIT_BOUNDARY_OR_SHORTEN_DURATION_BEFORE_SUBMISSION",
+        },
         "unit_class": unit_class,
         "identity_prop_fact": identity_fact,
         "space_weather_fact": space_fact,
         "camera_plan": deepcopy(unit.get("camera_plan") or {}),
         "transition": _compact_transition(unit),
         "beats": beats,
+        "action_ir": {
+            "schema": ACTION_IR_SCHEMA,
+            "unit_class": unit_class,
+            "causal_chains": deepcopy(beats),
+            "rule": (
+                "Each beat contains one primary causal chain: entry and force origin, "
+                "one primary action, one contact/evasion/threat threshold, one primary "
+                "feedback, optional secondary feedback, and one observable irreversible exit-state delta."
+            ),
+            "post_generation_dynamic_media_qa_required": False,
+        },
         "sounds": sounds,
         "environment_motion": environment_motion,
         "voice_bindings": voice_bindings,
@@ -211,8 +301,8 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
         key: deepcopy(plan[key])
         for key in (
             "duration_seconds", "unit_class", "identity_prop_fact", "space_weather_fact",
-            "camera_plan", "transition", "beats", "sounds", "environment_motion",
-            "voice_bindings", "negative_constraints", "native_audio_contract",
+            "duration_authority", "camera_plan", "transition", "beats", "sounds", "environment_motion",
+            "action_ir", "voice_bindings", "negative_constraints", "native_audio_contract",
             "interaction_topology_required", "combat_execution_required",
         )
     }

@@ -3,10 +3,11 @@
 
 Provider failures stop the line for human resolution.  With a healthy provider,
 image failures may rewrite the prompt up to ten attempts.  After the first
-reviewable video failure, every successor must replace the full coverage design
-(prompt, shot structure, camera plan, action timeline, and reference strategy)
-rather than tune or reuse the failed prompt; video remains capped at three
-creative attempts.
+reviewable video failure, every successor must replace the complete provider
+execution prompt and Action IR rather than tune or reuse the failed prompt.
+Canonical story, identity, wardrobe, map, weather, shot type, camera type, axis,
+prop ownership, voice binding, and native-audio intent remain immutable; video
+remains capped at three creative attempts.
 """
 
 from __future__ import annotations
@@ -297,7 +298,7 @@ def evaluate_failure_workflow(unit: dict[str, Any]) -> dict[str, Any]:
         next_action = "BLOCKED_ON_INPUT_PROMPT_FAILURE_MEMORY_INCOMPLETE"
     elif creative_count < attempt_limit:
         if kind == "VIDEO":
-            next_action = f"AUTO_COVERAGE_REDESIGN_AND_SUBMIT_ATTEMPT_{creative_count + 1}"
+            next_action = f"AUTO_EXECUTION_PROMPT_REDESIGN_AND_SUBMIT_ATTEMPT_{creative_count + 1}"
         else:
             next_action = f"AUTO_REWRITE_PROMPT_AND_SUBMIT_ATTEMPT_{creative_count + 1}"
     elif action and decision.get("human_approval_ref") and not violations:
@@ -310,6 +311,7 @@ def evaluate_failure_workflow(unit: dict[str, Any]) -> dict[str, Any]:
         or not attempts
         or next_action.startswith("AUTO_REWRITE_")
         or next_action.startswith("AUTO_COVERAGE_REDESIGN_")
+        or next_action.startswith("AUTO_EXECUTION_PROMPT_REDESIGN_")
         or next_action.startswith("RESUME_")
     ):
         status = "PASS"
@@ -355,30 +357,39 @@ def evaluate_failure_workflow(unit: dict[str, Any]) -> dict[str, Any]:
         }
 
     coverage_redesign_requirements = None
-    if next_action.startswith("AUTO_COVERAGE_REDESIGN_AND_SUBMIT_ATTEMPT_"):
+    if next_action.startswith("AUTO_EXECUTION_PROMPT_REDESIGN_AND_SUBMIT_ATTEMPT_"):
+        same_failure_consecutive_count = int(
+            unit.get("same_failure_consecutive_count")
+            or (
+                len(prompt_failures)
+                if prompt_failures
+                and len({row["failure_reason"] for row in prompt_failures}) == 1
+                else 0
+            )
+        )
         coverage_redesign_requirements = {
-            "schema": "qingshan.video_coverage_prompt_redesign.v1",
+            "schema": "qingshan.video_execution_prompt_redesign.v2",
             "next_creative_attempt": creative_count + 1,
-            "retry_design_mode": "COVERAGE_REDESIGN",
+            "retry_design_mode": "EXECUTION_PROMPT_REDESIGN",
             "failed_prompt_sha256": [row["prompt_sha256"] for row in prompt_failures],
             "must_fix_reasons": [row["failure_reason"] for row in prompt_failures],
             "do_not_repeat": [row["do_not_repeat"] for row in prompt_failures],
-            "required_changed_variables": [
-                "PROMPT",
-                "SHOT_STRUCTURE",
-                "CAMERA_PLAN",
-                "ACTION_TIMELINE",
-                "REFERENCE_STRATEGY",
-            ],
+            "required_changed_variables": ["PROMPT", "ACTION_IR"],
             "prompt_rewritten_from_scratch": True,
-            "shot_structure_redesigned": True,
-            "camera_plan_redesigned": True,
-            "action_timeline_redesigned": True,
-            "reference_strategy_redesigned": True,
+            "action_ir_redesigned": True,
+            "immutable_contract_preserved": True,
+            "do_not_repeat_registered": True,
             "micro_edit_reuse_forbidden": True,
             "wording_only_change_forbidden": True,
             "negative_prompt_only_change_forbidden": True,
             "parameter_only_change_forbidden": True,
+            "same_failure_consecutive_count": same_failure_consecutive_count,
+            "action_budget_must_decrease": same_failure_consecutive_count >= 2,
+            "provider_prompt_length_must_not_increase": same_failure_consecutive_count >= 2,
+            "immutable_fields": [
+                "CANONICAL_STORY", "IDENTITY", "WARDROBE", "MAP", "WEATHER",
+                "SHOT_TYPE", "CAMERA_TYPE", "AXIS", "PROP_OWNERSHIP", "VOICE_BINDING",
+            ],
             "canonical_story_and_native_audio_must_be_preserved": True,
         }
 
@@ -397,6 +408,7 @@ def evaluate_failure_workflow(unit: dict[str, Any]) -> dict[str, Any]:
         "prompt_failure_records": prompt_failures,
         "human_notification": notification,
         "prompt_rewrite_contract": rewrite_contract,
+        "execution_prompt_redesign_requirements": coverage_redesign_requirements,
         "coverage_redesign_requirements": coverage_redesign_requirements,
         "any_pass": any_pass,
         "next_action": next_action,

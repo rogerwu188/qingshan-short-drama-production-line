@@ -14,6 +14,12 @@ class PostGenerationQaScopeGateTest(unittest.TestCase):
         self.assertIn("FORBIDDEN_POST_GENERATION_QA:action_reasonableness", report["failures"])
         self.assertIn("FORBIDDEN_POST_GENERATION_QA:microexpression_precision", report["failures"])
 
+    def test_blocks_expensive_dynamic_media_analysis(self):
+        report = evaluate(["decode", "optical_flow", "motion_energy", "action_velocity"])
+        self.assertEqual(report["status"], "FAIL")
+        self.assertEqual(report["dynamic_media_analysis"], "NOT_RUN_BY_OWNER_POLICY")
+        self.assertIn("FORBIDDEN_POST_GENERATION_QA:optical_flow", report["failures"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -57,23 +57,37 @@ def _beat(
     prefix = f"BEAT.{index}"
     line = (
         f"[{source['start_seconds']:g}s-{source['end_seconds']:g}s] "
-        f"Start from {translated['entry_state']}. {translated['primary_action']}"
+        f"Start from {translated['entry_state']}. Force origin: {translated.get('force_origin') or translated['entry_state']}. "
+        f"{translated['primary_action']}"
     )
+    interaction_mode = str(source.get("interaction_mode") or "NONE")
+    interaction_label = {
+        "CONTACT": "physical contact",
+        "EVASION": "clear evasion",
+        "THREAT_THRESHOLD": "pre-contact threat threshold",
+    }.get(interaction_mode, "no person-to-person interaction")
     evidence = {
         f"{prefix}.ENTRY": translated["entry_state"],
         f"{prefix}.ACTION": translated["primary_action"],
+        f"{prefix}.FORCE_ORIGIN": translated.get("force_origin") or translated["entry_state"],
+        f"{prefix}.INTERACTION_MODE": interaction_label,
         f"{prefix}.EXIT": translated["exit_state"],
     }
     if source.get("contact_time_seconds") is not None:
         contact_time = f"{float(source['contact_time_seconds']):g}s"
-        line += f" Contact occurs at {contact_time}"
+        line += f" Interaction mode: {interaction_label}; the interaction point is reached at {contact_time}"
         evidence[f"{prefix}.CONTACT_TIME"] = contact_time
     if source.get("contact_point"):
         line += f" at {translated['contact_point']}"
         evidence[f"{prefix}.CONTACT_POINT"] = translated["contact_point"]
-    if source.get("force_feedback"):
-        line += f"; force feedback: {translated['force_feedback']}"
-        evidence[f"{prefix}.FORCE_FEEDBACK"] = translated["force_feedback"]
+    if source.get("primary_feedback"):
+        primary_feedback = translated.get("primary_feedback") or translated.get("force_feedback")
+        line += f"; primary feedback: {primary_feedback}"
+        evidence[f"{prefix}.PRIMARY_FEEDBACK"] = primary_feedback
+    translated_secondary = translated.get("secondary_feedback") or []
+    for secondary_index, value in enumerate(translated_secondary, 1):
+        line += f"; secondary feedback: {value}"
+        evidence[f"{prefix}.SECONDARY_FEEDBACK.{secondary_index}"] = value
     line += f". End at {translated['exit_state']}."
     raw = str(source.get("dialogue") or "").strip()
     if raw:
@@ -121,8 +135,9 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             raise ValueError(f"H3_ENGLISH_CONTRACT_FIELD_MISSING:{uid}:transition.incoming")
         description.append(f"Open directly from the inherited state: {incoming}. Do not reset or replay it.")
         clause_evidence["TRANSITION.INCOMING"] = incoming
+    action_beats = (plan.get("action_ir") or {}).get("causal_chains") or plan["beats"]
     dialogue_slot = 0
-    for source, translated in zip(plan["beats"], contract["beats"]):
+    for source, translated in zip(action_beats, contract["beats"]):
         slot = None
         if source.get("dialogue"):
             dialogue_slot += 1
@@ -165,7 +180,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         line = f"SPEAKER_{index} uses @Audio{index} as the registered fixed voice reference"
         voice_rows.append(line)
         clause_evidence[f"VOICE_BINDING.{index}"] = line
-    if not any(beat.get("dialogue") for beat in plan["beats"]):
+    if not any(beat.get("dialogue") for beat in action_beats):
         vocal_rule = "No human speech event; every visible person keeps the mouth closed for the entire clip."
     else:
         vocal_rule = "Only literals inside d-tags may become speech; never vocalize machine metadata."
