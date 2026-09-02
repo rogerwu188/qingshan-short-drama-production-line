@@ -10,9 +10,11 @@ from typing import Any
 try:
     from frame_cadence_audit import media_fps
     from run_regression_ci import default_ffmpeg, duration_seconds
+    from editorial_selection_gate import evaluate_rows as evaluate_editorial_rows
 except ModuleNotFoundError:
     from tools.frame_cadence_audit import media_fps
     from tools.run_regression_ci import default_ffmpeg, duration_seconds
+    from tools.editorial_selection_gate import evaluate_rows as evaluate_editorial_rows
 
 
 FORBIDDEN_RENDER_PATTERNS = {
@@ -70,28 +72,75 @@ def main() -> int:
     for index, item in enumerate(plan_rows, start=1):
         raw_path = item.get("path")
         if not raw_path:
+            rows.append({
+                "source_id": item.get("source_id") or item.get("role") or f"segment-{index}",
+                "path": "",
+                "in_sec": float(item.get("selected_in_seconds", item.get("in_sec", item.get("source_in_sec", 0))) or 0),
+                "duration_sec": 0.0,
+                "source_duration_sec": 0.0,
+                "source_fps": 0.0,
+                "selected_in_seconds": item.get("selected_in_seconds"),
+                "selected_out_seconds": item.get("selected_out_seconds"),
+                "selection_policy": item.get("selection_policy"),
+            })
             continue
         source = Path(raw_path).expanduser().resolve()
         if not source.is_file():
+            rows.append({
+                "source_id": item.get("source_id") or item.get("role") or f"segment-{index}",
+                "path": str(source),
+                "in_sec": 0.0,
+                "duration_sec": 0.0,
+                "source_duration_sec": 0.0,
+                "source_fps": 0.0,
+                "selected_in_seconds": item.get("selected_in_seconds"),
+                "selected_out_seconds": item.get("selected_out_seconds"),
+                "selection_policy": item.get("selection_policy"),
+            })
             continue
+        source_duration = duration_seconds(source, ffmpeg)
+        selected_in = item.get("selected_in_seconds")
+        selected_out = item.get("selected_out_seconds")
+        in_sec = float(selected_in if selected_in is not None else item.get("in_sec", item.get("source_in_sec", 0)) or 0)
+        window_duration = (
+            float(selected_out) - in_sec
+            if selected_out is not None
+            else float(item.get("duration_sec", 0) or 0)
+        )
         rows.append(
             {
                 "source_id": item.get("source_id") or item.get("role") or f"segment-{index}",
                 "path": str(source),
-                "in_sec": float(item.get("in_sec", item.get("source_in_sec", 0)) or 0),
-                "duration_sec": float(item.get("duration_sec", 0) or 0),
-                "source_duration_sec": duration_seconds(source, ffmpeg),
+                "in_sec": in_sec,
+                "duration_sec": window_duration,
+                "source_duration_sec": source_duration,
                 "source_fps": media_fps(ffmpeg, source),
+                "selected_in_seconds": selected_in,
+                "selected_out_seconds": selected_out,
+                "selection_policy": item.get("selection_policy"),
             }
         )
     failures = renderer_source_failures(renderer_path.read_text(encoding="utf-8"))
     failures.extend(evaluate_plan_rows(rows, args.target_fps))
+    selection_rows = [
+        {
+            "source_id": row["source_id"],
+            "selected_in_seconds": row.get("selected_in_seconds"),
+            "selected_out_seconds": row.get("selected_out_seconds"),
+            "source_duration_seconds": row["source_duration_sec"],
+            "selection_policy": row.get("selection_policy"),
+        }
+        for row in rows
+    ]
+    selection_report = evaluate_editorial_rows(selection_rows)
+    failures.extend(selection_report["failures"])
     report = {
-        "schema": "qingshan.edit_plan_integrity_gate.v1",
+        "schema": "qingshan.edit_plan_integrity_gate.v2_real_editorial_selection",
         "render_plan": str(plan_path),
         "renderer": str(renderer_path),
         "target_fps": args.target_fps,
         "rows": rows,
+        "editorial_selection_gate": selection_report,
         "status": "PASS" if not failures else "FAIL",
         "failures": failures,
         "rule": "Coverage gaps must be solved by new source coverage or a real edit. Retime, interpolation, looping and still-frame extension are C7 process cheating.",

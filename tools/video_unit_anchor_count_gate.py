@@ -41,6 +41,8 @@ def evaluate(plan: dict) -> dict:
         count = unit.get("planned_reference_image_count")
         decision = unit.get("anchor_count_decision")
         reasons: list[str] = []
+        scene_first = unit.get("scene_first_unit")
+        opening = unit.get("opening_anchor_contract")
 
         if not isinstance(count, int) or isinstance(count, bool) or count < 1:
             reasons.append("planned_reference_image_count must be an integer >= 1")
@@ -64,6 +66,30 @@ def evaluate(plan: dict) -> dict:
         task_keys = unit.get("reference_image_task_keys")
         if not isinstance(task_keys, list) or len(task_keys) != count:
             reasons.append("reference_image_task_keys count does not match the planned count")
+
+        # v3 plans replace independently generated per-unit starts with a
+        # scene-local chain.  The gate remains backward readable, but every
+        # plan that declares either v3 field must declare the whole contract.
+        if scene_first is not None or opening is not None:
+            if not isinstance(scene_first, bool):
+                reasons.append("scene_first_unit must be boolean")
+            if not isinstance(opening, dict):
+                reasons.append("opening_anchor_contract is required")
+            else:
+                if opening.get("policy") != "opening_anchor_is_previous_unit_final_frame_or_scene_first_unit":
+                    reasons.append("opening anchor policy is not the required previous-final-frame chain")
+                source = opening.get("source")
+                if scene_first is True and source != "SCENE_FIRST_GENERATED_KEYFRAME":
+                    reasons.append("scene-first unit must use its admitted scene-start keyframe")
+                if scene_first is False:
+                    if source != "PREVIOUS_UNIT_REAL_FINAL_FRAME":
+                        reasons.append("same-scene continuation must use the previous unit real final frame")
+                    if not opening.get("previous_unit_id"):
+                        reasons.append("same-scene continuation is missing previous_unit_id")
+                    if isinstance(task_keys, list) and task_keys and not str(task_keys[0]).endswith(":REAL_FINAL_FRAME"):
+                        reasons.append("first reference is not the previous unit real final frame task key")
+                    if opening.get("materialization_required_before_submit") is not True:
+                        reasons.append("previous final frame must be materialized before provider submission")
 
         required_criteria = {
             "continuous_motion_from_single_start",
@@ -173,10 +199,10 @@ def evaluate(plan: dict) -> dict:
             })
 
     return {
-        "schema": "qingshan.video_unit_anchor_count_gate.v1",
+        "schema": "qingshan.video_unit_anchor_count_gate.v2_previous_final_frame_chain",
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "status": "FAIL" if failures else "PASS",
-        "policy": "DECIDE_PER_UNIT_FROM_MODEL_CAPABILITY_AND_ACTION_DESIGN; NEVER FIX_ONE_OR_FIXED_MULTI",
+        "policy": "OPEN_FROM_PREVIOUS_UNIT_REAL_FINAL_FRAME_OR_SCENE_FIRST; DECIDE_ONLY_ADDITIONAL_REANCHORS_PER_UNIT",
         "video_unit_count": len(units),
         "planned_reference_image_count": total,
         "decisions": decisions,

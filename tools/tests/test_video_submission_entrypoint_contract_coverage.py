@@ -44,6 +44,13 @@ class VideoSubmissionEntrypointContractCoverageTest(unittest.TestCase):
         ]
         self.assertEqual([], missing, f"video submit paths bypass model adapter gate: {missing}")
 
+    def test_every_video_submission_entrypoint_calls_opening_anchor_chain_gate(self):
+        missing = [
+            relative for relative in VIDEO_SUBMISSION_ENTRYPOINTS
+            if "validate_opening_anchor_chain" not in called_functions(ROOT / relative)
+        ]
+        self.assertEqual([], missing, f"video submit paths bypass opening-anchor chain: {missing}")
+
     def test_authoritative_video_submitter_rechecks_sd2_required_prompt_fields(self):
         relative = "tools/submit_giggle_video_manifest_v2.py"
         self.assertIn(
@@ -69,6 +76,13 @@ class VideoSubmissionEntrypointContractCoverageTest(unittest.TestCase):
             if "require_paid_image_model_contract" not in called_functions(ROOT / relative)
         ]
         self.assertEqual([], missing, f"image submit paths bypass model adapter gate: {missing}")
+
+    def test_every_image_submission_entrypoint_calls_keyframe_entry_gate(self):
+        missing = [
+            relative for relative in IMAGE_SUBMISSION_ENTRYPOINTS
+            if "evaluate_keyframe_entry_task" not in called_functions(ROOT / relative)
+        ]
+        self.assertEqual([], missing, f"image submit paths bypass entry-state gate: {missing}")
 
 
 if __name__ == "__main__":
