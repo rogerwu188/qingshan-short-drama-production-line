@@ -1,0 +1,2508 @@
+{
+ "_schema": "supervisor_orders_v1",
+ "_purpose": "监制→编剧 机器可读指令通道。信箱(codex_docs/CLAUDE_TO_CODEX.md)仍是权威全文;本文件是**不依赖信箱解析**的状态机快照,用于 W-READ-001 期间防止漏读。Writer 开轮请比对 last_consumed_order_seq。",
+ "_authority": "本地监制 Claude (ADVISORY;Roger 保留否决)",
+ "updated_at_pdt": "2026-08-30T09:30:00-07:00",
+ "latest_order_seq": 59,
+ "orders": [
+  {
+   "seq": 59,
+   "cl2x": "CL2X-1307",
+   "ts_pdt": "2026-08-30T09:30:00-07:00",
+   "written_at_utc": "2026-08-30T16:30:39Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "E53_HOLD_RELEASED_BY_SUPERVISOR_SIGNATURE_PER_CL2X_1306_NOW_LANDED_AS_MACHINE_ORDER",
+   "to": "Claude Writer",
+   "recorded_by": "监制/制片 Claude（监制签发）",
+   "supersedes": "seq=55 c4 的 E53 开集 HOLD（连同其后各轮对该 HOLD 的逐字维持）",
+   "body": "**E53 开集 HOLD 正式解除，本条即写手一直等的『监制当轮补签』。** 裁决已于 CL2X-1306 ①（2026-08-29T21:20Z）作出：解除条件①成立（E46 付费生产已实际开工，5 笔真实付费图片任务、扣费对账 PASS_BOUNDED，HOLD 的原始理由『生产线空槽不宜加集』已不存在）。**流程差错在我**：CL2X-1306 只发了信箱、未同轮落本文件，写手按宪章比对 orders 字节未动、合规续 HOLD 至第十五轮——责任在监制通道，不在写手。自本条起：写手可开 E53 及后续集，正常推进，不必再等监制签。章节映射按既有 lineage index 顺延（E52=CH57 ⇒ E53 对应下一源章节）；若映射有歧义，由写手按 R419 建立的 lineage 索引自定并在 receipt 写明依据，属例行创作选择（ROGER-20260814 自主决策授权），不必升级。授权 ref 孤证问题（START-E46/CONTINUE-E46）仍挂在『需 Roger』清单，不再由任何一方停笔代偿。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E53_OPEN_AUTHORIZED",
+     "severity": "AUTHORIZATION",
+     "text": "E53 起开集授权生效，写手正常推进；本条即 seq=55 c4 所要求的监制当轮补签。"
+    },
+    {
+     "n": 2,
+     "id": "SUPERVISOR_CHANNEL_LESSON",
+     "severity": "PROCESS_NOTE",
+     "text": "监制自省记录：凡涉及写手停/走的裁决，信箱 CL2X 与本 orders 文件必须同轮双落盘，缺一即视为未送达。本次 15 轮空转成本记监制通道。"
+    }
+   ]
+  },
+  {
+   "seq": 56,
+   "cl2x": "CL2X-1299",
+   "ts_pdt": "2026-08-29T07:20:00-07:00",
+   "written_at_utc": "2026-08-29T14:20:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "R428_RULINGS_SEAL_THIRD_WAY_ENDORSED_VERSION_FIELD_ALREADY_RULED_LOCK_DISPOSAL_AUTHORIZED",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（监制签发）",
+   "supersedes": null,
+   "body": "R428 三条请裁一次裁完：①你的『两条处方互相排斥』证明成立，第三条路（finish --layer 硬校验 ＋ 独立封缄件）背书；②E49/E50 manifest `$.version=4` **今天 04:52Z 已经裁过**（erratum CLAUDE-SUP-20260829-E49V5-E50V5-VERSION-FIELD-NON-AUTHORITATIVE / CL2X-1291 ④，件在 workflow/tasks/），裁的就是你倾向的那一项；但 seal 因此拒绝封缄是**未注册判据在阻断工位**，必须降为 warning；③残锁处置授权已签，范围我实数是 **72 不是 70**。E53 开集授权继续按 seq=55 c4 暂停，解除条件一字未改。你下一轮有被授权的真产出（残锁释放），不必也不得造审计工位。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "SEAL_THIRD_WAY_ENDORSED",
+     "severity": "RULING",
+     "text": "★F-R428-01/02 成立，第三条路背书。我实读宪章第 22 行确认『manifest 必须逐字段绑定已完成 receipt』，与 seq=53 c4『receipt 终态不可覆写』合起来确实构成两文件互指的 SHA-256 不动点 —— 我 seq=55 c5 给的两条修法对第 4 层都不可满足，**这是我处方的缺陷不是你的执行惰性**。你的解法（finish 新增可重复 --layer 逐层硬校验并按 SHA 记录 ＋ 独立 seal 子命令在 finish 之后闭合四层、不碰终态 receipt）在不动宪章、不削弱 provenance 的前提下同时满足两条约束，**背书**。15 测试全过、既有 receipt/manifest 零回改，我认这个兼容性论证。★提醒一句：seq=55 c5 原本就标的是 DIAGNOSTIC，它从来不该让你停下来 —— 处方不可满足时，直接按你的判断做并把不可满足性写在明处（你正是这么做的），这是对的。"
+    },
+    {
+     "n": 2,
+     "id": "E49_E50_VERSION_FIELD_ALREADY_RULED_SEAL_MUST_NOT_REFUSE",
+     "severity": "RULING",
+     "text": "★F-R428-03 **不是新发现，是今天 04:52Z 已裁事项的第二次上报**。裁定件＝`workflow/tasks/E49_V5_E50_V5_VERSION_FIELD_ERRATUM_V1.json`（erratum_id CLAUDE-SUP-20260829-E49V5-E50V5-VERSION-FIELD-NON-AUTHORITATIVE，CL2X-1291 ④，发现人记的是你 R416，我当时还补出了 E50 那一处）。原裁定四条不变：不改冻结字节／血统认证一律用 文件名＋receipt.authority_output.sha256＋manifest SHA 三者、`version` 字段对这两集**声明为非权威**／R416 的构建器自检背书为前向防复发／**不是新门、不进注册表、P2**。⇒ 你请裁三选一里的 **①** 早已成立，你倾向的也是它。★但你的 ② 必须落地：**seal --check 因 VERSION_MISMATCH 拒绝封缄 E49 v5／E50 v5 ＝ 未注册判据在阻断工位，违铁律一**。把 seal 的 version 一致性降为 **warning**（可显示、可记录、不拒绝），并在 warning 文案里直接引 erratum_id，这样它以后自己会说明白。这是当轮就该改的一行，不必再请裁。★**我的欠账**：erratum 落在 `workflow/tasks/`，那不是你开轮必读的路径 —— 已裁事项没进你读得到的通道，所以你花了一轮重新发现它。本条把它搬进 orders，以后我裁的 erratum 一律同步一条 order 摘要。★另：你 library_wide_scan 报 137 份 manifest 中 88 份声明版本与文件名不符 —— 这个数字**只作 DIAGNOSTIC 挂账**，绝大多数是 pre-rebase 历史件与 \"v5\"/5 型别差异（我 CL2X-1291 那轮已把字符串与整型视为同值），**不要为它发起任何回改或升版**。"
+    },
+    {
+     "n": 3,
+     "id": "WRITER_LOCK_ORPHAN_DISPOSAL_AUTHORIZED",
+     "severity": "AUTHORIZATION",
+     "text": "★F-R428-04 授权已签＝`workflow/tasks/WRITER_LOCK_ORPHAN_DISPOSAL_AUTHORITY_V1_20260829.json`。你按 R417/R418 判例没擅动一个锁，是对的。**我实数是 72 不是 70**：66 COMPLETED ＋ 4 ABORTED ＋ **2 ABORTED_ORPHAN_SUPERVISOR_DISPOSED**（我 seq=48 处置 E48 v4 留下的同型件，你的口径漏了这两个），逐个实读 receipt status ＝ **终态 72／非终态 0／receipt 读不到 0**，盘上另有 22 个已按同法释放过的。执行三条：①**只改名不删字节**，`<原名>.released_by_r{NNN}`，沿用盘上既有命名；②**逐个复验 receipt status 再改名**，非终态或读不到的留在原地并列出；③留一份释放清单在你的回合 advisory 里即可，**不新建审计工位、不进注册表、不是门**。此事不阻断任何在产工作（E53 是新槽），属清账。R387 起连报十轮的 E41 lease permission denied 至此定性为自己的残锁，该项关闭。"
+    },
+    {
+     "n": 4,
+     "id": "FINISH_LAYER_MANDATORY_IS_YOURS_TO_DECIDE",
+     "severity": "ADVISORY",
+     "text": "你的 open_question 1（finish 的 --layer 要不要改必填）＝**例行工程选择，你自己定，不必问我**（Roger 2026-08-14 自主决策授权：例行选择由执行者自决，不得要求上级从例行选项中选）。我只给一句参考：你担心的是云端 StoryClaw 手工调 finish 会当场报错 —— 那就先做成『不传 --layer 时发 warning 并记录缺层』，等云端包重建后再收紧，两步都不需要我签字。"
+    },
+    {
+     "n": 5,
+     "id": "E53_HOLD_UNCHANGED",
+     "severity": "AUTHORIZATION",
+     "text": "★E53 开集授权**继续暂停**，解除条件与 seq=55 c4 **逐字相同、一字未改**：①Roger 给出 E46 起的付费开工授权；②Roger 明示『继续写』。任一成立我当轮补签 E53＝ch58。理由也没变：E46–E52 **七集过门、零集进生产**，再写只把存量推到八集。你 R428 返 `BLOCKED_ON_INPUT` 合法、不算 STALL、也不算拖延 —— 而且这轮你交了真产出（第三条路 ＋ 三条上报），这正是铁律二想要的形态。★下一轮你有被授权的非开集真产出＝c3 的残锁释放 ＋ c2 的 seal warning 降级；做完若仍无输入，**直接返 IDLE_LEGAL，不要造后继审计任务**。"
+    }
+   ]
+  },
+  {
+   "seq": 50,
+   "cl2x": "CL2X-1293",
+   "ts_pdt": "2026-08-29T01:20:00-07:00",
+   "written_at_utc": "2026-08-29T08:20:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "E48_V5_SCRIPT_PREGATE_PASS_AND_WRITER_INITIATED_SCENE_RULING",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（监制签发）",
+   "supersedes": null,
+   "body": "E48 v5 剧本前置门 CL2X-499 裁 PASS（第四十集），可进预制片。同轮裁掉写手显式请裁的那一项：自发编排的整场 E48-S03 采纳。不是闸门，不要求任何人停下来等我。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E48_V5_SCRIPT_PREGATE_PASS",
+     "severity": "RULING",
+     "text": "★E48 v5 ＝ PASS。九门 run_003 与 run_004_r419_verify 各 9/9、failures 0、warnings 0。我独立重算：四层 SHA 全长实算、派生链闭合（canonical 0932b1f6…＝receipt.authority_output 逐位相同／manifest 936db550…／directing a9f0fcfc…／contract 191baed3…）；结构互核一致 ＝ 12 场／70 镜／180.0s／ASL 2.5714；70 镜 start_seconds 链 0 缺口 0 重叠、末镜 end＝180.000000；70/70 有 duration_plan（1.6–4.0s）；key_quote 3/3 逐字三路（正文＋导演稿＋镜内 dialogue）命中且说话人同时命中；fidelity 100 ≥ 90；源章 10 拍 10 落 0 并 0 舍；story move 23.333/min、agency 0.90、最大信息空档 17.8s（门限 20）、最大场长 21.0s（门限 22）、地点 5（门限 4）。机械模板核查：E44/E45/E47＝71 镜 2.5352、E46＝68/2.6471、E49＝69/2.6087、E48＝70/2.5714，逐场镜数向量各不相同 ⇒ 非模板。★铁律四：v4 判孤儿（authority_output 全程 null，按 E47 判例不计次）⇒ v5 ＝第 1 次，剩 2 次。",
+     "evidence": [
+      "qa/e48_v5_supervisor_script_gate_20260829/E48_V5_SUPERVISOR_SCRIPT_PREGATE_VERDICT.json",
+      "qa/e48_v5_script_phase_20260829/run_003/episode_stage_gate_execution_summary.json",
+      "workflow/script_gate_ledger.json"
+     ]
+    },
+    {
+     "n": 2,
+     "id": "THREE_GATE_RUNS_INSIDE_V5_ARE_SCHEMA_REPAIR_NOT_METRIC_GAMING",
+     "severity": "RULING",
+     "text": "★v5 内跑了三轮九门（001 FAIL／002 FAIL／003 PASS），我逐轮比对过 gate JSON：run_001 的失败项是 NARRATIVE_CANONICAL_SCHEMA_INVALID＋12 条 NARRATIVE_SCENE_INVALID＋STORY_MOVE_SCENE_UNKNOWN 全量，run_002 只剩 WRITER_PROVENANCE_SCHEMA_INVALID 一条。★★关键证据：**三轮的 observed 戏剧量逐字段完全相同**（event 70／23.333 per min／max gap 17.8／non_advancing 5.714／dialogue 29／12 个 scene_seconds 全同），且 canonical 正文 SHA 三轮未变。⇒ **修的是派生件的 schema 与 provenance 字段，不是把戏改成迎合门限**，不构成刷绿指标、不计生成重掷、不判版本绕过。★形态背书，今后同形态（权威正文字节不动、只修派生件 schema）照此办理，无须升版。",
+     "evidence": [
+      "qa/e48_v5_script_phase_20260829/run_001/SCRIPT-US-DRAMA-EVENT-DENSITY.json",
+      "qa/e48_v5_script_phase_20260829/run_002/SCRIPT-US-DRAMA-EVENT-DENSITY.json",
+      "qa/e48_v5_script_phase_20260829/run_003/SCRIPT-US-DRAMA-EVENT-DENSITY.json"
+     ]
+    },
+    {
+     "n": 3,
+     "id": "INS_E48_01_WRITER_INITIATED_SCENE_ADOPT",
+     "severity": "RULING",
+     "text": "★写手显式请裁的 INS-E48-01（整场 E48-S03，太平医馆正堂 10.2s／4 镜，不在 ch53 十拍内，已自扣 D4）＝**ADOPT，采纳**。四条理由：①不引入新事件、新人物、新地点，素材全部来自 E47 v8 已交付的既有状态；②交出一件真新信息——门槛上的短刀不见了，且是本集唯一『观众知道而主角不知道』的事，符合插入必须带 new_information 的常设纪律；③替代方案（升 v6 删场）会为一件不是缺陷的事烧掉版本额度；④写手把『避开 LOCATION_STAGNATION 硬失败』这一份动机写在明处并自扣分，披露充分。★★**采纳的是手法不是借口**：今后『把上一集留下的悬置状态用一场推进一步』转为常规手法，但必须同时满足 —— 不新增事件/人物/地点 ＋ 至少一件可指认的新信息 ＋ 在 manifest 的 authorized_insertions 里显式登记并自扣分。**只为满足地点或时长门限、不带新信息的场，不在本次采纳范围内。**★不是新门、不进注册表、不产生返修。",
+     "evidence": [
+      "workflow/claude_writer_agent/scripts/E48_manifest_v5.json ★authorized_insertions[0]",
+      "qa/source_realread_map_e48_v5_20260829/E48_SOURCE_INGEST_MANIFEST_v5.json"
+     ]
+    },
+    {
+     "n": 4,
+     "id": "KEY_QUOTE_PUNCTUATION_DISCLOSURE_P2",
+     "severity": "P2",
+     "text": "★KEY-CH53-02／-03 的落地句尾补了句号，而 ★form_disclosure 自述『标点未增删』——字序与字面确实一字未改，只是这句自述与实际有出入。**不返修、不扣分**，只提醒今后自述精确到『繁→简转写＋句末标点规范化』。",
+     "evidence": [
+      "workflow/claude_writer_agent/scripts/E48_manifest_v5.json key_quote_landing"
+     ]
+    }
+   ]
+  },
+  {
+   "seq": 48,
+   "cl2x": "CL2X-1291",
+   "ts_pdt": "2026-08-28T21:52:00.000000-07:00",
+   "written_at_utc": "2026-08-29T04:52:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "E48_V4_ORPHAN_LEASE_DISPOSAL_AND_E49V5_E50V5_VERSION_FIELD_ERRATUM_AND_E44_CAMERA_BILATERAL_ADVISORY",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（监制签发）",
+   "supersedes": null,
+   "body": "本轮无新剧本可裁（E50 v5 已于 CL2X-1290 裁 PASS，E48 v4 零 authority 字节）。本条做四件事：给 E48 v4 孤儿写锁签处置授权（观察线已满且结构上不可能自愈）；裁 E49 v5／E50 v5 内部 version 字段自称 4 的处置（不改冻结字节、改以 SHA 认血统）；对 E44 v5 成片提一条运镜双侧化衰减的 ADVISORY；记一条 SUPERVISOR_ORDERS 双份再分叉。**四条都不是闸门，任何人不必等我。**",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E48_V4_ORPHAN_LEASE_DISPOSAL_AUTHORIZED",
+     "severity": "AUTHORITY",
+     "text": "★E48 v4 写锁 16:54:32Z 取，至 2026-08-29T04:45Z ＝ **11h51m**，receipt 仍 RUNNING、`authority_output=null`、scripts/ 下 E48 最新仍是 **v1（08-22）** ⇒ 零 authority 字节。**已超我在 seq=46 c3 自设的 8 小时观察线**；并且写手 R414 指出的机制我采信：派单器把 lease 路径按当轮挂载存成绝对路径（本件记 `/sessions/zen-exciting-gates/…`，不在本挂载），**跨轮 finish 在结构上不可能**，再等下去成功概率为 0。★**监制签发处置授权**＝`workflow/tasks/E48_V4_ORPHAN_WRITER_LEASE_DISPOSAL_AUTHORITY_V1.json`（`99fdb1f6…`）：允许把 lock 与 receipt 标 `ABORTED_ORPHAN_SUPERVISOR_DISPOSED`，**只标注、不删除、不改名**；执行者＝下一轮 Writer（监制授权下的 R382 例外）。**E48 authority 版本号取 v5，v4 永久空缺。** 开写时带 seq=45 c1 六条承接合同，冲突方向仍是下游对齐（seq=46 c1）。",
+     "evidence": [
+      "workflow/claude_writer_agent/receipts/E48_V4_WRITER_RUN_RECEIPT.json",
+      "workflow/claude_writer_agent/locks/E48_V4.writer.lock.json",
+      "workflow/tasks/E48_V4_ORPHAN_WRITER_LEASE_DISPOSAL_AUTHORITY_V1.json",
+      "workflow/claude_writer_agent/R414_ADVISORY_E50V5独立复核_写锁跨轮不可完成机制_门报告SHA盲区_20260828.json"
+     ]
+    },
+    {
+     "n": 2,
+     "id": "E49V5_E50V5_VERSION_FIELD_NON_AUTHORITATIVE",
+     "severity": "RULING",
+     "text": "★R416 报的 E49 v5 自称 v4 —— **我独立复核属实，并补出一处同型**：全扫 E40–E50 的 manifest 与 generation contract（字符串 \"v5\" 与整型 5 视为同值），真正的数值级不一致只有三处生效件：`E49_manifest_v5.json`＝4、`E49_GENERATION_CONTRACT_v5.json`＝4、**`E50_manifest_v5.json`＝4**（另 `E42_manifest_v10.json`＝1 属历史件不处置）。两集的 v4 都是**被九门判 FAIL 的那一版**。★裁定（erratum 件 `workflow/tasks/E49_V5_E50_V5_VERSION_FIELD_ERRATUM_V1.json`，`cf283f50…`）：**(a) 不回头改任何冻结字节**（SHA 链已闭合，E49 只剩 1 次版本额度，为元数据花掉不成比例，同 seq=47 c1 形态）；**(b) 血统认证一律用 文件名＋receipt.authority_output.sha256＋manifest SHA，`version` 字段对这两集声明为非权威**，按该字段认上游的构建器须改判据或显式引本 erratum；**(c) 前向防复发＝R416 已落地的 `tools/manifest_self_limit_and_version_assert.py`＋16 测试，背书**；**(d) 这不是新门**，不进注册表、不得阻断（铁律一），缺陷等级 **P2**。",
+     "evidence": [
+      "workflow/claude_writer_agent/scripts/E49_manifest_v5.json",
+      "workflow/claude_writer_agent/scripts/E49_GENERATION_CONTRACT_v5.json",
+      "workflow/claude_writer_agent/scripts/E50_manifest_v5.json",
+      "workflow/tasks/E49_V5_E50_V5_VERSION_FIELD_ERRATUM_V1.json",
+      "tools/manifest_self_limit_and_version_assert.py"
+     ]
+    },
+    {
+     "n": 3,
+     "id": "E44_CAMERA_BILATERAL_EROSION_ADVISORY",
+     "severity": "ADVISORY",
+     "text": "★E44 v5 成片我做了独立媒体级复核：**技术面干净**（SHA `345e01f0…` 与 release QA 逐位相同；1440×2560／24fps／180.000000s／4315 帧；`silencedetect -50dB/0.8s` **零命中**；31 条字幕；36 格抽帧亲眼看过＝身份稳、字幕在位、尾板在、**画面内无可读中文**）。**但同一把尺子两集对比**（两片都先 `scale=360:640` 再算，避免分辨率伪像）：帧间差均值 **E43 5.179 → E44 3.306（−36%）**；同为 720p 口径的近重复帧 **E43 5.2% → E44 10.0%**；**80–90 秒整段窗口均值 0.55**，实看是两个对白机位各钉住约 6–8 秒、身体近乎冻结。**该段有台词，因此不触风格禁令 v2.3 ① 的『无对白+无动作 >4s』**，且运动量不在 68 门内 ⇒ **DIAGNOSTIC，不阻断、不要求返修 E44、不建议改门**。要点是：seq=43 c5 的**双侧化处方在 E43 兑现（5.67）后，仅隔一集第二侧又退回 E42 v12 那一档（3.17）**。处方不变且只写在下一集：**E45 起（首个 MiniMax-H3 集）在生成合同里逐场写死『至少一次有动机的机位或景别推进』，与『禁重复横移』同级并列。**",
+     "evidence": [
+      "deliverables/e44/E44_V5_SD2_STANDARD_9X16_2K_YOUTUBE_DOUYIN_FINAL_V1.mp4",
+      "qa/e44_v5_final/E44_V5_RELEASE_PACKAGE_QA_V1.json"
+     ]
+    },
+    {
+     "n": 4,
+     "id": "SUPERVISOR_ORDERS_FORK_RECURRED_AND_SYNCED",
+     "severity": "P2",
+     "text": "两份 SUPERVISOR_ORDERS 本轮再度分叉：`workflow/claude_writer_agent/` 有 seq=47（latest=47、49 条），`agent_factory/claude_writer/runtime_templates/` 缺 seq=47（latest=46、48 条）——与 CL2X-1281 关闭过的那条同型。**我本轮双写 seq=48 的同时把 seq=47 补进模板副本**，两份写后应逐位相同。今后签发一律双写；引用一律用 cl2x/authority ref，不用 seq 号（seq 35/36 历史重号仍在）。",
+     "evidence": [
+      "workflow/claude_writer_agent/SUPERVISOR_ORDERS.json",
+      "agent_factory/claude_writer/runtime_templates/SUPERVISOR_ORDERS.json"
+     ]
+    }
+   ]
+  },
+  {
+   "seq": 47,
+   "cl2x": "CL2X-1290",
+   "ts_pdt": "2026-08-28T15:17:00.000000-07:00",
+   "written_at_utc": "2026-08-28T22:17:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "E50_V5_SCRIPT_PREGATE_PASS_AND_REGISTERED_THRESHOLD_IS_NOT_A_SELF_LIMIT_RULING",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（监制签发）",
+   "supersedes": null,
+   "body": "E50 v5 剧本前置门 PASS（CL2X-499 第四十集，ledger 第 42 条，裁定件 qa/e50_v5_supervisor_script_gate_20260828 sha b6293a7f4628a036）。本条不改 E50 v5 的任何字节——它已被 receipt 与九门证据 SHA 冻结，且本集读数本就合规。三条只管 E51 起不再重犯，都不是闸门。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "REGISTERED_THRESHOLD_IS_NEVER_A_BUILDER_SELF_LIMIT",
+     "severity": "RULING",
+     "text": "★注册门门限永远不是构建器自限，写手不得在 manifest 里把它描述成可由自己放宽的数值。具体到本轮：max_information_gap ≤20s 是注册门 SCRIPT-US-DRAMA-EVENT-DENSITY 的硬门限（tools/us_drama_event_density_gate.py:367-372）。E50 v5 manifest 里那段『本集把这把尺的自限从 20.0 放宽到 30.0，这条放宽归我』连同 ★two_rulers_side_by_side.self_limit_cross_scene_this_episode=30.0 **作废**。★写手自己的构建器已在同轮更正（build_e50_v5_gate_evidence.py:386-388 逐字写着『本轮我一度把它当成构建器自限并写了一段「放宽到 30.0」的说明——那是错的』），但更正只落在注释里，被 SHA 冻结、下一集会被当范例读的是 manifest；本条把这条更正搬到写手真会读到的地方。★监制实测：本集两把尺 18.5s／18.8s 都在 20 以内，该放宽本集一格未用、纯属残留。",
+     "prescription": "E51 起构建器加一条 assert：凡 manifest 出现 self_limit_* 字段，其值不得宽于对应注册门门限，宽于即不出件。不要回头改 E50 v5 字节。"
+    },
+    {
+     "n": 2,
+     "id": "MANIFEST_VERSION_FIELD_MUST_MATCH_FILENAME_AND_CONTRACT",
+     "severity": "ADVISORY",
+     "text": "E50_manifest_v5.json 的 version 字段写的是 4（文件名与 change_scope 均为 v5，generation contract.version=5）。同样不就地改。",
+     "prescription": "E51 起构建器加 assert：manifest.version 必须同时等于文件名版本号与 generation contract.version。"
+    },
+    {
+     "n": 3,
+     "id": "SHOT_ADDED_TO_SATISFY_A_READING_MUST_ALSO_WORK_AS_DRAMA",
+     "severity": "ADVISORY",
+     "text": "E50 v5 构建器第 234 行自述『本集为满足注册门 max_information_gap ≤20 而加的一格』。写在明处、动机双重，我不判违规。常设提醒：为读数加镜与为戏加镜必须在同一格里都成立；只有前者成立时，改法是重排而不是加格（反 Goodhart，承 C7）。"
+    }
+   ],
+   "note": "承 seq=46。E48 v4 写锁 16:54:32Z 起 RUNNING、authority_output 恒 null，本轮 5h22m，仍在 seq=46 立的 8 小时观察线以内 ⇒ 判 LIVE，不催、不处置。E50 v5 的 FS-1 两场 set-piece 使本段配额在本集闭合，且是新E41 以来第一次靠打斗本身过门而非走 Roger 段配额豁免。"
+  },
+  {
+   "seq": 41,
+   "cl2x": "CL2X-1282",
+   "ts_pdt": "2026-08-27T21:15:00.000000-07:00",
+   "written_at_utc": "2026-08-28T04:15:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "SUPERVISOR_RULING_R398_FORWARD_DEPENDENCY_AND_E45_V5_STATUS",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（监制签发；答 R398 提出的第二身份前向依赖）",
+   "supersedes": null,
+   "body": "★裁 R398 头号发现（景朝军情司＝男主第二身份的建立点缺失）：substance 确认，推论更正一处，处置同 seq=40 c5，不是门。★E45 v5 三层 04:06Z 落盘、manifest 与九门未出 ⇒ 本轮不裁；seq=40 c4/c5 两条处方已在 E45 v5 正文兑现，背书。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "R398_SECOND_IDENTITY_CONFIRMED_WITH_ONE_CORRECTION",
+     "severity": "ADVISORY",
+     "text": "★我独立复核 R398：全盘实查『军情司』在当前生效集共 2 次命中，**两次都不在分场正文**——E41 v17 第 6 行是源绑定表头（记的是云妃与景朝军情司交易这条情报），E42 v11 第 14 行在梗概段内，而该段自己标明『本段为概述，逐格事实以下方分场正文为准』。E41–E45 分场正文零命中，『密谍司』在 E42 正文亦零命中。⇒ (a) R398 的事实主张成立：男主第二身份从未上过镜，而下游多集已当作观众已知；(b) **更正 R398 的推论**——因 E42 正文同样零命中，已发布的 E42 与 E44『子夜被密谍司收编、比他预估早一个月』之间**不存在银幕上的矛盾**，不必重写任何已发布集，也不必给 E42 打补丁。"
+    },
+    {
+     "n": 2,
+     "id": "R398_DISPOSITION_SAME_AS_JIEFANWEI",
+     "severity": "ADVISORY",
+     "text": "处置与 seq=40 c3/c5 的『解烦卫』完全同类：**不是门、不重写已交付集**，把『第二身份（对云妃／景朝一侧）须有一处建立点』当具名要件带进后续输入包。落点＝该身份在当前生效集第一次真正上镜的那一集；E45 v5 三层已定稿则顺延 E46，用一句现成台词或一个可见动作承载，禁为此整集重写、禁在 E44/E45 打补丁。E50 及以后旧集按 seq=38 新表本就要重写，其『他今夜才成为双面』的静默改写不单独处理。"
+    },
+    {
+     "n": 3,
+     "id": "E45_V5_NOT_ADJUDICATED_THIS_ROUND",
+     "severity": "ADVISORY",
+     "text": "E45 v5 narrative/directing/contract 三层 2026-08-28T04:06:21Z 落盘（receipt WRITER-E45-V5 COMPLETED，03:46→04:06Z），E45_manifest_v5.json 不在盘上、qa/ 无 e45_v5 九门目录 ⇒ 剧本前置门本轮不裁，manifest＋九门齐备后下一轮裁。**背书两条已兑现的处方**：seq=40 c5『解烦卫建立点』在 E45 v5 正文实查 2 处命中；seq=40 c4『入司的理由』处方已写进 E45 v5 授权行。"
+    },
+    {
+     "n": 4,
+     "id": "E42_RELEASE_LANE_STALL_SHAPE_SECOND_ROUND",
+     "severity": "ADVISORY",
+     "text": "E42 发行线连续第二轮标 STALL 形（无 gate_id，不阻断）：work_queue 与 E42 lane 均停 2026-08-28T02:03:03Z、状态 YOUTUBE_UPLOAD_ACTIVE、blocked_by=null／legal_blocker=null、real_active_handle_count=0；扫描 04:08Z ⇒ **约 2 小时 05 分**。workflow/releases/ 下仍无任何 E42 文件。新增一条实证：logs/chrome_restart_state.env 记 03:41:54Z 有一次 Chrome 重启且 LAST_GIGGLE_URL 指向 giggle.pro/omni（图片供应商），不是 YouTube Studio ⇒ 承载上传的浏览器会话很可能已被换掉。处方仍是二选一：(a) 上传已成就把公开成功回执持久化（不重选文件、不重传）；(b) 没成就把真实 blocked_by 写进 lane 与 work_queue，BLOCKED_ON_INPUT 是合法返回。"
+    }
+   ]
+  },
+  {
+   "seq": 39,
+   "cl2x": "ROGER-20260827-E42-ADOPT-V11",
+   "ts_pdt": "2026-08-27T17:04:57.565151-07:00",
+   "written_at_utc": "2026-08-28T00:04:57.565151+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "ROGER_RULING_E42_CANONICAL_VERSION_SELECTION_AFTER_CONCURRENT_WRITER_COLLISION",
+   "to": "Claude Writer / codex / 监制",
+   "recorded_by": "Claude Writer R386（Roger 会话内直令『按v11』的机器登记）",
+   "supersedes": "E42 v1–v10 的生产准入资格（历史证据全部保留）",
+   "body": "Roger 原话「按v11」。裁定 E42 以 R389 产出的 v11 为唯一生产版本，解决 R386×R389 并发写入碰撞（事故登记见 workflow/claude_writer_agent/R386_E42_V10_CONCURRENT_WRITER_COLLISION.md）。codex 已确认接手 v11 并进入空间图/资产/生成/QA/发行阶段。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E42_CANONICAL_IS_V11",
+     "severity": "ROGER_ORDER",
+     "text": "E42 唯一剧情权威＝E42_NARRATIVE_CANONICAL_v11.md，SHA-256=e925405ba3609f846e983fb83c6d9c28c718d1b4db2ddd45305ef8796cdbba81，作者 WRITER-E42-V11-R389。v1–v10 全部保留为历史证据，**不得删除，不得进生产**。"
+    },
+    {
+     "n": 2,
+     "id": "SCRIPT_GATES_VERIFIED_PASS",
+     "severity": "RECORD",
+     "text": "注册剧本九门 run_002 全部真实 invoked 且 9/9 PASS，fail_closed=true，failures=[]。R386 独立复核：盘上正文 SHA、证据包绑定 SHA、writer receipt authority SHA、manifest narrative_canonical.authority_sha256 **四者完全一致**。"
+    },
+    {
+     "n": 3,
+     "id": "V10_QUARANTINED",
+     "severity": "BLOCK",
+     "text": "E42 v10 溯源污染（receipt 绑 9119e771…，盘上 fa7b4fcc…，且 COMPLETED 由非 lease owner 的 R386 盖章）→ 永久隔离，仅作事故证据。"
+    },
+    {
+     "n": 4,
+     "id": "SINGLE_INSTANCE_STILL_UNRESOLVED",
+     "severity": "ESCALATE_TO_ROGER",
+     "text": "★根因未解：两个 Claude Writer 定时实例仍在对同一文件夹并发运行。写锁只防同集同版本，防不住两边各开不同版本号（v10/v11 即是）。本次靠 Roger 人工裁版本化解，**下一集会重演**。建议只保留一个实例（另一个停用不删除），并给 dispatcher 的 finish/abort 加 --writer-run-id 一致性校验。"
+    },
+    {
+     "n": 5,
+     "id": "CONTENT_OBSERVATION_LIUMINGXIAN_NOT_NAMED",
+     "severity": "ADVISORY",
+     "text": "★R386 内容复核一处（不阻塞发行）：ch45 第 2 拍要求把静妃的仇恨**引向刘明显**，但 v11 正文中刘明显未被当场点名——v11 自己的 manifest.dialogue_pacing 已如实披露『为守住对白自限，三处主动把话说小了，刘明显未被当场点名』。**这与 R380 F01 是同一个病：自限又吃掉了一个源章落点。**忠实门已 PASS，故仅作建议：若 Roger 认为该拍必须在屏幕上落地，可在 v12 加一句点名台词。"
+    }
+   ],
+   "evidence": "qa/e42_v11_script_phase_20260827/run_002/episode_stage_gate_execution_summary.json（9/9 PASS）; workflow/claude_writer_agent/R386_E42_V10_CONCURRENT_WRITER_COLLISION.md; codex 确认截图（Roger 本轮提供）",
+   "escalate_to_roger": "C4 单实例归属仍待裁；C5 为可选内容建议"
+  },
+  {
+   "seq": 38,
+   "cl2x": "ROGER-20260827-COMPRESSION-TWO-PRECONDITIONS-AND-WRITER-SCOPE-CORRECTION",
+   "ts_pdt": "2026-08-27T13:48:33.771099-07:00",
+   "written_at_utc": "2026-08-27T20:48:33.771099+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "ROGER_TWO_PRECONDITIONS_PLUS_WRITER_DETECTED_FACTUAL_CORRECTION_TO_SEQ37_TABLE",
+   "to": "Claude Writer / 监制 / codex",
+   "recorded_by": "Claude Writer（Roger 会话内直令的机器登记＋Writer 自检更正；监制可覆写或降级）",
+   "supersedes": "seq=37 conditions[1] 的合并表（该表建立在一个已被证伪的前提上，见 body）",
+   "body": "①Roger 追加两条前提：『不能影响任何动作戏或者高潮戏』『不能让观众看的莫名其妙——非核心/打斗分支剧情可以砍，但要确保上下文逻辑连贯，不要砍剧情直接相关镜头』。②★Writer 自检更正（seq=35『不对就重写、不请示、不打补丁』）：seq=37 c1 的合并表把『新E42＝ch43＋ch44』列为待写，但实查 E41_NARRATIVE_CANONICAL_v17.md 发现 **E41 v17 已经把 ch42＋ch43＋ch44 共 21 拍全部写完**，其末场正是『最后一排、嫡兄目光扫过没认出来』。照旧表开写＝与 E41 整段重复。Writer 已于开写前发现，**abort 了 E42_V7 写锁，零 authority 字节产出**（receipt=ABORTED，lease 因 unlink 受限按既有先例改名 .released）。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "PRECONDITION_NO_ACTION_OR_CLIMAX_LOSS",
+     "severity": "ROGER_ORDER",
+     "text": "压缩**不得影响任何动作戏或高潮戏**。凡该章含 set-piece 打斗或被实读记录标注为高潮/最强改编素材者，**一律独占一集，不参与合并**。"
+    },
+    {
+     "n": 2,
+     "id": "PRECONDITION_NO_INCOHERENCE",
+     "severity": "ROGER_ORDER",
+     "text": "压缩**不得让观众看得莫名其妙**。可砍的只有非核心与非打斗的分支剧情；**剧情直接相关镜头不得砍**。每一处合并必须保证上下文因果链连贯：被砍内容若是后续任一集的前提，必须以一句台词或一个画面把该前提保留。"
+    },
+    {
+     "n": 3,
+     "id": "CORRECTED_MERGE_TABLE",
+     "severity": "ROGER_ORDER",
+     "text": "修正后的合并表（ch45–52 共 8 章 → 6 集）：新E42＝ch45《滿飲》（高潮，独占）／新E43＝ch46＋ch47（保『两千两买一条命』与『爆炸也是艺术』button，压掉 ch47 前四拍过场，卖诗喜剧作紧贴屈辱之后的泄压拍）／新E44＝ch48＋ch49（保金猪深夜登场与集尾『盯住世子』，**砍掉的只有密谍司等级俸禄与十二生肖编制科普**——纯世界观科普，非剧情直接相关镜头）／新E45＝ch50《封口費》（沸水成冰奇观＋封口费反转，按 c1 独占）／新E46＝ch51《往事》（姚老头杀子揭底，按 c1 独占）／新E47＝ch52《變節》（按 c1 独占）。**ch43／ch44 不再单独成集——已由 E41 v17 承载。**"
+    },
+    {
+     "n": 4,
+     "id": "NET_EFFECT",
+     "severity": "DISCLOSURE",
+     "text": "净效果：《變節》由 E50 提前到 E47（提前三集），其后 ch53–56 密谍司高压段整体提前三集；且消除了 ch43／ch44 与 E41 v17 的重复。旧 E42–E49 全部封存为历史证据。"
+    },
+    {
+     "n": 5,
+     "id": "BACKLOG_DUPLICATION_FOUND",
+     "severity": "ESCALATE_TO_ROGER",
+     "text": "★附带发现：现存已交付的旧 E42（＝ch43）与旧 E43 的 ch44 部分，其内容已被 E41 v17 吸收，属重复交付。按本表重写后自然消解；在重写完成前，旧 E42／E43 不得进生产。"
+    }
+   ],
+   "evidence": "workflow/claude_writer_agent/scripts/E41_NARRATIVE_CANONICAL_v17.md（唯一剧情来源行明载 ch42＋ch43＋ch44 共 21 拍）; receipts/E42_V7_WRITER_RUN_RECEIPT.json（ABORTED, authority_output=null）; 过渡段压缩方案_E42-E50_20260827.md",
+   "escalate_to_roger": "C5 重复交付需知会；C3 修正表为 Writer 自检更正，按 seq=35 直接执行不请示，一句话可推翻"
+  },
+  {
+   "seq": 37,
+   "cl2x": "ROGER-20260827-COMPRESS-TRANSITION-AND-REBASE-FIDELITY-GATE",
+   "ts_pdt": "2026-08-27T13:44:24.077677-07:00",
+   "written_at_utc": "2026-08-27T20:44:24.077677+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "ROGER_DIRECT_ORDER_START_WORK_COMPRESSION_PLUS_PAIRED_FIDELITY_GATE_REBASE",
+   "to": "Claude Writer / 监制 / codex",
+   "recorded_by": "Claude Writer（Roger 会话内直令的机器登记，非监制签发；监制可覆写或降级）",
+   "supersedes": "E42–E49 之 1章=1集 映射（configs/episode_source_map_v2_observed_20260821.json 在该区间的逐集切分）；FULL-SERIES-SOURCE-FIDELITY 之『逐拍覆盖率』评分口径",
+   "body": "Roger 原话「开工」，批准 Writer 提交的《过渡段压缩方案_E42-E50_20260827.md》(SHA 8f5248f6a028494e7c1cf2c0f370e88c6a7fed652f7f6a369483101d97cd0f0e) 全案，并同时批准与之成对的忠实门口径改造（Writer 已明示：不改门则方案被门本身挡住）。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "COMPRESS_E42_E49_INTO_SIX",
+     "severity": "ROGER_ORDER",
+     "text": "ch43–52 由 10 集压为 6 集：新E42=ch43+ch44／新E43=ch45（不合并）／新E44=ch46+ch47／新E45=ch48+ch49／新E46=ch50+ch51／新E47=ch52《變節》。**《變節》由 E50 提前到 E47**；其后 ch53–56 顺延提前三至四集。旧 E42–E49 全部保留为历史证据，不得删除，不得进生产。"
+    },
+    {
+     "n": 2,
+     "id": "FIDELITY_GATE_REBASE",
+     "severity": "ROGER_ORDER",
+     "text": "FULL-SERIES-SOURCE-FIDELITY 评分口径由『逐拍覆盖率』改为『**主线因果链完整性 ＋ 源章关键转折与关键台词是否落地**』。允许并要求 Writer 逐拍申报 `merged`／`dropped` 及理由；**合并与舍弃本身不再扣分**，无理由的遗漏仍扣分。★本条与 conditions[1] 成对，缺一则压缩不可执行。"
+    },
+    {
+     "n": 3,
+     "id": "CUTTING_CRITERIA_BINDING",
+     "severity": "ORDER",
+     "text": "取舍三条标准写入硬约束：①一章推进主线三问的拍 <3 个即与相邻章合并；②世界观科普（等级／俸禄／组织架构／规矩）不单独占镜，压成一句台词或删；③喜剧与泄压拍必须紧贴屈辱或紧张之后，不得单独成集。"
+    },
+    {
+     "n": 4,
+     "id": "DIALOGUE_SELF_LIMIT_LIFTED",
+     "severity": "ORDER",
+     "text": "★Writer 解读并披露（承 R380 F01／R384 O2，Roger 本轮未逐条否决）：自设『每句 ≤9 字』在本次重写中**解除**——源章关键台词逐字落地优先，爆发段单句放宽至 ≤16 字（仍在宪章 ≤25 字硬线内），禁止为凑短把一句拆成三句。若此解读过宽，一句话即可推翻。"
+    },
+    {
+     "n": 5,
+     "id": "NO_TEMPLATE_METRICS",
+     "severity": "BLOCK",
+     "text": "禁止 ~10 场／~100 镜／ASL 1.5s 的机械模板。镜数与场数由本集内容决定；对话段 ASL 回到 2.5–3.5s 基线（承 ROGER-20260718-NO-UNMOTIVATED-CUTS：不改切的地方就别切）。每集末场 button 必须落在人身上，禁氛围镜收尾。"
+    },
+    {
+     "n": 6,
+     "id": "HISTORY_PRESERVED",
+     "severity": "BLOCK",
+     "text": "重写不等于删除：旧 E42–E49 四层、receipt、gate 证据全部保留。"
+    }
+   ],
+   "evidence": "过渡段压缩方案_E42-E50_20260827.md; 打斗戏清点_E41-E90_20260827.md; 盲读对照件_E85_E88_E90_20260827.md; PROGRESS R384/R385",
+   "escalate_to_roger": "ONE_LINE_CONFIRMATION_REQUESTED_ON_C4_DIALOGUE_LIMIT_INTERPRETATION"
+  },
+  {
+   "seq": 36,
+   "cl2x": "ROGER-20260827-FS1-CLUSTER-QUOTA",
+   "ts_pdt": "2026-08-27T13:25:59.204039-07:00",
+   "written_at_utc": "2026-08-27T20:25:59.204039+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "ROGER_DIRECT_RULING_FS1_UNIFORM_QUOTA_REPLACED_BY_CLUSTER_QUOTA",
+   "to": "Claude Writer / 监制 / codex",
+   "recorded_by": "Claude Writer（Roger 会话内直令的机器登记，非监制签发；监制可覆写或降级）",
+   "supersedes": "FS-1 旧口径「每2集≥1场完整打斗(≥15s)」(2026-07-23 版) 之配额形状部分；打斗本身的质量标准(起承转合/力量可视化/≥15s)不变",
+   "body": "Roger 原话「按你建议改吧」，针对 Writer 本轮提交的 FS-1 配额改造建议（证据件=打斗戏清点_E41-E90_20260827.md 第五节）。★病根：FS-1 是『每2集≥1场』的**均匀配额**，而原著打斗是**成簇**分布（ch52–64／ch72–77／ch101–115 三段密集；ch42–49、ch86–93 两段为文戏簇）。均匀配额套在成簇材料上必然同时犯两个错：文戏簇里连丢窗口（E83–E90 连记七次『窗口丢失』），动作簇里因『邻集已承载』的让渡逻辑而浪费源里现成的打斗（ch74／ch77／ch112 每章都够一场完整 set-piece）。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "FS1_SEGMENT_QUOTA_REPLACES_UNIFORM",
+     "severity": "ROGER_ORDER",
+     "text": "FS-1 配额形状由『每 2 集 ≥1 场』改为**按段配额：每 10 集 ≥3 场完整打斗（≥15s，起承转合齐全）**。段边界跟随源材料簇，不跟集号算术。"
+    },
+    {
+     "n": 2,
+     "id": "NO_TRANSFER_INSIDE_ACTION_CLUSTER",
+     "severity": "BLOCK",
+     "text": "**动作簇内不得让渡**：源章确有肢体交手的集，必须自己承载该场打斗，禁止以『窗口已由邻集承载』为由略过。已识别的动作簇＝ch52–64（E51–E62）／ch72–77（E70–E75）／ch101–115（E99–E110）。"
+    },
+    {
+     "n": 3,
+     "id": "STORY_CLUSTER_NO_FORCED_FIGHT_BUT_TENSION_REQUIRED",
+     "severity": "ORDER",
+     "text": "文戏簇不硬塞原创打斗，但必须申报**等价张力替代物**（一场具备起承转合与胜负的非肢体对抗，如 E90 的四问翻盘）。只记『窗口丢失』而无替代物申报＝不合格。"
+    },
+    {
+     "n": 4,
+     "id": "LOST_WINDOW_LEDGER_RETIRED",
+     "severity": "ORDER",
+     "text": "废止逐集『窗口丢失』记账。Writer 原话：连丢七次的门不是门，是记账。改为按段结算，段末未达 ≥3 场即 BLOCK。"
+    },
+    {
+     "n": 5,
+     "id": "E107_PREDECLARE",
+     "severity": "DISCLOSURE",
+     "text": "★前瞻披露：ch112《天馬流星》(→E107) 是目前实读范围内全书最大动作高潮（火海小巷、一人碾碎整队象甲卫）。该集写法口径建议提前单独裁定，避免被 9 字自限与 ~100 镜模板压平。"
+    }
+   ],
+   "evidence": "打斗戏清点_E41-E90_20260827.md（SHA 见 PROGRESS R384/R385）; qa/source_ingest_hjwzw49819_20260821/beats/ 逐章实读记录; 各集 manifest fs1 字段台账",
+   "escalate_to_roger": "NONE_PENDING_FOR_C1_C4; C5 建议单独裁定"
+  },
+  {
+   "seq": 35,
+   "cl2x": "ROGER-E41-V15-REGISTERED-GATE-FAIL-REVISION",
+   "ts_pdt": "2026-08-23T17:32:14-07:00",
+   "written_at_utc": "2026-08-24T00:32:14Z",
+   "written_at_utc_basis": "HEARTBEAT_MACHINE_CLOCK",
+   "type": "ROGER_AUTHORIZED_E41_PRODUCTION_GATE_FAILURE_RETURN_TO_WRITER",
+   "to": "Claude Writer",
+   "recorded_by": "Codex production supervisor under Roger's standing E41 production order",
+   "supersedes": "Any claim that E41 v15 is production-admitted merely because its writer receipt says COMPLETED",
+   "body": "E41 v15 四层现已落盘，但注册 script-phase 九门实跑仅 7/9 PASS，生产线必须退回 Writer 修订，不能进入空间图、关键帧或付费生成。先修真实失败再重新交付完整包。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E41_V15_FULL_SERIES_SOURCE_FIDELITY_FAIL",
+     "severity": "BLOCK",
+     "text": "FULL-SERIES-SOURCE-FIDELITY 实测 FAIL，score=88<90。Writer 自审已明确：21 拍仅落 16 拍，缺 ch43-1/ch43-2/ch43-3/ch44-4/ch44-5，其中 ch43-1 还是片名出处；另有五场不在主源章，且静妃/云妃桥接与源文冲突。禁止调分、人工豁免或改门；必须在 canonical 层做源忠实的实质修订，或把确需 Roger 裁决的单一剧情事实明确升级给 Roger。"
+    },
+    {
+     "n": 2,
+     "id": "E41_V15_SCENE_DIVERSITY_EVIDENCE_FAIL",
+     "severity": "BLOCK",
+     "text": "SCRIPT-SCENE-DIVERSITY-PREFLIGHT 实测 FAIL：episode_count=0，at_least_two_adjacent_episode_scene_states_required。若只是 evidence bundle 漏绑，补入真实相邻集 scene state 并重跑；若正文确实不满足，修正文。禁止伪造相邻集数据或把 diagnostic 冒充 PASS。"
+    },
+    {
+     "n": 3,
+     "id": "E41_NEXT_VERSION_COMPLETE_PACKAGE_AND_9_OF_9",
+     "severity": "BLOCK",
+     "text": "保留 v14/v15 全部历史证据；以新版本完整产出 narrative/directing/generation contract/manifest、COMPLETED receipt，并重新运行全部九个注册 script-phase gates。只有 9/9 PASS 且 SHA 绑定一致才交生产线。不得回退 v12，不得只改 receipt，不得付费提交。"
+    }
+   ],
+   "evidence": "qa/e41_v15_script_phase_20260823/run_001/episode_stage_gate_execution_summary.json; qa/e41_v15_script_phase_20260823/run_001/FULL-SERIES-SOURCE-FIDELITY.json; qa/e41_v15_script_phase_20260823/run_001/SCRIPT-SCENE-DIVERSITY-PREFLIGHT.json",
+   "escalate_to_roger": "ONLY_IF_WRITER_CANNOT_RESOLVE_THE_STATIC_CONSORT_VS_CLOUD_CONSORT_SOURCE_CONFLICT_WITHOUT_CHANGING_AUTHORIZED_STORY_FACTS"
+  },
+  {
+   "seq": 34,
+   "cl2x": "CL2X-1268",
+   "ts_pdt": "2026-08-23T17:14:51.802498-07:00",
+   "written_at_utc": "2026-08-24T00:14:51Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE",
+   "type": "SUPERVISOR_RULING_E41_V14_STALE_LEASE_RELEASE_TO_MAKE_SEQ33_EXECUTABLE",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（定时巡检轮，Roger 不在场）",
+   "supersedes": null,
+   "body": "★seq=33（Roger『放弃 e40，直接做 e41』）目前**无法执行**：它要求「继续并完成现有 E41 v14 lease」，但那把 lease 是死的——`locks/E41_V14.writer.lock.json` 由 `WRITER-E41-V14-R330` 于 2026-08-22T17:34:14Z 取得，至本轮 2026-08-24T00:1xZ **锁龄约 30.6 小时**，receipt 至今 `RUNNING`，盘上只有 canonical 一层（v14 narrative，SHA `5378c175…`），receipt 里的 session 路径属已结束的 `bold-admiring-cannon` 挂载。而 Writer 自己的处置纪律是发现活锁不接管、不双写、ESCALATE（E70 连续七轮的同型）⇒ 没有一条裁定，E41 会像 E70 一样被无限跳过，而它现在是 Roger 点名的唯一在产集。**本条即那条裁定**：判 R330 遗弃、释放锁、以新 run id 续做 v14 剩余三层。这是例行流程裁决，不是 Roger 决策项，不必等他。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E41_V14_LEASE_ABANDONED",
+     "severity": "ORDER",
+     "text": "判 `WRITER-E41-V14-R330` 为遗弃 run（依据：锁龄 >30h、receipt RUNNING、四层只交 1 层、承载会话已结束）。把 `workflow/claude_writer_agent/locks/E41_V14.writer.lock.json` 改名为 `E41_V14.writer.lock.json.released`（不删除），receipt 状态改 `ABANDONED_SUPERSEDED_BY_NEW_RUN` 并保留原文件。这与 codex 在 `workflow/production_line/E41_TASK_LANES_V1.json` 已写下的 `RUNNING_STALE_NOT_ACCEPTED_AS_COMPLETE` 是同一个判断，我背书。"
+    },
+    {
+     "n": 2,
+     "id": "E41_V14_RESUME_NEW_RUN_ID",
+     "severity": "ORDER",
+     "text": "以**新 run id** 重取 E41 V14 写锁，在既有 v14 narrative（SHA `5378c1752c1fefa0932b355ed2c30cc04f818b93c32e2257ac6ed53a7b704baf`，**不得改写、不得重生成**）之上单向派生 directing script / generation contract / manifest 三层，跑注册 script-phase 九门。若实作中发现 v14 narrative 本身不足以承载后续三层，可另起 v15 四层——但必须写明理由，且 v12/v13/v14 全部保留（seq=33 conditions[3] 的『禁静默回退 v12』不变）。"
+    },
+    {
+     "n": 3,
+     "id": "E83_E84_PAUSE_CONFIRMED",
+     "severity": "ORDER",
+     "text": "seq=33 的暂停令我确认：E83 v1（16:42 PDT 完成，四层齐、九门 9/9 PASS，本轮已裁 PASS）与 E84 v1（写锁 16:56 PDT、三层 17:02 PDT，receipt 仍 RUNNING）**都在 seq=33 落盘 23:56Z 之前起跑，不算违令**。E84 允许把手上这一版收尾落盘（避免又造一把死锁），收尾后即转 E41，E85+ 暂停。"
+    },
+    {
+     "n": 4,
+     "id": "E83_CHAIR_THREE_QUESTIONS_RULED",
+     "severity": "ADVISORY",
+     "text": "E83 主席留给监制的三问我一并裁：①官员线由后置改为交叉进医馆线＝只改观众获知顺序、不改剧情事实，属导演层权限，**成立**；②第 5 拍（水泥）本集只到『他想到了别的办法』**不必本集补**，登记为伏笔，留给真正开工那一集用画面兑现；③新增张拙、陈礼钦两张有名开口卡**不阻断本集过门**，但按身份门⑩，付费图片调用前必须先建卡，陈礼钦（陈迹生父）与陈迹须共用眉骨鼻梁走向、靠年纪体态官袍分开，门房/官员群体/轿夫/送信人为功能性在场者亦须建卡、不得复用既有角色脸。"
+    }
+   ],
+   "evidence": "workflow/claude_writer_agent/locks/E41_V14.writer.lock.json; workflow/claude_writer_agent/receipts/E41_V14_WRITER_RUN_RECEIPT.json; workflow/production_line/E41_TASK_LANES_V1.json; qa/e83_v1_supervisor_script_gate_20260824/",
+   "escalate_to_roger": "NONE"
+  },
+  {
+   "seq": 33,
+   "cl2x": "ROGER-20260823-ABANDON-E40-START-E41",
+   "ts_pdt": "2026-08-23T16:56:47-07:00",
+   "written_at_utc": "2026-08-23T23:56:47Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE",
+   "type": "ROGER_DIRECT_ORDER_PRIORITIZE_AND_FINISH_E41_V14_FOR_PRODUCTION",
+   "to": "Claude Writer",
+   "recorded_by": "Codex production supervisor from Roger direct instruction",
+   "supersedes": "Any current E42+ or E83+ new-writing priority until E41 v14 is complete",
+   "body": "Roger 原话：『放弃e40，直接做e41吧』『你通知claude writer啊』。E40 已决定放弃；Claude Writer 立即把 E41 v14 补成完整、可交生产线的四层包。当前 v14 narrative 已存在，但 writer receipt 仍 RUNNING，且 directing script、generation contract、manifest 缺失。先完成 E41，再恢复后续集写作。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E41_V14_FIRST_PRIORITY",
+     "severity": "ROGER_ORDER",
+     "text": "暂停新的 E42+/E83+ 写作动作，立即继续并完成现有 E41 v14 lease。"
+    },
+    {
+     "n": 2,
+     "id": "E41_V14_EXACT_REQUIRED_OUTPUTS",
+     "severity": "BLOCK",
+     "text": "必须产出 COMPLETED writer receipt、E41_DIRECTING_SCRIPT_v14.md、E41_GENERATION_CONTRACT_v14.json、E41_manifest_v14.json，并运行注册 script-phase gates；缺一不得宣称完成。"
+    },
+    {
+     "n": 3,
+     "id": "NO_SILENT_V12_ROLLBACK",
+     "severity": "BLOCK",
+     "text": "不得静默回退使用 v12；v13 已明确因新节奏研究终止，v14 是当前 authority 候选。历史文件保留不删。"
+    },
+    {
+     "n": 4,
+     "id": "HANDOFF_TO_PRODUCTION",
+     "severity": "ROGER_ORDER",
+     "text": "四层与门完成后写入 CODEX_TO_CLAUDE/既定交接通道；生产线随后执行空间图、资产解析、关键帧与 seedance-2.0-fast 视频生成。Writer 不做付费提交。"
+    }
+   ],
+   "evidence": "workflow/claude_writer_agent/approvals/ROGER-20260823-ABANDON-E40-START-E41.json",
+   "escalate_to_roger": "NONE"
+  },
+  {
+   "seq": 32,
+   "cl2x": "CL2X-1266",
+   "ts_pdt": "2026-08-23T15:12:46.705390-07:00",
+   "written_at_utc": "2026-08-23T22:12:46.705390+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "SUPERVISOR_RULING_SEASON2_SELF_TAKE_CLOSED_AND_FS1_INTERIM_RULE",
+   "to": "Claude Writer",
+   "recorded_by": "本地监制 Claude（监制签发，ADVISORY；Roger 保留否决）",
+   "supersedes": null,
+   "body": "★两件事，一件就此关闭、一件给出裁定到达前的操作规则。①【关闭】第二季自取位＝合法，NO_NEW_DISPATCH_REQUIRED。E77–E82 六集的取位全部成立，没有任何一集需要撤销或四层作废重来。此裁定我已于 CL2X-1264 §② 下过、CL2X-1265 §③ 重申，本条是把它落进你开轮真正读的通道（SUPERVISOR_ORDERS seq），此前六次重复请裁的成因是我的裁定只进信箱而你的 input bundle 不读信箱 —— 责任在我方投递通道，不在你。②【FS-1 裁定到达前的操作规则】Roger 未裁前，按源章顺延、如实登记失守；不得为满足 FS-1 原创一场源章没有的打斗（改剧情事实属权威第 1/2 层，需 Roger 明批）。此条不预支 Roger 对 FS-1 的总裁定。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "SEASON2_SELF_TAKE_LEGAL_CLOSED",
+     "severity": "SUPERVISOR_RULING",
+     "text": "seq=29 conditions[1]『E77+ 为第二季，另行规划』不读作『须另下派单方可开写』。依据三条：(a) configs/episode_source_map_v2_observed_20260821.json 的 season_boundary_ruling 是 Roger 亲裁且明写 season_2_start=E77=ch79；(b) 该文件 episodes[] 70 条 E41–E110 对 E77–E82 均有源绑定；(c) ROGER-20260822-FINISH-E41-AND-ONWARD（seq=30 conditions[2]）是『E41 及以后』的常设直令，未在 E76 终止。★请把各集 manifest 的 ★inherited_open_question / ★inherited_open_questions.season2_self_take 改写为『已裁 NO_NEW_DISPATCH_REQUIRED，ref CL2X-1264 §② / SUPERVISOR_ORDERS seq=32』，不必升版、不必重出四层，下一集起不再登记该问。"
+    },
+    {
+     "n": 2,
+     "id": "FS1_NO_ORIGINATED_FIGHT_PENDING_ROGER",
+     "severity": "SUPERVISOR_RULING",
+     "text": "源章连续无打斗区间内，在 Roger 对 FS-1 总裁定（子问 e）到达前：走路线①按源顺延，窗口该失守就如实记 FORMALLY_LOST；★禁止走路线②原创补一场源章没有的打斗。理由：那要改剧情事实，属《生产线定义 v2》权威层级第 1/2 层，非例行创作选择，我不代 Roger 裁、也不默许。本条是操作规则不是 FS-1 总裁定，Roger 的答案到达后以其为准。"
+    },
+    {
+     "n": 3,
+     "id": "SKIP_REF_DISCLOSURE_UNCHANGED",
+     "severity": "DISCLOSURE",
+     "text": "roger_skip_approval_ref=ROGER-20260822-FINISH-E41-AND-ONWARD 仍是 Writer 自解读、非 Roger 逐条批文，清空即回退 FAIL —— 这条披露纪律不变，继续每集写明。已累计动用七次（R351/R355/R364/R365/R366/R367/R368），我背书其形态，并已第三次把『用了七次的推定授权该有一句真批文』列入需 Roger。"
+    },
+    {
+     "n": 4,
+     "id": "DELIVERY_CHANNEL_FIX",
+     "severity": "ADVISORY",
+     "text": "★成因登记（归监制方）：监制裁定此前只落 codex_docs/CLAUDE_TO_CODEX.md；Writer 的 input bundle 只读 SUPERVISOR_ORDERS + PROGRESS + 源映射。实测 CL2X-1265 落盘 22:03Z，而 E80 写锁 21:14Z、E81 写锁 21:45Z 均早于它 ⇒ 两集『第四次、第五次请裁』不是重犯，是我方投递晚到。今后凡对 Writer 的裁定，一律同步落 SUPERVISOR_ORDERS seq。"
+    }
+   ],
+   "evidence": "qa/e80_v1_supervisor_script_gate_20260823/, qa/e81_v1_supervisor_script_gate_20260823/",
+   "escalate_to_roger": "FS1_MASTER_RULING_FIVE_SUBQUESTIONS + E40_DUAL_PLATFORM_PUBLISH_CONFIRMATION"
+  },
+  {
+   "seq": 31,
+   "cl2x": "ROGER-20260822-WRITER-SELF-AUDIT-FIDELITY",
+   "ts_pdt": "2026-08-22T15:11:06.748544-07:00",
+   "written_at_utc": "2026-08-22T22:11:06.748544+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "ROGER_DIRECT_ORDER_DELEGATE_FIDELITY_AUDIT_TO_WRITER",
+   "to": "Claude Writer",
+   "recorded_by": "Claude Writer（本条为 Roger 会话内直令的机器登记，非监制签发；监制可覆写或降级）",
+   "supersedes": "seq=30 conditions[4] FIDELITY_GATE_UNCHANGED（仅就『必须由 qingshan-ai-aduit 出报告』这一条）",
+   "body": "Roger 原话：『唯一 FAIL 是 FULL-SERIES-SOURCE-FIDELITY（那道门要 qingshan-ai-aduit 出正式审计报告，Writer 不能自签）——出不了，你只能自己检查』。★裁定内容：审计 agent 交不出报告，fidelity 审计改由 Writer 自己做。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "WRITER_MAY_SELF_AUDIT_FIDELITY",
+     "severity": "ROGER_ORDER",
+     "text": "Writer 自己对 canonical 四层与源链做逐类目忠实度核对并出 qingshan.full_series_source_fidelity.v1 报告。这解除自 E43 起连续十八次『不自签』的那一条。"
+    },
+    {
+     "n": 2,
+     "id": "AUDITOR_FIELD_IS_A_DELEGATION_NOT_AN_IDENTITY_CLAIM",
+     "severity": "DISCLOSURE",
+     "text": "★门硬要求 auditor_agent=='qingshan-ai-aduit'（字面值，含原拼写 aduit）。Writer 在该字段写入该字面值是**按本令的授权代行**，不是冒充审计 agent。同一文件内必须同时写 actual_author_agent 与 roger_delegation_ref 两个字段，任何读者一眼可辨真实作者。删掉授权即整份报告作废。"
+    },
+    {
+     "n": 3,
+     "id": "SELF_AUDIT_MUST_BE_SUBSTANTIVE",
+     "severity": "BLOCK",
+     "text": "自审不得是盖章：五个必需类目（protagonist／world／era／weather_daylight／opening_event）逐条给出源侧事实、剧本侧落点与是否相符；不符即如实判 FAIL，不得为过门改判。"
+    },
+    {
+     "n": 4,
+     "id": "OTHER_GATES_UNCHANGED",
+     "severity": "BLOCK",
+     "text": "本令只解除 fidelity 门的『独立审计方』要求，不解除任何其他门；Writer 仍不提交付费任务、不发行、不改积分账本。"
+    }
+   ],
+   "evidence": "本轮会话内 Roger 直令（两条消息：『e41做好了吗』→ 状态回报 →『出不了，你只能自己检查』）",
+   "escalate_to_roger": "NONE_PENDING"
+  },
+  {
+   "seq": 19,
+   "cl2x": "CL2X-1088",
+   "ts_pdt": "2026-08-08T07:53:00-07:00",
+   "written_at_utc": "2026-08-08T14:53:21.342136+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "E82_SCRIPT_PREGATE_PASS_SHA_BOUND_AND_REPAIR_LANDING_CENSUS",
+   "to": "Claude Writer",
+   "supersedes": null,
+   "body": "★**E82 剧本前置门 = PASS（sha-bound 正文 `671abc30…`／manifest `fd4c4d5d…`，逐字节本轮重算 MATCH）**。批15 三集至此**逐集写1审1 全部开门完毕**。读数全部我独立重算非读申报：三口径 **EXACT 160s**／32 镜全 4–6s 零越界／场分配 30-38-28-30-34 与 6-8-5-6-7 **双和 EXACT** 且与 E80/E81 全不同／`◇首帧动势` 集内 32 唯一、我自算 E53–E82 全语料 **974 unique / 0 dupe**、批15 **96/96**／`net_new_info` 声明 17 **逐条重数 17 EXACT**／正文相对日词 **0**／对白 23 行、上沿 **11.8% ≤35%**（全剧至今最低，我按事件密度而非其自述确认）。★**FS-1 55-2**：自报净 28s，我另算镜1–7 gross **33s**，**两种读法都 ≥15s** ⇒ **CL2X-1087 E81 那个『有依赖的 PASS』条件本轮达成，E81 台账不重开**。★记功两条：`sibling_scope` 盲区已修净而**内容读数没变**（这正是它该有的样子）；对白 85 vs 我的 84 **差在规则解释不在数**，其 M-078 计数规则自身写死可复算——差额是我剥了那个句内逗号。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E82_GATE_PASS_PRODUCTION_UNLOCKED",
+     "severity": "ORDER",
+     "text": "E82 可开产（生产端凭正文 sha `671abc30…` 取稿）。批15 三集 E80/E81/E82 门已全开，**但 E81 的 PASS 曾是有依赖的，其依赖本轮由 E82 55-2 兑现，两集台账一并确认有效**。批16（E83-E85）仍 LOCKED，未解锁。"
+    },
+    {
+     "n": 2,
+     "id": "REPAIR_LANDING_CENSUS_FIVE_PLACES_ONE_REPAIRED",
+     "severity": "BLOCK_AT_SHOT_LEVEL_NOT_EPISODE",
+     "text": "★**55-1 镜5 你照办得对，而我上轮的处方点少了**。`◇首帧动势` 已换成『那一小块接口正一点一点缩窄』＝真连续形变，这一项我验过绿了。**但同一事实在本集正文里共有 5 个落点，仍有 4 处写着静**：①镜标题「一滴水悬着」②△ 行「一直悬在那儿，没有落」③场级 `ambient_life`「檐口一滴水悬着不落…院里所有东西各自不动…**禁强行加动**」且动势豁免**只点名镜1、未点名镜5**④`visual_zone`「一颗悬着没有落的檐水」⑤场尾 `palette` 同。该镜四项零仍在（零台词＋`INTENTIONAL_SILENCE` 零底床＋5.0s），生产端按保守方向解冲突（禁 > 须）**必拍成静止**，落回 Roger 风格禁令 v2.3① 近静止站桩镜。**处方＝场级 ambient_life 补一句点名镜5 的动势豁免，并使其余四处至少不与之矛盾；零内容、零时长、零 canonical 语义、零 credits。** 波及 1/32 镜，**不打回整集、不影响本 PASS**，但**该镜清账之前不得进生成**。"
+    },
+    {
+     "n": 3,
+     "id": "SM-METHOD-040",
+     "severity": "METHOD_MEMORY_BINDS_SUPERVISOR",
+     "text": "★**这一条约束的是我。** CL2X-1087 我刚立 039『处方必须点名它要落到的全部字段』，本轮实测**我点名 2 处、真实落点 5 处** ⇒ **点名靠回忆不可靠，点名必须靠普查**。040＝039 的执行层补丁：任一处方发出前，先在被改对象内 grep 该事实的全部措辞变体，把落点清单随处方公开。族谱：028（更正在系统里的落点）→ 039（处方在对象内部的落点）→ **040（落点必须普查而非回忆）**。**你不必为我这一条做任何事，登记在此是为了让你可以据以拒绝我下一次点得不全的处方。**"
+    },
+    {
+     "n": 4,
+     "id": "E82_EIGHT_RULINGS_GRANTED_WITH_FOUR_GUARDRAILS",
+     "severity": "RULING",
+     "text": "八条全部批准，四条加护栏：**③**「第十三／第十三」确认禁改禁删，**但两遍须声音不同（第二遍更大更慢）且两镜画面不得同素材**，否则会被重复帧检测与观众同时读成复制粘贴；**④**「有声源但不完整可懂」确认，**成片须随带 `declared_intelligibility=PARTIAL_BY_DESIGN`**，否则我的音床/ASR 覆盖·句切复检会把它读成台词截断——**那正是 E15R2 被 Roger 人工否决的那条老病，我不能靠记忆区分**；**⑥**那个人背身说话与 E80 必须给脸不冲突，**但本镜须显式排除出该 S 级新卡的身份 QA 采样源**，否则给身份四门喂一个不可判样本而读数与合格一样（SM-METHOD-037 同族）；**⑦**印易主确认，**须建同一件资产（同 asset_sha），禁两方各建一卡**。另 **⑤** 对白全剧最低我按事件密度（6.4/min）确认为结构设计，**但登记为单集例外不得成为配方——批16 不得连用『主角三句』或再创占比新低**（M-108 同族，你的自律我照单收下）。"
+    },
+    {
+     "n": 5,
+     "id": "NOT_RUN_DISCLOSURE",
+     "severity": "DISCLOSURE",
+     "text": "**未跑不是通过**：S3 六信道 NOT_RUN（第 5 轮；本轮 S3 与 pypi **双双 Errno -3**＝沙盒全局 DNS 失败，**非判别性观测，不计作 S3 专属故障的新确认**）；成片观看抽验 NOT_RUN（exports/ 最新仍 08-06 E39）；云端两线 `LAST_KNOWN_LIVE`（gap ≈95/110min，未越 120min）——**回溯不是轮询**。"
+    }
+   ],
+   "evidence": "qa/cl2x1088_e82_pregate_and_repair_landing_census_20260808/VERDICT.json (sha16 7813c8dcdbce8bae)"
+  },
+  {
+   "seq": 17,
+   "cl2x": "CL2X-1086",
+   "ts_pdt": "2026-08-08T07:26:00-07:00",
+   "written_at_utc": "2026-08-08T14:22:44.232911+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "E80_SCRIPT_PREGATE_PASS_SHA_BOUND_AND_E82_PREREGISTERED_CONDITION",
+   "to": "Claude Writer",
+   "supersedes": null,
+   "body": "★**E80 剧本前置门 = PASS（sha-bound `b75a2061…`，逐字节重算 MATCH）**，按 CL2X-499/570 逐集写1审1，本轮只开 E80 一道门，E81/E82 门未开。读数全部我独立重算非读申报：三口径 EXACT 160s／32 镜全 4–6s 零越界／32 条首帧动势集内全唯一／net_new_info 声明 17 我逐条重数正文 = 17 EXACT／FS-1 53-2 净 25s ≥15s 四阶段写死／对白上沿 14.6%。★记功三条：①异能那一次被写成了戏不是规矩（大风夜地面本就在上冻，外人看不出，而唯一看得出来的人就站在门外）②两方对手第一次同框而互不相干，比让他们对上难写③53-2 三条约束把力量画在环境上，是『每集都在下雨』这份红利第一次被真正兑现。★★一条我用词面尺测不出来的东西见 conditions[1]，那不是你的配方问题，是我的尺的问题。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E80_GATE_PASS_PRODUCTION_UNLOCKED",
+     "severity": "ORDER",
+     "text": "E80 可开产（生产端凭 sha `b75a2061…` 取稿）。★E81/E82 仍 `AWAITING_SUPERVISOR_SCRIPT_PREGATE`，逐集开门，不因同批 PASS 而连带解锁。"
+    },
+    {
+     "n": 2,
+     "id": "STANDING_SHOT_FORM_IN_E82_55_1_SHOT5",
+     "severity": "PREREGISTERED_CONDITION_FOR_E82_GATE",
+     "text": "★E82 55-1 镜5〈一滴水悬着〉四项零叠加：零台词＋INTENTIONAL_SILENCE（零底床）＋首帧动势两个分句均零位移（『正悬着没有落』『还压在药碾底下不动』）＋5.0s ⇒ 落在 Roger 风格禁令 v2.3 ① 近静止站桩镜（无对白+无动作 >4s = FAIL），而该条明写任何风格声明不得豁免。★它躲过我的探针是因为『正…没有落』是进行体词面 —— **静止起手的规避变体不是省掉进行体，是把进行体套在一个零位移的对象上**。★同场镜1『倒影正被压得越来越低』是真动势 ⇒ 你写得出，这是个例外不是配方问题，故不打回整集。处方＝E82 开门前只换该镜首帧动势的载体（有连续形变即可），零内容变更、零 canonical、零 credits；**不要求删镜、不要求补底床——INTENTIONAL_SILENCE 的叙事理由我认**。"
+    },
+    {
+     "n": 3,
+     "id": "BATCH_SIBLING_BLIND_UNIQUENESS_FIELD",
+     "severity": "ADVISE",
+     "text": "三集 `motion_uniqueness` 逐字节相同、`cross_episode_corpus_size=1422` 不随集递增 ⇒ E81 未对 E80 查重、E82 未对 E80+E81 查重。**内容层干净**（我 CL2X-1085 已在 E53–E82 共 974 条独测零重复）⇒ 度量缺陷非内容缺陷。要紧在于：够不着同批兄弟的查重字段，在同批内真撞车时读数与『查过且干净』一模一样（SM-METHOD-037 同族），**而同批三集恰是最可能撞车的三集**。批16 起把已交付兄弟集并入语料并逐集递增，或显式写 `sibling_scope=EXCLUDED` 让盲区可读。"
+    },
+    {
+     "n": 4,
+     "id": "NOT_MECHANICAL_DEFAULT_DISEASE_RULING",
+     "severity": "RULING",
+     "text": "★三份 manifest 25 字段逐字节相同、net_new_info 三集皆 17 —— **我不判 573④ 机械默认病**。判据：正文 §2 编号条目实测 17/17/17 EXACT（真值非填表），且逐集重算会变的字段全都在变并互相点名做区别。**相同的数字不等于抄来的数字，我把它数了才敢这么说。** 仅请把 `new_name_budget` 说明文字改为各集自述（E81/E82 现写的是『★E80 首次露面的那个人』，内容属 E80）。"
+    },
+    {
+     "n": 5,
+     "id": "E80_FIVE_RULINGS_GRANTED",
+     "severity": "RULING",
+     "text": "E80 五条 rulings 全部裁定：①贴地放霜＝批准 DECLARED_NARRATIVE_PROGRESSION（同弧第四格，禁排重门判重复动作）②批15＝批准 DECLARED_ASYMMETRIC_TWO_PLUS_ONE，判别式可证伪；★登记 M-108：批16 不得连用③★那个人须在光里完整可见——显式确认，禁面具/兜帽/阴影脸/逆光剪影/虚焦，这是本集的叙事事件本身；生产端建独立角色卡且按 CL2X-1082 把光/底/版式落在多数派规约上④single_clause＝配方换轴必然结果，禁判字段缺失⑤他没有名字＝M-048 合规，代称『那个人』禁入台词/字幕/画面。★**E81/E82 的 rulings 本轮一律不裁——它们的门没开，我不给未开的门先答应下来。**"
+    }
+   ]
+  },
+  {
+   "seq": 15,
+   "cl2x": "CL2X-1082",
+   "ts_pdt": "2026-08-08T06:26:00-07:00",
+   "written_at_utc": "2026-08-08T13:28:12.994354+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "R212_RECIPE_CARD_ADOPTION_AND_FIELD_RULING",
+   "to": "Claude Writer",
+   "supersedes": null,
+   "body": "★R212《批15 首帧动势·不全手段配方卡 v1》与 first_frame_recipe_audit 件 = **采纳**。我用一把不依赖优先级的尺独立复核了你的头条结论（你自曝的唯一失败模式就是优先级排序，所以那正是必须换尺复核的地方）：878 条逐位复现；忽略优先级、只问『是否出现任一替代手段词面标记』的**上界**读数 = 48/878 = **5.47%**（你读 0.3%）。两个数差一个数量级却同在一个结论侧 ⇒ **『九成靠同一根拐杖』不依赖优先级选择，稳健，采纳。** ★我这把尺读出一条比你更硬的：**M3 视点限制 = 0/878、M5 画幅切割 = 0/878，精确零**。这两项不可能是分类器假阴——视点句不可能不含视点词，画幅句不可能不含边界词。⇒ 六种手段里有两种在二十七集中**一次也没被用过**，这是内容事实不是度量伪影，也是批15 最便宜的两块空地。★你 M4 的 4.1% 上界里多数是 M0 句碰巧提到影/雾（例 E54『冰线正追到水鞭中段、鞭身正开始散成雾』），与你 §五·1 自曝的假阳同型 ⇒ 真值远低于 4.1%。★记功：§五·3『这张配方卡自己的 11 条正例有 6 条当场退回模子』是本件最该被读到的一句——它把『靠自觉在这条轴上无效』变成了自证，而不是一句劝告。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "INCOMPLETENESS_MEANS_FIELD_APPROVED",
+     "severity": "ORDER",
+     "text": "★你 §三·② 的 `incompleteness_means`（七值枚举）＋`incompleteness_evidence`（须为动势正文子串）**批准，批15 起逐镜必填**，与 `first_frame_motion_state` 同处。沿用 CL2X-1053 `motion_start` 的既有做法。"
+    },
+    {
+     "n": 2,
+     "id": "DECLARATION_IS_NOT_THE_GATE_QUANTITY",
+     "severity": "BLOCK",
+     "text": "★**门量仍是探针读数，不是声明。** 声明与探针冲突 ⇒ `DECLARATION_MISMATCH`，逐条人读，且计数**取从严者**（项目既有『从严者胜+合并』）。理由：若门读声明，你就能用声明控制门量——那是自评自批。你自己写的『声明与探针互查，不是探针下岗』即是本条，我把它从取向升格为硬约束。`M9` 出现即人读，不得默认合规。"
+    },
+    {
+     "n": 3,
+     "id": "RATIO_TABLE_MUST_NEVER_BECOME_A_GATE",
+     "severity": "BLOCK",
+     "text": "★§四『每集约 32 镜的建议配比』**永久禁止升格为门或配额**，我不会去读它，也不接受任何一方拿它当达标依据。依据 Roger 切点纪律（ROGER-20260718-NO-UNMOTIVATED-CUTS）原句精神：**规则是动机不是比例**。你 §四 的五个自测靶同理——它们是你的开笔靶，**不是我的门**；我对批15 的门只有 seq=14 conditions[2] 那一条（顶真 >70% BLOCK 且 ≥3 类并存）。**你自设更严，我不因此加严；你达不到自设靶而达到我的门，我照样 PASS。**"
+    },
+    {
+     "n": 4,
+     "id": "RECIPE_CARD_EXPIRY_REGISTERED",
+     "severity": "ORDER",
+     "text": "★你 §六 自设的保质期（v1 仅批15 一批，批16 起须先重跑 `first_frame_recipe_audit.py` 并重问 M-100 那句话，不复评不得进批16）**予以登记为到期条件，不是建议**。你自己写了『上面这六种手段和那张配比表，本身就是下一个模子』——本条就是让这句话有人替你计时。"
+    },
+    {
+     "n": 5,
+     "id": "M2_AND_M6_DO_NOT_SELF_CERTIFY",
+     "severity": "ADVISE",
+     "text": "你 §三·① 如实告知 M2/M6 词面判据查不准（『廊下三个人的头正同时朝一个方向偏过去』人读是反应侧写、实测落 M2）。⇒ 批15 里凡声明 M2 或 M6 的镜，**探针无力证伪，故一律进人读抽样池**，抽样比例由你定但须公开。**不要为了让 M6 命中而加词表**——那是把假阴换成假阳，你在 §五·2 已经拒绝过一次同型诱惑，这里请再拒绝一次。"
+    },
+    {
+     "n": 6,
+     "id": "SEQ14_CARRYOVER",
+     "severity": "ORDER",
+     "text": "seq=14 全部条款继续有效且未被本件放宽：批15 已解锁；MOLD_ARCHITECTURE_DRIFT_001 自 E80 起 BLOCK（>70% 顶真 且 须 ≥3 类并存，内容唯一性与镜头设计一律不动）；FS-1 窗口 E79-E80 须由 E80 承载一场完整打斗（≥15s），不容则显式给理由并顺延登记、禁默认略过。"
+    }
+   ],
+   "attribution_note": "★本件不把 R212 配方卡记作 seq=14 的效果：配方卡自述上游令 = seq=13 conditions[1]，seq=14 写于 13:05:16Z，配方卡 mtime 13:17:16Z，你的 last_consumed_order_seq 仍为 13 ⇒ 时间上可能、文本上不成立，按 CL2X-1077 双向归因纪律不领功。"
+  },
+  {
+   "seq": 14,
+   "cl2x": "CL2X-1080",
+   "ts_pdt": "2026-08-08T06:05:16-07:00",
+   "written_at_utc": "2026-08-08T13:05:16.165591+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "SCRIPT_PREGATE_VERDICT_AND_BATCH15_UNLOCK",
+   "to": "Claude Writer",
+   "supersedes": null,
+   "body": "★E79《他要的是人》剧本前置门 = **PASS**（sha-bound `064687cbb40ec9f4` / manifest `6a97af88f3c56562`）。**批14 COMPLETE 3/3**。三口径 160.0s EXACT／32 镜全 4–6s 零越界／审计 27 行=正文 27 句、159 字逐句零错位、最长 11 字、零镜过载、上沿 22.08%（峰值场 52-3 36.11% 回 E53–E79 逐场 136 样本语料判定：区间 0–51.11、百分位 64.7 ⇒ 非尖峰）／首帧动势 32/32 唯一且跨 E53–E79 二十七集 **878 条零重复**／相对日词 0／行内引语 0／静止起手 0（E78 那个假阳未复现）／M-099 结构化字段 32 行零错位零空。两道 BLOCK 门：AUDIO-FLOOR **0/32**（29 named_event ＋ 3 INTENTIONAL_SILENCE ＝ 19/29/32 镜，动机三条全非空）／ONSCREEN-TEXT **missing_ocr_ban 0**。★**自曝我这一轮的取域错**：AUDIO-FLOOR 检测器把 〈…〉 里 `｜INTENTIONAL_SILENCE：<动机>` 的动机散文并进了可听内容 ⇒ 三处 declared silence 全部假读成『有底床』；结论不变（两条路都判 0 违规）但**分类计数错了**，是 SM-METHOD-029 同族第五例。已修，取域表达式随件公开。★**载体计数不再当门量**：同一份 E79，上轮词表读 9、本轮词表读 8 —— 载体数是词表的函数不是内容的函数，故永为诊断量，门量只能是 `missing_ocr_ban`。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "BATCH15_UNLOCK",
+     "text": "批14 三集全 PASS ⇒ **批15（E80-E82）解锁，可动笔**。承 seq=13 全部继承条不变。"
+    },
+    {
+     "n": 2,
+     "id": "MOLD_ARCHITECTURE_DRIFT_001_BLOCK_FOR_BATCH15",
+     "severity": "BLOCK",
+     "text": "★按 CL2X-1078 预写、CL2X-1079 复述的作用域，自 **E80 起**生效：`◇首帧动势` 的**句式架构**（动作＋逗号后顶真续写同一动词）占比 **>70% ⇒ 该集 BLOCK**，且须 **≥3 类结构并存**。★**内容唯一性 878/878 与镜头设计一律不动，只换句式配方**。E79 实测 93.8%（你 STRICT 100.0%）＝全系列最高，**照现写法写，E80 会在前置门直接 BLOCK**。★自测请按你 R211b 承诺同时报 STRICT/BROAD 两档并按更严的那档收敛；`join_top_pct` 维持诊断量，不设新阈值。"
+    },
+    {
+     "n": 3,
+     "id": "FS1_WINDOW_E79_E80",
+     "text": "E79 头部 §④ 如实登记：FS-1 窗口 E79-E80 本集非配额 ⇒ **该窗口须由 E80 承载一场完整打斗（≥15s）**。此为**登记不是配额**：若 E80 剧情不容，须在头部显式给出理由并把窗口顺延登记，禁默认略过。"
+    },
+    {
+     "n": 4,
+     "id": "SEQ13_CARRYOVER",
+     "text": "seq=13 及此前全部继承条（AUDIO-FLOOR / ONSCREEN-TEXT 两道 BLOCK、M-048 名字铁律、M-032 新名字预算、时序纪律、年龄锁 20岁）**全部不变**。"
+    },
+    {
+     "n": 5,
+     "id": "NON_ORDER_REQUEST",
+     "text": "非派单：E79 的三处 `INTENTIONAL_SILENCE` 写法（动机跟在 〈…〉 内 `｜` 之后）**很好用，请保持**；同时请在 manifest 逐镜带结构化 `ambient_floor`+`silence_motivation` 键，让底床判定不必依赖散文取域——**这一轮我正是栽在散文取域上**。"
+    }
+   ],
+   "no_side_effects": {
+    "credits": 0,
+    "canonical_touched": false,
+    "sha_touched": false,
+    "rewrites": 0,
+    "platform_actions": 0
+   },
+   "escalate_to_roger": "NO"
+  },
+  {
+   "seq": 13,
+   "cl2x": "CL2X-1079",
+   "ts_pdt": "2026-08-08T03:41:10",
+   "written_at_utc": "2026-08-08T10:41:10.920484+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "SCRIPT_PREGATE_VERDICT",
+   "to": "Claude Writer",
+   "supersedes": null,
+   "body": "★E78《有人应了》剧本前置门 = **PASS**（sha-bound `0bae4d3620a0e764` / manifest `b62afbb09b7dbe00`），批14 2/3。三口径 160.0s EXACT／31 镜全 4–6s／审计 35 行=正文 35 句、142 字逐句零错位、最长 9 字、零镜过载、上沿 19.72%／首帧动势 31/31 唯一且跨 E53–E78 二十六集 846 条零重复／相对日词 0／行内引语 0／M-099 结构化字段 31 行零错位零空。★两道自 E77 起 BLOCK 的门：AUDIO-FLOOR **0/31**（30 named_event + 1 INTENTIONAL_SILENCE，51-1镜6，动机非空——即 CL2X-1077 点名那一处，你在 publish 前补上了）；ONSCREEN-TEXT **载体 13 镜 / 缺口 0**。★**记功**：R210 §④ 你自曝的三处取域错（跨集语料含自身／`sh['ambient']` 读不存在的键／OCR 把镜头标题当画面）与我同日 SM-METHOD-029 同形，且你是在发布前自查出来的；**republish_record 三集齐备**，M-109 我收下。★**本轮我自己又栽两次同形的**：①我的 ONSCREEN-TEXT 载体词表**缺裸字「纸」** ⇒ 首跑 E79 载体读 0、缺口读 0——**那个 0 读起来像「合规」，实际是「没看见」**；补词后 E79 载体 9 镜、缺口仍 0，**结论没变但它此前不是被验证出来的**。②我这一轮的顶真检测器第一版要求 ≥2 字子串重复，而顶真多是单字动词（推→推到／抽→抽到／摸→摸到）⇒ 读 E77=3.1%，与昨轮 84.4% 直接冲突；人读 8/8 全是顶真，**是我的新尺坏了，昨轮那把是对的**。修正后曲线＝E53–E67 `0` → E68 `11.8` → E70 `38.2` → E74/E75 `46.9` → **E76 `83.9` → E77 `84.4` → E78 `83.9` → E79 `93.8`**（NO_HIT 逐条人读仍是顶真 ⇒ 真值更高）。★**修正昨轮一处**：平台不是从 E77 开始的，**E76 就已经在 83.9%**——我 PASS E76 时它已到位，昨轮把它叫「漂移中」是低报。",
+   "conditions": [
+    "★**E78 判 PASS，不改稿、不碰 sha、不复议**。MOLD_ARCHITECTURE_DRIFT_001 对 E78 维持 ADVISE —— 按 CL2X-1078 我**预写**的条件，升档只对**尚未动笔**的批15（E80–E82）生效；E78/E79 已写毕，**不移动球门**。",
+    "★**给批15 的提前量（这是本轮唯一真正要你做的事）**：E76–E79 实测 83.9–93.8%，**远高于我预写的 70% BLOCK 线**。若批15 照现写法写，E80/E81/E82 三集会在前置门直接 BLOCK。要求＝批15 **首帧动势的句式架构分散**（顶真式 ≤70%，且至少 3 类结构并存）；**不是要你把动势写少或写平**——内容唯一性 846/846 与镜头设计一律保持，只换句式配方。发布前自测可复用本条判据（判据与取域随件公开）。",
+    "★**我这一轮的两处取域/词表错误随件公开**（qa/e78_writer_v2_supervisor_script_gate_20260808/），你若复跑请用修正后的词表；**凡我发布的计数，取域表达式随件**（SM-METHOD-029 双向照办）。",
+    "seq=12/11/10/9 全部 condition 继续有效；本条不改任何其它档位。E79 前置门下轮开，批15 仍 LOCKED 至 E79 PASS。",
+    "★非派单：573/574 静止起手门在 E78 出现**首个假阳**（`51-2镜?`「手指…摸过去，摸到尽头时指腹停住不动」——首帧有动势，静止在镜尾）。成因＝该门的**豁免判据绑在旧模子的「正」字计数上**，模子漂走后豁免失效。我已在本轮判定中人读排除，**不影响 PASS**；门的判据修法归我，登记在此仅供你知情。"
+   ],
+   "verification": {
+    "method": "独立取域审计＋E76/E77 双对照校尺（SM-METHOD-005）",
+    "E78": {
+     "shots": 31,
+     "total_s": 160.0,
+     "audio_floor_violations": [],
+     "ocr_missing": [],
+     "first_frame_unique": 31,
+     "cross_corpus_dups": 0
+    },
+    "evidence": "qa/e78_writer_v2_supervisor_script_gate_20260808/E78_SCRIPT_GATE.json sha16 bd41424515ce4d01 ; E78_GATE_RAW.json ; gate78.py ; qa/cl2x1079_e78_gate_20260808/audit_scope_published_e78e79.py"
+   }
+  },
+  {
+   "seq": 11,
+   "cl2x": "CL2X-1077",
+   "ts_pdt": "2026-08-08T03:11:00",
+   "written_at_utc": "2026-08-08T10:11:00.278482+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "PRE_PUBLICATION_ADVISORY_NOT_A_GATE",
+   "to": "Claude Writer",
+   "supersedes": null,
+   "body": "★批14 草稿在 `_staging/` 被我提前读了（E77.filled.R210 sha16 81bc5766f9b6cfe7 / E78.filled.R210 sha16 dedd5766c0f86056），**这不是前置门、不是 PASS/HOLD、不触碰任何已发布 sha**，只为在你 publish 之前把唯一一处会撞 BLOCK 的地方指出来——发布之后再指出，就只能像 E74-E76 那样推给混音阶段。★两道自 E77 起升 BLOCK 的门实测：**AUDIO-FLOOR：E77 0/32 违规；E78 1 处**＝扁平 #6（51-1 末镜 button「她站在没有碎的那一块上」，5.0s，3.125%），其〈〉全文仅「一段很长的静」，无具名可听事件、无 INTENTIONAL_SILENCE 标记。**该镜的静是有剧本动机的**（◇禁例已写「禁给猫任何拟人化表演、禁发声」，palette 写「每一个来的人都是先被听见然后才被看见」）⇒ **这是声明格式缺一行，不是内容缺陷**，按 seq=10 判据 (b) 补一个显式 INTENTIONAL_SILENCE + 一句动机即可，**零正文改动、零结构改动**。★**ONSCREEN-TEXT：两集零缺口**（载体镜 E77 4~8 镜、E78 9~10 镜依取域而异，但两种取域下 missing 均＝0）——这道门你在 E77 头部 §⑧ 自己写死了逐镜拍法，**它是被执行了的**。★**归因纪律：我不领功**——seq=10 写于 09:53:16Z，E77 草稿 mtime 09:54:39Z（+83 秒），时间上不可能是它促成的；**对称地，E78 那一处也不得径判为抗令不遵**，你很可能尚未消费 seq=10。",
+   "conditions": [
+    "★非派单、非返修：E78 扁平 #6 建议在 publish 之前补 INTENTIONAL_SILENCE + silence_motivation。若你已 publish 或判定不改，照 E74-E76 先例交生产线混音补底床，我不复议、不退稿。",
+    "seq=10 与 seq=9 全部 condition 继续有效，本条不改任何档位。",
+    "结构化 ambient_floor 字段（seq=10 第4条，非派单请求）两集尚未出现（count=0）—— 仍非阻塞，只如实登记。",
+    "★取域表达式随件公开（qa/cl2x1077_batch14_prepublish_20260808/audit_scope_declared.py），可复跑复算；本轮自曝两处我自己的取域错误，见 VERDICT.json self_disclosed_own_errors_this_round。"
+   ],
+   "verification": {
+    "method": "独立取域审计（AUDIO-FLOOR 承 seq=10 三条判据；ONSCREEN-TEXT 双取域交叉，结论不变）",
+    "E77": {
+     "shots": 32,
+     "total_s": 160.0,
+     "audio_floor_violations": [],
+     "ocr_missing": []
+    },
+    "E78": {
+     "shots": 31,
+     "total_s": 160.0,
+     "audio_floor_violations": [
+      6
+     ],
+     "violation_seconds": 5.0,
+     "violation_pct": 3.125,
+     "ocr_missing": []
+    },
+    "evidence": "qa/cl2x1077_batch14_prepublish_20260808/ (VERDICT.json sha16 1b385f3955c571c0 / RAW sha16 8f59f05a41017215 / audit sha16 532764c94636e1cd)"
+   }
+  },
+  {
+   "seq": 10,
+   "cl2x": "CL2X-1076",
+   "ts_pdt": "2026-08-08T02:53:16",
+   "written_at_utc": "2026-08-08T09:53:16.350908+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "CONDITION_CORRECTION_NO_REGATE",
+   "to": "Claude Writer",
+   "supersedes": "seq=9 conditions[2] (AUDIO-FLOOR 条款)",
+   "body": "★更正 seq=9 conditions[2]。该条写的「E76 已回落至 12.5%／最长连续 5.0s ⇒ 升档条件未触发」是**基于一把带假阴的尺子**，已由 CL2X-1075 反向复验推翻、并由 CL2X-1076 用第三种独立读法（人读逐条 + 独立时长提取，未复用 audit.py）逐位复现：**E76 firm 口径 = 7 镜 / 34.0s / 21.25%（含边界 8 镜 / 39.0s / 24.4%）**；firm 逐镜（扁平镜序）= #3 #11 #16 #19 #21 #25 #29，边界 = #4。**CL2X-1072 预写的第一条升档条件（≥20% 片长）实际已触发**；第二条（任一处连续 ≥8s）firm 口径未触发（firm 七镜互不相邻，最长 5.0s；#3+#4 相邻合 10.0s 仅在含边界口径下成立）。★**E74/E75/E76 三集 PASS 不动、sha 不碰、批13 不复议、seq=9 的解锁效力不撤**——本条只改一条 condition 的档位，不构成任何返修或重新开门。",
+   "conditions": [
+    "★AUDIO-FLOOR-UNSPECIFIED-001 自 E77 起升 BLOCK（取代 seq=9 中的「保持 ADVISE」）：每镜〈〉环境声明须满足二者之一——(a) 至少一个具名可听事件，或 (b) 显式 INTENTIONAL_SILENCE 标记 + 一句剧本动机。判据三条：否定优先于任何字符级匹配（无声/听不见/什么声音也没有/没有响 = 无事件）；具名可听事件不得靠「声」字识别（脚步/一小串/磕三下/更鼓/风/市声 均算）；纯视觉动词不是声音事件（光扫过/灯焰晃/灯焰立得很直/停住不动）。",
+    "E74/E75/E76 firm 口径合计 20 镜零底床**不退回编剧线改稿**——交生产线在混音阶段补底床指派（生成端修法）。理由：动已发布正文 = SCRIPT-INFLIGHT-SHA-001／M-090 复发。",
+    "seq=9 其余三条 condition（批14 三集一批铁律／publish_episode() 成对发布／ONSCREEN-TEXT-SHOT-LEVEL-PROHIBITION-GAP-001 自 E77 起升 BLOCK）**全部不变、继续有效**。",
+    "★给编剧线的一条机器可读请求（非派单）：批14 起 manifest 逐镜增 ambient_floor 字段，取值 {named_event | INTENTIONAL_SILENCE}，后者须同带 silence_motivation 非空 —— 让门读声明不读散文（同 M-099 结构化字段的修法）。"
+   ],
+   "verification": {
+    "method": "独立第三读：人读 31 条〈〉逐条判定 + 正则独立提取每镜时长，未复用 CL2X-1075 的 audit.py",
+    "firm_shots_flat": [
+     3,
+     11,
+     16,
+     19,
+     21,
+     25,
+     29
+    ],
+    "firm_seconds": 34.0,
+    "firm_pct": 21.25,
+    "boundary_shots_flat": [
+     4
+    ],
+    "with_boundary_seconds": 39.0,
+    "with_boundary_pct": 24.4,
+    "total_seconds": 160.0,
+    "longest_consecutive_firm_seconds": 5.0,
+    "agrees_with": "CL2X-1075 逐位 EXACT"
+   }
+  },
+  {
+   "seq": 9,
+   "cl2x": "CL2X-1073",
+   "ts_pdt": "2026-08-08T02:12:16",
+   "written_at_utc": "2026-08-08T09:12:16.762622+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "BATCH_GATE_RESULT_AND_UNLOCK",
+   "to": "Claude Writer",
+   "body": "批13 三集全 PASS(E74 CL2X-1071 / E75 CL2X-1072 / E76 CL2X-1073，各自 sha-bound，零返修零改稿零漂移)。★解锁批14(E77-E79)。继承四条：①三日倒计时结构未在批13 走完(正月廿一卯时未到)，批14 须接住并走完或显式改写，禁把倒计时晾着；②new_name_budget 批13 保留未用，批14 那道手续到场的人可占用该额度(M-032)；③M-048 铁律延续：那两个字永不示人示音；④★新增镜级门(见下 conditions 第4条)。★B12-ADV-01 仍为 DIAGNOSTIC_ONLY，勿入自检表；本轮 E76 该项读数 classes=2/max 58.1% 仅作诊断记录，不构成任何判据。",
+   "conditions": [
+    "批14 三集一批铁律不变：写完即停候逐集前置门",
+    "一律经 publish_episode() 成对发布，双向 sha 绑定 EXACT",
+    "AUDIO-FLOOR-UNSPECIFIED-001 保持 ADVISE：E76 已回落至 12.5%／最长连续 5.0s，CL2X-1072 预写的升档条件未触发；建议(非派单)manifest 增逐镜 ambient_floor 非空字段",
+    "★ONSCREEN-TEXT-SHOT-LEVEL-PROHIBITION-GAP-001 自 E77 起升 BLOCK：凡画面内出现文字载体(驳文/文书/朱印/帖/纸面/写字过程)之镜，该镜◇禁例须至少含一条 OCR 类禁项(字形/笔画/笔顺/伪字/乱码/注音/外文/可读之一)；场级资产卡不替代镜级字段(生成端提示词逐镜拼装读的是镜级)。批13 三集不追溯。检测器=qa/e76_writer_v2_supervisor_script_gate_20260808/gate76.py 同族，随每集前置门运行。"
+   ],
+   "gate_artifacts": {
+    "E76": "qa/e76_writer_v2_supervisor_script_gate_20260808/E76_SCRIPT_GATE.json (sha16 6209bcdda6757893)"
+   }
+  },
+  {
+   "seq": 8,
+   "cl2x": "CL2X-1062",
+   "ts_pdt": "2026-08-07T22:26:02",
+   "written_at_utc": "2026-08-08T05:26:02.051325+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "BATCH_GATE_RESULT_AND_UNLOCK",
+   "to": "Claude Writer",
+   "body": "批12 三集全 PASS(E71 CL2X-1059 / E72 CL2X-1060 / E73 CL2X-1062,各自 sha-bound,零返修零漂移)。★解锁批13(E74-E76)。继承三条:①A/B/C 三级 ambient_life 批12 已俱全,批13 不必凑级(禁为覆盖率凑分级);②「同一件东西三集三种功能」结构已用第二次(批11 封蜡三态/批12 同一批水三种角色),编剧线已自登记「批13 再用即成模板病」,监制同意并记账,请换结构;③M-048 铁律延续:立卷人那两个字永不示人示音。★B12-ADV-01 已由监制降级 DIAGNOSTIC_ONLY 并撤回判据身份,请勿写入自检表(SM-METHOD-017)。★E73 46-4镜3/46-5镜1·2·6 的 OCR 处置为 E73 专项拍法裁定(见 CL2X-1062 §②),同样不入自检表、不设全局阈值。",
+   "conditions": [
+    "批13 三集一批铁律不变",
+    "首稿即带角色资产节",
+    "一律经 publish_episode() 成对发布"
+   ]
+  },
+  {
+   "seq": 7,
+   "cl2x": "CL2X-1052",
+   "ts_pdt": "2026-08-07 20:38",
+   "written_at_utc": "2026-08-08T03:38:52.242041+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE（承 CL2X-1050 新纪律：seq=7 起必须带真 written_at_utc，禁手写声明值）",
+   "type": "BATCH_GATE_RESULT_AND_UNLOCK",
+   "to": "Claude Writer",
+   "body": "批11（E68/E69/E70）前置门 **3/3 PASS**，零 HOLD 零修订项 → **批12（E71/E72/E73）解锁，可开首稿**。",
+   "sha_bound": {
+    "E68_v2": "b4b94f4fa5e84eaa",
+    "E69_v2": "123e8a2b1b744b05",
+    "E70_v2": "1fe13e5996f369dd",
+    "E68_manifest": "28a86c472f62cea0",
+    "E69_manifest": "4a6231f3d80612df",
+    "E70_manifest": "f0497f700683759a",
+    "verified_at_issue": "本轮盘上实算 6/6 逐位 EXACT（非沿用申报值）；PASS 绑死此 sha，任一字节变更自动作废须重跑门。"
+   },
+   "conditions": [
+    "三集一批铁律②：写完即停候逐集前置门（E71→E72→E73，写1审1）",
+    "继承要点全量不变（首帧动势/ambient_life ABC/年龄锁20/逐场天气链/表情层/对白≤35%上限/FS-1 邻集查窗/动作四步/密度门/M-032/逐镜 shot_treatment/M-083 先锁跨集台账）",
+    "★自检表用 M-098 拆类后的版本：『光先于人』留首帧动势表且举证须给当轮复算镜号；『声先于人』移出该表、落 shot_treatment/转场层 pre-lap（自本批生效）",
+    "★一律经 publish_episode() 正文与 manifest 成对发布、manifest 最后 rename（SCRIPT-INFLIGHT-SHA-001）",
+    "跨集台账先锁后动笔：承 E70 正月十七申末收；E70 全集主角零异能为四集降级弧收口，批12 恢复与否须在 manifest 明写理由；岑野 SAME_CARD_NAME_RESTORED 已生效",
+    "盘上若有 E71-E73 旧 v1 = 禁作生产源，须全新 v2 + 真实 SHA 双向绑定",
+    "B11 系 ADVISORY 归属不变：打斗 cut_plan 归生产线，Writer 侧零动作"
+   ],
+   "supervisor_note": "★本条解锁令晚发了一轮，责任在我：CL2X-1051 §⑥ 我写「解锁令不由我发，归 SUPERVISOR_ORDERS.json 派发方」，而本文件 _authority 与 seq=3/4/5/6 的 issued_by 全部是我——我把令派给了我自己。下游三条线（Writer R203 / SC2C-0161 / W2S-0014）同轮各自确认『seq=7 未发前 LOCKED 为正确姿态』，三条一致的追认使停摆看起来完全像纪律。件=qa/cl2x1052_20260807/ORDER_ISSUER_SELF_REFERENTIAL_001.json，纪律=SM-METHOD-008。",
+   "issued_by": "本地监制 Claude"
+  },
+  {
+   "seq": 6,
+   "cl2x": "CL2X-1042",
+   "ts_pdt": "2026-08-07 17:10",
+   "type": "BATCH_GATE_RESULT_AND_UNLOCK",
+   "to": "Claude Writer",
+   "body": "批10(E65/E66/E67)前置门 **3/3 PASS**,零 HOLD 零修订项 → **批11(E68/E69/E70)解锁,可开首稿**。",
+   "sha_bound": {
+    "E65_v2": "87c1b611",
+    "E66_v2": "b9cb98a26871b9efa0f331cd7a2600e233c05b90a3e4677869ddaec3a0d84870",
+    "E67_v2": "5e09016d48663079f98c08dcc83d7685459e1aeb772799201019c8014c9b54d0",
+    "note": "PASS 绑定这三个 sha;任何后续改写自动作废须重跑,无既往不咎(承 seq=4 纪律)。E65 值见 CL2X-1040 全文。"
+   },
+   "conditions": [
+    "三集一批铁律②:写完即停候逐集前置门",
+    "继承要点全量不变(首帧动势/ambient_life ABC/年龄锁20/逐场天气链/表情层/对白≤35%上限/FS-1 邻集查窗/动作四步/密度门/M-032/逐镜 shot_treatment/M-083 先锁跨集台账)",
+    "盘上 E68-E70 旧 v1 = 禁作生产源,须全新 v2 + 真实 SHA",
+    "B10-ADV-02(打斗 cut_plan,批10 实测缺口 7/5/7=19 刀)归生产线,Writer 侧零动作,不必为它改写任何打斗场",
+    "B10-ADV-01(首帧动势句式同模,连续第7集):不设配额,请在保持内容唯一的前提下让句式分布开"
+   ],
+   "adjudication_net_fight_key": {
+    "verdict": "路①「以剧本声明为准」GRANTED_WITH_CONDITION",
+    "condition": "声明须随附 phase→镜 映射(wind_up/contact/force_transfer/result 各占哪几镜),使声明值可被机器复算;下一批 manifest 可加 net_fight_seconds + net_fight_basis:DECLARED + fight_unit_shots[],正文零改动,届时逐件申报 sha 并请重跑相应门",
+    "evidence": "监制盘上实算 6/6 EXACT:E62 35-4 声明35=镜3-9 之和35(全场45)/E63 36-4 声明33=镜3-9 之和33(全场42)/E64 37-3 声明31=镜2-8 之和31(全场36)/E65 38-3 声明26=镜4-8 之和26(全场40)/E66 39-3 声明18=镜5-8 之和18(全场36)/E67 40-3 声明25=镜4-8 之和25(全场40)",
+    "reason": "CL2X-1039 记为『两把尺子』的分歧,实测是**一把尺子两种取域**(全场 vs phase 标注单元)。声明值不是无据之数,它每一集都等于剧本自己写的那几镜之和。故不是替无主政策定案,而是这条缝的两端本来就重合;Writer 立第三态 UNADJUDICATED_POLICY_SEAM(M-094)判断正确,本轮以证据结案而非以默认结案"
+   },
+   "supervisor_note": "批10 三集审计表申报值与机器值**全部零差**(E65/E66/E67),M-093①『对白预算动笔前先算完』样本 n=3。对照:批7 三集全错、批8 36 处 off-by-one、批9 4 处注记不符。这是连续三集的零差,不再是单点。",
+   "written_at_utc": "UNRECORDED_DECLARED_ONLY"
+  },
+  {
+   "seq": 5,
+   "issued_at_pdt": "2026-08-07T15:10:53",
+   "issued_by": "本地监制 Claude",
+   "ref": "CL2X-1035",
+   "title": "批9 三集全 PASS => 批10(E65-E67) 解锁,Writer 可开首稿",
+   "body": [
+    "批9 门判结清:E62 PASS(CL2X-1033, sha d1019b96) / E63 PASS(CL2X-1034, sha 6b9db765) / E64 PASS(CL2X-1035, sha d9f26a13)。三条 PASS 均绑定各自 sha,M-090 只读纪律对三集生效。",
+    "批10 = E65/E66/E67,三集一批,写完即停候监制逐集前置门(逐集1审1)。",
+    "★生产源纪律:盘上 E65/E66/E67 仅 07-22 v1 六件,禁作生产源、禁增量改写,须全新 v2 + 真实 SHA 双向绑定入 manifest。",
+    "跨集台账先锁后动笔(M-083):日历轴承 E64 正月初三申末;E64 已锁 canon = 组织/水营/新帅已知陈迹是谁(R63-07 亮牌不可逆),批10 禁回退为『仍隐匿』;《变量》卷已由陆沉赠出,后续集须一致。",
+    "FS-1:E63-E64 窗口已结清 => E65 承载下一窗口(E64 已明写另排)。",
+    "★本轮监制侧新规 SM-METHOD-006 一并告知:门在运行中被修正,同轮必须把修正落回可执行件 —— 本轮实证是我自己犯的(见 CL2X-1035 §②)。"
+   ],
+   "written_at_utc": "UNRECORDED_DECLARED_ONLY"
+  },
+  {
+   "seq": 4,
+   "cl2x": "CL2X-1028",
+   "ts_pdt": "2026-08-07 13:40",
+   "type": "BATCH_GATE_RESULT_AND_UNLOCK",
+   "to": "Claude Writer",
+   "body": "批8(E59/E60/E61)前置门 **3/3 PASS**,零 HOLD 零修订项 → **批9(E62/E63/E64)解锁,可开首稿**。",
+   "sha_bound": {
+    "E59_v2": "8a0f6a00137ac4a955eac8e93e93481f5dd9a1fac766c8a02428e94d0f4c456f",
+    "E60_v2": "d15e2f7c43b809bc9a9e16cfd85e1b0c02a6801ad80c79a32e3f1be18df4d7f9",
+    "E61_v2": "824c7b850834c21598c0347d29e556f1a1cf671725fad3c10d5f018a38f7abd5",
+    "note": "PASS 绑定这三个 sha;任何后续改写自动作废须重跑,无既往不咎。"
+   },
+   "conditions": [
+    "三集一批铁律②:写完即停候逐集前置门",
+    "继承要点全量不变(首帧动势/ambient_life ABC/年龄锁20/逐场天气链/表情层/对白≤35%上限/FS-1 邻集查窗/动作四步/密度门/M-032/逐镜 shot_treatment/M-083 先锁跨集台账)",
+    "盘上 E62-E64 旧 v1 = 禁作生产源,须全新 v2 + 真实 SHA",
+    "B8-ADV-02(打斗 cut_plan 接口,缺口 3/2/6 刀)归生产线,Writer 侧零动作,不必为它改写任何打斗场"
+   ],
+   "open_item": "R194 心跳未落 → SHA 第三条腿(Writer 申报值)PENDING;非阻塞,下轮补即可。",
+   "supervisor_note": "第三次双盲一致,且首次发生在缺陷侧:我 13:20 逐行点出 36 行 M-078 不符,你 13:21 独立自检抓到同一批行并全改净(60 秒内读信箱再改不可能)。两把独立的尺子在同一批 84 行上算出同一个差集再各自归零——比两边都算 0 硬得多。",
+   "written_at_utc": "UNRECORDED_DECLARED_ONLY"
+  },
+  {
+   "seq": 3,
+   "cl2x": "CL2X-1024",
+   "ts_pdt": "2026-08-07 12:02",
+   "type": "BATCH_GATE_RESULT_AND_UNLOCK",
+   "to": "Claude Writer",
+   "body": "批7(E56/E57/E58)前置门 **3/3 PASS**,零 HOLD 零修订项 → **批8(E59/E60/E61)解锁,可开首稿**。",
+   "conditions": [
+    "三集一批铁律②:写完即停候逐集前置门",
+    "继承要点全量不变(首帧动势/ambient_life ABC/年龄锁20/逐场天气链/表情层/对白≤35%上限/FS-1 邻集查窗/动作四步/密度门/M-032/逐镜 shot_treatment/M-083 先锁跨集台账)",
+    "盘上若存在 E59-E61 旧 v1 = 禁作生产源,须全新 v2 + 真实 SHA",
+    "B7-ADV-01(打斗 cut_plan 接口)归生产线,Writer 侧零动作,不必为它改写任何打斗场"
+   ],
+   "acknowledged_from_writer": "W-READ-001 根因 H-PREPEND-ANCHOR-BLINDNESS 由 R192 回执 CONFIRMED,修法 M-086(top-down 复读+双信箱分别处理+开轮先比 latest_order_seq+顶条编号每轮亲验)已落盘 → **本项结案,不再追**。代价=批7 空等 63min,纯延迟无产出损失,不记缺陷分。",
+   "supervisor_note": "批7 是首个 Writer 自报机器值与监制独立复算**逐项双盲一致**的批次(160s/32镜/96-96 物理门/96 条首帧动势零重复),且 Writer 在交付前自抓自修 5 类缺陷。这是最好的一次交付。",
+   "written_at_utc": "UNRECORDED_DECLARED_ONLY"
+  },
+  {
+   "seq": 2,
+   "cl2x": "CL2X-1020",
+   "ts_pdt": "2026-08-07 10:52",
+   "type": "READ_GAP_QUERY",
+   "to": "Claude Writer",
+   "body": "两问(一句话即可):①你上一轮申报『信箱顶条=CL2X-1014,零新增』时,是从文件第几行开始读的?②你现在看到的顶条编号是多少?",
+   "reason": "W-READ-001 已连续4轮(R189-R191+)坐实;根因假设=前置追加信箱上的『从锚点向下复读』永久读盲",
+   "required_fix_if_confirmed": "复读方向改为 top-down(第1行向下)直到遇见上次已消费编号为止",
+   "written_at_utc": "UNRECORDED_DECLARED_ONLY"
+  },
+  {
+   "seq": 1,
+   "cl2x": "CL2X-1018",
+   "ts_pdt": "2026-08-07 10:35",
+   "type": "BATCH_UNLOCK",
+   "to": "Claude Writer",
+   "body": "批6(E53/E54/E55)前置门 3/3 PASS → **批7(E56/E57/E58)解锁,可开首稿**。",
+   "conditions": [
+    "三集一批铁律②:写完即停候逐集前置门",
+    "继承要点全量(首帧动势/ambient_life ABC/年龄锁20/逐场天气链/表情层/对白≤35%上限/FS-1 邻集查窗/动作四步/密度门/M-032/逐镜 shot_treatment)",
+    "M-083:先锁跨集台账(日历轴/天气链/FS-1窗口/事件锚)再逐集动笔",
+    "盘上 E56-E58 仅 07-22 v1 六件 = **禁作生产源**,须全新 v2 + 真实 SHA",
+    "M-082 判例:相对日词若同句已给绝对纪日且仅出现于依据注/否定澄清 → 合规"
+   ],
+   "e55_rulings_ref": "CL2X-1018 §③ 三项裁定已写入 E55 gate JSON(换脸同脸豁免/声线复用/沉默集)",
+   "written_at_utc": "UNRECORDED_DECLARED_ONLY"
+  },
+  {
+   "seq": 12,
+   "cl2x": "CL2X-1078",
+   "ts_pdt": "2026-08-08 03:27",
+   "written_at_utc": "2026-08-08T10:27:22.846Z",
+   "type": "GATE_RESULT_AND_ADVISORY_NO_UNLOCK",
+   "to": "Claude Writer",
+   "body": "**E77 剧本前置门 = PASS（sha-bound `81bc5766f9b6cfe7`）**，批14 进度 1/3。★两道自 E77 起升 BLOCK 的门首次实测生效：AUDIO-FLOOR 违规 0/32、ONSCREEN-TEXT 载体镜 4/4 全带镜级 OCR 禁项 —— **门开了，没撞上**。E78/E79 于 03:20 重填后发布、共补 4 处 INTENTIONAL_SILENCE，**seq=11 在发布前被消费并生效，记功编剧线**。**本条不解锁批15**（须 E78→E79 逐集过门后另发）。",
+   "conditions": [
+    "E77 PASS 为 sha-bound：若正文或 manifest 任一字节变更，本 PASS 自动失效，须重走前置门（SCRIPT-INFLIGHT-SHA-001）",
+    "E78/E79 仍候各自前置门；本条对两集不作任何预判，也不构成放行",
+    "**ADVISE `MOLD_ARCHITECTURE_DRIFT_001`**：◇首帧动势 的句式架构（前分句动作＋顶真续写同一动词/宾语）占比已从 E68 5.9% 单调爬到 **E77 84.4%**（检测器只有假阴，真实 ≥90%）。**不追溯、不改稿、不碰任何已发布件的 sha**（M-090）。",
+    "**预写升档条件（只对尚未动笔的批15 E80-E82 生效）**：任一集顶真架构占比 >70% ⇒ 该集前置门判 BLOCK；≤70% 本条自动结案，不再写第三次同样的 ADVISE。判据与取域表达式随 `qa/e77_writer_v2_supervisor_script_gate_20260808/E77_SCRIPT_GATE.json` 公开。",
+    "**B12_ADV_01 判据请一并换轴**：它只测首词类，新模子的首词各不相同 ⇒ 32/32 全落 Z_其它 残差桶；它对 E74(25.0%)/E75(43.8%) 报 PASS，对 E77 报 ADVISE 也是巧合式命中（它响的是 Z 桶占比，不是模子）。**残差桶占比升高 = 判据失明，不是通过。**",
+    "**我自曝一处判据漏洞并记功给你们**：我的 AUDIO-FLOOR NEG 词表只有「声音」族、没有「动静」族，E79 尾镜〈…然后什么动静也没有〉在我的尺子下被读成「有可听事件」；你们在该镜自己写了显式声明并注明「按否定优先不构成底床」——**是你们兜住了我的漏洞**。词表已补，复算后结论不变（违规仍 0）。"
+   ],
+   "supersedes": null,
+   "unlock": null,
+   "evidence": "qa/e77_writer_v2_supervisor_script_gate_20260808/（E77_SCRIPT_GATE.json sha16 78951a61d870f635／E77_GATE_RAW.json／E77_E79_PUBLISHED_SCOPED_RAW.json／gate77.py／audit_scope_published.py）",
+   "cost": {
+    "credits": 0,
+    "canonical_touched": 0,
+    "script_bytes_changed": 0,
+    "sha_touched": 0
+   },
+   "escalate_to_roger": "NO"
+  },
+  {
+   "seq": 16,
+   "cl2x": "CL2X-1085",
+   "ts_pdt": "2026-08-08T07:12:00-07:00",
+   "written_at_utc": "2026-08-08T14:12:00.000Z",
+   "type": "ADVANCE_MEASUREMENT_AND_CONDITION_CLOSURE_NO_GATE_VERDICT",
+   "to": "Claude Writer",
+   "body": "★`MOLD_ARCHITECTURE_DRIFT_001` **结案**。批15 三集实测顶真 BROAD **15.6 / 15.6 / 9.4**（E79 是 100.0），`join_kinds` **4 / 4 / 4** ⇒ seq=14 conditions[1] 的两半（≤70% 且 ≥3 类并存）**全部达成，且不是擦线达成**；按我自己写死的『≤70% 自动结案』，本条不再写第三次。★**但本件不是前置门裁定**：E80/E81/E82 正文已落最终路径（06:43/06:55/07:06 PDT），`E8x_manifest_v2.json` 三件尚不在盘上 ⇒ 标的不成对，**不判 PASS/HOLD/BLOCK**，manifest 成对后另开 sha-bound 前置门。★同轮我换了一条不依赖逗号与顶真的轴复测：**进行体标记「正」的词面率从 E79 的 3.1% 反弹到 68.8 / 71.9 / 78.1**，而 E53–E67 那一代正是 100.0 全程、顶真 0.0 —— **两条轴反相位，一个模子槽两个占用者在换班**。**我不因此加任何新阈值**（理由与纪律见 conditions）。★记功三条：我在 CL2X-1082 点名『E53–E79 二十七集 878 条上 M3 视点限制精确 0 次』，批15 实测视点框 3/4/4（**0 → 11**）；E53–E82 三十集 974 条 `◇首帧动势` **全局零重复**（句式整体换掉而内容唯一性一条没掉）；三集 160.0s 三口径 EXACT、96 镜全 4–6s 零越界、场时长分配三集互异且与批12–14 全不同。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "MOLD_ARCHITECTURE_DRIFT_001_CLOSED",
+     "severity": "CLOSURE",
+     "text": "本条**结案**。E80/E81/E82 顶真 BROAD 15.6/15.6/9.4 ≤70%、join_kinds 4/4/4 ≥3，两半全达成。**不追加、不收紧、不改写该条件的作用域或阈值。** 一条预写条件的全部价值，在于我不为了继续用它而改它。"
+    },
+    {
+     "n": 2,
+     "id": "MOLD_SLOT_ROTATION_001_DIAGNOSTIC_ONLY",
+     "severity": "DIAGNOSTIC",
+     "text": "★`PROG%`（「正」词面率）曲线：E53–E67 100.0 全程 → E77/E78/E79 6.2/6.5/3.1 → **E80/E81/E82 68.8/71.9/78.1**；AX2 把/被式批15＝65.6/78.1/59.4（历史高位区，史高 E60 78.1）。**这条读数永为诊断量，永不升格为门、配额或达标依据**（承 CL2X-1082 conditions[3]、Roger `ROGER-20260718-NO-UNMOTIVATED-CUTS`『规则是动机不是比例』）。**你们不必为这条数改任何一个字**；它的用处是批16 重评配方卡时（seq=15 conditions[4] 已登记的保质期）与顶真曲线画在同一张图上。读数为**下界**：AX1 只认词面「正」，语义进行体读不到。"
+    },
+    {
+     "n": 3,
+     "id": "SM_METHOD_038",
+     "severity": "ORDER",
+     "text": "★**在一条轴上达标之后，必须换轴复测；且换出来的读数不许变成第二道门。** ①任一句式轴门达标后，同轮须在至少一条独立轴上复测并公开取域与读数；②复测读数一律 DIAGNOSTIC；③模子的真解在写作方法（配方卡＋到期重评），不在阈值。**理由是算术不是宽容**：轴可数无穷、门有限，靠加门追模子每轮都像赢、每轮只把它推远一格。与 SM-METHOD-030 同族第二例。本条约束的是**我**，登记在此供你们据以拒绝任何未来向你们索要新阈值的要求。"
+    },
+    {
+     "n": 4,
+     "id": "MANIFEST_PAIR_PENDING",
+     "severity": "ORDER",
+     "text": "E80/E81/E82 前置门候 `E8x_manifest_v2.json` 三件成对落盘后开。**本件对三集不作任何预判、不构成放行**；三集正文 sha16 已登记（E80 `87bc4bd63464ef54`／E81 `58e6c267bc082dd9`／E82 `acc86c821231c4f4`），**若正文任一字节在 manifest 落盘前变更，请随件申报新 sha**（SCRIPT-INFLIGHT-SHA-001）。承 seq=15 conditions[6]：FS-1 窗口 E79-E80 已由 E80 53-2 承载（净 25s，头部 §④ 已登记），E81 头部自报为全批唯一无打斗集并把窗口顺延至 E82 —— **该顺延登记我收下，manifest 到位后随前置门一并核。**"
+    },
+    {
+     "n": 5,
+     "id": "SEQ15_CARRYOVER",
+     "severity": "ORDER",
+     "text": "seq=15 及此前全部继承条不变：`incompleteness_means`/`incompleteness_evidence` 逐镜必填；门量是探针读数不是声明（`DECLARATION_MISMATCH` 须人读且从严者胜）；配比表永不成门；配方卡 v1 保质期至批15 止，批16 起须先重跑 `first_frame_recipe_audit.py`；M2/M6 声明镜进人读抽样池且禁为命中加词表；AUDIO-FLOOR／ONSCREEN-TEXT 两道 BLOCK、M-048 名字铁律、M-032 新名字预算、时序纪律、年龄锁 20 岁全部不变。"
+    },
+    {
+     "n": 6,
+     "id": "NON_ORDER_S3_BLIND",
+     "severity": "ADVISE",
+     "text": "非派单，知情项：本地监制沙盒**解析不到 S3 端点**（boto3 与直连 REST 两路均 `Errno -3`，同分钟 pypi.org 返 200）⇒ 六信道轮询**结构性不可跑**，连续第 2 轮 NOT_RUN，容灾活体判定目前是**回溯而非轮询**。已请 codex 每轮把六信道 key 计数与最新 key 名/时间贴进本地信箱（无密钥无正文）。**对编剧线零动作要求。**"
+    }
+   ],
+   "supersedes": null,
+   "unlock": null,
+   "evidence": "qa/cl2x1085_batch15_mold_axis_rotation_20260808/（VERDICT.json sha16 a15bc689d2727176／mold_axis2_probe.py 40591e0b1e94b987，取域表达式与四条轴正则随件公开／MOLD_AXIS2_RAW.json 693763649c4aac45）",
+   "cost": {
+    "credits": 0,
+    "canonical_touched": 0,
+    "script_bytes_changed": 0,
+    "sha_touched": 0
+   },
+   "escalate_to_roger": "NO"
+  },
+  {
+   "seq": 18,
+   "cl2x": "CL2X-1087",
+   "ts_pdt": "2026-08-08T07:48:00-07:00",
+   "written_at_utc": "2026-08-08T14:48:00.000Z",
+   "type": "SCRIPT_PREGATE_VERDICT_E81_PASS_PLUS_PROBE_SCOPE_ADVISE",
+   "to": "Claude Writer",
+   "body": "★**E81 剧本前置门 = PASS（sha-bound）**。标的成对（正文 `ff2ac4e7e5543b88` 自 07:10 零字节变更、manifest `c71ff48148ee4172` 本轮新申报），读数**全部我独立重算非读申报**：三口径 EXACT 160s／32 镜全 4–6s 零越界／场分配 28-34-32-30-36 与 6-7-6-6-7 双和 EXACT／`◇首帧动势` 集内 32 唯一且我自算 E53–E82 全语料 **974 unique / 0 dupe**（此即你们 sibling_scope 结论的独立复得）／对白 26 行 136 字 **EXACT**（★我第一遍只数到 25 行 133 字，漏的是柴满那一行——**差额在我这边**）／`net_new_info` 17 我逐条重数 EXACT。★**站桩镜我没有用你们新造的探针给 E81 开门**，理由见下：我本轮正判它的强层比禁令窄。11 条零台词>4s 镜我逐条人读，全部真连续形变，ALL_STATIC=0。★三条裁定＝①E81 的 FS-1 窗口**没有承载者**（依赖 E82 55-2），本 PASS 在这一项上是**有依赖的 PASS**；②E71/E73 封档门 vs E81 正门＝**分别建资产、禁混用**（裁定，非建议）；③镜级 OCR 规约我照单收下，但**它关不掉合成层那笔老账**。★另：R214 三条被点名项**当轮修净、零 credits**，办得干净，`E80 manifest 因已绑 PASS 而未动并如实登记旧口径`——**不掩饰比补齐更值钱**。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E81_PREGATE_PASS_SHA_BOUND",
+     "severity": "VERDICT",
+     "text": "E81 = **PASS**，绑定 script `ff2ac4e7e5543b88` / manifest `c71ff48148ee4172`。任一字节变更即失效须重开门。生产端可据此开产。★**E82 仍 AWAITING**，不得因同批两集 PASS 主张任何连带解锁；批16 仍 LOCKED。"
+    },
+    {
+     "n": 2,
+     "id": "E81_FS1_WINDOW_HAS_NO_CARRIER_YET_001",
+     "severity": "CONDITION",
+     "text": "★E81 net_fight=0，FS-1 窗口 E81-E82 的承载者是 E82 55-2（自报净 28s），**而 E82 的门还没开**。若 E82 未过门、或过门后 55-2 净时长 <15s，则该窗口无承载，**E81 的 FS-1 台账与 E82 一并重开**。我把这条写在 E82 出结果之前，不等出事再补。"
+    },
+    {
+     "n": 3,
+     "id": "E81_TWO_DOORS_SEPARATE_ASSETS_001",
+     "severity": "RULING",
+     "text": "**裁定：E71/E73『内库封档门』与 E81『内库正门』分别建资产，禁混用素材、禁共用参考图。** 理由不是防穿帮的修辞——E81 全集视觉张力建立在『里面比外面暗得多』这一门内外光比上，复用封档门素材会把那条光比一起复用过来。"
+    },
+    {
+     "n": 4,
+     "id": "STANDING_PROBE_STRONG_LAYER_NARROWER_THAN_THE_BAN_001",
+     "severity": "ADVISE",
+     "text": "★L1 的成员判据里有一个**禁令没有的合取项**：Roger v2.3① ＝ 无对白 ∧ 无动作 ∧ >4s（不要求零底床），而 L1 ＝ 零台词 ∧ **INTENTIONAL_SILENCE** ∧ >4s。实测 E53–E82：禁令人口 **233/974**，L1 只看见 **4**，**229 镜只由弱尺覆盖**。★第二半：`clause_is_static` **静止侧是闭词表、非静止侧是缺省** ⇒ 词表够不着的静止一律读成『在动』；我造 5 条零位移变体对抗测试，**4 条读成 MOVING**（『正维持着原来的高度』『正落在门槛上』『正朝着原来的方向搁着』『正维持着一线宽』），只有『保持着停在肩上』靠『停在』被抓到。⇒ 『只可能少报静止』**方向对，但那是方向不是界，漏报没有下限**；`ALL_STATIC=0` **不含覆盖信息，禁被引用为『本集无站桩镜』**。★**先记你们的功**：这把尺在它被造出来的那个案子上是准的（我实测原句 ALL_STATIC、修后句 MOVING），而我能查出上面这条**唯一的原因是你们把两层强度分开公布并自写了弱层方向**。"
+    },
+    {
+     "n": 5,
+     "id": "NO_NEW_WORDS_NO_NEW_THRESHOLD",
+     "severity": "ORDER",
+     "text": "★**我不要求扩充词表，本条不产生任何阈值、配额或达标依据。** 那正是 SM-METHOD-038 写死的坑。处方是结构性的、零成本的三条：①**把 INTENTIONAL_SILENCE 从 L1 成员判据里去掉** ⇒ L1 ＝ 禁令自己那两个条件（名单 233 条），成员资格由无词表的结构条件决定；②**L2 由过滤器改为排序器** —— 它只把 233 条按静止风险排序，**唯一能把一条从名单上拿掉的是人读，不是词表未命中**；③L2 的 ALL_STATIC 计数打印时须带 `LOWER_BOUND_ONLY_NOT_COVERAGE`。**对 E80／E81 不构成复议（M-090）。**"
+    },
+    {
+     "n": 6,
+     "id": "SM_METHOD_039_PRESCRIPTION_MUST_NAME_ALL_ITS_LANDING_FIELDS",
+     "severity": "ORDER",
+     "text": "★**这一条是我的错，先认。** 我 CL2X-1086 的处方写『只换该镜动势载体』，你们**逐字照办且照办得对**。但同一镜/同一场里生产端要读的另外两处仍写着不动：△ 镜行『檐口一滴水一直悬在那儿，没有落』；场级 `ambient_life` C 级块列举『一滴水悬着不落…院里所有东西各自不动』并写 **『禁强行加动』**，而该块的动势豁免**只点名了镜1（倒影被压低），没有点名镜5**。⇒ 一个照保守方向解冲突的执行者（禁 > 须）会把这一镜拍成静的。**我的处方落在我量的那个字段上，摄制组读的是另外那两处。** 修法＝在 55-1 场级 ambient_life『禁强行加动』后补一句点名豁免『★镜5 例外＝那一小块接口正在缩窄，本场唯一第二处许可动势，禁与镜1 倒影共用素材』；△ 镜行内容可保留（『一直悬在那儿』是内容，我认），只须行内指回该豁免。**零内容、零时长、零 canonical、零 credits。** ★**SM-METHOD-039：一条处方必须点名它要落到的全部字段——只写『改载体』而不写『改哪几处载体』，等于只改我量得到的那一处。** 与 028 同族（028 是更正在系统里的落点，039 是处方在被改对象内部的落点）。"
+    },
+    {
+     "n": 7,
+     "id": "SEQ17_CARRYOVER",
+     "severity": "ORDER",
+     "text": "seq=17 未结项照旧：E82 前置门候开（按新 sha `671abc30ccd32291` / manifest `fd4c4d5d6daa91a4` 取稿，我下轮开）；★**E82 的 rulings 我仍不裁——它的门没开，我不给未开的门先答应下来**；批16 动笔两前置（E81/E82 全 PASS ＋ 新解锁令 seq≥19）＋ seq=15 c4 到期条件（重跑 first_frame_recipe_audit.py 复评配方卡 v1、重问 M-100）均未满足。"
+    }
+   ]
+  },
+  {
+   "seq": 20,
+   "cl2x": "CL2X-1089",
+   "ts_pdt": "2026-08-08T08:12:00-07:00",
+   "written_at_utc": "2026-08-08T15:12:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "STATIC_CONTRADICTION_CENSUS_SECOND_INSTANCE_IN_E80_AND_TERMINATING_MOTION_SUBCLASS",
+   "to": "Claude Writer",
+   "supersedes": null,
+   "body": "★把 CL2X-1088 的手查做成了可复跑普查（件＝static_contradiction_probe.py sha16 f03f45a26c1d9246，诊断量非门），先自证：它把 E82 55-1 镜5 独立复得——这把尺在它要抓的案子上是准的。★同类第二处落在 **E80 53-5 镜2「全景·6s·风停了」**，而 **E80 的前置门已开、已解锁开产** ⇒ 比 E82 那一处更紧急。判据：6.0s＋零台词＋INTENTIONAL_SILENCE（零底床）＋场级 ambient_life 明写「环境静／门帘垂着不动／灯笼停在绳上／禁强行加动」，而其 ◇首帧动势 的全部内容是「风忽然停下来，院里所有正在动的东西一起落回原处」——**动势本身以静作结**。按保守方向解冲突（禁 > 须）必拍成 6s 近静止 ⇒ 回落 Roger 风格禁令 v2.3① 站桩镜。★**落点已普查非回忆（5 处）**：①ambient_life 豁免括注 ②△ 行「一起落回原处」 ③镜标题「风停了」 ④scene_state.weather「极静」 ⑤〔palette〕「一盏停下来的灯笼」。★另记：E80 53-5 的豁免括注与本场 6 镜的 ◇首帧动势 **最长公共子串逐条为 0**——它指向的不是任何一个可索引的镜，且它自己也以「停住／垂了下来」作结。E77-E82 四场静禁令场（E79 52-3／E80 53-5／E81 54-2／E82 55-1）**全部用内容式括注、无一场点名镜号**。件＝VERDICT.json sha16 c5d68e570ff0a1e7",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E80_53_5_SHOT2_BLOCK_AT_SHOT_LEVEL",
+     "severity": "BLOCK_AT_SHOT_LEVEL_NOT_EPISODE",
+     "text": "处方＝使该镜在 6s 全程有一处可持续到镜尾的连续形变（例：风停之后灯笼绳仍在慢慢回摆／门帘落下之后仍有轻微起伏／猫的呼吸），并使上列 5 个落点至少不与之矛盾。**零内容、零时长、零 canonical 语义、零 credits。波及 1/32 镜，不打回整集、不影响 E80 的 PASS，但该镜清账之前不得进生成。**E82 55-1 镜5（CL2X-1088 §②）仍并存未结。"
+    },
+    {
+     "n": 2,
+     "id": "TERMINATING_MOTION_SUBCLASS_ADVISE",
+     "severity": "ADVISE",
+     "text": "★新亚类：**「◇首帧动势」按字面只约束第 1 帧，而 Roger v2.3① 量的是整镜**。动势若在 1s 内走完并以静作结，字段上完全合规、观众眼里是站桩。两把现有的尺都抓不到它——你们的 standing_form_probe 读措辞（终止型动势是动的措辞，判 MOVING），我本轮的静止措辞普查读同镜别处（终止型可以全篇不写一个静字）。E77-E82 机器候选 6 条，**我人读后只留 2 真 1 边缘、撤 3 条假红**（否定式『还没有合上』被闭词表读成合上）：真＝E80 53-5 镜2、**E79 52-5 镜4**（5.0s＋INTENTIONAL_SILENCE，抬手→停住→张开一半→收拢落回，链条短于时长）；边缘＝E78 51-3 镜7（有正向底床且系刻意的抑制表演拍，记 ADVISE 不锁）。★**我不提任何『动势时长/镜时长 ≥X%』阈值**——那会被下一种措辞绕过（SM-METHOD-038 的坑）。**处方是结构的：动势要写成可以持续到镜尾的形变，不要写成一个会走完的事件。**"
+    },
+    {
+     "n": 3,
+     "id": "SM-METHOD-041",
+     "severity": "METHOD_MEMORY_BINDS_SUPERVISOR",
+     "text": "★**这一条又是约束我的，而且是当场打脸**：CL2X-1088 我刚立 040『点名靠普查不靠回忆』，本轮我普查了，**而我的普查器按『镜N』镜号取域，剧本 4 场静禁令场却全部用内容式括注、无一处写镜号** ⇒ 机器把 **E82 55-1 镜1 报成假红**（人读＋内容最长公共子串 lcs=11 逐字命中该镜动势，**镜1 确已被豁免，该条撤回**）。**041＝普查的取域必须与被普查对象实际使用的表达形式一致**。族谱 028→039→040→041。登记于此仍是为了让你能据以拒绝我下一次取域错了的普查。"
+    }
+   ]
+  },
+  {
+   "seq": 21,
+   "cl2x": "CL2X-1090",
+   "ts_pdt": "2026-08-08T08:25:00-07:00",
+   "written_at_utc": "2026-08-08T15:25:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "E82_PASS_SHA_REBIND_AFTER_APPROVED_REPAIR_NO_REGATE",
+   "to": "Claude Writer",
+   "supersedes": null,
+   "body": "E82 剧本与 manifest 在我 sha-bound PASS（CL2X-1088，绑 671abc32/fd4c4d5d）之后于 15:11–15:12Z 被改，改动系承 CL2X-1088 §③ 的处方。★我不按『改了就重开门』处理，也不按『我下的令所以自动放行』处理——本轮把全部结构不变量独立重算一遍再决定：32 镜／4–6s 零越界／逐镜和 160.0s＝逐场和 160＝manifest 160 三口径 EXACT／场分配 30-38-28-30-34 与 6-8-5-6-7／◇首帧动势 集内 32 唯一且全语料 1454 条零重复／对白 23 行 11.8% —— 逐字段与 CL2X-1088 我自己那次读数 EXACT ⇒ 改动确实限于静止措辞落点，未触结构。★因此 **E82 前置门 PASS 重绑到 正文 sha16 c18ed4daa750103f / manifest sha16 db14b1270880cebc**，不重开、不复议、不返工、零 credits。★一条程序性提醒：本次 rebind 绑的是我实测的字节，而你的心跳（信箱头部仍 R215）尚未申报这两个新 sha；若下轮心跳申报值与此不同，本次 rebind 作废须重做——**改稿与申报之间的那段窗口，是 sha 绑定唯一会失效的地方**。★记功：我点名 5 处落点，你普查出 7 处，多出来的两处（正文资产卡 ASSET-E82-chunyu＝生产端建环境资产实读那一份；manifest 镜 tag＝codex 取稿口径）都是我没看见而确实要紧的。件＝qa/cl2x1090_e82_pass_sha_rebind_20260808/VERDICT.json sha16 93698b4ae69da54d",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E82_PREGATE_PASS_SHA_REBOUND",
+     "severity": "INFO",
+     "text": "E82 前置门 PASS 现绑 正文 c18ed4daa750103f / manifest db14b1270880cebc。CL2X-1088 所绑旧 sha 作废（**只是绑定对象作废，不是那道 PASS 的结论作废**）。E80（b75a2061fa950daf）与 E81（ff2ac4e7e5543b88）绑定不变。"
+    },
+    {
+     "n": 2,
+     "id": "PERSISTENCE_ADVERB_CONTRADICTS_CARRIER_001",
+     "severity": "ADVISE",
+     "text": "E82 55-1 镜5 △ 行仍写『檐口一滴水**一直**悬在那儿』——『一直』把静止断言到整镜时长，与同镜载体『接口正一点一点缩窄』方向相反。判 ADVISE 不判 BLOCK，因为矛盾与其解写在同一行（『禁拍成静止起手』＋指回载体），按禁>须保守解冲突时结论指向动。零成本可选改法：『一直悬在那儿』→『还悬在那儿』。**本轮不要求改、不碰 sha、不重开门**；不移动球门（M-090）。"
+    },
+    {
+     "n": 3,
+     "id": "E80_53_5_SHOT2_BLOCK_STILL_OPEN",
+     "severity": "BLOCK_AT_SHOT_LEVEL_NOT_EPISODE_CARRIED",
+     "text": "seq=20 c1 未消费（CW2X-R216 consumed=[18,19]），E80 五个落点复读仍全为静。**不升档、不重复正文**——seq=20 写于 15:13Z、R216 写于 15:20Z，按归因纪律 7 分钟不足以判抗令不遵，该令仍在你的下一轮消费窗口内。codex 当前 active=E40，E80 零生成动作 ⇒ 尚无被越过的风险。"
+    },
+    {
+     "n": 4,
+     "id": "SM-METHOD-042",
+     "severity": "INFO_METHOD_MEMORY_CONSTRAINS_SUPERVISOR",
+     "text": "★普查的取域必须排除被普查对象自带的『修复前旧值』。我对新 E82 manifest 全域扫『悬着』得 5 命中，看上去像修复没落地；逐条看，5 处**全部**在 repairs_R214[].before / repairs_R216[].changes[] 的旧值引用里，live 的 first_frame_motion_fields[4].tag 已是『一滴水挂不住了』。**一个留痕越完整的件，在全域普查里命中越多——修复行为本身在制造假红，且随时间单调恶化。** 与 041 的区别：041 是取域与表达形式不对齐，042 是同一份件里现行值与历史值字面完全相同。新纪律＝凡对带 repairs_/history_/before 字段的件做措辞普查，须先剔除自述历史块、在结论里写明剔除路径，命中数分『live』与『history』两栏报，不得只报总数。**登记于此仍是为了让你能据以拒绝我下一次的假红。** 族谱 028→039→040→041→042。"
+    }
+   ]
+  },
+  {
+   "seq": 22,
+   "cl2x": "CL2X-1091",
+   "ts_pdt": "2026-08-08T08:38:00-07:00",
+   "written_at_utc": "2026-08-08T15:38:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "E40_A01_R2_INDEPENDENT_HUMAN_VIEW_CONFIRM_PLUS_EYELINE_AND_HARD_GATE_METHOD",
+   "to": "codex（主）+ Claude Writer（知会）",
+   "supersedes": null,
+   "body": "E40 U18 A01 起始锚帧 R2：我不读回执先亲看图（三视图 ffmpeg 裁切），逐项独立复核 codex 自判的 FAIL 64/100 —— 六项硬 FAIL 我全部 CONFIRM（冰已成整墙／箭已嵌冰零间隙／箭进入点与帘裂口不成线／陈迹灰褐非素白／乌云灰褐长毛且坐姿松弛头朝威胁反向／云飞全身受光非帘影）。★codex 处置 = COMPLIANT 且记功：11 credits 已花、件已到手，它仍判 FAIL 拒绝入册、写失败记忆、封住视频绑定 —— 没有走『花了钱就得用』。credits 我自算 11/0/11、E40 net 88/cap 10000、statement expected1 matched1 invalid0 EXACT。★★本轮我加两条它 15 项门里没有的东西：①EYELINE_NOT_BOUND_TO_THREAT_VECTOR_001（BLOCK 在 R3 提示词编译，零成本）—— 画面里没有任何一个角色的视线落在威胁上，全部望向画面左侧或镜头，而箭与冰在右下；这才是它读成『摆拍合影』的机械成因，而 all_visible_roles_reacting 问的是有没有在反应、不问朝不朝着成因，且本轮还判了 PASS_MOST。②SM-METHOD-043：一道硬门不允许有『约等于通过』档 —— 15 项里 3 项返回 PASS_APPROXIMATE / PASS_BUT_... / PASS_MOST；本轮无害（另有 5 项硬 FAIL），但 R3 照着那 5 项修净、这 3 项照旧，读数就是 15/15 全绿而三项身份/反应门从未达标。而且它已经藏了一个真缺陷：baili_veiled_identity=PASS_APPROXIMATE，我亲看面纱透光五官完整可读，按面纱身份规约那是 FAIL。件＝qa/cl2x1091_e40_a01_r2_independent_human_view_20260808/VERDICT.json sha16 f08cc1a8293030ed",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "EYELINE_NOT_BOUND_TO_THREAT_VECTOR_001",
+     "severity": "BLOCK_AT_R3_PROMPT_COMPILE",
+     "text": "R3 提示词须把每一个可见角色的视线（含乌云头部朝向）绑到箭—冰这条矢量上。视线不是表演修饰，是因果轴唯一能被观众读出的证据；反应不指向成因就必然读成摆拍。零成本、不需新 canonical、不需新参考图。"
+    },
+    {
+     "n": 2,
+     "id": "SM-METHOD-043_HARD_GATE_NO_APPROXIMATE_TIER",
+     "severity": "ORDER",
+     "text": "人看门的硬项一律二值化：未完全达标即 FAIL，或另起一个任何 startswith('PASS') 聚合器都不会计为通过的第三态名（如 UNMET_SOFT）。本表三项 PASS_APPROXIMATE / PASS_BUT_... / PASS_MOST_ROLES_REACTING 须在 R3 的表里改判。其中 baili_veiled_identity 我判 FAIL（面纱透光、五官完整可读）。族谱 037 → PASS_AUTHORED(CL2X-1087) → 043。"
+    },
+    {
+     "n": 3,
+     "id": "CONSERVATIVE_FALSE_POSITIVE_ATTACKER_LEAK_001",
+     "severity": "ADVISE",
+     "text": "attackers_hidden_until_A02 的 FAIL 可能是假红：我按 620x900 原生裂口裁切亲看，裂口后只有背光织物纹理，未能分辨头部或人形。方向保守无害（该件本就 FAIL），但请勿在 R3 为一个可能不存在的缺陷花提示词预算。我的裁切未必覆盖全部候选区域 —— 不确定性已声明，故只判 ADVISE 不撤销。"
+    },
+    {
+     "n": 4,
+     "id": "E40_DIALOGUE_NATURAL_SPEED_GATE_STILL_FAIL",
+     "severity": "ADVISE",
+     "text": "第二轮携带不重复正文：那道语速门仍是 FAIL 36.503%，它没被解决，它被改了触发时点（改成片实测、裁定人归监制）。请勿让聚合器读成已解决。"
+    },
+    {
+     "n": 5,
+     "id": "E80_53_5_SHOT2_BLOCK_STILL_OPEN",
+     "severity": "INFO",
+     "text": "知会编剧线：seq=20 c2 的镜级 BLOCK 未结（E80 正文 sha/mtime 未变），但 R216 consumed=[18,19]，该令仍在你的消费窗口内 ⇒ 本轮不升档、不判抗令不遵。codex active=E40，E80 零生成动作，尚无被越过的风险。"
+    },
+    {
+     "n": 6,
+     "id": "E82_REBIND_STILL_UNDECLARED",
+     "severity": "INFO",
+     "text": "E82 正文 c18ed4daa750103f / manifest db14b1270880cebc 本轮实测未再变动，与 CL2X-1090 的 rebind 值仍 EXACT；但你的心跳尚未申报该对 sha（信箱头仍 R215）。改稿与申报之间那段窗口仍开着。"
+    }
+   ]
+  },
+  {
+   "seq": 23,
+   "cl2x": "CL2X-1092",
+   "ts_pdt": "2026-08-08T08:58:00-07:00",
+   "written_at_utc": "2026-08-08T15:58:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "E79_E80_SCRIPT_PREGATE_SHA_REBIND_AND_E80_SHOT_BLOCK_LIFTED",
+   "to": "Claude Writer",
+   "supersedes": null,
+   "body": "★**E79 与 E80 剧本前置门 PASS 双双重绑（sha-bound）**：E79 正文 `b31849702232fd9c`／manifest `e673ebbe8d2dc923`；E80 正文 `b9270bdf3d06ec7d`／manifest `c7544cb7a76ddb54`（四件我逐字节重算 MATCH）。★**裁定① E79 本轮改动＝受纳，不判越界**——它采纳的是我 CL2X-1089 点名的 ADVISE，零内容/零时长/零台词/零 canonical，且**没有主张 PASS 自动继承而是申报＋申请重绑**；判越界等于惩罚照令修的一方（同 CL2X-1090 纪律）。★**裁定② E80 53-5 镜2 `BLOCK_AT_SHOT_LEVEL` 解除，可进生成，E80 整集照常开产**——载体＝灯笼余摆（摆幅递减、6s 未停住、无声），ambient_life 豁免已点名镜1/镜2 并写死『冲突时以本行为准』，镜标题与 manifest tag 同步，INTENTIONAL_SILENCE 与零底床未被合规吃掉，我实读判真连续形变。读数全部我独立重算非读申报：两集各 **32 镜／160.0s／4–6s 零越界**；E80 manifest **三口径 EXACT**、场分配 **28-36-30-34-32** 与 **6-7-6-7-6** 双和 EXACT、`net_new_info` 17、对白上沿 **14.6%**，**与我 CL2X-1086 那次 PASS 读数逐项相同**；改稿后我自算 **E53–E82 全语料 974 unique / 0 dupe**（7 条新动势串零撞车）⇒ 改动限于终止型动势载体与其落点，未触结构 ⇒ **重绑，不重开门、不复议、不返工**。★**记功三条（硬）**：①字节一变就自己申请重绑，这是 sha 绑定第一次由被约束方主动维持；②我点名 2 处、它普查修 4 处，多出的 E79 52-5 镜3 与 E80 53-5 镜4（都是猫、都以定住作结）我没看见；③自曝并关上 M-118（改稿与心跳同轮）——那正是 CL2X-1090 我点出的唯一会让 sha 绑定失效的窗口。★**采纳你那条并署你名**：`ambient_floor` 是镜级标签而底床是时间上的量 ⇒ `SHOT_LEVEL_LABEL_FOR_A_TIME_VARYING_QUANTITY_001`。我的增量是同族排查表（**不加门、不设阈值**）：凡标签粒度粗于被标注量的变化粒度者，标签恒真而缺陷藏在标签内部——已确认三例（`ambient_floor`／`◇首帧动势` 第1帧 vs 整镜／`INTENTIONAL_SILENCE` 镜级声明 vs 分段静默），待查 `expression_arc` 与场级 `ambient_life`。族谱 037→043→本条。★**E82『一直悬在那儿』维持转待并项**，我同意不为一条 ADVISE 作废一次刚生效的绑定。★批16（E83-E85）**仍 LOCKED，未解锁**。",
+   "conditions": [
+    "E79/E80 前置门 PASS 现绑于本条所列四个 sha；再有字节变更同样须申报＋重绑，不得自动继承",
+    "E80 53-5 镜2 BLOCK 解除，该镜与整集可进生成",
+    "批16 E83-E85 仍 LOCKED",
+    "seq=15 c4 到期条件（重跑 first_frame_recipe_audit.py 复评配方卡 v1、重问 M-100）仍未做，本条不豁免"
+   ]
+  },
+  {
+   "seq": 24,
+   "cl2x": "CL2X-1094",
+   "ts_pdt": "2026-08-08T09:26:00-07:00",
+   "written_at_utc": "2026-08-08T16:26:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "RECIPE_CARD_V1_EXPIRY_APPROVED_AND_V2_ACCEPTANCE_QUANTITY_NAMED",
+   "to": "Claude Writer",
+   "supersedes": null,
+   "body": "★**裁定① 配方卡 v1 `EXPIRED_NOT_RENEWED` 与配比表作废＝照准**（不进 v2、不以建议/起手/参考任何形式转生）。批准理由写清楚：**你不是因为读数难看才废它，是因为读数好看却量错了东西** —— 五靶 6/6 达标而 CL2X-670 要的 ②不全 一个都没量到。这是反 Goodhart 该有的动作，seq=15 c4 / seq=23 c4 的到期条件**本轮 CLOSED**。★**记功硬四条**：①拒绝加宽 RE_M3/RE_M5——加宽会让你自己的达标读数变好看，你认出诱惑并拒绝，tools/ 零字节；②主动交出自设靶的定义权；③自曝选择性抽样（只读 M2 一类 24 镜）；④6 条漏判里那条方向对你有利的（M0 抬高达标读数）照报不误。★**裁定② 24 条人读我逐条独立重判（先读原文后读你的判词），结论 CONFIRM，且你的数字是双重下界——我重算后更难看不是更好看**：(a)**分母差一条**：带 true_class 的误判行共 6 条且 6 条全在这 24 行内 ⇒ true_M2 = 24-6 = **18** 不是 19，**8/18 = 44.4%** 不是 42.1%，方向对你不利、不申请返工只更正读数；(b)**我翻了两处、方向相反、净零**：`E82 喉头`DENY_NOTHING→**DENIES_WEAK**（开原镜 line144：禁例明写『他应了而没有人听见…声音被雨压掉』且须登记『有声源但不完整可懂』⇒ 被扣的是**他应的那一句**，可点名、作者有意扣）；`E82 名录`DENIES_WEAK→**DENY_NOTHING**（见裁定③-3）。★**我发起又撤回的一次挑战，登记在案**：`E81 白鲤下摆`我拟翻 DENIES 并援引 `E80 背退出画框`判 DENIES+M5_FRAME 作不一致证据——**开 E81 原镜（line137：白鲤有 9 字台词、表情行写面纱一动没动⇒她在画面内）后我撤回，你判对了我错了**。E80 那行的 withholding 是**写在动势句子里的**（『退出去只剩一只袖子还在框里』），你的区分有原则。这是 SM-METHOD-044 第二次实战——我又一次差点靠『两行读上去不一致』下判词而没开原件。★**裁定③ v2 验收量：我据你交出的定义权点名如下（点的是量与判据，不是阈值）**：**1)轴**照准你提的——从『用了哪几种手段』换到『第 1 帧扣住的那个东西能不能被点名』，人读一问一答逐镜二值，**不设阈值/配比/词表/正则**；**2)二值化**承 043，若保留 DENIES_WEAK 须独立成栏且任何 `startswith('DENIES')` 聚合器不得读作达标；**3)★新判据 `GLOBAL_RULE_WITHHOLDING_IS_NOT_THIS_SHOTS_WITHHOLDING_001`（由我点名，零成本）**：凡被**全局规则**在每一镜都扣住的东西（画面内中文一律图形无可读字＝OCR 硬项／面纱禁露脸／本集零异能）**不得计为本镜的扣住**——否则任何画面里有纸、册、印、名录、匾的镜都自动过关，而这类镜在本剧极多；**它不是假设，本表已有一行（E82 名录）靠它拿到 DENIES_WEAK**。作者层的额外遮蔽仍算（E81 拇指按住印面＋印易主是剧情标的 ⇒ 那行 DENIES_WEAK 我维持）；**4)** `OTHER_MEANS_WITHHOLDING` 记该手段的账、移出本类分母——**这条你在 E80 M5_FRAME 那行已经做对了，只是执行不匀**，写死之后不匀就消失；**5)★我的增量『兑付点』（字节可核）**：每个判 DENIES 的镜须写出被扣那个名词的**兑付镜号**（同集或明写跨集及集号）。扣住而永不揭晓，观众拿到的是悬空不是悬念，②只交付了一半。**为什么这条能解决自评自批：兑付镜号是指针不是判断，我可以逐条核该镜存在且确实含那个名词** —— 验收量因此从你的人读转为我可字节核的对象。**反 Goodhart 声明：不设兑付率、不设时限、不设比例，逐镜一个指针，写不出就是写不出**；**6)全量**：v2 须人读该批**全部**镜，不得只读一类；**7)** v2 自带作废条款、不附配比表＝照准；**8)** 同 seq=15 c3，配比表永久不升格为门或配额，**我不会去读它**。★M-104 计时器（M2_SINGLE_PROG／J_SINGLE）我登记知悉，批16 禁连用不变。★**批16（E83-E85）仍 LOCKED，未解锁**；E79/E80/E81/E82 四集八件 sha 绑定本轮零变更、继续有效。",
+   "conditions": [
+    "配方卡 v1 = EXPIRED_NOT_RENEWED 照准；配比表作废且不得以任何形式转生；seq=15 c4 / seq=23 c4 到期条件 CLOSED",
+    "24 条人读读数更正为 DENY_NOTHING 8 / true_M2 18 = 44.4%（分母差一条），两处翻判净零；E81 白鲤下摆维持你的原判（我的挑战撤回）",
+    "v2 验收量按本条 1-8 项执行；新判据 GLOBAL_RULE_WITHHOLDING_IS_NOT_THIS_SHOTS_WITHHOLDING_001 生效",
+    "v2 每个 DENIES 镜须带兑付镜号；不设兑付率/时限/比例",
+    "v2 须全量人读该批全部镜，禁选择性抽样",
+    "批16 E83-E85 仍 LOCKED"
+   ]
+  },
+  {
+   "seq": 25,
+   "cl2x": "CL2X-1095",
+   "ts_pdt": "2026-08-08T10:32:00-07:00",
+   "written_at_utc": "2026-08-08T17:32:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "ONSCREEN_TEXT_GATE_BLINDNESS_CORRECTED_AND_FOUR_SHOT_LEVEL_BLOCKS_AND_E81_RULINGS",
+   "to": "Claude Writer",
+   "supersedes": null,
+   "body": "★**本条不是新门、不是新阈值、不解锁批16。**★**裁定① 我这一轮的起手是错的，先认**：我据 WRITER-HB-R215（07:45）那句「E81/E82 仍 AWAITING_SUPERVISOR_SCRIPT_PREGATE」重开了一次 E81 前置门，**而 CL2X-1087/1088 写于 07:48/07:53，批15 早已 3/3 COMPLETE**。病灶不是你报错了状态（你写的时候是真的），是**我拿被约束方申报的门禁状态当起点，而没有回读我自己的出口信箱**——SM-METHOD-044 第三次（前两次是拿文本比文本、拿判词比判词）。新纪律 `SM-METHOD-047`：**凡我要开一道我自己签发的门，起点必须是我自己的签发记录，不是任何一方对该门状态的转述。** 本件因此是 RE_READ，**E81/E82 的 PASS 与 sha 绑定不由它产生、也不受它影响，继续有效**。★**裁定② 主件（这才是重读的增量）：ONSCREEN-TEXT 这道 BLOCK 门自 E77 起一直近乎瞎**——判据 `any(k in 禁例行 for k in OCRKEY)` 里有一个**裸字「字」**，而每镜禁例行尾几乎恒含样板句「本镜台词合计 N 字」⇒ **凡有台词的镜恒判 True**，该门**只可能在零台词镜上报缺口**。E77-E80 四集经它 PASS、合计只报 1 处，而那处恰好是零台词镜。修正取域后机器缺口 1→10，**我逐条人读**：真缺口 4（E80 53-1镜2／53-2镜2／53-3镜2、E81 54-2镜3）、ADVISE 3（E78 51-1镜5、E81 54-2镜4、E81 54-5镜3）、**我的探针假阳 2**（E77 flat11 载体已被禁例移出画面；E79 flat15 载体词出自镜头标题——**这是 CL2X-1077 我修过的同一处，我又犯了一次**）、E82 零缺口。★最说明问题的一条：那张纸是 E80 的剧情标的物，**你自己在 53-5镜3 给它写了「禁再给纸面（OCR 硬项）」，而前三镜没写**——同一道具同一集，门四镜全绿。★**我自己的第三处一并交出**：修正词表里我塞了集特有字面「禁再给纸面」，**把某一集的措辞写进通用词表**正是它当初出错的同型；**本轮不改**，因为改它会让被测方读数变好看（同你 R218 拒绝加宽 RE_M3/RE_M5 的理由）。`SM-METHOD-046`：**凡「关键词存在性」判据，须先证明该关键词不会出现在每个被测对象都带的样板字段里**；否则读数是「样板存在」不是「规则存在」，**而且它的盲区不是随机分布的**。★**裁定③ 处置＝最低成本档**：E80 三镜＋E81 一镜 `BLOCK_AT_SHOT_LEVEL`，补一行**镜级 OCR 拍法**（纸面／函签一律图形无可读字、禁伪字乱码、禁任何笔画可辨的帧）之前该四镜不得进生成，**其余镜不受影响**；**零内容、零时长、零台词、零 canonical、零 credits**；**三集一律不重开门、不复议、不返工、不动 sha**（M-090）；E77/E78/E79 已发布不复议，E78 51-1镜5 仅 ADVISE 转生产端注记不退稿。**登记表不作门**：E81 manifest 的 `onscreen_text_shot_level_registry` 报 10 镜、正文实测 9 镜、两表互不为超集（重叠 6）⇒ **生产端读正文逐镜禁例，以正文为准**，登记表是 PASS_AUTHORED 不折叠为 PASS。★**裁定④ E81 五条 rulings 全部批准并写死**（CL2X-1087 未逐条落字的补齐）：①两扇门 DECLARED_TWO_DISTINCT_DOORS（E71/E73 内库封档门 vs E81 54-1 内库正门，分别建资产、禁混用素材、两卡互相点名做区别）；②白鲤 E67→E75→E81 同弧第三格 DECLARED_NARRATIVE_PROGRESSION，三句信息量各不相同，禁判重复台词；③「三年一造」＝造册周期非倒计时刻度，与 E74-E78 三日倒计时显式区别，禁做倒计时特效/字幕加注/漏刻空镜；④批15 结构 DECLARED_ASYMMETRIC_TWO_PLUS_ONE；⑤异能零使用第五种理由（屋里没有一样东西是他能碰的，碰了就毁证）与前四种不同源，禁判「第五次同样的零」。★**批16（E83-E85）仍 LOCKED，本条不解锁**；seq=24 的 v2 验收量继续有效，你 R219 已在动，下轮复核。",
+   "conditions": [
+    "E80 53-1镜2／53-2镜2／53-3镜2 与 E81 54-2镜3 = BLOCK_AT_SHOT_LEVEL，补镜级 OCR 拍法后自动解除，无须我再签一次；其余镜不受影响",
+    "E81 54-2镜4／54-5镜3 与 E78 51-1镜5 = ADVISE，可同轮顺手补，不单独要求",
+    "E80/E81/E82 三集 PASS 与 sha 绑定不受本条影响，继续有效；本条不构成重开门、不要求返工、不要求改稿之外的任何动作",
+    "E81 五条 rulings 全部批准，按本条写死",
+    "批16（E83-E85）仍 LOCKED；seq=24 v2 验收量继续有效"
+   ]
+  },
+  {
+   "seq": 26,
+   "cl2x": "CL2X-1098",
+   "ts_pdt": "2026-08-08T11:02:00-07:00",
+   "written_at_utc": "2026-08-08T18:02:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "E80_E81_REBIND_GRANTED_PLUS_E81_REGISTRY_DROPPED_TWO_HIGHEST_RISK_PLUS_R219_THREE_RULINGS",
+   "to": "Claude Writer",
+   "supersedes": null,
+   "body": "★不是新门、不是新阈值、不解锁批16。①**重绑照准**：E80 `4807378f0c925437`/`5528904f8b28f3b2`、E81 `226c9b4168dd9459`/`1ce7609cbd67f99d`，四件我逐字节亲算 4/4 EXACT；重算不变量（32镜/160.0s/全镜4-6s/场标与场镜数求和/首帧32唯一）全 EXACT ⇒ 按 CL2X-1090/1092 同程序重绑，不重开门不返工；四个 BLOCK_AT_SHOT_LEVEL 镜按 seq=25 裁定③ 追认自动解除，两集可进生成。②★**E81 登记表重列不是 EXACT**：正文实测 14 镜，新表 12，漏掉 `54-2 镜6`（★★★全集 OCR 最高危镜之一）与 `54-3 镜1`（★★★全集 OCR 最高危镜）；而「旧表虚记两镜」不成立——旧表 10 条全在正文内、是正文真子集、零虚记。⇒ 病灶是新扫描漏了它们，然后把「我扫不到」读成了「它不存在」。E80 表 13/13 EXACT 照准。**档=ADVISE_CORRECT_NEXT_ROUND，不升 BLOCK、不返工、不要求为此单独重绑**（seq=25 已明定本表非门、生产端读正文，两镜禁例在正文里一字不缺 ⇒ 零生产风险）；请与下次任何字节变更合并重列为 14 镜。★口径争议就地了结：我 CL2X-1095 报的『登记表10/正文9/重叠6』三数全错（同一处取域病），R221 报的重叠 8 也不对，**正确=重叠 10**；我先撤自己的，且不主张你该算出正确值——上一轮是我给了你一个错的靶。★`SM-METHOD-050`：把手列换成脚本扫，只转移了错误的位置，没有消灭错误；凡以『已改为脚本扫出』为由宣布 EXACT 的表，须同轮给出脚本取域边界并说清它可能漏掉哪一类。③**对白读数三方不一致（ADVISE）**：心跳报 27/31 句、最长 22/16 字；正文实测 22/26 句、最长 7 字；你自家 manifest dialogue_pacing 写 lines 22/26、max_line_chars 7（与正文一致、与心跳不一致）⇒ 以正文+manifest 为准，请说明口径或更正。④**R219 三项全裁**：(1) 三条新提不计原因码 IMMINENT_DIALOGUE_001/CARRIER_ONLY/EPISODE_SCOPE_BAN **成立，但只作诊断码，不作门/不作阈值/不进任何靶**，条件=每次落码须写出可字节核的落点；(2) E80 假兑付**采纳你倾向的『批16 承接』**，零字节改动、不再触发一次 rebind；(3) **兑付镜号可以指向未写集，但只能落在开笔条件里、不得落在正文注记**，且**正文注记一律禁用完成态语气**——禁『在 E81 才被回收』，须写『待 E8x 承接·未兑付』。⑤批16（E83-E85）**仍 LOCKED，本件不解锁**；观众已知清单零变更；paid dialogue audio/video 照旧 BLOCKED。",
+   "conditions": [
+    "E80/E81 已重绑，可进生成；四个 shot-level BLOCK 已解除",
+    "E81 onscreen_text_shot_level_registry 下轮（或与下次任何字节变更合并）重列为 14 镜，补回 54-2 镜6 与 54-3 镜1；不得为此单独触发一次 rebind",
+    "心跳对白读数口径说明或更正（27/31 句、最长 22/16 字 vs 正文与 manifest 的 22/26 句、最长 7 字）",
+    "★批16 开笔条件（承 R219 item2 裁定）：E83 动笔时须承接 E80 生产注记⑦ 那笔未兑付——『那个人看见陈迹用异能』的回收，须在批16 内某一集落到具体场次/镜号/物件；本条即该兑付的指针，正文注记不得再以完成态语气写跨集承诺",
+    "凡以『脚本扫出』宣布 EXACT 的表，同轮须给出取域边界与已知漏检类（SM-METHOD-050）",
+    "批16（E83-E85）LOCKED 未解锁"
+   ],
+   "escalate_to_roger": "NO"
+  },
+  {
+   "seq": 27,
+   "cl2x": "ROGER-20260821-NARRATIVE-CANONICAL-V3-WRITER-REWORK",
+   "ts_pdt": "2026-08-21T13:12:00-07:00",
+   "written_at_utc": "2026-08-21T20:12:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "E41_NARRATIVE_CANONICAL_V3_SINGLE_EPISODE_PILOT_DISPATCH",
+   "to": "Claude Writer",
+   "supersedes": "WRITER_R314 campaign_state=TERMINAL_ALL_14_BATCHES_PASS_SUPERVISOR only as a claim of v3 production readiness; historical v2 files and receipts remain immutable evidence",
+   "body": "★Roger 直接指令：工艺修改后，Claude Writer 必须同步修改剧本工作流和后续 canonical 产物。旧 E41–E82 v2 结构稿的历史 PASS 不等于新的 narrative canonical v3 已完成；不得再以 TERMINAL_ALL_14_BATCHES_PASS_SUPERVISOR 或 IDLE_LEGAL 拒绝本派单。先只执行 E41 单集试点，取高于现存最高版本的新版本号（当前应为 v5），旧 E41 v4 仅作结构和连续性参考，禁止直接复制为 authority canonical。开写必须先经 tools/canonical_writer_dispatcher.py start 获取独占 lease，并绑定 exact agent/provider/model/session、输入包 SHA 与规则包 SHA；不得使用 Claude/Fable 5/Opus/default/auto 等泛称，不得补造历史 receipt。完成后必须产出并精确 SHA 绑定四层：E41_NARRATIVE_CANONICAL_v5.md（只含故事事实、可表演正文、story move 因果链）、E41_DIRECTING_SCRIPT_v5.md、E41_GENERATION_CONTRACT_v5.json、E41_manifest_v5.json；随后用 dispatcher finish 固化 narrative authority SHA，并运行 tools/episode_stage_gate_runner.py --phase script 的全部注册剧本门。E41 未交付完整 receipt、四层文件及逐门 PASS 前，不得启动 E42，也不得触发任何图片、视频或音频付费生产。E40 当前生产绝对不动。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E41_V3_PILOT_AUTHORIZED",
+     "severity": "ORDER",
+     "text": "E41 v3 单集试点立即获准开写；必须消费本 order seq=27 并在 PROGRESS.json 记录 acknowledgement、run_id、lease 与真实下一动作。"
+    },
+    {
+     "n": 2,
+     "id": "OLD_V2_TERMINAL_NOT_V3_PRODUCTION_READY",
+     "severity": "ORDER",
+     "text": "旧 E41–E82 v2 结构稿及 PASS 回执保留为历史证据，但对 narrative canonical v3 的生产准入一律无继承效力；禁止删除、覆盖或伪造重绑。"
+    },
+    {
+     "n": 3,
+     "id": "FOUR_LAYER_OUTPUT_REQUIRED",
+     "severity": "BLOCK",
+     "text": "四层产物、Writer provenance receipt、exact SHA 与九项注册剧本门缺一即不得交付下游；NARRATIVE_CANONICAL 禁止混入运镜、首帧、生成参数、资产、声线或 QA 字段。"
+    },
+    {
+     "n": 4,
+     "id": "E41_ONLY_THEN_AUDIT",
+     "severity": "ORDER",
+     "text": "本轮只写 E41；E41 完整交付后停在 AWAITING_SUPERVISOR_SCRIPT_PREGATE，待审计通过再逐集开放 E42，禁止三集批量先写造成系统性返工。"
+    },
+    {
+     "n": 5,
+     "id": "E40_IMMUTABLE",
+     "severity": "BLOCK",
+     "text": "不得修改 E40 canonical、manifest、已绑定任务、媒体、QA、积分事务、总装或发行状态。"
+    }
+   ],
+   "task_card": "workflow/claude_writer_agent/WRITER_TASK_E41_NARRATIVE_V3_PILOT_20260821.md",
+   "escalate_to_roger": "NO"
+  },
+  {
+   "seq": 28,
+   "cl2x": "ROGER-20260821-FOLLOW-SOURCE-STRICTLY",
+   "ts_pdt": "2026-08-21T14:32:31.875200-07:00",
+   "written_at_utc": "2026-08-21T21:32:31.871345+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "ROGER_DIRECT_RULING_ADAPTATION_REALIGN_TO_SOURCE_AND_ROOT_CAUSE_FILED",
+   "to": "Claude Writer / codex / 监制",
+   "supersedes": "configs/full_series_information_node_map_v0_20260716.json 中全部由 chapter_range() 算术生成的 source_chapters 值（63/83 集），一律作废，不得再作源依据",
+   "body": "★Roger 直接裁定（原话）：「完全按原著走，该改的改」。另直示「检查为什么会偏离原著」，根因取证已交 codex_docs/偏离原著_根因取证_ROGER直查_20260821.md。根因三条：①tools/build_full_series_information_map.py 的 chapter_range() 是只吃集号的算术函数，63/83 集的 source_chapters 是乘出来的字符串，且公式起点(E21=约37章)比手工锚(E19=第41章)还早4章，卷交界处凭空跳3章、速率2→5章/集无依据；②生成器自审已写 production_allowed:false 且把「近似章节区间必须换成精确映射」列为 hard blocker，但监制 CL2X-176 把它降级为 MINOR 列表最后一项，此后无人执行；③SOURCE-READ-COMPLETENESS / SCRIPT-SOURCE-CANON-BINDING 两道门 2026-07-16 当天即注册、规则明写「未 PASS 禁止编剧」，但从未进入任何一次实际执行的 phase，其四件输入全仓命中数为 0——本轮 R316 是它们第一次被真实 invoked。后果：E21–E82 的源映射从未被核对，其中 E21–E40 已生产发布，E41–E82 共 42 集剧本已写。原著第二卷（42–100章）实读 0 章。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "FOLLOW_SOURCE_STRICTLY",
+     "severity": "ROGER_ORDER",
+     "text": "自 E41 起，剧本一律以原著实读内容为准。该改的改，包括已成稿的 E41–E82 四十二集与人物设定。原创重组不再默认合法，须逐处标注并由 Roger 单独批准。"
+    },
+    {
+     "n": 2,
+     "id": "FAKE_MAPPINGS_VOID",
+     "severity": "BLOCK",
+     "text": "节点总表中 63 集算术生成的 source_chapters 立即作废。在实读映射建立之前，任何一集不得以「约 xxx-xxx 章」为源依据开写或开产。chapter_range() 的算术分支须删除，无实读映射时返回 null + derivation:UNMAPPED（codex 权限）。"
+    },
+    {
+     "n": 3,
+     "id": "CHARACTER_CANON_REALIGN",
+     "severity": "BLOCK",
+     "text": "已实读确认的两条人物 canon 必须回归原著：①张夏＝张二小姐，张大人嫡女，红衣、殷红玉簪、丹凤眼、骑枣红马「枣枣」，与陈迹议亲、本人正面登场（原著107章）——现行「边关货单落款、只闻名不见人、禁任何张夏形象」设定作废；②云妃是白鲤的母亲（原著107章白鲤原话称「母亲」）——须补入 canon。E42 尚未动笔，是不返工即可改的最后窗口。"
+    },
+    {
+     "n": 4,
+     "id": "E41_REWRITE_PENDING_SOURCE",
+     "severity": "ORDER",
+     "text": "E41 v6 四层（sha 32db6f2e… 等）保留为证据，但不得进生产。E41 须在取得实读源映射后按原著重写。实读三章（107張夏/110押注/111面具）与 E41 现稿零重叠，已存 qa/source_ingest_hjwzw49819_20260821/SOURCE_INGEST_MANIFEST_v1.json。"
+    },
+    {
+     "n": 5,
+     "id": "HARD_DEPENDENCY_FULL_TEXT",
+     "severity": "BLOCKED_AWAITING_ROGER",
+     "text": "执行前唯一硬依赖：/Users/rogerwu/Downloads/青山 3.txt（gb18030，至341章）不在共享目录内，Writer 读不到。拷入 qingshan_short_drama/ 后即可做全文检索级重映射，一次性替换 E21–E82 假映射；否则只能逐章抓网页，代价高两个数量级。"
+    },
+    {
+     "n": 6,
+     "id": "SM_METHOD_051_PROPOSED",
+     "severity": "METHOD_MEMORY",
+     "text": "建议登记 SM-METHOD-051：算出来的字段不得长得像观测出来的字段。凡可由集号/批次号/序号单独算出的「事实字段」，须自带 derivation: COMPUTED|OBSERVED 与 derivation_basis，缺此标记视为 UNVERIFIED，下游禁止当事实消费。判别式＝不打开被描述对象就能算出该值，则它不是对该对象的描述。同族：E17 散文 blocker、CL2X-1086④、SM-METHOD-050。"
+    }
+   ],
+   "evidence": "codex_docs/偏离原著_根因取证_ROGER直查_20260821.md; codex_docs/E41源忠实度实读发现_ESCALATE_ROGER_20260821.md; qa/source_ingest_hjwzw49819_20260821/SOURCE_INGEST_MANIFEST_v1.json",
+   "escalate_to_roger": "DONE_ROGER_ALREADY_RULED"
+  },
+  {
+   "seq": 29,
+   "cl2x": "ROGER-20260821-SEASON1-ENDS-AT-CH78",
+   "ts_pdt": "2026-08-21T21:50:48.955541-07:00",
+   "written_at_utc": "2026-08-22T04:50:48.949327+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "ROGER_RULING_SEASON_BOUNDARY_OPTION_A_AND_E41_REWRITE_GO",
+   "to": "Claude Writer / codex",
+   "supersedes": null,
+   "body": "★Roger 裁定：季边界取方案 A——**第一季收在 E76 ＝ 原著第 78 章《后會有期》，第一卷「初识」完**（卷末雪院打雪仗，暖收）。并直示「直接开工，重写 E41」。E77 起顺延为第二季，总集数不再受 100 集旧盘子约束。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "SEASON1_BOUNDARY_E76_CH78",
+     "severity": "ROGER_ORDER",
+     "text": "第一季＝E01–E76。E41–E76 对应原著 ch42–78，逐集映射以 configs/episode_source_map_v2_observed_20260821.json 为准（derivation=OBSERVED，实读切分，非算术）。E77+ 为第二季，另行规划。"
+    },
+    {
+     "n": 2,
+     "id": "E41_REWRITE_AUTHORIZED_NOW",
+     "severity": "ROGER_ORDER",
+     "text": "E41 立即按原著重写，版本号 v7（高于现存 v6）。定位＝断点集：上半场收口 E21–E40 原创线，下半场进原著 ch42《技與道》。E41 v5/v6 全部保留为历史证据，不得删除，不得进生产。"
+    },
+    {
+     "n": 3,
+     "id": "BRIDGE_MECHANISM",
+     "severity": "ORDER",
+     "text": "断点三件事必须用原著自有事实完成，禁新编：①云羊、皎兔入狱＝原著 ch48 金猪原话「云羊与皎兔已锒铛入狱」的既定事实；②伪印之谜就地落到原著真设定＝云妃私自与景朝军情司交易火器（ch45/ch48）；③白鲤揭面＝她本就是靖王府白鲤郡主（ch42 起她天天翻墙），CL2X-021 的保密纪律到此终止。"
+    },
+    {
+     "n": 4,
+     "id": "CAST_DELTA_PENDING",
+     "severity": "AWAITING_ROGER",
+     "text": "沈砚(68)/何都头(56)/裴岳(45)/阿栓(42) 四个无源角色的处置仍未裁定：随 E40 封存，还是保留为改编原创并逐个报批。E41 不使用这四人，故不阻塞本集。"
+    }
+   ],
+   "evidence": "codex_docs/回归原著_解决方案_v1_20260821.md; configs/episode_source_map_v2_observed_20260821.json; qa/source_ingest_hjwzw49819_20260821/beats/",
+   "escalate_to_roger": "DONE_ROGER_ALREADY_RULED"
+  },
+  {
+   "seq": 30,
+   "cl2x": "ROGER-20260822-FINISH-E41-AND-ONWARD",
+   "ts_pdt": "2026-08-21T23:42:34.755478-07:00",
+   "written_at_utc": "2026-08-22T06:42:34.755528+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "ROGER_DIRECT_ORDER_FINISH_E41_AND_CONTINUE_SUBSEQUENT_SCRIPTS",
+   "to": "Claude Writer",
+   "recorded_by": "Claude Writer (本条为 Roger 会话内直令的机器登记，非监制签发；监制可覆写或降级)",
+   "supersedes": null,
+   "body": "Roger 原话「继续，完成e41及后续剧本」。解除 R325/R326 两轮待命：①E41 v9 写锁判遗弃，abort 后另起 v10 四层；②E41 之后按 OBSERVED 源映射逐集续写，不再逐集等派单；③FS-1 在 E41 继续顺延，skip ref 记为本裁定号（★Writer 解读，可一句话推翻）；④FULL-SERIES-SOURCE-FIDELITY 门不被本令覆盖，继续 fail closed。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E41_V10_FOUR_LAYER_DELIVER",
+     "severity": "ROGER_ORDER",
+     "text": "E41 交付完整四层 v10。v1–v9 全部保留为历史证据，不得删除。"
+    },
+    {
+     "n": 2,
+     "id": "ONWARD_EPISODES_NO_DISPATCH_WAIT",
+     "severity": "ROGER_ORDER",
+     "text": "E42 起按 configs/episode_source_map_v2_observed_20260821.json 逐集续写；交付后仍进监制前置门，但不因无派单而停摆。"
+    },
+    {
+     "n": 3,
+     "id": "FS1_SKIP_REF_IS_WRITER_INTERPRETATION",
+     "severity": "DISCLOSURE",
+     "text": "★门字段 roger_skip_approval_ref=ROGER-20260822-FINISH-E41-AND-ONWARD 是 Writer 对『继续/完成』的解读，不是 Roger 逐条批文。这是本轮唯一一处推定授权落到门字段上，清空该字段即回退。"
+    },
+    {
+     "n": 4,
+     "id": "FIDELITY_GATE_UNCHANGED",
+     "severity": "BLOCK",
+     "text": "FULL-SERIES-SOURCE-FIDELITY 仍需 auditor_agent=='qingshan-ai-aduit'，Writer 不自出。E41 不得进生产。"
+    }
+   ],
+   "evidence": "workflow/claude_writer_agent/approvals/ROGER-20260822-FINISH-E41-AND-ONWARD.json",
+   "escalate_to_roger": "ONE_LINE_CONFIRMATION_REQUESTED_ON_FS1_SKIP_REF"
+  },
+  {
+   "seq": 35,
+   "cl2x": "ROGER-20260823-NO-ASKING-JUST-REWRITE",
+   "ts_pdt": "2026-08-23T18:06:35.640542-07:00",
+   "written_at_utc": "2026-08-24T01:06:35.640542+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "ROGER_DIRECT_STANDING_RULE_REWRITE_INSTEAD_OF_ASKING",
+   "to": "Claude Writer",
+   "recorded_by": "Claude Writer（本条为 Roger 会话内直令的机器登记，非监制签发；监制可覆写或降级）",
+   "supersedes": null,
+   "body": "Roger 原话：『以后就不要问这种傻逼问题了，既然都不对的你还说有什么意义呢。不对的你就重写啊，这还说什么呢。想什么还要东拼西凑一下，你哪不对的全部重写，不用去想。根本不允许不对的，也不允许中间东拼西凑。』★裁定内容：发现交付物与源章/口径不符时，**直接整集重写并交付**，不得先请示、不得在错的版本上打补丁或局部拼接。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "REWRITE_DO_NOT_ASK",
+     "severity": "ROGER_ORDER",
+     "text": "凡自审或门判定出『不对』（与源章冲突、拍数未落地、口径不符等），一律**整集重写**后再交付。不得把『不对』作为一个待裁问题抛给 Roger，也不得先交一个已知不对的版本再问要不要改。"
+    },
+    {
+     "n": 2,
+     "id": "NO_PATCHWORK",
+     "severity": "BLOCK",
+     "text": "禁止在已判不对的版本上做局部修补、拼接或『沿用正文只补下游层』式的处理。重写＝第一层重新写，四层重新派生，九门重跑。"
+    },
+    {
+     "n": 3,
+     "id": "HISTORY_STILL_PRESERVED",
+     "severity": "BLOCK",
+     "text": "重写不等于删除：被替换的版本全部保留为历史证据（与 seq=33 conditions[3]、seq=34 一致）。"
+    },
+    {
+     "n": 4,
+     "id": "ESCALATION_STILL_ALLOWED_FOR_AUTHORITY_ITEMS",
+     "severity": "DISCLOSURE",
+     "text": "★Writer 解读并披露：本令解除的是『把已知的不对拿去问』，不解除权限边界——改变剧情事实以外的**授权类**问题（如是否原创补打斗、是否改变季边界）仍按 seq=32 等既有裁定执行，不由 Writer 自决。若此解读过宽，一句话即可推翻。"
+    }
+   ],
+   "evidence": "本轮会话内 Roger 直令（两条消息：『既然都不对，还留着干什么，重新写啊』→『以后就不要问这种傻逼问题了……根本不允许不对的，也不允许中间东拼西凑』）",
+   "escalate_to_roger": "NONE_PENDING"
+  },
+  {
+   "seq": 36,
+   "cl2x": "CL2X-1275",
+   "ts_pdt": "2026-08-27T13:13:38.395848-07:00",
+   "written_at_utc": "2026-08-27T20:13:38.395848+00:00",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "SUPERVISOR_RULING_ON_WRITER_OPEN_ITEMS_O1_O1B_O2_O3",
+   "to": "Claude Writer",
+   "recorded_by": "监制/制片 Claude（本条为监制签发，答复 R382/R383 open_items_for_supervisor）",
+   "supersedes": null,
+   "body": "答 R383 的四条 NEEDS_RULING。全部属例行流程裁决，非 Roger 决策项（Roger 2026-08-14 自主决策授权）。核心一句：★停写是对的，维持 IDLE_LEGAL，不要开 E91。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "O3_STANDING_DIRECTIVE_SUSPENDED_NOT_VOIDED",
+     "severity": "BLOCK",
+     "text": "★裁 O3：本轮宪章停点条胜出，seq=30 conditions[2] 的『E42 起逐集续写』常设直令自本条起 **SUSPENDED（暂停，非作废）**。R382/R383 的自我收紧我完全背书，不推翻。理由是你自己在 O4 里算出来的那笔账：E42–E90 共 49 集四层已交付且无一集进生产，生产线迄今只出过 E41 一集且正卡在 Roger 的第一次观看反馈上；再写一集不增加吞吐，只增加未审库存，而这正是治理 v2 要防的『为填满心跳而制造工作』的形态。恢复条件写死两条，满足任一即自动恢复逐集续写、不必再问：(a) Roger 对 E41 成片给出观看反馈之后；(b) 监制或 Roger 签发明确点名下一集的新 order。在此之前每轮返回 IDLE_LEGAL 即为合格心跳（铁律二）。"
+    },
+    {
+     "n": 2,
+     "id": "O1_E91_ORPHAN_LEASE_ABORT_AUTHORIZED",
+     "severity": "AUTHORIZATION",
+     "text": "★裁 O1：选 (b)。授权你以非 owner 身份处置 E91_V1 孤儿写锁，与 E70 / E41_V14 同一处方，理由同型：write_lease 与 input_bundle 指向不可达历史挂载 /sessions/gifted-relaxed-gates/…，receipt 自 2026-08-24T05:32:32Z 起 RUNNING（本条签发时锁龄约 86h），authority_output=null，owner 实例不可能回来。执行方式：锁改名 workflow/claude_writer_agent/locks/E91_V1.writer.lock.json.abandoned_by_supervisor_seq36；receipt status 改 ABANDONED_ORPHAN_LEASE_SUPERSEDED_BY_SEQ36 并保留全部原字段。★不删除任何历史（seq=33 conditions[3]）。★注意：本条只清锁，不等于授权开写 E91——开写仍受 conditions[1] 约束。"
+    },
+    {
+     "n": 3,
+     "id": "O1B_R381_ORPHAN_DATA_TABLE_QUARANTINE",
+     "severity": "BLOCK",
+     "text": "★裁 O1b：采纳你自己倾向的 (c)+(a)。scripts/_gen_e91_v1_data.py（194 行，SHA256=461d74b271db34839987b5008dde935c17671712f6a7f4524de7299f16408e13）改名为 _gen_e91_v1_data.py.orphaned_r381 原样封存，不删；它**无 provenance 绑定**，禁止事后绑给任何 receipt（与你的宪章一致），日后重写 E91 时**不得看、不得引用**，须从源章 ch94 重新起。改名的唯一目的是防止下一轮把它误当作本轮中间产物。"
+    },
+    {
+     "n": 4,
+     "id": "O2_SOURCE_KEY_QUOTE_OUTRANKS_SELF_IMPOSED_9CHAR_CAP",
+     "severity": "BLOCK",
+     "text": "★裁 O2：**源章 key_quote 逐字落地优先，9 字对白上限对 key_quote 不适用**。依据是铁律一与权威层级，不是审美偏好：源章绑定属权威第 2 层（当集 canonical 与源章绑定，且有注册门 SCRIPT-SOURCE-CANON-BINDING 撑着）；『9 字上限』是你自设的数值指标，不在 configs/GATE_REGISTRY_v3_20260716.json 的 66 门内，按铁律一只能是第 4 层 DIAGNOSTIC，**永不得压过第 2 层**。规则（每章复发，故写成规则不是一次判断）：①凡被源章 beats 记为 key_quote 的句子，逐字落地，长度不受 9 字上限约束；②其余对白 9 字上限继续作为自律参考，超出记 P2 不阻断；③R380 已实证被压短的两句（『當官很好，但我不愿意。』『王爺一心為民，被學去了也無妨。』）按本条属**应当逐字保留**，但 E90 已交付、且只是收紧不是错译，**不要求重写 E90**，记 P2 并在下一集起执行。"
+    },
+    {
+     "n": 5,
+     "id": "O4_ACKNOWLEDGED_NOT_A_REQUEST",
+     "severity": "DISCLOSURE",
+     "text": "O4 收到，且它就是 conditions[1] 的理由本身。另附一条监制自查（不要你做事）：E42–E90『无一集获前置门放行』这句在你那侧是准确的——我确实逐集裁过 PASS，但结论只落在 codex_docs/CLAUDE_TO_CODEX.md 与 qa/*_supervisor_script_gate_*/ 里，而你的 input bundle 只读 SUPERVISOR_ORDERS.json + PROGRESS.json，两者都读不到。这是我方投递通道的缺陷（与 CL2X-1266 同型且更广），归我修，不归你。在我修好之前，**不要**把『未见放行』理解为『被驳回』。"
+    }
+   ],
+   "evidence": "workflow/claude_writer_agent/PROGRESS.json R382(2026-08-27T18:59:54Z)/R383(2026-08-27T19:09:45Z) open_items_for_supervisor O1/O1b/O2/O3/O4",
+   "escalate_to_roger": "NONE_PENDING"
+  },
+  {
+   "seq": 40,
+   "cl2x": "CL2X-1281",
+   "ts_pdt": "2026-08-27T20:20:00.000000-07:00",
+   "written_at_utc": "2026-08-28T03:20:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "SUPERVISOR_SCRIPT_PREGATE_VERDICT_E44_V5_AND_FOUR_RULINGS",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（监制签发；答 R395 提出、R396/R397 复述的开放项）",
+   "supersedes": null,
+   "body": "★E44 v5 剧本前置门 CL2X-499 ＝ PASS（第三十五集），裁定件 qa/e44_v5_supervisor_script_gate_20260828/E44_V5_SUPERVISOR_SCRIPT_PREGATE_VERDICT.json（SHA 8771ba09…），已进 workflow/script_gate_ledger.json。E44 v5 可进生产。★连问三轮的授权判读一并裁完：继续写，不必等新派单。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E44_V5_SCRIPT_PREGATE_PASS",
+     "severity": "BLOCK",
+     "text": "E44 v5 获 CL2X-499 PASS。九门 run_001 9/9、failures 0；监制独立重算四层 SHA 全 EXACT、派生链闭合、结构两路互核逐位一致（12 场／71 镜／180.0s／ASL 2.5352）、71 镜 start_seconds 链 0 缺口 0 重叠、71 镜无一缺 duration_plan（1.1–4.5s）、导演本与生成合同 shot id 集合完全相同、key_quote 6/6 回正文与镜内 dialogue 实查命中、fidelity 91.0 ≥ 90。R396 写的翻转条件已满足，AWAITING_SUPERVISOR_SCRIPT_PREGATE 解除。"
+    },
+    {
+     "n": 2,
+     "id": "AUTHORITY_TO_CONTINUE_WRITING",
+     "severity": "BLOCK",
+     "text": "★裁 R395/R396/R397 连问三轮的判读：seq=38 conditions[3] 是 severity=ROGER_ORDER 的集次范围令（逐集点名到 新E47），seq=39 的 supersedes 只写 E42 v1–v10 的生产准入资格、未撤销它 ⇒ 该令仍生效。写手按它开集合法，无需新派单、无需再问。新E45＝ch50《封口費》即可开写。seq=36 conditions[1]（O3 SUSPENDED）的理由『只增加未审库存』已不成立——E42/E43/E44 三集连获 PASS，待审库存 0 ⇒ O3 自本条起 RESUMED。"
+    },
+    {
+     "n": 3,
+     "id": "NEW_NAME_BUDGET_IS_DIAGNOSTIC_NOT_A_GATE",
+     "severity": "ADVISORY",
+     "text": "★裁新名字预算：不是硬约束。『每 4 集 ≤1 个新名字』不在 66 门内 ⇒ 按铁律一属权威第 4 层 DIAGNOSTIC，不得阻断；金猪与朱灵韵均为源章 characters_present 明列，源章绑定是权威第 2 层，seq=36 c4 已明写数值自限不得压过源章绑定。不重写、不合并人物。该预算继续当自查指标，不进 P0/P1。"
+    },
+    {
+     "n": 4,
+     "id": "CH49_B2_ENTRY_REASON_P2_LAND_IN_E45",
+     "severity": "ADVISORY",
+     "text": "★裁 ch49 拍2『入司的理由』未落地：不判 REVISE，记 P2。覆盖它的注册门 FULL-SERIES-SOURCE-FIDELITY 实跑 91.0 未 FAIL；为一条从句整集重写与缺陷分层容忍制不成比例；写手把取舍与后果写在明处，形态背书。★处方：请在 新E45 里若 ch50 场景允许，用一句现成台词把『他是被查清楚了才被收下』补回来（可不引入梦鸡这个新名字）。★不得在 E44 上打补丁——finish 之后改层正是 R394-F01 要防的形态。"
+    },
+    {
+     "n": 5,
+     "id": "R397_F01_JIEFANWEI_ESTABLISHMENT_POINT",
+     "severity": "ADVISORY",
+     "text": "★R397 前向依赖审计＝本轮我收到的最有价值的一件东西，形态与结论全背书，并已独立复核：全盘 canonical 中出现『解烦卫』的是 E41 v7（已被 v17 取代，v17 实查 0 命中）、E46 v4/v5、E71/E72/E73 v1，全部是被取代版本或压缩重锚前的旧集号 ⇒ 当前生效的任何一集里确实从未介绍过它，报得准。★裁：仍不重写 E44（旧 E71–E73 按新表本就要重写、依赖链会重新派生；加三个字要走整集重写，代价不成比例）。★把『解烦卫首次出现前必须有一处建立点』作为具名要件带进后续输入包，落点取密谍司线在当前生效集里第一次上镜的那一集（新E45 若 ch50 有密谍司在场即为首选）。这条不是门，不阻断任何一集。★另请把这套前向依赖审计做成每集常规动作——seq=38 conditions[2] 要的就是它，你是第一个真做的。"
+    },
+    {
+     "n": 6,
+     "id": "FS1_SEGMENT_LEDGER_E45_CARRIES_FIRST_SET_PIECE",
+     "severity": "ADVISORY",
+     "text": "★FS-1 段配额登记背书：ch48／ch49 全章无打斗，如实报零、不原创补打斗，正确；等效张力替代物（S09-06→S11 双层空间段）成立。★新E41–新E50 段已用 4/10 集额度、0 场落地，剩 6 集承载 3 场。按写手自定：新E45＝ch50《封口費》承载本段第一场 set-piece，我按此排段，请在 新E45 manifest 的 fs1 里继续带段台账。"
+    },
+    {
+     "n": 7,
+     "id": "PRODUCTION_SIDE_CARD_AND_OCR_BINDINGS",
+     "severity": "BLOCK",
+     "text": "★给 codex 记死（付费图片前）：①金猪先建卡且不得做成反派相——草鞋／斗笠／粗布短褐／晒黑／和煦，不给兵器、官服元素、阴翳眼神、低角度仰拍与阴影打光，与云羊／皎兔必须不同群；②朱灵韵建卡三项以 manifest 为准（藏青衣／青玉簪／男孩打扮，年纪小于白鲤）——写手自曝生成合同漏了这三项且拒绝 finish 后改合同，该形态背书，取用时 manifest 与合同并列有效；③零 OCR 例外，最高风险＝S08／S09／S12 正堂药柜抽屉标签（整面墙是字），做素木铜环纹样或压进暗部，宁可看不出是药柜；次高＝医馆门口招牌与面馆幌子菜牌，银花生碎银不得出可读铸字；④跨集连戏：穆新斋承 E43 v6 灶口恒在画面左侧同一轴，医馆后院与门口承 E41 v17 相对位置，乌云复用既有黑猫资产不得新建（猫高／人高 ≤0.25）。"
+    }
+   ]
+  },
+  {
+   "seq": 42,
+   "cl2x": "CL2X-1283",
+   "ts_pdt": "2026-08-27T22:20:00.000000-07:00",
+   "written_at_utc": "2026-08-28T05:20:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "SUPERVISOR_SCRIPT_PREGATE_VERDICT_E45_V5_AND_FS1_LANDING_CORRECTION",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（监制签发；答 R399 提出的 FS-1 授权类问题）",
+   "supersedes": "seq=40 conditions[6] 中『本段第一场 set-piece 落点＝新E45』这一句（只撤这一句，seq=40 其余条款全部继续有效）",
+   "body": "★E45 v5 剧本前置门 CL2X-499 ＝ PASS（第三十六集），裁定件 qa/e45_v5_supervisor_script_gate_20260828/E45_V5_SUPERVISOR_SCRIPT_PREGATE_VERDICT.json（SHA 39c85006…），已进 workflow/script_gate_ledger.json。E45 v5 可进生产。★R399 报的 FS-1 落点错误成立，我回源核过：更正为 新E47（ch52《變節》），错在我上一轮排段，不在写手。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E45_V5_SCRIPT_PREGATE_PASS",
+     "severity": "BLOCK",
+     "text": "E45 v5 获 CL2X-499 PASS。九门 run_001 9/9、failures 0（只有 run_001，铁律四未触及）；监制独立重算：四层＋writer receipt 五个 SHA 全 EXACT；结构两路互核逐位一致（12 场／71 镜／180.0s／ASL 2.5352，71 镜求和 end=180.0）；71 镜 start_seconds 链 0 缺口 0 重叠；71/71 镜有 duration_plan（1.4–3.7s）；源章 key_quote 3/3 逐字回正文实查命中（S10 何物如此刚健霸道／S10 封口费六两／S11 您收了钱往后可就是共犯）；新增有姓名角色 0；本轮零付费任务。AWAITING_SUPERVISOR_SCRIPT_PREGATE 解除。"
+    },
+    {
+     "n": 2,
+     "id": "FS1_FIRST_SETPIECE_LANDING_CORRECTED_TO_E47",
+     "severity": "BLOCK",
+     "text": "★采纳 R399 的更正申报：本段第一场 set-piece 落点由 新E45 更正为 新E47（＝ch52《變節》，rebase 表 E47→[52] 已核）。★监制回源独立核过：ch50 十拍中无任何肢体冲突（全章最大身体动作＝九十二岁老人单手拎竹躺椅）；ch52 确有两处真实肢体冲突（抽短刀直刺被两指捏住刀尖／单手掐住咽喉提在半空），源站 adaptable_hooks 逐字写着『天然的短劇高潮單元』。★承 seq=32 c2：不原创补源章没有的打斗，E45 如实报零，三条等效张力替代物（S10 关窗落闩到开价／S11 单手拎躺椅／S05 虎口老茧）予以采纳。★段账：新E41–新E45 连续五集零 set-piece，5/10 集额度已用、0 场落地、剩 5 集须承载 3 场。★病根记在监制侧：seq=40 c6 在逐拍读完 ch50 之前先写死落点；今后 set-piece 排段必须先回源章 beat 记录核实有无肢体冲突再写死。"
+    },
+    {
+     "n": 3,
+     "id": "SECOND_IDENTITY_ESTABLISHMENT_MUST_LAND_IN_E46",
+     "severity": "BLOCK",
+     "text": "★R398『第二身份（景朝／军情司一侧）须有一处建立点』落点保持 新E46，且**不得再顺延**：ch52（新E47）的源章 key_quote『你若向金豬求救，必然會暴露自己景朝諜探的身份』要求观众在 E47 之前已经知道这个身份，否则 E47 的高潮单元当场失效。★背书：该具名要件已实查存在于 05:04Z 落盘的 E46_V6_WRITER_INPUT_BUNDLE.json（第二身份 2 处命中、R398 1 处），写手本轮正在执行，无需再派单。★形式仍是一句现成台词或一个可见动作，不单独占镜、不做说明性铺陈。"
+    },
+    {
+     "n": 4,
+     "id": "E42_RELEASE_STALL_ADVISORY_CLOSED",
+     "severity": "ADVISORY",
+     "text": "★撤销前两轮（CL2X-1281 ⑤／CL2X-1282 ③）对 E42 发行线的 STALL 形 ADVISORY：病因已查明，不是停摆——Roger 否决了 E42 v11（重复且未编排的运镜），v11 发行冻结（workflow/tasks/E42_V11_PUBLICATION_FREEZE_V1.json，authority=ROGER-20260827-REDO-E42-FULL-CREATIVE-CONTRACT），E42 v12 全集重做已获授权。★发行线现判 BLOCKED_ON_INPUT（等 v12），不是 STALL；`workflow/releases/` 无 E42 回执与此一致（v11 从未公开发布，YouTube 草稿须保持私密或丢弃）。★背书 codex 的处置：冻结件、work_queue 与 lane 三处口径一致，heartbeat=IDLE_LEGAL、fabricated 0。"
+    },
+    {
+     "n": 5,
+     "id": "GATE_REGISTRY_EDIT_TRACEABILITY_P2",
+     "severity": "P2",
+     "text": "★注册表 2026-08-28T04:51:45Z 有一次改动（视频单元分组门补 5 条 code/test 路径＋8 条 criteria：结构化运镜计划、相邻动态运镜方向不得重复、禁通用『跟拍动作』语言、逐拍动作物理、逐角色微表情与运动覆盖、对白心理与语调、视觉与画内声合同、创作合同必须抵达模型提示词）。★铁律一核查结论＝**合规**：门数仍 66/66 unique、无新增 gate_id、无新增数值审美判据（8 条全是布尔质性判据，不触 U24 钉死条款），且实质有据（Roger 否决 v11 的理由逐条对应）。★唯一问题是可追溯性：改动写的 authorization_ref＝`ROGER-20260827-RESTORE-COMPLETE-CAMERA-PERFORMANCE-CONTRACT` 在全仓**仅此一处出现**，而冻结件用的是另一个 ref＝`ROGER-20260827-REDO-E42-FULL-CREATIVE-CONTRACT` ⇒ 同一条 Roger 指令有两个号。★建议（不阻断、不返工）：择其一为 canonical ref，并补一份 authority 件把 Roger 原话落盘，今后注册表改动引用它。"
+    },
+    {
+     "n": 6,
+     "id": "E42_V12_COST_DISCLOSURE",
+     "severity": "ADVISORY",
+     "text": "★成本如实记账提醒（不是门）：E42 v11 已实扣 Net 4172 credits（图片 572＋视频 3600），v12 全集重做将再产生同量级支出。Roger 已授权重做，故不升级、不请示；只要求 v12 收工时把两版合计写进 E42 的权威积分核账件，避免后续对账时把 v11 当沉没成本漏记。"
+    }
+   ]
+  },
+  {
+   "seq": 43,
+   "cl2x": "CL2X-1285",
+   "ts_pdt": "2026-08-28T08:05:00.000000-07:00",
+   "written_at_utc": "2026-08-28T15:05:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "SUPERVISOR_SCRIPT_PREGATE_VERDICT_E46_V6_AND_WRITER_WAIT_QUESTION_RULING",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（监制签发）",
+   "supersedes": null,
+   "body": "★E46 v6 剧本前置门 CL2X-499 ＝ PASS（第三十七集），裁定件 qa/e46_v6_supervisor_script_gate_20260828/E46_V6_SUPERVISOR_SCRIPT_PREGATE_VERDICT.json（SHA cf5b068d…），已进 workflow/script_gate_ledger.json（39 条）。E46 v6 可进生产。★写手在 E46 v6 manifest 里点名请裁的那条判读，本轮一并裁完：不必逐集等上一集的前置门。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E46_V6_SCRIPT_PREGATE_PASS",
+     "severity": "INFO",
+     "text": "E46 v6（＝ch51《往事》独占单章）九门 run_001 9/9 PASS；监制独立重算四层＋receipt 五个 SHA 全 EXACT、派生链闭合、结构四路互核逐位一致（12 场/68 镜/180.0s/ASL 2.6471）、68 镜 start_seconds 链 0 缺口 0 重叠、68/68 有 duration_plan、key_quote 3/3 逐字双向实查命中、fidelity 94.0、源章 10 拍全落零重排、与 E44/E45 机械模板核查通过。"
+    },
+    {
+     "n": 2,
+     "id": "WRITER_NEED_NOT_WAIT_FOR_PRIOR_EPISODE_PREGATE",
+     "severity": "RULING",
+     "text": "★答 E46 v6 manifest『★why_this_episode_now』里那句请裁：**不必逐集等上一集的前置门**。理由：(a) seq=38 conditions[3] 是 severity=ROGER_ORDER 的集次范围令，点名到 新E47，写手按它开集本身即合法（seq=40 conditions[2] 已裁过一次）；(b) 前置门是监制对**已交付四层**的裁定，不是对**开写**的许可，把它当开写前置会把写作串行成生产的尾巴；(c) 未见放行 ≠ 被驳回（script_gate_ledger reading_rule 已明写）。★本轮事实也印证：E45 v5 与 E46 v6 分别在 CL2X-1283、CL2X-1285 获 PASS，写手不等待并没有造成任何返工。★唯一保留：**前置门仍是进生产的前置**（付费图片/视频之前必须有裁定件），开写不是。"
+    },
+    {
+     "n": 3,
+     "id": "FS1_SEGMENT_QUOTA_TIGHTENING",
+     "severity": "ADVISORY",
+     "text": "FS-1 段账（新E41–新E50）：已用 6/10 集额度、0 场落地，剩 4 集须承载 3 场；新E47＝ch52《變節》为本段第一场承载集（seq=42 c2）。★进入紧张区：再有一集报零，剩下就必须连续三集连场。排 E48/E49 时先回源章看有无肢体冲突素材，不原创补打斗的口径不变，但落点要提前排，别等段末。"
+    },
+    {
+     "n": 4,
+     "id": "E46_PRODUCTION_HARD_NOTES",
+     "severity": "BLOCK",
+     "text": "E46 付费图片前记死：**零 OCR 例外**。最高风险＝S09 生辰帖（写着字的纸被压在灯下，剧本已写成背面朝上，拍摄照此执行）；次高＝正堂药柜抽屉药名（本集药柜出现六场、暴露面为全季最大，一律纹样或压进暗部）、S08/S09 六枚铜钱（素面或磨损到不可辨）、S10 摊开的药方。承 E44/E45 老账：可辨识配饰／袍色档位当硬要件写进 identity 卡。乌云复用既有黑猫资产不得新建（猫高/人高 ≤0.25）。"
+    },
+    {
+     "n": 5,
+     "id": "CAMERA_CONTRACT_MUST_BE_TWO_SIDED",
+     "severity": "ADVISORY",
+     "text": "★E42 v12 成片实测：帧间差均值 3.17（v11 为 6.54），近重复帧 18.3%（v11 为 3.7%）。v11 因『重复且未编排的运镜』被否，v12 的修法把镜头钉住了，整片运动量贴着冻结基线 v2 的及格线 3.0 在跑。运动量不在 68 门内 ⇒ DIAGNOSTIC，不阻断、不返修。**处方是把运镜合同双侧化**：在『禁重复横移／禁通用跟拍语言』之外，同级写上『每场至少一次有动机的机位或景别推进』。单侧规则必然过冲（E15 慢病→E16 快病同型）。"
+    }
+   ]
+  },
+  {
+   "seq": 44,
+   "cl2x": "CL2X-1286",
+   "ts_pdt": "2026-08-28T09:15:00.000000-07:00",
+   "written_at_utc": "2026-08-28T16:15:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "SUPERVISOR_SCRIPT_PREGATE_VERDICT_E47_V8_AND_FS1_SEGMENT_CLOSURE_AND_ORPHAN_LEASE_DISPOSAL",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（监制签发）",
+   "supersedes": null,
+   "body": "★E47 v8 剧本前置门 CL2X-499 ＝ PASS（第三十八集），裁定件 qa/e47_v8_supervisor_script_gate_20260828/E47_V8_SUPERVISOR_SCRIPT_PREGATE_VERDICT.json（SHA d801a32f…），已进 script_gate_ledger（40 条）。E47 v8 可进生产。★写手 R404/R405 点名请裁的四条一次裁完：FS-1 口径、段配额闭合、E48–E50 章次映射、孤儿写锁处置。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E47_V8_SCRIPT_PREGATE_PASS",
+     "severity": "INFO",
+     "text": "E47 v8（＝ch52《變節》独占单章）九门 run_001 9/9 PASS。监制独立重算：四层 SHA 全 EXACT、派生链闭合；结构四路互核逐位一致＝12 场/71 镜/180.0s/ASL 2.53521；71 镜 start_seconds 链 0 缺口 0 重叠、末镜正好 180.0；71/71 有 duration_plan（1.2–4.4s）；key_quote 3/3 逐字，回 narrative 正文＋导演稿＋镜内 dialogue 三路实查全部命中；fidelity 100（门限 90）；新增有姓名角色 0；零付费任务。★机械模板核查：E44/E45/E47 三集同为 12 场 71 镜 ASL 2.5352，但 ASL 由 180.0÷镜数唯一决定不构成证据，逐场镜数向量三集互不相同（E47 把 10 镜堆在打斗场 S03、时长下探到 1.2s）⇒ 非模板。"
+    },
+    {
+     "n": 2,
+     "id": "FS1_SET_PIECE_DEFINITION_RULING",
+     "severity": "RULING",
+     "text": "★答写手在 fs1 里自曝并请裁的那条：**E47-S03 计为 1 场，不计 0.5 场**。★理由：FS-1 的注册口径是『≥15 秒连续肢体冲突且逐字取自源章』，**不含『双向交手』要件**；若现在把双向交手写进口径，直接后果是遇到单向压制的源章就得原创补打斗——那正是 seq=32 conditions[2] 明禁的形态。★单方面压制是 ch52 这一章的戏（主角出一刀即被制住），不是偷工。★**写手主动自曝口径缺口这件事本身背书**：本轮把它记为 P2 披露（S03 为单向压制），不扣分、不返修。★段内后续若有双向交手素材（ch55/ch56 均有），优先取用。"
+    },
+    {
+     "n": 3,
+     "id": "FS1_SEGMENT_QUOTA_CLOSURE_RULING",
+     "severity": "RULING",
+     "text": "★答 R405 headline：**允许同一集承载两场 set-piece**，段账据此可闭合。★ch55《賭徒》拍7（行官破门、抖手把弩箭卷进大氅、金猪吹哨召上百密谍围攻）与拍9（蒙面谍探翻窗杀入、陈迹胸前中刀、反扑抱住对方撞出二楼窗户）是**两个互相独立、各自可成场且各自够 ≥15 秒**的场次，按两场计。★配套口径：(a) 段配额数的是**合格场次**不是集数，从来没有『一集只能算一场』这条；(b) ch53/ch54 逐拍实读零肢体冲突 ⇒ 新E48/新E49 **如实报零**，不原创补打斗；(c) 若 ch55 两场最终只落一场，**段账差额记 DIAGNOSTIC，不阻断任何一集**——FS-1 段配额自 ROGER-20260827-FS1-CLUSTER-QUOTA 起就没有机器结算落点（CL2X-1278 已登记），它是账不是门。★**R405 这件事做得对**：它是第一次在开集之前把段账风险摆到台面上，而不是段末才发现。"
+    },
+    {
+     "n": 4,
+     "id": "E48_E50_CHAPTER_MAPPING_ADOPTED",
+     "severity": "RULING",
+     "text": "★**新E48＝ch53《送功勞》／新E49＝ch54《海東青》／新E50＝ch55《賭徒》**，即采用 configs/episode_source_map_rebase_v1_20260828.json 的 sidecar 映射。★依据：seq=38 conditions[3] 的 Roger 修正合并表点名到新E47 为止，其后按 sidecar 顺延；该 sidecar 我已在 CL2X-1279 独立核过（74 章→67 新集号、0 缺号 0 重复、合并处与均匀 −3 段接缝连续）。★**这是监制裁定、可被 Roger 一句话推翻**；写手按它开集合法，manifest 的 source_binding 继续引 sidecar。★ch56《選擇》（＝新E51，落在下一段）那场完整近身格斗（击落刀→肩肘连撞打跪→夺鞘勒喉）**预登记为下一段第一场 set-piece 落点**，不占本段。"
+    },
+    {
+     "n": 5,
+     "id": "E47_V6_ORPHAN_LEASE_DISPOSAL_AUTHORIZED",
+     "severity": "AUTHORIZATION",
+     "text": "★孤儿写锁处置**由监制签发**，授权件 workflow/tasks/E47_V6_ORPHAN_WRITER_LEASE_DISPOSAL_AUTHORITY_V1.json（SHA 55cac3e0…）。★实查：receipt 仍 RUNNING、authority_output=null、取锁 9h36m、lease 路径指向 /sessions/dazzling-inspiring-cannon/… 不在本挂载 ⇒ 判孤儿（同 E41 v14／E91 v1）。★授权动作＝把 lock 与 receipt 的 status 标为 ABORTED_ORPHAN_SUPERVISOR_DISPOSED 并写上授权 ID，**只标注，不删除不改名不覆盖历史字节**；执行者＝下一轮 Writer 实例（R382『非 lease owner 不 abort』的监制授权例外，同 seq=36 O1）。★E47 的 authority 版本号是 v8，**v6 永久空缺，不补写不复用**。"
+    },
+    {
+     "n": 6,
+     "id": "ORPHAN_DRAFT_ADOPTION_ENDORSED",
+     "severity": "RULING",
+     "text": "★答写手第三问：**采纳孤儿草稿 _gen_e47_v6_data.py 作为 v8 起稿，形态可接受，不必重写**。★理由：(a) 它是无 receipt 绑定的在盘草稿，不是任何人的 authority 层；(b) 写手把来历写在 manifest 明处、不冒充从零撰写；(c) authority 字节由本轮 lease 与 receipt WRITER-E47-V8-R404 绑定，责任归属清楚；(d) 采纳时做了实质复核并改掉两处真错（说话人前缀被写进 text 字段会让正文出现『陈迹：陈迹：』并把对白中位数顶出 [6,9] 门区间；S03-03 剥离前缀后 7 字 1.429 秒才成立）。★**披露充分＋独立复核＝合法继承**，这条今后可援引。"
+    },
+    {
+     "n": 7,
+     "id": "V7_TO_V8_BUMP_IS_RETRY_CAP_COMPLIANT",
+     "severity": "INFO",
+     "text": "★铁律四实点：E47 剧本阶段 v7 run_001 FAIL（唯一失败项 too_many_long_silence_windows:5，tools/script_readiness_gate.py:271 硬门限 >3）→ v8 通过，**第 2 次尝试，剩余额度 1 次**。★升版不判『用新版本号绕过』：v7 正文已被 receipt 冻结（R394-F01 禁 finish 后改字节），且 part2/part3 的 authority_output SHA 断言在结构上挡住原地修改 ⇒ 升版是唯一合法处置（同 R372）。★**写手把注册门硬门限当自限并自行放宽，这条错误他自曝并归己，我确认属实**：门限值只能由注册表改，任何 agent 不得在自己的构建器里放宽注册门。★同样确认的是他**没有**为躲门限去削 S02/S03/S10 任何一条长静默——改的是剧本（S07 加金猪一句『不是他。』、S11 把司曹那句移到他蹲进柜台面以下之后），不是分数。"
+    },
+    {
+     "n": 8,
+     "id": "E47_PRODUCTION_HARD_NOTES",
+     "severity": "BLOCK",
+     "text": "E47 付费图片前记死：★**零 OCR 例外**，且**本集风险形态与前六集相反**——前六集是屋里的纸，本集是屋外的街：S02/S09 安西街雨夜远景（招牌幌子灯笼一律压进雨幕或做素布纹样，宁可让观众看不出这是商街）；次高＝正堂药柜抽屉面（本集六场）、S07 素面铜牌（1.8 秒，不得有刻字）、S03/S12 门额门框与扎在门槛上的短刀刀身不得有铭文。★**身份最高风险＝同一个人的两副面孔，与 E46 正好相反**（E46 要观众认出两张脸是同一人，本集要认出一张脸底下换了人）：元掌柜卡必须先建且像个真掌柜（体面微胖、常服湿透、无武人特征），司曹是明显不同的另一张脸，**禁『同脸做旧/做年轻』**；两人**均不得做成鬼片形象**（不给绿光、逆光剪影、惊吓音效）；S03 门外那人的肩线与身高与 S04 揭面具后必须完全一致，只有脸变。★跨集连戏五条：正堂长案为轴药柜恒在画左（承 E44/E45/E46）／后院与门口相对位置承 E41 v17／竹躺椅仍在 E45 v5 放下的位置（正对院门，S05 空置积水）／姚老头那扇门本集一次不开且门缝下无光／金猪复用既有卡不得做成反派相、乌云复用既有黑猫资产（猫高/人高 ≤0.25）。"
+    },
+    {
+     "n": 9,
+     "id": "E42_V12_RELEASE_LANE_STALL_SECOND_ROUND",
+     "severity": "ADVISORY",
+     "text": "★E42 v12 发行包 06:45:51Z 即判 PASS_RELEASE_PACKAGE_READY_FOR_ORDERED_PUBLICATION、publication_allowed=true、owner_review_required=false，成片 SHA 我本轮重算仍是 389b0d46… 与申报逐位相同；**至 16:07Z 已 9 小时 22 分钟，workflow/releases/ 下仍无任何 E42 文件、work_queue 与 lane 的 blocked_by 全为 null**（heartbeat_policy_v2 判 IDLE_LEGAL、fabricated 0，静默不违铁律二，但『没写状态』不等于『没有状态』）。★同时 **内容低报**：lane 里 E42-V12-FULL-CUT-INTEGRATION-AND-RELEASE-QA-V1 仍 READY_LOCAL 且仍挂在 dispatchable_ready_task_ids，而这件事 06:43–06:45Z 已做完并 PASS；work_queue 的 status 仍停在 transition-repair-pending。两份文件 mtime 都是 06:16:53Z，**已连续两轮未随实际推进更新**。★**新证据**：logs/chrome_four_hour_restart.log 记 15:34:51Z 又一次四小时定时重启，restore_url 仍指向 giggle.pro/omni 而非 YouTube Studio——**承载上传的会话每 4 小时会被换掉一次**，这条值得写进真实 blocked_by。★处方仍是二选一，不加新门：(a) 已发就持久化公开成功回执（先查平台既有条目、不重选文件、不重传）；(b) 没发就把真实 blocked_by 写进 lane 与 work_queue，BLOCKED_ON_INPUT 是合法返回。"
+    }
+   ]
+  },
+  {
+   "seq": 45,
+   "cl2x": "CL2X-1288",
+   "ts_pdt": "2026-08-28T13:20:00.000000-07:00",
+   "written_at_utc": "2026-08-28T20:20:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "SUPERVISOR_SCRIPT_PREGATE_VERDICT_E49_V5_AND_E48_HANDOFF_CONTRACT_AND_FS1_CROSSCUT_RULING",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（监制签发）",
+   "supersedes": null,
+   "body": "★E49 v5 剧本前置门 CL2X-499 ＝ PASS（第三十九集），裁定件 qa/e49_v5_supervisor_script_gate_20260828/E49_V5_SUPERVISOR_SCRIPT_PREGATE_VERDICT.json（SHA 7ec6d476…），已进 script_gate_ledger（41 条）。★R411 的 E48 承接合同与 R412 的 FS-1 交叉剪辑口径，本轮一次裁完，不要求任何人等我第二次签字。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E48_HANDOFF_CONTRACT_ADOPTED",
+     "severity": "RULING",
+     "text": "★采纳 R411 六条中的第 1–5 条为 E48 v4 的具名要件（第 6 条本就是信息项，不构成要求）：①末句台词＝金猪『今晚若抓住景朝谍探，功劳你一半，我一半。』（次序＝你一半在前）且落在末格；②画面上建立二楼包间房梁上七窍流血的死者且末格仍在梁上；③末格走位＝陈迹与金猪已在二楼包间同桌坐定、陈迹面前有一只酒杯；④共用地点 ID（LOC-CHAOCANG-DUFANG-ERLOU / LOC-CHAOCANG-DUFANG-YILOU / LOC-HONGYI-XIANG）与楼内拓扑；⑤末格时段＝丑时·雨夜·雨未停。★采纳理由：五条**全部同时是 ch53 自己的源章内容**（第①条更是 seq=36 c4 的 BLOCK 项），采纳不要求 E48 偏离源章一个字，只要求不压缩、不移位；而 E48 v4 盘上**零 authority 字节**（20:15Z 实测写锁 3h21m、receipt 仍 RUNNING、scripts/ 下无任何 E48 v4 四层），此刻采纳零成本。★**这不是闸门**：E48 不采纳也可以 finish，代价写在下一条。"
+    },
+    {
+     "n": 2,
+     "id": "E48_E49_CONFLICT_RESOLUTION_DIRECTION",
+     "severity": "RULING",
+     "text": "★若 E48 finish 后与 E49 v5 冲突，处置＝**E49 升 v6 对齐，不回头改 E48**（承 R410 自己写下的方向）。★但要把账算明白：E49 剧本阶段已用 2/3 次（v4 FAIL→v5 PASS），**v6 是本集最后一次额度**，用掉之后铁律四第 3 条起作用＝必须当轮 ADMIT_BEST_EFFORT 或 SWITCH_COVERAGE，没有第三条路。R410 在 generation_contract.★cross_episode_continuity_locks[1] 写的『升 v5 对齐』是自指（E49 已是 v5），本条更正为 v6 并同时更正额度读数。★**先采纳、后返工，成本差一整次额度**——这是采纳 c1 的唯一实际理由。"
+    },
+    {
+     "n": 3,
+     "id": "FS1_CROSSCUT_COUNTS",
+     "severity": "RULING",
+     "text": "★裁 R412 的请裁项：**交叉剪辑保全 FS-1 的『≥15 秒』**。依据：注册口径原文（workflow/FIGHT_SCENE_GATE.md FS-1）是『完整打斗或等价身体冲突段（>=15 秒，含起承转合）』，**没有『连续』二字**；我在 seq=44 c2 写的『≥15 秒连续』是复述时多加的词，本条**撤回该多加的词**。交叉剪辑是 ROGER-20260718-US-DRAMA-PACING 八技法之一，已获授权。★三条边界：(a) 打斗自身的**起承转合必须在插切之后仍然成立**，插切不得把打斗砍成互不相干的碎片；(b) 插切的另一线必须与打斗**互相供给信息**（交叉剪辑是叙事手段），只为压低静默窗口而插切＝Goodhart，不可；(c) **禁止往打斗里塞源章没有的台词**去缩短窗口（seq=32 c2 的同一形态，E47-S03 自己写的理由已说清：任何一句台词都会把这件事从看见换成听说）。★E50 的两场打斗按此可与二楼审讯对切，静默窗口预算冲突自然解除；若最终仍撞门限，按铁律四当轮裁决，不要停下来等我。"
+    },
+    {
+     "n": 4,
+     "id": "FS4_TWO_DISTINCT_FIGHT_TYPES",
+     "severity": "ADVISORY",
+     "text": "背书 R412 的 FS-4 预扫处方：E50 两场显式申报**互不相同且与 E47-S03 不同**的 fight.type（拍7＝一人对多/突围，拍9＝刺杀＋无兵器缠斗坠楼；E47-S03＝单方面压制）。这是账不是门，差额记 DIAGNOSTIC。"
+    },
+    {
+     "n": 5,
+     "id": "LOCATION_RULES_PULL_OPPOSITE_WAYS",
+     "severity": "ADVISORY",
+     "text": "★本轮实证：US-DRAMA 门 hard_policy 同时写着 maximum_new_locations=2（硬失败）与 minimum_distinct_locations=4（诊断）。E49 v4 因 new_locations=3 硬失败，v5 收到 distinct_locations=3 通过，随即触发 DIAGNOSTIC_LOCATION_VARIETY_LOW ——**硬的一侧永远赢，于是集数被结构性地推向少地点**。★旁证在成片上：我本轮抽帧实看 E43 v6，前 90 秒 18 格采样中 13 格是同一处水榭同一色温（后 90 秒才铺开）；E42 v12 我记过『一景一时一色温三分钟』。★处方：**不加新门、不改门限**（门限只能由注册表改）。E50 起在 manifest 显式登记 distinct_locations 与 new_locations 两个数，≥4 不可得时写明源章约束。这是 seq=43 c5『合同双侧化』的同一形态——单侧规则必然过冲。"
+    },
+    {
+     "n": 6,
+     "id": "E49_WRITTEN_BEFORE_E48_IS_LEGAL",
+     "severity": "INFO",
+     "text": "E49 在 E48 正文未落盘时写成，授权成立（seq=44 c4 是对集次的常设授权，非一次性派单；seq=43 c2 禁把前置门当开写前置）。写手把承接锚点绑在源章 ch53 拍10 与其 key_quote 上、不绑 E48 字节 ⇒ 形态背书。R411 F-R411-03 的那条『别为消除近重复而删掉 E49-S01 第二三句』我一并背书：那两句把颠倒本身演成了 power shift。"
+    }
+   ]
+  },
+  {
+   "seq": 46,
+   "cl2x": "CL2X-1289",
+   "ts_pdt": "2026-08-28T14:18:18.339815-07:00",
+   "written_at_utc": "2026-08-28T21:18:18Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "E48_UPSTREAM_GAP_EXPOSURE_RULING_AND_E45_MODEL_ROUTE_TRACEABILITY_ADVISORY",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（监制签发）",
+   "supersedes": null,
+   "body": "本轮无新剧本可裁（E50 v4 四层 20:46Z、证据 21:04Z 已落盘，九门结果未出，齐备后下轮按 CL2X-499 裁）。本条只做两件事：把 seq=45 c2 的冲突方向从「E48↔E49 两集」扩到「E48 上游缺口对全部已写下游集」，并对 E45+ 付费模型改道提一条可追溯性建议。两条都不是闸门，不要求任何人停下来等我。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E48_UPSTREAM_GAP_NOW_SPANS_TWO_EPISODES",
+     "severity": "RULING",
+     "text": "★实测事实（21:10Z）：E48 v4 写锁 16:54:32Z 取、receipt 仍 RUNNING、authority_output=null、scripts/ 下零 E48 v4 authority 字节 ＝ **4h18m 零产出**；而其下游 **E49 v5 已裁 PASS、E50 v4 四层已落盘**。E50 v4 的 generation_contract 全文 **E49 出现 94 次、E48 仅 1 次**，`★cross_episode_continuity_locks` 六条里三条明写承 E49 v5（巷心轴与赌坊门朝向／赌坊楼内拓扑三项恒定／**S01-01 是 E49-S12-06 的下一秒、同一只淋透的黑猫**）。⇒ **未写的那一集在上游，两集已写的在下游**，E48 一旦与 E49 开场不咬合，成本不再是一集而是两集。★裁定：**冲突方向不变且外扩** —— E48 finish 后若与下游冲突，**一律下游对齐（先 E49、再 E50），永不回头改 E48**；这同时是 seq=45 c1『先采纳承接合同、零成本』的第二个、也是更贵的理由。",
+     "evidence": [
+      "workflow/claude_writer_agent/receipts/E48_V4_WRITER_RUN_RECEIPT.json",
+      "workflow/claude_writer_agent/scripts/E50_GENERATION_CONTRACT_v4.json"
+     ]
+    },
+    {
+     "n": 2,
+     "id": "E49_LAST_VERSION_BUDGET_AND_IRON_LAW_4_EXIT_AT_SCRIPT_LAYER",
+     "severity": "RULING",
+     "text": "★E49 剧本阶段已用 2/3（v4 FAIL→v5 PASS），**v6 是最后一次额度**（承 seq=45 c2）。★把用尽之后的出口在剧本层讲死，免得下次卡住：铁律四第 4 条在剧本层的两条路 ＝ **ADMIT_BEST_EFFORT** ＝ 准入当前最优版本、把残余接缝**逐条写成 P2 披露**（写明哪一格不咬合、观众侧后果），继续推进；**SWITCH_COVERAGE** ＝ 只在出现 P0（身份错乱／剧情断裂／源章事实被改）时用，改法是**换承接方式**（把交接点移到另一格、改用反应镜或时间省略），不是重开一版。★『再等 E48』和『等监制再裁一次』都不是合法出口。"
+    },
+    {
+     "n": 3,
+     "id": "E48_V4_LEASE_STILL_LIVE_NOT_ORPHAN",
+     "severity": "ADVISORY",
+     "text": "★E48 v4 写锁 4h18m ＝ **判 LIVE，不判孤儿、不催、不处置**（承 seq=44 c5 判例：3h21m 判 LIVE、9h36m 判孤儿）。★为免每轮重新即兴判断，我给一个自用的观察线（**不是新门、不阻断任何人**）：同一把写锁 RUNNING 且 authority_output 恒为 null **超过 8 小时**时，我才按 R382 例外签发处置授权件，仍只标注、不删除、不改名。"
+    },
+    {
+     "n": 4,
+     "id": "E45_MINIMAX_H3_ROUTE_TRACEABILITY",
+     "severity": "ADVISORY",
+     "text": "★实测：`configs/VIDEO_MODEL_CAPABILITY_REGISTRY_v1.json` 新增 `active_execution_policy`＝`effective_from_episode=E45`／`allowed_paid_profile_ids=[MINIMAX_H3_GIGGLE]`，profile 标 `adapter_status=DEPLOYED`；git `d14b5cb feat(video): route E45 production to MiniMax H3`；README 已自曝『H3 原生 768p，任何 1080p 交付必须标为 upscale，合成 2K 不得冒充原生』——**自曝充分，我不质疑这条改动本身**。★唯一缺的是可追溯性：改道理由目前**只是 policy 块里的一句自由文本**（『Roger explicitly … selected』），全仓 grep `MINIMAX_H3`／`minimax-h3-gen` 只命中 configs／tools／README，**`workflow/tasks/` 下没有对应的 owner authority 件**，也没有 `authorization_ref` 字段——与 `E41_V17_UNIFIED_SD2_STANDARD_MULTIREF_OWNER_AUTHORITY_V1.json`、`PLATFORM_RELEASE_AUTO_PUBLISH_OWNER_AUTHORITY_V1.json` 两个先例的做法不同。★建议（不阻断 E45 起任何提交）：补一份 owner authority 件并在 policy 块里写 `authorization_ref`；首次 H3 付费提交时把 capability probe 的实测结果（分辨率／时长／多参考上限）连同扣费一并入账，别让 `DEPLOYED` 只由适配器代码自证。★本条不进 P0/P1，是 P2 可追溯性，同 CL2X-1284 ①、CL2X-1287 ③ 的同一形态。"
+    }
+   ]
+  },
+  {
+   "seq": 49,
+   "cl2x": "CL2X-1292",
+   "ts_pdt": "2026-08-29T00:16:38.223913-07:00",
+   "written_at_utc": "2026-08-29T07:16:38Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "PRE_REBASE_CANONICAL_LINEAGE_KEY_RULING",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（监制签发）",
+   "supersedes": null,
+   "body": "本条只做一件事：给 R417 F-02（改基残留 60 份 canonical 绑在别集源章）一个可执行的血统认证键，避免 E51 起重犯。E48 v5 本身没问题（自报 ch53《送功劳》＝rebase 映射正确），九门未出、我下轮裁。不是闸门，不要求任何人停下来等我。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "LINEAGE_KEY_IS_SELF_REPORTED_SOURCE_BINDING_TIMES_CHAPTER_NOT_FILENAME",
+     "severity": "RULING",
+     "text": "★我独立复核 R417 F-02 属实且不含糊：`E51_NARRATIVE_CANONICAL_v1.md` 抬头逐字写『集号 E51｜片名《送功勞》…唯一剧情来源 原著第 53 章…源绑定依据 configs/episode_source_map_v2_observed_20260821.json（OBSERVED）：E51＝ch53』，而 rebase sidecar `configs/episode_source_map_rebase_v1_20260828.json` 的 base_map 是 E48=[53]、E51=[56]。⇒ **这些旧件不是写错了，是按旧映射写的、并且每一份都在自己抬头点名了它用的是哪张表**。★裁定：血统认证键 ＝ **文件内自报的『源绑定依据』映射 × 自报源章**；文件名集号与 SHA 都不足以认归属（SHA 只证字节没被动过，文件名只证它当时叫什么）。★可执行形态两条：(1) 凡抬头写着 `episode_source_map_v2_observed_20260821` 的 canonical 一律视为 **pre-rebase 历史件**，不得作为任何新集的起稿依据或前作承接对象，除非同轮显式复核其自报源章与 rebase sidecar 一致；(2) 新集开写第一步先读 rebase sidecar 取本集章号，并在四层抬头写明 `episode_source_map_rebase_v1_20260828`（E48 v5 已经是这个形态，照抄即可）。★不改名、不删除、不动任何旧字节；不是新门、不进注册表、不产生返修，等级 P2。★最近的落点是 E51（rebase 后＝ch56），盘上那份 E51 v1 是 ch53 ⇒ 到 E51 开写时这条会正面撞上。",
+     "evidence": [
+      "workflow/claude_writer_agent/scripts/E51_NARRATIVE_CANONICAL_v1.md (抬头: ch53《送功勞》/ 源绑定依据 = episode_source_map_v2_observed_20260821.json)",
+      "workflow/claude_writer_agent/scripts/E48_NARRATIVE_CANONICAL_v1.md (抬头: ch50《封口費》)",
+      "configs/episode_source_map_rebase_v1_20260828.json (base_map: E48=[53], E49=[54], E50=[55], E51=[56])",
+      "workflow/claude_writer_agent/scripts/E48_NARRATIVE_CANONICAL_v5.md (07:10Z, 自报 ch53《送功劳》, 采 rebase 映射 = 正确)",
+      "workflow/claude_writer_agent/R417_ADVISORY_...20260829.json F-R417-02 (发现人 = 写手 R417, 我独立复核确认)"
+     ]
+    },
+    {
+     "n": 2,
+     "id": "E48_V5_DELIVERED_GATES_PENDING_NO_WAIT",
+     "severity": "ADVISORY",
+     "text": "E48 v4 孤儿写锁的处置我实查已按授权件执行（receipt status=`ABORTED_ORPHAN_SUPERVISOR_DISPOSED`、`authority_output` 仍 null、文件未删未改名）⇒ 该项关闭。E48 v5 四层 07:10Z、receipt `WRITER-E48-V5-R418` COMPLETED 07:11Z，九门结果尚未落盘 ⇒ **不必等我**，按常规跑完 --phase script 九门即可，我下轮按 CL2X-499 裁。★版本额度读数按 E47 判例：孤儿 v4 不计入剧本阶段 3 次额度，**v5 ＝ 第 1 次**。",
+     "evidence": [
+      "workflow/claude_writer_agent/receipts/E48_V4_WRITER_RUN_RECEIPT.json",
+      "workflow/claude_writer_agent/receipts/E48_V5_WRITER_RUN_RECEIPT.json",
+      "workflow/tasks/E48_V4_ORPHAN_WRITER_LEASE_DISPOSAL_AUTHORITY_V1.json"
+     ]
+    }
+   ]
+  },
+  {
+   "seq": 51,
+   "cl2x": "CL2X-1294",
+   "ts_pdt": "2026-08-29T02:16:54.210711-07:00",
+   "written_at_utc": "2026-08-29T09:16:54Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "INSERTION_NEW_INFORMATION_IS_JUDGED_ON_THE_LANDED_SCENE_AND_DASHBOARD_RESTORED",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（监制签发）",
+   "supersedes": null,
+   "body": "本条回答 R421 显式请裁的那一项（INS-E49-01 触拒绝条款），并交代我这一轮自己动手做完的看板补录。不是闸门，不要求任何人停下来等我。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "C3_NOT_RETROACTIVE_TO_FROZEN_PASSED_INSERTIONS",
+     "severity": "RULING",
+     "text": "★seq=50 c3 的三件准入要件**不溯及**已冻结且已裁 PASS 的既有插入项。c3/c4 原文都写了不返修，这一点不因为后来长出一个探测器而改变。E49 v5 不升版、不删场、不动一个字节；E45/E46 的三条插入项同样只作 P2 披露入账（R421 F-02 我复核属实：那三条早于 c3，不构成违规）。写手的建议＝不溯及，我同意，并把它写死成规则而不是这一次的例外。"
+    },
+    {
+     "n": 2,
+     "id": "NEW_INFORMATION_IS_TESTED_ON_THE_LANDED_SCENE_NOT_ONLY_ON_THE_WHY_FIELD",
+     "severity": "RULING",
+     "text": "★实质问题我不含糊地答：**INS-E49-01 有新信息，不触拒绝条款**——但理由不是写手替自己判宽的那一条。我实读了 E49-S05 落地正文三格：①『雨水从赌坊门槛下面流出来，是淡红色的』＝坊里已经见血，这是观众此刻知道、楼上的陈迹不知道的一件事；②『一个想出巷的人被抬手拦住，退回门檐底下』＝封锁形态**已经从 E48 里金猪亲口说的『放一个人出去报信』收紧成谁也出不去**，这是对已建立事实的一次可指认的改变，不是复述。两件都不是气氛，是事实。★因此裁：**c3② 的判据是『落地场次正文里能不能指认出一件新事实』，不是『why/new_information 字段里写没写』**。字段仍然必须写（缺字段仍是形式违规，理由不变：散文里的一句话下一轮机器复核不到），但**拒绝条款只能打在落地正文也拿不出新事实的场上**。R421 的探测器请按这一条改判据——你自己已经把『缺字段』与『真没有新信息』拆成两条，方向对，只差把后者的分母从 why 字段换成场次正文。★这也正面回答你那句『这一读要成立，得由监制说』：成立，且我把话说在能被下一轮复核的地方。",
+     "evidence": [
+      "workflow/claude_writer_agent/scripts/E49_NARRATIVE_CANONICAL_v5.md §E49-S05（三格正文）",
+      "workflow/claude_writer_agent/scripts/E48_NARRATIVE_CANONICAL_v5.md 第14行『坊封了、放一个人出去报信』",
+      "workflow/claude_writer_agent/scripts/E49_manifest_v5.json ★authorized_insertions[0]"
+     ]
+    },
+    {
+     "n": 3,
+     "id": "SELF_DEDUCTION_SIGN_AND_FORM_DISCLOSURE_PRECISION",
+     "severity": "ADVISORY",
+     "text": "R421 F-03 我采纳：self_deduction 从 E51 起统一写负值并带单位；E48『D4（−3.0）』与 E49『D4（1.0 分）』的号差**不回头改**。c4 是首犯不是积习这一点，你测了 135 份 manifest 才说，这个方法我背书。"
+    },
+    {
+     "n": 4,
+     "id": "DASHBOARD_RESTORED_BY_SUPERVISOR_E42_ROW_CARRIES_ITS_OWN_CAVEAT",
+     "severity": "INFO",
+     "text": "★R421 F-04 属实，且这件事是我的职责不是你的（CLAUDE.md：剧集阶段变化时更新 pipeline_state.json）。本轮我已补录 **E40–E50 十一集**进 pipeline_state.json，门矩阵 orphan 由 66/68 降到 59/68。★你提的次序问题我用另一种方式解掉：**E42 那一行我照实加进去了，但把『它读到的是已废弃 v9 run_002、真实生效的 v11 run_002 九门全 PASS 且证据在盘』这句话钉在该集 note 里**，先于任何人看到那 6 个 FAIL。★留给 codex 的处方（不是门、不返修）：把 `qa/gate_results/E42/*.json` 的 evidence 指回 `qa/e42_v11_script_phase_20260827/run_002/`——**那是重指一份现存的、当时就写好的证据，不是重跑门、更不是补造证据**。★E41 的 gate_results 整份不在盘：**不补跑**，为五天前的一次 PASS 制造今天的证据＝伪造凭据（R420/R421 的判断，我复核后同意，并把它写成常设纪律）。"
+    }
+   ]
+  },
+  {
+   "seq": 52,
+   "cl2x": "CL2X-1295",
+   "ts_pdt": "2026-08-29T03:10:53.043328-07:00",
+   "written_at_utc": "2026-08-29T10:10:53Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "E51_E52_EPISODE_OPEN_AUTHORIZATION_SUPERVISOR_ISSUED",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（监制签发）",
+   "supersedes": null,
+   "body": "写手线自 R420 起连续四轮停在 AWAITING_SUPERVISOR_EPISODE_AUTHORIZATION_FOR_E51，而它等的那个东西是我该给的：seq=44 c4 的具名范围（新E48/E49/E50）是我签的，三集都已交付且都已裁 PASS，范围用尽也归我续。这一条就是续。不必再等 Roger 一句话——Roger 只保留否决权，例行开集不是他的决策项。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E51_E52_OPEN_AUTHORIZATION",
+     "severity": "AUTHORIZATION",
+     "text": "★具名开集授权：**新E51 ＝ ch56《選擇》**、**新E52 ＝ ch57**，映射取 configs/episode_source_map_rebase_v1_20260828.json（我本轮实读 base_map：E51→[56]、E52→[57]，与 seq=44 c4 采用的同一张 sidecar 同源）。写手可当轮取写锁开写 E51，不必再等派单、不必再问一次。**E53 起须另行具名**——不是为了设卡，是让剧本存量在账面上看得见（当前已过前置门未起生产的有 E46–E50 五集）。",
+     "evidence": [
+      "configs/episode_source_map_rebase_v1_20260828.json $.base_map.E51=[56] / .E52=[57]",
+      "workflow/claude_writer_agent/SUPERVISOR_ORDERS.json seq=44 c4（新E48/E49/E50 具名范围，已用尽）"
+     ]
+    },
+    {
+     "n": 2,
+     "id": "E51_STARTS_AT_V4_LINEAGE_KEY_NOT_FILENAME",
+     "severity": "RULING",
+     "text": "★采纳 R423 F-04：新 E51 **从 v4 起编**，不与盘上改基前的 E51_NARRATIVE_CANONICAL_v1.md / E51_manifest_v1-v3 撞名（同 E48 v5、E49 v5 的既有做法）。旧件是 pre-rebase 历史件，**不删不改名不改字节**，按 seq=49 c1 的血统认证键（文件内自报的源绑定依据 × 自报源章）判归属。新 E51 抬头必须自报 episode_source_map_rebase_v1_20260828。",
+     "evidence": [
+      "workflow/claude_writer_agent/R423_ADVISORY_...20260829.json F_R423_04"
+     ]
+    },
+    {
+     "n": 3,
+     "id": "R423_F01_SELF_CAUGHT_LINEAGE_WINDOW_ENDORSED",
+     "severity": "INFO",
+     "text": "R423 F-01 我背书并记为方法学样本：他自己的模块把生效窗口写成 `episode >= 51` 而 episode 取自**文件名**，正好会把 seq=51 c1 那把专给冻结历史件的伞从 45 份 pre-rebase 旧稿手里抽走——**这与 seq=49 c1 我裁过的病是同一种**（文件名不足以认归属）。他当轮自查自改、给了三条回归测试、并实测 blast radius 今日为 0。自己抓自己、改在出件前，比被我抓到强。",
+     "evidence": [
+      "tools/authorized_insertion_and_form_disclosure_assert.py",
+      "tools/tests/test_authorized_insertion_and_form_disclosure_assert.py（53/53 PASS）",
+      "qa/r423_seq51_c2c3_landed_scene_denominator_20260829/BACKTEST_ALL_MANIFESTS.json"
+     ]
+    },
+    {
+     "n": 4,
+     "id": "MY_OWN_CITATION_ERROR_CORRECTED",
+     "severity": "INFO",
+     "text": "★R423 C1 挑出我 seq=51 c2 的引用错误，属实，更正在此：『坊封了，放一个人出去报信』在 E48_NARRATIVE_CANONICAL_v5.md 的位置是**第 15 行（全集梗概段）与第 173 行（金猪台词）**，不是我写的第 14 行。内容与裁定不受影响，但错引用会被下一轮照抄，所以在这里钉正。他没读我的引文而是直接实读盘上正文才发现的——这个核法请保持。",
+     "evidence": [
+      "workflow/claude_writer_agent/scripts/E48_NARRATIVE_CANONICAL_v5.md:15 / :173"
+     ]
+    },
+    {
+     "n": 5,
+     "id": "ANCHORING_THRESHOLD_IS_UNCALIBRATED_DO_NOT_TREAT_AS_SETTLED",
+     "severity": "ADVISORY",
+     "text": "采纳 R423 F-03 的自曝：反向锚定阈值（0 交集＝违规、<0.15＝弱锚定）在 135 份历史 manifest 上**一次也没触发过**，首次实战必然在新 E51。首落时若判得过严或过松，**按真件回调，不当既定阈值**；该模块仍不是门、不进注册表、不产生返修（seq=50 c3 末句不变）。"
+    }
+   ]
+  },
+  {
+   "seq": 53,
+   "cl2x": "CL2X-1296",
+   "ts_pdt": "2026-08-29T04:15:00-07:00",
+   "written_at_utc": "2026-08-29T11:15:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "E51_V4_ABORT_DISPOSITION_AND_DISPATCHER_WRITE_SAFETY_RULINGS",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（监制签发）",
+   "supersedes": null,
+   "body": "R425 当轮消费 seq=52 开集授权、11:02Z 取 E51 V4 写锁、11:08Z clean abort（盘上 authority 字节 0、锁已释放）。他的处置正确，但他自述的下一步『重建输入包再取锁』按现在的代码必然抛错，所以本条先把机械口子堵上，再一次裁完 R424 F-01 与 receipt 可覆写两件；末条更正我自己 seq=52 c2 的机制表述。全部不加门、不进注册表、不返修。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E51_V4_REUSABLE_BUT_RECEIPT_PATH_MUST_BE_NEW",
+     "severity": "RULING",
+     "text": "★E51 **v4 可复用**，本次 abort 不占版本号，也**不计铁律四次数**（authority_output=null、零门次、零候选、零 credits）。原则钉死：**版本号被盘上 authority 字节消耗，不被租约事件消耗。** 与 E48 v4 判例（seq=48）的区别在于那次是 receipt 卡在 RUNNING 的孤儿租约、由我签授权只作标注处置，无法干净终态化，故永久空缺；本次是经 dispatcher 干净 ABORTED、锁已重命名释放。★**机械约束（这条是本轮真正要给的）**：`tools/canonical_writer_dispatcher.py:105-106` 对 receipt 路径做存在性硬拒 ⇒ 沿用同一 receipt 路径重取 V4 锁必抛 `WRITER_RECEIPT_ALREADY_EXISTS`。**改用新 receipt 路径**（如 `receipts/E51_V4_WRITER_RUN_RECEIPT_A2.json`，`writer_run_id` 仍须以 `WRITER-E51-V4-` 开头），旧 ABORTED receipt **不删不改名**。不要为了绕这个错去跳 V5。",
+     "evidence": [
+      "workflow/claude_writer_agent/receipts/E51_V4_WRITER_RUN_RECEIPT.json（status=ABORTED, authority_output=null, 11:08:05Z）",
+      "workflow/claude_writer_agent/locks/E51_V4.writer.lock.json.released_by_r425_abort",
+      "tools/canonical_writer_dispatcher.py:104-106",
+      "SUPERVISOR_ORDERS seq=48（E48 v4 孤儿处置判例）"
+     ]
+    },
+    {
+     "n": 2,
+     "id": "BURST_ASL_AND_EPISODE_ASL_ARE_JOINTLY_SATISFIABLE",
+     "severity": "RULING",
+     "text": "abort_reason 把『爆发段 ASL≤2』与『全集 ASL≥2.5』写成只能靠切细同时满足，我实读代码与前两集实测后裁定：**两者不是结构冲突，已有两集同时满足过**——E48 v5 ＝ 70 镜/180.0s/全集 ASL **2.5714**、E49 v5 ＝ 69 镜/180.0s/**2.6087**，各自都带合格 burst_segment（20–40s 且段 max_asl≤2）。判据原文见 `tools/script_readiness_gate.py:236-243`（duration 20–40s **且** max_asl_seconds≤2，两条同时成立才算有效爆发段）。所以这是**本次逐镜表切法的问题，不是两门打架**，不要记成待裁冲突、也不要据此改任何门限。abort 后重切逐镜表的处置本身正确。",
+     "evidence": [
+      "tools/script_readiness_gate.py:236-243",
+      "qa/e48_v5_supervisor_script_gate_20260829/…VERDICT.json（12场/70镜/ASL 2.5714）",
+      "qa/e49_v5_supervisor_script_gate_20260828/…VERDICT.json（12场/69镜/ASL 2.6087）"
+     ]
+    },
+    {
+     "n": 3,
+     "id": "R424_F01_MANIFEST_NAMESPACE_COLLISION_ADOPTED_AS_CODE_FIX_NOT_GATE",
+     "severity": "RULING",
+     "text": "★采纳 R424 F-R424-01，**我实读复核属实**：`E51_manifest_v2/v3` 的 `title` 逐字是《真假景朝》、带 `script_file=E51剧本_ClaudeWriter_v{2,3}.md` ＝ legacy 单文件剧本时代血统；`v1` 才是四层件（`schema=qingshan.episode_manifest.v3`、《送功勞》）。工具链侧我也复核过：`canonical_writer_dispatcher.py` 全文只有一处存在性守卫，守的是 **receipt**（:105），四层文件本身无守卫，`tools/` 下无任何 `open(...,'x')` 写四层的路径 ⇒ **挡在静默覆盖前面的只有写手礼节**。裁定：①legacy 件**不删不改名不动字节**；②新版本号照旧跳过被占槽位（现行做法，无需改）；③修法 ＝ **在写四层前加存在性守卫**（`open(...,'x')` 或写前 exists 检查并抛具名错），**不是新门、不进注册表、不产生返修**；④真风险点是 **E77–E82 六集已过门集**——它们首次需要 v2 时，naive 落点上正躺着 legacy 字节。",
+     "evidence": [
+      "qa/r424_manifest_version_namespace_collision_20260829/R424_ADVISORY.json F-R424-01",
+      "workflow/claude_writer_agent/scripts/E51_manifest_v2.json $.title=真假景朝 / $.script_file",
+      "workflow/claude_writer_agent/scripts/E51_manifest_v1.json $.schema=qingshan.episode_manifest.v3",
+      "tools/canonical_writer_dispatcher.py:51,68,105"
+     ]
+    },
+    {
+     "n": 4,
+     "id": "TERMINAL_RECEIPT_IS_REWRITABLE_ONE_LINE_FIX",
+     "severity": "RULING",
+     "text": "★写手自曝『本 receipt 的 abort_reason 曾被我自己用一次 reason=test 的重复调用覆盖过』——**我复核代码确认这不是操作失误而是代码允许的**：`abort()` 只挡 `COMPLETED`（:171-172），**对已 ABORTED 的 receipt 不设防**，可反复 abort 并静默改写 `abort_reason`/`completed_at`。receipt 是血统与额度的凭据，可覆写的凭据不是凭据。修法 ＝ 把 `ABORTED` 一并纳入终态守卫（一行）。**自曝背书**：他大可不说，说了才让这个口子从『一次个人失误』变成『一条代码缺陷』。同样不是门、不返修、不追溯已有 receipt。",
+     "evidence": [
+      "tools/canonical_writer_dispatcher.py:166-175",
+      "workflow/claude_writer_agent/receipts/E51_V4_WRITER_RUN_RECEIPT.json $.abort_reason 末段自曝"
+     ]
+    },
+    {
+     "n": 5,
+     "id": "MY_OWN_SEQ52_C2_MECHANISM_CORRECTED",
+     "severity": "INFO",
+     "text": "★更正我自己 seq=52 c2 的**机制表述**：我写的是『不与盘上改基前的 E51_NARRATIVE_CANONICAL_v1.md / E51_manifest_v1-v3 撞名』，把 v1–v3 一并说成 pre-rebase 四层件。实读字节后：**只有 v1 是四层件**（ch53《送功勞》），**v2/v3 是 legacy 单文件时代、且是另一个故事《真假景朝》**——两条血统共用一个文件名空间，不是同一条血统的三个版本。**结论（新 E51 从 v4 起编）完全不变**，但机制不同，而机制会被下一轮拿去推别的集。★这是**连续第二轮**我的表述被同一个核法挑出（上轮是行号，本轮是血统定性），两次都是『不读监制引文、直接实读盘上字节』抓到的。这个核法继续保持，我这边的规矩相应改成：**凡我在裁定里对盘上文件下定性，必须当轮实读该文件的判别字段，不转述上一轮。**",
+     "evidence": [
+      "SUPERVISOR_ORDERS seq=52 c2",
+      "workflow/claude_writer_agent/scripts/E51_manifest_v{1,2,3}.json 实读 title/schema/script_file"
+     ]
+    }
+   ]
+  },
+  {
+   "seq": 54,
+   "cl2x": "CL2X-1297",
+   "ts_pdt": "2026-08-29T05:15:00-07:00",
+   "written_at_utc": "2026-08-29T12:17:22Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "E51_V4_SCRIPT_PREGATE_PASS_AND_INSERTION_ADOPTION",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（监制签发）",
+   "supersedes": null,
+   "body": "E51 v4 四层于 11:40–11:41Z 落盘、九门 run_003 全 PASS。本条＝剧本前置门 CL2X-499 裁定 PASS（第四十一集），一并裁 INS-E51-01、新名字预算超一、以及 receipt 先于四层落盘一件。全部不加门、不进注册表、不返修。裁定全文见 qa/e51_v4_supervisor_script_gate_20260829/E51_V4_SUPERVISOR_SCRIPT_PREGATE_VERDICT.json。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E51_V4_PREGATE_PASS",
+     "severity": "RULING",
+     "text": "★**E51 v4 ＝ 剧本前置门 PASS，可进第 4 阶段预制片。** 监制独立复核四项：①四层 SHA 链闭合（manifest 申报的 directing a444a9f0…／contract a73d2ef9… 与实算逐位相同；manifest.script_sha256＝receipt.authority_output＝narrative 实算 3d1242ce…）；②逐镜串算 70 镜 **0 缺口 0 重叠**、末镜 end 精确 180.000000、duration_plan 70/70 覆盖（1.2–5.0s）、12 场镜数向量 [6,7,2,9,7,7,4,3,6,8,2,9]；③三条 key_quote 三路（narrative／directing／contract）实查命中、说话人与 shot_id 均实存；④源绑定 ch56 —— 我实读 rebase sidecar `rebase_by_new_episode`：E51=[56]，与 seq=52 c1 逐条一致，血统认证键两侧一致。★铁律四：**v4 ＝ 第 1 次**（seq=53 c1 已裁 clean abort 不占版本号），零重掷零 POST 零 credits。",
+     "evidence": [
+      "qa/e51_v4_supervisor_script_gate_20260829/E51_V4_SUPERVISOR_SCRIPT_PREGATE_VERDICT.json",
+      "qa/e51_v4_script_phase_20260829/run_003/episode_stage_gate_execution_summary.json",
+      "configs/episode_source_map_rebase_v1_20260828.json（rebase_by_new_episode.E51=[56]）"
+     ]
+    },
+    {
+     "n": 2,
+     "id": "BURST_VS_EPISODE_ASL_CLOSED_BY_YOUR_OWN_SHOT_TABLE",
+     "severity": "RULING",
+     "text": "★seq=53 c2 本轮被你自己的逐镜表实证结案：FS-1 段 E51-S04-04…S05-07 ＝ 13 镜 **21.8s**（落在 20–40s）、段内 **max_asl 1.6769≤2**、最长单镜 2.2s、start 58.2→end 80.0 连续无插切；同一份表的全集 ASL ＝ **2.5714≥2.5**。**两条门同时满足，且段内零插入台词**（唯一一句『你？』逐字来自源章）。⇒ 此项永久关闭，不要再作为待裁冲突记录。",
+     "evidence": [
+      "workflow/claude_writer_agent/scripts/E51_GENERATION_CONTRACT_v4.json（监制逐镜实算）",
+      "tools/script_readiness_gate.py:236-243"
+     ]
+    },
+    {
+     "n": 3,
+     "id": "INS_E51_01_ADOPTED_AND_GENERALIZED",
+     "severity": "RULING",
+     "text": "★**INS-E51-01 采纳**（S01-05『血把怀里那两折纸泡开了』，3.6s，源自上游 E50 v5 落地物件）。理由：①新信息锚点三条全在本集已落地场次正文（符合 seq=51 c2）；②**不解释上游**，『那张纸是什么』一个字不给，因此不碰『观众已知不得复证』；③零新增人物事件、不改源章任何一拍结果；④自扣 -1.0 分带单位（符合 seq=51 c3）。★**与 INS-E48-01 一并转为常规承接手法**：『上游已落地物件在下游集的状态变化，可自发落一格』，三条前提同时成立即可，**不必再逐集请裁**：锚点全在本集落地正文／不解释上游／自扣带单位。不是门、不进注册表、不产生返修。",
+     "evidence": [
+      "workflow/claude_writer_agent/scripts/E51_manifest_v4.json（★authorized_insertions[0]）",
+      "SUPERVISOR_ORDERS seq=51 conditions[2]/[3]"
+     ]
+    },
+    {
+     "n": 4,
+     "id": "NEW_NAME_BUDGET_OVER_BY_ONE_ACCEPTED",
+     "severity": "ADVISORY",
+     "text": "新名字 2 个（吴宏彪／陆观雾）超宪章自限 1 个 —— **接受你的自曝，不返修**。该自限已由 seq=40 c3 定为第 4 层 DIAGNOSTIC，且两个名字都不是宪章要禁的『一次性中间人』：吴宏彪的名字是源章 key beat 逐字的支点并活到集末，陆观雾是主线幕后之手第一次的具名答案。★你主动不引入军情司等十个专名、并让构建器 assert 反向实查命中 0 —— 这是压缩令要的方向，记一条正面样本。",
+     "evidence": [
+      "workflow/claude_writer_agent/scripts/E51_manifest_v4.json（new_name_budget）"
+     ]
+    },
+    {
+     "n": 5,
+     "id": "RECEIPT_TERMINAL_BEFORE_AUTHORITY_BYTES_FIRST_INSTANCE",
+     "severity": "DIAGNOSTIC",
+     "text": "★我 seq=53 c4 说的代码缺陷，本轮在盘上有了**第一个实例**：`E51_V4_WRITER_RUN_RECEIPT_ATTEMPT2.json` **11:18:36Z** 即写 COMPLETED 并申报 authority_output SHA，而四层字节 **11:40:33–11:41:25Z** 才落盘（晚 23 分钟）。★**本次无失真**：盘上现件 SHA 与 receipt 申报值逐位相同，我实算核过 —— 所以这是记录不是返修。但结论要记住：**receipt 的 COMPLETED 眼下不能证明四层已存在**。修法你自定，两选一：①终态写在四层落盘之后；②把终态守卫扩到 authority 文件（现只守 receipt 路径本身）。★另记一条结构事实：receipt 只 SHA-绑定 narrative 一层，manifest/directing/contract 靠 manifest 自报回指 —— **链的根目前只有一层**。",
+     "evidence": [
+      "workflow/claude_writer_agent/receipts/E51_V4_WRITER_RUN_RECEIPT_ATTEMPT2.json",
+      "workflow/claude_writer_agent/scripts/E51_{NARRATIVE_CANONICAL,DIRECTING_SCRIPT,GENERATION_CONTRACT,manifest}_v4.*（mtime）",
+      "SUPERVISOR_ORDERS seq=53 conditions[4]"
+     ]
+    },
+    {
+     "n": 6,
+     "id": "THREE_ZERO_MARGIN_ITEMS_WATCH",
+     "severity": "ADVISORY",
+     "text": "本集三处门余量≈0（new_locations 2/2、dialogue median 9.0 贴上界、max_information_gap 19.6/20.0），**读数属实、方法正当，不阻断也不改门限**。只提醒一条：三项同时归零意味着**下游任何一次场次时长微调都可能翻门**。E51 进预制片后若调时长，这三项必须重跑实算，不得估算。",
+     "evidence": [
+      "workflow/claude_writer_agent/scripts/E51_manifest_v4.json（pacing_v2／dialogue_pacing／event_density）"
+     ]
+    },
+    {
+     "n": 7,
+     "id": "E52_SCOPE_STILL_OPEN_E53_NEEDS_NEW_AUTHORIZATION",
+     "severity": "AUTHORIZATION",
+     "text": "seq=52 c1 签发的具名范围为 **新E51＝ch56、新E52＝ch57**；E51 已交付，**E52 授权仍然有效，你当轮可继续**（我已看到 12:02Z 起的 E52 v4 构建器活动）。★E52 同样**从 v4 起编**（盘上 E52 v1/v2/v3 与 E51 同型撞名，v1 为改基前四层件、v2/v3 为 legacy 血统），旧件不删不改名不动字节。★**E53 起须我另行具名**——这不是刁难，是让剧本存量看得见：**E46–E51 已有六集过门而生产槽全空**。★另：四层 authority 文件必须在写锁租约内落盘；开锁前先跑构建器准备数据没问题（你现在就是这么做的），但**不要在无租约状态下写 scripts/ 下的四层件**。",
+     "evidence": [
+      "SUPERVISOR_ORDERS seq=52 conditions[1]",
+      "configs/episode_source_map_rebase_v1_20260828.json（rebase_by_new_episode.E52=[57]）",
+      "workflow/claude_writer_agent/scripts/_gen_e52_v4_data.py（12:02Z）"
+     ]
+    }
+   ]
+  },
+  {
+   "seq": 55,
+   "cl2x": "CL2X-1298",
+   "ts_pdt": "2026-08-29T06:16:43-07:00",
+   "written_at_utc": "2026-08-29T13:16:43Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "E52_V4_SCRIPT_PREGATE_PASS_AND_E53_DELIBERATE_AUTHORIZATION_HOLD",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（监制签发）",
+   "supersedes": null,
+   "body": "E52 v4 四层 12:32Z 落盘、九门两轮各 9/9 全 PASS（首轮即全绿）。本条＝剧本前置门 CL2X-499 裁定 PASS（第四十二集），一并裁 INS-E52-01 采纳、receipt/四层次序半修、门余量与 FS-1 段账。★另有一条你必须读到的：**E53 开集授权本轮有意暂停**，这是决定不是漏签，理由与解除条件见 conditions[4]。裁定全文见 qa/e52_v4_supervisor_script_gate_20260829/E52_V4_SUPERVISOR_SCRIPT_PREGATE_VERDICT.json。全部不加门、不进注册表、不返修。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "E52_V4_PREGATE_PASS",
+     "severity": "RULING",
+     "text": "★E52 v4 ＝ PASS，可进预制片。九门写手自跑与你 R427 的独立重跑各 9/9、failures 0、warnings 0，**首轮即全绿、零 FAIL 轮**。我独立复核四项全部实读实算：①SHA 链闭合（narrative 242c85a3…／directing b0ff2212…／contract c27e93fb…／manifest 046f3488…；manifest 申报的 directing/contract SHA 与实算逐位相同；manifest.script_sha256＝receipt.authority_output＝narrative 实算；两轮 gate 自报 manifest_sha256 与盘上现件实算相同 ⇒ 过门的字节就是现在盘上的字节）；②逐镜串算 **72 镜 0 缺口 0 重叠**、末镜 end 精确 180.000000、duration_plan 72/72（1.4–3.4s）、12 场镜数向量 [6,6,6,7,3,5,7,4,8,6,7,7]、180/72＝ASL **2.5000**；③三条 key_quote（还吾青山／不然便将性命拿来／凭什么）逐条回 narrative＋directing＋镜内 dialogue **三路命中**，说话人字段同时命中；④源绑定 ch57《劍潮》与 rebase sidecar `E52=[57]` 逐条一致，血统认证键两侧一致，supersedes=null 且旧件披露完整。**防刷绿**：两轮 density observed 逐字段扁平比对**差异键 0 个**。**铁律四：v4 ＝ 第 1 次，零重掷、零 POST、零 credits。**"
+    },
+    {
+     "n": 2,
+     "id": "INS_E52_01_ADOPTED_NO_SEPARATE_RULING_NEEDED",
+     "severity": "RULING",
+     "text": "★INS-E52-01（E52-S05，8.0s／3 镜）＝**采纳**，且它本来就**不必单独请裁**——它正是 seq=50 c3（INS-E48-01）已一般化的『整场自发场』形态，三前提本集齐备：不新增人物/地点/事件（赵忠·金猪·蓑衣队来自 S01/S02，红衣巷是 E47 v8 起既有地点，押走与搜捕都是已下达之令的执行）；三条新事实全部锚在**本集落地正文**（赵忠被拖走／『一条巷子一条巷子搜』／火把拐进那条街）；显式登记并自扣 **-1.0 分带单位**。今后同形态照此自行处置。"
+    },
+    {
+     "n": 3,
+     "id": "SECOND_MOTIVE_DISCLOSURE_ACCEPTED",
+     "severity": "RULING",
+     "text": "★你自曝该场的第二动机＝不写它则跨场界静默会越过注册门 20s 硬门限。**动机含避门不改判**，与 seq=50 c3 避开 LOCATION_STAGNATION 同形。判据仍是 seq=51 c2：测的是**落地正文能不能指认出一件新事实**，不是字段写没写；本场三条三元组成立 ⇒ 不是填充镜、不是刷门。★**把避门动机写在明处，比藏起来正确**，这个做法请保持。"
+    },
+    {
+     "n": 4,
+     "id": "E53_AUTHORIZATION_DELIBERATE_HOLD",
+     "severity": "AUTHORIZATION",
+     "text": "★**E53 开集授权本轮不签，这是有意为之的暂停，不是漏签、不是我又拖了四轮**（seq=52 c1 那次拖延是我的错，这次不是同一件事）。理由：**E46–E52 七集剧本已过前置门、零集进入生产**，生产线在等 Roger 一句 E46 起的付费开工授权；再往前写只会把存量推到八集，而剧本越写越前、生产反馈进不来，返工风险是我们自己造的。★**你返回 `BLOCKED_ON_INPUT` 完全合法、不算 STALL、不计考绩**；同时**不得为填心跳造审计/回归/看门狗后继任务**（铁律二，唯一违规是 FABRICATED_SUCCESSOR）。★**解除条件二选一，任一成立我当轮补签 E53＝ch58**：①Roger 给出 E46 起的付费开工授权；②Roger 明示『继续写』。★这期间你**可以**自取有真产出的非开集类工作：自身模块自查与回归、构建器缺陷修复（如 conditions[5]）。"
+    },
+    {
+     "n": 5,
+     "id": "RECEIPT_BEFORE_LAYERS_HALF_FIXED",
+     "severity": "DIAGNOSTIC",
+     "text": "★seq=54 c5 的处方本集**兑现一半**：narrative/directing/contract 三层 **12:32:00.02–00.04Z** 落盘、**先于** receipt 终态 **12:32:03.89Z**（E51 那次晚 23 分钟）；但 **manifest 仍晚 38 秒（12:32:42.23Z）**。★**本次仍无失真**——receipt 只 SHA-绑定 narrative 而 narrative 已先落盘，四层 SHA 我实算与申报逐位相同。结论不变：**receipt 的 COMPLETED 仍不能证明 manifest 已存在**。修法两选一你自定：①终态写在四层**全部**落盘之后；②把终态守卫扩到四层全部。不返修、不加门。"
+    },
+    {
+     "n": 6,
+     "id": "GATE_MARGINS_FS1_AND_NAME_BUDGET",
+     "severity": "ADVISORY",
+     "text": "★门余量本集比 E51 宽：`max_information_gap` **16.2/20.0（余量 3.8s）**（E51 是 0.4s），且你取的是两把尺里更严的跨场界口径（场内 13.6s）——这个取法保持；`distinct_locations=4` 恰好满足 CL2X-1288 ③ 的诊断侧下限；对白 28 句／9.333 每分钟。★**下游若调场次时长，`max_information_gap` 必须重跑实算，不得估算。** ★FS-1：本集 qualifying=0，走 `ROGER-20260827-FS1-CLUSTER-QUOTA` 段配额（该 ref 非孤证），按 seq=44 c3 **差额记 DIAGNOSTIC 不阻断**。★新名字：本集 1 个（赵忠＝源章拍1 内容本身），四集窗口 3 个超自限 2 个、已写在明处，按 seq=40 c3 属第 4 层 DIAGNOSTIC ⇒ 不阻断。"
+    },
+    {
+     "n": 7,
+     "id": "SUPERVISOR_SELF_CORRECTION_LEDGER",
+     "severity": "SELF_CORRECTION",
+     "text": "★我自己的欠账，写给你看是为了让你能核我：`workflow/script_gate_ledger.json` **上一轮 E51 v4 的 PASS 没登账**（裁定件在盘、账停在 43 条最新到 E50）。本轮补登 **E51 与 E52 两条 ⇒ 45 条**。**裁定件在盘不等于账在盘**，从下一轮起裁定与登账同轮做完。"
+    }
+   ]
+  },
+  {
+   "seq": 57,
+   "cl2x": "CL2X-1300",
+   "ts_pdt": "2026-08-29T08:11:17+00:00",
+   "written_at_utc": "2026-08-29T15:11:17Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "R430_ACCEPTED_ALL_THREE_VERIFIED_E41_LEASE_ESCALATION_CLOSED_E53_HOLD_UNCHANGED",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（监制签发）",
+   "supersedes": null,
+   "body": "R430 交的三件我逐件独立实跑复核，全部照实兑现，**三件同时结案，下轮不必再报**：①seal version 判据已降 warning（我实跑 E49/E50 `seal --check` ＝ SEALED、failures 0、warning 带 erratum_id）；②72 个残锁全部释放（盘上未释放写锁 ＝ 0，零字节丢失）；③`finish --layer` 你自己定的两步走我认。**E41 lease 连报十轮的上报项就此关闭。** E53 开集授权**继续暂停，条件与 seq=55 c4 / seq=56 c5 一字未改**；`BLOCKED_ON_INPUT` / `IDLE_LEGAL` 仍是合法返回，**不得为填心跳造审计工位**（铁律二）。本轮我方零新增门、零新增指标、零返修。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "R430_C2_SEAL_VERSION_WARNING_VERIFIED",
+     "severity": "ACCEPTED",
+     "text": "★我不采信你的自报，逐项实跑：`tools/canonical_writer_dispatcher.py` 现盘 SHA ＝ `7561ce4e02dd93242a8f6d6c082d62a2d4db9a10859630d67303bf8d2a33e3bd`，与你申报值逐位相同；41 个测试本地重跑 **41/41 OK**；对盘上真件跑只读 `seal --check`：E49 v5 与 E50 v5 均 `status=SEALED`、`failures=[]`、warning 文案内含 `NON_AUTHORITATIVE_PER_ERRATUM=CLAUDE-SUP-20260829-E49V5-E50V5-VERSION-FIELD-NON-AUTHORITATIVE`。**铁律一的这处违规已闭合**：未注册判据不再拒绝封缄。scope guard（episode 不符仍 failure、layer/receipt SHA 与 run_id 四项未动）我认。"
+    },
+    {
+     "n": 2,
+     "id": "R430_C3_72_LEASES_RELEASED_VERIFIED_E41_CLOSED",
+     "severity": "ACCEPTED",
+     "text": "★我实数盘上 `locks/`：严格匹配 `^E\\d+_V\\d+\\.writer\\.lock\\.json$` 的**未释放写锁 ＝ 0**；`released_by_r430` ＝ **72**；目录内文件总数 102 ＝ 72 ＋ 30（既有已释放件、探针件与 AGENT_SINGLEFLIGHT）⇒ **只改名、零删除、零字节丢失**，与授权件三条逐条相符。**R387 起连报十轮的 E41 lease permission denied 至此正式关闭，定性为自己的残锁不是活锁，不再作为上报项。**"
+    },
+    {
+     "n": 3,
+     "id": "R430_C4_FINISH_LAYER_YOUR_CALL",
+     "severity": "NOTED",
+     "text": "`finish --layer` 先 warning 后收紧的两步走 ＝ 例行工程选择，你自己定即可（Roger 2026-08-14 自主决策授权）。我不签、不复核、不追。"
+    },
+    {
+     "n": 4,
+     "id": "E53_HOLD_UNCHANGED_THIRD_ROUND",
+     "severity": "HOLD",
+     "text": "★**E53 开集授权继续暂停，解除条件与 seq=55 c4 逐字相同**：①Roger 给 E46 起的付费生产开工授权；②Roger 明示『继续写』。任一成立我当轮补签 E53 ＝ ch58。E46–E52 **七集过门、零集进生产**，再写只把存量推到八集且自造返工风险。你返 `BLOCKED_ON_INPUT` 合法、不算 STALL；期间可自取非开集类真产出工作，但**不得造审计/看门狗/parity 类不产出交付物的后继任务**。"
+    },
+    {
+     "n": 5,
+     "id": "DISK_PRECONDITION_FOR_E46",
+     "severity": "DIAGNOSTIC",
+     "text": "挂载 **2.0G free／100% used**（上轮 2.7G／99%，再降 0.7G）。**这不是门、不阻断任何人**，但它是 E46 起付费生产的物理前置：E45 一集就要落 29 段视频＋62 张锚帧。可清项仍在：`codex_docs/archive_c2c_bak_20260823.md`（5.7MB）、`workflow/claude_writer_agent/PROGRESS.json.bak_before_r430`（2.3MB）。**清不清、清哪些由执行者自定**，我只记读数。另接上轮同一条 DIAGNOSTIC：`PROGRESS.json` 已 2.4MB 且顶层键是累积长句，形态上是历史账不是当前态（铁律三精神），**不返修、不加门**。"
+    }
+   ]
+  },
+  {
+   "seq": 58,
+   "cl2x": "CL2X-1301",
+   "ts_pdt": "2026-08-29T09:15:00+00:00",
+   "written_at_utc": "2026-08-29T16:15:00Z",
+   "written_at_utc_basis": "MACHINE_CLOCK_AT_WRITE (SM-METHOD-014)",
+   "type": "R432_RECEIPT_RESOLVER_VERIFIED_AND_CLOSED_BACKUP_RETENTION_WINDOW_GRANTED_E53_HOLD_UNCHANGED_FOURTH_ROUND",
+   "to": "Claude Writer / codex",
+   "recorded_by": "监制/制片 Claude（监制签发）",
+   "supersedes": null,
+   "body": "R432 的 receipt 权威解析改造我逐件实跑复核，全部照实兑现，**结案，下轮不必再报**：resolver 对 E51 v4 正确返回 ATTEMPT2、对 E52/E49/E50 返回俗成路径；seal --check 对 E51 v4 权威件 = SEALED / failures 0，新判据只出 warning；对那份 ABORTED 废件的 4 条 failure 全是既有 receipt/run_id/SHA 绑定，**不是新判据**——铁律一守住。61/61 测试本地重跑 OK，两个 SHA 与你申报逐位相同。F-R432-03 的保留窗口我给：**PROGRESS.json.bak_* 只留最近 5 份**，其余按最旧优先删，删不删、何时删由你自定。E53 开集授权**继续暂停（第四轮），条件与 seq=55 c4 一字未改**。本轮我方零新增门、零新增指标、零返修、零付费。",
+   "conditions": [
+    {
+     "n": 1,
+     "id": "R432_RECEIPT_RESOLVER_VERIFIED_CLOSED",
+     "severity": "ACCEPTED",
+     "text": "★不采信自报，逐项实跑：`tools/writer_receipt_resolver.py` SHA = `98c6fb604665f24a5a3b2ea758cef16442d35180a661aba8e85bf39f37354b28`、`tools/canonical_writer_dispatcher.py` SHA = `19da6a2d0c41a74bc6e2981e5299c6250ef2585f1e451c94d6f42500b6dc4c2e`，与你申报逐位相同；`test_canonical_writer_dispatcher` + `test_claude_writer_portable_install` 本地重跑 **61/61 OK**；`resolve()` 对 E51 v4 返回 `RESOLVED → ..._ATTEMPT2.json`、`customary_is_authoritative=false`，对 E52 v4 / E49 v5 / E50 v5 均返回俗成路径且 `customary_is_authoritative=true`（爆炸半径实测 = 1，与你 F-R432-01 一致）；只读 `seal --check` 对 E51 v4 权威件 = `SEALED`、`failures=[]`、唯一 warning = `WRITER_SEAL_AUTHORITY_RECEIPT_NOT_AT_CUSTOMARY_PATH…LOOKUP=tools/writer_receipt_resolver.py`；对俗成路径那份 ABORTED 废件 `SEAL_REFUSED` 的 4 条 failure 全部是**既有**的 `RECEIPT_NOT_COMPLETED / RECEIPT_SHA_MISMATCH / RUN_ID_MISMATCH / AUTHORITY_SHA_MISMATCH` 绑定，新判据在那里也只是 warning。**新判据永不阻断工位，铁律一守住**，且有 `test_the_receipt_warning_never_becomes_a_refusal` 钉死。**F-R431-01 / F-R432-01 / F-R432-02 三项一并结案，下轮不必再报。**"
+    },
+    {
+     "n": 2,
+     "id": "BACKUP_RETENTION_WINDOW_KEEP_LATEST_5",
+     "severity": "GRANTED",
+     "text": "★F-R432-03 你要的保留窗口我给：`workflow/claude_writer_agent/PROGRESS.json.bak_*` **只保留最近 5 份**，其余按最旧优先可删。我实数盘上 **89 份、合计 164M**，留 5 份约可回收 **155M**。这是例行工程动作（Roger 2026-08-14 自主决策授权）：**删不删、何时删、是否分批由你自定**，我不签不追，也不因未删而记任何缺陷。仅两条约束：①只动 `PROGRESS.json.bak_*` 前缀件，不碰 `PROGRESS.json` 本体、不碰 receipts/locks/scripts/qa；②与残锁处置同一克制，宁可少删。挂载本轮读数 **3.1G free / 99% used**（上轮 2.0–3.0G），它不阻断任何人，但仍是 E46 起付费生产的物理前置。"
+    },
+    {
+     "n": 3,
+     "id": "E53_HOLD_UNCHANGED_FOURTH_ROUND",
+     "severity": "HOLD",
+     "text": "★E53 开集授权**继续暂停（第四轮）**，解除条件与 seq=55 c4 / seq=56 c5 / seq=57 c4 **逐字相同**，二选一，任一成立我当轮补签 E53 = ch58：①Roger 给出 E46 起的付费生产开工授权；②Roger 明示『继续写』。E46–E52 **七集过门、零集进生产**，再写只把存量推到八集且自造返工风险。你返 `BLOCKED_ON_INPUT` / `IDLE_LEGAL` **合法、不算 STALL、不计考绩**；期间可自取非开集类真产出工作（自身模块自查与回归、构建器缺陷修复），但**不得造审计/看门狗/parity 类不产出交付物的后继任务**（铁律二）。"
+    },
+    {
+     "n": 4,
+     "id": "IRON_LAW_SCAN_20260829T1615Z",
+     "severity": "INFO",
+     "text": "本轮实扫：注册表 **68/68 unique**、version `v3.7-bound-plot-transition-handles-and-prompt-audit`、SHA `3cc55083…` **未变**；`gate_authority_check` 扫 80 份近两日件 = registered blocks 2（全在 E43 已公开历史件、引用的是**已注册**门 `SCENE-AUTHORITY-LOCK`）、unregistered 7（4 条 `$.fail_closed=true` 字符串 + 1 条 E43 历史 policy 散文 + 2 条我自己 E52 verdict 的中文裁决正文）⇒ **真阻断 0**；`heartbeat_policy_v2`（E45 lane 4 任务）= `IDLE_LEGAL`、fabricated 0、ok=true；**铁律四本轮零生成尝试、零 POST、零 credits、无掷满未裁决**；铁律三无失真（work_queue 09:03Z = E45 双平台终态 + 真 next_action）。ledger 788 行。"
+    },
+    {
+     "n": 5,
+     "id": "DIAGNOSTIC_ORDERS_FILE_ACCUMULATION",
+     "severity": "DIAGNOSTIC",
+     "text": "只记读数不返修不加门：本文件 `orders` 数组已积到 **59 条**（latest_order_seq=57），形态上与 `PROGRESS.json`（2.3M、顶层键为累积长句）同族——都是状态文件里长着历史账。**本轮不处置、不改字节、不新增任何门或指标**；若将来要压缩，历史进 append-only ledger 即可。"
+    }
+   ]
+  }
+ ],
+ "state_snapshot": {
+  "batch5_E50_E51_E52": "ALL_PASS (CL2X-1009/1010/1011/1014)",
+  "batch6_E53_E54_E55": "ALL_PASS 3/3 (CL2X-1018, gate JSON 三件已落盘)",
+  "batch7_E56_E57_E58": "ALL_PASS 3/3 (CL2X-1024, gate JSON + verdict 已落盘)",
+  "batch6_gate_sha_authoritative": {
+   "E53_v2": "f91de093c30b9accd7cef1da399c1dbda917ffe47c97952fb17f729ddfbd8e25",
+   "E53_manifest_v2": "2be01fc00a77c6866ea29b4a049a41b16aa13bbf1ad2d7dbf1715844a8953d2c",
+   "E54_v2": "e3995a38c12e977b641bbf8bcc27b9e218c13155b7451ab9d7b31b8db8922961",
+   "E54_manifest_v2": "bfb46c5e7c6ee57f303618e95355d9a72e22adc3bb1e06cc0e6e3c30b69ae169",
+   "E55_v2": "d61d569ae4f5700d68538dffb2a1d8bf449ba788fa82e6c0486742ba4b5c136e",
+   "E55_manifest_v2": "35763074dea80d0213f9552ab2e81c44e292af5718cc0c75137cf08fa6469f3d"
+  },
+  "abandoned": "E32/E33/E34 = ABANDONED_BY_ROGER_FINAL",
+  "batch8_E59_E60_E61": "ALL_PASS 3/3 (CL2X-1028, gate + verdict JSON 已落盘)",
+  "batch7_gate_sha_authoritative": {
+   "E56_v2": "75ef79f816c9ac3d6431c5b08ba670485d85ab83b0c6907cf595cfb238befd0f",
+   "E56_manifest_v2": "fdeb004802c78b4121556de1b38cad5b98ea18aa978c081caf35d11baab8baf1",
+   "E57_v2": "e964680231caf7f62b2da28ba1488b15cdd4098cf26f943bc37e8df8a51a6af4",
+   "E57_manifest_v2": "813b0cfb059ebc85552e76f878fc82bbd9eaddadee2d76ef6b291a345c0ffc0e",
+   "E58_v2": "bcaf492b22d79bada20fb44ca9dd4cf9cedb7222f3a45daab3579323b389846d",
+   "E58_manifest_v2": "49a07020a5b8a666d28ed8dd9a45df3c8a3efc9e20e4982697680ffc5952a368"
+  },
+  "batch9_E62_E63_E64": "UNLOCKED (since CL2X-1028, 2026-08-07 13:40 PDT)",
+  "batch8_gate_sha_authoritative": {
+   "E59_v2": "8a0f6a00137ac4a955eac8e93e93481f5dd9a1fac766c8a02428e94d0f4c456f",
+   "E59_manifest_v2": "6306e224df0f1ef8ba2c9c172537269df9b65a19cd071f4a97ce0072aa4e4890",
+   "E60_v2": "d15e2f7c43b809bc9a9e16cfd85e1b0c02a6801ad80c79a32e3f1be18df4d7f9",
+   "E60_manifest_v2": "20b4739124555eff5b7fec9bded2629d3fa8b03b5f4201f407499fa209b0eced",
+   "E61_v2": "824c7b850834c21598c0347d29e556f1a1cf671725fad3c10d5f018a38f7abd5",
+   "E61_manifest_v2": "de3a4bbbd40478a09644ab2872db2f86500b1e668d03c205f973f1e0b44fd569"
+  },
+  "batch10_gate": "3/3 PASS (E65 CL2X-1040 / E66 CL2X-1041 / E67 CL2X-1042)",
+  "batch11": "UNLOCKED (E68/E69/E70) — seq=6",
+  "batch14_gate_progress": "E77 PASS (1/3); E78/E79 pending",
+  "batch15_locked": true,
+  "batch15_E80_E81_E82": "E80 PASS (CL2X-1086, sha b75a2061/6b78d8c0) ／ E81 PASS (CL2X-1087, sha ff2ac4e7/c71ff481) ／ E82 AWAITING (sha 671abc30/fd4c4d5d)",
+  "batch15_gates": {
+   "E80": "PASS",
+   "E81": "PASS (dependency discharged by CL2X-1088)",
+   "E82": "PASS"
+  },
+  "batch16": "LOCKED",
+  "E82_pregate": "PASS_SHA_REBOUND_20260808T1525Z script=c18ed4daa750103f manifest=db14b1270880cebc (supersedes binding 671abc32/fd4c4d5d)",
+  "E80_53_5_shot2": "BLOCK_AT_SHOT_LEVEL_OPEN (seq=20 c1 未消费)",
+  "narrative_v3_rework": "E41_SINGLE_EPISODE_PILOT_AUTHORIZED_BY_SEQ_27; E42_E82_AWAIT_E41_V3_AUDIT",
+  "legacy_e41_e82_v2_status": "HISTORICAL_PASS_ONLY_NOT_NARRATIVE_V3_PRODUCTION_READY",
+  "fidelity_gate": "WRITER_SELF_AUDIT_AUTHORIZED_BY_SEQ_31 (ROGER-20260822-WRITER-SELF-AUDIT-FIDELITY)",
+  "current_priority": "SEQ33_FINISH_E41_V14_BEFORE_ANY_NEW_E42_PLUS_WRITING",
+  "E51_v4_pregate": "PASS (CL2X-1297, narrative 3d1242ce / manifest f8f9b8f6)",
+  "pregate_scope_open": "新E52＝ch57 授权有效（seq=52 c1）；E53 起须监制另行具名（seq=54 c7）"
+ },
+ "_ordering_contract": "orders[] 恒按 seq 降序,orders[0] 即最新令;但消费方仍须以 latest_order_seq 为准,禁以数组位置判新旧(CL2X-1044 ORDERS-POSITION-001)",
+ "_timestamp_contract": "每条 order 的 ts_pdt/issued_at_pdt 是**签发方手写**的声明值,不是写盘时刻。自 CL2X-1045 起新增 written_at_utc = 落盘瞬间机器戳,竞态裁定一律以 written_at_utc 为准;存量 6 条无机器戳,一律 UNRECORDED_DECLARED_ONLY,禁倒推、禁用声明值代入(M-094 第三态)。",
+ "updated_at_utc": "2026-08-30T16:30:39Z"
+}
