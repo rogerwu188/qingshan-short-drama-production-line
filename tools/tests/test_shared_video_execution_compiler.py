@@ -13,6 +13,7 @@ def _unit(model: str = "seedance-2.0-pro") -> dict:
     return {
         "unit_id": "E99-VU-001",
         "episode": "E99",
+        "pipeline_rectification_version": "E51_V1",
         "model": model,
         "duration_seconds": 4,
         "resolution": "720p",
@@ -43,7 +44,26 @@ def _unit(model: str = "seedance-2.0-pro") -> dict:
             "space": {"location": "雨夜客栈", "subspace": "北窗内侧"},
             "scene_state": {"time": "夜", "weather": "窗外有雨", "palette": "冷蓝暖灯"},
             "cast": [{"character": "陈迹"}, {"character": "蒙面人"}],
-            "props": [{"prop": "短刀"}, {"prop": "方桌"}],
+            "props": [
+                {
+                    "prop": "短刀",
+                    "state": {
+                        "entry": {"owner": "蒙面人", "hand": "RIGHT", "position": "右肋", "disposition": "HELD"},
+                        "exit": {"owner": "蒙面人", "hand": "RIGHT", "position": "陈迹左前臂外侧", "disposition": "HELD"},
+                    },
+                    "transition_authorization": {"writer_authored": True},
+                    "start_frame_visual_confirmation": {"status": "PASS", "evidence_ref": "fixture://short-blade-right-hand"},
+                },
+                {
+                    "prop": "方桌",
+                    "state": {
+                        "entry": {"owner": "场景", "hand": "NONE", "position": "陈迹身前", "disposition": "FIXED"},
+                        "exit": {"owner": "场景", "hand": "NONE", "position": "被髋部撞偏", "disposition": "FIXED"},
+                    },
+                    "transition_authorization": {"writer_authored": True},
+                    "start_frame_visual_confirmation": {"status": "PASS", "evidence_ref": "fixture://table-in-frame"},
+                },
+            ],
             "role_semantic_disambiguation": {
                 "schema": "qingshan.role_semantic_disambiguation.v1",
                 "status": "PASS",
@@ -79,6 +99,11 @@ def _unit(model: str = "seedance-2.0-pro") -> dict:
                     "POSITION": {"entry": "陈迹在桌后", "exit": "陈迹退至桌角", "entry_code": "BEHIND_TABLE", "exit_code": "AT_TABLE_CORNER"},
                     "CONTACT": {"entry": "刀与人未接触", "exit": "刀背压住左前臂", "entry_code": "NO_CONTACT", "exit_code": "BLADE_ARM_CONTACT"},
                     "MOMENTUM": {"entry": "蒙面人落地前冲", "exit": "冲量转移到陈迹与方桌", "entry_code": "ATTACKER_FORWARD", "exit_code": "TRANSFERRED_TO_TARGET_TABLE"},
+                },
+                "patient_state_delta_dimensions": ["POSITION", "POSTURE"],
+                "patient_state_delta_evidence": {
+                    "POSITION": {"entry": "陈迹在桌后", "exit": "陈迹退至桌角"},
+                    "POSTURE": {"entry": "直立抬臂", "exit": "左肩后撤且左臂承重"},
                 },
             },
             "performance": {"event_reaction": "接触瞬间陈迹瞳孔收紧，肩颈随受力后撤"},
@@ -209,6 +234,37 @@ class SharedVideoExecutionCompilerTest(unittest.TestCase):
         ]
         with self.assertRaisesRegex(ValueError, "COMBAT_SECONDARY_FEEDBACK_LIMIT"):
             compile_model_prompt(unit)
+
+    def test_mixed_unit_does_not_force_noncombat_beat_through_combat_gate(self) -> None:
+        unit = _unit()
+        recovery = deepcopy(unit["ordered_prompt_specs"][0])
+        recovery["action"] = {
+            "action_kind": "PHYSICAL_ACTION",
+            "t0_seconds": 0,
+            "t1_seconds": 2,
+            "start_state": "陈迹左臂仍承重，蒙面人短刀已经偏出",
+            "primary_action": "陈迹退至桌角并重新站稳",
+            "interaction_mode": "NONE",
+            "contact_point": "陈迹双脚在桌角重新落稳",
+            "force_origin": "前一拍冲量衰减后由陈迹双腿承重",
+            "primary_feedback": "肩线回正，桌脚停止滑动",
+            "completion_state": "陈迹在桌角站稳，蒙面人位于桌侧",
+            "state_delta_dimensions": ["POSITION", "POSTURE"],
+            "state_delta_evidence": {
+                "POSITION": {"entry": "陈迹在桌后", "exit": "陈迹在桌角", "entry_code": "BEHIND_TABLE", "exit_code": "AT_CORNER"},
+                "POSTURE": {"entry": "左臂承重", "exit": "双脚站稳", "entry_code": "ARM_BEARING", "exit_code": "FEET_SET"},
+            },
+        }
+        attack = deepcopy(unit["ordered_prompt_specs"][0])
+        attack["action"]["t0_seconds"] = 2
+        attack["action"]["t1_seconds"] = 4
+        attack["action"]["contact_time_seconds"] = 2.8
+        unit["ordered_prompt_specs"] = [recovery, attack]
+        plan = compile_video_execution_plan(unit)
+        self.assertEqual(plan["unit_class"], "COMBAT_IMPULSE")
+        self.assertEqual(plan["beats"][0]["source_action_kind"], "PHYSICAL_ACTION")
+        self.assertEqual(plan["beats"][1]["source_action_kind"], "COMBAT")
+        self.assertEqual(plan["motion_density_gate"]["status"], "PASS")
 
     def test_h3_accepts_official_three_second_minimum(self) -> None:
         unit = _unit("MiniMax-H3")

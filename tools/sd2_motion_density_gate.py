@@ -159,6 +159,18 @@ def validate_combat_causal_chain(beat: dict[str, Any], *, source_id: str) -> lis
         failures.append(f"AMBIGUOUS_CONTACT_TYPE:{source_id}:CONTACT_AND_NON_CONTACT")
     if interaction_mode in {"EVASION", "THREAT_THRESHOLD"} and "CONTACT" in dimensions:
         failures.append(f"AMBIGUOUS_CONTACT_TYPE:{source_id}:{interaction_mode}_WITH_CONTACT_DELTA")
+    patient = str(beat.get("action_patient") or "").strip()
+    if patient and beat.get("e51_rectification_required") is True:
+        patient_dimensions = set(beat.get("patient_state_delta_dimensions") or [])
+        if not patient_dimensions.intersection({"POSITION", "POSTURE"}):
+            failures.append(f"COMBAT_PATIENT_STATE_DELTA_MISSING:{source_id}:{patient}")
+        evidence = beat.get("patient_state_delta_evidence") or {}
+        for dimension in patient_dimensions.intersection({"POSITION", "POSTURE"}):
+            row = evidence.get(dimension) or {}
+            if not str(row.get("entry") or "").strip() or not str(row.get("exit") or "").strip():
+                failures.append(f"COMBAT_PATIENT_STATE_DELTA_EVIDENCE_MISSING:{source_id}:{patient}:{dimension}")
+            elif str(row.get("entry")).strip() == str(row.get("exit")).strip():
+                failures.append(f"COMBAT_PATIENT_STATE_DELTA_NO_CHANGE:{source_id}:{patient}:{dimension}")
     return failures
 
 
@@ -167,6 +179,15 @@ def validate_execution_plan(plan: dict[str, Any]) -> dict[str, Any]:
     unit_id = str(plan.get("unit_id") or "UNKNOWN")
     unit_class = str(plan.get("unit_class") or "")
     duration = float(plan.get("duration_seconds") or 0.0)
+    classification = plan.get("unit_classification_gate") or {}
+    failures.extend(classification.get("failures") or [])
+    failures.extend((plan.get("camera_authority_gate") or {}).get("failures") or [])
+    if unit_class == "COMBAT_EXCHANGE" and classification.get("required") is True:
+        contact_count = int(classification.get("combat_contact_count") or 0)
+        if duration < 7.0 or duration > 12.0 or contact_count > 2:
+            failures.append(
+                f"UNIT_CLASS_LAUNDERING:{unit_id}:COMBAT_EXCHANGE_REQUIRES_7_TO_12_SECONDS_AND_AT_MOST_2_CONTACTS"
+            )
     duration_authority = plan.get("duration_authority") or {}
     underfill = float(duration_authority.get("underfill_seconds") or 0.0)
     if underfill > 0.05:
@@ -185,20 +206,39 @@ def validate_execution_plan(plan: dict[str, Any]) -> dict[str, Any]:
         if abs(start - cursor) > 0.02 or end <= start:
             failures.append(f"EXECUTION_TIMELINE_INVALID:{source_id}:{start}->{end}")
         cursor = end
-        if unit_class == "COMBAT_IMPULSE":
+        # Mixed units are legitimate: a short atmosphere/recovery beat may
+        # border a combat beat without becoming combat itself. Validate each
+        # beat against its authoritative action kind instead of forcing every
+        # beat in a COMBAT_EXCHANGE unit through the interaction gate.
+        source_action_kind = str(beat.get("source_action_kind") or "").upper()
+        failures.extend(beat.get("prop_state_failures") or [])
+        beat_is_combat = (
+            source_action_kind == "COMBAT"
+            if source_action_kind
+            else unit_class in {"COMBAT_IMPULSE", "COMBAT_EXCHANGE"}
+        )
+        if unit_class == "COMBAT_IMPULSE" and beat_is_combat:
             report = validate_combat_impulse(
                 beat, duration_seconds=duration, source_id=source_id
             )
         else:
             report = validate_state_delta(
                 beat,
-                combat=unit_class in {"COMBAT_EXCHANGE"},
+                combat=beat_is_combat,
                 source_id=source_id,
             )
-            if unit_class == "COMBAT_EXCHANGE":
+            if beat_is_combat:
                 report["failures"].extend(
                     validate_combat_causal_chain(beat, source_id=source_id)
                 )
+                action_fields = " ".join(str(beat.get(key) or "") for key in (
+                    "entry_state", "primary_action", "contact_point", "force_feedback", "exit_state"
+                ))
+                extend_hits = extend_word_hits(action_fields)
+                if extend_hits:
+                    report["failures"].append(
+                        f"COMBAT_EXTEND_WORD_FORBIDDEN:{source_id}:{','.join(extend_hits)}"
+                    )
                 report["status"] = "PASS" if not report["failures"] else "FAIL"
         reports.append(report)
         failures.extend(report["failures"])

@@ -24,6 +24,10 @@ try:
     from image_model_adapter import require_paid_image_model_contract
     from retry_cap_gate import validate_submission_attempt
     from role_semantic_prompt_gate import validate_role_semantics
+    from keyframe_entry_state_gate import (
+        evaluate_task as evaluate_keyframe_entry_task,
+        keyframe_entry_contract_required,
+    )
 except ModuleNotFoundError:  # Imported as tools.submit_giggle_image_manifest.
     from tools.giggle_api_client import _image_list, _request
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
@@ -33,6 +37,10 @@ except ModuleNotFoundError:  # Imported as tools.submit_giggle_image_manifest.
     from tools.image_model_adapter import require_paid_image_model_contract
     from tools.retry_cap_gate import validate_submission_attempt
     from tools.role_semantic_prompt_gate import validate_role_semantics
+    from tools.keyframe_entry_state_gate import (
+        evaluate_task as evaluate_keyframe_entry_task,
+        keyframe_entry_contract_required,
+    )
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -165,10 +173,13 @@ def validate_anchor_count_gate_requirement(
     tasks = manifest.get("tasks") or []
     if not any(task.get("video_unit_id") for task in tasks):
         return
-    if not any(gate.get("schema") == "qingshan.video_unit_anchor_count_gate.v1" for gate in gates):
+    accepted_anchor_schemas = {
+        "qingshan.video_unit_anchor_count_gate.v2_previous_final_frame_chain",
+    }
+    if not any(gate.get("schema") in accepted_anchor_schemas for gate in gates):
         raise ValueError(
-            "Video-unit image batches require a passing qingshan.video_unit_anchor_count_gate.v1 report; "
-            "anchor count must be justified per unit, never fixed to one or fixed to multiple images."
+            "Video-unit image batches require a passing previous-final-frame-chain anchor report; "
+            "independently generated same-scene opening keyframes are forbidden."
         )
 
     consumer = manifest.get("consumer_contract") or {}
@@ -227,6 +238,10 @@ def validate_task(task: dict[str, Any]) -> None:
             raise ValueError(f"{task.get('task_key', 'UNKNOWN')} missing {field}")
     if task.get("tool_type") != "image_generation":
         raise ValueError(f"{task['task_key']} is not an image_generation task")
+    if keyframe_entry_contract_required(task):
+        entry_report = evaluate_keyframe_entry_task(task)
+        if entry_report["status"] != "PASS":
+            raise ValueError(";".join(entry_report["failures"]))
     validate_mask_transport(task)
     prompt_path = resolve(task["prompt_file"])
     if not prompt_path.is_file():

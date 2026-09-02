@@ -24,7 +24,15 @@ def _spec(*, dialogue: str = "") -> dict:
         "space": {"location": "医馆门外", "subspace": "马车旁"},
         "scene_state": {"time": "清晨", "weather": "薄雾，晨风很轻", "palette": "冷灰"},
         "cast": [{"character": "白鲤"}],
-        "props": [{"prop": "车帘"}],
+        "props": [{
+            "prop": "车帘",
+            "state": {
+                "entry": {"owner": "马车", "hand": "白鲤右手", "position": "门框内侧", "disposition": "HELD"},
+                "exit": {"owner": "马车", "hand": "白鲤右手", "position": "门框一侧", "disposition": "HELD"},
+            },
+            "transition_authorization": {"writer_authored": True},
+            "start_frame_visual_confirmation": {"status": "PASS", "evidence_ref": "fixture://curtain-at-hand"},
+        }],
         "action": {
             "action_kind": "PHYSICAL_ACTION",
             "t0_seconds": 0,
@@ -160,6 +168,11 @@ def _make_combat() -> dict:
             "CONTACT": {"entry": "刀未接触", "exit": "刀背接触左前臂", "entry_code": "NO_CONTACT", "exit_code": "BLADE_FOREARM_CONTACT"},
             "POSITION": {"entry": "白鲤在门边", "exit": "白鲤在门柱后", "entry_code": "AT_DOOR", "exit_code": "BEHIND_POST"},
             "MOMENTUM": {"entry": "刀向胸口", "exit": "刀向外偏", "entry_code": "THRUST_IN", "exit_code": "DEFLECT_OUT"},
+        },
+        "patient_state_delta_dimensions": ["POSITION", "POSTURE"],
+        "patient_state_delta_evidence": {
+            "POSITION": {"entry": "白鲤在门边", "exit": "白鲤在门柱后"},
+            "POSTURE": {"entry": "直立", "exit": "侧身格挡"},
         },
     })
     unit["interaction_topology_contract"] = {"required": True}

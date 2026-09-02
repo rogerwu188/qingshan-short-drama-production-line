@@ -34,7 +34,7 @@ def _latest_keyframe(keyframe_dir: Path, shot_id: str) -> Path:
     return max(candidates, key=_version) if candidates else keyframe_dir / f"{shot_id}-keyframe-v1.png"
 
 
-def _anchor_shots(rows: list[dict[str, Any]]) -> tuple[list[str], bool, bool]:
+def _anchor_shots(rows: list[dict[str, Any]], *, include_opening: bool = True) -> tuple[list[str], bool, bool]:
     """Select references when later shots introduce identity or prop state.
 
     A one-reference plan is only valid when every visible identity and relevant
@@ -42,7 +42,7 @@ def _anchor_shots(rows: list[dict[str, Any]]) -> tuple[list[str], bool, bool]:
     ordinary Omni references; they cannot be falsely bound to an exact I2V
     start frame that does not contain them.
     """
-    selected = [str(rows[0]["shot_id"])]
+    selected = [str(rows[0]["shot_id"])] if include_opening else []
     covered_characters = _visible_characters(rows[0])
     covered_props = _props(rows[0])
     identity_reanchor = False
@@ -64,9 +64,20 @@ def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Pat
     units: list[dict[str, Any]] = []
     missing: list[str] = []
     classes: set[str] = set()
+    previous_unit_by_scene: dict[str, str] = {}
     for unit in grouping.get("units") or []:
         shot_ids = unit["editorial_shot_ids"]
         rows = [shots[shot_id] for shot_id in shot_ids]
+        scene_id_value = (
+            unit.get("scene_id")
+            or rows[0].get("scene_id")
+            or (rows[0].get("prompt_spec") or {}).get("scene_id")
+        )
+        if not scene_id_value:
+            raise ValueError(f"{unit.get('unit_id')}:SCENE_ID_REQUIRED_FOR_OPENING_ANCHOR_CHAIN")
+        scene_id = str(scene_id_value)
+        previous_unit_id = previous_unit_by_scene.get(scene_id)
+        scene_first = previous_unit_id is None
         has_dialogue = any(str((row.get("prompt_spec") or {}).get("dialogue") or "").strip() for row in rows)
         has_props = any((row.get("prompt_spec") or {}).get("props") for row in rows)
         action_class = (
@@ -75,16 +86,45 @@ def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Pat
             else "CONTINUOUS_VISUAL_ACTION"
         )
         classes.add(action_class)
-        anchor_shots, identity_reanchor, prop_reanchor = _anchor_shots(rows)
+        anchor_shots, identity_reanchor, prop_reanchor = _anchor_shots(
+            rows, include_opening=scene_first
+        )
         paths = [_latest_keyframe(keyframe_dir, shot_id) for shot_id in anchor_shots]
         missing.extend(shot_id for shot_id, path in zip(anchor_shots, paths) if not path.is_file())
-        count = len(anchor_shots)
-        if count == 1:
+        if scene_first:
+            opening_key = anchor_shots[0]
+            opening_path = str(paths[0])
+            opening_role = "ADMITTED_SCENE_START_STATE"
+            opening_source = "SCENE_FIRST_GENERATED_KEYFRAME"
+            materialization_required = False
+        else:
+            opening_key = f"{previous_unit_id}:REAL_FINAL_FRAME"
+            previous_final = unit.get("previous_unit_final_frame") or {}
+            opening_path = str(
+                previous_final.get("path")
+                or unit.get("previous_unit_final_frame_path")
+                or ""
+            )
+            opening_role = "PREVIOUS_UNIT_REAL_FINAL_FRAME"
+            opening_source = "PREVIOUS_UNIT_REAL_FINAL_FRAME"
+            materialization_required = True
+        task_keys = [opening_key] + (anchor_shots[1:] if scene_first else anchor_shots)
+        reference_paths = [opening_path] + (
+            [str(path) for path in paths[1:]] if scene_first else [str(path) for path in paths]
+        )
+        count = len(task_keys)
+        if count == 1 and scene_first:
             reason = (
                 f"{unit['unit_id']} keeps every visible identity and relevant prop represented in "
                 f"its admitted start state, so one exact first-frame reference can drive the {action_class.lower().replace('_', ' ')}."
             )
             transport = "IMAGE_TO_VIDEO_EXACT_FIRST_FRAME"
+        elif count == 1:
+            reason = (
+                f"{unit['unit_id']} is not scene-first and therefore opens from {previous_unit_id}'s "
+                "materialized real final frame; no independent opening keyframe is permitted."
+            )
+            transport = "IMAGE_TO_VIDEO_PREVIOUS_FINAL_FRAME"
         else:
             reason = (
                 f"{unit['unit_id']} introduces later visible identities or props that are absent from "
@@ -95,9 +135,20 @@ def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Pat
         units.append({
             "unit_id": unit["unit_id"],
             "planned_reference_image_count": count,
-            "reference_image_task_keys": anchor_shots,
-            "reference_image_paths": [str(path) for path in paths],
+            "scene_id": scene_id,
+            "scene_first_unit": scene_first,
+            "reference_image_task_keys": task_keys,
+            "reference_image_paths": reference_paths,
             "reference_transport_strategy": transport,
+            "opening_anchor_contract": {
+                "status": "PASS" if scene_first or (opening_path and previous_final.get("sha256")) else "BLOCKED_UNTIL_PREVIOUS_FINAL_FRAME_MATERIALIZED",
+                "policy": "opening_anchor_is_previous_unit_final_frame_or_scene_first_unit",
+                "source": opening_source,
+                "previous_unit_id": previous_unit_id,
+                "materialized_path": opening_path,
+                "sha256": None if scene_first else previous_final.get("sha256"),
+                "materialization_required_before_submit": materialization_required,
+            },
             "anchor_count_decision": {
                 "planned_reference_image_count": count,
                 "reason": reason,
@@ -107,7 +158,7 @@ def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Pat
                     "prop_ownership_transition": prop_reanchor,
                     "non_interpolable_terminal_state": False,
                 },
-                "anchor_roles": ["ADMITTED_SCENE_START_STATE"] + ["IDENTITY_OR_PROP_REANCHOR"] * (count - 1),
+                "anchor_roles": [opening_role] + ["IDENTITY_OR_PROP_REANCHOR"] * (count - 1),
                 "action_design_class": action_class,
             },
             **({
@@ -118,8 +169,9 @@ def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Pat
                 }
             } if count > 1 else {}),
         })
+        previous_unit_by_scene[scene_id] = str(unit["unit_id"])
     return {
-        "schema": "qingshan.video_unit_anchor_plan.v2_semantic_review_required",
+        "schema": "qingshan.video_unit_anchor_plan.v3_previous_real_final_frame_chain",
         "episode": grouping.get("episode"),
         "video_unit_grouping_plan_sha256": None,
         "planned_reference_image_count": sum(row["planned_reference_image_count"] for row in units),
@@ -127,7 +179,7 @@ def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Pat
             "status": "PASS",
             "evaluated_individually": True,
             "distinct_action_design_classes": len(classes),
-            "reason": "Each scene-local unit was independently checked for re-anchor and terminal-state requirements.",
+            "reason": "Each scene-first unit owns one opening keyframe; every later same-scene unit is chained to the previous unit's real final frame before any optional identity/prop re-anchor.",
         },
         "missing_anchor_shot_ids": missing,
         "start_frame_semantic_authoring_required": [

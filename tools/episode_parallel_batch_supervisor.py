@@ -242,10 +242,20 @@ try:
     from action_video_prompt_compiler import validate_action_contract
     from video_model_adapter import require_paid_model_contract
     from image_model_adapter import require_paid_image_model_contract
+    from opening_anchor_chain_gate import validate_opening_anchor_chain
+    from keyframe_entry_state_gate import (
+        evaluate_task as evaluate_keyframe_entry_task,
+        keyframe_entry_contract_required,
+    )
 except ModuleNotFoundError:
     from tools.action_video_prompt_compiler import validate_action_contract
     from tools.video_model_adapter import require_paid_model_contract
     from tools.image_model_adapter import require_paid_image_model_contract
+    from tools.opening_anchor_chain_gate import validate_opening_anchor_chain
+    from tools.keyframe_entry_state_gate import (
+        evaluate_task as evaluate_keyframe_entry_task,
+        keyframe_entry_contract_required,
+    )
 
 RUNTIME_GATE_IDS = frozenset({
     "SCENE-AUTHORITY-LOCK",
@@ -1696,6 +1706,7 @@ def submit_one(task: dict, receipt: dict) -> dict:
         return {"state": "tool_failed_terminal", "tool_error": f"unsupported_tool_type:{tool_type}"}
     episode_match = re.match(r"E(\d+)(?:\D|$)", str(receipt.get("episode") or "").upper())
     if episode_match and int(episode_match.group(1)) >= 40:
+        task.setdefault("episode", str(receipt.get("episode") or ""))
         task["media_stage"] = "VIDEO" if tool_type == "video_generation" else "KEYFRAME"
         task["require_semantic_anchor_evidence"] = True
         task.setdefault("semantic_anchor_policy_version", "1.0.0")
@@ -1715,6 +1726,13 @@ def submit_one(task: dict, receipt: dict) -> dict:
                     "block_code": "BLOCK_STRUCTURED_ACTION_CONTRACT_INVALID",
                     "action_contract_failures": action_failures,
                 }
+            opening_failures = validate_opening_anchor_chain(task)
+            if opening_failures:
+                return {
+                    "status": "submit_blocked", "state": "tool_blocked",
+                    "block_code": "BLOCK_OPENING_ANCHOR_CHAIN_INVALID",
+                    "opening_anchor_chain_failures": opening_failures,
+                }
         else:
             try:
                 require_paid_image_model_contract(task, str(receipt.get("episode") or ""))
@@ -1724,6 +1742,14 @@ def submit_one(task: dict, receipt: dict) -> dict:
                     "block_code": "BLOCK_IMAGE_MODEL_ADAPTER_INVALID",
                     "model_adapter_error": str(exc),
                 }
+            if keyframe_entry_contract_required(task, str(receipt.get("episode") or "")):
+                entry_report = evaluate_keyframe_entry_task(task)
+                if entry_report["status"] != "PASS":
+                    return {
+                        "status": "submit_blocked", "state": "tool_blocked",
+                        "block_code": "BLOCK_KEYFRAME_ENTRY_STATE_INVALID",
+                        "keyframe_entry_state_failures": entry_report["failures"],
+                    }
     task["input_template_id"] = task.get("input_template_id") or compute_input_template_id(task)
     input_precheck = precheck_submission_inputs(task)
     if input_precheck.get("status") != "PASS":
