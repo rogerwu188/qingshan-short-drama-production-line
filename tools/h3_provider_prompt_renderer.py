@@ -226,6 +226,16 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         )
         physical_rules.append(combat)
         clause_evidence["COMBAT.EXECUTION_RULE"] = combat
+    wuxia_profile = plan.get("wuxia_combat_profile_selection") or {}
+    if wuxia_profile.get("status") == "SELECTED":
+        profile_clause = (
+            "Wuxia action-camera profile [INFERRED_RECONSTRUCTED_NOT_ORIGINAL]: "
+            + str(wuxia_profile.get("prompt_module_en") or "")
+            + " This profile only expresses the existing Action-IR and must not add moves, hits, injuries, "
+            "effects, winners, losers, dialogue, or story outcomes"
+        )
+        physical_rules.append(profile_clause)
+        clause_evidence["COMBAT.WUXIA_PROFILE_MODULE"] = profile_clause
     # Run the established explicit-content validator.  The returned Chinese
     # prose is intentionally not serialized; H3 receives an equivalent English
     # model-specific styling clause only for explicitly confirmed adults.
@@ -241,6 +251,8 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         "No identity, wardrobe, prop ownership, map, weather, lighting-direction, or voice drift",
         "No freeze, loop, pose interpolation, unmotivated orbit, or discontinuous spatial jump",
     ])
+    if wuxia_profile.get("status") == "SELECTED":
+        negatives.extend(wuxia_profile.get("negative_constraints_en") or [])
     profile = str(unit.get("h3_prompt_profile") or "").strip()
     profile_constraints = {
         "H3_CONCISE_QUOTED_DIALOGUE_REPAIR_V1": "Only the bound named speaker may speak; never add, translate, repeat, or visualize dialogue",
@@ -288,6 +300,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         "immutable_contract_sha256": plan["immutable_contract_sha256"],
         "execution_semantics_sha256": plan["execution_semantics_sha256"],
         "camera_language_selection": plan["camera_language_selection"],
+        "wuxia_combat_profile_selection": wuxia_profile,
         "motion_density_gate": plan["motion_density_gate"],
         "provider_semantic_coverage_receipt": coverage,
         "provider_boundary": boundary,

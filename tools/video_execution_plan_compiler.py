@@ -17,6 +17,7 @@ try:
     )
     from tools.video_motion_density_gate import validate_execution_plan
     from tools.camera_language_selector import select_camera_language
+    from tools.wuxia_combat_profile_selector import select_wuxia_combat_profiles
     from tools.video_physical_continuity_contract import (
         is_combat_unit,
         requires_interaction_topology,
@@ -30,10 +31,11 @@ except ModuleNotFoundError:
     )
     from video_motion_density_gate import validate_execution_plan
     from camera_language_selector import select_camera_language
+    from wuxia_combat_profile_selector import select_wuxia_combat_profiles
     from video_physical_continuity_contract import is_combat_unit, requires_interaction_topology
 
 
-SCHEMA = "qingshan.video_execution_plan.v4_shared_action_ir_camera_language"
+SCHEMA = "qingshan.video_execution_plan.v5_shared_action_ir_camera_wuxia_profiles"
 ACTION_IR_SCHEMA = "qingshan.action_ir.v1_single_causal_chain_per_beat"
 MODEL_FAMILY_BY_NAME = {
     "seedance-2.0-pro": "SEEDANCE_2",
@@ -249,6 +251,22 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
         unit=unit,
         source_id=str(unit.get("unit_id") or "UNKNOWN"),
     )
+    action_ir = {
+        "schema": ACTION_IR_SCHEMA,
+        "unit_class": unit_class,
+        "causal_chains": deepcopy(beats),
+        "rule": (
+            "Each beat contains one primary causal chain: entry and force origin, "
+            "one primary action, one contact/evasion/threat threshold, one primary "
+            "feedback, optional secondary feedback, and one observable irreversible exit-state delta."
+        ),
+        "post_generation_dynamic_media_qa_required": False,
+    }
+    wuxia_profile_selection = select_wuxia_combat_profiles(
+        unit,
+        action_ir=action_ir,
+        unit_class=unit_class,
+    )
     plan = {
         "schema": SCHEMA,
         "unit_id": str(unit.get("unit_id") or "UNKNOWN"),
@@ -269,19 +287,10 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
         "space_weather_fact": space_fact,
         "camera_plan": selected_camera_plan,
         "camera_language_selection": camera_language_selection,
+        "wuxia_combat_profile_selection": wuxia_profile_selection,
         "transition": _compact_transition(unit),
         "beats": beats,
-        "action_ir": {
-            "schema": ACTION_IR_SCHEMA,
-            "unit_class": unit_class,
-            "causal_chains": deepcopy(beats),
-            "rule": (
-                "Each beat contains one primary causal chain: entry and force origin, "
-                "one primary action, one contact/evasion/threat threshold, one primary "
-                "feedback, optional secondary feedback, and one observable irreversible exit-state delta."
-            ),
-            "post_generation_dynamic_media_qa_required": False,
-        },
+        "action_ir": action_ir,
         "sounds": sounds,
         "environment_motion": environment_motion,
         "voice_bindings": voice_bindings,
@@ -295,6 +304,10 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
             "space_weather_fact": space_lineage,
             "camera_plan": ["camera_plan"],
             "camera_language_selection": ["camera_plan", "camera_language_mode", "camera_style_authorizations"],
+            "wuxia_combat_profile_selection": [
+                "wuxia_combat_profile_required", "wuxia_combat_profile_signals",
+                "ordered_prompt_specs[].action", "ordered_prompt_specs[].props",
+            ],
             "beats": [f"ordered_prompt_specs[{index}]" for index in range(len(specs))],
             "sounds": [f"ordered_prompt_specs[{index}].sound_design" for index in range(len(specs))],
             "environment_motion": [
@@ -311,7 +324,7 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
         key: deepcopy(plan[key])
         for key in (
             "duration_seconds", "unit_class", "identity_prop_fact", "space_weather_fact",
-            "duration_authority", "camera_plan", "camera_language_selection", "transition", "beats", "sounds", "environment_motion",
+            "duration_authority", "camera_plan", "camera_language_selection", "wuxia_combat_profile_selection", "transition", "beats", "sounds", "environment_motion",
             "action_ir", "voice_bindings", "negative_constraints", "native_audio_contract",
             "interaction_topology_required", "combat_execution_required",
         )

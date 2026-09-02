@@ -33,6 +33,9 @@ def required_fact_ids(plan: dict[str, Any]) -> list[str]:
         ids.append("PHYSICAL.INTERACTION_TOPOLOGY")
     if plan.get("combat_execution_required"):
         ids.append("COMBAT.EXECUTION_RULE")
+    profile = plan.get("wuxia_combat_profile_selection") or {}
+    if profile.get("status") == "SELECTED":
+        ids.append("COMBAT.WUXIA_PROFILE_MODULE")
     transition = plan.get("transition") or {}
     if transition.get("incoming"):
         ids.append("TRANSITION.INCOMING")
