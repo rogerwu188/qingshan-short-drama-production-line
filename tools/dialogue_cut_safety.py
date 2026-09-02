@@ -20,14 +20,19 @@ def spoken_text(raw: object) -> str:
     return words.strip() if separator else text
 
 
-def estimated_spoken_seconds(raw: object) -> float:
+def estimated_spoken_seconds(
+    raw: object, *, chinese_characters_per_second: float = DEFAULT_CHINESE_CHARACTERS_PER_SECOND
+) -> float:
     words = spoken_text(raw)
     if not words:
         return 0.0
+    cps = float(chinese_characters_per_second)
+    if cps <= 0:
+        raise ValueError("chinese_characters_per_second must be positive")
     han = len(re.findall(r"[\u3400-\u9fff]", words))
     punctuation = len(re.findall(r"[，。！？；、,.!?;]", words))
     other = len(re.sub(r"[\u3400-\u9fff\s，。！？；、,.!?;]", "", words))
-    return round(han / DEFAULT_CHINESE_CHARACTERS_PER_SECOND + punctuation * 0.16 + other * 0.08, 3)
+    return round(han / cps + punctuation * 0.16 + other * 0.08, 3)
 
 
 def compile_dialogue_windows(unit: dict[str, Any]) -> list[dict[str, Any]]:
@@ -49,7 +54,14 @@ def compile_dialogue_windows(unit: dict[str, Any]) -> list[dict[str, Any]]:
         beat_end = target if index == len(specs) - 1 else cursor + source_span * scale
         raw = str(spec.get("dialogue") or "").strip()
         if raw:
-            duration = estimated_spoken_seconds(raw)
+            delivery = spec.get("dialogue_delivery") or {}
+            cps = float(
+                delivery.get("chinese_characters_per_second")
+                or DEFAULT_CHINESE_CHARACTERS_PER_SECOND
+            )
+            duration = estimated_spoken_seconds(
+                raw, chinese_characters_per_second=cps
+            )
             available_end = min(beat_end, dialogue_deadline if index == len(specs) - 1 else beat_end)
             start = cursor + 0.12
             end = start + duration
@@ -64,6 +76,7 @@ def compile_dialogue_windows(unit: dict[str, Any]) -> list[dict[str, Any]]:
                 "start_seconds": round(start, 3),
                 "end_seconds": round(end, 3),
                 "safety_pad_seconds": DEFAULT_SAFETY_PAD_SECONDS,
+                "chinese_characters_per_second": cps,
                 "must_be_silent_after_seconds": round(end, 3),
             })
         cursor = beat_end

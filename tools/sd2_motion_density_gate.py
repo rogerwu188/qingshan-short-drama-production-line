@@ -185,20 +185,38 @@ def validate_execution_plan(plan: dict[str, Any]) -> dict[str, Any]:
         if abs(start - cursor) > 0.02 or end <= start:
             failures.append(f"EXECUTION_TIMELINE_INVALID:{source_id}:{start}->{end}")
         cursor = end
-        if unit_class == "COMBAT_IMPULSE":
+        # Mixed units are legitimate: a short atmosphere/recovery beat may
+        # border a combat beat without becoming combat itself. Validate each
+        # beat against its authoritative action kind instead of forcing every
+        # beat in a COMBAT_EXCHANGE unit through the interaction gate.
+        source_action_kind = str(beat.get("source_action_kind") or "").upper()
+        beat_is_combat = (
+            source_action_kind == "COMBAT"
+            if source_action_kind
+            else unit_class in {"COMBAT_IMPULSE", "COMBAT_EXCHANGE"}
+        )
+        if unit_class == "COMBAT_IMPULSE" and beat_is_combat:
             report = validate_combat_impulse(
                 beat, duration_seconds=duration, source_id=source_id
             )
         else:
             report = validate_state_delta(
                 beat,
-                combat=unit_class in {"COMBAT_EXCHANGE"},
+                combat=beat_is_combat,
                 source_id=source_id,
             )
-            if unit_class == "COMBAT_EXCHANGE":
+            if beat_is_combat:
                 report["failures"].extend(
                     validate_combat_causal_chain(beat, source_id=source_id)
                 )
+                action_fields = " ".join(str(beat.get(key) or "") for key in (
+                    "entry_state", "primary_action", "contact_point", "force_feedback", "exit_state"
+                ))
+                extend_hits = extend_word_hits(action_fields)
+                if extend_hits:
+                    report["failures"].append(
+                        f"COMBAT_EXTEND_WORD_FORBIDDEN:{source_id}:{','.join(extend_hits)}"
+                    )
                 report["status"] = "PASS" if not report["failures"] else "FAIL"
         reports.append(report)
         failures.extend(report["failures"])

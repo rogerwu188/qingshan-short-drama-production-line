@@ -118,6 +118,14 @@ def _compact_transition(unit: dict[str, Any]) -> dict[str, str]:
             or target.get("blocking")
             or ""
         ).strip()
+        ownership = target.get("carryover_ownership") or {}
+        owner = str(ownership.get("actor") or "").strip()
+        patient = str(ownership.get("patient") or "").strip()
+        if owner:
+            ownership_clause = f"起态中的动作、肢体与道具继续属于{owner}"
+            if patient:
+                ownership_clause += f"，唯一承受者是{patient}"
+            inbound = f"{inbound}；{ownership_clause}；不得把该起态转移给下一拍主角"
     if outgoing:
         source = outgoing.get("source_terminal_state") or {}
         outbound = str(
@@ -164,9 +172,11 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
         action = spec.get("action") or {}
         beat = {
             "source_index": index,
+            "source_action_kind": str(action.get("action_kind") or "").strip().upper(),
             "start_seconds": start,
             "end_seconds": end,
             "entry_state": str(action.get("start_state") or "").strip(),
+            "entry_state_ownership": deepcopy(action.get("entry_state_ownership") or {}),
             "primary_action": str(action.get("primary_action") or "").strip(),
             "contact_time_seconds": action.get("contact_time_seconds"),
             "contact_point": str(action.get("contact_point") or "").strip(),
@@ -245,6 +255,18 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
         for row in (unit.get("speaker_voice_contract") or {}).get("bindings") or []
         if str(row.get("speaker") or row.get("character") or "").strip()
     ]
+    role_bindings = []
+    for spec in specs:
+        role = spec.get("role_semantic_disambiguation") or {}
+        role_bindings.append({
+            "shot_id": str(role.get("shot_id") or "").strip(),
+            "primary_actor": str(role.get("primary_actor") or "").strip(),
+            "primary_actor_kind": str(role.get("primary_actor_kind") or "CHARACTER").strip(),
+            "dialogue_speaker": str(role.get("dialogue_speaker") or "").strip(),
+            "dialogue_listener": str(role.get("dialogue_listener") or "").strip(),
+            "dialogue_mode": str(role.get("dialogue_mode") or "NONE").strip(),
+            "action_patient": str(role.get("action_patient") or "").strip(),
+        })
     selected_camera_plan, camera_language_selection = select_camera_language(
         deepcopy(unit.get("camera_plan") or {}),
         unit_class=unit_class,
@@ -294,6 +316,7 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
         "sounds": sounds,
         "environment_motion": environment_motion,
         "voice_bindings": voice_bindings,
+        "role_bindings": role_bindings,
         "negative_constraints": negatives,
         "native_audio_contract": str(unit.get("native_audio_contract") or ""),
         "interaction_topology_required": requires_interaction_topology(unit),
@@ -315,6 +338,10 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
                 for index in range(len(specs))
             ] + ["background_ecology_contract", "weather_visibility_contract"],
             "voice_bindings": ["speaker_voice_contract.bindings"],
+            "role_bindings": [
+                f"ordered_prompt_specs[{index}].role_semantic_disambiguation"
+                for index in range(len(specs))
+            ],
             "negative_constraints": [
                 f"ordered_prompt_specs[{index}].negative_prompts" for index in range(len(specs))
             ],

@@ -210,6 +210,37 @@ class SharedVideoExecutionCompilerTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "COMBAT_SECONDARY_FEEDBACK_LIMIT"):
             compile_model_prompt(unit)
 
+    def test_mixed_unit_does_not_force_noncombat_beat_through_combat_gate(self) -> None:
+        unit = _unit()
+        recovery = deepcopy(unit["ordered_prompt_specs"][0])
+        recovery["action"] = {
+            "action_kind": "PHYSICAL_ACTION",
+            "t0_seconds": 0,
+            "t1_seconds": 2,
+            "start_state": "陈迹左臂仍承重，蒙面人短刀已经偏出",
+            "primary_action": "陈迹退至桌角并重新站稳",
+            "interaction_mode": "NONE",
+            "contact_point": "陈迹双脚在桌角重新落稳",
+            "force_origin": "前一拍冲量衰减后由陈迹双腿承重",
+            "primary_feedback": "肩线回正，桌脚停止滑动",
+            "completion_state": "陈迹在桌角站稳，蒙面人位于桌侧",
+            "state_delta_dimensions": ["POSITION", "POSTURE"],
+            "state_delta_evidence": {
+                "POSITION": {"entry": "陈迹在桌后", "exit": "陈迹在桌角", "entry_code": "BEHIND_TABLE", "exit_code": "AT_CORNER"},
+                "POSTURE": {"entry": "左臂承重", "exit": "双脚站稳", "entry_code": "ARM_BEARING", "exit_code": "FEET_SET"},
+            },
+        }
+        attack = deepcopy(unit["ordered_prompt_specs"][0])
+        attack["action"]["t0_seconds"] = 2
+        attack["action"]["t1_seconds"] = 4
+        attack["action"]["contact_time_seconds"] = 2.8
+        unit["ordered_prompt_specs"] = [recovery, attack]
+        plan = compile_video_execution_plan(unit)
+        self.assertEqual(plan["unit_class"], "COMBAT_EXCHANGE")
+        self.assertEqual(plan["beats"][0]["source_action_kind"], "PHYSICAL_ACTION")
+        self.assertEqual(plan["beats"][1]["source_action_kind"], "COMBAT")
+        self.assertEqual(plan["motion_density_gate"]["status"], "PASS")
+
     def test_h3_accepts_official_three_second_minimum(self) -> None:
         unit = _unit("MiniMax-H3")
         unit["duration_seconds"] = 3

@@ -29,7 +29,7 @@ class ProviderInsufficientCreditsError(RuntimeError):
     """The provider rejected submission because the account cannot fund it."""
 
 try:
-    from giggle_api_client import _image_list, _request
+    from giggle_api_client import _image_list, _request, paid_video_submission_context
     from giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from video_model_adapter import require_paid_model_contract
     from retry_cap_gate import validate_submission_attempt
@@ -51,7 +51,7 @@ try:
     from sd2_required_prompt_field_gate import validate_required_sd2_field_coverage
     from video_sequence_rhythm_gate import validate_combat_sequence_rhythm
 except ModuleNotFoundError:
-    from tools.giggle_api_client import _image_list, _request
+    from tools.giggle_api_client import _image_list, _request, paid_video_submission_context
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from tools.video_model_adapter import require_paid_model_contract
     from tools.retry_cap_gate import validate_submission_attempt
@@ -655,7 +655,16 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
     elif audio_urls:
         payload["audios"] = [{"url": value} for value in audio_urls]
     try:
-        response = _request("/api/v1/generation/omni-video", payload)
+        previous_context = os.environ.get("QINGSHAN_DURABLE_SUBMITTER_CONTEXT")
+        os.environ["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = "1"
+        try:
+            with paid_video_submission_context():
+                response = _request("/api/v1/generation/omni-video", payload)
+        finally:
+            if previous_context is None:
+                os.environ.pop("QINGSHAN_DURABLE_SUBMITTER_CONTEXT", None)
+            else:
+                os.environ["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = previous_context
     except (Exception, SystemExit) as exc:
         intent.update({"state": "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION", "response_lost_at": utc_now(), "error": str(exc)})
         atomic_json(transaction, intent)
@@ -699,6 +708,8 @@ _legacy_submit_one_for_audit_only = submit_one
 
 
 def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -> dict[str, Any]:
+    if os.environ.get("BACKLOTOS_DEPLOYED_SUBMITTER") == "1":
+        return _legacy_submit_one_for_audit_only(task, receipt_dir, transaction_dir)
     raise RuntimeError(
         "LOCAL_LEGACY_VIDEO_SUBMIT_DISABLED: invoke the deployed BacklotOS "
         "submit_giggle_video_manifest_v2.py entrypoint"
@@ -725,12 +736,16 @@ def classify_failures(failures: list[dict[str, Any]], known: int, matched: int, 
 
 
 def main() -> int:
+    global ROOT
     parser = argparse.ArgumentParser()
+    parser.add_argument("--project-root")
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--precheck-only", action="store_true")
     args = parser.parse_args()
+    if args.project_root:
+        ROOT = Path(args.project_root).expanduser().resolve()
     manifest_path = resolve(args.manifest)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     efficiency_gate = require_e47_efficiency_contract(manifest)
@@ -889,8 +904,11 @@ def exec_deployed_submitter() -> None:
             raise RuntimeError("E47+ rolling submission concurrency must be from 1 to 6")
     elif episode_value is not None and episode_value >= 47:
         forwarded.extend(["--concurrency", str(DEFAULT_WAVE_SIZE)])
+    os.environ["BACKLOTOS_DEPLOYED_SUBMITTER"] = "1"
     os.execv(sys.executable, [sys.executable, str(deployed), *forwarded])
 
 
 if __name__ == "__main__":
+    if os.environ.get("BACKLOTOS_DEPLOYED_SUBMITTER") == "1":
+        raise SystemExit(main())
     exec_deployed_submitter()

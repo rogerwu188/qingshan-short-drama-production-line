@@ -40,6 +40,14 @@ def _beat_line(beat: dict[str, Any]) -> str:
         f"{beat['start_seconds']:g}–{beat['end_seconds']:g}秒：从{beat['entry_state']}开始，"
         f"力源={beat['force_origin']}；{primary}"
     )
+    ownership = beat.get("entry_state_ownership") or {}
+    owner = str(ownership.get("actor") or "").strip()
+    patient = str(ownership.get("patient") or "").strip()
+    if owner:
+        line += f"；起态动作、肢体与道具主人={owner}"
+        if patient:
+            line += f"；起态唯一承受者={patient}"
+        line += "；不得把起态肢体、武器或受力部位嫁接给本拍其他人物"
     interaction_mode = str(beat.get("interaction_mode") or "NONE")
     interaction_label = {
         "CONTACT": "真实接触",
@@ -70,6 +78,23 @@ def _beat_line(beat: dict[str, Any]) -> str:
     return line + "。"
 
 
+def _role_line(row: dict[str, Any]) -> str:
+    actor = str(row.get("primary_actor") or "场景环境")
+    speaker = str(row.get("dialogue_speaker") or "")
+    listener = str(row.get("dialogue_listener") or "")
+    patient = str(row.get("action_patient") or "")
+    pieces = [f"{row.get('shot_id') or '本拍'}：{actor}是唯一动作执行者"]
+    if patient:
+        pieces.append(f"{patient}是唯一动作承受者")
+    if speaker:
+        pieces.append(f"只有{speaker}开口")
+        pieces.append(f"{listener}闭口聆听" if listener else "这是自语，无人接话")
+    else:
+        pieces.append("所有人物闭口")
+    pieces.append("不得交换人物、肢体、武器、动作或声音")
+    return "，".join(pieces) + "。"
+
+
 def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     uid = str(plan["unit_id"])
     camera = compile_camera_prompt(plan.get("camera_plan"), source_id=uid)
@@ -92,6 +117,7 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         for row in plan.get("voice_bindings") or []
     ]
     voices = "；".join(voice_rows)
+    role_rows = [_role_line(row) for row in plan.get("role_bindings") or []]
     negatives = list(plan.get("negative_constraints") or [])
     negatives.extend([
         "无字幕、水印、可读文字或界面",
@@ -118,6 +144,7 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
     text = "\n".join([
         f"【任务】{plan['duration_seconds']:g}秒，9:16，{unit.get('resolution') or '720p'}，seedance-2.0-pro，真人实拍电影质感。",
         f"【锚点】{plan['identity_prop_fact']}；{plan['space_weather_fact']}。",
+        "【角色】\n" + "\n".join(role_rows),
         "【时间轴】\n" + "\n".join(timeline),
         "【摄影】" + camera,
         "【环境】" + (environment or "背景与群众只按剧情因果保持真实微动，不得冻结成静态图") + "。",
@@ -186,6 +213,8 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         clause_evidence[f"ENVIRONMENT_MOTION.{index}"] = value
     for index, value in enumerate(voice_rows, 1):
         clause_evidence[f"VOICE_BINDING.{index}"] = value
+    for index, value in enumerate(role_rows, 1):
+        clause_evidence[f"ROLE_BINDING.{index}"] = value
     coverage = build_semantic_coverage_receipt(
         plan=plan,
         prompt_text=text,

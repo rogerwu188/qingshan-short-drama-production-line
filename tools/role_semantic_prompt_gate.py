@@ -154,7 +154,8 @@ def validate_role_semantics(
         body_part_owner = _clean(row.get("body_part_owner"))
         if actor_kind == "BODY_PART" and not body_part_owner:
             failures.append(f"{prefix}_BODY_PART_OWNER_MISSING")
-        if speaker and not listener:
+        dialogue_mode = _clean(row.get("dialogue_mode"))
+        if speaker and not listener and dialogue_mode != "SELF_DIRECTED_SPEECH":
             failures.append(f"{prefix}_DIALOGUE_LISTENER_MISSING")
         if listener and not speaker:
             failures.append(f"{prefix}_LISTENER_WITHOUT_SPEAKER")
@@ -279,7 +280,8 @@ def validate_role_semantics_structure(
             failures.append(f"{prefix}_PRIMARY_ACTOR_KIND_INVALID:{actor_kind}")
         if actor_kind == "BODY_PART" and not body_part_owner:
             failures.append(f"{prefix}_BODY_PART_OWNER_MISSING")
-        if speaker and not listener:
+        dialogue_mode = _clean(row.get("dialogue_mode"))
+        if speaker and not listener and dialogue_mode != "SELF_DIRECTED_SPEECH":
             failures.append(f"{prefix}_DIALOGUE_LISTENER_MISSING")
         if listener and not speaker:
             failures.append(f"{prefix}_LISTENER_WITHOUT_SPEAKER")

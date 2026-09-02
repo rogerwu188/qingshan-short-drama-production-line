@@ -1,6 +1,10 @@
 import unittest
 
-from tools.media_boundary_acceptance import DECISION_DOMAINS, evaluate_boundary_decision
+from tools.media_boundary_acceptance import (
+    DECISION_DOMAINS,
+    evaluate_boundary_decision,
+    is_motivated_foreground_occlusion,
+)
 from tools.model_generated_media_integrity_policy import evaluate_accepted_media_row
 
 
@@ -27,6 +31,23 @@ class MediaBoundaryAcceptanceTest(unittest.TestCase):
             evaluate_boundary_decision(decision, expected_contact_sheet_sha256="def"),
         )
 
+    def test_only_single_tail_edge_foreground_occlusion_can_be_admitted(self):
+        decision = {"foreground_occlusion_transition": "PASS_MOTIVATED"}
+        self.assertTrue(is_motivated_foreground_occlusion(
+            decision,
+            frame_mean_luma=[30.0, 1.8, 37.0, 36.0],
+            tail_motion_delta=29.0,
+        ))
+        self.assertFalse(is_motivated_foreground_occlusion(
+            decision,
+            frame_mean_luma=[1.8, 1.7, 37.0, 36.0],
+            tail_motion_delta=29.0,
+        ))
+        self.assertFalse(is_motivated_foreground_occlusion(
+            decision,
+            frame_mean_luma=[30.0, 1.8, 37.0, 36.0],
+            tail_motion_delta=0.2,
+        ))
     def test_model_defect_semantic_postrepair_is_not_admissible(self):
         report = evaluate_accepted_media_row({
             "unit_id": "E46-VU-001",
