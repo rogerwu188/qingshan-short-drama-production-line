@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qingshan.writer.authorized_insertion.v2",
+  "title": "写手自发插入项申报",
+  "description": "凡不在 beat_disposition 落点里的场次，必须在此登记。见 CHARTER §6。",
+  "type": "object",
+  "required": ["insertion_id","kind","scene_id","shots","seconds",
+               "source_basis","new_information",
+               "new_information_anchored_in_landed_scene",
+               "what_it_does_not_do","self_deduction"],
+  "properties": {
+    "insertion_id": {"type":"string","pattern":"^INS-E\\d+-\\d+$"},
+    "kind": {"type":"string","minLength":4},
+    "supervisor_directed": {"type":"boolean","default":false},
+    "scene_id": {"oneOf":[{"type":"string","pattern":"^E\\d+-S\\d+$"},
+                          {"type":"array","items":{"type":"string","pattern":"^E\\d+-S\\d+$"},"minItems":1}]},
+    "shots": {"type":"array","items":{"type":"string","pattern":"^E\\d+-S\\d+-\\d+$"},"minItems":1},
+    "seconds": {"type":"number","exclusiveMinimum":0},
+    "source_basis": {"type":"string","minLength":20,
+      "description":"必须写明不来自源章，并逐字引用上游已落地的字节"},
+    "new_information": {"type":"string","minLength":20,
+      "description":"『观众此前知道 X；这几格给的是 Y』。不接受 why 散文。"},
+    "new_information_anchored_in_landed_scene": {
+      "type":"array","items":{"type":"string","minLength":8},"minItems":1,
+      "description":"必须能在已落地场次的正文里逐格对上"},
+    "what_it_does_not_do": {"type":"string","minLength":10},
+    "self_deduction": {"type":"string","pattern":"^-[0-9.]+\\s*\\S+",
+      "description":"必须为负值且带单位"},
+    "supervisor_ruling_requested": {"type":"string"}
+  },
+  "additionalProperties": true
+}

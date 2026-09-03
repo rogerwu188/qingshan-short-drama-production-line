@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qingshan.writer.manifest.v2",
+  "title": "分集 manifest",
+  "type": "object",
+  "required": ["episode","version","canonical_script","script_sha256",
+               "source_binding","beat_disposition","★authorized_insertions",
+               "★audience_already_knows","structure","scene_breakdown_seconds",
+               "total_seconds","runtime_target_seconds","key_quote_landing",
+               "fs1","identity_registry","new_name_budget",
+               "distinct_locations","new_locations",
+               "episode_global_space_map_id","onscreen_text_shot_level_registry"],
+  "properties": {
+    "episode": {"type":"string","pattern":"^E\\d+$"},
+    "version": {"type":"string","pattern":"^v\\d+$"},
+    "canonical_script": {"type":"string"},
+    "script_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "supersedes": {"type":"string"},
+    "★supersedes_disclosure": {"type":"string","minLength":20},
+    "source_binding": {
+      "type":"object",
+      "required":["primary_source_chapter","beat_count","beats_landed"],
+      "properties":{
+        "primary_source_chapter":{"type":"string"},
+        "beat_count":{"type":"integer","minimum":1},
+        "beats_landed":{"type":"integer","minimum":0},
+        "beats_merged":{"type":"integer","minimum":0},
+        "beats_dropped":{"type":"integer","minimum":0}
+      }
+    },
+    "beat_disposition": {"$ref":"qingshan.writer.beat_disposition.v2"},
+    "★authorized_insertions": {
+      "type":"array",
+      "items":{"$ref":"qingshan.writer.authorized_insertion.v2"}
+    },
+    "★audience_already_knows": {
+      "type":"array",
+      "items":{"type":"object",
+        "required":["fact","first_delivered_in","handling_this_episode"],
+        "properties":{
+          "fact":{"type":"string"},
+          "first_delivered_in":{"type":"string"},
+          "handling_this_episode":{"type":"string","minLength":20}}}
+    },
+    "structure": {
+      "type":"array","minItems":1,
+      "items":{"type":"object",
+        "required":["beat_id","scene_id","target_seconds","thread","location_id"],
+        "properties":{
+          "scene_id":{"type":"string","pattern":"^E\\d+-S\\d+$"},
+          "target_seconds":{"type":"number","exclusiveMinimum":0}}}
+    },
+    "scene_breakdown_seconds": {"type":"object","additionalProperties":{"type":"number"}},
+    "total_seconds": {"type":"number"},
+    "runtime_target_seconds": {
+      "type":"object","required":["min","target","max"],
+      "properties":{"min":{"type":"number"},"target":{"type":"number"},"max":{"type":"number"}}
+    },
+    "new_name_budget": {"type":"object",
+      "description":"新名字每 4 集 ≤1 个；超出必须写在明处并自扣"}
+  },
+  "additionalProperties": true
+}

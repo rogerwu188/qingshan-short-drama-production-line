@@ -1,0 +1,21 @@
+{
+  "schema": "qingshan.claude_writer_agent.singleflight_lock.v1",
+  "_purpose": "本 agent 的单实例闸。定时任务只有一个，但一轮跑得比调度间隔长时，调度器会在上一轮头上再开一轮——2026-08-27 的 R386×R389 碰撞即由此产生。写锁只防同集同版本，防不住这个，故另设本闸。",
+  "_authority": "ROGER-20260827「只保留一个 writer」（SUPERVISOR_ORDERS seq=40）",
+  "_protocol": [
+    "每轮第一件事读本文件，早于读 order、早于任何写盘。",
+    "status==ACTIVE 且 session 不是我、且 heartbeat 距今 <120 分钟 → 回报 IDLE_LEGAL_SIBLING_RUN_ACTIVE 并结束本轮，本轮不写任何文件。",
+    "文件缺失／status==RELEASED／heartbeat 超 120 分钟 → 覆写为我的身份并置 ACTIVE，接管本轮；接管残留须记 took_over_from。",
+    "每完成一个大步骤刷新 heartbeat_at_utc 与 current_step；每次写盘前重读一次，owner 不是我就立刻停手。",
+    "收尾置 RELEASED。异常退出不算违规，120 分钟超时自动放行。"
+  ],
+  "status": "RELEASED",
+  "session_or_task_id": null,
+  "run_id": null,
+  "claimed_at_utc": null,
+  "heartbeat_at_utc": null,
+  "released_at_utc": null,
+  "current_step": "BOOTSTRAP_RELEASED",
+  "took_over_from": null,
+  "_bootstrap_note": "公开发行包使用无主、已释放初始态；首次运行按协议写入当前 session、run 与机器时间。"
+}
