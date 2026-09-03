@@ -15,8 +15,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from giggle_api_client import _request
-from giggle_credit_statements import fetch_pay_statements, reconcile_rows
+try:
+    from tools.giggle_api_client import _request
+    from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
+    from tools.visual_culture_contract import validate_visual_culture_contract
+except ModuleNotFoundError:
+    from giggle_api_client import _request
+    from giggle_credit_statements import fetch_pay_statements, reconcile_rows
+    from visual_culture_contract import validate_visual_culture_contract
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -188,6 +194,9 @@ def main() -> int:
         prompt_path = resolve(row.get("prompt_file", ""))
         if not prompt_path.is_file() or hashlib.sha256(prompt_path.read_bytes()).hexdigest() != row.get("prompt_sha256"):
             raise SystemExit(f"invalid prompt binding: {row.get('id')}")
+        culture = validate_visual_culture_contract(row, prompt_text=prompt_path.read_text(encoding="utf-8"))
+        if culture["status"] != "PASS":
+            raise SystemExit(f"visual culture gate failed for {row.get('id')}: {','.join(culture['failures'])}")
         try:
             resolved_reference_images(row)
         except ValueError as exc:

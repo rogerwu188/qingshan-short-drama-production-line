@@ -18,6 +18,7 @@ try:
     from tools.provider_contract_boundary import validate_provider_prompt_boundary
     from tools.provider_semantic_coverage import build_semantic_coverage_receipt
     from tools.wardrobe_identity_contract import h3_adult_female_visual_block
+    from tools.visual_culture_contract import prompt_block_en as visual_culture_prompt_block
 except ModuleNotFoundError:
     from h3_provider_english_contract import (
         require_h3_provider_english_contract,
@@ -27,6 +28,7 @@ except ModuleNotFoundError:
     from provider_contract_boundary import validate_provider_prompt_boundary
     from provider_semantic_coverage import build_semantic_coverage_receipt
     from wardrobe_identity_contract import h3_adult_female_visual_block
+    from visual_culture_contract import prompt_block_en as visual_culture_prompt_block
 
 
 SCHEMA = "qingshan.minimax_h3_provider_renderer.v2_english_machine_dialogue_tags"
@@ -272,6 +274,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     text = "\n".join([
         "subject_definitions:", *reference_lines,
         f"summary: [reference generation + keyframe completion] {plan['duration_seconds']:g}s vertical 9:16 live-action short drama; {contract['identity_prop_fact']}; {contract['space_weather_fact']}.",
+        "visual_culture: " + visual_culture_prompt_block(unit.get("visual_culture_contract")),
         *( ["persistent_state_lock: " + persistent_state_lock + "."] if persistent_state_lock else [] ),
         *( ["shot_state_chain:", *[f"SHOT_{index}: {value}." for index, value in enumerate(shot_state_locks, 1)]] if shot_state_locks else [] ),
         "retention_analysis: @Image1 locks the opening identity and space; later references bind only their declared identity, prop, or result state.",

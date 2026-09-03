@@ -11,6 +11,7 @@ try:
     from tools.prompt_budget_observability import measure_prompt
     from tools.provider_semantic_coverage import build_semantic_coverage_receipt
     from tools.provider_contract_boundary import validate_provider_prompt_boundary
+    from tools.visual_culture_contract import prompt_block_zh as visual_culture_prompt_block
     from tools.event_boundary_continuity_contract import (
         provider_shot_state_lock_texts, provider_state_lock_text,
     )
@@ -19,6 +20,7 @@ except ModuleNotFoundError:
     from prompt_budget_observability import measure_prompt
     from provider_semantic_coverage import build_semantic_coverage_receipt
     from provider_contract_boundary import validate_provider_prompt_boundary
+    from visual_culture_contract import prompt_block_zh as visual_culture_prompt_block
     from event_boundary_continuity_contract import (
         provider_shot_state_lock_texts, provider_state_lock_text,
     )
@@ -152,6 +154,7 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
     text = "\n".join([
         f"【任务】{plan['duration_seconds']:g}秒，9:16，{unit.get('resolution') or '720p'}，seedance-2.0-pro，真人实拍电影质感。",
         f"【锚点】{plan['identity_prop_fact']}；{plan['space_weather_fact']}。",
+        visual_culture_prompt_block(unit.get("visual_culture_contract")),
         *(["【连续事件硬合同】" + state_lock + "。"] if state_lock else []),
         *(["【逐镜状态与机位硬合同】\n" + "\n".join(shot_state_locks)] if shot_state_locks else []),
         "【角色】\n" + "\n".join(role_rows),
