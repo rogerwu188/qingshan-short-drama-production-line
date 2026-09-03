@@ -72,7 +72,7 @@
         "tools/tests/test_scene_authority_lock.py",
         "tools/tests/test_global_space_layout_gate.py",
         "tools/tests/test_submit_giggle_image_manifest.py",
-        "/Users/rogerwu/code/backlot-os/components/pipeline-tools/tests/test_production_video_submission_gate.py"
+        "tools/tests/test_submit_giggle_video_authoritative_gate.py"
       ],
       "parameters": {
         "scene_state_required": true,
