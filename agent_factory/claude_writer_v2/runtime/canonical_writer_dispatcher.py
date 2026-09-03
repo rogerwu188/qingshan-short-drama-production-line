@@ -16,6 +16,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+
 try:
     from tools.writer_production_field_gate import validate_generation_contract
 except ModuleNotFoundError:
@@ -44,7 +48,7 @@ except ModuleNotFoundError:
     from tools.writer_receipt_resolver import resolve as resolve_receipt
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = REPOSITORY_ROOT
 DEFAULT_LOCK_DIR = ROOT / "workflow/claude_writer_agent/locks"
 DEFAULT_SEAL_DIR = ROOT / "workflow/claude_writer_agent/seals"
 SEAL_SCHEMA = "qingshan.canonical_writer_four_layer_seal.v1"

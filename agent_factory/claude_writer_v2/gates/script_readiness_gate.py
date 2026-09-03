@@ -63,7 +63,7 @@ def validate_blind_tests_report(
             "failures": ["blind_tests_report_missing"],
         }
     report_path = report_path.expanduser().resolve()
-    project_root = project_root or Path(__file__).resolve().parents[1]
+    project_root = project_root or Path(__file__).resolve().parents[3]
     if not report_path.is_file():
         return {
             "status": "FAIL",
@@ -98,7 +98,7 @@ def verify_script_readiness_report(
 ) -> dict[str, Any]:
     source = source.expanduser().resolve()
     report_path = report_path.expanduser().resolve()
-    project_root = project_root or Path(__file__).resolve().parents[1]
+    project_root = project_root or Path(__file__).resolve().parents[3]
     failures: list[str] = []
     if not source.is_file():
         failures.append(f"beat_sheet_missing:{source}")
@@ -325,7 +325,7 @@ def main() -> int:
         Path(args.blind_tests_report) if args.blind_tests_report else None,
         source_sha256,
         str(payload.get("episode") or ""),
-        Path(__file__).resolve().parents[1],
+        Path(__file__).resolve().parents[3],
     )
     report = evaluate_script_readiness(payload, blind_tests_gate)
     report["beat_sheet"] = str(source)

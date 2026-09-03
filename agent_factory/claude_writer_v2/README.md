@@ -37,13 +37,16 @@ writer_agent/
 
 ## 立刻能跑
 
+从仓库根目录运行；运行时会调用同一版本仓库内 `tools/` 和 `configs/` 中的公共生产线组件：
+
 ```bash
 # 跑一集的全部 script-phase 门（fail-closed）
-python3 runtime/episode_stage_gate_runner.py --episode E76 --phase script \
+python3 agent_factory/claude_writer_v2/runtime/episode_stage_gate_runner.py --episode E76 --phase script \
         --out qa/e76_script_phase/run_001/
 
 # 单独跑场次来源申报门（v2 新增，见 CHARTER 第 8 节）
-python3 gates/writer_scene_source_declaration_gate.py scripts/E76_manifest_v1.json
+python3 agent_factory/claude_writer_v2/gates/writer_scene_source_declaration_gate.py \
+        workflow/claude_writer_agent/scripts/E76_manifest_v1.json
 ```
 
 ## 与 v1 的实质差别

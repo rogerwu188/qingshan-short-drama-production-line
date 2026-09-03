@@ -10,12 +10,12 @@
     "收尾置 RELEASED。异常退出不算违规，120 分钟超时自动放行。"
   ],
   "status": "RELEASED",
-  "session_or_task_id": "cowork-scheduled-task:qingshan-claude-writer-agent:6ed48c85-f82c-494d-bf69-c44071ed5341:local_9185b66a-a0f8-4412-ad8e-81d23406fe25",
-  "run_id": "WRITER-R456-E61-V4",
-  "claimed_at_utc": "2026-08-31T23:32:43.469761+00:00",
-  "heartbeat_at_utc": "2026-09-01T04:09:40.919855+00:00",
-  "released_at_utc": "2026-09-01T04:09:40.919855+00:00",
-  "current_step": "R456_COMPLETE_E61_V4_DELIVERED_9OF9_SEALED",
+  "session_or_task_id": null,
+  "run_id": null,
+  "claimed_at_utc": null,
+  "heartbeat_at_utc": null,
+  "released_at_utc": null,
+  "current_step": "BOOTSTRAP_RELEASED",
   "took_over_from": null,
-  "_bootstrap_note": "本文件由 R386 首次建立，状态直接置 RELEASED，不占用本轮之后的任何运行；下一轮正常按协议接管即可。"
+  "_bootstrap_note": "公开发行包使用无主、已释放初始态；首次运行按协议写入当前 session、run 与机器时间。"
 }

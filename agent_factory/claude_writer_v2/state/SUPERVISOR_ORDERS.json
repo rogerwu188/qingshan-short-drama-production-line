@@ -1525,7 +1525,7 @@
      "n": 5,
      "id": "HARD_DEPENDENCY_FULL_TEXT",
      "severity": "BLOCKED_AWAITING_ROGER",
-     "text": "执行前唯一硬依赖：/Users/rogerwu/Downloads/青山 3.txt（gb18030，至341章）不在共享目录内，Writer 读不到。拷入 qingshan_short_drama/ 后即可做全文检索级重映射，一次性替换 E21–E82 假映射；否则只能逐章抓网页，代价高两个数量级。"
+     "text": "执行前唯一硬依赖：<LOCAL_SOURCE_NOVEL_PATH>（gb18030，至341章）不在共享目录内，Writer 读不到。拷入项目受控 source_assets/ 后即可做全文检索级重映射，一次性替换 E21–E82 假映射；否则只能逐章抓网页，代价高两个数量级。"
     },
     {
      "n": 6,

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 SUPERVISION_SCHEMA = "qingshan.canonical_script_supervision.v1"
 REQUIRED_CHECKS = (
     "dialogue_length",

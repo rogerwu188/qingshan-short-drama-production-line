@@ -17,13 +17,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+
 try:
     from gate_result_contract import write_gate_result
 except ModuleNotFoundError:
     from tools.gate_result_contract import write_gate_result
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = REPOSITORY_ROOT
 DEFAULT_REGISTRY = ROOT / "configs/GATE_REGISTRY_v3_20260716.json"
 
 

@@ -632,7 +632,7 @@ def main() -> int:
             candidates = [
                 configured_path,
                 args.manifest.parent / configured_path,
-                Path(__file__).resolve().parents[1] / configured_path,
+                Path(__file__).resolve().parents[3] / configured_path,
             ]
             narrative_path = next((path for path in candidates if path.exists()), configured_path)
     narrative_text = (
@@ -648,7 +648,7 @@ def main() -> int:
             candidates = [
                 configured_path,
                 args.manifest.parent / configured_path,
-                Path(__file__).resolve().parents[1] / configured_path,
+                Path(__file__).resolve().parents[3] / configured_path,
             ]
             receipt_path = next((path for path in candidates if path.exists()), configured_path)
     writer_receipt = (

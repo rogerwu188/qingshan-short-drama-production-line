@@ -28,6 +28,18 @@ BASE = {
 
 
 class T(unittest.TestCase):
+    def test_runtime_entrypoints_start_from_repository_checkout(self):
+        for relative in (
+            "runtime/episode_stage_gate_runner.py",
+            "runtime/canonical_writer_dispatcher.py",
+            "runtime/canonical_script_activation_gate.py",
+        ):
+            result = subprocess.run(
+                [sys.executable, os.path.join(ROOT, relative), "--help"],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, f"{relative} 无法启动: {result.stderr}")
+
     def test_all_gates_importable(self):
         d = os.path.join(ROOT, "gates")
         for fn in sorted(os.listdir(d)):
