@@ -25,6 +25,9 @@ try:
     )
     from tools.prop_state_contract import compile_prop_states
     from tools.cross_episode_event_continuity_gate import evaluate as evaluate_cross_episode_event
+    from tools.event_boundary_continuity_contract import (
+        compile_internal_shot_boundaries, validate_task_boundary,
+    )
 except ModuleNotFoundError:
     from provider_contract_boundary import (
         compact_identity_prop_fact,
@@ -38,6 +41,9 @@ except ModuleNotFoundError:
     from video_physical_continuity_contract import is_combat_unit, requires_interaction_topology
     from prop_state_contract import compile_prop_states
     from cross_episode_event_continuity_gate import evaluate as evaluate_cross_episode_event
+    from event_boundary_continuity_contract import (
+        compile_internal_shot_boundaries, validate_task_boundary,
+    )
 
 
 SCHEMA = "qingshan.video_execution_plan.v6_entry_prop_patient_classification"
@@ -204,6 +210,25 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
     space_fact, space_lineage = compact_space_weather_fact(unit)
     unit_class = classify_unit(unit)
     rectification_required = _e51_rectification_required(unit)
+    event_boundary_enabled = (
+        unit.get("event_boundary_decision") is not None
+        or unit.get("persistent_state_contract") is not None
+        or unit.get("continuity_event_contract_required") is True
+        or unit.get("shot_state_contracts") is not None
+    )
+    event_boundary_failures = (
+        validate_task_boundary(unit)
+        if event_boundary_enabled
+        else []
+    )
+    if event_boundary_failures:
+        raise ValueError(";".join(event_boundary_failures))
+    internal_shot_state_chain = compile_internal_shot_boundaries(unit) if event_boundary_enabled else {
+        "schema": "qingshan.internal_shot_state_chain.v1",
+        "status": "NOT_APPLICABLE", "boundaries": [], "failures": [],
+    }
+    if internal_shot_state_chain.get("status") == "FAIL":
+        raise ValueError(";".join(internal_shot_state_chain.get("failures") or []))
     cross_episode_gate = {
         "schema": "qingshan.cross_episode_event_continuity_gate.v1",
         "status": "NOT_APPLICABLE",
@@ -409,6 +434,10 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
         "camera_language_selection": camera_language_selection,
         "camera_authority_gate": _camera_authority(unit, combat=is_combat_unit(unit)),
         "cross_episode_event_continuity_gate": cross_episode_gate,
+        "event_boundary_decision": deepcopy(unit.get("event_boundary_decision") or {}),
+        "persistent_state_contract": deepcopy(unit.get("persistent_state_contract") or {}),
+        "shot_state_contracts": deepcopy(unit.get("shot_state_contracts") or []),
+        "internal_shot_state_chain": internal_shot_state_chain,
         "wuxia_combat_profile_selection": wuxia_profile_selection,
         "transition": _compact_transition(unit),
         "beats": beats,
@@ -431,6 +460,10 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
                 "wuxia_combat_profile_required", "wuxia_combat_profile_signals",
                 "ordered_prompt_specs[].action", "ordered_prompt_specs[].props",
             ],
+            "event_boundary_decision": ["event_boundary_decision"],
+            "persistent_state_contract": ["persistent_state_contract"],
+            "shot_state_contracts": ["shot_state_contracts"],
+            "internal_shot_state_chain": ["shot_state_contracts", "internal_transition_contracts"],
             "beats": [f"ordered_prompt_specs[{index}]" for index in range(len(specs))],
             "sounds": [f"ordered_prompt_specs[{index}].sound_design" for index in range(len(specs))],
             "environment_motion": [
@@ -451,7 +484,7 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
         key: deepcopy(plan[key])
         for key in (
             "duration_seconds", "unit_class", "e51_rectification_required", "identity_prop_fact", "space_weather_fact",
-            "duration_authority", "unit_classification_gate", "camera_plan", "camera_language_selection", "camera_authority_gate", "cross_episode_event_continuity_gate", "wuxia_combat_profile_selection", "transition", "beats", "sounds", "environment_motion",
+            "duration_authority", "unit_classification_gate", "camera_plan", "camera_language_selection", "camera_authority_gate", "cross_episode_event_continuity_gate", "event_boundary_decision", "persistent_state_contract", "shot_state_contracts", "internal_shot_state_chain", "wuxia_combat_profile_selection", "transition", "beats", "sounds", "environment_motion",
             "action_ir", "voice_bindings", "negative_constraints", "native_audio_contract",
             "interaction_topology_required", "combat_execution_required",
         )

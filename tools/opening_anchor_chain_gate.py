@@ -8,8 +8,20 @@ import re
 from pathlib import Path
 from typing import Any
 
+try:
+    from tools.event_boundary_continuity_contract import (
+        POLICY as EVENT_POLICY,
+        strict_required,
+        validate_task_boundary,
+    )
+except ModuleNotFoundError:
+    from event_boundary_continuity_contract import (
+        POLICY as EVENT_POLICY,
+        strict_required,
+        validate_task_boundary,
+    )
 
-POLICY = "opening_anchor_is_previous_unit_final_frame_or_scene_first_unit"
+LEGACY_POLICY = "opening_anchor_is_previous_unit_final_frame_or_scene_first_unit"
 
 
 def validate_opening_anchor_chain(task: dict[str, Any]) -> list[str]:
@@ -34,8 +46,48 @@ def validate_opening_anchor_chain(task: dict[str, Any]) -> list[str]:
     if not isinstance(contract, dict):
         return [f"OPENING_ANCHOR_CHAIN_MISSING:{unit_id}"]
     failures: list[str] = []
-    if contract.get("policy") != POLICY:
+    required_policy = EVENT_POLICY if strict_required(task) else LEGACY_POLICY
+    if contract.get("policy") != required_policy:
         failures.append(f"OPENING_ANCHOR_CHAIN_POLICY_INVALID:{unit_id}")
+    continuity_task = dict(task)
+    for key in (
+        "event_boundary_decision", "persistent_state_contract", "shot_state_contracts",
+        "editorial_shot_ids", "internal_transition_contracts",
+    ):
+        if continuity_task.get(key) is None and machine.get(key) is not None:
+            continuity_task[key] = machine[key]
+    failures.extend(validate_task_boundary(continuity_task))
+    if strict_required(task):
+        decision = task.get("event_boundary_decision") or machine.get("event_boundary_decision") or {}
+        boundary_class = decision.get("boundary_class")
+        source = contract.get("source")
+        if boundary_class == "NEW_EVENT_ANCHOR":
+            if source != "NEW_EVENT_GENERATED_KEYFRAME" or contract.get("previous_unit_id"):
+                failures.append(f"NEW_EVENT_OPENING_SOURCE_INVALID:{unit_id}")
+            return list(dict.fromkeys(failures))
+        if boundary_class == "MOTIVATED_CUT":
+            if source != "CONTINUITY_DERIVED_KEYFRAME" or not contract.get("previous_unit_id"):
+                failures.append(f"MOTIVATED_CUT_OPENING_SOURCE_INVALID:{unit_id}")
+            tail_path = str(contract.get("previous_state_reference_path") or "")
+            tail_sha = str(contract.get("previous_state_reference_sha256") or "")
+            if not tail_path or not tail_sha:
+                failures.append(f"MOTIVATED_CUT_PREVIOUS_STATE_REFERENCE_MISSING:{unit_id}")
+            else:
+                resolved = Path(tail_path).expanduser()
+                if not resolved.is_absolute():
+                    resolved = Path(__file__).resolve().parents[1] / resolved
+                if not resolved.is_file() or hashlib.sha256(resolved.read_bytes()).hexdigest() != tail_sha:
+                    failures.append(f"MOTIVATED_CUT_PREVIOUS_STATE_REFERENCE_SHA_INVALID:{unit_id}")
+                bound_paths = [
+                    str(value.get("path") or value.get("url") or "") if isinstance(value, dict) else str(value)
+                    for value in task.get("reference_images") or []
+                ]
+                if tail_path not in bound_paths:
+                    failures.append(f"MOTIVATED_CUT_PREVIOUS_STATE_REFERENCE_NOT_BOUND:{unit_id}")
+            return list(dict.fromkeys(failures))
+        if boundary_class != "HARD_CONTINUATION":
+            failures.append(f"EVENT_BOUNDARY_CLASS_INVALID:{unit_id}")
+            return list(dict.fromkeys(failures))
     scene_first = machine.get("scene_first_unit")
     if scene_first is None:
         scene_first = task.get("scene_first_unit")

@@ -152,6 +152,12 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         "ANCHOR.IDENTITY_PROP": contract["identity_prop_fact"],
         "ANCHOR.SPACE_WEATHER": contract["space_weather_fact"],
     }
+    persistent_state_lock = str(contract.get("persistent_state_lock") or "").strip()
+    if persistent_state_lock:
+        clause_evidence["CONTINUITY.PERSISTENT_STATE"] = persistent_state_lock
+    shot_state_locks = [str(value).strip() for value in contract.get("shot_state_locks") or []]
+    for index, value in enumerate(shot_state_locks, 1):
+        clause_evidence[f"CONTINUITY.SHOT_STATE.{index}"] = value
     if source_transition.get("incoming"):
         incoming = str(translated_transition.get("incoming") or "").strip()
         if not incoming:
@@ -266,6 +272,8 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     text = "\n".join([
         "subject_definitions:", *reference_lines,
         f"summary: [reference generation + keyframe completion] {plan['duration_seconds']:g}s vertical 9:16 live-action short drama; {contract['identity_prop_fact']}; {contract['space_weather_fact']}.",
+        *( ["persistent_state_lock: " + persistent_state_lock + "."] if persistent_state_lock else [] ),
+        *( ["shot_state_chain:", *[f"SHOT_{index}: {value}." for index, value in enumerate(shot_state_locks, 1)]] if shot_state_locks else [] ),
         "retention_analysis: @Image1 locks the opening identity and space; later references bind only their declared identity, prop, or result state.",
         "detailed_description:", *description,
         "camera: " + camera + ".",
