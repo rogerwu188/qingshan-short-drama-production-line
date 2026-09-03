@@ -112,7 +112,12 @@ def validate_character_entity_contract(payload: dict[str, Any]) -> dict[str, Any
         ):
             name = _clean(role.get(name_field))
             cid = _clean(role.get(id_field))
-            if name and not cid:
+            is_character_role = (
+                name_field in {"dialogue_speaker", "dialogue_listener"}
+                or (name_field == "primary_actor" and _clean(role.get("primary_actor_kind") or "CHARACTER") == "CHARACTER")
+                or (name_field == "action_patient" and resolve_character_id(name, aliases) is not None)
+            )
+            if name and is_character_role and not cid:
                 failures.append(f"{sid}_{id_field.upper()}_MISSING:{name}")
             if cid and (cid not in by_id or resolve_character_id(name, aliases) != cid):
                 failures.append(f"{sid}_{name_field.upper()}_NAME_ID_MISMATCH:{name}:{cid}")
@@ -121,9 +126,10 @@ def validate_character_entity_contract(payload: dict[str, Any]) -> dict[str, Any
         role_actor_id = _clean(role.get("primary_actor_id"))
         action = spec.get("action") or {}
         action_subject_id = _clean(action.get("subject_id"))
-        if _clean(action.get("primary_action")) and not action_subject_id:
+        actor_is_character = _clean(role.get("primary_actor_kind") or "CHARACTER") == "CHARACTER"
+        if _clean(action.get("primary_action")) and actor_is_character and not action_subject_id:
             failures.append(f"{sid}_ACTION_SUBJECT_ID_MISSING")
-        elif action_subject_id and action_subject_id != role_actor_id:
+        elif action_subject_id and actor_is_character and action_subject_id != role_actor_id:
             failures.append(f"{sid}_ACTION_SUBJECT_ROLE_ACTOR_MISMATCH:{action_subject_id}:{role_actor_id}")
         if dialogue and role_speaker_id != speaker_id:
             failures.append(f"{sid}_DIALOGUE_ROLE_SPEAKER_MISMATCH:{speaker_name}:{speaker_id}:{role_speaker_id}")
@@ -141,10 +147,11 @@ def validate_character_entity_contract(payload: dict[str, Any]) -> dict[str, Any
             state = _clean(states.get(role_speaker_id)).lower()
             if any(marker.lower() in state for marker in SILENT_MARKERS):
                 failures.append(f"{sid}_DIALOGUE_SPEAKER_MARKED_SILENT:{role_speaker_id}")
-        # Entity maps are keyed by IDs, never a mixture of aliases and names.
+        # Character entries are keyed by IDs. Typed non-character entities may
+        # retain their role-contract labels.
         for field, mapping in (("STATE", states), ("PRESENCE", presence)):
             for key in mapping:
-                if _clean(key) not in by_id:
+                if _clean(key) in aliases:
                     failures.append(f"{sid}_ENTITY_{field}_KEY_NOT_CHARACTER_ID:{key}")
 
     return {
