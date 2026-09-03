@@ -55,6 +55,15 @@
 
 ## 4. 状态差（v2 新增，本条是所有"画面不动"问题的总根因）
 
+### 4.0 人物实体与视觉文化决定先于逐镜写作
+
+Writer/Director 必须在 generation contract 顶层先写：
+
+- `visual_culture_contract`：由剧本世界、时代、地域和视觉圣经作创意选择，并记录 `decision_owner=WRITER_DIRECTOR`、`decision_basis`、`source_ref`。下游不得自动补默认值。
+- `character_entities`：每个角色一个永久 `character_id`、一个 `canonical_name`、零到多个 `aliases`；称号与姓名不得变成两个角色。
+
+随后每镜 cast 必须写 `character_id`；动作写 `action.subject_id`；角色语义写 `primary_actor_id`、`dialogue_speaker_id`、`dialogue_listener_id`、`action_patient_id`、`lip_owner_id`。`entity_states` 与 `entity_presence` 只允许用 `character_id` 作键。声音合同另用 `voice_entity_id`，不得把声音资产 ID 当人物 ID。任一名字/ID、说话人/口型、动作主语/执行者或人物/声线归属不一致，Writer 封缄失败。
+
 ### 4.1 每一拍必须声明起止态
 
 ```json

@@ -27,6 +27,7 @@ writer_agent/
 ├── schemas/
 │   ├── manifest.schema.json       ← manifest 必填字段与类型
 │   ├── beat_disposition.schema.json
+│   ├── generation_contract.schema.json ← 人物 canonical ID 与 Writer 视觉决定
 │   └── authorized_insertion.schema.json
 ├── gates/                         ← 十一个门（九门 script phase ＋ 时长账 ＋ 交付绑定）
 ├── runtime/                       ← dispatcher / 门运行器 / 溯源 / 原子发布

@@ -17,7 +17,8 @@ try:
     from tools.video_execution_plan_compiler import compile_video_execution_plan
     from tools.role_semantic_prompt_gate import validate_role_semantics_structure
     from tools.speaker_voice_contract import validate_speaker_voice_contract
-    from tools.visual_culture_contract import bind_visual_culture_contract, validate_visual_culture_contract
+    from tools.visual_culture_contract import validate_visual_culture_contract
+    from tools.character_entity_contract import validate_character_entity_contract
 except ModuleNotFoundError:
     from h3_provider_prompt_renderer import render_h3_prompt
     from h3_provider_english_contract import validate_h3_provider_text_boundary
@@ -30,7 +31,8 @@ except ModuleNotFoundError:
     from video_execution_plan_compiler import compile_video_execution_plan
     from role_semantic_prompt_gate import validate_role_semantics_structure
     from speaker_voice_contract import validate_speaker_voice_contract
-    from visual_culture_contract import bind_visual_culture_contract, validate_visual_culture_contract
+    from visual_culture_contract import validate_visual_culture_contract
+    from character_entity_contract import validate_character_entity_contract
 
 try:
     from tools.compile_grouped_seedance_manifest import (
@@ -112,10 +114,12 @@ def compile_model_prompt(
     # was not mutated by enrichment or serialization.
     family = model_family(unit.get("model"))
     working, source_sha = begin_provider_compile(unit)
-    working = bind_visual_culture_contract(working)
     visual_culture = validate_visual_culture_contract(working)
     if visual_culture["status"] != "PASS":
         raise ValueError(";".join(visual_culture["failures"]))
+    identity = validate_character_entity_contract(working)
+    if identity["status"] != "PASS":
+        raise ValueError(";".join(identity["failures"]))
     role_failures = validate_role_semantics_structure(working)
     if role_failures:
         raise ValueError(";".join(role_failures))

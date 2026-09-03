@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qingshan.example/schemas/generation_contract.schema.json",
+  "title": "Qingshan Writer Generation Contract",
+  "type": "object",
+  "required": ["schema", "episode", "visual_culture_contract", "character_entities", "scene_states", "shots", "audio_contract"],
+  "properties": {
+    "schema": {"const": "qingshan.generation_contract.v3"},
+    "episode": {"pattern": "^E[0-9]+$"},
+    "visual_culture_contract": {
+      "type": "object",
+      "required": ["schema", "status", "profile_id", "decision_owner", "decision_basis", "source_ref"],
+      "properties": {"decision_owner": {"const": "WRITER_DIRECTOR"}}
+    },
+    "character_entities": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["character_id", "canonical_name", "aliases"],
+        "properties": {
+          "character_id": {"type": "string", "minLength": 1},
+          "canonical_name": {"type": "string", "minLength": 1},
+          "aliases": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "scene_states": {"type": "array", "minItems": 1},
+    "shots": {"type": "array", "minItems": 1},
+    "audio_contract": {"type": "object"}
+  }
+}

@@ -117,15 +117,30 @@ Creative continuity is a pre-submission gate. Post-generation rejection is limit
 ## Cultural visual-language contract
 
 Image and video generation share one immutable cultural design contract. For
-Qingshan E54 and later, the compiler binds a Northern-Song Eastern cinematic
-profile before either SD2 or H3 rendering and verifies that the final provider
-prompt still carries it. The profile fixes Chinese architecture, dress, armor
+Qingshan E54 and later, the Writer/Director selects and records the profile in
+the generation contract from the story world, period, region, and visual bible.
+Downstream keyframe and video compilers may only inherit and validate that
+decision; they never insert a default profile. The final provider prompt must
+carry the exact Writer-owned decision. The profile fixes Chinese architecture, dress, armor
 lineage, palette, motivated lighting and material language, while explicitly
 excluding European plate armor, Gothic/knight silhouettes, black-gold Western
 fantasy posters and teal-orange grading. Fully concealed identities are treated
 as complete appearance authorities—not face references—and must carry an
 admitted cultural profile. A missing or diluted contract fails before any paid
 provider request.
+
+## Canonical character identity contract
+
+E54 and later use `character_id` as the sole identity key across the Writer
+contract, cast, action subject/patient, dialogue speaker/listener, visible lip
+owner, appearance references, and voice bindings. Display names and story
+aliases (for example, a title and a personal name) resolve to one registered
+entity and can never create two people. `voice_entity_id` identifies a voice
+asset; it is deliberately separate from `character_id`. The Writer seal and
+provider compiler both fail closed on alias collisions, unregistered cast,
+name/ID mismatch, an absent visible speaker, a speaking character marked
+silent, a wrong lip owner, an action-subject mismatch, or a voice binding owned
+by another character.
 
 ## Physics-first action generation
 

@@ -22,11 +22,13 @@ runtime/canonical_writer_provenance.py
 runtime/episode_stage_gate_runner.py
 schemas/authorized_insertion.schema.json
 schemas/beat_disposition.schema.json
+schemas/generation_contract.schema.json
 schemas/manifest.schema.json
 state/AGENT_SINGLEFLIGHT.json
 state/PROGRESS.skeleton.json
 state/SUPERVISOR_ORDERS.json
 state/观众已知清单.md
 templates/NARRATIVE_CANONICAL.template.md
+templates/GENERATION_CONTRACT.template.json
 templates/manifest.template.json
 tests/test_smoke.py

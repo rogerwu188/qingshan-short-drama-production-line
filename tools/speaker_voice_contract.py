@@ -15,10 +15,15 @@ import os
 from pathlib import Path
 from typing import Any
 
+try:
+    from tools.character_entity_contract import build_character_index, resolve_character_id
+except ModuleNotFoundError:
+    from character_entity_contract import build_character_index, resolve_character_id
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_VOICE_REGISTRY = ROOT / "configs/series_voice_reference_registry_current_20260723.json"
-POLICY_VERSION = "qingshan.speaker_voice_contract.v1_canonical_reference_and_lip_owner"
+POLICY_VERSION = "qingshan.speaker_voice_contract.v2_character_and_voice_identity_separated"
 
 # Script display names can differ from the long-lived series registry name.
 # Aliases are explicit because guessing by surname or visual proximity is the
@@ -107,10 +112,15 @@ def compile_speaker_voice_contract(
         if speaker not in speakers:
             speakers.append(speaker)
     visible = _visible_characters(unit)
+    character_rows = unit.get("character_entities") or []
+    _, character_aliases, character_failures = build_character_index(unit) if character_rows else ({}, {}, [])
     by_name, by_entity = _voice_authority(voice_bible)
     bindings: list[dict[str, Any]] = []
-    failures: list[str] = []
+    failures: list[str] = list(character_failures)
     for index, speaker in enumerate(speakers, start=1):
+        character_id = resolve_character_id(speaker, character_aliases) if character_aliases else None
+        if character_aliases and not character_id:
+            failures.append(f"SPEAKER_CHARACTER_ID_UNRESOLVED:{speaker}")
         entity_hint = SPEAKER_ENTITY_ALIASES.get(speaker)
         source = by_name.get(speaker) or (by_entity.get(entity_hint) if entity_hint else None)
         if not source:
@@ -137,15 +147,18 @@ def compile_speaker_voice_contract(
             failures.append(f"SPEAKER_VOICE_REFERENCE_SHA_MISMATCH:{speaker}")
         bindings.append({
             "speaker": speaker,
+            "character_id": character_id,
+            "voice_entity_id": entity_id,
+            # Deprecated compatibility alias.  Never use this as character identity.
             "speaker_entity_id": entity_id,
             "voice_reference_asset_id": asset_id,
             "voice_reference": local_reference or None,
             "voice_reference_url": remote_url or None,
             "voice_reference_sha256": sha256 or actual_sha,
             "audio_slot": f"@音频{index}",
-            "visible_speaker": speaker in visible,
-            "offscreen_voice": speaker not in visible,
-            "lip_sync": speaker in visible,
+            "visible_speaker": any(resolve_character_id(name, character_aliases) == character_id for name in visible) if character_id else speaker in visible,
+            "offscreen_voice": not (any(resolve_character_id(name, character_aliases) == character_id for name in visible) if character_id else speaker in visible),
+            "lip_sync": any(resolve_character_id(name, character_aliases) == character_id for name in visible) if character_id else speaker in visible,
             "production_voice_status": status,
         })
     contract = {
@@ -176,6 +189,9 @@ def validate_speaker_voice_contract(unit: dict[str, Any]) -> dict[str, Any]:
     bindings = contract.get("bindings") or []
     actual = [str(row.get("speaker") or "") for row in bindings]
     failures: list[str] = []
+    character_rows = unit.get("character_entities") or []
+    _, aliases, character_failures = build_character_index(unit) if character_rows else ({}, {}, [])
+    failures.extend(character_failures)
     if expected:
         if contract.get("schema") != POLICY_VERSION:
             failures.append("SPEAKER_VOICE_CONTRACT_SCHEMA_MISSING_OR_STALE")
@@ -188,11 +204,29 @@ def validate_speaker_voice_contract(unit: dict[str, Any]) -> dict[str, Any]:
             failures.append("SPEAKER_AUDIO_SLOTS_MISSING_OR_DUPLICATE")
         for row in bindings:
             speaker = str(row.get("speaker") or "MISSING")
-            for field in ("speaker_entity_id", "voice_reference_asset_id", "audio_slot"):
+            for field in ("voice_entity_id", "voice_reference_asset_id", "audio_slot"):
                 if not str(row.get(field) or "").strip():
                     failures.append(f"SPEAKER_VOICE_BINDING_FIELD_MISSING:{speaker}:{field}")
+            if aliases:
+                expected_character_id = resolve_character_id(speaker, aliases)
+                if row.get("character_id") != expected_character_id:
+                    failures.append(f"SPEAKER_CHARACTER_ID_MISMATCH:{speaker}:{expected_character_id}:{row.get('character_id')}")
             if not str(row.get("voice_reference") or "").strip() and not str(row.get("voice_reference_url") or "").strip():
                 failures.append(f"SPEAKER_VOICE_REFERENCE_MISSING:{speaker}")
+        if aliases:
+            by_speaker = {str(row.get("speaker") or ""): row for row in bindings}
+            for spec in unit.get("ordered_prompt_specs") or []:
+                raw = str(spec.get("dialogue") or "").strip()
+                if not raw:
+                    continue
+                speaker = raw.partition("：")[0].strip()
+                role = spec.get("role_semantic_disambiguation") or {}
+                role_character_id = str(role.get("dialogue_speaker_id") or "").strip()
+                binding_character_id = str((by_speaker.get(speaker) or {}).get("character_id") or "").strip()
+                if role_character_id != binding_character_id:
+                    failures.append(
+                        f"SPEAKER_VOICE_ROLE_CHARACTER_MISMATCH:{speaker}:{role_character_id}:{binding_character_id}"
+                    )
     elif bindings:
         failures.append("SILENT_UNIT_HAS_SPEAKER_VOICE_BINDINGS")
     return {
@@ -263,7 +297,8 @@ def task_voice_transport(unit: dict[str, Any], dialogue_rows: list[dict[str, Any
             "dia_id": dialogue["dia_id"],
             "speaker": dialogue["speaker"],
             "spoken_text": dialogue["spoken_text"],
-            "speaker_id": binding["speaker_entity_id"],
+            "speaker_id": binding["voice_entity_id"],
+            "character_id": binding.get("character_id"),
             "audio_slot": binding["audio_slot"],
             "path": binding.get("voice_reference"),
             "sha256": binding.get("voice_reference_sha256"),
