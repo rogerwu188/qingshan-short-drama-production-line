@@ -9,6 +9,11 @@ import re
 from pathlib import Path
 from typing import Any
 
+try:
+    from tools.visual_culture_contract import validate_visual_culture_contract
+except ModuleNotFoundError:
+    from visual_culture_contract import validate_visual_culture_contract
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REGISTRY = ROOT / "configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json"
@@ -36,9 +41,17 @@ def compile_labeled_flat_identity_transport(
         if is_identity:
             row["identity_authority"] = "PRIMARY_NATIVE_REGISTRY"
             authority_map[entity_id] = label
-            authority_lines.append(
-                f"{label} 是 {entity_id} 的唯一人物身份权威，只定义该人物的脸型、五官比例、年龄与稳定身份；不得与其他参考平均、混脸或重塑。"
-            )
+            visual_contract = str(row.get("identity_visual_contract") or "FACE_VISIBLE_IDENTITY").upper()
+            if visual_contract == "FULLY_CONCEALED_IDENTITY":
+                authority_lines.append(
+                    f"{label} 是 {entity_id} 的唯一完整外观与身份权威，定义全身轮廓、身材比例、服装、甲胄、全封闭头盔与遮面结构；"
+                    "头盔和面甲全程保持闭合，不得摘盔、开面甲或凭空生成可见脸、头发、头部皮肤与五官。角色被说出姓名只改变叙事认知，绝不改变其遮面外观；"
+                    "不得与其他参考平均、混合或重塑。"
+                )
+            else:
+                authority_lines.append(
+                    f"{label} 是 {entity_id} 的唯一人物身份权威，只定义该人物的脸型、五官比例、年龄与稳定身份；不得与其他参考平均、混脸或重塑。"
+                )
         else:
             authority_lines.append(
                 f"{label} 的作用仅为 {role or 'non_identity'} / {entity_id or 'UNSCOPED'}，不得定义或改变任何人物脸。"
@@ -218,6 +231,8 @@ def validate_image_model_contract(
                 failures.append(f"IMAGE_MODEL_{field.upper()}_OUTSIDE_PROVIDER_LIMITS")
     identity_transport = validate_identity_reference_transport(task, profile, prompt_text=prompt_text)
     failures.extend(identity_transport.get("failures") or [])
+    visual_culture = validate_visual_culture_contract(task, prompt_text=prompt_text)
+    failures.extend(visual_culture.get("failures") or [])
     result_status = "FAIL" if failures else "PASS"
     if not failures and status != "DEPLOYED":
         result_status = "PASS_PORTABLE_CONTRACT_PROVIDER_CONFIG_REQUIRED"
@@ -230,6 +245,7 @@ def validate_image_model_contract(
         "adapter_status": status,
         "failures": failures,
         "identity_reference_transport": identity_transport,
+        "visual_culture_contract": visual_culture,
     }
 
 

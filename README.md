@@ -114,6 +114,19 @@ Different characters may not reuse the same mapped screen slot as an implicit id
 
 Creative continuity is a pre-submission gate. Post-generation rejection is limited to technical integrity and basic plot/identity correctness; action taste, choreography preference, and micro-expression precision do not consume regeneration attempts after a technically usable result exists.
 
+## Cultural visual-language contract
+
+Image and video generation share one immutable cultural design contract. For
+Qingshan E54 and later, the compiler binds a Northern-Song Eastern cinematic
+profile before either SD2 or H3 rendering and verifies that the final provider
+prompt still carries it. The profile fixes Chinese architecture, dress, armor
+lineage, palette, motivated lighting and material language, while explicitly
+excluding European plate armor, Gothic/knight silhouettes, black-gold Western
+fantasy posters and teal-orange grading. Fully concealed identities are treated
+as complete appearance authorities—not face references—and must carry an
+admitted cultural profile. A missing or diluted contract fails before any paid
+provider request.
+
 ## Physics-first action generation
 
 Action units are compiled through [`configs/ACTION_VIDEO_GENERATION_METHOD_V2.json`](configs/ACTION_VIDEO_GENERATION_METHOD_V2.json) and the source-faithful combat library. The shared Action IR locks initiator/target roles, weapon ownership, force origin, exactly one of contact/evasion/threat-threshold, one primary feedback, at most one secondary feedback, and an observable irreversible terminal state before either model compiler runs. Canonical failure names and pre/post-generation ownership are defined in [`configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json`](configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json). SD2 retains its existing provider-facing grammar. H3 additionally requires the first explosive action within 0.5 seconds, an explicit `feet → hips → shoulders → elbow/wrist` power path, both sides of the exchange, causally synchronized sound anchors, and rejection of handshake-like contact, slow push-hands, static tableaux, pose slideshows, loops, and reverse-force outcomes.
