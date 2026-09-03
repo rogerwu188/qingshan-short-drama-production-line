@@ -7,12 +7,18 @@ from tools.video_prompt_compiler import compile_model_prompt, compile_receipt
 from tools.video_execution_plan_compiler import compile_video_execution_plan
 from tools.h3_provider_english_contract import bind_h3_provider_english_contract
 from tools.provider_semantic_coverage import assert_equivalent_required_fact_sets
+from tools.visual_culture_contract import DEFAULT_CONTRACT
 
 
 def _unit(model: str = "seedance-2.0-pro") -> dict:
     return {
         "unit_id": "E99-VU-001",
         "episode": "E99",
+        "visual_culture_contract": DEFAULT_CONTRACT,
+        "character_entities": [
+            {"character_id": "CHAR-CHENJI", "canonical_name": "陈迹", "aliases": []},
+            {"character_id": "CHAR-MASKED", "canonical_name": "蒙面人", "aliases": []},
+        ],
         "pipeline_rectification_version": "E51_V1",
         "model": model,
         "duration_seconds": 4,
@@ -43,7 +49,10 @@ def _unit(model: str = "seedance-2.0-pro") -> dict:
         "ordered_prompt_specs": [{
             "space": {"location": "雨夜客栈", "subspace": "北窗内侧"},
             "scene_state": {"time": "夜", "weather": "窗外有雨", "palette": "冷蓝暖灯"},
-            "cast": [{"character": "陈迹"}, {"character": "蒙面人"}],
+            "cast": [
+                {"character": "陈迹", "character_id": "CHAR-CHENJI"},
+                {"character": "蒙面人", "character_id": "CHAR-MASKED"},
+            ],
             "props": [
                 {
                     "prop": "短刀",
@@ -69,22 +78,28 @@ def _unit(model: str = "seedance-2.0-pro") -> dict:
                 "status": "PASS",
                 "shot_id": "E99-S01-01",
                 "primary_actor": "蒙面人",
+                "primary_actor_id": "CHAR-MASKED",
                 "primary_actor_kind": "CHARACTER",
                 "dialogue_speaker": "",
                 "dialogue_listener": "",
                 "action_patient": "陈迹",
+                "action_patient_id": "CHAR-CHENJI",
+                "dialogue_speaker_id": "",
+                "dialogue_listener_id": "",
+                "lip_owner_id": "",
                 "entity_states": {
-                    "蒙面人": "唯一发力者，持短刀前冲",
-                    "陈迹": "唯一承受者，在桌后抬左臂格挡",
+                    "CHAR-MASKED": "唯一发力者，持短刀前冲",
+                    "CHAR-CHENJI": "唯一承受者，在桌后抬左臂格挡",
                 },
                 "entity_presence": {
-                    "蒙面人": "VISIBLE_AND_IDENTITY_LOCKED",
-                    "陈迹": "VISIBLE_AND_IDENTITY_LOCKED",
+                    "CHAR-MASKED": "VISIBLE_AND_IDENTITY_LOCKED",
+                    "CHAR-CHENJI": "VISIBLE_AND_IDENTITY_LOCKED",
                 },
                 "forbidden_role_swaps": True,
                 "unresolved": [],
             },
             "action": {
+                "subject_id": "CHAR-MASKED",
                 "action_kind": "COMBAT",
                 "t0_seconds": 0,
                 "t1_seconds": 4,

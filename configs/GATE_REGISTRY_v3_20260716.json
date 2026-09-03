@@ -2051,6 +2051,9 @@
       "implementation_type": "CODED",
       "code_paths": [
         "tools/writer_production_field_gate.py",
+        "tools/character_entity_contract.py",
+        "tools/visual_culture_contract.py",
+        "tools/speaker_voice_contract.py",
         "tools/canonical_writer_dispatcher.py",
         "tools/sd2_required_prompt_field_gate.py",
         "tools/compile_grouped_seedance_manifest.py",
@@ -2059,6 +2062,9 @@
       ],
       "test_paths": [
         "tools/tests/test_writer_production_field_gate.py",
+        "tools/tests/test_character_entity_contract.py",
+        "tools/tests/test_visual_culture_contract.py",
+        "tools/tests/test_speaker_voice_contract.py",
         "tools/tests/test_compile_grouped_seedance_manifest.py",
         "tools/tests/test_video_submission_entrypoint_contract_coverage.py",
         "tools/tests/test_giggle_video_standard_model_gate.py"
@@ -2073,6 +2079,10 @@
         "camera_transition_internal_continuity_wardrobe_voice_role_ecology_weather_exact_blocks_required": true,
         "dialogue_safe_window_exact_binding_required": true,
         "automatic_writer_director_audio_profile_binding_required": true,
+        "writer_director_visual_culture_decision_required": true,
+        "downstream_visual_culture_default_invention_forbidden": true,
+        "canonical_character_id_required_across_cast_action_dialogue_lip_and_voice": true,
+        "character_id_and_voice_entity_id_must_be_separate": true,
         "direct_low_level_video_transport_forbidden": true,
         "installed_submitter_must_invoke_project_prompt_lineage_hook": true,
         "prompt_field_truncation_forbidden": true,

@@ -13,8 +13,12 @@ from typing import Any
 
 try:
     from tools.grouped_performance_contract import validate_grouped_beat_contract
+    from tools.visual_culture_contract import validate_visual_culture_contract
+    from tools.character_entity_contract import validate_character_entity_contract
 except ModuleNotFoundError:
     from grouped_performance_contract import validate_grouped_beat_contract
+    from visual_culture_contract import validate_visual_culture_contract
+    from character_entity_contract import validate_character_entity_contract
 
 
 def _text(value: Any) -> str:
@@ -24,6 +28,10 @@ def _text(value: Any) -> str:
 def validate_generation_contract(payload: dict[str, Any]) -> dict[str, Any]:
     episode = _text(payload.get("episode")) or "UNKNOWN"
     failures: list[str] = []
+    culture = validate_visual_culture_contract(payload)
+    failures.extend(culture["failures"])
+    identity = validate_character_entity_contract(payload)
+    failures.extend(identity["failures"])
     scenes = payload.get("scene_states") or []
     scenes_by_id = {_text(row.get("scene_id")): row for row in scenes}
     shots = payload.get("shots") or []

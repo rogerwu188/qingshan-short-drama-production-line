@@ -1,0 +1,54 @@
+{
+  "schema": "qingshan.generation_contract.v3",
+  "episode": "E<NN>",
+  "version": "v<V>",
+  "visual_culture_contract": {
+    "schema": "qingshan.visual_culture_contract.v1",
+    "status": "LOCKED",
+    "profile_id": "<WRITER_SELECTED_PROFILE_ID>",
+    "decision_owner": "WRITER_DIRECTOR",
+    "decision_basis": "<剧本世界、时代、地域与视觉圣经依据>",
+    "source_ref": "<writer decision evidence>",
+    "story_world": "<时代与地域>",
+    "production_design": "<建筑、衣冠、器物>",
+    "armor_tradition": "<兵甲谱系>",
+    "palette_system": {"base": "<base>", "accent": "<accent>", "skin": "<skin>"},
+    "lighting_language": "<动机光与影调>",
+    "image_texture": "<材质与摄影质感>",
+    "forbidden_influences": ["<至少六条项目禁用视觉影响>"]
+  },
+  "character_entities": [
+    {
+      "character_id": "CHAR-<STABLE-ID>",
+      "canonical_name": "<权威姓名>",
+      "aliases": ["<称号或别名>"],
+      "voice_entity_id": "<独立声音实体ID，可空>",
+      "identity_reference_entity_id": "<独立外形参考实体ID，可空>"
+    }
+  ],
+  "scene_states": [],
+  "shots": [
+    {
+      "shot_id": "E<NN>-S01-01",
+      "prompt_spec": {
+        "cast": [{"character": "<显示名或合法别名>", "character_id": "CHAR-<STABLE-ID>"}],
+        "dialogue": "<说话人>：<逐字台词>",
+        "action": {"subject_id": "CHAR-<STABLE-ID>", "primary_action": "<可见动作>"},
+        "role_semantic_disambiguation": {
+          "primary_actor": "<动作执行者显示名>",
+          "primary_actor_id": "CHAR-<STABLE-ID>",
+          "dialogue_speaker": "<说话人显示名>",
+          "dialogue_speaker_id": "CHAR-<STABLE-ID>",
+          "dialogue_listener": "<听者显示名>",
+          "dialogue_listener_id": "CHAR-<STABLE-ID>",
+          "action_patient": "<动作承受者显示名>",
+          "action_patient_id": "CHAR-<STABLE-ID>",
+          "lip_owner_id": "CHAR-<与可见说话人相同的ID；画外声留空>",
+          "entity_states": {"CHAR-<STABLE-ID>": "<本镜状态>"},
+          "entity_presence": {"CHAR-<STABLE-ID>": "VISIBLE_AND_IDENTITY_LOCKED"}
+        }
+      }
+    }
+  ],
+  "audio_contract": {"bgm": "<Writer/Director decision>", "ambient_by_scene": {}}
+}

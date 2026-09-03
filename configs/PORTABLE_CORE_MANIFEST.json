@@ -12,6 +12,8 @@
     "agent_factory/claude_writer_v2/state/SUPERVISOR_ORDERS.json",
     "agent_factory/claude_writer_v2/state/PROGRESS.skeleton.json",
     "agent_factory/claude_writer_v2/state/观众已知清单.md",
+    "agent_factory/claude_writer_v2/schemas/generation_contract.schema.json",
+    "agent_factory/claude_writer_v2/templates/GENERATION_CONTRACT.template.json",
     "agent_factory/claude_writer_v2/runtime/canonical_writer_dispatcher.py",
     "agent_factory/claude_writer_v2/runtime/episode_stage_gate_runner.py",
     "configs/GATE_REGISTRY_v3_20260716.json",
@@ -30,6 +32,10 @@
     "tools/build_video_unit_anchor_plan.py",
     "tools/compile_grouped_seedance_manifest.py",
     "tools/video_prompt_compiler.py",
+    "tools/character_entity_contract.py",
+    "tools/visual_culture_contract.py",
+    "tools/writer_production_field_gate.py",
+    "tools/speaker_voice_contract.py",
     "tools/sd2_provider_prompt_renderer.py",
     "tools/h3_provider_prompt_renderer.py",
     "tools/submit_giggle_image_manifest.py",
@@ -47,6 +53,7 @@
   "portable_test_modules": [
     "tools.tests.test_action_video_prompt_compiler",
     "tools.tests.test_camera_language_selector",
+    "tools.tests.test_character_entity_contract",
     "tools.tests.test_common_sense_causality_gate",
     "tools.tests.test_dialogue_cut_safety",
     "tools.tests.test_e51_pipeline_rectification",
@@ -74,6 +81,8 @@
     "tools.tests.test_submit_giggle_video_authoritative_gate",
     "tools.tests.test_render_portable_timeline",
     "tools.tests.test_video_prompt_compiler",
+    "tools.tests.test_visual_culture_contract",
+    "tools.tests.test_writer_production_field_gate",
     "agent_factory.claude_writer_v2.tests.test_smoke"
   ]
 }

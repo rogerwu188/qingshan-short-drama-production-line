@@ -145,6 +145,10 @@ def validate_role_semantics(
         speaker = _clean(row.get("dialogue_speaker"))
         listener = _clean(row.get("dialogue_listener"))
         patient = _clean(row.get("action_patient"))
+        actor_key = _clean(row.get("primary_actor_id")) or actor
+        speaker_key = _clean(row.get("dialogue_speaker_id")) or speaker
+        listener_key = _clean(row.get("dialogue_listener_id")) or listener
+        patient_key = _clean(row.get("action_patient_id")) or patient
         states = row.get("entity_states") or {}
         presence = row.get("entity_presence") or {}
         if not actor:
@@ -162,14 +166,14 @@ def validate_role_semantics(
             failures.append(f"{prefix}_SPEAKER_LISTENER_COLLISION:{speaker}")
         if patient and patient == actor and row.get("self_directed_action") is not True:
             failures.append(f"{prefix}_ACTOR_PATIENT_COLLISION:{actor}")
-        if actor_kind in {"CHARACTER", "GROUP", "ANIMAL", "BODY_PART"} and actor not in states:
-            failures.append(f"{prefix}_ACTOR_STATE_MISSING:{actor}")
-        if speaker and speaker not in states:
-            failures.append(f"{prefix}_SPEAKER_STATE_MISSING:{speaker}")
-        if listener and listener not in states:
-            failures.append(f"{prefix}_LISTENER_STATE_MISSING:{listener}")
-        if patient and patient not in states:
-            failures.append(f"{prefix}_PATIENT_STATE_MISSING:{patient}")
+        if actor_kind in {"CHARACTER", "GROUP", "ANIMAL", "BODY_PART"} and actor_key not in states:
+            failures.append(f"{prefix}_ACTOR_STATE_MISSING:{actor_key}")
+        if speaker and speaker_key not in states:
+            failures.append(f"{prefix}_SPEAKER_STATE_MISSING:{speaker_key}")
+        if listener and listener_key not in states:
+            failures.append(f"{prefix}_LISTENER_STATE_MISSING:{listener_key}")
+        if patient and patient_key not in states:
+            failures.append(f"{prefix}_PATIENT_STATE_MISSING:{patient_key}")
         if body_part_owner and body_part_owner not in states:
             failures.append(f"{prefix}_BODY_PART_OWNER_STATE_MISSING:{body_part_owner}")
         if set(map(str, states)) != set(map(str, presence)):
@@ -270,6 +274,10 @@ def validate_role_semantics_structure(
         speaker = _clean(row.get("dialogue_speaker"))
         listener = _clean(row.get("dialogue_listener"))
         patient = _clean(row.get("action_patient"))
+        actor_key = _clean(row.get("primary_actor_id")) or actor
+        speaker_key = _clean(row.get("dialogue_speaker_id")) or speaker
+        listener_key = _clean(row.get("dialogue_listener_id")) or listener
+        patient_key = _clean(row.get("action_patient_id")) or patient
         states = row.get("entity_states") or {}
         presence = row.get("entity_presence") or {}
         body_part_owner = _clean(row.get("body_part_owner"))
@@ -288,8 +296,10 @@ def validate_role_semantics_structure(
         if patient and patient == actor and row.get("self_directed_action") is not True:
             failures.append(f"{prefix}_ACTOR_PATIENT_COLLISION:{actor}")
         for label, entity in (
-            ("ACTOR", actor if actor_kind in {"CHARACTER", "GROUP", "ANIMAL", "BODY_PART"} else ""),
-            ("SPEAKER", speaker), ("LISTENER", listener), ("PATIENT", patient),
+            ("ACTOR", actor_key if actor_kind in {"CHARACTER", "GROUP", "ANIMAL", "BODY_PART"} else ""),
+            ("SPEAKER", speaker_key if speaker else ""),
+            ("LISTENER", listener_key if listener else ""),
+            ("PATIENT", patient_key if patient else ""),
             ("BODY_PART_OWNER", body_part_owner),
         ):
             if entity and entity not in states:
