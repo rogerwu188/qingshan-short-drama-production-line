@@ -265,6 +265,8 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
             "unit_id": "E41-VU-015",
             "scene_id": "S14",
             "duration_seconds": 15.0,
+            "authorized_content_seconds": 14.75,
+            "authorized_tail_handle_seconds": 0.25,
             "ordered_prompt_specs": specs,
             "action_timeline": timeline,
             "reference_images": [{"path": "frame.png", "sha256": "not-for-model", "role": "SCENE_START_ANCHOR"}],

@@ -1,0 +1,97 @@
+{
+  "schema": "qingshan.production.three_episode_concurrency.v1",
+  "effective_at": "2026-07-16T16:14:00-07:00",
+  "decision_ref": "ROGER-20260716-THREE-EPISODE-CONCURRENCY",
+  "status": "TEMPORARILY_OVERRIDDEN_SINGLE_EPISODE_DEBUG",
+  "target_concurrent_episode_lines": 1,
+  "normal_target_concurrent_episode_lines": 3,
+  "runtime_override": {
+    "decision_ref": "CL2X-617",
+    "effective_at": "2026-07-20T13:00:23-07:00",
+    "mode": "SINGLE_EPISODE_WORKFLOW_DEBUG",
+    "target_concurrent_episode_lines": 1,
+    "restore_condition": "New explicit Roger approval after quality stabilization; automatic restoration is forbidden",
+    "restore_review_threshold_proposal": "Three consecutive episodes pass R-49/R-52/R-53 and the complete corrected gate chain, Roger viewing finds no systemic regression, and no BLOCKER defect repeats",
+    "inflight_nonactive_policy": "Harvest and persist already-paid in-flight results, then HOLD_WORKFLOW_DEBUG without starting the next stage"
+  },
+  "current_slots": [
+    {
+      "slot": 1,
+      "episode": "E32",
+      "workstream": "E32_V2_REMAKE_MEDIA_PRODUCTION",
+      "state": "REMOTE_RUNNING_IMAGE_BATCH_A1_17_TASKS"
+    }
+  ],
+  "held_inflight_episodes": [],
+  "next_episode_queue": ["E35"],
+  "slot_refill_rule": "A slot may be refilled only after its current episode completes the entire release loop and has a verified platform publication receipt, or after an explicit authorized removal. Local final, package ready, QA PASS, source lock, edit completion, generation completion, or any other pre-publication milestone does not release a slot. After the release receipt is verified, immediately start the first eligible episode from next_episode_queue.",
+  "slot_release_gate": {
+    "required_status": "RELEASED",
+    "required_evidence": [
+      "final_qa_pass_record",
+      "final_package_record",
+      "platform_publication_receipt"
+    ],
+    "prepublication_refill_forbidden": true
+  },
+  "line_activity_rule": "Every allocated episode line must continuously carry active_work plus a real evidence handle: a local PID/process, an unfinished remote task_id, or a same-round completed delivery with the next item already started and recorded. A dependency blocker must include blocked_by and blocker_ref, while a non-conflicting local task for that same episode is selected whenever possible. Old artifacts, planned next fields, and supervisor status files are not activity evidence.",
+  "idle_sla_seconds": 1800,
+  "human_review_timeout_policy": {
+    "decision_ref": "ROGER-20260717-HUMAN-REVIEW-15MIN-MACHINE-FALLBACK",
+    "timeout_seconds": 900,
+    "on_timeout": "AUTO_MACHINE_REVIEW_OR_RECOMMENDED_PATH_AND_CONTINUE",
+    "evidence_required": true,
+    "confidence_and_failure_record_required": true,
+    "rollback_record_required": true,
+    "recommended_path_auto_select_allowed": true,
+    "continued_human_wait_allowed_only_for": [
+      "LOGIN_OR_VERIFICATION_CODE",
+      "PERMISSION_OR_PAYMENT",
+      "PLATFORM_ACCOUNT_OR_POLICY_RISK",
+      "IRREVERSIBLE_PLATFORM_ACTION",
+      "NO_USABLE_CANDIDATE_AFTER_CONDITIONAL_ADMISSION_REVIEW",
+      "SEVERE_IDENTITY_OR_STORY_FACT_FAILURE",
+      "MEDIA_CORRUPT_OR_MISSING"
+    ]
+  },
+  "conditional_machine_admission_policy": {
+    "decision_ref": "ROGER-20260720-REVERSIBLE-ASSET-FAIL-OPEN",
+    "effective_at": "2026-07-20T17:05:00-07:00",
+    "status": "ACTIVE_CORE_POLICY",
+    "scope": [
+      "IMAGE_CANDIDATE",
+      "VIDEO_CANDIDATE",
+      "AGENTCUT_CANDIDATE",
+      "AI_REVIEW_CREATIVE_QUALITY"
+    ],
+    "rule": "After reasonable targeted repair is exhausted, a reversible creative-quality FAIL must not stop the production line when at least one technically usable candidate preserves screenplay facts, identity, location/time, core action and downstream compatibility. Select the best candidate, admit it conditionally and continue.",
+    "required_record": [
+      "original_fail_evidence",
+      "failed_checks",
+      "selected_candidate_path",
+      "selected_candidate_sha256",
+      "selection_reason",
+      "machine_confidence",
+      "rollback_candidate_or_point",
+      "future_replacement_trigger"
+    ],
+    "qa_mutation_forbidden": true,
+    "admission_status": "CONDITIONAL_MACHINE_ADMISSION",
+    "hard_stop_only_when": [
+      "PLATFORM_ACCOUNT_OR_POLICY_RISK",
+      "SAFETY_OR_POLICY_RISK",
+      "SEVERE_IDENTITY_OR_STORY_FACT_FAILURE",
+      "MEDIA_CORRUPT_OR_MISSING",
+      "NO_USABLE_CANDIDATE",
+      "IRREVERSIBLE_PLATFORM_ACTION"
+    ],
+    "single_review_model_disagreement_is_not_a_production_permission_gate": true
+  },
+  "release_order_independent": true,
+  "release_rule": "Concurrent production does not change episode/timeline/coverage manifest order for final source lock, edit admission, package, platform upload, replacement, or deletion.",
+  "override_policy": {
+    "allowed_roles": ["SUPERVISOR", "PRODUCER"],
+    "required_fields": ["authorization_ref", "authorized_role", "effective_at", "new_slots_or_concurrency"],
+    "free_text_or_implicit_adjustment_forbidden": true
+  }
+}

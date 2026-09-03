@@ -12,6 +12,7 @@ import json
 import py_compile
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -69,13 +70,45 @@ def main() -> int:
         except (OSError, json.JSONDecodeError) as exc:
             failures.append(f"INVALID_SCHEMA_JSON:{path.relative_to(ROOT)}:{exc}")
 
+    with tempfile.TemporaryDirectory(prefix="qingshan-registry-audit-") as temp_dir:
+        registry_report = Path(temp_dir) / "gate_registry_integrity.json"
+        registry_command = [
+            sys.executable,
+            str(ROOT / "tools" / "gate_registry_v3_check.py"),
+            "--registry",
+            str(ROOT / "configs" / "GATE_REGISTRY_v3_20260716.json"),
+            "--out",
+            str(registry_report),
+        ]
+        registry_run = subprocess.run(
+            registry_command,
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if registry_run.returncode:
+            try:
+                registry_payload = json.loads(registry_report.read_text(encoding="utf-8"))
+                registry_failures = registry_payload.get("failures") or []
+            except (OSError, json.JSONDecodeError):
+                registry_failures = [
+                    registry_run.stderr.strip()
+                    or registry_run.stdout.strip()
+                    or f"exit={registry_run.returncode}"
+                ]
+            failures.extend(
+                f"GATE_REGISTRY_INTEGRITY_FAILED:{item}"
+                for item in registry_failures
+            )
+
     test_command = [sys.executable, "-m", "unittest", *(manifest.get("portable_test_modules") or [])]
     tests = subprocess.run(test_command, cwd=ROOT, check=False)
     if tests.returncode:
         failures.append(f"PORTABLE_TESTS_FAILED:{tests.returncode}")
 
     report = {
-        "schema": "qingshan.portable_ci.v1",
+        "schema": "qingshan.portable_ci.v2",
         "status": "FAIL" if failures else "PASS",
         "required_file_count": len(required),
         "test_module_count": len(manifest.get("portable_test_modules") or []),

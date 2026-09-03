@@ -1,0 +1,28 @@
+{
+  "schema": "qingshan.s3_relay_public_upload_checklist.v1",
+  "authority_ref": "ROGER-20260716-S3-RELAY",
+  "scope": "C2SC_HANDSHAKE_AND_DASHBOARD_SIX_FILE_DELIVERY",
+  "checks": {
+    "prefix_secret_absent_from_payload": true,
+    "credentials_and_tokens_absent": true,
+    "unpublished_script_fulltext_absent": true,
+    "platform_account_information_absent": true,
+    "personal_information_absent": true,
+    "public_permanent_download_accepted": true,
+    "non_spoiler_slug_confirmed": true
+  },
+  "approved_dashboard_files": [
+    "workflow/dashboard/index.html",
+    "workflow/dashboard/status.js",
+    "workflow/dashboard/status.json",
+    "workflow/dashboard/pipeline_state.json",
+    "workflow/dashboard/playback_metrics.json",
+    "workflow/dashboard/README.md"
+  ],
+  "forbidden_content": [
+    "credentials or relay prefix",
+    "unpublished script full text",
+    "platform account information",
+    "personal information"
+  ]
+}
