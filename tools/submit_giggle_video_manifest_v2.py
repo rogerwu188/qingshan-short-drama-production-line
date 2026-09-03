@@ -17,6 +17,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+# A deployed transport wrapper must validate with the exact project checkout
+# that produced the manifest.  Otherwise its bundled compiler can silently
+# disagree with a newly released project compiler.
+_project_root_hint = os.environ.get("BACKLOTOS_PROJECT_ROOT", "").strip()
+if _project_root_hint:
+    _project_root_path = Path(_project_root_hint).expanduser().resolve()
+    for _path in (str(_project_root_path / "tools"), str(_project_root_path)):
+        if _path not in sys.path:
+            sys.path.insert(0, _path)
 
 INSUFFICIENT_CREDIT_TERMS = (
     "insufficient credit", "insufficient credits", "insufficient balance",
@@ -254,6 +263,10 @@ def task_fingerprint(task: dict[str, Any]) -> str:
         "dialogue_transport": task.get("dialogue_transport"),
         "speaker_voice_contract": task.get("speaker_voice_contract")
         or (task.get("machine_contract") or {}).get("speaker_voice_contract"),
+        "character_entities": task.get("character_entities")
+        or (task.get("machine_contract") or {}).get("character_entities"),
+        "visual_culture_contract": task.get("visual_culture_contract")
+        or (task.get("machine_contract") or {}).get("visual_culture_contract"),
         "model": task.get("model"),
         "duration": task.get("duration_seconds"),
         "aspect_ratio": task.get("aspect_ratio"),
@@ -314,6 +327,9 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
     prompt_unit["duration_seconds"] = task.get("duration_seconds")
     prompt_unit["resolution"] = task.get("resolution")
     prompt_unit["aspect_ratio"] = task.get("aspect_ratio")
+    prompt_unit["character_entities"] = machine.get("character_entities") or task.get("character_entities")
+    prompt_unit["visual_culture_contract"] = machine.get("visual_culture_contract") or task.get("visual_culture_contract")
+    prompt_unit["speaker_voice_contract"] = machine.get("speaker_voice_contract") or task.get("speaker_voice_contract")
     prompt_unit["reference_images"] = [
         {"path": path, "role": role}
         for path, role in zip(
@@ -785,13 +801,14 @@ def main() -> int:
         validate_task(task)
         if task.get("semantic_video_unit"):
             grouped_camera_units.append(grouped_sequence_unit(task))
-    if not manifest.get("partial_repair_scope"):
+    skip_cross_task_sequence = bool(manifest.get("partial_repair_scope") or manifest.get("staged_generation_scope"))
+    if not skip_cross_task_sequence:
         validate_camera_sequence(grouped_camera_units)
     # A scoped repair batch may contain non-adjacent units from the full
     # episode.  Each unit still validates its own inbound/outbound prompt
     # binding above, but the subset must not be mistaken for a new contiguous
     # episode whose first/last units have no external neighbors.
-    if not manifest.get("partial_repair_scope"):
+    if not skip_cross_task_sequence:
         validate_transition_sequence(grouped_camera_units, require_prompt_specs=True)
         rhythm = validate_combat_sequence_rhythm(grouped_camera_units)
         if rhythm["status"] != "PASS":
@@ -938,6 +955,7 @@ def exec_deployed_submitter() -> None:
     elif episode_value is not None and episode_value >= 47:
         forwarded.extend(["--concurrency", str(DEFAULT_WAVE_SIZE)])
     os.environ["BACKLOTOS_DEPLOYED_SUBMITTER"] = "1"
+    os.environ["BACKLOTOS_PROJECT_ROOT"] = str(ROOT)
     existing_pythonpath = os.environ.get("PYTHONPATH", "")
     injected_paths = os.pathsep.join((str(ROOT / "tools"), str(ROOT)))
     os.environ["PYTHONPATH"] = injected_paths + (os.pathsep + existing_pythonpath if existing_pythonpath else "")

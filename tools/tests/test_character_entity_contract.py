@@ -58,6 +58,20 @@ class CharacterEntityContractTests(unittest.TestCase):
         value["ordered_prompt_specs"][0]["role_semantic_disambiguation"]["entity_states"]["CHAR-XUANYUAN"] = "全程闭口"
         self.assertIn("DIALOGUE_SPEAKER_MARKED_SILENT", ";".join(validate_character_entity_contract(value)["failures"]))
 
+    def test_environment_actor_is_not_forced_into_character_registry(self):
+        value = payload()
+        spec = value["ordered_prompt_specs"][0]
+        spec["dialogue"] = ""
+        spec["cast"] = []
+        spec["action"] = {"primary_action": "风吹动帘幕"}
+        spec["role_semantic_disambiguation"] = {
+            "primary_actor": "风", "primary_actor_kind": "ENVIRONMENT",
+            "dialogue_speaker": "", "dialogue_listener": "", "action_patient": "帘幕",
+            "entity_states": {"风": "由弱转强", "帘幕": "向右摆动"},
+            "entity_presence": {"风": "VISIBLE_AND_IDENTITY_LOCKED", "帘幕": "VISIBLE_AND_IDENTITY_LOCKED"},
+        }
+        self.assertEqual(validate_character_entity_contract(value)["status"], "PASS")
+
 
 if __name__ == "__main__":
     unittest.main()
