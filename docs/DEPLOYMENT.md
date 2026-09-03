@@ -86,6 +86,24 @@ may implement the same receipt interface.
 ## 6. Testing scopes
 
 `make test` is the clean-clone contract and runs without production assets.
+`make test` also resolves every code, test, stage-runner and manual-checklist
+path registered in `configs/GATE_REGISTRY_v3_20260716.json`. A green unit
+test run with a failed registry closure is a failed release.
+
+Before tagging or enabling paid generation on a newly deployed version, run:
+
+```bash
+python3 tools/gate_registry_v3_check.py \
+  --registry configs/GATE_REGISTRY_v3_20260716.json \
+  --out gate-registry-integrity.json
+python3 tools/run_portable_ci.py
+```
+
+Both reports must be `PASS`, the commit must be pushed, and the GitHub
+`portable-core` workflow for that exact commit must succeed. Record the
+commit SHA, tag, workflow URL and both report hashes in the deployment SOP.
+Only then may the runtime cross the paid-provider boundary.
+
 `make test-full` replays historical episode tests and requires the separately
 supplied local evidence store. A historical replay failure caused only by
 missing private media is not a portable-core failure.

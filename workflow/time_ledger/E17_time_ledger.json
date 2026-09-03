@@ -1,0 +1,19 @@
+{
+  "schema": "qingshan.episode_time_ledger.v1",
+  "distribution_mode": "PUBLIC_BOOTSTRAP_FIXTURE",
+  "episode_id": "E17",
+  "timezone": "UTC",
+  "updated_at": "1970-01-01T00:00:00Z",
+  "cycle_type": "EXAMPLE",
+  "cycle_target_seconds": 0,
+  "current_phase": "NOT_STARTED",
+  "phase_sla_seconds": {
+    "source_submit_to_qa_complete": 2400,
+    "qa_pass_to_edit_bind": 1200,
+    "final_mix_ci_listen": 5400,
+    "environment_blocker_fuse": 900
+  },
+  "events": [],
+  "parallel_lines": [],
+  "note": "Credential-free clean-clone fixture required by the registered heartbeat watchdog. Runtime initialization should create a new episode ledger rather than treating this fixture as production history."
+}

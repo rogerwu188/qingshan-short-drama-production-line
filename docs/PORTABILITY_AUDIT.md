@@ -40,3 +40,22 @@ Generation still requires a Giggle account and provider availability. Final
 rendering requires FFmpeg and, for the current editing path, AgentCut. YouTube
 and Douyin require the deployer's own authenticated accounts. These are runtime
 services, not missing source code, and are surfaced explicitly by `doctor`.
+
+## Registered-evidence closure
+
+The first isolated audit of release `v2026.09.03.3` found that its
+absolute-path defect was fixed, but the portable package still omitted eight
+paths referenced by the authoritative gate registry. A clean clone therefore
+could not pass `tools/gate_registry_v3_check.py`, even though the narrower
+portable test suite was green.
+
+The follow-up release makes those policy, checklist, dashboard and bootstrap
+state files explicit members of the portable core. Operational ledgers are
+credential-free bootstrap fixtures; they do not claim to be production
+history. `tools/run_portable_ci.py` now runs gate-registry integrity
+validation on every build, so missing registered code, tests, stage runners or
+manual evidence fail the public build.
+
+Portable tests passing is necessary but insufficient: both the portable
+manifest and the registered-evidence closure must pass before a version can be
+promoted or used to open paid provider production.

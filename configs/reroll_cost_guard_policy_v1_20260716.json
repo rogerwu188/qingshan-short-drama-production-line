@@ -1,0 +1,46 @@
+{
+  "schema": "qingshan.reroll_cost_guard_policy.v1",
+  "decision_ref": "CL2X-226",
+  "auto_reroll_block_tier_only": true,
+  "advise_margin_fraction": 0.1,
+  "max_rerolls_per_shot": 2,
+  "episode_reroll_shot_fraction": 0.15,
+  "same_reason_distinct_shot_limit": 2,
+  "failure_workflow": {
+    "provider_failure_classes": [
+      "PROVIDER_TRANSPORT_FAILURE",
+      "PROVIDER_TRANSIENT_FAILURE",
+      "SUBMISSION_NOT_ACCEPTED"
+    ],
+    "provider_failures_consume_creative_attempt": false,
+    "fully_refunded_provider_failures_consume_paid_attempt": false,
+    "provider_failure_successor": "BLOCKED_ON_INPUT_PROVIDER_FAILURE_REQUIRES_HUMAN",
+    "provider_failure_stops_all_downstream_work": true,
+    "provider_retry_requires_verified_human_resolution": true,
+    "provider_failure_may_trigger_switch_coverage": false,
+    "provider_failure_may_trigger_script_equivalent_adjustment": false,
+    "provider_healthy_generation_failure_successor": "AUTO_REWRITE_PROMPT_AND_SUBMIT_NEXT_ATTEMPT",
+    "failed_prompt_sha_and_reason_memory_required": true,
+    "maximum_provider_healthy_image_prompt_attempts": 10,
+    "maximum_provider_healthy_video_prompt_attempts": 3,
+    "media_cap_failure_successor": "BLOCKED_ON_INPUT_PROMPT_ATTEMPTS_EXHAUSTED_REQUIRES_HUMAN",
+    "media_cap_failure_notification_includes_all_prompt_reasons": true,
+    "script_equivalent_adjustment_requires_explicit_human_approval": true,
+    "spoken_dialogue_retirement_requires_specific_human_approval": true
+  },
+  "block_failure_classes": [
+    "DIGITAL_ZERO_SILENCE",
+    "IDENTITY_DRIFT",
+    "DAY_NIGHT_BREAK",
+    "PERIODIC_DUPLICATE_CADENCE",
+    "FREEZE",
+    "BURNED_IN_TEXT",
+    "CLONED_FACE",
+    "ERA_VIOLATION"
+  ],
+  "on_limit": [
+    "REDESIGN_PROMPT_OR_COMPOSITION",
+    "REQUEST_HUMAN_APPROVAL"
+  ],
+  "roi_review_interval_episodes": 3
+}
