@@ -52,6 +52,24 @@ def require_h3_provider_english_contract(
             failures.append(f"H3_ENGLISH_CONTRACT_FIELD_MISSING:{uid}:{key}")
         elif CJK.search(value):
             failures.append(f"H3_ENGLISH_CONTRACT_CJK:{uid}:{key}")
+    if plan.get("persistent_state_contract"):
+        value = str(contract.get("persistent_state_lock") or "").strip()
+        if not value:
+            failures.append(f"H3_ENGLISH_CONTRACT_FIELD_MISSING:{uid}:persistent_state_lock")
+        elif CJK.search(value):
+            failures.append(f"H3_ENGLISH_CONTRACT_CJK:{uid}:persistent_state_lock")
+    source_shot_states = plan.get("shot_state_contracts") or []
+    translated_shot_states = contract.get("shot_state_locks") or []
+    if len(translated_shot_states) != len(source_shot_states):
+        failures.append(
+            f"H3_ENGLISH_CONTRACT_SHOT_STATE_COUNT:{uid}:"
+            f"{len(translated_shot_states)}!={len(source_shot_states)}"
+        )
+    for index, value in enumerate(translated_shot_states):
+        if not str(value or "").strip():
+            failures.append(f"H3_ENGLISH_CONTRACT_SHOT_STATE_MISSING:{uid}:{index + 1}")
+        elif CJK.search(str(value)):
+            failures.append(f"H3_ENGLISH_CONTRACT_CJK:{uid}:shot_state_locks[{index}]")
     source_beats = plan.get("beats") or []
     translated_beats = contract.get("beats") or []
     if len(translated_beats) != len(source_beats):

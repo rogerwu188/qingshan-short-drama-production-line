@@ -12,11 +12,14 @@ from tools.keyframe_entry_state_gate import evaluate_task
 from tools.media_frame_integrity import recommend_window
 from tools.prop_state_contract import compile_prop_states
 from tools.video_execution_plan_compiler import compile_video_execution_plan
+from tools.event_boundary_continuity_contract import (
+    classify_boundary, compile_internal_shot_boundaries,
+)
 
 
 class E51PipelineRectificationTests(unittest.TestCase):
     def test_same_scene_second_unit_uses_previous_real_final_frame(self):
-        grouping = {"episode": "E99", "units": [
+        grouping = {"episode": "E52", "units": [
             {"unit_id": "U1", "scene_id": "S1", "editorial_shot_ids": ["A"]},
             {"unit_id": "U2", "scene_id": "S1", "editorial_shot_ids": ["B"]},
         ]}
@@ -30,6 +33,122 @@ class E51PipelineRectificationTests(unittest.TestCase):
         self.assertEqual(plan["units"][1]["reference_image_task_keys"][0], "U1:REAL_FINAL_FRAME")
         self.assertEqual(plan["units"][1]["opening_anchor_contract"]["source"], "PREVIOUS_UNIT_REAL_FINAL_FRAME")
         self.assertEqual(plan["missing_anchor_shot_ids"], [])
+
+    @staticmethod
+    def _persistent_state(*, posture="卧床", injury="重伤", population="四人在房内"):
+        person = {
+            "presence": "IN_ROOM_VISIBLE_OR_ESTABLISHED_OFFSCREEN",
+            "posture": posture,
+            "injury": injury,
+            "wardrobe": "深色中衣，胸前包扎",
+            "position": "通铺画心",
+        }
+        environment = {
+            "time": "当夜亥时",
+            "weather": "晴夜无雨",
+            "lighting": "两盏油灯，月光自画左窗入",
+            "space_topology": "通铺画心、窗画左、门画右",
+            "population": population,
+            "ambient_life": "灯焰与呼吸自然微动",
+        }
+        return {
+            "status": "PASS",
+            "tracked_character_ids": ["CHAR-CHENJI"],
+            "characters": [{"character_id": "CHAR-CHENJI", "entry_state": dict(person), "exit_state": dict(person)}],
+            "environment": {"entry_state": dict(environment), "exit_state": dict(environment)},
+            "authorized_boundary_changes": [],
+        }
+
+    def test_cross_scene_same_event_preserves_state_and_routes_camera_cut(self):
+        previous = {
+            "episode": "E54", "unit_id": "E54-VU-001", "scene_id": "E54-S01",
+            "camera_plan": {"shot_scale": "MEDIUM", "camera_side": "AXIS_A"},
+            "persistent_state_contract": self._persistent_state(),
+            "ordered_prompt_specs": [{"space": {"global": "MAP-1", "location": "LOC-ROOM", "subspace": "BED"}, "scene_state": {"time": "当夜亥时"}}],
+            "outgoing_transition_contract": {"source_terminal_state": {"space": {"global": "MAP-1", "location": "LOC-ROOM", "subspace": "BED"}}},
+        }
+        current = {
+            "episode": "E54", "unit_id": "E54-VU-002", "scene_id": "E54-S02",
+            "camera_plan": {"shot_scale": "CLOSE", "camera_side": "AXIS_A"},
+            "persistent_state_contract": self._persistent_state(),
+            "ordered_prompt_specs": [{"space": {"global": "MAP-1", "location": "LOC-ROOM", "subspace": "DOOR"}, "scene_state": {"time": "当夜亥时"}}],
+            "incoming_transition_contract": {
+                "transition_device": "REACTION_CUT",
+                "plot_motivation": "切到门口人物对陈迹伤势的直接反应",
+                "target_initial_state": {"space": {"global": "MAP-1", "location": "LOC-ROOM", "subspace": "DOOR"}},
+            },
+        }
+        decision = classify_boundary(previous, current)
+        self.assertEqual(decision["status"], "PASS")
+        self.assertTrue(decision["same_continuous_event"])
+        self.assertTrue(decision["scene_id_changed"])
+        self.assertEqual(decision["boundary_class"], "MOTIVATED_CUT")
+        self.assertEqual(decision["opening_source"], "CONTINUITY_DERIVED_KEYFRAME")
+
+    def test_continuous_event_rejects_unexplained_injury_posture_and_population_reset(self):
+        previous = {
+            "episode": "E54", "unit_id": "E54-VU-001", "scene_id": "E54-S01",
+            "persistent_state_contract": self._persistent_state(),
+            "ordered_prompt_specs": [{"space": {"global": "MAP-1", "location": "LOC-ROOM"}, "scene_state": {"time": "当夜亥时"}}],
+        }
+        current = {
+            "episode": "E54", "unit_id": "E54-VU-002", "scene_id": "E54-S02",
+            "persistent_state_contract": self._persistent_state(posture="直立", injury="无伤", population="十余人在房内"),
+            "ordered_prompt_specs": [{"space": {"global": "MAP-1", "location": "LOC-ROOM"}, "scene_state": {"time": "当夜亥时"}}],
+            "incoming_transition_contract": {"transition_device": "GAZE_MATCH"},
+        }
+        decision = classify_boundary(previous, current)
+        self.assertEqual(decision["status"], "FAIL")
+        joined = "\n".join(decision["failures"])
+        self.assertIn("characters.CHAR-CHENJI.posture", joined)
+        self.assertIn("characters.CHAR-CHENJI.injury", joined)
+        self.assertIn("environment.population", joined)
+
+    def test_internal_shot_boundary_preserves_state_across_motivated_camera_cut(self):
+        state = self._persistent_state()
+        unit = {
+            "episode": "E54", "unit_id": "E54-VU-TEST", "editorial_shot_ids": ["S1", "S2"],
+            "persistent_state_contract": state,
+            "shot_state_contracts": [
+                {"shot_id": "S1", "persistent_state_contract": state, "camera_state": {
+                    "shot_scale": "MEDIUM", "camera_position_id": "BED_FOOT",
+                    "axis_id": "AXIS_A", "lens_intent": "50MM", "motion_family": "LOCKED",
+                }},
+                {"shot_id": "S2", "persistent_state_contract": state, "camera_state": {
+                    "shot_scale": "CLOSE", "camera_position_id": "BED_SIDE",
+                    "axis_id": "AXIS_A", "lens_intent": "85MM", "motion_family": "LOCKED",
+                }},
+            ],
+            "internal_transition_contracts": [{
+                "transition_mode": "REACTION_CUT",
+                "camera_change_reason": "切近景观察伤者呼吸反应",
+            }],
+        }
+        report = compile_internal_shot_boundaries(unit)
+        self.assertEqual(report["status"], "PASS")
+        self.assertEqual(report["boundaries"][0]["boundary_class"], "MOTIVATED_CUT")
+        self.assertTrue(report["boundaries"][0]["state_inheritance_survives_camera_change"])
+
+    def test_internal_shot_camera_change_without_motivation_fails(self):
+        state = self._persistent_state()
+        unit = {
+            "episode": "E54", "unit_id": "E54-VU-TEST", "editorial_shot_ids": ["S1", "S2"],
+            "persistent_state_contract": state,
+            "shot_state_contracts": [
+                {"shot_id": "S1", "persistent_state_contract": state, "camera_state": {
+                    "shot_scale": "MEDIUM", "camera_position_id": "A", "axis_id": "AXIS_A",
+                    "lens_intent": "50MM", "motion_family": "LOCKED",
+                }},
+                {"shot_id": "S2", "persistent_state_contract": state, "camera_state": {
+                    "shot_scale": "CLOSE", "camera_position_id": "B", "axis_id": "AXIS_A",
+                    "lens_intent": "85MM", "motion_family": "LOCKED",
+                }},
+            ],
+            "internal_transition_contracts": [{"transition_mode": "HARD_CONTINUATION"}],
+        }
+        report = compile_internal_shot_boundaries(unit)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(any("UNMOTIVATED_INTERNAL_CAMERA_CHANGE" in value for value in report["failures"]))
 
     def test_keyframe_rejects_completion_and_extend_state(self):
         report = evaluate_task({

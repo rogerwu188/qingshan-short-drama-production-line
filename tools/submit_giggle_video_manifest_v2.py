@@ -267,6 +267,13 @@ def task_fingerprint(task: dict[str, Any]) -> str:
         "internal_transition_contracts": (task.get("machine_contract") or {}).get("internal_transition_contracts")
         or task.get("internal_transition_contracts")
         or [],
+        "event_boundary_decision": (task.get("machine_contract") or {}).get("event_boundary_decision")
+        or task.get("event_boundary_decision"),
+        "persistent_state_contract": (task.get("machine_contract") or {}).get("persistent_state_contract")
+        or task.get("persistent_state_contract"),
+        "shot_state_contracts": (task.get("machine_contract") or {}).get("shot_state_contracts")
+        or task.get("shot_state_contracts")
+        or [],
     }
     return hashlib.sha256(json.dumps(contract, sort_keys=True).encode("utf-8")).hexdigest()
 
@@ -383,6 +390,16 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
         if "scene_first_unit" in machine else task.get("scene_first_unit"),
         "opening_anchor_contract": machine.get("opening_anchor_contract")
         or task.get("opening_anchor_contract"),
+        "event_boundary_decision": machine.get("event_boundary_decision")
+        or task.get("event_boundary_decision"),
+        "persistent_state_contract": machine.get("persistent_state_contract")
+        or task.get("persistent_state_contract"),
+        "shot_state_contracts": machine.get("shot_state_contracts")
+        or task.get("shot_state_contracts")
+        or [],
+        "continuity_event_contract_required": machine.get("continuity_event_contract_required")
+        if "continuity_event_contract_required" in machine
+        else task.get("continuity_event_contract_required"),
         "wardrobe_contract": machine.get("wardrobe_contract") or task.get("wardrobe_contract"),
         "speaker_voice_contract": machine.get("speaker_voice_contract")
         or task.get("speaker_voice_contract"),
@@ -893,9 +910,16 @@ def exec_deployed_submitter() -> None:
                 f"{task.get('task_key')} input completeness failed: "
                 f"{precheck.get('failure_code')} missing={','.join(missing)}"
             )
-    if not manifest.get("partial_repair_scope"):
+    # A scene-first wave is intentionally non-contiguous in episode order:
+    # every selected task is the first unit of a different scene.  Per-task
+    # prompt/transition contracts are still validated above, while adjacent
+    # list validation must wait for the complete materialized chain.
+    skip_cross_task_sequence = bool(
+        manifest.get("partial_repair_scope") or manifest.get("staged_generation_scope")
+    )
+    if not skip_cross_task_sequence:
         validate_camera_sequence(grouped_camera_units)
-    if not manifest.get("partial_repair_scope"):
+    if not skip_cross_task_sequence:
         validate_transition_sequence(grouped_camera_units, require_prompt_specs=True)
         rhythm = validate_combat_sequence_rhythm(grouped_camera_units)
         if rhythm["status"] != "PASS":
@@ -916,6 +940,9 @@ def exec_deployed_submitter() -> None:
     elif episode_value is not None and episode_value >= 47:
         forwarded.extend(["--concurrency", str(DEFAULT_WAVE_SIZE)])
     os.environ["BACKLOTOS_DEPLOYED_SUBMITTER"] = "1"
+    existing_pythonpath = os.environ.get("PYTHONPATH", "")
+    injected_paths = os.pathsep.join((str(ROOT / "tools"), str(ROOT)))
+    os.environ["PYTHONPATH"] = injected_paths + (os.pathsep + existing_pythonpath if existing_pythonpath else "")
     os.execv(sys.executable, [sys.executable, str(deployed), *forwarded])
 
 

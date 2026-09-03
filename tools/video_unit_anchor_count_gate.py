@@ -8,6 +8,11 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    from tools.event_boundary_continuity_contract import POLICY as EVENT_POLICY
+except ModuleNotFoundError:
+    from event_boundary_continuity_contract import POLICY as EVENT_POLICY
+
 
 FIXED_DEFAULT_MARKERS = (
     "always one",
@@ -76,16 +81,37 @@ def evaluate(plan: dict) -> dict:
             if not isinstance(opening, dict):
                 reasons.append("opening_anchor_contract is required")
             else:
-                if opening.get("policy") != "opening_anchor_is_previous_unit_final_frame_or_scene_first_unit":
-                    reasons.append("opening anchor policy is not the required previous-final-frame chain")
+                policy = opening.get("policy")
+                if policy not in {"opening_anchor_is_previous_unit_final_frame_or_scene_first_unit", EVENT_POLICY}:
+                    reasons.append("opening anchor policy is not a deployed continuity-event policy")
                 source = opening.get("source")
-                if scene_first is True and source != "SCENE_FIRST_GENERATED_KEYFRAME":
+                decision = unit.get("event_boundary_decision") or {}
+                boundary_class = decision.get("boundary_class")
+                if policy == EVENT_POLICY:
+                    if decision.get("status") != "PASS":
+                        reasons.append("event_boundary_decision must pass before anchor planning")
+                    if boundary_class == "NEW_EVENT_ANCHOR" and source != "NEW_EVENT_GENERATED_KEYFRAME":
+                        reasons.append("new event must use its admitted entry-state keyframe")
+                    elif boundary_class == "HARD_CONTINUATION" and source != "PREVIOUS_UNIT_REAL_FINAL_FRAME":
+                        reasons.append("hard continuation must use the previous real final frame")
+                    elif boundary_class == "MOTIVATED_CUT":
+                        if source != "CONTINUITY_DERIVED_KEYFRAME":
+                            reasons.append("motivated cut must use a continuity-derived keyframe")
+                        if not opening.get("previous_unit_id"):
+                            reasons.append("motivated cut is missing previous_unit_id")
+                        if count is not None and count < 2:
+                            reasons.append("motivated cut must bind both its new composition and previous-tail state authority")
+                    elif boundary_class not in {"NEW_EVENT_ANCHOR", "HARD_CONTINUATION", "MOTIVATED_CUT"}:
+                        reasons.append("event boundary class is missing or invalid")
+                elif scene_first is True and source != "SCENE_FIRST_GENERATED_KEYFRAME":
                     reasons.append("scene-first unit must use its admitted scene-start keyframe")
-                if scene_first is False:
+                if (policy == EVENT_POLICY and boundary_class == "HARD_CONTINUATION") or (
+                    policy != EVENT_POLICY and scene_first is False
+                ):
                     if source != "PREVIOUS_UNIT_REAL_FINAL_FRAME":
-                        reasons.append("same-scene continuation must use the previous unit real final frame")
+                        reasons.append("hard continuation must use the previous unit real final frame")
                     if not opening.get("previous_unit_id"):
-                        reasons.append("same-scene continuation is missing previous_unit_id")
+                        reasons.append("hard continuation is missing previous_unit_id")
                     if isinstance(task_keys, list) and task_keys and not str(task_keys[0]).endswith(":REAL_FINAL_FRAME"):
                         reasons.append("first reference is not the previous unit real final frame task key")
                     if opening.get("materialization_required_before_submit") is not True:
