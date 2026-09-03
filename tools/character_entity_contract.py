@@ -21,6 +21,14 @@ def _clean(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _speaker_is_marked_silent(value: Any) -> bool:
+    text = _clean(value).lower()
+    return any(
+        text.startswith(prefix)
+        for prefix in ("闭口", "全程闭口", "保持闭口", "不得张口", "不可张口", "不说话", "silent")
+    )
+
+
 def _episode_number(payload: dict[str, Any]) -> int:
     match = re.match(r"E(\d+)", _clean(payload.get("episode") or payload.get("unit_id")).upper())
     return int(match.group(1)) if match else 0
@@ -145,7 +153,7 @@ def validate_character_entity_contract(payload: dict[str, Any]) -> dict[str, Any
             failures.append(f"{sid}_OFFSCREEN_DIALOGUE_MUST_NOT_HAVE_VISIBLE_LIP_OWNER:{lip_owner_id}")
         if role_speaker_id:
             state = _clean(states.get(role_speaker_id)).lower()
-            if any(marker.lower() in state for marker in SILENT_MARKERS):
+            if _speaker_is_marked_silent(state):
                 failures.append(f"{sid}_DIALOGUE_SPEAKER_MARKED_SILENT:{role_speaker_id}")
         # Character entries are keyed by IDs. Typed non-character entities may
         # retain their role-contract labels.

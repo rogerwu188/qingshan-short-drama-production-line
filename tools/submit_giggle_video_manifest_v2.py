@@ -254,6 +254,10 @@ def task_fingerprint(task: dict[str, Any]) -> str:
         "dialogue_transport": task.get("dialogue_transport"),
         "speaker_voice_contract": task.get("speaker_voice_contract")
         or (task.get("machine_contract") or {}).get("speaker_voice_contract"),
+        "character_entities": task.get("character_entities")
+        or (task.get("machine_contract") or {}).get("character_entities"),
+        "visual_culture_contract": task.get("visual_culture_contract")
+        or (task.get("machine_contract") or {}).get("visual_culture_contract"),
         "model": task.get("model"),
         "duration": task.get("duration_seconds"),
         "aspect_ratio": task.get("aspect_ratio"),
@@ -314,6 +318,9 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
     prompt_unit["duration_seconds"] = task.get("duration_seconds")
     prompt_unit["resolution"] = task.get("resolution")
     prompt_unit["aspect_ratio"] = task.get("aspect_ratio")
+    prompt_unit["character_entities"] = machine.get("character_entities") or task.get("character_entities")
+    prompt_unit["visual_culture_contract"] = machine.get("visual_culture_contract") or task.get("visual_culture_contract")
+    prompt_unit["speaker_voice_contract"] = machine.get("speaker_voice_contract") or task.get("speaker_voice_contract")
     prompt_unit["reference_images"] = [
         {"path": path, "role": role}
         for path, role in zip(
