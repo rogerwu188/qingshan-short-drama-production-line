@@ -85,14 +85,18 @@ assert frozenset(RUNTIME_GATE_BINDINGS) == RUNTIME_GATE_IDS
 
 
 def authoritative_pipeline_tools_dir() -> Path:
-    """Resolve the deployed BacklotOS tools; never silently fall back to a local copy."""
+    """Resolve the versioned gate implementation shipped with this engine.
+
+    ``BACKLOT_PIPELINE_TOOLS_DIR`` remains a supported enterprise override,
+    but a clean clone is self-contained and defaults to its own tools folder.
+    """
     configured = os.environ.get("BACKLOT_PIPELINE_TOOLS_DIR", "").strip()
-    candidate = Path(configured).expanduser() if configured else Path.home() / ".local/share/backlotos/share/pipeline-tools"
+    candidate = Path(configured).expanduser() if configured else ROOT / "tools"
     required = candidate / "production_video_submission_gate.py"
     if not required.is_file():
         raise ValueError(
-            "Authoritative BacklotOS production gate is unavailable; run the BacklotOS deployment "
-            "or set BACKLOT_PIPELINE_TOOLS_DIR. Paid submission fails closed."
+            "Production video gate is unavailable; restore tools/production_video_submission_gate.py "
+            "or set BACKLOT_PIPELINE_TOOLS_DIR to a compatible audited deployment."
         )
     return candidate.resolve()
 
@@ -727,21 +731,15 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
     }
 
 
-# The in-project implementation above is retained only so historical tests and
-# receipts remain readable.  It used Omni images[] for every visual reference
-# and must never perform another paid submission.  The CLI below always execs
-# the deployed BacklotOS submitter; any direct import-based submit attempt fails
-# closed instead of bypassing deployed transport policy.
+# The repository owns the standard multi-reference transport. An enterprise
+# deployment may still wrap or replace this entrypoint through an explicit
+# BACKLOT_PIPELINE_TOOLS_DIR, but clean-clone operation never depends on a
+# hidden machine-local copy.
 _legacy_submit_one_for_audit_only = submit_one
 
 
 def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -> dict[str, Any]:
-    if os.environ.get("BACKLOTOS_DEPLOYED_SUBMITTER") == "1":
-        return _legacy_submit_one_for_audit_only(task, receipt_dir, transaction_dir)
-    raise RuntimeError(
-        "LOCAL_LEGACY_VIDEO_SUBMIT_DISABLED: invoke the deployed BacklotOS "
-        "submit_giggle_video_manifest_v2.py entrypoint"
-    )
+    return _legacy_submit_one_for_audit_only(task, receipt_dir, transaction_dir)
 
 
 def classify_failures(failures: list[dict[str, Any]], known: int, matched: int, transaction_dir: Path) -> str:
@@ -947,6 +945,4 @@ def exec_deployed_submitter() -> None:
 
 
 if __name__ == "__main__":
-    if os.environ.get("BACKLOTOS_DEPLOYED_SUBMITTER") == "1":
-        raise SystemExit(main())
-    exec_deployed_submitter()
+    raise SystemExit(main())

@@ -8,8 +8,8 @@
 | `tools/canonical_writer_dispatcher.py` 等 4 个 | `runtime/` | 已带 |
 | `workflow/claude_writer_agent/tools/{2 个}.py` | `gates/` | 已带 |
 | `scripts/E*_NARRATIVE_CANONICAL_v*.md` 等四层产物 | 另行决定 | **57M，是资产不是代码**，建议单独仓库或 LFS |
-| `SUPERVISOR_ORDERS.json` | `state/` | 是运行时状态，建议入库但单独目录 |
-| `PROGRESS.json` / `MEMORY.md` | `state/` | 同上，**只带当前版，不带 100+ 份 .bak** |
+| `SUPERVISOR_ORDERS.json` | 部署工作区 | 是运行时状态，**不得带入公共代码仓库** |
+| `PROGRESS.json` / `MEMORY.md` | 部署工作区 | 同上；公共包只保留空白 schema/初始模板 |
 
 ## 不要带的
 

@@ -1,30 +1,84 @@
-# Qingshan Short Drama Production Line
+# Qingshan Short Drama Engine（青山 AI 短剧引擎）
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Portable Core](https://github.com/rogerwu188/qingshan-short-drama-production-line/actions/workflows/portable-core.yml/badge.svg)](https://github.com/rogerwu188/qingshan-short-drama-production-line/actions/workflows/portable-core.yml)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](pyproject.toml)
 
-An open-source production line that helps ordinary creators build a genuinely commercial-ready AI film and short-drama workflow. A clean clone contains the deployable pipeline definitions and installers; project media, credentials and episode runtime state are supplied separately.
+An MIT-licensed, end-to-end open-source engine for people who want to build a
+real, commercially usable AI film or short-drama production line—not just a
+prompt demo. It covers source-grounded script generation, shot and continuity
+planning, keyframes, SD2/H3 video compilation, durable generation, editing,
+technical QA, and ordered YouTube/Douyin release.
+
+青山是一个面向普通创作者和小型制片团队的、真正从剧本到发行的开源 AI
+影视生产引擎。代码可以自由使用、修改、部署和商业化；你的故事原文、媒体、
+账号凭据和平台回执始终留在自己的私有运行目录中。
+
+## What is included
+
+| Stage | Engine capability |
+| --- | --- |
+| Script | Writer Agent v2, source provenance, canonical activation and dramatic gates |
+| Pre-production | event boundaries, complete maps, character/wardrobe/prop/weather/state continuity |
+| Images | keyframe contracts, reference binding, image preflight and durable task submission |
+| Video | shared semantic IR with independent SD2 and MiniMax-H3 prompt renderers |
+| Post | Portable FFmpeg timeline (optional AgentCut), safe cuts, native-audio loudness, subtitles and final encoding |
+| QA | registered fail-closed gates, basic post-generation plot checks and release lock |
+| Release | YouTube → Douyin ordering, authenticated browser/API adapters and signed receipts |
+
+## Quick start
+
+```bash
+git clone https://github.com/rogerwu188/qingshan-short-drama-production-line.git
+cd qingshan-short-drama-production-line
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install --upgrade pip
+python3 -m pip install -e .
+qingshan init --workspace ../my-short-drama
+qingshan doctor --profile core --config ../my-short-drama/qingshan.json
+qingshan test
+```
+
+Install media/ASR/cloud integrations with:
+
+```bash
+python3 -m pip install -e '.[media,asr,cloud]'
+qingshan doctor --profile all --config ../my-short-drama/qingshan.json
+```
+
+The sample configuration keeps paid generation disabled. Installation,
+initialization, doctor, tests and preflight never spend credits or publish.
+See [Deployment](docs/DEPLOYMENT.md), [Architecture](docs/ARCHITECTURE.md), and
+the [portability audit](docs/PORTABILITY_AUDIT.md).
 
 Tracked scope:
 
-- `tools/`: production orchestration, generation, QA, transaction, assembly, and continuity tooling.
-- `agent_factory/`: agent operating rules and production-line documentation.
-- `agent_factory/claude_writer/`: portable Claude Writer Scheduled Agent definition, runtime-state templates, installer and doctor.
+- `qingshan_engine/`: stable public CLI and clean-clone deployment surface.
+- `tools/`: production orchestration, generation, QA, transaction, assembly, continuity and release tooling.
+- `agent_factory/claude_writer_v2/`: portable Writer Agent v2 runtime, gates, schemas and tests.
+- `configs/PORTABLE_CORE_MANIFEST.json`: authoritative reusable-engine inventory and CI scope.
+- `examples/` and `configs/pipeline.example.json`: public, credential-free starting points.
 
 The local canonical manifests, media assets, QA evidence, credit transactions, receipts, runtime logs, and credentials are intentionally excluded. They remain authoritative in the production workspace and must never be reconstructed from this repository.
 
-## Bootstrap Claude Writer
+Files named for a historical episode are retained as production migration and
+replay evidence. They are not stable public APIs and may refer to excluded
+episode assets. The portable core is explicitly tested separately so a clean
+clone cannot produce a false red build merely because private media is absent.
+
+## Bootstrap Writer Agent v2
 
 From a clean clone:
 
 ```bash
-python3 agent_factory/claude_writer/install.py doctor --project-root .
-python3 agent_factory/claude_writer/install.py install --project-root .
-python3 agent_factory/claude_writer/install.py doctor --project-root .
+qingshan writer-doctor
+python3 agent_factory/claude_writer_v2/runtime/canonical_writer_dispatcher.py --help
 ```
 
-The installer deploys the versioned `SKILL.md` to Claude Desktop's Scheduled folder, creates only missing empty runtime-state files, and never overwrites episode content or credentials. If Claude Desktop has not created the scheduled task yet, create one named `qingshan-claude-writer-agent`, point it at the clone, use a 30-minute schedule, and rerun `doctor`.
-
-See [`agent_factory/claude_writer/README.md`](agent_factory/claude_writer/README.md) for the complete local/cloud Writer deployment contract and clean-clone smoke test.
+See [`agent_factory/claude_writer_v2/README.md`](agent_factory/claude_writer_v2/README.md)
+for the source-provenance, runtime-state and scheduled execution contract. The
+older `claude_writer/` folder remains only as a v1 migration path.
 
 The production line supports two explicitly selected video models: Giggle `seedance-2.0-pro` (SD2 standard, provider-native 720p 9:16 in the current production contract) and Giggle `MiniMax-H3` (provider-native 768p 9:16). SD2 keeps its established complete prompt grammar unchanged. H3 uses a separate native audiovisual compiler with structured reference definitions, stable speaker IDs, `<d>`-isolated literal dialogue, separated soundscape/music fields, and a no-unprompted-speech gate. `seedance-2.0-fast`, `seedance-2.0-mini`, and an unversioned bare `seedance-2.0` remain prohibited. Any higher-resolution delivery derived from H3 must be labeled as an upscale; synthetic `2K` must never be represented as native generation. E40 remains abandoned and private.
 

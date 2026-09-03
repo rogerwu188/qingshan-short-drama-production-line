@@ -2,7 +2,14 @@
 # Runtime media, QA evidence, transactions, credentials, and operator logs stay local.
 /*
 !/.gitignore
+!/.env.example
+!/.github/
+!/.github/**
+!/CODE_OF_CONDUCT.md
+!/CONTRIBUTING.md
+!/Makefile
 !/README.md
+!/SECURITY.md
 !/tools/
 !/agent_factory/
 !/configs/
@@ -25,6 +32,17 @@
 # Portable agent installers/templates are code, never runtime state.
 !/agent_factory/claude_writer/
 !/agent_factory/claude_writer/**
+!/docs/
+!/docs/**
+!/examples/
+!/examples/**
+!/pyproject.toml
+!/qingshan_engine/
+!/qingshan_engine/**
+!/requirements-core.txt
+!/requirements-media.txt
+!/requirements-dev.txt
+!/setup.py
 
 # Generated/runtime material inside the tracked code trees.
 **/__pycache__/
@@ -38,3 +56,9 @@
 **/*secret*
 **/*credential*
 **/*token*.json
+
+# Public, credential-free distribution metadata and examples override the
+# broad runtime-secret patterns above.
+!/.env.example
+!/configs/PORTABLE_CORE_MANIFEST.json
+!/configs/pipeline.example.json

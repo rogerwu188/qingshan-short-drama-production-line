@@ -31,7 +31,7 @@ writer_agent/
 ├── gates/                         ← 十一个门（九门 script phase ＋ 时长账 ＋ 交付绑定）
 ├── runtime/                       ← dispatcher / 门运行器 / 溯源 / 原子发布
 ├── templates/                     ← 四层产物的空模板
-├── state/                         ← 运行时状态文件的 schema 与初始值（不含历史数据）
+├── state/                         ← 空白运行时模板（不含《青山》历史数据）
 └── tests/
 ```
 
@@ -63,3 +63,7 @@ python3 agent_factory/claude_writer_v2/gates/writer_scene_source_declaration_gat
 ## 已知待清（不阻塞上传）
 
 `docs/MIGRATION_FROM_V1.md` 列了旧盘上 4 集的申报缺口（E47-S05、E61-S02/S07、E65-S02）与 1 集无法审计（E48），下一轮写手起来先清。
+
+## 公共包与项目状态的边界
+
+仓库中的 `state/` 只能保存空白初始模板。真实 `SUPERVISOR_ORDERS.json`、`PROGRESS.json` 和《观众已知清单》必须保存在部署工作区，不能回写到公共包。这样第三方 clone 后会从 `latest_order_seq=0` 和空剧情事实开始，不会继承《青山》的生产状态。

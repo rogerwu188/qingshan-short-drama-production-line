@@ -1,0 +1,2 @@
+# The orchestration core uses only the Python standard library.
+-e .

@@ -7,13 +7,7 @@ Purpose: inspect a local episode MP4 without using Chrome or Giggle pages, then 
 - Python 3.8+
 - `ffmpeg`
 
-This repo already includes a portable Mac ffmpeg binary at:
-
-```bash
-/Users/rogerwu/qingshan_short_drama/.video_deps/imageio_ffmpeg/binaries/ffmpeg-macos-aarch64-v7.1
-```
-
-On another machine, either install ffmpeg or pass `--ffmpeg /path/to/ffmpeg`.
+Install `ffmpeg` with your operating-system package manager, set `FFMPEG_BIN`, or pass `--ffmpeg /path/to/ffmpeg`.
 
 Thresholds can live inside the episode config under `thresholds`, so a portable
 handoff does not need long command flags.
@@ -21,10 +15,10 @@ handoff does not need long command flags.
 ## Run
 
 ```bash
-python3 /Users/rogerwu/qingshan_short_drama/tools/continuity_auditor.py \
+python3 tools/continuity_auditor.py \
   --video /path/to/episode.mp4 \
-  --config /Users/rogerwu/qingshan_short_drama/configs/e04_v5_continuity_config.json \
-  --out /Users/rogerwu/qingshan_short_drama/qa/e04_v5_continuity_audit
+  --config configs/episode_continuity_config.json \
+  --out qa/episode_continuity_audit
 ```
 
 ## Outputs

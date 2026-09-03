@@ -6,7 +6,7 @@ from tools.minimax_h3_ref2va_prompt_compiler import (
     compile_h3_official_ref2va_prompt,
     validate_h3_official_ref2va_prompt,
 )
-from tools.tests.test_video_prompt_compiler import h3_unit
+from tools.tests.test_video_prompt_compiler import _unit as h3_unit
 from tools.video_prompt_compiler import compile_model_prompt
 
 
@@ -93,7 +93,10 @@ class H3OfficialRef2VATest(unittest.TestCase):
         unit["h3_ref2va_contract"] = official_contract(
             dialogue=True, refs=unit["reference_images"]
         )
-        text = compile_model_prompt(unit)
+        # The official Ref2VA profile is a dedicated compatibility compiler;
+        # the current general H3 router requires the newer English execution
+        # contract. Test this legacy profile through its own public compiler.
+        text = compile_h3_official_ref2va_prompt(unit)
         report = validate_h3_official_ref2va_prompt(
             text, source_id=unit["unit_id"], unit=unit
         )
