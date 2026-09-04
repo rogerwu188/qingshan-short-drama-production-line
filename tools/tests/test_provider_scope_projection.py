@@ -10,7 +10,7 @@ class ProviderScopeProjectionTests(unittest.TestCase):
             visible_prop_ids=[],
             episode_character_catalog=[
                 {"character_id": "CHAR-BAILI", "canonical_name": "白鲤", "provider_entity_label": "Princess Baili"},
-                {"character_id": "CHAR-CROW", "canonical_name": "乌鸦", "provider_entity_label": "the black crow"},
+                {"character_id": "CHAR-CROW", "canonical_name": "乌鸦", "provider_entity_label": "the black crow", "aliases": ["black crow"]},
                 {"character_id": "CHAR-SOLDIER", "canonical_name": "军士", "provider_entity_label": "soldier"},
             ],
             reference_images=[{"entity_id": "CHAR-BAILI", "provider_entity_label": "Princess Baili"}],
@@ -19,18 +19,18 @@ class ProviderScopeProjectionTests(unittest.TestCase):
 
     def test_h3_explicit_reference_mapping_passes(self):
         task = {"model": "MiniMax-H3", "provider_scope_projection": self._projection()}
-        prompt = "@Image1: exclusive identity of Princess Baili; render exactly one visible instance of Princess Baili.\nsummary: Princess Baili looks over a wall.\nnegative_constraints: no extras."
+        prompt = "@Image1: exclusive identity of Princess Baili; render exactly one visible instance of Princess Baili.\npopulation_scope: render exactly 1 living entity instances in total; background population count=0; unbound living entity count=0.\nsummary: Princess Baili looks over a wall.\nnegative_constraints: no extras."
         self.assertEqual(validate_provider_scope_projection(task, prompt_text=prompt, model="MiniMax-H3")["status"], "PASS")
 
     def test_absent_episode_entity_in_positive_prompt_fails(self):
         task = {"model": "MiniMax-H3", "provider_scope_projection": self._projection()}
-        prompt = "@Image1: exclusive identity of Princess Baili; render exactly one visible instance of Princess Baili.\nsummary: Princess Baili and the black crow look over a wall."
+        prompt = "@Image1: exclusive identity of Princess Baili; render exactly one visible instance of Princess Baili.\npopulation_scope: render exactly 1 living entity instances in total; background population count=0; unbound living entity count=0.\nsummary: Princess Baili and the black crow look over a wall."
         report = validate_provider_scope_projection(task, prompt_text=prompt, model="MiniMax-H3")
-        self.assertIn("PROVIDER_SCOPE_ABSENT_ENTITY_IN_POSITIVE_PROMPT:CHAR-CROW:the black crow", report["failures"])
+        self.assertIn("PROVIDER_SCOPE_ABSENT_ENTITY_IN_POSITIVE_PROMPT:CHAR-CROW:black crow", report["failures"])
 
     def test_h3_negative_clause_may_not_name_absent_entity(self):
         task = {"model": "MiniMax-H3", "provider_scope_projection": self._projection()}
-        prompt = "@Image1: exclusive identity of Princess Baili; render exactly one visible instance of Princess Baili.\nsummary: Princess Baili looks over a wall.\nnegative_constraints: no soldier or black crow."
+        prompt = "@Image1: exclusive identity of Princess Baili; render exactly one visible instance of Princess Baili.\npopulation_scope: render exactly 1 living entity instances in total; background population count=0; unbound living entity count=0.\nsummary: Princess Baili looks over a wall.\nnegative_constraints: no soldier or black crow."
         self.assertEqual(validate_provider_scope_projection(task, prompt_text=prompt, model="MiniMax-H3")["status"], "FAIL")
 
     def test_h3_visible_entity_cardinality_is_required(self):
@@ -38,6 +38,12 @@ class ProviderScopeProjectionTests(unittest.TestCase):
         prompt = "@Image1: exclusive identity of Princess Baili.\nsummary: Princess Baili looks over a wall."
         report = validate_provider_scope_projection(task, prompt_text=prompt, model="MiniMax-H3")
         self.assertIn("H3_PROVIDER_SCOPE_INSTANCE_CARDINALITY_MISSING:CHAR-BAILI", report["failures"])
+
+    def test_h3_exclusive_population_clause_is_required(self):
+        task = {"model": "MiniMax-H3", "provider_scope_projection": self._projection()}
+        prompt = "@Image1: exclusive identity of Princess Baili; render exactly one visible instance of Princess Baili.\nsummary: Princess Baili looks over a wall."
+        report = validate_provider_scope_projection(task, prompt_text=prompt, model="MiniMax-H3")
+        self.assertIn("H3_PROVIDER_SCOPE_EXCLUSIVE_POPULATION_CLAUSE_MISSING", report["failures"])
 
     def test_sd2_negative_only_absent_term_remains_allowed(self):
         task = {"model": "seedance-2.0-pro", "provider_scope_projection": self._projection()}
