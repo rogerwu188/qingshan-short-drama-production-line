@@ -79,6 +79,13 @@ class MediaModelAdapterTests(unittest.TestCase):
     def test_current_image_model_is_deployed_and_paid_authorized(self):
         self.assertEqual(validate_image_model_contract(image_task("gpt-image-2-pro"), mode="PAID_SUBMIT")["status"], "PASS")
 
+    def test_e56_keyframe_requires_provider_scope_projection(self):
+        task = image_task("gpt-image-2-pro")
+        task["episode"] = "E56"
+        report = validate_image_model_contract(task, mode="PAID_SUBMIT")
+        self.assertEqual(report["status"], "FAIL")
+        self.assertIn("PROVIDER_SCOPE_PROJECTION_MISSING", report["failures"])
+
     def test_visible_character_cannot_silently_use_flat_reference_list(self):
         task = image_task("gpt-image-2-pro")
         task.pop("identity_reference_transport")

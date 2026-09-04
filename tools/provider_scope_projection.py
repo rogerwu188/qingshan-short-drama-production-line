@@ -88,7 +88,11 @@ def validate_provider_scope_projection(
             match
             and int(match.group(1)) >= ACTIVE_FROM_EPISODE
             and str(model or payload.get("model") or "").strip().lower()
-            in {"minimax-h3", "h3", "seedance-2.0-pro"}
+            in {
+                "minimax-h3", "h3", "seedance-2.0-pro", "gpt-image-2-pro",
+                "sd2", "stable-diffusion-2", "seed", "seed-image",
+                "nano-banana", "nanobanana", "nanubanner", "google-nano-banana",
+            }
         )
         failures = ["PROVIDER_SCOPE_PROJECTION_MISSING"] if required else []
         return {

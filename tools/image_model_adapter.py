@@ -11,8 +11,10 @@ from typing import Any
 
 try:
     from tools.visual_culture_contract import validate_visual_culture_contract
+    from tools.provider_scope_projection import validate_provider_scope_projection
 except ModuleNotFoundError:
     from visual_culture_contract import validate_visual_culture_contract
+    from provider_scope_projection import validate_provider_scope_projection
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -233,6 +235,10 @@ def validate_image_model_contract(
     failures.extend(identity_transport.get("failures") or [])
     visual_culture = validate_visual_culture_contract(task, prompt_text=prompt_text)
     failures.extend(visual_culture.get("failures") or [])
+    provider_scope = validate_provider_scope_projection(
+        task, prompt_text=prompt_text, model=str(task.get("model") or "")
+    )
+    failures.extend(provider_scope.get("failures") or [])
     result_status = "FAIL" if failures else "PASS"
     if not failures and status != "DEPLOYED":
         result_status = "PASS_PORTABLE_CONTRACT_PROVIDER_CONFIG_REQUIRED"
@@ -246,6 +252,7 @@ def validate_image_model_contract(
         "failures": failures,
         "identity_reference_transport": identity_transport,
         "visual_culture_contract": visual_culture,
+        "provider_scope_projection": provider_scope,
     }
 
 

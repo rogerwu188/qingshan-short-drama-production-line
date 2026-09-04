@@ -4,10 +4,12 @@ Video-generation models must not receive the episode-global entity graph as pros
 The production contract may retain the full graph, while each paid request receives
 only a compiled, auditable current-unit projection.
 
-From E56 onward, both supported video families require
+From E56 onward, keyframe image generation and both supported video families require
 `provider_scope_projection` before prompt validation or paid submission.
 
 - Current-unit characters, props, location, environment and sound form an allowlist.
+- The same projection is checked before keyframe generation, so a contaminated
+  opening image cannot reintroduce absent entities into an otherwise clean video prompt.
 - Every character reference is bound by reference index to one exclusive entity.
 - Episode characters absent from the unit are registered as forbidden provider terms.
 - MiniMax H3 is scanned across the entire prompt, including negative clauses,
