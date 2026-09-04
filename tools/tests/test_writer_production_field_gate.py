@@ -39,6 +39,11 @@ def valid_contract():
             "microexpression_design": "眉峰先收紧一次并保持",
             "physical_action_design": "落脚承重后身体停稳",
         },
+        "referent_resolution_contract": {
+            "status": "PASS", "source_scan_complete": True,
+            "resolved_source_referents": [{"surface_form": "行人", "entity_id": "CHAR-PASSERBY"}],
+            "unresolved_source_referents": [],
+        },
         "dialogue": "",
         "performance": {
             "psychological_state": "警觉确认", "emotion": "克制警觉", "emotion_intensity": 2,
@@ -134,6 +139,16 @@ class WriterProductionFieldGateTests(unittest.TestCase):
         self.assertEqual(report["status"], "FAIL")
         self.assertIn("E99-S01-01_WRITER_CAMERA_INSTRUCTION_SOURCE_BINDING_MISMATCH", report["failures"])
         self.assertIn("E99-S01-01_WEATHER_SOURCE_BINDING_MISMATCH", report["failures"])
+
+    def test_unresolved_nominal_referent_refuses_writer_seal(self):
+        payload = valid_contract()
+        contract = payload["shots"][0]["prompt_spec"]["referent_resolution_contract"]
+        contract["status"] = "FAIL"
+        contract["unresolved_source_referents"] = ["睡着的人"]
+        report = validate_generation_contract(payload)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertIn("E99-S01-01_REFERENT_RESOLUTION_NOT_PASS", report["failures"])
+        self.assertIn("E99-S01-01_UNRESOLVED_SOURCE_REFERENTS", report["failures"])
 
 
 if __name__ == "__main__":

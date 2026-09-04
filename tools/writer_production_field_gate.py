@@ -10,6 +10,7 @@ templates.
 from __future__ import annotations
 
 from typing import Any
+import re
 
 try:
     from tools.grouped_performance_contract import validate_grouped_beat_contract
@@ -25,6 +26,11 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _episode_number(value: Any) -> int:
+    match = re.match(r"E(\d+)", _text(value).upper())
+    return int(match.group(1)) if match else 0
+
+
 def validate_generation_contract(payload: dict[str, Any]) -> dict[str, Any]:
     episode = _text(payload.get("episode")) or "UNKNOWN"
     failures: list[str] = []
@@ -32,6 +38,10 @@ def validate_generation_contract(payload: dict[str, Any]) -> dict[str, Any]:
     failures.extend(culture["failures"])
     identity = validate_character_entity_contract(payload)
     failures.extend(identity["failures"])
+    registered_character_ids = {
+        _text(row.get("character_id")) for row in payload.get("character_entities") or []
+        if _text(row.get("character_id"))
+    }
     scenes = payload.get("scene_states") or []
     scenes_by_id = {_text(row.get("scene_id")): row for row in scenes}
     shots = payload.get("shots") or []
@@ -124,6 +134,26 @@ def validate_generation_contract(payload: dict[str, Any]) -> dict[str, Any]:
         role = spec.get("role_semantic_disambiguation")
         if not isinstance(role, dict) or role.get("status") != "PASS":
             failures.append(f"{shot_id}_ROLE_SEMANTIC_DISAMBIGUATION_MISSING")
+        if _episode_number(episode) >= 57:
+            referents = spec.get("referent_resolution_contract")
+            if not isinstance(referents, dict):
+                failures.append(f"{shot_id}_REFERENT_RESOLUTION_CONTRACT_MISSING")
+            else:
+                if referents.get("status") != "PASS" or referents.get("source_scan_complete") is not True:
+                    failures.append(f"{shot_id}_REFERENT_RESOLUTION_NOT_PASS")
+                if referents.get("unresolved_source_referents"):
+                    failures.append(f"{shot_id}_UNRESOLVED_SOURCE_REFERENTS")
+                mentions = referents.get("resolved_source_referents")
+                if not isinstance(mentions, list):
+                    failures.append(f"{shot_id}_RESOLVED_SOURCE_REFERENTS_INVALID")
+                else:
+                    for index, mention in enumerate(mentions, 1):
+                        surface = _text((mention or {}).get("surface_form"))
+                        entity_id = _text((mention or {}).get("entity_id"))
+                        if not surface:
+                            failures.append(f"{shot_id}_REFERENT_{index}_SURFACE_FORM_MISSING")
+                        if entity_id not in registered_character_ids:
+                            failures.append(f"{shot_id}_REFERENT_{index}_ENTITY_ID_UNREGISTERED:{entity_id or 'NONE'}")
         if _text(spec.get("audio_contract")) not in {
             "SAME_VIDEO_TASK_NATIVE_AUDIO",
             "DIEGETIC_OR_SILENT_NO_TTS",

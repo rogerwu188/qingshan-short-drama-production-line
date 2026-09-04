@@ -34,6 +34,14 @@
         "cast": [{"character": "<显示名或合法别名>", "character_id": "CHAR-<STABLE-ID>"}],
         "dialogue": "<说话人>：<逐字台词>",
         "action": {"subject_id": "CHAR-<STABLE-ID>", "primary_action": "<可见动作>"},
+        "referent_resolution_contract": {
+          "status": "PASS",
+          "source_scan_complete": true,
+          "resolved_source_referents": [
+            {"surface_form": "<他/她/老人/睡着的人/对方等原文称呼>", "entity_id": "CHAR-<STABLE-ID>"}
+          ],
+          "unresolved_source_referents": []
+        },
         "role_semantic_disambiguation": {
           "primary_actor": "<动作执行者显示名>",
           "primary_actor_id": "CHAR-<STABLE-ID>",
