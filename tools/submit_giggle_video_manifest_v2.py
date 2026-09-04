@@ -330,6 +330,7 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
     prompt_unit["character_entities"] = machine.get("character_entities") or task.get("character_entities")
     prompt_unit["visual_culture_contract"] = machine.get("visual_culture_contract") or task.get("visual_culture_contract")
     prompt_unit["speaker_voice_contract"] = machine.get("speaker_voice_contract") or task.get("speaker_voice_contract")
+    prompt_unit["provider_scope_projection"] = task.get("provider_scope_projection")
     sequence_by_path = {
         str(row.get("path") or ""): row
         for row in task.get("reference_image_sequence") or []
