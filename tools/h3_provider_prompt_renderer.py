@@ -165,7 +165,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         if entity:
             reference_lines.append(
                 f"@Image{index}: exclusive identity of {entity}; lock this entity's face, age, hair, body and wardrobe; "
-                f"never assign it to another entity; role={role}."
+                f"render exactly one visible instance of {entity}; never duplicate or assign it to another entity; role={role}."
             )
         elif index == 1:
             reference_lines.append(
