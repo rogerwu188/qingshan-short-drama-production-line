@@ -47,6 +47,7 @@ IMMUTABLE_UNIT_FIELDS = (
     "generation_audio_profile_id",
     "h3_provider_english_contract",
     "visual_culture_contract",
+    "provider_scope_projection",
 )
 
 FORBIDDEN_PROVIDER_MACHINE_PATTERNS = (

@@ -92,6 +92,15 @@ npx skills add https://github.com/giggle-official/skills --skill giggle-minimax-
 
 The durable project submitter remains the only paid-POST entrypoint. The installed skill supplies the official H3 capability and prompt contract; it does not bypass transaction recording, task-id binding, credit reconciliation, complete-map gates, or pre-submit continuity QA.
 
+### Provider scope isolation
+
+From E56 onward, the engine separates the episode-global entity graph from the
+provider-facing prompt. Each SD2 or H3 request must carry an auditable current-unit
+allowlist and one-to-one reference identity bindings. H3 prompts are checked in full,
+including negative clauses, because naming an absent concrete entity can cause H3 to
+render it. SD2 retains its existing prompt grammar and negative-prompt behavior. See
+[`docs/PROVIDER_SCOPE_ISOLATION.md`](docs/PROVIDER_SCOPE_ISOLATION.md).
+
 ## Canonical speaker/voice binding
 
 Dialogue generation for both MiniMax-H3 and SD2 is fail-closed. Every distinct speaker must be bound to a stable entity, a registered canonical voice, a dedicated audio slot, and the visible lip owner. Configure the runtime registry with `QINGSHAN_VOICE_REGISTRY`; its schema is shown in [`configs/VOICE_REFERENCE_REGISTRY.example.json`](configs/VOICE_REFERENCE_REGISTRY.example.json). The real registry and voice media stay outside Git.

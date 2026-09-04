@@ -19,6 +19,7 @@ try:
     from tools.speaker_voice_contract import validate_speaker_voice_contract
     from tools.visual_culture_contract import validate_visual_culture_contract
     from tools.character_entity_contract import validate_character_entity_contract
+    from tools.provider_scope_projection import validate_provider_scope_projection
 except ModuleNotFoundError:
     from h3_provider_prompt_renderer import render_h3_prompt
     from h3_provider_english_contract import validate_h3_provider_text_boundary
@@ -33,6 +34,7 @@ except ModuleNotFoundError:
     from speaker_voice_contract import validate_speaker_voice_contract
     from visual_culture_contract import validate_visual_culture_contract
     from character_entity_contract import validate_character_entity_contract
+    from provider_scope_projection import validate_provider_scope_projection
 
 try:
     from tools.compile_grouped_seedance_manifest import (
@@ -187,6 +189,8 @@ def validate_model_prompt_for_model(
     if unit is not None:
         visual_culture = validate_visual_culture_contract(unit, prompt_text=text)
         failures.extend(visual_culture["failures"])
+        scope = validate_provider_scope_projection(unit, prompt_text=text, model=str(model or ""))
+        failures.extend(scope["failures"])
     if family == "minimax-h3":
         failures.extend(
             validate_h3_provider_text_boundary(text, source_id=source_id)["failures"]

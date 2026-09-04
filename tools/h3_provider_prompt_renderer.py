@@ -143,10 +143,39 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     if not refs or len(refs) > 9:
         raise ValueError(f"{uid}:H3_REFERENCE_COUNT_OUT_OF_RANGE:{len(refs)}")
     contract = require_h3_provider_english_contract(unit, plan)
-    reference_lines = [
-        f"@Image{index}: lock only its assigned identity, wardrobe, prop, location, or result state; do not copy a static pose."
-        for index, _ in enumerate(refs, 1)
-    ]
+    reference_lines = []
+    sequence_by_path = {
+        str(row.get("path") or ""): row
+        for row in unit.get("reference_image_sequence") or []
+        if row.get("path") and str(row.get("entity_id") or "").startswith("CHAR-")
+    }
+    scope_bindings = {
+        int(row["reference_index"]): row
+        for row in (unit.get("provider_scope_projection") or {}).get("reference_identity_bindings") or []
+        if row.get("reference_index") is not None
+    }
+    for index, raw_ref in enumerate(refs, 1):
+        ref = raw_ref if isinstance(raw_ref, dict) else {"path": str(raw_ref)}
+        # Index binding is authoritative. Path lookup is compatibility-only:
+        # different role references may legitimately share one source image.
+        bound = scope_bindings.get(index) or sequence_by_path.get(str(ref.get("path") or ""), {})
+        ref = {**bound, **ref}
+        entity = str(ref.get("provider_entity_label") or ref.get("entity_id") or "").strip()
+        role = str(ref.get("role") or "REFERENCE").strip()
+        if entity:
+            reference_lines.append(
+                f"@Image{index}: exclusive identity of {entity}; lock this entity's face, age, hair, body and wardrobe; "
+                f"never assign it to another entity; role={role}."
+            )
+        elif index == 1:
+            reference_lines.append(
+                f"@Image{index}: opening composition, location, camera axis, pose and state; "
+                "named identity references override uncertain faces; never copy a static pose."
+            )
+        else:
+            reference_lines.append(
+                f"@Image{index}: exclusive {role} reference; bind only that declared role and never overwrite a named identity."
+            )
     translated_transition = contract.get("transition") or {}
     source_transition = plan.get("transition") or {}
     description: list[str] = []
