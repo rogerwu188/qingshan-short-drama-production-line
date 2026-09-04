@@ -330,8 +330,17 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
     prompt_unit["character_entities"] = machine.get("character_entities") or task.get("character_entities")
     prompt_unit["visual_culture_contract"] = machine.get("visual_culture_contract") or task.get("visual_culture_contract")
     prompt_unit["speaker_voice_contract"] = machine.get("speaker_voice_contract") or task.get("speaker_voice_contract")
+    sequence_by_path = {
+        str(row.get("path") or ""): row
+        for row in task.get("reference_image_sequence") or []
+        if row.get("path") and str(row.get("entity_id") or "").startswith("CHAR-")
+    }
     prompt_unit["reference_images"] = [
-        {"path": path, "role": role}
+        {
+            **sequence_by_path.get(str(path), {}),
+            "path": path,
+            "role": role,
+        }
         for path, role in zip(
             task.get("reference_images") or [],
             task.get("reference_roles") or ["SEMANTIC_REFERENCE"] * len(task.get("reference_images") or []),
