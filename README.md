@@ -95,7 +95,7 @@ The durable project submitter remains the only paid-POST entrypoint. The install
 ### Provider scope isolation
 
 From E56 onward, the engine separates the episode-global entity graph from the
-provider-facing prompt. Each SD2 or H3 request must carry an auditable current-unit
+provider-facing prompt. Each keyframe, SD2 or H3 request must carry an auditable current-unit
 allowlist and one-to-one reference identity bindings. H3 prompts are checked in full,
 including negative clauses, because naming an absent concrete entity can cause H3 to
 render it. SD2 retains its existing prompt grammar and negative-prompt behavior. See
