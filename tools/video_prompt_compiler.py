@@ -170,6 +170,14 @@ def validate_model_prompt_for_model(
         f"PROVIDER_PROMPT_REQUIRED_SECTION_MISSING:{source_id}:{marker}"
         for marker in required if marker not in text
     )
+    # Giggle's OmniVideo endpoint enforces an inclusive 10,000-rune limit.
+    # Check the exact rendered payload so preflight cannot approve a request
+    # that the provider will reject before creating a task.
+    prompt_runes = len(text)
+    if prompt_runes > 10_000:
+        failures.append(
+            f"PROVIDER_PROMPT_RUNE_LIMIT_EXCEEDED:{source_id}:{prompt_runes}>10000"
+        )
     boundary = validate_provider_prompt_boundary(
         text,
         source_id=source_id,
@@ -197,6 +205,8 @@ def validate_model_prompt_for_model(
         "status": "PASS" if not failures else "FAIL",
         "source_id": source_id,
         "model_family": family,
+        "prompt_runes": prompt_runes,
+        "maximum_prompt_runes": 10_000,
         "semantic_receipt": receipt,
         "failures": failures,
     }
