@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,7 @@ ACTION_ROLE_STATES = frozenset({
     "CONTACT_RESULT",
     "BRIDGE_STATE_NO_ACTION_OWNER_VISIBLE",
 })
+POPULATION_VERIFICATION_SCHEMA = "qingshan.exact_output_population_scope_verification.v1"
 
 
 def sha256_file(path: Path) -> str:
@@ -254,6 +256,27 @@ def _validate_action_role_verification(
     return list(dict.fromkeys(failures))
 
 
+def _validate_population_scope_verification(
+    verification: Any, *, expected_sha: str, expected_total: int,
+) -> list[str]:
+    if not isinstance(verification, dict):
+        return ["Q1_POPULATION_SCOPE_VERIFICATION_MISSING"]
+    failures: list[str] = []
+    if verification.get("schema") != POPULATION_VERIFICATION_SCHEMA:
+        failures.append("Q1_POPULATION_SCOPE_VERIFICATION_INVALID")
+    if str(verification.get("status") or "").upper() != "PASS":
+        failures.append("Q1_POPULATION_SCOPE_VERIFICATION_INVALID")
+    if str(verification.get("reviewed_asset_sha256") or "") != expected_sha:
+        failures.append("Q1_POPULATION_SCOPE_SHA_MISMATCH")
+    if verification.get("expected_visible_living_entity_count") != expected_total:
+        failures.append("Q1_POPULATION_SCOPE_EXPECTED_COUNT_MISMATCH")
+    if verification.get("observed_visible_living_entity_count") != expected_total:
+        failures.append("Q1_POPULATION_SCOPE_OBSERVED_COUNT_MISMATCH")
+    if verification.get("observed_unbound_living_entity_count") != 0:
+        failures.append("Q1_POPULATION_SCOPE_UNBOUND_ENTITY_VISIBLE")
+    return list(dict.fromkeys(failures))
+
+
 def precheck_submission_inputs(
     task: dict[str, Any],
     asset_catalog: dict[str, Any] | None = None,
@@ -310,6 +333,7 @@ def precheck_submission_inputs(
         media_stage == "VIDEO" and _requires_exact_action_role_evidence(task)
     )
     action_role_evidence_failures: list[str] = []
+    population_evidence_failures: list[str] = []
     start_frame_admission: dict[str, Any] | None = None
     if semantic_policy and media_stage == "VIDEO":
         admission_value = task.get("start_frame_admission_ref") or task.get("q1_admission_result")
@@ -337,6 +361,16 @@ def precheck_submission_inputs(
                         _validate_action_role_verification(
                             start_frame_admission.get("action_role_verification"),
                             expected_sha=expected_sha,
+                        )
+                    )
+                episode_match = re.match(r"E(\d+)", str(task.get("episode") or "").upper())
+                projection = task.get("provider_scope_projection") or {}
+                if episode_match and int(episode_match.group(1)) >= 57 and projection:
+                    population_evidence_failures.extend(
+                        _validate_population_scope_verification(
+                            start_frame_admission.get("population_scope_verification"),
+                            expected_sha=expected_sha,
+                            expected_total=int(projection.get("visible_living_entity_instance_total") or 0),
                         )
                     )
     elif semantic_policy:
@@ -377,6 +411,7 @@ def precheck_submission_inputs(
     if semantic_evidence_invalid:
         failures.append("SEMANTIC_ANCHOR_EVIDENCE_INVALID")
     failures.extend(action_role_evidence_failures)
+    failures.extend(population_evidence_failures)
     status = "PASS" if not failures else ("FAIL" if enforce else "WARNING")
     return {
         "schema": "qingshan.submission_input_precheck.v2",
@@ -412,6 +447,10 @@ def precheck_submission_inputs(
             else "NOT_REQUIRED"
         ),
         "action_role_evidence_failures": action_role_evidence_failures,
+        "population_scope_evidence_status": (
+            "PASS" if not population_evidence_failures else "FAIL"
+        ),
+        "population_scope_evidence_failures": population_evidence_failures,
         "enforced": enforce,
     }
 

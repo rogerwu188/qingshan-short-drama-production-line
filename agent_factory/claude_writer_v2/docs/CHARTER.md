@@ -64,6 +64,8 @@ Writer/Director 必须在 generation contract 顶层先写：
 
 随后每镜 cast 必须写 `character_id`；动作写 `action.subject_id`；角色语义写 `primary_actor_id`、`dialogue_speaker_id`、`dialogue_listener_id`、`action_patient_id`、`lip_owner_id`。`entity_states` 与 `entity_presence` 只允许用 `character_id` 作键。声音合同另用 `voice_entity_id`，不得把声音资产 ID 当人物 ID。任一名字/ID、说话人/口型、动作主语/执行者或人物/声线归属不一致，Writer 封缄失败。
 
+E57 起，每镜还必须提供 `referent_resolution_contract`：逐字扫描原文中的代词、称谓和泛称（例如“他”“老人”“对方”“睡着的人”），把每个表面称呼绑定到唯一 `character_id`；`source_scan_complete=true` 且 `unresolved_source_referents=[]` 才能封缄。下游不得根据画面位置或上下文自行猜测漏绑人物。
+
 ### 4.1 每一拍必须声明起止态
 
 ```json
