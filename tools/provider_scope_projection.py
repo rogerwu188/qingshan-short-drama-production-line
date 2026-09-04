@@ -67,6 +67,10 @@ def build_provider_scope_projection(
         "scene_domain": scene_domain,
         "visible_character_ids": sorted(visible),
         "visible_entity_instance_counts": {entity_id: 1 for entity_id in sorted(visible)},
+        "exclusive_visible_living_entity_set": True,
+        "visible_living_entity_instance_total": len(visible),
+        "background_population_count": 0,
+        "unbound_visible_living_entity_count": 0,
         "visible_prop_ids": sorted(set(visible_prop_ids)),
         "location_ids": sorted(set(location_ids or [])),
         "environment_terms": list(dict.fromkeys(environment_terms or [])),
@@ -115,6 +119,14 @@ def validate_provider_scope_projection(
     counts = projection.get("visible_entity_instance_counts") or {}
     if set(map(str, counts)) != set(visible) or any(counts.get(entity_id) != 1 for entity_id in visible):
         failures.append("PROVIDER_SCOPE_VISIBLE_INSTANCE_CARDINALITY_INVALID")
+    if projection.get("exclusive_visible_living_entity_set") is not True:
+        failures.append("PROVIDER_SCOPE_VISIBLE_SET_NOT_EXCLUSIVE")
+    if projection.get("visible_living_entity_instance_total") != sum(counts.values()):
+        failures.append("PROVIDER_SCOPE_VISIBLE_TOTAL_INVALID")
+    if projection.get("background_population_count") != 0:
+        failures.append("PROVIDER_SCOPE_BACKGROUND_POPULATION_NOT_ZERO")
+    if projection.get("unbound_visible_living_entity_count") != 0:
+        failures.append("PROVIDER_SCOPE_UNBOUND_LIVING_ENTITY_NOT_ZERO")
     bindings = projection.get("reference_identity_bindings") or []
     indices = [row.get("reference_index") for row in bindings]
     entities = [str(row.get("entity_id") or "") for row in bindings]
@@ -159,6 +171,13 @@ def validate_provider_scope_projection(
                         "H3_PROVIDER_SCOPE_INSTANCE_CARDINALITY_MISSING:"
                         + str(row.get("entity_id") or "UNKNOWN")
                     )
+            total = int(projection.get("visible_living_entity_instance_total") or 0)
+            population_clause = (
+                f"render exactly {total} living entity instances in total; "
+                "background population count=0; unbound living entity count=0"
+            ).casefold()
+            if population_clause not in searchable:
+                failures.append("H3_PROVIDER_SCOPE_EXCLUSIVE_POPULATION_CLAUSE_MISSING")
     return {
         "schema": "qingshan.provider_scope_projection_gate.v1",
         "status": "PASS" if not failures else "FAIL",

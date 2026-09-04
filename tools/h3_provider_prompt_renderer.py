@@ -154,6 +154,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         for row in (unit.get("provider_scope_projection") or {}).get("reference_identity_bindings") or []
         if row.get("reference_index") is not None
     }
+    scope = unit.get("provider_scope_projection") or {}
     for index, raw_ref in enumerate(refs, 1):
         ref = raw_ref if isinstance(raw_ref, dict) else {"path": str(raw_ref)}
         # Index binding is authoritative. Path lookup is compatibility-only:
@@ -177,6 +178,12 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
                 f"@Image{index}: exclusive {role} reference; bind only that declared role and never overwrite a named identity."
             )
     translated_transition = contract.get("transition") or {}
+    visible_total = int(scope.get("visible_living_entity_instance_total") or len(scope_bindings))
+    population_scope = (
+        "Only bound identities are visible; "
+        f"render exactly {visible_total} living entity instances in total; "
+        "background population count=0; unbound living entity count=0"
+    )
     source_transition = plan.get("transition") or {}
     description: list[str] = []
     clause_evidence = {
@@ -302,6 +309,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         negatives.append(profile_constraints[profile])
     text = "\n".join([
         "subject_definitions:", *reference_lines,
+        "population_scope: " + population_scope + ".",
         f"summary: [reference generation + keyframe completion] {plan['duration_seconds']:g}s vertical 9:16 live-action short drama; {contract['identity_prop_fact']}; {contract['space_weather_fact']}.",
         "visual_culture: " + visual_culture_prompt_block(unit.get("visual_culture_contract")),
         *( ["persistent_state_lock: " + persistent_state_lock + "."] if persistent_state_lock else [] ),
