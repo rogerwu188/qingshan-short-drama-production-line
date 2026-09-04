@@ -325,6 +325,19 @@ class VideoPromptCompilerTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "SOURCE_SHA_MISMATCH"):
             compile_model_prompt(unit)
 
+    def test_exact_rendered_provider_payload_over_10000_runes_fails_preflight(self):
+        prompt = "【任务】【锚点】【时间轴】【摄影】【声音】【限制】" + "甲" * 10000
+        report = validate_model_prompt_for_model(
+            prompt, model="seedance-2.0-pro", source_id="E99-VU-001"
+        )
+        self.assertEqual(report["status"], "FAIL")
+        self.assertGreater(report["prompt_runes"], 10000)
+        self.assertEqual(report["maximum_prompt_runes"], 10000)
+        self.assertTrue(any(
+            value.startswith("PROVIDER_PROMPT_RUNE_LIMIT_EXCEEDED:E99-VU-001:")
+            for value in report["failures"]
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()
