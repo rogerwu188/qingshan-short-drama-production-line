@@ -76,7 +76,8 @@ def _camera(plan: dict[str, Any]) -> str:
 
 
 def _beat(
-    source: dict[str, Any], translated: dict[str, Any], *, dialogue_slot: int | None
+    source: dict[str, Any], translated: dict[str, Any], *, dialogue_slot: int | None,
+    positive_single_subject: bool = False,
 ) -> tuple[str, dict[str, str]]:
     index = int(source["source_index"])
     prefix = f"BEAT.{index}"
@@ -120,10 +121,9 @@ def _beat(
         if not separator or not words.strip() or dialogue_slot is None:
             raise ValueError(f"DIALOGUE_SPEAKER_BINDING_INVALID:{raw}")
         literal = f"<d>[Chinese] {words.strip()}</d>"
-        line += (
-            f" SPEAKER_{dialogue_slot} opens the mouth in sync and says exactly once {literal}; "
-            "all other people keep their mouths closed."
-        )
+        line += f" SPEAKER_{dialogue_slot} opens the mouth in sync and says exactly once {literal}."
+        if not positive_single_subject:
+            line += " All other people keep their mouths closed."
         evidence[f"{prefix}.DIALOGUE"] = literal
     if source.get("microexpression_cue"):
         line += f" Microexpression: {translated['microexpression_cue']}."
@@ -139,6 +139,12 @@ def _beat(
 
 def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     uid = str(plan["unit_id"])
+    profile = str(unit.get("h3_prompt_profile") or "").strip()
+    positive_single_subject = profile in {
+        "H3_POSITIVE_SINGLE_SUBJECT_V1",
+        "H3_TIGHT_POV_SINGLE_SUBJECT_V1",
+    }
+    tight_pov_single_subject = profile == "H3_TIGHT_POV_SINGLE_SUBJECT_V1"
     refs = unit.get("reference_images") or []
     if not refs or len(refs) > 9:
         raise ValueError(f"{uid}:H3_REFERENCE_COUNT_OUT_OF_RANGE:{len(refs)}")
@@ -163,7 +169,12 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         ref = {**bound, **ref}
         entity = str(ref.get("provider_entity_label") or ref.get("entity_id") or "").strip()
         role = str(ref.get("role") or "REFERENCE").strip()
-        if entity:
+        if entity and positive_single_subject:
+            reference_lines.append(
+                f"@Image{index}: {entity} is SUBJECT_1; preserve this face, age, hair, body, wardrobe, "
+                f"opening pose and architectural background; role={role}."
+            )
+        elif entity:
             reference_lines.append(
                 f"@Image{index}: exclusive identity of {entity}; lock this entity's face, age, hair, body and wardrobe; "
                 f"render exactly one visible instance of {entity}; never duplicate or assign it to another entity; role={role}."
@@ -180,9 +191,19 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     translated_transition = contract.get("transition") or {}
     visible_total = int(scope.get("visible_living_entity_instance_total") or len(scope_bindings))
     population_scope = (
-        "Only bound identities are visible; "
-        f"render exactly {visible_total} living entity instances in total; "
-        "background population count=0; unbound living entity count=0"
+        (
+            "SUBJECT_1 fills a tight head-and-shoulders point-of-view close-up as the single human figure; "
+            "the closed shallow architectural background preserves the opening image"
+            if tight_pov_single_subject
+            else "SUBJECT_1 fills the composed medium frame as its single human figure; "
+            "the shallow architectural background preserves the opening image"
+        )
+        if positive_single_subject
+        else (
+            "Only bound identities are visible; "
+            f"render exactly {visible_total} living entity instances in total; "
+            "background population count=0; unbound living entity count=0"
+        )
     )
     source_transition = plan.get("transition") or {}
     description: list[str] = []
@@ -209,7 +230,10 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         if source.get("dialogue"):
             dialogue_slot += 1
             slot = dialogue_slot
-        line, evidence = _beat(source, translated, dialogue_slot=slot)
+        line, evidence = _beat(
+            source, translated, dialogue_slot=slot,
+            positive_single_subject=positive_single_subject,
+        )
         description.append(line)
         clause_evidence.update(evidence)
     if source_transition.get("outgoing"):
@@ -248,9 +272,17 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         voice_rows.append(line)
         clause_evidence[f"VOICE_BINDING.{index}"] = line
     if not any(beat.get("dialogue") for beat in action_beats):
-        vocal_rule = "No human speech event; every visible person keeps the mouth closed for the entire clip."
+        vocal_rule = (
+            "SUBJECT_1 keeps a naturally closed mouth for the complete clip."
+            if positive_single_subject
+            else "No human speech event; every visible person keeps the mouth closed for the entire clip."
+        )
     else:
-        vocal_rule = "Only literals inside d-tags may become speech; never vocalize machine metadata."
+        vocal_rule = (
+            "SPEAKER_1 performs the literal inside the d-tag as synchronized native speech."
+            if positive_single_subject
+            else "Only literals inside d-tags may become speech; never vocalize machine metadata."
+        )
 
     camera = _camera(plan.get("camera_plan") or {})
     clause_evidence["CAMERA.PLAN"] = camera
@@ -289,7 +321,15 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         "role-appropriate fitted tailoring, a clear waistline, complete period clothing, and tasteful non-explicit styling"
         if adult_style_source else ""
     )
-    negatives = list(contract.get("negative_constraints") or [])
+    negatives = (
+        [
+            "TEXT-FREE FRAME with no captions, labels, signs, letters, numbers, UI, logos, or watermark",
+            "Preserve the bound face, wardrobe, body anatomy, map, dry weather, lighting direction, voice and prop ownership",
+            "Natural real-time movement without freeze, loop, pose interpolation, unmotivated orbit, or discontinuous spatial jump",
+        ]
+        if positive_single_subject
+        else list(contract.get("negative_constraints") or [])
+    )
     negatives.extend([
         ANTI_TEXT,
         "No identity, wardrobe, prop ownership, map, weather, lighting-direction, or voice drift",
@@ -297,13 +337,17 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     ])
     if wuxia_profile.get("status") == "SELECTED":
         negatives.extend(wuxia_profile.get("negative_constraints_en") or [])
-    profile = str(unit.get("h3_prompt_profile") or "").strip()
     profile_constraints = {
         "H3_CONCISE_QUOTED_DIALOGUE_REPAIR_V1": "Only the bound named speaker may speak; never add, translate, repeat, or visualize dialogue",
         "H3_MINIMAL_AUDIO_RESCUE_V1": "Repair only the declared native sound; do not rewrite identity, map, action, framing, or timing",
         "H3_ENGLISH_MACHINE_AUDIO_RESCUE_V1": "Never vocalize machine metadata; only tagged source-language dialogue may become speech",
         "H3_CONCISE_COMBAT_REPAIR_V1": "Execute one physical force chain; no push-hands contact, posing, or reference-frame interpolation",
         "H3_OFFICIAL_REF2VA_V1": "References bind only their declared identity, location, prop, and state roles",
+        "H3_POSITIVE_SINGLE_SUBJECT_V1": "SUBJECT_1 remains the single composed human figure throughout the shot",
+        "H3_TIGHT_POV_SINGLE_SUBJECT_V1": (
+            "SUBJECT_1 remains centered in the tight point-of-view close-up throughout the shot; "
+            "the frame stays closed on this face and upper torso"
+        ),
     }
     if profile in profile_constraints:
         negatives.append(profile_constraints[profile])

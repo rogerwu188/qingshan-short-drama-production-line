@@ -157,6 +157,12 @@ def validate_provider_scope_projection(
                         + str(row.get("entity_id") or "UNKNOWN") + ":" + token
                     )
         if str(model or payload.get("model") or "").strip().lower() in {"minimax-h3", "h3"}:
+            prompt_mode = projection.get("provider_scope_prompt_mode")
+            positive_single_subject = prompt_mode in {
+                "POSITIVE_SINGLE_SUBJECT_MACHINE_GRAPH_ONLY",
+                "POSITIVE_SINGLE_SUBJECT_TIGHT_POV_MACHINE_GRAPH_ONLY",
+            }
+            tight_pov_single_subject = prompt_mode == "POSITIVE_SINGLE_SUBJECT_TIGHT_POV_MACHINE_GRAPH_ONLY"
             for row in bindings:
                 marker = f"@Image{row['reference_index']}:".casefold()
                 label = str(row.get("provider_entity_label") or "").casefold()
@@ -165,19 +171,37 @@ def validate_provider_scope_projection(
                         "H3_PROVIDER_SCOPE_REFERENCE_MAPPING_MISSING:"
                         + str(row.get("entity_id") or "UNKNOWN")
                     )
-                cardinality = f"exactly one visible instance of {label}".casefold()
-                if cardinality not in searchable:
-                    failures.append(
-                        "H3_PROVIDER_SCOPE_INSTANCE_CARDINALITY_MISSING:"
-                        + str(row.get("entity_id") or "UNKNOWN")
-                    )
+                if positive_single_subject:
+                    if len(visible) != 1 or len(bindings) != 1:
+                        failures.append("H3_POSITIVE_SINGLE_SUBJECT_CARDINALITY_INVALID")
+                    if f"{label} is subject_1" not in searchable:
+                        failures.append(
+                            "H3_POSITIVE_SINGLE_SUBJECT_REFERENCE_MAPPING_MISSING:"
+                            + str(row.get("entity_id") or "UNKNOWN")
+                        )
+                else:
+                    cardinality = f"exactly one visible instance of {label}".casefold()
+                    if cardinality not in searchable:
+                        failures.append(
+                            "H3_PROVIDER_SCOPE_INSTANCE_CARDINALITY_MISSING:"
+                            + str(row.get("entity_id") or "UNKNOWN")
+                        )
             total = int(projection.get("visible_living_entity_instance_total") or 0)
-            population_clause = (
-                f"render exactly {total} living entity instances in total; "
-                "background population count=0; unbound living entity count=0"
-            ).casefold()
-            if population_clause not in searchable:
-                failures.append("H3_PROVIDER_SCOPE_EXCLUSIVE_POPULATION_CLAUSE_MISSING")
+            if positive_single_subject:
+                required_composition = (
+                    "subject_1 fills a tight head-and-shoulders point-of-view close-up as the single human figure"
+                    if tight_pov_single_subject
+                    else "subject_1 fills the composed medium frame as its single human figure"
+                )
+                if required_composition not in searchable:
+                    failures.append("H3_POSITIVE_SINGLE_SUBJECT_COMPOSITION_CLAUSE_MISSING")
+            else:
+                population_clause = (
+                    f"render exactly {total} living entity instances in total; "
+                    "background population count=0; unbound living entity count=0"
+                ).casefold()
+                if population_clause not in searchable:
+                    failures.append("H3_PROVIDER_SCOPE_EXCLUSIVE_POPULATION_CLAUSE_MISSING")
     return {
         "schema": "qingshan.provider_scope_projection_gate.v1",
         "status": "PASS" if not failures else "FAIL",

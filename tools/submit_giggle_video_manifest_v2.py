@@ -544,7 +544,8 @@ def validate_task(task: dict[str, Any]) -> None:
         if [str(row.get("speaker") or "") for row in bindings] != expected_speakers:
             raise ValueError(f"{task['task_key']} speaker_voice_contract dialogue coverage mismatch")
         english_machine_rescue = task.get("h3_prompt_profile") in {
-            "H3_ENGLISH_MACHINE_AUDIO_RESCUE_V1", "H3_OFFICIAL_REF2VA_V1"
+            "H3_ENGLISH_MACHINE_AUDIO_RESCUE_V1", "H3_OFFICIAL_REF2VA_V1",
+            "H3_POSITIVE_SINGLE_SUBJECT_V1", "H3_TIGHT_POV_SINGLE_SUBJECT_V1",
         }
         for row in bindings:
             slot = str(row.get("audio_slot") or "")

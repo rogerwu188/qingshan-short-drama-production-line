@@ -45,6 +45,30 @@ class ProviderScopeProjectionTests(unittest.TestCase):
         report = validate_provider_scope_projection(task, prompt_text=prompt, model="MiniMax-H3")
         self.assertIn("H3_PROVIDER_SCOPE_EXCLUSIVE_POPULATION_CLAUSE_MISSING", report["failures"])
 
+    def test_h3_positive_single_subject_mode_uses_positive_composition_contract(self):
+        projection = self._projection()
+        projection["provider_scope_prompt_mode"] = "POSITIVE_SINGLE_SUBJECT_MACHINE_GRAPH_ONLY"
+        task = {"model": "MiniMax-H3", "provider_scope_projection": projection}
+        prompt = (
+            "@Image1: Princess Baili is SUBJECT_1; preserve this face and wardrobe.\n"
+            "population_scope: SUBJECT_1 fills the composed medium frame as its single human figure; "
+            "the shallow architectural background preserves the opening image.\n"
+            "summary: Princess Baili lifts her chin once."
+        )
+        self.assertEqual(validate_provider_scope_projection(task, prompt_text=prompt, model="MiniMax-H3")["status"], "PASS")
+
+    def test_h3_tight_pov_single_subject_mode_uses_closed_closeup_contract(self):
+        projection = self._projection()
+        projection["provider_scope_prompt_mode"] = "POSITIVE_SINGLE_SUBJECT_TIGHT_POV_MACHINE_GRAPH_ONLY"
+        task = {"model": "MiniMax-H3", "provider_scope_projection": projection}
+        prompt = (
+            "@Image1: Princess Baili is SUBJECT_1; preserve this face and wardrobe.\n"
+            "population_scope: SUBJECT_1 fills a tight head-and-shoulders point-of-view close-up "
+            "as the single human figure; the closed shallow architectural background preserves the opening image.\n"
+            "summary: Princess Baili lifts her chin once."
+        )
+        self.assertEqual(validate_provider_scope_projection(task, prompt_text=prompt, model="MiniMax-H3")["status"], "PASS")
+
     def test_sd2_negative_only_absent_term_remains_allowed(self):
         task = {"model": "seedance-2.0-pro", "provider_scope_projection": self._projection()}
         prompt = "summary: Princess Baili looks over a wall.\nnegative_constraints: no soldier or black crow."
