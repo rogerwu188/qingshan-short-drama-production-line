@@ -1,10 +1,34 @@
 import unittest
 
-from tools.build_video_unit_grouping_spec import build
+from tools.build_video_unit_grouping_spec import build, partition_scene
 from tools.compile_video_unit_plan import compile_grouping_spec
 
 
 class BuildVideoUnitGroupingSpecTests(unittest.TestCase):
+    def test_h3_speaker_change_is_a_paid_task_boundary_but_sd2_is_unchanged(self):
+        shots = [
+            {
+                "shot_id": "E99-S01-01", "duration_seconds": 3,
+                "prompt_spec": {
+                    "dialogue": "陈迹：先走。",
+                    "action": {"primary_action": "陈迹转身"},
+                },
+            },
+            {
+                "shot_id": "E99-S01-02", "duration_seconds": 3,
+                "prompt_spec": {
+                    "dialogue": "姚老头：等等。",
+                    "action": {"primary_action": "姚老头抬手"},
+                },
+            },
+        ]
+        h3_groups = partition_scene(shots, model="MiniMax-H3")
+        sd2_groups = partition_scene(shots, model="seedance-2.0-pro")
+        self.assertEqual([[row["shot_id"] for row in group] for group in h3_groups], [
+            ["E99-S01-01"], ["E99-S01-02"],
+        ])
+        self.assertEqual(len(sd2_groups), 1)
+
     def test_groups_contiguous_shots_without_crossing_scene(self):
         manifest = {"episode": "E99", "shots": []}
         for scene in ("S01", "S02"):

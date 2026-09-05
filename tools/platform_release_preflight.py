@@ -180,6 +180,54 @@ def validate_media_boundary_acceptance(line: dict, root: Path) -> dict:
     return result
 
 
+def validate_speaker_identity_voice_release(line: dict, root: Path) -> dict:
+    """Verify the persisted face/lip-owner/voice report, not a copied PASS label."""
+    report_path = _resolve_evidence_path(
+        line.get("latest_speaker_identity_voice_release_gate")
+        or line.get("speaker_identity_voice_release_gate"),
+        root,
+    )
+    result = {
+        "valid": False,
+        "report": str(report_path) if report_path else None,
+        "required_dialogue_count": None,
+        "evidence_count": None,
+        "reason": None,
+    }
+    if not report_path or not report_path.is_file():
+        result["reason"] = "speaker_identity_voice_release_gate_missing"
+        return result
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        result["reason"] = "speaker_identity_voice_release_gate_invalid"
+        return result
+    if (
+        report.get("schema")
+        != "qingshan.speaker_identity_voice_release_gate.v2_diarization_lip_owner_voice_similarity"
+        or report.get("status") != "PASS"
+        or report.get("failures")
+    ):
+        result["reason"] = "speaker_identity_voice_release_gate_not_pass"
+        return result
+    required_count = report.get("required_dialogue_count")
+    evidence_count = report.get("evidence_count")
+    if (
+        not isinstance(required_count, int)
+        or required_count < 0
+        or evidence_count != required_count
+    ):
+        result["reason"] = "speaker_identity_voice_release_evidence_incomplete"
+        return result
+    result.update({
+        "valid": True,
+        "required_dialogue_count": required_count,
+        "evidence_count": evidence_count,
+        "reason": "verified_speaker_identity_voice_release_gate",
+    })
+    return result
+
+
 def evaluate_release_preflight(episode: str, work_queue: dict, root: Path = ROOT) -> dict:
     episode_upper = episode.strip().upper()
     gate = work_queue.get("schedule_gate") or {}
@@ -194,6 +242,7 @@ def evaluate_release_preflight(episode: str, work_queue: dict, root: Path = ROOT
     verified_final_locks = []
     branding_checks = []
     boundary_checks = []
+    speaker_identity_voice_checks = []
     for line in (work_queue.get("lines") or {}).values():
         if str(line.get("episode") or "").upper() != episode_upper:
             if str(line.get("canonical_script") or "").find(f"/{episode_upper}") < 0:
@@ -202,6 +251,10 @@ def evaluate_release_preflight(episode: str, work_queue: dict, root: Path = ROOT
             branding_checks.append(validate_release_branding(line, root))
         if (_episode_number(episode_upper) or 0) >= 45:
             boundary_checks.append(validate_media_boundary_acceptance(line, root))
+        if (_episode_number(episode_upper) or 0) >= 56:
+            speaker_identity_voice_checks.append(
+                validate_speaker_identity_voice_release(line, root)
+            )
         status = str(line.get("status") or "").upper()
         stage = str(line.get("stage") or "").upper()
         if stage.startswith("FINAL_LOCKED_"):
@@ -223,6 +276,12 @@ def evaluate_release_preflight(episode: str, work_queue: dict, root: Path = ROOT
     if (_episode_number(episode_upper) or 0) >= 45:
         if not boundary_checks or not any(row["valid"] for row in boundary_checks):
             reasons.append("media_boundary_acceptance_not_verified")
+    if (_episode_number(episode_upper) or 0) >= 56:
+        if (
+            not speaker_identity_voice_checks
+            or not any(row["valid"] for row in speaker_identity_voice_checks)
+        ):
+            reasons.append("speaker_identity_voice_release_gate_not_verified")
 
     allowed = not reasons
     return {
@@ -236,6 +295,7 @@ def evaluate_release_preflight(episode: str, work_queue: dict, root: Path = ROOT
         "verified_final_locks": verified_final_locks,
         "release_branding_checks": branding_checks,
         "media_boundary_acceptance_checks": boundary_checks,
+        "speaker_identity_voice_release_checks": speaker_identity_voice_checks,
         "reasons": reasons,
         "checked_at": now_iso(),
     }

@@ -20,10 +20,10 @@ from tools.submit_giggle_video_manifest_v2 import uses_structured_role_gate
 
 
 def _spec(*, dialogue: str = "") -> dict:
-    return {
+    spec = {
         "space": {"location": "医馆门外", "subspace": "马车旁"},
         "scene_state": {"time": "清晨", "weather": "薄雾，晨风很轻", "palette": "冷灰"},
-        "cast": [{"character": "白鲤"}],
+        "cast": [{"character": "白鲤", "character_id": "CHAR-BAILI"}],
         "props": [{
             "prop": "车帘",
             "state": {
@@ -35,6 +35,7 @@ def _spec(*, dialogue: str = "") -> dict:
         }],
         "action": {
             "action_kind": "PHYSICAL_ACTION",
+            "subject_id": "CHAR-BAILI",
             "t0_seconds": 0,
             "t1_seconds": 6,
             "start_state": "白鲤的手指顶住帘边",
@@ -62,6 +63,18 @@ def _spec(*, dialogue: str = "") -> dict:
         },
         "negative_prompts": ["无字幕", "无水印"],
     }
+    spec["role_semantic_disambiguation"] = {
+        "primary_actor": "白鲤",
+        "primary_actor_id": "CHAR-BAILI",
+        "primary_actor_kind": "CHARACTER",
+        "dialogue_speaker": "白鲤" if dialogue else "",
+        "dialogue_speaker_id": "CHAR-BAILI" if dialogue else "",
+        "lip_owner_id": "CHAR-BAILI" if dialogue else "",
+        "dialogue_mode": "VISIBLE_DIALOGUE" if dialogue else "NONE",
+        "entity_presence": {"CHAR-BAILI": "VISIBLE"},
+        "entity_states": {"CHAR-BAILI": "ACTIVE"},
+    }
+    return spec
 
 
 def _unit(*, dialogue: str = "", transitions: bool = False) -> dict:
@@ -72,7 +85,37 @@ def _unit(*, dialogue: str = "", transitions: bool = False) -> dict:
         "aspect_ratio": "9:16",
         "resolution": "720p",
         "ordered_prompt_specs": [_spec(dialogue=dialogue)],
-        "reference_images": [{"path": "first.png", "role": "START"}],
+        "reference_images": [{
+            "path": "first.png", "role": "CANONICAL_CHARACTER_IDENTITY_REFERENCE",
+        }],
+        "character_entities": [{
+            "character_id": "CHAR-BAILI", "canonical_name": "白鲤", "aliases": [],
+        }],
+        "provider_entity_token_map": {"白鲤": "SUBJECT_1"},
+        "provider_scope_projection": {
+            "schema": "qingshan.provider_scope_projection.v1",
+            "status": "LOCKED",
+            "scene_domain": "CLINIC_EXTERIOR",
+            "visible_character_ids": ["CHAR-BAILI"],
+            "visible_entity_instance_counts": {"CHAR-BAILI": 1},
+            "exclusive_visible_living_entity_set": True,
+            "visible_living_entity_instance_total": 1,
+            "background_population_count": 0,
+            "unbound_visible_living_entity_count": 0,
+            "visible_prop_ids": [],
+            "location_ids": [],
+            "environment_terms": [],
+            "sound_terms": [],
+            "reference_identity_bindings": [{
+                "reference_index": 1,
+                "entity_id": "CHAR-BAILI",
+                "provider_entity_label": "Baili",
+                "exclusive_identity_owner": True,
+            }],
+            "absent_episode_entities": [],
+            "episode_prop_catalog": [],
+            "provider_reads_episode_global_contract_directly": False,
+        },
         "camera_plan": {
             "shot_scale": "MEDIUM_CLOSE_UP",
             "camera_height": "EYE_LEVEL",
@@ -215,6 +258,19 @@ class VideoPromptCompilerTest(unittest.TestCase):
         self.assertEqual(validate_model_prompt_for_model(
             text, model=unit["model"], source_id=unit["unit_id"], unit=unit
         )["status"], "PASS")
+
+    def test_h3_dialogue_closes_identity_image_lip_and_voice_loop(self):
+        text = _compile_h3(_unit(dialogue="白鲤：陈迹。"))
+        self.assertIn(
+            "Baili is SUBJECT_1 with identity @Image1, lip owner SPEAKER_1 "
+            "and exclusive voice @Audio1",
+            text,
+        )
+        self.assertIn(
+            "Baili (SUBJECT_1, identity @Image1, lip owner SPEAKER_1, "
+            "fixed voice @Audio1)",
+            text,
+        )
 
     def test_h3_dialogue_fails_closed_without_speaker_voice_contract(self):
         unit = _unit(dialogue="白鲤：陈迹。")

@@ -4,10 +4,57 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.platform_release_preflight import evaluate_release_preflight
+from tools.platform_release_preflight import (
+    evaluate_release_preflight,
+    validate_speaker_identity_voice_release,
+)
 
 
 class PlatformReleasePreflightTests(unittest.TestCase):
+    def test_speaker_identity_voice_gate_requires_real_complete_report(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report = root / "speaker.json"
+            report.write_text(json.dumps({
+                "schema": "qingshan.speaker_identity_voice_release_gate.v2_diarization_lip_owner_voice_similarity",
+                "status": "PASS",
+                "required_dialogue_count": 2,
+                "evidence_count": 2,
+                "failures": [],
+            }), encoding="utf-8")
+            result = validate_speaker_identity_voice_release(
+                {"speaker_identity_voice_release_gate": str(report)}, root
+            )
+        self.assertTrue(result["valid"])
+
+    def test_speaker_identity_voice_gate_rejects_incomplete_evidence(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report = root / "speaker.json"
+            report.write_text(json.dumps({
+                "schema": "qingshan.speaker_identity_voice_release_gate.v2_diarization_lip_owner_voice_similarity",
+                "status": "PASS",
+                "required_dialogue_count": 2,
+                "evidence_count": 1,
+                "failures": [],
+            }), encoding="utf-8")
+            result = validate_speaker_identity_voice_release(
+                {"speaker_identity_voice_release_gate": str(report)}, root
+            )
+        self.assertFalse(result["valid"])
+        self.assertEqual(
+            result["reason"], "speaker_identity_voice_release_evidence_incomplete"
+        )
+
+    def test_e56_requires_speaker_identity_voice_release_gate(self):
+        result = evaluate_release_preflight(
+            "E56", {"lines": {"slot": {"episode": "E56", "status": "ACTIVE_RELEASE"}}}
+        )
+        self.assertFalse(result["release_allowed"])
+        self.assertIn(
+            "speaker_identity_voice_release_gate_not_verified", result["reasons"]
+        )
+
     def _write_verified_final(self, root: Path, *, tamper: bool = False) -> dict:
         final = root / "final.mp4"
         final.write_bytes(b"verified-final")
