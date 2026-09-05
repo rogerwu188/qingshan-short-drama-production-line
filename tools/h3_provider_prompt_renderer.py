@@ -76,7 +76,8 @@ def _camera(plan: dict[str, Any]) -> str:
 
 
 def _beat(
-    source: dict[str, Any], translated: dict[str, Any], *, dialogue_slot: int | None
+    source: dict[str, Any], translated: dict[str, Any], *,
+    dialogue_binding: dict[str, Any] | None
 ) -> tuple[str, dict[str, str]]:
     index = int(source["source_index"])
     prefix = f"BEAT.{index}"
@@ -116,15 +117,25 @@ def _beat(
     line += f". End at {translated['exit_state']}."
     raw = str(source.get("dialogue") or "").strip()
     if raw:
-        _speaker, separator, words = raw.partition("：")
-        if not separator or not words.strip() or dialogue_slot is None:
+        speaker, separator, words = raw.partition("：")
+        if not separator or not words.strip() or dialogue_binding is None:
             raise ValueError(f"DIALOGUE_SPEAKER_BINDING_INVALID:{raw}")
         literal = f"<d>[Chinese] {words.strip()}</d>"
+        label = str(dialogue_binding["provider_entity_label"])
+        subject = str(dialogue_binding["subject_token"])
+        image_slot = str(dialogue_binding["image_slot"])
+        speaker_slot = str(dialogue_binding["speaker_slot"])
+        audio_slot = str(dialogue_binding["audio_slot"])
         line += (
-            f" SPEAKER_{dialogue_slot} opens the mouth in sync and says exactly once {literal}; "
+            f" {label} ({subject}, identity {image_slot}, lip owner {speaker_slot}, fixed voice {audio_slot}) "
+            f"opens the mouth in sync and says exactly once {literal}; "
             "all other people keep their mouths closed."
         )
         evidence[f"{prefix}.DIALOGUE"] = literal
+        evidence[f"{prefix}.DIALOGUE_SPEAKER"] = speaker.strip()
+        evidence[f"{prefix}.CROSSMODAL_BINDING"] = (
+            f"{subject}={image_slot}={speaker_slot}={audio_slot}"
+        )
     if source.get("microexpression_cue"):
         line += f" Microexpression: {translated['microexpression_cue']}."
         evidence[f"{prefix}.MICROEXPRESSION"] = translated["microexpression_cue"]
@@ -143,6 +154,15 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     if not refs or len(refs) > 9:
         raise ValueError(f"{uid}:H3_REFERENCE_COUNT_OUT_OF_RANGE:{len(refs)}")
     contract = require_h3_provider_english_contract(unit, plan)
+    crossmodal = plan.get("h3_crossmodal_speaker_binding") or {}
+    if crossmodal.get("status") not in {"PASS", "NOT_APPLICABLE"}:
+        raise ValueError(";".join(
+            crossmodal.get("failures") or [f"H3_CROSSMODAL_BINDING_INVALID:{uid}"]
+        ))
+    crossmodal_rows = crossmodal.get("bindings") or []
+    crossmodal_by_speaker = {
+        str(row.get("speaker") or "").strip(): row for row in crossmodal_rows
+    }
     reference_lines = []
     sequence_by_path = {
         str(row.get("path") or ""): row
@@ -203,13 +223,18 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         description.append(f"Open directly from the inherited state: {incoming}. Do not reset or replay it.")
         clause_evidence["TRANSITION.INCOMING"] = incoming
     action_beats = (plan.get("action_ir") or {}).get("causal_chains") or plan["beats"]
-    dialogue_slot = 0
     for source, translated in zip(action_beats, contract["beats"]):
-        slot = None
+        dialogue_binding = None
         if source.get("dialogue"):
-            dialogue_slot += 1
-            slot = dialogue_slot
-        line, evidence = _beat(source, translated, dialogue_slot=slot)
+            speaker = str(source.get("dialogue") or "").partition("：")[0].strip()
+            dialogue_binding = crossmodal_by_speaker.get(speaker)
+            if dialogue_binding is None:
+                raise ValueError(
+                    f"H3_DIALOGUE_CROSSMODAL_BINDING_MISSING:{uid}:{speaker}"
+                )
+        line, evidence = _beat(
+            source, translated, dialogue_binding=dialogue_binding
+        )
         description.append(line)
         clause_evidence.update(evidence)
     if source_transition.get("outgoing"):
@@ -243,8 +268,12 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         clause_evidence[f"ENVIRONMENT_MOTION.{index}"] = value
 
     voice_rows = []
-    for index, _row in enumerate(plan.get("voice_bindings") or [], 1):
-        line = f"SPEAKER_{index} uses @Audio{index} as the registered fixed voice reference"
+    for index, row in enumerate(crossmodal_rows, 1):
+        line = (
+            f"{row['provider_entity_label']} is {row['subject_token']} with identity {row['image_slot']}, "
+            f"lip owner {row['speaker_slot']} and exclusive voice {row['audio_slot']}; "
+            "never reassign this chain"
+        )
         voice_rows.append(line)
         clause_evidence[f"VOICE_BINDING.{index}"] = line
     if not any(beat.get("dialogue") for beat in action_beats):

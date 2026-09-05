@@ -28,6 +28,7 @@ try:
     from tools.event_boundary_continuity_contract import (
         compile_internal_shot_boundaries, validate_task_boundary,
     )
+    from tools.h3_crossmodal_speaker_gate import require as require_h3_speaker_binding
 except ModuleNotFoundError:
     from provider_contract_boundary import (
         compact_identity_prop_fact,
@@ -44,6 +45,7 @@ except ModuleNotFoundError:
     from event_boundary_continuity_contract import (
         compile_internal_shot_boundaries, validate_task_boundary,
     )
+    from h3_crossmodal_speaker_gate import require as require_h3_speaker_binding
 
 
 SCHEMA = "qingshan.video_execution_plan.v6_entry_prop_patient_classification"
@@ -360,6 +362,16 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
         for row in (unit.get("speaker_voice_contract") or {}).get("bindings") or []
         if str(row.get("speaker") or row.get("character") or "").strip()
     ]
+    h3_crossmodal_speaker_binding = (
+        require_h3_speaker_binding(unit)
+        if family == "MINIMAX_H3"
+        else {
+            "schema": "qingshan.h3_crossmodal_speaker_gate.v1_atomic_speaker_turn",
+            "status": "NOT_APPLICABLE",
+            "bindings": [],
+            "failures": [],
+        }
+    )
     role_bindings = []
     for spec in specs:
         role = spec.get("role_semantic_disambiguation") or {}
@@ -445,6 +457,7 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
         "sounds": sounds,
         "environment_motion": environment_motion,
         "voice_bindings": voice_bindings,
+        "h3_crossmodal_speaker_binding": h3_crossmodal_speaker_binding,
         "role_bindings": role_bindings,
         "negative_constraints": negatives,
         "native_audio_contract": str(unit.get("native_audio_contract") or ""),
@@ -471,6 +484,12 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
                 for index in range(len(specs))
             ] + ["background_ecology_contract", "weather_visibility_contract"],
             "voice_bindings": ["speaker_voice_contract.bindings"],
+            "h3_crossmodal_speaker_binding": [
+                "speaker_voice_contract.bindings",
+                "provider_entity_token_map",
+                "provider_scope_projection.reference_identity_bindings",
+                "ordered_prompt_specs[].dialogue",
+            ],
             "role_bindings": [
                 f"ordered_prompt_specs[{index}].role_semantic_disambiguation"
                 for index in range(len(specs))
@@ -485,6 +504,8 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
         for key in (
             "duration_seconds", "unit_class", "e51_rectification_required", "identity_prop_fact", "space_weather_fact",
             "duration_authority", "unit_classification_gate", "camera_plan", "camera_language_selection", "camera_authority_gate", "cross_episode_event_continuity_gate", "event_boundary_decision", "persistent_state_contract", "shot_state_contracts", "internal_shot_state_chain", "wuxia_combat_profile_selection", "transition", "beats", "sounds", "environment_motion",
+            # Cross-modal H3 binding is a model-specific rendering guard and is
+            # intentionally excluded from the shared SD2/H3 semantic hash.
             "action_ir", "voice_bindings", "negative_constraints", "native_audio_contract",
             "interaction_topology_required", "combat_execution_required",
         )
