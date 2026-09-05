@@ -4269,7 +4269,7 @@
     },
     {
       "path": "tools/media_boundary_acceptance.py",
-      "sha256": "b5cbc548083a9bbfd05322afd9bc22dc0c8b7e22b93f9294e27cfab605344bf5"
+      "sha256": "5bf5610a0b6999bd9d7f4aa37972c044962939adb10062be3b65e218bdd12412"
     },
     {
       "path": "tools/media_frame_integrity.py",

@@ -41,6 +41,7 @@ deterministic. Verification works from a GitHub source ZIP without Git.
 | Audio leveling | Failed render could erase an existing approved output | Require fresh distinct versioned media/QA paths; keep native audio and bit-exact video check |
 | QA resources | Missing mandatory references could be silently skipped | Explicit failure; locate auditors in engine, not private manifest directory |
 | CLI deployment | `--` forwarding and relative paths broke outside engine root | Normalize caller paths before launching engine tools; explicit runtime root |
+| Optional dependencies | Importing pure boundary evidence checks required Pillow on clean CI | Load Pillow only in image-processing functions; media processing still requires the declared media extra |
 | Writer self-check | Nonfinite limits could escape numeric comparisons | Fail nonfinite values; close read handles correctly |
 
 ## Local capabilities previously missing from the public version
