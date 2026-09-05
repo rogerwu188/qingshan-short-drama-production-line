@@ -22,12 +22,15 @@ def included(name: str) -> bool:
     if name == MANIFEST or not path.parts:
         return False
     if path.parts[0] in {"tools", "qingshan_engine"}:
-        return path.suffix in {".py", ".sh"}
+        return (path.suffix in {".py", ".sh", ".swift", ".js"}
+                or ("schemas" in path.parts and path.suffix == ".json"))
+    if path.parts[0] == "configs":
+        return path.suffix == ".json"
     if path.parts[0] == "agent_factory":
         # Runtime state is private; skeletons/templates in the source archive
         # are installation resources, not files to overwrite on an active site.
         return ("state" not in path.parts and path.name != "SUPERVISOR_ORDERS.json"
-                and path.suffix in {".py", ".sh", ".json", ".md", ".yaml", ".yml"})
+                and path.suffix in {".py", ".sh", ".json", ".md", ".txt", ".yaml", ".yml"})
     return name in {
         "pyproject.toml", "setup.py", "requirements.txt",
         "configs/PORTABLE_CORE_MANIFEST.json",

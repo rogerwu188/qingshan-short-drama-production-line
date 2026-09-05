@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1766,
+  "file_count": 1795,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -50,6 +50,10 @@
     {
       "path": "agent_factory/claude_writer/runtime_templates/\u89c2\u4f17\u5df2\u77e5\u6e05\u5355.md",
       "sha256": "20aeda7beb8aaf9aa591df6a1aee5254d48bb5c0868fec2fd0fc05f81a9b9830"
+    },
+    {
+      "path": "agent_factory/claude_writer_v2/PACKAGE_MANIFEST.txt",
+      "sha256": "34f44eaeb7a7107653fba21dffd69fac20539a706df547d22431eeacd98d8cd9"
     },
     {
       "path": "agent_factory/claude_writer_v2/README.md",
@@ -164,6 +168,18 @@
       "sha256": "7308a039f4dfe06ca27c1b0021809592d84d354a4aefec275e4c21e80317fd61"
     },
     {
+      "path": "configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json",
+      "sha256": "5a58c96cdf8721ba3e4ed401819723f7254160494812c334f790578dae18f838"
+    },
+    {
+      "path": "configs/ACTION_VIDEO_GENERATION_METHOD_V2.json",
+      "sha256": "01bf367a04cafd34ee21d45d90d12c477447ed61493e59e16715b6b11b070a54"
+    },
+    {
+      "path": "configs/COMBAT_ACTION_LIBRARY_V1.json",
+      "sha256": "23af3e4be699f125e925fa90af3f470cc671b15b0528d9fbe9b6531ad25c9c96"
+    },
+    {
       "path": "configs/GATE_REGISTRY_v3_20260716.json",
       "sha256": "0b7d478904638f0d9e22452971b7aa8d95b9e7445355b53e364ff187fd0613a4"
     },
@@ -182,6 +198,34 @@
     {
       "path": "configs/VIDEO_MODEL_CAPABILITY_REGISTRY_v1.json",
       "sha256": "862035dcb1299eb7dae3c1d07746e90ae330e6781bc4da12ad218a5d4c75dc62"
+    },
+    {
+      "path": "configs/VOICE_REFERENCE_REGISTRY.example.json",
+      "sha256": "795b78d023bc1d43c3e9176c54fbdcd6e75b6bcec8a29f67cf4365bac209ba6f"
+    },
+    {
+      "path": "configs/WUXIA_COMBAT_PROMPT_PROFILES_V1.json",
+      "sha256": "51c1be00247d6cc7ed0cf1f8d355defbc84bdd428edafb5ab136aa2049006119"
+    },
+    {
+      "path": "configs/audio_postproduction_profiles_v1_20260821.json",
+      "sha256": "633f3611a8278790032bdc1b4a0d17e985f7e205810f4786339f12c07985d44c"
+    },
+    {
+      "path": "configs/camera_language_profiles.v1.json",
+      "sha256": "5f004c6d6816c68b7623d183940dbec70d937b17f17b7cffc330c559158b084c"
+    },
+    {
+      "path": "configs/pipeline.example.json",
+      "sha256": "ca8e188ca71710597d8a61278defa12d6a7630ba7b74ead0aa417c4914cb0b61"
+    },
+    {
+      "path": "configs/reroll_cost_guard_policy_v1_20260716.json",
+      "sha256": "f67913ef58eafbc06813b064698c0ce471bbbcb1f62d35bbc773090967870889"
+    },
+    {
+      "path": "configs/schemas/narrative_canonical_v3.schema.json",
+      "sha256": "6745a600d2e0a44ae720c0d0e38fae8c0a77214af2bd2672760090c22cbf433c"
     },
     {
       "path": "pyproject.toml",
@@ -230,6 +274,10 @@
     {
       "path": "tools/add_agentcut_subtitle_track.py",
       "sha256": "0026bf95bc40c6687e6a4e5941c5d9c2fa4e910fb8a86b9ba6df926fbb7d3bb0"
+    },
+    {
+      "path": "tools/add_e01_sound_v3.swift",
+      "sha256": "864372381fd3b13cfe0ebb78f7a0d54055d0877304d153ccdaf150caedb455fa"
     },
     {
       "path": "tools/adjudicate_admit_e40_u06_v4_and_dispatch_u07.py",
@@ -416,6 +464,10 @@
       "sha256": "ba43173f5be5973a7855e620f5888e7f923b43577504e34490d8d56211853fef"
     },
     {
+      "path": "tools/analyze_reference_video.swift",
+      "sha256": "f3de117dbda29d1a942135b67fbe71cf4f73d56657568d7f8e37d9ad87c581a1"
+    },
+    {
       "path": "tools/anti_padding_gate.py",
       "sha256": "98799979f50d6e76dd0d087bbe58e4f74af039c9e657fc968e75e0655597ed41"
     },
@@ -438,6 +490,14 @@
     {
       "path": "tools/apply_image_tier_score_gate.py",
       "sha256": "1f88835c1bd2ed91816819198b24b23478fdf21ba6f3340cea300ab4a02c3a15"
+    },
+    {
+      "path": "tools/assemble_e01_final.swift",
+      "sha256": "17e2816da89114870b7cd6932d250b924e5b7e7a42b833dad6011c7a53da13b9"
+    },
+    {
+      "path": "tools/assemble_e02_final.swift",
+      "sha256": "301dd694bebdecff4216bc698a9bd0a70726d17371c958f2dba6477013961243"
     },
     {
       "path": "tools/assemble_qa_e40_u01_u16_runtime_repaired_prefix.py",
@@ -914,6 +974,10 @@
     {
       "path": "tools/build_claude_writer_beat_dialogue_inventory.py",
       "sha256": "13923f70de17b8cf48cdfd4053f3d63a5e7dd30a5cb3d96241e86afe74ded025"
+    },
+    {
+      "path": "tools/build_e03_fast_local.swift",
+      "sha256": "19bbf80d75be8a209469db5d5a62a7ffee9d28d79797791d7af92204fd24124d"
     },
     {
       "path": "tools/build_e08_api_fallback_plan_20260709.py",
@@ -2844,6 +2908,10 @@
       "sha256": "d5a0fb444027eb6e729eb530a3ea3397a2aefbd7209cbee64b180bc17f5676fb"
     },
     {
+      "path": "tools/burn_e01_subtitles.swift",
+      "sha256": "fa3d58a0274561925ab982b0a750fb82eda6d9eb8377dd063f1d8ba3eb8bfc61"
+    },
+    {
       "path": "tools/burn_e40_v16_canonical_subtitles.py",
       "sha256": "9e192e86d1cb45fc87e7c52702922017588067ebe991b4bb6bdbd441100c5a58"
     },
@@ -3044,6 +3112,10 @@
       "sha256": "0dc725514806ffa71a58b2dbc9ab6786a1ad1e2762c7989ffa38410bb516abd4"
     },
     {
+      "path": "tools/concat_mp4s.swift",
+      "sha256": "0823e9990f8cec204843bea2e610939b4ca0f73dfbb77e2237f8e162363077a2"
+    },
+    {
       "path": "tools/container_duration_consistency_gate.py",
       "sha256": "65f5f1299a84fe3e776d1dfb8a7b7dacd5bdcfc863ed62a15d83249e656c6505"
     },
@@ -3085,7 +3157,7 @@
     },
     {
       "path": "tools/deployment_code_integrity.py",
-      "sha256": "053fa2cf8ee9a36b5da19488af376e886638afe06e38b22cb620151f96ab35a4"
+      "sha256": "a718dd72da9d47af506c5a13417351ac01f66a4b066d0c4bc9c441737234d380"
     },
     {
       "path": "tools/derive_e16_speech_windows.py",
@@ -3492,8 +3564,24 @@
       "sha256": "210eb8011c16b9e8da4cec1a2cdd3485039c34a75c678b25f9c3b2727858a3b3"
     },
     {
+      "path": "tools/extract_foreground_macos_vision.swift",
+      "sha256": "bf5db7071921ac4e38ea36abc7728f59650107e0fa887ae37bf94b2959716b29"
+    },
+    {
       "path": "tools/extract_reference_subtitles.py",
       "sha256": "fe8bc103f905b0a15bd525cb9cfd1d6aa64efa21d75188c86e58b787ec1b721e"
+    },
+    {
+      "path": "tools/extract_specific_frames.swift",
+      "sha256": "cd5c0825ba991801e31bf47b78fd2ff5b7fca441b31b678a3c71839e82135ef1"
+    },
+    {
+      "path": "tools/extract_video_frames.swift",
+      "sha256": "2da35dbda82f5eae8f03cd05e8b0f40f04908f809257ffa61441724c2e4d72c4"
+    },
+    {
+      "path": "tools/extract_video_timeline_frames.swift",
+      "sha256": "38ec1191c2bdddb797965cc7052161e8d49f2dafb77dab8b71bd875315631c42"
     },
     {
       "path": "tools/factory_cron_contract.py",
@@ -3526,6 +3614,10 @@
     {
       "path": "tools/final_video_ocr_audit.py",
       "sha256": "f54cf18a0e1e1e0b64c4ad85ff579a08a307bf260358d832fc773435bcfc4762"
+    },
+    {
+      "path": "tools/final_video_ocr_audit.swift",
+      "sha256": "a5534f7de6aaf61ad98e71a83c677b5fb9216e4f9e6f25eb556dec7eb982338c"
     },
     {
       "path": "tools/finalize_action_xuanhuan_council.py",
@@ -4168,6 +4260,10 @@
       "sha256": "5374820176756be8bad6e1961de8c4fe83e69125e4ea32a6967d425853a730e6"
     },
     {
+      "path": "tools/inspect_mp4s.swift",
+      "sha256": "fe8fd132eaccde861308671d5434fdbf8fbfbeb054ee34a9477aaf013b498f7f"
+    },
+    {
       "path": "tools/integrate_e40_parallel_preproduction_checkpoint.py",
       "sha256": "f0f8ff2267856c7ecc20b4140e5c2b3b30db2b1dd8e123b24fa6b28612f2f9af"
     },
@@ -4252,6 +4348,10 @@
       "sha256": "5a6c5e9d4398914c33993dd65c651e404eb7cdbe541930f4aa0d1f9a8aea4f2f"
     },
     {
+      "path": "tools/make_contact_sheet.swift",
+      "sha256": "aea1ff43806ab9b9416cf0f45fde7edfe0378e8ce9c08a65223a9f8e0c1a8b97"
+    },
+    {
       "path": "tools/manifest_self_limit_and_version_assert.py",
       "sha256": "32569c1d09f3622e62fce2185adfe8ea7554d93ba939188205b0e7851b97692f"
     },
@@ -4292,6 +4392,10 @@
       "sha256": "b8cc1ea679ef2d230c52f3aac5dc4c71f59c860de07589440483e17e1ca3d06a"
     },
     {
+      "path": "tools/mix_e03_fast_voice_audio.js",
+      "sha256": "ae55a6b036d1204d9cec4e313d154394aa1ceccfecaae1920e479ad5aec1a8d2"
+    },
+    {
       "path": "tools/model_generated_media_integrity_policy.py",
       "sha256": "608535d1c36b894bd9ae49f5099a879c222935b58e8319b80ae9e831ddecd38b"
     },
@@ -4310,6 +4414,14 @@
     {
       "path": "tools/pacing_style_gate.py",
       "sha256": "19cc9d1d454a15fde8d5eae8a69ce11791f682c89b99aa7150a654d5caa1ed3e"
+    },
+    {
+      "path": "tools/package_e01_with_title_brand.swift",
+      "sha256": "66a3ad35241b6534a9f2bcb72b4303546f9db93e1e0d2eb4f426ddd8c6fbef75"
+    },
+    {
+      "path": "tools/package_e03_fast_rebuild_ad.swift",
+      "sha256": "025e6e6a49d5c61578ad871cbe039ba94ff87f1bcdd98df82f9b79e1c2016c39"
     },
     {
       "path": "tools/package_e03_recut17_20260625.py",
@@ -5230,6 +5342,10 @@
     {
       "path": "tools/scene_authority_lock.py",
       "sha256": "a2435f8206c48a89a27b1b37376506a38abe75d2aaece5d558be1bccf29cec53"
+    },
+    {
+      "path": "tools/schemas/qingshan_image_visual_adjudication_v1.schema.json",
+      "sha256": "5011ceba8cdef2cf99f0a6519404a92c4f8a1ab354091aec3a27644a48358873"
     },
     {
       "path": "tools/script_density_gate_preflight.py",
