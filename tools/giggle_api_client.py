@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import base64
 import contextlib
+from contextvars import ContextVar
 import json
 import os
 import sys
@@ -40,18 +41,27 @@ VIDEO_GENERATION_ENDPOINTS = {
     "/api/v1/generation/image-to-video",
     "/api/v1/generation/omni-video",
 }
-_PAID_VIDEO_SUBMISSION_CONTEXT_DEPTH = 0
+_PAID_VIDEO_SUBMISSION_CONTEXT_DEPTH = ContextVar("paid_video_submission_depth", default=0)
+_DURABLE_GENERATION_CONTEXT = ContextVar("durable_generation_context", default=False)
+
+
+@contextlib.contextmanager
+def durable_generation_context():
+    token = _DURABLE_GENERATION_CONTEXT.set(True)
+    try:
+        yield
+    finally:
+        _DURABLE_GENERATION_CONTEXT.reset(token)
 
 
 @contextlib.contextmanager
 def paid_video_submission_context():
     """Permit video transport only inside an already validated submitter call."""
-    global _PAID_VIDEO_SUBMISSION_CONTEXT_DEPTH
-    _PAID_VIDEO_SUBMISSION_CONTEXT_DEPTH += 1
+    token = _PAID_VIDEO_SUBMISSION_CONTEXT_DEPTH.set(_PAID_VIDEO_SUBMISSION_CONTEXT_DEPTH.get() + 1)
     try:
         yield
     finally:
-        _PAID_VIDEO_SUBMISSION_CONTEXT_DEPTH -= 1
+        _PAID_VIDEO_SUBMISSION_CONTEXT_DEPTH.reset(token)
 
 
 def _api_key() -> str:
@@ -101,7 +111,7 @@ def _urlopen_json(
 
 
 def _request(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    if path in VIDEO_GENERATION_ENDPOINTS and _PAID_VIDEO_SUBMISSION_CONTEXT_DEPTH <= 0:
+    if path in VIDEO_GENERATION_ENDPOINTS and _PAID_VIDEO_SUBMISSION_CONTEXT_DEPTH.get() <= 0:
         raise SystemExit(
             "paid video transport blocked before network: invoke the durable video submitter; "
             "direct low-level POST cannot bypass transaction and prompt-lineage gates"
@@ -111,7 +121,10 @@ def _request(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
             "paid video submission blocked: model must be seedance-2.0-pro "
             "or MiniMax-H3; Fast, Mini, the bare seedance-2.0 SKU, and unknown models are forbidden"
         )
-    if path.startswith("/api/v1/generation/") and os.environ.get("QINGSHAN_DURABLE_SUBMITTER_CONTEXT") != "1":
+    if (path.startswith("/api/v1/generation/")
+            and _PAID_VIDEO_SUBMISSION_CONTEXT_DEPTH.get() <= 0
+            and not _DURABLE_GENERATION_CONTEXT.get()
+            and os.environ.get("QINGSHAN_DURABLE_SUBMITTER_CONTEXT") != "1"):
         raise SystemExit(
             "paid generation blocked before network: durable transaction context is required"
         )

@@ -36,11 +36,7 @@ DEFAULT_CONTRACT: dict[str, Any] = {
 
 
 def bind_visual_culture_contract(payload: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy without inventing a cultural profile downstream.
-
-    Kept as a compatibility entry point.  The Writer/Director owns selection;
-    prompt compilers may only preserve and validate that decision.
-    """
+    """Preserve Writer-owned culture decisions; never invent them downstream."""
     result = deepcopy(payload)
     return result
 
@@ -58,6 +54,13 @@ def prompt_block_zh(contract: dict[str, Any] | None = None) -> str:
 def prompt_block_en(contract: dict[str, Any] | None = None) -> str:
     if not isinstance(contract, dict):
         return ""
+    if contract.get("provider_scene_domain") == "REALITY_NORTHERN_SONG":
+        return (
+            "EAST-ASIAN PERIOD VISUAL LOCK: Northern Song Chinese civilian clinic or street; Song timber, gray tile, stone, ceramic, "
+            "bamboo and historically appropriate civilian dress; muted ink-blue/moon-white/ochre, soft motivated daylight, real materials. "
+            "Never western medieval, Gothic, heraldic, black-gold fantasy, game-poster or teal-orange design. "
+            "Keep the frame strictly civilian and render only registered current-unit elements."
+        )
     return (
         "EAST-ASIAN PERIOD VISUAL LOCK: Northern Song Chinese wuxia; Song timber/dress, lamellar or mountain-pattern armor, Chinese helmets; "
         "muted ink-blue/moon-white/ochre, soft motivated light, real materials. Never European medieval/Gothic, Western plate armor/pointed knight helmets, "
@@ -70,7 +73,9 @@ def _episode_number(payload: dict[str, Any]) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def validate_visual_culture_contract(payload: dict[str, Any], *, prompt_text: str | None = None) -> dict[str, Any]:
+def validate_visual_culture_contract(
+    payload: dict[str, Any], *, prompt_text: str | None = None,
+) -> dict[str, Any]:
     episode = _episode_number(payload)
     required = episode is not None and episode >= ACTIVE_FROM_EPISODE
     contract = payload.get("visual_culture_contract")
@@ -93,7 +98,9 @@ def validate_visual_culture_contract(payload: dict[str, Any], *, prompt_text: st
             failures.append("VISUAL_CULTURE_FORBIDDEN_INFLUENCES_INCOMPLETE")
         if prompt_text is not None:
             required_tokens = (
-                ("EAST-ASIAN PERIOD VISUAL LOCK", "Northern Song", "European medieval", "Western plate armor", "black-gold")
+                (("EAST-ASIAN PERIOD VISUAL LOCK", "Northern Song", "western medieval", "strictly civilian", "black-gold")
+                 if contract.get("provider_scene_domain") == "REALITY_NORTHERN_SONG" else
+                 ("EAST-ASIAN PERIOD VISUAL LOCK", "Northern Song", "European medieval", "Western plate armor", "black-gold"))
                 if "EAST-ASIAN PERIOD VISUAL LOCK" in prompt_text else
                 (PROFILE_ID, "宋", "东方", "欧洲", "板甲", "黑金")
             )
@@ -105,7 +112,10 @@ def validate_visual_culture_contract(payload: dict[str, Any], *, prompt_text: st
         if str(row.get("identity_visual_contract") or "").upper() != "FULLY_CONCEALED_IDENTITY":
             continue
         if row.get("cultural_style_profile_id") != PROFILE_ID:
-            failures.append("FULL_APPEARANCE_IDENTITY_REFERENCE_CULTURE_UNADMITTED:" + str(row.get("entity_id") or "UNKNOWN"))
+            failures.append(
+                "FULL_APPEARANCE_IDENTITY_REFERENCE_CULTURE_UNADMITTED:"
+                + str(row.get("entity_id") or "UNKNOWN")
+            )
     return {
         "schema": "qingshan.visual_culture_contract_gate.v1",
         "status": "PASS" if not failures else "FAIL",

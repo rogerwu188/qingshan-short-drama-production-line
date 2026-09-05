@@ -394,6 +394,20 @@ class VideoPromptCompilerTest(unittest.TestCase):
             for value in report["failures"]
         ))
 
+    def test_h3_positive_single_subject_profile_omits_population_absence_nouns(self):
+        unit = _unit(dialogue="白鲤：陈迹。")
+        unit["h3_prompt_profile"] = "H3_POSITIVE_SINGLE_SUBJECT_V1"
+        text = _compile_h3(unit)
+        self.assertIn("SUBJECT_1 fills the composed medium frame", text)
+        self.assertIn("SPEAKER_1 performs the literal", text)
+        for forbidden in (
+            "all other people",
+            "background population count",
+            "unbound living entity",
+            "Only bound identities are visible",
+        ):
+            self.assertNotIn(forbidden, text)
+
 
 if __name__ == "__main__":
     unittest.main()

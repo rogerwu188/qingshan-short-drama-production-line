@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from typing import Any
 
@@ -83,6 +85,51 @@ def role_semantic_compact_prompt_block(row: dict[str, Any]) -> str:
     )
 
 
+def role_semantic_visual_scope_prompt_block(row: dict[str, Any]) -> str:
+    """Serialize only provider-visible roles while preserving hidden IDs by hash.
+
+    Image and video models often render a named entity even when prose says it
+    is absent.  Machine evidence keeps the full role graph; this provider block
+    names only visible entities and proves the omitted set with a stable digest.
+    """
+    presence = row.get("entity_presence") or {}
+    visible_states = {
+        "VISIBLE_AND_IDENTITY_LOCKED",
+        "OWNER_PARTIALLY_OCCLUDED_BUT_ANATOMICALLY_CONTINUOUS",
+    }
+    visible = sorted(
+        _clean(entity) for entity, state in presence.items()
+        if _clean(state) in visible_states and _clean(entity)
+    )
+    hidden = sorted(
+        _clean(entity) for entity, state in presence.items()
+        if _clean(state) not in visible_states and _clean(entity)
+    )
+    hidden_sha = hashlib.sha256(
+        json.dumps(hidden, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    actor = _clean(row.get("primary_actor"))
+    speaker = _clean(row.get("dialogue_speaker"))
+    actor_visible = actor if actor in visible else "OFFSCREEN_OR_NONVISUAL"
+    speaker_visible = speaker if speaker in visible else "NONE_VISIBLE"
+    return (
+        f"VISUAL_ROLE_LOCK[{_clean(row.get('shot_id')) or 'UNRESOLVED'}]:"
+        f"VISIBLE={','.join(visible) or 'NONE'};VISIBLE_COUNT={len(visible)};"
+        f"VISIBLE_ACTOR={actor_visible};VISIBLE_SPEAKER={speaker_visible};"
+        f"HIDDEN_ENTITY_COUNT={len(hidden)};HIDDEN_ENTITY_SHA={hidden_sha};"
+        "NEVER_RENDER_HIDDEN_ENTITIES;NEVER_SWAP_MERGE_SPLIT_INVENT_OR_REVOICE."
+    )
+
+
+def _is_provider_visible(row: dict[str, Any], value: str, key: str) -> bool:
+    presence = row.get("entity_presence") or {}
+    state = _clean(presence.get(key) or presence.get(value))
+    return state in {
+        "VISIBLE_AND_IDENTITY_LOCKED",
+        "OWNER_PARTIALLY_OCCLUDED_BUT_ANATOMICALLY_CONTINUOUS",
+    }
+
+
 def _episode_number(value: Any) -> int:
     match = re.match(r"E(\d+)", str(value or "").upper())
     return int(match.group(1)) if match else 0
@@ -151,6 +198,8 @@ def validate_role_semantics(
         patient_key = _clean(row.get("action_patient_id")) or patient
         states = row.get("entity_states") or {}
         presence = row.get("entity_presence") or {}
+        visual_block = role_semantic_visual_scope_prompt_block(row)
+        visual_scope_mode = prompt_text.count(visual_block) == 1
         if not actor:
             failures.append(f"{prefix}_PRIMARY_ACTOR_MISSING")
         if actor_kind not in {"CHARACTER", "GROUP", "PROP", "ENVIRONMENT", "ANIMAL", "BODY_PART"}:
@@ -158,7 +207,8 @@ def validate_role_semantics(
         body_part_owner = _clean(row.get("body_part_owner"))
         if actor_kind == "BODY_PART" and not body_part_owner:
             failures.append(f"{prefix}_BODY_PART_OWNER_MISSING")
-        if speaker and not listener:
+        dialogue_mode = _clean(row.get("dialogue_mode"))
+        if speaker and not listener and dialogue_mode != "SELF_DIRECTED_SPEECH":
             failures.append(f"{prefix}_DIALOGUE_LISTENER_MISSING")
         if listener and not speaker:
             failures.append(f"{prefix}_LISTENER_WITHOUT_SPEAKER")
@@ -187,13 +237,14 @@ def validate_role_semantics(
         for entity, value in presence.items():
             if _clean(value) not in allowed_presence:
                 failures.append(f"{prefix}_ENTITY_PRESENCE_INVALID:{entity}:{value}")
-        for label, value in (
-            ("PRIMARY_ACTOR", actor),
-            ("DIALOGUE_SPEAKER", speaker),
-            ("DIALOGUE_LISTENER", listener),
-            ("ACTION_PATIENT", patient),
+        for label, value, key in (
+            ("PRIMARY_ACTOR", actor, actor_key),
+            ("DIALOGUE_SPEAKER", speaker, speaker_key),
+            ("DIALOGUE_LISTENER", listener, listener_key),
+            ("ACTION_PATIENT", patient, patient_key),
         ):
-            if value and value not in prompt_text:
+            hidden_by_projection = visual_scope_mode and not _is_provider_visible(row, value, key)
+            if value and not hidden_by_projection and value not in prompt_text:
                 failures.append(f"{prefix}_{label}_NOT_BOUND_IN_PROMPT:{value}")
         for field in (
             "first_person_pronoun",
@@ -204,7 +255,8 @@ def validate_role_semantics(
             "body_part_owner",
         ):
             value = _clean(row.get(field))
-            if value and value not in prompt_text:
+            hidden_by_projection = visual_scope_mode and not _is_provider_visible(row, value, value)
+            if value and not hidden_by_projection and value not in prompt_text:
                 failures.append(f"{prefix}_{field.upper()}_NOT_BOUND_IN_PROMPT:{value}")
             if value and value not in states:
                 failures.append(f"{prefix}_{field.upper()}_NOT_REGISTERED:{value}")
@@ -213,12 +265,19 @@ def validate_role_semantics(
         for entity, state in states.items():
             if not _clean(entity) or not _clean(state):
                 failures.append(f"{prefix}_EMPTY_ENTITY_STATE")
-            elif str(entity) not in prompt_text:
+            elif not (
+                visual_scope_mode
+                and not _is_provider_visible(row, str(entity), str(entity))
+            ) and str(entity) not in prompt_text:
                 failures.append(f"{prefix}_ENTITY_STATE_NOT_BOUND_IN_PROMPT:{entity}")
 
         full_block = role_semantic_prompt_block(row)
         compact_block = role_semantic_compact_prompt_block(row)
-        block_count = prompt_text.count(full_block) + prompt_text.count(compact_block)
+        block_count = (
+            prompt_text.count(full_block)
+            + prompt_text.count(compact_block)
+            + prompt_text.count(visual_block)
+        )
         if block_count != 1:
             failures.append(f"{prefix}_EXACT_ROLE_BLOCK_COUNT:{block_count}")
 
@@ -231,8 +290,13 @@ def validate_role_semantics(
         "ROLE_LOCK[", "ACTOR=", "ACTOR_KIND=", "SPEAKER=", "LISTENER=",
         "PATIENT=", "PRESENCE=", "NEVER_SWAP_MERGE_SPLIT_INVENT_OR_REVOICE",
     ))
-    if not (full_lock or compact_lock):
-        failures.append("ROLE_PROMPT_HARD_LOCK_MISSING:FULL_OR_COMPACT_ROLE_LOCK")
+    visual_lock = all(phrase in prompt_text for phrase in (
+        "VISUAL_ROLE_LOCK[", "VISIBLE=", "VISIBLE_COUNT=", "VISIBLE_ACTOR=",
+        "HIDDEN_ENTITY_SHA=", "NEVER_RENDER_HIDDEN_ENTITIES",
+        "NEVER_SWAP_MERGE_SPLIT_INVENT_OR_REVOICE",
+    ))
+    if not (full_lock or compact_lock or visual_lock):
+        failures.append("ROLE_PROMPT_HARD_LOCK_MISSING:FULL_COMPACT_OR_VISUAL_SCOPE_ROLE_LOCK")
     return failures
 
 
@@ -287,7 +351,8 @@ def validate_role_semantics_structure(
             failures.append(f"{prefix}_PRIMARY_ACTOR_KIND_INVALID:{actor_kind}")
         if actor_kind == "BODY_PART" and not body_part_owner:
             failures.append(f"{prefix}_BODY_PART_OWNER_MISSING")
-        if speaker and not listener:
+        dialogue_mode = _clean(row.get("dialogue_mode"))
+        if speaker and not listener and dialogue_mode != "SELF_DIRECTED_SPEECH":
             failures.append(f"{prefix}_DIALOGUE_LISTENER_MISSING")
         if listener and not speaker:
             failures.append(f"{prefix}_LISTENER_WITHOUT_SPEAKER")

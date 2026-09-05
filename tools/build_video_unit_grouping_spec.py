@@ -72,7 +72,7 @@ def partition_scene(
             duration = round(duration + float(shots[start]["duration_seconds"]), 6)
             prompt_spec = shots[start].get("prompt_spec") or {}
             dialogue_count += 1 if str(prompt_spec.get("dialogue") or shots[start].get("dialogue") or "").strip() else 0
-            speaker = _dialogue_speaker(shots[start])
+            speaker = _dialogue_speaker(shots[start]) if h3 else ""
             if speaker:
                 dialogue_speakers.add(speaker)
             if duration > 12:

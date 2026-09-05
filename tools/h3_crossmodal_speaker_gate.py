@@ -57,6 +57,9 @@ def evaluate(unit: dict[str, Any]) -> dict[str, Any]:
         )
 
     voice_contract = unit.get("speaker_voice_contract") or {}
+    names = [str(row.get("speaker") or "").strip() for row in voice_contract.get("bindings") or []]
+    if len(set(names)) != len(names):
+        failures.append(f"H3_DUPLICATE_SPEAKER_VOICE_BINDING:{source_id}")
     voice_by_speaker = {
         str(row.get("speaker") or "").strip(): row
         for row in voice_contract.get("bindings") or []
@@ -86,7 +89,7 @@ def evaluate(unit: dict[str, Any]) -> dict[str, Any]:
 
         raw_audio_slot = str(voice.get("audio_slot") or "").strip()
         audio_match = _AUDIO_SLOT.fullmatch(raw_audio_slot)
-        if not audio_match:
+        if not audio_match or int(audio_match.group(1)) < 1:
             failures.append(
                 f"H3_SPEAKER_AUDIO_SLOT_INVALID:{source_id}:{speaker}:{raw_audio_slot}"
             )
@@ -109,13 +112,18 @@ def evaluate(unit: dict[str, Any]) -> dict[str, Any]:
                 f"H3_SPEAKER_IMAGE_BINDING_COUNT:{source_id}:{speaker}:{character_id}:{len(matches)}"
             )
             continue
-        try:
-            reference_index = int(matches[0].get("reference_index"))
-        except (TypeError, ValueError):
+        reference_index = matches[0].get("reference_index")
+        if type(reference_index) is not int or reference_index < 1:
             failures.append(
                 f"H3_SPEAKER_IMAGE_SLOT_INVALID:{source_id}:{speaker}:"
                 f"{matches[0].get('reference_index')}"
             )
+            continue
+        if "reference_images" in unit and reference_index > len(unit["reference_images"]):
+            failures.append(f"H3_SPEAKER_IMAGE_SLOT_OUT_OF_RANGE:{source_id}:{speaker}")
+            continue
+        if "reference_audio_urls" in unit and audio_index > len(unit["reference_audio_urls"]):
+            failures.append(f"H3_SPEAKER_AUDIO_SLOT_OUT_OF_RANGE:{source_id}:{speaker}")
             continue
         image_slot = f"@Image{reference_index}"
         label = str(

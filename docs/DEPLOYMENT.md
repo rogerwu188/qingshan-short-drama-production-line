@@ -85,6 +85,30 @@ may implement the same receipt interface.
 
 ## 6. Testing scopes
 
+Release 0.3.1 adds a byte-level inventory for reusable engine code, Writer Agent
+resources and shared registries. After extracting a trusted GitHub release (Git
+is not needed for verification), run:
+
+```bash
+python3 tools/deployment_code_integrity.py
+# Compare another active installation against this release's inventory:
+python3 tools/deployment_code_integrity.py --root /path/to/active-engine \
+  --out deployment-code-integrity.json
+```
+
+The inventory deliberately excludes private episode assets, runtime state,
+credentials and publication receipts. It does not certify those inputs or
+authorize spending. Do not overwrite a runtime workspace with repository
+templates. A source checkout plus editable install is the supported package;
+the small Python wheel alone does not contain the complete production tools.
+
+Automatic publication additionally requires a deployer's own persistent owner
+authority referenced by `work_queue.rules.auto_publish_owner_authority_ref`.
+`configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json` defines behavior, not consent.
+Do not copy another operator's authority. Browser security confirmations and
+platform authentication still apply; no code can waive them. A missing authority
+holds publication rather than fabricating approval.
+
 `make test` is the clean-clone contract and runs without production assets.
 `make test` also resolves every code, test, stage-runner and manual-checklist
 path registered in `configs/GATE_REGISTRY_v3_20260716.json`. A green unit

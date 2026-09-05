@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -169,8 +170,8 @@ def validate_media_boundary_acceptance(line: dict, root: Path) -> dict:
         result["reason"] = "media_boundary_acceptance_not_pass"
         return result
     rows = report.get("rows") or []
-    if int(report.get("boundary_count") or -1) != len(rows) or any(
-        row.get("status") != "PASS" for row in rows
+    if type(report.get("boundary_count")) is not int or report["boundary_count"] != len(rows) or any(
+        not isinstance(row, dict) or row.get("status") != "PASS" for row in rows
     ):
         result["reason"] = "media_boundary_rows_incomplete"
         return result
@@ -213,11 +214,21 @@ def validate_speaker_identity_voice_release(line: dict, root: Path) -> dict:
     required_count = report.get("required_dialogue_count")
     evidence_count = report.get("evidence_count")
     if (
-        not isinstance(required_count, int)
-        or required_count < 0
+        type(required_count) is not int
+        or type(evidence_count) is not int
+        or required_count <= 0
         or evidence_count != required_count
     ):
         result["reason"] = "speaker_identity_voice_release_evidence_incomplete"
+        return result
+    if line.get("episode") and report.get("episode") != line["episode"]:
+        result["reason"] = "speaker_identity_voice_release_episode_mismatch"
+        return result
+    final_path = _resolve_evidence_path(
+        line.get("replacement_production_master") or line.get("production_master") or line.get("final"), root
+    )
+    if not final_path or not final_path.is_file() or report.get("final_sha256") != _sha256(final_path):
+        result["reason"] = "speaker_identity_voice_release_final_sha_mismatch"
         return result
     result.update({
         "valid": True,
@@ -225,6 +236,96 @@ def validate_speaker_identity_voice_release(line: dict, root: Path) -> dict:
         "evidence_count": evidence_count,
         "reason": "verified_speaker_identity_voice_release_gate",
     })
+    return result
+
+
+def validate_release_automation_policy(
+    episode: str, work_queue: dict, root: Path = ROOT
+) -> dict:
+    """Verify persistent owner authority without inventing a content-review gate.
+
+    Browser runtimes may still require a final action-time confirmation.  That is
+    represented as one combined YouTube+Douyin commit boundary, never as a new
+    episode-level editorial approval and never once per platform.
+    """
+    policy_path = root / "configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json"
+    rules = work_queue.get("rules") or {}
+    authority_path = _resolve_evidence_path(
+        rules.get("auto_publish_owner_authority_ref"), root
+    )
+    result = {
+        "valid": False,
+        "policy": str(policy_path),
+        "owner_authority": str(authority_path) if authority_path else None,
+        "additional_owner_content_review_required": True,
+        "confirmation_strategy": None,
+        "auto_start_next_episode": False,
+        "reason": None,
+    }
+
+    try:
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        result["reason"] = "release_automation_policy_missing_or_invalid"
+        return result
+    if (
+        policy.get("schema")
+        != "qingshan.platform_release_automation_policy.v1"
+        or policy.get("status") != "ACTIVE"
+    ):
+        result["reason"] = "release_automation_policy_not_active"
+        return result
+    for exclusion in policy.get("permanent_exclusions") or []:
+        if str(exclusion.get("episode") or "").upper() == episode.upper():
+            result["reason"] = "episode_permanently_excluded_from_publication"
+            return result
+
+    if not authority_path or not authority_path.is_file():
+        result["reason"] = "persistent_owner_publish_authority_missing"
+        return result
+    try:
+        authority = json.loads(authority_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        result["reason"] = "persistent_owner_publish_authority_invalid"
+        return result
+    authority_policy = authority.get("policy") or {}
+    required_false = (
+        rules.get("additional_owner_content_review_before_release_required") is False
+        and authority_policy.get(
+            "additional_owner_content_review_before_release_required"
+        )
+        is False
+    )
+    expected_strategy = (
+        "ONE_COMBINED_CONFIRMATION_FOR_YOUTUBE_AND_DOUYIN_AT_FINAL_COMMIT"
+    )
+    strategy = rules.get("browser_action_confirmation_strategy")
+    if (
+        authority.get("status") != "ACTIVE"
+        or not required_false
+        or strategy != expected_strategy
+        or authority_policy.get("browser_action_confirmation_strategy")
+        != expected_strategy
+    ):
+        result["reason"] = "persistent_owner_publish_authority_policy_mismatch"
+        return result
+
+    result.update(
+        {
+            "valid": True,
+            "additional_owner_content_review_required": False,
+            "confirmation_strategy": expected_strategy,
+            "auto_start_next_episode": bool(
+                rules.get(
+                    "auto_start_next_episode_after_both_terminal_publication_receipts"
+                )
+                and authority_policy.get(
+                    "auto_start_next_episode_after_both_terminal_publication_receipts"
+                )
+            ),
+            "reason": "persistent_owner_authority_verified_no_editorial_reapproval",
+        }
+    )
     return result
 
 
@@ -243,22 +344,33 @@ def evaluate_release_preflight(episode: str, work_queue: dict, root: Path = ROOT
     branding_checks = []
     boundary_checks = []
     speaker_identity_voice_checks = []
+    publication_automation = validate_release_automation_policy(episode_upper, work_queue, root)
+    coherent_candidates = []
+    matched_lines = 0
     for line in (work_queue.get("lines") or {}).values():
         if str(line.get("episode") or "").upper() != episode_upper:
-            if str(line.get("canonical_script") or "").find(f"/{episode_upper}") < 0:
+            if not re.search(r"(?:^|/)" + re.escape(episode_upper) + r"(?:[^0-9]|$)", str(line.get("canonical_script") or "")):
                 continue
+        matched_lines += 1
+        candidate_valid = True
         if (_episode_number(episode_upper) or 0) >= 37:
             branding_checks.append(validate_release_branding(line, root))
+            candidate_valid = candidate_valid and branding_checks[-1]["valid"]
         if (_episode_number(episode_upper) or 0) >= 45:
             boundary_checks.append(validate_media_boundary_acceptance(line, root))
+            candidate_valid = candidate_valid and boundary_checks[-1]["valid"]
         if (_episode_number(episode_upper) or 0) >= 56:
             speaker_identity_voice_checks.append(
                 validate_speaker_identity_voice_release(line, root)
             )
+            candidate_valid = candidate_valid and speaker_identity_voice_checks[-1]["valid"]
+        coherent_candidates.append(candidate_valid)
         status = str(line.get("status") or "").upper()
         stage = str(line.get("stage") or "").upper()
         if stage.startswith("FINAL_LOCKED_"):
             verification = validate_final_lock(line, root)
+            if verification["valid"] and (_episode_number(episode_upper) or 0) >= 37:
+                coherent_candidates[-1] = candidate_valid and verification["sha256"] == branding_checks[-1].get("sha256")
             if verification["valid"]:
                 verified_final_locks.append(verification)
                 continue
@@ -266,6 +378,10 @@ def evaluate_release_preflight(episode: str, work_queue: dict, root: Path = ROOT
             line_holds.append(status)
 
     reasons = []
+    if not matched_lines:
+        reasons.append("episode_not_found_in_work_queue")
+    elif not any(coherent_candidates):
+        reasons.append("release_evidence_not_coherent_on_single_candidate")
     if matching_blocks:
         reasons.append("episode_listed_in_release_blocked_episodes")
     if line_holds:
@@ -283,6 +399,8 @@ def evaluate_release_preflight(episode: str, work_queue: dict, root: Path = ROOT
         ):
             reasons.append("speaker_identity_voice_release_gate_not_verified")
 
+    if (_episode_number(episode_upper) or 0) >= 51 and not publication_automation["valid"]:
+        reasons.append("persistent_publication_automation_not_verified")
     allowed = not reasons
     return {
         "schema": "qingshan.platform_release_preflight.v1",
@@ -296,6 +414,7 @@ def evaluate_release_preflight(episode: str, work_queue: dict, root: Path = ROOT
         "release_branding_checks": branding_checks,
         "media_boundary_acceptance_checks": boundary_checks,
         "speaker_identity_voice_release_checks": speaker_identity_voice_checks,
+        "publication_automation": publication_automation,
         "reasons": reasons,
         "checked_at": now_iso(),
     }
@@ -308,6 +427,7 @@ def main() -> int:
     parser.add_argument("--episode", required=True)
     parser.add_argument("--work-queue", default=str(DEFAULT_WORK_QUEUE))
     parser.add_argument("--receipt")
+    parser.add_argument("--project-root", type=Path, default=ROOT)
     args = parser.parse_args()
 
     queue_path = Path(args.work_queue).expanduser().resolve()
@@ -326,7 +446,7 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 1
 
-    result = evaluate_release_preflight(args.episode, work_queue)
+    result = evaluate_release_preflight(args.episode, work_queue, root=args.project_root.expanduser().resolve())
     result["work_queue"] = str(queue_path)
     if args.receipt:
         receipt = Path(args.receipt).expanduser().resolve()

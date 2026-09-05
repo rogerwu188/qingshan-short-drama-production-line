@@ -13,6 +13,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -505,7 +506,12 @@ def validate_canonical_script_binding(evidence: dict[str, Any]) -> list[str]:
 def _result_status(path: Path) -> str:
     if not path.is_file():
         return "MISSING"
-    payload = _load(path)
+    try:
+        payload = _load(path)
+    except (OSError, ValueError, TypeError):
+        return "INVALID"
+    if not isinstance(payload, dict) or payload.get("failures") or payload.get("hard_gate_passed") is False or payload.get("release_allowed") is False:
+        return "FAIL"
     return str(
         payload.get("status")
         or payload.get("gate_status")
@@ -565,7 +571,7 @@ def execute_gate(
             "failures": [f"required_evidence_missing:{item}" for item in missing],
         }
 
-    expected_script_sha = str(evidence["canonical_script_sha256"]).lower()
+    expected_script_sha = str(evidence.get("canonical_script_sha256") or "").lower()
     binding_failures: list[str] = []
     for key in spec.get("script_bound_arguments", []):
         value = evidence.get(key)
@@ -620,6 +626,8 @@ def execute_gate(
     cmd.extend(spec.get("extra", []))
 
     out_path = out_dir / f"{gate_id}.json"
+    if out_path.exists():
+        out_path.replace(out_path.with_name(f"{gate_id}.previous-{uuid.uuid4().hex}.json"))
     cmd.extend(["--out", str(out_path)])
     proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=False)
     result_status = _result_status(out_path)

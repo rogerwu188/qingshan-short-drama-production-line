@@ -1,6 +1,6 @@
 import unittest
 
-from provider_scope_projection import build_provider_scope_projection, validate_provider_scope_projection
+from tools.provider_scope_projection import build_provider_scope_projection, validate_provider_scope_projection
 
 
 class ProviderScopeProjectionTests(unittest.TestCase):
@@ -70,6 +70,36 @@ class ProviderScopeProjectionTests(unittest.TestCase):
             prompt_text="【任务】旧版兼容", model="seedance-2.0-pro",
         )
         self.assertEqual(report["status"], "NOT_APPLICABLE")
+
+    def test_h3_positive_single_subject_mode_uses_positive_composition_contract(self):
+        projection = self._projection()
+        projection["provider_scope_prompt_mode"] = "POSITIVE_SINGLE_SUBJECT_MACHINE_GRAPH_ONLY"
+        task = {"model": "MiniMax-H3", "provider_scope_projection": projection}
+        prompt = (
+            "@Image1: Princess Baili is SUBJECT_1; preserve this face and wardrobe.\n"
+            "population_scope: SUBJECT_1 fills the composed medium frame as its single human figure; "
+            "the shallow architectural background preserves the opening image.\n"
+            "summary: Princess Baili lifts her chin once."
+        )
+        self.assertEqual(
+            validate_provider_scope_projection(task, prompt_text=prompt, model="MiniMax-H3")["status"],
+            "PASS",
+        )
+
+    def test_h3_tight_pov_single_subject_mode_uses_closed_closeup_contract(self):
+        projection = self._projection()
+        projection["provider_scope_prompt_mode"] = "POSITIVE_SINGLE_SUBJECT_TIGHT_POV_MACHINE_GRAPH_ONLY"
+        task = {"model": "MiniMax-H3", "provider_scope_projection": projection}
+        prompt = (
+            "@Image1: Princess Baili is SUBJECT_1; preserve this face and wardrobe.\n"
+            "population_scope: SUBJECT_1 fills a tight head-and-shoulders point-of-view close-up "
+            "as the single human figure; the closed shallow architectural background preserves the opening image.\n"
+            "summary: Princess Baili lifts her chin once."
+        )
+        self.assertEqual(
+            validate_provider_scope_projection(task, prompt_text=prompt, model="MiniMax-H3")["status"],
+            "PASS",
+        )
 
 
 if __name__ == "__main__":

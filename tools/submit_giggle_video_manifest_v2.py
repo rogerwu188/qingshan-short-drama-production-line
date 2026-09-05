@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import importlib.util
 import json
@@ -11,6 +12,7 @@ import os
 import re
 import sys
 import time
+import tempfile
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
@@ -60,6 +62,7 @@ try:
     from sd2_required_prompt_field_gate import validate_required_sd2_field_coverage
     from video_sequence_rhythm_gate import validate_combat_sequence_rhythm
     from opening_anchor_chain_gate import validate_opening_anchor_chain
+    from provider_scope_projection import validate_provider_scope_projection
 except ModuleNotFoundError:
     from tools.giggle_api_client import _image_list, _request, paid_video_submission_context
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
@@ -83,6 +86,7 @@ except ModuleNotFoundError:
     from tools.sd2_required_prompt_field_gate import validate_required_sd2_field_coverage
     from tools.video_sequence_rhythm_gate import validate_combat_sequence_rhythm
     from tools.opening_anchor_chain_gate import validate_opening_anchor_chain
+    from tools.provider_scope_projection import validate_provider_scope_projection
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -214,9 +218,17 @@ def utc_now() -> str:
 
 def atomic_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".part")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                     prefix=path.name + ".", suffix=".part", delete=False) as handle:
+        temporary = Path(handle.name)
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    try:
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def provider_response_text(value: Any) -> str:
@@ -353,6 +365,9 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
             f"{task.get('task_key')} provider prompt is not the exact output of the current "
             f"{task.get('model')} compiler"
         )
+    scope_report = validate_provider_scope_projection(task, prompt_text=prompt_text, model=str(task.get("model") or ""))
+    if scope_report.get("status") == "FAIL":
+        raise ValueError(";".join(scope_report.get("failures") or []))
     prompt_report = validate_model_prompt_for_model(
         prompt_text,
         model=task.get("model"),
@@ -499,6 +514,8 @@ def uses_structured_role_gate(task: dict[str, Any], prompt_text: str) -> bool:
 
 
 def transaction_path(transaction_dir: Path, task: dict[str, Any]) -> Path:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", str(task.get("task_key") or "")):
+        raise ValueError("task_key must be a portable identifier, not a path")
     return transaction_dir / f"{task['task_key']}__{task_fingerprint(task)[:16]}.json"
 
 
@@ -544,7 +561,8 @@ def validate_task(task: dict[str, Any]) -> None:
         if [str(row.get("speaker") or "") for row in bindings] != expected_speakers:
             raise ValueError(f"{task['task_key']} speaker_voice_contract dialogue coverage mismatch")
         english_machine_rescue = task.get("h3_prompt_profile") in {
-            "H3_ENGLISH_MACHINE_AUDIO_RESCUE_V1", "H3_OFFICIAL_REF2VA_V1"
+            "H3_ENGLISH_MACHINE_AUDIO_RESCUE_V1", "H3_OFFICIAL_REF2VA_V1",
+            "H3_POSITIVE_SINGLE_SUBJECT_V1", "H3_TIGHT_POV_SINGLE_SUBJECT_V1",
         }
         for row in bindings:
             slot = str(row.get("audio_slot") or "")
@@ -646,7 +664,8 @@ def validate_task(task: dict[str, Any]) -> None:
         minimum_duration = 3
     else:
         raise ValueError(f"{task['task_key']} has no deployed prompt/submission adapter for model {model}")
-    if not minimum_duration <= int(task.get("duration_seconds", 0)) <= 15:
+    duration = task.get("duration_seconds")
+    if type(duration) is not int or not minimum_duration <= duration <= 15:
         raise ValueError(f"{task['task_key']} duration outside {minimum_duration}-15 seconds")
     if task.get("action_unit"):
         tempo = task.get("performance_tempo_contract") or {}
@@ -670,6 +689,11 @@ def prior_bound(task: dict[str, Any], transaction_dir: Path) -> dict[str, Any] |
     if row.get("submission_fingerprint") != task_fingerprint(task):
         raise RuntimeError(f"{task['task_key']} transaction fingerprint mismatch")
     if row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id"):
+        # Recover a failed secondary receipt write without another paid POST.
+        if row.get("receipt") and row.get("provider_response"):
+            receipt = resolve(row["receipt"])
+            if not receipt.is_file():
+                atomic_json(receipt, row["provider_response"])
         return {
             "task_key": task["task_key"], "task_id": row["task_id"], "state": "remote_running",
             "receipt": row.get("receipt"), "transaction": portable(path), "recovered_from_transaction": True,
@@ -683,6 +707,13 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
     prior = prior_bound(task, transaction_dir)
     if prior:
         return prior
+    if sha256(resolve(task["prompt_file"])) != task["prompt_sha256"]:
+        raise ValueError(f"{task['task_key']} prompt changed while waiting for submission")
+    if len(task["reference_images"]) != len(task["reference_sha256"]):
+        raise ValueError("reference count/SHA count mismatch at submission")
+    for reference, expected in zip(task["reference_images"], task["reference_sha256"]):
+        if sha256(resolve(reference)) != expected:
+            raise ValueError(f"{task['task_key']} reference changed while waiting for submission")
     transaction = transaction_path(transaction_dir, task)
     intent = {
         "schema": "qingshan.giggle_video_submit_transaction.v1",
@@ -708,21 +739,15 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         *(task.get("exact_dialogue_audio_urls") or []),
         *(task.get("reference_audio_urls") or []),
     ]
+    if str(task.get("model") or "").lower() in {"minimax-h3", "h3"} and audio_asset_ids:
+        raise ValueError("MiniMax-H3 requires URL audio references; asset IDs are not valid transport")
     if audio_asset_ids:
         payload["audios"] = [{"asset_id": value} for value in audio_asset_ids]
     elif audio_urls:
         payload["audios"] = [{"url": value} for value in audio_urls]
     try:
-        previous_context = os.environ.get("QINGSHAN_DURABLE_SUBMITTER_CONTEXT")
-        os.environ["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = "1"
-        try:
-            with paid_video_submission_context():
-                response = _request("/api/v1/generation/omni-video", payload)
-        finally:
-            if previous_context is None:
-                os.environ.pop("QINGSHAN_DURABLE_SUBMITTER_CONTEXT", None)
-            else:
-                os.environ["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = previous_context
+        with paid_video_submission_context():
+            response = _request("/api/v1/generation/omni-video", payload)
     except (Exception, SystemExit) as exc:
         intent.update({"state": "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION", "response_lost_at": utc_now(), "error": str(exc)})
         atomic_json(transaction, intent)
@@ -747,9 +772,9 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
             )
         raise RuntimeError(f"response missing task_id: {json.dumps(response, ensure_ascii=False)}")
     receipt = receipt_dir / f"{task['task_key']}_submit_receipt.json"
-    atomic_json(receipt, response)
-    intent.update({"state": "SUBMITTED_TASK_ID_BOUND", "task_id": str(task_id), "receipt": portable(receipt), "response_recorded_at": utc_now()})
+    intent.update({"state": "SUBMITTED_TASK_ID_BOUND", "task_id": str(task_id), "receipt": portable(receipt), "provider_response": response, "response_recorded_at": utc_now()})
     atomic_json(transaction, intent)
+    atomic_json(receipt, response)
     return {
         **task, "task_id": str(task_id), "state": "remote_running", "submitted_at": utc_now(),
         "receipt": portable(receipt), "transaction": portable(transaction), "recovered_from_transaction": False,
@@ -765,23 +790,31 @@ _legacy_submit_one_for_audit_only = submit_one
 
 
 def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -> dict[str, Any]:
-    return _legacy_submit_one_for_audit_only(task, receipt_dir, transaction_dir)
+    transaction = transaction_path(transaction_dir, task)
+    transaction.parent.mkdir(parents=True, exist_ok=True)
+    # Keep the lock inode: unlinking it can let a third worker bypass a waiter.
+    with transaction.with_suffix(".lock").open("a") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        return _legacy_submit_one_for_audit_only(task, receipt_dir, transaction_dir)
 
 
 def classify_failures(failures: list[dict[str, Any]], known: int, matched: int, transaction_dir: Path) -> str:
     extra = matched - known
     if not failures:
         return "NO_AMBIGUOUS_SUBMISSIONS"
-    if extra == 0:
-        state, summary = "VERIFIED_ZERO_RETRYABLE", "ALL_RESPONSE_LOSSES_VERIFIED_ZERO"
-    elif len(failures) == 1 and extra == 1:
+    if len(failures) == 1 and extra == 1:
         state, summary = "CHARGED_TASK_ID_MISSING", "RECOVER_ONE_TASK_ID_FROM_PROVIDER_HISTORY"
     else:
         state, summary = "CHARGE_STATE_UNRESOLVED_BATCH", "QUARANTINE_AMBIGUOUS_TASKS_ONLY"
     for failure in failures:
         path = resolve(failure["transaction"])
         row = json.loads(path.read_text(encoding="utf-8"))
-        row.update({"state": state, "ledger_reconciled_at": utc_now(), "batch_known_task_ids": known, "batch_ledger_pay_rows": matched, "retry_guard": "RETRY_ALLOWED" if state == "VERIFIED_ZERO_RETRYABLE" else "DO_NOT_RESUBMIT_RECOVER_TASK_ID"})
+        if row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id"):
+            failure["task_id"] = row["task_id"]
+            failure["credit_status"] = "BOUND_TASK_RECEIPT_RECOVERY_REQUIRED"
+            continue
+        # Aggregate absence is not per-attempt zero-charge evidence: ledgers can lag.
+        row.update({"state": state, "ledger_reconciled_at": utc_now(), "batch_known_task_ids": known, "batch_ledger_pay_rows": matched, "retry_guard": "DO_NOT_RESUBMIT_RECOVER_TASK_ID"})
         atomic_json(path, row)
         failure["credit_status"] = state
     return summary
