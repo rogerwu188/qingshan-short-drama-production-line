@@ -2,8 +2,13 @@
 
 ## 1. Install
 
-Requirements: Python 3.9+, Git, FFmpeg/FFprobe, and Node.js only if installing
+Requirements: Linux or macOS (Windows users: WSL2), Python 3.9+, Git,
+FFmpeg/FFprobe, and Node.js only if installing
 Giggle's optional official prompt skills.
+
+Durable submission uses POSIX file locks. Keep the transaction store on a local
+filesystem with working `flock` semantics; separate machines must not submit the
+same manifest from independent transaction stores.
 
 ```bash
 git clone https://github.com/rogerwu188/qingshan-short-drama-production-line.git
