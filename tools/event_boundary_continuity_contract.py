@@ -427,7 +427,13 @@ def provider_state_lock_text(plan: dict[str, Any], *, language: str) -> str:
 
 
 def provider_shot_state_lock_texts(plan: dict[str, Any], *, language: str) -> list[str]:
-    """Render per-editorial-shot state envelopes without weakening unit state."""
+    """Render per-shot deltas while inheriting the full unit state contract.
+
+    Repeating every unchanged field for every editorial shot can drown the
+    action signal (especially in short combat units).  The structured ledger
+    remains untouched; provider prose serializes only authorized changes and
+    explicitly inherits everything else from the unit-level hard contract.
+    """
     result: list[str] = []
     for row in plan.get("shot_state_contracts") or []:
         shot_id = str(row.get("shot_id") or "UNKNOWN")
@@ -439,22 +445,29 @@ def provider_shot_state_lock_texts(plan: dict[str, Any], *, language: str) -> li
             delta = [
                 f"{field}:{entry.get(field)}->{exit_state.get(field)}"
                 for field in CHARACTER_STATE_FIELDS
+                if entry.get(field) != exit_state.get(field)
             ]
-            characters.append(f"{entity}[{', '.join(delta)}]")
+            if delta:
+                characters.append(f"{entity}[{', '.join(delta)}]")
         env = contract.get("environment") or {}
         env_entry, env_exit = env.get("entry_state") or {}, env.get("exit_state") or {}
         env_delta = [
             f"{field}:{env_entry.get(field)}->{env_exit.get(field)}"
             for field in ENVIRONMENT_STATE_FIELDS
+            if env_entry.get(field) != env_exit.get(field)
         ]
         camera = row.get("camera_state") or {}
         camera_text = ", ".join(f"{key}={camera.get(key)}" for key in CAMERA_STATE_FIELDS)
         if language.upper() == "ZH":
+            state_delta = "；".join(characters) if characters else "无授权人物状态变化，全部继承单元硬合同"
+            environment_delta = ", ".join(env_delta) if env_delta else "无授权环境状态变化，全部继承单元硬合同"
             result.append(
-                f"{shot_id}：人物状态={'；'.join(characters) or '无人物'}；环境状态={', '.join(env_delta)}；摄影状态={camera_text}"
+                f"{shot_id}：人物状态={state_delta}；环境状态={environment_delta}；摄影状态={camera_text}"
             )
         else:
+            state_delta = " ; ".join(characters) if characters else "no authorized character-state change; inherit the unit contract"
+            environment_delta = ", ".join(env_delta) if env_delta else "no authorized environment-state change; inherit the unit contract"
             result.append(
-                f"{shot_id}: character state={' ; '.join(characters) or 'none'}; environment state={', '.join(env_delta)}; camera state={camera_text}"
+                f"{shot_id}: character state={state_delta}; environment state={environment_delta}; camera state={camera_text}"
             )
     return result

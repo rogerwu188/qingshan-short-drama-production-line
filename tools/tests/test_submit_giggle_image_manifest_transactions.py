@@ -52,7 +52,7 @@ class GiggleSubmitTransactionTests(unittest.TestCase):
             with self.assertRaises(DuplicateSubmissionBlocked):
                 prior_submission_result(item, root)
 
-    def test_zero_charge_timeout_becomes_retryable(self) -> None:
+    def test_aggregate_ledger_absence_is_not_zero_charge_proof(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             item = task()
@@ -68,9 +68,9 @@ class GiggleSubmitTransactionTests(unittest.TestCase):
                 matched_ledger_rows=3,
                 transaction_dir=root,
             )
-            self.assertEqual(summary, "ALL_RESPONSE_LOSSES_VERIFIED_NOT_CHARGED")
-            self.assertEqual(failures[0]["credit_status"], "FAILED_ZERO_VERIFIED")
-            self.assertEqual(json.loads(path.read_text())["state"], "NOT_CHARGED_RETRYABLE")
+            self.assertEqual(summary, "BATCH_RESPONSE_LOSSES_QUARANTINED_PENDING_TASK_HISTORY_RECOVERY")
+            self.assertEqual(failures[0]["credit_status"], "CHARGE_STATE_UNRESOLVED_BATCH")
+            self.assertEqual(json.loads(path.read_text())["state"], "CHARGE_STATE_UNRESOLVED_BATCH")
 
     def test_multiple_ambiguous_charges_quarantine_every_timeout(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -103,7 +103,10 @@ def recommend_window(scan: dict[str, Any], *, safety_handle_seconds: float = 0.2
             first_active = index
             break
     last_active = len(luma) - 1
-    tail_floor = max(0, len(luma) - 1 - round(2.0 * fps))
+    # Retreat through an arbitrarily long inactive tail, but never erase the
+    # whole authored event.  A fixed two-second ceiling left long pose-holds in
+    # provider media and made the edit look artificially slow.
+    tail_floor = min(len(luma) - 1, max(0, round(1.5 * fps)))
     while last_active > tail_floor:
         if luma[last_active] < median_luma * 0.40 or diffs[last_active] < motion_floor:
             last_active -= 1
@@ -111,6 +114,19 @@ def recommend_window(scan: dict[str, Any], *, safety_handle_seconds: float = 0.2
         break
     selected_in = first_active / fps
     selected_out = min(float(scan["duration_seconds"]), (last_active + 1) / fps + safety_handle_seconds)
+    # A safety handle may preserve genuine motion around a cut, but it must not
+    # re-admit a detected defect that reaches the physical end of the file.
+    # This matters for tails shorter than the handle itself (for example the
+    # 0.125-second black tail observed in E51-VU-008).
+    endpoint_epsilon = 1.0 / fps
+    terminal_defect_ranges = (
+        list(scan.get("black_ranges") or [])
+        + list(scan.get("solid_color_ranges") or [])
+        + list(scan.get("freeze_ranges") or [])
+    )
+    for defect_range in terminal_defect_ranges:
+        if float(defect_range["end_seconds"]) >= float(scan["duration_seconds"]) - endpoint_epsilon:
+            selected_out = min(selected_out, float(defect_range["start_seconds"]))
     if selected_out <= selected_in:
         selected_in, selected_out = 0.0, float(scan["duration_seconds"])
     return {

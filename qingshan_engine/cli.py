@@ -102,14 +102,24 @@ def command_writer_doctor(_: argparse.Namespace) -> int:
 
 
 def command_video_preflight(args: argparse.Namespace) -> int:
-    command = [sys.executable, "tools/submit_giggle_video_manifest_v2.py", "--manifest", args.manifest, "--out", args.out, "--precheck-only"]
+    command = [sys.executable, "tools/submit_giggle_video_manifest_v2.py", "--manifest", str(Path(args.manifest).expanduser().resolve()), "--out", str(Path(args.out).expanduser().resolve()), "--precheck-only"]
     if args.project_root:
-        command.extend(["--project-root", args.project_root])
+        command.extend(["--project-root", str(Path(args.project_root).expanduser().resolve())])
     return _run(command)
 
 
 def command_release_preflight(args: argparse.Namespace) -> int:
-    command = [sys.executable, "tools/platform_release_preflight.py", *args.arguments]
+    arguments = list(args.arguments)
+    if arguments[:1] == ["--"]:
+        arguments.pop(0)
+    path_flags = {"--work-queue", "--receipt", "--project-root"}
+    for index, value in enumerate(arguments):
+        if index and arguments[index - 1] in path_flags:
+            arguments[index] = str(Path(value).expanduser().resolve())
+        elif "=" in value and value.partition("=")[0] in path_flags:
+            flag, _, path = value.partition("=")
+            arguments[index] = flag + "=" + str(Path(path).expanduser().resolve())
+    command = [sys.executable, "tools/platform_release_preflight.py", *arguments]
     return _run(command)
 
 

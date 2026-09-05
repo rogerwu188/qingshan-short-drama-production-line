@@ -73,4 +73,6 @@
 # broad runtime-secret patterns above.
 !/.env.example
 !/configs/PORTABLE_CORE_MANIFEST.json
+!/configs/DEPLOYMENT_CODE_SHA256.json
+!/configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json
 !/configs/pipeline.example.json

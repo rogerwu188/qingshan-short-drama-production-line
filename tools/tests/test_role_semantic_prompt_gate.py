@@ -1,3 +1,4 @@
+from tools.role_semantic_prompt_gate import role_semantic_visual_scope_prompt_block
 import unittest
 
 from tools.role_semantic_prompt_gate import (
@@ -112,6 +113,20 @@ class RoleSemanticPromptGateTest(unittest.TestCase):
             "prompt": "门槛旁留下短刀证据，没有打斗",
         }
         self.assertFalse(is_combat_unit(unit))
+
+    def test_visual_scope_block_hides_absent_named_entities(self):
+        row = role_row(
+            entity_presence={
+                "陈迹": "VISIBLE_AND_IDENTITY_LOCKED",
+                "金猪": "ABSENT_REFERENCE_ONLY",
+                "军情司叛谍": "ABSENT_REFERENCE_ONLY",
+            },
+        )
+        task = {"episode": "E56", "role_semantic_disambiguation": row}
+        prompt = role_semantic_visual_scope_prompt_block(row)
+        self.assertNotIn("金猪", prompt)
+        self.assertNotIn("军情司叛谍", prompt)
+        self.assertEqual(validate_role_semantics(task, prompt), [])
 
 
 if __name__ == "__main__":

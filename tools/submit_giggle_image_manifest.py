@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
 import re
 import time
+import tempfile
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
@@ -16,27 +18,27 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from giggle_api_client import _image_list, _request
+    from giggle_api_client import _image_list, _request, durable_generation_context
     from giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from shot_space_camera_constraint_gate import evaluate_task as evaluate_spatial_task
     from global_space_layout_gate import evaluate_batch as evaluate_global_space_map
     from shot_media_admission_gate import precheck_submission_inputs
     from image_model_adapter import require_paid_image_model_contract
     from retry_cap_gate import validate_submission_attempt
-    from role_semantic_prompt_gate import validate_role_semantics
+    from role_semantic_prompt_gate import validate_role_semantics, validate_role_semantics_structure
     from keyframe_entry_state_gate import (
         evaluate_task as evaluate_keyframe_entry_task,
         keyframe_entry_contract_required,
     )
 except ModuleNotFoundError:  # Imported as tools.submit_giggle_image_manifest.
-    from tools.giggle_api_client import _image_list, _request
+    from tools.giggle_api_client import _image_list, _request, durable_generation_context
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from tools.shot_space_camera_constraint_gate import evaluate_task as evaluate_spatial_task
     from tools.global_space_layout_gate import evaluate_batch as evaluate_global_space_map
     from tools.shot_media_admission_gate import precheck_submission_inputs
     from tools.image_model_adapter import require_paid_image_model_contract
     from tools.retry_cap_gate import validate_submission_attempt
-    from tools.role_semantic_prompt_gate import validate_role_semantics
+    from tools.role_semantic_prompt_gate import validate_role_semantics, validate_role_semantics_structure
     from tools.keyframe_entry_state_gate import (
         evaluate_task as evaluate_keyframe_entry_task,
         keyframe_entry_contract_required,
@@ -59,9 +61,17 @@ class DuplicateSubmissionBlocked(RuntimeError):
 
 def atomic_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".part")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                     prefix=path.name + ".", suffix=".part", delete=False) as handle:
+        temporary = Path(handle.name)
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    try:
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def utc_now() -> str:
@@ -81,6 +91,8 @@ def submission_fingerprint(task: dict[str, Any]) -> str:
 
 
 def transaction_path(transaction_dir: Path, task: dict[str, Any]) -> Path:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", str(task.get("task_key") or "")):
+        raise ValueError("task_key must be a portable identifier, not a path")
     fingerprint = submission_fingerprint(task)
     return transaction_dir / f"{task['task_key']}__{fingerprint[:16]}.json"
 
@@ -96,6 +108,10 @@ def prior_submission_result(task: dict[str, Any], transaction_dir: Path) -> dict
         )
     state = transaction.get("state")
     if state == "SUBMITTED_TASK_ID_BOUND" and transaction.get("task_id"):
+        if transaction.get("receipt") and transaction.get("provider_response"):
+            receipt = resolve(transaction["receipt"])
+            if not receipt.is_file():
+                atomic_json(receipt, transaction["provider_response"])
         return {
             "task_key": task["task_key"],
             "beat_id": task.get("beat_id"),
@@ -105,12 +121,7 @@ def prior_submission_result(task: dict[str, Any], transaction_dir: Path) -> dict
             "transaction": portable_path(path),
             "recovered_from_transaction": True,
         }
-    if state in {
-        "INTENT_RECORDED",
-        "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION",
-        "CHARGED_TASK_ID_MISSING",
-        "CHARGE_STATE_UNRESOLVED_BATCH",
-    }:
+    if state != "NOT_CHARGED_RETRYABLE":
         raise DuplicateSubmissionBlocked(
             f"{task['task_key']} duplicate submit blocked by transaction state {state}"
         )
@@ -226,6 +237,61 @@ def validate_mask_transport(task: dict[str, Any]) -> None:
     )
 
 
+def validate_positive_single_subject_provider_scope(
+    task: dict[str, Any], prompt_text: str
+) -> list[str]:
+    """Keep the full role graph machine-side without leaking absent roles.
+
+    A provider-facing keyframe prompt may intentionally name just one visible
+    subject.  The ordinary role gate requires every conversational role in the
+    prose, which can make image/video models render a negated off-screen role.
+    This narrow mode preserves all structural checks, then proves that the
+    provider projection and prompt expose exactly the one visible identity.
+    """
+    failures = validate_role_semantics_structure(task)
+    projection = task.get("provider_scope_projection") or {}
+    contract = task.get("prompt_contract") or {}
+    visible_ids = list(projection.get("visible_character_ids") or [])
+    visible_names = list(contract.get("visible_character_names") or [])
+    if len(visible_ids) != 1 or len(visible_names) != 1:
+        failures.append("POSITIVE_SINGLE_SUBJECT_EXACTLY_ONE_VISIBLE_IDENTITY_REQUIRED")
+        return failures
+    if projection.get("exclusive_visible_living_entity_set") is not True:
+        failures.append("POSITIVE_SINGLE_SUBJECT_EXCLUSIVE_SET_MISSING")
+    if int(projection.get("visible_living_entity_instance_total") or 0) != 1:
+        failures.append("POSITIVE_SINGLE_SUBJECT_VISIBLE_TOTAL_NOT_ONE")
+    if int(projection.get("background_population_count") or 0) != 0:
+        failures.append("POSITIVE_SINGLE_SUBJECT_BACKGROUND_POPULATION_NOT_ZERO")
+    if visible_names[0] not in prompt_text:
+        failures.append(f"POSITIVE_SINGLE_SUBJECT_VISIBLE_NAME_MISSING:{visible_names[0]}")
+
+    visible_name_set = set(visible_names)
+    for row in (task.get("role_semantic_disambiguation") or {},):
+        for field, id_field in (
+            ("primary_actor", "primary_actor_id"),
+            ("dialogue_speaker", "dialogue_speaker_id"),
+            ("dialogue_listener", "dialogue_listener_id"),
+            ("action_patient", "action_patient_id"),
+            ("first_person_pronoun", "first_person_pronoun_id"),
+            ("second_person_pronoun", "second_person_pronoun_id"),
+            ("action_pronoun_referent", "action_pronoun_referent_id"),
+            ("action_counterparty_referent", "action_counterparty_referent_id"),
+            ("dialogue_third_person_referent", "dialogue_third_person_referent_id"),
+            ("body_part_owner", "body_part_owner_id"),
+        ):
+            value = str(row.get(field) or "").strip()
+            entity_id = str(row.get(id_field) or "").strip()
+            same_visible_alias = any(
+                value and (value in visible_name or visible_name in value)
+                for visible_name in visible_name_set
+            )
+            if entity_id in visible_ids or same_visible_alias:
+                continue
+            if value and value not in visible_name_set and value in prompt_text:
+                failures.append(f"POSITIVE_SINGLE_SUBJECT_HIDDEN_ROLE_LEAK:{field}:{value}")
+    return failures
+
+
 def validate_task(task: dict[str, Any]) -> None:
     retry_failures = validate_submission_attempt(task)
     if retry_failures:
@@ -257,7 +323,12 @@ def validate_task(task: dict[str, Any]) -> None:
     if contract.get("source_action_sha256") != hashlib.sha256(str(contract.get("source_action", "")).encode("utf-8")).hexdigest():
         raise ValueError(f"{task['task_key']} source action SHA mismatch")
     prompt_text = prompt_path.read_text(encoding="utf-8")
-    role_failures = validate_role_semantics(task, prompt_text)
+    scope_mode = str(task.get("provider_prompt_scope_mode") or contract.get("provider_prompt_scope_mode") or "")
+    role_failures = (
+        validate_positive_single_subject_provider_scope(task, prompt_text)
+        if scope_mode == "POSITIVE_SINGLE_SUBJECT_MACHINE_ROLE_GRAPH_ONLY"
+        else validate_role_semantics(task, prompt_text)
+    )
     if role_failures:
         raise ValueError(
             f"{task['task_key']} character-role ambiguity gate failed: "
@@ -301,7 +372,7 @@ def validate_task(task: dict[str, Any]) -> None:
         )
 
 
-def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -> dict[str, Any]:
+def _submit_one_locked(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -> dict[str, Any]:
     recovered = prior_submission_result(task, transaction_dir)
     if recovered:
         return recovered
@@ -316,6 +387,8 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
             + ", ".join(missing or input_precheck["failures"])
         )
     prompt = resolve(task["prompt_file"]).read_text(encoding="utf-8")
+    if hashlib.sha256(prompt.encode("utf-8")).hexdigest() != task.get("prompt_sha256"):
+        raise ValueError(f"{task['task_key']} prompt SHA changed at paid boundary")
     episode_match = re.match(r"E(\d+)", str(task.get("episode") or "").upper())
     if episode_match and int(episode_match.group(1)) >= 40:
         # Repeat at the paid boundary. A prior batch-level validation is not
@@ -347,10 +420,9 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
     }
     atomic_json(transaction, intent)
-    previous_context = os.environ.get("QINGSHAN_DURABLE_SUBMITTER_CONTEXT")
-    os.environ["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = "1"
     try:
-        response = _request("/api/v1/generation/image-to-image", payload)
+        with durable_generation_context():
+            response = _request("/api/v1/generation/image-to-image", payload)
     except (Exception, SystemExit) as exc:
         intent.update({
             "state": "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION",
@@ -359,38 +431,43 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         })
         atomic_json(transaction, intent)
         raise
-    finally:
-        if previous_context is None:
-            os.environ.pop("QINGSHAN_DURABLE_SUBMITTER_CONTEXT", None)
-        else:
-            os.environ["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = previous_context
     task_id = (response.get("data") or {}).get("task_id")
     if not task_id:
         intent.update({
             "state": "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION",
             "response_lost_at": utc_now(),
             "error": "Submit response missing data.task_id",
+            "provider_response": response,
         })
         atomic_json(transaction, intent)
         raise RuntimeError("Submit response missing data.task_id")
     receipt = receipt_dir / f"{task['task_key']}_submit_receipt.json"
-    atomic_json(receipt, response)
     intent.update({
         "state": "SUBMITTED_TASK_ID_BOUND",
         "response_recorded_at": utc_now(),
         "task_id": task_id,
-        "receipt": str(receipt.relative_to(ROOT)),
+        "receipt": portable_path(receipt),
+        "provider_response": response,
     })
     atomic_json(transaction, intent)
+    atomic_json(receipt, response)
     return {
         "task_key": task["task_key"],
         "beat_id": task.get("beat_id"),
         "task_id": task_id,
         "status": "submitted",
-        "receipt": str(receipt.relative_to(ROOT)),
+        "receipt": portable_path(receipt),
         "transaction": portable_path(transaction),
         "recovered_from_transaction": False,
     }
+
+
+def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -> dict[str, Any]:
+    transaction = transaction_path(transaction_dir, task)
+    transaction.parent.mkdir(parents=True, exist_ok=True)
+    with transaction.with_suffix(".lock").open("a") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        return _submit_one_locked(task, receipt_dir, transaction_dir)
 
 
 def submit_all(
@@ -429,12 +506,7 @@ def classify_ambiguous_failures(
     extra_charges = matched_ledger_rows - known_submitted
     if ambiguous == 0:
         return "NO_AMBIGUOUS_SUBMISSIONS"
-    if extra_charges == 0:
-        state = "NOT_CHARGED_RETRYABLE"
-        status = "FAILED_ZERO_VERIFIED"
-        credit = 0
-        summary = "ALL_RESPONSE_LOSSES_VERIFIED_NOT_CHARGED"
-    elif ambiguous == 1 and extra_charges == 1:
+    if ambiguous == 1 and extra_charges == 1:
         state = "CHARGED_TASK_ID_MISSING"
         status = "CHARGED_TASK_ID_MISSING"
         credit = None
@@ -450,6 +522,10 @@ def classify_ambiguous_failures(
         failure["credit_status"] = status
         path = transaction_dir / Path(failure["transaction"]).name
         transaction = json.loads(path.read_text(encoding="utf-8"))
+        if transaction.get("state") == "SUBMITTED_TASK_ID_BOUND" and transaction.get("task_id"):
+            failure["task_id"] = transaction["task_id"]
+            failure["credit_status"] = "BOUND_TASK_RECEIPT_RECOVERY_REQUIRED"
+            continue
         transaction.update({
             "state": state,
             "ledger_reconciled_at": utc_now(),

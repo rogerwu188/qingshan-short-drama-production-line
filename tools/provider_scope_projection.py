@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Project episode-wide semantics into a provider-visible per-unit allowlist.
 
-The machine contract may retain the complete episode graph. A provider prompt
+The machine contract may retain the complete episode graph.  A provider prompt
 may not: noun-rich video models can promote any mentioned entity into pixels or
-sound. This module makes that boundary explicit and independently auditable.
+sound.  This module makes that boundary explicit and independently auditable.
 """
 
 from __future__ import annotations
@@ -36,8 +36,9 @@ def build_provider_scope_projection(
     sound_terms: list[str] | None = None,
 ) -> dict[str, Any]:
     visible = set(visible_character_ids)
+    refs = reference_images or []
     bindings = []
-    for index, row in enumerate(reference_images or [], 1):
+    for index, row in enumerate(refs, 1):
         entity_id = str(row.get("entity_id") or "")
         if not entity_id:
             continue
@@ -57,10 +58,7 @@ def build_provider_scope_projection(
             str(row.get("provider_entity_label") or "").strip(),
             *[str(value).strip() for value in row.get("aliases") or []],
         ]
-        absent.append({
-            "entity_id": entity_id,
-            "forbidden_positive_terms": [value for value in dict.fromkeys(terms) if value],
-        })
+        absent.append({"entity_id": entity_id, "forbidden_positive_terms": [v for v in dict.fromkeys(terms) if v]})
     return {
         "schema": SCHEMA,
         "status": "LOCKED",
@@ -133,15 +131,16 @@ def validate_provider_scope_projection(
     if len(indices) != len(set(indices)) or len(entities) != len(set(entities)):
         failures.append("PROVIDER_SCOPE_REFERENCE_BINDING_NOT_ONE_TO_ONE")
     for row in bindings:
-        entity_id = str(row.get("entity_id") or "UNKNOWN")
         if row.get("exclusive_identity_owner") is not True:
-            failures.append("PROVIDER_SCOPE_REFERENCE_OWNER_NOT_EXCLUSIVE:" + entity_id)
-        if entity_id not in visible:
-            failures.append("PROVIDER_SCOPE_REFERENCE_ENTITY_NOT_VISIBLE:" + entity_id)
+            failures.append("PROVIDER_SCOPE_REFERENCE_OWNER_NOT_EXCLUSIVE:" + str(row.get("entity_id") or "UNKNOWN"))
+        if str(row.get("entity_id") or "") not in visible:
+            failures.append("PROVIDER_SCOPE_REFERENCE_ENTITY_NOT_VISIBLE:" + str(row.get("entity_id") or "UNKNOWN"))
     if prompt_text is not None:
-        # H3 promotes concrete nouns even in a negative clause. SD2 keeps its
-        # established negative-prompt semantics and is checked only positively.
-        searchable = (
+        # H3 can promote concrete nouns even from a negative clause, so absent
+        # episode entities are forbidden across its entire provider text. SD2
+        # retains its established negative-prompt behavior and is checked only
+        # on the positive portion.
+        positive = (
             prompt_text.casefold()
             if str(model or payload.get("model") or "").strip().lower() in {"minimax-h3", "h3"}
             else _positive_prompt(prompt_text).casefold()
@@ -151,33 +150,50 @@ def validate_provider_scope_projection(
                 token = str(term).strip()
                 if len(token) < 2:
                     continue
-                if re.search(r"(?<![A-Za-z0-9_-])" + re.escape(token.casefold()) + r"(?![A-Za-z0-9_-])", searchable):
+                if re.search(r"(?<![A-Za-z0-9_-])" + re.escape(token.casefold()) + r"(?![A-Za-z0-9_-])", positive):
                     failures.append(
                         "PROVIDER_SCOPE_ABSENT_ENTITY_IN_POSITIVE_PROMPT:"
                         + str(row.get("entity_id") or "UNKNOWN") + ":" + token
                     )
         if str(model or payload.get("model") or "").strip().lower() in {"minimax-h3", "h3"}:
+            prompt_mode = projection.get("provider_scope_prompt_mode")
+            positive_single_subject = prompt_mode in {
+                "POSITIVE_SINGLE_SUBJECT_MACHINE_GRAPH_ONLY",
+                "POSITIVE_SINGLE_SUBJECT_TIGHT_POV_MACHINE_GRAPH_ONLY",
+            }
+            tight_pov_single_subject = (
+                prompt_mode == "POSITIVE_SINGLE_SUBJECT_TIGHT_POV_MACHINE_GRAPH_ONLY"
+            )
             for row in bindings:
                 marker = f"@Image{row['reference_index']}:".casefold()
                 label = str(row.get("provider_entity_label") or "").casefold()
-                if marker not in searchable or not label or label not in searchable:
-                    failures.append(
-                        "H3_PROVIDER_SCOPE_REFERENCE_MAPPING_MISSING:"
-                        + str(row.get("entity_id") or "UNKNOWN")
-                    )
-                cardinality = f"exactly one visible instance of {label}".casefold()
-                if cardinality not in searchable:
-                    failures.append(
-                        "H3_PROVIDER_SCOPE_INSTANCE_CARDINALITY_MISSING:"
-                        + str(row.get("entity_id") or "UNKNOWN")
-                    )
+                if marker not in positive or not label or label not in positive:
+                    failures.append("H3_PROVIDER_SCOPE_REFERENCE_MAPPING_MISSING:" + str(row.get("entity_id") or "UNKNOWN"))
+                if positive_single_subject:
+                    if len(visible) != 1 or len(bindings) != 1:
+                        failures.append("H3_POSITIVE_SINGLE_SUBJECT_CARDINALITY_INVALID")
+                    if f"{label} is subject_1" not in positive:
+                        failures.append("H3_POSITIVE_SINGLE_SUBJECT_REFERENCE_MAPPING_MISSING:" + str(row.get("entity_id") or "UNKNOWN"))
+                else:
+                    cardinality = f"exactly one visible instance of {label}".casefold()
+                    if cardinality not in positive:
+                        failures.append("H3_PROVIDER_SCOPE_INSTANCE_CARDINALITY_MISSING:" + str(row.get("entity_id") or "UNKNOWN"))
             total = int(projection.get("visible_living_entity_instance_total") or 0)
-            population_clause = (
-                f"render exactly {total} living entity instances in total; "
-                "background population count=0; unbound living entity count=0"
-            ).casefold()
-            if population_clause not in searchable:
-                failures.append("H3_PROVIDER_SCOPE_EXCLUSIVE_POPULATION_CLAUSE_MISSING")
+            if positive_single_subject:
+                required_composition = (
+                    "subject_1 fills a tight head-and-shoulders point-of-view close-up as the single human figure"
+                    if tight_pov_single_subject
+                    else "subject_1 fills the composed medium frame as its single human figure"
+                )
+                if required_composition not in positive:
+                    failures.append("H3_POSITIVE_SINGLE_SUBJECT_COMPOSITION_CLAUSE_MISSING")
+            else:
+                population_clause = (
+                    f"render exactly {total} living entity instances in total; "
+                    "background population count=0; unbound living entity count=0"
+                ).casefold()
+                if population_clause not in positive:
+                    failures.append("H3_PROVIDER_SCOPE_EXCLUSIVE_POPULATION_CLAUSE_MISSING")
     return {
         "schema": "qingshan.provider_scope_projection_gate.v1",
         "status": "PASS" if not failures else "FAIL",

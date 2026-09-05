@@ -259,6 +259,22 @@ class E51PipelineRectificationTests(unittest.TestCase):
             with self.subTest(unit=unit["unit_id"]), self.assertRaisesRegex(ValueError, "UNIT_CLASS_LAUNDERING"):
                 compile_video_execution_plan(unit)
 
+    def test_safety_handle_never_reintroduces_short_terminal_black_tail(self):
+        scan = {
+            "fps": 24.0,
+            "duration_seconds": 6.0,
+            "median_luma": 100.0,
+            "median_frame_difference": 10.0,
+            "luma": [100.0] * 141 + [0.0] * 3,
+            "frame_difference": [0.0] + [10.0] * 140 + [0.0] * 3,
+            "black_ranges": [{"start_seconds": 5.875, "end_seconds": 6.0}],
+            "solid_color_ranges": [],
+            "freeze_ranges": [{"start_seconds": 5.875, "end_seconds": 6.0}],
+        }
+        window = recommend_window(scan)
+        self.assertLessEqual(window["selected_out_seconds"], 5.875)
+        self.assertGreaterEqual(window["tail_trim_seconds"], 0.125)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -86,6 +86,26 @@ class DialogueCutSafetyTest(unittest.TestCase):
         rows = compile_dialogue_windows(unit)
         self.assertLess(rows[0]["end_seconds"] + rows[0]["safety_pad_seconds"], 5.01)
 
+    def test_director_declared_dialogue_rate_changes_estimate_without_dropping_tail(self):
+        raw = "甲：赌坊是个陷阱，密谍司没抓到人。"
+        self.assertLess(
+            estimated_spoken_seconds(raw, chinese_characters_per_second=5.8),
+            estimated_spoken_seconds(raw),
+        )
+        unit = {
+            "unit_id": "VU-RATE", "duration_seconds": 5,
+            "ordered_prompt_specs": [{
+                "dialogue": raw,
+                "dialogue_delivery": {"chinese_characters_per_second": 5.8},
+                "action": {"t0_seconds": 0, "t1_seconds": 5},
+            }],
+            "outgoing_transition_contract": {"outgoing_handle_seconds": 0.8},
+        }
+        rows = compile_dialogue_windows(unit)
+        self.assertEqual(rows[0]["chinese_characters_per_second"], 5.8)
+        self.assertLessEqual(rows[0]["end_seconds"] + rows[0]["safety_pad_seconds"], 4.2)
+
 
 if __name__ == "__main__":
     unittest.main()
+from tools.dialogue_cut_safety import estimated_spoken_seconds

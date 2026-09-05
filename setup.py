@@ -9,7 +9,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="qingshan-short-drama-engine",
-    version="0.3.0",
+    version="0.3.1",
     description="MIT-licensed end-to-end AI film and short-drama production engine",
     packages=find_packages(include=("qingshan_engine", "qingshan_engine.*")),
     python_requires=">=3.9",

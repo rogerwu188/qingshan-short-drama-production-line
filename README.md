@@ -16,6 +16,11 @@ technical QA, and ordered YouTube/Douyin release.
 
 ## What is included
 
+Deployment verification: [installation guide](docs/DEPLOYMENT.md) ·
+[0.3.1 reliability and production-parity audit](docs/PIPELINE_INTEGRITY_AUDIT_2026-09-05.md).
+Run `python3 tools/deployment_code_integrity.py` after downloading a release to
+verify the reusable engine inventory. Private runtime data is intentionally separate.
+
 | Stage | Engine capability |
 | --- | --- |
 | Script | Writer Agent v2, source provenance, canonical activation and dramatic gates |
