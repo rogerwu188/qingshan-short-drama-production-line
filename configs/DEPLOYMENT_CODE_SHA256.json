@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1795,
+  "file_count": 1799,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -178,6 +178,10 @@
     {
       "path": "configs/COMBAT_ACTION_LIBRARY_V1.json",
       "sha256": "23af3e4be699f125e925fa90af3f470cc671b15b0528d9fbe9b6531ad25c9c96"
+    },
+    {
+      "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
+      "sha256": "9ee040c0a00caf9a61e4fd9995ff84c2f22abcaa1a3a2ac60bd01035e929fb0e"
     },
     {
       "path": "configs/GATE_REGISTRY_v3_20260716.json",
@@ -3528,6 +3532,10 @@
       "sha256": "ac994ea030b11c33dcbb12bea6f6dcc76bab1113f66510879dc3f231736d2d1f"
     },
     {
+      "path": "tools/episode_prompt_batch_gate.py",
+      "sha256": "2028f97bbe1e6904426b191e05a718bb18daa9ce288614cfec01ada45a973937"
+    },
+    {
       "path": "tools/episode_stage_gate_runner.py",
       "sha256": "fe7d138c3076c105f2e0604c4b1a9ec1177c05f2f0131950e0409d137a85b320"
     },
@@ -5533,7 +5541,7 @@
     },
     {
       "path": "tools/submit_giggle_image_manifest.py",
-      "sha256": "d804866e5859db7f6c52dee6e7fb8f4a03c6b714080d2f9c7b790967ceb5a4a1"
+      "sha256": "bb1146fc37914da003bd9f95eeed5314e5054ff54a110cc06fdc489ff2ddc7b4"
     },
     {
       "path": "tools/submit_giggle_task_manifest.py",
@@ -5541,7 +5549,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "d97d6af57281e8b005d7a8351c85ac9570771c6354d059b83b4838f078371f60"
+      "sha256": "09106932d14241445ea222677a68af12399b9f2256249d10991e495f7a1dafd1"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -6210,6 +6218,14 @@
     {
       "path": "tools/tests/test_episode_post_publish_cleanup.py",
       "sha256": "7ef04852f1b9d4a4c773e1bd40b0960d20284865ae64051295e121bea302d045"
+    },
+    {
+      "path": "tools/tests/test_episode_prompt_batch_gate.py",
+      "sha256": "150d71b5f54f005c9e93273f3bd0b241d50911dd83e5d785b5ac496806ac3d03"
+    },
+    {
+      "path": "tools/tests/test_episode_prompt_batch_paid_boundary.py",
+      "sha256": "634a54aab555696c7e43b13ffbf45d15b48c06fe295673d1db725d6327cc9933"
     },
     {
       "path": "tools/tests/test_episode_stage_gate_runner.py",
