@@ -182,7 +182,7 @@ def _camera_authority(unit: dict[str, Any], *, combat: bool) -> dict[str, Any]:
     }
 
 
-def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
+def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bool = False) -> dict[str, Any]:
     model = str(unit.get("model") or "").strip().lower()
     family = MODEL_FAMILY_BY_NAME.get(model)
     if not family:
@@ -265,7 +265,7 @@ def compile_video_execution_plan(unit: dict[str, Any]) -> dict[str, Any]:
     for index, (spec, (start, end)) in enumerate(zip(specs, _timeline(specs, duration)), 1):
         action = spec.get("action") or {}
         prop_states, prop_state_failures = compile_prop_states(
-            spec, source_id=f"{unit.get('unit_id')}:BEAT_{index}"
+            spec, source_id=f"{unit.get('unit_id')}:BEAT_{index}", preproduction_only=preproduction_only
         )
         if not rectification_required:
             prop_state_failures = []
