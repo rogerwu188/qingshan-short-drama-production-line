@@ -376,6 +376,11 @@ def _submit_one_locked(task: dict[str, Any], receipt_dir: Path, transaction_dir:
     recovered = prior_submission_result(task, transaction_dir)
     if recovered:
         return recovered
+    try:
+        from tools.episode_prompt_batch_gate import require_generation_batch
+    except ModuleNotFoundError:
+        from episode_prompt_batch_gate import require_generation_batch
+    require_generation_batch(task, ROOT, artifact_kind='keyframe_prompt')
     # Re-run immediately before transaction creation/provider POST.  A batch
     # may sit between manifest validation and dispatch, so this is deliberately
     # not treated as a one-time compile check.

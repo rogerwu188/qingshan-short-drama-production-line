@@ -707,6 +707,11 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
     prior = prior_bound(task, transaction_dir)
     if prior:
         return prior
+    try:
+        from tools.episode_prompt_batch_gate import require_generation_batch
+    except ModuleNotFoundError:
+        from episode_prompt_batch_gate import require_generation_batch
+    require_generation_batch(task, ROOT, artifact_kind='video_prompt')
     if sha256(resolve(task["prompt_file"])) != task["prompt_sha256"]:
         raise ValueError(f"{task['task_key']} prompt changed while waiting for submission")
     if len(task["reference_images"]) != len(task["reference_sha256"]):
