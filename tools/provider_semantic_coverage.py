@@ -29,6 +29,9 @@ def _normal(value: object) -> str:
 
 def required_fact_ids(plan: dict[str, Any]) -> list[str]:
     ids = ["ANCHOR.IDENTITY_PROP", "ANCHOR.SPACE_WEATHER", "CAMERA.PLAN"]
+    if ('authorized_content_seconds' in (plan.get('duration_authority') or {})
+            and abs(float(plan['duration_authority']['authorized_content_seconds']) - float(plan['duration_seconds'])) > 1e-6):
+        ids.append('PACING.CONTENT_WINDOW')
     if plan.get("interaction_topology_required"):
         ids.append("PHYSICAL.INTERACTION_TOPOLOGY")
     if plan.get("combat_execution_required"):
@@ -60,6 +63,8 @@ def required_fact_ids(plan: dict[str, Any]) -> list[str]:
             ids.append(f"{prefix}.SECONDARY_FEEDBACK.{secondary_index}")
         if beat.get("dialogue"):
             ids.append(f"{prefix}.DIALOGUE")
+            if (beat.get("dialogue_delivery") or {}).get("chinese_characters_per_second") is not None:
+                ids.append(f"{prefix}.DIALOGUE_DELIVERY")
         if beat.get("microexpression_cue"):
             ids.append(f"{prefix}.MICROEXPRESSION")
         if beat.get("body_sync_cue"):

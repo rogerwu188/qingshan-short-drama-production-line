@@ -7,6 +7,7 @@ from typing import Any
 import re
 
 try:
+    from tools.editorial_pacing_contract import delivery_clause, content_window_clause
     from tools.grouped_camera_contract import compile_camera_prompt
     from tools.prompt_budget_observability import measure_prompt
     from tools.provider_semantic_coverage import build_semantic_coverage_receipt
@@ -16,6 +17,7 @@ try:
         provider_shot_state_lock_texts, provider_state_lock_text,
     )
 except ModuleNotFoundError:
+    from editorial_pacing_contract import delivery_clause, content_window_clause
     from grouped_camera_contract import compile_camera_prompt
     from prompt_budget_observability import measure_prompt
     from provider_semantic_coverage import build_semantic_coverage_receipt
@@ -36,7 +38,8 @@ def _dialogue(beat: dict[str, Any]) -> str:
     speaker, separator, words = raw.partition("：")
     if not separator or not speaker.strip() or not words.strip():
         raise ValueError(f"DIALOGUE_SPEAKER_BINDING_INVALID:{raw}")
-    return f"；{speaker.strip()}只说一次：“{words.strip()}”，其余人物闭口"
+    pace = delivery_clause(beat)
+    return f"；{speaker.strip()}只说一次：“{words.strip()}”，其余人物闭口" + (f"；{pace}" if pace else "")
 
 
 def _beat_line(beat: dict[str, Any]) -> str:
@@ -108,6 +111,9 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
     camera = compile_camera_prompt(plan.get("camera_plan"), source_id=uid)
     transition = plan.get("transition") or {}
     timeline = []
+    content_window = content_window_clause(plan)
+    if content_window:
+        timeline.append(content_window)
     if transition.get("incoming"):
         timeline.append(f"开场承接：{transition['incoming']}，从该结果继续，不复位不重演。")
     action_beats = (plan.get("action_ir") or {}).get("causal_chains") or plan["beats"]
@@ -175,6 +181,8 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
     }
     if state_lock:
         clause_evidence["CONTINUITY.PERSISTENT_STATE"] = state_lock
+    if content_window:
+        clause_evidence["PACING.CONTENT_WINDOW"] = content_window
     for index, value in enumerate(shot_state_locks, 1):
         clause_evidence[f"CONTINUITY.SHOT_STATE.{index}"] = value
     if plan.get("interaction_topology_required"):
@@ -193,6 +201,9 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         clause_evidence["TRANSITION.OUTGOING"] = transition["outgoing"]
     for index, beat in enumerate(action_beats, 1):
         prefix = f"BEAT.{index}"
+        pace = delivery_clause(beat)
+        if pace:
+            clause_evidence[f"{prefix}.DIALOGUE_DELIVERY"] = pace
         clause_evidence[f"{prefix}.ENTRY"] = beat["entry_state"]
         dialogue_words = str(beat.get("dialogue") or "").partition("：")[2].strip()
         clause_evidence[f"{prefix}.ACTION"] = (

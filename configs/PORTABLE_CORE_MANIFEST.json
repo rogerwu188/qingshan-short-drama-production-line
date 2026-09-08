@@ -2,6 +2,7 @@
   "schema": "qingshan.portable_core_manifest.v1",
   "version": "0.3.1",
   "required_files": [
+    "tools/editorial_pacing_contract.py",
     "tools/deployment_code_integrity.py",
     "tools/level_native_release_audio.py",
     "tools/manifest_self_limit_and_version_assert.py",
@@ -59,6 +60,7 @@
     "tools/release_signoff_integrity_gate.py"
   ],
   "portable_test_modules": [
+    "tools.tests.test_editorial_pacing_contract",
     "tools.tests.test_provider_scope_projection",
     "tools.tests.test_role_semantic_prompt_gate",
     "tools.tests.test_submit_giggle_image_manifest",
