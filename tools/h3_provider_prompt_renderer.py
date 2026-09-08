@@ -32,6 +32,10 @@ except ModuleNotFoundError:
 
 
 SCHEMA = "qingshan.minimax_h3_provider_renderer.v2_english_machine_dialogue_tags"
+try:
+    from tools.editorial_pacing_contract import delivery_clause, content_window_clause
+except ModuleNotFoundError:
+    from editorial_pacing_contract import delivery_clause, content_window_clause
 ANTI_TEXT = (
     "TEXT-FREE FRAME: dialogue exists only as synchronized native speech; never render captions, "
     "subtitles, letters, numbers, punctuation, dialogue boxes, labels, signs, UI, logos, or watermarks"
@@ -140,6 +144,10 @@ def _beat(
                 "do not show the offscreen speaker; all visible people keep their mouths closed."
             )
         evidence[f"{prefix}.DIALOGUE"] = literal
+        pace = delivery_clause(source, "EN")
+        if pace:
+            line += " " + pace
+            evidence[f"{prefix}.DIALOGUE_DELIVERY"] = pace
         evidence[f"{prefix}.DIALOGUE_SPEAKER"] = speaker.strip()
         evidence[f"{prefix}.CROSSMODAL_BINDING"] = (
             f"{subject}={image_slot}={speaker_slot}={audio_slot}"
@@ -236,11 +244,16 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     )
     source_transition = plan.get("transition") or {}
     description: list[str] = []
+    content_window = content_window_clause(plan, "EN")
+    if content_window:
+        description.append(content_window)
     clause_evidence = {
         "ANCHOR.IDENTITY_PROP": contract["identity_prop_fact"],
         "ANCHOR.SPACE_WEATHER": contract["space_weather_fact"],
     }
     persistent_state_lock = str(contract.get("persistent_state_lock") or "").strip()
+    if content_window:
+        clause_evidence["PACING.CONTENT_WINDOW"] = content_window
     if persistent_state_lock:
         clause_evidence["CONTINUITY.PERSISTENT_STATE"] = persistent_state_lock
     shot_state_locks = [str(value).strip() for value in contract.get("shot_state_locks") or []]

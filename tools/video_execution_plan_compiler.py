@@ -10,6 +10,7 @@ from typing import Any
 import re
 
 try:
+    from tools.editorial_pacing_contract import continuous_bridge
     from tools.provider_contract_boundary import (
         compact_identity_prop_fact,
         compact_space_weather_fact,
@@ -30,6 +31,7 @@ try:
     )
     from tools.h3_crossmodal_speaker_gate import require as require_h3_speaker_binding
 except ModuleNotFoundError:
+    from editorial_pacing_contract import continuous_bridge
     from provider_contract_boundary import (
         compact_identity_prop_fact,
         compact_space_weather_fact,
@@ -166,7 +168,7 @@ def _compact_transition(unit: dict[str, Any]) -> dict[str, str]:
             or source.get("blocking")
             or ""
         ).strip()
-    return {"incoming": inbound, "outgoing": outbound}
+    return {"incoming": continuous_bridge(inbound), "outgoing": continuous_bridge(outbound)}
 
 
 def _camera_authority(unit: dict[str, Any], *, combat: bool) -> dict[str, Any]:
@@ -333,6 +335,7 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
             ).strip(),
         }
         beat["action_capacity"] = _action_risk(beat)
+        beat["internal_transition_after"] = continuous_bridge(beat["internal_transition_after"])
         beats.append(beat)
     sounds = {
         key: unique_text([
