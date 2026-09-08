@@ -23,4 +23,5 @@ jobs:
       - run: python -m qingshan_engine.cli doctor --profile core
       - run: python tools/run_portable_ci.py
       - run: python -m unittest tools.tests.test_episode_prompt_batch_gate tools.tests.test_episode_prompt_batch_paid_boundary
+      - run: python -m unittest tools.tests.test_preproduction_prompt_compile
       - run: python tools/deployment_code_integrity.py

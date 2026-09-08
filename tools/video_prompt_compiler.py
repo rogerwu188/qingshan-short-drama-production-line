@@ -110,6 +110,7 @@ def model_family(model: object) -> str:
 def compile_model_prompt(
     unit: dict[str, Any],
     memory_rules: list[dict[str, Any]] | None = None,
+    *, preproduction_only: bool = False,
 ) -> str:
     # Both families consume one validated execution plan.  Only provider
     # grammar differs.  Compile on a copy and prove the authoritative contract
@@ -129,7 +130,7 @@ def compile_model_prompt(
         voice = validate_speaker_voice_contract(working)
         if voice["status"] != "PASS":
             raise ValueError(";".join(voice["failures"]))
-    plan = compile_video_execution_plan(working)
+    plan = compile_video_execution_plan(working, preproduction_only=preproduction_only)
     if family == "seedance2":
         text, receipt = render_sd2_prompt(working, plan)
     else:
@@ -141,6 +142,8 @@ def compile_model_prompt(
         raise ValueError(";".join(immutability["failures"]))
     unit_id = str(unit.get("unit_id") or "UNKNOWN")
     COMPILE_RECEIPTS[unit_id] = {**receipt, "immutability": immutability}
+    if preproduction_only:
+        COMPILE_RECEIPTS[unit_id].update(scope="PLANNED_PROMPT_COMPILATION_NOT_MEDIA_ADMISSION", provider_post_allowed=False)
     return text
 
 

@@ -10,7 +10,7 @@ from typing import Any
 REQUIRED_FIELDS = ("owner", "hand", "position", "disposition")
 
 
-def compile_prop_states(spec: dict[str, Any], *, source_id: str) -> tuple[list[dict[str, Any]], list[str]]:
+def compile_prop_states(spec: dict[str, Any], *, source_id: str, preproduction_only: bool = False) -> tuple[list[dict[str, Any]], list[str]]:
     failures: list[str] = []
     states: list[dict[str, Any]] = []
     action_kind = str((spec.get("action") or {}).get("action_kind") or "").upper()
@@ -33,7 +33,7 @@ def compile_prop_states(spec: dict[str, Any], *, source_id: str) -> tuple[list[d
         if action_kind == "DIALOGUE" and ownership_changed and authorization.get("writer_authored") is not True:
             failures.append(f"DIALOGUE_PROP_OWNERSHIP_CHANGE_FORBIDDEN:{source_id}:{prop_id}")
         visual = prop.get("start_frame_visual_confirmation") or state.get("start_frame_visual_confirmation") or {}
-        if visual.get("status") != "PASS" or not visual.get("evidence_ref"):
+        if not preproduction_only and (visual.get("status") != "PASS" or not visual.get("evidence_ref")):
             failures.append(f"START_FRAME_PROP_STATE_NOT_VISUALLY_CONFIRMED:{source_id}:{prop_id}")
         states.append({
             "prop_id": prop_id,

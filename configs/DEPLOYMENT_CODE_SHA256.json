@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1799,
+  "file_count": 1800,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -4653,7 +4653,7 @@
     },
     {
       "path": "tools/prop_state_contract.py",
-      "sha256": "68c021835748e839da1d1888e656db344db5dc5358abe95a2b3b8945f2562eaa"
+      "sha256": "609ca8945173dcfa3995fdaf23d877629374cd7708f2090a071cba7b1b05ba18"
     },
     {
       "path": "tools/provider_contract_boundary.py",
@@ -6504,6 +6504,10 @@
       "sha256": "1fd2c6d6c45dcd20af2c8fd39c79d15ba104eb1afe555d3d5bf37587d3d5f565"
     },
     {
+      "path": "tools/tests/test_preproduction_prompt_compile.py",
+      "sha256": "a94a7d12a1bd095a9fd86eaadf5b22cde906423920f4a2d8c40e9f60bf5debee"
+    },
+    {
       "path": "tools/tests/test_production_efficiency_contract.py",
       "sha256": "b89db18298ec35bff4f1edff8b102685edd5323c2c3819587411db235dc62c42"
     },
@@ -7113,7 +7117,7 @@
     },
     {
       "path": "tools/video_execution_plan_compiler.py",
-      "sha256": "cbbc834a82f28264d9bc440bb9f16c3c76d100c1cdab6a07566a57e734b0edff"
+      "sha256": "9cb55faa29224d87afe6bf205059761568f54812cd2f6f9c598827ababd5a41e"
     },
     {
       "path": "tools/video_generation_failure_policy.py",
@@ -7137,7 +7141,7 @@
     },
     {
       "path": "tools/video_prompt_compiler.py",
-      "sha256": "d7509c2f3424b47fc13138fc31b0c60404c46b643a22e713618cfe3ad3785da3"
+      "sha256": "5335f55d400bee4b544f0e45b4b637e50b62ff909de01c60e013e86542ffcad7"
     },
     {
       "path": "tools/video_sequence_rhythm_gate.py",
