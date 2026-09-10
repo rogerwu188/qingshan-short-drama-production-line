@@ -25,3 +25,5 @@ jobs:
       - run: python -m unittest tools.tests.test_episode_prompt_batch_gate tools.tests.test_episode_prompt_batch_paid_boundary
       - run: python -m unittest tools.tests.test_preproduction_prompt_compile
       - run: python tools/deployment_code_integrity.py
+      - run: python -m unittest tools.tests.test_knowledge_registry
+      - run: python -m qingshan_engine.cli knowledge --validate

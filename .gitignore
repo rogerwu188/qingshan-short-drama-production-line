@@ -18,6 +18,7 @@
 !/configs/reroll_cost_guard_policy_v1_20260716.json
 !/configs/VOICE_REFERENCE_REGISTRY.example.json
 !/configs/COMBAT_ACTION_LIBRARY_V1.json
+!/configs/ENGINEERING_KNOWLEDGE_V1.json
 !/configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json
 !/codex_docs/
 /codex_docs/*

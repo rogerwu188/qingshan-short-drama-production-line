@@ -16,6 +16,21 @@ technical QA, and ordered YouTube/Douyin release.
 
 ## What is included
 
+## Engineering knowledge / 经验继承
+
+[工程知识库（22 条规则与事故教训）](docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md) ·
+[决策依据](docs/decisions/DECISION_RECORDS.md) ·
+[A–I 交接模板](examples/handoff/HANDOFF_TEMPLATE.md) ·
+[集成状态与待完成项](docs/knowledge/INTEGRATION_STATUS.md)。
+
+Run `python3 -m qingshan_engine.cli knowledge --validate` to check the portable
+catalog; omit `--validate` to export context for a new agent.
+This is read-only, requires no paid provider, and never grants production
+authorization. Guidance and pending integration are explicitly distinguished
+from referenced implementations. Private episode decisions are not defaults.
+
+## Engine contents
+
 Deployment verification: [installation guide](docs/DEPLOYMENT.md) ·
 [0.3.1 reliability and production-parity audit](docs/PIPELINE_INTEGRITY_AUDIT_2026-09-05.md).
 Run `python3 tools/deployment_code_integrity.py` after downloading a release to

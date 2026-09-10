@@ -21,6 +21,8 @@ def included(name: str) -> bool:
     path = PurePosixPath(name)
     if name == MANIFEST or not path.parts:
         return False
+    if name.startswith(("docs/knowledge/", "docs/decisions/", "examples/handoff/")):
+        return path.suffix == ".md"
     if path.parts[0] in {"tools", "qingshan_engine"}:
         return (path.suffix in {".py", ".sh", ".swift", ".js"}
                 or ("schemas" in path.parts and path.suffix == ".json"))

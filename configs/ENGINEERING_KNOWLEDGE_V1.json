@@ -1,0 +1,347 @@
+{
+  "schema": "qingshan.knowledge_registry.v1",
+  "version": "1.0.0",
+  "scope": "PORTABLE_KNOWLEDGE_NOT_PRODUCTION_AUTHORIZATION",
+  "license": "MIT",
+  "rules": [
+    {
+      "id": "K001",
+      "stage": "TRANSACTIONS",
+      "rule": "恢复事务后再提交；绑定 ID 复用，未知响应隔离。",
+      "lesson": "曾因断流无法判断是否扣费；换提示词不是重复提交同一逻辑任务的许可。",
+      "recovery": "确认 ledger 和 provider 状态，不盲目 POST。",
+      "implementation": [
+        "tools/giggle_api_client.py"
+      ],
+      "status": "REFERENCE_IMPLEMENTATION",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K002",
+      "stage": "QA",
+      "rule": "整批关键帧和视频提示词先生成、先 QA，再并发执行可独立任务。",
+      "lesson": "逐条编译、逐条等待曾导致低吞吐。",
+      "recovery": "保留依赖图、全批次哈希准入；参考绑定变化走已有精确物化检查。",
+      "implementation": [
+        "tools/episode_prompt_batch_gate.py"
+      ],
+      "status": "REFERENCE_IMPLEMENTATION",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K003",
+      "stage": "SCHEDULING",
+      "rule": "不能凭空固定三个并发；按供应商限制、额度、锁和任务依赖调度。",
+      "lesson": "提高并发不意味着跨越真实尾帧依赖。",
+      "recovery": "先并发独立任务；有依赖的任务等待所需媒体，不伪造依赖完成。",
+      "implementation": [],
+      "status": "GUIDANCE_ONLY",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K004",
+      "stage": "DIRECTOR",
+      "rule": "逐镜 QA 后审查整集吸引力；初审加最多两轮修改，次数按集而非版本计算。",
+      "lesson": "无限创意自证循环拖延生产。",
+      "recovery": "到创意上限继续既有技术与发布门禁；不宣称创意或媒体 PASS。",
+      "implementation": [],
+      "status": "INTEGRATION_PENDING",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K005",
+      "stage": "CONTINUITY",
+      "rule": "先判断事件边界，再选首帧；同事件换机位仍继承状态。",
+      "lesson": "人物卧床后突然站立、持刀消失、室内凭空增加群众。",
+      "recovery": "区分 HARD_CONTINUATION / MOTIVATED_CUT / NEW_EVENT_ANCHOR；重新构图不清空状态。",
+      "implementation": [
+        "tools/build_video_unit_anchor_plan.py"
+      ],
+      "status": "REFERENCE_IMPLEMENTATION",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K006",
+      "stage": "IDENTITY",
+      "rule": "对白主体、动作主体、cast、声音绑定必须解析成一致的 canonical ID。",
+      "lesson": "别名与本名混用曾导致动作归给另一角色。",
+      "recovery": "解析别名后检查所有语义槽；对白提及某人不等于该人入镜。",
+      "implementation": [
+        "tools/speaker_voice_contract.py",
+        "tools/h3_crossmodal_speaker_gate.py"
+      ],
+      "status": "REFERENCE_IMPLEMENTATION",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K007",
+      "stage": "VISIBILITY",
+      "rule": "局部身体、画外说话人、多视图参考不等于完整可见角色。",
+      "lesson": "只露手臂的老人被生成完整人物；参考多视图被复制成多人。",
+      "recovery": "分别声明实体、可见范围、发声者和参考用途。",
+      "implementation": [
+        "tools/provider_scope_projection.py"
+      ],
+      "status": "REFERENCE_IMPLEMENTATION",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K008",
+      "stage": "PROVIDERS",
+      "rule": "H3 / SD2 共用结构事实，但提示词格式与作用域隔离；旧修复不能被新版删除。",
+      "lesson": "H3 引用作用域和负面段落会误带人物；不能把一种模型序列化直接套到另一种。",
+      "recovery": "给两种适配器各保留回归样例；新规则不改变已批准地图等事实。",
+      "implementation": [
+        "tools/provider_scope_projection.py"
+      ],
+      "status": "REFERENCE_IMPLEMENTATION",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K009",
+      "stage": "ACTION",
+      "rule": "CONTACT、EVASION、THREAT_THRESHOLD 不能互相冒充。",
+      "lesson": "距离目标一掌却被声明为已接触，交棒又要求未命中。",
+      "recovery": "同一拍仅一种接触语义；主反馈明确，次反馈限量。",
+      "implementation": [
+        "tools/sd2_motion_density_gate.py",
+        "configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json"
+      ],
+      "status": "REFERENCE_IMPLEMENTATION",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K010",
+      "stage": "TIMING",
+      "rule": "时长欠载是切分/授权内容问题，不是自动重试提示词问题。",
+      "lesson": "剧情在前半段结束、后半段只有举刀摆拍。",
+      "recovery": "DURATION_EXCEEDS_AUTHORIZED_CONTENT 先调整合法时长或边界，不添未经授权动作。",
+      "implementation": [
+        "configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json"
+      ],
+      "status": "REFERENCE_IMPLEMENTATION",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K011",
+      "stage": "PACING",
+      "rule": "动作和日常镜头都要真实时间节奏；重复保持状态词不能制造冲击。",
+      "lesson": "打斗、走路、做饭、对白都曾过慢；只有打斗分支优化不够。",
+      "recovery": "一条清晰因果链，避免短时间过载及固定机位与横移相互冲突。",
+      "implementation": [
+        "tools/editorial_pacing_contract.py"
+      ],
+      "status": "REFERENCE_IMPLEMENTATION",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K012",
+      "stage": "EDITING",
+      "rule": "生成槽不等于最终剪辑长度；对白完整和因果承接优先。",
+      "lesson": "整条原片串联造成信息重复、黑场和对白截断。",
+      "recovery": "选有内容的源区间；明确原片与最终时间线映射，不做无依据全片加速。",
+      "implementation": [
+        "tools/dialogue_cut_safety.py",
+        "tools/editorial_pacing_contract.py"
+      ],
+      "status": "REFERENCE_IMPLEMENTATION",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K013",
+      "stage": "MEDIA_QA",
+      "rule": "生成前细致，生成后技术与基础情节检查；不默认引入高成本动态审查。",
+      "lesson": "为小动作或精确 ASR 关键词反复重做曾浪费资源。",
+      "recovery": "planned、downloaded、admitted、released 四种证据不可互换。",
+      "implementation": [
+        "configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json"
+      ],
+      "status": "REFERENCE_IMPLEMENTATION",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K014",
+      "stage": "AUDIO",
+      "rule": "近音 ASR 容错不等于允许换声、错说话人或语义错误。",
+      "lesson": "识别器两次没确认一个近音关键词，却被当成必须重做。",
+      "recovery": "项目显式采纳容错政策；保留真实声画绑定检查。",
+      "implementation": [],
+      "status": "GUIDANCE_ONLY",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K015",
+      "stage": "RETRY",
+      "rule": "生成失败后重新设计，不用微调同一提示词反复花钱。",
+      "lesson": "失败重复时增加描述长度加剧过载。",
+      "recovery": "先分类根因；欠载改切分、歧义改语义；重试仍需预算和事务许可。",
+      "implementation": [],
+      "status": "GUIDANCE_ONLY",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K016",
+      "stage": "MUSIC",
+      "rule": "写手/导演决定 BGM 模式和叙事节点后，下游应实际消费。",
+      "lesson": "只在提示词加 BGM 字样不证明配乐执行。",
+      "recovery": "记录时间、时长、叙事作用、来源许可、对白闪避；不擅改已批准声音合同。",
+      "implementation": [],
+      "status": "INTEGRATION_PENDING",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K017",
+      "stage": "STYLE",
+      "rule": "文化风格、天气、服装地位差异来自剧本合同，不靠默认电影滤镜补。",
+      "lesson": "默认雨夜、西方魔幻色调、所有人同色麻布曾反复出现。",
+      "recovery": "保持已批准结构；在编译前核对风格来源和人物服装区别。",
+      "implementation": [
+        "tools/visual_culture_contract.py"
+      ],
+      "status": "REFERENCE_IMPLEMENTATION",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K018",
+      "stage": "RELEASE",
+      "rule": "内置浏览器三次失败后使用已连接外部浏览器；先查重再上传。",
+      "lesson": "浏览器操作失败被误称为等待额外内容审核。",
+      "recovery": "复用平台策略；登录/安全权限是真边界；自动发布权限来自本部署操作者。",
+      "implementation": [
+        "configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json"
+      ],
+      "status": "REFERENCE_IMPLEMENTATION",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K019",
+      "stage": "PLUGIN",
+      "rule": "Fight 插件只编译附件，原模块消费；影子许可不是主流程启用。",
+      "lesson": "两套生成/剪辑/发行会破坏事务与准入。",
+      "recovery": "双重显式启用、冲突隔离；四种时间坐标独立；计划接触不得冒充观察事实。",
+      "implementation": [],
+      "status": "GUIDANCE_ONLY",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K020",
+      "stage": "AUTHORITY",
+      "rule": "单集预算、消费重算、已接受缺陷和资产冻结必须有精确作用域。",
+      "lesson": "历史 8000 额度或不重做裁决被泛化会扩大授权。",
+      "recovery": "新轮计费不删除历史账单；公共知识包不携带任何真实额度、授权或远程句柄。",
+      "implementation": [],
+      "status": "GUIDANCE_ONLY",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K021",
+      "stage": "REFERENCES",
+      "rule": "参考槽位有限，身份/地图/道具/尾帧分用途绑定，顺序和数量须匹配实际请求。",
+      "lesson": "补齐证据时无限追加图片或重复索引，文字 PASS 与实际请求脱节。",
+      "recovery": "从当前 provider capability 检查数量；不能以下载完成直接赋予资产准入。",
+      "implementation": [
+        "tools/build_video_unit_anchor_plan.py"
+      ],
+      "status": "REFERENCE_IMPLEMENTATION",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    },
+    {
+      "id": "K022",
+      "stage": "HANDOFF",
+      "rule": "交接要记录证据层级、适用范围、未验证项和真实依赖，不复制历史状态。",
+      "lesson": "历史交接入口、解释器和新任务环境不匹配导致反复补证据。",
+      "recovery": "先核对运行时与安装依赖；使用模块入口，不能猜测 --help 一定无副作用。",
+      "implementation": [],
+      "status": "GUIDANCE_ONLY",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "SANITIZED_PROJECT_RETROSPECTIVE",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "runtime_gate_added": false
+    }
+  ]
+}

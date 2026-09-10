@@ -123,10 +123,23 @@ def command_release_preflight(args: argparse.Namespace) -> int:
     return _run(command)
 
 
+def command_knowledge(args: argparse.Namespace) -> int:
+    command = [sys.executable, "tools/knowledge_registry.py"]
+    if args.validate:
+        command.append("--validate")
+    if args.stage:
+        command.extend(["--stage", args.stage])
+    return _run(command)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="qingshan", description=__doc__)
     parser.add_argument("--version", action="version", version=__version__)
     sub = parser.add_subparsers(dest="command", required=True)
+    knowledge = sub.add_parser("knowledge", help="read-only portable engineering knowledge")
+    knowledge.add_argument("--validate", action="store_true")
+    knowledge.add_argument("--stage")
+    knowledge.set_defaults(func=command_knowledge)
     init = sub.add_parser("init", help="create a safe external runtime workspace")
     init.add_argument("--workspace", required=True)
     init.set_defaults(func=command_init)

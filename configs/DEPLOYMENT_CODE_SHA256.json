@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1802,
+  "file_count": 1810,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -180,6 +180,10 @@
       "sha256": "23af3e4be699f125e925fa90af3f470cc671b15b0528d9fbe9b6531ad25c9c96"
     },
     {
+      "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
+      "sha256": "353a6af08b449e5693e1b6f989d6f77568f451b4cc347e84e0bdef7e36ddc09b"
+    },
+    {
       "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
       "sha256": "9ee040c0a00caf9a61e4fd9995ff84c2f22abcaa1a3a2ac60bd01035e929fb0e"
     },
@@ -232,6 +236,26 @@
       "sha256": "6745a600d2e0a44ae720c0d0e38fae8c0a77214af2bd2672760090c22cbf433c"
     },
     {
+      "path": "docs/decisions/DECISION_RECORDS.md",
+      "sha256": "a31f579ef522e06536211ab409ce65e39e8383a62298f56a18e8848042f69029"
+    },
+    {
+      "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
+      "sha256": "58a2e14fcf0a393c1298ab4781c2c90542e04c83d1833abd6f21988e939c6c8f"
+    },
+    {
+      "path": "docs/knowledge/INTEGRATION_STATUS.md",
+      "sha256": "cfacbfa097491d45b179594c46a3204376cf1a7952a869d188e6b55cc077fef7"
+    },
+    {
+      "path": "docs/knowledge/VALIDATION_REPORT.md",
+      "sha256": "10c765cd4af969d91c9562c7eda9ea79007fa9942213a99c1335fc279c94d920"
+    },
+    {
+      "path": "examples/handoff/HANDOFF_TEMPLATE.md",
+      "sha256": "7128ecc1a182ce833918ad769572c594eae26458edb663b413c48f89c26d820a"
+    },
+    {
       "path": "pyproject.toml",
       "sha256": "d4f3cd3d0e1145eb98a0778d7aba1ce4e480b068a1015f30381b66bc627571d1"
     },
@@ -241,7 +265,7 @@
     },
     {
       "path": "qingshan_engine/cli.py",
-      "sha256": "d3cc1b8186868d5fdee9530ea25d4d90d7e781d1991d16ac2d5a3536dc78c962"
+      "sha256": "c1917570de84c33c0d5179b5f97054ef8d1e8e1712c63ff6604d0d01436efa2d"
     },
     {
       "path": "setup.py",
@@ -3161,7 +3185,7 @@
     },
     {
       "path": "tools/deployment_code_integrity.py",
-      "sha256": "a718dd72da9d47af506c5a13417351ac01f66a4b066d0c4bc9c441737234d380"
+      "sha256": "47ec0a2748c06c29d52696cb1c99a8001022ad677432e0b723c7f1d52ae0425d"
     },
     {
       "path": "tools/derive_e16_speech_windows.py",
@@ -4338,6 +4362,10 @@
     {
       "path": "tools/keyframe_output_identity_gate.py",
       "sha256": "84c1b8e801cac7d6d1fbcf0cc56970e6b4ea301e61ecffa1b6105b567138928d"
+    },
+    {
+      "path": "tools/knowledge_registry.py",
+      "sha256": "e618a20a00396712ae3144eb08e66877ca8d1281c8e7f6b7654cc0887dc2d768"
     },
     {
       "path": "tools/level_native_release_audio.py",
@@ -6410,6 +6438,10 @@
     {
       "path": "tools/tests/test_keyframe_output_identity_gate.py",
       "sha256": "7f8a5fbba456aafb65a6ed6f916907d82e483edeb1baed8c8d4fd35ce8f37cb5"
+    },
+    {
+      "path": "tools/tests/test_knowledge_registry.py",
+      "sha256": "a1dd7226b9237c8a7da1aa9ad8f5ab91ff87c8460ac6f53c342c97b5c22ce913"
     },
     {
       "path": "tools/tests/test_line_heartbeat.py",
