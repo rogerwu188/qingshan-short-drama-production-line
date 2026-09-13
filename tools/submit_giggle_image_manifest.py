@@ -526,6 +526,13 @@ def classify_ambiguous_failures(
         failure["credit"] = credit
         failure["credit_status"] = status
         path = transaction_dir / Path(failure["transaction"]).name
+        if not path.is_file():
+            # nalu e17: the item failed BEFORE its intent record was written (batch gate / input
+            # precheck / prompt sha / reference read) — no POST was attempted, nothing was charged.
+            failure["status"] = "submit_failed_before_intent"
+            failure["credit"] = 0
+            failure["credit_status"] = "NOT_CHARGED_NO_INTENT_RECORDED"
+            continue
         transaction = json.loads(path.read_text(encoding="utf-8"))
         if transaction.get("state") == "SUBMITTED_TASK_ID_BOUND" and transaction.get("task_id"):
             failure["task_id"] = transaction["task_id"]
