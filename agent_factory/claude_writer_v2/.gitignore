@@ -1,4 +1,0 @@
-__pycache__/
-*.pyc
-state/*.bak*
-state/PROGRESS.json
