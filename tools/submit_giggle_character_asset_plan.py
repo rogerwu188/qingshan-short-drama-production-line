@@ -28,6 +28,19 @@ except ModuleNotFoundError:
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def portable_path(path: Path) -> str:
+    """Repo-relative when possible, absolute otherwise.
+
+    Report writing must never be able to fail after validation has passed and,
+    for a paid run, after the provider has already been charged.  Mirrors
+    tools/submit_giggle_image_manifest.py:51-56.
+    """
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
 class DuplicateSubmissionBlocked(RuntimeError):
     """A prior charged or unresolved character-asset intent cannot be repeated."""
 
@@ -222,7 +235,7 @@ def main() -> int:
                     results.append(future.result())
                 except (Exception, SystemExit) as exc:
                     row = futures[future]
-                    failures.append({"character_id": row["id"], "status": "SUBMIT_FAILED", "error": str(exc), "transaction": str(transaction_path(transaction_dir, row, "gpt-image-2-pro", "2K").relative_to(ROOT))})
+                    failures.append({"character_id": row["id"], "status": "SUBMIT_FAILED", "error": str(exc), "transaction": portable_path(transaction_path(transaction_dir, row, "gpt-image-2-pro", "2K"))})
     credit_reconciliation = None
     ambiguity_resolution = "NOT_APPLICABLE"
     if not args.precheck_only:
@@ -263,7 +276,7 @@ def main() -> int:
         "schema": "qingshan.character_asset_submit.v1",
         "episode": plan.get("episode"),
         "recorded_at": datetime.now(timezone.utc).isoformat(),
-        "plan": str(plan_path.relative_to(ROOT)),
+        "plan": portable_path(plan_path),
         "model": "gpt-image-2-pro",
         "resolution": "2K",
         "concurrency": max(1, args.concurrency),
@@ -273,7 +286,7 @@ def main() -> int:
         "failures": sorted(failures, key=lambda row: row["character_id"]),
         "credit_reconciliation": credit_reconciliation,
         "ambiguity_resolution": ambiguity_resolution,
-        "transaction_dir": str(transaction_dir.relative_to(ROOT)),
+        "transaction_dir": portable_path(transaction_dir),
         "duplicate_submit_policy": "TASK_FINGERPRINT_TRANSACTION_GUARD",
         "credits": {"pay": (credit_reconciliation or {}).get("charged_credits", 0) if not args.precheck_only else 0, "refund": 0, "net": (credit_reconciliation or {}).get("charged_credits", 0) if not args.precheck_only else 0, "cap": 10000}
     }

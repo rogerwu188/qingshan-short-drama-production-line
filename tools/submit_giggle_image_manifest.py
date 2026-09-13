@@ -666,7 +666,7 @@ def main() -> int:
     report = {
         "schema": "qingshan.giggle_image_batch_submit.v2",
         "episode": manifest.get("episode"),
-        "manifest": str(manifest_path.relative_to(ROOT)),
+        "manifest": portable_path(manifest_path),
         "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "precheck_only": args.precheck_only,
         "concurrency": max(1, args.concurrency),

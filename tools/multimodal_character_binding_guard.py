@@ -6,17 +6,40 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VOICE_REGISTRY = ROOT / "configs/series_voice_reference_registry_current_20260723.json"
-AGENTCUT_VOICE_POLICY = ROOT / "configs/agentcut_character_voice_reference_policy_v1.json"
-CHARACTER_REGISTRY = ROOT / "configs/series_character_asset_registry_20260712.json"
 
-ENTITY_ALIASES = {
+
+def _configured_path(variable: str, default: str) -> Path:
+    """Resolve a tenant authority file, overridable by environment variable.
+
+    Only the *location* is configurable. The file is still loaded eagerly and
+    still has to exist and parse, so a wrong or missing override fails closed
+    exactly as a missing default would.
+    """
+    configured = os.environ.get(variable, "").strip()
+    if not configured:
+        return ROOT / default
+    path = Path(configured).expanduser()
+    return path if path.is_absolute() else ROOT / path
+
+
+VOICE_REGISTRY = _configured_path(
+    "QINGSHAN_VOICE_REGISTRY", "configs/series_voice_reference_registry_current_20260723.json"
+)
+AGENTCUT_VOICE_POLICY = _configured_path(
+    "QINGSHAN_AGENTCUT_VOICE_POLICY", "configs/agentcut_character_voice_reference_policy_v1.json"
+)
+CHARACTER_REGISTRY = _configured_path(
+    "QINGSHAN_CHARACTER_REGISTRY", "configs/series_character_asset_registry_20260712.json"
+)
+
+_BUILTIN_ENTITY_ALIASES = {
     "chenji": ("陈迹", "CHAR-陈迹-古装"),
     "baili": ("白鲤", "CHAR-白鲤-古装"),
     "wuyun": ("乌云", "CHAR-乌云-猫"),
@@ -42,6 +65,62 @@ ENTITY_ALIASES = {
     "qisan": ("齐三", "CHAR-齐三-古装"),
     "killer": ("巡检司杀手", "CHAR-巡检司杀手-古装"),
 }
+
+ENTITY_REGISTRY_EXTENSION_SCHEMA = "qingshan.entity_registry_extension.v1"
+
+
+def load_entity_registry_extension() -> dict[str, tuple[str, str]]:
+    """Register additional production lines' entities without editing this file.
+
+    A second short-drama line (different work, different cast) cannot appear in
+    a whitelist that is hardcoded for one series, so every one of its
+    characters trips UNREGISTERED_ENTITY_BINDING. QINGSHAN_ENTITY_REGISTRY
+    points at a JSON document that *adds* entities:
+
+        {"schema": "qingshan.entity_registry_extension.v1",
+         "line": "nalu",
+         "entity_aliases": {"qinming": ["秦铭", "CHAR-QINMING"]}}
+
+    The extension is additive only and fail-closed. It may not redefine a
+    built-in entity id, may not reuse a display name already bound to another
+    entity, and every entry must carry a non-empty display name and registry
+    id. So it can register a new face+voice authority, and it can never relax,
+    remove, or shadow an existing one.
+    """
+    configured = os.environ.get("QINGSHAN_ENTITY_REGISTRY", "").strip()
+    if not configured:
+        return {}
+    path = Path(configured).expanduser()
+    if not path.is_absolute():
+        path = ROOT / path
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("schema") != ENTITY_REGISTRY_EXTENSION_SCHEMA:
+        raise ValueError(
+            f"QINGSHAN_ENTITY_REGISTRY schema must be {ENTITY_REGISTRY_EXTENSION_SCHEMA}: {path}"
+        )
+    rows = payload.get("entity_aliases")
+    if not isinstance(rows, dict) or not rows:
+        raise ValueError(f"QINGSHAN_ENTITY_REGISTRY entity_aliases must be a non-empty object: {path}")
+    taken_names = {name for name, _ in _BUILTIN_ENTITY_ALIASES.values()}
+    extension: dict[str, tuple[str, str]] = {}
+    for entity_id, value in rows.items():
+        if not isinstance(entity_id, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", entity_id):
+            raise ValueError(f"entity id must be a lowercase identifier: {entity_id!r} in {path}")
+        if entity_id in _BUILTIN_ENTITY_ALIASES:
+            raise ValueError(f"entity registry extension may not redefine built-in entity {entity_id}")
+        if not isinstance(value, (list, tuple)) or len(value) != 2:
+            raise ValueError(f"entity {entity_id} must map to [display_name, registry_id] in {path}")
+        name, registry_id = (str(item).strip() for item in value)
+        if not name or not registry_id:
+            raise ValueError(f"entity {entity_id} needs a non-empty display name and registry id in {path}")
+        if name in taken_names:
+            raise ValueError(f"display name {name} is already bound to another entity; names must be unique")
+        taken_names.add(name)
+        extension[entity_id] = (name, registry_id)
+    return extension
+
+
+ENTITY_ALIASES = {**_BUILTIN_ENTITY_ALIASES, **load_entity_registry_extension()}
 
 # These are identity contradictions, not merely wardrobe style preferences.
 FORBIDDEN_APPEARANCE_PHRASES = {
