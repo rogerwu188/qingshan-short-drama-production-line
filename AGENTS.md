@@ -30,7 +30,7 @@
 - `QINGSHAN_UNIT_PREFERRED_SECONDS=4,6`、`QINGSHAN_UNIT_MIN_SECONDS=4`、`QINGSHAN_UNIT_MAX_SECONDS=8`（补丁 e16；每场镜长必须能切成 4–8 s 单元）。
 - 系统依赖：ffmpeg/ffprobe；Python 3.12 venv `pip install -e '.[media,asr,cloud]'` **之外**还要装 `insightface onnxruntime rapidocr-onnxruntime faster-whisper opencc`（身份余弦、OCR、ASR、繁简转换）。
 - AgentCut CLI（独立仓库 backlot-os 的组件，editable 装到 `$ENGINE_ROOT/.agentcut_env`）：S4 `speech-voices/speech-generate`、S7 `bgm-generate`。**ADAPTER_REQUIRED**：没有它 S4/S7 配乐不可用。
-- 编排器与线专属工具当前**硬编码绝对路径**（`/Users/rogerwu/nalu`、`/Users/rogerwu/nalu_runtime`）：换机器的第一件事是参数化为 `$ENGINE_ROOT/$RUNTIME_ROOT`。**INTEGRATION_PENDING**。
+- 编排器与线专属工具当前**硬编码部署机的绝对路径**：换机器的第一件事是参数化为 `$ENGINE_ROOT/$RUNTIME_ROOT`。**INTEGRATION_PENDING**。
 
 从 clone 到第一次 dry-run 的实际命令：
 
@@ -75,7 +75,7 @@ git clone https://github.com/rogerwu188/nalu-production-runtime.git /tmp/npr && 
 | 整批提示词门 | 关键帧提示词 + 规划编译（`compile_grouped_seedance_manifest.py --planning-only --planned-prompt-dir`） | `EPISODE_PROMPT_BATCH_POLICY.json` 登记 + 每行回执 | `prompt_batch_register` sha 绑定 + `prompt_batch_qa digest` 确定性检查 | **MANUAL_REQUIRED**：通读摘要写逐行答案 → `receipts` → 再 `register` | 0 | 确定性检查 FAIL 且非误报时改合同 |
 | S5 | 关键帧清单 | `preproduction/keyframes/<shot>-keyframe-v1.png` | entry_state 门、预算守卫、Q1（RapidOCR + 身份余弦 + 人工）、起始帧证据 | **MANUAL_REQUIRED Q1**：缩略总表看图填答；REJECT → 改镜头文字 → 重建 → 停放旧提示词/旧图 → S5 干跑 → 规划编译 → 重登记 → S5 付费 | 11/张 | 同镜第 2 次创意重做失败 |
 | S6 | 关键帧 + 上一单元真实尾帧（波次） | 单元 mp4 | 波次循环脚本、reroll 守卫、post-gen QA（技术 12 项 + ASR + 剧情 5 项）、Q2（5 帧 OCR/身份 + 人工）、缺陷容忍门 | **MANUAL_REQUIRED**：post-gen 剧情审、Q2 审 | 20/s | 重做超守卫上限、集级缺陷预算超限 |
-| S7 | 全部单元 ADMITTED_FOR_ASSEMBLY | `deliverables/<EP>/<EP>_final_9x16.mp4`（烧录字幕、3 s 片尾、-16 LUFS；选择性配乐） | `final_qa_evidence_bundle`（两键无生产者 → N/A） | 无 | 配乐 8/段 | — |
+| S7 | 全部单元 ADMITTED_FOR_ASSEMBLY | `deliverables/<EP>/<EP>_final_9x16.mp4`（烧录字幕、3 s 片尾、-16 LUFS；选择性配乐：plan → generate → reconcile → qa → mix，solo stem 归档） | `final_qa_evidence_bundle`（两键无生产者 → N/A）；配乐账单按提交窗隔离（K032） | 无 | 配乐 8/段 | 首次配乐付费；配乐窗口标签是否被发布门接受（线主决定） |
 | S8 | 成片 | `CHECKPOINT.md` + 审批标志 | — | **线主看片** | 0 | 总是停 |
 | S7-SYNC | S8 通过 | 仓库：代码泛化回灌、K 号经验、README/AGENTS 改到与生产一致、新 tag | `knowledge_registry --validate`、`run_portable_ci.py`、`deployment_code_integrity.py` | 改动清单给线主确认后 push | 0 | push/合并前 |
 
@@ -88,6 +88,7 @@ git clone https://github.com/rogerwu188/nalu-production-runtime.git /tmp/npr && 
 5. **人工审核**：身份审 / 整批提示词审 / Q1 / post-gen 剧情审 / Q2 由代理**实际看图**后填答，记录审核者身份；不能看图就不填。
 6. **改剧本文字**：合同/导演稿的生产文字（机位、起止态措辞）代理可改；narrative 的故事与对白文字要问（排版拆行属可自行处理但必须申报）。
 7. **同镜第 2 次创意重做失败**、**集级缺陷预算超限**、**预算投影超上限**：停，汇报。
+8. **配乐账单只能按提交窗隔离**（提供者不给音乐任务精确的逐任务 id）：证据打 window-isolated 标签；发布门是否接受该标签是线主的政策决定，代理不得自行改门。
 
 ## 5. 失败怎么归类、什么时候重试、什么时候停
 
@@ -105,11 +106,17 @@ git clone https://github.com/rogerwu188/nalu-production-runtime.git /tmp/npr && 
 | 重做后 `WHOLE_BATCH_PROMPT_QA_REQUIRED:QA_INPUT_MISMATCH` | 提示词批次 sha 漂移 | 关键帧提示词每次 `build_keyframe_manifest` 都重写；改镜后**第一次付费跑**前后字节会变一次 → 用当前文件重做 digest/receipts/register，再跑；不重发已绑定行（提交前失败不扣费） |
 | Q1 身份 `FACE_COUNT_NOT_ONE` | 裁切含第二张脸（动物/旁人） | Q1 构建器逐级收窄裁切边距（0.7→0.2）直到恰好一张脸；阈值不变 |
 | 重做后旧图仍在 `keyframes/` | 物化 `ALREADY_PRESENT` | 停放旧 png + 旧收割副本（含 `_raw` json），再跑 S5 |
+| 付费子进程报 `GIGGLE_API_KEY not set` | 钱锁剥掉了密钥（子进程没带付费标志） | 子进程以 paid 标志启动；无 POST、无事务文件，不需对账（K032） |
+| HTTP 403 `error code: 1010`（任务创建前） | Cloudflare 拒绝裸 urllib User-Agent → `NOT_CHARGED_PRE_TASK_HTTP_403` | 发浏览器 User-Agent；用免费 GET 任务查询测鉴权，绝不用 POST 探测；账单窗口为空即为证据（K030/K032） |
+| 对账窗口里出现不属于本线的行（共享账号） | 外来账单 | 隔离到 `_foreign_account_activity/`，永不入账，重跑对账（K029） |
+| 音乐扣费 project id 为空，精确对账 INCOMPLETE | 只能按任务自身半开提交窗 [intent, response) 隔离 | `tools/credit_window_isolation.py`；标签 `PASS_WINDOW_ISOLATED_LEDGER_NET`（非 exact）；发布门接受与否问线主（K032） |
+| 视频身份一帧侧脸/背影拖垮整单元（WORST_FRAME） | 姿态案例，不是边界案例 | 审核者姿态豁免，理由写帧号与两个分数；补交要签发新审核请求（K026） |
+| 成片/单元 OCR 命中烧录字幕 | 客观、不可仲裁 | 动作文字前置禁文字条款后重做；重做后重登记提示词批次（K027/K031） |
 
 ## 6. 现在做不到全自动的步骤（如实）
 
 - **MANUAL_REQUIRED**：narrative 手写；五类人工审核看图填答；音色挑选；新地点命名（place spec）；覆盖文件（服装/年龄/音色简述）；品牌片尾；每集 Roger 看片；改动清单确认后 push。
-- **INTEGRATION_PENDING**：编排器与线专属工具的绝对路径参数化；整批提示词门并入 S5（现为手动 5 步）；地图素材→空间图；D-9/D-12 两个最终 QA 证据键无生产者；引擎 `pose_transition_anchor_gate` 需要的结果锚点关键帧角色（现靠措辞避开）；引擎补丁 e08–e20 尚在 `nalu-line` 分支未进 main；产品化的素材接入 CLI 子命令。
+- **INTEGRATION_PENDING**：编排器与线专属工具的绝对路径参数化；整批提示词门并入 S5（现为手动 5 步）；地图素材→空间图；D-9/D-12 两个最终 QA 证据键无生产者；引擎 `pose_transition_anchor_gate` 需要的结果锚点关键帧角色（现靠措辞避开）；引擎补丁 e08–e22 尚在 `nalu-line` 分支未进 main（含提交前失败归类 K030、配乐客户端 Cloudflare UA）；`bgm_authenticity_gate` 对窗口隔离账单标签的接受（线主决定，K032）；产品化的素材接入 CLI 子命令。
 - **ADAPTER_REQUIRED**：AgentCut（语音、配乐）；InsightFace/RapidOCR/faster-whisper 运行时；ffmpeg。
 - **需付费才能验证**：S3 起的一切；dry-run 只能走到每个付费门前（DRY_PLANNED）。
 

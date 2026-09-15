@@ -25,6 +25,7 @@ python3 -m unittest tools.tests.test_knowledge_registry
 `GUIDANCE_ONLY` 是经验或部署者需要选择的政策，不能自动变成硬门。
 `INTEGRATION_PENDING` 明确有公共主分支集成缺口，不能声称已执行。
 所有条目都带规则 ID、原因、修复方向、责任人、代码链接与回归入口。
+K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 `nalu PIPELINE_RUNBOOK D-36`），只是可追溯的指针，不是路径、凭据或任务号。
 目录检查 PASS 只检查链接和结构，不是视觉、媒体、部署全流程或付费生产 PASS。
 
 ## 规则与事故地图
@@ -183,6 +184,101 @@ python3 -m unittest tools.tests.test_knowledge_registry
 - 修复路径：先核对运行时与安装依赖；使用模块入口，不能猜测 --help 一定无副作用。
 - 状态：`GUIDANCE_ONLY`。尚无在本次发布中核实的完整消费链，不凭文档宣布实现。
 
+### K023 — IDENTITY
+
+- 规则：跨集复用角色时，角色资产注册表必须在上一集库行复制进来之后再重建；身份审核请求必须跳过 REUSED_FROM_PRIOR_LIBRARY 的主体。
+- 失败教训：注册表在复制复用行之前构建，复用主角缺席，每一张露脸关键帧都以 NO_EMBEDDING_SAMPLE_FOR_DECLARED_CHARACTER 失败；复用角色的占位牌行又阻塞了身份审核请求。
+- 修复路径：非板类库锁之后再重建注册表并断言顺序；构建审核请求时按 reuse.status 丢弃复用主体；复用角色的服装锁只在同一 plate sha 上继承上一集证据。
+- 状态：`GUIDANCE_ONLY`。尚无在本次发布中核实的完整消费链，不凭文档宣布实现。
+- 证据：nalu PIPELINE_RUNBOOK D-34/D-35
+
+### K024 — IDENTITY
+
+- 规则：余弦落在失败线与通过线之间的静帧，人工仲裁窗的时钟必须跨运行携带；窗后引擎的尽力准入只有在审核者独立给出该静帧身份 PASS 时才计为通过；引擎判覆盖切换即重做。
+- 失败教训：Q1 构建器每次运行都重新 evaluate()，人工窗永远不会到期；准入门只认字面 PASS，引擎的 ADMIT_BEST_EFFORT 不能直接写成 PASS。
+- 修复路径：从上一份报告读出 boundary_human_review_requested_at 继续计时；证据行同时记录 decision、engine_decision、boundary_resolution，decision=PASS 仅当审核者答 PASS；SWITCH_COVERAGE 走重做路径。
+- 状态：`GUIDANCE_ONLY`。尚无在本次发布中核实的完整消费链，不凭文档宣布实现。
+- 证据：nalu PIPELINE_RUNBOOK D-35
+
+### K025 — IDENTITY
+
+- 规则：人脸裁切边距过宽会把第二张脸（动物、旁人）拉进裁切，检测器报 FACE_COUNT_NOT_ONE；逐级收窄边距直到恰好一张脸，并记录收窄过程。
+- 失败教训：70% 边距把画面里小动物的脸拉进主角裁切，身份测量失败，而阈值本身没有问题。
+- 修复路径：0.7→0.5→0.35→0.2 逐级重裁，只改裁切不改阈值；证据里记 crop_margin_reduced 与最终边距。
+- 状态：`GUIDANCE_ONLY`。尚无在本次发布中核实的完整消费链，不凭文档宣布实现。
+- 证据：nalu PIPELINE_RUNBOOK D-35
+
+### K026 — IDENTITY
+
+- 规则：视频身份按最差采样帧聚合：一帧严格侧脸或背影就会让正脸通过的单元失败；这是姿态案例不是边界案例，诚实路径是审核者姿态豁免且理由写明帧号与两个分数；同一审核请求不能重复提交，需签发新请求。
+- 失败教训：一个单元正脸帧 0.50、严格侧脸帧 0.06（侧脸裁切还检出两张脸），整单元失败；首次提交只覆盖部分单元后向同一请求重提被拒。
+- 修复路径：不套用边界仲裁；用结构化姿态豁免（理由 = 帧 + 两个分数）；补交时签发新的 video_q2 请求再填答。
+- 状态：`GUIDANCE_ONLY`。尚无在本次发布中核实的完整消费链，不凭文档宣布实现。
+- 证据：nalu PIPELINE_RUNBOOK D-36
+
+### K027 — QA
+
+- 规则：合同改动后的第一次付费运行可能重写提示词，与已登记批次的前置意图不一致（不扣费）；对当前文件重做 digest → receipts → register 后再重提。
+- 失败教训：关键帧提示词每次构建清单都重写；干跑与随后第一次付费跑字节不同一次，登记批次报 QA_INPUT_MISMATCH（提交前，无费用）。根因未隔离。
+- 修复路径：以当前文件重做摘要、回执、登记；不重发已绑定行；这类提交前失败归为 NOT_CHARGED_NO_INTENT_RECORDED。
+- 状态：`GUIDANCE_ONLY`。相关实现：[tools/episode_prompt_batch_gate.py](../../tools/episode_prompt_batch_gate.py)（相关代码存在，不等于公共主分支已完整消费）
+- 证据：nalu PIPELINE_RUNBOOK D-34/D-35
+
+### K028 — RETRY
+
+- 规则：付费重做前必须停放旧关键帧/视频、收割副本及其原始响应 json；否则旧 take 被恢复并再次测量。新 take 的资产哈希已变，需要新的审核请求。
+- 失败教训：重命名器 ALREADY_PRESENT 优先、收割器会从 _raw 恢复更早的 take，旧图被重新测量并当成新结果。
+- 修复路径：停放三样（产物、收割副本、_raw json）→ 付费重做 → 签发新审核请求；填答脚本按镜号读取结论文件。
+- 状态：`GUIDANCE_ONLY`。尚无在本次发布中核实的完整消费链，不凭文档宣布实现。
+- 证据：nalu PIPELINE_RUNBOOK D-35
+
+### K029 — TRANSACTIONS
+
+- 规则：共享提供者账号上不属于本线的账单行会落进对账窗口并使守卫失败；把这类账单隔离到名字明确的目录，永不入账。
+- 失败教训：一条外来的大额扣费行落入视频波次窗口，重入对账 FAIL。
+- 修复路径：按已知任务集合识别外来行；隔离目录命名为 _foreign_account_activity；本集账本排除后重跑对账。
+- 状态：`GUIDANCE_ONLY`。尚无在本次发布中核实的完整消费链，不凭文档宣布实现。
+- 证据：nalu PIPELINE_RUNBOOK D-36
+
+### K030 — TRANSACTIONS
+
+- 规则：事务文件缺失、任务创建前 HTTP 403 等提交前失败必须归为 NOT_CHARGED 并附证据（账单窗口为空），不得留作 RESPONSE_LOST；一次没有发出任何 POST 的运行必须跳过窗口对账。
+- 失败教训：事务文件缺失曾让提交器崩溃；Cloudflare 403 发生在任务存在之前，却被按响应丢失处理。
+- 修复路径：submit_failed_before_intent → NOT_CHARGED_NO_INTENT_RECORDED；提交上限为 0 的运行记 PASS_REUSED_TRANSACTIONS 并跳过提供者窗口对账。该分类在部署线以引擎补丁实现，公共主分支尚未合入。
+- 状态：`INTEGRATION_PENDING`。尚无在本次发布中核实的完整消费链，不凭文档宣布实现。
+- 证据：nalu PIPELINE_RUNBOOK D-36
+
+### K031 — MEDIA_QA
+
+- 规则：生成视频里烧录的字幕由 OCR 客观判定、不可仲裁；重做时在动作文字前置显式禁文字条款；对白特写是最高风险镜头。
+- 失败教训：双句台词的特写镜连续两次烧入字幕；第三次在动作文字前置禁文字条款后干净。条款是生产文字，视频提示词随之变化，整批登记需重做。
+- 修复路径：OCR 命中 → 直接重做，不做人工仲裁；前置禁文字条款；重做后重登记提示词批次（见 K027）。
+- 状态：`GUIDANCE_ONLY`。相关实现：[tools/final_video_ocr_audit.py](../../tools/final_video_ocr_audit.py)（相关代码存在，不等于公共主分支已完整消费）
+- 证据：nalu PIPELINE_RUNBOOK D-36
+
+### K032 — MUSIC
+
+- 规则：选择性配乐链：(a) 付费子进程必须带付费标志启动，否则钱锁剥掉密钥、工具报 key not set；(b) 提供者位于 Cloudflare 之后，裸 urllib User-Agent 得 HTTP 403 error code 1010，必须发浏览器 UA，用免费的 GET 任务查询测鉴权、绝不用 POST 探测；(c) 音乐扣费的 project id 为空，精确逐任务积分隔离不可能，改用任务自身的半开提交窗 [intent, response) 顺序隔离，证据打 window-isolated 标签而不是 exact；发布门是否接受该标签是线主决定；(d) 集预算账本需要为音乐事务存档加一条独立的可加法分账。
+- 失败教训：三次尝试：key not set（无 POST、无事务文件）；403 1010（任务前，账单窗口为空，未扣费）；任务完成但精确逐任务对账 INCOMPLETE。
+- 修复路径：子进程 paid 标志随上下文传递；浏览器 UA + Accept 并尊重 API base；窗口隔离的纯函数见 tools/credit_window_isolation.py（自带单元测试，标签 PASS_WINDOW_ISOLATED_LEDGER_NET，永不冒充 exact）；bgm_authenticity_gate 对窗口标签的接受留待线主决定。
+- 状态：`INTEGRATION_PENDING`。相关实现：[tools/credit_window_isolation.py](../../tools/credit_window_isolation.py)、[tools/giggle_api_client.py](../../tools/giggle_api_client.py)、[tools/bgm_authenticity_gate.py](../../tools/bgm_authenticity_gate.py)（相关代码存在，不等于公共主分支已完整消费）
+- 证据：nalu PIPELINE_RUNBOOK D-36
+
+### K033 — REVIEW
+
+- 规则：动作角色审核中，生物/非角色发起者按主要演员名解析为其道具实体 id，使 observed_initiator 的实体 id 闭合词表成立。
+- 失败教训：生物发起者不是角色 id，报 CONTRACT_INITIATOR_OR_TARGET_UNDECLARED；合同为通过角色检查把 subject id 留空。
+- 修复路径：先查道具表、再查合同 non_character_entities，按名字解析成 PROP-* id；词表不放宽为自由文本。
+- 状态：`GUIDANCE_ONLY`。相关实现：[tools/character_entity_contract.py](../../tools/character_entity_contract.py)（相关代码存在，不等于公共主分支已完整消费）
+- 证据：nalu PIPELINE_RUNBOOK D-35/D-36
+
+### K034 — MUSIC
+
+- 规则：选择性配乐设计：合同声明 mode=SELECTIVE 并给出显式 cue；装配时生成音乐（每 cue 约 8 积分），逐 cue QA，对白下闪避，与画面位精确混合，保留 solo stem 供真实性门。
+- 失败教训：只在提示词里写 BGM 不算配乐（K016）；本设计在一条部署线上跑通了 plan → generate → reconcile → qa → mix 全链。
+- 修复路径：音乐锁行接受 SELECTIVE + cues；mix 输出与画面位精确、响度修正；solo stem 与窗口隔离账单一起归档；公共主分支缺该消费链，K016 保持 INTEGRATION_PENDING。
+- 状态：`INTEGRATION_PENDING`。相关实现：[tools/bgm_authenticity_gate.py](../../tools/bgm_authenticity_gate.py)（相关代码存在，不等于公共主分支已完整消费）
+- 证据：nalu PIPELINE_RUNBOOK D-32/D-36
 
 ## 引用和许可
 

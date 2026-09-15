@@ -18,7 +18,7 @@ technical QA, and ordered YouTube/Douyin release.
 
 ## Engineering knowledge / 经验继承
 
-[工程知识库（22 条规则与事故教训）](docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md) ·
+[工程知识库（34 条规则与事故教训）](docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md) ·
 [决策依据](docs/decisions/DECISION_RECORDS.md) ·
 [A–I 交接模板](examples/handoff/HANDOFF_TEMPLATE.md) ·
 [集成状态与待完成项](docs/knowledge/INTEGRATION_STATUS.md)。
@@ -237,10 +237,16 @@ SD2 and H3 keep the dialogue, ambience, foley, action sounds, and timing generat
 # 2. 写手：E01_NARRATIVE_CANONICAL_v1.md（手写）→ build_e01_layers.py → 四层
 # 3. 免费阶段：run --episode E01 --until S3      # S1 三门 + S2 预制作 PASS，S3 DRY_PLANNED 并打印付费计划与费用
 # 4. 线主说“开始”：run --from S3 --until S3 --paid → 身份审（看图填答）→ S4 → S5 干跑 → 整批提示词门（编译/登记/摘要/答案/回执/登记）
-# 5. run --from S5 --until S5 --paid → Q1（看图填答；REJECT 走重做小循环）→ S6 波次循环 → post-gen/Q2 → S7 → S8（线主看片）→ S7-SYNC（仓库收工）
+# 5. run --from S5 --until S5 --paid → Q1（看图填答；REJECT 走重做小循环）→ S6 波次循环 → post-gen/Q2 → S7（选择性配乐：付费子进程带 paid 标志；配乐账单按提交窗隔离）→ S8（线主看片）→ S7-SYNC（仓库收工）
 ```
 
 每一步的输入、产出、门、人工点、费用与停止条件见 AGENTS.md §3；能自动的都在编排器里，标 MANUAL_REQUIRED 的必须由代理或线主亲手做。
+
+E03 之后操作者要多知道的三件事（详见 AGENTS.md §5 与知识库 K029–K032）：
+
+- 配乐提供者位于 Cloudflare 之后：裸 urllib User-Agent 会得到 HTTP 403 `error code: 1010`；发浏览器 UA，用免费的 GET 任务查询测鉴权，绝不用 POST 探测。
+- 音乐扣费没有精确的逐任务 id：`tools/credit_window_isolation.py` 按任务自身的半开提交窗 [intent, response) 隔离，证据标签是 `PASS_WINDOW_ISOLATED_LEDGER_NET`（不是 exact）；发布门是否接受该标签由线主决定。
+- 共享账号上不属于本线的账单行要隔离、永不入账。
 
 ## License
 

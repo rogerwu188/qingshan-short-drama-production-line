@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1810,
+  "file_count": 1814,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -181,7 +181,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "353a6af08b449e5693e1b6f989d6f77568f451b4cc347e84e0bdef7e36ddc09b"
+      "sha256": "f9075b292fec82bad106f39c9a2cb3bba39d69135af8c4fc405a7a688f473240"
     },
     {
       "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
@@ -201,7 +201,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "23e0afaa29a5c4b23ca69121a121218810f13d61d7f3d326060373b9515a4088"
+      "sha256": "6e82b6b8893107c29b7216144f1213b5bc5d0b50d1798efffa123a19d01c76ef"
     },
     {
       "path": "configs/VIDEO_MODEL_CAPABILITY_REGISTRY_v1.json",
@@ -237,15 +237,15 @@
     },
     {
       "path": "docs/decisions/DECISION_RECORDS.md",
-      "sha256": "a31f579ef522e06536211ab409ce65e39e8383a62298f56a18e8848042f69029"
+      "sha256": "d9cff35dd0e3aa558b5eb07a8942873ca2eab7b17309d94ea9ff802208b09532"
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "58a2e14fcf0a393c1298ab4781c2c90542e04c83d1833abd6f21988e939c6c8f"
+      "sha256": "25d3d51d27c3e59b17bc51b4c49ae25b665dfb9b8397cd977220de92e80531cf"
     },
     {
       "path": "docs/knowledge/INTEGRATION_STATUS.md",
-      "sha256": "cfacbfa097491d45b179594c46a3204376cf1a7952a869d188e6b55cc077fef7"
+      "sha256": "2bb514ed32befe55a5bc4bfdad978404d032d270e4b82eb6df9576fd495a3f37"
     },
     {
       "path": "docs/knowledge/VALIDATION_REPORT.md",
@@ -3160,6 +3160,10 @@
       "sha256": "81447ddbc82d20c2707dc74949547b6f3bb336adbf7c06f0c90c1ab8afb98bc1"
     },
     {
+      "path": "tools/credit_window_isolation.py",
+      "sha256": "fd1b84045d5b1d5b9e7fba559ac1ad07a194ea65b43ea3333d9220bf78eeb794"
+    },
+    {
       "path": "tools/cross_episode_event_continuity_gate.py",
       "sha256": "965b333f48f84604757b35b0dfa351a1a1ae75f9ed5b9cb5a23ba67573a40433"
     },
@@ -4298,6 +4302,14 @@
     {
       "path": "tools/inspect_mp4s.swift",
       "sha256": "fe8fd132eaccde861308671d5434fdbf8fbfbeb054ee34a9477aaf013b498f7f"
+    },
+    {
+      "path": "tools/intake_character_sources.py",
+      "sha256": "b5048ad6d3e3e923bfc566dc7118ec5f27297f87d0cd025196d18a52b4c4cd5e"
+    },
+    {
+      "path": "tools/intake_source_text.py",
+      "sha256": "b7401ef4be2b8cdd08e421f431412f7799c618064733b8e36086d032873a8e07"
     },
     {
       "path": "tools/integrate_e40_parallel_preproduction_checkpoint.py",
@@ -6060,6 +6072,10 @@
       "sha256": "e3dbbad6818a6beffd120302da63d6aa1643781737eae49cd9833214ed1f84fc"
     },
     {
+      "path": "tools/tests/test_credit_window_isolation.py",
+      "sha256": "b78076454de05bf9ef4251a820d753f27d7698319e3b16a10a4dac4573384df7"
+    },
+    {
       "path": "tools/tests/test_cross_shot_ahash_gate.py",
       "sha256": "b6899e671153a263d81b5679e919564c239303c5c4fe095474aeb27ca24c081b"
     },
@@ -6441,7 +6457,7 @@
     },
     {
       "path": "tools/tests/test_knowledge_registry.py",
-      "sha256": "a1dd7226b9237c8a7da1aa9ad8f5ab91ff87c8460ac6f53c342c97b5c22ce913"
+      "sha256": "d575da5955fa0bad937bbf8b9c2a3209676fbeaab8df77471c41465547d569f9"
     },
     {
       "path": "tools/tests/test_line_heartbeat.py",

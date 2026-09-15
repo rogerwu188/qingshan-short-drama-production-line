@@ -4,6 +4,7 @@
   "required_files": [
     "tools/editorial_pacing_contract.py",
     "tools/deployment_code_integrity.py",
+    "tools/credit_window_isolation.py",
     "tools/level_native_release_audio.py",
     "tools/manifest_self_limit_and_version_assert.py",
     "tools/authorized_insertion_and_form_disclosure_assert.py",
@@ -107,6 +108,8 @@
     "tools.tests.test_video_prompt_compiler",
     "tools.tests.test_visual_culture_contract",
     "tools.tests.test_writer_production_field_gate",
+    "tools.tests.test_credit_window_isolation",
+    "tools.tests.test_knowledge_registry",
     "agent_factory.claude_writer_v2.tests.test_smoke"
   ]
 }
