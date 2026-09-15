@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""nalu_prompt_rules — reusable prompt-level guards distilled from real E02 reroll causes
+(SUPERVISOR_ORDERS seq=10, 2026-09-14: "导致重做的原因要查出来，后面的提示词要避免，不能重犯同样错误").
+
+Each rule = (trigger on the authored shot) -> (a clause appended to the shot's production action text, or a
+BLOCK the builder must restage).  Story/dialogue text is never touched; only the production action field.
+
+| rule          | E02 cause                                                                 |
+|---------------|---------------------------------------------------------------------------|
+| NO_TEXT       | VU-016: provider burned the spoken line into the frame as subtitles       |
+| SOLO_FACE     | VU-020: single-character close-up inside a 4-cast scene got 同行者乙's face |
+| NO_BLACK      | VU-020/021: 「极暗/全黑」 rendered as ≥95 %-black frames (black_frame FAIL) |
+| MOTION        | VU-010: 3 s no-dialogue hold with only micro-motion (嘴角动/换手)          |
+| DLG_TIMING    | VU-029: 12-syllable line in a 4 s shot started at 1.3 s → last syllable cut|
+| BG_LOCK       | VU-023: close-up's bokeh background drifted from house interior to snow yard|
+| FIRE_COLOR    | VU-002: fire-spring splash rendered cool white                            |
+| BASIN_NO_FLAME| VU-006: 铜盆 rendered as a wood fire instead of the sun-stone glow          |
+| PROP_SHAPE    | VU-014: food box rendered as a round tub (was a rectangular box)          |
+| HAIRPIN       | VU-026: 木簪 rendered as an ornate metal hairpiece                         |
+| SILVER_FAINT  | VU-028: 「极淡银光」 rendered as bright glowing rings                        |
+
+apply(shot, ctx) -> (action_text, applied, blocks)
+  shot: {"shot_id","sec","size","camera_family","cast":[keys],"action":str,"dialogue":str|None,"entry","exit"}
+  ctx:  {"scene_cast": set(keys), "loc": "LOC-…", "cps": float|None, "names": {key: display name},
+         "face_desc": {key: str}}
+"""
+from __future__ import annotations
+import re
+
+RULE_VERSION = "nalu_prompt_rules.v1 (seq=10)"
+
+BODY_VERBS = ("走", "跨", "转身", "站起", "起身", "蹲下", "跌", "拖", "俯身", "躺", "坐下", "迎上", "退", "奔", "爬",
+              "推开", "扑", "跳", "蹦", "冲", "跑", "翻身", "弯腰", "直起", "踏", "踩空", "扔", "甩", "摆开")
+MOVING_CAMERA = {"ARC", "TRACK", "CRANE", "HANDHELD", "ORBIT", "PAN", "TILT"}  # PUSH_IN/LOCKED do not rescue a hold
+DARK_WORDS = ("全黑", "极暗", "漆黑", "黑下来", "黑暗", "纯黑")
+CLOSE_SIZES = ("特写", "近景", "过肩")
+
+BG_LOCK = {
+    "LOC-QINMING-HOUSE-INT": "屋内的土墙、木格糊纸窗、旧木立柜与屋内的橘红余光，绝不出现雪地、院墙、屋檐或天空",
+    "LOC-QINMING-YARD-EXT": "夯土压雪的院墙、木板院门与院中石盆里的橘红光",
+    "LOC-FIRE-SPRING-EXT": "粗凿青石的石围、火红的池光与雪地",
+    "LOC-MOUNTAIN-CREVICE-INT": "地缝的岩壁与碎石",
+    # E03 (seq=13) wilds
+    "LOC-SNOWFIELD-WILDS-EXT": "齐胸深的雪原、雪面的月色青蓝反光与远处黑压压的林线，绝不出现房屋、院墙或火光",
+    "LOC-FOREST-EDGE-EXT": "积雪的光秃树枝、樟子松与白桦的树干和雪地，绝不出现房屋、院墙、石围或天空以外的人造物",
+    "LOC-LOW-HILL-TOP-EXT": "矮山顶的雪石、身后黑压压的林木与远处群山的黑影",
+}
+DARK_LIGHT = {
+    "LOC-MOUNTAIN-CREVICE-INT": "从缝口透进的青蓝月光把岩壁与人物照成看得清的深青灰",
+    "LOC-QINMING-HOUSE-INT": "屋内的橘红余光照出人物轮廓与器物",
+    "LOC-QINMING-YARD-EXT": "雪面的月色青蓝反光照出人物轮廓与院墙",
+    "LOC-FIRE-SPRING-EXT": "池中的火红余光照出人物轮廓与石围",
+    "LOC-SNOWFIELD-WILDS-EXT": "雪面的月色青蓝反光照出人物轮廓与雪原",
+    "LOC-FOREST-EDGE-EXT": "雪地与树干上的月色青蓝反光照出人物轮廓与林木",
+    "LOC-LOW-HILL-TOP-EXT": "雪面月色青蓝反光与夜雾深处的朦胧微光照出人物轮廓",
+}
+DEFAULT_CPS = 4.0
+DLG_LEAD_S, DLG_TAIL_S = 1.0, 0.5
+
+
+def _spoken_chars(text: str) -> int:
+    return len(re.sub(r"[^一-鿿0-9A-Za-z]", "", text or ""))
+
+
+def min_dialogue_seconds(text: str, cps: float | None) -> float:
+    return round(_spoken_chars(text) / float(cps or DEFAULT_CPS) + DLG_LEAD_S + DLG_TAIL_S, 1)
+
+
+def apply(shot: dict, ctx: dict) -> tuple[str, list[str], list[str]]:
+    act = str(shot.get("action") or "")
+    text_all = act + str(shot.get("entry") or "") + str(shot.get("exit") or "")
+    size = str(shot.get("size") or "")
+    cast = list(shot.get("cast") or [])
+    names = ctx.get("names") or {}
+    face = ctx.get("face_desc") or {}
+    loc = str(ctx.get("loc") or "")
+    dlg = shot.get("dialogue")
+    dlg_text = ""
+    if isinstance(dlg, (list, tuple)) and len(dlg) >= 2:
+        dlg_text = str(dlg[1] or "")
+    elif isinstance(dlg, str):
+        dlg_text = dlg
+    clauses, applied, blocks = [], [], []
+
+    if dlg_text:
+        clauses.append("台词只在声音里，画面任何位置都不出现字幕、文字或水印"); applied.append("NO_TEXT")
+        need = min_dialogue_seconds(dlg_text, ctx.get("cps"))
+        clauses.append("开口不晚于画面第 1 秒，台词在画面结束前至少留半秒说完，说完后口型闭合、动作保持"); applied.append("DLG_TIMING")
+        if float(shot.get("sec") or 0) < need:
+            blocks.append(f"DLG_TOO_SHORT:{shot.get('shot_id')}:sec={shot.get('sec')}<min={need}")
+    else:
+        sec = float(shot.get("sec") or 0)
+        fam = str(shot.get("camera_family") or "").upper()
+        if sec >= 3.0 and not any(v in act for v in BODY_VERBS) and fam not in MOVING_CAMERA:
+            blocks.append(f"NO_DIALOGUE_HOLD_WITHOUT_BODY_MOTION:{shot.get('shot_id')}:sec={sec:g}:camera={fam or 'NONE'}")
+        applied.append("MOTION_CHECK")
+
+    if len(cast) == 1 and any(k in size for k in CLOSE_SIZES) and len(ctx.get("scene_cast") or ()) > 1:
+        k = cast[0]
+        clauses.append(f"这个特写的主体只有{names.get(k, k)}一个人的脸（{face.get(k, '')}）；画面边缘若有别人，只能是上一镜延续的位置，绝不把主体换成别人的脸")
+        applied.append("SOLO_FACE")
+
+    if any(w in text_all for w in DARK_WORDS):
+        clauses.append(f"画面最暗的时刻仍有{DARK_LIGHT.get(loc, '微弱的环境余光照出人物轮廓与环境')}，任何一帧都不是纯黑")
+        applied.append("NO_BLACK")
+
+    if any(k in size for k in CLOSE_SIZES) and loc in BG_LOCK:
+        clauses.append(f"背景自始至终是{BG_LOCK[loc]}"); applied.append("BG_LOCK")
+
+    if loc == "LOC-FIRE-SPRING-EXT" and any(w in text_all for w in ("池", "火泉", "火光")):
+        clauses.append("池面的光与溅起的光全部是火红色，没有冷白或蓝光"); applied.append("FIRE_COLOR")
+    if loc == "LOC-QINMING-HOUSE-INT":
+        clauses.append("屋内唯一的光是橘红色的暖光，盆里没有木柴也没有明火"); applied.append("BASIN_NO_FLAME")
+    if "食盒" in text_all:
+        clauses.append("食盒是方形提梁木食盒（不是圆桶）"); applied.append("PROP_SHAPE")
+    if "QM" in cast and any(k in size for k in CLOSE_SIZES + ("中近景",)):
+        clauses.append("秦铭发髻上是一根素木簪，没有任何金属饰件"); applied.append("HAIRPIN")
+    if any(w in text_all for w in ("体表银光", "银光初现", "指缝间银光", "银光流过", "极淡银光")):   # 秦铭's body light, not the crevice's silver web
+        clauses.append("银光极淡，不成光环、不刺眼、不照亮周围"); applied.append("SILVER_FAINT")
+
+    for tok in ctx.get("prop_tokens") or ():
+        if tok not in text_all and any(tok in c for c in clauses):
+            blocks.append(f"RULE_CLAUSE_INTRODUCES_PROP_TOKEN:{shot.get('shot_id')}:{tok}")
+    if clauses:
+        act = act.rstrip("；;。") + "；" + "；".join(clauses)
+    return act, applied, blocks

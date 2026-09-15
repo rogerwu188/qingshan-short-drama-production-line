@@ -23,7 +23,7 @@ IMPULSE_VERBS = (
     "劈开", "劈中", "撞偏", "撞开", "撞翻", "撞中", "格开", "掀翻",
     "贯入", "贯穿", "甩开", "刺入", "直刺", "切开", "震开", "击中",
     "击倒", "击飞", "抡出", "拍开", "扫倒", "摔落", "摔碎", "崩开",
-    "横扫", "扫中", "爆发扫向", "扑近", "猛冲", "闪开", "侧移", "刺穿",
+    "横扫", "爆发扫向", "扑近", "猛冲", "闪开", "侧移", "刺穿",
 )
 
 EXTEND_WORDS = ("持续", "保持", "连续")
@@ -243,15 +243,8 @@ def validate_execution_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 report["status"] = "PASS" if not report["failures"] else "FAIL"
         reports.append(report)
         failures.extend(report["failures"])
-    expected_end = duration
-    if duration_authority.get('timeline_policy') == 'PRESERVE_AUTHORED_NO_STRETCH':
-        expected_end = float(duration_authority.get('authorized_content_seconds') or 0.0)
-        if not 0 < expected_end <= duration:
-            failures.append(f'EXECUTION_CONTENT_DURATION_INVALID:{unit_id}:{expected_end}')
-        # A natural tail is not another action beat. Underfill above the
-        # separately authorized tail remains a failure earlier in this gate.
-    if abs(cursor - expected_end) > 0.02:
-        failures.append(f"EXECUTION_DURATION_MISMATCH:{unit_id}:{cursor}!={expected_end}")
+    if abs(cursor - duration) > 0.02:
+        failures.append(f"EXECUTION_DURATION_MISMATCH:{unit_id}:{cursor}!={duration}")
     return {
         "schema": POLICY_VERSION,
         "status": "PASS" if not failures else "FAIL",

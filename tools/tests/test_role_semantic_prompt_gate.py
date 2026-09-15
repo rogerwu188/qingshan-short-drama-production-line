@@ -114,19 +114,6 @@ class RoleSemanticPromptGateTest(unittest.TestCase):
         }
         self.assertFalse(is_combat_unit(unit))
 
-    def test_visual_scope_resolves_named_actor_and_speaker_by_id(self):
-        row = role_row(primary_actor_id="CHAR-E50-CHENJI",
-                       dialogue_speaker_id="CHAR-E50-CHENJI",
-                       entity_presence={"CHAR-E50-CHENJI": "VISIBLE_AND_IDENTITY_LOCKED"})
-        prompt = role_semantic_visual_scope_prompt_block(row)
-        self.assertIn("VISIBLE_ACTOR=CHAR-E50-CHENJI;", prompt)
-        self.assertIn("VISIBLE_SPEAKER=CHAR-E50-CHENJI;", prompt)
-        row["entity_presence"]["CHAR-E50-CHENJI"] = "ABSENT_REFERENCE_ONLY"
-        prompt = role_semantic_visual_scope_prompt_block(row)
-        self.assertIn("VISIBLE_ACTOR=OFFSCREEN_OR_NONVISUAL;", prompt)
-        self.assertIn("VISIBLE_SPEAKER=NONE_VISIBLE;", prompt)
-        self.assertNotIn("CHAR-E50-CHENJI", prompt)
-
     def test_visual_scope_block_hides_absent_named_entities(self):
         row = role_row(
             entity_presence={

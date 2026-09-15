@@ -1,0 +1,26 @@
+{
+  "schema": "qingshan.voice_reference_registry.v1",
+  "status": "",
+  "line": "<line id>",
+  "work": "<work title>",
+  "episode_scope": "",
+  "recorded_at_utc": "",
+  "read_via": "QINGSHAN_VOICE_REGISTRY",
+  "hardcoded_path_consumers": {
+    "note": "",
+    "fallback_install_path": ""
+  },
+  "policy": {
+    "language": "zh-CN",
+    "accent_id": "",
+    "max_audio_references_per_provider_task": 1,
+    "h3_speaking_identities_per_task": 1,
+    "tts_substitution_on_native_speaking_shots": "",
+    "canonical_generator_for_nonexempt_characters": "",
+    "missing_reference_action": "",
+    "only_legacy_native_voice_exemptions": []
+  },
+  "no_fabrication_contract": "",
+  "major_roles": [],
+  "voice_selection_recorded_at_utc": ""
+}

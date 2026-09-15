@@ -1,0 +1,8 @@
+{
+  "schema": "nalu.reroll_cost_guard_policy.v1",
+  "episode": "",
+  "order_seq": null,
+  "max_rerolls": 0,
+  "max_credits": 0,
+  "note": "One file per episode+order; the S6 loop refuses to start a wave unless the guard status is PASS_AUTO_REROLL_ALLOWED."
+}

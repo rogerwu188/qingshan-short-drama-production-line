@@ -1,0 +1,11 @@
+{
+  "_note": "Public initial-state schema example. Copy to the deployment workspace as PROGRESS.json and append project-specific records there.",
+  "schema": "qingshan.writer.progress.v1",
+  "last_consumed_order_seq": 0,
+  "active_episode": null,
+  "active_version": null,
+  "status": "IDLE_LEGAL",
+  "last_completed_episode": null,
+  "updated_at_utc": null,
+  "history": []
+}

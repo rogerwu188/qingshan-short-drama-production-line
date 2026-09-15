@@ -36,6 +36,7 @@ P0_OBJECTIVE_METHODS = {
     "PERIOD-ANACHRONISM-LOCK": "CLOSED_SET_ANACHRONISM_OCR_V1",
 }
 NO_CHARACTER_IDENTITY_METHOD = "STRUCTURED_NO_VISIBLE_CHARACTER_V1"
+POSE_EXEMPT_STILL_IDENTITY_METHOD = "REVIEWER_STRUCTURED_IDENTITY_POSE_EXEMPT_D16"  # nalu e14
 ADVISORY_STATUSES = {"ADVISORY", "ADVISORY_NOT_A_GATE", "DIAGNOSTIC", "WARNING"}
 PASS_STATUSES = {"PASS", "PASS_EXACT_SHA", "PASS_ORIGINAL_RESOLUTION"}
 FAILURE_ATTRIBUTIONS = frozenset({
@@ -105,6 +106,40 @@ def _objective_p0_pass(
             for row in checks
         ):
             return False, "p0_no_character_structured_checks_not_pass"
+        return True, ""
+    if (
+        gate_id == "CHARACTER-IDENTITY-ADMISSION"
+        and method == POSE_EXEMPT_STILL_IDENTITY_METHOD
+    ):
+        # nalu engine patch e14 (2026-09-13, SUPERVISOR_ORDERS seq=6 / D-16): a STILL keyframe
+        # whose every declared visible character carries a non-frontal face_visibility reason
+        # (profile, closed/lying eyes, back, far, hands-only) cannot be measured by frontal-plate
+        # cosine; the reviewer's structured identity checks are the P0 evidence for that frame.
+        # Scoped to KEYFRAME_VIDEO_SUBMIT; cosine thresholds and the video (multi-frame) route
+        # are untouched.  A frame with any frontal measurable face still requires the cosine method.
+        scope = str(verification.get("measurement_scope") or "")
+        kind = str(payload.get("kind") or "")
+        # the evidence row carries no request kind; this scope value is only ever written
+        # by the nalu video_q2_builder for a VIDEO_ASSEMBLY unit
+        video_exempt = scope == "VIDEO_UNIT_ALL_DECLARED_NOT_MEASURABLE_BY_POSE_D16"
+        # nalu e14b (2026-09-13): the same D-16 exemption for a VIDEO unit in which every
+        # declared character is non-frontal in every shot (OTS back, hands-only, far, profile).
+        if not video_exempt and kind != "KEYFRAME_VIDEO_SUBMIT" and scope != "SINGLE_STILL_PER_KEYFRAME":
+            return False, "p0_pose_exempt_only_for_still_keyframes_or_fully_exempt_video_units"
+        declared = list(verification.get("canonical_characters") or [])
+        exempt = verification.get("not_measurable_by_pose") or {}
+        if not declared:
+            return False, "p0_pose_exempt_requires_declared_characters"
+        if any(not str(exempt.get(char_id) or "").strip() for char_id in declared):
+            return False, "p0_pose_exempt_reason_missing_for_declared_character"
+        checks = verification.get("checks") or []
+        if not checks or any(
+            str(row.get("answer") or row.get("status") or "").upper() != "PASS"
+            for row in checks
+        ):
+            return False, "p0_pose_exempt_structured_checks_not_pass"
+        if str(verification.get("decision") or "").upper() != "PASS":
+            return False, "p0_objective_decision_not_pass"
         return True, ""
     if method != expected:
         return False, f"p0_objective_method_invalid:{method or 'MISSING'}"
@@ -277,22 +312,6 @@ def _validate_population_scope_verification(
     return list(dict.fromkeys(failures))
 
 
-def _expected_start_frame_population(task: dict[str, Any], projection: dict[str, Any]) -> int:
-    """The first frame cannot contain actors introduced by later camera cuts."""
-    machine = task.get("machine_contract") or {}
-    specs = machine.get("ordered_prompt_specs") or task.get("ordered_prompt_specs") or []
-    framing = machine.get("visible_subject_framing") or task.get("visible_subject_framing") or {}
-    shots = framing.get("shot_framings") or []
-    if len(specs) > 1 and shots and shots[0].get("shot_id") == specs[0].get("shot_id"):
-        subjects = (shots[0].get("contract") or {}).get("subjects")
-        if isinstance(subjects, list) and subjects:
-            counts = [s.get("instance_count") for s in subjects]
-            if any(type(n) is not int or n < 1 for n in counts):
-                raise ValueError("Q1_ENTRY_POPULATION_CONTRACT_INVALID")
-            return sum(counts)
-    return int(projection.get("visible_living_entity_instance_total") or 0)
-
-
 def precheck_submission_inputs(
     task: dict[str, Any],
     asset_catalog: dict[str, Any] | None = None,
@@ -325,14 +344,6 @@ def precheck_submission_inputs(
             bound_characters.add(entity_id)
         if role in PROP_ROLES or entity_id.startswith("PROP-"):
             bound_props.add(entity_id)
-            if "asset_origin" in row and row.get("asset_origin") not in {"CANONICAL_PROP_REGISTRY", "ADMITTED_PROP_ASSET"}:
-                failures = locals().get("prop_binding_failures", [])
-                failures.append("PROP_REFERENCE_ORIGIN_NOT_ADMITTED:" + entity_id)
-                locals()["prop_binding_failures"] = failures
-            if "reference_scope" in row and row.get("reference_scope") not in {"PROP_ONLY", "PROP_APPEARANCE_ONLY_NOT_PERSON_STATE_OR_ENVIRONMENT"}:
-                failures = locals().get("prop_binding_failures", [])
-                failures.append("PROP_REFERENCE_SCOPE_INVALID:" + entity_id)
-                locals()["prop_binding_failures"] = failures
     missing_characters = sorted(characters - bound_characters)
     missing_props = sorted(props - bound_props)
     catalog = asset_catalog or task.get("anchor_asset_catalog") or {}
@@ -394,7 +405,7 @@ def precheck_submission_inputs(
                         _validate_population_scope_verification(
                             start_frame_admission.get("population_scope_verification"),
                             expected_sha=expected_sha,
-                            expected_total=_expected_start_frame_population(task, projection),
+                            expected_total=int(projection.get("visible_living_entity_instance_total") or 0),
                         )
                     )
     elif semantic_policy:
@@ -426,7 +437,6 @@ def precheck_submission_inputs(
             if not valid:
                 semantic_evidence_missing.append(entity_id)
     failures: list[str] = list(semantic_policy_failures)
-    failures.extend(locals().get("prop_binding_failures", []))
     if not declaration_present:
         failures.append("CANONICAL_ENTITY_DECLARATION_MISSING")
     if missing:

@@ -1,0 +1,25 @@
+{
+  "schema": "qingshan.pipeline.config.v1",
+  "workspace": ".qingshan-workspace",
+  "project": {
+    "title": "My Short Drama",
+    "language": "zh-CN",
+    "aspect_ratio": "9:16"
+  },
+  "generation": {
+    "provider": "giggle",
+    "video_profile": "SD2_STANDARD_720P_9X16",
+    "paid_requests_enabled": false,
+    "max_parallel_tasks": 6
+  },
+  "quality": {
+    "prompt_preflight_required": true,
+    "post_generation_scope": "TECHNICAL_AND_BASIC_PLOT",
+    "release_fail_closed": true
+  },
+  "release": {
+    "order": ["youtube", "douyin"],
+    "youtube": {"mode": "interactive_browser"},
+    "douyin": {"mode": "interactive_browser"}
+  }
+}

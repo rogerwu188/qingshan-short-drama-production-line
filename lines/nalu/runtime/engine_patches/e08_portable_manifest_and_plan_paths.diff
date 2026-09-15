@@ -1,0 +1,99 @@
+# Blocker E-8 — the submitters cannot report on a manifest/plan outside ROOT
+#
+# PROBLEM
+#   tools/submit_giggle_image_manifest.py:669 built its report with
+#   str(manifest_path.relative_to(ROOT)), which raises ValueError for any
+#   manifest outside the engine clone. The crash lands AFTER the whole
+#   validation stack has passed and — on a paid run — AFTER the provider has
+#   already been charged, so the operator loses the report for work they paid
+#   for. The nalu line keeps its manifests in $RUNTIME_ROOT, so
+#   the documented workaround was to copy every manifest into
+#   $ENGINE_ROOT/workflow/nalu_e01_preproduction/ first.
+#   tools/submit_giggle_character_asset_plan.py has the identical defect in
+#   three places (:266 plan, :276 transaction_dir, :225 failure transaction)
+#   and no helper at all. That file is the text-to-image route this line needs
+#   for identity-card bootstrap, so the defect was directly in the way.
+#
+# FIX
+#   Use the portable_path() helper that submit_giggle_image_manifest.py already
+#   defines at :51-56 (repo-relative when possible, absolute otherwise), and
+#   add the same six-line helper to submit_giggle_character_asset_plan.py.
+#   This is exactly the fix PREPRODUCTION_STAGE_MAP.md row E-8 prescribes.
+#
+# WHY NO CHECK IS WEAKENED
+#   Both call sites are inside report/receipt SERIALIZATION only. No validator,
+#   authority check, gate, SHA comparison, transaction state machine or
+#   duplicate-submission guard is touched. The transaction file path itself is
+#   unchanged (still ROOT/workflow/tasks/giggle_submit_transactions/<EP>/), so
+#   idempotency and the DuplicateSubmissionBlocked replay guard behave
+#   identically. For an in-repo manifest the emitted string is byte-identical
+#   to before; only the previously-crashing out-of-repo case now produces an
+#   absolute path instead of an exception.
+#
+# VERIFICATION
+#   tools/tests/test_submit_giggle_image_manifest.py
+#   tools/tests/test_submit_giggle_image_manifest_transactions.py
+#   tools/tests/test_submit_giggle_character_asset_plan.py
+#   tools/tests/test_authorize_image_manifest_submission.py   -> 19 passed
+#   python -m qingshan_engine.cli test -> 376 tests, OK, status PASS
+#
+--- a/tools/submit_giggle_image_manifest.py
++++ b/tools/submit_giggle_image_manifest.py
+@@ -666,7 +666,7 @@
+     report = {
+         "schema": "qingshan.giggle_image_batch_submit.v2",
+         "episode": manifest.get("episode"),
+-        "manifest": str(manifest_path.relative_to(ROOT)),
++        "manifest": portable_path(manifest_path),
+         "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+         "precheck_only": args.precheck_only,
+         "concurrency": max(1, args.concurrency),
+--- a/tools/submit_giggle_character_asset_plan.py
++++ b/tools/submit_giggle_character_asset_plan.py
+@@ -28,6 +28,19 @@
+ ROOT = Path(__file__).resolve().parents[1]
+ 
+ 
++def portable_path(path: Path) -> str:
++    """Repo-relative when possible, absolute otherwise.
++
++    Report writing must never be able to fail after validation has passed and,
++    for a paid run, after the provider has already been charged.  Mirrors
++    tools/submit_giggle_image_manifest.py:51-56.
++    """
++    try:
++        return str(path.relative_to(ROOT))
++    except ValueError:
++        return str(path)
++
++
+ class DuplicateSubmissionBlocked(RuntimeError):
+     """A prior charged or unresolved character-asset intent cannot be repeated."""
+ 
+@@ -222,7 +235,7 @@
+                     results.append(future.result())
+                 except (Exception, SystemExit) as exc:
+                     row = futures[future]
+-                    failures.append({"character_id": row["id"], "status": "SUBMIT_FAILED", "error": str(exc), "transaction": str(transaction_path(transaction_dir, row, "gpt-image-2-pro", "2K").relative_to(ROOT))})
++                    failures.append({"character_id": row["id"], "status": "SUBMIT_FAILED", "error": str(exc), "transaction": portable_path(transaction_path(transaction_dir, row, "gpt-image-2-pro", "2K"))})
+     credit_reconciliation = None
+     ambiguity_resolution = "NOT_APPLICABLE"
+     if not args.precheck_only:
+@@ -263,7 +276,7 @@
+         "schema": "qingshan.character_asset_submit.v1",
+         "episode": plan.get("episode"),
+         "recorded_at": datetime.now(timezone.utc).isoformat(),
+-        "plan": str(plan_path.relative_to(ROOT)),
++        "plan": portable_path(plan_path),
+         "model": "gpt-image-2-pro",
+         "resolution": "2K",
+         "concurrency": max(1, args.concurrency),
+@@ -273,7 +286,7 @@
+         "failures": sorted(failures, key=lambda row: row["character_id"]),
+         "credit_reconciliation": credit_reconciliation,
+         "ambiguity_resolution": ambiguity_resolution,
+-        "transaction_dir": str(transaction_dir.relative_to(ROOT)),
++        "transaction_dir": portable_path(transaction_dir),
+         "duplicate_submit_policy": "TASK_FINGERPRINT_TRANSACTION_GUARD",
+         "credits": {"pay": (credit_reconciliation or {}).get("charged_credits", 0) if not args.precheck_only else 0, "refund": 0, "net": (credit_reconciliation or {}).get("charged_credits", 0) if not args.precheck_only else 0, "cap": 10000}
+     }

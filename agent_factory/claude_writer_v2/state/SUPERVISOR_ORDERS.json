@@ -1,0 +1,10 @@
+{
+  "_schema": "supervisor_orders_v1",
+  "_purpose": "Runtime inbox for authorized supervisor-to-writer orders. This public template intentionally contains no project history.",
+  "_authority": "PROJECT_OWNER_OR_AUTHORIZED_SUPERVISOR",
+  "updated_at_pdt": null,
+  "latest_order_seq": 0,
+  "orders": [],
+  "_ordering_contract": "Keep orders sorted by descending seq; consumers must compare latest_order_seq rather than array position.",
+  "updated_at_utc": null
+}

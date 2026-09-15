@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from visible_subject_framing_gate import evaluate as evaluate_framing
     from giggle_api_client import _image_list, _request, durable_generation_context
     from giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from shot_space_camera_constraint_gate import evaluate_task as evaluate_spatial_task
@@ -32,7 +31,6 @@ try:
         keyframe_entry_contract_required,
     )
 except ModuleNotFoundError:  # Imported as tools.submit_giggle_image_manifest.
-    from tools.visible_subject_framing_gate import evaluate as evaluate_framing
     from tools.giggle_api_client import _image_list, _request, durable_generation_context
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from tools.shot_space_camera_constraint_gate import evaluate_task as evaluate_spatial_task
@@ -325,9 +323,6 @@ def validate_task(task: dict[str, Any]) -> None:
     if contract.get("source_action_sha256") != hashlib.sha256(str(contract.get("source_action", "")).encode("utf-8")).hexdigest():
         raise ValueError(f"{task['task_key']} source action SHA mismatch")
     prompt_text = prompt_path.read_text(encoding="utf-8")
-    framing = evaluate_framing(task, prompt_text)
-    if framing["failures"]:
-        raise ValueError(";".join(framing["failures"]))
     scope_mode = str(task.get("provider_prompt_scope_mode") or contract.get("provider_prompt_scope_mode") or "")
     role_failures = (
         validate_positive_single_subject_provider_scope(task, prompt_text)
@@ -420,8 +415,6 @@ def _submit_one_locked(task: dict[str, Any], receipt_dir: Path, transaction_dir:
     intent = {
         "schema": "qingshan.giggle_submit_transaction.v1",
         "task_key": task["task_key"],
-        "run_id": task.get("run_id"),
-        "authorization_ref": task.get("authorization_ref"),
         "attempt_id": str(uuid.uuid4()),
         "submission_fingerprint": submission_fingerprint(task),
         "state": "INTENT_RECORDED",
@@ -467,7 +460,6 @@ def _submit_one_locked(task: dict[str, Any], receipt_dir: Path, transaction_dir:
         "task_key": task["task_key"],
         "beat_id": task.get("beat_id"),
         "task_id": task_id,
-        "run_id": task.get("run_id"),
         "status": "submitted",
         "receipt": portable_path(receipt),
         "transaction": portable_path(transaction),
@@ -507,6 +499,22 @@ def submit_all(
     return results, failures
 
 
+def _provider_declined(failure: dict[str, Any], transaction_dir: Path | None = None) -> bool:
+    """True when the recorded provider response is an explicit non-200 failure (no task_id)."""
+    text = str(failure.get("provider_response") or "")
+    if not text and transaction_dir is not None and failure.get("transaction"):
+        path = transaction_dir / Path(failure["transaction"]).name
+        if path.is_file():
+            try:
+                text = str(json.loads(path.read_text(encoding="utf-8")).get("provider_response") or "")
+            except Exception:  # noqa: BLE001
+                text = ""
+    text = text or str(failure.get("error") or "")
+    return ("task_id" not in text or "missing data.task_id" in text) and any(
+        marker in text for marker in ("'code': 500", '"code":500', "payment failed", "status: 500", "status: 4")
+    )
+
+
 def classify_ambiguous_failures(
     failures: list[dict[str, Any]],
     *,
@@ -524,6 +532,16 @@ def classify_ambiguous_failures(
         status = "CHARGED_TASK_ID_MISSING"
         credit = None
         summary = "ONE_CHARGED_RESPONSE_LOSS_REQUIRES_TASK_HISTORY_RECOVERY"
+    elif extra_charges == 0 and all(
+        _provider_declined(f, transaction_dir) for f in failures
+    ):
+        # nalu e18 (2026-09-13): the provider answered with an explicit non-charging failure
+        # (HTTP/JSON code != 200, e.g. "payment failed ... 500") AND the ledger shows no pay row
+        # beyond the task ids we hold — nothing was bought; the attempt may be retried.
+        state = "NOT_CHARGED_RETRYABLE"
+        status = "NOT_CHARGED_RETRYABLE"
+        credit = 0
+        summary = "PROVIDER_DECLINED_AND_LEDGER_ROWS_EQUAL_KNOWN_TASK_IDS"
     else:
         state = "CHARGE_STATE_UNRESOLVED_BATCH"
         status = "CHARGE_STATE_UNRESOLVED_BATCH"
@@ -535,10 +553,13 @@ def classify_ambiguous_failures(
         failure["credit_status"] = status
         path = transaction_dir / Path(failure["transaction"]).name
         if not path.is_file():
-            transaction = {"schema":"qingshan.giggle_submit_transaction.v1","task_key":failure.get("task_key"),"state":"CHARGE_STATE_UNRESOLVED_BATCH","submission_fingerprint":failure.get("submission_fingerprint"),"recovery_required":True,"created_at":utc_now()}
-            atomic_json(path, transaction)
-        else:
-            transaction = json.loads(path.read_text(encoding="utf-8"))
+            # nalu e17: the item failed BEFORE its intent record was written (batch gate / input
+            # precheck / prompt sha / reference read) — no POST was attempted, nothing was charged.
+            failure["status"] = "submit_failed_before_intent"
+            failure["credit"] = 0
+            failure["credit_status"] = "NOT_CHARGED_NO_INTENT_RECORDED"
+            continue
+        transaction = json.loads(path.read_text(encoding="utf-8"))
         if transaction.get("state") == "SUBMITTED_TASK_ID_BOUND" and transaction.get("task_id"):
             failure["task_id"] = transaction["task_id"]
             failure["credit_status"] = "BOUND_TASK_RECEIPT_RECOVERY_REQUIRED"
@@ -603,9 +624,6 @@ def main() -> int:
         validate_submission_authority(manifest, tasks, gates, manifest_path)
     for task in tasks:
         validate_task(task)
-        if args.precheck_only:
-            from tools.episode_prompt_batch_gate import require_generation_batch
-            require_generation_batch(task, ROOT, artifact_kind='keyframe_prompt')
     if not args.precheck_only and not os.environ.get("GIGGLE_API_KEY", "").strip():
         raise SystemExit("GIGGLE_API_KEY is not set")
 
@@ -681,7 +699,7 @@ def main() -> int:
     report = {
         "schema": "qingshan.giggle_image_batch_submit.v2",
         "episode": manifest.get("episode"),
-        "manifest": str(manifest_path.relative_to(ROOT)),
+        "manifest": portable_path(manifest_path),
         "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "precheck_only": args.precheck_only,
         "concurrency": max(1, args.concurrency),

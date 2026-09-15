@@ -16,16 +16,29 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from tools.giggle_api_client import _request, durable_generation_context
+    from tools.giggle_api_client import _request
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from tools.visual_culture_contract import validate_visual_culture_contract
 except ModuleNotFoundError:
-    from giggle_api_client import _request, durable_generation_context
+    from giggle_api_client import _request
     from giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from visual_culture_contract import validate_visual_culture_contract
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def portable_path(path: Path) -> str:
+    """Repo-relative when possible, absolute otherwise.
+
+    Report writing must never be able to fail after validation has passed and,
+    for a paid run, after the provider has already been charged.  Mirrors
+    tools/submit_giggle_image_manifest.py:51-56.
+    """
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
 
 
 class DuplicateSubmissionBlocked(RuntimeError):
@@ -142,13 +155,19 @@ def submit(row: dict, output_dir: Path, transaction_dir: Path, model: str, resol
         "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
     }
     atomic_json(transaction, intent)
+    previous_context = os.environ.get("QINGSHAN_DURABLE_SUBMITTER_CONTEXT")
+    os.environ["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = "1"
     try:
-        with durable_generation_context():
-            response = _request(endpoint, payload)
+        response = _request(endpoint, payload)
     except (Exception, SystemExit) as exc:
         intent.update({"state": "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION", "error": str(exc), "response_lost_at": utc_now()})
         atomic_json(transaction, intent)
         raise
+    finally:
+        if previous_context is None:
+            os.environ.pop("QINGSHAN_DURABLE_SUBMITTER_CONTEXT", None)
+        else:
+            os.environ["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = previous_context
     task_id = (response.get("data") or {}).get("task_id")
     if not task_id:
         intent.update({"state": "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION", "error": "response has no task_id", "response_lost_at": utc_now()})
@@ -216,7 +235,7 @@ def main() -> int:
                     results.append(future.result())
                 except (Exception, SystemExit) as exc:
                     row = futures[future]
-                    failures.append({"character_id": row["id"], "status": "SUBMIT_FAILED", "error": str(exc), "transaction": str(transaction_path(transaction_dir, row, "gpt-image-2-pro", "2K").relative_to(ROOT))})
+                    failures.append({"character_id": row["id"], "status": "SUBMIT_FAILED", "error": str(exc), "transaction": portable_path(transaction_path(transaction_dir, row, "gpt-image-2-pro", "2K"))})
     credit_reconciliation = None
     ambiguity_resolution = "NOT_APPLICABLE"
     if not args.precheck_only:
@@ -257,7 +276,7 @@ def main() -> int:
         "schema": "qingshan.character_asset_submit.v1",
         "episode": plan.get("episode"),
         "recorded_at": datetime.now(timezone.utc).isoformat(),
-        "plan": str(plan_path.relative_to(ROOT)),
+        "plan": portable_path(plan_path),
         "model": "gpt-image-2-pro",
         "resolution": "2K",
         "concurrency": max(1, args.concurrency),
@@ -267,9 +286,9 @@ def main() -> int:
         "failures": sorted(failures, key=lambda row: row["character_id"]),
         "credit_reconciliation": credit_reconciliation,
         "ambiguity_resolution": ambiguity_resolution,
-        "transaction_dir": str(transaction_dir.relative_to(ROOT)),
+        "transaction_dir": portable_path(transaction_dir),
         "duplicate_submit_policy": "TASK_FINGERPRINT_TRANSACTION_GUARD",
-        "credits": {"pay": (credit_reconciliation or {}).get("charged_credits", 0) if not args.precheck_only else 0, "refund": 0, "net": (credit_reconciliation or {}).get("charged_credits", 0) if not args.precheck_only else 0, "cap": plan.get("episode_credit_cap", 10000)}
+        "credits": {"pay": (credit_reconciliation or {}).get("charged_credits", 0) if not args.precheck_only else 0, "refund": 0, "net": (credit_reconciliation or {}).get("charged_credits", 0) if not args.precheck_only else 0, "cap": 10000}
     }
     out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"status": report["status"], "result_count": len(results), "failure_count": len(failures)}, ensure_ascii=False))

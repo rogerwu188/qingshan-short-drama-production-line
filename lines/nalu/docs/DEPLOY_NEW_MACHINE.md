@@ -1,0 +1,104 @@
+# 新机器部署 nalu 生产线（从克隆到成片）
+
+目标：第三方在一台新机器上，用本仓库 + 自己的素材与密钥，跑出与原部署同等的能力。全文按顺序执行；
+带 💰 的步骤会花提供者积分，其余免费。凡标 **MANUAL_REQUIRED** 的环节需要一个能看图、能改文本的代理
+（人或 Claude/Codex 之类的代码代理）坐在审核位上——仓库替代不了这一环。
+
+## 0. 你不会从仓库拿到什么
+
+- 提供者凭据（Giggle API key）、任何付费额度；
+- 剧作原文、角色照片、音色选择、品牌片尾（都是线主的素材，永不入库）；
+- AgentCut（独立仓库 `rogerwu188/backlot-os`，S4 语音与 S7 配乐必需）；
+- 审核位上的代理：五类审核都是「实际看图 → 逐条填结构化答案」，由代理完成。
+
+## 1. 引擎与虚拟环境
+
+```bash
+git clone https://github.com/rogerwu188/qingshan-short-drama-production-line.git nalu_engine
+cd nalu_engine && export NALU_ENGINE_ROOT="$PWD"
+python3 -m venv .qingshan-venv && .qingshan-venv/bin/pip install -r requirements-core.txt -r requirements-media.txt
+.qingshan-venv/bin/pip install -e .
+# AgentCut（编辑安装到引擎目录下的独立环境；bgm 客户端已含 Cloudflare UA 修正，见 e22）
+git clone -b agent/hell-grind-v19-production https://github.com/rogerwu188/backlot-os.git ../backlot-os
+python3 -m venv .agentcut_env && .agentcut_env/bin/pip install -e ../backlot-os/components/agentcut
+```
+
+需要 `ffmpeg`/`ffprobe` 在 PATH（或写入 `.env` 的 `FFMPEG`/`FFPROBE`）。除 requirements 外还要装
+`insightface onnxruntime rapidocr-onnxruntime faster-whisper opencc`（身份余弦、OCR、ASR、繁简转换；Python 3.12）。
+
+## 2. 两把钱锁
+
+```bash
+cp .env.example .env            # 填 GIGGLE_API_KEY、GIGGLE_API_BASE；其余留空即可
+cp configs/pipeline.example.json qingshan.json
+```
+
+`qingshan.json` 里 `generation.paid_requests_enabled` 默认 `false`。付费阶段必须同时满足：
+命令行 `--paid` **且** 该字段为 `true`；免费子进程会被剥掉 API key，物理上碰不到付费端点。
+
+## 3. 运行时根目录（状态与素材，放在仓库之外）
+
+```bash
+export NALU_RUNTIME_ROOT="$HOME/nalu_runtime"
+python3 lines/nalu/runtime/tools/bootstrap_runtime_root.py --runtime-root "$NALU_RUNTIME_ROOT" --line-id my-line --work "作品名"
+python3 lines/nalu/runtime/tools/nalu_paths.py        # 打印解析出的 ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON
+```
+
+工具从仓库的 `lines/nalu/runtime/tools/` 运行；三个根由环境变量决定（`NALU_ENGINE_ROOT`、
+`NALU_RUNTIME_ROOT`、可选 `NALU_VENV_PYTHON`），未设置时按 `nalu_paths.py` 顶部说明自动探测。
+把这三个 `export` 写进 shell 配置，心跳/循环脚本也依赖它们。
+
+## 4. 线主素材接入（免费）
+
+1. 角色照片：每角色一张正脸放进 `$NALU_RUNTIME_ROOT/runtime/character_sources/`，用仓库根的
+   `tools/intake_character_sources.py --folder <目录> --map $NALU_RUNTIME_ROOT/runtime/character_source_map.json`
+   登记 sha、角色绑定、授权备注（肖像与改编授权是线主线下声明，仓库不校验也不替你声明）。
+2. 原文：`tools/intake_source_text.py --input <文本文件> --work <作品名> --out $NALU_RUNTIME_ROOT/sources --authorization "<授权说明>"`
+   分章登记；线专用的分章读取脚本由 `NALU_SOURCE_TXT` 指向你的文本文件。
+3. 音色：`.agentcut_env/bin/agentcut speech-voices` 列表 → 代理按角色气质挑选 → 写入
+   `runtime/voice_catalog.json`（模板已装好，每个说话角色一行）。**MANUAL_REQUIRED**
+4. 品牌片尾：9:16 的 3 s 片尾放进 `$NALU_RUNTIME_ROOT/brand/`。**MANUAL_REQUIRED**
+5. 实体注册：`runtime/nalu_entity_registry.json` 按角色补 `entity_aliases`（加法式）。
+
+## 5. 一集的剧本层（免费，MANUAL_REQUIRED）
+
+每集四层：叙事正典（手写）、导演脚本、生成合同（JSON）、manifest。参考构建器
+`lines/nalu/runtime/tools/build_e03_layers.py`：新的一集复制它，改场次/镜头/道具/服装/新地点/BGM 线索；
+它会把 `nalu_prompt_rules.py` 的规则套到每个镜头并做本地检查。新地点还要写
+`preproduction/<EP>/new_location_place_spec.json`（作者命名与坐标）。
+
+## 6. S1 → S8
+
+```bash
+P=$NALU_ENGINE_ROOT/.qingshan-venv/bin/python; T=$NALU_ENGINE_ROOT/lines/nalu/runtime/tools
+$P $T/nalu_pipeline.py run --episode E01                 # 免费阶段先干跑：S1 S2 通过、S3 在 DRY_RUN 停下
+$P $T/nalu_pipeline.py run --episode E01 --paid          # 💰 S3 起付费；每次卡在 REVIEW_REQUIRED（exit 4）时按下表填答后重跑
+$P $T/nalu_pipeline.py status --episode E01
+```
+
+| 阶段 | 内容 | 审核（代理实际看图后填答） | 填答脚本（`tools/review_fill/`，按集复制改名） |
+|---|---|---|---|
+| S1 | 四层 + gate10 + 角色实体合同 | — | — |
+| S2 | 预制作（分单元、空间图、提示词） | — | — |
+| S3 💰 | 身份牌三视图、道具/构筑物卡 | 身份审：缩略总表 + InsightFace 余弦 | `e0N_fill_identity_answers.py` |
+| S4 💰 | 每个说话角色一次配音参考 | — | — |
+| 整批提示词门 | 关键帧提示词登记 | 通读摘要写逐行答案 → receipts → register | `prompt_batch_qa.py digest/receipts`、`prompt_batch_register.py` |
+| S5 💰 | 关键帧 + Q1 admission | Q1：缩略总表看图填答；REJECT → 改镜头文字 → 停放旧图/旧提示词 → 重登记 → 重跑 | `e0N_fill_keyframe_answers.py`、`contact_sheet.py` |
+| S6 💰 | 视频波次 + post-gen QA + Q2 | 动作角色审、剧情审、Q2（5 帧 + 身份仲裁 `identity_pose_exemptions`） | `e0N_fill_action_role_answers.py`、`e0N_fill_post_gen_plot.py`、`e0N_fill_video_q2.py`、`video_sheets.py`、`asr_units.py` |
+| S7 💰 | 装配、字幕、片尾、选择性 BGM（每线索约 8 积分）、响度 | — | 配乐对账见 K032（提供者音乐账单无 project_id → 按提交窗口隔离） |
+| S8 | 写 CHECKPOINT，等线主 `approve` | 线主看片 | `nalu_pipeline.py approve --episode E01` |
+
+波次循环：`tools/review_fill/nalu_e03_s6_loop.sh <EP>`（每 3 分钟 `run --from S6 --paid`，直到不再是
+VIDEO_NOT_ALL_COMPLETED；其他阻塞会停下等人）。心跳模式：定时检查状态/日志，REVIEW_REQUIRED 就看图填答，
+API 错误就从断点续跑，付费 POST 靠 `workflow/tasks/*_transactions/` 的指纹不会重复。
+
+预算：每集 8000 积分硬上限由 `nalu_budget_ledger.py` 守；付费前估算，超限即停。回执：
+`$NALU_RUNTIME_ROOT/runtime/reports/`、`preproduction/<EP>/reports/`、`deliverables/<EP>/CHECKPOINT.md`。
+
+## 7. 已知未接入（INTEGRATION_PENDING）
+
+- 整批提示词门仍是手动 5 步，未并入 S5；
+- 地图素材 → 空间图无自动接入；
+- D-9/D-12 两个最终 QA 证据键无生产者（S7 以 BLOCKED 结束，S8 单独 `run --from S8`）；
+- `bgm_authenticity_gate` 是否接受窗口隔离账单标签，由线主决定（K032）；
+- 原部署实例仍从自己的运行时副本运行，切换到仓库副本后再删除该副本。

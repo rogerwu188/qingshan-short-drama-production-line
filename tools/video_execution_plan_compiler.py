@@ -67,20 +67,7 @@ def _e51_rectification_required(unit: dict[str, Any]) -> bool:
     return bool(match and int(match.group(1)) >= 51)
 
 
-def _timeline(specs: list[dict[str, Any]], duration_seconds: float, *, preserve_authored: bool = False) -> list[tuple[float, float]]:
-    if preserve_authored:
-        result=[]
-        cursor=0.0
-        for spec in specs:
-            action=spec.get("action") or {}
-            start=float(action.get("t0_seconds", -1))
-            end=float(action.get("t1_seconds", -1))
-            if abs(start-cursor)>0.001 or end<=start or end>duration_seconds+0.001:
-                raise ValueError("AUTHORED_TIMELINE_GAP_OVERLAP_OR_OVERFLOW:"+str(spec.get("shot_id")))
-            result.append((start,end));cursor=end
-        # Unused transport time is not silently spread over dialogue/actions.
-        # The existing authorized-content gate must still decide admissibility.
-        return result
+def _timeline(specs: list[dict[str, Any]], duration_seconds: float) -> list[tuple[float, float]]:
     spans = []
     for spec in specs:
         action = spec.get("action") or {}
@@ -108,9 +95,6 @@ def classify_unit(unit: dict[str, Any]) -> str:
             1 for spec in combat_specs
             if _interaction_mode(spec.get("action") or {}) in {"CONTACT", "EVASION", "THREAT_THRESHOLD"}
         )
-        if any((s.get('action') or {}).get('combat_event_id') for s in combat_specs):
-            from tools.combat_event_count import count_combat_events
-            contacts=count_combat_events(combat_specs)
         if _e51_rectification_required(unit) and duration < 7.0 and contacts >= 2:
             return "COMBAT_IMPULSE"
         return "COMBAT_IMPULSE" if len(combat_specs) <= 1 else "COMBAT_EXCHANGE"
@@ -268,9 +252,6 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
         1 for spec in combat_specs
         if _interaction_mode(spec.get("action") or {}) in {"CONTACT", "EVASION", "THREAT_THRESHOLD"}
     ) if is_combat_unit(unit) else 0
-    if any((s.get('action') or {}).get('combat_event_id') for s in combat_specs):
-        from tools.combat_event_count import count_combat_events
-        combat_contact_count=count_combat_events(combat_specs)
     inferred_exchange = is_combat_unit(unit) and len(combat_specs) > 1
     class_laundering_failures: list[str] = []
     if rectification_required and inferred_exchange and duration < 7.0 and combat_contact_count >= 2:
@@ -282,25 +263,17 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
             f"UNIT_CLASS_LAUNDERING:{unit.get('unit_id')}:COMBAT_EXCHANGE_REQUIRES_7_TO_12_SECONDS_AND_AT_MOST_2_CONTACTS"
         )
     beats = []
-    # Only the first authored shot is visible in the supplied unit start frame.
-    # Validate explicit shot cameras before scoping later-shot observations.
-    from tools.sd2_shot_camera_adapter import compile_shot_cameras
-    entry_scoped_cameras = compile_shot_cameras(unit, unit_class)
     internal_transitions = unit.get("internal_transition_contracts") or []
-    for index, (spec, (start, end)) in enumerate(zip(specs, _timeline(
-        specs, duration, preserve_authored=unit.get("timeline_policy")=="PRESERVE_AUTHORED_NO_STRETCH"
-    )), 1):
+    for index, (spec, (start, end)) in enumerate(zip(specs, _timeline(specs, duration)), 1):
         action = spec.get("action") or {}
         prop_states, prop_state_failures = compile_prop_states(
-            spec, source_id=f"{unit.get('unit_id')}:BEAT_{index}", preproduction_only=preproduction_only,
-            unit_entry_frame=not entry_scoped_cameras or index == 1
+            spec, source_id=f"{unit.get('unit_id')}:BEAT_{index}", preproduction_only=preproduction_only
         )
         if not rectification_required:
             prop_state_failures = []
         beat = {
             "source_index": index,
             "source_action_kind": str(action.get("action_kind") or "").strip().upper(),
-            **({'combat_event_id': action['combat_event_id']} if action.get('combat_event_id') else {}),
             "e51_rectification_required": rectification_required,
             "action_patient": str(
                 (spec.get("role_semantic_disambiguation") or {}).get("action_patient") or ""
@@ -414,16 +387,6 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
             "dialogue_mode": str(role.get("dialogue_mode") or "NONE").strip(),
             "action_patient": str(role.get("action_patient") or "").strip(),
         })
-        # Explicit SD2-only additive role transport. Existing SD2 and all H3
-        # inputs without the extension retain their original role rows.
-        if family != "MINIMAX_H3" and "independent_action_actors" in role:
-            try:
-                from tools.sd2_independent_action_roles import compile_roles
-            except ModuleNotFoundError:
-                from sd2_independent_action_roles import compile_roles
-            role_bindings[-1]["independent_action_actors"] = compile_roles(spec)
-    from tools.sd2_shot_camera_adapter import compile_shot_cameras
-    shot_camera_plans = compile_shot_cameras(unit, unit_class)
     selected_camera_plan, camera_language_selection = select_camera_language(
         deepcopy(unit.get("camera_plan") or {}),
         unit_class=unit_class,
@@ -461,8 +424,6 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
         "model_family": family,
         "duration_seconds": duration,
         "duration_authority": {
-            **({"timeline_policy": "PRESERVE_AUTHORED_NO_STRETCH"}
-               if unit.get('timeline_policy') == 'PRESERVE_AUTHORED_NO_STRETCH' else {}),
             "authorized_content_seconds": authorized_content_seconds,
             "authorized_tail_handle_seconds": tail_handle_seconds,
             "requested_duration_seconds": duration,
@@ -485,7 +446,6 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
         "identity_prop_fact": identity_fact,
         "space_weather_fact": space_fact,
         "camera_plan": selected_camera_plan,
-        **({"shot_camera_plans": shot_camera_plans} if shot_camera_plans else {}),
         "camera_language_selection": camera_language_selection,
         "camera_authority_gate": _camera_authority(unit, combat=is_combat_unit(unit)),
         "cross_episode_event_continuity_gate": cross_episode_gate,
@@ -542,10 +502,6 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
             ],
         },
     }
-    if shot_camera_plans:
-        plan['semantic_lineage']['shot_camera_plans'] = [
-            f'ordered_prompt_specs[{i}].camera_plan' for i in range(len(specs))
-        ]
     semantic_projection = {
         key: deepcopy(plan[key])
         for key in (
@@ -557,8 +513,6 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
             "interaction_topology_required", "combat_execution_required",
         )
     }
-    if shot_camera_plans:
-        semantic_projection['shot_camera_plans'] = deepcopy(shot_camera_plans)
     plan["execution_semantics_sha256"] = hashlib.sha256(json.dumps(
         semantic_projection, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")).hexdigest()

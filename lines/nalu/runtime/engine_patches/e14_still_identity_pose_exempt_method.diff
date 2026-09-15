@@ -1,0 +1,47 @@
+diff --git a/tools/shot_media_admission_gate.py b/tools/shot_media_admission_gate.py
+index 739590d..52c24c9 100644
+--- a/tools/shot_media_admission_gate.py
++++ b/tools/shot_media_admission_gate.py
+@@ -36,6 +36,7 @@ P0_OBJECTIVE_METHODS = {
+     "PERIOD-ANACHRONISM-LOCK": "CLOSED_SET_ANACHRONISM_OCR_V1",
+ }
+ NO_CHARACTER_IDENTITY_METHOD = "STRUCTURED_NO_VISIBLE_CHARACTER_V1"
++POSE_EXEMPT_STILL_IDENTITY_METHOD = "REVIEWER_STRUCTURED_IDENTITY_POSE_EXEMPT_D16"  # nalu e14
+ ADVISORY_STATUSES = {"ADVISORY", "ADVISORY_NOT_A_GATE", "DIAGNOSTIC", "WARNING"}
+ PASS_STATUSES = {"PASS", "PASS_EXACT_SHA", "PASS_ORIGINAL_RESOLUTION"}
+ FAILURE_ATTRIBUTIONS = frozenset({
+@@ -106,6 +107,34 @@ def _objective_p0_pass(
+         ):
+             return False, "p0_no_character_structured_checks_not_pass"
+         return True, ""
++    if (
++        gate_id == "CHARACTER-IDENTITY-ADMISSION"
++        and method == POSE_EXEMPT_STILL_IDENTITY_METHOD
++    ):
++        # nalu engine patch e14 (2026-09-13, SUPERVISOR_ORDERS seq=6 / D-16): a STILL keyframe
++        # whose every declared visible character carries a non-frontal face_visibility reason
++        # (profile, closed/lying eyes, back, far, hands-only) cannot be measured by frontal-plate
++        # cosine; the reviewer's structured identity checks are the P0 evidence for that frame.
++        # Scoped to KEYFRAME_VIDEO_SUBMIT; cosine thresholds and the video (multi-frame) route
++        # are untouched.  A frame with any frontal measurable face still requires the cosine method.
++        if (str(payload.get("kind") or "") != "KEYFRAME_VIDEO_SUBMIT"
++                and str(verification.get("measurement_scope") or "") != "SINGLE_STILL_PER_KEYFRAME"):
++            return False, "p0_pose_exempt_only_for_still_keyframes"
++        declared = list(verification.get("canonical_characters") or [])
++        exempt = verification.get("not_measurable_by_pose") or {}
++        if not declared:
++            return False, "p0_pose_exempt_requires_declared_characters"
++        if any(not str(exempt.get(char_id) or "").strip() for char_id in declared):
++            return False, "p0_pose_exempt_reason_missing_for_declared_character"
++        checks = verification.get("checks") or []
++        if not checks or any(
++            str(row.get("answer") or row.get("status") or "").upper() != "PASS"
++            for row in checks
++        ):
++            return False, "p0_pose_exempt_structured_checks_not_pass"
++        if str(verification.get("decision") or "").upper() != "PASS":
++            return False, "p0_objective_decision_not_pass"
++        return True, ""
+     if method != expected:
+         return False, f"p0_objective_method_invalid:{method or 'MISSING'}"
+     if str(verification.get("decision") or "").upper() != "PASS":

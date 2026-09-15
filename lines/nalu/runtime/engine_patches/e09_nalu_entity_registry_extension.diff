@@ -1,0 +1,257 @@
+# Blocker E-9 — the voice/face entity whitelist is qingshan-only
+#
+# PROBLEM
+#   tools/multimodal_character_binding_guard.py held ENTITY_ALIASES as a closed
+#   24-entry dict, every entry belonging to the qingshan line (陈迹/白鲤/…).
+#   The nalu line's six ids (qinming, luze, liangwanqing, zhouapo,
+#   yangyongqing, villager_a) are absent, so every nalu video task would report
+#   UNREGISTERED_ENTITY_BINDING (:325-330). Its three tenant authority files
+#   (voice registry, agentcut voice policy, character asset registry) were also
+#   hardcoded to configs/ paths that do not exist in this portable clone, so
+#   the guard raised FileNotFoundError before it could report anything.
+#   tools/agentcut_character_voice_reference_guard.py additionally asserts that
+#   its two EXEMPT ids (chenji, baili) are LOCKED in the registry, which fails
+#   on any registry that legitimately contains neither.
+#
+# CHOSEN FIX — env-var extension point, not hardcoding
+#   1. QINGSHAN_ENTITY_REGISTRY -> a JSON that ADDS entities. The loader is
+#      fail-closed and additive only: it rejects a wrong schema, a non-object
+#      entity_aliases, a non-identifier entity id, any attempt to redefine a
+#      built-in entity, a missing display name or registry id, and any display
+#      name already bound to another entity. It therefore cannot relax, remove
+#      or shadow an existing binding.
+#   2. QINGSHAN_VOICE_REGISTRY / QINGSHAN_AGENTCUT_VOICE_POLICY /
+#      QINGSHAN_CHARACTER_REGISTRY relocate the three tenant authority files.
+#      Location only: the files are still loaded eagerly and still have to
+#      exist and parse, so a wrong override fails exactly as a missing default
+#      did. QINGSHAN_VOICE_REGISTRY is the name tools/speaker_voice_contract.py:78
+#      already used, so this makes the guards agree with the contract compiler
+#      instead of contradicting it.
+#   3. EXEMPT is now INTERSECTED with the registry's own
+#      policy.only_legacy_native_voice_exemptions — a key
+#      tools/generate_agentcut_character_voice_references.py:412 already
+#      writes. The set can only ever SHRINK; declaring an entity that is not
+#      already exempt raises. Omitting the key preserves the previous
+#      behaviour byte for byte.
+#
+# WHY NO CHECK IS WEAKENED
+#   * No threshold, status set, required field or failure code was changed.
+#   * Nothing was added to EXEMPT and nothing can be: escalation raises.
+#     The nalu registry declares [] , i.e. STRICTER than the default.
+#   * ENTITY_ALIASES only grows, and only with entities that carry both a
+#     display name and a registry id — which is exactly what makes
+#     MISSING_ENTITY_BINDING / CANONICAL_VISUAL_REFERENCE_MISMATCH apply to
+#     them. Registering nalu's characters SUBJECTS them to the guard; it does
+#     not exempt them.
+#   * With no env var set, both modules behave identically to before.
+#
+# VERIFICATION
+#   tools/tests/test_multimodal_character_binding_guard.py            17 passed
+#   tools/tests/test_agentcut_character_voice_reference_guard.py       2 pre-existing
+#     failures (KeyError 'identity' in performance_brief_sha256), IDENTICAL
+#     before and after this patch — confirmed by rerunning the suite against
+#     the pristine file.
+#   python -m qingshan_engine.cli test -> 376 tests, OK (skipped=11),
+#     {"schema":"qingshan.portable_ci.v2","status":"PASS","failures":[]}
+#
+# COMPANION RUNTIME FILES (not part of this diff, live in nalu_runtime)
+#   $RUNTIME_ROOT/runtime/nalu_entity_registry.json
+#   $RUNTIME_ROOT/runtime/voice_registry.json
+#   $RUNTIME_ROOT/runtime/agentcut_character_voice_reference_policy_nalu_v1.json
+#
+--- a/tools/multimodal_character_binding_guard.py
++++ b/tools/multimodal_character_binding_guard.py
+@@ -6,17 +6,40 @@
+ import argparse
+ import hashlib
+ import json
++import os
+ import re
+ from pathlib import Path
+ from typing import Any
+ 
+ 
+ ROOT = Path(__file__).resolve().parents[1]
+-VOICE_REGISTRY = ROOT / "configs/series_voice_reference_registry_current_20260723.json"
+-AGENTCUT_VOICE_POLICY = ROOT / "configs/agentcut_character_voice_reference_policy_v1.json"
+-CHARACTER_REGISTRY = ROOT / "configs/series_character_asset_registry_20260712.json"
+ 
+-ENTITY_ALIASES = {
++
++def _configured_path(variable: str, default: str) -> Path:
++    """Resolve a tenant authority file, overridable by environment variable.
++
++    Only the *location* is configurable. The file is still loaded eagerly and
++    still has to exist and parse, so a wrong or missing override fails closed
++    exactly as a missing default would.
++    """
++    configured = os.environ.get(variable, "").strip()
++    if not configured:
++        return ROOT / default
++    path = Path(configured).expanduser()
++    return path if path.is_absolute() else ROOT / path
++
++
++VOICE_REGISTRY = _configured_path(
++    "QINGSHAN_VOICE_REGISTRY", "configs/series_voice_reference_registry_current_20260723.json"
++)
++AGENTCUT_VOICE_POLICY = _configured_path(
++    "QINGSHAN_AGENTCUT_VOICE_POLICY", "configs/agentcut_character_voice_reference_policy_v1.json"
++)
++CHARACTER_REGISTRY = _configured_path(
++    "QINGSHAN_CHARACTER_REGISTRY", "configs/series_character_asset_registry_20260712.json"
++)
++
++_BUILTIN_ENTITY_ALIASES = {
+     "chenji": ("陈迹", "CHAR-陈迹-古装"),
+     "baili": ("白鲤", "CHAR-白鲤-古装"),
+     "wuyun": ("乌云", "CHAR-乌云-猫"),
+@@ -43,6 +66,62 @@
+     "killer": ("巡检司杀手", "CHAR-巡检司杀手-古装"),
+ }
+ 
++ENTITY_REGISTRY_EXTENSION_SCHEMA = "qingshan.entity_registry_extension.v1"
++
++
++def load_entity_registry_extension() -> dict[str, tuple[str, str]]:
++    """Register additional production lines' entities without editing this file.
++
++    A second short-drama line (different work, different cast) cannot appear in
++    a whitelist that is hardcoded for one series, so every one of its
++    characters trips UNREGISTERED_ENTITY_BINDING. QINGSHAN_ENTITY_REGISTRY
++    points at a JSON document that *adds* entities:
++
++        {"schema": "qingshan.entity_registry_extension.v1",
++         "line": "nalu",
++         "entity_aliases": {"qinming": ["秦铭", "CHAR-QINMING"]}}
++
++    The extension is additive only and fail-closed. It may not redefine a
++    built-in entity id, may not reuse a display name already bound to another
++    entity, and every entry must carry a non-empty display name and registry
++    id. So it can register a new face+voice authority, and it can never relax,
++    remove, or shadow an existing one.
++    """
++    configured = os.environ.get("QINGSHAN_ENTITY_REGISTRY", "").strip()
++    if not configured:
++        return {}
++    path = Path(configured).expanduser()
++    if not path.is_absolute():
++        path = ROOT / path
++    payload = json.loads(path.read_text(encoding="utf-8"))
++    if payload.get("schema") != ENTITY_REGISTRY_EXTENSION_SCHEMA:
++        raise ValueError(
++            f"QINGSHAN_ENTITY_REGISTRY schema must be {ENTITY_REGISTRY_EXTENSION_SCHEMA}: {path}"
++        )
++    rows = payload.get("entity_aliases")
++    if not isinstance(rows, dict) or not rows:
++        raise ValueError(f"QINGSHAN_ENTITY_REGISTRY entity_aliases must be a non-empty object: {path}")
++    taken_names = {name for name, _ in _BUILTIN_ENTITY_ALIASES.values()}
++    extension: dict[str, tuple[str, str]] = {}
++    for entity_id, value in rows.items():
++        if not isinstance(entity_id, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", entity_id):
++            raise ValueError(f"entity id must be a lowercase identifier: {entity_id!r} in {path}")
++        if entity_id in _BUILTIN_ENTITY_ALIASES:
++            raise ValueError(f"entity registry extension may not redefine built-in entity {entity_id}")
++        if not isinstance(value, (list, tuple)) or len(value) != 2:
++            raise ValueError(f"entity {entity_id} must map to [display_name, registry_id] in {path}")
++        name, registry_id = (str(item).strip() for item in value)
++        if not name or not registry_id:
++            raise ValueError(f"entity {entity_id} needs a non-empty display name and registry id in {path}")
++        if name in taken_names:
++            raise ValueError(f"display name {name} is already bound to another entity; names must be unique")
++        taken_names.add(name)
++        extension[entity_id] = (name, registry_id)
++    return extension
++
++
++ENTITY_ALIASES = {**_BUILTIN_ENTITY_ALIASES, **load_entity_registry_extension()}
++
+ # These are identity contradictions, not merely wardrobe style preferences.
+ FORBIDDEN_APPEARANCE_PHRASES = {
+     "chenji": ("黑衣年轻陈迹", "黑衣陈迹", "黑袍陈迹"),
+--- a/tools/agentcut_character_voice_reference_guard.py
++++ b/tools/agentcut_character_voice_reference_guard.py
+@@ -6,16 +6,62 @@
+ import argparse
+ import hashlib
+ import json
++import os
+ from pathlib import Path
+ 
+ 
+ ROOT = Path(__file__).resolve().parents[1]
+-DEFAULT_POLICY = ROOT / "configs/agentcut_character_voice_reference_policy_v1.json"
+-DEFAULT_REGISTRY = ROOT / "configs/series_voice_reference_registry_current_20260723.json"
++
++
++def _configured_path(variable: str, default: str) -> Path:
++    configured = os.environ.get(variable, "").strip()
++    if not configured:
++        return ROOT / default
++    path = Path(configured).expanduser()
++    return path if path.is_absolute() else ROOT / path
++
++
++DEFAULT_POLICY = _configured_path(
++    "QINGSHAN_AGENTCUT_VOICE_POLICY", "configs/agentcut_character_voice_reference_policy_v1.json"
++)
++DEFAULT_REGISTRY = _configured_path(
++    "QINGSHAN_VOICE_REGISTRY", "configs/series_voice_reference_registry_current_20260723.json"
++)
+ EXEMPT = {"chenji", "baili"}
+ READY = {"LOCKED_PRODUCTION_READY", "AGENTCUT_GENERATED_REGISTERED_PRODUCTION_READY"}
+ 
+ 
++def exempt_entities(registry: dict) -> set[str]:
++    """Narrow the legacy-native-voice exemption to what this registry declares.
++
++    EXEMPT names the two pre-AgentCut voices of one production line. A second
++    line's registry contains neither of them, so the trailing exemption
++    assertion below reported EXEMPT_NATIVE_VOICE_NOT_LOCKED for characters that
++    do not exist in that series.
++
++    tools/generate_agentcut_character_voice_references.py:412 already writes
++    `policy.only_legacy_native_voice_exemptions` into the registry, so the
++    registry is self-describing. This reads that declaration and **intersects**
++    it with EXEMPT: the set can only ever shrink, never grow. Declaring an
++    entity that is not already exempt is a hard error, so no registry can buy
++    itself an exemption from the AgentCut receipt requirement. Omitting the key
++    keeps the historical behaviour byte for byte.
++    """
++    declared = (registry.get("policy") or {}).get("only_legacy_native_voice_exemptions")
++    if declared is None:
++        return set(EXEMPT)
++    if not isinstance(declared, list) or not all(isinstance(value, str) and value for value in declared):
++        raise ValueError("only_legacy_native_voice_exemptions must be a list of entity ids")
++    unauthorized = sorted(set(declared) - EXEMPT)
++    if unauthorized:
++        raise ValueError(
++            "a registry may not grant new legacy native voice exemptions: "
++            + ",".join(unauthorized)
++        )
++    return set(declared)
++
++
++
+ def load(path: Path) -> dict:
+     return json.loads(path.read_text(encoding="utf-8"))
+ 
+@@ -104,7 +150,8 @@
+         results.append(result)
+         failures.extend({"entity_id": entity_id, "code": code} for code in row_failures)
+ 
+-    for entity_id in EXEMPT:
++    exempt = exempt_entities(registry)
++    for entity_id in exempt:
+         row = authority.get(entity_id)
+         if not row or row.get("status") not in READY or not row.get("remote_asset_id"):
+             failures.append({"entity_id": entity_id, "code": "EXEMPT_NATIVE_VOICE_NOT_LOCKED"})
+@@ -112,7 +159,7 @@
+     return {
+         "schema": "qingshan.agentcut_character_voice_reference_gate.v1",
+         "status": "PASS" if not failures else "FAIL",
+-        "exempt_existing_native_voices": sorted(EXEMPT),
++        "exempt_existing_native_voices": sorted(exempt),
+         "checked_agentcut_roles": len(expected),
+         "results": results,
+         "failures": failures,

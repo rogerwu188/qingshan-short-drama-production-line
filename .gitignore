@@ -2,20 +2,41 @@
 # Runtime media, QA evidence, transactions, credentials, and operator logs stay local.
 /*
 !/.gitignore
+!/.env.example
+!/.github/
+!/.github/**
+!/CODE_OF_CONDUCT.md
+!/CONTRIBUTING.md
+!/Makefile
 !/README.md
+!/AGENTS.md
+!/SECURITY.md
 !/tools/
 !/agent_factory/
 !/configs/
 /configs/*
 !/configs/GATE_REGISTRY_v3_20260716.json
+!/configs/reroll_cost_guard_policy_v1_20260716.json
 !/configs/VOICE_REFERENCE_REGISTRY.example.json
 !/configs/COMBAT_ACTION_LIBRARY_V1.json
+!/configs/ENGINEERING_KNOWLEDGE_V1.json
 !/configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json
 !/codex_docs/
 /codex_docs/*
 !/codex_docs/美剧叙事节奏标准_v2_结构层_20260818.md
+!/codex_docs/模拟观众审片门_发行前_规范v1_20260717.md
 !/workflow/
 /workflow/*
+!/workflow/AGENT_WATCH_LISTEN_GATE_TEMPLATE.json
+!/workflow/agent_mistake_ledger.json
+!/workflow/dashboard/
+!/workflow/dashboard/build_status.py
+!/workflow/production_line/
+!/workflow/production_line/THREE_EPISODE_CONCURRENCY_POLICY.json
+!/workflow/s3_relay/
+!/workflow/s3_relay/S3_RELAY_UPLOAD_SAFETY_CHECKLIST.json
+!/workflow/time_ledger/
+!/workflow/time_ledger/E17_time_ledger.json
 !/workflow/claude_writer_agent/
 /workflow/claude_writer_agent/*
 !/workflow/claude_writer_agent/宪章_ClaudeWriterAgent_v1.md
@@ -25,6 +46,17 @@
 # Portable agent installers/templates are code, never runtime state.
 !/agent_factory/claude_writer/
 !/agent_factory/claude_writer/**
+!/docs/
+!/docs/**
+!/examples/
+!/examples/**
+!/pyproject.toml
+!/qingshan_engine/
+!/qingshan_engine/**
+!/requirements-core.txt
+!/requirements-media.txt
+!/requirements-dev.txt
+!/setup.py
 
 # Generated/runtime material inside the tracked code trees.
 **/__pycache__/
@@ -38,3 +70,12 @@
 **/*secret*
 **/*credential*
 **/*token*.json
+
+# Public, credential-free distribution metadata and examples override the
+# broad runtime-secret patterns above.
+!/.env.example
+!/configs/PORTABLE_CORE_MANIFEST.json
+!/configs/DEPLOYMENT_CODE_SHA256.json
+!/configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json
+!/configs/pipeline.example.json
+!/lines/

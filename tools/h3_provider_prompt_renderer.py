@@ -8,10 +8,6 @@ text allowed inside ``<d>[Chinese]...</d>`` tags.
 from __future__ import annotations
 
 from typing import Any
-try:
-    from tools.h3_partial_body_projection import project_contract, population_clause
-except ModuleNotFoundError:
-    from h3_partial_body_projection import project_contract, population_clause
 
 try:
     from tools.h3_provider_english_contract import (
@@ -89,13 +85,11 @@ def _beat(
 ) -> tuple[str, dict[str, str]]:
     index = int(source["source_index"])
     prefix = f"BEAT.{index}"
-    entry = translated['entry_state']
-    opening = entry if entry.lower().startswith("start from ") else "Start from " + entry
-    force = translated.get('force_origin') or entry
-    line = f"[{source['start_seconds']:g}s-{source['end_seconds']:g}s] {opening}. "
-    if force != entry:
-        line += f"Force origin: {force}. "
-    line += translated['primary_action']
+    line = (
+        f"[{source['start_seconds']:g}s-{source['end_seconds']:g}s] "
+        f"Start from {translated['entry_state']}. Force origin: {translated.get('force_origin') or translated['entry_state']}. "
+        f"{translated['primary_action']}"
+    )
     interaction_mode = str(source.get("interaction_mode") or "NONE")
     interaction_label = {
         "CONTACT": "physical contact",
@@ -114,7 +108,7 @@ def _beat(
         line += f" Interaction mode: {interaction_label}; the interaction point is reached at {contact_time}"
         evidence[f"{prefix}.CONTACT_TIME"] = contact_time
     if source.get("contact_point"):
-        line += (" at " if source.get("contact_time_seconds") is not None else ". Contact location: ") + translated['contact_point']
+        line += f" at {translated['contact_point']}"
         evidence[f"{prefix}.CONTACT_POINT"] = translated["contact_point"]
     if source.get("primary_feedback"):
         primary_feedback = translated.get("primary_feedback") or translated.get("force_feedback")
@@ -181,7 +175,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     refs = unit.get("reference_images") or []
     if not refs or len(refs) > 9:
         raise ValueError(f"{uid}:H3_REFERENCE_COUNT_OUT_OF_RANGE:{len(refs)}")
-    contract = project_contract(unit, require_h3_provider_english_contract(unit, plan))
+    contract = require_h3_provider_english_contract(unit, plan)
     crossmodal = plan.get("h3_crossmodal_speaker_binding") or {}
     if crossmodal.get("status") not in {"PASS", "NOT_APPLICABLE"}:
         raise ValueError(";".join(crossmodal.get("failures") or [f"H3_CROSSMODAL_BINDING_INVALID:{uid}"]))
@@ -249,7 +243,6 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         )
     )
     source_transition = plan.get("transition") or {}
-    population_scope = population_clause(unit) or population_scope
     description: list[str] = []
     content_window = content_window_clause(plan, "EN")
     if content_window:
@@ -284,7 +277,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             source,
             translated,
             dialogue_binding=dialogue_binding,
-            positive_single_subject=positive_single_subject or population_clause(unit) is not None,
+            positive_single_subject=positive_single_subject,
         )
         description.append(line)
         clause_evidence.update(evidence)
@@ -350,13 +343,6 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             "upper arm, elbow, forearm, wrist, palm, and fingers; no isolated limb, extra limb, severed limb, "
             "reversed joint, fixed-surface penetration, or owner swap"
         )
-        if population_clause(unit):
-            topology = (
-                "Within the existing crop, each visible hand stays connected to its own wrist and forearm. "
-                "A forearm entering from outside the frame stays attached to its offscreen owner; anatomical "
-                "continuity does not require showing that owner's head, shoulder or torso. "
-                "No detached limb, extra hand, reversed joint, surface penetration or owner swap"
-            )
         physical_rules.append(topology)
         clause_evidence["PHYSICAL.INTERACTION_TOPOLOGY"] = topology
     if plan.get("combat_execution_required"):
@@ -427,8 +413,8 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         "camera: " + camera + ".",
         "physical_continuity: " + ("; ".join(physical_rules) or "Preserve continuous body ownership and real physical causality") + ".",
         *( ["adult_woman_style: " + adult_style + "."] if adult_style else [] ),
-        "environment_motion: " + ("; ".join(dict.fromkeys(environment_rows)) or "Background life moves naturally only when motivated by the story; never freeze into a still image") + ".",
-        "overall_soundscape: " + ("; ".join(dict.fromkeys(sound_rows)) or "Native location ambience, cloth, foley, action contact, and declared dialogue only") + ".",
+        "environment_motion: " + ("; ".join(environment_rows) or "Background life moves naturally only when motivated by the story; never freeze into a still image") + ".",
+        "overall_soundscape: " + ("; ".join(sound_rows) or "Native location ambience, cloth, foley, action contact, and declared dialogue only") + ".",
         "voice_binding: " + ("; ".join(voice_rows) or "No dialogue voice reference is required") + ".",
         "vocal_rule: " + vocal_rule,
         "non_diegetic_music: none unless the structured audio profile explicitly binds a cue.",
@@ -459,10 +445,6 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         "wuxia_combat_profile_selection": wuxia_profile,
         "motion_density_gate": plan["motion_density_gate"],
         "provider_semantic_coverage_receipt": coverage,
-        # Internal only. The opt-in Ref2VA serializer must prove coverage of
-        # these same clauses in the final payload, not reuse this earlier QA.
-        **({"serialization_clause_evidence": clause_evidence}
-           if unit.get("h3_reference_format") == "MINIMAX_REF2VA_CANONICAL_V3" else {}),
         "provider_boundary": boundary,
         "h3_english_boundary": h3_boundary,
         "prompt_budget": measure_prompt(text, source_id=uid, model_family="MINIMAX_H3"),

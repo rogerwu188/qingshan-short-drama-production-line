@@ -1,0 +1,40 @@
+{
+  "episode": "E<NN>",
+  "version": "v<V>",
+  "canonical_script": "workflow/claude_writer_agent/scripts/E<NN>_NARRATIVE_CANONICAL_v<V>.md",
+  "script_sha256": "<写完后计算>",
+  "supersedes": "<上一版；旧件不删不改名不改字节>",
+  "★supersedes_disclosure": "<改了什么、为什么>",
+  "source_binding": {
+    "primary_source_chapter": "<N>",
+    "source_chapters": ["<N>"],
+    "chapter_title": "<章名>",
+    "beat_count": 0, "beats_landed": 0, "beats_merged": 0, "beats_dropped": 0,
+    "★carry_in_is_bound_to_the_previous_episode_bytes": "<引上一集逐字原文>"
+  },
+  "beat_disposition": [
+    {"event_id": "E<NN>-EV-01", "disposition": "landed",
+     "landed_at": "E<NN>-S01（<K>镜）", "summary": "<源章这一拍写了什么>"}
+  ],
+  "★authorized_insertions": [],
+  "★audience_already_knows": [
+    {"fact": "<观众已经知道的事>", "first_delivered_in": "<哪一集哪一场>",
+     "handling_this_episode": "<本集不重演/只用一格/给什么新角度>"}
+  ],
+  "structure": [
+    {"beat_id": "E<NN>-B01", "scene_id": "E<NN>-S01",
+     "target_seconds": 0, "thread": "线A", "location_id": "<LOC-ID>"}
+  ],
+  "scene_breakdown_seconds": {},
+  "total_seconds": 0,
+  "runtime_target_seconds": {"min": 170.0, "target": 180.0, "max": 190.0},
+  "key_quote_landing": [],
+  "fs1": {},
+  "identity_registry": {},
+  "new_name_budget": {},
+  "distinct_locations": [],
+  "new_locations": [],
+  "episode_global_space_map_id": "",
+  "global_space_map_refs": [],
+  "onscreen_text_shot_level_registry": []
+}

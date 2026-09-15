@@ -1,0 +1,34 @@
+{
+  "schema": "qingshan.agent_mistake_ledger.v1",
+  "distribution_mode": "PUBLIC_BOOTSTRAP",
+  "policy": {
+    "append_only": true,
+    "closed_requires_four_part_closure": true,
+    "secret_material_forbidden": true,
+    "four_part_closure": [
+      "mailbox_or_owner_ref",
+      "code_or_manual_checklist",
+      "test_or_required_fields",
+      "gate_registry_entry"
+    ]
+  },
+  "mistakes": [
+    {
+      "mistake_id": "ERR-001",
+      "date": "1970-01-01",
+      "episode": "PUBLIC-BOOTSTRAP",
+      "summary": "Bootstrap example: planned declarations were treated as materialized evidence.",
+      "impact": "A downstream stage could otherwise be marked ready without checking the produced artifact.",
+      "root_cause": "The implementation did not separate planned values from measured output.",
+      "evidence_refs": [
+        "PUBLIC-BOOTSTRAP-EXAMPLE"
+      ],
+      "do_not_repeat": "Never treat expected frames, duration, cost, task state, or planned QA as materialized evidence.",
+      "prevention": "Replace this bootstrap row with the first project-specific incident, then append later incidents without renumbering or rewriting history.",
+      "code_ref": "tools/validate_agent_mistake_ledger.py",
+      "test_ref": "tools/tests/test_validate_agent_mistake_ledger.py",
+      "gate_ref": "AGENT-MISTAKE-ANTI-RECURRENCE",
+      "status": "CLOSED_BOOTSTRAP_EXAMPLE"
+    }
+  ]
+}

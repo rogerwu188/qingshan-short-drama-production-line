@@ -1,0 +1,51 @@
+{
+  "schema": "nalu.basic_dialogue_qa_policy.v1",
+  "policy_id": "BASIC_DIALOGUE_QA_POLICY_NALU_V1",
+  "line": "nalu",
+  "work": "夜无疆",
+  "authority": "post_generation_qa_scope_gate.py ALLOWED_BASIC_PLOT_CHECKS.major_dialogue_presence",
+  "provenance_note": "The engine clone has no configs/BASIC_DIALOGUE_QA_POLICY.json. Every threshold below is taken verbatim from the engine code that already enforces it, so this file records the engine's behaviour rather than inventing a new one: source_video_dialogue_gate.py (--minimum-recall default 0.55, failure codes, whisper transcribe settings), run_regression_ci.speech_density_stats (15.0 / 10.0 segments per minute), source_video_dialogue_gate.NORMALISE (orthographic variants), apply_asr_homophone_adjudication.py (machine_adjudication type HOMOPHONE_OR_SCRIPT_VARIANT).",
+  "scope": "POST_GENERATION_BASIC_PLOT_ONLY",
+  "asr": {
+    "engine": "faster-whisper",
+    "model": "small",
+    "device": "cpu",
+    "compute_type": "int8",
+    "language": "zh",
+    "vad_filter": true,
+    "beam_size": 5,
+    "initial_prompt_from_expected_text": true,
+    "runner": "$ENGINE_ROOT/tools/source_video_dialogue_gate.py"
+  },
+  "rules": {
+    "dialogue_presence_required_when_script_declares_dialogue": true,
+    "no_dialogue_unit_must_have_no_mandarin_speech": true,
+    "minimum_recall": 0.55,
+    "recall_metric": "SequenceMatcher matching-block ratio over CJK-only text; a substring match scores 1.0 (source_video_dialogue_gate.recall)",
+    "audio_stream_required": true,
+    "speech_segments_per_minute_minimum": 15.0,
+    "speech_segments_per_minute_redline": 10.0,
+    "tail_clipping_forbidden": true
+  },
+  "homophone_handling": {
+    "principle": "A homophone or orthographic variant is RECORDED, never REJECTED.",
+    "detail": "When the ASR transcript diverges from the authored line only in characters whose pinyin (tone-insensitive) is identical, or only by a declared orthographic variant, the divergence is written into the QA record as a machine_adjudication row and the line still counts as PRESENT. It never contributes to a REJECT and it never triggers a reroll.",
+    "adjudication_type": "HOMOPHONE_OR_SCRIPT_VARIANT",
+    "pinyin_backend": "pypinyin lazy_pinyin Style.NORMAL (tone-insensitive)",
+    "orthographic_variants": {"開": "开", "請": "请", "門": "门"},
+    "engine_precedent": "$ENGINE_ROOT/tools/apply_asr_homophone_adjudication.py"
+  },
+  "rejection_causes": [
+    "audio_stream_missing",
+    "native_mandarin_speech_missing",
+    "dialogue_recall_below_threshold_after_homophone_adjudication",
+    "unexpected_native_mandarin_speech_present",
+    "dialogue_tail_clipped_or_unverified"
+  ],
+  "never_a_rejection_cause": [
+    "homophone_substitution",
+    "orthographic_variant",
+    "punctuation_difference",
+    "speech_rate_or_prosody_preference"
+  ]
+}

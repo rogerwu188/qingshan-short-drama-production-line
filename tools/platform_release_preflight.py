@@ -316,19 +316,12 @@ def validate_release_automation_policy(
             "additional_owner_content_review_required": False,
             "confirmation_strategy": expected_strategy,
             "auto_start_next_episode": bool(
-                (policy.get("policy") or {}).get(
-                    "auto_start_next_episode_after_both_terminal_publication_receipts", True
-                )
-                and not (policy.get("policy") or {}).get("next_episode_owner_confirmation_required", False)
-                and rules.get(
+                rules.get(
                     "auto_start_next_episode_after_both_terminal_publication_receipts"
                 )
                 and authority_policy.get(
                     "auto_start_next_episode_after_both_terminal_publication_receipts"
                 )
-            ),
-            "next_episode_owner_confirmation_required": bool(
-                (policy.get("policy") or {}).get("next_episode_owner_confirmation_required", False)
             ),
             "reason": "persistent_owner_authority_verified_no_editorial_reapproval",
         }

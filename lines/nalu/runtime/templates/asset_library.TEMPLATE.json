@@ -1,0 +1,24 @@
+{
+  "schema": "qingshan.asset_library.v1",
+  "project_id": "",
+  "canonical_sha256": "",
+  "series_bible_sha256": "",
+  "library_version": 1,
+  "updated_at": "",
+  "assets": {
+    "characters": {},
+    "wardrobe": {},
+    "scenes": {},
+    "props": {},
+    "voices": {},
+    "accents": {},
+    "music": {},
+    "ambience": {},
+    "sfx": {},
+    "reference_materials": {}
+  },
+  "maintained_by": "identity_qa_lock.py lock / library_lock_non_plate.py / initial_asset_library (engine)",
+  "note": "Seeded by S3; rows are LOCKED with the plate sha256 so later episodes reuse them (SHA-reuse). Never hand-edit locked rows.",
+  "seeded_from": "",
+  "seeded_at": ""
+}

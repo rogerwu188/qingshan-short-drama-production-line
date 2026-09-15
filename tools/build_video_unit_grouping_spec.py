@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -26,13 +27,31 @@ def scene_key(shot: dict[str, Any]) -> str:
     return "|".join(str(value) for value in (space.get("global"), space.get("location")))
 
 
+def _unit_duration_policy() -> tuple[float, float, float, float]:
+    """(hard_min, preferred_min, preferred_max, hard_max) in seconds.
+
+    Defaults are the ROGER-20260825 policy (3 / 5 / 8 / 12).  nalu e16 (Roger 2026-09-13,
+    SUPERVISOR_ORDERS seq=7 PACING_E02_PLUS): a production line may narrow the window with
+    QINGSHAN_UNIT_PREFERRED_SECONDS="4,6", QINGSHAN_UNIT_MAX_SECONDS="7" and
+    QINGSHAN_UNIT_MIN_SECONDS="4" (= the SD2 request floor, so no authored unit is padded)."""
+    pref = os.environ.get("QINGSHAN_UNIT_PREFERRED_SECONDS", "5,8")
+    try:
+        pmin, pmax = (float(x) for x in pref.split(","))
+    except ValueError:
+        pmin, pmax = 5.0, 8.0
+    hmax = float(os.environ.get("QINGSHAN_UNIT_MAX_SECONDS", "12") or 12)
+    hmin = float(os.environ.get("QINGSHAN_UNIT_MIN_SECONDS", "3") or 3)
+    return min(hmin, pmin), pmin, pmax, max(hmax, pmax)
+
+
 def duration_cost(duration: float) -> float:
-    if 5 <= duration <= 8:
+    hmin, pmin, pmax, hmax = _unit_duration_policy()
+    if pmin <= duration <= pmax:
         return 1.0
-    if 3 <= duration < 5:
-        return 4.0 + (5 - duration)
-    if 8 < duration <= 12:
-        return 3.0 + (duration - 8)
+    if hmin <= duration < pmin:
+        return 4.0 + (pmin - duration)
+    if pmax < duration <= hmax:
+        return 3.0 + (duration - pmax)
     return 1000.0
 
 
@@ -68,16 +87,11 @@ def partition_scene(
         duration = 0.0
         dialogue_count = 0
         dialogue_speakers: set[str] = set()
-        visible_casts: set[tuple[str, ...]] = set()
-        camera_states: set[str] = set()
         for start in range(end - 1, -1, -1):
             duration = round(duration + float(shots[start]["duration_seconds"]), 6)
             prompt_spec = shots[start].get("prompt_spec") or {}
             dialogue_count += 1 if str(prompt_spec.get("dialogue") or shots[start].get("dialogue") or "").strip() else 0
             speaker = _dialogue_speaker(shots[start]) if h3 else ""
-            if h3:
-                visible_casts.add(tuple(sorted(str(row.get("character_id") or row.get("character") or "") for row in prompt_spec.get("cast") or [])))
-                camera_states.add(json.dumps(prompt_spec.get("camera_plan") or prompt_spec.get("camera"), sort_keys=True, ensure_ascii=False))
             if speaker:
                 dialogue_speakers.add(speaker)
             if duration > 12:
@@ -93,7 +107,6 @@ def partition_scene(
                 (MAX_BEATS_PER_UNIT is not None and end - start > MAX_BEATS_PER_UNIT)
                 or dialogue_count > 2
                 or (h3 and len(dialogue_speakers) > 1)
-                or (h3 and (len(visible_casts) > 1 or len(camera_states) > 1))
             ):
                 continue
             if best[start] is None:
@@ -105,7 +118,7 @@ def partition_scene(
             if best[end] is None or candidate[0] < best[end][0]:
                 best[end] = candidate
     if best[count] is None:
-        raise ValueError(f"scene {scene_key(shots[0])} cannot be partitioned within 3-12 seconds")
+        raise ValueError(f"scene {scene_key(shots[0])} cannot be partitioned within the unit duration policy (see QINGSHAN_UNIT_*_SECONDS)")
     return best[count][1]
 
 
@@ -276,16 +289,18 @@ def build(manifest: dict[str, Any], source_sha: str) -> tuple[dict[str, Any], di
             "narrative_beat": narrative_beat(group),
             "camera_plan": camera_plan,
         }
-        if not 5 <= duration <= 8:
+        _hmin, _pmin, _pmax, _hmax = _unit_duration_policy()
+        if not _pmin <= duration <= _pmax:
             row["duration_exception_reason"] = (
-                "SCENE_LOCAL_REMAINDER" if duration < 5 else "CONTINUOUS_CAUSAL_ACTION"
+                "SCENE_LOCAL_REMAINDER" if duration < _pmin else "CONTINUOUS_CAUSAL_ACTION"
             )
         spec_groups.append(row)
     spec = {
         "episode": episode,
         "source_script_sha256": source_sha,
-        "duration_policy_seconds": {"minimum": 3, "maximum": 12, "authority": "ROGER-20260825"},
-        "preferred_duration_seconds": {"minimum": 5, "maximum": 8},
+        "duration_policy_seconds": {"minimum": _unit_duration_policy()[0], "maximum": _unit_duration_policy()[3],
+                                    "authority": "ROGER-20260825" if _unit_duration_policy()[3] == 12 else "ROGER-20260825 + nalu e16 env override"},
+        "preferred_duration_seconds": {"minimum": _unit_duration_policy()[1], "maximum": _unit_duration_policy()[2]},
         "groups": spec_groups,
         "transition_authoring_required": [
             {

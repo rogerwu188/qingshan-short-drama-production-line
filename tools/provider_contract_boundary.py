@@ -48,7 +48,6 @@ IMMUTABLE_UNIT_FIELDS = (
     "h3_provider_english_contract",
     "visual_culture_contract",
     "provider_scope_projection",
-    "visible_subject_framing",
 )
 
 FORBIDDEN_PROVIDER_MACHINE_PATTERNS = (
@@ -134,7 +133,6 @@ def unique_text(values: list[Any]) -> list[str]:
 
 def compact_space_weather_fact(unit: dict[str, Any]) -> tuple[str, dict[str, list[str]]]:
     specs = unit.get("ordered_prompt_specs") or []
-    from tools.e57_scene_projection import read as scoped_scene_state
     locations = unique_text([
         (spec.get("space") or {}).get("location") for spec in specs
     ])
@@ -142,10 +140,10 @@ def compact_space_weather_fact(unit: dict[str, Any]) -> tuple[str, dict[str, lis
         (spec.get("space") or {}).get("subspace") for spec in specs
     ])
     times = unique_text([
-        scoped_scene_state(spec).get("time") for spec in specs
+        (spec.get("scene_state") or {}).get("time") for spec in specs
     ])
     weather = unique_text([
-        scoped_scene_state(spec).get("weather") for spec in specs
+        (spec.get("scene_state") or {}).get("weather") for spec in specs
     ])
     palettes = unique_text([
         (spec.get("scene_state") or {}).get("palette") for spec in specs

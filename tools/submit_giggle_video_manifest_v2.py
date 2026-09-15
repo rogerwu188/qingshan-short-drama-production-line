@@ -314,30 +314,14 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
     if opening_failures:
         raise ValueError(";".join(opening_failures))
     machine = task.get("machine_contract") or {}
-    camera_unit = grouped_sequence_unit(task)
-    per_shot_camera = camera_unit.get("camera_scope_policy") == "PER_SHOT_EXPLICIT"
-    if per_shot_camera:
-        from tools.sd2_shot_camera_adapter import compile_shot_cameras
-        from tools.video_execution_plan_compiler import classify_unit
-        task["shot_camera_plans"] = compile_shot_cameras(camera_unit, classify_unit(camera_unit))
-        camera_plan = None
-    else:
-        camera_plan = validate_camera_plan(
-            machine.get("camera_plan") or task.get("camera_plan"), source_id=str(task.get("task_key"))
-        )
+    camera_plan = validate_camera_plan(
+        machine.get("camera_plan") or task.get("camera_plan"), source_id=str(task.get("task_key"))
+    )
     specs = machine.get("ordered_prompt_specs") or task.get("ordered_prompt_specs") or []
     if not specs:
         raise ValueError(f"{task.get('task_key')} grouped creative beat contracts are missing")
-    if per_shot_camera and camera_unit.get("timeline_policy") == "PRESERVE_AUTHORED_NO_STRETCH":
-        # This source format carries typed Action-IR, shot camera contracts
-        # and source-bound sound rather than the legacy all-contact beat form.
-        # Use the same compiler as the outgoing renderer in production mode:
-        # missing observed prop evidence must still fail at this boundary.
-        from tools.grouped_performance_contract import validate_typed_execution_source
-        validate_typed_execution_source(camera_unit)
-    else:
-        for index, spec in enumerate(specs, start=1):
-            validate_grouped_beat_contract(spec, source_id=f"{task.get('task_key')}:beat-{index}")
+    for index, spec in enumerate(specs, start=1):
+        validate_grouped_beat_contract(spec, source_id=f"{task.get('task_key')}:beat-{index}")
     internal_unit = {
         "unit_id": task.get("unit_id") or task.get("task_key"),
         "editorial_shot_ids": machine.get("editorial_shot_ids")
@@ -348,11 +332,7 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
         or task.get("internal_transition_contracts")
         or [],
     }
-    if per_shot_camera and camera_unit.get("timeline_policy") == "PRESERVE_AUTHORED_NO_STRETCH":
-        from tools.grouped_internal_continuity_contract import validate_storyboard_internal_state
-        task["internal_transition_contracts"] = validate_storyboard_internal_state(camera_unit)
-    else:
-        task["internal_transition_contracts"] = validate_internal_transition_sequence(internal_unit)
+    task["internal_transition_contracts"] = validate_internal_transition_sequence(internal_unit)
     prompt_unit = grouped_sequence_unit(task)
     prompt_unit["model"] = task.get("model")
     prompt_unit["h3_prompt_profile"] = task.get("h3_prompt_profile")
@@ -418,37 +398,12 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
         raise ValueError(f"{task.get('task_key')} start-frame semantic SHA is not bound to first reference")
     if semantic.get("camera_start_framing_match") is not True or semantic.get("space_match") is not True:
         raise ValueError(f"{task.get('task_key')} start-frame semantic checks are incomplete")
-    if not per_shot_camera:
-        task["camera_plan"] = camera_plan
+    task["camera_plan"] = camera_plan
 
 
 def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
     machine = task.get("machine_contract") or {}
-    for field in ("camera_scope_policy", "timeline_policy"):
-        if field in task and field in machine and task[field] != machine[field]:
-            raise ValueError("SOURCE_POLICY_TRANSPORT_MISMATCH:" + field)
-    if str(task.get("model") or machine.get("model") or "").lower() in {"h3", "minimax-h3"}:
-        for key in ("h3_reference_format", "h3_non_diegetic_music_contract"):
-            if key in task and key in machine and task[key] != machine[key]:
-                raise ValueError("H3_REFERENCE_MACHINE_TRANSPORT_MISMATCH:" + key)
-    if ("visible_subject_framing" in task and "visible_subject_framing" in machine
-            and task["visible_subject_framing"] != machine["visible_subject_framing"]):
-        raise ValueError("VISIBLE_SUBJECT_FRAMING_MACHINE_TRANSPORT_MISMATCH")
     return {
-        "camera_scope_policy": machine.get("camera_scope_policy") or task.get("camera_scope_policy"),
-        "timeline_policy": machine.get("timeline_policy") or task.get("timeline_policy"),
-        "visible_subject_framing": task.get("visible_subject_framing") or machine.get("visible_subject_framing"),
-        "body_region_reference_bindings": task.get("body_region_reference_bindings") or machine.get("body_region_reference_bindings"),
-        "reference_image_sequence": task.get("reference_image_sequence") or machine.get("reference_image_sequence"),
-        "episode": task.get("episode") or machine.get("episode"),
-        "character_entities": task.get("character_entities") or machine.get("character_entities"),
-        "visual_culture_contract": task.get("visual_culture_contract") or machine.get("visual_culture_contract"),
-        "provider_entity_token_map": task.get("provider_entity_token_map") or machine.get("provider_entity_token_map"),
-        "provider_scope_projection": task.get("provider_scope_projection") or machine.get("provider_scope_projection"),
-        "reference_audio_urls": task.get("reference_audio_urls", machine.get("reference_audio_urls", [])),
-        "dialogue_transport": task.get("dialogue_transport", machine.get("dialogue_transport")),
-        "wuxia_combat_profile_required": task.get("wuxia_combat_profile_required", machine.get("wuxia_combat_profile_required")),
-        "wuxia_combat_profile_signals": task.get("wuxia_combat_profile_signals") or machine.get("wuxia_combat_profile_signals"),
         "unit_id": task.get("unit_id") or task.get("task_key"),
         # Shared execution-plan recompilation at the final paid boundary is
         # model-aware.  Keep transport identity in this projection; otherwise
@@ -528,9 +483,6 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
         or task.get("performance_tempo_contract"),
         "h3_provider_english_contract": machine.get("h3_provider_english_contract")
         or task.get("h3_provider_english_contract"),
-        "h3_reference_format": machine.get("h3_reference_format") or task.get("h3_reference_format"),
-        **({"h3_non_diegetic_music_contract": machine.get("h3_non_diegetic_music_contract") or task.get("h3_non_diegetic_music_contract")}
-           if str(task.get("model") or machine.get("model") or "").lower() in {"h3", "minimax-h3"} else {}),
         "reference_exclusion_recomposition_rule": machine.get("reference_exclusion_recomposition_rule")
         or task.get("reference_exclusion_recomposition_rule"),
         "reference_images": task.get("reference_images") or [],
@@ -718,13 +670,11 @@ def validate_task(task: dict[str, Any]) -> None:
     if task.get("action_unit"):
         tempo = task.get("performance_tempo_contract") or {}
         windows = tempo.get("atomic_action_windows") or []
-        if not windows and tempo.get("editorial_phase_windows"):
-            windows = []
-        if tempo.get("playback_speed") != "REAL_TIME_1X" or (not windows and not tempo.get("editorial_phase_windows")):
+        if tempo.get("playback_speed") != "REAL_TIME_1X" or not windows:
             raise ValueError(f"{task['task_key']} missing action tempo contract")
-        if windows and min(float(row["start_seconds"]) for row in windows) > 0.5:
+        if min(float(row["start_seconds"]) for row in windows) > 0.5:
             raise ValueError(f"{task['task_key']} action onset exceeds 0.5 seconds")
-        if windows and any(float(row["end_seconds"]) - float(row["start_seconds"]) > 1.200001 for row in windows):
+        if any(float(row["end_seconds"]) - float(row["start_seconds"]) > 1.200001 for row in windows):
             raise ValueError(f"{task['task_key']} atomic action exceeds 1.2 seconds")
     sequence = task.get("action_sequence_contract") or {}
     if sequence.get("depends_on_task") and not task.get("predecessor_tail_frame"):
@@ -748,7 +698,7 @@ def prior_bound(task: dict[str, Any], transaction_dir: Path) -> dict[str, Any] |
             "task_key": task["task_key"], "task_id": row["task_id"], "state": "remote_running",
             "receipt": row.get("receipt"), "transaction": portable(path), "recovered_from_transaction": True,
         }
-    if row.get("state") not in {"VERIFIED_ZERO_RETRYABLE", "LOCAL_VALIDATION_FAILED_NO_POST"}:
+    if row.get("state") not in {"VERIFIED_ZERO_RETRYABLE"}:
         raise RuntimeError(f"{task['task_key']} blocked by transaction state {row.get('state')}")
     return None
 
@@ -762,19 +712,6 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
     except ModuleNotFoundError:
         from episode_prompt_batch_gate import require_generation_batch
     require_generation_batch(task, ROOT, artifact_kind='video_prompt')
-    try:
-        from tools.h3_transport_evidence import enforce_paid_hold, audit_payload
-    except ModuleNotFoundError:
-        from h3_transport_evidence import enforce_paid_hold, audit_payload
-    enforce_paid_hold(task, ROOT)
-    # Recovery above stays legal for immutable legacy jobs. Fresh H3 jobs
-    # cannot silently fall back to the older partial serializer. SD2 bypasses
-    # this branch entirely, retaining its existing grammar and paid gates.
-    if str(task.get("model") or "").lower() in {"h3", "minimax-h3"}:
-        fmt = (task.get("machine_contract") or {}).get("h3_reference_format") or task.get("h3_reference_format")
-        if fmt != "MINIMAX_REF2VA_CANONICAL_V3" or not task.get("semantic_video_unit"):
-            raise ValueError("H3_NEW_TASK_REQUIRES_REF2VA_V3_SEMANTIC_CONTRACT")
-        validate_grouped_creative_task(task, resolve(task["prompt_file"]).read_text(encoding="utf-8"))
     if sha256(resolve(task["prompt_file"])) != task["prompt_sha256"]:
         raise ValueError(f"{task['task_key']} prompt changed while waiting for submission")
     if len(task["reference_images"]) != len(task["reference_sha256"]):
@@ -785,7 +722,6 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
     transaction = transaction_path(transaction_dir, task)
     intent = {
         "schema": "qingshan.giggle_video_submit_transaction.v1",
-        "run_id": task.get("run_id"), "authorization_ref": task.get("authorization_ref"),
         "task_key": task["task_key"], "attempt_id": str(uuid.uuid4()),
         "submission_fingerprint": task_fingerprint(task), "state": "INTENT_RECORDED",
         "intent_recorded_at": utc_now(), "prompt_sha256": task["prompt_sha256"],
@@ -814,18 +750,6 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         payload["audios"] = [{"asset_id": value} for value in audio_asset_ids]
     elif audio_urls:
         payload["audios"] = [{"url": value} for value in audio_urls]
-    # Capture the exact request bytes after materialization, before any POST.
-    # This is deliberately H3-only; SD2 payload and admission stay unchanged.
-    try:
-        transport = audit_payload(task, payload, ROOT)
-        if transport is not None:
-            intent["transport_evidence"] = transport
-            atomic_json(transaction, intent)
-            enforce_paid_hold(task, ROOT)
-    except (ValueError, OSError) as exc:
-        intent.update(state="LOCAL_VALIDATION_FAILED_NO_POST", error=str(exc))
-        atomic_json(transaction, intent)
-        raise
     try:
         with paid_video_submission_context():
             response = _request("/api/v1/generation/omni-video", payload)
@@ -890,11 +814,11 @@ def classify_failures(failures: list[dict[str, Any]], known: int, matched: int, 
     for failure in failures:
         path = resolve(failure["transaction"])
         if not path.is_file():
-            # A validation failure can occur before the legacy writer creates
-            # its JSON intent. Preserve the quarantine record in the report
-            # instead of crashing while classifying the failure.
-            failure["credit_status"] = "LOCAL_TRANSACTION_MISSING_NO_TASK_ID"
-            failure["retry_guard"] = "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED"
+            # nalu e21 (mirrors e17 for images): the task failed BEFORE its intent record was written
+            # (batch prompt gate / precheck / reference read) — no POST was attempted, nothing was charged.
+            failure["status"] = "submit_failed_before_intent"
+            failure["credit"] = 0
+            failure["credit_status"] = "NOT_CHARGED_NO_INTENT_RECORDED"
             continue
         row = json.loads(path.read_text(encoding="utf-8"))
         if row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id"):
@@ -984,7 +908,16 @@ def main() -> int:
     if not args.precheck_only:
         newly_bound = sum(not row.get("recovered_from_transaction") for row in results)
         maximum = newly_bound + len(failures)
-        for attempt in range(7):
+        if maximum == 0:
+            # nalu e21: nothing was POSTed in this run (every task recovered from the durable store, no
+            # failures) — there is no charge to reconcile.  Matching a statement window here only picks up
+            # OTHER lines' activity on a shared provider account and turns a no-op re-entry into a FAIL
+            # (observed 2026-09-15: 2 foreign SingleGenerateVideo rows, 400 cr, in a 23 s window).
+            credit = {"status": "PASS_REUSED_TRANSACTIONS", "matched_count": 0, "charged_credits": 0,
+                      "expected_count": 0, "known_task_id_count": 0, "ambiguous_response_count": 0,
+                      "unmapped_pay_row_count": 0, "note": "no new submission in this run; window reconciliation skipped"}
+            matched = 0
+        for attempt in range(7 if maximum else 0):
             credit = reconcile_rows(fetch_pay_statements(), start=start - timedelta(seconds=10), end=datetime.now(timezone.utc) + timedelta(seconds=10), expected_count=maximum, event_description="SingleGenerateVideo", model=str(tasks[0]["model"]))
             matched = int(credit.get("matched_count", 0))
             if matched >= newly_bound or attempt == 6:

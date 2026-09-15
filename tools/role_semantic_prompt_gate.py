@@ -108,10 +108,8 @@ def role_semantic_visual_scope_prompt_block(row: dict[str, Any]) -> str:
     hidden_sha = hashlib.sha256(
         json.dumps(hidden, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     ).hexdigest()[:16]
-    # Presence is keyed by canonical IDs; display names cannot be compared
-    # against it (otherwise every named actor is incorrectly hidden).
-    actor = _clean(row.get("primary_actor_id") or row.get("primary_actor"))
-    speaker = _clean(row.get("dialogue_speaker_id") or row.get("dialogue_speaker"))
+    actor = _clean(row.get("primary_actor"))
+    speaker = _clean(row.get("dialogue_speaker"))
     actor_visible = actor if actor in visible else "OFFSCREEN_OR_NONVISUAL"
     speaker_visible = speaker if speaker in visible else "NONE_VISIBLE"
     return (

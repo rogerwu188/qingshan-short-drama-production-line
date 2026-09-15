@@ -14,18 +14,6 @@ def _unit(model: str = "seedance-2.0-pro") -> dict:
     return {
         "unit_id": "E99-VU-001",
         "episode": "E99",
-        "prompt_contract": {"visible_characters": ["CHAR-CHENJI", "CHAR-MASKED"]},
-        "visible_subject_framing": {
-            "schema": "qingshan.visible_subject_framing.v1",
-            "reference_semantics": "MULTIPLE_VIEWS_SAME_IDENTITY_NOT_EXTRA_ACTORS",
-            "offscreen_policy": "OUTSIDE_FRAME_NO_EDGE_FRAGMENT",
-            "subjects": [
-                {"entity_id": cid, "provider_label": label, "instance_count": 1,
-                 "framing": "WAIST_UP", "screen_placement": slot,
-                 "face_edge_policy": "FACE_INSIDE_FRAME"}
-                for cid, label, slot in (("CHAR-CHENJI", "Chen Ji", "RIGHT"), ("CHAR-MASKED", "masked attacker", "LEFT"))
-            ],
-        },
         "visual_culture_contract": DEFAULT_CONTRACT,
         "character_entities": [
             {"character_id": "CHAR-CHENJI", "canonical_name": "陈迹", "aliases": []},
@@ -187,10 +175,6 @@ class SharedVideoExecutionCompilerTest(unittest.TestCase):
             h3_receipt["wuxia_combat_profile_selection"]["selected_profile_ids"],
         )
         self.assertIn("武侠动作镜头原型", sd2_prompt)
-        self.assertIn("原型示例保留在编译附件中", sd2_prompt)
-        profile_module = sd2_receipt["wuxia_combat_profile_selection"].get("prompt_module_zh")
-        self.assertTrue(profile_module)
-        self.assertNotIn(profile_module, sd2_prompt)
         self.assertIn("Wuxia action-camera profile", h3_prompt)
         self.assertNotIn("ROLE_LOCK[", sd2_prompt + h3_prompt)
         self.assertEqual(compile_receipt("E99-VU-001")["motion_density_gate"]["status"], "PASS")

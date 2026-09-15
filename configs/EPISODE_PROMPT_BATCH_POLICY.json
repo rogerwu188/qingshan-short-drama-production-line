@@ -1,0 +1,9 @@
+{
+  "schema": "qingshan.episode_prompt_batch_policy.v1",
+  "new_episode_generation_requires_registered_batch": true,
+  "rule": "Prepare every approved unit keyframe prompt and video prompt plus cross-unit QA before episode generation. Copy this file to workflow/production_line/EPISODE_PROMPT_BATCH_POLICY.json and register the complete execution scope. Real media waits delay final references, never prompt authoring.",
+  "bound_transaction_recovery": "ALWAYS_BEFORE_THIS_GATE_NO_NEW_POST",
+  "models": ["seedance-2.0-pro", "minimax-h3"],
+  "task_key_execution_prefixes": {},
+  "executions": {}
+}

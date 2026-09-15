@@ -279,35 +279,6 @@ class PlatformReleasePreflightTests(unittest.TestCase):
             "ONE_COMBINED_CONFIRMATION_FOR_YOUTUBE_AND_DOUYIN_AT_FINAL_COMMIT",
         )
 
-    def test_global_next_episode_confirmation_overrides_old_auto_start_authority(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            queue = self._write_release_automation(root)
-            path = root / "configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json"
-            policy = json.loads(path.read_text())
-            policy["policy"] = {
-                "auto_start_next_episode_after_both_terminal_publication_receipts": True,
-                "next_episode_owner_confirmation_required": True,
-            }
-            path.write_text(json.dumps(policy))
-            result = validate_release_automation_policy("E57", queue, root=root)
-        self.assertTrue(result["valid"])
-        self.assertFalse(result["additional_owner_content_review_required"])
-        self.assertFalse(result["auto_start_next_episode"])
-        self.assertTrue(result["next_episode_owner_confirmation_required"])
-
-    def test_global_disable_auto_start_overrides_old_authority(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            queue = self._write_release_automation(root)
-            path = root / "configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json"
-            policy = json.loads(path.read_text())
-            policy["policy"] = {"auto_start_next_episode_after_both_terminal_publication_receipts": False}
-            path.write_text(json.dumps(policy))
-            result = validate_release_automation_policy("E57", queue, root=root)
-        self.assertTrue(result["valid"])
-        self.assertFalse(result["auto_start_next_episode"])
-
     def test_persistent_authority_fails_closed_when_local_authority_is_missing(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

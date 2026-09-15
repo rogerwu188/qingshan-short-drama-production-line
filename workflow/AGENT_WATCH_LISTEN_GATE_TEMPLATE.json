@@ -1,0 +1,35 @@
+{
+  "schema": "qingshan.agent_watch_listen_gate.v1",
+  "episode": null,
+  "candidate": null,
+  "candidate_sha256": null,
+  "full_watch_completed": false,
+  "closed_eye_listen_completed": false,
+  "reviewer": null,
+  "reviewed_at": null,
+  "visual_review": {
+    "story_comprehension": null,
+    "character_identity": null,
+    "continuity": null,
+    "text_and_period_safety": null
+  },
+  "listen_review": {
+    "dialogue_complete_and_intelligible": null,
+    "continuous_ambience_bed": null,
+    "unmotivated_silence_count": null,
+    "largest_unmotivated_silence_seconds": null,
+    "abrupt_level_jump_count": null,
+    "bgm_foley_and_sfx_present_as_designed": null,
+    "audio_visual_sync": null,
+    "notes": []
+  },
+  "machine_evidence": {
+    "regression_ci_json": null,
+    "audio_bed_continuity_status": null,
+    "asr_sentence_audit_json": null,
+    "loudness_or_mix_audit_json": null
+  },
+  "unresolved_blockers": [],
+  "status": "PENDING",
+  "release_rule": "PASS_FOR_PUBLISH is forbidden unless full_watch_completed and closed_eye_listen_completed are true, audio_bed_continuity_status is PASS, every listen_review field is explicitly adjudicated, and unresolved_blockers is empty."
+}
