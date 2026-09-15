@@ -11,11 +11,18 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+# F-R530-01：改名之后连目录项一起落盘。单一实现在 tools/durable_rename.py。
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+from durable_rename import durable_replace  # noqa: E402
 
 try:
     from gate_result_contract import write_gate_result
@@ -505,7 +512,12 @@ def validate_canonical_script_binding(evidence: dict[str, Any]) -> list[str]:
 def _result_status(path: Path) -> str:
     if not path.is_file():
         return "MISSING"
-    payload = _load(path)
+    try:
+        payload = _load(path)
+    except (OSError, ValueError, TypeError):
+        return "INVALID"
+    if not isinstance(payload, dict) or payload.get("failures") or payload.get("hard_gate_passed") is False or payload.get("release_allowed") is False:
+        return "FAIL"
     return str(
         payload.get("status")
         or payload.get("gate_status")
@@ -565,7 +577,7 @@ def execute_gate(
             "failures": [f"required_evidence_missing:{item}" for item in missing],
         }
 
-    expected_script_sha = str(evidence["canonical_script_sha256"]).lower()
+    expected_script_sha = str(evidence.get("canonical_script_sha256") or "").lower()
     binding_failures: list[str] = []
     for key in spec.get("script_bound_arguments", []):
         value = evidence.get(key)
@@ -620,6 +632,8 @@ def execute_gate(
     cmd.extend(spec.get("extra", []))
 
     out_path = out_dir / f"{gate_id}.json"
+    if out_path.exists():
+        out_path.replace(out_path.with_name(f"{gate_id}.previous-{uuid.uuid4().hex}.json"))
     cmd.extend(["--out", str(out_path)])
     proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=False)
     result_status = _result_status(out_path)
@@ -640,6 +654,68 @@ def execute_gate(
         "stderr_tail": proc.stderr[-1200:],
         "failures": [] if passed else ["gate_execution_failed"],
     }
+
+
+def _write_summary(summary_path: Path, summary: dict[str, Any]) -> None:
+    """Write the execution summary without clobbering a prior run's verdict.
+
+    Two properties, both of which the previous bare ``write_text`` lacked while
+    the per-gate outputs above already had the first one:
+
+    1. A summary already present in a reused ``out_dir`` is preserved by rename
+       (same ``.previous-<uuid>`` idiom as the per-gate outputs), instead of
+       being destroyed. The asymmetry mattered because the summary is the
+       artifact the release path cites as its blocking authority, so the record
+       that used to be deletable was precisely the PASS record.
+    2. The write is atomic: a uniquely named temporary file is renamed into
+       place, so a crash can no longer leave a truncated or zero-byte summary
+       where a complete one used to be. ``os.replace`` is the last step.
+
+    Byte format is unchanged; a failed write raises exactly what it raised
+    before, and never leaves a residue that blocks the next attempt.
+    """
+    # Order matters. Serialise and land the new bytes first; only once they are
+    # safely on disk is the previous verdict moved aside. Anything that fails
+    # before that point leaves the live summary exactly as it was -- an earlier
+    # draft of this function renamed first and so made a serialisation error
+    # delete the live file, which is worse than the bug it replaced.
+    payload = json.dumps(summary, ensure_ascii=False, indent=2) + "\n"
+    temporary = summary_path.with_name(
+        f".{summary_path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+    )
+    try:
+        with temporary.open("x", encoding="utf-8") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if summary_path.exists():
+            summary_path.replace(
+                summary_path.with_name(
+                    f"{summary_path.stem}.previous-{uuid.uuid4().hex}{summary_path.suffix}"
+                )
+            )
+        # F-R530-01: fsync the directory too, so the summary the release path
+        # cites as its blocking authority cannot be rolled back by a crash
+        # after its bytes were already durable.
+        durable_replace(temporary, summary_path)
+    except BaseException:
+        _discard_temporary(temporary)
+        raise
+
+
+def _discard_temporary(temporary: Path) -> None:
+    """Best-effort cleanup that never masks the real error with its own."""
+    try:
+        temporary.unlink()
+        return
+    except FileNotFoundError:
+        return
+    except OSError:
+        pass
+    try:
+        temporary.replace(temporary.with_name(f"{temporary.name}.discarded"))
+    except OSError:
+        pass
 
 
 def run_registered_gates(
@@ -699,9 +775,7 @@ def run_registered_gates(
         "recorded_at": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
     summary_path = out_dir / "episode_stage_gate_execution_summary.json"
-    summary_path.write_text(
-        json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    _write_summary(summary_path, summary)
     summary["summary_path"] = str(summary_path)
     return summary
 

@@ -6,14 +6,22 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
+import sys
 from pathlib import Path
 
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.multimodal_character_binding_guard import ROOT, _character_authority, _voice_authority
 
 
 def _sha(path: Path) -> str | None:
     try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
     except OSError:
         return None
 
@@ -32,6 +40,12 @@ def evaluate(payload: dict) -> dict:
         failures.append("required_dialogue_ids_missing")
     if required_ids != actual_ids:
         failures.append("dialogue_evidence_coverage_mismatch")
+    if len(actual_ids) != len(rows):
+        failures.append("dialogue_evidence_duplicate_id")
+    final = _absolute(str(payload.get("final") or ""))
+    final_sha = _sha(final) if final.is_file() else None
+    if not final_sha or final_sha != payload.get("final_sha256"):
+        failures.append("final_media_sha_mismatch")
 
     characters = _character_authority()
     voices = _voice_authority()
@@ -56,6 +70,10 @@ def evaluate(payload: dict) -> dict:
             failures.append(f"voice_similarity_confidence_missing:{dia_id}")
         if not isinstance(row.get("lip_owner_confidence"), (int, float)):
             failures.append(f"lip_owner_confidence_missing:{dia_id}")
+        for field in ("confidence", "voice_similarity_confidence", "lip_owner_confidence"):
+            value = row.get(field)
+            if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1:
+                failures.append(f"{field}_invalid:{dia_id}")
 
         frame_path = _absolute(str(row.get("speaking_frame") or ""))
         ref_path = _absolute(str(row.get("canonical_face_reference") or ""))
@@ -75,6 +93,8 @@ def evaluate(payload: dict) -> dict:
     return {
         "schema": "qingshan.speaker_identity_voice_release_gate.v2_diarization_lip_owner_voice_similarity",
         "episode": payload.get("episode"),
+        "final": str(final),
+        "final_sha256": final_sha,
         "status": "PASS" if not failures else "FAIL",
         "required_dialogue_count": len(required_ids),
         "evidence_count": len(rows),

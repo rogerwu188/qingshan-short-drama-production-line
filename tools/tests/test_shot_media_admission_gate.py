@@ -217,6 +217,59 @@ class ShotMediaAdmissionGateTests(unittest.TestCase):
             }
             self.assertEqual(precheck_submission_inputs(task, root=root)["status"], "PASS")
 
+    def test_e57_video_rejects_start_frame_without_population_scope_evidence(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            frame = root / "frame.png"
+            frame.write_bytes(b"frame")
+            frame_sha = digest(frame)
+            q1 = root / "q1.json"
+            q1.write_text(json.dumps({
+                "status": "ADMITTED", "downstream_status": "ADMITTED_FOR_VIDEO_SUBMIT",
+                "asset_sha256": frame_sha,
+            }), encoding="utf-8")
+            task = {
+                "episode": "E57", "media_stage": "VIDEO", "require_semantic_anchor_evidence": True,
+                "canonical_characters": ["CHAR-A"], "exact_first_frame_sha256": frame_sha,
+                "start_frame_admission_ref": str(q1),
+                "provider_scope_projection": {"visible_living_entity_instance_total": 1},
+                "reference_image_sequence": [
+                    {"role": "character", "entity_id": "CHAR-A", "path": str(frame)}
+                ],
+            }
+            report = precheck_submission_inputs(task, root=root)
+            self.assertEqual(report["status"], "FAIL")
+            self.assertIn("Q1_POPULATION_SCOPE_VERIFICATION_MISSING", report["failures"])
+
+    def test_e57_video_accepts_exact_population_scope_evidence(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            frame = root / "frame.png"
+            frame.write_bytes(b"frame")
+            frame_sha = digest(frame)
+            q1 = root / "q1.json"
+            q1.write_text(json.dumps({
+                "status": "ADMITTED", "downstream_status": "ADMITTED_FOR_VIDEO_SUBMIT",
+                "asset_sha256": frame_sha,
+                "population_scope_verification": {
+                    "schema": "qingshan.exact_output_population_scope_verification.v1",
+                    "status": "PASS", "reviewed_asset_sha256": frame_sha,
+                    "expected_visible_living_entity_count": 1,
+                    "observed_visible_living_entity_count": 1,
+                    "observed_unbound_living_entity_count": 0,
+                },
+            }), encoding="utf-8")
+            task = {
+                "episode": "E57", "media_stage": "VIDEO", "require_semantic_anchor_evidence": True,
+                "canonical_characters": ["CHAR-A"], "exact_first_frame_sha256": frame_sha,
+                "start_frame_admission_ref": str(q1),
+                "provider_scope_projection": {"visible_living_entity_instance_total": 1},
+                "reference_image_sequence": [
+                    {"role": "character", "entity_id": "CHAR-A", "path": str(frame)}
+                ],
+            }
+            self.assertEqual(precheck_submission_inputs(task, root=root)["status"], "PASS")
+
     def test_physical_video_requires_exact_action_role_verification(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

@@ -16,8 +16,6 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw
-
 try:
     from tools.dialogue_cut_safety import compile_dialogue_windows, evaluate_cut
     from tools.model_generated_media_integrity_policy import evaluate_accepted_media_row
@@ -72,18 +70,21 @@ def _frame(path: Path, second: float, out: Path) -> None:
 
 
 def _mean_luma(path: Path) -> float:
+    from PIL import Image  # Optional media extra; pure evidence checks need no Pillow.
     image = Image.open(path).convert("L")
     pixels = list(image.getdata())
     return sum(pixels) / len(pixels)
 
 
 def _motion_delta(left: Path, right: Path) -> float:
+    from PIL import Image
     a = Image.open(left).convert("L").resize((96, 160))
     b = Image.open(right).convert("L").resize((96, 160))
     return sum(abs(x - y) for x, y in zip(a.getdata(), b.getdata())) / (96 * 160)
 
 
 def _contact_sheet(boundary_id: str, frames: list[Path], labels: list[str], out: Path) -> None:
+    from PIL import Image, ImageDraw
     images = [Image.open(path).convert("RGB") for path in frames]
     width = max(image.width for image in images)
     height = max(image.height for image in images)

@@ -9,7 +9,7 @@ import re
 from typing import Any
 
 
-SCHEMA = "qingshan.dialogue_cut_safety.v2_content_driven_duration"
+SCHEMA = "qingshan.dialogue_cut_safety.v3_quarter_second_boundary_handle"
 DEFAULT_SAFETY_PAD_SECONDS = 0.32
 DEFAULT_CHINESE_CHARACTERS_PER_SECOND = 4.2
 
@@ -46,7 +46,7 @@ def compile_dialogue_windows(unit: dict[str, Any]) -> list[dict[str, Any]]:
     ]
     scale = target / sum(source_spans)
     outgoing = unit.get("outgoing_transition_contract") or {}
-    tail = float(outgoing.get("outgoing_handle_seconds") or (0.8 if unit.get("outgoing_transition_contract") is None else 0))
+    tail = float(outgoing.get("outgoing_handle_seconds") or (0.25 if unit.get("outgoing_transition_contract") is None else 0))
     dialogue_deadline = target - tail
     cursor = 0.0
     rows: list[dict[str, Any]] = []
@@ -161,7 +161,7 @@ def allocate_dialogue_safe_integer_durations(
 
 def adapt_outgoing_handles_for_provider_limit(
     units: list[dict[str, Any]], *, minimum_duration: int = 4,
-    maximum_duration: int = 15, minimum_tail_handle: float = 0.6
+    maximum_duration: int = 15, minimum_tail_handle: float = 0.25
 ) -> list[dict[str, Any]]:
     """Reduce only an overlong unit's tail handle, never below the media contract.
 
@@ -179,8 +179,8 @@ def adapt_outgoing_handles_for_provider_limit(
         except ValueError:
             pass
         outgoing = unit.get("outgoing_transition_contract") or {}
-        authored_tail = float(outgoing.get("outgoing_handle_seconds") or 0.8)
-        candidates = sorted({authored_tail, 0.8, minimum_tail_handle}, reverse=True)
+        authored_tail = float(outgoing.get("outgoing_handle_seconds") or 0.25)
+        candidates = sorted({authored_tail, 0.25, minimum_tail_handle}, reverse=True)
         selected: float | None = None
         for tail in candidates:
             if tail < minimum_tail_handle or tail > authored_tail:

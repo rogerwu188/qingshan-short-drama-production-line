@@ -1,6 +1,7 @@
 import unittest
 
 from tools.writer_production_field_gate import validate_generation_contract
+from tools.visual_culture_contract import DEFAULT_CONTRACT
 
 
 def valid_contract():
@@ -28,14 +29,20 @@ def valid_contract():
             "time": "晨", "weather": "晴", "palette": "暖",
             "ambient_life": ambient, "weather_provenance": weather_provenance,
         },
-        "cast": [{"character": "行人"}], "props": [{"prop": "井台"}],
+        "cast": [{"character": "行人", "character_id": "CHAR-PASSERBY"}], "props": [{"prop": "井台"}],
         "action": {
+            "subject_id": "CHAR-PASSERBY",
             "action_kind": "PHYSICAL_ACTION", "start_state": "人物迈步途中",
             "primary_action": "行人走向井台", "completion_state": "脚步停在水迹前",
             "contact_point": "鞋底与青砖", "motion_direction": "院门向井台",
             "physical_causality": "脚步接近后目光才落到水迹",
             "microexpression_design": "眉峰先收紧一次并保持",
             "physical_action_design": "落脚承重后身体停稳",
+        },
+        "referent_resolution_contract": {
+            "status": "PASS", "source_scan_complete": True,
+            "resolved_source_referents": [{"surface_form": "行人", "entity_id": "CHAR-PASSERBY"}],
+            "unresolved_source_referents": [],
         },
         "dialogue": "",
         "performance": {
@@ -58,12 +65,24 @@ def valid_contract():
         },
         "sound_design": {"ambience": "晨风", "foley": "衣摆摩擦", "action_sound": "鞋底触砖"},
         "ambient_life": ambient, "action_visualization": action_visualization,
-        "role_semantic_disambiguation": {"status": "PASS", "primary_actor": "行人"},
+        "role_semantic_disambiguation": {
+            "status": "PASS", "primary_actor": "行人", "primary_actor_id": "CHAR-PASSERBY",
+            "dialogue_speaker": "", "dialogue_speaker_id": "",
+            "dialogue_listener": "", "dialogue_listener_id": "",
+            "action_patient": "", "action_patient_id": "",
+            "lip_owner_id": "",
+            "entity_states": {"CHAR-PASSERBY": "行走后停步"},
+            "entity_presence": {"CHAR-PASSERBY": "VISIBLE_AND_IDENTITY_LOCKED"},
+        },
         "negative_prompts": ["无字幕", "无水印", "无冻结"],
         "audio_contract": "DIEGETIC_OR_SILENT_NO_TTS",
     }
     return {
         "episode": "E99",
+        "visual_culture_contract": DEFAULT_CONTRACT,
+        "character_entities": [{
+            "character_id": "CHAR-PASSERBY", "canonical_name": "行人", "aliases": []
+        }],
         "scene_states": [{
             "scene_id": "E99-S01", "location_id": "LOC-1", "time_of_day_state": "晨",
             "weather_state": "晴", "visual_zone": "院中", "interior_exterior": "EXT",
@@ -120,6 +139,16 @@ class WriterProductionFieldGateTests(unittest.TestCase):
         self.assertEqual(report["status"], "FAIL")
         self.assertIn("E99-S01-01_WRITER_CAMERA_INSTRUCTION_SOURCE_BINDING_MISMATCH", report["failures"])
         self.assertIn("E99-S01-01_WEATHER_SOURCE_BINDING_MISMATCH", report["failures"])
+
+    def test_unresolved_nominal_referent_refuses_writer_seal(self):
+        payload = valid_contract()
+        contract = payload["shots"][0]["prompt_spec"]["referent_resolution_contract"]
+        contract["status"] = "FAIL"
+        contract["unresolved_source_referents"] = ["睡着的人"]
+        report = validate_generation_contract(payload)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertIn("E99-S01-01_REFERENT_RESOLUTION_NOT_PASS", report["failures"])
+        self.assertIn("E99-S01-01_UNRESOLVED_SOURCE_REFERENTS", report["failures"])
 
 
 if __name__ == "__main__":

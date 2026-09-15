@@ -9,10 +9,10 @@ from tools.video_unit_anchor_count_gate import evaluate
 class BuildVideoUnitAnchorPlanTests(unittest.TestCase):
     def test_adds_references_for_later_visible_identity_and_prop(self):
         grouping = {"episode": "E99", "units": [
-            {"unit_id": "U1", "editorial_shot_ids": ["S1", "S1B"]},
-            {"unit_id": "U2", "editorial_shot_ids": ["S2"]},
-            {"unit_id": "U3", "editorial_shot_ids": ["S3"]},
-            {"unit_id": "U4", "editorial_shot_ids": ["S4"]},
+            {"unit_id": "U1", "scene_id": "SC1", "editorial_shot_ids": ["S1", "S1B"]},
+            {"unit_id": "U2", "scene_id": "SC2", "editorial_shot_ids": ["S2"]},
+            {"unit_id": "U3", "scene_id": "SC3", "editorial_shot_ids": ["S3"]},
+            {"unit_id": "U4", "scene_id": "SC4", "editorial_shot_ids": ["S4"]},
         ]}
         editorial = {"shots": [
             {"shot_id": "S1", "prompt_spec": {"dialogue": "line"}},

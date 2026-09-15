@@ -12,6 +12,25 @@ def _windows():
 
 
 class PerformanceTempoCombatContractTest(unittest.TestCase):
+    def test_sd2_storyboard_provider_duration_keeps_beat_limits(self):
+        task = {'model': 'seedance-2.0-pro', 'semantic_video_unit': True,
+                'action_unit': True, 'duration_seconds': 15,
+                'ordered_prompt_specs': [{'shot_id': f'S{i}'} for i in range(5)],
+                'performance_tempo_contract': {
+                    'playback_speed': 'REAL_TIME_1X', 'grouped_editorial_beat_count': 5,
+                    'atomic_action_windows': [
+                        {'start_seconds': i * 3, 'end_seconds': (i + 1) * 3, 'action': 'dialogue'}
+                        for i in range(5)]}}
+        self.assertEqual(evaluate_batch([task])['status'], 'PASS')
+        for duration in (3, 15.5, 16):
+            task['duration_seconds'] = duration
+            self.assertIn('GROUPED_VIDEO_UNIT_DURATION_INVALID',
+                          {r['code'] for r in evaluate_batch([task])['failures']})
+        task['duration_seconds'] = 15
+        task['performance_tempo_contract']['atomic_action_windows'][0]['end_seconds'] = 4
+        self.assertIn('GROUPED_EDITORIAL_BEAT_DURATION_INVALID',
+                      {r['code'] for r in evaluate_batch([task])['failures']})
+
     def test_semantic_grouped_unit_allows_multiple_ordered_editorial_beats(self):
         task = {
             "task_key": "GROUPED-8S",

@@ -1,3 +1,4 @@
+from tools.submit_giggle_image_manifest import validate_positive_single_subject_provider_scope
 import tempfile
 import unittest
 from pathlib import Path
@@ -87,7 +88,7 @@ class SubmitGiggleImageManifestTest(unittest.TestCase):
 
     def test_video_unit_batch_requires_variable_anchor_gate(self):
         manifest = {"tasks": [{"video_unit_id": "E99-CW-U01"}]}
-        with self.assertRaisesRegex(ValueError, "anchor count must be justified per unit"):
+        with self.assertRaisesRegex(ValueError, "previous-final-frame-chain"):
             validate_anchor_count_gate_requirement(
                 manifest,
                 [{"schema": "qingshan.some_other_gate.v1", "status": "PASS"}],
@@ -97,11 +98,11 @@ class SubmitGiggleImageManifestTest(unittest.TestCase):
         manifest = {"tasks": [{"video_unit_id": "E99-CW-U01"}]}
         validate_anchor_count_gate_requirement(
             manifest,
-            [{"schema": "qingshan.video_unit_anchor_count_gate.v1", "status": "PASS"}],
+            [{"schema": "qingshan.video_unit_anchor_count_gate.v2_previous_final_frame_chain", "status": "PASS"}],
         )
 
     def test_partial_anchor_batch_requires_tracked_dependencies(self):
-        gates = [{"schema": "qingshan.video_unit_anchor_count_gate.v1", "status": "PASS"}]
+        gates = [{"schema": "qingshan.video_unit_anchor_count_gate.v2_previous_final_frame_chain", "status": "PASS"}]
         manifest = {
             "consumer_contract": {"planned_anchor_count": 2},
             "tasks": [{"task_key": "U01-A1", "video_unit_id": "U01"}],
@@ -141,6 +142,78 @@ class SubmitGiggleImageManifestTest(unittest.TestCase):
         self.assertEqual(failures[0]["task_key"], "TIMEOUT")
         self.assertIsNone(failures[0]["credit"])
         self.assertEqual(failures[0]["credit_status"], "PENDING_LEDGER_RECONCILIATION")
+
+    def test_positive_single_subject_scope_keeps_hidden_listener_machine_only(self):
+        role = {
+            "schema": "qingshan.role_semantic_disambiguation.v1",
+            "status": "PASS",
+            "shot_id": "E56-S01-01",
+            "forbidden_role_swaps": True,
+            "primary_actor": "陈迹",
+            "primary_actor_id": "CHAR-CHENJI",
+            "primary_actor_kind": "CHARACTER",
+            "dialogue_speaker": "陈迹",
+            "dialogue_speaker_id": "CHAR-CHENJI",
+            "dialogue_listener": "姚老头",
+            "dialogue_listener_id": "CHAR-YAO",
+            "action_patient": "",
+            "entity_states": {"CHAR-CHENJI": "speaking", "CHAR-YAO": "listening"},
+            "entity_presence": {
+                "CHAR-CHENJI": "VISIBLE_AND_IDENTITY_LOCKED",
+                "CHAR-YAO": "OFFSCREEN_VOICE_ONLY",
+            },
+        }
+        task = {
+            "episode": "E56",
+            "role_semantic_disambiguation": role,
+            "provider_scope_projection": {
+                "visible_character_ids": ["CHAR-CHENJI"],
+                "exclusive_visible_living_entity_set": True,
+                "visible_living_entity_instance_total": 1,
+                "background_population_count": 0,
+            },
+            "prompt_contract": {"visible_character_names": ["陈迹"]},
+        }
+        prompt = "陈迹单人中景，盘坐在院墙前，抬头开口。"
+        self.assertEqual(validate_positive_single_subject_provider_scope(task, prompt), [])
+
+    def test_positive_single_subject_scope_rejects_hidden_role_name_leak(self):
+        role = {
+            "schema": "qingshan.role_semantic_disambiguation.v1",
+            "status": "PASS",
+            "shot_id": "E56-S01-01",
+            "forbidden_role_swaps": True,
+            "primary_actor": "陈迹",
+            "primary_actor_id": "CHAR-CHENJI",
+            "primary_actor_kind": "CHARACTER",
+            "dialogue_speaker": "陈迹",
+            "dialogue_speaker_id": "CHAR-CHENJI",
+            "dialogue_listener": "姚老头",
+            "dialogue_listener_id": "CHAR-YAO",
+            "action_patient": "",
+            "entity_states": {"CHAR-CHENJI": "speaking", "CHAR-YAO": "listening"},
+            "entity_presence": {
+                "CHAR-CHENJI": "VISIBLE_AND_IDENTITY_LOCKED",
+                "CHAR-YAO": "OFFSCREEN_VOICE_ONLY",
+            },
+        }
+        task = {
+            "episode": "E56",
+            "role_semantic_disambiguation": role,
+            "provider_scope_projection": {
+                "visible_character_ids": ["CHAR-CHENJI"],
+                "exclusive_visible_living_entity_set": True,
+                "visible_living_entity_instance_total": 1,
+                "background_population_count": 0,
+            },
+            "prompt_contract": {"visible_character_names": ["陈迹"]},
+        }
+        prompt = "陈迹单人中景，姚老头在画外。"
+        failures = validate_positive_single_subject_provider_scope(task, prompt)
+        self.assertIn(
+            "POSITIVE_SINGLE_SUBJECT_HIDDEN_ROLE_LEAK:dialogue_listener:姚老头",
+            failures,
+        )
 
 
 if __name__ == "__main__":

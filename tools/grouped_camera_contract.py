@@ -168,6 +168,18 @@ def validate_camera_plan(plan: Any, *, source_id: str) -> dict[str, Any]:
 
 
 def validate_camera_sequence(units: list[dict[str, Any]]) -> None:
+    if any(unit.get("camera_scope_policy") == "PER_SHOT_EXPLICIT" for unit in units):
+        from tools.sd2_shot_camera_adapter import compile_shot_cameras
+        from tools.video_execution_plan_compiler import classify_unit
+        expanded = []
+        for unit in units:
+            if unit.get("camera_scope_policy") == "PER_SHOT_EXPLICIT":
+                expanded.extend({"unit_id": row["shot_id"], "camera_plan": row["camera_plan"]}
+                                for row in compile_shot_cameras(unit, classify_unit(unit)))
+            else:
+                expanded.append(unit)
+        validate_camera_sequence(expanded)
+        return
     dynamic: list[tuple[int, str, str, str]] = []
     previous: tuple[str, str, str] | None = None
     for index, unit in enumerate(units):

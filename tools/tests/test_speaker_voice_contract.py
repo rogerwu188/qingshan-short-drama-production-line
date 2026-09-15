@@ -9,12 +9,33 @@ from tools.speaker_voice_contract import (
 
 
 def unit(*dialogues):
+    character_ids = {"陈迹": "CHAR-CHENJI", "白鲤": "CHAR-BAILI"}
     return {
         "unit_id": "E99-VU-VOICE",
+        "character_entities": [
+            {"character_id": "CHAR-CHENJI", "canonical_name": "陈迹", "aliases": []},
+            {"character_id": "CHAR-BAILI", "canonical_name": "白鲤", "aliases": []},
+        ],
         "ordered_prompt_specs": [
             {
-                "cast": [{"character": "陈迹"}, {"character": "白鲤"}],
+                "cast": [
+                    {"character": "陈迹", "character_id": "CHAR-CHENJI"},
+                    {"character": "白鲤", "character_id": "CHAR-BAILI"},
+                ],
                 "dialogue": raw,
+                "role_semantic_disambiguation": {
+                    "dialogue_speaker": raw.partition("：")[0],
+                    "dialogue_speaker_id": character_ids.get(raw.partition("：")[0], ""),
+                    "lip_owner_id": character_ids.get(raw.partition("：")[0], ""),
+                    "entity_states": {
+                        "CHAR-CHENJI": "可见",
+                        "CHAR-BAILI": "可见",
+                    },
+                    "entity_presence": {
+                        "CHAR-CHENJI": "VISIBLE_AND_IDENTITY_LOCKED",
+                        "CHAR-BAILI": "VISIBLE_AND_IDENTITY_LOCKED",
+                    },
+                },
             }
             for raw in dialogues
         ],
@@ -41,6 +62,7 @@ class SpeakerVoiceContractTest(unittest.TestCase):
 
         self.assertEqual(contract["status"], "PASS")
         self.assertEqual([row["speaker"] for row in contract["bindings"]], ["陈迹", "白鲤"])
+        self.assertEqual([row["character_id"] for row in contract["bindings"]], ["CHAR-CHENJI", "CHAR-BAILI"])
         self.assertEqual([row["audio_slot"] for row in contract["bindings"]], ["@音频1", "@音频2"])
         self.assertNotEqual(
             contract["bindings"][0]["voice_reference_asset_id"],

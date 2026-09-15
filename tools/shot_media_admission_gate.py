@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,7 @@ ACTION_ROLE_STATES = frozenset({
     "CONTACT_RESULT",
     "BRIDGE_STATE_NO_ACTION_OWNER_VISIBLE",
 })
+POPULATION_VERIFICATION_SCHEMA = "qingshan.exact_output_population_scope_verification.v1"
 
 
 def sha256_file(path: Path) -> str:
@@ -254,6 +256,43 @@ def _validate_action_role_verification(
     return list(dict.fromkeys(failures))
 
 
+def _validate_population_scope_verification(
+    verification: Any, *, expected_sha: str, expected_total: int,
+) -> list[str]:
+    if not isinstance(verification, dict):
+        return ["Q1_POPULATION_SCOPE_VERIFICATION_MISSING"]
+    failures: list[str] = []
+    if verification.get("schema") != POPULATION_VERIFICATION_SCHEMA:
+        failures.append("Q1_POPULATION_SCOPE_VERIFICATION_INVALID")
+    if str(verification.get("status") or "").upper() != "PASS":
+        failures.append("Q1_POPULATION_SCOPE_VERIFICATION_INVALID")
+    if str(verification.get("reviewed_asset_sha256") or "") != expected_sha:
+        failures.append("Q1_POPULATION_SCOPE_SHA_MISMATCH")
+    if verification.get("expected_visible_living_entity_count") != expected_total:
+        failures.append("Q1_POPULATION_SCOPE_EXPECTED_COUNT_MISMATCH")
+    if verification.get("observed_visible_living_entity_count") != expected_total:
+        failures.append("Q1_POPULATION_SCOPE_OBSERVED_COUNT_MISMATCH")
+    if verification.get("observed_unbound_living_entity_count") != 0:
+        failures.append("Q1_POPULATION_SCOPE_UNBOUND_ENTITY_VISIBLE")
+    return list(dict.fromkeys(failures))
+
+
+def _expected_start_frame_population(task: dict[str, Any], projection: dict[str, Any]) -> int:
+    """The first frame cannot contain actors introduced by later camera cuts."""
+    machine = task.get("machine_contract") or {}
+    specs = machine.get("ordered_prompt_specs") or task.get("ordered_prompt_specs") or []
+    framing = machine.get("visible_subject_framing") or task.get("visible_subject_framing") or {}
+    shots = framing.get("shot_framings") or []
+    if len(specs) > 1 and shots and shots[0].get("shot_id") == specs[0].get("shot_id"):
+        subjects = (shots[0].get("contract") or {}).get("subjects")
+        if isinstance(subjects, list) and subjects:
+            counts = [s.get("instance_count") for s in subjects]
+            if any(type(n) is not int or n < 1 for n in counts):
+                raise ValueError("Q1_ENTRY_POPULATION_CONTRACT_INVALID")
+            return sum(counts)
+    return int(projection.get("visible_living_entity_instance_total") or 0)
+
+
 def precheck_submission_inputs(
     task: dict[str, Any],
     asset_catalog: dict[str, Any] | None = None,
@@ -286,6 +325,14 @@ def precheck_submission_inputs(
             bound_characters.add(entity_id)
         if role in PROP_ROLES or entity_id.startswith("PROP-"):
             bound_props.add(entity_id)
+            if "asset_origin" in row and row.get("asset_origin") not in {"CANONICAL_PROP_REGISTRY", "ADMITTED_PROP_ASSET"}:
+                failures = locals().get("prop_binding_failures", [])
+                failures.append("PROP_REFERENCE_ORIGIN_NOT_ADMITTED:" + entity_id)
+                locals()["prop_binding_failures"] = failures
+            if "reference_scope" in row and row.get("reference_scope") not in {"PROP_ONLY", "PROP_APPEARANCE_ONLY_NOT_PERSON_STATE_OR_ENVIRONMENT"}:
+                failures = locals().get("prop_binding_failures", [])
+                failures.append("PROP_REFERENCE_SCOPE_INVALID:" + entity_id)
+                locals()["prop_binding_failures"] = failures
     missing_characters = sorted(characters - bound_characters)
     missing_props = sorted(props - bound_props)
     catalog = asset_catalog or task.get("anchor_asset_catalog") or {}
@@ -310,6 +357,7 @@ def precheck_submission_inputs(
         media_stage == "VIDEO" and _requires_exact_action_role_evidence(task)
     )
     action_role_evidence_failures: list[str] = []
+    population_evidence_failures: list[str] = []
     start_frame_admission: dict[str, Any] | None = None
     if semantic_policy and media_stage == "VIDEO":
         admission_value = task.get("start_frame_admission_ref") or task.get("q1_admission_result")
@@ -337,6 +385,16 @@ def precheck_submission_inputs(
                         _validate_action_role_verification(
                             start_frame_admission.get("action_role_verification"),
                             expected_sha=expected_sha,
+                        )
+                    )
+                episode_match = re.match(r"E(\d+)", str(task.get("episode") or "").upper())
+                projection = task.get("provider_scope_projection") or {}
+                if episode_match and int(episode_match.group(1)) >= 57 and projection:
+                    population_evidence_failures.extend(
+                        _validate_population_scope_verification(
+                            start_frame_admission.get("population_scope_verification"),
+                            expected_sha=expected_sha,
+                            expected_total=_expected_start_frame_population(task, projection),
                         )
                     )
     elif semantic_policy:
@@ -368,6 +426,7 @@ def precheck_submission_inputs(
             if not valid:
                 semantic_evidence_missing.append(entity_id)
     failures: list[str] = list(semantic_policy_failures)
+    failures.extend(locals().get("prop_binding_failures", []))
     if not declaration_present:
         failures.append("CANONICAL_ENTITY_DECLARATION_MISSING")
     if missing:
@@ -377,6 +436,7 @@ def precheck_submission_inputs(
     if semantic_evidence_invalid:
         failures.append("SEMANTIC_ANCHOR_EVIDENCE_INVALID")
     failures.extend(action_role_evidence_failures)
+    failures.extend(population_evidence_failures)
     status = "PASS" if not failures else ("FAIL" if enforce else "WARNING")
     return {
         "schema": "qingshan.submission_input_precheck.v2",
@@ -412,6 +472,10 @@ def precheck_submission_inputs(
             else "NOT_REQUIRED"
         ),
         "action_role_evidence_failures": action_role_evidence_failures,
+        "population_scope_evidence_status": (
+            "PASS" if not population_evidence_failures else "FAIL"
+        ),
+        "population_scope_evidence_failures": population_evidence_failures,
         "enforced": enforce,
     }
 

@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Optional
 
 from tools import multimodal_character_binding_guard as guard
 from tools.multimodal_character_binding_guard import binding_digest, evaluate_batch, evaluate_task
@@ -14,7 +15,7 @@ from tools.multimodal_character_binding_guard import binding_digest, evaluate_ba
 ROOT = guard.ROOT
 CHENJI_IMAGE = "fixtures/chenji.jpg"
 CHENJI_AUDIO = "fixtures/chenji.wav"
-_PORTABLE_ROOT: Path | None = None
+_PORTABLE_ROOT: Optional[Path] = None
 
 
 def _write_json(path: Path, payload: dict) -> None:

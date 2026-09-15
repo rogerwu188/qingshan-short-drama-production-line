@@ -1,5 +1,8 @@
+import argparse
+import contextlib
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -11,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / "tools/canonical_writer_dispatcher.py"
 sys.path.insert(0, str(ROOT / "tools"))
 
+import canonical_writer_dispatcher as dispatcher  # noqa: E402
 from writer_receipt_resolver import resolve as resolve_receipt  # noqa: E402
 
 
@@ -743,7 +747,15 @@ class WriterReceiptResolutionTests(FourLayerSealTests):
             self.assertEqual(0, checked.returncode, checked.stderr)
             verdict = json.loads(checked.stdout)
             self.assertEqual("SEALED", verdict["status"])
-            self.assertEqual([], verdict["warnings"])
+            # Scoped to this test's actual subject: the RECEIPT warning.
+            # Asserting the whole list is empty coupled this test to every
+            # unregistered criterion seal may ever report -- F-R543-01's
+            # charter-key presence warning fires on this fixture because the
+            # synthetic manifest has no `beat_disposition`, which is correct
+            # behaviour for that check and unrelated to receipt resolution.
+            self.assertEqual(
+                [], [w for w in verdict["warnings"] if "RECEIPT" in w]
+            )
 
     def test_the_receipt_warning_never_becomes_a_refusal(self):
         """铁律一: an unregistered criterion must not block a workstation."""
@@ -772,6 +784,492 @@ class WriterReceiptResolutionTests(FourLayerSealTests):
             self.assertTrue(any(
                 "NOT_AT_CUSTOMARY_PATH" in warning for warning in record["warnings"]
             ), record["warnings"])
+
+
+class ManifestSelfDeclarationTests(FourLayerSealTests):
+    """R504：封缄件第 4 层补填 declared_sha256（监制连续十集 P2「请封印工具补填」）。
+
+    F-R491-04 给出了它的实际代价：manifest 内嵌构建时间戳，封缄之后重跑构建器就会
+    改变字节，而 `seal --check` 仍报 SEALED——因为 manifest 层没有任何申报值可比。
+    写时由封缄件申报自己封的那份 manifest 的 SHA，查时读回来比对。
+    **漂移只出 warning，永不拒绝封缄**：漂移检测不是注册判据，未注册判据不得阻断
+    工位（铁律一），与版本字段、回执路径两条 warning 同一处置。
+    """
+
+    EPISODE = "E91"
+    VERSION = 9
+
+    def _sealed(self, base: Path):
+        scripts, narrative, directing, contract, receipt = self._bootstrap(base)
+        self.assertEqual(0, self.run_tool(
+            "finish", "--receipt", receipt, "--authority", narrative,
+            "--layer", narrative, "--layer", directing, "--layer", contract,
+        ).returncode)
+        manifest = self._manifest(scripts, narrative, directing, contract, receipt)
+        sealed = self.run_tool(
+            "seal", "--receipt", receipt, "--manifest", manifest,
+            "--seal-dir", base / "seals", "--lock-dir", base / "locks",
+        )
+        self.assertEqual(0, sealed.returncode, sealed.stderr)
+        seal_file = base / "seals" / f"{self.EPISODE}_V{self.VERSION}_FOUR_LAYER_SEAL.json"
+        return manifest, receipt, seal_file
+
+    def _manifest_row(self, payload: dict) -> dict:
+        return next(row for row in payload["layers"] if row["layer"] == "manifest")
+
+    def test_the_seal_declares_the_manifest_sha_it_sealed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            manifest, _, seal_file = self._sealed(base)
+            row = self._manifest_row(json.loads(seal_file.read_text(encoding="utf-8")))
+            self.assertEqual(self._sha(manifest), row["declared_sha256"])
+            self.assertEqual(row["declared_sha256"], row["actual_sha256"])
+
+    def test_manifest_drift_after_sealing_is_reported_as_a_warning_not_a_refusal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            manifest, receipt, seal_file = self._sealed(base)
+            before = self._sha(manifest)
+            # F-R491-04 的形态：重跑构建器，只有时间戳类字段变，内容零差异。
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            payload["built_at"] = "2026-09-11T16:40:00Z"
+            manifest.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            )
+            self.assertNotEqual(before, self._sha(manifest))
+
+            checked = self.run_tool(
+                "seal", "--receipt", receipt, "--manifest", manifest,
+                "--seal-dir", base / "seals", "--lock-dir", base / "locks", "--check",
+            )
+            self.assertEqual(0, checked.returncode, checked.stderr)
+            verdict = json.loads(checked.stdout)
+            self.assertEqual("SEALED", verdict["status"])
+            self.assertEqual([], verdict["failures"])
+            self.assertTrue(any(
+                warning.startswith("WRITER_SEAL_MANIFEST_DRIFT_SINCE_SEAL:")
+                for warning in verdict["warnings"]
+            ), verdict["warnings"])
+            row = self._manifest_row(verdict)
+            self.assertEqual(before, row["declared_sha256"])
+            self.assertEqual(self._sha(manifest), row["actual_sha256"])
+            self.assertTrue(seal_file.is_file(), "--check 不得改写封缄件")
+            self.assertEqual(
+                before,
+                self._manifest_row(json.loads(seal_file.read_text(encoding="utf-8")))["declared_sha256"],
+            )
+
+    def test_an_unchanged_manifest_raises_no_drift_warning(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            manifest, receipt, _ = self._sealed(base)
+            checked = self.run_tool(
+                "seal", "--receipt", receipt, "--manifest", manifest,
+                "--seal-dir", base / "seals", "--lock-dir", base / "locks", "--check",
+            )
+            self.assertEqual(0, checked.returncode, checked.stderr)
+            verdict = json.loads(checked.stdout)
+            self.assertEqual("SEALED", verdict["status"])
+            self.assertFalse(any(
+                "MANIFEST_DRIFT" in warning for warning in verdict["warnings"]
+            ), verdict["warnings"])
+
+    def test_a_pre_existing_seal_that_declared_nothing_stays_silent(self):
+        """E65–E96 十集旧封缄件 declared_sha256=null：无申报即无可比，不得凭空报漂移。"""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            manifest, receipt, seal_file = self._sealed(base)
+            legacy = json.loads(seal_file.read_text(encoding="utf-8"))
+            self._manifest_row(legacy)["declared_sha256"] = None
+            seal_file.write_text(
+                json.dumps(legacy, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            )
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            payload["built_at"] = "2026-09-11T16:41:00Z"
+            manifest.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            )
+
+            checked = self.run_tool(
+                "seal", "--receipt", receipt, "--manifest", manifest,
+                "--seal-dir", base / "seals", "--lock-dir", base / "locks", "--check",
+            )
+            self.assertEqual(0, checked.returncode, checked.stderr)
+            verdict = json.loads(checked.stdout)
+            self.assertEqual("SEALED", verdict["status"])
+            self.assertFalse(any(
+                "MANIFEST_DRIFT" in warning for warning in verdict["warnings"]
+            ), verdict["warnings"])
+            self.assertIsNone(self._manifest_row(verdict)["declared_sha256"])
+
+    def test_an_unreadable_seal_never_becomes_a_refusal(self):
+        """铁律一：封缄件读不动是闭嘴的理由，不是阻断工位的理由。"""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            manifest, receipt, seal_file = self._sealed(base)
+            seal_file.write_text("{ 这不是 JSON", encoding="utf-8")
+            checked = self.run_tool(
+                "seal", "--receipt", receipt, "--manifest", manifest,
+                "--seal-dir", base / "seals", "--lock-dir", base / "locks", "--check",
+            )
+            self.assertEqual(0, checked.returncode, checked.stderr)
+            verdict = json.loads(checked.stdout)
+            self.assertEqual("SEALED", verdict["status"])
+            self.assertEqual([], verdict["failures"])
+
+
+class LeaseReleaseFallbackTests(unittest.TestCase):
+    """F-R523-01：unlink 被挂载拒绝时，租约释放必须自救而不是把终态运行摔在地上。
+
+    背景实据：R430 扫出的 72 个残锁、以及 R522 在 PROGRESS.json.bak_* 上再次撞到的
+    PermissionError（同目录 rename/write 均可 ⇒ 限制只在 unlink 这一个系统调用）。
+    宪章原本只有一条**人工**兜底（改名 *.released）；本组测试把它钉在工具里。
+    """
+
+    def _lease(self, base: Path, run_id: str = "WRITER-R523-TEST") -> Path:
+        lease = base / "E41_V5.writer.lock.json"
+        lease.write_text(
+            json.dumps({"writer_run_id": run_id}, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        return lease
+
+    def test_clean_unlink_is_recorded_as_unlink(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            lease = self._lease(base)
+            record = dispatcher.release_lease(lease, "WRITER-R523-TEST", "finish")
+            self.assertEqual("UNLINK", record["method"])
+            self.assertTrue(record["released"])
+            self.assertFalse(lease.exists())
+
+    def test_permission_error_falls_back_to_rename_and_frees_the_customary_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            lease = self._lease(base)
+            with _unlink_refused():
+                record = dispatcher.release_lease(lease, "WRITER-R523-TEST", "finish")
+            self.assertEqual("RENAMED_UNLINK_REFUSED", record["method"])
+            self.assertTrue(record["released"])
+            # 关键判据不是「文件没了」，是**俗成路径腾空了**：后续 start 能重新取锁，
+            # seal 也不会再把它读成「别人正在写」。
+            self.assertFalse(lease.exists())
+            released = Path(record["released_path"])
+            self.assertTrue(released.is_file())
+            self.assertTrue(released.name.endswith(".released_by_WRITER-R523-TEST_finish"))
+            self.assertIn("PermissionError", record["unlink_error"])
+
+    def test_both_paths_failing_is_reported_never_raised(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            lease = self._lease(base)
+            with _unlink_refused(), _rename_refused():
+                record = dispatcher.release_lease(lease, "WRITER-R523-TEST", "abort")
+            self.assertEqual("FAILED", record["method"])
+            self.assertFalse(record["released"])
+            self.assertTrue(lease.is_file())  # 零字节丢失：失败就是原样留着
+            self.assertIn("WRITER_LEASE_RESIDUE_NOT_RELEASED", record["note"])
+
+    def test_missing_or_empty_lease_path_never_touches_the_working_directory(self):
+        """`Path("")` 规范化成 `Path(".")`；旧码会对 CWD 调 unlink。"""
+
+        record = dispatcher.release_lease(Path(""), "WRITER-R523-TEST", "abort")
+        self.assertEqual("ALREADY_ABSENT", record["method"])
+        self.assertTrue(record["released"])
+
+    def test_finish_survives_a_refused_unlink_and_records_it_in_the_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            authority = base / "E41_NARRATIVE_CANONICAL_v5.md"
+            authority.write_text("story\n", encoding="utf-8")
+            lease = self._lease(base)
+            receipt = base / "receipt.json"
+            receipt.write_text(
+                json.dumps(
+                    {
+                        "status": "RUNNING",
+                        "writer_run_id": "WRITER-R523-TEST",
+                        "write_lease": str(lease),
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            args = argparse.Namespace(receipt=receipt, authority=authority, layer=[])
+            with _unlink_refused():
+                self.assertEqual(0, dispatcher.finish(args))
+            payload = json.loads(receipt.read_text(encoding="utf-8"))
+            # 终态先落盘、释放在后：释放方式变了，COMPLETED 不受影响。
+            self.assertEqual("COMPLETED", payload["status"])
+            self.assertEqual("RENAMED_UNLINK_REFUSED", payload["lease_release"]["method"])
+            self.assertTrue(payload["lease_release"]["released"])
+            self.assertFalse(lease.exists())
+
+
+@contextlib.contextmanager
+def _unlink_refused():
+    original = Path.unlink
+
+    def refuse(self, *args, **kwargs):
+        raise PermissionError(1, "Operation not permitted")
+
+    Path.unlink = refuse
+    try:
+        yield
+    finally:
+        Path.unlink = original
+
+
+@contextlib.contextmanager
+def _rename_refused():
+    original = Path.rename
+
+    def refuse(self, *args, **kwargs):
+        raise PermissionError(1, "Operation not permitted")
+
+    Path.rename = refuse
+    try:
+        yield
+    finally:
+        Path.rename = original
+
+
+class RollbackPathsAlsoSurviveRefusedUnlinkTests(unittest.TestCase):
+    """F-R524-01：F-R523-01 只覆盖了 finish/abort 的**成功**路径；两条**回滚**路径
+    仍是裸 `unlink`，在同一个挂载上有同一个病，且后果更重。
+
+    实撞（R524 探针，非推演）：给 `acquire_lock` 一个 json 序列化不了的 payload，
+    调用方拿到的不是真错（TypeError），而是回滚自己抛的 PermissionError——真错被降
+    级成 `__context__`；与此同时半写的租约**原样留在俗成路径上**，此后该集该版本的
+    每一次 `start` 都会被它挡住。这正是 R430 手扫 72 个残锁的形状，只是发生在取锁端。
+
+    判据同 F-R523-01：不是「文件没了」，是**原始异常原样到达调用方**且**俗成路径腾空**。
+    """
+
+    def test_acquire_rollback_preserves_the_real_error_instead_of_the_unlink_error(self):
+        class Unserialisable:
+            pass
+
+        with tempfile.TemporaryDirectory() as temporary:
+            lease = Path(temporary) / "E99_V1.writer.lock.json"
+            with _unlink_refused():
+                with self.assertRaises(TypeError):  # 真错，不是 PermissionError
+                    dispatcher.acquire_lock(
+                        lease,
+                        {"writer_run_id": "WRITER-R524-TEST", "bad": Unserialisable()},
+                    )
+
+    def test_acquire_rollback_frees_the_customary_path_so_a_later_start_can_acquire(self):
+        class Unserialisable:
+            pass
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            lease = base / "E99_V1.writer.lock.json"
+            with _unlink_refused():
+                with contextlib.suppress(TypeError):
+                    dispatcher.acquire_lock(
+                        lease,
+                        {"writer_run_id": "WRITER-R524-TEST", "bad": Unserialisable()},
+                    )
+            self.assertFalse(lease.exists(), "俗成路径必须腾空，否则永久挡住该集该版本")
+            residue = list(base.glob("*.released_by_WRITER-R524-TEST_acquire_rollback"))
+            self.assertEqual(1, len(residue), "改名兜底必须留下可追溯的已释放件")
+            # 腾空的真正意义：紧接着重新取锁必须成功。
+            dispatcher.acquire_lock(lease, {"writer_run_id": "WRITER-R524-TEST-2"})
+            self.assertTrue(lease.is_file())
+
+    def test_acquire_rollback_without_a_run_id_still_releases(self):
+        """payload 里没有 writer_run_id 时不得因取不到名字而放弃释放。"""
+
+        class Unserialisable:
+            pass
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            lease = base / "E99_V1.writer.lock.json"
+            with _unlink_refused():
+                with contextlib.suppress(TypeError):
+                    dispatcher.acquire_lock(lease, {"bad": Unserialisable()})
+            self.assertFalse(lease.exists())
+            self.assertEqual(1, len(list(base.glob("*.released_by_unknown_acquire_rollback"))))
+
+    def test_start_rollback_preserves_the_real_error_and_leaves_no_held_lease(self):
+        """start 写 RUNNING receipt 失败时：真错到达调用方，且不留「有锁无 receipt」的残局。
+
+        「有锁无 receipt」是最坏的残留形态——seal 会把它读成「别人正在写」，而盘上
+        没有任何 receipt 能解释这把锁是谁的。
+        """
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            input_bundle = base / "input.json"
+            rule = base / "rule.md"
+            input_bundle.write_text("{}\n", encoding="utf-8")
+            rule.write_text("rule\n", encoding="utf-8")
+            args = argparse.Namespace(
+                episode="E99",
+                version="1",
+                writer_run_id="WRITER-E99-V1-R524-TEST",
+                agent_id="qingshan-claude-writer-agent",
+                provider="anthropic-cowork",
+                model_id="claude-opus-5",
+                session_or_task_id="session-r524-test",
+                input_bundle=input_bundle,
+                rule=[rule],
+                receipt=base / "receipt.json",
+                lock_dir=base / "locks",
+            )
+            original = dispatcher.atomic_json
+
+            def explode(*_args, **_kwargs):
+                raise RuntimeError("RECEIPT_WRITE_FAILED")
+
+            dispatcher.atomic_json = explode
+            try:
+                with _unlink_refused():
+                    with self.assertRaises(RuntimeError):  # 真错，不是 PermissionError
+                        dispatcher.start(args)
+            finally:
+                dispatcher.atomic_json = original
+
+            locks = base / "locks"
+            held = [p for p in locks.glob("E99_V1.writer.lock.json")]
+            self.assertEqual([], held, "不得留下有锁无 receipt 的残局")
+            self.assertEqual(
+                1,
+                len(list(locks.glob("*.released_by_WRITER-E99-V1-R524-TEST_start_rollback"))),
+            )
+
+    def test_rollback_release_is_never_itself_a_new_failure_mode(self):
+        """两条兜底全败时，回滚只记录不再抛——调用方仍须看见**原始**异常。"""
+
+        class Unserialisable:
+            pass
+
+        with tempfile.TemporaryDirectory() as temporary:
+            lease = Path(temporary) / "E99_V1.writer.lock.json"
+            with _unlink_refused(), _rename_refused():
+                with self.assertRaises(TypeError):
+                    dispatcher.acquire_lock(
+                        lease,
+                        {"writer_run_id": "WRITER-R524-TEST", "bad": Unserialisable()},
+                    )
+            self.assertTrue(lease.is_file(), "释放失败就原样留着：零字节丢失")
+
+
+class AtomicJsonLeavesNoPermanentResidueTests(unittest.TestCase):
+    """F-R526-01：`atomic_json` 的临时件只带 pid，且失败时零回滚 —— 合起来是**永久砖死**。
+
+    与 F-R525-01 同族但落在写手**自己的权威链**上：`atomic_json` 写的是 receipt 与 seal，
+    一旦某个 receipt 路径被残留临时件占住，该集的 start/finish/abort/seal 全部打不开。
+
+    实测（非推理）：
+      ① 本沙盒给新 `python3` 的 pid 是 4,5,…,13 这样的小号顺序值 ⇒ **跨轮 pid 复用近乎必然**；
+      ② 残留件存在时连撞三次 `open("x")`，三次全 FileExistsError；本挂载 unlink 被拒 ⇒ 无人能清；
+      ③ 序列化中途抛 TypeError 时，旧实现把临时件永久留在盘上 —— 正是 ① 的上膛动作。
+
+    判据不是「临时件没了」，是**下一次写还能成功**，且活件任何时候都不是半截。
+    """
+
+    def _payload_that_fails_to_serialise(self):
+        class Unserialisable:
+            pass
+
+        return {"ok": 1, "bad": Unserialisable()}
+
+    def test_successful_write_leaves_no_temporary_behind(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            target = base / "E97_V1.writer.receipt.json"
+            dispatcher.atomic_json(target, {"a": 1})
+            self.assertEqual({"a": 1}, json.loads(target.read_text(encoding="utf-8")))
+            self.assertEqual([], list(base.glob("*.tmp")), "成功路径不得留临时件")
+
+    def test_failed_serialisation_rolls_the_temporary_back(self):
+        """旧实现在这里留下永久残留；回滚后目录必须干净。"""
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            target = base / "E97_V1.writer.receipt.json"
+            with self.assertRaises(TypeError):
+                dispatcher.atomic_json(target, self._payload_that_fails_to_serialise())
+            self.assertEqual([], list(base.glob("*.tmp")))
+            self.assertFalse(target.exists(), "失败不得凭空造出活件")
+
+    def test_a_stale_temporary_can_never_brick_a_later_write(self):
+        """旧实现的核心病灶：同 pid 的残留件让此后每一次写都 FileExistsError，且无人能清。"""
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            target = base / "E97_V1.writer.receipt.json"
+            dispatcher.atomic_json(target, {"a": 1})
+            # 伪造一份「上一轮同 pid 崩掉」留下的半截临时件。
+            stale = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+            stale.write_text('{"half', encoding="utf-8")
+            for expected in (2, 3, 4):
+                dispatcher.atomic_json(target, {"a": expected})
+                self.assertEqual(
+                    {"a": expected}, json.loads(target.read_text(encoding="utf-8"))
+                )
+            self.assertTrue(stale.is_file(), "残留件保留作证，但不得挡路")
+
+    def test_rollback_never_masks_the_original_exception(self):
+        """两条兜底全败时也只能静默 —— 调用方须看见 TypeError，不是 PermissionError。"""
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            target = base / "E97_V1.writer.receipt.json"
+            with _unlink_refused(), _rename_refused():
+                with self.assertRaises(TypeError):
+                    dispatcher.atomic_json(
+                        target, self._payload_that_fails_to_serialise()
+                    )
+
+    def test_refused_unlink_still_frees_the_way_by_renaming(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            target = base / "E97_V1.writer.receipt.json"
+            with _unlink_refused():
+                with self.assertRaises(TypeError):
+                    dispatcher.atomic_json(
+                        target, self._payload_that_fails_to_serialise()
+                    )
+            self.assertEqual([], list(base.glob("*.tmp")), "改名兜底须让开 .tmp 名字")
+            self.assertEqual(1, len(list(base.glob("*.tmp.discarded"))))
+
+    def test_live_bytes_are_never_half_written(self):
+        """`os.replace` 收尾的不变量：活件要么全旧、要么全新。"""
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            target = base / "E97_V1.writer.receipt.json"
+            dispatcher.atomic_json(target, {"a": "old"})
+            with self.assertRaises(TypeError):
+                dispatcher.atomic_json(target, self._payload_that_fails_to_serialise())
+            self.assertEqual(
+                {"a": "old"},
+                json.loads(target.read_text(encoding="utf-8")),
+                "写失败时活件必须是**完整的旧内容**",
+            )
+
+    def test_two_concurrent_writers_do_not_collide_on_the_temporary_name(self):
+        """同 pid 的两次交错写（旧实现必撞名）现在各自有独立临时件。"""
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            names = set()
+            original = Path.open
+
+            def spy(self, *args, **kwargs):
+                if self.name.endswith(".tmp"):
+                    names.add(self.name)
+                return original(self, *args, **kwargs)
+
+            Path.open = spy
+            try:
+                for index in range(5):
+                    dispatcher.atomic_json(base / "E97_V1.writer.receipt.json", {"a": index})
+            finally:
+                Path.open = original
+            self.assertEqual(5, len(names), f"每次写须有独立临时件名，实得 {names}")
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ IMPULSE_VERBS = (
     "劈开", "劈中", "撞偏", "撞开", "撞翻", "撞中", "格开", "掀翻",
     "贯入", "贯穿", "甩开", "刺入", "直刺", "切开", "震开", "击中",
     "击倒", "击飞", "抡出", "拍开", "扫倒", "摔落", "摔碎", "崩开",
+    "横扫", "扫中", "爆发扫向", "扑近", "猛冲", "闪开", "侧移", "刺穿",
 )
 
 EXTEND_WORDS = ("持续", "保持", "连续")
@@ -159,6 +160,18 @@ def validate_combat_causal_chain(beat: dict[str, Any], *, source_id: str) -> lis
         failures.append(f"AMBIGUOUS_CONTACT_TYPE:{source_id}:CONTACT_AND_NON_CONTACT")
     if interaction_mode in {"EVASION", "THREAT_THRESHOLD"} and "CONTACT" in dimensions:
         failures.append(f"AMBIGUOUS_CONTACT_TYPE:{source_id}:{interaction_mode}_WITH_CONTACT_DELTA")
+    patient = str(beat.get("action_patient") or "").strip()
+    if patient and beat.get("e51_rectification_required") is True:
+        patient_dimensions = set(beat.get("patient_state_delta_dimensions") or [])
+        if not patient_dimensions.intersection({"POSITION", "POSTURE"}):
+            failures.append(f"COMBAT_PATIENT_STATE_DELTA_MISSING:{source_id}:{patient}")
+        evidence = beat.get("patient_state_delta_evidence") or {}
+        for dimension in patient_dimensions.intersection({"POSITION", "POSTURE"}):
+            row = evidence.get(dimension) or {}
+            if not str(row.get("entry") or "").strip() or not str(row.get("exit") or "").strip():
+                failures.append(f"COMBAT_PATIENT_STATE_DELTA_EVIDENCE_MISSING:{source_id}:{patient}:{dimension}")
+            elif str(row.get("entry")).strip() == str(row.get("exit")).strip():
+                failures.append(f"COMBAT_PATIENT_STATE_DELTA_NO_CHANGE:{source_id}:{patient}:{dimension}")
     return failures
 
 
@@ -167,6 +180,15 @@ def validate_execution_plan(plan: dict[str, Any]) -> dict[str, Any]:
     unit_id = str(plan.get("unit_id") or "UNKNOWN")
     unit_class = str(plan.get("unit_class") or "")
     duration = float(plan.get("duration_seconds") or 0.0)
+    classification = plan.get("unit_classification_gate") or {}
+    failures.extend(classification.get("failures") or [])
+    failures.extend((plan.get("camera_authority_gate") or {}).get("failures") or [])
+    if unit_class == "COMBAT_EXCHANGE" and classification.get("required") is True:
+        contact_count = int(classification.get("combat_contact_count") or 0)
+        if duration < 7.0 or duration > 12.0 or contact_count > 2:
+            failures.append(
+                f"UNIT_CLASS_LAUNDERING:{unit_id}:COMBAT_EXCHANGE_REQUIRES_7_TO_12_SECONDS_AND_AT_MOST_2_CONTACTS"
+            )
     duration_authority = plan.get("duration_authority") or {}
     underfill = float(duration_authority.get("underfill_seconds") or 0.0)
     if underfill > 0.05:
@@ -190,6 +212,7 @@ def validate_execution_plan(plan: dict[str, Any]) -> dict[str, Any]:
         # beat against its authoritative action kind instead of forcing every
         # beat in a COMBAT_EXCHANGE unit through the interaction gate.
         source_action_kind = str(beat.get("source_action_kind") or "").upper()
+        failures.extend(beat.get("prop_state_failures") or [])
         beat_is_combat = (
             source_action_kind == "COMBAT"
             if source_action_kind
@@ -220,8 +243,15 @@ def validate_execution_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 report["status"] = "PASS" if not report["failures"] else "FAIL"
         reports.append(report)
         failures.extend(report["failures"])
-    if abs(cursor - duration) > 0.02:
-        failures.append(f"EXECUTION_DURATION_MISMATCH:{unit_id}:{cursor}!={duration}")
+    expected_end = duration
+    if duration_authority.get('timeline_policy') == 'PRESERVE_AUTHORED_NO_STRETCH':
+        expected_end = float(duration_authority.get('authorized_content_seconds') or 0.0)
+        if not 0 < expected_end <= duration:
+            failures.append(f'EXECUTION_CONTENT_DURATION_INVALID:{unit_id}:{expected_end}')
+        # A natural tail is not another action beat. Underfill above the
+        # separately authorized tail remains a failure earlier in this gate.
+    if abs(cursor - expected_end) > 0.02:
+        failures.append(f"EXECUTION_DURATION_MISMATCH:{unit_id}:{cursor}!={expected_end}")
     return {
         "schema": POLICY_VERSION,
         "status": "PASS" if not failures else "FAIL",

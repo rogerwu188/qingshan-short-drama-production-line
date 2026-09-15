@@ -24,6 +24,30 @@ def spec(character, *, subspace="SUB-A", prop=None, dialogue=""):
 
 
 class GroupedInternalContinuityContractTest(unittest.TestCase):
+    def phase_unit(self):
+        a,b=spec('陈迹'),spec('陈迹')
+        for i,s in enumerate((a,b)):
+            s['role_semantic_disambiguation']={'source_shot_id':'S1','shot_id':f'S1-P{i}'}
+            s['camera']={'family':'FIXED'}
+            s['action'].update(t0_seconds=i*2,t1_seconds=(i+1)*2)
+        return {'unit_id':'VU-1','editorial_shot_ids':['S1'],'ordered_prompt_specs':[a,b],
+                'internal_transition_contracts':[internal_contract('VU-1','S1-P0','S1-P1',a,b,mode='CONTINUOUS_ACTION')]}
+
+    def test_explicit_same_shot_phases_preserve_editorial_shot(self):
+        unit=self.phase_unit()
+        self.assertEqual(len(validate_internal_transition_sequence(unit)),1)
+        self.assertEqual(unit['editorial_shot_ids'],['S1'])
+
+    def test_same_shot_phase_rejects_time_camera_cut_and_source_changes(self):
+        for field in ('time','camera','cut','source'):
+            with self.subTest(field=field):
+                unit=self.phase_unit();s=unit['ordered_prompt_specs'][1]
+                if field=='time':s['action']['t0_seconds']=3
+                if field=='camera':s['camera']={'family':'PAN'}
+                if field=='cut':unit['internal_transition_contracts'][0]['transition_mode']='MOTIVATED_CUT'
+                if field=='source':s['role_semantic_disambiguation']['source_shot_id']='S2'
+                with self.assertRaises(ValueError):validate_internal_transition_sequence(unit)
+
     def test_multibeat_unit_fails_without_authored_internal_contract(self):
         unit = {
             "unit_id": "VU-1",

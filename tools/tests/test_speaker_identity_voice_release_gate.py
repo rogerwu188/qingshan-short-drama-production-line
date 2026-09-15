@@ -17,8 +17,12 @@ class SpeakerIdentityVoiceReleaseGateTest(unittest.TestCase):
         face = root / "face.png"
         frame.write_bytes(b"frame")
         face.write_bytes(b"face")
+        final = root / "final.mp4"
+        final.write_bytes(b"final-fixture")
         return {
             "episode": "E99",
+            "final": str(final),
+            "final_sha256": sha(final),
             "required_dialogue_ids": ["D1"],
             "dialogue_evidence": [{
                 "dia_id": "D1",

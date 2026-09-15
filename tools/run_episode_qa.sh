@@ -129,13 +129,13 @@ ANCHOR_OUT="$OUT_DIR/character_anchors"
   --config "$CONFIG" \
   --out "$CONT_OUT"
 
-"$PYTHON_BIN" - "$VIDEO" "$CONFIG" "$MANIFEST" "$ANCHOR_OUT" <<'PY'
+"$PYTHON_BIN" - "$ROOT_DIR" "$VIDEO" "$CONFIG" "$MANIFEST" "$ANCHOR_OUT" <<'PY'
 import json
 import subprocess
 import sys
 from pathlib import Path
 
-video, config, manifest, out_dir = map(Path, sys.argv[1:])
+engine_root, video, config, manifest, out_dir = map(Path, sys.argv[1:])
 data = json.loads(manifest.read_text(encoding="utf-8"))
 characters = data.get("characters", {})
 out_dir.mkdir(parents=True, exist_ok=True)
@@ -146,15 +146,15 @@ for char_id, anchor in characters.items():
         continue
     ref = anchor.get("reference_image") or anchor.get("main_reference_image")
     if not ref:
-        continue
+        raise SystemExit(f"Required character {char_id} has no reference image")
     ref_path = Path(ref)
     if not ref_path.is_absolute():
         ref_path = manifest.resolve().parents[1] / ref_path
     if not ref_path.exists():
-        continue
+        raise SystemExit(f"Required character {char_id} reference image is missing: {ref_path}")
     cmd = [
         sys.executable,
-        str(manifest.resolve().parents[1] / "tools/character_anchor_auditor.py"),
+        str(engine_root / "tools/character_anchor_auditor.py"),
         "--video",
         str(video),
         "--config",

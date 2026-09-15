@@ -105,7 +105,7 @@ class GiggleRetryTest(unittest.TestCase):
     ):
         urlopen.side_effect = http_error(503, "upstream")
 
-        with self.assertRaises(SystemExit):
+        with client.durable_generation_context(), self.assertRaises(SystemExit):
             client._request("/api/v1/generation/text-to-image", {"prompt": "one"})
 
         self.assertEqual(urlopen.call_count, 1)

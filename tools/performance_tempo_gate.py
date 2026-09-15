@@ -132,8 +132,21 @@ def evaluate_batch(tasks: list[dict[str, Any]]) -> dict[str, Any]:
         # is more specific and must not be pre-empted by the generic 3-12
         # second grouped-unit branch.
         if task.get("semantic_video_unit") is True and not structured_combat:
-            if not 3.0 <= duration <= 12.0:
+            # SD2 storyboard clips use the registered 4–15 second provider
+            # range. Beat-level tempo limits below still apply unchanged.
+            sd2_storyboard = (
+                str(task.get("model") or "").lower() == "seedance-2.0-pro"
+                and bool(task.get("ordered_prompt_specs"))
+            )
+            minimum, maximum = (4.0, 15.0) if sd2_storyboard else (3.0, 12.0)
+            if not minimum <= duration <= maximum or (sd2_storyboard and not duration.is_integer()):
                 failures.append({"code": "GROUPED_VIDEO_UNIT_DURATION_INVALID", "task_key": key, "actual_seconds": duration})
+            if contract.get("timing_mode") == "SOURCE_AUTHORED_PHASES_V1":
+                from tools.storyboard_tempo_phases import evaluate_phases
+                if not sd2_storyboard:
+                    failures.append({"code": "PHASE_STORYBOARD_ROUTE_REQUIRED", "task_key": key})
+                failures.extend(evaluate_phases(task))
+                continue
             windows = contract.get("atomic_action_windows") or []
             if not windows:
                 failures.append({"code": "GROUPED_EDITORIAL_BEAT_WINDOWS_MISSING", "task_key": key})

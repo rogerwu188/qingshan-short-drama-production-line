@@ -17,9 +17,27 @@ def stable_sha(value: object) -> str:
 
 
 class WuxiaCombatProfileSelectorTest(unittest.TestCase):
-    def test_library_contains_all_34_reference_profiles(self) -> None:
+    def test_polearm_sweep_keeps_authored_action_and_rejects_spear_exchange(self) -> None:
+        unit = _unit()
+        unit["wuxia_combat_profile_signals"] = {
+            "weapon_type": "POLEARM", "cast_count": 2,
+            "interaction_modes": ["THREAT_THRESHOLD"],
+            "profile_ids": ["WXC-POLEARM-01"],
+        }
+        before = deepcopy(unit)
+        ir = {"causal_chains": [{"interaction_mode": "THREAT_THRESHOLD"}]}
+        result = select_wuxia_combat_profiles(unit, action_ir=ir, unit_class="COMBAT_IMPULSE")
+        self.assertEqual(result["selected_profile_ids"], ["WXC-POLEARM-01"])
+        self.assertEqual(unit, before)
+        unit["wuxia_combat_profile_signals"]["profile_ids"] = ["WXC-WEAPON-02"]
+        with self.assertRaisesRegex(ValueError, "WUXIA_PROFILE_EXPLICIT_CONFLICT"):
+            select_wuxia_combat_profiles(unit, action_ir=ir, unit_class="COMBAT_IMPULSE")
+
+    def test_library_contains_original_and_authored_polearm_profiles(self) -> None:
         library = load_library()
-        self.assertEqual(len(library["profiles"]), 34)
+        self.assertEqual(len(library["profiles"]), 39)
+        self.assertEqual(library["profile_count"], 39)
+        self.assertIn("WXC-POLEARM-04", library["by_id"])
         self.assertEqual(
             library["reference_lineage"]["status"],
             "INFERRED_RECONSTRUCTED_NOT_ORIGINAL",

@@ -20,13 +20,22 @@ from tools.submit_giggle_video_manifest_v2 import uses_structured_role_gate
 
 
 def _spec(*, dialogue: str = "") -> dict:
-    return {
+    spec = {
         "space": {"location": "医馆门外", "subspace": "马车旁"},
         "scene_state": {"time": "清晨", "weather": "薄雾，晨风很轻", "palette": "冷灰"},
-        "cast": [{"character": "白鲤"}],
-        "props": [{"prop": "车帘"}],
+        "cast": [{"character": "白鲤", "character_id": "CHAR-BAILI"}],
+        "props": [{
+            "prop": "车帘",
+            "state": {
+                "entry": {"owner": "马车", "hand": "白鲤右手", "position": "门框内侧", "disposition": "HELD"},
+                "exit": {"owner": "马车", "hand": "白鲤右手", "position": "门框一侧", "disposition": "HELD"},
+            },
+            "transition_authorization": {"writer_authored": True},
+            "start_frame_visual_confirmation": {"status": "PASS", "evidence_ref": "fixture://curtain-at-hand"},
+        }],
         "action": {
             "action_kind": "PHYSICAL_ACTION",
+            "subject_id": "CHAR-BAILI",
             "t0_seconds": 0,
             "t1_seconds": 6,
             "start_state": "白鲤的手指顶住帘边",
@@ -54,6 +63,18 @@ def _spec(*, dialogue: str = "") -> dict:
         },
         "negative_prompts": ["无字幕", "无水印"],
     }
+    spec["role_semantic_disambiguation"] = {
+        "primary_actor": "白鲤",
+        "primary_actor_id": "CHAR-BAILI",
+        "primary_actor_kind": "CHARACTER",
+        "dialogue_speaker": "白鲤" if dialogue else "",
+        "dialogue_speaker_id": "CHAR-BAILI" if dialogue else "",
+        "lip_owner_id": "CHAR-BAILI" if dialogue else "",
+        "dialogue_mode": "VISIBLE_DIALOGUE" if dialogue else "NONE",
+        "entity_presence": {"CHAR-BAILI": "VISIBLE"},
+        "entity_states": {"CHAR-BAILI": "ACTIVE"},
+    }
+    return spec
 
 
 def _unit(*, dialogue: str = "", transitions: bool = False) -> dict:
@@ -64,7 +85,37 @@ def _unit(*, dialogue: str = "", transitions: bool = False) -> dict:
         "aspect_ratio": "9:16",
         "resolution": "720p",
         "ordered_prompt_specs": [_spec(dialogue=dialogue)],
-        "reference_images": [{"path": "first.png", "role": "START"}],
+        "reference_images": [{
+            "path": "first.png", "role": "CANONICAL_CHARACTER_IDENTITY_REFERENCE",
+        }],
+        "character_entities": [{
+            "character_id": "CHAR-BAILI", "canonical_name": "白鲤", "aliases": [],
+        }],
+        "provider_entity_token_map": {"白鲤": "SUBJECT_1"},
+        "provider_scope_projection": {
+            "schema": "qingshan.provider_scope_projection.v1",
+            "status": "LOCKED",
+            "scene_domain": "CLINIC_EXTERIOR",
+            "visible_character_ids": ["CHAR-BAILI"],
+            "visible_entity_instance_counts": {"CHAR-BAILI": 1},
+            "exclusive_visible_living_entity_set": True,
+            "visible_living_entity_instance_total": 1,
+            "background_population_count": 0,
+            "unbound_visible_living_entity_count": 0,
+            "visible_prop_ids": [],
+            "location_ids": [],
+            "environment_terms": [],
+            "sound_terms": [],
+            "reference_identity_bindings": [{
+                "reference_index": 1,
+                "entity_id": "CHAR-BAILI",
+                "provider_entity_label": "Baili",
+                "exclusive_identity_owner": True,
+            }],
+            "absent_episode_entities": [],
+            "episode_prop_catalog": [],
+            "provider_reads_episode_global_contract_directly": False,
+        },
         "camera_plan": {
             "shot_scale": "MEDIUM_CLOSE_UP",
             "camera_height": "EYE_LEVEL",
@@ -161,6 +212,11 @@ def _make_combat() -> dict:
             "POSITION": {"entry": "白鲤在门边", "exit": "白鲤在门柱后", "entry_code": "AT_DOOR", "exit_code": "BEHIND_POST"},
             "MOMENTUM": {"entry": "刀向胸口", "exit": "刀向外偏", "entry_code": "THRUST_IN", "exit_code": "DEFLECT_OUT"},
         },
+        "patient_state_delta_dimensions": ["POSITION", "POSTURE"],
+        "patient_state_delta_evidence": {
+            "POSITION": {"entry": "白鲤在门边", "exit": "白鲤在门柱后"},
+            "POSTURE": {"entry": "直立", "exit": "侧身格挡"},
+        },
     })
     unit["interaction_topology_contract"] = {"required": True}
     return unit
@@ -202,6 +258,19 @@ class VideoPromptCompilerTest(unittest.TestCase):
         self.assertEqual(validate_model_prompt_for_model(
             text, model=unit["model"], source_id=unit["unit_id"], unit=unit
         )["status"], "PASS")
+
+    def test_h3_dialogue_closes_identity_image_lip_and_voice_loop(self):
+        text = _compile_h3(_unit(dialogue="白鲤：陈迹。"))
+        self.assertIn(
+            "Baili is SUBJECT_1 with identity @Image1, lip owner SPEAKER_1 "
+            "and exclusive voice @Audio1",
+            text,
+        )
+        self.assertIn(
+            "Baili (SUBJECT_1, identity @Image1, lip owner SPEAKER_1, "
+            "fixed voice @Audio1)",
+            text,
+        )
 
     def test_h3_dialogue_fails_closed_without_speaker_voice_contract(self):
         unit = _unit(dialogue="白鲤：陈迹。")
@@ -311,6 +380,33 @@ class VideoPromptCompilerTest(unittest.TestCase):
         unit["ordered_prompt_specs"][0]["action"]["completion_state"] = "另一个结果"
         with self.assertRaisesRegex(ValueError, "SOURCE_SHA_MISMATCH"):
             compile_model_prompt(unit)
+
+    def test_exact_rendered_provider_payload_over_10000_runes_fails_preflight(self):
+        prompt = "【任务】【锚点】【时间轴】【摄影】【声音】【限制】" + "甲" * 10000
+        report = validate_model_prompt_for_model(
+            prompt, model="seedance-2.0-pro", source_id="E99-VU-001"
+        )
+        self.assertEqual(report["status"], "FAIL")
+        self.assertGreater(report["prompt_runes"], 10000)
+        self.assertEqual(report["maximum_prompt_runes"], 10000)
+        self.assertTrue(any(
+            value.startswith("PROVIDER_PROMPT_RUNE_LIMIT_EXCEEDED:E99-VU-001:")
+            for value in report["failures"]
+        ))
+
+    def test_h3_positive_single_subject_profile_omits_population_absence_nouns(self):
+        unit = _unit(dialogue="白鲤：陈迹。")
+        unit["h3_prompt_profile"] = "H3_POSITIVE_SINGLE_SUBJECT_V1"
+        text = _compile_h3(unit)
+        self.assertIn("SUBJECT_1 fills the composed medium frame", text)
+        self.assertIn("SPEAKER_1 performs the literal", text)
+        for forbidden in (
+            "all other people",
+            "background population count",
+            "unbound living entity",
+            "Only bound identities are visible",
+        ):
+            self.assertNotIn(forbidden, text)
 
 
 if __name__ == "__main__":

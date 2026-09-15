@@ -47,6 +47,11 @@ try:
     )
     from video_model_adapter import require_paid_model_contract
     from image_model_adapter import require_paid_image_model_contract
+    from opening_anchor_chain_gate import validate_opening_anchor_chain
+    from keyframe_entry_state_gate import (
+        evaluate_task as evaluate_keyframe_entry_task,
+        keyframe_entry_contract_required,
+    )
 except ImportError:
     from tools.episode_video_generation_guard import (
         credit_report_path,
@@ -81,6 +86,11 @@ except ImportError:
     )
     from tools.video_model_adapter import require_paid_model_contract
     from tools.image_model_adapter import require_paid_image_model_contract
+    from tools.opening_anchor_chain_gate import validate_opening_anchor_chain
+    from tools.keyframe_entry_state_gate import (
+        evaluate_task as evaluate_keyframe_entry_task,
+        keyframe_entry_contract_required,
+    )
 
 
 BASE = Path(
@@ -314,6 +324,10 @@ def validate_ready_task_contracts(ready: list[dict[str, Any]]) -> list[str]:
                 f"FAIL_STRUCTURED_ACTION_CONTRACT:{source_id}:{value}"
                 for value in validate_action_contract(task)
             )
+            problems.extend(
+                f"FAIL_OPENING_ANCHOR_CHAIN:{source_id}:{value}"
+                for value in validate_opening_anchor_chain(task)
+            )
         elif task.get("tool_type") == "image_generation" and str(task.get("episode") or "").upper().startswith("E"):
             try:
                 episode_number = int(str(task.get("episode"))[1:].split("-")[0])
@@ -321,6 +335,12 @@ def validate_ready_task_contracts(ready: list[dict[str, Any]]) -> list[str]:
                     require_paid_image_model_contract(task, str(task.get("episode")))
             except (ValueError, TypeError) as exc:
                 problems.append(f"FAIL_IMAGE_MODEL_ADAPTER:{source_id}:{exc}")
+            if keyframe_entry_contract_required(task):
+                entry_report = evaluate_keyframe_entry_task(task)
+                problems.extend(
+                    f"FAIL_KEYFRAME_ENTRY_STATE:{source_id}:{value}"
+                    for value in entry_report["failures"]
+                )
         if task.get("state") == "retry_pending" or task.get("retry_count"):
             retry_gate = validate_retry_change(task)
             problems.extend(f"{value}:{source_id}" for value in retry_gate["failures"])
@@ -791,7 +811,10 @@ def main() -> int:
     episode_match = re.match(r"E(\d+)(?:\D|$)", str(manifest.get("episode") or "").upper())
     if episode_match and int(episode_match.group(1)) >= 40:
         for task in ready:
-            task["media_stage"] = "VIDEO"
+            task.setdefault("episode", str(manifest.get("episode") or ""))
+            task["media_stage"] = (
+                "KEYFRAME" if task.get("tool_type") == "image_generation" else "VIDEO"
+            )
             task["require_semantic_anchor_evidence"] = True
             task.setdefault("semantic_anchor_policy_version", "1.0.0")
     submission_gate = resolve_submission_gate(

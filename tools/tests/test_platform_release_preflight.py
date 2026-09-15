@@ -1,13 +1,64 @@
+from tools.platform_release_preflight import validate_release_automation_policy
 import hashlib
 import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from tools.platform_release_preflight import evaluate_release_preflight
+from tools.platform_release_preflight import (
+    evaluate_release_preflight,
+    validate_speaker_identity_voice_release,
+)
 
 
 class PlatformReleasePreflightTests(unittest.TestCase):
+    def test_speaker_identity_voice_gate_requires_real_complete_report(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report = root / "speaker.json"
+            final = root / "final.mp4"
+            final.write_bytes(b"fixture-final")
+            report.write_text(json.dumps({
+                "schema": "qingshan.speaker_identity_voice_release_gate.v2_diarization_lip_owner_voice_similarity",
+                "status": "PASS",
+                "required_dialogue_count": 2,
+                "evidence_count": 2,
+                "failures": [],
+                "final_sha256": hashlib.sha256(final.read_bytes()).hexdigest(),
+            }), encoding="utf-8")
+            result = validate_speaker_identity_voice_release(
+                {"speaker_identity_voice_release_gate": str(report), "final": str(final)}, root
+            )
+        self.assertTrue(result["valid"])
+
+    def test_speaker_identity_voice_gate_rejects_incomplete_evidence(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report = root / "speaker.json"
+            report.write_text(json.dumps({
+                "schema": "qingshan.speaker_identity_voice_release_gate.v2_diarization_lip_owner_voice_similarity",
+                "status": "PASS",
+                "required_dialogue_count": 2,
+                "evidence_count": 1,
+                "failures": [],
+            }), encoding="utf-8")
+            result = validate_speaker_identity_voice_release(
+                {"speaker_identity_voice_release_gate": str(report)}, root
+            )
+        self.assertFalse(result["valid"])
+        self.assertEqual(
+            result["reason"], "speaker_identity_voice_release_evidence_incomplete"
+        )
+
+    def test_e56_requires_speaker_identity_voice_release_gate(self):
+        result = evaluate_release_preflight(
+            "E56", {"lines": {"slot": {"episode": "E56", "status": "ACTIVE_RELEASE"}}}
+        )
+        self.assertFalse(result["release_allowed"])
+        self.assertIn(
+            "speaker_identity_voice_release_gate_not_verified", result["reasons"]
+        )
+
     def _write_verified_final(self, root: Path, *, tamper: bool = False) -> dict:
         final = root / "final.mp4"
         final.write_bytes(b"verified-final")
@@ -184,6 +235,87 @@ class PlatformReleasePreflightTests(unittest.TestCase):
                 "media_boundary_acceptance": str(boundary),
             }}}, root=root)
         self.assertTrue(result["release_allowed"])
+
+    def _write_release_automation(self, root: Path) -> dict:
+        policy = root / "configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json"
+        policy.parent.mkdir(parents=True)
+        policy.write_text(json.dumps({
+            "schema": "qingshan.platform_release_automation_policy.v1",
+            "status": "ACTIVE",
+            "permanent_exclusions": [{"episode": "E40"}],
+        }), encoding="utf-8")
+        authority = root / "workflow/tasks/authority.json"
+        authority.parent.mkdir(parents=True)
+        authority.write_text(json.dumps({
+            "status": "ACTIVE",
+            "policy": {
+                "additional_owner_content_review_before_release_required": False,
+                "browser_action_confirmation_strategy":
+                    "ONE_COMBINED_CONFIRMATION_FOR_YOUTUBE_AND_DOUYIN_AT_FINAL_COMMIT",
+                "auto_start_next_episode_after_both_terminal_publication_receipts": True,
+            },
+        }), encoding="utf-8")
+        return {
+            "rules": {
+                "auto_publish_owner_authority_ref":
+                    "workflow/tasks/authority.json",
+                "additional_owner_content_review_before_release_required": False,
+                "browser_action_confirmation_strategy":
+                    "ONE_COMBINED_CONFIRMATION_FOR_YOUTUBE_AND_DOUYIN_AT_FINAL_COMMIT",
+                "auto_start_next_episode_after_both_terminal_publication_receipts": True,
+            }
+        }
+
+    def test_persistent_authority_eliminates_episode_content_reapproval(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            queue = self._write_release_automation(root)
+            result = validate_release_automation_policy("E51", queue, root=root)
+        self.assertTrue(result["valid"])
+        self.assertFalse(result["additional_owner_content_review_required"])
+        self.assertTrue(result["auto_start_next_episode"])
+        self.assertEqual(
+            result["confirmation_strategy"],
+            "ONE_COMBINED_CONFIRMATION_FOR_YOUTUBE_AND_DOUYIN_AT_FINAL_COMMIT",
+        )
+
+    def test_global_next_episode_confirmation_overrides_old_auto_start_authority(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            queue = self._write_release_automation(root)
+            path = root / "configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json"
+            policy = json.loads(path.read_text())
+            policy["policy"] = {
+                "auto_start_next_episode_after_both_terminal_publication_receipts": True,
+                "next_episode_owner_confirmation_required": True,
+            }
+            path.write_text(json.dumps(policy))
+            result = validate_release_automation_policy("E57", queue, root=root)
+        self.assertTrue(result["valid"])
+        self.assertFalse(result["additional_owner_content_review_required"])
+        self.assertFalse(result["auto_start_next_episode"])
+        self.assertTrue(result["next_episode_owner_confirmation_required"])
+
+    def test_global_disable_auto_start_overrides_old_authority(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            queue = self._write_release_automation(root)
+            path = root / "configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json"
+            policy = json.loads(path.read_text())
+            policy["policy"] = {"auto_start_next_episode_after_both_terminal_publication_receipts": False}
+            path.write_text(json.dumps(policy))
+            result = validate_release_automation_policy("E57", queue, root=root)
+        self.assertTrue(result["valid"])
+        self.assertFalse(result["auto_start_next_episode"])
+
+    def test_persistent_authority_fails_closed_when_local_authority_is_missing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            queue = self._write_release_automation(root)
+            (root / "workflow/tasks/authority.json").unlink()
+            result = validate_release_automation_policy("E51", queue, root=root)
+        self.assertFalse(result["valid"])
+        self.assertEqual(result["reason"], "persistent_owner_publish_authority_missing")
 
 
 if __name__ == "__main__":

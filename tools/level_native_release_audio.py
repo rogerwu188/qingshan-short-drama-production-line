@@ -76,6 +76,14 @@ def level_release(
     output: Path, qa_path: Path, episode: str, version: str,
     expected_sha256: str | None = None,
 ) -> dict:
+    # Never let a failed leveling run erase an approved release or its inputs.
+    protected = {path.resolve() for path in (source, timeline_path, grouped_path)}
+    if output.resolve() in protected or qa_path.resolve() in protected:
+        raise ValueError("Audio leveling output must not overwrite an input")
+    if output.resolve() == qa_path.resolve():
+        raise ValueError("Media and QA output must use distinct paths")
+    if output.exists() or qa_path.exists():
+        raise FileExistsError("Use new versioned output and QA paths; existing evidence is immutable")
     if expected_sha256 and sha256(source) != expected_sha256:
         raise RuntimeError(f"{episode} source changed or is not the declared authority")
     timeline = json.loads(timeline_path.read_text(encoding="utf-8"))

@@ -67,21 +67,37 @@ def release_complete(directory: Path) -> tuple[bool, list[str]]:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        values = {str(value).upper() for value in iter_values(payload)}
-        explicit_complete = payload.get("release_complete") is True or "BOTH_PLATFORMS_RELEASE_COMPLETE" in values
-        text = json.dumps(payload, ensure_ascii=False).upper()
-        has_complete_state = bool(values & COMPLETE_PLATFORM_STATES)
-        if explicit_complete:
-            youtube = douyin = True
-            evidence.append(str(path))
-            continue
-        if "YOUTUBE" in text and has_complete_state:
-            youtube = True
-            evidence.append(str(path))
-        if "DOUYIN" in text and has_complete_state:
-            douyin = True
+        for platform in completed_platforms(payload):
+            youtube = youtube or platform == "YOUTUBE"
+            douyin = douyin or platform == "DOUYIN"
             evidence.append(str(path))
     return youtube and douyin, sorted(set(evidence))
+
+
+def completed_platforms(payload) -> set[str]:
+    """Only a platform-scoped state plus published identity is a receipt.
+
+    Prose, next-platform instructions and aggregate completion flags are not
+    proof of publication. Nested platform records remain supported.
+    """
+    found: set[str] = set()
+    if isinstance(payload, list):
+        for row in payload:
+            found.update(completed_platforms(row))
+        return found
+    if not isinstance(payload, dict):
+        return found
+    platform = str(payload.get("platform") or "").upper()
+    state = str(payload.get("status") or payload.get("state") or "").upper()
+    identity = payload.get("video_id") or payload.get("aweme_id") or payload.get("item_id") or payload.get("url") or payload.get("video_url")
+    if platform in {"YOUTUBE", "DOUYIN"} and state in COMPLETE_PLATFORM_STATES and identity:
+        found.add(platform)
+    for key, value in payload.items():
+        if isinstance(value, dict) and key.upper() in {"YOUTUBE", "DOUYIN"}:
+            found.update(completed_platforms({**value, "platform": key.upper()}))
+        elif isinstance(value, (dict, list)):
+            found.update(completed_platforms(value))
+    return found
 
 
 def release_schedule_hold(episode: str, path: Path = WORK_QUEUE_PATH) -> tuple[bool, Optional[str]]:
@@ -89,7 +105,7 @@ def release_schedule_hold(episode: str, path: Path = WORK_QUEUE_PATH) -> tuple[b
     try:
         queue = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return False, None
+        return True, "WORK_QUEUE_UNAVAILABLE_OR_INVALID"
     gate = queue.get("schedule_gate") or {}
     blocked = {str(item).upper() for item in gate.get("release_blocked_episodes", [])}
     episode_upper = episode.upper()
@@ -99,7 +115,7 @@ def release_schedule_hold(episode: str, path: Path = WORK_QUEUE_PATH) -> tuple[b
         if str(line.get("episode") or "").upper() != episode_upper:
             continue
         status = str(line.get("status") or "").upper()
-        if status.startswith("HOLD_"):
+        if status.startswith(("HOLD_", "STOPPED_")):
             return True, str(gate.get("directive") or status)
     return False, None
 

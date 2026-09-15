@@ -10,7 +10,7 @@ from tools.submit_giggle_video_manifest_v2 import run_authoritative_submission_g
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEPLOYED_TOOLS = Path.home() / ".local/share/backlotos/share/pipeline-tools"
+DEPLOYED_TOOLS = ROOT / "tools"
 
 
 class AuthoritativeVideoGateIntegrationTests(unittest.TestCase):
@@ -37,9 +37,10 @@ class AuthoritativeVideoGateIntegrationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "ACTION_UNIT_CLASSIFICATION_MISSING"):
                     run_authoritative_submission_gate(manifest, manifest_path)
 
-    def test_missing_deployment_fails_closed(self):
-        with patch.dict(os.environ, {"BACKLOT_PIPELINE_TOOLS_DIR": "/definitely/missing"}):
-            with self.assertRaisesRegex(ValueError, "fails closed"):
+    def test_clean_clone_uses_repository_gate(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("BACKLOT_PIPELINE_TOOLS_DIR", None)
+            with self.assertRaisesRegex(ValueError, "CURRENT_MANIFEST_TASKS_MISSING"):
                 run_authoritative_submission_gate({"tasks": []}, ROOT / "missing.json")
 
 

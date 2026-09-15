@@ -7,12 +7,31 @@ from tools.video_prompt_compiler import compile_model_prompt, compile_receipt
 from tools.video_execution_plan_compiler import compile_video_execution_plan
 from tools.h3_provider_english_contract import bind_h3_provider_english_contract
 from tools.provider_semantic_coverage import assert_equivalent_required_fact_sets
+from tools.visual_culture_contract import DEFAULT_CONTRACT
 
 
 def _unit(model: str = "seedance-2.0-pro") -> dict:
     return {
         "unit_id": "E99-VU-001",
         "episode": "E99",
+        "prompt_contract": {"visible_characters": ["CHAR-CHENJI", "CHAR-MASKED"]},
+        "visible_subject_framing": {
+            "schema": "qingshan.visible_subject_framing.v1",
+            "reference_semantics": "MULTIPLE_VIEWS_SAME_IDENTITY_NOT_EXTRA_ACTORS",
+            "offscreen_policy": "OUTSIDE_FRAME_NO_EDGE_FRAGMENT",
+            "subjects": [
+                {"entity_id": cid, "provider_label": label, "instance_count": 1,
+                 "framing": "WAIST_UP", "screen_placement": slot,
+                 "face_edge_policy": "FACE_INSIDE_FRAME"}
+                for cid, label, slot in (("CHAR-CHENJI", "Chen Ji", "RIGHT"), ("CHAR-MASKED", "masked attacker", "LEFT"))
+            ],
+        },
+        "visual_culture_contract": DEFAULT_CONTRACT,
+        "character_entities": [
+            {"character_id": "CHAR-CHENJI", "canonical_name": "陈迹", "aliases": []},
+            {"character_id": "CHAR-MASKED", "canonical_name": "蒙面人", "aliases": []},
+        ],
+        "pipeline_rectification_version": "E51_V1",
         "model": model,
         "duration_seconds": 4,
         "resolution": "720p",
@@ -42,29 +61,57 @@ def _unit(model: str = "seedance-2.0-pro") -> dict:
         "ordered_prompt_specs": [{
             "space": {"location": "雨夜客栈", "subspace": "北窗内侧"},
             "scene_state": {"time": "夜", "weather": "窗外有雨", "palette": "冷蓝暖灯"},
-            "cast": [{"character": "陈迹"}, {"character": "蒙面人"}],
-            "props": [{"prop": "短刀"}, {"prop": "方桌"}],
+            "cast": [
+                {"character": "陈迹", "character_id": "CHAR-CHENJI"},
+                {"character": "蒙面人", "character_id": "CHAR-MASKED"},
+            ],
+            "props": [
+                {
+                    "prop": "短刀",
+                    "state": {
+                        "entry": {"owner": "蒙面人", "hand": "RIGHT", "position": "右肋", "disposition": "HELD"},
+                        "exit": {"owner": "蒙面人", "hand": "RIGHT", "position": "陈迹左前臂外侧", "disposition": "HELD"},
+                    },
+                    "transition_authorization": {"writer_authored": True},
+                    "start_frame_visual_confirmation": {"status": "PASS", "evidence_ref": "fixture://short-blade-right-hand"},
+                },
+                {
+                    "prop": "方桌",
+                    "state": {
+                        "entry": {"owner": "场景", "hand": "NONE", "position": "陈迹身前", "disposition": "FIXED"},
+                        "exit": {"owner": "场景", "hand": "NONE", "position": "被髋部撞偏", "disposition": "FIXED"},
+                    },
+                    "transition_authorization": {"writer_authored": True},
+                    "start_frame_visual_confirmation": {"status": "PASS", "evidence_ref": "fixture://table-in-frame"},
+                },
+            ],
             "role_semantic_disambiguation": {
                 "schema": "qingshan.role_semantic_disambiguation.v1",
                 "status": "PASS",
                 "shot_id": "E99-S01-01",
                 "primary_actor": "蒙面人",
+                "primary_actor_id": "CHAR-MASKED",
                 "primary_actor_kind": "CHARACTER",
                 "dialogue_speaker": "",
                 "dialogue_listener": "",
                 "action_patient": "陈迹",
+                "action_patient_id": "CHAR-CHENJI",
+                "dialogue_speaker_id": "",
+                "dialogue_listener_id": "",
+                "lip_owner_id": "",
                 "entity_states": {
-                    "蒙面人": "唯一发力者，持短刀前冲",
-                    "陈迹": "唯一承受者，在桌后抬左臂格挡",
+                    "CHAR-MASKED": "唯一发力者，持短刀前冲",
+                    "CHAR-CHENJI": "唯一承受者，在桌后抬左臂格挡",
                 },
                 "entity_presence": {
-                    "蒙面人": "VISIBLE_AND_IDENTITY_LOCKED",
-                    "陈迹": "VISIBLE_AND_IDENTITY_LOCKED",
+                    "CHAR-MASKED": "VISIBLE_AND_IDENTITY_LOCKED",
+                    "CHAR-CHENJI": "VISIBLE_AND_IDENTITY_LOCKED",
                 },
                 "forbidden_role_swaps": True,
                 "unresolved": [],
             },
             "action": {
+                "subject_id": "CHAR-MASKED",
                 "action_kind": "COMBAT",
                 "t0_seconds": 0,
                 "t1_seconds": 4,
@@ -79,6 +126,11 @@ def _unit(model: str = "seedance-2.0-pro") -> dict:
                     "POSITION": {"entry": "陈迹在桌后", "exit": "陈迹退至桌角", "entry_code": "BEHIND_TABLE", "exit_code": "AT_TABLE_CORNER"},
                     "CONTACT": {"entry": "刀与人未接触", "exit": "刀背压住左前臂", "entry_code": "NO_CONTACT", "exit_code": "BLADE_ARM_CONTACT"},
                     "MOMENTUM": {"entry": "蒙面人落地前冲", "exit": "冲量转移到陈迹与方桌", "entry_code": "ATTACKER_FORWARD", "exit_code": "TRANSFERRED_TO_TARGET_TABLE"},
+                },
+                "patient_state_delta_dimensions": ["POSITION", "POSTURE"],
+                "patient_state_delta_evidence": {
+                    "POSITION": {"entry": "陈迹在桌后", "exit": "陈迹退至桌角"},
+                    "POSTURE": {"entry": "直立抬臂", "exit": "左肩后撤且左臂承重"},
                 },
             },
             "performance": {"event_reaction": "接触瞬间陈迹瞳孔收紧，肩颈随受力后撤"},
@@ -135,6 +187,10 @@ class SharedVideoExecutionCompilerTest(unittest.TestCase):
             h3_receipt["wuxia_combat_profile_selection"]["selected_profile_ids"],
         )
         self.assertIn("武侠动作镜头原型", sd2_prompt)
+        self.assertIn("原型示例保留在编译附件中", sd2_prompt)
+        profile_module = sd2_receipt["wuxia_combat_profile_selection"].get("prompt_module_zh")
+        self.assertTrue(profile_module)
+        self.assertNotIn(profile_module, sd2_prompt)
         self.assertIn("Wuxia action-camera profile", h3_prompt)
         self.assertNotIn("ROLE_LOCK[", sd2_prompt + h3_prompt)
         self.assertEqual(compile_receipt("E99-VU-001")["motion_density_gate"]["status"], "PASS")
@@ -236,7 +292,7 @@ class SharedVideoExecutionCompilerTest(unittest.TestCase):
         attack["action"]["contact_time_seconds"] = 2.8
         unit["ordered_prompt_specs"] = [recovery, attack]
         plan = compile_video_execution_plan(unit)
-        self.assertEqual(plan["unit_class"], "COMBAT_EXCHANGE")
+        self.assertEqual(plan["unit_class"], "COMBAT_IMPULSE")
         self.assertEqual(plan["beats"][0]["source_action_kind"], "PHYSICAL_ACTION")
         self.assertEqual(plan["beats"][1]["source_action_kind"], "COMBAT")
         self.assertEqual(plan["motion_density_gate"]["status"], "PASS")

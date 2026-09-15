@@ -329,11 +329,11 @@ AI 编剧关闭
 标准机器 QA 是每集固定环节，不能只靠网页抽帧或人工印象。最终候选 MP4 必须运行：
 
 ```bash
-/Users/rogerwu/qingshan_short_drama/tools/run_episode_qa.sh \
+tools/run_episode_qa.sh \
   --video /path/to/final.mp4 \
-  --config /Users/rogerwu/qingshan_short_drama/configs/E##_continuity_config.json \
-  --manifest /Users/rogerwu/qingshan_short_drama/configs/E##_asset_binding_manifest.json \
-  --out /Users/rogerwu/qingshan_short_drama/qa/E##_final_qa
+  --config configs/E##_continuity_config.json \
+  --manifest configs/E##_asset_binding_manifest.json \
+  --out qa/E##_final_qa
 ```
 
 该入口必须依次通过 `tools/find_ffmpeg.sh`、`asset_binding_validator.py`、`continuity_auditor.py`、`character_anchor_auditor.py`。它是 `脚本/素材/宫格分镜/平台有声/QA/发行` 中的 QA 总闸，前置的素材逐项 QA、故事板逐行绑定 QA、单镜视频声画 QA 仍然必须做。
@@ -474,7 +474,7 @@ v0.9 追加 smoke test：
 - 用户人工复核优先于机器 QA；只要用户指出主角脸漂移或观看节奏失控，已发布状态立刻降级为 `REJECTED_REPLACE_REQUIRED`，停止继续发行并进入重做。
 - `principal_face_lock`：S 级/主角在所有说话、中近景、特写、正反打镜头中，视频生成前必须绑定原始主参考图，不得只用平台生成的衍生图或故事板缩略图。生成后只采纳清晰正脸/半侧脸帧做一致性证据，手、纸、背影、群像、道具帧不得计入通过。
 - `watchability_cut_cadence`：高节奏不等于全片 4 秒碎切。每集按场景块组织，同一空间至少连续 2-3 镜建立方位；跨空间必须有声桥、动作接、方向接或道具接。若用户看起来眼花，宁可改为 5-7 秒可读镜头，也不能机械执行 4 秒公式。
-- E07 后续重做默认采用约 26 镜、5-7 秒、场景块连续推进；陈迹必须使用用户原始古装参考图 `/Users/rogerwu/qingshan_short_drama/ref_images/male_lead_chenji_ancient_face_ref_20260621.png`。
+- 旧 E07 示例曾采用约 26 镜、5-7 秒、场景块连续推进；项目角色参考图必须通过部署工作区的资产注册表解析，不能依赖开发者本机绝对路径。
 
 ## v1.1 E07 v3 主角锁脸重做与发行状态分级
 

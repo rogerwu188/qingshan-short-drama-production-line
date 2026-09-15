@@ -15,8 +15,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from giggle_api_client import _request
-from giggle_credit_statements import fetch_pay_statements, reconcile_rows
+try:
+    from tools.giggle_api_client import _request, durable_generation_context
+    from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
+    from tools.visual_culture_contract import validate_visual_culture_contract
+except ModuleNotFoundError:
+    from giggle_api_client import _request, durable_generation_context
+    from giggle_credit_statements import fetch_pay_statements, reconcile_rows
+    from visual_culture_contract import validate_visual_culture_contract
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -136,19 +142,13 @@ def submit(row: dict, output_dir: Path, transaction_dir: Path, model: str, resol
         "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
     }
     atomic_json(transaction, intent)
-    previous_context = os.environ.get("QINGSHAN_DURABLE_SUBMITTER_CONTEXT")
-    os.environ["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = "1"
     try:
-        response = _request(endpoint, payload)
+        with durable_generation_context():
+            response = _request(endpoint, payload)
     except (Exception, SystemExit) as exc:
         intent.update({"state": "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION", "error": str(exc), "response_lost_at": utc_now()})
         atomic_json(transaction, intent)
         raise
-    finally:
-        if previous_context is None:
-            os.environ.pop("QINGSHAN_DURABLE_SUBMITTER_CONTEXT", None)
-        else:
-            os.environ["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = previous_context
     task_id = (response.get("data") or {}).get("task_id")
     if not task_id:
         intent.update({"state": "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION", "error": "response has no task_id", "response_lost_at": utc_now()})
@@ -188,6 +188,9 @@ def main() -> int:
         prompt_path = resolve(row.get("prompt_file", ""))
         if not prompt_path.is_file() or hashlib.sha256(prompt_path.read_bytes()).hexdigest() != row.get("prompt_sha256"):
             raise SystemExit(f"invalid prompt binding: {row.get('id')}")
+        culture = validate_visual_culture_contract(row, prompt_text=prompt_path.read_text(encoding="utf-8"))
+        if culture["status"] != "PASS":
+            raise SystemExit(f"visual culture gate failed for {row.get('id')}: {','.join(culture['failures'])}")
         try:
             resolved_reference_images(row)
         except ValueError as exc:
@@ -266,7 +269,7 @@ def main() -> int:
         "ambiguity_resolution": ambiguity_resolution,
         "transaction_dir": str(transaction_dir.relative_to(ROOT)),
         "duplicate_submit_policy": "TASK_FINGERPRINT_TRANSACTION_GUARD",
-        "credits": {"pay": (credit_reconciliation or {}).get("charged_credits", 0) if not args.precheck_only else 0, "refund": 0, "net": (credit_reconciliation or {}).get("charged_credits", 0) if not args.precheck_only else 0, "cap": 10000}
+        "credits": {"pay": (credit_reconciliation or {}).get("charged_credits", 0) if not args.precheck_only else 0, "refund": 0, "net": (credit_reconciliation or {}).get("charged_credits", 0) if not args.precheck_only else 0, "cap": plan.get("episode_credit_cap", 10000)}
     }
     out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"status": report["status"], "result_count": len(results), "failure_count": len(failures)}, ensure_ascii=False))

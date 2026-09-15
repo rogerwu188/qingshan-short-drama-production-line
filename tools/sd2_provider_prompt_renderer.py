@@ -7,15 +7,25 @@ from typing import Any
 import re
 
 try:
+    from tools.editorial_pacing_contract import delivery_clause, content_window_clause
     from tools.grouped_camera_contract import compile_camera_prompt
     from tools.prompt_budget_observability import measure_prompt
     from tools.provider_semantic_coverage import build_semantic_coverage_receipt
     from tools.provider_contract_boundary import validate_provider_prompt_boundary
+    from tools.visual_culture_contract import prompt_block_zh as visual_culture_prompt_block
+    from tools.event_boundary_continuity_contract import (
+        provider_shot_state_lock_texts, provider_state_lock_text,
+    )
 except ModuleNotFoundError:
+    from editorial_pacing_contract import delivery_clause, content_window_clause
     from grouped_camera_contract import compile_camera_prompt
     from prompt_budget_observability import measure_prompt
     from provider_semantic_coverage import build_semantic_coverage_receipt
     from provider_contract_boundary import validate_provider_prompt_boundary
+    from visual_culture_contract import prompt_block_zh as visual_culture_prompt_block
+    from event_boundary_continuity_contract import (
+        provider_shot_state_lock_texts, provider_state_lock_text,
+    )
 
 
 SCHEMA = "qingshan.seedance2_provider_renderer.v1_shared_execution_ir"
@@ -28,7 +38,10 @@ def _dialogue(beat: dict[str, Any]) -> str:
     speaker, separator, words = raw.partition("：")
     if not separator or not speaker.strip() or not words.strip():
         raise ValueError(f"DIALOGUE_SPEAKER_BINDING_INVALID:{raw}")
-    return f"；{speaker.strip()}只说一次：“{words.strip()}”，其余人物闭口"
+    pace = delivery_clause(beat)
+    if beat.get("exact_line_audio_reference"):
+        return f"；{speaker.strip()}按已绑定逐句音频只说一次，台词文字不进入视觉提示词，其余人物闭口" + (f"；{pace}" if pace else "")
+    return f"；{speaker.strip()}只说一次：“{words.strip()}”，其余人物闭口" + (f"；{pace}" if pace else "")
 
 
 def _beat_line(beat: dict[str, Any]) -> str:
@@ -84,22 +97,47 @@ def _role_line(row: dict[str, Any]) -> str:
     listener = str(row.get("dialogue_listener") or "")
     patient = str(row.get("action_patient") or "")
     pieces = [f"{row.get('shot_id') or '本拍'}：{actor}是唯一动作执行者"]
+    if row.get("independent_action_actors"):
+        actions = "；".join(f"{r['character']}只执行自己的动作：{r['action']}" for r in row["independent_action_actors"])
+        pieces = [f"{row.get('shot_id') or '本拍'}：各人动作独立归属，{actions}"]
     if patient:
         pieces.append(f"{patient}是唯一动作承受者")
     if speaker:
         pieces.append(f"只有{speaker}开口")
-        pieces.append(f"{listener}闭口聆听" if listener else "这是自语，无人接话")
+        # A silent addressee may be asleep; a missing onscreen listener does
+        # not imply self-talk (e.g. calling to somebody outside the frame).
+        pieces.append(f"{listener}不说话，反应服从本镜状态" if listener else "无其他人接话，呼喊或自语方式服从时间轴")
     else:
         pieces.append("所有人物闭口")
     pieces.append("不得交换人物、肢体、武器、动作或声音")
     return "，".join(pieces) + "。"
 
 
+def render_state_reference_roles(unit: dict[str, Any]) -> str:
+    clauses = []
+    for index, reference in enumerate(unit.get("reference_images") or [], 1):
+        if isinstance(reference, dict) and reference.get("role") == "PREVIOUS_UNIT_REAL_FINAL_FRAME_STATE_REFERENCE":
+            clauses.append(f"参考图{index}为前一视频真实尾帧，仅用于继承已建立的人物、服装、道具与环境状态；本镜构图和可见人物仍按本镜摄影合同，不复制该图机位或加入画外人物。")
+    return "；".join(clauses)
+
+
 def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    from tools.sd2_nonvisual_annotation_projection import project
+    plan, annotation_projection = project(unit, plan)
     uid = str(plan["unit_id"])
-    camera = compile_camera_prompt(plan.get("camera_plan"), source_id=uid)
+    if plan.get("shot_camera_plans"):
+        from tools.sd2_shot_camera_adapter import render_shot_cameras
+        camera = render_shot_cameras(plan['shot_camera_plans'])
+    else:
+        camera = compile_camera_prompt(plan.get("camera_plan"), source_id=uid)
     transition = plan.get("transition") or {}
     timeline = []
+    reference_roles = render_state_reference_roles(unit)
+    if reference_roles:
+        timeline.append(reference_roles)
+    content_window = content_window_clause(plan)
+    if content_window:
+        timeline.append(content_window)
     if transition.get("incoming"):
         timeline.append(f"开场承接：{transition['incoming']}，从该结果继续，不复位不重演。")
     action_beats = (plan.get("action_ir") or {}).get("causal_chains") or plan["beats"]
@@ -112,6 +150,41 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
     sound = "；".join(sound_parts) or "保留同任务原生环境声、拟音、动作声与已声明对白"
     environment_rows = plan.get("environment_motion") or []
     environment = "；".join(environment_rows)
+    from copy import deepcopy
+    state_prose_plan=deepcopy(plan)
+    visible_ids={p['character_id'] for s in unit.get('ordered_prompt_specs',[]) for p in s.get('cast',[])}
+    # Domain-wide offscreen ledgers remain authoritative in plan and gates;
+    # only people actually appearing in this unit belong in provider prose.
+    if unit.get('ordered_prompt_specs'):
+        for contract in [state_prose_plan.get('persistent_state_contract') or {}]+[
+                r.get('persistent_state_contract') or {} for r in state_prose_plan.get('shot_state_contracts') or []]:
+            contract['characters']=[r for r in contract.get('characters',[]) if r.get('character_id') in visible_ids]
+            contract['tracked_character_ids']=[cid for cid in contract.get('tracked_character_ids',[]) if cid in visible_ids]
+        specs=unit['ordered_prompt_specs'];by_id={s['shot_id']:s for s in specs if s.get('shot_id')}
+        pairs=[(state_prose_plan.get('persistent_state_contract') or {},specs[0],specs[-1])]
+        pairs.extend((r.get('persistent_state_contract') or {},by_id[r['shot_id']],by_id[r['shot_id']])
+                     for r in state_prose_plan.get('shot_state_contracts') or [] if r['shot_id'] in by_id)
+        for contract,first,last in pairs:
+            for side,spec in [('entry_state',first),('exit_state',last)]:
+                projection=spec.get('provider_scene_projection')
+                if not projection:continue
+                from tools.e57_scene_projection import read as read_scoped_scene
+                scoped=read_scoped_scene(spec)
+                env=(contract.get('environment') or {}).get(side)
+                if env is not None:
+                    env['time']=scoped['time'];env['weather']=scoped['weather']
+                    env['population']='仅摄影分镜列明的角色和身体区域入镜；其他已建立人物留在画外，不因环境合同增添人群'
+    state_lock = provider_state_lock_text(state_prose_plan, language="ZH") if plan.get("persistent_state_contract") else ""
+    shot_state_locks = provider_shot_state_lock_texts(state_prose_plan, language="ZH")
+    # Literal interning preserves every state value and boundary while
+    # avoiding repeated long wardrobe/pose/map strings. H3 is untouched.
+    from tools.compact_state_prose import compact_state_sections
+    import re
+    compact_state_blocks, state_dictionary = compact_state_sections(
+        (["【连续事件硬合同】"+state_lock+"。"] if state_lock else [])
+        + (["【逐镜状态与机位硬合同】\n"+'\n'.join(shot_state_locks)] if shot_state_locks else [])
+        + ['【摄影】'+camera],state_prose_plan,
+        additional_literals=re.split(r'[；。\n]',camera))
     voice_rows = [
         f"{row['speaker']}使用{row['audio_slot']}固定声线" if row.get("audio_slot") else f"{row['speaker']}使用已登记固定声线"
         for row in plan.get("voice_bindings") or []
@@ -137,16 +210,18 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
     if wuxia_profile.get("status") == "SELECTED":
         physical_rules.append(
             "武侠动作镜头原型[INFERRED_RECONSTRUCTED_NOT_ORIGINAL]："
-            + str(wuxia_profile.get("prompt_module_zh") or "")
-            + "；该原型只翻译既有Action-IR，不新增招式、命中、伤势、效果、胜负或剧情结果"
+            + "、".join(wuxia_profile.get("selected_profile_ids") or [])
+            + "；动作、受力反馈和结果只执行上方时间轴已编译的具体事件；"
+            + "摄影只执行上方逐镜摄影合同。原型示例保留在编译附件中，不作为本镜新增动作指令"
         )
         negatives.extend(wuxia_profile.get("negative_constraints_zh") or [])
     text = "\n".join([
         f"【任务】{plan['duration_seconds']:g}秒，9:16，{unit.get('resolution') or '720p'}，seedance-2.0-pro，真人实拍电影质感。",
         f"【锚点】{plan['identity_prop_fact']}；{plan['space_weather_fact']}。",
+        visual_culture_prompt_block(unit.get("visual_culture_contract")),
+        *compact_state_blocks,
         "【角色】\n" + "\n".join(role_rows),
         "【时间轴】\n" + "\n".join(timeline),
-        "【摄影】" + camera,
         "【环境】" + (environment or "背景与群众只按剧情因果保持真实微动，不得冻结成静态图") + "。",
         "【声音】" + sound + (f"；{voices}" if voices else "") + "；禁止外加默认BGM，除非结构化音频模式明确绑定。",
         "【物理】" + "；".join(physical_rules) + "。" if physical_rules else "【物理】按时间轴完成真实动作因果。",
@@ -160,6 +235,19 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         "ANCHOR.SPACE_WEATHER": plan["space_weather_fact"],
         "CAMERA.PLAN": camera,
     }
+    for token,full in state_dictionary:
+        clause_evidence['CAMERA.PLAN']=clause_evidence['CAMERA.PLAN'].replace(full,token)
+    if state_lock:
+        value=state_lock
+        for token,full in state_dictionary:value=value.replace(full,token)
+        clause_evidence["CONTINUITY.PERSISTENT_STATE"] = value
+    for index,(token,full) in enumerate(state_dictionary,1):
+        clause_evidence[f"CONTINUITY.STATE_DICTIONARY.{index}"]=token+'='+full
+    if content_window:
+        clause_evidence["PACING.CONTENT_WINDOW"] = content_window
+    for index, value in enumerate(shot_state_locks, 1):
+        for token,full in state_dictionary:value=value.replace(full,token)
+        clause_evidence[f"CONTINUITY.SHOT_STATE.{index}"] = value
     if plan.get("interaction_topology_required"):
         clause_evidence["PHYSICAL.INTERACTION_TOPOLOGY"] = physical_rules[0]
     if plan.get("combat_execution_required"):
@@ -176,6 +264,9 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         clause_evidence["TRANSITION.OUTGOING"] = transition["outgoing"]
     for index, beat in enumerate(action_beats, 1):
         prefix = f"BEAT.{index}"
+        pace = delivery_clause(beat)
+        if pace:
+            clause_evidence[f"{prefix}.DIALOGUE_DELIVERY"] = pace
         clause_evidence[f"{prefix}.ENTRY"] = beat["entry_state"]
         dialogue_words = str(beat.get("dialogue") or "").partition("：")[2].strip()
         clause_evidence[f"{prefix}.ACTION"] = (
@@ -198,7 +289,7 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
             clause_evidence[f"{prefix}.PRIMARY_FEEDBACK"] = beat["primary_feedback"]
         for secondary_index, value in enumerate(beat.get("secondary_feedback") or [], 1):
             clause_evidence[f"{prefix}.SECONDARY_FEEDBACK.{secondary_index}"] = value
-        if beat.get("dialogue"):
+        if beat.get("dialogue") and not beat.get("exact_line_audio_reference"):
             clause_evidence[f"{prefix}.DIALOGUE"] = beat["dialogue"].partition("：")[2]
         if beat.get("microexpression_cue"):
             clause_evidence[f"{prefix}.MICROEXPRESSION"] = beat["microexpression_cue"]
@@ -225,6 +316,7 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         raise ValueError(";".join(coverage["failures"]))
     return text, {
         "schema": SCHEMA,
+        "nonvisual_annotation_projection": annotation_projection,
         "status": "PASS",
         "unit_id": uid,
         "model_family": "SEEDANCE_2",

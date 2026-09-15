@@ -12,9 +12,16 @@ import argparse
 import json
 import os
 import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+# F-R530-01：`os.replace`／`O_EXCL` 建件之后连目录项一起落盘。单一实现在
+# tools/durable_rename.py，写手线五处原子写共用。
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+from durable_rename import durable_replace, fsync_directory  # noqa: E402
 
 try:
     from tools.writer_production_field_gate import validate_generation_contract
@@ -58,15 +65,71 @@ def sha256_file(path: Path) -> str:
     return sha256_bytes(path.read_bytes())
 
 
+def _discard_temporary(temporary: Path) -> None:
+    """Best-effort disposal of a half-written temporary, which NEVER raises.
+
+    Same three-step ladder as `release_lease` (F-R523-01) and the singleflight
+    gate's `_discard_quietly` (F-R525-01):
+
+      1. unlink -- the normal path;
+      2. this mount refuses unlink, so rename the residue out of the way;
+      3. if both fail, leave it. The name now carries a random token, so the
+         residue blocks nobody. Staying silent beats masking the real error.
+    """
+    try:
+        temporary.unlink(missing_ok=True)
+        return
+    except OSError:
+        pass
+    try:
+        temporary.replace(temporary.with_name(temporary.name + ".discarded"))
+    except OSError:
+        pass
+
+
 def atomic_json(path: Path, payload: dict[str, Any]) -> None:
+    """Write `payload` to `path` atomically, leaving no permanent residue.
+
+    F-R526-01.  Two defects, both MEASURED on this mount, both permanent:
+
+    1. The temporary was named `.{name}.{pid}.tmp` -- pid alone.  This sandbox
+       hands fresh `python3` processes tiny sequential pids (measured: 4,5,...,
+       13 across ten consecutive calls), so pid reuse across rounds is close to
+       certain rather than theoretical.  A residue from a crashed run makes the
+       `open("x")` here raise FileExistsError.  And because unlink is refused on
+       this mount, NOTHING can clear it: probed three consecutive retries, all
+       three FileExistsError.  Every `start`/`finish`/`abort`/`seal` targeting
+       that receipt path is then bricked forever -- the same permanent-brick
+       shape as F-R525-01, but sitting on the writer's own authority chain.
+    2. There was no rollback at all.  A payload that fails to serialise midway
+       (probed with a non-JSON-able value: TypeError) left the temporary on disk
+       permanently, which is how defect 1 gets armed in the first place.
+
+    Fix: a per-attempt unique temporary name (pid + uuid4), so a residue can
+    never collide with a later attempt; and disposal routed through the
+    non-raising ladder so the caller still sees the ORIGINAL exception.
+
+    Unchanged on purpose: the rename stays last, so `path` holds either the
+    complete old bytes or the complete new bytes -- never a half-written state.
+
+    F-R530-01: the rename now goes through `durable_replace`, which fsyncs the
+    parent directory afterwards. Until then the receipt's *contents* survived a
+    machine crash but the directory entry pointing at them did not, so a crash
+    could roll a finished receipt back to its previous state. The directory
+    fsync never raises and never changes this function's control flow.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    with temporary.open("x", encoding="utf-8") as handle:
-        json.dump(payload, handle, ensure_ascii=False, indent=2)
-        handle.write("\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, path)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temporary.open("x", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        durable_replace(temporary, path)
+    except BaseException:
+        _discard_temporary(temporary)
+        raise
 
 
 def lock_path(lock_dir: Path, episode: str, version: int) -> Path:
@@ -95,6 +158,16 @@ def _same_version(left: Any, right: Any) -> bool:
 
 
 def acquire_lock(path: Path, payload: dict[str, Any]) -> None:
+    """Take the exclusive per-episode/version write lease.
+
+    F-R530-01: the lease is a freshly *created* file, so its directory entry is
+    exactly what makes the lease exist. Fsyncing the file contents alone left a
+    crash window in which the lease's bytes were durable but the entry naming
+    them was not -- i.e. after a machine crash the exclusive lease could look as
+    though it had never been taken, which is the one thing it exists to prevent.
+    The directory fsync runs only after a fully successful create-and-write, and
+    never raises (see `durable_rename`).
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(path, flags, 0o600)
@@ -105,8 +178,78 @@ def acquire_lock(path: Path, payload: dict[str, Any]) -> None:
             handle.flush()
             os.fsync(handle.fileno())
     except BaseException:
-        path.unlink(missing_ok=True)
+        # F-R524-01.  This rollback used to be a bare `unlink(missing_ok=True)`.
+        # On this mount `unlink` raises PermissionError, so the rollback itself
+        # threw: the caller received PermissionError instead of the real failure
+        # (demoted to __context__), AND the half-written lease stayed at the
+        # customary path, blocking every later `start` for that episode/version.
+        # Route it through the same ladder `finish`/`abort` use, which never
+        # raises, so the original exception reaches the caller intact.
+        release_lease(path, str(payload.get("writer_run_id") or "unknown"), "acquire_rollback")
         raise
+    # Success only. A lease whose creation was rolled back above must not have
+    # its directory entry made durable.
+    fsync_directory(path.parent)
+
+
+def release_lease(lease: Path, run_id: str, stage: str) -> dict[str, Any]:
+    """Release a write lease, surviving mounts where `unlink` is not permitted.
+
+    F-R523-01.  `finish`/`abort` released the lease with a bare `unlink()` placed
+    AFTER the terminal receipt had already been written.  On this mount `unlink`
+    raises PermissionError (R522 hit it again on PROGRESS.json.bak_*; an in-place
+    probe showed rename and write both succeed, so the restriction is on that one
+    syscall, not on the directory).  The consequence was not theoretical: the run
+    ended terminal-and-correct on disk but the process died on the very next line,
+    the caller saw a traceback, and the lease stayed behind.  That is exactly the
+    shape of the 72 residual leases R430 had to sweep up by hand, and it is why the
+    charter carries a MANUAL fallback ("rename the lock to *.released").  This puts
+    the documented fallback inside the tool:
+
+      1. unlink -- the normal path, unchanged;
+      2. on PermissionError, rename to `<lease>.released_by_<run_id>_<stage>`,
+         the convention already on disk (e.g. `E96_V1.writer.lock.json
+         .released_by_r500_finish`).  The customary path is then free, so a later
+         `start` can re-acquire and `seal` no longer sees a held lease;
+      3. if both fail, RECORD the failure and return -- never raise.  Once the
+         receipt is terminal, crashing here destroys the caller's exit status
+         while changing nothing on disk; the residue is better reported than
+         thrown.
+
+    The returned record is written into the receipt so the method used is legible
+    from the run's own bytes rather than from a stderr line nobody kept.
+    """
+    record: dict[str, Any] = {"lease": str(lease), "stage": stage}
+    # `Path("")` normalises to `Path(".")`, which exists and is a directory -- an
+    # abort on a receipt with no `write_lease` used to reach `unlink` on the CWD.
+    if str(lease) in {"", "."} or lease.is_dir() or not lease.exists():
+        record["method"] = "ALREADY_ABSENT"
+        record["released"] = True
+        return record
+    try:
+        lease.unlink()
+    except OSError as error:
+        released = lease.with_name(f"{lease.name}.released_by_{run_id}_{stage}")
+        try:
+            lease.rename(released)
+        except OSError as rename_error:
+            record["method"] = "FAILED"
+            record["released"] = False
+            record["unlink_error"] = f"{type(error).__name__}:{error}"
+            record["rename_error"] = f"{type(rename_error).__name__}:{rename_error}"
+            record["note"] = (
+                "WRITER_LEASE_RESIDUE_NOT_RELEASED;terminal receipt is still valid;"
+                "sweep by hand per charter line 65"
+            )
+            return record
+        record["method"] = "RENAMED_UNLINK_REFUSED"
+        record["released"] = True
+        record["released_path"] = str(released)
+        record["unlink_error"] = f"{type(error).__name__}:{error}"
+        return record
+    record["method"] = "UNLINK"
+    record["released"] = True
+    return record
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -154,6 +297,31 @@ def declared_layers(manifest: dict[str, Any]) -> list[dict[str, str]]:
         if not row["declared_sha256"]:
             raise SystemExit(f"WRITER_SEAL_LAYER_SHA_NOT_DECLARED:{row['layer']}")
     return rows
+
+
+def sealed_manifest_declaration(seal_file: Path) -> str | None:
+    """Read back the manifest SHA that an already-written seal declared.
+
+    Returns None when there is no seal yet, when the file cannot be read, or
+    when it predates the manifest self-declaration (declared_sha256 null).  All
+    three mean "nothing to compare against", never "drift".  This function is
+    read-only and must never raise: a seal that cannot be parsed is a reason to
+    stay silent, not a reason to block a workstation (铁律一).
+    """
+
+    if not seal_file.is_file():
+        return None
+    try:
+        payload = read_json(seal_file)
+    except (OSError, ValueError, TypeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    for row in payload.get("layers") or []:
+        if isinstance(row, dict) and row.get("layer") == "manifest":
+            declared = row.get("declared_sha256")
+            return str(declared) if declared else None
+    return None
 
 
 def resolve_layer(path_text: str, manifest_path: Path) -> Path:
@@ -222,7 +390,11 @@ def start(args: argparse.Namespace) -> int:
     try:
         atomic_json(receipt, payload)
     except BaseException:
-        lease.unlink(missing_ok=True)
+        # F-R524-01, same family as the acquire rollback above: a bare unlink
+        # here masked the receipt-write failure with PermissionError and left the
+        # lease held with no RUNNING receipt to explain it -- the worst residue
+        # shape, because `seal` reads it as "somebody else is writing".
+        release_lease(lease, args.writer_run_id, "start_rollback")
         raise
     print(json.dumps(payload, ensure_ascii=False))
     return 0
@@ -280,7 +452,22 @@ def finish(args: argparse.Namespace) -> int:
     payload["finish_warnings"] = finish_warnings or None
     payload["completed_at"] = now()
     atomic_json(receipt, payload)
-    lease.unlink()
+    # F-R523-01: terminal state is written FIRST and the lease released after, so a
+    # release failure can never leave a finished run looking un-finished.  The
+    # release record is then patched in; this second write happens before the
+    # manifest exists, so nothing downstream has bound these bytes yet.
+    release = release_lease(lease, str(payload.get("writer_run_id") or "unknown"), "finish")
+    payload["lease_release"] = release
+    atomic_json(receipt, payload)
+    if not release.get("released"):
+        finish_warnings.append(f"WRITER_FINISH_LEASE_NOT_RELEASED:{lease}")
+        payload["finish_warnings"] = finish_warnings
+        atomic_json(receipt, payload)
+    elif release.get("method") == "RENAMED_UNLINK_REFUSED":
+        print(
+            f"WRITER_FINISH_LEASE_RENAMED_NOT_UNLINKED:{release.get('released_path')}",
+            file=sys.stderr,
+        )
     for warning in finish_warnings:
         print(warning, file=sys.stderr)
     print(json.dumps(payload, ensure_ascii=False))
@@ -440,14 +627,111 @@ def seal(args: argparse.Namespace) -> int:
         except (OSError, ValueError, TypeError) as exc:
             failures.append(f"WRITER_PRODUCTION_FIELD_GATE_UNREADABLE:{exc}")
 
+    # The manifest row used to carry `actual_sha256` only, with
+    # `declared_sha256=None` -- the one layer of the four-layer record that
+    # declared nothing about itself.  The supervisor logged it as P2
+    # "请封印工具补填" on ten consecutive episodes (E65/E66 … E95/E96), and
+    # F-R491-04 named the concrete cost: the manifest embeds a build timestamp,
+    # so re-running the builder after sealing changes its bytes while
+    # `seal --check` still reported SEALED -- post-seal manifest drift was
+    # invisible because there was nothing to compare against.
+    #
+    # Fix, in two halves: at WRITE time the seal declares the manifest SHA it
+    # sealed (the seal file is the declaring artefact -- a manifest cannot
+    # contain its own SHA, so the declaration has to live one level out); at
+    # CHECK time that declaration is read back from the seal already on disk and
+    # compared with the manifest's current bytes.
+    #
+    # A mismatch is a WARNING, never a refusal.  Drift detection is not a
+    # registered criterion, and an unregistered criterion must never block a
+    # workstation (铁律一) -- same disposition as the version warning and the
+    # receipt-path warning above.  Seals written before this change declare
+    # nothing, so they compare against nothing and stay silent.
+    seal_file = args.seal or (args.seal_dir.resolve() / f"{episode}_V{version}_FOUR_LAYER_SEAL.json")
+    seal_file = Path(seal_file).resolve()
+    manifest_actual = sha256_file(manifest)
+    if args.check:
+        manifest_declared = sealed_manifest_declaration(seal_file)
+        if manifest_declared and manifest_declared != manifest_actual:
+            warnings.append(
+                "WRITER_SEAL_MANIFEST_DRIFT_SINCE_SEAL:"
+                f"{manifest_declared}->{manifest_actual}"
+            )
+    else:
+        manifest_declared = manifest_actual
+
     rows.append({
         "layer": "manifest",
         "path": str(manifest),
         "resolved_path": str(manifest),
-        "declared_sha256": None,
-        "actual_sha256": sha256_file(manifest),
+        "declared_sha256": manifest_declared,
+        "actual_sha256": manifest_actual,
         "present": True,
     })
+
+    # Cross-layer field parity (F-R542-01).
+    #
+    # R540 found four FS-1 segment-ledger fields had left the manifest layer at
+    # E87 and stayed gone for ten episodes while the contract layer kept three
+    # of them -- and closed with the actual defect: "no code has ever compared
+    # the two layers."  The four-layer record is built by per-episode ad-hoc
+    # builders, so a field disappears the moment one builder is copied from a
+    # sibling that lacked it, and nothing notices.  E87 was caught by eye, on
+    # its tenth repetition.
+    #
+    # Seal time is the one point every episode passes through, so the
+    # comparison belongs here.  Same disposition as every other unregistered
+    # criterion above: WARNING, never a refusal (铁律一).  Nothing in this block
+    # may touch `failures`, and any error in it is swallowed into a warning --
+    # a parity check that could break sealing would be worse than the drift it
+    # reports.
+    try:
+        import re as _re
+
+        import writer_cross_layer_field_parity as _parity
+
+        _manifests = _parity.discover(manifest.parent, _parity.MANIFEST_RE)
+        _contracts = _parity.discover(manifest.parent, _parity.CONTRACT_RE)
+        _episode_number = int(_re.sub(r"^[Ee]", "", str(episode)))
+        _reading = _parity.parity_for_episode(_episode_number, _manifests, _contracts)
+        warnings.extend(_parity.warnings_for_episode(_reading))
+    except Exception as exc:  # never let the parity check affect sealing
+        warnings.append(f"WRITER_CROSS_LAYER_FIELD_PARITY_UNAVAILABLE:{type(exc).__name__}:{exc}")
+
+    # Manifest-only key presence (F-R543-01) -- the blind spot of the check
+    # immediately above.
+    #
+    # F-R542-01 reports a dropped field only when this episode's CONTRACT still
+    # carries it.  That third condition is what keeps it from firing on every
+    # incidental key, but it also means a key living in the manifest and nowhere
+    # else can vanish without any code ever saying a word.  `beat_disposition`
+    # is exactly that shape, and it is the one the charter calls 必填: the only
+    # machine-readable evidence that Roger's seq=37/38 compression authorization
+    # was exercised on purpose rather than by omission.  It left the manifest at
+    # E90 and was still gone at E96 -- seven episodes, silently.
+    #
+    # The two checks partition the space by construction (one requires the key
+    # IN the contract, the other requires it NOT IN the contract), so this adds
+    # coverage without adding duplicate noise.
+    #
+    # Same disposition as every unregistered criterion here: WARNING, never a
+    # refusal (铁律一).  This block may not touch `failures`, and any error in it
+    # degrades to a warning -- a presence check that could break sealing would
+    # be worse than the drift it reports.
+    try:
+        import re as _re
+
+        import writer_manifest_only_key_presence as _presence
+
+        _p_manifests = _presence.discover(manifest.parent, _presence.MANIFEST_RE)
+        _p_contracts = _presence.discover(manifest.parent, _presence.CONTRACT_RE)
+        _p_episode = int(_re.sub(r"^[Ee]", "", str(episode)))
+        _p_reading = _presence.reading_for_episode(_p_episode, _p_manifests, _p_contracts)
+        warnings.extend(_presence.warnings_for_episode(_p_reading))
+    except Exception as exc:  # never let the presence check affect sealing
+        warnings.append(
+            f"WRITER_MANIFEST_ONLY_KEY_PRESENCE_UNAVAILABLE:{type(exc).__name__}:{exc}"
+        )
 
     verdict = {
         "schema": SEAL_SCHEMA,
@@ -472,8 +756,6 @@ def seal(args: argparse.Namespace) -> int:
         print(json.dumps(verdict, ensure_ascii=False))
         return 0
 
-    seal_file = args.seal or (args.seal_dir.resolve() / f"{episode}_V{version}_FOUR_LAYER_SEAL.json")
-    seal_file = Path(seal_file).resolve()
     if seal_file.exists():
         raise SystemExit("WRITER_SEAL_ALREADY_EXISTS")
     verdict["seal_path"] = str(seal_file)
@@ -497,7 +779,17 @@ def abort(args: argparse.Namespace) -> int:
     payload["completed_at"] = now()
     payload["abort_reason"] = args.reason
     atomic_json(receipt, payload)
-    lease.unlink(missing_ok=True)
+    # F-R523-01: same ordering and same fallback as `finish`.
+    release = release_lease(lease, str(payload.get("writer_run_id") or "unknown"), "abort")
+    payload["lease_release"] = release
+    atomic_json(receipt, payload)
+    if not release.get("released"):
+        print(f"WRITER_ABORT_LEASE_NOT_RELEASED:{lease}", file=sys.stderr)
+    elif release.get("method") == "RENAMED_UNLINK_REFUSED":
+        print(
+            f"WRITER_ABORT_LEASE_RENAMED_NOT_UNLINKED:{release.get('released_path')}",
+            file=sys.stderr,
+        )
     print(json.dumps(payload, ensure_ascii=False))
     return 0
 

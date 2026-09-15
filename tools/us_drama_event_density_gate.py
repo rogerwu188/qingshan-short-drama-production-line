@@ -334,8 +334,22 @@ def _causal_contract_evaluation(
     }
 
 
-def _numeric_evaluation(manifest: dict) -> tuple[list[str], dict]:
+def _is_numeric(value: Any) -> bool:
+    """True when value can be read as a number (bool is not a measurement)."""
+    if value is None or isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return True
+    try:
+        float(str(value))
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _numeric_evaluation(manifest: dict) -> tuple[list[str], list[str], dict]:
     failures: list[str] = []
+    warnings: list[str] = []
     target, minimum, maximum, structure_seconds, has_numeric_structure = _runtime_contract(manifest)
     dialogue = manifest.get("dialogue_draft") or []
     dialogue_pacing = manifest.get("dialogue_pacing") or {}
@@ -364,25 +378,43 @@ def _numeric_evaluation(manifest: dict) -> tuple[list[str], dict]:
     )
     if observed_rate < hard_min:
         failures.append("event_density_below_hard_minimum")
+    # ★ 常量不得冒充读数（S-E96-P-01 / S-E95-01 同族；CL2X-1363 ② 处方）。
+    # 缺申报时这两项各自取一个"恰好不失败"的默认值（gap=20.0 门限本身、
+    # non_advancing=0.0），过去三集 observed 里的 20.0 因此是 fail-open 默认值、
+    # 不是测量值，而读者无法分辨。此处只做一件事：把"没测"显式标出来并出 warning。
+    # 铁律一：判据不变、默认值不变、绝不因此新增任何 failure。
     gap_value = density.get("max_information_gap_seconds")
-    if gap_value is None:
+    gap_source = "event_density.max_information_gap_seconds"
+    if not _is_numeric(gap_value):
         gap_value = dialogue_pacing.get("max_no_progress_gap_seconds")
+        gap_source = "dialogue_pacing.max_no_progress_gap_seconds"
+    gap_declared = _is_numeric(gap_value)
     max_gap = _float(gap_value, 20.0)
+    if not gap_declared:
+        gap_source = "NOT_MEASURED_FAIL_OPEN_DEFAULT"
+        warnings.append("MAX_INFORMATION_GAP_NOT_MEASURED_DEFAULT_ASSUMED")
     if max_gap > 20:
         failures.append("maximum_information_gap_exceeds_20s")
-    non_advancing = _float(density.get("non_advancing_percentage"), 0.0)
+    non_advancing_value = density.get("non_advancing_percentage")
+    non_advancing_declared = _is_numeric(non_advancing_value)
+    non_advancing = _float(non_advancing_value, 0.0)
+    if not non_advancing_declared:
+        warnings.append("NON_ADVANCING_PERCENTAGE_NOT_MEASURED_DEFAULT_ASSUMED")
     if non_advancing > 15.0:
         failures.append("non_advancing_atmosphere_percentage_exceeds_15")
 
     dialogue_count = len(dialogue) or int(dialogue_pacing.get("lines_total") or dialogue_pacing.get("lines") or 0)
     dialogue_rate = dialogue_count / (target / 60) if target else 0.0
-    return failures, {
+    return failures, warnings, {
         "runtime_target_seconds": target,
         "structure_target_seconds": structure_seconds,
         "planned_event_count": planned_events,
         "events_per_minute": round(observed_rate, 3),
         "max_information_gap_seconds": max_gap,
+        "max_information_gap_measured": gap_declared,
+        "max_information_gap_basis": gap_source,
         "non_advancing_percentage": non_advancing,
+        "non_advancing_percentage_measured": non_advancing_declared,
         "dialogue_line_count": dialogue_count,
         "dialogue_lines_per_minute_reference": round(dialogue_rate, 3),
         "beat_count": len(manifest.get("structure") or []),
@@ -500,7 +532,7 @@ def evaluate(
     writer_receipt: dict[str, Any] | None = None,
     writer_receipt_sha256: str | None = None,
 ) -> dict:
-    numeric_failures, numeric_observed = _numeric_evaluation(manifest)
+    numeric_failures, numeric_warnings, numeric_observed = _numeric_evaluation(manifest)
     structure_failures, structure_warnings, structure_observed = _structure_evaluation(
         manifest, history_manifests
     )
@@ -523,7 +555,8 @@ def evaluate(
     narrative_enforced = structure_mode == "enforce" or (
         structure_mode == "auto" and episode_number is not None and episode_number >= NARRATIVE_START_EPISODE
     )
-    warnings = list(structure_warnings)
+    warnings = list(numeric_warnings)
+    warnings.extend(structure_warnings)
     warnings.extend(causal_warnings)
     if not structure_enforced:
         warnings.extend(f"BACKTEST_ONLY:{failure}" for failure in structure_failures)
