@@ -465,7 +465,7 @@
     },
     {
       "path": "tools/agentcut_character_voice_reference_guard.py",
-      "sha256": "085ea21ee8545632d7a412fe13b313b13140d150d08c974add8c53cc9311747d"
+      "sha256": "ee10f08ea9976fb9a351a42a98a2c4b373441ef02d6aca9614107e7f45288d6d"
     },
     {
       "path": "tools/agentcut_ci_watch.py",
@@ -2917,11 +2917,11 @@
     },
     {
       "path": "tools/build_video_unit_anchor_plan.py",
-      "sha256": "d01eacf446253cc8cc293363c2fc945946d108904af943e69e03aad2f57e0b7b"
+      "sha256": "886cfea1b992a6355c5f2e25bbf8636f0616116841b2d81e8b95207a328b50af"
     },
     {
       "path": "tools/build_video_unit_grouping_spec.py",
-      "sha256": "609e525209187b3fdae2f626ff4433c6269a2fa4893a1c10c86385060f88b8cf"
+      "sha256": "153a8e40268d78110477eea21d87ef6f6acb84a0ca2987fe5cc3b0a79a2afdbe"
     },
     {
       "path": "tools/build_writer_agent_image_batch.py",
@@ -3113,7 +3113,7 @@
     },
     {
       "path": "tools/compile_grouped_seedance_manifest.py",
-      "sha256": "511639f979b0a2fa015d31e093c109a9def9919519e2387764fe119244273e9b"
+      "sha256": "bd93c1387007aeb0747d5bc3def8b3662e2625f0a0c5312a4889aaf0114c01b8"
     },
     {
       "path": "tools/compile_grouped_seedance_transaction_manifest.py",
@@ -4381,7 +4381,7 @@
     },
     {
       "path": "tools/level_native_release_audio.py",
-      "sha256": "3360ef01ef3bc5209992990a8886cf63edd547cec6992175493a2cf7b806962d"
+      "sha256": "47b310a33a2641ee7d80dce97dfe7550473ec6d00a2227774787086a325b0e7c"
     },
     {
       "path": "tools/line_heartbeat.py",
@@ -4453,7 +4453,7 @@
     },
     {
       "path": "tools/multimodal_character_binding_guard.py",
-      "sha256": "1bd6aa847d4606da77705ef5d3bdc54693eeb9d08277baf0b92ea17513a6c207"
+      "sha256": "84221417b6f436eaf99549d8f34db0a10c92cb8526e1b6bfe9cc521bd3cf55d9"
     },
     {
       "path": "tools/native_audio_loudness_contract.py",
@@ -5441,7 +5441,7 @@
     },
     {
       "path": "tools/shot_media_admission_gate.py",
-      "sha256": "eeea1b338fdd453e02c02c546784d2161670d8da5a8f1dfda5155beadb0bd425"
+      "sha256": "8eebb4f4b5d6e37c50c2acd2cef2d5386f4d0d05c12202f1e9ccb3439a67df23"
     },
     {
       "path": "tools/shot_prompt_professionalism_gate.py",
@@ -5581,11 +5581,11 @@
     },
     {
       "path": "tools/submit_giggle_character_asset_plan.py",
-      "sha256": "765b85a47f978b875abc59ad25353bebad36bb8c478da90817b8d79bb0e46f9a"
+      "sha256": "424b4711cbbbdab513ebdd34733ff9659e0ce4ee2846f07d49e5372736e05a10"
     },
     {
       "path": "tools/submit_giggle_image_manifest.py",
-      "sha256": "bb1146fc37914da003bd9f95eeed5314e5054ff54a110cc06fdc489ff2ddc7b4"
+      "sha256": "df40c4c6b70f8dba476f5e122d29eb439923113d01d1287f27df2554a0ddde97"
     },
     {
       "path": "tools/submit_giggle_task_manifest.py",
@@ -5593,7 +5593,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "09106932d14241445ea222677a68af12399b9f2256249d10991e495f7a1dafd1"
+      "sha256": "c289b0bf6c4210c5290148e36e94eb61d90d19b6cc443f1c2f75322d23fa804c"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
