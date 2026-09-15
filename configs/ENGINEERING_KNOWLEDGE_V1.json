@@ -493,7 +493,7 @@
         "tools/giggle_api_client.py",
         "tools/bgm_authenticity_gate.py"
       ],
-      "status": "INTEGRATION_PENDING",
+      "status": "REFERENCE_IMPLEMENTATION",
       "evidence": "nalu PIPELINE_RUNBOOK D-36",
       "owner": "DEPLOYMENT_MAINTAINER",
       "authority": "SANITIZED_PROJECT_RETROSPECTIVE",

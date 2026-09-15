@@ -6,6 +6,7 @@ are not meant to be re-applied:
 
 - **e08–e21** are already merged into the repository on branch `integration/e03-sync` (and on `nalu-line`),
   so a fresh clone of that branch or of `main` after it is merged already contains them.
+- **e23** (`e23_bgm_authenticity_gate_window_isolated_label.diff`) is applied on branch `engine/e23-bgm-window-label` (accepted by the line owner 2026-09-15).
 - **e22** (`e22_agentcut_bgm_cloudflare_user_agent.diff`) patches AgentCut, which lives in a separate
   repository (`rogerwu188/backlot-os`, branch `agent/hell-grind-v19-production`, commit `715e46f`). Install
   AgentCut from that branch or later.

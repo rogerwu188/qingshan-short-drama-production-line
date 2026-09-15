@@ -181,7 +181,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "f9075b292fec82bad106f39c9a2cb3bba39d69135af8c4fc405a7a688f473240"
+      "sha256": "cedf5ccf3b7cfe13bb570739ccb55124997c94555832d5b0c756811ef158e49c"
     },
     {
       "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
@@ -241,7 +241,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "25d3d51d27c3e59b17bc51b4c49ae25b665dfb9b8397cd977220de92e80531cf"
+      "sha256": "95363b69a7cc3fdb63618f4f4ba5b47c1aada6acc181b577fb830412cece3205"
     },
     {
       "path": "docs/knowledge/INTEGRATION_STATUS.md",
@@ -953,7 +953,7 @@
     },
     {
       "path": "tools/bgm_authenticity_gate.py",
-      "sha256": "2148b88e80cfb8c36fda8e6b04341008184db2d61300a9c498892d149b1ffaa7"
+      "sha256": "50463a3e088e55a07d95fe83b111926ae5f5f25602cafd91ebb3564e3be388ed"
     },
     {
       "path": "tools/bind_e17_published_mix_audio.py",

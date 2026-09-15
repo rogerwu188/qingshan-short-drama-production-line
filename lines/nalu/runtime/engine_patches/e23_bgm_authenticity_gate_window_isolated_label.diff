@@ -1,0 +1,16 @@
+diff --git a/tools/bgm_authenticity_gate.py b/tools/bgm_authenticity_gate.py
+index 24d5db5..b3608d7 100644
+--- a/tools/bgm_authenticity_gate.py
++++ b/tools/bgm_authenticity_gate.py
+@@ -156,7 +156,10 @@ def main() -> int:
+             generation_credit_value = (receipt_payload.get("credit") or {}).get("net_charged_credits")
+         if generation_credit.is_file():
+             credit_payload = json.loads(generation_credit.read_text(encoding="utf-8"))
+-            if credit_payload.get("status") != "PASS_EXACT_ISOLATED_LEDGER_NET":
++            # PASS_WINDOW_ISOLATED_LEDGER_NET: giggle.pro books GenerateMusic rows with an empty project_id, so the
++            # per-task exact query can never match music; the nalu line isolates the row by the task's own sequential
++            # submit window (K032). Accepted by the line owner 2026-09-15 (engine patch e23).
++            if credit_payload.get("status") not in {"PASS_EXACT_ISOLATED_LEDGER_NET", "PASS_WINDOW_ISOLATED_LEDGER_NET"}:
+                 failures.append("GENERATED_BGM_EXACT_CREDIT_LEDGER_NOT_PASS")
+             if generation_credit_value is not None and credit_payload.get("net_charged_credits") != generation_credit_value:
+                 failures.append("GENERATED_BGM_CREDIT_RECEIPT_MISMATCH")

@@ -261,7 +261,7 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - 规则：选择性配乐链：(a) 付费子进程必须带付费标志启动，否则钱锁剥掉密钥、工具报 key not set；(b) 提供者位于 Cloudflare 之后，裸 urllib User-Agent 得 HTTP 403 error code 1010，必须发浏览器 UA，用免费的 GET 任务查询测鉴权、绝不用 POST 探测；(c) 音乐扣费的 project id 为空，精确逐任务积分隔离不可能，改用任务自身的半开提交窗 [intent, response) 顺序隔离，证据打 window-isolated 标签而不是 exact；发布门是否接受该标签是线主决定；(d) 集预算账本需要为音乐事务存档加一条独立的可加法分账。
 - 失败教训：三次尝试：key not set（无 POST、无事务文件）；403 1010（任务前，账单窗口为空，未扣费）；任务完成但精确逐任务对账 INCOMPLETE。
 - 修复路径：子进程 paid 标志随上下文传递；浏览器 UA + Accept 并尊重 API base；窗口隔离的纯函数见 tools/credit_window_isolation.py（自带单元测试，标签 PASS_WINDOW_ISOLATED_LEDGER_NET，永不冒充 exact）；bgm_authenticity_gate 对窗口标签的接受留待线主决定。
-- 状态：`INTEGRATION_PENDING`。相关实现：[tools/credit_window_isolation.py](../../tools/credit_window_isolation.py)、[tools/giggle_api_client.py](../../tools/giggle_api_client.py)、[tools/bgm_authenticity_gate.py](../../tools/bgm_authenticity_gate.py)（相关代码存在，不等于公共主分支已完整消费）
+- 状态：`REFERENCE_IMPLEMENTATION`（发布门 tools/bgm_authenticity_gate.py 自 e23 起接受 PASS_WINDOW_ISOLATED_LEDGER_NET，线主 2026-09-15 批准）。相关实现：[tools/credit_window_isolation.py](../../tools/credit_window_isolation.py)、[tools/giggle_api_client.py](../../tools/giggle_api_client.py)、[tools/bgm_authenticity_gate.py](../../tools/bgm_authenticity_gate.py)（相关代码存在，不等于公共主分支已完整消费）
 - 证据：nalu PIPELINE_RUNBOOK D-36
 
 ### K033 — REVIEW
