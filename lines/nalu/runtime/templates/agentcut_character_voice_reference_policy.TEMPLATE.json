@@ -1,0 +1,11 @@
+{
+  "schema": "agentcut.character_voice_reference_policy.v1",
+  "line": "<line id>",
+  "status": "",
+  "recorded_at_utc": "",
+  "consumed_by": [
+    "QINGSHAN_AGENTCUT_VOICE_POLICY"
+  ],
+  "performance_brief_sha256_fields": [],
+  "roles": []
+}

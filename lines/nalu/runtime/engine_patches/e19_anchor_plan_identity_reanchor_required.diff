@@ -1,0 +1,20 @@
+--- /tmp/build_video_unit_anchor_plan.py.orig	2026-09-14 08:06:44
++++ tools/build_video_unit_anchor_plan.py	2026-09-14 08:06:44
+@@ -60,9 +60,15 @@
+     for row in rows[1:]:
+         new_characters = _visible_characters(row) - covered_characters
+         new_props = _props(row) - covered_props
+-        if new_characters or new_props:
++        # nalu e19 (2026-09-14, SUPERVISOR_ORDERS seq=12): an authored shot may declare
++        # prompt_spec.identity_reanchor_required=true when the unit's opening frame shows the
++        # character only as a far / non-measurable figure and a later shot needs the face
++        # (E02-VU-020: three takes invented a different face because the only reference
++        # was a high-angle wide).  Opt-in per shot; no effect on other units.
++        explicit = bool((row.get("prompt_spec") or {}).get("identity_reanchor_required"))
++        if new_characters or new_props or explicit:
+             selected.append(str(row["shot_id"]))
+-            identity_reanchor = identity_reanchor or bool(new_characters)
++            identity_reanchor = identity_reanchor or bool(new_characters) or explicit
+             prop_reanchor = prop_reanchor or bool(new_props)
+             covered_characters.update(_visible_characters(row))
+             covered_props.update(_props(row))

@@ -1,0 +1,27 @@
+diff --git a/components/agentcut/agentcut/bgm.py b/components/agentcut/agentcut/bgm.py
+index a4d1514..f0f8ed6 100644
+--- a/components/agentcut/agentcut/bgm.py
++++ b/components/agentcut/agentcut/bgm.py
+@@ -16,7 +16,11 @@ from .errors import ValidationError
+ 
+ CAPABILITY_ID = "AGENTCUT-BGM-001"
+ CAPABILITY_VERSION = "1.0"
+-BASE_URL = "https://giggle.pro"
++BASE_URL = os.environ.get("GIGGLE_API_BASE", "https://giggle.pro").rstrip("/")
++# giggle.pro sits behind Cloudflare: the bare urllib agent is refused with HTTP 403 "error code: 1010";
++# same browser agent as tools/giggle_api_client.py (nalu line, 2026-09-15)
++USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
++              "Chrome/140.0.0.0 Safari/537.36")
+ GENERATE_ENDPOINT = "/api/v1/generation/generate-music"
+ QUERY_ENDPOINT = "/api/v1/generation/task/query"
+ TERMINAL = {"completed", "failed"}
+@@ -33,7 +37,8 @@ def _request(method: str, endpoint: str, *, payload: dict[str, Any] | None = Non
+     body = json.dumps(payload).encode("utf-8") if payload is not None else None
+     request = urllib.request.Request(
+         BASE_URL + endpoint, data=body, method=method,
+-        headers={"x-auth": _api_key(), "Content-Type": "application/json"},
++        headers={"x-auth": _api_key(), "Content-Type": "application/json", "Accept": "application/json",
++                 "User-Agent": USER_AGENT},
+     )
+     try:
+         with urllib.request.urlopen(request, timeout=30) as response:

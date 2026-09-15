@@ -1,0 +1,61 @@
+# Blocker E-12 — the v3 craft doc contradicts the registry on video model
+#
+# PROBLEM
+#   codex_docs/镜头关键帧与镜头视频生成工艺工序_v3_20260821.md L38-45 declares
+#   "only seedance-2.0-fast is allowed" and explicitly FORBIDS
+#   seedance-2.0-pro; the §14.2 review checklist (L1189) repeats it. Both are
+#   the exact opposite of the current registry, code and standing order:
+#     tools/giggle_api_client.py:35-38  PRODUCTION_VIDEO_MODEL="seedance-2.0-pro"
+#                                       AUTHORIZED_VIDEO_MODELS={pro, MiniMax-H3}
+#     tools/giggle_api_client.py:119-123 hard SystemExit for fast/mini/bare
+#     configs/VIDEO_MODEL_CAPABILITY_REGISTRY_v1.json  SD2 pro + H3 deployed
+#     SUPERVISOR_ORDERS.json seq=3 VIDEO_MODEL_SD2_ONLY
+#   An agent following the doc would write seedance-2.0-fast, get hard-rejected
+#   inside _request, and would also under-budget by 3x (fast 16 credits/s vs
+#   pro 48 credits/s).
+#
+# FIX — DOCUMENTATION ONLY, zero code change
+#   A dated 已过期/与 registry 相反 notice inserted immediately under the H1, so
+#   it cannot be missed. It cites the contradicting code by file and line,
+#   resolves the conflict using the doc's OWN authority order (§2 L38-45: Roger's
+#   latest order and the registered registry/code both outrank this document,
+#   which sits 4th), scopes the expiry to the model rule alone, states that the
+#   rest of the craft (entry_state-only keyframes, Q1 KF-15 admission, space
+#   chain and axis inheritance, the three state-contract elements) remains
+#   valid, and records the price consequence.
+#
+--- a/codex_docs/镜头关键帧与镜头视频生成工艺工序_v3_20260821.md
++++ b/codex_docs/镜头关键帧与镜头视频生成工艺工序_v3_20260821.md
+@@ -1,5 +1,32 @@
+ # 《青山》生产线：镜头关键帧与镜头视频生成工艺工序
+ 
++> ---
++> ## ⚠️ 已过期通知（2026-09-09 追加）：本文的视频型号规定与 registry 相反，不得照做
++>
++> **状态：本文 §2 权威次序条款（L38-45）与 §14.2 审核清单（L1189）中的「只允许 `seedance-2.0-fast`、禁止 `seedance-2.0-pro`」已过期，与当前 registry 与代码完全相反。**
++>
++> 相反证据（均为当前 clone 的真实代码，非记忆）：
++>
++> | 出处 | 内容 |
++> |---|---|
++> | `tools/giggle_api_client.py:35-38` | `PRODUCTION_VIDEO_MODEL = "seedance-2.0-pro"`；`AUTHORIZED_VIDEO_MODELS = {"seedance-2.0-pro", "MiniMax-H3"}` |
++> | `tools/giggle_api_client.py:119-123` | 付费视频提交前置断言：`model` 不在上表即 `SystemExit`，报文明确写「Fast、Mini、裸 `seedance-2.0` 与未知型号均被禁止」 |
++> | `configs/VIDEO_MODEL_CAPABILITY_REGISTRY_v1.json` | 已部署视频 profile 为 `seedance-2.0-pro`（SD2）与 `MiniMax-H3` |
++> | `SUPERVISOR_ORDERS.json` seq=3 条件 1 `VIDEO_MODEL_SD2_ONLY` | 「只用 `seedance-2.0-pro`；禁止 `seedance-2.0-fast/mini/bare` 与 `MiniMax-H3`」 |
++>
++> **按本文自身 §2 L38-45 的权威次序判定：** 第 1 位「Roger 最新明确授权」与第 3 位「已注册 registry / 代码」都指向 `seedance-2.0-pro`，本文位于第 4 位，**因此本文在型号一条上失效，registry 与代码胜出。**
++>
++> 后续 agent 注意：
++>
++> 1. **型号一律读 `configs/VIDEO_MODEL_CAPABILITY_REGISTRY_v1.json` 与 `tools/giggle_api_client.py` 的常量，不读本文。** 照本文写 `seedance-2.0-fast` 会在 `_request` 里被硬拒，且违反 seq=3 授权。
++> 2. 本文 §14.2 的「是否只使用 `seedance-2.0-fast`」这一条审核项应读作「是否只使用 `seedance-2.0-pro`」。
++> 3. 本文其余工艺内容（关键帧只表现 `entry_state`、Q1 准入 KF-15、空间链与轴线继承、状态合同三要素）**未过期，仍然有效**。本通知只废止型号规定。
++> 4. 单价也随之改变：pro 约 48 credits/秒（`tools/build_e39_independent_r3_silent_visual_manifests.py:143-147`），已退役的 fast 为 16 credits/秒——按 fast 的单价做预算会严重低估。
++>
++> 记录人：nalu 生产线 assets/voice/budget 工程师 · 追加于 2026-09-09 · 仅文档变更，未改动任何代码逻辑。
++> ---
++
++
+ 版本：v3.4
+ 
+ 发布日期：2026-08-21

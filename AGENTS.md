@@ -30,7 +30,7 @@
 - `QINGSHAN_UNIT_PREFERRED_SECONDS=4,6`、`QINGSHAN_UNIT_MIN_SECONDS=4`、`QINGSHAN_UNIT_MAX_SECONDS=8`（补丁 e16；每场镜长必须能切成 4–8 s 单元）。
 - 系统依赖：ffmpeg/ffprobe；Python 3.12 venv `pip install -e '.[media,asr,cloud]'` **之外**还要装 `insightface onnxruntime rapidocr-onnxruntime faster-whisper opencc`（身份余弦、OCR、ASR、繁简转换）。
 - AgentCut CLI（独立仓库 backlot-os 的组件，editable 装到 `$ENGINE_ROOT/.agentcut_env`）：S4 `speech-voices/speech-generate`、S7 `bgm-generate`。**ADAPTER_REQUIRED**：没有它 S4/S7 配乐不可用。
-- 编排器与线专属工具当前**硬编码部署机的绝对路径**：换机器的第一件事是参数化为 `$ENGINE_ROOT/$RUNTIME_ROOT`。**INTEGRATION_PENDING**。
+- 编排器与线专属工具已随本仓库发布在 `lines/nalu/runtime/tools/`，路径由 `nalu_paths.py` 解析（环境变量 `NALU_ENGINE_ROOT` / `NALU_RUNTIME_ROOT` / `NALU_VENV_PYTHON`，未设则自动探测）；新机器按 `lines/nalu/docs/DEPLOY_NEW_MACHINE.md` 走。原部署实例仍从自己的运行时副本运行，切换后再删副本。
 
 从 clone 到第一次 dry-run 的实际命令：
 
@@ -116,7 +116,7 @@ git clone https://github.com/rogerwu188/nalu-production-runtime.git /tmp/npr && 
 ## 6. 现在做不到全自动的步骤（如实）
 
 - **MANUAL_REQUIRED**：narrative 手写；五类人工审核看图填答；音色挑选；新地点命名（place spec）；覆盖文件（服装/年龄/音色简述）；品牌片尾；每集 Roger 看片；改动清单确认后 push。
-- **INTEGRATION_PENDING**：编排器与线专属工具的绝对路径参数化；整批提示词门并入 S5（现为手动 5 步）；地图素材→空间图；D-9/D-12 两个最终 QA 证据键无生产者；引擎 `pose_transition_anchor_gate` 需要的结果锚点关键帧角色（现靠措辞避开）；引擎补丁 e08–e22 尚在 `nalu-line` 分支未进 main（含提交前失败归类 K030、配乐客户端 Cloudflare UA）；`bgm_authenticity_gate` 对窗口隔离账单标签的接受（线主决定，K032）；产品化的素材接入 CLI 子命令。
+- **INTEGRATION_PENDING**：整批提示词门并入 S5（现为手动 5 步）；地图素材→空间图；D-9/D-12 两个最终 QA 证据键无生产者；引擎 `pose_transition_anchor_gate` 需要的结果锚点关键帧角色（现靠措辞避开）；引擎补丁 e08–e21 已在 `integration/e03-sync` 分支（待合 main），e22 在 backlot-os；`bgm_authenticity_gate` 对窗口隔离账单标签的接受（线主决定，K032）；产品化的素材接入 CLI 子命令；原部署实例切换到仓库内 `lines/nalu` 副本。
 - **ADAPTER_REQUIRED**：AgentCut（语音、配乐）；InsightFace/RapidOCR/faster-whisper 运行时；ffmpeg。
 - **需付费才能验证**：S3 起的一切；dry-run 只能走到每个付费门前（DRY_PLANNED）。
 
@@ -137,5 +137,5 @@ git clone https://github.com/rogerwu188/nalu-production-runtime.git /tmp/npr && 
 
 1. 隔离目录 clone main（edafc51）→ `qingshan init --workspace <ws>` PASS → `qingshan doctor --profile core` PASS → `python3 tools/run_portable_ci.py` PASS（376 tests）→ `tools/deployment_code_integrity.py` PASS。
 2. `tools/intake_source_text.py`、`tools/intake_character_sources.py` 在合成 fixture 上 dry-run/写入 PASS（未在真实作品上跑）。
-3. **第一次卡住**：走到「S1」需要四层剧本文件 + 逐集编排器 `nalu_pipeline.py`；编排器与线专属工具在伴生仓库 nalu-production-runtime，且硬编码绝对路径 → 在新机器上 **BLOCKED（INTEGRATION_PENDING）**，本文件如实标注；补法是把编排器参数化并随本仓库或伴生仓库发布。
+3. **第一次卡住**：走到「S1」需要四层剧本文件 + 逐集编排器 `nalu_pipeline.py`；编排器与线专属工具现已随本仓库发布在 `lines/nalu/runtime/tools/`（路径参数化，`tools/tests/test_nalu_runtime_port.py` 离线验证 bootstrap + status 可跑）；剩下的卡点是剧本四层本身必须手写（MANUAL_REQUIRED），本文件如实标注。
 4. 真实边界：S3 起必须凭据 + 付费；每集有 5 处人工看图审核；发布无代码路径。

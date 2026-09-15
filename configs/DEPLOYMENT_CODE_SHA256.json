@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1814,
+  "file_count": 1815,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -201,7 +201,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "6e82b6b8893107c29b7216144f1213b5bc5d0b50d1798efffa123a19d01c76ef"
+      "sha256": "b2e0baf0630a254b888f2712a4ab10eb3c028ee553df29b84747238dffe066e9"
     },
     {
       "path": "configs/VIDEO_MODEL_CAPABILITY_REGISTRY_v1.json",
@@ -6502,6 +6502,10 @@
     {
       "path": "tools/tests/test_multimodal_character_binding_guard.py",
       "sha256": "2a549b359db73fedec90c8595c264dfaa39e130133cd61a3ad67bb70f5472782"
+    },
+    {
+      "path": "tools/tests/test_nalu_runtime_port.py",
+      "sha256": "e7879deb751fe0c3e116e725bddb4d28e6f5953d0ebd3d47021ede11f6e0d54c"
     },
     {
       "path": "tools/tests/test_native_audio_loudness_contract.py",

@@ -1,0 +1,14 @@
+{
+  "schema": "nalu.character_asset_registry.v1",
+  "line": "<line id>",
+  "work": "<work title>",
+  "author": "<author>",
+  "purpose": "engine-facing character registry rebuilt from the asset library after every lock",
+  "authority": "",
+  "generated_at": "",
+  "generated_by": "identity_qa_lock.py registry",
+  "source_library": "runtime/asset_library.json",
+  "source_library_sha256": "",
+  "episode": "",
+  "character_count": 0
+}

@@ -1,0 +1,12 @@
+{
+  "schema": "nalu.voice_catalog.v1",
+  "recorded_at_utc": "",
+  "source": "agentcut speech-voices listing, chosen per character by the agent",
+  "voices": {
+    "example_lead": {
+      "voice_id": "",
+      "note": ""
+    }
+  },
+  "notes": {}
+}

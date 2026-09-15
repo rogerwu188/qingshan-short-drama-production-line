@@ -1,0 +1,20 @@
+{
+  "schema": "nalu.entity_registry.v1",
+  "line": "<line id>",
+  "work": "<work title>",
+  "author": "<author>",
+  "purpose": "additive entity ids for the engine multimodal binding guard (engine patch e09)",
+  "consumed_via": "QINGSHAN_ENTITY_REGISTRY",
+  "additive_only": "true",
+  "entity_id_derivation": "pinyin slug of the canonical name",
+  "companion_files": {
+    "voice_registry": "runtime/voice_registry.json",
+    "agentcut_voice_policy": "runtime/agentcut_character_voice_reference_policy.json",
+    "character_asset_registry": "runtime/nalu_character_asset_registry.json"
+  },
+  "entity_aliases": {
+    "example_lead": [
+      "CHAR-EXAMPLE-A"
+    ]
+  }
+}

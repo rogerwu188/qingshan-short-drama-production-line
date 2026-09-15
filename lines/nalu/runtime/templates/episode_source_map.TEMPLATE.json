@@ -1,0 +1,23 @@
+{
+  "schema": "nalu.episode_source_map.v1",
+  "line": "<line id>",
+  "authorization": "<adaptation authorization on record>",
+  "built_at_pdt": "",
+  "work": {
+    "title": "",
+    "author": "",
+    "source_index": "",
+    "reading_script": ""
+  },
+  "method": "",
+  "coverage": {
+    "chapters_available": "",
+    "chapters_read": "",
+    "episodes_mapped": ""
+  },
+  "episodes": [],
+  "pending": {
+    "next_chapter_to_read": 1,
+    "note": ""
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "schema": "nalu.budget_ledger.v1",
+  "cap_credits_per_episode": 8000,
+  "authority": "<supervisor order id>",
+  "money_rules": [],
+  "entries": [],
+  "latest_balance_snapshot": null,
+  "updated_at_utc": ""
+}

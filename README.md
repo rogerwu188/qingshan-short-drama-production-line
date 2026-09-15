@@ -206,7 +206,10 @@ SD2 and H3 keep the dialogue, ambience, foley, action sounds, and timing generat
 ## 从素材到成片（一条真实走通的路径）
 
 本节来自一条真实跑通 E01–E03 的部署（2026-09-09 → 09-15）。逐步操作、停下来问人的点、
-失败分类和尚未自动化的步骤见根目录 [AGENTS.md](AGENTS.md)。
+失败分类和尚未自动化的步骤见根目录 [AGENTS.md](AGENTS.md)。这条线的编排器与全部线专属工具已随仓库发布在
+`lines/nalu/runtime/tools/`（路径参数化，离线测试 `tools/tests/test_nalu_runtime_port.py`）；新机器从零部署按
+[lines/nalu/docs/DEPLOY_NEW_MACHINE.md](lines/nalu/docs/DEPLOY_NEW_MACHINE.md) 走，它也如实列出仓库给不了的东西
+（凭据、作品素材、AgentCut、审核位上的代理）。
 
 ### 启动话术（正式版，用户把它发给一个全新代理）
 

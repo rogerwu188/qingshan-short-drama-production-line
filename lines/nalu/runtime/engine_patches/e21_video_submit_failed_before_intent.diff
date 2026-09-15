@@ -1,0 +1,36 @@
+diff --git a/tools/submit_giggle_video_manifest_v2.py b/tools/submit_giggle_video_manifest_v2.py
+index d2776bf..2dfae02 100644
+--- a/tools/submit_giggle_video_manifest_v2.py
++++ b/tools/submit_giggle_video_manifest_v2.py
+@@ -813,6 +813,13 @@ def classify_failures(failures: list[dict[str, Any]], known: int, matched: int,
+         state, summary = "CHARGE_STATE_UNRESOLVED_BATCH", "QUARANTINE_AMBIGUOUS_TASKS_ONLY"
+     for failure in failures:
+         path = resolve(failure["transaction"])
++        if not path.is_file():
++            # nalu e21 (mirrors e17 for images): the task failed BEFORE its intent record was written
++            # (batch prompt gate / precheck / reference read) — no POST was attempted, nothing was charged.
++            failure["status"] = "submit_failed_before_intent"
++            failure["credit"] = 0
++            failure["credit_status"] = "NOT_CHARGED_NO_INTENT_RECORDED"
++            continue
+         row = json.loads(path.read_text(encoding="utf-8"))
+         if row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id"):
+             failure["task_id"] = row["task_id"]
+@@ -901,7 +908,16 @@ def main() -> int:
+     if not args.precheck_only:
+         newly_bound = sum(not row.get("recovered_from_transaction") for row in results)
+         maximum = newly_bound + len(failures)
+-        for attempt in range(7):
++        if maximum == 0:
++            # nalu e21: nothing was POSTed in this run (every task recovered from the durable store, no
++            # failures) — there is no charge to reconcile.  Matching a statement window here only picks up
++            # OTHER lines' activity on a shared provider account and turns a no-op re-entry into a FAIL
++            # (observed 2026-09-15: 2 foreign SingleGenerateVideo rows, 400 cr, in a 23 s window).
++            credit = {"status": "PASS_REUSED_TRANSACTIONS", "matched_count": 0, "charged_credits": 0,
++                      "expected_count": 0, "known_task_id_count": 0, "ambiguous_response_count": 0,
++                      "unmapped_pay_row_count": 0, "note": "no new submission in this run; window reconciliation skipped"}
++            matched = 0
++        for attempt in range(7 if maximum else 0):
+             credit = reconcile_rows(fetch_pay_statements(), start=start - timedelta(seconds=10), end=datetime.now(timezone.utc) + timedelta(seconds=10), expected_count=maximum, event_description="SingleGenerateVideo", model=str(tasks[0]["model"]))
+             matched = int(credit.get("matched_count", 0))
+             if matched >= newly_bound or attempt == 6:

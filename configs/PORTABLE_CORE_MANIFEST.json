@@ -58,7 +58,17 @@
     "tools/episode_stage_gate_runner.py",
     "tools/platform_release_preflight.py",
     "tools/release_order_watch.py",
-    "tools/release_signoff_integrity_gate.py"
+    "tools/release_signoff_integrity_gate.py",
+    "lines/nalu/runtime/tools/nalu_paths.py",
+    "lines/nalu/runtime/tools/bootstrap_runtime_root.py",
+    "lines/nalu/runtime/tools/nalu_pipeline.py",
+    "lines/nalu/runtime/tools/nalu_selective_bgm.py",
+    "lines/nalu/runtime/tools/nalu_budget_ledger.py",
+    "lines/nalu/runtime/tools/vlm_review_protocol.py",
+    "lines/nalu/runtime/tools/video_q2_builder.py",
+    "lines/nalu/runtime/tools/keyframe_q1_builder.py",
+    "lines/nalu/docs/DEPLOY_NEW_MACHINE.md",
+    "tools/tests/test_nalu_runtime_port.py"
   ],
   "portable_test_modules": [
     "tools.tests.test_editorial_pacing_contract",
@@ -110,6 +120,7 @@
     "tools.tests.test_writer_production_field_gate",
     "tools.tests.test_credit_window_isolation",
     "tools.tests.test_knowledge_registry",
-    "agent_factory.claude_writer_v2.tests.test_smoke"
+    "agent_factory.claude_writer_v2.tests.test_smoke",
+    "tools.tests.test_nalu_runtime_port"
   ]
 }

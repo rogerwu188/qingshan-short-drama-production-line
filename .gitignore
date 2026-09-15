@@ -78,3 +78,4 @@
 !/configs/DEPLOYMENT_CODE_SHA256.json
 !/configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json
 !/configs/pipeline.example.json
+!/lines/
