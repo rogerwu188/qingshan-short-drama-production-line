@@ -6457,7 +6457,7 @@
     },
     {
       "path": "tools/tests/test_knowledge_registry.py",
-      "sha256": "d575da5955fa0bad937bbf8b9c2a3209676fbeaab8df77471c41465547d569f9"
+      "sha256": "740915b0f4d7c53819c4481121441d478a6752e5f29c48a10b4d744548f694d4"
     },
     {
       "path": "tools/tests/test_line_heartbeat.py",

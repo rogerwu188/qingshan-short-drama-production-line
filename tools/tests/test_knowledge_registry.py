@@ -32,7 +32,8 @@ class KnowledgeRegistryTests(unittest.TestCase):
             self.assertRegex(by_id[key]["evidence"], r"^nalu PIPELINE_RUNBOOK D-\d+(/D-\d+)*$")
             self.assertIn("- 证据：" + by_id[key]["evidence"], markdown)
         for key in ("K030", "K032", "K034"):
-            self.assertEqual("INTEGRATION_PENDING", by_id[key]["status"])
+            expected = "REFERENCE_IMPLEMENTATION" if key == "K032" else "INTEGRATION_PENDING"  # K032: gate accepts the window label since e23 (owner decision 2026-09-15)
+            self.assertEqual(expected, by_id[key]["status"])
 
     def test_knowledge_docs_are_in_deployment_inventory_scope(self):
         from tools.deployment_code_integrity import included
