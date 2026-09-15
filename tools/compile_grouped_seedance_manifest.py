@@ -804,7 +804,17 @@ def write_preflight_artifacts(
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editorial: dict[str, Any]) -> dict[str, Any]:
+def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editorial: dict[str, Any],
+                     *, planning_only: bool = False) -> dict[str, Any]:
+    """``planning_only`` (nalu engine patch e13, 2026-09-12): compile the structured unit
+    contracts BEFORE any keyframe exists, for the whole-batch prompt QA that
+    tools/episode_prompt_batch_gate.py demands ahead of the first paid image POST
+    (docs/WHOLE_BATCH_PROMPT_PREPRODUCTION.md: "Real media waits delay final references,
+    never prompt authoring").  In this mode the anchor file is not required to exist, its
+    sha is None, and the start-frame semantic contract is carried through unverified and
+    marked ``planning_only``; nothing compiled here is a media admission and every unit is
+    stamped ``submission_status: PLANNED_PROMPT_NOT_ADMISSION``.  The default (strict) path is
+    byte-for-byte unchanged."""
     anchor_by_unit = {row["unit_id"]: row for row in anchors.get("units") or []}
     shot_by_id = {row["shot_id"]: row for row in editorial.get("shots") or []}
     units: list[dict[str, Any]] = []
@@ -823,6 +833,10 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
         references = []
         for value, role in zip(paths, roles):
             path = resolve(value)
+            if planning_only and not path.is_file():
+                references.append({"path": value, "sha256": None, "role": role,
+                                   "planning_placeholder": "NOT_ADMITTED_PLANNED_PROMPT_COMPILATION"})
+                continue
             if not path.is_file():
                 raise ValueError(f"{unit_id} anchor missing: {value}")
             references.append({"path": value, "sha256": digest(path), "role": role})
@@ -846,17 +860,22 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             validate_grouped_beat_contract(prompt_spec, source_id=str(shot["shot_id"]))
         camera_plan = validate_camera_plan(unit.get("camera_plan"), source_id=unit_id)
         transition_contract = unit.get("transition_contract")
-        semantic_contract = validate_start_anchor_semantics(
-            anchor.get("start_frame_semantic_contract"),
-            unit_id=unit_id,
-            first_reference=references[0],
-            first_prompt_spec=prompt_specs[0],
-            camera_plan=camera_plan,
-            required_space_anchors=(transition_contract or {}).get("anchor_semantic_requirements", {}).get(
-                "target_space_anchors", anchor.get("required_start_space_anchors") or []
-            ),
-            root=ROOT,
-        )
+        if planning_only:
+            semantic_contract = {**(anchor.get("start_frame_semantic_contract") or {}),
+                                 "planning_only": True,
+                                 "planning_note": "unverified in planning compile; exact-SHA evidence is checked at the strict compile"}
+        else:
+            semantic_contract = validate_start_anchor_semantics(
+                anchor.get("start_frame_semantic_contract"),
+                unit_id=unit_id,
+                first_reference=references[0],
+                first_prompt_spec=prompt_specs[0],
+                camera_plan=camera_plan,
+                required_space_anchors=(transition_contract or {}).get("anchor_semantic_requirements", {}).get(
+                    "target_space_anchors", anchor.get("required_start_space_anchors") or []
+                ),
+                root=ROOT,
+            )
         compiled_unit = {
             "unit_id": unit_id,
             "scene_id": unit["scene_id"],
@@ -884,7 +903,8 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             "combat_choreography_contract": unit.get("combat_choreography_contract"),
             "combat_action_library_binding": unit.get("combat_action_library_binding"),
             "native_audio_contract": "SAME_VIDEO_TASK_NATIVE_DIALOGUE_AMBIENCE_FOLEY_ACTION_SOUND",
-            "submission_status": "NOT_AUTHORIZED_UNTIL_REGISTERED_GROUPED_PREFLIGHT_PASS",
+            "submission_status": ("PLANNED_PROMPT_NOT_ADMISSION" if planning_only
+                                  else "NOT_AUTHORIZED_UNTIL_REGISTERED_GROUPED_PREFLIGHT_PASS"),
             "paid_attempt": 0,
             "remote_task_id": None,
         }
@@ -940,6 +960,8 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             validation_segment = deepcopy(segment)
             validation_segment[0]["transition_contract"] = None
             validate_transition_sequence(validation_segment, require_prompt_specs=True)
+        authored_outgoing = {str(u.get("unit_id")): u.get("outgoing_transition_contract")
+                             for u in grouping.get("units") or []}
         for index, row in enumerate(units):
             row["incoming_transition_contract"] = row.get("transition_contract")
             next_row = units[index + 1] if index + 1 < len(units) else None
@@ -948,6 +970,19 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
                 next_number = int(str(next_row["unit_id"]).rsplit("-", 1)[1]) if next_row else None
             except (IndexError, ValueError):
                 current_number = next_number = None
+            # nalu e15 (2026-09-13): a partial-ready wave is non-contiguous, but every unit
+            # still carries the DIRECTOR-AUTHORED outgoing boundary of the full grouping plan.
+            # Keep it when it names the canonical successor (number + 1) so the wave's final
+            # prompt renders the same 结尾交棒 hand-off as the batch-approved planned prompt;
+            # only a unit with no authored successor boundary falls back to the list neighbour.
+            authored = row.get("outgoing_transition_contract") or authored_outgoing.get(str(row.get("unit_id")))
+            try:
+                authored_to = int(str((authored or {}).get("to_unit_id") or "").rsplit("-", 1)[1])
+            except (IndexError, ValueError):
+                authored_to = None
+            if authored and current_number is not None and authored_to == current_number + 1:
+                row["outgoing_transition_contract"] = authored
+                continue
             row["outgoing_transition_contract"] = (
                 next_row.get("transition_contract")
                 if next_row is not None and next_number == current_number + 1
@@ -963,6 +998,7 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
         raise ValueError("compiled runtime mismatch")
     return {
         "schema": "qingshan.grouped_seedance_manifest.v3_transition_and_anchor_semantics",
+        "planning_only": planning_only,
         "episode": grouping.get("episode"),
         "video_unit_count": len(units),
         "runtime_seconds": runtime,
@@ -994,8 +1030,66 @@ def main() -> int:
     parser.add_argument("--directing-script", type=Path)
     parser.add_argument("--generation-contract", type=Path)
     parser.add_argument("--supervisor-report", type=Path)
+    parser.add_argument("--planning-only", action="store_true",
+                        help="nalu e13: compile unit contracts and PLANNED provider prompts before keyframes exist "
+                             "(compile_model_prompt preproduction_only=True); never an admission")
+    parser.add_argument("--final-prompt-dir", type=Path,
+                        help="nalu e13b: after a STRICT compile, write <unit_id>.txt final provider prompts here "
+                             "(compile_model_prompt default strict mode) and a <out>.final_prompts.json index; "
+                             "for lines that do not carry the full grouped-preflight artifact set")
+    parser.add_argument("--planned-prompt-dir", type=Path,
+                        help="with --planning-only: write <unit_id>.txt planned prompts here and a "
+                             "<out>.planned_prompts.json index next to --out")
     args = parser.parse_args()
-    result = compile_manifest(load(args.grouping_plan), load(args.anchor_plan), load(args.editorial_seedance_manifest))
+    result = compile_manifest(load(args.grouping_plan), load(args.anchor_plan), load(args.editorial_seedance_manifest),
+                              planning_only=bool(args.planning_only))
+    if not args.planning_only and args.final_prompt_dir:
+        try:
+            from tools.video_prompt_compiler import compile_model_prompt, validate_model_prompt_for_model, compile_receipt
+        except ModuleNotFoundError:
+            from video_prompt_compiler import compile_model_prompt, validate_model_prompt_for_model, compile_receipt
+        args.final_prompt_dir.mkdir(parents=True, exist_ok=True)
+        final_rows = []
+        for unit in result["units"]:
+            unit["action_timeline"] = action_timeline(unit)
+            density = validate_action_timeline(unit["action_timeline"], unit["duration_seconds"], source_id=unit["unit_id"])
+            if density["status"] != "PASS":
+                raise ValueError(";".join(density["failures"]))
+            text = compile_model_prompt(unit, [])
+            prompt_path = args.final_prompt_dir / f"{unit['unit_id']}.txt"
+            prompt_path.write_text(text, encoding="utf-8")
+            contract = validate_model_prompt_for_model(text, model=unit["model"], source_id=unit["unit_id"], unit=unit)
+            if contract.get("status") != "PASS":
+                raise ValueError(f"{unit['unit_id']} final prompt contract: " + ";".join(contract.get("failures") or []))
+            final_rows.append({"unit_id": unit["unit_id"], "path": str(prompt_path), "sha256": digest(prompt_path),
+                               "runes": len(text), "model_prompt_contract": contract, "compile_receipt": compile_receipt(unit["unit_id"])})
+        index_path = args.out.with_name(args.out.stem + ".final_prompts.json")
+        index_path.write_text(json.dumps({"schema": "nalu.final_video_prompts.v1", "strict": True, "rows": final_rows},
+                                         ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if args.planning_only and args.planned_prompt_dir:
+        try:
+            from tools.video_prompt_compiler import compile_model_prompt, validate_model_prompt_for_model, compile_receipt
+        except ModuleNotFoundError:
+            from video_prompt_compiler import compile_model_prompt, validate_model_prompt_for_model, compile_receipt
+        args.planned_prompt_dir.mkdir(parents=True, exist_ok=True)
+        planned_rows = []
+        for unit in result["units"]:
+            unit["action_timeline"] = action_timeline(unit)
+            density = validate_action_timeline(unit["action_timeline"], unit["duration_seconds"], source_id=unit["unit_id"])
+            if density["status"] != "PASS":
+                raise ValueError(";".join(density["failures"]))
+            text = compile_model_prompt(unit, [], preproduction_only=True)
+            prompt_path = args.planned_prompt_dir / f"{unit['unit_id']}.txt"
+            prompt_path.write_text(text, encoding="utf-8")
+            contract = validate_model_prompt_for_model(text, model=unit["model"], source_id=unit["unit_id"], unit=unit)
+            planned_rows.append({"unit_id": unit["unit_id"], "path": str(prompt_path), "sha256": digest(prompt_path),
+                                 "runes": len(text), "model_prompt_contract": contract,
+                                 "compile_receipt": compile_receipt(unit["unit_id"])})
+        index_path = args.out.with_name(args.out.stem + ".planned_prompts.json")
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        index_path.write_text(json.dumps({"schema": "nalu.planned_video_prompts.v1", "planning_only": True,
+                                          "scope": "PLANNED_PROMPT_COMPILATION_NOT_MEDIA_ADMISSION",
+                                          "rows": planned_rows}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     result["grouping_plan_sha256"] = digest(args.grouping_plan)
     result["anchor_plan_sha256"] = digest(args.anchor_plan)
     result["editorial_seedance_manifest_sha256"] = digest(args.editorial_seedance_manifest)

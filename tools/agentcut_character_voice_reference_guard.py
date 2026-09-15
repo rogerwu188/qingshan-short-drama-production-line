@@ -6,14 +6,60 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_POLICY = ROOT / "configs/agentcut_character_voice_reference_policy_v1.json"
-DEFAULT_REGISTRY = ROOT / "configs/series_voice_reference_registry_current_20260723.json"
+
+
+def _configured_path(variable: str, default: str) -> Path:
+    configured = os.environ.get(variable, "").strip()
+    if not configured:
+        return ROOT / default
+    path = Path(configured).expanduser()
+    return path if path.is_absolute() else ROOT / path
+
+
+DEFAULT_POLICY = _configured_path(
+    "QINGSHAN_AGENTCUT_VOICE_POLICY", "configs/agentcut_character_voice_reference_policy_v1.json"
+)
+DEFAULT_REGISTRY = _configured_path(
+    "QINGSHAN_VOICE_REGISTRY", "configs/series_voice_reference_registry_current_20260723.json"
+)
 EXEMPT = {"chenji", "baili"}
 READY = {"LOCKED_PRODUCTION_READY", "AGENTCUT_GENERATED_REGISTERED_PRODUCTION_READY"}
+
+
+def exempt_entities(registry: dict) -> set[str]:
+    """Narrow the legacy-native-voice exemption to what this registry declares.
+
+    EXEMPT names the two pre-AgentCut voices of one production line. A second
+    line's registry contains neither of them, so the trailing exemption
+    assertion below reported EXEMPT_NATIVE_VOICE_NOT_LOCKED for characters that
+    do not exist in that series.
+
+    tools/generate_agentcut_character_voice_references.py:412 already writes
+    `policy.only_legacy_native_voice_exemptions` into the registry, so the
+    registry is self-describing. This reads that declaration and **intersects**
+    it with EXEMPT: the set can only ever shrink, never grow. Declaring an
+    entity that is not already exempt is a hard error, so no registry can buy
+    itself an exemption from the AgentCut receipt requirement. Omitting the key
+    keeps the historical behaviour byte for byte.
+    """
+    declared = (registry.get("policy") or {}).get("only_legacy_native_voice_exemptions")
+    if declared is None:
+        return set(EXEMPT)
+    if not isinstance(declared, list) or not all(isinstance(value, str) and value for value in declared):
+        raise ValueError("only_legacy_native_voice_exemptions must be a list of entity ids")
+    unauthorized = sorted(set(declared) - EXEMPT)
+    if unauthorized:
+        raise ValueError(
+            "a registry may not grant new legacy native voice exemptions: "
+            + ",".join(unauthorized)
+        )
+    return set(declared)
+
 
 
 def load(path: Path) -> dict:
@@ -104,7 +150,8 @@ def evaluate(policy: dict, registry: dict) -> dict:
         results.append(result)
         failures.extend({"entity_id": entity_id, "code": code} for code in row_failures)
 
-    for entity_id in EXEMPT:
+    exempt = exempt_entities(registry)
+    for entity_id in exempt:
         row = authority.get(entity_id)
         if not row or row.get("status") not in READY or not row.get("remote_asset_id"):
             failures.append({"entity_id": entity_id, "code": "EXEMPT_NATIVE_VOICE_NOT_LOCKED"})
@@ -112,7 +159,7 @@ def evaluate(policy: dict, registry: dict) -> dict:
     return {
         "schema": "qingshan.agentcut_character_voice_reference_gate.v1",
         "status": "PASS" if not failures else "FAIL",
-        "exempt_existing_native_voices": sorted(EXEMPT),
+        "exempt_existing_native_voices": sorted(exempt),
         "checked_agentcut_roles": len(expected),
         "results": results,
         "failures": failures,

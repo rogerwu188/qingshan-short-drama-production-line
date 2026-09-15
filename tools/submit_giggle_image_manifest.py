@@ -499,6 +499,22 @@ def submit_all(
     return results, failures
 
 
+def _provider_declined(failure: dict[str, Any], transaction_dir: Path | None = None) -> bool:
+    """True when the recorded provider response is an explicit non-200 failure (no task_id)."""
+    text = str(failure.get("provider_response") or "")
+    if not text and transaction_dir is not None and failure.get("transaction"):
+        path = transaction_dir / Path(failure["transaction"]).name
+        if path.is_file():
+            try:
+                text = str(json.loads(path.read_text(encoding="utf-8")).get("provider_response") or "")
+            except Exception:  # noqa: BLE001
+                text = ""
+    text = text or str(failure.get("error") or "")
+    return ("task_id" not in text or "missing data.task_id" in text) and any(
+        marker in text for marker in ("'code': 500", '"code":500', "payment failed", "status: 500", "status: 4")
+    )
+
+
 def classify_ambiguous_failures(
     failures: list[dict[str, Any]],
     *,
@@ -516,6 +532,16 @@ def classify_ambiguous_failures(
         status = "CHARGED_TASK_ID_MISSING"
         credit = None
         summary = "ONE_CHARGED_RESPONSE_LOSS_REQUIRES_TASK_HISTORY_RECOVERY"
+    elif extra_charges == 0 and all(
+        _provider_declined(f, transaction_dir) for f in failures
+    ):
+        # nalu e18 (2026-09-13): the provider answered with an explicit non-charging failure
+        # (HTTP/JSON code != 200, e.g. "payment failed ... 500") AND the ledger shows no pay row
+        # beyond the task ids we hold — nothing was bought; the attempt may be retried.
+        state = "NOT_CHARGED_RETRYABLE"
+        status = "NOT_CHARGED_RETRYABLE"
+        credit = 0
+        summary = "PROVIDER_DECLINED_AND_LEDGER_ROWS_EQUAL_KNOWN_TASK_IDS"
     else:
         state = "CHARGE_STATE_UNRESOLVED_BATCH"
         status = "CHARGE_STATE_UNRESOLVED_BATCH"
@@ -526,6 +552,13 @@ def classify_ambiguous_failures(
         failure["credit"] = credit
         failure["credit_status"] = status
         path = transaction_dir / Path(failure["transaction"]).name
+        if not path.is_file():
+            # nalu e17: the item failed BEFORE its intent record was written (batch gate / input
+            # precheck / prompt sha / reference read) — no POST was attempted, nothing was charged.
+            failure["status"] = "submit_failed_before_intent"
+            failure["credit"] = 0
+            failure["credit_status"] = "NOT_CHARGED_NO_INTENT_RECORDED"
+            continue
         transaction = json.loads(path.read_text(encoding="utf-8"))
         if transaction.get("state") == "SUBMITTED_TASK_ID_BOUND" and transaction.get("task_id"):
             failure["task_id"] = transaction["task_id"]
@@ -666,7 +699,7 @@ def main() -> int:
     report = {
         "schema": "qingshan.giggle_image_batch_submit.v2",
         "episode": manifest.get("episode"),
-        "manifest": str(manifest_path.relative_to(ROOT)),
+        "manifest": portable_path(manifest_path),
         "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "precheck_only": args.precheck_only,
         "concurrency": max(1, args.concurrency),
