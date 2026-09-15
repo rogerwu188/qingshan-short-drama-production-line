@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1816,
+  "file_count": 1823,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -950,6 +950,10 @@
     {
       "path": "tools/authorized_insertion_and_form_disclosure_assert.py",
       "sha256": "de377451da245257cf3219c58fc2f75067041fefff701057810226df269eb34d"
+    },
+    {
+      "path": "tools/basic_dialogue_qa_policy.py",
+      "sha256": "ec0c04d47cf72e4fd237cf00e4aa698827d4e057fa067de16fa7126a25b027f9"
     },
     {
       "path": "tools/bgm_authenticity_gate.py",
@@ -3216,6 +3220,10 @@
       "sha256": "93c2aaaa77d37534d0b3912d5bfa29a106b4533ec8970e6cba43953c1c759abc"
     },
     {
+      "path": "tools/durable_rename.py",
+      "sha256": "28bc6810583e31ef2c62f5915a9f9c4bd92c054e3d85faf5c21a9bc7b3de653c"
+    },
+    {
       "path": "tools/e18_e19_asr_sentence_completeness.py",
       "sha256": "20a337eb1b1bd8c47baa159891d859cde7ee3da6a38436a0eb2a605e69bdef99"
     },
@@ -5436,6 +5444,10 @@
       "sha256": "95b18e0e085a512c6e3d0563b9a748939aca7d3c76eb3de4504d01d25396b2ab"
     },
     {
+      "path": "tools/sd2_shot_camera_adapter.py",
+      "sha256": "79c55ae69ced3fe8e9daa02f7d9a3bd59efc4c1355eb288cdfcbe8e8b713c381"
+    },
+    {
       "path": "tools/seedance2_prompt_compiler.py",
       "sha256": "e816d7e3c4ce38ce784000fbd224458d7a3cb6d3643fc32475f4bae65de3d451"
     },
@@ -5597,7 +5609,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "d31a00258c0a10e8972ba8e837a5ac41d182593f764a9452288bf99067c3cd94"
+      "sha256": "738d6a641e67c3885a6ac906515da45eefbfc60dbce72f8600ef43fe65e96a2f"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -5862,6 +5874,10 @@
     {
       "path": "tools/tests/test_authorized_insertion_and_form_disclosure_assert.py",
       "sha256": "4851ed13c874a2de39517e76f26cd2d5577d59b24767a565b4ba2de9f4098960"
+    },
+    {
+      "path": "tools/tests/test_basic_dialogue_qa_policy.py",
+      "sha256": "72d239e2d170fcd5fbaabf850dab99c607aa0847acc1bc425a9745dcef805f66"
     },
     {
       "path": "tools/tests/test_bgm_authenticity_gate.py",
@@ -6130,6 +6146,10 @@
     {
       "path": "tools/tests/test_durable_exec_probe.py",
       "sha256": "8094d41879924ebe1beb101a88a7dd29e481c2e182c35f5fdf49cc2452c46aef"
+    },
+    {
+      "path": "tools/tests/test_durable_rename.py",
+      "sha256": "a0faf48f6eed54c0038a27dd672f7ecfa54b490cb4d2da3430551cf2b28052f5"
     },
     {
       "path": "tools/tests/test_e20_audio_prompt_compiler.py",
@@ -6708,6 +6728,10 @@
       "sha256": "81f2c3da1904ded4df4cffbff655ddab0ba783fce348a6ebe2e0c8be8674d4ea"
     },
     {
+      "path": "tools/tests/test_sd2_shot_camera_adapter.py",
+      "sha256": "738eb50b6e4ab5a9044e6c35d48f21b6f73857042f6123e3a43db577edbb0d17"
+    },
+    {
       "path": "tools/tests/test_seedance2_multi_keyframe_long_take.py",
       "sha256": "18ceb6dfef610b13ea31ab5b3acf004ef39d9208ca99d09a996bc279048d6896"
     },
@@ -6954,6 +6978,10 @@
     {
       "path": "tools/tests/test_youtube_shorts_runtime_gate.py",
       "sha256": "d961dd6f83ac4acfec47d64be25a80422fc6390409adae1592cb18c807304e66"
+    },
+    {
+      "path": "tools/tool_output_sanitizer.py",
+      "sha256": "91ef53ae2826b70c17de0ed84fdbe1730cfcbbe0e8b523953ba574241cb6aee6"
     },
     {
       "path": "tools/transcribe_media_for_qa.py",
