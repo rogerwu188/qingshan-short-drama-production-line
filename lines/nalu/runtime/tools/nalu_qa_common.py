@@ -233,6 +233,8 @@ class Expectations:
         self.start_frames = read_json(self.p.start_frames, {}) or {}
         self.library = read_json(self.p.identity_library) or read_json(ASSET_LIBRARY, {}) or {}
         self.requirements = read_json(self.p.asset_requirements, {}) or {}
+        # the generation contract (writer-agent scripts dir); D-35 creature/prop subjects are resolved from it
+        self.contract = read_json(self.p.contract, {}) or {}
         self.shots = {str(row.get("shot_id")): row for row in self.editorial.get("shots") or []}
         bible = self.editorial.get("wardrobe_bible") or {}
         self.wardrobe_by_id = {str(row.get("character_id")): row
@@ -434,7 +436,19 @@ class Expectations:
                         if actor_name and str(row.get("prop") or "") == actor_name:
                             initiator_id = str(row.get("prop_id") or ""); break
                     if not initiator_id:
-                        for row in (getattr(self, "contract", {}) or {}).get("non_character_entities") or []:
+                        # the editorial manifest drops creature props from the shot row (E04-S03-03 props=[]);
+                        # the generation contract's own shot row still carries the PROP-* card
+                        c_shots = self.contract.get("shots") or []
+                        c_shots = c_shots if isinstance(c_shots, list) else list(c_shots.values())
+                        for c_shot in c_shots:
+                            if str(c_shot.get("shot_id") or "") != shot_id:
+                                continue
+                            for row in ((c_shot.get("prompt_spec") or c_shot).get("props") or []):
+                                if actor_name and str(row.get("prop") or "") == actor_name:
+                                    initiator_id = str(row.get("prop_id") or ""); break
+                            break
+                    if not initiator_id:
+                        for row in self.contract.get("non_character_entities") or []:
                             if actor_name and str(row.get("name") or "") == actor_name:
                                 initiator_id = str(row.get("entity_id") or ""); break
             target_id = str(action.get("patient_id") or roles.get("action_patient_id") or "")

@@ -280,6 +280,62 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - 状态：`INTEGRATION_PENDING`。相关实现：[tools/bgm_authenticity_gate.py](../../tools/bgm_authenticity_gate.py)（相关代码存在，不等于公共主分支已完整消费）
 - 证据：nalu PIPELINE_RUNBOOK D-32/D-36
 
+### K035 — REVIEW
+
+- 规则：动作角色审核的封闭词表必须包含已锁定的非人物实体（生物/道具/场景卡）：引擎的剪辑镜表扫描会把生物道具从镜行里丢掉，审核者就无法把它报为动作发起者；期望值构建器还要加载生成合同，才能把 CREATURE 发起者解析成 PROP-* 实体 id。
+- 失败教训：同一批 action_role 项在 PASS 提交后被循环反复重发请求：真正的阻塞不在答案里，而在回执写入器（CONTRACT_INITIATOR_OR_TARGET_UNDECLARED）。
+- 修复路径：词表并入资产库全部 props/sets id；Expectations 读取生成合同并按镜行 props → non_character_entities 解析发起者；每次循环重发同一批项时先读 s6_are_write_receipts 日志。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[lines/nalu/runtime/tools/vlm_review_protocol.py](../../lines/nalu/runtime/tools/vlm_review_protocol.py)、[lines/nalu/runtime/tools/nalu_qa_common.py](../../lines/nalu/runtime/tools/nalu_qa_common.py)（本仓库 lines/nalu 运行时已实现并随 E04 生产验证）
+- 证据：nalu PIPELINE_RUNBOOK D-38/D-39
+
+### K036 — MEDIA_QA
+
+- 规则：对白门用期望台词做 initial_prompt 引导 whisper 时，引导解码可能退化成单个替换字符而报『无普通话语音』；这时用同一模型做一次不带引导、开 VAD 的复核，只有复核召回 ≥ 门限且全部片段为真实语音才清除失败，并把两份转写都记进裁决。
+- 失败教训：一条清晰可辨的台词被引导解码判成『缺失』；重跑同一段还会得到完全不同的幻觉文本，说明引导解码本身不稳定。
+- 修复路径：runner 里加 ASR_DEGENERATE_PRIMED_DECODE_REVERIFIED 裁决（D-18d）；不改门限、不放宽召回；只在引导转写不含任何汉字时触发。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[lines/nalu/runtime/tools/post_generation_qa_runner.py](../../lines/nalu/runtime/tools/post_generation_qa_runner.py)（本仓库 lines/nalu 运行时已实现并随 E04 生产验证）
+- 证据：nalu PIPELINE_RUNBOOK D-39
+
+### K037 — MEDIA_QA
+
+- 规则：幻觉中的引导解码还会捏造片段时间（5 s 片子给出 26 s 的片段），使『台词尾音被截断』门在幽灵时间轴上成立、而尾音测量器报 UNMEASURABLE；应在复核得到的真实语音片段上重新测量尾音，只有测得的衰减才能清除该失败。
+- 失败教训：同一单元在第二轮跑出『尾音截断』，实际最后一句在 2.6 s 就说完，剩下 2.4 s 是环境声。
+- 修复路径：复核成功后用复核片段调用同一尾音测量（最后 120 ms 比最后语音片段低 ≥6 dB 即为衰减），记录 DIALOGUE_TAIL_REMEASURED_ON_REVERIFIED_SEGMENTS（D-28b）。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[lines/nalu/runtime/tools/post_generation_qa_runner.py](../../lines/nalu/runtime/tools/post_generation_qa_runner.py)（本仓库 lines/nalu 运行时已实现并随 E04 生产验证）
+- 证据：nalu PIPELINE_RUNBOOK D-39
+
+### K038 — MEDIA_QA
+
+- 规则：真正的尾音截断（最后 120 ms 仍在语音电平，且比无语音段的环境底噪高 20 dB）与无对白单元里出现的真实说话声（no_speech_prob 低）是客观失败，审核者不能豁免；重做时只加制作文本（『整句在第 N 秒前说完、结尾静默』『全段无可辨话语』），不改剧本字。
+- 失败教训：把『尾音截断』当成可宽容的小瑕疵会让成片里的台词硬切；把无对白镜里的即兴说话声放过会让字幕/ASR 门在成片阶段再炸。
+- 修复路径：先量三段电平：语音前环境段、语音段、最后 120 ms；只有末段贴近环境底噪才算衰减；否则停放首版、改动作文字、重建层→重登记提示词批次→新事务重发。
+- 状态：`GUIDANCE_ONLY`。相关实现：[tools/source_video_dialogue_gate.py](../../tools/source_video_dialogue_gate.py)（相关代码存在，不等于公共主分支已完整消费）
+- 证据：nalu PIPELINE_RUNBOOK D-39
+
+### K039 — QA
+
+- 规则：缺陷分级门按全集评估：任何落在全集开场 10 s 或结尾 5 s 的 MINOR（P2）对每一个单元都是零容忍，一条开场里的 P2 会让 30/30 单元全部不准入；审核者不能把真实的遗漏降级，只能重做该单元；同一审核请求不能重复提交，重做后要签发新的 video_q2 请求整批重填。
+- 失败教训：首集单元的兽皮袋没扔到雪里，作为 P2 记录在第 9 秒，结果 Q2 物化 PARTIAL_0_OF_30。
+- 修复路径：开场/结尾区的 P2 = 重做，不是备注；重做走制作文本重登记链；其余单元的准入在新请求里一起重新物化。
+- 状态：`GUIDANCE_ONLY`。相关实现：[tools/defect_tolerance_gate.py](../../tools/defect_tolerance_gate.py)、[lines/nalu/runtime/tools/video_q2_builder.py](../../lines/nalu/runtime/tools/video_q2_builder.py)（相关代码存在，不等于公共主分支已完整消费）
+- 证据：nalu PIPELINE_RUNBOOK D-39
+
+### K040 — IDENTITY
+
+- 规则：视频 Q2 身份：写姿态豁免前必须先看引擎的 face_crops——远景帧的裁切常常裁到别的人物（0.05–0.10 的分数不是本人、是裁错了）；豁免理由写帧号与两个分数；边界带里审核者在人工窗内给出的 PASS 会被采纳（中点 0.375 只管超时自动裁决）；OCR 纹理噪声按 `NOISE:<文本>` 申报（置信 <0.90、不含禁词），视频 Q2 构建器与关键帧 Q1 同规则。
+- 失败教训：驴颈鬃毛被 OCR 读成 6 个拉丁字母，PERIOD-ANACHRONISM-LOCK 以 P0 拒收；一半『低分』其实是裁切框落在旁人脸上。
+- 修复路径：把 D-26 的 NOISE 申报移植到 video_q2_builder（记入 ocr_noise_ignored）；审核脚本按单元记录 identity_pose_exemptions；每次补交都签发新请求。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[lines/nalu/runtime/tools/video_q2_builder.py](../../lines/nalu/runtime/tools/video_q2_builder.py)、[lines/nalu/runtime/tools/keyframe_q1_builder.py](../../lines/nalu/runtime/tools/keyframe_q1_builder.py)（本仓库 lines/nalu 运行时已实现并随 E04 生产验证）
+- 证据：nalu PIPELINE_RUNBOOK D-39
+
+### K041 — RETRY
+
+- 规则：提示词批次链的顺序：规划编译 → 登记 → 摘要 → 回执 → 登记 → 终稿 diff（必须 0 changed）；摘要读的是已登记批次清单里的 sha，漏掉第一次登记会把回执绑到上一版提示词，付费边界报 QA_INPUT_MISMATCH（提交前失败，不扣费，留下空 .lock）。新增制作条款里不能出现资产库道具名（如『火泉』），否则它成为必须可见的起始帧道具，严格编译在 4.4 阻塞。
+- 失败教训：重做 VU-002 时跳过第一次登记，事务文件为空、循环停在 VIDEO_SUBMIT_FAILED；上一轮『火泉的水声』让 4.4 报 missing visible props。
+- 修复路径：删除空 .lock，按正确顺序重跑链，再重启循环；条款里用『池水』这类非资产名。
+- 状态：`GUIDANCE_ONLY`。相关实现：[lines/nalu/runtime/tools/prompt_batch_qa.py](../../lines/nalu/runtime/tools/prompt_batch_qa.py)、[lines/nalu/runtime/tools/prompt_batch_register.py](../../lines/nalu/runtime/tools/prompt_batch_register.py)、[lines/nalu/runtime/tools/prompt_batch_finalize.py](../../lines/nalu/runtime/tools/prompt_batch_finalize.py)（相关代码存在，不等于公共主分支已完整消费）
+- 证据：nalu PIPELINE_RUNBOOK D-39
+
 ## 引用和许可
 
 以上文字为项目经验的原创概括，随本仓库 MIT LICENSE 发布。未复制外部社区文章、教程全文、他人视频/图片或私人聊天。

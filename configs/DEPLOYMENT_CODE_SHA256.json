@@ -181,7 +181,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "cedf5ccf3b7cfe13bb570739ccb55124997c94555832d5b0c756811ef158e49c"
+      "sha256": "db8ba42ad73fab17da898a29aad1f1e16d25fea7a9972d5f595695ff46ba2728"
     },
     {
       "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
@@ -237,15 +237,15 @@
     },
     {
       "path": "docs/decisions/DECISION_RECORDS.md",
-      "sha256": "d9cff35dd0e3aa558b5eb07a8942873ca2eab7b17309d94ea9ff802208b09532"
+      "sha256": "aba202f3a936d20dca654825783312a78af61150bca0fc34a761dae69b88c2d2"
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "95363b69a7cc3fdb63618f4f4ba5b47c1aada6acc181b577fb830412cece3205"
+      "sha256": "6f137a31ab6a513d8a106f8eaf72068013121f839e271d9604f7b820a16877ff"
     },
     {
       "path": "docs/knowledge/INTEGRATION_STATUS.md",
-      "sha256": "2bb514ed32befe55a5bc4bfdad978404d032d270e4b82eb6df9576fd495a3f37"
+      "sha256": "e795bf3dcbf04d445aeef93b87f93afccd8a04a5829d227b36ad2ba71ca81fb2"
     },
     {
       "path": "docs/knowledge/VALIDATION_REPORT.md",
@@ -6457,7 +6457,7 @@
     },
     {
       "path": "tools/tests/test_knowledge_registry.py",
-      "sha256": "740915b0f4d7c53819c4481121441d478a6752e5f29c48a10b4d744548f694d4"
+      "sha256": "4836d2aa41f525092ad5e2f4f56e49decd0a6dae55d12f9391116c660ac81afb"
     },
     {
       "path": "tools/tests/test_line_heartbeat.py",

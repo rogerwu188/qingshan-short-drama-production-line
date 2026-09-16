@@ -614,10 +614,18 @@ def build_period_verification(item: dict[str, Any], questionnaire: dict[str, Any
     if not ocr_rows:
         failures.append("OCR_NOT_RUN_RUN_prepare_FIRST")
     noise_ignored: list[dict[str, Any]] = []
+    # D-26 (video, 2026-09-16 E04 VU-021 "YANTTC" on donkey mane): the reviewer may declare a specific
+    # OCR recognition as texture noise with "NOISE:<text>" in observed_text_strings — honoured only when
+    # the recognition carries no forbidden token and its OCR confidence is below 0.90, and always
+    # recorded in ocr_noise_ignored so the call stays auditable (same rule as keyframe_q1_builder).
+    declared_noise = {str(v)[6:].strip() for v in ((item.get("observed") or {}).get("observed_text_strings") or [])
+                      if str(v).startswith("NOISE:")}
     def _is_noise(entry: dict[str, Any]) -> bool:
         text = str(entry.get("text") or "").strip()
         if not text or (entry.get("forbidden_tokens") or []):
             return False
+        if text in declared_noise and float(entry.get("confidence") or 1.0) < 0.90:
+            return True
         # <=2 ASCII letters, or any single character (CJK/digit): texture false positives on
         # fur / stone / fabric (same policy as keyframe_q1_builder, verified text-free by eye)
         return (len(text) <= 2 and text.isascii() and text.isalpha()) or len(text) == 1
@@ -654,7 +662,8 @@ def build_period_verification(item: dict[str, Any], questionnaire: dict[str, Any
         failures.extend(f"{Path(str(row.get('frame'))).name}:{value}" for value in frame_failures)
 
     reviewer_text = [str(value) for value in
-                     (item.get("observed") or {}).get("observed_text_strings") or []]
+                     (item.get("observed") or {}).get("observed_text_strings") or []
+                     if not str(value).startswith("NOISE:")]
     if recognised and not reviewer_text:
         # honesty cross-check: the OCR saw text the reviewer did not report.
         failures.append("OCR_TEXT_NOT_REPORTED_BY_REVIEWER:" + ",".join(recognised[:5]))

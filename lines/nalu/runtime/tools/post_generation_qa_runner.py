@@ -446,6 +446,10 @@ def _whisper_model_locked():
     return _WHISPER
 
 
+def _has_chinese(value: str) -> bool:
+    return any("\u4e00" <= ch <= "\u9fff" for ch in value)
+
+
 def _verify_no_speech(media: Path) -> dict[str, Any]:
     """Second faster-whisper pass exposing per-segment no_speech_prob / avg_logprob."""
     try:
@@ -577,6 +581,28 @@ def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, 
         machine_adjudications.append(verify)
         if verify.get("real_speech_segments") == []:
             failures = [v for v in failures if v != "unexpected_native_mandarin_speech_present"]
+    # nalu D-18d (E04 VU-012): the engine gate primes whisper with initial_prompt=<expected text>;
+    # on some clips that primed decode degenerates to a single replacement char ("\ufffd") and the
+    # gate reports native_mandarin_speech_missing although the line is spoken.  Re-verify with an
+    # UNPRIMED pass (same model, vad on); the failure is cleared only when the expected line is
+    # actually recalled (>= minimum_recall) and every segment is real speech.
+    if expected_dialogue and "native_mandarin_speech_missing" in failures \
+            and not _has_chinese(str(payload.get("transcript") or "")):
+        verify = _verify_no_speech(media)
+        gate = engine_module("source_video_dialogue_gate")
+        expected_join = "".join(spoken_only(row.get("spoken_text")) for row in expected_dialogue)
+        second = "".join(r["text"] for r in (verify.get("segments") or []))
+        second_recall = gate.recall(expected_join, _t2s(second)) if second else 0.0
+        verify = dict(verify, type="ASR_DEGENERATE_PRIMED_DECODE_REVERIFIED",
+                      primed_transcript=payload.get("transcript"), unprimed_transcript=second,
+                      unprimed_recall=round(second_recall, 3), minimum_recall=minimum_recall,
+                      rule="primed decode returned no Chinese; an unprimed pass that recalls the expected "
+                           "line at >= minimum_recall with real-speech segments only proves the line is spoken")
+        machine_adjudications.append(verify)
+        if second and second_recall >= minimum_recall and verify.get("real_speech_segments") \
+                and len(verify["real_speech_segments"]) == len(verify.get("segments") or []):
+            failures = [v for v in failures if v != "native_mandarin_speech_missing"]
+            payload["transcript_unprimed"] = second
     # nalu D-18c: "tail clipped or unverified" is VERIFIED by measuring the audio envelope of
     # the last 120 ms against the last speech segment; a decayed tail is not clipped.
     if "dialogue_tail_clipped_or_unverified" in failures:
@@ -618,6 +644,16 @@ def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, 
             payload["transcript"] = rv["transcript"]
             payload["recall_score"] = rv["recall"]
             payload["segments"] = rv["segments"]
+            # nalu D-28b (E04 VU-012): a hallucinating primed pass also invents segment TIMES
+            # (26 s of segments on a 5 s clip), so the gate's "tail clipped" verdict was computed
+            # on phantom timing (D-18c then reports UNMEASURABLE).  Re-measure the tail on the
+            # reverified real-speech segments; only a measured decay clears the failure.
+            if "dialogue_tail_clipped_or_unverified" in failures and rv.get("segments"):
+                tail2 = _measure_tail(media, rv["segments"])
+                tail2["type"] = "DIALOGUE_TAIL_REMEASURED_ON_REVERIFIED_SEGMENTS"
+                machine_adjudications.append(tail2)
+                if tail2.get("status") == "TAIL_DECAYED_NOT_CLIPPED":
+                    failures = [v for v in failures if v != "dialogue_tail_clipped_or_unverified"]
     status = "PASS" if completed.returncode == 0 or not failures else "FAIL"
     return {
         "check": "major_dialogue_presence_asr_support",

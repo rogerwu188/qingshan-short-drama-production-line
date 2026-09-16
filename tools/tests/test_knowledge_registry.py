@@ -13,9 +13,10 @@ class KnowledgeRegistryTests(unittest.TestCase):
         self.data = json.loads((ROOT / REGISTRY).read_text())
 
     def test_complete_catalog(self):
-        self.assertEqual(34, len(validate(self.data, ROOT)["rules"]))
+        self.assertEqual(41, len(validate(self.data, ROOT)["rules"]))
 
     NALU_S7_SYNC_E03_IDS = tuple(f"K{n:03d}" for n in range(23, 35))
+    NALU_S7_SYNC_E04_IDS = tuple(f"K{n:03d}" for n in range(35, 42))
 
     def test_every_rule_has_a_markdown_section(self):
         markdown = (ROOT / "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md").read_text()
@@ -25,12 +26,16 @@ class KnowledgeRegistryTests(unittest.TestCase):
     def test_nalu_s7_sync_e03_entries_exist_in_registry_and_markdown(self):
         markdown = (ROOT / "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md").read_text()
         by_id = {row["id"]: row for row in self.data["rules"]}
-        for key in self.NALU_S7_SYNC_E03_IDS:
+        for key in self.NALU_S7_SYNC_E03_IDS + self.NALU_S7_SYNC_E04_IDS:
             self.assertIn(key, by_id)
             self.assertIn(f"### {key} — {by_id[key]['stage']}", markdown)
             # Evidence is a runbook decision id, never a path, credential or live identifier.
             self.assertRegex(by_id[key]["evidence"], r"^nalu PIPELINE_RUNBOOK D-\d+(/D-\d+)*$")
             self.assertIn("- 证据：" + by_id[key]["evidence"], markdown)
+        for key in ("K035", "K036", "K037", "K040"):
+            self.assertEqual("REFERENCE_IMPLEMENTATION", by_id[key]["status"])
+            for path in by_id[key]["implementation"]:
+                self.assertTrue((ROOT / path).is_file(), path)
         for key in ("K030", "K032", "K034"):
             expected = "REFERENCE_IMPLEMENTATION" if key == "K032" else "INTEGRATION_PENDING"  # K032: gate accepts the window label since e23 (owner decision 2026-09-15)
             self.assertEqual(expected, by_id[key]["status"])

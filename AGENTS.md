@@ -112,6 +112,10 @@ git clone https://github.com/rogerwu188/nalu-production-runtime.git /tmp/npr && 
 | 音乐扣费 project id 为空，精确对账 INCOMPLETE | 只能按任务自身半开提交窗 [intent, response) 隔离 | `tools/credit_window_isolation.py`；标签 `PASS_WINDOW_ISOLATED_LEDGER_NET`（非 exact）；发布门接受与否问线主（K032） |
 | 视频身份一帧侧脸/背影拖垮整单元（WORST_FRAME） | 姿态案例，不是边界案例 | 审核者姿态豁免，理由写帧号与两个分数；补交要签发新审核请求（K026） |
 | 成片/单元 OCR 命中烧录字幕 | 客观、不可仲裁 | 动作文字前置禁文字条款后重做；重做后重登记提示词批次（K027/K031） |
+| 同一批 action_role 项在 PASS 后被循环反复重发 | 回执写入器阻塞（生物发起者 id 为空） | 读 s6_are_write_receipts 日志；词表含资产库道具/场景 id，Expectations 加载生成合同（K035） |
+| 对白门『无普通话语音』或『尾音截断』但耳听台词完整 | whisper 引导解码退化/幻觉时间轴 | runner 无引导复核 + 在复核片段上重测尾音（K036/K037）；末 120 ms 仍在语音电平或无对白镜有真实说话声 → 客观失败，制作文本重做（K038） |
+| Q2 物化 PARTIAL_0_OF_N，每单元 DEFECT-TIER 失败 | 全集开场 10 s/结尾 5 s 内有 P2 | 该单元重做，不是备注；重做后签发新 video_q2 请求整批重填（K039） |
+| 视频 Q2 身份低分/OCR 拉丁字母 P0 | 裁切框落在旁人脸上/纹理噪声 | 先看 face_crops 再写豁免（帧号+分数）；`NOISE:<文本>` 申报（K040）；提示词链先登记再摘要（K041） |
 
 ## 6. 现在做不到全自动的步骤（如实）
 

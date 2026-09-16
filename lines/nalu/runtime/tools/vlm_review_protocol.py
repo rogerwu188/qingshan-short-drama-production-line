@@ -452,6 +452,9 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
                               if row.get("prop_id")})
                     + sorted({f"SPACE-{shot.get('scene_id')}" for shot in exp.shots.values()
                               if shot.get("scene_id")})
+                    # E04: creature subjects (e.g. the mutant beast) have a locked card but the engine's
+                    # editorial prop scan never lists them on a shot → include every locked prop/set id
+                    + sorted({str(k) for k in ((exp.library.get("assets") or {}).get("props") or {}).keys()})
                     + ["ENVIRONMENT", "NONE_VISIBLE"],
         "views": sorted({str(value)
                          for row in exp.identity_subjects()
