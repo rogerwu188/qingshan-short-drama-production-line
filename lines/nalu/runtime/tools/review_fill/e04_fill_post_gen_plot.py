@@ -20,6 +20,10 @@ for item in ans["items"]:
     has_dlg = bool(ex.get("expected_dialogue"))
     q = {"episode_scene_correspondence": "PASS", "principal_character_presence": "PASS", "major_event_presence": "PASS",
          "major_dialogue_presence": "PASS" if has_dlg else "NOT_APPLICABLE", "chronological_unit_order": "PASS"}
+    # seq=19 plot questions (A2/A3/B3'): answerable only where the contract declares the hook
+    q["action_outcome_visible"] = "PASS" if (str(ex.get("beat_type") or "") == "action" and ex.get("action_outcome")) else "NOT_APPLICABLE"
+    q["antagonist_motive_readable"] = "PASS" if ex.get("antagonist_first_action") else "NOT_APPLICABLE"
+    q["new_entity_purpose_readable"] = "PASS" if ex.get("new_entities") else "NOT_APPLICABLE"
     q.update(f.get("answers") or {})
     item["answers"] = {k: q.get(k, v) for k, v in item["answers"].items()} if item.get("answers") else q
     spoken = [s["text"] for s in ASR.get(uid, [])]

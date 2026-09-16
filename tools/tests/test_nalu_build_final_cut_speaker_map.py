@@ -34,6 +34,28 @@ class SpeakerMap(unittest.TestCase):
         self.assertEqual(out["undeclared_emotion"], ["EXX-S02-01"])
         self.assertEqual(out["action_windows"], [[0.0, 7.0]])
 
+    def test_unit_asr_alignment_takes_timing_from_asr_and_speaker_from_contract(self):
+        out = mod.build_map(CONTRACT, GROUPING, TIMELINE, MANIFEST)
+        unit_asr = {"EXX-VU-001": [{"start": 3.6, "end": 5.2, "text": "x"}],            # inside S01-02 (3.0-7.0)
+                    "EXX-VU-002": [{"start": 0.4, "end": 1.1, "text": "y"}, {"start": 2.0, "end": 3.0, "text": "z"}]}
+        out = mod.align_with_unit_asr(out, unit_asr, CONTRACT, GROUPING, TIMELINE)
+        lines = {l["speaker"]: l for l in out["lines"]}
+        self.assertEqual(lines["CHAR-A"]["time_source"], "ASR")
+        self.assertAlmostEqual(lines["CHAR-A"]["time"], 3.6, places=3)
+        self.assertAlmostEqual(lines["CHAR-A"]["time_contract_expected"], 4.0, places=3)
+        self.assertAlmostEqual(lines["CHAR-B"]["time"], 7.1 + 0.4, places=3)
+        wins = out["asr_windows"]
+        self.assertEqual([w["speaker"] for w in wins], ["CHAR-A", "CHAR-B", "CHAR-B"])   # single-line unit: every window
+        self.assertEqual(wins[0]["emotion"], "plead")
+        self.assertEqual(wins[0]["text"], "x")   # lexicon input; the detector report itself drops text
+        self.assertEqual(out["speaker_map_time_source"], "UNIT_ASR")
+
+    def test_unit_without_asr_keeps_contract_time(self):
+        out = mod.build_map(CONTRACT, GROUPING, TIMELINE, MANIFEST)
+        out = mod.align_with_unit_asr(out, {}, CONTRACT, GROUPING, TIMELINE)
+        self.assertTrue(all(l["time_source"] == "CONTRACT_EXPECTED" for l in out["lines"]))
+        self.assertEqual(out["asr_windows"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -37,6 +37,8 @@ for item in ans["items"]:
                         "observed_visible_props": f.get("observed_visible_props", list(ex.get("required_visible_props") or [])),
                         "observed_space_anchors": f.get("observed_space_anchors", list(ex.get("required_space_anchors") or [])),
                         "observed_text_strings": f.get("observed_text_strings", [])}
+    if f.get("identity_pose_exemptions"):
+        item["observed"]["identity_pose_exemptions"] = f["identity_pose_exemptions"]
     item["observation"] = f["observation"]; item["defects"] = f.get("defects", [])
 if missing:
     raise SystemExit(f"findings missing for {len(missing)} items: {missing[:10]}")

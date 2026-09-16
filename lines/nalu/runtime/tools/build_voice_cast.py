@@ -52,14 +52,16 @@ def read_json(path: Path, default=None):
 
 
 def scene_copresence(contract: dict[str, Any]) -> list[list[str]]:
-    """Character ids that share a scene (any shot of the scene lists them in cast)."""
+    """Character ids that SPEAK in the same scene.  Only speaking roles can be confused by ear, so a
+    silent bystander does not put its voice band in competition (D-42); the pair rule stays the
+    report's: shared voice id → FAIL, band overlap > 50 % → REQUIRES_HUMAN."""
+    scene_of_shot = {str(s.get("shot_id")): str(s.get("scene_id") or "") for s in contract.get("shots") or []}
     by_scene: dict[str, set[str]] = {}
-    for shot in contract.get("shots") or []:
-        scene = str(shot.get("scene_id") or "")
-        for row in (shot.get("prompt_spec") or {}).get("cast") or []:
-            cid = str(row.get("character_id") or "")
-            if cid.startswith("CHAR-"):
-                by_scene.setdefault(scene, set()).add(cid)
+    for row in (contract.get("audio_contract") or {}).get("dialogue_units") or []:
+        scene = scene_of_shot.get(str(row.get("shot_id") or ""), "")
+        cid = str(row.get("speaker_id") or "")
+        if scene and cid.startswith("CHAR-"):
+            by_scene.setdefault(scene, set()).add(cid)
     return [sorted(v) for _, v in sorted(by_scene.items()) if len(v) > 1]
 
 

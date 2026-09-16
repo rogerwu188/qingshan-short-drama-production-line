@@ -23,6 +23,11 @@ for item in ans["items"]:
     anchors=ex.get("required_space_anchors"); anchors=ast.literal_eval(anchors) if isinstance(anchors,str) else (anchors or [])
     q={k:"PASS" for k in item["answers"]}
     if not props: q["props_present_and_end_state_as_declared"]="NOT_APPLICABLE"
+    # seq=19 B1/B2 questions: answerable only where the contract declares the state; the reviewer
+    # overrides per unit from the findings (creature gait only when the creature is visibly moving).
+    if "perceived_life_state_matches_declared" in q and not ex.get("life_states"): q["perceived_life_state_matches_declared"]="NOT_APPLICABLE"
+    if "visible_group_count_matches_declared" in q and not ex.get("group_counts"): q["visible_group_count_matches_declared"]="NOT_APPLICABLE"
+    if "creature_locomotion_matches_card" in q: q["creature_locomotion_matches_card"]="NOT_APPLICABLE"
     q.update(f.get("answers") or {})
     item["answers"]=q
     item["observed"]={"observed_visible_characters":list(chars),"observed_visible_props":f.get("props",list(props)),

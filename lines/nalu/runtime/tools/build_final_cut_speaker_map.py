@@ -81,6 +81,77 @@ def build_map(contract: dict[str, Any], grouping: dict[str, Any], timeline: dict
             "undeclared_emotion": undeclared}
 
 
+def align_with_unit_asr(result: dict[str, Any], unit_asr: dict[str, Any], contract: dict[str, Any],
+                        grouping: dict[str, Any], timeline: dict[str, Any], *, slack_s: float = 0.25) -> dict[str, Any]:
+    """Timing from the per-unit ASR, attribution from the contract (seq=19 C1/C2, 2026-09-16 23:30Z).
+
+    Whole-file ASR of a levelled final cut merges speech, wind and music into windows of 10-20 s, so
+    F0 / window-LUFS measured on them describe the mix, not the line (E04 v2: 351 Hz "for" a
+    173-234 Hz voice).  The pipeline already transcribes every unit clip on its own
+    (<EP>_unit_asr.json: {unit_id: [{start, end, text}]}); those windows are offset onto the release
+    timeline here and each one is attributed to the contract line whose shot span contains it
+    (single-line units: all windows).  ``lines[].time`` becomes the first ASR window of that line
+    (``time_source`` ASR) or stays the contract estimate (``CONTRACT_EXPECTED``).  ASR text rides along only for the lexicon detector;
+    the detector report drops it (``--keep-asr-text`` off).
+    """
+    shots = {str(s.get("shot_id")): s for s in contract.get("shots") or []}
+    unit_start = {str(seg.get("unit_id")): float(seg.get("output_start") or 0.0)
+                  for seg in timeline.get("segments") or []}
+    by_unit: dict[str, list[dict[str, Any]]] = {}
+    for line in result.get("lines") or []:
+        by_unit.setdefault(str(line.get("unit_id")), []).append(line)
+    windows: list[dict[str, Any]] = []
+    for unit in grouping.get("units") or []:
+        uid = str(unit.get("unit_id"))
+        if uid not in unit_start:
+            continue
+        offset = unit_start[uid]
+        spans: dict[str, tuple[float, float]] = {}
+        cursor = offset
+        for sid in unit.get("editorial_shot_ids") or []:
+            sid = str(sid)
+            sec = float((shots.get(sid) or {}).get("target_seconds") or 0.0)
+            spans[sid] = (cursor, cursor + sec)
+            cursor += sec
+        ulines = by_unit.get(uid, [])
+        first_hit: dict[int, float] = {}
+        segs = sorted((s for s in (unit_asr.get(uid) or []) if s.get("start") is not None),
+                      key=lambda s: float(s["start"]))
+        for seg in segs:
+            start = offset + float(seg["start"])
+            end = offset + float(seg.get("end") or seg["start"])
+            line = None
+            if len(ulines) == 1:
+                line = ulines[0]
+            elif ulines:
+                inside = [l for l in ulines
+                          if spans.get(str(l.get("shot_id")), (start, start))[0] - slack_s <= start
+                          < spans.get(str(l.get("shot_id")), (start, start))[1] + slack_s]
+                line = inside[0] if inside else min(ulines, key=lambda l: abs(float(l["time"]) - start))
+            row: dict[str, Any] = {"start": round(start, 3), "end": round(end, 3), "unit_id": uid}
+            if seg.get("text"):
+                row["text"] = str(seg["text"])  # lexicon detector input only; the detector report never keeps text
+            if line is not None:
+                row["speaker"] = line.get("speaker")
+                if line.get("emotion"):
+                    row["emotion"] = line["emotion"]
+                if line.get("scene"):
+                    row["scene"] = line["scene"]
+                row["shot_id"] = line.get("shot_id")
+                first_hit.setdefault(id(line), start)
+            windows.append(row)
+        for line in ulines:
+            if id(line) in first_hit:
+                line["time_contract_expected"] = line["time"]
+                line["time"] = round(first_hit[id(line)], 3)
+                line["time_source"] = "ASR"
+            else:
+                line["time_source"] = "CONTRACT_EXPECTED"
+    result["asr_windows"] = windows
+    result["speaker_map_time_source"] = "UNIT_ASR"
+    return result
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--contract", type=Path, required=True)
@@ -89,15 +160,26 @@ def main() -> int:
     ap.add_argument("--manifest", type=Path)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--action-windows-out", type=Path)
+    ap.add_argument("--unit-asr", type=Path, help="<EP>_unit_asr.json: per-unit ASR windows (timing source)")
+    ap.add_argument("--asr-windows-out", type=Path, help="write the attributed release-timeline ASR windows for the detectors")
     args = ap.parse_args()
-    result = build_map(read_json(args.contract, {}) or {}, read_json(args.grouping, {}) or {},
-                       read_json(args.timeline, {}) or {}, read_json(args.manifest, {}) if args.manifest else None)
+    contract = read_json(args.contract, {}) or {}
+    grouping = read_json(args.grouping, {}) or {}
+    timeline = read_json(args.timeline, {}) or {}
+    result = build_map(contract, grouping, timeline, read_json(args.manifest, {}) if args.manifest else None)
+    if args.unit_asr and args.unit_asr.is_file():
+        result = align_with_unit_asr(result, read_json(args.unit_asr, {}) or {}, contract, grouping, timeline)
+        if args.asr_windows_out:
+            args.asr_windows_out.parent.mkdir(parents=True, exist_ok=True)
+            args.asr_windows_out.write_text(json.dumps(result["asr_windows"], ensure_ascii=False, indent=1), encoding="utf-8")
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     if args.action_windows_out:
         args.action_windows_out.write_text(json.dumps(result["action_windows"]), encoding="utf-8")
     print(json.dumps({"lines": len(result["lines"]), "action_windows": len(result["action_windows"]),
-                      "undeclared_emotion": len(result["undeclared_emotion"])}))
+                      "undeclared_emotion": len(result["undeclared_emotion"]),
+                      "asr_windows": len(result.get("asr_windows") or []),
+                      "time_source": result.get("speaker_map_time_source", "CONTRACT_EXPECTED")}))
     return 0
 
 

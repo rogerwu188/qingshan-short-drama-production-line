@@ -19,7 +19,7 @@ CONTRACT = {"episode": "EXX",
             "audio_contract": {"dialogue_units": [{"shot_id": "EXX-S01-01", "speaker_id": "CHAR-A"},
                                                   {"shot_id": "EXX-S01-01", "speaker_id": "CHAR-B"}]},
             "shots": [{"shot_id": "EXX-S01-01", "scene_id": "EXX-S01",
-                       "prompt_spec": {"cast": [{"character_id": "CHAR-A"}, {"character_id": "CHAR-B"}]}}]}
+                       "prompt_spec": {"cast": [{"character_id": "CHAR-A"}, {"character_id": "CHAR-B"}, {"character_id": "CHAR-SILENT"}]}}]}
 
 
 def sawtooth_wav(path: Path, f0: float, seconds: float = 1.5, sr: int = 48000):

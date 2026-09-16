@@ -655,20 +655,28 @@ def materialised_path(target: Path, suffix: str = "_PAID_AUTHORIZED") -> Path:
     return target.parent / f"{target.stem}{suffix}{target.suffix}"
 
 
-def paid_authorization_argv(ctx: Ctx, *, sid: str, target: Path, is_plan: bool) -> list[Any]:
-    return [
+def paid_authorization_argv(ctx: Ctx, *, sid: str, target: Path, is_plan: bool,
+                            task_keys: list[str] | None = None) -> list[Any]:
+    argv: list[Any] = [
         VENV, PAID_AUTH,
         "--episode", ctx.episode,
         "--order-seq", PAID_ORDER_SEQ,
+        "--cap", str(ctx.cap),  # seq=21: forward the configured per-episode cap (the tool defaults to 8000)
         ("--plan" if is_plan else "--manifest"), target,
         "--ledger", LEDGER,
         "--report", REPORTS_DIR / f"{ctx.episode}_paid_authorization_{sid.lower()}.json",
     ]
+    # D-46 (2026-09-16 22:02Z): restrict the authorised copy to the tasks that still NEED a POST.
+    # Without this a wave re-entry whose fingerprints changed (regenerated finalization receipts)
+    # re-posted five units that already had clips on disk (680 cr, ~560 wasted).
+    for key in task_keys or []:
+        argv += ["--task-key", key]
+    return argv
 
 
 def materialize_paid_authorization(ctx: Ctx, res: StageResult, *, sid: str,
                                   target: Path, is_plan: bool,
-                                  note: str = "") -> tuple[str, Path, dict[str, Any]]:
+                                  note: str = "", task_keys: list[str] | None = None) -> tuple[str, Path, dict[str, Any]]:
     """Turn SUPERVISOR_ORDERS seq=3 into the authority fields the submitters demand.
 
     Runs IMMEDIATELY before the paid submit, on the plan / manifest that is about
@@ -693,7 +701,7 @@ def materialize_paid_authorization(ctx: Ctx, res: StageResult, *, sid: str,
 
     Returns (status, materialised_path, record).  status is PASS / DRY / BLOCKED.
     """
-    argv = paid_authorization_argv(ctx, sid=sid, target=target, is_plan=is_plan)
+    argv = paid_authorization_argv(ctx, sid=sid, target=target, is_plan=is_plan, task_keys=task_keys)
     out = materialised_path(target)
     record: dict[str, Any] = {
         "decision": "D-11",
@@ -2977,8 +2985,20 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
         # 6.3 D-11 paid authorisation, then the paid submit of the MATERIALISED manifest.
         concurrency = min(ctx.max_parallel, 6)
         planned = s6_planned_credits_for_unbound(ctx)
+        # D-46: only tasks WITHOUT a clip on disk may be authorised for a POST; a unit whose mp4
+        # exists is complete whatever its recompiled fingerprint says (see PIPELINE_RUNBOOK D-46).
+        manifest_now = read_json(p.video_transaction, {}) or {}
+        needs_post = [str(t.get("task_key")) for t in manifest_now.get("tasks") or []
+                      if not (p.video_media / f"{t.get('task_key')}.mp4").is_file()]
+        on_disk = [str(t.get("task_key")) for t in manifest_now.get("tasks") or []
+                   if str(t.get("task_key")) not in needs_post]
+        if on_disk and needs_post:
+            ctx.say(f"   D-46: {len(on_disk)} task(s) already have a clip on disk and are excluded from the "
+                    f"authorised copy: {on_disk}")
+        res.details["d46_needs_post"] = needs_post
         auth_status, auth_manifest, auth = materialize_paid_authorization(
             ctx, res, sid="S6", target=p.video_transaction, is_plan=False,
+            task_keys=(needs_post if (on_disk and needs_post) else None),
             note=("production_video_submission_gate.py has NO authority-field checks, so for video "
                   "these fields are set for auditability and for the reroll guard, not because the "
                   "submitter enforces them"))
@@ -3691,17 +3711,23 @@ def stage_s7(ctx: Ctx) -> StageResult:
     # gait stay NOT_IMPLEMENTED (human review questions).  FAIL blocks the deliverable.
     speaker_map = p.assembly / f"{ctx.episode}_FINAL_CUT_SPEAKER_MAP.json"
     action_windows = p.assembly / f"{ctx.episode}_FINAL_CUT_ACTION_WINDOWS.json"
+    asr_windows = p.assembly / f"{ctx.episode}_FINAL_CUT_ASR_WINDOWS.json"   # unit ASR on the release timeline
     detector_report = p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_DETECTORS.json"
     steps.append(ctx.run(
         [VENV, RT_TOOLS / "build_final_cut_speaker_map.py", "--contract", p.contract,
          "--grouping", p.grouping_plan, "--timeline", release_timeline, "--manifest", p.writer_manifest,
-         "--out", speaker_map, "--action-windows-out", action_windows],
+         "--out", speaker_map, "--action-windows-out", action_windows,
+         "--unit-asr", p.assembly / f"{ctx.episode}_unit_asr.json", "--asr-windows-out", asr_windows],
         name="s7_build_final_cut_speaker_map"))
     detector_argv: list[Any] = [VENV, ENGINE / "tools/final_cut_audience_detectors.py",
                                 "--media", p.final_mp4, "--out", detector_report,
                                 "--lexicon", RT_TOOLS.parent / "configs" / "LEXICON_yewujiang_v1.json",
                                 "--speaker-map", speaker_map, "--story-segments", release_timeline,
                                 "--voice-cast", RT / "voice_cast.json"]
+    if asr_windows.is_file():
+        # per-unit ASR windows (timing) with contract attribution; whole-file ASR of the levelled final
+        # merges speech with wind/music into 10-20 s windows and mismeasures every line (E04 v2, 23:30Z)
+        detector_argv += ["--asr-json", asr_windows]
     subtitles = p.assembly / f"{ctx.episode}_subtitles_zh.ass"
     if subtitles.is_file():
         detector_argv += ["--subtitles", subtitles]

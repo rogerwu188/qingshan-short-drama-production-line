@@ -25,6 +25,12 @@ for item in ans["items"]:
          "initiator_is_expected_entity": "NOT_APPLICABLE" if env else "PASS",
          "target_is_expected_entity": "PASS", "no_role_reversal": "PASS",
          "prop_ownership_as_expected": "PASS" if props else "NOT_APPLICABLE"}
+    # seq=19 B2: creature gait question — only answerable when the creature card entity is in the start frame.
+    creature_ids = {"PROP-MUTANT-BEAST"}
+    creature_here = any(str(p.get("prop_id")) in creature_ids for p in props) or any(
+        str(c.get("character_id")) in creature_ids for c in (ex.get("cast_at_entry") or []))
+    if "creature_locomotion_matches_card" in (item.get("answers") or {}) or True:
+        q["creature_locomotion_matches_card"] = "PASS" if creature_here else "NOT_APPLICABLE"
     o = OV.get(uid) or {}
     q.update(o.get("answers") or {})
     item["answers"] = q

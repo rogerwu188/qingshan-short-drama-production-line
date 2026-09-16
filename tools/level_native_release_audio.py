@@ -31,8 +31,11 @@ except ModuleNotFoundError:
 
 
 PREMIX_LIMITER_INPUT_CEILING_DBTP = 6.0
-FINAL_LOUDNORM_TRUE_PEAK_DBTP = -3.0
-FINAL_LIMITER_LINEAR = 0.668344
+# seq=19 C3 (2026-09-16): the release target moved from -16 to -14 LUFS; with the old -3.0 dBTP ceiling the
+# LINEAR loudnorm could only add ~1.5 dB and E04 v2 landed at -15.1 (band -15..-13).  Align the ceiling with
+# native_audio_loudness_contract.DEFAULT_TRUE_PEAK_CEILING_DBTP (-1.5 dBTP, release max -1.0).
+FINAL_LOUDNORM_TRUE_PEAK_DBTP = -1.5
+FINAL_LIMITER_LINEAR = 0.841395  # 10 ** (-1.5 / 20)
 
 
 def now() -> str:
