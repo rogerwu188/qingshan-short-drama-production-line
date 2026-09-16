@@ -1,0 +1,11 @@
+{"failure_code": "HOOK_MISSING", "do_not_repeat": "前 5 秒必须有台词或冲击镜头；开场不用独行/特写", "stage": "pipeline", "scope": "episode", "knowledge_id": "K042"}
+{"failure_code": "ACTION_NO_OUTCOME", "do_not_repeat": "动作段落必须以命中/受伤/逃脱/失败之一收束，并有证据镜头", "stage": "prompt", "scope": "beat", "knowledge_id": "K043"}
+{"failure_code": "ANTAGONIST_NO_MOTIVE", "do_not_repeat": "对抗方首次行动前必须有动机台词或回顾镜头", "stage": "prompt", "scope": "beat", "knowledge_id": "K044"}
+{"failure_code": "PROP_NO_SOURCE", "do_not_repeat": "后段出现的道具必须有获取镜头", "stage": "prompt", "scope": "beat", "knowledge_id": "K045"}
+{"failure_code": "DEAD_THEN_ALIVE", "do_not_repeat": "角色状态机 alive→dead 不可逆；血迹/倒地镜头必须与后续状态一致", "stage": "pipeline", "scope": "episode", "knowledge_id": "K046"}
+{"failure_code": "MASCOT_IN_STORY", "do_not_repeat": "吉祥物/品牌素材只进 intro/outro，正片段落禁止", "stage": "pipeline", "scope": "episode", "knowledge_id": "K047"}
+{"failure_code": "CREATURE_FORM_DRIFT", "do_not_repeat": "非人角色也走角色卡，locomotion 跨镜锁定", "stage": "prompt", "scope": "video", "knowledge_id": "K048"}
+{"failure_code": "VOICE_COLLISION", "do_not_repeat": "同场角色 voice_id 唯一，生成后逐句 F0 校验", "stage": "pipeline", "scope": "audio", "knowledge_id": "K049"}
+{"failure_code": "FLAT_EMOTION", "do_not_repeat": "plead/fear/threat 句响度比 calm 基线高 ≥6 dB", "stage": "pipeline", "scope": "audio", "knowledge_id": "K050"}
+{"failure_code": "MODERN_LEXICON", "do_not_repeat": "台词与字幕过世界观词表，禁用科幻/现代词", "stage": "pipeline", "scope": "episode", "knowledge_id": "K051"}
+{"failure_code": "DIALOGUE_STARVATION", "do_not_repeat": "无台词连续 ≤15s（动作段 ≤25s），全集台词覆盖 ≥35%", "stage": "pipeline", "scope": "episode", "knowledge_id": "K052"}

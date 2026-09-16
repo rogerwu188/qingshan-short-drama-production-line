@@ -10,6 +10,9 @@
 !/Makefile
 !/README.md
 !/AGENTS.md
+!/knowledge/
+/knowledge/*
+!/knowledge/failure_memory.jsonl
 !/SECURITY.md
 !/tools/
 !/agent_factory/
