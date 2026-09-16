@@ -68,7 +68,7 @@ FFMPEG = "/opt/homebrew/bin/ffmpeg"
 
 CONFIG_PATH = RUNTIME / "qingshan.json"
 RT = RUNTIME / "runtime"
-RT_TOOLS = RT / "tools"
+RT_TOOLS = Path(f"{_np.TOOLS_DIR}")  # tools live with the code, not under the runtime state root (port fix 2026-09-15)
 STATE_DIR = RT / "pipeline_state"
 APPROVAL_DIR = STATE_DIR / "approvals"
 LOG_ROOT = RT / "pipeline_logs"

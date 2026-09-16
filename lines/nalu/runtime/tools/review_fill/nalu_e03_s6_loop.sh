@@ -1,7 +1,7 @@
 #!/bin/zsh
 ENGINE_ROOT=${NALU_ENGINE_ROOT:?set NALU_ENGINE_ROOT}
 RUNTIME_ROOT=${NALU_RUNTIME_ROOT:?set NALU_RUNTIME_ROOT}
-TOOLS=${NALU_TOOLS_DIR:-$RUNTIME_ROOT/runtime/tools}
+TOOLS=${NALU_TOOLS_DIR:-$(cd "$(dirname "$0")/.." && pwd)}  # the tools live beside this script (port fix 2026-09-15)
 EP=${1:-E03}
 cd "$ENGINE_ROOT"
 set -a; source .env; set +a

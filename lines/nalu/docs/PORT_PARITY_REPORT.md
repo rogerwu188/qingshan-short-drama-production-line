@@ -10,9 +10,9 @@ docstring path rewritten to `$ENGINE_ROOT` / `$RUNTIME_ROOT`.
 | bootstrap_identity_cards.py | PATH_ONLY | 4 |
 | bootstrap_voice_references.py | PATH_ONLY | 5 |
 | build_burnin_subtitles.py | PATH_ONLY | 0 |
-| build_e01_layers.py | PATH_ONLY | 6 |
-| build_e02_layers.py | PATH_ONLY | 5 |
-| build_e03_layers.py | PATH_ONLY | 5 |
+| build_e01_layers.py | REMOVED_2026-09-15 (work-specific builder with script text; local only) | 6 |
+| build_e02_layers.py | REMOVED_2026-09-15 (work-specific builder with script text; local only) | 5 |
+| build_e03_layers.py | REMOVED_2026-09-15 (work-specific builder with script text; local only) | 5 |
 | build_episode_asset_requirements.py | PATH_ONLY | 10 |
 | build_keyframe_manifest.py | PATH_ONLY | 4 |
 | build_nalu_preproduction.py | PATH_ONLY | 5 |

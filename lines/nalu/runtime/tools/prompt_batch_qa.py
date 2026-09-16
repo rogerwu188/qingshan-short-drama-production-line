@@ -111,7 +111,8 @@ def digest(ep: str, out: Path) -> dict:
                 authored = str(b.get("authored_description") or "")
                 head = authored.split("；")[0][:12]
                 chk(f"kf_wardrobe_authored_text:{name}", bool(head) and head in line, f"{head!r} in line")
-                hide_expected = "兽皮" in str(b.get("outer_layer") or "") 
+                # E04: 皮袄 (a hide jacket) and 裘氅 are hide coats too — the line-side test already counts them
+                hide_expected = any(t in str(b.get("outer_layer") or "") for t in ("兽皮", "裘氅", "皮袄"))
                 # E01 idiom 兽皮大衣/小披; E02+ Tang/Song idiom 裘氅 / 兽皮短袄 (seq=7)
                 # E03: a fur/hide HAT (兽皮护耳帽 / 皮帽) is not an outer coat — strip hat tokens before the coat test
                 line_no_hat = re.sub(r"兽皮护耳帽|皮护耳帽|兽皮帽|皮帽", "", line)

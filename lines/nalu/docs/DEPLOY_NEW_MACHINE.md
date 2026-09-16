@@ -62,9 +62,7 @@ python3 lines/nalu/runtime/tools/nalu_paths.py        # 打印解析出的 ENGIN
 
 ## 5. 一集的剧本层（免费，MANUAL_REQUIRED）
 
-每集四层：叙事正典（手写）、导演脚本、生成合同（JSON）、manifest。参考构建器
-`lines/nalu/runtime/tools/build_e03_layers.py`：新的一集复制它，改场次/镜头/道具/服装/新地点/BGM 线索；
-它会把 `nalu_prompt_rules.py` 的规则套到每个镜头并做本地检查。新地点还要写
+每集四层：叙事正典（手写）、导演脚本、生成合同（JSON）、manifest。逐集构建器 `build_e0N_layers.py` 是作品专用文件（内含该集镜头表与逐字台词，属于作品文本，不入库）；仓库提供的是它依赖的规则与校验：`nalu_prompt_rules.py`（提示词规则）、`static_design_gate.py`（机位运动 R1–R8）、`nalu_qa_common.py`。新作品的构建器按这个骨架自写：SCENES（场次：地点/时间/秒数/信息条数）→ CAMERA_PLANS（每镜景别/机位/运动族/起止取景）→ SHOTS（每镜 3–6 s：动作主体/对白/entry_state/completion_state/状态维度/参考指代）→ 校验（单场可切 4–8 s 单元、无对白 ≤4 s、LOCKED ≤30%、远景后露脸镜 identity_reanchor、道具在 action 就必须在 entry/exit、姿态词不进 entry/exit 文本）→ 写 directing script / generation contract（qingshan.generation_contract.v3）/ manifest（beat_disposition 逐拍申报）。新地点还要写
 `preproduction/<EP>/new_location_place_spec.json`（作者命名与坐标）。
 
 ## 6. S1 → S8

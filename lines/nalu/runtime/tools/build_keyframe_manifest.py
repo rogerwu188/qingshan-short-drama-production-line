@@ -71,6 +71,7 @@ NOVELTY_CLASSES = (
     "NEW_WARDROBE_STATE",
     "NON_INTERPOLABLE_PROP_OR_BODY_STATE",
     "TRANSITION_CRITICAL_TERMINAL_STATE",
+    "ENTRY_STATE_DIFFERS_FROM_SETUP_OWNER",
 )
 # POSSESSION / CONTACT / INTEGRITY entry codes describe who holds what, what
 # touches what, and whether an object is whole.  None of those can be reached by
@@ -278,6 +279,7 @@ def decide_keyframes(inputs: Inputs) -> list[dict[str, Any]]:
     seen_characters: set[str] = set()
     seen_wardrobe: set[str] = set()
     setup_owner: dict[tuple[str, str, str, str], str] = {}
+    setup_owner_signature: dict[str, tuple[str, tuple[str, ...]]] = {}
     rows: list[dict[str, Any]] = []
 
     for shot_id, shot in inputs.shots.items():
@@ -363,6 +365,15 @@ def decide_keyframes(inputs: Inputs) -> list[dict[str, Any]]:
                 "opening_source": boundary.get("opening_source"),
             }
 
+        # E04 (2026-09-15): a keyframe IS the shot's entry state by contract; reusing the setup owner's
+        # frame is only exact when the owner shows the same entry state with the same cast.  Same
+        # camera angle alone produced byte-copies with the wrong people/state (S04-04, S08-03, S10-04, S11-02).
+        owner_shot = setup_owner.get(setup)
+        owner_sig = setup_owner_signature.get(setup)
+        this_sig = (str(row.get("entry_state") or ""), tuple(sorted(cast_ids)))
+        if not novelty and owner_shot and owner_sig != this_sig:
+            novelty.append("ENTRY_STATE_DIFFERS_FROM_SETUP_OWNER")
+            evidence["ENTRY_STATE_DIFFERS_FROM_SETUP_OWNER"] = {"setup_owner": owner_shot, "owner_entry_state": (owner_sig or ("", ()))[0][:80], "this_entry_state": this_sig[0][:80]}
         novelty = [name for name in NOVELTY_CLASSES if name in novelty]
         if novelty:
             row.update({
@@ -376,6 +387,7 @@ def decide_keyframes(inputs: Inputs) -> list[dict[str, Any]]:
             seen_characters.update(cast_ids)
             seen_wardrobe.update(wardrobe_keys)
             setup_owner.setdefault(setup, shot_id)
+            setup_owner_signature.setdefault(setup, this_sig)
         else:
             source = setup_owner.get(setup)
             row.update({

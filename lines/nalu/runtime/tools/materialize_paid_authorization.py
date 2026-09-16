@@ -107,7 +107,7 @@ DEFAULT_ORDERS = DEFAULT_ENGINE_ROOT / "workflow/claude_writer_agent/SUPERVISOR_
 DEFAULT_POLICY = DEFAULT_ENGINE_ROOT / "configs/reroll_cost_guard_policy_v1_20260716.json"
 RUNTIME_ROOT = Path(f"{_np.RUNTIME_ROOT}")
 DEFAULT_LEDGER = RUNTIME_ROOT / "runtime/budget/ledger.json"
-BUDGET_TOOL = RUNTIME_ROOT / "runtime/tools/nalu_budget_ledger.py"
+BUDGET_TOOL = Path(f"{_np.TOOLS_DIR}") / "nalu_budget_ledger.py"  # port fix 2026-09-15
 
 GUARD_GATE_ID = "GIGGLE-REROLL-COST-GUARD"
 SD2 = "seedance-2.0-pro"
