@@ -336,6 +336,118 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - 状态：`GUIDANCE_ONLY`。相关实现：[lines/nalu/runtime/tools/prompt_batch_qa.py](../../lines/nalu/runtime/tools/prompt_batch_qa.py)、[lines/nalu/runtime/tools/prompt_batch_register.py](../../lines/nalu/runtime/tools/prompt_batch_register.py)、[lines/nalu/runtime/tools/prompt_batch_finalize.py](../../lines/nalu/runtime/tools/prompt_batch_finalize.py)（相关代码存在，不等于公共主分支已完整消费）
 - 证据：nalu PIPELINE_RUNBOOK D-39
 
+## E04 审片回写（K042–K052）：`stage` 字段照审片报告写为 `pipeline`（由对应门/流程消费）或 `prompt`（由提示词编译器注入，只注入这一类）；每条带 `failure_code` / `do_not_repeat` / `scope`，并导出为 `knowledge/failure_memory.jsonl`。
+
+### K042 — pipeline
+
+- failure_code：`HOOK_MISSING`（scope episode，类别 QA）
+- do_not_repeat：前 5 秒必须有台词或冲击镜头；开场不用独行/特写
+- 规则：开场钩子合同：episode 合同 pacing.hook={type, at_seconds≤5, line_or_shot_id}，S1 门校验前 5 s 内有台词或 shock 镜，成片检测 hook_present（ASR 首句 ≤5 s 或帧差冲击）。
+- 失败教训：E04 前 47 s 无一句台词、无冲突，观众第 3 秒划走；所有 D 门与 CI 通过，因为没有门测『合同本身是否成立』。
+- 修复路径：tools/script_structure_contract_gate.py::check_hook + tools/final_cut_audience_detectors.py::hook_present；写手 schema pacing.hook 必填。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/script_structure_contract_gate.py](../../tools/script_structure_contract_gate.py)、[tools/final_cut_audience_detectors.py](../../tools/final_cut_audience_detectors.py)（E04 成片作为负样本回归通过；自动判定做不到的项在检测器里标 NOT_IMPLEMENTED）
+- 证据：nalu PIPELINE_RUNBOOK D-40/D-41
+
+### K043 — prompt
+
+- failure_code：`ACTION_NO_OUTCOME`（scope beat，类别 QA）
+- do_not_repeat：动作段落必须以命中/受伤/逃脱/失败之一收束，并有证据镜头
+- 规则：动作段结果合同：manifest.structure[].type=action 的 beat 必带 outcome{kind∈winner|escape|injury|loss, evidence_shot_id}，证据镜在段落结束后 10 s 内；提示词层把 do_not_repeat 注入动作镜。
+- 失败教训：E04 25–47 s 怪物出现→射两箭→跑→再拉弓→消失，无命中无受伤无逃脱，观众『打了个寂寞』。
+- 修复路径：check_action_outcome + post-gen plot 审核问题 action_outcome_visible；提示词条款由 nalu_prompt_rules KNOWLEDGE_PROMPT 注入。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/script_structure_contract_gate.py](../../tools/script_structure_contract_gate.py)、[lines/nalu/runtime/tools/nalu_prompt_rules.py](../../lines/nalu/runtime/tools/nalu_prompt_rules.py)（E04 成片作为负样本回归通过；自动判定做不到的项在检测器里标 NOT_IMPLEMENTED）
+- 证据：nalu PIPELINE_RUNBOOK D-40/D-41
+
+### K044 — prompt
+
+- failure_code：`ANTAGONIST_NO_MOTIVE`（scope beat，类别 QA）
+- do_not_repeat：对抗方首次行动前必须有动机台词或回顾镜头
+- 规则：冲突动机前置：contract.antagonist_groups[] 声明 first_action_shot_id 与 motive_setup{line|shot|recap}，动机必须早于首次行动。
+- 失败教训：E04 雪洞三人 50 s 出场即议论主角，观众不知他们是谁、为何埋伏。
+- 修复路径：check_antagonist_motive + plot 审核问题 antagonist_motive_readable + 提示词注入。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/script_structure_contract_gate.py](../../tools/script_structure_contract_gate.py)、[lines/nalu/runtime/tools/nalu_prompt_rules.py](../../lines/nalu/runtime/tools/nalu_prompt_rules.py)（E04 成片作为负样本回归通过；自动判定做不到的项在检测器里标 NOT_IMPLEMENTED）
+- 证据：nalu PIPELINE_RUNBOOK D-40/D-41
+
+### K045 — prompt
+
+- failure_code：`PROP_NO_SOURCE`（scope beat，类别 QA）
+- do_not_repeat：后段出现的道具必须有获取镜头
+- 规则：道具来源合同：props.reference_cards[] 的 payoff 道具必带 acquired{episode, shot_id}；跨集获取必须在本集有 recap 镜（早于 payoff ≥10 s）。
+- 失败教训：E04『猎熊结果抓了只松鼠』笑点的前提镜（抓松鼠）在上一集，本集没有回顾，笑点落空。
+- 修复路径：check_prop_source + 提示词注入。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/script_structure_contract_gate.py](../../tools/script_structure_contract_gate.py)、[lines/nalu/runtime/tools/nalu_prompt_rules.py](../../lines/nalu/runtime/tools/nalu_prompt_rules.py)（E04 成片作为负样本回归通过；自动判定做不到的项在检测器里标 NOT_IMPLEMENTED）
+- 证据：nalu PIPELINE_RUNBOOK D-40/D-41
+
+### K046 — pipeline
+
+- failure_code：`DEAD_THEN_ALIVE`（scope episode，类别 CONTINUITY）
+- do_not_repeat：角色状态机 alive→dead 不可逆；血迹/倒地镜头必须与后续状态一致
+- 规则：角色状态机：cast[].life_state∈{alive,injured,unconscious,dead} 与 shots[].group_counts；dead 后不得回 alive，人数变化必须带 count_change_note；Q2 必答『观感状态是否与声明一致』。
+- 失败教训：E04 108 s 三人倒地见血被观众读成尸体，145 s 又活着挨打；人数 3→4→3。合同声明 alive，所以合同层拦不住，只能靠观感审核问题。
+- 修复路径：tools/continuity_state_contract_gate.py::check_life_state + video_q2 问题 perceived_life_state_matches_declared / visible_group_count_matches_declared（自动判定 NOT_IMPLEMENTED）。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/continuity_state_contract_gate.py](../../tools/continuity_state_contract_gate.py)、[lines/nalu/runtime/tools/vlm_review_protocol.py](../../lines/nalu/runtime/tools/vlm_review_protocol.py)（E04 成片作为负样本回归通过；自动判定做不到的项在检测器里标 NOT_IMPLEMENTED）
+- 证据：nalu PIPELINE_RUNBOOK D-40/D-41
+
+### K047 — pipeline
+
+- failure_code：`MASCOT_IN_STORY`（scope episode，类别 EDITING）
+- do_not_repeat：吉祥物/品牌素材只进 intro/outro，正片段落禁止
+- 规则：非剧情素材隔离：release_timeline.segments[].type∈{intro,story,outro,endcard}，素材 tag∈{story,mascot,brand}；tag≠story 的素材进 story 段拒绝拼接；成片检测 mascot_in_story 模板匹配。
+- 失败教训：E04 112–120 s 白猫骑驴被观众当成吉祥物彩蛋。核实：它是原著场景，不是吉祥物——真正缺的是该实体的铺垫/回收（见 entity_introductions 合同）。
+- 修复路径：segment type/asset tag + tools/final_cut_audience_detectors.py::mascot_in_story；实体引入由 script_structure_contract_gate::check_entity_introduction 拦。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/final_cut_audience_detectors.py](../../tools/final_cut_audience_detectors.py)、[tools/script_structure_contract_gate.py](../../tools/script_structure_contract_gate.py)（E04 成片作为负样本回归通过；自动判定做不到的项在检测器里标 NOT_IMPLEMENTED）
+- 证据：nalu PIPELINE_RUNBOOK D-40/D-41
+
+### K048 — prompt
+
+- failure_code：`CREATURE_FORM_DRIFT`（scope video，类别 IDENTITY）
+- do_not_repeat：非人角色也走角色卡，locomotion 跨镜锁定
+- 规则：生物形态卡：non_character_entities[] kind=CREATURE 的行必带 creature_card{locomotion: biped|quadruped, eye_color, silhouette_ref}；镜文本步态词与卡不一致 BLOCK；Q1/Q2 问题 creature_locomotion_matches_card。
+- 失败教训：E04 25 s 怪物直立奔行，115 s 变四足，观众以为漏看一集。
+- 修复路径：check_creature_card + 审核问题 + 提示词注入。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/continuity_state_contract_gate.py](../../tools/continuity_state_contract_gate.py)、[lines/nalu/runtime/tools/nalu_prompt_rules.py](../../lines/nalu/runtime/tools/nalu_prompt_rules.py)（E04 成片作为负样本回归通过；自动判定做不到的项在检测器里标 NOT_IMPLEMENTED）
+- 证据：nalu PIPELINE_RUNBOOK D-40/D-41
+
+### K049 — pipeline
+
+- failure_code：`VOICE_COLLISION`（scope audio，类别 AUDIO）
+- do_not_repeat：同场角色 voice_id 唯一，生成后逐句 F0 校验
+- 规则：角色→音色绑定：voice_cast 每角色 voice_id + f0_band_hz（由参考音实测 ±15%）；生成前同场 voice_id 唯一、音区重叠 >50% 需人工；生成后逐句 F0 中位数落在角色音区外或同场两角色 F0 差 <15% → FAIL。
+- 失败教训：E04 9 个角色 9 条参考音，模型输出只有 3 个音区（~100/~200/~350 Hz），求饶者与指责者同音区；本线台词由视频模型原生发声，没有 TTS 可调参数，只能测量后重做。
+- 修复路径：tools/voice_cast_gate.py + tools/dialogue_voice_metrics.py + final_cut_audience_detectors::voice_distinctness。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/voice_cast_gate.py](../../tools/voice_cast_gate.py)、[tools/dialogue_voice_metrics.py](../../tools/dialogue_voice_metrics.py)、[lines/nalu/runtime/tools/build_voice_cast.py](../../lines/nalu/runtime/tools/build_voice_cast.py)（E04 成片作为负样本回归通过；自动判定做不到的项在检测器里标 NOT_IMPLEMENTED）
+- 证据：nalu PIPELINE_RUNBOOK D-40/D-41
+
+### K050 — pipeline
+
+- failure_code：`FLAT_EMOTION`（scope audio，类别 AUDIO）
+- do_not_repeat：plead/fear/threat 句响度比 calm 基线高 ≥6 dB
+- 规则：情绪→韵律：dialogue_units[].emotion 必填，映射为演绎条款（volume_arc/pace）；生成后 plead|fear|threat 句 RMS 比同角色 calm 基线高 ≥6 dB，否则 FAIL；无基线的角色标 UNVERIFIED。
+- 失败教训：E04 全部台词 −15…−19 dB，『救命啊』与『野核桃真香』同音量，没有情绪。
+- 修复路径：voice_cast_gate::emotion_dynamics + nalu_prompt_rules EMOTION 规则。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/voice_cast_gate.py](../../tools/voice_cast_gate.py)、[lines/nalu/runtime/tools/nalu_prompt_rules.py](../../lines/nalu/runtime/tools/nalu_prompt_rules.py)（E04 成片作为负样本回归通过；自动判定做不到的项在检测器里标 NOT_IMPLEMENTED）
+- 证据：nalu PIPELINE_RUNBOOK D-40/D-41
+
+### K051 — pipeline
+
+- failure_code：`MODERN_LEXICON`（scope episode，类别 QA）
+- do_not_repeat：台词与字幕过世界观词表，禁用科幻/现代词
+- 规则：世界观词表：LEXICON_<world>_v1.json（禁用词、人名标准写法、称谓表）；S1 扫台词，成片扫 ASR + 字幕 + OCR。
+- 失败教训：E04 古装第一句台词出现『变异生物』；字幕『铭哥』与转写『秦明』人名用字不一。
+- 修复路径：check_lexicon + final_cut_audience_detectors::lexicon_violation。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/script_structure_contract_gate.py](../../tools/script_structure_contract_gate.py)、[tools/final_cut_audience_detectors.py](../../tools/final_cut_audience_detectors.py)、[lines/nalu/runtime/configs/LEXICON_yewujiang_v1.json](../../lines/nalu/runtime/configs/LEXICON_yewujiang_v1.json)（E04 成片作为负样本回归通过；自动判定做不到的项在检测器里标 NOT_IMPLEMENTED）
+- 证据：nalu PIPELINE_RUNBOOK D-40/D-41
+
+### K052 — pipeline
+
+- failure_code：`DIALOGUE_STARVATION`（scope episode，类别 PACING）
+- do_not_repeat：无台词连续 ≤15s（动作段 ≤25s），全集台词覆盖 ≥35%
+- 规则：台词密度下限：pacing.dialogue_density{max_silent_run_seconds 15, action 25, min_coverage 0.35}；S1 按镜表估算，成片按 ASR 实测 dialogue_coverage / silence_gap_max。
+- 失败教训：E04 175 s 只有约 36 s 有人说话（覆盖 20.6%），63–99 s 连续 36 s 无台词。
+- 修复路径：check_dialogue_density + 成片检测器。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/script_structure_contract_gate.py](../../tools/script_structure_contract_gate.py)、[tools/final_cut_audience_detectors.py](../../tools/final_cut_audience_detectors.py)（E04 成片作为负样本回归通过；自动判定做不到的项在检测器里标 NOT_IMPLEMENTED）
+- 证据：nalu PIPELINE_RUNBOOK D-40/D-41
+
 ## 引用和许可
 
 以上文字为项目经验的原创概括，随本仓库 MIT LICENSE 发布。未复制外部社区文章、教程全文、他人视频/图片或私人聊天。

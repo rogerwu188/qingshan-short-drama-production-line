@@ -1,0 +1,53 @@
+{
+  "schema": "qingshan.e04_negative_sample.final_cut_summary.v1",
+  "episode": "E04",
+  "derived_from": "E04_final_9x16.mp4 local deliverable (numbers only)",
+  "duration": 174.833,
+  "first_speech_s": 47.31,
+  "coverage": 0.2064,
+  "speech_seconds": 36.08,
+  "asr_windows": 30,
+  "largest_gaps": [
+    {
+      "kind": "leading",
+      "start": 0.0,
+      "end": 47.31,
+      "gap_s": 47.31
+    },
+    {
+      "kind": "between",
+      "start": 63.26,
+      "end": 99.05,
+      "gap_s": 35.79
+    },
+    {
+      "kind": "between",
+      "start": 104.65,
+      "end": 122.35,
+      "gap_s": 17.7
+    },
+    {
+      "kind": "between",
+      "start": 134.73,
+      "end": 141.55,
+      "gap_s": 6.82
+    },
+    {
+      "kind": "between",
+      "start": 158.6,
+      "end": 163.59,
+      "gap_s": 4.99
+    }
+  ],
+  "integrated_lufs": -16.0,
+  "true_peak_dbtp": -3.1,
+  "loudness_range_lu": 6.7,
+  "report_expectations": {
+    "hook_present": "FAIL",
+    "dialogue_coverage": "FAIL",
+    "silence_gap_max": "FAIL",
+    "voice_distinctness": "FAIL",
+    "emotion_dynamics": "FAIL",
+    "loudness": "FAIL (release target -14 LUFS +-1; E04 was levelled to -16)"
+  }
+}

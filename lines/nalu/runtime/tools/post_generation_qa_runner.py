@@ -81,7 +81,10 @@ ALLOWED_TECHNICAL = ("decode", "duration", "resolution", "aspect_ratio", "codec"
                      "frame_rate", "sample_rate")
 ALLOWED_BASIC_PLOT = ("episode_scene_correspondence", "principal_character_presence",
                       "major_event_presence", "major_dialogue_presence",
-                      "chronological_unit_order")
+                      "chronological_unit_order",
+                      # seq=19 (E04 review): contract-holds questions answered by the reviewer
+                      "action_outcome_visible", "antagonist_motive_readable",
+                      "new_entity_purpose_readable")
 TARGET = {"width": 720, "height": 1280, "aspect_ratio": "9:16",
           "video_codec": {"h264", "hevc"}, "audio_sample_rate": 48000}
 ACCEPTED_UNIT_SAMPLE_RATES = {44100, 48000}   # nalu D-18: provider-native unit audio

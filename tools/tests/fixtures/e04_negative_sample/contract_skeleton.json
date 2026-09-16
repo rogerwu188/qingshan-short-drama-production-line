@@ -1,0 +1,3360 @@
+{
+  "_fixture_provenance": "Derived from the E04 v1 generation contract (qingshan.generation_contract.v3) for gate regression. All dialogue strings are replaced by the same speaker prefix + '台' × original character count; only E04-S04-04 keeps the two-character forbidden term as A6 evidence. narrative_canonical, style, visual_culture_contract, identity_source files and every absolute path are removed. Blocking / entry / completion / action prose is production storyboard text, not novel text.",
+  "schema": "qingshan.generation_contract.v3",
+  "episode": "E04",
+  "version": "v1",
+  "pacing": {
+    "authority": "Roger 2026-09-13：加快节奏；Roger 2026-09-15 seq=17：全集紧凑感仍不够 → 单镜 3–6 s、无对白镜 ≤4 s、单场 ≤16 s、全集 150–170 s",
+    "shot_seconds_default": [
+      3,
+      4
+    ],
+    "shot_seconds_max": 6,
+    "shot_seconds_max_note": "6 s 只用于按 nalu_prompt_rules.min_dialogue_seconds 确实放不进 5 s 的台词镜（E04-S05-02 / S10-03 / S11-02 / S12-01）；无对白镜 ≤4 s",
+    "video_unit_seconds_max": 6.0,
+    "video_unit_seconds_hard_cap": 7.0,
+    "video_unit_note": "写手层意图 ≤6 s；单元实际上限由引擎分组决定（seq=7 c3 硬上限 7 s；e16 偏好 4–6 s）",
+    "no_dialogue_static_hold_seconds_max": 2.0,
+    "no_dialogue_static_hold_verdict": "REJECT（生成后 QA 静止判定为拒收）",
+    "scene_opening_rule": "每场第一镜从进行中的动作开始，不给建立镜头停顿；场与场之间在动作上切",
+    "scene_turn_rule": "每场有转折与 button（见 directing script 每场末镜）",
+    "scene_seconds_max": 16,
+    "scene_seconds_max_exception": "E04-S12 末场 19 s：四句对白 button（文睿一句、陆泽两句拆句）",
+    "hook_rule": "全集前 3 秒 = 收回目光、猛地背起袋转身、猎叉上的红松鼠甩起来（E04-S01-01）",
+    "episode_total_seconds_target": [
+      150,
+      170
+    ],
+    "identity_reanchor_rule": "seq=12/13：同一场内远景小人影之后的同一人物露脸镜必须声明 identity_reanchor（引擎 e19 以角色板生成的关键帧作身份再锚定参考）",
+    "no_black_rule": "seq=13：剧本与镜头文字不得写「全黑/极暗」；最暗时刻仍有雪面月色或余光照出轮廓；猩红眼睛是黑暗中的红点光",
+    "child_dialogue_rule": "seq=13：儿童对白双人同框（E04-S12-01 文睿与秦铭同框，不单独儿童特写）"
+  },
+  "carry_in": {
+    "previous_episode": "E03",
+    "previous_scene_id": "E03-S13",
+    "previous_shot_id": "E03-S13-03",
+    "previous_completion_state": "秦铭说完一句，目光仍在远处的光上",
+    "first_shot_id": "E04-S01-01",
+    "first_shot_entry_state": "秦铭站在山顶，目光仍在远处的光上，兽皮袋在脚边，猎叉上挂着红松鼠",
+    "rule": "不复位、不重演、不闪回 E03 内容，沿同一方向推进至少一步（目光仍在远处的光上→收回目光、背袋、转身下山）"
+  },
+  "character_entities": [
+    {
+      "character_id": "CHAR-QINMING",
+      "canonical_name": "秦铭",
+      "aliases": [
+        "小秦",
+        "小叔",
+        "秦叔",
+        "铭哥",
+        "那小子"
+      ]
+    },
+    {
+      "character_id": "CHAR-LUZE",
+      "canonical_name": "陆泽",
+      "aliases": [
+        "陆哥"
+      ]
+    },
+    {
+      "character_id": "CHAR-YANGYONGQING",
+      "canonical_name": "杨永青",
+      "aliases": [
+        "杨叔"
+      ]
+    },
+    {
+      "character_id": "CHAR-VILLAGER-A",
+      "canonical_name": "邻居甲",
+      "aliases": [
+        "村民甲",
+        "有人"
+      ]
+    },
+    {
+      "character_id": "CHAR-VILLAGER-B",
+      "canonical_name": "村民乙",
+      "aliases": [
+        "圆脸村民",
+        "劈柴的人"
+      ]
+    },
+    {
+      "character_id": "CHAR-LUWENRUI",
+      "canonical_name": "陆文睿",
+      "aliases": [
+        "文睿",
+        "小文睿"
+      ]
+    },
+    {
+      "character_id": "CHAR-HUYONG",
+      "canonical_name": "胡勇",
+      "aliases": [
+        "闲汉头目"
+      ]
+    },
+    {
+      "character_id": "CHAR-MAYANG",
+      "canonical_name": "马阳",
+      "aliases": [
+        "闲汉马阳"
+      ]
+    },
+    {
+      "character_id": "CHAR-WANGYOUPING",
+      "canonical_name": "王佑平",
+      "aliases": [
+        "闲汉王佑平"
+      ]
+    }
+  ],
+  "non_character_entities": [
+    {
+      "entity_id": "PROP-HUNTING-FORK",
+      "name": "猎叉",
+      "reference_card_required": false,
+      "first_shot": "E04-S01-01",
+      "note": "E03 已出卡并锁定：木柄铁头猎叉，能插在雪里、能挂猎物、木柄能砸人"
+    },
+    {
+      "entity_id": "PROP-BOW-ARROWS",
+      "name": "弓箭",
+      "reference_card_required": true,
+      "first_shot": "E04-S02-04",
+      "note": "竹木硬弓与皮箭囊，弓身厚重需惊人臂力才能拉成满月；铁箭：铁镞、木杆、羽尾，一支接一支；E03 只背不用、本集主用故出卡"
+    },
+    {
+      "entity_id": "PROP-HIDE-BAG",
+      "name": "兽皮袋",
+      "reference_card_required": false,
+      "first_shot": "E04-S01-01",
+      "note": "E03 已出卡并锁定：装满干果鼓胀的厚兽皮口袋，可背可扔"
+    },
+    {
+      "entity_id": "PROP-RED-SQUIRREL",
+      "name": "红松鼠",
+      "reference_card_required": false,
+      "first_shot": "E04-S01-01",
+      "note": "E03 已出卡并锁定：变异红松鼠，火红皮毛微微发光；本集全程倒挂在猎叉上，先昏死后苏醒瞪眼"
+    },
+    {
+      "entity_id": "PROP-NUT-HOARD",
+      "name": "干果",
+      "reference_card_required": false,
+      "first_shot": "E04-S12-01",
+      "note": "E03 已出卡并锁定：野核桃、栗子、红枣、松子；本集摊在炕上"
+    },
+    {
+      "entity_id": "PROP-MUTANT-BEAST",
+      "name": "变异生物",
+      "reference_card_required": true,
+      "first_shot": "E04-S02-02",
+      "note": "只给轮廓的猛兽：黑暗中一双猩红的眼睛（画面里唯一的红点光，两点、平行、齐人头高）、块头很大、能直立奔行的黑影，隐在林木后方数次隐现；带腥味，中箭后低吼；参考卡为林间雪地上的黑影剪影与猩红双眼，不画清晰面目"
+    },
+    {
+      "entity_id": "PROP-DONKEY",
+      "name": "毛驴",
+      "reference_card_required": true,
+      "first_shot": "E04-S09-01",
+      "note": "一头灰毛驴，无鞍无缰，步态悠悠、对前路很熟；看到猛兽只淡淡瞥一眼"
+    },
+    {
+      "entity_id": "PROP-WHITE-WEASEL",
+      "name": "黄鼠狼",
+      "reference_card_required": true,
+      "first_shot": "E04-S09-01",
+      "note": "纯白如雪、没有一根杂毛的黄鼠狼，盘坐在驴背上、倒骑面向后方来路，沉静老成、双目深邃、不像野生动物；是画面里最亮的一点"
+    },
+    {
+      "entity_id": "PROP-IRON-ROD",
+      "name": "铁棍",
+      "reference_card_required": false,
+      "first_shot": "E04-S05-02",
+      "note": "闲汉随身的短铁棍与短刀，藏在腰后；只在雪窟窿里抬了抬，动手前就被制住"
+    },
+    {
+      "entity_id": "SET-FIRE-SPRING",
+      "name": "火泉",
+      "note": "丈六见方石围池，火红光焰，黑白双树；E01–E03 已建立，本集 S10–S11 村口，不复证形制"
+    },
+    {
+      "entity_id": "SET-FOREST-EDGE-WOODS",
+      "name": "密林边缘林地",
+      "note": "E03 已出卡并锁定；本集 S02–S03、S09 沿用"
+    },
+    {
+      "entity_id": "SET-SNOW-HOLLOW",
+      "name": "雪窟窿",
+      "reference_card_required": true,
+      "first_shot": "E04-S05-02",
+      "note": "三个闲汉在村外雪路旁挖出的挡风雪坑：一人深、三人并肩宽，雪壁粗糙、坑口被风吹得毛糙；崩塌后是一堆翻腾的雪尘与雪块"
+    }
+  ],
+  "props": {
+    "reference_cards": [
+      {
+        "entity_id": "PROP-BOW-ARROWS",
+        "name": "弓箭",
+        "reference_card_required": true,
+        "first_shot": "E04-S02-04"
+      },
+      {
+        "entity_id": "PROP-MUTANT-BEAST",
+        "name": "变异生物",
+        "reference_card_required": true,
+        "first_shot": "E04-S02-02"
+      },
+      {
+        "entity_id": "PROP-DONKEY",
+        "name": "毛驴",
+        "reference_card_required": true,
+        "first_shot": "E04-S09-01"
+      },
+      {
+        "entity_id": "PROP-WHITE-WEASEL",
+        "name": "黄鼠狼",
+        "reference_card_required": true,
+        "first_shot": "E04-S09-01"
+      },
+      {
+        "entity_id": "SET-SNOW-HOLLOW",
+        "name": "雪窟窿",
+        "reference_card_required": true,
+        "first_shot": "E04-S05-02"
+      },
+      {
+        "entity_id": "PROP-RED-SQUIRREL",
+        "name": "红松鼠",
+        "reference_card_required": false,
+        "first_shot": "E04-S01-01",
+        "payoff_shot_ids": [
+          "E04-S10-03"
+        ],
+        "_fixture_note": "E04 negative sample: the real E04-S10-03 dialogue names the squirrel as the hunt's comic result (report §一 #7); dialogue text is stripped in this fixture, so payoff_shot_ids carries the payoff instead. No acquired{} is declared, exactly as in the real contract → PROP_NO_SOURCE:PROP-RED-SQUIRREL."
+      }
+    ],
+    "declared_without_card": [
+      "PROP-HUNTING-FORK",
+      "PROP-HIDE-BAG",
+      "PROP-RED-SQUIRREL",
+      "PROP-NUT-HOARD",
+      "PROP-IRON-ROD"
+    ]
+  },
+  "scene_states": [
+    {
+      "scene_id": "E04-S01",
+      "location_id": "LOC-LOW-HILL-TOP-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "target_seconds": 6,
+      "source_events": [
+        "E04-EV-01",
+        "E04-EV-02"
+      ]
+    },
+    {
+      "scene_id": "E04-S02",
+      "location_id": "LOC-FOREST-EDGE-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "target_seconds": 13,
+      "source_events": [
+        "E04-EV-03",
+        "E04-EV-04",
+        "E04-EV-05"
+      ]
+    },
+    {
+      "scene_id": "E04-S03",
+      "location_id": "LOC-FOREST-EDGE-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "target_seconds": 16,
+      "source_events": [
+        "E04-EV-06",
+        "E04-EV-07",
+        "E04-EV-08"
+      ]
+    },
+    {
+      "scene_id": "E04-S04",
+      "location_id": "LOC-SNOWFIELD-WILDS-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "target_seconds": 15,
+      "source_events": [
+        "E04-EV-09",
+        "E04-EV-10",
+        "E04-EV-11",
+        "E04-EV-12"
+      ]
+    },
+    {
+      "scene_id": "E04-S05",
+      "location_id": "LOC-SNOWFIELD-WILDS-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "target_seconds": 15,
+      "source_events": [
+        "E04-EV-13",
+        "E04-EV-14",
+        "E04-EV-15"
+      ]
+    },
+    {
+      "scene_id": "E04-S06",
+      "location_id": "LOC-SNOWFIELD-WILDS-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "target_seconds": 12,
+      "source_events": [
+        "E04-EV-16",
+        "E04-EV-17"
+      ]
+    },
+    {
+      "scene_id": "E04-S07",
+      "location_id": "LOC-SNOWFIELD-WILDS-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "target_seconds": 16,
+      "source_events": [
+        "E04-EV-18",
+        "E04-EV-19",
+        "E04-EV-20"
+      ]
+    },
+    {
+      "scene_id": "E04-S08",
+      "location_id": "LOC-SNOWFIELD-WILDS-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "target_seconds": 16,
+      "source_events": [
+        "E04-EV-21",
+        "E04-EV-22",
+        "E04-EV-23"
+      ]
+    },
+    {
+      "scene_id": "E04-S09",
+      "location_id": "LOC-FOREST-EDGE-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "target_seconds": 11,
+      "source_events": [
+        "E04-EV-24",
+        "E04-EV-25",
+        "E04-EV-26"
+      ]
+    },
+    {
+      "scene_id": "E04-S10",
+      "location_id": "LOC-FIRE-SPRING-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "target_seconds": 16,
+      "source_events": [
+        "E04-EV-27",
+        "E04-EV-28",
+        "E04-EV-29"
+      ]
+    },
+    {
+      "scene_id": "E04-S11",
+      "location_id": "LOC-FIRE-SPRING-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "target_seconds": 15,
+      "source_events": [
+        "E04-EV-30",
+        "E04-EV-31",
+        "E04-EV-32"
+      ]
+    },
+    {
+      "scene_id": "E04-S12",
+      "location_id": "LOC-QINMING-HOUSE-INT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "target_seconds": 19,
+      "source_events": [
+        "E04-EV-33",
+        "E04-EV-34",
+        "E04-EV-35",
+        "E04-EV-36"
+      ]
+    }
+  ],
+  "shots": [
+    {
+      "shot_id": "E04-S01-01",
+      "scene_id": "E04-S01",
+      "target_seconds": 3,
+      "blocking": "秦铭站在山顶收回目光，猛地把鼓胀的兽皮袋甩上肩，猎叉上的红松鼠甩起来",
+      "entry_state": "秦铭站在山顶，目光仍在远处的光上，兽皮袋在脚边，猎叉上挂着红松鼠",
+      "completion_state": "兽皮袋已在秦铭肩上，猎叉上的红松鼠甩起来",
+      "state_delta_dimensions": [
+        "POSSESSION",
+        "POSTURE"
+      ],
+      "state_delta_evidence": {
+        "POSSESSION": {
+          "entry": "兽皮袋在脚边",
+          "exit": "兽皮袋背在肩上",
+          "entry_code": "BAG_ON_GROUND",
+          "exit_code": "BAG_ON_SHOULDER"
+        },
+        "POSTURE": {
+          "entry": "凝望远处",
+          "exit": "收回目光转身",
+          "entry_code": "GAZING_FAR",
+          "exit_code": "TURNING_AWAY"
+        }
+      },
+      "pacing_flags": {
+        "hook": true,
+        "scene_opener_in_motion": true,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-HUNTING-FORK",
+            "prop": "猎叉"
+          },
+          {
+            "prop_id": "PROP-HIDE-BAG",
+            "prop": "兽皮袋"
+          },
+          {
+            "prop_id": "PROP-RED-SQUIRREL",
+            "prop": "红松鼠"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "秦铭把目光从远处的光上收回，猛地把鼓胀的兽皮袋背上肩，猎叉上挂着的红松鼠甩了起来；背景自始至终是矮山顶的雪石、身后黑压压的林木与远处群山的黑影；秦铭发髻上是一根素木簪，没有任何金属饰件",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "兽皮袋已在秦铭肩上，猎叉上的红松鼠甩起来"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S01-02",
+      "scene_id": "E04-S01",
+      "target_seconds": 3,
+      "blocking": "秦铭转身沿原路下山，在积雪下的洼地与岩石间深一脚浅一脚",
+      "entry_state": "秦铭背着兽皮袋转身踏上下山的路",
+      "completion_state": "秦铭在洼地与岩石间深一脚浅一脚地下到半坡",
+      "state_delta_dimensions": [
+        "POSITION",
+        "MOMENTUM"
+      ],
+      "state_delta_evidence": {
+        "POSITION": {
+          "entry": "在山顶",
+          "exit": "在半坡",
+          "entry_code": "ON_SUMMIT",
+          "exit_code": "ON_SLOPE"
+        },
+        "MOMENTUM": {
+          "entry": "刚转身",
+          "exit": "行进中",
+          "entry_code": "TURNING",
+          "exit_code": "WALKING_DOWN"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": true,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-HIDE-BAG",
+            "prop": "兽皮袋"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "秦铭转身沿着原路下山，积雪下有洼地和岩石，他深一脚浅一脚地走",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "秦铭在洼地与岩石间深一脚浅一脚地下到半坡"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S02-01",
+      "scene_id": "E04-S02",
+      "target_seconds": 4,
+      "blocking": "秦铭走向林缘倏地止步，扔下兽皮袋，双手握紧猎叉猛然回头",
+      "entry_state": "秦铭背着兽皮袋、提着猎叉走向林缘",
+      "completion_state": "兽皮袋扔在雪里，秦铭双手握紧猎叉回头面向来路",
+      "state_delta_dimensions": [
+        "POSSESSION",
+        "POSTURE"
+      ],
+      "state_delta_evidence": {
+        "POSSESSION": {
+          "entry": "兽皮袋在肩上",
+          "exit": "兽皮袋扔在雪里",
+          "entry_code": "BAG_ON_SHOULDER",
+          "exit_code": "BAG_DROPPED"
+        },
+        "POSTURE": {
+          "entry": "面向林缘行走",
+          "exit": "回头握叉戒备",
+          "entry_code": "WALKING_FORWARD",
+          "exit_code": "TURNED_GUARDING"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": true,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-HUNTING-FORK",
+            "prop": "猎叉"
+          },
+          {
+            "prop_id": "PROP-HIDE-BAG",
+            "prop": "兽皮袋"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "临近密林边缘时秦铭倏地止步，把兽皮袋从肩上甩下来扔进雪里——袋子离开身体、整个落在雪面上，此后不再背在身上；随即双手握紧猎叉猛然回头（本单元一次因兽皮袋始终留在肩上重做）",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "兽皮袋扔在雪里，秦铭双手握紧猎叉回头面向来路"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S02-02",
+      "scene_id": "E04-S02",
+      "target_seconds": 3,
+      "blocking": "黑暗的林木间两点猩红的眼光亮起，快速逼近，黑影块头很大只见轮廓",
+      "entry_state": "黑暗的林木间两点猩红的眼光刚亮起",
+      "completion_state": "猩红的眼睛逼近到林缘，黑影的轮廓在林木后显出",
+      "state_delta_dimensions": [
+        "POSITION",
+        "INTEGRITY"
+      ],
+      "state_delta_evidence": {
+        "POSITION": {
+          "entry": "眼睛在林深处",
+          "exit": "眼睛逼近林缘",
+          "entry_code": "EYES_DEEP_IN_FOREST",
+          "exit_code": "EYES_AT_FOREST_EDGE"
+        },
+        "INTEGRITY": {
+          "entry": "只见两点红光",
+          "exit": "红光下显出黑影轮廓",
+          "entry_code": "EYES_ONLY",
+          "exit_code": "SILHOUETTE_VISIBLE"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-MUTANT-BEAST",
+            "prop": "变异生物"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "",
+          "primary_action": "黑暗的林木间出现一双猩红的眼睛，正在快速逼近，向林缘冲来；那生物块头不小，林木后只见黑影的轮廓；画面最暗的时刻仍有雪地与树干上的月色青蓝反光照出人物轮廓与林木，任何一帧都不是纯黑",
+          "patient_id": "CHAR-QINMING"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "猩红的眼睛逼近到林缘，黑影的轮廓在林木后显出"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S02-03",
+      "scene_id": "E04-S02",
+      "target_seconds": 3,
+      "blocking": "秦铭面向来路眼神收紧，寒风吹动发梢，他闻到腥味咬紧牙关",
+      "entry_state": "秦铭面向来路，眼神收紧",
+      "completion_state": "秦铭闻到腥味，牙关咬紧，发梢被风吹起",
+      "state_delta_dimensions": [
+        "POSTURE",
+        "MOMENTUM"
+      ],
+      "state_delta_evidence": {
+        "POSTURE": {
+          "entry": "眼神收紧",
+          "exit": "牙关咬紧",
+          "entry_code": "EYES_NARROWED",
+          "exit_code": "JAW_CLENCHED"
+        },
+        "MOMENTUM": {
+          "entry": "发梢静止",
+          "exit": "发梢被风吹起",
+          "entry_code": "HAIR_STILL",
+          "exit_code": "HAIR_BLOWN"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "秦铭寒毛倒竖，寒风刮过来一股腥味，他鼻翼一动，牙关咬紧；背景自始至终是积雪的光秃树枝、樟子松与白桦的树干和雪地，绝不出现房屋、院墙、石围或天空以外的人造物；秦铭发髻上是一根素木簪，没有任何金属饰件",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "秦铭闻到腥味，牙关咬紧，发梢被风吹起"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S02-04",
+      "scene_id": "E04-S02",
+      "target_seconds": 3,
+      "blocking": "秦铭把猎叉插进雪地，迅速取下背上的弓，抽出一支铁箭搭上弦",
+      "entry_state": "秦铭双手握着猎叉，弓箭还在背上",
+      "completion_state": "猎叉插在雪里，弓在秦铭手中，铁箭已搭上弦",
+      "state_delta_dimensions": [
+        "POSSESSION",
+        "CONTACT"
+      ],
+      "state_delta_evidence": {
+        "POSSESSION": {
+          "entry": "猎叉在手",
+          "exit": "弓箭在手、猎叉插雪",
+          "entry_code": "FORK_IN_HAND",
+          "exit_code": "BOW_IN_HAND_FORK_PLANTED"
+        },
+        "CONTACT": {
+          "entry": "弓箭在背上",
+          "exit": "铁箭搭在弦上",
+          "entry_code": "BOW_ON_BACK",
+          "exit_code": "ARROW_NOCKED"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": true,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-HUNTING-FORK",
+            "prop": "猎叉"
+          },
+          {
+            "prop_id": "PROP-BOW-ARROWS",
+            "prop": "弓箭"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "秦铭把猎叉插进雪地，迅速取下弓箭，抽出一支铁箭搭上弦；背景自始至终是积雪的光秃树枝、樟子松与白桦的树干和雪地，绝不出现房屋、院墙、石围或天空以外的人造物；秦铭发髻上是一根素木簪，没有任何金属饰件",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "猎叉插在雪里，弓在秦铭手中，铁箭已搭上弦"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S03-01",
+      "scene_id": "E04-S03",
+      "target_seconds": 3,
+      "blocking": "秦铭把硬弓拉成满月状，铁镞对着黑暗",
+      "entry_state": "秦铭的手臂正把硬弓拉开",
+      "completion_state": "硬弓拉成满月，铁镞对着黑暗，他的眼睛在弓弦后",
+      "state_delta_dimensions": [
+        "INTEGRITY",
+        "POSTURE"
+      ],
+      "state_delta_evidence": {
+        "INTEGRITY": {
+          "entry": "弓半开",
+          "exit": "弓拉满月",
+          "entry_code": "BOW_HALF_DRAWN",
+          "exit_code": "BOW_FULL_DRAW"
+        },
+        "POSTURE": {
+          "entry": "手臂张开中",
+          "exit": "手臂定住瞄准",
+          "entry_code": "ARMS_OPENING",
+          "exit_code": "ARMS_LOCKED_AIMING"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": true,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-BOW-ARROWS",
+            "prop": "弓箭"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "秦铭臂力惊人，将常人难以使用的硬弓瞬间拉成满月状，铁镞对着黑暗；画面最暗的时刻仍有雪地与树干上的月色青蓝反光照出人物轮廓与林木，任何一帧都不是纯黑；背景自始至终是积雪的光秃树枝、樟子松与白桦的树干和雪地，绝不出现房屋、院墙、石围或天空以外的人造物；秦铭发髻上是一根素木簪，没有任何金属饰件",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "硬弓拉成满月，铁镞对着黑暗，他的眼睛在弓弦后"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S03-02",
+      "scene_id": "E04-S03",
+      "target_seconds": 3,
+      "blocking": "铁箭飞出弓弦颤音很响，秦铭抽出第二支箭",
+      "entry_state": "铁箭正离弦飞出",
+      "completion_state": "铁箭没入夜色，第二支箭在秦铭手中",
+      "state_delta_dimensions": [
+        "POSITION",
+        "POSSESSION"
+      ],
+      "state_delta_evidence": {
+        "POSITION": {
+          "entry": "铁箭在弦上",
+          "exit": "铁箭没入夜色",
+          "entry_code": "ARROW_ON_STRING",
+          "exit_code": "ARROW_GONE_INTO_DARK"
+        },
+        "POSSESSION": {
+          "entry": "手中一支箭",
+          "exit": "手中第二支箭",
+          "entry_code": "FIRST_ARROW",
+          "exit_code": "SECOND_ARROW"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-BOW-ARROWS",
+            "prop": "弓箭"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "强劲的铁箭飞出，弓弦的颤音很响；铁箭没入夜色，秦铭已抽出第二支箭",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "铁箭没入夜色，第二支箭在秦铭手中"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S03-03",
+      "scene_id": "E04-S03",
+      "target_seconds": 4,
+      "blocking": "冲过来的黑影骤然停顿，猩红的眼睛晃了一下",
+      "entry_state": "黑影正向前冲",
+      "completion_state": "黑影骤然停顿，猩红的眼睛晃了一下",
+      "state_delta_dimensions": [
+        "MOMENTUM",
+        "POSTURE"
+      ],
+      "state_delta_evidence": {
+        "MOMENTUM": {
+          "entry": "冲刺中",
+          "exit": "骤然停顿",
+          "entry_code": "CHARGING",
+          "exit_code": "STOPPED_SHORT"
+        },
+        "POSTURE": {
+          "entry": "眼睛平稳逼近",
+          "exit": "眼睛晃动",
+          "entry_code": "EYES_STEADY",
+          "exit_code": "EYES_JOLTED"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-MUTANT-BEAST",
+            "prop": "变异生物"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "",
+          "primary_action": "远处带着凶暴气息冲过来的黑影骤然停顿了一下，猩红的眼睛晃了晃，疑似中箭",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "黑影骤然停顿，猩红的眼睛晃了一下"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S03-04",
+      "scene_id": "E04-S03",
+      "target_seconds": 3,
+      "blocking": "秦铭连着开弓，铁箭一支接一支飞出，箭囊里的箭少了一半",
+      "entry_state": "秦铭搭上第二支箭，箭囊满",
+      "completion_state": "铁箭一支接一支射出，箭囊里的箭少了一半",
+      "state_delta_dimensions": [
+        "POSSESSION",
+        "MOMENTUM"
+      ],
+      "state_delta_evidence": {
+        "POSSESSION": {
+          "entry": "箭囊满",
+          "exit": "箭囊少了一半",
+          "entry_code": "QUIVER_FULL",
+          "exit_code": "QUIVER_HALF"
+        },
+        "MOMENTUM": {
+          "entry": "单发",
+          "exit": "连珠射",
+          "entry_code": "SINGLE_SHOT",
+          "exit_code": "RAPID_FIRE"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-BOW-ARROWS",
+            "prop": "弓箭"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "秦铭精神高度集中，连着开弓，杀伤力很强的铁箭一支接一支地没入夜色中",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "铁箭一支接一支射出，箭囊里的箭少了一半"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S03-05",
+      "scene_id": "E04-S03",
+      "target_seconds": 3,
+      "blocking": "密林间传来低吼，猩红的眼睛消失，枯枝折断，黑影躲到林木后方",
+      "entry_state": "猩红的眼睛在林木后发出低吼",
+      "completion_state": "眼睛消失，枯枝折断，林木后只余黑影的轮廓",
+      "state_delta_dimensions": [
+        "INTEGRITY",
+        "POSITION"
+      ],
+      "state_delta_evidence": {
+        "INTEGRITY": {
+          "entry": "红眼可见",
+          "exit": "红眼消失",
+          "entry_code": "EYES_GLOWING",
+          "exit_code": "EYES_GONE"
+        },
+        "POSITION": {
+          "entry": "黑影在林缘",
+          "exit": "黑影躲到林木后方",
+          "entry_code": "SHADOW_AT_EDGE",
+          "exit_code": "SHADOW_BEHIND_TREES"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": true,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-MUTANT-BEAST",
+            "prop": "变异生物"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "",
+          "primary_action": "密林间传来沉闷的低吼，那双猩红的眼睛消失，伴着枯枝折断的声响，黑影退到林木后方",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "眼睛消失，枯枝折断，林木后只余黑影的轮廓"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S04-01",
+      "scene_id": "E04-S04",
+      "target_seconds": 4,
+      "blocking": "秦铭抓起兽皮袋和猎叉冲出林缘，站到空旷雪地上转身面向林线",
+      "entry_state": "秦铭抓起兽皮袋和猎叉正冲出林缘",
+      "completion_state": "秦铭站在空旷雪地上面向林线，林间传来积雪被冲击的声响",
+      "state_delta_dimensions": [
+        "POSITION",
+        "POSSESSION"
+      ],
+      "state_delta_evidence": {
+        "POSITION": {
+          "entry": "在林缘",
+          "exit": "在空旷雪地",
+          "entry_code": "AT_FOREST_EDGE",
+          "exit_code": "ON_OPEN_SNOW"
+        },
+        "POSSESSION": {
+          "entry": "兽皮袋在雪里",
+          "exit": "兽皮袋与猎叉在手",
+          "entry_code": "BAG_ON_GROUND",
+          "exit_code": "BAG_AND_FORK_IN_HAND"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": true,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-HUNTING-FORK",
+            "prop": "猎叉"
+          },
+          {
+            "prop_id": "PROP-HIDE-BAG",
+            "prop": "兽皮袋"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "秦铭抓起兽皮袋和猎叉，快速冲出山林，来到空旷的雪地上转身面向林线；林间传来积雪被剧烈冲击的声响",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "秦铭站在空旷雪地上面向林线，林间传来积雪被冲击的声响"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S04-02",
+      "scene_id": "E04-S04",
+      "target_seconds": 3,
+      "blocking": "秦铭开弓，铁箭咚的射进很粗的树干，满树雪花如雪瀑坠落",
+      "entry_state": "秦铭开弓对着林线",
+      "completion_state": "铁箭钉在树干上，满树雪花如雪瀑坠落",
+      "state_delta_dimensions": [
+        "INTEGRITY",
+        "POSITION"
+      ],
+      "state_delta_evidence": {
+        "INTEGRITY": {
+          "entry": "树上积雪完整",
+          "exit": "满树雪花坠落",
+          "entry_code": "TREE_SNOW_INTACT",
+          "exit_code": "SNOW_CASCADING"
+        },
+        "POSITION": {
+          "entry": "铁箭在弦上",
+          "exit": "铁箭钉进树干",
+          "entry_code": "ARROW_ON_STRING",
+          "exit_code": "ARROW_IN_TRUNK"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-BOW-ARROWS",
+            "prop": "弓箭"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "秦铭毫不犹豫地开弓，铁箭咚的射进很粗的树干，震得满树雪花顷刻间如雪瀑般坠落",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "铁箭钉在树干上，满树雪花如雪瀑坠落"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S04-03",
+      "scene_id": "E04-S04",
+      "target_seconds": 3,
+      "blocking": "块头很大的黑影在林木间隐现，猩红眼睛森冷，发出不甘的嘶吼消失在密林中",
+      "entry_state": "黑影在林木间隐现，猩红的眼睛森冷",
+      "completion_state": "黑影发出嘶吼后消失，林中只余翻腾过的积雪",
+      "state_delta_dimensions": [
+        "INTEGRITY",
+        "MOMENTUM"
+      ],
+      "state_delta_evidence": {
+        "INTEGRITY": {
+          "entry": "黑影隐现",
+          "exit": "黑影消失",
+          "entry_code": "SHADOW_FLICKERING",
+          "exit_code": "SHADOW_GONE"
+        },
+        "MOMENTUM": {
+          "entry": "徘徊",
+          "exit": "退走",
+          "entry_code": "PROWLING",
+          "exit_code": "RETREATING"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-MUTANT-BEAST",
+            "prop": "变异生物"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "",
+          "primary_action": "地面积雪翻腾，块头很大的黑影在林中数次隐现，猩红的眼睛甚是森冷；它发出一声不甘的低沉嘶吼，消失在密林中",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "黑影发出嘶吼后消失，林中只余翻腾过的积雪"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S04-04",
+      "scene_id": "E04-S04",
+      "target_seconds": 5,
+      "blocking": "秦铭手持弓箭对着密林慢慢后退，说一句",
+      "entry_state": "秦铭持弓对着密林，站在原地",
+      "completion_state": "秦铭后退了几步，说完一句，弓仍对着林线",
+      "state_delta_dimensions": [
+        "POSITION",
+        "POSTURE"
+      ],
+      "state_delta_evidence": {
+        "POSITION": {
+          "entry": "在原地",
+          "exit": "后退几步",
+          "entry_code": "HOLDING_GROUND",
+          "exit_code": "STEPPED_BACK"
+        },
+        "POSTURE": {
+          "entry": "闭口戒备",
+          "exit": "说完凝视",
+          "entry_code": "SILENT_GUARD",
+          "exit_code": "SPOKEN_GUARD"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": true,
+        "no_dialogue_static_hold_seconds_max": null
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-BOW-ARROWS",
+            "prop": "弓箭"
+          }
+        ],
+        "dialogue": "秦铭：台台台台台台变异生物？",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "秦铭手持弓箭对着密林，慢慢后退，他看出那是一道可以直立奔行的身影，低声说一句；台词只在声音里，画面任何位置都不出现字幕、文字或水印；开口不晚于画面第 1 秒，台词在画面结束前至少留半秒说完，说完后口型闭合、动作保持；背景自始至终是齐胸深的雪原、雪面的月色青蓝反光与远处黑压压的林线，绝不出现房屋、院墙或火光；秦铭发髻上是一根素木簪，没有任何金属饰件",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "秦铭后退了几步，说完一句，弓仍对着林线"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S05-01",
+      "scene_id": "E04-S05",
+      "target_seconds": 4,
+      "blocking": "三个青年在雪路旁跺脚搓手呼出白雾，眉毛上都是冰渣，钻进雪窟窿；雪面平整只有脚印，没有任何刻痕或符号",
+      "entry_state": "三人站在雪路旁跺脚搓手",
+      "completion_state": "三人钻进雪窟窿窝着",
+      "state_delta_dimensions": [
+        "POSITION",
+        "POSTURE"
+      ],
+      "state_delta_evidence": {
+        "POSITION": {
+          "entry": "站在雪路旁",
+          "exit": "窝在雪窟窿里",
+          "entry_code": "ON_SNOW_PATH",
+          "exit_code": "IN_SNOW_HOLLOW"
+        },
+        "POSTURE": {
+          "entry": "跺脚搓手",
+          "exit": "缩着身子窝着",
+          "entry_code": "STAMPING_RUBBING",
+          "exit_code": "HUDDLED"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": true,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "胡勇",
+            "character_id": "CHAR-HUYONG"
+          },
+          {
+            "character": "马阳",
+            "character_id": "CHAR-MAYANG"
+          },
+          {
+            "character": "王佑平",
+            "character_id": "CHAR-WANGYOUPING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "SET-SNOW-HOLLOW",
+            "prop": "雪窟窿"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-HUYONG",
+          "primary_action": "双树村外的雪路上，胡勇、马阳、王佑平三个青年冻得跺脚搓手，大口呼出白雾，眉毛上都是冰渣；三人钻进挖好的雪窟窿",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-HUYONG": "三人钻进雪窟窿窝着",
+            "CHAR-MAYANG": "三人钻进雪窟窿窝着",
+            "CHAR-WANGYOUPING": "三人钻进雪窟窿窝着"
+          },
+          "entity_presence": {
+            "CHAR-HUYONG": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-MAYANG": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-WANGYOUPING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S05-02",
+      "scene_id": "E04-S05",
+      "target_seconds": 6,
+      "blocking": "三人窝在雪窟窿里，王佑平缩着脖子抱怨，胡勇抬了抬手里的铁棍",
+      "entry_state": "三人窝在雪窟窿里，王佑平缩着脖子开口",
+      "completion_state": "王佑平说完，胡勇抬了抬手里的铁棍",
+      "state_delta_dimensions": [
+        "POSTURE",
+        "CONTACT"
+      ],
+      "state_delta_evidence": {
+        "POSTURE": {
+          "entry": "王佑平缩脖子开口",
+          "exit": "王佑平说完撇嘴",
+          "entry_code": "HUNCHED_SPEAKING",
+          "exit_code": "DONE_SPEAKING_POUTING"
+        },
+        "CONTACT": {
+          "entry": "铁棍横在胡勇膝上",
+          "exit": "铁棍被胡勇抬起",
+          "entry_code": "ROD_ON_KNEES",
+          "exit_code": "ROD_RAISED"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": null
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "王佑平",
+            "character_id": "CHAR-WANGYOUPING"
+          },
+          {
+            "character": "胡勇",
+            "character_id": "CHAR-HUYONG"
+          },
+          {
+            "character": "马阳",
+            "character_id": "CHAR-MAYANG"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-IRON-ROD",
+            "prop": "铁棍"
+          },
+          {
+            "prop_id": "SET-SNOW-HOLLOW",
+            "prop": "雪窟窿"
+          }
+        ],
+        "dialogue": "王佑平：台台台台台台台台台台台台台台台台台台台台",
+        "action": {
+          "subject_id": "CHAR-WANGYOUPING",
+          "primary_action": "三人窝在雪窟窿里低声交谈，王佑平缩着脖子抱怨一句；胡勇抬了抬手里的铁棍；台词只在声音里，画面任何位置都不出现字幕、文字或水印；开口不晚于画面第 1 秒，台词在画面结束前至少留半秒说完，说完后口型闭合、动作保持",
+          "patient_id": "CHAR-HUYONG"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-WANGYOUPING": "王佑平说完，胡勇抬了抬手里的铁棍",
+            "CHAR-HUYONG": "王佑平说完，胡勇抬了抬手里的铁棍",
+            "CHAR-MAYANG": "王佑平说完，胡勇抬了抬手里的铁棍"
+          },
+          "entity_presence": {
+            "CHAR-WANGYOUPING": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-HUYONG": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-MAYANG": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S05-03",
+      "scene_id": "E04-S05",
+      "target_seconds": 5,
+      "blocking": "马阳压低嗓子说一句，胡勇背侧点头，三人噤声望向雪路",
+      "entry_state": "马阳压低嗓子开口，胡勇看着他",
+      "completion_state": "马阳说完抬眼望向雪路，胡勇点头噤声",
+      "state_delta_dimensions": [
+        "POSTURE",
+        "CONTACT"
+      ],
+      "state_delta_evidence": {
+        "POSTURE": {
+          "entry": "马阳低头说话",
+          "exit": "马阳抬眼望雪路",
+          "entry_code": "HEAD_DOWN_SPEAKING",
+          "exit_code": "EYES_ON_PATH"
+        },
+        "CONTACT": {
+          "entry": "胡勇头正",
+          "exit": "胡勇点头",
+          "entry_code": "HEAD_STILL",
+          "exit_code": "NODDING"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": true,
+        "no_dialogue_static_hold_seconds_max": null
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "马阳",
+            "character_id": "CHAR-MAYANG"
+          },
+          {
+            "character": "胡勇",
+            "character_id": "CHAR-HUYONG"
+          }
+        ],
+        "props": [],
+        "dialogue": "马阳：台台台台台台台台台台台台台台台",
+        "action": {
+          "subject_id": "CHAR-MAYANG",
+          "primary_action": "马阳压低嗓子说一句，胡勇点头；马阳抬眼望向雪路，三人噤声；台词只在声音里，画面任何位置都不出现字幕、文字或水印；开口不晚于画面第 1 秒，台词在画面结束前至少留半秒说完，说完后口型闭合、动作保持；背景自始至终是齐胸深的雪原、雪面的月色青蓝反光与远处黑压压的林线，绝不出现房屋、院墙或火光",
+          "patient_id": "CHAR-HUYONG"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-MAYANG": "马阳说完抬眼望向雪路，胡勇点头噤声",
+            "CHAR-HUYONG": "马阳说完抬眼望向雪路，胡勇点头噤声"
+          },
+          "entity_presence": {
+            "CHAR-MAYANG": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-HUYONG": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S06-01",
+      "scene_id": "E04-S06",
+      "target_seconds": 3,
+      "blocking": "秦铭在雪路上看到前方三条黑影，立刻蹲下，整个人没进齐肩深的积雪里",
+      "entry_state": "秦铭在雪路上看到前方远处有三条黑影，身影露在雪面上",
+      "completion_state": "秦铭整个人没进齐肩深的积雪，雪面上只余猎叉的叉头",
+      "state_delta_dimensions": [
+        "POSTURE",
+        "INTEGRITY"
+      ],
+      "state_delta_evidence": {
+        "POSTURE": {
+          "entry": "直立行走",
+          "exit": "蹲下没入雪",
+          "entry_code": "STANDING",
+          "exit_code": "CROUCHED_IN_SNOW"
+        },
+        "INTEGRITY": {
+          "entry": "身影在雪面上",
+          "exit": "身影消失在雪面下",
+          "entry_code": "FIGURE_ABOVE_SNOW",
+          "exit_code": "FIGURE_HIDDEN"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": true,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-HUNTING-FORK",
+            "prop": "猎叉"
+          },
+          {
+            "prop_id": "PROP-MUTANT-BEAST",
+            "prop": "变异生物"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "秦铭隔着一段距离看到前方三条黑影，立刻蹲下身，整个人没进齐肩深的积雪里",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "秦铭整个人没进齐肩深的积雪，雪面上只余猎叉的叉头"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S06-02",
+      "scene_id": "E04-S06",
+      "target_seconds": 3,
+      "blocking": "雪沟里秦铭的头顶与猎叉贴着雪面无声前移，潜行到离雪窟窿不远处",
+      "entry_state": "秦铭在雪沟起点开始潜行，猎叉贴着雪面",
+      "completion_state": "秦铭潜行到离雪窟窿不远处",
+      "state_delta_dimensions": [
+        "POSITION",
+        "MOMENTUM"
+      ],
+      "state_delta_evidence": {
+        "POSITION": {
+          "entry": "离雪窟窿远",
+          "exit": "离雪窟窿不远",
+          "entry_code": "FAR_FROM_HOLLOW",
+          "exit_code": "NEAR_HOLLOW"
+        },
+        "MOMENTUM": {
+          "entry": "静止",
+          "exit": "无声前移",
+          "entry_code": "STILL",
+          "exit_code": "CREEPING"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-HUNTING-FORK",
+            "prop": "猎叉"
+          },
+          {
+            "prop_id": "SET-SNOW-HOLLOW",
+            "prop": "雪窟窿"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "秦铭沿着早先蹚出的雪路无声地潜行，头顶与猎叉贴着雪面前移",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "秦铭潜行到离雪窟窿不远处"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S06-03",
+      "scene_id": "E04-S06",
+      "target_seconds": 3,
+      "blocking": "秦铭在雪沟里停下侧耳听，听清对话后脸色难看起来",
+      "entry_state": "秦铭在雪沟里停下侧耳听",
+      "completion_state": "秦铭听清对话，脸色难看",
+      "state_delta_dimensions": [
+        "POSTURE",
+        "MOMENTUM"
+      ],
+      "state_delta_evidence": {
+        "POSTURE": {
+          "entry": "侧耳倾听",
+          "exit": "脸色难看",
+          "entry_code": "LISTENING",
+          "exit_code": "GRIM"
+        },
+        "MOMENTUM": {
+          "entry": "前移中停下",
+          "exit": "定住不动",
+          "entry_code": "STOPPING",
+          "exit_code": "FROZEN"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "秦铭在一处停下，侧耳听到了三人的对话，脸色难看起来；背景自始至终是齐胸深的雪原、雪面的月色青蓝反光与远处黑压压的林线，绝不出现房屋、院墙或火光；秦铭发髻上是一根素木簪，没有任何金属饰件",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "秦铭听清对话，脸色难看"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S06-04",
+      "scene_id": "E04-S06",
+      "target_seconds": 3,
+      "blocking": "秦铭把兽皮袋轻轻放进雪里，双手握紧猎叉压低身体蓄势",
+      "entry_state": "秦铭背着兽皮袋，单手持叉",
+      "completion_state": "兽皮袋放在雪里，秦铭双手握紧猎叉压低身体",
+      "state_delta_dimensions": [
+        "POSSESSION",
+        "CONTACT"
+      ],
+      "state_delta_evidence": {
+        "POSSESSION": {
+          "entry": "兽皮袋在肩上",
+          "exit": "兽皮袋放在雪里",
+          "entry_code": "BAG_ON_SHOULDER",
+          "exit_code": "BAG_SET_DOWN"
+        },
+        "CONTACT": {
+          "entry": "单手持叉",
+          "exit": "双手握叉",
+          "entry_code": "ONE_HAND_ON_FORK",
+          "exit_code": "TWO_HANDS_ON_FORK"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": true,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-HUNTING-FORK",
+            "prop": "猎叉"
+          },
+          {
+            "prop_id": "PROP-HIDE-BAG",
+            "prop": "兽皮袋"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "秦铭俯身把兽皮袋轻轻放进雪里，双手握紧猎叉，身体压低蓄势；背景自始至终是齐胸深的雪原、雪面的月色青蓝反光与远处黑压压的林线，绝不出现房屋、院墙或火光；秦铭发髻上是一根素木簪，没有任何金属饰件",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "兽皮袋放在雪里，秦铭双手握紧猎叉压低身体"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S07-01",
+      "scene_id": "E04-S07",
+      "target_seconds": 3,
+      "blocking": "三个闲汉在雪窟窿坑底（画面中央），雪壁正向他们崩塌、雪块把他们埋到只露手脚；秦铭在坑外画左、单膝撑在坑沿上，是唯一站在坑外的人",
+      "entry_state": "三人在雪窟窿坑底，雪壁正向他们崩塌，秦铭在坑外扑到坑沿",
+      "completion_state": "三人被埋在坑底翻腾的雪块下只露出手脚，秦铭立在坑外的坑沿上",
+      "state_delta_dimensions": [
+        "INTEGRITY",
+        "POSITION"
+      ],
+      "state_delta_evidence": {
+        "INTEGRITY": {
+          "entry": "雪窟窿完整",
+          "exit": "雪窟窿崩塌成雪堆",
+          "entry_code": "HOLLOW_INTACT",
+          "exit_code": "HOLLOW_COLLAPSED"
+        },
+        "POSITION": {
+          "entry": "三人在坑里",
+          "exit": "三人埋在雪下",
+          "entry_code": "TRIO_IN_HOLLOW",
+          "exit_code": "TRIO_BURIED"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": true,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          },
+          {
+            "character": "胡勇",
+            "character_id": "CHAR-HUYONG"
+          },
+          {
+            "character": "马阳",
+            "character_id": "CHAR-MAYANG"
+          },
+          {
+            "character": "王佑平",
+            "character_id": "CHAR-WANGYOUPING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "SET-SNOW-HOLLOW",
+            "prop": "雪窟窿"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "秦铭扑到雪窟窿的雪壁上，雪窟窿轰然崩塌，霎时间把三人埋在里面，口鼻间全是雪，只露出手脚",
+          "patient_id": "CHAR-HUYONG"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "三人被埋在坑底翻腾的雪块下只露出手脚，秦铭立在坑外的坑沿上",
+            "CHAR-HUYONG": "三人被埋在坑底翻腾的雪块下只露出手脚，秦铭立在坑外的坑沿上",
+            "CHAR-MAYANG": "三人被埋在坑底翻腾的雪块下只露出手脚，秦铭立在坑外的坑沿上",
+            "CHAR-WANGYOUPING": "三人被埋在坑底翻腾的雪块下只露出手脚，秦铭立在坑外的坑沿上"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-HUYONG": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-MAYANG": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-WANGYOUPING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S07-02",
+      "scene_id": "E04-S07",
+      "target_seconds": 3,
+      "blocking": "胡勇第一个冲出雪堆，脚掌迎面踹在他脸上，猎叉木柄砸在他肩头，他踉跄倒地",
+      "entry_state": "胡勇冲出雪堆，秦铭的脚掌已到他眼前",
+      "completion_state": "胡勇被踹脸、猎叉木柄砸肩，踉跄倒在雪地上",
+      "state_delta_dimensions": [
+        "POSTURE",
+        "CONTACT"
+      ],
+      "state_delta_evidence": {
+        "POSTURE": {
+          "entry": "胡勇冲出站起",
+          "exit": "胡勇倒地",
+          "entry_code": "HUYONG_RISING",
+          "exit_code": "HUYONG_DOWN"
+        },
+        "CONTACT": {
+          "entry": "脚掌踹脸",
+          "exit": "叉柄砸肩",
+          "entry_code": "KICK_TO_FACE",
+          "exit_code": "ROD_TO_SHOULDER"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          },
+          {
+            "character": "胡勇",
+            "character_id": "CHAR-HUYONG"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-HUNTING-FORK",
+            "prop": "猎叉"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "胡勇第一个冲出来，还没稳住身形，秦铭一脚重重踹在他的脸上，接着猎叉的木柄猛烈砸在他肩头，胡勇踉跄着倒在地上",
+          "patient_id": "CHAR-HUYONG"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "胡勇被踹脸、猎叉木柄砸肩，踉跄倒在雪地上",
+            "CHAR-HUYONG": "胡勇被踹脸、猎叉木柄砸肩，踉跄倒在雪地上"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-HUYONG": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S07-03",
+      "scene_id": "E04-S07",
+      "target_seconds": 3,
+      "blocking": "马阳刚从雪中冒头就被一脚踢在鼻子上，嗷的一声惨叫涕泪长流，倒在雪地里翻滚",
+      "entry_state": "马阳刚从雪中冒头",
+      "completion_state": "马阳涕泪长流倒在雪地里翻滚",
+      "state_delta_dimensions": [
+        "POSTURE",
+        "INTEGRITY"
+      ],
+      "state_delta_evidence": {
+        "POSTURE": {
+          "entry": "马阳冒头",
+          "exit": "马阳翻滚",
+          "entry_code": "MAYANG_EMERGING",
+          "exit_code": "MAYANG_ROLLING"
+        },
+        "INTEGRITY": {
+          "entry": "马阳脸干净",
+          "exit": "马阳鼻子流血涕泪长流",
+          "entry_code": "FACE_CLEAN",
+          "exit_code": "NOSE_BLEEDING_TEARS"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          },
+          {
+            "character": "马阳",
+            "character_id": "CHAR-MAYANG"
+          }
+        ],
+        "props": [],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "马阳刚从雪中冒头就被秦铭一脚踢在鼻子上，嗷的一声惨叫，涕泪长流，倒在雪地里不断翻滚；背景自始至终是齐胸深的雪原、雪面的月色青蓝反光与远处黑压压的林线，绝不出现房屋、院墙或火光；秦铭发髻上是一根素木簪，没有任何金属饰件",
+          "patient_id": "CHAR-MAYANG"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "马阳涕泪长流倒在雪地里翻滚",
+            "CHAR-MAYANG": "马阳涕泪长流倒在雪地里翻滚"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-MAYANG": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S07-04",
+      "scene_id": "E04-S07",
+      "target_seconds": 3,
+      "blocking": "王佑平向一人深的积雪里钻只剩后背，锋利的钢叉刺破他背上的衣服见了血",
+      "entry_state": "王佑平向雪里钻，只剩后背，钢叉在他背上方",
+      "completion_state": "钢叉刺破王佑平背上的衣服，见了血",
+      "state_delta_dimensions": [
+        "INTEGRITY",
+        "CONTACT"
+      ],
+      "state_delta_evidence": {
+        "INTEGRITY": {
+          "entry": "衣背完好",
+          "exit": "衣背刺破见血",
+          "entry_code": "COAT_INTACT",
+          "exit_code": "COAT_TORN_BLEEDING"
+        },
+        "CONTACT": {
+          "entry": "钢叉悬在背上方",
+          "exit": "钢叉抵进后背",
+          "entry_code": "FORK_ABOVE_BACK",
+          "exit_code": "FORK_INTO_BACK"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "王佑平",
+            "character_id": "CHAR-WANGYOUPING"
+          },
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-HUNTING-FORK",
+            "prop": "猎叉"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "王佑平俯身向一人深的积雪里钻，秦铭的钢叉刺破他背上的衣服，让他见了血；背景自始至终是齐胸深的雪原、雪面的月色青蓝反光与远处黑压压的林线，绝不出现房屋、院墙或火光；秦铭发髻上是一根素木簪，没有任何金属饰件",
+          "patient_id": "CHAR-WANGYOUPING"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-WANGYOUPING": "钢叉刺破王佑平背上的衣服，见了血",
+            "CHAR-QINMING": "钢叉刺破王佑平背上的衣服，见了血"
+          },
+          "entity_presence": {
+            "CHAR-WANGYOUPING": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S07-05",
+      "scene_id": "E04-S07",
+      "target_seconds": 4,
+      "blocking": "王佑平从雪里仰起脸嘴唇发抖哆嗦着求饶，秦铭的钢叉抵着他",
+      "entry_state": "王佑平从雪里仰起脸，嘴唇发抖",
+      "completion_state": "王佑平说完，钢叉仍抵着他的背",
+      "state_delta_dimensions": [
+        "POSTURE",
+        "CONTACT"
+      ],
+      "state_delta_evidence": {
+        "POSTURE": {
+          "entry": "仰脸张口",
+          "exit": "说完缩着",
+          "entry_code": "FACE_UP_PLEADING",
+          "exit_code": "CRINGING_DONE"
+        },
+        "CONTACT": {
+          "entry": "钢叉抵背",
+          "exit": "钢叉压得更紧",
+          "entry_code": "FORK_ON_BACK",
+          "exit_code": "FORK_PRESSED"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": true,
+        "no_dialogue_static_hold_seconds_max": null
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "王佑平",
+            "character_id": "CHAR-WANGYOUPING"
+          },
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-HUNTING-FORK",
+            "prop": "猎叉"
+          }
+        ],
+        "dialogue": "王佑平：台台台台台台台台台",
+        "action": {
+          "subject_id": "CHAR-WANGYOUPING",
+          "primary_action": "王佑平从雪里仰起脸，声音打颤，嘴唇发抖，哆嗦着求饶；秦铭的钢叉抵着他；台词只在声音里，画面任何位置都不出现字幕、文字或水印；开口不晚于画面第 1 秒，台词在画面结束前至少留半秒说完，说完后口型闭合、动作保持；背景自始至终是齐胸深的雪原、雪面的月色青蓝反光与远处黑压压的林线，绝不出现房屋、院墙或火光；秦铭发髻上是一根素木簪，没有任何金属饰件",
+          "patient_id": "CHAR-QINMING"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-WANGYOUPING": "王佑平说完，钢叉仍抵着他的背",
+            "CHAR-QINMING": "王佑平说完，钢叉仍抵着他的背"
+          },
+          "entity_presence": {
+            "CHAR-WANGYOUPING": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S08-01",
+      "scene_id": "E04-S08",
+      "target_seconds": 3,
+      "blocking": "秦铭用钢叉把王佑平从雪里戳出来，抬脚把他踢出三米远跌进雪堆",
+      "entry_state": "秦铭用钢叉把王佑平从雪里戳出来",
+      "completion_state": "王佑平被踢出三米远跌进雪堆",
+      "state_delta_dimensions": [
+        "POSITION",
+        "POSTURE"
+      ],
+      "state_delta_evidence": {
+        "POSITION": {
+          "entry": "王佑平在秦铭脚边",
+          "exit": "王佑平在三米外的雪堆里",
+          "entry_code": "WANG_AT_FEET",
+          "exit_code": "WANG_THREE_METRES_AWAY"
+        },
+        "POSTURE": {
+          "entry": "王佑平被戳出",
+          "exit": "王佑平跌进雪堆",
+          "entry_code": "WANG_PULLED_OUT",
+          "exit_code": "WANG_IN_DRIFT"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": true,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          },
+          {
+            "character": "王佑平",
+            "character_id": "CHAR-WANGYOUPING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-HUNTING-FORK",
+            "prop": "猎叉"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "秦铭用钢叉把王佑平从雪里戳了出来，而后抬脚把他踢出去三米远，他再次跌入雪堆中",
+          "patient_id": "CHAR-WANGYOUPING"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "王佑平被踢出三米远跌进雪堆",
+            "CHAR-WANGYOUPING": "王佑平被踢出三米远跌进雪堆"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-WANGYOUPING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S08-02",
+      "scene_id": "E04-S08",
+      "target_seconds": 5,
+      "blocking": "三人看清握着寒光闪闪钢叉的人是谁顿时怂了，胡勇捂着肩求饶第一句，马阳、王佑平缩在一旁",
+      "entry_state": "三人抬头看清握钢叉的秦铭，胡勇捂着肩开口",
+      "completion_state": "胡勇说完半句，马阳、王佑平缩在一旁",
+      "state_delta_dimensions": [
+        "POSTURE",
+        "CONTACT"
+      ],
+      "state_delta_evidence": {
+        "POSTURE": {
+          "entry": "三人抬头看",
+          "exit": "三人缩着怂了",
+          "entry_code": "LOOKING_UP",
+          "exit_code": "COWERING"
+        },
+        "CONTACT": {
+          "entry": "胡勇手按雪地",
+          "exit": "胡勇捂着肩",
+          "entry_code": "HAND_ON_SNOW",
+          "exit_code": "HAND_ON_SHOULDER"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": null
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "胡勇",
+            "character_id": "CHAR-HUYONG"
+          },
+          {
+            "character": "马阳",
+            "character_id": "CHAR-MAYANG"
+          },
+          {
+            "character": "王佑平",
+            "character_id": "CHAR-WANGYOUPING"
+          },
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-HUNTING-FORK",
+            "prop": "猎叉"
+          }
+        ],
+        "dialogue": "胡勇：台台台台台台台台台台台台台台台台台",
+        "action": {
+          "subject_id": "CHAR-HUYONG",
+          "primary_action": "三人看清了握着寒光闪闪钢叉的人是谁，顿时怂了；胡勇捂着肩仰面求饶，马阳、王佑平缩在一旁；台词只在声音里，画面任何位置都不出现字幕、文字或水印；开口不晚于画面第 1 秒，台词在画面结束前至少留半秒说完，说完后口型闭合、动作保持",
+          "patient_id": "CHAR-QINMING"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-HUYONG": "胡勇说完半句，马阳、王佑平缩在一旁",
+            "CHAR-MAYANG": "胡勇说完半句，马阳、王佑平缩在一旁",
+            "CHAR-WANGYOUPING": "胡勇说完半句，马阳、王佑平缩在一旁",
+            "CHAR-QINMING": "胡勇说完半句，马阳、王佑平缩在一旁"
+          },
+          "entity_presence": {
+            "CHAR-HUYONG": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-MAYANG": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-WANGYOUPING": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S08-03",
+      "scene_id": "E04-S08",
+      "target_seconds": 5,
+      "blocking": "胡勇仰着鼻青的脸说第二句，说完低头，钢叉叉头在他面前",
+      "entry_state": "胡勇仰着脸接着说",
+      "completion_state": "胡勇说完低头，钢叉叉头在他面前",
+      "state_delta_dimensions": [
+        "POSTURE"
+      ],
+      "state_delta_evidence": {
+        "POSTURE": {
+          "entry": "仰脸说话",
+          "exit": "说完低头",
+          "entry_code": "FACE_UP_SPEAKING",
+          "exit_code": "HEAD_BOWED"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": null
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "胡勇",
+            "character_id": "CHAR-HUYONG"
+          },
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-HUNTING-FORK",
+            "prop": "猎叉"
+          }
+        ],
+        "dialogue": "胡勇：台台台台台台台台台台台台台",
+        "action": {
+          "subject_id": "CHAR-HUYONG",
+          "primary_action": "胡勇仰着鼻青的脸把话说完，说完低头；秦铭的钢叉叉头在他面前；台词只在声音里，画面任何位置都不出现字幕、文字或水印；开口不晚于画面第 1 秒，台词在画面结束前至少留半秒说完，说完后口型闭合、动作保持；背景自始至终是齐胸深的雪原、雪面的月色青蓝反光与远处黑压压的林线，绝不出现房屋、院墙或火光；秦铭发髻上是一根素木簪，没有任何金属饰件",
+          "patient_id": "CHAR-QINMING"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-HUYONG": "胡勇说完低头，钢叉叉头在他面前",
+            "CHAR-QINMING": "胡勇说完低头，钢叉叉头在他面前"
+          },
+          "entity_presence": {
+            "CHAR-HUYONG": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S08-04",
+      "scene_id": "E04-S08",
+      "target_seconds": 3,
+      "blocking": "秦铭用钢叉抵着三人让他们蹲在雪地上，一顿暴揍，三人鼻青脸肿嘴里血沫子惨嚎",
+      "entry_state": "三人被钢叉抵着蹲在雪地上",
+      "completion_state": "三人鼻青脸肿嘴里血沫子惨嚎，秦铭收叉",
+      "state_delta_dimensions": [
+        "INTEGRITY",
+        "POSTURE"
+      ],
+      "state_delta_evidence": {
+        "INTEGRITY": {
+          "entry": "三人只鼻子出血",
+          "exit": "三人鼻青脸肿嘴里血沫子",
+          "entry_code": "MINOR_INJURY",
+          "exit_code": "BATTERED"
+        },
+        "POSTURE": {
+          "entry": "蹲着",
+          "exit": "瘫在雪里惨嚎",
+          "entry_code": "SQUATTING",
+          "exit_code": "SPRAWLED_WAILING"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": true,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          },
+          {
+            "character": "胡勇",
+            "character_id": "CHAR-HUYONG"
+          },
+          {
+            "character": "马阳",
+            "character_id": "CHAR-MAYANG"
+          },
+          {
+            "character": "王佑平",
+            "character_id": "CHAR-WANGYOUPING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-HUNTING-FORK",
+            "prop": "猎叉"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "秦铭用钢叉抵着他们的身体，让他们老实地蹲在雪地上，而后一顿暴揍；三人鼻青脸肿，嘴里都是血沫子，惨嚎了好一阵",
+          "patient_id": "CHAR-HUYONG"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "三人鼻青脸肿嘴里血沫子惨嚎，秦铭收叉",
+            "CHAR-HUYONG": "三人鼻青脸肿嘴里血沫子惨嚎，秦铭收叉",
+            "CHAR-MAYANG": "三人鼻青脸肿嘴里血沫子惨嚎，秦铭收叉",
+            "CHAR-WANGYOUPING": "三人鼻青脸肿嘴里血沫子惨嚎，秦铭收叉"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-HUYONG": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-MAYANG": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-WANGYOUPING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S09-01",
+      "scene_id": "E04-S09",
+      "target_seconds": 4,
+      "blocking": "密林外的雪原上一头毛驴悠悠而来，驴背上倒骑着一只纯白的黄鼠狼，盘坐不动面向后方来路",
+      "entry_state": "毛驴在远处雪原上悠悠走来，驴背上的白黄鼠狼是一个白点",
+      "completion_state": "毛驴走近，驴背上倒骑的白黄鼠狼盘坐不动，双目深邃",
+      "state_delta_dimensions": [
+        "POSITION",
+        "INTEGRITY"
+      ],
+      "state_delta_evidence": {
+        "POSITION": {
+          "entry": "毛驴在远处",
+          "exit": "毛驴走近林缘",
+          "entry_code": "DONKEY_FAR",
+          "exit_code": "DONKEY_NEAR_EDGE"
+        },
+        "INTEGRITY": {
+          "entry": "黄鼠狼只是白点",
+          "exit": "黄鼠狼倒骑盘坐可辨",
+          "entry_code": "WEASEL_WHITE_DOT",
+          "exit_code": "WEASEL_SEATED_VISIBLE"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": true,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [],
+        "props": [
+          {
+            "prop_id": "PROP-DONKEY",
+            "prop": "毛驴"
+          },
+          {
+            "prop_id": "PROP-WHITE-WEASEL",
+            "prop": "黄鼠狼"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "",
+          "primary_action": "密林外，一头毛驴自远方空旷的雪原上悠悠而来；驴背上倒骑着一只纯白如雪的黄鼠狼，盘坐不动，面向后方来路，双目深邃",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {},
+          "entity_presence": {}
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S09-02",
+      "scene_id": "E04-S09",
+      "target_seconds": 4,
+      "blocking": "毛驴侧身站在林缘雪地，驴背上盘坐着倒骑的纯白黄鼠狼；一个通体黑毛、直立奔行、只有两点猩红眼睛的黑影剪影（参考卡 PROP-MUTANT-BEAST，不是狼、不是狗、不露面目）从画左林缘猛扑向毛驴，看到黄鼠狼倏地止步",
+      "entry_state": "通体黑毛的直立黑影从画左林缘猛扑向毛驴，驴背上盘坐着倒骑的白黄鼠狼",
+      "completion_state": "黑影在毛驴身前倏地止步，猩红的眼睛盯着驴背上的白黄鼠狼",
+      "state_delta_dimensions": [
+        "MOMENTUM",
+        "POSITION"
+      ],
+      "state_delta_evidence": {
+        "MOMENTUM": {
+          "entry": "猛扑",
+          "exit": "骤停",
+          "entry_code": "LUNGING",
+          "exit_code": "STOPPED_DEAD"
+        },
+        "POSITION": {
+          "entry": "黑影在林缘",
+          "exit": "黑影在毛驴身前",
+          "entry_code": "SHADOW_AT_EDGE",
+          "exit_code": "SHADOW_BEFORE_DONKEY"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [],
+        "props": [
+          {
+            "prop_id": "PROP-MUTANT-BEAST",
+            "prop": "变异生物"
+          },
+          {
+            "prop_id": "PROP-DONKEY",
+            "prop": "毛驴"
+          },
+          {
+            "prop_id": "PROP-WHITE-WEASEL",
+            "prop": "黄鼠狼"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "",
+          "primary_action": "曾被秦铭逼退的变异生灵猛然从林缘扑向毛驴；它看到驴背上雪白的黄鼠狼，竟倏地止步",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {},
+          "entity_presence": {}
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S09-03",
+      "scene_id": "E04-S09",
+      "target_seconds": 3,
+      "blocking": "黑影转身一头扎进厚厚的积雪下雪面发抖，毛驴淡淡瞥一眼载着黄鼠狼向山中走去",
+      "entry_state": "黑影转身扎进积雪，毛驴站着",
+      "completion_state": "雪面在轻微发抖，毛驴载着黄鼠狼走向山中",
+      "state_delta_dimensions": [
+        "POSITION",
+        "MOMENTUM"
+      ],
+      "state_delta_evidence": {
+        "POSITION": {
+          "entry": "黑影在雪面上",
+          "exit": "黑影在雪面下发抖",
+          "entry_code": "SHADOW_ON_SNOW",
+          "exit_code": "SHADOW_UNDER_SNOW"
+        },
+        "MOMENTUM": {
+          "entry": "毛驴站定",
+          "exit": "毛驴走向山中",
+          "entry_code": "DONKEY_STANDING",
+          "exit_code": "DONKEY_WALKING_ON"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": true,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [],
+        "props": [
+          {
+            "prop_id": "PROP-MUTANT-BEAST",
+            "prop": "变异生物"
+          },
+          {
+            "prop_id": "PROP-DONKEY",
+            "prop": "毛驴"
+          },
+          {
+            "prop_id": "PROP-WHITE-WEASEL",
+            "prop": "黄鼠狼"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "",
+          "primary_action": "那生物转身没入密林，一头扎进厚厚的积雪下，身体在轻微发抖；毛驴并未受惊，淡淡地瞥了它一眼，载着安静无声的黄鼠狼向山中走去",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {},
+          "entity_presence": {}
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S10-01",
+      "scene_id": "E04-S10",
+      "target_seconds": 3,
+      "blocking": "火泉在望双树摇曳，秦铭加快脚步走向村口，劈柴的村民乙抬头看到他喊一句",
+      "entry_state": "秦铭加快脚步走向火泉边的村口，村民乙在劈柴",
+      "completion_state": "村民乙抬头喊完一句，秦铭走到村口",
+      "state_delta_dimensions": [
+        "POSITION",
+        "POSTURE"
+      ],
+      "state_delta_evidence": {
+        "POSITION": {
+          "entry": "秦铭在村外雪路",
+          "exit": "秦铭在村口",
+          "entry_code": "OUTSIDE_VILLAGE",
+          "exit_code": "AT_VILLAGE_GATE"
+        },
+        "POSTURE": {
+          "entry": "村民乙低头劈柴",
+          "exit": "村民乙抬头喊",
+          "entry_code": "CHOPPING",
+          "exit_code": "CALLING_OUT"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": true,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": null
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          },
+          {
+            "character": "村民乙",
+            "character_id": "CHAR-VILLAGER-B"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "SET-FIRE-SPRING",
+            "prop": "火泉"
+          }
+        ],
+        "dialogue": "村民乙：台台台台台台",
+        "action": {
+          "subject_id": "CHAR-VILLAGER-B",
+          "primary_action": "火泉在望，黑白双树摇曳，秦铭加快脚步来到村口；一个劈柴的村民抬头正好看到他，喊了一句；台词只在声音里，画面任何位置都不出现字幕、文字或水印；开口不晚于画面第 1 秒，台词在画面结束前至少留半秒说完，说完后口型闭合、动作保持；池面的光与溅起的光全部是火红色，没有冷白或蓝光",
+          "patient_id": "CHAR-QINMING"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "村民乙抬头喊完一句，秦铭走到村口",
+            "CHAR-VILLAGER-B": "村民乙抬头喊完一句，秦铭走到村口"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-VILLAGER-B": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S10-02",
+      "scene_id": "E04-S10",
+      "target_seconds": 3,
+      "blocking": "临街的几个院门打开村民沿路出来，看到秦铭猎叉上挂着的红松鼠顿时鸦雀无声",
+      "entry_state": "临街的院门正在打开，村民们出来",
+      "completion_state": "人们围在秦铭身前，看着猎叉上的红松鼠鸦雀无声",
+      "state_delta_dimensions": [
+        "POSITION",
+        "POSTURE"
+      ],
+      "state_delta_evidence": {
+        "POSITION": {
+          "entry": "村民在院门内",
+          "exit": "村民围在村口",
+          "entry_code": "VILLAGERS_INSIDE_GATES",
+          "exit_code": "VILLAGERS_AT_GATE"
+        },
+        "POSTURE": {
+          "entry": "人们张望",
+          "exit": "人们盯着松鼠不出声",
+          "entry_code": "LOOKING_AROUND",
+          "exit_code": "STARING_SILENT"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          },
+          {
+            "character": "邻居甲",
+            "character_id": "CHAR-VILLAGER-A"
+          },
+          {
+            "character": "村民乙",
+            "character_id": "CHAR-VILLAGER-B"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-HUNTING-FORK",
+            "prop": "猎叉"
+          },
+          {
+            "prop_id": "PROP-RED-SQUIRREL",
+            "prop": "红松鼠"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-VILLAGER-A",
+          "primary_action": "临街的几个院门都打开了，村民们沿路出来；人们看到秦铭扛着的猎叉上挂着一只红松鼠，顿时鸦雀无声",
+          "patient_id": "CHAR-QINMING"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "人们围在秦铭身前，看着猎叉上的红松鼠鸦雀无声",
+            "CHAR-VILLAGER-A": "人们围在秦铭身前，看着猎叉上的红松鼠鸦雀无声",
+            "CHAR-VILLAGER-B": "人们围在秦铭身前，看着猎叉上的红松鼠鸦雀无声"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-VILLAGER-A": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-VILLAGER-B": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S10-03",
+      "scene_id": "E04-S10",
+      "target_seconds": 6,
+      "blocking": "陆泽快步走来看到秦铭安然无恙松了口气，说一句，眼睛盯着猎叉上的松鼠",
+      "entry_state": "陆泽快步走来，眉头松开",
+      "completion_state": "陆泽说完一句，眼睛盯着猎叉上的松鼠",
+      "state_delta_dimensions": [
+        "POSITION",
+        "POSTURE"
+      ],
+      "state_delta_evidence": {
+        "POSITION": {
+          "entry": "陆泽在走近",
+          "exit": "陆泽站在秦铭面前",
+          "entry_code": "LUZE_APPROACHING",
+          "exit_code": "LUZE_STOPPED"
+        },
+        "POSTURE": {
+          "entry": "松口气",
+          "exit": "说完盯松鼠",
+          "entry_code": "EXHALING",
+          "exit_code": "STARING_AT_SQUIRREL"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": null
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "陆泽",
+            "character_id": "CHAR-LUZE"
+          },
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-HUNTING-FORK",
+            "prop": "猎叉"
+          },
+          {
+            "prop_id": "PROP-RED-SQUIRREL",
+            "prop": "红松鼠"
+          }
+        ],
+        "dialogue": "陆泽：台台台台台台台台台台台台台台台台台台台台台台台",
+        "action": {
+          "subject_id": "CHAR-LUZE",
+          "primary_action": "陆泽快步走来，看到秦铭安然无恙，松了一口气，打破宁静说一句，眼睛盯着猎叉上的松鼠；整句台词在画面第 4 秒前说完，最后两秒陆泽闭口不语、只盯着松鼠，画面结尾只有池水的汩汩声（本单元一次因台词尾音被画面截断重做）；台词只在声音里，画面任何位置都不出现字幕、文字或水印；开口不晚于画面第 1 秒，台词在画面结束前至少留半秒说完，说完后口型闭合、动作保持；背景自始至终是粗凿青石的石围、火红的池光与雪地；池面的光与溅起的光全部是火红色，没有冷白或蓝光；秦铭发髻上是一根素木簪，没有任何金属饰件",
+          "patient_id": "CHAR-QINMING"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-LUZE": "陆泽说完一句，眼睛盯着猎叉上的松鼠",
+            "CHAR-QINMING": "陆泽说完一句，眼睛盯着猎叉上的松鼠"
+          },
+          "entity_presence": {
+            "CHAR-LUZE": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S10-04",
+      "scene_id": "E04-S10",
+      "target_seconds": 4,
+      "blocking": "秦铭笑着答一句，人们注意到他背着的鼓胀兽皮袋眼热起来，松鼠皮毛隐隐发光",
+      "entry_state": "秦铭笑着开口，鼓胀的兽皮袋在背上",
+      "completion_state": "秦铭说完，画面落在鼓胀的兽皮袋与发光的松鼠皮毛上",
+      "state_delta_dimensions": [
+        "POSTURE",
+        "POSITION"
+      ],
+      "state_delta_evidence": {
+        "POSTURE": {
+          "entry": "笑着开口",
+          "exit": "说完侧身露袋",
+          "entry_code": "SMILING_SPEAKING",
+          "exit_code": "TURNED_SHOWING_BAG"
+        },
+        "POSITION": {
+          "entry": "画面在秦铭的脸",
+          "exit": "画面在兽皮袋与松鼠",
+          "entry_code": "FRAME_ON_FACE",
+          "exit_code": "FRAME_ON_BAG_AND_SQUIRREL"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": true,
+        "no_dialogue_static_hold_seconds_max": null
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          },
+          {
+            "character": "陆泽",
+            "character_id": "CHAR-LUZE"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-HIDE-BAG",
+            "prop": "兽皮袋"
+          },
+          {
+            "prop_id": "PROP-RED-SQUIRREL",
+            "prop": "红松鼠"
+          }
+        ],
+        "dialogue": "秦铭：台台台台台台台台",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "秦铭笑着答一句；人们注意到他背着的鼓胀兽皮袋，眼热起来，松鼠火红的皮毛隐隐在发光；台词只在声音里，画面任何位置都不出现字幕、文字或水印；开口不晚于画面第 1 秒，台词在画面结束前至少留半秒说完，说完后口型闭合、动作保持",
+          "patient_id": "CHAR-LUZE"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "秦铭说完，画面落在鼓胀的兽皮袋与发光的松鼠皮毛上",
+            "CHAR-LUZE": "秦铭说完，画面落在鼓胀的兽皮袋与发光的松鼠皮毛上"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-LUZE": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S11-01",
+      "scene_id": "E04-S11",
+      "target_seconds": 4,
+      "blocking": "秦铭比划着讲一路上的经历，人们围着他，听到外面有凶险出没所有人面色都变了；村口只有人，没有任何动物",
+      "entry_state": "秦铭比划着讲，人们围着听",
+      "completion_state": "人们的面色都变了，有人望向村外",
+      "state_delta_dimensions": [
+        "POSTURE",
+        "INTEGRITY"
+      ],
+      "state_delta_evidence": {
+        "POSTURE": {
+          "entry": "秦铭比划",
+          "exit": "秦铭放下手",
+          "entry_code": "GESTURING",
+          "exit_code": "HANDS_DOWN"
+        },
+        "INTEGRITY": {
+          "entry": "人群神色平常",
+          "exit": "人群面色变了",
+          "entry_code": "CROWD_CALM",
+          "exit_code": "CROWD_ALARMED"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": true,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          },
+          {
+            "character": "陆泽",
+            "character_id": "CHAR-LUZE"
+          },
+          {
+            "character": "邻居甲",
+            "character_id": "CHAR-VILLAGER-A"
+          },
+          {
+            "character": "村民乙",
+            "character_id": "CHAR-VILLAGER-B"
+          }
+        ],
+        "props": [],
+        "dialogue": "",
+        "action": {
+          "subject_id": "CHAR-QINMING",
+          "primary_action": "【声音：全段没有任何人说出可辨的话语，没有台词、没有旁白；只有池水的汩汩声、风声与人群一声低低的惊呼；秦铭只用手势比划，口部不出声】秦铭比划着如实讲了一路上的经历；当听到山林外面的雪地里有凶险出没、短时间内谁都不能单独外出，所有人的面色都变了（本单元一次因出现未写入剧本的说话声重做）；池面的光与溅起的光全部是火红色，没有冷白或蓝光",
+          "patient_id": "CHAR-VILLAGER-A"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-QINMING": "人们的面色都变了，有人望向村外",
+            "CHAR-LUZE": "人们的面色都变了，有人望向村外",
+            "CHAR-VILLAGER-A": "人们的面色都变了，有人望向村外",
+            "CHAR-VILLAGER-B": "人们的面色都变了，有人望向村外"
+          },
+          "entity_presence": {
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-LUZE": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-VILLAGER-A": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-VILLAGER-B": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S11-02",
+      "scene_id": "E04-S11",
+      "target_seconds": 6,
+      "blocking": "邻居甲听到三人的行径指着村外愤慨地说，周围人群跟着嚷起来",
+      "entry_state": "邻居甲指着村外开口",
+      "completion_state": "邻居甲说完，周围人跟着嚷起来",
+      "state_delta_dimensions": [
+        "POSTURE",
+        "MOMENTUM"
+      ],
+      "state_delta_evidence": {
+        "POSTURE": {
+          "entry": "抬手指村外",
+          "exit": "放下手",
+          "entry_code": "POINTING",
+          "exit_code": "HAND_DOWN"
+        },
+        "MOMENTUM": {
+          "entry": "人群静听",
+          "exit": "人群嚷起来",
+          "entry_code": "CROWD_QUIET",
+          "exit_code": "CROWD_SHOUTING"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": null
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "邻居甲",
+            "character_id": "CHAR-VILLAGER-A"
+          },
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [],
+        "dialogue": "邻居甲：台台台台台台台台台台台台台台台台台台台台台台",
+        "action": {
+          "subject_id": "CHAR-VILLAGER-A",
+          "primary_action": "秦铭提及三人的行径，邻居甲指着村外愤慨地说一句，周围的人跟着嚷起来；台词只在声音里，画面任何位置都不出现字幕、文字或水印；开口不晚于画面第 1 秒，台词在画面结束前至少留半秒说完，说完后口型闭合、动作保持；背景自始至终是粗凿青石的石围、火红的池光与雪地；秦铭发髻上是一根素木簪，没有任何金属饰件",
+          "patient_id": "CHAR-QINMING"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-VILLAGER-A": "邻居甲说完，周围人跟着嚷起来",
+            "CHAR-QINMING": "邻居甲说完，周围人跟着嚷起来"
+          },
+          "entity_presence": {
+            "CHAR-VILLAGER-A": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S11-03",
+      "scene_id": "E04-S11",
+      "target_seconds": 5,
+      "blocking": "三人相互扶着一瘸一拐在村口冒头，陆泽带着杨永青扑上去又痛揍一顿，马阳抱头惨叫求饶",
+      "entry_state": "三人一瘸一拐地在村口冒头",
+      "completion_state": "陆泽与杨永青揍着三人，马阳抱头惨叫",
+      "state_delta_dimensions": [
+        "POSITION",
+        "POSTURE"
+      ],
+      "state_delta_evidence": {
+        "POSITION": {
+          "entry": "三人在村口外",
+          "exit": "三人被按在村口雪地上",
+          "entry_code": "TRIO_OUTSIDE_GATE",
+          "exit_code": "TRIO_DOWN_AT_GATE"
+        },
+        "POSTURE": {
+          "entry": "相互扶着走",
+          "exit": "抱头惨叫",
+          "entry_code": "LIMPING_TOGETHER",
+          "exit_code": "HEADS_COVERED_WAILING"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": true,
+        "no_dialogue_static_hold_seconds_max": null
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "胡勇",
+            "character_id": "CHAR-HUYONG"
+          },
+          {
+            "character": "马阳",
+            "character_id": "CHAR-MAYANG"
+          },
+          {
+            "character": "王佑平",
+            "character_id": "CHAR-WANGYOUPING"
+          },
+          {
+            "character": "陆泽",
+            "character_id": "CHAR-LUZE"
+          },
+          {
+            "character": "杨永青",
+            "character_id": "CHAR-YANGYONGQING"
+          }
+        ],
+        "props": [],
+        "dialogue": "马阳：台台台台台台台台台台台台台台台台台台台",
+        "action": {
+          "subject_id": "CHAR-LUZE",
+          "primary_action": "马阳、胡勇、王佑平三人相互扶着一瘸一拐地刚在村口冒头，就被陆泽带着杨永青扑上去又痛揍了一顿，马阳抱头惨叫求饶；马阳的台词只喊一遍、在画面第 4 秒前喊完，之后闭口只剩被按在雪地里的喘息，画面结尾没有人声（本单元一次因喊声延续到画面末帧被截断重做）；台词只在声音里，画面任何位置都不出现字幕、文字或水印；开口不晚于画面第 1 秒，台词在画面结束前至少留半秒说完，说完后口型闭合、动作保持",
+          "patient_id": "CHAR-MAYANG"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-HUYONG": "陆泽与杨永青揍着三人，马阳抱头惨叫",
+            "CHAR-MAYANG": "陆泽与杨永青揍着三人，马阳抱头惨叫",
+            "CHAR-WANGYOUPING": "陆泽与杨永青揍着三人，马阳抱头惨叫",
+            "CHAR-LUZE": "陆泽与杨永青揍着三人，马阳抱头惨叫",
+            "CHAR-YANGYONGQING": "陆泽与杨永青揍着三人，马阳抱头惨叫"
+          },
+          "entity_presence": {
+            "CHAR-HUYONG": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-MAYANG": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-WANGYOUPING": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-LUZE": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-YANGYONGQING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S12-01",
+      "scene_id": "E04-S12",
+      "target_seconds": 6,
+      "blocking": "炕上摊着干果，文睿把野核桃塞进嘴里，嘴里塞得满满地对身旁的秦铭说一句，秦铭的脸朝向镜头笑着看他",
+      "entry_state": "文睿把一颗野核桃塞进嘴里，秦铭在他身旁",
+      "completion_state": "文睿说完又抓起一把松子，秦铭笑着看他",
+      "state_delta_dimensions": [
+        "POSSESSION",
+        "POSTURE"
+      ],
+      "state_delta_evidence": {
+        "POSSESSION": {
+          "entry": "手里是核桃",
+          "exit": "手里是一把松子",
+          "entry_code": "WALNUT_IN_HAND",
+          "exit_code": "PINE_NUTS_IN_HAND"
+        },
+        "POSTURE": {
+          "entry": "嚼着开口",
+          "exit": "说完再抓",
+          "entry_code": "CHEWING_SPEAKING",
+          "exit_code": "DONE_GRABBING_MORE"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": true,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": null
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "陆文睿",
+            "character_id": "CHAR-LUWENRUI"
+          },
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [
+          {
+            "prop_id": "PROP-NUT-HOARD",
+            "prop": "干果"
+          }
+        ],
+        "dialogue": "陆文睿：台台台台台台台台台台台台台台台台台台台台台台台台台",
+        "action": {
+          "subject_id": "CHAR-LUWENRUI",
+          "primary_action": "秦铭家中，炕上摊着干果，文睿每种都尝了一遍，小嘴根本停不下来，嘴里塞得满满地对身旁的秦铭说一句；秦铭笑着看他；台词只在声音里，画面任何位置都不出现字幕、文字或水印；开口不晚于画面第 1 秒，台词在画面结束前至少留半秒说完，说完后口型闭合、动作保持；背景自始至终是屋内的土墙、木格糊纸窗、旧木立柜与屋内的橘红余光，绝不出现雪地、院墙、屋檐或天空；屋内唯一的光是橘红色的暖光，盆里没有木柴也没有明火；秦铭发髻上是一根素木簪，没有任何金属饰件",
+          "patient_id": "CHAR-QINMING"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-LUWENRUI": "文睿说完又抓起一把松子，秦铭笑着看他",
+            "CHAR-QINMING": "文睿说完又抓起一把松子，秦铭笑着看他"
+          },
+          "entity_presence": {
+            "CHAR-LUWENRUI": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S12-02",
+      "scene_id": "E04-S12",
+      "target_seconds": 3,
+      "blocking": "倒挂的红松鼠从昏死中睁开眼睛，看到几人翻动它的家底，眼睛瞪得溜圆快喷出火",
+      "entry_state": "倒挂在猎叉上的红松鼠闭着眼睛",
+      "completion_state": "红松鼠眼睛瞪得溜圆，盯着炕上被翻动的干果",
+      "state_delta_dimensions": [
+        "POSTURE",
+        "MOMENTUM"
+      ],
+      "state_delta_evidence": {
+        "POSTURE": {
+          "entry": "闭眼昏死",
+          "exit": "瞪圆眼睛",
+          "entry_code": "EYES_CLOSED",
+          "exit_code": "EYES_BULGING"
+        },
+        "MOMENTUM": {
+          "entry": "一动不动",
+          "exit": "身体绷直抖动",
+          "entry_code": "LIMP",
+          "exit_code": "RIGID_TREMBLING"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": 2.0
+      },
+      "prompt_spec": {
+        "cast": [],
+        "props": [
+          {
+            "prop_id": "PROP-HUNTING-FORK",
+            "prop": "猎叉"
+          },
+          {
+            "prop_id": "PROP-NUT-HOARD",
+            "prop": "干果"
+          },
+          {
+            "prop_id": "PROP-RED-SQUIRREL",
+            "prop": "红松鼠"
+          }
+        ],
+        "dialogue": "",
+        "action": {
+          "subject_id": "",
+          "primary_action": "挂在猎叉上的红松鼠从昏死状态苏醒，睁开眼睛，看到几人正在翻动它的家底，顿时绝望了；它眼睛瞪得溜圆，都快喷出火来了；背景自始至终是屋内的土墙、木格糊纸窗、旧木立柜与屋内的橘红余光，绝不出现雪地、院墙、屋檐或天空；屋内唯一的光是橘红色的暖光，盆里没有木柴也没有明火",
+          "patient_id": ""
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {},
+          "entity_presence": {}
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S12-03",
+      "scene_id": "E04-S12",
+      "target_seconds": 5,
+      "blocking": "陆泽收起笑容严肃地说第一句，说到一半停顿看着秦铭",
+      "entry_state": "陆泽收起笑容开口",
+      "completion_state": "陆泽说到一半停顿，盯着秦铭",
+      "state_delta_dimensions": [
+        "POSTURE"
+      ],
+      "state_delta_evidence": {
+        "POSTURE": {
+          "entry": "带笑",
+          "exit": "严肃停顿",
+          "entry_code": "SMILING",
+          "exit_code": "SERIOUS_PAUSE"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": false,
+        "no_dialogue_static_hold_seconds_max": null
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "陆泽",
+            "character_id": "CHAR-LUZE"
+          },
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [],
+        "dialogue": "陆泽：台台台台台台台台台台台台台台台台",
+        "action": {
+          "subject_id": "CHAR-LUZE",
+          "primary_action": "陆泽收起笑容，严肃地开口说第一句，说到一半停顿，看着秦铭；台词只在声音里，画面任何位置都不出现字幕、文字或水印；开口不晚于画面第 1 秒，台词在画面结束前至少留半秒说完，说完后口型闭合、动作保持；背景自始至终是屋内的土墙、木格糊纸窗、旧木立柜与屋内的橘红余光，绝不出现雪地、院墙、屋檐或天空；屋内唯一的光是橘红色的暖光，盆里没有木柴也没有明火；秦铭发髻上是一根素木簪，没有任何金属饰件",
+          "patient_id": "CHAR-QINMING"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-LUZE": "陆泽说到一半停顿，盯着秦铭",
+            "CHAR-QINMING": "陆泽说到一半停顿，盯着秦铭"
+          },
+          "entity_presence": {
+            "CHAR-LUZE": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    },
+    {
+      "shot_id": "E04-S12-04",
+      "scene_id": "E04-S12",
+      "target_seconds": 5,
+      "blocking": "陆泽在画左前景侧脸说第二句，秦铭听着，「新生」落下他的笑容收住望着陆泽",
+      "entry_state": "陆泽接着说，秦铭带着笑听",
+      "completion_state": "陆泽说完，秦铭的笑容收住，望着陆泽",
+      "state_delta_dimensions": [
+        "POSTURE"
+      ],
+      "state_delta_evidence": {
+        "POSTURE": {
+          "entry": "秦铭带笑听",
+          "exit": "秦铭笑容收住",
+          "entry_code": "SMILING_LISTENING",
+          "exit_code": "SMILE_GONE_STARING"
+        }
+      },
+      "pacing_flags": {
+        "hook": false,
+        "scene_opener_in_motion": false,
+        "scene_button": true,
+        "no_dialogue_static_hold_seconds_max": null
+      },
+      "prompt_spec": {
+        "cast": [
+          {
+            "character": "陆泽",
+            "character_id": "CHAR-LUZE"
+          },
+          {
+            "character": "秦铭",
+            "character_id": "CHAR-QINMING"
+          }
+        ],
+        "props": [],
+        "dialogue": "陆泽：台台台台台台台台台台台台台台",
+        "action": {
+          "subject_id": "CHAR-LUZE",
+          "primary_action": "陆泽把话说完；「新生」两个字落下，秦铭的笑容收住，眼睛望着陆泽；台词只在声音里，画面任何位置都不出现字幕、文字或水印；开口不晚于画面第 1 秒，台词在画面结束前至少留半秒说完，说完后口型闭合、动作保持；背景自始至终是屋内的土墙、木格糊纸窗、旧木立柜与屋内的橘红余光，绝不出现雪地、院墙、屋檐或天空；屋内唯一的光是橘红色的暖光，盆里没有木柴也没有明火；秦铭发髻上是一根素木簪，没有任何金属饰件",
+          "patient_id": "CHAR-QINMING"
+        },
+        "role_semantic_disambiguation": {
+          "entity_states": {
+            "CHAR-LUZE": "陆泽说完，秦铭的笑容收住，望着陆泽",
+            "CHAR-QINMING": "陆泽说完，秦铭的笑容收住，望着陆泽"
+          },
+          "entity_presence": {
+            "CHAR-LUZE": "VISIBLE_AND_IDENTITY_LOCKED",
+            "CHAR-QINMING": "VISIBLE_AND_IDENTITY_LOCKED"
+          }
+        }
+      }
+    }
+  ],
+  "audio_contract": {
+    "dialogue_units": [
+      {
+        "shot_id": "E04-S04-04",
+        "speaker_id": "CHAR-QINMING",
+        "listener_id": "",
+        "text": "台台台台台台变异生物？"
+      },
+      {
+        "shot_id": "E04-S05-02",
+        "speaker_id": "CHAR-WANGYOUPING",
+        "listener_id": "CHAR-HUYONG",
+        "text": "台台台台台台台台台台台台台台台台台台台台"
+      },
+      {
+        "shot_id": "E04-S05-03",
+        "speaker_id": "CHAR-MAYANG",
+        "listener_id": "CHAR-HUYONG",
+        "text": "台台台台台台台台台台台台台台台"
+      },
+      {
+        "shot_id": "E04-S07-05",
+        "speaker_id": "CHAR-WANGYOUPING",
+        "listener_id": "CHAR-QINMING",
+        "text": "台台台台台台台台台"
+      },
+      {
+        "shot_id": "E04-S08-02",
+        "speaker_id": "CHAR-HUYONG",
+        "listener_id": "CHAR-QINMING",
+        "text": "台台台台台台台台台台台台台台台台台"
+      },
+      {
+        "shot_id": "E04-S08-03",
+        "speaker_id": "CHAR-HUYONG",
+        "listener_id": "CHAR-QINMING",
+        "text": "台台台台台台台台台台台台台"
+      },
+      {
+        "shot_id": "E04-S10-01",
+        "speaker_id": "CHAR-VILLAGER-B",
+        "listener_id": "",
+        "text": "台台台台台台"
+      },
+      {
+        "shot_id": "E04-S10-03",
+        "speaker_id": "CHAR-LUZE",
+        "listener_id": "CHAR-QINMING",
+        "text": "台台台台台台台台台台台台台台台台台台台台台台台"
+      },
+      {
+        "shot_id": "E04-S10-04",
+        "speaker_id": "CHAR-QINMING",
+        "listener_id": "CHAR-LUZE",
+        "text": "台台台台台台台台"
+      },
+      {
+        "shot_id": "E04-S11-02",
+        "speaker_id": "CHAR-VILLAGER-A",
+        "listener_id": "CHAR-QINMING",
+        "text": "台台台台台台台台台台台台台台台台台台台台台台"
+      },
+      {
+        "shot_id": "E04-S11-03",
+        "speaker_id": "CHAR-MAYANG",
+        "listener_id": "CHAR-LUZE",
+        "text": "台台台台台台台台台台台台台台台台台台台"
+      },
+      {
+        "shot_id": "E04-S12-01",
+        "speaker_id": "CHAR-LUWENRUI",
+        "listener_id": "CHAR-QINMING",
+        "text": "台台台台台台台台台台台台台台台台台台台台台台台台台"
+      },
+      {
+        "shot_id": "E04-S12-03",
+        "speaker_id": "CHAR-LUZE",
+        "listener_id": "CHAR-QINMING",
+        "text": "台台台台台台台台台台台台台台台台"
+      },
+      {
+        "shot_id": "E04-S12-04",
+        "speaker_id": "CHAR-LUZE",
+        "listener_id": "CHAR-QINMING",
+        "text": "台台台台台台台台台台台台台台"
+      }
+    ]
+  }
+}

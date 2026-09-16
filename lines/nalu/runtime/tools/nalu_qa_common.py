@@ -374,6 +374,7 @@ class Expectations:
                         {str(row.get("character_id") or name_to_id.get(str(row.get("character")), ""))
                          for row in visible if row.get("character")} - {""}),
                     "props": spec.get("props") or [],
+                    "creature_cards": self.seq19_expectations([shot_id]).get("creature_cards") or {},
                     "required_visible_props": sorted(
                         {str(row.get("prop")) for row in (spec.get("props") or []) if row.get("prop")}),
                     "space": spec.get("space") or {},
@@ -618,6 +619,53 @@ class Expectations:
         return rows
 
     # --------------------------------------------------------- post-gen plot
+    # ------------------------------------------------------- seq=19 contract-holds
+    def seq19_expectations(self, shot_ids: list[str]) -> dict[str, Any]:
+        """The 'does the contract hold up' facts a reviewer needs for the seq=19 questions
+        (E04 review): beat type/outcome, first antagonist action, newly introduced entities,
+        declared life states, group counts and creature cards — all read from the generation
+        contract + writer manifest, never inferred from media.  Empty values mean 'not declared'."""
+        c = self.contract or {}
+        manifest = read_json(SCRIPTS / f"{self.episode}_manifest_v1.json", {}) or {}
+        ids = [str(x) for x in shot_ids]
+        beat_type, outcome = "", None
+        for row in manifest.get("structure") or []:
+            row_shots = [str(x) for x in row.get("shot_ids") or []]
+            if row_shots and set(row_shots) & set(ids):
+                beat_type = str(row.get("type") or "")
+                outcome = row.get("outcome")
+                break
+        first_actions = [g for g in c.get("antagonist_groups") or []
+                         if str(g.get("first_action_shot_id")) in ids]
+        new_entities = [e for e in c.get("entity_introductions") or []
+                        if str(e.get("first_shot_id")) in ids]
+        life_states: dict[str, dict[str, str]] = {}
+        group_counts: dict[str, Any] = {}
+        creature_cards: dict[str, Any] = {}
+        cards = {str(r.get("entity_id")): r.get("creature_card")
+                 for r in c.get("non_character_entities") or [] if r.get("creature_card")}
+        for shot in c.get("shots") or []:
+            sid = str(shot.get("shot_id"))
+            if sid not in ids:
+                continue
+            spec = shot.get("prompt_spec") or {}
+            for row in spec.get("cast") or []:
+                if row.get("life_state"):
+                    life_states.setdefault(sid, {})[str(row.get("character_id") or row.get("character"))] = str(row["life_state"])
+            if shot.get("group_counts"):
+                group_counts[sid] = shot["group_counts"]
+            for row in spec.get("props") or []:
+                pid = str(row.get("prop_id") or "")
+                if pid in cards:
+                    creature_cards[pid] = cards[pid]
+        return {"beat_type": beat_type, "action_outcome": outcome,
+                "antagonist_first_action": [{"group_id": g.get("group_id"), "member_ids": g.get("member_ids"),
+                                             "motive_setup": g.get("motive_setup")} for g in first_actions],
+                "new_entities": [{"entity_id": e.get("entity_id"), "setup": e.get("setup"),
+                                  "payoff_shot_id": e.get("payoff_shot_id")} for e in new_entities],
+                "life_states": life_states, "group_counts": group_counts,
+                "creature_cards": creature_cards}
+
     def unit_plot_items(self) -> list[dict[str, Any]]:
         """One row per video unit: its ordered beats, cast, events and dialogue."""
         rows: list[dict[str, Any]] = []
@@ -657,6 +705,7 @@ class Expectations:
                     "props": sorted(props),
                     "expected_dialogue": dialogue,
                     "chronological_position": f"{index} of {len(ordered)}",
+                    **self.seq19_expectations(shot_ids),
                 },
             })
         return rows

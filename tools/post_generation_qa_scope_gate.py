@@ -22,6 +22,7 @@ ALLOWED_TECHNICAL_CHECKS = {
 ALLOWED_BASIC_PLOT_CHECKS = {
     "episode_scene_correspondence", "principal_character_presence",
     "major_event_presence", "major_dialogue_presence", "chronological_unit_order",
+    "action_outcome_visible", "antagonist_motive_readable", "new_entity_purpose_readable",
 }
 FORBIDDEN_POST_GENERATION_CHECKS = {
     "action_reasonableness", "gesture_precision", "hand_contact_precision",

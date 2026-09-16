@@ -18,7 +18,7 @@ from typing import Any
 
 ROLE_TARGETS_LUFS = {
     # These are premaster staging targets.  The release master is normalized
-    # separately to -16 LUFS; targeting -16 here would make dialogue too loud
+    # separately to -14 LUFS (seq=19); targeting it here would make dialogue too loud
     # after that final, program-wide gain stage.
     "DIALOGUE": -18.0,
     "ACTION": -20.0,
@@ -35,7 +35,9 @@ DEFAULT_MAX_GAIN_DB = 12.0
 DEFAULT_MAX_ATTENUATION_DB = 8.0
 DEFAULT_TRUE_PEAK_CEILING_DBTP = -1.5
 DEFAULT_MAX_ADJACENT_DELTA_LU = 8.0
-DEFAULT_RELEASE_RANGE_LUFS = (-17.0, -15.0)
+# seq=19 (E04 review C3): release master −14 LUFS ±1, true peak ≤ −1 dBTP (was −16 ±1)
+DEFAULT_RELEASE_RANGE_LUFS = (-15.0, -13.0)
+DEFAULT_RELEASE_TARGET_LUFS = -14.0
 DEFAULT_RELEASE_MAX_LRA_LU = 12.0
 DEFAULT_RELEASE_TRUE_PEAK_MAX_DBTP = -1.0
 

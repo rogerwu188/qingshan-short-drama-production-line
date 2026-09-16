@@ -58,6 +58,34 @@ DEFAULT_CPS = 4.0
 DLG_LEAD_S, DLG_TAIL_S = 1.0, 0.5
 
 
+EMOTION_DELIVERY = {
+    "calm": "这句台词平稳地说，音量与语速都是这个人物的日常基线，不拔高、不拖长",
+    "plead": "这句台词是哀求：比日常说话明显更响、更急、带哭腔和抖音，句尾气息不稳，音量至少高出平时一大截",
+    "threat": "这句台词是威胁：压低而有力，字字咬紧、比平时更响更慢，尾音收得干脆",
+    "mock": "这句台词是嘲弄：语调上挑、带笑意的轻蔑，比平时略快略响",
+    "joy": "这句台词是欢喜：明亮、轻快、比平时响而快，带笑声的气息",
+    "fear": "这句台词是恐惧：气短、发颤、突然拔高又收住，比平时明显更响更急",
+}
+
+
+def _creature_in_shot(shot: dict, ctx: dict, text: str = "") -> bool:
+    ids = set(str(x) for x in (shot.get("props") or ())) | set(str(x) for x in (shot.get("cast") or ()))
+    return any(str(c) in ids for c in (ctx.get("creature_ids") or ()))
+
+
+PROMPT_MEMORY_TRIGGERS = {
+    # action beat: the shot belongs to a beat typed "action" or its state delta carries contact/momentum
+    "ACTION_NO_OUTCOME": lambda shot, ctx, text: str(shot.get("beat_type") or "") == "action"
+                         or bool({"CONTACT", "MOMENTUM"} & set(shot.get("state_delta_dimensions") or ())),
+    # first action of a declared antagonist group
+    "ANTAGONIST_NO_MOTIVE": lambda shot, ctx, text: str(shot.get("shot_id")) in set(ctx.get("antagonist_first_action_shots") or ()),
+    # a payoff shot of a prop that must show its source
+    "PROP_NO_SOURCE": lambda shot, ctx, text: str(shot.get("shot_id")) in set(ctx.get("prop_payoff_shots") or ()),
+    # any shot that stages a creature with a card
+    "CREATURE_FORM_DRIFT": _creature_in_shot,
+}
+
+
 def _spoken_chars(text: str) -> int:
     return len(re.sub(r"[^一-鿿0-9A-Za-z]", "", text or ""))
 
@@ -117,6 +145,29 @@ def apply(shot: dict, ctx: dict) -> tuple[str, list[str], list[str]]:
         clauses.append("秦铭发髻上是一根素木簪，没有任何金属饰件"); applied.append("HAIRPIN")
     if any(w in text_all for w in ("体表银光", "银光初现", "指缝间银光", "银光流过", "极淡银光")):   # 秦铭's body light, not the crevice's silver web
         clauses.append("银光极淡，不成光环、不刺眼、不照亮周围"); applied.append("SILVER_FAINT")
+
+    # seq=19 (E04 review): emotion → delivery clause.  The line is spoken natively by the video
+    # model (no TTS parameters exist), so the emotion can only reach the take as performance text.
+    emotion = str(shot.get("emotion") or (ctx.get("emotions") or {}).get(shot.get("shot_id")) or "")
+    if dlg_text and emotion:
+        prose = EMOTION_DELIVERY.get(emotion)
+        if prose is None:
+            blocks.append(f"EMOTION_UNKNOWN:{shot.get('shot_id')}:{emotion}")
+        else:
+            clauses.append(prose); applied.append(f"EMOTION:{emotion}")
+    elif dlg_text and ctx.get("emotion_required"):
+        blocks.append(f"EMOTION_UNDECLARED:{shot.get('shot_id')}")
+
+    # seq=19: knowledge failure-memory rows with stage == "prompt" (and only those) are injected as
+    # do_not_repeat clauses when the shot matches the row's trigger; the applied ids are recorded.
+    for row in ctx.get("failure_memory") or ():
+        if str(row.get("stage")) != "prompt":
+            continue
+        code = str(row.get("failure_code") or "")
+        trig = PROMPT_MEMORY_TRIGGERS.get(code)
+        if trig and trig(shot, ctx, text_all):
+            clauses.append(f"【勿重蹈 {code}】{row.get('do_not_repeat')}")
+            applied.append(f"KNOWLEDGE:{row.get('knowledge_id') or code}")
 
     for tok in ctx.get("prop_tokens") or ():
         if tok not in text_all and any(tok in c for c in clauses):

@@ -116,6 +116,10 @@ git clone https://github.com/rogerwu188/nalu-production-runtime.git /tmp/npr && 
 | 对白门『无普通话语音』或『尾音截断』但耳听台词完整 | whisper 引导解码退化/幻觉时间轴 | runner 无引导复核 + 在复核片段上重测尾音（K036/K037）；末 120 ms 仍在语音电平或无对白镜有真实说话声 → 客观失败，制作文本重做（K038） |
 | Q2 物化 PARTIAL_0_OF_N，每单元 DEFECT-TIER 失败 | 全集开场 10 s/结尾 5 s 内有 P2 | 该单元重做，不是备注；重做后签发新 video_q2 请求整批重填（K039） |
 | 视频 Q2 身份低分/OCR 拉丁字母 P0 | 裁切框落在旁人脸上/纹理噪声 | 先看 face_crops 再写豁免（帧号+分数）；`NOISE:<文本>` 申报（K040）；提示词链先登记再摘要（K041） |
+| S1 `SCRIPT_STRUCTURE_CONTRACT_FAIL`（HOOK_MISSING / DIALOGUE_STARVATION_* / BEAT_TYPE_UNDECLARED / ANTAGONIST_* / PROP_NO_SOURCE / ENTITY_NO_SETUP_OR_PAYOFF / MODERN_LEXICON） | 合同本身不成立（K042–K045、K051、K052） | 改剧本层：前 5 s 钩子、台词密度、beat type+outcome、对抗方动机、道具来源/回顾镜、实体铺垫或回收、词表；不改阈值，不进生成 |
+| S1 `CONTINUITY_STATE_CONTRACT_FAIL`（LIFE_STATE_UNDECLARED / DEAD_THEN_ALIVE / GROUP_COUNT_DRIFT / CREATURE_* / AMBUSH_*） | 状态机/生物卡/伏击空间未声明（K046、K048） | 每镜 cast[].life_state、group_counts、creature_card、ambush_contracts；观感由 Q2 必答问题把关 |
+| S4 `VOICE_CAST_REQUIRES_HUMAN`（同场角色参考音音区重叠 >50%） | 参考音本身分不开（K049） | 线主决定：换参考音（重生成 2 cr/角色）或接受；不能静默通过 |
+| S7 `FINAL_CUT_AUDIENCE_DETECTORS_FAIL`（hook_present / dialogue_coverage / silence_gap_max / voice_distinctness / emotion_dynamics / lexicon_violation / mascot_in_story / loudness） | 成片观众级检测（K042、K049–K052） | 按检测器修：结构类回剧本层重做，音色类换参考音并重做该单元，词表类改台词/字幕，响度类重跑发布响度；`UNVERIFIED/NOT_IMPLEMENTED` 项进 receipt，不算 PASS |
 
 ## 6. 现在做不到全自动的步骤（如实）
 

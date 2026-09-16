@@ -17,6 +17,7 @@ try:
         measure_loudness,
         plan_static_gain,
         ROLE_TARGETS_LUFS,
+        DEFAULT_RELEASE_TARGET_LUFS as RELEASE_TARGET_LUFS,
     )
 except ModuleNotFoundError:
     from native_audio_loudness_contract import (
@@ -24,6 +25,7 @@ except ModuleNotFoundError:
         evaluate_unit_loudness,
         measure_loudness,
         plan_static_gain,
+        DEFAULT_RELEASE_TARGET_LUFS as RELEASE_TARGET_LUFS,
         ROLE_TARGETS_LUFS,
     )
 
@@ -149,16 +151,16 @@ def level_release(
         premix = "".join(labels) + f"concat=n={len(labels)}:v=0:a=1"
         probe = run([
             "ffmpeg", "-hide_banner", "-nostats", "-i", str(source), "-filter_complex_threads", "1",
-            "-filter_complex", ";".join(filters + [premix + f",loudnorm=I=-16:TP={FINAL_LOUDNORM_TRUE_PEAK_DBTP}:LRA=11:print_format=json[aprobe]"]),
+            "-filter_complex", ";".join(filters + [premix + f",loudnorm=I={RELEASE_TARGET_LUFS:g}:TP={FINAL_LOUDNORM_TRUE_PEAK_DBTP}:LRA=11:print_format=json[aprobe]"]),
             "-map", "[aprobe]", "-f", "null", "-",
         ])
         match = _re.search(r"\{[^{}]*\"input_i\"[^{}]*\}", probe.stderr or "", _re.S)
         if not match:
             raise RuntimeError("loudnorm first pass produced no statistics: " + (probe.stderr or "")[-2000:])
         stats = _json.loads(match.group(0))
-        program_gain = -16.0 - float(stats["input_i"])
+        program_gain = RELEASE_TARGET_LUFS - float(stats["input_i"])
         linear = (
-            f"loudnorm=I=-16:TP={FINAL_LOUDNORM_TRUE_PEAK_DBTP}:LRA=11:linear=true:"
+            f"loudnorm=I={RELEASE_TARGET_LUFS:g}:TP={FINAL_LOUDNORM_TRUE_PEAK_DBTP}:LRA=11:linear=true:"
             f"measured_I={float(stats['input_i']):.3f}:measured_LRA={float(stats['input_lra']):.3f}:"
             f"measured_TP={float(stats['input_tp']):.3f}:measured_thresh={float(stats['input_thresh']):.3f}:"
             f"offset={float(stats.get('target_offset') or 0.0):.3f}"

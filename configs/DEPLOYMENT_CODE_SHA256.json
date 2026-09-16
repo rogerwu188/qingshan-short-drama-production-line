@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1815,
+  "file_count": 1830,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -145,11 +145,11 @@
     },
     {
       "path": "agent_factory/claude_writer_v2/schemas/generation_contract.schema.json",
-      "sha256": "ad7fbd753652a969c9669bdc451d0605e499c5efd487e9aa9d92937a663790a8"
+      "sha256": "f347abae4e5c8ca6ed2769d056d47d15db6baf6ae6fcade29ed28046bda943c9"
     },
     {
       "path": "agent_factory/claude_writer_v2/schemas/manifest.schema.json",
-      "sha256": "d3bb1475b2e6160bb523a5ee8245237021a2dbf63c5c25262069da94e877265e"
+      "sha256": "9df27c3b80c91f92638a87da647fd8ed641d0c91848414bfa4aaec97ec0b62d7"
     },
     {
       "path": "agent_factory/claude_writer_v2/templates/GENERATION_CONTRACT.template.json",
@@ -181,7 +181,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "db8ba42ad73fab17da898a29aad1f1e16d25fea7a9972d5f595695ff46ba2728"
+      "sha256": "cc29a9bfc6221ffeb331ac80ab808a6aa463abfab9adedf448d1538c6eaa4224"
     },
     {
       "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
@@ -189,7 +189,7 @@
     },
     {
       "path": "configs/GATE_REGISTRY_v3_20260716.json",
-      "sha256": "0b7d478904638f0d9e22452971b7aa8d95b9e7445355b53e364ff187fd0613a4"
+      "sha256": "3cefbab311ddcfedf7a2c6949f97e1c52e504040eedf9f35dfd120333972f1b2"
     },
     {
       "path": "configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json",
@@ -201,7 +201,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "b2e0baf0630a254b888f2712a4ab10eb3c028ee553df29b84747238dffe066e9"
+      "sha256": "6ceb9805678b49c1f768f3649019cf85b332b948117a72216ab4c19a3aae647b"
     },
     {
       "path": "configs/VIDEO_MODEL_CAPABILITY_REGISTRY_v1.json",
@@ -237,15 +237,15 @@
     },
     {
       "path": "docs/decisions/DECISION_RECORDS.md",
-      "sha256": "aba202f3a936d20dca654825783312a78af61150bca0fc34a761dae69b88c2d2"
+      "sha256": "343a3fa0c41e463a12a970d576f50c2270f6395ddb13de673c6af8465f7b23a0"
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "6f137a31ab6a513d8a106f8eaf72068013121f839e271d9604f7b820a16877ff"
+      "sha256": "493218ec7d23e2889b1b7d568a4a34eead32871921a5a07730d1427620acb7a4"
     },
     {
       "path": "docs/knowledge/INTEGRATION_STATUS.md",
-      "sha256": "e795bf3dcbf04d445aeef93b87f93afccd8a04a5829d227b36ad2ba71ca81fb2"
+      "sha256": "cb82c98d63d5069b3c0b0cc5b868f9071f0712bee81c17d280b682e6871db049"
     },
     {
       "path": "docs/knowledge/VALIDATION_REPORT.md",
@@ -3152,6 +3152,10 @@
       "sha256": "d4ba3a0bdd09c68f45ca9772f45b4ee30b7b620a9045addfe468b552c9ba3c9c"
     },
     {
+      "path": "tools/continuity_state_contract_gate.py",
+      "sha256": "f8473e9471d9c816f075c3df9af98097bac641d21a79f76278872ec4d8430311"
+    },
+    {
       "path": "tools/correct_e36_v19_bounded_watch_source_bindings.py",
       "sha256": "2b96a175b1f9f2d30cd5e329aef3dc015f21fd16b50de9a322b74b8ace5b9533"
     },
@@ -3202,6 +3206,10 @@
     {
       "path": "tools/dialogue_cut_safety.py",
       "sha256": "638ea316b93c1e6c1e4f035688047f4eb8b56ac0370becc5f49b648d50aa9096"
+    },
+    {
+      "path": "tools/dialogue_voice_metrics.py",
+      "sha256": "85a8daf47c1af64cd0fead4b09e9b34883ce0a7aaa425ec6e18ee838806e93ba"
     },
     {
       "path": "tools/dramatic_quality_gate.py",
@@ -3569,7 +3577,7 @@
     },
     {
       "path": "tools/episode_stage_gate_runner.py",
-      "sha256": "fe7d138c3076c105f2e0604c4b1a9ec1177c05f2f0131950e0409d137a85b320"
+      "sha256": "d0d9c006570f78987eb69e2d350ed7705c1a6ad0381a079fb71de3ec8b0ecb22"
     },
     {
       "path": "tools/episode_video_generation_guard.py",
@@ -3638,6 +3646,14 @@
     {
       "path": "tools/final_audio_provenance_gate.py",
       "sha256": "2492b8309ef295e3a87536d82d6063c76e83c82946ec8d6458ba1fef0cc0b29e"
+    },
+    {
+      "path": "tools/final_cut_audience_detectors.py",
+      "sha256": "5edb5beb00f8b4f6b03b58c537e92bc66ec4255ab849e41e232e2f8642853814"
+    },
+    {
+      "path": "tools/final_cut_audience_gate.py",
+      "sha256": "fe1761df8401a9852029ab56388048500bbb3df61c8133ad08d2f634a5aaddcb"
     },
     {
       "path": "tools/final_cut_objective_metrics.py",
@@ -4377,11 +4393,11 @@
     },
     {
       "path": "tools/knowledge_registry.py",
-      "sha256": "e618a20a00396712ae3144eb08e66877ca8d1281c8e7f6b7654cc0887dc2d768"
+      "sha256": "f0e095c2500333e49673daec968e65396a7ef13ed6cf0b111491b89132b264f2"
     },
     {
       "path": "tools/level_native_release_audio.py",
-      "sha256": "47b310a33a2641ee7d80dce97dfe7550473ec6d00a2227774787086a325b0e7c"
+      "sha256": "847a4ee52bbbdd3cb2f6e7adf52842df0fcc88ea6ab292e9d1f9f17aac74392b"
     },
     {
       "path": "tools/line_heartbeat.py",
@@ -4457,7 +4473,7 @@
     },
     {
       "path": "tools/native_audio_loudness_contract.py",
-      "sha256": "07e622d62952ed5ec2fd623970d2a53f9e09ca8b52a7c3844428650e9c3ebf2b"
+      "sha256": "a0dd99e15125e7cd74e9f1a93a61d255a390be83123b03375dbe91849b20f403"
     },
     {
       "path": "tools/opening_anchor_chain_gate.py",
@@ -4633,7 +4649,7 @@
     },
     {
       "path": "tools/post_generation_qa_scope_gate.py",
-      "sha256": "161c5a4f381556ab900144d8b86f76a54c2b38821c5a1b770c1c26d5322b8bcf"
+      "sha256": "57babb8a0017c96a4fb00e29f2b36fc1c0903d06dd2cd0dd1e85bbb62f2b58d1"
     },
     {
       "path": "tools/pre_send_negative_claim_recheck.py",
@@ -5412,6 +5428,10 @@
       "sha256": "80a9dbbea3ea9e678c8d4abf2529c1994e9e0df9aba13025b69e50f1c82e2d2d"
     },
     {
+      "path": "tools/script_structure_contract_gate.py",
+      "sha256": "b93ac85e868e47f3fee08429a0cd7b6fc8275899b1e6970fb130535c15b6d61a"
+    },
+    {
       "path": "tools/sd2_background_ecology_contract.py",
       "sha256": "00921b1a27808eb6581b7633a709f4d1ea52bc2a0bd730b8838f9c898f3943a6"
     },
@@ -6072,6 +6092,10 @@
       "sha256": "e3dbbad6818a6beffd120302da63d6aa1643781737eae49cd9833214ed1f84fc"
     },
     {
+      "path": "tools/tests/test_continuity_state_contract_gate.py",
+      "sha256": "26b2532f9ccf619dfe7538d8e2300fc1b920c181c8cb8885f628a583325a874f"
+    },
+    {
       "path": "tools/tests/test_credit_window_isolation.py",
       "sha256": "b78076454de05bf9ef4251a820d753f27d7698319e3b16a10a4dac4573384df7"
     },
@@ -6118,6 +6142,10 @@
     {
       "path": "tools/tests/test_dialogue_cut_safety.py",
       "sha256": "ae00d86aa58834a2464dd6fd452823f7fc1ee963517a0e0e55f22a6c9e56b9c3"
+    },
+    {
+      "path": "tools/tests/test_dialogue_voice_metrics.py",
+      "sha256": "e3ef4292edbbd525c8f62e24dd64284385da90c28407dad2d0798e9a1dc55370"
     },
     {
       "path": "tools/tests/test_dramatic_quality_gate.py",
@@ -6304,6 +6332,14 @@
       "sha256": "72f76338441fec7947808dc2a72fffceeeee03c2efacdca50572a4b357d985b9"
     },
     {
+      "path": "tools/tests/test_final_cut_audience_detectors.py",
+      "sha256": "d429929681f816b8fee698456e4e717f6623709f16245efc9c96a4c91becdb45"
+    },
+    {
+      "path": "tools/tests/test_final_cut_audience_gate.py",
+      "sha256": "0a36a63516d76a06183c97bca5d14d5350115cf57d0396e368381b4a1c6bcce9"
+    },
+    {
       "path": "tools/tests/test_final_cut_quality_gates.py",
       "sha256": "9e2d92f45c2064417b72e092c5632462a108de2fb0a56c9d5ac967569e4cecd3"
     },
@@ -6457,7 +6493,7 @@
     },
     {
       "path": "tools/tests/test_knowledge_registry.py",
-      "sha256": "4836d2aa41f525092ad5e2f4f56e49decd0a6dae55d12f9391116c660ac81afb"
+      "sha256": "3a9836c2194de0522b81f9694b46843e863ec064e5227664c4f6a3fca45e0204"
     },
     {
       "path": "tools/tests/test_line_heartbeat.py",
@@ -6504,12 +6540,24 @@
       "sha256": "2a549b359db73fedec90c8595c264dfaa39e130133cd61a3ad67bb70f5472782"
     },
     {
+      "path": "tools/tests/test_nalu_build_final_cut_speaker_map.py",
+      "sha256": "cfe886007a07de900ca1211e7353812f2decb4adae80bf14a90704028e7559a1"
+    },
+    {
+      "path": "tools/tests/test_nalu_build_voice_cast.py",
+      "sha256": "2438f0a9e25ae24b33f1d97d6e11000f2efdd4dade43275ac1aa232e42cd13c5"
+    },
+    {
+      "path": "tools/tests/test_nalu_prompt_rules_seq19.py",
+      "sha256": "5d51823dbab899ff25bfbe1d24608b4a4c6624b597f29d661b7d2600b9741dea"
+    },
+    {
       "path": "tools/tests/test_nalu_runtime_port.py",
       "sha256": "e7879deb751fe0c3e116e725bddb4d28e6f5953d0ebd3d47021ede11f6e0d54c"
     },
     {
       "path": "tools/tests/test_native_audio_loudness_contract.py",
-      "sha256": "5d97a9753c056e140cf30d4e8b69a32fcf90811d39ed9dc7521b6ee8be999c20"
+      "sha256": "816570c9848c70c772da94978fa48d262694cf618fe45066f035f2fa68e9acb2"
     },
     {
       "path": "tools/tests/test_no_disabled_regression_ci.py",
@@ -6698,6 +6746,10 @@
     {
       "path": "tools/tests/test_script_scene_diversity_gate.py",
       "sha256": "d107892a2263646be85a6722b9b0dcf62def72fd600cae64a59f92eb9013af03"
+    },
+    {
+      "path": "tools/tests/test_script_structure_contract_gate.py",
+      "sha256": "1e318ab84391f187bfe2d3597cb2d48e08004150fdc971d457ca1e2be1e8ad82"
     },
     {
       "path": "tools/tests/test_sd2_background_ecology_contract.py",
@@ -6922,6 +6974,10 @@
     {
       "path": "tools/tests/test_visual_culture_contract.py",
       "sha256": "a2f383c9f08c2486e323c4f04a5f1809da06eeaa86d8713278ee7ba56945581a"
+    },
+    {
+      "path": "tools/tests/test_voice_cast_gate.py",
+      "sha256": "91d87616213636055c6658ef65eef9cde60a459c9e827ea395f4c5dbba95f40a"
     },
     {
       "path": "tools/tests/test_wardrobe_identity_contract.py",
@@ -7230,6 +7286,10 @@
     {
       "path": "tools/visual_text_prompt_guard.py",
       "sha256": "a1021ea41475f56818677ba2490be5ac26c386b438703233de7a76650aa77583"
+    },
+    {
+      "path": "tools/voice_cast_gate.py",
+      "sha256": "4ba187fb65eb6fa53fe699468f48c5aa43bdc5a5a8079e35d4a1d35a9f8ad11c"
     },
     {
       "path": "tools/wardrobe_identity_contract.py",

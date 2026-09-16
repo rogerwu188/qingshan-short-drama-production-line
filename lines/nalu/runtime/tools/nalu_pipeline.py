@@ -822,7 +822,24 @@ def stage_s1(ctx: Ctx) -> StageResult:
     static_ok = static_gate["exit_code"] == 0
     gate10_ok = gate10["exit_code"] == 0
     entity_ok = entity_verdict.get("status") == PASS
-    status = PASS if (gate10_ok and entity_ok and static_ok) else BLOCKED
+
+    # seq=19 (E04 review, D-40): "does the contract hold up" gates — hook, dialogue density,
+    # action outcomes, antagonist motive, prop sources, entity introductions, lexicon (A1–A6),
+    # and the continuity state contract (life state, group counts, creature cards, ambush space,
+    # costume inheritance; B1–B5).  Both blocking; reports next to the other S1 logs.
+    lexicon = RT_TOOLS.parent / "configs" / "LEXICON_yewujiang_v1.json"
+    structure_gate = ctx.run(
+        [VENV, ENGINE / "tools/script_structure_contract_gate.py", "--contract", p.contract,
+         "--manifest", p.writer_manifest, "--lexicon", lexicon,
+         "--out", p.logs / f"{ctx.run_id}_script_structure_contract_gate.json"],
+        name="s1_script_structure_contract_gate")
+    continuity_gate = ctx.run(
+        [VENV, ENGINE / "tools/continuity_state_contract_gate.py", "--contract", p.contract,
+         "--out", p.logs / f"{ctx.run_id}_continuity_state_contract_gate.json"],
+        name="s1_continuity_state_contract_gate")
+    structure_ok = structure_gate["exit_code"] == 0
+    continuity_ok = continuity_gate["exit_code"] == 0
+    status = PASS if (gate10_ok and entity_ok and static_ok and structure_ok and continuity_ok) else BLOCKED
     res = StageResult(
         status,
         layer_sha256=layer_shas,
@@ -835,8 +852,21 @@ def stage_s1(ctx: Ctx) -> StageResult:
         note="Both gates must PASS.  character_entity_contract 'required' is false "
              "below ACTIVE_FROM_EPISODE=54, but this pipeline treats it as blocking "
              "anyway — a role-semantics defect is a real data defect.")
-    res.steps = [gate10, contract_gate, static_gate]
-    res.receipts = [gate10["log"], contract_gate["log"], static_gate["log"]]
+    res.details = getattr(res, "details", {}) or {}
+    res.details["script_structure_contract_gate"] = {
+        "exit_code": structure_gate["exit_code"], "status": PASS if structure_ok else "FAIL",
+        "report": str(p.logs / f"{ctx.run_id}_script_structure_contract_gate.json"),
+        "stdout_tail": structure_gate.get("stdout_tail")}
+    res.details["continuity_state_contract_gate"] = {
+        "exit_code": continuity_gate["exit_code"], "status": PASS if continuity_ok else "FAIL",
+        "report": str(p.logs / f"{ctx.run_id}_continuity_state_contract_gate.json"),
+        "stdout_tail": continuity_gate.get("stdout_tail")}
+    res.steps = [gate10, contract_gate, static_gate, structure_gate, continuity_gate]
+    res.receipts = [gate10["log"], contract_gate["log"], static_gate["log"], structure_gate["log"], continuity_gate["log"]]
+    if not structure_ok:
+        res.blockers.append("SCRIPT_STRUCTURE_CONTRACT_FAIL:" + str(structure_gate.get("stdout_tail") or "")[-300:])
+    if not continuity_ok:
+        res.blockers.append("CONTINUITY_STATE_CONTRACT_FAIL:" + str(continuity_gate.get("stdout_tail") or "")[-300:])
     if not gate10_ok:
         res.blockers.append("GATE10_WRITER_SCENE_SOURCE_DECLARATION_FAIL")
     if not static_ok:
@@ -1679,6 +1709,27 @@ def stage_s4(ctx: Ctx) -> StageResult:
 
     if any_dry:
         res.status = DRY
+        return res
+
+    # seq=19 (E04 review, C1): the character → voice table with MEASURED reference pitch bands
+    # + the co-presence precheck.  REQUIRES_HUMAN (bands overlap > 50 % between characters who
+    # share a scene) is the line owner's decision (D-40); FAIL blocks.
+    voice_cast_step = ctx.run(
+        [VENV, RT_TOOLS / "build_voice_cast.py", "--episode", ctx.episode, "--contract", p.contract,
+         "--registry", VOICE_REGISTRY, "--out", RT / "voice_cast.json",
+         "--report", p.voice / "voice_cast_gate.json"],
+        name="s4_build_voice_cast")
+    res.steps.append(voice_cast_step)
+    res.receipts.append(str(p.voice / "voice_cast_gate.json"))
+    res.details["voice_cast"] = {"table": str(RT / "voice_cast.json"), "report": str(p.voice / "voice_cast_gate.json"),
+                                 "exit_code": voice_cast_step["exit_code"],
+                                 "stdout_tail": voice_cast_step.get("stdout_tail")}
+    if voice_cast_step["exit_code"] == 3:
+        res.status = BLOCKED
+        res.blockers.append("VOICE_CAST_REQUIRES_HUMAN:" + str(voice_cast_step.get("stdout_tail") or "")[-300:])
+    elif voice_cast_step["exit_code"] != 0:
+        res.status = BLOCKED
+        res.blockers.append("VOICE_CAST_FAIL:" + str(voice_cast_step.get("stdout_tail") or "")[-300:])
     return res
 
 
@@ -3632,6 +3683,45 @@ def stage_s7(ctx: Ctx) -> StageResult:
         res.details["hint"] = ("level_native_release_audio.py refuses to overwrite an existing "
                              "--output/--qa — bump --version if this episode was levelled once "
                              "already.")
+        return res
+
+    # ---------------------------------- 6b. final-cut audience detectors (seq=19, D-40)
+    # hook / dialogue coverage / silent runs / voice distinctness / emotion dynamics / lexicon /
+    # mascot-in-story / loudness on the LEVELLED final; state machine, headcount and creature
+    # gait stay NOT_IMPLEMENTED (human review questions).  FAIL blocks the deliverable.
+    speaker_map = p.assembly / f"{ctx.episode}_FINAL_CUT_SPEAKER_MAP.json"
+    action_windows = p.assembly / f"{ctx.episode}_FINAL_CUT_ACTION_WINDOWS.json"
+    detector_report = p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_DETECTORS.json"
+    steps.append(ctx.run(
+        [VENV, RT_TOOLS / "build_final_cut_speaker_map.py", "--contract", p.contract,
+         "--grouping", p.grouping_plan, "--timeline", release_timeline, "--manifest", p.writer_manifest,
+         "--out", speaker_map, "--action-windows-out", action_windows],
+        name="s7_build_final_cut_speaker_map"))
+    detector_argv: list[Any] = [VENV, ENGINE / "tools/final_cut_audience_detectors.py",
+                                "--media", p.final_mp4, "--out", detector_report,
+                                "--lexicon", RT_TOOLS.parent / "configs" / "LEXICON_yewujiang_v1.json",
+                                "--speaker-map", speaker_map, "--story-segments", release_timeline,
+                                "--voice-cast", RT / "voice_cast.json"]
+    subtitles = p.assembly / f"{ctx.episode}_subtitles_zh.ass"
+    if subtitles.is_file():
+        detector_argv += ["--subtitles", subtitles]
+    if (RUNTIME / "brand").is_dir():
+        detector_argv += ["--brand-dir", RUNTIME / "brand"]
+    if action_windows.is_file():
+        detector_argv += ["--action-windows", action_windows]
+    res.details["commands"]["final_cut_audience_detectors"] = q(detector_argv)
+    steps.append(ctx.run(detector_argv, name="s7_final_cut_audience_detectors"))
+    res.receipts.append(str(detector_report))
+    gate_step = ctx.run([VENV, ENGINE / "tools/final_cut_audience_gate.py", "--report", detector_report,
+                         "--video", p.final_mp4, "--out", p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_GATE.json"],
+                        name="s7_final_cut_audience_gate")
+    steps.append(gate_step)
+    res.details["final_cut_audience"] = {"report": str(detector_report),
+                                         "gate": str(p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_GATE.json"),
+                                         "stdout_tail": gate_step.get("stdout_tail")}
+    if gate_step["exit_code"] != 0:
+        res.steps.extend(steps)
+        res.blockers = ["FINAL_CUT_AUDIENCE_DETECTORS_FAIL:" + str(gate_step.get("stdout_tail") or "")[-400:]]
         return res
 
     # ------------------------------------------- 7. final-package QA (D-9/D-12)

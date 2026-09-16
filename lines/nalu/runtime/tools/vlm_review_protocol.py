@@ -265,6 +265,11 @@ QUESTIONNAIRES: dict[str, dict[str, dict[str, Any]]] = {
                         "positioned by the character the entry_state and primary_action imply "
                         "(list who owns what in observed_prop_owners)?  NOT_APPLICABLE when "
                         "expectations.props is empty."},
+        "creature_locomotion_matches_card": {
+            "enum": PFN, "maps_to": ["ACTION-SHOT-DESIGN-AND-STATE-HANDOFF"],
+            "question": "If a creature with a card is in the frame (expectations.creature_cards), does "
+                        "its locomotion (biped / quadruped) and eye colour match the card?  "
+                        "NOT_APPLICABLE when no carded creature is in the frame."},
     },
     "post_gen_plot": {
         # exactly the five checks post_generation_qa_scope_gate.py ALLOWS as
@@ -290,6 +295,26 @@ QUESTIONNAIRES: dict[str, dict[str, dict[str, Any]]] = {
             "question": "Do the beats run in the script's order (expectations.ordered_beats), with "
                         "no reordering, loop or replay, consistent with "
                         "expectations.chronological_position?"},
+        # seq=19 (E04 review): "does the contract hold up" questions the audience answers in
+        # 3 seconds.  Automatic detection is NOT_IMPLEMENTED; the reviewer answers from the clip.
+        "action_outcome_visible": {
+            "enum": PFN, "maps_to": ["post_generation_qa.basic_plot.action_outcome_visible"],
+            "question": "If this unit ends an ACTION beat (expectations.beat_type == action), is the "
+                        "declared outcome (expectations.action_outcome: hit / injury / escape / loss / "
+                        "win) actually visible on screen by the end of the clip, so a viewer knows what "
+                        "the action achieved?  NOT_APPLICABLE when the unit is not an action beat."},
+        "antagonist_motive_readable": {
+            "enum": PFN, "maps_to": ["post_generation_qa.basic_plot.antagonist_motive_readable"],
+            "question": "If an antagonist group acts for the first time in this unit "
+                        "(expectations.antagonist_first_action), can a first-time viewer tell WHO they "
+                        "are and WHY they act, from what the episode has shown or said so far?  "
+                        "NOT_APPLICABLE otherwise."},
+        "new_entity_purpose_readable": {
+            "enum": PFN, "maps_to": ["post_generation_qa.basic_plot.new_entity_purpose_readable"],
+            "question": "If an entity (person, creature, animal, prop) appears for the first time in "
+                        "this unit (expectations.new_entities), does the clip or the episode so far make "
+                        "its purpose readable (set-up or pay-off), rather than looking like footage "
+                        "from another story?  NOT_APPLICABLE when nothing new appears."},
     },
     # ----------------------------------------------------------- Q2 video
     # The Q2 VIDEO_ASSEMBLY content review (D-7).  shot_media_admission_gate.py
@@ -358,6 +383,24 @@ QUESTIONNAIRES: dict[str, dict[str, dict[str, Any]]] = {
             "enum": PF, "maps_to": ["ACTION-SHOT-DESIGN-AND-STATE-HANDOFF"],
             "question": "Does the clip contain only this unit's declared beats — no invented "
                         "extra scene, no beat replayed, no reset back to the entry state?"},
+        # seq=19 (E04 review): perceived state / count / creature form are answered by the
+        # reviewer from the clip; the engine cannot measure them (NOT_IMPLEMENTED).
+        "perceived_life_state_matches_declared": {
+            "enum": PFN, "maps_to": ["ACTION-SHOT-DESIGN-AND-STATE-HANDOFF"],
+            "question": "For every visible character, does the state a viewer READS from the clip "
+                        "(alive / injured / unconscious / dead — a motionless body with blood reads "
+                        "as dead) match expectations.life_states?  NOT_APPLICABLE when no character "
+                        "is visible."},
+        "visible_group_count_matches_declared": {
+            "enum": PFN, "maps_to": ["ACTION-SHOT-DESIGN-AND-STATE-HANDOFF"],
+            "question": "Is the number of people of each declared group (expectations.group_counts) "
+                        "exactly as declared throughout the clip — no extra body, no missing member?  "
+                        "NOT_APPLICABLE when no group count is declared."},
+        "creature_locomotion_matches_card": {
+            "enum": PFN, "maps_to": ["ACTION-SHOT-DESIGN-AND-STATE-HANDOFF"],
+            "question": "If a creature with a card is visible (expectations.creature_cards), does its "
+                        "locomotion (biped / quadruped) and eye colour match the card in every frame?  "
+                        "NOT_APPLICABLE when no carded creature is visible."},
         "no_p0_or_p1_defect": {
             "enum": PF, "maps_to": ["DEFECT-TIER-TOLERANCE"],
             "question": "Is the clip free of any blocking (P0/P1) defect?  Answer FAIL and list "

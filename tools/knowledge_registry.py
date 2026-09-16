@@ -52,6 +52,25 @@ def validate(data, root):
     return data
 
 
+FAILURE_MEMORY_FIELDS = ("failure_code", "do_not_repeat", "stage", "scope")
+
+
+def export_failure_memory(data, stage=None):
+    """Rows that carry a failure_code, as the audience-review failure memory (jsonl rows).
+
+    ``stage`` is the report's own value: ``prompt`` rows are the only ones a prompt compiler
+    may inject; ``pipeline`` rows are consumed by gates/process.  Never authorizes anything."""
+    rows = []
+    for row in data["rules"]:
+        if not row.get("failure_code"):
+            continue
+        if stage and row.get("stage") != stage:
+            continue
+        rows.append({"failure_code": row["failure_code"], "do_not_repeat": row["do_not_repeat"],
+                     "stage": row["stage"], "scope": row.get("scope"), "knowledge_id": row["id"]})
+    return rows
+
+
 def export_context(data, stage=None):
     stages = {row["stage"] for row in data["rules"]}
     if stage and stage not in stages:
@@ -73,10 +92,17 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--stage", help="Export one exact stage; unknown stages fail")
+    parser.add_argument("--export-failure-memory", metavar="STAGE", nargs="?", const="ALL",
+                        help="print failure-memory rows as jsonl (optionally only one stage: prompt|pipeline)")
     parser.add_argument("--validate", action="store_true")
     args = parser.parse_args(argv)
     try:
         data = validate(json.loads((args.root / REGISTRY).read_text()), args.root)
+        if args.export_failure_memory:
+            stage = None if args.export_failure_memory == "ALL" else args.export_failure_memory
+            for row in export_failure_memory(data, stage):
+                print(json.dumps(row, ensure_ascii=False))
+            return 0
         result = ({"status": "PASS", "scope": "KNOWLEDGE_LINKS_AND_SCHEMA_ONLY",
                    "rule_count": len(data["rules"]), "production_authorization": False}
                   if args.validate else export_context(data, args.stage))

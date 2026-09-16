@@ -68,7 +68,21 @@
     "lines/nalu/runtime/tools/video_q2_builder.py",
     "lines/nalu/runtime/tools/keyframe_q1_builder.py",
     "lines/nalu/docs/DEPLOY_NEW_MACHINE.md",
-    "tools/tests/test_nalu_runtime_port.py"
+    "tools/tests/test_nalu_runtime_port.py",
+    "tools/script_structure_contract_gate.py",
+    "tools/continuity_state_contract_gate.py",
+    "tools/dialogue_voice_metrics.py",
+    "tools/voice_cast_gate.py",
+    "tools/final_cut_audience_detectors.py",
+    "tools/final_cut_audience_gate.py",
+    "lines/nalu/runtime/configs/LEXICON_yewujiang_v1.json",
+    "lines/nalu/runtime/tools/build_voice_cast.py",
+    "lines/nalu/runtime/tools/build_final_cut_speaker_map.py",
+    "knowledge/failure_memory.jsonl",
+    "tools/tests/fixtures/e04_negative_sample/contract_skeleton.json",
+    "tools/tests/fixtures/e04_negative_sample/manifest_skeleton.json",
+    "tools/tests/fixtures/e04_negative_sample/audio_metrics.json",
+    "tools/tests/fixtures/e04_negative_sample/final_cut_summary.json"
   ],
   "portable_test_modules": [
     "tools.tests.test_editorial_pacing_contract",
@@ -121,6 +135,15 @@
     "tools.tests.test_credit_window_isolation",
     "tools.tests.test_knowledge_registry",
     "agent_factory.claude_writer_v2.tests.test_smoke",
-    "tools.tests.test_nalu_runtime_port"
+    "tools.tests.test_nalu_runtime_port",
+    "tools.tests.test_script_structure_contract_gate",
+    "tools.tests.test_continuity_state_contract_gate",
+    "tools.tests.test_dialogue_voice_metrics",
+    "tools.tests.test_voice_cast_gate",
+    "tools.tests.test_final_cut_audience_detectors",
+    "tools.tests.test_final_cut_audience_gate",
+    "tools.tests.test_nalu_build_final_cut_speaker_map",
+    "tools.tests.test_nalu_build_voice_cast",
+    "tools.tests.test_nalu_prompt_rules_seq19"
   ]
 }

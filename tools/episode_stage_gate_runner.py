@@ -322,6 +322,31 @@ EXECUTORS: dict[str, dict[str, Any]] = {
     },
 }
 
+# seq=19 (E04 review): "does the contract hold up" + final-cut audience detectors
+EXECUTORS["SCRIPT-STRUCTURE-CONTRACT"] = {
+    "tool": "tools/script_structure_contract_gate.py",
+    "arguments": [("--contract", "generation_contract")],
+    "optional_arguments": [("--manifest", "writer_manifest"), ("--lexicon", "lexicon")],
+    "skip_canonical_script_binding": True,
+}
+EXECUTORS["CONTINUITY-STATE-CONTRACT"] = {
+    "tool": "tools/continuity_state_contract_gate.py",
+    "arguments": [("--contract", "generation_contract")],
+    "skip_canonical_script_binding": True,
+}
+EXECUTORS["VOICE-CAST-BINDING"] = {
+    "tool": "tools/voice_cast_gate.py",
+    "arguments": [("--cast", "voice_cast"), ("--segments-json", "dialogue_voice_metrics")],
+    "optional_arguments": [("--copresence-json", "scene_copresence")],
+    "skip_canonical_script_binding": True,
+}
+EXECUTORS["FINAL-CUT-AUDIENCE-DETECTORS"] = {
+    "tool": "tools/final_cut_audience_gate.py",
+    "arguments": [("--report", "final_cut_audience_report")],
+    "optional_arguments": [("--video", "final_video")],
+    "skip_canonical_script_binding": True,
+}
+
 FINAL_CUT_GATE_IDS = {
     "FINAL-CUT-VIEWING-EVIDENCE",
     "FINAL-CUT-PICTURE-REPETITION",
@@ -347,6 +372,10 @@ for gate_id in FINAL_CUT_GATE_IDS:
     }
 
 RUNTIME_GATE_IDS = frozenset({
+    "SCRIPT-STRUCTURE-CONTRACT",
+    "CONTINUITY-STATE-CONTRACT",
+    "VOICE-CAST-BINDING",
+    "FINAL-CUT-AUDIENCE-DETECTORS",
     "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF",
     "AGENT-MISTAKE-ANTI-RECURRENCE",
     "AUDIENCE-SCORE-PRE-RELEASE",

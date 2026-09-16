@@ -1,0 +1,409 @@
+{
+  "_fixture_provenance": "Derived from the E04 v1 writer manifest: structure[] and beat_disposition[] rows (no beat type / outcome, exactly as delivered), scene seconds and shot count. Source binding, script paths, quotes and disclosures removed.",
+  "episode": "E04",
+  "version": "v1",
+  "structure": [
+    {
+      "beat_id": "E04-B01",
+      "scene_id": "E04-S01",
+      "target_seconds": 6,
+      "thread": "线A",
+      "location_id": "LOC-LOW-HILL-TOP-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "source_events": [
+        "E04-EV-01",
+        "E04-EV-02"
+      ],
+      "new_information_count": 1
+    },
+    {
+      "beat_id": "E04-B02",
+      "scene_id": "E04-S02",
+      "target_seconds": 13,
+      "thread": "线A",
+      "location_id": "LOC-FOREST-EDGE-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "source_events": [
+        "E04-EV-03",
+        "E04-EV-04",
+        "E04-EV-05"
+      ],
+      "new_information_count": 2
+    },
+    {
+      "beat_id": "E04-B03",
+      "scene_id": "E04-S03",
+      "target_seconds": 16,
+      "thread": "线A",
+      "location_id": "LOC-FOREST-EDGE-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "source_events": [
+        "E04-EV-06",
+        "E04-EV-07",
+        "E04-EV-08"
+      ],
+      "new_information_count": 2
+    },
+    {
+      "beat_id": "E04-B04",
+      "scene_id": "E04-S04",
+      "target_seconds": 15,
+      "thread": "线A",
+      "location_id": "LOC-SNOWFIELD-WILDS-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "source_events": [
+        "E04-EV-09",
+        "E04-EV-10",
+        "E04-EV-11",
+        "E04-EV-12"
+      ],
+      "new_information_count": 2
+    },
+    {
+      "beat_id": "E04-B05",
+      "scene_id": "E04-S05",
+      "target_seconds": 15,
+      "thread": "线A",
+      "location_id": "LOC-SNOWFIELD-WILDS-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "source_events": [
+        "E04-EV-13",
+        "E04-EV-14",
+        "E04-EV-15"
+      ],
+      "new_information_count": 2
+    },
+    {
+      "beat_id": "E04-B06",
+      "scene_id": "E04-S06",
+      "target_seconds": 12,
+      "thread": "线A",
+      "location_id": "LOC-SNOWFIELD-WILDS-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "source_events": [
+        "E04-EV-16",
+        "E04-EV-17"
+      ],
+      "new_information_count": 2
+    },
+    {
+      "beat_id": "E04-B07",
+      "scene_id": "E04-S07",
+      "target_seconds": 16,
+      "thread": "线A",
+      "location_id": "LOC-SNOWFIELD-WILDS-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "source_events": [
+        "E04-EV-18",
+        "E04-EV-19",
+        "E04-EV-20"
+      ],
+      "new_information_count": 2
+    },
+    {
+      "beat_id": "E04-B08",
+      "scene_id": "E04-S08",
+      "target_seconds": 16,
+      "thread": "线A",
+      "location_id": "LOC-SNOWFIELD-WILDS-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "source_events": [
+        "E04-EV-21",
+        "E04-EV-22",
+        "E04-EV-23"
+      ],
+      "new_information_count": 2
+    },
+    {
+      "beat_id": "E04-B09",
+      "scene_id": "E04-S09",
+      "target_seconds": 11,
+      "thread": "线A",
+      "location_id": "LOC-FOREST-EDGE-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "source_events": [
+        "E04-EV-24",
+        "E04-EV-25",
+        "E04-EV-26"
+      ],
+      "new_information_count": 2
+    },
+    {
+      "beat_id": "E04-B10",
+      "scene_id": "E04-S10",
+      "target_seconds": 16,
+      "thread": "线A",
+      "location_id": "LOC-FIRE-SPRING-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "source_events": [
+        "E04-EV-27",
+        "E04-EV-28",
+        "E04-EV-29"
+      ],
+      "new_information_count": 2
+    },
+    {
+      "beat_id": "E04-B11",
+      "scene_id": "E04-S11",
+      "target_seconds": 15,
+      "thread": "线A",
+      "location_id": "LOC-FIRE-SPRING-EXT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "source_events": [
+        "E04-EV-30",
+        "E04-EV-31",
+        "E04-EV-32"
+      ],
+      "new_information_count": 2
+    },
+    {
+      "beat_id": "E04-B12",
+      "scene_id": "E04-S12",
+      "target_seconds": 19,
+      "thread": "线A",
+      "location_id": "LOC-QINMING-HOUSE-INT",
+      "time_id": "TIME-SHALLOW-NIGHT",
+      "source_events": [
+        "E04-EV-33",
+        "E04-EV-34",
+        "E04-EV-35",
+        "E04-EV-36"
+      ],
+      "new_information_count": 2
+    }
+  ],
+  "beat_disposition": [
+    {
+      "event_id": "E04-EV-01",
+      "disposition": "landed",
+      "landed_at": "E04-S01-01",
+      "summary": "收回目光，背起兽皮袋沿原路往回走"
+    },
+    {
+      "event_id": "E04-EV-02",
+      "disposition": "landed",
+      "landed_at": "E04-S01-02",
+      "summary": "收获不小很满足、积雪下有洼地岩石路不好走但心情不错（满足与期待初春的内心不演）"
+    },
+    {
+      "event_id": "E04-EV-03",
+      "disposition": "landed",
+      "landed_at": "E04-S02-01 至 E04-S02-02",
+      "summary": "临近密林边缘倏地止步扔袋握叉回头；黑暗中一双猩红的眼睛快速逼近"
+    },
+    {
+      "event_id": "E04-EV-04",
+      "disposition": "landed",
+      "landed_at": "E04-S02-03",
+      "summary": "寒毛倒竖，块头不小十分凶猛，寒风刮来腥味"
+    },
+    {
+      "event_id": "E04-EV-05",
+      "disposition": "landed",
+      "landed_at": "E04-S02-04",
+      "summary": "猎叉插进雪地迅速取下弓箭"
+    },
+    {
+      "event_id": "E04-EV-06",
+      "disposition": "landed",
+      "landed_at": "E04-S03-01 至 E04-S03-02",
+      "summary": "臂力惊人硬弓拉成满月，铁箭飞出弓弦颤音很响"
+    },
+    {
+      "event_id": "E04-EV-07",
+      "disposition": "landed",
+      "landed_at": "E04-S03-03 至 E04-S03-04",
+      "summary": "生物骤然停顿疑似中箭；连着开弓箭术尽显，铁箭一支接一支没入夜色"
+    },
+    {
+      "event_id": "E04-EV-08",
+      "disposition": "landed",
+      "landed_at": "E04-S03-05",
+      "summary": "沉闷低吼，猩红眼睛消失，枯枝折断躲到林木后方（受伤不致命、隐伏更危险的判断不演）"
+    },
+    {
+      "event_id": "E04-EV-09",
+      "disposition": "landed",
+      "landed_at": "E04-S04-01",
+      "summary": "抓起袋叉快速冲出山林到空旷雪地（怕被偷袭、怀疑变异生物的内心不演）；林间积雪被剧烈冲击追过来"
+    },
+    {
+      "event_id": "E04-EV-10",
+      "disposition": "landed",
+      "landed_at": "E04-S04-02",
+      "summary": "毫不犹豫开弓，铁箭咚射进树干，满树雪花如雪瀑坠落；生物再次被逼退"
+    },
+    {
+      "event_id": "E04-EV-11",
+      "disposition": "landed",
+      "landed_at": "E04-S04-03",
+      "summary": "变异生物暗中徘徊等待机会；黑影数次隐现猩红眼森冷有压迫感；不甘低吼消失在密林（一般猛兽对比不演）"
+    },
+    {
+      "event_id": "E04-EV-12",
+      "disposition": "landed",
+      "landed_at": "E04-S04-04",
+      "summary": "看出是可直立奔行的身影不知何种变异生物；慢慢后退不放松警惕（直到火泉不足一里仍戒备、前人血淋淋教训不演）"
+    },
+    {
+      "event_id": "E04-EV-13",
+      "disposition": "landed",
+      "landed_at": "E04-S05-01",
+      "summary": "双树村外三青年冻得跺脚搓手眉毛冰渣，守在雪路上"
+    },
+    {
+      "event_id": "E04-EV-14",
+      "disposition": "landed",
+      "landed_at": "E04-S05-02",
+      "summary": "低声交谈：太遭罪要不撤、八成会死在野外带不回猎物（李老头捡冻死山兽之例不演）；三人平日游手好闲想截胡（品行叙述不演）；大病初愈身体虚、套袋打闷棍别打死（并入王佑平抱怨与铁棍）"
+    },
+    {
+      "event_id": "E04-EV-15",
+      "disposition": "landed",
+      "landed_at": "E04-S05-03",
+      "summary": "挖出雪窟窿提前埋伏；错估回来时间（不演）；「谨慎一些，待会儿就不要出声了」；快准狠、赶紧赏几铁棍冻僵了（并入噤声）"
+    },
+    {
+      "event_id": "E04-EV-16",
+      "disposition": "landed",
+      "landed_at": "E04-S06-01 至 E04-S06-02",
+      "summary": "一路提防目光敏锐隔远看到三条黑影；蹲下没进齐肩深雪彻底消失；沿雪路无声潜行辨认出是村中三名闲汉"
+    },
+    {
+      "event_id": "E04-EV-17",
+      "disposition": "landed",
+      "landed_at": "E04-S06-03 至 E04-S06-04",
+      "summary": "停在合适位置听到对话；脸色难看：想打闷棍抢猎物？两次生死危机以命搏来的食物，这种截胡不能忍（内心不演，以脸色与握叉承担）"
+    },
+    {
+      "event_id": "E04-EV-18",
+      "disposition": "landed",
+      "landed_at": "E04-S07-01",
+      "summary": "雪窟窿轰然崩塌把三人埋在里面口鼻全是雪"
+    },
+    {
+      "event_id": "E04-EV-19",
+      "disposition": "landed",
+      "landed_at": "E04-S07-02 至 E04-S07-03",
+      "summary": "胡勇第一个冲出被一脚踹脸、猎叉砸肩踉跄倒地；马阳冒头被踢鼻子惨叫涕泪长流翻滚"
+    },
+    {
+      "event_id": "E04-EV-20",
+      "disposition": "landed",
+      "landed_at": "E04-S07-04 至 E04-S07-05",
+      "summary": "王佑平往雪里钻不敢出来，钢叉刺破衣服见血；「不要啊……别杀我」（尿裤子与只刺破皮肤的分寸不演）"
+    },
+    {
+      "event_id": "E04-EV-21",
+      "disposition": "landed",
+      "landed_at": "E04-S08-01",
+      "summary": "戳出王佑平踢出三米远再跌入雪堆"
+    },
+    {
+      "event_id": "E04-EV-22",
+      "disposition": "landed",
+      "landed_at": "E04-S08-02 至 E04-S08-03",
+      "summary": "看清是谁、握着寒光闪闪钢叉顿时怂了；「秦……铭」「铭哥，咱们一个村的低头不见抬头见，手下留情啊，这次我们错了」（身上带刀棍不敢反抗、欺软怕硬不演）"
+    },
+    {
+      "event_id": "E04-EV-23",
+      "disposition": "landed",
+      "landed_at": "E04-S08-04",
+      "summary": "不至于杀人但激烈教育避免不了：钢叉抵着蹲下，一顿暴揍，鼻青脸肿嘴里血沫子惨嚎，严厉警告后放过（色厉内荏的评价不演）"
+    },
+    {
+      "event_id": "E04-EV-24",
+      "disposition": "landed",
+      "landed_at": "E04-S09-01",
+      "summary": "密林外一头毛驴自远方空旷大地悠悠而来对前路很熟；驴背上纯白如雪的黄鼠狼（白色生灵少见的年代常识不演）"
+    },
+    {
+      "event_id": "E04-EV-25",
+      "disposition": "landed",
+      "landed_at": "E04-S09-01",
+      "summary": "黄鼠狼沉静老成盘坐倒骑面向后方来路，神韵像稳重的人类，双目深邃"
+    },
+    {
+      "event_id": "E04-EV-26",
+      "disposition": "landed",
+      "landed_at": "E04-S09-02 至 E04-S09-03",
+      "summary": "变异生灵见毛驴猛扑，见白黄鼠狼倏地止步转身扎进积雪下发抖；毛驴未受惊淡淡一瞥载黄鼠狼向山中走去"
+    },
+    {
+      "event_id": "E04-EV-27",
+      "disposition": "landed",
+      "landed_at": "E04-S10-01",
+      "summary": "火泉在望黑白双树摇曳，加快脚步到村口彻底放松（放松不演）；劈柴的人抬头「秦铭回来了」"
+    },
+    {
+      "event_id": "E04-EV-28",
+      "disposition": "landed",
+      "landed_at": "E04-S10-02",
+      "summary": "临街院门打开；他冒险外出早已传开人们猜测（不演）；各家太阳石火霞街上有淡光；看到猎叉上的红松鼠鸦雀无声，和想象完全不一样"
+    },
+    {
+      "event_id": "E04-EV-29",
+      "disposition": "landed",
+      "landed_at": "E04-S10-03 至 E04-S10-04",
+      "summary": "陆泽快步走来松了口气「都说你进山去猎熊了，结果你这是……抓了只松鼠？」「我还抄了它的家」；注意到兽皮袋眼热；皮毛发光明显变异价值不低（价值评估不演）"
+    },
+    {
+      "event_id": "E04-EV-30",
+      "disposition": "landed",
+      "landed_at": "E04-S11-01",
+      "summary": "刘老头感慨（不演）；村民询问外面是否安全；如实讲经历不敢误导；听到变异生物出没面色都变了短时间不能单独外出（讲述内容不演，以面色承担）"
+    },
+    {
+      "event_id": "E04-EV-31",
+      "disposition": "landed",
+      "landed_at": "E04-S11-02",
+      "summary": "提及三人行径引来老少愤慨「真不要脸，自己不敢进山，却想对同村人下黑手」"
+    },
+    {
+      "event_id": "E04-EV-32",
+      "disposition": "landed",
+      "landed_at": "E04-S11-03",
+      "summary": "三人一瘸一拐冒头被陆泽带人痛揍「陆哥，杨叔，刘大爷，不要打了，救命啊」（鼻涕泡带血冻脸上、犯众怒的解释不演）"
+    },
+    {
+      "event_id": "E04-EV-33",
+      "disposition": "dropped",
+      "landed_at": "",
+      "summary": "给街上孩子抓坚果欢呼；周阿婆倚门面色苍白留下干货——seq=17 节奏收紧，温情段落让位于末场 button（下集可承接）"
+    },
+    {
+      "event_id": "E04-EV-34",
+      "disposition": "landed",
+      "landed_at": "E04-S12-01",
+      "summary": "家中文睿每种干果尝一遍小嘴停不下来「小叔，你太厉害了，野核桃非常好吃，还有松子真香啊」"
+    },
+    {
+      "event_id": "E04-EV-35",
+      "disposition": "dropped",
+      "landed_at": "",
+      "summary": "两岁文晖吃红枣糊亲一口；梁婉清「不愧是变异的生灵…三十几斤」——seq=17 节奏收紧且避免第二个儿童身份牌；三十几斤的数字不演"
+    },
+    {
+      "event_id": "E04-EV-36",
+      "disposition": "landed",
+      "landed_at": "E04-S12-02 至 E04-S12-04",
+      "summary": "红松鼠苏醒睁眼看到家底被翻绝望、眼睛瞪圆快喷火；陆泽严肃：「小秦，我看你身体恢复得差不多了，该认真考虑‘新生’的事情了」（拆两镜）"
+    }
+  ],
+  "scene_breakdown_seconds": {
+    "E04-S01": 6,
+    "E04-S02": 13,
+    "E04-S03": 16,
+    "E04-S04": 15,
+    "E04-S05": 15,
+    "E04-S06": 12,
+    "E04-S07": 16,
+    "E04-S08": 16,
+    "E04-S09": 11,
+    "E04-S10": 16,
+    "E04-S11": 15,
+    "E04-S12": 19
+  },
+  "total_seconds": 170,
+  "shot_count": 45
+}

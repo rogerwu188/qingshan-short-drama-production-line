@@ -44,7 +44,7 @@ class NativeAudioLoudnessContractTests(unittest.TestCase):
 
     def test_release_gate_enforces_lufs_lra_and_peak(self):
         self.assertEqual(evaluate_release_loudness({
-            "integrated_loudness_lufs": -16.0,
+            "integrated_loudness_lufs": -14.0,
             "loudness_range_lu": 10.0,
             "true_peak_dbtp": -1.2,
         }), [])

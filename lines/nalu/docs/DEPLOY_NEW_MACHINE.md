@@ -100,3 +100,20 @@ API 错误就从断点续跑，付费 POST 靠 `workflow/tasks/*_transactions/` 
 - D-9/D-12 两个最终 QA 证据键无生产者（S7 以 BLOCKED 结束，S8 单独 `run --from S8`）；
 - `bgm_authenticity_gate` 是否接受窗口隔离账单标签，由线主决定（K032）；
 - 原部署实例仍从自己的运行时副本运行，切换到仓库副本后再删除该副本。
+
+## seq=19 additions (2026-09-16, after the E04 audience review)
+- S1 now also runs `tools/script_structure_contract_gate.py` (hook, dialogue density, action outcomes, antagonist
+  motive, prop sources, entity introductions, lexicon) and `tools/continuity_state_contract_gate.py` (life states,
+  group counts, creature cards, ambush space, costume inheritance) — both blocking.  The writer schema
+  (`agent_factory/claude_writer_v2/schemas/*.json`) documents the new optional contract fields; an episode builder
+  must declare them or S1 stops.  Lexicon: `lines/nalu/runtime/configs/LEXICON_<world>_v1.json`.
+- S4 ends with `build_voice_cast.py`: measures each reference clip's F0, writes `runtime/voice_cast.json`, and a
+  co-presence precheck (band overlap > 50 % → REQUIRES_HUMAN, the line owner decides).
+- S7 runs `tools/final_cut_audience_detectors.py` on the levelled final (hook, coverage, silent runs, voice
+  distinctness, emotion dynamics, lexicon via ASR+subtitles+OCR, mascot-in-story, loudness −14 LUFS / TP −1) and
+  the registered wrapper gate `FINAL-CUT-AUDIENCE-DETECTORS`; FAIL blocks the deliverable, UNVERIFIED /
+  NOT_IMPLEMENTED items are listed in the report and never count as PASS.
+- Review questionnaires carry the new perceived-state / group-count / creature-gait (Q2, Q1) and action-outcome /
+  antagonist-motive / new-entity-purpose (plot) questions; fill scripts must answer them from the media.
+- `knowledge/failure_memory.jsonl` is generated from the K registry; only `stage == "prompt"` rows are injected into
+  prompts (`nalu_prompt_rules.apply`, ctx["failure_memory"]).

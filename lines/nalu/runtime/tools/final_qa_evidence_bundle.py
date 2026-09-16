@@ -82,6 +82,7 @@ FINAL_GATES = (
     "FINAL-CUT-PICTURE-REPETITION", "FINAL-CUT-GATE-NAMING-HONESTY",
     "FINAL-CUT-WEAKEST-LINK-SCORING", "FINAL-CUT-NO-SELF-WAIVER",
     "FINAL-CUT-EVENT-LEDGER", "FINAL-CUT-DIALOGUE-LEGIBILITY",
+    "FINAL-CUT-AUDIENCE-DETECTORS",   # seq=19 (E04 review): the line's own audience-level detectors
 )
 RELEASE_GATES = ("RELEASE-SIGNOFF-INTEGRITY", "GIGGLE-CREDIT-LEDGER-CLOSURE")
 
@@ -130,6 +131,14 @@ APPLICABLE = tuple(g for g in (*FINAL_GATES, *RELEASE_GATES) if g not in NOT_APP
 BUNDLE_KEYS: dict[str, dict[str, Any]] = {
     "canonical_script": {"gates": ["*"], "note": "the writer's narrative canonical; sha-verified"},
     "canonical_script_sha256": {"gates": ["*"], "note": "sha256 of the above, 64 hex"},
+    "final_cut_audience_report": {"gates": ["FINAL-CUT-AUDIENCE-DETECTORS"],
+                                  "note": "assembly/<EP>_FINAL_CUT_AUDIENCE_DETECTORS.json; sha-bound to the final"},
+    "generation_contract": {"gates": ["SCRIPT-STRUCTURE-CONTRACT", "CONTINUITY-STATE-CONTRACT"],
+                            "note": "the generation contract the S1 contract-holds gates ran on"},
+    "writer_manifest": {"gates": ["SCRIPT-STRUCTURE-CONTRACT"], "note": "writer manifest (beat types/outcomes)"},
+    "lexicon": {"gates": ["SCRIPT-STRUCTURE-CONTRACT", "FINAL-CUT-AUDIENCE-DETECTORS"], "note": "world lexicon"},
+    "voice_cast": {"gates": ["VOICE-CAST-BINDING", "FINAL-CUT-AUDIENCE-DETECTORS"],
+                   "note": "runtime/voice_cast.json (measured reference F0 bands)"},
     "final_video": {"gates": ["FINAL-AUDIT-COMPLETENESS", "FINAL-FRAME-CADENCE-FREEZE",
                               "FINAL-OCR-POLICY", "FINAL-AUDIO-PROVENANCE"],
                     "note": "deliverables/<EP>/<EP>_final_9x16.mp4; must resolve equal to "
@@ -257,6 +266,12 @@ def build_bundle(episode: str, *, out: Path | None = None) -> dict[str, Any]:
                                  else p.assembly / f"{episode}_agentcut_project.json"),
         "credit_ledger": portable(RT / "budget/ledger.json"),
         "watch_report": portable(RT / f"pipeline_state/approvals/{episode}.APPROVED.json"),
+        # seq=19: sha-bound detector report written by S7 (tools/final_cut_audience_detectors.py)
+        "final_cut_audience_report": portable(p.assembly / f"{episode}_FINAL_CUT_AUDIENCE_DETECTORS.json"),
+        "generation_contract": portable(SCRIPTS / f"{episode}_GENERATION_CONTRACT_v1.json"),
+        "writer_manifest": portable(SCRIPTS / f"{episode}_manifest_v1.json"),
+        "lexicon": portable(Path(__file__).resolve().parent.parent / "configs" / "LEXICON_yewujiang_v1.json"),
+        "voice_cast": portable(RT / "voice_cast.json"),
     }
     _, _, unsatisfiable = _gate_sets(episode)
     if "bgm_stem" not in unsatisfiable:

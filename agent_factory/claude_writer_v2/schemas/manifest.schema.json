@@ -48,7 +48,19 @@
         "required":["beat_id","scene_id","target_seconds","thread","location_id"],
         "properties":{
           "scene_id":{"type":"string","pattern":"^E\\d+-S\\d+$"},
-          "target_seconds":{"type":"number","exclusiveMinimum":0}}}
+          "target_seconds":{"type":"number","exclusiveMinimum":0},
+          "type":{"enum":["dialogue","action","transition","reveal"],
+            "description":"A2/A5：beat 类型。整表必须声明（否则 BEAT_TYPE_UNDECLARED）；action 必带 outcome，且台词静默上限放宽到 25 s"},
+          "outcome":{"type":"object",
+            "required":["kind","evidence_shot_id"],
+            "properties":{
+              "kind":{"enum":["winner","escape","injury","loss"]},
+              "evidence_shot_id":{"type":"string","pattern":"^E\\d+-S\\d+-\\d+$"}},
+            "description":"A2：type == action 时必填；evidence_shot_id 须在该 beat 末镜结束后 10 s 内开始"},
+          "shot_ids":{"type":"array","items":{"type":"string","pattern":"^E\\d+-S\\d+-\\d+$"},
+            "description":"可选。该 beat 覆盖的镜；缺省按 source_events 的 beat_disposition.landed_at 范围，再缺省按 scene_id 全部镜"}},
+        "if":{"properties":{"type":{"const":"action"}},"required":["type"]},
+        "then":{"required":["outcome"]}}
     },
     "scene_breakdown_seconds": {"type":"object","additionalProperties":{"type":"number"}},
     "total_seconds": {"type":"number"},

@@ -24,8 +24,239 @@
         }
       }
     },
-    "scene_states": {"type": "array", "minItems": 1},
-    "shots": {"type": "array", "minItems": 1},
-    "audio_contract": {"type": "object"}
+    "scene_states": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "scene_id": {"type": "string"},
+          "location_id": {"type": "string"},
+          "costume_overrides": {
+            "type": "object",
+            "description": "B5：按场景继承的服装状态显式变更 {character_id: {remove: [], add: []}}；室外→室内摘帽必须声明",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "remove": {"type": "array", "items": {"type": "string"}},
+                "add": {"type": "array", "items": {"type": "string"}}
+              }
+            }
+          }
+        }
+      }
+    },
+    "shots": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "shot_id": {"type": "string"},
+          "scene_id": {"type": "string"},
+          "target_seconds": {"type": "number"},
+          "group_counts": {
+            "type": "object",
+            "description": "B1：{group_id: {count, count_change_note?}}；同 group 跨镜 count 变化必须带 count_change_note",
+            "additionalProperties": {
+              "type": "object",
+              "required": ["count"],
+              "properties": {
+                "count": {"type": "integer", "minimum": 0},
+                "count_change_note": {"type": "string"}
+              }
+            }
+          },
+          "prompt_spec": {
+            "type": "object",
+            "properties": {
+              "cast": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "character": {"type": "string"},
+                    "character_id": {"type": "string"},
+                    "life_state": {
+                      "enum": ["alive", "injured", "unconscious", "dead"],
+                      "description": "B1：每镜每角色生命状态；dead 之后不得回到非 dead"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "audio_contract": {
+      "type": "object",
+      "properties": {
+        "dialogue_units": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "shot_id": {"type": "string"},
+              "speaker_id": {"type": "string"},
+              "listener_id": {"type": "string"},
+              "text": {"type": "string"},
+              "emotion": {
+                "enum": ["calm", "plead", "threat", "mock", "joy", "fear"],
+                "description": "C2：每句情绪，映射为演绎条款（响度/语速/气息），生成后 emotion_dynamics 检测"
+              }
+            }
+          }
+        }
+      }
+    },
+    "protagonist_ids": {
+      "type": "array", "items": {"type": "string"},
+      "description": "可选。主角 character_id 列表；未声明时取 character_entities[0]。entity_introductions 校验对主角豁免"
+    },
+    "pacing": {
+      "type": "object",
+      "description": "可选。hook 与 dialogue_density 由 tools/script_structure_contract_gate.py 读取（A1/A5）",
+      "properties": {
+        "hook": {
+          "type": "object",
+          "required": ["type", "at_seconds", "line_or_shot_id"],
+          "properties": {
+            "type": {"enum": ["dialogue", "shock", "question"]},
+            "at_seconds": {"type": "number", "minimum": 0, "maximum": 5},
+            "line_or_shot_id": {"type": "string", "minLength": 1}
+          }
+        },
+        "dialogue_density": {
+          "type": "object",
+          "properties": {
+            "max_silent_run_seconds": {"type": "number", "exclusiveMinimum": 0, "default": 15},
+            "max_silent_run_action_seconds": {"type": "number", "exclusiveMinimum": 0, "default": 25},
+            "min_coverage": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.35},
+            "verdict": {"enum": ["FAIL", "WARN"], "default": "FAIL"}
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "antagonist_groups": {
+      "type": "array",
+      "description": "A3：character_entities[].role == antagonist 或分镜出现伏击/埋伏/截时必填；motive_setup.ref 必须早于 first_action_shot_id",
+      "items": {
+        "type": "object",
+        "required": ["group_id", "member_ids", "first_action_shot_id", "motive_setup"],
+        "properties": {
+          "group_id": {"type": "string", "minLength": 1},
+          "member_ids": {"type": "array", "items": {"type": "string"}},
+          "first_action_shot_id": {"type": "string", "pattern": "^E\\d+-S\\d+-\\d+$"},
+          "motive_setup": {
+            "type": "object",
+            "required": ["kind", "ref"],
+            "properties": {
+              "kind": {"enum": ["line", "shot", "recap"]},
+              "ref": {
+                "oneOf": [
+                  {"type": "string", "pattern": "^E\\d+-S\\d+-\\d+$"},
+                  {
+                    "type": "object",
+                    "required": ["episode", "shot_id", "recap_shot_id"],
+                    "properties": {
+                      "episode": {"type": "string", "pattern": "^E[0-9]+$"},
+                      "shot_id": {"type": "string"},
+                      "recap_shot_id": {"type": "string", "pattern": "^E\\d+-S\\d+-\\d+$"}
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "entity_introductions": {
+      "type": "array",
+      "description": "B3′：非主角人物与钩子窗口（5 s）后首次出现的非人物实体必须声明 setup 或 payoff",
+      "items": {
+        "type": "object",
+        "required": ["entity_id", "first_shot_id"],
+        "properties": {
+          "entity_id": {"type": "string", "minLength": 1},
+          "first_shot_id": {"type": "string", "pattern": "^E\\d+-S\\d+-\\d+$"},
+          "setup": {
+            "type": "object",
+            "required": ["kind", "ref"],
+            "properties": {
+              "kind": {"enum": ["line", "shot", "recap", "prior_episode"]},
+              "ref": {"type": "string", "minLength": 1}
+            }
+          },
+          "payoff_shot_id": {"type": "string", "pattern": "^E\\d+-S\\d+-\\d+$"}
+        }
+      }
+    },
+    "ambush_contracts": {
+      "type": "array",
+      "description": "B4：分镜出现伏击/埋伏/藏身时必填；reveal_shot_id 之前 who_approaches 不得进入 hide_place_id",
+      "items": {
+        "type": "object",
+        "required": ["who_hides", "who_approaches", "hide_place_id", "reveal_shot_id"],
+        "properties": {
+          "who_hides": {"type": "array", "items": {"type": "string"}},
+          "who_approaches": {"type": "array", "items": {"type": "string"}},
+          "hide_place_id": {"type": "string", "minLength": 1},
+          "reveal_shot_id": {"type": "string", "pattern": "^E\\d+-S\\d+-\\d+$"}
+        }
+      }
+    },
+    "props": {
+      "type": "object",
+      "properties": {
+        "reference_cards": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "entity_id": {"type": "string"},
+              "name": {"type": "string"},
+              "acquired": {
+                "type": "object",
+                "required": ["episode", "shot_id"],
+                "properties": {
+                  "episode": {"type": "string", "pattern": "^E[0-9]+$"},
+                  "shot_id": {"type": "string", "minLength": 1}
+                },
+                "description": "A4：道具获取镜（可跨集）；出现在 payoff_shot_ids 或台词里被指代的道具必填"
+              },
+              "payoff_shot_ids": {"type": "array", "items": {"type": "string", "pattern": "^E\\d+-S\\d+-\\d+$"}},
+              "recap_shot_id": {
+                "type": "string",
+                "description": "A4：acquired.episode ≠ 本集时必填，本集可见建立镜，须早于首个 payoff ≥10 s"
+              }
+            }
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "non_character_entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "entity_id": {"type": "string"},
+          "name": {"type": "string"},
+          "first_shot": {"type": "string"},
+          "kind": {"enum": ["PROP", "SET", "CREATURE", "ANIMAL", "VEHICLE", "OTHER"]},
+          "creature_card": {
+            "type": "object",
+            "required": ["locomotion", "eye_color", "silhouette_ref"],
+            "properties": {
+              "locomotion": {"enum": ["biped", "quadruped"]},
+              "eye_color": {"type": "string", "minLength": 1},
+              "silhouette_ref": {"type": "string", "minLength": 1}
+            },
+            "description": "B2：kind == CREATURE 时必填；所有出现该 creature 的镜的动作文本步态词必须与 locomotion 一致"
+          }
+        }
+      }
+    }
   }
 }

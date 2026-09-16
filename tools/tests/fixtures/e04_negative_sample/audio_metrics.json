@@ -1,0 +1,525 @@
+{
+ "schema": "qingshan.e04_negative_sample.audio_metrics.v1",
+ "episode": "E04",
+ "derived_from": "E04_final_9x16.mp4 local deliverable (nalu line, rendered 2026-09-15). Derived numbers only: faster-whisper small (zh, vad_filter, beam 1) window timings without text; tools/dialogue_voice_metrics.py F0/RMS per window; ffmpeg ebur128 per window and whole programme; cv2 frame-difference over the first 5 s. Speaker/emotion/scene attribution is hand-written from the audit report (E04_审片报告 §二); the voice cast is a synthetic planning table chosen so the measured voices violate it the way the report describes.",
+ "asr": {
+  "engine": "faster-whisper",
+  "model": "small",
+  "language": "zh",
+  "vad_filter": true,
+  "beam_size": 1,
+  "text_dropped": true
+ },
+ "duration_s": 174.833,
+ "first_speech_s": 47.31,
+ "speech_seconds": 36.08,
+ "coverage": 0.2064,
+ "frame_analysis_first_5s": {
+  "fps": 24.0,
+  "max_frame_diff": 27.017,
+  "max_cut_spike": 10.407,
+  "note": "raw max 27.0 is a fast camera move at ~0.9 s, not a cut: every real E04 cut scores a spike of 24-55"
+ },
+ "integrated_lufs": -16.0,
+ "true_peak_dbtp": -3.1,
+ "loudness_range_lu": 6.7,
+ "segments": [
+  {
+   "start": 47.31,
+   "end": 48.51,
+   "duration_s": 1.2,
+   "f0_median_hz": 193.92,
+   "rms_dbfs": -12.56,
+   "lufs_window": -12.1
+  },
+  {
+   "start": 49.11,
+   "end": 50.39,
+   "duration_s": 1.28,
+   "f0_median_hz": 170.56,
+   "rms_dbfs": -13.723,
+   "lufs_window": -12.3
+  },
+  {
+   "start": 54.94,
+   "end": 56.9,
+   "duration_s": 1.96,
+   "f0_median_hz": 158.18,
+   "rms_dbfs": -14.967,
+   "lufs_window": -14.9
+  },
+  {
+   "start": 57.22,
+   "end": 58.7,
+   "duration_s": 1.48,
+   "f0_median_hz": 240.51,
+   "rms_dbfs": -13.029,
+   "lufs_window": -12.7
+  },
+  {
+   "start": 60.74,
+   "end": 61.5,
+   "duration_s": 0.76,
+   "f0_median_hz": 101.36,
+   "rms_dbfs": -13.521,
+   "lufs_window": -11.6
+  },
+  {
+   "start": 62.06,
+   "end": 63.26,
+   "duration_s": 1.2,
+   "f0_median_hz": 101.07,
+   "rms_dbfs": -13.766,
+   "lufs_window": -13.4
+  },
+  {
+   "start": 99.05,
+   "end": 99.73,
+   "duration_s": 0.68,
+   "f0_median_hz": 222.09,
+   "rms_dbfs": -11.824,
+   "lufs_window": -11.4
+  },
+  {
+   "start": 99.81,
+   "end": 101.97,
+   "duration_s": 2.16,
+   "f0_median_hz": 198.6,
+   "rms_dbfs": -11.998,
+   "lufs_window": -11.9
+  },
+  {
+   "start": 102.21,
+   "end": 103.41,
+   "duration_s": 1.2,
+   "f0_median_hz": 229.7,
+   "rms_dbfs": -12.781,
+   "lufs_window": -12.2
+  },
+  {
+   "start": 103.49,
+   "end": 104.65,
+   "duration_s": 1.16,
+   "f0_median_hz": 209.44,
+   "rms_dbfs": -12.501,
+   "lufs_window": -12.4
+  },
+  {
+   "start": 122.35,
+   "end": 123.39,
+   "duration_s": 1.04,
+   "f0_median_hz": 178.22,
+   "rms_dbfs": -10.097,
+   "lufs_window": -9.6
+  },
+  {
+   "start": 128.13,
+   "end": 129.81,
+   "duration_s": 1.68,
+   "f0_median_hz": 169.1,
+   "rms_dbfs": -12.9,
+   "lufs_window": -13.0
+  },
+  {
+   "start": 130.29,
+   "end": 131.29,
+   "duration_s": 1.0,
+   "f0_median_hz": 173.4,
+   "rms_dbfs": -12.423,
+   "lufs_window": -12.4
+  },
+  {
+   "start": 131.53,
+   "end": 132.65,
+   "duration_s": 1.12,
+   "f0_median_hz": 199.52,
+   "rms_dbfs": -14.726,
+   "lufs_window": -14.6
+  },
+  {
+   "start": 133.53,
+   "end": 134.73,
+   "duration_s": 1.2,
+   "f0_median_hz": 139.61,
+   "rms_dbfs": -13.184,
+   "lufs_window": -12.9
+  },
+  {
+   "start": 141.55,
+   "end": 142.47,
+   "duration_s": 0.92,
+   "f0_median_hz": 210.39,
+   "rms_dbfs": -13.727,
+   "lufs_window": -12.8
+  },
+  {
+   "start": 142.63,
+   "end": 143.83,
+   "duration_s": 1.2,
+   "f0_median_hz": 185.22,
+   "rms_dbfs": -16.278,
+   "lufs_window": -16.6
+  },
+  {
+   "start": 144.19,
+   "end": 146.03,
+   "duration_s": 1.84,
+   "f0_median_hz": 238.26,
+   "rms_dbfs": -13.033,
+   "lufs_window": -13.0
+  },
+  {
+   "start": 148.36,
+   "end": 148.88,
+   "duration_s": 0.52,
+   "f0_median_hz": 227.06,
+   "rms_dbfs": -12.028,
+   "lufs_window": -11.7
+  },
+  {
+   "start": 149.12,
+   "end": 149.68,
+   "duration_s": 0.56,
+   "f0_median_hz": 262.77,
+   "rms_dbfs": -12.179,
+   "lufs_window": -12.1
+  },
+  {
+   "start": 149.92,
+   "end": 150.72,
+   "duration_s": 0.8,
+   "f0_median_hz": 338.09,
+   "rms_dbfs": -13.089,
+   "lufs_window": -12.5
+  },
+  {
+   "start": 150.88,
+   "end": 151.48,
+   "duration_s": 0.6,
+   "f0_median_hz": 289.08,
+   "rms_dbfs": -12.894,
+   "lufs_window": -12.5
+  },
+  {
+   "start": 151.64,
+   "end": 152.24,
+   "duration_s": 0.6,
+   "f0_median_hz": 391.55,
+   "rms_dbfs": -13.94,
+   "lufs_window": -13.1
+  },
+  {
+   "start": 152.76,
+   "end": 153.44,
+   "duration_s": 0.68,
+   "f0_median_hz": 385.37,
+   "rms_dbfs": -13.318,
+   "lufs_window": -13.2
+  },
+  {
+   "start": 153.56,
+   "end": 154.68,
+   "duration_s": 1.12,
+   "f0_median_hz": 312.07,
+   "rms_dbfs": -14.377,
+   "lufs_window": -13.4
+  },
+  {
+   "start": 154.88,
+   "end": 156.6,
+   "duration_s": 1.72,
+   "f0_median_hz": 313.88,
+   "rms_dbfs": -14.927,
+   "lufs_window": -14.8
+  },
+  {
+   "start": 156.92,
+   "end": 158.6,
+   "duration_s": 1.68,
+   "f0_median_hz": 359.82,
+   "rms_dbfs": -13.437,
+   "lufs_window": -13.5
+  },
+  {
+   "start": 163.59,
+   "end": 164.27,
+   "duration_s": 0.68,
+   "f0_median_hz": 103.1,
+   "rms_dbfs": -14.466,
+   "lufs_window": -13.8
+  },
+  {
+   "start": 164.87,
+   "end": 166.55,
+   "duration_s": 1.68,
+   "f0_median_hz": 112.38,
+   "rms_dbfs": -13.382,
+   "lufs_window": -13.9
+  },
+  {
+   "start": 166.67,
+   "end": 169.03,
+   "duration_s": 2.36,
+   "f0_median_hz": 123.92,
+   "rms_dbfs": -14.068,
+   "lufs_window": -13.8
+  }
+ ],
+ "speaker_map": {
+  "schema": "qingshan.speaker_map.v1",
+  "lines": [
+   {
+    "time": 47.3,
+    "speaker": "CHAR-QINMING",
+    "emotion": "calm",
+    "scene": "S-OPEN",
+    "report_f0_hz": 188,
+    "report_rms_db": -15.6,
+    "report_role": "主角"
+   },
+   {
+    "time": 54.9,
+    "speaker": "CHAR-WANGYOUPING",
+    "emotion": "calm",
+    "scene": "S-OPEN",
+    "report_f0_hz": 140,
+    "report_rms_db": -17.8,
+    "report_role": "村民A"
+   },
+   {
+    "time": 60.7,
+    "speaker": "CHAR-MAYANG",
+    "emotion": "calm",
+    "scene": "S-OPEN",
+    "report_f0_hz": 103,
+    "report_rms_db": -16.8,
+    "report_role": "村民B（低男）"
+   },
+   {
+    "time": 99.8,
+    "speaker": "CHAR-HUYONG",
+    "emotion": "plead",
+    "scene": "S-CONFRONT",
+    "report_f0_hz": 199,
+    "report_rms_db": -14.9,
+    "report_role": "求饶者"
+   },
+   {
+    "time": 102.2,
+    "speaker": "CHAR-HUYONG",
+    "emotion": "plead",
+    "scene": "S-CONFRONT",
+    "report_f0_hz": 222,
+    "report_rms_db": -15.4,
+    "report_role": "求饶者"
+   },
+   {
+    "time": 141.6,
+    "speaker": "CHAR-VILLAGER-A",
+    "emotion": "mock",
+    "scene": "S-CONFRONT",
+    "report_f0_hz": 208,
+    "report_rms_db": -16.1,
+    "report_role": "指责者（与求饶者同音区）"
+   },
+   {
+    "time": 151.7,
+    "speaker": "CHAR-MAYANG",
+    "emotion": "plead",
+    "scene": "S-HOME",
+    "report_f0_hz": 349,
+    "report_rms_db": -16.3,
+    "report_role": "求救（与下一句同响度）"
+   },
+   {
+    "time": 156.9,
+    "speaker": "CHAR-LUWENRUI",
+    "emotion": "joy",
+    "scene": "S-HOME",
+    "report_f0_hz": 356,
+    "report_rms_db": -16.5,
+    "report_role": "闲聊"
+   },
+   {
+    "time": 163.6,
+    "speaker": "CHAR-LUZE",
+    "emotion": "calm",
+    "scene": "S-HOME",
+    "report_f0_hz": 98,
+    "report_rms_db": -17.6,
+    "report_role": "长者（与 60.7 s 村民B 同音色）"
+   }
+  ]
+ },
+ "voice_cast": {
+  "schema": "qingshan.voice_cast.v1",
+  "note": "synthetic planning bands for the E04 regression; not the production voice_cast.json",
+  "characters": {
+   "CHAR-QINMING": {
+    "voice_id": "VOICE-E04-01",
+    "f0_band_hz": [
+     150,
+     200
+    ],
+    "rate_cps_baseline": 4.5,
+    "timbre_brief": "young male lead, mid register"
+   },
+   "CHAR-WANGYOUPING": {
+    "voice_id": "VOICE-E04-02",
+    "f0_band_hz": [
+     125,
+     165
+    ],
+    "rate_cps_baseline": 4.2,
+    "timbre_brief": "adult male villager, low-mid"
+   },
+   "CHAR-MAYANG": {
+    "voice_id": "VOICE-E04-03",
+    "f0_band_hz": [
+     90,
+     125
+    ],
+    "rate_cps_baseline": 3.8,
+    "timbre_brief": "older male villager, low"
+   },
+   "CHAR-HUYONG": {
+    "voice_id": "VOICE-E04-04",
+    "f0_band_hz": [
+     105,
+     140
+    ],
+    "rate_cps_baseline": 4.4,
+    "timbre_brief": "adult male, low-mid, hoarse"
+   },
+   "CHAR-VILLAGER-A": {
+    "voice_id": "VOICE-E04-05",
+    "f0_band_hz": [
+     240,
+     300
+    ],
+    "rate_cps_baseline": 4.6,
+    "timbre_brief": "adult female, bright"
+   },
+   "CHAR-LUWENRUI": {
+    "voice_id": "VOICE-E04-06",
+    "f0_band_hz": [
+     260,
+     320
+    ],
+    "rate_cps_baseline": 4.8,
+    "timbre_brief": "young female, light"
+   },
+   "CHAR-LUZE": {
+    "voice_id": "VOICE-E04-07",
+    "f0_band_hz": [
+     85,
+     115
+    ],
+    "rate_cps_baseline": 3.5,
+    "timbre_brief": "elder male, low and slow"
+   }
+  }
+ },
+ "scene_copresence": [
+  [
+   "CHAR-QINMING",
+   "CHAR-WANGYOUPING",
+   "CHAR-MAYANG"
+  ],
+  [
+   "CHAR-HUYONG",
+   "CHAR-VILLAGER-A"
+  ],
+  [
+   "CHAR-MAYANG",
+   "CHAR-LUWENRUI",
+   "CHAR-LUZE"
+  ]
+ ],
+ "measured_voice_cast": {
+  "schema": "qingshan.voice_cast.v1",
+  "note": "reference F0 median ±15 % measured from the real E04 S4 reference clips (numbers only); the take at 61 s (CHAR-MAYANG) came out at ~101 Hz against a 242–327 Hz reference band — the model ignored the reference",
+  "characters": {
+   "CHAR-QINMING": {
+    "voice_id": "REF-QINMING",
+    "f0_band_hz": [
+     172.67,
+     233.61
+    ],
+    "reference_f0_hz": 203.14,
+    "rate_cps_baseline": 4.0,
+    "timbre_brief": "(measured from the S4 reference clip)"
+   },
+   "CHAR-LUZE": {
+    "voice_id": "REF-LUZE",
+    "f0_band_hz": [
+     138.92,
+     187.94
+    ],
+    "reference_f0_hz": 163.43,
+    "rate_cps_baseline": 4.0,
+    "timbre_brief": "(measured from the S4 reference clip)"
+   },
+   "CHAR-VILLAGER-A": {
+    "voice_id": "REF-VILLAGER-A",
+    "f0_band_hz": [
+     110.85,
+     149.97
+    ],
+    "reference_f0_hz": 130.41,
+    "rate_cps_baseline": 4.0,
+    "timbre_brief": "(measured from the S4 reference clip)"
+   },
+   "CHAR-LUWENRUI": {
+    "voice_id": "REF-LUWENRUI",
+    "f0_band_hz": [
+     292.09,
+     395.17
+    ],
+    "reference_f0_hz": 343.63,
+    "rate_cps_baseline": 4.0,
+    "timbre_brief": "(measured from the S4 reference clip)"
+   },
+   "CHAR-VILLAGER-B": {
+    "voice_id": "REF-VILLAGER-B",
+    "f0_band_hz": [
+     152.45,
+     206.25
+    ],
+    "reference_f0_hz": 179.35,
+    "rate_cps_baseline": 4.0,
+    "timbre_brief": "(measured from the S4 reference clip)"
+   },
+   "CHAR-HUYONG": {
+    "voice_id": "REF-HUYONG",
+    "f0_band_hz": [
+     173.94,
+     235.32
+    ],
+    "reference_f0_hz": 204.63,
+    "rate_cps_baseline": 4.0,
+    "timbre_brief": "(measured from the S4 reference clip)"
+   },
+   "CHAR-MAYANG": {
+    "voice_id": "REF-MAYANG",
+    "f0_band_hz": [
+     241.54,
+     326.8
+    ],
+    "reference_f0_hz": 284.17,
+    "rate_cps_baseline": 4.0,
+    "timbre_brief": "(measured from the S4 reference clip)"
+   },
+   "CHAR-WANGYOUPING": {
+    "voice_id": "REF-WANGYOUPING",
+    "f0_band_hz": [
+     140.67,
+     190.32
+    ],
+    "reference_f0_hz": 165.5,
+    "rate_cps_baseline": 4.0,
+    "timbre_brief": "(measured from the S4 reference clip)"
+   }
+  }
+ }
+}

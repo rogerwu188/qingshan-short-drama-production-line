@@ -13,10 +13,32 @@ class KnowledgeRegistryTests(unittest.TestCase):
         self.data = json.loads((ROOT / REGISTRY).read_text())
 
     def test_complete_catalog(self):
-        self.assertEqual(41, len(validate(self.data, ROOT)["rules"]))
+        self.assertEqual(52, len(validate(self.data, ROOT)["rules"]))
 
     NALU_S7_SYNC_E03_IDS = tuple(f"K{n:03d}" for n in range(23, 35))
     NALU_S7_SYNC_E04_IDS = tuple(f"K{n:03d}" for n in range(35, 42))
+    E04_REVIEW_FAILURE_MEMORY_IDS = tuple(f"K{n:03d}" for n in range(42, 53))
+
+    def test_e04_review_failure_memory_rows_and_jsonl_export(self):
+        from tools.knowledge_registry import export_failure_memory
+        by_id = {row["id"]: row for row in self.data["rules"]}
+        codes = []
+        for key in self.E04_REVIEW_FAILURE_MEMORY_IDS:
+            row = by_id[key]
+            self.assertIn(row["stage"], ("pipeline", "prompt"))          # the report's own stage values
+            for field in ("failure_code", "do_not_repeat", "scope"):
+                self.assertTrue(row.get(field))
+            codes.append(row["failure_code"])
+        self.assertEqual(sorted(codes), sorted(["HOOK_MISSING", "ACTION_NO_OUTCOME", "ANTAGONIST_NO_MOTIVE",
+            "PROP_NO_SOURCE", "DEAD_THEN_ALIVE", "MASCOT_IN_STORY", "CREATURE_FORM_DRIFT", "VOICE_COLLISION",
+            "FLAT_EMOTION", "MODERN_LEXICON", "DIALOGUE_STARVATION"]))
+        prompt_rows = export_failure_memory(self.data, "prompt")
+        self.assertEqual({r["failure_code"] for r in prompt_rows},
+                         {"ACTION_NO_OUTCOME", "ANTAGONIST_NO_MOTIVE", "PROP_NO_SOURCE", "CREATURE_FORM_DRIFT"})
+        # the committed jsonl must equal the registry export (CI keeps them in sync)
+        exported = [json.dumps(r, ensure_ascii=False) for r in export_failure_memory(self.data)]
+        committed = (ROOT / "knowledge/failure_memory.jsonl").read_text().splitlines()
+        self.assertEqual(exported, committed)
 
     def test_every_rule_has_a_markdown_section(self):
         markdown = (ROOT / "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md").read_text()

@@ -1,0 +1,28 @@
+{
+  "schema": "qingshan.lexicon.v1",
+  "world": "yewujiang",
+  "version": "v1",
+  "forbidden_terms": [
+    "变异",
+    "生物",
+    "基因",
+    "系统",
+    "能量",
+    "科技",
+    "病毒",
+    "数据",
+    "进化",
+    "辐射"
+  ],
+  "canonical_names": {
+    "秦铭": ["秦明"],
+    "陆泽": ["陆则"],
+    "陆文睿": ["文瑞"]
+  },
+  "address_terms": {
+    "铭哥": "胡勇/马阳/王佑平 对秦铭",
+    "小叔": "陆文睿 对秦铭",
+    "小秦": "陆泽 对秦铭"
+  },
+  "note": "Period-lexicon rules for the yewujiang line (唐宋语汇古装). forbidden_terms are modern / sci-fi words that must not appear in spoken dialogue, subtitles or on-screen text; canonical_names maps the one accepted spelling of each character name to the variant spellings that ASR/subtitle/writer output has produced and that must be rejected; address_terms records who addresses whom by which term so the writer and subtitle pass stay consistent. Consumed by tools/script_structure_contract_gate.py::check_lexicon (S1, contract dialogue) and by the release lexicon_violation detector (ASR + .ass + OCR). Add terms by appending; never remove a term without a supervisor order."
+}
