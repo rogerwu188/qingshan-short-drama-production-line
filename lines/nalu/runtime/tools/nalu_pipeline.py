@@ -3754,16 +3754,38 @@ def stage_s7(ctx: Ctx) -> StageResult:
                                          "gate": str(p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_GATE.json"),
                                          "stdout_tail": gate_step.get("stdout_tail")}
     if gate_step["exit_code"] != 0:
-        res.steps.extend(steps)
-        res.blockers = ["FINAL_CUT_AUDIENCE_DETECTORS_FAIL:" + str(gate_step.get("stdout_tail") or "")[-400:]]
-        return res
+        # seq=25「加接受机制」(2026-09-17): the gate row stays FAIL; the stage may continue ONLY on an
+        # explicit, active Roger order whose decision names this episode, this gate and every failing
+        # detector (roger_gate_acceptance.py).  Never self-issued; recorded next to the gate result.
+        import roger_gate_acceptance as _rga
+        gate_result = read_json(p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_GATE.json", {}) or {}
+        failing = _rga.failing_detectors(gate_result)
+        final_sha = sha256_file(p.final_mp4) if p.final_mp4.is_file() else None
+        order = _rga.find_acceptance(
+            _rga._orders(Path(f"{_np.ENGINE_ROOT}/workflow/claude_writer_agent/SUPERVISOR_ORDERS.json")),
+            episode=ctx.episode, gate_id="FINAL-CUT-AUDIENCE-DETECTORS", failing=failing, media_sha256=final_sha)
+        if order is None:
+            res.steps.extend(steps)
+            res.blockers = ["FINAL_CUT_AUDIENCE_DETECTORS_FAIL:" + str(gate_step.get("stdout_tail") or "")[-400:]]
+            return res
+        record = _rga.acceptance_record(order, episode=ctx.episode, gate_id="FINAL-CUT-AUDIENCE-DETECTORS",
+                                        failing=failing, media_sha256=final_sha,
+                                        gate_result_path=str(p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_GATE.json"))
+        acceptance_path = p.assembly / "final_qa" / f"{ctx.episode}_ROGER_GATE_ACCEPTANCE.json"
+        acceptance_path.parent.mkdir(parents=True, exist_ok=True)
+        acceptance_path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+        gate_step["accepted_by_roger_order"] = order.get("seq")
+        res.details["roger_gate_acceptance"] = {**record, "record_path": str(acceptance_path)}
+        res.receipts.append(str(acceptance_path))
+        ctx.say(f"   !! FINAL-CUT-AUDIENCE-DETECTORS stays FAIL ({', '.join(failing)}); continuing on Roger order "
+                f"seq={order.get('seq')} {order.get('order')!s:.40} -> {acceptance_path.name}")
 
     # ------------------------------------------- 7. final-package QA (D-9/D-12)
     res.steps.extend(steps)
     final_qa = s7_qa(ctx, res)
     res.details["final_qa"] = final_qa
     res.status = PASS if (p.final_mp4.is_file()
-                          and all(step["exit_code"] == 0 for step in steps)
+                          and all(step["exit_code"] == 0 or step.get("accepted_by_roger_order") for step in steps)
                           and final_qa["status"] == PASS) else BLOCKED
     if res.status != PASS:
         res.blockers = [value for value in (final_qa.get("blockers") or [])] or \
@@ -3860,6 +3882,17 @@ def s7_qa(ctx: Ctx, res: StageResult) -> dict[str, Any]:
          "first_failure": (row.get("failures") or [None])[0]}
         for row in summary.get("results") or []]
     detail["status"] = PASS if gate.get("status") == PASS else BLOCKED
+    acceptance = (res.details or {}).get("roger_gate_acceptance")
+    if detail["status"] != PASS and acceptance:
+        # the accepted gate keeps its FAIL row; the package passes only if every OTHER applicable gate PASSes
+        other_not_pass = [row.get("gate_id") for row in summary.get("results") or []
+                          if row.get("status") != PASS and row.get("gate_id") != acceptance.get("gate_id")]
+        if not other_not_pass:
+            detail["status"] = PASS
+            detail["status_note"] = (f"{acceptance.get('gate_id')} row kept FAIL; package continued on Roger order "
+                                     f"seq={acceptance.get('order_seq')} ({acceptance.get('record_path')})")
+        else:
+            detail["other_gates_not_pass"] = other_not_pass
     detail["blockers"] = ([] if detail["status"] == PASS else
                           ["D-9_FINAL_PHASE_GATE_EVIDENCE_NOT_YET_PRODUCED",
                            "D-12_FINAL_PHASE_GATE_APPLICABILITY_HAS_NO_MECHANISM"])
