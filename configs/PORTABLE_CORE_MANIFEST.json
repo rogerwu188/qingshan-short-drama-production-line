@@ -78,6 +78,7 @@
     "lines/nalu/runtime/configs/LEXICON_yewujiang_v1.json",
     "lines/nalu/runtime/tools/build_voice_cast.py",
     "lines/nalu/runtime/tools/build_final_cut_speaker_map.py",
+    "lines/nalu/runtime/tools/roger_gate_acceptance.py",
     "knowledge/failure_memory.jsonl",
     "tools/tests/fixtures/e04_negative_sample/contract_skeleton.json",
     "tools/tests/fixtures/e04_negative_sample/manifest_skeleton.json",
@@ -143,6 +144,7 @@
     "tools.tests.test_final_cut_audience_detectors",
     "tools.tests.test_final_cut_audience_gate",
     "tools.tests.test_nalu_build_final_cut_speaker_map",
+    "tools.tests.test_nalu_roger_gate_acceptance",
     "tools.tests.test_nalu_build_voice_cast",
     "tools.tests.test_nalu_prompt_rules_seq19"
   ]
