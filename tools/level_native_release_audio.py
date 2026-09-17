@@ -82,7 +82,16 @@ def level_release(
     *, source: Path, timeline_path: Path, grouped_path: Path,
     output: Path, qa_path: Path, episode: str, version: str,
     expected_sha256: str | None = None,
+    line_windows: list[dict] | None = None,
+    line_band_lufs: tuple[float, float] = (-18.0, -12.0),
+    line_target_lufs: float = -13.5,
 ) -> dict:
+    """``line_windows`` (seq=19 C3, 2026-09-17): dialogue windows [{start, end}] on the release timeline.
+    After each render every window is measured (ebur128 on the OUTPUT); a window outside
+    ``line_band_lufs`` gets a per-window gain toward ``line_target_lufs`` (clamped -8..+4 dB, applied
+    inside its unit's premix before the program loudnorm) and the render is repeated.  This is line
+    levelling a mixer would do by hand, not a threshold change: the band and the target are the
+    release contract's."""
     # Never let a failed leveling run erase an approved release or its inputs.
     protected = {path.resolve() for path in (source, timeline_path, grouped_path)}
     if output.resolve() in protected or qa_path.resolve() in protected:
@@ -120,6 +129,8 @@ def level_release(
     )
     import json as _json, re as _re
     adjust: dict[str, float] = {}
+    line_adjust: dict[str, float] = {}
+    line_rows: list[dict] = []
     iterations = []
     for attempt in range(1, 7):
         plans, filters, labels = [], [], []
@@ -132,10 +143,19 @@ def level_release(
             )
             gain = float(plan["gain_db"]) + float(adjust.get(uid, 0.0))
             label = f"a{index}"
+            line_filters = ""
+            for win in (line_windows or []):
+                ws, we = float(win["start"]), float(win["end"])
+                key = f"{ws:.3f}-{we:.3f}"
+                g = float(line_adjust.get(key, 0.0))
+                if abs(g) < 0.05 or we <= start or ws >= end:
+                    continue
+                line_filters += (f"volume={g:.3f}dB:enable='between(t,{max(0.0, ws - start):.3f},"
+                                 f"{min(end, we) - start:.3f})',")
             filters.append(
                 f"[0:a]atrim=start={start:.6f}:end={end:.6f},asetpts=PTS-STARTPTS,"
                 f"aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
-                f"volume={gain:.3f}dB,alimiter=limit=0.841395:attack=5:release=50:level=false[{label}]"
+                f"volume={gain:.3f}dB,{line_filters}alimiter=limit=0.841395:attack=5:release=50:level=false[{label}]"
             )
             labels.append(f"[{label}]")
             plans.append({
@@ -199,9 +219,26 @@ def level_release(
         for row, out_row in zip(plans, output_units):
             desired = ROLE_TARGETS_LUFS[row["role"]] + program_gain
             errors[row["unit_id"]] = round(float(out_row["integrated_loudness_lufs"]) - desired, 3)
+        line_rows = []
+        line_out_of_band = 0
+        for win in (line_windows or []):
+            ws, we = float(win["start"]), float(win["end"])
+            if we - ws < 0.4:
+                continue
+            key = f"{ws:.3f}-{we:.3f}"
+            got = measure_loudness(output, start_seconds=ws, duration_seconds=we - ws)
+            lufs = got.get("integrated_loudness_lufs")
+            row = {"start": ws, "end": we, "lufs_window": lufs, "applied_gain_db": round(float(line_adjust.get(key, 0.0)), 3)}
+            if lufs is not None and not (line_band_lufs[0] <= float(lufs) <= line_band_lufs[1]):
+                line_out_of_band += 1
+                row["out_of_band"] = True
+                proposed = float(line_adjust.get(key, 0.0)) + (line_target_lufs - float(lufs))
+                line_adjust[key] = round(max(-8.0, min(4.0, proposed)), 3)
+            line_rows.append(row)
         iterations.append({"attempt": attempt, "program_gain_db": round(program_gain, 3),
-                           "unit_failures": unit_failures, "max_abs_error_lu": max(abs(v) for v in errors.values())})
-        if not unit_failures:
+                           "unit_failures": unit_failures, "max_abs_error_lu": max(abs(v) for v in errors.values()),
+                           "line_windows_out_of_band": line_out_of_band})
+        if not unit_failures and not line_out_of_band:
             break
         if attempt == 6:
             break
@@ -237,6 +274,8 @@ def level_release(
         "refinement_iterations": iterations,
         "outro_gain_plan": {"input": outro_measured, "gain_plan": outro_plan},
         "output_unit_loudness": output_units, "release_loudness": release_metrics,
+        "line_levelling": {"band_lufs": list(line_band_lufs), "target_lufs": line_target_lufs,
+                           "windows": line_rows, "gains_db": line_adjust} if line_windows else None,
         "failures": failures,
     }
     qa_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -253,12 +292,15 @@ def main() -> int:
     parser.add_argument("--episode", required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--expected-sha256")
+    parser.add_argument("--line-windows", type=Path, help="dialogue windows [{start,end}] on the release timeline (seq=19 C3 line levelling)")
     args = parser.parse_args()
     payload = level_release(
         source=args.source.resolve(), timeline_path=args.timeline.resolve(),
         grouped_path=args.grouped.resolve(), output=args.output.resolve(),
         qa_path=args.qa.resolve(), episode=args.episode, version=args.version,
         expected_sha256=args.expected_sha256,
+        line_windows=(json.loads(args.line_windows.read_text(encoding="utf-8"))
+                      if args.line_windows and args.line_windows.is_file() else None),
     )
     print(json.dumps({
         "status": payload["status"], "output": payload["output_release"],

@@ -3693,6 +3693,19 @@ def stage_s7(ctx: Ctx) -> StageResult:
         res.blockers = [f"RELEASE_TIMELINE_DERIVATION_FAILED:{type(exc).__name__}:{exc}"]
         return res
     level_argv[-1] = sha256_file(subbed)
+    # seq=19 C1-C3: contract attribution + unit-ASR timing of every line on the release timeline,
+    # built BEFORE levelling so the leveller can level dialogue windows into the release band
+    # (line levelling) and the detectors measure the same windows afterwards.
+    speaker_map_pre = p.assembly / f"{ctx.episode}_FINAL_CUT_SPEAKER_MAP.json"
+    asr_windows_pre = p.assembly / f"{ctx.episode}_FINAL_CUT_ASR_WINDOWS.json"
+    steps.append(ctx.run(
+        [VENV, RT_TOOLS / "build_final_cut_speaker_map.py", "--contract", p.contract,
+         "--grouping", p.grouping_plan, "--timeline", release_timeline, "--manifest", p.writer_manifest,
+         "--out", speaker_map_pre, "--action-windows-out", p.assembly / f"{ctx.episode}_FINAL_CUT_ACTION_WINDOWS.json",
+         "--unit-asr", p.assembly / f"{ctx.episode}_unit_asr.json", "--asr-windows-out", asr_windows_pre],
+        name="s7_build_final_cut_speaker_map"))
+    if asr_windows_pre.is_file():
+        level_argv = level_argv[:-2] + ["--line-windows", asr_windows_pre] + level_argv[-2:]
     res.details["commands"]["level_native_release_audio"] = q(level_argv)
     steps.append(ctx.run(level_argv, name="s7_level_native_release_audio"))
     res.receipts.append(str(p.leveled_audio_report))
@@ -3713,12 +3726,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
     action_windows = p.assembly / f"{ctx.episode}_FINAL_CUT_ACTION_WINDOWS.json"
     asr_windows = p.assembly / f"{ctx.episode}_FINAL_CUT_ASR_WINDOWS.json"   # unit ASR on the release timeline
     detector_report = p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_DETECTORS.json"
-    steps.append(ctx.run(
-        [VENV, RT_TOOLS / "build_final_cut_speaker_map.py", "--contract", p.contract,
-         "--grouping", p.grouping_plan, "--timeline", release_timeline, "--manifest", p.writer_manifest,
-         "--out", speaker_map, "--action-windows-out", action_windows,
-         "--unit-asr", p.assembly / f"{ctx.episode}_unit_asr.json", "--asr-windows-out", asr_windows],
-        name="s7_build_final_cut_speaker_map"))
+    # (the speaker map + ASR windows are built before levelling, see step 6)
     detector_argv: list[Any] = [VENV, ENGINE / "tools/final_cut_audience_detectors.py",
                                 "--media", p.final_mp4, "--out", detector_report,
                                 "--lexicon", RT_TOOLS.parent / "configs" / "LEXICON_yewujiang_v1.json",
