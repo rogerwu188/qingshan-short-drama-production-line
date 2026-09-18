@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1823,
+  "file_count": 1832,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -145,11 +145,11 @@
     },
     {
       "path": "agent_factory/claude_writer_v2/schemas/generation_contract.schema.json",
-      "sha256": "ad7fbd753652a969c9669bdc451d0605e499c5efd487e9aa9d92937a663790a8"
+      "sha256": "f347abae4e5c8ca6ed2769d056d47d15db6baf6ae6fcade29ed28046bda943c9"
     },
     {
       "path": "agent_factory/claude_writer_v2/schemas/manifest.schema.json",
-      "sha256": "d3bb1475b2e6160bb523a5ee8245237021a2dbf63c5c25262069da94e877265e"
+      "sha256": "9df27c3b80c91f92638a87da647fd8ed641d0c91848414bfa4aaec97ec0b62d7"
     },
     {
       "path": "agent_factory/claude_writer_v2/templates/GENERATION_CONTRACT.template.json",
@@ -181,7 +181,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "cedf5ccf3b7cfe13bb570739ccb55124997c94555832d5b0c756811ef158e49c"
+      "sha256": "2838e0bba0a6f18b87e6f454f78db9d0e124c01513ca1f4eacaaec1fd8bdc72b"
     },
     {
       "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
@@ -189,7 +189,7 @@
     },
     {
       "path": "configs/GATE_REGISTRY_v3_20260716.json",
-      "sha256": "e38b2b707953a567bf2c4f796404353b4f8bc5c46a5d2a1e520a26942af2b150"
+      "sha256": "3cefbab311ddcfedf7a2c6949f97e1c52e504040eedf9f35dfd120333972f1b2"
     },
     {
       "path": "configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json",
@@ -201,7 +201,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "b2e0baf0630a254b888f2712a4ab10eb3c028ee553df29b84747238dffe066e9"
+      "sha256": "32f543af7845eaffe41ffc22c930d5a1985467ebbffa60c5477b189022eacf2f"
     },
     {
       "path": "configs/VIDEO_MODEL_CAPABILITY_REGISTRY_v1.json",
@@ -213,7 +213,7 @@
     },
     {
       "path": "configs/WUXIA_COMBAT_PROMPT_PROFILES_V1.json",
-      "sha256": "f37f2447356992d15fc96943d9f752cbbd69e45671d39d8e1b22329a0b41b8ee"
+      "sha256": "51c1be00247d6cc7ed0cf1f8d355defbc84bdd428edafb5ab136aa2049006119"
     },
     {
       "path": "configs/audio_postproduction_profiles_v1_20260821.json",
@@ -237,15 +237,15 @@
     },
     {
       "path": "docs/decisions/DECISION_RECORDS.md",
-      "sha256": "d9cff35dd0e3aa558b5eb07a8942873ca2eab7b17309d94ea9ff802208b09532"
+      "sha256": "39d89bce65804043ca088ad6bbcbaec51abd730f3ecc30e29f13c7f671e0c87f"
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "95363b69a7cc3fdb63618f4f4ba5b47c1aada6acc181b577fb830412cece3205"
+      "sha256": "b544ba9f4f594ef91197f45e25f276f6506ef8a3ca97d32764d82db84bcfecf7"
     },
     {
       "path": "docs/knowledge/INTEGRATION_STATUS.md",
-      "sha256": "2bb514ed32befe55a5bc4bfdad978404d032d270e4b82eb6df9576fd495a3f37"
+      "sha256": "5e6d24bcad592fb0e5cb99765e801a97fdca568d5a0d8c1fc3a6544ea266a90b"
     },
     {
       "path": "docs/knowledge/VALIDATION_REPORT.md",
@@ -289,7 +289,7 @@
     },
     {
       "path": "tools/action_video_prompt_compiler.py",
-      "sha256": "743973002e25c924046538d9db0348e9c969e748d0c4d095a6c0441aec292efc"
+      "sha256": "6d65b837c942e4611c38eca258a7430554ff70d270665162f47abc9910d7969c"
     },
     {
       "path": "tools/action_visualization_readability_gate.py",
@@ -950,10 +950,6 @@
     {
       "path": "tools/authorized_insertion_and_form_disclosure_assert.py",
       "sha256": "de377451da245257cf3219c58fc2f75067041fefff701057810226df269eb34d"
-    },
-    {
-      "path": "tools/basic_dialogue_qa_policy.py",
-      "sha256": "ec0c04d47cf72e4fd237cf00e4aa698827d4e057fa067de16fa7126a25b027f9"
     },
     {
       "path": "tools/bgm_authenticity_gate.py",
@@ -1749,7 +1745,7 @@
     },
     {
       "path": "tools/build_e32_v2_direct_url_repairs_v8.py",
-      "sha256": "d2255e73d127f948bc6ded2e5e6f2be8dc83d69c6d59e210f1ae2f65e00bd86c"
+      "sha256": "1ba2afaac0cb02578f11fa18f762ad157db638fe761475d242aed1b9b02a5b40"
     },
     {
       "path": "tools/build_e32_v2_failed_image_transport_repairs.py",
@@ -2884,10 +2880,6 @@
       "sha256": "adc93719ee9e9c3d76915e5c42406950c81233a2dc827d3021c8df64c4eb055b"
     },
     {
-      "path": "tools/build_open_source_export.py",
-      "sha256": "5fb1a54b2ea3c422c9a835c379720cc7442d3ea4b6c71a210876cceae58be65f"
-    },
-    {
       "path": "tools/build_parallel_dialogue_agentcut_project.py",
       "sha256": "7afede21dc605f3f2cf0e6a77aafbedcfeb0a28e9b0c7114b8566d5109d74804"
     },
@@ -2961,7 +2953,7 @@
     },
     {
       "path": "tools/canonical_writer_dispatcher.py",
-      "sha256": "c7604f39ce7a9fa16b3500191bb053667512f08e42a35627e144335b78635d14"
+      "sha256": "edcfd6f4ff2c7ccc2bc74754b389793352c1813c6bdc4b1303c205f4a64fefc1"
     },
     {
       "path": "tools/canonical_writer_provenance.py",
@@ -3160,6 +3152,10 @@
       "sha256": "d4ba3a0bdd09c68f45ca9772f45b4ee30b7b620a9045addfe468b552c9ba3c9c"
     },
     {
+      "path": "tools/continuity_state_contract_gate.py",
+      "sha256": "f8473e9471d9c816f075c3df9af98097bac641d21a79f76278872ec4d8430311"
+    },
+    {
       "path": "tools/correct_e36_v19_bounded_watch_source_bindings.py",
       "sha256": "2b96a175b1f9f2d30cd5e329aef3dc015f21fd16b50de9a322b74b8ace5b9533"
     },
@@ -3212,16 +3208,16 @@
       "sha256": "638ea316b93c1e6c1e4f035688047f4eb8b56ac0370becc5f49b648d50aa9096"
     },
     {
+      "path": "tools/dialogue_voice_metrics.py",
+      "sha256": "85a8daf47c1af64cd0fead4b09e9b34883ce0a7aaa425ec6e18ee838806e93ba"
+    },
+    {
       "path": "tools/dramatic_quality_gate.py",
       "sha256": "d04bf9f4f446008462ba78558dc7f54038d3fe69953ee01018e6befd9cae1dbc"
     },
     {
       "path": "tools/durable_exec_probe.py",
       "sha256": "93c2aaaa77d37534d0b3912d5bfa29a106b4533ec8970e6cba43953c1c759abc"
-    },
-    {
-      "path": "tools/durable_rename.py",
-      "sha256": "28bc6810583e31ef2c62f5915a9f9c4bd92c054e3d85faf5c21a9bc7b3de653c"
     },
     {
       "path": "tools/e18_e19_asr_sentence_completeness.py",
@@ -3569,7 +3565,7 @@
     },
     {
       "path": "tools/episode_parallel_batch_supervisor.py",
-      "sha256": "bd9ebfb53ac514fe9ad1b9b9c8294fa0312ddb741812e3e4081a7ea0b53dd37c"
+      "sha256": "55966d64876547ffc8b8e7a4b00ab1cc3d95eae45a95a7fed5fd0e0034a77f1c"
     },
     {
       "path": "tools/episode_post_publish_cleanup.py",
@@ -3581,7 +3577,7 @@
     },
     {
       "path": "tools/episode_stage_gate_runner.py",
-      "sha256": "ad9a9d3b233171585a8dd393cce8bcfba4c8aeee35a6259c8ded7445d56a1b0e"
+      "sha256": "d0d9c006570f78987eb69e2d350ed7705c1a6ad0381a079fb71de3ec8b0ecb22"
     },
     {
       "path": "tools/episode_video_generation_guard.py",
@@ -3650,6 +3646,14 @@
     {
       "path": "tools/final_audio_provenance_gate.py",
       "sha256": "2492b8309ef295e3a87536d82d6063c76e83c82946ec8d6458ba1fef0cc0b29e"
+    },
+    {
+      "path": "tools/final_cut_audience_detectors.py",
+      "sha256": "5edb5beb00f8b4f6b03b58c537e92bc66ec4255ab849e41e232e2f8642853814"
+    },
+    {
+      "path": "tools/final_cut_audience_gate.py",
+      "sha256": "fe1761df8401a9852029ab56388048500bbb3df61c8133ad08d2f634a5aaddcb"
     },
     {
       "path": "tools/final_cut_objective_metrics.py",
@@ -3953,7 +3957,7 @@
     },
     {
       "path": "tools/gate_result_contract.py",
-      "sha256": "c9aad91458346c4002b01ba5ea78eb52e1c0cdf564e28ad0910c24dfb3a0cc8b"
+      "sha256": "d824b6180ddaf36aeefd158f22cc1ad3e764725b2dadc668a340cde75a1a0574"
     },
     {
       "path": "tools/generate_agentcut_action_realtime_audit.py",
@@ -4121,7 +4125,7 @@
     },
     {
       "path": "tools/giggle_api_client.py",
-      "sha256": "ad1bac5723dc759153dea2bd9cad109328920151f67c0b2fcf89192601768843"
+      "sha256": "82fc97a9087f2d50fd27ad7e598aa0c3ada844909ba908a600dc220ee584b353"
     },
     {
       "path": "tools/giggle_api_shot_runner.py",
@@ -4161,7 +4165,7 @@
     },
     {
       "path": "tools/grouped_camera_contract.py",
-      "sha256": "b7426e85d701cff5d6b409c700f9de931300663cfc95442c0c07c574b475a261"
+      "sha256": "8a626e2005cb926ff94736025217738b3aefd5afa4ae26bb52307fbb85bb9a49"
     },
     {
       "path": "tools/grouped_continuity_gate.py",
@@ -4169,11 +4173,11 @@
     },
     {
       "path": "tools/grouped_internal_continuity_contract.py",
-      "sha256": "ea963f6513d13c8638e7f0444209ba931c5440170c2db3b547dcc71df0d79765"
+      "sha256": "b16bed0e21356aae139a008bdac9e8f9f599655746405cd627152faa84e924f7"
     },
     {
       "path": "tools/grouped_performance_contract.py",
-      "sha256": "3dbdd8473b23c641fb94f4faa073e726f39dc79232aeb27af9796c15534f7e56"
+      "sha256": "cdab572b1f8150faf1811f3ef678e2ec6ff4f212eebf6842ced593bdb3d0da4b"
     },
     {
       "path": "tools/grouped_transition_contract.py",
@@ -4389,11 +4393,11 @@
     },
     {
       "path": "tools/knowledge_registry.py",
-      "sha256": "e618a20a00396712ae3144eb08e66877ca8d1281c8e7f6b7654cc0887dc2d768"
+      "sha256": "f0e095c2500333e49673daec968e65396a7ef13ed6cf0b111491b89132b264f2"
     },
     {
       "path": "tools/level_native_release_audio.py",
-      "sha256": "47b310a33a2641ee7d80dce97dfe7550473ec6d00a2227774787086a325b0e7c"
+      "sha256": "493db6643a8dd2274375334ba82d161c70d0d853b9099962fe57550ed97f42fb"
     },
     {
       "path": "tools/line_heartbeat.py",
@@ -4469,7 +4473,7 @@
     },
     {
       "path": "tools/native_audio_loudness_contract.py",
-      "sha256": "07e622d62952ed5ec2fd623970d2a53f9e09ca8b52a7c3844428650e9c3ebf2b"
+      "sha256": "a0dd99e15125e7cd74e9f1a93a61d255a390be83123b03375dbe91849b20f403"
     },
     {
       "path": "tools/opening_anchor_chain_gate.py",
@@ -4601,7 +4605,7 @@
     },
     {
       "path": "tools/performance_tempo_gate.py",
-      "sha256": "08fd6bbf820dd3a03d60311f1ffd1c7a826187d39795f30d7364d57db5929327"
+      "sha256": "26c6539a2e097cfc60bf9c16c607652b0500894ae9855dd5dbde3e1eab5f2840"
     },
     {
       "path": "tools/performance_unit_split_gate.py",
@@ -4645,7 +4649,7 @@
     },
     {
       "path": "tools/post_generation_qa_scope_gate.py",
-      "sha256": "161c5a4f381556ab900144d8b86f76a54c2b38821c5a1b770c1c26d5322b8bcf"
+      "sha256": "57babb8a0017c96a4fb00e29f2b36fc1c0903d06dd2cd0dd1e85bbb62f2b58d1"
     },
     {
       "path": "tools/pre_send_negative_claim_recheck.py",
@@ -4801,7 +4805,7 @@
     },
     {
       "path": "tools/qa_multimodal_dialogue_batch.py",
-      "sha256": "b9f842c076ba49fdbec101e4c3df69bbbff10e45f3ad90a9faba4abf453f0ad3"
+      "sha256": "f2a29e48307853f27376b9e98268bc2fe47ec9bf498938f86be6e0d5c9334a7b"
     },
     {
       "path": "tools/reaudit_e36_prefit_t2s_failures.py",
@@ -5424,6 +5428,10 @@
       "sha256": "80a9dbbea3ea9e678c8d4abf2529c1994e9e0df9aba13025b69e50f1c82e2d2d"
     },
     {
+      "path": "tools/script_structure_contract_gate.py",
+      "sha256": "b93ac85e868e47f3fee08429a0cd7b6fc8275899b1e6970fb130535c15b6d61a"
+    },
+    {
       "path": "tools/sd2_background_ecology_contract.py",
       "sha256": "00921b1a27808eb6581b7633a709f4d1ea52bc2a0bd730b8838f9c898f3943a6"
     },
@@ -5442,10 +5450,6 @@
     {
       "path": "tools/sd2_required_prompt_field_gate.py",
       "sha256": "95b18e0e085a512c6e3d0563b9a748939aca7d3c76eb3de4504d01d25396b2ab"
-    },
-    {
-      "path": "tools/sd2_shot_camera_adapter.py",
-      "sha256": "79c55ae69ced3fe8e9daa02f7d9a3bd59efc4c1355eb288cdfcbe8e8b713c381"
     },
     {
       "path": "tools/seedance2_prompt_compiler.py",
@@ -5485,7 +5489,7 @@
     },
     {
       "path": "tools/source_video_dialogue_gate.py",
-      "sha256": "ce1f6e274b0c875b29e7fd8a36ba83fe8bd9136639e1d8ad6218579446ffe6d9"
+      "sha256": "29a4be95edb7239348fc041696333e30141e03b666b460252d3b8006484e42b1"
     },
     {
       "path": "tools/speaker_identity_voice_release_gate.py",
@@ -5609,7 +5613,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "738d6a641e67c3885a6ac906515da45eefbfc60dbce72f8600ef43fe65e96a2f"
+      "sha256": "2a6fe7b3ee1e440f211059177eb72e59dbd1d55a2b9b41998e810ee0242b52b4"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -5781,7 +5785,7 @@
     },
     {
       "path": "tools/tests/test_action_video_prompt_compiler.py",
-      "sha256": "12a31ec0440d82e43f6333c684b789e90462bd25865ddde78ee14908bb83b0cb"
+      "sha256": "302d794038531749ef121f076a4078352767b9dc7e3fc7a4f186fc31b26aa34c"
     },
     {
       "path": "tools/tests/test_action_visualization_readability_gate.py",
@@ -5874,10 +5878,6 @@
     {
       "path": "tools/tests/test_authorized_insertion_and_form_disclosure_assert.py",
       "sha256": "4851ed13c874a2de39517e76f26cd2d5577d59b24767a565b4ba2de9f4098960"
-    },
-    {
-      "path": "tools/tests/test_basic_dialogue_qa_policy.py",
-      "sha256": "72d239e2d170fcd5fbaabf850dab99c607aa0847acc1bc425a9745dcef805f66"
     },
     {
       "path": "tools/tests/test_bgm_authenticity_gate.py",
@@ -6013,7 +6013,7 @@
     },
     {
       "path": "tools/tests/test_canonical_writer_dispatcher.py",
-      "sha256": "64d19fe2f408b766c3d1fdef7c635a6ae4cb4d40721f68fe47990992912de278"
+      "sha256": "102b779c8675fa8e774ef78a56e6e580a1ba7be0a89b95a4d4e8a77e890e8d54"
     },
     {
       "path": "tools/tests/test_certify_e40_work_queue_reconstruction.py",
@@ -6092,6 +6092,10 @@
       "sha256": "e3dbbad6818a6beffd120302da63d6aa1643781737eae49cd9833214ed1f84fc"
     },
     {
+      "path": "tools/tests/test_continuity_state_contract_gate.py",
+      "sha256": "26b2532f9ccf619dfe7538d8e2300fc1b920c181c8cb8885f628a583325a874f"
+    },
+    {
       "path": "tools/tests/test_credit_window_isolation.py",
       "sha256": "b78076454de05bf9ef4251a820d753f27d7698319e3b16a10a4dac4573384df7"
     },
@@ -6140,16 +6144,16 @@
       "sha256": "ae00d86aa58834a2464dd6fd452823f7fc1ee963517a0e0e55f22a6c9e56b9c3"
     },
     {
+      "path": "tools/tests/test_dialogue_voice_metrics.py",
+      "sha256": "e3ef4292edbbd525c8f62e24dd64284385da90c28407dad2d0798e9a1dc55370"
+    },
+    {
       "path": "tools/tests/test_dramatic_quality_gate.py",
       "sha256": "4e24075f4db588c543bf08a1801eaaef24ee588347ddfd000d79de90577843d1"
     },
     {
       "path": "tools/tests/test_durable_exec_probe.py",
       "sha256": "8094d41879924ebe1beb101a88a7dd29e481c2e182c35f5fdf49cc2452c46aef"
-    },
-    {
-      "path": "tools/tests/test_durable_rename.py",
-      "sha256": "a0faf48f6eed54c0038a27dd672f7ecfa54b490cb4d2da3430551cf2b28052f5"
     },
     {
       "path": "tools/tests/test_e20_audio_prompt_compiler.py",
@@ -6305,7 +6309,7 @@
     },
     {
       "path": "tools/tests/test_episode_stage_gate_runner.py",
-      "sha256": "3cf34ef1f30f8832df536866167e761463acfec53ee1119b701def5d8e54e818"
+      "sha256": "5d9bbb3ef989403aa97c1e9ad6725c48c4fc5822d8a8f8ad88886987a2b19dea"
     },
     {
       "path": "tools/tests/test_episode_video_generation_guard.py",
@@ -6326,6 +6330,14 @@
     {
       "path": "tools/tests/test_final_audio_provenance_gate.py",
       "sha256": "72f76338441fec7947808dc2a72fffceeeee03c2efacdca50572a4b357d985b9"
+    },
+    {
+      "path": "tools/tests/test_final_cut_audience_detectors.py",
+      "sha256": "d429929681f816b8fee698456e4e717f6623709f16245efc9c96a4c91becdb45"
+    },
+    {
+      "path": "tools/tests/test_final_cut_audience_gate.py",
+      "sha256": "0a36a63516d76a06183c97bca5d14d5350115cf57d0396e368381b4a1c6bcce9"
     },
     {
       "path": "tools/tests/test_final_cut_quality_gates.py",
@@ -6373,7 +6385,7 @@
     },
     {
       "path": "tools/tests/test_gate_result_contract.py",
-      "sha256": "c056af769be9ad19c35fe4e2a652dcf7cec4838bf4cb6b6163234bf5f6b87fd0"
+      "sha256": "00fe826fcad41ec31cd5142f62daa16800b3f21387f2dd0a9cc6a21dc4bc2195"
     },
     {
       "path": "tools/tests/test_generation_first_pass_policy_gate.py",
@@ -6429,11 +6441,11 @@
     },
     {
       "path": "tools/tests/test_grouped_camera_contract.py",
-      "sha256": "7d923e502f3f94899d3870429dce298c2fe26cd1be7636e275bed98b9acce733"
+      "sha256": "e4d9dace2f15e3f5a7380355fd44bb3389918967e5858893f7403bac3dcd6807"
     },
     {
       "path": "tools/tests/test_grouped_internal_continuity_contract.py",
-      "sha256": "594055c2f31192e316196567c835d1434d304757d8d16c9f50e6ee70ed385572"
+      "sha256": "3dc41f75303760d809a6b0405cb1b43825c9d3a528e76d65d424daf20e6e4ac8"
     },
     {
       "path": "tools/tests/test_grouped_performance_contract.py",
@@ -6481,7 +6493,7 @@
     },
     {
       "path": "tools/tests/test_knowledge_registry.py",
-      "sha256": "740915b0f4d7c53819c4481121441d478a6752e5f29c48a10b4d744548f694d4"
+      "sha256": "c3614e213f77804bc2b8673475a51db8daf7d8467e914f4036316a6822baa4d9"
     },
     {
       "path": "tools/tests/test_line_heartbeat.py",
@@ -6528,12 +6540,32 @@
       "sha256": "2a549b359db73fedec90c8595c264dfaa39e130133cd61a3ad67bb70f5472782"
     },
     {
+      "path": "tools/tests/test_nalu_build_final_cut_speaker_map.py",
+      "sha256": "4a1af38884011b6b86229a325828e12ec1385688fc252e5654834a17f4422a73"
+    },
+    {
+      "path": "tools/tests/test_nalu_build_voice_cast.py",
+      "sha256": "37f1d8fdf071a92b0280c90505ecf0ffab43b688603c97f828c2032a913bc32d"
+    },
+    {
+      "path": "tools/tests/test_nalu_e05_sync.py",
+      "sha256": "4197167869755be1c81c756c42f64bb022b3fb93ebd7c4407f95711ff08534de"
+    },
+    {
+      "path": "tools/tests/test_nalu_prompt_rules_seq19.py",
+      "sha256": "5d51823dbab899ff25bfbe1d24608b4a4c6624b597f29d661b7d2600b9741dea"
+    },
+    {
+      "path": "tools/tests/test_nalu_roger_gate_acceptance.py",
+      "sha256": "f2aa31d69f6428ea7e02a1410cbad011c2aa749feb30ec779771b5aa2d78d3cc"
+    },
+    {
       "path": "tools/tests/test_nalu_runtime_port.py",
-      "sha256": "b5d200c97defd3264106e6a60eda6d6197fb7bf352a322ae4093f51cae96371e"
+      "sha256": "e7879deb751fe0c3e116e725bddb4d28e6f5953d0ebd3d47021ede11f6e0d54c"
     },
     {
       "path": "tools/tests/test_native_audio_loudness_contract.py",
-      "sha256": "5d97a9753c056e140cf30d4e8b69a32fcf90811d39ed9dc7521b6ee8be999c20"
+      "sha256": "816570c9848c70c772da94978fa48d262694cf618fe45066f035f2fa68e9acb2"
     },
     {
       "path": "tools/tests/test_no_disabled_regression_ci.py",
@@ -6549,7 +6581,7 @@
     },
     {
       "path": "tools/tests/test_performance_tempo_gate_combat_contract.py",
-      "sha256": "2f539ae1e4dbdd93f00991d427d1d80e92bf868ea974fc9dc674f7140dba11ce"
+      "sha256": "51aedd7958ab1b6e31d0288749a0a4393369249d14369f303ae67ff5205f8cfa"
     },
     {
       "path": "tools/tests/test_performance_unit_split_gate.py",
@@ -6724,12 +6756,12 @@
       "sha256": "d107892a2263646be85a6722b9b0dcf62def72fd600cae64a59f92eb9013af03"
     },
     {
-      "path": "tools/tests/test_sd2_background_ecology_contract.py",
-      "sha256": "81f2c3da1904ded4df4cffbff655ddab0ba783fce348a6ebe2e0c8be8674d4ea"
+      "path": "tools/tests/test_script_structure_contract_gate.py",
+      "sha256": "1e318ab84391f187bfe2d3597cb2d48e08004150fdc971d457ca1e2be1e8ad82"
     },
     {
-      "path": "tools/tests/test_sd2_shot_camera_adapter.py",
-      "sha256": "738eb50b6e4ab5a9044e6c35d48f21b6f73857042f6123e3a43db577edbb0d17"
+      "path": "tools/tests/test_sd2_background_ecology_contract.py",
+      "sha256": "81f2c3da1904ded4df4cffbff655ddab0ba783fce348a6ebe2e0c8be8674d4ea"
     },
     {
       "path": "tools/tests/test_seedance2_multi_keyframe_long_take.py",
@@ -6777,7 +6809,7 @@
     },
     {
       "path": "tools/tests/test_source_video_dialogue_gate.py",
-      "sha256": "9ea82e7058e99da77c42161b4c2027ddc924520a6db511846619a6b45552a553"
+      "sha256": "4cca33f5cdf75b1c92f1508973460e43a36168c987e8359112f22936cb442b12"
     },
     {
       "path": "tools/tests/test_speaker_identity_voice_release_gate.py",
@@ -6817,7 +6849,7 @@
     },
     {
       "path": "tools/tests/test_submit_giggle_character_asset_plan.py",
-      "sha256": "533c643c0612c776cc919857de5bd7c1d86e5a270b391f6165b9014534a691fb"
+      "sha256": "906a5e405833375b623f37b6f6169def4830b89ede11aa9fb9e435007ee56224"
     },
     {
       "path": "tools/tests/test_submit_giggle_image_manifest.py",
@@ -6885,7 +6917,7 @@
     },
     {
       "path": "tools/tests/test_us_drama_event_density_gate.py",
-      "sha256": "6b2818263e5dced06f6c2d320df41f3a3811badc9391c1650ae1e2da4b866c44"
+      "sha256": "5afa3a5d7c7aaab3168107e41d2db046c6cdc21a7100ab7242e10405e42dbe69"
     },
     {
       "path": "tools/tests/test_validate_agent_mistake_ledger.py",
@@ -6952,6 +6984,10 @@
       "sha256": "a2f383c9f08c2486e323c4f04a5f1809da06eeaa86d8713278ee7ba56945581a"
     },
     {
+      "path": "tools/tests/test_voice_cast_gate.py",
+      "sha256": "91d87616213636055c6658ef65eef9cde60a459c9e827ea395f4c5dbba95f40a"
+    },
+    {
       "path": "tools/tests/test_wardrobe_identity_contract.py",
       "sha256": "aeb4e9ca694b358f7e0d391cf657edb37bb0129eafe38d41f27db531679b1e71"
     },
@@ -6973,15 +7009,11 @@
     },
     {
       "path": "tools/tests/test_wuxia_combat_profile_selector.py",
-      "sha256": "764e94daf4ac47a1c6452e6a90dcb5b7c14df8d4732c9601528f8a73ee8d1d53"
+      "sha256": "7fc1a45df4222e768e112bf96718a120ad354dd33735c6e3502441f3eddde671"
     },
     {
       "path": "tools/tests/test_youtube_shorts_runtime_gate.py",
       "sha256": "d961dd6f83ac4acfec47d64be25a80422fc6390409adae1592cb18c807304e66"
-    },
-    {
-      "path": "tools/tool_output_sanitizer.py",
-      "sha256": "91ef53ae2826b70c17de0ed84fdbe1730cfcbbe0e8b523953ba574241cb6aee6"
     },
     {
       "path": "tools/transcribe_media_for_qa.py",
@@ -7045,7 +7077,7 @@
     },
     {
       "path": "tools/us_drama_event_density_gate.py",
-      "sha256": "183e5efead55336160e57f030a22bfb17629bc88fd0884f7df8982a2bd5c6669"
+      "sha256": "b7408510b51d1562faadb5297750148a9140b4be5da9b5cca9160e30efa17e51"
     },
     {
       "path": "tools/validate_agent_mistake_ledger.py",
@@ -7264,6 +7296,10 @@
       "sha256": "a1021ea41475f56818677ba2490be5ac26c386b438703233de7a76650aa77583"
     },
     {
+      "path": "tools/voice_cast_gate.py",
+      "sha256": "4ba187fb65eb6fa53fe699468f48c5aa43bdc5a5a8079e35d4a1d35a9f8ad11c"
+    },
+    {
       "path": "tools/wardrobe_identity_contract.py",
       "sha256": "eb0ae4cd3a67de35f7808efac4daa7a00d62d508fcde9d5b03cd18faa5e755b8"
     },
@@ -7289,7 +7325,7 @@
     },
     {
       "path": "tools/wuxia_combat_profile_selector.py",
-      "sha256": "03cb7c91832df7ce193f81e90a4525994f6df2cbdb9807d5a99321b7b3538e27"
+      "sha256": "c8785c20240d4cc303cfc7189f2d0d0f449139e98c7586e01ae5937738768340"
     },
     {
       "path": "tools/youtube_shorts_runtime_gate.py",

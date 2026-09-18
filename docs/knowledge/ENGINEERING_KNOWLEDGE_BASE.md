@@ -448,6 +448,66 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/script_structure_contract_gate.py](../../tools/script_structure_contract_gate.py)、[tools/final_cut_audience_detectors.py](../../tools/final_cut_audience_detectors.py)（E04 成片作为负样本回归通过；自动判定做不到的项在检测器里标 NOT_IMPLEMENTED）
 - 证据：nalu PIPELINE_RUNBOOK D-40/D-41
 
+### K053 — pipeline
+
+- failure_code：`VOICE_ONLY_CHARACTER_NEEDS_NO_PLATE`（scope episode，类别 IDENTITY）
+- do_not_repeat：无人脸的说话生物不建身份牌：角色登记 + 道具卡 + OFFSCREEN_VOICE_ONLY，不进可见 cast
+- 规则：会说话的生物（如紫眼乌鸦）是对白/配音合同里的角色，但永远不是可见 cast：角色登记 identity_source.mode=VOICE_ONLY_NO_PLATE → 不建身份牌、不建服装状态，只建 voices 行；画面用 PROP 生物卡；镜表 presence=OFFSCREEN_VOICE_ONLY、lip_owner 为空。
+- 失败教训：E05 乌鸦开口说话：身份锁要求 InsightFace 人脸，生物没有人脸，按普通角色走 S3 必然 FAIL；不登记为角色又过不了对白/配音合同。
+- 修复路径：bootstrap_identity_cards 跳过 VOICE_ONLY_NO_PLATE 行；build_episode_asset_requirements 只对有牌角色建身份/服装，voices 循环保留全部角色。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[lines/nalu/runtime/tools/bootstrap_identity_cards.py](../../lines/nalu/runtime/tools/bootstrap_identity_cards.py)、[lines/nalu/runtime/tools/build_episode_asset_requirements.py](../../lines/nalu/runtime/tools/build_episode_asset_requirements.py)（回归：[tools/tests/test_nalu_e05_sync.py](../../tools/tests/test_nalu_e05_sync.py)）
+- 证据：nalu PIPELINE_RUNBOOK D-50
+
+### K054 — pipeline
+
+- failure_code：`VIDEO_PROVIDER_DECLINE_QUARANTINED_AS_UNRESOLVED`（scope episode，类别 LEDGER）
+- do_not_repeat：拒单 + 账单行数相等 = 未扣费可重试，不整批隔离；BLOCKED 运行后先归档账单摘要再重跑
+- 规则：视频提交（e24，镜像图片链 e18）：提供者明确拒单（code 500 payment failed、无任务标识）且账单窗口 Pay 行数 == 已知 task 数 → VERIFIED_ZERO_RETRYABLE / NOT_CHARGED_RETRYABLE，只重发该单元；BLOCKED 的运行不归档账单摘要，会被下一次运行覆盖 → 用 giggle_credit_statements 按提交窗重建。
+- 失败教训：E05 波次 1 VU-018 被提供者拒单，13 行 Pay == 13 个 task 仍被整批标 CHARGE_STATE_UNRESOLVED_BATCH；波次 1 账单摘要被波次 2 覆盖丢失。
+- 修复路径：_provider_declined + classify_failures 分支；离线重分类事务；重入只 POST 未绑定单元；按窗口重建摘要并入账。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/submit_giggle_video_manifest_v2.py](../../tools/submit_giggle_video_manifest_v2.py)（回归：[tools/tests/test_nalu_e05_sync.py](../../tools/tests/test_nalu_e05_sync.py)）
+- 证据：nalu PIPELINE_RUNBOOK D-52/D-53; engine_patches/e24_video_submit_not_charged_retryable_on_provider_decline.diff
+
+### K055 — pipeline
+
+- failure_code：`VOICE_RECEIPT_EPISODE_MISMATCH`（scope episode，类别 LEDGER）
+- do_not_repeat：配音回执按注册表资产 id 匹配；新配音先 S4 后 S3；账本检查不与流水线并发
+- 规则：重铸配音在多集都有上传回执：锁库按注册表 remote_asset_id 选回执，否则取最新集；新配音必须先过 S4 再回 S3 资产库门；账本检查绝不与流水线运行并发（.part 竞争造成假 HARD_STOP_BUDGET）。
+- 失败教训：E05 S3 对重铸秦铭取了 E01 最旧回执 → upload_receipt_asset_id_matches_registry FAIL；并发跑 nalu_budget_ledger --check 撞上流水线账本写入，报了不存在的预算硬停。
+- 修复路径：library_lock_non_plate.lock_voice 反向遍历回执匹配 asset_id；S4 先于 S3 重跑；账本只在流水线空闲时检查。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[lines/nalu/runtime/tools/library_lock_non_plate.py](../../lines/nalu/runtime/tools/library_lock_non_plate.py)（回归：[tools/tests/test_nalu_e05_sync.py](../../tools/tests/test_nalu_e05_sync.py)）
+- 证据：nalu PIPELINE_RUNBOOK D-50/D-51
+
+### K056 — pipeline
+
+- failure_code：`SHOT_TEXT_STATE_LEAK`（scope episode，类别 SCRIPT）
+- do_not_repeat：姿态逐镜声明；场景光线不提人物；道具用注册表名；start_framing 含在场人物；有道具的无人帧不写空镜
+- 规则：镜文字逐镜自洽：姿态（坐/站）在 entry+blocking 每镜写明；场景级光线/环境文字不得提到人物或生物（独处镜写『没有别人、没有鸟兽』）；道具只在镜文字含注册表名时才绑定，否则编译成『道具：无/空镜』；camera.start_framing 必须包含入镜时已在场的人物；无人物但有道具/生物的帧提示词写『主体只有上列道具/生物』而不是『空镜』。
+- 失败教训：E05 Q1 第一轮 9 镜被拒：坐/站跳变 ×6、幻影鸟笼、独处镜漏进女子与乌鸦、石上多出一把弓；乌鸦独镜因未用注册表名『紫眼乌鸦』编译成空镜；生成后女子在 2 s 处突然入画（start_framing 漏了她）。
+- 修复路径：改镜头文字（不改故事）→ 重建 → 停放旧图/旧收割副本 → 重登记提示词批次 → 受守卫重做；空帧条款按道具绑定改写。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[lines/nalu/runtime/tools/build_keyframe_manifest.py](../../lines/nalu/runtime/tools/build_keyframe_manifest.py)（回归：[tools/tests/test_nalu_e05_sync.py](../../tools/tests/test_nalu_e05_sync.py)）
+- 证据：nalu PIPELINE_RUNBOOK D-51/D-53
+
+### K057 — pipeline
+
+- failure_code：`REVIEW_MARKER_REQUIRES_NEW_REQUEST`（scope episode，类别 QA）
+- do_not_repeat：标记/豁免只随新审核请求生效；P2 用 1-based shot_index；身份豁免先看裁切图
+- 规则：审核标记与豁免的作用域：D-16 姿态标记（faces=）只经由新的审核请求生效（停放旧 request/submitted）；Q2 P2 缺陷必须带 1-based shot_index 与 at_seconds；身份低分先看 face_crops——错脸裁切（旁人/动物被标成主角）与低头姿态写 identity_pose_exemptions{角色: 理由+帧号+两个分数}；OCR 噪声按 NOISE:<文本> 申报；同一请求不可二次提交。
+- 失败教训：E05 Q1 身份 FAIL 在加了 faces= 标记后仍复现，因为 Q1 构建器从旧请求的 expectations 读标记；Q2 第一轮 28/35：shot_index 用了 0 起、墙上『一楼』未申报为噪声、陆泽/文睿/松鼠裁切被当成秦铭低分。
+- 修复路径：停放旧请求重新签发；按 1-based 填缺陷；豁免写帧号与分数；NOISE 申报；新请求整批重填 → ALL_ADMITTED。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[lines/nalu/runtime/tools/review_fill/e05_fill_video_q2.py](../../lines/nalu/runtime/tools/review_fill/e05_fill_video_q2.py)、[lines/nalu/runtime/tools/review_fill/e05_fill_keyframe_answers.py](../../lines/nalu/runtime/tools/review_fill/e05_fill_keyframe_answers.py)（回归：[tools/tests/test_nalu_e05_sync.py](../../tools/tests/test_nalu_e05_sync.py)）
+- 证据：nalu PIPELINE_RUNBOOK D-51/D-53
+
+### K058 — pipeline
+
+- failure_code：`ACTION_VISIBILITY_UNDECLARED`（scope episode，类别 PACING）
+- do_not_repeat：关键动作画内可见、对白动作词有动作、同机位不相邻；成片对镜表比对只诊断
+- 规则：关键动作可见性（seq=27，ADVISORY，E05 起）：setup_id/payoff_of 的可见兑现 ≤25 s 或有部分揭示；result_of 因果镜施动者可见、纯环境镜 ≤2 s；对白动作词表（打/杀/放开/住手/松手/救命/别动/跑）须有对应可见动作；blocking_signature 相邻不重复、每场 ≤2；一镜一句台词；≥3 人镜 action 非空；无对白镜 ≤5 s 且运镜；S7 成片对镜头表机器比对（scdet 切点 + YAVG 亮度：SHOT_COUNT_DRIFT / SHOT_STRETCHED / STATIC_HOLD_IN_DIALOGUE / BLANK_SCREEN）写入 assembly parity json + CHECKPOINT，只诊断不阻断，不加新 gate_id，不改 S5/S6 付费流。
+- 失败教训：E04 审片：关键动作发生在画外或纯环境镜、对白喊『放开』画面无人被抓、同机位连拍；E05 成片比对 34 段 vs 37 镜，SHOT_STRETCHED ×4、STATIC_HOLD ×1、BLANK_SCREEN 78–81 s，阈值由线主裁定。
+- 修复路径：写手层自检（SETUPS/RESULT_OF/动作词表/blocking_signature）不过不进 S2；S7 在观众检测器之前跑 parity 诊断，结果进 CHECKPOINT。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[lines/nalu/runtime/tools/final_cut_shot_plan_parity.py](../../lines/nalu/runtime/tools/final_cut_shot_plan_parity.py)、[lines/nalu/runtime/tools/nalu_pipeline.py](../../lines/nalu/runtime/tools/nalu_pipeline.py)（回归：[tools/tests/test_nalu_e05_sync.py](../../tools/tests/test_nalu_e05_sync.py)）
+- 证据：nalu PIPELINE_RUNBOOK D-51/D-54; SUPERVISOR_ORDERS seq=27
+
 ## 引用和许可
 
 以上文字为项目经验的原创概括，随本仓库 MIT LICENSE 发布。未复制外部社区文章、教程全文、他人视频/图片或私人聊天。

@@ -167,11 +167,21 @@ def role_hint(stem: str) -> str:
 # non_character_entities plus whatever prop prompts exist on disk.
 # --------------------------------------------------------------------------- #
 
+VOICE_ONLY_NO_PLATE = "VOICE_ONLY_NO_PLATE"
+
+
 def build_subjects(contract: dict[str, Any], requirements: dict[str, Any]) -> list[dict[str, Any]]:
     subjects: list[dict[str, Any]] = []
     char_reqs = {row["asset_id"]: row for row in requirements["assets"]["characters"]}
     for row in contract.get("character_entities") or []:
         character_id = str(row["character_id"])
+        # E05 (seq=26): a speaking creature such as the talking crow is a CHARACTER for the
+        # dialogue/voice contracts but never a visible cast member — its picture is a PROP
+        # card.  It has no human face, so an identity plate could never pass the
+        # insightface lock; such rows declare identity_source.mode VOICE_ONLY_NO_PLATE and
+        # get no plate row here (the voice reference is still built by S4).
+        if str((row.get("identity_source") or {}).get("mode") or "") == VOICE_ONLY_NO_PLATE:
+            continue
         spec = (char_reqs.get(character_id) or {}).get("specification") or {}
         subjects.append({
             "subject_id": character_id,

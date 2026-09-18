@@ -436,6 +436,10 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
     }
 
     chars = {str(row["character_id"]): row for row in contract.get("character_entities") or []}
+    # E05 (seq=26): VOICE_ONLY_NO_PLATE characters (a speaking creature whose picture is a
+    # PROP card) get a voices row only — no identity card, no wardrobe state.
+    plate_chars = {cid: row for cid, row in chars.items()
+                   if str((row.get("identity_source") or {}).get("mode") or "") != "VOICE_ONLY_NO_PLATE"}
     speaking = {str(u["speaker_id"]) for u in contract["audio_contract"]["dialogue_units"]}
     line_counts: dict[str, int] = {}
     for unit in contract["audio_contract"]["dialogue_units"]:
@@ -476,7 +480,7 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
     # ------------------------------------------------------------- characters
     characters: list[dict[str, Any]] = []
     wardrobe_desc_by_char: dict[str, str] = {}
-    for cid, row in chars.items():
+    for cid, row in plate_chars.items():
         suffix = strip_prefix(cid)
         ward_id = f"WARD-{suffix}-{episode}"
         prior = library.full_row(cid) or {}
@@ -526,7 +530,7 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
 
     # --------------------------------------------------------------- wardrobe
     wardrobe: list[dict[str, Any]] = []
-    for cid, row in chars.items():
+    for cid, row in plate_chars.items():
         suffix = strip_prefix(cid)
         ward_id = f"WARD-{suffix}-{episode}"
         prior_ward = None

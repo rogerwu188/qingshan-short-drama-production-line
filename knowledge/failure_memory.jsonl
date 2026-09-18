@@ -9,3 +9,9 @@
 {"failure_code": "FLAT_EMOTION", "do_not_repeat": "plead/fear/threat 句响度比 calm 基线高 ≥6 dB", "stage": "pipeline", "scope": "audio", "knowledge_id": "K050"}
 {"failure_code": "MODERN_LEXICON", "do_not_repeat": "台词与字幕过世界观词表，禁用科幻/现代词", "stage": "pipeline", "scope": "episode", "knowledge_id": "K051"}
 {"failure_code": "DIALOGUE_STARVATION", "do_not_repeat": "无台词连续 ≤15s（动作段 ≤25s），全集台词覆盖 ≥35%", "stage": "pipeline", "scope": "episode", "knowledge_id": "K052"}
+{"failure_code": "VOICE_ONLY_CHARACTER_NEEDS_NO_PLATE", "do_not_repeat": "无人脸的说话生物不建身份牌：角色登记 + 道具卡 + OFFSCREEN_VOICE_ONLY，不进可见 cast", "stage": "pipeline", "scope": "episode", "knowledge_id": "K053"}
+{"failure_code": "VIDEO_PROVIDER_DECLINE_QUARANTINED_AS_UNRESOLVED", "do_not_repeat": "拒单 + 账单行数相等 = 未扣费可重试，不整批隔离；BLOCKED 运行后先归档账单摘要再重跑", "stage": "pipeline", "scope": "episode", "knowledge_id": "K054"}
+{"failure_code": "VOICE_RECEIPT_EPISODE_MISMATCH", "do_not_repeat": "配音回执按注册表资产 id 匹配；新配音先 S4 后 S3；账本检查不与流水线并发", "stage": "pipeline", "scope": "episode", "knowledge_id": "K055"}
+{"failure_code": "SHOT_TEXT_STATE_LEAK", "do_not_repeat": "姿态逐镜声明；场景光线不提人物；道具用注册表名；start_framing 含在场人物；有道具的无人帧不写空镜", "stage": "pipeline", "scope": "episode", "knowledge_id": "K056"}
+{"failure_code": "REVIEW_MARKER_REQUIRES_NEW_REQUEST", "do_not_repeat": "标记/豁免只随新审核请求生效；P2 用 1-based shot_index；身份豁免先看裁切图", "stage": "pipeline", "scope": "episode", "knowledge_id": "K057"}
+{"failure_code": "ACTION_VISIBILITY_UNDECLARED", "do_not_repeat": "关键动作画内可见、对白动作词有动作、同机位不相邻；成片对镜表比对只诊断", "stage": "pipeline", "scope": "episode", "knowledge_id": "K058"}

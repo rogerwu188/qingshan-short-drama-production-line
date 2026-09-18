@@ -83,7 +83,9 @@
     "tools/tests/fixtures/e04_negative_sample/contract_skeleton.json",
     "tools/tests/fixtures/e04_negative_sample/manifest_skeleton.json",
     "tools/tests/fixtures/e04_negative_sample/audio_metrics.json",
-    "tools/tests/fixtures/e04_negative_sample/final_cut_summary.json"
+    "tools/tests/fixtures/e04_negative_sample/final_cut_summary.json",
+    "lines/nalu/runtime/tools/final_cut_shot_plan_parity.py",
+    "tools/tests/test_nalu_e05_sync.py"
   ],
   "portable_test_modules": [
     "tools.tests.test_editorial_pacing_contract",
@@ -146,6 +148,7 @@
     "tools.tests.test_nalu_build_final_cut_speaker_map",
     "tools.tests.test_nalu_roger_gate_acceptance",
     "tools.tests.test_nalu_build_voice_cast",
-    "tools.tests.test_nalu_prompt_rules_seq19"
+    "tools.tests.test_nalu_prompt_rules_seq19",
+    "tools.tests.test_nalu_e05_sync"
   ]
 }
