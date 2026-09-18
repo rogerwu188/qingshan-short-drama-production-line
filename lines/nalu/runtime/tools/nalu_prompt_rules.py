@@ -55,7 +55,10 @@ DARK_LIGHT = {
     "LOC-LOW-HILL-TOP-EXT": "雪面月色青蓝反光与夜雾深处的朦胧微光照出人物轮廓",
 }
 DEFAULT_CPS = 4.0
-DLG_LEAD_S, DLG_TAIL_S = 1.0, 0.5
+#: SUPERVISOR_ORDERS seq=29 规则 5a (Roger 2026-09-18): 对白镜时长 = 台词时长 + 0.5 s 反应余量，向上取整到 0.5 s；
+#: 不再套 5–7 s 模板，也不再加 1.0 s 开口提前量（seq=10 的 lead 1.0 + tail 0.5 由此作废）。
+DLG_LEAD_S, DLG_TAIL_S = 0.0, 0.5
+DLG_ROUND_S = 0.5
 
 
 EMOTION_DELIVERY = {
@@ -91,7 +94,10 @@ def _spoken_chars(text: str) -> int:
 
 
 def min_dialogue_seconds(text: str, cps: float | None) -> float:
-    return round(_spoken_chars(text) / float(cps or DEFAULT_CPS) + DLG_LEAD_S + DLG_TAIL_S, 1)
+    """seq=29 规则 5a：台词秒数 + 0.5 s，向上取整到 0.5 s（10 字 @5.0 字/秒 → 2.5 s）。"""
+    import math
+    raw = _spoken_chars(text) / float(cps or DEFAULT_CPS) + DLG_LEAD_S + DLG_TAIL_S
+    return math.ceil(raw / DLG_ROUND_S - 1e-9) * DLG_ROUND_S
 
 
 def apply(shot: dict, ctx: dict) -> tuple[str, list[str], list[str]]:

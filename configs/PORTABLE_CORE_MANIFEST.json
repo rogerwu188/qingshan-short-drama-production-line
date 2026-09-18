@@ -91,7 +91,11 @@
     "lines/nalu/runtime/configs/LEXICON_qingshan_v1.json",
     "tools/tests/test_nalu_series_scope.py",
     "tools/policies/BASIC_DIALOGUE_QA_POLICY.default.json",
-    "tools/tests/test_nalu_identity_chain_fixes.py"
+    "tools/tests/test_nalu_identity_chain_fixes.py",
+    "lines/nalu/runtime/tools/nalu_writer_selfcheck_seq29.py",
+    "lines/nalu/runtime/tools/speech_rate_check.py",
+    "lines/nalu/runtime/configs/PERFORMANCE_EMOTION_LEXICON_v1.json",
+    "tools/tests/test_nalu_seq29_rules.py"
   ],
   "portable_test_modules": [
     "tools.tests.test_editorial_pacing_contract",
@@ -157,6 +161,7 @@
     "tools.tests.test_nalu_prompt_rules_seq19",
     "tools.tests.test_nalu_e05_sync",
     "tools.tests.test_nalu_series_scope",
-    "tools.tests.test_nalu_identity_chain_fixes"
+    "tools.tests.test_nalu_identity_chain_fixes",
+    "tools.tests.test_nalu_seq29_rules"
   ]
 }

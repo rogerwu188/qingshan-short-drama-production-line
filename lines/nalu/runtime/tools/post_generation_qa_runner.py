@@ -738,6 +738,8 @@ def build_reroll_requests(episode: str, rejected: list[dict[str, Any]],
             "reroll_number": reroll_number,
             "failure_tier": "BLOCK",
             "failure_reason": reason,
+            "required_prompt_change": ("PERFORMANCE_INSTRUCTION_CHANGE (seq=29 规则 6：换表演指令，不许只改字/秒)"
+                                       if "SPEECH_RATE_UNDER_TARGET" in str(reason) else None),
             "failure_class": row.get("failure_class", "CANDIDATE_QA_FAILURE"),
             "total_paid_tasks": total_paid_tasks,
             "all_reasons": row.get("reasons") or [],
@@ -826,8 +828,14 @@ def run(episode: str, *, review_path: Path | None = None,
                                      pacing=pacing_policy(episode),
                                      asr_segments=dialogue.get("segments") or None)
         sheet = contact_sheet(unit_id, media, out_dir)
+        # SUPERVISOR_ORDERS seq=29 规则 6: realised cps from the SAME ASR segments vs the director's
+        # per-shot target — MINOR is recorded, BLOCKER joins the reroll flow (no new capture, no new gate).
+        import speech_rate_check as _src
+        speech_rate = _src.measure_unit(unit_id, dialogue.get("segments") or [],
+                                        expectations.get("expected_dialogue") or [], _src.shot_targets(exp.contract))
+        write_json(out_dir / f"{unit_id}_speech_rate.json", speech_rate)
         return {"media": media, "media_sha256": sha256_file(media),
-                "technical": technical, "dialogue": dialogue, "sheet": sheet}
+                "technical": technical, "dialogue": dialogue, "sheet": sheet, "speech_rate": speech_rate}
 
     try:
         engine_module("run_regression_ci")   # import once, before the pool
@@ -871,6 +879,9 @@ def run(episode: str, *, review_path: Path | None = None,
         reasons = list(technical["failures"])
         if dialogue["status"] != "PASS":
             reasons.extend(f"dialogue:{value}" for value in dialogue["failures"])
+        speech_rate = measured[unit_id].get("speech_rate") or {}
+        if speech_rate.get("tier") == "BLOCKER":
+            reasons.append(f"dialogue:{speech_rate['code']}:{speech_rate.get('ratio')}")
         reasons.extend(plot_failures)
         verdict = "ADMIT" if not reasons else "REJECT"
         failure_class = ("CANDIDATE_TECHNICAL_FAILURE" if technical["failures"]
@@ -897,6 +908,8 @@ def run(episode: str, *, review_path: Path | None = None,
                 "failures": technical["failures"],
             },
             "dialogue_qa": dialogue,
+            "speech_rate_qa": speech_rate,
+            "advisories": ([f"{speech_rate['code']}:{speech_rate.get('ratio')}"] if speech_rate.get("tier") == "MINOR" else []),
             "basic_plot_qa": {
                 "checks": plot_checks, "failures": plot_failures,
                 "reviewer": REVIEWER_ID if plot else None,
@@ -954,6 +967,9 @@ def run(episode: str, *, review_path: Path | None = None,
         "reroll_requests": str(p.reroll_requests),
         "reroll_request_count": rerolls["request_count"],
     }
+    import speech_rate_check as _src
+    summary["speech_rate_episode"] = _src.episode_summary([row.get("speech_rate_qa") or {} for row in rows])
+    summary["speech_rate_episode"]["reroll_rule"] = "规则 6：SPEECH_RATE 重做时提示词必须换表演指令（performance），不许只把字/秒数字改大"
     out = write_json(p.postgen_dir / f"{episode}_POST_GENERATION_QA_SUMMARY.json", summary)
     summary["_written_to"] = str(out)
     return summary

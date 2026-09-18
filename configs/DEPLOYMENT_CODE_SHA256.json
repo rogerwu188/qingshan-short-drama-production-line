@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1842,
+  "file_count": 1843,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -201,7 +201,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "ff0348687490ab2148c575606a02530ba8923af304f74d84abc09a183b99d35f"
+      "sha256": "d2d3f652eb036a449925f15c3d381a920b2cc24f5e35614770ad3beacdbf76a9"
     },
     {
       "path": "configs/VIDEO_MODEL_CAPABILITY_REGISTRY_v1.json",
@@ -3121,7 +3121,7 @@
     },
     {
       "path": "tools/compile_grouped_seedance_manifest.py",
-      "sha256": "bd93c1387007aeb0747d5bc3def8b3662e2625f0a0c5312a4889aaf0114c01b8"
+      "sha256": "1da7952a53365d14115f349fec8cc8eedea0f9f5cf1becdece7a3a43699da988"
     },
     {
       "path": "tools/compile_grouped_seedance_transaction_manifest.py",
@@ -6590,6 +6590,10 @@
     {
       "path": "tools/tests/test_nalu_runtime_port.py",
       "sha256": "b5d200c97defd3264106e6a60eda6d6197fb7bf352a322ae4093f51cae96371e"
+    },
+    {
+      "path": "tools/tests/test_nalu_seq29_rules.py",
+      "sha256": "2baec58a798db5b10924ba3c22f67c33cf838c160af4432a73e97e2922a0d576"
     },
     {
       "path": "tools/tests/test_nalu_series_scope.py",

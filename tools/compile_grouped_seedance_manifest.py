@@ -319,6 +319,14 @@ def compact_beat_line(spec: dict[str, Any], timeline: dict[str, Any]) -> str:
         visual = primary or terminal
         if terminal and not _same_phrase(visual, terminal):
             visual = f"{_trim_sentence_end(visual)}，最终{terminal}"
+    # nalu SUPERVISOR_ORDERS seq=29 规则 7a (Roger 2026-09-18): when the authored action carries a
+    # `performance` column (emotion / body_action / delivery) it leads the beat text, and the
+    # `constraints` column is compressed into ONE trailing sentence; legacy contracts without the
+    # columns compile exactly as before.
+    perf = action.get("performance") if isinstance(action.get("performance"), dict) else None
+    if perf:
+        triad = "，".join(_trim_sentence_end(str(perf.get(k) or "")) for k in ("emotion", "body_action", "delivery") if perf.get(k))
+        visual = f"{triad}；{visual}" if visual and triad else (triad or visual)
     starts_with_named_cast = any(visual.startswith(name) for name in cast)
     performance = f"{subject}：{visual}" if subject and visual and not starts_with_named_cast else visual or subject
     if dialogue:
@@ -345,6 +353,8 @@ def compact_beat_line(spec: dict[str, Any], timeline: dict[str, Any]) -> str:
         f"因果={action['physical_causality']}；微表情设计={action['microexpression_design']}；"
         f"物理动作设计={action['physical_action_design']}"
     )
+    constraints = action.get("constraints") if isinstance(action.get("constraints"), list) else []
+    constraints_clause = ("禁：" + "、".join(_trim_sentence_end(str(x)) for x in constraints if str(x).strip()) + "。") if constraints else ""
     return (
         f"{start:g}–{end:g}秒：{space_lock}{performance}{suffix} 物理动作链：{physics}。"
         + f"逐镜摄影={spec.get('writer_camera_instruction')}；镜头处理={spec.get('writer_shot_treatment')}；"
@@ -352,6 +362,7 @@ def compact_beat_line(spec: dict[str, Any], timeline: dict[str, Any]) -> str:
         + (f"道具连续：{'、'.join(props)}只按本拍动作受力与位移，归属不变。" if props else "")
         + readability
         + f"表演硬锁：{performance_contract}。"
+        + constraints_clause
     )
 
 

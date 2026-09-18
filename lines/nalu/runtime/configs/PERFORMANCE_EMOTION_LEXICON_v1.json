@@ -1,0 +1,61 @@
+{
+  "schema": "nalu.performance_emotion_lexicon.v1",
+  "version": "v1",
+  "authority": "SUPERVISOR_ORDERS seq=29 规则 7c（Roger 2026-09-18 memo 十二）",
+  "emotions": [
+    "急",
+    "怒",
+    "惧",
+    "喜",
+    "疑",
+    "讥",
+    "慌",
+    "狠",
+    "哀",
+    "羞",
+    "傲",
+    "怯",
+    "冷",
+    "厌",
+    "悔",
+    "惊",
+    "怜",
+    "嫉",
+    "贪",
+    "倦",
+    "戏",
+    "愧",
+    "盼",
+    "坚"
+  ],
+  "conflict_emotions": [
+    "急",
+    "怒",
+    "惧",
+    "慌",
+    "狠",
+    "惊"
+  ],
+  "trivial_body_actions": [
+    "眉头微挑",
+    "点头",
+    "看向对方",
+    "微笑",
+    "抬眼",
+    "眨眼",
+    "皱眉",
+    "看着",
+    "望着",
+    "沉默"
+  ],
+  "hold_instructions": [
+    "口型闭合",
+    "动作保持",
+    "说完后保持",
+    "保持不动",
+    "静止",
+    "定住",
+    "保持"
+  ],
+  "note": "同一场连续 3 个对白镜同一情绪词 = 写手层 FAIL；performance 必填 emotion（词表内）+ body_action（非上列琐碎动作）+ delivery。"
+}

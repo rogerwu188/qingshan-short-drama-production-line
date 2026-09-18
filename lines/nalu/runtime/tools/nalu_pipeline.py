@@ -930,7 +930,14 @@ def stage_s1(ctx: Ctx) -> StageResult:
     continuity_ok = continuity_gate["exit_code"] == 0
     scope_check = project_scope_check(ctx)
     scope_ok = scope_check["status"] == PASS
-    status = PASS if (gate10_ok and entity_ok and static_ok and structure_ok and continuity_ok and scope_ok) else BLOCKED
+    # SUPERVISOR_ORDERS seq=29 (Roger 2026-09-18, rules 5–8): writer-layer self-check.  No gate_id; it
+    # refuses S2 only when the contract itself declares writer_selfcheck_seq29.enforced (E06+).
+    selfcheck_out = p.logs / f"{ctx.run_id}_writer_selfcheck_seq29.json"
+    selfcheck_step = ctx.run([VENV, RT_TOOLS / "nalu_writer_selfcheck_seq29.py", "--contract", p.contract, "--out", selfcheck_out],
+                             name="s1_writer_selfcheck_seq29")
+    selfcheck = read_json(selfcheck_out, {}) or {}
+    selfcheck_ok = not (selfcheck.get("enforced") and selfcheck.get("status") == "FAIL")
+    status = PASS if (gate10_ok and entity_ok and static_ok and structure_ok and continuity_ok and scope_ok and selfcheck_ok) else BLOCKED
     res = StageResult(
         status,
         layer_sha256=layer_shas,
@@ -945,6 +952,11 @@ def stage_s1(ctx: Ctx) -> StageResult:
              "anyway — a role-semantics defect is a real data defect.")
     res.details = getattr(res, "details", {}) or {}
     res.details["project_scope_check"] = scope_check
+    res.details["writer_selfcheck_seq29"] = {"status": selfcheck.get("status"), "enforced": selfcheck.get("enforced"),
+                                             "failures": (selfcheck.get("failures") or [])[:12], "failure_count": len(selfcheck.get("failures") or []),
+                                             "report": str(selfcheck_out), "exit_code": selfcheck_step["exit_code"]}
+    if not selfcheck_ok:
+        res.blockers = list(getattr(res, "blockers", []) or []) + [f"WRITER_SELFCHECK_SEQ29_FAIL:{code}" for code in (selfcheck.get("failures") or [])[:8]]
     res.details["layers"] = {"source": ctx.p.layers_source, "paths": {k: str(v) for k, v in p.layers().items()}}
     if not scope_ok:
         res.blockers = list(getattr(res, "blockers", []) or []) + [f"PROJECT_SCOPE_FAIL:{code}" for code in scope_check["failures"]]
@@ -4065,6 +4077,11 @@ def write_checkpoint(ctx: Ctx) -> Path:
     add(f"* logs `{p.logs}`")
     add(f"* deliverable target `{p.final_mp4}`  (9:16, SD2 seedance-2.0-pro 720p → 720x1280)")
     add("")
+    # SUPERVISOR_ORDERS seq=29 规则 6: the episode's realised speech rate goes to the S8 screening note
+    postgen = read_json(p.postgen_summary, {}) or {}
+    if isinstance(postgen.get("speech_rate_episode"), dict):
+        add(str(postgen["speech_rate_episode"].get("checkpoint_line") or ""))
+        add("")
     add("## Stage status")
     add("")
     add("| stage | what | status | blockers |")
