@@ -90,7 +90,8 @@
     "lines/nalu/runtime/tools/adapt_v4_layers_to_runtime.py",
     "lines/nalu/runtime/configs/LEXICON_qingshan_v1.json",
     "tools/tests/test_nalu_series_scope.py",
-    "tools/policies/BASIC_DIALOGUE_QA_POLICY.default.json"
+    "tools/policies/BASIC_DIALOGUE_QA_POLICY.default.json",
+    "tools/tests/test_nalu_identity_chain_fixes.py"
   ],
   "portable_test_modules": [
     "tools.tests.test_editorial_pacing_contract",
@@ -155,6 +156,7 @@
     "tools.tests.test_nalu_build_voice_cast",
     "tools.tests.test_nalu_prompt_rules_seq19",
     "tools.tests.test_nalu_e05_sync",
-    "tools.tests.test_nalu_series_scope"
+    "tools.tests.test_nalu_series_scope",
+    "tools.tests.test_nalu_identity_chain_fixes"
   ]
 }

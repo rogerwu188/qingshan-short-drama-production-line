@@ -201,7 +201,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "4b77c8e8e5b696c49ca77b611620fa11f6d527d2747e4441523bca29fb3b61d4"
+      "sha256": "ff0348687490ab2148c575606a02530ba8923af304f74d84abc09a183b99d35f"
     },
     {
       "path": "configs/VIDEO_MODEL_CAPABILITY_REGISTRY_v1.json",
@@ -237,7 +237,7 @@
     },
     {
       "path": "docs/decisions/DECISION_RECORDS.md",
-      "sha256": "39d89bce65804043ca088ad6bbcbaec51abd730f3ecc30e29f13c7f671e0c87f"
+      "sha256": "9973288575814eb9bce9fa9b617d8dc169879b6cf5e51150e160fe7cf80a01f9"
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
