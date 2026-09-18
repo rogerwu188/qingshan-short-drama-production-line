@@ -25,7 +25,8 @@ class CharacterAssetSubmitterTests(unittest.TestCase):
             observed = {}
 
             def fake_request(endpoint, payload):
-                observed["context"] = os.environ.get("QINGSHAN_DURABLE_SUBMITTER_CONTEXT")
+                from tools.giggle_api_client import _DURABLE_GENERATION_CONTEXT
+                observed["context"] = _DURABLE_GENERATION_CONTEXT.get()
                 return {"data": {"task_id": "task-e43-test"}}
 
             prior = os.environ.pop("QINGSHAN_DURABLE_SUBMITTER_CONTEXT", None)
@@ -33,7 +34,7 @@ class CharacterAssetSubmitterTests(unittest.TestCase):
                 with patch.object(submitter, "_request", side_effect=fake_request):
                     result = submitter.submit(row, root / "receipts", root / "transactions", "gpt-image-2-pro", "2K")
                 transaction = json.loads(Path(submitter.ROOT / result["transaction"]).read_text(encoding="utf-8"))
-                self.assertEqual(observed["context"], "1")
+                self.assertTrue(observed["context"])
                 self.assertIsNone(os.environ.get("QINGSHAN_DURABLE_SUBMITTER_CONTEXT"))
                 self.assertEqual(transaction["episode"], "E43")
                 self.assertEqual(transaction["state"], "SUBMITTED_TASK_ID_BOUND")

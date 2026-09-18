@@ -45,6 +45,38 @@ class ActionVideoPromptCompilerTest(unittest.TestCase):
         del task["trajectory_overlays"][0]["visible_consequence"]
         self.assertIn("TRAJECTORY_FIELD_MISSING:0:visible_consequence", validate_action_contract(task))
 
+    def test_storyboard_later_actor_requires_both_local_states(self):
+        from copy import deepcopy
+        task = self.fixture()
+        task['semantic_video_unit'] = True
+        task['canonical_characters'].append('CHAR-B')
+        later = {'characters': [{'character_id': 'CHAR-B', 'position': 'door'}]}
+        task['ordered_prompt_specs'] = [
+            {'shot_id': 'S1', 'cast': [{'character_id': 'CHAR-A'}],
+             'props': [{'prop_id': 'PROP-X'}], 'space': {
+                 'blocking': deepcopy(task['blocking']),
+                 'action_end_blocking': deepcopy(task['action_end_blocking'])}},
+            {'shot_id': 'S2', 'cast': [{'character_id': 'CHAR-B'}], 'props': [],
+             'space': {'blocking': deepcopy(later), 'action_end_blocking': deepcopy(later)}},
+        ]
+        self.assertEqual(validate_action_contract(task), [])
+        task['ordered_prompt_specs'][1]['space']['action_end_blocking']['characters'] = []
+        failures = validate_action_contract(task)
+        self.assertIn('ACTION_STORYBOARD_ENTITY_MISSING:S2:action_end_blocking:CHAR-B', failures)
+        self.assertIn('CANONICAL_ENTITY_ABSENT_FROM_ACTION_STATE:CHAR-B', failures)
+
+    def test_storyboard_cannot_use_another_shot_to_hide_missing_actor(self):
+        from copy import deepcopy
+        task = self.fixture()
+        task['semantic_video_unit'] = True
+        spec = {'shot_id': 'S1', 'cast': [{'character_id': 'CHAR-A'}], 'props': [],
+                'space': {'blocking': deepcopy(task['blocking']),
+                          'action_end_blocking': deepcopy(task['action_end_blocking'])}}
+        task['ordered_prompt_specs'] = [spec, deepcopy(spec)]
+        task['ordered_prompt_specs'][1]['shot_id'] = 'S2'
+        spec['space']['blocking']['characters'] = []
+        self.assertIn('ACTION_STORYBOARD_ENTITY_MISSING:S1:blocking:CHAR-A', validate_action_contract(task))
+
     def combat_fixture(self):
         task = self.fixture()
         task.update({

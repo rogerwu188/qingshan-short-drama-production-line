@@ -152,6 +152,30 @@ def validate_action_contract(task: dict[str, Any]) -> list[str]:
         *map(str, task.get("canonical_props") or []),
     }
     represented = _ids(start) | _ids(end)
+    # A storyboard may introduce an actor after the opening shot. Account
+    # for that actor only through complete, shot-local source states.
+    specs = task.get("ordered_prompt_specs")
+    storyboard = task.get("semantic_video_unit") is True and bool(specs)
+    if storyboard:
+        shot_ids = [s.get("shot_id") for s in specs]
+        if not all(shot_ids) or len(set(shot_ids)) != len(shot_ids):
+            failures.append("ACTION_STORYBOARD_SHOT_IDS_INVALID")
+        represented = set()
+        for spec in specs:
+            sid = str(spec.get("shot_id") or "UNKNOWN")
+            space = spec.get("space") or {}
+            local_ids = {
+                *[str(r["character_id"]) for r in spec.get("cast") or [] if r.get("character_id")],
+                *[str(r["prop_id"]) for r in spec.get("props") or [] if r.get("prop_id")],
+            }
+            for phase in ("blocking", "action_end_blocking"):
+                block = space.get(phase) or {}
+                if not block:
+                    failures.append(f"ACTION_STORYBOARD_STATE_MISSING:{sid}:{phase}")
+                absent = local_ids - _ids(block)
+                if absent:
+                    failures.append(f"ACTION_STORYBOARD_ENTITY_MISSING:{sid}:{phase}:" + ",".join(sorted(absent)))
+            represented.update(_ids(space.get("blocking") or {}) & _ids(space.get("action_end_blocking") or {}))
     missing = sorted(canonical - represented)
     if missing:
         failures.append("CANONICAL_ENTITY_ABSENT_FROM_ACTION_STATE:" + ",".join(missing))
@@ -167,7 +191,12 @@ def validate_action_contract(task: dict[str, Any]) -> list[str]:
     chain = str(task.get("space_chain_id") or "")
     if chain.count("->") < 2:
         failures.append("SPACE_CHAIN_INCOMPLETE")
-    windows = (task.get("performance_tempo_contract") or {}).get("atomic_action_windows") or []
+    tempo = task.get("performance_tempo_contract") or {}
+    windows = tempo.get("atomic_action_windows") or []
+    if tempo.get("timing_mode") == "SOURCE_AUTHORED_PHASES_V1":
+        from tools.storyboard_tempo_phases import evaluate_phases
+        failures.extend(row["code"] for row in evaluate_phases(task))
+        windows = tempo.get("editorial_phase_windows") or []
     if not windows:
         failures.append("ACTION_TIME_WINDOWS_MISSING")
     if shot_type in COMBAT_TYPES:
@@ -182,7 +211,8 @@ def compile_action_video_prompt(task: dict[str, Any]) -> str:
     tempo = task["performance_tempo_contract"]
     windows = "；".join(
         f"{row['start_seconds']:.1f}—{row['end_seconds']:.1f}秒：{row['action']}"
-        for row in tempo["atomic_action_windows"]
+        for row in (tempo["editorial_phase_windows"] if tempo.get("timing_mode") == "SOURCE_AUTHORED_PHASES_V1"
+                    else tempo["atomic_action_windows"])
     )
     trajectory_text = "；".join(
         f"{row['entity_id']}从{row['from']}到{row['to']}，{row['action']}，可见后果={row['visible_consequence']}"

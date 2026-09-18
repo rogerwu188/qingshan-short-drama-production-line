@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from tools.tool_output_sanitizer import sanitize_tool_output
 import contextlib
 from contextvars import ContextVar
 import json
@@ -189,7 +190,7 @@ def generate_image(args: argparse.Namespace) -> Dict[str, Any]:
     if reference_images:
         endpoint = "/api/v1/generation/image-to-image"
         payload["reference_images"] = reference_images
-    return _request(endpoint, payload)
+    return sanitize_tool_output(_request(endpoint, payload))
 
 
 def generate_video(args: argparse.Namespace) -> Dict[str, Any]:
@@ -205,7 +206,7 @@ def generate_video(args: argparse.Namespace) -> Dict[str, Any]:
         payload["start_frame"] = {"base64": _b64(args.start_frame)}
     if args.end_frame:
         payload["end_frame"] = {"base64": _b64(args.end_frame)}
-    return _request("/api/v1/generation/image-to-video", payload)
+    return sanitize_tool_output(_request("/api/v1/generation/image-to-video", payload))
 
 
 def generate_omni_video(args: argparse.Namespace) -> Dict[str, Any]:
@@ -235,7 +236,7 @@ def generate_omni_video(args: argparse.Namespace) -> Dict[str, Any]:
     if args.video_asset_id:
         payload.setdefault("videos", [])
         payload["videos"].extend({"asset_id": item} for item in args.video_asset_id)
-    return _request("/api/v1/generation/omni-video", payload)
+    return sanitize_tool_output(_request("/api/v1/generation/omni-video", payload))
 
 
 def query_task(args: argparse.Namespace) -> Dict[str, Any]:

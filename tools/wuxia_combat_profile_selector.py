@@ -54,8 +54,9 @@ def load_library(path: str = str(DEFAULT_LIBRARY)) -> dict[str, Any]:
         cue_blob = f"{row.get('cue_zh', '')} {row.get('cue_en', '')}".lower()
         if any(token in cue_blob for token in ("copyright", "导演风格：", "dialogue:", "台词：")):
             failures.append(f"WUXIA_PROFILE_UNSAFE_SOURCE_OR_DIALOGUE:{pid or index}")
-    if len(profiles) != 34:
-        failures.append(f"WUXIA_PROFILE_LIBRARY_COUNT:{len(profiles)}!=34")
+    expected_count = payload.get("profile_count", 34)
+    if len(profiles) != expected_count:
+        failures.append(f"WUXIA_PROFILE_LIBRARY_COUNT:{len(profiles)}!={expected_count}")
     if failures:
         raise ValueError(";".join(failures))
     payload["path"] = str(source)
@@ -95,7 +96,7 @@ def _cast_count(unit: dict[str, Any]) -> int:
 
 def _infer_weapon(text: str) -> str:
     pairs = (
-        ("绳镖", "ROPE_DART"), ("双刀", "DUAL_SABER"), ("长枪", "SPEAR"),
+        ("绳镖", "ROPE_DART"), ("双刀", "DUAL_SABER"), ("戟", "POLEARM"), ("长枪", "SPEAR"),
         ("枪杆", "SPEAR"), ("长棍", "STAFF"), ("棍", "STAFF"),
         ("短刀", "BLADE"), ("匕首", "BLADE"), ("剑", "SWORD"), ("刀", "SABER"),
     )

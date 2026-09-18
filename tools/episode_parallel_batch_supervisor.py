@@ -16,6 +16,7 @@ import os
 import re
 import shutil
 import subprocess
+from tools.tool_output_sanitizer import sanitize_tool_output
 import sys
 import time
 import threading
@@ -1895,7 +1896,7 @@ def submit_one(task: dict, receipt: dict) -> dict:
     except json.JSONDecodeError:
         return {"status": "submit_failed", "stderr": "invalid_json_response", "stdout": proc.stdout[-2000:]}
     task_id = (payload.get("data") or {}).get("task_id") or payload.get("task_id")
-    return {"status": "remote_running", "task_id": task_id, "submit_response": payload}
+    return sanitize_tool_output({"status": "remote_running", "task_id": task_id, "submit_response": payload})
 
 
 def download(url: str, destination: Path) -> None:

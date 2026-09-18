@@ -12,6 +12,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 from tools.portable_runtime import resolve_media_binary, resolve_whisper_model
+from tools.basic_dialogue_qa_policy import evaluate_dialogue_findings
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -137,6 +138,11 @@ def evaluate(
         "segments": segments,
         "recall_score": round(score, 3),
         "minimum_recall": minimum_recall,
+        "dialogue_difference_policy": evaluate_dialogue_findings(
+            ["ASR_TEXT_MISMATCH"] if rows and chinese(transcript) and chinese(expected) != chinese(transcript) else []
+        ),
+        "asr_recall_is_diagnostic_not_phonetic_proof": True,
+        "automatic_regeneration_from_asr_alone_allowed": False,
         "failures": failures,
     }
 

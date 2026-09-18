@@ -403,6 +403,11 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
 
 def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
     machine = task.get("machine_contract") or {}
+    for field in ("camera_scope_policy", "timeline_policy"):
+        source_value = machine.get(field)
+        task_value = task.get(field)
+        if source_value is not None and task_value is not None and source_value != task_value:
+            raise ValueError(f"SOURCE_POLICY_TRANSPORT_MISMATCH:{field}")
     return {
         "unit_id": task.get("unit_id") or task.get("task_key"),
         # Shared execution-plan recompilation at the final paid boundary is
@@ -452,6 +457,14 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
         "pose_transition_anchor_gate": machine.get("pose_transition_anchor_gate")
         or task.get("pose_transition_anchor_gate"),
         "camera_plan": machine.get("camera_plan") or task.get("camera_plan"),
+        # Camera scope and authored timing are part of the source contract;
+        # preserve them through the final paid-boundary projection so the
+        # downstream compiler cannot silently collapse per-shot camera plans
+        # into a unit-wide default or stretch the authored timeline.
+        "camera_scope_policy": machine.get("camera_scope_policy")
+        if "camera_scope_policy" in machine else task.get("camera_scope_policy"),
+        "timeline_policy": machine.get("timeline_policy")
+        if "timeline_policy" in machine else task.get("timeline_policy"),
         "ordered_prompt_specs": machine.get("ordered_prompt_specs") or task.get("ordered_prompt_specs") or [],
         "editorial_shot_ids": machine.get("editorial_shot_ids") or task.get("editorial_shot_ids") or [],
         "internal_transition_contracts": machine.get("internal_transition_contracts")

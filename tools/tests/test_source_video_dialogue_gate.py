@@ -23,6 +23,14 @@ def probe(*, audio: bool = True, duration: float = 5.0) -> dict:
 
 
 class SourceVideoDialogueGateTests(unittest.TestCase):
+    def test_near_sound_asr_difference_is_advisory_not_regeneration(self) -> None:
+        report = MODULE.evaluate(Path("clip.mp4"), [{"dia_id":"D01","text":"我悄悄修行"}],
+            probe_payload=probe(), transcript="我悄悄休息",
+            segments=[{"start":0.2,"end":2.0,"text":"我悄悄休息"}], minimum_recall=0.55)
+        self.assertEqual(report['status'],'PASS')
+        self.assertEqual(report['dialogue_difference_policy']['status'],'PASS_WITH_NOTE')
+        self.assertFalse(report['automatic_regeneration_from_asr_alone_allowed'])
+
     def test_transcription_prompt_strips_leading_ellipsis(self) -> None:
         self.assertEqual(
             MODULE.transcription_prompt("……却还在按笔掏银子，买这颗棋的命。"),

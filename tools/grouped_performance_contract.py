@@ -36,6 +36,42 @@ def _spoken_text(raw: str) -> str:
     return spoken.strip()
 
 
+def validate_typed_execution_source(unit: dict[str, Any]) -> None:
+    """Validate the explicit storyboard source and production Action-IR."""
+    from tools.video_execution_plan_compiler import compile_video_execution_plan
+    specs = unit.get("ordered_prompt_specs") or []
+    if not specs:
+        raise ValueError("TYPED_EXECUTION_SPECS_MISSING")
+    for spec in specs:
+        source_id = str(spec.get("shot_id") or "UNKNOWN")
+        action = spec.get("action") or {}
+        kind = action.get("action_kind")
+        if kind not in {"DIALOGUE", "PHYSICAL_ACTION", "COMBAT", "ATMOSPHERE"}:
+            raise ValueError(source_id + ":TYPED_ACTION_KIND_INVALID")
+        for field in ("start_state", "primary_action", "completion_state"):
+            _text(action, field, source_id)
+        sound = spec.get("sound_design") or {}
+        for field in ("ambience", "action_sound"):
+            _text(sound, field, source_id)
+        dialogue = str(spec.get("dialogue") or "").strip()
+        if dialogue:
+            _spoken_text(dialogue)
+            delivery = spec.get("dialogue_delivery") or {}
+            for field in DIALOGUE_DELIVERY_FIELDS:
+                # Emphasis is optional when the source author did not specify
+                # it. Do not invent emphasis words to satisfy a legacy form.
+                if field != "emphasis_words":
+                    _text(delivery, field, source_id)
+        elif spec.get("dialogue_delivery") not in (None, {}):
+            raise ValueError(source_id + ":DELIVERY_WITHOUT_DIALOGUE")
+        if kind == "COMBAT":
+            for field in ("force_origin", "primary_feedback", "contact_point"):
+                _text(action, field, source_id)
+    # Deliberately not preproduction_only: observed first-frame prop evidence
+    # and all existing typed state/motion/camera checks remain required.
+    compile_video_execution_plan(unit)
+
+
 def validate_grouped_beat_contract(spec: Any, *, source_id: str) -> dict[str, Any]:
     if not isinstance(spec, dict):
         raise ValueError(f"{source_id} prompt_spec must be an object")

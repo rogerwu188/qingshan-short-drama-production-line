@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from tools.portable_runtime import resolve_media_binary, resolve_whisper_model
+from tools.basic_dialogue_qa_policy import evaluate_dialogue_findings
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -160,6 +161,10 @@ def review_dialogue(
         "transcript": transcript,
         "segments": segments,
         "recall_score": round(score, 3),
+        "dialogue_difference_policy": evaluate_dialogue_findings(
+            ["ASR_TEXT_MISMATCH"] if chinese(transcript) and chinese(str(task.get("text") or "")) != chinese(transcript) else []
+        ),
+        "automatic_regeneration_from_asr_alone_allowed": False,
         "status": "PASS" if not failures else "FAIL",
         "failures": failures,
         "advisories": advisories,

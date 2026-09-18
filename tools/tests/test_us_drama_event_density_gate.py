@@ -307,6 +307,85 @@ class UsDramaEventDensityGateTests(unittest.TestCase):
         report = self.run_gate(data)
         self.assertIn("WRITER_RUN_RECEIPT_SHA_MISMATCH", report["failures"])
 
+    # --- 常量不得冒充读数（F-R505-01；S-E96-P-01 / S-E95-01 同族） ---
+
+    def test_declared_information_gap_is_reported_as_measured(self):
+        report = self.run_gate(self.sample())
+        observed = report["observed"]
+        self.assertEqual(18, observed["max_information_gap_seconds"])
+        self.assertTrue(observed["max_information_gap_measured"])
+        self.assertEqual(
+            "event_density.max_information_gap_seconds",
+            observed["max_information_gap_basis"],
+        )
+        self.assertNotIn(
+            "MAX_INFORMATION_GAP_NOT_MEASURED_DEFAULT_ASSUMED", report["warnings"]
+        )
+        self.assertNotIn(
+            "NON_ADVANCING_PERCENTAGE_NOT_MEASURED_DEFAULT_ASSUMED", report["warnings"]
+        )
+
+    def test_missing_information_gap_is_flagged_as_not_measured(self):
+        data = self.sample()
+        del data["event_density"]["max_information_gap_seconds"]
+        report = self.run_gate(data)
+        observed = report["observed"]
+        self.assertFalse(observed["max_information_gap_measured"])
+        self.assertEqual("NOT_MEASURED_FAIL_OPEN_DEFAULT", observed["max_information_gap_basis"])
+        self.assertIn("MAX_INFORMATION_GAP_NOT_MEASURED_DEFAULT_ASSUMED", report["warnings"])
+
+    def test_missing_information_gap_never_becomes_a_failure(self):
+        """铁律一：新判据只出 warning，永不阻断工位。"""
+        data = self.sample()
+        del data["event_density"]["max_information_gap_seconds"]
+        report = self.run_gate(data)
+        self.assertEqual("PASS", report["status"])
+        self.assertNotIn("maximum_information_gap_exceeds_20s", report["failures"])
+        self.assertEqual(20.0, report["observed"]["max_information_gap_seconds"])
+
+    def test_entirely_missing_event_density_block_flags_both_readings(self):
+        data = self.sample()
+        del data["event_density"]
+        report = self.run_gate(data)
+        observed = report["observed"]
+        self.assertFalse(observed["max_information_gap_measured"])
+        self.assertFalse(observed["non_advancing_percentage_measured"])
+        self.assertIn("MAX_INFORMATION_GAP_NOT_MEASURED_DEFAULT_ASSUMED", report["warnings"])
+        self.assertIn("NON_ADVANCING_PERCENTAGE_NOT_MEASURED_DEFAULT_ASSUMED", report["warnings"])
+        self.assertEqual("PASS", report["status"])
+
+    def test_dialogue_pacing_fallback_counts_as_measured(self):
+        data = self.sample()
+        del data["event_density"]["max_information_gap_seconds"]
+        data["dialogue_pacing"] = {"max_no_progress_gap_seconds": 15.5}
+        report = self.run_gate(data)
+        observed = report["observed"]
+        self.assertTrue(observed["max_information_gap_measured"])
+        self.assertEqual(15.5, observed["max_information_gap_seconds"])
+        self.assertEqual(
+            "dialogue_pacing.max_no_progress_gap_seconds",
+            observed["max_information_gap_basis"],
+        )
+        self.assertNotIn(
+            "MAX_INFORMATION_GAP_NOT_MEASURED_DEFAULT_ASSUMED", report["warnings"]
+        )
+
+    def test_non_numeric_reading_is_not_mistaken_for_a_measurement(self):
+        data = self.sample()
+        data["event_density"]["max_information_gap_seconds"] = "NOT_MEASURED"
+        report = self.run_gate(data)
+        self.assertFalse(report["observed"]["max_information_gap_measured"])
+        self.assertIn("MAX_INFORMATION_GAP_NOT_MEASURED_DEFAULT_ASSUMED", report["warnings"])
+        self.assertEqual("PASS", report["status"])
+
+    def test_declared_gap_over_limit_still_fails_exactly_as_before(self):
+        """判据未改：真实申报越限仍是既有 failure。"""
+        data = self.sample()
+        data["event_density"]["max_information_gap_seconds"] = 21.5
+        report = self.run_gate(data)
+        self.assertIn("maximum_information_gap_exceeds_20s", report["failures"])
+        self.assertTrue(report["observed"]["max_information_gap_measured"])
+
     def test_history_discovery_selects_latest_prior_episode_manifests(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

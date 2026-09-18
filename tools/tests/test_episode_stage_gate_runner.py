@@ -1,13 +1,18 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from tools import episode_stage_gate_runner as runner_module
 from tools.episode_stage_gate_runner import (
     EXECUTORS,
     PHASE_GATES,
+    _write_summary,
     execute_gate,
     require_release_builder_gate_admission,
+    run_registered_gates,
 )
 
 
@@ -208,6 +213,177 @@ class EpisodeStageGateRunnerTests(unittest.TestCase):
                     evidence_bundle=Path(temp) / "missing.json",
                     out_dir=Path(temp) / "out",
                 )
+
+
+class SummaryWriteLeavesPriorVerdictRecoverableTests(unittest.TestCase):
+    """F-R527-01.
+
+    The per-gate outputs were already preserved by rename in a reused
+    ``out_dir``; the execution summary was not, even though the summary is the
+    artifact ``require_release_builder_gate_admission`` cites as its blocking
+    authority. The criterion here is not "a file was written" but "the previous
+    verdict is still recoverable" and "a failed write leaves the previous
+    verdict intact".
+    """
+
+    def _summary(self, status="PASS"):
+        return {
+            "schema": "qingshan.episode_stage_gate_execution.v1",
+            "episode": "E32",
+            "status": status,
+            "failures": [],
+        }
+
+    def test_prior_summary_is_preserved_by_rename_not_clobbered(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "episode_stage_gate_execution_summary.json"
+            _write_summary(path, self._summary("PASS"))
+            _write_summary(path, self._summary("FAIL"))
+
+            self.assertEqual(json.loads(path.read_text())["status"], "FAIL")
+            preserved = list(
+                Path(temp).glob("episode_stage_gate_execution_summary.previous-*.json")
+            )
+            self.assertEqual(len(preserved), 1)
+            self.assertEqual(json.loads(preserved[0].read_text())["status"], "PASS")
+
+    def test_every_prior_verdict_stays_recoverable_across_repeated_runs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "episode_stage_gate_execution_summary.json"
+            for _ in range(3):
+                _write_summary(path, self._summary("PASS"))
+            preserved = list(
+                Path(temp).glob("episode_stage_gate_execution_summary.previous-*.json")
+            )
+            self.assertEqual(len(preserved), 2, "renames must not collide")
+
+    def test_failed_write_leaves_the_live_summary_byte_intact(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "episode_stage_gate_execution_summary.json"
+            _write_summary(path, self._summary("PASS"))
+            # A prior run's verdict has now been renamed aside; the live file is
+            # the one a crash used to zero out.
+            before = path.read_bytes()
+
+            unserialisable = {"status": "PASS", "boom": object()}
+            with self.assertRaises(TypeError):
+                _write_summary(path, unserialisable)
+
+            self.assertEqual(path.read_bytes(), before)
+
+    def test_failed_write_does_not_move_the_live_summary_aside(self):
+        # The ordering invariant: preserve-by-rename must happen after the new
+        # bytes are on disk, never before. Renaming first turns a serialisation
+        # error into a deletion of the live verdict.
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "episode_stage_gate_execution_summary.json"
+            _write_summary(path, self._summary("PASS"))
+            with self.assertRaises(TypeError):
+                _write_summary(path, {"status": "FAIL", "boom": object()})
+
+            self.assertTrue(path.exists(), "live summary must survive a failed write")
+            self.assertEqual(json.loads(path.read_text())["status"], "PASS")
+            self.assertEqual(
+                list(Path(temp).glob("episode_stage_gate_execution_summary.previous-*")),
+                [],
+                "a failed write must not consume a preservation slot",
+            )
+
+    def test_failed_write_leaves_no_residue_that_blocks_the_next_write(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "episode_stage_gate_execution_summary.json"
+            with self.assertRaises(TypeError):
+                _write_summary(path, {"boom": object()})
+            self.assertEqual(list(Path(temp).glob("*.tmp")), [])
+
+            _write_summary(path, self._summary("PASS"))
+            self.assertEqual(json.loads(path.read_text())["status"], "PASS")
+
+    def test_a_stale_temporary_from_an_earlier_crash_cannot_block_writing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "episode_stage_gate_execution_summary.json"
+            # Same pid, same name shape: what a pid-only temporary would collide
+            # with after a crash on a mount where unlink is refused.
+            residue = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+            residue.write_text("half written", encoding="utf-8")
+
+            _write_summary(path, self._summary("PASS"))
+            self.assertEqual(json.loads(path.read_text())["status"], "PASS")
+
+    def test_summary_bytes_are_unchanged_by_the_atomic_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "episode_stage_gate_execution_summary.json"
+            summary = self._summary("PASS")
+            _write_summary(path, summary)
+            expected = json.dumps(summary, ensure_ascii=False, indent=2) + "\n"
+            self.assertEqual(path.read_text(encoding="utf-8"), expected)
+
+    def test_runner_preserves_prior_summary_end_to_end(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            script = root / "script.md"
+            script.write_text("canonical", encoding="utf-8")
+            import hashlib
+
+            digest = hashlib.sha256(script.read_bytes()).hexdigest()
+            plan = root / "plan.json"
+            plan.write_text(
+                json.dumps(
+                    {
+                        "source_script_sha256": digest,
+                        "units": [
+                            {"unit_id": "U1", "duration_seconds": 8},
+                            {"unit_id": "U2", "duration_seconds": 9},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            bundle = root / "bundle.json"
+            bundle.write_text(
+                json.dumps(
+                    {
+                        "canonical_script": str(script),
+                        "canonical_script_sha256": digest,
+                        "unit_plan": str(plan),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            shared = root / "shared_out"
+
+            # run_registered_gates writes every invoked gate into the real
+            # repository ledger at qa/gate_results/<episode>/, a path that does
+            # not follow out_dir. A test must not stamp a PASS for a real
+            # episode into the live execution matrix, so the ledger write is
+            # stubbed out here; it is not what this test is about.
+            with mock.patch.object(runner_module, "write_gate_result"):
+                first = run_registered_gates(
+                    episode="E32",
+                    gates=["MECHANICAL-DEFAULT-META-GATE"],
+                    phases=[],
+                    evidence_bundle=bundle,
+                    out_dir=shared,
+                )
+                self.assertEqual(first["status"], "PASS")
+
+                second = run_registered_gates(
+                    episode="E32",
+                    gates=[
+                        "MECHANICAL-DEFAULT-META-GATE",
+                        "SCRIPT-COUNCIL-DRAMATIC-QUALITY",
+                    ],
+                    phases=[],
+                    evidence_bundle=bundle,
+                    out_dir=shared,
+                )
+                self.assertEqual(second["status"], "FAIL")
+
+            preserved = list(
+                shared.glob("episode_stage_gate_execution_summary.previous-*.json")
+            )
+            self.assertEqual(len(preserved), 1)
+            self.assertEqual(json.loads(preserved[0].read_text())["status"], "PASS")
 
 
 if __name__ == "__main__":

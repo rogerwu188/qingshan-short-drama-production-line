@@ -1810,6 +1810,7 @@
       "stage": "VIDEO_GENERATION_SUBMIT_AND_SOURCE_ADMISSION",
       "implementation_type": "CODED",
       "code_paths": [
+        "tools/basic_dialogue_qa_policy.py",
         "tools/source_video_dialogue_gate.py",
         "tools/qa_multimodal_dialogue_batch.py",
         "tools/episode_parallel_batch_supervisor.py",
@@ -1818,6 +1819,7 @@
         "tools/render_agentcut_audio_master.py"
       ],
       "test_paths": [
+        "tools/tests/test_basic_dialogue_qa_policy.py",
         "tools/tests/test_source_video_dialogue_gate.py",
         "tools/tests/test_qa_multimodal_dialogue_batch.py",
         "tools/tests/test_episode_parallel_batch_supervisor.py",
@@ -1825,9 +1827,14 @@
         "tools/tests/test_render_agentcut_audio_master.py"
       ],
       "parameters": {
+        "postgen_dialogue_policy_ref": "configs/BASIC_DIALOGUE_QA_POLICY.json",
+        "minor_asr_homophone_near_sound_difference_blocks_admission": false,
+        "minor_dialogue_difference_triggers_regeneration": false,
+        "minor_dialogue_difference_triggers_repeat_asr": false,
         "audio_stream_required_for_every_source_video": true,
         "native_mandarin_required_when_script_has_dialogue": true,
-        "exact_dialogue_order_and_recall_required": true,
+        "exact_authored_dialogue_order_required_in_prompt": true,
+        "postgen_asr_verbatim_match_required": false,
         "sentence_tail_must_not_be_clipped": true,
         "portable_ffprobe_and_whisper_resolution_required": true,
         "failed_only_repair_required": true,

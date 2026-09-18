@@ -20,6 +20,34 @@ def track(direction="LEFT_TO_RIGHT"):
 
 
 class GroupedCameraContractTest(unittest.TestCase):
+    def test_per_shot_camera_sequence_uses_actual_order_without_unit_camera(self):
+        unit = {"unit_id":"U1", "model":"seedance-2.0-pro", "duration_seconds":4,
+                "camera_scope_policy":"PER_SHOT_EXPLICIT", "ordered_prompt_specs":[
+                    {"shot_id":"S1", "camera_plan":track(),
+                     "action":{"t0_seconds":0,"t1_seconds":2}},
+                    {"shot_id":"S2", "camera_plan":track("RIGHT_TO_LEFT"),
+                     "action":{"t0_seconds":2,"t1_seconds":4}}]}
+        before=copy.deepcopy(unit)
+        validate_camera_sequence([unit])
+        self.assertEqual(unit,before)
+        unit['ordered_prompt_specs'][1]['camera_plan']=track()
+        with self.assertRaisesRegex(ValueError,'repeat camera motion'):
+            validate_camera_sequence([unit])
+        unit['ordered_prompt_specs'][1]['camera_plan']={}
+        with self.assertRaises(ValueError):
+            validate_camera_sequence([unit])
+
+    def test_paid_projection_preserves_source_camera_and_timing_policy(self):
+        from tools.submit_giggle_video_manifest_v2 import grouped_sequence_unit
+        source={'camera_scope_policy':'PER_SHOT_EXPLICIT',
+                'timeline_policy':'PRESERVE_AUTHORED_NO_STRETCH'}
+        task={'machine_contract':source}
+        projected=grouped_sequence_unit(task)
+        for key,value in source.items():self.assertEqual(projected[key],value)
+        task['camera_scope_policy']='UNIT_WIDE'
+        with self.assertRaisesRegex(ValueError,'SOURCE_POLICY_TRANSPORT_MISMATCH'):
+            grouped_sequence_unit(task)
+
     def test_compiles_explicit_direction_and_single_move_rule(self):
         text = compile_camera_prompt(track(), source_id="U1")
         self.assertIn("由画面左向右", text)

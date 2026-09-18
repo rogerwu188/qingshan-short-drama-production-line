@@ -13,6 +13,23 @@ performed and compiles that information into the model-visible prompt.
 from __future__ import annotations
 
 from typing import Any
+from copy import deepcopy
+
+
+def validate_storyboard_internal_state(unit: dict[str, Any]) -> list[dict[str, Any]]:
+    """Use the authored event state chain without rewriting it as legacy prose."""
+    from tools.event_boundary_continuity_contract import compile_internal_shot_boundaries
+    ids = unit.get("editorial_shot_ids") or []
+    transitions = unit.get("internal_transition_contracts") or []
+    if not ids or len(transitions) != len(ids) - 1:
+        raise ValueError("STORYBOARD_INTERNAL_TRANSITION_COUNT_MISMATCH")
+    for index, transition in enumerate(transitions):
+        if (transition.get("from_shot_id"), transition.get("to_shot_id")) != (ids[index], ids[index + 1]):
+            raise ValueError("STORYBOARD_INTERNAL_TRANSITION_SHOT_BINDING_MISMATCH")
+    report = compile_internal_shot_boundaries(unit)
+    if report["status"] != "PASS":
+        raise ValueError(";".join(report.get("failures") or ["STORYBOARD_STATE_CHAIN_NOT_APPLICABLE"]))
+    return deepcopy(transitions)
 
 
 TRANSITION_MODES = {
@@ -208,7 +225,23 @@ def validate_internal_transition_sequence(
     specs = unit.get("ordered_prompt_specs") or []
     shot_ids = list(editorial_shot_ids or unit.get("editorial_shot_ids") or [])
     if len(shot_ids) != len(specs):
-        raise ValueError(f"{unit_id} internal continuity requires one editorial shot id per prompt beat")
+        # Explicit time phases may share one source camera shot. Do not
+        # invent editorial cuts merely to encode approach -> contact.
+        roles=[s.get('role_semantic_disambiguation') or {} for s in specs]
+        sources=[r.get('source_shot_id') for r in roles]
+        phases=[r.get('shot_id') for r in roles]
+        if (not sources or not all(sources) or list(dict.fromkeys(sources))!=shot_ids
+                or not all(phases) or len(set(phases))!=len(phases)):
+            raise ValueError(f"{unit_id} internal continuity requires one editorial shot id per prompt beat")
+        for i,(before,after) in enumerate(zip(specs,specs[1:])):
+            if sources[i]==sources[i+1]:
+                a,b=before.get('action',{}),after.get('action',{})
+                if a.get('t1_seconds')!=b.get('t0_seconds') or before.get('camera')!=after.get('camera'):
+                    raise ValueError(f'{unit_id} source-shot time phases require contiguous time and unchanged camera')
+                contracts=unit.get('internal_transition_contracts') or []
+                if len(contracts)<=i or contracts[i].get('transition_mode')!='CONTINUOUS_ACTION':
+                    raise ValueError(f'{unit_id} source-shot time phase cannot create a camera cut')
+        shot_ids=phases
     contracts = unit.get("internal_transition_contracts") or []
     expected_count = max(0, len(specs) - 1)
     if len(contracts) != expected_count:
