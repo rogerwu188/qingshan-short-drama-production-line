@@ -618,6 +618,23 @@ def main() -> int:
     for row in dialogue:
         lines_by_speaker.setdefault(row["speaker"], []).append(row["text"])
 
+    # E59 and older Qingshan contracts legitimately use a short alias in the
+    # dialogue prefix (e.g. ``白鲤`` for canonical ``白鲤郡主`` and ``侍女``
+    # for the grouped entity).  Resolve aliases before selecting speaking
+    # characters; otherwise the old exact-canonical lookup silently drops
+    # those voices from S4 and makes the upgraded line appear to have lost
+    # source material.
+    alias_to_canonical: dict[str, str] = {}
+    for character in contract.get("character_entities") or []:
+        canonical = str(character.get("canonical_name") or "")
+        for alias in [canonical, *(character.get("aliases") or [])]:
+            if alias:
+                alias_to_canonical[str(alias)] = canonical
+    normalized_lines: dict[str, list[str]] = {}
+    for speaker, lines in lines_by_speaker.items():
+        normalized_lines.setdefault(alias_to_canonical.get(speaker, speaker), []).extend(lines)
+    lines_by_speaker = normalized_lines
+
     briefs: list[dict[str, Any]] = []
     non_speaking: list[str] = []
     unknown_speakers = set(lines_by_speaker) - {
