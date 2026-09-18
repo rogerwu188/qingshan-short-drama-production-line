@@ -56,14 +56,25 @@ RESOLUTION_ORDER = [
     "SHOT_SUBSPACE_LAYOUT",
     "CHARACTER_PROP_BLOCKING",
 ]
+#: Roger 2026-09-18 (identity chain ②): the FACE reference leads the sequence — the front neutral
+#: headshot plate is the only plate whose face is large enough to lock identity (a 1440x2560 full
+#: body plate gives the model a ~150 px face).  The full-body plate follows as a wardrobe reference.
 BINDING_ROLE_ORDER = [
+    "character",
     "episode_global_space_map",
     "global_space_map",
     "subspace_layout",
     "scene",
-    "character",
+    "character_wardrobe",
     "prop",
 ]
+CHARACTER_FACE_VIEW = "FRONT_NEUTRAL_HEADSHOT"
+CHARACTER_WARDROBE_VIEW = "FULL_BODY_STANDING"
+#: Roger 2026-09-18 (②): space maps + scene + props together <= 5 so the face signal is not diluted;
+#: dropped in this order until the cap holds.  Total references <= 9 (provider limit).
+NON_CHARACTER_REFERENCE_MAX = 5
+NON_CHARACTER_DROP_ORDER = ["episode_global_space_map", "global_space_map", "prop"]
+REFERENCE_TOTAL_MAX = 9
 FORBIDDEN_EXTEND_WORDS = ("持续", "保持", "连续")
 NOVELTY_CLASSES = (
     "NEW_CHARACTER_IDENTITY",
@@ -472,15 +483,47 @@ def map_bindings(inputs: Inputs, shot_id: str, sp_task: dict[str, Any], gate_ref
     return rows
 
 
-def library_artifact(library: dict[str, Any], category: str, asset_id: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+def library_artifact(library: dict[str, Any], category: str, asset_id: str,
+                     view: str | None = None) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """``view`` (e.g. FRONT_NEUTRAL_HEADSHOT) selects that plate by its artifact role/view; without it
+    the historical choice (canonical, else the first artifact = full body) is kept."""
     asset = ((library.get("assets") or {}).get(category) or {}).get(asset_id)
     if not isinstance(asset, dict):
         return None, None
     artifacts = [row for row in asset.get("artifacts") or [] if isinstance(row, dict)]
     if not artifacts:
         return asset, None
+    if view:
+        wanted = [row for row in artifacts
+                  if view in (str(row.get("role") or ""), str(row.get("view") or "")) or view in str(row.get("path") or "")]
+        if wanted:
+            return asset, wanted[0]
     canonical = [row for row in artifacts if str(row.get("role") or "").startswith("canonical")]
     return asset, (canonical[0] if canonical else artifacts[0])
+
+
+def cap_non_character_bindings(rows: list[dict[str, Any]], *, limit: int = NON_CHARACTER_REFERENCE_MAX,
+                               total_limit: int = REFERENCE_TOTAL_MAX) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Keep the sequence order; drop non-character references (episode map first, then place map,
+    then props from the end) until <= ``limit``; then drop wardrobe plates from the end until the
+    total is <= ``total_limit``.  Face plates, the subspace layout and the scene plate are never dropped."""
+    kept = list(rows)
+    dropped: list[dict[str, Any]] = []
+    non_char = lambda r: str(r["role"]) not in ("character", "character_wardrobe")
+    for role in NON_CHARACTER_DROP_ORDER:
+        while sum(1 for r in kept if non_char(r)) > limit:
+            victims = [r for r in kept if str(r["role"]) == role]
+            if not victims:
+                break
+            victim = victims[-1]
+            kept.remove(victim); dropped.append({**victim, "dropped_reason": f"NON_CHARACTER_REFERENCE_MAX_{limit}"})
+    while len(kept) > total_limit:
+        victims = [r for r in kept if str(r["role"]) == "character_wardrobe"] or [r for r in kept if str(r["role"]) == "prop"]
+        if not victims:
+            break
+        victim = victims[-1]
+        kept.remove(victim); dropped.append({**victim, "dropped_reason": f"REFERENCE_TOTAL_MAX_{total_limit}"})
+    return kept, dropped
 
 
 def awaited_identity_path(awaited_asset_dir: Path, category: str, asset_id: str) -> str:
@@ -497,8 +540,9 @@ def awaited_identity_path(awaited_asset_dir: Path, category: str, asset_id: str)
 
 def entity_binding(
     inputs: Inputs, role: str, category: str, asset_id: str, display_name: str, kind: str,
+    view: str | None = None,
 ) -> dict[str, Any]:
-    asset, artifact = library_artifact(inputs.asset_library, category, asset_id)
+    asset, artifact = library_artifact(inputs.asset_library, category, asset_id, view)
     library_ref = engine_relative(inputs.asset_library_path, inputs.engine_root)
     qa_status = str(((asset or {}).get("qa") or {}).get("status") or "PENDING")
     if artifact:
@@ -515,6 +559,7 @@ def entity_binding(
                 "sha256": declared,
                 "qa_status": qa_status,
                 "kind": kind,
+                "view": view or str(artifact.get("role") or artifact.get("view") or ""),
                 "qa_report": library_ref,
                 "asset_origin": "EPISODE_NEW_ASSET",
                 "binding_status": "BOUND_EXACT_SHA",
@@ -575,34 +620,47 @@ def scene_binding(inputs: Inputs, shot: dict[str, Any], subspace_row: dict[str, 
 def build_bindings(inputs: Inputs, shot_id: str, gate_ref: str) -> tuple[list[dict[str, Any]], list[str], list[str]]:
     shot = inputs.shots[shot_id]
     sp_task = inputs.subspace_tasks[shot_id]
-    rows = map_bindings(inputs, shot_id, sp_task, gate_ref)
-    rows.append(scene_binding(inputs, shot, rows[2]))
+    space_rows = map_bindings(inputs, shot_id, sp_task, gate_ref)
+    scene_row = scene_binding(inputs, shot, space_rows[2])
 
     blocking = sp_task.get("blocking") or {}
     character_ids: list[str] = []
     prop_ids: list[str] = []
+    face_rows: list[dict[str, Any]] = []
+    wardrobe_rows: list[dict[str, Any]] = []
+    prop_rows: list[dict[str, Any]] = []
     for entry in blocking.get("characters") or []:
         asset_id = str(entry.get("character_id") or "")
         if not asset_id or asset_id in character_ids:
             continue
         character_ids.append(asset_id)
-        rows.append(entity_binding(
-            inputs, "character", "characters", asset_id,
-            str(entry.get("character") or asset_id), "CHARACTER_IDENTITY_PLATE",
-        ))
+        name = str(entry.get("character") or asset_id)
+        # Roger 2026-09-18 ②: the front neutral headshot is the face reference and leads the
+        # sequence; the full-body plate is demoted to a wardrobe reference.
+        face_rows.append(entity_binding(inputs, "character", "characters", asset_id, name,
+                                        "CHARACTER_IDENTITY_PLATE", view=CHARACTER_FACE_VIEW))
+        wardrobe_rows.append(entity_binding(inputs, "character_wardrobe", "characters", asset_id, name,
+                                            "CHARACTER_WARDROBE_PLATE", view=CHARACTER_WARDROBE_VIEW))
     for entry in blocking.get("props") or []:
         asset_id = str(entry.get("prop_id") or "")
         if not asset_id or asset_id in prop_ids:
             continue
         prop_ids.append(asset_id)
-        rows.append(entity_binding(
+        prop_rows.append(entity_binding(
             inputs, "prop", "props", asset_id,
             str(entry.get("prop") or asset_id), "PROP_IDENTITY_PLATE",
         ))
+    rows, dropped = cap_non_character_bindings(face_rows + space_rows + [scene_row] + wardrobe_rows + prop_rows)
+    if dropped:
+        report = getattr(inputs, "reference_cap_report", None)
+        if report is None:
+            report = {}
+            setattr(inputs, "reference_cap_report", report)
+        report[shot_id] = [{"role": r["role"], "entity_id": r.get("entity_id"), "reason": r["dropped_reason"]} for r in dropped]
 
     order = [BINDING_ROLE_ORDER.index(str(row["role"])) for row in rows]
     if order != sorted(order):
-        raise ValueError(f"{shot_id}: reference binding order violates episode->place->subspace->scene->character->prop")
+        raise ValueError(f"{shot_id}: reference binding order violates character->episode->place->subspace->scene->character_wardrobe->prop")
     return rows, character_ids, prop_ids
 
 
@@ -660,7 +718,8 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
             "global_space_map": "仅提供本地点的房间/区域拓扑与坐标",
             "subspace_layout": "仅提供本镜机位、轴线、可见固定元素与站位几何",
             "scene": "唯一场景参考位",
-            "character": "仅锁定该人物的脸型、发型、体型、年龄与服装",
+            "character": "正面头像：锁定该人物的脸型、五官、发型与年龄（脸以此图为准）",
+            "character_wardrobe": "全身像：仅锁定该人物的服装形制、体型比例与配饰；脸不以此图为准",
             "prop": "仅锁定该道具的形制、材质与尺度",
         }[str(row["role"])]
         # Binding bookkeeping stays out of the provider text so the prompt SHA is
@@ -1054,6 +1113,10 @@ def build_manifest(inputs: Inputs, tasks: list[dict[str, Any]], keyframe_dir: Pa
         "task_count": len(tasks),
         "tasks": tasks,
         "blocked_tasks": [],
+        "reference_policy": {"authority": "Roger 2026-09-18 identity chain ②", "face_view_first": CHARACTER_FACE_VIEW,
+                             "wardrobe_view": CHARACTER_WARDROBE_VIEW, "non_character_reference_max": NON_CHARACTER_REFERENCE_MAX,
+                             "reference_total_max": REFERENCE_TOTAL_MAX, "drop_order": NON_CHARACTER_DROP_ORDER},
+        "reference_cap_report": getattr(inputs, "reference_cap_report", {}) or {},
         "generated_by": "runtime/tools/build_keyframe_manifest.py",
         "generated_at": utc_now(),
     }

@@ -508,6 +508,16 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[lines/nalu/runtime/tools/final_cut_shot_plan_parity.py](../../lines/nalu/runtime/tools/final_cut_shot_plan_parity.py)、[lines/nalu/runtime/tools/nalu_pipeline.py](../../lines/nalu/runtime/tools/nalu_pipeline.py)（回归：[tools/tests/test_nalu_e05_sync.py](../../tools/tests/test_nalu_e05_sync.py)）
 - 证据：nalu PIPELINE_RUNBOOK D-51/D-54; SUPERVISOR_ORDERS seq=27
 
+### K059 — pipeline
+
+- failure_code：`IDENTITY_SIGNAL_DILUTED_ALONG_CHAIN`（scope episode，类别 IDENTITY）
+- do_not_repeat：牌对原照测；关键帧脸参考打头且大脸；视频单元带头像牌；Q1 不给 3/4 脸豁免
+- 规则：身份链四步各自可证：①身份牌锁定必须对操作者原照片逐牌测余弦（后缀源图也要找到），任一牌 <0.45 重出牌；②关键帧参考序列以正面头像牌打头，全身牌降为服装参考，空间图+场景+道具 ≤5、总数 ≤9；③每个视频单元的参考图 = 关键帧锚点 + 每个在场角色的正面头像牌（上限 9）；④关键帧 Q1 对 3/4、侧脸、低头、转头一律测，只有背影/仅手/出画/远小/画外音豁免，检测不到即 FAIL。
+- 失败教训：E05 全集 14 个室内近景对话单元主角脸走样：身份牌从未与原照比过（源图后缀没被找到，source_cosine 为空）；关键帧 10 张参考里脸只在 1440×2560 全身牌上约 150px；视频付费提交只带 1 张 720p 关键帧（脸约 80px），seq=7 c4 的头像牌追加被『已有关键帧绑定』短路；Q1 把 3/4 脸标 not_measurable 放行。E04 没暴露只因多为背影/远景。
+- 修复路径：identity_qa_lock.find_operator_source + source_likeness_failures；build_keyframe_manifest 角色头像打头 + cap_non_character_bindings；build_nalu_preproduction.identity_plate_reference_rows；keyframe_q1_builder.pose_exempt 闭集。既有 LOCKED 牌按新阈值复测：梁婉清 0.351/0.407 需线主下单重出。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[lines/nalu/runtime/tools/identity_qa_lock.py](../../lines/nalu/runtime/tools/identity_qa_lock.py)、[lines/nalu/runtime/tools/build_keyframe_manifest.py](../../lines/nalu/runtime/tools/build_keyframe_manifest.py)、[lines/nalu/runtime/tools/build_nalu_preproduction.py](../../lines/nalu/runtime/tools/build_nalu_preproduction.py)、[lines/nalu/runtime/tools/keyframe_q1_builder.py](../../lines/nalu/runtime/tools/keyframe_q1_builder.py)（回归：[tools/tests/test_nalu_identity_chain_fixes.py](../../tools/tests/test_nalu_identity_chain_fixes.py)）
+- 证据：nalu PIPELINE_RUNBOOK D-57; E05 library re-measurement 2026-09-18
+
 ## 引用和许可
 
 以上文字为项目经验的原创概括，随本仓库 MIT LICENSE 发布。未复制外部社区文章、教程全文、他人视频/图片或私人聊天。

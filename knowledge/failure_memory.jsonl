@@ -15,3 +15,4 @@
 {"failure_code": "SHOT_TEXT_STATE_LEAK", "do_not_repeat": "姿态逐镜声明；场景光线不提人物；道具用注册表名；start_framing 含在场人物；有道具的无人帧不写空镜", "stage": "pipeline", "scope": "episode", "knowledge_id": "K056"}
 {"failure_code": "REVIEW_MARKER_REQUIRES_NEW_REQUEST", "do_not_repeat": "标记/豁免只随新审核请求生效；P2 用 1-based shot_index；身份豁免先看裁切图", "stage": "pipeline", "scope": "episode", "knowledge_id": "K057"}
 {"failure_code": "ACTION_VISIBILITY_UNDECLARED", "do_not_repeat": "关键动作画内可见、对白动作词有动作、同机位不相邻；成片对镜表比对只诊断", "stage": "pipeline", "scope": "episode", "knowledge_id": "K058"}
+{"failure_code": "IDENTITY_SIGNAL_DILUTED_ALONG_CHAIN", "do_not_repeat": "牌对原照测；关键帧脸参考打头且大脸；视频单元带头像牌；Q1 不给 3/4 脸豁免", "stage": "pipeline", "scope": "episode", "knowledge_id": "K059"}

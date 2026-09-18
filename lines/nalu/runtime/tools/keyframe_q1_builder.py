@@ -315,7 +315,29 @@ def face_measurable_ids(request_item: dict[str, Any]) -> list[str]:
     required = list(expectations.get("required_visible_character_ids") or [])
     by_id = {str(row.get("character_id")): str(row.get("face_visibility") or "VISIBLE_PER_FRAME_CONTENT")
              for row in expectations.get("cast") or [] if row.get("character_id")}
-    return [cid for cid in required if by_id.get(cid, "VISIBLE_PER_FRAME_CONTENT") == "VISIBLE_PER_FRAME_CONTENT"]
+    return [cid for cid in required if not pose_exempt(by_id.get(cid, "VISIBLE_PER_FRAME_CONTENT"))]
+
+
+#: Roger 2026-09-18 (identity chain ④): a 3/4 or profile face in a keyframe IS measured — the old
+#: rule let any ``*_NOT_MEASURABLE`` marker skip the cosine, and E05's keyframes lost the face
+#: there unnoticed.  Only poses with no face pixels at all stay exempt; a declared face that the
+#: detector cannot find is DECLARED_CHARACTER_FACE_NOT_FOUND (a failure), never a skip.
+POSE_EXEMPT_MARKERS = ("BACK_", "HANDS_ONLY", "FACE_OUT_OF_FRAME", "OFFSCREEN_VOICE_ONLY",
+                       "ENTERS_IN_SHOT_NOT_IN_FIRST_FRAME", "FAR_FIGURE", "SMALL_")
+POSE_MEASURED_ANYWAY = ("THREE_QUARTER", "PROFILE", "HEAD_DOWN", "UP_TILTED", "HIGH_ANGLE", "TURNED", "COLLAR")
+
+
+def pose_exempt(marker: str) -> bool:
+    """True only for a closed set of no-face poses; every other marker (3/4, profile, head down,
+    turned, shadowed) is measured.  A marker that names BOTH (e.g. BACK_THREE_QUARTER) is a back."""
+    m = str(marker or "").upper()
+    if m in ("", "VISIBLE_PER_FRAME_CONTENT"):
+        return False
+    if m.startswith("BACK_") or m.startswith("BACK-"):
+        return True
+    if any(token in m for token in POSE_MEASURED_ANYWAY):
+        return False
+    return any(m.startswith(token) or token in m for token in POSE_EXEMPT_MARKERS)
 
 
 def measure_still_identity(episode: str, keyframes: dict[str, Path],
@@ -750,10 +772,11 @@ def materialise(episode: str, submitted: dict[str, Any],
         identity_v["declared_visible_character_ids"] = required_all
         identity_v["measured_character_ids"] = required
         identity_v["not_measurable_by_pose"] = exempt
-        identity_v["not_measurable_policy"] = ("D-16 (SUPERVISOR_ORDERS seq=6): still frontal-plate cosine is not run on "
-                                               "profiles, closed/lying eyes, small or back-lit faces, backs and hands-only "
-                                               "framings; the reviewer's each_visible_character_identity_recognisable answer "
-                                               "is the identity check for those; thresholds unchanged")
+        identity_v["not_measurable_policy"] = ("Roger 2026-09-18 (identity chain ④) narrows D-16: 3/4, profile, head-down, "
+                                               "turned and shadowed faces ARE measured (a face the detector cannot find is "
+                                               "DECLARED_CHARACTER_FACE_NOT_FOUND); only backs, hands-only, out-of-frame, "
+                                               "far/small figures and offscreen voices are exempt (keyframe_q1_builder."
+                                               "POSE_EXEMPT_MARKERS); thresholds unchanged")
 
         action_checks = _checks(item, questionnaire, GATE_QUESTIONS[ACTION_GATE])
         action_failed = [row["question_id"] for row in action_checks if row["answer"] != "PASS"]

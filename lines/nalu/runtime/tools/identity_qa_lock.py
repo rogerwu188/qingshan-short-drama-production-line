@@ -91,6 +91,42 @@ LOCK_BUILDERS = {
 # --------------------------------------------------------------------------- #
 # deterministic measurement: insightface cosine, plate vs operator source
 # --------------------------------------------------------------------------- #
+SOURCE_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
+
+
+def find_operator_source(asset_id: str, folder: Path | None = None) -> Path | None:
+    """The operator's source photo for a character (Roger 2026-09-18, identity chain ①).
+
+    The old lookup was ``<id>.png`` then ``<id>.*`` — it never matched the suffixed sources the
+    line actually uses (``CHAR-QINMING__SOURCE_V2_TANG.png``), so every lock silently recorded
+    ``NO_OPERATOR_SOURCE_REFERENCE`` and ``source_cosine: []``.  Order: exact ``<id>.png``,
+    ``<id>__SOURCE*``, ``<id>.*``, ``<id>__*``, ``<id>_*`` — always anchored on the full asset id,
+    never on a prefix that another character could share.
+    """
+    folder = Path(folder) if folder is not None else CHARACTER_SOURCES
+    exact = folder / f"{asset_id}.png"
+    if exact.is_file():
+        return exact
+    for pattern in (f"{asset_id}__SOURCE*", f"{asset_id}.*", f"{asset_id}__*", f"{asset_id}_*"):
+        candidates = sorted(p for p in folder.glob(pattern)
+                            if p.is_file() and p.suffix.lower() in SOURCE_IMAGE_SUFFIXES)
+        if candidates:
+            return candidates[0]
+    return None
+
+
+def source_likeness_failures(source_scores: list[dict[str, Any]], pass_threshold: float) -> list[str]:
+    """Roger 2026-09-18 (identity chain ①): every plate is scored against the operator source and
+    ANY plate below the PASS threshold (0.45) fails the lock — the plate must be re-issued.  The
+    old rule only failed below the 0.30 FAIL threshold, which let a 0.35 headshot through."""
+    out = []
+    for row in source_scores:
+        score = float(row.get("cosine_vs_source", 0.0))
+        if score < pass_threshold:
+            out.append(f"SOURCE_LIKENESS_BELOW_PASS_THRESHOLD:{Path(str(row.get('plate'))).name}:{score:.6f}")
+    return out
+
+
 def measure_plate_identity(asset_id: str, plates: list[Path],
                            source: Path | None) -> dict[str, Any]:
     """Real INSIGHTFACE_COSINE_V1 measurement across the plates.
@@ -166,9 +202,8 @@ def measure_plate_identity(asset_id: str, plates: list[Path],
             score = max(float(gate._cosine(embeddings[key], ref))  # noqa: SLF001
                         for ref in source_embeddings)
             result["source_scores"].append({"plate": key, "cosine_vs_source": round(score, 6)})
-            if score < fail_threshold:
-                result["failures"].append(
-                    f"SOURCE_LIKENESS_BELOW_FAIL_THRESHOLD:{Path(key).name}:{score:.6f}")
+        result["failures"].extend(source_likeness_failures(result["source_scores"], pass_threshold))
+        result["source_likeness_rule"] = f"every plate >= {pass_threshold} vs operator source (Roger 2026-09-18 ①)"
     else:
         result["source_reference"] = None
         result["source_likeness"] = "NO_OPERATOR_SOURCE_REFERENCE_FOR_THIS_SUBJECT"
@@ -333,10 +368,7 @@ def materialise(episode: str, submitted: dict[str, Any],
         plates = [Path(media["path"]) for media in request_item.get("media") or []
                   if media.get("role") == "IDENTITY_PLATE" and media.get("path")
                   and Path(media["path"]).is_file()]
-        source = CHARACTER_SOURCES / f"{asset_id}.png"
-        if not source.is_file():
-            candidates = sorted(CHARACTER_SOURCES.glob(f"{asset_id}.*"))
-            source = candidates[0] if candidates else None
+        source = find_operator_source(asset_id)
 
         measurement = ({"method": "INSIGHTFACE_COSINE_V1", "decision": "NOT_APPLICABLE",
                         "reason": "non-character subject has no face to embed",

@@ -1762,6 +1762,35 @@ def _locked_identity_plate(character_id: str) -> Path | None:
     return (front or views)[0]
 
 
+VIDEO_REFERENCE_MAX = 9   # submit_giggle_video_manifest_v2 refuses > 9 reference images
+
+
+def identity_plate_reference_rows(character_ids: list[str], plate_lookup, *, existing_paths: list[str],
+                                  cap: int = VIDEO_REFERENCE_MAX) -> tuple[list[dict[str, Any]], list[str], list[str]]:
+    """Roger 2026-09-18 (identity chain ③): one front-neutral-headshot plate per visible character,
+    appended after the semantic (keyframe / tail) references, in cast order, never duplicated,
+    capped so the unit stays within the provider's reference limit.  Returns (rows, dropped_over_cap,
+    missing_locked_plate)."""
+    rows: list[dict[str, Any]] = []
+    dropped: list[str] = []
+    missing: list[str] = []
+    seen = {str(p) for p in existing_paths}
+    for cid in character_ids:
+        plate = plate_lookup(cid)
+        if plate is None:
+            missing.append(cid)
+            continue
+        if str(plate) in seen:
+            continue
+        if len(seen) >= cap:
+            dropped.append(cid)
+            continue
+        rows.append({"character_id": cid, "path": str(plate), "sha256": sha256_file(Path(plate)),
+                     "view": "FRONT_NEUTRAL_HEADSHOT", "role": "CHARACTER_IDENTITY_REFERENCE"})
+        seen.add(str(plate))
+    return rows, dropped, missing
+
+
 def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, dict[str, Any]],
                          final_rows: dict[str, dict[str, Any]], *, rendered: dict[str, Any],
                          contract: dict[str, Any], out_dir: Path, prefix: str, root: Path,
@@ -1871,25 +1900,27 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
                                  "sha256": extra_sha, "source": "IDENTITY_REFERENCE_OVERRIDE_LOCKED_PLATE"})
                 bound.add(extra["character_id"])
             task.setdefault("identity_reference_overrides", []).append({**extra, "sha256": extra_sha})
-        # seq=7 condition 4 (Roger 2026-09-13, E02+): every character whose face is visible in the
-        # unit gets the LOCKED identity plate (front neutral headshot) as an SD2 subject reference,
-        # in addition to the keyframe / tail semantic references.  E01 stays as delivered.
+        # seq=7 condition 4 (Roger 2026-09-13, E02+) as RE-STATED by Roger 2026-09-18 (identity chain ③):
+        # every character whose face is visible in the unit gets the LOCKED front-neutral-headshot
+        # plate as a subject reference IN ADDITION to the keyframe / tail semantic references —
+        # unconditionally.  The old guard skipped the plate whenever the character already had a
+        # keyframe semantic binding, which is every character in every unit; E05 therefore shipped
+        # each unit with a single 720p keyframe (face ~80 px) and no identity plate at all.
         if episode != "E01":
-            for cid in chars:
-                if any(b.get("entity_id") == cid and b.get("role") == "CHARACTER_REFERENCE" for b in bindings):
-                    continue
-                plate = _locked_identity_plate(cid)
-                if plate is None:
-                    continue
-                plate_sha = sha256_file(plate)
-                if str(plate) not in task["reference_images"]:
-                    task["reference_images"].append(str(plate))
-                    task["reference_sha256"].append(plate_sha)
-                    task["reference_roles"].append("CHARACTER_IDENTITY_REFERENCE")
-                bindings.append({"entity_id": cid, "role": "CHARACTER_REFERENCE", "path": str(plate),
-                                 "sha256": plate_sha, "source": "IDENTITY_PLATE_AUTO_SEQ7_C4"})
-                bound.add(cid)
-                task.setdefault("identity_reference_auto", []).append({"character_id": cid, "path": str(plate), "sha256": plate_sha})
+            plate_rows, plate_dropped, plate_missing = identity_plate_reference_rows(
+                chars, _locked_identity_plate, existing_paths=task["reference_images"])
+            for row in plate_rows:
+                task["reference_images"].append(row["path"])
+                task["reference_sha256"].append(row["sha256"])
+                task["reference_roles"].append("CHARACTER_IDENTITY_REFERENCE")
+                bindings.append({"entity_id": row["character_id"], "role": "CHARACTER_REFERENCE", "path": row["path"],
+                                 "sha256": row["sha256"], "source": "IDENTITY_PLATE_AUTO_SEQ7_C4"})
+                bound.add(row["character_id"])
+                task.setdefault("identity_reference_auto", []).append(row)
+            if plate_dropped:
+                task["identity_reference_dropped_over_cap"] = plate_dropped
+            if plate_missing:
+                task["identity_reference_missing_locked_plate"] = plate_missing
         task["unbound_canonical_entities"] = sorted(set(chars + props) - bound)
         task["reference_image_sequence"] = bindings
         task["reference_bindings"] = space_map_bindings + bindings

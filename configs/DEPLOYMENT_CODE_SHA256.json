@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1841,
+  "file_count": 1842,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -181,7 +181,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "2838e0bba0a6f18b87e6f454f78db9d0e124c01513ca1f4eacaaec1fd8bdc72b"
+      "sha256": "1e81ed55fc49999652ae80c893ba9e1c72c61b34fb4fa7024c68ced54ba41add"
     },
     {
       "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
@@ -241,11 +241,11 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "b544ba9f4f594ef91197f45e25f276f6506ef8a3ca97d32764d82db84bcfecf7"
+      "sha256": "06e1de71d2804ac3df5eb1aaf8fb82f7fccd7dd6c2c0df9f0d5569e9c2f14f3d"
     },
     {
       "path": "docs/knowledge/INTEGRATION_STATUS.md",
-      "sha256": "5e6d24bcad592fb0e5cb99765e801a97fdca568d5a0d8c1fc3a6544ea266a90b"
+      "sha256": "9a05cafb4785770d0e39f4f39e6332c50d8a2d97d32d22259f97886df84efa2e"
     },
     {
       "path": "docs/knowledge/VALIDATION_REPORT.md",
@@ -6517,7 +6517,7 @@
     },
     {
       "path": "tools/tests/test_knowledge_registry.py",
-      "sha256": "c3614e213f77804bc2b8673475a51db8daf7d8467e914f4036316a6822baa4d9"
+      "sha256": "59f9e2aaf3d84caadb03740a5c4109595cdf8a897c9791ed41d703cf2cc253af"
     },
     {
       "path": "tools/tests/test_line_heartbeat.py",
@@ -6574,6 +6574,10 @@
     {
       "path": "tools/tests/test_nalu_e05_sync.py",
       "sha256": "4197167869755be1c81c756c42f64bb022b3fb93ebd7c4407f95711ff08534de"
+    },
+    {
+      "path": "tools/tests/test_nalu_identity_chain_fixes.py",
+      "sha256": "055eff9dd3276fc8d6b18b3c100f8e51f8df24e1f9b1732e0845e003912047e7"
     },
     {
       "path": "tools/tests/test_nalu_prompt_rules_seq19.py",
