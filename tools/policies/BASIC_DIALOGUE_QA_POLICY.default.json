@@ -1,0 +1,32 @@
+{
+  "schema": "qingshan.basic_dialogue_qa_policy.v1",
+  "policy_id": "BASIC_DIALOGUE_NEAR_SOUND_ACCEPTANCE_V1",
+  "authority": "Roger: 这些不重要，声音类似就行了；不需要重做；这条规则记入生产线",
+  "models": [
+    "SD2",
+    "H3"
+  ],
+  "scope": "POST_GENERATION_BASIC_DIALOGUE_QA",
+  "asr_role": "ADVISORY_NOT_VERBATIM_CERTIFICATION",
+  "nonblocking_findings": [
+    "ASR_TEXT_MISMATCH",
+    "HOMOPHONE_DIFFERENCE",
+    "NEAR_SOUND_DIFFERENCE"
+  ],
+  "minor_difference_disposition": "ACCEPT_WITH_NOTE",
+  "regeneration_for_minor_difference_allowed": false,
+  "repeat_asr_for_minor_difference_allowed": false,
+  "basic_failures_preserved": [
+    "AUDIO_UNDECODABLE",
+    "DIALOGUE_INAUDIBLE",
+    "WRONG_SPEAKER",
+    "WHOLE_LINE_MISSING",
+    "DIALOGUE_CLIPPED"
+  ],
+  "asr_text_difference_is_not_proof_of_basic_failure": true,
+  "unknown_findings_must_not_be_auto_waived": true,
+  "generation_prompt_dialogue_and_canonical_subtitles_unchanged": true,
+  "map_weather_camera_identity_and_voice_binding_unchanged": true,
+  "asr_cannot_certify_voice_identity_or_exact_pronunciation": true,
+  "deployment_note": "Tracked default template (tools/policies). A deployment overrides it with configs/BASIC_DIALOGUE_QA_POLICY.json (gitignored) or QINGSHAN_BASIC_DIALOGUE_QA_POLICY; the private line-owner ruling text below is carried as the Codex line recorded it."
+}

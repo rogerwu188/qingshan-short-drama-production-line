@@ -10,11 +10,15 @@ def test_portable_artifacts_exist_and_are_redacted():
     assert "GIGGLE_API_KEY=" not in text and "Bearer " not in text and "task_id" not in text
 
 
-def test_knowledge_registry_k001_to_k034_exist_and_link_to_repo_files():
+def test_knowledge_registry_ids_are_consecutive_from_k001_and_link_to_repo_files():
     registry_path = ROOT / "configs/ENGINEERING_KNOWLEDGE_V1.json"
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     rules = registry["rules"]
-    assert [row["id"] for row in rules] == [f"K{i:03d}" for i in range(1, 35)]
+    # K001–K034 are the sanitized retrospective; later rules are appended by the production
+    # lines (nalu S7-SYNC adds K035+).  The contract is: consecutive ids from K001, never fewer
+    # than the 34 the open-source package shipped with.
+    assert len(rules) >= 34
+    assert [row["id"] for row in rules] == [f"K{i:03d}" for i in range(1, len(rules) + 1)]
 
     # Every rule must remain discoverable from a clean clone.  Empty
     # implementation lists are intentional for guidance/integration-pending

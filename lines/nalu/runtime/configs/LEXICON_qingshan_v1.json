@@ -1,0 +1,41 @@
+{
+  "schema": "qingshan.lexicon.v1",
+  "world": "qingshan",
+  "version": "v1",
+  "forbidden_terms": [
+    "变异",
+    "生物",
+    "基因",
+    "系统",
+    "能量",
+    "科技",
+    "病毒",
+    "数据",
+    "进化",
+    "辐射"
+  ],
+  "canonical_names": {
+    "白鲤郡主": [
+      "白狸",
+      "白理"
+    ],
+    "陈迹": [
+      "陈继",
+      "陈计"
+    ],
+    "梁狗儿": [
+      "梁苟儿"
+    ],
+    "梁猫儿": [
+      "梁毛儿"
+    ],
+    "林朝京": [
+      "林朝经"
+    ]
+  },
+  "address_terms": {
+    "哥": "梁猫儿 对 梁狗儿",
+    "朋友": "世子 对 佘登科等江湖人"
+  },
+  "note": "Period-lexicon rules for the qingshan (青山, 北宋) scope consumed via series_scopes.json. forbidden_terms mirror LEXICON_yewujiang_v1 (modern / sci-fi words); canonical_names lists ASR/subtitle variants to reject. Add by appending; never remove without a supervisor order."
+}

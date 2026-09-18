@@ -16,11 +16,11 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from tools.giggle_api_client import _request
+    from tools.giggle_api_client import _request, durable_generation_context
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from tools.visual_culture_contract import validate_visual_culture_contract
 except ModuleNotFoundError:
-    from giggle_api_client import _request
+    from giggle_api_client import _request, durable_generation_context
     from giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from visual_culture_contract import validate_visual_culture_contract
 
@@ -158,7 +158,10 @@ def submit(row: dict, output_dir: Path, transaction_dir: Path, model: str, resol
     previous_context = os.environ.get("QINGSHAN_DURABLE_SUBMITTER_CONTEXT")
     os.environ["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = "1"
     try:
-        response = _request(endpoint, payload)
+        # both durable-context signals: the env var (nalu line, e13) and the API client's
+        # ContextVar (Codex line); the client accepts either, each line's test checks one.
+        with durable_generation_context():
+            response = _request(endpoint, payload)
     except (Exception, SystemExit) as exc:
         intent.update({"state": "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION", "error": str(exc), "response_lost_at": utc_now()})
         atomic_json(transaction, intent)

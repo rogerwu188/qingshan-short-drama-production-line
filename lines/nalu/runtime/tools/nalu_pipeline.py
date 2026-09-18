@@ -40,6 +40,7 @@ from __future__ import annotations
 import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
+import nalu_series_scope as _scope  # per-episode asset-library / registry scope (Roger 2026-09-18, E59)
 
 import argparse
 import copy
@@ -257,13 +258,27 @@ def episode_range(start: str, end: str) -> list[str]:
 class Paths:
     """Every path this pipeline touches, resolved absolutely, for one episode."""
 
-    def __init__(self, episode: str) -> None:
+    def __init__(self, episode: str, layers: dict[str, Path] | None = None) -> None:
         self.episode = episode
+        #: Roger 2026-09-18: every cross-episode registry/library path comes from the
+        #: episode's series scope (runtime/series_scopes.json).  E01–E05 resolve to the
+        #: historical NALU-YEWUJIANG paths; E59 resolves to series/qingshan_e59/ only.
+        self.scope = _scope.resolve_scope(episode)
         # S1 — the four authored layers
         self.narrative = SCRIPTS / f"{episode}_NARRATIVE_CANONICAL_v1.md"
         self.directing = SCRIPTS / f"{episode}_DIRECTING_SCRIPT_v1.md"
         self.contract = SCRIPTS / f"{episode}_GENERATION_CONTRACT_v1.json"
         self.writer_manifest = SCRIPTS / f"{episode}_manifest_v1.json"
+        #: Roger 2026-09-18 (E59 v4 adapter): the four layers may be handed in explicitly
+        #: (--layers-dir / --narrative / --directing / --contract / --manifest) instead of the
+        #: fixed *_v1 slot names; the choice is persisted in the state file (layers) and reused.
+        self.layers_source = "DEFAULT_V1_SLOTS"
+        if layers:
+            self.narrative = Path(layers.get("narrative_canonical") or self.narrative)
+            self.directing = Path(layers.get("directing_script") or self.directing)
+            self.contract = Path(layers.get("generation_contract") or self.contract)
+            self.writer_manifest = Path(layers.get("writer_manifest") or self.writer_manifest)
+            self.layers_source = "EXPLICIT"
         self.gate10 = ENGINE / "agent_factory/claude_writer_v2/gates/writer_scene_source_declaration_gate.py"
 
         # runtime preproduction inputs (per-episode; D-10 generates them)
@@ -327,7 +342,7 @@ class Paths:
         self.speech_payloads = self.voice / "speech_task_payloads.json"
         self.voice_report = self.voice / "voice_bootstrap_report.json"
         self.voice_upload_dir = self.voice / "uploads"
-        self.voice_refs = VOICE_REFS_ROOT
+        self.voice_refs = self.scope["voice_refs"]
 
         # S5 keyframes
         self.keyframe_manifest = self.preprod / f"{prefix}KEYFRAME_IMAGE_MANIFEST_V1.json"
@@ -420,11 +435,77 @@ class StageResult:
         return self.status in TERMINAL_OK
 
 
+def explicit_layers_from_args(episode: str, args: argparse.Namespace) -> dict[str, Path] | None:
+    """--layers-dir <dir> (the four <EP>_*_v1 names inside it) and/or the four explicit paths."""
+    out: dict[str, Path] = {}
+    layers_dir = getattr(args, "layers_dir", None)
+    if layers_dir:
+        base = Path(layers_dir).expanduser().resolve()
+        out = {"narrative_canonical": base / f"{episode}_NARRATIVE_CANONICAL_v1.md",
+               "directing_script": base / f"{episode}_DIRECTING_SCRIPT_v1.md",
+               "generation_contract": base / f"{episode}_GENERATION_CONTRACT_v1.json",
+               "writer_manifest": base / f"{episode}_manifest_v1.json"}
+    for key, attr in (("narrative_canonical", "narrative"), ("directing_script", "directing"),
+                      ("generation_contract", "contract"), ("writer_manifest", "manifest")):
+        value = getattr(args, attr, None)
+        if value:
+            out[key] = Path(value).expanduser().resolve()
+    return out or None
+
+
+def project_scope_check(ctx: "Ctx") -> dict[str, Any]:
+    """Roger 2026-09-18 (E59): the asset library this episode will reuse from must belong to the
+    episode's project (asset_library.project_id == scope series_id) and, for a non-default scope,
+    the episode's own global space map must exist, be LOCKED and map every contract scene.
+    The default NALU-YEWUJIANG scope keeps its historical library (project_id NALU-YEWUJIANG)."""
+    scope = ctx.p.scope
+    failures: list[str] = []
+    lib_path = scope["asset_library"] if scope["asset_library"].is_file() else scope["asset_library_seed"]
+    library = read_json(lib_path, {}) or {}
+    project_id = library.get("project_id")
+    if project_id != scope["series_id"]:
+        failures.append(f"ASSET_LIBRARY_PROJECT_MISMATCH:{project_id}!={scope['series_id']}")
+    detail: dict[str, Any] = {"scope_id": scope["scope_id"], "series_id": scope["series_id"], "asset_library": str(lib_path),
+                              "asset_library_project_id": project_id, "default_scope": scope["is_default"]}
+    if not scope["is_default"]:
+        for key in ("voice_registry", "entity_registry", "character_sources", "lexicon"):
+            value = str(scope[key])
+            if "/nalu_runtime/runtime/" in value or "/workflow/nalu/E0" in value:
+                failures.append(f"SCOPE_PATH_LEAKS_INTO_DEFAULT_RUNTIME:{key}")
+        gsm = read_json(ctx.p.gsm_own, {}) or {}
+        detail["global_space_map"] = str(ctx.p.gsm_own)
+        detail["global_space_map_status"] = gsm.get("status")
+        if not gsm:
+            failures.append("GLOBAL_SPACE_MAP_MISSING")
+        else:
+            if gsm.get("status") != "LOCKED":
+                failures.append(f"GLOBAL_SPACE_MAP_NOT_LOCKED:{gsm.get('status')}")
+            mapped = {m.get("scene_id") for sm in (gsm.get("space_maps") or []) for m in (sm.get("scene_mappings") or [])}
+            contract = read_json(ctx.p.contract, {}) or {}
+            unmapped = sorted({s.get("scene_id") for s in (contract.get("scene_states") or [])} - mapped)
+            detail["scenes_unmapped"] = unmapped
+            if unmapped:
+                failures.append("GLOBAL_SPACE_MAP_SCENES_UNMAPPED:" + ",".join(map(str, unmapped)))
+    detail["status"] = PASS if not failures else "FAIL"
+    detail["failures"] = failures
+    return detail
+
+
 class Ctx:
     def __init__(self, episode: str, args: argparse.Namespace) -> None:
         self.episode = episode
         self.args = args
         self.p = Paths(episode)
+        layers = explicit_layers_from_args(episode, args)
+        layers_source = "CLI" if layers else None
+        if not layers:
+            remembered = (read_json(self.p.state, {}) or {}).get("layers") or {}
+            if remembered.get("paths"):
+                layers = {k: Path(v) for k, v in remembered["paths"].items()}
+                layers_source = "STATE"
+        if layers:
+            self.p = Paths(episode, layers)
+            self.p.layers_source = layers_source or "EXPLICIT"
         self.dry = bool(getattr(args, "dry_run", False))
         self.want_paid = bool(getattr(args, "paid", False))
         self.force = bool(getattr(args, "force", False))
@@ -509,16 +590,16 @@ class Ctx:
         env = dict(os.environ)
         env["PYTHONPATH"] = os.pathsep.join(
             [str(ENGINE)] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else []))
-        env["QINGSHAN_VOICE_REGISTRY"] = str(VOICE_REGISTRY)
-        env["QINGSHAN_ENTITY_REGISTRY"] = str(ENTITY_REGISTRY)
-        env["QINGSHAN_AGENTCUT_VOICE_POLICY"] = str(AGENTCUT_VOICE_POLICY)
+        env["QINGSHAN_VOICE_REGISTRY"] = str(self.p.scope["voice_registry"])
+        env["QINGSHAN_ENTITY_REGISTRY"] = str(self.p.scope["entity_registry"])
+        env["QINGSHAN_AGENTCUT_VOICE_POLICY"] = str(self.p.scope["agentcut_voice_policy"])
         if self.episode != "E01":
             # engine patch e16 (seq=7 PACING_E02_PLUS): grouped video units prefer 4-6 s, never above 7 s
             env["QINGSHAN_UNIT_PREFERRED_SECONDS"] = "4,6"
             env["QINGSHAN_UNIT_MAX_SECONDS"] = "8"   # 7-8 s is a penalised exception (scene-local remainder)
             env["QINGSHAN_UNIT_MIN_SECONDS"] = "4"   # SD2 request floor: never pad an authored unit
-        if CHARACTER_REGISTRY.is_file():
-            env["QINGSHAN_CHARACTER_REGISTRY"] = str(CHARACTER_REGISTRY)
+        if self.p.scope["character_registry"].is_file():
+            env["QINGSHAN_CHARACTER_REGISTRY"] = str(self.p.scope["character_registry"])
         if paid:
             # giggle_api_client.py:117-130 refuses every /api/v1/generation/ POST
             # unless a durable-submitter context is declared.  Set only for a
@@ -835,7 +916,7 @@ def stage_s1(ctx: Ctx) -> StageResult:
     # action outcomes, antagonist motive, prop sources, entity introductions, lexicon (A1–A6),
     # and the continuity state contract (life state, group counts, creature cards, ambush space,
     # costume inheritance; B1–B5).  Both blocking; reports next to the other S1 logs.
-    lexicon = RT_TOOLS.parent / "configs" / "LEXICON_yewujiang_v1.json"
+    lexicon = ctx.p.scope["lexicon"]  # per-scope period lexicon
     structure_gate = ctx.run(
         [VENV, ENGINE / "tools/script_structure_contract_gate.py", "--contract", p.contract,
          "--manifest", p.writer_manifest, "--lexicon", lexicon,
@@ -847,7 +928,9 @@ def stage_s1(ctx: Ctx) -> StageResult:
         name="s1_continuity_state_contract_gate")
     structure_ok = structure_gate["exit_code"] == 0
     continuity_ok = continuity_gate["exit_code"] == 0
-    status = PASS if (gate10_ok and entity_ok and static_ok and structure_ok and continuity_ok) else BLOCKED
+    scope_check = project_scope_check(ctx)
+    scope_ok = scope_check["status"] == PASS
+    status = PASS if (gate10_ok and entity_ok and static_ok and structure_ok and continuity_ok and scope_ok) else BLOCKED
     res = StageResult(
         status,
         layer_sha256=layer_shas,
@@ -861,6 +944,10 @@ def stage_s1(ctx: Ctx) -> StageResult:
              "below ACTIVE_FROM_EPISODE=54, but this pipeline treats it as blocking "
              "anyway — a role-semantics defect is a real data defect.")
     res.details = getattr(res, "details", {}) or {}
+    res.details["project_scope_check"] = scope_check
+    res.details["layers"] = {"source": ctx.p.layers_source, "paths": {k: str(v) for k, v in p.layers().items()}}
+    if not scope_ok:
+        res.blockers = list(getattr(res, "blockers", []) or []) + [f"PROJECT_SCOPE_FAIL:{code}" for code in scope_check["failures"]]
     res.details["script_structure_contract_gate"] = {
         "exit_code": structure_gate["exit_code"], "status": PASS if structure_ok else "FAIL",
         "report": str(p.logs / f"{ctx.run_id}_script_structure_contract_gate.json"),
@@ -984,27 +1071,29 @@ def stage_s2(ctx: Ctx, *, with_keyframes: bool = False, ready_units=None) -> Sta
 # --------------------------------------------------------------------------- #
 # cross-episode asset library / voice registry (the reuse authorities)
 # --------------------------------------------------------------------------- #
-def load_cross_episode_library() -> dict[str, Any]:
+def load_cross_episode_library(scope: dict[str, Any] | None = None) -> dict[str, Any]:
     """The library this orchestrator maintains across episodes.
 
     Seeded from runtime/E01_ASSET_LIBRARY_V1.json the first time.  Only the
     engine's own admission route may set an entry to LOCKED / qa PASS; this
     loader never mutates a verdict.
     """
-    library = read_json(ASSET_LIBRARY)
+    lib_path = (scope or {}).get("asset_library") or ASSET_LIBRARY
+    seed_path = (scope or {}).get("asset_library_seed") or ASSET_LIBRARY_SEED
+    library = read_json(lib_path)
     if not isinstance(library, dict):
-        library = read_json(ASSET_LIBRARY_SEED) or {
+        library = read_json(seed_path) or {
             "schema": "ai_drama.production_asset_library.v1", "assets": {}}
         library = copy.deepcopy(library)
         library["maintained_by"] = TOOL_ID
         library["note"] = ("Cross-episode nalu asset library.  A subject is skipped in S3 "
                            "only when its entry here is status LOCKED with qa.status PASS "
                            "and an artifact sha256 that still matches the file on disk.")
-        library["seeded_from"] = str(ASSET_LIBRARY_SEED)
+        library["seeded_from"] = str(seed_path)
         library["seeded_at"] = now()
         # materialise it so the reuse authority is a real file from now on.  No
         # verdict is invented: whatever the seed said is what is written.
-        write_json(ASSET_LIBRARY, library)
+        write_json(lib_path, library)
     return library
 
 
@@ -1101,10 +1190,15 @@ def ar_build_argv(ctx: Ctx) -> list[Any]:
         "--narrative", p.narrative,
         "--manifest", p.writer_manifest,
         "--directing", p.directing,
-        "--prior-library", ASSET_LIBRARY,
+        "--prior-library", ctx.p.scope["asset_library"],
+        "--project-id", ctx.p.scope["series_id"],
         "--out-dir", p.rt_pre,
         "--gsm", p.gsm_own if p.gsm_own.is_file() else p.gsm,
     ]
+    if ctx.p.scope.get("charter"):
+        # a foreign scope names its own series authority; the default scope keeps the
+        # builder's writer-charter default.
+        argv += ["--charter", ctx.p.scope["charter"]]
     overlay = p.overlay
     if overlay is not None:
         # authored prose no script layer carries.  Without it every field that
@@ -1358,7 +1452,7 @@ def stage_s3(ctx: Ctx) -> StageResult:
         res.details["hint"] = inputs.get("required_action") or inputs.get("note")
         return res
 
-    library = load_cross_episode_library()
+    library = load_cross_episode_library(ctx.p.scope)
     already = locked_subjects(library)
     image_credits = int(((ctx.cost_plan.get("price_basis") or {}).get("image_credits_per_task")) or 11)
 
@@ -1379,7 +1473,7 @@ def stage_s3(ctx: Ctx) -> StageResult:
     for round_no in range(1, S3_MAX_ROUNDS + 1):
         boot = ctx.run(s3_bootstrap_argv(ctx, accept_qa=False,
                                          rights_basis=ctx.rights_basis,
-                                         source_folder=CHARACTER_SOURCES),
+                                         source_folder=ctx.p.scope["character_sources"]),
                        name=f"s3_bootstrap_identity_cards_r{round_no}")
         res.steps.append(boot)
         report = read_json(p.identity_report, {}) or {}
@@ -1595,7 +1689,7 @@ def stage_s4(ctx: Ctx) -> StageResult:
              "--policy-out", p.voice / "agentcut_voice_policy.json",
              "--task-payloads-out", p.speech_payloads,
              "--report", p.voice_report,
-             "--voice-catalog", RT / "voice_catalog.json",
+             "--voice-catalog", ctx.p.scope["voice_catalog"],
              "--dry-run"],
             name="s4_bootstrap_voice_references")
         if boot["exit_code"] != 0 or not p.speech_payloads.is_file():
@@ -1606,7 +1700,7 @@ def stage_s4(ctx: Ctx) -> StageResult:
 
     payloads = read_json(p.speech_payloads, {}) or {}
     tasks = payloads.get("tasks") or []
-    registry = read_json(VOICE_REGISTRY, {}) or {}
+    registry = read_json(ctx.p.scope["voice_registry"], {}) or {}
     already = locked_voice_entities(registry)
     todo = [task for task in tasks if task.get("entity_id") not in already]
 
@@ -1617,13 +1711,13 @@ def stage_s4(ctx: Ctx) -> StageResult:
         "already_locked": sorted(already),
         "to_generate": [task["entity_id"] for task in todo],
         "credits_per_task": 2,
-        "registry": str(VOICE_REGISTRY),
+        "registry": str(ctx.p.scope["voice_registry"]),
         "registry_write_route": (
             "This orchestrator writes the registry rows directly.  "
             "generate_agentcut_character_voice_references.update_registry is NOT used: "
             "it KeyErrors on non-qingshan entity ids."),
     }
-    res.receipts = [str(VOICE_REGISTRY), str(p.speech_payloads)]
+    res.receipts = [str(ctx.p.scope["voice_registry"]), str(p.speech_payloads)]
     if not todo:
         ctx.say("   every speaking character already has a LOCKED_PRODUCTION_READY voice — "
                 "nothing to generate")
@@ -1724,7 +1818,7 @@ def stage_s4(ctx: Ctx) -> StageResult:
     # share a scene) is the line owner's decision (D-40); FAIL blocks.
     voice_cast_step = ctx.run(
         [VENV, RT_TOOLS / "build_voice_cast.py", "--episode", ctx.episode, "--contract", p.contract,
-         "--registry", VOICE_REGISTRY, "--out", RT / "voice_cast.json",
+         "--registry", ctx.p.scope["voice_registry"], "--out", ctx.p.scope["voice_cast"],
          "--report", p.voice / "voice_cast_gate.json"],
         name="s4_build_voice_cast")
     res.steps.append(voice_cast_step)
@@ -1792,7 +1886,7 @@ def write_voice_registry_row(ctx: Ctx, entity: str, task: dict[str, Any],
     value written here is observed: the asset id and url come from the provider
     receipt, the sha and duration from the file on disk.
     """
-    registry = read_json(VOICE_REGISTRY, {}) or {}
+    registry = read_json(ctx.p.scope["voice_registry"], {}) or {}
     roles = registry.setdefault("major_roles", [])
     if isinstance(roles, list):
         row = next((item for item in roles
@@ -1825,7 +1919,7 @@ def write_voice_registry_row(ctx: Ctx, entity: str, task: dict[str, Any],
         "credits_charged": 2,
     })
     registry["updated_at_utc"] = now()
-    write_json(VOICE_REGISTRY, registry)
+    write_json(ctx.p.scope["voice_registry"], registry)
     ctx.say(f"   voice_registry row LOCKED_PRODUCTION_READY: {entity}")
 
 
@@ -2016,8 +2110,8 @@ def s3_qa(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str, Any]:
         "status": PASS if verdict.get("status") == "PASS" else BLOCKED,
         "blockers": ([] if verdict.get("status") == "PASS"
                      else ["S3_IDENTITY_QA_FAILED"] + list(verdict.get("remaining") or [])),
-        "character_registry": str(CHARACTER_REGISTRY),
-        "character_registry_present": CHARACTER_REGISTRY.is_file(),
+        "character_registry": str(ctx.p.scope["character_registry"]),
+        "character_registry_present": ctx.p.scope["character_registry"].is_file(),
         "rights": (verdict.get("rights")
                    or {"status": "SEE_ASSET_LIBRARY", "basis": ctx.rights_basis}),
     })
@@ -2037,7 +2131,7 @@ def s3_qa(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str, Any]:
              "--policy-out", p.voice / "agentcut_voice_policy.json",
              "--task-payloads-out", p.speech_payloads,
              "--report", p.voice_report,
-             "--voice-catalog", RT / "voice_catalog.json",
+             "--voice-catalog", ctx.p.scope["voice_catalog"],
              "--dry-run"],
             name="s3_qa_prepare_speech_payloads")
         res.steps.append(prep)
@@ -2101,8 +2195,8 @@ def s3_admission(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str
         "objective_method": "INSIGHTFACE_COSINE_V1",
         "lock_gate": f"{ENGINE}/tools/initial_asset_library.py gate",
     }
-    registry_ok = CHARACTER_REGISTRY.is_file()
-    detail["character_registry"] = str(CHARACTER_REGISTRY)
+    registry_ok = ctx.p.scope["character_registry"].is_file()
+    detail["character_registry"] = str(ctx.p.scope["character_registry"])
     detail["character_registry_present"] = registry_ok
     if not registry_ok:
         blockers.append("D-1_NALU_CHARACTER_ASSET_REGISTRY_ABSENT")
@@ -2136,7 +2230,7 @@ def s3_admission(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str
 # --------------------------------------------------------------------------- #
 def stage_s5(ctx: Ctx) -> StageResult:
     p = ctx.p
-    library = p.identity_library if p.identity_library.is_file() else ASSET_LIBRARY
+    library = p.identity_library if p.identity_library.is_file() else ctx.p.scope["asset_library"]
     if not library.is_file():
         res = StageResult(BLOCKED, asset_library=str(library))
         res.blockers = [f"ASSET_LIBRARY_MISSING:{library}"]
@@ -3748,7 +3842,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
 
     detector_argv: list[Any] = [VENV, ENGINE / "tools/final_cut_audience_detectors.py",
                                 "--media", p.final_mp4, "--out", detector_report,
-                                "--lexicon", RT_TOOLS.parent / "configs" / "LEXICON_yewujiang_v1.json",
+                                "--lexicon", ctx.p.scope["lexicon"],
                                 "--speaker-map", speaker_map, "--story-segments", release_timeline,
                                 "--voice-cast", RT / "voice_cast.json"]
     if asr_windows.is_file():
@@ -4372,6 +4466,8 @@ def run_episode(ctx: Ctx) -> int:
     # basis, so nothing in this pipeline may derive, widen or invent one.
     ctx.state["rights_basis"] = ctx.rights_declaration
     ctx.state.pop("review_required", None)
+    ctx.state["layers"] = {"source": ctx.p.layers_source, "paths": {k: str(v) for k, v in ctx.p.layers().items()}}
+    ctx.state["series_scope"] = {"scope_id": ctx.p.scope["scope_id"], "series_id": ctx.p.scope["series_id"], "asset_library": str(ctx.p.scope["asset_library"])}
     ctx.state["runs"] = (ctx.state.get("runs") or [])[-19:] + [{
         "run_id": ctx.run_id, "at": now(), "stages": selected,
         "dry_run": ctx.dry, "paid_requested": ctx.want_paid,
@@ -4711,6 +4807,10 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--until", metavar="STAGE", help="last stage to run")
     run.add_argument("--s3-subjects", default=None,
                      help="comma-separated subject ids: S3 submits only these rows this run (style sample)")
+    for sub in (run,):
+        sub.add_argument("--layers-dir", default=None, help="directory holding the four <EP>_*_v1 layer files (E59 v4 adapter output)")
+        sub.add_argument("--narrative", default=None); sub.add_argument("--directing", default=None)
+        sub.add_argument("--contract", default=None); sub.add_argument("--manifest", default=None)
     run.add_argument("--force", action="store_true",
                      help="re-run stages that already reached PASS")
     run.set_defaults(func=cmd_run)

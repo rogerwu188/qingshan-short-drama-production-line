@@ -94,7 +94,7 @@ from typing import Any
 
 SCHEMA = "ai_drama.production_asset_requirements.v1"
 OVERLAY_SCHEMA = "nalu.episode_asset_requirement_overlay.v1"
-PROJECT_ID = "NALU-YEWUJIANG"
+PROJECT_ID = "NALU-YEWUJIANG"   # default; --project-id (series scope) overrides — Roger 2026-09-18 E59
 ENGINE_ROOT = Path(f"{_np.ENGINE_ROOT}")
 SCRIPTS_DIR = ENGINE_ROOT / "workflow/claude_writer_agent/scripts"
 DEFAULT_CHARTER = ENGINE_ROOT / "workflow/claude_writer_agent/宪章_ClaudeWriterAgent_v1.md"
@@ -1029,6 +1029,7 @@ def extract_overlay(existing_path: Path, episode: str) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--episode", required=True)
+    parser.add_argument("--project-id", default=None, help="asset library project id (series scope); default NALU-YEWUJIANG")
     parser.add_argument("--contract")
     parser.add_argument("--narrative")
     parser.add_argument("--manifest")
@@ -1063,6 +1064,9 @@ def main() -> int:
         if not getattr(args, flag):
             raise SystemExit(f"--{flag.replace('_', '-')} is required")
 
+    global PROJECT_ID
+    if getattr(args, "project_id", None):
+        PROJECT_ID = str(args.project_id)
     requirements, prompts, report = build(args)
     out_dir = Path(args.out_dir).resolve()
     written: list[str] = []
