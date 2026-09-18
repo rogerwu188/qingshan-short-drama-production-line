@@ -49,13 +49,26 @@ def measure_unit(unit_id: str, segments: list[dict[str, Any]], expected_dialogue
     """Realised cps over the unit's real speech segments vs the mean director target of its lines."""
     rows = [s for s in segments or [] if isinstance(s, dict)]
     chars = sum(cjk_count(s.get("text")) for s in rows)
-    seconds = sum(max(0.0, float(s.get("end") or 0) - float(s.get("start") or 0)) for s in rows)
+    # Timing basis (2026-09-18, first E06 data): whisper SEGMENT bounds are padded to the VAD chunk
+    # (a 4-character line measured over a 7.6 s wind segment; short lines land on 1.00 / 2.00 s), which
+    # under-measures cps and would trigger rerolls on measurement noise.  When the ASR rows carry
+    # per-word timestamps the realised speech time is the sum of the word spans (authored pauses such as
+    # 「……」 and silence inside the chunk are then excluded); otherwise fall back to the segment spans and
+    # say so in the record.
+    word_rows = [w for s in rows for w in (s.get("words") or []) if isinstance(w, dict)]
+    if word_rows:
+        seconds = sum(max(0.05, float(w.get("end") or 0) - float(w.get("start") or 0)) for w in word_rows)
+        timing_basis = "WORD_TIMESTAMPS_SUM"
+    else:
+        seconds = sum(max(0.0, float(s.get("end") or 0) - float(s.get("start") or 0)) for s in rows)
+        timing_basis = "SEGMENT_BOUNDS_PADDED"
     shot_ids = [str(r.get("shot_id")) for r in expected_dialogue or [] if r.get("shot_id")]
     known = [targets[s] for s in shot_ids if s in targets]
     target = (sum(t["cps"] for t in known) / len(known)) if known else (DEFAULT_TARGET_CPS if shot_ids else None)
     hook_or_conflict = any(t["hook"] or t["conflict"] for t in known)
     result: dict[str, Any] = {"check": "speech_rate_vs_director_target", "authority": "SUPERVISOR_ORDERS seq=29 规则 6",
                               "unit_id": unit_id, "spoken_chars": chars, "speech_seconds": round(seconds, 3),
+                              "timing_basis": timing_basis,
                               "measured_cps": round(chars / seconds, 3) if seconds > 0 and chars else None,
                               "target_cps": round(target, 3) if target else None, "shot_ids": shot_ids,
                               "hook_or_conflict_line": hook_or_conflict, "tier": "N/A", "code": None, "status": "PASS"}
@@ -64,7 +77,19 @@ def measure_unit(unit_id: str, segments: list[dict[str, Any]], expected_dialogue
         return result
     ratio = result["measured_cps"] / target
     result["ratio"] = round(ratio, 3)
-    if ratio < BLOCKER_RATIO or (ratio < MINOR_RATIO and hook_or_conflict):
+    # Authored trailing-off (SUPERVISOR_ORDERS seq=31 standing rule C, applied 2026-09-18 seq=33): a line the
+    # writer ends with 「……」 is directed to break off (愣住 / 哽咽), so a slow realised rate is the performance,
+    # not a dragged delivery.  Recorded as a note, never as a reroll — unless the line is a hook/conflict line.
+    authored_trailing_off = any(str(r.get("spoken_text") or "").rstrip("」”\"' ").endswith(("……", "…"))
+                                for r in expected_dialogue or [])
+    result["authored_trailing_off"] = authored_trailing_off
+    hook_line = any(t["hook"] for t in known)
+    # the exemption never covers an episode hook line; a conflict-flagged line that is authored to break
+    # off (陆泽 愣住「小秦，你这是……」) is still the directed performance
+    if ratio < BLOCKER_RATIO and authored_trailing_off and not hook_line:
+        result.update(tier="MINOR", code="SPEECH_RATE_UNDER_TARGET_AUTHORED_TRAILING_OFF", status="PASS_WITH_NOTE",
+                      note="line authored to trail off (……); slow rate is the directed performance (seq=31 rule C)")
+    elif ratio < BLOCKER_RATIO or (ratio < MINOR_RATIO and hook_or_conflict):
         result.update(tier="BLOCKER", code="SPEECH_RATE_UNDER_TARGET_BLOCKER", status="FAIL",
                       required_reroll_change="PERFORMANCE_INSTRUCTION_CHANGE (规则 6: 不许只改字/秒数字)")
     elif ratio < MINOR_RATIO:

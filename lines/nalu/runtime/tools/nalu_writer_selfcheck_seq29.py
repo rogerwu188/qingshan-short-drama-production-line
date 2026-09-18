@@ -32,7 +32,9 @@ from typing import Any  # noqa: E402
 
 SCHEMA = "nalu.writer_selfcheck_seq29.v1"
 LEXICON_PATH = Path(__file__).resolve().parent.parent / "configs" / "PERFORMANCE_EMOTION_LEXICON_v1.json"
-TEMPLATE_TOLERANCE_S = 0.5
+#: rule 5a says line + 0.5 s; the engine's dialogue_cut_safety additionally needs 0.12 s lead + 0.32 s pad + 0.25 s
+#: unit tail + 0.16 s per punctuation mark, so a derived length may sit up to 1.0 s above the bare rule (rounded to 0.5).
+TEMPLATE_TOLERANCE_S = 1.0
 NO_DIALOGUE_SHOT_MAX_S = 5.0
 CHILD_CPS_MIN = 4.5
 PRESSURE_SOURCE_WINDOW_S = 30.0

@@ -891,6 +891,14 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             "unit_id": unit_id,
             "scene_id": unit["scene_id"],
             "duration_seconds": unit["duration_seconds"],
+            # Optional duration authority declared by the grouping plan (integer provider slot over a
+            # half-second editorial sum): pass through so stage-4.4 and the paid-boundary recompile
+            # build the same execution plan.  Absent -> unchanged behaviour (content = source spans,
+            # tail handle 0.25).
+            **({"authorized_content_seconds": unit["authorized_content_seconds"]}
+               if unit.get("authorized_content_seconds") is not None else {}),
+            **({"authorized_tail_handle_seconds": unit["authorized_tail_handle_seconds"]}
+               if unit.get("authorized_tail_handle_seconds") is not None else {}),
             "model": model,
             "resolution": resolution,
             "aspect_ratio": aspect_ratio,

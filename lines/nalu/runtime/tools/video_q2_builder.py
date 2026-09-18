@@ -125,7 +125,7 @@ PASS_ANSWERS = {"PASS", "YES", "NOT_APPLICABLE"}
 #: how many original-resolution frames to extract per clip.  Must be >= the
 #: registry's sample_frames_per_source_min (3) for the identity measurement to
 #: be able to reach it from one source.
-DEFAULT_FRAMES = 5
+DEFAULT_FRAMES = 9  # 2026-09-18 (E06 Q2): 5 evenly spaced frames left characters of 2-shot units with <3 usable face samples (MISSING); 9 keeps the registered minimum reachable honestly, thresholds unchanged
 #: bounded per-unit parallelism for `prepare` (ffmpeg frame seeks, the RapidOCR subprocess
 #: per frame).  Units are independent and write only under <q2_dir>/<unit_id>/; the
 #: InsightFace work is serialised under _INSIGHT_LOCK (one FaceAnalysis per process) and the

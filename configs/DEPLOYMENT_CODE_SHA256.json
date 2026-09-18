@@ -181,7 +181,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "1e81ed55fc49999652ae80c893ba9e1c72c61b34fb4fa7024c68ced54ba41add"
+      "sha256": "444e679c39554a5d134c23f670b8991000b142d22e6e5c98fe036870cd3d6639"
     },
     {
       "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
@@ -237,11 +237,11 @@
     },
     {
       "path": "docs/decisions/DECISION_RECORDS.md",
-      "sha256": "9973288575814eb9bce9fa9b617d8dc169879b6cf5e51150e160fe7cf80a01f9"
+      "sha256": "ce675ba2938c5274042a4e0a9bb065354cc77cc6b294d0f8daf2e0bdd4cd3845"
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "06e1de71d2804ac3df5eb1aaf8fb82f7fccd7dd6c2c0df9f0d5569e9c2f14f3d"
+      "sha256": "adc7737e8722d8950f1f924906adf1e91b04b2a1241d568497f0f49e4f823e4a"
     },
     {
       "path": "docs/knowledge/INTEGRATION_STATUS.md",
@@ -3121,7 +3121,7 @@
     },
     {
       "path": "tools/compile_grouped_seedance_manifest.py",
-      "sha256": "1da7952a53365d14115f349fec8cc8eedea0f9f5cf1becdece7a3a43699da988"
+      "sha256": "91e5a022d8d7cc92984ec1aea0f23f75d63634959bc384769c05223d9bb35378"
     },
     {
       "path": "tools/compile_grouped_seedance_transaction_manifest.py",
@@ -4409,7 +4409,7 @@
     },
     {
       "path": "tools/level_native_release_audio.py",
-      "sha256": "493db6643a8dd2274375334ba82d161c70d0d853b9099962fe57550ed97f42fb"
+      "sha256": "c5ec2c0e201e72d6793cd4727627d456c95f30f421bbcb579b9422e9ac5978b8"
     },
     {
       "path": "tools/line_heartbeat.py",
@@ -6517,7 +6517,7 @@
     },
     {
       "path": "tools/tests/test_knowledge_registry.py",
-      "sha256": "59f9e2aaf3d84caadb03740a5c4109595cdf8a897c9791ed41d703cf2cc253af"
+      "sha256": "0fa3040392153f3e2795c4c2d3ea8598d4558aaa60232b507921905442f82477"
     },
     {
       "path": "tools/tests/test_line_heartbeat.py",
@@ -6577,7 +6577,7 @@
     },
     {
       "path": "tools/tests/test_nalu_identity_chain_fixes.py",
-      "sha256": "055eff9dd3276fc8d6b18b3c100f8e51f8df24e1f9b1732e0845e003912047e7"
+      "sha256": "67a13f7d261d62d6c95673b4de74f2c7e76f8fd6cbb5a1ee2f5018520916edf8"
     },
     {
       "path": "tools/tests/test_nalu_prompt_rules_seq19.py",

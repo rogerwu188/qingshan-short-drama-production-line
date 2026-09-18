@@ -59,7 +59,8 @@ LIB = {"assets": {"characters": {"CHAR-A": {"status": "LOCKED", "artifacts": [
 
 class KeyframeReferences(unittest.TestCase):
     def test_face_role_leads_and_headshot_plate_is_selected(self):
-        self.assertEqual(kfm.BINDING_ROLE_ORDER[0], "character")
+        self.assertEqual(kfm.BINDING_ROLE_ORDER.index("character"), kfm.BINDING_ROLE_ORDER.index("subspace_layout") + 1)   # first slot the engine gate allows
+        self.assertLess(kfm.BINDING_ROLE_ORDER.index("character"), kfm.BINDING_ROLE_ORDER.index("scene"))
         _, art = kfm.library_artifact(LIB, "characters", "CHAR-A", kfm.CHARACTER_FACE_VIEW)
         self.assertEqual(art["role"], "FRONT_NEUTRAL_HEADSHOT")
         _, art = kfm.library_artifact(LIB, "characters", "CHAR-A", kfm.CHARACTER_WARDROBE_VIEW)
@@ -68,18 +69,21 @@ class KeyframeReferences(unittest.TestCase):
         self.assertEqual(art["role"], "FULL_BODY_STANDING")  # historical default unchanged
 
     def test_non_character_references_capped_at_five_face_never_dropped(self):
-        rows = ([{"role": "character", "entity_id": "CHAR-A"}, {"role": "character", "entity_id": "CHAR-B"}]
-                + [{"role": "episode_global_space_map"}, {"role": "global_space_map"}, {"role": "subspace_layout"}, {"role": "scene"}]
+        rows = ([{"role": "episode_global_space_map"}, {"role": "global_space_map"}, {"role": "subspace_layout"}]
+                + [{"role": "character", "entity_id": "CHAR-A"}, {"role": "character", "entity_id": "CHAR-B"}, {"role": "scene"}]
                 + [{"role": "character_wardrobe", "entity_id": "CHAR-A"}, {"role": "character_wardrobe", "entity_id": "CHAR-B"}]
                 + [{"role": "prop", "entity_id": f"PROP-{i}"} for i in range(4)])
         kept, dropped = kfm.cap_non_character_bindings(rows)
         non_char = [r for r in kept if r["role"] not in ("character", "character_wardrobe")]
-        self.assertLessEqual(len(non_char), 5)
-        self.assertLessEqual(len(kept), 9)
-        self.assertEqual([r["role"] for r in kept][:2], ["character", "character"])
-        self.assertIn("subspace_layout", [r["role"] for r in kept])
+        self.assertEqual(len(non_char), 8)   # gate-mandatory rows are never dropped, only reported
+        self.assertTrue(any(str(r["dropped_reason"]).startswith("OVER_CAP_NOT_DROPPED") for r in dropped))
+        self.assertEqual(sum(1 for r in kept if r["role"] == "character_wardrobe"), 0)   # only wardrobe plates drop for the total cap
+        self.assertEqual(len(kept), 10)   # 3 maps + 2 faces + scene + 4 declared props: gate-mandatory rows stay even over 9
+        self.assertEqual([r["role"] for r in kept][3:5], ["character", "character"])
+        self.assertIn("subspace_layout", [r["role"] for r in kept]); self.assertEqual(sum(1 for r in kept if r["role"] == "prop"), 4)
         self.assertIn("scene", [r["role"] for r in kept])
-        self.assertEqual(dropped[0]["role"], "episode_global_space_map")
+        self.assertTrue(all(r["role"] in ("prop", "character_wardrobe") for r in dropped))
+        self.assertIn("episode_global_space_map", [r["role"] for r in kept])
         order = [kfm.BINDING_ROLE_ORDER.index(r["role"]) for r in kept]
         self.assertEqual(order, sorted(order))
 

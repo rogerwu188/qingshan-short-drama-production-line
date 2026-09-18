@@ -27,6 +27,7 @@ import argparse
 import copy
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -1397,6 +1398,14 @@ def main() -> int:
     grouping_report["gate_id"] = "VIDEO-UNIT-SEMANTIC-GROUPING"
     grouping_report["recorded_at"] = now()
     grouping_report_path = write_json(reports_dir / f"{prefix}VIDEO_UNIT_GROUPING_GATE_V1.json", grouping_report)
+    # ---- provider slot projection (seq=29 half-second shot lengths -> unit sums like 6.5 s; the
+    # provider takes integer seconds and the unified engine (2026-09-18) validates
+    # duration_authority: slot - authorized_content - tail_handle <= 0.05 and recompiles the prompt
+    # from the task's integer duration).  The editorial sums stay on record as
+    # authorized_content_seconds (the cut length); the slot is the ceiling; the difference is the
+    # declared trim handle.  Applied AFTER the engine grouping gate validated the editorial sums.
+    plan = project_provider_slots(plan)
+    plan_path = write_json(out_dir / f"{prefix}VIDEO_UNIT_GROUPING_PLAN_V1.json", plan)
     stage("4.2b_video_unit_grouping_gate", grouping_report["status"],
           failures=grouping_report.get("failures") or [], report=portable(grouping_report_path, root))
     if grouping_report["status"] == "PASS":
@@ -1535,8 +1544,16 @@ def main() -> int:
             "model": MODEL_CONTRACT["model"],
             "resolution": MODEL_CONTRACT["resolution"],
             "aspect_ratio": MODEL_CONTRACT["aspect_ratio"],
-            "duration_seconds": int(round(float(
-                next(row for row in plan["units"] if row["unit_id"] == unit["unit_id"])["duration_seconds"]))),
+            # provider slot = integer seconds >= the authorised content (seq=29 half-second units:
+            # round() is banker's rounding, 6.5 -> 6 < content -> AUTHORIZED_CONTENT_EXCEEDS_PROVIDER_SLOT)
+            "duration_seconds": int(math.ceil(float(
+                next(row for row in plan["units"] if row["unit_id"] == unit["unit_id"])["duration_seconds"]) - 1e-9)),
+            "source_duration_seconds": next(row for row in plan["units"] if row["unit_id"] == unit["unit_id"]).get(
+                "authorized_content_seconds"),
+            "authorized_content_seconds": next(row for row in plan["units"] if row["unit_id"] == unit["unit_id"]).get(
+                "authorized_content_seconds"),
+            "authorized_tail_handle_seconds": next(row for row in plan["units"] if row["unit_id"] == unit["unit_id"]).get(
+                "authorized_tail_handle_seconds"),
             "editorial_shot_ids": next(
                 row for row in plan["units"] if row["unit_id"] == unit["unit_id"])["editorial_shot_ids"],
             "prompt_file": portable(prompt_dir / f"{unit['unit_id']}.txt", root),
@@ -1791,6 +1808,21 @@ def identity_plate_reference_rows(character_ids: list[str], plate_lookup, *, exi
     return rows, dropped, missing
 
 
+def project_provider_slots(plan: dict[str, Any]) -> dict[str, Any]:
+    """Integer provider slot per unit (ceil of the editorial sum) + declared content/tail handle."""
+    for unit in plan.get("units") or []:
+        content = float(unit["duration_seconds"])
+        slot = int(math.ceil(content - 1e-9))
+        unit["authorized_content_seconds"] = round(content, 3)
+        unit["authorized_tail_handle_seconds"] = round(max(0.25, slot - content), 3)
+        unit["provider_slot_projection"] = ("CEIL_TO_INTEGER_PROVIDER_SECONDS" if slot != content
+                                            else "INTEGER_ALREADY")
+        unit["duration_seconds"] = slot
+    plan["editorial_runtime_seconds"] = plan.get("runtime_seconds")
+    plan["runtime_seconds"] = round(sum(float(u["duration_seconds"]) for u in plan.get("units") or []), 6)
+    return plan
+
+
 def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, dict[str, Any]],
                          final_rows: dict[str, dict[str, Any]], *, rendered: dict[str, Any],
                          contract: dict[str, Any], out_dir: Path, prefix: str, root: Path,
@@ -1840,6 +1872,34 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
         refs = list(cu.get("reference_images") or [])
         specs = cu.get("ordered_prompt_specs") or []
         shot_ids = list(cu.get("editorial_shot_ids") or task.get("editorial_shot_ids") or [])
+        # ---- storyboard contract (unified engine 2026-09-18, action_video_prompt_compiler
+        # .validate_action_contract): a semantic_video_unit task is validated per shot — every
+        # ordered_prompt_spec must carry its shot_id and the shot-local space.blocking /
+        # space.action_end_blocking, and each entity the spec casts (cast[].character_id,
+        # props[].prop_id) must appear in BOTH blocks.  The rows come from the stage-4.1 rendered
+        # keyframe tasks (the same subspace blocking the keyframe was generated from), never invented.
+        by_shot_map = {str(r.get("unit_id")): r for r in (rendered.get("tasks") or [])}
+        for index_, spec in enumerate(specs):
+            sid = spec.get("shot_id") or (shot_ids[index_] if index_ < len(shot_ids) else None)
+            if not sid:
+                continue
+            spec["shot_id"] = sid
+            shot_map = by_shot_map.get(str(sid)) or {}
+            space = spec.setdefault("space", {})
+            if shot_map.get("blocking"):
+                space["blocking"] = copy.deepcopy(shot_map["blocking"])
+            if shot_map.get("action_end_blocking"):
+                space["action_end_blocking"] = copy.deepcopy(shot_map["action_end_blocking"])
+        task["ordered_prompt_specs"] = copy.deepcopy(specs)  # the task's copy was taken before enrichment
+        # ---- duration authority (engine video_execution_plan_compiler: underfill = provider slot -
+        # authorized_content - tail_handle must be <= 0.05 s).  seq=29 units are half-second sums of
+        # line-derived shot lengths; the provider slot is the integer ceiling, and the difference is the
+        # editorial trim handle (cut at the authorised content, never a hold).  Declared, not defaulted.
+        _content = float(task.get("authorized_content_seconds") or task.get("source_duration_seconds")
+                         or cu.get("duration_seconds") or task["duration_seconds"])
+        _slot = int(task["duration_seconds"])
+        task["authorized_content_seconds"] = round(_content, 3)
+        task["authorized_tail_handle_seconds"] = round(max(0.25, _slot - _content), 3)
         task["reference_images"] = [str(r["path"]) for r in refs]
         task["reference_sha256"] = [str(r["sha256"]) for r in refs]
         task["reference_roles"] = [str(r.get("role") or "SEMANTIC_REFERENCE") for r in refs]
@@ -2025,7 +2085,7 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             "provider": "giggle",
             "media_stage": "VIDEO",
             "require_semantic_anchor_evidence": True,
-            "source_duration_seconds": cu.get("duration_seconds"),
+            "source_duration_seconds": task.get("source_duration_seconds") or cu.get("duration_seconds"),
             "retry_attempt": 1, "creative_attempt_ordinal": 1, "paid_attempt": 0,
             "provider_post_allowed": False,
             "vertical_short_drama_contract": {"required": True, "aspect_ratio": "9:16",
@@ -2041,6 +2101,8 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             "internal_transition_contracts": cu.get("internal_transition_contracts"),
             "start_frame_semantic_contract": cu.get("start_frame_semantic_contract"),
             "speaker_voice_contract": svc,
+            "authorized_content_seconds": task["authorized_content_seconds"],
+            "authorized_tail_handle_seconds": task["authorized_tail_handle_seconds"],
         })
         task["machine_contract"] = machine
         task["input_template_id"] = compute_input_template_id(task)

@@ -681,6 +681,11 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
     # ----------------------------------------------------------------- voices
     voices: list[dict[str, Any]] = []
     for cid, row in chars.items():
+        # E06 (2026-09-18, K055 corollary): a voice is required once per SPEAKING character.  A character
+        # with no dialogue unit this episode (周阿婆, dead on the kang) gets no voices row — the library
+        # gate would otherwise demand a provider voice id nobody will use.
+        if cid not in speaking:
+            continue
         suffix = strip_prefix(cid)
         voice_id = f"VOICE-{suffix}"
         timbre = authored(

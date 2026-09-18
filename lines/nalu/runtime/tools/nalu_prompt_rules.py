@@ -119,7 +119,10 @@ def apply(shot: dict, ctx: dict) -> tuple[str, list[str], list[str]]:
     if dlg_text:
         clauses.append("台词只在声音里，画面任何位置都不出现字幕、文字或水印"); applied.append("NO_TEXT")
         need = min_dialogue_seconds(dlg_text, ctx.get("cps"))
-        clauses.append("开口不晚于画面第 1 秒，台词在画面结束前至少留半秒说完，说完后口型闭合、动作保持"); applied.append("DLG_TIMING")
+        # seq=29 规则 5b (Roger 2026-09-18): no "说完后口型闭合、动作保持" — the line ends INTO the next body
+        # action the writer names (shot["after_line"]); a shot without one falls back to turning to the listener.
+        after = str(shot.get("after_line") or "").strip() or "转向对方"
+        clauses.append(f"开口不晚于画面第 0.5 秒，台词在画面结束前说完，说完立即{after}"); applied.append("DLG_TIMING_SEQ29")
         if float(shot.get("sec") or 0) < need:
             blocks.append(f"DLG_TOO_SHORT:{shot.get('shot_id')}:sec={shot.get('sec')}<min={need}")
     else:
@@ -178,6 +181,10 @@ def apply(shot: dict, ctx: dict) -> tuple[str, list[str], list[str]]:
     for tok in ctx.get("prop_tokens") or ():
         if tok not in text_all and any(tok in c for c in clauses):
             blocks.append(f"RULE_CLAUSE_INTRODUCES_PROP_TOKEN:{shot.get('shot_id')}:{tok}")
+    if ctx.get("split_columns"):
+        # seq=29 规则 7a: the rule clauses are CONSTRAINTS; the caller keeps them in action.constraints
+        # and leaves primary_action as the performance text.  Returned as a list in the first slot.
+        return clauses, applied, blocks
     if clauses:
         act = act.rstrip("；;。") + "；" + "；".join(clauses)
     return act, applied, blocks

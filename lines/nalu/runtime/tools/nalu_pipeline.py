@@ -2459,6 +2459,83 @@ def apply_keyframe_renames(ctx: Ctx, manifest: dict[str, Any]) -> dict[str, Any]
             "moved": moved, "missing": missing}
 
 
+def apply_roger_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: Path) -> dict[str, Any]:
+    """Order-keyed acceptance of CHARACTER-IDENTITY-ADMISSION failures at S5 Q1 (SUPERVISOR_ORDERS seq=31,
+    Roger option C, 2026-09-18).  Mirrors the S7 final-cut mechanism (roger_gate_acceptance.py): the engine
+    gate result keeps its FAIL row and evidence; a unit is admitted only when an active Roger order of kind
+    GATE_FAIL_ACCEPTANCE for this episode and gate names EVERY failing "<item_id>:<character_id>" detector of
+    that keyframe and (when the order binds media) the keyframe sha256 matches.  Never self-issued; anything
+    outside the order (another gate failing, another sha, another episode) stays rejected."""
+    import roger_gate_acceptance as _rga
+    orders_path = Path(f"{_np.ENGINE_ROOT}/workflow/claude_writer_agent/SUPERVISOR_ORDERS.json")
+    orders = _rga._orders(orders_path)
+    gate_id = "CHARACTER-IDENTITY-ADMISSION"
+    ident = read_json(Path(str((index.get("identity_measurement") or {}).get("engine_report") or "")), {}) or {}
+    decisions = ((ident.get("objective_verification") or {}).get("decisions")) or []
+    accepted, still_rejected = [], []
+    allowed = list(index.get("video_submission_allowed_unit_ids") or [])
+    for row in index.get("results") or []:
+        if row.get("status") == "PASS" or row.get("downstream_status") == "ADMITTED_FOR_VIDEO_SUBMIT":
+            continue
+        item_id, uid = row.get("item_id"), row.get("unit_id")
+        failures = [str(f) for f in (row.get("failures") or [])]
+        if not failures or any(gate_id not in f for f in failures):
+            still_rejected.append(uid)
+            continue
+        detectors = sorted({f"{item_id}:{d.get('character_id')}" for d in decisions
+                            if str(d.get("source_id") or "").endswith(f":{item_id}")
+                            and d.get("decision") not in ("PASS", "ADMIT_BEST_EFFORT")})
+        order = _rga.find_acceptance(orders, episode=ctx.episode, gate_id=gate_id, failing=detectors,
+                                     media_sha256=None) if detectors else None
+        by_item = ((order or {}).get("decision") or {}).get("media_sha256_by_item") or {}
+        if order is None or (by_item and str(by_item.get(item_id) or "") != str(row.get("asset_sha256") or "")):
+            still_rejected.append(uid)
+            continue
+        cos = {f"{item_id}:{d.get('character_id')}": d.get("aggregate_median") for d in decisions
+               if str(d.get("source_id") or "").endswith(f":{item_id}")}
+        record = _rga.acceptance_record(order, episode=ctx.episode, gate_id=gate_id, failing=detectors,
+                                        media_sha256=str(row.get("asset_sha256") or ""),
+                                        gate_result_path=str(row.get("admission_result") or ""))
+        record.update({"item_id": item_id, "unit_id": uid, "cosines": cos, "engine_status": row.get("status"),
+                       "engine_failures": failures})
+        row.update({"engine_status": row.get("status"), "engine_failures": failures,
+                    "status": "ADMITTED_BY_LINE_OWNER_ORDER", "downstream_status": "ADMITTED_FOR_VIDEO_SUBMIT",
+                    "failures": [], "roger_acceptance": record})
+        ar_path = Path(str(row.get("admission_result") or ""))
+        if ar_path.is_file():
+            engine_copy = ar_path.with_suffix(".engine.json")
+            if not engine_copy.is_file():
+                shutil.copy2(ar_path, engine_copy)
+            ar = read_json(ar_path, {}) or {}
+            ar.update({"engine_status": ar.get("status"), "engine_downstream_status": ar.get("downstream_status"),
+                       "engine_failures": list(ar.get("failures") or []), "engine_result_copy": str(engine_copy),
+                       "status": "ADMITTED_BY_LINE_OWNER_ORDER", "downstream_status": "ADMITTED_FOR_VIDEO_SUBMIT",
+                       "failures": [], "roger_acceptance": record})
+            write_json(ar_path, ar)
+        if uid not in allowed:
+            allowed.append(uid)
+        accepted.append(record)
+    if accepted:
+        engine_index = index_path.with_suffix(".engine.json")
+        if not engine_index.is_file() and index_path.is_file():
+            shutil.copy2(index_path, engine_index)
+        index["video_submission_allowed_unit_ids"] = allowed
+        index["rejected_unit_ids"] = still_rejected
+        index["admitted_count"] = len(allowed)
+        index["engine_status"] = index.get("engine_status") or index.get("status")
+        index["status"] = ("ALL_ADMITTED" if not still_rejected
+                           else f"PARTIAL_{len(allowed)}_OF_{index.get('unit_count')}_ADMITTED")
+        index["status_basis"] = "ENGINE_ADMITTED+LINE_OWNER_ORDER_ACCEPTANCE (roger_gate_acceptance, never self-issued)"
+        index["roger_gate_acceptance"] = accepted
+        write_json(index_path, index)
+        write_json(ctx.p.preprod_reports / "qa" / "q1" / f"{ctx.episode}_ROGER_GATE_ACCEPTANCE.json", {
+            "schema": "nalu.q1_roger_gate_acceptance.v1", "episode": ctx.episode, "gate_id": gate_id,
+            "recorded_at": now(), "recorded_by": TOOL_ID, "orders_path": str(orders_path),
+            "accepted": accepted, "still_rejected_unit_ids": still_rejected})
+    return {"accepted_unit_ids": [r["unit_id"] for r in accepted], "still_rejected_unit_ids": still_rejected,
+            "effective_status": index.get("status")}
+
+
 def s5_q1(ctx: Ctx, res: StageResult) -> dict[str, Any]:
     """D-4 — keyframe Q1 admission through the engine's own admission gate.
 
@@ -2516,7 +2593,10 @@ def s5_q1(ctx: Ctx, res: StageResult) -> dict[str, Any]:
                               "--review", review_path], name="s5_q1_build_admission")
     res.steps.append(build_step)
     verdict = qa_json(build_step)
-    index = read_json(Path(verdict.get("out") or ""), {}) or {}
+    index_path = Path(verdict.get("out") or "")
+    index = read_json(index_path, {}) or {}
+    acceptance = apply_roger_q1_acceptance(ctx, index, index_path) if index else {}
+    effective = index.get("status") or verdict.get("status")
     detail.update({
         "review_file": str(review_path),
         "review_file_sha256": sha256_file(review_path),
@@ -2524,13 +2604,15 @@ def s5_q1(ctx: Ctx, res: StageResult) -> dict[str, Any]:
         "verdict_counts": review.get("verdict_counts"),
         "q1_index": verdict.get("out"),
         "q1_status": verdict.get("status"),
-        "admitted": verdict.get("admitted"),
+        "q1_effective_status": effective,
+        "roger_gate_acceptance": acceptance,
+        "admitted": index.get("admitted_count", verdict.get("admitted")),
         "units": verdict.get("units"),
         "admitted_unit_ids": index.get("video_submission_allowed_unit_ids"),
         "rejected_unit_ids": index.get("rejected_unit_ids"),
         "identity_measurement": index.get("identity_measurement"),
-        "status": PASS if verdict.get("status") == "ALL_ADMITTED" else BLOCKED,
-        "blockers": ([] if verdict.get("status") == "ALL_ADMITTED"
+        "status": PASS if effective == "ALL_ADMITTED" else BLOCKED,
+        "blockers": ([] if effective == "ALL_ADMITTED"
                      else ["Q1_NOT_ALL_ADMITTED"]),
     })
     write_json(p.keyframe_admission, {

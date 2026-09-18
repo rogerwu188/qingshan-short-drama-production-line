@@ -17,6 +17,7 @@ try:
         measure_loudness,
         plan_static_gain,
         ROLE_TARGETS_LUFS,
+        ROLE_ACCEPTANCE_RANGES_LUFS,
         DEFAULT_RELEASE_TARGET_LUFS as RELEASE_TARGET_LUFS,
     )
 except ModuleNotFoundError:
@@ -27,6 +28,7 @@ except ModuleNotFoundError:
         plan_static_gain,
         DEFAULT_RELEASE_TARGET_LUFS as RELEASE_TARGET_LUFS,
         ROLE_TARGETS_LUFS,
+        ROLE_ACCEPTANCE_RANGES_LUFS,
     )
 
 
@@ -62,6 +64,9 @@ def stream_hash(path: Path, stream: str) -> str:
     if result.returncode:
         raise RuntimeError(result.stderr[-4000:])
     return result.stdout.strip().split("=", 1)[1]
+
+
+MAX_REFINEMENT_PASSES = 12  # 2026-09-18 (nalu E06): 6 passes were not enough for a dialogue-heavy mix; same stop conditions
 
 
 def unit_role(unit: dict) -> str:
@@ -132,7 +137,7 @@ def level_release(
     line_adjust: dict[str, float] = {}
     line_rows: list[dict] = []
     iterations = []
-    for attempt in range(1, 7):
+    for attempt in range(1, MAX_REFINEMENT_PASSES + 1):
         plans, filters, labels = [], [], []
         for index, (uid, start, end, role, measured) in enumerate(measured_inputs):
             quiet_ambience = role == "AMBIENCE" and float(measured["integrated_loudness_lufs"]) < -38.0
@@ -218,6 +223,11 @@ def level_release(
         errors = {}
         for row, out_row in zip(plans, output_units):
             desired = ROLE_TARGETS_LUFS[row["role"]] + program_gain
+            # 2026-09-18 (nalu E06): with ~5 dB of program gain the staged dialogue target lands at -12.9,
+            # ABOVE the -13 acceptance ceiling, so refinement steered dialogue out of band.  Steer toward
+            # the staged target but never outside the role's acceptance band (0.3 LU inside the edges).
+            lo, hi = ROLE_ACCEPTANCE_RANGES_LUFS.get(row["role"], (desired, desired))
+            desired = min(max(desired, lo + 0.3), hi - 0.3)
             errors[row["unit_id"]] = round(float(out_row["integrated_loudness_lufs"]) - desired, 3)
         line_rows = []
         line_out_of_band = 0
@@ -240,7 +250,7 @@ def level_release(
                            "line_windows_out_of_band": line_out_of_band})
         if not unit_failures and not line_out_of_band:
             break
-        if attempt == 6:
+        if attempt == MAX_REFINEMENT_PASSES:
             break
         for uid, err in errors.items():
             if abs(err) > 0.5:

@@ -13,7 +13,7 @@ class KnowledgeRegistryTests(unittest.TestCase):
         self.data = json.loads((ROOT / REGISTRY).read_text())
 
     def test_complete_catalog(self):
-        self.assertEqual(59, len(validate(self.data, ROOT)["rules"]))
+        self.assertEqual(63, len(validate(self.data, ROOT)["rules"]))
 
     NALU_S7_SYNC_E03_IDS = tuple(f"K{n:03d}" for n in range(23, 35))
     NALU_S7_SYNC_E04_IDS = tuple(f"K{n:03d}" for n in range(35, 42))

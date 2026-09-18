@@ -59,11 +59,14 @@ RESOLUTION_ORDER = [
 #: Roger 2026-09-18 (identity chain ②): the FACE reference leads the sequence — the front neutral
 #: headshot plate is the only plate whose face is large enough to lock identity (a 1440x2560 full
 #: body plate gives the model a ~150 px face).  The full-body plate follows as a wardrobe reference.
+#: The engine's SCENE-AUTHORITY-LOCK gate (global_space_layout_gate.py:409-416) pins episode map < place map <
+#: subspace layout and refuses any character/prop binding BEFORE the subspace layout, so the face plate takes
+#: the first position the gate allows: 4th, ahead of the scene plate, the full-body plate and every prop.
 BINDING_ROLE_ORDER = [
-    "character",
     "episode_global_space_map",
     "global_space_map",
     "subspace_layout",
+    "character",
     "scene",
     "character_wardrobe",
     "prop",
@@ -73,7 +76,9 @@ CHARACTER_WARDROBE_VIEW = "FULL_BODY_STANDING"
 #: Roger 2026-09-18 (②): space maps + scene + props together <= 5 so the face signal is not diluted;
 #: dropped in this order until the cap holds.  Total references <= 9 (provider limit).
 NON_CHARACTER_REFERENCE_MAX = 5
-NON_CHARACTER_DROP_ORDER = ["episode_global_space_map", "global_space_map", "prop"]
+#: The engine's SCENE-AUTHORITY-LOCK gate (global_space_layout_gate) demands exactly one episode map, one place
+#: map and one subspace layout per task, so only props can be dropped to hold the cap (E06 precheck, 2026-09-18).
+NON_CHARACTER_DROP_ORDER: list[str] = []   # nothing is dropped (see cap_non_character_bindings)
 REFERENCE_TOTAL_MAX = 9
 FORBIDDEN_EXTEND_WORDS = ("持续", "保持", "连续")
 NOVELTY_CLASSES = (
@@ -504,38 +509,24 @@ def library_artifact(library: dict[str, Any], category: str, asset_id: str,
 
 def cap_non_character_bindings(rows: list[dict[str, Any]], *, limit: int = NON_CHARACTER_REFERENCE_MAX,
                                total_limit: int = REFERENCE_TOTAL_MAX) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Keep the sequence order; drop non-character references (episode map first, then place map,
-    then props from the end) until <= ``limit``; then drop wardrobe plates from the end until the
-    total is <= ``total_limit``.  Face plates, the subspace layout and the scene plate are never dropped."""
+    """Roger 2026-09-18 ②: space maps + scene + props <= ``limit``.  The engine gates make every one of those
+    mandatory (SCENE-AUTHORITY-LOCK needs the three maps; the image submitter needs every prop the contract
+    declares), so an over-cap shot is REPORTED (``dropped_reason`` OVER_CAP_NOT_DROPPED_GATE_MANDATORY) and the
+    writer is expected to declare fewer props per shot.  Only full-body wardrobe plates are dropped, and only
+    to hold the provider's total limit; face plates, maps, scene and declared props are never removed."""
     kept = list(rows)
     dropped: list[dict[str, Any]] = []
-    non_char = lambda r: str(r["role"]) not in ("character", "character_wardrobe")
-    for role in NON_CHARACTER_DROP_ORDER:
-        while sum(1 for r in kept if non_char(r)) > limit:
-            victims = [r for r in kept if str(r["role"]) == role]
-            if not victims:
-                break
-            victim = victims[-1]
-            kept.remove(victim); dropped.append({**victim, "dropped_reason": f"NON_CHARACTER_REFERENCE_MAX_{limit}"})
+    non_char = [r for r in kept if str(r["role"]) not in ("character", "character_wardrobe")]
+    if len(non_char) > limit:
+        for r in non_char[limit:]:
+            dropped.append({**r, "dropped_reason": f"OVER_CAP_NOT_DROPPED_GATE_MANDATORY_{limit}"})
     while len(kept) > total_limit:
-        victims = [r for r in kept if str(r["role"]) == "character_wardrobe"] or [r for r in kept if str(r["role"]) == "prop"]
+        victims = [r for r in kept if str(r["role"]) == "character_wardrobe"]
         if not victims:
             break
         victim = victims[-1]
         kept.remove(victim); dropped.append({**victim, "dropped_reason": f"REFERENCE_TOTAL_MAX_{total_limit}"})
     return kept, dropped
-
-
-def awaited_identity_path(awaited_asset_dir: Path, category: str, asset_id: str) -> str:
-    """The exact file this binding is waiting for.
-
-    Convention already recorded for this project by
-    `character_reference_image_manifest.json` and the stage-3(a) blocker chain:
-    ``<asset_library dir>/{characters|props|scenes}/{ID}_identity_plate_v1.png``.
-    """
-    folder = {"characters": "characters", "props": "props", "scenes": "scenes"}[category]
-    suffix = "scene_plate_v1.png" if category == "scenes" else "identity_plate_v1.png"
-    return str(awaited_asset_dir / folder / f"{asset_id}_{suffix}")
 
 
 def entity_binding(
@@ -650,7 +641,7 @@ def build_bindings(inputs: Inputs, shot_id: str, gate_ref: str) -> tuple[list[di
             inputs, "prop", "props", asset_id,
             str(entry.get("prop") or asset_id), "PROP_IDENTITY_PLATE",
         ))
-    rows, dropped = cap_non_character_bindings(face_rows + space_rows + [scene_row] + wardrobe_rows + prop_rows)
+    rows, dropped = cap_non_character_bindings(space_rows + face_rows + [scene_row] + wardrobe_rows + prop_rows)
     if dropped:
         report = getattr(inputs, "reference_cap_report", None)
         if report is None:
@@ -660,7 +651,7 @@ def build_bindings(inputs: Inputs, shot_id: str, gate_ref: str) -> tuple[list[di
 
     order = [BINDING_ROLE_ORDER.index(str(row["role"])) for row in rows]
     if order != sorted(order):
-        raise ValueError(f"{shot_id}: reference binding order violates character->episode->place->subspace->scene->character_wardrobe->prop")
+        raise ValueError(f"{shot_id}: reference binding order violates episode->place->subspace->character->scene->character_wardrobe->prop")
     return rows, character_ids, prop_ids
 
 

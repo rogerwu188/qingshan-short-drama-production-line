@@ -459,11 +459,14 @@ def _verify_no_speech(media: Path) -> dict[str, Any]:
         rows = []
         with _ASR_LOCK:
             model = _whisper_model_locked()
-            segments, _info = model.transcribe(str(media), language="zh", beam_size=5, vad_filter=True)
+            segments, _info = model.transcribe(str(media), language="zh", beam_size=5, vad_filter=True,
+                                               word_timestamps=True)
             for seg in segments:
                 text = seg.text.strip()
                 hallucination = any(pat.lower() in text.lower() for pat in ASR_HALLUCINATION_PATTERNS)
                 rows.append({"start": round(seg.start, 2), "end": round(seg.end, 2), "text": text,
+                             "words": [{"start": round(float(w.start), 3), "end": round(float(w.end), 3), "word": str(w.word)}
+                                       for w in (seg.words or [])],
                              "no_speech_prob": round(float(seg.no_speech_prob), 3),
                              "avg_logprob": round(float(seg.avg_logprob), 3),
                              "known_hallucination_pattern": hallucination})
@@ -509,6 +512,29 @@ def _measure_tail(media: Path, segments: list[dict[str, Any]]) -> dict[str, Any]
             "last_segment": last, "speech_rms_db": speech_db, "final_120ms_rms_db": tail_db,
             "drop_db": round(drop, 2), "rule": "final 120 ms at least 6 dB below the last speech segment = decayed"}
 
+def _rate_segments(media: Path, segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Segments for the seq=29 rule-6 speech-rate measurement.  The engine dialogue gate's rows carry
+    padded VAD-chunk bounds (a 4-character line spanning a 7.6 s wind chunk), which under-measures cps;
+    when they carry no per-word timing, take one word-timestamp pass (same model, beam 1) so the
+    realised speech time is the sum of word spans.  Falls back to the given rows on any failure."""
+    rows = [r for r in (segments or []) if isinstance(r, dict)]
+    if not rows or any(r.get("words") for r in rows):
+        return rows
+    try:
+        with _ASR_LOCK:
+            model = _whisper_model_locked()
+            segs, _info = model.transcribe(str(media), language="zh", beam_size=1, vad_filter=True,
+                                           word_timestamps=True)
+            timed = [{"start": round(float(seg.start), 2), "end": round(float(seg.end), 2),
+                      "text": _t2s(str(seg.text).strip()),
+                      "words": [{"start": round(float(w.start), 3), "end": round(float(w.end), 3), "word": str(w.word)}
+                                for w in (seg.words or [])],
+                      "timing_pass": "WORD_TIMESTAMPS_BEAM1"} for seg in segs]
+        return timed if any(t["words"] for t in timed) else rows
+    except Exception:  # noqa: BLE001
+        return rows
+
+
 def _reverify_dialogue(media: Path, expected_texts: list[str]) -> dict[str, Any]:
     """In-process faster-whisper (small, int8) with vad_filter + beam 1; character recall of the
     expected spoken text after t2s normalisation.  Never rejects on its own — only rescues a
@@ -517,8 +543,11 @@ def _reverify_dialogue(media: Path, expected_texts: list[str]) -> dict[str, Any]
     try:
         with _ASR_LOCK:
             model = _whisper_model_locked()
-            segments, _info = model.transcribe(str(media), language="zh", beam_size=1, vad_filter=True)
-            rows = [{"start": round(float(seg.start), 2), "end": round(float(seg.end), 2), "text": _t2s(str(seg.text).strip())}
+            segments, _info = model.transcribe(str(media), language="zh", beam_size=1, vad_filter=True,
+                                               word_timestamps=True)
+            rows = [{"start": round(float(seg.start), 2), "end": round(float(seg.end), 2), "text": _t2s(str(seg.text).strip()),
+                     "words": [{"start": round(float(w.start), 3), "end": round(float(w.end), 3), "word": str(w.word)}
+                               for w in (seg.words or [])]}
                     for seg in segments]
     except Exception as exc:  # noqa: BLE001
         return {"status": "REVERIFY_FAILED", "error": f"{type(exc).__name__}: {exc}", "recall": None}
@@ -831,7 +860,7 @@ def run(episode: str, *, review_path: Path | None = None,
         # SUPERVISOR_ORDERS seq=29 规则 6: realised cps from the SAME ASR segments vs the director's
         # per-shot target — MINOR is recorded, BLOCKER joins the reroll flow (no new capture, no new gate).
         import speech_rate_check as _src
-        speech_rate = _src.measure_unit(unit_id, dialogue.get("segments") or [],
+        speech_rate = _src.measure_unit(unit_id, _rate_segments(media, dialogue.get("segments") or []),
                                         expectations.get("expected_dialogue") or [], _src.shot_targets(exp.contract))
         write_json(out_dir / f"{unit_id}_speech_rate.json", speech_rate)
         return {"media": media, "media_sha256": sha256_file(media),

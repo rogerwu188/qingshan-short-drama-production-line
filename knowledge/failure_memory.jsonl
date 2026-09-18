@@ -16,3 +16,7 @@
 {"failure_code": "REVIEW_MARKER_REQUIRES_NEW_REQUEST", "do_not_repeat": "标记/豁免只随新审核请求生效；P2 用 1-based shot_index；身份豁免先看裁切图", "stage": "pipeline", "scope": "episode", "knowledge_id": "K057"}
 {"failure_code": "ACTION_VISIBILITY_UNDECLARED", "do_not_repeat": "关键动作画内可见、对白动作词有动作、同机位不相邻；成片对镜表比对只诊断", "stage": "pipeline", "scope": "episode", "knowledge_id": "K058"}
 {"failure_code": "IDENTITY_SIGNAL_DILUTED_ALONG_CHAIN", "do_not_repeat": "牌对原照测；关键帧脸参考打头且大脸；视频单元带头像牌；Q1 不给 3/4 脸豁免", "stage": "pipeline", "scope": "episode", "knowledge_id": "K059"}
+{"failure_code": "HALF_SECOND_UNIT_VS_INTEGER_PROVIDER_SLOT", "do_not_repeat": "整数槽=上取整；内容与尾柄显式声明并透传；重建后重新走 register→digest→receipts→register", "stage": "pipeline", "scope": "episode", "knowledge_id": "K060"}
+{"failure_code": "SPEECH_RATE_MEASURED_ON_PADDED_SEGMENTS", "do_not_repeat": "先修测量再谈重出；记录 timing_basis；收尾句不当拖沓判", "stage": "qa", "scope": "episode", "knowledge_id": "K061"}
+{"failure_code": "LEVELLER_TARGET_ABOVE_ROLE_CEILING", "do_not_repeat": "精修目标不出接受带；上限用常量；重跑先停放输出", "stage": "assembly", "scope": "episode", "knowledge_id": "K062"}
+{"failure_code": "BY_DESIGN_POSE_BLOCKS_IDENTITY_GATE", "do_not_repeat": "按订单接受、sha 绑定、引擎结果保留；不改阈值、不给可测脸豁免", "stage": "pipeline", "scope": "episode", "knowledge_id": "K063"}
