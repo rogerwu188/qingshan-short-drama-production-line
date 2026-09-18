@@ -3727,6 +3727,25 @@ def stage_s7(ctx: Ctx) -> StageResult:
     asr_windows = p.assembly / f"{ctx.episode}_FINAL_CUT_ASR_WINDOWS.json"   # unit ASR on the release timeline
     detector_report = p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_DETECTORS.json"
     # (the speaker map + ASR windows are built before levelling, see step 6)
+    # ------------------------------------------- 6b. seq=27 §六: final cut vs shot table (diagnostic, never blocks)
+    # Roger 2026-09-17 memo: scdet cut count vs planned shots, stretched segments, static holds, blank screens.
+    # Written to assembly/<EP>_FINAL_CUT_SHOT_PLAN_PARITY.json (+ .md block copied into CHECKPOINT.md at S8).
+    if p.final_mp4.is_file():
+        parity_json = p.assembly / f"{ctx.episode}_FINAL_CUT_SHOT_PLAN_PARITY.json"
+        parity_md = p.assembly / f"{ctx.episode}_FINAL_CUT_SHOT_PLAN_PARITY.md"
+        parity_step = ctx.run([VENV, RT_TOOLS / "final_cut_shot_plan_parity.py", "--episode", ctx.episode,
+                               "--final", p.final_mp4, "--contract", p.contract,
+                               "--out", parity_json, "--checkpoint-block-out", parity_md],
+                              name="s7_final_cut_shot_plan_parity")
+        parity_step["diagnostic_only"] = True   # seq=27: no gate_id, never blocks
+        parity_step["exit_code"] = 0 if parity_json.is_file() else parity_step["exit_code"]
+        steps.append(parity_step)
+        res.details["shot_plan_parity"] = {"report": str(parity_json), "checkpoint_block": str(parity_md),
+                                           "status": (read_json(parity_json, {}) or {}).get("status"),
+                                           "findings": [f.get("code") for f in ((read_json(parity_json, {}) or {}).get("findings") or [])],
+                                           "authority": "SUPERVISOR_ORDERS seq=27 §六 (diagnostic, non-blocking)"}
+        res.receipts.append(str(parity_json))
+
     detector_argv: list[Any] = [VENV, ENGINE / "tools/final_cut_audience_detectors.py",
                                 "--media", p.final_mp4, "--out", detector_report,
                                 "--lexicon", RT_TOOLS.parent / "configs" / "LEXICON_yewujiang_v1.json",
@@ -4045,6 +4064,10 @@ def write_checkpoint(ctx: Ctx) -> Path:
             add(f"* **{row.get('id')}** — {row.get('resolution') or row.get('detail')}")
             if row.get("residual"):
                 add(f"  * residual: {row['residual']}")
+    parity_md = p.assembly / f"{ctx.episode}_FINAL_CUT_SHOT_PLAN_PARITY.md"
+    if parity_md.is_file():  # seq=27 §六: diagnostic block for the line owner's screening
+        add("")
+        add(parity_md.read_text(encoding="utf-8").rstrip())
     add("")
     add("## Approval")
     add("")

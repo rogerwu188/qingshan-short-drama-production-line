@@ -803,12 +803,34 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         return _legacy_submit_one_for_audit_only(task, receipt_dir, transaction_dir)
 
 
+def _provider_declined(failure: dict[str, Any], transaction_dir: Path | None = None) -> bool:
+    """True when the recorded provider response is an explicit non-200 failure carrying no task_id (nalu e24)."""
+    text = str(failure.get("provider_response") or "")
+    if not text and transaction_dir is not None and failure.get("transaction"):
+        path = resolve(failure["transaction"])
+        if path.is_file():
+            try:
+                text = json.dumps(json.loads(path.read_text(encoding="utf-8")).get("provider_response") or "", ensure_ascii=False)
+            except Exception:  # noqa: BLE001
+                text = ""
+    text = text or str(failure.get("error") or "")
+    return ("task_id" not in text or "missing task_id" in text) and any(
+        marker in text for marker in ("'code': 500", '"code": 500', '"code":500', "payment failed", "status: 500", "status: 4")
+    )
+
+
 def classify_failures(failures: list[dict[str, Any]], known: int, matched: int, transaction_dir: Path) -> str:
     extra = matched - known
     if not failures:
         return "NO_AMBIGUOUS_SUBMISSIONS"
     if len(failures) == 1 and extra == 1:
         state, summary = "CHARGED_TASK_ID_MISSING", "RECOVER_ONE_TASK_ID_FROM_PROVIDER_HISTORY"
+    elif extra == 0 and all(_provider_declined(f, transaction_dir) for f in failures):
+        # nalu e24 (2026-09-18, mirrors e18 for images): the provider answered with an explicit
+        # non-charging failure (code != 200, e.g. "payment failed ... 500", no task_id) AND the ledger
+        # window shows exactly as many pay rows as the task ids we hold — nothing was bought; the
+        # attempt may be retried (VERIFIED_ZERO_RETRYABLE is the state prior_bound() lets through).
+        state, summary = "VERIFIED_ZERO_RETRYABLE", "PROVIDER_DECLINED_AND_LEDGER_ROWS_EQUAL_KNOWN_TASK_IDS"
     else:
         state, summary = "CHARGE_STATE_UNRESOLVED_BATCH", "QUARANTINE_AMBIGUOUS_TASKS_ONLY"
     for failure in failures:
@@ -826,9 +848,14 @@ def classify_failures(failures: list[dict[str, Any]], known: int, matched: int, 
             failure["credit_status"] = "BOUND_TASK_RECEIPT_RECOVERY_REQUIRED"
             continue
         # Aggregate absence is not per-attempt zero-charge evidence: ledgers can lag.
-        row.update({"state": state, "ledger_reconciled_at": utc_now(), "batch_known_task_ids": known, "batch_ledger_pay_rows": matched, "retry_guard": "DO_NOT_RESUBMIT_RECOVER_TASK_ID"})
+        retry_guard = "RETRY_ALLOWED_NEW_ATTEMPT" if state == "VERIFIED_ZERO_RETRYABLE" else "DO_NOT_RESUBMIT_RECOVER_TASK_ID"
+        row.update({"state": state, "ledger_reconciled_at": utc_now(), "batch_known_task_ids": known, "batch_ledger_pay_rows": matched, "retry_guard": retry_guard})
+        if state == "VERIFIED_ZERO_RETRYABLE":
+            row["credit_status"] = "NOT_CHARGED_RETRYABLE"
+            row["reconciliation"] = {"rule": "nalu e24: explicit provider decline + ledger pay rows == known task ids", "credit": 0}
+            failure["credit"] = 0
         atomic_json(path, row)
-        failure["credit_status"] = state
+        failure["credit_status"] = "NOT_CHARGED_RETRYABLE" if state == "VERIFIED_ZERO_RETRYABLE" else state
     return summary
 
 

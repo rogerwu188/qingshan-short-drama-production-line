@@ -273,10 +273,20 @@ def lock_voice(ctx: Ctx, row: dict[str, Any]) -> dict[str, Any]:
     receipt_path = ctx.voice_upload_dir / f"{entity}_giggle_asset.json"
     if not receipt_path.is_file():
         # voices are paid once per character (S4 cross-episode reuse): the upload receipt lives
-        # in the episode that generated it
-        for cand in sorted((ENGINE / "workflow/nalu").glob(f"E*/voice/uploads/{entity}_giggle_asset.json")):
-            receipt_path = cand
-            break
+        # in the episode that generated it.  E05 (2026-09-17): a recast voice (seq=17/20) has receipts in
+        # several episodes — pick the one whose asset id is the registry's current remote_asset_id, else
+        # the newest episode's (the E01 receipt of a recast 秦铭 failed upload_receipt_asset_id_matches_registry).
+        cands = sorted((ENGINE / "workflow/nalu").glob(f"E*/voice/uploads/{entity}_giggle_asset.json"))
+        want = (reg or {}).get("remote_asset_id")
+        for cand in reversed(cands):
+            cdata = load_json(cand)
+            cdata = cdata.get("data") if isinstance(cdata.get("data"), dict) else cdata
+            if want and cdata.get("asset_id") == want:
+                receipt_path = cand
+                break
+        else:
+            if cands:
+                receipt_path = cands[-1]
     receipt = load_json(receipt_path) if receipt_path.is_file() else {}
     receipt_data = receipt.get("data") if isinstance(receipt.get("data"), dict) else receipt
     probe = ffprobe(wav) if wav.is_file() else {"error": "wav_missing"}

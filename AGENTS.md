@@ -94,7 +94,7 @@ git clone https://github.com/rogerwu188/nalu-production-runtime.git /tmp/npr && 
 
 | 现象 | 归类 | 动作 |
 |---|---|---|
-| POST 无 task_id、HTTP 断流 | 事务 `RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION` | **先对账**（账单窗口 Pay 行数 == 已知 task 数）→ `NOT_CHARGED_RETRYABLE` 才可重提；绝不删事务文件 |
+| POST 无任务标识、HTTP 断流 | 事务 `RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION` | **先对账**（账单窗口 Pay 行数 == 已知 task 数）→ `NOT_CHARGED_RETRYABLE` 才可重提；绝不删事务文件 |
 | 提供者明确拒单（code 500 payment failed 等） | `NOT_CHARGED_RETRYABLE`（补丁 e18） | 直接重跑同阶段，指纹相同不重发已绑定行 |
 | 提交前门拦下（`WHOLE_BATCH_PROMPT_QA_REQUIRED…`、precheck） | `NOT_CHARGED_NO_INTENT_RECORDED`（补丁 e17） | 修门的输入（多数是回执 sha 与文件不一致 → 重做 digest/receipts/register）再跑 |
 | 403 invalid api key | 凭据 | 停，问线主换 key；恢复后先对账再重提 |
@@ -120,6 +120,12 @@ git clone https://github.com/rogerwu188/nalu-production-runtime.git /tmp/npr && 
 | S1 `CONTINUITY_STATE_CONTRACT_FAIL`（LIFE_STATE_UNDECLARED / DEAD_THEN_ALIVE / GROUP_COUNT_DRIFT / CREATURE_* / AMBUSH_*） | 状态机/生物卡/伏击空间未声明（K046、K048） | 每镜 cast[].life_state、group_counts、creature_card、ambush_contracts；观感由 Q2 必答问题把关 |
 | S4 `VOICE_CAST_REQUIRES_HUMAN`（同场角色参考音音区重叠 >50%） | 参考音本身分不开（K049） | 线主决定：换参考音（重生成 2 cr/角色）或接受；不能静默通过 |
 | S7 `FINAL_CUT_AUDIENCE_DETECTORS_FAIL`（hook_present / dialogue_coverage / silence_gap_max / voice_distinctness / emotion_dynamics / lexicon_violation / mascot_in_story / loudness） | 成片观众级检测（K042、K049–K052） | 按检测器修：结构类回剧本层重做，音色类换参考音并重做该单元，词表类改台词/字幕，响度类重跑发布响度；`UNVERIFIED/NOT_IMPLEMENTED` 项进 receipt，不算 PASS |
+| S3 `ASSET_LIBRARY_GATE_FAIL` 配音 `upload_receipt_asset_id_matches_registry` | 重铸配音多集有回执，锁库器取了最旧集（K055） | 新配音先跑 S4 再回 S3；锁库按注册表 remote_asset_id 选回执；账本检查不与流水线并发 |
+| 视频提交提供者拒单（code 500 payment failed、无任务标识）却整批 `CHARGE_STATE_UNRESOLVED_BATCH` | 账单 Pay 行数 == 已知 task 数时是 e24 漏判（K054） | 事务离线重分类为 NOT_CHARGED_RETRYABLE，重跑同阶段只 POST 该单元；BLOCKED 运行的账单摘要用 `giggle_credit_statements.py` 按提交窗重建后再跑下一波 |
+| 说话生物要过身份锁 | 生物没有人脸（K053） | 角色登记 identity_source.mode=VOICE_ONLY_NO_PLATE：只建 voices 行，画面为道具生物卡，镜表 presence OFFSCREEN_VOICE_ONLY、lip_owner 空 |
+| Q1 坐/站跳变、独处镜漏人、生物独镜『道具：无/空镜』、生成后人物突然入画 | 镜文字状态泄漏（K056） | 逐镜写姿态；场景光线不提人物；道具用注册表名；start_framing 含在场人物；改文字→停放→重登记→受守卫重做 |
+| 加了姿态标记身份仍 FAIL；Q2 P2 被拒收 | 标记只随新审核请求生效；P2 需 1-based shot_index（K057） | 停放旧 request/submitted 重新签发；豁免写帧号与分数、先看 face_crops；OCR 噪声 `NOISE:<文本>` |
+| S7 parity 报 SHOT_STRETCHED / STATIC_HOLD_IN_DIALOGUE / BLANK_SCREEN | seq=27 §六 诊断（K058），不阻断 | 写入 CHECKPOINT 给线主审片；阈值与是否返修由线主裁定；不新增 gate_id |
 
 ## 6. 现在做不到全自动的步骤（如实）
 

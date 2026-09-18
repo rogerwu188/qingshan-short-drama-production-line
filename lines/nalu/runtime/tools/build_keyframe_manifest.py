@@ -673,9 +673,18 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
         f"{row.get('entity_name')}（{row['entity_id']}）"
         for row in bindings if row["role"] == "character"
     ]
+    prop_names = [
+        f"{row.get('entity_name')}（{row['entity_id']}）"
+        for row in bindings if row["role"] == "prop"
+    ]
+    # E05 (2026-09-17): a character-free frame whose props include a creature card (the talking crow)
+    # is not an empty frame — the old "无动物；空镜" clause contradicted the prop line and risked an empty
+    # thornbush.  Name the prop subjects instead; the pure empty-frame wording stays for prop-less frames.
     cast_clause = (
         f"本帧允许入画的人物（仅这些，且各只出现一次）：{join(cast_names, '、')}"
-        if cast_names else "画面内无人物、无动物；空镜。"
+        if cast_names else (
+            f"画面内无人物；主体只有上列道具/生物（{join(prop_names, '、')}），各只出现一次，不加任何人物"
+            if prop_names else "画面内无人物、无动物；空镜。")
     )
     wardrobe_lines = []
     for asset_id in character_ids:
