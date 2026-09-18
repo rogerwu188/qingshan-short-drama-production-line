@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1843,
+  "file_count": 1845,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -6472,6 +6472,10 @@
       "sha256": "594055c2f31192e316196567c835d1434d304757d8d16c9f50e6ee70ed385572"
     },
     {
+      "path": "tools/tests/test_grouped_manifest_duration_authority_passthrough.py",
+      "sha256": "e8c1c6a4548387f15e0133d6bc80fd79306a5d09e3079440082f07c2f4620f4c"
+    },
+    {
       "path": "tools/tests/test_grouped_performance_contract.py",
       "sha256": "869948ab2b3fd5f77ebb1c3a9765f6f8979409114b1d67ee7dc9117f33adb14a"
     },
@@ -6582,6 +6586,10 @@
     {
       "path": "tools/tests/test_nalu_prompt_rules_seq19.py",
       "sha256": "5d51823dbab899ff25bfbe1d24608b4a4c6624b597f29d661b7d2600b9741dea"
+    },
+    {
+      "path": "tools/tests/test_nalu_q1_roger_acceptance.py",
+      "sha256": "c05b67545e0d944351706fb418d49cb25ae8a1df2316698264fb5bbbad6389b2"
     },
     {
       "path": "tools/tests/test_nalu_roger_gate_acceptance.py",

@@ -85,7 +85,7 @@ def measure_unit(unit_id: str, segments: list[dict[str, Any]], expected_dialogue
     result["authored_trailing_off"] = authored_trailing_off
     hook_line = any(t["hook"] for t in known)
     # the exemption never covers an episode hook line; a conflict-flagged line that is authored to break
-    # off (陆泽 愣住「小秦，你这是……」) is still the directed performance
+    # off (a character breaking off mid-sentence in shock) is still the directed performance
     if ratio < BLOCKER_RATIO and authored_trailing_off and not hook_line:
         result.update(tier="MINOR", code="SPEECH_RATE_UNDER_TARGET_AUTHORED_TRAILING_OFF", status="PASS_WITH_NOTE",
                       note="line authored to trail off (……); slow rate is the directed performance (seq=31 rule C)")
