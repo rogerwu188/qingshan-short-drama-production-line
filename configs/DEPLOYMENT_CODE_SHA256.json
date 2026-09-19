@@ -2933,7 +2933,7 @@
     },
     {
       "path": "tools/build_storyclaw_talenthub_release.py",
-      "sha256": "d888214fc83d82448484039d006e29b3f7a34bff36dbef9a90e5ce77992d4ea0"
+      "sha256": "5fb9d0b117f3b95701b381d0fb23957229d43bff6efeb806084d74f0fd74bfd3"
     },
     {
       "path": "tools/build_unreceipted_image_recovery_batch.py",

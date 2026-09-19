@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -78,11 +79,17 @@ def assert_clean_worktree() -> None:
 
 
 def run_release_checks() -> None:
+    python = os.environ.get("NALU_VENV_PYTHON")
+    if python:
+        check_python = Path(python).expanduser()
+    else:
+        candidate = ROOT / ".qingshan-venv" / "bin" / "python"
+        check_python = candidate if candidate.exists() else Path(sys.executable)
     commands = [
-        [sys.executable, "tools/deployment_code_integrity.py"],
-        [sys.executable, "tools/knowledge_registry.py", "--validate"],
-        [sys.executable, "tools/run_portable_ci.py"],
-        [sys.executable, "-m", "unittest", "tools.tests.test_storyclaw_nalu_runtime"],
+        [str(check_python), "tools/deployment_code_integrity.py"],
+        [str(check_python), "tools/knowledge_registry.py", "--validate"],
+        [str(check_python), "tools/run_portable_ci.py"],
+        [str(check_python), "-m", "unittest", "tools.tests.test_storyclaw_nalu_runtime"],
     ]
     for command in commands:
         print("RELEASE_CHECK", " ".join(command))
