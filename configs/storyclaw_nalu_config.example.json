@@ -5,6 +5,13 @@
   "model_allowlist": ["storyclaw/gpt-6-astra", "storyclaw/claude-opus-5"],
   "selected_model": "storyclaw/gpt-6-astra",
   "paid_requests_enabled": false,
+  "workflow_policy": {
+    "script_first": true,
+    "asset_matching_after_s1": true,
+    "single_confirmation_before_generation": true,
+    "no_per_item_user_prompt": true,
+    "confirmation_required_from_stage": "S3"
+  },
   "heartbeat_seconds": 900,
   "review_mode": "external_file_review_required",
   "platform_upload": "disabled"

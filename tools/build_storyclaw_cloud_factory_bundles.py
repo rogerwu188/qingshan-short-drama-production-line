@@ -26,6 +26,10 @@ FIX_REGISTRY = (
 )
 
 SHARED_FILES = {
+    "agent_factory/STORYCLAW_WORKFLOW_POLICY.md",
+    "agent_factory/SOUL.md",
+    "agent_factory/USER.md",
+    "agent_factory/claude_writer/SKILL.md",
     "configs/GATE_REGISTRY_v3_20260716.json",
     "configs/project_init_schema_v1.json",
     "codex_docs/青山AI_Factory_客户版产品架构_v2_20260724.md",

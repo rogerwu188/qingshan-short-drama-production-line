@@ -23,6 +23,13 @@ from typing import Any
 
 ALLOWED_MODELS = {"storyclaw/gpt-6-astra", "storyclaw/claude-opus-5"}
 STAGES = {f"S{i}" for i in range(1, 9)}
+WORKFLOW_POLICY = {
+    "script_first": True,
+    "asset_matching_after_s1": True,
+    "single_confirmation_before_generation": True,
+    "no_per_item_user_prompt": True,
+    "confirmation_required_from_stage": "S3",
+}
 PUBLIC_EXCLUDES = {
     ".env", "credentials.json", "secrets.json", "SUPERVISOR_ORDERS.json",
 }
@@ -116,8 +123,20 @@ def init_runtime(engine: Path, runtime: Path) -> dict[str, Any]:
             "generation": {"provider": "giggle", "video_profile": "SD2_STANDARD_720P_9X16", "paid_requests_enabled": False, "max_parallel_tasks": 1},
             "quality": {"prompt_preflight_required": True, "post_generation_scope": "TECHNICAL_AND_BASIC_PLOT", "release_fail_closed": True},
             "release": {"order": ["youtube", "douyin"], "youtube": {"mode": "interactive_browser"}, "douyin": {"mode": "interactive_browser"}},
-            "storyclaw": {"model_allowlist": sorted(ALLOWED_MODELS), "selected_model": "storyclaw/gpt-6-astra", "paid_requests_enabled": False},
+            "storyclaw": {
+                "model_allowlist": sorted(ALLOWED_MODELS),
+                "selected_model": "storyclaw/gpt-6-astra",
+                "paid_requests_enabled": False,
+                "workflow_policy": WORKFLOW_POLICY,
+            },
         })
+    else:
+        # Upgrade an existing private deployment in place without overwriting
+        # its project, provider, budget, or credential settings.
+        config = _json(p["config"], {}) or {}
+        storyclaw = config.setdefault("storyclaw", {})
+        storyclaw.setdefault("workflow_policy", WORKFLOW_POLICY)
+        _write(p["config"], config)
     receipt = {
         "schema": "storyclaw.nalu.deployment.v1",
         "created_at": now(),
@@ -128,6 +147,7 @@ def init_runtime(engine: Path, runtime: Path) -> dict[str, Any]:
         "private_runtime": True,
         "paid_requests_enabled": bool((_json(p["config"], {}) or {}).get("generation", {}).get("paid_requests_enabled", False)),
         "model_allowlist": sorted(ALLOWED_MODELS),
+        "workflow_policy": WORKFLOW_POLICY,
         "secret_values_included": False,
     }
     _write(p["deployment_receipt"], receipt)
@@ -170,6 +190,113 @@ def _paid_enabled(config: dict[str, Any]) -> bool:
     return bool(config.get("generation", {}).get("paid_requests_enabled", False)) and bool(config.get("storyclaw", {}).get("paid_requests_enabled", False))
 
 
+def _asset_plan_path(runtime: Path, episode: str) -> Path:
+    return runtime / "runtime" / "asset_plans" / f"{episode}_ASSET_MATCH_PLAN.json"
+
+
+def _stage_status(state: Any, stage: str) -> str | None:
+    """Read an explicit stage verdict without inferring PASS from progress text."""
+    if not isinstance(state, dict):
+        return None
+    for container_key in ("stages", "stage_results", "stage_verdicts", "gates"):
+        container = state.get(container_key)
+        if isinstance(container, dict):
+            value = container.get(stage) or container.get(stage.lower())
+            if isinstance(value, dict):
+                value = value.get("status") or value.get("overall_status") or value.get("verdict")
+            if isinstance(value, str):
+                return value.upper()
+    value = state.get(stage) or state.get(stage.lower())
+    if isinstance(value, dict):
+        value = value.get("status") or value.get("overall_status") or value.get("verdict")
+    return value.upper() if isinstance(value, str) else None
+
+
+def _s1_passed(runtime: Path, episode: str) -> bool:
+    state = _json(runtime / "runtime" / "pipeline_state" / f"{episode}.json")
+    status = _stage_status(state, "S1")
+    return status in {"PASS", "PASSED", "ALL_PASS", "COMPLETE", "COMPLETED"}
+
+
+def validate_asset_plan(runtime: Path, episode: str) -> tuple[bool, str]:
+    """Validate the private, auditable proposal required before S3.
+
+    A proposal may be written before confirmation, but it must never be treated
+    as a confirmation or an order.  The plan is deliberately kept in the
+    private runtime volume and is excluded from public bundles.
+    """
+    path = _asset_plan_path(runtime, episode)
+    plan = _json(path)
+    if not isinstance(plan, dict):
+        return False, "asset_matching_plan_missing"
+    if plan.get("episode") != episode:
+        return False, "asset_matching_plan_episode_mismatch"
+    if plan.get("script_s1_gate_status") not in {"PASS", "PASSED", "ALL_PASS"}:
+        return False, "asset_matching_requires_s1_pass"
+    if not isinstance(plan.get("character_matches"), list):
+        return False, "asset_matching_character_matches_missing"
+    if not isinstance(plan.get("unmatched_characters"), list):
+        return False, "asset_matching_unmatched_characters_missing"
+    if not isinstance(plan.get("ai_generation_proposals"), list):
+        return False, "asset_matching_ai_generation_proposals_missing"
+    confirmation = plan.get("user_confirmation")
+    if not isinstance(confirmation, dict) or confirmation.get("status") != "CONFIRMED":
+        return False, "user_confirmation_missing"
+    if not confirmation.get("receipt_sha256"):
+        return False, "user_confirmation_receipt_missing"
+    return True, "PASS"
+
+
+def record_asset_plan(runtime: Path, episode: str, source: Path) -> Path:
+    """Store a script-derived proposal; this operation cannot confirm or pay."""
+    if not _s1_passed(runtime, episode):
+        raise SystemExit("BLOCKED: cannot create an asset matching plan before S1 PASS")
+    plan = _json(source)
+    if not isinstance(plan, dict):
+        raise SystemExit("BLOCKED: asset plan must be a JSON object")
+    plan["schema"] = "storyclaw.asset_match_plan.v1"
+    plan["episode"] = episode
+    plan["script_s1_gate_status"] = "PASS"
+    plan["status"] = "PROPOSED"
+    plan["user_confirmation"] = {"status": "PENDING"}
+    destination = _asset_plan_path(runtime, episode)
+    _write(destination, plan)
+    return destination
+
+
+def confirm_asset_plan(runtime: Path, episode: str, receipt_path: Path) -> Path:
+    """Bind a separately produced user confirmation receipt to the proposal."""
+    destination = _asset_plan_path(runtime, episode)
+    plan = _json(destination)
+    receipt = _json(receipt_path)
+    if not isinstance(plan, dict):
+        raise SystemExit("BLOCKED: asset matching proposal is missing")
+    if not isinstance(receipt, dict) or receipt.get("status") != "CONFIRMED":
+        raise SystemExit("BLOCKED: confirmation receipt must explicitly have status CONFIRMED")
+    if receipt.get("episode") not in (None, episode):
+        raise SystemExit("BLOCKED: confirmation receipt episode mismatch")
+    plan["status"] = "CONFIRMED"
+    plan["user_confirmation"] = {
+        "status": "CONFIRMED",
+        "confirmed_at": receipt.get("confirmed_at") or now(),
+        "receipt_sha256": sha256(receipt_path),
+        "receipt_path": str(receipt_path),
+    }
+    _write(destination, plan)
+    return destination
+
+
+def _enforce_workflow_policy(runtime: Path, episode: str, target_stage: str) -> None:
+    """Fail closed at S3+ until script and one complete asset proposal are confirmed."""
+    if int(target_stage[1:]) < 3:
+        return
+    if not _s1_passed(runtime, episode):
+        raise SystemExit("BLOCKED: S3+ requires an explicit S1 PASS before asset matching or generation")
+    valid, reason = validate_asset_plan(runtime, episode)
+    if not valid:
+        raise SystemExit(f"BLOCKED: S3+ requires a confirmed script-derived asset matching plan ({reason})")
+
+
 def run_episode(engine: Path, runtime: Path, episode: str, from_stage: str | None, until: str | None, paid: bool, dry_run: bool) -> int:
     if not episode.startswith("E") or not episode[1:].isdigit():
         raise SystemExit("--episode must look like E06")
@@ -177,6 +304,7 @@ def run_episode(engine: Path, runtime: Path, episode: str, from_stage: str | Non
         raise SystemExit("--from must be S1..S8")
     if until and until.upper() not in STAGES:
         raise SystemExit("--until must be S1..S8")
+    target_stage = (until or from_stage or "S1").upper()
     p = deployment_paths(engine, runtime)
     config = _json(p["config"], {}) or {}
     selected_model = config.get("storyclaw", {}).get("selected_model") or os.environ.get("STORYCLAW_MODEL", "storyclaw/gpt-6-astra")
@@ -186,6 +314,7 @@ def run_episode(engine: Path, runtime: Path, episode: str, from_stage: str | Non
         raise SystemExit("BLOCKED: paid requires both config generation.paid_requests_enabled and storyclaw.paid_requests_enabled")
     if paid and not os.environ.get("GIGGLE_API_KEY"):
         raise SystemExit("BLOCKED: GIGGLE_API_KEY is absent; no provider POST allowed")
+    _enforce_workflow_policy(runtime, episode, target_stage)
     argv = [str(roots()[2]), str(engine / "lines/nalu/runtime/tools/nalu_pipeline.py"), "run", "--episode", episode]
     if dry_run:
         argv.append("--dry-run")
@@ -268,6 +397,12 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--dry-run", action="store_true")
     hb = sub.add_parser("heartbeat")
     hb.add_argument("--episode", required=True)
+    plan = sub.add_parser("asset-plan")
+    plan.add_argument("--episode", required=True)
+    plan.add_argument("--plan-file", type=Path, required=True)
+    confirm = sub.add_parser("confirm-assets")
+    confirm.add_argument("--episode", required=True)
+    confirm.add_argument("--receipt-file", type=Path, required=True)
     bundle = sub.add_parser("bundle")
     bundle.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
@@ -278,6 +413,12 @@ def main(argv: list[str] | None = None) -> int:
         result = preflight(engine, runtime); print(json.dumps(result, ensure_ascii=False, indent=2)); return 0 if result["status"] == "PASS" else 2
     if args.command == "heartbeat":
         print(json.dumps(heartbeat(runtime, args.episode), ensure_ascii=False, indent=2)); return 0
+    if args.command == "asset-plan":
+        path = record_asset_plan(runtime, args.episode, args.plan_file)
+        print(json.dumps({"status": "PROPOSED", "episode": args.episode, "path": str(path)}, ensure_ascii=False, indent=2)); return 0
+    if args.command == "confirm-assets":
+        path = confirm_asset_plan(runtime, args.episode, args.receipt_file)
+        print(json.dumps({"status": "CONFIRMED", "episode": args.episode, "path": str(path)}, ensure_ascii=False, indent=2)); return 0
     if args.command == "bundle":
         print(json.dumps(public_bundle(engine, args.output), ensure_ascii=False, indent=2)); return 0
     return run_episode(engine, runtime, args.episode, args.from_stage, args.until, args.paid, args.dry_run)

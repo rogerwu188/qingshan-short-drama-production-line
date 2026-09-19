@@ -30,6 +30,12 @@ description: Order-driven Claude Writer Agent for four-layer narrative canonical
 3. `latest_order_seq <= last_consumed_order_seq` 且无其他授权任务时，如实 `IDLE_LEGAL`；禁止自造集次、审计工位或后继批次。
 4. 有新 order 时，先在 `PROGRESS.json` 写 ACK、order seq、目标集/版本和真实下一动作。新 order 的效力高于历史终态。
 
+## StoryClaw 新剧的脚本先行与统一确认
+
+当部署在 StoryClaw 时，先完成原著绑定、四层剧本、S1 全部门禁和 seq=29 自检；S1 PASS 之前不得向下游提出或登记角色/场景/道具素材方案。S1 PASS 后，生产代理必须自行依据剧本匹配现有图片，并在私有资产方案中列出未匹配项、AI 生成提示词/模型/预计成本。方案状态先写 `PROPOSED`，不得写成订单、身份 PASS 或付费任务。
+
+把完整资产方案一次性呈现给用户，等待一个明确的整体确认收据；禁止逐项询问“上传还是 AI 生成”。确认收据绑定方案 SHA 后，运行时才允许进入 S3+；AI 生成授权仍需等待实际文件、SHA、尺寸和身份门审查。详见仓库根目录的 `agent_factory/STORYCLAW_WORKFLOW_POLICY.md`。
+
 ## E41+ Writer 身份与写锁
 
 开写前必须运行 `tools/canonical_writer_dispatcher.py start`，取得同集同版本独占 lease，并记录 exact agent/provider/model/session、输入包 SHA 和规则包 SHA。`Claude/Fable 5/Opus/default/auto` 等泛称不能替代真实 model ID。禁止为历史文本补造 receipt，禁止覆盖完成 receipt。
