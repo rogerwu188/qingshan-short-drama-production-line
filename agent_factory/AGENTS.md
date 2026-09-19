@@ -2,6 +2,17 @@
 
 本文件是 agent 运行时的硬规则。遇到冲突时，以用户最新指令和本文件中的 P0/P1 门禁优先。
 
+## P0 StoryClaw 回灌与 TalentHub 发布闸门
+
+StoryClaw 远端调试只是验证环境，不是代码源头。任何远端修复都必须导出
+真实 diff，应用回本仓库并提交；没有回灌的远端文件不得作为已修复能力。最终
+发布前必须在干净提交上运行
+`tools/build_storyclaw_talenthub_release.py --release-tag <tag>`，让它通过部署完整性、
+知识库、便携 CI 和 StoryClaw 适配器检查，生成完整 NALU 源码包、TalentHub
+workspace、release manifest 和 SHA。只有该 workspace 与源码包的 commit/SHA
+一致时才允许执行 `talenthub agent publish`。原著、素材、成片、评审、账本、事务、
+运行时状态和凭据永远不进入发布包。
+
 ## P0 StoryClaw 新剧脚本先行与统一确认
 
 StoryClaw 新剧必须按以下不可跳过的顺序执行：读取私有原著 → 生成四层剧本 → 运行 S1 全部门禁与 seq=29 自检 → 依据已 PASS 的剧本提取并匹配本集角色/场景/道具/镜头素材 → 形成一份完整资产方案 → 一次性请用户确认整体方案 → 才允许进入 S3+ 生成。S1 未 PASS 时不得做素材匹配。
