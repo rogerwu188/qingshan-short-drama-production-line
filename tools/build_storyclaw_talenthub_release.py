@@ -49,6 +49,21 @@ def git(*args: str) -> str:
     return subprocess.check_output(["git", *args], cwd=ROOT, text=True).strip()
 
 
+def assert_tag_points_to_head(tag: str, commit: str, allow_unreleased: bool) -> None:
+    try:
+        tagged = git("rev-parse", "--verify", f"{tag}^{{commit}}")
+    except subprocess.CalledProcessError:
+        if allow_unreleased:
+            return
+        raise SystemExit(
+            f"RELEASE_BLOCKED: tag {tag!r} does not exist; create the final tag before packaging"
+        )
+    if tagged != commit:
+        raise SystemExit(
+            f"RELEASE_BLOCKED: tag {tag} resolves to {tagged}, but HEAD is {commit}"
+        )
+
+
 def assert_clean_worktree() -> None:
     status = git("status", "--porcelain")
     if status:
@@ -226,10 +241,12 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--publish", action="store_true", help="publish the generated TalentHub workspace")
     parser.add_argument("--skip-checks", action="store_true", help="for local packaging experiments only")
+    parser.add_argument("--allow-unreleased", action="store_true", help="local packaging experiment; do not use for publication")
     args = parser.parse_args()
 
     assert_clean_worktree()
     commit = git("rev-parse", "HEAD")
+    assert_tag_points_to_head(args.release_tag, commit, args.allow_unreleased)
     if not args.skip_checks:
         run_release_checks()
     args.output_dir.mkdir(parents=True, exist_ok=True)
