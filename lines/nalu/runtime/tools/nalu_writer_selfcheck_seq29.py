@@ -76,6 +76,70 @@ def is_child(character: dict[str, Any]) -> bool:
         return False
 
 
+#: posture classes read from state texts; longest tokens first (盘坐 before 坐, 跪坐 before 跪).
+POSTURE_CLASSES = (
+    ("SIT", ("盘坐", "坐")), ("KNEEL", ("跪坐", "跪")), ("CROUCH", ("蹲",)),
+    ("LIE", ("半撑", "躺", "伏", "趴", "倒在")),
+    ("STAND", ("站", "走", "跨", "跑", "奔", "迎上", "迈", "踱", "冲")),
+)
+
+
+def posture_class(text: str) -> str | None:
+    """First posture class whose token appears in the text (None = no posture word)."""
+    t = str(text or "")
+    for cls, toks in POSTURE_CLASSES:
+        if any(tok in t for tok in toks):
+            return cls
+    return None
+
+
+def posture_words(text: str) -> set[str]:
+    cls = posture_class(text)
+    return {cls} if cls else set()
+
+
+def shot_subject(shot: dict[str, Any]) -> str:
+    spec = shot.get("prompt_spec") or {}
+    action = spec.get("action") or {}
+    sid = action.get("subject_id") or action.get("initiator_entity_id")
+    if sid:
+        return str(sid)
+    cast = spec.get("cast") or []
+    return str((cast[0] or {}).get("character_id") or (cast[0] or {}).get("character")) if cast else ""
+
+
+def posture_continuity_failures(shots: list[dict[str, Any]]) -> tuple[list[str], list[str]]:
+    """R9 (D-68): inside a scene, a character's posture persists from the last state text that named it;
+    the next shot's ENTRY posture for the same character must equal it — the change is authored INSIDE
+    the shot (e.g. 「盘坐着睁开眼睛起身」, not 「站在磨盘旁」).  Returns (failures, warnings)."""
+    failures: list[str] = []
+    warnings: list[str] = []
+    prev = None
+    posture: dict[str, str] = {}
+    for shot in shots:
+        if prev is None or shot.get("scene_id") != prev.get("scene_id"):
+            posture = {}
+        subject = shot_subject(shot)
+        entry_cls = posture_class(shot.get("entry_state"))
+        if prev is not None and shot.get("scene_id") == prev.get("scene_id"):
+            pe = ((prev.get("state_delta_evidence") or {}).get("POSTURE") or {})
+            ne = ((shot.get("state_delta_evidence") or {}).get("POSTURE") or {})
+            if pe.get("exit_code") and ne.get("entry_code") and pe["exit_code"] != ne["entry_code"] and shot_subject(prev) == subject:
+                warnings.append(f"R9A_POSTURE_CODE_NOT_CONTINUOUS:{prev.get('shot_id')}->{shot.get('shot_id')}:{pe['exit_code']}!={ne['entry_code']}")
+            known = posture.get(subject)
+            if known and entry_cls and entry_cls != known:
+                failures.append(f"R9B_ENTRY_POSTURE_JUMP:{prev.get('shot_id')}->{shot.get('shot_id')}:{subject}:{known}->{entry_cls}")
+        # update the character's posture from this shot's texts (entry first, completion last wins)
+        if subject:
+            if entry_cls:
+                posture[subject] = entry_cls
+            exit_cls = posture_class(shot.get("completion_state"))
+            if exit_cls:
+                posture[subject] = exit_cls
+        prev = shot
+    return failures, warnings
+
+
 def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) -> dict[str, Any]:
     lex = lexicon or load_lexicon()
     emotions = set(lex.get("emotions") or [])
@@ -176,6 +240,12 @@ def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) ->
         failures.extend(r8)
     else:
         warnings.extend(f"RULE8_NOT_AUTHORISED_INFO:{code}" for code in r8)
+
+    # R9 (D-68, Roger seq=36 2026-09-18) — posture continuity: inside a scene the next shot's entry
+    # posture must be the previous shot's exit posture; the change happens INSIDE the next shot.
+    r9_fail, r9_warn = posture_continuity_failures(contract.get("shots") or [])
+    failures.extend(r9_fail)
+    warnings.extend(r9_warn)
 
     status = "PASS" if not failures else "FAIL"
     return {"schema": SCHEMA, "episode": contract.get("episode"), "authority": "SUPERVISOR_ORDERS seq=29 (Roger 2026-09-18 memo 九–十四)",

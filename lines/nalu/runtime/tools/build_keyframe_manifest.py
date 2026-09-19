@@ -1227,6 +1227,22 @@ def precheck_each_task(python: Path, engine_root: Path, manifest_path: Path,
 # main
 # --------------------------------------------------------------------------- #
 
+def derived_opener_shot_ids(inputs: "Inputs") -> set[str]:
+    """First shots of units whose opening_anchor_contract.source is CONTINUITY_DERIVED_KEYFRAME (D-68)."""
+    try:
+        plan = load_json(inputs.grouping_plan_path)
+        anchors = inputs.anchor_plan
+    except Exception:  # noqa: BLE001
+        return set()
+    first = {str(u.get("unit_id")): str((u.get("editorial_shot_ids") or [""])[0]) for u in plan.get("units") or []}
+    out = set()
+    for row in anchors.get("units") or []:
+        oac = row.get("opening_anchor_contract") or {}
+        if str(oac.get("source") or "") == "CONTINUITY_DERIVED_KEYFRAME" and first.get(str(row.get("unit_id"))):
+            out.add(first[str(row.get("unit_id"))])
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Build the Giggle IMAGE manifest for one episode's per-shot keyframes.",
@@ -1273,6 +1289,15 @@ def main(argv: list[str] | None = None) -> int:
     gate_ref = inputs.scene_authority_gate_ref()
 
     decisions = decide_keyframes(inputs)
+    # D-68 (Roger seq=36, 2026-09-18): a unit whose opening anchor is CONTINUITY_DERIVED_KEYFRAME starts
+    # from the PREVIOUS unit's real final frame (materialised by the wave scheduler, reviewed by Q1 then),
+    # so its opener is NOT generated here from text — E06's same-scene jump cuts came from exactly that
+    # (text-generated openers that ignored the tail).  Secondary keyframes inside such units stay.
+    derived_openers = derived_opener_shot_ids(inputs)
+    deferred = [row for row in decisions if row["decision"] == "NEW_KEYFRAME" and str(row.get("shot_id")) in derived_openers]
+    for row in deferred:
+        row["decision"] = "DEFERRED_TO_PREVIOUS_UNIT_REAL_FINAL_FRAME"
+        row["decision_basis"] = "D-68 continuity-derived opener: start frame = previous unit real tail"
     new_shots = [row for row in decisions if row["decision"] == "NEW_KEYFRAME"]
     reuse_shots = [row for row in decisions if row["decision"] != "NEW_KEYFRAME"]
 

@@ -130,3 +130,54 @@ class CompilerColumns(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PostureContinuityR9Tests(unittest.TestCase):
+    """D-68 (Roger seq=36): inside a scene the next shot's entry posture is the previous exit posture."""
+
+    def setUp(self):
+        import nalu_writer_selfcheck_seq29 as sc
+        self.sc = sc
+
+    def test_code_chain_and_word_jump(self):
+        qm = {"cast": [{"character_id": "CHAR-QM"}]}
+        shots = [
+            {"shot_id": "S1-01", "scene_id": "S1", "prompt_spec": qm, "completion_state": "秦铭盘坐着闭眼",
+             "state_delta_evidence": {"POSTURE": {"entry_code": "STANDING", "exit_code": "SEATED"}}},
+            {"shot_id": "S1-02", "scene_id": "S1", "prompt_spec": qm, "entry_state": "秦铭站在磨盘旁",
+             "state_delta_evidence": {"POSTURE": {"entry_code": "STANDING", "exit_code": "STANDING"}}},
+            # a different character kneeling is NOT a jump for 秦铭
+            {"shot_id": "S1-03", "scene_id": "S1", "prompt_spec": {"cast": [{"character_id": "CHAR-ZC"}]}, "entry_state": "周长裕跪在炕前"},
+            # posture persists across a shot without posture words: 秦铭 is standing, then "蹲" jumps
+            {"shot_id": "S1-04", "scene_id": "S1", "prompt_spec": qm, "entry_state": "秦铭攥紧双拳抬头", "completion_state": "秦铭攥拳"},
+            {"shot_id": "S1-05", "scene_id": "S1", "prompt_spec": qm, "entry_state": "秦铭蹲身蓄力"},
+        ]
+        fails, warns = self.sc.posture_continuity_failures(shots)
+        self.assertTrue(any(w.startswith("R9A_POSTURE_CODE_NOT_CONTINUOUS:S1-01->S1-02") for w in warns), warns)
+        self.assertEqual([f.split(":")[1] for f in fails], ["S1-01->S1-02", "S1-04->S1-05"], fails)
+
+    def test_continuous_and_scene_change_pass(self):
+        shots = [
+            {"shot_id": "S1-01", "scene_id": "S1", "prompt_spec": {"cast": [{"character_id": "CHAR-QM"}]}, "completion_state": "秦铭盘坐着闭眼",
+             "state_delta_evidence": {"POSTURE": {"entry_code": "STANDING", "exit_code": "SEATED"}}},
+            {"shot_id": "S1-02", "scene_id": "S1", "prompt_spec": {"cast": [{"character_id": "CHAR-QM"}]}, "entry_state": "秦铭盘坐着睁开眼睛",
+             "state_delta_evidence": {"POSTURE": {"entry_code": "SEATED", "exit_code": "STANDING"}}},
+            {"shot_id": "S2-01", "scene_id": "S2", "prompt_spec": {"cast": [{"character_id": "CHAR-QM"}]}, "entry_state": "秦铭站在街上"},
+        ]
+        self.assertEqual(self.sc.posture_continuity_failures(shots)[0], [])
+        self.assertEqual(self.sc.posture_class("秦铭盘坐着"), "SIT")
+
+
+class SameSubjectBoundaryTests(unittest.TestCase):
+    def test_parity_flags_same_size_same_cast_boundary_only_in_scene(self):
+        import final_cut_shot_plan_parity as par
+        contract = {"shots": [
+            {"shot_id": "A1", "shot_size": "中景", "prompt_spec": {"cast": [{"character_id": "CHAR-A"}]}},
+            {"shot_id": "B1", "shot_size": "中景", "prompt_spec": {"cast": [{"character_id": "CHAR-A"}]}},
+            {"shot_id": "C1", "shot_size": "中景", "prompt_spec": {"cast": [{"character_id": "CHAR-A"}]}},
+        ]}
+        plan = {"units": [{"unit_id": "U1", "scene_id": "S1", "editorial_shot_ids": ["A1"], "duration_seconds": 4},
+                          {"unit_id": "U2", "scene_id": "S1", "editorial_shot_ids": ["B1"], "duration_seconds": 5},
+                          {"unit_id": "U3", "scene_id": "S2", "editorial_shot_ids": ["C1"], "duration_seconds": 5}]}
+        rows = par.same_subject_boundaries(contract, plan)
+        self.assertEqual([(r["from_unit"], r["to_unit"], r["at_seconds"]) for r in rows], [("U1", "U2", 4.0)])

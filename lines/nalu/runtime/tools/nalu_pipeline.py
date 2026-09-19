@@ -3923,6 +3923,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
         parity_md = p.assembly / f"{ctx.episode}_FINAL_CUT_SHOT_PLAN_PARITY.md"
         parity_step = ctx.run([VENV, RT_TOOLS / "final_cut_shot_plan_parity.py", "--episode", ctx.episode,
                                "--final", p.final_mp4, "--contract", p.contract,
+                               "--grouping-plan", p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json",
                                "--out", parity_json, "--checkpoint-block-out", parity_md],
                               name="s7_final_cut_shot_plan_parity")
         parity_step["diagnostic_only"] = True   # seq=27: no gate_id, never blocks
