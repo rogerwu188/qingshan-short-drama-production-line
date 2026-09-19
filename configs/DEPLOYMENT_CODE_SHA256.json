@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1849,
+  "file_count": 1852,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -278,6 +278,10 @@
     {
       "path": "setup.py",
       "sha256": "91651cfad70cac003eb90a4bf9f69dd7305895bb1da96bed7281444156163803"
+    },
+    {
+      "path": "skills/qingshan-nalu/SKILL.md",
+      "sha256": "784fbb983cb7dd31f5ad1febd226ff69bcb5fe8e07dfc9789c200872c85d1e27"
     },
     {
       "path": "tools/ack_e36_cl2x909.py",
@@ -2928,6 +2932,10 @@
       "sha256": "7c9176e54499f81ad2a73da13eb4bba8c2ebf4f8f288bfd93c4980d09777d82d"
     },
     {
+      "path": "tools/build_storyclaw_talenthub_release.py",
+      "sha256": "920d6fcfe09587c34c72bfd49e01e1d85c4af70a81e062b7118062e509bef0a8"
+    },
+    {
       "path": "tools/build_unreceipted_image_recovery_batch.py",
       "sha256": "a029515a82e3ac3907656fa772e0090eb7969366afffb99c46b227834fe9df47"
     },
@@ -3209,7 +3217,7 @@
     },
     {
       "path": "tools/deployment_code_integrity.py",
-      "sha256": "47ec0a2748c06c29d52696cb1c99a8001022ad677432e0b723c7f1d52ae0425d"
+      "sha256": "ef7addcf28c04637603479420ba9d22eb6cae46ee7c6662fb4ed2de29c85e076"
     },
     {
       "path": "tools/derive_e16_speech_windows.py",
@@ -6022,6 +6030,10 @@
     {
       "path": "tools/tests/test_build_storyclaw_cloud_factory_bundles.py",
       "sha256": "8271ee218898f64f5ef2b7a545bb0f6f35e8e4597feb4318151284c2caca1fde"
+    },
+    {
+      "path": "tools/tests/test_build_storyclaw_talenthub_release.py",
+      "sha256": "3c2adfd29613a41f9cac182cc10da2ce8874ffe6e79a9ddb324de89fe847ae6a"
     },
     {
       "path": "tools/tests/test_build_video_unit_anchor_plan.py",
