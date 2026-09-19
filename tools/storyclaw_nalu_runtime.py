@@ -215,7 +215,10 @@ def _stage_status(state: Any, stage: str) -> str | None:
 def _s1_passed(runtime: Path, episode: str) -> bool:
     state = _json(runtime / "runtime" / "pipeline_state" / f"{episode}.json")
     status = _stage_status(state, "S1")
-    return status in {"PASS", "PASSED", "ALL_PASS", "COMPLETE", "COMPLETED"}
+    return status in {
+        "PASS", "PASSED", "ALL_PASS", "ALL 6 GATES PASS", "COMPLETE", "COMPLETED",
+        "SKIPPED_ALREADY_PASS",
+    }
 
 
 def validate_asset_plan(runtime: Path, episode: str) -> tuple[bool, str]:
