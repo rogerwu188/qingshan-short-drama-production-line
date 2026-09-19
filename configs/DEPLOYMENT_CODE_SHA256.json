@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1848,
+  "file_count": 1849,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -17,11 +17,15 @@
     },
     {
       "path": "agent_factory/SOUL.md",
-      "sha256": "090290381d1dba5b9208afb4fed85babe7c2e4da385aac4fffd4b89f308f5374"
+      "sha256": "788883176b33452a36009bc386fa3e3169b4da59bc988fc8648400b5f02cbded"
+    },
+    {
+      "path": "agent_factory/STORYCLAW_WORKFLOW_POLICY.md",
+      "sha256": "73006027a540c20e45aeac5f58b46898c094f6aeb54ef1c93ba4e8d705b26780"
     },
     {
       "path": "agent_factory/USER.md",
-      "sha256": "7dcbbc6861743dd1cede3b66733ec0f5ad6cec41664cfd45e47ce1cb72af9c9c"
+      "sha256": "2b71ef36a48cb781cade358d1c4ec035d705000881af1a4bb5e7ab92c583669e"
     },
     {
       "path": "agent_factory/claude_writer/README.md",
@@ -29,7 +33,7 @@
     },
     {
       "path": "agent_factory/claude_writer/SKILL.md",
-      "sha256": "d3b99a7e30fb1dbb072c3ae6f48fdfe156ef164b7c047b5b034f57821f3ab6cb"
+      "sha256": "88a9faa71f5da305c6953e5e1f8c37c2f6455cd512f69bb558ec2de9dadc12a6"
     },
     {
       "path": "agent_factory/claude_writer/install.py",
@@ -237,7 +241,7 @@
     },
     {
       "path": "configs/storyclaw_nalu_config.example.json",
-      "sha256": "65b346ba6861153e37a38c9b7221203f3d6a3a3b3b57735114fe9e6337cc6700"
+      "sha256": "cf8270caa2b8e2d3942d699300d234b2a4650a0c4f43cc1e335ed2210c3764b1"
     },
     {
       "path": "docs/decisions/DECISION_RECORDS.md",
@@ -2921,7 +2925,7 @@
     },
     {
       "path": "tools/build_storyclaw_cloud_factory_bundles.py",
-      "sha256": "11db2548a64387e8d0a8e550396342479e7b049c34ef21edc3d37cf43b65a17a"
+      "sha256": "7c9176e54499f81ad2a73da13eb4bba8c2ebf4f8f288bfd93c4980d09777d82d"
     },
     {
       "path": "tools/build_unreceipted_image_recovery_batch.py",
@@ -5545,7 +5549,7 @@
     },
     {
       "path": "tools/storyclaw_nalu_runtime.py",
-      "sha256": "9bf21024b3ad5edc0cbd39a6414d880068f02e1a97fad4532b68741534823656"
+      "sha256": "2a0ba231a161331acddee3e9062fb5c0682789f45f843e65df170a2cb53b60e7"
     },
     {
       "path": "tools/storyclaw_outbox_poller.py",
@@ -6889,7 +6893,7 @@
     },
     {
       "path": "tools/tests/test_storyclaw_nalu_runtime.py",
-      "sha256": "3b7ecf342d63cdef861d1fcd0d97169300165f05e3159de409e16d80c7b14408"
+      "sha256": "b2cd842d3d5bc3e8317727f0ed19d9a5372d8143fe0f29c28d9787b6e484144e"
     },
     {
       "path": "tools/tests/test_storyclaw_realtime_sync.py",
