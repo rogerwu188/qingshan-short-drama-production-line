@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1845,
+  "file_count": 1848,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -234,6 +234,10 @@
     {
       "path": "configs/schemas/narrative_canonical_v3.schema.json",
       "sha256": "6745a600d2e0a44ae720c0d0e38fae8c0a77214af2bd2672760090c22cbf433c"
+    },
+    {
+      "path": "configs/storyclaw_nalu_config.example.json",
+      "sha256": "65b346ba6861153e37a38c9b7221203f3d6a3a3b3b57735114fe9e6337cc6700"
     },
     {
       "path": "docs/decisions/DECISION_RECORDS.md",
@@ -5540,6 +5544,10 @@
       "sha256": "7b7e24acd3998cea8d4b1f580dee38fe4e7df10467a12b2b1594326d1ca0238c"
     },
     {
+      "path": "tools/storyclaw_nalu_runtime.py",
+      "sha256": "9bf21024b3ad5edc0cbd39a6414d880068f02e1a97fad4532b68741534823656"
+    },
+    {
       "path": "tools/storyclaw_outbox_poller.py",
       "sha256": "1f0f8ca8afb4c2aec1a231c9a4f6fd1ee5770773b3d06ff5eb40eeb748e16e7a"
     },
@@ -6878,6 +6886,10 @@
     {
       "path": "tools/tests/test_storyclaw_bridge_config.py",
       "sha256": "d28d2e4a6d3d104c27a23326ecdab98e139a90a56c4b1097bee38b990652294f"
+    },
+    {
+      "path": "tools/tests/test_storyclaw_nalu_runtime.py",
+      "sha256": "3b7ecf342d63cdef861d1fcd0d97169300165f05e3159de409e16d80c7b14408"
     },
     {
       "path": "tools/tests/test_storyclaw_realtime_sync.py",

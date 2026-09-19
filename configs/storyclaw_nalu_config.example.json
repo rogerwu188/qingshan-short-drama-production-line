@@ -1,0 +1,11 @@
+{
+  "engine_root": "/srv/qingshan-engine",
+  "runtime_root": "/var/lib/qingshan-nalu",
+  "venv_python": "/srv/qingshan-engine/.qingshan-venv/bin/python",
+  "model_allowlist": ["storyclaw/gpt-6-astra", "storyclaw/claude-opus-5"],
+  "selected_model": "storyclaw/gpt-6-astra",
+  "paid_requests_enabled": false,
+  "heartbeat_seconds": 900,
+  "review_mode": "external_file_review_required",
+  "platform_upload": "disabled"
+}
