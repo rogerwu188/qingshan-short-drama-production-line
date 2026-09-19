@@ -33,6 +33,11 @@ def included(name: str) -> bool:
         # are installation resources, not files to overwrite on an active site.
         return ("state" not in path.parts and path.name != "SUPERVISOR_ORDERS.json"
                 and path.suffix in {".py", ".sh", ".json", ".md", ".txt", ".yaml", ".yml"})
+    if path.parts[0] == "skills":
+        # TalentHub-installable skills are public deployment code.  Keep the
+        # inventory limited to source text and executable helpers; private
+        # runtime state and credentials do not belong under this tree.
+        return path.suffix in {".md", ".py", ".sh", ".json", ".txt", ".yaml", ".yml"}
     return name in {
         "pyproject.toml", "setup.py", "requirements.txt",
         "configs/PORTABLE_CORE_MANIFEST.json",

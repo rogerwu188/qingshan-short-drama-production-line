@@ -32,3 +32,24 @@ The paid path is fail-closed: `--paid` is refused unless both `generation.paid_r
 ## Verification and delivery
 
 Run `qingshan doctor --profile all`, `python tools/run_portable_ci.py`, `python tools/knowledge_registry.py --validate`, and `python tools/deployment_code_integrity.py` before enabling paid work. Record the E06 S1→S2 dry run, E06 S5 dry run (`paid_posts=0`), the two-unit S3→S8 trial, both CHECKPOINT files, ledger reconciliation, and the public-main diff. A stage with missing evidence is `BLOCKED`, `NOT_RUN`, or `CAPABILITY_FAIL`, never PASS.
+
+## Fix propagation and TalentHub release
+
+StoryClaw is a deployment target, not the source repository. After a remote
+debugging session, export the actual diff and apply it to this checkout. Do
+not publish from a remote runtime directory. A release is built only from a
+clean Git commit after the deployment integrity, knowledge registry, portable
+CI and StoryClaw adapter checks pass:
+
+```bash
+python tools/build_storyclaw_talenthub_release.py \
+  --release-tag vYYYY.MM.DD-storyclaw-port
+```
+
+The command writes a complete public source archive and a TalentHub workspace
+under the chosen output directory. The workspace bundles the four agent brain
+files plus the `qingshan-nalu` skill, and records the exact commit and archive
+SHA. `--publish` is an explicit final step and runs
+`talenthub agent publish --dir <workspace>`; without it the package remains a
+reviewable release candidate. The archive never contains source novels,
+episode media, runtime state, reviews, ledgers, transactions or secrets.
