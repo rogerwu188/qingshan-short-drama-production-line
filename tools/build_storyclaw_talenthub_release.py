@@ -50,14 +50,18 @@ def git(*args: str) -> str:
 
 
 def assert_tag_points_to_head(tag: str, commit: str, allow_unreleased: bool) -> None:
-    try:
-        tagged = git("rev-parse", "--verify", f"{tag}^{{commit}}")
-    except subprocess.CalledProcessError:
+    exists = subprocess.run(
+        ["git", "show-ref", "--verify", "--quiet", f"refs/tags/{tag}"],
+        cwd=ROOT,
+        check=False,
+    ).returncode == 0
+    if not exists:
         if allow_unreleased:
             return
         raise SystemExit(
             f"RELEASE_BLOCKED: tag {tag!r} does not exist; create the final tag before packaging"
         )
+    tagged = git("rev-parse", "--verify", f"{tag}^{{commit}}")
     if tagged != commit:
         raise SystemExit(
             f"RELEASE_BLOCKED: tag {tag} resolves to {tagged}, but HEAD is {commit}"
