@@ -5549,7 +5549,7 @@
     },
     {
       "path": "tools/storyclaw_nalu_runtime.py",
-      "sha256": "2a0ba231a161331acddee3e9062fb5c0682789f45f843e65df170a2cb53b60e7"
+      "sha256": "311e106a08e046dc5fc3026e595b2f5313105853cec75411bc719d6a2a4cee4a"
     },
     {
       "path": "tools/storyclaw_outbox_poller.py",
