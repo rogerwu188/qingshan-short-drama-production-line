@@ -6273,7 +6273,7 @@
     },
     {
       "path": "tools/tests/test_dialogue_voice_metrics.py",
-      "sha256": "e3ef4292edbbd525c8f62e24dd64284385da90c28407dad2d0798e9a1dc55370"
+      "sha256": "ad98acff24dc41d04ca2f7e714d60af64b972cadad60cd774a376886b616ac71"
     },
     {
       "path": "tools/tests/test_dramatic_quality_gate.py",
