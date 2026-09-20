@@ -5609,7 +5609,7 @@
     },
     {
       "path": "tools/storyclaw_nalu_runtime.py",
-      "sha256": "64f1e8839d2e22c800d00cb4eae1e917ff25dd60571e1bba083064b4a9f53a5f"
+      "sha256": "0c86985ac6522038b01c4caeea8105f5af5558947a60b166238003a981980d8f"
     },
     {
       "path": "tools/storyclaw_outbox_poller.py",
@@ -7041,7 +7041,7 @@
     },
     {
       "path": "tools/tests/test_storyclaw_nalu_runtime.py",
-      "sha256": "fbc97bc350f6947b65b7e387f8397aba3a1360261dd5d7bffed6f04930ff27a5"
+      "sha256": "65ab873cd922df5e04bae0487dc349fae090ecbedf6d6377f4ba28e4d932a6fe"
     },
     {
       "path": "tools/tests/test_storyclaw_project_intake.py",

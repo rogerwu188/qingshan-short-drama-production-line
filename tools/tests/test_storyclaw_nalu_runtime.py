@@ -50,6 +50,28 @@ class StoryClawRuntimeTests(unittest.TestCase):
         self.addCleanup(dependencies.stop)
         return td, root, runtime_root
 
+    def test_storage_contract_accepts_created_stable_link_but_rejects_other_project(self):
+        td, engine, private = self._root()
+        with td:
+            config = json.loads((private / "qingshan.json").read_text())
+            storage = config["storyclaw"]["storage"]
+            link = engine / "stable-current"
+            # Mirror onboarding: store paths before the installer creates the link.
+            storage["engine_root"] = str(link.absolute())
+            storage["workspace_mount_target"] = str(link / "workflow/nalu")
+            storage["transactions_mount_target"] = str(link / "workflow/tasks")
+            self.assertEqual(runtime._storage_checks(engine, private, config)["storage_contract"]["status"], "BLOCKED")
+            link.symlink_to(engine, target_is_directory=True)
+            checks = runtime._storage_checks(engine, private, config)
+            for key in ("storage_contract", "workspace_store", "transaction_store"):
+                self.assertEqual(checks[key]["status"], "PASS", checks[key])
+            other = engine / "other-project"
+            other.mkdir()
+            storage["workspace_backing_path"] = str(other)
+            self.assertEqual(runtime._storage_checks(engine, private, config)["storage_contract"]["status"], "BLOCKED")
+            storage["workspace_backing_path"] = None
+            self.assertEqual(runtime._storage_checks(engine, private, config)["storage_contract"]["status"], "BLOCKED")
+
     def _archive_commit_fixture(self, base: Path):
         project = base / "project"
         engine = project / "engine/releases/v1"

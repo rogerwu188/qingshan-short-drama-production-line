@@ -901,9 +901,25 @@ def _storage_checks(engine: Path, runtime: Path, config: dict[str, Any]) -> dict
         "writer_layers_root": str(p["writer_layers"].resolve()),
     }
     configured = (config.get("storyclaw") or {}).get("storage")
-    contract_ok = isinstance(configured, dict) and all(
-        configured.get(key) == value for key, value in expected.items()
-    )
+    # Onboarding records the stable engine link before installation creates it.
+    # Compare existing directory identities, not the spelling of link/target paths.
+    # The independent mount/private-root/flock probes below still enforce isolation.
+    contract_ok = isinstance(configured, dict) and configured.get("mode") == expected["mode"]
+    if contract_ok:
+        for key, value in expected.items():
+            if key == "mode":
+                continue
+            declared = configured.get(key)
+            try:
+                matches = (
+                    isinstance(declared, str) and Path(declared).is_absolute()
+                    and Path(declared).is_dir() and os.path.samefile(declared, value)
+                )
+            except (OSError, ValueError):
+                matches = False
+            if not matches:
+                contract_ok = False
+                break
     distinct = True
     try:
         distinct = not os.path.samefile(p["workspace_backing"], p["transactions_backing"])
