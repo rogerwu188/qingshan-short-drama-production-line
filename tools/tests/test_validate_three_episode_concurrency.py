@@ -1,6 +1,14 @@
+import json
+import os
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
-from tools.validate_three_episode_concurrency import validate
+from tools.validate_three_episode_concurrency import (
+    PORTABLE_POLICY,
+    default_policy_path,
+    validate,
+)
 
 
 class ThreeEpisodeConcurrencyTest(unittest.TestCase):
@@ -46,6 +54,24 @@ class ThreeEpisodeConcurrencyTest(unittest.TestCase):
         }
         self.policy["current_slots"] = [{"episode": "E17"}]
         self.assertEqual(validate(self.policy, self.ledger), [])
+
+    def test_public_template_has_no_live_episode_or_fail_open_state(self):
+        policy = json.loads(Path(PORTABLE_POLICY).read_text(encoding="utf-8"))
+        self.assertEqual(policy["status"], "REQUIRES_PROJECT_CONFIGURATION")
+        self.assertEqual(policy["current_slots"], [])
+        self.assertEqual(policy["next_episode_queue"], [])
+        self.assertEqual(
+            policy["conditional_machine_admission_policy"]["status"],
+            "DISABLED_IN_PUBLIC_BOOTSTRAP",
+        )
+        self.assertIn("current_slot_count_mismatch", validate(policy, {}))
+        serialized = json.dumps(policy, ensure_ascii=False)
+        for private_marker in ("E32", "E35", "ROGER-", "platform_publication_receipt"):
+            self.assertNotIn(private_marker, serialized)
+
+    def test_current_portable_chooses_public_template(self):
+        with patch.dict(os.environ, {"NALU_POLICY_PROFILE": "CURRENT_PORTABLE"}):
+            self.assertEqual(default_policy_path(), PORTABLE_POLICY)
 
 
 if __name__ == "__main__":

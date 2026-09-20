@@ -7,11 +7,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOLS = ROOT / "lines/nalu/runtime/tools"
-os.environ.setdefault("NALU_ENGINE_ROOT", str(ROOT))
-os.environ.setdefault("NALU_RUNTIME_ROOT", tempfile.mkdtemp())
 sys.path.insert(0, str(TOOLS))
 sys.path.insert(0, str(ROOT))
 
@@ -24,9 +24,13 @@ def load(name):
     return mod
 
 
-lock = load("identity_qa_lock")
-kfm = load("build_keyframe_manifest")
-q1 = load("keyframe_q1_builder")
+with patch.dict(os.environ, {
+    "NALU_ENGINE_ROOT": str(ROOT),
+    "NALU_RUNTIME_ROOT": tempfile.mkdtemp(),
+}):
+    lock = load("identity_qa_lock")
+    kfm = load("build_keyframe_manifest")
+    q1 = load("keyframe_q1_builder")
 
 
 class SourceLikeness(unittest.TestCase):
@@ -58,6 +62,26 @@ LIB = {"assets": {"characters": {"CHAR-A": {"status": "LOCKED", "artifacts": [
 
 
 class KeyframeReferences(unittest.TestCase):
+    def test_pending_binding_uses_deterministic_registration_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            library = root / "asset_library.json"
+            library.write_text("{}\n")
+            inputs = SimpleNamespace(
+                asset_library={"assets": {}},
+                asset_library_path=library,
+                engine_root=root,
+                awaited_asset_dir=root / "awaited",
+            )
+            row = kfm.entity_binding(
+                inputs, "character", "characters", "CHAR-ZHOUQING", "周青", "CHARACTER"
+            )
+            self.assertEqual(
+                row["path"], str((root / "awaited/characters/CHAR-ZHOUQING.json").resolve())
+            )
+            self.assertEqual(row["binding_status"], "PENDING_ASSET_LIBRARY_ARTIFACT")
+            self.assertFalse(Path(row["path"]).exists())
+
     def test_face_role_leads_and_headshot_plate_is_selected(self):
         self.assertEqual(kfm.BINDING_ROLE_ORDER.index("character"), kfm.BINDING_ROLE_ORDER.index("subspace_layout") + 1)   # first slot the engine gate allows
         self.assertLess(kfm.BINDING_ROLE_ORDER.index("character"), kfm.BINDING_ROLE_ORDER.index("scene"))
@@ -110,6 +134,99 @@ class Q1PoseExemption(unittest.TestCase):
 
 
 class VideoUnitPlates(unittest.TestCase):
+    def test_storyclaw_legacy_shot_gets_stable_states_and_location(self):
+        spec = importlib.util.spec_from_file_location("bnp_storyclaw", TOOLS / "build_nalu_preproduction.py")
+        try:
+            bnp = importlib.util.module_from_spec(spec)
+            sys.modules["bnp_storyclaw"] = bnp
+            spec.loader.exec_module(bnp)
+        except Exception as exc:  # noqa: BLE001 - the engine module needs the full engine tree
+            self.skipTest(f"build_nalu_preproduction not importable here: {exc}")
+        contract = {
+            "scene_states": [{
+                "scene_id": "S1", "weather": "夜", "lighting": "月光",
+            }],
+            "character_entities": [],
+            "non_character_entities": [],
+            "shots": [{
+                "shot_id": "E01-S01-01", "scene_id": "S1", "target_seconds": 2,
+                "shot_size": "中景", "camera": "固定", "axis": "东向西", "blocking": "主体抬手",
+                "prompt_spec": {"action": {"primary_action": "主体抬手"}},
+            }],
+        }
+        plan_rows = [{
+            "shot_id": "E01-S01-01", "room_id": "ROOM-S1", "zone_id": "ZONE-S1",
+            "zone_ids": ["ZONE-S1"], "angle_id": "ANGLE-S1", "axis_id": "AXIS-S1",
+            "subspace_id": "SUBSPACE-S1", "global_space_map_id": "GSM-S1", "prop_ids": [],
+        }]
+        index = SimpleNamespace(
+            episode_map_id="EGSM-E01",
+            rooms={"ROOM-S1": {"name": "山洞"}},
+            zones={"ZONE-S1": {"name": "洞内区"}},
+            elements=lambda _room_id: [],
+        )
+        engine = SimpleNamespace(dialogue_limit=50, dialogue_length=len)
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {
+            "NALU_POLICY_PROFILE": "LEGACY_EPISODE_COMPAT",
+        }, clear=False):
+            root = Path(tmp)
+            contract_path, gsm_path = root / "contract.json", root / "gsm.json"
+            contract_path.write_text("{}\n")
+            gsm_path.write_text("{}\n")
+            manifest, _ = bnp.build_editorial(
+                contract, plan_rows, index, engine, "E01", contract_path, gsm_path, root
+            )
+        shot = manifest["shots"][0]
+        self.assertEqual(shot["entry_state"], "动作开始前：主体处于初始状态")
+        self.assertEqual(shot["completion_state"], "动作完成后：主体抬手")
+        self.assertEqual(shot["prompt_spec"]["space"]["location"], "ROOM-S1")
+        self.assertEqual(shot["prompt_spec"]["action"]["start_state"], shot["entry_state"])
+
+    def test_current_portable_shot_requires_authored_endpoints(self):
+        spec = importlib.util.spec_from_file_location(
+            "bnp_current_portable", TOOLS / "build_nalu_preproduction.py"
+        )
+        try:
+            bnp = importlib.util.module_from_spec(spec)
+            sys.modules["bnp_current_portable"] = bnp
+            spec.loader.exec_module(bnp)
+        except Exception as exc:  # noqa: BLE001 - engine module needs full tree
+            self.skipTest(f"build_nalu_preproduction not importable here: {exc}")
+        contract = {
+            "scene_states": [{"scene_id": "S1"}],
+            "character_entities": [],
+            "non_character_entities": [],
+            "shots": [{
+                "shot_id": "E01-S01-01", "scene_id": "S1", "target_seconds": 2,
+                "prompt_spec": {"action": {"primary_action": "主体抬手"}},
+            }],
+        }
+        plan_rows = [{
+            "shot_id": "E01-S01-01", "room_id": "ROOM-S1",
+            "zone_ids": [], "subspace_id": "SUBSPACE-S1",
+            "global_space_map_id": "GSM-S1", "prop_ids": [],
+        }]
+        index = SimpleNamespace(
+            episode_map_id="EGSM-E01", rooms={}, zones={},
+            elements=lambda _room_id: [],
+        )
+        engine = SimpleNamespace(dialogue_limit=50, dialogue_length=len)
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {
+            "NALU_POLICY_PROFILE": "CURRENT_PORTABLE",
+        }, clear=False):
+            root = Path(tmp)
+            contract_path, gsm_path = root / "contract.json", root / "gsm.json"
+            contract_path.write_text("{}\n")
+            gsm_path.write_text("{}\n")
+            with self.assertRaisesRegex(
+                RuntimeError,
+                r"CURRENT_PORTABLE_SHOT_ENDPOINTS_REQUIRED:E01-S01-01:entry_state,completion_state",
+            ):
+                bnp.build_editorial(
+                    contract, plan_rows, index, engine, "E01",
+                    contract_path, gsm_path, root,
+                )
+
     def test_every_visible_character_gets_its_headshot_after_the_keyframe(self):
         spec = importlib.util.spec_from_file_location("bnp", TOOLS / "build_nalu_preproduction.py")
         try:

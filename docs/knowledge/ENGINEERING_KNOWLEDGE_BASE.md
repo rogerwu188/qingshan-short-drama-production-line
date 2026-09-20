@@ -151,10 +151,10 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 
 ### K018 — RELEASE
 
-- 规则：内置浏览器三次失败后使用已连接外部浏览器；先查重再上传。
-- 失败教训：浏览器操作失败被误称为等待额外内容审核。
-- 修复路径：复用平台策略；登录/安全权限是真边界；自动发布权限来自本部署操作者。
-- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json](../../configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json)
+- 规则：公共 NALU Agent 在 S8 检查点交付后停止；任何平台上传都必须由安装者另行明确发起。
+- 失败教训：把某个私有部署的长期发布授权打进通用包，会让新安装错误继承外部发布权限。
+- 修复路径：发布包只交付成片、QA、账本和检查点；不携带平台账号、自动上传策略或历史发布回执。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[agent_factory/storyclaw_portable/AGENTS.md](../../agent_factory/storyclaw_portable/AGENTS.md)
 
 ### K019 — PLUGIN
 
@@ -435,7 +435,7 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - 规则：世界观词表：LEXICON_<world>_v1.json（禁用词、人名标准写法、称谓表）；S1 扫台词，成片扫 ASR + 字幕 + OCR。
 - 失败教训：E04 古装第一句台词出现『变异生物』；字幕『铭哥』与转写『秦明』人名用字不一。
 - 修复路径：check_lexicon + final_cut_audience_detectors::lexicon_violation。
-- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/script_structure_contract_gate.py](../../tools/script_structure_contract_gate.py)、[tools/final_cut_audience_detectors.py](../../tools/final_cut_audience_detectors.py)、[lines/nalu/runtime/configs/LEXICON_yewujiang_v1.json](../../lines/nalu/runtime/configs/LEXICON_yewujiang_v1.json)（E04 成片作为负样本回归通过；自动判定做不到的项在检测器里标 NOT_IMPLEMENTED）
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/script_structure_contract_gate.py](../../tools/script_structure_contract_gate.py)、[tools/final_cut_audience_detectors.py](../../tools/final_cut_audience_detectors.py)、[lines/nalu/runtime/configs/LEXICON_portable_template_v1.json](../../lines/nalu/runtime/configs/LEXICON_portable_template_v1.json)（每个项目由剧本生成自己的私有词表；自动判定做不到的项在检测器里标 NOT_IMPLEMENTED）
 - 证据：nalu PIPELINE_RUNBOOK D-40/D-41
 
 ### K052 — pipeline

@@ -8,7 +8,7 @@
 
 - 提供者凭据（Giggle API key）、任何付费额度；
 - 剧作原文、角色照片、音色选择、品牌片尾（都是线主的素材，永不入库）；
-- AgentCut（独立仓库 `rogerwu188/backlot-os`，S4 语音与 S7 配乐必需）；
+- 私有运行时里的原著、角色素材、事务、账本与审核回执；
 - 审核位上的代理：五类审核都是「实际看图 → 逐条填结构化答案」，由代理完成。
 
 ## 1. 引擎与虚拟环境
@@ -18,13 +18,15 @@ git clone https://github.com/rogerwu188/qingshan-short-drama-production-line.git
 cd nalu_engine && export NALU_ENGINE_ROOT="$PWD"
 python3 -m venv .qingshan-venv && .qingshan-venv/bin/pip install -r requirements-core.txt -r requirements-media.txt
 .qingshan-venv/bin/pip install -e .
-# AgentCut（编辑安装到引擎目录下的独立环境；bgm 客户端已含 Cloudflare UA 修正，见 e22）
-git clone -b agent/hell-grind-v19-production https://github.com/rogerwu188/backlot-os.git ../backlot-os
-python3 -m venv .agentcut_env && .agentcut_env/bin/pip install -e ../backlot-os/components/agentcut
+# S4 语音与 S6 选择性配乐使用仓库内 tools/storyclaw_audio_provider.py；无需私有 AgentCut。
 ```
 
-需要 `ffmpeg`/`ffprobe` 在 PATH（或写入 `.env` 的 `FFMPEG`/`FFPROBE`）。除 requirements 外还要装
-`insightface onnxruntime rapidocr-onnxruntime faster-whisper opencc`（身份余弦、OCR、ASR、繁简转换；Python 3.12）。
+需要 `ffmpeg`/`ffprobe` 在 PATH；容器也可显式设置 `QINGSHAN_FFMPEG` / `QINGSHAN_FFPROBE`
+或 `NALU_FFMPEG` / `NALU_FFPROBE`。字幕烧录需要真实 CJK 字体（Linux 推荐
+`fonts-noto-cjk`），自定义文件用 `QINGSHAN_CJK_FONT` 或 `NALU_CJK_FONT`。显式路径无效或
+依赖缺失时流水线会写明 `BLOCKED_MEDIA_TOOL` / `BLOCKED_CJK_FONT`，不会把未测量结果记成 PASS。
+除 requirements 外还要装 `insightface onnxruntime rapidocr-onnxruntime faster-whisper opencc`
+（身份余弦、OCR、ASR、繁简转换；Python 3.12）。
 
 ## 2. 两把钱锁
 
@@ -55,7 +57,7 @@ python3 lines/nalu/runtime/tools/nalu_paths.py        # 打印解析出的 ENGIN
    登记 sha、角色绑定、授权备注（肖像与改编授权是线主线下声明，仓库不校验也不替你声明）。
 2. 原文：`tools/intake_source_text.py --input <文本文件> --work <作品名> --out $NALU_RUNTIME_ROOT/sources --authorization "<授权说明>"`
    分章登记；线专用的分章读取脚本由 `NALU_SOURCE_TXT` 指向你的文本文件。
-3. 音色：`.agentcut_env/bin/agentcut speech-voices` 列表 → 代理按角色气质挑选 → 写入
+3. 音色：`.qingshan-venv/bin/python tools/storyclaw_audio_provider.py speech-voices` 列表 → 代理按角色气质挑选 → 写入
    `runtime/voice_catalog.json`（模板已装好，每个说话角色一行）。**MANUAL_REQUIRED**
 4. 品牌片尾：9:16 的 3 s 片尾放进 `$NALU_RUNTIME_ROOT/brand/`。**MANUAL_REQUIRED**
 5. 实体注册：`runtime/nalu_entity_registry.json` 按角色补 `entity_aliases`（加法式）。
@@ -82,8 +84,8 @@ $P $T/nalu_pipeline.py status --episode E01
 | S4 💰 | 每个说话角色一次配音参考 | — | — |
 | 整批提示词门 | 关键帧提示词登记 | 通读摘要写逐行答案 → receipts → register | `prompt_batch_qa.py digest/receipts`、`prompt_batch_register.py` |
 | S5 💰 | 关键帧 + Q1 admission | Q1：缩略总表看图填答；REJECT → 改镜头文字 → 停放旧图/旧提示词 → 重登记 → 重跑 | `e0N_fill_keyframe_answers.py`、`contact_sheet.py` |
-| S6 💰 | 视频波次 + post-gen QA + Q2 | 动作角色审、剧情审、Q2（5 帧 + 身份仲裁 `identity_pose_exemptions`） | `e0N_fill_action_role_answers.py`、`e0N_fill_post_gen_plot.py`、`e0N_fill_video_q2.py`、`video_sheets.py`、`asr_units.py` |
-| S7 💰 | 装配、字幕、片尾、选择性 BGM（每线索约 8 积分）、响度 | — | 配乐对账见 K032（提供者音乐账单无 project_id → 按提交窗口隔离） |
+| S6 💰 | 视频波次 + 选择性 BGM 源生成（每个不同提示词约 8 积分）+ post-gen QA + Q2 | 动作角色审、剧情审、Q2（5 帧 + 身份仲裁 `identity_pose_exemptions`） | `e0N_fill_action_role_answers.py`、`e0N_fill_post_gen_plot.py`、`e0N_fill_video_q2.py`、`video_sheets.py`、`asr_units.py` |
+| S7 | 装配、字幕、片尾、BGM 时间线规划/事务核验/账单对账/QA/混音、响度；**零 provider POST** | — | 配乐对账见 K032（提供者音乐账单无 project_id → 按提交窗口隔离） |
 | S8 | 写 CHECKPOINT，等线主 `approve` | 线主看片 | `nalu_pipeline.py approve --episode E01` |
 
 波次循环：`tools/review_fill/nalu_e03_s6_loop.sh <EP>`（每 3 分钟 `run --from S6 --paid`，直到不再是
@@ -92,6 +94,9 @@ API 错误就从断点续跑，付费 POST 靠 `workflow/tasks/*_transactions/` 
 
 预算：每集 8000 积分硬上限由 `nalu_budget_ledger.py` 守；付费前估算，超限即停。回执：
 `$NALU_RUNTIME_ROOT/runtime/reports/`、`preproduction/<EP>/reports/`、`deliverables/<EP>/CHECKPOINT.md`。
+当前可移植策略把配乐事务存到
+`workflow/tasks/giggle_bgm_transactions/<series_scope>/<episode>/`，预算门显式读取同一目录；不同系列即使都用
+`E01` 也不会互相复用或计费。旧的 `giggle_bgm_transactions/<episode>/` 位置只供历史回放。
 
 ## 7. 已知未接入（INTEGRATION_PENDING）
 

@@ -7,6 +7,6 @@
 3. 对未匹配项由 agent 自主给出 AI 生成方案、模型、提示词、预计成本和身份/版权注意事项。agent 不把建议写成订单、身份 PASS 或付费任务。
 4. 把来源、角色与图片匹配、未匹配角色、AI 生成方案和成本写入私有 `runtime/asset_plans/<EP>_ASSET_MATCH_PLAN.json`，状态先为 `PROPOSED`。
 5. 把完整方案一次性展示给用户，等待用户对整体方案的明确确认。不得逐角色询问“上传还是 AI 生成”，也不得在确认前启动 S3+、付费请求或 provider POST。
-6. 确认必须是独立收据，绑定方案文件；AI 生成授权不等于生成完成。生成后必须有真实文件、SHA、尺寸和身份门审查，不得使用占位图、`not_measurable` 或伪造 PASS。
+6. 确认必须是独立收据，且收据中的 `asset_plan_sha256` 必须精确等于当前方案文件 SHA-256。适配器把方案路径/SHA 和收据路径/SHA 写入私有 `runtime/asset_plans/<EP>_ASSET_MATCH_CONFIRMATION.json`；每次进入 S3+ 都重新读取并校验两份文件，任一文件变更都使确认失效，必须重新展示方案并取得新收据。AI 生成授权不等于生成完成。生成后必须有真实文件、SHA、尺寸和身份门审查，不得使用占位图、`not_measurable` 或伪造 PASS。
 
 运行时硬门由 `tools/storyclaw_nalu_runtime.py` 执行：S3 及以后必须同时看到 S1 PASS、完整资产匹配方案和 `status=CONFIRMED` 的用户确认收据。`S1/S2` 仍可免费运行；付费双锁和模型白名单继续有效。

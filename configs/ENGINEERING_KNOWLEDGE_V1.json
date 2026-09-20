@@ -272,11 +272,11 @@
     {
       "id": "K018",
       "stage": "RELEASE",
-      "rule": "内置浏览器三次失败后使用已连接外部浏览器；先查重再上传。",
-      "lesson": "浏览器操作失败被误称为等待额外内容审核。",
-      "recovery": "复用平台策略；登录/安全权限是真边界；自动发布权限来自本部署操作者。",
+      "rule": "公共 NALU Agent 在 S8 检查点交付后停止；任何平台上传都必须由安装者另行明确发起。",
+      "lesson": "把某个私有部署的长期发布授权打进通用包，会让新安装错误继承外部发布权限。",
+      "recovery": "发布包只交付成片、QA、账本和检查点；不携带平台账号、自动上传策略或历史发布回执。",
       "implementation": [
-        "configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json"
+        "agent_factory/storyclaw_portable/AGENTS.md"
       ],
       "status": "REFERENCE_IMPLEMENTATION",
       "owner": "DEPLOYMENT_MAINTAINER",
@@ -867,7 +867,7 @@
       "implementation": [
         "tools/script_structure_contract_gate.py",
         "tools/final_cut_audience_detectors.py",
-        "lines/nalu/runtime/configs/LEXICON_yewujiang_v1.json"
+        "lines/nalu/runtime/configs/LEXICON_portable_template_v1.json"
       ],
       "status": "REFERENCE_IMPLEMENTATION",
       "evidence": "nalu PIPELINE_RUNBOOK D-40/D-41",
@@ -918,7 +918,7 @@
       "owner": "DEPLOYMENT_MAINTAINER",
       "authority": "E05 production 2026-09-17 (Roger seq=26)",
       "decision_record": "docs/decisions/DECISION_RECORDS.md",
-      "regression": "tools/tests/test_nalu_e05_sync.py",
+      "regression": "tools/tests/test_nalu_identity_chain_fixes.py",
       "runtime_gate_added": false,
       "failure_code": "VOICE_ONLY_CHARACTER_NEEDS_NO_PLATE",
       "do_not_repeat": "无人脸的说话生物不建身份牌：角色登记 + 道具卡 + OFFSCREEN_VOICE_ONLY，不进可见 cast",
@@ -939,7 +939,7 @@
       "owner": "DEPLOYMENT_MAINTAINER",
       "authority": "E05 production 2026-09-18 (Roger seq=26)",
       "decision_record": "docs/decisions/DECISION_RECORDS.md",
-      "regression": "tools/tests/test_nalu_e05_sync.py",
+      "regression": "tools/tests/test_nalu_paid_authority.py",
       "runtime_gate_added": false,
       "failure_code": "VIDEO_PROVIDER_DECLINE_QUARANTINED_AS_UNRESOLVED",
       "do_not_repeat": "拒单 + 账单行数相等 = 未扣费可重试，不整批隔离；BLOCKED 运行后先归档账单摘要再重跑",
@@ -960,7 +960,7 @@
       "owner": "DEPLOYMENT_MAINTAINER",
       "authority": "E05 production 2026-09-17 (Roger seq=26)",
       "decision_record": "docs/decisions/DECISION_RECORDS.md",
-      "regression": "tools/tests/test_nalu_e05_sync.py",
+      "regression": "tools/tests/test_nalu_identity_chain_fixes.py",
       "runtime_gate_added": false,
       "failure_code": "VOICE_RECEIPT_EPISODE_MISMATCH",
       "do_not_repeat": "配音回执按注册表资产 id 匹配；新配音先 S4 后 S3；账本检查不与流水线并发",
@@ -981,7 +981,7 @@
       "owner": "DEPLOYMENT_MAINTAINER",
       "authority": "E05 production 2026-09-17 (Roger seq=26)",
       "decision_record": "docs/decisions/DECISION_RECORDS.md",
-      "regression": "tools/tests/test_nalu_e05_sync.py",
+      "regression": "tools/tests/test_nalu_identity_chain_fixes.py",
       "runtime_gate_added": false,
       "failure_code": "SHOT_TEXT_STATE_LEAK",
       "do_not_repeat": "姿态逐镜声明；场景光线不提人物；道具用注册表名；start_framing 含在场人物；有道具的无人帧不写空镜",
@@ -995,15 +995,15 @@
       "lesson": "E05 Q1 身份 FAIL 在加了 faces= 标记后仍复现，因为 Q1 构建器从旧请求的 expectations 读标记；Q2 第一轮 28/35：shot_index 用了 0 起、墙上『一楼』未申报为噪声、陆泽/文睿/松鼠裁切被当成秦铭低分。",
       "recovery": "停放旧请求重新签发；按 1-based 填缺陷；豁免写帧号与分数；NOISE 申报；新请求整批重填 → ALL_ADMITTED。",
       "implementation": [
-        "lines/nalu/runtime/tools/review_fill/e05_fill_video_q2.py",
-        "lines/nalu/runtime/tools/review_fill/e05_fill_keyframe_answers.py"
+        "lines/nalu/runtime/tools/video_q2_builder.py",
+        "lines/nalu/runtime/tools/keyframe_q1_builder.py"
       ],
       "status": "REFERENCE_IMPLEMENTATION",
       "evidence": "nalu PIPELINE_RUNBOOK D-51/D-53",
       "owner": "DEPLOYMENT_MAINTAINER",
       "authority": "E05 production 2026-09-18 (Roger seq=26)",
       "decision_record": "docs/decisions/DECISION_RECORDS.md",
-      "regression": "tools/tests/test_nalu_e05_sync.py",
+      "regression": "tools/tests/test_nalu_q1_roger_acceptance.py",
       "runtime_gate_added": false,
       "failure_code": "REVIEW_MARKER_REQUIRES_NEW_REQUEST",
       "do_not_repeat": "标记/豁免只随新审核请求生效；P2 用 1-based shot_index；身份豁免先看裁切图",
@@ -1025,7 +1025,7 @@
       "owner": "DEPLOYMENT_MAINTAINER",
       "authority": "E05 生产线补正 memo 2026-09-17 (Roger) — SUPERVISOR_ORDERS seq=27 ADVISORY",
       "decision_record": "docs/decisions/DECISION_RECORDS.md",
-      "regression": "tools/tests/test_nalu_e05_sync.py",
+      "regression": "tools/tests/test_nalu_scoped_qa_paths.py",
       "runtime_gate_added": false,
       "failure_code": "ACTION_VISIBILITY_UNDECLARED",
       "do_not_repeat": "关键动作画内可见、对白动作词有动作、同机位不相邻；成片对镜表比对只诊断",

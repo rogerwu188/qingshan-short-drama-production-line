@@ -136,6 +136,17 @@ def atomic_json(path: Path, payload: Any) -> None:
     os.replace(temporary, path)
 
 
+def awaited_identity_path(awaited_asset_dir: Path, category: str, asset_id: str) -> str:
+    """Return the deterministic stage-3(a) awaited artifact path.
+
+    Pending bindings must name the exact JSON registration file that the
+    identity/asset-library stage is expected to create; they are not media
+    placeholders and must remain unresolved until a real locked artifact is
+    registered.
+    """
+    return str((awaited_asset_dir / category / f"{asset_id}.json").resolve())
+
+
 def engine_relative(path: Path, engine_root: Path) -> str:
     """Return an engine-relative path when possible.
 
@@ -1089,7 +1100,7 @@ def build_manifest(inputs: Inputs, tasks: list[dict[str, Any]], keyframe_dir: Pa
         "paid_submission_prerequisites": [
             "Stage 3(a) character/prop plates LOCKED with qa.status PASS in the asset library.",
             "Set provider_post_allowed=true and maximum_new_submissions>=len(selected tasks).",
-            "Set authorization_ref to a real Roger order id.",
+            "Materialize authorization_ref from the validated private line-owner order.",
             "Register exactly one GIGGLE-REROLL-COST-GUARD report whose reviewed_manifest_sha256 "
             "equals this manifest file's sha256 (submit_giggle_image_manifest.validate_submission_authority).",
             "Every task must be status READY_TO_SUBMIT with provider_post_allowed=true and maximum_new_submissions==1.",
@@ -1104,7 +1115,7 @@ def build_manifest(inputs: Inputs, tasks: list[dict[str, Any]], keyframe_dir: Pa
         "task_count": len(tasks),
         "tasks": tasks,
         "blocked_tasks": [],
-        "reference_policy": {"authority": "Roger 2026-09-18 identity chain ②", "face_view_first": CHARACTER_FACE_VIEW,
+        "reference_policy": {"authority": "ENGINE_REFERENCE_POLICY_FACE_FIRST_V1", "face_view_first": CHARACTER_FACE_VIEW,
                              "wardrobe_view": CHARACTER_WARDROBE_VIEW, "non_character_reference_max": NON_CHARACTER_REFERENCE_MAX,
                              "reference_total_max": REFERENCE_TOTAL_MAX, "drop_order": NON_CHARACTER_DROP_ORDER},
         "reference_cap_report": getattr(inputs, "reference_cap_report", {}) or {},

@@ -698,7 +698,7 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
             or (library.row(voice_id) or {}).get("priority") or "EPISODE_REQUIRED"
         accent_id = (overlay.get("accent_id")
                      or library.spec_field(voice_id, "accent_id")
-                     or "ACCENT-ZH-CN-NORTHERN-VILLAGE-V1")
+                     or "ACCENT-ZH-CN-STANDARD-V1")
         scope = scoped(voice_id)
         voices.append(order(
             {"asset_id": voice_id, "label": f"{row['canonical_name']}｜配音", "priority": priority},
@@ -728,7 +728,7 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
             scope, spec["specification"], [a_cont],
         ))
     if not accents:
-        accent_id = "ACCENT-ZH-CN-NORTHERN-VILLAGE-V1"
+        accent_id = str(overlay.get("accent_id") or "ACCENT-ZH-CN-STANDARD-V1")
         prior = library.full_row(accent_id)
         if prior:
             scope = scoped(accent_id)
@@ -740,24 +740,51 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
             missing.append({"asset_id": accent_id, "field": "specification",
                             "resolution": "INHERITED_FROM_PRIOR_LIBRARY",
                             "source": "prior_library.specification"})
+        elif accent_id == "ACCENT-ZH-CN-STANDARD-V1":
+            scope = scoped(accent_id)
+            accents.append(order(
+                {"asset_id": accent_id, "label": "普通话标准中性口音",
+                 "priority": "SERIES_CORE"},
+                scope,
+                {
+                    "asset_kind": "SPEECH_ACCENT_PROFILE",
+                    "language": "zh-CN",
+                    "region": "neutral_standard_mandarin",
+                    "style": "natural_conversational",
+                    "decision_source": "PORTABLE_SAFE_DEFAULT_WHEN_SCRIPT_HAS_NO_ACCENT_REQUIREMENT",
+                },
+                [a_cont],
+            ))
         else:
             missing.append({"asset_id": accent_id, "field": "specification",
                             "resolution": "AUTHORING_REQUIRED",
                             "sentinel": AUTHORING + "ACCENT_PROFILE"})
 
     # ------------------------------------------------------------------ music
-    music_id = f"MUSIC-{episode}-NO-EXTERNAL-BGM"
+    bgm_contract = contract["audio_contract"]["bgm"]
+    bgm_mode = str(
+        (bgm_contract or {}).get("mode")
+        or (bgm_contract or {}).get("usage_mode")
+        or "NO_BGM"
+    ).upper() if isinstance(bgm_contract, dict) else str(bgm_contract).upper()
+    selective_bgm = bgm_mode in {"SELECTIVE", "SELECTIVE_BGM", "NARRATIVE_SELECTIVE"}
+    music_id = f"MUSIC-{episode}-{'SELECTIVE-BGM' if selective_bgm else 'NO-EXTERNAL-BGM'}"
     music_scope = scoped(music_id)
     music = [order(
-        {"asset_id": music_id, "label": f"{episode} 无外置配乐（声景即配乐）",
+        {"asset_id": music_id,
+         "label": (f"{episode} 选择性叙事配乐" if selective_bgm
+                   else f"{episode} 无外置配乐（声景即配乐）"),
          "priority": "EPISODE_REQUIRED"},
         music_scope,
         {
             "asset_kind": "MUSIC_POLICY_DECLARATION",
             "usage_scope": f"EPISODE_{episode}_FULL",
-            "musical_identity": contract["audio_contract"]["bgm"],
-            "external_bgm_allowed": False,
+            "musical_identity": bgm_contract,
+            "external_bgm_allowed": selective_bgm,
             "note": (
+                "Selective BGM is generated through the S6 durable provider route and mixed "
+                "read-only in S7."
+                if selective_bgm else
                 "This is a declared NO-BGM contract. It still occupies a library slot so the "
                 "release gate can prove the decision was authored, not forgotten."
             ),

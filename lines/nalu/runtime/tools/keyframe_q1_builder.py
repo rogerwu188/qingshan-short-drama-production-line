@@ -60,8 +60,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from nalu_qa_common import (  # noqa: E402
-    ASSET_LIBRARY, CHARACTER_REGISTRY, ENGINE, GATE_REGISTRY, RT_CONFIGS,
-    REVIEWER_ID, REVIEWER_TYPE,
+    ENGINE, GATE_REGISTRY, RT_CONFIGS, REVIEWER_ID, REVIEWER_TYPE,
     REVIEW_METHOD, VENV, Expectations, QaPaths, engine_module, gate_parameters,
     now, portable, read_json, sha256_file, write_json,
 )
@@ -365,7 +364,8 @@ def measure_still_identity(episode: str, keyframes: dict[str, Path],
     canonical_min = int(policy.get("canonical_views_min", 3))
     samples_min = int(policy.get("sample_frames_per_source_min", 1))
     model = str(policy.get("embedding_model", "buffalo_l"))
-    registry = read_json(registry_path or CHARACTER_REGISTRY, {}) or {}
+    resolved_registry = Path(registry_path) if registry_path is not None else p.character_registry
+    registry = read_json(resolved_registry, {}) or {}
     characters = registry.get("characters") or {}
 
     result: dict[str, Any] = {
@@ -374,6 +374,10 @@ def measure_still_identity(episode: str, keyframes: dict[str, Path],
         "decision_ref": STILL_DECISION_REF,
         "decided_by": STILL_DECISION_BY,
         "decision_text": STILL_DECISION_TEXT,
+        "series_scope_id": p.scope_id,
+        "series_id": p.series_id,
+        "character_registry": str(resolved_registry),
+        "character_registry_series_id": registry.get("series_id"),
         "embedding_model": model,
         "canonical_views_min_policy": canonical_min,
         "sample_frames_per_source_min_policy": samples_min,
@@ -384,6 +388,12 @@ def measure_still_identity(episode: str, keyframes: dict[str, Path],
         "failures": [],
         "status": "FAIL",
     }
+    if (not p.scope["is_default"]
+            and str(registry.get("series_id") or "") != p.series_id):
+        result["failures"].append(
+            f"CHARACTER_REGISTRY_SERIES_MISMATCH:"
+            f"{registry.get('series_id')}!={p.series_id}")
+        return result
     if not characters:
         result["failures"].append("CHARACTER_REGISTRY_ABSENT_OR_EMPTY_SEE_D-1")
         return result

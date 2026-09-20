@@ -8,11 +8,10 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOLS = ROOT / "lines/nalu/runtime/tools"
-os.environ.setdefault("NALU_ENGINE_ROOT", str(ROOT))
-os.environ.setdefault("NALU_RUNTIME_ROOT", tempfile.mkdtemp())
 sys.path.insert(0, str(TOOLS)); sys.path.insert(0, str(ROOT))
 
 
@@ -22,10 +21,14 @@ def load(name, path):
     return mod
 
 
-npr = load("nalu_prompt_rules", TOOLS / "nalu_prompt_rules.py")
-W = load("nalu_writer_selfcheck_seq29", TOOLS / "nalu_writer_selfcheck_seq29.py")
-S = load("speech_rate_check", TOOLS / "speech_rate_check.py")
-C = load("compile_grouped_seedance_manifest", ROOT / "tools/compile_grouped_seedance_manifest.py")
+with patch.dict(os.environ, {
+    "NALU_ENGINE_ROOT": str(ROOT),
+    "NALU_RUNTIME_ROOT": tempfile.mkdtemp(),
+}):
+    npr = load("nalu_prompt_rules", TOOLS / "nalu_prompt_rules.py")
+    W = load("nalu_writer_selfcheck_seq29", TOOLS / "nalu_writer_selfcheck_seq29.py")
+    S = load("speech_rate_check", TOOLS / "speech_rate_check.py")
+    C = load("compile_grouped_seedance_manifest", ROOT / "tools/compile_grouped_seedance_manifest.py")
 
 
 def shot(sid, scene, seconds, dialogue="", emotion=None, body="手指敲桌", delivery="咬字短促", action="他压着火说话", cps=5.0, speaker="CHAR-A", hook=False):

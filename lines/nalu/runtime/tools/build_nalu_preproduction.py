@@ -23,6 +23,8 @@ from __future__ import annotations
 import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
+import nalu_policy_profile as _policy_profile
+import nalu_series_scope as _series_scope
 import argparse
 import copy
 import hashlib
@@ -692,6 +694,23 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
         entry = str(shot.get("entry_state") or "")
         completion = str(shot.get("completion_state") or "")
         primary = str(source_action.get("primary_action") or "")
+        # Historical E01 contracts predate explicit beat endpoints.  Preserve
+        # their replay compatibility, but never synthesize those authored facts
+        # for a new portable production merely to satisfy a downstream gate.
+        missing_endpoints = [
+            name for name, value in (
+                ("entry_state", entry), ("completion_state", completion)
+            ) if not value
+        ]
+        if missing_endpoints and _policy_profile.is_current():
+            raise RuntimeError(
+                "CURRENT_PORTABLE_SHOT_ENDPOINTS_REQUIRED:"
+                f"{shot_id}:{','.join(missing_endpoints)}"
+            )
+        if not entry:
+            entry = "动作开始前：主体处于初始状态"
+        if not completion:
+            completion = f"动作完成后：{primary or '主体保持当前状态'}"
         evidence = shot.get("state_delta_evidence") or {}
         dims = [str(value) for value in shot.get("state_delta_dimensions") or []]
         first_dim = dims[0] if dims else ""
@@ -844,7 +863,10 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
         prompt_spec = {
             "space": {
                 "global": index.episode_map_id,
-                "location": str(scene.get("location_id") or ""),
+                # Transition contracts require a stable non-empty location;
+                # legacy scene rows may omit location_id, so use the authored
+                # room identity as the canonical fallback.
+                "location": str(scene.get("location_id") or row.get("room_id") or row.get("global_space_map_id") or "UNKNOWN_LOCATION"),
                 "subspace": str(row["subspace_id"]),
             },
             "scene_state": {
@@ -1339,7 +1361,7 @@ def main() -> int:
         "model": MODEL_CONTRACT["model"], "resolution": MODEL_CONTRACT["resolution"],
         "aspect_ratio": MODEL_CONTRACT["aspect_ratio"], "route": MODEL_CONTRACT["route"],
         "complete_map_mode_required": True,
-        "authorization_ref": "PENDING_ROGER_PAID_AUTHORIZATION",
+        "authorization_ref": "PENDING_PRIVATE_LINE_OWNER_PAID_AUTHORIZATION",
         "paid_post_allowed": False,
     }
     by_shot = {str(row["shot_id"]): row for row in editorial["shots"]}
@@ -1574,7 +1596,7 @@ def main() -> int:
         "global_space_map_gate_required": True,
         "allowed_video_models": [MODEL_CONTRACT["model"]],
         "format_contract": dict(MODEL_CONTRACT),
-        "authorization_ref": "PENDING_ROGER_PAID_AUTHORIZATION",
+        "authorization_ref": "PENDING_PRIVATE_LINE_OWNER_PAID_AUTHORIZATION",
         "provider_post_allowed": False,
         "maximum_new_submissions": 0,
         "machine_gate_reports": [row["path"] for row in gate_reports],
@@ -1758,17 +1780,36 @@ def _spec_dialogue_rows(specs: list[dict[str, Any]], shot_ids: list[str]) -> lis
     return rows
 
 
-_ASSET_LIBRARY_PATH = Path(f"{_np.RUNTIME_ROOT}/runtime/asset_library.json")
-_ASSET_LIBRARY_CACHE: dict[str, Any] | None = None
+_ASSET_LIBRARY_CACHE: dict[str, dict[str, Any]] = {}
 
 
-def _locked_identity_plate(character_id: str) -> Path | None:
-    """The LOCKED front-neutral-headshot plate of a character from runtime/asset_library.json
-    (falls back to the first canonical view).  None when the character is not LOCKED."""
-    global _ASSET_LIBRARY_CACHE
-    if _ASSET_LIBRARY_CACHE is None:
-        _ASSET_LIBRARY_CACHE = json.loads(_ASSET_LIBRARY_PATH.read_text(encoding="utf-8")) if _ASSET_LIBRARY_PATH.is_file() else {}
-    row = (((_ASSET_LIBRARY_CACHE.get("assets") or {}).get("characters") or {}).get(character_id)) or {}
+def _scoped_asset_library_path(episode: str) -> Path:
+    scope = _series_scope.resolve_scope(episode)
+    library = Path(scope["asset_library"])
+    return library if library.is_file() else Path(scope["asset_library_seed"])
+
+
+def _locked_identity_plate(character_id: str, *, episode: str) -> Path | None:
+    """Return a LOCKED identity plate from this episode's series authority.
+
+    Episode ids repeat across productions, so falling back to the historical
+    ``runtime/asset_library.json`` here could bind a new E01 to another show's
+    actor.  The cache is keyed by the resolved path to remain safe when one
+    process builds more than one scope.
+    """
+    library_path = _scoped_asset_library_path(episode)
+    scope = _series_scope.resolve_scope(episode)
+    cache_key = str(library_path.resolve())
+    if cache_key not in _ASSET_LIBRARY_CACHE:
+        _ASSET_LIBRARY_CACHE[cache_key] = (
+            json.loads(library_path.read_text(encoding="utf-8"))
+            if library_path.is_file() else {})
+    library = _ASSET_LIBRARY_CACHE[cache_key]
+    if library and str(library.get("project_id") or "") != str(scope["series_id"]):
+        raise RuntimeError(
+            f"SCOPED_ASSET_LIBRARY_PROJECT_MISMATCH:{library_path}:"
+            f"{library.get('project_id')}!={scope['series_id']}")
+    row = (((library.get("assets") or {}).get("characters") or {}).get(character_id)) or {}
     if str(row.get("status") or "") != "LOCKED":
         return None
     views = [Path(v) for v in (((row.get("lock") or {}).get("identity_lock") or {}).get("canonical_view_paths") or [])]
@@ -1966,9 +2007,10 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
         # unconditionally.  The old guard skipped the plate whenever the character already had a
         # keyframe semantic binding, which is every character in every unit; E05 therefore shipped
         # each unit with a single 720p keyframe (face ~80 px) and no identity plate at all.
-        if episode != "E01":
+        if not _policy_profile.uses_legacy_first_episode_exception(episode):
             plate_rows, plate_dropped, plate_missing = identity_plate_reference_rows(
-                chars, _locked_identity_plate, existing_paths=task["reference_images"])
+                chars, lambda character_id: _locked_identity_plate(character_id, episode=episode),
+                existing_paths=task["reference_images"])
             for row in plate_rows:
                 task["reference_images"].append(row["path"])
                 task["reference_sha256"].append(row["sha256"])

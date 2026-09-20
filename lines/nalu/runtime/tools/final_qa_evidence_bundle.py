@@ -35,15 +35,11 @@ Findings that drove the design (all verified in this clone)
 
 The decision this tool implements
 ---------------------------------
-Run ``episode_stage_gate_runner.py`` with an explicit ``--gate`` list of the
-APPLICABLE gates, and record every omission by name, with its reason and the
-escalation it needs, in a declaration file.  That is honest: it produces no
-evidence for the omitted gates and it claims none.  It does NOT hand-write
-``N_A`` rows into ``qa/gate_results/``.  ``run_episode_qa.sh`` hardcodes
-``--phase final --phase release`` and therefore cannot be used unchanged on this
-line — the tool prints its exact command anyway, with ``PYTHON_BIN`` forced to
-the venv (its default ``.s3_relay_env_py312/bin/python3`` does not exist here),
-so the operator sees precisely what would run.
+Historical replay keeps the explicit legacy subset recorded by old episodes.
+``CURRENT_PORTABLE`` projects run every registered final and release gate.  A
+missing audience review, objective metric, event ledger, BGM stem, or any other
+required artifact is a real blocker; this tool never converts missing evidence
+into ``N_A`` and never manufactures a PASS.
 
 CLI
 ---
@@ -66,9 +62,10 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from nalu_qa_common import (  # noqa: E402
-    ENGINE, FFMPEG, GATE_REGISTRY, RT, RUNTIME, SCRIPTS, VENV, QaPaths, now,
-    portable, read_json, sha256_file, write_json,
+    ENGINE, GATE_REGISTRY, RT, RUNTIME, VENV, QaPaths, now,
+    portable, read_json, require_ffmpeg, sha256_file, write_json,
 )
+import nalu_policy_profile as _policy  # noqa: E402
 
 TOOL_ID = "final_qa_evidence_bundle.v1"
 BUNDLE_SCHEMA = "qingshan.episode_stage_gate_evidence_bundle.v1"
@@ -158,16 +155,19 @@ BUNDLE_KEYS: dict[str, dict[str, Any]] = {
     "audio_provenance_manifest": {"gates": ["FINAL-AUDIO-PROVENANCE"],
                                   "note": "whole-track fingerprint + declared processed intervals"},
     "edit_project": {"gates": ["BGM-SOURCE-PRIORITY-AUTHENTICITY"],
-                     "note": "the agentcut project; only consumed by an N/A gate on this line"},
+                     "note": "the rendered edit project consumed by the BGM authenticity gate"},
     "credit_ledger": {"gates": ["GIGGLE-CREDIT-LEDGER-CLOSURE"],
                       "note": "runtime/budget/ledger.json"},
     "watch_report": {"gates": ["RELEASE-SIGNOFF-INTEGRITY"],
                      "note": "the human checkpoint record; produced by `approve`"},
     "bgm_stem": {"gates": ["BGM-SOURCE-PRIORITY-AUTHENTICITY"],
-                 "note": "N/A: this line has no BGM stem and must not fabricate one"},
+                 "note": "real S6 selective-BGM stem; absent evidence blocks current projects"},
     "audience_report": {"gates": ["AUDIENCE-SCORE-PRE-RELEASE", "FINAL-CUT-*"],
-                        "note": "N/A: no audience-score stage"},
-    "final_cut_metrics": {"gates": ["FINAL-CUT-*"], "note": "N/A: no audience-score stage"},
+                        "note": "reviewer-submitted, final-video-SHA-bound audience report"},
+    "final_cut_metrics": {"gates": ["FINAL-CUT-*"],
+                          "note": "objective metrics measured from the decoded final mp4"},
+    "event_ledger": {"gates": ["FINAL-CUT-EVENT-LEDGER"],
+                     "note": "reviewer-observed visible events with timestamps"},
 }
 UNSATISFIABLE = ("bgm_stem", "audience_report", "final_cut_metrics")
 
@@ -185,6 +185,11 @@ def _gate_sets(episode: str) -> tuple[tuple[str, ...], dict[str, dict[str, Any]]
     """(APPLICABLE, NOT_APPLICABLE, UNSATISFIABLE) for this episode's audio profile.  With selective BGM
     (Roger 2026-09-14) BGM-SOURCE-PRIORITY-AUTHENTICITY becomes applicable and bgm_stem is produced by
     nalu_selective_bgm.py mix."""
+    if _policy.is_current():
+        # The generic StoryClaw product may not waive a registered gate merely
+        # because a historical line never built its evidence producer.  Missing
+        # evidence therefore remains visible in the bundle and blocks the run.
+        return (*FINAL_GATES, *RELEASE_GATES), {}, ()
     profile = _audio_profile(episode)
     if profile in {"NATIVE_MULTIMODAL_SELECTIVE_BGM", "LAYERED_POST_WITH_BGM"}:
         na = {k: v for k, v in NOT_APPLICABLE.items() if k != "BGM-SOURCE-PRIORITY-AUTHENTICITY"}
@@ -198,6 +203,7 @@ def applicability(episode: str) -> dict[str, Any]:
     stages = {row.get("gate_id"): row.get("stage") for row in registry.get("gates") or []}
     profile = _audio_profile(episode)
     APPLICABLE_E, NOT_APPLICABLE_E, _ = _gate_sets(episode)
+    strict_current = _policy.is_current()
     return {
         "schema": "nalu.final_phase_gate_applicability.v1",
         "episode": episode,
@@ -205,7 +211,7 @@ def applicability(episode: str) -> dict[str, Any]:
         "recorded_by": TOOL_ID,
         "line_profile": {
             "audio": (f"{profile} (native SD2 audio" + (", selective narrative BGM stem)" if "BGM" in profile and "NO_EXTERNAL" not in profile else ", no BGM stem)")),
-            "audience_score_stage": False,
+            "audience_score_stage": "REQUIRED_REVIEW" if strict_current else False,
             "publish_path": "NONE — this line never uploads to a platform",
             "human_step": "one checkpoint per finished episode (S8 approve)",
         },
@@ -222,17 +228,22 @@ def applicability(episode: str) -> dict[str, Any]:
             "n_a_status_exists_but_runner_cannot_emit_it":
                 "tools/gate_result_contract.ALLOWED_STATUSES = {PASS, FAIL, N_A, PENDING_MANUAL}; "
                 "episode_stage_gate_runner only ever writes PASS/FAIL",
-            "chosen_route": "invoke episode_stage_gate_runner.py with an explicit --gate list of "
-                            "the applicable gates and declare every omission by name here",
+            "chosen_route": (
+                "CURRENT_PORTABLE executes every registered final/release gate; missing evidence "
+                "blocks. Legacy replay invokes the historically recorded explicit gate list."
+            ),
             "explicitly_not_done": "no hand-written N_A row in qa/gate_results/ "
                                    "(FINAL-CUT-NO-SELF-WAIVER forbids self-issued waivers) and "
-                                   "no fabricated audience_report or bgm_stem",
+                                   "no fabricated audience_report, objective metrics, event ledger, "
+                                   "or bgm_stem",
             "run_episode_qa_sh_limitation":
                 "tools/run_episode_qa.sh hardcodes --phase final --phase release, so it cannot "
                 "express this narrowing; it also defaults PYTHON_BIN to "
                 ".s3_relay_env_py312/bin/python3 which does not exist in this clone.",
         },
         "open_decision": "D-12 FINAL_PHASE_GATE_APPLICABILITY_HAS_NO_MECHANISM",
+        "policy_profile": _policy.selected(),
+        "registered_gate_omission_allowed": not strict_current,
     }
 
 
@@ -240,24 +251,33 @@ def build_bundle(episode: str, *, out: Path | None = None) -> dict[str, Any]:
     p = QaPaths(episode)
     deliver = RUNTIME / "deliverables" / episode
     final_video = deliver / f"{episode}_final_9x16.mp4"
-    canonical = SCRIPTS / f"{episode}_NARRATIVE_CANONICAL_v1.md"
+    canonical = p.narrative
     final_qa = p.final_qa_dir
+    profile = _audio_profile(episode)
+    applicable, not_applicable, unsatisfiable = _gate_sets(episode)
+    bgm_description = (
+        "selective narrative BGM stem"
+        if profile in {"NATIVE_MULTIMODAL_SELECTIVE_BGM", "LAYERED_POST_WITH_BGM"}
+        else "no external BGM stem"
+    )
     bundle: dict[str, Any] = {
         "schema": BUNDLE_SCHEMA,
         "episode": episode,
         "generated_at": now(),
         "generated_by": TOOL_ID,
-        "_line_profile": "native SD2 audio, 9:16 720p, no BGM stem, no audience-score stage, "
-                         "no publish path",
-        "_applicable_gates": list(APPLICABLE),
-        "_not_applicable_gates": sorted(NOT_APPLICABLE),
+        "_line_profile": (
+            f"{profile}, {bgm_description}, 9:16 delivery, "
+            "real audience detectors, no automatic publish path"
+        ),
+        "_applicable_gates": list(applicable),
+        "_not_applicable_gates": sorted(not_applicable),
         "canonical_script": portable(canonical),
         "canonical_script_sha256": sha256_file(canonical),
         "final_video": portable(final_video),
         "final_package_manifest": portable(p.assembly / f"{episode}_FINAL_PACKAGE_BLOCKERS.json"),
         "ci_report": portable(final_qa / f"{episode}_REGRESSION_CI.json"),
         "render_plan": portable(p.assembly / f"{episode}_final_render_plan.json"),
-        "ffmpeg": FFMPEG,
+        "ffmpeg": require_ffmpeg(),
         # native-audio line: the published mix and the final video are the same file
         "published_mix": portable(final_video),
         "audio_provenance_manifest": portable(
@@ -268,12 +288,25 @@ def build_bundle(episode: str, *, out: Path | None = None) -> dict[str, Any]:
         "watch_report": portable(RT / f"pipeline_state/approvals/{episode}.APPROVED.json"),
         # seq=19: sha-bound detector report written by S7 (tools/final_cut_audience_detectors.py)
         "final_cut_audience_report": portable(p.assembly / f"{episode}_FINAL_CUT_AUDIENCE_DETECTORS.json"),
-        "generation_contract": portable(SCRIPTS / f"{episode}_GENERATION_CONTRACT_v1.json"),
-        "writer_manifest": portable(SCRIPTS / f"{episode}_manifest_v1.json"),
-        "lexicon": portable(Path(__file__).resolve().parent.parent / "configs" / "LEXICON_yewujiang_v1.json"),
-        "voice_cast": portable(RT / "voice_cast.json"),
+        "generation_contract": portable(p.contract),
+        "writer_manifest": portable(p.writer_manifest),
+        "lexicon": portable(p.lexicon),
+        "voice_cast": portable(p.voice_cast),
     }
-    _, _, unsatisfiable = _gate_sets(episode)
+    if not unsatisfiable:
+        # Current portable policy: these files are real evidence producers, not
+        # placeholders. Their absence is counted below and blocks S7.
+        bundle.update({
+            "audience_report": portable(
+                p.final_qa_dir / f"{episode}_AUDIENCE_SCORE_REPORT.json"
+            ),
+            "final_cut_metrics": portable(
+                p.final_qa_dir / f"{episode}_FINAL_CUT_OBJECTIVE_METRICS.json"
+            ),
+            "event_ledger": portable(
+                p.final_qa_dir / f"{episode}_FINAL_CUT_EVENT_LEDGER.json"
+            ),
+        })
     if "bgm_stem" not in unsatisfiable:
         bundle["bgm_stem"] = portable(p.assembly / f"{episode}_bgm_stem.wav")
     missing: list[dict[str, Any]] = []
@@ -315,10 +348,11 @@ def build_bundle(episode: str, *, out: Path | None = None) -> dict[str, Any]:
     }
 
 
-def run_stage_gates(episode: str, *, gates: tuple[str, ...] = APPLICABLE,
+def run_stage_gates(episode: str, *, gates: tuple[str, ...] | None = None,
                     bundle: Path | None = None, out_dir: Path | None = None
                     ) -> dict[str, Any]:
     p = QaPaths(episode)
+    gates = gates if gates is not None else _gate_sets(episode)[0]
     bundle = Path(bundle) if bundle else p.evidence_bundle
     out_dir = Path(out_dir) if out_dir else (p.final_qa_dir / "mandatory_stage_gates")
     argv: list[Any] = [VENV, ENGINE / "tools/episode_stage_gate_runner.py",
@@ -363,24 +397,25 @@ def route_status(episode: str) -> dict[str, Any]:
              "--evidence-bundle", str(p.evidence_bundle),
              "--render-plan", str(p.assembly / f"{episode}_final_render_plan.json"),
              "--out", str(deliver / "final_qa")]
+    applicable_gates, not_applicable, _ = _gate_sets(episode)
     return {
         "producer": f"{__file__} build --episode {episode}",
         "bundle": str(p.evidence_bundle),
         "bundle_present": p.evidence_bundle.is_file(),
-        "applicable_gates": list(APPLICABLE),
-        "not_applicable_gates": sorted(NOT_APPLICABLE),
+        "policy_profile": _policy.selected(),
+        "applicable_gates": list(applicable_gates),
+        "not_applicable_gates": sorted(not_applicable),
         "runner_command": " ".join([str(VENV),
                                     str(ENGINE / "tools/episode_stage_gate_runner.py"),
                                     "--episode", episode, "--evidence-bundle",
                                     str(p.evidence_bundle), "--out-dir",
                                     str(p.final_qa_dir / "mandatory_stage_gates"),
                                     "--registry", str(GATE_REGISTRY)]
-                                   + [x for gate in APPLICABLE for x in ("--gate", gate)]),
+                                   + [x for gate in applicable_gates for x in ("--gate", gate)]),
         "run_episode_qa_command": "PYTHON_BIN=" + str(VENV) + " /bin/bash " + " ".join(qa_sh),
         "run_episode_qa_caveats": [
-            "hardcodes --phase final --phase release, so it cannot express the applicable-gate "
-            "narrowing and will fail on BGM-SOURCE-PRIORITY-AUTHENTICITY and the eight "
-            "audience-dependent gates",
+            "CURRENT_PORTABLE intentionally runs every registered final/release gate; missing "
+            "BGM or audience evidence is blocking rather than silently narrowed",
             "PYTHON_BIN default .s3_relay_env_py312/bin/python3 does not exist in this clone",
             "REVIEW_REQUIRED_BLOCKING is a block, not a pass; exit 1 with an empty "
             "machine_failures list means anchor review is outstanding",
@@ -417,7 +452,8 @@ def main() -> int:
         print(json.dumps(record, ensure_ascii=False, indent=2))
         return 0 if record["status"] == "COMPLETE" else 2
 
-    gates = APPLICABLE if args.gate_subset == "applicable" else (*FINAL_GATES, *RELEASE_GATES)
+    gates = (_gate_sets(args.episode)[0] if args.gate_subset == "applicable"
+             else (*FINAL_GATES, *RELEASE_GATES))
     record = run_stage_gates(args.episode, gates=gates, bundle=args.bundle,
                              out_dir=args.out_dir)
     print(json.dumps({k: v for k, v in record.items()

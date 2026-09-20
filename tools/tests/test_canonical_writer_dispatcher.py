@@ -105,6 +105,33 @@ class CanonicalWriterDispatcherTests(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertIn("WRITER_MODEL_ID_NOT_EXACT", result.stderr)
 
+    def test_public_talenthub_agent_can_open_a_bound_writer_run(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            input_bundle = base / "input.json"
+            rule = base / "rule.md"
+            receipt = base / "receipt.json"
+            input_bundle.write_text("{}\n", encoding="utf-8")
+            rule.write_text("public portable writer rule\n", encoding="utf-8")
+            result = self.run_tool(
+                "start",
+                "--episode", "E01",
+                "--version", "1",
+                "--writer-run-id", "WRITER-E01-V1-STORYCLAW",
+                "--agent-id", "ai-drama-factory",
+                "--provider", "storyclaw",
+                "--model-id", "storyclaw/gpt-6-astra",
+                "--session-or-task-id", "storyclaw-task-test",
+                "--input-bundle", input_bundle,
+                "--rule", rule,
+                "--receipt", receipt,
+                "--lock-dir", base / "locks",
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            payload = json.loads(receipt.read_text(encoding="utf-8"))
+            self.assertEqual("ai-drama-factory", payload["agent_id"])
+            self.assertEqual("RUNNING", payload["status"])
+
 
 class TerminalReceiptIsSealedTests(CanonicalWriterDispatcherTests):
     """SUPERVISOR_ORDERS seq=53 conditions[4]：终态 receipt 不可被二次覆写。"""

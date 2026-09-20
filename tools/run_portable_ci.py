@@ -33,7 +33,10 @@ def main() -> int:
             content = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             content = ""
-        for banned in BANNED_PERSONAL_PATHS:
+        # This verifier necessarily contains the forbidden literals it scans
+        # for.  Treating its own policy constants as a leak would make a clean
+        # extracted release impossible to verify.
+        for banned in (() if path.resolve() == Path(__file__).resolve() else BANNED_PERSONAL_PATHS):
             if banned in content:
                 failures.append(
                     f"PERSONAL_PATH_IN_PORTABLE_CORE:{path.relative_to(ROOT)}:{banned}"

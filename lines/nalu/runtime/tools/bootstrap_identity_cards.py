@@ -402,7 +402,7 @@ def apply_sources_to_library(
         ]
         asset["provenance"] = [
             {
-                "source": "ROGER_SUPPLIED_CHARACTER_SOURCE_FOLDER",
+                "source": "LINE_OWNER_SUPPLIED_CHARACTER_SOURCE_FOLDER",
                 "source_folder": str(source_folder) if source_folder else None,
                 "file": row["relative"],
                 "sha256": row["sha256"],
@@ -847,7 +847,7 @@ def main() -> int:
     parser.add_argument("--gate-report-out", required=True)
     parser.add_argument("--match-report", required=True)
     parser.add_argument("--report", required=True)
-    parser.add_argument("--authorization-ref", default="", help="Roger order id. Left empty the plan cannot be paid-submitted.")
+    parser.add_argument("--authorization-ref", default="", help="Validated private line-owner order id. Left empty the plan cannot be paid-submitted.")
     parser.add_argument("--rights-basis", default="", help="Rights basis for operator-supplied source images. Without it those assets stay unlocked.")
     parser.add_argument("--accept-source-qa", action="store_true", help="Operator asserts a human reviewed the supplied plates.")
     parser.add_argument("--aspect-ratio", default="9:16")
@@ -1037,7 +1037,7 @@ def main() -> int:
         },
         "paid_run_sequence": [
             "1. Confirm the match table: every operator-supplied file is MATCHED, and no subject you expected to supply is in subjects_needing_generation.",
-            "2. Set authorization_ref in the plan to a real Roger order id and provider_post_allowed on the operator's own authority.",
+            "2. Materialize authorization_ref and provider_post_allowed from the validated private line-owner order immediately before submission.",
             f"3. $VENV {ENGINE_ROOT}/tools/nalu_budget_ledger.py --check --episode {episode} --planned-credits <expected_credits> (must exit 0).",
             f"4. 💰 $VENV {ENGINE_ROOT}/tools/submit_giggle_character_asset_plan.py --plan {plan_out} --out <report> --concurrency 6   # drop --precheck-only, needs GIGGLE_API_KEY",
             "5. Harvest with tools/harvest_giggle_image_batch.py, then re-run this tool with --character-source-folder pointed at the harvest directory so the generated plates register as identity artifacts.",

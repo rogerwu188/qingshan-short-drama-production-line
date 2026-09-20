@@ -1,0 +1,17 @@
+pip==25.3
+setuptools==80.9.0
+wheel==0.45.1
+pillow==11.3.0
+imagehash==4.3.2
+numpy==2.2.6
+opencv-python-headless==4.14.0.94
+opencv-python==4.14.0.94+qingshanheadless1
+soundfile==0.14.0
+faster-whisper==1.2.1
+boto3==1.43.98
+cryptography==45.0.7
+requests==2.34.2
+insightface==2.0
+onnxruntime==1.23.2
+rapidocr-onnxruntime==1.4.4
+opencc-python-reimplemented==0.1.7

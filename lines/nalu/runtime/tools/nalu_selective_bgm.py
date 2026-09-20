@@ -12,14 +12,18 @@ The writer/director declares music in the generation contract (engine rule K016 
 
 Sub-commands (all offline except `generate --paid`):
 
-  plan      contract + release timeline + grouping + unit ASR  ->  assembly/<EP>_BGM_PLAN.json
+  source-plan
+            contract only -> preproduction/bgm/<EP>_BGM_SOURCE_PLAN.json.  This is deliberately
+            independent of the S7 release timeline so every provider POST can happen in paid S6.
+  generate  Use the portable StoryClaw audio provider (``tools/storyclaw_audio_provider.py``).
+            Each source has an absolute durable transaction path; ``--paid`` is the only route
+            that may POST, and the caller must also supply the paid-authority environment.
+  verify    Require every source-plan transaction to be completed, prompt-bound, and backed by
+            on-disk candidates whose SHA-256 still matches.  Never contacts the provider.
+  plan      source plan + release timeline + grouping + unit ASR -> assembly/<EP>_BGM_PLAN.json
             (cue windows on the release timeline, dialogue windows for ducking, one generation per
             distinct brief, coverage policy from E37 v12: <= 85 % coverage, >= 8 s ambience-only)
-  generate  Giggle /api/v1/generation/generate-music through the AgentCut CLI (`bgm-generate`,
-            instrumental only, several candidates per task).  Durable transaction store
-            workflow/tasks/giggle_bgm_transactions/<EP>/<source_key>.json; double lock = --paid AND a
-            fresh nalu_budget_ledger.py --check inside the cap.  Planned credits: 8 per task (E37
-            v12 evidence: pay 8 / refund 0) until a statement says otherwise.
+            S7 uses this only after ``verify``; it cannot submit or regenerate music.
   qa        engine tools/qa_bgm_candidates.py per generation (no vocals, media probe, natural
             no-loop coverage of the longest cue that uses that source) -> selection
   mix       ducked stem + mix onto the rendered picture (video stream copied bit-exact); writes the
@@ -33,24 +37,21 @@ from __future__ import annotations
 import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
+import nalu_media_tools as _media
 import argparse
 import hashlib
 import json
-import math
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-RUNTIME = Path(__file__).resolve().parents[1]
-ROOT = RUNTIME.parent
 ENGINE = Path(f"{_np.ENGINE_ROOT}")
-VENV = ENGINE / ".qingshan-venv/bin/python"
-AGENTCUT = ENGINE / ".agentcut_env/bin/agentcut"
-FFMPEG = "/opt/homebrew/bin/ffmpeg"
-FFPROBE = "/opt/homebrew/bin/ffprobe"
+VENV = Path(f"{_np.VENV_PYTHON}")
+AUDIO_PROVIDER = ENGINE / "tools/storyclaw_audio_provider.py"
 PLANNED_CREDITS_PER_TASK = 8          # E37 v12 selective BGM: {"pay": 8, "refund": 0, "net": 8}
 MAX_COVERAGE_RATIO = 0.85             # E37 bgm_cue_policy
 MIN_AMBIENCE_ONLY_SECONDS = 8.0
@@ -89,14 +90,15 @@ def write_json(path: Path, payload: Any) -> None:
 
 
 def probe_duration(path: Path) -> float:
-    out = subprocess.run([FFPROBE, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+    out = subprocess.run([_media.require_ffprobe(), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
                          capture_output=True, text=True, check=False).stdout.strip()
     return float(out or 0.0)
 
 
 class Paths:
     def __init__(self, episode: str, *, contract: Path | None = None, assembly: Path | None = None,
-                 grouping: Path | None = None, project: Path | None = None, work: Path | None = None) -> None:
+                 grouping: Path | None = None, project: Path | None = None, work: Path | None = None,
+                 transactions: Path | None = None) -> None:
         self.episode = episode
         self.contract = contract or ENGINE / f"workflow/claude_writer_agent/scripts/{episode}_GENERATION_CONTRACT_v1.json"
         self.assembly = assembly or ENGINE / f"workflow/nalu/{episode}/assembly"
@@ -110,7 +112,10 @@ class Paths:
         self.stem_timeline = self.assembly / f"{episode}_bgm_stem_timeline.wav"  # placed, scaled, ducked (what the mix adds)
         self.mix_report = self.assembly / f"{episode}_BGM_MIX.json"
         self.work = work or ENGINE / f"workflow/nalu/{episode}/preproduction/bgm"
-        self.tx = (work / "_transactions") if work else TX_DIR / episode
+        self.source_plan = self.work / f"{episode}_BGM_SOURCE_PLAN.json"
+        if transactions is not None and not transactions.is_absolute():
+            raise SystemExit("--bgm-transactions-dir must be an absolute private path")
+        self.tx = transactions or ((work / "_transactions") if work else TX_DIR / episode)
 
 
 # --------------------------------------------------------------------------------------------- plan
@@ -127,10 +132,234 @@ def declaration(contract: dict) -> dict:
     return bgm
 
 
-def cmd_plan(a: argparse.Namespace) -> int:
-    p = Paths(a.episode, contract=a.contract, assembly=a.assembly, grouping=a.grouping, project=a.project, work=a.work)
+def _source_plan_payload(p: Paths, episode: str) -> dict[str, Any]:
+    if not p.contract.is_file():
+        raise SystemExit(f"generation contract missing: {p.contract}")
     contract = read_json(p.contract, {})
+    if not isinstance(contract, dict):
+        raise SystemExit(f"generation contract is not a JSON object: {p.contract}")
     bgm = declaration(contract)
+    contract_shots = [row for row in (contract.get("shots") or []) if isinstance(row, dict)]
+    shot_by_id = {str(row.get("shot_id") or ""): row for row in contract_shots
+                  if str(row.get("shot_id") or "")}
+    if not shot_by_id:
+        raise SystemExit("generation contract has no shot_id rows")
+
+    cues_out: list[dict[str, Any]] = []
+    sources: dict[str, dict[str, Any]] = {}
+    cue_ids: set[str] = set()
+    for cue in bgm["cues"]:
+        if not isinstance(cue, dict):
+            raise SystemExit("every audio_contract.bgm.cues row must be an object")
+        cue_id = str(cue.get("cue_id") or "").strip()
+        func = str(cue.get("narrative_function") or "").strip()
+        brief = str(cue.get("brief") or "").strip()
+        if not cue_id or not func or not brief:
+            raise SystemExit(f"cue needs cue_id, narrative_function and brief: {cue}")
+        if cue_id in cue_ids:
+            raise SystemExit(f"duplicate BGM cue_id: {cue_id}")
+        cue_ids.add(cue_id)
+
+        requested = [str(value) for value in (cue.get("shots") or []) if str(value)]
+        for scene in cue.get("scenes") or []:
+            matched = [sid for sid, row in shot_by_id.items() if str(row.get("scene_id") or "") == str(scene)]
+            if not matched:
+                raise SystemExit(f"cue {cue_id} scene has no contract shots: {scene}")
+            requested.extend(matched)
+        shots = list(dict.fromkeys(requested))
+        if not shots:
+            raise SystemExit(f"cue {cue_id} names no shots/scenes")
+        unknown = [sid for sid in shots if sid not in shot_by_id]
+        if unknown:
+            raise SystemExit(f"cue {cue_id} names unknown contract shots: {unknown}")
+
+        duck = float(cue.get("dialogue_duck_db", -8.0))
+        if not DUCK_RANGE_DB[0] <= duck <= DUCK_RANGE_DB[1]:
+            raise SystemExit(f"cue {cue_id}: dialogue_duck_db {duck} outside {DUCK_RANGE_DB}")
+        volume = float(cue.get("volume", 0.14))
+        if not 0.05 <= volume <= 0.35:
+            raise SystemExit(f"cue {cue_id}: volume {volume} outside 0.05..0.35")
+        authored_seconds = round(sum(float(shot_by_id[sid].get("target_seconds") or 0) for sid in shots), 3)
+        if authored_seconds <= 0:
+            raise SystemExit(f"cue {cue_id} has no positive authored duration")
+
+        key = sha256_text(brief)[:16]
+        source = sources.setdefault(
+            key,
+            {"source_key": key, "prompt": brief, "prompt_sha256": sha256_text(brief),
+             "cue_ids": [], "authored_coverage_seconds_required": 0.0},
+        )
+        source["cue_ids"].append(cue_id)
+        source["authored_coverage_seconds_required"] = round(
+            max(float(source["authored_coverage_seconds_required"]), authored_seconds), 3)
+        cues_out.append({
+            "cue_id": cue_id,
+            "narrative_function": func,
+            "source_key": key,
+            "shots": shots,
+            "authored_duration_seconds": authored_seconds,
+            "volume": volume,
+            "dialogue_duck_db": duck,
+        })
+
+    return {
+        "schema": "nalu.selective_bgm_source_plan.v1",
+        "episode": episode,
+        "recorded_at": now(),
+        "contract": str(p.contract),
+        "contract_sha256": sha256_file(p.contract),
+        "policy": {
+            "mode": "SELECTIVE_NARRATIVE_CUES",
+            "maximum_coverage_ratio": MAX_COVERAGE_RATIO,
+            "minimum_ambience_only_seconds": MIN_AMBIENCE_ONLY_SECONDS,
+            "dialogue_duck_db_range": list(DUCK_RANGE_DB),
+        },
+        "cues": cues_out,
+        "generations": list(sources.values()),
+        "planned_credits": PLANNED_CREDITS_PER_TASK * len(sources),
+        "planned_credits_basis": "current provider observation: 8 credits per distinct instrumental music prompt",
+        "timeline_dependency": "NONE_S6_SOURCE_GENERATION",
+        "status": "PASS",
+    }
+
+
+def cmd_source_plan(a: argparse.Namespace) -> int:
+    p = Paths(a.episode, contract=a.contract, assembly=a.assembly, grouping=a.grouping,
+              project=a.project, work=a.work, transactions=a.bgm_transactions_dir)
+    plan = _source_plan_payload(p, a.episode)
+    write_json(p.source_plan, plan)
+    print(json.dumps({"status": "PASS", "cues": len(plan["cues"]),
+                      "generations": len(plan["generations"]),
+                      "planned_credits": plan["planned_credits"],
+                      "out": str(p.source_plan)}, ensure_ascii=False))
+    return 0
+
+
+def _load_current_source_plan(p: Paths, episode: str) -> dict[str, Any]:
+    plan = read_json(p.source_plan, {})
+    if not isinstance(plan, dict) or plan.get("status") != "PASS":
+        raise SystemExit(f"run `source-plan` in S6 first: {p.source_plan}")
+    if plan.get("schema") != "nalu.selective_bgm_source_plan.v1" or plan.get("episode") != episode:
+        raise SystemExit("BGM source plan schema/episode mismatch")
+    if not p.contract.is_file() or plan.get("contract_sha256") != sha256_file(p.contract):
+        raise SystemExit("BGM source plan is stale for the current generation contract; rerun S6")
+    return plan
+
+
+def _transaction_candidates(tx: dict[str, Any]) -> list[dict[str, Any]]:
+    result = tx.get("result") if isinstance(tx.get("result"), dict) else {}
+    rows = result.get("files") or []
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def _completed_transaction(tx_path: Path, generation: dict[str, Any]) -> tuple[bool, list[str]]:
+    tx = read_json(tx_path, {})
+    failures: list[str] = []
+    if not isinstance(tx, dict) or tx.get("schema") != "qingshan.storyclaw_audio_transaction.v1":
+        return False, ["TRANSACTION_MISSING_OR_SCHEMA_INVALID"]
+    if tx.get("state") != "TERMINAL_COMPLETED":
+        failures.append(f"STATE_{tx.get('state') or 'MISSING'}")
+    request = tx.get("request") if isinstance(tx.get("request"), dict) else {}
+    if request.get("prompt_sha256") != generation.get("prompt_sha256"):
+        failures.append("PROMPT_SHA256_MISMATCH")
+    if request.get("instrumental") is not True:
+        failures.append("INSTRUMENTAL_BINDING_MISSING")
+    authority = tx.get("paid_authority") if isinstance(tx.get("paid_authority"), dict) else {}
+    if (authority.get("config_lock") != "1" or not authority.get("authorization_ref")
+            or not str(authority.get("order_seq") or "").isdigit()
+            or not re.fullmatch(r"[0-9a-f]{64}", str(authority.get("orders_sha256") or ""))):
+        failures.append("PAID_AUTHORITY_BINDING_INVALID")
+    if not str(tx.get("task_id") or "").strip():
+        failures.append("TASK_ID_MISSING")
+    candidates = _transaction_candidates(tx)
+    if not candidates:
+        failures.append("CANDIDATES_MISSING")
+    for row in candidates:
+        path = Path(str(row.get("path") or ""))
+        if not path.is_file():
+            failures.append(f"CANDIDATE_MISSING:{path}")
+        elif not re.fullmatch(r"[0-9a-f]{64}", str(row.get("sha256") or "")):
+            failures.append(f"CANDIDATE_SHA256_MISSING:{path}")
+        elif sha256_file(path) != row.get("sha256"):
+            failures.append(f"CANDIDATE_SHA256_MISMATCH:{path}")
+    return not failures, failures
+
+
+def _generation_transaction_state(p: Paths, generation: dict[str, Any]) -> tuple[str, list[str]]:
+    key = str(generation.get("source_key") or "")
+    tx_path = p.tx / f"{key}.json"
+    if not tx_path.exists():
+        return "NEW_SUBMISSION", []
+    tx = read_json(tx_path, {})
+    if not isinstance(tx, dict) or tx.get("schema") != "qingshan.storyclaw_audio_transaction.v1":
+        return "BLOCKED", ["TRANSACTION_SCHEMA_INVALID"]
+    request = tx.get("request") if isinstance(tx.get("request"), dict) else {}
+    if request.get("prompt_sha256") != generation.get("prompt_sha256"):
+        return "BLOCKED", ["TRANSACTION_PROMPT_SHA256_MISMATCH"]
+    if tx.get("state") == "TERMINAL_COMPLETED":
+        ok, failures = _completed_transaction(tx_path, generation)
+        return ("COMPLETED", []) if ok else ("BLOCKED", failures)
+    if tx.get("state") in {"TASK_ID_BOUND_QUERY_PENDING", "TASK_ID_BOUND_COMPLETED_DOWNLOAD_PENDING"}:
+        return "RESUME_WITHOUT_POST", []
+    return "BLOCKED", [f"TRANSACTION_STATE_{tx.get('state') or 'MISSING'}_REQUIRES_RECONCILIATION"]
+
+
+def _pending_generations(
+    p: Paths, source_plan: dict[str, Any]
+) -> tuple[list[dict[str, Any]], list[str], list[dict[str, Any]]]:
+    pending: list[dict[str, Any]] = []
+    completed: list[str] = []
+    blocked: list[dict[str, Any]] = []
+    for generation in source_plan.get("generations") or []:
+        key = str(generation.get("source_key") or "")
+        state, failures = _generation_transaction_state(p, generation)
+        generation["transaction_route"] = state
+        if state == "COMPLETED":
+            completed.append(key)
+        elif state in {"NEW_SUBMISSION", "RESUME_WITHOUT_POST"}:
+            pending.append(generation)
+        else:
+            blocked.append({"source_key": key, "failures": failures,
+                            "transaction": str(p.tx / f"{key}.json")})
+    return pending, completed, blocked
+
+
+def cmd_pending(a: argparse.Namespace) -> int:
+    p = Paths(a.episode, contract=a.contract, assembly=a.assembly, grouping=a.grouping,
+              project=a.project, work=a.work, transactions=a.bgm_transactions_dir)
+    source_plan = _load_current_source_plan(p, a.episode)
+    pending, completed, blocked = _pending_generations(p, source_plan)
+    new_posts = [row["source_key"] for row in pending if row["transaction_route"] == "NEW_SUBMISSION"]
+    resumes = [row["source_key"] for row in pending if row["transaction_route"] == "RESUME_WITHOUT_POST"]
+    status = "PASS" if not blocked else "BLOCKED"
+    print(json.dumps({"status": status, "pending": [row["source_key"] for row in pending],
+                      "new_post_candidates": new_posts, "resume_without_post": resumes,
+                      "completed": completed, "blocked": blocked,
+                      "planned_credits": PLANNED_CREDITS_PER_TASK * len(new_posts)}, ensure_ascii=False))
+    return 0 if not blocked else 2
+
+
+def cmd_verify(a: argparse.Namespace) -> int:
+    p = Paths(a.episode, contract=a.contract, assembly=a.assembly, grouping=a.grouping,
+              project=a.project, work=a.work, transactions=a.bgm_transactions_dir)
+    source_plan = _load_current_source_plan(p, a.episode)
+    rows: list[dict[str, Any]] = []
+    for generation in source_plan.get("generations") or []:
+        key = str(generation.get("source_key") or "")
+        ok, failures = _completed_transaction(p.tx / f"{key}.json", generation)
+        rows.append({"source_key": key, "status": "PASS" if ok else "FAIL", "failures": failures,
+                     "transaction": str(p.tx / f"{key}.json")})
+    good = bool(rows) and all(row["status"] == "PASS" for row in rows)
+    print(json.dumps({"status": "PASS" if good else "FAIL", "rows": rows,
+                      "source_plan": str(p.source_plan)}, ensure_ascii=False))
+    return 0 if good else 2
+
+
+def cmd_plan(a: argparse.Namespace) -> int:
+    p = Paths(a.episode, contract=a.contract, assembly=a.assembly, grouping=a.grouping,
+              project=a.project, work=a.work, transactions=a.bgm_transactions_dir)
+    contract = read_json(p.contract, {})
+    source_plan = _load_current_source_plan(p, a.episode)
     timeline = read_json(p.release_timeline, {})
     grouping = read_json(p.grouping, {})
     asr = read_json(p.unit_asr, {}) or {}
@@ -159,26 +388,15 @@ def cmd_plan(a: argparse.Namespace) -> int:
             starts.append(s0); ends.append(s1)
         return round(min(starts), 3), round(max(ends), 3)
 
-    cues_out, sources = [], {}
-    for cue in bgm["cues"]:
-        cue_id = str(cue.get("cue_id") or "").strip()
-        func = str(cue.get("narrative_function") or "").strip()
-        brief = str(cue.get("brief") or "").strip()
-        if not cue_id or not func or not brief:
-            raise SystemExit(f"cue needs cue_id, narrative_function and brief: {cue}")
-        shots = list(cue.get("shots") or [])
-        for scene in cue.get("scenes") or []:
-            shots += [s["shot_id"] for s in contract.get("shots") or [] if s.get("scene_id") == scene]
-        if not shots:
-            raise SystemExit(f"cue {cue_id} names no shots/scenes")
+    cues_out = []
+    for cue in source_plan["cues"]:
+        cue_id = cue["cue_id"]
+        func = cue["narrative_function"]
+        shots = list(cue["shots"])
         t0, t1 = window_for_shots(shots)
         t1 = min(t1, content)
-        duck = float(cue.get("dialogue_duck_db", -8.0))
-        if not DUCK_RANGE_DB[0] <= duck <= DUCK_RANGE_DB[1]:
-            raise SystemExit(f"cue {cue_id}: dialogue_duck_db {duck} outside {DUCK_RANGE_DB}")
-        volume = float(cue.get("volume", 0.14))
-        if not 0.05 <= volume <= 0.35:
-            raise SystemExit(f"cue {cue_id}: volume {volume} outside 0.05..0.35")
+        duck = float(cue["dialogue_duck_db"])
+        volume = float(cue["volume"])
         # dialogue windows inside the cue, from the per-unit ASR (assembly), on the release timeline
         dialogue = []
         for uid, seg in seg_by_unit.items():
@@ -187,12 +405,7 @@ def cmd_plan(a: argparse.Namespace) -> int:
                 ds, de = u0 + float(row["start"]), u0 + float(row["end"])
                 if de > t0 and ds < t1:
                     dialogue.append({"start": round(max(ds, t0), 3), "end": round(min(de, t1), 3), "unit_id": uid})
-        key = sha256_text(brief)[:16]
-        sources.setdefault(key, {"source_key": key, "prompt": brief, "prompt_sha256": sha256_text(brief),
-                                 "cue_ids": [], "coverage_seconds_required": 0.0})
-        sources[key]["cue_ids"].append(cue_id)
-        sources[key]["coverage_seconds_required"] = round(max(sources[key]["coverage_seconds_required"], t1 - t0), 3)
-        cues_out.append({"cue_id": cue_id, "narrative_function": func, "source_key": key,
+        cues_out.append({"cue_id": cue_id, "narrative_function": func, "source_key": cue["source_key"],
                          "shots": shots, "timeline_start": t0, "duration": round(t1 - t0, 3),
                          "volume": volume, "dialogue_duck_db": duck, "dialogue_windows": dialogue,
                          "dialogue_present": bool(dialogue)})
@@ -207,20 +420,26 @@ def cmd_plan(a: argparse.Namespace) -> int:
         failures.append(f"COVERAGE_RATIO_{ratio}_OVER_{MAX_COVERAGE_RATIO}")
     if content - covered < MIN_AMBIENCE_ONLY_SECONDS:
         failures.append(f"AMBIENCE_ONLY_SECONDS_{round(content - covered, 3)}_UNDER_{MIN_AMBIENCE_ONLY_SECONDS}")
+    exact_seconds: dict[str, float] = {}
+    for cue in cues_out:
+        exact_seconds[cue["source_key"]] = max(exact_seconds.get(cue["source_key"], 0.0), float(cue["duration"]))
+    generations = [{**row, "coverage_seconds_required": round(exact_seconds.get(row["source_key"], 0.0), 3)}
+                   for row in source_plan["generations"]]
     plan = {"schema": "nalu.selective_bgm_plan.v1", "episode": a.episode, "recorded_at": now(),
             "contract": str(p.contract), "contract_sha256": sha256_file(p.contract),
+            "source_plan": str(p.source_plan), "source_plan_sha256": sha256_file(p.source_plan),
             "release_timeline": str(p.release_timeline), "content_runtime_seconds": content,
             "policy": {"mode": "SELECTIVE_NARRATIVE_CUES", "maximum_coverage_ratio": MAX_COVERAGE_RATIO,
                        "minimum_ambience_only_seconds": MIN_AMBIENCE_ONLY_SECONDS, "dialogue_duck_db_range": DUCK_RANGE_DB,
                        "policy": "No wall-to-wall score. Native ambience, foley and dialogue stay; music only on the declared narrative cues, ducked under every spoken line."},
-            "cues": cues_out, "generations": list(sources.values()),
+            "cues": cues_out, "generations": generations,
             "actual_cue_seconds": round(covered, 3), "actual_coverage_ratio": ratio,
             "actual_ambience_only_seconds": round(content - covered, 3),
-            "planned_credits": PLANNED_CREDITS_PER_TASK * len(sources),
-            "planned_credits_basis": "E37 v12 selective BGM generation task: pay 8 / refund 0 (configs/e37_agentcut_v12_selective_bgm_repair)",
+            "planned_credits": source_plan["planned_credits"],
+            "planned_credits_basis": source_plan["planned_credits_basis"],
             "status": "PASS" if not failures else "FAIL", "failures": failures}
     write_json(p.plan, plan)
-    print(json.dumps({"status": plan["status"], "cues": len(cues_out), "generations": len(sources),
+    print(json.dumps({"status": plan["status"], "cues": len(cues_out), "generations": len(generations),
                       "coverage_ratio": ratio, "planned_credits": plan["planned_credits"], "failures": failures,
                       "out": str(p.plan)}, ensure_ascii=False))
     return 0 if not failures else 2
@@ -228,76 +447,89 @@ def cmd_plan(a: argparse.Namespace) -> int:
 
 # ----------------------------------------------------------------------------------------- generate
 def cmd_generate(a: argparse.Namespace) -> int:
-    p = Paths(a.episode, contract=a.contract, assembly=a.assembly, grouping=a.grouping, project=a.project, work=a.work)
-    plan = read_json(p.plan, {})
-    if not plan or plan.get("status") != "PASS":
-        raise SystemExit("run `plan` first (status must be PASS)")
-    pending = []
-    for gen in plan["generations"]:
-        tx = read_json(p.tx / f"{gen['source_key']}.json", {})
-        if tx.get("state") in {"COMPLETED", "SUBMITTED_TASK_ID_BOUND"} and tx.get("prompt_sha256") == gen["prompt_sha256"]:
-            continue
-        pending.append(gen)
+    p = Paths(a.episode, contract=a.contract, assembly=a.assembly, grouping=a.grouping,
+              project=a.project, work=a.work, transactions=a.bgm_transactions_dir)
+    source_plan = _load_current_source_plan(p, a.episode)
+    pending, completed, blocked = _pending_generations(p, source_plan)
+    if blocked:
+        print(json.dumps({"status": "BLOCKED", "blocked": blocked,
+                          "note": "reconcile or repair the existing durable transaction; no new POST is allowed"},
+                         ensure_ascii=False))
+        return 2
     if not pending:
-        print(json.dumps({"status": "NOTHING_TO_SUBMIT", "generations": len(plan["generations"])}))
+        print(json.dumps({"status": "NOTHING_TO_SUBMIT", "generations": len(source_plan["generations"]),
+                          "completed": completed}, ensure_ascii=False))
         return 0
-    if not a.paid:
-        print(json.dumps({"status": "DRY_RUN", "pending": [g["source_key"] for g in pending],
-                          "planned_credits": PLANNED_CREDITS_PER_TASK * len(pending)}))
-        return 0
-    if not os.environ.get("GIGGLE_API_KEY"):
-        raise SystemExit("GIGGLE_API_KEY not set")
-    if not AGENTCUT.is_file():
-        raise SystemExit(f"AgentCut CLI missing: {AGENTCUT}")
-    planned = PLANNED_CREDITS_PER_TASK * len(pending)
-    check = subprocess.run([str(VENV), str(RUNTIME / "tools/nalu_budget_ledger.py"), "--episode", a.episode,
-                            "--check", "--planned-credits", str(planned)], capture_output=True, text=True, check=False)
-    if check.returncode != 0:
-        raise SystemExit(f"budget check refused ({check.returncode}): {check.stdout[-400:]}")
+    planned = PLANNED_CREDITS_PER_TASK * sum(
+        1 for row in pending if row.get("transaction_route") == "NEW_SUBMISSION")
+    if not AUDIO_PROVIDER.is_file():
+        raise SystemExit(f"portable StoryClaw audio provider missing: {AUDIO_PROVIDER}")
     results = []
     for gen in pending:
         key = gen["source_key"]
         out_dir = p.work / key
         tx_path = p.tx / f"{key}.json"
-        write_json(tx_path, {"schema": "nalu.giggle_bgm_transaction.v1", "episode": a.episode, "source_key": key,
-                             "prompt_sha256": gen["prompt_sha256"], "state": "INTENT_RECORDED", "intent_recorded_at": now(),
-                             "planned_credits": PLANNED_CREDITS_PER_TASK, "endpoint": "/api/v1/generation/generate-music",
-                             "driver": f"{AGENTCUT} bgm-generate", "instrumental": True})
-        run = subprocess.run([str(AGENTCUT), "bgm-generate", gen["prompt"], "--output-dir", str(out_dir),
-                              "--poll-interval", "20", "--timeout", "1500"], capture_output=True, text=True, check=False)
+        argv = [str(VENV), str(AUDIO_PROVIDER), "bgm-generate", gen["prompt"],
+                "--output-dir", str(out_dir.resolve()), "--transaction", str(tx_path.resolve()),
+                "--poll-interval", "20", "--timeout", "1500"]
+        if a.paid:
+            argv.append("--paid")
+        run = subprocess.run(argv, capture_output=True, text=True, check=False)
         payload = None
         for line in reversed((run.stdout or "").strip().splitlines()):
             try:
                 payload = json.loads(line); break
             except Exception:  # noqa: BLE001
                 continue
-        tx = read_json(tx_path, {})
-        if not payload:
-            tx.update({"state": "SUBMIT_FAILED_NO_RESPONSE", "stderr": (run.stderr or "")[-1500:], "response_recorded_at": now()})
-            write_json(tx_path, tx); results.append({"source_key": key, "state": tx["state"]}); continue
-        tx.update({"task_id": payload.get("taskId"), "provider_status": payload.get("status"),
-                   "response_recorded_at": now(), "files": payload.get("files") or [],
-                   "elapsed_seconds": payload.get("elapsedSeconds"), "error": payload.get("error"),
-                   "state": "COMPLETED" if payload.get("status") == "completed" else
-                            ("SUBMITTED_TASK_ID_BOUND" if payload.get("taskId") and payload.get("status") == "timeout"
-                             else "PROVIDER_FAILED")})
-        write_json(tx_path, tx)
-        results.append({"source_key": key, "state": tx["state"], "task_id": tx.get("task_id"), "candidates": len(tx.get("files") or [])})
-    print(json.dumps({"status": "SUBMITTED", "results": results, "planned_credits": planned,
-                      "note": "credits are reconciled from provider statements by nalu_budget_ledger.py"}, ensure_ascii=False))
-    return 0
+        results.append({
+            "source_key": key,
+            "exit_code": run.returncode,
+            "status": (payload or {}).get("status") or "NO_JSON_RESULT",
+            "ok": bool((payload or {}).get("ok")),
+            "task_id": (payload or {}).get("taskId"),
+            "candidates": len((payload or {}).get("files") or []),
+            "transaction": str(tx_path.resolve()),
+            "error": (payload or {}).get("error") or ((run.stderr or "")[-500:] if run.returncode else None),
+        })
+        if a.paid and (run.returncode != 0 or (payload or {}).get("status") != "completed"):
+            # A response-lost or task-bound-pending transaction must be resolved
+            # before another source can POST.  The next run resumes the same
+            # absolute transaction and the budget ledger carries its provisional
+            # 8-credit reservation; it never advances blindly to the next prompt.
+            break
+    if not a.paid:
+        status = "DRY_RUN"
+        good = all(row["exit_code"] == 0 and row["status"] == "DRY_RUN" for row in results)
+    else:
+        status = "PASS"
+        good = all(row["exit_code"] == 0 and row["status"] == "completed" for row in results)
+        if not good:
+            status = "BLOCKED"
+    print(json.dumps({"status": status, "results": results,
+                      "pending": [g["source_key"] for g in pending], "completed_before": completed,
+                      "new_post_candidates": [g["source_key"] for g in pending
+                                              if g.get("transaction_route") == "NEW_SUBMISSION"],
+                      "resume_without_post": [g["source_key"] for g in pending
+                                              if g.get("transaction_route") == "RESUME_WITHOUT_POST"],
+                      "planned_credits": planned,
+                      "provider": "tools/storyclaw_audio_provider.py",
+                      "note": "the S6 caller owns the budget check; credit statements are reconciled in S7"},
+                     ensure_ascii=False))
+    return 0 if good else 2
 
 
 # ----------------------------------------------------------------------------------------------- qa
 def cmd_qa(a: argparse.Namespace) -> int:
-    p = Paths(a.episode, contract=a.contract, assembly=a.assembly, grouping=a.grouping, project=a.project, work=a.work)
+    p = Paths(a.episode, contract=a.contract, assembly=a.assembly, grouping=a.grouping,
+              project=a.project, work=a.work, transactions=a.bgm_transactions_dir)
     plan = read_json(p.plan, {})
     selection = {"schema": "nalu.selective_bgm_selection.v1", "episode": a.episode, "recorded_at": now(), "sources": {}}
     failures = []
     for gen in plan.get("generations") or []:
         key = gen["source_key"]
         tx = read_json(p.tx / f"{key}.json", {})
-        files = [Path(f["path"]) for f in (tx.get("files") or []) if Path(f.get("path", "")).is_file()]
+        files = [Path(f["path"]) for f in _transaction_candidates(tx)
+                 if Path(f.get("path", "")).is_file()]
         if a.candidate:   # offline test route: explicit candidate files
             files = [Path(x) for x in a.candidate]
         if not files:
@@ -342,7 +574,8 @@ def duck_expr(cue: dict) -> str:
 
 
 def cmd_mix(a: argparse.Namespace) -> int:
-    p = Paths(a.episode, contract=a.contract, assembly=a.assembly, grouping=a.grouping, project=a.project, work=a.work)
+    p = Paths(a.episode, contract=a.contract, assembly=a.assembly, grouping=a.grouping,
+              project=a.project, work=a.work, transactions=a.bgm_transactions_dir)
     plan = read_json(p.plan, {}); selection = read_json(p.selection, {})
     if plan.get("status") != "PASS" or selection.get("status") != "PASS":
         raise SystemExit("plan and qa must both be PASS before mix")
@@ -371,7 +604,7 @@ def cmd_mix(a: argparse.Namespace) -> int:
     filters.append("[stem]asplit=2[stem_out][stem_mix]")
     filters.append("[0:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[native]")
     filters.append("[native][stem_mix]amix=inputs=2:duration=first:normalize=0[aout]")
-    argv = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y"]
+    argv = [_media.require_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y"]
     for x in inputs:
         argv += ["-i", x]
     argv += ["-filter_complex", ";".join(filters),
@@ -392,7 +625,7 @@ def cmd_mix(a: argparse.Namespace) -> int:
                             f"afade=t=out:st={max(dur - FADE_OUT_S, 0):.3f}:d={FADE_OUT_S}[s{i}]")
         solo_labels.append(f"[s{i}]")
     solo_filters.append("".join(solo_labels) + f"concat=n={len(solo_labels)}:v=0:a=1[solo]")
-    solo_argv = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y"]
+    solo_argv = [_media.require_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y"]
     for x in inputs:
         solo_argv += ["-i", x]
     solo_argv += ["-filter_complex", ";".join(solo_filters), "-map", "[solo]", "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", str(p.stem)]
@@ -401,7 +634,7 @@ def cmd_mix(a: argparse.Namespace) -> int:
         raise SystemExit("solo stem failed: " + (solo.stderr or "")[-800:])
     # video stream must be bit-exact
     def vhash(path: Path) -> str:
-        r = subprocess.run([FFMPEG, "-v", "error", "-i", str(path), "-map", "0:v:0", "-c", "copy", "-f", "md5", "-"],
+        r = subprocess.run([_media.require_ffmpeg(), "-v", "error", "-i", str(path), "-map", "0:v:0", "-c", "copy", "-f", "md5", "-"],
                            capture_output=True, text=True, check=False)
         return r.stdout.strip()
     if vhash(source) != vhash(out):
@@ -423,6 +656,12 @@ def cmd_mix(a: argparse.Namespace) -> int:
     tracks[:] = [t for t in tracks if t.get("id") != "Audio.BGM"]
     tracks.append({"id": "Audio.BGM", "clips": clips})
     first = next(iter(selection["sources"].values()))
+    first_transaction = read_json(Path(str(first.get("transaction") or "")), {})
+    paid_authority = (first_transaction.get("paid_authority")
+                      if isinstance(first_transaction.get("paid_authority"), dict) else {})
+    authorization_ref = str(paid_authority.get("authorization_ref") or "").strip()
+    if not authorization_ref:
+        raise SystemExit("BGM_TRANSACTION_PAID_AUTHORIZATION_MISSING")
     meta = project.setdefault("metadata", {})
     meta["bgm_contract"] = {
         "source_type": "GENERATED_EPISODE_BGM", "license_status": "SELF_GENERATED_ACCOUNT_OWNED",
@@ -435,7 +674,10 @@ def cmd_mix(a: argparse.Namespace) -> int:
         "source_sha256": first["selected_sha256"],
         "credit_evidence": str(p.work / next(iter(selection["sources"])) / "CREDIT_EVIDENCE.json"),
         "generations": selection["sources"], "stem": str(p.stem),
-        "authorization_ref": "SUPERVISOR_ORDERS (Roger 2026-09-14: 启用选择性配乐, giggle generate-music)",
+        "authorization_ref": authorization_ref,
+        "authorization_status": "BOUND_TO_GENERATION_TRANSACTION",
+        "authorization_order_seq": paid_authority.get("order_seq"),
+        "authorization_orders_sha256": paid_authority.get("orders_sha256"),
     }
     meta["bgm_cue_policy"] = {"mode": "SELECTIVE_NARRATIVE_CUES", **{k: v for k, v in plan["policy"].items() if k != "mode"},
                               "actual_cue_seconds": plan["actual_cue_seconds"], "actual_coverage_ratio": plan["actual_coverage_ratio"],
@@ -455,28 +697,31 @@ def cmd_mix(a: argparse.Namespace) -> int:
 # ------------------------------------------------------------------------------- window isolation (music)
 def _iso(ts: str):
     import datetime as _dt
-    return _dt.datetime.strptime(ts.replace("Z", ""), "%Y-%m-%dT%H:%M:%S").replace(tzinfo=_dt.timezone.utc)
+    value = _dt.datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    return value if value.tzinfo else value.replace(tzinfo=_dt.timezone.utc)
 
 
 def _window_isolated_ledger(tx: dict, all_tx: list, statements: list) -> dict:
     """giggle.pro books GenerateMusic Pay/Refund rows with an EMPTY project_id (observed 2026-09-15, sunoV5), so the
     exact per-task query can never match a music task.  Fallback: the rows whose created_at (provider clock, UTC)
-    fall inside THIS task's own submit window [intent_recorded_at, response_recorded_at]; the episode's music tasks
-    are submitted sequentially (AgentCut polls each to completion), so the windows never overlap.  The evidence is
+    fall inside THIS task's own submit window [intent_recorded_at, finished_at]; the episode's music tasks
+    are submitted sequentially (the portable provider polls each to completion), so the windows never overlap.  The evidence is
     labelled PASS_WINDOW_ISOLATED_LEDGER_NET — a distinct label, never presented as the exact method."""
     import datetime as _dt
-    # half-open [intent, response): the tasks are sequential, so tx N's response stamp IS tx N+1's intent stamp;
+    # Half-open [intent, finished): generation calls are sequential, so windows do not overlap;
     # the Pay row is booked 1-2 s after intent (observed), so no leading slack is needed and none is allowed
     slack = _dt.timedelta(seconds=0)
     try:
-        start, end = _iso(tx["intent_recorded_at"]) - slack, _iso(tx["response_recorded_at"]) + slack
+        end_stamp = tx.get("finished_at") or tx.get("task_id_bound_at")
+        start, end = _iso(tx["intent_recorded_at"]) - slack, _iso(end_stamp) + slack
     except Exception as exc:  # noqa: BLE001
         return {"status": "FAIL_WINDOW_TIMESTAMPS_MISSING", "error": str(exc), "net_charged_credits": None}
     for other in all_tx:
         if other.get("source_key") == tx.get("source_key") or not other.get("intent_recorded_at") \
-                or not other.get("response_recorded_at"):
+                or not (other.get("finished_at") or other.get("task_id_bound_at")):
             continue
-        o0, o1 = _iso(other["intent_recorded_at"]) - slack, _iso(other["response_recorded_at"]) + slack
+        o0 = _iso(other["intent_recorded_at"]) - slack
+        o1 = _iso(other.get("finished_at") or other.get("task_id_bound_at")) + slack
         if o0 < end and start < o1:
             return {"status": "FAIL_WINDOW_OVERLAP", "overlaps": other.get("source_key"), "net_charged_credits": None}
 
@@ -505,20 +750,28 @@ def _window_isolated_ledger(tx: dict, all_tx: list, statements: list) -> dict:
 
 # ----------------------------------------------------------------------------------------- reconcile
 def cmd_reconcile(a: argparse.Namespace) -> int:
-    """Exact per-task credit provenance (bgm_authenticity_gate: receipt.credit.net_charged_credits must equal
-    the credit-evidence file's net, evidence status PASS_EXACT_ISOLATED_LEDGER_NET).  Uses the engine's
-    giggle_credit_statements.fetch_task_credit_net_by_task_id (Pay minus Refund for this task_id only)."""
-    p = Paths(a.episode, contract=a.contract, assembly=a.assembly, grouping=a.grouping, project=a.project, work=a.work)
+    """Credit provenance for every completed S6 music transaction.
+
+    Prefer exact per-task Pay-minus-Refund.  Where the provider leaves the
+    music project id empty, use the already documented sequential submit-window
+    isolation and label it distinctly; never present that fallback as exact.
+    """
+    p = Paths(a.episode, contract=a.contract, assembly=a.assembly, grouping=a.grouping,
+              project=a.project, work=a.work, transactions=a.bgm_transactions_dir)
     if not os.environ.get("GIGGLE_API_KEY"):
         raise SystemExit("GIGGLE_API_KEY not set (read-only statement query)")
     sys.path.insert(0, str(ENGINE))
     from tools.giggle_credit_statements import fetch_task_credit_net_by_task_id, _get, STATEMENT_PATH  # type: ignore
     rows = []
-    all_tx = [read_json(x, {}) for x in (sorted(p.tx.glob("*.json")) if p.tx.is_dir() else [])]
+    all_tx = []
+    for path in (sorted(p.tx.glob("*.json")) if p.tx.is_dir() else []):
+        row = read_json(path, {})
+        if isinstance(row, dict):
+            all_tx.append({**row, "source_key": path.stem})
     statements = None
     for tx_path in (sorted(p.tx.glob("*.json")) if p.tx.is_dir() else []):
         tx = read_json(tx_path, {})
-        if tx.get("state") != "COMPLETED" or not tx.get("task_id"):
+        if tx.get("state") != "TERMINAL_COMPLETED" or not tx.get("task_id"):
             continue
         ledger = fetch_task_credit_net_by_task_id(str(tx["task_id"]))
         isolation = "EXACT_PROJECT_ID"
@@ -526,7 +779,8 @@ def cmd_reconcile(a: argparse.Namespace) -> int:
             if statements is None:
                 resp = _get(STATEMENT_PATH, {"page": 1, "page_size": 100, "project_id": ""})
                 statements = ((resp.get("data") or {}).get("list") or []) if resp.get("code") == 200 else []
-            ledger = {"exact_query": ledger, **_window_isolated_ledger(tx, all_tx, statements)}
+            ledger = {"exact_query": ledger,
+                      **_window_isolated_ledger({**tx, "source_key": tx_path.stem}, all_tx, statements)}
             isolation = "SUBMIT_WINDOW"
         ok = str(ledger.get("status") or "").startswith("PASS_")
         label = "PASS_EXACT_ISOLATED_LEDGER_NET" if isolation == "EXACT_PROJECT_ID" else "PASS_WINDOW_ISOLATED_LEDGER_NET"
@@ -534,8 +788,13 @@ def cmd_reconcile(a: argparse.Namespace) -> int:
         tx["credit"] = {"net_charged_credits": net, "paid_credits": ledger.get("paid_credits"),
                         "refunded_credits": ledger.get("refunded_credits"), "statement_status": ledger.get("status"),
                         "isolation": isolation, "reconciled_at": now()}
+        # The engine authenticity gate consumes ``files`` at receipt top level.
+        # Keep the portable provider's canonical result untouched and expose the
+        # same SHA-bound rows as a compatibility projection for that consumer.
+        tx["files"] = _transaction_candidates(tx)
         write_json(tx_path, tx)
-        evidence = p.work / tx["source_key"] / "CREDIT_EVIDENCE.json"
+        source_key = tx_path.stem
+        evidence = p.work / source_key / "CREDIT_EVIDENCE.json"
         write_json(evidence, {"schema": "nalu.bgm_credit_evidence.v1", "episode": a.episode, "task_id": tx["task_id"],
                               "status": label if ok else f"FAIL_{ledger.get('status')}", "isolation": isolation,
                               "net_charged_credits": net, "ledger": ledger, "recorded_at": now(),
@@ -543,7 +802,7 @@ def cmd_reconcile(a: argparse.Namespace) -> int:
                                          if isolation == "EXACT_PROJECT_ID" else
                                          "GET /api/v1/payment/credit-statements (page 1): GenerateMusic Pay minus Refund rows inside this "
                                          "task's own submit window; windows sequential and non-overlapping; provider leaves project_id empty for music")})
-        rows.append({"source_key": tx["source_key"], "task_id": tx["task_id"], "status": ledger.get("status"),
+        rows.append({"source_key": source_key, "task_id": tx["task_id"], "status": ledger.get("status"),
                      "isolation": isolation, "net": net})
     good = bool(rows) and all(str(r["status"]).startswith("PASS_") for r in rows)
     print(json.dumps({"status": "PASS" if good else "FAIL", "rows": rows}, ensure_ascii=False))
@@ -551,11 +810,13 @@ def cmd_reconcile(a: argparse.Namespace) -> int:
 
 
 def cmd_status(a: argparse.Namespace) -> int:
-    p = Paths(a.episode, contract=a.contract, assembly=a.assembly, grouping=a.grouping, project=a.project, work=a.work)
+    p = Paths(a.episode, contract=a.contract, assembly=a.assembly, grouping=a.grouping,
+              project=a.project, work=a.work, transactions=a.bgm_transactions_dir)
     contract = read_json(p.contract, {})
     bgm = (contract.get("audio_contract") or {}).get("bgm")
     mode = (bgm.get("mode") if isinstance(bgm, dict) else str(bgm)[:40]) if bgm else None
-    print(json.dumps({"episode": a.episode, "declared_mode": mode, "plan": p.plan.is_file(),
+    print(json.dumps({"episode": a.episode, "declared_mode": mode,
+                      "source_plan": p.source_plan.is_file(), "plan": p.plan.is_file(),
                       "selection": p.selection.is_file(), "stem": p.stem.is_file(),
                       "transactions": sorted(x.name for x in p.tx.glob("*.json")) if p.tx.is_dir() else []}, ensure_ascii=False))
     return 0
@@ -564,12 +825,17 @@ def cmd_status(a: argparse.Namespace) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name, fn in (("plan", cmd_plan), ("generate", cmd_generate), ("reconcile", cmd_reconcile), ("qa", cmd_qa), ("mix", cmd_mix), ("status", cmd_status)):
+    for name, fn in (("source-plan", cmd_source_plan), ("pending", cmd_pending),
+                     ("generate", cmd_generate), ("verify", cmd_verify), ("plan", cmd_plan),
+                     ("reconcile", cmd_reconcile), ("qa", cmd_qa), ("mix", cmd_mix),
+                     ("status", cmd_status)):
         s = sub.add_parser(name)
         s.add_argument("--episode", required=True)
         s.add_argument("--contract", type=Path); s.add_argument("--assembly", type=Path)
         s.add_argument("--grouping", type=Path); s.add_argument("--project", type=Path)
         s.add_argument("--work", type=Path, help="candidate/transaction work dir override (offline tests)")
+        s.add_argument("--bgm-transactions-dir", type=Path,
+                       help="absolute private durable transaction directory; current portable runs pass scope/Episode")
         s.set_defaults(fn=fn)
         if name == "generate":
             s.add_argument("--paid", action="store_true")
@@ -578,7 +844,11 @@ def main() -> int:
         if name == "mix":
             s.add_argument("--source", required=True); s.add_argument("--out", required=True)
     a = ap.parse_args()
-    return a.fn(a)
+    try:
+        return a.fn(a)
+    except _media.MediaToolBlocked as exc:
+        print(str(exc), file=sys.stderr)
+        return 3
 
 
 if __name__ == "__main__":

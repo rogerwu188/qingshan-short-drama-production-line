@@ -201,10 +201,30 @@ Point `--asset-dir` at that episode's existing `space_map_assets` for this to ho
 
 ## 3. `materialize_paid_authorization.py` — stages **S3 / S5 / S6, immediately before each paid submit** (D-11)
 
-Turns standing order `SUPERVISOR_ORDERS.json` seq=3 into the authority fields the
-submitters demand, and produces the `GIGGLE-REROLL-COST-GUARD` report bound to the
-manifest's exact SHA. Without it, `--precheck-only` is green and the paid run dies in
+Turns a deployment-private, source-receipted line-owner order into the authority
+fields the submitters demand, and produces the `GIGGLE-REROLL-COST-GUARD` report
+bound to the manifest's exact SHA. There is no built-in owner, sequence or public
+repository fallback. Without it, `--precheck-only` is green and the paid run dies in
 `validate_submission_authority` — `--precheck-only` **skips** that check.
+
+The deployment must set these values under `qingshan.json.authorization` or the
+equivalent environment variables:
+
+```json
+{
+  "authorization": {
+    "supervisor_orders_path": "/private/runtime/SUPERVISOR_ORDERS.json",
+    "paid_order_seq": 1,
+    "latest_order_seq": 1,
+    "line_owner_id": "owner-id-from-the-line-owner-interface"
+  }
+}
+```
+
+Environment overrides are `NALU_SUPERVISOR_ORDERS_PATH`, `NALU_PAID_ORDER_SEQ`,
+`NALU_LATEST_ORDER_SEQ`, and `NALU_LINE_OWNER_ID`. The orders and receipt paths must
+be absolute and outside the public engine checkout. Producers mount this inbox
+read-only and never create an order themselves.
 
 ### Call site
 Between the budget check and the paid submit, in all three paid stages. Feed the
@@ -224,7 +244,9 @@ guard report and rebinds the new SHA, and it never duplicates the registered ent
 ### Exact call
 ```bash
 $VENV $T/materialize_paid_authorization.py \
-  --episode E01 --order-seq 3 \
+  --episode E01 --stage S3 \
+  --orders /private/runtime/SUPERVISOR_ORDERS.json \
+  --order-seq 1 --expected-latest-seq 1 --line-owner-id owner-1 \
   --plan     $ENGINE_ROOT/workflow/nalu/E01/identity/character_asset_plan.json \
   --manifest $RUNTIME_ROOT/preproduction/E01/E01_KEYFRAME_IMAGE_MANIFEST_SUBSET_V1.json \
   --ledger   $RUNTIME_ROOT/runtime/budget/ledger.json \
@@ -233,8 +255,20 @@ $VENV $T/materialize_paid_authorization.py \
 Optional: `--out-dir`, `--suffix` (default `_PAID_AUTHORIZED`), `--in-place`,
 `--task-key K` (repeatable — price and authorise only those tasks, matching
 `submit_giggle_image_manifest.py --task-key`), `--cap 8000`, `--image-credits 11`,
-`--video-credits-per-second 20`, `--orders`, `--policy`, `--engine-root`, `--python`,
+`--video-credits-per-second 20`, `--policy`, `--engine-root`, `--python`,
 `--allow-image-model`.
+
+The selected active order must use decision kind
+`PAID_PRODUCTION_AUTHORIZATION`, set `paid_requests_allowed: true`, list the
+authorized subset of `S3`–`S6` in `paid_stages`, list exact
+episode ids in `episode_scope`, name the cap and `seedance-2.0-pro`, and carry a
+line-owner rights declaration. Its `source_receipt` binds an absolute private JSON
+file by SHA-256. That receipt uses schema
+`qingshan.line_owner_order_source_receipt.v1`, status `CONFIRMED`, and repeats the
+same issuer, order seq/id and verbatim text. The inbox uses
+`_schema: supervisor_orders_v1`; all seq values are unique and its
+`latest_order_seq` must equal both the highest row and the caller's observed latest
+sequence.
 
 ### What it sets
 Manifest level: `provider_post_allowed: true`, `maximum_new_submissions = len(selected
@@ -265,11 +299,15 @@ this batch. It is not a claim that a reroll happened.
 ### Refusals (exit **5**, nothing written but a refusal report)
 | refusal | trigger |
 |---|---|
+| `SUPERVISOR_ORDERS_*` | wrong schema, duplicate/stale latest sequence, or inbox under the public engine root |
 | `ORDER_SEQ_<n>_DOES_NOT_EXIST` | `--order-seq` is not in `SUPERVISOR_ORDERS.json` |
-| `ORDER_MISSING_REQUIRED_CONDITIONS` | the order lacks `VIDEO_MODEL_SD2_ONLY` or `BUDGET_CAP_8000_PER_EPISODE` |
+| `ORDER_SOURCE_RECEIPT_*` | source receipt is absent, unconfirmed, private-path-invalid, byte-mismatched or disagrees with the order |
+| `ORDER_NOT_ACTIVE` / `ORDER_ISSUER_MISMATCH` / `ORDER_VERBATIM_MISSING` | status, configured owner or exact instruction is invalid |
+| `ORDER_PAID_DECISION_KIND_INVALID` / `ORDER_DOES_NOT_EXPLICITLY_AUTHORIZE_PAID_REQUESTS` | the order is not an explicit paid-production authorization |
+| `ORDER_MISSING_REQUIRED_CONDITIONS` | the order lacks model, paid-request or rights conditions |
 | `ORDER_CAP_MISMATCH` | `--cap` is not the cap the order's own condition text declares |
 | `ORDER_SD2_CONDITION_DOES_NOT_NAME_seedance-2.0-pro` | the SD2 condition was reworded |
-| `EPISODE_OUT_OF_ORDER_SCOPE` | `--episode` outside the order's E01–E10 range |
+| `EPISODE_OUT_OF_ORDER_SCOPE` | `--episode` is not in the order's explicit episode list |
 | `MODEL_FORBIDDEN_BY_ORDER_CONDITION_1` | any `seedance-2.0-fast/mini/bare` or `MiniMax-H3` anywhere in the manifest |
 | `VIDEO_MODEL_IS_NOT_seedance-2.0-pro` | a video task's model is not SD2 |
 | `IMAGE_MODEL_IS_NOT_gpt-image-2-pro` | an image task uses another model (override only with `--allow-image-model` **and** a named authorisation) |

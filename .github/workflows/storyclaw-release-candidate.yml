@@ -1,0 +1,197 @@
+name: storyclaw-release-candidate
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: storyclaw-release-candidate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependency-profile-contract:
+    name: dependency-profile-${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11"]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Verify offline dependency and bootstrap contracts
+        run: |
+          python -m unittest \
+            tools.tests.test_storyclaw_dependency_bundle \
+            tools.tests.test_storyclaw_bootstrap
+
+  build-unpromoted-candidate:
+    needs: dependency-profile-contract
+    runs-on: ubuntu-latest
+    outputs:
+      previous-stable-tag: ${{ steps.stable.outputs.tag }}
+      initial-release: ${{ steps.stable.outputs.initial }}
+      update-class: ${{ steps.result.outputs.update_class }}
+      talenthub-republish-required: ${{ steps.result.outputs.talenthub_republish_required }}
+      runtime-migration-required: ${{ steps.result.outputs.runtime_migration_required }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.11"
+      - run: python -m venv .qingshan-venv
+      - run: .qingshan-venv/bin/python -m pip install -e .
+      - name: Verify the last promoted StoryClaw stable release
+        id: stable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/storyclaw-stable
+          if ! gh release view storyclaw-stable-channel \
+            --repo "$GITHUB_REPOSITORY" --json tagName \
+            > /tmp/storyclaw-stable/channel-release.json \
+            2> /tmp/storyclaw-stable/release.err; then
+            if grep -Eqi "(HTTP 404|release not found|not found)" \
+              /tmp/storyclaw-stable/release.err; then
+              echo "initial=true" >> "$GITHUB_OUTPUT"
+              echo "tag=" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            cat /tmp/storyclaw-stable/release.err >&2
+            exit 1
+          fi
+          gh release download storyclaw-stable-channel \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern qingshan-storyclaw-stable-index.json \
+            --pattern qingshan-storyclaw-stable-index.json.sig \
+            --dir /tmp/storyclaw-stable
+          openssl pkeyutl -verify -pubin \
+            -inkey configs/storyclaw_release_signing_public_key.pem -rawin \
+            -in /tmp/storyclaw-stable/qingshan-storyclaw-stable-index.json \
+            -sigfile /tmp/storyclaw-stable/qingshan-storyclaw-stable-index.json.sig
+          .qingshan-venv/bin/python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          index = json.loads(
+              Path('/tmp/storyclaw-stable/qingshan-storyclaw-stable-index.json')
+              .read_text(encoding='utf-8')
+          )
+          tag = str(index.get('release_tag') or '')
+          if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._+-]{0,199}', tag):
+              raise SystemExit('unsafe stable tag')
+          public_key = Path('configs/storyclaw_release_signing_public_key.pem')
+          public_sha = hashlib.sha256(public_key.read_bytes()).hexdigest()
+          expected_key = 'd27484512874011dc5e894b602d6a42ca846a4e048688d32389acf7852d3646f'
+          if public_sha != expected_key or index.get('signing_key_sha256') != expected_key:
+              raise SystemExit('stable signing key mismatch')
+          if index.get('schema') != 'storyclaw.nalu.stable_index.v1':
+              raise SystemExit('stable index schema mismatch')
+          if index.get('validation_receipt_status') != 'PASS':
+              raise SystemExit('latest StoryClaw stable was not validated')
+          commit = subprocess.check_output(
+              ['git', 'rev-parse', '--verify', f'refs/tags/{tag}^{{commit}}'], text=True
+          ).strip().lower()
+          if index.get('git_commit') != commit:
+              raise SystemExit('stable tag commit does not match signed index')
+          if subprocess.run(
+              ['git', 'merge-base', '--is-ancestor', commit, 'HEAD'], check=False
+          ).returncode != 0:
+              raise SystemExit('current main does not descend from latest stable')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write('initial=false\n')
+              output.write(f'tag={tag}\n')
+              output.write(f'commit={commit}\n')
+          PY
+      - name: Build checked candidate without stable authority
+        env:
+          INITIAL_RELEASE: ${{ steps.stable.outputs.initial }}
+          PREVIOUS_STABLE_TAG: ${{ steps.stable.outputs.tag }}
+        run: |
+          set -euo pipefail
+          CLASSIFICATION=(--initial-release)
+          if [ "$INITIAL_RELEASE" != "true" ]; then
+            CLASSIFICATION=(--previous-release-ref "$PREVIOUS_STABLE_TAG")
+          fi
+          .qingshan-venv/bin/python tools/build_storyclaw_talenthub_release.py \
+            --release-tag "candidate-${GITHUB_SHA}" \
+            --allow-unreleased \
+            "${CLASSIFICATION[@]}" \
+            --output-dir dist/storyclaw-candidate
+      - name: Prove candidate cannot impersonate stable
+        run: |
+          test ! -e dist/storyclaw-candidate/qingshan-storyclaw-stable-index.json
+          test ! -e dist/storyclaw-candidate/qingshan-storyclaw-stable-index.json.sig
+          .qingshan-venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          receipt = json.loads(Path("dist/storyclaw-candidate/RELEASE_RECEIPT.json").read_text())
+          assert receipt["publish_requested"] is False
+          assert receipt["publish_status"] == "NOT_REQUESTED"
+          assert receipt["validation_receipt_status"] is None
+          assert receipt["stable_index"] is None
+          assert Path("dist/storyclaw-candidate/UPGRADE_IMPACT.json").is_file()
+          PY
+      - name: Export upgrade impact and job summary
+        id: result
+        env:
+          PREVIOUS_STABLE_TAG: ${{ steps.stable.outputs.tag }}
+          INITIAL_RELEASE: ${{ steps.stable.outputs.initial }}
+        run: |
+          .qingshan-venv/bin/python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          impact = json.loads(
+              Path('dist/storyclaw-candidate/UPGRADE_IMPACT.json').read_text()
+          )
+          update_class = impact['update_class']
+          package = update_class in {
+              'TALENTHUB_PACKAGE_REQUIRED', 'RUNTIME_MIGRATION_REQUIRED'
+          }
+          migration = update_class == 'RUNTIME_MIGRATION_REQUIRED'
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write(f'update_class={update_class}\n')
+              output.write(f'talenthub_republish_required={str(package).lower()}\n')
+              output.write(f'runtime_migration_required={str(migration).lower()}\n')
+          base = os.environ.get('PREVIOUS_STABLE_TAG') or '(initial release)'
+          action = {
+              'ENGINE_ONLY': 'Run StoryClaw acceptance, then manually promote the signed stable engine release.',
+              'TALENTHUB_PACKAGE_REQUIRED': 'Run StoryClaw acceptance, rebuild and manually publish the TalentHub Agent, then promote stable.',
+              'RUNTIME_MIGRATION_REQUIRED': 'Provide and validate an explicit runtime migration and rollback plan before any promotion.',
+          }[update_class]
+          summary = Path(os.environ['GITHUB_STEP_SUMMARY'])
+          summary.write_text(
+              '# StoryClaw release candidate\n\n'
+              f'- Base: `{base}`\n'
+              f'- Candidate commit: `{os.environ["GITHUB_SHA"]}`\n'
+              f'- Update class: **{update_class}**\n'
+              f'- TalentHub republish required: **{str(package).lower()}**\n'
+              f'- Runtime migration required: **{str(migration).lower()}**\n\n'
+              f'{action}\n\n'
+              'This job did not sign, promote, or publish anything.\n',
+              encoding='utf-8',
+          )
+          PY
+      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: storyclaw-candidate-${{ github.sha }}
+          path: dist/storyclaw-candidate/
+          if-no-files-found: error
+          retention-days: 14

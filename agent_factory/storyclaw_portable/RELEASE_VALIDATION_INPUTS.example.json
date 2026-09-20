@@ -1,0 +1,26 @@
+{
+  "schema": "storyclaw.nalu.release_validation_inputs.v1",
+  "release_commit": "REPLACE_WITH_EXACT_40_OR_64_HEX_COMMIT",
+  "remote_engine_root": "/private/project/engine-current",
+  "private_runtime_root": "/private/project/runtime",
+  "project_id": "REPLACE_WITH_PROJECT_ID",
+  "series_scope_id": "REPLACE_WITH_SERIES_SCOPE_ID",
+  "episode": "E01",
+  "evidence": {
+    "install_receipt": "/private/project/runtime/runtime/storyclaw_host/install-receipt.json",
+    "preflight": "/private/project/runtime/runtime/storyclaw_host/preflight.json",
+    "s5_dry_run_receipt": "/private/project/runtime/runtime/storyclaw_runs/S5-dry-run.json",
+    "paid_run_receipts": [
+      "/private/project/runtime/runtime/storyclaw_runs/S3-S6-paid-run.json"
+    ],
+    "budget_report": "/private/project/runtime/runtime/pipeline_logs/E01/E01_CREDIT_BUDGET_REPORT.json",
+    "provider_ledger": "/private/project/runtime/runtime/pipeline_logs/E01/E01_PROVIDER_CREDIT_LEDGER.json",
+    "final_audience_request": "/private/project/runtime/runtime/reviews/E01/final_audience_request.json",
+    "final_audience_report": "/private/project/runtime/runtime/reviews/E01/final_audience_report.json",
+    "final_event_ledger": "/private/project/runtime/runtime/reviews/E01/final_event_ledger.json",
+    "audience_gate": "/private/project/runtime/runtime/pipeline_logs/E01/E01_FINAL_AUDIENCE_GATE.json",
+    "quality_gate": "/private/project/runtime/runtime/pipeline_logs/E01/E01_FINAL_QUALITY_GATE.json",
+    "final_qa_report": "/private/project/runtime/runtime/pipeline_logs/E01/E01_FINAL_QA_REPORT.json",
+    "checkpoint": "/private/project/runtime/deliverables/E01/CHECKPOINT.md"
+  }
+}

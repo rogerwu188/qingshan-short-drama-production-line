@@ -69,8 +69,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from nalu_qa_common import (  # noqa: E402
     KINDS, MIN_OBSERVATION_CHARS, REVIEWER_ID, REVIEW_METHOD, REVIEWS_ROOT,
     SCHEMA_ANSWERS, SCHEMA_REQUEST, SCHEMA_SUBMITTED, TEMPLATE_MARKER,
-    CHARACTER_SOURCES, Expectations, QaPaths, canonical_sha256, now, read_json, run_id,
-    sha256_file, write_json,
+    Expectations, QaPaths, canonical_sha256, find_scoped_operator_source, now,
+    read_json, run_id, sha256_file, write_json,
 )
 
 TOOL_ID = "vlm_review_protocol.v1"
@@ -525,13 +525,11 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
         planned -= reused
         if planned:
             rows = [row for row in rows if row["asset_id"] in planned]
-        sources = {item.stem: item for item in sorted(CHARACTER_SOURCES.glob("*"))
-                   if item.is_file()}
         for row in rows:
             plates = sorted(p.plates.glob(f"*{row['asset_id']}*")) if p.plates.is_dir() else []
             row["media"] = [_media_row(item, "IDENTITY_PLATE") for item in plates] or [
                 _media_row(p.plates / f"{row['asset_id']}-plate-v1.png", "IDENTITY_PLATE")]
-            source = sources.get(row["asset_id"])
+            source = find_scoped_operator_source(row["asset_id"], p.character_sources)
             if source is not None:
                 row["media"].append(_media_row(source, "OPERATOR_SOURCE_REFERENCE"))
     elif kind == "keyframe":
