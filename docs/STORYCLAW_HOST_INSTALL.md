@@ -32,6 +32,8 @@ git clone https://github.com/rogerwu188/qingshan-short-drama-production-line.git
 git -C "$BASE_ENGINE" checkout --detach "$RELEASE_TAG"
 
 COMMIT="$(git -C "$BASE_ENGINE" rev-parse HEAD)"
+# Set this to the manifest in the installed TalentHub Agent workspace.
+TALENTHUB_RELEASE_MANIFEST=/path/to/installed-agent/skills/qingshan-nalu/RELEASE_MANIFEST.json
 # Resolve these two exact profile assets from the installed nested
 # skills/qingshan-nalu/RELEASE_MANIFEST.json and verify its URL/size/SHA binding.
 DEPENDENCY_MANIFEST=/var/tmp/storyclaw-dependencies-$RELEASE_TAG-$PROFILE.json
@@ -44,6 +46,7 @@ python "$BASE_ENGINE/tools/storyclaw_install.py" install \
   --project-view-root "$ENGINE_RELEASE" \
   --project-engine-link "$ENGINE_LINK" \
   --install-deps \
+  --talenthub-release-manifest "$TALENTHUB_RELEASE_MANIFEST" \
   --dependency-manifest "$DEPENDENCY_MANIFEST" \
   --dependency-archive "$DEPENDENCY_ARCHIVE" \
   --seal-read-only
