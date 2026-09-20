@@ -50,7 +50,11 @@ jobs:
         with:
           python-version: "3.11"
       - run: python -m venv .qingshan-venv
-      - run: .qingshan-venv/bin/python -m pip install -e .
+      # The release builder runs the complete portable test suite.  Several
+      # tests deliberately import the optional media stack at module load, so
+      # a clean runner must install the same public extras instead of relying
+      # on packages cached on a maintainer workstation.
+      - run: .qingshan-venv/bin/python -m pip install -e '.[all]'
       - name: Verify the last promoted StoryClaw stable release
         id: stable
         env:
