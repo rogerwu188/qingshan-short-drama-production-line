@@ -838,7 +838,12 @@ def install_dependencies(
                 str(venv_python), "-m", "pip", "install", "--no-index", "--no-deps",
                 "--no-build-isolation", str(engine),
             ]
-            result = runner(engine_command, check=False, env=environment)
+            # pip cannot hash a local directory requirement. The caller has
+            # already verified the engine's immutable Git/archive identity;
+            # keep wheel hash enforcement above, but disable it for this
+            # offline, dependency-free install of the verified engine tree.
+            engine_environment = {**environment, "PIP_REQUIRE_HASHES": "0"}
+            result = runner(engine_command, check=False, env=engine_environment)
             if result.returncode != 0:
                 raise InstallBlocked("ENGINE_OFFLINE_INSTALL_FAILED", str(result.returncode))
             result = runner(

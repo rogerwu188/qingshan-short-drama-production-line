@@ -345,10 +345,38 @@ class StoryClawInstallTests(unittest.TestCase):
         pip_environment = pip_calls[0][1]["env"]
         self.assertNotIn("GIGGLE_API_KEY", pip_environment)
         self.assertEqual(pip_environment["PIP_NO_INDEX"], "1")
+        self.assertEqual(pip_environment["PIP_REQUIRE_HASHES"], "1")
         self.assertIn("--require-hashes", pip_calls[0][0])
         self.assertIn("--no-deps", pip_calls[1][0])
+        self.assertIn("--no-index", pip_calls[1][0])
+        self.assertIn("--no-build-isolation", pip_calls[1][0])
+        self.assertEqual(pip_calls[1][1]["env"]["PIP_REQUIRE_HASHES"], "0")
+        self.assertNotIn("GIGGLE_API_KEY", pip_calls[1][1]["env"])
         self.assertFalse(report["network_used"])
         self.assertTrue(Path(report["venv"]).resolve().is_relative_to(self.runtime.resolve()))
+        # Exercise real pip's directory/hash interaction without installing
+        # anything or needing a downloaded build backend.
+        project = self.root / "local-engine-regression"
+        project.mkdir()
+        (project / "pyproject.toml").write_text(
+            '[build-system]\nrequires=[]\nbuild-backend="backend"\nbackend-path=["."]\n'
+        )
+        (project / "backend.py").write_text(
+            'from pathlib import Path\n'
+            'def prepare_metadata_for_build_wheel(metadata_directory, config_settings=None):\n'
+            '    name="storyclaw_fixture-0.0.1.dist-info"\n'
+            '    root=Path(metadata_directory)/name\n'
+            '    root.mkdir()\n'
+            '    (root/"METADATA").write_text("Metadata-Version: 2.1\\nName: storyclaw-fixture\\nVersion: 0.0.1\\n")\n'
+            '    return name\n'
+        )
+        command = [sys.executable, "-m", "pip", "install", "--dry-run",
+                   "--no-index", "--no-deps", "--no-build-isolation", str(project)]
+        old = subprocess.run(command, env=pip_environment, capture_output=True, text=True)
+        self.assertNotEqual(old.returncode, 0)
+        self.assertIn("Can't verify hashes", old.stderr)
+        fixed = subprocess.run(command, env=pip_calls[1][1]["env"], capture_output=True, text=True)
+        self.assertEqual(fixed.returncode, 0, fixed.stderr)
         with self.assertRaisesRegex(installer.InstallBlocked, "VENV_MUST_BE_PRIVATE_RUNTIME_PATH"):
             installer.install_dependencies(
                 self.engine,
