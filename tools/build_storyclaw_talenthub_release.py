@@ -2548,6 +2548,11 @@ def main() -> int:
             "a validated publisher build downloads locked wheels before packaging."
         ),
     )
+    parser.add_argument(
+        "--build-dependency-bundles",
+        action="store_true",
+        help="Build locked offline dependencies for pre-release acceptance; does not grant validation or publication authority.",
+    )
     args = parser.parse_args()
 
     if args.publish and args.registry_smoke_receipt is not None:
@@ -2634,7 +2639,9 @@ def main() -> int:
     dependency_profiles: list[dict[str, Any]] = []
     dependency_assets: tuple[Path, ...] = ()
     dependency_reports: list[dict[str, Any]] = []
-    if validation is not None and package_publish_required:
+    if package_publish_required and (
+        validation is not None or args.build_dependency_bundles
+    ):
         dependency_profiles, dependency_assets, dependency_reports = (
             build_dependency_profile_assets(
                 args.output_dir,

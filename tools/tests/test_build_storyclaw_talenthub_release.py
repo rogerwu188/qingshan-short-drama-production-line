@@ -197,6 +197,27 @@ class StoryClawTalentHubReleaseTest(unittest.TestCase):
         )
         return receipt
 
+    def test_candidate_dependencies_do_not_grant_validation_authority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profiles = self._dependency_bindings("v-test")
+            _, channel = MODULE.write_release_channel_manifest(
+                Path(tmp), tag="v-test", commit="a" * 40,
+                archive_sha256="b" * 64, archive_size=12345,
+                dependency_profiles=profiles,
+            )
+            workspace = MODULE.write_talenthub_workspace(
+                Path(tmp), "v-test", "a" * 40, "b" * 64,
+                archive_size=12345, origin_tag_commit="a" * 40, validation=None,
+                release_channel=channel, dependency_profiles=profiles,
+            )
+            release = json.loads((
+                workspace / "skills/qingshan-nalu/RELEASE_MANIFEST.json"
+            ).read_text())
+            self.assertTrue(release["dependency_profiles"])
+            self.assertIsNone(release["validation_receipt_status"])
+            self.assertIsNone(release["validation_receipt_sha256"])
+            self.assertIsNone(release["stable_index_sha256"])
+
     def test_workspace_contains_pinned_skill_and_public_prompts(self):
         with tempfile.TemporaryDirectory() as tmp:
             _channel_path, channel = MODULE.write_release_channel_manifest(

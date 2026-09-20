@@ -307,6 +307,16 @@ step below.
 
 ## Build the private StoryClaw acceptance receipt
 
+Before that receipt exists, maintainers can prepare the locked dependencies
+with `build_storyclaw_talenthub_release.py --build-dependency-bundles` and the
+usual exact candidate tag/output arguments. This only adds the two offline
+dependency bundles: validation remains unset and no stable signature or
+publication authority is granted. An unvalidated candidate workspace is not
+installable through the production TalentHub bootstrap. Initial acceptance
+uses an isolated maintainer Git checkout; the exact registry package receives
+its separate clean-install smoke after production validation. Never fill a
+validation field with PASS merely to bootstrap a candidate.
+
 The release receipt is produced only after a fresh generic project has run the
 real acceptance chain: source intake, sealed writer handoff, S1/S2, one complete
 asset-plan confirmation, an S5 dry run, and an exactly two-unit S3–S8 paid
