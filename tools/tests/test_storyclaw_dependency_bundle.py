@@ -37,7 +37,9 @@ def _wheel(root: Path, name: str, version: str) -> Path:
 
 def _lock_for(wheels: list[Path], names: list[tuple[str, str]]) -> bytes:
     rows = []
-    for wheel, (name, version) in zip(wheels, names, strict=True):
+    if len(wheels) != len(names):
+        raise ValueError("wheel/name fixture lengths differ")
+    for wheel, (name, version) in zip(wheels, names):
         digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
         rows.append(f"{name}=={version} \\\n    --hash=sha256:{digest}")
     return ("\n".join(rows) + "\n").encode()

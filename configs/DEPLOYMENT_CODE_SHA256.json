@@ -7025,7 +7025,7 @@
     },
     {
       "path": "tools/tests/test_storyclaw_dependency_bundle.py",
-      "sha256": "a468ee0f1de1aa3d5543adae73641422f592c5c76c696b42e8d289430e73ed68"
+      "sha256": "a686eec484ef831ccbd189b5013f4694b70b0eb1de47468c82120b2f9034d881"
     },
     {
       "path": "tools/tests/test_storyclaw_generic_gate_smoke.py",
