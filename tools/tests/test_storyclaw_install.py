@@ -38,6 +38,23 @@ class StoryClawInstallTests(unittest.TestCase):
         self._git("tag", "v1.0.0")
         self.commit = self._git("rev-parse", "HEAD").stdout.strip()
 
+    def test_real_copied_venv_passes_selector_without_allowing_external_python(self):
+        runtime = self.runtime.resolve()
+        venv = runtime / "venvs/copied"
+        subprocess.run([sys.executable, "-m", "venv", "--copies", "--without-pip", str(venv)], check=True)
+        report = installer._ensure_initial_venv_selector(runtime, venv)
+        self.assertEqual(report["status"], "PASS")
+        python = installer._venv_python_path(venv)
+        self.assertTrue(python.resolve().is_relative_to(venv.resolve()))
+        facts = subprocess.run([report["python"], "-c", "import sys; print(sys.prefix)"],
+                               check=True, capture_output=True, text=True)
+        self.assertEqual(Path(facts.stdout.strip()).resolve(), venv.resolve())
+        python.unlink()
+        python.symlink_to(Path(sys.executable).resolve())
+        with self.assertRaises(installer.InstallBlocked) as caught:
+            installer._venv_selector_report(runtime, required=True)
+        self.assertEqual(caught.exception.code, "VENV_SELECTOR_PYTHON_INVALID")
+
     def tearDown(self) -> None:
         # A seal intentionally removes directory write bits.  Restore only the
         # temporary fixture so TemporaryDirectory can clean it up.
@@ -340,6 +357,8 @@ class StoryClawInstallTests(unittest.TestCase):
                 expected_binding={profile.profile_id: binding},
             )
         self.assertEqual(report["status"], "INSTALLED")
+        creation = next(command for command, _ in calls if command[1:3] == ["-m", "venv"])
+        self.assertIn("--copies", creation)
         pip_calls = [row for row in calls if row[0][1:4] == ["-m", "pip", "install"]]
         self.assertEqual(len(pip_calls), 2)
         pip_environment = pip_calls[0][1]["env"]

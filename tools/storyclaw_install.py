@@ -785,7 +785,9 @@ def install_dependencies(
         raise InstallBlocked("VENV_PATH_INVALID", str(venv))
     created = False
     if not venv.exists():
-        result = runner([python_executable, "-m", "venv", str(venv)], check=False)
+        # Keep the executable inside the private venv: default POSIX venv
+        # symlinks point outside it and fail the selector containment check.
+        result = runner([python_executable, "-m", "venv", "--copies", str(venv)], check=False)
         if result.returncode != 0:
             raise InstallBlocked("VENV_CREATE_FAILED", str(result.returncode))
         created = True
