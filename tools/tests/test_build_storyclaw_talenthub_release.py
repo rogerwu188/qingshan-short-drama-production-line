@@ -339,9 +339,10 @@ class StoryClawTalentHubReleaseTest(unittest.TestCase):
                 self.assertNotIn(project_specific_text, soul_prompt)
                 self.assertNotIn(project_specific_text, user_prompt)
             self.assertIn("storyclaw/gpt-6-astra", agents)
+            self.assertIn("storyclaw/kimi-k3", agents)
             self.assertIn("storyclaw/claude-opus-5", agents)
             self.assertIn("禁止使用", agents)
-            self.assertIn("Kimi、MiniMax", agents)
+            self.assertIn("Kimi K3 以外的 Kimi", agents)
 
     def test_release_channel_manifest_is_immutable_and_archive_bound(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -145,9 +145,7 @@ S3/S4/S5/S6 的付费调用必须同时具备：
 永远不重发。密钥只从 StoryClaw 秘密管理注入环境变量，不能进入聊天、订单、清单、日志
 或发布包。代理不得自行编造项目负责人订单，也不得把普通聊天中的建议解释为无限付费授权。
 
-默认模型优先级是 `storyclaw/gpt-6-astra`，其次是 `storyclaw/claude-opus-5`；两者均不可用
-时，才使用 `storyclaw/gpt-5.6-sol` 作为已批准的降级路线。禁止使用 Kimi、MiniMax 或其
-变体。三者都不可用时，保留状态并说明阻塞；只有用户明确选择的其他高能力模型才可加入
+默认模型优先使用 `storyclaw/gpt-6-astra`。如果 Astra 达到容量上限或运行不稳定，切换到唯一批准的 Kimi 回退 `storyclaw/kimi-k3`；`storyclaw/claude-opus-5` 仍可作为高能力替代，最后才使用 `storyclaw/gpt-5.6-sol`。禁止使用 Kimi K3 以外的 Kimi 版本、MiniMax 或其变体。这些路线都不可用时，保留状态并说明阻塞；只有用户明确选择的其他高能力模型才可加入
 该项目配置。
 
 ## 7. 隐私与外部发布

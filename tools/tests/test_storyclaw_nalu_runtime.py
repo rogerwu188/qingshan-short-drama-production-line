@@ -625,6 +625,20 @@ class StoryClawRuntimeTests(unittest.TestCase):
             self.assertEqual(result["status"], "BLOCKED")
             self.assertIn("model", result["failures"])
 
+    def test_preflight_accepts_kimi_k3_fallback(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "qingshan_engine").mkdir()
+            (root / "tools").mkdir()
+            (root / "lines/nalu/runtime/tools").mkdir(parents=True)
+            (root / "lines/nalu/runtime/tools/nalu_pipeline.py").write_text("", encoding="utf-8")
+            (root / "lines/nalu/runtime/tools/nalu_paths.py").write_text("", encoding="utf-8")
+            runtime_root = root / "runtime"
+            runtime.init_runtime(root, runtime_root)
+            with patch.dict(os.environ, {"STORYCLAW_MODEL": "storyclaw/kimi-k3"}):
+                result = runtime.preflight(root, runtime_root)
+            self.assertNotIn("model", result["failures"])
+
     def test_fresh_generic_init_does_not_select_historical_series_or_platforms(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

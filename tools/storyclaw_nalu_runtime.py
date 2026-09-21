@@ -43,6 +43,7 @@ except ImportError:  # pragma: no cover - exercised by direct CLI invocation
 
 MODEL_PRIORITY = (
     "storyclaw/gpt-6-astra",
+    "storyclaw/kimi-k3",
     "storyclaw/claude-opus-5",
     "storyclaw/gpt-5.6-sol",
 )

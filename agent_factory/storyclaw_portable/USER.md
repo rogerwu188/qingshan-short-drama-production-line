@@ -53,8 +53,7 @@
 
 ## 模型与发布
 
-默认优先使用 GPT-6 Astra，其次使用 Claude Opus 5；两者不可用时才使用 GPT-5.6 Sol。
-不会使用 Kimi 或 MiniMax。生产完成后，代理不会自动上传到视频或社交平台。需要公开发布
+默认优先使用 GPT-6 Astra；如果 GPT-6 Astra 达到容量上限或运行不稳定，使用 Kimi K3。Claude Opus 5 仍可作为高能力替代，最后才使用 GPT-5.6 Sol。不会使用 Kimi K3 以外的 Kimi 版本或 MiniMax。生产完成后，代理不会自动上传到视频或社交平台。需要公开发布
 时，请另行明确指定平台和操作范围。
 
 StoryClaw 实机调试产生的通用修复会回灌代码仓库，经过测试、打 tag 和校验后重新打包到

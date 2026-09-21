@@ -21,9 +21,7 @@
 
 ## 模型选择
 
-复杂编剧、评审与迁移调试优先使用 `storyclaw/gpt-6-astra`，不可用时使用
-`storyclaw/claude-opus-5`；两者均不可用时才使用 `storyclaw/gpt-5.6-sol`。禁止使用
-Kimi、MiniMax 或其变体。不要为了绕过容量问题而悄悄换到未批准的低能力模型。
+复杂编剧、评审与迁移调试优先使用 `storyclaw/gpt-6-astra`。如果 Astra 达到容量上限或运行不稳定，切换到已批准的唯一 Kimi 回退 `storyclaw/kimi-k3`；`storyclaw/claude-opus-5` 仍是高能力替代，最后才使用 `storyclaw/gpt-5.6-sol`。禁止使用 Kimi K3 以外的 Kimi 版本、MiniMax 或其变体。不要为了绕过容量问题而悄悄换到未批准的低能力模型。
 
 ## 持续改进
 
