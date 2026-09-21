@@ -173,7 +173,7 @@
     },
     {
       "path": "agent_factory/storyclaw_portable/AGENTS.md",
-      "sha256": "2362ecd58d34a3c2797a51fe2460c33d4fc7c89ec41764d1ec554e505c257d93"
+      "sha256": "7477f7a55ad446d88ecb963b68ec55c6294edfa1c8f0ac59e5d26b7b803eac23"
     },
     {
       "path": "agent_factory/storyclaw_portable/HEARTBEAT.md",
@@ -189,11 +189,11 @@
     },
     {
       "path": "agent_factory/storyclaw_portable/SOUL.md",
-      "sha256": "1b63cf3947c9cddba79e0a180417e28fa8be225d09b03a4e020cb4d5f169519f"
+      "sha256": "a8938817fa1aa4c4e4a2b10cde0b068a095fe7794ec66b0ee9c78d47e09b0ecd"
     },
     {
       "path": "agent_factory/storyclaw_portable/USER.md",
-      "sha256": "83cd0d92cc779a9ff2c31606ebdd402fb8ce6caaf49087b5e9591b58d4604137"
+      "sha256": "752563e3139c6f4711a0fd5bf65c5beadf79acad552c3616dc79a432131422fb"
     },
     {
       "path": "agent_factory/storyclaw_portable/WRITER_CONTRACT.md",
@@ -5609,7 +5609,7 @@
     },
     {
       "path": "tools/storyclaw_nalu_runtime.py",
-      "sha256": "0c86985ac6522038b01c4caeea8105f5af5558947a60b166238003a981980d8f"
+      "sha256": "d965475b97b78d37372a461b9fceb1fc1e4f4398acd0ea1488dc77f310ec398e"
     },
     {
       "path": "tools/storyclaw_outbox_poller.py",
@@ -6117,7 +6117,7 @@
     },
     {
       "path": "tools/tests/test_build_storyclaw_talenthub_release.py",
-      "sha256": "0173335841002552ef29a05b37a06bbcbdfba9755d03fd538c061a9c81b6ac59"
+      "sha256": "26f00aff5ea64471e387d2f4befdf1adb09e64ee3520a419b741aa9800685e1b"
     },
     {
       "path": "tools/tests/test_build_video_unit_anchor_plan.py",
@@ -7041,7 +7041,7 @@
     },
     {
       "path": "tools/tests/test_storyclaw_nalu_runtime.py",
-      "sha256": "65ab873cd922df5e04bae0487dc349fae090ecbedf6d6377f4ba28e4d932a6fe"
+      "sha256": "fe7284c544e4b26ef01e2c6e99adf82de5315d778eb2b20aaed82a76a8f74b4c"
     },
     {
       "path": "tools/tests/test_storyclaw_project_intake.py",
