@@ -1238,6 +1238,8 @@ def install_host(
     verified_bootstrap_archive: Path | None = None,
     dependency_manifest: Path | None = None,
     dependency_archive: Path | None = None,
+    acceptance_channel_manifest: Path | None = None,
+    acceptance_channel_manifest_sha256: str | None = None,
     dependency_installer: Callable[..., dict[str, Any]] = install_dependencies,
 ) -> dict[str, Any]:
     """Perform the bounded, idempotent host installation and write a receipt."""
@@ -1253,6 +1255,28 @@ def install_host(
         raise InstallBlocked(
             "ISOLATION_MODE_CONFLICT",
             "choose either --project-view-root or --isolated-mount-namespace",
+        )
+    acceptance_requested = (
+        acceptance_channel_manifest is not None
+        or acceptance_channel_manifest_sha256 is not None
+    )
+    if acceptance_requested and (
+        acceptance_channel_manifest is None
+        or acceptance_channel_manifest_sha256 is None
+    ):
+        raise InstallBlocked(
+            "ACCEPTANCE_CHANNEL_BINDING_INCOMPLETE",
+            "both --acceptance-channel-manifest and its SHA-256 are required",
+        )
+    if acceptance_requested and (
+        not install_deps
+        or talenthub_release_manifest is not None
+        or verified_bootstrap_archive is not None
+    ):
+        raise InstallBlocked(
+            "ACCEPTANCE_INSTALL_MODE_INVALID",
+            "candidate acceptance requires --install-deps, a Git checkout, and no "
+            "TalentHub production manifest",
         )
     base_engine, runtime = _validate_roots(
         engine_root,
@@ -1286,6 +1310,16 @@ def install_host(
             require_clean=True,
             require_tag=True,
         )
+    acceptance_package = (
+        _validate_acceptance_channel_manifest(
+            acceptance_channel_manifest,
+            str(acceptance_channel_manifest_sha256),
+            release_tag=release_tag,
+            git_commit=str(base_git["head_commit"]),
+        )
+        if acceptance_requested and acceptance_channel_manifest is not None
+        else None
+    )
     project_view: dict[str, Any] | None = None
     if project_view_root is not None:
         if verified_bootstrap_archive is not None:
@@ -1325,16 +1359,19 @@ def install_host(
     wiring = _wire_report(rows, probe=True)
 
     if install_deps:
-        if talenthub_release_manifest is None:
+        if talenthub_release_manifest is None and acceptance_package is None:
             raise InstallBlocked(
                 "DEPENDENCY_PACKAGE_BINDING_REQUIRED",
                 f"pass the installed skills/{SKILL_NAME}/RELEASE_MANIFEST.json",
             )
-        dependency_package = bootstrap_package or _validate_bootstrap_talenthub_manifest(
-            talenthub_release_manifest,
-            release_tag=release_tag,
-            git_commit=str(git["head_commit"]),
-        )
+        dependency_package = acceptance_package or bootstrap_package
+        if dependency_package is None:
+            assert talenthub_release_manifest is not None
+            dependency_package = _validate_bootstrap_talenthub_manifest(
+                talenthub_release_manifest,
+                release_tag=release_tag,
+                git_commit=str(git["head_commit"]),
+            )
         dependencies = dependency_installer(
             engine,
             runtime,
@@ -1386,7 +1423,14 @@ def install_host(
             base_git if verified_bootstrap_archive is not None else None
         ),
     )
-    if talenthub_release_manifest is not None:
+    if acceptance_package is not None:
+        release_baseline = {
+            "status": "ACCEPTANCE_ONLY",
+            "channel_manifest_sha256": acceptance_package["sha256"],
+            "production_authorization": False,
+            "upgrade_eligible": False,
+        }
+    elif talenthub_release_manifest is not None:
         package = bootstrap_package or _validate_bootstrap_talenthub_manifest(
             talenthub_release_manifest,
             release_tag=release_tag,
@@ -1446,6 +1490,7 @@ def install_host(
         },
         "source_or_media_paths_touched": [],
         "secret_values_recorded": False,
+        "production_authorization": False if acceptance_package is not None else None,
     }
     receipt_path, receipt_sha = _write_receipt(runtime, receipt)
     return {
@@ -1482,6 +1527,87 @@ def _parse_version(value: Any, label: str) -> tuple[int, int, int]:
     if not match:
         raise InstallBlocked(f"{label}_INVALID", text)
     return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
+
+
+def _validate_acceptance_channel_manifest(
+    path: Path,
+    expected_sha256: str,
+    *,
+    release_tag: str,
+    git_commit: str,
+) -> dict[str, Any]:
+    """Validate an unpromoted channel solely as a maintainer acceptance input.
+
+    This path can bind offline dependencies for a real StoryClaw trial, but it
+    deliberately creates no trusted release baseline and grants no production
+    or upgrade authority.
+    """
+    expected = str(expected_sha256 or "").strip().lower()
+    if not _SHA256_RE.fullmatch(expected):
+        raise InstallBlocked("ACCEPTANCE_CHANNEL_SHA256_INVALID", expected_sha256)
+    try:
+        resolved = path.expanduser().resolve(strict=True)
+        raw = resolved.read_bytes()
+        payload = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise InstallBlocked("ACCEPTANCE_CHANNEL_INVALID", str(path)) from exc
+    actual = hashlib.sha256(raw).hexdigest()
+    if actual != expected:
+        raise InstallBlocked(
+            "ACCEPTANCE_CHANNEL_SHA256_MISMATCH",
+            f"expected={expected},actual={actual}",
+        )
+    tag = _checked_tag(release_tag)
+    commit = str(git_commit or "").strip().lower()
+    exact = {
+        "schema": UPGRADE_SCHEMA,
+        "immutable": True,
+        "channel": "stable",
+        "release_tag": tag,
+        "source_ref": f"refs/tags/{tag}",
+        "git_commit": commit,
+        "update_class": PACKAGE_REQUIRED,
+        "runtime_migration": "NONE",
+        "validation_receipt_status": "UNVALIDATED",
+        "validation_receipt_sha256": None,
+        "dependency_profiles_action": "REPLACE_WITH_RELEASE_BUNDLES",
+        "release_signing_key_sha256": RELEASE_SIGNING_PUBLIC_KEY_SHA256,
+    }
+    failures = [
+        field for field, value in exact.items() if payload.get(field) != value
+    ] if isinstance(payload, dict) else ["payload"]
+    sequence = payload.get("release_sequence") if isinstance(payload, dict) else None
+    if type(sequence) is not int or sequence <= 0:
+        failures.append("release_sequence")
+    archive_sha = str(payload.get("source_archive_sha256") or "").lower()
+    if not _SHA256_RE.fullmatch(archive_sha):
+        failures.append("source_archive_sha256")
+    archive_size = payload.get("source_archive_size_bytes")
+    if type(archive_size) is not int or archive_size <= 0:
+        failures.append("source_archive_size_bytes")
+    try:
+        bindings = _dependency_bundle.validate_release_bindings(
+            payload.get("dependency_profiles"), release_tag=tag
+        )
+    except _dependency_bundle.DependencyBundleBlocked as exc:
+        raise InstallBlocked(exc.code, exc.detail) from exc
+    if failures:
+        raise InstallBlocked(
+            "ACCEPTANCE_CHANNEL_BINDING_MISMATCH", ",".join(failures[:10])
+        )
+    return {
+        "status": "ACCEPTANCE_ONLY",
+        "path": str(resolved),
+        "sha256": actual,
+        "release_sequence": sequence,
+        "release_tag": tag,
+        "git_commit": commit,
+        "source_archive_size_bytes": archive_size,
+        "source_archive_sha256": archive_sha,
+        "dependency_profiles": payload.get("dependency_profiles"),
+        "dependency_profile_bindings": bindings,
+        "production_authorization": False,
+    }
 
 
 def _load_channel_manifest(path: Path, expected_sha256: str) -> tuple[dict[str, Any], str]:
@@ -2870,6 +2996,15 @@ def _parser() -> argparse.ArgumentParser:
     )
     install.add_argument("--dependency-manifest", type=Path)
     install.add_argument("--dependency-archive", type=Path)
+    install.add_argument(
+        "--acceptance-channel-manifest",
+        type=Path,
+        help=(
+            "Unvalidated immutable channel manifest used only for maintainer "
+            "StoryClaw acceptance; never creates production or upgrade authority."
+        ),
+    )
+    install.add_argument("--acceptance-channel-manifest-sha256")
     install.add_argument("--python", default=sys.executable)
     install.add_argument(
         "--talenthub-release-manifest",
@@ -2980,6 +3115,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 verified_bootstrap_archive=args.verified_bootstrap_archive,
                 dependency_manifest=args.dependency_manifest,
                 dependency_archive=args.dependency_archive,
+                acceptance_channel_manifest=args.acceptance_channel_manifest,
+                acceptance_channel_manifest_sha256=(
+                    args.acceptance_channel_manifest_sha256
+                ),
             )
         elif args.command == "verify":
             report = verify_host(

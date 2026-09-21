@@ -5605,7 +5605,7 @@
     },
     {
       "path": "tools/storyclaw_install.py",
-      "sha256": "7e6fec5b38544401865bbdd04d076d60c742f7e4362cc4eddc0e7c0c02f0afa9"
+      "sha256": "761ff53ceb41b0c8ab431f6cd352b54f8f47aa3a44afba0b4e3db3d220b37907"
     },
     {
       "path": "tools/storyclaw_nalu_runtime.py",
@@ -7037,7 +7037,7 @@
     },
     {
       "path": "tools/tests/test_storyclaw_install.py",
-      "sha256": "b5eee66422426a9b1d9e2efea5218417b6c15698da6ae6e8dc2320982f6ac1f4"
+      "sha256": "1be5cfe472870e6e3f5b9932caa433fb263be91a54aaaaf8611d6994c08546aa"
     },
     {
       "path": "tools/tests/test_storyclaw_nalu_runtime.py",

@@ -322,6 +322,26 @@ uses an isolated maintainer Git checkout; the exact registry package receives
 its separate clean-install smoke after production validation. Never fill a
 validation field with PASS merely to bootstrap a candidate.
 
+For that one maintainer acceptance install, pass the exact unvalidated channel
+manifest and its SHA-256 instead of a TalentHub production manifest:
+
+```bash
+python tools/storyclaw_install.py install \
+  --engine-root "$BASE_ENGINE" --runtime-root "$RUNTIME" \
+  --release-tag "$RELEASE_TAG" --expected-commit "$COMMIT" \
+  --project-view-root "$ENGINE_RELEASE" --project-engine-link "$ENGINE_LINK" \
+  --install-deps --dependency-manifest "$DEPENDENCY_MANIFEST" \
+  --dependency-archive "$DEPENDENCY_ARCHIVE" \
+  --acceptance-channel-manifest "$CHANNEL_MANIFEST" \
+  --acceptance-channel-manifest-sha256 "$CHANNEL_SHA256" \
+  --seal-read-only
+```
+
+This mode accepts only an immutable `UNVALIDATED` channel bound to the exact
+tag, commit and both dependency profiles. Its receipt is `ACCEPTANCE_ONLY`,
+sets `production_authorization=false`, creates no trusted release baseline and
+cannot authorize an upgrade or public install.
+
 The release receipt is produced only after a fresh generic project has run the
 real acceptance chain: source intake, sealed writer handoff, S1/S2, one complete
 asset-plan confirmation, an S5 dry run, and an exactly two-unit S3–S8 paid

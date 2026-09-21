@@ -123,6 +123,63 @@ class StoryClawInstallTests(unittest.TestCase):
             })
         return rows
 
+    def _acceptance_channel(self, **overrides: object) -> Path:
+        payload: dict[str, object] = {
+            "schema": installer.UPGRADE_SCHEMA,
+            "immutable": True,
+            "channel": "stable",
+            "release_tag": "v1.0.0",
+            "source_ref": "refs/tags/v1.0.0",
+            "git_commit": self.commit,
+            "release_sequence": 101,
+            "source_archive_size_bytes": 123,
+            "source_archive_sha256": "b" * 64,
+            "release_signing_key_sha256": installer.RELEASE_SIGNING_PUBLIC_KEY_SHA256,
+            "validation_receipt_status": "UNVALIDATED",
+            "validation_receipt_sha256": None,
+            "update_class": installer.PACKAGE_REQUIRED,
+            "runtime_migration": "NONE",
+            "dependency_profiles_action": "REPLACE_WITH_RELEASE_BUNDLES",
+            "dependency_profiles": self._dependency_bindings("v1.0.0"),
+        }
+        payload.update(overrides)
+        path = self.root / "acceptance-channel.json"
+        path.write_text(json.dumps(payload, sort_keys=True) + "\n")
+        return path
+
+    def test_unvalidated_channel_is_accepted_only_without_production_authority(self):
+        channel = self._acceptance_channel()
+        channel_sha = hashlib.sha256(channel.read_bytes()).hexdigest()
+        validated = installer._validate_acceptance_channel_manifest(
+            channel,
+            channel_sha,
+            release_tag="v1.0.0",
+            git_commit=self.commit,
+        )
+        self.assertEqual(validated["status"], "ACCEPTANCE_ONLY")
+        self.assertFalse(validated["production_authorization"])
+        self.assertEqual(len(validated["dependency_profile_bindings"]), 2)
+        with self.assertRaises(installer.InstallBlocked) as caught:
+            installer._validate_acceptance_channel_manifest(
+                self._acceptance_channel(validation_receipt_status="PASS"),
+                hashlib.sha256(
+                    (self.root / "acceptance-channel.json").read_bytes()
+                ).hexdigest(),
+                release_tag="v1.0.0",
+                git_commit=self.commit,
+            )
+        self.assertEqual(caught.exception.code, "ACCEPTANCE_CHANNEL_BINDING_MISMATCH")
+
+    def test_acceptance_install_requires_offline_dependencies_and_no_talenthub_manifest(self):
+        channel = self._acceptance_channel()
+        channel_sha = hashlib.sha256(channel.read_bytes()).hexdigest()
+        with self.assertRaises(installer.InstallBlocked) as caught:
+            self._install(
+                acceptance_channel_manifest=channel,
+                acceptance_channel_manifest_sha256=channel_sha,
+            )
+        self.assertEqual(caught.exception.code, "ACCEPTANCE_INSTALL_MODE_INVALID")
+
     def _install(self, **overrides):
         values = {
             "release_tag": "v1.0.0",
