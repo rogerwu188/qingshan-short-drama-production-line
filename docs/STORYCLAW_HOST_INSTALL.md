@@ -310,12 +310,14 @@ step below.
 
 ## Build the private StoryClaw acceptance receipt
 
-Before that receipt exists, maintainers can prepare the locked dependencies
-with `build_storyclaw_talenthub_release.py --build-dependency-bundles` and the
-usual exact candidate tag/output arguments. This only adds the two offline
-dependency bundles: validation remains unset and no stable signature or
-publication authority is granted. An unvalidated candidate workspace is not
-installable through the production TalentHub bootstrap. Initial acceptance
+Before that receipt exists, build the exact immutable candidate tag with
+`build_storyclaw_talenthub_release.py` and the usual tag/output arguments. A
+tag-bound package candidate builds both locked offline dependency bundles
+automatically; `--build-dependency-bundles` remains available for an
+`--allow-unreleased` CI/experimental candidate. Dependency assets do not grant
+validation, a stable signature, or publication authority. An unvalidated
+candidate workspace is not installable through the production TalentHub
+bootstrap. Initial acceptance
 uses an isolated maintainer Git checkout; the exact registry package receives
 its separate clean-install smoke after production validation. Never fill a
 validation field with PASS merely to bootstrap a candidate.

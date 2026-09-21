@@ -580,6 +580,24 @@ def build_dependency_profile_assets(
     return bindings, tuple(assets), reports
 
 
+def should_build_dependency_bundles(
+    *,
+    package_publish_required: bool,
+    allow_unreleased: bool,
+    validation_present: bool,
+    explicitly_requested: bool,
+) -> bool:
+    """Decide whether this build must materialize offline dependencies.
+
+    An immutable tag-bound package candidate is an acceptance input, so it
+    needs the same dependency bindings as a validated publication. Daily CI
+    candidates remain small unless their build explicitly requests bundles.
+    """
+    if not package_publish_required:
+        return False
+    return validation_present or explicitly_requested or not allow_unreleased
+
+
 def verify_published_github_assets(
     tag: str,
     expected_paths: tuple[Path, ...],
@@ -2551,7 +2569,11 @@ def main() -> int:
     parser.add_argument(
         "--build-dependency-bundles",
         action="store_true",
-        help="Build locked offline dependencies for pre-release acceptance; does not grant validation or publication authority.",
+        help=(
+            "Build locked offline dependencies for an unreleased/CI candidate. "
+            "Immutable tag-bound package candidates build them automatically; "
+            "this flag never grants validation or publication authority."
+        ),
     )
     args = parser.parse_args()
 
@@ -2639,8 +2661,11 @@ def main() -> int:
     dependency_profiles: list[dict[str, Any]] = []
     dependency_assets: tuple[Path, ...] = ()
     dependency_reports: list[dict[str, Any]] = []
-    if package_publish_required and (
-        validation is not None or args.build_dependency_bundles
+    if should_build_dependency_bundles(
+        package_publish_required=package_publish_required,
+        allow_unreleased=args.allow_unreleased,
+        validation_present=validation is not None,
+        explicitly_requested=args.build_dependency_bundles,
     ):
         dependency_profiles, dependency_assets, dependency_reports = (
             build_dependency_profile_assets(

@@ -27,6 +27,39 @@ SPEC.loader.exec_module(MODULE)
 
 
 class StoryClawTalentHubReleaseTest(unittest.TestCase):
+    def test_immutable_package_candidate_always_builds_dependency_bundles(self):
+        decide = MODULE.should_build_dependency_bundles
+        self.assertTrue(decide(
+            package_publish_required=True,
+            allow_unreleased=False,
+            validation_present=False,
+            explicitly_requested=False,
+        ))
+        self.assertFalse(decide(
+            package_publish_required=True,
+            allow_unreleased=True,
+            validation_present=False,
+            explicitly_requested=False,
+        ))
+        self.assertTrue(decide(
+            package_publish_required=True,
+            allow_unreleased=True,
+            validation_present=False,
+            explicitly_requested=True,
+        ))
+        self.assertTrue(decide(
+            package_publish_required=True,
+            allow_unreleased=True,
+            validation_present=True,
+            explicitly_requested=False,
+        ))
+        self.assertFalse(decide(
+            package_publish_required=False,
+            allow_unreleased=False,
+            validation_present=True,
+            explicitly_requested=True,
+        ))
+
     def test_documented_direct_cli_entrypoint_imports_repository_modules(self):
         result = subprocess.run(
             [sys.executable, str(ROOT / "tools/build_storyclaw_talenthub_release.py"), "--help"],
