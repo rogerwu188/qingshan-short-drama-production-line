@@ -17,6 +17,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -1331,7 +1332,48 @@ def confirm_asset_plan(
         "receipt_path": str(receipt_path.resolve()),
     }
     _write(context["confirmation_path"], confirmation)
+    _materialize_confirmed_character_sources(runtime, context)
     return context["confirmation_path"]
+
+
+def _materialize_confirmed_character_sources(runtime: Path, context: dict[str, Any]) -> list[dict[str, Any]]:
+    """Copy each confirmed user photo to the scope's character_sources/<character_id>/.
+
+    2026-09-22 (device-2 finding #24): S3's bootstrap_identity_cards only discovers operator
+    photos by scanning the scope's character_sources folder; a confirmed plan whose matches
+    stayed in inbox/ produced text-to-image identity plates that did not resemble the user's
+    photos.  The copy is content-addressed (skipped when an identical file is already there)
+    and never overwrites a different file.
+    """
+    scopes = _json(runtime / "runtime" / "series_scopes.json", {}) or {}
+    scope_id = str(context["series_scope_id"])
+    declared = ((scopes.get("scopes") or {}).get(scope_id) or {}).get("character_sources")
+    folder = Path(str(declared)) if declared else runtime / "runtime" / "series" / scope_id / "character_sources"
+    if not folder.is_absolute():
+        folder = runtime / folder
+    plan = _json(context["plan_path"], {}) or {}
+    written: list[dict[str, Any]] = []
+    for row in plan.get("character_matches") or []:
+        entity_id = str((row or {}).get("entity_id") or "").strip()
+        source = Path(str((row or {}).get("source_path") or ""))
+        if not entity_id or not source.is_file():
+            continue
+        target = folder / entity_id / source.name
+        digest = sha256(source)
+        if target.exists():
+            if sha256(target) != digest:
+                raise SystemExit(f"BLOCKED: character source already exists with different bytes: {target}")
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        written.append({"entity_id": entity_id, "path": str(target), "sha256": digest})
+    if written:
+        _write(folder / "CONFIRMED_SOURCES_RECEIPT.json", {
+            "schema": "storyclaw.confirmed_character_sources.v1",
+            "asset_plan_path": str(context["plan_path"]),
+            "copied": written,
+        })
+    return written
 
 
 def _enforce_workflow_policy(runtime: Path, episode: str, target_stage: str) -> None:
