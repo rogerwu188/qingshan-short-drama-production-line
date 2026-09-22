@@ -1500,7 +1500,16 @@ def locked_subjects(library: dict[str, Any]) -> dict[str, dict[str, Any]]:
                     verified.append(artifact)
             if verified:
                 out[subject_id] = {"category": category,
-                                   "sha256": [row["sha256"] for row in verified]}
+                                   "sha256": [row["sha256"] for row in verified],
+                                   "views": sorted({str(row.get("role") or row.get("view") or "")
+                                                    for row in verified} - {""})}
+                # A LOCKED character carries one verified artifact per view; the S3 plan names
+                # those views as separate rows (``<subject>__<VIEW>``).  Register them so a
+                # locked character is never re-rendered view by view (StoryClaw 2026-09-21:
+                # 16 duplicate view renders planned for 8 LOCKED characters).
+                for view in out[subject_id]["views"]:
+                    out.setdefault(f"{subject_id}__{view}", {"category": category, "via": subject_id,
+                                                              "sha256": out[subject_id]["sha256"]})
     return out
 
 
