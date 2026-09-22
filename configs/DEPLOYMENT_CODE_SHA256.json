@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1903,
+  "file_count": 1904,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -6766,6 +6766,10 @@
     {
       "path": "tools/tests/test_nalu_runtime_port.py",
       "sha256": "b5d200c97defd3264106e6a60eda6d6197fb7bf352a322ae4093f51cae96371e"
+    },
+    {
+      "path": "tools/tests/test_nalu_s3_locked_view_reuse.py",
+      "sha256": "8291d4a34049b2154021b41dc20394731316e6b06ebe2c516a85c929bfdf91b5"
     },
     {
       "path": "tools/tests/test_nalu_scoped_qa_paths.py",

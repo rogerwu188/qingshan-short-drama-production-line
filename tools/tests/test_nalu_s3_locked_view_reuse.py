@@ -35,3 +35,38 @@ class LockedViewReuse(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StalePayloadRetire(unittest.TestCase):
+    def test_stage_s4_retires_payloads_older_than_catalog(self):
+        import json, os, time, types
+        pipeline = importlib.import_module("nalu_pipeline")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            payloads = root / "speech_task_payloads.json"; payloads.write_text('{"tasks": []}')
+            catalog = root / "voice_catalog.json"
+            old = time.time() - 3600
+            os.utime(payloads, (old, old))
+            catalog.write_text('{"voices": {"a": {"voice_id": "v1"}}}')
+            registry = root / "voice_registry.json"; registry.write_text('{"major_roles": []}')
+            calls = []
+
+            class P:  # minimal QaPaths stand-in
+                speech_payloads = payloads
+                voice = root
+                voice_report = root / "r.json"
+                contract = root / "c.json"; asset_requirements = root / "a.json"
+                scope = {"voice_catalog": str(catalog), "voice_registry": str(registry)}
+
+            def run(argv, name):
+                calls.append(name)
+                payloads.write_text(json.dumps({"tasks": []}))
+                return {"exit_code": 0, "log": ""}
+
+            ctx = types.SimpleNamespace(p=P(), episode="E01", run=run)
+            try:
+                pipeline.stage_s4(ctx)
+            except Exception:
+                pass  # the rest of stage_s4 needs a full Ctx; only the retire/rebuild prefix is under test
+            self.assertIn("s4_bootstrap_voice_references", calls)
+            self.assertTrue(any(f.name.startswith("speech_task_payloads.json.stale_") for f in root.iterdir()))

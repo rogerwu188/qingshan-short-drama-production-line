@@ -2160,6 +2160,15 @@ def stage_s3(ctx: Ctx) -> StageResult:
 # --------------------------------------------------------------------------- #
 def stage_s4(ctx: Ctx) -> StageResult:
     p = ctx.p
+    catalog_path = Path(str(ctx.p.scope["voice_catalog"]))
+    payloads_stale = (p.speech_payloads.is_file() and catalog_path.is_file()
+                      and catalog_path.stat().st_mtime > p.speech_payloads.stat().st_mtime)
+    if payloads_stale:
+        # The catalog was filled/edited after the payloads were compiled (StoryClaw 2026-09-21: a
+        # 9/19 payload set compiled from an empty catalog kept reporting VOICE_ID_NOT_SELECTED
+        # for a catalog filled two days later).  Payloads are free to rebuild; retire the old set.
+        p.speech_payloads.rename(p.speech_payloads.with_name(
+            p.speech_payloads.name + f".stale_{now().replace(':', '')}"))
     if not p.speech_payloads.is_file():
         # payloads are produced by bootstrap_voice_references.py (offline, free)
         boot = ctx.run(
