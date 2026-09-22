@@ -493,6 +493,27 @@ def explicit_layers_from_args(episode: str, args: argparse.Namespace) -> dict[st
     return out or None
 
 
+def sealed_handoff_layers(episode: str, scope_id: str | None) -> dict[str, Path] | None:
+    """The four layer paths bound by a SEALED writer handoff in the private runtime, or None."""
+    if not scope_id:
+        return None
+    path = RUNTIME / "writer_layers" / str(scope_id) / episode / "ACTIVE_WRITER_HANDOFF.json"
+    doc = read_json(path, {}) or {}
+    if not isinstance(doc, dict) or doc.get("status") != "SEALED" or str(doc.get("episode") or "") != episode:
+        return None
+    out: dict[str, Path] = {}
+    for key in ("narrative_canonical", "directing_script", "generation_contract", "writer_manifest"):
+        row = (doc.get("layers") or {}).get(key)
+        value = row.get("path") if isinstance(row, dict) else row
+        if not value:
+            return None
+        candidate = Path(str(value)).expanduser()
+        if not candidate.is_file():
+            return None
+        out[key] = candidate.resolve()
+    return out
+
+
 def project_scope_check(
     ctx: "Ctx", *, require_preproduction_map: bool = True
 ) -> dict[str, Any]:
@@ -606,6 +627,13 @@ class Ctx:
         self.p = Paths(episode)
         layers = explicit_layers_from_args(episode, args)
         layers_source = "CLI" if layers else None
+        if not layers:
+            # 2026-09-22 (device-2 finding #17): a sealed ACTIVE_WRITER_HANDOFF written by
+            # storyclaw_writer_workflow.py finalize is the writer's authority for the four
+            # layers and outranks paths remembered in the state file from an earlier run;
+            # otherwise every new writer version needed a hand edit of pipeline_state.
+            layers = sealed_handoff_layers(episode, self.p.scope.get("scope_id"))
+            layers_source = "WRITER_HANDOFF" if layers else None
         if not layers:
             remembered = (read_json(self.p.state, {}) or {}).get("layers") or {}
             if remembered.get("paths"):
