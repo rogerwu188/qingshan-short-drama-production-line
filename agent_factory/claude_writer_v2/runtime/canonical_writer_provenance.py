@@ -11,6 +11,9 @@ from typing import Any
 PROVENANCE_SCHEMA = "qingshan.canonical_writer_provenance.v1"
 RECEIPT_SCHEMA = "qingshan.canonical_writer_run_receipt.v1"
 ALLOWED_AGENT_IDS = {
+    # Public TalentHub package id.  Keep this compatibility copy aligned with
+    # tools/canonical_writer_provenance.py, which is the registered gate input.
+    "ai-drama-factory",
     "qingshan-claude-writer-agent",
     "qingshan-claude-writer",
 }

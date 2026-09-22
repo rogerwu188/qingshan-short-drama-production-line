@@ -34,8 +34,13 @@ class ProviderDecline(unittest.TestCase):
     def test_response_with_task_id_is_not_declined(self):
         self.assertFalse(submit._provider_declined({"provider_response": "{'code': 200, 'data': {'task_id': 'abc'}}"}))
 
-    def test_lost_response_is_not_declined(self):
-        self.assertFalse(submit._provider_declined({"provider_response": "", "error": "timed out"}))
+    def test_transport_failure_without_task_id_is_declined(self):
+        # nalu E08 wave 2 (2026-09-21): a transport failure that never produced a task id is a decline at this
+        # level; the caller still requires the ledger window to show no extra pay row before it retries.
+        self.assertTrue(submit._provider_declined({"provider_response": "", "error": "timed out"}))
+
+    def test_lost_response_with_task_id_is_not_declined(self):
+        self.assertFalse(submit._provider_declined({"provider_response": "", "error": "timed out after task_id=abc"}))
 
 
 class Parity(unittest.TestCase):

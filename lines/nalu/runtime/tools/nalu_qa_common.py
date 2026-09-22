@@ -21,6 +21,8 @@ from __future__ import annotations
 import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
+import nalu_series_scope as _series_scope
+import nalu_media_tools as _media
 
 import hashlib
 import importlib
@@ -37,7 +39,7 @@ from typing import Any
 # --------------------------------------------------------------------------- #
 ENGINE = Path(f"{_np.ENGINE_ROOT}")
 RUNTIME = Path(f"{_np.RUNTIME_ROOT}")
-VENV = ENGINE / ".qingshan-venv/bin/python"
+VENV = Path(f"{_np.VENV_PYTHON}")
 RT = RUNTIME / "runtime"
 RT_TOOLS = Path(f"{_np.TOOLS_DIR}")  # port fix 2026-09-15
 RT_CONFIGS = RT / "configs"
@@ -56,8 +58,16 @@ REROLL_POLICY = ENGINE / "configs/reroll_cost_guard_policy_v1_20260716.json"
 DIALOGUE_QA_POLICY = RT_CONFIGS / "BASIC_DIALOGUE_QA_POLICY.json"
 NALU_WORK = Path(os.environ.get("NALU_WORK_ROOT") or (ENGINE / "workflow/nalu")).expanduser().resolve()
 SCRIPTS = ENGINE / "workflow/claude_writer_agent/scripts"
-FFMPEG = "/opt/homebrew/bin/ffmpeg"
-FFPROBE = "/opt/homebrew/bin/ffprobe"
+
+
+def require_ffmpeg() -> str:
+    """Resolve the deployment's ffmpeg only when a media route needs it."""
+    return _media.require_ffmpeg()
+
+
+def require_ffprobe() -> str:
+    """Resolve the deployment's ffprobe only when a media route needs it."""
+    return _media.require_ffprobe()
 
 # The start-frame receipt path convention is fixed by
 # build_nalu_preproduction.py:1006-1007 (``expected_evidence_ref``) and resolved
@@ -180,6 +190,20 @@ def gate_parameters(gate_id: str) -> dict[str, Any]:
 class QaPaths:
     def __init__(self, episode: str) -> None:
         self.episode = episode
+        # Episode names are not globally unique (a new production also starts at
+        # E01).  Every reusable authority therefore comes from the selected
+        # series scope, never from the historical NALU-YEWUJIANG constants above.
+        self.scope = _series_scope.resolve_scope(episode)
+        self.scope_id = str(self.scope["scope_id"])
+        self.series_id = str(self.scope["series_id"])
+        self.asset_library = Path(self.scope["asset_library"])
+        self.asset_library_seed = Path(self.scope["asset_library_seed"])
+        self.character_registry = Path(self.scope["character_registry"])
+        self.character_sources = Path(self.scope["character_sources"])
+        self.entity_registry = Path(self.scope["entity_registry"])
+        self.voice_registry = Path(self.scope["voice_registry"])
+        self.voice_cast = Path(self.scope["voice_cast"])
+        self.lexicon = Path(self.scope["lexicon"])
         prefix = f"{episode}_"
         self.work = NALU_WORK / episode
         self.preprod = self.work / "preproduction"
@@ -189,7 +213,30 @@ class QaPaths:
         self.plates = self.identity / "plates"
         self.video_media = self.work / "video"
         self.assembly = self.work / "assembly"
-        self.contract = SCRIPTS / f"{episode}_GENERATION_CONTRACT_v1.json"
+        state = read_json(STATE_DIR / f"{episode}.json", {}) or {}
+        remembered = (state.get("layers") or {}).get("paths") or {}
+        state_scope = ((state.get("series_scope") or {}).get("scope_id")
+                       or state.get("series_scope_id"))
+        if remembered and state_scope not in (None, self.scope_id):
+            raise SystemExit(
+                f"PIPELINE_STATE_SCOPE_MISMATCH:{state_scope}!={self.scope_id}"
+            )
+        self.narrative = Path(
+            remembered.get("narrative_canonical")
+            or SCRIPTS / f"{episode}_NARRATIVE_CANONICAL_v1.md"
+        )
+        self.directing = Path(
+            remembered.get("directing_script")
+            or SCRIPTS / f"{episode}_DIRECTING_SCRIPT_v1.md"
+        )
+        self.contract = Path(
+            remembered.get("generation_contract")
+            or SCRIPTS / f"{episode}_GENERATION_CONTRACT_v1.json"
+        )
+        self.writer_manifest = Path(
+            remembered.get("writer_manifest")
+            or SCRIPTS / f"{episode}_manifest_v1.json"
+        )
         self.editorial = self.preprod / f"{prefix}EDITORIAL_SEEDANCE_MANIFEST_V1.json"
         self.grouping_plan = self.preprod / f"{prefix}VIDEO_UNIT_GROUPING_PLAN_V1.json"
         self.anchor_plan = self.preprod / f"{prefix}VIDEO_UNIT_ANCHOR_PLAN_V1.json"
@@ -226,6 +273,50 @@ class QaPaths:
 
         return max(candidates, key=version)
 
+    def reusable_asset_library(self) -> Path:
+        """Return this series' materialised library, or its declared seed.
+
+        A foreign scope is required by ``nalu_series_scope`` to declare both
+        paths.  Deliberately do not fall back to the default series when either
+        is absent: an empty/new production must fail closed instead of reusing
+        a same-named E01 from another show.
+        """
+        return self.asset_library if self.asset_library.is_file() else self.asset_library_seed
+
+
+SOURCE_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
+
+
+def find_scoped_operator_source(asset_id: str, folder: Path | str) -> Path | None:
+    """Find one source image below a series-scoped private source root.
+
+    StoryClaw stores new-series references in nested episode directories, for
+    example ``character_sources/fobenshidao/E01``.  Matching stays anchored on
+    the complete asset id so ``CHAR-LU`` cannot capture ``CHAR-LUWENHUI``.
+    The priority order preserves the historical identity-lock behaviour.
+    """
+    root = Path(folder)
+    if not root.is_dir():
+        return None
+    patterns = (
+        f"{asset_id}.png",
+        f"{asset_id}__SOURCE*",
+        f"{asset_id}.*",
+        f"{asset_id}__*",
+        f"{asset_id}_*",
+    )
+    for pattern in patterns:
+        candidates = sorted(
+            (path for path in root.rglob(pattern)
+             if path.is_file() and path.suffix.lower() in SOURCE_IMAGE_SUFFIXES
+             # retired / held sources live in "_retired*" / "_hold*" folders and must never re-bind
+             and not any(part.startswith("_") for part in path.relative_to(root).parts[:-1])),
+            key=lambda path: str(path),
+        )
+        if candidates:
+            return candidates[0]
+    return None
+
 
 # --------------------------------------------------------------------------- #
 # authoritative expectations
@@ -245,7 +336,22 @@ class Expectations:
         self.anchor_plan = read_json(self.p.anchor_plan, {}) or {}
         self.grouping = read_json(self.p.grouping_plan, {}) or {}
         self.start_frames = read_json(self.p.start_frames, {}) or {}
-        self.library = read_json(self.p.identity_library) or read_json(ASSET_LIBRARY, {}) or {}
+        episode_library = read_json(self.p.identity_library)
+        if episode_library:
+            project_id = str(episode_library.get("project_id") or "")
+            if project_id != self.p.series_id:
+                raise SystemExit(
+                    f"EPISODE_ASSET_LIBRARY_PROJECT_MISMATCH:{self.p.identity_library}:"
+                    f"{project_id}!={self.p.series_id}")
+            self.library = episode_library
+        else:
+            self.library = read_json(self.p.reusable_asset_library(), {}) or {}
+        if self.library:
+            project_id = str(self.library.get("project_id") or "")
+            if project_id != self.p.series_id:
+                raise SystemExit(
+                    f"SCOPED_ASSET_LIBRARY_PROJECT_MISMATCH:"
+                    f"{self.p.reusable_asset_library()}:{project_id}!={self.p.series_id}")
         self.requirements = read_json(self.p.asset_requirements, {}) or {}
         # the generation contract (writer-agent scripts dir); D-35 creature/prop subjects are resolved from it
         self.contract = read_json(self.p.contract, {}) or {}

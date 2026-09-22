@@ -1,0 +1,448 @@
+name: storyclaw-stable-promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_tag:
+        description: Immutable validated StoryClaw business release tag
+        required: true
+        type: string
+      target_index_sha256:
+        description: SHA-256 of the signed candidate index asset
+        required: true
+        type: string
+      target_signature_sha256:
+        description: SHA-256 of the detached signature asset
+        required: true
+        type: string
+      expected_base_sequence:
+        description: Current signed stable sequence, or 0 for first promotion
+        required: true
+        type: string
+      expected_base_tag:
+        description: Current signed business tag, or NONE for first promotion
+        required: true
+        type: string
+      expected_base_commit:
+        description: Current signed business commit, or NONE for first promotion
+        required: true
+        type: string
+      expected_base_index_sha256:
+        description: Current stable index SHA-256, or NONE for first promotion
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+# This lock is the compare-and-swap boundary. An older publisher cannot
+# overwrite a newer signed pointer after waiting in the queue.
+concurrency:
+  group: storyclaw-stable-promotion
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    environment: storyclaw-stable-promotion
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.target_tag }}
+      - name: Verify signed target and compare current stable pointer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_TAG: ${{ inputs.target_tag }}
+          TARGET_INDEX_SHA256: ${{ inputs.target_index_sha256 }}
+          TARGET_SIGNATURE_SHA256: ${{ inputs.target_signature_sha256 }}
+          EXPECTED_BASE_SEQUENCE: ${{ inputs.expected_base_sequence }}
+          EXPECTED_BASE_TAG: ${{ inputs.expected_base_tag }}
+          EXPECTED_BASE_COMMIT: ${{ inputs.expected_base_commit }}
+          EXPECTED_BASE_INDEX_SHA256: ${{ inputs.expected_base_index_sha256 }}
+        run: |
+          set -euo pipefail
+          case "$TARGET_TAG" in (*[!A-Za-z0-9._-]*|'') echo 'unsafe target tag' >&2; exit 1;; esac
+          case "$TARGET_INDEX_SHA256:$TARGET_SIGNATURE_SHA256" in
+            (*[!0-9a-f:]*|*:*:*|'') echo 'invalid target digest input' >&2; exit 1;;
+          esac
+          test "${#TARGET_INDEX_SHA256}" -eq 64
+          test "${#TARGET_SIGNATURE_SHA256}" -eq 64
+          mkdir -p /tmp/storyclaw-target /tmp/storyclaw-current
+          gh release download "$TARGET_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern qingshan-storyclaw-stable-index.json \
+            --pattern qingshan-storyclaw-stable-index.json.sig \
+            --dir /tmp/storyclaw-target
+          echo "$TARGET_INDEX_SHA256  /tmp/storyclaw-target/qingshan-storyclaw-stable-index.json" | sha256sum -c -
+          echo "$TARGET_SIGNATURE_SHA256  /tmp/storyclaw-target/qingshan-storyclaw-stable-index.json.sig" | sha256sum -c -
+          openssl pkeyutl -verify -pubin \
+            -inkey configs/storyclaw_release_signing_public_key.pem -rawin \
+            -in /tmp/storyclaw-target/qingshan-storyclaw-stable-index.json \
+            -sigfile /tmp/storyclaw-target/qingshan-storyclaw-stable-index.json.sig
+
+          if [ "$EXPECTED_BASE_SEQUENCE" = 0 ]; then
+            test "$EXPECTED_BASE_TAG" = NONE
+            test "$EXPECTED_BASE_COMMIT" = NONE
+            test "$EXPECTED_BASE_INDEX_SHA256" = NONE
+            if gh release view storyclaw-stable-channel --repo "$GITHUB_REPOSITORY" \
+              >/tmp/storyclaw-current/unexpected 2>/tmp/storyclaw-current/error; then
+              echo 'stable pointer appeared after publisher classified an initial release' >&2
+              exit 1
+            fi
+            grep -Eqi '(HTTP 404|release not found|not found)' /tmp/storyclaw-current/error
+          else
+            gh release view storyclaw-stable-channel --repo "$GITHUB_REPOSITORY" >/dev/null
+            gh release download storyclaw-stable-channel --repo "$GITHUB_REPOSITORY" \
+              --pattern qingshan-storyclaw-stable-index.json \
+              --pattern qingshan-storyclaw-stable-index.json.sig \
+              --dir /tmp/storyclaw-current
+            echo "$EXPECTED_BASE_INDEX_SHA256  /tmp/storyclaw-current/qingshan-storyclaw-stable-index.json" | sha256sum -c -
+            openssl pkeyutl -verify -pubin \
+              -inkey configs/storyclaw_release_signing_public_key.pem -rawin \
+              -in /tmp/storyclaw-current/qingshan-storyclaw-stable-index.json \
+              -sigfile /tmp/storyclaw-current/qingshan-storyclaw-stable-index.json.sig
+          fi
+
+          if [ "$EXPECTED_BASE_SEQUENCE" = 0 ]; then
+            printf '%s\n' '{"status":"INITIAL_RELEASE","update_class":"TALENTHUB_PACKAGE_REQUIRED"}' \
+              > /tmp/storyclaw-target/promotion-classification.json
+          else
+            # The classification policy comes from the already trusted stable
+            # release, not from the target that is asking to be promoted.
+            rm -rf /tmp/storyclaw-policy-base
+            git worktree add --detach /tmp/storyclaw-policy-base "$EXPECTED_BASE_COMMIT"
+            python3 /tmp/storyclaw-policy-base/tools/storyclaw_upgrade_classifier.py \
+              --repo "$GITHUB_WORKSPACE" \
+              --base "$EXPECTED_BASE_COMMIT" \
+              --target "$(git rev-parse --verify "refs/tags/$TARGET_TAG^{commit}")" \
+              > /tmp/storyclaw-target/promotion-classification.json
+            git worktree remove --force /tmp/storyclaw-policy-base
+          fi
+
+          python3 - <<'PY'
+          import hashlib, json, os, subprocess, urllib.request
+          from pathlib import Path
+
+          expected_key = 'd27484512874011dc5e894b602d6a42ca846a4e048688d32389acf7852d3646f'
+          key = Path('configs/storyclaw_release_signing_public_key.pem')
+          if hashlib.sha256(key.read_bytes()).hexdigest() != expected_key:
+              raise SystemExit('pinned public key digest mismatch')
+          target = json.loads(Path('/tmp/storyclaw-target/qingshan-storyclaw-stable-index.json').read_text())
+          exact = {
+              'schema': 'storyclaw.nalu.stable_index.v1',
+              'channel': 'stable',
+              'release_tag': os.environ['TARGET_TAG'],
+              'validation_receipt_status': 'PASS',
+              'signing_key_sha256': expected_key,
+          }
+          if any(target.get(k) != v for k, v in exact.items()):
+              raise SystemExit('target signed index trust fields mismatch')
+          commit = subprocess.check_output(
+              ['git', 'rev-parse', '--verify', f"refs/tags/{os.environ['TARGET_TAG']}^{{commit}}"],
+              text=True,
+          ).strip().lower()
+          if target.get('git_commit') != commit:
+              raise SystemExit('target tag/commit mismatch')
+          update_class = target.get('update_class')
+          if update_class not in {
+              'ENGINE_ONLY', 'TALENTHUB_PACKAGE_REQUIRED', 'RUNTIME_MIGRATION_REQUIRED'
+          }:
+              raise SystemExit('target update class invalid')
+          if update_class == 'RUNTIME_MIGRATION_REQUIRED':
+              raise SystemExit('runtime migration cannot be promoted by automatic stable workflow')
+          target_sequence = target.get('release_sequence')
+          base_sequence = int(os.environ['EXPECTED_BASE_SEQUENCE'])
+          classification = json.loads(Path(
+              '/tmp/storyclaw-target/promotion-classification.json'
+          ).read_text())
+          if base_sequence == 0:
+              if update_class != 'TALENTHUB_PACKAGE_REQUIRED':
+                  raise SystemExit('initial stable promotion requires a TalentHub package')
+          elif (
+              classification.get('schema') != 'storyclaw.nalu.upgrade_impact.v1'
+              or classification.get('status') != 'PASS'
+              or (classification.get('base') or {}).get('commit')
+                 != os.environ['EXPECTED_BASE_COMMIT']
+              or (classification.get('target') or {}).get('commit') != commit
+              or classification.get('update_class') != update_class
+          ):
+              raise SystemExit('trusted-base release classification mismatch')
+          if type(target_sequence) is not int or target_sequence <= base_sequence:
+              raise SystemExit('target sequence does not advance current stable')
+          if base_sequence:
+              current = json.loads(Path('/tmp/storyclaw-current/qingshan-storyclaw-stable-index.json').read_text())
+              if (
+                  current.get('release_sequence') != base_sequence
+                  or current.get('release_tag') != os.environ['EXPECTED_BASE_TAG']
+                  or current.get('git_commit') != os.environ['EXPECTED_BASE_COMMIT']
+              ):
+                  raise SystemExit('stable pointer advanced or changed since classification')
+          repository = 'https://github.com/rogerwu188/qingshan-short-drama-production-line'
+          channel_url = (
+              f'{repository}/releases/download/{os.environ["TARGET_TAG"]}/'
+              f'qingshan-storyclaw-release-channel-{os.environ["TARGET_TAG"]}.json'
+          )
+          archive_url = (
+              f'{repository}/releases/download/{os.environ["TARGET_TAG"]}/'
+              f'qingshan-storyclaw-workflow-{os.environ["TARGET_TAG"]}.tar.gz'
+          )
+          if target.get('release_channel_url') != channel_url or target.get('source_archive_url') != archive_url:
+              raise SystemExit('target artifact URL is not canonical')
+
+          def fetch_exact(url, expected_size, expected_sha, out=None):
+              if type(expected_size) is not int or expected_size <= 0 or expected_size > 1024 * 1024 * 1024:
+                  raise SystemExit('target artifact size invalid')
+              digest = hashlib.sha256()
+              total = 0
+              with urllib.request.urlopen(url, timeout=60) as response:
+                  sink = open(out, 'wb') if out else None
+                  try:
+                      while True:
+                          chunk = response.read(1024 * 1024)
+                          if not chunk:
+                              break
+                          total += len(chunk)
+                          if total > expected_size:
+                              raise SystemExit('target artifact larger than signed size')
+                          digest.update(chunk)
+                          if sink:
+                              sink.write(chunk)
+                  finally:
+                      if sink:
+                          sink.close()
+              if total != expected_size or digest.hexdigest() != expected_sha:
+                  raise SystemExit('target artifact bytes differ from signed index')
+              return Path(out).read_bytes() if out else b''
+
+          channel_path = '/tmp/storyclaw-target/release-channel.json'
+          fetch_exact(
+              channel_url, target.get('release_channel_size_bytes'),
+              target.get('release_channel_sha256'), channel_path,
+          )
+          channel = json.loads(Path(channel_path).read_text())
+          channel_exact = {
+              'schema': 'storyclaw.nalu.release_channel.v1',
+              'immutable': True,
+              'channel': 'stable',
+              'release_sequence': target_sequence,
+              'release_tag': os.environ['TARGET_TAG'],
+              'git_commit': commit,
+              'source_archive_url': archive_url,
+              'source_archive_size_bytes': target.get('source_archive_size_bytes'),
+              'source_archive_sha256': target.get('source_archive_sha256'),
+              'update_class': update_class,
+              'validation_receipt_status': 'PASS',
+              'validation_receipt_sha256': target.get('validation_receipt_sha256'),
+              'release_signing_key_sha256': expected_key,
+          }
+          if base_sequence:
+              channel_exact.update({
+                  'dependencies_changed': classification.get('dependencies_changed'),
+                  'runtime_migration': classification.get('runtime_migration'),
+              })
+          if any(channel.get(k) != v for k, v in channel_exact.items()):
+              raise SystemExit('target release channel differs from signed index')
+          fetch_exact(
+              archive_url, target.get('source_archive_size_bytes'),
+              target.get('source_archive_sha256'),
+              '/tmp/storyclaw-target/source-archive.tar.gz',
+          )
+          Path('/tmp/storyclaw-target/update-class').write_text(update_class)
+          PY
+
+          if [ "$(cat /tmp/storyclaw-target/update-class)" = TALENTHUB_PACKAGE_REQUIRED ]; then
+            gh release download "$TARGET_TAG" --repo "$GITHUB_REPOSITORY" \
+              --pattern qingshan-storyclaw-talenthub-package-attestation.json \
+              --pattern qingshan-storyclaw-talenthub-package-attestation.json.sig \
+              --dir /tmp/storyclaw-target
+            openssl pkeyutl -verify -pubin \
+              -inkey configs/storyclaw_release_signing_public_key.pem -rawin \
+              -in /tmp/storyclaw-target/qingshan-storyclaw-talenthub-package-attestation.json \
+              -sigfile /tmp/storyclaw-target/qingshan-storyclaw-talenthub-package-attestation.json.sig
+            python3 - <<'PY'
+          import hashlib, io, json, os, urllib.parse, urllib.request, zipfile
+          from pathlib import Path, PurePosixPath
+
+          target_index_path = Path('/tmp/storyclaw-target/qingshan-storyclaw-stable-index.json')
+          target = json.loads(target_index_path.read_text())
+          attestation = json.loads(Path(
+              '/tmp/storyclaw-target/qingshan-storyclaw-talenthub-package-attestation.json'
+          ).read_text())
+          exact = {
+              'schema': 'storyclaw.nalu.talenthub_package_attestation.v1',
+              'agent_id': 'ai-drama-factory',
+              'skill': 'qingshan-nalu',
+              'release_tag': os.environ['TARGET_TAG'],
+              'git_commit': target['git_commit'],
+              'stable_index_sha256': hashlib.sha256(target_index_path.read_bytes()).hexdigest(),
+              'readiness': 'READY_AFTER_REGISTRY_CLEAN_INSTALL_SMOKE',
+              'registry_clean_install_smoke_schema': 'storyclaw.nalu.registry_clean_install_smoke.v1',
+              'official_registry_readback': 'PUBLIC_UNAUTHENTICATED',
+              'installed_release_manifest_path': 'skills/qingshan-nalu/RELEASE_MANIFEST.json',
+              'signing_key_sha256': 'd27484512874011dc5e894b602d6a42ca846a4e048688d32389acf7852d3646f',
+          }
+          if any(attestation.get(k) != v for k, v in exact.items()):
+              raise SystemExit('TalentHub package attestation binding mismatch')
+          smoke_hashes = attestation.get('registry_clean_install_smoke_hashes')
+          required_smoke_hashes = {
+              'receipt_sha256', 'facts_sha256', 'release_identity_sha256',
+              'registry_package_sha256', 'registry_package_url_sha256',
+              'nested_manifest_sha256', 'stable_index_sha256',
+              'stable_index_signature_sha256', 'release_public_key_sha256',
+              'source_archive_sha256', 'bootstrap_receipt_sha256',
+              'install_receipt_sha256', 'preflight_receipt_sha256',
+              'transactions_before_snapshot_sha256',
+              'transactions_after_snapshot_sha256', 'transactions_tree_sha256',
+              'controls_sha256', 'dependency_profile_sha256',
+              'dependency_bundle_manifest_sha256',
+              'dependency_bundle_archive_sha256',
+          }
+          if not isinstance(smoke_hashes, dict) or set(smoke_hashes) != required_smoke_hashes:
+              raise SystemExit('registry clean-install smoke hash set invalid')
+          if any(
+              not isinstance(value, str) or len(value) != 64
+              or any(ch not in '0123456789abcdef' for ch in value)
+              for value in smoke_hashes.values()
+          ):
+              raise SystemExit('registry clean-install smoke digest invalid')
+          if attestation.get('registry_clean_install_smoke_receipt_sha256') != smoke_hashes['receipt_sha256']:
+              raise SystemExit('registry clean-install smoke receipt binding mismatch')
+          for field in ('canary_receipt_sha256', 'canary_package_url_sha256',
+                        'formal_publish_receipt_sha256'):
+              value = attestation.get(field)
+              if not isinstance(value, str) or len(value) != 64 \
+                      or any(ch not in '0123456789abcdef' for ch in value):
+                  raise SystemExit(f'{field} invalid')
+          canary_id = str(attestation.get('canary_agent_id') or '')
+          if not canary_id.startswith('ai-drama-factory-release-') or len(canary_id) != 41:
+              raise SystemExit('TalentHub canary identity invalid')
+          package_url = str(attestation.get('package_url') or '')
+          parsed = urllib.parse.urlsplit(package_url)
+          host = (parsed.hostname or '').lower()
+          if (
+              parsed.scheme != 'https'
+              or (host != 'storyclaw.com' and not host.endswith('.storyclaw.com'))
+              or parsed.username is not None
+              or parsed.password is not None
+              or bool(parsed.fragment)
+          ):
+              raise SystemExit('TalentHub package URL invalid')
+          expected_size = attestation.get('package_size_bytes')
+          expected_sha = attestation.get('package_sha256')
+          if (
+              attestation.get('canary_package_size_bytes') != expected_size
+              or attestation.get('canary_package_sha256') != expected_sha
+              or smoke_hashes['registry_package_sha256'] != expected_sha
+              or smoke_hashes['nested_manifest_sha256']
+                 != attestation.get('installed_release_manifest_sha256')
+              or smoke_hashes['stable_index_sha256'] != exact['stable_index_sha256']
+              or smoke_hashes['stable_index_signature_sha256']
+                 != hashlib.sha256(Path(
+                     '/tmp/storyclaw-target/qingshan-storyclaw-stable-index.json.sig'
+                 ).read_bytes()).hexdigest()
+              or smoke_hashes['release_public_key_sha256'] != exact['signing_key_sha256']
+              or smoke_hashes['source_archive_sha256'] != target['source_archive_sha256']
+          ):
+              raise SystemExit('canary, smoke and formal package bindings differ')
+          published_version = str(attestation.get('published_registry_version') or '')
+          previous_version = attestation.get('previous_registry_version')
+          version_re = __import__('re').compile(r'^(\d{4})\.(\d{2})\.(\d{2})-([1-9]\d*)$')
+          def version_key(value):
+              match = version_re.fullmatch(str(value or ''))
+              if not match:
+                  raise SystemExit('TalentHub registry version invalid')
+              key = tuple(int(part) for part in match.groups())
+              if not 1 <= key[1] <= 12 or not 1 <= key[2] <= 31:
+                  raise SystemExit('TalentHub registry version invalid')
+              return key
+          published_key = version_key(published_version)
+          if previous_version is not None and published_key <= version_key(previous_version):
+              raise SystemExit('TalentHub formal registry version did not advance')
+          registry_manifest_url = 'https://app.storyclaw.com/api/talenthub/registry/ai-drama-factory'
+          with urllib.request.urlopen(registry_manifest_url, timeout=60) as response:
+              public_manifest = json.load(response)
+          if (
+              public_manifest.get('id') != 'ai-drama-factory'
+              or public_manifest.get('version') != published_version
+              or str(public_manifest.get('zip_url') or '').split('?', 1)[0] != package_url.split('?', 1)[0]
+          ):
+              raise SystemExit('TalentHub public manifest readback mismatch')
+          if type(expected_size) is not int or expected_size <= 0 or expected_size > 50 * 1024 * 1024:
+              raise SystemExit('TalentHub package size invalid')
+          with urllib.request.urlopen(package_url, timeout=60) as response:
+              package = response.read(expected_size + 1)
+          if len(package) != expected_size or hashlib.sha256(package).hexdigest() != expected_sha:
+              raise SystemExit('TalentHub registry package bytes differ from signed attestation')
+          with zipfile.ZipFile(io.BytesIO(package)) as zipped:
+              entries = zipped.infolist()
+              if len(entries) > 2048:
+                  raise SystemExit('TalentHub registry package has too many entries')
+              if any(
+                  entry.file_size < 0
+                  or entry.file_size > 16 * 1024 * 1024
+                  or entry.compress_size < 0
+                  or entry.compress_size > 16 * 1024 * 1024
+                  for entry in entries
+              ) or sum(entry.file_size for entry in entries) > 64 * 1024 * 1024:
+                  raise SystemExit('TalentHub registry package expanded size invalid')
+              names = [entry.filename for entry in entries if not entry.is_dir()]
+              if len(names) != len(set(names)) or any(
+                  PurePosixPath(name).is_absolute() or '..' in PurePosixPath(name).parts
+                  for name in names
+              ):
+                  raise SystemExit('TalentHub registry package layout invalid')
+              manifest_name = 'skills/qingshan-nalu/RELEASE_MANIFEST.json'
+              if manifest_name not in names:
+                  raise SystemExit('TalentHub registry package release manifest missing')
+              manifest_entry = zipped.getinfo(manifest_name)
+              if (
+                  manifest_entry.file_size <= 0
+                  or manifest_entry.file_size > 2 * 1024 * 1024
+                  or manifest_entry.compress_size > 2 * 1024 * 1024
+              ):
+                  raise SystemExit('TalentHub registry release manifest size invalid')
+              manifest_bytes = zipped.read(manifest_name)
+          if hashlib.sha256(manifest_bytes).hexdigest() != attestation.get('installed_release_manifest_sha256'):
+              raise SystemExit('TalentHub registry release manifest digest mismatch')
+          manifest = json.loads(manifest_bytes)
+          manifest_exact = {
+              'schema': 'qingshan.storyclaw.talenthub.release.v1',
+              'agent_id': 'ai-drama-factory',
+              'skill': 'qingshan-nalu',
+              'release_tag': os.environ['TARGET_TAG'],
+              'git_commit': target['git_commit'],
+              'release_sequence': target['release_sequence'],
+              'source_archive_sha256': target['source_archive_sha256'],
+              'release_channel_sha256': target['release_channel_sha256'],
+              'validation_receipt_status': 'PASS',
+          }
+          if any(manifest.get(k) != v for k, v in manifest_exact.items()):
+              raise SystemExit('TalentHub registry release manifest identity mismatch')
+          PY
+          fi
+      - name: Commit signed stable pointer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_TAG: ${{ inputs.target_tag }}
+        run: |
+          set -euo pipefail
+          TARGET_COMMIT="$(git rev-parse --verify "refs/tags/$TARGET_TAG^{commit}")"
+          if ! gh release view storyclaw-stable-channel --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create storyclaw-stable-channel --repo "$GITHUB_REPOSITORY" \
+              --target "$TARGET_COMMIT" --title 'StoryClaw stable channel' \
+              --notes 'Signed NALU stable pointer. This tag is not an engine source ref.'
+          fi
+          gh release upload storyclaw-stable-channel --repo "$GITHUB_REPOSITORY" \
+            /tmp/storyclaw-target/qingshan-storyclaw-stable-index.json \
+            /tmp/storyclaw-target/qingshan-storyclaw-stable-index.json.sig --clobber
+          mkdir -p /tmp/storyclaw-readback
+          gh release download storyclaw-stable-channel --repo "$GITHUB_REPOSITORY" \
+            --pattern qingshan-storyclaw-stable-index.json \
+            --pattern qingshan-storyclaw-stable-index.json.sig \
+            --dir /tmp/storyclaw-readback
+          cmp /tmp/storyclaw-target/qingshan-storyclaw-stable-index.json \
+            /tmp/storyclaw-readback/qingshan-storyclaw-stable-index.json
+          cmp /tmp/storyclaw-target/qingshan-storyclaw-stable-index.json.sig \
+            /tmp/storyclaw-readback/qingshan-storyclaw-stable-index.json.sig
+          echo '### StoryClaw stable promotion' >> "$GITHUB_STEP_SUMMARY"
+          echo "Promoted validated business release \`$TARGET_TAG\`." >> "$GITHUB_STEP_SUMMARY"

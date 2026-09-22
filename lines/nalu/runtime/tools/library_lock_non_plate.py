@@ -42,7 +42,8 @@ from __future__ import annotations
 import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
-from nalu_series_scope import resolve_scope
+import nalu_series_scope as _series_scope
+import nalu_media_tools as _media
 
 import argparse
 import hashlib
@@ -58,7 +59,6 @@ from typing import Any
 ENGINE = Path(f"{_np.ENGINE_ROOT}")
 RUNTIME = Path(f"{_np.RUNTIME_ROOT}")
 WORK_ROOT = Path(os.environ.get("NALU_WORK_ROOT", str(ENGINE / "workflow/nalu"))).resolve()
-FFPROBE = "/opt/homebrew/bin/ffprobe"
 SCHEMA = "nalu.non_plate_library_lock.v1"
 
 LOCATION_TO_ROOM = {
@@ -93,7 +93,7 @@ def write_json(path: Path, payload: Any) -> None:
 
 def ffprobe(path: Path) -> dict[str, Any]:
     out = subprocess.run(
-        [FFPROBE, "-v", "error", "-select_streams", "a:0", "-show_entries",
+        [_media.require_ffprobe(), "-v", "error", "-select_streams", "a:0", "-show_entries",
          "stream=codec_name,sample_rate,channels:format=duration", "-of", "json", str(path)],
         capture_output=True, text=True, check=False)
     if out.returncode != 0:
@@ -105,22 +105,47 @@ def ffprobe(path: Path) -> dict[str, Any]:
             "duration_seconds": float((data.get("format") or {}).get("duration") or 0.0)}
 
 
+def resolve_runtime_authorities(episode: str) -> dict[str, Any]:
+    """Resolve reusable authorities without allowing cross-series fallbacks.
+
+    Asset and identity state is always series-scoped.  Voice remains the
+    explicitly shared historical runtime authority for the default NALU scope;
+    a foreign series must declare and receives its own voice registry.
+    """
+    scope = _series_scope.resolve_scope(episode)
+    config = _series_scope.load_config()
+    declared = ((config.get("scopes") or {}).get(scope["scope_id"]) or {})
+    voice_is_declared = "voice_registry" in declared
+    default_voice = RUNTIME / "runtime/voice_registry.json"
+    return {
+        "scope": scope,
+        "asset_library": Path(scope["asset_library"]),
+        "asset_library_seed": Path(scope["asset_library_seed"]),
+        "voice_registry": (Path(scope["voice_registry"]) if voice_is_declared
+                           else default_voice),
+        "voice_registry_policy": ("DECLARED_SERIES_SCOPE_AUTHORITY"
+                                  if voice_is_declared
+                                  else "DEFAULT_SCOPE_SHARED_RUNTIME_AUTHORITY"),
+    }
+
+
 class Ctx:
     def __init__(self, episode: str, rights_basis: str) -> None:
         self.episode = episode
         self.rights_basis = rights_basis
-        # Resolve every registry through the episode scope.  Falling back to
-        # the historical default registry makes isolated Qingshan episodes
-        # appear to have no voices and can leak another production's assets.
-        self.scope = resolve_scope(episode)
+        authorities = resolve_runtime_authorities(episode)
+        self.scope = authorities["scope"]
+        self.scope_id = str(self.scope["scope_id"])
+        self.series_id = str(self.scope["series_id"])
         self.requirements_path = RUNTIME / "preproduction" / episode / "asset_requirements.json"
-        # Episode artifacts must follow the isolated work root.  Falling back
-        # to ENGINE/workflow/nalu silently mixed E59 with the legacy line.
+        # Episode artifacts follow the (optionally isolated) work root, never a mixed legacy tree.
         self.library_path = WORK_ROOT / episode / "identity/asset_library.json"
-        self.runtime_library_path = (RUNTIME / "runtime/asset_library.json") if self.scope.get("is_default") else None
+        self.runtime_library_path = authorities["asset_library"]
+        self.runtime_library_seed_path = authorities["asset_library_seed"]
         self.gsm_path = RUNTIME / "preproduction" / episode / "global_space_map.json"
         self.contract_path = ENGINE / "workflow/claude_writer_agent/scripts" / f"{episode}_GENERATION_CONTRACT_v1.json"
-        self.voice_registry_path = Path(self.scope["voice_registry"])
+        self.voice_registry_path = authorities["voice_registry"]
+        self.voice_registry_policy = authorities["voice_registry_policy"]
         self.speech_payloads_path = WORK_ROOT / episode / "voice/speech_task_payloads.json"
         self.voice_upload_dir = WORK_ROOT / episode / "voice/uploads"
         self.reviews_dir = RUNTIME / "runtime/reviews" / episode
@@ -128,9 +153,22 @@ class Ctx:
 
         self.requirements = load_json(self.requirements_path)
         self.library = load_json(self.library_path)
-        self.runtime_library = (load_json(self.runtime_library_path)
-                                if self.runtime_library_path and self.runtime_library_path.is_file()
-                                else None)
+        if self.runtime_library_path.is_file():
+            self.runtime_library = load_json(self.runtime_library_path)
+        elif self.runtime_library_seed_path.is_file():
+            # Seed only from this declared series.  ``run_lock`` materialises the
+            # copy at runtime_library_path after adding this episode's evidence.
+            self.runtime_library = deepcopy(load_json(self.runtime_library_seed_path))
+        else:
+            self.runtime_library = None
+        for label, library, path in (
+            ("episode", self.library, self.library_path),
+            ("series", self.runtime_library, self.runtime_library_path),
+        ):
+            if library is not None and str(library.get("project_id") or "") != self.series_id:
+                raise SystemExit(
+                    f"{label.upper()}_ASSET_LIBRARY_PROJECT_MISMATCH:{path}:"
+                    f"{library.get('project_id')}!={self.series_id}")
         self.gsm = load_json(self.gsm_path)
         self.contract = load_json(self.contract_path)
         self.contract_sha = sha256_file(self.contract_path)
@@ -344,7 +382,7 @@ def lock_voice(ctx: Ctx, row: dict[str, Any]) -> dict[str, Any]:
     lock = {"owner_character_id": owner, "language": spec.get("language"), "accent_id": spec.get("accent_id"),
             "provider_voice_id": voice_id, "provider_voice_name": ((task or {}).get("request") or {}).get("voice_name"),
             "provider": "AGENTCUT_AGENTCUT-SPEECH-001_MINMAX",
-            "native_dialogue_eligible": "SD2_NATIVE_DIALOGUE_WITH_VOICE_REFERENCE (SUPERVISOR_ORDERS seq=3 c1/c4)",
+            "native_dialogue_eligible": "SD2_NATIVE_DIALOGUE_WITH_VOICE_REFERENCE (ENGINE_FORMAT_CONTRACT)",
             "remote_asset_id": (reg or {}).get("remote_asset_id"), "remote_url": (reg or {}).get("remote_url"),
             "timbre_brief": spec.get("timbre_brief")}
     artifacts = ([{"role": "VOICE_REFERENCE_WAV", "media_type": "audio/wav", "path": str(wav), "sha256": wav_sha,
@@ -356,7 +394,7 @@ def lock_voice(ctx: Ctx, row: dict[str, Any]) -> dict[str, Any]:
                    "uuid": receipt.get("uuid")},
                   {"kind": "SPEECH_TASK_PAYLOAD", "path": str(ctx.speech_payloads_path), "voice_id": voice_id}]
     return finish(row, lock=lock, artifacts=artifacts, provenance=provenance,
-                  rights_basis=ctx.rights_basis + " ｜ 配音：seq=3 c4 授权生产线自动生成参考音（R-5 声音版权证据仍在 Roger 侧）",
+                  rights_basis=ctx.rights_basis,
                   checks=checks, note="voice reference generated by AgentCut, normalised by ffmpeg, uploaded to Giggle")
 
 
@@ -423,7 +461,7 @@ def lock_reference(ctx: Ctx, row: dict[str, Any]) -> dict[str, Any]:
     lock = {"usage_scope": spec.get("usage_scope"), "path": str(path), "sha256": sha}
     artifacts = [{"role": kind or "REFERENCE_DOCUMENT", "media_type": media, "path": str(path), "sha256": sha}] if sha else []
     provenance = [{"kind": "FILE_ON_DISK", "path": str(path), "sha256": sha}]
-    basis = ctx.rights_basis + (" ｜ 原著改编授权由 Roger 线下解决，引擎不核验（seq=3 c7）" if kind == "SOURCE_CHAPTER" else "")
+    basis = ctx.rights_basis
     return finish(row, lock=lock, artifacts=artifacts, provenance=provenance, rights_basis=basis,
                   checks=checks, note="reference material locked on the file itself")
 
@@ -433,7 +471,7 @@ def lock_declared_audio(ctx: Ctx, category: str, row: dict[str, Any]) -> dict[st
     audio = ctx.contract.get("audio_contract") or {}
     shots = {s.get("shot_id") for s in ctx.contract.get("shots") or []}
     lock: dict[str, Any] = {"realization": "SD2_NATIVE_AUDIO_NO_SEPARATE_ASSET",
-                            "realization_note": "本线为 SD2 原生音频（seq=3 c1）；此行锁定的是已授权的声音规格，可听结果在 S6 生成后 QA（audio_stream / av_sync / dialogue gate）逐单元量测。"}
+                            "realization_note": "SD2 原生音频；此行只锁定声音规格，可听结果在 S6 生成后由 audio_stream / av_sync / dialogue gate 逐单元量测。"}
     checks: list[dict[str, Any]] = []
     if category == "ambience":
         scene = spec.get("scene_scope")
@@ -544,7 +582,13 @@ def run_lock(ctx: Ctx, report_path: Path, force: bool) -> dict[str, Any]:
         ctx.runtime_library["updated_at"] = utc_now()
         write_json(ctx.runtime_library_path, ctx.runtime_library)
         libraries.append(str(ctx.runtime_library_path))
-    report = {"schema": SCHEMA, "episode": ctx.episode, "recorded_at": utc_now(), "recorded_by": "library_lock_non_plate.v1",
+    report = {"schema": SCHEMA, "episode": ctx.episode,
+              "series_scope_id": ctx.scope_id, "series_id": ctx.series_id,
+              "asset_library_authority": str(ctx.runtime_library_path),
+              "asset_library_seed": str(ctx.runtime_library_seed_path),
+              "voice_registry_authority": str(ctx.voice_registry_path),
+              "voice_registry_policy": ctx.voice_registry_policy,
+              "recorded_at": utc_now(), "recorded_by": "library_lock_non_plate.v1",
               "decision": "D-15", "libraries": libraries, "rights_basis": ctx.rights_basis,
               "identity_review": (ctx.identity_review or {}).get("_path"),
               "status": "PASS" if not failures else "FAIL",
@@ -564,7 +608,11 @@ def main() -> int:
     lock.add_argument("--force", action="store_true", help="re-lock rows that are already LOCKED")
     args = parser.parse_args()
     ctx = Ctx(args.episode, args.rights_basis)
-    report = run_lock(ctx, Path(args.report), args.force)
+    try:
+        report = run_lock(ctx, Path(args.report), args.force)
+    except _media.MediaToolBlocked as exc:
+        print(str(exc), file=sys.stderr)
+        return 3
     print(json.dumps({k: report[k] for k in ("status", "locked_count", "failed_count", "failures")}, ensure_ascii=False))
     return 0 if report["status"] == "PASS" else 2
 

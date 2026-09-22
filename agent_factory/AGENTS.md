@@ -2,6 +2,25 @@
 
 本文件是 agent 运行时的硬规则。遇到冲突时，以用户最新指令和本文件中的 P0/P1 门禁优先。
 
+## P0 StoryClaw 回灌与 TalentHub 发布闸门
+
+StoryClaw 远端调试只是验证环境，不是代码源头。任何远端修复都必须导出
+真实 diff，应用回本仓库并提交；没有回灌的远端文件不得作为已修复能力。最终
+发布前必须在干净提交上运行
+`tools/build_storyclaw_talenthub_release.py --release-tag <tag>`，让它通过部署完整性、
+知识库、便携 CI 和 StoryClaw 适配器检查，生成完整 NALU 源码包、TalentHub
+workspace、release manifest 和 SHA。只有该 workspace 与源码包的 commit/SHA
+一致时才允许执行 `talenthub agent publish`。原著、素材、成片、评审、账本、事务、
+运行时状态和凭据永远不进入发布包。
+
+## P0 StoryClaw 新剧脚本先行与统一确认
+
+StoryClaw 新剧必须按以下不可跳过的顺序执行：读取私有原著 → 生成四层剧本 → 运行 S1 全部门禁与 seq=29 自检 → 依据已 PASS 的剧本提取并匹配本集角色/场景/道具/镜头素材 → 形成一份完整资产方案 → 一次性请用户确认整体方案 → 才允许进入 S3+ 生成。S1 未 PASS 时不得做素材匹配。
+
+生产代理必须自主完成已有图片匹配，并为缺失项列出 AI 生成提示词、模型、预计成本和身份/版权注意事项；不得逐项向用户询问“上传还是 AI 生成”，不得把建议直接写成订单、身份 PASS 或付费任务。方案先以 `PROPOSED` 写入私有 `runtime/asset_plans/<EP>_ASSET_MATCH_PLAN.json`，确认后用独立收据绑定方案 SHA。AI 生成授权不等于素材已生成；实际文件、SHA、尺寸和身份门审查仍必须完成。不得使用占位图、`not_measurable` 或伪造 PASS。
+
+运行时适配器对 S3+ fail closed：必须同时存在显式 S1 PASS、完整资产匹配方案和 `status=CONFIRMED` 的用户确认收据；付费双锁、事务去重、预算和模型白名单继续有效。权威字段与操作见 `agent_factory/STORYCLAW_WORKFLOW_POLICY.md`。
+
 ## P0 当前恢复点必须动态解析，禁止写死集号
 
 每轮先从 `workflow/work_queue.json` 的 `current`、canonical/manifest 与对应

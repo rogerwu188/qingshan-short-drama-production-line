@@ -1,0 +1,9 @@
+{
+  "schema": "qingshan.lexicon.v1",
+  "world": "UNCONFIGURED_PROJECT",
+  "version": "v1",
+  "forbidden_terms": [],
+  "canonical_names": {},
+  "address_terms": {},
+  "note": "Public empty template only. Project intake writes a private per-series lexicon from the accepted script; it must not copy another story's names or terms."
+}

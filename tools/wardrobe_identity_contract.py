@@ -76,8 +76,9 @@ def _visible_humans(unit: dict[str, Any]) -> list[str]:
 
 def _normalize_row(row: dict[str, Any], *, source_id: str) -> dict[str, str]:
     normalized = {field: _text(row.get(field)) for field in REQUIRED_FIELDS}
-    normalized["authored_description"] = _text(row.get("authored_description"))
     missing = [field for field, value in normalized.items() if not value]
+    # optional composite description (V4); never a required field
+    normalized["authored_description"] = _text(row.get("authored_description"))
     # V4 wardrobe entries may intentionally carry one authoritative composite
     # description while leaving itemized fields null (the nulls mean "not
     # decided", not "use a generic default").  Preserve that contract rather

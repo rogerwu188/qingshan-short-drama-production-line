@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Read-only per-episode credit budget guard for the nalu line.
 
-Standing order: SUPERVISOR_ORDERS.json seq=3, condition 2
-`BUDGET_CAP_8000_PER_EPISODE`, severity HARD_STOP — image + video + audio for
-one episode must total <= 8000 credits, and the orchestrator must estimate
-against the ledger BEFORE submitting, stopping and escalating instead of
-silently degrading quality or skipping a gate.
+The deployment passes a per-episode cap on every check. Severity is HARD_STOP:
+image + video + audio for one episode must stay within that cap, and the
+orchestrator must estimate against the ledger BEFORE submitting, stopping and
+escalating instead of silently degrading quality or skipping a gate. The cap
+does not itself authorize paid work; the source-receipted line-owner order is
+validated separately by ``materialize_paid_authorization.py``.
 
 Built on the engine, not duplicating it
 ---------------------------------------
@@ -92,6 +93,18 @@ SETTLED_TRANSACTION_STATES = {"SUBMITTED_TASK_ID_BOUND", "VERIFIED_ZERO_RETRYABL
 
 VIDEO_TRANSACTION_DIRNAME = "giggle_video_submit_transactions"
 IMAGE_TRANSACTION_DIRNAME = "giggle_submit_transactions"
+BGM_PROVISIONAL_CREDITS_PER_TASK = Decimal("8")
+BGM_PROVISIONAL_STATES = {
+    "SUBMITTED_TASK_ID_BOUND",  # legacy provider
+    "TASK_ID_BOUND_QUERY_PENDING",
+    "TASK_ID_BOUND_COMPLETED_DOWNLOAD_PENDING",
+}
+BGM_UNRESOLVED_STATES = {
+    "INTENT_RECORDED",
+    "RESPONSE_LOST",
+    "TERMINAL_FAILED",
+    "PROVIDER_FAILED",
+}
 
 
 def utc_now() -> str:
@@ -279,7 +292,9 @@ def _iter_task_json(root: Path):
             continue
 
 
-def scan_non_video_spend(episode: str) -> dict[str, Any]:
+def scan_non_video_spend(
+    episode: str, *, bgm_transactions_dir: Path | None = None
+) -> dict[str, Any]:
     """Image and audio spend from the durable transaction / receipt stores.
 
     Three independent evidence layers, deliberately reported separately because
@@ -378,13 +393,33 @@ def scan_non_video_spend(episode: str) -> dict[str, Any]:
     # label is carried so the leg is never mistaken for the exact method).  Separate store → additive.
     bgm_total = Decimal("0")
     bgm_rows: list[dict[str, Any]] = []
-    bgm_unknown = 0
-    for path in sorted((tasks_root / "giggle_bgm_transactions" / episode).glob("*.json")):
+    bgm_provisional_total = Decimal("0")
+    bgm_provisional_rows: list[dict[str, Any]] = []
+    bgm_unresolved_rows: list[dict[str, Any]] = []
+    bgm_dir = bgm_transactions_dir or (tasks_root / "giggle_bgm_transactions" / episode)
+    for path in sorted(bgm_dir.glob("*.json")):
         try:
             payload = load_json(path)
         except (OSError, json.JSONDecodeError):
             continue
-        if not isinstance(payload, dict) or payload.get("state") != "COMPLETED":
+        if not isinstance(payload, dict):
+            continue
+        state = str(payload.get("state") or "UNKNOWN")
+        if state in BGM_PROVISIONAL_STATES:
+            bgm_provisional_total += BGM_PROVISIONAL_CREDITS_PER_TASK
+            bgm_provisional_rows.append({
+                "source": str(path), "task_id": payload.get("task_id"),
+                "state": state, "reserved_credits": number(BGM_PROVISIONAL_CREDITS_PER_TASK),
+                "status": "PROVISIONAL_TASK_BOUND_AWAITING_S7_RECONCILIATION",
+            })
+            continue
+        if state in BGM_UNRESOLVED_STATES:
+            bgm_unresolved_rows.append({"source": str(path), "task_id": payload.get("task_id"),
+                                        "state": state})
+            continue
+        if state not in {"COMPLETED", "TERMINAL_COMPLETED"}:
+            bgm_unresolved_rows.append({"source": str(path), "task_id": payload.get("task_id"),
+                                        "state": state})
             continue
         credits = (payload.get("credit") or {}).get("net_charged_credits")
         if isinstance(credits, (int, float)):
@@ -393,7 +428,16 @@ def scan_non_video_spend(episode: str) -> dict[str, Any]:
                              "statement_status": (payload.get("credit") or {}).get("statement_status"),
                              "isolation": (payload.get("credit") or {}).get("isolation")})
         else:
-            bgm_unknown += 1
+            # S6 has completed this paid task but S7 has not fetched its
+            # statement yet.  Reserve the observed per-task price so a later
+            # paid check cannot undercount it; S7 replaces this reservation
+            # with the exact/window-isolated credit evidence.
+            bgm_provisional_total += BGM_PROVISIONAL_CREDITS_PER_TASK
+            bgm_provisional_rows.append({
+                "source": str(path), "task_id": payload.get("task_id"),
+                "state": state, "reserved_credits": number(BGM_PROVISIONAL_CREDITS_PER_TASK),
+                "status": "PROVISIONAL_COMPLETED_AWAITING_S7_RECONCILIATION",
+            })
 
     bound_image_upper = Decimal(len(bound_image_task_ids)) * Decimal(str(
         UNIT_PRICES["image_gpt_image_2_pro"]["hard_upper"]
@@ -401,7 +445,7 @@ def scan_non_video_spend(episode: str) -> dict[str, Any]:
     return {
         "per_task_credits": number(per_task),
         "per_task_rows": per_task_rows,
-        "successful_attempts_with_unknown_cost": unknown_success + bgm_unknown,
+        "successful_attempts_with_unknown_cost": unknown_success,
         "batch_reconciled_credits": number(batch_total),
         "batch_rows": batch_rows,
         "bound_image_transaction_count": len(bound_image_task_ids),
@@ -409,13 +453,17 @@ def scan_non_video_spend(episode: str) -> dict[str, Any]:
         "bound_image_transaction_rows": bound_image_rows,
         "bgm_credits": number(bgm_total),
         "bgm_rows": bgm_rows,
+        "bgm_provisional_credits": number(bgm_provisional_total),
+        "bgm_provisional_rows": bgm_provisional_rows,
+        "bgm_unresolved_transactions": bgm_unresolved_rows,
+        "bgm_transactions_dir": str(bgm_dir),
         "double_count_policy": (
             "per_task, batch-reconciliation, and accepted image-transaction layers are reported "
             "separately and the largest is used as the non-video subtotal. The transaction layer "
             "uses the observed image hard upper, so it cannot undercount receipts stored outside "
             "the engine clone; summing the layers would double count."
         ),
-        "subtotal_credits": number(max(per_task, batch_total, bound_image_upper) + bgm_total),
+        "subtotal_credits": number(max(per_task, batch_total, bound_image_upper) + bgm_total + bgm_provisional_total),
     }
 
 
@@ -477,12 +525,15 @@ def build_report(
     balance: dict[str, Any] | None,
     voice_registry: Path | None,
     strict: bool,
+    bgm_transactions_dir: Path | None = None,
 ) -> dict[str, Any]:
     from tools.episode_video_generation_guard import evaluate_episode_credit_gate  # noqa: PLC0415
 
     video = evaluate_episode_credit_gate(episode)
     video_credits = Decimal(str(video.get("actual_charged_credits_known_total") or 0))
-    non_video = scan_non_video_spend(episode)
+    non_video = scan_non_video_spend(
+        episode, bgm_transactions_dir=bgm_transactions_dir
+    )
     non_video_credits = Decimal(str(non_video["subtotal_credits"]))
     voices = scan_voice_registry_spend(voice_registry)
     transactions = scan_transaction_states(episode)
@@ -503,6 +554,10 @@ def build_report(
         failures.append(
             f"NON_VIDEO_SUCCESSFUL_SPEND_WITH_UNKNOWN_COST:{non_video['successful_attempts_with_unknown_cost']}"
         )
+    if non_video["bgm_unresolved_transactions"]:
+        failures.append(
+            f"BGM_UNRESOLVED_TRANSACTIONS:{len(non_video['bgm_unresolved_transactions'])}"
+        )
     if transactions["unresolved_transactions"]:
         failures.append(f"UNRECONCILED_TRANSACTIONS:{len(transactions['unresolved_transactions'])}")
     if video.get("status") != "PASS":
@@ -515,7 +570,10 @@ def build_report(
         "schema": SCHEMA,
         "episode": episode,
         "recorded_at_utc": utc_now(),
-        "authority": "SUPERVISOR_ORDERS.json seq=3 condition 2 BUDGET_CAP_8000_PER_EPISODE (HARD_STOP)",
+        "authority": (
+            "RUNTIME_CONFIGURED_EPISODE_CAP (HARD_STOP; paid provider access "
+            "is separately validated against a source-receipted line-owner order)"
+        ),
         "cap_credits": cap,
         "status": status,
         "failures": failures,
@@ -529,6 +587,8 @@ def build_report(
             "accounting_complete": (
                 bool(video.get("actual_total_complete"))
                 and not non_video["successful_attempts_with_unknown_cost"]
+                and not non_video["bgm_provisional_rows"]
+                and not non_video["bgm_unresolved_transactions"]
                 and not transactions["unresolved_transactions"]
             ),
         },
@@ -576,11 +636,19 @@ def main() -> int:
     parser.add_argument("--env-file", default=str(DEFAULT_ENV_FILE))
     parser.add_argument("--ledger", default=str(DEFAULT_LEDGER))
     parser.add_argument("--voice-registry", default=os.environ.get("QINGSHAN_VOICE_REGISTRY") or "")
+    parser.add_argument(
+        "--bgm-transactions-dir",
+        type=Path,
+        help=("absolute private BGM transaction directory. Current portable runs pass "
+              "<workflow/tasks/giggle_bgm_transactions>/<scope>/<episode>; omission is legacy replay only."),
+    )
     parser.add_argument("--out", help="Also write this run's report here (the ledger always gets an entry).")
     parser.add_argument("--strict-balance", action="store_true", help="Treat a failed balance request as a blocking failure.")
     args = parser.parse_args()
 
     episode = episode_key(args.episode)
+    if args.bgm_transactions_dir is not None and not args.bgm_transactions_dir.is_absolute():
+        raise SystemExit("--bgm-transactions-dir must be an absolute private path")
     planned = Decimal(str(args.planned_credits)) if args.planned_credits is not None else None
     if args.check and planned is None:
         raise SystemExit("--check requires --planned-credits (use 0 to audit recorded spend only)")
@@ -600,6 +668,7 @@ def main() -> int:
         balance=balance,
         voice_registry=Path(args.voice_registry) if args.voice_registry else None,
         strict=args.strict_balance,
+        bgm_transactions_dir=args.bgm_transactions_dir,
     )
     report["mode"] = "CHECK" if args.check else "RECORD"
     report["network_calls_made"] = 1 if args.refresh_balance else 0

@@ -151,10 +151,10 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 
 ### K018 — RELEASE
 
-- 规则：内置浏览器三次失败后使用已连接外部浏览器；先查重再上传。
-- 失败教训：浏览器操作失败被误称为等待额外内容审核。
-- 修复路径：复用平台策略；登录/安全权限是真边界；自动发布权限来自本部署操作者。
-- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json](../../configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json)
+- 规则：公共 NALU Agent 在 S8 检查点交付后停止；任何平台上传都必须由安装者另行明确发起。
+- 失败教训：把某个私有部署的长期发布授权打进通用包，会让新安装错误继承外部发布权限。
+- 修复路径：发布包只交付成片、QA、账本和检查点；不携带平台账号、自动上传策略或历史发布回执。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[agent_factory/storyclaw_portable/AGENTS.md](../../agent_factory/storyclaw_portable/AGENTS.md)
 
 ### K019 — PLUGIN
 
@@ -435,7 +435,7 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - 规则：世界观词表：LEXICON_<world>_v1.json（禁用词、人名标准写法、称谓表）；S1 扫台词，成片扫 ASR + 字幕 + OCR。
 - 失败教训：E04 古装第一句台词出现『变异生物』；字幕『铭哥』与转写『秦明』人名用字不一。
 - 修复路径：check_lexicon + final_cut_audience_detectors::lexicon_violation。
-- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/script_structure_contract_gate.py](../../tools/script_structure_contract_gate.py)、[tools/final_cut_audience_detectors.py](../../tools/final_cut_audience_detectors.py)、[lines/nalu/runtime/configs/LEXICON_yewujiang_v1.json](../../lines/nalu/runtime/configs/LEXICON_yewujiang_v1.json)（E04 成片作为负样本回归通过；自动判定做不到的项在检测器里标 NOT_IMPLEMENTED）
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/script_structure_contract_gate.py](../../tools/script_structure_contract_gate.py)、[tools/final_cut_audience_detectors.py](../../tools/final_cut_audience_detectors.py)、[lines/nalu/runtime/configs/LEXICON_portable_template_v1.json](../../lines/nalu/runtime/configs/LEXICON_portable_template_v1.json)（每个项目由剧本生成自己的私有词表；自动判定做不到的项在检测器里标 NOT_IMPLEMENTED）
 - 证据：nalu PIPELINE_RUNBOOK D-40/D-41
 
 ### K052 — pipeline
@@ -507,6 +507,56 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - 修复路径：写手层自检（SETUPS/RESULT_OF/动作词表/blocking_signature）不过不进 S2；S7 在观众检测器之前跑 parity 诊断，结果进 CHECKPOINT。
 - 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[lines/nalu/runtime/tools/final_cut_shot_plan_parity.py](../../lines/nalu/runtime/tools/final_cut_shot_plan_parity.py)、[lines/nalu/runtime/tools/nalu_pipeline.py](../../lines/nalu/runtime/tools/nalu_pipeline.py)（回归：[tools/tests/test_nalu_e05_sync.py](../../tools/tests/test_nalu_e05_sync.py)）
 - 证据：nalu PIPELINE_RUNBOOK D-51/D-54; SUPERVISOR_ORDERS seq=27
+
+### K059 — pipeline
+
+- failure_code：`IDENTITY_SIGNAL_DILUTED_ALONG_CHAIN`（scope episode，类别 IDENTITY）
+- do_not_repeat：牌对原照测；关键帧脸参考打头且大脸；视频单元带头像牌；Q1 不给 3/4 脸豁免
+- 规则：身份链四步各自可证：①身份牌锁定必须对操作者原照片逐牌测余弦（后缀源图也要找到），任一牌 <0.45 重出牌；②关键帧参考序列以正面头像牌打头，全身牌降为服装参考，空间图+场景+道具 ≤5、总数 ≤9；③每个视频单元的参考图 = 关键帧锚点 + 每个在场角色的正面头像牌（上限 9）；④关键帧 Q1 对 3/4、侧脸、低头、转头一律测，只有背影/仅手/出画/远小/画外音豁免，检测不到即 FAIL。
+- 失败教训：E05 全集 14 个室内近景对话单元主角脸走样：身份牌从未与原照比过（源图后缀没被找到，source_cosine 为空）；关键帧 10 张参考里脸只在 1440×2560 全身牌上约 150px；视频付费提交只带 1 张 720p 关键帧（脸约 80px），seq=7 c4 的头像牌追加被『已有关键帧绑定』短路；Q1 把 3/4 脸标 not_measurable 放行。E04 没暴露只因多为背影/远景。
+- 修复路径：identity_qa_lock.find_operator_source + source_likeness_failures；build_keyframe_manifest 角色头像打头 + cap_non_character_bindings；build_nalu_preproduction.identity_plate_reference_rows；keyframe_q1_builder.pose_exempt 闭集。既有 LOCKED 牌按新阈值复测：梁婉清 0.351/0.407 需线主下单重出。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[lines/nalu/runtime/tools/identity_qa_lock.py](../../lines/nalu/runtime/tools/identity_qa_lock.py)、[lines/nalu/runtime/tools/build_keyframe_manifest.py](../../lines/nalu/runtime/tools/build_keyframe_manifest.py)、[lines/nalu/runtime/tools/build_nalu_preproduction.py](../../lines/nalu/runtime/tools/build_nalu_preproduction.py)、[lines/nalu/runtime/tools/keyframe_q1_builder.py](../../lines/nalu/runtime/tools/keyframe_q1_builder.py)（回归：[tools/tests/test_nalu_identity_chain_fixes.py](../../tools/tests/test_nalu_identity_chain_fixes.py)）
+- 证据：nalu PIPELINE_RUNBOOK D-57; E05 library re-measurement 2026-09-18
+
+### K060 — pipeline
+
+- failure_code：`HALF_SECOND_UNIT_VS_INTEGER_PROVIDER_SLOT`（scope episode，类别 DURATION）
+- do_not_repeat：整数槽=上取整；内容与尾柄显式声明并透传；重建后重新走 register→digest→receipts→register
+- 规则：半秒制镜长（seq=29 5a）之下，视频单元的供应商时长槽 = 编辑合计的整数上取整，并显式声明 authorized_content_seconds（裁切长度）与 authorized_tail_handle_seconds（槽 − 内容，≥0.25）；分组计划在引擎分组门之后做投影，编译单元透传这两个字段，付费边界重编与 4.4 编译看到同一整数时长。
+- 失败教训：E06 首次在统一引擎上跑 S6：int(round(6.5)) 是银行家舍入得 6 < 内容 → AUTHORIZED_CONTENT_EXCEEDS_PROVIDER_SLOT；只上取整又触发 DURATION_EXCEEDS_AUTHORIZED_CONTENT（默认尾柄 0.25 < 0.5）；4.4 编译按 6.5 出提示词而付费边界按 7 重编 → 「provider prompt is not the exact output」。三个错误都在同一根源。
+- 修复路径：build_nalu_preproduction.project_provider_slots（分组门之后）+ 交易任务 duration_seconds=ceil、authorized_*；compile_grouped_seedance_manifest.compiled_unit 透传 authorized_*（缺省行为不变）；每次重建后 compile planning → register → digest → receipts → register；半秒单元的最终化收据按机械差异签收（槽头、内容窗口条款、等比拍钟）。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[lines/nalu/runtime/tools/build_nalu_preproduction.py](../../lines/nalu/runtime/tools/build_nalu_preproduction.py)、[tools/compile_grouped_seedance_manifest.py](../../tools/compile_grouped_seedance_manifest.py)；回归：[tools/tests/test_grouped_manifest_duration_authority_passthrough.py](../../tools/tests/test_grouped_manifest_duration_authority_passthrough.py)
+- 证据：nalu PIPELINE_RUNBOOK D-63
+
+### K061 — qa
+
+- failure_code：`SPEECH_RATE_MEASURED_ON_PADDED_SEGMENTS`（scope episode，类别 DIALOGUE）
+- do_not_repeat：先修测量再谈重出；记录 timing_basis；收尾句不当拖沓判
+- 规则：语速门（seq=29 规则 6）必须按词级时间戳求实说时长（word spans 之和），不能用 whisper 分段边界；写明「……」收尾的台词低速是表演，降为记录型 MINOR，钩子句不豁免；阈值本身不动。
+- 失败教训：E06 首轮 22 个对白单元 8 个 BLOCKER：「高等生灵」4 字被算在 0.14–7.71 s 的风声 VAD 段上（0.11），短句落在整 1.00/2.00 s 上；换词级计时后 6 个消失，剩下两句是编剧写明用省略号收尾的台词（陆泽愣住的半句、周长裕哽咽的半句）。若按原测量重出要花约 1000 积分且什么也修不好。
+- 修复路径：post_generation_qa_runner._rate_segments（word_timestamps=True 单独一遍）+ speech_rate_check.measure_unit（timing_basis 记录）+ authored_trailing_off 豁免（seq=31 C 的应用，seq=33 记录）。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[lines/nalu/runtime/tools/speech_rate_check.py](../../lines/nalu/runtime/tools/speech_rate_check.py)、[lines/nalu/runtime/tools/post_generation_qa_runner.py](../../lines/nalu/runtime/tools/post_generation_qa_runner.py)；回归：[tools/tests/test_nalu_seq29_rules.py](../../tools/tests/test_nalu_seq29_rules.py)
+- 证据：nalu PIPELINE_RUNBOOK D-64
+
+### K062 — assembly
+
+- failure_code：`LEVELLER_TARGET_ABOVE_ROLE_CEILING`（scope episode，类别 AUDIO）
+- do_not_repeat：精修目标不出接受带；上限用常量；重跑先停放输出
+- 规则：发布级响度校正的逐单元精修目标 = 角色暂存目标 + 节目增益，但必须钳制在该角色的接受带内（边缘留 0.3 LU）；精修轮数上限 12，停止条件不变。
+- 失败教训：E06 对白占比高，节目增益约 5 dB，DIALOGUE 暂存目标 −18 + 5.08 = −12.9 高于接受上限 −13，6 轮精修把最响的 7 个对白单元反而推到 −12.5…−12.8；上限 6 在代码里写死两处（range(1,7) 与 attempt==6）。
+- 修复路径：level_native_release_audio：MAX_REFINEMENT_PASSES=12；desired 用 ROLE_ACCEPTANCE_RANGES_LUFS 钳制。E06 12 轮收敛：−14.3 LUFS / LRA 6.0 / TP −1.3，0 单元失败。重跑前先把 v1 输出停放（工具拒绝覆盖）。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/level_native_release_audio.py](../../tools/level_native_release_audio.py)、[tools/native_audio_loudness_contract.py](../../tools/native_audio_loudness_contract.py)；回归：[tools/tests/test_nalu_identity_chain_fixes.py](../../tools/tests/test_nalu_identity_chain_fixes.py)
+- 证据：nalu PIPELINE_RUNBOOK D-66
+
+### K063 — pipeline
+
+- failure_code：`BY_DESIGN_POSE_BLOCKS_IDENTITY_GATE`（scope episode，类别 IDENTITY）
+- do_not_repeat：按订单接受、sha 绑定、引擎结果保留；不改阈值、不给可测脸豁免
+- 规则：关键帧 Q1 的身份门（CHARACTER-IDENTITY-ADMISSION）允许线主按订单接受：仅当该单元唯一失败门是身份门、订单（GATE_FAIL_ACCEPTANCE，本集本门）点名每一个失败的 item:character 检测项且关键帧 sha 匹配时，才把单元改为 ADMITTED_BY_LINE_OWNER_ORDER；引擎结果与逐单元 admission_result 各留 .engine.json 副本，接受记录写入 reports/qa/q1/<EP>_ROGER_GATE_ACCEPTANCE.json；从不自发。
+- 失败教训：E06 Q1 在 D-57④ 之下：低头/侧面/远景是导演设计的姿态，余弦 0.29–0.37 不可能过 0.45；自动重出额度 5 次用尽后 6 帧卡死。线主选 C（按设计接受 + 可修的转脸重出）并定为常规。
+- 修复路径：nalu_pipeline.apply_roger_q1_acceptance（S5.q1 每次重算叠加，撤销订单即取消放行）；同形选择按 seq=31 常规由操作员记录（seq=32/33/34），标注待线主会签。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[lines/nalu/runtime/tools/nalu_pipeline.py](../../lines/nalu/runtime/tools/nalu_pipeline.py)、[lines/nalu/runtime/tools/roger_gate_acceptance.py](../../lines/nalu/runtime/tools/roger_gate_acceptance.py)；回归：[tools/tests/test_nalu_q1_roger_acceptance.py](../../tools/tests/test_nalu_q1_roger_acceptance.py)
+- 证据：nalu PIPELINE_RUNBOOK D-61/D-62
 
 ## 引用和许可
 

@@ -23,6 +23,8 @@ from __future__ import annotations
 import argparse, json, sys, datetime
 from pathlib import Path
 
+import nalu_policy_profile as _policy_profile
+
 POLICY = {"locked_share_max": 0.35, "locked_dialogue_seconds_max": 5.0, "same_axis_run_max": 2,
           "authority": "Roger 2026-09-13 + SUPERVISOR_ORDERS seq=7 PACING_E02_PLUS"}
 REPORT_ONLY_EPISODES = {"E01"}
@@ -40,7 +42,7 @@ def _dialogue(shot: dict) -> bool:
     return bool(str(d or "").strip())
 
 
-def evaluate(contract: dict, policy: dict) -> dict:
+def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> dict:
     shots = list(contract.get("shots") or [])
     rows, failures = [], []
     prev_locked = False
@@ -90,7 +92,11 @@ def evaluate(contract: dict, policy: dict) -> dict:
             row["flags"].append("R5_SAME_AXIS_SCALE_RUN")
         prev_key, prev_scene, prev_locked = key, sh.get("scene_id"), locked
         rows.append(row)
-        report_only = str(contract.get("episode") or contract.get("episode_id") or "") in R7R8_REPORT_ONLY_EPISODES
+        report_only = (
+            not current_policy
+            and str(contract.get("episode") or contract.get("episode_id") or "")
+            in R7R8_REPORT_ONLY_EPISODES
+        )
         failures.extend(f"{sid}:{f}" for f in row["flags"]
                         if not (report_only and (f.startswith("R7_") or f.startswith("R8_"))))
     locked_n = sum(1 for r in rows if r["motion_family"] in ("LOCKED", "STATIC", "MISSING"))
@@ -115,11 +121,17 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"UNREADABLE_CONTRACT:{exc}", file=sys.stderr)
         return 2
-    ev = evaluate(contract, policy)
-    mode = "REPORT_ONLY" if a.episode in REPORT_ONLY_EPISODES else "BLOCKING"
+    current_policy = _policy_profile.is_current()
+    ev = evaluate(contract, policy, current_policy=current_policy)
+    mode = (
+        "REPORT_ONLY"
+        if not current_policy and a.episode in REPORT_ONLY_EPISODES
+        else "BLOCKING"
+    )
     status = "PASS" if not ev["failures"] else ("REPORT_ONLY_FAIL" if mode == "REPORT_ONLY" else "BLOCK")
     report = {"schema": "nalu.static_design_gate.v1", "gate_id": "NALU-STATIC-DESIGN-GATE", "episode": a.episode,
-              "contract": str(Path(a.contract).resolve()), "mode": mode, "status": status, "policy": policy,
+              "contract": str(Path(a.contract).resolve()), "mode": mode, "status": status,
+              "policy_profile": _policy_profile.selected(), "policy": policy,
               **ev, "recorded_at_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     Path(a.out).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

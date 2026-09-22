@@ -5,10 +5,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+LEGACY_POLICY = ROOT / "workflow/production_line/THREE_EPISODE_CONCURRENCY_POLICY.json"
+PORTABLE_POLICY = ROOT / "workflow/production_line/PORTABLE_CONCURRENCY_POLICY_TEMPLATE.json"
+
+
+def default_policy_path() -> Path:
+    """Use the fail-closed public template for CURRENT_PORTABLE installs."""
+    if str(os.environ.get("NALU_POLICY_PROFILE") or "").upper() == "CURRENT_PORTABLE":
+        return PORTABLE_POLICY
+    return LEGACY_POLICY if LEGACY_POLICY.is_file() else PORTABLE_POLICY
 
 
 def validate(policy: dict, ledger: dict) -> list[str]:
@@ -69,7 +79,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--policy",
-        default=str(ROOT / "workflow/production_line/THREE_EPISODE_CONCURRENCY_POLICY.json"),
+        default=str(default_policy_path()),
     )
     parser.add_argument(
         "--ledger",

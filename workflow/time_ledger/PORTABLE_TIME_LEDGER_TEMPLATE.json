@@ -1,0 +1,19 @@
+{
+  "schema": "qingshan.episode_time_ledger.v1",
+  "distribution_mode": "PUBLIC_EMPTY_TEMPLATE",
+  "episode_id": "UNASSIGNED",
+  "timezone": "UTC",
+  "updated_at": null,
+  "cycle_type": "NOT_STARTED",
+  "cycle_target_seconds": 0,
+  "current_phase": "NOT_STARTED",
+  "phase_sla_seconds": {
+    "source_submit_to_qa_complete": 2400,
+    "qa_pass_to_edit_bind": 1200,
+    "final_mix_ci_listen": 5400,
+    "environment_blocker_fuse": 900
+  },
+  "events": [],
+  "parallel_lines": [],
+  "note": "Copy this empty template into a private project runtime and assign its episode id. Never write customer production state into the public engine checkout."
+}

@@ -2,7 +2,10 @@
 """video_sheets.py --videos <dir> --out <dir> [--fps 2] [--per-sheet 4] [--w 240]
 2-fps frame strips per unit mp4 (row per unit, up to 16 frames), stacked N units per sheet — what the reviewer
 actually looks at for the post-generation plot review."""
-import argparse, glob, json, os, subprocess, tempfile
+import argparse, glob, json, os, subprocess, sys, tempfile
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import nalu_media_tools as _media
 from PIL import Image, ImageDraw
 ap = argparse.ArgumentParser(); ap.add_argument("--videos", required=True); ap.add_argument("--out", required=True)
 ap.add_argument("--fps", type=float, default=2.0); ap.add_argument("--per-sheet", type=int, default=4); ap.add_argument("--w", type=int, default=240)
@@ -12,10 +15,14 @@ vids = sorted(glob.glob(os.path.join(a.videos, "*.mp4")))
 if a.units: keep = set(a.units.split(",")); vids = [v for v in vids if os.path.basename(v)[:-4] in keep]
 W = a.w; H = int(W * 16 / 9); MAXF = 16
 rows = []
+try:
+    ffmpeg = _media.require_ffmpeg()
+except _media.MediaToolBlocked as exc:
+    raise SystemExit(str(exc)) from None
 for v in vids:
     uid = os.path.basename(v)[:-4]
     with tempfile.TemporaryDirectory() as td:
-        subprocess.run(["/opt/homebrew/bin/ffmpeg", "-loglevel", "error", "-y", "-i", v, "-vf", f"fps={a.fps},scale={W}:-1", os.path.join(td, "f%03d.png")], check=True)
+        subprocess.run([ffmpeg, "-loglevel", "error", "-y", "-i", v, "-vf", f"fps={a.fps},scale={W}:-1", os.path.join(td, "f%03d.png")], check=True)
         frames = sorted(glob.glob(os.path.join(td, "f*.png")))[:MAXF]
         strip = Image.new("RGB", (W * max(1, len(frames)), H + 20), "white"); d = ImageDraw.Draw(strip)
         d.text((4, 4), f"{uid}  {len(frames)} frames @ {a.fps}fps", fill="black")

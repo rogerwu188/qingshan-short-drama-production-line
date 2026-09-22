@@ -166,7 +166,8 @@ def validate_provider_scope_projection(
         if str(row.get("entity_id") or "") not in visible:
             failures.append("PROVIDER_SCOPE_REFERENCE_ENTITY_NOT_VISIBLE:" + str(row.get("entity_id") or "UNKNOWN"))
     episode_no = re.search(r"(?:^|[^A-Z])E(\d+)", str(payload.get("episode") or payload.get("unit_id") or "").upper())
-    prompt_checks_active = bool(episode_no and int(episode_no.group(1)) >= ACTIVE_FROM_EPISODE)
+    # a payload that names no episode (unit tests, ad-hoc compiles) gets the full contract
+    prompt_checks_active = (episode_no is None) or int(episode_no.group(1)) >= ACTIVE_FROM_EPISODE
     if prompt_text is not None and prompt_checks_active:
         # 2026-09-20 (nalu line): these prompt-text checks are part of the projection contract that
         # ACTIVE_FROM_EPISODE governs.  compile_grouped_seedance_manifest.py began attaching a

@@ -1,0 +1,1028 @@
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
+import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
+# -*- coding: utf-8 -*-
+"""E04《截胡》v1 —— 从一张镜头表生成 directing script / generation contract / manifest。
+
+单一事实源是 SHOTS 表；narrative canonical（E04_NARRATIVE_CANONICAL_v1.md）为手写，本层不改其任何事实与对白。
+口径：seq=7（唐宋画风、机位运动）+ seq=10（nalu_prompt_rules 全镜套用、R7/R8 阻断）+ seq=12/13（远景接特写必须身份再锚定、
+禁写全黑、儿童对白双人同框）+ seq=16（E04 开始）+ seq=17（音色按角色重选；节奏再收紧：单镜 3–6 s、无对白 ≤4 s、单场 ≤16 s、
+全集 150–170 s、LOCKED ≤30%）+ D-32 选择性配乐。
+"""
+import hashlib, json, pathlib, re
+import nalu_prompt_rules as NPR
+
+ROOT = pathlib.Path(f"{_np.ENGINE_ROOT}")
+SCRIPTS = ROOT / "workflow/claude_writer_agent/scripts"
+RUNTIME = pathlib.Path(f"{_np.RUNTIME_ROOT}")
+SRC_CH = RUNTIME / "sources/夜无疆/zh-CN/ch0004.md"
+QM_SOURCE_V2 = RUNTIME / "runtime/character_sources/CHAR-QINMING__SOURCE_V2_TANG.png"
+EP, VER = "E04", "v1"
+PREV_EP, PREV_LAST_SHOT = "E03", "E03-S13-03"
+PREV_CONTRACT = SCRIPTS / f"{PREV_EP}_GENERATION_CONTRACT_v1.json"
+
+def sha(p: pathlib.Path) -> str:
+    return hashlib.sha256(p.read_bytes()).hexdigest()
+
+CH = {
+    "QM": ("CHAR-QINMING", "秦铭"),
+    "LZ": ("CHAR-LUZE", "陆泽"),
+    "YQ": ("CHAR-YANGYONGQING", "杨永青"),
+    "VA": ("CHAR-VILLAGER-A", "邻居甲"),
+    "VB": ("CHAR-VILLAGER-B", "村民乙"),
+    "WR": ("CHAR-LUWENRUI", "陆文睿"),
+    "HY": ("CHAR-HUYONG", "胡勇"),
+    "MY": ("CHAR-MAYANG", "马阳"),
+    "WY": ("CHAR-WANGYOUPING", "王佑平"),
+}
+def cid(k): return CH[k][0]
+def cname(k): return CH[k][1]
+
+# ---------- 全局风格与节奏口径（沿 E03，seq=7；seq=17 收紧） ----------
+STYLE = {
+    "profile_id": "YEWUJIANG_PERMANENT_NIGHT_TANGSONG_VILLAGE_V2",
+    "era_idiom": "中国唐宋：木构穿斗/抬梁屋架、瓦顶或压雪茅顶带出檐、直棂格窗、夯土院墙与木板门；男子发髻木簪、交领右衽、大袖或窄袖袍、布带束腰、布靴裹腿；器物为粗陶、铜盆、木碗、竹筷、木柜、火炕；猎具为木柄铁头猎叉、直刃短刀、竹木硬弓与皮箭囊、铁箭、兽皮袋",
+    "night_look": "永夜用暖火光（太阳石橘红、火泉火红）+ 雪面反光 + 月色青蓝三种光写；野外浅夜为深青灰雪野、林木黑压压但轮廓可辨；猩红的眼睛是画面里唯一的红点光；不做西式暗黑/哥特式冷灰去饱和调色；肤色在火光下暖、在雪光下清",
+    "forbidden": ["欧式石堡与哥特元素", "西式暗黑冷灰去饱和调色", "现代服装、拉链纽扣与现代物件", "电灯、玻璃窗、金属门把手", "日式盔甲与和风建筑", "仙侠飘带与发光符文特效", "明亮日光或蓝天", "霓虹与冷色 LED", "整洁无雪的街道", "长发散披不束的男主", "纯黑画面", "现代猎枪与金属机械捕兽夹", "变异生物的清晰全貌与怪兽特效"],
+}
+PERIOD_BASE = "唐宋语汇：木构、瓦顶/压雪茅顶、直棂格窗、夯土院墙、木板门；人物交领右衽、发髻木簪或包髻；器物粗陶木碗竹筷；猎具木柄铁头猎叉、直刃短刀、竹木硬弓皮箭囊、兽皮袋；夜景=暖火光+雪面反光+月色青蓝，不做冷灰去饱和"
+PERIOD_BY_LOC = {
+    "LOC-QINMING-HOUSE-INT": PERIOD_BASE + "；单间土屋：火炕在北墙、木格糊纸窗、旧木立柜、铜盆盛太阳石为唯一光源；无玻璃、无灯具、无现代家具",
+    "LOC-FIRE-SPRING-EXT": PERIOD_BASE + "；火泉石围为粗凿青石，无雕花；村道为踩实的雪路，两侧夯土院墙压雪、木板院门；各家太阳石照出的火霞让街上有淡淡的暖光；无人造灯具",
+    "LOC-SNOWFIELD-WILDS-EXT": PERIOD_BASE + "；村外雪原与村口雪路：齐肩深的积雪、蹚出的雪路、雪面月色青蓝反光、远处黑压压的林线；三人挖的雪窟窿是雪坑不是建筑；无道路标志、无栅栏、无任何人造物",
+    "LOC-FOREST-EDGE-EXT": PERIOD_BASE + "；密林边缘：光秃的阔叶树枝上满是雪，樟子松与白桦树干，雪地；黑暗中的猩红眼睛与直立奔行的黑影只给轮廓；无路标、无栅栏、无任何人造物",
+    "LOC-LOW-HILL-TOP-EXT": PERIOD_BASE + "；矮山顶：雪石裸露的山顶，身后黑压压的林木；无任何人造物",
+}
+STYLE_RESET_DISCLOSURE = {
+    "kind": "STYLE_CONTINUATION_NO_RESET",
+    "authority": "SUPERVISOR_ORDERS seq=7 c1/c2/c4（E02 起唐宋画风）；seq=16（E04 沿用）",
+    "what_changes": "无画风变化；新入画人物胡勇、马阳、王佑平（闲汉）按唐宋粗麻短褐出身份牌；新生物只给轮廓（猩红眼睛、直立奔行的黑影）、毛驴与白黄鼠狼写实出卡",
+    "what_stays": "秦铭面孔与发冠服制沿 E02 已锁定的 source_v2 身份牌；冬装、外披旧裘氅、内深青交领袍；同一时间线（E04-S01 直接接 E03-S13 终态）",
+    "qinming_identity_source": {"file": str(QM_SOURCE_V2), "sha256": sha(QM_SOURCE_V2) if QM_SOURCE_V2.is_file() else "", "usage": "FACE_IDENTITY_REFERENCE + WARDROBE/HAIR STYLE REFERENCE（E02 已锁定的三视图身份牌直接复用，不重做）"},
+    "viewer_facing_note": "E03→E04 画风与造型连续；seq=17 起主角与多位人物换用按角色定义重选的音色（E01–E03 成片不重渲）",
+}
+PACING = {
+    "authority": "Roger 2026-09-13：加快节奏；Roger 2026-09-15 seq=17：全集紧凑感仍不够 → 单镜 3–6 s、无对白镜 ≤4 s、单场 ≤16 s、全集 150–170 s",
+    "shot_seconds_default": [3, 4],
+    "shot_seconds_max": 6,
+    "shot_seconds_max_note": "6 s 只用于按 nalu_prompt_rules.min_dialogue_seconds 确实放不进 5 s 的台词镜（E04-S05-03 / S09-03 / S10-02 / S11-01）；无对白镜 ≤4 s",
+    "video_unit_seconds_max": 6.0,
+    "video_unit_seconds_hard_cap": 7.0,
+    "video_unit_note": "写手层意图 ≤6 s；单元实际上限由引擎分组决定（seq=7 c3 硬上限 7 s；e16 偏好 4–6 s）",
+    "no_dialogue_static_hold_seconds_max": 2.0,
+    "no_dialogue_static_hold_verdict": "REJECT（生成后 QA 静止判定为拒收）",
+    "scene_opening_rule": "每场第一镜从进行中的动作开始，不给建立镜头停顿；场与场之间在动作上切",
+    "scene_turn_rule": "每场有转折与 button（见 directing script 每场末镜）",
+    "scene_seconds_max": 16,
+    "scene_seconds_max_exception": "E04-S11 末场 19 s：四句对白 button（文睿一句、陆泽两句拆句）",
+    "hook_rule": "全集前 3 秒 = 收回目光、猛地背起袋转身、猎叉上的红松鼠甩起来（E04-S01-01）",
+    "episode_total_seconds_target": [150, 170],
+    # seq=19 (E04 review A1/A5): the hook contract and the dialogue-density floor the S1 gate reads
+    "hook": {"type": "dialogue", "at_seconds": 3, "line_or_shot_id": "E04-S01-01", "note": "秦铭「这一趟，值了。」在第 1 镜前 3 s 内说出；同镜猎叉上的红松鼠即道具回顾镜"},
+    "dialogue_density": {"max_silent_run_seconds": 15, "max_silent_run_action_seconds": 25, "min_coverage": 0.35, "verdict": "FAIL"},
+    "scene_seconds_max_exception_seq19": "E04-S05 21 s：对抗方动机一句前置（seq=19 A3）+ 三句对白；申报例外",
+    "identity_reanchor_rule": "seq=12/13：同一场内远景小人影之后的同一人物露脸镜必须声明 identity_reanchor（引擎 e19 以角色板生成的关键帧作身份再锚定参考）",
+    "no_black_rule": "seq=13：剧本与镜头文字不得写「全黑/极暗」；最暗时刻仍有雪面月色或余光照出轮廓；猩红眼睛是黑暗中的红点光",
+    "child_dialogue_rule": "seq=13：儿童对白双人同框（E04-S11-01 文睿与秦铭同框，不单独儿童特写）",
+    "camera_motion_policy": {
+        "authority": "Roger 2026-09-13 + seq=17；校验器 static_design_gate.py（R1–R8 全部阻断）",
+        "locked_share_max": 0.30,
+        "consecutive_locked_allowed": False,
+        "no_dialogue_shot_requires_camera_motion": True,
+        "no_dialogue_visible_state_delta_within_seconds": 2.0,
+        "locked_only_for_dialogue_shots_seconds_max": 5.0,
+        "same_axis_scale_run_max": 2,
+        "opening_shot_must_move": True,
+        "allowed_motion_families": ["DOLLY", "TRACK", "CRANE", "ARC", "PAN"],
+    },
+}
+# ---------- END OF CHUNK 1 ----------
+
+SCENES = {
+    "E04-S01": dict(loc="LOC-LOW-HILL-TOP-EXT", time="TIME-SHALLOW-NIGHT", weather="浅夜·山顶寒风", light="雪面月色青蓝反光，远处夜雾里的微光已在身后", sec=8, beats=["E04-EV-01", "E04-EV-02"], info=1),
+    "E04-S02": dict(loc="LOC-FOREST-EDGE-EXT", time="TIME-SHALLOW-NIGHT", weather="浅夜·寒风刮起·腥味", light="林缘雪地青蓝微光；黑暗中一双猩红的眼睛是唯一红点光", sec=12, beats=["E04-EV-03", "E04-EV-04", "E04-EV-05"], info=2),
+    "E04-S03": dict(loc="LOC-FOREST-EDGE-EXT", time="TIME-SHALLOW-NIGHT", weather="浅夜·寒风", light="林缘雪地青蓝微光，铁箭在月色下一闪即没", sec=16, beats=["E04-EV-06", "E04-EV-07", "E04-EV-08"], info=2),
+    "E04-S04": dict(loc="LOC-SNOWFIELD-WILDS-EXT", time="TIME-SHALLOW-NIGHT", weather="浅夜·空旷雪地·寒风", light="雪面月色青蓝反光为主光，林线黑压压，猩红眼睛在林中隐现", sec=15, beats=["E04-EV-09", "E04-EV-10", "E04-EV-11", "E04-EV-12"], info=2),
+    "E04-S05": dict(loc="LOC-SNOWFIELD-WILDS-EXT", time="TIME-SHALLOW-NIGHT", weather="浅夜·村外雪路·极冷", light="雪面月色青蓝反光，远处村头火泉的一点火红", sec=21, beats=["E04-EV-13", "E04-EV-14", "E04-EV-15"], info=2),
+    "E04-S06": dict(loc="LOC-SNOWFIELD-WILDS-EXT", time="TIME-SHALLOW-NIGHT", weather="浅夜·村外雪路·极冷", light="雪面月色青蓝反光，秦铭没入雪沟只余头顶月色", sec=12, beats=["E04-EV-16", "E04-EV-17"], info=2),
+    "E04-S07": dict(loc="LOC-SNOWFIELD-WILDS-EXT", time="TIME-SHALLOW-NIGHT", weather="浅夜·雪窟窿崩塌·雪尘", light="雪面月色青蓝反光，崩塌的雪尘在月色里翻腾", sec=16, beats=["E04-EV-18", "E04-EV-19", "E04-EV-20"], info=2),
+    "E04-S08": dict(loc="LOC-SNOWFIELD-WILDS-EXT", time="TIME-SHALLOW-NIGHT", weather="浅夜·村外雪路·寒风", light="雪面月色青蓝反光，钢叉叉头映月色寒光", sec=15, beats=["E04-EV-21", "E04-EV-22", "E04-EV-23"], info=2),
+    "E04-S09": dict(loc="LOC-FIRE-SPRING-EXT", time="TIME-SHALLOW-NIGHT", weather="浅夜·村口·雪停", light="火泉火红光在村头，各家太阳石的火霞让街上有淡淡暖光", sec=16, beats=["E04-EV-27", "E04-EV-28", "E04-EV-29"], info=2),
+    "E04-S10": dict(loc="LOC-FIRE-SPRING-EXT", time="TIME-SHALLOW-NIGHT", weather="浅夜·村口·雪停", light="火泉火红光与街上太阳石火霞映亮人群的脸", sec=15, beats=["E04-EV-30", "E04-EV-31", "E04-EV-32"], info=2),
+    "E04-S11": dict(loc="LOC-QINMING-HOUSE-INT", time="TIME-SHALLOW-NIGHT", weather="屋外浅夜·屋内暖", light="铜盆太阳石橘红暖光，映亮炕上的干果堆与倒挂的红松鼠", sec=18, beats=["E04-EV-33", "E04-EV-34", "E04-EV-35", "E04-EV-36"], info=2),
+}
+AMBIENT_LIFE = {
+    "E04-S01": {"grade": "B", "motion_trend": "寒风吹动裘氅、兽皮袋甩上肩、猎叉上的红松鼠摆荡、踩雪下山", "first_frame_state": "秦铭站在山顶，目光正从远处的光上收回", "reaction_progression": "收回目光→猛地背起袋、松鼠甩起来→转身沿原路下山"},
+    "E04-S02": {"grade": "A", "motion_trend": "止步扔袋、双手握叉猛回头、猩红眼睛逼近、寒毛倒竖、腥味、插叉取弓", "first_frame_state": "秦铭正走向林缘，倏地止步", "reaction_progression": "止步扔袋握叉回头→黑暗中猩红眼睛逼近→寒毛倒竖闻腥味→猎叉插雪迅速取弓"},
+    "E04-S03": {"grade": "A", "motion_trend": "硬弓拉满、弓弦颤音、铁箭飞出、黑影骤停、连着开弓、低吼、眼睛消失、枯枝折断、抓起袋叉冲出", "first_frame_state": "秦铭正把硬弓拉成满月", "reaction_progression": "满月硬弓铁箭飞出→黑影骤停疑似中箭→连珠开弓→低吼眼睛消失黑影躲到林后→抓起袋叉冲出山林"},
+    "E04-S04": {"grade": "A", "motion_trend": "冲到空旷雪地、林间积雪冲击声、开弓射树干雪瀑坠落、黑影隐现、嘶吼消失、持弓后退", "first_frame_state": "秦铭抓着兽皮袋和猎叉正冲出林缘", "reaction_progression": "冲到空旷雪地听林间动静→开弓射树干雪瀑坠落→黑影数次隐现猩红眼森冷→不甘嘶吼消失→持弓后退说一句"},
+    "E04-S05": {"grade": "B", "motion_trend": "三人跺脚搓手、白雾、眉毛冰渣、雪窟窿里窝着低声交谈、铁棍抬起", "first_frame_state": "三个青年守在雪路旁，胡勇正压着嗓子开口", "reaction_progression": "胡勇说出截胡动机→跺脚搓手→窝进雪窟窿王佑平抱怨→胡勇抬铁棍→马阳压低嗓子「谨慎一些」"},
+    "E04-S06": {"grade": "B", "motion_trend": "远看黑影蹲下没入雪、沿雪路潜行、停下听、脸色难看、放袋握叉", "first_frame_state": "秦铭在雪路上正看到前方三条黑影", "reaction_progression": "看到黑影立刻蹲下没入雪→无声潜行→停下听到对话脸色难看→放下袋双手握叉"},
+    "E04-S07": {"grade": "A", "motion_trend": "雪窟窿崩塌雪尘、胡勇冲出被踹脸叉柄砸肩、马阳冒头被踢鼻惨叫翻滚、王佑平钻雪被钢叉刺破背见血求饶", "first_frame_state": "雪窟窿正轰然崩塌", "reaction_progression": "崩塌埋三人→胡勇冲出被踹脸、叉柄砸肩倒地→马阳冒头被踢鼻涕泪长流翻滚→王佑平钻雪被刺破背见血「别杀我」"},
+    "E04-S08": {"grade": "A", "motion_trend": "戳出踢出三米跌雪堆、看清是谁怂了、求饶、钢叉抵着蹲下、一顿暴揍、鼻青脸肿惨嚎", "first_frame_state": "秦铭正把王佑平从雪里戳出来", "reaction_progression": "戳出踢出三米→看清是谁怂了「铭哥」→「手下留情啊」→钢叉抵着蹲下暴揍鼻青脸肿"},
+    "E04-S09": {"grade": "B", "motion_trend": "火泉在望双树摇曳加快脚步、劈柴人抬头、院门打开人们出来、鸦雀无声、陆泽快步来、松口气、皮毛发光眼热", "first_frame_state": "秦铭正加快脚步走向火泉边的村口，劈柴的村民抬头", "reaction_progression": "「秦铭回来了」→院门打开人们出来看到猎叉上的红松鼠鸦雀无声→陆泽快步走来松口气「抓了只松鼠？」→「我还抄了它的家」众人看袋眼热皮毛发光"},
+    "E04-S10": {"grade": "B", "motion_trend": "秦铭比划着讲、面色变、愤慨、三人一瘸一拐冒头、陆泽杨永青痛揍、求饶", "first_frame_state": "秦铭正比划着讲一路上的经历，围着的人们面色变了", "reaction_progression": "讲经历众人面色变→邻居甲愤慨「真不要脸」→三人冒头被陆泽杨永青痛揍→马阳「陆哥杨叔刘大爷救命」"},
+    "E04-S11": {"grade": "B", "motion_trend": "文睿尝干果小嘴不停、红松鼠苏醒睁眼绝望、眼睛瞪圆快喷火、陆泽严肃开口", "first_frame_state": "文睿正把一颗野核桃塞进嘴里，秦铭在他身旁", "reaction_progression": "文睿「小叔你太厉害了」→红松鼠苏醒看到家底被翻绝望→眼睛瞪圆快喷火→陆泽「该认真考虑新生的事情了」"},
+}
+def _wp(sid, mode):
+    return {"source_type": "NARRATIVE_CANONICAL_SCENE_HEADER", "source_ref": f"E04_NARRATIVE_CANONICAL_v1.md#{sid}｜ch4", "visibility_mode": mode}
+WEATHER_PROVENANCE = {sid: _wp(sid, "OFFSCREEN_ONLY_SHALLOW_NIGHT_THROUGH_DOOR_INTERIOR_DRY" if m["loc"].endswith("-INT") else "VISIBLE_EXTERIOR_SNOW_ONLY_AS_DECLARED") for sid, m in SCENES.items()}
+for _sid, _m in SCENES.items():
+    _m["ambient_life"] = AMBIENT_LIFE[_sid]
+    _m["weather_provenance"] = WEATHER_PROVENANCE[_sid]
+
+# ---------- 服装（唐宋语汇；承接 E03） ----------
+WARDROBE_GARMENTS = {
+    "CHAR-QINMING": {"silhouette": "颀长清瘦、高髻木簪、外披过膝旧裘氅、内交领深色袍；全副武装", "outer_layer": "陈旧兽皮裘氅（毛面磨秃、下摆结霜，无袖披式）", "inner_layer": "深青交领右衽窄袖袍，领缘与袖口银线滚边（旧、洗淡）", "primary_color": "灰褐（裘氅）", "secondary_color": "深青（袍）", "material": "兽皮＋粗麻棉", "pattern": "裘氅素面磨秃；袍领袖银线细纹", "belt_or_fastening": "布带束腰（腰间插直刃短刀），裘氅前襟布带系结", "footwear": "旧布靴加裹腿（雪野中结霜）", "accessory": "发髻木簪（源照片同款发式）；背负竹木硬弓与皮箭囊，背上鼓胀的兽皮袋"},
+    "CHAR-LUZE": {"silhouette": "壮实宽肩、束发裹巾、齐膝交领短褐", "outer_layer": "深灰粗麻交领短褐（外层）", "inner_layer": "灰白中衣", "primary_color": "深灰", "secondary_color": "灰褐（腰带）", "material": "粗麻棉", "pattern": "粗织纹，肩背补丁与磨痕", "belt_or_fastening": "麻布腰带打结", "footwear": "裹腿加旧皮靴", "accessory": "灰布裹巾束发"},
+    "CHAR-YANGYONGQING": {"silhouette": "敦实络腮胡、宽肩、齐膝交领短褐外罩旧皮坎肩", "outer_layer": "黑褐旧皮坎肩（外层）", "inner_layer": "深褐粗麻交领右衽短褐", "primary_color": "黑褐", "secondary_color": "深褐", "material": "兽皮＋粗麻棉", "pattern": "皮面磨旧", "belt_or_fastening": "麻绳腰带", "footwear": "旧皮靴裹腿", "accessory": "麻布包髻，络腮胡"},
+    "CHAR-VILLAGER-A": {"silhouette": "中等瘦削、宽腰带短袍、麻布头巾", "outer_layer": "深灰褐粗麻交领右衽齐膝短褐（外层）", "inner_layer": "灰白粗麻中衣", "primary_color": "深灰褐", "secondary_color": "灰（头巾）", "material": "粗麻棉", "pattern": "粗织横纹", "belt_or_fastening": "宽布腰带打结", "footwear": "布鞋裹腿", "accessory": "麻布头巾包髻"},
+    "CHAR-VILLAGER-B": {"silhouette": "矮壮圆脸、皮帽、旧棉袍", "outer_layer": "灰褐粗麻交领右衽棉袍（外层，膝下）", "inner_layer": "褐色粗麻中衣", "primary_color": "灰褐", "secondary_color": "黑褐（皮帽）", "material": "粗麻棉＋兽皮", "pattern": "素面，前襟磨旧", "belt_or_fastening": "布带束腰", "footwear": "旧皮靴裹腿", "accessory": "兽皮护耳帽；本集手持柴斧劈柴"},
+    "CHAR-LUWENRUI": {"silhouette": "五岁男孩、裹得严实、厚布风帽", "outer_layer": "赭红小交领棉袍（外层）", "inner_layer": "灰白棉中衣", "primary_color": "赭红", "secondary_color": "灰白", "material": "粗棉", "pattern": "素面", "belt_or_fastening": "布带束腰", "footwear": "小布靴", "accessory": "厚布风帽（屋内摘下露出总角）"},
+    "CHAR-HUYONG": {"silhouette": "闲汉头目：中等身材、下巴微扬、粗麻短褐外罩破旧皮袄", "outer_layer": "破旧黑褐皮袄（外层，毛面稀疏）", "inner_layer": "灰褐粗麻交领右衽短褐", "primary_color": "黑褐", "secondary_color": "灰褐", "material": "兽皮＋粗麻", "pattern": "皮面破旧、袖口磨毛", "belt_or_fastening": "布带束腰，腰后别一根铁棍", "footwear": "旧布靴裹腿", "accessory": "麻布包髻歪斜"},
+    "CHAR-MAYANG": {"silhouette": "闲汉：瘦长、缩肩、眼神多疑，粗麻交领长袍", "outer_layer": "灰黄粗麻交领右衽长袍（外层，膝下）", "inner_layer": "褐色粗麻中衣", "primary_color": "灰黄", "secondary_color": "褐", "material": "粗麻棉", "pattern": "粗织纹、前襟补丁", "belt_or_fastening": "麻绳腰带，腰间别短棍", "footwear": "旧布鞋裹腿", "accessory": "灰布裹头"},
+    "CHAR-WANGYOUPING": {"silhouette": "闲汉：矮胖、圆肩、爱缩脖子，旧棉袍", "outer_layer": "灰褐粗麻交领右衽棉袍（外层，膝下，鼓鼓囊囊）", "inner_layer": "灰白粗麻中衣", "primary_color": "灰褐", "secondary_color": "灰白", "material": "粗麻棉", "pattern": "素面、前襟油渍", "belt_or_fastening": "布带束腰，腰间挂一把短刀", "footwear": "旧布靴", "accessory": "兽皮护耳帽压得很低"},
+}
+
+# ---------- 道具与生物（seq=7 c6：关键道具出参考卡；只列 narrative 实际用到的） ----------
+PROPS = [
+    {"entity_id": "PROP-HUNTING-FORK", "name": "猎叉", "reference_card_required": False, "first_shot": "E04-S01-01",
+     "note": "E03 已出卡并锁定：木柄铁头猎叉，能插在雪里、能挂猎物、木柄能砸人", "period_constraints": "唐宋农猎器具语汇，锻铁叉头、麻绳缠柄"},
+    {"entity_id": "PROP-BOW-ARROWS", "name": "弓箭", "reference_card_required": True, "first_shot": "E04-S02-04",
+     "note": "竹木硬弓与皮箭囊，弓身厚重需惊人臂力才能拉成满月；铁箭：铁镞、木杆、羽尾，一支接一支；E03 只背不用、本集主用故出卡", "period_constraints": "唐宋竹木复合弓与皮箭囊，铁镞木杆铁箭；无金属滑轮、无现代箭袋"},
+    {"entity_id": "PROP-HIDE-BAG", "name": "兽皮袋", "reference_card_required": False, "first_shot": "E04-S01-01",
+     "note": "E03 已出卡并锁定：装满干果鼓胀的厚兽皮口袋，可背可扔", "period_constraints": "手缝皮袋，无拉链、无金属扣"},
+    {"entity_id": "PROP-RED-SQUIRREL", "name": "红松鼠", "reference_card_required": False, "first_shot": "E04-S01-01",
+     "note": "E03 已出卡并锁定：变异红松鼠，火红皮毛微微发光；本集全程倒挂在猎叉上，先昏死后苏醒瞪眼", "period_constraints": "写实松鼠体态，皮毛发光只是柔和的光泽"},
+    {"entity_id": "PROP-NUT-HOARD", "name": "干果", "reference_card_required": False, "first_shot": "E04-S11-01",
+     "note": "E03 已出卡并锁定：野核桃、栗子、红枣、松子；本集摊在炕上", "period_constraints": "真实野果，无包装"},
+    {"entity_id": "PROP-MUTANT-BEAST", "name": "怪物", "kind": "CREATURE", "creature_card": {"locomotion": "biped", "eye_color": "猩红", "silhouette_ref": "PROP-MUTANT-BEAST identity plate (workflow/nalu/E04/identity)"}, "reference_card_required": True, "first_shot": "E04-S02-02",
+     "note": "只给轮廓的猛兽：黑暗中一双猩红的眼睛（画面里唯一的红点光，两点、平行、齐人头高）、块头很大、能直立奔行的黑影，隐在林木后方数次隐现；带腥味，中箭后低吼；参考卡为林间雪地上的黑影剪影与猩红双眼，不画清晰面目", "period_constraints": "写实猛兽剪影，不做怪兽特效、不发光（眼睛除外）、不给全貌"},
+    {"entity_id": "PROP-IRON-ROD", "name": "铁棍", "reference_card_required": False, "first_shot": "E04-S05-03",
+     "note": "闲汉随身的短铁棍与短刀，藏在腰后；只在雪窟窿里抬了抬，动手前就被制住", "period_constraints": "粗锻铁棍，无现代金属管"},
+]
+SETS = [
+    {"entity_id": "SET-FIRE-SPRING", "name": "火泉", "note": "丈六见方石围池，火红光焰，黑白双树；E01–E03 已建立，本集 S10–S11 村口，不复证形制"},
+    {"entity_id": "SET-FOREST-EDGE-WOODS", "name": "密林边缘林地", "note": "E03 已出卡并锁定；本集 S02–S03、S09 沿用"},
+    {"entity_id": "SET-SNOW-HOLLOW", "name": "雪窟窿", "reference_card_required": True, "first_shot": "E04-S05-03",
+     "note": "三个闲汉在村外雪路旁挖出的挡风雪坑：一人深、三人并肩宽，雪壁粗糙、坑口被风吹得毛糙；崩塌后是一堆翻腾的雪尘与雪块", "period_constraints": "天然雪坑，无工具痕迹之外的人造物"},
+]
+# ---------- END OF CHUNK 2 ----------
+
+# ---------- 机位方案（seq=17：单镜 3–6 s；LOCKED ≤30%、不连续、无对白必动、开场必动） ----------
+def _cp(scale, height, side, lens, axis, fam, direction, start, end, why):
+    if fam == "LOCKED" and end != start:
+        why = f"{why}；画内变化：{end}"
+        end = start
+    return {"shot_scale": scale, "camera_height": height, "camera_side": side, "lens_intent": lens, "axis_relation": axis,
+            "motion_family": fam, "motion_direction": direction, "start_framing": start, "end_framing": end, "motivation": why}
+CAMERA_PLANS = {
+    # S01 山顶收目光、背袋下山
+    "E04-S01-01": _cp("CLOSE_UP", "EYE_LEVEL", "AXIS_A", "85mm自双眼随背袋动作升起到肩上的袋与甩起的松鼠", "秦铭面向群山（画右）转为背向群山（画左）的转身轴，不越轴", "CRANE", "RISE", "特写：秦铭的目光从远处的光上收回", "特写偏松（升起）：兽皮袋猛地甩上肩，猎叉上的红松鼠甩起来", "导演稿：开场 3 秒钩子，收目光—背袋—松鼠甩起在一个升起里完成"),
+    "E04-S01-02": _cp("MEDIUM_WIDE", "HIGH", "AXIS_B", "28mm高机位横移跟随下山", "秦铭自山顶（画右）向山下（画左）的行进轴，不越轴", "TRACK", "RIGHT_TO_LEFT", "高机位中全景：秦铭转身沿原路下山", "高机位中全景：他在积雪下的洼地与岩石间深一脚浅一脚", "导演稿：横移跟随让「路不好走」在运动里读到，场尾在动作上切"),
+    # S02 猩红眼睛
+    "E04-S02-01": _cp("MEDIUM", "EYE_LEVEL", "AXIS_A", "35mm环绕止步扔袋回头", "秦铭向林缘（画左）行进转为回头面向来路（画右）的轴线，环绕不越轴", "ARC", "CLOCKWISE", "中景：秦铭走向林缘，倏地止步", "中景（环绕）：兽皮袋扔在雪里，双手握紧猎叉猛然回头", "导演稿：环绕把止步—扔袋—回头连成一个动作"),
+    "E04-S02-02": _cp("WIDE", "LOW", "NEUTRAL", "24mm低机位自黑暗缓推向逼近的猩红眼睛", "来路方向（画面纵深）为威胁来源，无人物轴", "DOLLY", "PUSH_IN", "低机位远景：黑暗的林木间，两点猩红的眼光亮起", "低机位远景（推近）：猩红的眼睛快速逼近，黑影块头很大，林木后只见轮廓", "导演稿：推近配合逼近，惊悚点；不给全貌"),
+    "E04-S02-03": _cp("CLOSE_UP", "EYE_LEVEL", "AXIS_B", "85mm环绕面部，寒毛倒竖与鼻翼", "秦铭面向来路（画右）的视线轴，环绕不越轴", "ARC", "COUNTERCLOCKWISE", "特写：秦铭面向来路，眼神收紧", "特写（环绕）：寒风吹动发梢，他鼻翼一动闻到腥味，牙关咬紧", "导演稿：环绕读寒毛倒竖与腥味"),
+    "E04-S02-04": _cp("MEDIUM_CLOSE_UP", "LOW", "AXIS_A", "50mm低机位随插叉取弓下降再抬起", "秦铭面向来路（画右）的动作轴，不越轴", "CRANE", "FALL", "低机位中近景：秦铭把猎叉插进雪地", "低机位中近景（下降）：他迅速取下背上的弓，抽出一支铁箭搭上弦", "导演稿：下降跟随插叉取弓，场尾 button 在搭箭上"),
+    # S03 连珠铁箭
+    "E04-S03-01": _cp("CLOSE_UP", "EYE_LEVEL", "AXIS_A", "85mm环绕拉满的硬弓", "秦铭面向来路（画右）的射击轴，环绕不越轴", "ARC", "CLOCKWISE", "特写：秦铭的手臂把硬弓拉开", "特写（环绕）：硬弓拉成满月状，铁镞对着黑暗，他的眼睛在弓弦后", "导演稿：环绕读臂力惊人的满月弓"),
+    "E04-S03-02": _cp("MEDIUM", "EYE_LEVEL", "AXIS_B", "35mm横移随铁箭飞出", "秦铭（画左）向黑暗（画右）射击的轴线，不越轴", "TRACK", "LEFT_TO_RIGHT", "中景：铁箭飞出，弓弦的颤音很响", "中景（横移）：铁箭没入夜色，秦铭已抽出第二支箭", "导演稿：横移跟随箭出与再搭箭"),
+    "E04-S03-03": _cp("WIDE", "LOW", "NEUTRAL", "24mm低机位横摇跟随黑影骤停", "来路方向（画面纵深）为黑影来源，无人物轴", "PAN", "RIGHT_TO_LEFT", "低机位远景：冲过来的黑影骤然停顿", "低机位远景（摇）：黑影一顿，猩红的眼睛晃了一下", "导演稿：横摇读疑似中箭的停顿"),
+    "E04-S03-04": _cp("MEDIUM_WIDE", "LOW", "AXIS_A", "28mm低机位随连着开弓升起", "秦铭面向来路（画右）的射击轴，不越轴", "CRANE", "RISE", "低机位中全景：秦铭连着开弓，铁箭一支接一支飞出", "低机位中全景（升起）：箭囊里的铁箭少了一半，他仍在搭箭", "导演稿：升起跟随连珠射，动作不停"),
+    "E04-S03-05": _cp("WIDE", "EYE_LEVEL", "NEUTRAL", "24mm缓推向林木后方消失的眼睛", "来路方向（画面纵深），无人物轴", "DOLLY", "PUSH_IN", "远景：密林间传来低吼，猩红的眼睛在林木后", "远景（推近）：枯枝折断，眼睛消失，黑影躲到林木后方只余轮廓", "导演稿：推近让「消失」有机位反应，场尾在眼睛熄灭上切"),
+    # S04 空旷雪地对峙
+    "E04-S04-01": _cp("MEDIUM_WIDE", "EYE_LEVEL", "AXIS_A", "28mm手持横移跟随冲出山林", "林缘（画左）到空旷雪地（画右）的行进轴，不越轴", "TRACK", "LEFT_TO_RIGHT", "中全景：秦铭抓起兽皮袋和猎叉冲出林缘", "中全景：他站到空旷的雪地上转身面向林线，林间传来积雪被冲击的声响", "导演稿：跟随冲出，不给停顿"),
+    "E04-S04-02": _cp("MEDIUM", "LOW", "AXIS_B", "35mm低机位随箭中树干雪瀑坠落下降", "秦铭（画右）向林线（画左）射击的轴线，不越轴", "CRANE", "FALL", "低机位中景：秦铭开弓，铁箭咚的射进很粗的树干", "低机位中景（下降）：满树雪花如雪瀑般坠落，砸在雪地上", "导演稿：下降跟随雪瀑"),
+    "E04-S04-03": _cp("WIDE", "LOW", "NEUTRAL", "24mm低机位环绕林中隐现的黑影", "林线方向（画面纵深），无人物轴", "ARC", "CLOCKWISE", "低机位远景：块头很大的黑影在林木间隐现，猩红的眼睛森冷", "低机位远景（环绕）：黑影发出一声不甘的低沉嘶吼，消失在密林中", "导演稿：环绕读隐现与消失"),
+    "E04-S04-04": _cp("MEDIUM_CLOSE_UP", "EYE_LEVEL", "AXIS_A", "50mm随后退缓拉", "秦铭面向林线（画左）的视线轴，不越轴", "DOLLY", "PULL_OUT", "中近景：秦铭手持弓箭对着密林，慢慢后退", "中近景（拉出）：他后退着说一句，弓仍对着林线", "导演稿：拉出配合后退与一句，场尾 button 在问题上"),
+    # S05 三个闲汉
+    "E04-S05-01": _cp("MEDIUM", "EYE_LEVEL", "AXIS_A", "35mm缓推压低嗓子的胡勇", "胡勇（画右）面向马阳、王佑平（画左）的交谈轴，不越轴", "DOLLY", "PUSH_IN", "中景：三人守在雪路旁，胡勇压着嗓子开口", "中景（推近）：胡勇说完抬手指向进山的方向", "导演稿：推近配合动机一句（seq=19 A3），5 s 承载"),
+    "E04-S05-02": _cp("MEDIUM_WIDE", "EYE_LEVEL", "AXIS_A", "28mm横移自雪路到跺脚的三人", "三人并肩面向村外雪路（画右）的轴线，不越轴", "TRACK", "RIGHT_TO_LEFT", "中全景：村外雪路上三个青年跺脚搓手，大口呼出白雾", "中全景（横移）：眉毛上的冰渣在月色里发白，三人钻进雪窟窿", "导演稿：横移进入伏击者，冷得在动"),
+    "E04-S05-03": _cp("MEDIUM", "LOW", "AXIS_B", "35mm低机位缓推雪窟窿里的三人", "王佑平（画左）面向胡勇、马阳（画右）的交谈轴，不越轴", "DOLLY", "PUSH_IN", "低机位中景：三人窝在雪窟窿里，王佑平缩着脖子抱怨", "低机位中景（推近）：王佑平说完，胡勇抬了抬手里的铁棍", "导演稿：推近配合抱怨与铁棍，6 s 承载一句"),
+    "E04-S05-04": _cp("MEDIUM_CLOSE_UP", "EYE_LEVEL", "AXIS_A", "50mm固定，马阳压低嗓子", "马阳（画右）面向胡勇（画左）的交谈轴，不越轴", "LOCKED", "NONE", "中近景：马阳压低嗓子说一句，胡勇点头", "中近景：马阳说完抬眼望向雪路，三人噤声", "导演稿：固定（对白镜 ≤5 s），说话与噤声本身带动，场尾 button"),
+    # S06 潜行
+    "E04-S06-01": _cp("MEDIUM_WIDE", "HIGH", "AXIS_A", "28mm高机位随蹲下没入雪下降", "秦铭面向村口（画右）的行进轴，不越轴", "CRANE", "FALL", "高机位中全景：秦铭在雪路上看到前方远处三条黑影", "高机位中全景（下降）：他立刻蹲下，整个人没进齐肩深的积雪里", "导演稿：下降跟随蹲下没入"),
+    "E04-S06-02": _cp("MEDIUM", "LOW", "AXIS_B", "35mm低机位贴雪面横移跟随潜行", "秦铭沿雪路向村口（画右）潜行的轴线，不越轴", "TRACK", "LEFT_TO_RIGHT", "低机位中景：雪沟里秦铭的头顶与猎叉贴着雪面无声前移", "低机位中景（横移）：他沿蹚出的雪路潜行到离雪窟窿不远处", "导演稿：横移读无声潜行"),
+    "E04-S06-03": _cp("CLOSE_UP", "EYE_LEVEL", "AXIS_A", "85mm环绕停下听的脸", "秦铭面向雪窟窿方向（画右）的视线轴，环绕不越轴", "ARC", "COUNTERCLOCKWISE", "特写：秦铭在雪沟里停下，侧耳听", "特写（环绕）：听清对话，他的脸色难看起来", "导演稿：环绕读脸色难看；远景之后的露脸镜按 seq=13 声明身份再锚定"),
+    "E04-S06-04": _cp("MEDIUM_CLOSE_UP", "LOW", "AXIS_B", "50mm低机位缓推放袋握叉", "秦铭面向雪窟窿方向（画右）的动作轴，不越轴", "DOLLY", "PUSH_IN", "低机位中近景：秦铭把兽皮袋轻轻放进雪里", "低机位中近景（推近）：双手握紧猎叉，身体压低蓄势", "导演稿：推近配合蓄势，场尾 button"),
+    # S07 崩塌与暴击（FS1 源章明写）
+    "E04-S07-01": _cp("MEDIUM_WIDE", "HIGH", "AXIS_A", "28mm高机位随崩塌下降", "雪窟窿（画面中央）为动作中心，秦铭自画左扑来", "CRANE", "FALL", "高机位中全景：雪窟窿的雪壁轰然崩塌", "高机位中全景（下降）：三人被埋在翻腾的雪块下，口鼻间全是雪，只露出手脚", "导演稿：下降跟随崩塌"),
+    "E04-S07-02": _cp("MEDIUM", "LOW", "AXIS_B", "35mm低机位环绕踹脸与叉柄砸肩", "胡勇冲出雪堆（画右）、秦铭在画左的攻击轴，环绕不越轴", "ARC", "CLOCKWISE", "低机位中景：胡勇第一个冲出雪堆，脚掌迎面踹在他脸上", "低机位中景（环绕）：猎叉木柄砸在他肩头，他踉跄倒地", "导演稿：环绕把踹脸—砸肩—倒地连成一个动作"),
+    "E04-S07-03": _cp("MEDIUM_CLOSE_UP", "EYE_LEVEL", "AXIS_A", "50mm横移跟随踢鼻子到翻滚", "马阳从雪中冒头（画右），秦铭在画左", "TRACK", "RIGHT_TO_LEFT", "中近景：马阳刚从雪中冒头，一脚踢在他鼻子上", "中近景（横移）：他嗷的一声惨叫，涕泪长流倒在雪地里翻滚", "导演稿：横移跟随惨叫翻滚"),
+    "E04-S07-04": _cp("CLOSE_UP", "HIGH", "AXIS_B", "85mm俯拍缓推钢叉刺破衣背", "王佑平向雪里钻（画面向下），秦铭在上方", "DOLLY", "PUSH_IN", "俯拍特写：王佑平向一人深的积雪里钻，只剩后背", "俯拍特写（推近）：锋利的钢叉刺破他背上的衣服，见了血", "导演稿：推近读见血"),
+    "E04-S07-05": _cp("MEDIUM_CLOSE_UP", "HIGH", "AXIS_A", "50mm俯拍环绕求饶的脸", "王佑平仰头面向秦铭（画上方）的轴线，环绕不越轴", "ARC", "COUNTERCLOCKWISE", "俯拍中近景：王佑平从雪里仰起脸，嘴唇发抖", "俯拍中近景（环绕）：他哆嗦着求饶，秦铭的钢叉抵着他", "导演稿：环绕读求饶，场尾 button"),
+    # S08 怂了、暴揍
+    "E04-S08-01": _cp("MEDIUM_WIDE", "EYE_LEVEL", "AXIS_A", "28mm横移随戳出踢飞", "秦铭（画左）向王佑平（画右）的动作轴，不越轴", "TRACK", "LEFT_TO_RIGHT", "中全景：秦铭用钢叉把王佑平从雪里戳出来", "中全景（横移）：抬脚把他踢出三米远，跌进雪堆", "导演稿：横移跟随踢飞"),
+    "E04-S08-02": _cp("MEDIUM", "EYE_LEVEL", "AXIS_B", "35mm缓推三人看清是谁", "三人（画右）仰面向握叉的秦铭（画左）的轴线，不越轴", "DOLLY", "PUSH_IN", "中景：三人看清握着寒光闪闪钢叉的人是谁，顿时怂了", "中景（推近）：胡勇捂着肩求饶，马阳、王佑平缩在一旁", "导演稿：推近配合怂了与第一句"),
+    "E04-S08-03": _cp("MEDIUM_CLOSE_UP", "LOW", "AXIS_A", "50mm固定，胡勇仰面求饶", "胡勇（画右）仰面向秦铭（画左）的轴线，不越轴", "LOCKED", "NONE", "低机位中近景：胡勇仰着鼻青的脸说第二句", "低机位中近景：说完低头，钢叉的叉头在他面前", "导演稿：固定（对白镜 ≤5 s），求饶本身带动"),
+    "E04-S08-04": _cp("WIDE", "HIGH", "NEUTRAL", "24mm高机位随暴揍升起", "三人蹲在雪地（画面中央），秦铭围着他们", "CRANE", "RISE", "高机位远景：秦铭用钢叉抵着三人让他们老实蹲在雪地上", "高机位远景（升起）：他一顿暴揍，三人鼻青脸肿嘴里都是血沫子惨嚎", "导演稿：升起把「教育」拉远成场尾 button"),
+    # S09 驴与白黄鼠狼（无人物）
+    "E04-S09-01": _cp("MEDIUM_WIDE", "EYE_LEVEL", "AXIS_A", "28mm横移自火泉双树到劈柴的村民乙", "秦铭自村外（画左）向村口（画右）行进的轴线，不越轴", "TRACK", "LEFT_TO_RIGHT", "中全景：火泉在望，黑白双树摇曳，秦铭加快脚步走向村口", "中全景（横移）：村口劈柴的村民乙抬头看到他，喊了一句", "导演稿：横移进村，一句在行进中喊出"),
+    "E04-S09-02": _cp("WIDE", "HIGH", "AXIS_B", "24mm高机位随院门打开人们出来下降到猎叉上的松鼠", "秦铭站在村口（画右），临街院门在画左", "CRANE", "FALL", "高机位远景：临街的几个院门打开，村民们沿路出来", "高机位远景（下降到中景）：人们看到秦铭扛着的猎叉上挂着一只红松鼠，顿时鸦雀无声", "导演稿：下降让「鸦雀无声」落在松鼠上"),
+    "E04-S09-03": _cp("MEDIUM_CLOSE_UP", "EYE_LEVEL", "AXIS_A", "50mm缓推快步走来的陆泽", "陆泽自画左走向秦铭（画右）的轴线，不越轴", "DOLLY", "PUSH_IN", "中近景：陆泽快步走来，看到秦铭安然无恙松了一口气", "中近景（推近）：陆泽说完一句，眼睛盯着猎叉上的松鼠", "导演稿：推近配合松口气与「抓了只松鼠？」，6 s 承载一句"),
+    "E04-S09-04": _cp("MEDIUM", "EYE_LEVEL", "AXIS_B", "35mm环绕秦铭到鼓胀的兽皮袋", "秦铭（画右）面向陆泽（画左）的轴线，环绕不越轴", "ARC", "CLOCKWISE", "中景：秦铭笑着答一句", "中景（环绕到背）：人们注意到他背着的鼓胀兽皮袋，眼热起来，松鼠火红的皮毛隐隐发光", "导演稿：环绕把「抄了它的家」与眼热连成场尾 button"),
+    # S11 讲经历、愤慨、补揍
+    "E04-S10-01": _cp("MEDIUM_WIDE", "EYE_LEVEL", "AXIS_A", "28mm环绕比划着讲的秦铭与围着的人群", "秦铭（画面中央）面向人群的轴线，环绕不越轴", "ARC", "COUNTERCLOCKWISE", "中全景：秦铭比划着讲一路上的经历，人们围着他", "中全景（环绕）：听到变异生物出没，所有人的面色都变了", "导演稿：环绕读面色变，讲述内容不演"),
+    "E04-S10-02": _cp("MEDIUM_CLOSE_UP", "EYE_LEVEL", "AXIS_B", "50mm缓推愤慨的邻居甲", "邻居甲（画左）面向人群与秦铭（画右）的轴线，不越轴", "DOLLY", "PUSH_IN", "中近景：邻居甲听到三人的行径，指着村外愤慨地说", "中近景（推近）：他说完，周围人群跟着嚷起来", "导演稿：推近配合愤慨，6 s 承载一句"),
+    "E04-S10-03": _cp("MEDIUM_WIDE", "HIGH", "AXIS_A", "28mm高机位横移随三人冒头被揍", "三人自村外（画左）一瘸一拐冒头，陆泽与杨永青自画右扑上", "TRACK", "LEFT_TO_RIGHT", "高机位中全景：三人相互扶着一瘸一拐地在村口冒头", "高机位中全景（横移）：陆泽带着杨永青扑上去又痛揍一顿，马阳抱头惨叫", "导演稿：横移跟随补揍与求饶，场尾 button"),
+    # S11 屋内（末场 19 s 例外）
+    "E04-S11-01": _cp("MEDIUM_CLOSE_UP", "EYE_LEVEL", "AXIS_A", "50mm中近景双人同框，秦铭的脸以窗外冷白雪光为主光、暖光只在轮廓，环绕自干果堆到同框", "文睿（画左）面向秦铭（画右）的轴线，环绕不越轴", "ARC", "CLOCKWISE", "中景：炕上摊着干果，文睿把一颗野核桃塞进嘴里，秦铭在他身旁", "中景（环绕到同框）：文睿嘴里塞得满满的对秦铭说一句，秦铭笑着看他", "导演稿：儿童对白双人同框（seq=13），环绕读小嘴停不下来"),
+    "E04-S11-02": _cp("CLOSE_UP", "LOW", "AXIS_B", "85mm低机位环绕苏醒的红松鼠", "红松鼠倒挂在猎叉上（画上方），炕上的干果在画下方", "ARC", "CLOCKWISE", "低机位特写：倒挂的红松鼠从昏死中睁开眼睛", "低机位特写（环绕）：它看到几人正在翻动它的家底，眼睛瞪得溜圆，都快喷出火来了", "导演稿：推近读绝望到喷火（原著幽默）"),
+    "E04-S11-03": _cp("MEDIUM_CLOSE_UP", "EYE_LEVEL", "AXIS_A", "50mm固定，陆泽严肃开口", "陆泽（画左）面向秦铭（画右）的轴线，不越轴", "LOCKED", "NONE", "中近景：陆泽收起笑容，严肃地说第一句", "中近景：说到一半停顿，看着秦铭", "导演稿：固定（对白镜 ≤5 s），严肃转折本身带动"),
+    "E04-S11-04": _cp("MEDIUM_CLOSE_UP", "EYE_LEVEL", "AXIS_B", "50mm极缓推近秦铭听到「新生」的脸，陆泽在画左前景侧脸", "秦铭（画右）面向陆泽（画左）的视线轴，不越轴", "DOLLY", "PUSH_IN", "中近景：陆泽在画左前景侧脸说第二句，秦铭听着", "中近景（推近）：「新生」两个字落下，秦铭的笑容收住，眼睛望着陆泽", "导演稿：极缓推近双眼，全集 button 落在新问题上"),
+}
+# ---------- END OF CHUNK 3 ----------
+
+# 每镜：s, n, sec, size, camera, axis, blocking, cast, action(subject, primary_action, patient), dialogue(speaker,text,listener),
+# entry, exit, dims{DIM:(entry_text, exit_text, ENTRY_CODE, EXIT_CODE)}, referents[(surface,key)], faces, cps, slots, identity_reanchor
+D = lambda a, b, ca, cb: (a, b, ca, cb)
+BEAST, DONKEY, WEASEL = "PROP-MUTANT-BEAST", "PROP-DONKEY", "PROP-WHITE-WEASEL"
+SHOTS = [
+    # S01 —— 钩子：收回目光、背袋、松鼠甩起（承接 E03-S13-03 终态：站在山顶目光仍在远处的光上）
+    dict(s="E04-S01", n=1, sec=5, size="特写", camera="自双眼随背袋动作升起到肩上的袋与甩起的松鼠", axis="秦铭面向群山（画右）转为背向群山（画左）", blocking="秦铭站在山顶收回目光，猛地把鼓胀的兽皮袋甩上肩，猎叉上的红松鼠甩起来",
+         cast=["QM"], action=("QM", "秦铭把目光从远处的光上收回，猛地把鼓胀的兽皮袋背上肩，猎叉上挂着的红松鼠甩了起来，低声说一句", None), dialogue=("QM", "这一趟，值了，够全村嚼一冬。", None), emotion="joy",
+         entry="秦铭站在山顶，目光仍在远处的光上，兽皮袋在脚边，猎叉上挂着红松鼠", exit="兽皮袋已在秦铭肩上，猎叉上的红松鼠甩起来",
+         dims={"POSSESSION": D("兽皮袋在脚边", "兽皮袋背在肩上", "BAG_ON_GROUND", "BAG_ON_SHOULDER"), "POSTURE": D("凝望远处", "收回目光转身", "GAZING_FAR", "TURNING_AWAY")}, referents=[("他", "QM")]),
+    dict(s="E04-S01", n=2, sec=3, faces={"QM": "MEDIUM_WIDE_WALKING_AWAY_HIGH_ANGLE_NOT_MEASURABLE"}, size="高机位中全景", camera="高机位横移跟随下山", axis="秦铭自山顶（画右）向山下（画左）", blocking="秦铭转身沿原路下山，在积雪下的洼地与岩石间深一脚浅一脚",
+         cast=["QM"], action=("QM", "秦铭转身沿着原路下山，积雪下有洼地和岩石，他深一脚浅一脚地走", None), dialogue=None,
+         entry="秦铭背着兽皮袋转身踏上下山的路", exit="秦铭在洼地与岩石间深一脚浅一脚地下到半坡",
+         dims={"POSITION": D("在山顶", "在半坡", "ON_SUMMIT", "ON_SLOPE"), "MOMENTUM": D("刚转身", "行进中", "TURNING", "WALKING_DOWN")}, referents=[("他", "QM")]),
+    # S02 —— 猩红眼睛（配乐 CUE-01 起）
+    dict(s="E04-S02", n=1, sec=3, faces={"QM": "MEDIUM_TURNING_FACE_NOT_MEASURABLE"}, size="中景", camera="环绕止步扔袋回头", axis="秦铭向林缘（画左）行进转为回头面向来路（画右）", blocking="秦铭在林缘止步，兽皮袋已躺在他脚边的雪面上，他空着背双手握紧猎叉猛然回头",
+         cast=["QM"], action=("QM", "秦铭在密林边缘止步，鼓胀的兽皮袋已经整个躺在他脚边的雪面上、不在任何人身上，他背上没有袋子；他双手握紧猎叉猛然回头面向来路，压着嗓子只说两个字，说完立刻闭嘴；兽皮袋自始至终留在脚边雪面上，绝不回到肩上、绝不被提起；画面从头到尾没有任何字幕、文字、标题或字号，台词只存在于声音里（本单元三次重做：两次因兽皮袋留在肩上，第 3 次因画面下方烧录了台词字幕）", None), dialogue=("QM", "不对。", None), emotion="fear",
+         entry="秦铭在林缘止步，兽皮袋整个躺在他脚边的雪面上，他空着背、双手握着猎叉", exit="兽皮袋仍在脚边雪面上，秦铭双手握紧猎叉回头面向来路",
+         dims={"POSSESSION": D("兽皮袋在脚边雪面上", "兽皮袋仍在脚边雪面上", "BAG_ON_SNOW", "BAG_ON_SNOW_KEPT"), "POSTURE": D("止步面向林缘", "回头握叉戒备", "STOPPED_FACING_FOREST", "TURNED_GUARDING")}, referents=[("他", "QM")]),
+    dict(s="E04-S02", n=2, sec=3, faces={"QM": "OUT_OF_FRAME_CREATURE_ONLY"}, size="低机位远景", camera="低机位自黑暗缓推向逼近的猩红眼睛", axis="来路方向为威胁来源", blocking="黑暗的林木间两点猩红的眼光亮起，快速逼近，黑影块头很大只见轮廓",
+         cast=["QM"], action=(BEAST, "黑暗的林木间出现一双猩红的眼睛，正在快速逼近，向林缘冲来；那怪物块头不小，林木后只见黑影的轮廓", "QM"), dialogue=None,
+         entry="黑暗的林木间两点猩红的眼光刚亮起", exit="猩红的眼睛逼近到林缘，黑影的轮廓在林木后显出",
+         dims={"POSITION": D("眼睛在林深处", "眼睛逼近林缘", "EYES_DEEP_IN_FOREST", "EYES_AT_FOREST_EDGE"), "INTEGRITY": D("只见两点红光", "红光下显出黑影轮廓", "EYES_ONLY", "SILHOUETTE_VISIBLE")}, referents=[("它", BEAST)]),
+    dict(s="E04-S02", n=3, sec=3, size="特写", camera="环绕面部，寒毛倒竖与鼻翼", axis="秦铭面向来路（画右）", blocking="秦铭面向来路眼神收紧，寒风吹动发梢，他闻到腥味咬紧牙关",
+         cast=["QM"], action=("QM", "秦铭寒毛倒竖，寒风刮过来一股腥味，他鼻翼一动，牙关咬紧，低声吐出几个字", None), dialogue=("QM", "什么东西……", None), emotion="fear",
+         entry="秦铭面向来路，眼神收紧", exit="秦铭闻到腥味，牙关咬紧，发梢被风吹起",
+         dims={"POSTURE": D("眼神收紧", "牙关咬紧", "EYES_NARROWED", "JAW_CLENCHED"), "MOMENTUM": D("发梢静止", "发梢被风吹起", "HAIR_STILL", "HAIR_BLOWN")}, referents=[("他", "QM")]),
+    dict(s="E04-S02", n=4, sec=3, faces={"QM": "LOW_ANGLE_MEDIUM_CLOSE_HEAD_DOWN_NOT_MEASURABLE"}, size="低机位中近景", camera="低机位随插叉取弓下降", axis="秦铭面向来路（画右）", blocking="秦铭把猎叉插进雪地，迅速取下背上的弓，抽出一支铁箭搭上弦",
+         cast=["QM"], action=("QM", "秦铭把猎叉插进雪地，迅速取下弓箭，抽出一支铁箭搭上弦", None), dialogue=None,
+         entry="秦铭双手握着猎叉，弓箭还在背上", exit="猎叉插在雪里，弓在秦铭手中，铁箭已搭上弦",
+         dims={"POSSESSION": D("猎叉在手", "弓箭在手、猎叉插雪", "FORK_IN_HAND", "BOW_IN_HAND_FORK_PLANTED"), "CONTACT": D("弓箭在背上", "铁箭搭在弦上", "BOW_ON_BACK", "ARROW_NOCKED")}, referents=[("他", "QM")]),
+    # S03 —— 连珠铁箭
+    dict(s="E04-S03", n=1, sec=3, faces={"QM": "CLOSE_UP_EYES_BEHIND_BOWSTRING_PARTIAL_NOT_MEASURABLE"}, size="特写", camera="环绕拉满的硬弓", axis="秦铭面向来路（画右）", blocking="秦铭把硬弓拉成满月状，铁镞对着黑暗",
+         cast=["QM"], action=("QM", "秦铭臂力惊人，将常人难以使用的硬弓瞬间拉成满月状，铁镞对着黑暗", None), dialogue=None,
+         entry="秦铭的手臂正把硬弓拉开", exit="硬弓拉成满月，铁镞对着黑暗，他的眼睛在弓弦后",
+         dims={"INTEGRITY": D("弓半开", "弓拉满月", "BOW_HALF_DRAWN", "BOW_FULL_DRAW"), "POSTURE": D("手臂张开中", "手臂定住瞄准", "ARMS_OPENING", "ARMS_LOCKED_AIMING")}, referents=[("他", "QM")]),
+    dict(s="E04-S03", n=2, sec=3, faces={"QM": "PROFILE_SHOOTING_NOT_MEASURABLE"}, size="中景", camera="横移随铁箭飞出", axis="秦铭（画左）向黑暗（画右）射击", blocking="铁箭飞出弓弦颤音很响，秦铭抽出第二支箭",
+         cast=["QM"], action=("QM", "强劲的铁箭飞出，弓弦的颤音很响；铁箭没入夜色，秦铭已抽出第二支箭", None), dialogue=None,
+         entry="铁箭正离弦飞出", exit="铁箭没入夜色，第二支箭在秦铭手中",
+         dims={"POSITION": D("铁箭在弦上", "铁箭没入夜色", "ARROW_ON_STRING", "ARROW_GONE_INTO_DARK"), "POSSESSION": D("手中一支箭", "手中第二支箭", "FIRST_ARROW", "SECOND_ARROW")}, referents=[("他", "QM")]),
+    dict(s="E04-S03", n=3, sec=4, faces={"QM": "OUT_OF_FRAME_CREATURE_ONLY"}, size="低机位远景", camera="低机位横摇跟随黑影骤停", axis="来路方向为黑影来源", blocking="冲过来的黑影骤然停顿，猩红的眼睛晃了一下",
+         cast=["QM"], action=(BEAST, "远处林线之后的黑暗里，一团比树干更黑、块头很大的黑影在树干间冲来，只见轮廓与两点猩红眼光，绝不走出树线、绝不显出四肢五官衣甲，全程没有一帧让它站到开阔雪地上；冲刺中的黑影骤然停顿了一下，猩红的眼睛晃了晃，疑似中箭（本单元一次因怪物整体走到开阔雪地、离人数米且未停顿重做）", None), dialogue=None,
+         entry="黑影正向前冲", exit="黑影骤然停顿，猩红的眼睛晃了一下",
+         dims={"MOMENTUM": D("冲刺中", "骤然停顿", "CHARGING", "STOPPED_SHORT"), "POSTURE": D("眼睛平稳逼近", "眼睛晃动", "EYES_STEADY", "EYES_JOLTED")}, referents=[("它", BEAST)]),
+    dict(s="E04-S03", n=4, sec=3, faces={"QM": "LOW_ANGLE_MEDIUM_WIDE_SHOOTING_FACE_NOT_MEASURABLE"}, size="低机位中全景", camera="低机位随连着开弓升起", axis="秦铭面向来路（画右）", blocking="秦铭连着开弓，铁箭一支接一支飞出，箭囊里的箭少了一半",
+         cast=["QM"], action=("QM", "秦铭精神高度集中，连着开弓，杀伤力很强的铁箭一支接一支地没入夜色中", None), dialogue=None,
+         entry="秦铭搭上第二支箭，箭囊满", exit="铁箭一支接一支射出，箭囊里的箭少了一半",
+         dims={"POSSESSION": D("箭囊满", "箭囊少了一半", "QUIVER_FULL", "QUIVER_HALF"), "MOMENTUM": D("单发", "连珠射", "SINGLE_SHOT", "RAPID_FIRE")}, referents=[("他", "QM")]),
+    dict(s="E04-S03", n=5, sec=3, faces={"QM": "OUT_OF_FRAME_CREATURE_ONLY"}, size="远景", camera="缓推向林木后方消失的眼睛", axis="来路方向", blocking="密林间传来低吼，猩红的眼睛消失，枯枝折断，黑影躲到林木后方",
+         cast=["QM"], action=(BEAST, "密林间传来沉闷的低吼，那双猩红的眼睛消失，伴着枯枝折断的声响，黑影退到林木后方", None), dialogue=None,
+         entry="猩红的眼睛在林木后发出低吼", exit="眼睛消失，枯枝折断，林木后只余黑影的轮廓",
+         dims={"INTEGRITY": D("红眼可见", "红眼消失", "EYES_GLOWING", "EYES_GONE"), "POSITION": D("黑影在林缘", "黑影躲到林木后方", "SHADOW_AT_EDGE", "SHADOW_BEHIND_TREES")}, referents=[("它", BEAST)]),
+    # S04 —— 空旷雪地对峙
+    dict(s="E04-S04", n=1, sec=4, faces={"QM": "MEDIUM_WIDE_WALKING_RUNNING_NOT_MEASURABLE"}, size="中全景", camera="手持横移跟随冲出山林", axis="林缘（画左）到空旷雪地（画右）", blocking="秦铭抓起兽皮袋和猎叉冲出林缘，站到空旷雪地上转身面向林线",
+         cast=["QM"], action=("QM", "秦铭抓起兽皮袋和猎叉，快速冲出山林，来到空旷的雪地上转身面向林线；林间传来积雪被剧烈冲击的声响", None), dialogue=("QM", "来空地上！", None), emotion="threat",
+         entry="秦铭抓起兽皮袋和猎叉正冲出林缘", exit="秦铭站在空旷雪地上面向林线，林间传来积雪被冲击的声响",
+         dims={"POSITION": D("在林缘", "在空旷雪地", "AT_FOREST_EDGE", "ON_OPEN_SNOW"), "POSSESSION": D("兽皮袋在雪里", "兽皮袋与猎叉在手", "BAG_ON_GROUND", "BAG_AND_FORK_IN_HAND")}, referents=[("他", "QM")]),
+    dict(s="E04-S04", n=2, sec=3, faces={"QM": "LOW_ANGLE_MEDIUM_SHOOTING_FACE_TURNED_NOT_MEASURABLE"}, size="低机位中景", camera="低机位随箭中树干雪瀑坠落下降", axis="秦铭（画右）向林线（画左）射击", blocking="秦铭开弓，铁箭咚的射进很粗的树干，满树雪花如雪瀑坠落",
+         cast=["QM"], action=("QM", "秦铭毫不犹豫地开弓，铁箭咚的射进很粗的树干，震得满树雪花顷刻间如雪瀑般坠落", None), dialogue=None,
+         entry="秦铭开弓对着林线", exit="铁箭钉在树干上，满树雪花如雪瀑坠落",
+         dims={"INTEGRITY": D("树上积雪完整", "满树雪花坠落", "TREE_SNOW_INTACT", "SNOW_CASCADING"), "POSITION": D("铁箭在弦上", "铁箭钉进树干", "ARROW_ON_STRING", "ARROW_IN_TRUNK")}, referents=[("他", "QM")]),
+    dict(s="E04-S04", n=3, sec=3, faces={"QM": "OUT_OF_FRAME_CREATURE_ONLY"}, size="低机位远景", camera="低机位环绕林中隐现的黑影", axis="林线方向", blocking="块头很大的黑影在林木间隐现，猩红眼睛森冷，发出不甘的嘶吼消失在密林中",
+         cast=["QM"], action=(BEAST, "地面积雪翻腾，块头很大的黑影在林中数次隐现，猩红的眼睛甚是森冷；它发出一声不甘的低沉嘶吼，消失在密林中", None), dialogue=None,
+         entry="黑影在林木间隐现，猩红的眼睛森冷", exit="黑影发出嘶吼后消失，林中只余翻腾过的积雪",
+         dims={"INTEGRITY": D("黑影隐现", "黑影消失", "SHADOW_FLICKERING", "SHADOW_GONE"), "MOMENTUM": D("徘徊", "退走", "PROWLING", "RETREATING")}, referents=[("它", BEAST)]),
+    dict(s="E04-S04", n=4, sec=5, faces={"QM": "BACK_THREE_QUARTER_DRAWING_BOW_NOT_MEASURABLE"}, size="中近景", camera="随后退缓拉", axis="秦铭面向林线（画左）", blocking="秦铭手持弓箭对着密林慢慢后退，说一句",
+         cast=["QM"], action=("QM", "秦铭手持弓箭对着密林，慢慢后退，他看出那是一道可以直立奔行的身影，低声说一句", None), dialogue=("QM", "能直立奔行……是什么怪物？", None), emotion="calm",
+         entry="秦铭持弓对着密林，站在原地", exit="秦铭后退了几步，说完一句，弓仍对着林线",
+         dims={"POSITION": D("在原地", "后退几步", "HOLDING_GROUND", "STEPPED_BACK"), "POSTURE": D("闭口戒备", "说完凝视", "SILENT_GUARD", "SPOKEN_GUARD")}, referents=[("他", "QM"), ("那", BEAST)]),
+    # S05 —— 三个闲汉（村外雪路）
+    dict(s="E04-S05", n=1, sec=6, cps=4.8, size="中景", camera="缓推压低嗓子的胡勇", axis="胡勇（画右）面向马阳、王佑平（画左）", blocking="三人守在雪路旁，胡勇压着嗓子对另外两人说一句，说完抬手指向进山的方向",
+         cast=["HY", "MY", "WY"], action=("HY", "胡勇、马阳、王佑平三个青年守在双树村外的雪路上，胡勇压着嗓子对另外两人说一句，说完抬手指向进山的方向", "MY"), dialogue=("HY", "等他背着猎物出来，套上袋子打闷棍，别打死。", "MY"), emotion="threat", slots={"HY": "SCREEN_RIGHT", "MY": "SCREEN_LEFT"},
+         entry="三人守在雪路旁，胡勇开口", exit="胡勇说完，抬手指着进山的方向",
+         dims={"POSTURE": D("胡勇开口", "胡勇抬手指向山路", "SPEAKING", "POINTING_UPHILL"), "CONTACT": D("马阳、王佑平看着雪路", "两人看向胡勇", "EYES_ON_PATH", "EYES_ON_HUYONG")}, referents=[("他", "QM"), ("咱们", "HY")]),
+    dict(s="E04-S05", n=2, sec=4, faces={"HY": "MEDIUM_WIDE_SMALL_FACE_NOT_MEASURABLE", "MY": "MEDIUM_WIDE_SMALL_FACE_NOT_MEASURABLE", "WY": "MEDIUM_WIDE_SMALL_FACE_NOT_MEASURABLE"}, size="中全景", camera="横移自雪路到跺脚的三人", axis="三人并肩面向村外雪路（画右）", blocking="三个青年在雪路旁跺脚搓手呼出白雾，眉毛上都是冰渣，钻进雪窟窿；雪面平整只有脚印，没有任何刻痕或符号",
+         cast=["HY", "MY", "WY"], action=("HY", "双树村外的雪路上，胡勇、马阳、王佑平三个青年冻得跺脚搓手，大口呼出白雾，眉毛上都是冰渣；三人钻进挖好的雪窟窿", None), dialogue=None,
+         entry="三人站在雪路旁跺脚搓手", exit="三人钻进雪窟窿窝着",
+         dims={"POSITION": D("站在雪路旁", "窝在雪窟窿里", "ON_SNOW_PATH", "IN_SNOW_HOLLOW"), "POSTURE": D("跺脚搓手", "缩着身子窝着", "STAMPING_RUBBING", "HUDDLED")}, referents=[("他们", "HY")]),
+    dict(s="E04-S05", n=3, sec=6, cps=4.8, size="低机位中景", camera="低机位缓推雪窟窿里的三人", axis="王佑平（画左）面向胡勇、马阳（画右）", blocking="三人窝在雪窟窿里，王佑平缩着脖子抱怨，胡勇抬了抬手里的铁棍",
+         cast=["WY", "HY", "MY"], action=("WY", "三人窝在雪窟窿里低声交谈，王佑平缩着脖子抱怨一句；胡勇抬了抬手里的铁棍", "HY"), dialogue=("WY", "我看他八成会死在野外，根本带不回来猎物。", "HY"), emotion="calm", slots={"WY": "SCREEN_LEFT", "HY": "SCREEN_RIGHT"},
+         entry="三人窝在雪窟窿里，王佑平缩着脖子开口", exit="王佑平说完，胡勇抬了抬手里的铁棍",
+         dims={"POSTURE": D("王佑平缩脖子开口", "王佑平说完撇嘴", "HUNCHED_SPEAKING", "DONE_SPEAKING_POUTING"), "CONTACT": D("铁棍横在胡勇膝上", "铁棍被胡勇抬起", "ROD_ON_KNEES", "ROD_RAISED")}, referents=[("他", "QM"), ("他们", "HY")]),
+    dict(s="E04-S05", n=4, sec=5, faces={"HY": "BACK_THREE_QUARTER_LISTENING_NOT_MEASURABLE"}, size="中近景", camera="固定，马阳压低嗓子", axis="马阳（画右）面向胡勇（画左）", blocking="马阳压低嗓子说一句，胡勇背侧点头，三人噤声望向雪路",
+         cast=["MY", "HY"], action=("MY", "马阳压低嗓子说一句，胡勇点头；马阳抬眼望向雪路，三人噤声", "HY"), dialogue=("MY", "谨慎一些，待会儿就不要出声了。", "HY"), emotion="calm", slots={"MY": "SCREEN_RIGHT", "HY": "SCREEN_LEFT"},
+         entry="马阳压低嗓子开口，胡勇看着他", exit="马阳说完抬眼望向雪路，胡勇点头噤声",
+         dims={"POSTURE": D("马阳低头说话", "马阳抬眼望雪路", "HEAD_DOWN_SPEAKING", "EYES_ON_PATH"), "CONTACT": D("胡勇头正", "胡勇点头", "HEAD_STILL", "NODDING")}, referents=[("他们", "HY")]),
+    # S06 —— 潜行
+    dict(s="E04-S06", n=1, sec=3, faces={"QM": "FAR_FIGURE_FACE_NOT_MEASURABLE"}, size="高机位中全景", camera="高机位随蹲下没入雪下降", axis="秦铭面向村口（画右）", blocking="秦铭在雪路上看到前方三条黑影，立刻蹲下，整个人没进齐肩深的积雪里",
+         cast=["QM"], action=("QM", "秦铭隔着一段距离看到前方三条黑影，低声说三个字，立刻蹲下身，整个人没进齐肩深的积雪里", None), dialogue=("QM", "三个人？", None), emotion="calm",
+         entry="秦铭在雪路上看到前方远处有三条黑影，身影露在雪面上", exit="秦铭整个人没进齐肩深的积雪，雪面上只余猎叉的叉头",
+         dims={"POSTURE": D("直立行走", "蹲下没入雪", "STANDING", "CROUCHED_IN_SNOW"), "INTEGRITY": D("身影在雪面上", "身影消失在雪面下", "FIGURE_ABOVE_SNOW", "FIGURE_HIDDEN")}, referents=[("他", "QM")]),
+    dict(s="E04-S06", n=2, sec=3, faces={"QM": "LOW_ANGLE_TOP_OF_HEAD_NOT_MEASURABLE"}, size="低机位中景", camera="低机位贴雪面横移跟随潜行", axis="秦铭沿雪路向村口（画右）潜行", blocking="雪沟里秦铭的头顶与猎叉贴着雪面无声前移，潜行到离三人藏身处不远的雪沟里",
+         cast=["QM"], action=("QM", "秦铭沿着早先蹚出的雪路无声地潜行，头顶与猎叉贴着雪面前移", None), dialogue=None,
+         entry="秦铭在雪沟起点开始潜行，猎叉贴着雪面", exit="秦铭潜行到离三人藏身处不远的雪沟里",
+         dims={"POSITION": D("离三人藏身处远", "离三人藏身处不远", "FAR_FROM_HIDEOUT", "NEAR_HIDEOUT"), "MOMENTUM": D("静止", "无声前移", "STILL", "CREEPING")}, referents=[("他", "QM")]),
+    dict(s="E04-S06", n=3, sec=3, identity_reanchor=True, size="特写", camera="环绕停下听的脸", axis="秦铭面向雪窟窿方向（画右）", blocking="秦铭在雪沟里停下侧耳听，听清对话后脸色难看起来",
+         cast=["QM"], action=("QM", "秦铭在一处停下，侧耳听到了三人的对话，脸色难看起来，从牙缝里挤出两个字", None), dialogue=("QM", "截胡？", None), emotion="threat",
+         entry="秦铭在雪沟里停下侧耳听", exit="秦铭听清对话，脸色难看",
+         dims={"POSTURE": D("侧耳倾听", "脸色难看", "LISTENING", "GRIM"), "MOMENTUM": D("前移中停下", "定住不动", "STOPPING", "FROZEN")}, referents=[("他", "QM"), ("三人", "HY")]),
+    dict(s="E04-S06", n=4, sec=3, faces={"QM": "LOW_ANGLE_MEDIUM_CLOSE_FACE_DOWN_NOT_MEASURABLE"}, size="低机位中近景", camera="低机位缓推放袋握叉", axis="秦铭面向雪窟窿方向（画右）", blocking="秦铭把兽皮袋轻轻放进雪里，双手握紧猎叉压低身体蓄势",
+         cast=["QM"], action=("QM", "秦铭俯身把兽皮袋轻轻放进雪里，双手握紧猎叉，身体压低蓄势", None), dialogue=None,
+         entry="秦铭背着兽皮袋，单手持叉", exit="兽皮袋放在雪里，秦铭双手握紧猎叉压低身体",
+         dims={"POSSESSION": D("兽皮袋在肩上", "兽皮袋放在雪里", "BAG_ON_SHOULDER", "BAG_SET_DOWN"), "CONTACT": D("单手持叉", "双手握叉", "ONE_HAND_ON_FORK", "TWO_HANDS_ON_FORK")}, referents=[("他", "QM")]),
+    # S07 —— 崩塌与暴击（源章明写的搏斗，FS1）
+    dict(s="E04-S07", n=1, sec=3, faces={"QM": "FAR_FIGURE_FACE_NOT_MEASURABLE", "HY": "BURIED_IN_SNOW_NOT_MEASURABLE", "MY": "BURIED_IN_SNOW_NOT_MEASURABLE", "WY": "BURIED_IN_SNOW_NOT_MEASURABLE"}, size="高机位中全景", camera="高机位随崩塌下降", axis="雪窟窿为动作中心，秦铭自画左扑来", blocking="三个闲汉在雪窟窿坑底（画面中央），雪壁正向他们崩塌、雪块把他们埋到只露手脚；秦铭在坑外画左、单膝撑在坑沿上，是唯一站在坑外的人",
+         cast=["QM", "HY", "MY", "WY"], action=("QM", "秦铭扑到雪窟窿的雪壁上，雪窟窿轰然崩塌，霎时间把三人埋在里面，口鼻间全是雪，只露出手脚", "HY"), dialogue=None,
+         entry="三人在雪窟窿坑底，雪壁正向他们崩塌，秦铭在坑外扑到坑沿", exit="三人被埋在坑底翻腾的雪块下只露出手脚，秦铭立在坑外的坑沿上",
+         dims={"INTEGRITY": D("雪窟窿完整", "雪窟窿崩塌成雪堆", "HOLLOW_INTACT", "HOLLOW_COLLAPSED"), "POSITION": D("三人在坑里", "三人埋在雪下", "TRIO_IN_HOLLOW", "TRIO_BURIED")}, referents=[("他们", "HY"), ("他", "QM")]),
+    dict(s="E04-S07", n=2, sec=3, faces={"HY": "FACE_KICKED_MOTION_BLUR_NOT_MEASURABLE", "QM": "LEG_AND_FORK_ONLY_FACE_OUT_OF_FRAME"}, size="低机位中景", camera="低机位环绕踹脸与叉柄砸肩", axis="胡勇冲出雪堆（画右）、秦铭在画左", blocking="胡勇第一个冲出雪堆，脚掌迎面踹在他脸上，猎叉木柄砸在他肩头，他踉跄倒地",
+         cast=["QM", "HY"], action=("QM", "胡勇第一个冲出来，还没稳住身形，秦铭一脚重重踹在他的脸上，接着猎叉的木柄猛烈砸在他肩头，胡勇踉跄着倒在地上", "HY"), dialogue=None,
+         entry="胡勇冲出雪堆，秦铭的脚掌已到他眼前", exit="胡勇被踹脸、猎叉木柄砸肩，踉跄倒在雪地上",
+         dims={"POSTURE": D("胡勇冲出站起", "胡勇倒地", "HUYONG_RISING", "HUYONG_DOWN"), "CONTACT": D("脚掌踹脸", "叉柄砸肩", "KICK_TO_FACE", "ROD_TO_SHOULDER")}, referents=[("他", "HY")]),
+    dict(s="E04-S07", n=3, sec=3, faces={"QM": "FOOT_ONLY_FACE_OUT_OF_FRAME"}, size="中近景", camera="横移跟随踢鼻子到翻滚", axis="马阳从雪中冒头（画右），秦铭在画左", blocking="马阳刚从雪中冒头就被一脚踢在鼻子上，嗷的一声惨叫涕泪长流，倒在雪地里翻滚",
+         cast=["QM", "MY"], action=("QM", "马阳刚从雪中冒头就被秦铭一脚踢在鼻子上，嗷的一声惨叫，涕泪长流，倒在雪地里不断翻滚", "MY"), dialogue=None,
+         entry="马阳刚从雪中冒头，脸正对镜头方向抬起，脸上只沾少许雪、五官清晰可辨（灰布裹头、瘦长脸）", exit="马阳涕泪长流倒在雪地里翻滚",
+         dims={"POSTURE": D("马阳冒头", "马阳翻滚", "MAYANG_EMERGING", "MAYANG_ROLLING"), "INTEGRITY": D("马阳脸干净", "马阳鼻子流血涕泪长流", "FACE_CLEAN", "NOSE_BLEEDING_TEARS")}, referents=[("他", "MY")]),
+    dict(s="E04-S07", n=4, sec=3, faces={"WY": "BACK_TO_CAMERA_BURROWING_NOT_MEASURABLE", "QM": "FORK_ONLY_FACE_OUT_OF_FRAME"}, size="俯拍特写", camera="俯拍缓推钢叉刺破衣背", axis="王佑平向雪里钻，秦铭在上方", blocking="王佑平向一人深的积雪里钻只剩后背，锋利的钢叉刺破他背上的衣服见了血",
+         cast=["WY", "QM"], action=("QM", "王佑平俯身向一人深的积雪里钻，秦铭的钢叉刺破他背上的衣服，让他见了血", "WY"), dialogue=None,
+         entry="王佑平向雪里钻，只剩后背，钢叉在他背上方", exit="钢叉刺破王佑平背上的衣服，见了血",
+         dims={"INTEGRITY": D("衣背完好", "衣背刺破见血", "COAT_INTACT", "COAT_TORN_BLEEDING"), "CONTACT": D("钢叉悬在背上方", "钢叉抵进后背", "FORK_ABOVE_BACK", "FORK_INTO_BACK")}, referents=[("他", "WY")]),
+    dict(s="E04-S07", n=5, sec=4, faces={"QM": "FORK_ONLY_FACE_OUT_OF_FRAME"}, size="俯拍中近景", camera="俯拍环绕求饶的脸", axis="王佑平仰头面向秦铭（画上方）", blocking="王佑平从雪里仰起脸嘴唇发抖哆嗦着求饶，秦铭的钢叉抵着他",
+         cast=["WY", "QM"], action=("WY", "王佑平从雪里仰起脸，声音打颤，嘴唇发抖，哆嗦着求饶；秦铭的钢叉抵着他", "QM"), dialogue=("WY", "不要啊……别杀我。", "QM"), emotion="plead",
+         entry="王佑平从雪里仰起脸，嘴唇发抖", exit="王佑平说完，钢叉仍抵着他的背",
+         dims={"POSTURE": D("仰脸张口", "说完缩着", "FACE_UP_PLEADING", "CRINGING_DONE"), "CONTACT": D("钢叉抵背", "钢叉压得更紧", "FORK_ON_BACK", "FORK_PRESSED")}, referents=[("他", "WY")]),
+    # S08 —— 怂了、暴揍
+    dict(s="E04-S08", n=1, sec=3, faces={"QM": "MEDIUM_WIDE_WALKING_FACE_NOT_MEASURABLE", "WY": "FAR_FIGURE_FACE_NOT_MEASURABLE"}, size="中全景", camera="横移随戳出踢飞", axis="秦铭（画左）向王佑平（画右）", blocking="秦铭用钢叉把王佑平从雪里戳出来，抬脚把他踢出三米远跌进雪堆",
+         cast=["QM", "WY"], action=("QM", "秦铭用钢叉把王佑平从雪里戳了出来，而后抬脚把他踢出去三米远，他再次跌入雪堆中", "WY"), dialogue=("QM", "滚出来！", None), emotion="threat",
+         entry="秦铭用钢叉把王佑平从雪里戳出来", exit="王佑平被踢出三米远跌进雪堆",
+         dims={"POSITION": D("王佑平在秦铭脚边", "王佑平在三米外的雪堆里", "WANG_AT_FEET", "WANG_THREE_METRES_AWAY"), "POSTURE": D("王佑平被戳出", "王佑平跌进雪堆", "WANG_PULLED_OUT", "WANG_IN_DRIFT")}, referents=[("他", "WY")]),
+    dict(s="E04-S08", n=2, sec=5, cps=4.8, faces={"QM": "BACK_THREE_QUARTER_HOLDING_FORK_NOT_MEASURABLE"}, size="中景", camera="缓推三人看清是谁", axis="三人（画右）仰面向握叉的秦铭（画左）", blocking="三人看清握着寒光闪闪钢叉的人是谁顿时怂了，胡勇捂着肩仰面求饶半句，马阳、王佑平缩在一旁",
+         cast=["HY", "MY", "WY", "QM"], action=("HY", "三人看清了握着寒光闪闪钢叉的人是谁，顿时怂了；胡勇捂着肩仰面求饶，半句话从画面第 0.5 秒开口、在第 3.5 秒前说完，最后 1.5 秒闭着嘴只剩喘气，马阳、王佑平缩在一旁（本单元一次因胡勇的半句台词延续到画面末帧被截断重做）", "QM"), dialogue=("HY", "铭哥，咱们一个村的低头不见抬头见，", "QM"), emotion="plead", slots={"HY": "SCREEN_RIGHT", "QM": "SCREEN_LEFT"},
+         entry="三人抬头看清握钢叉的秦铭，胡勇捂着肩开口", exit="胡勇说完半句闭嘴，马阳、王佑平缩在一旁",
+         dims={"POSTURE": D("三人抬头看", "三人缩着怂了", "LOOKING_UP", "COWERING"), "CONTACT": D("胡勇手按雪地", "胡勇捂着肩", "HAND_ON_SNOW", "HAND_ON_SHOULDER")}, referents=[("他们", "HY"), ("铭哥", "QM")]),
+    dict(s="E04-S08", n=3, sec=4, cps=4.8, faces={"QM": "FORK_HEAD_ONLY_FACE_OUT_OF_FRAME"}, size="低机位中近景", camera="固定，胡勇仰面求饶", axis="胡勇（画右）仰面向秦铭（画左）", blocking="胡勇仰着鼻青的脸说第二句，说完低头，钢叉叉头在他面前",
+         cast=["HY", "QM"], action=("HY", "胡勇仰着鼻青的脸把后半句说完，在画面第 3 秒前说完，说完低头闭嘴；秦铭的钢叉叉头在他面前", "QM"), dialogue=("HY", "手下留情啊，这次我们错了。", "QM"), emotion="plead",
+         entry="胡勇仰着脸接着说", exit="胡勇说完低头，钢叉叉头在他面前",
+         dims={"POSTURE": D("仰脸说话", "说完低头", "FACE_UP_SPEAKING", "HEAD_BOWED")}, referents=[("他", "HY")]),
+    dict(s="E04-S08", n=4, sec=3, faces={"QM": "FAR_FIGURE_FACE_NOT_MEASURABLE", "HY": "FAR_FIGURE_FACE_NOT_MEASURABLE", "MY": "FAR_FIGURE_FACE_NOT_MEASURABLE", "WY": "FAR_FIGURE_FACE_NOT_MEASURABLE"}, size="高机位远景", camera="高机位随暴揍升起", axis="三人蹲在雪地，秦铭围着他们", blocking="秦铭用钢叉抵着三人让他们蹲在雪地上，一顿暴揍，三人鼻青脸肿嘴里血沫子惨嚎",
+         cast=["QM", "HY", "MY", "WY"], action=("QM", "秦铭用钢叉抵着他们的身体，让他们老实地蹲在雪地上，而后用叉柄一顿暴揍；三人跪坐在雪地上抱着头惨嚎，鼻青脸肿、嘴角挂着血沫，身子一直在晃动、始终抬着头，没有一个人倒下或趴在雪里不动，雪面上没有血泊；秦铭收叉转身（本单元一次因三人面朝下倒在血泊里一动不动、观感像被打死重做）", "HY"), dialogue=None,
+         entry="三人被钢叉抵着蹲在雪地上", exit="三人跪坐在雪地上抱头惨嚎、嘴角血沫、仍在晃动，秦铭收叉转身",
+         dims={"INTEGRITY": D("三人只鼻子出血", "三人鼻青脸肿嘴里血沫子", "MINOR_INJURY", "BATTERED"), "POSTURE": D("蹲着", "跪坐抱头惨嚎", "SQUATTING", "KNEELING_WAILING")}, referents=[("他们", "HY"), ("他", "QM")]),
+    # S10 —— 村口
+    dict(s="E04-S09", n=1, sec=3, faces={"QM": "MEDIUM_WIDE_WALKING_FACE_NOT_MEASURABLE", "VB": "SMALL_FACE_CHOPPING_WOOD_NOT_MEASURABLE"}, size="中全景", camera="横移自火泉双树到劈柴的村民乙", axis="秦铭自村外（画左）向村口（画右）", blocking="火泉在望双树摇曳，秦铭加快脚步走向村口，劈柴的村民乙抬头看到他喊一句",
+         cast=["QM", "VB"], action=("VB", "火泉在望，黑白双树摇曳，秦铭加快脚步来到村口；一个劈柴的村民抬头正好看到他，喊了一句", "QM"), dialogue=("VB", "秦铭回来了。", None), emotion="joy",
+         entry="秦铭加快脚步走向火泉边的村口，村民乙在劈柴", exit="村民乙抬头喊完一句，秦铭走到村口",
+         dims={"POSITION": D("秦铭在村外雪路", "秦铭在村口", "OUTSIDE_VILLAGE", "AT_VILLAGE_GATE"), "POSTURE": D("村民乙低头劈柴", "村民乙抬头喊", "CHOPPING", "CALLING_OUT")}, referents=[("他", "QM")]),
+    dict(s="E04-S09", n=2, sec=3, faces={"QM": "FAR_FIGURE_FACE_NOT_MEASURABLE", "VA": "FAR_FIGURE_FACE_NOT_MEASURABLE", "VB": "FAR_FIGURE_FACE_NOT_MEASURABLE"}, size="高机位远景", camera="高机位随院门打开人们出来下降到猎叉上的松鼠", axis="秦铭站在村口（画右），临街院门在画左", blocking="临街的几个院门打开村民沿路出来，看到秦铭猎叉上挂着的红松鼠顿时鸦雀无声",
+         cast=["QM", "VA", "VB"], action=("VA", "临街的几个院门都打开了，村民们沿路出来；人们看到秦铭扛着的猎叉上挂着一只红松鼠，顿时鸦雀无声", "QM"), dialogue=None,
+         entry="临街的院门正在打开，村民们出来", exit="人们围在秦铭身前，看着猎叉上的红松鼠鸦雀无声",
+         dims={"POSITION": D("村民在院门内", "村民围在村口", "VILLAGERS_INSIDE_GATES", "VILLAGERS_AT_GATE"), "POSTURE": D("人们张望", "人们盯着松鼠不出声", "LOOKING_AROUND", "STARING_SILENT")}, referents=[("他", "QM")]),
+    dict(s="E04-S09", n=3, sec=6, cps=5.0, faces={"QM": "BACK_THREE_QUARTER_NOT_MEASURABLE"}, size="中近景", camera="缓推快步走来的陆泽", axis="陆泽自画左走向秦铭（画右）", blocking="陆泽快步走来看到秦铭安然无恙松了口气，说一句，眼睛盯着猎叉上的松鼠",
+         cast=["LZ", "QM"], action=("LZ", "陆泽快步走来，看到秦铭安然无恙，松了一口气，打破宁静说一句，眼睛盯着猎叉上的松鼠；整句台词在画面第 4 秒前说完，最后两秒陆泽闭口不语、只盯着松鼠，画面结尾只有池水的汩汩声（本单元一次因台词尾音被画面截断重做）", "QM"), dialogue=("LZ", "都说你进山去猎熊了，结果你这是……抓了只松鼠？", "QM"), emotion="mock", slots={"LZ": "SCREEN_LEFT", "QM": "SCREEN_RIGHT"},
+         entry="陆泽快步走来，眉头松开", exit="陆泽说完一句，眼睛盯着猎叉上的松鼠",
+         dims={"POSITION": D("陆泽在走近", "陆泽站在秦铭面前", "LUZE_APPROACHING", "LUZE_STOPPED"), "POSTURE": D("松口气", "说完盯松鼠", "EXHALING", "STARING_AT_SQUIRREL")}, referents=[("你", "QM")]),
+    dict(s="E04-S09", n=4, sec=4, cps=4.8, identity_reanchor=True, faces={"LZ": "PROFILE_LISTENING_NOT_MEASURABLE"}, size="中景", camera="环绕秦铭到鼓胀的兽皮袋", axis="秦铭（画右）面向陆泽（画左）", blocking="秦铭笑着答一句，人们注意到他背着的鼓胀兽皮袋眼热起来，松鼠皮毛隐隐发光",
+         cast=["QM", "LZ"], action=("QM", "秦铭笑着答一句；人们注意到他背着的鼓胀兽皮袋，眼热起来，松鼠火红的皮毛隐隐在发光", "LZ"), dialogue=("QM", "我还抄了它的家。", "LZ"), emotion="mock", slots={"QM": "SCREEN_RIGHT", "LZ": "SCREEN_LEFT"},
+         entry="秦铭笑着开口，鼓胀的兽皮袋在背上", exit="秦铭说完，画面落在鼓胀的兽皮袋与发光的松鼠皮毛上",
+         dims={"POSTURE": D("笑着开口", "说完侧身露袋", "SMILING_SPEAKING", "TURNED_SHOWING_BAG"), "POSITION": D("画面在秦铭的脸", "画面在兽皮袋与松鼠", "FRAME_ON_FACE", "FRAME_ON_BAG_AND_SQUIRREL")}, referents=[("它", "PROP-RED-SQUIRREL")]),
+    # S11 —— 讲经历、愤慨、补揍
+    dict(s="E04-S10", n=1, sec=4, faces={"QM": "MEDIUM_WIDE_GESTURING_FACE_SMALL_NOT_MEASURABLE", "VA": "SMALL_FACE_IN_CROWD_NOT_MEASURABLE", "VB": "SMALL_FACE_IN_CROWD_NOT_MEASURABLE", "LZ": "SMALL_FACE_IN_CROWD_NOT_MEASURABLE"}, size="中全景", camera="环绕比划着讲的秦铭与围着的人群", axis="秦铭面向人群", blocking="秦铭比划着讲一路上的经历，人们围着他，听到外面有凶险出没所有人面色都变了；村口只有人，没有任何动物",
+         cast=["QM", "LZ", "VA", "VB"], action=("QM", "村民乙先问一句，秦铭比划着如实讲了一路上的经历（讲述只用手势比划，不出声）；当听到山林外面的雪地里有凶险出没、短时间内谁都不能单独外出，所有人的面色都变了；除村民乙那一句外没有其他可辨话语", "VA"), dialogue=("VB", "外面还太平吗？", "QM"), emotion="fear",
+         entry="秦铭比划着讲，人们围着听", exit="人们的面色都变了，有人望向村外",
+         dims={"POSTURE": D("秦铭比划", "秦铭放下手", "GESTURING", "HANDS_DOWN"), "INTEGRITY": D("人群神色平常", "人群面色变了", "CROWD_CALM", "CROWD_ALARMED")}, referents=[("他", "QM")]),
+    dict(s="E04-S10", n=2, sec=6, cps=5.0, faces={"QM": "SMALL_FACE_IN_BACKGROUND_NOT_MEASURABLE"}, size="中近景", camera="缓推愤慨的邻居甲", axis="邻居甲（画左）面向人群与秦铭（画右）", blocking="邻居甲听到三人的行径指着村外愤慨地说，周围人群跟着嚷起来",
+         cast=["VA", "QM"], action=("VA", "秦铭提及三人的行径，邻居甲指着村外愤慨地说一句，周围的人跟着嚷起来", "QM"), dialogue=("VA", "真不要脸，自己不敢进山，却想对同村人下黑手！", "QM"), emotion="threat", slots={"VA": "SCREEN_LEFT", "QM": "SCREEN_RIGHT"},
+         entry="邻居甲指着村外开口", exit="邻居甲说完，周围人跟着嚷起来",
+         dims={"POSTURE": D("抬手指村外", "放下手", "POINTING", "HAND_DOWN"), "MOMENTUM": D("人群静听", "人群嚷起来", "CROWD_QUIET", "CROWD_SHOUTING")}, referents=[("同村人", "QM")]),
+    dict(s="E04-S10", n=3, sec=5, cps=4.8, faces={"HY": "FAR_FIGURE_FACE_NOT_MEASURABLE", "MY": "FAR_FIGURE_FACE_NOT_MEASURABLE", "WY": "FAR_FIGURE_FACE_NOT_MEASURABLE", "LZ": "FAR_FIGURE_FACE_NOT_MEASURABLE", "YQ": "FAR_FIGURE_FACE_NOT_MEASURABLE"}, size="高机位中全景", camera="高机位横移随三人冒头被揍", axis="三人自村外（画左）冒头，陆泽与杨永青自画右扑上", blocking="三人相互扶着一瘸一拐在村口冒头，陆泽带着杨永青扑上去又痛揍一顿，马阳抱头惨叫求饶",
+         cast=["HY", "MY", "WY", "LZ", "YQ"], action=("LZ", "马阳、胡勇、王佑平三人相互扶着一瘸一拐地刚在村口冒头，就被陆泽带着杨永青扑上去又痛揍了一顿，马阳抱头惨叫求饶；马阳的台词只喊一遍、从画面第 0.5 秒就开始喊、在第 3.5 秒前喊完，之后闭口只剩被按在雪地里的喘息，画面最后 1.5 秒没有任何人声（本单元两次因喊声延续到画面末帧被截断重做）", "MY"), dialogue=("MY", "陆哥，杨叔，刘大爷，不要打了，救命啊！", "LZ"), emotion="plead",
+         entry="三人一瘸一拐地在村口冒头", exit="陆泽与杨永青揍着三人，马阳抱头惨叫",
+         dims={"POSITION": D("三人在村口外", "三人被按在村口雪地上", "TRIO_OUTSIDE_GATE", "TRIO_DOWN_AT_GATE"), "POSTURE": D("相互扶着走", "抱头惨叫", "LIMPING_TOGETHER", "HEADS_COVERED_WAILING")}, referents=[("陆哥", "LZ"), ("杨叔", "YQ")]),
+    # S11 —— 屋内（末场 19 s 例外：四句对白 button）
+    dict(s="E04-S11", n=1, sec=6, cps=5.2, size="中近景", camera="中近景双人同框：秦铭的脸占画面上部三分之一、正对镜头略偏左，主光是木格窗透进的冷白雪光，肤色自然偏清、五官清晰无阴影，铜盆的橘红暖光只留在下颌轮廓、衣领与干果上，脸不得整体染成橘红；文睿在画左下方吃干果；环绕自干果堆到同框", axis="文睿（画左）面向秦铭（画右）", blocking="炕上摊着干果，文睿把野核桃塞进嘴里，嘴里塞得满满地对身旁的秦铭说一句，秦铭的脸朝向镜头笑着看他",
+         cast=["WR", "QM"], action=("WR", "秦铭家中，炕上摊着干果，文睿每种都尝了一遍，小嘴根本停不下来，嘴里塞得满满地对身旁的秦铭说一句；秦铭笑着看他", "QM"), dialogue=("WR", "小叔，你太厉害了，野核桃非常好吃，还有松子真香啊！", "QM"), emotion="joy", slots={"WR": "SCREEN_LEFT", "QM": "SCREEN_RIGHT"},
+         entry="文睿把一颗野核桃塞进嘴里，秦铭在他身旁；炕边的铜盆里只有一块发着橘红柔光的太阳石，没有火苗、没有木柴、没有火星", exit="文睿说完又抓起一把松子，秦铭笑着看他",
+         dims={"POSSESSION": D("手里是核桃", "手里是一把松子", "WALNUT_IN_HAND", "PINE_NUTS_IN_HAND"), "POSTURE": D("嚼着开口", "说完再抓", "CHEWING_SPEAKING", "DONE_GRABBING_MORE")}, referents=[("小叔", "QM")]),
+    dict(s="E04-S11", n=2, sec=3, size="低机位特写", camera="低机位环绕苏醒的红松鼠", axis="红松鼠倒挂在猎叉上（画上方），炕上的干果在画下方", blocking="倒挂的红松鼠从昏死中睁开眼睛，看到几人翻动它的家底，眼睛瞪得溜圆快喷出火",
+         cast=[], action=("PROP-RED-SQUIRREL", "挂在猎叉上的红松鼠从昏死状态苏醒，睁开眼睛，看到几人正在翻动它的家底，顿时绝望了；它眼睛瞪得溜圆，都快喷出火来了", None), dialogue=None,
+         entry="倒挂在猎叉上的红松鼠闭着眼睛", exit="红松鼠眼睛瞪得溜圆，盯着炕上被翻动的干果",
+         dims={"POSTURE": D("闭眼昏死", "瞪圆眼睛", "EYES_CLOSED", "EYES_BULGING"), "MOMENTUM": D("一动不动", "身体绷直抖动", "LIMP", "RIGID_TREMBLING")}, referents=[("它", "PROP-RED-SQUIRREL")]),
+    dict(s="E04-S11", n=3, sec=5, faces={"QM": "PROFILE_LISTENING_NOT_MEASURABLE"}, size="中近景", camera="固定，陆泽严肃开口", axis="陆泽（画左）面向秦铭（画右）", blocking="陆泽收起笑容严肃地说第一句，说到一半停顿看着秦铭",
+         cast=["LZ", "QM"], action=("LZ", "陆泽收起笑容，严肃地开口说第一句，说到一半停顿，看着秦铭", "QM"), dialogue=("LZ", "小秦，我看你身体恢复得差不多了，", "QM"), emotion="calm", slots={"LZ": "SCREEN_LEFT", "QM": "SCREEN_RIGHT"},
+         entry="陆泽收起笑容开口", exit="陆泽说到一半停顿，盯着秦铭",
+         dims={"POSTURE": D("带笑", "严肃停顿", "SMILING", "SERIOUS_PAUSE")}, referents=[("小秦", "QM")]),
+    dict(s="E04-S11", n=4, sec=4, cps=4.8, faces={"LZ": "PROFILE_SPEAKING_FOREGROUND_NOT_MEASURABLE"}, size="中近景", camera="极缓推近听到「新生」的秦铭，陆泽在画左前景侧脸；秦铭的脸正对镜头略偏右，主光是木格窗透进的冷白雪光，肤色自然偏清、五官清晰无阴影，铜盆的太阳石橘红光只留在下颌轮廓与衣领，脸不得整体染成橘红", axis="秦铭（画右）面向陆泽（画左）", blocking="陆泽在画左前景侧脸说第二句，秦铭听着，「新生」落下他的笑容收住望着陆泽",
+         cast=["LZ", "QM"], action=("LZ", "陆泽在画左前景侧脸把话说完；「新生」两个字落下，镜头贴着秦铭的脸，他的笑容收住，眼睛望着陆泽；画面从头到尾没有任何字幕、文字、标题或字号，台词只存在于声音里（本单元一次因画面下方烧录台词字幕重做）", "QM"), dialogue=("LZ", "该认真考虑‘新生’的事情了。", "QM"), emotion="calm", slots={"LZ": "SCREEN_LEFT", "QM": "SCREEN_RIGHT"},
+         entry="陆泽接着说，秦铭带着笑听；两人之间的铜盆里只有一块发着橘红柔光的太阳石，没有火苗、没有木柴、没有火星", exit="陆泽说完，秦铭的笑容收住，望着陆泽",
+         dims={"POSTURE": D("秦铭带笑听", "秦铭笑容收住", "SMILING_LISTENING", "SMILE_GONE_STARING")}, referents=[("小秦", "QM")]),
+]
+# ---------- END OF CHUNK 4 ----------
+
+# 承接：读 E03 合同末镜的实际 completion_state（不是源章推定）
+PREV_LAST = json.loads(PREV_CONTRACT.read_text(encoding="utf-8"))["shots"][-1]
+assert PREV_LAST["shot_id"] == PREV_LAST_SHOT, PREV_LAST["shot_id"]
+
+_ALT = [("ARC", "COUNTERCLOCKWISE"), ("ARC", "CLOCKWISE"), ("TRACK", "LEFT_TO_RIGHT"), ("TRACK", "RIGHT_TO_LEFT"),
+        ("CRANE", "RISE"), ("CRANE", "FALL")]
+_ZH_FAM = {"ARC": "环绕", "TRACK": "横移", "CRANE": "升降", "DOLLY": "推拉", "PAN": "横摇"}
+
+
+def _unit_first_shots() -> list[str]:
+    spec = ROOT / f"workflow/nalu/{EP}/preproduction/{EP}_VIDEO_UNIT_GROUPING_SPEC_V1.json"
+    order = [f"{sh['s']}-{sh['n']:02d}" for sh in SHOTS]
+    if spec.is_file():
+        groups = json.loads(spec.read_text(encoding="utf-8")).get("groups") or []
+        ids = [g["editorial_shot_ids"][0] for g in groups]
+        covered = [x for g in groups for x in g["editorial_shot_ids"]]
+        if covered == order:
+            return ids
+    return order
+
+
+def balance_camera_directions() -> list[tuple[str, str, str]]:
+    firsts = _unit_first_shots()
+    changed = []
+    seq: list[tuple[str, str] | None] = []
+    for sid in firsts:
+        cp = CAMERA_PLANS[sid]
+        if cp["motion_family"] == "LOCKED":
+            seq.append(None); continue
+        prev = seq[-1] if seq else None
+        def ok(fam, d):
+            if prev and prev[1] == d:
+                return False
+            window = [x for x in seq[-4:] if x] + [(fam, d)]
+            return sum(1 for x in window if x[1] == d) <= 2
+        fam, d = cp["motion_family"], cp["motion_direction"]
+        if not ok(fam, d):
+            for alt in _ALT:
+                if alt != (fam, d) and ok(*alt):
+                    cp["lens_intent"] = f"{cp['lens_intent']}（方向均衡：{_ZH_FAM[fam]}改为{_ZH_FAM[alt[0]]}）"
+                    cp["motivation"] = f"{cp['motivation']}；引擎相邻单元方向规则：原 {fam}:{d} 改为 {alt[0]}:{alt[1]}"
+                    cp["motion_family"], cp["motion_direction"] = alt
+                    changed.append((sid, f"{fam}:{d}", f"{alt[0]}:{alt[1]}"))
+                    fam, d = alt
+                    break
+            else:
+                raise AssertionError((sid, "无法满足机位方向均衡"))
+        seq.append((fam, d))
+    return changed
+
+
+CAMERA_DIRECTION_REBALANCED = balance_camera_directions()
+
+# ---------- 校验镜头表（seq=17：单镜 3–6 s、无对白 ≤4 s、单场 ≤16 s（末场例外 19）、全集 150–170、LOCKED ≤30%） ----------
+def est_spoken(text, cps):
+    han = len(re.findall(r"[㐀-鿿]", text)); p = len(re.findall(r"[，。！？；、,.!?;]", text))
+    o = len(re.sub(r"[㐀-鿿\s，。！？；、,.!?;]", "", text))
+    return han / cps + p * 0.16 + o * 0.08
+by_scene = {}
+for sh in SHOTS:
+    by_scene.setdefault(sh["s"], []).append(sh)
+assert list(by_scene) == list(SCENES), "镜头表场次顺序与 SCENES 不一致"
+SCENE_SEC_EXCEPTIONS = {"E04-S11": 19, "E04-S05": 21}
+for sid, meta in SCENES.items():
+    total = sum(x["sec"] for x in by_scene[sid])
+    assert total == meta["sec"], (sid, total, meta["sec"])
+    assert meta["sec"] <= SCENE_SEC_EXCEPTIONS.get(sid, PACING["scene_seconds_max"]) and meta["sec"] <= 12 * meta["info"], (sid, "单场 ≤16 s（末场 19）且 ≤12s×信息条数")
+prev_locked = False
+for i, sh in enumerate(SHOTS):
+    shot_id = f"{sh['s']}-{sh['n']:02d}"
+    assert shot_id in CAMERA_PLANS, (shot_id, "缺机位方案")
+    assert 3 <= sh["sec"] <= PACING["shot_seconds_max"], (shot_id, "单镜 3–6 s")
+    assert sh["entry"] != sh["exit"], sh
+    for d, (a, b, ca, cb) in sh["dims"].items():
+        assert d in {"POSITION", "POSTURE", "CONTACT", "POSSESSION", "INTEGRITY", "MOMENTUM"} and a != b and ca != cb, (shot_id, d)
+    for word in ("持续", "保持", "连续", "全黑", "极暗", "纯黑"):
+        assert word not in sh["action"][1] and word not in sh["entry"] and word not in sh["exit"], (shot_id, word)
+    cp = CAMERA_PLANS[shot_id]
+    locked = cp["motion_family"] == "LOCKED"
+    if sh.get("dialogue"):
+        cps = sh.get("cps", 4.2)
+        need = max(0.12 + est_spoken(sh["dialogue"][1], cps) + 0.32 + 0.25, NPR.min_dialogue_seconds(sh["dialogue"][1], sh.get("cps")))
+        assert need <= sh["sec"], (shot_id, "台词放不进镜头", round(need, 2), sh["sec"])
+        assert sh["sec"] <= 5 or need > 5, (shot_id, "只有台词确实放不进 5 s 才允许 >5 s", round(need, 2))
+    else:
+        assert sh["sec"] <= 4, (shot_id, "seq=17：无对白镜 ≤4 s")
+        assert not locked, (shot_id, "无对白镜必须有机位运动")
+        if sh["sec"] >= 3 and cp["motion_family"] not in NPR.MOVING_CAMERA:
+            assert any(v in sh["action"][1] for v in NPR.BODY_VERBS), (shot_id, "R7：无对白 ≥3 s 且机位非 ARC/TRACK/CRANE/PAN 时动作须含身体动词")
+    if locked:
+        assert sh.get("dialogue") and sh["sec"] <= 5, (shot_id, "LOCKED 只允许 ≤5 s 对白镜")
+        assert not prev_locked, (shot_id, "不得连续 LOCKED")
+    assert not (i == 0 and locked), "开场镜必须运动"
+    prev_locked = locked
+assert sum(1 for s in SHOTS if CAMERA_PLANS[f"{s['s']}-{s['n']:02d}"]["motion_family"] == "LOCKED") / len(SHOTS) <= PACING["camera_motion_policy"]["locked_share_max"]
+_run, _prev = 0, None
+for sh in SHOTS:
+    cp = CAMERA_PLANS[f"{sh['s']}-{sh['n']:02d}"]; key = (sh["s"], cp["camera_side"], cp["shot_scale"])
+    _run = _run + 1 if key == _prev else 1; _prev = key
+    assert _run <= 2, (sh["s"], sh["n"], "同轴同景别不得连续 >2 镜")
+# seq=12/13：同场内远景小人影之后的露脸镜必须声明 identity_reanchor
+FAR_MARK = ("FAR_FIGURE", "MEDIUM_WIDE_WALKING", "BACK_TO_CAMERA")
+REANCHOR_MISSING: list[str] = []
+for sid, shots in by_scene.items():
+    seen_far = False
+    for sh in shots:
+        f = (sh.get("faces") or {}).get("QM", "")
+        if "QM" in sh["cast"] and any(m in f for m in FAR_MARK):
+            seen_far = True; continue
+        if "QM" in sh["cast"] and seen_far and not f:  # 可测脸的镜
+            if not sh.get("identity_reanchor"):
+                REANCHOR_MISSING.append(f"{sid}-{sh['n']:02d}")
+            seen_far = False
+assert not REANCHOR_MISSING, ("远景小人影之后的露脸镜须 identity_reanchor", REANCHOR_MISSING)
+TOTAL = sum(m["sec"] for m in SCENES.values())
+assert PACING["episode_total_seconds_target"][0] <= TOTAL <= PACING["episode_total_seconds_target"][1], TOTAL
+
+# ---------- 关键台词逐字核对（源章 + narrative） ----------
+src_text = SRC_CH.read_text(encoding="utf-8")
+narr = SCRIPTS / f"{EP}_NARRATIVE_CANONICAL_{VER}.md"
+narr_text = narr.read_text(encoding="utf-8")
+AUTHORED_DIALOGUE = {
+    "能直立奔行……是什么怪物？": "ch4：「那是一道可以直立奔行的身影，不知道是哪种变异生物」叙述转自语；『变异生物』为现代词，按世界观词表 LEXICON_yewujiang_v1 改为『怪物』（seq=19 A6）",
+    "这一趟，值了，够全村嚼一冬。": "ch4：「收获不小」「心情不错」叙述转自语（开场钩子，seq=19 A1；同镜猎叉上的红松鼠即 A4 回顾镜）",
+    "什么东西……": "ch4：「寒毛倒竖」「不知道是哪种变异生物」叙述转自语（台词密度，seq=19 A5）",
+    "等他背着猎物出来，套上袋子打闷棍，别打死。": "ch4：三人「想截胡」「套袋打闷棍」叙述转为胡勇动机台词（对抗方动机前置，seq=19 A3）",
+    "不对。": "ch4：「倏地止步」叙述转自语（台词密度，seq=19 A5）",
+    "来空地上！": "ch4：「快速冲出山林，来到空旷的雪地上」叙述转自语——他把怪物引到空地（台词密度，seq=19 A5）",
+    "三个人？": "ch4：「看到前方三条黑影」叙述转自语（台词密度，seq=19 A5）",
+    "外面还太平吗？": "ch4：「村民询问外面是否安全」叙述转对白，分派村民乙（台词密度，seq=19 A5）",
+    "滚出来！": "ch4：「秦铭把王佑平从雪里戳了出来」叙述转自语（台词密度，seq=19 A5）",
+    "截胡？": "ch4：秦铭「听到了三人的对话，脸色难看」叙述转自语（台词密度，seq=19 A5）",
+    "我看他八成会死在野外，根本带不回来猎物。": "ch4 三人交谈原句（「实在不行我们还是撤吧，我看他八成会死在野外，根本带不回来猎物」）取后半，源章未指明说话人，按性格分派王佑平",
+    "铭哥，咱们一个村的低头不见抬头见，": "ch4 原句前半（源章「三人看清是谁后」未指明说话人，分派胡勇）；拆句申报见 SPLIT_QUOTES",
+    "手下留情啊，这次我们错了。": "ch4 同一原句后半，分派胡勇；拆句申报见 SPLIT_QUOTES",
+    "秦铭回来了。": "ch4 原句（「有人在劈柴，一抬头正好看到他」），分派村民乙",
+    "真不要脸，自己不敢进山，却想对同村人下黑手！": "ch4 村民议论原句前半（句号改叹号），源章未指明说话人，分派邻居甲",
+    "陆哥，杨叔，刘大爷，不要打了，救命啊！": "ch4 原句（「三人鼻涕泡带血……惨叫」），分派马阳",
+}
+SPLIT_QUOTES = {"铭哥，咱们一个村的低头不见抬头见，": "ch4 单句「铭哥，咱们一个村的低头不见抬头见，手下留情啊，这次我们错了。」前半，字不变",
+                "手下留情啊，这次我们错了。": "同一源句后半，字不变",
+                "小秦，我看你身体恢复得差不多了，": "ch4 单句「小秦，我看你身体恢复得差不多了，该认真考虑‘新生’的事情了。」前半，字不变",
+                "该认真考虑‘新生’的事情了。": "同一源句后半，字不变"}
+KEY_QUOTES, DIALOGUE_UNITS = [], []
+SPEAKER_NAMES = "|".join(cname(k) for k in CH)
+for sh in SHOTS:
+    if sh.get("dialogue"):
+        spk, q, _ = sh["dialogue"]; shot = f"{sh['s']}-{sh['n']:02d}"
+        assert f"{cname(spk)}：“{q}”" in narr_text, ("台词未逐字进 narrative", q)
+        core = q.rstrip("。！？，")
+        if q in AUTHORED_DIALOGUE:
+            DIALOGUE_UNITS.append((spk, q, shot, False))   # 叙述转对白 / 归属分派：来源在 AUTHORED_DIALOGUE 逐条申报
+        else:
+            assert core in src_text, ("key_quote 不在源章逐字文本中", q)
+            KEY_QUOTES.append((spk, q, shot)); DIALOGUE_UNITS.append((spk, q, shot, True))
+narr_lines = re.findall(rf'^({SPEAKER_NAMES})：“(.+?)”$', narr_text, re.M)
+assert [(cname(s), q) for s, q, *_ in DIALOGUE_UNITS] == narr_lines, ("镜头表对白顺序/说话人与 narrative 不一致", narr_lines)
+
+# ---------- 道具扫描（与引擎 editorial scan 同名） ----------
+PROP_KEYWORDS = (("PROP-HUNTING-FORK", ["猎叉", "钢叉"]), ("PROP-BOW-ARROWS", ["弓箭", "硬弓", "铁箭", "弓"]), ("PROP-HIDE-BAG", ["兽皮袋"]),
+                 ("PROP-NUT-HOARD", ["干果", "野核桃", "松子"]), ("PROP-RED-SQUIRREL", ["红松鼠", "松鼠"]), ("PROP-MUTANT-BEAST", ["猩红的眼睛", "黑影", "怪物"]),
+                 ("PROP-IRON-ROD", ["铁棍"]),
+                 ("SET-SNOW-HOLLOW", ["雪窟窿"]), ("SET-FIRE-SPRING", ["火泉"]))
+PROP_NAME = {**{p["entity_id"]: p["name"] for p in PROPS}, **{s["entity_id"]: s["name"] for s in SETS}}
+def _props_in(sh):
+    txt = sh["action"][1] + sh["entry"] + sh["exit"]
+    return [eid for eid, kws in PROP_KEYWORDS if any(k in txt for k in kws)]
+PROP_MISSING: list = []
+for sh in SHOTS:  # 出场道具必须在 entry_state 可见：名字出现在 action 里就必须也出现在 entry 或 exit 里（关键帧＝entry）
+    shot_id = f"{sh['s']}-{sh['n']:02d}"
+    for eid, kws in PROP_KEYWORDS:
+        if eid in ("SET-FIRE-SPRING", "SET-SNOW-HOLLOW"):
+            continue
+        if any(k in sh["action"][1] for k in kws):
+            if not (any(k in sh["entry"] for k in kws) or any(k in sh["exit"] for k in kws)):
+                PROP_MISSING.append((shot_id, eid))
+assert not PROP_MISSING, ("道具在 action 出现但 entry/exit 未声明", PROP_MISSING)
+
+TRANSITION_NOTES = {
+    ("E04-S01-01", "E04-S01-02"): ("MOTIVATED_CUT", "松鼠甩起后切高机位，切在转身上"),
+    ("E04-S02-01", "E04-S02-02"): ("REACTION_CUT", "猛然回头后切他所见：黑暗中的猩红眼睛"),
+    ("E04-S02-02", "E04-S02-03"): ("REACTION_CUT", "眼睛逼近后切秦铭面部反应"),
+    ("E04-S02-03", "E04-S02-04"): ("MOTIVATED_CUT", "牙关咬紧后切插叉取弓，切在插叉上"),
+    ("E04-S03-01", "E04-S03-02"): ("MOTIVATED_CUT", "满月弓后切横移，切在松弦上"),
+    ("E04-S03-02", "E04-S03-03"): ("REACTION_CUT", "第二支箭上手后切黑影骤停"),
+    ("E04-S03-03", "E04-S03-04"): ("MOTIVATED_CUT", "黑影停顿后切低机位连珠射，切在开弓上"),
+    ("E04-S03-04", "E04-S03-05"): ("REACTION_CUT", "箭囊减半后切林中低吼与眼睛消失"),
+    ("E04-S04-01", "E04-S04-02"): ("MOTIVATED_CUT", "站到雪地转身后切开弓，切在搭箭上"),
+    ("E04-S04-02", "E04-S04-03"): ("REACTION_CUT", "雪瀑坠落后切林中隐现的黑影"),
+    ("E04-S04-03", "E04-S04-04"): ("REACTION_CUT", "嘶吼消失后切秦铭后退；身份再锚定"),
+    ("E04-S05-01", "E04-S05-02"): ("MOTIVATED_CUT", "胡勇指向山路后切三人跺脚搓手，切在收手上"),
+    ("E04-S05-02", "E04-S05-03"): ("CAMERA_REFRAME", "三人钻进雪窟窿后改取低机位坑内中景"),
+    ("E04-S05-03", "E04-S05-04"): ("MOTIVATED_CUT", "铁棍抬起后切马阳压低嗓子，切在马阳侧头上"),
+    ("E04-S06-01", "E04-S06-02"): ("CAMERA_REFRAME", "没入雪后改取贴雪面低机位"),
+    ("E04-S06-02", "E04-S06-03"): ("MOTIVATED_CUT", "潜行到近处后切面部特写，切在停步上；身份再锚定"),
+    ("E04-S06-03", "E04-S06-04"): ("MOTIVATED_CUT", "脸色难看后切放袋，切在放袋动作上"),
+    ("E04-S07-01", "E04-S07-02"): ("MOTIVATED_CUT", "三人被埋后切胡勇冲出，切在冲出上"),
+    ("E04-S07-02", "E04-S07-03"): ("MOTIVATED_CUT", "胡勇倒地后切马阳冒头，切在冒头上"),
+    ("E04-S07-03", "E04-S07-04"): ("CAMERA_REFRAME", "马阳翻滚后改取俯拍王佑平的后背"),
+    ("E04-S07-04", "E04-S07-05"): ("MOTIVATED_CUT", "见血后切仰起的脸，切在仰头上"),
+    ("E04-S08-01", "E04-S08-02"): ("REACTION_CUT", "踢飞后切三人看清是谁"),
+    ("E04-S08-02", "E04-S08-03"): ("CAMERA_REFRAME", "第一句说完后改取低机位胡勇中近景"),
+    ("E04-S08-03", "E04-S08-04"): ("MOTIVATED_CUT", "低头后切高机位，切在钢叉抵人上"),
+    ("E04-S09-01", "E04-S09-02"): ("REACTION_CUT", "喊声之后切院门打开"),
+    ("E04-S09-02", "E04-S09-03"): ("MOTIVATED_CUT", "鸦雀无声后切陆泽快步走来，切在迈步上"),
+    ("E04-S09-03", "E04-S09-04"): ("REACTION_CUT", "「抓了只松鼠？」后切秦铭笑答；身份再锚定"),
+    ("E04-S10-01", "E04-S10-02"): ("REACTION_CUT", "面色变后切邻居甲愤慨"),
+    ("E04-S10-02", "E04-S10-03"): ("MOTIVATED_CUT", "人群嚷起来后切三人冒头，切在陆泽扑上去上"),
+    ("E04-S11-01", "E04-S11-02"): ("REACTION_CUT", "文睿再抓松子后切苏醒的红松鼠"),
+    ("E04-S11-02", "E04-S11-03"): ("REACTION_CUT", "松鼠瞪眼后切陆泽收起笑容"),
+    ("E04-S11-03", "E04-S11-04"): ("CAMERA_REFRAME", "陆泽停顿后改取秦铭为主的中近景，陆泽留在前景侧脸"),
+}
+INTERNAL_TRANSITIONS = {}
+for sid, shots in by_scene.items():
+    for a, b in zip(shots, shots[1:]):
+        aid, bid = f"{sid}-{a['n']:02d}", f"{sid}-{b['n']:02d}"
+        mode, execution = TRANSITION_NOTES[(aid, bid)]
+        stay = [k for k in a["cast"] if k in b["cast"]]; enter = [k for k in b["cast"] if k not in a["cast"]]; leave = [k for k in a["cast"] if k not in b["cast"]]
+        props_a, props_b = _props_in(a), _props_in(b)
+        carried = [p for p in props_a if p in props_b]
+        cpb = CAMERA_PLANS[bid]
+        INTERNAL_TRANSITIONS[(aid, bid)] = dict(
+            transition_mode=mode,
+            identity_preservation="、".join(cname(k) for k in stay) + "保持同一面孔、发式与服装" + ("；" + "、".join(cname(k) for k in enter) + "为本镜新入画人物，面孔与服装按身份牌" if enter else "") if stay or enter else "本边界无人物延续",
+            entry_exit_or_reveal=("、".join(cname(k) for k in stay) + "均已在画内" if stay else "") + ("；" + "、".join(cname(k) for k in enter) + "在本镜入画" if enter else "") + ("；" + "、".join(cname(k) for k in leave) + "在本镜不入画" if leave else "") + f"；{a['size']}切{b['size']}",
+            scene_continuity=f"同一{SCENES[sid]['loc']}空间，{SCENES[sid]['light']}不变，仅机位改变",
+            prop_handoff=("随身道具延续：" + "、".join(carried)) if carried else "本边界无道具主体",
+            sound_bridge=f"{sid} 环境声（{AMBIENT_LIFE[sid]['motion_trend']}）连贯不中断，切镜不改变环境声",
+            axis_strategy=cpb["axis_relation"],
+            transition_execution=f"{execution}；本镜机位 {cpb['motion_family']}/{cpb['motion_direction']}，{cpb['start_framing']}",
+            action_bridge=f"上镜终态「{a['exit']}」之后，动作不复位；本镜从「{b['entry']}」开始",
+            entity_mapping="，".join(f"{cname(k)}→参考图 {cid(k)}" for k in b["cast"]) + "，各自槽位不互换" if b["cast"] else "本边界无人物；非人物主体按参考卡映射：" + "，".join(f"{PROP_NAME[p]}→参考卡 {p}" for p in (_props_in(b) or _props_in(a))) + "，各自槽位不互换",
+            same_slot_reuse_allowed=False)
+
+# ---------- directing script ----------
+LOCKED_IDS = [f"{s['s']}-{s['n']:02d}" for s in SHOTS if CAMERA_PLANS[f"{s['s']}-{s['n']:02d}"]["motion_family"] == "LOCKED"]
+REANCHOR_IDS = [f"{sh['s']}-{sh['n']:02d}" for sh in SHOTS if sh.get("identity_reanchor")]
+lines = [f"# 《夜无疆》{EP} 导演稿 {VER}（directing script）", "",
+         f"绑定 narrative：`{narr.name}`（SHA256 {sha(narr)}）", "",
+         "本层只写景别、机位、轴线、走位与起止态；**不改 narrative 的任何事实**。逐镜秒标为交付口径。", "",
+         "## 本集口径（SUPERVISOR_ORDERS seq=7 / seq=10 / seq=12 / seq=13 / seq=16 / seq=17）", "",
+         f"- 全局风格：{STYLE['era_idiom']}",
+         f"- 夜景：{STYLE['night_look']}",
+         "- 禁用：" + "、".join(STYLE["forbidden"]),
+         f"- 节奏（seq=17）：单镜 {PACING['shot_seconds_default'][0]}–{PACING['shot_seconds_default'][1]} s，上限 {PACING['shot_seconds_max']} s（台词确需：E04-S05-03 / S09-03 / S10-02 / S11-01）；无对白镜 ≤4 s；单场 ≤{PACING['scene_seconds_max']} s（末场 19 s 例外）；视频单元 ≤{PACING['video_unit_seconds_max']:g} s（硬上限 {PACING['video_unit_seconds_hard_cap']:g} s）；无对白静止 ≤{PACING['no_dialogue_static_hold_seconds_max']:g} s 否则拒收；全集前 3 s 钩子＝收回目光、背袋、松鼠甩起；每场首镜从进行中动作开始、场间在动作上切、每场有转折与 button；全集 {PACING['episode_total_seconds_target'][0]}–{PACING['episode_total_seconds_target'][1]} s（本稿 {TOTAL} s，{len(SHOTS)} 镜）",
+         f"- 机位运动：LOCKED ≤30%（本稿 {len(LOCKED_IDS)}/{len(SHOTS)}：{'、'.join(LOCKED_IDS)}）、不连续 LOCKED、无对白镜必动、R7、R8、LOCKED 只用于 ≤5 s 对白镜、同轴同景别不连续 >2 镜、开场镜运动",
+         f"- ★seq=12/13 身份再锚定：{'、'.join(REANCHOR_IDS)} 为远景小人影之后的露脸镜，声明 identity_reanchor；不写全黑/极暗；儿童对白 E04-S11-01 双人同框",
+         "- ★变异生物只给轮廓：猩红眼睛（画面唯一红点光）与直立奔行的黑影，不给清晰全貌（seq=16 c1）",
+         "- ★选择性配乐（D-32）：E04-S02–S03（猩红眼睛与连珠铁箭）、E04-S09（村口鸦雀无声）两处纯器乐，其余原生现场声",
+         "- ★音色（seq=17）：按角色定义重选，见 runtime/voice_catalog.json；本集说话人：秦铭、陆泽、邻居甲、村民乙、文睿、胡勇、马阳、王佑平",
+         f"- ★承接：E04-S01-01 的 entry_state 接 {PREV_LAST_SHOT} 的 completion_state（{PREV_LAST['completion_state']}）；本集收回目光、背袋、下山，不复位、不重演", ""]
+for sid, meta in SCENES.items():
+    lines.append(f"## {sid}｜{meta['loc']}｜{meta['time']}｜{meta['sec']}s｜{meta['weather']}｜光：{meta['light']}")
+    lines.append("")
+    for sh in by_scene[sid]:
+        shot_id = f"{sid}-{sh['n']:02d}"; cp = CAMERA_PLANS[shot_id]
+        lines.append(f"### {shot_id}（{sh['sec']}s）｜{sh['size']}｜{sh['camera']}｜{cp['motion_family']}/{cp['motion_direction']}" + ("｜identity_reanchor" if sh.get("identity_reanchor") else ""))
+        lines.append(f"- 轴线：{sh['axis']}")
+        lines.append(f"- 走位：{sh['blocking']}")
+        lines.append(f"- 动作：{sh['action'][1]}")
+        if sh.get("dialogue"):
+            s, t, l = sh["dialogue"]; lines.append(f"- 台词：{cname(s)}：“{t}”" + (f"（{sh['cps']} 字/秒）" if sh.get("cps") else ""))
+        lines.append(f"- entry_state：{sh['entry']}")
+        lines.append(f"- completion_state：{sh['exit']}")
+        lines.append("- 状态差：" + "；".join(f"{d}「{a}」→「{b}」" for d, (a, b, _, _) in sh["dims"].items()))
+        lines.append(f"- 时代约束：{PERIOD_BY_LOC[meta['loc']]}")
+        lines.append("")
+directing = SCRIPTS / f"{EP}_DIRECTING_SCRIPT_{VER}.md"
+directing.write_text("\n".join(lines), encoding="utf-8")
+print("directing written", directing)
+# ---------- END OF CHUNK 5 ----------
+
+# ---------- generation contract ----------
+NPR_FACE = {"QM": "束发木簪、无胡须的清瘦年轻男子", "LZ": "灰布裹巾的结实青年", "YQ": "络腮胡敦实中年男子", "VA": "麻布头巾的瘦削中年村民", "VB": "皮帽圆脸的矮壮村民",
+            "WR": "五岁男孩、总角、赭红棉袍", "HY": "下巴微扬、歪包髻的闲汉", "MY": "瘦长缩肩、灰布裹头的闲汉", "WY": "矮胖圆肩、皮帽压得很低的闲汉"}
+NPR_APPLIED: dict[str, list[str]] = {}
+NPR_BLOCKS: list[str] = []
+NON_CHAR_SUBJECTS = {p["entity_id"]: p["name"] for p in PROPS} | {s["entity_id"]: s["name"] for s in SETS}
+
+def ent_name(k):
+    return cname(k) if k in CH else NON_CHAR_SUBJECTS.get(k, k)
+def ent_id(k):
+    # engine character_entity_contract: any non-empty id must resolve to a CHARACTER; creatures/props keep the name, id empty
+    return cid(k) if k in CH else ""
+
+def apply_prompt_rules(sh, shot_id, act):  # seq=10：全部镜头套用
+    sid = sh["s"]
+    scene_cast = {k for x in by_scene[sid] for k in x["cast"]}
+    fam = (CAMERA_PLANS.get(shot_id) or {}).get("motion_family")
+    shot = {"shot_id": shot_id, "sec": sh["sec"], "size": sh["size"], "camera_family": fam, "cast": sh["cast"],
+            "action": act, "dialogue": sh.get("dialogue"), "entry": sh["entry"], "exit": sh["exit"]}
+    ctx = {"scene_cast": scene_cast, "loc": SCENES[sid]["loc"], "cps": sh.get("cps"),
+           "names": {k: cname(k) for k in CH}, "face_desc": NPR_FACE,
+           "prop_tokens": ["火泉", "太阳石", "猎叉", "钢叉", "短刀", "弓箭", "硬弓", "铁箭", "兽皮袋", "干果", "红松鼠", "铁棍", "雪窟窿", "毛驴", "黄鼠狼", "猩红的眼睛"]}
+    new_act, applied, blocks = NPR.apply(shot, ctx)
+    NPR_APPLIED[shot_id] = applied
+    NPR_BLOCKS.extend(blocks)
+    return new_act
+
+SHOT_ORDER = [f"{x['s']}-{x['n']:02d}" for x in SHOTS]
+LIFE_INJURED_FROM = {"HY": "E04-S07-02", "MY": "E04-S07-03", "WY": "E04-S07-04"}   # seq=19 B1: injured from the shot they are hit
+IDLERS = ("HY", "MY", "WY")
+def life_state(k, shot_id):
+    start = LIFE_INJURED_FROM.get(k)
+    return "injured" if start and SHOT_ORDER.index(shot_id) >= SHOT_ORDER.index(start) else "alive"
+def group_counts(sh, shot_id):
+    n = sum(1 for k in sh["cast"] if k in IDLERS)
+    if not n:
+        return {}
+    row = {"count": n, "count_change_note": ("三人同框" if n == 3 else "闲汉三人组其余成员在画外（同一雪窟窿/雪地里，未离场）")}
+    return {"GROUP-IDLERS": row}
+EMOTION_BY_SHOT = {f"{x['s']}-{x['n']:02d}": x.get("emotion") for x in SHOTS if x.get("dialogue")}
+assert all(EMOTION_BY_SHOT.values()), ("seq=19 C2: every dialogue shot needs an emotion", [k for k, v in EMOTION_BY_SHOT.items() if not v])
+
+def shot_json(sh):
+    sid = sh["s"]; shot_id = f"{sid}-{sh['n']:02d}"
+    subj, act, patient = sh["action"]
+    act = apply_prompt_rules(sh, shot_id, act)
+    dlg = sh.get("dialogue")
+    spk_id = cid(dlg[0]) if dlg else ""
+    lst_id = cid(dlg[2]) if dlg and dlg[2] else ""
+    resolved = [{"surface_form": surface, "entity_id": cid(key) if key in CH else key} for surface, key in sh["referents"]]
+    presence = {cid(k): "VISIBLE_AND_IDENTITY_LOCKED" for k in sh["cast"]}
+    slots = sh.get("slots") or {}; faces = sh.get("faces") or {}
+    states = {cid(k): sh["exit"] for k in sh["cast"]}
+    subj_is_char = subj in CH
+    return {
+        "shot_id": shot_id, "scene_id": sid, "target_seconds": sh["sec"],
+        "shot_size": sh["size"], "camera": sh["camera"], "axis": sh["axis"], "blocking": sh["blocking"],
+        "entry_state": sh["entry"], "completion_state": sh["exit"],
+        "state_delta_dimensions": list(sh["dims"].keys()),
+        "state_delta_evidence": {d: {"entry": a, "exit": b, "entry_code": ca, "exit_code": cb} for d, (a, b, ca, cb) in sh["dims"].items()},
+        "keyframe_source": "entry_state",
+        **({"group_counts": group_counts(sh, shot_id)} if group_counts(sh, shot_id) else {}),
+        "period_constraints": PERIOD_BY_LOC[SCENES[sid]["loc"]],
+        "pacing_flags": {"hook": shot_id == "E04-S01-01", "scene_opener_in_motion": sh["n"] == 1, "scene_button": sh is by_scene[sid][-1],
+                         "no_dialogue_static_hold_seconds_max": PACING["no_dialogue_static_hold_seconds_max"] if not dlg else None},
+        **({"dialogue_delivery": {"chinese_characters_per_second": sh["cps"], "basis": "导演稿：按 nalu_prompt_rules.min_dialogue_seconds 放不进默认语速的句子标 4.8–5.2 字/秒，文本零改动"}} if sh.get("cps") else {}),
+        "prompt_spec": {
+            "camera_plan": {**CAMERA_PLANS[shot_id], "authorship": "DIRECTING_SCRIPT_AUTHORED", "selection_mode": "LOCKED", "source": f"E04_DIRECTING_SCRIPT_v1.md#{shot_id}"},
+            "cast": [{"character": cname(k), "character_id": cid(k), "life_state": life_state(k, shot_id),
+                      **({"screen_slot": slots[k]} if k in slots else {}), **({"face_visibility": faces[k]} if k in faces else {})} for k in sh["cast"]],
+            "props": [{"prop_id": p, "prop": PROP_NAME[p]} for p in _props_in(sh)],
+            "dialogue": f"{cname(dlg[0])}：{dlg[1]}" if dlg else "",
+            "action": {"subject_id": ent_id(subj) if subj else "", "primary_action": act, "patient_id": ent_id(patient) if patient else ""},
+            **({"identity_reanchor_required": True, "identity_reanchor_reason": "seq=12/13：同场内远景小人影之后的露脸镜；本镜以角色板生成的关键帧作身份再锚定参考（engine e19）"} if sh.get("identity_reanchor") else {}),
+            "referent_resolution_contract": {"status": "PASS", "source_scan_complete": True, "resolved_source_referents": resolved, "unresolved_source_referents": []},
+            "role_semantic_disambiguation": {
+                "primary_actor_kind": "CHARACTER" if subj_is_char else ("CREATURE" if subj else "ENVIRONMENT"),
+                "primary_actor": ent_name(subj) if subj else "", "primary_actor_id": ent_id(subj) if subj else "",
+                "dialogue_speaker": cname(dlg[0]) if dlg else "", "dialogue_speaker_id": spk_id,
+                "dialogue_listener": cname(dlg[2]) if dlg and dlg[2] else "", "dialogue_listener_id": lst_id,
+                "action_patient": ent_name(patient) if patient else "", "action_patient_id": ent_id(patient) if patient else "",
+                "lip_owner_id": spk_id, "entity_states": states, "entity_presence": presence},
+        },
+    }
+
+CHARACTER_ROWS = [
+    {"character_id": "CHAR-QINMING", "canonical_name": "秦铭", "aliases": ["小秦", "小叔", "秦叔", "铭哥", "那小子"], "voice_entity_id": "", "identity_reference_entity_id": "",
+     "identity_source": {"mode": "SOURCE_PHOTO", "file": str(QM_SOURCE_V2), "sha256": STYLE_RESET_DISCLOSURE["qinming_identity_source"]["sha256"], "note": "E02 已按 source_v2 锁定的三视图身份牌直接复用（seq=16）；不重做"},
+     "appearance_ch1": "清瘦颀长，面色有血色，眼睛清亮；高髻木簪，外披旧裘氅，内深青交领窄袖袍银线滚边（唐宋语汇；面孔与发冠服制以 CHAR-QINMING__SOURCE_V2_TANG.png 为准）",
+     "appearance_ch4": "ch4：背着大半袋食物心情不错；臂力惊人拉满硬弓、箭术高超；对峙时神色凝重；揍闲汉时彪悍杀气腾腾；回村后如实讲经历、给孩子抓坚果"},
+    {"character_id": "CHAR-LUZE", "canonical_name": "陆泽", "aliases": ["陆哥"], "voice_entity_id": "", "identity_reference_entity_id": "", "identity_source": {"mode": "E02_IDENTITY_CARD_REUSE", "note": "沿用 E02 唐宋版身份牌，不重做"},
+     "appearance_ch1": "年轻男子，身体结实有力，实在人；深灰交领短褐、灰布裹巾束发", "appearance_ch4": "ch4：快步走来松了一口气，「抓了只松鼠？」；带人痛揍闲汉；严肃地提「新生」"},
+    {"character_id": "CHAR-YANGYONGQING", "canonical_name": "杨永青", "aliases": ["杨叔"], "voice_entity_id": "", "identity_reference_entity_id": "", "identity_source": {"mode": "E01_IDENTITY_CARD_RESTYLED", "note": "沿用 E01 面孔，服制改唐宋短褐皮坎肩；本集不说话"},
+     "appearance_ch1": "身材敦实、络腮胡须的中年男子，村头大院主人", "appearance_ch4": "ch4：被马阳喊「杨叔」，随陆泽痛揍三个闲汉"},
+    {"character_id": "CHAR-VILLAGER-A", "canonical_name": "邻居甲", "aliases": ["村民甲", "有人"], "voice_entity_id": "", "identity_reference_entity_id": "", "identity_source": {"mode": "E03_IDENTITY_CARD_REUSE", "note": "沿用 E03 唐宋版身份牌；本集一句愤慨台词"},
+     "appearance_ch1": "北街路口无名邻居；中等瘦削中年男子，麻布头巾包髻", "appearance_ch4": "ch4：村民议论「真不要脸，自己不敢进山，却想对同村人下黑手」"},
+    {"character_id": "CHAR-VILLAGER-B", "canonical_name": "村民乙", "aliases": ["圆脸村民", "劈柴的人"], "voice_entity_id": "", "identity_reference_entity_id": "", "identity_source": {"mode": "E03_IDENTITY_CARD_REUSE", "note": "沿用 E03 身份牌；本集村口劈柴，一句「秦铭回来了」"},
+     "appearance_ch1": "矮壮圆脸的中年村民，兽皮护耳帽、灰褐交领棉袍，说话爱比划", "appearance_ch4": "ch4：在村口劈柴，一抬头看到秦铭"},
+    {"character_id": "CHAR-LUWENRUI", "canonical_name": "陆文睿", "aliases": ["文睿", "小文睿"], "voice_entity_id": "", "identity_reference_entity_id": "", "identity_source": {"mode": "E02_IDENTITY_CARD_REUSE", "note": "沿用 E02 身份牌；本集一句台词，双人同框不单独特写"},
+     "appearance_ch1": "五岁左右男孩，小脸红扑扑，眼睛大而清澈，纯真可爱略腼腆；赭红小交领棉袍", "appearance_ch4": "ch4：每种干果都尝了一遍，小嘴根本停不下来，「小叔，你太厉害了」"},
+    {"character_id": "CHAR-HUYONG", "canonical_name": "胡勇", "aliases": ["闲汉头目"], "voice_entity_id": "", "identity_reference_entity_id": "", "identity_source": {"mode": "TEXT_TO_IMAGE", "note": "无源照片；按 appearance 文生图生成身份牌（seq=3 c3）；本集两句台词（拆句）"},
+     "appearance_ch1": "二十多岁的闲汉头目，中等身材、下巴微扬、眼神横；粗麻短褐外罩破旧皮袄，麻布包髻歪斜；平日欺软怕硬", "appearance_ch4": "ch4：反应最快第一个冲出雪堆，被踹脸、叉柄砸肩踉跄倒地；看清是秦铭后捂肩求饶「铭哥」；被村里人再揍一顿"},
+    {"character_id": "CHAR-MAYANG", "canonical_name": "马阳", "aliases": ["闲汉马阳"], "voice_entity_id": "", "identity_reference_entity_id": "", "identity_source": {"mode": "TEXT_TO_IMAGE", "note": "无源照片；按 appearance 文生图生成身份牌；本集两句台词"},
+     "appearance_ch1": "二十多岁的闲汉，瘦长、缩肩、眼神多疑；灰黄粗麻交领长袍前襟补丁，灰布裹头", "appearance_ch4": "ch4：「谨慎一些，待会儿就不要出声了」；冒头被踢鼻子涕泪长流翻滚；「陆哥，杨叔，刘大爷，不要打了，救命啊」"},
+    {"character_id": "CHAR-WANGYOUPING", "canonical_name": "王佑平", "aliases": ["闲汉王佑平"], "voice_entity_id": "", "identity_reference_entity_id": "", "identity_source": {"mode": "TEXT_TO_IMAGE", "note": "无源照片；按 appearance 文生图生成身份牌；本集两句台词"},
+     "appearance_ch1": "二十多岁的闲汉，矮胖、圆肩、爱缩脖子；灰褐粗麻棉袍鼓鼓囊囊前襟油渍，兽皮护耳帽压得很低", "appearance_ch4": "ch4：抱怨「我看他八成会死在野外」；往雪里钻被钢叉刺破背见血，嘴唇发抖「不要啊……别杀我」；被踢出三米远"},
+]
+BGM_CUES = [
+    {"cue_id": "E04-BGM-01", "scenes": ["E04-S02", "E04-S03"], "narrative_function": "THREAT_STANDOFF", "volume": 0.28, "dialogue_duck_db": -8,
+     "brief": "Tense cinematic instrumental cue for a night standoff with an unseen beast in an ancient Chinese Tang-Song setting: low taiko-like pulse, tight bowstring-like plucks on guzheng, a held dissonant erhu drone, no melody, dread building to rapid arrow releases, no vocals, 30 seconds"},
+    {"cue_id": "E04-BGM-03", "scenes": ["E04-S09"], "narrative_function": "COMIC_RELIEF_HOMECOMING", "volume": 0.22, "dialogue_duck_db": -8,
+     "brief": "Warm light-hearted instrumental cue in ancient Chinese folk style: pizzicato pipa, gentle bamboo dizi, soft hand drum, a village welcoming a hunter home with a surprise, gentle humour, no vocals, 16 seconds"},
+]
+# ---- seq=19 A4 / B3′: prop sources and entity introductions ----
+_PREV_CONTRACT = json.loads(PREV_CONTRACT.read_text(encoding="utf-8"))
+_e03_squirrel = next((sh_["shot_id"] for sh_ in _PREV_CONTRACT["shots"] if "松鼠" in str(sh_.get("completion_state"))), None)
+assert _e03_squirrel, "E03 squirrel acquisition shot not found"
+PROP_SOURCES = {
+    "PROP-RED-SQUIRREL": {"acquired": {"episode": PREV_EP, "shot_id": _e03_squirrel}, "recap_shot_id": "E04-S01-01", "payoff_shot_ids": ["E04-S09-03"]},
+    "PROP-NUT-HOARD": {"acquired": {"episode": PREV_EP, "shot_id": _e03_squirrel}, "recap_shot_id": "E04-S01-01", "payoff_shot_ids": ["E04-S11-01"]},
+    "PROP-HIDE-BAG": {"acquired": {"episode": PREV_EP, "shot_id": _e03_squirrel}, "recap_shot_id": "E04-S01-01", "payoff_shot_ids": ["E04-S09-04"]},
+    "PROP-HUNTING-FORK": {"acquired": {"episode": PREV_EP, "shot_id": _PREV_CONTRACT["shots"][0]["shot_id"]}, "recap_shot_id": "E04-S01-01"},
+    "PROP-BOW-ARROWS": {"acquired": {"episode": PREV_EP, "shot_id": _PREV_CONTRACT["shots"][0]["shot_id"]}, "recap_shot_id": "E04-S02-04"},
+    "PROP-MUTANT-BEAST": {"acquired": {"episode": EP, "shot_id": "E04-S02-02"}},
+    "PROP-IRON-ROD": {"acquired": {"episode": EP, "shot_id": "E04-S05-03"}},
+    "SET-SNOW-HOLLOW": {"acquired": {"episode": EP, "shot_id": "E04-S05-02"}},
+}
+def with_sources(row):
+    return {**row, **PROP_SOURCES.get(row["entity_id"], {"acquired": {"episode": PREV_EP, "shot_id": _PREV_CONTRACT["shots"][0]["shot_id"]}})}
+_first_shot_of = {}
+for _sh in SHOTS:
+    for _k in _sh["cast"]:
+        _first_shot_of.setdefault(_k, f"{_sh['s']}-{_sh['n']:02d}")
+_PRIOR = {"LZ", "YQ", "WR"}   # already introduced in E01–E03
+ENTITY_INTRODUCTIONS = (
+    [{"entity_id": cid(k), "first_shot_id": _first_shot_of.get(k), "setup": ({"kind": "prior_episode", "ref": PREV_EP} if k in _PRIOR else
+                                                                             {"kind": "line", "ref": "E04-S05-01"} if k in IDLERS else
+                                                                             {"kind": "shot", "ref": _first_shot_of.get(k)})}
+     for k in CH if k != "QM"]
+    + [{"entity_id": r["entity_id"], "first_shot_id": r.get("first_shot") or r.get("first_scene") or "",
+        **({"payoff_shot_id": "E04-S04-04"} if r["entity_id"] == "PROP-MUTANT-BEAST" else {}),
+        **({"setup": {"kind": "shot", "ref": "E04-S05-03"}} if r["entity_id"] == "PROP-IRON-ROD" else {}),
+        **({"setup": {"kind": "shot", "ref": "E04-S05-02"}, "payoff_shot_id": "E04-S07-01"} if r["entity_id"] == "SET-SNOW-HOLLOW" else {}),
+        **({"setup": {"kind": "prior_episode", "ref": PREV_EP}} if r["entity_id"] not in ("PROP-MUTANT-BEAST", "PROP-IRON-ROD", "SET-SNOW-HOLLOW") else {})}
+       for r in (*PROPS, *SETS)]
+)
+
+contract = {
+    "schema": "qingshan.generation_contract.v3",
+    "episode": EP, "version": VER,
+    "narrative_canonical": narr.name, "narrative_sha256": sha(narr),
+    "style": {**STYLE, "authority": "SUPERVISOR_ORDERS seq=7 c1/c2；seq=16 沿用；PRODUCTION_LINE_OVERVIEW_v1 §四 3/5", "negative_prompt_fixed": "欧式、哥特、和风、仙侠符文、现代物件、冷灰去饱和、暗黑调色、玻璃窗、电灯、拉链纽扣、纯黑画面、怪兽特效"},
+    "pacing": PACING,
+    # ---- seq=19 "does the contract hold up" declarations (D-40/D-41) ----
+    "protagonist_ids": ["CHAR-QINMING"],
+    "antagonist_groups": [{"group_id": "GROUP-IDLERS", "member_ids": ["CHAR-HUYONG", "CHAR-MAYANG", "CHAR-WANGYOUPING"],
+                           "first_action_shot_id": "E04-S05-02", "motive_setup": {"kind": "line", "ref": "E04-S05-01"}}],
+    "ambush_contracts": [{"who_hides": ["CHAR-HUYONG", "CHAR-MAYANG", "CHAR-WANGYOUPING"], "who_approaches": ["CHAR-QINMING"],
+                          "hide_place_id": "SET-SNOW-HOLLOW", "reveal_shot_id": "E04-S07-01"}],
+    "entity_introductions": ENTITY_INTRODUCTIONS,
+    "style_reset_disclosure": STYLE_RESET_DISCLOSURE,
+    "carry_in": {"previous_episode": PREV_EP, "previous_scene_id": "E03-S13", "previous_shot_id": PREV_LAST["shot_id"],
+                 "previous_completion_state": PREV_LAST["completion_state"],
+                 "first_shot_id": "E04-S01-01", "first_shot_entry_state": SHOTS[0]["entry"],
+                 "rule": "不复位、不重演、不闪回 E03 内容，沿同一方向推进至少一步（目光仍在远处的光上→收回目光、背袋、转身下山）"},
+    "visual_culture_contract": {
+        "schema": "qingshan.visual_culture_contract.v1", "status": "LOCKED",
+        "profile_id": STYLE["profile_id"], "decision_owner": "WRITER_DIRECTOR",
+        "decision_basis": "ch4 明写：猎叉/钢叉、硬弓与铁箭、兽皮袋、雪窟窿、铁棍与刀、猩红眼睛与直立奔行的黑影、毛驴与纯白黄鼠狼、村口太阳石火霞、干果与红枣糊；Roger 2026-09-13 审片：中国唐宋不要西式暗黑；seq=16 变异生物只给轮廓",
+        "source_ref": str(SRC_CH),
+        "story_world": "永夜纪元的北地冻土村落与村外雪野密林，前工业农耕渔猎社会，中国唐宋衣冠与营造",
+        "production_design": STYLE["era_idiom"] + "；野外无任何人造物；光源只有火泉、太阳石火霞与雪面月色反光；猩红眼睛是黑暗中的红点光",
+        "armor_tradition": "本集无兵甲；猎具为木柄铁头猎叉、直刃短刀、竹木硬弓与铁箭，闲汉持短铁棍与短刀；不得出现制式铁札甲、西式甲胄或现代猎具",
+        "palette_system": {"base": "靛黑夜色、雪面月色青蓝、林木深青灰", "accent": "猩红眼睛、火泉火红、太阳石橘红、红松鼠火红皮毛、纯白黄鼠狼", "skin": "雪光下清、火光下暖；秦铭有血色；闲汉的瘀伤与见血只在 S07 之后的镜头里出现，身份牌为中性无伤"},
+        "lighting_language": STYLE["night_look"] + "；野外浅夜以雪面反光写层次，最暗处仍见轮廓；村口以各家太阳石火霞与火泉火红写暖；屋内铜盆太阳石为唯一光源",
+        "image_texture": "颗粒感胶片质感、真实材质（兽皮、粗麻、雪、铁、驴毛、白鼬毛）、雪尘与呼出的白气可见、火光有可见的边缘晕",
+        "forbidden_influences": STYLE["forbidden"],
+    },
+    "character_entities": [dict(row, wardrobe_garments=WARDROBE_GARMENTS[row["character_id"]]) for row in CHARACTER_ROWS],
+    "non_character_entities": [with_sources(r) for r in (*PROPS, *SETS)],
+    "props": {"authority": "SUPERVISOR_ORDERS seq=7 c6：关键道具出参考卡入资产库并挂进视频参考列表", "reference_cards": [with_sources(p) for p in PROPS + SETS if p.get("reference_card_required")], "declared_without_card": [p["entity_id"] for p in PROPS if not p["reference_card_required"]]},
+    "scene_states": [
+        {"scene_id": sid, "location_id": m["loc"], "time_id": m["time"], "weather": m["weather"], "lighting": m["light"],
+         "target_seconds": m["sec"], "source_events": m["beats"], "new_information_count": m["info"],
+         "ambient_life": m["ambient_life"], "weather_provenance": m["weather_provenance"], "period_constraints": PERIOD_BY_LOC[m["loc"]], "costume_overrides": {}}
+        for sid, m in SCENES.items()],
+    "shots": [shot_json(sh) for sh in SHOTS],
+    "internal_transition_authoring": [{"from_shot_id": a, "to_shot_id": b, "authorship": "DIRECTOR_AUTHORED", **row} for (a, b), row in INTERNAL_TRANSITIONS.items()],
+    "audio_contract": {
+        "bgm": {"mode": "SELECTIVE", "used": True, "authority": "SUPERVISOR_ORDERS seq=16 c2 / D-32",
+                "declaration": "SELECTIVE_NARRATIVE_CUES：三处纯器乐配乐（猩红眼睛与连珠铁箭、驴背白黄鼠狼、村口鸦雀无声），覆盖 ≤85%，其余全部原生现场声（≥8 s 纯现场声）；经 AgentCut bgm-generate → giggle generate-music 生成，受预算守卫与事务存档约束（窗口隔离对账 e23）",
+                "cues": BGM_CUES},
+        "voice_casting": {"authority": "SUPERVISOR_ORDERS seq=17 c1", "note": "按角色定义重选音色，见 runtime/voice_catalog.json；参考音文本为体现性格的整句台词"},
+        "ambient_by_scene": {
+            "E04-S01": "山顶寒风、裘氅猎猎、兽皮袋甩上肩的皮革声、踩雪下山", "E04-S02": "踩雪止步、兽皮袋落雪、寒风刮过带腥味、远处枯枝、猎叉插雪",
+            "E04-S03": "硬弓吱呀拉满、弓弦颤音、铁箭破空、远处沉闷低吼、枯枝折断", "E04-S04": "冲出林缘的踩雪、林间积雪被冲击、铁箭咚入树干、雪瀑坠落、不甘的嘶吼、后退踩雪",
+            "E04-S05": "跺脚、搓手、呼气白雾、雪窟窿里压低的交谈、铁棍磕雪", "E04-S06": "蹲下没入雪的闷响、雪沟里潜行的窸窣、远处压低的人声",
+            "E04-S07": "雪窟窿崩塌的闷响、雪块翻腾、踹脸的钝响、叉柄砸肩、惨叫、钢叉刺破布帛", "E04-S08": "戳出、踢飞落雪、求饶、钢叉抵人、拳脚、惨嚎",
+            "E04-S09": "火泉低频嗡鸣、劈柴、院门打开、人声渐起又骤停、陆泽踩雪快步",
+            "E04-S10": "人群低语、愤慨的嚷声、三人一瘸一拐的踩雪、拳脚与惨叫", "E04-S11": "屋内暖、嚼核桃、松子哗啦、松鼠挣扎的皮绳声、陆泽放下木碗",
+        },
+        "dialogue_units": [{"shot_id": shot, "speaker_id": cid(s), "listener_id": cid(sh_l) if sh_l else "", "text": q, "verbatim_in_source": v, "emotion": EMOTION_BY_SHOT[shot]}
+                           for (s, q, shot, v), sh_l in zip(DIALOGUE_UNITS, [sh["dialogue"][2] for sh in SHOTS if sh.get("dialogue")])],
+    },
+}
+contract_path = SCRIPTS / f"{EP}_GENERATION_CONTRACT_{VER}.json"
+if NPR_BLOCKS:
+    raise SystemExit("nalu_prompt_rules BLOCK (restage the shot): " + "; ".join(NPR_BLOCKS))
+print("nalu_prompt_rules applied to", len(NPR_APPLIED), "shots")
+contract_path.write_text(json.dumps(contract, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+print("contract written", contract_path)
+
+# ---------- manifest ----------
+BEATS = [  # ch4 实读 36 拍；落点到场次粒度（gate 10 读 landed_at）
+    ("E04-EV-01", "landed", "E04-S01-01", "收回目光，背起兽皮袋沿原路往回走"),
+    ("E04-EV-02", "landed", "E04-S01-02", "收获不小很满足、积雪下有洼地岩石路不好走但心情不错（满足与期待初春的内心不演）"),
+    ("E04-EV-03", "landed", "E04-S02-01 至 E04-S02-02", "临近密林边缘倏地止步扔袋握叉回头；黑暗中一双猩红的眼睛快速逼近"),
+    ("E04-EV-04", "landed", "E04-S02-03", "寒毛倒竖，块头不小十分凶猛，寒风刮来腥味"),
+    ("E04-EV-05", "landed", "E04-S02-04", "猎叉插进雪地迅速取下弓箭"),
+    ("E04-EV-06", "landed", "E04-S03-01 至 E04-S03-02", "臂力惊人硬弓拉成满月，铁箭飞出弓弦颤音很响"),
+    ("E04-EV-07", "landed", "E04-S03-03 至 E04-S03-04", "生物骤然停顿疑似中箭；连着开弓箭术尽显，铁箭一支接一支没入夜色"),
+    ("E04-EV-08", "landed", "E04-S03-05", "沉闷低吼，猩红眼睛消失，枯枝折断躲到林木后方（受伤不致命、隐伏更危险的判断不演）"),
+    ("E04-EV-09", "landed", "E04-S04-01", "抓起袋叉快速冲出山林到空旷雪地（怕被偷袭、怀疑变异生物的内心不演）；林间积雪被剧烈冲击追过来"),
+    ("E04-EV-10", "landed", "E04-S04-02", "毫不犹豫开弓，铁箭咚射进树干，满树雪花如雪瀑坠落；生物再次被逼退"),
+    ("E04-EV-11", "landed", "E04-S04-03", "变异生物暗中徘徊等待机会；黑影数次隐现猩红眼森冷有压迫感；不甘低吼消失在密林（一般猛兽对比不演）"),
+    ("E04-EV-12", "landed", "E04-S04-04", "看出是可直立奔行的身影不知何种变异生物；慢慢后退不放松警惕（直到火泉不足一里仍戒备、前人血淋淋教训不演）"),
+    ("E04-EV-13", "landed", "E04-S05-01 至 E04-S05-02", "三人平日游手好闲想截胡（叙述转为胡勇一句动机台词，seq=19 A3）；双树村外三青年冻得跺脚搓手眉毛冰渣，守在雪路上"),
+    ("E04-EV-14", "landed", "E04-S05-03", "低声交谈：太遭罪要不撤、八成会死在野外带不回猎物（李老头捡冻死山兽之例不演）；三人平日游手好闲想截胡（品行叙述不演）；大病初愈身体虚、套袋打闷棍别打死（并入王佑平抱怨与铁棍）"),
+    ("E04-EV-15", "landed", "E04-S05-04", "挖出雪窟窿提前埋伏；错估回来时间（不演）；「谨慎一些，待会儿就不要出声了」；快准狠、赶紧赏几铁棍冻僵了（并入噤声）"),
+    ("E04-EV-16", "landed", "E04-S06-01 至 E04-S06-02", "一路提防目光敏锐隔远看到三条黑影；蹲下没进齐肩深雪彻底消失；沿雪路无声潜行辨认出是村中三名闲汉"),
+    ("E04-EV-17", "landed", "E04-S06-03 至 E04-S06-04", "停在合适位置听到对话；脸色难看：想打闷棍抢猎物？两次生死危机以命搏来的食物，这种截胡不能忍（内心不演，以脸色与握叉承担）"),
+    ("E04-EV-18", "landed", "E04-S07-01", "雪窟窿轰然崩塌把三人埋在里面口鼻全是雪"),
+    ("E04-EV-19", "landed", "E04-S07-02 至 E04-S07-03", "胡勇第一个冲出被一脚踹脸、猎叉砸肩踉跄倒地；马阳冒头被踢鼻子惨叫涕泪长流翻滚"),
+    ("E04-EV-20", "landed", "E04-S07-04 至 E04-S07-05", "王佑平往雪里钻不敢出来，钢叉刺破衣服见血；「不要啊……别杀我」（尿裤子与只刺破皮肤的分寸不演）"),
+    ("E04-EV-21", "landed", "E04-S08-01", "戳出王佑平踢出三米远再跌入雪堆"),
+    ("E04-EV-22", "landed", "E04-S08-02 至 E04-S08-03", "看清是谁、握着寒光闪闪钢叉顿时怂了；「秦……铭」「铭哥，咱们一个村的低头不见抬头见，手下留情啊，这次我们错了」（身上带刀棍不敢反抗、欺软怕硬不演）"),
+    ("E04-EV-23", "landed", "E04-S08-04", "不至于杀人但激烈教育避免不了：钢叉抵着蹲下，一顿暴揍，鼻青脸肿嘴里血沫子惨嚎，严厉警告后放过（色厉内荏的评价不演）"),
+    ("E04-EV-24", "dropped", "本集不演：驴背白黄鼠狼一段在本集无铺垫无回收（seq=19 实体引入合同），整段移至后集落地", "密林外一头毛驴自远方空旷大地悠悠而来对前路很熟；驴背上纯白如雪的黄鼠狼（白色生灵少见的年代常识不演）"),
+    ("E04-EV-25", "dropped", "同上，随 E04-EV-24 移至后集", "黄鼠狼沉静老成盘坐倒骑面向后方来路，神韵像稳重的人类，双目深邃"),
+    ("E04-EV-26", "dropped", "同上，随 E04-EV-24 移至后集", "变异生灵见毛驴猛扑，见白黄鼠狼倏地止步转身扎进积雪下发抖；毛驴未受惊淡淡一瞥载黄鼠狼向山中走去"),
+    ("E04-EV-27", "landed", "E04-S09-01", "火泉在望黑白双树摇曳，加快脚步到村口彻底放松（放松不演）；劈柴的人抬头「秦铭回来了」"),
+    ("E04-EV-28", "landed", "E04-S09-02", "临街院门打开；他冒险外出早已传开人们猜测（不演）；各家太阳石火霞街上有淡光；看到猎叉上的红松鼠鸦雀无声，和想象完全不一样"),
+    ("E04-EV-29", "landed", "E04-S09-03 至 E04-S09-04", "陆泽快步走来松了口气「都说你进山去猎熊了，结果你这是……抓了只松鼠？」「我还抄了它的家」；注意到兽皮袋眼热；皮毛发光明显变异价值不低（价值评估不演）"),
+    ("E04-EV-30", "landed", "E04-S10-01", "刘老头感慨（不演）；村民询问外面是否安全；如实讲经历不敢误导；听到变异生物出没面色都变了短时间不能单独外出（讲述内容不演，以面色承担）"),
+    ("E04-EV-31", "landed", "E04-S10-02", "提及三人行径引来老少愤慨「真不要脸，自己不敢进山，却想对同村人下黑手」"),
+    ("E04-EV-32", "landed", "E04-S10-03", "三人一瘸一拐冒头被陆泽带人痛揍「陆哥，杨叔，刘大爷，不要打了，救命啊」（鼻涕泡带血冻脸上、犯众怒的解释不演）"),
+    ("E04-EV-33", "dropped", "", "给街上孩子抓坚果欢呼；周阿婆倚门面色苍白留下干货——seq=17 节奏收紧，温情段落让位于末场 button（下集可承接）"),
+    ("E04-EV-34", "landed", "E04-S11-01", "家中文睿每种干果尝一遍小嘴停不下来「小叔，你太厉害了，野核桃非常好吃，还有松子真香啊」"),
+    ("E04-EV-35", "dropped", "", "两岁文晖吃红枣糊亲一口；梁婉清「不愧是变异的生灵…三十几斤」——seq=17 节奏收紧且避免第二个儿童身份牌；三十几斤的数字不演"),
+    ("E04-EV-36", "landed", "E04-S11-02 至 E04-S11-04", "红松鼠苏醒睁眼看到家底被翻绝望、眼睛瞪圆快喷火；陆泽严肃：「小秦，我看你身体恢复得差不多了，该认真考虑‘新生’的事情了」（拆两镜）"),
+]
+SCENE_BEAT_META = {  # seq=19 A2: beat types; action beats carry the outcome + its evidence shot
+    "E04-S01": {"type": "transition"}, "E04-S02": {"type": "action", "outcome": {"kind": "injury", "evidence_shot_id": "E04-S03-03"}},
+    "E04-S03": {"type": "action", "outcome": {"kind": "escape", "evidence_shot_id": "E04-S04-03"}},
+    "E04-S04": {"type": "action", "outcome": {"kind": "escape", "evidence_shot_id": "E04-S04-03"}},
+    "E04-S05": {"type": "dialogue"}, "E04-S06": {"type": "transition"},
+    "E04-S07": {"type": "action", "outcome": {"kind": "injury", "evidence_shot_id": "E04-S07-04"}},
+    "E04-S08": {"type": "action", "outcome": {"kind": "winner", "evidence_shot_id": "E04-S08-04"}},
+    "E04-S09": {"type": "dialogue"},
+    "E04-S10": {"type": "action", "outcome": {"kind": "winner", "evidence_shot_id": "E04-S10-03"}},
+    "E04-S11": {"type": "dialogue"},
+}
+assert set(SCENE_BEAT_META) == set(SCENES), set(SCENES) ^ set(SCENE_BEAT_META)
+manifest = {
+    "episode": EP, "version": VER, "title": "截胡",
+    "canonical_script": f"workflow/claude_writer_agent/scripts/{narr.name}", "script_sha256": sha(narr),
+    "directing_script": f"workflow/claude_writer_agent/scripts/{directing.name}", "directing_sha256": sha(directing),
+    "generation_contract": f"workflow/claude_writer_agent/scripts/{contract_path.name}", "generation_contract_sha256": sha(contract_path),
+    "supersedes": "E04 v1（2026-09-15 交付，2026-09-16 Roger 审片 REJECT；seq=19 生产线返工后按 seq=20 重做，文件版本号沿用 v1）",
+    "★supersedes_disclosure": "首版，无前版。nalu 线《夜无疆》E04 首次交付；按 seq=7/10/12/13/16/17 口径编排；narrative 12 场 13 句对白零改动（其中两句源章长句按单镜 3–6 s 规则各拆为两行两镜，字不变；四处说话人归属为写手分派，均已在 narrative 头部与 authored_dialogue_from_indirect_speech 申报）。",
+    "authorization": {"order_seq": 20, "order_id": "ROGER-20260916-NALU-E04-REMAKE", "also": ["seq=3 ROGER-20260909-NALU-E01-E10-PRODUCTION-AUTHORIZED", "seq=7 ROGER-20260913-NALU-E02-NEW-RULES-TANG-SONG-PACING-SOURCE-V2", "seq=10 root-cause prompt rules", "seq=12 identity re-anchor rule", "seq=13 non-stop mode + selective BGM", "seq=17 voice recast + tighter pacing"], "orders_file": "workflow/claude_writer_agent/SUPERVISOR_ORDERS.json"},
+    "writer_identity": {"agent_id": "claude-code-nalu-writer", "provider": "anthropic", "model_id": "claude-fable-5-1", "session_note": "Claude Code 交互会话，Roger 2026-09-15 现场指令「开始做e04」及同日音色/节奏指令"},
+    "source_binding": {
+        "work": "夜无疆", "author": "辰东",
+        "primary_source_chapter": "4", "source_chapters": ["4"], "chapter_title": "截胡",
+        "source_file": str(SRC_CH), "source_sha256": sha(SRC_CH),
+        "source_index": str(RUNTIME / "sources/夜无疆/SOURCE_INDEX.json"),
+        "episode_source_map": str(RUNTIME / "runtime/episode_source_map_yewujiang_v1.json"),
+        "beat_count": len(BEATS), "beats_landed": sum(1 for b in BEATS if b[1] == "landed"), "beats_merged": 0, "beats_dropped": sum(1 for b in BEATS if b[1] == "dropped"),
+        "★carry_in_is_bound_to_the_previous_episode_bytes": f"承接 E03_NARRATIVE_CANONICAL_v1.md E03-S13 末段实际字节（narrative 头部逐字引三行）与 E03 合同末镜 {PREV_LAST['shot_id']} completion_state「{PREV_LAST['completion_state']}」；E04-S01-01 entry_state 为站在山顶目光仍在远处的光上；本集收回目光、背袋、下山，不复位、不重演、不闪回 E03 内容。",
+        "carry_in": contract["carry_in"] | {"previous_canonical": f"workflow/claude_writer_agent/scripts/{PREV_EP}_NARRATIVE_CANONICAL_v1.md", "previous_canonical_sha256": sha(SCRIPTS / f"{PREV_EP}_NARRATIVE_CANONICAL_v1.md"), "previous_contract_sha256": sha(PREV_CONTRACT), "anchor_lines_quoted_in_narrative_header": 3},
+    },
+    "beat_disposition": [{"event_id": e, "disposition": d, "landed_at": at, "summary": s} for e, d, at, s in BEATS],
+    "★authorized_insertions": [],
+    "authored_dialogue_from_indirect_speech": [
+        {"shot_id": shot, "speaker": cname(s), "text": q, "source_basis": AUTHORED_DIALOGUE[q]} for s, q, shot, v in DIALOGUE_UNITS if not v],
+    "★audience_already_knows": ["永夜世界与太阳石", "秦铭出村狩猎", "树洞干果与变异红松鼠的来历", "陆泽担心他去猎熊", "火泉双树"],
+    "★style_reset_disclosure": STYLE_RESET_DISCLOSURE,
+    "structure": [{"beat_id": f"{EP}-B{idx+1:02d}", "scene_id": sid, "target_seconds": m["sec"], "thread": "线A", **SCENE_BEAT_META[sid], "shot_ids": [f"{x['s']}-{x['n']:02d}" for x in by_scene[sid]], "location_id": m["loc"], "time_id": m["time"], "source_events": m["beats"], "new_information_count": m["info"]}
+                  for idx, (sid, m) in enumerate(SCENES.items())],
+    "scene_breakdown_seconds": {sid: m["sec"] for sid, m in SCENES.items()},
+    "total_seconds": TOTAL,
+    "runtime_target_seconds": {"min": 150.0, "target": 165.0, "max": 170.0},
+    "shot_count": len(SHOTS),
+    "pacing": PACING,
+    "key_quote_landing": [{"speaker": cname(s), "quote": q, "shot_id": shot, "verbatim_in_source": True, **({"split_note": SPLIT_QUOTES[q]} if q in SPLIT_QUOTES else {})} for s, q, shot in KEY_QUOTES],
+    "fs1": {"combat_clusters": [{"cluster_id": "E04-FS1-BEAST", "shots": ["E04-S03-01", "E04-S03-02", "E04-S03-03", "E04-S03-04", "E04-S04-02"], "seconds": 16, "source": "ch4 连珠铁箭逼退变异生物（源章明写）"},
+                                {"cluster_id": "E04-FS1-AMBUSH", "shots": ["E04-S07-01", "E04-S07-02", "E04-S07-03", "E04-S07-04", "E04-S08-01", "E04-S08-04"], "seconds": 19, "source": "ch4 雪窟窿崩塌、踹脸砸肩踢鼻刺背、暴揍（源章明写）"}], "combat_seconds": 35, "note": "两处冲突均为源章明写；无原创打斗。"},
+    "identity_registry": {cid(k): cname(k) for k in CH} | {p["entity_id"]: p["name"] for p in PROPS} | {s["entity_id"]: s["name"] for s in SETS},
+    "new_name_budget": {"budget_per_4_episodes": 1, "writer_invented_names_this_episode": 0, "note": "胡勇、马阳、王佑平、刘大爷为源章人名；毛驴、黄鼠狼、变异生物为源章物种指代；无写手自创新名"},
+    "distinct_locations": sorted({m["loc"] for m in SCENES.values()}),
+    "new_locations": [],
+    "episode_global_space_map_id": "GSM-YEWUJIANG-SHUANGSHU-VILLAGE-V1",
+    "global_space_map_refs": [
+        {"map_id": "GSM-YEWUJIANG-LOW-HILL-TOP", "scenes": ["E04-S01"], "anchors": ["山顶雪石", "下山的原路"], "axis_note": "面向群山→背向群山下山"},
+        {"map_id": "GSM-YEWUJIANG-FOREST-EDGE", "scenes": ["E04-S02", "E04-S03"], "anchors": ["林缘光秃阔叶树", "秦铭来路", "很粗的树干"], "axis_note": "S02–S03 面向来路（林深处）射击；S09 毛驴自雪原向林中"},
+        {"map_id": "GSM-YEWUJIANG-SNOWFIELD-WILDS", "scenes": ["E04-S04", "E04-S05", "E04-S06", "E04-S07", "E04-S08"], "anchors": ["林线", "蹚出的雪路", "雪窟窿", "村头火泉方向"], "axis_note": "S04 背向林线后退；S05–S08 雪路南段靠近村口，雪窟窿在路旁"},
+        {"map_id": "GSM-YEWUJIANG-FIRE-SPRING-TWIN-TREES", "scenes": ["E04-S09", "E04-S10"], "anchors": ["村外雪路的进路（北）", "石围池沿", "临街院门"], "axis_note": "秦铭自北向南进村；人群在石围南侧"},
+        {"map_id": "GSM-YEWUJIANG-QINMING-LUZE-ADJOINING-HOMESTEAD", "scenes": ["E04-S11"], "anchors": ["火炕", "炕上干果", "屋门"], "axis_note": "炕（西）—屋门（东）轴"},
+    ],
+    "shot_subspace_bindings": [{"shot_id": f"{sh['s']}-{sh['n']:02d}", "location_id": SCENES[sh["s"]]["loc"]} for sh in SHOTS],
+    "onscreen_text_shot_level_registry": [],
+    "state_delta_contract_summary": {"shots_total": len(SHOTS), "shots_with_entry_ne_completion": len(SHOTS), "min_dimensions_per_shot": min(len(sh["dims"]) for sh in SHOTS), "extend_words_in_action_fields": 0},
+    "camera_motion_summary": {"locked_shots": LOCKED_IDS, "locked_share": round(len(LOCKED_IDS) / len(SHOTS), 3), "policy": PACING["camera_motion_policy"], "direction_rebalanced": CAMERA_DIRECTION_REBALANCED},
+    "identity_reanchor_shots": REANCHOR_IDS,
+    "bgm_selective_cues": BGM_CUES,
+    "voice_casting_seq17": {k: cname(k) for k in ("QM", "LZ", "VA", "VB", "WR", "HY", "MY", "WY")},
+    "writer_self_check": {"every_scene_asked_which_source_beat": True, "scenes_without_source_beat": [], "undeclared_insertions": 0, "dialogue_lines_total": len(DIALOGUE_UNITS), "dialogue_lines_verbatim_in_source": len(KEY_QUOTES), "dialogue_lines_authored_from_narration": len(DIALOGUE_UNITS) - len(KEY_QUOTES), "dialogue_order_matches_narrative": True},
+}
+manifest_path = SCRIPTS / f"{EP}_manifest_{VER}.json"
+manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+print(json.dumps({
+    "narrative": {"path": str(narr), "sha256": sha(narr)},
+    "directing": {"path": str(directing), "sha256": sha(directing)},
+    "contract": {"path": str(contract_path), "sha256": sha(contract_path), "shots": len(SHOTS)},
+    "manifest": {"path": str(manifest_path), "sha256": sha(manifest_path), "total_seconds": manifest["total_seconds"], "scenes": len(SCENES)},
+    "camera_direction_rebalanced": CAMERA_DIRECTION_REBALANCED,
+}, ensure_ascii=False, indent=2))

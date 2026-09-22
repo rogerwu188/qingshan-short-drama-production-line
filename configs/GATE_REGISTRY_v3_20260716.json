@@ -266,7 +266,7 @@
       "implementation_type": "MANUAL_GATE",
       "code_paths": [],
       "test_paths": [],
-      "manual_checklist_path": "workflow/cloud_factory_migration_v1_20260724/charters/青山AI_剧本创作_云端可移植宪章.md",
+      "manual_checklist_path": "agent_factory/storyclaw_portable/SCRIPT_COUNCIL_CHECKLIST.md",
       "parameters": {
         "five_independent_advisors_required": true,
         "chair_verdict_required": true,
@@ -977,7 +977,7 @@
       "implementation_type": "CODED",
       "code_paths": [
         "tools/validate_three_episode_concurrency.py",
-        "workflow/production_line/THREE_EPISODE_CONCURRENCY_POLICY.json"
+        "workflow/production_line/PORTABLE_CONCURRENCY_POLICY_TEMPLATE.json"
       ],
       "test_paths": [
         "tools/tests/test_validate_three_episode_concurrency.py"
@@ -1005,7 +1005,7 @@
       "implementation_type": "CODED",
       "code_paths": [
         "workflow/dashboard/build_status.py",
-        "workflow/time_ledger/E17_time_ledger.json",
+        "workflow/time_ledger/PORTABLE_TIME_LEDGER_TEMPLATE.json",
         "tools/poll_giggle_submit_report.py"
       ],
       "test_paths": [

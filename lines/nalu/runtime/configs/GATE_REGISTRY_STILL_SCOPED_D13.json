@@ -2319,7 +2319,7 @@
     }
   ],
   "derived_schema": "nalu.still_scoped_gate_registry.v1",
-  "derived_from": "/Users/rogerwu/nalu/configs/GATE_REGISTRY_v3_20260716.json",
+  "derived_from": "configs/GATE_REGISTRY_v3_20260716.json",
   "derived_from_sha256": "7dd0c9a0cd8e865dfbd0931345657f2a3224104de30aaf1ce218d071ae3f8af9",
   "derived_at": "2026-09-19T14:47:39Z",
   "derived_by": "keyframe_q1_builder.v1",

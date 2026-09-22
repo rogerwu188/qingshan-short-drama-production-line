@@ -68,10 +68,12 @@ from typing import Any, Callable, Iterable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import nalu_policy_profile as _policy_profile  # noqa: E402
+
 from nalu_qa_common import (  # noqa: E402
-    DIALOGUE_QA_POLICY, ENGINE, FFMPEG, FFPROBE, REROLL_POLICY, REVIEWER_ID,
+    DIALOGUE_QA_POLICY, ENGINE, REROLL_POLICY, REVIEWER_ID,
     REVIEW_METHOD, VENV, Expectations, QaPaths, engine_module, now, read_json,
-    sha256_file, write_json,
+    require_ffmpeg, require_ffprobe, sha256_file, write_json,
 )
 
 TOOL_ID = "post_generation_qa_runner.v1"
@@ -152,7 +154,7 @@ def ffprobe(media: Path) -> dict[str, Any]:
             cached = _PROBE_CACHE.get(key)
         if cached is not None:
             return copy.deepcopy(cached)
-    completed = _run([FFPROBE, "-v", "error", "-print_format", "json",
+    completed = _run([require_ffprobe(), "-v", "error", "-print_format", "json",
                       "-show_format", "-show_streams", str(media)], timeout=300)
     if completed.returncode != 0:
         return {"ok": False, "error": (completed.stderr or "")[-1500:]}
@@ -189,6 +191,8 @@ PACING_POLICY_BY_EPISODE = {"E01": {"static_hold_seconds_max": 4.0, "static_hold
 
 
 def pacing_policy(episode: str) -> dict[str, Any]:
+    if _policy_profile.is_current():
+        return dict(PACING_POLICY_DEFAULT)
     return dict(PACING_POLICY_BY_EPISODE.get(episode) or PACING_POLICY_DEFAULT)
 
 
@@ -282,19 +286,19 @@ def technical_checks(unit_id: str, media: Path, planned_duration: float | None,
     # black_frame + freeze — the engine's own library functions
     try:
         ci = engine_module("run_regression_ci")
-        black = ci.pure_black_frame_stats(FFMPEG, media)
+        black = ci.pure_black_frame_stats(require_ffmpeg(), media)
         record("black_frame", black.get("status", "FAIL"),
                frames=black.get("frames"), policy=black.get("policy"),
                failures=black.get("failures"))
         metadata = out_dir / f"{unit_id}_motion.txt"
         metadata.parent.mkdir(parents=True, exist_ok=True)
-        motion = ci.adjacent_motion_values(FFMPEG, media, metadata)
+        motion = ci.adjacent_motion_values(require_ffmpeg(), media, metadata)
         thresholds = getattr(ci, "FROZEN_THRESHOLDS", {})
         freeze = ci.freeze_stats(motion, fps or 24.0,
                                 float(thresholds.get("freeze_motion", 0.15)),
                                 float(thresholds.get("min_freeze_seconds", 1.5)),
                                 duration)
-        cuts = ci.scene_cut_times(FFMPEG, media)
+        cuts = ci.scene_cut_times(require_ffmpeg(), media)
         pacing = dict(pacing or PACING_POLICY_DEFAULT)
         asr_payload = {"segments": [seg for seg in (asr_segments or []) if isinstance(seg, dict)]} \
             if asr_segments else None
@@ -335,7 +339,7 @@ def technical_checks(unit_id: str, media: Path, planned_duration: float | None,
     # supporting-only measurers (never surfaced as a check name)
     cadence_out = out_dir / f"{unit_id}_frame_cadence_audit.json"
     cadence = _run([VENV, ENGINE / "tools/frame_cadence_audit.py", "--video", media,
-                    "--out", cadence_out, "--ffmpeg", FFMPEG,
+                    "--out", cadence_out, "--ffmpeg", require_ffmpeg(),
                     "--audit-scope", "VIDEO_ONLY_DIAGNOSTIC"])
     cadence_report = read_json(cadence_out, {}) or {}
     supporting["frame_cadence_audit"] = {
@@ -345,7 +349,7 @@ def technical_checks(unit_id: str, media: Path, planned_duration: float | None,
     }
     brightness_out = out_dir / f"{unit_id}_source_brightness_jump_audit.json"
     brightness = _run([VENV, ENGINE / "tools/source_brightness_jump_audit.py",
-                       "--video", media, "--ffmpeg", FFMPEG, "--out", brightness_out])
+                       "--video", media, "--ffmpeg", require_ffmpeg(), "--out", brightness_out])
     brightness_report = read_json(brightness_out, {}) or {}
     supporting["source_brightness_jump_audit"] = {
         "exit_code": brightness.returncode, "report": str(brightness_out),
@@ -485,7 +489,7 @@ def _measure_tail(media: Path, segments: list[dict[str, Any]]) -> dict[str, Any]
     """RMS of the final 120 ms versus the last speech segment's RMS (ffmpeg astats)."""
     import re as _re
     def rms(start: float, dur: float) -> float | None:
-        proc = subprocess.run([FFMPEG, "-hide_banner", "-nostats", "-ss", f"{max(start, 0):.3f}", "-t", f"{dur:.3f}",
+        proc = subprocess.run([require_ffmpeg(), "-hide_banner", "-nostats", "-ss", f"{max(start, 0):.3f}", "-t", f"{dur:.3f}",
                                "-i", str(media), "-vn", "-af", "astats=measure_overall=RMS_level:measure_perchannel=none",
                                "-f", "null", "-"], capture_output=True, text=True, check=False)
         m = _re.findall(r"RMS level dB:\s*(-?[0-9.]+|-inf)", proc.stderr)
@@ -494,7 +498,7 @@ def _measure_tail(media: Path, segments: list[dict[str, Any]]) -> dict[str, Any]
         value = m[-1]
         return -120.0 if value == "-inf" else float(value)
     try:
-        probe = subprocess.run([FFPROBE, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(media)],
+        probe = subprocess.run([require_ffprobe(), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(media)],
                                capture_output=True, text=True, check=False)
         duration = float(probe.stdout.strip() or 0)
     except Exception:  # noqa: BLE001
@@ -527,6 +531,29 @@ def _measure_tail(media: Path, segments: list[dict[str, Any]]) -> dict[str, Any]
                                             "speech level = the line ended before the cut; the final burst "
                                             "is a non-speech transient")
     return result
+
+def _rate_segments(media: Path, segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Segments for the seq=29 rule-6 speech-rate measurement.  The engine dialogue gate's rows carry
+    padded VAD-chunk bounds (a 4-character line spanning a 7.6 s wind chunk), which under-measures cps;
+    when they carry no per-word timing, take one word-timestamp pass (same model, beam 1) so the
+    realised speech time is the sum of word spans.  Falls back to the given rows on any failure."""
+    rows = [r for r in (segments or []) if isinstance(r, dict)]
+    if not rows or any(r.get("words") for r in rows):
+        return rows
+    try:
+        with _ASR_LOCK:
+            model = _whisper_model_locked()
+            segs, _info = model.transcribe(str(media), language="zh", beam_size=1, vad_filter=True,
+                                           word_timestamps=True)
+            timed = [{"start": round(float(seg.start), 2), "end": round(float(seg.end), 2),
+                      "text": _t2s(str(seg.text).strip()),
+                      "words": [{"start": round(float(w.start), 3), "end": round(float(w.end), 3), "word": str(w.word)}
+                                for w in (seg.words or [])],
+                      "timing_pass": "WORD_TIMESTAMPS_BEAM1"} for seg in segs]
+        return timed if any(t["words"] for t in timed) else rows
+    except Exception:  # noqa: BLE001
+        return rows
+
 
 def _rate_segments(media: Path, segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Segments for the seq=29 rule-6 speech-rate measurement.  The engine dialogue gate's rows carry
@@ -602,7 +629,7 @@ def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, 
     report = out_dir / f"{unit_id}_source_video_dialogue_gate.json"
     argv = [VENV, ENGINE / "tools/source_video_dialogue_gate.py",
             "--video", media, "--dialogue-json", dialogue_json, "--out", report,
-            "--minimum-recall", minimum_recall, "--ffprobe", FFPROBE]
+            "--minimum-recall", minimum_recall, "--ffprobe", require_ffprobe()]
     if asr.get("model"):
         argv += ["--model", asr["model"]]
     if not expected_dialogue:
@@ -738,7 +765,7 @@ def contact_sheet(unit_id: str, media: Path, out_dir: Path,
     duration = float((probe.get("format") or {}).get("duration") or 0.0) if probe.get("ok") else 0.0
     frames = max(1, int(math.ceil(duration * fps)))
     rows = max(1, int(math.ceil(frames / columns)))
-    argv = [FFMPEG, "-y", "-i", str(media),
+    argv = [require_ffmpeg(), "-y", "-i", str(media),
             "-vf", f"fps={fps},scale=240:-1,tile={columns}x{rows}",
             "-frames:v", "1", str(sheet)]
     completed = _run(argv, timeout=900)
@@ -1083,7 +1110,7 @@ def route_status(episode: str) -> dict[str, Any]:
         "allowed_technical_checks": list(ALLOWED_TECHNICAL),
         "allowed_basic_plot_checks": list(ALLOWED_BASIC_PLOT),
         "measurers": {
-            "ffprobe": FFPROBE, "ffmpeg": FFMPEG,
+            "ffprobe": require_ffprobe(), "ffmpeg": require_ffmpeg(),
             "black_frame": "run_regression_ci.pure_black_frame_stats",
             "freeze": "run_regression_ci.freeze_stats + static_hold_stats",
             "frame_rate_cadence": str(ENGINE / "tools/frame_cadence_audit.py"),
@@ -1094,8 +1121,8 @@ def route_status(episode: str) -> dict[str, Any]:
         "dialogue_policy": str(DIALOGUE_QA_POLICY),
         "dialogue_policy_present": DIALOGUE_QA_POLICY.is_file(),
         "faster_whisper_available": asr,
-        "ffmpeg_present": Path(FFMPEG).is_file(),
-        "ffprobe_present": Path(FFPROBE).is_file(),
+        "ffmpeg_present": Path(require_ffmpeg()).is_file(),
+        "ffprobe_present": Path(require_ffprobe()).is_file(),
         "units_expected": len(exp.grouping_units),
         "unit_media_on_disk": len(media),
         "reroll_guard": str(ENGINE / "tools/reroll_cost_guard.py"),

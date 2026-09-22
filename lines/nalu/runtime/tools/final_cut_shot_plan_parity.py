@@ -15,6 +15,11 @@ trimmed by ``--end-card-seconds``.
 """
 from __future__ import annotations
 
+import sys as _sys
+import pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))
+import nalu_media_tools as _media
+
 import argparse
 import json
 import re
@@ -29,7 +34,7 @@ def run(argv: list[str]) -> str:
 
 
 def probe_duration(path: Path) -> float:
-    out = run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)])
+    out = run([_media.require_ffprobe(), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)])
     try:
         return float(out.strip().splitlines()[0])
     except (IndexError, ValueError):
@@ -37,7 +42,7 @@ def probe_duration(path: Path) -> float:
 
 
 def scene_cuts(path: Path, threshold: float, until: float) -> list[float]:
-    out = run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-t", f"{until:.3f}",
+    out = run([_media.require_ffmpeg(), "-hide_banner", "-nostats", "-i", str(path), "-t", f"{until:.3f}",
                "-vf", f"scdet=threshold={threshold}:sc_pass=0", "-an", "-f", "null", "-"])
     cuts = [float(m.group(1)) for m in re.finditer(r"lavfi\.scd\.time:\s*([0-9.]+)", out)]
     if not cuts:  # older ffmpeg builds print "scene_score" lines
@@ -46,7 +51,7 @@ def scene_cuts(path: Path, threshold: float, until: float) -> list[float]:
 
 
 def luma_samples(path: Path, until: float, fps: int = 5) -> list[tuple[float, float]]:
-    out = run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-t", f"{until:.3f}",
+    out = run([_media.require_ffmpeg(), "-hide_banner", "-nostats", "-i", str(path), "-t", f"{until:.3f}",
                "-vf", f"fps={fps},signalstats,metadata=print:key=lavfi.signalstats.YAVG", "-an", "-f", "null", "-"])
     rows: list[tuple[float, float]] = []
     t = None
@@ -223,4 +228,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except _media.MediaToolBlocked as exc:
+        print(str(exc), file=_sys.stderr)
+        raise SystemExit(3) from None

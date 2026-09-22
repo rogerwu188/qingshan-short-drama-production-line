@@ -70,9 +70,9 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from nalu_qa_common import (  # noqa: E402
-    ASSET_LIBRARY, CHARACTER_REGISTRY, CHARACTER_SOURCES, GATE_REGISTRY,
-    REVIEWER_ID, REVIEW_METHOD, Expectations, QaPaths, engine_module,
-    gate_parameters, now, read_json, sha256_file, write_json,
+    GATE_REGISTRY, REVIEWER_ID, REVIEW_METHOD, Expectations, QaPaths,
+    engine_module, find_scoped_operator_source, gate_parameters, now,
+    read_json, sha256_file, write_json,
 )
 
 TOOL_ID = "identity_qa_lock.v1"
@@ -92,9 +92,6 @@ LOCK_BUILDERS = {
 # --------------------------------------------------------------------------- #
 # deterministic measurement: insightface cosine, plate vs operator source
 # --------------------------------------------------------------------------- #
-SOURCE_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
-
-
 def find_operator_source(asset_id: str, folder: Path | None = None) -> Path | None:
     """The operator's source photo for a character (Roger 2026-09-18, identity chain ①).
 
@@ -104,16 +101,9 @@ def find_operator_source(asset_id: str, folder: Path | None = None) -> Path | No
     ``<id>__SOURCE*``, ``<id>.*``, ``<id>__*``, ``<id>_*`` — always anchored on the full asset id,
     never on a prefix that another character could share.
     """
-    folder = Path(folder) if folder is not None else CHARACTER_SOURCES
-    exact = folder / f"{asset_id}.png"
-    if exact.is_file():
-        return exact
-    for pattern in (f"{asset_id}__SOURCE*", f"{asset_id}.*", f"{asset_id}__*", f"{asset_id}_*"):
-        candidates = sorted(p for p in folder.glob(pattern)
-                            if p.is_file() and p.suffix.lower() in SOURCE_IMAGE_SUFFIXES)
-        if candidates:
-            return candidates[0]
-    return None
+    if folder is None:
+        raise ValueError("folder is required; resolve it from QaPaths.character_sources")
+    return find_scoped_operator_source(asset_id, folder)
 
 
 def source_likeness_failures(source_scores: list[dict[str, Any]], pass_threshold: float) -> list[str]:
@@ -349,7 +339,7 @@ def materialise(episode: str, submitted: dict[str, Any],
     questionnaire = submitted.get("questionnaire") or {}
     rights_basis = rights_basis or submitted.get("rights_basis")
 
-    targets = [path for path in (p.identity_library, ASSET_LIBRARY) if path.is_file()]
+    targets = [path for path in (p.identity_library, p.asset_library) if path.is_file()]
     if not targets:
         return {"status": "MATERIALISATION_BLOCKED",
                 "failures": [f"asset_library_absent:{p.identity_library}"]}
@@ -360,6 +350,10 @@ def materialise(episode: str, submitted: dict[str, Any],
         if library.get("schema") != LIBRARY_SCHEMA:
             return {"status": "MATERIALISATION_BLOCKED",
                     "failures": [f"library_schema_mismatch:{path}"]}
+        if str(library.get("project_id") or "") != p.series_id:
+            return {"status": "MATERIALISATION_BLOCKED",
+                    "failures": [f"library_project_mismatch:{path}:"
+                                 f"{library.get('project_id')}!={p.series_id}"]}
 
     for item in submitted.get("items") or []:
         asset_id = item["item_id"]
@@ -369,10 +363,8 @@ def materialise(episode: str, submitted: dict[str, Any],
         plates = [Path(media["path"]) for media in request_item.get("media") or []
                   if media.get("role") == "IDENTITY_PLATE" and media.get("path")
                   and Path(media["path"]).is_file()]
-        # Prefer the exact source bound into this review request.  Episode
-        # scopes (notably QINGSHAN-E59) intentionally keep their sources out of
-        # the legacy global CHARACTER_SOURCES directory; using the global
-        # lookup here silently drops the source-likeness measurement.
+        # Prefer the exact source bound into this review request (episode scopes keep their
+        # sources out of the global folder); fall back to the scoped folder lookup.
         source = None
         for media in request_item.get("media") or []:
             if media.get("role") == "OPERATOR_SOURCE_REFERENCE" and media.get("path"):
@@ -381,7 +373,7 @@ def materialise(episode: str, submitted: dict[str, Any],
                     source = candidate
                     break
         if source is None:
-            source = find_operator_source(asset_id)
+            source = find_operator_source(asset_id, p.character_sources)
 
         measurement = ({"method": "INSIGHTFACE_COSINE_V1", "decision": "NOT_APPLICABLE",
                         "reason": "non-character subject has no face to embed",
@@ -473,7 +465,7 @@ def materialise(episode: str, submitted: dict[str, Any],
         write_json(path, library)
 
     locked = [row for row in rows if row["qa_status"] == "PASS"]
-    registry = build_registry(episode, out=CHARACTER_REGISTRY) if locked else {
+    registry = build_registry(episode, out=p.character_registry) if locked else {
         "status": "NOT_WRITTEN_NO_LOCKED_SUBJECT"}
 
     record = {
@@ -509,24 +501,22 @@ def materialise(episode: str, submitted: dict[str, Any],
 # --------------------------------------------------------------------------- #
 # D-1 registry
 # --------------------------------------------------------------------------- #
-def build_registry(episode: str, *, out: Path = CHARACTER_REGISTRY) -> dict[str, Any]:
+def build_registry(episode: str, *, out: Path | None = None) -> dict[str, Any]:
     """Emit QINGSHAN_CHARACTER_REGISTRY from LOCKED plates only."""
     exp = Expectations(episode)
-    library = read_json(exp.p.identity_library) or read_json(ASSET_LIBRARY, {}) or {}
-    runtime_dir = Path(f"{_np.RUNTIME_ROOT}/runtime")
-    entity_registry_path = Path(
-        os.environ.get("QINGSHAN_ENTITY_REGISTRY")
-        or ((runtime_dir / "entity_registry.json")
-            if (runtime_dir / "entity_registry.json").is_file()
-            else (runtime_dir / "nalu_entity_registry.json"))
-    )
-    entity_registry = read_json(entity_registry_path, {}) or {}
+    out = Path(out) if out is not None else exp.p.character_registry
+    source_library = (exp.p.identity_library if exp.p.identity_library.is_file()
+                      else exp.p.reusable_asset_library())
+    library = read_json(source_library, {}) or {}
+    entity_registry = read_json(exp.p.entity_registry, {}) or {}
     aliases = entity_registry.get("entity_aliases") or {}
     by_registry_id = {str(value[1]): (entity_id, str(value[0]))
                       for entity_id, value in aliases.items()
                       if isinstance(value, list) and len(value) == 2}
 
     assets = ((library.get("assets") or {}).get("characters") or {})
+    # an imported source registry (legacy-line migration) sits beside the scope's character registry
+    runtime_dir = Path(exp.p.character_registry).parent
     source_registry = read_json(runtime_dir / "character_asset_registry.json", {}) or {}
     source_rows = source_registry.get("characters") or []
     canonical_to_local = {
@@ -614,8 +604,13 @@ def build_registry(episode: str, *, out: Path = CHARACTER_REGISTRY) -> dict[str,
     payload = {
         "schema": "nalu.character_asset_registry.v1",
         "line": "nalu",
-        "work": "夜无疆",
-        "author": "辰东",
+        "series_scope_id": exp.p.scope_id,
+        "series_id": exp.p.series_id,
+        "work": (library.get("work") or
+                 ("夜无疆" if exp.p.scope["is_default"] else None) or
+                 library.get("project_id") or exp.p.series_id),
+        "author": (library.get("author") or
+                   ("辰东" if exp.p.scope["is_default"] else None)),
         "purpose": "QINGSHAN_CHARACTER_REGISTRY for tools/multimodal_character_binding_guard.py "
                    "(characters[<registry_id>].generation_reference_image, guard:204-206 and "
                    "430-436) and for tools/character_identity_admission_gate.py --registry "
@@ -625,10 +620,8 @@ def build_registry(episode: str, *, out: Path = CHARACTER_REGISTRY) -> dict[str,
                      "reports CANONICAL_VISUAL_REFERENCE_MISMATCH instead of binding nothing.",
         "generated_at": now(),
         "generated_by": TOOL_ID,
-        "source_library": str(exp.p.identity_library if exp.p.identity_library.is_file()
-                              else ASSET_LIBRARY),
-        "source_library_sha256": sha256_file(exp.p.identity_library
-                                            if exp.p.identity_library.is_file() else ASSET_LIBRARY),
+        "source_library": str(source_library),
+        "source_library_sha256": sha256_file(source_library),
         "episode": episode,
         "character_count": len(characters),
         "characters": characters,
@@ -660,8 +653,12 @@ def route_status(episode: str) -> dict[str, Any]:
         "gate_registry": str(GATE_REGISTRY),
         "objective_method": "INSIGHTFACE_COSINE_V1",
         "insightface_runtime": insight,
-        "character_registry": str(CHARACTER_REGISTRY),
-        "character_registry_present": CHARACTER_REGISTRY.is_file(),
+        "series_scope_id": p.scope_id,
+        "series_id": p.series_id,
+        "asset_library": str(p.reusable_asset_library()),
+        "character_sources": str(p.character_sources),
+        "character_registry": str(p.character_registry),
+        "character_registry_present": p.character_registry.is_file(),
         "plates_on_disk": len(plates),
         "identity_qa_record": str(p.identity_qa),
         "identity_qa_record_present": p.identity_qa.is_file(),
@@ -677,7 +674,7 @@ def main() -> int:
     lk.add_argument("--rights-basis")
     rg = sub.add_parser("registry")
     rg.add_argument("--episode", required=True)
-    rg.add_argument("--out", type=Path, default=CHARACTER_REGISTRY)
+    rg.add_argument("--out", type=Path)
     st = sub.add_parser("status")
     st.add_argument("--episode", required=True)
     args = parser.parse_args()

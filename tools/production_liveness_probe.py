@@ -250,6 +250,8 @@ def current_line_handles(root: Path) -> list[dict[str, Any]]:
         return lines
 
     policy_path = root / "workflow/production_line/THREE_EPISODE_CONCURRENCY_POLICY.json"
+    if not policy_path.is_file():
+        policy_path = root / "workflow/production_line/PORTABLE_CONCURRENCY_POLICY_TEMPLATE.json"
     try:
         policy = json.loads(policy_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -296,6 +298,8 @@ def current_line_handles(root: Path) -> list[dict[str, Any]]:
 def target_active_line_count(root: Path) -> int:
     """Read the currently effective concurrency target, including debug overrides."""
     path = root / "workflow" / "production_line" / "THREE_EPISODE_CONCURRENCY_POLICY.json"
+    if not path.is_file():
+        path = root / "workflow" / "production_line" / "PORTABLE_CONCURRENCY_POLICY_TEMPLATE.json"
     try:
         policy = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):

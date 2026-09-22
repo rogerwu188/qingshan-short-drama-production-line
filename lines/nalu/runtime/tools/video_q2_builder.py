@@ -85,9 +85,9 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from nalu_qa_common import (  # noqa: E402
-    ENGINE, FFMPEG, FFPROBE, GATE_REGISTRY, REVIEWER_ID, REVIEWER_TYPE,
+    ENGINE, GATE_REGISTRY, REVIEWER_ID, REVIEWER_TYPE,
     REVIEW_METHOD, VENV, Expectations, QaPaths, engine_module, gate_parameters,
-    now, portable, read_json, sha256_file, write_json,
+    now, portable, read_json, require_ffmpeg, require_ffprobe, sha256_file, write_json,
 )
 
 TOOL_ID = "video_q2_builder.v1"
@@ -194,7 +194,7 @@ def probe_duration(media: Path) -> float | None:
     prices its zero-tolerance opening/tail windows against the real length."""
     if not media.is_file():
         return None
-    completed = _run([FFPROBE, "-v", "error", "-show_entries", "format=duration",
+    completed = _run([require_ffprobe(), "-v", "error", "-show_entries", "format=duration",
                       "-of", "json", str(media)], timeout=300)
     if completed.returncode != 0:
         return None
@@ -224,7 +224,7 @@ def extract_frames(unit_id: str, media: Path, out_dir: Path, count: int) -> dict
     frames, argvs = [], []
     for index, stamp in enumerate(stamps, 1):
         frame = out_dir / f"{unit_id}_f{index:02d}_{stamp:.3f}s.png"
-        argv = [FFMPEG, "-y", "-ss", f"{stamp:.3f}", "-i", str(media),
+        argv = [require_ffmpeg(), "-y", "-ss", f"{stamp:.3f}", "-i", str(media),
                 "-frames:v", "1", str(frame)]
         completed = _run(argv, timeout=600)
         argvs.append([str(value) for value in argv])
@@ -303,12 +303,18 @@ def measure_unit_identity(episode: str, unit_id: str, frames: list[dict[str, Any
     samples_min = int(params.get("sample_frames_per_source_min", 3))
     canonical_min = int(params.get("canonical_views_min", 3))
     model = str(params.get("embedding_model", "buffalo_l"))
-    registry_path = Path(f"{_np.RUNTIME_ROOT}/runtime/nalu_character_asset_registry.json")
-    characters = (read_json(registry_path, {}) or {}).get("characters") or {}
+    qa_paths = QaPaths(episode)
+    registry_path = qa_paths.character_registry
+    registry = read_json(registry_path, {}) or {}
+    characters = registry.get("characters") or {}
 
     result: dict[str, Any] = {
         "method": "INSIGHTFACE_COSINE_V1",
         "unit_id": unit_id,
+        "series_scope_id": qa_paths.scope_id,
+        "series_id": qa_paths.series_id,
+        "character_registry": str(registry_path),
+        "character_registry_series_id": registry.get("series_id"),
         "embedding_model": model,
         "canonical_views_min_registry": canonical_min,
         "sample_frames_per_source_min_registry": samples_min,
@@ -322,6 +328,12 @@ def measure_unit_identity(episode: str, unit_id: str, frames: list[dict[str, Any
     }
     if not declared_ids:
         result["status"] = "NO_DECLARED_CHARACTER"
+        return result
+    if (not qa_paths.scope["is_default"]
+            and str(registry.get("series_id") or "") != qa_paths.series_id):
+        result["failures"].append(
+            f"CHARACTER_REGISTRY_SERIES_MISMATCH:"
+            f"{registry.get('series_id')}!={qa_paths.series_id}")
         return result
     if not characters:
         result["failures"].append("CHARACTER_REGISTRY_ABSENT_OR_EMPTY_SEE_D-1")

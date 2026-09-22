@@ -9,18 +9,19 @@ timing = the unit clip's timeline start + the faster-whisper speech window of th
 inside the unit (segments matched to lines in order by CJK similarity; when fewer
 segments than lines, the speech span is split by character count).  Style follows the
 engine's add_agentcut_subtitle_track DEFAULT_STYLE (42 px, white, 3 px black outline,
-bottom-centre, 170 px bottom margin, wrap at 15 chars, STHeiti Medium).
+bottom-centre, 170 px bottom margin, wrap at 15 chars) with a resolved CJK font file.
 
   build --episode EP --project <agentcut project> --asr <per-unit asr json> --contract <generation contract>
         --grouping <grouping plan> --source <picture_native.mp4> --out-ass <.ass> --out-video <subbed.mp4>
 """
 from __future__ import annotations
+import sys as _sys, pathlib as _pathlib
+_sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))
+import nalu_media_tools as _media
+
 import argparse, difflib, json, re, subprocess, sys
 from pathlib import Path
 
-FFMPEG = "/opt/homebrew/bin/ffmpeg"
-FONT = "STHeiti Medium"
-FONT_FILE = "/System/Library/Fonts/STHeiti Medium.ttc"
 #: nalu D-74: a caption must clear the cut — it ends at least this many seconds before the unit's end,
 #: otherwise the text disappears on the cut frame and the line reads as if it had been cut off.
 TAIL_GUARD = 0.25
@@ -92,6 +93,8 @@ def main() -> int:
     ap.add_argument("--out-ass", required=True, type=Path); ap.add_argument("--out-video", required=True, type=Path)
     ap.add_argument("--out-report", type=Path); ap.add_argument("--pad", type=float, default=0.08)
     a = ap.parse_args()
+    font_file, font_source = _media.resolve_cjk_font()
+    font_name = Path(font_file).stem
     project = json.loads(a.project.read_text(encoding="utf-8"))
     asr = json.loads(a.asr.read_text(encoding="utf-8"))
     contract = json.loads(a.contract.read_text(encoding="utf-8"))
@@ -132,15 +135,15 @@ def main() -> int:
             events[i] = (events[i][0], events[i + 1][0], events[i][2])
     header = ("[Script Info]\nScriptType: v4.00+\nPlayResX: 720\nPlayResY: 1280\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n"
               "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
-              f"Style: ZH,{FONT},42,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,0,2,72,72,170,1\n\n"
+              f"Style: ZH,{font_name},42,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,0,2,72,72,170,1\n\n"
               "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
     body = "".join(f"Dialogue: 0,{ass_time(s)},{ass_time(e)},ZH,{ln['speaker']},0,0,0,,{wrap(ln['text'])}\n" for s, e, ln in events)
     a.out_ass.parent.mkdir(parents=True, exist_ok=True); a.out_ass.write_text(header + body, encoding="utf-8")
     a.out_video.parent.mkdir(parents=True, exist_ok=True)
     # this ffmpeg build has no libass/drawtext: render each caption to a transparent PNG (PIL,
-    # STHeiti Medium, white with 3 px black outline) and overlay it time-gated.
+    # resolved CJK font, white with 3 px black outline) and overlay it time-gated.
     from PIL import Image, ImageDraw, ImageFont
-    font = ImageFont.truetype(FONT_FILE, 42)
+    font = ImageFont.truetype(font_file, 42)
     png_dir = a.out_ass.parent / "subtitle_png"; png_dir.mkdir(parents=True, exist_ok=True)
     inputs, chain = [], []
     W, H, MARGIN_BOTTOM, LINE_H = 720, 1280, 170, 54
@@ -157,18 +160,23 @@ def main() -> int:
         src = "[0:v]" if i == 0 else f"[v{i}]"
         chain.append(f"{src}[{i + 1}:v]overlay=x=0:y={y}:enable='between(t,{s_t:.3f},{e_t:.3f})'[v{i + 1}]")
     last = f"[v{len(events)}]" if events else "[0:v]"
-    cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", str(a.source), *inputs,
+    cmd = [_media.require_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-i", str(a.source), *inputs,
            "-filter_complex", ";".join(chain) if chain else "null", "-map", last, "-map", "0:a",
            "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "copy",
            "-movflags", "+faststart", str(a.out_video)]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     out = {"schema": "nalu.burnin_subtitles.v1", "episode": a.episode, "captions": len(events), "ass": str(a.out_ass),
            "video": str(a.out_video), "ffmpeg_exit": proc.returncode, "stderr": proc.stderr[-800:], "rows": report,
-           "text_source": "generation contract dialogue_units (verbatim)", "timing_source": str(a.asr), "font": FONT}
+           "text_source": "generation contract dialogue_units (verbatim)", "timing_source": str(a.asr),
+           "font": font_name, "font_file": font_file, "font_source": font_source}
     if a.out_report:
         a.out_report.write_text(json.dumps(out, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({k: out[k] for k in ("captions", "ffmpeg_exit", "video")}, ensure_ascii=False))
     return 0 if proc.returncode == 0 else 2
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except _media.MediaToolBlocked as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(3)

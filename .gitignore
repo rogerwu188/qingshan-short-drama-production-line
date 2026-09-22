@@ -16,11 +16,17 @@
 !/SECURITY.md
 !/tools/
 !/agent_factory/
+!/skills/
+!/skills/qingshan-nalu/
+!/skills/qingshan-nalu/bootstrap_storyclaw.py
 !/configs/
 /configs/*
 !/configs/GATE_REGISTRY_v3_20260716.json
 !/configs/reroll_cost_guard_policy_v1_20260716.json
 !/configs/VOICE_REFERENCE_REGISTRY.example.json
+!/configs/storyclaw_release_signing_public_key.pem
+!/configs/storyclaw_release_signing_probe.txt
+!/configs/storyclaw_release_signing_probe.txt.sig
 !/configs/COMBAT_ACTION_LIBRARY_V1.json
 !/configs/ENGINEERING_KNOWLEDGE_V1.json
 !/configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json
@@ -59,6 +65,10 @@
 !/requirements-core.txt
 !/requirements-media.txt
 !/requirements-dev.txt
+!/requirements/
+!/requirements/storyclaw/
+!/requirements/storyclaw/*.in
+!/requirements/storyclaw/*.lock
 !/setup.py
 
 # Generated/runtime material inside the tracked code trees.
@@ -81,4 +91,7 @@
 !/configs/DEPLOYMENT_CODE_SHA256.json
 !/configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json
 !/configs/pipeline.example.json
+!/configs/storyclaw_nalu_config.example.json
 !/lines/
+!/deploy/
+!/deploy/**

@@ -32,7 +32,7 @@ Subcommands
 -----------
   run     --episode E01 [--dry-run] [--paid] [--from S3] [--until S6] [--force]
   status  --episode E01 [--json]
-  approve --episode E01 [--note "..."]
+  approve --episode E01 --by <configured-line-owner-id> [--note "..."]
   loop    --start E01 --end E10 [--paid] [--poll-seconds 60]
 """
 
@@ -41,6 +41,10 @@ import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
 import nalu_series_scope as _scope  # per-episode asset-library / registry scope (Roger 2026-09-18, E59)
+import materialize_paid_authorization as _paid_order
+import nalu_media_tools as _media
+import nalu_policy_profile as _policy
+import roger_gate_acceptance as _rga
 
 import argparse
 import copy
@@ -53,6 +57,7 @@ import shutil
 import subprocess
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -63,9 +68,9 @@ from typing import Any, Callable, Iterable
 ENGINE = Path(f"{_np.ENGINE_ROOT}")
 RUNTIME = Path(f"{_np.RUNTIME_ROOT}")
 
-VENV = ENGINE / ".qingshan-venv/bin/python"
-AGENTCUT = ENGINE / ".agentcut_env/bin/agentcut"
-FFMPEG = "/opt/homebrew/bin/ffmpeg"
+VENV = Path(f"{_np.VENV_PYTHON}")
+PORTABLE_AUDIO_PROVIDER = ENGINE / "tools/storyclaw_audio_provider.py"
+AUDIO_TRANSACTION_ROOT = ENGINE / "workflow/tasks/giggle_audio_transactions"
 
 CONFIG_PATH = RUNTIME / "qingshan.json"
 RT = RUNTIME / "runtime"
@@ -102,9 +107,9 @@ STAGE_TITLES = {
     "S3": "identity cards (paid, SHA-reuse across episodes)",
     "S4": "voices (paid, once per speaking character)",
     "S5": "keyframes (paid) + Q1 admission + start-frame receipts",
-    "S6": "video (paid) + post-generation QA + Q2 assembly admission",
-    "S7": "Q2 verify + assembly + render + release loudness + final QA (free)",
-    "S8": "checkpoint + block for Roger's approval",
+    "S6": "video + selective-BGM sources (paid) + post-generation QA + Q2 assembly admission",
+    "S7": "Q2 verify + assembly + BGM placement/QA/mix + release loudness + final QA (no provider POST)",
+    "S8": "checkpoint + block for line-owner approval",
 }
 
 # planned credits per paid stage, from runtime/budget/<EP>_cost_plan.json when
@@ -137,6 +142,7 @@ KEYFRAME_Q1 = RT_TOOLS / "keyframe_q1_builder.py"
 START_FRAME_EVIDENCE = RT_TOOLS / "start_frame_evidence_writer.py"
 POST_GEN_QA = RT_TOOLS / "post_generation_qa_runner.py"
 FINAL_QA_BUNDLE = RT_TOOLS / "final_qa_evidence_bundle.py"
+FINAL_AUDIENCE_REVIEW = RT_TOOLS / "final_audience_review.py"
 REVIEWS_ROOT = RT / "reviews"
 REVIEWER_ID = "claude-code-nalu-vlm"
 VIDEO_Q2 = RT_TOOLS / "video_q2_builder.py"          # D-7 (this pipeline owns it)
@@ -147,45 +153,56 @@ VIDEO_Q2 = RT_TOOLS / "video_q2_builder.py"          # D-7 (this pipeline owns i
 AR_BUILDER = RT_TOOLS / "build_episode_asset_requirements.py"   # D-10, requirements+prompts
 GSM_EXTEND = RT_TOOLS / "extend_global_space_map.py"            # D-10, global space map
 PAID_AUTH = RT_TOOLS / "materialize_paid_authorization.py"      # D-11, paid authority
-#: SUPERVISOR_ORDERS.json seq for the standing production order the materialiser
-#: turns into authorization_ref / provider_post_allowed.
-PAID_ORDER_SEQ = 3
-E59_PAID_ORDER_SEQ = 37
 BUDGET_DIR = RT / "budget"
 LEDGER = BUDGET_DIR / "ledger.json"
 REPORTS_DIR = RT / "reports"
 
 # --------------------------------------------------------------------------- #
-# rights basis — a LINE-OWNER DECLARATION, never a reviewer observation
+# private line-owner authority — no public or historical fallback
 # --------------------------------------------------------------------------- #
-#: tools/initial_asset_library.py gate demands rights.status == PASS with a
-#: non-empty named basis.  A rights basis is a legal declaration by the line
-#: owner and cannot be observed by any measurer or reviewer.  Roger made it on
-#: 2026-09-09 in SUPERVISOR_ORDERS.json seq=3 (id
-#: ROGER-20260909-NALU-E01-E10-PRODUCTION-AUTHORIZED), condition 3
-#: CHARACTER_SOURCE_FOLDER ("Roger supplies the character source folder") and
-#: condition 7 RIGHTS_OFFLINE ("adaptation authorisation is handled offline by
-#: Roger; the engine does not verify it").  This pipeline invents no other
-#: rights statement and never widens this one.
-RIGHTS_BASIS = ("SUPERVISOR_ORDERS seq=3 c3/c7 — Roger 提供角色图并线下处理肖像与改编授权"
-                "（2026-09-09）")
-RIGHTS_DECLARATION = {
-    "basis": RIGHTS_BASIS,
-    "declared_by": "roger (line owner)",
-    "declared_on": "2026-09-09",
-    "declaration_type": "LINE_OWNER_DECLARATION_NOT_A_REVIEWER_OBSERVATION",
-    "authority": f"{_np.ENGINE_ROOT}/workflow/claude_writer_agent/SUPERVISOR_ORDERS.json",
-    "order_seq": PAID_ORDER_SEQ,
-    "order_id": "ROGER-20260909-NALU-E01-E10-PRODUCTION-AUTHORIZED",
-    "conditions": ["3 CHARACTER_SOURCE_FOLDER", "7 RIGHTS_OFFLINE"],
-    "scope": "identity reference plates for E01-E10 (character source images supplied by "
-             "Roger; adaptation and likeness rights handled offline by Roger)",
-    "not_covered": "platform release (order seq=3 explicitly does not authorise publication; "
-                   "R-2 adaptation/commercial rights and R-5 voice copyright evidence remain "
-                   "open on Roger's side)",
-    "consumed_by": ["bootstrap_identity_cards.py --rights-basis",
-                    "identity_qa_lock.py lock --rights-basis"],
+AUTH_ENV = {
+    "orders_path": "NALU_SUPERVISOR_ORDERS_PATH",
+    "paid_order_seq": "NALU_PAID_ORDER_SEQ",
+    "latest_order_seq": "NALU_LATEST_ORDER_SEQ",
+    "line_owner_id": "NALU_LINE_OWNER_ID",
 }
+
+
+def _authority_config(config: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """Resolve private authority coordinates; every field is explicit and fail-closed."""
+    raw = config.get("authorization") if isinstance(config.get("authorization"), dict) else {}
+    values = {key: os.environ.get(env) or raw.get(
+        "supervisor_orders_path" if key == "orders_path" else key)
+              for key, env in AUTH_ENV.items()}
+    failures: list[str] = []
+    path_text = str(values["orders_path"] or "").strip()
+    owner = str(values["line_owner_id"] or "").strip()
+    if not path_text:
+        failures.append("SUPERVISOR_ORDERS_PATH_NOT_CONFIGURED")
+    if not owner:
+        failures.append("LINE_OWNER_ID_NOT_CONFIGURED")
+    parsed: dict[str, int | None] = {}
+    for key in ("paid_order_seq", "latest_order_seq"):
+        try:
+            value = int(values[key])
+        except (TypeError, ValueError):
+            value = 0
+        if value < 1:
+            failures.append(f"{key.upper()}_NOT_CONFIGURED")
+            parsed[key] = None
+        else:
+            parsed[key] = value
+    orders_path = Path(path_text).expanduser() if path_text else None
+    if orders_path is not None and not orders_path.is_absolute():
+        failures.append("SUPERVISOR_ORDERS_PATH_MUST_BE_ABSOLUTE")
+    return {
+        "orders_path": orders_path,
+        "paid_order_seq": parsed["paid_order_seq"],
+        "latest_order_seq": parsed["latest_order_seq"],
+        "line_owner_id": owner or None,
+        "sources": {key: ("environment" if os.environ.get(env) else "qingshan.json")
+                    for key, env in AUTH_ENV.items()},
+    }, failures
 
 # --------------------------------------------------------------------------- #
 # child env the engine's video submitter needs (WIRING_NOTES.md, last section)
@@ -239,6 +256,21 @@ def write_json(path: Path, payload: Any) -> Path:
 
 def q(argv: Iterable[Any]) -> str:
     return " ".join(shlex.quote(str(item)) for item in argv)
+
+
+def writer_selfcheck_admitted(report: dict[str, Any], exit_code: int) -> bool:
+    """Apply the selected profile to the writer's own S1 declaration.
+
+    Current portable projects require an explicitly enforced PASS. Historical
+    replay preserves the recorded opt-in behavior for old contracts.
+    """
+    if _policy.is_current():
+        return (
+            exit_code == 0
+            and report.get("enforced") is True
+            and report.get("status") == PASS
+        )
+    return not (report.get("enforced") and report.get("status") == "FAIL")
 
 
 def episode_index(episode: str) -> int:
@@ -461,7 +493,9 @@ def explicit_layers_from_args(episode: str, args: argparse.Namespace) -> dict[st
     return out or None
 
 
-def project_scope_check(ctx: "Ctx") -> dict[str, Any]:
+def project_scope_check(
+    ctx: "Ctx", *, require_preproduction_map: bool = True
+) -> dict[str, Any]:
     """Roger 2026-09-18 (E59): the asset library this episode will reuse from must belong to the
     episode's project (asset_library.project_id == scope series_id) and, for a non-default scope,
     the episode's own global space map must exist, be LOCKED and map every contract scene.
@@ -476,36 +510,90 @@ def project_scope_check(ctx: "Ctx") -> dict[str, Any]:
     detail: dict[str, Any] = {"scope_id": scope["scope_id"], "series_id": scope["series_id"], "asset_library": str(lib_path),
                               "asset_library_project_id": project_id, "default_scope": scope["is_default"]}
     if not scope["is_default"]:
-        # Only reject exact/default-scope paths.  A declared QINGSHAN-E59 scope
-        # intentionally lives below the same runtime root, so substring matching
-        # on ``/nalu_runtime/runtime/`` would reject the isolated scope itself.
-        default_scope = _scope.resolve_scope("E01")
-        for key in ("voice_registry", "entity_registry", "character_sources", "lexicon"):
-            value = str(scope[key])
-            default_value = str(default_scope[key])
-            # When NALU_RUNTIME_ROOT itself is an explicitly dedicated
-            # instance (for example /Users/rogerwu/nalu_runtime_e59), resolving
-            # the historical default scope under that same root is expected and
-            # is not a cross-line leak.  The real guard is the episode's
-            # declared scope and its own files; keep the legacy E0 work-tree
-            # rejection for accidental output reuse.
-            dedicated_root = "dedicated runtime root" in str(scope.get("isolation") or "")
-            if (value == default_value and not dedicated_root) or "/workflow/nalu/E0" in value:
-                failures.append(f"SCOPE_PATH_LEAKS_INTO_DEFAULT_RUNTIME:{key}")
-        gsm = read_json(ctx.p.gsm_own, {}) or {}
-        detail["global_space_map"] = str(ctx.p.gsm_own)
-        detail["global_space_map_status"] = gsm.get("status")
-        if not gsm:
-            failures.append("GLOBAL_SPACE_MAP_MISSING")
-        else:
-            if gsm.get("status") != "LOCKED":
-                failures.append(f"GLOBAL_SPACE_MAP_NOT_LOCKED:{gsm.get('status')}")
-            mapped = {m.get("scene_id") for sm in (gsm.get("space_maps") or []) for m in (sm.get("scene_mappings") or [])}
-            contract = read_json(ctx.p.contract, {}) or {}
-            unmapped = sorted({s.get("scene_id") for s in (contract.get("scene_states") or [])} - mapped)
-            detail["scenes_unmapped"] = unmapped
-            if unmapped:
-                failures.append("GLOBAL_SPACE_MAP_SCENES_UNMAPPED:" + ",".join(map(str, unmapped)))
+        series_root = Path(scope["series_root"]).resolve()
+
+        def within(path: Path | str, root: Path) -> bool:
+            try:
+                Path(path).resolve().relative_to(root)
+                return True
+            except ValueError:
+                return False
+
+        # These are private, mutable production authorities.  A foreign series
+        # must keep every one below its declared series_root.  Checking the path
+        # structure catches both ``nalu_runtime`` and StoryClaw's
+        # ``nalu-runtime`` (and any future mount name); host-specific substrings
+        # cannot provide that guarantee.
+        scoped_authorities = (
+            "asset_library", "asset_library_seed",
+            "voice_registry", "voice_catalog", "voice_cast", "voice_refs",
+            "entity_registry", "agentcut_voice_policy",
+            "character_registry", "character_sources",
+        )
+        path_authority: dict[str, str] = {}
+        for key in scoped_authorities:
+            value = Path(scope[key]).resolve()
+            path_authority[key] = str(value)
+            if not within(value, series_root):
+                failures.append(f"SCOPE_PATH_OUTSIDE_SERIES_ROOT:{key}:{value}")
+            default_rel = _scope.DEFAULT_PATHS.get(key)
+            if isinstance(default_rel, str) and not default_rel.startswith("tools:"):
+                default_path = (RUNTIME / default_rel).resolve()
+                if value == default_path:
+                    failures.append(f"SCOPE_PATH_REUSES_DEFAULT_AUTHORITY:{key}:{value}")
+
+        # A lexicon may be a public, versioned runtime config shared by all
+        # series, or a private file under series_root.  A charter may likewise
+        # be a versioned engine document or private series state.  These are
+        # read-only policy inputs, never mutable identity/asset authorities.
+        public_config_root = (Path(_np.TOOLS_DIR).parent / "configs").resolve()
+        engine_root = Path(_np.ENGINE_ROOT).resolve()
+        scope_episode = getattr(ctx, "episode", None) or getattr(ctx.p, "episode", None)
+        writer_lexicon_root = (
+            (RUNTIME / "writer_layers" / str(scope["scope_id"]) / str(scope_episode)).resolve()
+            if scope_episode else None
+        )
+        lexicon = Path(scope["lexicon"]).resolve()
+        path_authority["lexicon"] = str(lexicon)
+        if not (
+            within(lexicon, series_root)
+            or within(lexicon, public_config_root)
+            or (writer_lexicon_root is not None and within(lexicon, writer_lexicon_root))
+        ):
+            failures.append(f"SCOPE_LEXICON_OUTSIDE_ALLOWED_ROOTS:{lexicon}")
+        charter = scope.get("charter")
+        if charter is not None:
+            charter_path = Path(charter).resolve()
+            path_authority["charter"] = str(charter_path)
+            if not (within(charter_path, series_root) or within(charter_path, engine_root)):
+                failures.append(f"SCOPE_CHARTER_OUTSIDE_ALLOWED_ROOTS:{charter_path}")
+        detail["series_root"] = str(series_root)
+        detail["scope_path_authorities"] = path_authority
+        lexicon_data = read_json(lexicon, {}) or {}
+        detail["lexicon_status"] = lexicon_data.get("status")
+        if lexicon_data.get("status") == "EMPTY_PENDING_SCRIPT_DERIVATION":
+            failures.append("PROJECT_LEXICON_NOT_DERIVED_FROM_SCRIPT")
+
+        # S1 is the script gate.  A new project's first global space map is an
+        # S2 output, so requiring it during S1 makes a clean installation
+        # impossible to start.  Historical callers and focused integrity tests
+        # retain the strict default; stage_s1 opts out, while S2's real map
+        # renderer/layout gate validates the generated authority before use.
+        if require_preproduction_map:
+            gsm = read_json(ctx.p.gsm_own, {}) or {}
+            detail["global_space_map"] = str(ctx.p.gsm_own)
+            detail["global_space_map_status"] = gsm.get("status")
+            if not gsm:
+                failures.append("GLOBAL_SPACE_MAP_MISSING")
+            else:
+                if gsm.get("status") != "LOCKED":
+                    failures.append(f"GLOBAL_SPACE_MAP_NOT_LOCKED:{gsm.get('status')}")
+                mapped = {m.get("scene_id") for sm in (gsm.get("space_maps") or []) for m in (sm.get("scene_mappings") or [])}
+                contract = read_json(ctx.p.contract, {}) or {}
+                unmapped = sorted({s.get("scene_id") for s in (contract.get("scene_states") or [])} - mapped)
+                detail["scenes_unmapped"] = unmapped
+                if unmapped:
+                    failures.append("GLOBAL_SPACE_MAP_SCENES_UNMAPPED:" + ",".join(map(str, unmapped)))
     detail["status"] = PASS if not failures else "FAIL"
     detail["failures"] = failures
     return detail
@@ -532,37 +620,63 @@ class Ctx:
         self.config = read_json(CONFIG_PATH, {}) or {}
         gen = self.config.get("generation") or {}
         self.config_paid_enabled = bool(gen.get("paid_requests_enabled"))
+        self.storyclaw_paid_enabled = bool(
+            (self.config.get("storyclaw") or {}).get("paid_requests_enabled")
+        )
         self.max_parallel = int(gen.get("max_parallel_tasks") or 6)
-        self.cap = int(gen.get("budget_credits_per_episode_cap") or 8000)
-        # E59 has its own explicit production/release order.  Keep the
-        # historical E01–E10 standing order for older episodes; never widen
-        # that order implicitly.
-        self.paid_order_seq = E59_PAID_ORDER_SEQ if self.episode == "E59" else PAID_ORDER_SEQ
-        self.paid_enabled = self.want_paid and self.config_paid_enabled and not self.dry
+        self.cap = int(
+            gen.get("budget_cap_credits_per_episode")
+            or gen.get("budget_credits_per_episode_cap")
+            or 8000
+        )
+        portable_paid_lock = (
+            self.storyclaw_paid_enabled if _policy.is_current() else True
+        )
+        self.paid_enabled = (
+            self.want_paid and self.config_paid_enabled
+            and portable_paid_lock and not self.dry
+        )
         self.cost_plan = read_json(RT / "budget" / f"{episode}_cost_plan.json", {}) or {}
-        # The rights basis is Roger's declaration (SUPERVISOR_ORDERS seq=3 c3/c7).
-        # qingshan.json may restate it, but it may not be widened or invented here:
-        # an override is recorded as such and the module constant is the default.
-        override = ((self.config.get("rights") or {}).get("basis")
-                    if isinstance(self.config.get("rights"), dict) else None)
-        self.rights_basis = str(override).strip() if (override and str(override).strip()) \
-            else ("E59_USER_AUTHORIZATION_RECEIPT.json — Roger 同意授权（2026-09-18）"
-                  if self.episode == "E59" else RIGHTS_BASIS)
-        self.rights_declaration = dict(RIGHTS_DECLARATION)
-        if self.episode == "E59":
-            self.rights_declaration.update({
-                "basis": "E59_USER_AUTHORIZATION_RECEIPT.json — Roger 同意授权（2026-09-18）",
-                "authority": str(RUNTIME / "runtime/adapter/E59/E59_USER_AUTHORIZATION_RECEIPT.json"),
-                "order_seq": E59_PAID_ORDER_SEQ,
-                "order_id": "ROGER-20260919-NALU-E59-PRODUCTION-RELEASE",
-                "scope": "E59 v4 identity, props, voices, SD2 production and final release",
-                "not_covered": "No gate bypass; final QA and rights evidence remain mandatory",
-            })
-        self.rights_declaration["basis"] = self.rights_basis
-        self.rights_declaration["source"] = ("qingshan.json rights.basis (restated)" if override
-                                             else "nalu_pipeline.RIGHTS_BASIS")
+        self.authority, self.authority_blockers = _authority_config(self.config)
+        self.paid_order: dict[str, Any] | None = None
+        if not self.authority_blockers:
+            try:
+                self.paid_order = _paid_order.read_order(
+                    self.authority["orders_path"], self.authority["paid_order_seq"],
+                    episode, self.cap,
+                    expected_owner=self.authority["line_owner_id"],
+                    expected_latest_seq=self.authority["latest_order_seq"],
+                    engine_root=ENGINE,
+                    require_private=True,
+                )
+            except _paid_order.Refused as exc:
+                self.authority_blockers.append(str(exc))
+        order = self.paid_order or {}
+        self.rights_basis = str(order.get("rights_basis") or "")
+        self.rights_declaration = {
+            "basis": self.rights_basis or None,
+            "declared_by": order.get("rights_declared_by"),
+            "declared_on": (order.get("source_receipt") or {}).get("recorded_at_utc"),
+            "declaration_type": "LINE_OWNER_DECLARATION_NOT_A_REVIEWER_OBSERVATION",
+            "authority": order.get("orders_file") or (str(self.authority.get("orders_path"))
+                                                        if self.authority.get("orders_path") else None),
+            "order_seq": order.get("seq") or self.authority.get("paid_order_seq"),
+            "order_id": order.get("id"),
+            "conditions": order.get("condition_ids") or [],
+            "scope": order.get("rights_scope") or order.get("episode_scope"),
+            "not_covered": (None if order.get("publication_allowed")
+                            else "platform publication is not authorised by this paid-production order"),
+            "source_receipt": order.get("source_receipt"),
+            "validation": "PASS" if self.paid_order else "BLOCKED",
+            "validation_failures": list(self.authority_blockers),
+            "consumed_by": ["bootstrap_identity_cards.py --rights-basis",
+                            "identity_qa_lock.py lock --rights-basis"],
+        }
         self.p.logs.mkdir(parents=True, exist_ok=True)
-        self.run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        self.run_id = (
+            datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+            + f"_{os.getpid()}_{uuid.uuid4().hex[:8]}"
+        )
         self.run_log = self.p.logs / f"run_{self.run_id}.log"
         self.state = self.load_state()
         self.planned_commands: list[dict[str, Any]] = []
@@ -627,7 +741,7 @@ class Ctx:
         env["QINGSHAN_VOICE_REGISTRY"] = str(self.p.scope["voice_registry"])
         env["QINGSHAN_ENTITY_REGISTRY"] = str(self.p.scope["entity_registry"])
         env["QINGSHAN_AGENTCUT_VOICE_POLICY"] = str(self.p.scope["agentcut_voice_policy"])
-        if self.episode != "E01":
+        if not _policy.uses_legacy_first_episode_exception(self.episode):
             # engine patch e16 (seq=7 PACING_E02_PLUS): grouped video units prefer 4-6 s, never above 7 s
             policy = self.p.scope.get("unit_duration_policy") or {}
             preferred = policy.get("preferred_seconds") or "4,6"
@@ -687,9 +801,11 @@ class Ctx:
     # ---------------------------------------------------------------- budget
     def budget_check(self, planned_credits: int, *, label: str) -> dict[str, Any]:
         """MANDATORY before every paid step.  Non-zero exit == HARD_STOP."""
+        bgm_transactions = selective_bgm_transaction_dir(self)
         step = self.run(
             [VENV, BUDGET_LEDGER, "--check", "--episode", self.episode,
              "--planned-credits", int(planned_credits),
+             "--bgm-transactions-dir", bgm_transactions,
              "--cap", self.cap, "--out",
              self.p.logs / f"{self.run_id}_budget_{label}.json"],
             name=f"budget_check_{label}", paid=False)
@@ -720,14 +836,34 @@ class Ctx:
         Returns (status, step).  status is PASS / DRY / HARD_STOP / BLOCKED.
         """
         argv = [str(item) for item in argv]
+        paid_env = dict(extra_env or {})
+        if _policy.is_current() and self.config_paid_enabled and self.storyclaw_paid_enabled:
+            paid_env.setdefault("NALU_PAID_CONFIG_LOCK", "1")
+        if self.paid_order:
+            paid_env.setdefault("NALU_PAID_AUTHORIZATION_REF", str(self.paid_order["id"]))
+            paid_env.setdefault("NALU_PAID_ORDER_SEQ", str(self.paid_order["seq"]))
+            paid_env.setdefault("NALU_SUPERVISOR_ORDERS_SHA256",
+                                str(self.paid_order["orders_file_sha256"]))
         record = {
             "stage": sid, "step": name, "planned_credits": planned_credits,
             "paid_argv": argv, "paid_command": q(argv), "note": note,
-            "env": dict(extra_env or {}),
+            "env": paid_env,
             "requires": "export GIGGLE_API_KEY=… ; --paid ; "
                         "qingshan.json generation.paid_requests_enabled=true",
         }
         self.planned_commands.append(record)
+
+        if self.paid_enabled and (self.authority_blockers or not self.paid_order
+                                  or sid not in (self.paid_order.get("paid_stages") or [])):
+            failures = list(self.authority_blockers)
+            if self.paid_order and sid not in (self.paid_order.get("paid_stages") or []):
+                failures.append(f"ORDER_DOES_NOT_AUTHORIZE_PAID_STAGE:{sid}")
+            self.say("!! BLOCKED paid authority refused " + name + ": " + "; ".join(failures))
+            return BLOCKED, {
+                "name": name, "paid": True, "status": BLOCKED, "exit_code": 5,
+                "blocker": "PAID_AUTHORITY_NOT_VALID_FOR_STAGE", "failures": failures,
+                "argv": argv, "argv_shell": q(argv), "planned_credits": planned_credits,
+            }
 
         budget = self.budget_check(planned_credits, label=name)
         verdict = budget.get("budget_verdict") or {}
@@ -744,20 +880,20 @@ class Ctx:
                       "--paid not given" if not self.want_paid else
                       "qingshan.json generation.paid_requests_enabled=false")
             self.say(f"   PAID STEP NOT EXECUTED ({reason}).  Exact command:")
-            for key, value in sorted((extra_env or {}).items()):
+            for key, value in sorted(paid_env.items()):
                 self.say(f"     export {key}={value}")
             self.say(f"     {q(argv)}")
             step = {"name": name, "paid": True, "status": DRY,
                     "reason_not_run": reason, "argv": argv, "argv_shell": q(argv),
-                    "extra_env": dict(extra_env or {}),
+                    "extra_env": paid_env,
                     "planned_credits": planned_credits, "budget": budget}
             if dry_argv:
                 twin = self.run(dry_argv, name=f"{name}_precheck", paid=False,
-                                extra_env=extra_env)
+                                extra_env=paid_env)
                 step["precheck"] = twin
             return DRY, step
 
-        step = self.run(argv, name=name, paid=True, extra_env=extra_env)
+        step = self.run(argv, name=name, paid=True, extra_env=paid_env)
         step["planned_credits"] = planned_credits
         step["budget"] = budget
         return (PASS if step["exit_code"] == 0 else BLOCKED), step
@@ -774,11 +910,17 @@ def materialised_path(target: Path, suffix: str = "_PAID_AUTHORIZED") -> Path:
 
 def paid_authorization_argv(ctx: Ctx, *, sid: str, target: Path, is_plan: bool,
                             task_keys: list[str] | None = None) -> list[Any]:
+    if ctx.authority_blockers or not ctx.paid_order:
+        raise ValueError("paid authority is not configured and validated")
     argv: list[Any] = [
         VENV, PAID_AUTH,
         "--episode", ctx.episode,
-        "--order-seq", ctx.paid_order_seq,
-        "--cap", str(ctx.cap),  # seq=21: forward the configured per-episode cap (the tool defaults to 8000)
+        "--stage", sid,
+        "--orders", ctx.authority["orders_path"],
+        "--order-seq", ctx.authority["paid_order_seq"],
+        "--expected-latest-seq", ctx.authority["latest_order_seq"],
+        "--line-owner-id", ctx.authority["line_owner_id"],
+        "--cap", str(ctx.cap),
         ("--plan" if is_plan else "--manifest"), target,
         "--ledger", LEDGER,
         "--report", REPORTS_DIR / f"{ctx.episode}_paid_authorization_{sid.lower()}.json",
@@ -794,7 +936,7 @@ def paid_authorization_argv(ctx: Ctx, *, sid: str, target: Path, is_plan: bool,
 def materialize_paid_authorization(ctx: Ctx, res: StageResult, *, sid: str,
                                   target: Path, is_plan: bool,
                                   note: str = "", task_keys: list[str] | None = None) -> tuple[str, Path, dict[str, Any]]:
-    """Turn SUPERVISOR_ORDERS seq=3 into the authority fields the submitters demand.
+    """Turn the deployment-configured line-owner order into paid authority fields.
 
     Runs IMMEDIATELY before the paid submit, on the plan / manifest that is about
     to be submitted, and returns the path of the materialised ``_PAID_AUTHORIZED``
@@ -818,19 +960,20 @@ def materialize_paid_authorization(ctx: Ctx, res: StageResult, *, sid: str,
 
     Returns (status, materialised_path, record).  status is PASS / DRY / BLOCKED.
     """
-    argv = paid_authorization_argv(ctx, sid=sid, target=target, is_plan=is_plan, task_keys=task_keys)
     out = materialised_path(target)
     record: dict[str, Any] = {
         "decision": "D-11",
         "stage": sid,
         "tool": str(PAID_AUTH),
-        "order_seq": ctx.paid_order_seq,
-        "order_id": ctx.rights_declaration["order_id"],
+        "order_seq": ctx.authority.get("paid_order_seq"),
+        "latest_order_seq": ctx.authority.get("latest_order_seq"),
+        "order_id": (ctx.paid_order or {}).get("id"),
+        "line_owner_id": ctx.authority.get("line_owner_id"),
+        "orders_path": (str(ctx.authority.get("orders_path"))
+                         if ctx.authority.get("orders_path") else None),
         "input": str(target),
-        "input_sha256": sha256_file(target),
+        "input_sha256": sha256_file(target) if target.is_file() else None,
         "materialised": str(out),
-        "argv": [str(item) for item in argv],
-        "command": q(argv),
         "sets": ["provider_post_allowed=true", "authorization_ref=<order id>",
                  "maximum_new_submissions=len(selected tasks)",
                  "status=READY_TO_SUBMIT per task",
@@ -840,6 +983,17 @@ def materialize_paid_authorization(ctx: Ctx, res: StageResult, *, sid: str,
                                       "generation.paid_requests_enabled=true",
         "note": note,
     }
+    if ctx.authority_blockers or not ctx.paid_order:
+        record["status"] = BLOCKED if ctx.paid_enabled else DRY
+        record["blocker"] = "PAID_AUTHORITY_CONFIGURATION_INVALID"
+        record["authority_failures"] = list(ctx.authority_blockers)
+        ctx.say("   !! D-11 paid authority is not configured and validated: "
+                + "; ".join(ctx.authority_blockers))
+        return record["status"], out, record
+    argv = paid_authorization_argv(ctx, sid=sid, target=target, is_plan=is_plan,
+                                   task_keys=task_keys)
+    record["argv"] = [str(item) for item in argv]
+    record["command"] = q(argv)
     if not target.is_file():
         record["status"] = BLOCKED
         record["blocker"] = f"PAID_AUTHORIZATION_INPUT_MISSING:{target}"
@@ -884,7 +1038,7 @@ def materialize_paid_authorization(ctx: Ctx, res: StageResult, *, sid: str,
         ctx.say(f"   !! D-11 refused to authorise {target.name}: {record['blocker']}")
         return BLOCKED, out, record
     record["status"] = PASS
-    ctx.say(f"   D-11 authorised: {out.name}  (order seq={ctx.paid_order_seq}, "
+    ctx.say(f"   D-11 authorised: {out.name}  (order seq={ctx.authority['paid_order_seq']}, "
             f"cost guard {record['cost_guard']})")
     return PASS, out, record
 
@@ -907,18 +1061,97 @@ def blank_stage(sid: str) -> dict[str, Any]:
 # S1 — script ready
 # --------------------------------------------------------------------------- #
 def fp_s1(ctx: Ctx) -> str:
-    return sha256_text(json.dumps(
-        {name: sha256_file(path) for name, path in ctx.p.layers().items()}, sort_keys=True))
+    def digest(path: Path | str | None) -> str | None:
+        if not path:
+            return None
+        candidate = Path(path)
+        return sha256_file(candidate) if candidate.is_file() else None
+
+    payload: dict[str, Any] = {
+        "layers": {
+            name: digest(path) for name, path in ctx.p.layers().items()
+        },
+        "policy_profile": _policy.selected(),
+        "project_lexicon": digest(ctx.p.scope.get("lexicon")),
+    }
+    # CURRENT_PORTABLE S1 is also a provenance gate.  Include every private
+    # authority behind ACTIVE_WRITER_HANDOFF in the fingerprint so a prior PASS
+    # cannot be skipped after a receipt, source, rule, lexicon or seal drifts.
+    if _policy.selected() == _policy.CURRENT:
+        active_path = ctx.p.writer_manifest.parent / "ACTIVE_WRITER_HANDOFF.json"
+        payload["active_handoff"] = digest(active_path)
+        active = read_json(active_path, {}) or {}
+        dependencies: dict[str, Any] = {}
+        for key in ("input_bundle", "writer_receipt", "four_layer_seal", "project_lexicon"):
+            row = active.get(key) or {}
+            dependencies[key] = digest(row.get("path"))
+        input_bundle = read_json(
+            Path(str((active.get("input_bundle") or {}).get("path") or "")), {}
+        ) or {}
+        dependencies["source_receipts"] = {
+            str(row.get("receipt_path") or ""): digest(row.get("receipt_path"))
+            for row in (input_bundle.get("source_receipts") or [])
+            if isinstance(row, dict)
+        }
+        dependencies["source_artifacts"] = {
+            str(artifact.get("path") or ""): digest(artifact.get("path"))
+            for row in (input_bundle.get("source_receipts") or [])
+            if isinstance(row, dict)
+            for artifact in (row.get("artifacts") or [])
+            if isinstance(artifact, dict)
+        }
+        writer_receipt = read_json(
+            Path(str((active.get("writer_receipt") or {}).get("path") or "")), {}
+        ) or {}
+        dependencies["writer_rules"] = {
+            str(row.get("path") or ""): digest(row.get("path"))
+            for row in ((writer_receipt.get("writer_rules") or {}).get("files") or [])
+            if isinstance(row, dict)
+        }
+        payload["writer_handoff_dependencies"] = dependencies
+    return sha256_text(json.dumps(payload, sort_keys=True))
 
 
 def stage_s1(ctx: Ctx) -> StageResult:
     p = ctx.p
     missing = [str(path) for path in p.layers().values() if not path.is_file()]
-    layer_shas = {name: sha256_file(path) for name, path in p.layers().items()}
     if missing:
-        res = StageResult(BLOCKED, missing_layers=missing, layer_sha256=layer_shas)
+        res = StageResult(BLOCKED, missing_layers=missing, layer_sha256={})
         res.blockers = [f"SCRIPT_LAYER_MISSING:{path}" for path in missing]
         return res
+    layer_shas = {name: sha256_file(path) for name, path in p.layers().items()}
+
+    writer_handoff_report = p.logs / f"{ctx.run_id}_writer_handoff_verification.json"
+    if _policy.selected() == _policy.CURRENT:
+        writer_handoff = ctx.run(
+            [
+                VENV, ENGINE / "tools/storyclaw_writer_workflow.py", "verify",
+                "--project-root", RUNTIME,
+                "--episode", ctx.episode,
+                "--narrative", p.narrative,
+                "--directing", p.directing,
+                "--contract", p.contract,
+                "--manifest", p.writer_manifest,
+                "--out", writer_handoff_report,
+            ],
+            name="s1_canonical_writer_handoff",
+        )
+        writer_handoff_verdict = read_json(writer_handoff_report, {}) or {}
+        writer_handoff_ok = (
+            writer_handoff["exit_code"] == 0
+            and writer_handoff_verdict.get("status") == PASS
+        )
+    else:
+        writer_handoff = {
+            "exit_code": 0,
+            "log": None,
+            "stdout_tail": "LEGACY_REPLAY_PROFILE",
+        }
+        writer_handoff_verdict = {
+            "status": "NOT_APPLICABLE_LEGACY_REPLAY",
+            "failures": [],
+        }
+        writer_handoff_ok = True
 
     gate10 = ctx.run(
         [VENV, p.gate10, p.writer_manifest, "--warn-is-fail",
@@ -964,16 +1197,21 @@ def stage_s1(ctx: Ctx) -> StageResult:
         name="s1_continuity_state_contract_gate")
     structure_ok = structure_gate["exit_code"] == 0
     continuity_ok = continuity_gate["exit_code"] == 0
-    scope_check = project_scope_check(ctx)
+    scope_check = project_scope_check(ctx, require_preproduction_map=False)
     scope_ok = scope_check["status"] == PASS
-    # SUPERVISOR_ORDERS seq=29 (Roger 2026-09-18, rules 5–8): writer-layer self-check.  No gate_id; it
-    # refuses S2 only when the contract itself declares writer_selfcheck_seq29.enforced (E06+).
+    # Writer-layer self-check. Historical replay keeps the contract-authored
+    # enforcement bit. Every current portable project requires the declaration
+    # and a real PASS, including its first episode; a reused E01 number cannot
+    # inherit the legacy report-only window.
     selfcheck_out = p.logs / f"{ctx.run_id}_writer_selfcheck_seq29.json"
-    selfcheck_step = ctx.run([VENV, RT_TOOLS / "nalu_writer_selfcheck_seq29.py", "--contract", p.contract, "--out", selfcheck_out],
+    selfcheck_step = ctx.run([VENV, RT_TOOLS / "nalu_writer_selfcheck_seq29.py", "--contract", p.contract,
+                              "--lexicon", lexicon, "--out", selfcheck_out],
                              name="s1_writer_selfcheck_seq29")
     selfcheck = read_json(selfcheck_out, {}) or {}
-    selfcheck_ok = not (selfcheck.get("enforced") and selfcheck.get("status") == "FAIL")
-    status = PASS if (gate10_ok and entity_ok and static_ok and structure_ok and continuity_ok and scope_ok and selfcheck_ok) else BLOCKED
+    selfcheck_ok = writer_selfcheck_admitted(
+        selfcheck, int(selfcheck_step["exit_code"])
+    )
+    status = PASS if (writer_handoff_ok and gate10_ok and entity_ok and static_ok and structure_ok and continuity_ok and scope_ok and selfcheck_ok) else BLOCKED
     res = StageResult(
         status,
         layer_sha256=layer_shas,
@@ -987,6 +1225,17 @@ def stage_s1(ctx: Ctx) -> StageResult:
              "below ACTIVE_FROM_EPISODE=54, but this pipeline treats it as blocking "
              "anyway — a role-semantics defect is a real data defect.")
     res.details = getattr(res, "details", {}) or {}
+    res.details["canonical_writer_handoff"] = {
+        "status": writer_handoff_verdict.get("status"),
+        "failures": (writer_handoff_verdict.get("failures") or [])[:12],
+        "report": str(writer_handoff_report),
+        "exit_code": writer_handoff["exit_code"],
+    }
+    if not writer_handoff_ok:
+        res.blockers = list(getattr(res, "blockers", []) or []) + [
+            f"CANONICAL_WRITER_HANDOFF_FAIL:{code}"
+            for code in (writer_handoff_verdict.get("failures") or ["VERIFY_FAILED"])[:8]
+        ]
     res.details["project_scope_check"] = scope_check
     res.details["writer_selfcheck_seq29"] = {"status": selfcheck.get("status"), "enforced": selfcheck.get("enforced"),
                                              "failures": (selfcheck.get("failures") or [])[:12], "failure_count": len(selfcheck.get("failures") or []),
@@ -1004,8 +1253,11 @@ def stage_s1(ctx: Ctx) -> StageResult:
         "exit_code": continuity_gate["exit_code"], "status": PASS if continuity_ok else "FAIL",
         "report": str(p.logs / f"{ctx.run_id}_continuity_state_contract_gate.json"),
         "stdout_tail": continuity_gate.get("stdout_tail")}
-    res.steps = [gate10, contract_gate, static_gate, structure_gate, continuity_gate]
-    res.receipts = [gate10["log"], contract_gate["log"], static_gate["log"], structure_gate["log"], continuity_gate["log"]]
+    res.steps = [writer_handoff, gate10, contract_gate, static_gate, structure_gate, continuity_gate]
+    res.receipts = ([str(writer_handoff_report)] if _policy.selected() == _policy.CURRENT else []) + [
+        gate10["log"], contract_gate["log"], static_gate["log"],
+        structure_gate["log"], continuity_gate["log"],
+    ]
     if not structure_ok:
         res.blockers.append("SCRIPT_STRUCTURE_CONTRACT_FAIL:" + str(structure_gate.get("stdout_tail") or "")[-300:])
     if not continuity_ok:
@@ -1017,6 +1269,42 @@ def stage_s1(ctx: Ctx) -> StageResult:
     if not entity_ok:
         res.blockers.append("CHARACTER_ENTITY_CONTRACT_FAIL:"
                             + ",".join(str(f) for f in (entity_verdict.get("failures") or [])))
+    # Downstream asset confirmation must bind stable S1 evidence.  The main
+    # pipeline state is intentionally mutable as S2-S8 advance, so hashing that
+    # file would invalidate a valid confirmation on every later stage update.
+    # This dedicated receipt changes only when S1 is actually executed again.
+    s1_receipt = p.logs / "S1_GATE_RECEIPT.json"
+    write_json(s1_receipt, {
+        "schema": "nalu.s1_gate_receipt.v1",
+        "episode": ctx.episode,
+        "series_scope_id": str(p.scope["scope_id"]),
+        "stage": "S1",
+        "status": status,
+        "policy_profile": _policy.selected(),
+        "layer_sha256": layer_shas,
+        "writer_selfcheck_seq29": {
+            "status": selfcheck.get("status"),
+            "enforced": selfcheck.get("enforced"),
+            "exit_code": selfcheck_step["exit_code"],
+            "report": str(selfcheck_out),
+            "report_sha256": sha256_file(selfcheck_out),
+        },
+        "gates": {
+            "canonical_writer_handoff": PASS if writer_handoff_ok else "FAIL",
+            "gate10": PASS if gate10_ok else "FAIL",
+            "character_entity_contract": PASS if entity_ok else "FAIL",
+            "static_design_gate": PASS if static_ok else "FAIL",
+            "script_structure_contract_gate": PASS if structure_ok else "FAIL",
+            "continuity_state_contract_gate": PASS if continuity_ok else "FAIL",
+            "project_scope_check": PASS if scope_ok else "FAIL",
+        },
+    })
+    res.details["s1_gate_receipt"] = {
+        "path": str(s1_receipt),
+        "sha256": sha256_file(s1_receipt),
+        "status": status,
+    }
+    res.receipts.append(str(s1_receipt))
     return res
 
 
@@ -1115,6 +1403,33 @@ def stage_s2(ctx: Ctx, *, with_keyframes: bool = False, ready_units=None) -> Sta
     if status != PASS:
         res.blockers = [f"PREPRODUCTION_INNER_STAGE_NOT_PASS:{key}={value}"
                         for key, value in stages.items() if value != PASS] or ["PREPRODUCTION_FAILED"]
+    # Asset selection is derived from the free preproduction outputs.  Bind a
+    # dedicated receipt only on that first S2 pass; later S5 keyframe rebuilds
+    # must not mutate the evidence behind an already confirmed asset plan.
+    if not with_keyframes:
+        s2_receipt = p.logs / "S2_PREPRODUCTION_RECEIPT.json"
+        write_json(s2_receipt, {
+            "schema": "nalu.s2_preproduction_receipt.v1",
+            "episode": ctx.episode,
+            "series_scope_id": str(p.scope["scope_id"]),
+            "stage": "S2",
+            "status": status,
+            "policy_profile": _policy.selected(),
+            "generation_contract_sha256": sha256_file(p.contract),
+            "writer_manifest_sha256": sha256_file(p.writer_manifest),
+            "global_space_map_sha256": sha256_file(p.gsm),
+            "asset_requirements_sha256": sha256_file(p.asset_requirements),
+            "preproduction_report_sha256": sha256_file(p.preprod_report),
+            "video_unit_count": report.get("video_unit_count"),
+            "inner_stages": stages,
+            "keyframes_included": False,
+        })
+        res.details["s2_preproduction_receipt"] = {
+            "path": str(s2_receipt),
+            "sha256": sha256_file(s2_receipt),
+            "status": status,
+        }
+        res.receipts.append(str(s2_receipt))
     return res
 
 
@@ -1308,6 +1623,38 @@ def ar_build_argv(ctx: Ctx) -> list[Any]:
     return argv
 
 
+def initial_global_space_map_seed(ctx: Ctx) -> Path:
+    """Write a non-production empty seed for a brand-new series.
+
+    ``extend_global_space_map.py`` historically required E01's hand-authored
+    map as its base.  A portable installation has no earlier production, so
+    the first episode needs an empty construction seed.  This file is never
+    admitted as a map and carries no PASS verdict; the extender must still
+    author every location, render real assets, and pass the registered layout
+    gate before ``global_space_map.json`` exists.
+    """
+    scope_token = re.sub(r"[^A-Za-z0-9]+", "-", str(ctx.p.scope["series_id"])).strip("-") or "PROJECT"
+    seed = ctx.p.rt_pre_reports / "initial_global_space_map_seed.json"
+    payload = {
+        "schema": "qingshan.episode_global_space_map.v1",
+        "episode": "__PROJECT_BASE__",
+        "episode_global_space_map_id": f"EGSM-{scope_token}-BASE",
+        "map_version": 1,
+        "authority_ref": "EMPTY_CONSTRUCTION_SEED_NOT_A_PRODUCTION_AUTHORITY",
+        "status": "EMPTY_SEED_NOT_ADMITTED",
+        "inheritance": {"mode": "NEW_PROJECT_EMPTY_SEED"},
+        "map_image": {},
+        "space_maps": [],
+        "topology_sha256": sha256_text(
+            json.dumps([], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        ),
+    }
+    current = read_json(seed, {}) or {}
+    if current != payload:
+        write_json(seed, payload)
+    return seed
+
+
 def ensure_episode_inputs(ctx: Ctx) -> dict[str, Any]:
     """D-10 — make sure this episode has its own GSM, asset requirements and prompts.
 
@@ -1366,8 +1713,12 @@ def ensure_episode_inputs(ctx: Ctx) -> dict[str, Any]:
     if not have_gsm:
         base = (p.gsm_prev if (p.gsm_prev is not None and p.gsm_prev.is_file())
                 else p.gsm_e01)
+        if not base.is_file() and ctx.episode == "E01":
+            base = initial_global_space_map_seed(ctx)
+            detail["base_gsm_source"] = "NEW_PROJECT_EMPTY_SEED"
+        else:
+            detail["base_gsm_source"] = ("PREVIOUS_EPISODE" if base == p.gsm_prev else "E01")
         detail["base_gsm"] = str(base)
-        detail["base_gsm_source"] = ("PREVIOUS_EPISODE" if base == p.gsm_prev else "E01")
         if not base.is_file():
             detail["status"] = BLOCKED
             detail["blockers"] = [f"GLOBAL_SPACE_MAP_BASE_MISSING:{base}"]
@@ -1434,8 +1785,11 @@ def ensure_episode_inputs(ctx: Ctx) -> dict[str, Any]:
 
         # ------------------------------- 3. GSM again, with authored elements
         if not have_gsm:
-            base = (p.gsm_prev if (p.gsm_prev is not None and p.gsm_prev.is_file())
-                    else p.gsm_e01)
+            if detail.get("base_gsm_source") == "NEW_PROJECT_EMPTY_SEED":
+                base = Path(detail["base_gsm"])
+            else:
+                base = (p.gsm_prev if (p.gsm_prev is not None and p.gsm_prev.is_file())
+                        else p.gsm_e01)
             step = ctx.run(gsm_extend_argv(ctx, with_requirements=True, base=base),
                            name="d10_extend_global_space_map_with_requirements")
             detail["steps"].append(step)
@@ -1531,7 +1885,7 @@ def stage_s3(ctx: Ctx) -> StageResult:
     Every character card is ``card_deliverables`` views (E01: 3), and the
     keyframe identity gate needs ``canonical_views_min`` (3) locked views per
     character.  bootstrap_identity_cards.py plans the BASE full-body view first
-    (text-to-image, or image-to-image on Roger's source photo for a
+    (text-to-image, or image-to-image on the line-owner-supplied source photo for a
     source-matched character) and DEFERS the other views until the base plate is
     harvested, because they are image-to-image on that very plate.  So:
 
@@ -1622,7 +1976,10 @@ def stage_s3(ctx: Ctx) -> StageResult:
             sub = dict(plan)
             sub["new_asset_groups"] = [row for row in rows if row["id"] in subset]
             sub["deferred_view_rows"] = deferred
-            sub["subject_subset"] = {"ids": subset, "authority": "SUPERVISOR_ORDERS seq=7 condition 5 STYLE_SAMPLE_BEFORE_BATCH"}
+            sub["subject_subset"] = {
+                "ids": subset,
+                "authority": "CLI_S3_SUBJECTS_EXPLICIT_OPERATOR_SELECTION",
+            }
             subset_plan = p.identity / "character_asset_plan_SUBSET.json"
             subset_plan.write_text(json.dumps(sub, ensure_ascii=False, indent=2), encoding="utf-8")
         round_rec: dict[str, Any] = {
@@ -1704,9 +2061,10 @@ def stage_s3(ctx: Ctx) -> StageResult:
                 paid_argv, name=f"s3_submit_giggle_character_asset_plan_r{round_no}", sid="S3",
                 planned_credits=planned, dry_argv=dry_argv,
                 note=(f"round {round_no}. Submitted file is the D-11 materialised copy "
-                      f"{auth_plan.name} (authorization_ref = SUPERVISOR_ORDERS seq={PAID_ORDER_SEQ} "
+                      f"{auth_plan.name} (authorization_ref = private SUPERVISOR_ORDERS "
+                      f"seq={ctx.authority.get('paid_order_seq')} "
                       "order id, provider_post_allowed true).  Rows with reference_images go to "
-                      "/api/v1/generation/image-to-image (own base plate or Roger's source photo), "
+                      "/api/v1/generation/image-to-image (own base plate or line-owner-supplied source photo), "
                       "rows without go to text-to-image.  Durable transaction store: "
                       f"{ENGINE}/workflow/tasks/giggle_submit_transactions/{ctx.episode}/ — "
                       "re-running never re-charges an already-fingerprinted row."))
@@ -1805,6 +2163,7 @@ def stage_s4(ctx: Ctx) -> StageResult:
              "--task-payloads-out", p.speech_payloads,
              "--report", p.voice_report,
              "--voice-catalog", ctx.p.scope["voice_catalog"],
+             "--audio-output-root", p.voice / "references",
              "--dry-run"],
             name="s4_bootstrap_voice_references")
         if boot["exit_code"] != 0 or not p.speech_payloads.is_file():
@@ -1854,32 +2213,52 @@ def stage_s4(ctx: Ctx) -> StageResult:
         # charge the guard for every voice still outstanding, not just this one,
         # so the cap is tested against the whole remaining stage
         remaining_credits = 2 * (len(todo) - offset)
-        argv = [str(AGENTCUT if item == "${AGENTCUT}" else item) for item in task["agentcut_argv"]]
         wav = Path(task["post_generation_normalization"]["target_wav"])
         mp3 = Path(task["request"]["output_mp3"])
-        norm_argv = [FFMPEG if item == "${FFMPEG}" else str(item)
+        voice_id = str(task["request"].get("voice_id") or "").strip()
+        if not voice_id:
+            res.status = BLOCKED
+            res.blockers.append(f"VOICE_ID_NOT_SELECTED:{entity}")
+            return res
+        safe_entity = re.sub(r"[^A-Za-z0-9._-]+", "_", str(entity)).strip("._")[:48]
+        safe_entity = safe_entity or sha256_text(str(entity))[:16]
+        scope_id = str(p.scope["scope_id"])
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", scope_id):
+            res.status = BLOCKED
+            res.blockers.append(f"SERIES_SCOPE_ID_UNSAFE_FOR_TRANSACTION_PATH:{scope_id}")
+            return res
+        audio_transaction = (
+            AUDIO_TRANSACTION_ROOT / scope_id / ctx.episode
+            / "speech" / f"{safe_entity}.json"
+        ).resolve()
+        argv = [
+            VENV, PORTABLE_AUDIO_PROVIDER, "speech-generate",
+            str(task["request"]["text"]),
+            "--voice-id", voice_id,
+            "--emotion", str(task["request"]["emotion"]),
+            "--speed", str(task["request"]["speed"]),
+            "--output-dir", mp3.parent,
+            "--file-name", mp3.name,
+            "--poll-interval", "2",
+            "--timeout", "300",
+            "--transaction", audio_transaction,
+            "--paid",
+        ]
+        norm_argv = [_media.require_ffmpeg() if item == "${FFMPEG}" else str(item)
                      for item in task["post_generation_normalization"]["command"]]
         upload_out = p.voice_upload_dir / f"{entity}_giggle_asset.json"
         # tools/upload_giggle_asset.py: --file / --out / --public  (verified from --help)
         upload_argv = [VENV, ENGINE / "tools/upload_giggle_asset.py",
                        "--file", wav, "--out", upload_out, "--public"]
 
-        if mp3.is_file() and ctx.paid_enabled:
-            # AgentCut refuses to overwrite an existing output ("speech output exists (use
-            # overwrite)"), and the audio was already paid for.  Observed 2026-09-12 E01 qinming:
-            # the upload-parsing bug left no registry row, so the rerun re-invoked
-            # speech-generate and BLOCKED.  Reuse the file on disk; no charge, nothing invented.
-            ctx.say(f"   speech output already on disk, generation skipped (no charge): {mp3}")
-            status, step = PASS, {"name": f"s4_speech_generate_{entity}", "exit_code": 0,
-                                  "skipped": "SPEECH_OUTPUT_ALREADY_PRESENT", "path": str(mp3)}
-        else:
-            status, step = ctx.paid_step(
-                argv, name=f"s4_speech_generate_{entity}", sid="S4",
-                planned_credits=remaining_credits,
-                note=(f"AgentCut AGENTCUT-SPEECH-001 / MinMax Speech-2.8-HD, 2 credits. "
-                      f"voice_id={task['request']['voice_id']} "
-                      f"({task['request'].get('voice_name')}).  Idempotent by output file: "
-                      f"skipped when {wav} already exists with a registry row."))
+        status, step = ctx.paid_step(
+            argv, name=f"s4_speech_generate_{entity}", sid="S4",
+            planned_credits=remaining_credits,
+            note=(f"Portable Giggle speech provider, 2 credits. "
+                  f"voice_id={voice_id} ({task['request'].get('voice_name')}).  "
+                  f"Durable transaction={audio_transaction}; the provider records intent "
+                  "before its only POST, binds task_id immediately, and resumes without "
+                  "reposting."))
         res.steps.append(step)
         if status == HARD_STOP:
             res.status = HARD_STOP
@@ -1939,7 +2318,7 @@ def stage_s4(ctx: Ctx) -> StageResult:
         name="s4_build_voice_cast")
     res.steps.append(voice_cast_step)
     res.receipts.append(str(p.voice / "voice_cast_gate.json"))
-    res.details["voice_cast"] = {"table": str(RT / "voice_cast.json"), "report": str(p.voice / "voice_cast_gate.json"),
+    res.details["voice_cast"] = {"table": str(ctx.p.scope["voice_cast"]), "report": str(p.voice / "voice_cast_gate.json"),
                                  "exit_code": voice_cast_step["exit_code"],
                                  "stdout_tail": voice_cast_step.get("stdout_tail")}
     if voice_cast_step["exit_code"] == 3:
@@ -2039,6 +2418,12 @@ def write_voice_registry_row(ctx: Ctx, entity: str, task: dict[str, Any],
         "recorded_by": TOOL_ID,
         "episode_first_locked": ctx.episode,
         "credits_charged": 2,
+        "paid_authorization": {
+            "order_id": (ctx.paid_order or {}).get("id"),
+            "order_seq": (ctx.paid_order or {}).get("seq"),
+            "orders_file_sha256": (ctx.paid_order or {}).get("orders_file_sha256"),
+            "source_receipt": (ctx.paid_order or {}).get("source_receipt"),
+        },
     })
     registry["updated_at_utc"] = now()
     write_json(ctx.p.scope["voice_registry"], registry)
@@ -2214,8 +2599,7 @@ def s3_qa(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str, Any]:
 
     # identity_qa_lock.py writes qa.status from the review + the real cosine.
     # rights.status can only reach PASS with a NAMED basis, and a rights basis is
-    # a legal declaration by the line owner — never a reviewer observation.  This
-    # is Roger's own declaration of 2026-09-09 (SUPERVISOR_ORDERS seq=3 c3/c7).
+    # a legal declaration by the configured line owner — never a reviewer observation.
     lock_argv = [IDENTITY_QA_LOCK, "lock", "--episode", ctx.episode,
                  "--review", review_path,
                  "--rights-basis", ctx.rights_basis]
@@ -2254,6 +2638,7 @@ def s3_qa(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str, Any]:
              "--task-payloads-out", p.speech_payloads,
              "--report", p.voice_report,
              "--voice-catalog", ctx.p.scope["voice_catalog"],
+             "--audio-output-root", p.voice / "references",
              "--dry-run"],
             name="s3_qa_prepare_speech_payloads")
         res.steps.append(prep)
@@ -2264,23 +2649,8 @@ def s3_qa(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str, Any]:
                             name="s3_qa_non_plate_library_lock")
     res.steps.append(non_plate_step)
     detail["non_plate_lock"] = qa_json(non_plate_step)
-    # Re-apply the dedicated E59 reuse authority after bootstrap/non-plate
-    # writers have materialised their fresh requirement-shaped library.  This
-    # is evidence migration only: it creates no media and makes no POST.
-    repair_tool = ENGINE / "tools/repair_e59_identity_library_after_bootstrap.py"
-    if repair_tool.is_file():
-        repair_step = qa_run(ctx, [repair_tool], name="s3_qa_restore_locked_e59_evidence")
-        res.steps.append(repair_step)
-        detail["locked_evidence_repair"] = qa_json(repair_step)
-        repaired = qa_json(repair_step)
-        if repaired.get("status") == PASS:
-            detail["status"] = PASS
-            detail["blockers"] = [b for b in detail.get("blockers", [])
-                                   if b != "S3_IDENTITY_QA_FAILED"]
-    # D-35: identity_qa_lock `lock` builds the D-1 character registry BEFORE library_lock_non_plate copies the
-    # cross-episode REUSED character rows in, so a reused lead (秦铭 in E03) was missing from the registry and every
-    # face-visible keyframe failed CHARACTER-IDENTITY-ADMISSION with NO_EMBEDDING_SAMPLE_FOR_DECLARED_CHARACTER.
-    # Rebuild the registry from the completed library.
+    # Rebuild after the non-plate lock so reused characters from a previous
+    # episode in the same private series scope remain resolvable.
     registry_step = qa_run(ctx, [IDENTITY_QA_LOCK, "registry", "--episode", ctx.episode],
                            name="s3_qa_character_registry_rebuild")
     res.steps.append(registry_step)
@@ -2620,16 +2990,18 @@ def apply_keyframe_renames(ctx: Ctx, manifest: dict[str, Any]) -> dict[str, Any]
             "moved": moved, "missing": missing}
 
 
-def apply_roger_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: Path) -> dict[str, Any]:
-    """Order-keyed acceptance of CHARACTER-IDENTITY-ADMISSION failures at S5 Q1 (SUPERVISOR_ORDERS seq=31,
-    Roger option C, 2026-09-18).  Mirrors the S7 final-cut mechanism (roger_gate_acceptance.py): the engine
-    gate result keeps its FAIL row and evidence; a unit is admitted only when an active Roger order of kind
+def apply_line_owner_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: Path) -> dict[str, Any]:
+    """Order-keyed acceptance of CHARACTER-IDENTITY-ADMISSION failures at S5 Q1.
+
+    The engine gate result keeps its FAIL row and evidence; a unit is admitted only when an active line-owner order of kind
     GATE_FAIL_ACCEPTANCE for this episode and gate names EVERY failing "<item_id>:<character_id>" detector of
-    that keyframe and (when the order binds media) the keyframe sha256 matches.  Never self-issued; anything
+    that keyframe and the order's item binding exactly matches the current keyframe sha256. Never self-issued; anything
     outside the order (another gate failing, another sha, another episode) stays rejected."""
-    import roger_gate_acceptance as _rga
-    orders_path = Path(f"{_np.ENGINE_ROOT}/workflow/claude_writer_agent/SUPERVISOR_ORDERS.json")
-    orders = _rga._orders(orders_path)
+    orders_path = ctx.authority.get("orders_path")
+    orders = (_rga._orders(orders_path,
+                           expected_latest_seq=ctx.authority.get("latest_order_seq") or 0,
+                           engine_root=ENGINE)
+              if orders_path and not ctx.authority_blockers else [])
     gate_id = "CHARACTER-IDENTITY-ADMISSION"
     ident = read_json(Path(str((index.get("identity_measurement") or {}).get("engine_report") or "")), {}) or {}
     decisions = ((ident.get("objective_verification") or {}).get("decisions")) or []
@@ -2663,22 +3035,25 @@ def apply_roger_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: Path)
                         texts.append(str(evd.get("finding") or ""))
             detectors = sorted({f"{item_id}:{m}" for f in texts
                                 for m in re.findall(r"NO_EMBEDDING_SAMPLE_FOR_DECLARED_CHARACTER:(CHAR-[A-Z0-9-]+)", f)})
-        order = _rga.find_acceptance(orders, episode=ctx.episode, gate_id=gate_id, failing=detectors,
-                                     media_sha256=None) if detectors else None
-        by_item = ((order or {}).get("decision") or {}).get("media_sha256_by_item") or {}
-        if order is None or (by_item and str(by_item.get(item_id) or "") != str(row.get("asset_sha256") or "")):
+        order = _rga.find_acceptance(
+            orders, episode=ctx.episode, gate_id=gate_id, failing=detectors,
+            media_sha256=str(row.get("asset_sha256") or ""), media_item_id=item_id,
+            expected_issuer=ctx.authority.get("line_owner_id") or "", engine_root=ENGINE,
+        ) if detectors else None
+        if order is None:
             still_rejected.append(uid)
             continue
         cos = {f"{item_id}:{d.get('character_id')}": d.get("aggregate_median") for d in decisions
                if str(d.get("source_id") or "").endswith(f":{item_id}")}
         record = _rga.acceptance_record(order, episode=ctx.episode, gate_id=gate_id, failing=detectors,
                                         media_sha256=str(row.get("asset_sha256") or ""),
+                                        media_item_id=item_id,
                                         gate_result_path=str(row.get("admission_result") or ""))
         record.update({"item_id": item_id, "unit_id": uid, "cosines": cos, "engine_status": row.get("status"),
                        "engine_failures": failures})
         row.update({"engine_status": row.get("status"), "engine_failures": failures,
                     "status": "ADMITTED_BY_LINE_OWNER_ORDER", "downstream_status": "ADMITTED_FOR_VIDEO_SUBMIT",
-                    "failures": [], "roger_acceptance": record})
+                    "failures": [], "line_owner_acceptance": record})
         ar_path = Path(str(row.get("admission_result") or ""))
         if ar_path.is_file():
             engine_copy = ar_path.with_suffix(".engine.json")
@@ -2688,7 +3063,7 @@ def apply_roger_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: Path)
             ar.update({"engine_status": ar.get("status"), "engine_downstream_status": ar.get("downstream_status"),
                        "engine_failures": list(ar.get("failures") or []), "engine_result_copy": str(engine_copy),
                        "status": "ADMITTED_BY_LINE_OWNER_ORDER", "downstream_status": "ADMITTED_FOR_VIDEO_SUBMIT",
-                       "failures": [], "roger_acceptance": record})
+                       "failures": [], "line_owner_acceptance": record})
             write_json(ar_path, ar)
         if uid not in allowed:
             allowed.append(uid)
@@ -2703,15 +3078,19 @@ def apply_roger_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: Path)
         index["engine_status"] = index.get("engine_status") or index.get("status")
         index["status"] = ("ALL_ADMITTED" if not still_rejected
                            else f"PARTIAL_{len(allowed)}_OF_{index.get('unit_count')}_ADMITTED")
-        index["status_basis"] = "ENGINE_ADMITTED+LINE_OWNER_ORDER_ACCEPTANCE (roger_gate_acceptance, never self-issued)"
-        index["roger_gate_acceptance"] = accepted
+        index["status_basis"] = "ENGINE_ADMITTED+LINE_OWNER_ORDER_ACCEPTANCE (source-receipted, never self-issued)"
+        index["line_owner_gate_acceptance"] = accepted
         write_json(index_path, index)
-        write_json(ctx.p.preprod_reports / "qa" / "q1" / f"{ctx.episode}_ROGER_GATE_ACCEPTANCE.json", {
-            "schema": "nalu.q1_roger_gate_acceptance.v1", "episode": ctx.episode, "gate_id": gate_id,
+        write_json(ctx.p.preprod_reports / "qa" / "q1" / f"{ctx.episode}_LINE_OWNER_GATE_ACCEPTANCE.json", {
+            "schema": "nalu.q1_line_owner_gate_acceptance.v2", "episode": ctx.episode, "gate_id": gate_id,
             "recorded_at": now(), "recorded_by": TOOL_ID, "orders_path": str(orders_path),
             "accepted": accepted, "still_rejected_unit_ids": still_rejected})
     return {"accepted_unit_ids": [r["unit_id"] for r in accepted], "still_rejected_unit_ids": still_rejected,
             "effective_status": index.get("status")}
+
+
+# Historical API alias for old runtime callers. New receipts and state keys are neutral.
+apply_roger_q1_acceptance = apply_line_owner_q1_acceptance
 
 
 def s5_q1(ctx: Ctx, res: StageResult) -> dict[str, Any]:
@@ -2773,7 +3152,7 @@ def s5_q1(ctx: Ctx, res: StageResult) -> dict[str, Any]:
     verdict = qa_json(build_step)
     index_path = Path(verdict.get("out") or "")
     index = read_json(index_path, {}) or {}
-    acceptance = apply_roger_q1_acceptance(ctx, index, index_path) if index else {}
+    acceptance = apply_line_owner_q1_acceptance(ctx, index, index_path) if index else {}
     effective = index.get("status") or verdict.get("status")
     detail.update({
         "review_file": str(review_path),
@@ -2783,7 +3162,7 @@ def s5_q1(ctx: Ctx, res: StageResult) -> dict[str, Any]:
         "q1_index": verdict.get("out"),
         "q1_status": verdict.get("status"),
         "q1_effective_status": effective,
-        "roger_gate_acceptance": acceptance,
+        "line_owner_gate_acceptance": acceptance,
         "admitted": index.get("admitted_count", verdict.get("admitted")),
         "units": verdict.get("units"),
         "admitted_unit_ids": index.get("video_submission_allowed_unit_ids"),
@@ -2880,6 +3259,102 @@ def s5_sfe(ctx: Ctx, res: StageResult) -> dict[str, Any]:
 #: build_nalu_preproduction.py's own stage-5/5b invocations already use the
 #: engine root, and this now matches them.
 VIDEO_PROJECT_ROOT = ENGINE
+SELECTIVE_BGM = RT_TOOLS / "nalu_selective_bgm.py"
+
+
+def selective_bgm_transaction_dir(ctx: Ctx) -> Path:
+    """Current projects isolate same-numbered episodes by series scope.
+
+    Historical replay keeps its original ``<store>/<episode>`` location; only
+    the current portable policy uses ``<store>/<scope>/<episode>``.
+    """
+    scope_id = str(ctx.p.scope["scope_id"])
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", scope_id):
+        raise RuntimeError(f"SERIES_SCOPE_ID_UNSAFE_FOR_TRANSACTION_PATH:{scope_id}")
+    base = ENGINE / "workflow/tasks/giggle_bgm_transactions"
+    path = (base / scope_id / ctx.episode) if _policy.is_current() else (base / ctx.episode)
+    return path.resolve()
+
+
+def selective_bgm_common_argv(ctx: Ctx) -> list[Any]:
+    """Bind BGM receipts to this run's exact private layer and episode work paths."""
+    return ["--episode", ctx.episode, "--contract", ctx.p.contract,
+            "--assembly", ctx.p.assembly, "--grouping", ctx.p.grouping_plan,
+            "--project", ctx.p.agentcut_project,
+            "--bgm-transactions-dir", selective_bgm_transaction_dir(ctx)]
+
+
+def s6_selective_bgm_sources(ctx: Ctx, res: StageResult) -> dict[str, Any]:
+    """Create and (when paid) generate selective-BGM sources inside S6.
+
+    The source plan reads only the generation contract.  It does not need the
+    rendered S7 release timeline.  Consequently this is the sole provider-POST
+    route for BGM; S7 can only verify, place, reconcile, QA, and mix the already
+    completed durable transactions.
+    """
+    contract = read_json(ctx.p.contract, {}) or {}
+    bgm = (contract.get("audio_contract") or {}).get("bgm")
+    mode = str((bgm or {}).get("mode") or (bgm or {}).get("usage_mode") or "").upper() \
+        if isinstance(bgm, dict) else ""
+    if mode not in {"SELECTIVE", "SELECTIVE_NARRATIVE_CUES"}:
+        return {"status": "NOT_APPLICABLE", "mode": mode or "UNDECLARED", "provider_posts": 0}
+
+    common = selective_bgm_common_argv(ctx)
+    source = ctx.run([VENV, SELECTIVE_BGM, "source-plan", *common], name="s6_bgm_source_plan")
+    res.steps.append(source)
+    if source["exit_code"] != 0:
+        return {"status": BLOCKED, "blocker": "SELECTIVE_BGM_SOURCE_PLAN_FAILED",
+                "provider_posts": 0, "source_plan_step": source}
+
+    pending_step = ctx.run([VENV, SELECTIVE_BGM, "pending", *common], name="s6_bgm_pending")
+    res.steps.append(pending_step)
+    pending = qa_json(pending_step) if pending_step["exit_code"] == 0 else {}
+    if pending_step["exit_code"] != 0 or pending.get("status") != PASS:
+        return {"status": BLOCKED, "blocker": "SELECTIVE_BGM_PENDING_CHECK_FAILED",
+                "provider_posts": 0, "pending_step": pending_step}
+    planned = int(pending.get("planned_credits") or 0)
+    keys = list(pending.get("pending") or [])
+    new_post_candidates = list(pending.get("new_post_candidates") or [])
+
+    if not keys:
+        verify = ctx.run([VENV, SELECTIVE_BGM, "verify", *common], name="s6_bgm_verify_existing")
+        res.steps.append(verify)
+        return {"status": PASS if verify["exit_code"] == 0 else BLOCKED,
+                "blocker": None if verify["exit_code"] == 0 else "SELECTIVE_BGM_TRANSACTION_VERIFY_FAILED",
+                "source_plan": qa_json(source), "pending": pending,
+                "provider_posts": 0, "verify": qa_json(verify)}
+
+    paid_argv = [VENV, SELECTIVE_BGM, "generate", *common, "--paid"]
+    dry_argv = [VENV, SELECTIVE_BGM, "generate", *common]
+    status, generation = ctx.paid_step(
+        paid_argv, name="s6_bgm_generate", sid="S6", planned_credits=planned,
+        dry_argv=dry_argv, extra_env={"NALU_PAID_CONFIG_LOCK": "1"},
+        note=("Selective BGM is generated in S6 from a contract-only source plan.  "
+              "tools/storyclaw_audio_provider.py requires an absolute per-source transaction path, "
+              "flock, intent-before-POST, immediate task binding, and refuses automatic retry after "
+              "a lost response.  S7 has no generate command and performs zero provider POSTs."))
+    res.steps.append(generation)
+    res.planned_credits += planned
+    if status in {HARD_STOP, BLOCKED}:
+        return {"status": status, "blocker": ("BUDGET_HARD_STOP_S6_BGM" if status == HARD_STOP
+                                                else "SELECTIVE_BGM_GENERATION_FAILED"),
+                "pending": pending, "planned_credits": planned,
+                "provider_posts": (0 if status == HARD_STOP else None),
+                "provider_post_evidence": "SEE_DURABLE_TRANSACTIONS"}
+    if status == DRY:
+        return {"status": DRY, "pending": pending, "planned_credits": planned,
+                "provider_posts": 0, "precheck": generation.get("precheck")}
+
+    verify = ctx.run([VENV, SELECTIVE_BGM, "verify", *common], name="s6_bgm_verify_generated")
+    res.steps.append(verify)
+    if verify["exit_code"] != 0:
+        return {"status": BLOCKED, "blocker": "SELECTIVE_BGM_TRANSACTION_VERIFY_FAILED",
+                "pending": pending, "planned_credits": planned,
+                "provider_posts": len(keys), "verify": qa_json(verify)}
+    return {"status": PASS, "pending_before": keys, "planned_credits": planned,
+            "provider_posts": len(new_post_candidates),
+            "resumed_without_post": list(pending.get("resume_without_post") or []),
+            "verify": qa_json(verify)}
 
 
 def video_submit_argv(ctx: Ctx, *, manifest: Path, concurrency: int) -> list[Any]:
@@ -2937,7 +3412,7 @@ def extract_real_final_frame(ctx: Ctx, unit_id: str) -> dict[str, Any]:
     if dst.is_file():
         return {"unit_id": unit_id, "status": "ALREADY_PRESENT", "path": str(dst), "sha256": sha256_file(dst)}
     for off in ("-0.10", "-0.20", "-0.50"):
-        proc = subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-sseof", off,
+        proc = subprocess.run([_media.require_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-sseof", off,
                                "-i", str(src), "-frames:v", "1", "-q:v", "2", str(dst)], check=False)
         if proc.returncode == 0 and dst.is_file() and dst.stat().st_size > 0:
             return {"unit_id": unit_id, "status": "EXTRACTED", "path": str(dst), "sha256": sha256_file(dst),
@@ -3446,7 +3921,7 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
                   "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION and MUST NOT be blindly resent. "
                   "qingshan video-preflight is literally this tool with --precheck-only."))
         res.steps.append(submit)
-        res.planned_credits = planned
+        res.planned_credits += planned
         if status == HARD_STOP:
             res.status = HARD_STOP
             res.blockers.append("BUDGET_HARD_STOP_S6")
@@ -3547,6 +4022,20 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
         if q2["status"] != PASS:
             res.status = q2["status"]
             res.blockers.extend(q2.get("blockers") or [])
+            return res
+
+        # 6.7 selective BGM source generation.  Keep this after every video
+        # submit, QA, and Q2 gate: the BGM charge is reconciled read-only in S7,
+        # so no later paid budget check may run while that completed transaction
+        # is still awaiting its statement evidence.
+        bgm_sources = s6_selective_bgm_sources(ctx, res)
+        res.details["selective_bgm_sources"] = bgm_sources
+        if bgm_sources.get("status") in {BLOCKED, HARD_STOP}:
+            res.status = str(bgm_sources["status"])
+            res.blockers.append(str(bgm_sources.get("blocker") or "SELECTIVE_BGM_S6_FAILED"))
+        elif bgm_sources.get("status") == DRY:
+            res.status = DRY
+            res.blockers.append("SELECTIVE_BGM_GENERATION_NEEDS_PAID")
     return res
 
 
@@ -3845,7 +4334,7 @@ def _write_release_timeline(ctx: "Ctx", p: "Paths", picture: Path, outro_seconds
     for track in ((project.get("timeline") or {}).get("videoTracks") or []):
         clips.extend(track.get("clips") or [])
     clips.sort(key=lambda c: float(c.get("start") or 0))
-    probe = subprocess.run(["/opt/homebrew/bin/ffprobe", "-v", "error", "-show_entries", "format=duration",
+    probe = subprocess.run([_media.require_ffprobe(), "-v", "error", "-show_entries", "format=duration",
                             "-of", "csv=p=0", str(picture)], capture_output=True, text=True, check=False)
     release_runtime = round(float(probe.stdout.strip() or 0), 6)
     # outro window = the appended end card; without one, the last 0.5 s of the last unit
@@ -3866,6 +4355,79 @@ def _write_release_timeline(ctx: "Ctx", p: "Paths", picture: Path, outro_seconds
     })
     return {"path": str(release_timeline), "segments": len(segments),
             "content_runtime_seconds": content_runtime, "release_runtime_seconds": release_runtime}
+
+
+def s7_final_audience_review(ctx: Ctx, res: StageResult) -> dict[str, Any]:
+    """Require an independent, SHA-bound final-audience review before final QA.
+
+    The production process may prepare the request, contact sheet and objective
+    metrics.  Only the separate reviewer process may submit answers and create
+    the audience report/event ledger consumed by the registered gates.
+    """
+    producer_process_id = (
+        f"nalu-production-{ctx.p.scope['scope_id']}-{ctx.episode}"
+    )
+    status_step = qa_run(
+        ctx,
+        [FINAL_AUDIENCE_REVIEW, "status", "--episode", ctx.episode],
+        name="s7_final_audience_review_status",
+    )
+    res.steps.append(status_step)
+    detail = qa_json(status_step)
+    code = int(status_step.get("exit_code") or 0)
+
+    if code == 4:
+        prepare_step = qa_run(
+            ctx,
+            [FINAL_AUDIENCE_REVIEW, "prepare", "--episode", ctx.episode,
+             "--producer-process-id", producer_process_id],
+            name="s7_final_audience_review_prepare",
+        )
+        res.steps.append(prepare_step)
+        prepared = qa_json(prepare_step)
+        detail = {"status_before_prepare": detail, **prepared}
+        if prepare_step.get("exit_code") != 0:
+            return {
+                **detail,
+                "status": BLOCKED,
+                "blockers": ["FINAL_AUDIENCE_REVIEW_PREPARE_FAILED"],
+            }
+        code = 10
+
+    if code == 0 and detail.get("status") == PASS:
+        for key in ("report", "event_ledger"):
+            if detail.get(key):
+                res.receipts.append(str(detail[key]))
+        return {**detail, "status": PASS, "blockers": []}
+
+    if code == 10:
+        request = str(
+            detail.get("request")
+            or (REVIEWS_ROOT / ctx.episode / "final_audience_request.json")
+        )
+        if Path(request).is_file():
+            res.receipts.append(request)
+        return {
+            **detail,
+            "status": REVIEW_REQUIRED,
+            "request": request,
+            "submit_command": q([
+                VENV, FINAL_AUDIENCE_REVIEW, "submit",
+                "--episode", ctx.episode,
+                "--request", request,
+                "--answers", REVIEWS_ROOT / ctx.episode / "final_audience_answers.json",
+            ]),
+            "blockers": ["FINAL_AUDIENCE_REVIEW_REQUIRED"],
+        }
+
+    return {
+        **detail,
+        "status": BLOCKED,
+        "blockers": [
+            "FINAL_AUDIENCE_REVIEW_REJECTED"
+            if code == 3 else "FINAL_AUDIENCE_REVIEW_EVIDENCE_INVALID"
+        ],
+    }
 
 
 def stage_s7(ctx: Ctx) -> StageResult:
@@ -3945,6 +4507,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
                   "build_agentcut_from_admitted_storyboard_sources.py",
                   "render_portable_timeline.py --dry-run then for real",
                   "level_native_release_audio.py",
+                  "final_audience_review.py status/prepare (independent submit required)",
                   "final_qa_evidence_bundle.py run --gate-subset applicable",
                   f"{p.final_mp4} + {p.checkpoint}"],
         "commands": {
@@ -3954,6 +4517,9 @@ def stage_s7(ctx: Ctx) -> StageResult:
             "render_dry_run": q(render_dry_argv),
             "render": q(render_argv),
             "level_native_release_audio": q(level_argv),
+            "final_audience_review_status": q(
+                [VENV, FINAL_AUDIENCE_REVIEW, "status", "--episode", ctx.episode]
+            ),
             "final_qa_evidence_bundle": q(final_qa_argv),
             "run_episode_qa_NOT_RUN": "PYTHON_BIN=" + str(VENV) + " " + q(run_episode_qa_argv),
         },
@@ -3969,12 +4535,10 @@ def stage_s7(ctx: Ctx) -> StageResult:
                              "AFTER the render because --source is the rendered picture and "
                              "--expected-sha256 binds that file's real bytes.",
         "run_episode_qa_note": (
-            "tools/run_episode_qa.sh is recorded but NOT run: it hardcodes --phase final "
-            "--phase release and so cannot express the 9 inapplicable gates (D-12), it "
-            "defaults PYTHON_BIN to .s3_relay_env_py312/bin/python3 which is absent in this "
-            "clone, and its REVIEW_REQUIRED_BLOCKING status is a BLOCK, not a pass.  "
-            "final_qa_evidence_bundle.py run --gate-subset applicable invokes "
-            "episode_stage_gate_runner.py with an explicit --gate list instead."),
+            "tools/run_episode_qa.sh is recorded but the portable orchestrator invokes the "
+            "same registered stage runner through final_qa_evidence_bundle.py with the exact "
+            "deployment venv. CURRENT_PORTABLE requests every final/release gate; missing "
+            "evidence and REVIEW_REQUIRED_BLOCKING remain blockers."),
         "deliverable": str(p.final_mp4),
         "qa_report": str(p.qa_report),
     }
@@ -4048,7 +4612,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
     outro_seconds = 0.0
     if endcard.is_file():
         with_endcard = p.assembly / f"{ctx.episode}_picture_native_subbed_endcard.mp4"
-        cc = subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", str(subbed), "-i", str(endcard),
+        cc = subprocess.run([_media.require_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-i", str(subbed), "-i", str(endcard),
                              "-filter_complex", "[0:v]fps=24,format=yuv420p[v0];[1:v]fps=24,format=yuv420p[v1];"
                              "[0:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a0];"
                              "[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a1];"
@@ -4063,46 +4627,45 @@ def stage_s7(ctx: Ctx) -> StageResult:
         subbed = with_endcard
         outro_seconds = 3.0
         res.details["endcard"] = {"asset": str(endcard), "picture": str(with_endcard), "seconds": outro_seconds}
-    # 5d. selective narrative BGM (Roger 2026-09-14: 启用选择性配乐；E02 不加).  Only when the writer's
-    # audio_contract.bgm declares SELECTIVE (audio_profile_binding -> NATIVE_MULTIMODAL_SELECTIVE_BGM):
-    # plan (free) -> generate (paid, Giggle generate-music via AgentCut, guarded) -> qa (free) -> mix (free,
-    # ducked stem onto the picture, video bit-exact).  The mixed picture then goes to release levelling.
+    # 5d. selective narrative BGM.  Only when the writer's audio_contract.bgm declares SELECTIVE
+    # (audio_profile_binding -> NATIVE_MULTIMODAL_SELECTIVE_BGM).  Every provider POST already
+    # happened in S6.  S7 has a deliberately read/verify-only chain: verify durable completed
+    # transactions -> build the release-timeline placement plan -> reconcile statements -> QA -> mix.
+    # No command in this block can generate or submit music.
     binding = ((read_json(p.agentcut_project, {}) or {}).get("metadata") or {}).get("audio_profile_binding") or {}
     profile = str(binding.get("resolved_audio_profile_id") or binding.get("profile") or "")
     if profile == "NATIVE_MULTIMODAL_SELECTIVE_BGM":
-        bgm_tool = RT_TOOLS / "nalu_selective_bgm.py"
-        # the release timeline is needed by `plan`; derive it now from the picture we have so far
+        bgm_common = selective_bgm_common_argv(ctx)
+        verify_step = ctx.run([VENV, SELECTIVE_BGM, "verify", *bgm_common], name="s7_bgm_verify_s6_transactions")
+        steps.append(verify_step)
+        if verify_step["exit_code"] != 0:
+            res.steps.extend(steps); res.blockers = ["SELECTIVE_BGM_S6_TRANSACTIONS_NOT_COMPLETE"]; return res
+        # The release timeline is needed only to place the sources; derive it from the finished picture.
         _write_release_timeline(ctx, p, subbed, outro_seconds, release_timeline)
-        plan_step = ctx.run([VENV, bgm_tool, "plan", "--episode", ctx.episode], name="s7_bgm_plan")
+        plan_step = ctx.run([VENV, SELECTIVE_BGM, "plan", *bgm_common], name="s7_bgm_plan")
         steps.append(plan_step)
         if plan_step["exit_code"] != 0:
             res.steps.extend(steps); res.blockers = ["SELECTIVE_BGM_PLAN_FAILED"]; return res
-        gen_argv = [VENV, bgm_tool, "generate", "--episode", ctx.episode] + (["--paid"] if ctx.paid_enabled else [])
-        # paid child (key + durable-submitter context) only when --paid; otherwise the tool answers DRY_RUN
-        gen_step = ctx.run(gen_argv, name="s7_bgm_generate", paid=ctx.paid_enabled)
-        steps.append(gen_step)
-        gen = qa_json(gen_step) if gen_step["exit_code"] == 0 else {}
-        if gen.get("status") == "DRY_RUN":
-            res.steps.extend(steps); res.blockers = ["SELECTIVE_BGM_GENERATION_NEEDS_PAID"]
-            res.details["bgm_pending"] = gen; return res
-        # read-only statement query needs the key (same as s6_poll_giggle_submit_report); reconcile never POSTs
-        rec_step = ctx.run([VENV, bgm_tool, "reconcile", "--episode", ctx.episode], name="s7_bgm_reconcile", paid=True)
+        # Read-only statement query needs the key; nalu_selective_bgm reconcile has no POST route.
+        rec_step = ctx.run([VENV, SELECTIVE_BGM, "reconcile", *bgm_common], name="s7_bgm_reconcile_read_only", paid=True)
         steps.append(rec_step)
         if rec_step["exit_code"] != 0:
             res.steps.extend(steps); res.blockers = ["SELECTIVE_BGM_CREDIT_RECONCILIATION_FAILED"]; return res
-        qa_step = ctx.run([VENV, bgm_tool, "qa", "--episode", ctx.episode], name="s7_bgm_qa")
+        qa_step = ctx.run([VENV, SELECTIVE_BGM, "qa", *bgm_common], name="s7_bgm_qa")
         steps.append(qa_step)
         if qa_step["exit_code"] != 0:
             res.steps.extend(steps); res.blockers = ["SELECTIVE_BGM_CANDIDATES_REJECTED"]; return res
         mixed = p.assembly / f"{ctx.episode}_picture_native_subbed_endcard_bgm.mp4"
-        mix_step = ctx.run([VENV, bgm_tool, "mix", "--episode", ctx.episode, "--source", subbed, "--out", mixed],
+        mix_step = ctx.run([VENV, SELECTIVE_BGM, "mix", *bgm_common, "--source", subbed, "--out", mixed],
                            name="s7_bgm_mix")
         steps.append(mix_step)
         if mix_step["exit_code"] != 0 or not mixed.is_file():
             res.steps.extend(steps); res.blockers = ["SELECTIVE_BGM_MIX_FAILED"]; return res
         subbed = mixed
         res.details["selective_bgm"] = {"picture": str(mixed), "plan": str(p.assembly / f"{ctx.episode}_BGM_PLAN.json"),
-                                        "stem": str(p.assembly / f"{ctx.episode}_bgm_stem.wav")}
+                                        "stem": str(p.assembly / f"{ctx.episode}_bgm_stem.wav"),
+                                        "provider_posts": 0,
+                                        "source_generation_stage": "S6"}
     level_argv[level_argv.index("--source") + 1] = subbed
 
     # ------------------------------------------------- 6. release loudness
@@ -4170,14 +4733,14 @@ def stage_s7(ctx: Ctx) -> StageResult:
         res.details["shot_plan_parity"] = {"report": str(parity_json), "checkpoint_block": str(parity_md),
                                            "status": (read_json(parity_json, {}) or {}).get("status"),
                                            "findings": [f.get("code") for f in ((read_json(parity_json, {}) or {}).get("findings") or [])],
-                                           "authority": "SUPERVISOR_ORDERS seq=27 §六 (diagnostic, non-blocking)"}
+                                           "authority": "ENGINE_FINAL_CUT_SHOT_PLAN_PARITY_DIAGNOSTIC_POLICY"}
         res.receipts.append(str(parity_json))
 
     detector_argv: list[Any] = [VENV, ENGINE / "tools/final_cut_audience_detectors.py",
                                 "--media", p.final_mp4, "--out", detector_report,
                                 "--lexicon", ctx.p.scope["lexicon"],
                                 "--speaker-map", speaker_map, "--story-segments", release_timeline,
-                                "--voice-cast", RT / "voice_cast.json"]
+                                "--voice-cast", ctx.p.scope["voice_cast"]]
     if asr_windows.is_file():
         # per-unit ASR windows (timing) with contract attribution; whole-file ASR of the levelled final
         # merges speech with wind/music into 10-20 s windows and mismeasures every line (E04 v2, 23:30Z)
@@ -4200,16 +4763,20 @@ def stage_s7(ctx: Ctx) -> StageResult:
                                          "gate": str(p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_GATE.json"),
                                          "stdout_tail": gate_step.get("stdout_tail")}
     if gate_step["exit_code"] != 0:
-        # seq=25「加接受机制」(2026-09-17): the gate row stays FAIL; the stage may continue ONLY on an
-        # explicit, active Roger order whose decision names this episode, this gate and every failing
-        # detector (roger_gate_acceptance.py).  Never self-issued; recorded next to the gate result.
-        import roger_gate_acceptance as _rga
+        # The gate row stays FAIL; the stage may continue only on an explicit,
+        # source-receipted line-owner order bound to this exact final-cut SHA.
         gate_result = read_json(p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_GATE.json", {}) or {}
         failing = _rga.failing_detectors(gate_result)
         final_sha = sha256_file(p.final_mp4) if p.final_mp4.is_file() else None
+        orders_path = ctx.authority.get("orders_path")
+        orders = (_rga._orders(orders_path,
+                               expected_latest_seq=ctx.authority.get("latest_order_seq") or 0,
+                               engine_root=ENGINE)
+                  if orders_path and not ctx.authority_blockers else [])
         order = _rga.find_acceptance(
-            _rga._orders(Path(f"{_np.ENGINE_ROOT}/workflow/claude_writer_agent/SUPERVISOR_ORDERS.json")),
-            episode=ctx.episode, gate_id="FINAL-CUT-AUDIENCE-DETECTORS", failing=failing, media_sha256=final_sha)
+            orders, episode=ctx.episode, gate_id="FINAL-CUT-AUDIENCE-DETECTORS",
+            failing=failing, media_sha256=final_sha,
+            expected_issuer=ctx.authority.get("line_owner_id") or "", engine_root=ENGINE)
         if order is None:
             res.steps.extend(steps)
             res.blockers = ["FINAL_CUT_AUDIENCE_DETECTORS_FAIL:" + str(gate_step.get("stdout_tail") or "")[-400:]]
@@ -4217,21 +4784,34 @@ def stage_s7(ctx: Ctx) -> StageResult:
         record = _rga.acceptance_record(order, episode=ctx.episode, gate_id="FINAL-CUT-AUDIENCE-DETECTORS",
                                         failing=failing, media_sha256=final_sha,
                                         gate_result_path=str(p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_GATE.json"))
-        acceptance_path = p.assembly / "final_qa" / f"{ctx.episode}_ROGER_GATE_ACCEPTANCE.json"
+        acceptance_path = p.assembly / "final_qa" / f"{ctx.episode}_LINE_OWNER_GATE_ACCEPTANCE.json"
         acceptance_path.parent.mkdir(parents=True, exist_ok=True)
         acceptance_path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
-        gate_step["accepted_by_roger_order"] = order.get("seq")
-        res.details["roger_gate_acceptance"] = {**record, "record_path": str(acceptance_path)}
+        gate_step["accepted_by_line_owner_order"] = order.get("seq")
+        res.details["line_owner_gate_acceptance"] = {**record, "record_path": str(acceptance_path)}
         res.receipts.append(str(acceptance_path))
-        ctx.say(f"   !! FINAL-CUT-AUDIENCE-DETECTORS stays FAIL ({', '.join(failing)}); continuing on Roger order "
+        ctx.say(f"   !! FINAL-CUT-AUDIENCE-DETECTORS stays FAIL ({', '.join(failing)}); continuing on line-owner order "
                 f"seq={order.get('seq')} {order.get('order')!s:.40} -> {acceptance_path.name}")
 
-    # ------------------------------------------- 7. final-package QA (D-9/D-12)
+    # ------------------------------- 7. independent final-audience review
+    # The production process may create the media-bound request, but it cannot
+    # submit the review.  The separate reviewer must watch the complete final
+    # cut with picture+sound, muted, and sound-only, then submit per-shot notes,
+    # scores and timestamped events.  Missing/rejected evidence blocks S7.
     res.steps.extend(steps)
+    final_audience = s7_final_audience_review(ctx, res)
+    res.details["final_audience_review"] = final_audience
+    if final_audience["status"] != PASS:
+        res.status = (REVIEW_REQUIRED
+                      if final_audience["status"] == REVIEW_REQUIRED else BLOCKED)
+        res.blockers = list(final_audience.get("blockers") or [])
+        return res
+
+    # ------------------------------------------- 8. final-package QA (D-9/D-12)
     final_qa = s7_qa(ctx, res)
     res.details["final_qa"] = final_qa
     res.status = PASS if (p.final_mp4.is_file()
-                          and all(step["exit_code"] == 0 or step.get("accepted_by_roger_order") for step in steps)
+                          and all(step["exit_code"] == 0 or step.get("accepted_by_line_owner_order") for step in steps)
                           and final_qa["status"] == PASS) else BLOCKED
     if res.status != PASS:
         res.blockers = [value for value in (final_qa.get("blockers") or [])] or \
@@ -4249,6 +4829,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
         "agentcut_admission": str(p.agentcut_admission),
         "q2_admission_index": str(p.q2_index),
         "loudness_report": str(p.leveled_audio_report),
+        "final_audience_review": final_audience,
         "final_gate_summary": final_qa.get("stage_gate_summary"),
         "final_gate_status": final_qa.get("stage_gate_status"),
         "evidence_bundle": final_qa.get("bundle"),
@@ -4262,26 +4843,18 @@ def stage_s7(ctx: Ctx) -> StageResult:
 # S7.qa — final-package QA: applicability decision + evidence bundle (D-9)
 # --------------------------------------------------------------------------- #
 def s7_qa(ctx: Ctx, res: StageResult) -> dict[str, Any]:
-    """Decide which final-phase gates apply to this line, then build and run them.
+    """Build evidence and run the registered final/release gates.
 
-    This line has NO BGM stem and NO audience-score stage, and neither the gate
-    registry nor episode_stage_gate_runner.py has any N/A, skip or waiver
-    mechanism.  runtime/tools/final_qa_evidence_bundle.py therefore:
-      * classifies 12 gates APPLICABLE and 9 NOT_APPLICABLE, each with its reason
-        and the escalation it needs (BGM-SOURCE-PRIORITY-AUTHENTICITY cannot pass
-        for a NATIVE_MULTIMODAL_NO_EXTERNAL_BGM profile by construction;
-        AUDIENCE-SCORE-PRE-RELEASE and the seven FINAL-CUT-* gates need an
-        audience_report this line has no stage to produce);
-      * assembles the 15-key bundle (the runbook's 11 plus credit_ledger,
-        watch_report and the sha-verified canonical_script pair);
-      * invokes episode_stage_gate_runner.py with an explicit --gate list.
-    It writes no N_A row into qa/gate_results/ — FINAL-CUT-NO-SELF-WAIVER exists
-    to forbid exactly that — and fabricates no audience report or BGM stem.
+    ``CURRENT_PORTABLE`` executes the complete registry set. Missing reviewer
+    evidence, objective metrics, an event ledger, or a required BGM stem is a
+    blocker. Historical replay may retain its recorded subset, but neither path
+    writes an N/A/PASS row on behalf of a reviewer.
     """
     p = ctx.p
     applic_step = qa_run(ctx, [FINAL_QA_BUNDLE, "applicability", "--episode", ctx.episode],
                          name="s7_qa_gate_applicability")
     res.steps.append(applic_step)
+    applicability_record = qa_json(applic_step)
     build_step = qa_run(ctx, [FINAL_QA_BUNDLE, "build", "--episode", ctx.episode],
                         name="s7_qa_build_evidence_bundle")
     res.steps.append(build_step)
@@ -4297,17 +4870,16 @@ def s7_qa(ctx: Ctx, res: StageResult) -> dict[str, Any]:
         "bundle_status": build.get("status"),
         "applicability_record": str(p.assembly / "final_qa"
                                     / f"{ctx.episode}_FINAL_GATE_APPLICABILITY.json"),
-        "applicable_gates": 12,
-        "not_applicable_gates": 9,
-        "not_applicable_reasons": {
-            "BGM-SOURCE-PRIORITY-AUTHENTICITY": "NO_EXTERNAL_BGM_BY_LINE_DESIGN",
-            "AUDIENCE-SCORE-PRE-RELEASE + 7x FINAL-CUT-*":
-                "NO_AUDIENCE_SCORE_STAGE_ON_THIS_LINE",
-        },
-        "run_episode_qa_sh_cannot_express_this":
-            "tools/run_episode_qa.sh hardcodes --phase final --phase release; it also "
-            "defaults PYTHON_BIN to .s3_relay_env_py312/bin/python3 which is absent in "
-            "this clone, and its REVIEW_REQUIRED_BLOCKING status is a block, not a pass.",
+        "policy_profile": applicability_record.get("policy_profile") or _policy.selected(),
+        "applicable_gates": applicability_record.get("applicable_count"),
+        "not_applicable_gates": applicability_record.get("not_applicable_count"),
+        "registered_gate_omission_allowed": applicability_record.get(
+            "registered_gate_omission_allowed"
+        ),
+        "run_episode_qa_contract": (
+            "CURRENT_PORTABLE runs the complete final/release registry. Missing evidence and "
+            "REVIEW_REQUIRED are blocking states, never PASS."
+        ),
     }
     gate_step = qa_run(ctx, [FINAL_QA_BUNDLE, "run", "--episode", ctx.episode,
                              "--gate-subset", "applicable"],
@@ -4328,20 +4900,19 @@ def s7_qa(ctx: Ctx, res: StageResult) -> dict[str, Any]:
          "first_failure": (row.get("failures") or [None])[0]}
         for row in summary.get("results") or []]
     detail["status"] = PASS if gate.get("status") == PASS else BLOCKED
-    acceptance = (res.details or {}).get("roger_gate_acceptance")
+    acceptance = (res.details or {}).get("line_owner_gate_acceptance")
     if detail["status"] != PASS and acceptance:
         # the accepted gate keeps its FAIL row; the package passes only if every OTHER applicable gate PASSes
         other_not_pass = [row.get("gate_id") for row in summary.get("results") or []
                           if row.get("status") != PASS and row.get("gate_id") != acceptance.get("gate_id")]
         if not other_not_pass:
             detail["status"] = PASS
-            detail["status_note"] = (f"{acceptance.get('gate_id')} row kept FAIL; package continued on Roger order "
+            detail["status_note"] = (f"{acceptance.get('gate_id')} row kept FAIL; package continued on line-owner order "
                                      f"seq={acceptance.get('order_seq')} ({acceptance.get('record_path')})")
         else:
             detail["other_gates_not_pass"] = other_not_pass
     detail["blockers"] = ([] if detail["status"] == PASS else
-                          ["D-9_FINAL_PHASE_GATE_EVIDENCE_NOT_YET_PRODUCED",
-                           "D-12_FINAL_PHASE_GATE_APPLICABILITY_HAS_NO_MECHANISM"])
+                          ["FINAL_PHASE_REGISTERED_GATE_EVIDENCE_OR_REVIEW_NOT_PASS"])
     res.receipts.append(str(detail["bundle"]) if detail.get("bundle") else "")
     return detail
 
@@ -4359,12 +4930,13 @@ def stage_s8(ctx: Ctx) -> StageResult:
         "checkpoint": str(p.checkpoint),
         "approval_flag": str(p.approval),
         "approved": approved,
-        "unblock_with": f"{VENV} {RT_TOOLS / 'nalu_pipeline.py'} approve --episode {ctx.episode}",
+        "unblock_with": (f"{VENV} {RT_TOOLS / 'nalu_pipeline.py'} approve --episode {ctx.episode} "
+                         f"--by {shlex.quote(str(ctx.authority.get('line_owner_id') or '<LINE_OWNER_ID>'))}"),
         "platform_upload": "NEVER — this pipeline has no publish path.",
     }
     res.receipts = [str(p.checkpoint)]
     if not approved:
-        res.blockers = ["AWAITING_ROGER_APPROVAL"]
+        res.blockers = ["AWAITING_LINE_OWNER_APPROVAL"]
     return res
 
 
@@ -4391,7 +4963,7 @@ def write_checkpoint(ctx: Ctx) -> Path:
     credits = credits_summary(ctx)
     lines: list[str] = []
     add = lines.append
-    add(f"# {ctx.episode} CHECKPOINT — 《夜无疆》nalu line")
+    add(f"# {ctx.episode} CHECKPOINT — {ctx.p.scope['series_id']} production line")
     add("")
     add(f"* written by `{TOOL_ID}` at {now()}")
     add(f"* state file `{p.state}`")
@@ -4412,7 +4984,7 @@ def write_checkpoint(ctx: Ctx) -> Path:
         blockers = ", ".join(row.get("blockers") or []) or "—"
         add(f"| {sid} | {STAGE_TITLES[sid]} | `{row.get('status')}` | {blockers} |")
     add("")
-    add("## What to watch (Roger's review list)")
+    add("## What to watch (line-owner review list)")
     add("")
     if p.final_mp4.is_file():
         add(f"1. `{p.final_mp4}` — full episode, 9:16.")
@@ -4456,7 +5028,7 @@ def write_checkpoint(ctx: Ctx) -> Path:
     add("")
     add("## Rights basis on record")
     add("")
-    rights = state.get("rights_basis") or dict(RIGHTS_DECLARATION)
+    rights = state.get("rights_basis") or {}
     add(f"* basis: `{rights.get('basis')}`")
     add(f"* declared by **{rights.get('declared_by')}** on {rights.get('declared_on')} — "
         f"`{rights.get('declaration_type')}`")
@@ -4468,7 +5040,7 @@ def write_checkpoint(ctx: Ctx) -> Path:
     add("## Credits spent vs cap")
     add("")
     add(f"* cap: **{credits['cap']}** credits per episode "
-        "(SUPERVISOR_ORDERS seq=3 condition 2, BUDGET_CAP_8000_PER_EPISODE, HARD_STOP)")
+        f"(private line-owner order seq={ctx.authority.get('paid_order_seq')}, HARD_STOP)")
     add(f"* recorded spend this episode: **{credits['recorded_total_credits']}**")
     add(f"* planned this run: **{credits['planned_total']}** "
         f"({json.dumps(credits['planned_by_stage'])})")
@@ -4506,7 +5078,8 @@ def write_checkpoint(ctx: Ctx) -> Path:
     add("This episode does NOT advance and the next episode does NOT start until:")
     add("")
     add("```")
-    add(f"{VENV} {RT_TOOLS / 'nalu_pipeline.py'} approve --episode {ctx.episode}")
+    add(f"{VENV} {RT_TOOLS / 'nalu_pipeline.py'} approve --episode {ctx.episode} "
+        f"--by {shlex.quote(str(ctx.authority.get('line_owner_id') or '<LINE_OWNER_ID>'))}")
     add("```")
     add("")
     add(f"That writes `{p.approval}`, which `loop` polls.  No platform upload is ever")
@@ -4565,18 +5138,13 @@ OPEN_DECISIONS = [
                "from --accept-source-qa, which is an operator declaration.",
      "resolution": "runtime/tools/vlm_review_protocol.py request --kind identity → "
                    "identity_qa_lock.py lock --episode <EP> --review <submitted>",
-     "residual": "gate_asset also demands rights.status PASS with a named basis. That basis is "
-                 "now NAMED and is Roger's own declaration, not a reviewer observation: "
-                 "SUPERVISOR_ORDERS seq=3 conditions 3 (CHARACTER_SOURCE_FOLDER — Roger "
-                 "supplies the character source folder) and 7 (RIGHTS_OFFLINE — adaptation "
-                 "authorisation handled offline by Roger, the engine does not verify it), "
-                 "2026-09-09. It is passed as --rights-basis to bootstrap_identity_cards.py and "
-                 "to identity_qa_lock.py lock, and recorded verbatim in the state file under "
-                 "rights_basis with declaration_type "
-                 "LINE_OWNER_DECLARATION_NOT_A_REVIEWER_OBSERVATION. It covers identity "
-                 "reference plates only: order seq=3 explicitly does NOT authorise release, so "
-                 "R-2 (adaptation/commercial rights) and R-5 (voice copyright evidence) stay "
-                 "open on Roger's side as RELEASE blockers."},
+     "residual": "gate_asset also demands rights.status PASS with a named basis. The basis now "
+                 "comes only from the validated deployment-private paid-production order and "
+                 "its confirmed source receipt; it is never a reviewer observation or an engine "
+                 "default. It is passed as --rights-basis to bootstrap_identity_cards.py and "
+                 "identity_qa_lock.py and recorded under rights_basis with declaration_type "
+                 "LINE_OWNER_DECLARATION_NOT_A_REVIEWER_OBSERVATION. Publication remains outside "
+                 "scope unless the order explicitly says publication_allowed=true."},
     {"id": "D-4", "stage": "S5", "status": "RESOLVED",
      "detail": "runtime/tools/keyframe_q1_builder.py is the parameterised builder of "
                "qingshan.shot_media_admission_request.v2 and invokes "
@@ -4712,10 +5280,12 @@ OPEN_DECISIONS = [
                "true, and the image submitter's validate_submission_authority (which "
                "--precheck-only SKIPS) additionally needs EXACTLY ONE GIGGLE-REROLL-COST-GUARD "
                "report bound to the submitted manifest's exact SHA.",
-     "resolution": "Roger authorised E01-E10 production on 2026-09-09 in SUPERVISOR_ORDERS.json "
-                   "seq=3 (ROGER-20260909-NALU-E01-E10-PRODUCTION-AUTHORIZED). Immediately "
-                   "before each of the three paid submits the orchestrator runs "
-                   "materialize_paid_authorization.py --order-seq 3 on the plan (S3) or the "
+     "resolution": "The deployment explicitly configures a private SUPERVISOR_ORDERS path, "
+                   "paid order sequence, observed latest sequence and line-owner identity. "
+                   "The materialiser validates the order schema, unique sequence, confirmed "
+                   "source receipt, exact episode scope, rights declaration, cap, model and "
+                   "paid_requests_allowed=true. Immediately before each paid submit the "
+                   "orchestrator runs materialize_paid_authorization.py on the plan (S3) or the "
                    "manifest (S5 keyframes, S6 video), which writes a "
                    "*_PAID_AUTHORIZED copy plus the real reroll-cost-guard report, and the "
                    "submitter is fed THAT copy — never the original, which stays on disk "
@@ -4803,6 +5373,18 @@ def run_episode(ctx: Ctx) -> int:
     # owner's own declaration.  No measurer and no reviewer can observe a rights
     # basis, so nothing in this pipeline may derive, widen or invent one.
     ctx.state["rights_basis"] = ctx.rights_declaration
+    ctx.state["line_owner_authority"] = {
+        "orders_path": (str(ctx.authority.get("orders_path"))
+                        if ctx.authority.get("orders_path") else None),
+        "paid_order_seq": ctx.authority.get("paid_order_seq"),
+        "latest_order_seq": ctx.authority.get("latest_order_seq"),
+        "line_owner_id": ctx.authority.get("line_owner_id"),
+        "status": "PASS" if ctx.paid_order else "BLOCKED",
+        "failures": list(ctx.authority_blockers),
+        "order_id": (ctx.paid_order or {}).get("id"),
+        "orders_file_sha256": (ctx.paid_order or {}).get("orders_file_sha256"),
+        "source_receipt": (ctx.paid_order or {}).get("source_receipt"),
+    }
     ctx.state.pop("review_required", None)
     ctx.state["layers"] = {"source": ctx.p.layers_source, "paths": {k: str(v) for k, v in ctx.p.layers().items()}}
     ctx.state["series_scope"] = {"scope_id": ctx.p.scope["scope_id"], "series_id": ctx.p.scope["series_id"], "asset_library": str(ctx.p.scope["asset_library"])}
@@ -4827,6 +5409,9 @@ def run_episode(ctx: Ctx) -> int:
         row["started_at"] = now()
         try:
             result = STAGE_FUNCS[sid](ctx)
+        except _media.MediaToolBlocked as exc:
+            result = StageResult(BLOCKED, media_tool_error=str(exc))
+            result.blockers = [str(exc)]
         except Exception as exc:  # noqa: BLE001 — a stage crash must not lose state
             result = StageResult("CRASHED", exception=f"{type(exc).__name__}: {exc}")
             result.blockers = [f"STAGE_CRASHED:{type(exc).__name__}:{exc}"]
@@ -5043,6 +5628,10 @@ def cmd_qa_status(args: argparse.Namespace) -> int:
 def cmd_approve(args: argparse.Namespace) -> int:
     ctx = Ctx(args.episode, args)
     p = ctx.p
+    if ctx.authority_blockers or args.by != ctx.authority.get("line_owner_id"):
+        print("refusing to approve: --by must exactly match the validated deployment "
+              "line_owner_id and the private order inbox must be current", file=sys.stderr)
+        return 2
     if not p.checkpoint.is_file():
         print(f"refusing to approve: no checkpoint at {p.checkpoint}. "
               f"Run `run --episode {ctx.episode}` through S8 first.", file=sys.stderr)
@@ -5091,7 +5680,8 @@ def cmd_loop(args: argparse.Namespace) -> int:
         print(f"\n>>> CHECKPOINT {episode}: {checkpoint}", flush=True)
         print(f">>> run exit code {code}; overall {ctx.state.get('overall_status')}", flush=True)
         print(f">>> blocked until: {VENV} {RT_TOOLS / 'nalu_pipeline.py'} "
-              f"approve --episode {episode}")
+              f"approve --episode {episode} "
+              f"--by {shlex.quote(str(ctx.authority.get('line_owner_id') or '<LINE_OWNER_ID>'))}")
         waited = 0
         while not ctx.p.approval.is_file():
             time.sleep(max(5, int(args.poll_seconds)))
@@ -5166,9 +5756,9 @@ def build_parser() -> argparse.ArgumentParser:
                     from_stage=None, until=None, json=False)
 
     approve = subs.add_parser(
-        "approve", help="record Roger's approval after the human checkpoint")
+        "approve", help="record the configured line owner's approval after the human checkpoint")
     approve.add_argument("--episode", required=True)
-    approve.add_argument("--by", default="roger")
+    approve.add_argument("--by", required=True)
     approve.add_argument("--note", default=None)
     approve.set_defaults(func=cmd_approve, dry_run=False, paid=False, force=False,
                          from_stage=None, until=None)

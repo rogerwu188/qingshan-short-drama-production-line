@@ -162,7 +162,11 @@ def main() -> int:
         "manifest_ref": rel(manifest_path),
         "registered_at": datetime.now(timezone.utc).isoformat(),
         "registered_by": "prompt_batch_register.v1 (nalu line)",
-        "authorization": "SUPERVISOR_ORDERS seq=3 (E01–E10 production) — batch registration is a free preproduction step",
+        "authorization": (
+            "ENGINE_PROMPT_BATCH_POLICY: free preproduction registration only; "
+            "does not authorize a provider POST or paid production"
+        ),
+        "provider_post_authorized": False,
     }
     policy_dst.parent.mkdir(parents=True, exist_ok=True)
     policy_dst.write_text(json.dumps(policy, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

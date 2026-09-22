@@ -126,6 +126,7 @@ git clone https://github.com/rogerwu188/nalu-production-runtime.git /tmp/npr && 
 | Q1 坐/站跳变、独处镜漏人、生物独镜『道具：无/空镜』、生成后人物突然入画 | 镜文字状态泄漏（K056） | 逐镜写姿态；场景光线不提人物；道具用注册表名；start_framing 含在场人物；改文字→停放→重登记→受守卫重做 |
 | 加了姿态标记身份仍 FAIL；Q2 P2 被拒收 | 标记只随新审核请求生效；P2 需 1-based shot_index（K057） | 停放旧 request/submitted 重新签发；豁免写帧号与分数、先看 face_crops；OCR 噪声 `NOISE:<文本>` |
 | S7 parity 报 SHOT_STRETCHED / STATIC_HOLD_IN_DIALOGUE / BLANK_SCREEN | seq=27 §六 诊断（K058），不阻断 | 写入 CHECKPOINT 给线主审片；阈值与是否返修由线主裁定；不新增 gate_id |
+| 视频/关键帧主角脸走样，而身份牌互比余弦很高 | 身份信号沿链被稀释（K059）：牌没对原照测、关键帧脸参考只有小脸全身牌、视频单元没带头像牌、Q1 给 3/4 脸豁免 | 锁定时逐牌对源图 ≥0.45；关键帧头像牌打头（非角色参考 ≤5）；每单元追加在场角色头像牌；Q1 只豁免背影/仅手/出画/远小 |
 
 ## 6. 现在做不到全自动的步骤（如实）
 

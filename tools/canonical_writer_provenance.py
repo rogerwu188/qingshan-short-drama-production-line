@@ -11,6 +11,10 @@ from typing import Any
 PROVENANCE_SCHEMA = "qingshan.canonical_writer_provenance.v1"
 RECEIPT_SCHEMA = "qingshan.canonical_writer_run_receipt.v1"
 ALLOWED_AGENT_IDS = {
+    # Public TalentHub package.  This is the installed agent's immutable
+    # manifest id, so a fresh StoryClaw user can create a provenance-bound
+    # four-layer script without impersonating either historical private writer.
+    "ai-drama-factory",
     "qingshan-claude-writer-agent",
     "qingshan-claude-writer",
 }

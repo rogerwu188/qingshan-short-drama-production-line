@@ -27,12 +27,14 @@ registered report.
 
 What this tool does
 -------------------
-1. Reads ``workflow/claude_writer_agent/SUPERVISOR_ORDERS.json`` and locates
-   ``--order-seq``.  **Refuses** if that seq does not exist.
-2. Checks the order's own conditions rather than trusting its prose:
-   ``VIDEO_MODEL_SD2_ONLY`` must be present, ``BUDGET_CAP_8000_PER_EPISODE`` must be
-   present and its cap must equal ``--cap``, and ``--episode`` must fall in the
-   order's episode scope.  Any mismatch is a refusal, not a warning.
+1. Reads a deployment-private ``SUPERVISOR_ORDERS.json`` supplied with ``--orders``
+   and locates ``--order-seq``.  The caller must also name the line owner and the
+   latest sequence it observed.  **Refuses** stale, duplicate or malformed order
+   files; the public engine checkout is never an authority source.
+2. Validates the active order and its source receipt rather than trusting prose:
+   issuer, verbatim text, receipt bytes, exact episode list, per-episode cap,
+   rights declaration and an explicit ``paid_requests_allowed: true`` decision
+   must all agree.  Any mismatch is a refusal, not a warning.
 3. Checks every model named by the manifest/plan.  A video manifest must be
    ``seedance-2.0-pro`` on every task; any other ``seedance-*`` variant, or
    ``MiniMax-H3`` anywhere, is a refusal (order condition 1).  Image batches keep
@@ -67,7 +69,8 @@ and the orchestrator's ``--paid`` remain independently required.
 CLI
 ---
     materialize_paid_authorization.py \
-      --episode E01 --order-seq 3 \
+      --episode E01 --stage S3 --order-seq 1 --expected-latest-seq 1 \
+      --line-owner-id <deployment owner id> \
       --manifest <image or video manifest .json> \
       [--plan <character_asset_plan.json>] \
       [--out-dir <dir>]            default: alongside each input
@@ -75,7 +78,7 @@ CLI
       [--in-place]                 overwrite the inputs instead of copying
       [--task-key K]…              price/authorise only these task keys
       [--cap 8000] [--image-credits 11] [--video-credits-per-second 20]
-      [--orders <SUPERVISOR_ORDERS.json>] [--policy <reroll policy json>]
+      --orders <private SUPERVISOR_ORDERS.json> [--policy <reroll policy json>]
       [--ledger <budget ledger json>] [--engine-root …] [--python …]
       [--allow-image-model] [--report <path>]
 
@@ -103,7 +106,6 @@ from typing import Any
 
 DEFAULT_ENGINE_ROOT = Path(f"{_np.ENGINE_ROOT}")
 DEFAULT_PYTHON = DEFAULT_ENGINE_ROOT / ".qingshan-venv/bin/python"
-DEFAULT_ORDERS = DEFAULT_ENGINE_ROOT / "workflow/claude_writer_agent/SUPERVISOR_ORDERS.json"
 DEFAULT_POLICY = DEFAULT_ENGINE_ROOT / "configs/reroll_cost_guard_policy_v1_20260716.json"
 RUNTIME_ROOT = Path(f"{_np.RUNTIME_ROOT}")
 DEFAULT_LEDGER = RUNTIME_ROOT / "runtime/budget/ledger.json"
@@ -116,7 +118,15 @@ FORBIDDEN_MODEL = re.compile(
     r"(seedance-2\.0-(?!pro\b)[a-z0-9.]+|seedance-2\.0\b(?!-pro)|minimax-h3|\bh3\b)",
     re.IGNORECASE,
 )
-REQUIRED_CONDITIONS = {"VIDEO_MODEL_SD2_ONLY", "BUDGET_CAP_8000_PER_EPISODE"}
+ORDERS_SCHEMA = "supervisor_orders_v1"
+RECEIPT_SCHEMA = "qingshan.line_owner_order_source_receipt.v1"
+PAID_DECISION_KIND = "PAID_PRODUCTION_AUTHORIZATION"
+REQUIRED_CONDITIONS = {
+    "VIDEO_MODEL_SD2_ONLY",
+    "PAID_REQUESTS_EXPLICITLY_AUTHORIZED",
+    "RIGHTS_BASIS_DECLARED",
+}
+CAP_CONDITION_IDS = {"BUDGET_CAP_PER_EPISODE", "BUDGET_CAP_8000_PER_EPISODE"}
 
 
 class Refused(RuntimeError):
@@ -140,34 +150,150 @@ def dump_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def episode_number(episode: str) -> int:
-    match = re.search(r"(\d+)", episode)
-    if not match:
-        raise Refused(f"EPISODE_UNPARSEABLE:{episode}")
-    return int(match.group(1))
+def _required_text(value: Any, label: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise Refused(f"{label}_MISSING")
+    return text
+
+
+def _private_path(path: Path, *, engine_root: Path, label: str) -> Path:
+    resolved = path.expanduser().resolve()
+    try:
+        resolved.relative_to(engine_root.expanduser().resolve())
+    except ValueError:
+        return resolved
+    raise Refused(f"{label}_MUST_BE_OUTSIDE_PUBLIC_ENGINE_ROOT:{resolved}")
+
+
+def _source_receipt(order: dict[str, Any], *, expected_owner: str,
+                    engine_root: Path, require_private: bool) -> dict[str, Any]:
+    binding = order.get("source_receipt")
+    if not isinstance(binding, dict):
+        raise Refused("ORDER_SOURCE_RECEIPT_BINDING_MISSING")
+    raw_path = _required_text(binding.get("path"), "ORDER_SOURCE_RECEIPT_PATH")
+    receipt_path = Path(raw_path).expanduser()
+    if not receipt_path.is_absolute():
+        raise Refused("ORDER_SOURCE_RECEIPT_PATH_MUST_BE_ABSOLUTE")
+    receipt_path = (_private_path(receipt_path, engine_root=engine_root,
+                                  label="ORDER_SOURCE_RECEIPT")
+                    if require_private else receipt_path.resolve())
+    if not receipt_path.is_file():
+        raise Refused(f"ORDER_SOURCE_RECEIPT_FILE_MISSING:{receipt_path}")
+    expected_sha = _required_text(binding.get("sha256"), "ORDER_SOURCE_RECEIPT_SHA256")
+    actual_sha = sha256_file(receipt_path)
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha) or expected_sha != actual_sha:
+        raise Refused(f"ORDER_SOURCE_RECEIPT_SHA256_MISMATCH:{expected_sha}!={actual_sha}")
+    receipt = load_json(receipt_path)
+    if not isinstance(receipt, dict) or receipt.get("schema") != RECEIPT_SCHEMA:
+        raise Refused(f"ORDER_SOURCE_RECEIPT_SCHEMA_INVALID:{(receipt or {}).get('schema') if isinstance(receipt, dict) else type(receipt).__name__}")
+    if receipt.get("status") != "CONFIRMED":
+        raise Refused(f"ORDER_SOURCE_RECEIPT_NOT_CONFIRMED:{receipt.get('status')}")
+    if str(receipt.get("issued_by") or "") != expected_owner:
+        raise Refused("ORDER_SOURCE_RECEIPT_ISSUER_MISMATCH")
+    receipt_seq = receipt.get("order_seq")
+    if isinstance(receipt_seq, bool) or not isinstance(receipt_seq, int) \
+            or receipt_seq != order.get("seq"):
+        raise Refused("ORDER_SOURCE_RECEIPT_SEQ_MISMATCH")
+    if str(receipt.get("order_id") or "") != str(order.get("id") or ""):
+        raise Refused("ORDER_SOURCE_RECEIPT_ID_MISMATCH")
+    if str(receipt.get("verbatim") or "") != str(order.get("order") or ""):
+        raise Refused("ORDER_SOURCE_RECEIPT_VERBATIM_MISMATCH")
+    recorded_at = _required_text(receipt.get("recorded_at_utc"),
+                                 "ORDER_SOURCE_RECEIPT_RECORDED_AT_UTC")
+    return {"path": str(receipt_path), "sha256": actual_sha,
+            "schema": RECEIPT_SCHEMA, "status": "CONFIRMED",
+            "recorded_at_utc": recorded_at}
 
 
 # --------------------------------------------------------------------------- #
 # order
 # --------------------------------------------------------------------------- #
-def read_order(orders_path: Path, seq: int, episode: str, cap: int) -> dict[str, Any]:
+def read_order(orders_path: Path, seq: int, episode: str, cap: int, *,
+               expected_owner: str, expected_latest_seq: int,
+               paid_stage: str | None = None,
+               engine_root: Path = DEFAULT_ENGINE_ROOT,
+               require_private: bool = True) -> dict[str, Any]:
+    expected_owner = _required_text(expected_owner, "LINE_OWNER_ID")
+    if expected_latest_seq < 1 or seq < 1:
+        raise Refused("ORDER_SEQ_AND_EXPECTED_LATEST_SEQ_MUST_BE_POSITIVE")
+    if not re.fullmatch(r"E\d+", episode):
+        raise Refused(f"EPISODE_UNPARSEABLE:{episode}")
+    orders_path = ( _private_path(orders_path, engine_root=engine_root,
+                                  label="SUPERVISOR_ORDERS")
+                   if require_private else orders_path.expanduser().resolve())
     if not orders_path.is_file():
         raise Refused(f"SUPERVISOR_ORDERS_FILE_MISSING:{orders_path}")
     orders = load_json(orders_path)
-    match = [row for row in orders.get("orders") or [] if int(row.get("seq", -1)) == seq]
-    if not match:
+    if not isinstance(orders, dict) or orders.get("_schema") != ORDERS_SCHEMA:
+        raise Refused(f"SUPERVISOR_ORDERS_SCHEMA_INVALID:{(orders or {}).get('_schema') if isinstance(orders, dict) else type(orders).__name__}")
+    rows = orders.get("orders")
+    if not isinstance(rows, list):
+        raise Refused("SUPERVISOR_ORDERS_ROWS_NOT_A_LIST")
+    seqs: list[int] = []
+    for row in rows:
+        if not isinstance(row, dict) or isinstance(row.get("seq"), bool) or not isinstance(row.get("seq"), int):
+            raise Refused("SUPERVISOR_ORDER_SEQ_INVALID")
+        seqs.append(row["seq"])
+    if len(seqs) != len(set(seqs)):
+        raise Refused("SUPERVISOR_ORDER_SEQ_DUPLICATE")
+    latest = orders.get("latest_order_seq")
+    if isinstance(latest, bool) or not isinstance(latest, int):
+        raise Refused("SUPERVISOR_ORDERS_LATEST_SEQ_INVALID")
+    if latest != expected_latest_seq:
+        raise Refused(f"SUPERVISOR_ORDERS_LATEST_SEQ_MISMATCH:{latest}!={expected_latest_seq}")
+    if (max(seqs) if seqs else 0) != latest:
+        raise Refused("SUPERVISOR_ORDERS_LATEST_SEQ_DOES_NOT_MATCH_ROWS")
+    match = [row for row in rows if row["seq"] == seq]
+    if len(match) != 1:
         raise Refused(
             f"ORDER_SEQ_{seq}_DOES_NOT_EXIST (present: "
-            f"{sorted(int(r.get('seq', -1)) for r in orders.get('orders') or [])})"
+            f"{sorted(seqs)})"
         )
     order = match[0]
-    condition_ids = {str(row.get("id") or "") for row in order.get("conditions") or []}
+    order_id = _required_text(order.get("id"), "ORDER_ID")
+    if order.get("status") != "active":
+        raise Refused(f"ORDER_NOT_ACTIVE:{order.get('status')}")
+    if str(order.get("issued_by") or "") != expected_owner:
+        raise Refused(f"ORDER_ISSUER_MISMATCH:{order.get('issued_by')}!={expected_owner}")
+    verbatim = _required_text(order.get("order"), "ORDER_VERBATIM")
+    receipt = _source_receipt(order, expected_owner=expected_owner,
+                              engine_root=engine_root, require_private=require_private)
+    decision = order.get("decision")
+    if not isinstance(decision, dict) or decision.get("kind") != PAID_DECISION_KIND:
+        raise Refused(f"ORDER_PAID_DECISION_KIND_INVALID:{(decision or {}).get('kind') if isinstance(decision, dict) else type(decision).__name__}")
+    if decision.get("paid_requests_allowed") is not True:
+        raise Refused("ORDER_DOES_NOT_EXPLICITLY_AUTHORIZE_PAID_REQUESTS")
+    paid_stages = decision.get("paid_stages")
+    if (not isinstance(paid_stages, list) or not paid_stages
+            or any(stage not in {"S3", "S4", "S5", "S6"} for stage in paid_stages)):
+        raise Refused("ORDER_PAID_STAGES_MUST_BE_EXPLICIT_SUBSET_OF_S3_TO_S6")
+    if paid_stage is not None and paid_stage not in paid_stages:
+        raise Refused(f"ORDER_DOES_NOT_AUTHORIZE_PAID_STAGE:{paid_stage}")
+    scope = decision.get("episode_scope")
+    if not isinstance(scope, list) or not scope or any(not isinstance(x, str) for x in scope):
+        raise Refused("ORDER_EPISODE_SCOPE_MUST_BE_NONEMPTY_EXPLICIT_LIST")
+    if episode not in scope:
+        raise Refused(f"EPISODE_OUT_OF_ORDER_SCOPE:{episode}")
+    if isinstance(decision.get("budget_cap_credits_per_episode"), bool) or \
+            decision.get("budget_cap_credits_per_episode") != cap:
+        raise Refused(f"ORDER_CAP_MISMATCH:{decision.get('budget_cap_credits_per_episode')}!={cap}")
+    if str(decision.get("video_model") or "") != SD2:
+        raise Refused("ORDER_VIDEO_MODEL_DOES_NOT_NAME_seedance-2.0-pro")
+    rights_basis = _required_text(decision.get("rights_basis"), "ORDER_RIGHTS_BASIS")
+    if str(decision.get("rights_declared_by") or "") != expected_owner:
+        raise Refused("ORDER_RIGHTS_DECLARER_MISMATCH")
+    conditions = order.get("conditions")
+    if not isinstance(conditions, list) or any(not isinstance(row, dict) for row in conditions):
+        raise Refused("ORDER_CONDITIONS_INVALID")
+    condition_ids = {str(row.get("id") or "") for row in conditions}
     missing = sorted(REQUIRED_CONDITIONS - condition_ids)
     if missing:
         raise Refused(f"ORDER_MISSING_REQUIRED_CONDITIONS:{','.join(missing)}")
-    cap_condition = next(
-        row for row in order["conditions"] if row.get("id") == "BUDGET_CAP_8000_PER_EPISODE"
-    )
+    cap_rows = [row for row in conditions if row.get("id") in CAP_CONDITION_IDS]
+    if len(cap_rows) != 1:
+        raise Refused("ORDER_REQUIRES_EXACTLY_ONE_BUDGET_CAP_CONDITION")
+    cap_condition = cap_rows[0]
     declared_caps = {int(value) for value in re.findall(r"\d{3,6}", str(cap_condition.get("text") or ""))}
     if cap not in declared_caps:
         raise Refused(
@@ -175,28 +301,31 @@ def read_order(orders_path: Path, seq: int, episode: str, cap: int) -> dict[str,
             f"({sorted(declared_caps)})"
         )
     sd2_condition = next(
-        row for row in order["conditions"] if row.get("id") == "VIDEO_MODEL_SD2_ONLY"
+        row for row in conditions if row.get("id") == "VIDEO_MODEL_SD2_ONLY"
     )
     if SD2 not in str(sd2_condition.get("text") or ""):
         raise Refused("ORDER_SD2_CONDITION_DOES_NOT_NAME_seedance-2.0-pro")
-    scope = str(order.get("supersedes") or "") + " " + str(order.get("body") or "") + " " + str(order.get("type") or "")
-    episodes = {int(value) for value in re.findall(r"E(\d{2})", scope)}
-    number = episode_number(episode)
-    if episodes and not (min(episodes) <= number <= max(episodes)):
-        raise Refused(
-            f"EPISODE_OUT_OF_ORDER_SCOPE:{episode} not in "
-            f"E{min(episodes):02d}-E{max(episodes):02d}"
-        )
     return {
         "seq": seq,
-        "id": order["id"],
+        "id": order_id,
         "type": order.get("type"),
         "ts_pdt": order.get("ts_pdt"),
+        "issued_by": expected_owner,
+        "verbatim": verbatim,
         "orders_file": str(orders_path),
         "orders_file_sha256": sha256_file(orders_path),
+        "latest_order_seq": latest,
+        "source_receipt": receipt,
         "condition_ids": sorted(condition_ids),
-        "episode_scope": f"E{min(episodes):02d}-E{max(episodes):02d}" if episodes else "UNBOUNDED",
+        "episode_scope": list(scope),
         "cap_credits": cap,
+        "rights_basis": rights_basis,
+        "rights_declared_by": expected_owner,
+        "rights_scope": str(decision.get("rights_scope") or "").strip(),
+        "publication_allowed": decision.get("publication_allowed") is True,
+        "paid_requests_allowed": True,
+        "paid_stages": list(paid_stages),
+        "authorized_stage": paid_stage,
     }
 
 
@@ -383,8 +512,13 @@ def materialise_manifest(document: dict[str, Any], tasks: list[dict[str, Any]],
         "materialised_by": "runtime/tools/materialize_paid_authorization.py",
         "materialised_at": utc_now(),
         "order_seq": order["seq"], "order_id": order["id"],
+        "latest_order_seq": order["latest_order_seq"],
+        "issued_by": order["issued_by"],
+        "paid_stages": order["paid_stages"],
+        "authorized_stage": order.get("authorized_stage"),
         "orders_file": order["orders_file"],
         "orders_file_sha256": order["orders_file_sha256"],
+        "source_receipt": order["source_receipt"],
         "episode": episode,
         "second_lock_still_required": (
             "qingshan.json generation.paid_requests_enabled must be true AND the orchestrator "
@@ -419,7 +553,13 @@ def materialise_plan(plan: dict[str, Any], *, order: dict[str, Any],
         "materialised_by": "runtime/tools/materialize_paid_authorization.py",
         "materialised_at": utc_now(),
         "order_seq": order["seq"], "order_id": order["id"],
-        "orders_file_sha256": order["orders_file_sha256"], "episode": episode,
+        "latest_order_seq": order["latest_order_seq"],
+        "issued_by": order["issued_by"],
+        "paid_stages": order["paid_stages"],
+        "authorized_stage": order.get("authorized_stage"),
+        "orders_file": order["orders_file"],
+        "orders_file_sha256": order["orders_file_sha256"],
+        "source_receipt": order["source_receipt"], "episode": episode,
     }
     for row in rows:
         row["status"] = "READY_TO_SUBMIT"
@@ -600,7 +740,12 @@ def process(source: Path, *, kind: str, args: argparse.Namespace,
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--episode", required=True)
+    parser.add_argument("--stage", required=True, choices=("S3", "S4", "S5", "S6"))
     parser.add_argument("--order-seq", type=int, required=True)
+    parser.add_argument("--expected-latest-seq", type=int, required=True,
+                        help="latest_order_seq observed by the line owner interface")
+    parser.add_argument("--line-owner-id", required=True,
+                        help="exact issued_by identity configured for this deployment")
     parser.add_argument("--manifest")
     parser.add_argument("--plan")
     parser.add_argument("--out-dir")
@@ -610,7 +755,8 @@ def main() -> int:
     parser.add_argument("--cap", type=int, default=8000)
     parser.add_argument("--image-credits", type=int, default=11)
     parser.add_argument("--video-credits-per-second", type=int, default=20)
-    parser.add_argument("--orders", default=str(DEFAULT_ORDERS))
+    parser.add_argument("--orders", required=True,
+                        help="deployment-private SUPERVISOR_ORDERS.json (outside engine checkout)")
     parser.add_argument("--policy", default=str(DEFAULT_POLICY))
     parser.add_argument("--ledger", default=str(DEFAULT_LEDGER))
     parser.add_argument("--engine-root", default=str(DEFAULT_ENGINE_ROOT))
@@ -632,8 +778,8 @@ def main() -> int:
     out_dir = Path(args.out_dir).resolve() if args.out_dir else None
 
     envelope: dict[str, Any] = {
-        "schema": "nalu.paid_authorization_materialisation_report.v1",
-        "episode": args.episode, "order_seq": args.order_seq,
+        "schema": "nalu.paid_authorization_materialisation_report.v2",
+        "episode": args.episode, "stage": args.stage, "order_seq": args.order_seq,
         "recorded_at": utc_now(),
         "network_calls_made": 0,
         "giggle_api_key_read": False,
@@ -641,7 +787,14 @@ def main() -> int:
         "results": [],
     }
     try:
-        order = read_order(Path(args.orders).resolve(), args.order_seq, args.episode, args.cap)
+        order = read_order(
+            Path(args.orders), args.order_seq, args.episode, args.cap,
+            expected_owner=args.line_owner_id,
+            expected_latest_seq=args.expected_latest_seq,
+            paid_stage=args.stage,
+            engine_root=engine_root,
+            require_private=True,
+        )
         envelope["order"] = order
         for flag, kind in (("plan", "plan"), ("manifest", "manifest")):
             value = getattr(args, flag)
@@ -676,6 +829,9 @@ def main() -> int:
     print(json.dumps({
         "status": envelope["status"],
         "order": {"seq": order["seq"], "id": order["id"],
+                  "latest_order_seq": order["latest_order_seq"],
+                  "issued_by": order["issued_by"],
+                  "authorized_stage": order["authorized_stage"],
                   "episode_scope": order["episode_scope"], "cap_credits": order["cap_credits"]},
         "results": [
             {

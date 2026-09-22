@@ -1,22 +1,12 @@
 #!/usr/bin/env python3
-"""Design and stage auto-generated SD2 speaker voice references for the nalu line.
+"""Design and stage portable speaker voice references for one private NALU project.
 
-The real audio route
---------------------
-There is no `text_to_audio()` method in `tools/giggle_api_client.py`.  The only
-`/api/v1/generation/text-to-audio` reference in the engine is
-`tools/prepare_e40_u02_v11_dia001_selection_bound_tts.py:89`, an envelope
-builder that never posts.  The route is actually reached through the AgentCut
-CLI, which the engine drives at
-`tools/generate_agentcut_character_voice_references.py:114-131`:
-
-    .agentcut_env/bin/agentcut speech-generate <TEXT> \
-        --voice-id <ID> --emotion <E> --speed <S> \
-        --output-dir <DIR> --file-name <NAME.mp3> --poll-interval 2 --timeout 300
-
-engine `AGENTCUT-SPEECH-001`, MinMax Speech-2.8-HD.  Observed authoritative
-price is 2 credits per task, and the engine's own preflight refuses anything
-above it (`tools/preflight_e40_u12_dia010_exactly_one_tts.py:112-114`).
+The paid route is the checked-in ``tools/storyclaw_audio_provider.py``.  It
+uses a caller-selected durable transaction file, writes intent before its only
+provider POST, binds the returned task id, and resumes without reposting.  The
+legacy ``AGENTCUT-*`` strings in emitted registry rows are schema compatibility
+identifiers consumed by existing admission gates.  They do not name a required
+package, model, virtualenv, or runtime directory.
 
 How SD2 gets the audio
 ----------------------
@@ -25,29 +15,24 @@ asset id**, not a URL: `tools/speaker_voice_contract.py:141` requires
 `remote_asset_id`, and `tools/submit_giggle_video_manifest_v2.py:589-592`
 rejects a URL where an asset id is expected.  One
 `tools/upload_giggle_asset.py` call with `is_public=True` returns `asset_id`,
-`file_url` and `duration` at once (see
-`generate_agentcut_character_voice_references.py:331-333`), which is why the
-same upload satisfies both SD2 (`remote_asset_id`) and H3 (`remote_url`).
+`file_url` and `duration` at once, which is why the same upload satisfies both
+SD2 (`remote_asset_id`) and H3 (`remote_url`).
 
 What this tool does — offline only
 ----------------------------------
 * Builds a per-character voice design brief (age / sex / timbre) from
   `character_entities.appearance_ch1`, the voices requirements' `timbre_brief`
   and the authored `performance_brief` in the preproduction skeleton.
-* Derives `sample_text` **verbatim from that character's own E01 dialogue**,
-  long enough to clear the audio QA floor.  This is the fix for blocker R-8:
-  秦铭's `陆哥。` and 周阿婆's `小秦，让我看一看。` were short enough to trip both
-  `DURATION_OUT_OF_REFERENCE_RANGE` (<1.0s, and <2.0s for SD2) and
-  `MANDARIN_ASR_RECALL_BELOW_0P70`.
-* Emits the text-to-audio task payloads (AgentCut argv + REST envelope) in dry
-  mode.
+* Derives `sample_text` **verbatim from that character's own dialogue in the
+  selected episode**, long enough to clear the audio QA floor.  Very short
+  lines are accumulated in script order instead of inventing new dialogue.
+* Emits portable text-to-audio task payloads in dry mode.
 * Writes `voice_registry.json` in the exact schema the pipeline reads through
   `QINGSHAN_VOICE_REGISTRY` (`tools/speaker_voice_contract.py:78-90`), with
   `status: PENDING_GENERATION` and **null** asset ids / SHAs.  Nothing is
   fabricated.
-* Writes an AgentCut role policy for the nalu line in the schema
-  `tools/agentcut_character_voice_reference_guard.py` and
-  `tools/multimodal_character_binding_guard.py:108` consume.
+* Writes the compatibility role policy consumed by the checked-in admission
+  gates.
 * Optionally probes the engine's real `compile_speaker_voice_contract` against
   the registry it just wrote (offline, free) to prove the name→entity→asset
   resolution chain works.
@@ -78,12 +63,11 @@ SCHEMA = "nalu.voice_reference_bootstrap.v1"
 REGISTRY_SCHEMA = "qingshan.voice_reference_registry.v1"
 POLICY_SCHEMA = "qingshan.agentcut_character_voice_reference_policy.v1"
 
-# tools/generate_agentcut_character_voice_references.py:63 — the exact class
-# used for ASR similarity, so sample-text length is measured the same way.
+# This is the same character class used by the checked-in ASR similarity gate,
+# so sample-text length is measured consistently.
 HAN_ALNUM = re.compile(r"[㐀-鿿A-Za-z0-9]")
 
-# tools/generate_agentcut_character_voice_references.py:224,226 and
-# tools/pad_e38_v6_short_audio_assets.py:49,66
+# Shared duration and ASR thresholds consumed by the checked-in voice gates.
 HARD_MIN_SECONDS = 1.0
 SD2_MIN_SECONDS = 2.0
 HARD_MAX_SECONDS = 30.0
@@ -163,8 +147,7 @@ def choose_sample_text(
     literally verbatim.
     Rule 2 — otherwise accumulate consecutive lines in script order until the
     floor is cleared.  Concatenation is safe for the ASR check because
-    `normalized_text` strips all punctuation before comparing
-    (generate_agentcut_character_voice_references.py:91-92).
+    `normalized_text` strips all punctuation before comparing.
     Rule 3 — if the character's entire spoken material is still under the
     floor, use all of it and return a risk flag.  Nothing is invented.
     """
@@ -308,7 +291,7 @@ def build_brief(
             "apparent_age_range": age,
             "timbre": timbre,
             "must_be_unique_across_characters": True,
-            "uniqueness_authority": "tools/agentcut_character_voice_reference_guard.py:61-64 VOICE_PRESET_REUSED_ACROSS_CHARACTERS",
+            "uniqueness_authority": "checked-in voice admission guard: VOICE_PRESET_REUSED_ACROSS_CHARACTERS",
         },
     }
 
@@ -319,12 +302,13 @@ def build_brief(
 
 def build_task_payload(brief: dict[str, Any], *, episode: str, output_root: Path, voice: dict[str, Any] | None) -> dict[str, Any]:
     entity_id = brief["entity_id"]
-    mp3 = output_root / entity_id / f"VOICE-{entity_id}-agentcut-v1.mp3"
-    wav = output_root / entity_id / f"VOICE-{entity_id}-agentcut-v1.wav"
+    mp3 = output_root / entity_id / f"VOICE-{entity_id}-portable-v1.mp3"
+    wav = output_root / entity_id / f"VOICE-{entity_id}-portable-v1.wav"
     voice_id = (voice or {}).get("voice_id")
     voice_name = (voice or {}).get("voice_name")
     argv = [
-        "${AGENTCUT}", "speech-generate", brief["sample_text"],
+        "${VENV_PYTHON}", "${ENGINE_ROOT}/tools/storyclaw_audio_provider.py",
+        "speech-generate", brief["sample_text"],
         "--voice-id", voice_id or "${VOICE_ID_PENDING_CATALOG_SELECTION}",
         "--emotion", brief["emotion"],
         "--speed", str(brief["speed"]),
@@ -332,6 +316,8 @@ def build_task_payload(brief: dict[str, Any], *, episode: str, output_root: Path
         "--file-name", mp3.name,
         "--poll-interval", "2",
         "--timeout", "300",
+        "--transaction", "${ABSOLUTE_DURABLE_TRANSACTION_JSON}",
+        "--paid",
     ]
     return {
         "entity_id": entity_id,
@@ -339,9 +325,9 @@ def build_task_payload(brief: dict[str, Any], *, episode: str, output_root: Path
         "episode_scope": episode,
         "route": {
             "endpoint": "/api/v1/generation/text-to-audio",
-            "driver": ".agentcut_env/bin/agentcut speech-generate",
-            "driver_evidence": "tools/generate_agentcut_character_voice_references.py:114-131",
-            "engine": "AgentCut AGENTCUT-SPEECH-001 / MinMax Speech-2.8-HD",
+            "driver": "tools/storyclaw_audio_provider.py speech-generate",
+            "driver_evidence": "tools/storyclaw_audio_provider.py durable transaction provider",
+            "engine": "Giggle speech via the public portable provider",
             "capability_id": "AGENTCUT-SPEECH-001",
         },
         "request": {
@@ -352,13 +338,13 @@ def build_task_payload(brief: dict[str, Any], *, episode: str, output_root: Path
             "speed": brief["speed"],
             "output_mp3": str(mp3),
         },
-        "agentcut_argv": argv,
+        "portable_audio_argv": argv,
         "post_generation_normalization": {
             "command": [
                 "${FFMPEG}", "-y", "-i", str(mp3),
                 "-vn", "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", str(wav),
             ],
-            "evidence": "tools/generate_agentcut_character_voice_references.py:165-172",
+            "evidence": "checked-in portable ffmpeg normalization contract",
             "target_wav": str(wav),
         },
         "registration": {
@@ -369,11 +355,11 @@ def build_task_payload(brief: dict[str, Any], *, episode: str, output_root: Path
                 "file_url": "-> registry remote_url (H3 transport)",
                 "duration": "-> registry duration_seconds",
             },
-            "evidence": "tools/generate_agentcut_character_voice_references.py:317-323",
+            "evidence": "tools/upload_giggle_asset.py public asset registration contract",
         },
         "cost": {
             "unit_price_credits": AUDIO_UNIT_PRICE_CREDITS,
-            "price_authority": "live /api/v1/payment/credit-statements row for model_name MinMax-Speech-2.8-hd; tools/preflight_e40_u12_dia010_exactly_one_tts.py:112-114 refuses > 2",
+            "price_authority": "live provider billing record bound to the returned task id; the portable budget guard refuses a unit price above the configured cap",
             "must_reverify_before_paying": True,
         },
         "dry_run": True,
@@ -432,12 +418,13 @@ def build_registry(
             "status": PENDING_STATUS,
             "remote_asset_id": None,
             "remote_url": None,
-            "local_reference": str(output_root / entity_id / f"VOICE-{entity_id}-agentcut-v1.wav"),
+            "local_reference": str(output_root / entity_id / f"VOICE-{entity_id}-portable-v1.wav"),
             "local_sha256": None,
             "duration_seconds": None,
             "source_type": "AGENTCUT_GENERATED_CHARACTER_REFERENCE",
             "source_generator": "AGENTCUT_SPEECH_GENERATION",
             "agentcut_capability": "AGENTCUT-SPEECH-001",
+            "compatibility_note": "The AGENTCUT field names and values are retained only for the public engine's legacy gate schema; generation uses tools/storyclaw_audio_provider.py.",
             "agentcut_version": None,
             "generation_task_id": None,
             "generation_voice_id": voice.get("voice_id"),
@@ -453,37 +440,32 @@ def build_registry(
             "forbidden_replacements": ["EPISODE_LOCAL_TTS", "GENERIC_NEURAL_TTS_VOICE"],
             "legacy_references": [],
             "pending_fields_explained": {
-                "remote_asset_id": "written from upload_giggle_asset asset_id after the paid AgentCut generation; SD2 transport",
+                "remote_asset_id": "written from upload_giggle_asset asset_id after portable paid generation; SD2 transport",
                 "remote_url": "written from upload_giggle_asset file_url; H3 transport",
                 "local_sha256": "computed from the normalized 48kHz mono PCM wav that does not exist yet",
-                "performance_brief_sha256": "sha256 over the 9 policy fields once voice_id/voice_name are bound (agentcut_character_voice_reference_guard.py:36-46)",
-                "generation_voice_id": "must come from the AgentCut voice catalog; never invented, must be unique across characters",
+                "performance_brief_sha256": "sha256 over the nine policy fields once voice_id and voice_name are bound",
+                "generation_voice_id": "must come from the live provider catalog; never invented, must be unique across characters",
             },
         })
     return {
         "schema": REGISTRY_SCHEMA,
         "status": "PENDING_GENERATION_NOT_PRODUCTION_READY",
         "line": "nalu",
-        "work": "夜无疆",
+        "work": "PRIVATE_PROJECT",
         "episode_scope": episode,
         "recorded_at_utc": utc_now(),
         "read_via": "QINGSHAN_VOICE_REGISTRY (tools/speaker_voice_contract.py:78-90)",
-        "hardcoded_path_consumers": {
-            "note": "multimodal_character_binding_guard.py:15, agentcut_character_voice_reference_guard.py:14 and finalize_agentcut_voice_archive.py:16 read configs/series_voice_reference_registry_current_20260723.json and ignore the env var. See engine_patches/nalu_entity_registry_extension.diff for the env-var extension that removes the copy step.",
-            "fallback_install_path": str(ENGINE_ROOT / "configs/series_voice_reference_registry_current_20260723.json"),
-        },
+        "registry_authority": "QINGSHAN_VOICE_REGISTRY points to this project's private scoped file",
         "policy": {
             "language": "zh-CN",
             "accent_id": accent_id,
             "max_audio_references_per_provider_task": 2,
             "h3_speaking_identities_per_task": 1,
             "tts_substitution_on_native_speaking_shots": "FORBIDDEN",
-            "canonical_generator_for_nonexempt_characters": "AgentCut AGENTCUT-SPEECH-001",
-            "missing_reference_action": "AUTO_GENERATE_WITH_AGENTCUT_THEN_QA_AND_REGISTER_BEFORE_SPEAKING_GENERATION",
-            # Read by tools/agentcut_character_voice_reference_guard.exempt_entities:
-            # the nalu line has no pre-AgentCut legacy voice, so it claims zero
-            # exemptions. The guard only ever intersects this with its built-in
-            # set, so an empty list is strictly stricter, never weaker.
+            "canonical_generator_for_nonexempt_characters": "PUBLIC_STORYCLAW_AUDIO_PROVIDER",
+            "missing_reference_action": "AUTO_GENERATE_WITH_PORTABLE_PROVIDER_THEN_QA_AND_REGISTER_BEFORE_SPEAKING_GENERATION",
+            # Read by the legacy-compatible voice reference gate.  A new
+            # project claims no inherited voice exemptions.
             "only_legacy_native_voice_exemptions": [],
         },
         "no_fabrication_contract": "Every not-yet-real value in this file is null. No placeholder asset id, task id, receipt path or SHA appears anywhere; a null fails the gates loudly instead of passing them silently.",
@@ -515,8 +497,8 @@ def build_policy(briefs: list[dict[str, Any]], *, voices: dict[str, dict[str, An
         "status": "PENDING_VOICE_CATALOG_SELECTION" if any(row["voice_id"] is None for row in roles) else "AGENTCUT_VOICE_POLICY_ACTIVE",
         "recorded_at_utc": utc_now(),
         "consumed_by": [
-            "tools/agentcut_character_voice_reference_guard.py --policy",
-            "tools/multimodal_character_binding_guard.py:108 (_agentcut_voice_policy, hardcoded path — see engine patch)",
+            "legacy-compatible character voice reference gate",
+            "multimodal character binding gate",
         ],
         "performance_brief_sha256_fields": [
             "identity", "social_position", "temperament", "dramatic_function",
@@ -607,10 +589,10 @@ def main() -> int:
     parser.add_argument("--report", required=True)
     parser.add_argument(
         "--voice-catalog",
-        help="JSON mapping entity_id -> {voice_id, voice_name} from the AgentCut voice catalog. Without it voice ids stay null: they are provider values and must never be invented.",
+        help="JSON mapping entity_id -> {voice_id, voice_name} selected from the live provider catalog. Without it voice ids stay null: they are provider values and must never be invented.",
     )
-    parser.add_argument("--audio-output-root", default=f"{_np.RUNTIME_ROOT}/working_assets/voices/E01_agentcut_v1")
-    parser.add_argument("--accent-id", default="ACCENT-ZH-CN-NORTHERN-VILLAGE-V1")
+    parser.add_argument("--audio-output-root")
+    parser.add_argument("--accent-id", default="ACCENT-ZH-CN-STANDARD-V1")
     parser.add_argument("--emotion", default="neutral")
     parser.add_argument("--speed", type=float, default=1.0)
     parser.add_argument("--floor-chars", type=int, default=12, help="Minimum spoken length of sample_text (fix for R-8)")
@@ -638,7 +620,7 @@ def main() -> int:
             if voice_id and voice_id in seen:
                 raise SystemExit(
                     f"voice catalog reuses voice_id {voice_id} for {seen[voice_id]} and {entity_id}: "
-                    "agentcut_character_voice_reference_guard.py:61-64 forbids preset reuse across characters"
+                    "the voice reference gate forbids preset reuse across characters"
                 )
             if voice_id:
                 seen[voice_id] = entity_id
@@ -688,7 +670,11 @@ def main() -> int:
             default_emotion=args.emotion,
         ))
 
-    output_root = Path(args.audio_output_root)
+    output_root = (
+        Path(args.audio_output_root)
+        if args.audio_output_root
+        else Path(_np.RUNTIME_ROOT) / "working_assets" / "voices" / episode
+    )
     registry = build_registry(
         briefs, episode=episode, accent_id=args.accent_id, output_root=output_root, voices=voices
     )
@@ -705,10 +691,10 @@ def main() -> int:
         "recorded_at_utc": utc_now(),
         "mode": "DRY_RUN_NO_SUBMIT",
         "host_dependencies": {
-            "agentcut_binary": str(ENGINE_ROOT / ".agentcut_env/bin/agentcut"),
-            "agentcut_binary_present": (ENGINE_ROOT / ".agentcut_env/bin/agentcut").is_file(),
-            "vendored_ffmpeg_ffprobe": str(ENGINE_ROOT / ".agentcut_env/lib/python*/site-packages/agentcut/vendor/darwin-arm64"),
-            "whisper_model_required_for_qa": "faster-whisper model dir (generate_agentcut_character_voice_references.py:40)",
+            "portable_audio_provider": str(ENGINE_ROOT / "tools/storyclaw_audio_provider.py"),
+            "portable_audio_provider_present": (ENGINE_ROOT / "tools/storyclaw_audio_provider.py").is_file(),
+            "media_tools": "ffmpeg and ffprobe from NALU_* overrides or PATH",
+            "whisper_model_required_for_qa": "faster-whisper model directory for measured ASR QA",
             "giggle_api_key_required": True,
         },
         "task_count": len(briefs),
@@ -732,22 +718,15 @@ def main() -> int:
         blockers.append({
             "id": "VOICE_ID_NOT_SELECTED",
             "severity": "HARD",
-            "detail": "generation_voice_id must be a real AgentCut catalog value, unique per character. Nothing here invents one.",
-            "unblock": "Run the AgentCut voice catalog listing on the host, then re-run this tool with --voice-catalog.",
+            "detail": "generation_voice_id must be a real live-provider catalog value, unique per character. Nothing here invents one.",
+            "unblock": "Run storyclaw_audio_provider.py speech-voices, select suitable unique voices, then re-run this tool with --voice-catalog.",
         })
-    if not (ENGINE_ROOT / ".agentcut_env/bin/agentcut").is_file():
+    if not (ENGINE_ROOT / "tools/storyclaw_audio_provider.py").is_file():
         blockers.append({
-            "id": "AGENTCUT_BINARY_ABSENT",
+            "id": "PORTABLE_AUDIO_PROVIDER_ABSENT",
             "severity": "HARD",
-            "detail": f"{ENGINE_ROOT}/.agentcut_env does not exist in this clone; generate_agentcut_character_voice_references.py:35 cannot run.",
-            "unblock": "Install the AgentCut virtualenv with its vendored ffmpeg/ffprobe on this host.",
-        })
-    if not (ENGINE_ROOT / "configs/series_voice_reference_registry_current_20260723.json").is_file():
-        blockers.append({
-            "id": "QINGSHAN_SERIES_REGISTRY_ABSENT",
-            "severity": "MEDIUM",
-            "detail": "generate_agentcut_character_voice_references.update_registry loads that file and then indexes by_id['chenji'] / ['baili'] (:411), which KeyErrors for a nalu-only registry.",
-            "unblock": "Use the nalu registry written here plus the env-var patch, and write registry rows from the registration receipts rather than through update_registry.",
+            "detail": f"{ENGINE_ROOT}/tools/storyclaw_audio_provider.py is missing from this checkout.",
+            "unblock": "Install the complete tagged NALU engine release before starting S4.",
         })
     risky = [brief for brief in briefs if brief["risk_flags"]]
 
@@ -755,11 +734,11 @@ def main() -> int:
         "schema": SCHEMA,
         "episode": episode,
         "recorded_at_utc": utc_now(),
-        "blockers_addressed": ["R-8 sample_text too short for 秦铭 / 周阿婆", "R-3 / R-4 auto-generated voice path design"],
+        "blockers_addressed": ["voice sample duration/ASR floor", "portable durable voice generation route"],
         "route": {
             "endpoint": "/api/v1/generation/text-to-audio",
-            "driver": ".agentcut_env/bin/agentcut speech-generate",
-            "engine": "AgentCut AGENTCUT-SPEECH-001 / MinMax Speech-2.8-HD",
+            "driver": "tools/storyclaw_audio_provider.py speech-generate",
+            "engine": "Giggle speech via the public portable provider",
             "sd2_transport": "remote_asset_id (provider-registered audio asset id)",
             "sd2_transport_authority": "tools/speaker_voice_contract.py:141,314; tools/submit_giggle_video_manifest_v2.py:589-592",
             "h3_transport": "remote_url (public https)",
@@ -796,16 +775,16 @@ def main() -> int:
         "risky_roles": [brief["entity_id"] for brief in risky],
         "paid_run_sequence": [
             "0. 💚 Free: this tool, then `nalu_budget_ledger.py --check --episode <EP> --planned-credits <expected_credits>`.",
-            "1. Host prep: install .agentcut_env (binary + vendored ffmpeg/ffprobe) and the faster-whisper model; export GIGGLE_API_KEY.",
-            "2. Select one unique AgentCut voice per character from the provider catalog; re-run this tool with --voice-catalog so voice_id / voice_name / performance_brief_sha256 become real.",
-            "3. Copy the policy written here to the path the guards read (or apply engine_patches/nalu_entity_registry_extension.diff and export QINGSHAN_AGENTCUT_VOICE_POLICY / QINGSHAN_ENTITY_REGISTRY / QINGSHAN_VOICE_REGISTRY).",
+            "1. Host prep: install ffmpeg/ffprobe and the faster-whisper model; inject GIGGLE_API_KEY only for paid execution.",
+            "2. Run storyclaw_audio_provider.py speech-voices, automatically select one suitable unique provider voice per character, and re-run this tool with --voice-catalog.",
+            "3. Keep the policy and registries in the selected private series scope; the pipeline exports their exact paths to the checked-in guards.",
             "4. 🔑 Re-verify the live audio price is still 2 credits on /api/v1/payment/credit-statements before paying.",
-            f"5. 💰 One task per character ({len(briefs)} tasks, {AUDIO_UNIT_PRICE_CREDITS * len(briefs)} credits expected): agentcut speech-generate per tasks[].agentcut_argv. Bind the returned taskId immediately.",
+            f"5. 💰 One task per character ({len(briefs)} tasks, {AUDIO_UNIT_PRICE_CREDITS * len(briefs)} credits expected): run the portable provider through nalu_pipeline S4. Its absolute transaction path is flocked and binds taskId immediately.",
             "6. 💚 Normalize each mp3 to 48kHz mono 16-bit PCM wav; ffprobe must show exactly one audio stream and 1.0s <= duration <= 30.0s (SD2 wants >= 2.0s).",
             "7. 💚 ASR QA with the expected text as hotwords; difflib similarity over punctuation-stripped text must be >= 0.70.",
             "8. 🔑 upload_giggle_asset.py with is_public=True per wav; write asset_id -> remote_asset_id, file_url -> remote_url, duration -> duration_seconds.",
             "9. 🔑 Read the exact charge per taskId from /api/v1/payment/credit-statements; write credit_status and actual_charged_credits.",
-            "10. 💚 Flip each row to AGENTCUT_GENERATED_REGISTERED_PRODUCTION_READY only once remote_asset_id, local_sha256, receipts, performance_brief_sha256 and credit fields are all real, then run agentcut_character_voice_reference_guard.py and expect PASS.",
+            "10. 💚 Flip each row to the legacy-compatible AGENTCUT_GENERATED_REGISTERED_PRODUCTION_READY status only once remote_asset_id, local_sha256, receipts, performance_brief_sha256 and credit fields are all real, then run the checked-in voice admission guard and expect PASS.",
             "11. Rights: rights.status must reach PASS with a non-empty basis before release (initial_asset_library.py:340-342); provider commercialUseMetadata is checked by audit_e36_jiaotu_voice_rights_preflight.py:40-42.",
         ],
         "status": "PASS_DESIGN_COMPLETE_PENDING_PAID_STEP" if briefs else "FAIL_NO_SPEAKING_CHARACTERS",

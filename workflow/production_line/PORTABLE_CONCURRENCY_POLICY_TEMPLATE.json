@@ -1,0 +1,42 @@
+{
+  "schema": "qingshan.production.three_episode_concurrency.v1",
+  "distribution_mode": "PUBLIC_BOOTSTRAP",
+  "status": "REQUIRES_PROJECT_CONFIGURATION",
+  "target_concurrent_episode_lines": 3,
+  "normal_target_concurrent_episode_lines": 3,
+  "current_slots": [],
+  "held_inflight_episodes": [],
+  "next_episode_queue": [],
+  "slot_refill_rule": "Configure private project slots first. Refill only after the prior episode has an approved S8 checkpoint or an explicit authorized removal.",
+  "slot_release_gate": {
+    "required_status": "S8_CHECKPOINT_APPROVED",
+    "required_evidence": [
+      "checkpoint"
+    ],
+    "precheckpoint_refill_forbidden": true
+  },
+  "human_review_timeout_policy": {
+    "on_timeout": "HOLD_REVIEW_REQUIRED",
+    "evidence_required": true,
+    "automatic_pass_forbidden": true
+  },
+  "conditional_machine_admission_policy": {
+    "status": "DISABLED_IN_PUBLIC_BOOTSTRAP",
+    "qa_mutation_forbidden": true,
+    "supervisor_order_required": true
+  },
+  "release_order_independent": true,
+  "override_policy": {
+    "allowed_roles": [
+      "SUPERVISOR",
+      "PRODUCER"
+    ],
+    "required_fields": [
+      "authorization_ref",
+      "authorized_role",
+      "effective_at",
+      "new_slots_or_concurrency"
+    ],
+    "free_text_or_implicit_adjustment_forbidden": true
+  }
+}

@@ -24,6 +24,8 @@ import nalu_paths as _np
 SCHEMA = "nalu.series_scopes.v1"
 DEFAULT_SCOPE_ID = "NALU-YEWUJIANG"
 CONFIG_NAME = "series_scopes.json"
+#: declared scopes may omit these (policy inputs, not mutable asset authorities)
+OPTIONAL_SCOPE_KEYS = ("charter", "unit_duration_policy")
 
 _RUNTIME = Path(f"{_np.RUNTIME_ROOT}")
 _RT = _RUNTIME / "runtime"
@@ -65,6 +67,12 @@ def _abs(value: str | None) -> Path | None:
 def load_config() -> dict[str, Any]:
     path = config_path()
     if not path.is_file():
+        profile = str(os.environ.get("NALU_POLICY_PROFILE") or "").strip().upper()
+        requested_scope = str(os.environ.get("NALU_SERIES_SCOPE_ID") or "").strip()
+        if profile == "CURRENT_PORTABLE" or (
+            requested_scope and requested_scope != DEFAULT_SCOPE_ID
+        ):
+            raise SystemExit(f"SERIES_SCOPES_CONFIG_REQUIRED_CURRENT_PORTABLE:{path}")
         return {"schema": SCHEMA, "default_scope": DEFAULT_SCOPE_ID, "scopes": {}, "episodes": {}}
     data = json.loads(path.read_text(encoding="utf-8"))
     if data.get("schema") != SCHEMA:
@@ -74,6 +82,13 @@ def load_config() -> dict[str, Any]:
 
 def scope_id_for(episode: str, config: dict[str, Any] | None = None) -> str:
     config = config if config is not None else load_config()
+    override = str(os.environ.get("NALU_SERIES_SCOPE_ID") or "").strip()
+    if override:
+        declared = config.get("scopes") or {}
+        default_scope = str(config.get("default_scope") or DEFAULT_SCOPE_ID)
+        if override != default_scope and override not in declared:
+            raise SystemExit(f"SERIES_SCOPE_UNDECLARED:{override}:{episode}")
+        return override
     return str((config.get("episodes") or {}).get(episode) or config.get("default_scope") or DEFAULT_SCOPE_ID)
 
 
@@ -87,7 +102,7 @@ def resolve_scope(episode: str) -> dict[str, Any]:
     if sid != DEFAULT_SCOPE_ID:
         # a foreign scope must declare every path explicitly — inheriting a default-scope
         # registry silently would be exactly the cross-line asset leak this module prevents.
-        missing = [k for k in DEFAULT_PATHS if k not in declared and k != "charter"]
+        missing = [k for k in DEFAULT_PATHS if k not in declared and k not in OPTIONAL_SCOPE_KEYS]
         if missing:
             raise SystemExit(f"SERIES_SCOPE_PATHS_MISSING:{sid}:{','.join(missing)}")
     for key, value in declared.items():
@@ -98,6 +113,26 @@ def resolve_scope(episode: str) -> dict[str, Any]:
     out["series_id"] = str(declared.get("series_id") or sid)
     out["is_default"] = sid == DEFAULT_SCOPE_ID
     out["config_path"] = str(config_path()) if config_path().is_file() else None
+    # StoryClaw selects the immutable lexicon snapshot bound by this episode's
+    # active writer handoff.  It must stay inside the exact private scope and
+    # episode tree; callers cannot redirect gates to another project's words.
+    lexicon_override = str(os.environ.get("NALU_PROJECT_LEXICON") or "").strip()
+    if lexicon_override:
+        candidate = Path(lexicon_override).expanduser()
+        if not candidate.is_absolute():
+            raise SystemExit("PROJECT_LEXICON_OVERRIDE_MUST_BE_ABSOLUTE")
+        candidate = candidate.resolve()
+        allowed_root = (_RUNTIME / "writer_layers" / sid / episode).resolve()
+        try:
+            candidate.relative_to(allowed_root)
+        except ValueError as exc:
+            raise SystemExit(
+                f"PROJECT_LEXICON_OVERRIDE_OUTSIDE_ACTIVE_EPISODE:{candidate}:{allowed_root}"
+            ) from exc
+        if not candidate.is_file():
+            raise SystemExit(f"PROJECT_LEXICON_OVERRIDE_MISSING:{candidate}")
+        out["lexicon"] = candidate
+        out["lexicon_source"] = "ACTIVE_WRITER_HANDOFF"
     out["isolation"] = declared.get("isolation") or (
         "default nalu scope" if sid == DEFAULT_SCOPE_ID else "declared scope; default-scope registries are never read")
     return out
