@@ -54,7 +54,20 @@ python "$BASE_ENGINE/tools/storyclaw_install.py" install \
 
 The private runtime must already exist. The generic onboarding/project
 initializer creates it; the installer will not guess a project name or place
-private material inside the checkout. The installer never downloads Python
+private material inside the checkout. Create it with the project's stable link
+as its engine root, **before** the link exists (the path is stored, not
+dereferenced):
+
+```bash
+python "$BASE_ENGINE/tools/storyclaw_guided_onboarding.py" start \
+  --projects-root "$(dirname "$RUNTIME")" --engine-root "$ENGINE_LINK" \
+  --title "My project" --project-id my-project --scope-id MY-PROJECT --episode E01
+```
+
+`runtime/project.json` bakes that `engine_root` and there is no rebind tool:
+a project initialised with `--engine-root "$BASE_ENGINE"` later blocks the
+writer workflow with `PROJECT_ENGINE_RELEASE_MISMATCH`, and the only official
+recovery is to retire that runtime and initialise a new one with the link. The installer never downloads Python
 dependencies. `--install-deps` requires the exact release-bound dependency
 manifest and archive and installs them offline with `pip --no-index
 --require-hashes`; missing, mismatched, or unsupported assets block. Supported
