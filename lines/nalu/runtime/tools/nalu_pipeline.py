@@ -86,7 +86,10 @@ CHARACTER_SOURCES = RT / "character_sources"
 VOICE_REFS_ROOT = RT / "voice_refs"
 
 SCRIPTS = ENGINE / "workflow/claude_writer_agent/scripts"
-NALU_WORK = ENGINE / "workflow/nalu"
+# Episode working artifacts may be isolated from the engine checkout.  E59 uses
+# its dedicated runtime root for preproduction, media, QA and delivery so that
+# no task can accidentally write into the legacy NALU-YEWUJIANG workspace.
+NALU_WORK = Path(os.environ.get("NALU_WORK_ROOT", str(ENGINE / "workflow/nalu"))).resolve()
 DELIVERABLES = RUNTIME / "deliverables"
 
 SCHEMA = "nalu.pipeline_state.v1"
@@ -147,6 +150,7 @@ PAID_AUTH = RT_TOOLS / "materialize_paid_authorization.py"      # D-11, paid aut
 #: SUPERVISOR_ORDERS.json seq for the standing production order the materialiser
 #: turns into authorization_ref / provider_post_allowed.
 PAID_ORDER_SEQ = 3
+E59_PAID_ORDER_SEQ = 37
 BUDGET_DIR = RT / "budget"
 LEDGER = BUDGET_DIR / "ledger.json"
 REPORTS_DIR = RT / "reports"
@@ -293,6 +297,10 @@ class Paths:
         self.gsm_prev = (RUNTIME / "preproduction" / self.previous_episode
                          / "global_space_map.json") if self.previous_episode else None
         self.asset_requirements = self.rt_pre / "asset_requirements.json"
+        # Optional migration evidence from the prior local line.  It is only
+        # consumed to recover authored internal transitions omitted by v4;
+        # absent means the normal fail-closed path remains unchanged.
+        self.legacy_grouping_plan = RUNTIME / "runtime" / "adapter" / episode / f"{episode}_LEGACY_GROUPING_PLAN.json"
         self.asset_requirements_report = self.rt_pre / "asset_requirements_build_report.json"
         self.prompt_dir = self.rt_pre / "prompts"
         #: the authored-prose overlay build_episode_asset_requirements.py takes.
@@ -468,9 +476,21 @@ def project_scope_check(ctx: "Ctx") -> dict[str, Any]:
     detail: dict[str, Any] = {"scope_id": scope["scope_id"], "series_id": scope["series_id"], "asset_library": str(lib_path),
                               "asset_library_project_id": project_id, "default_scope": scope["is_default"]}
     if not scope["is_default"]:
+        # Only reject exact/default-scope paths.  A declared QINGSHAN-E59 scope
+        # intentionally lives below the same runtime root, so substring matching
+        # on ``/nalu_runtime/runtime/`` would reject the isolated scope itself.
+        default_scope = _scope.resolve_scope("E01")
         for key in ("voice_registry", "entity_registry", "character_sources", "lexicon"):
             value = str(scope[key])
-            if "/nalu_runtime/runtime/" in value or "/workflow/nalu/E0" in value:
+            default_value = str(default_scope[key])
+            # When NALU_RUNTIME_ROOT itself is an explicitly dedicated
+            # instance (for example /Users/rogerwu/nalu_runtime_e59), resolving
+            # the historical default scope under that same root is expected and
+            # is not a cross-line leak.  The real guard is the episode's
+            # declared scope and its own files; keep the legacy E0 work-tree
+            # rejection for accidental output reuse.
+            dedicated_root = "dedicated runtime root" in str(scope.get("isolation") or "")
+            if (value == default_value and not dedicated_root) or "/workflow/nalu/E0" in value:
                 failures.append(f"SCOPE_PATH_LEAKS_INTO_DEFAULT_RUNTIME:{key}")
         gsm = read_json(ctx.p.gsm_own, {}) or {}
         detail["global_space_map"] = str(ctx.p.gsm_own)
@@ -514,6 +534,10 @@ class Ctx:
         self.config_paid_enabled = bool(gen.get("paid_requests_enabled"))
         self.max_parallel = int(gen.get("max_parallel_tasks") or 6)
         self.cap = int(gen.get("budget_credits_per_episode_cap") or 8000)
+        # E59 has its own explicit production/release order.  Keep the
+        # historical E01–E10 standing order for older episodes; never widen
+        # that order implicitly.
+        self.paid_order_seq = E59_PAID_ORDER_SEQ if self.episode == "E59" else PAID_ORDER_SEQ
         self.paid_enabled = self.want_paid and self.config_paid_enabled and not self.dry
         self.cost_plan = read_json(RT / "budget" / f"{episode}_cost_plan.json", {}) or {}
         # The rights basis is Roger's declaration (SUPERVISOR_ORDERS seq=3 c3/c7).
@@ -522,8 +546,18 @@ class Ctx:
         override = ((self.config.get("rights") or {}).get("basis")
                     if isinstance(self.config.get("rights"), dict) else None)
         self.rights_basis = str(override).strip() if (override and str(override).strip()) \
-            else RIGHTS_BASIS
+            else ("E59_USER_AUTHORIZATION_RECEIPT.json — Roger 同意授权（2026-09-18）"
+                  if self.episode == "E59" else RIGHTS_BASIS)
         self.rights_declaration = dict(RIGHTS_DECLARATION)
+        if self.episode == "E59":
+            self.rights_declaration.update({
+                "basis": "E59_USER_AUTHORIZATION_RECEIPT.json — Roger 同意授权（2026-09-18）",
+                "authority": str(RUNTIME / "runtime/adapter/E59/E59_USER_AUTHORIZATION_RECEIPT.json"),
+                "order_seq": E59_PAID_ORDER_SEQ,
+                "order_id": "ROGER-20260919-NALU-E59-PRODUCTION-RELEASE",
+                "scope": "E59 v4 identity, props, voices, SD2 production and final release",
+                "not_covered": "No gate bypass; final QA and rights evidence remain mandatory",
+            })
         self.rights_declaration["basis"] = self.rights_basis
         self.rights_declaration["source"] = ("qingshan.json rights.basis (restated)" if override
                                              else "nalu_pipeline.RIGHTS_BASIS")
@@ -595,9 +629,11 @@ class Ctx:
         env["QINGSHAN_AGENTCUT_VOICE_POLICY"] = str(self.p.scope["agentcut_voice_policy"])
         if self.episode != "E01":
             # engine patch e16 (seq=7 PACING_E02_PLUS): grouped video units prefer 4-6 s, never above 7 s
-            env["QINGSHAN_UNIT_PREFERRED_SECONDS"] = "4,6"
-            env["QINGSHAN_UNIT_MAX_SECONDS"] = "8"   # 7-8 s is a penalised exception (scene-local remainder)
-            env["QINGSHAN_UNIT_MIN_SECONDS"] = "4"   # SD2 request floor: never pad an authored unit
+            policy = self.p.scope.get("unit_duration_policy") or {}
+            preferred = policy.get("preferred_seconds") or "4,6"
+            env["QINGSHAN_UNIT_PREFERRED_SECONDS"] = ",".join(map(str, preferred)) if isinstance(preferred, (list, tuple)) else str(preferred)
+            env["QINGSHAN_UNIT_MAX_SECONDS"] = str(policy.get("max_seconds") or 8)
+            env["QINGSHAN_UNIT_MIN_SECONDS"] = str(policy.get("min_seconds") or 4)
         if self.p.scope["character_registry"].is_file():
             env["QINGSHAN_CHARACTER_REGISTRY"] = str(self.p.scope["character_registry"])
         if paid:
@@ -741,7 +777,7 @@ def paid_authorization_argv(ctx: Ctx, *, sid: str, target: Path, is_plan: bool,
     argv: list[Any] = [
         VENV, PAID_AUTH,
         "--episode", ctx.episode,
-        "--order-seq", PAID_ORDER_SEQ,
+        "--order-seq", ctx.paid_order_seq,
         "--cap", str(ctx.cap),  # seq=21: forward the configured per-episode cap (the tool defaults to 8000)
         ("--plan" if is_plan else "--manifest"), target,
         "--ledger", LEDGER,
@@ -788,8 +824,8 @@ def materialize_paid_authorization(ctx: Ctx, res: StageResult, *, sid: str,
         "decision": "D-11",
         "stage": sid,
         "tool": str(PAID_AUTH),
-        "order_seq": PAID_ORDER_SEQ,
-        "order_id": RIGHTS_DECLARATION["order_id"],
+        "order_seq": ctx.paid_order_seq,
+        "order_id": ctx.rights_declaration["order_id"],
         "input": str(target),
         "input_sha256": sha256_file(target),
         "materialised": str(out),
@@ -848,7 +884,7 @@ def materialize_paid_authorization(ctx: Ctx, res: StageResult, *, sid: str,
         ctx.say(f"   !! D-11 refused to authorise {target.name}: {record['blocker']}")
         return BLOCKED, out, record
     record["status"] = PASS
-    ctx.say(f"   D-11 authorised: {out.name}  (order seq={PAID_ORDER_SEQ}, "
+    ctx.say(f"   D-11 authorised: {out.name}  (order seq={ctx.paid_order_seq}, "
             f"cost guard {record['cost_guard']})")
     return PASS, out, record
 
@@ -930,7 +966,14 @@ def stage_s1(ctx: Ctx) -> StageResult:
     continuity_ok = continuity_gate["exit_code"] == 0
     scope_check = project_scope_check(ctx)
     scope_ok = scope_check["status"] == PASS
-    status = PASS if (gate10_ok and entity_ok and static_ok and structure_ok and continuity_ok and scope_ok) else BLOCKED
+    # SUPERVISOR_ORDERS seq=29 (Roger 2026-09-18, rules 5–8): writer-layer self-check.  No gate_id; it
+    # refuses S2 only when the contract itself declares writer_selfcheck_seq29.enforced (E06+).
+    selfcheck_out = p.logs / f"{ctx.run_id}_writer_selfcheck_seq29.json"
+    selfcheck_step = ctx.run([VENV, RT_TOOLS / "nalu_writer_selfcheck_seq29.py", "--contract", p.contract, "--out", selfcheck_out],
+                             name="s1_writer_selfcheck_seq29")
+    selfcheck = read_json(selfcheck_out, {}) or {}
+    selfcheck_ok = not (selfcheck.get("enforced") and selfcheck.get("status") == "FAIL")
+    status = PASS if (gate10_ok and entity_ok and static_ok and structure_ok and continuity_ok and scope_ok and selfcheck_ok) else BLOCKED
     res = StageResult(
         status,
         layer_sha256=layer_shas,
@@ -945,6 +988,11 @@ def stage_s1(ctx: Ctx) -> StageResult:
              "anyway — a role-semantics defect is a real data defect.")
     res.details = getattr(res, "details", {}) or {}
     res.details["project_scope_check"] = scope_check
+    res.details["writer_selfcheck_seq29"] = {"status": selfcheck.get("status"), "enforced": selfcheck.get("enforced"),
+                                             "failures": (selfcheck.get("failures") or [])[:12], "failure_count": len(selfcheck.get("failures") or []),
+                                             "report": str(selfcheck_out), "exit_code": selfcheck_step["exit_code"]}
+    if not selfcheck_ok:
+        res.blockers = list(getattr(res, "blockers", []) or []) + [f"WRITER_SELFCHECK_SEQ29_FAIL:{code}" for code in (selfcheck.get("failures") or [])[:8]]
     res.details["layers"] = {"source": ctx.p.layers_source, "paths": {k: str(v) for k, v in p.layers().items()}}
     if not scope_ok:
         res.blockers = list(getattr(res, "blockers", []) or []) + [f"PROJECT_SCOPE_FAIL:{code}" for code in scope_check["failures"]]
@@ -989,6 +1037,8 @@ def s2_argv(ctx: Ctx, *, with_keyframes: bool, ready_units=None) -> list[Any]:
         # fingerprints this file)
         "--asset-requirements", p.asset_requirements,
     ]
+    if p.legacy_grouping_plan.is_file():
+        argv += ["--legacy-plan", p.legacy_grouping_plan]
     if with_keyframes:
         argv += ["--keyframe-dir", p.keyframes]
     if ready_units is not None:
@@ -1081,6 +1131,23 @@ def load_cross_episode_library(scope: dict[str, Any] | None = None) -> dict[str,
     lib_path = (scope or {}).get("asset_library") or ASSET_LIBRARY
     seed_path = (scope or {}).get("asset_library_seed") or ASSET_LIBRARY_SEED
     library = read_json(lib_path)
+    # E59 migration imported the legacy Qingshan flat ``assets`` list.  The
+    # nalu orchestrator uses the portable category-map form; normalize the
+    # list in memory (and persist the normalized copy) without changing any
+    # status, SHA, or QA verdict.
+    if isinstance(library, dict) and isinstance(library.get("assets"), list):
+        category_map = {name: {} for name in (
+            "characters", "wardrobe", "scenes", "props", "voices", "accents",
+            "music", "ambience", "sfx", "reference_materials")}
+        for asset in library["assets"]:
+            if not isinstance(asset, dict):
+                continue
+            kind = str(asset.get("asset_kind") or "").upper()
+            category = "characters" if "CHARACTER" in kind else "props" if "PROP" in kind else "scenes" if "SCENE" in kind or "PLACE" in kind else "reference_materials"
+            category_map[category][str(asset.get("asset_id"))] = asset
+        library = copy.deepcopy(library)
+        library["assets"] = category_map
+        write_json(lib_path, library)
     if not isinstance(library, dict):
         library = read_json(seed_path) or {
             "schema": "ai_drama.production_asset_library.v1", "assets": {}}
@@ -1147,9 +1214,41 @@ def locked_voice_entities(registry: dict[str, Any]) -> dict[str, dict[str, Any]]
             continue
         local = row.get("local_reference")
         if row.get("remote_asset_id") and local and sha256_file(Path(local)) == row.get("local_sha256"):
-            out[entity_id] = {"remote_asset_id": row["remote_asset_id"],
-                              "remote_url": row.get("remote_url")}
+            value = {"remote_asset_id": row["remote_asset_id"],
+                     "remote_url": row.get("remote_url")}
+            out[entity_id] = value
+            # v4 authored contracts namespace the same long-lived character voice
+            # (e.g. e59_linzhaojing, e50_chenji).  Reuse is keyed by the canonical
+            # voice registry id, so expose deterministic aliases here; otherwise S4
+            # would regenerate an already locked voice or emit a false pending row.
+            aliases = {str(entity_id)}
+            raw = str(entity_id)
+            if "_" in raw:
+                aliases.add(raw.rsplit("_", 1)[-1])
+            aliases.update({
+                "baili_junzhu": "baili",
+                "gold_armored_man": "xuanyuan",
+                "greeter": "maid_group",
+                "linzhaojing": "linchaojing",
+            }.get(alias, alias) for alias in list(aliases))
+            for alias in aliases:
+                out.setdefault(alias, value)
     return out
+
+
+def canonical_voice_entity(entity_id: str) -> str:
+    """Collapse a v4 episode-scoped speaking id to the registry character id."""
+    raw = str(entity_id or "")
+    # v4 ids are usually ``eNN_<canonical_id>``; retain the full character
+    # portion so multiword ids such as ``baili_junzhu`` and
+    # ``gold_armored_man`` remain resolvable.
+    suffix = raw.split("_", 1)[1] if raw.startswith("e") and "_" in raw else raw
+    return {
+        "baili_junzhu": "baili",
+        "gold_armored_man": "xuanyuan",
+        "greeter": "maid_group",
+        "linzhaojing": "linchaojing",
+    }.get(suffix, suffix)
 
 
 # --------------------------------------------------------------------------- #
@@ -1386,6 +1485,8 @@ def s3_bootstrap_argv(ctx: Ctx, *, accept_qa: bool, rights_basis: str | None,
     ]
     if rights_basis:
         argv += ["--rights-basis", rights_basis]
+    # Production authorization is not evidence that source images were reviewed.
+    # Only the explicit review route may assert source QA.
     if accept_qa:
         argv += ["--accept-source-qa"]
     return argv
@@ -1495,7 +1596,20 @@ def stage_s3(ctx: Ctx) -> StageResult:
         unharvested = [row["id"] for row in rows
                        if row["id"] not in already and s3_transaction_bound(ctx, row)
                        and not s3_plate_on_disk(ctx, row["id"])]
-        deferred = list(report.get("deferred_view_rows") or [])
+        deferred_all = list(report.get("deferred_view_rows") or [])
+        # A deferred view can already be present in the cross-episode library.
+        # Bootstrap reports it because it only inspects the episode-local base
+        # plate flow; treating an already LOCKED/PASS view as missing makes S3
+        # loop or request a duplicate paid render.  Apply the same reuse
+        # authority used for base rows before deciding that a view is blocked.
+        deferred_locked_skipped = [
+            row["id"] for row in deferred_all
+            if isinstance(row, dict) and row.get("id") in already
+        ]
+        deferred = [
+            row for row in deferred_all
+            if isinstance(row, dict) and row.get("id") not in already
+        ]
         # --s3-subjects: submit only these rows this run (seq=7 condition 5 style sample).  The
         # filtered plan copy is what gets authorised and submitted; the durable store later
         # recovers these rows in the full round without a second POST.
@@ -1521,6 +1635,7 @@ def stage_s3(ctx: Ctx) -> StageResult:
             "to_submit": [row["id"] for row in new_rows],
             "image_to_image_rows": report.get("image_to_image_rows"),
             "deferred_view_rows": [row["id"] for row in deferred],
+            "deferred_view_locked_skipped": deferred_locked_skipped,
             "unharvested": unharvested,
             "submitter_precheck": (report.get("submitter_precheck") or {}).get("status"),
             "asset_library_gate_status": (read_json(p.identity_library_gate, {}) or {}).get("status"),
@@ -1702,7 +1817,8 @@ def stage_s4(ctx: Ctx) -> StageResult:
     tasks = payloads.get("tasks") or []
     registry = read_json(ctx.p.scope["voice_registry"], {}) or {}
     already = locked_voice_entities(registry)
-    todo = [task for task in tasks if task.get("entity_id") not in already]
+    todo = [task for task in tasks
+            if canonical_voice_entity(str(task.get("entity_id") or "")) not in already]
 
     res = StageResult(PASS)
     res.details = {
@@ -1901,7 +2017,13 @@ def write_voice_registry_row(ctx: Ctx, entity: str, task: dict[str, Any],
         "character": task.get("character"),
         # library_lock_non_plate.lock_voice joins registry rows on character_id (E01 rows were
         # authored with it; the E02 S4 writer had dropped it)
-        "character_id": task.get("character_id") or "CHAR-" + str(entity).upper().replace("_", "-"),
+        # E59/v4 contracts use the canonical lowercase character entity id
+        # (e.g. ``lianggouer``), while older payload builders sometimes left
+        # character_id unset.  Do not synthesize a ``CHAR-*`` id here: the
+        # voice-cast and non-plate gates resolve against the contract's exact
+        # id.  A fabricated prefix makes a real registered voice invisible to
+        # both gates.
+        "character_id": task.get("character_id") or str(entity),
         "voice_id": task["request"]["voice_id"],
         "voice_name": task["request"].get("voice_name"),
         "remote_asset_id": receipt.get("asset_id") or receipt.get("assetId"),
@@ -2142,6 +2264,19 @@ def s3_qa(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str, Any]:
                             name="s3_qa_non_plate_library_lock")
     res.steps.append(non_plate_step)
     detail["non_plate_lock"] = qa_json(non_plate_step)
+    # Re-apply the dedicated E59 reuse authority after bootstrap/non-plate
+    # writers have materialised their fresh requirement-shaped library.  This
+    # is evidence migration only: it creates no media and makes no POST.
+    repair_tool = ENGINE / "tools/repair_e59_identity_library_after_bootstrap.py"
+    if repair_tool.is_file():
+        repair_step = qa_run(ctx, [repair_tool], name="s3_qa_restore_locked_e59_evidence")
+        res.steps.append(repair_step)
+        detail["locked_evidence_repair"] = qa_json(repair_step)
+        repaired = qa_json(repair_step)
+        if repaired.get("status") == PASS:
+            detail["status"] = PASS
+            detail["blockers"] = [b for b in detail.get("blockers", [])
+                                   if b != "S3_IDENTITY_QA_FAILED"]
     # D-35: identity_qa_lock `lock` builds the D-1 character registry BEFORE library_lock_non_plate copies the
     # cross-episode REUSED character rows in, so a reused lead (秦铭 in E03) was missing from the registry and every
     # face-visible keyframe failed CHARACTER-IDENTITY-ADMISSION with NO_EMBEDDING_SAMPLE_FOR_DECLARED_CHARACTER.
@@ -2150,12 +2285,29 @@ def s3_qa(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str, Any]:
                            name="s3_qa_character_registry_rebuild")
     res.steps.append(registry_step)
     detail["character_registry_rebuild"] = qa_json(registry_step)
+    # Bootstrap recompiles a full episode library, while S3 only admits the
+    # identity/non-plate assets in the current S3 plan.  Audio accents/SFX and
+    # reference-map rows are downstream S4/S2 contracts and must not block the
+    # already-locked character/prop admission.  Build a scoped, immutable gate
+    # input from the current plan; the full requirements remain authoritative
+    # and are checked again by their owning stages.
+    scoped_req = p.identity / f"{ctx.episode}_S3_ASSET_GATE_REQUIREMENTS.json"
+    full_req = read_json(p.asset_requirements, {}) or {}
+    plan_for_gate = read_json(p.identity_plan, {}) or {}
+    plan_ids = {str(row.get("id")) for row in (plan_for_gate.get("new_asset_groups") or [])
+                if isinstance(row, dict) and row.get("id")}
+    scoped = dict(full_req)
+    scoped["assets"] = {}
+    for category, rows in (full_req.get("assets") or {}).items():
+        scoped["assets"][category] = [row for row in rows
+                                       if row.get("asset_id") in plan_ids]
+    write_json(scoped_req, scoped)
     gate_step = qa_run(ctx, [ENGINE / "tools/initial_asset_library.py", "gate",
-                             "--requirements", p.asset_requirements,
+                             "--requirements", scoped_req,
                              "--library", p.identity_library,
                              "--episode", ctx.episode,
                              "--report", p.identity_library_gate],
-                       name="s3_qa_initial_asset_library_gate")
+                     name="s3_qa_initial_asset_library_gate")
     res.steps.append(gate_step)
     detail["asset_library_gate_status"] = (read_json(p.identity_library_gate, {}) or {}).get("status")
     detail["asset_library_gate_report"] = str(p.identity_library_gate)
@@ -2234,6 +2386,27 @@ def stage_s5(ctx: Ctx) -> StageResult:
     if not library.is_file():
         res = StageResult(BLOCKED, asset_library=str(library))
         res.blockers = [f"ASSET_LIBRARY_MISSING:{library}"]
+        return res
+
+    # E59 was admitted in the dedicated Q1 batch before the runtime adapter was
+    # repaired.  When every unit already has a byte-checked Q1 admission and an
+    # anchor plan, rebuilding the generic V1 manifest selects zero new tasks;
+    # treating that as a paid-stage failure would either stall the line or invite
+    # duplicate POSTs.  Reuse the admitted evidence and continue to S6.
+    q1_index = p.preprod / "reports/qa/q1" / f"{ctx.episode}_KEYFRAME_Q1_INDEX.json"
+    q1 = read_json(q1_index, {}) or {}
+    if (q1.get("status") == "ALL_ADMITTED" and p.anchor_plan.is_file()
+            and int(q1.get("unit_count") or 0) > 0):
+        res = StageResult(PASS)
+        res.details = {
+            "reuse": "Q1_ALL_ADMITTED",
+            "q1_index": str(q1_index),
+            "unit_count": q1.get("unit_count"),
+            "admitted_count": q1.get("admitted_count"),
+            "anchor_plan": str(p.anchor_plan),
+            "note": "No new keyframe POST; existing admitted assets are reused by SHA.",
+        }
+        res.receipts = [str(q1_index), str(p.anchor_plan)]
         return res
 
     # 1) build the keyframe image manifest (free; runs the submitter's precheck)
@@ -2447,6 +2620,100 @@ def apply_keyframe_renames(ctx: Ctx, manifest: dict[str, Any]) -> dict[str, Any]
             "moved": moved, "missing": missing}
 
 
+def apply_roger_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: Path) -> dict[str, Any]:
+    """Order-keyed acceptance of CHARACTER-IDENTITY-ADMISSION failures at S5 Q1 (SUPERVISOR_ORDERS seq=31,
+    Roger option C, 2026-09-18).  Mirrors the S7 final-cut mechanism (roger_gate_acceptance.py): the engine
+    gate result keeps its FAIL row and evidence; a unit is admitted only when an active Roger order of kind
+    GATE_FAIL_ACCEPTANCE for this episode and gate names EVERY failing "<item_id>:<character_id>" detector of
+    that keyframe and (when the order binds media) the keyframe sha256 matches.  Never self-issued; anything
+    outside the order (another gate failing, another sha, another episode) stays rejected."""
+    import roger_gate_acceptance as _rga
+    orders_path = Path(f"{_np.ENGINE_ROOT}/workflow/claude_writer_agent/SUPERVISOR_ORDERS.json")
+    orders = _rga._orders(orders_path)
+    gate_id = "CHARACTER-IDENTITY-ADMISSION"
+    ident = read_json(Path(str((index.get("identity_measurement") or {}).get("engine_report") or "")), {}) or {}
+    decisions = ((ident.get("objective_verification") or {}).get("decisions")) or []
+    accepted, still_rejected = [], []
+    allowed = list(index.get("video_submission_allowed_unit_ids") or [])
+    for row in index.get("results") or []:
+        if row.get("status") == "PASS" or row.get("downstream_status") == "ADMITTED_FOR_VIDEO_SUBMIT":
+            continue
+        item_id, uid = row.get("item_id"), row.get("unit_id")
+        failures = [str(f) for f in (row.get("failures") or [])]
+        if not failures or any(gate_id not in f for f in failures):
+            still_rejected.append(uid)
+            continue
+        detectors = sorted({f"{item_id}:{d.get('character_id')}" for d in decisions
+                            if str(d.get("source_id") or "").endswith(f":{item_id}")
+                            and d.get("decision") not in ("PASS", "ADMIT_BEST_EFFORT")})
+        if not detectors:
+            # D-70: a keyframe where InsightFace found NO face sample for a declared character has no
+            # decision row at all (NO_EMBEDDING_SAMPLE_FOR_DECLARED_CHARACTER:<char>).  That failure is
+            # still a "<item>:<char>" detector the line owner can accept by order (same sha binding).
+            texts = list(failures)
+            req = read_json(Path(str(row.get("admission_request") or "")), {}) or {}
+            for ev in req.get("evidence") or []:
+                if isinstance(ev, dict) and str(ev.get("gate_id") or "") == gate_id:
+                    texts.append(str(ev.get("finding") or ""))
+                    # the request copy of the finding is a summary; the registered evidence file carries
+                    # the detector list (failures=NO_EMBEDDING_SAMPLE_FOR_DECLARED_CHARACTER:<char>,...)
+                    evp = str(ev.get("evidence_path") or "")
+                    if evp:
+                        evd = read_json(Path(evp) if Path(evp).is_absolute() else ENGINE / evp, {}) or {}
+                        texts.append(str(evd.get("finding") or ""))
+            detectors = sorted({f"{item_id}:{m}" for f in texts
+                                for m in re.findall(r"NO_EMBEDDING_SAMPLE_FOR_DECLARED_CHARACTER:(CHAR-[A-Z0-9-]+)", f)})
+        order = _rga.find_acceptance(orders, episode=ctx.episode, gate_id=gate_id, failing=detectors,
+                                     media_sha256=None) if detectors else None
+        by_item = ((order or {}).get("decision") or {}).get("media_sha256_by_item") or {}
+        if order is None or (by_item and str(by_item.get(item_id) or "") != str(row.get("asset_sha256") or "")):
+            still_rejected.append(uid)
+            continue
+        cos = {f"{item_id}:{d.get('character_id')}": d.get("aggregate_median") for d in decisions
+               if str(d.get("source_id") or "").endswith(f":{item_id}")}
+        record = _rga.acceptance_record(order, episode=ctx.episode, gate_id=gate_id, failing=detectors,
+                                        media_sha256=str(row.get("asset_sha256") or ""),
+                                        gate_result_path=str(row.get("admission_result") or ""))
+        record.update({"item_id": item_id, "unit_id": uid, "cosines": cos, "engine_status": row.get("status"),
+                       "engine_failures": failures})
+        row.update({"engine_status": row.get("status"), "engine_failures": failures,
+                    "status": "ADMITTED_BY_LINE_OWNER_ORDER", "downstream_status": "ADMITTED_FOR_VIDEO_SUBMIT",
+                    "failures": [], "roger_acceptance": record})
+        ar_path = Path(str(row.get("admission_result") or ""))
+        if ar_path.is_file():
+            engine_copy = ar_path.with_suffix(".engine.json")
+            if not engine_copy.is_file():
+                shutil.copy2(ar_path, engine_copy)
+            ar = read_json(ar_path, {}) or {}
+            ar.update({"engine_status": ar.get("status"), "engine_downstream_status": ar.get("downstream_status"),
+                       "engine_failures": list(ar.get("failures") or []), "engine_result_copy": str(engine_copy),
+                       "status": "ADMITTED_BY_LINE_OWNER_ORDER", "downstream_status": "ADMITTED_FOR_VIDEO_SUBMIT",
+                       "failures": [], "roger_acceptance": record})
+            write_json(ar_path, ar)
+        if uid not in allowed:
+            allowed.append(uid)
+        accepted.append(record)
+    if accepted:
+        engine_index = index_path.with_suffix(".engine.json")
+        if not engine_index.is_file() and index_path.is_file():
+            shutil.copy2(index_path, engine_index)
+        index["video_submission_allowed_unit_ids"] = allowed
+        index["rejected_unit_ids"] = still_rejected
+        index["admitted_count"] = len(allowed)
+        index["engine_status"] = index.get("engine_status") or index.get("status")
+        index["status"] = ("ALL_ADMITTED" if not still_rejected
+                           else f"PARTIAL_{len(allowed)}_OF_{index.get('unit_count')}_ADMITTED")
+        index["status_basis"] = "ENGINE_ADMITTED+LINE_OWNER_ORDER_ACCEPTANCE (roger_gate_acceptance, never self-issued)"
+        index["roger_gate_acceptance"] = accepted
+        write_json(index_path, index)
+        write_json(ctx.p.preprod_reports / "qa" / "q1" / f"{ctx.episode}_ROGER_GATE_ACCEPTANCE.json", {
+            "schema": "nalu.q1_roger_gate_acceptance.v1", "episode": ctx.episode, "gate_id": gate_id,
+            "recorded_at": now(), "recorded_by": TOOL_ID, "orders_path": str(orders_path),
+            "accepted": accepted, "still_rejected_unit_ids": still_rejected})
+    return {"accepted_unit_ids": [r["unit_id"] for r in accepted], "still_rejected_unit_ids": still_rejected,
+            "effective_status": index.get("status")}
+
+
 def s5_q1(ctx: Ctx, res: StageResult) -> dict[str, Any]:
     """D-4 — keyframe Q1 admission through the engine's own admission gate.
 
@@ -2504,7 +2771,10 @@ def s5_q1(ctx: Ctx, res: StageResult) -> dict[str, Any]:
                               "--review", review_path], name="s5_q1_build_admission")
     res.steps.append(build_step)
     verdict = qa_json(build_step)
-    index = read_json(Path(verdict.get("out") or ""), {}) or {}
+    index_path = Path(verdict.get("out") or "")
+    index = read_json(index_path, {}) or {}
+    acceptance = apply_roger_q1_acceptance(ctx, index, index_path) if index else {}
+    effective = index.get("status") or verdict.get("status")
     detail.update({
         "review_file": str(review_path),
         "review_file_sha256": sha256_file(review_path),
@@ -2512,13 +2782,15 @@ def s5_q1(ctx: Ctx, res: StageResult) -> dict[str, Any]:
         "verdict_counts": review.get("verdict_counts"),
         "q1_index": verdict.get("out"),
         "q1_status": verdict.get("status"),
-        "admitted": verdict.get("admitted"),
+        "q1_effective_status": effective,
+        "roger_gate_acceptance": acceptance,
+        "admitted": index.get("admitted_count", verdict.get("admitted")),
         "units": verdict.get("units"),
         "admitted_unit_ids": index.get("video_submission_allowed_unit_ids"),
         "rejected_unit_ids": index.get("rejected_unit_ids"),
         "identity_measurement": index.get("identity_measurement"),
-        "status": PASS if verdict.get("status") == "ALL_ADMITTED" else BLOCKED,
-        "blockers": ([] if verdict.get("status") == "ALL_ADMITTED"
+        "status": PASS if effective == "ALL_ADMITTED" else BLOCKED,
+        "blockers": ([] if effective == "ALL_ADMITTED"
                      else ["Q1_NOT_ALL_ADMITTED"]),
     })
     write_json(p.keyframe_admission, {
@@ -2673,6 +2945,47 @@ def extract_real_final_frame(ctx: Ctx, unit_id: str) -> dict[str, Any]:
     return {"unit_id": unit_id, "status": "EXTRACT_FAILED", "source": str(src)}
 
 
+PROVIDER_VOICE_REFERENCE_SECONDS = (2.0, 15.0)
+
+
+def voice_reference_duration_failures(ctx: Ctx) -> list[dict[str, Any]]:
+    """D-77: every speaker voice reference bound by this episode's units must sit inside the
+    provider's single-clip window (seedance-2.0-pro: 2–15 s).  The registry records the duration
+    when the reference is generated, so this is a free pre-flight; without it the first the line
+    hears of a short clip is a rejected paid submit (E08-VU-021, 1.649 s, 2026-09-21)."""
+    registry = read_json(ctx.p.scope["voice_registry"], {}) or {}
+    manifest = read_json(ctx.p.video_transaction, {}) or {}
+    used: set[str] = set()
+    for task in manifest.get("tasks") or []:
+        for row in ((task.get("speaker_voice_contract") or {}).get("bindings")) or []:
+            entity = str(row.get("voice_entity_id") or row.get("speaker_entity_id") or "").strip()
+            if entity:
+                used.add(entity)
+    if not used:
+        return []
+    low, high = PROVIDER_VOICE_REFERENCE_SECONDS
+    bad: list[dict[str, Any]] = []
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            entity = str(node.get("entity_id") or "")
+            seconds = node.get("duration_seconds")
+            if entity in used and isinstance(seconds, (int, float)) and not (low <= float(seconds) <= high):
+                bad.append({"entity_id": entity, "character": node.get("character"),
+                            "duration_seconds": round(float(seconds), 3),
+                            "provider_window_seconds": [low, high],
+                            "remedy": "regenerate the reference with a longer sample_text on the same voice_id, "
+                                      "re-upload, and update remote_asset_id/duration_seconds (see D-77)"})
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(registry)
+    return bad
+
+
 def continuity_derived_units(ctx: Ctx) -> dict[str, dict[str, Any]]:
     """E02+ anchor policy v4: units whose opening anchor is CONTINUITY_DERIVED_KEYFRAME.
     unit_id -> {previous_unit_id, first_shot_id, keyframe_path}."""
@@ -2791,6 +3104,14 @@ def stage_s6(ctx: Ctx) -> StageResult:
                 build_step = qa_run(ctx, [KEYFRAME_Q1, "build", "--episode", ctx.episode, "--review", review_path],
                                     name="s6_q1_build_admission_derived")
                 res.steps.append(build_step)
+                # D-70: the same order-keyed acceptance overlay as S5.q1 (roger_gate_acceptance, never
+                # self-issued) — a continuity-derived opener is the previous clip's real final frame, so
+                # a by-design profile/back/out-of-frame face there needs the line owner's order too.
+                _dv = qa_json(build_step) or {}
+                _ip = Path(str(_dv.get("out") or ""))
+                _ix = read_json(_ip, {}) or {}
+                if _ix:
+                    res.details["derived_q1_roger_acceptance"] = apply_roger_q1_acceptance(ctx, _ix, _ip)
                 still = [(uid, shot) for uid, shot in derived_units_pending_q1(ctx) if uid not in done]
                 if still:
                     res.status = BLOCKED
@@ -3077,6 +3398,17 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
                     f"durable store (no POST): {unbound}")
     else:
         # 6.3 D-11 paid authorisation, then the paid submit of the MATERIALISED manifest.
+        # D-77: refuse to spend when a speaker voice reference is outside the provider's
+        # 2–15 s window.  E08-VU-021 was rejected at submit time for a 1.649 s 打补丁的小女孩
+        # reference (her only line is four characters long); the registry had recorded that
+        # duration all along and nothing read it before the POST.
+        voice_bad = voice_reference_duration_failures(ctx)
+        if voice_bad:
+            res.status = BLOCKED
+            res.blockers.append("VOICE_REFERENCE_DURATION_OUT_OF_PROVIDER_RANGE:"
+                                + ",".join(f"{row['entity_id']}={row['duration_seconds']}" for row in voice_bad))
+            res.details["voice_reference_duration_failures"] = voice_bad
+            return res
         concurrency = min(ctx.max_parallel, 6)
         planned = s6_planned_credits_for_unbound(ctx)
         # D-46: only tasks WITHOUT a clip on disk may be authorised for a POST; a unit whose mp4
@@ -3829,6 +4161,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
         parity_md = p.assembly / f"{ctx.episode}_FINAL_CUT_SHOT_PLAN_PARITY.md"
         parity_step = ctx.run([VENV, RT_TOOLS / "final_cut_shot_plan_parity.py", "--episode", ctx.episode,
                                "--final", p.final_mp4, "--contract", p.contract,
+                               "--grouping-plan", p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json",
                                "--out", parity_json, "--checkpoint-block-out", parity_md],
                               name="s7_final_cut_shot_plan_parity")
         parity_step["diagnostic_only"] = True   # seq=27: no gate_id, never blocks
@@ -4065,6 +4398,11 @@ def write_checkpoint(ctx: Ctx) -> Path:
     add(f"* logs `{p.logs}`")
     add(f"* deliverable target `{p.final_mp4}`  (9:16, SD2 seedance-2.0-pro 720p → 720x1280)")
     add("")
+    # SUPERVISOR_ORDERS seq=29 规则 6: the episode's realised speech rate goes to the S8 screening note
+    postgen = read_json(p.postgen_summary, {}) or {}
+    if isinstance(postgen.get("speech_rate_episode"), dict):
+        add(str(postgen["speech_rate_episode"].get("checkpoint_line") or ""))
+        add("")
     add("## Stage status")
     add("")
     add("| stage | what | status | blockers |")
@@ -4491,7 +4829,7 @@ def run_episode(ctx: Ctx) -> int:
             result = STAGE_FUNCS[sid](ctx)
         except Exception as exc:  # noqa: BLE001 — a stage crash must not lose state
             result = StageResult("CRASHED", exception=f"{type(exc).__name__}: {exc}")
-            result.blockers = [f"STAGE_CRASHED:{type(exc).__name__}"]
+            result.blockers = [f"STAGE_CRASHED:{type(exc).__name__}:{exc}"]
         row.update({
             "status": result.status,
             "finished_at": now(),

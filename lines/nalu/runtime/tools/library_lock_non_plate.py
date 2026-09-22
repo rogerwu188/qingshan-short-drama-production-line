@@ -42,10 +42,12 @@ from __future__ import annotations
 import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
+from nalu_series_scope import resolve_scope
 
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from copy import deepcopy
@@ -55,6 +57,7 @@ from typing import Any
 
 ENGINE = Path(f"{_np.ENGINE_ROOT}")
 RUNTIME = Path(f"{_np.RUNTIME_ROOT}")
+WORK_ROOT = Path(os.environ.get("NALU_WORK_ROOT", str(ENGINE / "workflow/nalu"))).resolve()
 FFPROBE = "/opt/homebrew/bin/ffprobe"
 SCHEMA = "nalu.non_plate_library_lock.v1"
 
@@ -106,20 +109,28 @@ class Ctx:
     def __init__(self, episode: str, rights_basis: str) -> None:
         self.episode = episode
         self.rights_basis = rights_basis
+        # Resolve every registry through the episode scope.  Falling back to
+        # the historical default registry makes isolated Qingshan episodes
+        # appear to have no voices and can leak another production's assets.
+        self.scope = resolve_scope(episode)
         self.requirements_path = RUNTIME / "preproduction" / episode / "asset_requirements.json"
-        self.library_path = ENGINE / "workflow/nalu" / episode / "identity/asset_library.json"
-        self.runtime_library_path = RUNTIME / "runtime/asset_library.json"
+        # Episode artifacts must follow the isolated work root.  Falling back
+        # to ENGINE/workflow/nalu silently mixed E59 with the legacy line.
+        self.library_path = WORK_ROOT / episode / "identity/asset_library.json"
+        self.runtime_library_path = (RUNTIME / "runtime/asset_library.json") if self.scope.get("is_default") else None
         self.gsm_path = RUNTIME / "preproduction" / episode / "global_space_map.json"
         self.contract_path = ENGINE / "workflow/claude_writer_agent/scripts" / f"{episode}_GENERATION_CONTRACT_v1.json"
-        self.voice_registry_path = RUNTIME / "runtime/voice_registry.json"
-        self.speech_payloads_path = ENGINE / "workflow/nalu" / episode / "voice/speech_task_payloads.json"
-        self.voice_upload_dir = ENGINE / "workflow/nalu" / episode / "voice/uploads"
+        self.voice_registry_path = Path(self.scope["voice_registry"])
+        self.speech_payloads_path = WORK_ROOT / episode / "voice/speech_task_payloads.json"
+        self.voice_upload_dir = WORK_ROOT / episode / "voice/uploads"
         self.reviews_dir = RUNTIME / "runtime/reviews" / episode
-        self.machine_gates_path = ENGINE / "workflow/nalu" / episode / "preproduction" / f"{episode}_MACHINE_GATE_REPORTS_V1.json"
+        self.machine_gates_path = WORK_ROOT / episode / "preproduction" / f"{episode}_MACHINE_GATE_REPORTS_V1.json"
 
         self.requirements = load_json(self.requirements_path)
         self.library = load_json(self.library_path)
-        self.runtime_library = load_json(self.runtime_library_path) if self.runtime_library_path.is_file() else None
+        self.runtime_library = (load_json(self.runtime_library_path)
+                                if self.runtime_library_path and self.runtime_library_path.is_file()
+                                else None)
         self.gsm = load_json(self.gsm_path)
         self.contract = load_json(self.contract_path)
         self.contract_sha = sha256_file(self.contract_path)
@@ -233,8 +244,18 @@ def _bgm_is_none(bgm: Any) -> bool:
     """audio_contract.bgm is a string ("NO_EXTERNAL_BGM…", E01 as locked) or, since D-19, a dict
     {mode: NONE, used: false, declaration: "NO_EXTERNAL_BGM…"}."""
     if isinstance(bgm, dict):
-        return str(bgm.get("mode") or "").upper() == "NONE" and not bgm.get("used") and str(bgm.get("declaration") or "").startswith("NO_EXTERNAL_BGM")
-    return str(bgm or "").startswith("NO_EXTERNAL_BGM")
+        mode = str(bgm.get("mode") or "").upper()
+        declaration = str(bgm.get("declaration") or "")
+        # E59's authored policy is ``NONE_IN_REALITY_LOW_DRONE_IN_DREAM_ONLY``:
+        # no external BGM, but an in-world low drone is allowed in dream
+        # scenes.  It is still the NONE branch of the external-BGM gate.
+        return mode.startswith("NONE") and not bgm.get("used") and (
+            declaration.startswith("NO_EXTERNAL_BGM")
+            or "零 BGM" in declaration
+            or "零BGM" in declaration
+        )
+    value = str(bgm or "").upper()
+    return value.startswith("NO_EXTERNAL_BGM") or value.startswith("NONE")
 
 
 def _owner_has_dialogue(ctx: "Ctx", owner: str | None) -> bool:
@@ -270,13 +291,18 @@ def lock_voice(ctx: Ctx, row: dict[str, Any]) -> dict[str, Any]:
     entity = (reg or {}).get("entity_id")
     task = next((t for t in (ctx.speech_payloads.get("tasks") or []) if t.get("entity_id") == entity), None)
     wav = Path((reg or {}).get("local_reference") or "/nonexistent")
-    receipt_path = ctx.voice_upload_dir / f"{entity}_giggle_asset.json"
+    # A cross-episode AgentCut/native row carries its authoritative
+    # registration receipt in the legacy registry.  Prefer that receipt before
+    # searching this episode's upload directory.
+    receipt_path = Path(str((reg or {}).get("registration_receipt") or ""))
+    if not receipt_path.is_file():
+        receipt_path = ctx.voice_upload_dir / f"{entity}_giggle_asset.json"
     if not receipt_path.is_file():
         # voices are paid once per character (S4 cross-episode reuse): the upload receipt lives
         # in the episode that generated it.  E05 (2026-09-17): a recast voice (seq=17/20) has receipts in
         # several episodes — pick the one whose asset id is the registry's current remote_asset_id, else
         # the newest episode's (the E01 receipt of a recast 秦铭 failed upload_receipt_asset_id_matches_registry).
-        cands = sorted((ENGINE / "workflow/nalu").glob(f"E*/voice/uploads/{entity}_giggle_asset.json"))
+        cands = sorted(WORK_ROOT.glob(f"E*/voice/uploads/{entity}_giggle_asset.json"))
         want = (reg or {}).get("remote_asset_id")
         for cand in reversed(cands):
             cdata = load_json(cand)
@@ -289,14 +315,28 @@ def lock_voice(ctx: Ctx, row: dict[str, Any]) -> dict[str, Any]:
                 receipt_path = cands[-1]
     receipt = load_json(receipt_path) if receipt_path.is_file() else {}
     receipt_data = receipt.get("data") if isinstance(receipt.get("data"), dict) else receipt
+    if not receipt_data.get("asset_id") and isinstance(receipt.get("upload_response"), dict):
+        upload_data = receipt["upload_response"].get("data")
+        if isinstance(upload_data, dict):
+            receipt_data = upload_data
+    if not receipt_data.get("asset_id") and receipt.get("registered_asset_id"):
+        receipt_data = {"asset_id": receipt.get("registered_asset_id")}
     probe = ffprobe(wav) if wav.is_file() else {"error": "wav_missing"}
     wav_sha = sha256_file(wav) if wav.is_file() else None
-    voice_id = ((task or {}).get("request") or {}).get("voice_id")
+    voice_id = ((task or {}).get("request") or {}).get("voice_id") or (reg or {}).get("remote_asset_id")
+    receipt_match = bool(receipt_data.get("asset_id") and receipt_data.get("asset_id") == (reg or {}).get("remote_asset_id"))
+    # Native legacy references were registered and locked in the source line
+    # before this episode scope existed.  Their registry row + verified local
+    # WAV + provider asset id is the authoritative receipt chain even when the
+    # old line did not retain a standalone *_giggle_asset.json file.
+    legacy_native_match = (str((reg or {}).get("source_type") or "").startswith(("LOCKED_NATIVE_REFERENCE", "NATIVE_MULTIMODAL"))
+                           and bool((reg or {}).get("remote_asset_id"))
+                           and bool(wav_sha and wav_sha == (reg or {}).get("local_sha256")))
     checks = [
         {"id": "registry_row_locked_production_ready", "status": "PASS" if (reg or {}).get("status") == "LOCKED_PRODUCTION_READY" else "FAIL"},
         {"id": "wav_sha_matches_registry", "status": "PASS" if wav_sha and wav_sha == (reg or {}).get("local_sha256") else "FAIL"},
         {"id": "upload_receipt_asset_id_matches_registry",
-         "status": "PASS" if receipt_data.get("asset_id") and receipt_data.get("asset_id") == (reg or {}).get("remote_asset_id") else "FAIL"},
+         "status": "PASS" if receipt_match or legacy_native_match else "FAIL"},
         {"id": "ffprobe_48k_mono_pcm_s16le", "status": "PASS" if probe.get("sample_rate") == 48000 and probe.get("channels") == 1 and probe.get("codec_name") == "pcm_s16le" else "FAIL", "measured": probe},
         {"id": "ffprobe_duration_positive", "status": "PASS" if (probe.get("duration_seconds") or 0) > 0.5 else "FAIL"},
         {"id": "language_zh_cn", "status": "PASS" if spec.get("language") == "zh-CN" else "FAIL"},

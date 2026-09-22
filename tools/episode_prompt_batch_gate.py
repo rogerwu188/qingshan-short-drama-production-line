@@ -5,9 +5,23 @@ Planned prompt QA is distinct from final exact-reference/provider admission.
 """
 import hashlib
 import json
+import os
 from pathlib import Path
 
 ARTIFACTS=('keyframe_prompt','video_prompt','prompt_qa')
+
+def _trusted_roots(root):
+    roots=[Path(root).resolve()]
+    runtime=os.environ.get('NALU_RUNTIME_ROOT','').strip()
+    if runtime: roots.append(Path(runtime).resolve())
+    return roots
+
+def _trusted_path(root, value):
+    raw=Path(str(value or ''))
+    path=(raw if raw.is_absolute() else Path(root)/raw).resolve()
+    if not any(path.is_relative_to(base) for base in _trusted_roots(root)):
+        return None
+    return path
 
 def require_generation_batch(task, root, *, artifact_kind='video_prompt'):
     """Call after bound-transaction recovery, before uploads or new intent.
@@ -46,8 +60,8 @@ def require_generation_batch(task, root, *, artifact_kind='video_prompt'):
         # Only an explicitly reviewed late materialization may differ from
         # the batch-approved text (e.g. real-tail reference token binding).
         ref=task.get('prompt_batch_finalization') or {}
-        path=(root/ref.get('path','')).resolve()
-        if not path.is_relative_to(root.resolve()) or not path.is_file() or digest(path)!=ref.get('sha256'):
+        path=_trusted_path(root,ref.get('path',''))
+        if path is None or not path.is_file() or digest(path)!=ref.get('sha256'):
             raise ValueError('WHOLE_BATCH_PROMPT_QA_REQUIRED:FINAL_PROMPT_NOT_BOUND_TO_BATCH')
         qa=json.loads(path.read_text())
         expected={'status':'PASS','execution_id':execution,'unit_id':uid,'artifact_kind':artifact_kind,

@@ -26,6 +26,7 @@ import hashlib
 import importlib
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,12 +44,17 @@ RT_CONFIGS = RT / "configs"
 REVIEWS_ROOT = RT / "reviews"
 STATE_DIR = RT / "pipeline_state"
 ASSET_LIBRARY = RT / "asset_library.json"
-CHARACTER_REGISTRY = RT / "nalu_character_asset_registry.json"
+CHARACTER_REGISTRY = Path(
+    os.environ.get("QINGSHAN_CHARACTER_REGISTRY")
+    or ((RT / "character_asset_registry.json")
+        if (RT / "character_asset_registry.json").is_file()
+        else (RT / "nalu_character_asset_registry.json"))
+).expanduser().resolve()
 CHARACTER_SOURCES = RT / "character_sources"
 GATE_REGISTRY = ENGINE / "configs/GATE_REGISTRY_v3_20260716.json"
 REROLL_POLICY = ENGINE / "configs/reroll_cost_guard_policy_v1_20260716.json"
 DIALOGUE_QA_POLICY = RT_CONFIGS / "BASIC_DIALOGUE_QA_POLICY.json"
-NALU_WORK = ENGINE / "workflow/nalu"
+NALU_WORK = Path(os.environ.get("NALU_WORK_ROOT") or (ENGINE / "workflow/nalu")).expanduser().resolve()
 SCRIPTS = ENGINE / "workflow/claude_writer_agent/scripts"
 FFMPEG = "/opt/homebrew/bin/ffmpeg"
 FFPROBE = "/opt/homebrew/bin/ffprobe"
@@ -210,7 +216,15 @@ class QaPaths:
         self.start_frame_evidence_mirror = self.preprod_reports / "start_frame_evidence"
 
     def keyframe(self, shot_id: str) -> Path:
-        return self.keyframes / f"{shot_id}-keyframe-v1.png"
+        candidates = list(self.keyframes.glob(f"{shot_id}-keyframe-v*.png"))
+        if not candidates:
+            return self.keyframes / f"{shot_id}-keyframe-v1.png"
+
+        def version(path: Path) -> tuple[int, str]:
+            match = re.search(r"-keyframe-v(\d+)\.png$", path.name, re.I)
+            return (int(match.group(1)) if match else 0, path.name)
+
+        return max(candidates, key=version)
 
 
 # --------------------------------------------------------------------------- #

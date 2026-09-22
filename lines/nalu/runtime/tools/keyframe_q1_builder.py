@@ -195,6 +195,30 @@ def run_ocr(image: Path, forbidden_terms: list[str], out: Path) -> dict[str, Any
             "--image", str(image), "--out", str(out)]
     for term in forbidden_terms:
         argv += ["--forbid-text", term]
+    # OCR model startup dominates a batch rebuild.  Reuse a prior objective report only
+    # when it names this exact versioned image, was written after the image, and carries
+    # the identical closed-set policy.  The Q1 decision is still rebuilt below, so a gate
+    # policy/code change is applied without rerunning an unchanged neural inference.
+    cached = read_json(out, {}) or {}
+    exact_cached_input = (
+        out.is_file() and image.is_file()
+        and out.stat().st_mtime_ns >= image.stat().st_mtime_ns
+        and list(cached.get("source_images") or []) == [str(image.resolve())]
+        and list(cached.get("forbid_text") or []) == list(forbidden_terms)
+        and cached.get("engine") == "RapidOCR / ONNX Runtime"
+        and cached.get("lexicon_policy_configured") is True
+    )
+    if exact_cached_input:
+        return {
+            "argv": argv,
+            "exit_code": 0 if str(cached.get("status") or "").upper() == "PASS" else 1,
+            "stdout_tail": "OCR_REPORT_REUSED_EXACT_INPUT_AND_POLICY",
+            "stderr_tail": "",
+            "report_path": str(out),
+            "report_sha256": sha256_file(out),
+            "report": cached,
+            "cache_reused": True,
+        }
     env = dict(os.environ)
     env.pop("GIGGLE_API_KEY", None)
     env["PYTHONPATH"] = os.pathsep.join([str(ENGINE), str(ENGINE / "tools")])
@@ -228,11 +252,35 @@ def build_period_verification(item: dict[str, Any], questionnaire: dict[str, Any
     # recorded in the evidence (ocr_noise_ignored) so the call stays auditable.
     declared_noise = {str(v)[6:].strip() for v in ((item.get("observed") or {}).get("observed_text_strings") or [])
                       if str(v).startswith("NOISE:")}
+    reviewer_saw_no_text = (
+        str((item.get("answers") or {}).get("no_burned_in_text_or_subtitle") or "").upper() == "PASS"
+        and not [str(value) for value in
+                 (item.get("observed") or {}).get("observed_text_strings") or []
+                 if not str(value).startswith("NOISE:")]
+    )
     def _is_noise(row):
         text = str(row.get("text") or "").strip()
         if not text or (row.get("forbidden_tokens") or []):
             return False
         if text in declared_noise and float(row.get("confidence") or 1.0) < 0.90:
+            return True
+        # D-27: RapidOCR can hallucinate a short number out of armour, rock or fabric
+        # texture (E59-S05-10: "380" at 0.67795).  The still-image OCR producer already
+        # classifies a numeric-only recognition as a warning rather than a critical
+        # failure.  Preserve that policy here only when the exact report is otherwise
+        # PASS, confidence is below 0.75, no forbidden/Latin/Chinese text was detected,
+        # and the human reviewer explicitly saw no burned-in text.  Real captions,
+        # forbidden terms and higher-confidence numbers remain blocking.
+        numeric_texture_noise = (
+            bool(row.get("numeric_string"))
+            and text.isascii() and text.isdigit() and len(text) <= 3
+            and float(row.get("confidence") or 1.0) < 0.75
+            and str(report.get("status") or "").upper() == "PASS"
+            and int(row.get("latin_chars") or 0) == 0
+            and not bool(row.get("unlisted_chinese"))
+            and reviewer_saw_no_text
+        )
+        if numeric_texture_noise:
             return True
         # <=2 ASCII letters, or any single character (CJK/digit) — texture false positives
         # ("1" on stone, "文"/"品" on fur, "h"/"T" on fabric, all verified text-free by eye)
@@ -315,7 +363,29 @@ def face_measurable_ids(request_item: dict[str, Any]) -> list[str]:
     required = list(expectations.get("required_visible_character_ids") or [])
     by_id = {str(row.get("character_id")): str(row.get("face_visibility") or "VISIBLE_PER_FRAME_CONTENT")
              for row in expectations.get("cast") or [] if row.get("character_id")}
-    return [cid for cid in required if by_id.get(cid, "VISIBLE_PER_FRAME_CONTENT") == "VISIBLE_PER_FRAME_CONTENT"]
+    return [cid for cid in required if not pose_exempt(by_id.get(cid, "VISIBLE_PER_FRAME_CONTENT"))]
+
+
+#: Roger 2026-09-18 (identity chain ④): a 3/4 or profile face in a keyframe IS measured — the old
+#: rule let any ``*_NOT_MEASURABLE`` marker skip the cosine, and E05's keyframes lost the face
+#: there unnoticed.  Only poses with no face pixels at all stay exempt; a declared face that the
+#: detector cannot find is DECLARED_CHARACTER_FACE_NOT_FOUND (a failure), never a skip.
+POSE_EXEMPT_MARKERS = ("BACK_", "HANDS_ONLY", "FACE_OUT_OF_FRAME", "OFFSCREEN_VOICE_ONLY",
+                       "ENTERS_IN_SHOT_NOT_IN_FIRST_FRAME", "FAR_FIGURE", "SMALL_")
+POSE_MEASURED_ANYWAY = ("THREE_QUARTER", "PROFILE", "HEAD_DOWN", "UP_TILTED", "HIGH_ANGLE", "TURNED", "COLLAR")
+
+
+def pose_exempt(marker: str) -> bool:
+    """True only for a closed set of no-face poses; every other marker (3/4, profile, head down,
+    turned, shadowed) is measured.  A marker that names BOTH (e.g. BACK_THREE_QUARTER) is a back."""
+    m = str(marker or "").upper()
+    if m in ("", "VISIBLE_PER_FRAME_CONTENT"):
+        return False
+    if m.startswith("BACK_") or m.startswith("BACK-"):
+        return True
+    if any(token in m for token in POSE_MEASURED_ANYWAY):
+        return False
+    return any(m.startswith(token) or token in m for token in POSE_EXEMPT_MARKERS)
 
 
 def measure_still_identity(episode: str, keyframes: dict[str, Path],
@@ -450,9 +520,11 @@ def measure_still_identity(episode: str, keyframes: dict[str, Path],
             # A 70 % margin can pull a second face in (E03-S09-02: the red squirrel's face next to 秦铭 →
             # FACE_COUNT_NOT_ONE); shrink the margin stepwise until the crop holds one face.  The margin is a
             # measurement-input choice, recorded per crop; thresholds are untouched.
+            # E08-S12-01 (2026-09-20): a crowd stands behind 杨永青 and a child's face stayed inside the
+            # crop at 0.2, so the ladder continues to 0.12/0.06 before the crop is given up on.
             crop = None
             margin_used = None
-            for margin in (0.7, 0.5, 0.35, 0.2):
+            for margin in (0.7, 0.5, 0.35, 0.2, 0.12, 0.06):
                 mx, my = margin * bw, margin * bh
                 x1, y1 = int(max(0, bx1 - mx)), int(max(0, by1 - my))
                 x2, y2 = int(min(w_img, bx2 + mx)), int(min(h_img, by2 + my))
@@ -506,6 +578,12 @@ def measure_still_identity(episode: str, keyframes: dict[str, Path],
     prior = read_json(report_path, {}) if report_path.is_file() else {}
     if prior.get("boundary_human_review_requested_at") and not manifest.get("boundary_human_review_requested_at"):
         manifest["boundary_human_review_requested_at"] = prior["boundary_human_review_requested_at"]
+        # Persist the carried-forward clock as part of the identity manifest too.
+        # Otherwise a later rebuild has no durable boundary timestamp and can
+        # restart the 15-minute human-review window even though the report has
+        # already requested it.  This does not alter thresholds or decisions;
+        # it only preserves the engine's existing D-35 timeout input.
+        write_json(manifest_path, manifest)
     report = gate.evaluate(manifest, {"characters": characters, "parameters": policy}, backend)
     report["decision_ref"] = STILL_DECISION_REF
     report["decided_by"] = STILL_DECISION_BY
@@ -750,10 +828,11 @@ def materialise(episode: str, submitted: dict[str, Any],
         identity_v["declared_visible_character_ids"] = required_all
         identity_v["measured_character_ids"] = required
         identity_v["not_measurable_by_pose"] = exempt
-        identity_v["not_measurable_policy"] = ("D-16 (SUPERVISOR_ORDERS seq=6): still frontal-plate cosine is not run on "
-                                               "profiles, closed/lying eyes, small or back-lit faces, backs and hands-only "
-                                               "framings; the reviewer's each_visible_character_identity_recognisable answer "
-                                               "is the identity check for those; thresholds unchanged")
+        identity_v["not_measurable_policy"] = ("Roger 2026-09-18 (identity chain ④) narrows D-16: 3/4, profile, head-down, "
+                                               "turned and shadowed faces ARE measured (a face the detector cannot find is "
+                                               "DECLARED_CHARACTER_FACE_NOT_FOUND); only backs, hands-only, out-of-frame, "
+                                               "far/small figures and offscreen voices are exempt (keyframe_q1_builder."
+                                               "POSE_EXEMPT_MARKERS); thresholds unchanged")
 
         action_checks = _checks(item, questionnaire, GATE_QUESTIONS[ACTION_GATE])
         action_failed = [row["question_id"] for row in action_checks if row["answer"] != "PASS"]

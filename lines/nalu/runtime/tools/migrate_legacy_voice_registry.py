@@ -54,7 +54,9 @@ def main() -> int:
     for entity_id, character in speaking.items():
         row = old.get(entity_id)
         ref = Path(str((row or {}).get("local_reference") or ""))
-        if row and row.get("remote_asset_id") and ref.is_file() and row.get("status", "").endswith("PRODUCTION_READY"):
+        if (row and row.get("remote_asset_id") and ref.is_file()
+                and row.get("status") in {"LOCKED_PRODUCTION_READY", "AGENTCUT_GENERATED_REGISTERED_PRODUCTION_READY"}
+                and row.get("local_sha256") == sha(ref)):
             copied = dict(row)
             # The nalu orchestrator intentionally has one terminal lock value;
             # normalize the legacy AgentCut-qualified status to that value
@@ -94,7 +96,8 @@ def main() -> int:
     catalog = {"schema": "nalu.voice_catalog.v1", "recorded_at_utc": now(), "source": "legacy qingshan registry import", "voices": {}}
     for row in rows:
         catalog["voices"][row["entity_id"]] = {
-            "voice_id": row["remote_asset_id"],
+            "voice_id": row.get("generation_voice_id"),
+            "reference_asset_id": row["remote_asset_id"],
             "voice_name": row.get("generation_voice_name") or row.get("name"),
             "reference_audio": row.get("local_reference"),
             "source": "LEGACY_VERIFIED_IMPORT",

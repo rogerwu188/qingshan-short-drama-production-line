@@ -459,11 +459,14 @@ def _verify_no_speech(media: Path) -> dict[str, Any]:
         rows = []
         with _ASR_LOCK:
             model = _whisper_model_locked()
-            segments, _info = model.transcribe(str(media), language="zh", beam_size=5, vad_filter=True)
+            segments, _info = model.transcribe(str(media), language="zh", beam_size=5, vad_filter=True,
+                                               word_timestamps=True)
             for seg in segments:
                 text = seg.text.strip()
                 hallucination = any(pat.lower() in text.lower() for pat in ASR_HALLUCINATION_PATTERNS)
                 rows.append({"start": round(seg.start, 2), "end": round(seg.end, 2), "text": text,
+                             "words": [{"start": round(float(w.start), 3), "end": round(float(w.end), 3), "word": str(w.word)}
+                                       for w in (seg.words or [])],
                              "no_speech_prob": round(float(seg.no_speech_prob), 3),
                              "avg_logprob": round(float(seg.avg_logprob), 3),
                              "known_hallucination_pattern": hallucination})
@@ -505,9 +508,48 @@ def _measure_tail(media: Path, segments: list[dict[str, Any]]) -> dict[str, Any]
         return {"type": "DIALOGUE_TAIL_MEASUREMENT", "status": "UNMEASURABLE"}
     drop = speech_db - tail_db
     status = "TAIL_DECAYED_NOT_CLIPPED" if drop >= 6.0 else "TAIL_STILL_AT_SPEECH_LEVEL_POSSIBLY_CLIPPED"
-    return {"type": "DIALOGUE_TAIL_MEASUREMENT", "status": status, "duration_seconds": round(duration, 3),
-            "last_segment": last, "speech_rms_db": speech_db, "final_120ms_rms_db": tail_db,
-            "drop_db": round(drop, 2), "rule": "final 120 ms at least 6 dB below the last speech segment = decayed"}
+    result = {"type": "DIALOGUE_TAIL_MEASUREMENT", "status": status, "duration_seconds": round(duration, 3),
+              "last_segment": last, "speech_rms_db": speech_db, "final_120ms_rms_db": tail_db,
+              "drop_db": round(drop, 2), "rule": "final 120 ms at least 6 dB below the last speech segment = decayed"}
+    if status == "TAIL_STILL_AT_SPEECH_LEVEL_POSSIBLY_CLIPPED":
+        # nalu D-72 (E07 VU-018): a loud final 120 ms is not always the line running into the cut — an
+        # action unit often ends on a foley transient (a grabbed antler, a footfall).  Measure the 330 ms
+        # immediately BEFORE that window: speech cannot resume after a third of a second of silence, so a
+        # gap at least 6 dB under the speech level proves the line ended and the last burst is another
+        # sound.  Only this measured gap clears the failure; a tail loud throughout stays FAIL.
+        gap_db = rms(max(duration - 0.45, 0.0), 0.33)
+        result["pre_tail_330ms_rms_db"] = gap_db
+        if gap_db is not None:
+            result["pre_tail_drop_db"] = round(speech_db - gap_db, 2)
+            if speech_db - gap_db >= 6.0:
+                result["status"] = "TAIL_DECAYED_THEN_LATE_NON_SPEECH_TRANSIENT"
+                result["rule_secondary"] = ("the 330 ms before the final 120 ms is at least 6 dB under the "
+                                            "speech level = the line ended before the cut; the final burst "
+                                            "is a non-speech transient")
+    return result
+
+def _rate_segments(media: Path, segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Segments for the seq=29 rule-6 speech-rate measurement.  The engine dialogue gate's rows carry
+    padded VAD-chunk bounds (a 4-character line spanning a 7.6 s wind chunk), which under-measures cps;
+    when they carry no per-word timing, take one word-timestamp pass (same model, beam 1) so the
+    realised speech time is the sum of word spans.  Falls back to the given rows on any failure."""
+    rows = [r for r in (segments or []) if isinstance(r, dict)]
+    if not rows or any(r.get("words") for r in rows):
+        return rows
+    try:
+        with _ASR_LOCK:
+            model = _whisper_model_locked()
+            segs, _info = model.transcribe(str(media), language="zh", beam_size=1, vad_filter=True,
+                                           word_timestamps=True)
+            timed = [{"start": round(float(seg.start), 2), "end": round(float(seg.end), 2),
+                      "text": _t2s(str(seg.text).strip()),
+                      "words": [{"start": round(float(w.start), 3), "end": round(float(w.end), 3), "word": str(w.word)}
+                                for w in (seg.words or [])],
+                      "timing_pass": "WORD_TIMESTAMPS_BEAM1"} for seg in segs]
+        return timed if any(t["words"] for t in timed) else rows
+    except Exception:  # noqa: BLE001
+        return rows
+
 
 def _reverify_dialogue(media: Path, expected_texts: list[str]) -> dict[str, Any]:
     """In-process faster-whisper (small, int8) with vad_filter + beam 1; character recall of the
@@ -517,8 +559,11 @@ def _reverify_dialogue(media: Path, expected_texts: list[str]) -> dict[str, Any]
     try:
         with _ASR_LOCK:
             model = _whisper_model_locked()
-            segments, _info = model.transcribe(str(media), language="zh", beam_size=1, vad_filter=True)
-            rows = [{"start": round(float(seg.start), 2), "end": round(float(seg.end), 2), "text": _t2s(str(seg.text).strip())}
+            segments, _info = model.transcribe(str(media), language="zh", beam_size=1, vad_filter=True,
+                                               word_timestamps=True)
+            rows = [{"start": round(float(seg.start), 2), "end": round(float(seg.end), 2), "text": _t2s(str(seg.text).strip()),
+                     "words": [{"start": round(float(w.start), 3), "end": round(float(w.end), 3), "word": str(w.word)}
+                               for w in (seg.words or [])]}
                     for seg in segments]
     except Exception as exc:  # noqa: BLE001
         return {"status": "REVERIFY_FAILED", "error": f"{type(exc).__name__}: {exc}", "recall": None}
@@ -611,7 +656,7 @@ def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, 
     if "dialogue_tail_clipped_or_unverified" in failures:
         tail = _measure_tail(media, payload.get("segments") or [])
         machine_adjudications.append(tail)
-        if tail.get("status") == "TAIL_DECAYED_NOT_CLIPPED":
+        if tail.get("status") in ("TAIL_DECAYED_NOT_CLIPPED", "TAIL_DECAYED_THEN_LATE_NON_SPEECH_TRANSIENT"):
             failures = [v for v in failures if v != "dialogue_tail_clipped_or_unverified"]
     if expected_dialogue and payload:
         transcript = str(payload.get("transcript") or "")
@@ -655,7 +700,7 @@ def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, 
                 tail2 = _measure_tail(media, rv["segments"])
                 tail2["type"] = "DIALOGUE_TAIL_REMEASURED_ON_REVERIFIED_SEGMENTS"
                 machine_adjudications.append(tail2)
-                if tail2.get("status") == "TAIL_DECAYED_NOT_CLIPPED":
+                if tail2.get("status") in ("TAIL_DECAYED_NOT_CLIPPED", "TAIL_DECAYED_THEN_LATE_NON_SPEECH_TRANSIENT"):
                     failures = [v for v in failures if v != "dialogue_tail_clipped_or_unverified"]
     status = "PASS" if completed.returncode == 0 or not failures else "FAIL"
     return {
@@ -738,6 +783,8 @@ def build_reroll_requests(episode: str, rejected: list[dict[str, Any]],
             "reroll_number": reroll_number,
             "failure_tier": "BLOCK",
             "failure_reason": reason,
+            "required_prompt_change": ("PERFORMANCE_INSTRUCTION_CHANGE (seq=29 规则 6：换表演指令，不许只改字/秒)"
+                                       if "SPEECH_RATE_UNDER_TARGET" in str(reason) else None),
             "failure_class": row.get("failure_class", "CANDIDATE_QA_FAILURE"),
             "total_paid_tasks": total_paid_tasks,
             "all_reasons": row.get("reasons") or [],
@@ -826,8 +873,14 @@ def run(episode: str, *, review_path: Path | None = None,
                                      pacing=pacing_policy(episode),
                                      asr_segments=dialogue.get("segments") or None)
         sheet = contact_sheet(unit_id, media, out_dir)
+        # SUPERVISOR_ORDERS seq=29 规则 6: realised cps from the SAME ASR segments vs the director's
+        # per-shot target — MINOR is recorded, BLOCKER joins the reroll flow (no new capture, no new gate).
+        import speech_rate_check as _src
+        speech_rate = _src.measure_unit(unit_id, _rate_segments(media, dialogue.get("segments") or []),
+                                        expectations.get("expected_dialogue") or [], _src.shot_targets(exp.contract))
+        write_json(out_dir / f"{unit_id}_speech_rate.json", speech_rate)
         return {"media": media, "media_sha256": sha256_file(media),
-                "technical": technical, "dialogue": dialogue, "sheet": sheet}
+                "technical": technical, "dialogue": dialogue, "sheet": sheet, "speech_rate": speech_rate}
 
     try:
         engine_module("run_regression_ci")   # import once, before the pool
@@ -871,6 +924,9 @@ def run(episode: str, *, review_path: Path | None = None,
         reasons = list(technical["failures"])
         if dialogue["status"] != "PASS":
             reasons.extend(f"dialogue:{value}" for value in dialogue["failures"])
+        speech_rate = measured[unit_id].get("speech_rate") or {}
+        if speech_rate.get("tier") == "BLOCKER":
+            reasons.append(f"dialogue:{speech_rate['code']}:{speech_rate.get('ratio')}")
         reasons.extend(plot_failures)
         verdict = "ADMIT" if not reasons else "REJECT"
         failure_class = ("CANDIDATE_TECHNICAL_FAILURE" if technical["failures"]
@@ -897,6 +953,8 @@ def run(episode: str, *, review_path: Path | None = None,
                 "failures": technical["failures"],
             },
             "dialogue_qa": dialogue,
+            "speech_rate_qa": speech_rate,
+            "advisories": ([f"{speech_rate['code']}:{speech_rate.get('ratio')}"] if speech_rate.get("tier") == "MINOR" else []),
             "basic_plot_qa": {
                 "checks": plot_checks, "failures": plot_failures,
                 "reviewer": REVIEWER_ID if plot else None,
@@ -911,6 +969,16 @@ def run(episode: str, *, review_path: Path | None = None,
         }
         write_json(out_dir / f"{unit_id}_POST_GENERATION_QA.json", record)
         rows.append(record)
+
+    # nalu D-72: order-keyed acceptance of post-generation QA rejects (SUPERVISOR_ORDERS seq=31/40,
+    # Roger option C).  The S5 Q1 overlay (nalu_pipeline.apply_roger_q1_acceptance) and the S7 final-cut
+    # mechanism (roger_gate_acceptance.py) had no S6 counterpart, so a by-design reject here could only be
+    # cleared by spending credits on a reroll that cannot converge (E07 VU-001/015/018: two takes, the
+    # provider will not deliver a 2-3 character line at the directed 5 字/秒).  The measurement KEEPS its
+    # REJECT row and its evidence; what changes is that a reject whose every reason an active Roger order
+    # names, bound to THIS media sha256, is admitted as ADMITTED_BY_LINE_OWNER_ORDER.  Never self-issued:
+    # no order, an unbound order, a different sha or one extra reason → the unit stays rejected.
+    acceptance = apply_roger_postgen_acceptance(episode, rows, p.postgen_dir)
 
     # episode-level boundary acceptance across the downloaded units
     boundary = run_media_boundary(episode, rows)
@@ -951,9 +1019,13 @@ def run(episode: str, *, review_path: Path | None = None,
                    "record": str(p.postgen_dir / row["unit_id"]
                                  / f"{row['unit_id']}_POST_GENERATION_QA.json")}
                   for row in rows],
+        "roger_gate_acceptance": acceptance,
         "reroll_requests": str(p.reroll_requests),
         "reroll_request_count": rerolls["request_count"],
     }
+    import speech_rate_check as _src
+    summary["speech_rate_episode"] = _src.episode_summary([row.get("speech_rate_qa") or {} for row in rows])
+    summary["speech_rate_episode"]["reroll_rule"] = "规则 6：SPEECH_RATE 重做时提示词必须换表演指令（performance），不许只把字/秒数字改大"
     out = write_json(p.postgen_dir / f"{episode}_POST_GENERATION_QA_SUMMARY.json", summary)
     summary["_written_to"] = str(out)
     return summary
@@ -1030,6 +1102,77 @@ def route_status(episode: str) -> dict[str, Any]:
         "reroll_policy": str(REROLL_POLICY),
         "summary": str(p.postgen_dir / f"{episode}_POST_GENERATION_QA_SUMMARY.json"),
     }
+
+
+
+POSTGEN_GATE_ID = "POST-GENERATION-QA-ADMISSION"
+
+
+def _acceptance_detector(unit_id: str, reason: str) -> str:
+    """Stable detector name for an order: "<unit>:<reason without its measured value>".
+
+    A reason carries the measurement ("dialogue:SPEECH_RATE_UNDER_TARGET_BLOCKER:0.556") and the value
+    changes with every take, so the order names the code and the sha binding does the pinning."""
+    text = str(reason)
+    head, _, tail = text.rpartition(":")
+    if head and tail:
+        try:
+            float(tail)
+            text = head
+        except ValueError:
+            pass
+    return f"{unit_id}:{text}"
+
+
+def apply_roger_postgen_acceptance(episode: str, rows: list[dict[str, Any]],
+                                   postgen_dir: Path) -> dict[str, Any]:
+    """Admit a REJECTED unit only on an explicit, media-bound Roger GATE_FAIL_ACCEPTANCE order.
+
+    Mirrors roger_gate_acceptance.py (S7) and nalu_pipeline.apply_roger_q1_acceptance (S5):
+      * the order must be active, issued_by Roger, kind GATE_FAIL_ACCEPTANCE, this episode,
+        gate_id POST-GENERATION-QA-ADMISSION;
+      * its detectors must cover EVERY reason of that unit (a new failure is not accepted);
+      * it must bind this take: decision.media_sha256_by_item[<unit>] (or decision.media_sha256)
+        must equal the measured media sha256.  An unbound order is refused here on purpose —
+        post-generation takes change, and an unbound acceptance would silently cover the next one.
+    The per-unit record keeps engine_verdict/engine_reasons plus the acceptance record."""
+    import roger_gate_acceptance as _rga
+    orders_path = ENGINE / "workflow/claude_writer_agent/SUPERVISOR_ORDERS.json"
+    orders = _rga._orders(orders_path)
+    accepted: list[dict[str, Any]] = []
+    still: list[str] = []
+    for row in rows:
+        if row.get("verdict") != "REJECT":
+            continue
+        unit_id = row["unit_id"]
+        media_sha = str(row.get("media_sha256") or "")
+        detectors = sorted({_acceptance_detector(unit_id, reason) for reason in row.get("reasons") or []})
+        order = _rga.find_acceptance(orders, episode=episode, gate_id=POSTGEN_GATE_ID,
+                                     failing=detectors, media_sha256=media_sha) if detectors else None
+        dec = ((order or {}).get("decision") or {})
+        bound = str((dec.get("media_sha256_by_item") or {}).get(unit_id) or dec.get("media_sha256") or "")
+        if order is None or not bound or bound != media_sha:
+            still.append(unit_id)
+            continue
+        record = _rga.acceptance_record(
+            order, episode=episode, gate_id=POSTGEN_GATE_ID, failing=detectors,
+            media_sha256=media_sha,
+            gate_result_path=str(postgen_dir / unit_id / f"{unit_id}_POST_GENERATION_QA.json"))
+        record.update({"unit_id": unit_id, "engine_verdict": "REJECT",
+                       "engine_reasons": list(row.get("reasons") or [])})
+        row.update({"engine_verdict": "REJECT", "engine_reasons": list(row.get("reasons") or []),
+                    "verdict": "ADMIT", "verdict_basis":
+                        "MEASURED_REJECT+LINE_OWNER_ORDER_ACCEPTANCE (roger_gate_acceptance, never self-issued)",
+                    "reasons": [], "primary_reason": None, "roger_acceptance": record})
+        write_json(postgen_dir / unit_id / f"{unit_id}_POST_GENERATION_QA.json", row)
+        accepted.append(record)
+    if accepted:
+        write_json(postgen_dir / f"{episode}_ROGER_GATE_ACCEPTANCE.json", {
+            "schema": "nalu.post_generation_roger_gate_acceptance.v1", "episode": episode,
+            "gate_id": POSTGEN_GATE_ID, "recorded_at": now(), "recorded_by": TOOL_ID,
+            "orders_path": str(orders_path), "accepted": accepted,
+            "still_rejected_unit_ids": still})
+    return {"accepted_unit_ids": [r["unit_id"] for r in accepted], "still_rejected_unit_ids": still}
 
 
 def main() -> int:

@@ -59,11 +59,17 @@ ENGINE = Path(f"{_np.ENGINE_ROOT}")
 SCRIPTS = ENGINE / "workflow/claude_writer_agent/scripts"
 RUNTIME = Path(f"{_np.RUNTIME_ROOT}")
 
-SCALE_CN = {"WIDE": "远景", "FULL": "全景", "MEDIUM": "中景", "MEDIUM_CLOSE_UP": "中近景", "CLOSE_UP": "特写"}
-MOVING_FAMILIES = ["TRACK", "HANDHELD", "CRANE", "ARC"]        # static_design_gate R7 body-motion families
+# v4 prose uses FULL as an alias for a wide/full establishing view.  The
+# grouped runtime contract deliberately has no FULL token; normalize aliases
+# at the adapter boundary instead of leaking them into generated layers.
+SHOT_SCALE_ALIASES = {"FULL": "WIDE", "LONG": "WIDE", "LONG_SHOT": "WIDE"}
+SCALE_CN = {"WIDE": "远景", "MEDIUM_WIDE": "中全景", "FULL": "全景", "MEDIUM": "中景", "MEDIUM_CLOSE_UP": "中近景", "CLOSE_UP": "特写", "EXTREME_CLOSE_UP": "大特写"}
+MOVING_FAMILIES = ["TRACK", "CRANE", "ARC", "PAN"]            # grouped_camera_contract legal families
 DIALOGUE_FAMILIES = ["DOLLY", "PAN", "ARC"]                     # never LOCKED → R1–R4/R6 hold by construction
-DIRECTION = {"TRACK": ["LEFT", "RIGHT"], "HANDHELD": ["FORWARD", "BACK"], "CRANE": ["RISE", "DESCEND"],
-             "ARC": ["CLOCKWISE", "COUNTER_CLOCKWISE"], "DOLLY": ["IN", "OUT"], "PAN": ["LEFT", "RIGHT"]}
+DIRECTION = {"TRACK": ["LEFT_TO_RIGHT", "RIGHT_TO_LEFT"],
+             "PAN": ["LEFT_TO_RIGHT", "RIGHT_TO_LEFT"],
+             "CRANE": ["RISE", "FALL"], "ARC": ["CLOCKWISE", "COUNTERCLOCKWISE"],
+             "DOLLY": ["PUSH_IN", "PULL_OUT"]}
 SCALES_NO_DIALOGUE = ["MEDIUM", "WIDE", "FULL", "MEDIUM_CLOSE_UP"]
 SCALES_DIALOGUE = ["MEDIUM_CLOSE_UP", "CLOSE_UP", "MEDIUM"]
 VISIBLE = "VISIBLE_AND_IDENTITY_LOCKED"
@@ -162,13 +168,18 @@ def default_camera_plan(index_in_scene: int, has_dialogue: bool, slug: str, moti
     scale = scales[index_in_scene % len(scales)]
     side = "AXIS_A" if index_in_scene % 2 == 0 else "AXIS_B"   # R5: never > 2 on one axis+scale
     return {
-        "shot_scale": scale, "camera_height": "EYE_LEVEL" if index_in_scene % 3 else "LOW_ANGLE",
+        # The grouping compiler's camera contract accepts EYE_LEVEL as the
+        # portable cross-line value; LOW_ANGLE is a v4 prose concept and is
+        # not a runtime enum, so preserve the shot scale/motion without
+        # emitting an unsupported height token.
+        "shot_scale": scale, "camera_height": "EYE_LEVEL",
         "camera_side": side, "lens_intent": humanize_slug(slug),
         "axis_relation": "承 v4 机位串；不越轴", "motion_family": family, "motion_direction": direction,
         "start_framing": "承接起始状态", "end_framing": "动作结果状态",
         "motivation": motivation or "v4 导演稿本场推进",
-        "authorship": "V4_ADAPTER_DEFAULT_CAMERA_PLAN", "selection_mode": "ADAPTER_DEFAULT",
+        "authorship": "V4_ADAPTER_DEFAULT_CAMERA_PLAN", "selection_mode": "AUTO",
         "source": source_ref,
+        "selection_mode": "AUTO",
         "note": "v4 只给机位串（slug），不给运镜族；本计划由适配器按 static_design_gate R1–R8 生成，可由 adapter overlay camera_plan 覆盖",
     }
 
@@ -279,6 +290,8 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
     prev_family: str | None = None
     prev_direction: str | None = None
     prev_scene: str | None = None
+    previous_scene_anchor_family: str | None = None
+    scene_anchor_family: str | None = None
     idx_in_scene = 0
     cursor = 0.0
     first_seen: dict[str, str] = {}
@@ -288,6 +301,8 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
         scene_id = shot["scene_id"]
         if scene_id != prev_scene:
             idx_in_scene = 0
+            previous_scene_anchor_family = scene_anchor_family
+            scene_anchor_family = None
             prev_scene = scene_id
         else:
             idx_in_scene += 1
@@ -350,6 +365,20 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
         if o.get("camera_plan"):
             cp.update(o["camera_plan"])
             cp["authorship"] = "ADAPTER_OVERLAY_CAMERA_PLAN"
+        cp["shot_scale"] = SHOT_SCALE_ALIASES.get(str(cp.get("shot_scale") or "").upper(), cp.get("shot_scale"))
+        # A scene opener often becomes the first shot of a new grouped unit.
+        # Keep the authored shot semantics but avoid carrying the prior
+        # scene's anchor movement into the next grouped unit, which the
+        # portable grouped-camera gate treats as a repeated move.
+        if idx_in_scene == 0 and previous_scene_anchor_family and cp.get("motion_family") == previous_scene_anchor_family:
+            candidates = DIALOGUE_FAMILIES if line else MOVING_FAMILIES
+            replacement = next((fam for fam in candidates if fam != previous_scene_anchor_family), None)
+            if replacement:
+                cp["motion_family"] = replacement
+                cp["motion_direction"] = DIRECTION[replacement][idx_in_scene % len(DIRECTION[replacement])]
+                cp["authorship"] = "ADAPTER_SCENE_ANCHOR_REPAIR"
+        if idx_in_scene == 0:
+            scene_anchor_family = cp.get("motion_family")
         prev_family, prev_direction = cp["motion_family"], cp.get("motion_direction")
         # cast rows
         life_over = o.get("life_state") or {}
@@ -390,10 +419,15 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
         referents = [{"surface_form": pr, "entity_id": subject_id} for pr in PRONOUNS if pr in (ffms + frame) and subject_id]
         primary_action = ffms if ffms == frame else (f"{ffms}；{frame}" if ffms else frame)
         role = {
+            "schema": "qingshan.role_semantic_disambiguation.v1",
+            "status": "PASS",
+            "shot_id": sid,
+            "forbidden_role_swaps": True,
             "primary_actor_kind": actor_kind, "primary_actor": primary_actor,
             "primary_actor_id": subject_id if actor_kind == "CHARACTER" else "",
             "dialogue_speaker": ov.name(speaker_id) if speaker_id else "", "dialogue_speaker_id": speaker_id or "",
             "dialogue_listener": ov.name(listener_id) if listener_id in ov.by_id else "", "dialogue_listener_id": listener_id if listener_id in ov.by_id else "",
+            "dialogue_mode": "SELF_DIRECTED_SPEECH" if speaker_id and listener_id not in ov.by_id else "DIALOGUE",
             "action_patient": ov.name(patient_id) if patient_id in ov.by_id else str(o.get("patient_label") or ""),
             "action_patient_id": patient_id if patient_id in ov.by_id else "",
             "lip_owner_id": lip_owner, "entity_states": states, "entity_presence": presence,
@@ -421,7 +455,8 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
                 "camera_plan": cp, "cast": cast_rows, "props": props_rows, "dialogue": dialogue,
                 "action": {"subject_id": subject_id if actor_kind == "CHARACTER" else "", "primary_action": primary_action,
                            "patient_id": patient_id if patient_id in ov.by_id else "", "start_state": ffms, "end_state": frame,
-                           "action_kind": action_kind},
+                           "action_kind": action_kind,
+                           "performance": o.get("performance") or ({"emotion": "focused", "body_action": ffms or "保持自然呼吸并完成当前动作", "delivery": "清晰、自然、不中断"} if line else None)},
                 "referent_resolution_contract": {"status": "PASS", "source_scan_complete": True,
                                                  "resolved_source_referents": referents, "unresolved_source_referents": []},
                 "role_semantic_disambiguation": role,

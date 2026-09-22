@@ -80,8 +80,29 @@ def shots_overlapping(plan: list[dict[str, Any]], a: float, b: float) -> list[di
     return [row for row in plan if row["end"] > a and row["start"] < b]
 
 
+def same_subject_boundaries(contract: dict[str, Any], grouping_plan: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Consecutive same-scene units: last shot of A vs first shot of B with equal shot_size and equal cast."""
+    if not grouping_plan:
+        return []
+    by_shot = {str(s.get("shot_id")): s for s in contract.get("shots") or []}
+    def cast(shot: dict[str, Any]) -> set[str]:
+        return {str(c.get("character_id") or c.get("character")) for c in ((shot.get("prompt_spec") or {}).get("cast") or [])}
+    rows, prev, t = [], None, 0.0
+    for unit in grouping_plan.get("units") or []:
+        ids = unit.get("editorial_shot_ids") or []
+        if prev and unit.get("scene_id") == prev.get("scene_id") and ids and prev.get("editorial_shot_ids"):
+            a, b = by_shot.get(str(prev["editorial_shot_ids"][-1])), by_shot.get(str(ids[0]))
+            if a and b and a.get("shot_size") == b.get("shot_size") and cast(a) and cast(a) == cast(b):
+                rows.append({"at_seconds": round(t, 2), "from_unit": prev.get("unit_id"), "to_unit": unit.get("unit_id"),
+                             "shot_size": a.get("shot_size"), "cast": sorted(cast(a))})
+        t += float(unit.get("duration_seconds") or 0)
+        prev = unit
+    return rows
+
+
 def evaluate(final: Path, contract: dict[str, Any], *, end_card_seconds: float, scene_threshold: float,
-             static_yavg_delta: float, blank_high: float, blank_low: float) -> dict[str, Any]:
+             static_yavg_delta: float, blank_high: float, blank_low: float,
+             grouping_plan: dict[str, Any] | None = None) -> dict[str, Any]:
     total = probe_duration(final)
     body = max(0.0, total - end_card_seconds)
     plan = planned_timeline(contract)
@@ -133,6 +154,12 @@ def evaluate(final: Path, contract: dict[str, Any], *, end_card_seconds: float, 
     if blank:
         findings.append({"code": "BLANK_SCREEN", "segments": blank})
 
+    # D-68 (Roger seq=36): same-scene unit boundaries whose two sides share shot size AND cast read as
+    # jump cuts to a viewer (E06: 7.0 s, 15.2 s, 21.2 s, 35.4 s, 151.7 s).  Diagnostic only.
+    boundary_rows = same_subject_boundaries(contract, grouping_plan)
+    if boundary_rows:
+        findings.append({"code": "SAME_SIZE_SAME_SUBJECT_BOUNDARY", "boundaries": boundary_rows})
+
     return {
         "schema": "nalu.final_cut_shot_plan_parity.v1",
         "authority": "SUPERVISOR_ORDERS seq=27 §六 (diagnostic, non-blocking)",
@@ -158,6 +185,9 @@ def checkpoint_block(report: dict[str, Any]) -> str:
     for f in report["findings"]:
         if f["code"] == "SHOT_COUNT_DRIFT":
             lines.append(f"  - SHOT_COUNT_DRIFT：{f['detected_segments']} 段 vs {f['planned_shots']} 镜（偏差 {f['drift']:+.0%}）")
+        elif f["code"] == "SAME_SIZE_SAME_SUBJECT_BOUNDARY":
+            for row in f.get("boundaries", []):
+                lines.append(f"  - 同景别同主体边界（观众读作跳切）：{row['at_seconds']} s {row['from_unit']}→{row['to_unit']} {row['shot_size']}")
         else:
             for seg in f.get("segments", []):
                 lines.append(f"  - {f['code']}：{seg['segment'][0]}–{seg['segment'][1]} s（{seg['seconds']} s）镜 {', '.join(seg.get('planned_shot_ids') or [])}")
@@ -169,6 +199,7 @@ def main() -> int:
     ap.add_argument("--episode", required=True)
     ap.add_argument("--final", required=True)
     ap.add_argument("--contract", required=True)
+    ap.add_argument("--grouping-plan", default=None, help="video unit grouping plan (D-68 same-subject boundary diagnostic)")
     ap.add_argument("--out", required=True)
     ap.add_argument("--checkpoint-block-out", default=None)
     ap.add_argument("--end-card-seconds", type=float, default=3.0)
@@ -178,8 +209,10 @@ def main() -> int:
     ap.add_argument("--blank-low", type=float, default=15.0 * 2.55)
     a = ap.parse_args()
     contract = json.loads(Path(a.contract).read_text(encoding="utf-8"))
+    grouping = json.loads(Path(a.grouping_plan).read_text(encoding="utf-8")) if a.grouping_plan and Path(a.grouping_plan).is_file() else None
     report = evaluate(Path(a.final), contract, end_card_seconds=a.end_card_seconds, scene_threshold=a.scene_threshold,
-                      static_yavg_delta=a.static_yavg_delta, blank_high=a.blank_high, blank_low=a.blank_low)
+                      static_yavg_delta=a.static_yavg_delta, blank_high=a.blank_high, blank_low=a.blank_low,
+                      grouping_plan=grouping)
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     Path(a.out).write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     block = checkpoint_block(report)

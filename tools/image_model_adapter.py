@@ -39,7 +39,13 @@ def compile_labeled_flat_identity_transport(
         row["asset_label"] = label
         role = str(row.get("role") or "").lower()
         entity_id = str(row.get("entity_id") or "")
-        is_identity = role in {"character", "identity", "character_reference"} or entity_id.startswith("CHAR-")
+        # A full-body wardrobe plate may carry the owning canonical CHAR id so
+        # continuity systems can trace it, but it is not a second face/identity
+        # authority.  Treating it as identity overwrites the leading headshot's
+        # authority label and makes the flat-reference contract contradictory.
+        is_identity = role in {"character", "identity", "character_reference"} or (
+            entity_id.startswith("CHAR-") and role != "character_wardrobe"
+        )
         if is_identity:
             row["identity_authority"] = "PRIMARY_NATIVE_REGISTRY"
             authority_map[entity_id] = label

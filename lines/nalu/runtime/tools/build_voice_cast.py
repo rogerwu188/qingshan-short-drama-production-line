@@ -94,7 +94,13 @@ def build(episode: str, contract_path: Path, registry_path: Path, out_path: Path
         cid = str(row.get("character_id") or "")
         if cid not in wanted or row.get("status") != "LOCKED_PRODUCTION_READY":
             continue
-        voice_id = row.get("generation_voice_id") or row.get("voice_id") or row.get("agentcut_voice_id")
+        # Legacy/native references may not have an AgentCut generation_voice_id;
+        # their provider-registered remote_asset_id is the actual SD2 voice
+        # binding and is unique enough for the cast gate.  Treat it as the
+        # measured voice identity instead of declaring a valid inherited voice
+        # missing.
+        voice_id = (row.get("generation_voice_id") or row.get("voice_id")
+                    or row.get("agentcut_voice_id") or row.get("remote_asset_id"))
         local = Path(str(row.get("local_reference") or ""))
         entry: dict[str, Any] = {"voice_id": voice_id, "rate_cps_baseline": cps_baseline,
                                  "timbre_brief": briefs.get(cid) or row.get("voice_selection") or "",

@@ -62,6 +62,7 @@ import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (e
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -91,6 +92,42 @@ LOCK_BUILDERS = {
 # --------------------------------------------------------------------------- #
 # deterministic measurement: insightface cosine, plate vs operator source
 # --------------------------------------------------------------------------- #
+SOURCE_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
+
+
+def find_operator_source(asset_id: str, folder: Path | None = None) -> Path | None:
+    """The operator's source photo for a character (Roger 2026-09-18, identity chain ①).
+
+    The old lookup was ``<id>.png`` then ``<id>.*`` — it never matched the suffixed sources the
+    line actually uses (``CHAR-QINMING__SOURCE_V2_TANG.png``), so every lock silently recorded
+    ``NO_OPERATOR_SOURCE_REFERENCE`` and ``source_cosine: []``.  Order: exact ``<id>.png``,
+    ``<id>__SOURCE*``, ``<id>.*``, ``<id>__*``, ``<id>_*`` — always anchored on the full asset id,
+    never on a prefix that another character could share.
+    """
+    folder = Path(folder) if folder is not None else CHARACTER_SOURCES
+    exact = folder / f"{asset_id}.png"
+    if exact.is_file():
+        return exact
+    for pattern in (f"{asset_id}__SOURCE*", f"{asset_id}.*", f"{asset_id}__*", f"{asset_id}_*"):
+        candidates = sorted(p for p in folder.glob(pattern)
+                            if p.is_file() and p.suffix.lower() in SOURCE_IMAGE_SUFFIXES)
+        if candidates:
+            return candidates[0]
+    return None
+
+
+def source_likeness_failures(source_scores: list[dict[str, Any]], pass_threshold: float) -> list[str]:
+    """Roger 2026-09-18 (identity chain ①): every plate is scored against the operator source and
+    ANY plate below the PASS threshold (0.45) fails the lock — the plate must be re-issued.  The
+    old rule only failed below the 0.30 FAIL threshold, which let a 0.35 headshot through."""
+    out = []
+    for row in source_scores:
+        score = float(row.get("cosine_vs_source", 0.0))
+        if score < pass_threshold:
+            out.append(f"SOURCE_LIKENESS_BELOW_PASS_THRESHOLD:{Path(str(row.get('plate'))).name}:{score:.6f}")
+    return out
+
+
 def measure_plate_identity(asset_id: str, plates: list[Path],
                            source: Path | None) -> dict[str, Any]:
     """Real INSIGHTFACE_COSINE_V1 measurement across the plates.
@@ -166,9 +203,8 @@ def measure_plate_identity(asset_id: str, plates: list[Path],
             score = max(float(gate._cosine(embeddings[key], ref))  # noqa: SLF001
                         for ref in source_embeddings)
             result["source_scores"].append({"plate": key, "cosine_vs_source": round(score, 6)})
-            if score < fail_threshold:
-                result["failures"].append(
-                    f"SOURCE_LIKENESS_BELOW_FAIL_THRESHOLD:{Path(key).name}:{score:.6f}")
+        result["failures"].extend(source_likeness_failures(result["source_scores"], pass_threshold))
+        result["source_likeness_rule"] = f"every plate >= {pass_threshold} vs operator source (Roger 2026-09-18 ①)"
     else:
         result["source_reference"] = None
         result["source_likeness"] = "NO_OPERATOR_SOURCE_REFERENCE_FOR_THIS_SUBJECT"
@@ -333,10 +369,19 @@ def materialise(episode: str, submitted: dict[str, Any],
         plates = [Path(media["path"]) for media in request_item.get("media") or []
                   if media.get("role") == "IDENTITY_PLATE" and media.get("path")
                   and Path(media["path"]).is_file()]
-        source = CHARACTER_SOURCES / f"{asset_id}.png"
-        if not source.is_file():
-            candidates = sorted(CHARACTER_SOURCES.glob(f"{asset_id}.*"))
-            source = candidates[0] if candidates else None
+        # Prefer the exact source bound into this review request.  Episode
+        # scopes (notably QINGSHAN-E59) intentionally keep their sources out of
+        # the legacy global CHARACTER_SOURCES directory; using the global
+        # lookup here silently drops the source-likeness measurement.
+        source = None
+        for media in request_item.get("media") or []:
+            if media.get("role") == "OPERATOR_SOURCE_REFERENCE" and media.get("path"):
+                candidate = Path(str(media["path"]))
+                if candidate.is_file():
+                    source = candidate
+                    break
+        if source is None:
+            source = find_operator_source(asset_id)
 
         measurement = ({"method": "INSIGHTFACE_COSINE_V1", "decision": "NOT_APPLICABLE",
                         "reason": "non-character subject has no face to embed",
@@ -468,28 +513,77 @@ def build_registry(episode: str, *, out: Path = CHARACTER_REGISTRY) -> dict[str,
     """Emit QINGSHAN_CHARACTER_REGISTRY from LOCKED plates only."""
     exp = Expectations(episode)
     library = read_json(exp.p.identity_library) or read_json(ASSET_LIBRARY, {}) or {}
-    entity_registry = read_json(Path(f"{_np.RUNTIME_ROOT}/runtime/nalu_entity_registry.json"), {}) or {}
+    runtime_dir = Path(f"{_np.RUNTIME_ROOT}/runtime")
+    entity_registry_path = Path(
+        os.environ.get("QINGSHAN_ENTITY_REGISTRY")
+        or ((runtime_dir / "entity_registry.json")
+            if (runtime_dir / "entity_registry.json").is_file()
+            else (runtime_dir / "nalu_entity_registry.json"))
+    )
+    entity_registry = read_json(entity_registry_path, {}) or {}
     aliases = entity_registry.get("entity_aliases") or {}
     by_registry_id = {str(value[1]): (entity_id, str(value[0]))
                       for entity_id, value in aliases.items()
                       if isinstance(value, list) and len(value) == 2}
 
+    assets = ((library.get("assets") or {}).get("characters") or {})
+    source_registry = read_json(runtime_dir / "character_asset_registry.json", {}) or {}
+    source_rows = source_registry.get("characters") or []
+    canonical_to_local = {
+        str(row.get("source_registry_id")): str(row.get("character_id"))
+        for row in source_rows
+        if isinstance(row, dict) and row.get("source_registry_id") and row.get("character_id")
+    }
+    local_by_label = {
+        str(row.get("label")): row
+        for key, row in assets.items()
+        if isinstance(row, dict) and not str(key).startswith("CHAR-")
+        and row.get("label") and len(row.get("artifacts") or []) >= 3
+    }
+    # The authored contract may use a canonical cross-episode CHAR-* id whose
+    # imported source registry has a different historical id.  Bind that id by
+    # the contract's canonical character name to the already LOCKED local
+    # three-view asset; do not duplicate or regenerate media.
+    for canonical_id, wardrobe_row in exp.wardrobe_by_id.items():
+        name = str(wardrobe_row.get("character") or "")
+        current = assets.get(canonical_id)
+        current_usable = (
+            isinstance(current, dict)
+            and current.get("status") == "LOCKED"
+            and (current.get("qa") or {}).get("status") == "PASS"
+            and len(current.get("artifacts") or []) >= 3
+        )
+        if not current_usable and name in local_by_label:
+            assets[canonical_id] = local_by_label[name]
+
     characters: dict[str, Any] = {}
     skipped: list[dict[str, Any]] = []
-    for asset_id, asset in sorted(((library.get("assets") or {}).get("characters") or {}).items()):
+    for asset_id, asset in sorted(assets.items()):
         qa = asset.get("qa") or {}
         if asset.get("status") != "LOCKED" or qa.get("status") != "PASS":
             skipped.append({"asset_id": asset_id, "status": asset.get("status"),
                             "qa_status": qa.get("status"),
                             "reason": "NOT_LOCKED_OR_QA_NOT_PASS"})
             continue
-        artifacts = [row for row in asset.get("artifacts") or [] if row.get("path")]
+        artifact_source = asset
+        local_id = canonical_to_local.get(asset_id)
+        local_asset = assets.get(local_id) if local_id else None
+        if not isinstance(local_asset, dict):
+            local_asset = local_by_label.get(str(asset.get("label") or ""))
+        if isinstance(local_asset, dict) and len(local_asset.get("artifacts") or []) > len(asset.get("artifacts") or []):
+            artifact_source = local_asset
+        artifacts = [row for row in artifact_source.get("artifacts") or [] if row.get("path")]
         if not artifacts:
             skipped.append({"asset_id": asset_id, "reason": "NO_ARTIFACT_PATH"})
             continue
         primary = artifacts[0]
         entity_id, display = by_registry_id.get(asset_id, (None, asset.get("label")))
-        lock = (asset.get("lock") or {}).get("identity_lock") or {}
+        raw_lock = (artifact_source.get("lock") or {}).get("identity_lock") or {}
+        # Imported v4 rows may carry the legacy prose identity lock as a
+        # string, while locally bootstrapped rows carry the structured lock
+        # object.  The prose is still provenance, but it is not a mapping and
+        # must not crash registry materialisation.
+        lock = raw_lock if isinstance(raw_lock, dict) else {}
         characters[asset_id] = {
             "registry_id": asset_id,
             "character_id": asset_id,

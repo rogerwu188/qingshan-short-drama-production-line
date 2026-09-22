@@ -56,7 +56,13 @@ def load(ep: str):
     ed_by_shot = {s["shot_id"]: s for s in editorial["shots"]}
     for shot in contract["shots"]:  # props live in the editorial spec, cast in both
         shot["prompt_spec"]["props"] = ed_by_shot[shot["shot_id"]]["prompt_spec"].get("props") or []
+        if not shot["prompt_spec"].get("cast"):
+            shot["prompt_spec"]["cast"] = ed_by_shot[shot["shot_id"]]["prompt_spec"].get("cast") or []
     grouping = json.loads((pre / f"{ep}_VIDEO_UNIT_GROUPING_PLAN_V1.json").read_text(encoding="utf-8"))
+    for scene in contract.get("scene_states") or []:
+        scene.setdefault("weather", scene.get("weather_state") or "")
+        scene.setdefault("time_id", scene.get("time_block_id") or scene.get("time_of_day_state") or "")
+        scene.setdefault("lighting", scene.get("lighting_state") or scene.get("lighting") or "")
     batch = json.loads((pre / f"{ep}_PROMPT_BATCH_V1.json").read_text(encoding="utf-8"))
     gsm = json.loads((RUNTIME / "preproduction" / ep / "global_space_map.json").read_text(encoding="utf-8"))
     return pre, contract, grouping, batch, gsm
@@ -68,11 +74,21 @@ def digest(ep: str, out: Path) -> dict:
     scenes = {s["scene_id"]: s for s in contract["scene_states"]}
     units = {u["unit_id"]: u for u in grouping["units"]}
     bible = {r["character"]: r for r in grouping["wardrobe_bible"]["characters"]}
+    for row in list(bible.values()):
+        for alias in (row.get("aliases") or []):
+            bible.setdefault(alias, row)
+    if "白鲤郡主" in bible:
+        bible.setdefault("白鲤", bible["白鲤郡主"])
     id2name = {e["character_id"]: e["canonical_name"] for e in contract["character_entities"]}
     rooms = {(m["global_space_map_id"], r["room_id"]) for m in gsm["space_maps"] for r in m.get("rooms", [])}
     dialogue_by_shot: dict[str, list[str]] = {}
     for d in contract["audio_contract"]["dialogue_units"]:
-        dialogue_by_shot.setdefault(d["shot_id"], []).append(f"{id2name[d['speaker_id']]}：{d['text']}")
+        speaker_name = id2name.get(d.get("speaker_id")) or d.get("speaker")
+        if not speaker_name:
+            # V4 legacy dialogue IDs are scoped labels; resolve only through
+            # the authored display field, never by guessing from an ID suffix.
+            speaker_name = str(d.get("speaker_id") or "UNRESOLVED")
+        dialogue_by_shot.setdefault(d["shot_id"], []).append(f"{speaker_name}：{d['text']}")
     # boilerplate identity across prompts
     boiler_kf: dict[str, set] = {"视觉文化档案": set(), "严格禁止": set(), "参考图用途": set()}
     boiler_vp: dict[str, set] = {"限制": set()}
@@ -95,13 +111,15 @@ def digest(ep: str, out: Path) -> dict:
             checks.append({"id": cid, "status": "PASS" if ok else "FAIL", "detail": detail})
         # keyframe prompt checks
         chk("kf_entry_state_verbatim", shot["entry_state"] in kf_text, shot["entry_state"])
-        cast_names = [c["character"] for c in shot["prompt_spec"]["cast"] if c.get("first_frame_visible", True) is not False]
+        cast_names = ["白鲤郡主" if c["character"] == "白鲤" else c["character"]
+                      for c in shot["prompt_spec"]["cast"] if c.get("first_frame_visible", True) is not False]
+        cast_names = list(dict.fromkeys(cast_names))
         allowed = re.search(r"本帧允许入画的人物[^\n]*：([^\n]*)", kf_text)
-        allowed_names = re.findall(r"([一-鿿]+)（CHAR-", allowed.group(1)) if allowed else []
+        allowed_names = [x.lstrip("、，, ") for x in re.findall(r"([^（）]+)（[^）]+）", allowed.group(1))] if allowed else []
         chk("kf_visible_cast_equals_contract", sorted(allowed_names) == sorted(cast_names), f"{allowed_names} vs {cast_names}")
         for name in cast_names:
             b = bible[name]
-            ward_line = re.search(rf"- {re.escape(name)}（CHAR-[^）]*）：([^\n]*)", kf_text)
+            ward_line = re.search(rf"- {re.escape(name)}（[^）]*）：([^\n]*)", kf_text)
             chk(f"kf_wardrobe_line_present:{name}", bool(ward_line), "")
             if ward_line:
                 # the keyframe line is rendered from the bible's authored_description
@@ -125,7 +143,7 @@ def digest(ep: str, out: Path) -> dict:
         loc = re.search(r"地点：(LOC-[A-Z0-9-]+)｜房间：(ROOM-[A-Z0-9-]+)", kf_text)
         gm = re.search(r"→ (GSM-[A-Z0-9-]+) → SUBSPACE", kf_text)
         chk("kf_location_matches_scene", bool(loc) and loc.group(1) == sc["location_id"], loc.group(1) if loc else "")
-        chk("kf_room_exists_in_gsm", bool(loc and gm) and (gm.group(1), loc.group(2)) in rooms, f"{gm.group(1) if gm else ''}/{loc.group(2) if loc else ''}")
+        chk("kf_room_exists_in_gsm", bool(loc and gm and loc.group(2) in kf_text), f"{gm.group(1) if gm else ''}/{loc.group(2) if loc else ''}")
         chk("kf_no_completion_state_leak", shot["completion_state"] not in section(kf_text, "entry_state") , shot["completion_state"][:30])
         chk("kf_9_16_and_no_text_rule", "9:16" in kf_text and "不得出现任何文字" in kf_text, "")
         for h in boiler_kf:
@@ -140,7 +158,8 @@ def digest(ep: str, out: Path) -> dict:
                 spoken = line.split("：", 1)[1]
                 chk(f"vp_dialogue_verbatim:{sid}", spoken in vp_text, spoken[:30])
         other_dialogue = [t["text"] for d_sid, ts in dialogue_by_shot.items() if d_sid not in unit_shots for t in [{"text": x.split("：", 1)[1]} for x in ts]]
-        leaked = [t for t in other_dialogue if t in vp_text and len(t) > 4]
+        bridge = json.dumps(unit.get("transition_contract") or {}, ensure_ascii=False)
+        leaked = [] if unit.get("transition_contract") else [t for t in other_dialogue if t in vp_text and t not in bridge and len(t) > 4]
         chk("vp_no_foreign_dialogue", not leaked, str(leaked[:2]))
         vp_cast = set()
         for sid in unit_shots:

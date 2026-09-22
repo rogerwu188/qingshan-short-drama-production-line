@@ -292,6 +292,8 @@ def scan_non_video_spend(episode: str) -> dict[str, Any]:
     unknown_success = 0
     batch_total = Decimal("0")
     batch_rows: list[dict[str, Any]] = []
+    bound_image_task_ids: set[str] = set()
+    bound_image_rows: list[dict[str, Any]] = []
 
     for path, payload in _iter_task_json(tasks_root):
         if not isinstance(payload, dict):
@@ -322,6 +324,32 @@ def scan_non_video_spend(episode: str) -> dict[str, Any]:
                     })
                 elif attempt.get("success") is True:
                     unknown_success += 1
+
+    # The image submitter's durable idempotency store predates credit_attempts
+    # and therefore has many successful task bindings with no per-task cost
+    # field.  Ignoring those files undercounts later reroll batches whenever
+    # their reconciliation receipt lives in a dedicated runtime outside the
+    # engine clone.  For the budget cap, count each unique accepted image task
+    # at the observed hard upper price.  This is deliberately conservative and
+    # is not presented as release-time exact provider accounting.
+    image_tx_dir = tasks_root / IMAGE_TRANSACTION_DIRNAME / episode
+    for path in sorted(image_tx_dir.glob("*.json")) if image_tx_dir.is_dir() else []:
+        try:
+            payload = load_json(path)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict) or payload.get("state") != "SUBMITTED_TASK_ID_BOUND":
+            continue
+        task_id = str(payload.get("task_id") or "").strip()
+        if not task_id or task_id in bound_image_task_ids:
+            continue
+        bound_image_task_ids.add(task_id)
+        bound_image_rows.append({
+            "source": str(path),
+            "task_key": payload.get("task_key"),
+            "task_id": task_id,
+            "state": payload.get("state"),
+        })
 
     # Layer 2: batch reconciliation statements written next to submit reports.
     for path in sorted(ENGINE_ROOT.rglob("*_credit_statement.json")):
@@ -367,20 +395,27 @@ def scan_non_video_spend(episode: str) -> dict[str, Any]:
         else:
             bgm_unknown += 1
 
+    bound_image_upper = Decimal(len(bound_image_task_ids)) * Decimal(str(
+        UNIT_PRICES["image_gpt_image_2_pro"]["hard_upper"]
+    ))
     return {
         "per_task_credits": number(per_task),
         "per_task_rows": per_task_rows,
         "successful_attempts_with_unknown_cost": unknown_success + bgm_unknown,
         "batch_reconciled_credits": number(batch_total),
         "batch_rows": batch_rows,
+        "bound_image_transaction_count": len(bound_image_task_ids),
+        "bound_image_transaction_upper_credits": number(bound_image_upper),
+        "bound_image_transaction_rows": bound_image_rows,
         "bgm_credits": number(bgm_total),
         "bgm_rows": bgm_rows,
         "double_count_policy": (
-            "per_task and batch layers are reported separately and the larger of the two is used as "
-            "the non-video subtotal, because an image batch is reconciled either per task row or at "
-            "batch level, never both. Summing them would double count."
+            "per_task, batch-reconciliation, and accepted image-transaction layers are reported "
+            "separately and the largest is used as the non-video subtotal. The transaction layer "
+            "uses the observed image hard upper, so it cannot undercount receipts stored outside "
+            "the engine clone; summing the layers would double count."
         ),
-        "subtotal_credits": number(max(per_task, batch_total) + bgm_total),
+        "subtotal_credits": number(max(per_task, batch_total, bound_image_upper) + bgm_total),
     }
 
 

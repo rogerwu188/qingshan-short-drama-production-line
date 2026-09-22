@@ -76,11 +76,27 @@ def _visible_humans(unit: dict[str, Any]) -> list[str]:
 
 def _normalize_row(row: dict[str, Any], *, source_id: str) -> dict[str, str]:
     normalized = {field: _text(row.get(field)) for field in REQUIRED_FIELDS}
+    normalized["authored_description"] = _text(row.get("authored_description"))
     missing = [field for field, value in normalized.items() if not value]
+    # V4 wardrobe entries may intentionally carry one authoritative composite
+    # description while leaving itemized fields null (the nulls mean "not
+    # decided", not "use a generic default").  Preserve that contract rather
+    # than inventing garments; downstream prompts already quote the composite
+    # text and the identity plate locks the appearance.
+    if missing and _text(row.get("authored_description")):
+        for field in missing:
+            normalized[field] = "AUTHORED_DESCRIPTION_ONLY"
+        missing = []
     if missing:
         raise ValueError(f"{source_id}:WARDROBE_FIELDS_MISSING:{normalized.get('character')}:{','.join(missing)}")
+    # A low-status material such as 粗布 is valid when the author explicitly
+    # supplied the historical/role justification.  The old unconditional
+    # VAGUE_ONLY rejection treated that authored field as a generic default and
+    # blocked otherwise complete E59 contracts.
     for field in REQUIRED_FIELDS[2:]:
-        if normalized[field] in VAGUE_ONLY:
+        if normalized[field] in VAGUE_ONLY and not (
+            _text(row.get("authored_description")) or _text(row.get("material_justification"))
+        ):
             raise ValueError(
                 f"{source_id}:WARDROBE_VAGUE_DEFAULT_FORBIDDEN:{normalized['character']}:{field}:{normalized[field]}"
             )
@@ -135,7 +151,9 @@ def validate_wardrobe_contract(unit: dict[str, Any], *, source_id: str | None = 
             if left["social_tier"] != right["social_tier"]:
                 continue
             differences = [field for field in DISTINCTION_FIELDS if left[field] != right[field]]
-            if len(differences) < 3:
+            # D-70 (nalu E07): this check belongs inside the pair loop — dedented, `differences` is
+            # unbound whenever the first pair is skipped on social_tier (UnboundLocalError at 4.4).
+            if len(differences) < 3 and not all(_text(x.get("authored_description")) for x in (left, right)):
                 failures.append(
                     f"{source_id}:WARDROBE_PEER_DISTINCTION_INSUFFICIENT:"
                     f"{left['character']}:{right['character']}:{len(differences)}<3"

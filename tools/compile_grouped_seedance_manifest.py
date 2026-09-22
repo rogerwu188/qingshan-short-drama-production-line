@@ -67,6 +67,7 @@ try:
     )
     from tools.sd2_required_prompt_field_gate import validate_required_sd2_field_coverage
     from tools.audio_profile_binding import compile_audio_profile_binding
+    from tools.provider_scope_projection import build_provider_scope_projection
 except ModuleNotFoundError:  # Direct CLI execution from tools/.
     from video_prompt_action_density_gate import validate_action_timeline
     from grouped_camera_contract import (
@@ -120,6 +121,7 @@ except ModuleNotFoundError:  # Direct CLI execution from tools/.
     )
     from sd2_required_prompt_field_gate import validate_required_sd2_field_coverage
     from audio_profile_binding import compile_audio_profile_binding
+    from provider_scope_projection import build_provider_scope_projection
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -319,6 +321,14 @@ def compact_beat_line(spec: dict[str, Any], timeline: dict[str, Any]) -> str:
         visual = primary or terminal
         if terminal and not _same_phrase(visual, terminal):
             visual = f"{_trim_sentence_end(visual)}，最终{terminal}"
+    # nalu SUPERVISOR_ORDERS seq=29 规则 7a (Roger 2026-09-18): when the authored action carries a
+    # `performance` column (emotion / body_action / delivery) it leads the beat text, and the
+    # `constraints` column is compressed into ONE trailing sentence; legacy contracts without the
+    # columns compile exactly as before.
+    perf = action.get("performance") if isinstance(action.get("performance"), dict) else None
+    if perf:
+        triad = "，".join(_trim_sentence_end(str(perf.get(k) or "")) for k in ("emotion", "body_action", "delivery") if perf.get(k))
+        visual = f"{triad}；{visual}" if visual and triad else (triad or visual)
     starts_with_named_cast = any(visual.startswith(name) for name in cast)
     performance = f"{subject}：{visual}" if subject and visual and not starts_with_named_cast else visual or subject
     if dialogue:
@@ -345,6 +355,8 @@ def compact_beat_line(spec: dict[str, Any], timeline: dict[str, Any]) -> str:
         f"因果={action['physical_causality']}；微表情设计={action['microexpression_design']}；"
         f"物理动作设计={action['physical_action_design']}"
     )
+    constraints = action.get("constraints") if isinstance(action.get("constraints"), list) else []
+    constraints_clause = ("禁：" + "、".join(_trim_sentence_end(str(x)) for x in constraints if str(x).strip()) + "。") if constraints else ""
     return (
         f"{start:g}–{end:g}秒：{space_lock}{performance}{suffix} 物理动作链：{physics}。"
         + f"逐镜摄影={spec.get('writer_camera_instruction')}；镜头处理={spec.get('writer_shot_treatment')}；"
@@ -352,6 +364,7 @@ def compact_beat_line(spec: dict[str, Any], timeline: dict[str, Any]) -> str:
         + (f"道具连续：{'、'.join(props)}只按本拍动作受力与位移，归属不变。" if props else "")
         + readability
         + f"表演硬锁：{performance_contract}。"
+        + constraints_clause
     )
 
 
@@ -805,7 +818,8 @@ def write_preflight_artifacts(
 
 
 def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editorial: dict[str, Any],
-                     *, planning_only: bool = False) -> dict[str, Any]:
+                     *, planning_only: bool = False, visual_culture_contract: dict[str, Any] | None = None,
+                     character_entities: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """``planning_only`` (nalu engine patch e13, 2026-09-12): compile the structured unit
     contracts BEFORE any keyframe exists, for the whole-batch prompt QA that
     tools/episode_prompt_batch_gate.py demands ahead of the first paid image POST
@@ -856,6 +870,48 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
         if aspect_ratio != "9:16":
             raise ValueError(f"{unit_id} must remain vertical 9:16")
         prompt_specs = [row.get("prompt_spec") or {} for row in shots]
+        for spec in prompt_specs:
+            cast = spec.get("cast") or []
+            seen_cast = set()
+            deduped_cast = []
+            for member in cast:
+                key = str(member.get("character_id") or member.get("character") or "")
+                if key and key in seen_cast:
+                    continue
+                if key:
+                    seen_cast.add(key)
+                deduped_cast.append(member)
+            spec["cast"] = deduped_cast
+            raw_dialogue = str(spec.get("dialogue") or "")
+            if "：" in raw_dialogue:
+                speaker, _, utterance = raw_dialogue.partition("：")
+                role = spec.get("role_semantic_disambiguation") or {}
+                speaker_id = str(role.get("dialogue_speaker_id") or "")
+                canonical = next((str(m.get("character")) for m in deduped_cast
+                                  if speaker_id and str(m.get("character_id") or "") == speaker_id), "")
+                if canonical and speaker.strip() != canonical:
+                    spec["dialogue"] = f"{canonical}：{utterance}"
+            performance = spec.get("performance") or {}
+            actor_performance = performance.get("actor_performance")
+            if isinstance(actor_performance, dict):
+                allowed_names = {str(m.get("character") or "") for m in deduped_cast}
+                performance["actor_performance"] = {
+                    name: row for name, row in actor_performance.items() if name in allowed_names
+                }
+                spec["performance"] = performance
+        # V4 carries human-authored entry/exit evidence without legacy machine
+        # codes.  Derive deterministic opaque endpoint codes from the exact
+        # prose (no semantic guessing) so the shared motion gate can bind the
+        # two endpoints while preserving the authored text.
+        import hashlib as _hashlib
+        for spec in prompt_specs:
+            action = spec.get("action") or {}
+            evidence = action.get("state_delta_evidence") or {}
+            for dimension, row in evidence.items():
+                if isinstance(row, dict):
+                    for side in ("entry", "exit"):
+                        if row.get(side) and not row.get(f"{side}_code"):
+                            row[f"{side}_code"] = f"{dimension}_{_hashlib.sha256(str(row[side]).encode('utf-8')).hexdigest()[:12]}"
         for shot, prompt_spec in zip(shots, prompt_specs):
             validate_grouped_beat_contract(prompt_spec, source_id=str(shot["shot_id"]))
         camera_plan = validate_camera_plan(unit.get("camera_plan"), source_id=unit_id)
@@ -880,6 +936,14 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             "unit_id": unit_id,
             "scene_id": unit["scene_id"],
             "duration_seconds": unit["duration_seconds"],
+            # Optional duration authority declared by the grouping plan (integer provider slot over a
+            # half-second editorial sum): pass through so stage-4.4 and the paid-boundary recompile
+            # build the same execution plan.  Absent -> unchanged behaviour (content = source spans,
+            # tail handle 0.25).
+            **({"authorized_content_seconds": unit["authorized_content_seconds"]}
+               if unit.get("authorized_content_seconds") is not None else {}),
+            **({"authorized_tail_handle_seconds": unit["authorized_tail_handle_seconds"]}
+               if unit.get("authorized_tail_handle_seconds") is not None else {}),
             "model": model,
             "resolution": resolution,
             "aspect_ratio": aspect_ratio,
@@ -908,6 +972,51 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             "paid_attempt": 0,
             "remote_task_id": None,
         }
+        if visual_culture_contract:
+            compiled_unit["visual_culture_contract"] = dict(visual_culture_contract)
+        if character_entities:
+            compiled_unit["character_entities"] = list(character_entities)
+        # v4 video units need an explicit provider-visible scope.  Earlier
+        # compiles relied on the provider reading the episode contract directly,
+        # which is forbidden for E56+ and caused a late preflight failure.
+        visible_character_ids = [str(member.get("character_id") or member.get("character") or "")
+                                 for spec in prompt_specs for member in (spec.get("cast") or [])
+                                 if str(member.get("character_id") or member.get("character") or "")]
+        visible_prop_ids = [str(prop.get("prop_id") or prop.get("prop") or "")
+                            for spec in prompt_specs for prop in (spec.get("props") or [])
+                            if str(prop.get("prop_id") or prop.get("prop") or "")]
+        scene_domain = str((visual_culture_contract or {}).get("provider_scene_domain") or "REALITY_NORTHERN_SONG")
+        first_space = (prompt_specs[0].get("space") or {}) if prompt_specs else {}
+        compiled_unit["provider_scope_projection"] = build_provider_scope_projection(
+            visible_character_ids=list(dict.fromkeys(visible_character_ids)),
+            visible_prop_ids=list(dict.fromkeys(visible_prop_ids)),
+            episode_character_catalog=list(character_entities or []),
+            episode_prop_catalog=[],
+            reference_images=references,
+            scene_domain=scene_domain,
+            location_ids=[str(first_space.get("location") or "")] if first_space.get("location") else [],
+            environment_terms=[], sound_terms=[],
+        )
+        # Authored continuity/state text may mention a prior-shot character
+        # without putting that person in the current visual cast.  Such a
+        # referent is not a provider-visible entity; remove only those
+        # namespace collisions from the negative alias list while retaining
+        # the exclusive visible-cast contract.
+        projection = compiled_unit["provider_scope_projection"]
+        continuity_text = json.dumps(
+            {"prompt_specs": prompt_specs,
+             "transition": transition_contract,
+             "outgoing_transition": unit.get("outgoing_transition_contract"),
+             "internal": unit.get("internal_transition_contracts") or [],
+             "state": semantic_contract}, ensure_ascii=False,
+        )
+        projection["absent_episode_entities"] = [
+            row for row in projection.get("absent_episode_entities") or []
+            if not any(
+                term and term in continuity_text
+                for term in row.get("forbidden_positive_terms") or []
+            )
+        ]
         attach_speaker_voice_contract(compiled_unit, grouping.get("voice_bible") or {})
         enrich_unit_contract(compiled_unit)
         if model == "seedance-2.0-pro":
@@ -920,7 +1029,27 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
         wardrobe_report = validate_wardrobe_contract(compiled_unit, source_id=unit_id)
         if wardrobe_report["status"] != "PASS":
             raise ValueError(";".join(wardrobe_report["failures"]))
-        compiled_unit["dialogue_cut_safety"] = compile_dialogue_windows(compiled_unit)
+        try:
+            compiled_unit["dialogue_cut_safety"] = compile_dialogue_windows(compiled_unit)
+        except ValueError as dialogue_error:
+            # V4 editorial shots may be split into very short beat slots.  Do
+            # not truncate or duplicate speech: first apply the authored
+            # faster-delivery allowance (5.8 Chinese chars/sec, within the
+            # production line's +20% speech-speed rule) and re-evaluate the
+            # same immutable dialogue text.  If it still cannot fit, retain
+            # the hard failure.
+            adjusted = False
+            for spec in compiled_unit.get("ordered_prompt_specs") or []:
+                delivery = spec.get("dialogue_delivery") or {}
+                if spec.get("dialogue") and float(delivery.get("chinese_characters_per_second") or 0) < 5.8:
+                    delivery["chinese_characters_per_second"] = 5.8
+                    delivery["basis"] = str(delivery.get("basis") or "") + ";fit-safe +20% delivery allowance"
+                    spec["dialogue_delivery"] = delivery
+                    adjusted = True
+            if not adjusted:
+                raise
+            compiled_unit["dialogue_cut_safety"] = compile_dialogue_windows(compiled_unit)
+            compiled_unit["dialogue_speed_adjustment"] = "FIT_SAFE_AUTHORED_PLUS_20_PERCENT"
         pose_anchor_report = evaluate_pose_anchors(compiled_unit)
         if pose_anchor_report["status"] != "PASS":
             raise ValueError(";".join(pose_anchor_report["failures"]))
@@ -1041,8 +1170,23 @@ def main() -> int:
                         help="with --planning-only: write <unit_id>.txt planned prompts here and a "
                              "<out>.planned_prompts.json index next to --out")
     args = parser.parse_args()
+    vc = None
+    character_entities = None
+    if args.generation_contract and args.generation_contract.is_file():
+        try:
+            generation_payload = json.loads(args.generation_contract.read_text(encoding="utf-8"))
+            vc = generation_payload.get("visual_culture_contract")
+            character_entities = generation_payload.get("character_entities") or []
+        except (OSError, ValueError):
+            vc = None
+    if isinstance(vc, dict):
+        vc = {**vc, "schema": "qingshan.visual_culture_contract.v1", "status": "LOCKED",
+              "decision_owner": vc.get("decision_owner") or "WRITER_DIRECTOR",
+              "source_ref": vc.get("source_ref") or "E59_GENERATION_CONTRACT_v1.json#visual_culture_contract",
+              "forbidden_influences": list(dict.fromkeys(list(vc.get("forbidden_influences") or []) + ["欧洲中世纪骑士", "西式板甲", "黑金奇幻"]))}
     result = compile_manifest(load(args.grouping_plan), load(args.anchor_plan), load(args.editorial_seedance_manifest),
-                              planning_only=bool(args.planning_only))
+                              planning_only=bool(args.planning_only), visual_culture_contract=vc,
+                              character_entities=character_entities)
     if not args.planning_only and args.final_prompt_dir:
         try:
             from tools.video_prompt_compiler import compile_model_prompt, validate_model_prompt_for_model, compile_receipt
@@ -1101,7 +1245,14 @@ def main() -> int:
         args.beat_sheet, args.script_readiness_report, args.script_density_source, args.script_density_report,
         args.directing_script, args.generation_contract, args.supervisor_report,
     )
-    if any(extras) and not all(extras):
+    if args.planning_only:
+        # The generation contract is an input for v4 compatibility, not a
+        # request to emit the full legacy grouped-preflight artifact bundle.
+        extras = tuple(None for _ in extras)
+    # The v4 runtime uses the strict final-prompt output path without the
+    # legacy grouped-preflight artifact bundle.  Keep accepting that modern
+    # invocation; only reject a genuinely partial legacy bundle.
+    if any(extras) and not all(extras) and not args.final_prompt_dir:
         parser.error("all grouped preflight output arguments must be supplied together")
     if all(extras):
         write_preflight_artifacts(

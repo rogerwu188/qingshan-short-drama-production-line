@@ -1813,6 +1813,7 @@
       "stage": "VIDEO_GENERATION_SUBMIT_AND_SOURCE_ADMISSION",
       "implementation_type": "CODED",
       "code_paths": [
+        "tools/basic_dialogue_qa_policy.py",
         "tools/source_video_dialogue_gate.py",
         "tools/qa_multimodal_dialogue_batch.py",
         "tools/episode_parallel_batch_supervisor.py",
@@ -1821,6 +1822,7 @@
         "tools/render_agentcut_audio_master.py"
       ],
       "test_paths": [
+        "tools/tests/test_basic_dialogue_qa_policy.py",
         "tools/tests/test_source_video_dialogue_gate.py",
         "tools/tests/test_qa_multimodal_dialogue_batch.py",
         "tools/tests/test_episode_parallel_batch_supervisor.py",
@@ -1828,9 +1830,14 @@
         "tools/tests/test_render_agentcut_audio_master.py"
       ],
       "parameters": {
+        "postgen_dialogue_policy_ref": "configs/BASIC_DIALOGUE_QA_POLICY.json",
+        "minor_asr_homophone_near_sound_difference_blocks_admission": false,
+        "minor_dialogue_difference_triggers_regeneration": false,
+        "minor_dialogue_difference_triggers_repeat_asr": false,
         "audio_stream_required_for_every_source_video": true,
         "native_mandarin_required_when_script_has_dialogue": true,
-        "exact_dialogue_order_and_recall_required": true,
+        "exact_authored_dialogue_order_required_in_prompt": true,
+        "postgen_asr_verbatim_match_required": false,
         "sentence_tail_must_not_be_clipped": true,
         "portable_ffprobe_and_whisper_resolution_required": true,
         "failed_only_repair_required": true,
@@ -2131,6 +2138,147 @@
       "stage_runner_paths": [
         "tools/episode_stage_gate_runner.py"
       ]
+    },
+    {
+      "gate_id": "SCRIPT-STRUCTURE-CONTRACT",
+      "stage": "SCRIPT_CONTRACT_S1",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/script_structure_contract_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_script_structure_contract_gate.py"
+      ],
+      "parameters": {
+        "hook_at_seconds_max": 5.0,
+        "max_silent_run_seconds": 15.0,
+        "max_silent_run_action_seconds": 25.0,
+        "min_dialogue_coverage": 0.35,
+        "action_outcome_evidence_within_seconds": 10.0,
+        "prop_recap_lead_seconds": 10.0,
+        "dialogue_cps_default": 4.0,
+        "threshold_relaxation_forbidden": true,
+        "e04_negative_sample_must_fail": true
+      },
+      "authorization_ref": "ROGER-20260916-NALU-E04-REJECT-PRODUCTION-LINE-REWORK",
+      "last_backtest_date": "2026-09-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ],
+      "note": "seq=19 A1–A6 + B3′: hook, dialogue density, action outcome, antagonist motive, prop source, entity introduction, lexicon. Runs at S1 on the generation contract + writer manifest."
+    },
+    {
+      "gate_id": "CONTINUITY-STATE-CONTRACT",
+      "stage": "SCRIPT_CONTRACT_S1",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/continuity_state_contract_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_continuity_state_contract_gate.py"
+      ],
+      "parameters": {
+        "life_states": [
+          "alive",
+          "injured",
+          "unconscious",
+          "dead"
+        ],
+        "dead_is_terminal": true,
+        "group_count_change_requires_note": true,
+        "creature_locomotion": [
+          "biped",
+          "quadruped"
+        ],
+        "costume_inheritance_level": "WARN",
+        "threshold_relaxation_forbidden": true,
+        "e04_negative_sample_must_fail": true
+      },
+      "authorization_ref": "ROGER-20260916-NALU-E04-REJECT-PRODUCTION-LINE-REWORK",
+      "last_backtest_date": "2026-09-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ],
+      "note": "seq=19 B1/B2/B4/B5: life state machine, group counts, creature cards, ambush space, costume inheritance. Perceived state/count/gait are NOT_IMPLEMENTED automatically and answered by the video_q2 reviewer questions."
+    },
+    {
+      "gate_id": "VOICE-CAST-BINDING",
+      "stage": "VOICE_REFERENCES_S4_AND_FINAL_CUT",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/voice_cast_gate.py",
+        "tools/dialogue_voice_metrics.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_voice_cast_gate.py",
+        "tools/tests/test_dialogue_voice_metrics.py"
+      ],
+      "parameters": {
+        "f0_band_half_width": 0.15,
+        "band_overlap_requires_human_ratio": 0.5,
+        "voice_collision_f0_ratio": 0.15,
+        "emotion_delta_db_min": 6.0,
+        "emotions": [
+          "calm",
+          "plead",
+          "threat",
+          "mock",
+          "joy",
+          "fear"
+        ],
+        "no_tts_stage": "lines are spoken natively by the video model; only reference clips and post-generation measurement exist",
+        "threshold_relaxation_forbidden": true,
+        "e04_negative_sample_must_fail": true
+      },
+      "authorization_ref": "ROGER-20260916-NALU-E04-REJECT-PRODUCTION-LINE-REWORK",
+      "last_backtest_date": "2026-09-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ],
+      "note": "seq=19 C1/C2: character→voice table with measured reference F0 bands (precheck co-presence), post-generation per-line F0 band / collision / emotion dynamics."
+    },
+    {
+      "gate_id": "FINAL-CUT-AUDIENCE-DETECTORS",
+      "stage": "RELEASE",
+      "implementation_type": "CODED",
+      "code_paths": [
+        "tools/final_cut_audience_detectors.py",
+        "tools/final_cut_audience_gate.py"
+      ],
+      "test_paths": [
+        "tools/tests/test_final_cut_audience_detectors.py",
+        "tools/tests/test_final_cut_audience_gate.py"
+      ],
+      "parameters": {
+        "hook_seconds": 5.0,
+        "cut_threshold": 25.0,
+        "max_silent_run": 15.0,
+        "max_silent_run_action": 25.0,
+        "min_coverage": 0.35,
+        "release_lufs": -14.0,
+        "release_lufs_tolerance": 1.0,
+        "release_true_peak_dbtp_max": -1.0,
+        "dialogue_window_lufs_range": [
+          -18.0,
+          -12.0
+        ],
+        "adjacent_window_delta_lu_max": 6.0,
+        "mascot_score_threshold": 0.85,
+        "not_implemented": [
+          "state_machine",
+          "count_consistency",
+          "creature_locomotion"
+        ],
+        "silent_pass_forbidden": true,
+        "threshold_relaxation_forbidden": true,
+        "e04_negative_sample_must_fail": true
+      },
+      "authorization_ref": "ROGER-20260916-NALU-E04-REJECT-PRODUCTION-LINE-REWORK",
+      "last_backtest_date": "2026-09-16",
+      "stage_runner_paths": [
+        "tools/episode_stage_gate_runner.py"
+      ],
+      "note": "seq=19 D: hook_present, dialogue_coverage, silence_gap_max, voice_distinctness, emotion_dynamics, lexicon_violation, mascot_in_story, loudness on the levelled final cut; the wrapper gate consumes the sha-bound detector report."
     }
   ],
   "withdrawn_gates": [
@@ -2171,9 +2319,9 @@
     }
   ],
   "derived_schema": "nalu.still_scoped_gate_registry.v1",
-  "derived_from": "$ENGINE_ROOT/configs/GATE_REGISTRY_v3_20260716.json",
-  "derived_from_sha256": "0b7d478904638f0d9e22452971b7aa8d95b9e7445355b53e364ff187fd0613a4",
-  "derived_at": "2026-09-15T03:15:36Z",
+  "derived_from": "/Users/rogerwu/nalu/configs/GATE_REGISTRY_v3_20260716.json",
+  "derived_from_sha256": "7dd0c9a0cd8e865dfbd0931345657f2a3224104de30aaf1ce218d071ae3f8af9",
+  "derived_at": "2026-09-19T14:47:39Z",
   "derived_by": "keyframe_q1_builder.v1",
   "scope": "KEYFRAME_VIDEO_SUBMIT (stills) ONLY — video Q2 uses the engine registry",
   "decision_ref": "SUPERVISOR_ORDERS seq=4 / D-13 operator call 2026-09-09",

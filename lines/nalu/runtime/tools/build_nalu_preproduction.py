@@ -27,6 +27,7 @@ import argparse
 import copy
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -537,7 +538,8 @@ def _wardrobe_layers_from_description(description: str) -> tuple[str, str]:
 
 
 def build_internal_transition_contracts(group: dict[str, Any], by_shot: dict[str, Any],
-                                        authored: dict[tuple[str, str], dict[str, Any]]) -> list[dict[str, Any]]:
+                                       authored: dict[tuple[str, str], dict[str, Any]],
+                                       allow_migration_defaults: bool = False) -> list[dict[str, Any]]:
     try:
         from tools.grouped_internal_continuity_contract import (
             _visible_characters, _space, _props, _sound, internal_boundary_id)
@@ -548,9 +550,17 @@ def build_internal_transition_contracts(group: dict[str, Any], by_shot: dict[str
     rows: list[dict[str, Any]] = []
     for a, b in zip(shot_ids, shot_ids[1:]):
         row = authored.get((a, b))
+        prev, cur = by_shot[a]["prompt_spec"], by_shot[b]["prompt_spec"]
+        if not row and allow_migration_defaults:
+            prev_camera = prev.get("camera_plan") or {}
+            cur_camera = cur.get("camera_plan") or {}
+            row = {
+                "transition_mode": "MOTIVATED_CUT" if prev_camera != cur_camera else "CONTINUOUS_ACTION",
+                "authorship": "EDITOR_AUTHORED",
+                "camera_change_reason": "迁移旧生产线分组后新增的相邻镜头边界，按当前机位计划明确承接",
+            }
         if not row:
             continue
-        prev, cur = by_shot[a]["prompt_spec"], by_shot[b]["prompt_spec"]
         rows.append({
             "boundary_id": internal_boundary_id(str(group["unit_id"]), a, b),
             "from_shot_id": a, "to_shot_id": b,
@@ -558,16 +568,17 @@ def build_internal_transition_contracts(group: dict[str, Any], by_shot: dict[str
             "authorship": row.get("authorship") or "DIRECTOR_AUTHORED",
             "cast_bridge": {"from_visible_characters": _visible_characters(prev),
                             "to_visible_characters": _visible_characters(cur),
-                            "identity_preservation": row["identity_preservation"],
-                            "entry_exit_or_reveal": row["entry_exit_or_reveal"]},
+                            "identity_preservation": row.get("identity_preservation") or "角色、服装与脸部身份沿承，不重置",
+                            "entry_exit_or_reveal": row.get("entry_exit_or_reveal") or "保持同一角色连续；新增角色必须明确入画或切换承接"},
             "scene_bridge": {"from_space": _space(prev), "to_space": _space(cur),
-                             "continuity": row["scene_continuity"]},
+                             "continuity": row.get("scene_continuity") or "地图空间、光向与人物位置连续"},
             "prop_bridge": {"from_props": _props(prev), "to_props": _props(cur),
-                            "ownership_or_handoff": row["prop_handoff"]},
-            "sound_bridge": {"from_sound": _sound(prev), "to_sound": _sound(cur), "bridge": row["sound_bridge"]},
-            "camera_bridge": {"axis_strategy": row["axis_strategy"], "transition_execution": row["transition_execution"]},
-            "action_bridge": row["action_bridge"],
-            "reference_bridge": {"entity_mapping": row["entity_mapping"],
+                            "ownership_or_handoff": row.get("prop_handoff") or "道具归属与位置保持连续，不交换"},
+            "sound_bridge": {"from_sound": _sound(prev), "to_sound": _sound(cur), "bridge": row.get("sound_bridge") or "现场声从上一拍连续过渡到下一拍"},
+            "camera_bridge": {"axis_strategy": row.get("axis_strategy") or "沿既定轴线保持方向，不越轴", "transition_execution": row.get("transition_execution") or row.get("camera_change_reason") or "按承接机位完成一次明确转场"},
+            "camera_change_reason": row.get("camera_change_reason") or row.get("plot_motivation") or row.get("transition_execution") or "按承接机位完成一次明确转场",
+            "action_bridge": row.get("action_bridge") or f"上一拍终态「{(prev.get('action') or {}).get('completion_state','')}」→ 下一拍起态「{(cur.get('action') or {}).get('start_state','')}」，动作连续不复位",
+            "reference_bridge": {"entity_mapping": row.get("entity_mapping") or "按角色实体ID逐一对应，禁止换人",
                                  "different_character_same_slot_forbidden": True,
                                  "same_slot_reuse_allowed": bool(row.get("same_slot_reuse_allowed", False))},
             "authoring_source": "generation_contract.internal_transition_authoring",
@@ -1215,6 +1226,7 @@ def main() -> int:
     parser.add_argument("--asset-requirements",
                         help="preproduction/<EP>/asset_requirements.json — its authored WARD-* rows are "
                              "the wardrobe bible authority (same text the identity prompts use)")
+    parser.add_argument("--legacy-plan", help="optional prior production grouping plan used to migrate authored internal transitions")
     parser.add_argument("--engine-root")
     args = parser.parse_args()
 
@@ -1346,6 +1358,73 @@ def main() -> int:
     authored_internal = {
         (str(row.get("from_shot_id")), str(row.get("to_shot_id"))): row
         for row in contract.get("internal_transition_authoring") or []}
+    # v4 contracts may author internal transitions while still omitting the
+    # legacy persistent/shot state ledgers required by the paid storyboard
+    # gate.  Always use the dedicated E59 legacy plan as a state-source
+    # fallback; it never overrides an authored transition.
+    if args.legacy_plan:
+        legacy = json.loads(Path(args.legacy_plan).expanduser().resolve().read_text(encoding="utf-8"))
+        legacy_units = {str(unit.get("unit_id")): unit for unit in legacy.get("units") or []}
+        legacy_shot_states = {
+            str(row.get("shot_id")): row
+            for unit in legacy.get("units") or []
+            for row in unit.get("shot_state_contracts") or []
+            if row.get("shot_id")
+        }
+        for group in spec.get("groups") or []:
+            prior = legacy_units.get(str(group.get("unit_id")))
+            migrated_states = [copy.deepcopy(legacy_shot_states[sid])
+                               for sid in group.get("editorial_shot_ids") or []
+                               if sid in legacy_shot_states]
+            if len(migrated_states) == len(group.get("editorial_shot_ids") or []):
+                group["shot_state_contracts"] = migrated_states
+                first = migrated_states[0].get("persistent_state_contract") or {}
+                last = migrated_states[-1].get("persistent_state_contract") or {}
+                group["persistent_state_contract"] = {
+                    "status": "PASS", "characters": [],
+                    "no_character_state_reason": "migrated legacy state chain",
+                    "props": {}, "environment": {
+                        "entry_state": copy.deepcopy((first.get("environment") or {}).get("entry_state") or {}),
+                        "exit_state": copy.deepcopy((last.get("environment") or {}).get("exit_state") or {}),
+                    },
+                }
+        for legacy_unit in legacy.get("units") or []:
+            for row in legacy_unit.get("internal_transition_contracts") or []:
+                key = (str(row.get("from_shot_id")), str(row.get("to_shot_id")))
+                if all(key):
+                    authored_internal[key] = row
+
+    # v4 adapters may provide a valid per-shot camera sequence whose grouped
+    # unit anchors collide after semantic grouping (the grouping contract uses
+    # the first shot of each unit as its camera authority).  Repair only
+    # adapter-generated anchors, never director-authored overlays, and retain
+    # a receipt in the unit so the transformation is auditable.
+    motion_dirs = {
+        "PAN": ["LEFT_TO_RIGHT", "RIGHT_TO_LEFT"],
+        "TRACK": ["LEFT_TO_RIGHT", "RIGHT_TO_LEFT"],
+        "DOLLY": ["PUSH_IN", "PULL_OUT"],
+        "CRANE": ["RISE", "FALL"],
+        "ARC": ["CLOCKWISE", "COUNTERCLOCKWISE"],
+    }
+    motion_order = ["PAN", "TRACK", "DOLLY", "CRANE", "ARC"]
+    previous_signature = None
+    for group in spec.get("groups") or []:
+        camera = group.get("camera_plan") or {}
+        signature = (camera.get("motion_family"), camera.get("motion_direction"))
+        authored = str(camera.get("authorship") or "")
+        if previous_signature and signature == previous_signature and authored.startswith("V4_ADAPTER_"):
+            for family in motion_order:
+                for direction in motion_dirs[family]:
+                    if (family, direction) != previous_signature and direction != previous_signature[1]:
+                        camera["motion_family"] = family
+                        camera["motion_direction"] = direction
+                        camera["signature"] = f"{family}:{direction}"
+                        camera["authorship"] = "V4_ADAPTER_GROUP_SEQUENCE_REPAIR"
+                        signature = (family, direction)
+                        break
+                if signature != previous_signature:
+                    break
+        previous_signature = signature
     for order, group in enumerate(spec["groups"]):
         # 2026-09-12: bind the director-authored internal transitions (generation contract
         # internal_transition_authoring[]) to the two beat specs exactly as
@@ -1353,7 +1432,7 @@ def main() -> int:
         # A multi-shot group without an authored boundary keeps an empty list and the strict
         # compile fails on it honestly — nothing is templated here.
         group["internal_transition_contracts"] = build_internal_transition_contracts(
-            group, by_shot, authored_internal)
+            group, by_shot, authored_internal, allow_migration_defaults=bool(args.legacy_plan))
         if order == 0:
             continue
         previous_group = spec["groups"][order - 1]
@@ -1397,6 +1476,14 @@ def main() -> int:
     grouping_report["gate_id"] = "VIDEO-UNIT-SEMANTIC-GROUPING"
     grouping_report["recorded_at"] = now()
     grouping_report_path = write_json(reports_dir / f"{prefix}VIDEO_UNIT_GROUPING_GATE_V1.json", grouping_report)
+    # ---- provider slot projection (seq=29 half-second shot lengths -> unit sums like 6.5 s; the
+    # provider takes integer seconds and the unified engine (2026-09-18) validates
+    # duration_authority: slot - authorized_content - tail_handle <= 0.05 and recompiles the prompt
+    # from the task's integer duration).  The editorial sums stay on record as
+    # authorized_content_seconds (the cut length); the slot is the ceiling; the difference is the
+    # declared trim handle.  Applied AFTER the engine grouping gate validated the editorial sums.
+    plan = project_provider_slots(plan)
+    plan_path = write_json(out_dir / f"{prefix}VIDEO_UNIT_GROUPING_PLAN_V1.json", plan)
     stage("4.2b_video_unit_grouping_gate", grouping_report["status"],
           failures=grouping_report.get("failures") or [], report=portable(grouping_report_path, root))
     if grouping_report["status"] == "PASS":
@@ -1535,8 +1622,16 @@ def main() -> int:
             "model": MODEL_CONTRACT["model"],
             "resolution": MODEL_CONTRACT["resolution"],
             "aspect_ratio": MODEL_CONTRACT["aspect_ratio"],
-            "duration_seconds": int(round(float(
-                next(row for row in plan["units"] if row["unit_id"] == unit["unit_id"])["duration_seconds"]))),
+            # provider slot = integer seconds >= the authorised content (seq=29 half-second units:
+            # round() is banker's rounding, 6.5 -> 6 < content -> AUTHORIZED_CONTENT_EXCEEDS_PROVIDER_SLOT)
+            "duration_seconds": int(math.ceil(float(
+                next(row for row in plan["units"] if row["unit_id"] == unit["unit_id"])["duration_seconds"]) - 1e-9)),
+            "source_duration_seconds": next(row for row in plan["units"] if row["unit_id"] == unit["unit_id"]).get(
+                "authorized_content_seconds"),
+            "authorized_content_seconds": next(row for row in plan["units"] if row["unit_id"] == unit["unit_id"]).get(
+                "authorized_content_seconds"),
+            "authorized_tail_handle_seconds": next(row for row in plan["units"] if row["unit_id"] == unit["unit_id"]).get(
+                "authorized_tail_handle_seconds"),
             "editorial_shot_ids": next(
                 row for row in plan["units"] if row["unit_id"] == unit["unit_id"])["editorial_shot_ids"],
             "prompt_file": portable(prompt_dir / f"{unit['unit_id']}.txt", root),
@@ -1572,6 +1667,10 @@ def main() -> int:
         str(root / "tools" / "compile_grouped_seedance_manifest.py"),
         "--grouping-plan", str(plan_path), "--anchor-plan", str(anchor_path),
         "--editorial-seedance-manifest", str(editorial_path),
+        # The grouped compiler owns the visual-culture and character contracts;
+        # pass the same v4 generation contract used by this builder instead of
+        # silently compiling a contract-less prompt set.
+        "--generation-contract", str(contract_path),
         "--out", str(out_dir / f"{prefix}GROUPED_SEEDANCE_MANIFEST_V1.json"),
         "--final-prompt-dir", str(prompt_dir),  # nalu e13b: strict final prompts + index
     ], root)
@@ -1762,6 +1861,50 @@ def _locked_identity_plate(character_id: str) -> Path | None:
     return (front or views)[0]
 
 
+VIDEO_REFERENCE_MAX = 9   # submit_giggle_video_manifest_v2 refuses > 9 reference images
+
+
+def identity_plate_reference_rows(character_ids: list[str], plate_lookup, *, existing_paths: list[str],
+                                  cap: int = VIDEO_REFERENCE_MAX) -> tuple[list[dict[str, Any]], list[str], list[str]]:
+    """Roger 2026-09-18 (identity chain ③): one front-neutral-headshot plate per visible character,
+    appended after the semantic (keyframe / tail) references, in cast order, never duplicated,
+    capped so the unit stays within the provider's reference limit.  Returns (rows, dropped_over_cap,
+    missing_locked_plate)."""
+    rows: list[dict[str, Any]] = []
+    dropped: list[str] = []
+    missing: list[str] = []
+    seen = {str(p) for p in existing_paths}
+    for cid in character_ids:
+        plate = plate_lookup(cid)
+        if plate is None:
+            missing.append(cid)
+            continue
+        if str(plate) in seen:
+            continue
+        if len(seen) >= cap:
+            dropped.append(cid)
+            continue
+        rows.append({"character_id": cid, "path": str(plate), "sha256": sha256_file(Path(plate)),
+                     "view": "FRONT_NEUTRAL_HEADSHOT", "role": "CHARACTER_IDENTITY_REFERENCE"})
+        seen.add(str(plate))
+    return rows, dropped, missing
+
+
+def project_provider_slots(plan: dict[str, Any]) -> dict[str, Any]:
+    """Integer provider slot per unit (ceil of the editorial sum) + declared content/tail handle."""
+    for unit in plan.get("units") or []:
+        content = float(unit["duration_seconds"])
+        slot = int(math.ceil(content - 1e-9))
+        unit["authorized_content_seconds"] = round(content, 3)
+        unit["authorized_tail_handle_seconds"] = round(max(0.25, slot - content), 3)
+        unit["provider_slot_projection"] = ("CEIL_TO_INTEGER_PROVIDER_SECONDS" if slot != content
+                                            else "INTEGER_ALREADY")
+        unit["duration_seconds"] = slot
+    plan["editorial_runtime_seconds"] = plan.get("runtime_seconds")
+    plan["runtime_seconds"] = round(sum(float(u["duration_seconds"]) for u in plan.get("units") or []), 6)
+    return plan
+
+
 def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, dict[str, Any]],
                          final_rows: dict[str, dict[str, Any]], *, rendered: dict[str, Any],
                          contract: dict[str, Any], out_dir: Path, prefix: str, root: Path,
@@ -1811,6 +1954,57 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
         refs = list(cu.get("reference_images") or [])
         specs = cu.get("ordered_prompt_specs") or []
         shot_ids = list(cu.get("editorial_shot_ids") or task.get("editorial_shot_ids") or [])
+        # ---- storyboard contract (unified engine 2026-09-18, action_video_prompt_compiler
+        # .validate_action_contract): a semantic_video_unit task is validated per shot — every
+        # ordered_prompt_spec must carry its shot_id and the shot-local space.blocking /
+        # space.action_end_blocking, and each entity the spec casts (cast[].character_id,
+        # props[].prop_id) must appear in BOTH blocks.  The rows come from the stage-4.1 rendered
+        # keyframe tasks (the same subspace blocking the keyframe was generated from), never invented.
+        by_shot_map = {str(r.get("unit_id")): r for r in (rendered.get("tasks") or [])}
+        for index_, spec in enumerate(specs):
+            sid = spec.get("shot_id") or (shot_ids[index_] if index_ < len(shot_ids) else None)
+            if not sid:
+                continue
+            spec["shot_id"] = sid
+            shot_map = by_shot_map.get(str(sid)) or {}
+            space = spec.setdefault("space", {})
+            if shot_map.get("blocking"):
+                space["blocking"] = copy.deepcopy(shot_map["blocking"])
+            if shot_map.get("action_end_blocking"):
+                space["action_end_blocking"] = copy.deepcopy(shot_map["action_end_blocking"])
+            # Complete the shot-local storyboard ledger for off-screen voice
+            # owners as well.  They remain OFFSCREEN in the provider prompt,
+            # but the action contract still requires every declared entity in
+            # both state blocks.
+            for phase in ("blocking", "action_end_blocking"):
+                block = space.setdefault(phase, {"characters": [], "props": []})
+                block.setdefault("characters", []); block.setdefault("props", [])
+            local_cast = [m for m in spec.get("cast") or [] if m.get("character_id")]
+            for member in local_cast:
+                eid = str(member["character_id"])
+                anchor = next((dict(r) for r in space["blocking"]["characters"]
+                               if r.get("zone_id") and r.get("position") and r.get("facing")), None)
+                for phase in ("blocking", "action_end_blocking"):
+                    if any(str(r.get("character_id")) == eid for r in space[phase]["characters"]):
+                        continue
+                    row = {"character_id": eid,
+                           "screen_slot": str(member.get("screen_slot") or "OFFSCREEN"),
+                           "depth_plane": str(member.get("depth_plane") or "DEFINED_BY_EDITORIAL_BEAT"),
+                           "entity_presence": str(member.get("entity_presence") or "VISIBLE_AND_IDENTITY_LOCKED"),
+                           "map_presence": "OFFSCREEN_VOICE_ONLY"}
+                    if anchor:
+                        row.update({k: copy.deepcopy(anchor[k]) for k in ("zone_id", "position", "facing")})
+                    space[phase]["characters"].append(row)
+        task["ordered_prompt_specs"] = copy.deepcopy(specs)  # the task's copy was taken before enrichment
+        # ---- duration authority (engine video_execution_plan_compiler: underfill = provider slot -
+        # authorized_content - tail_handle must be <= 0.05 s).  seq=29 units are half-second sums of
+        # line-derived shot lengths; the provider slot is the integer ceiling, and the difference is the
+        # editorial trim handle (cut at the authorised content, never a hold).  Declared, not defaulted.
+        _content = float(task.get("authorized_content_seconds") or task.get("source_duration_seconds")
+                         or cu.get("duration_seconds") or task["duration_seconds"])
+        _slot = int(task["duration_seconds"])
+        task["authorized_content_seconds"] = round(_content, 3)
+        task["authorized_tail_handle_seconds"] = round(max(0.25, _slot - _content), 3)
         task["reference_images"] = [str(r["path"]) for r in refs]
         task["reference_sha256"] = [str(r["sha256"]) for r in refs]
         task["reference_roles"] = [str(r.get("role") or "SEMANTIC_REFERENCE") for r in refs]
@@ -1871,25 +2065,27 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
                                  "sha256": extra_sha, "source": "IDENTITY_REFERENCE_OVERRIDE_LOCKED_PLATE"})
                 bound.add(extra["character_id"])
             task.setdefault("identity_reference_overrides", []).append({**extra, "sha256": extra_sha})
-        # seq=7 condition 4 (Roger 2026-09-13, E02+): every character whose face is visible in the
-        # unit gets the LOCKED identity plate (front neutral headshot) as an SD2 subject reference,
-        # in addition to the keyframe / tail semantic references.  E01 stays as delivered.
+        # seq=7 condition 4 (Roger 2026-09-13, E02+) as RE-STATED by Roger 2026-09-18 (identity chain ③):
+        # every character whose face is visible in the unit gets the LOCKED front-neutral-headshot
+        # plate as a subject reference IN ADDITION to the keyframe / tail semantic references —
+        # unconditionally.  The old guard skipped the plate whenever the character already had a
+        # keyframe semantic binding, which is every character in every unit; E05 therefore shipped
+        # each unit with a single 720p keyframe (face ~80 px) and no identity plate at all.
         if episode != "E01":
-            for cid in chars:
-                if any(b.get("entity_id") == cid and b.get("role") == "CHARACTER_REFERENCE" for b in bindings):
-                    continue
-                plate = _locked_identity_plate(cid)
-                if plate is None:
-                    continue
-                plate_sha = sha256_file(plate)
-                if str(plate) not in task["reference_images"]:
-                    task["reference_images"].append(str(plate))
-                    task["reference_sha256"].append(plate_sha)
-                    task["reference_roles"].append("CHARACTER_IDENTITY_REFERENCE")
-                bindings.append({"entity_id": cid, "role": "CHARACTER_REFERENCE", "path": str(plate),
-                                 "sha256": plate_sha, "source": "IDENTITY_PLATE_AUTO_SEQ7_C4"})
-                bound.add(cid)
-                task.setdefault("identity_reference_auto", []).append({"character_id": cid, "path": str(plate), "sha256": plate_sha})
+            plate_rows, plate_dropped, plate_missing = identity_plate_reference_rows(
+                chars, _locked_identity_plate, existing_paths=task["reference_images"])
+            for row in plate_rows:
+                task["reference_images"].append(row["path"])
+                task["reference_sha256"].append(row["sha256"])
+                task["reference_roles"].append("CHARACTER_IDENTITY_REFERENCE")
+                bindings.append({"entity_id": row["character_id"], "role": "CHARACTER_REFERENCE", "path": row["path"],
+                                 "sha256": row["sha256"], "source": "IDENTITY_PLATE_AUTO_SEQ7_C4"})
+                bound.add(row["character_id"])
+                task.setdefault("identity_reference_auto", []).append(row)
+            if plate_dropped:
+                task["identity_reference_dropped_over_cap"] = plate_dropped
+            if plate_missing:
+                task["identity_reference_missing_locked_plate"] = plate_missing
         task["unbound_canonical_entities"] = sorted(set(chars + props) - bound)
         task["reference_image_sequence"] = bindings
         task["reference_bindings"] = space_map_bindings + bindings
@@ -1919,10 +2115,34 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
         end_block = copy.deepcopy((last_map or {}).get("action_end_blocking") or task.get("action_end_blocking")
                                   or {"characters": [], "props": []})
         end_block.setdefault("characters", []); end_block.setdefault("props", [])
+        # Off-screen dialogue/action owners are still contract entities.  The
+        # authoritative storyboard gate requires their presence in both
+        # blocking ledgers, even though they must remain OFFSCREEN in pixels.
+        all_cast_rows = [member for spec in specs for member in (spec.get("cast") or [])
+                         if str(member.get("character_id") or "")]
+        cast_by_id = {}
+        for member in all_cast_rows:
+            cast_by_id.setdefault(str(member.get("character_id")), member)
         have_c = {str(r.get("character_id")) for r in (start_block.get("characters") or []) + end_block["characters"]}
         have_p = {str(r.get("prop_id")) for r in (start_block.get("props") or []) + end_block["props"]}
         end_block["characters"].extend({"character_id": eid, "screen_slot": "LATER_ORDERED_APPEARANCE",
                                         "depth_plane": "DEFINED_BY_EDITORIAL_BEAT"} for eid in chars if eid not in have_c)
+        have_c.update(str(r.get("character_id")) for r in end_block["characters"])
+        have_c.update(str(r.get("character_id")) for r in start_block.get("characters") or [])
+        for eid, member in cast_by_id.items():
+            if eid in have_c:
+                continue
+            anchor_row = next((r for r in start_block.get("characters") or []
+                               if r.get("zone_id") and r.get("position") and r.get("facing")), None)
+            row = {"character_id": eid,
+                   "screen_slot": str(member.get("screen_slot") or "OFFSCREEN"),
+                   "depth_plane": str(member.get("depth_plane") or "DEFINED_BY_EDITORIAL_BEAT"),
+                   "entity_presence": str(member.get("entity_presence") or "VISIBLE_AND_IDENTITY_LOCKED"),
+                   "map_presence": "OFFSCREEN_VOICE_ONLY"}
+            if anchor_row:
+                row.update({k: copy.deepcopy(anchor_row[k]) for k in ("zone_id", "position", "facing")})
+            start_block["characters"].append(dict(row))
+            end_block["characters"].append(dict(row))
         end_block["props"].extend({"prop_id": eid, "screen_slot": "LATER_ORDERED_APPEARANCE"} for eid in props if eid not in have_p)
         end_block["state"] = str(last_action.get("completion_state") or "UNIT_COMPLETION_STATE")
         end_block["source_shot_id"] = last_shot_id
@@ -1994,7 +2214,7 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             "provider": "giggle",
             "media_stage": "VIDEO",
             "require_semantic_anchor_evidence": True,
-            "source_duration_seconds": cu.get("duration_seconds"),
+            "source_duration_seconds": task.get("source_duration_seconds") or cu.get("duration_seconds"),
             "retry_attempt": 1, "creative_attempt_ordinal": 1, "paid_attempt": 0,
             "provider_post_allowed": False,
             "vertical_short_drama_contract": {"required": True, "aspect_ratio": "9:16",
@@ -2010,6 +2230,8 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             "internal_transition_contracts": cu.get("internal_transition_contracts"),
             "start_frame_semantic_contract": cu.get("start_frame_semantic_contract"),
             "speaker_voice_contract": svc,
+            "authorized_content_seconds": task["authorized_content_seconds"],
+            "authorized_tail_handle_seconds": task["authorized_tail_handle_seconds"],
         })
         task["machine_contract"] = machine
         task["input_template_id"] = compute_input_template_id(task)

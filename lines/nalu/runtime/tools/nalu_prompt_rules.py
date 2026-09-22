@@ -55,7 +55,10 @@ DARK_LIGHT = {
     "LOC-LOW-HILL-TOP-EXT": "雪面月色青蓝反光与夜雾深处的朦胧微光照出人物轮廓",
 }
 DEFAULT_CPS = 4.0
-DLG_LEAD_S, DLG_TAIL_S = 1.0, 0.5
+#: SUPERVISOR_ORDERS seq=29 规则 5a (Roger 2026-09-18): 对白镜时长 = 台词时长 + 0.5 s 反应余量，向上取整到 0.5 s；
+#: 不再套 5–7 s 模板，也不再加 1.0 s 开口提前量（seq=10 的 lead 1.0 + tail 0.5 由此作废）。
+DLG_LEAD_S, DLG_TAIL_S = 0.0, 0.5
+DLG_ROUND_S = 0.5
 
 
 EMOTION_DELIVERY = {
@@ -91,7 +94,10 @@ def _spoken_chars(text: str) -> int:
 
 
 def min_dialogue_seconds(text: str, cps: float | None) -> float:
-    return round(_spoken_chars(text) / float(cps or DEFAULT_CPS) + DLG_LEAD_S + DLG_TAIL_S, 1)
+    """seq=29 规则 5a：台词秒数 + 0.5 s，向上取整到 0.5 s（10 字 @5.0 字/秒 → 2.5 s）。"""
+    import math
+    raw = _spoken_chars(text) / float(cps or DEFAULT_CPS) + DLG_LEAD_S + DLG_TAIL_S
+    return math.ceil(raw / DLG_ROUND_S - 1e-9) * DLG_ROUND_S
 
 
 def apply(shot: dict, ctx: dict) -> tuple[str, list[str], list[str]]:
@@ -113,7 +119,10 @@ def apply(shot: dict, ctx: dict) -> tuple[str, list[str], list[str]]:
     if dlg_text:
         clauses.append("台词只在声音里，画面任何位置都不出现字幕、文字或水印"); applied.append("NO_TEXT")
         need = min_dialogue_seconds(dlg_text, ctx.get("cps"))
-        clauses.append("开口不晚于画面第 1 秒，台词在画面结束前至少留半秒说完，说完后口型闭合、动作保持"); applied.append("DLG_TIMING")
+        # seq=29 规则 5b (Roger 2026-09-18): no "说完后口型闭合、动作保持" — the line ends INTO the next body
+        # action the writer names (shot["after_line"]); a shot without one falls back to turning to the listener.
+        after = str(shot.get("after_line") or "").strip() or "转向对方"
+        clauses.append(f"开口不晚于画面第 0.5 秒，台词在画面结束前说完，说完立即{after}"); applied.append("DLG_TIMING_SEQ29")
         if float(shot.get("sec") or 0) < need:
             blocks.append(f"DLG_TOO_SHORT:{shot.get('shot_id')}:sec={shot.get('sec')}<min={need}")
     else:
@@ -146,6 +155,19 @@ def apply(shot: dict, ctx: dict) -> tuple[str, list[str], list[str]]:
     if any(w in text_all for w in ("体表银光", "银光初现", "指缝间银光", "银光流过", "极淡银光")):   # 秦铭's body light, not the crevice's silver web
         clauses.append("银光极淡，不成光环、不刺眼、不照亮周围"); applied.append("SILVER_FAINT")
 
+    # nalu D-74 (E07 28 s, Roger「28s居然是4个人在画面里」): the keyframe had the two declared people and
+    # the VIDEO model added two more.  Cause: the shot's action text named 杨永青 (「把目光转向杨永青」) while
+    # he was not in this shot's cast, so the prompt's entity lock covered only the declared two and the
+    # model materialised the named outsider — plus a companion.  A character named in the action/blocking
+    # of a shot he is not cast in must be written as off-screen (「转向画外」), never by name.
+    if ctx.get("offscreen_name_strict"):
+        staged = {names.get(k, k) for k in cast}
+        for key, name in names.items():
+            if key in cast or not name:
+                continue
+            if name in act or name in str(shot.get("blocking") or ""):
+                blocks.append(f"OFFSCREEN_CHARACTER_NAMED_IN_ACTION:{shot.get('shot_id')}:{name}"
+                              f":cast={sorted(staged)}:改写为「画外」或把他写进 cast")
     # seq=19 (E04 review): emotion → delivery clause.  The line is spoken natively by the video
     # model (no TTS parameters exist), so the emotion can only reach the take as performance text.
     emotion = str(shot.get("emotion") or (ctx.get("emotions") or {}).get(shot.get("shot_id")) or "")
@@ -172,6 +194,10 @@ def apply(shot: dict, ctx: dict) -> tuple[str, list[str], list[str]]:
     for tok in ctx.get("prop_tokens") or ():
         if tok not in text_all and any(tok in c for c in clauses):
             blocks.append(f"RULE_CLAUSE_INTRODUCES_PROP_TOKEN:{shot.get('shot_id')}:{tok}")
+    if ctx.get("split_columns"):
+        # seq=29 规则 7a: the rule clauses are CONSTRAINTS; the caller keeps them in action.constraints
+        # and leaves primary_action as the performance text.  Returned as a list in the first slot.
+        return clauses, applied, blocks
     if clauses:
         act = act.rstrip("；;。") + "；" + "；".join(clauses)
     return act, applied, blocks

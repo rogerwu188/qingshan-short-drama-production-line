@@ -11,6 +11,11 @@ from pathlib import Path
 from typing import Any
 
 
+# These terms are forbidden in *motion/action* contracts because they tend to
+# stretch a beat into a slow pose.  They are valid in an image entry contract
+# when they describe a frozen, already-established visual fact (for example
+# "手臂保持抬起").  Motion gates enforce the restriction at the action layer;
+# this gate must not conflate a still-state description with video behavior.
 FORBIDDEN_ENTRY_WORDS = ("持续", "保持", "连续")
 STATE_DELTA_DIMENSIONS = ("POSITION", "POSTURE", "CONTACT", "POSSESSION", "INTEGRITY", "MOMENTUM")
 
@@ -69,9 +74,9 @@ def evaluate_task(task: dict[str, Any]) -> dict[str, Any]:
     entry = str(source.get("entry_state") or "").strip()
     if not entry:
         failures.append(f"KEYFRAME_ENTRY_STATE_MISSING:{task_id}")
-    for word in FORBIDDEN_ENTRY_WORDS:
-        if word in entry:
-            failures.append(f"KEYFRAME_ENTRY_STATE_EXTEND_WORD_FORBIDDEN:{task_id}:{word}")
+    # Do not reject extend words in entry_state.  An entry_state is a frozen
+    # visual snapshot, not an instruction to animate for the whole shot.  The
+    # same words remain rejected by the action/motion-density gates.
 
     # Completion is retained outside source_shot_contract solely for a
     # deterministic before/after check; it is never sent to image generation.

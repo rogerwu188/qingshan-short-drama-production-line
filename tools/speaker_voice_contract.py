@@ -32,6 +32,9 @@ SPEAKER_ENTITY_ALIASES = {
     "姚老头": "yao_taiyi",
     "年轻姚老头": "yao_taiyi",
     "洛城递信人": "messenger",
+    "侍女": "侍女／迎客姑娘",
+    "迎客姑娘": "maid_group",
+    "白鲤郡主": "白鲤",
 }
 
 PRODUCTION_READY_STATUSES = {
@@ -122,7 +125,7 @@ def compile_speaker_voice_contract(
         if character_aliases and not character_id:
             failures.append(f"SPEAKER_CHARACTER_ID_UNRESOLVED:{speaker}")
         entity_hint = SPEAKER_ENTITY_ALIASES.get(speaker)
-        source = by_name.get(speaker) or (by_entity.get(entity_hint) if entity_hint else None)
+        source = by_name.get(speaker) or by_name.get(entity_hint or "") or (by_entity.get(entity_hint) if entity_hint else None)
         if not source:
             failures.append(f"SPEAKER_CANONICAL_VOICE_NOT_REGISTERED:{speaker}")
             continue

@@ -21,6 +21,9 @@ from pathlib import Path
 FFMPEG = "/opt/homebrew/bin/ffmpeg"
 FONT = "STHeiti Medium"
 FONT_FILE = "/System/Library/Fonts/STHeiti Medium.ttc"
+#: nalu D-74: a caption must clear the cut — it ends at least this many seconds before the unit's end,
+#: otherwise the text disappears on the cut frame and the line reads as if it had been cut off.
+TAIL_GUARD = 0.25
 
 def cjk(text: str) -> str:
     return "".join(ch for ch in text if "一" <= ch <= "鿿")
@@ -110,9 +113,15 @@ def main() -> int:
             continue
         cstart, cdur = float(clip["start"]), float(clip["duration"])
         for ln, ls, le in assign(lines, asr.get(uid) or [], cdur):
-            s = max(0.0, ls - a.pad); e = min(cdur, le + a.pad)
+            # nalu D-74 (E07 1:44, Roger): the caption used to be clamped to the clip end, so the text was
+            # still on screen on the cut frame and the line READ as cut off even though the voice had
+            # finished 0.4 s earlier.  A caption now always clears TAIL_GUARD before the cut.
+            tail_limit = max(0.3, cdur - TAIL_GUARD)
+            s = max(0.0, ls - a.pad); e = min(tail_limit, le + a.pad)
             if e - s < 0.8:
-                e = min(cdur, s + 0.8)
+                e = min(tail_limit, s + 0.8)
+            if e <= s:
+                e = min(cdur, s + 0.3)
             events.append((cstart + s, cstart + e, ln))
             report.append({"unit_id": uid, "shot_id": ln["shot_id"], "speaker": ln["speaker"], "text": ln["text"],
                            "start": round(cstart + s, 3), "end": round(cstart + e, 3)})

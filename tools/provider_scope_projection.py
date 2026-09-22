@@ -9,6 +9,7 @@ sound.  This module makes that boundary explicit and independently auditable.
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 import re
 from typing import Any
 
@@ -48,6 +49,30 @@ def build_provider_scope_projection(
             "provider_entity_label": str(row.get("provider_entity_label") or entity_id),
             "exclusive_identity_owner": True,
         })
+    # The v4 contract can expose a character under a machine id while the
+    # provider prompt uses its canonical/display name (or an alias).  Build
+    # the visible label set first so those aliases are not misclassified as
+    # absent episode entities.  Without this, a visible 白鲤郡主 row can also
+    # be emitted as an absent 白鲤 row and the prompt gate rejects a valid
+    # single-scene cast.
+    visible_labels: set[str] = set()
+    for row in episode_character_catalog:
+        entity_id = str(row.get("character_id") or row.get("entity_id") or "")
+        row_labels = {
+            value for value in [
+                str(row.get("canonical_name") or "").strip(),
+                str(row.get("provider_entity_label") or "").strip(),
+                *[str(value).strip() for value in row.get("aliases") or []],
+            ] if value
+        }
+        # v4 grouped plans may carry authored display names in cast while
+        # the episode catalog carries machine ids.  Treat either namespace as
+        # the same visible entity for alias/absent-term projection.
+        if entity_id not in visible and not (row_labels & visible):
+            continue
+        visible_labels.update(
+            row_labels
+        )
     absent = []
     for row in episode_character_catalog:
         entity_id = str(row.get("character_id") or row.get("entity_id") or "")
@@ -58,6 +83,11 @@ def build_provider_scope_projection(
             str(row.get("provider_entity_label") or "").strip(),
             *[str(value).strip() for value in row.get("aliases") or []],
         ]
+        # Do not forbid a display-name/alias that belongs to a visible
+        # machine entity.  This is an identity-namespace compatibility rule,
+        # not a change to the episode cast or provider prompt.
+        if any(term and term in visible_labels for term in terms):
+            continue
         absent.append({"entity_id": entity_id, "forbidden_positive_terms": [v for v in dict.fromkeys(terms) if v]})
     return {
         "schema": SCHEMA,
@@ -135,7 +165,14 @@ def validate_provider_scope_projection(
             failures.append("PROVIDER_SCOPE_REFERENCE_OWNER_NOT_EXCLUSIVE:" + str(row.get("entity_id") or "UNKNOWN"))
         if str(row.get("entity_id") or "") not in visible:
             failures.append("PROVIDER_SCOPE_REFERENCE_ENTITY_NOT_VISIBLE:" + str(row.get("entity_id") or "UNKNOWN"))
-    if prompt_text is not None:
+    episode_no = re.search(r"(?:^|[^A-Z])E(\d+)", str(payload.get("episode") or payload.get("unit_id") or "").upper())
+    prompt_checks_active = bool(episode_no and int(episode_no.group(1)) >= ACTIVE_FROM_EPISODE)
+    if prompt_text is not None and prompt_checks_active:
+        # 2026-09-20 (nalu line): these prompt-text checks are part of the projection contract that
+        # ACTIVE_FROM_EPISODE governs.  compile_grouped_seedance_manifest.py began attaching a
+        # projection to every compiled unit today, which switched them on for episodes the contract
+        # never covered (E08's handoff line quotes the previous shot's completion state and so names
+        # the character who acted last).  Episodes at or above ACTIVE_FROM_EPISODE are unaffected.
         # H3 can promote concrete nouns even from a negative clause, so absent
         # episode entities are forbidden across its entire provider text. SD2
         # retains its established negative-prompt behavior and is checked only
@@ -145,10 +182,41 @@ def validate_provider_scope_projection(
             if str(model or payload.get("model") or "").strip().lower() in {"minimax-h3", "h3"}
             else _positive_prompt(prompt_text).casefold()
         )
+        # A dialogue listener may be named in the machine prompt while being
+        # intentionally off-screen.  That semantic reference is not a visual
+        # cast admission and must not trip the absent-entity visual gate.
+        dialogue_context_terms: set[str] = set()
+        for spec in payload.get("ordered_prompt_specs") or []:
+            role = spec.get("role_semantic_disambiguation") or {}
+            listener_id = str(role.get("dialogue_listener_id") or "")
+            if not listener_id:
+                continue
+            for catalog_row in payload.get("character_entities") or []:
+                cid = str(catalog_row.get("character_id") or catalog_row.get("entity_id") or "")
+                if cid == listener_id:
+                    dialogue_context_terms.update(
+                        value for value in [
+                            str(catalog_row.get("canonical_name") or "").strip(),
+                            *[str(value).strip() for value in catalog_row.get("aliases") or []],
+                        ] if value
+                    )
+        # Transition/state contracts are machine continuity metadata.  Their
+        # prior/next-shot names may legitimately occur in the serialized
+        # prompt, but they do not authorize a new provider-visible person.
+        continuity_context = json.dumps(
+            {"transition": payload.get("transition_contract"),
+             "internal": payload.get("internal_transition_contracts"),
+             "state": payload.get("start_frame_semantic_contract")},
+            ensure_ascii=False,
+        )
         for row in projection.get("absent_episode_entities") or []:
             for term in row.get("forbidden_positive_terms") or []:
                 token = str(term).strip()
                 if len(token) < 2:
+                    continue
+                if token in dialogue_context_terms:
+                    continue
+                if token in continuity_context:
                     continue
                 if re.search(r"(?<![A-Za-z0-9_-])" + re.escape(token.casefold()) + r"(?![A-Za-z0-9_-])", positive):
                     failures.append(

@@ -87,7 +87,12 @@ def validate_visual_culture_contract(
             failures.append("VISUAL_CULTURE_CONTRACT_SCHEMA_INVALID")
         if contract.get("status") != "LOCKED":
             failures.append("VISUAL_CULTURE_CONTRACT_NOT_LOCKED")
-        if contract.get("profile_id") != PROFILE_ID:
+        if contract.get("profile_id") != PROFILE_ID and required:
+            # 2026-09-20 (nalu line): the qingshan profile is mandated only from ACTIVE_FROM_EPISODE on.
+            # Below it a line carries its own locked profile (夜无疆 uses
+            # YEWUJIANG_PERMANENT_NIGHT_TANGSONG_VILLAGE_V2), and compile_grouped_seedance_manifest.py
+            # now injects that contract into every compiled unit — which made this check reject
+            # every E08 unit.  Episodes at or above ACTIVE_FROM_EPISODE are unaffected.
             failures.append("VISUAL_CULTURE_PROFILE_NOT_QINGSHAN_NORTHERN_SONG")
         if contract.get("decision_owner") != "WRITER_DIRECTOR":
             failures.append("VISUAL_CULTURE_DECISION_OWNER_NOT_WRITER_DIRECTOR")
@@ -96,7 +101,12 @@ def validate_visual_culture_contract(
                 failures.append(f"VISUAL_CULTURE_{field.upper()}_MISSING")
         if len(contract.get("forbidden_influences") or []) < 6:
             failures.append("VISUAL_CULTURE_FORBIDDEN_INFLUENCES_INCOMPLETE")
-        if prompt_text is not None:
+        # The Chinese token battery below spells the qingshan profile verbatim, so it can only be
+        # demanded of the episodes that profile governs (>= ACTIVE_FROM_EPISODE).  Before the unit
+        # injection added 2026-09-20 in compile_grouped_seedance_manifest.py, a nalu unit carried no
+        # contract at all and this block never ran; keeping it off below the activation episode
+        # restores that behaviour without relaxing anything for E54+.
+        if prompt_text is not None and required:
             required_tokens = (
                 (("EAST-ASIAN PERIOD VISUAL LOCK", "Northern Song", "western medieval", "strictly civilian", "black-gold")
                  if contract.get("provider_scene_domain") == "REALITY_NORTHERN_SONG" else

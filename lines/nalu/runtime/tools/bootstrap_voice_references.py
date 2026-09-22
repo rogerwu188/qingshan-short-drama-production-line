@@ -381,6 +381,36 @@ def build_task_payload(brief: dict[str, Any], *, episode: str, output_root: Path
     }
 
 
+def catalog_voice_for_brief(brief: dict[str, Any], voices: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    """Resolve episode-scoped entity ids to the canonical voice catalog key.
+
+    The v4 contracts intentionally namespace speaking entities (``e59_linzhaojing``),
+    while the long-lived voice registry uses canonical character ids
+    (``linchaojing``).  Treating those as different characters silently emitted a
+    pending placeholder even when a locked voice existed.  This resolver is
+    deterministic and only returns an existing catalog row; it never invents ids.
+    """
+    entity_id = str(brief.get("entity_id") or "")
+    character_id = str(brief.get("character_id") or "")
+    candidates = [entity_id, character_id]
+    if "-" in character_id:
+        candidates.append(character_id.rsplit("-", 1)[-1].lower())
+    if "_" in entity_id:
+        candidates.append(entity_id.rsplit("_", 1)[-1].lower())
+    # Stable authored aliases used by the E59 contract.
+    candidates.extend({
+        "linzhaojing": "linchaojing",
+        "baili_junzhu": "baili",
+        "gold_armored_man": "xuanyuan",
+        "greeter": "maid_group",
+    }.get(c, c) for c in list(candidates))
+    for key in candidates:
+        row = voices.get(str(key))
+        if isinstance(row, dict) and row.get("voice_id"):
+            return row
+    return None
+
+
 # --------------------------------------------------------------------------- #
 # Registry and policy
 # --------------------------------------------------------------------------- #
@@ -684,7 +714,10 @@ def main() -> int:
         "task_count": len(briefs),
         "expected_credits": AUDIO_UNIT_PRICE_CREDITS * len(briefs),
         "tasks": [
-            build_task_payload(brief, episode=episode, output_root=output_root, voice=voices.get(brief["entity_id"]))
+            build_task_payload(
+                brief, episode=episode, output_root=output_root,
+                voice=catalog_voice_for_brief(brief, voices),
+            )
             for brief in briefs
         ],
     }

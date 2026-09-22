@@ -178,9 +178,9 @@ def submit(row: dict, output_dir: Path, transaction_dir: Path, model: str, resol
         raise RuntimeError(f"{row['id']} response has no task_id")
     receipt_path = output_dir / f"{row['id']}_submit_response.json"
     atomic_json(receipt_path, response)
-    intent.update({"state": "SUBMITTED_TASK_ID_BOUND", "task_id": task_id, "receipt": str(receipt_path.relative_to(ROOT)), "response_recorded_at": utc_now()})
+    intent.update({"state": "SUBMITTED_TASK_ID_BOUND", "task_id": task_id, "receipt": portable_path(receipt_path), "response_recorded_at": utc_now()})
     atomic_json(transaction, intent)
-    return {"task_key": row["id"], "character_id": row["id"], "task_id": task_id, "status": "SUBMITTED", "receipt": str(receipt_path.relative_to(ROOT)), "transaction": str(transaction.relative_to(ROOT)), "recovered_from_transaction": False}
+    return {"task_key": row["id"], "character_id": row["id"], "task_id": task_id, "status": "SUBMITTED", "receipt": portable_path(receipt_path), "transaction": portable_path(transaction), "recovered_from_transaction": False}
 
 
 def main() -> int:

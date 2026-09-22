@@ -159,7 +159,14 @@ class PriorLibrary:
         if path is None or not path.is_file():
             return
         library = load_json(path)
-        for category, rows in (library.get("assets") or {}).items():
+        assets = library.get("assets") or {}
+        if isinstance(assets, list):
+            category_rows = [("UNCLASSIFIED", assets)]
+        elif isinstance(assets, dict):
+            category_rows = list(assets.items())
+        else:
+            category_rows = []
+        for category, rows in category_rows:
             iterator = rows.values() if isinstance(rows, dict) else rows
             for row in iterator:
                 asset_id = str(row.get("asset_id") or "")
@@ -464,10 +471,18 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
     def order(base: dict[str, Any], scope: dict[str, Any], specification: dict[str, Any],
               refs: list[dict[str, Any]]) -> dict[str, Any]:
         """Assemble a requirement row with E01's exact key order."""
+        # Older Qingshan registries used AUTHORING_REQUIRED_* sentinels for
+        # fields that were later filled from local source assets.  The
+        # portable asset contract only admits SERIES_CORE/EPISODE_REQUIRED/
+        # OPTIONAL; normalize the legacy marker after migration rather than
+        # making the new line discard an otherwise valid returning asset.
+        priority = str(base.get("priority") or "")
+        if priority.startswith("AUTHORING_REQUIRED") or priority not in {"SERIES_CORE", "EPISODE_REQUIRED", "OPTIONAL"}:
+            priority = "EPISODE_REQUIRED"
         row = {
             "asset_id": base["asset_id"],
             "label": base["label"],
-            "priority": base["priority"],
+            "priority": priority,
             "first_use_episode": scope["first_use_episode"],
             "required_in_episodes": scope["required_in_episodes"],
             "authority_refs": refs,
@@ -681,6 +696,11 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
     # ----------------------------------------------------------------- voices
     voices: list[dict[str, Any]] = []
     for cid, row in chars.items():
+        # E06 (2026-09-18, K055 corollary): a voice is required once per SPEAKING character.  A character
+        # with no dialogue unit this episode (周阿婆, dead on the kang) gets no voices row — the library
+        # gate would otherwise demand a provider voice id nobody will use.
+        if cid not in speaking:
+            continue
         suffix = strip_prefix(cid)
         voice_id = f"VOICE-{suffix}"
         timbre = authored(

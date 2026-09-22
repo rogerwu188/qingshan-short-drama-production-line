@@ -817,18 +817,32 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
 
 
 def _provider_declined(failure: dict[str, Any], transaction_dir: Path | None = None) -> bool:
-    """True when the recorded provider response is an explicit non-200 failure carrying no task_id (nalu e24)."""
+    """True when the recorded provider response is an explicit non-200 failure carrying no task_id (nalu e24).
+
+    2026-09-21 (nalu E08 wave 2): a transport failure that never reached a task id counts too —
+    12/12 POSTs died as ``NETWORK: <urlopen error [Errno 32] Broken pipe>`` or Cloudflare
+    ``HTTP 524`` at concurrency 6.  The money-safety property is unchanged because the only caller
+    also requires ``extra == 0``: the ledger window must show no pay row beyond the task ids we
+    already hold, so "retryable" is still asserted against the ledger, never against the error text.
+    """
     text = str(failure.get("provider_response") or "")
     if not text and transaction_dir is not None and failure.get("transaction"):
         path = resolve(failure["transaction"])
         if path.is_file():
             try:
-                text = json.dumps(json.loads(path.read_text(encoding="utf-8")).get("provider_response") or "", ensure_ascii=False)
+                recorded = json.loads(path.read_text(encoding="utf-8")).get("provider_response")
+                # A transaction written before any response carries provider_response: null;
+                # json.dumps(None) is the non-empty string "null", which used to mask the real
+                # error text below and made every transport failure look ambiguous (nalu E08 wave 2).
+                text = json.dumps(recorded, ensure_ascii=False) if recorded else ""
             except Exception:  # noqa: BLE001
                 text = ""
     text = text or str(failure.get("error") or "")
     return ("task_id" not in text or "missing task_id" in text) and any(
-        marker in text for marker in ("'code': 500", '"code": 500', '"code":500', "payment failed", "status: 500", "status: 4")
+        marker in text for marker in ("'code': 500", '"code": 500', '"code":500', "payment failed",
+                                      "status: 500", "status: 4",
+                                      "NETWORK:", "Broken pipe", "HTTP 524", "HTTP 502", "HTTP 503",
+                                      "timed out", "Connection reset")
     )
 
 

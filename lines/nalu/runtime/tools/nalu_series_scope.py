@@ -43,6 +43,7 @@ DEFAULT_PATHS: dict[str, str | None] = {
     "voice_refs": "runtime/voice_refs",
     "lexicon": "tools:configs/LEXICON_yewujiang_v1.json",
     "charter": None,
+    "unit_duration_policy": None,
 }
 
 
@@ -53,6 +54,8 @@ def config_path() -> Path:
 def _abs(value: str | None) -> Path | None:
     if value is None:
         return None
+    if isinstance(value, dict):
+        return value
     if value.startswith("tools:"):
         return (_TOOLS.parent / value[len("tools:"):]).resolve()
     path = Path(value).expanduser()

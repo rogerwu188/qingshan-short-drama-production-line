@@ -150,7 +150,7 @@ class E51PipelineRectificationTests(unittest.TestCase):
         self.assertEqual(report["status"], "FAIL")
         self.assertTrue(any("UNMOTIVATED_INTERNAL_CAMERA_CHANGE" in value for value in report["failures"]))
 
-    def test_keyframe_rejects_completion_and_extend_state(self):
+    def test_keyframe_rejects_completion_but_allows_frozen_extend_word(self):
         report = evaluate_task({
             "task_key": "K1",
             "source_shot_contract": {"entry_state": "人物持续挥刀", "completion_state": "刀已落下"},
@@ -161,7 +161,18 @@ class E51PipelineRectificationTests(unittest.TestCase):
         })
         self.assertEqual(report["status"], "FAIL")
         self.assertTrue(any("COMPLETION_STATE_FORBIDDEN" in value for value in report["failures"]))
-        self.assertTrue(any("EXTEND_WORD_FORBIDDEN" in value for value in report["failures"]))
+        self.assertFalse(any("EXTEND_WORD_FORBIDDEN" in value for value in report["failures"]))
+
+    def test_keyframe_frozen_entry_with_extend_word_passes_when_completion_differs(self):
+        report = evaluate_task({
+            "task_key": "K2",
+            "source_shot_contract": {"entry_state": "右手保持抬起，人物连续站在门侧"},
+            "target_completion_state": {
+                "state_delta_dimensions": ["POSITION"],
+                "state_delta_evidence": {"POSITION": {"entry": "门侧", "exit": "门外"}},
+            },
+        })
+        self.assertEqual(report["status"], "PASS")
 
     def test_prop_state_fails_without_visual_confirmation(self):
         _, failures = compile_prop_states({"action": {"action_kind": "DIALOGUE"}, "props": [{

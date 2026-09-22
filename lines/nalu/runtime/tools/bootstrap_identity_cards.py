@@ -70,6 +70,7 @@ from tools.initial_asset_library import (  # noqa: E402
     gate_library,
     requirement_errors,
 )
+from tools.visual_culture_contract import DEFAULT_CONTRACT as QINGSHAN_VISUAL_CULTURE_CONTRACT, prompt_block_zh as qingshan_visual_prompt_block  # noqa: E402
 
 SCHEMA = "nalu.identity_card_bootstrap.v1"
 PLAN_SCHEMA = "qingshan.character_asset_plan.v1"
@@ -241,7 +242,16 @@ def scan_source_folder(folder: Path | None) -> tuple[list[Path], list[dict[str, 
     for path in sorted(folder.rglob("*")):
         if not path.is_file():
             continue
-        if any(part.startswith(".") or part == "__MACOSX" for part in path.relative_to(folder).parts):
+        # Quarantined/rejected source material is retained for audit but must
+        # never participate in the active episode match table.  Without this
+        # boundary a deliberately moved E56 map screenshot still matched an
+        # E59 character by filename and silently became its identity source.
+        relative_parts = path.relative_to(folder).parts
+        if any(part.lower().startswith(("quarantine", "rejected", "invalid"))
+               for part in relative_parts[:-1]):
+            skipped.append({"file": str(path), "reason": "QUARANTINED_SOURCE_NOT_ACTIVE"})
+            continue
+        if any(part.startswith(".") or part == "__MACOSX" for part in relative_parts):
             skipped.append({"file": str(path), "reason": "HIDDEN_OR_RESOURCE_FORK"})
             continue
         if path.suffix.lower() not in IMAGE_SUFFIXES:
@@ -468,9 +478,12 @@ def prompt_path_for(subject: dict[str, Any], prompt_dir: Path, episode: str) -> 
         f"{episode}-{stem}.txt",
         f"{stem}.txt",
     ]
-    if subject["kind"] == "PROP":
-        # SET-FIRE-SPRING was authored as E01-PROP-FIRE-SPRING.txt.
-        candidates.append(f"{episode}-PROP-{re.sub(r'^(PROP|SET)-', '', stem)}.txt")
+    # Early E59 authoring used the historical ``E59-PROP-<subject>.txt``
+    # filename for both character cards and prop cards.  Keep that authored
+    # file as an explicit compatibility alias; otherwise removing a bad source
+    # would incorrectly turn a perfectly authored character into
+    # ``AUTHORED_PROMPT_MISSING`` and block the episode before generation.
+    candidates.append(f"{episode}-PROP-{re.sub(r'^(PROP|SET)-', '', stem)}.txt")
     for name in candidates:
         candidate = prompt_dir / name
         if candidate.is_file():
@@ -764,6 +777,19 @@ def build_plan(
         "deferred_view_rows": deferred,
         "new_asset_groups": rows,
     }
+    for row in plan["new_asset_groups"]:
+        # The submitter validates the culture contract on each transport row,
+        # not only inside the asset-requirements specification.  Carry the
+        # sealed Qingshan contract onto migrated prop/character rows so the
+        # old line's cultural lock is not lost at the new boundary.
+        row.setdefault("visual_culture_contract", dict(QINGSHAN_VISUAL_CULTURE_CONTRACT))
+        prompt_path = Path(row.get("prompt_file") or "")
+        if prompt_path.is_file():
+            text = prompt_path.read_text(encoding="utf-8")
+            block = qingshan_visual_prompt_block(QINGSHAN_VISUAL_CULTURE_CONTRACT)
+            if block not in text:
+                prompt_path.write_text(text.rstrip() + "\n" + block + "\n", encoding="utf-8")
+                row["prompt_sha256"] = sha256_file(prompt_path)
     return plan, unbuildable, deferred
 
 
@@ -811,6 +837,9 @@ def run_submitter_precheck(plan_path: Path, out_path: Path, venv_python: Path) -
         "--precheck-only",
     ]
     environment = {key: value for key, value in os.environ.items() if key != "GIGGLE_API_KEY"}
+    environment["PYTHONPATH"] = os.pathsep.join(
+        [str(ENGINE_ROOT)] + ([environment["PYTHONPATH"]] if environment.get("PYTHONPATH") else [])
+    )
     completed = subprocess.run(
         command, text=True, capture_output=True, cwd=str(ENGINE_ROOT), env=environment
     )

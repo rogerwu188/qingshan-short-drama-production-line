@@ -525,14 +525,36 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
         planned -= reused
         if planned:
             rows = [row for row in rows if row["asset_id"] in planned]
-        sources = {item.stem: item for item in sorted(CHARACTER_SOURCES.glob("*"))
+        # Resolve operator/source references from the episode's scoped asset
+        # library first.  E59 is deliberately isolated from the legacy global
+        # character_sources directory; falling back to the global directory is
+        # retained only for older episodes that have no scoped source folder.
+        scope_source_dir = None
+        scope_library = read_json(p.identity_library, {}) or {}
+        for asset in (scope_library.get("assets") or {}).values():
+            for row in (asset or {}).values() if isinstance(asset, dict) else []:
+                for prov in (row or {}).get("provenance") or []:
+                    candidate = Path(str(prov.get("source_folder") or ""))
+                    if candidate.is_dir():
+                        scope_source_dir = candidate
+                        break
+                if scope_source_dir:
+                    break
+            if scope_source_dir:
+                break
+        source_dir = scope_source_dir if scope_source_dir and scope_source_dir.is_dir() else CHARACTER_SOURCES
+        sources = {item.stem: item for item in sorted(source_dir.glob("*"))
                    if item.is_file()}
         for row in rows:
             plates = sorted(p.plates.glob(f"*{row['asset_id']}*")) if p.plates.is_dir() else []
-            row["media"] = [_media_row(item, "IDENTITY_PLATE") for item in plates] or [
-                _media_row(p.plates / f"{row['asset_id']}-plate-v1.png", "IDENTITY_PLATE")]
             source = sources.get(row["asset_id"])
-            if source is not None:
+            # A source-matched subject has no provider-generated plate by
+            # design.  Review the real operator source as the canonical
+            # identity plate instead of inventing a missing placeholder path.
+            row["media"] = ([_media_row(item, "IDENTITY_PLATE") for item in plates]
+                            or ([_media_row(source, "IDENTITY_PLATE")] if source else
+                                [_media_row(p.plates / f"{row['asset_id']}-plate-v1.png", "IDENTITY_PLATE")]))
+            if source is not None and not plates:
                 row["media"].append(_media_row(source, "OPERATOR_SOURCE_REFERENCE"))
     elif kind == "keyframe":
         rows = exp.keyframe_items()

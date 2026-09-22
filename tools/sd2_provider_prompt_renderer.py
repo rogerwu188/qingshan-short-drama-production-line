@@ -106,6 +106,23 @@ def _role_line(row: dict[str, Any]) -> str:
     return "，".join(pieces) + "。"
 
 
+def _vc_prompt_block_for_unit(unit: dict[str, Any]) -> str:
+    """The visual-culture prose belongs to the episodes its contract governs.
+
+    Below ``visual_culture_contract.ACTIVE_FROM_EPISODE`` a line carries its own locked profile
+    and its own prompt language, so the qingshan block is not rendered (it used to be absent
+    because those units carried no contract at all).
+    """
+    try:
+        from tools.visual_culture_contract import ACTIVE_FROM_EPISODE
+    except ImportError:  # pragma: no cover - direct-script import path
+        from visual_culture_contract import ACTIVE_FROM_EPISODE
+    match = re.search(r"(?:^|[^A-Z])E(\d+)", str(unit.get("episode") or unit.get("unit_id") or "").upper())
+    if not match or int(match.group(1)) < ACTIVE_FROM_EPISODE:
+        return ""
+    return visual_culture_prompt_block(unit.get("visual_culture_contract"))
+
+
 def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     uid = str(plan["unit_id"])
     camera = compile_camera_prompt(plan.get("camera_plan"), source_id=uid)
@@ -160,7 +177,13 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
     text = "\n".join([
         f"【任务】{plan['duration_seconds']:g}秒，9:16，{unit.get('resolution') or '720p'}，seedance-2.0-pro，真人实拍电影质感。",
         f"【锚点】{plan['identity_prop_fact']}；{plan['space_weather_fact']}。",
-        visual_culture_prompt_block(unit.get("visual_culture_contract")),
+        # 2026-09-20 (nalu line): prompt_block_zh spells the qingshan profile's own prose
+        # (北宋武侠、札甲/山文甲/兜鍪).  compile_grouped_seedance_manifest.py began attaching a
+        # visual_culture_contract to every compiled unit today, which would inject that armour
+        # prose into 夜无疆's village drama under its own profile id — wrong content, and a text
+        # change that would re-fingerprint 13 already-paid in-flight video tasks.  The block
+        # belongs to the episodes its contract governs (>= visual_culture_contract.ACTIVE_FROM_EPISODE).
+        _vc_prompt_block_for_unit(unit),
         *(["【连续事件硬合同】" + state_lock + "。"] if state_lock else []),
         *(["【逐镜状态与机位硬合同】\n" + "\n".join(shot_state_locks)] if shot_state_locks else []),
         "【角色】\n" + "\n".join(role_rows),

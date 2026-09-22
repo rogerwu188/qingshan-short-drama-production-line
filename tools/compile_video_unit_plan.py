@@ -144,6 +144,14 @@ def compile_grouping_spec(production: dict[str, Any], spec: dict[str, Any]) -> d
             # after editorial prompt specs are attached.
             "internal_transition_contracts": group.get("internal_transition_contracts") or [],
         }
+        # Preserve authored temporal-state contracts when a legacy grouping
+        # spec is migrated into the portable compiler.  These are machine
+        # contracts, not derived timing data, and are required by the anchor
+        # continuity gate.
+        if isinstance(group.get("shot_state_contracts"), list):
+            unit["shot_state_contracts"] = group["shot_state_contracts"]
+        if isinstance(group.get("persistent_state_contract"), dict):
+            unit["persistent_state_contract"] = group["persistent_state_contract"]
         if exception_reason:
             unit["duration_exception_reason"] = exception_reason
         units.append(unit)
