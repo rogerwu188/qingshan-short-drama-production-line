@@ -31,6 +31,9 @@ def _episode_number(value: Any) -> int:
     return int(match.group(1)) if match else 0
 
 
+MIN_STATE_BLOCKING_CHARS = 6  # mirrors grouped_transition_contract blocking minimum
+
+
 def validate_generation_contract(payload: dict[str, Any]) -> dict[str, Any]:
     episode = _text(payload.get("episode")) or "UNKNOWN"
     failures: list[str] = []
@@ -104,6 +107,16 @@ def validate_generation_contract(payload: dict[str, Any]) -> dict[str, Any]:
             validate_grouped_beat_contract(spec, source_id=shot_id)
         except ValueError as exc:
             failures.append(f"{shot_id}_PROMPT_SPEC_INVALID:{exc}")
+        # 2026-09-22: S2's director-authored transition contracts copy the last shot's
+        # action.completion_state / next shot's action.start_state into
+        # source_terminal_state.blocking / target_initial_state.blocking, which
+        # grouped_transition_contract requires to be >= MIN_STATE_BLOCKING_CHARS.  A one- or
+        # two-word state passed this gate and failed S2 as PREPRODUCTION_FAILED (device-2
+        # 《佛本是道》 E01 finding #15); reject it at the writer gate instead.
+        action_contract = spec.get("action") if isinstance(spec.get("action"), dict) else {}
+        for field in ("start_state", "completion_state"):
+            if 0 < len(_text(action_contract.get(field))) < MIN_STATE_BLOCKING_CHARS:
+                failures.append(f"{shot_id}_ACTION_{field.upper()}_TOO_SHORT_MIN_{MIN_STATE_BLOCKING_CHARS}")
         for field, source_field in (
             ("writer_camera_instruction", "camera"),
             ("writer_shot_treatment", "shot_treatment"),
