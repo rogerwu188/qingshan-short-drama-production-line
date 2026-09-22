@@ -1013,7 +1013,7 @@
     },
     {
       "path": "tools/bootstrap_cloud_agentcut_runtime.sh",
-      "sha256": "af749d3ebdee22dfdccd452b39320837d008bb4b27647295ddfd939eb435a2a3"
+      "sha256": "48f9a14e92dd1c5fa20c999fa1cde40c43792def81661e323aa2fa0e6a1c8977"
     },
     {
       "path": "tools/build_action_xuanhuan_storyboard_sheet_batches.py",

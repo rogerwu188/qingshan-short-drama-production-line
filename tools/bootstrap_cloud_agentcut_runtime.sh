@@ -1,67 +1,69 @@
 #!/bin/sh
+# Install the AgentCut runtime (S4 voice references, S7 selective BGM) into a private venv.
+#
+# Source, in order of preference:
+#   1. AGENTCUT_WHEEL / an offline wheel under workflow/.../runtime_wheels_portable (no network)
+#   2. the public repository at the pinned tag  (git+https, network)
+# Never installs from an unpinned branch.  Writes a JSON receipt.
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-WHEEL="$ROOT/workflow/cloud_factory_migration_v1_20260724/runtime_wheels_portable/agentcut-0.9.16-py3-none-any.whl"
+AGENTCUT_REPO="${AGENTCUT_REPO:-https://github.com/rogerwu188/agentcut.git}"
+AGENTCUT_TAG="${AGENTCUT_TAG:-v0.9.22}"
+AGENTCUT_EXPECTED_VERSION="${AGENTCUT_EXPECTED_VERSION:-${AGENTCUT_TAG#v}}"
 VENV="${AGENTCUT_VENV:-$ROOT/.agentcut_env}"
 OUT="${1:-$ROOT/runtime_receipts/agentcut_runtime_bootstrap.json}"
+WHEEL="${AGENTCUT_WHEEL:-}"
+if [ -z "$WHEEL" ]; then
+  for candidate in "$ROOT"/workflow/cloud_factory_migration_v1_20260724/runtime_wheels_portable/agentcut-"$AGENTCUT_EXPECTED_VERSION"-py3-none-any.whl; do
+    [ -f "$candidate" ] && WHEEL="$candidate"
+  done
+fi
 
 if [ -z "${PYTHON:-}" ]; then
   for name in python3.12 python3.11 python3.10 python3; do
     candidate=$(command -v "$name" || true)
-    if [ -n "$candidate" ] \
-      && "$candidate" -c 'import sys; raise SystemExit(sys.version_info < (3, 10))' \
-      && "$candidate" -c 'import requests'; then
+    if [ -n "$candidate" ] && "$candidate" -c 'import sys; raise SystemExit(sys.version_info < (3, 10))'; then
       PYTHON=$candidate
       break
     fi
   done
 fi
 if [ -z "${PYTHON:-}" ] || [ ! -x "$PYTHON" ]; then
-  printf '%s\n' "Python >=3.10 with requests is required" >&2
-  exit 78
-fi
-if [ ! -f "$WHEEL" ]; then
-  printf '%s\n' "AgentCut wheel is missing: $WHEEL" >&2
+  printf '%s\n' "Python >=3.10 is required" >&2
   exit 78
 fi
 
-if [ ! -x "$VENV/bin/python" ] || ! grep -q '^include-system-site-packages = true$' "$VENV/pyvenv.cfg" 2>/dev/null; then
+if [ ! -x "$VENV/bin/python" ]; then
   rm -rf "$VENV"
-  if ! "$PYTHON" -m venv --system-site-packages "$VENV"; then
-    rm -rf "$VENV"
-    "$PYTHON" -m venv --without-pip --system-site-packages "$VENV"
-  fi
+  "$PYTHON" -m venv "$VENV"
 fi
-if "$VENV/bin/python" -m pip --version >/dev/null 2>&1; then
-  "$VENV/bin/python" -m pip install --no-index --no-deps --force-reinstall "$WHEEL"
+"$VENV/bin/python" -m pip install --quiet --upgrade pip >/dev/null 2>&1 || true
+
+if [ -n "$WHEEL" ] && [ -f "$WHEEL" ]; then
+  SOURCE="wheel:$WHEEL"
+  NETWORK=false
+  "$VENV/bin/python" -m pip install --quiet --no-index --force-reinstall "$WHEEL" \
+    || "$VENV/bin/python" -m pip install --quiet --force-reinstall "$WHEEL"
 else
-  SYSTEM_PIP=$(command -v pip3 || command -v pip || true)
-  if [ -z "$SYSTEM_PIP" ]; then
-    printf '%s\n' "Offline pip bootstrap is unavailable" >&2
+  SOURCE="git:$AGENTCUT_REPO@$AGENTCUT_TAG"
+  NETWORK=true
+  if ! "$VENV/bin/python" -m pip install --quiet --force-reinstall "agentcut @ git+$AGENTCUT_REPO@$AGENTCUT_TAG"; then
+    printf '%s\n' "AgentCut install failed from $SOURCE (network or tag missing); set AGENTCUT_WHEEL=<path> for an offline install" >&2
     exit 78
   fi
-  SITE_PACKAGES=$(
-    "$VENV/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])'
-  )
-  rm -rf "$SITE_PACKAGES/agentcut" "$SITE_PACKAGES/agentcut-0.9.16.dist-info"
-  "$SYSTEM_PIP" install --no-index --no-deps --target "$SITE_PACKAGES" "$WHEEL"
-  printf '%s\n' '#!/bin/sh' 'HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)' 'exec "$HERE/python" -m agentcut "$@"' > "$VENV/bin/agentcut"
-  chmod +x "$VENV/bin/agentcut"
 fi
 
-AGENTCUT_VERSION=$(
-  "$VENV/bin/python" -c 'from importlib.metadata import version; print(version("agentcut"))'
-)
-if [ "$AGENTCUT_VERSION" != "0.9.16" ]; then
-  printf '%s\n' "AgentCut version mismatch: $AGENTCUT_VERSION" >&2
+AGENTCUT_VERSION=$("$VENV/bin/python" -c 'from importlib.metadata import version; print(version("agentcut"))')
+if [ "$AGENTCUT_VERSION" != "$AGENTCUT_EXPECTED_VERSION" ]; then
+  printf '%s\n' "AgentCut version mismatch: got $AGENTCUT_VERSION, expected $AGENTCUT_EXPECTED_VERSION" >&2
   exit 78
 fi
-"$VENV/bin/python" -c 'import requests; import agentcut; from agentcut.release_gate import validate_release_output; from agentcut.engine import AgentCutEngine'
+"$VENV/bin/python" -c 'import agentcut; from agentcut.release_gate import validate_release_output; from agentcut.engine import AgentCutEngine'
 "$VENV/bin/python" -m agentcut --help >/dev/null
 if [ ! -x "$VENV/bin/agentcut" ]; then
-  printf '%s\n' "AgentCut console entrypoint is missing" >&2
-  exit 78
+  printf '%s\n' '#!/bin/sh' 'HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)' 'exec "$HERE/python" -m agentcut "$@"' > "$VENV/bin/agentcut"
+  chmod +x "$VENV/bin/agentcut"
 fi
 
 FFMPEG="${FFMPEG:-$(command -v ffmpeg || true)}"
@@ -72,39 +74,32 @@ if [ -z "$FFMPEG" ] || [ -z "$FFPROBE" ]; then
 fi
 
 mkdir -p "$(dirname -- "$OUT")"
-"$VENV/bin/python" - "$OUT" "$WHEEL" "$VENV" "$FFMPEG" "$FFPROBE" <<'PY'
-import hashlib
-import json
-import os
-import sys
-import tempfile
+"$VENV/bin/python" - "$OUT" "$SOURCE" "$VENV" "$FFMPEG" "$FFPROBE" "$AGENTCUT_VERSION" "$NETWORK" <<'PY'
+import hashlib, json, os, sys, tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-out, wheel, venv, ffmpeg, ffprobe = map(Path, sys.argv[1:])
-digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
+out, source, venv, ffmpeg, ffprobe, version, network = sys.argv[1:]
+out = Path(out)
 receipt = {
-    "schema": "storyclaw.agentcut_runtime_bootstrap.v1",
+    "schema": "storyclaw.agentcut_runtime_bootstrap.v2",
     "checked_at": datetime.now(timezone.utc).isoformat(),
     "status": "PASS",
-    "agentcut_version": "0.9.16",
-    "wheel": str(wheel),
-    "wheel_sha256": digest,
-    "venv": str(venv),
-    "agentcut_executable": str(venv / "bin" / "agentcut"),
+    "agentcut_version": version,
+    "source": source,
+    "wheel_sha256": (hashlib.sha256(Path(source[6:]).read_bytes()).hexdigest() if source.startswith("wheel:") else None),
+    "venv": venv,
+    "agentcut_executable": str(Path(venv) / "bin" / "agentcut"),
     "import_verified": True,
     "cli_verified": True,
-    "ffmpeg": str(ffmpeg),
-    "ffprobe": str(ffprobe),
-    "network_install_used": False,
+    "ffmpeg": ffmpeg,
+    "ffprobe": ffprobe,
+    "network_install_used": network == "true",
 }
 fd, partial = tempfile.mkstemp(prefix=out.name + ".", suffix=".partial", dir=out.parent)
 try:
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        json.dump(receipt, handle, ensure_ascii=False, indent=2)
-        handle.write("\n")
-        handle.flush()
-        os.fsync(handle.fileno())
+        json.dump(receipt, handle, ensure_ascii=False, indent=2); handle.write("\n"); handle.flush(); os.fsync(handle.fileno())
     os.replace(partial, out)
 finally:
     if os.path.exists(partial):
