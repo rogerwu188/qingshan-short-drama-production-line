@@ -38,6 +38,17 @@ def valid_contract():
             "physical_causality": "脚步接近后目光才落到水迹",
             "microexpression_design": "眉峰先收紧一次并保持",
             "physical_action_design": "落脚承重后身体停稳",
+            "state_delta_dimensions": ["POSITION"],
+            "state_delta_evidence": {"POSITION": {"entry": "院门内侧迈步途中", "exit": "停在井台水迹前"}},
+        },
+        "camera_plan": {
+            "shot_scale": "MEDIUM", "camera_height": "EYE_LEVEL", "camera_side": "AXIS_A",
+            "motion_family": "TRACK", "motion_direction": "LEFT_TO_RIGHT",
+            "lens_intent": "中焦保留院门到井台的纵深关系",
+            "axis_relation": "沿院门到井台的行进轴同侧横移",
+            "start_framing": "行人位于画左院门口，井台在画右远处",
+            "end_framing": "行人停在画中井台前，水迹入画下沿",
+            "motivation": "跟随行人发现井台水迹的过程",
         },
         "referent_resolution_contract": {
             "status": "PASS", "source_scan_complete": True,

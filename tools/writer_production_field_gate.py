@@ -16,10 +16,14 @@ try:
     from tools.grouped_performance_contract import validate_grouped_beat_contract
     from tools.visual_culture_contract import validate_visual_culture_contract
     from tools.character_entity_contract import validate_character_entity_contract
+    from tools.keyframe_entry_state_gate import compile_keyframe_state_contract
+    from tools.grouped_camera_contract import validate_camera_plan
 except ModuleNotFoundError:
     from grouped_performance_contract import validate_grouped_beat_contract
     from visual_culture_contract import validate_visual_culture_contract
     from character_entity_contract import validate_character_entity_contract
+    from keyframe_entry_state_gate import compile_keyframe_state_contract
+    from grouped_camera_contract import validate_camera_plan
 
 
 def _text(value: Any) -> str:
@@ -117,6 +121,18 @@ def validate_generation_contract(payload: dict[str, Any]) -> dict[str, Any]:
         for field in ("start_state", "completion_state"):
             if 0 < len(_text(action_contract.get(field))) < MIN_STATE_BLOCKING_CHARS:
                 failures.append(f"{shot_id}_ACTION_{field.upper()}_TOO_SHORT_MIN_{MIN_STATE_BLOCKING_CHARS}")
+        # 2026-09-22 (device-2 findings #18/#29): S2 validates every shot's camera_plan and S5
+        # projects every action into a keyframe entry/target contract; run the same functions
+        # here so an incomplete camera plan or a missing typed state delta fails at verify
+        # instead of crashing S2 (KeyError end_framing) or S5 (KEYFRAME_TARGET_STATE_DELTA_MISSING).
+        try:
+            validate_camera_plan(spec.get("camera_plan"), source_id=shot_id)
+        except (ValueError, KeyError, TypeError) as exc:
+            failures.append(f"{shot_id}_CAMERA_PLAN_INVALID:{exc}")
+        try:
+            compile_keyframe_state_contract(action_contract)
+        except (ValueError, KeyError, TypeError) as exc:
+            failures.append(f"{shot_id}_KEYFRAME_STATE_CONTRACT_INVALID:{exc}")
         # build_nalu_preproduction takes the editorial beat endpoints from the SHOT-level
         # entry_state / completion_state (not prompt_spec.action), so those are the values that
         # reach the transition contract's blocking fields; check them to the same minimum.
