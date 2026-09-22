@@ -117,6 +117,12 @@ def validate_generation_contract(payload: dict[str, Any]) -> dict[str, Any]:
         for field in ("start_state", "completion_state"):
             if 0 < len(_text(action_contract.get(field))) < MIN_STATE_BLOCKING_CHARS:
                 failures.append(f"{shot_id}_ACTION_{field.upper()}_TOO_SHORT_MIN_{MIN_STATE_BLOCKING_CHARS}")
+        # build_nalu_preproduction takes the editorial beat endpoints from the SHOT-level
+        # entry_state / completion_state (not prompt_spec.action), so those are the values that
+        # reach the transition contract's blocking fields; check them to the same minimum.
+        for field in ("entry_state", "completion_state"):
+            if 0 < len(_text(shot.get(field))) < MIN_STATE_BLOCKING_CHARS:
+                failures.append(f"{shot_id}_{field.upper()}_TOO_SHORT_MIN_{MIN_STATE_BLOCKING_CHARS}")
         for field, source_field in (
             ("writer_camera_instruction", "camera"),
             ("writer_shot_treatment", "shot_treatment"),
