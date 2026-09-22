@@ -10,6 +10,12 @@ from typing import Any
 SCHEMA = "qingshan.visual_culture_contract.v1"
 PROFILE_ID = "QINGSHAN_NORTHERN_SONG_EASTERN_CINEMATIC"
 ACTIVE_FROM_EPISODE = 54
+# Fields S2 reads verbatim (build_episode_asset_requirements.style_block / visual_culture block).
+STRUCTURAL_TEXT_FIELDS = (
+    "profile_id", "story_world", "production_design", "armor_tradition",
+    "lighting_language", "image_texture",
+)
+PALETTE_KEYS = ("base", "accent", "skin")
 
 DEFAULT_CONTRACT: dict[str, Any] = {
     "schema": SCHEMA,
@@ -80,9 +86,24 @@ def validate_visual_culture_contract(
     required = episode is not None and episode >= ACTIVE_FROM_EPISODE
     contract = payload.get("visual_culture_contract")
     failures: list[str] = []
-    if required and not isinstance(contract, dict):
+    if not isinstance(contract, dict):
+        # 2026-09-22: S2 (build_episode_asset_requirements.style_block) dereferences every structural
+        # field below unconditionally, so a missing/incomplete contract must fail here as a writer
+        # blocker instead of surfacing later as a KeyError (device-2 《佛本是道》 E01 finding #14).
         failures.append("VISUAL_CULTURE_CONTRACT_MISSING")
     if isinstance(contract, dict):
+        for field in STRUCTURAL_TEXT_FIELDS:
+            if not str(contract.get(field) or "").strip():
+                failures.append(f"VISUAL_CULTURE_{field.upper()}_MISSING")
+        palette = contract.get("palette_system")
+        if not isinstance(palette, dict):
+            failures.append("VISUAL_CULTURE_PALETTE_SYSTEM_MISSING")
+        else:
+            for key in PALETTE_KEYS:
+                if not str(palette.get(key) or "").strip():
+                    failures.append(f"VISUAL_CULTURE_PALETTE_{key.upper()}_MISSING")
+        if not isinstance(contract.get("forbidden_influences"), list):
+            failures.append("VISUAL_CULTURE_FORBIDDEN_INFLUENCES_NOT_A_LIST")
         if contract.get("schema") != SCHEMA:
             failures.append("VISUAL_CULTURE_CONTRACT_SCHEMA_INVALID")
         if contract.get("status") != "LOCKED":
