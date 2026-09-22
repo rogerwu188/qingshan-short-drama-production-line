@@ -105,7 +105,14 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_ENGINE_ROOT = Path(f"{_np.ENGINE_ROOT}")
-DEFAULT_PYTHON = DEFAULT_ENGINE_ROOT / ".qingshan-venv/bin/python"
+# 2026-09-22 (device-2 finding #21): a StoryClaw project engine is a worktree without its own
+# .qingshan-venv; the interpreter is selected by NALU_VENV_PYTHON (installer contract), else the
+# interpreter already running the pipeline.
+_ENGINE_VENV_PYTHON = DEFAULT_ENGINE_ROOT / ".qingshan-venv/bin/python"
+DEFAULT_PYTHON = Path(
+    os.environ.get("NALU_VENV_PYTHON")
+    or (str(_ENGINE_VENV_PYTHON) if _ENGINE_VENV_PYTHON.exists() else sys.executable)
+)
 DEFAULT_POLICY = DEFAULT_ENGINE_ROOT / "configs/reroll_cost_guard_policy_v1_20260716.json"
 RUNTIME_ROOT = Path(f"{_np.RUNTIME_ROOT}")
 DEFAULT_LEDGER = RUNTIME_ROOT / "runtime/budget/ledger.json"
