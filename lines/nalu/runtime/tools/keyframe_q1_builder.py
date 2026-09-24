@@ -818,7 +818,10 @@ def _evidence_file(out: Path, *, gate_id: str, episode: str, item_id: str,
 
 def materialise(episode: str, submitted: dict[str, Any],
                 submitted_path: Path) -> dict[str, Any]:
-    from visual_review_policy import advisory_questions
+    from visual_review_policy import advisory_questions, resolve_profile
+    visual_qa_profile, policy_error = resolve_profile(submitted)
+    if policy_error:
+        raise ValueError(f"Q1_VISUAL_POST_QA_POLICY_INVALID:{policy_error}") from policy_error
     p = QaPaths(episode)
     exp = Expectations(episode)
     questionnaire = submitted.get("questionnaire") or {}
@@ -920,7 +923,7 @@ def materialise(episode: str, submitted: dict[str, Any],
              "elements"),
         ]
         evidence: list[dict[str, Any]] = []
-        minor_questions = advisory_questions(item, submitted.get('visual_post_qa_profile', 'STRICT'))
+        minor_questions = advisory_questions(item, visual_qa_profile)
         for gate_id, verification, failures, finding in specs:
             failed = bool(failures)
             # Keep the original failed checks and objective result intact.

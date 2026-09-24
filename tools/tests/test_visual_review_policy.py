@@ -3,7 +3,9 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'lines/nalu/runtime/tools'))
-from visual_review_policy import advisory_questions
+from visual_review_policy import (
+    advisory_questions, policy_snapshot, verify_policy_snapshot, resolve_profile,
+    POLICY_ID, POLICY_VERSION)
 
 
 def item(answer='FAIL', key='screen_slots_and_depth_planes_match', code='COMPOSITION_VARIATION', severity='P2'):
@@ -33,3 +35,44 @@ def test_hem_only_requires_explicit_preserved_identity_and_story_dimensions():
     assert advisory_questions(row,'STRICT')==set()
     row['answers']['wardrobe_matches_bible']='UNCERTAIN'
     assert advisory_questions(row,'WEAK')==set()
+
+
+def test_policy_snapshot_round_trips_through_verify():
+    snapshot = policy_snapshot('WEAK')
+    assert snapshot['policy_id'] == POLICY_ID
+    assert snapshot['policy_version'] == POLICY_VERSION
+    assert verify_policy_snapshot(snapshot) == 'WEAK'
+
+
+def test_verify_policy_snapshot_rejects_missing_or_drifted():
+    with pytest.raises(ValueError, match='SNAPSHOT_MISSING'):
+        verify_policy_snapshot(None)
+    with pytest.raises(ValueError, match='SNAPSHOT_MISSING'):
+        verify_policy_snapshot({})
+    stale = policy_snapshot('WEAK')
+    stale['policy_sha256'] = 'not-the-live-hash'
+    with pytest.raises(ValueError, match='POLICY_DRIFT'):
+        verify_policy_snapshot(stale)
+    stale = policy_snapshot('WEAK')
+    stale['policy_version'] = 'v0'
+    with pytest.raises(ValueError, match='POLICY_DRIFT'):
+        verify_policy_snapshot(stale)
+
+
+def test_resolve_profile_prefers_bound_snapshot_over_legacy_field():
+    container = {'visual_post_qa_profile': 'STRICT', 'visual_post_qa_policy': policy_snapshot('WEAK')}
+    profile, error = resolve_profile(container)
+    assert (profile, error) == ('WEAK', None)
+
+
+def test_resolve_profile_falls_back_to_legacy_field_when_no_snapshot():
+    assert resolve_profile({'visual_post_qa_profile': 'WEAK'}) == ('WEAK', None)
+    assert resolve_profile({}) == ('STRICT', None)
+
+
+def test_resolve_profile_surfaces_drift_as_an_error_not_a_silent_default():
+    stale = policy_snapshot('WEAK')
+    stale['policy_sha256'] = 'not-the-live-hash'
+    profile, error = resolve_profile({'visual_post_qa_policy': stale})
+    assert profile is None
+    assert isinstance(error, ValueError) and 'POLICY_DRIFT' in str(error)

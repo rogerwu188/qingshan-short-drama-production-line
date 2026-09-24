@@ -77,7 +77,8 @@ TOOL_ID = "vlm_review_protocol.v1"
 
 PASS_ANSWERS = {"PASS", "YES", "NOT_APPLICABLE"}
 FAIL_ANSWERS = {"FAIL", "NO"}
-from visual_review_policy import advisory_questions, selected_profile
+from visual_review_policy import (
+    advisory_questions, selected_profile, policy_snapshot, resolve_profile)
 #: UNCERTAIN is never a pass.  A reviewer that cannot tell has found a defect in
 #: the asset's legibility, and the item is rejected so a human or a reroll
 #: resolves it rather than the pipeline guessing.
@@ -597,6 +598,7 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
 
     request_id = f"{episode}-{kind}-{run_id()}"
     out = Path(out) if out else REVIEWS_ROOT / episode / f"{request_id}_request.json"
+    visual_qa_profile = selected_profile() if kind == 'keyframe' else 'STRICT'
     payload = {
         "schema": SCHEMA_REQUEST,
         "request_id": request_id,
@@ -604,7 +606,8 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
         "episode": episode,
         "created_at": now(),
         "created_by": TOOL_ID,
-        "visual_post_qa_profile": selected_profile() if kind == 'keyframe' else 'STRICT',
+        "visual_post_qa_profile": visual_qa_profile,
+        "visual_post_qa_policy": policy_snapshot(visual_qa_profile),
         "reviewer_contract": {
             "reviewer": REVIEWER_ID,
             "review_method": REVIEW_METHOD,
@@ -701,6 +704,11 @@ def validate_answers(request: dict[str, Any], request_sha: str,
     kind = request["kind"]
     questions = request["questionnaire"]
     observed_fields = OBSERVED_FIELDS[kind]
+
+    visual_qa_profile, policy_error = resolve_profile(request)
+    if policy_error:
+        failures.append(f"visual_post_qa_policy_invalid:{policy_error}")
+        visual_qa_profile = 'STRICT'
 
     if answers.get("schema") != SCHEMA_ANSWERS:
         failures.append(f"answers_schema_invalid:{answers.get('schema')}")
@@ -808,8 +816,7 @@ def validate_answers(request: dict[str, Any], request_sha: str,
         if (failed_answers or uncertain) and not defects:
             item_failures.append("fail_or_uncertain_answer_without_a_defect_entry")
 
-        advisory = advisory_questions({'answers': given, 'defects': defects},
-                                      request.get('visual_post_qa_profile', 'STRICT'))
+        advisory = advisory_questions({'answers': given, 'defects': defects}, visual_qa_profile)
         verdict = "PASS"
         if set(failed_answers) - advisory or uncertain or blocking_defects:
             verdict = "REJECT"
@@ -869,6 +876,7 @@ def submit(request_path: Path, answers_path: Path, *, out: Path | None = None,
         "answers_sha256": sha256_file(answers_path),
         "questionnaire": request["questionnaire"],
         "visual_post_qa_profile": request.get('visual_post_qa_profile', 'STRICT'),
+        "visual_post_qa_policy": request.get('visual_post_qa_policy'),
         "validation": {
             "status": "PASS" if not failures else "FAIL",
             "failure_count": len(failures),
