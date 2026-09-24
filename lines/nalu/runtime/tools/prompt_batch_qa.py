@@ -26,6 +26,7 @@ import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (e
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -33,6 +34,7 @@ from pathlib import Path
 
 ENGINE = Path(f"{_np.ENGINE_ROOT}")
 RUNTIME = Path(f"{_np.RUNTIME_ROOT}")
+WORK = Path(os.environ.get("NALU_WORK_ROOT", str(_np.RUNTIME_ROOT / "workflow" / "nalu"))).expanduser().resolve()
 
 
 def sha(path: Path) -> str:
@@ -40,7 +42,11 @@ def sha(path: Path) -> str:
 
 
 def rel(path: Path) -> str:
-    return str(Path(path).resolve().relative_to(ENGINE.resolve()))
+    resolved = Path(path).resolve()
+    try:
+        return str(resolved.relative_to(ENGINE.resolve()))
+    except ValueError:
+        return str(resolved)
 
 
 def section(text: str, header: str) -> str:
@@ -49,9 +55,44 @@ def section(text: str, header: str) -> str:
     return m.group(1).strip() if m else ""
 
 
-def load(ep: str):
-    pre = ENGINE / "workflow/nalu" / ep / "preproduction"
-    contract = json.loads((ENGINE / "workflow/claude_writer_agent/scripts" / f"{ep}_GENERATION_CONTRACT_v1.json").read_text(encoding="utf-8"))
+def foreign_dialogue(text: str, dialogue_by_shot: dict, unit_shots: list) -> list[str]:
+    """A transition never exempts out-of-scope dialogue from pre-submit QA."""
+    local = {line.split("：", 1)[1] for sid in unit_shots
+             for line in dialogue_by_shot.get(sid, [])}
+    return sorted({line.split("：", 1)[1]
+                   for sid, lines in dialogue_by_shot.items() if sid not in unit_shots
+                   for line in lines
+                   if line.split("：", 1)[1] not in local
+                   and len(line.split("：", 1)[1]) > 4
+                   and line.split("：", 1)[1] in text})
+
+
+def wardrobe_expectation(spec, name, bible_row):
+    overrides = spec.get('wardrobe_state_overrides') or {}
+    ids = [c.get('character_id') for c in spec.get('cast', [])
+           if name in {c.get('character'), c.get('canonical_name')}]
+    if bible_row.get('character_id'):
+        ids.append(bible_row['character_id'])
+    values = {str(overrides[cid]).strip() for cid in ids if overrides.get(cid)}
+    if len(values) > 1:
+        raise ValueError('AMBIGUOUS_WARDROBE_OVERRIDE:'+name)
+    if values:
+        value = next(iter(values))
+        return value, value
+    authored = str(bible_row.get('authored_description') or '')
+    return authored.split('；')[0][:12], str(bible_row.get('outer_layer') or '')
+
+
+def load(ep: str, *, preproduction_dir=None, contract_file=None):
+    pre = Path(preproduction_dir).resolve() if preproduction_dir else WORK / ep / "preproduction"
+    contract_candidates = [
+        RUNTIME / "adapter" / ep / f"{ep}_GENERATION_CONTRACT_v1.json",
+        ENGINE / "workflow/claude_writer_agent/scripts" / f"{ep}_GENERATION_CONTRACT_v1.json",
+    ]
+    contract_path = Path(contract_file).resolve() if contract_file else next((p for p in contract_candidates if p.is_file()), None)
+    if contract_path is None:
+        raise FileNotFoundError(f"no generation contract found for {ep}")
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
     editorial = json.loads((pre / f"{ep}_EDITORIAL_SEEDANCE_MANIFEST_V1.json").read_text(encoding="utf-8"))
     ed_by_shot = {s["shot_id"]: s for s in editorial["shots"]}
     for shot in contract["shots"]:  # props live in the editorial spec, cast in both
@@ -68,8 +109,8 @@ def load(ep: str):
     return pre, contract, grouping, batch, gsm
 
 
-def digest(ep: str, out: Path) -> dict:
-    pre, contract, grouping, batch, gsm = load(ep)
+def digest(ep: str, out: Path, **input_paths) -> dict:
+    pre, contract, grouping, batch, gsm = load(ep, **input_paths)
     shots = {s["shot_id"]: s for s in contract["shots"]}
     scenes = {s["scene_id"]: s for s in contract["scene_states"]}
     units = {u["unit_id"]: u for u in grouping["units"]}
@@ -77,6 +118,11 @@ def digest(ep: str, out: Path) -> dict:
     for row in list(bible.values()):
         for alias in (row.get("aliases") or []):
             bible.setdefault(alias, row)
+    # v4 uses the short display name in a few shots while the wardrobe bible
+    # keeps the canonical role name.  This is an explicit authored alias, not
+    # a fuzzy name guess.
+    if "迎客姑娘" in bible:
+        bible.setdefault("侍女", bible["迎客姑娘"])
     if "白鲤郡主" in bible:
         bible.setdefault("白鲤", bible["白鲤郡主"])
     id2name = {e["character_id"]: e["canonical_name"] for e in contract["character_entities"]}
@@ -126,11 +172,10 @@ def digest(ep: str, out: Path) -> dict:
                 # (asset_requirements WARD-* text); compare against that and against the
                 # hide-coat presence implied by outer_layer
                 line = ward_line.group(1)
-                authored = str(b.get("authored_description") or "")
-                head = authored.split("；")[0][:12]
+                head, expected_outer = wardrobe_expectation(shot['prompt_spec'], name, b)
                 chk(f"kf_wardrobe_authored_text:{name}", bool(head) and head in line, f"{head!r} in line")
                 # E04: 皮袄 (a hide jacket) and 裘氅 are hide coats too — the line-side test already counts them
-                hide_expected = any(t in str(b.get("outer_layer") or "") for t in ("兽皮", "裘氅", "皮袄"))
+                hide_expected = any(t in expected_outer for t in ("兽皮", "裘氅", "皮袄"))
                 # E01 idiom 兽皮大衣/小披; E02+ Tang/Song idiom 裘氅 / 兽皮短袄 (seq=7)
                 # E03: a fur/hide HAT (兽皮护耳帽 / 皮帽) is not an outer coat — strip hat tokens before the coat test
                 line_no_hat = re.sub(r"兽皮护耳帽|皮护耳帽|兽皮帽|皮帽", "", line)
@@ -138,8 +183,17 @@ def digest(ep: str, out: Path) -> dict:
                 chk(f"kf_wardrobe_hide_coat_consistent:{name}", hide_expected == hide_in_line, f"expected={hide_expected} line={hide_in_line}")
         sc = scenes[shot["scene_id"]]
         chk("kf_time_id", f"时间：{sc['time_id']}" in kf_text, sc["time_id"])
-        chk("kf_weather", sc["weather"] in kf_text, sc["weather"])
-        chk("kf_lighting", sc["lighting"] in kf_text, sc["lighting"][:30])
+        scene_expected = sc
+        projection_ref = row['keyframe_prompt'].get('scene_state_projection_ref')
+        if projection_ref:
+            from tools.keyframe_entry_scene_projection import validate_projection
+            try:
+                scene_expected = validate_projection(projection_ref, shot=shot, scene=sc, prompt_text=kf_text)
+                chk('kf_entry_scene_projection', True, str(projection_ref))
+            except (ValueError, KeyError, OSError, TypeError) as exc:
+                chk('kf_entry_scene_projection', False, str(exc))
+        chk("kf_weather", scene_expected["weather"] in kf_text, scene_expected["weather"])
+        chk("kf_lighting", scene_expected["lighting"] in kf_text, scene_expected["lighting"][:30])
         loc = re.search(r"地点：(LOC-[A-Z0-9-]+)｜房间：(ROOM-[A-Z0-9-]+)", kf_text)
         gm = re.search(r"→ (GSM-[A-Z0-9-]+) → SUBSPACE", kf_text)
         chk("kf_location_matches_scene", bool(loc) and loc.group(1) == sc["location_id"], loc.group(1) if loc else "")
@@ -157,9 +211,7 @@ def digest(ep: str, out: Path) -> dict:
             for line in dialogue_by_shot.get(sid, []):
                 spoken = line.split("：", 1)[1]
                 chk(f"vp_dialogue_verbatim:{sid}", spoken in vp_text, spoken[:30])
-        other_dialogue = [t["text"] for d_sid, ts in dialogue_by_shot.items() if d_sid not in unit_shots for t in [{"text": x.split("：", 1)[1]} for x in ts]]
-        bridge = json.dumps(unit.get("transition_contract") or {}, ensure_ascii=False)
-        leaked = [] if unit.get("transition_contract") else [t for t in other_dialogue if t in vp_text and t not in bridge and len(t) > 4]
+        leaked = foreign_dialogue(vp_text, dialogue_by_shot, unit_shots)
         chk("vp_no_foreign_dialogue", not leaked, str(leaked[:2]))
         vp_cast = set()
         for sid in unit_shots:
@@ -201,8 +253,8 @@ def digest(ep: str, out: Path) -> dict:
     return report
 
 
-def receipts(ep: str, digest_path: Path, answers_path: Path, out_dir: Path) -> dict:
-    pre, contract, grouping, batch, gsm = load(ep)
+def receipts(ep: str, digest_path: Path, answers_path: Path, out_dir: Path, **input_paths) -> dict:
+    pre, contract, grouping, batch, gsm = load(ep, **input_paths)
     dg = json.loads(digest_path.read_text(encoding="utf-8"))
     answers = json.loads(answers_path.read_text(encoding="utf-8"))
     by_uid = {r["unit_id"]: r for r in dg["rows"]}
@@ -249,12 +301,16 @@ def main() -> int:
     d = sub.add_parser("digest"); d.add_argument("--episode", required=True); d.add_argument("--out", required=True)
     r = sub.add_parser("receipts"); r.add_argument("--episode", required=True); r.add_argument("--digest", required=True)
     r.add_argument("--answers", required=True); r.add_argument("--out-dir", required=True)
+    for parser in (d, r):
+        parser.add_argument("--preproduction-dir", help="Explicit isolated repair inputs; default unchanged")
+        parser.add_argument("--contract-file", help="Explicit approved/repaired contract; no fallback if missing")
     args = ap.parse_args()
+    input_paths = dict(preproduction_dir=args.preproduction_dir, contract_file=args.contract_file)
     if args.cmd == "digest":
-        rep = digest(args.episode, Path(args.out))
+        rep = digest(args.episode, Path(args.out), **input_paths)
         print(json.dumps({"rows": rep["deterministic_summary"], "boilerplate_variants": rep["boilerplate_variants"]}, ensure_ascii=False))
         return 0
-    s = receipts(args.episode, Path(args.digest), Path(args.answers), Path(args.out_dir))
+    s = receipts(args.episode, Path(args.digest), Path(args.answers), Path(args.out_dir), **input_paths)
     return 0 if not s["failed"] else 2
 
 

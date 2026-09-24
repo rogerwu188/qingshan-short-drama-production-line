@@ -54,6 +54,8 @@ def require_generation_batch(task, root, *, artifact_kind='video_prompt'):
         raise ValueError('WHOLE_BATCH_PROMPT_QA_REQUIRED:'+','.join(result['failures']))
     report=json.loads((root/config['manifest_ref']).read_text())
     row=next(r for r in report['rows'] if r['unit_id']==uid)
+    if row.get('mode') == 'REUSE_EXISTING_MEDIA':
+        raise ValueError('WHOLE_BATCH_PROMPT_QA_REQUIRED:REUSE_ROW_CANNOT_GENERATE')
     planned=row[artifact_kind]['sha256']
     actual=task.get('prompt_sha256')
     if actual!=planned:
@@ -74,6 +76,63 @@ def require_generation_batch(task, root, *, artifact_kind='video_prompt'):
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
+def _reuse_failures(root, row, execution_id):
+    """Validate an existing asset, never grant it a new generation permission.
+
+    Historical admission is retained, not re-labelled as a fresh visual review.
+    Repair-context continuity must be reviewed separately against this exact asset.
+    """
+    uid = row['unit_id']
+    parent = row.get('parent_unit_id') or uid
+    refs = row.get('reuse_evidence') or {}
+    found = {}
+    failures = []
+    for name in ('media', 'assembly_receipt', 'admission_result', 'continuity_review'):
+        ref = refs.get(name) or {}
+        path = _trusted_path(root, ref.get('path'))
+        if path is None or not path.is_file() or digest(path) != ref.get('sha256'):
+            failures.append(f'MISSING_OR_STALE_REUSE_EVIDENCE:{uid}:{name}')
+        else:
+            found[name] = path
+    if not all(name in found for name in ('media', 'assembly_receipt', 'admission_result')):
+        return failures
+    media_sha = refs['media']['sha256']
+    assembly = json.loads(found['assembly_receipt'].read_text())
+    admission = json.loads(found['admission_result'].read_text())
+    matching_tasks = [t for t in assembly.get('tasks', [])
+                      if t.get('source_id') == parent and t.get('sha256') == media_sha
+                      and _trusted_path(root, t.get('output_path')) == found['media']
+                      and t.get('status') == 'qa_pass']
+    if (assembly.get('unit_id') != parent
+            or assembly.get('downstream_status') != 'ADMITTED_FOR_ASSEMBLY'
+            or len(matching_tasks) != 1
+            or _trusted_path(root, assembly.get('admission_result')) != found['admission_result']):
+        failures.append(f'REUSE_ASSEMBLY_BINDING_INVALID:{uid}')
+    if (admission.get('status') != 'ADMITTED'
+            or admission.get('downstream_status') != 'ADMITTED_FOR_ASSEMBLY'
+            or admission.get('asset_sha256') != media_sha
+            or _trusted_path(root, admission.get('asset_path')) != found['media']
+            or admission.get('failures')):
+        failures.append(f'REUSE_PRIOR_ADMISSION_INVALID:{uid}')
+    if 'continuity_review' not in found:
+        return failures
+    review = json.loads(found['continuity_review'].read_text())
+    expected = {'status': 'PASS', 'execution_id': execution_id, 'unit_id': parent,
+                'media_sha256': media_sha, 'scope': 'REPAIR_CONTEXT_CONTINUITY',
+                'cross_unit_continuity_checked': True}
+    if (any(review.get(k) != v for k, v in expected.items())
+            or not review.get('reviewer') or not review.get('observation')):
+        failures.append(f'REUSE_CONTEXT_REVIEW_MISSING:{uid}')
+    # Bind the review to its actual context inputs, not only to historical media.
+    context_refs = review.get('context_refs') or []
+    if not context_refs:
+        failures.append(f'REUSE_CONTEXT_INPUTS_MISSING:{uid}')
+    for ref in context_refs:
+        path = _trusted_path(root, ref.get('path'))
+        if path is None or not path.is_file() or digest(path) != ref.get('sha256'):
+            failures.append(f'REUSE_CONTEXT_INPUT_STALE:{uid}')
+    return failures
+
 def evaluate(root, config, *, execution_id, unit_id):
     if not config or not config.get('required'):
         return {'status':'NOT_REQUIRED','failures':[]}
@@ -92,10 +151,16 @@ def evaluate(root, config, *, execution_id, unit_id):
         if len(ids)!=len(set(ids)) or set(ids)!=set(scope):failures.append('INCOMPLETE_OR_DUPLICATE_BATCH')
         for row in rows:
             uid=row['unit_id'];found={}
+            if row.get('mode') == 'REUSE_EXISTING_MEDIA':
+                failures.extend(_reuse_failures(root, row, execution_id))
+                continue
+            if row.get('mode', 'GENERATE') != 'GENERATE':
+                failures.append(f'UNKNOWN_BATCH_ROW_MODE:{uid}')
+                continue
             for name in ARTIFACTS:
                 ref=row.get(name) or {}
-                path=(Path(root)/ref.get('path','')).resolve()
-                if not path.is_relative_to(Path(root).resolve()):
+                path=_trusted_path(root, ref.get('path',''))
+                if path is None:
                     failures.append(f'ARTIFACT_OUTSIDE_PROJECT:{uid}:{name}');continue
                 if not path.is_file() or not ref.get('sha256') or digest(path)!=ref['sha256']:
                     failures.append(f'MISSING_OR_STALE_ARTIFACT:{uid}:{name}');continue

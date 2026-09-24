@@ -590,6 +590,11 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
         "【对白安全切点】" + dialogue_safety_line,
         "【角色语义消歧硬锁】" + "\n".join(role_locks),
         "【表演连续性】严格按节拍内连续性硬合同执行连续动作、揭示或明确切镜；不得把不同人物变成同一个人，不得用变脸、换衣或同位置替换冒充角色交接；摄影机只执行镜头硬合同声明的运动。",
+        (
+            "【失败后全量表演重写】" + str(unit.get("reroll_performance_directive") or "")
+            + "；该指令只改变本次重试的动作节拍、可见运动和对白演绎，不改变身份、服装、地图、天气、镜头类型、时长或对白文字。"
+            if unit.get("reroll_performance_directive") else None
+        ),
         "【肢体与接触拓扑】" + interaction_topology_prompt_block(unit) if interaction_topology_prompt_block(unit) else "【肢体与接触拓扑】本单元无需要额外声明的肢体/道具接触。",
         "【打斗镜头语言】" + combat_prompt_block(unit, model_family="seedance2") if combat_prompt_block(unit, model_family="seedance2") else "【动作分类】本单元为非对抗剧情段，不使用武力冲突镜头语法。",
         "【节拍】",
@@ -597,7 +602,7 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
         "【同任务原生声音】精确保留上述对白及本任务生成的环境声、拟音和动作声；对白只说一次、不改词、不换说话人；每句只由角色声线硬合同指定的具名角色发声并匹配该角色口型，无对白人物闭口；禁止 TTS、旧音轨、跨任务音轨和默认 BGM。",
         "【关键限制】无字幕、水印、可读文字、人物身份漂移、静态帧、数字推拉、循环动作、冻结或变速补时；不得漏拍或重排节拍。",
     ]
-    text = "\n".join(lines) + "\n"
+    text = "\n".join(line for line in lines if line is not None) + "\n"
     validation = validate_model_prompt(text, source_id=str(unit["unit_id"]))
     if validation["status"] != "PASS":
         raise ValueError(";".join(validation["failures"]))
@@ -757,6 +762,10 @@ def write_preflight_artifacts(
                 "camera_plan": unit["camera_plan"],
                 "incoming_transition_contract": unit.get("incoming_transition_contract"),
                 "outgoing_transition_contract": unit.get("outgoing_transition_contract"),
+                "persistent_state_contract": unit.get("persistent_state_contract"),
+                "shot_state_contracts": unit.get("shot_state_contracts") or [],
+                "event_boundary_decision": event_decision,
+                "opening_anchor_contract": opening_contract,
                 "start_frame_semantic_contract": unit.get("start_frame_semantic_contract"),
                 "background_ecology_contract": unit.get("background_ecology_contract"),
                 "weather_visibility_contract": unit.get("weather_visibility_contract"),
@@ -912,9 +921,33 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
                     for side in ("entry", "exit"):
                         if row.get(side) and not row.get(f"{side}_code"):
                             row[f"{side}_code"] = f"{dimension}_{_hashlib.sha256(str(row[side]).encode('utf-8')).hexdigest()[:12]}"
+            # Some v4 authored role rows name a dialogue listener but omit a
+            # state/presence row because that listener is not provider-visible.
+            # Make the omission explicit and deterministic; never infer a
+            # pose, location, or visual identity for the hidden listener.
+            role = spec.get("role_semantic_disambiguation") or {}
+            listener_id = str(role.get("dialogue_listener_id") or "").strip()
+            listener_name = str(role.get("dialogue_listener") or "").strip()
+            if listener_id and listener_id not in (role.get("entity_states") or {}):
+                states = dict(role.get("entity_states") or {})
+                states[listener_id] = "听者保持承接状态，不代说，不改变出入画状态"
+                role["entity_states"] = states
+            if listener_id and listener_id not in (role.get("entity_presence") or {}):
+                presence = dict(role.get("entity_presence") or {})
+                presence[listener_id] = "OFFSCREEN_VOICE_ONLY"
+                role["entity_presence"] = presence
+            if listener_name and listener_id:
+                role.setdefault("listener_state_authority", "V4_ADAPTER_EXPLICIT_OFFSCREEN_LISTENER_STATE")
         for shot, prompt_spec in zip(shots, prompt_specs):
             validate_grouped_beat_contract(prompt_spec, source_id=str(shot["shot_id"]))
-        camera_plan = validate_camera_plan(unit.get("camera_plan"), source_id=unit_id)
+        per_shot_camera = unit.get('camera_scope_policy') == 'PER_SHOT_EXPLICIT'
+        camera_plan = validate_camera_plan(
+            prompt_specs[0].get('camera_plan') if per_shot_camera else unit.get('camera_plan'),
+            source_id=unit_id)
+        if per_shot_camera:
+            prompt_specs = deepcopy(prompt_specs)
+            for shot, spec in zip(shots, prompt_specs):
+                spec['shot_id'] = shot['shot_id']
         transition_contract = unit.get("transition_contract")
         if planning_only:
             semantic_contract = {**(anchor.get("start_frame_semantic_contract") or {}),
@@ -932,6 +965,20 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
                 ),
                 root=ROOT,
             )
+        opening_contract = unit.get("opening_anchor_contract") or anchor.get("opening_anchor_contract")
+        event_decision = unit.get("event_boundary_decision") or anchor.get("event_boundary_decision")
+        # The v4 anchor planner records the predecessor as provenance even for
+        # a NEW_EVENT_ANCHOR.  The paid opening gate intentionally requires a
+        # new-event opening to have no predecessor source.  Preserve the
+        # decision, but normalize only the provider-facing opening contract and
+        # retain an auditable note instead of changing authored story data.
+        if isinstance(opening_contract, dict) and isinstance(event_decision, dict):
+            if (event_decision.get("boundary_class") == "NEW_EVENT_ANCHOR"
+                    and opening_contract.get("source") == "NEW_EVENT_GENERATED_KEYFRAME"
+                    and opening_contract.get("previous_unit_id")):
+                opening_contract = deepcopy(opening_contract)
+                opening_contract["previous_unit_id"] = None
+                opening_contract["normalization"] = "V4_NEW_EVENT_PREDECESSOR_PROVENANCE_NOT_PROVIDER_SOURCE"
         compiled_unit = {
             "unit_id": unit_id,
             "scene_id": unit["scene_id"],
@@ -960,9 +1007,18 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
                 {"unit_id": unit_id, "ordered_prompt_specs": prompt_specs},
                 grouping.get("wardrobe_bible") or {},
             ),
-            "camera_plan": camera_plan,
+            "camera_plan": {} if per_shot_camera else camera_plan,
+            **({'camera_scope_policy': 'PER_SHOT_EXPLICIT', 'camera_time_coordinate': 'EPISODE'}
+               if per_shot_camera else {}),
             "transition_contract": transition_contract,
             "internal_transition_contracts": unit.get("internal_transition_contracts") or [],
+            # Keep the authoritative continuity ledgers in the compiled unit.
+            # The paid submitter validates these machine-contract fields; they
+            # must not be reduced to prompt prose or dropped at stage 4.4.
+            "persistent_state_contract": unit.get("persistent_state_contract"),
+            "shot_state_contracts": unit.get("shot_state_contracts") or [],
+            "event_boundary_decision": event_decision,
+            "opening_anchor_contract": opening_contract,
             "start_frame_semantic_contract": semantic_contract,
             "combat_choreography_contract": unit.get("combat_choreography_contract"),
             "combat_action_library_binding": unit.get("combat_action_library_binding"),
@@ -1187,6 +1243,16 @@ def main() -> int:
     result = compile_manifest(load(args.grouping_plan), load(args.anchor_plan), load(args.editorial_seedance_manifest),
                               planning_only=bool(args.planning_only), visual_culture_contract=vc,
                               character_entities=character_entities)
+    # The grouped unit is the source of truth for the transaction manifest.
+    # Bind the authored audio profile here as well, so a later transaction
+    # rebuild cannot silently lose the writer/director audio decision.
+    if args.generation_contract and args.generation_contract.is_file():
+        audio_binding = compile_audio_profile_binding(
+            generation_payload, contract_path=args.generation_contract
+        )
+        for compiled_unit in result.get("units") or []:
+            compiled_unit["generation_audio_profile_id"] = audio_binding["resolved_audio_profile_id"]
+            compiled_unit["audio_profile_binding"] = dict(audio_binding)
     if not args.planning_only and args.final_prompt_dir:
         try:
             from tools.video_prompt_compiler import compile_model_prompt, validate_model_prompt_for_model, compile_receipt

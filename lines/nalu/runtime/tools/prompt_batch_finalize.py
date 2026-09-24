@@ -27,11 +27,13 @@ import argparse
 import difflib
 import hashlib
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 ENGINE = Path(f"{_np.ENGINE_ROOT}")
+WORK = Path(os.environ.get("NALU_WORK_ROOT", str(_np.RUNTIME_ROOT / "workflow" / "nalu"))).expanduser().resolve()
 
 
 def sha(path: Path) -> str:
@@ -39,21 +41,32 @@ def sha(path: Path) -> str:
 
 
 def rel(path: Path) -> str:
-    return str(Path(path).resolve().relative_to(ENGINE.resolve()))
+    resolved = Path(path).resolve()
+    try:
+        return str(resolved.relative_to(ENGINE.resolve()))
+    except ValueError:
+        # Dedicated runtimes live outside the engine checkout.  Keep an
+        # absolute reference instead of silently pointing the receipt at the
+        # legacy engine workflow.
+        return str(resolved)
 
 
-def load_ctx(ep: str, execution_id: str):
-    pre = ENGINE / "workflow/nalu" / ep / "preproduction"
-    batch = json.loads((pre / f"{ep}_PROMPT_BATCH_V1.json").read_text(encoding="utf-8"))
+def load_ctx(ep: str, execution_id: str, *, batch_path: Path | None = None,
+             transaction_path: Path | None = None):
+    pre = WORK / ep / "preproduction"
+    if (batch_path is None) != (transaction_path is None):
+        raise ValueError("Both batch_path and transaction_path are required for isolated finalization")
+    batch = json.loads((batch_path or (pre / f"{ep}_PROMPT_BATCH_V1.json")).read_text(encoding="utf-8"))
     assert batch["execution_id"] == execution_id, "execution id mismatch"
-    tx_path = pre / f"{ep}_VIDEO_TRANSACTION_MANIFEST_V1.json"
+    assert batch.get("episode", ep) == ep, "batch episode mismatch"
+    tx_path = transaction_path or (pre / f"{ep}_VIDEO_TRANSACTION_MANIFEST_V1.json")
     tx = json.loads(tx_path.read_text(encoding="utf-8"))
     planned = {r["unit_id"]: r for r in batch["rows"] if not r.get("parent_unit_id")}
     return pre, batch, tx_path, tx, planned
 
 
-def diff(ep: str, execution_id: str, out: Path) -> dict:
-    pre, batch, tx_path, tx, planned = load_ctx(ep, execution_id)
+def diff(ep: str, execution_id: str, out: Path, **context_paths) -> dict:
+    pre, batch, tx_path, tx, planned = load_ctx(ep, execution_id, **context_paths)
     rows = []
     for task in tx["tasks"]:
         uid = task["unit_id"]
@@ -83,10 +96,12 @@ def diff(ep: str, execution_id: str, out: Path) -> dict:
     return report
 
 
-def receipts(ep: str, execution_id: str, digest_path: Path, answers_path: Path, out_dir: Path) -> dict:
-    pre, batch, tx_path, tx, planned = load_ctx(ep, execution_id)
+def receipts(ep: str, execution_id: str, digest_path: Path, answers_path: Path, out_dir: Path, **context_paths) -> dict:
+    pre, batch, tx_path, tx, planned = load_ctx(ep, execution_id, **context_paths)
     dg = json.loads(digest_path.read_text(encoding="utf-8"))
     answers = json.loads(answers_path.read_text(encoding="utf-8"))
+    if dg.get("episode") != ep or dg.get("execution_id") != execution_id:
+        raise ValueError("Finalization digest scope mismatch")
     out_dir.mkdir(parents=True, exist_ok=True)
     by_uid = {r["unit_id"]: r for r in dg["rows"]}
     attached, skipped, failed = [], [], []
@@ -97,6 +112,9 @@ def receipts(ep: str, execution_id: str, digest_path: Path, answers_path: Path, 
             task.pop("prompt_batch_finalization", None); skipped.append(uid); continue
         if row.get("status") != "CHANGED":
             failed.append(f"{uid}:{row.get('status')}"); continue
+        pl = planned[uid]["video_prompt"]
+        if pl["sha256"] != row["planned_sha256"] or sha(ENGINE / pl["path"]) != pl["sha256"]:
+            failed.append(f"{uid}:PLANNED_PROMPT_CHANGED_SINCE_REVIEW"); continue
         # re-verify the final file is still the reviewed bytes
         final_path = ENGINE / task["prompt_file"]
         if not final_path.is_file() or sha(final_path) != row["final_sha256"]:

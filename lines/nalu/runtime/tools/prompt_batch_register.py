@@ -28,11 +28,13 @@ import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (e
 import argparse
 import hashlib
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 ENGINE = Path(f"{_np.ENGINE_ROOT}")
+WORK = Path(os.environ.get("NALU_WORK_ROOT", str(_np.RUNTIME_ROOT / "workflow" / "nalu"))).expanduser().resolve()
 
 
 def sha(path: Path) -> str:
@@ -40,7 +42,11 @@ def sha(path: Path) -> str:
 
 
 def rel(path: Path) -> str:
-    return str(path.resolve().relative_to(ENGINE.resolve()))
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(ENGINE.resolve()))
+    except ValueError:
+        return str(resolved)
 
 
 def main() -> int:
@@ -51,9 +57,17 @@ def main() -> int:
     ap.add_argument("--report", required=True)
     args = ap.parse_args()
     ep = args.episode
-    pre = ENGINE / "workflow/nalu" / ep / "preproduction"
+    pre = WORK / ep / "preproduction"
     grouping = json.loads((pre / f"{ep}_VIDEO_UNIT_GROUPING_PLAN_V1.json").read_text(encoding="utf-8"))
-    keyframes = json.loads((pre / f"{ep}_KEYFRAME_IMAGE_MANIFEST_V1.json").read_text(encoding="utf-8"))
+    keyframe_candidates = [
+        pre / f"{ep}_KEYFRAME_IMAGE_MANIFEST_V1.json",
+        pre / f"{ep}_KEYFRAME_IMAGE_MANIFEST_V2_DEDICATED_GPT_V2.json",
+        pre / f"{ep}_KEYFRAME_IMAGE_MANIFEST_V2_DEDICATED_GPT.json",
+    ]
+    keyframe_manifest_path = next((p for p in keyframe_candidates if p.is_file()), None)
+    if keyframe_manifest_path is None:
+        raise FileNotFoundError(f"no keyframe manifest found under {pre}")
+    keyframes = json.loads(keyframe_manifest_path.read_text(encoding="utf-8"))
     planned_index = json.loads((pre / f"{ep}_GROUPED_SEEDANCE_MANIFEST_PLANNING_V1.planned_prompts.json").read_text(encoding="utf-8"))
     planned = {row["unit_id"]: row for row in planned_index["rows"]}
     kf_by_shot = {t["shot_id"]: t for t in keyframes["tasks"]}
@@ -145,7 +159,7 @@ def main() -> int:
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "generated_by": "prompt_batch_register.v1",
                 "grouping_plan_sha256": sha(pre / f"{ep}_VIDEO_UNIT_GROUPING_PLAN_V1.json"),
-                "keyframe_manifest_sha256": sha(pre / f"{ep}_KEYFRAME_IMAGE_MANIFEST_V1.json"),
+                "keyframe_manifest_sha256": sha(keyframe_manifest_path),
                 "planned_prompts_index_sha256": sha(pre / f"{ep}_GROUPED_SEEDANCE_MANIFEST_PLANNING_V1.planned_prompts.json"),
                 "rows": rows}
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

@@ -202,7 +202,7 @@ def validate_role_semantics(
         visual_scope_mode = prompt_text.count(visual_block) == 1
         if not actor:
             failures.append(f"{prefix}_PRIMARY_ACTOR_MISSING")
-        if actor_kind not in {"CHARACTER", "GROUP", "PROP", "ENVIRONMENT", "ANIMAL", "BODY_PART"}:
+        if actor_kind not in {"CHARACTER", "GROUP", "PROP", "SET_PIECE", "ENVIRONMENT", "ANIMAL", "BODY_PART"}:
             failures.append(f"{prefix}_PRIMARY_ACTOR_KIND_INVALID:{actor_kind}")
         body_part_owner = _clean(row.get("body_part_owner"))
         if actor_kind == "BODY_PART" and not body_part_owner:
@@ -347,7 +347,7 @@ def validate_role_semantics_structure(
         body_part_owner = _clean(row.get("body_part_owner"))
         if not actor:
             failures.append(f"{prefix}_PRIMARY_ACTOR_MISSING")
-        if actor_kind not in {"CHARACTER", "GROUP", "PROP", "ENVIRONMENT", "ANIMAL", "BODY_PART"}:
+        if actor_kind not in {"CHARACTER", "GROUP", "PROP", "SET_PIECE", "ENVIRONMENT", "ANIMAL", "BODY_PART"}:
             failures.append(f"{prefix}_PRIMARY_ACTOR_KIND_INVALID:{actor_kind}")
         if actor_kind == "BODY_PART" and not body_part_owner:
             failures.append(f"{prefix}_BODY_PART_OWNER_MISSING")

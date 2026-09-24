@@ -180,6 +180,16 @@ def apply(shot: dict, ctx: dict) -> tuple[str, list[str], list[str]]:
     elif dlg_text and ctx.get("emotion_required"):
         blocks.append(f"EMOTION_UNDECLARED:{shot.get('shot_id')}")
 
+    # E08 VU-010/011 cause (2026-09-22): a carded creature the script treats as killed prey was rendered
+    # as a live animal standing on its legs and led by the rope, contradicting the kill the dialogue states.
+    # The creature card and its locomotion field describe a LIVING animal, so the carcass state has to be
+    # said in the prompt.  Only tokens the authored text already contains are clause-able (prop-token guard).
+    for tok in ctx.get("dead_prey_tokens") or ():
+        if str(tok) and str(tok) in text_all:
+            clauses.append(f"{tok}是已被猎杀的死体：侧躺在地上、四肢僵直、头颈低垂、眼睛无神，"
+                           f"只能被绳索拖行，绝不站立、行走、被牵着走或有任何自主动作")
+            applied.append("DEAD_PREY")
+
     # seq=19: knowledge failure-memory rows with stage == "prompt" (and only those) are injected as
     # do_not_repeat clauses when the shot matches the row's trigger; the applied ids are recorded.
     for row in ctx.get("failure_memory") or ():
