@@ -130,6 +130,8 @@ git clone https://github.com/rogerwu188/nalu-production-runtime.git /tmp/npr && 
 
 ## 6. 现在做不到全自动的步骤（如实）
 
+人物参考与外观验收补充规则：阅读 `docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md`。新关键帧采用人物参考优先、实际数组同步重编号、已有批准角度图补充与缺口记录；空间解析顺序不等于参考图传输顺序。侧脸低分不得单独触发付费重做，用户明确接受的图保持原 SHA 和原测量记录。
+
 - **MANUAL_REQUIRED**：narrative 手写；五类人工审核看图填答；音色挑选；新地点命名（place spec）；覆盖文件（服装/年龄/音色简述）；品牌片尾；每集 Roger 看片；改动清单确认后 push。
 - **INTEGRATION_PENDING**：整批提示词门并入 S5（现为手动 5 步）；地图素材→空间图；D-9/D-12 两个最终 QA 证据键无生产者；引擎 `pose_transition_anchor_gate` 需要的结果锚点关键帧角色（现靠措辞避开）；引擎补丁 e08–e21 已在 `integration/e03-sync` 分支（待合 main），e22 在 backlot-os；`bgm_authenticity_gate` 对窗口隔离账单标签的接受（线主决定，K032）；产品化的素材接入 CLI 子命令；原部署实例切换到仓库内 `lines/nalu` 副本。
 - **ADAPTER_REQUIRED**：AgentCut（语音、配乐）；InsightFace/RapidOCR/faster-whisper 运行时；ffmpeg。
