@@ -307,6 +307,18 @@ def task_fingerprint(task: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(contract, sort_keys=True).encode("utf-8")).hexdigest()
 
 
+def validate_submission_camera(task: dict[str, Any]) -> dict[str, Any]:
+    unit = grouped_sequence_unit(task)
+    if unit.get("camera_scope_policy") == "PER_SHOT_EXPLICIT":
+        unit["model"] = task.get("model")
+        unit["duration_seconds"] = task.get("duration_seconds")
+        validate_camera_sequence([unit])
+        return {}
+    machine = task.get("machine_contract") or {}
+    return validate_camera_plan(machine.get("camera_plan") or task.get("camera_plan"),
+                                source_id=str(task.get("task_key")))
+
+
 def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> None:
     if not task.get("semantic_video_unit"):
         return
@@ -314,9 +326,7 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
     if opening_failures:
         raise ValueError(";".join(opening_failures))
     machine = task.get("machine_contract") or {}
-    camera_plan = validate_camera_plan(
-        machine.get("camera_plan") or task.get("camera_plan"), source_id=str(task.get("task_key"))
-    )
+    camera_plan = validate_submission_camera(task)
     specs = machine.get("ordered_prompt_specs") or task.get("ordered_prompt_specs") or []
     if not specs:
         raise ValueError(f"{task.get('task_key')} grouped creative beat contracts are missing")
@@ -343,6 +353,10 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
     prompt_unit["visual_culture_contract"] = machine.get("visual_culture_contract") or task.get("visual_culture_contract")
     prompt_unit["speaker_voice_contract"] = machine.get("speaker_voice_contract") or task.get("speaker_voice_contract")
     prompt_unit["provider_scope_projection"] = task.get("provider_scope_projection")
+    # Failed-only rerolls carry an explicit full performance rewrite.  Keep it
+    # in the compiler input so the paid-boundary byte comparison validates the
+    # same prompt that was registered for this new fingerprint.
+    prompt_unit["reroll_performance_directive"] = task.get("reroll_performance_directive")
     sequence_by_path = {
         str(row.get("path") or ""): row
         for row in task.get("reference_image_sequence") or []
@@ -403,7 +417,7 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
 
 def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
     machine = task.get("machine_contract") or {}
-    for field in ("camera_scope_policy", "timeline_policy"):
+    for field in ("camera_scope_policy", "camera_time_coordinate", "timeline_policy"):
         source_value = machine.get(field)
         task_value = task.get(field)
         if source_value is not None and task_value is not None and source_value != task_value:
@@ -456,13 +470,16 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
         "dialogue_cut_safety": machine.get("dialogue_cut_safety") or task.get("dialogue_cut_safety"),
         "pose_transition_anchor_gate": machine.get("pose_transition_anchor_gate")
         or task.get("pose_transition_anchor_gate"),
-        "camera_plan": machine.get("camera_plan") or task.get("camera_plan"),
+        "camera_plan": (machine.get("camera_plan") if "camera_plan" in machine
+                        else task.get("camera_plan")),
         # Camera scope and authored timing are part of the source contract;
         # preserve them through the final paid-boundary projection so the
         # downstream compiler cannot silently collapse per-shot camera plans
         # into a unit-wide default or stretch the authored timeline.
         "camera_scope_policy": machine.get("camera_scope_policy")
         if "camera_scope_policy" in machine else task.get("camera_scope_policy"),
+        "camera_time_coordinate": machine.get("camera_time_coordinate")
+        if "camera_time_coordinate" in machine else task.get("camera_time_coordinate"),
         "timeline_policy": machine.get("timeline_policy")
         if "timeline_policy" in machine else task.get("timeline_policy"),
         "ordered_prompt_specs": machine.get("ordered_prompt_specs") or task.get("ordered_prompt_specs") or [],
@@ -716,6 +733,24 @@ def prior_bound(task: dict[str, Any], transaction_dir: Path) -> dict[str, Any] |
     return None
 
 
+def _batch_requires_serial_tail_chain(tasks: list[dict[str, Any]]) -> bool:
+    """Return true only for a batch whose every unit needs a predecessor tail.
+
+    A concurrency of one is a correctness requirement only when each submitted
+    unit is chained to an exact predecessor tail frame.  Independent units must
+    be submitted in parallel; task IDs and the durable transaction store keep
+    their results distinguishable.  Mixed batches are intentionally rejected
+    instead of silently serialising independent work.
+    """
+    if not tasks:
+        return False
+    return all(
+        bool((task.get("action_sequence_contract") or {}).get("depends_on_task"))
+        and bool(task.get("predecessor_tail_frame"))
+        for task in tasks
+    )
+
+
 def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -> dict[str, Any]:
     prior = prior_bound(task, transaction_dir)
     if prior:
@@ -905,6 +940,22 @@ def main() -> int:
     tasks = manifest.get("tasks") or []
     if not gates or not tasks:
         raise SystemExit("Video manifest requires passing gates and tasks")
+    # E47+ production uses rolling parallel waves.  Serial submission is only
+    # valid when every unit is causally chained to an exact predecessor tail;
+    # otherwise a caller that explicitly passes ``--concurrency 1`` is a
+    # configuration error, not a safe fallback.
+    episode_value = episode_number(manifest.get("episode"))
+    if (
+        episode_value is not None
+        and episode_value >= 47
+        and max(1, args.concurrency) == 1
+        and not _batch_requires_serial_tail_chain(tasks)
+    ):
+        raise RuntimeError(
+            "E47+ independent video batches require concurrency >= 2; "
+            "concurrency=1 is reserved for batches where every task has an "
+            "exact predecessor tail-frame dependency"
+        )
     grouped_camera_units = []
     for task in tasks:
         validate_task(task)
@@ -1070,6 +1121,11 @@ def exec_deployed_submitter() -> None:
             raise RuntimeError("--concurrency requires an integer from 1 to 6") from exc
         if concurrency < 1 or concurrency > DEFAULT_WAVE_SIZE:
             raise RuntimeError("E47+ rolling submission concurrency must be from 1 to 6")
+        if concurrency == 1 and not _batch_requires_serial_tail_chain(manifest.get("tasks") or []):
+            raise RuntimeError(
+                "E47+ independent video batches require concurrency >= 2; "
+                "concurrency=1 is reserved for exact predecessor tail-frame chains"
+            )
     elif episode_value is not None and episode_value >= 47:
         forwarded.extend(["--concurrency", str(DEFAULT_WAVE_SIZE)])
     os.environ["BACKLOTOS_DEPLOYED_SUBMITTER"] = "1"

@@ -75,6 +75,110 @@ def _loaded(runtime_root: Path, engine_root: Path, scope_id: str):
 
 
 class ScopedQaPaths(unittest.TestCase):
+    def test_reviewer_override_preserves_actual_provenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime, engine, _ = self._fixture(Path(tmp))
+            with _loaded(runtime, engine, 'FOBENSHIDAO'):
+                common = importlib.import_module('nalu_qa_common')
+                self.assertEqual(common.review_identity({}),
+                                 ('claude-code-nalu-vlm', 'CLAUDE_VLM_STRUCTURED_REVIEW'))
+                self.assertEqual(common.review_identity({
+                    'NALU_QA_REVIEWER_ID': 'OpenAI Codex',
+                    'NALU_QA_REVIEW_METHOD': 'CODEX_ACTUAL_IMAGE_STRUCTURED_REVIEW'}),
+                    ('OpenAI Codex', 'CODEX_ACTUAL_IMAGE_STRUCTURED_REVIEW'))
+                for env in ({'NALU_QA_REVIEWER_ID': 'OpenAI Codex'},
+                            {'NALU_QA_REVIEWER_ID': '', 'NALU_QA_REVIEW_METHOD': 'X'}):
+                    with self.assertRaisesRegex(ValueError, 'REQUIRED_TOGETHER'):
+                        common.review_identity(env)
+
+    def test_shot_wardrobe_review_does_not_restore_global_injury(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime, engine, _ = self._fixture(Path(tmp))
+            with _loaded(runtime, engine, 'FOBENSHIDAO'):
+                common = importlib.import_module('nalu_qa_common')
+                exp = common.Expectations.__new__(common.Expectations)
+                exp.wardrobe_by_id = {'C1': {'character_id': 'C1',
+                    'authored_description': 'blood-stained dream robe', 'condition': 'torn'}}
+                original = exp._wardrobe_expectation('C1', {})
+                scoped = exp._wardrobe_expectation('C1', {
+                    'wardrobe_state_overrides': {'C1': 'clean intact grey robe'}})
+                self.assertEqual(original['condition'], 'torn')
+                self.assertEqual(scoped['authored_description'], 'clean intact grey robe')
+                self.assertNotIn('condition', scoped)
+                self.assertNotIn('blood', str(scoped))
+                self.assertEqual(exp.wardrobe_by_id['C1']['condition'], 'torn')
+
+    def test_repair_qa_context_is_isolated_and_sha_bound(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime, engine, _ = self._fixture(Path(tmp))
+            repair = engine / 'workflow/nalu/E01/repair'
+            pre = repair / 'preproduction'
+            pre.mkdir(parents=True)
+            contract = _write(repair / 'contract.json', {})
+            library = _write(repair / 'library.json', {})
+            context = {'episode': 'E01', 'scope_id': 'FOBENSHIDAO',
+                       'preproduction': {'path': str(pre)},
+                       'contract': {'path': str(contract), 'sha256': hashlib.sha256(contract.read_bytes()).hexdigest()},
+                       'identity_library': {'path': str(library), 'sha256': hashlib.sha256(library.read_bytes()).hexdigest()}}
+            ctx = _write(repair / 'context.json', context)
+            with _loaded(runtime, engine, 'FOBENSHIDAO'):
+                common = importlib.import_module('nalu_qa_common')
+                original = common.QaPaths('E01').preprod
+                with patch.dict(os.environ, {'NALU_QA_CONTEXT': str(ctx)}):
+                    selected = common.QaPaths('E01')
+                    self.assertEqual(selected.preprod, pre.resolve())
+                    self.assertEqual(selected.start_frame_evidence, selected.start_frame_evidence_mirror)
+                    self.assertEqual(selected.reviews, pre.resolve() / 'reports/reviews')
+                    contract.write_text('{"changed":true}')
+                    with self.assertRaisesRegex(SystemExit, 'QA_CONTEXT_SHA_MISMATCH'):
+                        common.QaPaths('E01')
+                    context['episode'] = 'E02'
+                    _write(ctx, context)
+                    with self.assertRaisesRegex(SystemExit, 'QA_CONTEXT_SCOPE_MISMATCH'):
+                        common.QaPaths('E01')
+                self.assertEqual(common.QaPaths('E01').preprod, original)
+
+    def test_selected_anchor_context_requires_pair_and_exact_hashes(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime, engine, _ = self._fixture(Path(tmp))
+            repair = engine / 'workflow/nalu/E01/repair'
+            pre = repair / 'preproduction'
+            pre.mkdir(parents=True)
+            def ref(name):
+                path = _write(repair / (name + '.json'), {'selected': name})
+                return {'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+            context = {'episode': 'E01', 'scope_id': 'FOBENSHIDAO',
+                       'preproduction': {'path': str(pre)},
+                       'contract': ref('contract'), 'identity_library': ref('library')}
+            ctx = _write(repair / 'context.json', context)
+            with _loaded(runtime, engine, 'FOBENSHIDAO'):
+                common = importlib.import_module('nalu_qa_common')
+                with patch.dict(os.environ, {'NALU_QA_CONTEXT': str(ctx)}):
+                    self.assertEqual(common.QaPaths('E01').anchor_plan,
+                                     pre.resolve() / 'E01_VIDEO_UNIT_ANCHOR_PLAN_V1.json')
+                    context['anchor_plan'] = ref('selected_anchors')
+                    _write(ctx, context)
+                    with self.assertRaisesRegex(SystemExit, 'REQUIRED_TOGETHER'):
+                        common.QaPaths('E01')
+                    context['start_frames'] = ref('selected_start_frames')
+                    _write(ctx, context)
+                    selected = common.QaPaths('E01')
+                    self.assertEqual(selected.anchor_plan, Path(context['anchor_plan']['path']).resolve())
+                    self.assertEqual(selected.start_frames, Path(context['start_frames']['path']).resolve())
+                    context['start_frames']['sha256'] = '0' * 64
+                    _write(ctx, context)
+                    with self.assertRaisesRegex(SystemExit, 'SHA_MISMATCH:start_frames'):
+                        common.QaPaths('E01')
+                    context['start_frames'] = ref('selected_start_frames')
+                    outside = _write(engine / 'another_episode.json', {})
+                    context['anchor_plan'] = {'path': str(outside),
+                        'sha256': hashlib.sha256(outside.read_bytes()).hexdigest()}
+                    _write(ctx, context)
+                    with self.assertRaisesRegex(SystemExit, 'OUTSIDE_EPISODE:anchor_plan'):
+                        common.QaPaths('E01')
+
     def _fixture(self, root: Path) -> tuple[Path, Path, dict[str, object]]:
         runtime = root / "runtime-root"
         engine = root / "engine"

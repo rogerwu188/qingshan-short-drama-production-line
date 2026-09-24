@@ -223,8 +223,20 @@ equivalent environment variables:
 
 Environment overrides are `NALU_SUPERVISOR_ORDERS_PATH`, `NALU_PAID_ORDER_SEQ`,
 `NALU_LATEST_ORDER_SEQ`, and `NALU_LINE_OWNER_ID`. The orders and receipt paths must
-be absolute and outside the public engine checkout. Producers mount this inbox
-read-only and never create an order themselves.
+be absolute and outside the public engine checkout.
+
+**Who may write the inbox (revised 2026-09-22, SUPERVISOR_ORDERS seq=54 — Roger:
+「修改这个要求及代码，无需我本人同意」).** The rule used to be that producers mount the
+inbox read-only and never create an order. It now is: an order the owner has **already
+given** may be transcribed into the inbox by the operator with
+`record_paid_production_order.py --recorded-by <who> --authorizing-order-ref <where the
+owner said it>`, which stamps both into the row and its receipt, so no record ever claims
+the owner typed it. What the operator may NOT do is invent authority: the `--order` and
+`--rights-basis` text stays verbatim, and any widening — more episodes, a higher cap,
+extra paid stages, publication — needs the owner to say so first. The owner revokes by
+flipping `status` off the row or deleting the inbox; the next paid step then fails closed.
+On this line the standing authority is `SUPERVISOR_ORDERS.json` seq=3 (E01–E10, 8000
+credits/episode, SD2 only, no platform publication) plus seq=54 for the transcription.
 
 ### Call site
 Between the budget check and the paid submit, in all three paid stages. Feed the

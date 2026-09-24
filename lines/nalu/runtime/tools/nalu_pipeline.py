@@ -766,6 +766,14 @@ class Ctx:
         env = dict(os.environ)
         env["PYTHONPATH"] = os.pathsep.join(
             [str(ENGINE)] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else []))
+        # Propagate the selected portable roots to every child.  A pipeline
+        # launched with an explicit E59 runtime must not let a helper fall back
+        # to the engine checkout's historical runtime (which would bind
+        # NALU-YEWUJIANG assets into the QINGSHAN-E59 review request).
+        env["NALU_ENGINE_ROOT"] = str(ENGINE)
+        env["NALU_RUNTIME_ROOT"] = str(RUNTIME)
+        env["NALU_WORK_ROOT"] = str(NALU_WORK)
+        env["NALU_SERIES_SCOPES"] = str(RUNTIME / "runtime" / "series_scopes.json")
         env["QINGSHAN_VOICE_REGISTRY"] = str(self.p.scope["voice_registry"])
         env["QINGSHAN_ENTITY_REGISTRY"] = str(self.p.scope["entity_registry"])
         env["QINGSHAN_AGENTCUT_VOICE_POLICY"] = str(self.p.scope["agentcut_voice_policy"])
@@ -1232,8 +1240,11 @@ def stage_s1(ctx: Ctx) -> StageResult:
     # and a real PASS, including its first episode; a reused E01 number cannot
     # inherit the legacy report-only window.
     selfcheck_out = p.logs / f"{ctx.run_id}_writer_selfcheck_seq29.json"
+    # seq=29 rule 7c: this tool's --lexicon is the PERFORMANCE EMOTION lexicon, not the period word
+    # lexicon used by the structure gate above.  Passing the period lexicon loads an empty emotion set
+    # and fails every authored emotion with R7C_EMOTION_NOT_IN_LEXICON, so the default is what we want.
     selfcheck_step = ctx.run([VENV, RT_TOOLS / "nalu_writer_selfcheck_seq29.py", "--contract", p.contract,
-                              "--lexicon", lexicon, "--out", selfcheck_out],
+                              "--out", selfcheck_out],
                              name="s1_writer_selfcheck_seq29")
     selfcheck = read_json(selfcheck_out, {}) or {}
     selfcheck_ok = writer_selfcheck_admitted(

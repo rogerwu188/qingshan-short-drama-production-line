@@ -2,10 +2,15 @@
 """record_paid_production_order.py — the line-owner interface that writes ONE paid-production order.
 
 ``materialize_paid_authorization.py`` (D-11) refuses every paid submit unless a private, source-receipted
-order of kind ``PAID_PRODUCTION_AUTHORIZATION`` exists.  Producers never write that file; the line owner
-does, through this tool, after saying so in chat.  Like ``record_supervisor_order.py`` the shape is fixed
-and auditable: ``--order`` is the owner's reply verbatim, every other field is typed, and the receipt is
-bound by SHA-256 so the row cannot be edited afterwards without breaking the binding.
+order of kind ``PAID_PRODUCTION_AUTHORIZATION`` exists.  The line owner writes it through this tool after
+saying so in chat.  Since 2026-09-22 (SUPERVISOR_ORDERS seq=54, Roger: 「修改这个要求及代码，无需我本人同意」)
+the operator may also transcribe an order the owner has ALREADY given — passing ``--recorded-by`` plus
+``--authorizing-order-ref``, which name who typed it and where the owner said it, so the receipt never
+claims the owner sat at the keyboard.  Transcription only: the words stay verbatim, and widening the
+scope (more episodes, a higher cap, publication) still needs the owner to say so first.  Like
+``record_supervisor_order.py`` the shape is fixed and auditable: ``--order`` is the owner's reply
+verbatim, every other field is typed, and the receipt is bound by SHA-256 so the row cannot be edited
+afterwards without breaking the binding.
 
     record_paid_production_order.py \
         --orders   $NALU_RUNTIME_ROOT/runtime/SUPERVISOR_ORDERS.json \
@@ -65,6 +70,13 @@ def main() -> int:
     ap.add_argument("--publication-allowed", action="store_true")
     ap.add_argument("--work", default="")
     ap.add_argument("--receipt-dir", default="", help="default: <orders dir>/order_receipts")
+    ap.add_argument("--recorded-by", default="",
+                    help="who typed this in.  Default: the line owner.  An operator materialising the "
+                         "owner's already-given standing order says so here and must also pass "
+                         "--authorizing-order-ref.")
+    ap.add_argument("--authorizing-order-ref", default="",
+                    help="where the owner gave the order being transcribed (e.g. "
+                         "'SUPERVISOR_ORDERS.json seq=3 + seq=54').  Required with --recorded-by.")
     a = ap.parse_args()
 
     engine = Path(f"{_np.ENGINE_ROOT}").resolve()
@@ -82,6 +94,8 @@ def main() -> int:
         print(json.dumps({"status": "FAIL", "error": "STAGES_MUST_BE_SUBSET_OF_S3_S4_S5_S6"})); return 2
     if not a.order.strip() or not a.rights_basis.strip():
         print(json.dumps({"status": "FAIL", "error": "ORDER_AND_RIGHTS_BASIS_MUST_BE_VERBATIM_NONEMPTY"})); return 2
+    if a.recorded_by.strip() and not a.authorizing_order_ref.strip():
+        print(json.dumps({"status": "FAIL", "error": "RECORDED_BY_REQUIRES_AUTHORIZING_ORDER_REF"})); return 2
 
     payload = json.loads(orders_path.read_text(encoding="utf-8")) if orders_path.is_file() else {
         "_schema": ORDERS_SCHEMA, "_purpose": "private line-owner orders inbox (never in the public engine)",
@@ -97,15 +111,20 @@ def main() -> int:
 
     receipt_dir = Path(a.receipt_dir).expanduser().resolve() if a.receipt_dir else orders_path.parent / "order_receipts"
     receipt_path = receipt_dir / f"order_seq{seq:03d}_{order_id}.receipt.json"
+    recorded_by = a.recorded_by.strip() or "the line owner"
     write_json(receipt_path, {
         "schema": RECEIPT_SCHEMA, "status": "CONFIRMED", "issued_by": a.owner_id,
         "order_seq": seq, "order_id": order_id, "verbatim": a.order, "recorded_at_utc": now,
-        "recorded_by": "record_paid_production_order.py (owner's words verbatim; nothing inferred)",
+        "recorded_by": f"record_paid_production_order.py run by {recorded_by} "
+                       "(owner's words verbatim; nothing inferred)",
+        "authorizing_order_ref": a.authorizing_order_ref.strip() or None,
     })
     row = {
         "seq": seq, "id": order_id, "type": "PAID_PRODUCTION_AUTHORIZATION", "status": "active",
         "issued_by": a.owner_id, "ts_utc": now, "ts_pdt": None, "to": "nalu production line",
         "work": a.work or None, "order": a.order,
+        "recorded_by": recorded_by,
+        "authorizing_order_ref": a.authorizing_order_ref.strip() or None,
         "source_receipt": {"path": str(receipt_path), "sha256": sha256_file(receipt_path)},
         "decision": {
             "kind": KIND, "paid_requests_allowed": True, "paid_stages": stages,

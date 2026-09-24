@@ -77,6 +77,7 @@ TOOL_ID = "vlm_review_protocol.v1"
 
 PASS_ANSWERS = {"PASS", "YES", "NOT_APPLICABLE"}
 FAIL_ANSWERS = {"FAIL", "NO"}
+from visual_review_policy import advisory_questions, selected_profile
 #: UNCERTAIN is never a pass.  A reviewer that cannot tell has found a defect in
 #: the asset's legibility, and the item is rejected so a human or a reroll
 #: resolves it rather than the pipeline guessing.
@@ -603,10 +604,11 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
         "episode": episode,
         "created_at": now(),
         "created_by": TOOL_ID,
+        "visual_post_qa_profile": selected_profile() if kind == 'keyframe' else 'STRICT',
         "reviewer_contract": {
             "reviewer": REVIEWER_ID,
             "review_method": REVIEW_METHOD,
-            "who_reviews": "A Claude reviewer process that actually opens every media path "
+            "who_reviews": "The named reviewer actually opens every media path "
                            "listed below and answers the questionnaire from what it sees.",
             "rules": [
                 "Look at the media.  Every answer must be grounded in the pixels, not in the "
@@ -806,8 +808,10 @@ def validate_answers(request: dict[str, Any], request_sha: str,
         if (failed_answers or uncertain) and not defects:
             item_failures.append("fail_or_uncertain_answer_without_a_defect_entry")
 
+        advisory = advisory_questions({'answers': given, 'defects': defects},
+                                      request.get('visual_post_qa_profile', 'STRICT'))
         verdict = "PASS"
-        if failed_answers or uncertain or blocking_defects:
+        if set(failed_answers) - advisory or uncertain or blocking_defects:
             verdict = "REJECT"
         elif p2_defects:
             verdict = "PASS_WITH_P2"
@@ -821,6 +825,7 @@ def validate_answers(request: dict[str, Any], request_sha: str,
             "observation": observation,
             "defects": defects,
             "failed_answers": failed_answers,
+            "advisory_questions": sorted(advisory),
             "uncertain_answers": uncertain,
             "blocking_defects": blocking_defects,
             "p2_defects": p2_defects,
@@ -863,6 +868,7 @@ def submit(request_path: Path, answers_path: Path, *, out: Path | None = None,
         "answers_path": str(answers_path),
         "answers_sha256": sha256_file(answers_path),
         "questionnaire": request["questionnaire"],
+        "visual_post_qa_profile": request.get('visual_post_qa_profile', 'STRICT'),
         "validation": {
             "status": "PASS" if not failures else "FAIL",
             "failure_count": len(failures),
