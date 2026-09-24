@@ -250,7 +250,11 @@ def applicability(episode: str) -> dict[str, Any]:
 def build_bundle(episode: str, *, out: Path | None = None) -> dict[str, Any]:
     p = QaPaths(episode)
     deliver = RUNTIME / "deliverables" / episode
-    final_video = deliver / f"{episode}_final_9x16.mp4"
+    # Versioned reruns (for example after a corrective audio pass) must not
+    # overwrite immutable v1 evidence.  The normal path remains unchanged;
+    # callers may explicitly select a verified final artifact for this QA run.
+    final_video = Path(os.environ.get("NALU_FINAL_VIDEO_PATH") or
+                       (deliver / f"{episode}_final_9x16.mp4"))
     canonical = p.narrative
     final_qa = p.final_qa_dir
     profile = _audio_profile(episode)
@@ -386,8 +390,10 @@ def run_stage_gates(episode: str, *, gates: tuple[str, ...] | None = None,
 def route_status(episode: str) -> dict[str, Any]:
     p = QaPaths(episode)
     deliver = RUNTIME / "deliverables" / episode
+    final_video = Path(os.environ.get("NALU_FINAL_VIDEO_PATH") or
+                       (deliver / f"{episode}_final_9x16.mp4"))
     qa_sh = [str(ENGINE / "tools/run_episode_qa.sh"),
-             "--video", str(deliver / f"{episode}_final_9x16.mp4"),
+             "--video", str(final_video),
              "--config", str(p.assembly / f"{episode}_continuity_config.json"),
              "--manifest", str(p.assembly / f"{episode}_asset_binding_manifest.json"),
              "--blocker-manifest", str(p.assembly / f"{episode}_FINAL_PACKAGE_BLOCKERS.json"),

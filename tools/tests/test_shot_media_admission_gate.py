@@ -85,6 +85,28 @@ class ShotMediaAdmissionGateTests(unittest.TestCase):
             self.assertEqual(report["status"], "ADMITTED", report["failures"])
             self.assertEqual(report["downstream_status"], "ADMITTED_FOR_VIDEO_SUBMIT")
 
+    def test_cosmetic_conditional_admission_preserves_failed_evidence(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = self.fixture(root)
+            row = next(r for r in payload['evidence']
+                       if r['gate_id'] == 'ACTION-SHOT-DESIGN-AND-STATE-HANDOFF')
+            path = Path(row['evidence_path'])
+            evidence = json.loads(path.read_text())
+            evidence['status'] = 'FAIL_NOT_ADMITTED'
+            evidence['objective_verification']['decision'] = 'FAIL'
+            evidence['objective_verification']['checks'] = [
+                {'question': 'screen slot', 'answer': 'FAIL'}]
+            path.write_text(json.dumps(evidence))
+            row.update(status='FAIL_NOT_ADMITTED', evidence_sha256=digest(path),
+                       defect_tier='P2', p2_within_budget=True,
+                       qa_status='ADVISORY', automatic_paid_regeneration=False)
+            report = evaluate(payload, self.registry, root)
+            self.assertEqual(report['status'], 'ADMITTED_WITH_P2', report['failures'])
+            self.assertIn(row['gate_id'], report['conditional_p2_registered_gates'])
+            self.assertNotIn(row['gate_id'], report['passing_registered_gates'])
+            self.assertEqual(json.loads(path.read_text())['objective_verification']['decision'], 'FAIL')
+
     def test_identity_evidence_must_cover_every_declared_character(self):
         with TemporaryDirectory() as directory:
             payload = self.fixture(Path(directory))

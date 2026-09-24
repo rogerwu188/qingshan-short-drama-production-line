@@ -25,6 +25,25 @@ except ModuleNotFoundError:
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _portable_rel(path: Path) -> str:
+    """Return a stable path even when media lives in a dedicated runtime.
+
+    E59 runs with NALU_RUNTIME_ROOT outside the engine checkout.  The old
+    ``relative_to(ROOT)`` call made the otherwise valid boundary report crash
+    after all media checks had completed.  Prefer the runtime root when set,
+    then fall back to the engine root, and finally preserve an absolute path.
+    """
+    resolved = path.resolve()
+    runtime_root = Path(__import__("os").environ["NALU_RUNTIME_ROOT"]).resolve() if __import__("os").environ.get("NALU_RUNTIME_ROOT") else None
+    for base in (runtime_root, ROOT):
+        if base is not None:
+            try:
+                return str(resolved.relative_to(base))
+            except ValueError:
+                pass
+    return str(resolved)
 SCHEMA = "qingshan.media_boundary_acceptance.v1_safe_cut_and_real_transition"
 DECISION_DOMAINS = (
     "plot_continuity",
@@ -226,7 +245,7 @@ def run(media_map: dict[str, Any], grouped: dict[str, Any], out_dir: Path, decis
                 "foreground_occlusion_transition": (
                     "PASS_MOTIVATED" if foreground_occlusion_pass else "NOT_APPLIED"
                 ),
-                "contact_sheet": str(sheet.relative_to(ROOT)),
+                "contact_sheet": _portable_rel(sheet),
                 "contact_sheet_sha256": contact_sheet_sha256,
             },
             "real_media_visual_decision": decision,
@@ -262,9 +281,9 @@ def main() -> int:
     grouped = json.loads(args.grouped_manifest.read_text(encoding="utf-8"))
     decisions = json.loads(args.decisions.read_text(encoding="utf-8")) if args.decisions else {}
     report = run(media_map, grouped, args.out_dir, decisions)
-    report["source_media_map"] = str(args.media_map.resolve().relative_to(ROOT))
+    report["source_media_map"] = _portable_rel(args.media_map)
     report["source_media_map_sha256"] = _sha(args.media_map)
-    report["source_grouped_manifest"] = str(args.grouped_manifest.resolve().relative_to(ROOT))
+    report["source_grouped_manifest"] = _portable_rel(args.grouped_manifest)
     report["source_grouped_manifest_sha256"] = _sha(args.grouped_manifest)
     out = args.out_dir / "MEDIA_BOUNDARY_ACCEPTANCE_REPORT.json"
     out.parent.mkdir(parents=True, exist_ok=True)

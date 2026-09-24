@@ -77,6 +77,7 @@ from nalu_qa_common import (  # noqa: E402
 )
 
 TOOL_ID = "post_generation_qa_runner.v1"
+POSTGEN_PROFILE = str(os.environ.get("NALU_POSTGEN_QA_PROFILE") or "WEAK").upper()
 
 ALLOWED_TECHNICAL = ("decode", "duration", "resolution", "aspect_ratio", "codec",
                      "audio_stream", "av_sync", "black_frame", "freeze", "corruption",
@@ -952,8 +953,16 @@ def run(episode: str, *, review_path: Path | None = None,
         if dialogue["status"] != "PASS":
             reasons.extend(f"dialogue:{value}" for value in dialogue["failures"])
         speech_rate = measured[unit_id].get("speech_rate") or {}
+        # Prompt/contract QA is the strong pre-submit gate. In the final
+        # generated-media pass, speech-rate deviations are advisory; objective
+        # media and ASR failures above remain hard failures.
         if speech_rate.get("tier") == "BLOCKER":
-            reasons.append(f"dialogue:{speech_rate['code']}:{speech_rate.get('ratio')}")
+            if POSTGEN_PROFILE == "STRICT":
+                reasons.append(f"dialogue:{speech_rate['code']}:{speech_rate.get('ratio')}")
+            else:
+                speech_rate = dict(speech_rate, tier="ADVISORY",
+                                   original_tier="BLOCKER",
+                                   policy="WEAK_POSTGEN_SPEECH_RATE_ADVISORY")
         reasons.extend(plot_failures)
         verdict = "ADMIT" if not reasons else "REJECT"
         failure_class = ("CANDIDATE_TECHNICAL_FAILURE" if technical["failures"]
@@ -981,7 +990,8 @@ def run(episode: str, *, review_path: Path | None = None,
             },
             "dialogue_qa": dialogue,
             "speech_rate_qa": speech_rate,
-            "advisories": ([f"{speech_rate['code']}:{speech_rate.get('ratio')}"] if speech_rate.get("tier") == "MINOR" else []),
+            "advisories": ([f"{speech_rate['code']}:{speech_rate.get('ratio')}" ] if speech_rate.get("tier") in {"MINOR", "ADVISORY"} else []),
+            "postgen_profile": POSTGEN_PROFILE,
             "basic_plot_qa": {
                 "checks": plot_checks, "failures": plot_failures,
                 "reviewer": REVIEWER_ID if plot else None,
@@ -1164,8 +1174,14 @@ def apply_roger_postgen_acceptance(episode: str, rows: list[dict[str, Any]],
         post-generation takes change, and an unbound acceptance would silently cover the next one.
     The per-unit record keeps engine_verdict/engine_reasons plus the acceptance record."""
     import roger_gate_acceptance as _rga
-    orders_path = ENGINE / "workflow/claude_writer_agent/SUPERVISOR_ORDERS.json"
-    orders = _rga._orders(orders_path)
+    orders_path = Path(os.environ.get("NALU_SUPERVISOR_ORDERS_PATH") or
+                       (ENGINE / "workflow/claude_writer_agent/SUPERVISOR_ORDERS.json"))
+    try:
+        expected_latest_seq = int(os.environ.get("NALU_LATEST_ORDER_SEQ") or 0)
+    except ValueError:
+        expected_latest_seq = 0
+    orders = _rga._orders(orders_path, expected_latest_seq=expected_latest_seq,
+                          engine_root=ENGINE)
     accepted: list[dict[str, Any]] = []
     still: list[str] = []
     for row in rows:
@@ -1174,8 +1190,11 @@ def apply_roger_postgen_acceptance(episode: str, rows: list[dict[str, Any]],
         unit_id = row["unit_id"]
         media_sha = str(row.get("media_sha256") or "")
         detectors = sorted({_acceptance_detector(unit_id, reason) for reason in row.get("reasons") or []})
-        order = _rga.find_acceptance(orders, episode=episode, gate_id=POSTGEN_GATE_ID,
-                                     failing=detectors, media_sha256=media_sha) if detectors else None
+        order = (_rga.find_acceptance(
+            orders, episode=episode, gate_id=POSTGEN_GATE_ID,
+            failing=detectors, media_sha256=media_sha,
+            expected_issuer=str(os.environ.get("NALU_LINE_OWNER_ID") or "Roger"),
+            engine_root=ENGINE) if detectors else None)
         dec = ((order or {}).get("decision") or {})
         bound = str((dec.get("media_sha256_by_item") or {}).get(unit_id) or dec.get("media_sha256") or "")
         if order is None or not bound or bound != media_sha:

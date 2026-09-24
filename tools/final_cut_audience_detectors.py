@@ -687,6 +687,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         "brand_dir": str(args.brand_dir.name) if args.brand_dir else None, "story_windows": len(story_windows),
         "loudness_range_lu": loud.get("loudness_range_lu"),
     }
+    # Keep the media binding at the report root as well as in the detailed
+    # inputs block.  Downstream review preparation consumes the root binding
+    # to reject stale detector evidence before an independent review starts.
+    report["media_sha256"] = report["inputs"]["media_sha256"]
     report["segments"] = evidence_segments
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

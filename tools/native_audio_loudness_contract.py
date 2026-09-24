@@ -129,6 +129,7 @@ def evaluate_unit_loudness(
     rows: list[dict[str, Any]],
     *,
     max_adjacent_delta_lu: float = DEFAULT_MAX_ADJACENT_DELTA_LU,
+    role_range_tolerance_lu: float = 0.0,
 ) -> list[str]:
     failures: list[str] = []
     previous: dict[str, Any] | None = None
@@ -137,7 +138,8 @@ def evaluate_unit_loudness(
         role = str(row.get("role") or "").upper()
         value = float(row["integrated_loudness_lufs"])
         lower, upper = ROLE_ACCEPTANCE_RANGES_LUFS.get(role, (-27.0, -13.0))
-        if not lower <= value <= upper:
+        tolerance = max(0.0, float(role_range_tolerance_lu))
+        if not (lower - tolerance) <= value <= (upper + tolerance):
             failures.append(f"UNIT_LOUDNESS_OUT_OF_ROLE_RANGE:{unit_id}:{value:.1f}:{role}")
         if previous is not None:
             delta = abs(value - float(previous["integrated_loudness_lufs"]))

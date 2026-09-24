@@ -19,11 +19,10 @@ import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))
 import nalu_media_tools as _media
 
-import argparse, difflib, json, re, subprocess, sys
+import argparse, difflib, json, math, re, subprocess, sys
 from pathlib import Path
 
-#: nalu D-74: a caption must clear the cut — it ends at least this many seconds before the unit's end,
-#: otherwise the text disappears on the cut frame and the line reads as if it had been cut off.
+# Prefer clearing a cut only when the measured speech leaves room for it.
 TAIL_GUARD = 0.25
 
 def cjk(text: str) -> str:
@@ -85,6 +84,34 @@ def assign(lines: list[dict], segs: list[dict], clip_dur: float) -> list[tuple[d
         out.append((ln, t, t + d)); t += d
     return out
 
+def caption_window(clip: dict, source_start: float, source_end: float,
+                   pad: float = 0.08) -> tuple[float, float] | None:
+    """Map source seconds to timeline seconds; never clip measured speech for styling.
+
+    Match the portable renderer: constant 1x only. Unsupported retiming must
+    be implemented in both consumers before it can be accepted here.
+    """
+    start, duration, source_in = (float(clip.get(k, default)) for k, default in
+                                  (("start", 0), ("duration", 0), ("in", 0)))
+    values = (start, duration, source_in, source_start, source_end, pad)
+    if not all(math.isfinite(v) and v >= 0 for v in values) or duration <= 0:
+        raise ValueError("invalid caption/source time")
+    if source_end <= source_start:
+        raise ValueError("invalid speech interval")
+    for key in ("speed", "playbackRate"):
+        if key in clip and float(clip[key]) != 1:
+            raise ValueError("subtitle timing requires supported 1x portable timeline")
+    local_start, local_end = source_start - source_in, source_end - source_in
+    if local_end <= 0 or local_start >= duration:
+        return None
+    # Do not resurrect speech removed by a source trim using padding.
+    s = max(0.0, local_start - pad)
+    spoken_end = min(duration, local_end)
+    tail_limit = max(spoken_end, duration - TAIL_GUARD)
+    e = min(duration, tail_limit, max(local_end + pad, s + 0.8))
+    return (start + s, start + e) if e > s else None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--episode", required=True); ap.add_argument("--project", required=True, type=Path)
@@ -115,24 +142,30 @@ def main() -> int:
         if not lines:
             continue
         cstart, cdur = float(clip["start"]), float(clip["duration"])
-        for ln, ls, le in assign(lines, asr.get(uid) or [], cdur):
-            # nalu D-74 (E07 1:44, Roger): the caption used to be clamped to the clip end, so the text was
-            # still on screen on the cut frame and the line READ as cut off even though the voice had
-            # finished 0.4 s earlier.  A caption now always clears TAIL_GUARD before the cut.
-            tail_limit = max(0.3, cdur - TAIL_GUARD)
-            s = max(0.0, ls - a.pad); e = min(tail_limit, le + a.pad)
-            if e - s < 0.8:
-                e = min(tail_limit, s + 0.8)
-            if e <= s:
-                e = min(cdur, s + 0.3)
-            events.append((cstart + s, cstart + e, ln))
+        segs = asr.get(uid) or []
+        valid_segs = [seg for seg in segs if cjk(seg["text"])]
+        timing_basis = ("ASR_SEGMENT_MATCH" if len(valid_segs) >= len(lines) else
+                        "TEXT_WEIGHTED_ESTIMATE" if valid_segs else "CLIP_SPAN_ESTIMATE")
+        source_in = float(clip.get("in", 0))
+        for ln, ls, le in assign(lines, segs, cdur):
+            if not valid_segs:
+                ls, le = ls + source_in, le + source_in
+            window = caption_window(clip, ls, le, a.pad)
+            if window is None:
+                continue
+            s, e = window
+            events.append((s, e, ln))
             report.append({"unit_id": uid, "shot_id": ln["shot_id"], "speaker": ln["speaker"], "text": ln["text"],
-                           "start": round(cstart + s, 3), "end": round(cstart + e, 3)})
+                           "start": round(s, 3), "end": round(e, 3),
+                           "source_start": ls, "source_end": le, "source_in": source_in,
+                           "timing_basis": timing_basis, "timing_verification": "NOT_VERIFIED"})
     # no overlaps: clamp each caption's end to the next start
     events.sort(key=lambda x: x[0])
+    report.sort(key=lambda row: row["start"])
     for i in range(len(events) - 1):
         if events[i][1] > events[i + 1][0]:
             events[i] = (events[i][0], events[i + 1][0], events[i][2])
+            report[i]["end"] = round(events[i][1], 3)
     header = ("[Script Info]\nScriptType: v4.00+\nPlayResX: 720\nPlayResY: 1280\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n"
               "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
               f"Style: ZH,{font_name},42,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,0,2,72,72,170,1\n\n"

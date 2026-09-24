@@ -78,8 +78,23 @@ START_FRAME_EVIDENCE_RELDIR = "reports/start_frame_evidence"
 # --------------------------------------------------------------------------- #
 # the reviewer identity — no record may claim a review it did not receive
 # --------------------------------------------------------------------------- #
-REVIEWER_ID = "claude-code-nalu-vlm"
-REVIEW_METHOD = "CLAUDE_VLM_STRUCTURED_REVIEW"
+def review_identity(environ: dict[str, str]) -> tuple[str, str]:
+    """Allow an explicit reviewer without silently inheriting another model's name.
+
+    Both fields travel together through request, validation and materialisers.
+    Existing deployments with neither override retain their configured legacy
+    reviewer; specifying only one field is an error, never an inferred review.
+    """
+    keys = ("NALU_QA_REVIEWER_ID", "NALU_QA_REVIEW_METHOD")
+    if not any(key in environ for key in keys):
+        return "claude-code-nalu-vlm", "CLAUDE_VLM_STRUCTURED_REVIEW"
+    values = tuple(str(environ.get(key) or "").strip() for key in keys)
+    if not all(values):
+        raise ValueError("QA_REVIEWER_ID_AND_METHOD_REQUIRED_TOGETHER")
+    return values
+
+
+REVIEWER_ID, REVIEW_METHOD = review_identity(os.environ)
 #: reviewer_type accepted by shot_media_admission_gate.py:607 for a P0 gate.
 REVIEWER_TYPE = "AI_VISUAL"
 MIN_OBSERVATION_CHARS = 20
@@ -237,14 +252,69 @@ class QaPaths:
             remembered.get("writer_manifest")
             or SCRIPTS / f"{episode}_manifest_v1.json"
         )
+        # Optional repair QA context: never replace the active episode state or
+        # write new-image receipts into the previous production's QA directory.
+        context_path = os.environ.get("NALU_QA_CONTEXT")
+        context = None
+        if context_path:
+            context = read_json(Path(context_path), {}) or {}
+            if (context.get("episode") != episode
+                    or context.get("scope_id") != self.scope_id):
+                raise SystemExit("QA_CONTEXT_SCOPE_MISMATCH")
+            selected = {}
+            for name in ("preproduction", "contract", "identity_library"):
+                row = context.get(name) or {}
+                path = Path(str(row.get("path") or "")).resolve()
+                if not path.is_relative_to(self.work.resolve()):
+                    raise SystemExit(f"QA_CONTEXT_OUTSIDE_EPISODE:{name}")
+                if name == "preproduction":
+                    if not path.is_dir():
+                        raise SystemExit("QA_CONTEXT_PREPRODUCTION_MISSING")
+                elif not path.is_file() or sha256_file(path) != row.get("sha256"):
+                    raise SystemExit(f"QA_CONTEXT_SHA_MISMATCH:{name}")
+                selected[name] = path
+            self.preprod = selected["preproduction"]
+            self.preprod_reports = self.preprod / "reports"
+            self.keyframes = self.preprod / "keyframes"
+            self.contract = selected["contract"]
         self.editorial = self.preprod / f"{prefix}EDITORIAL_SEEDANCE_MANIFEST_V1.json"
         self.grouping_plan = self.preprod / f"{prefix}VIDEO_UNIT_GROUPING_PLAN_V1.json"
         self.anchor_plan = self.preprod / f"{prefix}VIDEO_UNIT_ANCHOR_PLAN_V1.json"
         self.start_frames = self.preprod / f"{prefix}START_FRAME_SEMANTIC_CONTRACTS_V1.json"
+        # A repaired anchor selection and its semantic contracts form one
+        # snapshot. Never mix a newly reviewed still with default old contracts.
+        if context is not None:
+            names = ("anchor_plan", "start_frames")
+            present = [name in context for name in names]
+            if any(present) and not all(present):
+                raise SystemExit("QA_CONTEXT_ANCHORS_REQUIRED_TOGETHER")
+            for name in names if all(present) else ():
+                row = context[name]
+                if not isinstance(row, dict) or not row.get("path"):
+                    raise SystemExit(f"QA_CONTEXT_INVALID_REFERENCE:{name}")
+                path = Path(row["path"]).resolve()
+                if not path.is_relative_to(self.work.resolve()):
+                    raise SystemExit(f"QA_CONTEXT_OUTSIDE_EPISODE:{name}")
+                if not path.is_file() or sha256_file(path) != row.get("sha256"):
+                    raise SystemExit(f"QA_CONTEXT_SHA_MISMATCH:{name}")
+                setattr(self, name, path)
         self.identity_library = self.identity / "asset_library.json"
+        self.reviewed_identity_regions = None
+        if context is not None:
+            self.identity_library = selected["identity_library"]
+            if "reviewed_identity_regions" in context:
+                row = context["reviewed_identity_regions"]
+                path = Path(str(row.get("path") or "")).resolve()
+                if not path.is_relative_to(self.work.resolve()):
+                    raise SystemExit("QA_CONTEXT_OUTSIDE_EPISODE:reviewed_identity_regions")
+                if not path.is_file() or sha256_file(path) != row.get("sha256"):
+                    raise SystemExit("QA_CONTEXT_SHA_MISMATCH:reviewed_identity_regions")
+                self.reviewed_identity_regions = path
         self.asset_requirements = RUNTIME / "preproduction" / episode / "asset_requirements.json"
         # QA outputs
         self.reviews = REVIEWS_ROOT / episode
+        if context is not None:
+            self.reviews = self.preprod_reports / "reviews"
         self.qa_root = self.preprod_reports / "qa"
         self.q1_dir = self.qa_root / "q1"
         #: Q2 VIDEO_ASSEMBLY admission (D-7) — one directory per video unit, with
@@ -261,6 +331,8 @@ class QaPaths:
         # engine-root canonical start-frame receipt dir (see the constant above)
         self.start_frame_evidence = ENGINE / START_FRAME_EVIDENCE_RELDIR
         self.start_frame_evidence_mirror = self.preprod_reports / "start_frame_evidence"
+        if context is not None:
+            self.start_frame_evidence = self.start_frame_evidence_mirror
 
     def keyframe(self, shot_id: str) -> Path:
         candidates = list(self.keyframes.glob(f"{shot_id}-keyframe-v*.png"))
@@ -431,6 +503,13 @@ class Expectations:
         return rows
 
     def _wardrobe_expectation(self, asset_id: str, spec: dict[str, Any]) -> dict[str, Any]:
+        override = (spec.get("wardrobe_state_overrides") or {}).get(asset_id)
+        if override:
+            # Match the image compiler: the authored per-shot state replaces,
+            # rather than supplements, global clothing/condition descriptions.
+            return {"character_id": asset_id,
+                    "authored_description": str(override).strip(),
+                    "source": "SHOT_WARDROBE_STATE_OVERRIDE"}
         row = self.wardrobe_by_id.get(asset_id)
         if row is None:
             owner = str(spec.get("owner_character_id") or "")
@@ -507,7 +586,7 @@ class Expectations:
                     "shot_size": shot.get("shot_size"),
                     "axis": shot.get("axis"),
                     "wardrobe": [self._wardrobe_expectation(
-                        str(row.get("character_id") or name_to_id.get(str(row.get("character")), "")), {})
+                        str(row.get("character_id") or name_to_id.get(str(row.get("character")), "")), spec)
                         for row in visible],
                     "dialogue": spec.get("dialogue") or "",
                     "key_light": (spec.get("visual_design") or {}).get("key_light"),

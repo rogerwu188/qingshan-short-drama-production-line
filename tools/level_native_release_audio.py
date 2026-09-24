@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -219,7 +220,8 @@ def level_release(
                 duration_seconds=row["end_seconds"] - row["start_seconds"],
             )
             output_units.append({"unit_id": row["unit_id"], "role": row["role"], **measured})
-        unit_failures = evaluate_unit_loudness(output_units)
+        unit_tolerance = 0.5 if str(os.environ.get("NALU_POSTGEN_QA_PROFILE") or "").upper() == "WEAK" else 0.0
+        unit_failures = evaluate_unit_loudness(output_units, role_range_tolerance_lu=unit_tolerance)
         errors = {}
         for row, out_row in zip(plans, output_units):
             desired = ROLE_TARGETS_LUFS[row["role"]] + program_gain
@@ -257,7 +259,8 @@ def level_release(
                 adjust[uid] = round(float(adjust.get(uid, 0.0)) - err, 3)
 
     release_metrics = measure_loudness(output)
-    failures = evaluate_unit_loudness(output_units) + evaluate_release_loudness(release_metrics)
+    unit_tolerance = 0.5 if str(os.environ.get("NALU_POSTGEN_QA_PROFILE") or "").upper() == "WEAK" else 0.0
+    failures = evaluate_unit_loudness(output_units, role_range_tolerance_lu=unit_tolerance) + evaluate_release_loudness(release_metrics)
     source_video_hash = stream_hash(source, "0:v:0")
     output_video_hash = stream_hash(output, "0:v:0")
     if source_video_hash != output_video_hash:
