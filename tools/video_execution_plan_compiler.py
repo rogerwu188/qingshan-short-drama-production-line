@@ -83,6 +83,17 @@ def _timeline(specs: list[dict[str, Any]], duration_seconds: float) -> list[tupl
     return result
 
 
+def _content_timeline_duration(unit: dict[str, Any], provider_seconds: float) -> float:
+    """Explicit authored content ends before provider padding; legacy callers unchanged."""
+    value = unit.get('authorized_content_seconds')
+    if value is None:
+        return provider_seconds
+    seconds = float(value)
+    if not 0 < seconds <= provider_seconds:
+        raise ValueError('AUTHORIZED_CONTENT_WINDOW_OUT_OF_RANGE')
+    return seconds
+
+
 def classify_unit(unit: dict[str, Any]) -> str:
     specs = unit.get("ordered_prompt_specs") or []
     if is_combat_unit(unit):
@@ -177,8 +188,11 @@ def _camera_authority(unit: dict[str, Any], *, combat: bool) -> dict[str, Any]:
         failures.append(f"CAMERA_CONTRACT_CONFLICT:{unit.get('unit_id')}:PHOTOGRAPHY_AND_COMBAT_CAMERA_BOTH_PRESENT")
     return {
         "status": "PASS" if not failures else "FAIL",
-        "authority": "WRITER_CAMERA_PLAN_ONLY",
-        "provider_render_rule": "RENDER_CAMERA_PLAN_ONCE; DO_NOT_APPEND_A_SECOND_PHOTOGRAPHY_OR_COMBAT_CAMERA_BLOCK",
+        "authority": ("WRITER_PER_SHOT_CAMERA_PLANS" if unit.get('camera_scope_policy') == 'PER_SHOT_EXPLICIT'
+                      else "WRITER_CAMERA_PLAN_ONLY"),
+        "provider_render_rule": ("RENDER_EACH_AUTHORED_SHOT_CAMERA_IN_ITS_OWN_TIME_WINDOW_ONLY"
+                                 if unit.get('camera_scope_policy') == 'PER_SHOT_EXPLICIT' else
+                                 "RENDER_CAMERA_PLAN_ONCE; DO_NOT_APPEND_A_SECOND_PHOTOGRAPHY_OR_COMBAT_CAMERA_BLOCK"),
         "writer_motion_preserved": True,
         "failures": failures,
     }
@@ -264,7 +278,8 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
         )
     beats = []
     internal_transitions = unit.get("internal_transition_contracts") or []
-    for index, (spec, (start, end)) in enumerate(zip(specs, _timeline(specs, duration)), 1):
+    content_timeline_duration = _content_timeline_duration(unit, duration)
+    for index, (spec, (start, end)) in enumerate(zip(specs, _timeline(specs, content_timeline_duration)), 1):
         action = spec.get("action") or {}
         prop_states, prop_state_failures = compile_prop_states(
             spec, source_id=f"{unit.get('unit_id')}:BEAT_{index}", preproduction_only=preproduction_only
@@ -385,14 +400,25 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
             "dialogue_speaker": str(role.get("dialogue_speaker") or "").strip(),
             "dialogue_listener": str(role.get("dialogue_listener") or "").strip(),
             "dialogue_mode": str(role.get("dialogue_mode") or "NONE").strip(),
+            "silent_visual_speaker_id": str(role.get("silent_visual_speaker_id") or "").strip(),
             "action_patient": str(role.get("action_patient") or "").strip(),
+            "entity_states": deepcopy(role.get("entity_states") or {}),
+            "entity_presence": deepcopy(role.get("entity_presence") or {}),
+            "entity_names": {str(c.get("character_id")): str(c.get("character"))
+                             for c in spec.get("cast") or [] if c.get("character_id")},
+            "entity_face_visibility": {str(c.get("character_id")): str(c.get("face_visibility") or "")
+                                       for c in spec.get("cast") or [] if c.get("character_id")},
         })
-    selected_camera_plan, camera_language_selection = select_camera_language(
-        deepcopy(unit.get("camera_plan") or {}),
-        unit_class=unit_class,
-        unit=unit,
-        source_id=str(unit.get("unit_id") or "UNKNOWN"),
-    )
+    shot_cameras = []
+    if unit.get('camera_scope_policy') == 'PER_SHOT_EXPLICIT':
+        from tools.sd2_shot_camera_adapter import compile_shot_cameras
+        shot_cameras = compile_shot_cameras(unit, unit_class)
+        selected_camera_plan = {}
+        camera_language_selection = {'mode': 'PER_SHOT_EXPLICIT', 'shots': shot_cameras}
+    else:
+        selected_camera_plan, camera_language_selection = select_camera_language(
+            deepcopy(unit.get("camera_plan") or {}), unit_class=unit_class,
+            unit=unit, source_id=str(unit.get("unit_id") or "UNKNOWN"))
     action_ir = {
         "schema": ACTION_IR_SCHEMA,
         "unit_class": unit_class,
@@ -424,6 +450,8 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
         "model_family": family,
         "duration_seconds": duration,
         "duration_authority": {
+            **({"action_timeline_seconds": content_timeline_duration}
+               if unit.get("authorized_content_seconds") is not None else {}),
             "authorized_content_seconds": authorized_content_seconds,
             "authorized_tail_handle_seconds": tail_handle_seconds,
             "requested_duration_seconds": duration,
@@ -446,6 +474,8 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
         "identity_prop_fact": identity_fact,
         "space_weather_fact": space_fact,
         "camera_plan": selected_camera_plan,
+        **({'camera_scope_policy': 'PER_SHOT_EXPLICIT', 'per_shot_camera_plans': shot_cameras}
+           if shot_cameras else {}),
         "camera_language_selection": camera_language_selection,
         "camera_authority_gate": _camera_authority(unit, combat=is_combat_unit(unit)),
         "cross_episode_event_continuity_gate": cross_episode_gate,
@@ -513,6 +543,9 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
             "interaction_topology_required", "combat_execution_required",
         )
     }
+    if shot_cameras:
+        semantic_projection['camera_scope_policy'] = 'PER_SHOT_EXPLICIT'
+        semantic_projection['per_shot_camera_plans'] = deepcopy(shot_cameras)
     plan["execution_semantics_sha256"] = hashlib.sha256(json.dumps(
         semantic_projection, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")).hexdigest()

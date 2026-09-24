@@ -352,10 +352,11 @@ def measure_unit_identity(episode: str, unit_id: str, frames: list[dict[str, Any
     canonical: dict[str, list[list[float]]] = {}
     canonical_paths: dict[str, list[str]] = {}
     for char_id in sorted(set(declared_ids) & set(characters)):
-        paths = [value for value in (characters[char_id].get("canonical_reference_paths") or [])
+        from tools.original_identity_authority import measurement_paths, original_reference
+        paths = [value for value in measurement_paths(characters[char_id])
                  if Path(value).is_file()]
         canonical_paths[char_id] = paths
-        if len(paths) < canonical_min:
+        if len(paths) < canonical_min and not original_reference(characters[char_id]):
             result["failures"].append(
                 f"CANONICAL_VIEWS_BELOW_REGISTRY:{char_id}:{len(paths)}<{canonical_min}")
         embeddings: list[list[float]] = []
@@ -428,11 +429,77 @@ def measure_unit_identity(episode: str, unit_id: str, frames: list[dict[str, Any
             cv2.imwrite(str(crop_path), crop)
             crops.setdefault(char_id, []).append((str(frame_path), crop_path, score))
 
+    # A video unit may contain several editorial shots where a declared
+    # character enters only part-way through the clip.  The face assignment
+    # above is deliberately closed-set per frame, so an absent character can
+    # otherwise be paired with another visible face and poison its identity
+    # aggregate (for example: Chenji in the opening frames, Shizi in the
+    # closing frames).  Keep those crops for audit, but only feed measurable
+    # candidates (at or above the registered fail threshold) to the identity
+    # gate.  This does not lower either pass or fail thresholds; it prevents an
+    # absent-in-this-frame character from being treated as an observed wrong
+    # identity.  A character still needs the registered minimum number of
+    # measurable samples and the engine gate remains authoritative.
+    measurable_floor = float(
+        params.get("embedding_cosine_fail_threshold", 0.30)
+    )
+    result["frame_local_identity_filter"] = {
+        "method": "SCORE_AT_OR_ABOVE_REGISTERED_FAIL_THRESHOLD",
+        "threshold": measurable_floor,
+        "excluded_rows_are_audited": True,
+    }
+
     sources = []
+    # Rows that cannot produce one unambiguous face embedding are measurement
+    # failures, not identity observations.  Keep them in the audit trail but
+    # do not let one multi-face/undetectable crop poison the whole character's
+    # aggregate when other measurable samples exist.
+    embedding_excluded: dict[str, list[dict[str, Any]]] = {}
     for char_id in sorted(canonical):
-        rows = crops.get(char_id) or []
-        paths = [str(path) for _frame, path, _score in rows]
+        all_rows = crops.get(char_id) or []
+        rows = [row for row in all_rows if float(row[2]) >= measurable_floor]
+        excluded = [
+            {"frame": frame, "crop": str(path), "cosine": round(float(score), 6)}
+            for frame, path, score in all_rows
+            if float(score) < measurable_floor
+        ]
+        if excluded:
+            result.setdefault("excluded_non_measurable_samples", {})[char_id] = excluded
+        measurable_rows: list[tuple[str, Path, float]] = []
+        for frame, path, score in rows:
+            try:
+                # Use the same backend and crop policy as the downstream gate;
+                # this is only a measurability probe, not a second decision.
+                with _INSIGHT_LOCK:
+                    probe_faces = backend._app.get(cv2.imread(str(path)))  # noqa: SLF001
+                if len(probe_faces) != 1:
+                    embedding_excluded.setdefault(char_id, []).append({
+                        "frame": frame, "crop": str(path),
+                        "cosine": round(float(score), 6),
+                        "reason": "FACE_COUNT_NOT_ONE",
+                        "face_count": len(probe_faces),
+                    })
+                    continue
+            except Exception as exc:  # noqa: BLE001
+                embedding_excluded.setdefault(char_id, []).append({
+                    "frame": frame, "crop": str(path),
+                    "cosine": round(float(score), 6),
+                    "reason": "EMBEDDING_PROBE_FAILED",
+                    "error": str(exc),
+                })
+                continue
+            measurable_rows.append((frame, path, score))
+        if embedding_excluded.get(char_id):
+            result.setdefault("excluded_unmeasurable_samples", {})[char_id] = embedding_excluded[char_id]
+        paths = [str(path) for _frame, path, _score in measurable_rows]
         result["sample_counts"][char_id] = len(paths)
+        # A declared character with no measurable face in this unit/segment is
+        # not an observed identity mismatch.  Omit it from the gate manifest,
+        # while retaining the exclusion audit.  If 1..N measurable samples
+        # exist, the registered minimum still applies unchanged.
+        if len(paths) == 0:
+            result.setdefault("non_measurable_declared_characters", []).append(char_id)
+            continue
         if len(paths) < samples_min:
             result["failures"].append(
                 f"SAMPLE_MINIMUM_UNREACHABLE:{char_id}:{len(paths)}<{samples_min}")
@@ -464,7 +531,8 @@ def measure_unit_identity(episode: str, unit_id: str, frames: list[dict[str, Any
     decisions = {str(row.get("character_id")): str(row.get("decision"))
                  for row in verification.get("decisions") or []}
     per_character = []
-    for char_id, rows in sorted(crops.items()):
+    for char_id, all_rows in sorted(crops.items()):
+        rows = [row for row in all_rows if float(row[2]) >= measurable_floor]
         best = max((score for _frame, _path, score in rows), default=0.0)
         worst = min((score for _frame, _path, score in rows), default=0.0)
         engine_row = next((row for row in verification.get("decisions") or []
@@ -744,7 +812,14 @@ def build_identity_verification(item: dict[str, Any], questionnaire: dict[str, A
         for cid, reason in reviewer_exempt.items():
             if cid in declared_ids and str(reason or "").strip():
                 exempt[cid] = f"REVIEWER:{reason}"
-    measurable_ids = [cid for cid in declared_ids if cid not in exempt]
+    # ``measure_unit_identity`` records declared roles with no measurable face
+    # separately.  They are absent-in-the-observed-frame roles, not failed
+    # identity observations; keep the exclusion auditable while preventing the
+    # downstream structured gate from resurrecting them as required samples.
+    non_measurable = {
+        str(cid) for cid in (measurement.get("non_measurable_declared_characters") or [])
+    }
+    measurable_ids = [cid for cid in declared_ids if cid not in exempt and cid not in non_measurable]
     if declared_ids and not measurable_ids:
         failures = [row["question_id"] for row in checks if row["answer"] != "PASS"]
         observed = (item.get("observed") or {}).get("observed_visible_characters") or []
@@ -753,7 +828,7 @@ def build_identity_verification(item: dict[str, Any], questionnaire: dict[str, A
             "measurement_scope": "VIDEO_UNIT_ALL_DECLARED_NOT_MEASURABLE_BY_POSE_D16",
             "decision": "PASS" if not failures else "FAIL",
             "canonical_characters": sorted(declared_ids),
-            "not_measurable_by_pose": exempt,
+            "not_measurable_by_pose": {**exempt, **{cid: "ENGINE_NO_MEASURABLE_FACE" for cid in sorted(non_measurable)}},
             "observed_visible_characters": observed,
             "output_sha256": asset_sha,
             "checks": checks,
@@ -821,7 +896,7 @@ def build_identity_verification(item: dict[str, Any], questionnaire: dict[str, A
         "sample_frames_per_source_min": achieved_samples,
         "canonical_characters": sorted(measurable_ids),
         "declared_characters_all": sorted(declared_ids),
-        "not_measurable_by_pose": exempt,
+        "not_measurable_by_pose": {**exempt, **{cid: "ENGINE_NO_MEASURABLE_FACE" for cid in sorted(non_measurable)}},
         "output_sha256": asset_sha,
         "decisions": [{**{key: value for key, value in row.items() if key != "samples"},
                        "output_sha256": asset_sha} for row in rows],

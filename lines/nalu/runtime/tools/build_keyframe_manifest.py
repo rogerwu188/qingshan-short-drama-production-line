@@ -617,6 +617,12 @@ def entity_binding(
         inputs.asset_library, category, contract_asset_id, display_name, view,
     )
     asset, artifact = library_artifact(inputs.asset_library, category, library_asset_id, view)
+    if role == 'character' and asset:
+        from tools.original_identity_authority import original_reference
+        original = original_reference(asset)
+        if original:
+            artifact = original
+            view = 'APPROVED_SOURCE_CARD'
     library_ref = engine_relative(inputs.asset_library_path, inputs.engine_root)
     qa_status = str(((asset or {}).get("qa") or {}).get("status") or "PENDING")
     if artifact:
@@ -693,6 +699,18 @@ def scene_binding(inputs: Inputs, shot: dict[str, Any], subspace_row: dict[str, 
     return row
 
 
+def wardrobe_plate_excluded(spec: dict[str, Any], asset_id: str) -> bool:
+    """Only explicitly reviewed conflicts may suppress an optional costume plate."""
+    record = (spec.get("wardrobe_reference_exclusions") or {}).get(asset_id)
+    if record is None:
+        return False
+    if not isinstance(record, dict) or not all(record.get(k) for k in ("reason", "evidence_ref")):
+        raise ValueError(f"WARDROBE_EXCLUSION_EVIDENCE_REQUIRED:{asset_id}")
+    if not (spec.get("wardrobe_state_overrides") or {}).get(asset_id):
+        raise ValueError(f"WARDROBE_EXCLUSION_AUTHORED_STATE_REQUIRED:{asset_id}")
+    return True
+
+
 def build_bindings(inputs: Inputs, shot_id: str, gate_ref: str) -> tuple[list[dict[str, Any]], list[str], list[str]]:
     shot = inputs.shots[shot_id]
     sp_task = inputs.subspace_tasks[shot_id]
@@ -715,8 +733,9 @@ def build_bindings(inputs: Inputs, shot_id: str, gate_ref: str) -> tuple[list[di
         # sequence; the full-body plate is demoted to a wardrobe reference.
         face_rows.append(entity_binding(inputs, "character", "characters", asset_id, name,
                                         "CHARACTER_IDENTITY_PLATE", view=CHARACTER_FACE_VIEW))
-        wardrobe_rows.append(entity_binding(inputs, "character_wardrobe", "characters", asset_id, name,
-                                            "CHARACTER_WARDROBE_PLATE", view=CHARACTER_WARDROBE_VIEW))
+        if not wardrobe_plate_excluded(shot.get("prompt_spec") or {}, asset_id):
+            wardrobe_rows.append(entity_binding(inputs, "character_wardrobe", "characters", asset_id, name,
+                                                "CHARACTER_WARDROBE_PLATE", view=CHARACTER_WARDROBE_VIEW))
     for entry in blocking.get("props") or []:
         asset_id = str(entry.get("prop_id") or "")
         if not asset_id or asset_id in prop_ids:
@@ -812,15 +831,27 @@ def normalize_keyframe_role_semantics(
     if body_part_owner:
         participant_keys.append(body_part_owner)
 
-    for entity_id in dict.fromkeys([*states, *presence, *participant_keys]):
-        states[entity_id] = entry_state
+    entry_states = role.get("entity_entry_states") or {}
+    if not isinstance(entry_states, dict):
+        raise ValueError(f"{shot_id}: ENTITY_ENTRY_STATES_MUST_BE_MAPPING")
+    participants = list(dict.fromkeys([*states, *presence, *participant_keys, *visible_contract_ids]))
+    # A video trajectory is not a still-image entry pose. Never copy a shared
+    # sentence to several people, or silently select an end-state from it.
+    states = {}
+    for entity_id in participants:
         presence.setdefault(
             entity_id,
             "VISIBLE_AND_IDENTITY_LOCKED" if entity_id in visible else "ABSENT_REFERENCE_ONLY",
         )
-    # Keep the coverage sets identical, as required by the role semantic gate.
-    for entity_id in list(presence):
-        states.setdefault(entity_id, entry_state)
+        explicit = str(entry_states.get(entity_id) or "").strip()
+        if explicit:
+            states[entity_id] = explicit
+        elif entity_id not in visible:
+            states[entity_id] = "本首帧不入画；不赋予画内人物的姿态或动作"
+        elif len(visible) == 1:
+            states[entity_id] = entry_state
+        else:
+            raise ValueError(f"{shot_id}: ENTITY_ENTRY_STATE_REQUIRED:{entity_id}")
     role["entity_states"] = states
     role["entity_presence"] = presence
     return role
@@ -895,8 +926,11 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
         override = ((inputs.shots[shot_id].get("prompt_spec") or {}).get("wardrobe_state_overrides") or {}).get(asset_id)
         if override:
             # per-shot wardrobe STATE authored in the generation contract (e.g. 单衣 before S04)
-            parts = [f"【本镜服装状态】{str(override).strip()}", str(row.get("authored_description") or "").strip()]
-            keys = (("condition", ""),)
+            # This is the complete authored shot state, not an additive hint.
+            # Appending the global condition can reintroduce another scene's
+            # injuries or clothing after an explicit scoped replacement.
+            parts = [f"【本镜服装状态】{str(override).strip()}"]
+            keys = ()
         elif row.get("authored_description"):
             # the authored text already carries layers / fastening / accessory verbatim
             parts = [str(row["authored_description"]).strip()]
@@ -1079,6 +1113,10 @@ def compile_task(inputs: Inputs, decision: dict[str, Any], prompt_dir: Path,
         visible_contract_ids=character_ids,
     )
     prompt = build_prompt(inputs, shot_id, bindings, character_ids, decision, dropped)
+    from tools.identity_pose_reference import supplement_pose_references
+    bindings, pose_reference_report = supplement_pose_references(
+        bindings, inputs.asset_library, entry_state, limit=REFERENCE_TOTAL_MAX
+    )
     identity_sequence, identity_transport, prompt = compile_labeled_flat_identity_transport(
         task_key, bindings, prompt
     )
@@ -1201,6 +1239,7 @@ def compile_task(inputs: Inputs, decision: dict[str, Any], prompt_dir: Path,
         },
         "reference_bindings": identity_sequence,
         "reference_image_sequence": identity_sequence,
+        "identity_pose_reference_review": pose_reference_report,
         "reference_images": reference_images,
         "visible_characters": list(character_ids),
         "canonical_characters": list(character_ids),

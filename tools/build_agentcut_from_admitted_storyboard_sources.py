@@ -7,10 +7,12 @@ import json
 from pathlib import Path
 
 try:
+    from tools.measured_edit_constraints import load_constraints, resolve_source_interval
     from tools.audio_postproduction_contract import PROFILE_CONFIG, validate_audio_profile
     from tools.audio_profile_binding import apply_audio_profile_binding, validate_audio_profile_binding
     from tools.sound_cue_contract import evaluate as evaluate_sound_cues
 except ModuleNotFoundError:  # Direct execution from tools/.
+    from measured_edit_constraints import load_constraints, resolve_source_interval
     from audio_postproduction_contract import PROFILE_CONFIG, validate_audio_profile  # type: ignore
     from audio_profile_binding import apply_audio_profile_binding, validate_audio_profile_binding  # type: ignore
     from sound_cue_contract import evaluate as evaluate_sound_cues  # type: ignore
@@ -37,6 +39,8 @@ def build(
     output_video,
     expected_slots,
     generation_contract=None,
+    measured_edit_constraints=None,
+    weak_admission=None,
 ):
     if generation_contract is None:
         raise ValueError("generation_contract is required for automatic audio-profile binding")
@@ -49,6 +53,13 @@ def build(
     if isinstance(review_results, (str, Path)):
         review_results = [review_results]
     passed_paths = set()
+    weak_rows = {}
+    if weak_admission:
+        try:
+            from tools.weak_media_admission import load_admission
+        except ModuleNotFoundError:
+            from weak_media_admission import load_admission
+        weak_rows = load_admission(_abs(weak_admission), episode)
     for review_result in review_results:
         review = json.loads(_abs(review_result).read_text())
         passed_paths.update(str(Path(row["path"]).resolve()) for row in review.get("passed_items", []))
@@ -62,6 +73,12 @@ def build(
             if not source_id or not output_path or not _abs(output_path).is_file():
                 continue
             metadata = task.get("metadata") or {}
+            if weak_admission:
+                proof = weak_rows.get(source_id)
+                if (not proof or Path(proof['media_path']).resolve() != _abs(output_path).resolve()
+                        or proof['media_sha256'] != sha256(_abs(output_path))):
+                    raise ValueError(f"weak admission does not bind source: {source_id}")
+                passed_paths.add(str(_abs(output_path).resolve()))
             if not metadata.get("silent_visual_replacement"):
                 latest_non_silent_audio[source_id] = task
             if task.get("status") == "qa_pass" or str(_abs(output_path).resolve()) in passed_paths:
@@ -72,6 +89,10 @@ def build(
     missing_review = [source_id for source_id, task in admitted.items() if str(_abs(task["output_path"]).resolve()) not in passed_paths]
     if missing_review:
         raise ValueError(f"admitted sources missing AI-review PASS: {missing_review}")
+
+    edit_constraints = load_constraints(_abs(measured_edit_constraints) if measured_edit_constraints else None)
+    if set(edit_constraints) - set(admitted):
+        raise ValueError("MEASURED_EDIT_UNKNOWN_SOURCE: " + str(sorted(set(edit_constraints) - set(admitted))))
 
     video_clips = []
     audio_clips = []
@@ -88,6 +109,13 @@ def build(
         if not audio_task or not _abs(audio_task["output_path"]).is_file():
             raise ValueError(f"missing admitted dialogue audio source for {source_id}")
         audio_source = _abs(audio_task["output_path"])
+        source_in = 0.0
+        measured_edit = None
+        if source_id in edit_constraints:
+            if audio_source.resolve() != source.resolve():
+                raise ValueError("MEASURED_EDIT_REQUIRES_SAME_NATIVE_AV_SOURCE")
+            source_in, duration, measured_edit = resolve_source_interval(
+                edit_constraints[source_id], source, duration)
         audio_metadata = audio_task.get("metadata") or {}
         audio_dialogue_lines = audio_metadata.get("selected_dialogue") or []
         audio_expected_text = "".join(str(row.get("text") or "") for row in audio_dialogue_lines)
@@ -101,16 +129,23 @@ def build(
             "source_id": source_id,
             "multimodal_task_id": task.get("task_id"),
             "beat_id": metadata.get("beat_id"),
-            "source_qa": "PASS_OBJECTIVE_AND_AI_REVIEW",
+            "source_qa": "ALLOW_WEAK_POSTCHECK_NOT_FULL_VISUAL_PASS" if weak_admission else "PASS_OBJECTIVE_AND_AI_REVIEW",
             "visual_replacement_only": silent,
             "audio_source_preserved": silent,
             "source_review_batches": [str(_abs(path)) for path in review_results],
         }
+        if weak_admission:
+            clip_metadata['policy_admission'] = weak_rows[source_id]
+            clip_metadata['policy_admission_path'] = str(_abs(weak_admission))
+            clip_metadata['policy_admission_sha256'] = sha256(_abs(weak_admission))
+        if measured_edit is not None:
+            measured_edit["applied_to_project"] = True
+            clip_metadata["measured_edit"] = measured_edit
         video_clips.append({
             "id": f"{episode}-{source_id}-VIDEO",
             "source": str(source),
             "start": round(cursor, 6),
-            "in": 0.0,
+            "in": source_in,
             "duration": duration,
             "metadata": clip_metadata,
         })
@@ -118,7 +153,7 @@ def build(
             "id": f"{episode}-{source_id}-AUDIO",
             "source": str(audio_source),
             "start": round(cursor, 6),
-            "in": 0.0,
+            "in": source_in,
             "duration": duration,
             "volume": 0.78,
             "metadata": {
@@ -140,6 +175,7 @@ def build(
             "audio_sha256": audio_task.get("sha256") or sha256(audio_source),
             "silent_visual_replacement": silent,
             "status": "PASS",
+            **({"measured_edit": measured_edit} if measured_edit is not None else {}),
         })
         cursor += duration
 
@@ -211,6 +247,8 @@ def build(
         "episode": episode,
         "status": "PASS",
         "review_results": [str(_abs(path)) for path in review_results],
+        **({"weak_admission": str(_abs(weak_admission)),
+            "weak_admission_sha256": sha256(_abs(weak_admission))} if weak_admission else {}),
         "project": str(project_path),
         "output": str(output_path),
         "runtime_seconds": round(cursor, 6),
@@ -224,12 +262,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--episode", required=True)
     parser.add_argument("--receipt", action="append", required=True)
-    parser.add_argument("--review-result", action="append", required=True)
+    parser.add_argument("--review-result", action="append", default=[])
+    parser.add_argument("--weak-admission", help="Explicit hash-bound weak policy admission; does not fabricate AI review PASS")
     parser.add_argument("--out-project", required=True)
     parser.add_argument("--out-admission", required=True)
     parser.add_argument("--output-video", required=True)
     parser.add_argument("--expected-slots", type=int, required=True)
     parser.add_argument("--generation-contract", required=True)
+    parser.add_argument("--measured-edit-constraints", help="Optional SHA-bound observed-dialogue source intervals; explicitly rebases following clips")
     args = parser.parse_args()
     print(json.dumps(build(
         args.episode,
@@ -240,6 +280,8 @@ def main():
         args.output_video,
         args.expected_slots,
         args.generation_contract,
+        args.measured_edit_constraints,
+        args.weak_admission,
     ), ensure_ascii=False))
 
 

@@ -456,10 +456,11 @@ def measure_still_identity(episode: str, keyframes: dict[str, Path],
     canonical: dict[str, list[list[float]]] = {}
     canonical_paths: dict[str, list[str]] = {}
     for char_id, row in sorted(characters.items()):
-        paths = [value for value in row.get("canonical_reference_paths") or []
+        from tools.original_identity_authority import measurement_paths, original_reference
+        paths = [value for value in measurement_paths(row)
                  if Path(value).is_file()]
         canonical_paths[char_id] = paths
-        if len(paths) < canonical_min:
+        if len(paths) < canonical_min and not original_reference(row):
             result["failures"].append(
                 f"CANONICAL_VIEWS_BELOW_POLICY:{char_id}:{len(paths)}<{canonical_min}")
         embeddings: list[list[float]] = []
@@ -478,6 +479,8 @@ def measure_still_identity(episode: str, keyframes: dict[str, Path],
     p.identity_embed_cache.mkdir(parents=True, exist_ok=True)
     sources: list[dict[str, Any]] = []
     crop_by_item: dict[str, dict[str, Path]] = {}
+    regions_path = getattr(p, "reviewed_identity_regions", None)
+    reviewed_regions = read_json(regions_path, {}) if regions_path else {}
     for item_id, keyframe in sorted(keyframes.items()):
         expected = [char for char in visible_by_item.get(item_id) or [] if char in canonical]
         if not expected:
@@ -512,11 +515,36 @@ def measure_still_identity(episode: str, keyframes: dict[str, Path],
                             for ref in canonical[char_id])
                 pairs.append((score, f_index, char_id, face))
         pairs.sort(key=lambda row: (-row[0], row[1], row[2]))
+        if item_id in reviewed_regions.get("items", {}):
+            try:
+                region_module = engine_module("reviewed_face_regions")
+                assignment = region_module.region_assignment(
+                    reviewed_regions["items"][item_id], sha256_file(keyframe), expected,
+                    [face.bbox.tolist() for face in faces])
+            except ValueError as exc:
+                result["failures"].append(f"REVIEWED_IDENTITY_REGION_INVALID:{item_id}:{exc}")
+                continue
+            # Region selection does not create a score or bypass the fail line.
+            pairs = [row for row in pairs if assignment.get(row[2]) == row[1]]
+            result.setdefault("reviewed_region_assignments", {})[item_id] = {
+                "assignment": assignment, "source": str(regions_path),
+                "source_sha256": sha256_file(regions_path),
+                "image_sha256": sha256_file(keyframe)}
         used_faces: set[int] = set()
         used_chars: set[str] = set()
         rows: list[dict[str, Any]] = []
         for score, f_index, char_id, face in pairs:
             if f_index in used_faces or char_id in used_chars:
+                continue
+            # An unrecognisable leftover face/back must not be assigned simply
+            # because this character has no match. Preserve it as unmeasured;
+            # the missing-character failure below remains in force.
+            if score < float(policy.get("embedding_cosine_fail_threshold", 0.30)):
+                result.setdefault("excluded_assignments", []).append({
+                    "item_id": item_id, "character_id": char_id,
+                    "face_index": f_index, "candidate_cosine": round(score, 6),
+                    "reason": "BELOW_IDENTITY_FAIL_THRESHOLD_NOT_A_MEASURABLE_MATCH",
+                    "identity_status": "NOT_VERIFIED"})
                 continue
             used_faces.add(f_index)
             used_chars.add(char_id)
@@ -762,11 +790,11 @@ def build_identity_verification(item: dict[str, Any], questionnaire: dict[str, A
 def _evidence_file(out: Path, *, gate_id: str, episode: str, item_id: str,
                    asset: Path, asset_sha: str, finding: str,
                    verification: dict[str, Any] | None,
-                   reviewed_at: str | None) -> dict[str, Any]:
+                   reviewed_at: str | None, failed: bool = False) -> dict[str, Any]:
     payload = {
         "schema": EVIDENCE_SCHEMA,
         "gate_id": gate_id,
-        "status": "PASS_ORIGINAL_RESOLUTION" if (
+        "status": "PASS_ORIGINAL_RESOLUTION" if not failed and (
             verification is None or verification.get("decision") == "PASS") else "FAIL_NOT_ADMITTED",
         "episode": episode,
         "unit_id": item_id,
@@ -790,6 +818,7 @@ def _evidence_file(out: Path, *, gate_id: str, episode: str, item_id: str,
 
 def materialise(episode: str, submitted: dict[str, Any],
                 submitted_path: Path) -> dict[str, Any]:
+    from visual_review_policy import advisory_questions
     p = QaPaths(episode)
     exp = Expectations(episode)
     questionnaire = submitted.get("questionnaire") or {}
@@ -891,18 +920,26 @@ def materialise(episode: str, submitted: dict[str, Any],
              "elements"),
         ]
         evidence: list[dict[str, Any]] = []
+        minor_questions = advisory_questions(item, submitted.get('visual_post_qa_profile', 'STRICT'))
         for gate_id, verification, failures, finding in specs:
             failed = bool(failures)
+            # Keep the original failed checks and objective result intact.
+            # Only explicitly reviewed cosmetic findings may use the engine's
+            # existing conditional-P2 admission, never an invented PASS.
+            cosmetic_only = bool(failures) and not blocking and (
+                gate_id in {SCENE_GATE, ACTION_GATE}
+                and set(failures).issubset(minor_questions))
             prefix = "FAIL: " if failed else "PASS: "
             evidence_path = unit_dir / f"{gate_id.lower().replace('-', '_')}_evidence.json"
             _evidence_file(evidence_path, gate_id=gate_id, episode=episode, item_id=unit_id,
                            asset=asset, asset_sha=asset_sha,
                            finding=prefix + finding + (
                                ("  failures=" + ",".join(map(str, failures))) if failed else ""),
-                           verification=verification, reviewed_at=reviewed_at)
+                           verification=verification, reviewed_at=reviewed_at, failed=failed)
             defect_tier = None
             if failed:
-                defect_tier = "P0" if gate_id in {IDENTITY_GATE, ACTION_GATE, PERIOD_GATE} else "P1"
+                defect_tier = ("P2" if cosmetic_only else
+                               "P0" if gate_id in {IDENTITY_GATE, ACTION_GATE, PERIOD_GATE} else "P1")
             elif p2:
                 defect_tier = "P2"
             evidence.append({
@@ -914,7 +951,11 @@ def materialise(episode: str, submitted: dict[str, Any],
                 "original_resolution_review": True,
                 "reviewer_type": REVIEWER_TYPE,
                 "defect_tier": defect_tier,
-                "p2_within_budget": bool(p2) and not failed,
+                "p2_within_budget": cosmetic_only or (bool(p2) and not failed),
+                "qa_status": ("ADVISORY" if cosmetic_only else
+                              "NOT_VERIFIED" if any((item.get("answers") or {}).get(f) == "UNCERTAIN" for f in failures) else
+                              "HARD_FAIL" if failed else "PASS"),
+                "automatic_paid_regeneration": False if cosmetic_only else None,
                 "finding": prefix + finding,
             })
 

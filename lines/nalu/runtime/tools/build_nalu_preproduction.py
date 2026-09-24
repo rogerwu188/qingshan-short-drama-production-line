@@ -272,6 +272,20 @@ def shot_text(shot: dict[str, Any]) -> str:
     ))
 
 
+def bind_entry_supports(characters, props, bindings):
+    """Align a declared movable support with its seated owner, without editing the map."""
+    result = copy.deepcopy(props)
+    owners = {r['character_id']: r for r in characters}
+    supports = {r['prop_id']: r for r in result}
+    for prop_id, owner_id in bindings.items():
+        if owner_id not in owners or prop_id not in supports:
+            raise ValueError(f'ENTRY_SUPPORT_BINDING_UNRESOLVED:{prop_id}:{owner_id}')
+        owner, prop = owners[owner_id], supports[prop_id]
+        prop.update(position=list(owner['position']), zone_id=owner['zone_id'],
+                    support_owner_id=owner_id, derived_from='EXPLICIT_ENTRY_SUPPORT_BINDING')
+    return result
+
+
 def build_subspace_tasks(contract: dict[str, Any], index: SpaceIndex,
                          episode: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     hints = index.angle_shot_hints()
@@ -347,6 +361,8 @@ def build_subspace_tasks(contract: dict[str, Any], index: SpaceIndex,
                 "facing": facing,
                 "derived_from": "NON_CHARACTER_ENTITY_NAME_PRESENT_IN_SHOT_TEXT",
             })
+        prop_rows = bind_entry_supports(char_rows, prop_rows,
+            (shot.get('prompt_spec') or {}).get('entry_support_bindings') or {})
         end_chars: list[dict[str, Any]] = []
         overlays: list[dict[str, Any]] = []
         axis = index.axes.get(axis_id) or {}
@@ -668,6 +684,99 @@ def wardrobe_bible(contract: dict[str, Any], episode: str,
     }
 
 
+def bind_dialogue_cast(dialogue, cast, entities):
+    """Resolve speakers by registered identity, not display-name inequality."""
+    names = {}
+    for cid, entity in entities.items():
+        for name in [entity.get("canonical_name"), *(entity.get("aliases") or [])]:
+            if not name:
+                continue
+            if name in names and names[name] != cid:
+                raise ValueError(f"DIALOGUE_ALIAS_COLLISION:{name}")
+            names[name] = cid
+    result = copy.deepcopy(cast)
+    known_ids = {c.get("character_id") for c in result}
+    lines = []
+    for line in dialogue.splitlines():
+        speaker, separator, spoken = line.partition("：")
+        if not separator or not speaker.strip():
+            raise ValueError("DIALOGUE_SPEAKER_UNRESOLVED")
+        cid = names.get(speaker.strip())
+        if not cid:
+            raise ValueError(f"DIALOGUE_SPEAKER_UNREGISTERED:{speaker.strip()}")
+        canonical = entities[cid]["canonical_name"]
+        lines.append(f"{canonical}：{spoken}")
+        if cid not in known_ids:
+            result.append({"character": canonical, "character_id": cid,
+                           "screen_slot": "OFFSCREEN", "depth_plane": "OFFSCREEN_SOURCE",
+                           "face_visibility": "OFFSCREEN_VOICE_ONLY", "identity_card_required": False})
+            known_ids.add(cid)
+    return "\n".join(lines), result
+
+
+def migrate_shot_camera_state(legacy_state, shot):
+    """Legacy ledgers supply continuity, not authority over current camera plans."""
+    result = copy.deepcopy(legacy_state)
+    spec = shot.get('prompt_spec') or {}
+    plan = spec.get('camera_plan') or {}
+    space = spec.get('space') or {}
+    camera = result.setdefault('camera_state', {})
+    before = copy.deepcopy(camera)
+    for key in ('shot_scale', 'lens_intent', 'motion_family'):
+        if plan.get(key):
+            camera[key] = plan[key]
+    for key, source in (('camera_position_id', 'angle_id'), ('axis_id', 'axis_id')):
+        value = shot.get(source) or space.get(source)
+        if value:
+            camera[key] = value
+    if before != camera:
+        result['camera_projection'] = {'source': 'CURRENT_SHOT_PROMPT_SPEC',
+                                       'legacy_camera_state': before}
+    return result
+
+
+def scoped_interaction(source_action, subject, target, delta_text):
+    """Do not turn solo performance into an invented contact event."""
+    contact = source_action.get("contact_point") or ("" if source_action.get("interaction_mode") == "NONE" else
+        f"{subject}与{target}的接触/反应落点：{delta_text}" if target else "")
+    result = {"contact_point": contact}
+    if source_action.get("interaction_mode"):
+        result["interaction_mode"] = source_action["interaction_mode"]
+    elif not target and not contact:
+        result["interaction_mode"] = "NONE"
+    return result
+
+
+def constrain_noncontact_sound(sound, action):
+    """An explicit no-contact action must not inherit template impact cues."""
+    evidence = str(action.get("physical_causality") or "")
+    explicit_none = str(action.get("interaction_mode") or "").upper() == "NONE"
+    if action.get("contact_point") or not (explicit_none or any(term in evidence for term in ("未触碰", "不接触", "没有接触", "没有触碰"))):
+        return copy.deepcopy(sound)
+    result = copy.deepcopy(sound)
+    result["foley"] = "仅保留已声明动作实际产生的衣料及道具拟音，不添加人物之间的触碰、撞击或未发生的脚步声"
+    old = str(result.get("action_sound") or "")
+    # Preserve authored audio/BGM policy following the generated cue.
+    policy = old.partition("一次因果接触声；")[2] if old.startswith("只强化「") else old
+    cue = "本拍人物之间未发生接触，不添加人物接触音效；已声明的笔纸等道具接触拟音保留"
+    for previous_cue in (cue, "本拍人物之间未发生接触，不生成接触音效"):
+        if policy.startswith(previous_cue):
+            policy = policy[len(previous_cue):].lstrip("；")
+    result["action_sound"] = cue + ("；" + policy if policy else "")
+    return result
+
+
+def scope_shot_sound(sound, shot_id):
+    """Keep local Foley/impact instructions local when the renderer merges sounds."""
+    result = copy.deepcopy(sound)
+    prefix = f"仅分镜{shot_id}适用："
+    for key in ("foley", "action_sound"):
+        value = str(result.get(key) or "")
+        if value and not value.startswith(prefix):
+            result[key] = prefix + value
+    return result
+
+
 def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                     index: SpaceIndex, engine: Engine, episode: str,
                     contract_path: Path, gsm_path: Path,
@@ -757,16 +866,7 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                 "identity_card_required": True,
                 "entity_presence": (role.get("entity_presence") or {}).get(str(member.get("character_id") or "")),
             })
-        known = {member["character"] for member in cast}
-        for line in dialogue.split("\n"):
-            speaker = line.partition("：")[0].strip()
-            if speaker and speaker not in known:
-                cast.append({
-                    "character": speaker, "character_id": str(role.get("dialogue_speaker_id") or ""),
-                    "screen_slot": "OFFSCREEN", "depth_plane": "OFFSCREEN_SOURCE",
-                    "face_visibility": "OFFSCREEN_VOICE_ONLY", "identity_card_required": False,
-                })
-                known.add(speaker)
+        dialogue, cast = bind_dialogue_cast(dialogue, cast, entities)
         props = [{
             "prop": str(props_by_id[prop_id].get("name") or prop_id),
             "prop_id": prop_id,
@@ -864,6 +964,8 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                 f"{'、'.join(item['prop'] for item in props) or '固定物'}"),
             "action_sound": f"只强化「{primary or entry}」一次因果接触声；{bgm_rule}",
         }
+        sound = constrain_noncontact_sound(sound, source_action)
+        sound = scope_shot_sound(sound, shot_id)
         negatives = [*forbidden,
                      "冻结帧、速度斜坡或慢动作",
                      "首帧出现 completion_state",
@@ -901,16 +1003,16 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                 "start_state": entry,
                 "primary_action": primary or entry,
                 "completion_state": completion,
-                "contact_point": (
-                    f"{subject}与{target}的接触/反应落点：{delta_text}"),
+                **scoped_interaction(source_action, subject, target, delta_text),
                 "motion_direction": (
                     f"沿已声明轴线「{shot.get('axis')}」（{row['axis_id']}）单一方向"
                     f"由「{entry}」到「{completion}」，不反向复位"),
-                "physical_causality": (
+                "physical_causality": source_action.get('physical_causality') or (
                     f"{subject}发起「{primary or entry}」→ {target} 承受 → 结果停在「{completion}」；"
-                    f"接触先发生，眼神与下颌随后，肩颈与重心最后完成"),
+                    f"接触先发生，眼神与下颌随后，肩颈与重心最后完成" if target else
+                    f"{subject}完成本镜动作「{primary or entry}」，到达「{completion}」；不增加接触对象"),
                 "freeze_or_speed_ramp_forbidden": True,
-                "microexpression_design": (
+                "microexpression_design": source_action.get('microexpression_design') or (
                     f"眼神先于头部改变一次，呼吸与下颌在因果点响应，随后保持「{arc_exit}」"
                     if cast_rows else
                     f"无人物；微观变化只发生在{scene.get('weather')}的雪幕、火光与呼出白气等环境细节上"),
@@ -936,8 +1038,8 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                 "continuous_micro_action": (
                     "呼吸连续，眼神先动，眼睑与下颌只在因果点变化一次"
                     if cast_rows else "雪幕、火光与屋顶积雪保持连续微动"),
-                "event_reaction": f"对「{primary or entry}」只发生一次可见反应，随后保持「{completion}」",
-                "body_sync": (
+                "event_reaction": (spec.get('performance') or {}).get('event_reaction') or f"对「{primary or entry}」只发生一次可见反应，随后保持「{completion}」",
+                "body_sync": (spec.get('performance') or {}).get('body_sync') or (
                     "视线先行，下颌与肩颈随后，手部或重心最后完成并保持"
                     if cast_rows else "环境力学按同一方向完成一次变化并保持"),
                 "actor_performance": actor_performance,
@@ -955,6 +1057,7 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
             # grouping builder treats a first-shot camera_plan as authoritative
             **({"camera_plan": spec["camera_plan"]} if isinstance(spec.get("camera_plan"), dict) else {}),
             **({"wardrobe_state_overrides": spec["wardrobe_state_overrides"]} if isinstance(spec.get("wardrobe_state_overrides"), dict) else {}),
+            **({"wardrobe_reference_exclusions": spec["wardrobe_reference_exclusions"]} if isinstance(spec.get("wardrobe_reference_exclusions"), dict) else {}),
             "role_semantic_disambiguation": role,
             "keyframe_source": str(shot.get("keyframe_source") or "entry_state"),
             "expected_keyframe_filename": f"{shot_id}-keyframe-v1.png",
@@ -1395,7 +1498,7 @@ def main() -> int:
         }
         for group in spec.get("groups") or []:
             prior = legacy_units.get(str(group.get("unit_id")))
-            migrated_states = [copy.deepcopy(legacy_shot_states[sid])
+            migrated_states = [migrate_shot_camera_state(legacy_shot_states[sid], by_shot[sid])
                                for sid in group.get("editorial_shot_ids") or []
                                if sid in legacy_shot_states]
             if len(migrated_states) == len(group.get("editorial_shot_ids") or []):
@@ -1414,7 +1517,7 @@ def main() -> int:
             for row in legacy_unit.get("internal_transition_contracts") or []:
                 key = (str(row.get("from_shot_id")), str(row.get("to_shot_id")))
                 if all(key):
-                    authored_internal[key] = row
+                    authored_internal.setdefault(key, row)
 
     # v4 adapters may provide a valid per-shot camera sequence whose grouped
     # unit anchors collide after semantic grouping (the grouping contract uses
@@ -1892,17 +1995,79 @@ def _locked_identity_plate(character_id: str, *, episode: str) -> Path | None:
             f"SCOPED_ASSET_LIBRARY_PROJECT_MISMATCH:{library_path}:"
             f"{library.get('project_id')}!={scope['series_id']}")
     row = (((library.get("assets") or {}).get("characters") or {}).get(character_id)) or {}
+    from tools.original_identity_authority import original_reference
+    original = original_reference(row)
+    if original is not None:
+        return Path(original["path"])
     if str(row.get("status") or "") != "LOCKED":
         return None
-    views = [Path(v) for v in (((row.get("lock") or {}).get("identity_lock") or {}).get("canonical_view_paths") or [])]
+    identity_lock = (row.get("lock") or {}).get("identity_lock") or {}
+    views = [Path(v) for v in identity_lock.get("canonical_view_paths") or []] if isinstance(identity_lock, dict) else []
     views = [v for v in views if v.is_file()]
+    if not views:
+        return locked_artifact_headshot(row)
     if not views:
         return None
     front = [v for v in views if "FRONT_NEUTRAL_HEADSHOT" in v.name]
     return (front or views)[0]
 
 
+def locked_artifact_headshot(row):
+    """Read the current artifact schema without inventing legacy lock data."""
+    if row.get("status") != "LOCKED" or (row.get("qa") or {}).get("status") != "PASS":
+        return None
+    authority = (row.get("qa") or {}).get("authority") or {}
+    if authority.get("review_file"):
+        review = Path(authority["review_file"])
+        if not review.is_file() or sha256_file(review) != authority.get("review_file_sha256"):
+            raise ValueError("IDENTITY_ARTIFACT_REVIEW_SHA_MISMATCH")
+    heads = []
+    for artifact in row.get("artifacts") or []:
+        path = Path(str(artifact.get("path") or ""))
+        if "FRONT_NEUTRAL_HEADSHOT" not in str(artifact.get("role") or "") and "FRONT_NEUTRAL_HEADSHOT" not in path.name:
+            continue
+        if not path.is_file() or sha256_file(path) != artifact.get("sha256"):
+            raise ValueError(f"IDENTITY_ARTIFACT_SHA_MISMATCH:{path}")
+        if path not in heads:
+            heads.append(path)
+    if len(heads) > 1:
+        raise ValueError("IDENTITY_ARTIFACT_HEADSHOT_AMBIGUOUS")
+    return heads[0] if heads else None
+
+
 VIDEO_REFERENCE_MAX = 9   # submit_giggle_video_manifest_v2 refuses > 9 reference images
+
+
+def entity_scoped_trajectory(entity_id, specs, shot_ids, name2char, name2prop):
+    """Scope state text to shots containing the entity, never the whole unit.
+
+    This is shot-scoped evidence, not proof that every verb in a multi-person
+    shot belongs to this entity. Preserve that distinction for downstream QA.
+    """
+    relevant = []
+    for sid, spec in zip(shot_ids, specs):
+        ids = {str(c.get("character_id") or name2char.get(str(c.get("character")), ""))
+               for c in spec.get("cast") or []}
+        ids.update(str(p.get("prop_id") or name2prop.get(str(p.get("prop")), ""))
+                   for p in spec.get("props") or [])
+        if entity_id in ids:
+            relevant.append((sid, spec.get("action") or {}))
+    if not relevant:
+        raise ValueError(f"ENTITY_TRAJECTORY_SOURCE_MISSING:{entity_id}")
+    return {
+        "entity_id": entity_id,
+        "from": str(relevant[0][1].get("start_state") or ""),
+        "to": str(relevant[-1][1].get("completion_state") or ""),
+        "action": " → ".join(str(a.get("primary_action") or a.get("description") or a.get("action") or
+                                a.get("start_state") or "") for _, a in relevant),
+        "visible_consequence": str(relevant[-1][1].get("completion_state") or ""),
+        "source_shot_ids": [sid for sid, _ in relevant],
+        "state_scope": "ENTITY_PRESENT_SHOTS_ONLY",
+        "action_subjects_by_shot": [
+            {"shot_id": sid, "subject_id": a.get("subject_id"),
+             "patient_id": a.get("patient_id")}
+            for sid, a in relevant],
+    }
 
 
 def identity_plate_reference_rows(character_ids: list[str], plate_lookup, *, existing_paths: list[str],
@@ -1926,7 +2091,9 @@ def identity_plate_reference_rows(character_ids: list[str], plate_lookup, *, exi
             dropped.append(cid)
             continue
         rows.append({"character_id": cid, "path": str(plate), "sha256": sha256_file(Path(plate)),
-                     "view": "FRONT_NEUTRAL_HEADSHOT", "role": "CHARACTER_IDENTITY_REFERENCE"})
+                     "view": ("FRONT_NEUTRAL_HEADSHOT" if "FRONT_NEUTRAL_HEADSHOT" in Path(plate).name
+                              else "IDENTITY_REFERENCE_VIEW_UNSPECIFIED"),
+                     "role": "CHARACTER_IDENTITY_REFERENCE"})
         seen.add(str(plate))
     return rows, dropped, missing
 
@@ -1949,7 +2116,9 @@ def project_provider_slots(plan: dict[str, Any]) -> dict[str, Any]:
 def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, dict[str, Any]],
                          final_rows: dict[str, dict[str, Any]], *, rendered: dict[str, Any],
                          contract: dict[str, Any], out_dir: Path, prefix: str, root: Path,
-                         episode: str, ready_units: list[str] | None) -> None:
+                         episode: str, ready_units: list[str] | None,
+                         source_grouped_path: Path | None = None,
+                         action_role_evidence_dir: Path | None = None) -> None:
     """Turn every stage-4.4-compiled unit into the task shape the engine's own
     compile_grouped_seedance_transaction_manifest.py produces and its submitter validates
     (validate_task / validate_grouped_creative_task / action contract / tempo gate /
@@ -1964,7 +2133,8 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
     admission_dir = out_dir / "video_admission"
     admission_dir.mkdir(parents=True, exist_ok=True)
     q1_dir = out_dir / "reports" / "qa" / "q1"
-    action_role_dir = root / "reports" / "action_role_evidence"
+    action_role_dir = (action_role_evidence_dir if action_role_evidence_dir is not None
+                       else root / "reports" / "action_role_evidence")
     for task in transaction["tasks"]:
         uid = task["unit_id"]
         row = final_rows.get(uid)
@@ -2128,6 +2298,10 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
                 task["identity_reference_dropped_over_cap"] = plate_dropped
             if plate_missing:
                 task["identity_reference_missing_locked_plate"] = plate_missing
+            if plate_dropped or plate_missing:
+                raise ValueError(
+                    f"IDENTITY_REFERENCE_BINDING_INCOMPLETE:{uid}:"
+                    f"missing={','.join(plate_missing)}:over_cap={','.join(plate_dropped)}")
         task["unbound_canonical_entities"] = sorted(set(chars + props) - bound)
         task["reference_image_sequence"] = bindings
         task["reference_bindings"] = space_map_bindings + bindings
@@ -2140,11 +2314,15 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
         kf_vectors = {str(r.get("entity_id")): r for r in keyframe_overlays}
         trajectories = []
         for eid in chars + props:
-            t_row = {"entity_id": eid,
-                     "from": str(first_action.get("start_state") or "UNIT_START_STATE"),
-                     "to": str(last_action.get("completion_state") or "UNIT_COMPLETION_STATE"),
-                     "action": str(cu.get("narrative_beat") or "CONTINUOUS_ORDERED_EDITORIAL_BEATS"),
-                     "visible_consequence": str(last_action.get("completion_state") or "ORDERED_BEATS_COMPLETE")}
+            if empty_unit:
+                # An environment-only establishing shot has no character cast.
+                t_row = {"entity_id": eid,
+                         "from": str(first_action.get("start_state") or ""),
+                         "to": str(last_action.get("completion_state") or ""),
+                         "action": str(cu.get("narrative_beat") or ""),
+                         "visible_consequence": str(last_action.get("completion_state") or "")}
+            else:
+                t_row = entity_scoped_trajectory(eid, specs, shot_ids, name2char, name2prop)
             vec = kf_vectors.get(eid)
             if vec:
                 t_row.update({k: copy.deepcopy(v) for k, v in vec.items() if k not in t_row})
@@ -2275,13 +2453,17 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             "authorized_content_seconds": task["authorized_content_seconds"],
             "authorized_tail_handle_seconds": task["authorized_tail_handle_seconds"],
         })
+        # Preserve explicit source policies at the paid-boundary projection.
+        # Omitting these silently restores unit-wide camera/timeline defaults.
+        _copy_compiled_transport_policies(machine, cu)
         task["machine_contract"] = machine
         task["input_template_id"] = compute_input_template_id(task)
     transaction["provider"] = "giggle"
     transaction["video_unit_count"] = len(transaction["tasks"])
     transaction["runtime_seconds"] = sum(int(t.get("duration_seconds") or 0) for t in transaction["tasks"])
     transaction["reference_image_count"] = sum(len(t.get("reference_images") or []) for t in transaction["tasks"])
-    grouped_path = out_dir / f"{prefix}GROUPED_SEEDANCE_MANIFEST_V1.json"
+    grouped_path = (source_grouped_path if source_grouped_path is not None
+                    else out_dir / f"{prefix}GROUPED_SEEDANCE_MANIFEST_V1.json")
     transaction["source_grouped_manifest"] = portable(grouped_path, root)
     transaction["source_grouped_manifest_sha256"] = sha256_file(grouped_path)
     if ready_units is not None:
@@ -2290,6 +2472,15 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
         transaction["staged_generation_scope"] = {
             "kind": "ROLLING_WAVE_PARTIAL_READY", "unit_ids": [t["unit_id"] for t in transaction["tasks"]],
             "policy": "cross-task camera/transition sequence validated on the final full compile"}
+
+def _copy_compiled_transport_policies(machine: dict[str, Any], compiled: dict[str, Any]) -> None:
+    """Carry only declared policies; never invent defaults or retain stale ones."""
+    for key in ("camera_scope_policy", "camera_time_coordinate", "timeline_policy"):
+        if key in compiled:
+            machine[key] = copy.deepcopy(compiled[key])
+        else:
+            machine.pop(key, None)
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
