@@ -33,6 +33,7 @@ CLI
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import shutil
 import sys
@@ -52,6 +53,8 @@ STATES = {"PRE_CONTACT", "CONTACT_RESULT", "BRIDGE_STATE_NO_ACTION_OWNER_VISIBLE
 
 
 def evidence_path(episode: str, unit_id: str) -> Path:
+    if os.environ.get("NALU_QA_CONTEXT"):
+        return mirror_dir(episode) / f"{unit_id}_action_role_verification.json"
     return ENGINE / ACTION_ROLE_EVIDENCE_RELDIR / f"{unit_id}_action_role_verification.json"
 
 
@@ -146,9 +149,11 @@ def materialise(episode: str, submitted: dict[str, Any], submitted_path: Path) -
         target_path = evidence_path(episode, unit_id)
         write_json(target_path, payload)
         mirror_dir(episode).mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(target_path, mirror_dir(episode) / target_path.name)
+        mirror_path = mirror_dir(episode) / target_path.name
+        if target_path.resolve() != mirror_path.resolve():
+            shutil.copyfile(target_path, mirror_path)
         rows.append({"unit_id": unit_id, "status": status,
-                     "evidence_ref": f"{ACTION_ROLE_EVIDENCE_RELDIR}/{target_path.name}",
+                     "evidence_ref": str(target_path),
                      "evidence_path": str(target_path), "evidence_sha256": sha256_file(target_path),
                      "reviewed_asset_sha256": reference_sha, "blockers": blockers})
     passing = [row for row in rows if row["status"] == "PASS"]
@@ -156,7 +161,7 @@ def materialise(episode: str, submitted: dict[str, Any], submitted_path: Path) -
         "schema": "nalu.action_role_evidence_index.v1", "episode": episode,
         "recorded_at": now(), "recorded_by": TOOL_ID, "reviewer": REVIEWER_ID,
         "review_method": REVIEW_METHOD, "review_file": str(submitted_path),
-        "review_file_sha256": review_sha, "evidence_dir": str(ENGINE / ACTION_ROLE_EVIDENCE_RELDIR),
+        "review_file_sha256": review_sha, "evidence_dir": str(evidence_path(episode, "_index").parent),
         "status": ("PASS" if rows and len(passing) == len(rows)
                    else f"PARTIAL_{len(passing)}_OF_{len(rows)}" if rows else "NO_ITEMS"),
         "unit_count": len(rows), "pass_count": len(passing), "units": rows,

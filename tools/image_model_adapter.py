@@ -29,12 +29,34 @@ def compile_labeled_flat_identity_transport(
     task_key: str, reference_bindings: list[dict[str, Any]], prompt_body: str
 ) -> tuple[list[dict[str, Any]], dict[str, Any], str]:
     """Compile a provider-flat sequence without pretending it is a hard lock."""
+    # Spatial resolution order is not the provider's reference-array order.
+    # Keep every map, but lead with identity images and reindex prose atomically.
+    old_paths = list(dict.fromkeys(str(r.get('path') or '') for r in reference_bindings))
+    def identity_row(row):
+        return str(row.get('role') or '').lower() in {'character', 'identity', 'character_reference'}
+    reference_bindings = sorted(reference_bindings, key=lambda row: not identity_row(row))
+    new_paths = list(dict.fromkeys(str(r.get('path') or '') for r in reference_bindings))
+    index_map = {i: new_paths.index(path) + 1 for i, path in enumerate(old_paths, 1)}
+    def remap(match):
+        old = int(match[1])
+        if old not in index_map:
+            raise ValueError('PROMPT_REFERENCE_INDEX_OUT_OF_RANGE:' + str(old))
+        return '@图片' + str(index_map[old])
+    prompt_body = re.sub(r'@图片(\d+)', remap, prompt_body)
     sequence: list[dict[str, Any]] = []
     authority_map: dict[str, str] = {}
     authority_lines: list[str] = []
     digest_seed: list[str] = [task_key]
-    for index, source in enumerate(reference_bindings, 1):
+    # The image submitter sends unique paths in first-occurrence order. Semantic
+    # bindings may share a file (e.g. scene and subspace); labels must describe
+    # that actual array, not the longer semantic binding list.
+    transport_indices: dict[str, int] = {}
+    for source in reference_bindings:
         row = dict(source)
+        path = str(row.get("path") or "")
+        if not path:
+            raise ValueError("REFERENCE_TRANSPORT_PATH_MISSING")
+        index = transport_indices.setdefault(path, len(transport_indices) + 1)
         label = f"@图片{index}"
         row["asset_label"] = label
         role = str(row.get("role") or "").lower()
@@ -48,13 +70,18 @@ def compile_labeled_flat_identity_transport(
         )
         if is_identity:
             row["identity_authority"] = "PRIMARY_NATIVE_REGISTRY"
-            authority_map[entity_id] = label
+            supplemental = entity_id in authority_map
+            authority_map.setdefault(entity_id, label)
             visual_contract = str(row.get("identity_visual_contract") or "FACE_VISIBLE_IDENTITY").upper()
             if visual_contract == "FULLY_CONCEALED_IDENTITY":
                 authority_lines.append(
                     f"{label} 是 {entity_id} 的唯一完整外观与身份权威，定义全身轮廓、身材比例、服装、甲胄、全封闭头盔与遮面结构；"
                     "头盔和面甲全程保持闭合，不得摘盔、开面甲或凭空生成可见脸、头发、头部皮肤与五官。角色被说出姓名只改变叙事认知，绝不改变其遮面外观；"
                     "不得与其他参考平均、混合或重塑。"
+                )
+            elif supplemental:
+                authority_lines.append(
+                    f"{label} 是 {entity_id} 同一人的补充视角，配合{authority_map[entity_id]}理解面部几何；不是第二个人，不替换其身份。"
                 )
             else:
                 authority_lines.append(
@@ -80,6 +107,7 @@ def compile_labeled_flat_identity_transport(
         "exact_output_sha_required": True,
         "authority_map": authority_map,
         "authority_prompt_token": token,
+        "reference_order_policy": "IDENTITY_FIRST_V1",
     }
     return sequence, contract, f"{block}\n\n{prompt_body}"
 
@@ -157,6 +185,14 @@ def validate_identity_reference_transport(
         if len(bound_ids) != 1:
             failures.append("IDENTITY_PLATE_REQUIRES_EXACTLY_ONE_CHARACTER")
     elif mode == FLAT_IDENTITY_MODE:
+        failures.extend(validate_flat_reference_indices(task, prompt_text=prompt_text))
+        if contract.get('reference_order_policy') == 'IDENTITY_FIRST_V1':
+            seen_non_identity = False
+            for row in bindings:
+                identity = str(row.get('role') or '').lower() in {'character', 'identity', 'character_reference'}
+                if identity and seen_non_identity:
+                    failures.append('IDENTITY_REFERENCE_NOT_LEADING')
+                seen_non_identity |= not identity
         if not supports.get("flat_reference_images"):
             failures.append("FLAT_REFERENCE_TRANSPORT_UNSUPPORTED")
         if contract.get("transport_guarantee") != "SOFT_REFERENCE_REQUIRES_EXACT_OUTPUT_GATE":
@@ -197,6 +233,29 @@ def validate_identity_reference_transport(
         "provider_semantic_role_transport": supports.get("semantic_role_transport"),
         "provider_native_identity_lock": supports.get("provider_native_identity_lock"),
     }
+
+
+def validate_flat_reference_indices(
+    task: dict[str, Any], *, prompt_text: str | None = None
+) -> list[str]:
+    """Fail before billing when semantic labels differ from wire positions."""
+    rows = task.get("reference_image_sequence") or []
+    paths = list(dict.fromkeys(str(row.get("path") or "") for row in rows))
+    failures = []
+    if "" in paths:
+        failures.append("REFERENCE_TRANSPORT_PATH_MISSING")
+    if task.get("reference_images") != paths:
+        failures.append("REFERENCE_TRANSPORT_ARRAY_MISMATCH")
+    indices = {path: i for i, path in enumerate(paths, 1)}
+    for row in rows:
+        expected = f"@图片{indices[str(row.get('path') or '')]}"
+        if row.get("asset_label") != expected:
+            failures.append(f"REFERENCE_TRANSPORT_LABEL_MISMATCH:{row.get('entity_id')}:{expected}")
+    if prompt_text is not None:
+        for index in sorted(set(map(int, re.findall(r"@图片(\d+)", prompt_text)))):
+            if index < 1 or index > len(paths):
+                failures.append(f"PROMPT_REFERENCE_INDEX_OUT_OF_RANGE:{index}")
+    return failures
 
 
 def validate_image_model_contract(

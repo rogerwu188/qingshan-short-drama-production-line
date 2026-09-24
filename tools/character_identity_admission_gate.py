@@ -146,8 +146,17 @@ def evaluate(
             references = _paths(row, "canonical_reference_paths")
             samples = _paths(row, "sample_frame_paths")
             local_failures: list[str] = []
+            from tools.original_identity_authority import original_reference
+            try:
+                original = original_reference(registry['characters'][character_id])
+            except (ValueError, KeyError, OSError) as exc:
+                failures.append(f'original_identity_authority_invalid:{prefix}:{exc}')
+                continue
+            if original:
+                references = [Path(original['path'])]
+                row = dict(row, canonical_reference_sha256={original['path']: original['sha256']})
             canonical_view_count = int(row.get("canonical_view_count") or len(references))
-            if canonical_view_count < canonical_min:
+            if canonical_view_count < canonical_min and not original:
                 local_failures.append(f"canonical_views_below_min:{prefix}:{canonical_view_count}<{canonical_min}")
             if len(samples) < samples_min:
                 local_failures.append(f"identity_sample_frames_below_min:{prefix}:{len(samples)}<{samples_min}")

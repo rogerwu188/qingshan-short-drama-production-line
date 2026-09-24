@@ -537,11 +537,18 @@ def build_registry(episode: str, *, out: Path | None = None) -> dict[str, Any]:
     for canonical_id, wardrobe_row in exp.wardrobe_by_id.items():
         name = str(wardrobe_row.get("character") or "")
         current = assets.get(canonical_id)
+        # A migrated v4 library may contain a canonical CHAR-* row whose
+        # provenance/artifacts still point at another local subject.  Treat
+        # that as unusable even when its status/QA flags say LOCKED/PASS;
+        # otherwise the registry builder silently aliases every canonical
+        # character to the first imported plate (the E59 identity failure).
+        current_label = str((current or {}).get("label") or "") if isinstance(current, dict) else ""
         current_usable = (
             isinstance(current, dict)
             and current.get("status") == "LOCKED"
             and (current.get("qa") or {}).get("status") == "PASS"
             and len(current.get("artifacts") or []) >= 3
+            and current_label == name
         )
         if not current_usable and name in local_by_label:
             assets[canonical_id] = local_by_label[name]
