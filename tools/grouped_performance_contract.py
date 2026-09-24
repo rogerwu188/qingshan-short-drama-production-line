@@ -82,6 +82,12 @@ def validate_grouped_beat_contract(spec: Any, *, source_id: str) -> dict[str, An
         "start_state", "primary_action", "completion_state", "contact_point",
         "motion_direction", "physical_causality",
     ):
+        # Explicitly non-interacting beats (e.g. speaking or opening eyes)
+        # have no contact point. Missing mode retains the legacy requirement.
+        if field == "contact_point" and action.get("interaction_mode") == "NONE":
+            if action.get("contact_point"):
+                raise ValueError(f"{source_id} NONE_INTERACTION_WITH_CONTACT_POINT")
+            continue
         _text(action, field, f"{source_id} action.{field}")
 
     performance = spec.get("performance")

@@ -412,15 +412,24 @@ def provider_state_lock_text(plan: dict[str, Any], *, language: str) -> str:
     environment_text = ", ".join(f"{field}={environment.get(field)}" for field in ENVIRONMENT_STATE_FIELDS)
     boundary = str(decision.get("boundary_class") or "UNDECLARED")
     camera_mode = str((decision.get("camera_transition") or {}).get("mode") or "UNDECLARED")
+    role_state_rows = [
+        f"{row.get('shot_id')}:{(row.get('entity_names') or {}).get(cid, cid)}={state}"
+        for row in plan.get("role_bindings") or []
+        for cid, state in (row.get("entity_states") or {}).items()
+    ]
+    # An empty migrated ledger is not evidence of an empty frame. Explicit
+    # per-role states remain shot-scoped; do not flatten them into unit-wide poses.
+    empty_label_zh = "人物状态见逐镜角色条款，不表示无人入画" if role_state_rows else "人物状态未提供"
+    empty_label_en = "character states are shot-scoped in role bindings" if role_state_rows else "character states not supplied"
     if language.upper() == "ZH":
         return (
             f"边界类型={boundary}，镜头衔接={camera_mode}；人物持续状态="
-            + ("；".join(character_rows) or "无人物，但已声明原因")
+            + ("；".join(character_rows) or empty_label_zh)
             + f"；环境持续状态={environment_text}；换镜头不得解除上述状态，只有合同内具名授权并在画面中完成的变化才允许发生"
         )
     return (
         f"boundary={boundary}; camera_transition={camera_mode}; persistent_characters="
-        + ("; ".join(character_rows) or "none with declared reason")
+        + ("; ".join(character_rows) or empty_label_en)
         + f"; persistent_environment={environment_text}; a camera cut never resets these states; "
           "only named, source-authorized changes visibly staged on screen may alter them"
     )
@@ -459,13 +468,13 @@ def provider_shot_state_lock_texts(plan: dict[str, Any], *, language: str) -> li
         camera = row.get("camera_state") or {}
         camera_text = ", ".join(f"{key}={camera.get(key)}" for key in CAMERA_STATE_FIELDS)
         if language.upper() == "ZH":
-            state_delta = "；".join(characters) if characters else "无授权人物状态变化，全部继承单元硬合同"
-            environment_delta = ", ".join(env_delta) if env_delta else "无授权环境状态变化，全部继承单元硬合同"
+            state_delta = "；".join(characters) if characters else "持久身份及连续性字段继承单元合同；本镜已声明的动作与表演照常执行"
+            environment_delta = ", ".join(env_delta) if env_delta else "本字段未另列环境变化；继承单元硬合同，并执行本拍动作明确声明的环境结果，不增加其他变化"
             result.append(
                 f"{shot_id}：人物状态={state_delta}；环境状态={environment_delta}；摄影状态={camera_text}"
             )
         else:
-            state_delta = " ; ".join(characters) if characters else "no authorized character-state change; inherit the unit contract"
+            state_delta = " ; ".join(characters) if characters else "inherit persistent identity and continuity fields; execute this shot's declared action and performance"
             environment_delta = ", ".join(env_delta) if env_delta else "no authorized environment-state change; inherit the unit contract"
             result.append(
                 f"{shot_id}: character state={state_delta}; environment state={environment_delta}; camera state={camera_text}"

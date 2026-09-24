@@ -57,6 +57,24 @@ def valid_spec():
 
 
 class GroupedPerformanceContractTest(unittest.TestCase):
+    def test_explicit_solo_action_does_not_require_invented_contact(self):
+        spec = valid_spec()
+        spec['action']['interaction_mode'] = 'NONE'
+        spec['action']['contact_point'] = ''
+        validate_grouped_beat_contract(spec, source_id='S1')
+
+    def test_none_mode_with_contact_is_conflict(self):
+        spec = valid_spec()
+        spec['action']['interaction_mode'] = 'NONE'
+        with self.assertRaisesRegex(ValueError, 'NONE_INTERACTION_WITH_CONTACT_POINT'):
+            validate_grouped_beat_contract(spec, source_id='S1')
+
+    def test_undeclared_mode_still_requires_contact(self):
+        spec = valid_spec()
+        spec['action']['contact_point'] = ''
+        with self.assertRaisesRegex(ValueError, 'contact_point'):
+            validate_grouped_beat_contract(spec, source_id='S1')
+
     def test_accepts_and_compiles_complete_performance_contract(self):
         spec = valid_spec()
         validate_grouped_beat_contract(spec, source_id="S1")

@@ -94,15 +94,29 @@ def _role_line(row: dict[str, Any]) -> str:
     speaker = str(row.get("dialogue_speaker") or "")
     listener = str(row.get("dialogue_listener") or "")
     patient = str(row.get("action_patient") or "")
-    pieces = [f"{row.get('shot_id') or '本拍'}：{actor}是唯一动作执行者"]
+    silent_id = str(row.get('silent_visual_speaker_id') or '')
+    silent_name = (row.get('entity_names') or {}).get(silent_id)
+    if silent_id and (not silent_name or speaker):
+        raise ValueError('SILENT_VISUAL_SPEECH_BINDING_CONFLICT')
+    pieces = [f"{row.get('shot_id') or '本拍'}：{actor}执行本拍主动作；其余人物仅执行各自明确声明的动作与反应"]
     if patient:
         pieces.append(f"{patient}是唯一动作承受者")
     if speaker:
         pieces.append(f"只有{speaker}开口")
-        pieces.append(f"{listener}闭口聆听" if listener else "这是自语，无人接话")
+        declared_names = set((row.get("entity_names") or {}).values())
+        if listener and (not row.get("entity_names") or listener in declared_names):
+            pieces.append(f"{listener}闭口聆听")
+        else:
+            pieces.append("其余已声明人物不代说对白，不因听者称呼增加入画人物")
+    elif silent_id:
+        pieces.append(f"只有{silent_name}呈现口述的可见嘴部动作；本拍是无可辨人声的视觉蒙太奇，不生成、不重复任何对白；其余人物闭口")
     else:
-        pieces.append("所有人物闭口")
+        pieces.append("本拍无对白，不生成可辨人声；嘴部仅随已声明的非对白动作活动")
     pieces.append("不得交换人物、肢体、武器、动作或声音")
+    for cid, state in (row.get("entity_states") or {}).items():
+        name = (row.get("entity_names") or {}).get(cid, cid)
+        visibility = (row.get("entity_face_visibility") or {}).get(cid) or (row.get("entity_presence") or {}).get(cid)
+        pieces.append(f"{name}的独立状态：{state}" + (f"；入画约束={visibility}" if visibility else ""))
     return "，".join(pieces) + "。"
 
 
@@ -123,10 +137,41 @@ def _vc_prompt_block_for_unit(unit: dict[str, Any]) -> str:
     return visual_culture_prompt_block(unit.get("visual_culture_contract"))
 
 
+def scoped_transition_text(plan: dict[str, Any]) -> dict[str, str]:
+    """Keep neighbouring-shot action text out of this provider request.
+
+    Full bridges remain in the machine contract. Rendering their two sides as
+    an instruction to 'complete' the bridge leaks a successor's performance.
+    """
+    original = plan.get("transition") or {}
+    beats = plan.get("beats") or []
+    result = {}
+    for side, index, field in (("incoming", 0, "entry_state"), ("outgoing", -1, "exit_state")):
+        if not original.get(side):
+            continue
+        state = str(beats[index].get(field) or "").strip() if beats else ""
+        if not state:
+            raise ValueError(f"TRANSITION_LOCAL_ENDPOINT_MISSING:{plan.get('unit_id')}:{side}")
+        result[side] = state
+    return result
+
+
+def scoped_camera_prompt(plan: dict[str, Any]) -> str:
+    uid = str(plan['unit_id'])
+    if plan.get('camera_scope_policy') != 'PER_SHOT_EXPLICIT':
+        return compile_camera_prompt(plan.get('camera_plan'), source_id=uid)
+    cameras = plan.get('per_shot_camera_plans') or []
+    beats = plan.get('beats') or []
+    if not cameras or len(cameras) != len(beats):
+        raise ValueError(f'PER_SHOT_CAMERA_BEAT_COUNT_MISMATCH:{uid}')
+    from tools.sd2_shot_camera_adapter import render_shot_cameras
+    return '按时间轴逐拍执行各自机位，不将任一拍的运镜扩展到整段。\n' + render_shot_cameras(cameras)
+
+
 def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     uid = str(plan["unit_id"])
-    camera = compile_camera_prompt(plan.get("camera_plan"), source_id=uid)
-    transition = plan.get("transition") or {}
+    camera = scoped_camera_prompt(plan)
+    transition = scoped_transition_text(plan)
     timeline = []
     content_window = content_window_clause(plan)
     if content_window:
@@ -174,6 +219,7 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
             + "；该原型只翻译既有Action-IR，不新增招式、命中、伤势、效果、胜负或剧情结果"
         )
         negatives.extend(wuxia_profile.get("negative_constraints_zh") or [])
+    reroll_directive = str(unit.get("reroll_performance_directive") or plan.get("reroll_performance_directive") or "").strip()
     text = "\n".join([
         f"【任务】{plan['duration_seconds']:g}秒，9:16，{unit.get('resolution') or '720p'}，seedance-2.0-pro，真人实拍电影质感。",
         f"【锚点】{plan['identity_prop_fact']}；{plan['space_weather_fact']}。",
@@ -187,6 +233,7 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         *(["【连续事件硬合同】" + state_lock + "。"] if state_lock else []),
         *(["【逐镜状态与机位硬合同】\n" + "\n".join(shot_state_locks)] if shot_state_locks else []),
         "【角色】\n" + "\n".join(role_rows),
+        *( ["【失败后全量表演重写】" + reroll_directive + "；只改变本次重试的动作节拍、可见运动和对白演绎，不改变身份、服装、地图、天气、镜头类型、时长或对白文字。"] if reroll_directive else [] ),
         "【时间轴】\n" + "\n".join(timeline),
         "【摄影】" + camera,
         "【环境】" + (environment or "背景与群众只按剧情因果保持真实微动，不得冻结成静态图") + "。",
@@ -222,6 +269,8 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         clause_evidence["TRANSITION.INCOMING"] = transition["incoming"]
     if transition.get("outgoing"):
         clause_evidence["TRANSITION.OUTGOING"] = transition["outgoing"]
+    if reroll_directive:
+        clause_evidence["REROLL.PERFORMANCE_REWRITE"] = reroll_directive
     for index, beat in enumerate(action_beats, 1):
         prefix = f"BEAT.{index}"
         pace = delivery_clause(beat)

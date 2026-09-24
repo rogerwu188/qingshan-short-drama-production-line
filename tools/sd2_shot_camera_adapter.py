@@ -16,6 +16,8 @@ def compile_shot_cameras(unit, unit_class):
     if not ids or not all(ids) or len(set(ids)) != len(ids):
         raise ValueError('SHOT_CAMERA_IDS_INVALID')
     rows = []
+    origin = (float((specs[0].get('action') or {}).get('t0_seconds', 0))
+              if unit.get('camera_time_coordinate') == 'EPISODE' else 0.0)
     for spec in specs:
         plan, receipt = select_camera_language(
             deepcopy(spec.get('camera_plan') or {}), unit_class=unit_class,
@@ -23,6 +25,8 @@ def compile_shot_cameras(unit, unit_class):
         clause = compile_camera_prompt(plan, source_id=spec['shot_id'])
         action = spec.get('action') or {}
         start, end = action.get('t0_seconds'), action.get('t1_seconds')
+        if start is not None and end is not None:
+            start, end = round(float(start) - origin, 6), round(float(end) - origin, 6)
         if start is None or end is None or not 0 <= start < end <= unit['duration_seconds']:
             raise ValueError('SHOT_CAMERA_TIME_INVALID:' + spec['shot_id'])
         rows.append({'shot_id': spec['shot_id'], 'start_seconds': start,

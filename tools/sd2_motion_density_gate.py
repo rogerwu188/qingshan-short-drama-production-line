@@ -243,8 +243,15 @@ def validate_execution_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 report["status"] = "PASS" if not report["failures"] else "FAIL"
         reports.append(report)
         failures.extend(report["failures"])
-    if abs(cursor - duration) > 0.02:
-        failures.append(f"EXECUTION_DURATION_MISMATCH:{unit_id}:{cursor}!={duration}")
+    authority = plan.get('duration_authority') or {}
+    content_end = authority.get('action_timeline_seconds', duration)
+    if not isinstance(content_end, (int, float)) or not 0 < content_end <= duration:
+        failures.append(f"EXECUTION_CONTENT_WINDOW_INVALID:{unit_id}")
+    else:
+        if 'action_timeline_seconds' in authority and abs(content_end - float(authority.get('authorized_content_seconds', content_end))) > 0.02:
+            failures.append(f"EXECUTION_CONTENT_AUTHORITY_MISMATCH:{unit_id}")
+        if abs(cursor - content_end) > 0.02:
+            failures.append(f"EXECUTION_DURATION_MISMATCH:{unit_id}:{cursor}!={content_end}")
     return {
         "schema": POLICY_VERSION,
         "status": "PASS" if not failures else "FAIL",

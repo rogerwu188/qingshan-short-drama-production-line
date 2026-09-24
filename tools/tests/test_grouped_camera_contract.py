@@ -20,6 +20,27 @@ def track(direction="LEFT_TO_RIGHT"):
 
 
 class GroupedCameraContractTest(unittest.TestCase):
+    def test_episode_camera_times_are_rebased_without_stretch_or_mutation(self):
+        from tools.sd2_shot_camera_adapter import compile_shot_cameras
+        from tools.sd2_provider_prompt_renderer import scoped_camera_prompt
+        unit = {'unit_id': 'U1', 'model': 'seedance-2.0-pro', 'duration_seconds': 5,
+                'camera_scope_policy': 'PER_SHOT_EXPLICIT', 'camera_time_coordinate': 'EPISODE',
+                'ordered_prompt_specs': [
+                    {'shot_id': 'S1', 'camera_plan': track(),
+                     'action': {'t0_seconds': 31.6, 't1_seconds': 34.0}},
+                    {'shot_id': 'S2', 'camera_plan': track('RIGHT_TO_LEFT'),
+                     'action': {'t0_seconds': 34.0, 't1_seconds': 36.2}}]}
+        before = copy.deepcopy(unit)
+        rows = compile_shot_cameras(unit, 'DIALOGUE')
+        self.assertEqual(unit, before)
+        self.assertEqual([(r['start_seconds'], r['end_seconds']) for r in rows], [(0, 2.4), (2.4, 4.6)])
+        prompt = scoped_camera_prompt({'unit_id': 'U1', 'camera_scope_policy': 'PER_SHOT_EXPLICIT',
+                                       'per_shot_camera_plans': rows, 'beats': [{}, {}]})
+        self.assertIn('仅分镜S1（0–2.4秒）', prompt)
+        self.assertIn('仅分镜S2（2.4–4.6秒）', prompt)
+        self.assertIn('左向右', prompt)
+        self.assertIn('右向左', prompt)
+
     def test_per_shot_camera_sequence_uses_actual_order_without_unit_camera(self):
         unit = {"unit_id":"U1", "model":"seedance-2.0-pro", "duration_seconds":4,
                 "camera_scope_policy":"PER_SHOT_EXPLICIT", "ordered_prompt_specs":[
@@ -39,7 +60,8 @@ class GroupedCameraContractTest(unittest.TestCase):
 
     def test_paid_projection_preserves_source_camera_and_timing_policy(self):
         from tools.submit_giggle_video_manifest_v2 import grouped_sequence_unit
-        source={'camera_scope_policy':'PER_SHOT_EXPLICIT',
+        source={'camera_scope_policy':'PER_SHOT_EXPLICIT', 'camera_time_coordinate':'EPISODE',
+                'camera_plan': {},
                 'timeline_policy':'PRESERVE_AUTHORED_NO_STRETCH'}
         task={'machine_contract':source}
         projected=grouped_sequence_unit(task)
