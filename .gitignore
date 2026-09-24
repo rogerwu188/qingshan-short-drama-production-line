@@ -93,5 +93,13 @@
 !/configs/pipeline.example.json
 !/configs/storyclaw_nalu_config.example.json
 !/lines/
+# Per-episode one-off scripts, generated registries and local working
+# media inside a line's runtime tree are local production state, not
+# generalized code — never uploaded (see AGENTS.md S7-SYNC).
+lines/*/runtime/budget/
+lines/*/working_assets/
+lines/*/runtime/tools/review_fill/e[0-9][0-9]_fill_*.py
+lines/*/runtime/*_character_asset_registry.json
+tools/build_e[0-9][0-9]_reroll*.py
 !/deploy/
 !/deploy/**
