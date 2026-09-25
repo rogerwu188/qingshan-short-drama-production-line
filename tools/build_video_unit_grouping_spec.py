@@ -69,19 +69,65 @@ def _dialogue_speaker(shot: dict[str, Any]) -> str:
     return speaker.strip()
 
 
+def _group_camera_direction(group: list[dict[str, Any]]) -> str | None:
+    """Predict the motion_direction derive_camera_plan will assign this group,
+    without running full semantic derivation.
+
+    Only a director-authored explicit camera_plan on the first shot is
+    predictable here (derive_camera_plan returns it verbatim). A group whose
+    first shot has no explicit camera_plan returns None: semantic derivation
+    decides later and already alternates its own choice against
+    previous_dynamic_direction, so it needs no additional grouping-time
+    accounting.
+    """
+    explicit = (group[0].get("prompt_spec") or {}).get("camera_plan")
+    if not explicit:
+        return None
+    direction = str(explicit.get("motion_direction") or "")
+    return direction if direction and direction != "NONE" else None
+
+
 def partition_scene(
-    shots: list[dict[str, Any]], *, model: str | None = None
+    shots: list[dict[str, Any]], *, model: str | None = None,
+    recent_directions: list[str] | None = None,
 ) -> list[list[dict[str, Any]]]:
-    """Partition by duration, continuity, and native-dialogue isolation.
+    """Partition by duration, continuity, native-dialogue isolation, and camera rhythm.
 
     MiniMax-H3 speaker changes are hard paid-task boundaries. Its image,
     speaker and audio references have independent ordinal namespaces, so one
     H3 task must never ask the provider to switch the speaking identity. SD2
     retains its existing grouping behavior.
+
+    ``recent_directions`` carries the trailing (up to 4) director-authored
+    motion_direction values already placed by earlier scenes in this episode,
+    so a scene boundary does not reset camera-rhythm accounting. A candidate
+    group whose predicted direction (see _group_camera_direction) would
+    repeat the immediately preceding direction, or would make any direction
+    appear more than twice within its trailing 5-unit window, is rejected —
+    mirroring tools/grouped_camera_contract.validate_camera_sequence exactly,
+    but at grouping time instead of as a late validation failure.
+
+    Camera rhythm is a preference, never a reason a scene fails to partition:
+    if no duration-valid partition also satisfies it, this retries once with
+    the camera constraint dropped, so duration/beat/dialogue feasibility
+    (the pre-existing hard requirements) always wins.
     """
+    try:
+        return _partition_scene(shots, model=model, recent_directions=recent_directions,
+                                enforce_camera=True)
+    except ValueError:
+        return _partition_scene(shots, model=model, recent_directions=recent_directions,
+                                enforce_camera=False)
+
+
+def _partition_scene(
+    shots: list[dict[str, Any]], *, model: str | None, recent_directions: list[str] | None,
+    enforce_camera: bool,
+) -> list[list[dict[str, Any]]]:
     count = len(shots)
-    best: list[tuple[float, list[list[dict[str, Any]]]] | None] = [None] * (count + 1)
-    best[0] = (0.0, [])
+    seed_tail = list(recent_directions or [])[-4:]
+    best: list[tuple[float, list[list[dict[str, Any]]], list[str]] | None] = [None] * (count + 1)
+    best[0] = (0.0, [], seed_tail)
     h3 = str(model or "").strip().lower() in {"minimax-h3", "h3"}
     for end in range(1, count + 1):
         duration = 0.0
@@ -112,9 +158,21 @@ def partition_scene(
             if best[start] is None:
                 continue
             cost = duration_cost(duration)
-            if cost >= 1000 and not (start == 0 and end == count):
+            whole_scene = start == 0 and end == count
+            if cost >= 1000 and not whole_scene:
                 continue
-            candidate = (best[start][0] + cost, best[start][1] + [shots[start:end]])
+            candidate_group = shots[start:end]
+            direction = _group_camera_direction(candidate_group) if enforce_camera else None
+            tail = best[start][2]
+            new_tail = tail
+            if direction:
+                window = (tail + [direction])[-5:]
+                repeats_previous = bool(tail) and tail[-1] == direction
+                over_window = window.count(direction) > 2
+                if (repeats_previous or over_window) and not whole_scene:
+                    continue
+                new_tail = (tail + [direction])[-4:]
+            candidate = (best[start][0] + cost, best[start][1] + [candidate_group], new_tail)
             if best[end] is None or candidate[0] < best[end][0]:
                 best[end] = candidate
     if best[count] is None:
@@ -253,13 +311,20 @@ def build(manifest: dict[str, Any], source_sha: str) -> tuple[dict[str, Any], di
     if not shots:
         raise ValueError("manifest has no editorial shots")
     groups: list[list[dict[str, Any]]] = []
+    recent_directions: list[str] = []
     start = 0
     while start < len(shots):
         key = scene_key(shots[start])
         end = start + 1
         while end < len(shots) and scene_key(shots[end]) == key:
             end += 1
-        groups.extend(partition_scene(shots[start:end], model=manifest.get("model")))
+        scene_groups = partition_scene(shots[start:end], model=manifest.get("model"),
+                                       recent_directions=recent_directions)
+        for group in scene_groups:
+            direction = _group_camera_direction(group)
+            if direction:
+                recent_directions = (recent_directions + [direction])[-4:]
+        groups.extend(scene_groups)
         start = end
 
     episode = str(manifest.get("episode") or "")
