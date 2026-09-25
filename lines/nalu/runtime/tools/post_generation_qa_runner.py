@@ -1192,7 +1192,7 @@ def apply_roger_postgen_acceptance(episode: str, rows: list[dict[str, Any]],
         detectors = sorted({_acceptance_detector(unit_id, reason) for reason in row.get("reasons") or []})
         order = (_rga.find_acceptance(
             orders, episode=episode, gate_id=POSTGEN_GATE_ID,
-            failing=detectors, media_sha256=media_sha,
+            failing=detectors, media_sha256=media_sha, media_item_id=unit_id,
             expected_issuer=str(os.environ.get("NALU_LINE_OWNER_ID") or "Roger"),
             engine_root=ENGINE) if detectors else None)
         dec = ((order or {}).get("decision") or {})
@@ -1202,7 +1202,7 @@ def apply_roger_postgen_acceptance(episode: str, rows: list[dict[str, Any]],
             continue
         record = _rga.acceptance_record(
             order, episode=episode, gate_id=POSTGEN_GATE_ID, failing=detectors,
-            media_sha256=media_sha,
+            media_sha256=media_sha, media_item_id=unit_id,
             gate_result_path=str(postgen_dir / unit_id / f"{unit_id}_POST_GENERATION_QA.json"))
         record.update({"unit_id": unit_id, "engine_verdict": "REJECT",
                        "engine_reasons": list(row.get("reasons") or [])})
