@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1960,
+  "file_count": 1967,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -216,8 +216,12 @@
       "sha256": "23af3e4be699f125e925fa90af3f470cc671b15b0528d9fbe9b6531ad25c9c96"
     },
     {
+      "path": "configs/DIRECTION_POLICY_V1.json",
+      "sha256": "c4158c23ed63bf327db291083d89a7fcb88e78e323350496ff60ce6283e1308e"
+    },
+    {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "aac881ef3a43b95eda26a90598cd5841156ec35dc6b27ec51cf10dc4eab457d4"
+      "sha256": "934f9ac1b8fe2a6a9517e9d52e3fe8090a8c7d90292d1a86af373cdf557ef6e6"
     },
     {
       "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
@@ -237,7 +241,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "55171c0d1ecfa18d9790df06532249bbc7075c6bbfb92897a782ee609c2333f0"
+      "sha256": "506bed1d5346017b70da28a76e28ce0f9d18e6d96ccca708dbf7c200f98857f2"
     },
     {
       "path": "configs/VIDEO_MODEL_CAPABILITY_REGISTRY_v1.json",
@@ -281,7 +285,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "cf3694f8f509a4195b7df7420b784a9f3b932adf39e689740fea0133e0a4ac3f"
+      "sha256": "d49fa6b64b5952449c3b8c77335404114a2237565f22c238806a461b547a72cb"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -606,6 +610,10 @@
     {
       "path": "tools/audience_score_gate.py",
       "sha256": "8094011bf934bd9de7f121a9d23555ab04fccdcb48de1157d4b693da306bca99"
+    },
+    {
+      "path": "tools/audio_cut_overlap.py",
+      "sha256": "0c0de1330445929fd066cd1ea3c91f4d464664a18ab5949effc31f50a65e3f31"
     },
     {
       "path": "tools/audio_postproduction_contract.py",
@@ -3316,6 +3324,10 @@
       "sha256": "85a8daf47c1af64cd0fead4b09e9b34883ce0a7aaa425ec6e18ee838806e93ba"
     },
     {
+      "path": "tools/direction_policy_gate.py",
+      "sha256": "cbf7088f39c66d5963416202d44c227f0726ff968427d9aa2905567603e77d94"
+    },
+    {
       "path": "tools/dramatic_quality_gate.py",
       "sha256": "d04bf9f4f446008462ba78558dc7f54038d3fe69953ee01018e6befd9cae1dbc"
     },
@@ -5589,7 +5601,7 @@
     },
     {
       "path": "tools/sd2_provider_prompt_renderer.py",
-      "sha256": "62281b004c1b9f88cf410bd2688a3fc1489cebf1afae1a19fa868dd21026bea9"
+      "sha256": "db1872ef44a381799372ec7a8b9f7ae25db491ad1be54dc383c0f68658195e24"
     },
     {
       "path": "tools/sd2_required_prompt_field_gate.py",
@@ -5650,6 +5662,10 @@
     {
       "path": "tools/stage_e36_v23_platform_payload.py",
       "sha256": "d2205e9f60b77c7abbaa4d8208f1539511b267b9ac1f51b6437d228e20f3ee76"
+    },
+    {
+      "path": "tools/stage_time_ledger.py",
+      "sha256": "8f37e575c306b776c223885afc5d49d52c83ce4f4f519552b3c04c4d8fe39b9c"
     },
     {
       "path": "tools/still_image_ocr_audit.py",
@@ -6064,6 +6080,10 @@
       "sha256": "ca8fa257f9bd43a7df475ddf68829dd0f8910a92d02c574d2144c0c3b6778dfe"
     },
     {
+      "path": "tools/tests/test_audio_cut_overlap.py",
+      "sha256": "db098efc314228a9dd9e02e57d839b151bbfcb3b54ab04a6d0c587a8963d952b"
+    },
+    {
       "path": "tools/tests/test_audio_postproduction_contract.py",
       "sha256": "f7e64a8a79ace57a5c6b0523c8eb39918145595f99e4ba5ad7046c39cbfbc481"
     },
@@ -6390,6 +6410,10 @@
     {
       "path": "tools/tests/test_dialogue_voice_metrics.py",
       "sha256": "ad98acff24dc41d04ca2f7e714d60af64b972cadad60cd774a376886b616ac71"
+    },
+    {
+      "path": "tools/tests/test_direction_policy_gate.py",
+      "sha256": "a54743cb693018266056d750bc64c76fe34adb1c5ee0db91423a622c520c4408"
     },
     {
       "path": "tools/tests/test_dramatic_quality_gate.py",
@@ -7238,6 +7262,10 @@
     {
       "path": "tools/tests/test_speech_density_gate.py",
       "sha256": "f2fe907f5452052e8230b199ec8c1687dc4bebfb940b8fa1d07e450b429e7905"
+    },
+    {
+      "path": "tools/tests/test_stage_time_ledger.py",
+      "sha256": "d0c1e9dc32d182829b1c330a7919c7786798c17a134fae59fcf0d99de8211338"
     },
     {
       "path": "tools/tests/test_state_lock_action_scope.py",

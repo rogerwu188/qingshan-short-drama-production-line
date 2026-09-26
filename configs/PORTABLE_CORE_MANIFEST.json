@@ -258,6 +258,9 @@
     "tools.tests.test_storyclaw_writer_workflow",
     "tools.tests.test_storyclaw_release_validation",
     "tools.tests.test_storyclaw_dependency_bundle",
-    "tools.tests.test_storyclaw_registry_clean_install_smoke"
+    "tools.tests.test_storyclaw_registry_clean_install_smoke",
+    "tools.tests.test_direction_policy_gate",
+    "tools.tests.test_stage_time_ledger",
+    "tools.tests.test_audio_cut_overlap"
   ]
 }

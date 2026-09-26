@@ -46,6 +46,9 @@ import nalu_media_tools as _media
 import nalu_policy_profile as _policy
 import roger_gate_acceptance as _rga
 import nalu_tail_ad_opt_in as _tail_ad_optin
+if str(_np.ENGINE_ROOT / "tools") not in _sys.path:
+    _sys.path.insert(0, str(_np.ENGINE_ROOT / "tools"))
+import stage_time_ledger as _time_ledger
 
 import argparse
 import copy
@@ -5715,11 +5718,25 @@ def run_episode(ctx: Ctx) -> int:
                        if key != "stdout_tail" or len(str(value)) < 2000}
                       for step in result.steps],
         })
+        # Time/credit ledger (Roger 2026-09-25 §六, effective E09): one append-only event
+        # per stage terminal status, reactive to what the loop already knows — no new timer.
+        ledger_event = _time_ledger.append_event(
+            episode=ctx.episode, stage=sid, status=result.status,
+            started_at=row.get("started_at"), finished_at=row.get("finished_at"),
+            credits=result.planned_credits, attempt=row.get("attempts") or 1,
+            steps=result.steps, work_root=NALU_WORK,
+        )
+        ctx.state["time_ledger_cumulative"] = {
+            "episode_cumulative_seconds": ledger_event["episode_cumulative_seconds"],
+            "episode_cumulative_credits": ledger_event["episode_cumulative_credits"],
+            "ledger_path": str(_time_ledger.ledger_path(ctx.episode, work_root=NALU_WORK)),
+        }
         ctx.state["current_stage"] = sid
         ctx.state["credits"] = credits_summary(ctx)
         ctx.save_state()
         ctx.say(f"   {sid} => {result.status}"
-                + (f"   blockers: {', '.join(result.blockers)}" if result.blockers else ""))
+                + (f"   blockers: {', '.join(result.blockers)}" if result.blockers else "")
+                + f"   [{ledger_event['wall_seconds']:g}s, cum {ledger_event['episode_cumulative_seconds']:g}s]")
 
         if result.status == HARD_STOP:
             ctx.say("!! budget HARD_STOP — stopping the run.  Nothing was submitted.")
@@ -5869,6 +5886,23 @@ def print_status(ctx: Ctx) -> None:
               + ", ".join(str(row.get("id")) for row in blocking))
         print("  detail: see PIPELINE_RUNBOOK.md and the state file's open_decisions[]")
     print()
+    cumulative = state.get("time_ledger_cumulative")
+    if cumulative:
+        print(f"time ledger        : {cumulative.get('ledger_path')}")
+        print(f"  cumulative       : {cumulative.get('episode_cumulative_seconds'):g}s"
+              f"  {cumulative.get('episode_cumulative_credits')} credits")
+        summary = _time_ledger.episode_summary(ctx.episode, work_root=NALU_WORK)
+        if summary.get("stages"):
+            print(f"  {'stage':6} {'seconds':>8}  {'compute':>8} {'remote':>8} {'human':>8} {'idle':>8}")
+            for stage_id in STAGE_IDS:
+                ev = summary["stages"].get(stage_id)
+                if not ev:
+                    continue
+                b = ev.get("breakdown") or {}
+                print(f"  {stage_id:6} {ev.get('wall_seconds', 0):>8g}  "
+                      f"{b.get('compute', 0):>8g} {b.get('remote_wait', 0):>8g} "
+                      f"{b.get('human_wait', 0):>8g} {b.get('idle', 0):>8g}")
+        print()
 
 
 def cmd_status(args: argparse.Namespace) -> int:

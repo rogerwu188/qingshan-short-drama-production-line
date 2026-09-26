@@ -227,6 +227,14 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         )
         negatives.extend(wuxia_profile.get("negative_constraints_zh") or [])
     reroll_directive = str(unit.get("reroll_performance_directive") or plan.get("reroll_performance_directive") or "").strip()
+    # W2 (Roger 2026-09-25 §一, codex_docs/ROGER-20260925-NALU-LINE-OPTIMIZATION.md):
+    # 脸要亮 — a motivated light source, injected the same way as the other optional
+    # clauses above (state_lock/shot_state_locks/reroll_directive). ``lighting_motivation`` is an
+    # optional plan field; populating it from each shot's GENERATION_CONTRACT ``lighting`` field is
+    # the grouping/compile step's job (compile_grouped_seedance_manifest.py or its neighbours),
+    # not this renderer's — that threading is INTEGRATION_PENDING as of this change, so an
+    # absent field here is silently a no-op, never a failure.
+    lighting_motivation = str(plan.get("lighting_motivation") or "").strip()
     text = "\n".join([
         f"【任务】{plan['duration_seconds']:g}秒，9:16，{unit.get('resolution') or '720p'}，seedance-2.0-pro，真人实拍电影质感。",
         f"【锚点】{plan['identity_prop_fact']}；{plan['space_weather_fact']}。",
@@ -244,6 +252,7 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         "【时间轴】\n" + "\n".join(timeline),
         "【摄影】" + camera,
         "【环境】" + (environment or "背景与群众只按剧情因果保持真实微动，不得冻结成静态图") + "。",
+        *(["【光效】" + lighting_motivation + "，人物面部受光可见。"] if lighting_motivation else []),
         "【声音】" + sound + (f"；{voices}" if voices else "") + "；禁止外加默认BGM，除非结构化音频模式明确绑定。",
         "【物理】" + "；".join(physical_rules) + "。" if physical_rules else "【物理】按时间轴完成真实动作因果。",
         "【限制】" + "；".join(dict.fromkeys(value.strip().rstrip("。；") for value in negatives if value.strip())) + "。",
@@ -264,6 +273,8 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         clause_evidence["CONTINUITY.PERSISTENT_STATE"] = state_lock
     if content_window:
         clause_evidence["PACING.CONTENT_WINDOW"] = content_window
+    if lighting_motivation:
+        clause_evidence["LIGHTING.MOTIVATED_SOURCE"] = lighting_motivation
     for index, value in enumerate(shot_state_locks, 1):
         clause_evidence[f"CONTINUITY.SHOT_STATE.{index}"] = value
     if plan.get("interaction_topology_required"):

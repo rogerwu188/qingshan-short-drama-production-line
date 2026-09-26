@@ -1,0 +1,99 @@
+{
+  "schema": "qingshan.direction_policy.v1",
+  "version": "1",
+  "authority": "Roger 2026-09-25, codex_docs/ROGER-20260925-NALU-LINE-OPTIMIZATION.md — 生效 E09 起",
+  "numbering_note": "This doc's rules are R1-R8/W1-W2. They are stored here as DP1-DP8/W1-W2 because tools/static_design_gate.py already owns R1-R8 for a different (camera/pacing) rule set, and lines/nalu/runtime/tools/nalu_writer_selfcheck_seq29.py already owns R5A-R9B for a third. doc_ref below is the original R-number for traceability.",
+  "missing_file_behavior": "A deployment with no DIRECTION_POLICY_V1.json gets an empty policy from every loader (see tools/reroll_cost_guard.py / lines/nalu/runtime/tools/nalu_tail_ad_opt_in.py's read_json convention) — every DPn/Wn check below then no-ops. A contract without direction_policy.enforced=true also only reports, never blocks (mirrors nalu_writer_selfcheck_seq29.py's own enforced gate).",
+  "rules": {
+    "DP1_shot_scale_distribution": {
+      "enabled": true,
+      "doc_ref": "R1",
+      "status": "NEW",
+      "shot_scale_enum": ["ECU", "CU", "MCU", "MS", "FS", "WS"],
+      "cu_mcu_min_episode_ratio": 0.55,
+      "ws_fs_max_episode_ratio": 0.20,
+      "ws_max_per_scene": 1,
+      "ws_must_be_scene_opening_shot": true,
+      "ws_fs_forbidden_on_dialogue_shots": true
+    },
+    "DP2_reaction_shot_floor": {
+      "enabled": true,
+      "doc_ref": "R2",
+      "status": "PARTIAL — shot-length-tracks-dialogue, HOLD_WORDS ban, and blocking_signature adjacency are already enforced per-episode in build_e0N_layers.py; only the episode-level <1s floor below is new",
+      "under_1s_shot_min_episode_ratio": 0.10,
+      "reaction_shot_seconds_range": [0.5, 1.0],
+      "reaction_shot_scale_allowed": ["CU", "MCU"],
+      "hold_words_banned": ["保持", "口型闭合", "静止", "定住"]
+    },
+    "DP3_dialogue_continuity": {
+      "enabled": true,
+      "doc_ref": "R3",
+      "status": "NEW — tightens the existing 5s/0.35 thresholds (nalu_writer_selfcheck_seq29.py R5C; build_e0N_layers.py's own dialogue-ratio assert) to Roger's explicit 3s/0.75",
+      "continuous_no_dialogue_seconds_max": 3.0,
+      "silence_reason_exceptions_max_per_episode": 2,
+      "silence_reason_seconds_max_each": 6.0,
+      "dialogue_time_ratio_min": 0.75,
+      "dialogue_time_ratio_basis": "measured from the shot table's own planned dialogue-shot seconds / total planned episode seconds — never from the rendered final cut",
+      "previous_thresholds_superseded": {"continuous_no_dialogue_seconds_max": 5.0, "dialogue_time_ratio_min": 0.35}
+    },
+    "DP4_performance_instruction": {
+      "enabled": true,
+      "doc_ref": "R4",
+      "status": "ALREADY_ENFORCED",
+      "implementation": "lines/nalu/runtime/tools/nalu_writer_selfcheck_seq29.py rules 7b (performance triad non-trivial) / 7c (closed emotion lexicon + no 3x-repeat-in-scene)",
+      "note": "No new code; direction_policy_gate.py only asserts this is still wired in each new episode's builder copy."
+    },
+    "DP5_speech_rate_no_literal_number": {
+      "enabled": true,
+      "doc_ref": "R5",
+      "status": "ALREADY_SATISFIED — confirmed by grep that tools/sd2_provider_prompt_renderer.py never injects a literal chars/sec figure into the model-facing prompt; the cps number lives only in contract metadata (dialogue_delivery) for post-gen ASR comparison, exactly as Roger's doc intends",
+      "audit_only": true,
+      "note": "direction_policy_gate.py keeps a regression guard scanning the compiled prompt text for a literal rate figure, so this can never silently regress."
+    },
+    "DP6_visible_key_actions": {
+      "enabled": true,
+      "doc_ref": "R6",
+      "status": "ALREADY_ENFORCED",
+      "implementation": "build_e0N_layers.py SETUPS/RESULT_OF setup-payoff visibility + dialogue action-word table",
+      "note": "No new code; direction_policy_gate.py only asserts this is still wired in each new episode's builder copy."
+    },
+    "DP7_pressure_source": {
+      "enabled": false,
+      "doc_ref": "R7",
+      "status": "ALREADY_IMPLEMENTED_2026-09-18_INERT_PENDING_AUTHORIZATION",
+      "implementation": "lines/nalu/runtime/tools/nalu_writer_selfcheck_seq29.py rule 8 (R8A pressure_source / R8B episode_payoff / R8C action_chain) — already checks these fields, but only emits RULE8_NOT_AUTHORISED_INFO warnings, never failures, unless the contract sets writer_selfcheck_seq29.rule8_authorized",
+      "authorization_note": "待线主决定是否授权压缩原著。未授权则不执行。字段只记录，从不强制。",
+      "narrative_fields": ["pressure_source", "episode_payoff", "action_chain"]
+    },
+    "DP8_identity_reference_sequence": {
+      "enabled": true,
+      "doc_ref": "R8",
+      "status": "ALREADY_IMPLEMENTED_2026-09-18",
+      "implementation": "lines/nalu/runtime/tools/build_keyframe_manifest.py — face-plate-first keyframe reference ordering + one frontal headshot per present character on every video unit (Roger 2026-09-18 'identity chain fixes ①-④')",
+      "note": "No new code; direction_policy_gate.py only asserts this is still wired for each new episode."
+    },
+    "W1_cut_point_audio_overlap": {
+      "enabled": false,
+      "doc_ref": "W1",
+      "status": "BUILT_NOT_WIRED_INTEGRATION_PENDING",
+      "crossfade_seconds": 0.08,
+      "implementation": "tools/audio_cut_overlap.py — pure filter-graph builder + ffmpeg-gated integration test, both verified",
+      "note": "Not called from lines/nalu/runtime/tools/nalu_pipeline.py's stage_s7 yet. The existing S7 assembly chain (render -> subtitle burn-in -> endcard -> selective BGM -> loudness leveling) has no verified insertion point for an audio-only crossfade without ffmpeg-level testing against a real rendered episode, and this session had no safe way to do that without risking every future episode's audio. Left off (enabled=false) until wired and verified on a real episode; flip to true only after that.",
+      "applies_to": "S7 total assembly — intended as a discrete audio-only post-pass after render_portable_timeline.py's validated hard concat; that shared tool's own no-transitions/no-effects rule must never be relaxed"
+    },
+    "W2_motivated_lighting": {
+      "enabled": true,
+      "doc_ref": "W2",
+      "status": "PARTIAL — renderer accepts and injects plan.lighting_motivation (tools/sd2_provider_prompt_renderer.py), verified; threading each shot's new `lighting` GENERATION_CONTRACT field through the grouping/compile step into plan.lighting_motivation is NOT done this pass — INTEGRATION_PENDING",
+      "shot_field": "lighting",
+      "prompt_clause_key": "LIGHTING.MOTIVATED_SOURCE",
+      "note": "Existing lighting field is scene-level free text only; this adds a shot-level motivated-source requirement + a compiled-prompt clause following the existing camera-phrase (_ZH table) idiom. The renderer's optional-field no-op means an absent lighting_motivation changes nothing for any existing episode."
+    }
+  },
+  "example": {
+    "episode": "E08",
+    "actual_measured": {"asl_seconds": 6.77, "cu_mcu_ratio": 0.40, "dialogue_time_ratio": 0.40},
+    "professional_reference_sample": {"asl_seconds": 2.15, "cu_mcu_ratio": 0.60, "dialogue_time_ratio": 0.85},
+    "note": "E08 predates this policy file and was produced before DP1-DP3/W1/W2 existed; these numbers are the gap this file exists to close, not a target this file re-measures against E08 itself."
+  }
+}

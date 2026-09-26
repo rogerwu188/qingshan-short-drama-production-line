@@ -166,3 +166,14 @@ git clone https://github.com/rogerwu188/nalu-production-runtime.git /tmp/npr && 
 - Mode B 顺序硬规则（demo 踩过的坑）：先出旁白测真实时长，再按时长定镜长喂给视频生成；CTA 网址只上字幕不念；spoken_chars 按 CJK 字符数，不按原始字符串长度。
 - MANUAL_REQUIRED：brief 撰写（idea/assets/brand_docs/cta）、AdForge `.env` 凭据（线主手填，代理不写密钥）。ADAPTER_REQUIRED：`~/adforge` 未部署或缺三处本地补丁（`.env` 读取、`project.json` 规格读取、`verify_media` 接受期望时长/比例）时 Mode B 不可用，Mode A 不受影响。
 
+## 11. 导演策略层（Direction Policy，生效 E09 起；codex_docs/ROGER-20260925-NALU-LINE-OPTIMIZATION.md）
+
+- **原则**：生成前保证优于生成后验收——凡付费 POST 之后才能检查的东西只记诊断、永不触发重做；凡要保证的东西必须在写手/S1/提示词层（零成本）保证。本层**不新增任何重做触发条件**。
+- **规则编号**：本文档的 R1–R8/W1/W2 在代码/配置里叫 **DP1–DP8/W1/W2**——`static_design_gate.py` 已占用 R1–R8（另一套摄影/节奏规则），`nalu_writer_selfcheck_seq29.py` 已占用 R5A–R9B（第三套），避免混淆。
+- **门**：`tools/direction_policy_gate.py`（S1，离线）读 `configs/DIRECTION_POLICY_V1.json`；缺配置文件 = 全部规则关闭，旧集行为不变；合同未声明 `direction_policy.enforced: true` 只报告不阻断（同 `nalu_writer_selfcheck_seq29.py` 的 `enforced` 惯例）。只实现真正新增的集级/聚合检查：**DP1** 景别分布（CU+MCU≥55%、WS+FS≤20%、每场至多 1 个 WS 且须为该场首镜、对白镜禁 WS/FS）；**DP2** 集级 <1s 镜头占比 ≥10%；**DP3** 连续无对白 ≤3s（超出须 `silence_reason`，每集 ≤2 处 ≤6s）+ 对白时长占比 ≥75%（按镜头表推导，不等成片）。
+- **DP4（表演指令）/DP6（关键动作可见）已实现**（`nalu_writer_selfcheck_seq29.py` 规则 7b/7c、`build_e0N_layers.py` 的 SETUPS/RESULT_OF）；**DP7（压力源）已实现但未授权**（`nalu_writer_selfcheck_seq29.py` 规则 8，仅在合同声明 `rule8_authorized` 时才阻断——待线主授权压缩原著）；**DP8（身份参考序列）已实现**（`build_keyframe_manifest.py`，Roger 2026-09-18「身份链条修复①–④」）；**DP5（语速不进提示词的数字）已在提示词层满足**（`tools/sd2_provider_prompt_renderer.py` 从不注入字/秒数字，`cps` 只留在合同 `dialogue_delivery` 供生成后 ASR 核实用），`direction_policy_gate.py` 只留 `scan_for_literal_rate_figure()` 做回归防线。
+- **W2（脸要亮）**：`tools/sd2_provider_prompt_renderer.py` 已能接收并注入 `plan.lighting_motivation`（【光效】句式，跟摄影句式同一惯例）；把每镜新增的 `lighting`（动机光源）字段从 GENERATION_CONTRACT 一路接到分组编译产出的 `plan` 里——**INTEGRATION_PENDING**，本轮未接通，缺字段时该句式静默不出现，不影响任何现有集。
+- **W1（切点声音交叠）**：`tools/audio_cut_overlap.py` 已建好并用真实 ffmpeg 集成测试验证（切点两侧对称音量下潜/回升，不改总时长、不动视频流）。**未接入** `nalu_pipeline.py` 的 S7 装配链——现有链（渲染→烧字幕→片尾→选择性配乐→响度）没有在真实成片上验证过插入点，本 session 没条件冒险验证，故 `DIRECTION_POLICY_V1.json` 里 `W1.enabled=false`；接通并在真实集上验证后再打开。
+- **时长/积分账本**（§六）：`tools/stage_time_ledger.py`，append-only 写 `workflow/nalu/<EP>/TIME_LEDGER.jsonl`，挂在 `nalu_pipeline.py` 的 `run_episode()` 阶段循环里每个阶段终态已知的那一行（不另设定时器；`SKIPPED_ALREADY_PASS` 不记事件）；`breakdown`（compute/remote_wait/human_wait/idle）是粗略近似（`compute` 恒 0，无法测；`human_wait` 取该阶段状态是否 `REVIEW_REQUIRED` 或含人工审核子步骤；`remote_wait` 取该阶段是否跑过付费步骤；其余算 `idle`），如实标注不是精确拆分。`print_status()` 末尾打印累计秒数/积分与逐阶段表。
+
+

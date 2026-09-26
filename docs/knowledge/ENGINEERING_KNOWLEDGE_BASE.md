@@ -568,6 +568,36 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/ad_tail_package.py](../../tools/ad_tail_package.py)、[tools/ad_tail_insert.py](../../tools/ad_tail_insert.py)、[tools/adforge_adapter.py](../../tools/adforge_adapter.py)、[lines/nalu/runtime/tools/nalu_tail_ad_opt_in.py](../../lines/nalu/runtime/tools/nalu_tail_ad_opt_in.py)；回归：[tools/tests/test_ad_tail_package.py](../../tools/tests/test_ad_tail_package.py)、[tools/tests/test_ad_tail_insert.py](../../tools/tests/test_ad_tail_insert.py)、[tools/tests/test_nalu_tail_ad_opt_in.py](../../tools/tests/test_nalu_tail_ad_opt_in.py)
 - 证据：codex_docs/ROGER-20260925-AD-TAIL-INTEGRATION.md §四；2026-09-25/26 对 ~/adforge demo 实测打包 PASS（ad_tail_ocr_clean/duration/format/spoken_content_contract/loudness/label_present 全过）
 
+### K065 — S1
+
+- failure_code：`DP1_CU_MCU_RATIO_BELOW_FLOOR / DP2_UNDER_1S_SHOT_RATIO_BELOW_FLOOR / DP3_DIALOGUE_TIME_RATIO_BELOW_FLOOR`（scope generalizable，类别 WRITER_LAYER）
+- do_not_repeat：不要在生成后验收表里新增一项就以为堵住了这个缺口；缺口只有搬到生成前的聚合门才算堵住
+- 规则：凡可在生成前（写手/S1/提示词层，零成本）验证的观众可感质量维度，必须在那一层做成聚合/集级门，不得留给生成后验收再挑毛病——每挑一次要付一次生成费（20 credits/s），且发现得越晚返工范围越大。
+- 失败教训：`build_e0N_layers.py` 和 `nalu_writer_selfcheck_seq29.py` 已经把绝大多数逐镜检查做了（对白镜时长跟台词走、禁「说完保持」、表演三要素、setup/payoff），但没有一处统计「这一集所有镜头景别分布是否达标」。E08 实测 ASL 6.77s/CU+MCU 40%/对白占比 40%，与专业样片 2.15s/60%/85% 的差距，正是逐镜合规无法倒推出集级观感达标的证据。
+- 修复路径：`tools/direction_policy_gate.py` 的 DP1（景别分布）/DP2（<1s 占比）/DP3（连续无对白+对白时长占比）只做集级聚合判定，逐镜级判定继续留在原有位置，不重复实现。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/direction_policy_gate.py](../../tools/direction_policy_gate.py)、[configs/DIRECTION_POLICY_V1.json](../../configs/DIRECTION_POLICY_V1.json)；回归：[tools/tests/test_direction_policy_gate.py](../../tools/tests/test_direction_policy_gate.py)
+- 证据：codex_docs/ROGER-20260925-NALU-LINE-OPTIMIZATION.md §零/§一；E08 CHECKPOINT 诊断表实测数据
+
+### K066 — S1
+
+- failure_code：`LITERAL_RATE_FIGURE_LEAKED_INTO_COMPILED_PROMPT`（scope generalizable，类别 PROMPT_COMPILER）
+- do_not_repeat：新增任何语速/节奏相关字段时，先确认它只进合同元数据、绝不进提示词字符串，再把它加进这道扫描的正则
+- 规则：模型不读数字：提示词里出现的字面语速数字（如「4.8字/秒」）对生成结果没有约束力，控制语速只能靠两件事——镜长卡死（=台词时长+固定余量，不给模型多余的时间可挥霍）和说话方式词（「抢着说」「咬字短促」代替数字）。
+- 失败教训：「规则写在文档里」「字段存在于合同里」和「真的没有泄漏进模型提示词」是三件独立的事，必须逐一核实，不能因为字段存在就假设已经隔离。核查（2026-09-26）发现 `tools/sd2_provider_prompt_renderer.py` 从未把字面 cps 数字注入编译后的提示词，cps 只留在 GENERATION_CONTRACT 的 dialogue_delivery 元数据里供生成后 ASR 核实——本条规则在提示词层其实已经满足，缺的只是一道防止未来回归的扫描。
+- 修复路径：`tools/direction_policy_gate.py` 的 `scan_for_literal_rate_figure()` 对编译后提示词文本做字面语速数字回归扫描（中文「字/秒」「字每秒」与英文 chars/sec 两种写法）。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/direction_policy_gate.py](../../tools/direction_policy_gate.py)；回归：[tools/tests/test_direction_policy_gate.py](../../tools/tests/test_direction_policy_gate.py)
+- 证据：对 `tools/sd2_provider_prompt_renderer.py` 全文 grep 确认零字面语速数字命中
+
+### K067 — S1
+
+- failure_code：`RULE_ID_NAMESPACE_COLLISION`（scope generalizable，类别 GOVERNANCE）
+- do_not_repeat：新规则落地前先 grep 目标编号前缀；发现冲突就换前缀，不要覆盖或假设「应该是同一套」
+- 规则：同一仓库里独立的规则集不得复用相同的规则编号前缀（如 R1–R8），即便它们分属不同的线主指令、不同的时间点、不同的检查对象。新指令落地前先全库搜索目标编号前缀是否已被占用。
+- 失败教训：落地 2026-09-25 优化方案时发现 R1–R8 已经被 `static_design_gate.py`（另一套摄影/节奏规则）占用一次，R5A–R9B 已经被 `nalu_writer_selfcheck_seq29.py`（第三套规则）占用一次——三套完全独立的规则集在同一仓库里争用同一命名空间，人工审阅或未来自动化很容易把三者混淆或误判某条规则「已存在」。
+- 修复路径：本轮新规则改用 DP1–DP8/W1/W2 前缀，并在每处引用旁注明对应的原始 R 编号（`doc_ref` 字段），保留可追溯性的同时不与既有编号冲突。
+- 状态：`GUIDANCE_ONLY`。相关实现：[tools/direction_policy_gate.py](../../tools/direction_policy_gate.py)、[configs/DIRECTION_POLICY_V1.json](../../configs/DIRECTION_POLICY_V1.json)
+- 证据：`grep -rn` 命中 `static_design_gate.py` 与 `nalu_writer_selfcheck_seq29.py` 两套独立的 R 编号定义
+
 ## 引用和许可
 
 以上文字为项目经验的原创概括，随本仓库 MIT LICENSE 发布。未复制外部社区文章、教程全文、他人视频/图片或私人聊天。
