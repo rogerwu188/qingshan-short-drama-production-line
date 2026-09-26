@@ -6853,7 +6853,7 @@
     },
     {
       "path": "tools/tests/test_nalu_current_policy_profile.py",
-      "sha256": "f1af79735b220e9334fec273607da61047dd3706b83ef50e61a8d92ce0f57a4f"
+      "sha256": "87fd1696cafb996951916efb17a67096c8b18c4e05ca23d498e699314ccdd5e6"
     },
     {
       "path": "tools/tests/test_nalu_e05_sync.py",
@@ -6865,7 +6865,7 @@
     },
     {
       "path": "tools/tests/test_nalu_identity_chain_fixes.py",
-      "sha256": "4c1f8f1db0522cb2536b8315723be6e9baec65da2ba0fd8cd2c080ca50212d1d"
+      "sha256": "270f7935efe8b7a5952fc3b1570072034fb3e9710ad33554362125550db003a1"
     },
     {
       "path": "tools/tests/test_nalu_media_tools.py",
@@ -6965,7 +6965,7 @@
     },
     {
       "path": "tools/tests/test_pipeline_reliability_audit.py",
-      "sha256": "6cda2c250ed9af6b16cf75c9acd2082b805a84800b2c244a6844e92c18675c12"
+      "sha256": "8e7d7ed7972ca9afa7d5bb119354b334115ae5a0451ba2a43602c2d2f7dcbf78"
     },
     {
       "path": "tools/tests/test_platform_release_preflight.py",
