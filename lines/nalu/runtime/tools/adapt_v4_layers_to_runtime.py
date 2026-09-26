@@ -121,6 +121,44 @@ def parse_directing_scene_turns(md: str) -> dict[str, str]:
 
 
 # --------------------------------------------------------------------------- overlay access
+def authored_entry_state(source: str, overlay: dict[str, Any]) -> str:
+    """Apply an explicit production-direction correction, never a story rewrite."""
+    correction = overlay.get("entry_state_override")
+    if correction is None:
+        return source
+    required = {"original", "replacement", "reason", "evidence_ref"}
+    if (not isinstance(correction, dict) or set(correction) != required
+            or any(not isinstance(correction.get(k), str) or not correction[k].strip()
+                   for k in required)):
+        raise ValueError("ENTRY_STATE_OVERRIDE_EVIDENCE_REQUIRED")
+    if correction["original"] != source:
+        raise ValueError("ENTRY_STATE_OVERRIDE_SOURCE_MISMATCH")
+    return correction["replacement"]
+
+
+def derive_entity_states(
+    entity_ids: list[str], subject_id: str, frame: str,
+    authored: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Give only the authored subject the primary action state.
+
+    The old adapter copied ``frame_content`` to every cast member.  That made
+    listeners, background people and action patients appear to perform the same
+    action.  Non-subjects receive an explicit neutral state unless the overlay
+    supplied a per-entity authored state.
+    """
+    authored = authored or {}
+    states: dict[str, str] = {}
+    for entity_id in entity_ids:
+        if entity_id in authored:
+            states[entity_id] = str(authored[entity_id])
+        elif entity_id == subject_id:
+            states[entity_id] = frame
+        else:
+            states[entity_id] = "保持已声明站位与出入画状态，闭口，不执行主动作，不接管其他实体动作"
+    return states
+
+
 class Overlay:
     def __init__(self, data: dict[str, Any], episode: str) -> None:
         if data.get("schema") != OVERLAY_SCHEMA:
@@ -313,7 +351,7 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
         if o is None:
             errors.append(f"SHOT_OVERLAY_MISSING:{sid}")
             continue
-        ffms = str(shot.get("first_frame_motion_state") or "").strip()
+        ffms = authored_entry_state(str(shot.get("first_frame_motion_state") or "").strip(), o)
         frame = str(shot.get("frame_content") or "").strip()
         dialogue = str(shot.get("dialogue") or "").strip()
         speaker_name, line = split_dialogue(dialogue)
@@ -343,6 +381,15 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
         # duration (nalu R8: dialogue shot >= spoken_chars/cps + lead + tail)
         v4_dur = float(shot.get("duration_seconds") or 0)
         target = v4_dur
+        if o.get("edit_duration_seconds") is not None:
+            edit_seconds = float(o["edit_duration_seconds"])
+            if not math.isfinite(edit_seconds) or edit_seconds <= 0 or not o.get("edit_duration_basis"):
+                errors.append(f"EDIT_DURATION_OVERRIDE_INVALID:{sid}")
+            elif line:
+                errors.append(f"DIALOGUE_EDIT_DURATION_OVERRIDE_REQUIRES_TIMING_REVIEW:{sid}")
+            else:
+                target = edit_seconds
+                warnings.append(f"AUTHORED_EDIT_DURATION_OVERRIDE:{sid}:{v4_dur}->{target}:{o['edit_duration_basis']}")
         stretch = None
         cps_shot = cps
         if line:
@@ -370,7 +417,7 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
         # Keep the authored shot semantics but avoid carrying the prior
         # scene's anchor movement into the next grouped unit, which the
         # portable grouped-camera gate treats as a repeated move.
-        if idx_in_scene == 0 and previous_scene_anchor_family and cp.get("motion_family") == previous_scene_anchor_family:
+        if not o.get("camera_plan") and idx_in_scene == 0 and previous_scene_anchor_family and cp.get("motion_family") == previous_scene_anchor_family:
             candidates = DIALOGUE_FAMILIES if line else MOVING_FAMILIES
             replacement = next((fam for fam in candidates if fam != previous_scene_anchor_family), None)
             if replacement:
@@ -410,8 +457,7 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
         presence = {cid: VISIBLE for cid in cast_ids}
         for cid in offscreen_ids:
             presence[cid] = OFFSCREEN
-        states = {cid: frame for cid in presence}
-        states.update(o.get("entity_states") or {})
+        states = derive_entity_states(list(presence), subject_id, frame, o.get("entity_states"))
         lip_owner = speaker_id if (speaker_id and speaker_id in cast_ids) else ""
         listener_id = str(o.get("listener_id") or "")
         patient_id = str(o.get("patient_id") or "")
@@ -473,6 +519,14 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
             dialogue_units.append({"shot_id": sid, "speaker_id": speaker_id or "", "listener_id": listener_id if listener_id in ov.by_id else "",
                                    "text": line, "verbatim_in_source": True, "emotion": o.get("emotion") or "neutral",
                                    "presence": OFFSCREEN if speaker_id in offscreen_ids else VISIBLE})
+        if o.get("entry_state_override") is not None:
+            shot_out["production_entry_state_override"] = dict(o["entry_state_override"])
+            # A copied action description is an active prompt input too. Keep
+            # timing numbers intact, but do not leak the superseded direction.
+            duration_plan = shot_out.get("duration_plan")
+            if (isinstance(duration_plan, dict) and duration_plan.get("action_completion")
+                    == o["entry_state_override"]["original"]):
+                shot_out["duration_plan"] = {**duration_plan, "action_completion": ffms}
         shots_out.append(shot_out)
         cursor += target
 
@@ -579,7 +633,7 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
         "entity_introductions": intros, "carry_in": carry_in,
         "visual_culture_contract": vcc, "character_entities": character_entities,
         "non_character_entities": reference_cards,
-        "props": {"authority": "E59 v4 identity_registry_check.★the_props_of_the_episode + adapter overlay", "reference_cards": reference_cards},
+        "props": {"authority": f"{ep} v4 identity_registry_check.★the_props_of_the_episode + adapter overlay", "reference_cards": reference_cards},
         "scene_states": scene_states, "shots": shots_out, "internal_transition_authoring": [],
         "audio_contract": {
             "bgm": {"mode": contract_v4.get("audio_contract", {}).get("bgm"), "used": False,
@@ -587,7 +641,7 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
             "native_dialogue_only": contract_v4.get("audio_contract", {}).get("native_dialogue_only"),
             "diegetic_anchors": contract_v4.get("audio_contract", {}).get("diegetic_anchors"),
             "ambient_by_scene": {s["scene_id"]: s["weather"] for s in scene_states},
-            "voice_casting": {"status": "NOT_CAST", "note": "scope QINGSHAN-E59 has no voice catalog selection yet; S4 not authorised"},
+            "voice_casting": {"status": "NOT_CAST", "note": f"scope {args.project_id}: voice bindings require independent validation; adapter PASS is not S4 authorisation"},
             "dialogue_units": dialogue_units,
         },
         "v4_passthrough": {k: contract_v4.get(k) for k in ("space_chain", "identity_registry_check", "onscreen_text_policy",

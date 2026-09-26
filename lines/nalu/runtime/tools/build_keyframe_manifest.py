@@ -587,7 +587,8 @@ def resolve_library_asset_id(
 
 
 def cap_non_character_bindings(rows: list[dict[str, Any]], *, limit: int = NON_CHARACTER_REFERENCE_MAX,
-                               total_limit: int = REFERENCE_TOTAL_MAX) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+                               total_limit: int = REFERENCE_TOTAL_MAX,
+                               optional_character_ids: set[str] | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Roger 2026-09-18 ②: space maps + scene + props <= ``limit``.  The engine gates make every one of those
     mandatory (SCENE-AUTHORITY-LOCK needs the three maps; the image submitter needs every prop the contract
     declares), so an over-cap shot is REPORTED (``dropped_reason`` OVER_CAP_NOT_DROPPED_GATE_MANDATORY) and the
@@ -595,16 +596,29 @@ def cap_non_character_bindings(rows: list[dict[str, Any]], *, limit: int = NON_C
     to hold the provider's total limit; face plates, maps, scene and declared props are never removed."""
     kept = list(rows)
     dropped: list[dict[str, Any]] = []
+    optional_character_ids = optional_character_ids or set()
     non_char = [r for r in kept if str(r["role"]) not in ("character", "character_wardrobe")]
     if len(non_char) > limit:
         for r in non_char[limit:]:
             dropped.append({**r, "dropped_reason": f"OVER_CAP_NOT_DROPPED_GATE_MANDATORY_{limit}"})
-    while len(kept) > total_limit:
+    # Multiple semantic authorities can share one provider file (for example,
+    # a subspace layout also serving as the scene reference). Keep every
+    # binding, but count the same paths as the transport compiler does.
+    def transport_count(bindings: list[dict[str, Any]]) -> int:
+        return len(dict.fromkeys(str(row.get("path") or "") for row in bindings))
+
+    while transport_count(kept) > total_limit:
         victims = [r for r in kept if str(r["role"]) == "character_wardrobe"]
+        if not victims:
+            victims = [r for r in kept if str(r["role"]) == "character"
+                       and str(r.get("entity_id") or "") in optional_character_ids]
         if not victims:
             break
         victim = victims[-1]
-        kept.remove(victim); dropped.append({**victim, "dropped_reason": f"REFERENCE_TOTAL_MAX_{total_limit}"})
+        kept.remove(victim)
+        reason = (f"REFERENCE_TOTAL_MAX_{total_limit}_OPTIONAL_BACKGROUND_IDENTITY"
+                  if victim.get("role") == "character" else f"REFERENCE_TOTAL_MAX_{total_limit}")
+        dropped.append({**victim, "dropped_reason": reason})
     return kept, dropped
 
 
@@ -745,7 +759,15 @@ def build_bindings(inputs: Inputs, shot_id: str, gate_ref: str) -> tuple[list[di
             inputs, "prop", "props", asset_id,
             str(entry.get("prop") or asset_id), "PROP_IDENTITY_PLATE",
         ))
-    rows, dropped = cap_non_character_bindings(space_rows + face_rows + [scene_row] + wardrobe_rows + prop_rows)
+    optional_background_ids: set[str] = set()
+    prompt_cast = ((shot.get("prompt_spec") or {}).get("cast") or [])
+    for cast_row in prompt_cast:
+        if str(cast_row.get("screen_slot") or "").startswith("BACKGROUND_"):
+            optional_background_ids.add(str(cast_row.get("character_id") or ""))
+    rows, dropped = cap_non_character_bindings(
+        space_rows + face_rows + [scene_row] + wardrobe_rows + prop_rows,
+        optional_character_ids=optional_background_ids,
+    )
     if dropped:
         report = getattr(inputs, "reference_cap_report", None)
         if report is None:
@@ -794,7 +816,7 @@ def has_forbidden_word(text: str) -> str | None:
 
 def normalize_keyframe_role_semantics(
     role_value: dict[str, Any], *, shot_id: str, entry_state: str,
-    visible_contract_ids: list[str],
+    visible_contract_ids: list[str], completion_state: str = "",
 ) -> dict[str, Any]:
     """Normalize an authored role graph for an entry-frame image task.
 
@@ -831,7 +853,14 @@ def normalize_keyframe_role_semantics(
     if body_part_owner:
         participant_keys.append(body_part_owner)
 
-    entry_states = role.get("entity_entry_states") or {}
+    # Older v4 adapters called the authored entry-state mapping
+    # ``entity_states``.  Accept that canonical field as a compatibility
+    # source, while preferring the explicit v1 ``entity_entry_states`` field.
+    # This preserves authored states and never derives a pose from completion
+    # text or silently invents one for a visible participant.
+    entry_states = (role.get("entity_entry_states")
+                    or role.get("entity_states")
+                    or {})
     if not isinstance(entry_states, dict):
         raise ValueError(f"{shot_id}: ENTITY_ENTRY_STATES_MUST_BE_MAPPING")
     participants = list(dict.fromkeys([*states, *presence, *participant_keys, *visible_contract_ids]))
@@ -844,6 +873,12 @@ def normalize_keyframe_role_semantics(
             "VISIBLE_AND_IDENTITY_LOCKED" if entity_id in visible else "ABSENT_REFERENCE_ONLY",
         )
         explicit = str(entry_states.get(entity_id) or "").strip()
+        # Some older adapters populated ``entity_states`` from the shot's
+        # completion text.  That value is invalid for a still entry frame;
+        # repair the compatibility representation from the authored entry
+        # state instead of leaking the result state into the prompt.
+        if explicit and completion_state and explicit == completion_state:
+            explicit = entry_state if entity_id in visible else ""
         if explicit:
             states[entity_id] = explicit
         elif entity_id not in visible:
@@ -880,6 +915,7 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
         shot_id=shot_id,
         entry_state=entry_state,
         visible_contract_ids=visible_contract_ids,
+        completion_state=str(shot.get("completion_state") or "").strip(),
     )
 
     reference_lines = []
@@ -1045,7 +1081,11 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
         # flatten movement, but rejecting them here makes valid v4 contracts
         # impossible to compile.  Keep the verbatim entry state and continue
         # rejecting the same words everywhere else.
-        word = None if name in {"entry_state", "role_semantics"} else has_forbidden_word(text)
+        # Clothing/appearance contracts use words such as “保持整洁” as
+        # static preservation constraints; they do not ask the image model to
+        # extend a motion.  Do not reject those authored wardrobe lines.
+        static_contract = name.startswith("wardrobe_") or name == "wardrobe_head"
+        word = None if name in {"entry_state", "role_semantics"} or static_contract else has_forbidden_word(text)
         if word and entry_state and entry_state in text:
             # Hard-entry restatements intentionally quote the same frozen
             # source state; only inspect the wrapper text for motion leakage.
@@ -1073,6 +1113,10 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
     prompt_without_entry = prompt.replace(entry_state, "").replace(
         role_semantic_prompt_block(role), ""
     ).replace("保持闭口", "")
+    # Wardrobe contracts may legitimately say “保持自然比例/颜色”等静态
+    # 保持约束；exclude those lines from the motion-extension scan as well.
+    for wardrobe_line in wardrobe_lines:
+        prompt_without_entry = prompt_without_entry.replace(wardrobe_line, "")
     for word in FORBIDDEN_EXTEND_WORDS:
         if word in prompt_without_entry:
             pos = prompt_without_entry.find(word)
@@ -1111,6 +1155,7 @@ def compile_task(inputs: Inputs, decision: dict[str, Any], prompt_dir: Path,
         shot_id=shot_id,
         entry_state=entry_state,
         visible_contract_ids=character_ids,
+        completion_state=str(shot.get("completion_state") or "").strip(),
     )
     prompt = build_prompt(inputs, shot_id, bindings, character_ids, decision, dropped)
     from tools.identity_pose_reference import supplement_pose_references
@@ -1120,6 +1165,13 @@ def compile_task(inputs: Inputs, decision: dict[str, Any], prompt_dir: Path,
     identity_sequence, identity_transport, prompt = compile_labeled_flat_identity_transport(
         task_key, bindings, prompt
     )
+    # Protected identity/spatial bindings may prevent cap_non_character_bindings
+    # from reaching its target. Never serialize an unsupported provider request.
+    from tools.submit_giggle_image_manifest import validate_reference_count
+    validate_reference_count({
+        "task_key": task_key,
+        "reference_images": stable_unique([str(row["path"]) for row in identity_sequence]),
+    })
     bound_character_ids = [
         str(row.get("entity_id") or "") for row in bindings
         if row.get("role") == "character" and str(row.get("entity_id") or "")
@@ -1128,6 +1180,15 @@ def compile_task(inputs: Inputs, decision: dict[str, Any], prompt_dir: Path,
         str(row.get("entity_id") or "") for row in bindings
         if row.get("role") == "prop" and str(row.get("entity_id") or "")
     ]
+    # Background cast remains in the authored blocking/visible-character
+    # contract, but when its face plate is intentionally omitted to stay
+    # within the provider transport cap it must not be presented as a
+    # canonical identity authority requirement.  This is explicit data, not
+    # an inferred provider/model decision.
+    bound_character_set = set(bound_character_ids)
+    identity_authority_exempt_character_ids = sorted(
+        set(character_ids) - bound_character_set
+    )
     library_assets = inputs.asset_library.get("assets") or {}
     character_catalog = [
         {"entity_id": key, **(value if isinstance(value, dict) else {})}
@@ -1141,7 +1202,8 @@ def compile_task(inputs: Inputs, decision: dict[str, Any], prompt_dir: Path,
         visible_character_ids=bound_character_ids, visible_prop_ids=bound_prop_ids,
         episode_character_catalog=character_catalog,
         episode_prop_catalog=prop_catalog,
-        reference_images=[row for row in identity_sequence if str(row.get("role")) == "character"], scene_domain="QINGSHAN_E59",
+        reference_images=[row for row in identity_sequence if str(row.get("role")) == "character"],
+        scene_domain=f"QINGSHAN_{inputs.episode}",
         location_ids=[str(shot.get("scene_id") or "")],
     )
     prompt_dir.mkdir(parents=True, exist_ok=True)
@@ -1174,7 +1236,10 @@ def compile_task(inputs: Inputs, decision: dict[str, Any], prompt_dir: Path,
         ],
         "canonical_props": list(prop_ids),
         "character_binding_mode": "EXPLICIT_VISIBLE_CHARACTERS",
-        "reference_bindings": identity_sequence,
+        # Keep the semantic bindings in the spatial-authority order required
+        # by SCENE-AUTHORITY-LOCK.  The provider-flat identity-first transport
+        # is carried separately in identity_reference_transport.
+        "reference_bindings": bindings,
         "spatial_continuity": spatial_continuity,
         "failures": [],
     }
@@ -1237,12 +1302,13 @@ def compile_task(inputs: Inputs, decision: dict[str, Any], prompt_dir: Path,
             "state_delta_evidence": deepcopy(action.get("state_delta_evidence") or {}),
             "note": "Retained outside source_shot_contract purely for the entry/exit distinctness check; never sent to the provider.",
         },
-        "reference_bindings": identity_sequence,
+        "reference_bindings": bindings,
         "reference_image_sequence": identity_sequence,
         "identity_pose_reference_review": pose_reference_report,
         "reference_images": reference_images,
         "visible_characters": list(character_ids),
         "canonical_characters": list(character_ids),
+        "identity_authority_exempt_character_ids": identity_authority_exempt_character_ids,
         "canonical_props": list(prop_ids),
         "require_semantic_anchor_evidence": True,
         "keyframe_decision": {

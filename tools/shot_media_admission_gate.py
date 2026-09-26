@@ -77,6 +77,33 @@ def _resolve(value: Any, root: Path) -> Path:
     return path if path.is_absolute() else root / path
 
 
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _technical_qa_line_owner_accepted(technical: dict[str, Any], declared_asset_sha: str) -> bool:
+    """A raw TECHNICAL_FAIL may only be admitted on a genuine, sha-bound, never-
+    self-issued line-owner order (roger_gate_acceptance.acceptance_record shape,
+    e.g. nalu D-72).  Verified here independently, not trusted blind from the
+    caller: this gate is the one place that guards against a forged/stale claim.
+    """
+    acceptance = technical.get("line_owner_acceptance")
+    if not isinstance(acceptance, dict):
+        return False
+    if acceptance.get("self_issued") is not False:
+        return False
+    if not str(acceptance.get("issued_by") or "").strip():
+        return False
+    media_sha = str(acceptance.get("media_sha256") or "")
+    bound_sha = str(acceptance.get("media_sha256_bound_by_order") or "")
+    if not _SHA256_RE.match(media_sha) or media_sha != bound_sha:
+        return False
+    if media_sha != declared_asset_sha:
+        return False
+    if not acceptance.get("order_seq") or not acceptance.get("order_id"):
+        return False
+    return True
+
+
 def _registered_gate_ids(registry: dict[str, Any]) -> set[str]:
     return {str(row.get("gate_id")) for row in registry.get("gates") or [] if row.get("gate_id")}
 
@@ -201,6 +228,9 @@ def _canonical_entities(task: dict[str, Any]) -> tuple[set[str], set[str]]:
     prompt contract, or through the locked blocking plan).
     """
     contract = task.get("prompt_contract") or {}
+    exempt = {
+        str(value) for value in (task.get("identity_authority_exempt_character_ids") or []) if value
+    }
     characters = set(map(str, task.get("canonical_characters") or []))
     characters.update(map(str, task.get("visible_characters") or []))
     characters.update(map(str, contract.get("visible_characters") or []))
@@ -210,7 +240,7 @@ def _canonical_entities(task: dict[str, Any]) -> tuple[set[str], set[str]]:
         block = task.get(key) or {}
         characters.update(_entity_ids(block.get("characters"), "character_id"))
         props.update(_entity_ids(block.get("props"), "prop_id"))
-    return {value for value in characters if value}, {value for value in props if value}
+    return {value for value in characters if value and value not in exempt}, {value for value in props if value}
 
 
 def _normalize_reference_path(value: Any, root: Path) -> str:
@@ -673,7 +703,8 @@ def evaluate(
 
     technical = admission.get("technical_qa") or {}
     if kind == "VIDEO_ASSEMBLY":
-        if technical.get("status") != "TECHNICAL_PASS_CONTENT_UNREVIEWED":
+        if technical.get("status") != "TECHNICAL_PASS_CONTENT_UNREVIEWED" \
+                and not _technical_qa_line_owner_accepted(technical, declared_asset_sha):
             failures.append("technical_qa_status_missing_or_dishonest")
         if str(technical.get("reviewed_asset_sha256") or "") != declared_asset_sha:
             failures.append("technical_qa_asset_sha256_mismatch")

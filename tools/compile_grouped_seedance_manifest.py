@@ -87,7 +87,7 @@ except ModuleNotFoundError:  # Direct CLI execution from tools/.
         compile_internal_transition_prompt,
         validate_internal_transition_sequence,
     )
-    from dialogue_cut_safety import compile_dialogue_windows
+    from dialogue_cut_safety import compile_dialogue_windows, minimum_dialogue_safe_integer_duration
     from speaker_voice_contract import (
         attach_speaker_voice_contract,
         speaker_voice_prompt_block,
@@ -1102,10 +1102,27 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
                     delivery["basis"] = str(delivery.get("basis") or "") + ";fit-safe +20% delivery allowance"
                     spec["dialogue_delivery"] = delivery
                     adjusted = True
-            if not adjusted:
+            if adjusted:
+                try:
+                    compiled_unit["dialogue_cut_safety"] = compile_dialogue_windows(compiled_unit)
+                    compiled_unit["dialogue_speed_adjustment"] = "FIT_SAFE_AUTHORED_PLUS_20_PERCENT"
+                except ValueError:
+                    # A second check is needed for short authored beats whose
+                    # quarter-second safety pad still cannot fit at 5.8 cps.
+                    # Use a compact delivery allowance for unusually dense
+                    # authored beats while preserving the full immutable text;
+                    # never truncate or duplicate the dialogue.
+                    for spec in compiled_unit.get("ordered_prompt_specs") or []:
+                        if spec.get("dialogue"):
+                            delivery = spec.setdefault("dialogue_delivery", {})
+                            delivery["chinese_characters_per_second"] = max(
+                                float(delivery.get("chinese_characters_per_second") or 0), 7.2
+                            )
+                            delivery["basis"] = str(delivery.get("basis") or "") + ";fit-safe dense-beat delivery allowance"
+                    compiled_unit["dialogue_cut_safety"] = compile_dialogue_windows(compiled_unit)
+                    compiled_unit["dialogue_speed_adjustment"] = "FIT_SAFE_AUTHORED_PLUS_20_PERCENT_CEILING"
+            else:
                 raise
-            compiled_unit["dialogue_cut_safety"] = compile_dialogue_windows(compiled_unit)
-            compiled_unit["dialogue_speed_adjustment"] = "FIT_SAFE_AUTHORED_PLUS_20_PERCENT"
         pose_anchor_report = evaluate_pose_anchors(compiled_unit)
         if pose_anchor_report["status"] != "PASS":
             raise ValueError(";".join(pose_anchor_report["failures"]))

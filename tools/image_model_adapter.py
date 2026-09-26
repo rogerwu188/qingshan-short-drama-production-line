@@ -32,6 +32,7 @@ def compile_labeled_flat_identity_transport(
     # Spatial resolution order is not the provider's reference-array order.
     # Keep every map, but lead with identity images and reindex prose atomically.
     old_paths = list(dict.fromkeys(str(r.get('path') or '') for r in reference_bindings))
+    old_binding_paths = [str(r.get('path') or '') for r in reference_bindings]
     def identity_row(row):
         return str(row.get('role') or '').lower() in {'character', 'identity', 'character_reference'}
     reference_bindings = sorted(reference_bindings, key=lambda row: not identity_row(row))
@@ -43,6 +44,15 @@ def compile_labeled_flat_identity_transport(
             raise ValueError('PROMPT_REFERENCE_INDEX_OUT_OF_RANGE:' + str(old))
         return '@图片' + str(index_map[old])
     prompt_body = re.sub(r'@图片(\d+)', remap, prompt_body)
+    # The legacy purpose table numbers semantic bindings (including aliases
+    # sharing a file), whereas @图片 numbers unique provider files. Resolve
+    # both from their original domains before emitting one authoritative array.
+    def remap_purpose(match):
+        old = int(match[1])
+        if old < 1 or old > len(old_binding_paths):
+            raise ValueError('PROMPT_REFERENCE_INDEX_OUT_OF_RANGE:' + str(old))
+        return '参考图' + str(new_paths.index(old_binding_paths[old - 1]) + 1)
+    prompt_body = re.sub(r'参考图(\d+)', remap_purpose, prompt_body)
     sequence: list[dict[str, Any]] = []
     authority_map: dict[str, str] = {}
     authority_lines: list[str] = []
@@ -132,6 +142,13 @@ def resolve_profile(task: dict[str, Any], registry: dict[str, Any]) -> dict[str,
 
 def _canonical_characters(task: dict[str, Any]) -> set[str]:
     contract = task.get("prompt_contract") or {}
+    exempt = {
+        str(value) for value in (task.get("identity_authority_exempt_character_ids") or []) if value
+    }
+    # A background/functional character can remain in the authored cast and
+    # blocking contract without consuming a face-identity authority slot.  The
+    # manifest compiler records these ids explicitly; never infer exemption
+    # from a name, screen position, or an LLM judgement here.
     values = set(map(str, task.get("canonical_characters") or []))
     values.update(map(str, task.get("visible_characters") or []))
     values.update(map(str, contract.get("visible_characters") or []))
@@ -139,7 +156,7 @@ def _canonical_characters(task: dict[str, Any]) -> set[str]:
         for row in (task.get(key) or {}).get("characters") or []:
             if isinstance(row, dict) and row.get("character_id"):
                 values.add(str(row["character_id"]))
-    return {value for value in values if value}
+    return {value for value in values if value and value not in exempt}
 
 
 def validate_identity_reference_transport(

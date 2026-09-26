@@ -670,6 +670,9 @@ def main() -> int:
             default_emotion=args.emotion,
         ))
 
+    from tools.voice_reference_sample import apply_reference_sample
+    briefs = [apply_reference_sample(brief, catalog_voice_for_brief(brief, voices)) for brief in briefs]
+
     output_root = (
         Path(args.audio_output_root)
         if args.audio_output_root

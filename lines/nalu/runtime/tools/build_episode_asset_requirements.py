@@ -115,6 +115,22 @@ def load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def validate_execution_source(binding: dict[str, Any]) -> str:
+    """Do not label a supplied sealed script as an independently verified novel chapter."""
+    kind = binding.get("source_kind", "SOURCE_CHAPTER")
+    if kind not in {"SOURCE_CHAPTER", "SEALED_SCRIPT"}:
+        raise ValueError(f"unsupported source_binding.source_kind: {kind}")
+    if kind == "SEALED_SCRIPT":
+        source = Path(binding.get("source_file") or "")
+        if not source.is_absolute() or not source.is_file():
+            raise ValueError("SEALED_SCRIPT_SOURCE_FILE_MISSING")
+        if sha256_file(source) != binding.get("source_sha256"):
+            raise ValueError("SEALED_SCRIPT_SOURCE_SHA_MISMATCH")
+        if not str(binding.get("source_note") or "").strip():
+            raise ValueError("SEALED_SCRIPT_PROVENANCE_NOTE_REQUIRED")
+    return kind
+
+
 def dump_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -322,10 +338,11 @@ def character_prompt(row: dict[str, Any], wardrobe_desc: str, style: str) -> tup
         f"表观年龄 {spec['apparent_age_range']}；性别 {spec['sex']}",
         f"外貌（原著第一章）：{spec['appearance_ch1']}",
         f"服装：{wardrobe_desc}",
+        *( ["【群体参考用途】本卡只展示群体中一名成年成员的服装与体态样本，不是整组人的合照；剧情群体人数由逐镜合同确定，其他成员使用不同面孔，不复制同一张脸。"] if cid.startswith('GROUP-') else [] ),
         "",
         source_action,
         "",
-        "构图：单人，纯净中性灰底，无环境、无道具、无其他人物、无动物。"
+        "构图：单人，纯净中性灰底，无环境、无其他人物、无动物；不添加手持道具，保留服装明确声明的固定佩饰。"
         "均匀柔和的正面照明，仅为记录五官与形体，不做戏剧化打光。"
         "全身直立，双手自然垂放，面部无遮挡，发际线与耳廓可见。",
         "身份锁定要素必须清晰可辨：脸型骨骼、发型、眼型、肤色、体型。",
@@ -362,7 +379,7 @@ def location_prompt(row: dict[str, Any], place: dict[str, Any], room: dict[str, 
 def prop_prompt(row: dict[str, Any], style: str) -> tuple[str, str]:
     spec = row["specification"]
     pid = row["asset_id"]
-    source_action = f"建立 {spec['canonical_name']}（{pid}）的道具基准卡：静置、单体、完整可见"
+    source_action = f"建立 {spec['canonical_name']}（{pid}）的道具基准卡：静置、按声明数量完整可见"
     body = "\n".join([
         f"【道具身份基准卡】{spec['canonical_name']}（{pid}）",
         f"形制与功能：{spec['physical_function']}",
@@ -855,6 +872,7 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
 
     # ---------------------------------------------------- reference_materials
     binding = manifest["source_binding"]
+    source_kind = validate_execution_source(binding)
     slug = project_slug()
     chapter_stem = Path(binding["source_file"]).stem
     source_ref_id = f"REF-SOURCE-{slug}-{chapter_stem.upper()}"
@@ -867,12 +885,15 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
         order(
             {
                 "asset_id": source_ref_id,
-                "label": f"《{binding['work']}》原著第{cn_chapter(binding['primary_source_chapter'])}章 {Path(binding['source_file']).name}",
+                "label": (f"《{binding['work']}》封版执行剧本 {Path(binding['source_file']).name}"
+                          if source_kind == "SEALED_SCRIPT" else
+                          f"《{binding['work']}》原著第{cn_chapter(binding['primary_source_chapter'])}章 {Path(binding['source_file']).name}"),
                 "priority": "SERIES_CORE",
             },
             ref_scope_a,
             {
-                "asset_kind": "SOURCE_CHAPTER",
+                "asset_kind": source_kind,
+                **({"source_note": binding["source_note"]} if source_kind == "SEALED_SCRIPT" else {}),
                 "usage_scope": f"FACT_AUTHORITY_FOR_{episode}",
                 "work": binding["work"], "author": binding["author"],
                 "chapter": binding["primary_source_chapter"],
@@ -939,7 +960,14 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
         cid = row["asset_id"]
         if cid in reused_ids:
             continue
-        body, action = character_prompt(row, wardrobe_desc_by_char[cid], style)
+        # Explicit identity-card prose is a stage-local projection, never a
+        # rewrite of the episode's action/prop/visibility contract.
+        card_appearance = overlay_get(overlay, "characters", cid, "identity_card_appearance")
+        card_wardrobe = overlay_get(overlay, "characters", cid, "identity_card_wardrobe")
+        card_row = dict(row, specification=dict(row["specification"]))
+        if card_appearance:
+            card_row["specification"]["appearance_ch1"] = card_appearance
+        body, action = character_prompt(card_row, card_wardrobe or wardrobe_desc_by_char[cid], style)
         name = prompt_filename(episode, cid)
         prompts[name] = body
         prompt_rows.append({"asset_id": cid, "kind": "CHARACTER", "file": name,
@@ -963,7 +991,11 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
         pid = row["asset_id"]
         if pid in reused_ids:
             continue
-        body, action = prop_prompt(row, style)
+        card_row = dict(row, specification=dict(row["specification"]))
+        card_description = overlay_get(overlay, "props", pid, "identity_card_description")
+        if card_description:
+            card_row["specification"]["physical_function"] = card_description
+        body, action = prop_prompt(card_row, style)
         name = prompt_filename(episode, pid)
         prompts[name] = body
         prompt_rows.append({"asset_id": pid, "kind": "PROP", "file": name,

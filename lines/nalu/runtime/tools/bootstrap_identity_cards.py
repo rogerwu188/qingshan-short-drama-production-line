@@ -538,12 +538,47 @@ SAME_IDENTITY_PLUS_SOURCE_CLAUSE_V2 = (
 )
 
 
-def source_clauses(sources: list[dict[str, Any]]) -> tuple[str, str]:
+def verified_requirement_reuse(requirements: dict[str, Any]) -> set[str]:
+    """Only byte-verified historical locks can omit a new generation prompt."""
+    reused = set()
+    for rows in (requirements.get('assets') or {}).values():
+        for row in rows:
+            ref = row.get('reuse') or {}
+            if ref.get('status') != 'REUSED_FROM_PRIOR_LIBRARY':
+                continue
+            path = Path(ref.get('prior_library') or '')
+            if not path.is_file():
+                continue
+            prior = load_json(path)
+            for assets in (prior.get('assets') or {}).values():
+                asset = assets.get(row['asset_id'], {}) if isinstance(assets, dict) else {}
+                artifacts = asset.get('artifacts') or []
+                if (asset.get('status') == 'LOCKED' and asset.get('qa', {}).get('status') == 'PASS'
+                        and artifacts and all(Path(a['path']).is_file() and sha256_file(Path(a['path'])) == a.get('sha256') for a in artifacts)):
+                    reused.add(row['asset_id'])
+    return reused
+
+
+def source_clauses(sources: list[dict[str, Any]], *, preserve_original: bool = False) -> tuple[str, str]:
     """(base clause, dual-view clause).  A `*SOURCE_V2*` file (Roger 2026-09-13, seq=7) is used
     face-as-is with hair/headdress idiom from the photo; the E01 face-crop route de-ages."""
+    if preserve_original:
+        return (
+            "【参考图·最高优先级】沿用原始参考中同一个人的脸型、五官比例、肤色、年龄、体型、发型、发饰和服装。"
+            "不年轻化、不老化、不削瘦面颊、不美颜、不换装。只调整取景、朝向与中性灰底；原图拼版中的多个角度是同一个人，输出仅一人。",
+            "【参考图】第一张为同一人物全身卡，第二张为原始身份参考；原始参考的脸型、五官、年龄、肤色、发型、发饰和服装优先。"
+            "只改变取景与朝向，不年轻化、不老化、不换装；输出仅一人。")
     if any("SOURCE_V2" in str(row.get("file") or "") for row in sources):
         return SOURCE_FACE_CLAUSE_V2, SAME_IDENTITY_PLUS_SOURCE_CLAUSE_V2
     return SOURCE_FACE_CLAUSE, SAME_IDENTITY_PLUS_SOURCE_CLAUSE
+
+
+def preserve_original_subjects(prompt_dir: Path) -> set[str]:
+    policy = prompt_dir.parent / 'view_reference_policy.json'
+    if not policy.is_file():
+        return set()
+    data = json.loads(policy.read_text(encoding='utf-8'))
+    return set(data.get('preserve_original_subjects') or [])
 
 
 COMPOSITION_RE = re.compile(r"^构图：.*?(?=\n\n|\Z)", re.S | re.M)
@@ -636,9 +671,12 @@ def build_plan(
     rows: list[dict[str, Any]] = []
     unbuildable: list[dict[str, Any]] = []
     deferred: list[dict[str, Any]] = []
+    preserve_ids = preserve_original_subjects(prompt_dir)
     for subject in subjects:
         subject_id = subject["subject_id"]
         sources = by_subject.get(subject_id) or []
+        preserve = subject_id in preserve_ids
+        source_suffix = '_PRESERVE_ORIGINAL_V1' if preserve else ''
         if subject["kind"] != "CHARACTER":
             if sources:
                 continue  # operator-supplied prop plate is used as-is
@@ -684,8 +722,8 @@ def build_plan(
         if sources:
             source_paths = [Path(row["file"]) for row in sources][:9]
             prompt = ensure_prompt_file(
-                prompt_dir / f"{episode}-{subject_id}__{BASE_VIEW}_FROM_SOURCE.txt",
-                view_prompt_text(base_text, BASE_VIEW, reference_clause=source_clauses(sources)[0]))
+                prompt_dir / f"{episode}-{subject_id}__{BASE_VIEW}_FROM_SOURCE{source_suffix}.txt",
+                view_prompt_text(base_text, BASE_VIEW, reference_clause=source_clauses(sources, preserve_original=preserve)[0]))
             rows.append({
                 "id": subject_id,
                 "display_name": subject["canonical_name"] or subject_id,
@@ -730,9 +768,9 @@ def build_plan(
             # {"dual_reference_subjects": ["CHAR-QINMING"]}.
             dual = bool(sources) and subject_id in dual_reference_subjects(prompt_dir)
             prompt = ensure_prompt_file(
-                prompt_dir / f"{episode}-{subject_id}__{view}.txt",
+                prompt_dir / f"{episode}-{subject_id}__{view}{source_suffix}.txt",
                 view_prompt_text(base_text, view, reference_clause=(
-                    source_clauses(sources)[1] if dual else SAME_IDENTITY_CLAUSE)))
+                    source_clauses(sources, preserve_original=preserve)[1] if dual else SAME_IDENTITY_CLAUSE)))
             if base_plate is None:
                 deferred.append({
                     "id": f"{subject_id}__{view}", "subject_id": subject_id, "view": view,
@@ -952,8 +990,9 @@ def main() -> int:
     gate = gate_library(library, requirements, episode)
 
     gate_report_path = Path(args.gate_report_out)
+    reused_subjects = verified_requirement_reuse(requirements)
     plan, unbuildable, deferred = build_plan(
-        subjects,
+        [subject for subject in subjects if subject['subject_id'] not in reused_subjects],
         by_subject,
         episode=episode,
         prompt_dir=prompt_dir,
@@ -962,6 +1001,7 @@ def main() -> int:
         plates_dir=Path(args.plates_dir) if args.plates_dir else None,
     )
     atomic_json(gate_report_path, build_gate_report(episode, plan["new_asset_groups"], args.aspect_ratio))
+    plan['verified_reused_subjects'] = sorted(reused_subjects)
     atomic_json(plan_out, plan)
 
     match_report = {

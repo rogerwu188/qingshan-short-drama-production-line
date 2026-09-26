@@ -158,7 +158,8 @@ POST_GEN_QA = RT_TOOLS / "post_generation_qa_runner.py"
 FINAL_QA_BUNDLE = RT_TOOLS / "final_qa_evidence_bundle.py"
 FINAL_AUDIENCE_REVIEW = RT_TOOLS / "final_audience_review.py"
 REVIEWS_ROOT = RT / "reviews"
-REVIEWER_ID = "claude-code-nalu-vlm"
+from nalu_qa_common import review_identity as _review_identity
+REVIEWER_ID, REVIEW_METHOD = _review_identity(os.environ)
 VIDEO_Q2 = RT_TOOLS / "video_q2_builder.py"          # D-7 (this pipeline owns it)
 
 # --------------------------------------------------------------------------- #
@@ -572,6 +573,16 @@ def project_scope_check(
             "character_registry", "character_sources",
         )
         path_authority: dict[str, str] = {}
+        scope_config = _scope.load_config()
+        # A dedicated runtime may use its own runtime/ paths. They are not
+        # another series' authorities merely because the relative names match.
+        dedicated_runtime = (
+            scope_config.get("dedicated_runtime") is True
+            and scope_config.get("default_scope") == scope["scope_id"]
+            and set((scope_config.get("scopes") or {})) == {scope["scope_id"]}
+            and set((scope_config.get("episodes") or {}).values()) == {scope["scope_id"]}
+            and project_id == scope["series_id"]
+        )
         for key in scoped_authorities:
             value = Path(scope[key]).resolve()
             path_authority[key] = str(value)
@@ -580,7 +591,7 @@ def project_scope_check(
             default_rel = _scope.DEFAULT_PATHS.get(key)
             if isinstance(default_rel, str) and not default_rel.startswith("tools:"):
                 default_path = (RUNTIME / default_rel).resolve()
-                if value == default_path:
+                if value == default_path and not dedicated_runtime:
                     failures.append(f"SCOPE_PATH_REUSES_DEFAULT_AUTHORITY:{key}:{value}")
 
         # A lexicon may be a public, versioned runtime config shared by all
@@ -794,6 +805,8 @@ class Ctx:
         env["NALU_RUNTIME_ROOT"] = str(RUNTIME)
         env["NALU_WORK_ROOT"] = str(NALU_WORK)
         env["NALU_SERIES_SCOPES"] = str(RUNTIME / "runtime" / "series_scopes.json")
+        env["NALU_SERIES_SCOPE_ID"] = str(self.p.scope["scope_id"])
+        env["NALU_POLICY_PROFILE"] = "CURRENT_PORTABLE"
         env["QINGSHAN_VOICE_REGISTRY"] = str(self.p.scope["voice_registry"])
         env["QINGSHAN_ENTITY_REGISTRY"] = str(self.p.scope["entity_registry"])
         env["QINGSHAN_AGENTCUT_VOICE_POLICY"] = str(self.p.scope["agentcut_voice_policy"])
@@ -1386,6 +1399,9 @@ def s2_argv(ctx: Ctx, *, with_keyframes: bool, ready_units=None) -> list[Any]:
     ]
     if p.legacy_grouping_plan.is_file():
         argv += ["--legacy-plan", p.legacy_grouping_plan]
+    authored_states = p.rt_pre / "shot_state_authoring.json"
+    if authored_states.is_file():
+        argv += ["--state-authoring", authored_states]
     if with_keyframes:
         argv += ["--keyframe-dir", p.keyframes]
     if ready_units is not None:
@@ -1404,6 +1420,7 @@ def fp_s2(ctx: Ctx) -> str:
         # D-10: S2 now owns the pre-step that generates these, so an edited
         # overlay or a regenerated requirements file re-runs the stage.
         "asset_requirements": sha256_file(p.asset_requirements),
+        "shot_state_authoring": sha256_file(p.rt_pre / "shot_state_authoring.json"),
         "overlay": sha256_file(p.overlay) if p.overlay else None,
         "keyframes": sorted(item.name for item in p.keyframes.glob("*.png")) if p.keyframes.is_dir() else [],
     }, sort_keys=True))
@@ -1570,6 +1587,22 @@ def locked_subjects(library: dict[str, Any]) -> dict[str, dict[str, Any]]:
                     out.setdefault(f"{subject_id}__{view}", {"category": category, "via": subject_id,
                                                               "sha256": out[subject_id]["sha256"]})
     return out
+
+
+def s3_submission_plan(plan: dict[str, Any], locked: dict[str, Any],
+                       subset: list[str]) -> dict[str, Any]:
+    """Exclude verified reuse from the actual paid input, not just cost estimates.
+
+    Keep transaction-bound non-reuse rows for the original submitter's recovery.
+    Never mutate the full authored plan or its prompt/reference bindings.
+    """
+    selected = dict(plan)
+    selected['new_asset_groups'] = [
+        row for row in plan.get('new_asset_groups', [])
+        if row['id'] not in locked and (not subset or row['id'] in subset)]
+    selected['reuse_excluded_subject_ids'] = [
+        row['id'] for row in plan.get('new_asset_groups', []) if row['id'] in locked]
+    return selected
 
 
 def voice_rows(registry: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2050,6 +2083,14 @@ def stage_s3(ctx: Ctx) -> StageResult:
             }
             subset_plan = p.identity / "character_asset_plan_SUBSET.json"
             subset_plan.write_text(json.dumps(sub, ensure_ascii=False, indent=2), encoding="utf-8")
+        # Cost filtering alone is insufficient: the authorizer marks every row
+        # in its input READY_TO_SUBMIT, and the submitter POSTs all those rows.
+        selected_plan = s3_submission_plan(plan, already, subset)
+        selected_plan['deferred_view_rows'] = deferred
+        selected_plan['source_plan'] = str(p.identity_plan)
+        selected_plan['source_plan_sha256'] = sha256_file(p.identity_plan)
+        subset_plan = p.identity / 'character_asset_plan_SUBMISSION.json'
+        write_json(subset_plan, selected_plan)
         round_rec: dict[str, Any] = {
             "round": round_no,
             "bootstrap_status": report.get("status"),
@@ -2121,7 +2162,7 @@ def stage_s3(ctx: Ctx) -> StageResult:
             ]
             dry_argv = [
                 VENV, ENGINE / "tools/submit_giggle_character_asset_plan.py",
-                "--plan", p.identity_plan,
+                "--plan", subset_plan,
                 "--out", p.identity / f"{ctx.episode}_IDENTITY_PRECHECK.json",
                 "--precheck-only",
             ]
@@ -4406,6 +4447,8 @@ def s7_q2_gate(ctx: Ctx, res: StageResult) -> dict[str, Any]:
 
 def _write_release_timeline(ctx: "Ctx", p: "Paths", picture: Path, outro_seconds: float, release_timeline: Path) -> dict:
     """Derive the episode RELEASE timeline (unit windows on the rendered picture) from the AgentCut project."""
+    if outro_seconds < 2.5:
+        raise ValueError("REQUIRED_BRAND_OUTRO_MISSING: story footage is not a brand outro")
     project = read_json(p.agentcut_project, {}) or {}
     clips = []
     for track in ((project.get("timeline") or {}).get("videoTracks") or []):
@@ -4414,8 +4457,8 @@ def _write_release_timeline(ctx: "Ctx", p: "Paths", picture: Path, outro_seconds
     probe = subprocess.run([_media.require_ffprobe(), "-v", "error", "-show_entries", "format=duration",
                             "-of", "csv=p=0", str(picture)], capture_output=True, text=True, check=False)
     release_runtime = round(float(probe.stdout.strip() or 0), 6)
-    # outro window = the appended end card; without one, the last 0.5 s of the last unit
-    content_runtime = round(max(release_runtime - (outro_seconds or 0.5), 0.0), 6)
+    # Never steal story time to manufacture an outro window.
+    content_runtime = round(max(release_runtime - outro_seconds, 0.0), 6)
     segments = []
     for clip in clips:
         uid = str((clip.get("metadata") or {}).get("source_id") or "")
@@ -4426,8 +4469,7 @@ def _write_release_timeline(ctx: "Ctx", p: "Paths", picture: Path, outro_seconds
         "schema": "nalu.release_timeline.v1", "episode": ctx.episode,
         "source": str(p.agentcut_project), "picture": str(picture),
         "content_runtime_seconds": content_runtime, "release_runtime_seconds": release_runtime,
-        "outro_note": ("NALU MOTION studio end card appended (3.0 s)" if outro_seconds else
-                       "no outro card; the final 0.5 s of the last unit is the outro window"),
+        "outro_note": f"NALU MOTION studio end card appended ({outro_seconds:.3f} s)",
         "segments": segments, "recorded_at": now(),
     })
     return {"path": str(release_timeline), "segments": len(segments),
@@ -4804,6 +4846,10 @@ def stage_s7(ctx: Ctx) -> StageResult:
     # 5c. studio end card (Roger 2026-09-13): append nalu_runtime/brand/NALU_MOTION_endcard_3s_9x16.mp4
     endcard = Path(f"{_np.RUNTIME_ROOT}/brand/NALU_MOTION_endcard_3s_9x16.mp4")
     outro_seconds = 0.0
+    if not endcard.is_file():
+        res.steps.extend(steps)
+        res.blockers = [f"REQUIRED_BRAND_OUTRO_ASSET_MISSING:{endcard}"]
+        return res
     if endcard.is_file():
         with_endcard = p.assembly / f"{ctx.episode}_picture_native_subbed_endcard.mp4"
         cc = subprocess.run([_media.require_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-i", str(subbed), "-i", str(endcard),

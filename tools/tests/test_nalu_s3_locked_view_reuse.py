@@ -13,6 +13,21 @@ sys.path.insert(0, str(REPO / "lines/nalu/runtime/tools"))
 
 
 class LockedViewReuse(unittest.TestCase):
+    def test_paid_plan_excludes_reuse_and_keeps_recovery(self):
+        import copy
+        pipeline = importlib.import_module('nalu_pipeline')
+        plan = {'new_asset_groups': [
+            {'id': 'reuse', 'prompt_sha256': 'a'},
+            {'id': 'bound', 'prompt_sha256': 'b'},
+            {'id': 'new', 'prompt_sha256': 'c'}]}
+        before = copy.deepcopy(plan)
+        selected = pipeline.s3_submission_plan(plan, {'reuse': {}}, [])
+        self.assertEqual([r['id'] for r in selected['new_asset_groups']], ['bound', 'new'])
+        self.assertEqual(selected['reuse_excluded_subject_ids'], ['reuse'])
+        self.assertEqual(plan, before)
+        subset = pipeline.s3_submission_plan(plan, {'reuse': {}}, ['reuse', 'new'])
+        self.assertEqual(subset['new_asset_groups'], [{'id': 'new', 'prompt_sha256': 'c'}])
+
     def test_view_rows_registered_for_locked_subject(self):
         pipeline = importlib.import_module("nalu_pipeline")
         with tempfile.TemporaryDirectory() as tmp:

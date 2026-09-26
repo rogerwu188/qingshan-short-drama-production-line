@@ -633,7 +633,7 @@ def wardrobe_bible(contract: dict[str, Any], episode: str,
         row = {
             "character": name,
             "character_id": character_id,
-            "social_tier": "VILLAGE_SUBSISTENCE_FARMER",
+            "social_tier": entity.get("social_tier") or None,
             "role_basis": f"依据剧本人物描写：{appearance}",
             "authored_description": description or None,
             "authored_wardrobe_asset_id": (ward or {}).get("asset_id"),
@@ -642,7 +642,7 @@ def wardrobe_bible(contract: dict[str, Any], episode: str,
             "inner_layer": inner,
             "primary_color": None,
             "secondary_color": None,
-            "material": "粗布棉" + ("＋兽皮" if ("兽皮" in basis_text and "无外披兽皮" not in basis_text) else ""),
+            "material": None,
             "material_justification": "依据作者层服装描述" if description else "依据人物外貌描写",
             "pattern": None,
             "belt_or_fastening": ("麻布腰带" if "麻布腰带" in basis_text else
@@ -650,7 +650,7 @@ def wardrobe_bible(contract: dict[str, Any], episode: str,
                                   "布带系束" if "布带" in basis_text else None),
             "footwear": None,
             "accessory": ("麻布头巾" if "头巾" in basis_text else None),
-            "condition": "长期穿用、雪水浸渍、袖口与下摆磨损",
+            "condition": None,
             "continuity_key": f"WARDROBE-{episode}-{character_id}-V1",
             "derivation": {
                 "script_authored_fields": ["role_basis", "authored_description", "outer_layer",
@@ -668,7 +668,7 @@ def wardrobe_bible(contract: dict[str, Any], episode: str,
         # heuristics above; tools/wardrobe_identity_contract.py requires them non-null.
         garments = entity.get("wardrobe_garments") or {}
         for field in ("silhouette", "outer_layer", "inner_layer", "primary_color", "secondary_color",
-                      "material", "pattern", "belt_or_fastening", "footwear", "accessory"):
+                      "material", "pattern", "belt_or_fastening", "footwear", "accessory", "condition"):
             if str(garments.get(field) or "").strip():
                 row[field] = str(garments[field]).strip()
         if garments:
@@ -1352,6 +1352,7 @@ def main() -> int:
                         help="preproduction/<EP>/asset_requirements.json — its authored WARD-* rows are "
                              "the wardrobe bible authority (same text the identity prompts use)")
     parser.add_argument("--legacy-plan", help="optional prior production grouping plan used to migrate authored internal transitions")
+    parser.add_argument("--state-authoring", help="contract-SHA-bound new-episode state attachment; incompatible with legacy ledgers")
     parser.add_argument("--engine-root")
     args = parser.parse_args()
 
@@ -1518,6 +1519,16 @@ def main() -> int:
                 key = (str(row.get("from_shot_id")), str(row.get("to_shot_id")))
                 if all(key):
                     authored_internal.setdefault(key, row)
+
+    if args.state_authoring:
+        from tools.authored_shot_state_attachment import apply_authored_states
+        supplied = apply_authored_states(spec, by_shot,
+            json.loads(Path(args.state_authoring).read_text(encoding="utf-8")),
+            contract_sha256=sha256_file(contract_path), episode=episode)
+        for key, value in supplied.items():
+            if key in authored_internal and authored_internal[key] != value:
+                raise ValueError(f"INTERNAL_TRANSITION_AUTHORITY_CONFLICT:{key}")
+            authored_internal[key] = value
 
     # v4 adapters may provide a valid per-shot camera sequence whose grouped
     # unit anchors collide after semantic grouping (the grouping contract uses

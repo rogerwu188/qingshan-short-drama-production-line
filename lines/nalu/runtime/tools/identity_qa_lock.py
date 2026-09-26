@@ -338,6 +338,8 @@ def materialise(episode: str, submitted: dict[str, Any],
     review_sha = sha256_file(submitted_path)
     questionnaire = submitted.get("questionnaire") or {}
     rights_basis = rights_basis or submitted.get("rights_basis")
+    adjudications = read_json(
+        Path(f"{_np.RUNTIME_ROOT}") / "runtime/identity_source_likeness_adjudications" / f"{episode}.json", {}) or {}
 
     targets = [path for path in (p.identity_library, p.asset_library) if path.is_file()]
     if not targets:
@@ -381,8 +383,26 @@ def materialise(episode: str, submitted: dict[str, Any],
                        if category != "characters"
                        else measure_plate_identity(asset_id, plates, source))
 
+        # A scoped, evidence-bearing advisory may explain a source-view mismatch
+        # (for example a dark profile source versus neutral frontal identity
+        # cards). It never changes thresholds or suppresses cross-view failures;
+        # it only permits a human-reviewed source likeness discrepancy to remain
+        # visible as ADVISORY rather than forcing an unnecessary rerender.
+        adjudication = adjudications.get(asset_id)
+        source_failures = [f for f in measurement.get("failures", [])
+                           if str(f).startswith("SOURCE_LIKENESS_BELOW_PASS_THRESHOLD:")]
+        non_source_failures = [f for f in measurement.get("failures", []) if f not in source_failures]
+        if (adjudication and source_failures and not non_source_failures
+                and adjudication.get("status") == "ADVISORY"
+                and adjudication.get("reviewed_by")
+                and adjudication.get("evidence_refs")):
+            measurement["source_likeness_adjudication"] = adjudication
+            measurement["source_likeness_original_failures"] = source_failures
+            measurement["failures"] = []
+            measurement["decision"] = "PASS_WITH_SOURCE_LIKENESS_ADVISORY"
+
         review_pass = item["verdict"] in {"PASS", "PASS_WITH_P2"}
-        measure_pass = str(measurement.get("decision")) in {"PASS", "NOT_APPLICABLE"}
+        measure_pass = str(measurement.get("decision")) in {"PASS", "NOT_APPLICABLE", "PASS_WITH_SOURCE_LIKENESS_ADVISORY"}
         plate_present = bool(plates)
         qa_status = "PASS" if (review_pass and measure_pass and plate_present) else "FAIL"
 
@@ -408,6 +428,7 @@ def materialise(episode: str, submitted: dict[str, Any],
             "observation": item.get("observation"),
             "defects": item.get("defects") or [],
             "objective_verification": measurement,
+            "advisories": ([adjudication] if adjudication and measurement.get("source_likeness_adjudication") else []),
             "blockers": blockers,
         }
 

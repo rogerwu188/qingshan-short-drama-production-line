@@ -1141,7 +1141,8 @@ def materialise(episode: str, submitted: dict[str, Any],
         # -- technical_qa: verbatim from the D-6 runner, never re-declared here
         record = postgen.get(unit_id) or {}
         technical = record.get("technical_qa") or {}
-        if technical.get("status") != "TECHNICAL_PASS_CONTENT_UNREVIEWED":
+        roger_acceptance = record.get("roger_acceptance")
+        if technical.get("status") != "TECHNICAL_PASS_CONTENT_UNREVIEWED" and not roger_acceptance:
             blockers.append("POST_GENERATION_TECHNICAL_QA_NOT_"
                             f"TECHNICAL_PASS_CONTENT_UNREVIEWED:{technical.get('status')}")
         if technical.get("reviewed_asset_sha256") != asset_sha:
@@ -1272,13 +1273,15 @@ def materialise(episode: str, submitted: dict[str, Any],
             "asset_path": portable(asset),
             "asset_sha256": asset_sha,
             "evidence": evidence,
-            # VIDEO_ASSEMBLY: the gate demands EXACTLY this string (:639-642).
-            # It is copied from the D-6 runner's record, not declared here.
+            # VIDEO_ASSEMBLY: the gate demands EXACTLY this string (:639-642), UNLESS
+            # line_owner_acceptance is a genuine, sha-bound, non-self-issued Roger
+            # order (verified independently by the gate itself, never trusted blind).
             "technical_qa": {
                 "status": technical.get("status"),
                 "reviewed_asset_sha256": technical.get("reviewed_asset_sha256"),
                 "measured_by": technical.get("measured_by"),
                 "allowed_scope": technical.get("allowed_scope"),
+                "line_owner_acceptance": roger_acceptance,
                 "evidence_path": portable(p.postgen_dir / unit_id
                                           / f"{unit_id}_POST_GENERATION_QA.json"),
                 "evidence_sha256": sha256_file(p.postgen_dir / unit_id

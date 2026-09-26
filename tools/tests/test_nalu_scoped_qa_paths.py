@@ -75,6 +75,70 @@ def _loaded(runtime_root: Path, engine_root: Path, scope_id: str):
 
 
 class ScopedQaPaths(unittest.TestCase):
+    def test_historical_wardrobe_requires_same_plate_and_verified_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime, engine, _ = self._fixture(Path(tmp))
+            with _loaded(runtime, engine, 'FOBENSHIDAO'):
+                module = importlib.import_module('library_lock_non_plate')
+                plate = _write(Path(tmp) / 'plate.png', {'fixture': True})
+                artifact = {'path': str(plate), 'sha256': module.sha256_file(plate),
+                            'media_type': 'image/png', 'role': 'FULL_BODY_STANDING'}
+                receipt = _write(Path(tmp) / 'review.json', {'validation': {'status': 'PASS'}, 'items': [{
+                    'item_id': 'old-id', 'verdict': 'PASS',
+                    'request_item': {'media': [artifact]},
+                    'answers': {'wardrobe_matches_bible': 'PASS', 'no_forbidden_influence_visible': 'PASS'}}]})
+                owner = {'status': 'LOCKED', 'artifacts': [artifact],
+                         'qa': {'status': 'PASS', 'review_file': str(receipt), 'review_file_sha256': module.sha256_file(receipt)},
+                         'reuse_review': {'decision': 'ACCEPT_REUSE'}, 'reuse_evidence': {'source_asset_id': 'old-id'}}
+                ctx = SimpleNamespace(library={'assets': {'characters': {'new-id': owner}}},
+                                      runtime_library=None, identity_review=None, episode='E01', rights_basis='',
+                                      review_item=lambda _: None)
+                row = {'specification': {'owner_character_id': 'new-id'}}
+                self.assertEqual(module.lock_wardrobe(ctx, row)['status'], 'LOCKED')
+                owner['qa']['review_file_sha256'] = 'wrong'
+                self.assertEqual(module.lock_wardrobe(ctx, row)['status'], 'QA_FAILED_NOT_LOCKED')
+
+    def test_scene_mapping_requires_current_unique_existing_room(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime, engine, _ = self._fixture(Path(tmp))
+            with _loaded(runtime, engine, 'FOBENSHIDAO'):
+                module = importlib.import_module('library_lock_non_plate')
+                space = {'global_space_map_id': 'MAP', 'rooms': [{'room_id': 'ROOM'}],
+                         'scene_mappings': [{'location_id': 'LOC', 'scene_id': 'S1', 'room_id': 'ROOM'}]}
+                gsm = {'space_maps': [space]}
+                self.assertEqual(module.declared_scene_room(gsm, 'LOC', {'S1'}), ('MAP', 'ROOM'))
+                self.assertEqual(module.declared_scene_room(gsm, 'LOC', {'S2'}), (None, None))
+                gsm['space_maps'].append({**space, 'global_space_map_id': 'OTHER'})
+                self.assertEqual(module.declared_scene_room(gsm, 'LOC', {'S1'}), (None, None))
+
+    def test_accent_language_alias_does_not_hide_conflicts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime, engine, _ = self._fixture(Path(tmp))
+            with _loaded(runtime, engine, 'FOBENSHIDAO'):
+                module = importlib.import_module('library_lock_non_plate')
+                self.assertEqual(module.accent_locale({'language': 'zh-CN'}), 'zh-CN')
+                self.assertEqual(module.accent_locale({'locale': 'zh-CN'}), 'zh-CN')
+                self.assertIsNone(module.accent_locale({'locale': 'en-US', 'language': 'zh-CN'}))
+                self.assertIsNone(module.accent_locale({}))
+
+    def test_pipeline_finds_configured_reviewer_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime, engine, _ = self._fixture(Path(tmp))
+            with patch.dict(os.environ, {
+                'NALU_QA_REVIEWER_ID': 'actual-reviewer',
+                'NALU_QA_REVIEW_METHOD': 'ACTUAL_VISUAL_REVIEW',
+            }), _loaded(runtime, engine, 'FOBENSHIDAO'):
+                pipeline = importlib.import_module('nalu_pipeline')
+                self.assertEqual(pipeline.REVIEWER_ID, 'actual-reviewer')
+                receipt = _write(pipeline.REVIEWS_ROOT / 'E01' / 'a_submitted.json', {
+                    'kind': 'identity', 'validation': {'status': 'PASS'},
+                    'reviewer': 'actual-reviewer', 'items': []})
+                ctx = SimpleNamespace(episode='E01')
+                self.assertEqual(pipeline.latest_submitted_review(ctx, 'identity')[0], receipt)
+                _write(receipt, {'kind': 'identity', 'validation': {'status': 'PASS'},
+                                 'reviewer': 'different-reviewer', 'items': []})
+                self.assertIsNone(pipeline.latest_submitted_review(ctx, 'identity')[0])
+
     def test_reviewer_override_preserves_actual_provenance(self):
         with tempfile.TemporaryDirectory() as tmp:
             runtime, engine, _ = self._fixture(Path(tmp))
@@ -483,6 +547,21 @@ class ScopedQaPaths(unittest.TestCase):
                     SimpleNamespace(p=SimpleNamespace(scope=broad, gsm_own=gsm, contract=contract)))
                 self.assertTrue(any(row.startswith("SCOPE_PATH_REUSES_DEFAULT_AUTHORITY:voice_registry:")
                                     for row in broad_bad["failures"]))
+                dedicated_config = {
+                    "dedicated_runtime": True,
+                    "default_scope": scope["scope_id"],
+                    "scopes": {scope["scope_id"]: {}},
+                    "episodes": {"E01": scope["scope_id"]},
+                }
+                with patch.object(scope_mod, "load_config", return_value=dedicated_config):
+                    dedicated = pipeline.project_scope_check(SimpleNamespace(
+                        p=SimpleNamespace(scope=broad, gsm_own=gsm, contract=contract)))
+                    self.assertEqual(dedicated["status"], "PASS", dedicated["failures"])
+                shared_config = dict(dedicated_config, scopes={scope["scope_id"]: {}, "OTHER": {}})
+                with patch.object(scope_mod, "load_config", return_value=shared_config):
+                    shared = pipeline.project_scope_check(SimpleNamespace(
+                        p=SimpleNamespace(scope=broad, gsm_own=gsm, contract=contract)))
+                    self.assertTrue(any("REUSES_DEFAULT_AUTHORITY" in item for item in shared["failures"]))
 
                 # This is the actual StoryClaw mount spelling that the former
                 # '/nalu_runtime/runtime/' substring check failed to detect.

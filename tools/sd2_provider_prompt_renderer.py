@@ -31,6 +31,13 @@ except ModuleNotFoundError:
 SCHEMA = "qingshan.seedance2_provider_renderer.v1_shared_execution_ir"
 
 
+def _sanitize_provider_ids(value: str) -> str:
+    """Translate internal map/space IDs to provider-safe natural language."""
+    value = re.sub(r"\bGLOBAL-SPACE-[A-Z0-9-]+", "已锁定的同一全局空间", value, flags=re.IGNORECASE)
+    value = re.sub(r"\bLOC-[A-Z0-9-]+", "已锁定的同一地点", value, flags=re.IGNORECASE)
+    return re.sub(r"\bSUB(?:SPACE)?-[A-Z0-9-]+", "已锁定的同一子空间", value, flags=re.IGNORECASE)
+
+
 def _dialogue(beat: dict[str, Any]) -> str:
     raw = str(beat.get("dialogue") or "").strip()
     if not raw:
@@ -241,12 +248,16 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         "【物理】" + "；".join(physical_rules) + "。" if physical_rules else "【物理】按时间轴完成真实动作因果。",
         "【限制】" + "；".join(dict.fromkeys(value.strip().rstrip("。；") for value in negatives if value.strip())) + "。",
     ]) + "\n"
+    # Provider prose must not receive internal map/space identifiers.  Keep
+    # those IDs in the structured execution contract and replace only their
+    # human-facing prompt occurrences with scoped natural-language labels.
+    text = _sanitize_provider_ids(text)
     boundary = validate_provider_prompt_boundary(text, source_id=uid, model_family="SEEDANCE_2")
     if boundary["status"] != "PASS":
         raise ValueError(";".join(boundary["failures"]))
     clause_evidence = {
-        "ANCHOR.IDENTITY_PROP": plan["identity_prop_fact"],
-        "ANCHOR.SPACE_WEATHER": plan["space_weather_fact"],
+        "ANCHOR.IDENTITY_PROP": _sanitize_provider_ids(plan["identity_prop_fact"]),
+        "ANCHOR.SPACE_WEATHER": _sanitize_provider_ids(plan["space_weather_fact"]),
         "CAMERA.PLAN": camera,
     }
     if state_lock:

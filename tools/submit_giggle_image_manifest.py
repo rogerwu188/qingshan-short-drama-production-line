@@ -292,7 +292,17 @@ def validate_positive_single_subject_provider_scope(
     return failures
 
 
+def validate_reference_count(task: dict[str, Any]) -> None:
+    references = task.get("reference_images")
+    if not isinstance(references, list) or not 1 <= len(references) <= 10:
+        raise ValueError(
+            f"{task.get('task_key', 'UNKNOWN')} image reference count must be 1..10; "
+            "recompile reference bindings and prompt indices, never silently truncate"
+        )
+
+
 def validate_task(task: dict[str, Any]) -> None:
+    validate_reference_count(task)
     retry_failures = validate_submission_attempt(task)
     if retry_failures:
         raise ValueError(
@@ -349,8 +359,17 @@ def validate_task(task: dict[str, Any]) -> None:
         raise ValueError(f"{task['task_key']} reference bindings differ from prompt contract")
     character_ids = [row.get("entity_id") for row in bindings if row.get("role") == "character"]
     visible_characters = list(contract.get("visible_characters") or [])
-    if character_ids != visible_characters:
+    exempt_background_ids = list(task.get("identity_authority_exempt_character_ids") or [])
+    # A visible background/functional character may be intentionally omitted
+    # from the flat identity transport cap.  It must still be present in the
+    # authored visible-character contract, and the omission must be explicit.
+    if set(character_ids) | set(exempt_background_ids) != set(visible_characters):
         raise ValueError(f"{task['task_key']} visible-character/reference mismatch")
+    if len(set(exempt_background_ids)) != len(exempt_background_ids) or any(
+        value not in visible_characters or value in character_ids
+        for value in exempt_background_ids
+    ):
+        raise ValueError(f"{task['task_key']} invalid identity-authority exemption")
     if any(row.get("qa_status") != "PASS" for row in bindings if row.get("role") == "character"):
         raise ValueError(f"{task['task_key']} has an unverified character identity asset")
     if len([row for row in bindings if row.get("role") in {"scene", "destination_scene"}]) != 1:
@@ -401,6 +420,7 @@ def _submit_one_locked(task: dict[str, Any], receipt_dir: Path, transaction_dir:
         require_paid_image_model_contract(
             task, str(task.get("episode")), prompt_text=prompt
         )
+    validate_reference_count(task)
     references = [str(resolve(path)) for path in task["reference_images"]]
     payload = {
         "prompt": prompt,
@@ -586,7 +606,14 @@ def main() -> int:
     parser.add_argument("--concurrency", type=int, default=6)
     parser.add_argument("--precheck-only", action="store_true")
     parser.add_argument("--task-key", action="append", default=[], help="Submit only the named task key; repeat as needed")
+    parser.add_argument(
+        "--reconcile-unresolved-report",
+        help="Offline, evidence-bound reconciliation of unresolved timeout transactions; never POSTs",
+    )
     args = parser.parse_args()
+
+    if args.reconcile_unresolved_report:
+        raise SystemExit("Aggregate zero-charge windows cannot settle individual timeout transactions; provider task-history evidence is required")
 
     manifest_path = resolve(args.manifest)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

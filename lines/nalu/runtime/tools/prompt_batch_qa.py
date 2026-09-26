@@ -125,6 +125,11 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
         bible.setdefault("侍女", bible["迎客姑娘"])
     if "白鲤郡主" in bible:
         bible.setdefault("白鲤", bible["白鲤郡主"])
+    elif "白鲤" in bible:
+        # v4 grouping plans may retain the short authored display name while
+        # shot contracts use the canonical title.  This is an explicit alias,
+        # not fuzzy identity matching.
+        bible.setdefault("白鲤郡主", bible["白鲤"])
     id2name = {e["character_id"]: e["canonical_name"] for e in contract["character_entities"]}
     rooms = {(m["global_space_map_id"], r["room_id"]) for m in gsm["space_maps"] for r in m.get("rooms", [])}
     dialogue_by_shot: dict[str, list[str]] = {}
@@ -157,8 +162,10 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
             checks.append({"id": cid, "status": "PASS" if ok else "FAIL", "detail": detail})
         # keyframe prompt checks
         chk("kf_entry_state_verbatim", shot["entry_state"] in kf_text, shot["entry_state"])
-        cast_names = ["白鲤郡主" if c["character"] == "白鲤" else c["character"]
-                      for c in shot["prompt_spec"]["cast"] if c.get("first_frame_visible", True) is not False]
+        # Keep the authored display alias used by the rendered prompt; the
+        # wardrobe bible above resolves 白鲤/白鲤郡主 explicitly.
+        cast_names = [c["character"] for c in shot["prompt_spec"]["cast"]
+                      if c.get("first_frame_visible", True) is not False]
         cast_names = list(dict.fromkeys(cast_names))
         allowed = re.search(r"本帧允许入画的人物[^\n]*：([^\n]*)", kf_text)
         allowed_names = [x.lstrip("、，, ") for x in re.findall(r"([^（）]+)（[^）]+）", allowed.group(1))] if allowed else []

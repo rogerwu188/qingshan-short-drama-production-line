@@ -152,6 +152,50 @@ class ShotMediaAdmissionGateTests(unittest.TestCase):
             report = evaluate(payload, self.registry, Path(directory))
             self.assertIn("technical_qa_status_missing_or_dishonest", report["failures"])
 
+    def test_genuine_line_owner_acceptance_admits_a_raw_technical_fail(self):
+        # nalu D-72 extended to Q2 (2026-09-25): a Roger GATE_FAIL_ACCEPTANCE order,
+        # already verified once upstream by post_generation_qa_runner via
+        # roger_gate_acceptance.find_acceptance, must also clear this gate — sha-
+        # bound to THIS exact asset, never a blanket waiver.
+        with TemporaryDirectory() as directory:
+            payload = self.fixture(Path(directory), "VIDEO_ASSEMBLY")
+            asset_sha = payload["asset_sha256"]
+            payload["technical_qa"]["status"] = "TECHNICAL_FAIL"
+            payload["technical_qa"]["line_owner_acceptance"] = {
+                "self_issued": False, "issued_by": "Roger",
+                "media_sha256": asset_sha, "media_sha256_bound_by_order": asset_sha,
+                "order_seq": 5, "order_id": "ROGER-20260925-E08-POST-GENERATION-QA-ADMISSION-SEQ005",
+            }
+            report = evaluate(payload, self.registry, Path(directory))
+            self.assertNotIn("technical_qa_status_missing_or_dishonest", report["failures"])
+            self.assertEqual(report["status"], "ADMITTED", report["failures"])
+
+    def test_line_owner_acceptance_bound_to_a_different_asset_is_refused(self):
+        with TemporaryDirectory() as directory:
+            payload = self.fixture(Path(directory), "VIDEO_ASSEMBLY")
+            payload["technical_qa"]["status"] = "TECHNICAL_FAIL"
+            other_sha = "b" * 64
+            payload["technical_qa"]["line_owner_acceptance"] = {
+                "self_issued": False, "issued_by": "Roger",
+                "media_sha256": other_sha, "media_sha256_bound_by_order": other_sha,
+                "order_seq": 5, "order_id": "ROGER-20260925-...",
+            }
+            report = evaluate(payload, self.registry, Path(directory))
+            self.assertIn("technical_qa_status_missing_or_dishonest", report["failures"])
+
+    def test_self_issued_acceptance_is_refused(self):
+        with TemporaryDirectory() as directory:
+            payload = self.fixture(Path(directory), "VIDEO_ASSEMBLY")
+            asset_sha = payload["asset_sha256"]
+            payload["technical_qa"]["status"] = "TECHNICAL_FAIL"
+            payload["technical_qa"]["line_owner_acceptance"] = {
+                "self_issued": True, "issued_by": "Roger",
+                "media_sha256": asset_sha, "media_sha256_bound_by_order": asset_sha,
+                "order_seq": 5, "order_id": "ROGER-20260925-...",
+            }
+            report = evaluate(payload, self.registry, Path(directory))
+            self.assertIn("technical_qa_status_missing_or_dishonest", report["failures"])
+
     def test_unrelated_evidence_payload_cannot_be_wrapped_as_pass(self):
         with TemporaryDirectory() as directory:
             payload = self.fixture(Path(directory))

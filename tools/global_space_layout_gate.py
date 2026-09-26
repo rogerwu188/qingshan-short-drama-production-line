@@ -82,6 +82,10 @@ def _task_stage(task: dict[str, Any]) -> str:
 
 def requires_space_map(episode: Any, tasks: list[dict[str, Any]], explicit: Any = None) -> bool:
     number = episode_number(episode)
+    # S2 validates the map authority before shot tasks exist. An explicit
+    # requirement must execute that check even for an empty E42+ task batch.
+    if explicit is True:
+        return True
     # ROGER-20260827-E42-COMPLETE-MAP-MODE: E42+ shot production may
     # never opt out of the complete visual map chain.  Historical manifests
     # used ``global_space_map_gate_required=false`` as a repair escape hatch;

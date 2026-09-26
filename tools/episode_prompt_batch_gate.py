@@ -30,9 +30,18 @@ def require_generation_batch(task, root, *, artifact_kind='video_prompt'):
     Reusable character assets without an episode are outside episode batches.
     """
     root=Path(root)
-    policy_path=root/'workflow/production_line/EPISODE_PROMPT_BATCH_POLICY.json'
-    if not policy_path.exists():
-        policy_path=root/'configs/EPISODE_PROMPT_BATCH_POLICY.json'
+    # Prefer an isolated runtime policy when one is explicitly configured;
+    # this prevents a candidate episode batch from mutating or accidentally
+    # inheriting the shared engine's historical execution registration.
+    runtime_root = os.environ.get('NALU_RUNTIME_ROOT','').strip()
+    candidates = []
+    if runtime_root:
+        candidates.append(Path(runtime_root)/'workflow/production_line/EPISODE_PROMPT_BATCH_POLICY.json')
+    candidates.extend([
+        root/'workflow/production_line/EPISODE_PROMPT_BATCH_POLICY.json',
+        root/'configs/EPISODE_PROMPT_BATCH_POLICY.json',
+    ])
+    policy_path = next((path for path in candidates if path.exists()), candidates[-1])
     if not policy_path.exists():
         return {'status':'NOT_REQUIRED','failures':[]}
     policy=json.loads(policy_path.read_text())
