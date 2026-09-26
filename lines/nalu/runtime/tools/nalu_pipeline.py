@@ -45,6 +45,7 @@ import materialize_paid_authorization as _paid_order
 import nalu_media_tools as _media
 import nalu_policy_profile as _policy
 import roger_gate_acceptance as _rga
+import nalu_tail_ad_opt_in as _tail_ad_optin
 
 import argparse
 import copy
@@ -96,6 +97,19 @@ SCRIPTS = ENGINE / "workflow/claude_writer_agent/scripts"
 # no task can accidentally write into the legacy NALU-YEWUJIANG workspace.
 NALU_WORK = Path(os.environ.get("NALU_WORK_ROOT", str(ENGINE / "workflow/nalu"))).resolve()
 DELIVERABLES = RUNTIME / "deliverables"
+
+# tail-ad slot (optional, per-episode; codex_docs/ROGER-20260925-AD-TAIL-INTEGRATION.md)
+ADS_ROOT = RUNTIME / "ads"
+ADS_INBOX = ADS_ROOT / "inbox"
+ADS_BRIEFS = ADS_ROOT / "briefs"
+ADS_PACKAGED = ADS_ROOT / "packaged"
+ADS_PROMPTS = ADS_ROOT / "prompts"
+ADS_POLICY = ADS_ROOT / "policy.json"
+ADS_TRANSACTIONS = ADS_ROOT / "transactions"
+AD_SLOT_CONTRACT = ENGINE / "configs/AD_SLOT_CONTRACT_V1.json"
+AD_TAIL_PACKAGE_TOOL = ENGINE / "tools/ad_tail_package.py"
+AD_TAIL_INSERT_TOOL = ENGINE / "tools/ad_tail_insert.py"
+ADFORGE_ADAPTER_TOOL = ENGINE / "tools/adforge_adapter.py"
 
 SCHEMA = "nalu.pipeline_state.v1"
 TOOL_ID = "nalu_pipeline.v1"
@@ -419,6 +433,12 @@ class Paths:
         self.final_mp4 = self.deliver / f"{episode}_final_9x16.mp4"
         self.qa_report = self.deliver / f"{episode}_QA_REPORT.json"
         self.checkpoint = self.deliver / "CHECKPOINT.md"
+
+        # tail-ad slot (optional, per-episode)
+        self.ad_prompt = ADS_PROMPTS / f"{episode}_AD_PROMPT.json"
+        self.ad_answer = ADS_PROMPTS / f"{episode}_AD_ANSWER.json"
+        self.ad_tail_video = self.deliver / f"{episode}_final_9x16_AD.mp4"
+        self.ad_tail_qa_report = self.assembly / f"{episode}_AD_TAIL_QA.json"
 
         # bookkeeping
         self.state = STATE_DIR / f"{episode}.json"
@@ -4414,6 +4434,123 @@ def _write_release_timeline(ctx: "Ctx", p: "Paths", picture: Path, outro_seconds
             "content_runtime_seconds": content_runtime, "release_runtime_seconds": release_runtime}
 
 
+def s7_tail_ad(ctx: Ctx, res: StageResult, *, endcard_seconds: float) -> dict[str, Any]:
+    """Optional per-episode tail ad (codex_docs/ROGER-20260925-AD-TAIL-INTEGRATION.md).
+
+    MUST NEVER raise past this function and MUST NEVER touch res.status/
+    res.blockers — a failed or skipped ad only means no AD_TAIL_* evidence
+    gets produced; the episode's own final_mp4 is completely unaffected.
+    Runs strictly after p.final_mp4 is confirmed on disk (called from
+    stage_s7 right after that gate) and never writes to that path.
+    ``endcard_seconds`` is stage_s7's own already-computed outro_seconds
+    (0.0 or 3.0) — never recomputed or hardcoded here.
+    """
+    try:
+        return _s7_tail_ad_body(ctx, res, endcard_seconds=endcard_seconds)
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "SKIPPED", "reason": f"EXCEPTION:{type(exc).__name__}:{exc}"}
+
+
+def _s7_tail_ad_body(ctx: Ctx, res: StageResult, *, endcard_seconds: float) -> dict[str, Any]:
+    p = ctx.p
+    decision = ctx.state.get("tail_ad_opt_in") or {"answer": "NONE", "reason": "NO_OPT_IN_RECORDED"}
+    decision = _tail_ad_optin.recheck_before_s7(
+        ctx.episode, answer_dir=ADS_PROMPTS, ledger_path=ADS_TRANSACTIONS / "opt_in_ledger.json",
+        current_decision=decision, say=ctx.say)
+    if decision != ctx.state.get("tail_ad_opt_in"):
+        ctx.state["tail_ad_opt_in"] = decision  # state only — never the manifest, see
+        ctx.save_state()                        # nalu_tail_ad_opt_in._write_manifest_ad_slot's docstring
+
+    answer = str(decision.get("answer") or "NONE")
+    if answer == "NONE" or not AD_SLOT_CONTRACT.is_file():
+        return {"status": "SKIPPED", "reason": decision.get("reason", "NO_AD_SLOT")}
+
+    sku = answer.split(":", 1)[1] if ":" in answer else ""
+    if not sku:
+        return {"status": "SKIPPED", "reason": f"MALFORMED_ANSWER:{answer}"}
+
+    packaged = ADS_PACKAGED / f"{sku}_tail.mp4"
+    packaged_qa = ADS_PACKAGED / f"{sku}_tail.qa.json"
+
+    if answer.startswith("INBOX:"):
+        raw_input = ADS_INBOX / f"{sku}.mp4"
+        if not raw_input.is_file():
+            return {"status": "SKIPPED", "reason": "INBOX_SKU_MISSING", "sku": sku}
+        provenance = "INBOX"
+        # optional sidecar: a Mode-A drop may already carry its own burned-in CTA
+        # (e.g. the AdForge demo); declare it here so AD_TAIL_OCR_CLEAN allows it
+        # instead of misreading known, approved branding as anomalous text.
+        meta_path = ADS_INBOX / f"{sku}.meta.json"
+        cta_text = str((read_json(meta_path, {}) or {}).get("cta_text") or "") if meta_path.is_file() else None
+    elif answer.startswith("BRIEF:"):
+        brief_path = ADS_BRIEFS / f"{sku}.json"
+        if not brief_path.is_file():
+            return {"status": "SKIPPED", "reason": "BRIEF_SKU_MISSING", "sku": sku}
+        run_id = f"{ctx.episode}_{sku}"
+        adapter_report = ADS_TRANSACTIONS / ctx.p.scope["scope_id"] / ctx.episode / f"{sku}_adforge_report.json"
+        adapter_video = ADS_TRANSACTIONS / ctx.p.scope["scope_id"] / ctx.episode / f"{sku}_adforge_output.mp4"
+        adapter_argv = [VENV, ADFORGE_ADAPTER_TOOL, "generate", "--brief", brief_path, "--sku", sku,
+                        "--episode", ctx.episode, "--run-id", run_id, "--slot-contract", AD_SLOT_CONTRACT,
+                        "--out-video", adapter_video, "--out-report", adapter_report]
+        if ctx.paid_enabled:
+            adapter_argv.append("--paid")
+        else:
+            ctx.planned_commands.append({
+                "stage": "S7", "step": "s7_adforge_adapter", "planned_credits": 0,
+                "paid_argv": [str(item) for item in adapter_argv], "paid_command": q(adapter_argv),
+                "note": "Mode-B tail ad: AdForge narration+video generation, gated on --paid "
+                        "same as every other paid step; dry-plans (writes project.json only) "
+                        "when not enabled.",
+            })
+        adapter_step = ctx.run(adapter_argv, name="s7_adforge_adapter", paid=ctx.paid_enabled)
+        res.steps.append(adapter_step)
+        if not ctx.paid_enabled:
+            return {"status": "DRY_PLANNED", "sku": sku, "reason": "PAID_STEPS_DISABLED"}
+        if adapter_step["exit_code"] == 2:
+            return {"status": "SKIPPED", "reason": "ADAPTER_REQUIRED", "sku": sku}
+        if adapter_step["exit_code"] != 0 or not adapter_video.is_file():
+            return {"status": "SKIPPED", "reason": "ADFORGE_GENERATION_FAILED", "sku": sku}
+        raw_input = adapter_video
+        provenance = f"ADFORGE:{sku}/{run_id}"
+        cta_text = str((read_json(brief_path, {}) or {}).get("cta") or "") or None
+    else:
+        return {"status": "SKIPPED", "reason": f"UNKNOWN_ANSWER_PREFIX:{answer}"}
+
+    package_argv = [VENV, AD_TAIL_PACKAGE_TOOL, "package", "--input", raw_input, "--sku", sku,
+                    "--provenance", provenance, "--slot-contract", AD_SLOT_CONTRACT,
+                    "--out", packaged, "--out-qa", packaged_qa]
+    if cta_text:
+        package_argv += ["--cta-text", cta_text]
+    package_step = ctx.run(package_argv, name="s7_ad_tail_package")
+    res.steps.append(package_step)
+    if package_step["exit_code"] != 0 or not packaged_qa.is_file():
+        return {"status": "SKIPPED", "reason": "PACKAGE_QA_FAIL", "sku": sku, "qa_report": str(packaged_qa)}
+    packaged_qa_payload = read_json(packaged_qa, {}) or {}
+    if packaged_qa_payload.get("status") != "PASS":
+        return {"status": "SKIPPED", "reason": "PACKAGE_QA_FAIL", "sku": sku, "qa_report": str(packaged_qa)}
+
+    insert_argv = [VENV, AD_TAIL_INSERT_TOOL, "insert", "--content", p.final_mp4,
+                   "--endcard-seconds", endcard_seconds,
+                   "--packaged-ad", packaged, "--packaged-ad-qa", packaged_qa,
+                   "--expected-packaged-sha256", packaged_qa_payload.get("packaged_sha256") or "",
+                   "--sku", sku, "--provenance", provenance, "--episode", ctx.episode,
+                   "--slot-contract", AD_SLOT_CONTRACT, "--out", p.ad_tail_video,
+                   "--out-qa", p.ad_tail_qa_report]
+    insert_step = ctx.run(insert_argv, name="s7_ad_tail_insert")
+    res.steps.append(insert_step)
+    if insert_step["exit_code"] != 0 or not p.ad_tail_video.is_file():
+        return {"status": "SKIPPED", "reason": "INSERT_FAIL", "sku": sku}
+
+    ctx.state["tail_ad"] = {
+        "sku": sku, "provenance": provenance, "ad_tail_video": str(p.ad_tail_video),
+        "ad_tail_video_sha256": sha256_file(p.ad_tail_video), "qa_report": str(p.ad_tail_qa_report),
+        "produced_at": now(),
+    }
+    ctx.save_state()
+    res.receipts.append(str(p.ad_tail_qa_report))
+    return {"status": "PASS", "sku": sku, "provenance": provenance, "ad_tail_video": str(p.ad_tail_video)}
+
+
 def s7_final_audience_review(ctx: Ctx, res: StageResult) -> dict[str, Any]:
     """Require an independent, SHA-bound final-audience review before final QA.
 
@@ -4756,13 +4893,47 @@ def stage_s7(ctx: Ctx) -> StageResult:
     steps.append(ctx.run(level_argv, name="s7_level_native_release_audio"))
     res.receipts.append(str(p.leveled_audio_report))
     if steps[-1]["exit_code"] != 0 or not p.final_mp4.is_file():
-        res.steps.extend(steps)
-        res.blockers = ["RELEASE_AUDIO_LEVELLING_FAILED"]
-        res.details["missing_input"] = str(p.final_mp4)
-        res.details["hint"] = ("level_native_release_audio.py refuses to overwrite an existing "
-                             "--output/--qa — bump --version if this episode was levelled once "
-                             "already.")
-        return res
+        # The measurement stays honest (leveled_audio_report keeps its real FAIL and
+        # failures list); the stage may continue only on an explicit, source-receipted
+        # line-owner order bound to this exact final-cut SHA — same shape as the
+        # FINAL-CUT-AUDIENCE-DETECTORS acceptance a few steps below.
+        level_report = read_json(p.leveled_audio_report, {}) or {}
+        failing = list(level_report.get("failures") or [])
+        final_sha = sha256_file(p.final_mp4) if p.final_mp4.is_file() else None
+        order = None
+        if failing and final_sha:
+            orders_path = ctx.authority.get("orders_path")
+            orders = (_rga._orders(orders_path,
+                                   expected_latest_seq=ctx.authority.get("latest_order_seq") or 0,
+                                   engine_root=ENGINE)
+                      if orders_path and not ctx.authority_blockers else [])
+            order = _rga.find_acceptance(
+                orders, episode=ctx.episode, gate_id="RELEASE-AUDIO-LOUDNESS",
+                failing=failing, media_sha256=final_sha, media_item_id="UNIT_LOUDNESS_OUT_OF_ROLE_RANGE",
+                expected_issuer=ctx.authority.get("line_owner_id") or "", engine_root=ENGINE)
+        if order is None:
+            res.steps.extend(steps)
+            res.blockers = ["RELEASE_AUDIO_LEVELLING_FAILED"]
+            res.details["missing_input"] = str(p.final_mp4)
+            res.details["hint"] = ("level_native_release_audio.py refuses to overwrite an existing "
+                                 "--output/--qa — bump --version if this episode was levelled once "
+                                 "already.")
+            return res
+        record = _rga.acceptance_record(order, episode=ctx.episode, gate_id="RELEASE-AUDIO-LOUDNESS",
+                                        failing=failing, media_sha256=final_sha,
+                                        media_item_id="UNIT_LOUDNESS_OUT_OF_ROLE_RANGE",
+                                        gate_result_path=str(p.leveled_audio_report))
+        acceptance_path = p.assembly / "final_qa" / f"{ctx.episode}_RELEASE_AUDIO_LOUDNESS_ACCEPTANCE.json"
+        acceptance_path.parent.mkdir(parents=True, exist_ok=True)
+        acceptance_path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+        res.details["release_audio_loudness_acceptance"] = {**record, "record_path": str(acceptance_path)}
+        res.receipts.append(str(acceptance_path))
+        ctx.say(f"   !! RELEASE_AUDIO_LEVELLING stays FAIL ({', '.join(failing)}); continuing on line-owner order "
+                f"seq={order.get('seq')} {order.get('order')!s:.40} -> {acceptance_path.name}")
+
+    # ------------------------------------- 6a. optional tail ad (never blocks the episode)
+    tail_ad = s7_tail_ad(ctx, res, endcard_seconds=outro_seconds)
+    res.details["tail_ad"] = tail_ad
 
     # ---------------------------------- 6b. final-cut audience detectors (seq=19, D-40)
     # hook / dialogue coverage / silent runs / voice distinctness / emotion dynamics / lexicon /
@@ -4832,14 +5003,14 @@ def stage_s7(ctx: Ctx) -> StageResult:
                   if orders_path and not ctx.authority_blockers else [])
         order = _rga.find_acceptance(
             orders, episode=ctx.episode, gate_id="FINAL-CUT-AUDIENCE-DETECTORS",
-            failing=failing, media_sha256=final_sha,
+            failing=failing, media_sha256=final_sha, media_item_id="loudness",
             expected_issuer=ctx.authority.get("line_owner_id") or "", engine_root=ENGINE)
         if order is None:
             res.steps.extend(steps)
             res.blockers = ["FINAL_CUT_AUDIENCE_DETECTORS_FAIL:" + str(gate_step.get("stdout_tail") or "")[-400:]]
             return res
         record = _rga.acceptance_record(order, episode=ctx.episode, gate_id="FINAL-CUT-AUDIENCE-DETECTORS",
-                                        failing=failing, media_sha256=final_sha,
+                                        failing=failing, media_sha256=final_sha, media_item_id="loudness",
                                         gate_result_path=str(p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_GATE.json"))
         acceptance_path = p.assembly / "final_qa" / f"{ctx.episode}_LINE_OWNER_GATE_ACCEPTANCE.json"
         acceptance_path.parent.mkdir(parents=True, exist_ok=True)
@@ -5451,6 +5622,20 @@ def run_episode(ctx: Ctx) -> int:
         "paid_enabled": ctx.paid_enabled, "log": str(ctx.run_log)}]
     ctx.save_state()
 
+    # tail-ad opt-in (optional, per-episode): asked exactly once, ever, right
+    # before S1 on a fresh run whose four writer layers already exist.  Sticky
+    # in ctx.state so a later --from S3-style resume never re-asks.  Runs as a
+    # direct in-process call (not ctx.run()'s buffered subprocess) so the
+    # question is visible on the live terminal while it polls.
+    if "S1" in selected and ctx.state.get("tail_ad_opt_in") is None \
+            and all(path.is_file() for path in ctx.p.layers().values()):
+        decision = _tail_ad_optin.run_opt_in(
+            ctx.episode, prompts_dir=ADS_PROMPTS, answer_dir=ADS_PROMPTS,
+            policy_path=ADS_POLICY, ledger_path=ADS_TRANSACTIONS / "opt_in_ledger.json",
+            manifest_path=ctx.p.writer_manifest, say=ctx.say)
+        ctx.state["tail_ad_opt_in"] = decision
+        ctx.save_state()
+
     exit_code = 0
     for sid in selected:
         row = ctx.stage_state(sid)
@@ -5601,6 +5786,13 @@ def print_status(ctx: Ctx) -> None:
         print(f"{sid:6} {str(row.get('status')):34} {row.get('planned_credits') or 0:>5}  "
               f"{blockers[:60]}")
     print()
+    tail_ad = state.get("tail_ad_opt_in")
+    if tail_ad:
+        print(f"tail-ad opt-in     : {tail_ad.get('answer')} ({tail_ad.get('reason')})")
+    produced_ad = state.get("tail_ad") or {}
+    if produced_ad.get("ad_tail_video_sha256"):
+        print(f"tail-ad produced   : {ctx.p.ad_tail_video}  "
+              f"sha256={produced_ad['ad_tail_video_sha256'][:12]}...")
     review = state.get("review_required")
     if review:
         print(f"MACHINE REVIEW REQUIRED at {review.get('stage')} "

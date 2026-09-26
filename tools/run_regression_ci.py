@@ -927,6 +927,25 @@ def ocr_audit_stats(payload: Any) -> Dict[str, Any]:
     }
 
 
+AD_TAIL_DIAGNOSTIC_KEYS = ("ad_tail_format", "ad_tail_duration", "ad_tail_loudness",
+                           "ad_tail_label_present", "ad_tail_sha_bound", "ad_tail_ocr_clean")
+
+
+def ad_tail_stats(payload: Any) -> Dict[str, Any]:
+    """Optional, unlike every other stats function here: most episodes carry no
+    tail ad at all, and that is never a failure (spec
+    codex_docs/ROGER-20260925-AD-TAIL-INTEGRATION.md §六/§八 — the ad never
+    gates the episode's own FINAL-AUDIT-COMPLETENESS).  Deliberately does NOT
+    feed its failures into the master `failures` list in main() — see the
+    call site there."""
+    if payload is None:
+        return {"status": "NOT_APPLICABLE", "failures": []}
+    sections = {key: payload.get(key, {"status": "MISSING", "failures": ["missing_from_ad_tail_qa"]})
+                for key in AD_TAIL_DIAGNOSTIC_KEYS}
+    overall = "PASS" if all(section.get("status") == "PASS" for section in sections.values()) else "FAIL"
+    return {"status": overall, **sections, "failures": []}
+
+
 def opening_audio_metrics(ffmpeg: str, video: Path, asr_payload: Any, seconds: float = 10.0) -> Dict[str, Any]:
     proc = run([
         ffmpeg, "-hide_banner", "-t", str(seconds), "-i", str(video),

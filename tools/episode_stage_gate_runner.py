@@ -87,6 +87,7 @@ EXECUTORS: dict[str, dict[str, Any]] = {
             ("--asr-json", "asr_json"),
             ("--scene-brightness-json", "scene_brightness_json"),
             ("--ocr-audit-json", "ocr_audit_json"),
+            ("--ad-tail-qa-json", "ad_tail_qa_report"),
         ],
         "list_arguments": [("--source-brightness-audit-json", "source_brightness_audit_jsons")],
         "boolean_flags": [

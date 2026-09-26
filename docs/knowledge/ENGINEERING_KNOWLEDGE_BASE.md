@@ -558,6 +558,16 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[lines/nalu/runtime/tools/nalu_pipeline.py](../../lines/nalu/runtime/tools/nalu_pipeline.py)、[lines/nalu/runtime/tools/roger_gate_acceptance.py](../../lines/nalu/runtime/tools/roger_gate_acceptance.py)；回归：[tools/tests/test_nalu_q1_roger_acceptance.py](../../tools/tests/test_nalu_q1_roger_acceptance.py)
 - 证据：nalu PIPELINE_RUNBOOK D-61/D-62
 
+### K064 — S7
+
+- failure_code：`AD_TAIL_SPOKEN_CHARS_OVER_CAP_OR_DOUBLE_BADGE`（scope line，类别 ASSEMBLY）
+- do_not_repeat：不要先定镜长再配旁白；不要用原始字符串长度算 spoken_chars（要按CJK字符）；不要无条件叠加角标而不先检测输入是否已带角标
+- 规则：尾贴广告（可选、按集opt-in）narration 必须先于视频镜长生成：先合成旁白并测其真实时长，再把 shot_duration_seconds 夹在槽合同 [4.0,6.0] 区间内喂给视频生成；CTA 网址只进字幕/caption，绝不进旁白脚本，spoken_chars 用 CJK 字符计数（不含拉丁字母单词）与 spoken_chars_max 比较。Mode A（现成成片丢进 ads/inbox/）允许输入本身已带「广告」角标与CTA字幕；AD_TAIL_OCR_CLEAN 对预期角标/CTA文本走 --allow-text 放行，而不是要求原始输入必须纯净无字；打包器自身叠加角标前先检测角标是否已存在（check_ocr_clean.badge_already_present），已存在则跳过叠加，避免双重角标。
+- 失败教训：AdForge demo（giggle_ai_director_tail5s）第一次按「先定镜长再配旁白」的顺序做，第三句念网址在5s镜里放不下，白扣2 credits；换成先出旁白测时长再定镜长后一次通过。demo 本身画面已经带「广告」角标和 CTA 字幕烧录，OCR 严格模式若不放行这两处会把已批准的合规素材误判为异常文字；且封装器若无脑叠加自己的角标会与素材自带角标重叠。
+- 修复路径：tools/adforge_adapter.py 的 generate() 中 narration 先行、shot_duration 按测得时长回填 project.json；tools/ad_tail_package.py 的 check_ocr_clean 传 --allow-text <badge_zh> <badge_en> <cta_text>，并把 badge_already_present 透传给 burn_and_normalize(skip_badge=...)。
+- 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/ad_tail_package.py](../../tools/ad_tail_package.py)、[tools/ad_tail_insert.py](../../tools/ad_tail_insert.py)、[tools/adforge_adapter.py](../../tools/adforge_adapter.py)、[lines/nalu/runtime/tools/nalu_tail_ad_opt_in.py](../../lines/nalu/runtime/tools/nalu_tail_ad_opt_in.py)；回归：[tools/tests/test_ad_tail_package.py](../../tools/tests/test_ad_tail_package.py)、[tools/tests/test_ad_tail_insert.py](../../tools/tests/test_ad_tail_insert.py)、[tools/tests/test_nalu_tail_ad_opt_in.py](../../tools/tests/test_nalu_tail_ad_opt_in.py)
+- 证据：codex_docs/ROGER-20260925-AD-TAIL-INTEGRATION.md §四；2026-09-25/26 对 ~/adforge demo 实测打包 PASS（ad_tail_ocr_clean/duration/format/spoken_content_contract/loudness/label_present 全过）
+
 ## 引用和许可
 
 以上文字为项目经验的原创概括，随本仓库 MIT LICENSE 发布。未复制外部社区文章、教程全文、他人视频/图片或私人聊天。

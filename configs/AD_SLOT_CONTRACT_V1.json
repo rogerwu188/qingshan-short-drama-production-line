@@ -1,0 +1,54 @@
+{
+  "schema": "qingshan.ad_slot_contract.v1",
+  "version": "1",
+  "authority": "Roger 2026-09-25, codex_docs/ROGER-20260925-AD-TAIL-INTEGRATION.md",
+  "position": "AFTER_FINAL_FRAME_BEFORE_ENDCARD",
+  "duration_seconds": {"min": 4.0, "max": 6.0},
+  "format": {
+    "width": 720,
+    "height": 1280,
+    "fps": 24,
+    "video_codec": "h264",
+    "pixel_format": "yuv420p",
+    "audio_codec": "aac",
+    "audio_sample_rate": 48000,
+    "audio_channels": 2
+  },
+  "loudness": {
+    "target_lufs": -16.0,
+    "tolerance_lu": 1.0,
+    "true_peak_dbtp_max": -1.5,
+    "method": "two_pass_loudnorm",
+    "lra": 11
+  },
+  "transition_in": {"type": "black_fade", "seconds": 0.5},
+  "transition_out": "HARD_CUT_INTO_ENDCARD",
+  "label": {
+    "text_zh": "广告",
+    "text_en": "Ad",
+    "position": "TOP_RIGHT",
+    "persistent": true
+  },
+  "subtitle": {
+    "style_source": "SHOW_ASS_STYLE",
+    "cta_url_captioned_only": true
+  },
+  "spoken_chars_max": 20,
+  "output_filename_suffix": "_AD",
+  "ocr_clean_scope": "RAW_MODEL_GENERATED_PICTURE_ONLY",
+  "ocr_clean_exempt": ["SUBTITLE_LAYER", "AD_LABEL_BADGE"],
+  "ledger_dir": "ads/transactions",
+  "sha_provenance_values": ["INBOX", "ADFORGE:<project>/<run_id>"],
+  "diagnostics": [
+    "ad_tail_format",
+    "ad_tail_duration",
+    "ad_tail_loudness",
+    "ad_tail_label_present",
+    "ad_tail_sha_bound",
+    "ad_tail_ocr_clean"
+  ],
+  "not_gated_dimensions": [
+    "identity", "plot", "emotion", "audience_detectors",
+    "shot_count_denominator", "defect_budget", "fs1_stats"
+  ]
+}

@@ -168,6 +168,10 @@ BUNDLE_KEYS: dict[str, dict[str, Any]] = {
                           "note": "objective metrics measured from the decoded final mp4"},
     "event_ledger": {"gates": ["FINAL-CUT-EVENT-LEDGER"],
                      "note": "reviewer-observed visible events with timestamps"},
+    "ad_tail_qa_report": {"gates": ["FINAL-AUDIT-COMPLETENESS"],
+                          "note": "assembly/<EP>_AD_TAIL_QA.json; OPTIONAL — absent whenever this "
+                                  "episode had no ad_slot or ad production failed a technical gate. "
+                                  "Absence is never a failure (AD-TAIL-INTEGRATION spec)."},
 }
 UNSATISFIABLE = ("bgm_stem", "audience_report", "final_cut_metrics")
 
@@ -255,6 +259,8 @@ def build_bundle(episode: str, *, out: Path | None = None) -> dict[str, Any]:
     # callers may explicitly select a verified final artifact for this QA run.
     final_video = Path(os.environ.get("NALU_FINAL_VIDEO_PATH") or
                        (deliver / f"{episode}_final_9x16.mp4"))
+    ad_tail_qa_report = Path(os.environ.get("NALU_AD_TAIL_QA_PATH") or
+                             (p.assembly / f"{episode}_AD_TAIL_QA.json"))
     canonical = p.narrative
     final_qa = p.final_qa_dir
     profile = _audio_profile(episode)
@@ -313,6 +319,10 @@ def build_bundle(episode: str, *, out: Path | None = None) -> dict[str, Any]:
         })
     if "bgm_stem" not in unsatisfiable:
         bundle["bgm_stem"] = portable(p.assembly / f"{episode}_bgm_stem.wav")
+    if ad_tail_qa_report.is_file():
+        # Optional, per-episode — omitted entirely (not None) when this episode
+        # carries no ad, so it never shows up as "missing" evidence below.
+        bundle["ad_tail_qa_report"] = portable(ad_tail_qa_report)
     missing: list[dict[str, Any]] = []
     for key in unsatisfiable:
         missing.append({

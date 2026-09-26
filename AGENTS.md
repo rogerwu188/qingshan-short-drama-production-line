@@ -156,3 +156,13 @@ git clone https://github.com/rogerwu188/nalu-production-runtime.git /tmp/npr && 
 2. `tools/intake_source_text.py`、`tools/intake_character_sources.py` 在合成 fixture 上 dry-run/写入 PASS（未在真实作品上跑）。
 3. **第一次卡住**：走到「S1」需要四层剧本文件 + 逐集编排器 `nalu_pipeline.py`；编排器与线专属工具现已随本仓库发布在 `lines/nalu/runtime/tools/`（路径参数化，`tools/tests/test_nalu_runtime_port.py` 离线验证 bootstrap + status 可跑）；剩下的卡点是剧本四层本身必须手写（MANUAL_REQUIRED），本文件如实标注。
 4. 真实边界：S3 起必须凭据 + 付费；每集有 5 处人工看图审核；发布无代码路径。
+
+## 10. 尾贴广告（可选，按集 opt-in；codex_docs/ROGER-20260925-AD-TAIL-INTEGRATION.md）
+
+- **默认关闭**：`manifest.ad_slot` 不存在 = 本集无广告，`final_9x16.mp4` 逐字节不受影响。写手层四层文件封缄之后、S1 之前，编排器写 `ads/prompts/<EP>_AD_PROMPT.json` 问一次「本集是否植入尾贴广告？」，60 秒墙钟轮询 `ads/prompts/<EP>_AD_ANSWER.json`（文件问答，不用 `input()`，避免无人值守 heartbeat 挂死）；超时/未答默认走 `ads/policy.json` 的 `default`（当前策略：默认植入 demo 广告 `INBOX:giggle_tail5s`，除非当集显式答 `NONE` 或指定别的 sku/brief——Roger 2026-09-25/26 明确要求）。答案写入 `manifest.ad_slot` **仅一次**（该文件被 S2 等阶段指纹绑定，二次改写会使后续阶段的缓存失效）；S7 开始前若晚到答案会被采纳（记 state 不改 manifest），S7 已开始则记入下一集。
+- **两种输入方式，同一个槽**：方式 A `ads/inbox/<sku>.mp4`（现成成片，允许已自带「广告」角标/CTA字幕）；方式 B `ads/briefs/<sku>.json`（url/idea/assets/brand_docs/cta，走 `tools/adforge_adapter.py` 调外部 AdForge，`ADFORGE_ROOT` 未配置即 `ADAPTER_REQUIRED`，本线照常出无广告成片）。两种都进 `tools/ad_tail_package.py`（唯一技术门：格式/时长/响度/角标/OCR/口播字数与CTA不念，全部 fail-closed），再进 `tools/ad_tail_insert.py` 拼进 `content | ad | endcard`，产物 `<EP>_final_9x16_AD.mp4` 与原片分开存放，绝不覆盖。
+- **不走剧集创意门**：广告只过技术门，不算镜头分母、不占缺陷预算、不进 FS-1；六项诊断（AD_TAIL_FORMAT/DURATION/LOUDNESS/LABEL_PRESENT/SHA_BOUND/OCR_CLEAN）挂在既有 `FINAL-AUDIT-COMPLETENESS` 之下，任一不过就是本集没有广告版，正片版完全不受影响。
+- **独立账本**：`ads/transactions/` 与集内制作积分账本分开；配乐/视频以外的这笔新付费类别（首次投放广告）已按 seq=... 记入私有 SUPERVISOR_ORDERS。
+- Mode B 顺序硬规则（demo 踩过的坑）：先出旁白测真实时长，再按时长定镜长喂给视频生成；CTA 网址只上字幕不念；spoken_chars 按 CJK 字符数，不按原始字符串长度。
+- MANUAL_REQUIRED：brief 撰写（idea/assets/brand_docs/cta）、AdForge `.env` 凭据（线主手填，代理不写密钥）。ADAPTER_REQUIRED：`~/adforge` 未部署或缺三处本地补丁（`.env` 读取、`project.json` 规格读取、`verify_media` 接受期望时长/比例）时 Mode B 不可用，Mode A 不受影响。
+
