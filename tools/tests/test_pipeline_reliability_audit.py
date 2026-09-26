@@ -28,9 +28,13 @@ class SubmissionAuditTests(unittest.TestCase):
     def fixture(self, root):
         prompt = root / "prompt.txt"
         prompt.write_text("offline fixture", encoding="utf-8")
+        reference = root / "ref-1.png"
+        reference.write_bytes(b"offline fixture reference image")
         return {"task_key": "AUDIT-U01", "prompt_file": str(prompt),
                 "prompt_sha256": hashlib.sha256(prompt.read_bytes()).hexdigest(),
-                "reference_images": [], "reference_sha256": [], "model": "MiniMax-H3",
+                "reference_images": [str(reference)],
+                "reference_sha256": [hashlib.sha256(reference.read_bytes()).hexdigest()],
+                "model": "MiniMax-H3",
                 "resolution": "768p", "duration_seconds": 4}
 
     def test_concurrent_identical_tasks_post_once(self):

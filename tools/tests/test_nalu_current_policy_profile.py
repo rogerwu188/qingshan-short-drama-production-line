@@ -112,6 +112,7 @@ ctx.p.scope = {
     "entity_registry": pathlib.Path("/tmp/entity.json"),
     "agentcut_voice_policy": pathlib.Path("/tmp/voice_policy.json"),
     "character_registry": pathlib.Path("/tmp/missing-character-registry.json"),
+    "scope_id": "PORTABLE-DEMO",
 }
 child = ctx.child_env(paid=False)
 print(json.dumps({

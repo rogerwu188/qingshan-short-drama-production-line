@@ -93,10 +93,15 @@ class KeyframeReferences(unittest.TestCase):
         self.assertEqual(art["role"], "FULL_BODY_STANDING")  # historical default unchanged
 
     def test_non_character_references_capped_at_five_face_never_dropped(self):
-        rows = ([{"role": "episode_global_space_map"}, {"role": "global_space_map"}, {"role": "subspace_layout"}]
-                + [{"role": "character", "entity_id": "CHAR-A"}, {"role": "character", "entity_id": "CHAR-B"}, {"role": "scene"}]
-                + [{"role": "character_wardrobe", "entity_id": "CHAR-A"}, {"role": "character_wardrobe", "entity_id": "CHAR-B"}]
-                + [{"role": "prop", "entity_id": f"PROP-{i}"} for i in range(4)])
+        rows = ([{"role": "episode_global_space_map", "path": "/x/map-episode.png"},
+                 {"role": "global_space_map", "path": "/x/map-global.png"},
+                 {"role": "subspace_layout", "path": "/x/map-subspace.png"}]
+                + [{"role": "character", "entity_id": "CHAR-A", "path": "/x/face-a.png"},
+                   {"role": "character", "entity_id": "CHAR-B", "path": "/x/face-b.png"},
+                   {"role": "scene", "path": "/x/scene.png"}]
+                + [{"role": "character_wardrobe", "entity_id": "CHAR-A", "path": "/x/wardrobe-a.png"},
+                   {"role": "character_wardrobe", "entity_id": "CHAR-B", "path": "/x/wardrobe-b.png"}]
+                + [{"role": "prop", "entity_id": f"PROP-{i}", "path": f"/x/prop-{i}.png"} for i in range(4)])
         kept, dropped = kfm.cap_non_character_bindings(rows)
         non_char = [r for r in kept if r["role"] not in ("character", "character_wardrobe")]
         self.assertEqual(len(non_char), 8)   # gate-mandatory rows are never dropped, only reported
