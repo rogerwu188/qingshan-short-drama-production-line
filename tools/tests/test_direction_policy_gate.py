@@ -214,6 +214,44 @@ class LiteralRateFigureScanTests(unittest.TestCase):
         hits = dpg.scan_for_literal_rate_figure("镜头中近景，人物急促地抢话，说完立即转身")
         self.assertEqual(hits, [])
 
+    def test_widened_patterns(self) -> None:
+        for text in ("对白演绎目标每秒5个汉字，清晰连贯", "每秒4.8字", "5字每秒", "5个汉字/秒",
+                     "Delivery target: 5.8 Chinese characters per second", "2.6 words per second",
+                     "3 words/sec", "4.5 characters per sec"):
+            self.assertEqual(len(dpg.scan_for_literal_rate_figure(text)), 1, text)
+
+    def test_non_rate_numbers_are_not_hits(self) -> None:
+        for text in ("0.5–1.5秒：甲抬眼", "第3秒转身", "共24字台词", "4 seconds of silence", "每秒都在变亮"):
+            self.assertEqual(dpg.scan_for_literal_rate_figure(text), [], text)
+
+
+class CompiledPromptRateRegressionTests(unittest.TestCase):
+    """DP5 regression: the model-facing dialogue serialization must never carry the cps number."""
+
+    BEAT = {"dialogue": "甲：你们在深山中见过神秘的田地吗？", "dialogue_delivery": {"chinese_characters_per_second": 5.0}}
+
+    def test_sd2_compiled_dialogue_segment_has_no_rate_figure(self) -> None:
+        sys.path.insert(0, str(ROOT))
+        from tools.sd2_provider_prompt_renderer import _dialogue
+        text = _dialogue(dict(self.BEAT))
+        self.assertIn("你们在深山中见过神秘的田地吗？", text)
+        self.assertIn("对白演绎", text)
+        self.assertEqual(dpg.scan_for_literal_rate_figure(text), [])
+
+    def test_h3_and_english_delivery_have_no_rate_figure(self) -> None:
+        sys.path.insert(0, str(ROOT))
+        from tools.editorial_pacing_contract import delivery_clause
+        for language in ("ZH", "EN"):
+            clause = delivery_clause(dict(self.BEAT), language)
+            self.assertTrue(clause)
+            self.assertEqual(dpg.scan_for_literal_rate_figure(clause), [], clause)
+
+    def test_rate_still_validated(self) -> None:
+        sys.path.insert(0, str(ROOT))
+        from tools.editorial_pacing_contract import delivery_clause
+        with self.assertRaises(ValueError):
+            delivery_clause({"dialogue": "甲：话", "dialogue_delivery": {"chinese_characters_per_second": 0}})
+
 
 if __name__ == "__main__":
     unittest.main()

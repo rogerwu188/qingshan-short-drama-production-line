@@ -20,10 +20,13 @@ def delivery_clause(beat, language="ZH"):
     cps = delivery.get("chinese_characters_per_second")
     if cps is None:
         return ""
-    cps = positive(cps, "DIALOGUE_RATE_INVALID")
+    # The rate stays in contract metadata for post-gen ASR comparison and is still validated here,
+    # but the model never reads the number (Roger 2026-09-25 R5 / DIRECTION_POLICY DP5): delivery words
+    # plus the locked shot length carry the pace.
+    positive(cps, "DIALOGUE_RATE_INVALID")
     if language == "ZH":
-        return f"对白演绎目标每秒{cps:g}个汉字，清晰连贯、不拖长字音，不为填满生成时长延缓说话；这是演绎要求，不是台词"
-    return f"Delivery target: {cps:g} Chinese characters per second, clear connected speech without stretched syllables or padding to fill the generation slot. This is direction, not spoken text."
+        return "对白演绎：清晰连贯、语速自然偏快、不拖长字音，不为填满生成时长放慢说话；这是演绎要求，不是台词"
+    return "Delivery: clear, connected, naturally brisk speech without stretched syllables; never slow down to fill the generation slot. This is direction, not spoken text."
 
 
 def continuous_bridge(text):

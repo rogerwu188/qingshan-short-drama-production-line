@@ -23,7 +23,8 @@ class PacingTests(unittest.TestCase):
         b={'dialogue':'老人：修行。','dialogue_delivery':{'chinese_characters_per_second':5.8}}
         before=copy.deepcopy(b)
         self.assertIn('：“修行。”',_dialogue(b))
-        self.assertIn('每秒5.8',_dialogue(b))
+        self.assertIn('语速自然偏快',_dialogue(b))
+        self.assertNotIn('5.8',_dialogue(b))
         self.assertEqual(b,before)
 
     def test_h3_tags_and_binding_unchanged(self):
@@ -32,7 +33,8 @@ class PacingTests(unittest.TestCase):
         binding=dict(provider_entity_label='ELDER',subject_token='SUBJECT_1',image_slot='@Image1',speaker_slot='SPEAKER_1',audio_slot='@Audio1',visible_speaker=True)
         text,e=_beat(b,t,dialogue_binding=binding)
         self.assertIn('<d>[Chinese] 修行。</d>',text)
-        self.assertIn('5.8 Chinese characters per second',text)
+        self.assertIn('naturally brisk speech',text)
+        self.assertNotIn('5.8',text)
         self.assertIn('BEAT.1.DIALOGUE_DELIVERY',e)
 
     def test_invalid_rates(self):

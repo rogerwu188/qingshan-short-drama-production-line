@@ -77,7 +77,54 @@ from nalu_qa_common import (  # noqa: E402
 )
 
 TOOL_ID = "post_generation_qa_runner.v1"
-POSTGEN_PROFILE = str(os.environ.get("NALU_POSTGEN_QA_PROFILE") or "WEAK").upper()
+POSTGEN_PROFILES = ("WEAK", "STRICT")
+PLOT_REVIEW_MODES = ("REQUIRED", "OPTIONAL")
+DELIVERY_SAMPLE_RATE_HZ = 48000
+#: Provider-native unit audio accepted at post-generation QA.  Giggle SD2 returns 44.1 kHz (nalu
+#: D-18); another provider returns 32 kHz.  The delivery spec stays 48 kHz: S7 resamples every
+#: unit (aresample=48000) — a valid native rate is never a reason for a paid reroll.
+DEFAULT_ACCEPTED_UNIT_SAMPLE_RATES = (32000, 44100, 48000)
+
+
+def resolve_postgen_policy(env: dict[str, str] | None = None) -> dict[str, Any]:
+    """Effective post-generation QA policy from the environment; any invalid value raises.
+
+    NALU_POSTGEN_QA_PROFILE          WEAK (default) | STRICT
+    NALU_POSTGEN_PLOT_REVIEW         REQUIRED | OPTIONAL; default REQUIRED under STRICT, OPTIONAL
+                                     under WEAK.  OPTIONAL records an absent plot review as
+                                     NOT_VERIFIED — never PASS, never a blocker, never a reroll.
+    NALU_POSTGEN_ACCEPTED_UNIT_SAMPLE_RATES  comma list of Hz (default 32000,44100,48000)
+    """
+    env = os.environ if env is None else env
+    profile = str(env.get("NALU_POSTGEN_QA_PROFILE") or "WEAK").strip().upper()
+    if profile not in POSTGEN_PROFILES:
+        raise ValueError(f"NALU_POSTGEN_QA_PROFILE_INVALID:{profile}")
+    plot = str(env.get("NALU_POSTGEN_PLOT_REVIEW") or "").strip().upper()
+    plot_source = "EXPLICIT"
+    if not plot:
+        plot, plot_source = ("REQUIRED" if profile == "STRICT" else "OPTIONAL"), "PROFILE_DEFAULT"
+    if plot not in PLOT_REVIEW_MODES:
+        raise ValueError(f"NALU_POSTGEN_PLOT_REVIEW_INVALID:{plot}")
+    raw = str(env.get("NALU_POSTGEN_ACCEPTED_UNIT_SAMPLE_RATES") or "").strip()
+    rates_source = "EXPLICIT" if raw else "DEFAULT"
+    rates: list[int] = []
+    for token in (raw.split(",") if raw else [str(r) for r in DEFAULT_ACCEPTED_UNIT_SAMPLE_RATES]):
+        token = token.strip()
+        if not token.isdigit() or not 8000 <= int(token) <= 192000:
+            raise ValueError(f"NALU_POSTGEN_ACCEPTED_UNIT_SAMPLE_RATES_INVALID:{token or 'EMPTY'}")
+        rates.append(int(token))
+    return {"profile": profile, "plot_review": plot, "plot_review_source": plot_source,
+            "accepted_unit_sample_rates_hz": sorted(set(rates)),
+            "accepted_unit_sample_rates_source": rates_source,
+            "delivery_sample_rate_hz": DELIVERY_SAMPLE_RATE_HZ}
+
+
+try:
+    POSTGEN_POLICY: dict[str, Any] | None = resolve_postgen_policy()
+    POSTGEN_POLICY_ERROR: str | None = None
+except ValueError as _exc:  # refused at run/main entry, not at import (tests and helpers import this)
+    POSTGEN_POLICY, POSTGEN_POLICY_ERROR = None, str(_exc)
+POSTGEN_PROFILE = (POSTGEN_POLICY or {}).get("profile", "INVALID")
 
 ALLOWED_TECHNICAL = ("decode", "duration", "resolution", "aspect_ratio", "codec",
                      "audio_stream", "av_sync", "black_frame", "freeze", "corruption",
@@ -89,8 +136,26 @@ ALLOWED_BASIC_PLOT = ("episode_scene_correspondence", "principal_character_prese
                       "action_outcome_visible", "antagonist_motive_readable",
                       "new_entity_purpose_readable")
 TARGET = {"width": 720, "height": 1280, "aspect_ratio": "9:16",
-          "video_codec": {"h264", "hevc"}, "audio_sample_rate": 48000}
-ACCEPTED_UNIT_SAMPLE_RATES = {44100, 48000}   # nalu D-18: provider-native unit audio
+          "video_codec": {"h264", "hevc"}, "audio_sample_rate": DELIVERY_SAMPLE_RATE_HZ}
+ACCEPTED_UNIT_SAMPLE_RATES = set((POSTGEN_POLICY or {}).get("accepted_unit_sample_rates_hz")
+                                 or DEFAULT_ACCEPTED_UNIT_SAMPLE_RATES)
+
+
+def sample_rate_verdict(measured_hz: int, accepted: set[int] | None = None) -> str:
+    """PASS only for a decoded, provider-native accepted rate; 0 (missing/undecodable) or any
+    other value FAILs.  The delivery rate is not required here — S7 resamples to it."""
+    accepted = ACCEPTED_UNIT_SAMPLE_RATES if accepted is None else accepted
+    return "PASS" if measured_hz > 0 and measured_hz in accepted else "FAIL"
+
+
+def missing_plot_review_checks(policy: dict[str, Any]) -> tuple[dict[str, Any], list[str], str]:
+    """(checks, failures, status) for a unit with no plot review under ``policy``."""
+    if policy["plot_review"] == "REQUIRED":
+        return ({name: {"check": name, "status": "REVIEW_REQUIRED"} for name in ALLOWED_BASIC_PLOT},
+                ["BASIC_PLOT_VLM_REVIEW_REQUIRED"], "REVIEW_REQUIRED")
+    return ({name: {"check": name, "status": "NOT_VERIFIED",
+                    "reason": "PLOT_REVIEW_NOT_RUN_UNDER_OPTIONAL_POLICY"} for name in ALLOWED_BASIC_PLOT},
+            [], "NOT_VERIFIED")
 #: whisper hallucinations on non-speech audio (wind, room tone) — well-known boilerplate
 #: strings the model emits when there is no speech; never treated as Mandarin dialogue
 ASR_HALLUCINATION_PATTERNS = ("字幕", "by索", "索兰娅", "独播", "YoYo", "Television",
@@ -269,8 +334,9 @@ def technical_checks(unit_id: str, media: Path, planned_duration: float | None,
     # nalu D-18 (2026-09-13): Giggle SD2 delivers 44.1 kHz AAC on every unit (27/27 measured);
     # the 48 kHz target is the ASSEMBLY deliverable and S7 resamples.  Accepting the
     # provider-native rate here is a policy decision, the measurement stays verbatim.
-    record("sample_rate", "PASS" if sample_rate in ACCEPTED_UNIT_SAMPLE_RATES else "FAIL",
+    record("sample_rate", sample_rate_verdict(sample_rate),
            measured_hz=sample_rate, expected_hz=TARGET["audio_sample_rate"],
+           unit_input_hz=sample_rate, delivery_output_hz=TARGET["audio_sample_rate"],
            accepted_unit_hz=sorted(ACCEPTED_UNIT_SAMPLE_RATES),
            assembly_resample_target_hz=TARGET["audio_sample_rate"])
     fps = _fraction((video or {}).get("avg_frame_rate")) or 0.0
@@ -867,12 +933,19 @@ def unit_media(episode: str, unit_id: str) -> Path:
 
 def run(episode: str, *, review_path: Path | None = None,
         units: list[str] | None = None) -> dict[str, Any]:
+    if POSTGEN_POLICY_ERROR:
+        raise ValueError(POSTGEN_POLICY_ERROR)
     p = QaPaths(episode)
     exp = Expectations(episode)
     plot_items = {row["unit_id"]: row for row in exp.unit_plot_items()}
     wanted = [uid for uid in sorted(plot_items) if not units or uid in set(units)]
 
     scope = run_scope_gate(episode, p.postgen_dir / f"{episode}_POST_GENERATION_QA_SCOPE.json")
+
+    import unit_voice_consistency as _uvc
+    voice_check_active = _uvc.active_for(episode)
+    voice_cast = (read_json(p.voice_cast, {}) or {}) if voice_check_active else {}
+    name_to_id = exp.character_name_to_id() if voice_check_active else {}
 
     plot_by_unit: dict[str, dict[str, Any]] = {}
     submitted = read_json(review_path) if review_path else None
@@ -907,8 +980,17 @@ def run(episode: str, *, review_path: Path | None = None,
         speech_rate = _src.measure_unit(unit_id, _rate_segments(media, dialogue.get("segments") or []),
                                         expectations.get("expected_dialogue") or [], _src.shot_targets(exp.contract))
         write_json(out_dir / f"{unit_id}_speech_rate.json", speech_rate)
+        # VOICE_TIMBRE_LOCK (Roger 2026-09-28, E10+): the speaker's F0 on this unit's own ASR
+        # segments against the voice_cast band — the final-cut voice_distinctness measurement,
+        # moved to the unit so a drifting voice is rerolled here instead of shipped.
+        voice = None
+        if voice_check_active:
+            voice = _uvc.check_unit(unit_id, media, dialogue.get("segments") or [],
+                                    expectations.get("expected_dialogue") or [], voice_cast, name_to_id)
+            write_json(out_dir / f"{unit_id}_voice_consistency.json", voice)
         return {"media": media, "media_sha256": sha256_file(media),
-                "technical": technical, "dialogue": dialogue, "sheet": sheet, "speech_rate": speech_rate}
+                "technical": technical, "dialogue": dialogue, "sheet": sheet, "speech_rate": speech_rate,
+                "voice": voice}
 
     try:
         engine_module("run_regression_ci")   # import once, before the pool
@@ -929,10 +1011,9 @@ def run(episode: str, *, review_path: Path | None = None,
         plot = plot_by_unit.get(unit_id)
         plot_checks: dict[str, Any] = {}
         plot_failures: list[str] = []
+        plot_status = "REVIEWED"
         if plot is None:
-            for name in ALLOWED_BASIC_PLOT:
-                plot_checks[name] = {"check": name, "status": "REVIEW_REQUIRED"}
-            plot_failures.append("BASIC_PLOT_VLM_REVIEW_REQUIRED")
+            plot_checks, plot_failures, plot_status = missing_plot_review_checks(POSTGEN_POLICY)
         else:
             answers = plot.get("answers") or {}
             for name in ALLOWED_BASIC_PLOT:
@@ -964,6 +1045,9 @@ def run(episode: str, *, review_path: Path | None = None,
                                    original_tier="BLOCKER",
                                    policy="WEAK_POSTGEN_SPEECH_RATE_ADVISORY")
         reasons.extend(plot_failures)
+        voice = measured[unit_id].get("voice")
+        if voice and voice.get("status") == "FAIL":
+            reasons.extend(f"voice:{value}" for value in voice.get("failures") or [])
         verdict = "ADMIT" if not reasons else "REJECT"
         failure_class = ("CANDIDATE_TECHNICAL_FAILURE" if technical["failures"]
                          else "CANDIDATE_QA_FAILURE")
@@ -990,9 +1074,16 @@ def run(episode: str, *, review_path: Path | None = None,
             },
             "dialogue_qa": dialogue,
             "speech_rate_qa": speech_rate,
-            "advisories": ([f"{speech_rate['code']}:{speech_rate.get('ratio')}" ] if speech_rate.get("tier") in {"MINOR", "ADVISORY"} else []),
+            # None = check not active for this episode (VOICE_TIMBRE_LOCK active_from_episode);
+            # UNVERIFIED is recorded as an advisory, never as a pass.
+            "voice_consistency_qa": voice,
+            "advisories": ([f"{speech_rate['code']}:{speech_rate.get('ratio')}" ] if speech_rate.get("tier") in {"MINOR", "ADVISORY"} else [])
+                          + ([f"voice:UNVERIFIED:{value}" for value in voice.get("unverified") or []]
+                             if voice and voice.get("status") == "UNVERIFIED" else []),
             "postgen_profile": POSTGEN_PROFILE,
+            "postgen_policy": POSTGEN_POLICY,
             "basic_plot_qa": {
+                "status": plot_status,
                 "checks": plot_checks, "failures": plot_failures,
                 "reviewer": REVIEWER_ID if plot else None,
                 "review_method": REVIEW_METHOD if plot else None,
@@ -1222,6 +1313,10 @@ def apply_roger_postgen_acceptance(episode: str, rows: list[dict[str, Any]],
 
 
 def main() -> int:
+    if POSTGEN_POLICY_ERROR:
+        print(json.dumps({"status": "POLICY_INVALID", "error": POSTGEN_POLICY_ERROR}), file=sys.stderr)
+        return 2
+    print("post_generation_qa_runner effective policy: " + json.dumps(POSTGEN_POLICY), file=sys.stderr)
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("scope", "status"):

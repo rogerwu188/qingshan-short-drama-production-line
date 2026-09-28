@@ -13,6 +13,8 @@ Roger 2026-09-18《E05/E06 生产线补正 —— 追加：语速 / 镜长 / 表
     7d  儿童角色台词字/秒目标 ≥ 4.5
   规则 8  外部压力源（仅当合同声明 rule8_authorized 时执行；否则只报告）
     8a  pressure_source 在前 30 s；8b episode_payoff 二选一；8c action_chain 想要→受阻→出手
+  规则 10 对白镜的动作文字不得要求换嗓子（压着嗓子/扯着嗓子/声音发颤…，词表 configs/VOICE_TIMBRE_LOCK_V1.json）；
+          默认只警告，配置 selfcheck.blocking 或合同 voice_timbre_policy.enforced 时阻断
 
 The check is a WRITER-LAYER self-check: it carries no gate_id.  It is enforced (S1 refuses to enter
 S2) only when the contract declares ``writer_selfcheck_seq29.enforced: true`` (E06+ builders);
@@ -140,6 +142,30 @@ def posture_continuity_failures(shots: list[dict[str, Any]]) -> tuple[list[str],
     return failures, warnings
 
 
+def voice_timbre_findings(contract: dict[str, Any], policy: dict[str, Any] | None = None) -> dict[str, Any]:
+    """R10: voice-changing delivery terms in dialogue shots (configs/VOICE_TIMBRE_LOCK_V1.json)."""
+    import nalu_paths as _np
+    if str(_np.ENGINE_TOOLS) not in _sys.path:
+        _sys.path.insert(0, str(_np.ENGINE_TOOLS))
+    import voice_timbre_lock as vtl
+    policy = vtl.load_policy() if policy is None else policy
+    rule = policy.get("selfcheck") or {}
+    decl = contract.get("voice_timbre_policy") if isinstance(contract.get("voice_timbre_policy"), dict) else {}
+    blocking = bool(rule.get("blocking")) or bool(decl.get("enforced"))
+    codes: list[str] = []
+    by_shot: dict[str, list[str]] = {}
+    for shot in contract.get("shots") or []:
+        spec = shot.get("prompt_spec") or {}
+        if not str(spec.get("dialogue") or "").strip():
+            continue
+        sid = str(shot.get("shot_id") or "?")
+        terms = sorted({row["term"] for text in action_texts(shot) for row in vtl.terms_in(text, policy)})
+        if terms:
+            by_shot[sid] = terms
+            codes.extend(f"R10_VOICE_TIMBRE_DIRECTION:{sid}:{term}" for term in terms)
+    return {"blocking": blocking and bool(policy), "codes": codes, "by_shot": by_shot}
+
+
 def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) -> dict[str, Any]:
     lex = lexicon or load_lexicon()
     emotions = set(lex.get("emotions") or [])
@@ -246,6 +272,14 @@ def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) ->
     r9_fail, r9_warn = posture_continuity_failures(contract.get("shots") or [])
     failures.extend(r9_fail)
     warnings.extend(r9_warn)
+
+    # R10 (Roger 2026-09-28, E09 声线漂移) — a dialogue shot's action text must not tell the model
+    # to change the voice itself (压着嗓子 / 扯着嗓子 / 声音发颤 …).  Words from
+    # configs/VOICE_TIMBRE_LOCK_V1.json; non-blocking unless the config or the contract's
+    # voice_timbre_policy.enforced says so.  The SD2 renderer turns each hit into a tone-only clause.
+    r10 = voice_timbre_findings(contract)
+    m["voice_timbre_terms_by_shot"] = r10["by_shot"]
+    (failures if r10["blocking"] else warnings).extend(r10["codes"])
 
     status = "PASS" if not failures else "FAIL"
     return {"schema": SCHEMA, "episode": contract.get("episode"), "authority": "SUPERVISOR_ORDERS seq=29 (Roger 2026-09-18 memo 九–十四)",

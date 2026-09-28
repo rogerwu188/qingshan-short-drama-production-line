@@ -238,6 +238,17 @@ TERMINAL_OK = {PASS, SKIPPED}
 # --------------------------------------------------------------------------- #
 # small helpers
 # --------------------------------------------------------------------------- #
+def paid_config_lock(*, is_current: bool, config_paid_enabled: bool, storyclaw_paid_enabled: bool,
+                     paid_order: dict[str, Any] | None) -> bool:
+    """Whether a paid child gets NALU_PAID_CONFIG_LOCK=1.  CURRENT_PORTABLE: unchanged
+    (config + storyclaw locks).  LEGACY_EPISODE_COMPAT (ROGER-20260926-S4-PAID-LOCK-PROPAGATION):
+    the StoryClaw audio provider also demands the lock, so it is set only when
+    generation.paid_requests_enabled is true AND a validated paid order is bound; fail-closed otherwise."""
+    if is_current:
+        return bool(config_paid_enabled and storyclaw_paid_enabled)
+    return bool(config_paid_enabled and paid_order)
+
+
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -909,7 +920,10 @@ class Ctx:
         """
         argv = [str(item) for item in argv]
         paid_env = dict(extra_env or {})
-        if _policy.is_current() and self.config_paid_enabled and self.storyclaw_paid_enabled:
+        if paid_config_lock(is_current=_policy.is_current(),
+                            config_paid_enabled=getattr(self, "config_paid_enabled", False),
+                            storyclaw_paid_enabled=getattr(self, "storyclaw_paid_enabled", False),
+                            paid_order=getattr(self, "paid_order", None)):
             paid_env.setdefault("NALU_PAID_CONFIG_LOCK", "1")
         if self.paid_order:
             paid_env.setdefault("NALU_PAID_AUTHORIZATION_REF", str(self.paid_order["id"]))

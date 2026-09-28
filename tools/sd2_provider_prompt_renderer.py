@@ -16,6 +16,7 @@ try:
     from tools.event_boundary_continuity_contract import (
         provider_shot_state_lock_texts, provider_state_lock_text,
     )
+    from tools import voice_timbre_lock
 except ModuleNotFoundError:
     from editorial_pacing_contract import delivery_clause, content_window_clause
     from grouped_camera_contract import compile_camera_prompt
@@ -26,6 +27,7 @@ except ModuleNotFoundError:
     from event_boundary_continuity_contract import (
         provider_shot_state_lock_texts, provider_state_lock_text,
     )
+    import voice_timbre_lock
 
 
 SCHEMA = "qingshan.seedance2_provider_renderer.v1_shared_execution_ir"
@@ -38,22 +40,41 @@ def _sanitize_provider_ids(value: str) -> str:
     return re.sub(r"\bSUB(?:SPACE)?-[A-Z0-9-]+", "已锁定的同一子空间", value, flags=re.IGNORECASE)
 
 
-def _dialogue(beat: dict[str, Any]) -> str:
+def _dialogue(beat: dict[str, Any], voice_slots: dict[str, str] | None = None) -> str:
     raw = str(beat.get("dialogue") or "").strip()
     if not raw:
         return ""
     speaker, separator, words = raw.partition("：")
     if not separator or not speaker.strip() or not words.strip():
         raise ValueError(f"DIALOGUE_SPEAKER_BINDING_INVALID:{raw}")
+    speaker = speaker.strip()
     pace = delivery_clause(beat)
-    return f"；{speaker.strip()}只说一次：“{words.strip()}”，其余人物闭口" + (f"；{pace}" if pace else "")
+    slot = (voice_slots or {}).get(speaker)
+    if not slot:
+        return f"；{speaker}只说一次：“{words.strip()}”，其余人物闭口" + (f"；{pace}" if pace else "")
+    # VOICE_TIMBRE_LOCK (E10+): bind the timbre at the line itself — 秦铭（音色严格同@音频1）说：“…”.
+    return (f"；{voice_timbre_lock.line_binding(speaker, slot)}说：“{words.strip()}”，只说一次，其余人物闭口"
+            + (f"；{pace}" if pace else ""))
 
 
-def _beat_line(beat: dict[str, Any]) -> str:
+def _timbre_locked(beat: dict[str, Any], voice_slots: dict[str, str] | None) -> bool:
+    speaker = str(beat.get("dialogue") or "").partition("：")[0].strip()
+    return bool(speaker and (voice_slots or {}).get(speaker))
+
+
+def _delivery_text(beat: dict[str, Any], key: str, voice_slots: dict[str, str] | None) -> str:
+    """A dialogue beat's own text with voice-changing delivery words replaced by tone-only wording."""
+    value = str(beat.get(key) or "")
+    return voice_timbre_lock.rewrite_delivery(value) if _timbre_locked(beat, voice_slots) else value
+
+
+def _beat_line(beat: dict[str, Any], voice_slots: dict[str, str] | None = None) -> str:
     primary = str(beat["primary_action"])
     dialogue_words = str(beat.get("dialogue") or "").partition("：")[2].strip()
     if dialogue_words and re.sub(r"\W", "", primary) == re.sub(r"\W", "", dialogue_words):
         primary = "按起态、表演和身体同步完成本拍对白"
+    else:
+        primary = _delivery_text(beat, "primary_action", voice_slots)
     line = (
         f"{beat['start_seconds']:g}–{beat['end_seconds']:g}秒：从{beat['entry_state']}开始，"
         f"力源={beat['force_origin']}；{primary}"
@@ -84,11 +105,11 @@ def _beat_line(beat: dict[str, Any]) -> str:
     if beat.get("secondary_feedback"):
         line += f"；次反馈={beat['secondary_feedback'][0]}"
     line += f"；最后到达{beat['exit_state']}"
-    line += _dialogue(beat)
+    line += _dialogue(beat, voice_slots)
     if beat.get("performance_cue"):
-        line += f"；表演={beat['performance_cue']}"
+        line += f"；表演={_delivery_text(beat, 'performance_cue', voice_slots)}"
     if beat.get("microexpression_cue"):
-        line += f"；微表情={beat['microexpression_cue']}"
+        line += f"；微表情={_delivery_text(beat, 'microexpression_cue', voice_slots)}"
     if beat.get("body_sync_cue"):
         line += f"；身体同步={beat['body_sync_cue']}"
     if beat.get("internal_transition_after"):
@@ -177,6 +198,11 @@ def scoped_camera_prompt(plan: dict[str, Any]) -> str:
 
 def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     uid = str(plan["unit_id"])
+    timbre_lock = voice_timbre_lock.active_for(unit.get("episode") or uid)
+    voice_slots = {
+        str(row["speaker"]): str(row["audio_slot"])
+        for row in plan.get("voice_bindings") or [] if row.get("audio_slot")
+    } if timbre_lock else {}
     camera = scoped_camera_prompt(plan)
     transition = scoped_transition_text(plan)
     timeline = []
@@ -186,7 +212,7 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
     if transition.get("incoming"):
         timeline.append(f"开场承接：{transition['incoming']}，从该结果继续，不复位不重演。")
     action_beats = (plan.get("action_ir") or {}).get("causal_chains") or plan["beats"]
-    timeline.extend(_beat_line(beat) for beat in action_beats)
+    timeline.extend(_beat_line(beat, voice_slots) for beat in action_beats)
     if transition.get("outgoing"):
         timeline.append(f"结尾交棒：完成{transition['outgoing']}后保留自然微动和现场声尾，不另起动作。")
     sound_parts = []
@@ -202,6 +228,11 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         for row in plan.get("voice_bindings") or []
     ]
     voices = "；".join(voice_rows)
+    # VOICE_TIMBRE_LOCK (E10+): the binding opens 【声音】 instead of trailing a long foley list.
+    sound_block = (
+        voice_timbre_lock.sound_header(voice_rows) + "；" + sound
+        if timbre_lock and voice_rows else sound + (f"；{voices}" if voices else "")
+    )
     role_rows = [_role_line(row) for row in plan.get("role_bindings") or []]
     negatives = list(plan.get("negative_constraints") or [])
     negatives.extend([
@@ -253,7 +284,7 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         "【摄影】" + camera,
         "【环境】" + (environment or "背景与群众只按剧情因果保持真实微动，不得冻结成静态图") + "。",
         *(["【光效】" + lighting_motivation + "，人物面部受光可见。"] if lighting_motivation else []),
-        "【声音】" + sound + (f"；{voices}" if voices else "") + "；禁止外加默认BGM，除非结构化音频模式明确绑定。",
+        "【声音】" + sound_block + "；禁止外加默认BGM，除非结构化音频模式明确绑定。",
         "【物理】" + "；".join(physical_rules) + "。" if physical_rules else "【物理】按时间轴完成真实动作因果。",
         "【限制】" + "；".join(dict.fromkeys(value.strip().rstrip("。；") for value in negatives if value.strip())) + "。",
     ]) + "\n"
@@ -303,7 +334,7 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         clause_evidence[f"{prefix}.ACTION"] = (
             dialogue_words
             if dialogue_words and re.sub(r"\W", "", str(beat["primary_action"])) == re.sub(r"\W", "", dialogue_words)
-            else beat["primary_action"]
+            else _delivery_text(beat, "primary_action", voice_slots)
         )
         clause_evidence[f"{prefix}.FORCE_ORIGIN"] = beat["force_origin"]
         clause_evidence[f"{prefix}.INTERACTION_MODE"] = {

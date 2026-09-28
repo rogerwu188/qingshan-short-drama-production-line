@@ -1555,12 +1555,25 @@ def derived_opener_shot_ids(inputs: "Inputs") -> set[str]:
         anchors = inputs.anchor_plan
     except Exception:  # noqa: BLE001
         return set()
-    first = {str(u.get("unit_id")): str((u.get("editorial_shot_ids") or [""])[0]) for u in plan.get("units") or []}
+    units = plan.get("units") or []
+    first = {str(u.get("unit_id")): str((u.get("editorial_shot_ids") or [""])[0]) for u in units}
+    last_of_previous = {str(cur.get("unit_id")): str((prev.get("editorial_shot_ids") or [""])[-1])
+                        for prev, cur in zip(units, units[1:])}
+    cast = {str(sh.get("shot_id")): frozenset(str(c.get("character_id") or "") for c in
+                                              ((sh.get("prompt_spec") or {}).get("cast") or []))
+            for sh in (inputs.contract.get("shots") or [])}
     out = set()
     for row in anchors.get("units") or []:
         oac = row.get("opening_anchor_contract") or {}
-        if str(oac.get("source") or "") == "CONTINUITY_DERIVED_KEYFRAME" and first.get(str(row.get("unit_id"))):
-            out.add(first[str(row.get("unit_id"))])
+        uid = str(row.get("unit_id"))
+        if str(oac.get("source") or "") != "CONTINUITY_DERIVED_KEYFRAME" or not first.get(uid):
+            continue
+        # Roger 2026-09-27 (E09 option 1): a cut to a DIFFERENT visible subject cannot start from the
+        # previous tail (it would open on the wrong person); only same-cast continuations stay tail-derived.
+        prev_last = last_of_previous.get(uid)
+        if prev_last and cast.get(first[uid], frozenset()) != cast.get(prev_last, frozenset()):
+            continue
+        out.add(first[uid])
     return out
 
 

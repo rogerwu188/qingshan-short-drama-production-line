@@ -89,6 +89,7 @@ git clone https://github.com/rogerwu188/nalu-production-runtime.git /tmp/npr && 
 6. **改剧本文字**：合同/导演稿的生产文字（机位、起止态措辞）代理可改；narrative 的故事与对白文字要问（排版拆行属可自行处理但必须申报）。
 7. **同镜第 2 次创意重做失败**、**集级缺陷预算超限**、**预算投影超上限**：停，汇报。
 8. **配乐账单只能按提交窗隔离**（提供者不给音乐任务精确的逐任务 id）：证据打 window-isolated 标签；发布门是否接受该标签是线主的政策决定，代理不得自行改门。
+9. **声线一致性失败**（S6 `voice:VOICE_OUT_OF_BAND`、成片 `voice_distinctness` 的 VOICE_OUT_OF_BAND / VOICE_COLLISION）：不是测量噪声，**不得按常设 C 自动接受**，一律交线主（K069；E09 自动放行后线主听出声线「飘来飘去」）。
 
 ## 5. 失败怎么归类、什么时候重试、什么时候停
 
@@ -127,6 +128,7 @@ git clone https://github.com/rogerwu188/nalu-production-runtime.git /tmp/npr && 
 | 加了姿态标记身份仍 FAIL；Q2 P2 被拒收 | 标记只随新审核请求生效；P2 需 1-based shot_index（K057） | 停放旧 request/submitted 重新签发；豁免写帧号与分数、先看 face_crops；OCR 噪声 `NOISE:<文本>` |
 | S7 parity 报 SHOT_STRETCHED / STATIC_HOLD_IN_DIALOGUE / BLANK_SCREEN | seq=27 §六 诊断（K058），不阻断 | 写入 CHECKPOINT 给线主审片；阈值与是否返修由线主裁定；不新增 gate_id |
 | 视频/关键帧主角脸走样，而身份牌互比余弦很高 | 身份信号沿链被稀释（K059）：牌没对原照测、关键帧脸参考只有小脸全身牌、视频单元没带头像牌、Q1 给 3/4 脸豁免 | 锁定时逐牌对源图 ≥0.45；关键帧头像牌打头（非角色参考 ≤5）；每单元追加在场角色头像牌；Q1 只豁免背影/仅手/出画/远小 |
+| 同一角色声线在单元间「飘」（成片 voice_distinctness FAIL；逐场 F0 差一倍以上），参考音却每次都发了 | SD2 每单元重新合成人声，参考音是弱提示；声线只在【声音】段尾一句绑定；台词前 压着嗓子/扯着嗓子/声音发颤 等措辞让模型换嗓子（K069） | E10 起（`configs/VOICE_TIMBRE_LOCK_V1.json`）：逐句绑定「X（音色严格同@音频N）说：……」＋【声音】段首声线锁定，改嗓措辞在提示词里直接替换为「<语气>、音色不变」；写手自检 R10 标出改嗓措辞，写成语气；S6 `voice_consistency_qa` 出带即 REJECT 走受守卫重做；已生成的集用 `lines/nalu/runtime/tools/final_cut_voice_unify.py` 后期逐句换声（demucs+Seed-VC，ADAPTER_REQUIRED，不花积分，输出新版本文件）或重做，**问线主** |
 
 ## 6. 现在做不到全自动的步骤（如实）
 
@@ -171,7 +173,7 @@ git clone https://github.com/rogerwu188/nalu-production-runtime.git /tmp/npr && 
 - **原则**：生成前保证优于生成后验收——凡付费 POST 之后才能检查的东西只记诊断、永不触发重做；凡要保证的东西必须在写手/S1/提示词层（零成本）保证。本层**不新增任何重做触发条件**。
 - **规则编号**：本文档的 R1–R8/W1/W2 在代码/配置里叫 **DP1–DP8/W1/W2**——`static_design_gate.py` 已占用 R1–R8（另一套摄影/节奏规则），`nalu_writer_selfcheck_seq29.py` 已占用 R5A–R9B（第三套），避免混淆。
 - **门**：`tools/direction_policy_gate.py`（S1，离线）读 `configs/DIRECTION_POLICY_V1.json`；缺配置文件 = 全部规则关闭，旧集行为不变；合同未声明 `direction_policy.enforced: true` 只报告不阻断（同 `nalu_writer_selfcheck_seq29.py` 的 `enforced` 惯例）。只实现真正新增的集级/聚合检查：**DP1** 景别分布（CU+MCU≥55%、WS+FS≤20%、每场至多 1 个 WS 且须为该场首镜、对白镜禁 WS/FS）；**DP2** 集级 <1s 镜头占比 ≥10%；**DP3** 连续无对白 ≤3s（超出须 `silence_reason`，每集 ≤2 处 ≤6s）+ 对白时长占比 ≥75%（按镜头表推导，不等成片）。
-- **DP4（表演指令）/DP6（关键动作可见）已实现**（`nalu_writer_selfcheck_seq29.py` 规则 7b/7c、`build_e0N_layers.py` 的 SETUPS/RESULT_OF）；**DP7（压力源）已实现但未授权**（`nalu_writer_selfcheck_seq29.py` 规则 8，仅在合同声明 `rule8_authorized` 时才阻断——待线主授权压缩原著）；**DP8（身份参考序列）已实现**（`build_keyframe_manifest.py`，Roger 2026-09-18「身份链条修复①–④」）；**DP5（语速不进提示词的数字）已在提示词层满足**（`tools/sd2_provider_prompt_renderer.py` 从不注入字/秒数字，`cps` 只留在合同 `dialogue_delivery` 供生成后 ASR 核实用），`direction_policy_gate.py` 只留 `scan_for_literal_rate_figure()` 做回归防线。
+- **DP4（表演指令）/DP6（关键动作可见）已实现**（`nalu_writer_selfcheck_seq29.py` 规则 7b/7c、`build_e0N_layers.py` 的 SETUPS/RESULT_OF）；**DP7（压力源）已实现但未授权**（`nalu_writer_selfcheck_seq29.py` 规则 8，仅在合同声明 `rule8_authorized` 时才阻断——待线主授权压缩原著）；**DP8（身份参考序列）已实现**（`build_keyframe_manifest.py`，Roger 2026-09-18「身份链条修复①–④」）；**DP5（语速不进提示词的数字）2026-09-27 修正**：原先「已满足」的判断是错的——`tools/editorial_pacing_contract.delivery_clause`（被 SD2/H3 渲染器调用）把「对白演绎目标每秒N个汉字」写进了每个对白拍的模型提示词（E09 规划提示词里实测命中）。现在该句只写说话方式（清晰连贯、语速自然偏快、不拖长字音、不为填满时长放慢），`cps` 仍校验并只留在合同 `dialogue_delivery` 供生成后 ASR 核实；`direction_policy_gate.scan_for_literal_rate_figure()` 放宽为识别「每秒N个汉字 / 每秒N字 / N字每秒 / N字/秒 / N chars|words per second」，并对编译后的 SD2/H3 对白串做回归测试。
 - **W2（脸要亮）**：`tools/sd2_provider_prompt_renderer.py` 已能接收并注入 `plan.lighting_motivation`（【光效】句式，跟摄影句式同一惯例）；把每镜新增的 `lighting`（动机光源）字段从 GENERATION_CONTRACT 一路接到分组编译产出的 `plan` 里——**INTEGRATION_PENDING**，本轮未接通，缺字段时该句式静默不出现，不影响任何现有集。
 - **W1（切点声音交叠）**：`tools/audio_cut_overlap.py` 已建好并用真实 ffmpeg 集成测试验证（切点两侧对称音量下潜/回升，不改总时长、不动视频流）。**未接入** `nalu_pipeline.py` 的 S7 装配链——现有链（渲染→烧字幕→片尾→选择性配乐→响度）没有在真实成片上验证过插入点，本 session 没条件冒险验证，故 `DIRECTION_POLICY_V1.json` 里 `W1.enabled=false`；接通并在真实集上验证后再打开。
 - **时长/积分账本**（§六）：`tools/stage_time_ledger.py`，append-only 写 `workflow/nalu/<EP>/TIME_LEDGER.jsonl`，挂在 `nalu_pipeline.py` 的 `run_episode()` 阶段循环里每个阶段终态已知的那一行（不另设定时器；`SKIPPED_ALREADY_PASS` 不记事件）；`breakdown`（compute/remote_wait/human_wait/idle）是粗略近似（`compute` 恒 0，无法测；`human_wait` 取该阶段状态是否 `REVIEW_REQUIRED` 或含人工审核子步骤；`remote_wait` 取该阶段是否跑过付费步骤；其余算 `idle`），如实标注不是精确拆分。`print_status()` 末尾打印累计秒数/积分与逐阶段表。

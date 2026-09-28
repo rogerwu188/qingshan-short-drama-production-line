@@ -167,3 +167,28 @@ class PaidOrderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PaidConfigLockTest(unittest.TestCase):
+    """ROGER-20260926-S4-PAID-LOCK-PROPAGATION: legacy-profile lock propagation is fail-closed."""
+    ORDER = {"id": "ORDER-1", "seq": 1, "orders_file_sha256": "0" * 64}
+
+    def test_legacy_sets_lock_only_with_config_and_order(self):
+        self.assertTrue(pipeline.paid_config_lock(is_current=False, config_paid_enabled=True,
+                                                  storyclaw_paid_enabled=False, paid_order=self.ORDER))
+
+    def test_legacy_fail_closed_without_config(self):
+        self.assertFalse(pipeline.paid_config_lock(is_current=False, config_paid_enabled=False,
+                                                   storyclaw_paid_enabled=True, paid_order=self.ORDER))
+
+    def test_legacy_fail_closed_without_paid_order(self):
+        for order in (None, {}):
+            self.assertFalse(pipeline.paid_config_lock(is_current=False, config_paid_enabled=True,
+                                                       storyclaw_paid_enabled=True, paid_order=order))
+
+    def test_current_profile_unchanged(self):
+        for cfg in (True, False):
+            for sc in (True, False):
+                for order in (None, self.ORDER):
+                    self.assertEqual(cfg and sc, pipeline.paid_config_lock(
+                        is_current=True, config_paid_enabled=cfg, storyclaw_paid_enabled=sc, paid_order=order))

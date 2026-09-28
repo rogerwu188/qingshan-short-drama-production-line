@@ -1,0 +1,114 @@
+{
+  "schema": "nalu.voice_timbre_lock.v1",
+  "authority": "Roger 2026-09-28 in-session: E09 角色声线「飘来飘去」→「以后的修改生产线」. Root cause: SD2 re-synthesises every unit's voice with the bound reference audio as a weak hint; the only binding was one clause at the end of 【声音】, and delivery directions such as 压着嗓子/扯着嗓子/声音发颤 told the model to change the voice itself (E09 per-scene F0 medians: 秦铭 119–250 Hz vs band 173–234 Hz).",
+  "active_from_episode": 10,
+  "active_note": "Episodes below this number keep their byte-identical prompts and post-generation verdicts (E01–E09 are paid, admitted or delivered). Raise nothing retroactively.",
+  "prompt": {
+    "per_line_binding_template": "{speaker}（音色严格同{slot}）",
+    "sound_block_header_template": "声线锁定：{bindings}；每句对白只允许改变语气、音量与节奏，不改变音色、音高区间、年龄感和性别感",
+    "timbre_replacement_suffix": "音色不变",
+    "replacement_note": "Roger 2026-09-28：表演指令只写语气，不写嗓音。改嗓音的措辞在提示词里被替换为「<语气>、音色不变」，原词不再出现。"
+  },
+  "timbre_modifier_terms": [
+    {
+      "term": "压着嗓子",
+      "tone": "压低音量、语速放慢"
+    },
+    {
+      "term": "压低声音",
+      "tone": "压低音量"
+    },
+    {
+      "term": "压低嗓音",
+      "tone": "压低音量"
+    },
+    {
+      "term": "扯着嗓子",
+      "tone": "提高音量、拉长呼喊"
+    },
+    {
+      "term": "粗声粗气",
+      "tone": "语气粗鲁、咬字重"
+    },
+    {
+      "term": "粗着嗓子",
+      "tone": "语气粗鲁、咬字重"
+    },
+    {
+      "term": "声音发颤",
+      "tone": "气息不稳"
+    },
+    {
+      "term": "声音颤抖",
+      "tone": "气息不稳"
+    },
+    {
+      "term": "放软声音",
+      "tone": "语气放柔、音量放低"
+    },
+    {
+      "term": "变了调",
+      "tone": "语气突变"
+    },
+    {
+      "term": "尖着嗓子",
+      "tone": "语气尖刻"
+    },
+    {
+      "term": "沙哑地",
+      "tone": "气息干涩"
+    },
+    {
+      "term": "嘶哑地",
+      "tone": "气息干涩"
+    },
+    {
+      "term": "哑着嗓子",
+      "tone": "气息干涩"
+    },
+    {
+      "term": "含糊地",
+      "tone": "咬字松、音量低"
+    },
+    {
+      "term": "喃喃地",
+      "tone": "自语、音量低"
+    },
+    {
+      "term": "屏着气",
+      "tone": "音量极低、气息收住"
+    },
+    {
+      "term": "轻声",
+      "tone": "音量低"
+    },
+    {
+      "term": "扬声",
+      "tone": "音量提高"
+    },
+    {
+      "term": "急声",
+      "tone": "语速加快"
+    },
+    {
+      "term": "娇声",
+      "tone": "语气撒娇"
+    },
+    {
+      "term": "奶声奶气",
+      "tone": "语气稚气"
+    }
+  ],
+  "selfcheck": {
+    "rule_id": "VOICE_TIMBRE_DIRECTION",
+    "blocking": false,
+    "note": "Writer self-check flags each dialogue shot whose action text uses a term above. Non-blocking by default; set blocking=true (or the contract's voice_timbre_policy.enforced=true) to fail S1."
+  },
+  "postgen_voice_consistency": {
+    "enabled": true,
+    "band_source": "voice_cast.json characters.<id>.f0_band_hz (reference F0 median ±15 %, same band the final-cut voice_distinctness detector uses)",
+    "band_extra_tolerance_ratio": 0.0,
+    "min_attribution_similarity": 0.5,
+    "reason_code": "VOICE_OUT_OF_BAND"
+  }
+}

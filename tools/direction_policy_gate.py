@@ -52,7 +52,12 @@ WS_FS = {"WIDE", "MEDIUM_WIDE"}
 
 # A bare digit next to a rate unit — "4.8字/秒", "5 chars/sec", "5.2字每秒" — is exactly the
 # literal number Roger's R5 says a model prompt must never contain.
-_RATE_FIGURE_RE = re.compile(r"\d+(\.\d+)?\s*(字/秒|字每秒|chars?/sec|characters?\s*per\s*second)", re.IGNORECASE)
+_NUM = r"\d+(?:\.\d+)?"
+_RATE_FIGURE_RE = re.compile(
+    rf"每秒\s*{_NUM}\s*(?:个)?\s*(?:汉字|字|词)"                       # 每秒5个汉字 / 每秒5字
+    rf"|{_NUM}\s*(?:个)?\s*(?:汉字|字|词)\s*(?:/|每)\s*秒"            # 5字/秒 / 5字每秒 / 5个汉字/秒
+    rf"|{_NUM}\s*(?:chinese\s+)?(?:chars?|characters?|words?)\s*(?:/|per)\s*(?:sec(?:ond)?s?|s)\b",  # 5 chars/sec, 2.6 words per second
+    re.IGNORECASE)
 
 
 def load_policy(path: Path) -> dict[str, Any]:

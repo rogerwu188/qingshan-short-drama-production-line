@@ -603,3 +603,24 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 以上文字为项目经验的原创概括，随本仓库 MIT LICENSE 发布。未复制外部社区文章、教程全文、他人视频/图片或私人聊天。
 若以后导入社区打斗模板，必须记录原作者、URL、许可和可再分发范围；MIT 不覆盖第三方素材。
 “重建推断”训练样本必须标为 INFERRED_RECONSTRUCTED_NOT_ORIGINAL，不能冒充原始镜头提示词，也不能推断未采集的音频。
+
+### K068 — S4
+
+- **规则**：付费子进程需要的每一把锁，必须在编排器允许付费的每一种 profile 下都有同一条件的传递；新旧 profile 并存时，旧 profile 的锁传递条件 = 旧 profile 自己的付费门（配置付费开关 ＋ 已校验的付费订单），缺任一即不传（fail-closed）。
+- **教训**：StoryClaw 端口后 storyclaw_audio_provider.py 对每次付费调用都要求 NALU_PAID_CONFIG_LOCK=1，但 nalu_pipeline.paid_step 只在 CURRENT_PORTABLE profile 下导出它；LEGACY profile 的线（夜无疆）S4 每次都在 POST 前被拒（paid authority is incomplete: NALU_PAID_CONFIG_LOCK），零扣费但阶段永远过不去。E08 的 S4 早于端口，没踩到。
+- **恢复**：抽出纯函数 paid_config_lock(is_current, config_paid_enabled, storyclaw_paid_enabled, paid_order)：CURRENT 分支与原条件逐字等价；LEGACY 分支 = config_paid_enabled 且 paid_order 非空。四条单测证明 fail-closed。线主授权 ROGER-20260926-S4-PAID-LOCK-PROPAGATION；自动模式分类器拒绝过未授权版本，授权后才落地。
+- **实现**：`lines/nalu/runtime/tools/nalu_pipeline.py`（`paid_config_lock`）
+- **回归**：`tools/tests/test_nalu_paid_authority.py`（`PaidConfigLockTest`）
+- **授权**：Roger 2026-09-26 ROGER-20260926-S4-PAID-LOCK-PROPAGATION（仅旧 profile、fail-closed 测试、写回执与 K 号、S4 ≤4 credits）
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K069 — S6
+
+- **规则**：SD2 每个单元都重新合成人声，参考音只是弱提示：声线必须在每句台词旁绑定（「X（音色严格同@音频N）说：……」）并在【声音】段首声明；表演指令只写语气不写嗓音——压着嗓子/扯着嗓子/声音发颤等改嗓音措辞在提示词里直接替换为「<语气>、音色不变」（configs/VOICE_TIMBRE_LOCK_V1.json 词表），原词不再出现；成片若已漂移，用 final_cut_voice_unify.py（demucs + Seed-VC，按参考音逐句换声，不花积分）后期统一；生成后逐单元按 voice_cast 音区测说话人 F0，出带即该单元重做。声线一致性失败要问线主，不得按常设 C 自动接受。
+- **教训**：E09 成片线主听出角色声线「飘来飘去」。参考音 asset 每次都随 POST 发出、说话人与参考音一一对应，但提示词里声线只在【声音】段尾一句「X使用@音频N固定声线」，而台词前写着 压着嗓子/扯着嗓子/声音发颤/含糊地/屏着气轻声 等措辞，模型把语气做成了换嗓子：同一角色逐场 F0 中位数 秦铭 119–250 Hz（音区 173–234）、冯易安 96–211、陆泽 152–366。成片 voice_distinctness 已报 FAIL，却被当作测量类按常设 C 接受（seq 16）；生成后 QA 只核 ASR 文字，不核声线。E08 同样存在（秦铭 104–181 Hz）。
+- **恢复**：`configs/VOICE_TIMBRE_LOCK_V1.json`（active_from_episode=10，E01–E09 提示词与判定逐字节不变，已对 E09 33 单元重编译验证）；`tools/voice_timbre_lock.py`；SD2 渲染器逐句绑定＋段首声线锁定＋改嗓措辞转语气句；写手自检 `R10_VOICE_TIMBRE_DIRECTION`（默认警告，可配置阻断）；生成后 QA 新增 `voice_consistency_qa`（`unit_voice_consistency.py`，复用 `dialogue_voice_metrics` F0 与 voice_cast 同一音区），FAIL 原因码 `voice:VOICE_OUT_OF_BAND:<CHAR>:<f0>`，归属不定记 UNVERIFIED。
+- **实现**：[configs/VOICE_TIMBRE_LOCK_V1.json](../../configs/VOICE_TIMBRE_LOCK_V1.json)、[tools/voice_timbre_lock.py](../../tools/voice_timbre_lock.py)、[tools/sd2_provider_prompt_renderer.py](../../tools/sd2_provider_prompt_renderer.py)、`lines/nalu/runtime/tools/{nalu_writer_selfcheck_seq29,unit_voice_consistency,post_generation_qa_runner}.py`
+- **回归**：`tools/tests/test_voice_timbre_lock.py`
+- **证据**：离线 `unit_voice_consistency.py --episode E09`：33 单元 16 FAIL（含 VU-007 136 Hz、VU-014 118 Hz、VU-019 361 Hz）/16 PASS/1 UNVERIFIED
+- **授权**：Roger 2026-09-28 会话「a，以后的修改生产线」
+- **状态**：REFERENCE_IMPLEMENTATION（未在付费生产验证；逐句绑定能否真正锁住 SD2 声线要等 E10 实测）

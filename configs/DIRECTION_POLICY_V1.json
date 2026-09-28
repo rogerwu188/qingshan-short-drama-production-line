@@ -46,9 +46,9 @@
     "DP5_speech_rate_no_literal_number": {
       "enabled": true,
       "doc_ref": "R5",
-      "status": "ALREADY_SATISFIED — confirmed by grep that tools/sd2_provider_prompt_renderer.py never injects a literal chars/sec figure into the model-facing prompt; the cps number lives only in contract metadata (dialogue_delivery) for post-gen ASR comparison, exactly as Roger's doc intends",
+      "status": "FIXED_2026-09-27 — the 2026-09-25 \"already satisfied\" finding was wrong: tools/editorial_pacing_contract.delivery_clause (called by tools/sd2_provider_prompt_renderer.py and tools/h3_provider_prompt_renderer.py) emitted \"对白演绎目标每秒N个汉字\" / \"N Chinese characters per second\" into every dialogue beat of the model-facing prompt (observed in E09 planned SD2 prompts). The clause now carries delivery wording only; cps is still validated and kept in contract metadata (dialogue_delivery) for post-gen ASR comparison",
       "audit_only": true,
-      "note": "direction_policy_gate.py keeps a regression guard scanning the compiled prompt text for a literal rate figure, so this can never silently regress."
+      "note": "direction_policy_gate.scan_for_literal_rate_figure() catches 每秒N个汉字 / 每秒N字 / N字每秒 / N字/秒 / N chars|characters|words per second|/sec; tools/tests/test_direction_policy_gate.py runs it against the SD2 and H3 delivery clause and a compiled SD2 dialogue prompt."
     },
     "DP6_visible_key_actions": {
       "enabled": true,
