@@ -104,7 +104,15 @@ def main() -> int:
     # most of the source pitch.  f0 conditioning + auto adjust moves each speaker's pitch to the
     # reference median while keeping the line's intonation contour.
     ap.add_argument("--f0-condition", choices=("True", "False"), default="True")
-    ap.add_argument("--auto-f0-adjust", choices=("True", "False"), default="True")
+    # v2 (auto adjust over a per-speaker batch) applies ONE shift to all of a speaker's lines and
+    # keeps the drift between them; v3 moves every line's own median F0 to the reference median
+    # before conversion, so auto adjust stays off.
+    ap.add_argument("--auto-f0-adjust", choices=("True", "False"), default="False")
+    ap.add_argument("--per-line-pitch-normalise", choices=("True", "False"), default="True")
+    ap.add_argument("--max-shift-semitones", type=float, default=14.0)
+    # after conversion, a line still outside the band by at most this much is pitch-shifted to
+    # the band centre (larger residuals are left and reported for listening)
+    ap.add_argument("--post-correct-semitones", type=float, default=4.0)
     ap.add_argument("--release-lufs", type=float, default=-14.0)
     ap.add_argument("--release-tp", type=float, default=-1.0)
     args = ap.parse_args()
@@ -134,13 +142,26 @@ def main() -> int:
     # silence gaps, converted in one pass (length_adjust=1.0 keeps every offset), then cut
     # back.  One model load per speaker instead of per line; the in-process wrapper ran
     # ~9 s per diffusion step on CPU against ~1 s for inference.py.
+    import librosa
     gap = np.zeros(int(0.5 * SR), dtype=np.float32)
+    shifts: dict[int, float] = {}
     clips: dict[int, tuple[int, int, np.ndarray]] = {}
     by_speaker: dict[str, list[int]] = {}
     for i, w in enumerate(windows):
         a = max(0, int((float(w["start"]) - args.pad) * SR))
         b = min(len(vocals_mono), int((float(w["end"]) + args.pad) * SR))
-        clips[i] = (a, b, vocals_mono[a:b])
+        clip = vocals_mono[a:b]
+        band = refs[w["speaker"]].get("band") or [None, None]
+        shifts[i] = 0.0
+        if args.per_line_pitch_normalise == "True" and band[0] is not None:
+            source_f0 = median_f0(clip)
+            if source_f0:
+                target_f0 = (float(band[0]) + float(band[1])) / 2  # band = reference median ±15 %
+                step = 12 * float(np.log2(target_f0 / source_f0))
+                if abs(step) <= args.max_shift_semitones:
+                    shifts[i] = round(step, 2)
+                    clip = librosa.effects.pitch_shift(clip, sr=SR, n_steps=step).astype(np.float32)
+        clips[i] = (a, b, clip)
         by_speaker.setdefault(w["speaker"], []).append(i)
     converted: dict[int, np.ndarray] = {}
     for speaker, idxs in by_speaker.items():
@@ -154,14 +175,24 @@ def main() -> int:
         sf.write(str(src), joined, SR)
         out_dir = work / f"vc_{speaker}"
         out_dir.mkdir(exist_ok=True)
+        stamp = out_dir / "source.sha256"
+        cached = sorted(out_dir.glob("vc_*.wav"))
+        if cached and stamp.is_file() and stamp.read_text().strip() == sha256(src):
+            reuse = True  # same speaker input as a previous run in this work dir
+        else:
+            reuse = False
+            for old in cached:
+                old.unlink()
         runner = ("import runpy, sys, torch; torch.backends.mps.is_available = lambda: False; "
                   "sys.argv = ['inference.py'] + sys.argv[1:]; runpy.run_path('inference.py', run_name='__main__')")
-        subprocess.run([python, "-c", runner, "--source", str(src), "--target", refs[speaker]["ref"],
-                        "--output", str(out_dir), "--diffusion-steps", str(args.diffusion_steps),
-                        "--length-adjust", "1.0", "--inference-cfg-rate", "0.7",
-                        "--f0-condition", args.f0_condition, "--auto-f0-adjust", args.auto_f0_adjust,
-                        "--fp16", "False"],
-                       check=True, cwd=str(args.seedvc_dir))
+        if not reuse:
+            subprocess.run([python, "-c", runner, "--source", str(src), "--target", refs[speaker]["ref"],
+                            "--output", str(out_dir), "--diffusion-steps", str(args.diffusion_steps),
+                            "--length-adjust", "1.0", "--inference-cfg-rate", "0.7",
+                            "--f0-condition", args.f0_condition, "--auto-f0-adjust", args.auto_f0_adjust,
+                            "--fp16", "False"],
+                           check=True, cwd=str(args.seedvc_dir))
+            stamp.write_text(sha256(src))
         result = sorted(out_dir.glob("vc_*.wav"))[-1]
         wave = load_mono(result)
         scale = len(joined) / max(1, len(wave))  # guard against a few samples of drift
@@ -169,25 +200,34 @@ def main() -> int:
             lo = int(offsets[i] / scale)
             conv = wave[lo: lo + len(clips[i][2])]
             converted[i] = np.pad(conv, (0, len(clips[i][2]) - len(conv)))
-        print(f"{speaker}: {len(idxs)} lines converted", flush=True)
+        print(f"{speaker}: {len(idxs)} lines converted{' (cached)' if reuse else ''}", flush=True)
 
     rows = []
     fade = int(args.fade * SR)
     for i, w in enumerate(windows):
         speaker = w["speaker"]
-        a, b, clip = clips[i]
+        a, b, _ = clips[i]
+        clip = vocals_mono[a:b]
         conv = converted[i] * (rms(clip) / rms(converted[i]))
+        band = refs[speaker].get("band") or [None, None]
+        before, after = median_f0(clip), median_f0(conv)
+        post_shift = 0.0
+        if after is not None and band[0] is not None and not (band[0] <= after <= band[1]):
+            step = 12 * float(np.log2(((float(band[0]) + float(band[1])) / 2) / after))
+            if abs(step) <= args.post_correct_semitones:
+                conv = librosa.effects.pitch_shift(conv, sr=SR, n_steps=step).astype(np.float32)
+                post_shift, after = round(step, 2), median_f0(conv)
+        in_band = (after is not None and band[0] is not None and band[0] <= after <= band[1])
         env = np.ones(len(clip), dtype=np.float32)
         if len(clip) > 2 * fade:
             env[:fade] = np.linspace(0, 1, fade)
             env[-fade:] = np.linspace(1, 0, fade)
+        conv = conv[: len(clip)]
         for ch in range(new_vocals.shape[1]):
             new_vocals[a:b, ch] = new_vocals[a:b, ch] * (1 - env) + conv * env
-        band = refs[speaker].get("band") or [None, None]
-        before, after = median_f0(clip), median_f0(conv)
-        in_band = (after is not None and band[0] is not None and band[0] <= after <= band[1])
         rows.append({"index": i, "unit_id": w.get("unit_id"), "speaker": speaker, "text": w.get("text"),
-                     "start": w["start"], "end": w["end"], "f0_before": before, "f0_after": after,
+                     "start": w["start"], "end": w["end"], "f0_before": before, "pitch_shift_semitones": shifts[i], "post_shift_semitones": post_shift,
+                     "f0_after": after,
                      "band": band, "after_in_band": in_band})
         print(f"[{i + 1}/{len(windows)}] {speaker} {before} -> {after} Hz band={band}", flush=True)
 
@@ -205,7 +245,7 @@ def main() -> int:
         "schema": "nalu.final_cut_voice_unify.v1", "episode": args.episode,
         "source_final": str(args.final), "source_final_sha256": sha256(args.final),
         "output": str(args.output), "output_sha256": sha256(args.output),
-        "picture": "VIDEO_STREAM_COPIED_BIT_EXACT", "engine": "seed-vc", "f0_condition": args.f0_condition, "auto_f0_adjust": args.auto_f0_adjust,
+        "picture": "VIDEO_STREAM_COPIED_BIT_EXACT", "engine": "seed-vc", "f0_condition": args.f0_condition, "auto_f0_adjust": args.auto_f0_adjust, "per_line_pitch_normalise": args.per_line_pitch_normalise,
         "separation": "demucs htdemucs two-stem", "diffusion_steps": args.diffusion_steps,
         "length_adjust": 1.0, "release_lufs": args.release_lufs,
         "lines": rows, "lines_total": len(rows),
