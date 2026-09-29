@@ -624,3 +624,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：离线 `unit_voice_consistency.py --episode E09`：33 单元 16 FAIL（含 VU-007 136 Hz、VU-014 118 Hz、VU-019 361 Hz）/16 PASS/1 UNVERIFIED
 - **授权**：Roger 2026-09-28 会话「a，以后的修改生产线」
 - **状态**：REFERENCE_IMPLEMENTATION（未在付费生产验证；逐句绑定能否真正锁住 SD2 声线要等 E10 实测）
+
+### K070 — S5
+
+- **规则**：关键帧提示词的「机位说明」只写本机位的几何（机位 id、位置、朝向、轴线、银幕方向、景别）加本镜自己的摄影文字；不得引用同一机位上其他镜头的描述。继承机位标签（`extend_global_space_map.annotate_existing_cameras` 按绑定镜头 `shot_size／camera` 拼成的多镜标签）不再进提示词。按集号生效（`configs/KEYFRAME_CAMERA_NOTE_SCOPE_V1.json`，active_from_episode=11），E01–E10 提示词逐字节不变。
+- **教训**：E10 S5 Q1：机位说明原样拷贝 `subspace_layout.authored_camera_note`，即该机位全部绑定镜头描述的拼接。E10-S03-03 带进 S17-04 的「盯着木盒的刘老头」，桌上提前出现木盒；E10-S10-01 带进 S10-05/S14-03 的「捂着嘴」，梁婉清未开口已捂嘴；E10-S05-01 带进 S19-01 的「秦铭的脸」和旧标签「掀开的木盒」，画成了结束状态。三镜都靠镜头文字硬性覆盖、付费重做才过。entry_state 泄漏检查只比对本镜 completion_state/primary_action 子串，拦不住其他镜头的文字。
+- **恢复**：`build_keyframe_manifest.build_prompt` 在生效集用 `scoped_camera_note`（本机位几何 ＋ `prompt_spec.camera` 去掉「；机位 …」机器后缀的本镜文字），未生效集保留原行。离线回归：E09/E10 用现配置重编译与改前逐字节一致（E10 51/51 与登记 sha 一致；E09 37/39，余 2 条是合同改过轴线声明的既有漂移，与本改动无关）；临时 active_from_episode=10 重编译 E10，51 条仅机位说明一行变化，不再含任何镜号或他镜内容。
+- **实现**：[configs/KEYFRAME_CAMERA_NOTE_SCOPE_V1.json](../../configs/KEYFRAME_CAMERA_NOTE_SCOPE_V1.json)、`lines/nalu/runtime/tools/build_keyframe_manifest.py`（`load_camera_note_policy` / `camera_note_scoped` / `scoped_camera_note`）
+- **回归**：`tools/tests/test_keyframe_camera_note_scope.py`
+- **证据**：E10 S5 Q1 REJECT：E10-S03-03、E10-S10-01、E10-S05-01
+- **授权**：Roger 2026-09-29 会话（E10 S5 Q1 后要求 E11 起修生产线）
+- **状态**：REFERENCE_IMPLEMENTATION（未在付费生产验证；E11 S5 实测）

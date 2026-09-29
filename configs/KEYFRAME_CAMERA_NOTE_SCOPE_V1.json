@@ -1,0 +1,9 @@
+{
+  "schema": "nalu.keyframe_camera_note_scope.v1",
+  "authority": "E10 S5 Q1 (2026-09-29): the keyframe prompt's 机位说明 line was the inherited camera label, which extend_global_space_map.annotate_existing_cameras rewrites to the shot_size／camera of EVERY shot bound to that angle. Shots therefore carried other shots' actions, prop states and people (E10-S03-03 盯着木盒 put the box on the table early; E10-S10-01 捂着嘴 made 梁婉清 cover her mouth before speaking; E10-S05-01 掀开的木盒/秦铭的脸 rendered the end state). All three needed paid rerolls with hard overrides in the shot text.",
+  "active_from_episode": 11,
+  "active_note": "Episodes below this number keep their byte-identical keyframe prompts (E01–E10 are paid, admitted or in S6 video production). Raise nothing retroactively.",
+  "note_template": "机位说明：机位 {angle_id}｜位置 {camera_position}｜朝向 {camera_facing}｜轴线 {axis_id}｜银幕方向 {screen_direction}｜景别 {shot_size}；本镜：{own_camera}",
+  "own_camera_source": "prompt_spec.camera with the trailing machine suffix「；机位 …」removed (this shot's own authored camera text only); falls back to shot_size when empty",
+  "forbidden_source": "subspace_layout.authored_camera_note (the multi-shot angle label) is never quoted into the prompt once active"
+}

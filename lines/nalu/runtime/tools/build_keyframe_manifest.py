@@ -105,6 +105,17 @@ NOVELTY_CLASSES = (
 NON_INTERPOLABLE_DIMENSIONS = {"POSSESSION", "CONTACT", "INTEGRITY"}
 PENDING_SHA_SENTINEL = "PENDING_SHA256_UNTIL_IDENTITY_CARD_EXISTS"
 DEFAULT_ENGINE_ROOT = Path(f"{_np.ENGINE_ROOT}")
+#: K070 KEYFRAME_CAMERA_NOTE_SCOPE (E10 S5 Q1, 2026-09-29): the inherited angle label lists the
+#: shot_size／camera of EVERY shot bound to that angle (extend_global_space_map.annotate_existing_cameras),
+#: so quoting it as 机位说明 leaked other shots' actions / prop states / people into this still
+#: (E10-S03-03 木盒, E10-S10-01 捂嘴, E10-S05-01 掀开的木盒+秦铭的脸).  From active_from_episode on,
+#: the line carries only this angle's geometry + this shot's own camera text.  Env override exists
+#: for offline regression only.
+CAMERA_NOTE_POLICY_PATH = Path(
+    os.environ.get("NALU_KEYFRAME_CAMERA_NOTE_POLICY")
+    or DEFAULT_ENGINE_ROOT / "configs" / "KEYFRAME_CAMERA_NOTE_SCOPE_V1.json"
+)
+CAMERA_NOTE_POLICY_SCHEMA = "nalu.keyframe_camera_note_scope.v1"
 
 
 # --------------------------------------------------------------------------- #
@@ -176,6 +187,55 @@ def episode_ordinal(value: str) -> int | None:
 
 def stable_unique(values: list[str]) -> list[str]:
     return list(dict.fromkeys(values))
+
+
+_CAMERA_NOTE_POLICY_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def load_camera_note_policy(path: Path | None = None) -> dict[str, Any]:
+    """KEYFRAME_CAMERA_NOTE_SCOPE policy; a missing file keeps the legacy (pre-E11) note."""
+    target = Path(path or CAMERA_NOTE_POLICY_PATH)
+    key = str(target)
+    if key not in _CAMERA_NOTE_POLICY_CACHE:
+        data: dict[str, Any] = {}
+        if target.is_file():
+            data = json.loads(target.read_text(encoding="utf-8"))
+            if data.get("schema") != CAMERA_NOTE_POLICY_SCHEMA:
+                raise ValueError(f"KEYFRAME_CAMERA_NOTE_SCOPE_SCHEMA_INVALID:{target}")
+        _CAMERA_NOTE_POLICY_CACHE[key] = data
+    return _CAMERA_NOTE_POLICY_CACHE[key]
+
+
+def camera_note_scoped(episode: str, policy: dict[str, Any] | None = None) -> bool:
+    policy = load_camera_note_policy() if policy is None else policy
+    start = policy.get("active_from_episode")
+    number = episode_ordinal(episode)
+    return bool(policy) and start is not None and number is not None and number >= int(start)
+
+
+def own_camera_text(spec_camera: Any, shot_size: Any) -> str:
+    """This shot's authored camera text, without the machine「；机位 …」suffix."""
+    text = str(spec_camera or "").strip()
+    text = re.split(r"[；;]\s*机位\s", text, maxsplit=1)[0].strip()
+    return text or str(shot_size or "").strip() or "无"
+
+
+def scoped_camera_note(sp_task: dict[str, Any], subspace: dict[str, Any], shot: dict[str, Any],
+                       spec: dict[str, Any], policy: dict[str, Any] | None = None) -> str:
+    """Geometry of this angle + this shot's own camera text; never another shot's label."""
+    policy = load_camera_note_policy() if policy is None else policy
+    template = str(policy.get("note_template") or (
+        "机位说明：机位 {angle_id}｜位置 {camera_position}｜朝向 {camera_facing}｜轴线 {axis_id}"
+        "｜银幕方向 {screen_direction}｜景别 {shot_size}；本镜：{own_camera}"))
+    return template.format(
+        angle_id=sp_task.get("angle_id") or subspace.get("angle_id"),
+        camera_position=subspace.get("camera_position"),
+        camera_facing=subspace.get("camera_facing"),
+        axis_id=subspace.get("axis_id"),
+        screen_direction=subspace.get("screen_direction"),
+        shot_size=shot.get("shot_size"),
+        own_camera=own_camera_text(spec.get("camera"), shot.get("shot_size")),
+    )
 
 
 def join(values: list[str] | None, separator: str = "、", empty: str = "无") -> str:
@@ -1021,7 +1081,12 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
         ("shot_size", f"景别：{shot.get('shot_size')}", True),
         ("camera", f"摄影：{spec.get('camera')}", True),
         ("axis", f"轴线声明：{shot.get('axis')}", True),
-        ("authored_camera_note", f"机位说明：{subspace.get('authored_camera_note')}", False),
+        # K070: E01–E10 keep the legacy multi-shot angle label byte-for-byte; from the policy's
+        # active_from_episode the note is this angle's geometry + this shot's own camera text only.
+        ("authored_camera_note",
+         scoped_camera_note(sp_task, subspace, shot, spec)
+         if camera_note_scoped(inputs.episode)
+         else f"机位说明：{subspace.get('authored_camera_note')}", False),
         ("blank4", "", True),
         ("blocking_head", "【entry 时刻站位（本帧唯一站位依据）】", True),
         ("blocking_characters",

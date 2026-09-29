@@ -130,6 +130,7 @@ git clone https://github.com/rogerwu188/nalu-production-runtime.git /tmp/npr && 
 | S7 parity 报 SHOT_STRETCHED / STATIC_HOLD_IN_DIALOGUE / BLANK_SCREEN | seq=27 §六 诊断（K058），不阻断 | 写入 CHECKPOINT 给线主审片；阈值与是否返修由线主裁定；不新增 gate_id |
 | 视频/关键帧主角脸走样，而身份牌互比余弦很高 | 身份信号沿链被稀释（K059）：牌没对原照测、关键帧脸参考只有小脸全身牌、视频单元没带头像牌、Q1 给 3/4 脸豁免 | 锁定时逐牌对源图 ≥0.45；关键帧头像牌打头（非角色参考 ≤5）；每单元追加在场角色头像牌；Q1 只豁免背影/仅手/出画/远小 |
 | 同一角色声线在单元间「飘」（成片 voice_distinctness FAIL；逐场 F0 差一倍以上），参考音却每次都发了 | SD2 每单元重新合成人声，参考音是弱提示；声线只在【声音】段尾一句绑定；台词前 压着嗓子/扯着嗓子/声音发颤 等措辞让模型换嗓子（K069） | E10 起（`configs/VOICE_TIMBRE_LOCK_V1.json`）：逐句绑定「X（音色严格同@音频N）说：……」＋【声音】段首声线锁定，改嗓措辞在提示词里直接替换为「<语气>、音色不变」；写手自检 R10 标出改嗓措辞，写成语气；S6 `voice_consistency_qa` 出带即 REJECT 走受守卫重做；已生成的集用 `lines/nalu/runtime/tools/final_cut_voice_unify.py` 后期逐句换声（demucs+Seed-VC，ADAPTER_REQUIRED，不花积分，输出新版本文件）或重做，**问线主** |
+| Q1 关键帧里出现同机位其他镜头的动作/道具状态/人物（提前出现的木盒、未开口先捂嘴、画成结束状态） | 机位说明拷贝了按机位聚合的多镜标签（K070） | E11 起（`configs/KEYFRAME_CAMERA_NOTE_SCOPE_V1.json`）机位说明只写本机位几何＋本镜摄影文字，自动生效；E10 及以前的集仍是旧行，遇到只能改镜头文字硬性覆盖后受守卫重做 |
 
 ## 6. 现在做不到全自动的步骤（如实）
 

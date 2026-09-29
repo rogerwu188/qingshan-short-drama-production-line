@@ -20,3 +20,10 @@
 {"failure_code": "SPEECH_RATE_MEASURED_ON_PADDED_SEGMENTS", "do_not_repeat": "先修测量再谈重出；记录 timing_basis；收尾句不当拖沓判", "stage": "qa", "scope": "episode", "knowledge_id": "K061"}
 {"failure_code": "LEVELLER_TARGET_ABOVE_ROLE_CEILING", "do_not_repeat": "精修目标不出接受带；上限用常量；重跑先停放输出", "stage": "assembly", "scope": "episode", "knowledge_id": "K062"}
 {"failure_code": "BY_DESIGN_POSE_BLOCKS_IDENTITY_GATE", "do_not_repeat": "按订单接受、sha 绑定、引擎结果保留；不改阈值、不给可测脸豁免", "stage": "pipeline", "scope": "episode", "knowledge_id": "K063"}
+{"failure_code": "AD_TAIL_SPOKEN_CHARS_OVER_CAP_OR_DOUBLE_BADGE", "do_not_repeat": "不要先定镜长再配旁白；不要用原始字符串长度算 spoken_chars（要按CJK字符）；不要无条件叠加角标而不先检测输入是否已带角标", "stage": "S7", "scope": "line", "knowledge_id": "K064"}
+{"failure_code": "DP1_CU_MCU_RATIO_BELOW_FLOOR / DP2_UNDER_1S_SHOT_RATIO_BELOW_FLOOR / DP3_DIALOGUE_TIME_RATIO_BELOW_FLOOR", "do_not_repeat": "不要在生成后验收表里新增一项就以为堵住了这个缺口；缺口只有搬到生成前的聚合门才算堵住", "stage": "S1", "scope": "generalizable", "knowledge_id": "K065"}
+{"failure_code": "LITERAL_RATE_FIGURE_LEAKED_INTO_COMPILED_PROMPT", "do_not_repeat": "新增任何语速/节奏相关字段时，先确认它只进合同元数据、绝不进提示词字符串，再把它加进这道扫描的正则", "stage": "S1", "scope": "generalizable", "knowledge_id": "K066"}
+{"failure_code": "RULE_ID_NAMESPACE_COLLISION", "do_not_repeat": "新规则落地前先 grep 目标编号前缀；发现冲突就换前缀，不要覆盖或假设『应该是同一套』", "stage": "S1", "scope": "generalizable", "knowledge_id": "K067"}
+{"failure_code": "PAID_LOCK_NOT_PROPAGATED_FOR_PROFILE", "do_not_repeat": "新增付费锁时同时检查所有 profile 的导出路径；不要为了过门在子进程里放宽锁校验，改编排器的传递条件并补 fail-closed 测试", "stage": "S4", "scope": "generalizable", "knowledge_id": "K068"}
+{"failure_code": "VOICE_OUT_OF_BAND", "do_not_repeat": "不要把音色类成片检测失败当测量噪声放行；不要在台词前写改变嗓音的措辞；未在付费生产验证前不要声称逐句绑定能锁住 SD2 声线", "stage": "S6", "scope": "generalizable", "knowledge_id": "K069"}
+{"failure_code": "KEYFRAME_CAMERA_NOTE_CROSS_SHOT_LEAK", "do_not_repeat": "不要把按机位聚合的标签（任何含多个镜号的文字）拷进单镜提示词；不要回溯改 E01–E10 已登记提示词；GSM 机位标签仍是多镜聚合，只能作索引，不能作本镜描述", "stage": "S5", "scope": "generalizable", "knowledge_id": "K070"}

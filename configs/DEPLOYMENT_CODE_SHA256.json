@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1971,
+  "file_count": 1973,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -221,7 +221,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "dfbe50d0f199a96e03cf493a6390259462b1e89f2ed38675301c5389131fab8d"
+      "sha256": "fafb9d444f72117fb2cb5142260e52c2912f6451e9b2e0337ec06761eb4acfaf"
     },
     {
       "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
@@ -234,6 +234,10 @@
     {
       "path": "configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json",
       "sha256": "332ec1f6fa23657ceb701669fcf10b0a8787f5b9f6cc738306bdd5bff4e47e1c"
+    },
+    {
+      "path": "configs/KEYFRAME_CAMERA_NOTE_SCOPE_V1.json",
+      "sha256": "e0c1a2d3ad9a904674ad29c43b6ecbf10338b5a4a09e0e03ace8f89de6dd17af"
     },
     {
       "path": "configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json",
@@ -289,7 +293,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "9f0779b757dfbc750b9cd10fd5ef2fc62df64be50b20ea579e4afa28b06d335c"
+      "sha256": "79d25aa96cc9d8d4a0767cda6a42d2507955582c213ad8e0940232f9b0c6070b"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -6804,6 +6808,10 @@
       "sha256": "bfcfe125b2806293425f374c91b5bd91dea1b715e8f391ae8c4f9ae667927a66"
     },
     {
+      "path": "tools/tests/test_keyframe_camera_note_scope.py",
+      "sha256": "a5ed70043084db30e88f18124975763c4d69b60b6aa2d2c3af9fb57dea26879a"
+    },
+    {
       "path": "tools/tests/test_keyframe_entry_scene_projection.py",
       "sha256": "379c9e7b8f5caa8d3e19b43db05d25fcfb8cb02ed4c2edd78a7eb156f92076bd"
     },
@@ -6821,7 +6829,7 @@
     },
     {
       "path": "tools/tests/test_knowledge_registry.py",
-      "sha256": "0fa3040392153f3e2795c4c2d3ea8598d4558aaa60232b507921905442f82477"
+      "sha256": "922b0d3ccf74ddb8ecbe2335715810e440decb149192be106714c9c7eb07454c"
     },
     {
       "path": "tools/tests/test_legacy_voice_migration.py",

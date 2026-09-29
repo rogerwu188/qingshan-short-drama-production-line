@@ -1280,6 +1280,28 @@
       "regression": "tools/tests/test_voice_timbre_lock.py",
       "failure_code": "VOICE_OUT_OF_BAND",
       "do_not_repeat": "不要把音色类成片检测失败当测量噪声放行；不要在台词前写改变嗓音的措辞；未在付费生产验证前不要声称逐句绑定能锁住 SD2 声线"
+    },
+    {
+      "status": "REFERENCE_IMPLEMENTATION",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "runtime_gate_added": false,
+      "scope": "generalizable",
+      "id": "K070",
+      "stage": "S5",
+      "category": "KEYFRAME_PROMPT",
+      "rule": "关键帧提示词的「机位说明」只写本机位的几何（机位 id、位置、朝向、轴线、银幕方向、景别）加本镜自己的摄影文字；不得引用同一机位上其他镜头的描述——继承机位标签（extend_global_space_map.annotate_existing_cameras 按绑定镜头 shot_size／camera 拼成的多镜标签）不再进提示词。按集号生效（configs/KEYFRAME_CAMERA_NOTE_SCOPE_V1.json，active_from_episode=11），E01–E10 提示词逐字节不变。",
+      "lesson": "E10 S5 Q1：机位说明原样拷贝 subspace_layout.authored_camera_note，即该机位全部绑定镜头的描述拼接，别的镜头的动作/道具状态/人物进了本帧。E10-S03-03 带进 S17-04 的「盯着木盒的刘老头」，桌上提前出现木盒；E10-S10-01 带进 S10-05/S14-03 的「捂着嘴」，梁婉清未开口已捂嘴；E10-S05-01 带进 S19-01 的「秦铭的脸」和旧标签「掀开的木盒」，画成了结束状态。三镜都靠在镜头文字里硬性覆盖、付费重做才过。entry_state 泄漏检查只比对本镜 completion_state/primary_action 子串，拦不住其他镜头的文字。",
+      "recovery": "configs/KEYFRAME_CAMERA_NOTE_SCOPE_V1.json（active_from_episode=11，note_template）；build_keyframe_manifest.build_prompt 在生效集用 scoped_camera_note（本机位几何 + prompt_spec.camera 去掉「；机位 …」机器后缀的本镜文字），未生效集保留原行。离线回归：E09/E10 用现配置重编译与改前逐字节一致（E10 51/51 与登记 sha 一致；E09 37/39，余 2 条是合同改过轴线声明造成的既有漂移，与本改动无关）；临时 active_from_episode=10 重编译 E10 时 51 条仅机位说明一行变化，不再含任何镜号或他镜内容。",
+      "implementation": [
+        "configs/KEYFRAME_CAMERA_NOTE_SCOPE_V1.json",
+        "lines/nalu/runtime/tools/build_keyframe_manifest.py"
+      ],
+      "evidence": "E10 S5 Q1 REJECT：E10-S03-03、E10-S10-01、E10-S05-01（改前机位说明分别含 E10-S17-04 / E10-S10-05+S14-03 / E10-S19-01 的描述）",
+      "authority": "Roger 2026-09-29 会话：E10 S5 Q1 审核发现后要求 E11 起修生产线",
+      "regression": "tools/tests/test_keyframe_camera_note_scope.py",
+      "failure_code": "KEYFRAME_CAMERA_NOTE_CROSS_SHOT_LEAK",
+      "do_not_repeat": "不要把按机位聚合的标签（任何含多个镜号的文字）拷进单镜提示词；不要回溯改 E01–E10 已登记提示词；GSM 机位标签仍是多镜聚合，只能作索引，不能作本镜描述"
     }
   ]
 }
