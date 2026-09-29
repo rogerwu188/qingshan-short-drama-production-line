@@ -2804,6 +2804,15 @@ def s3_qa(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str, Any]:
                            name="s3_qa_character_registry_rebuild")
     res.steps.append(registry_step)
     detail["character_registry_rebuild"] = qa_json(registry_step)
+    # E10 (2026-09-29): with no locked character in the library the rebuild writes nothing and the
+    # previous episode's registry silently stays in force (two villagers and 陆文晖 had no identity
+    # samples at Q1).  An episode that requires characters must not pass S3 that way.
+    required_characters = ((read_json(p.asset_requirements, {}) or {}).get("assets") or {}).get("characters") or []
+    if (detail["character_registry_rebuild"] or {}).get("status") != "WRITTEN" and required_characters:
+        detail["status"] = BLOCKED
+        detail.setdefault("blockers", []).append(
+            "CHARACTER_REGISTRY_NOT_REBUILT:"
+            + str((detail["character_registry_rebuild"] or {}).get("status") or f"exit={registry_step.get('exit_code')}"))
     # Bootstrap recompiles a full episode library, while S3 only admits the
     # identity/non-plate assets in the current S3 plan.  Audio accents/SFX and
     # reference-map rows are downstream S4/S2 contracts and must not block the
