@@ -11,6 +11,11 @@ Inputs
 Checks
   precheck   VOICE_ID_SHARED_IN_SCENE:<a>:<b>           -> FAIL
              F0_BAND_OVERLAP_REQUIRES_HUMAN:<a>:<b>     -> REQUIRES_HUMAN (overlap > 50 % of the narrower band)
+             NEW_VOICE_TOO_CLOSE_IN_SCENE:<new>:<b>:<r> -> FAIL (a character first locked this episode whose
+                                                           reference F0 is within 25 % of a co-present speaker)
+             NEW_VOICE_TOO_CLOSE_IN_CAST:<new>:<b>:<r>  -> FAIL (within 15 % of any other speaker this episode)
+             ESTABLISHED_VOICES_CLOSE:<a>:<b>:<r>       -> advisory only (two recurring voices within 25 %;
+                                                           recasting them is the line owner's call)
   postcheck  VOICE_OUT_OF_BAND:<speaker>:<start>       -> FAIL (line F0 outside the character band)
              VOICE_COLLISION:<a>:<b>                    -> FAIL (two speakers in one scene, median F0 within 15 %)
   emotion    FLAT_EMOTION:<speaker>:<start>             -> FAIL (plead|fear|threat line < 6 dB above the speaker's calm baseline)
@@ -35,6 +40,11 @@ OUTPUT_SCHEMA = "qingshan.voice_cast_gate.v1"
 BAND_HALF_WIDTH = 0.15          # build_f0_band: reference median +-15 %
 OVERLAP_HUMAN_RATIO = 0.5       # precheck: overlap > 50 % of the narrower band needs a human
 COLLISION_RATIO = 0.15          # postcheck: two speakers whose median F0 differ by < 15 %
+# Roger 2026-09-28: 「每个人的语音都太类似且相近，区分度很低，新的角色语音希望能不一样」.
+# The recurring male cast sat at 141/150/163/179/203/227 Hz (6–13 % apart), so the 50 % band-overlap
+# rule never fired.  A newly cast voice must stand clearly apart from the voices already in the show.
+NEW_VOICE_SCENE_SEPARATION = 0.25   # vs every co-present speaker
+NEW_VOICE_CAST_SEPARATION = 0.15    # vs every other speaker cast in the episode
 EMOTION_DELTA_DB = 6.0          # plead|fear|threat must sit >= 6 dB above the calm baseline
 EMOTIVE = frozenset({"plead", "fear", "threat"})
 EMOTIONS = frozenset({"calm", "plead", "threat", "mock", "joy", "fear"})
@@ -98,7 +108,43 @@ def _characters(cast: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 # --------------------------------------------------------------------------- precheck
 
-def precheck(cast: dict[str, Any], scene_copresence: Sequence[Sequence[str]]) -> dict[str, Any]:
+def _band_centre(row: dict[str, Any]) -> float:
+    lo, hi = row["f0_band_hz"]
+    return (float(lo) + float(hi)) / 2
+
+
+def f0_separation(a: dict[str, Any], b: dict[str, Any]) -> float:
+    """Relative distance of two reference F0 medians, measured against the lower one."""
+    fa, fb = _band_centre(a), _band_centre(b)
+    return round(abs(fa - fb) / min(fa, fb), 4)
+
+
+def distinctness(characters: dict[str, dict[str, Any]], scene_copresence: Sequence[Sequence[str]],
+                 new_characters: Iterable[str]) -> tuple[list[str], list[str]]:
+    """(failures, advisories): a newly cast voice must stand apart; close recurring pairs are reported."""
+    new = {c for c in new_characters if c in characters}
+    together: set[tuple[str, str]] = set()
+    for scene in scene_copresence or []:
+        present = sorted({str(c) for c in scene if str(c) in characters})
+        together.update(combinations(present, 2))
+    failures: list[str] = []
+    advisories: list[str] = []
+    for a, b in combinations(sorted(characters), 2):
+        ratio = f0_separation(characters[a], characters[b])
+        co_present = (a, b) in together
+        if new & {a, b}:
+            fresh, other = (a, b) if a in new else (b, a)
+            if co_present and ratio < NEW_VOICE_SCENE_SEPARATION:
+                failures.append(f"NEW_VOICE_TOO_CLOSE_IN_SCENE:{fresh}:{other}:{ratio}")
+            elif ratio < NEW_VOICE_CAST_SEPARATION:
+                failures.append(f"NEW_VOICE_TOO_CLOSE_IN_CAST:{fresh}:{other}:{ratio}")
+        elif co_present and ratio < NEW_VOICE_SCENE_SEPARATION:
+            advisories.append(f"ESTABLISHED_VOICES_CLOSE:{a}:{b}:{ratio}")
+    return failures, advisories
+
+
+def precheck(cast: dict[str, Any], scene_copresence: Sequence[Sequence[str]],
+             new_characters: Iterable[str] = ()) -> dict[str, Any]:
     errors = validate_cast(cast)
     if errors:
         return {"status": "FAIL", "failures": errors, "requires_human": [], "unverified": [], "pairs": []}
@@ -128,9 +174,12 @@ def precheck(cast: dict[str, Any], scene_copresence: Sequence[Sequence[str]]) ->
                 failures.append(f"VOICE_ID_SHARED_IN_SCENE:{a}:{b}")
             if overlap > OVERLAP_HUMAN_RATIO:
                 requires_human.append(f"F0_BAND_OVERLAP_REQUIRES_HUMAN:{a}:{b}")
+    distinct_failures, advisories = distinctness(characters, scene_copresence, new_characters)
+    failures.extend(distinct_failures)
     status = "FAIL" if failures else ("REQUIRES_HUMAN" if requires_human else ("UNVERIFIED" if unverified else "PASS"))
     return {"status": status, "failures": failures, "requires_human": requires_human,
-            "unverified": unverified, "pairs": pairs}
+            "unverified": unverified, "advisories": advisories,
+            "new_characters": sorted(c for c in new_characters if c in characters), "pairs": pairs}
 
 
 # --------------------------------------------------------------------------- postcheck

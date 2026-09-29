@@ -221,7 +221,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "0d5aa93c2756b4d6de442f74d43ccff38336595ccb82b98332f80289c310e60f"
+      "sha256": "2a9cb99205535501deab82c22688a27400165a4b5ab8fbe308b3ba1c33fba3ce"
     },
     {
       "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
@@ -289,7 +289,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "3204d3f0afb12451593a59049560ff995fa7dcdc1882bd26f2ec4851e9bdd4dc"
+      "sha256": "a66f1635d40cb6bfd0b3af3d32617dcfccb804443a6725ce4075baf0cd3f8a60"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -7509,7 +7509,7 @@
     },
     {
       "path": "tools/tests/test_voice_cast_gate.py",
-      "sha256": "91d87616213636055c6658ef65eef9cde60a459c9e827ea395f4c5dbba95f40a"
+      "sha256": "b736ff6404d9967d5593b06978db7efa72e0c45d7a79541015553414094cec19"
     },
     {
       "path": "tools/tests/test_voice_reference_sample.py",
@@ -7841,7 +7841,7 @@
     },
     {
       "path": "tools/voice_cast_gate.py",
-      "sha256": "4ba187fb65eb6fa53fe699468f48c5aa43bdc5a5a8079e35d4a1d35a9f8ad11c"
+      "sha256": "dd198cbe64610c31b9d01d8cd0c56414348ea2eab50a5dddc7b1f2fd6587ff1a"
     },
     {
       "path": "tools/voice_reference_sample.py",

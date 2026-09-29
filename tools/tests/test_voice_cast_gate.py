@@ -185,5 +185,35 @@ class CliTests(unittest.TestCase):
             self.assertIn("postcheck", report["measurements"])
 
 
+class NewVoiceDistinctnessTest(unittest.TestCase):
+    """Roger 2026-09-28: a newly cast voice must stand clearly apart from the show's voices."""
+
+    @staticmethod
+    def _cast(**f0):
+        return {"schema": vcg.CAST_SCHEMA, "characters": {
+            cid: {"voice_id": f"v-{cid}", "f0_band_hz": [hz * 0.85, hz * 1.15]} for cid, hz in f0.items()}}
+
+    def test_new_voice_close_to_a_co_present_speaker_fails(self):
+        cast = self._cast(**{"CHAR-OLD": 163.0, "CHAR-NEW": 190.0})   # 16.6 % apart, same scene
+        report = vcg.precheck(cast, [["CHAR-OLD", "CHAR-NEW"]], new_characters=["CHAR-NEW"])
+        self.assertEqual(report["status"], "FAIL")
+        self.assertTrue(report["failures"][0].startswith("NEW_VOICE_TOO_CLOSE_IN_SCENE:CHAR-NEW:CHAR-OLD"))
+
+    def test_new_voice_close_to_any_cast_speaker_fails(self):
+        cast = self._cast(**{"CHAR-OLD": 163.0, "CHAR-NEW": 179.0})   # 9.8 % apart, never together
+        report = vcg.precheck(cast, [], new_characters=["CHAR-NEW"])
+        self.assertEqual(report["failures"], ["NEW_VOICE_TOO_CLOSE_IN_CAST:CHAR-NEW:CHAR-OLD:0.0982"])
+
+    def test_distinct_new_voice_passes(self):
+        cast = self._cast(**{"CHAR-OLD": 163.0, "CHAR-NEW": 110.0})
+        report = vcg.precheck(cast, [["CHAR-OLD", "CHAR-NEW"]], new_characters=["CHAR-NEW"])
+        self.assertEqual(report["status"], "PASS")
+
+    def test_close_recurring_voices_are_advisory_only(self):
+        cast = self._cast(**{"CHAR-A": 150.0, "CHAR-B": 163.0})
+        report = vcg.precheck(cast, [["CHAR-A", "CHAR-B"]])
+        self.assertEqual(report["failures"], [])          # the older band-overlap rule may still ask a human
+        self.assertEqual(report["advisories"], ["ESTABLISHED_VOICES_CLOSE:CHAR-A:CHAR-B:0.0867"])
+
 if __name__ == "__main__":
     unittest.main()

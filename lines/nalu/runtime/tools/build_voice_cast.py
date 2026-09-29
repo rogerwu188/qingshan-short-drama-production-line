@@ -130,7 +130,8 @@ def build(episode: str, contract_path: Path, registry_path: Path, out_path: Path
         entry: dict[str, Any] = {"voice_id": voice_id, "rate_cps_baseline": cps_baseline,
                                  "timbre_brief": briefs.get(cid) or row.get("voice_selection") or "",
                                  "reference_entity_id": row.get("entity_id"),
-                                 "reference_sha256": row.get("local_sha256")}
+                                 "reference_sha256": row.get("local_sha256"),
+                                 "episode_first_locked": row.get("episode_first_locked")}
         if local.is_file():
             try:
                 entry.update(measure_reference_f0(local))
@@ -157,7 +158,11 @@ def build(episode: str, contract_path: Path, registry_path: Path, out_path: Path
         report = precheck({"schema": SCHEMA, "characters": {k: {kk: vv for kk, vv in v.items()
                                               if kk in ("voice_id", "f0_band_hz", "rate_cps_baseline", "timbre_brief")}
                                           for k, v in characters.items()}},
-                          scene_copresence(contract))
+                          scene_copresence(contract),
+                          # S4 stamps episode_first_locked when it locks a voice; a legacy row without
+                          # the stamp cannot be told apart and is not judged as newly cast
+                          new_characters=[cid for cid, row in characters.items()
+                                          if str(row.get("episode_first_locked") or "") == episode])
         report.update({"schema": "qingshan.voice_cast_gate.v1", "episode": episode, "voice_cast": str(out_path),
                        "scene_copresence": scene_copresence(contract)})
         if (str(os.environ.get("NALU_VOICE_CAST_OVERLAP_DECISION") or "").upper()

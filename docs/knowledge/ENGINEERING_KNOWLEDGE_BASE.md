@@ -412,7 +412,7 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 
 - failure_code：`VOICE_COLLISION`（scope audio，类别 AUDIO）
 - do_not_repeat：同场角色 voice_id 唯一，生成后逐句 F0 校验
-- 规则：角色→音色绑定：voice_cast 每角色 voice_id + f0_band_hz（由参考音实测 ±15%）；生成前同场 voice_id 唯一、音区重叠 >50% 需人工；生成后逐句 F0 中位数落在角色音区外或同场两角色 F0 差 <15% → FAIL。
+- 规则：角色→音色绑定：voice_cast 每角色 voice_id + f0_band_hz（由参考音实测 ±15%）；生成前同场 voice_id 唯一、音区重叠 >50% 需人工；生成后逐句 F0 中位数落在角色音区外或同场两角色 F0 差 <15% → FAIL。新角色（episode_first_locked=本集）参考音 F0 与同场说话人相差 <25% 或与本集任一说话人相差 <15% → S4 FAIL（NEW_VOICE_TOO_CLOSE_IN_SCENE/IN_CAST），换音色重生成参考音；老角色之间 <25% 只作 ESTABLISHED_VOICES_CLOSE 提醒，是否重新选角由线主定（Roger 2026-09-28：每个人的语音太类似，新角色语音要不一样；E09 回放会拦下冯易安 vs 陆泽 9.7%、许岳平 vs 秦铭 11.6%）。
 - 失败教训：E04 9 个角色 9 条参考音，模型输出只有 3 个音区（~100/~200/~350 Hz），求饶者与指责者同音区；本线台词由视频模型原生发声，没有 TTS 可调参数，只能测量后重做。
 - 修复路径：tools/voice_cast_gate.py + tools/dialogue_voice_metrics.py + final_cut_audience_detectors::voice_distinctness。
 - 状态：`REFERENCE_IMPLEMENTATION`。相关实现：[tools/voice_cast_gate.py](../../tools/voice_cast_gate.py)、[tools/dialogue_voice_metrics.py](../../tools/dialogue_voice_metrics.py)、[lines/nalu/runtime/tools/build_voice_cast.py](../../lines/nalu/runtime/tools/build_voice_cast.py)（E04 成片作为负样本回归通过；自动判定做不到的项在检测器里标 NOT_IMPLEMENTED）
