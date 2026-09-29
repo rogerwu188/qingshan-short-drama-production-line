@@ -22,7 +22,7 @@ Pipeline (all local, no provider POST):
 The output is a NEW versioned file; the admitted final cut is never overwritten.
 
 ADAPTER_REQUIRED: runs under a Python that has torch, demucs, librosa and a
-Seed-VC checkout (default $NALU_RUNTIME_ROOT/vendor/seed-vc, its .venv).
+Seed-VC checkout (default <RUNTIME_ROOT>/vendor/seed-vc, its .venv; RUNTIME_ROOT from nalu_paths).
 """
 from __future__ import annotations
 
@@ -37,6 +37,9 @@ from pathlib import Path
 
 import numpy as np
 import soundfile as sf
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import nalu_paths as _np  # noqa: E402  (stdlib-only path resolver; NALU_RUNTIME_ROOT or auto-detect)
 
 SR = 44100
 
@@ -96,7 +99,7 @@ def main() -> int:
     ap.add_argument("--report", required=True, type=Path)
     ap.add_argument("--work", type=Path, default=None)
     ap.add_argument("--seedvc-dir", type=Path,
-                    default=Path(os.environ.get("NALU_RUNTIME_ROOT", "/Users/rogerwu/nalu_runtime")) / "vendor/seed-vc")
+                    default=_np.RUNTIME_ROOT / "vendor/seed-vc")
     ap.add_argument("--pad", type=float, default=0.12, help="seconds of context around each line")
     ap.add_argument("--fade", type=float, default=0.03)
     ap.add_argument("--diffusion-steps", type=int, default=30)

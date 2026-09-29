@@ -2536,8 +2536,10 @@ def write_voice_registry_row(ctx: Ctx, entity: str, task: dict[str, Any],
         # character_id unset.  Do not synthesize a ``CHAR-*`` id here: the
         # voice-cast and non-plate gates resolve against the contract's exact
         # id.  A fabricated prefix makes a real registered voice invisible to
-        # both gates.
-        "character_id": task.get("character_id") or str(entity),
+        # both gates.  A regenerated (recast) row keeps the id it already had:
+        # E10 recast overwrote CHAR-LIULAOTOU with the entity id ``liulaotou`` and
+        # the non-plate lock could no longer find the voice.
+        "character_id": task.get("character_id") or row.get("character_id") or str(entity),
         "voice_id": task["request"]["voice_id"],
         "voice_name": task["request"].get("voice_name"),
         "remote_asset_id": receipt.get("asset_id") or receipt.get("assetId"),
@@ -2777,6 +2779,10 @@ def s3_qa(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str, Any]:
              "--dry-run"],
             name="s3_qa_prepare_speech_payloads")
         res.steps.append(prep)
+        if prep.get("exit_code") != 0 or not p.speech_payloads.is_file():
+            detail["status"] = BLOCKED
+            detail.setdefault("blockers", []).append(
+                f"SPEECH_PAYLOAD_PREP_FAILED:exit={prep.get('exit_code')}:{prep.get('log')}")
     non_plate_step = qa_run(ctx, [RT_TOOLS / "library_lock_non_plate.py", "lock",
                                   "--episode", ctx.episode,
                                   "--rights-basis", ctx.rights_basis,
@@ -2784,6 +2790,14 @@ def s3_qa(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str, Any]:
                             name="s3_qa_non_plate_library_lock")
     res.steps.append(non_plate_step)
     detail["non_plate_lock"] = qa_json(non_plate_step)
+    # FAIL (exit 2) is the normal pre-S4 outcome — voice rows lock after S4.  A crash is not:
+    # E10 (2026-09-29) the payload prep had failed silently (duplicate voice_id in the catalog),
+    # the lock died on the missing payload file, no reused character was merged into the
+    # episode library, and S5 later refused every keyframe with "unverified character identity".
+    if non_plate_step.get("exit_code") not in (0, 2) or not detail["non_plate_lock"]:
+        detail["status"] = BLOCKED
+        detail.setdefault("blockers", []).append(
+            f"NON_PLATE_LIBRARY_LOCK_CRASHED:exit={non_plate_step.get('exit_code')}:{non_plate_step.get('log')}")
     # Rebuild after the non-plate lock so reused characters from a previous
     # episode in the same private series scope remain resolvable.
     registry_step = qa_run(ctx, [IDENTITY_QA_LOCK, "registry", "--episode", ctx.episode],
