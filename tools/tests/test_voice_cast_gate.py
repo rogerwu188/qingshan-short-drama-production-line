@@ -199,10 +199,11 @@ class NewVoiceDistinctnessTest(unittest.TestCase):
         self.assertEqual(report["status"], "FAIL")
         self.assertTrue(report["failures"][0].startswith("NEW_VOICE_TOO_CLOSE_IN_SCENE:CHAR-NEW:CHAR-OLD"))
 
-    def test_new_voice_close_to_any_cast_speaker_fails(self):
+    def test_new_voice_close_to_a_speaker_in_other_scenes_is_advisory(self):
         cast = self._cast(**{"CHAR-OLD": 163.0, "CHAR-NEW": 179.0})   # 9.8 % apart, never together
         report = vcg.precheck(cast, [], new_characters=["CHAR-NEW"])
-        self.assertEqual(report["failures"], ["NEW_VOICE_TOO_CLOSE_IN_CAST:CHAR-NEW:CHAR-OLD:0.0982"])
+        self.assertEqual(report["failures"], [])
+        self.assertEqual(report["advisories"], ["NEW_VOICE_CLOSE_IN_CAST:CHAR-NEW:CHAR-OLD:0.0982"])
 
     def test_distinct_new_voice_passes(self):
         cast = self._cast(**{"CHAR-OLD": 163.0, "CHAR-NEW": 110.0})

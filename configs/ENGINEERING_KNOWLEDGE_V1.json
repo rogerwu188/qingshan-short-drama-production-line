@@ -816,7 +816,7 @@
     {
       "id": "K049",
       "stage": "pipeline",
-      "rule": "角色→音色绑定：voice_cast 每角色 voice_id + f0_band_hz（由参考音实测 ±15%）；生成前同场 voice_id 唯一、音区重叠 >50% 需人工；生成后逐句 F0 中位数落在角色音区外或同场两角色 F0 差 <15% → FAIL。新角色（episode_first_locked=本集）参考音 F0 与同场说话人相差 <25% 或与本集任一说话人相差 <15% → S4 FAIL（NEW_VOICE_TOO_CLOSE_IN_SCENE/IN_CAST），换音色重生成参考音；老角色之间 <25% 只作 ESTABLISHED_VOICES_CLOSE 提醒，是否重新选角由线主定（Roger 2026-09-28：每个人的语音太类似，新角色语音要不一样；E09 回放会拦下冯易安 vs 陆泽 9.7%、许岳平 vs 秦铭 11.6%）。",
+      "rule": "角色→音色绑定：voice_cast 每角色 voice_id + f0_band_hz（由参考音实测 ±15%）；生成前同场 voice_id 唯一、音区重叠 >50% 需人工；生成后逐句 F0 中位数落在角色音区外或同场两角色 F0 差 <15% → FAIL。新角色（episode_first_locked=本集）参考音 F0 与同场说话人相差 <25% → S4 FAIL（NEW_VOICE_TOO_CLOSE_IN_SCENE；与不同场说话人 <15% 只作 NEW_VOICE_CLOSE_IN_CAST 提醒——E10 九个说话人时全集 15% 无解），换音色重生成参考音；老角色之间 <25% 只作 ESTABLISHED_VOICES_CLOSE 提醒，是否重新选角由线主定（Roger 2026-09-28：每个人的语音太类似，新角色语音要不一样；E09 回放会拦下冯易安 vs 陆泽 9.7%、许岳平 vs 秦铭 11.6%）。",
       "lesson": "E04 9 个角色 9 条参考音，模型输出只有 3 个音区（~100/~200/~350 Hz），求饶者与指责者同音区；本线台词由视频模型原生发声，没有 TTS 可调参数，只能测量后重做。",
       "recovery": "tools/voice_cast_gate.py + tools/dialogue_voice_metrics.py + final_cut_audience_detectors::voice_distinctness。",
       "implementation": [

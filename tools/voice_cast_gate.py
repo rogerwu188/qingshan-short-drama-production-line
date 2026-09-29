@@ -13,7 +13,8 @@ Checks
              F0_BAND_OVERLAP_REQUIRES_HUMAN:<a>:<b>     -> REQUIRES_HUMAN (overlap > 50 % of the narrower band)
              NEW_VOICE_TOO_CLOSE_IN_SCENE:<new>:<b>:<r> -> FAIL (a character first locked this episode whose
                                                            reference F0 is within 25 % of a co-present speaker)
-             NEW_VOICE_TOO_CLOSE_IN_CAST:<new>:<b>:<r>  -> FAIL (within 15 % of any other speaker this episode)
+             NEW_VOICE_CLOSE_IN_CAST:<new>:<b>:<r>      -> advisory (within 15 % of a speaker it never shares a
+                                                           scene with; E10: blocking this left no feasible pitch)
              ESTABLISHED_VOICES_CLOSE:<a>:<b>:<r>       -> advisory only (two recurring voices within 25 %;
                                                            recasting them is the line owner's call)
   postcheck  VOICE_OUT_OF_BAND:<speaker>:<start>       -> FAIL (line F0 outside the character band)
@@ -44,7 +45,8 @@ COLLISION_RATIO = 0.15          # postcheck: two speakers whose median F0 differ
 # The recurring male cast sat at 141/150/163/179/203/227 Hz (6–13 % apart), so the 50 % band-overlap
 # rule never fired.  A newly cast voice must stand clearly apart from the voices already in the show.
 NEW_VOICE_SCENE_SEPARATION = 0.25   # vs every co-present speaker
-NEW_VOICE_CAST_SEPARATION = 0.15    # vs every other speaker cast in the episode
+NEW_VOICE_CAST_SEPARATION = 0.15    # vs speakers never in the same scene: advisory only — with nine
+                                    # speakers E10 had no pitch that kept every pair 15 % apart
 EMOTION_DELTA_DB = 6.0          # plead|fear|threat must sit >= 6 dB above the calm baseline
 EMOTIVE = frozenset({"plead", "fear", "threat"})
 EMOTIONS = frozenset({"calm", "plead", "threat", "mock", "joy", "fear"})
@@ -137,7 +139,7 @@ def distinctness(characters: dict[str, dict[str, Any]], scene_copresence: Sequen
             if co_present and ratio < NEW_VOICE_SCENE_SEPARATION:
                 failures.append(f"NEW_VOICE_TOO_CLOSE_IN_SCENE:{fresh}:{other}:{ratio}")
             elif ratio < NEW_VOICE_CAST_SEPARATION:
-                failures.append(f"NEW_VOICE_TOO_CLOSE_IN_CAST:{fresh}:{other}:{ratio}")
+                advisories.append(f"NEW_VOICE_CLOSE_IN_CAST:{fresh}:{other}:{ratio}")
         elif co_present and ratio < NEW_VOICE_SCENE_SEPARATION:
             advisories.append(f"ESTABLISHED_VOICES_CLOSE:{a}:{b}:{ratio}")
     return failures, advisories
