@@ -4086,6 +4086,14 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
             return res
 
         poll_argv = video_poll_argv(ctx)
+        # E10 (2026-09-29): the submitter writes its batch window statement next to the report under a
+        # FIXED name, and this stage archived it only on PASS.  A wave that POSTed and was then cut
+        # short before PASS (E10 wave 1: 1980 cr charged, wave stopped at a review blocker) left the
+        # statement on disk, the next wave's submit overwrote it, and the ledger lost the whole batch
+        # (K054 repeated).  Archive on every outcome that has a statement.
+        if status != DRY:
+            res.details["credit_statement"] = archive_credit_statement(
+                ctx, p.video_submit, f"{ctx.run_id}_wave{len(ready_units or [])}u")
         if status == DRY:
             res.status = DRY
             ctx.say("   then (needs GIGGLE_API_KEY, no new POST, free):")
@@ -4096,11 +4104,6 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
                 "note": ("downloads only remote_status==completed, atomic .part->replace, "
                          "skips what already exists; omit --download for a query-only probe")})
         elif status == PASS:
-            # the engine video submitter writes <report>_credit_statement.json under a FIXED name;
-            # a wave re-entry (poll-only, 0 new POSTs) overwrote wave 1's 1500-credit statement on
-            # 2026-09-13 02:49Z (ledger 2413 -> 913).  Archive every run's statement uniquely.
-            res.details["credit_statement"] = archive_credit_statement(
-                ctx, p.video_submit, f"{ctx.run_id}_wave{len(ready_units or [])}u")
             poll = ctx.run(poll_argv, name="s6_poll_giggle_submit_report", paid=True,
                            extra_env=VIDEO_SUBMIT_ENV)
             res.steps.append(poll)
