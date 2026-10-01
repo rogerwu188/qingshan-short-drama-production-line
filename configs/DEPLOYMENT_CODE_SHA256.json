@@ -3029,7 +3029,7 @@
     },
     {
       "path": "tools/build_storyclaw_talenthub_release.py",
-      "sha256": "1daee4c35aae25a0a32d9ff2a5fc2729f23b123fab7c93f1c52a2ca627d07415"
+      "sha256": "88dfc256165bdfaba9a4955e9ef42568af3b068a702e5f76430551107d0c61f1"
     },
     {
       "path": "tools/build_unreceipted_image_recovery_batch.py",
@@ -6829,7 +6829,7 @@
     },
     {
       "path": "tools/tests/test_knowledge_registry.py",
-      "sha256": "922b0d3ccf74ddb8ecbe2335715810e440decb149192be106714c9c7eb07454c"
+      "sha256": "148223c9c9998db46a9c0b6871f6ad25fb4b192264f470a15841ba339267e1b3"
     },
     {
       "path": "tools/tests/test_legacy_voice_migration.py",

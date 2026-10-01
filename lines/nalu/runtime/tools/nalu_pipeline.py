@@ -5237,9 +5237,42 @@ def s7_qa(ctx: Ctx, res: StageResult) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # S8 — checkpoint (write CHECKPOINT.md, then block for `approve`)
 # --------------------------------------------------------------------------- #
+def knowledge_sync_summary(ctx: Ctx) -> dict[str, Any]:
+    """Let the pipeline upgrade the knowledge base itself (Roger 2026-10-01).
+
+    Runs the writer before the checkpoint is written so CHECKPOINT.md can carry the
+    result.  Advisory, never blocking: a bookkeeping tool must not hold an episode
+    hostage.  When it reports gaps (causes this episode hit that nobody abstracted
+    into a rule), those are surfaced in the checkpoint and in the state so a silent
+    zero is visible instead of being forgotten — E02/E03/E07 finished with no
+    entries at all and no stage ever failed for it.
+    """
+    tool = RT_TOOLS / "knowledge_sync.py"
+    if not tool.is_file():
+        return {"status": "TOOL_MISSING", "tool": str(tool)}
+    import subprocess as _sp
+    cmd = [str(VENV), str(tool), "--episode", ctx.episode, "--root", str(ENGINE), "--runtime-root", str(RT)]
+    try:
+        proc = _sp.run(cmd, cwd=str(ENGINE), capture_output=True, text=True, timeout=120)
+    except (OSError, _sp.TimeoutExpired) as exc:
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{exc}", "argv": cmd}
+    payload: dict[str, Any] = {}
+    try:
+        payload = json.loads(proc.stdout or "{}")
+    except ValueError:
+        payload = {"status": "UNPARSEABLE", "stdout_tail": (proc.stdout or "")[-400:]}
+    payload["argv"] = cmd
+    payload["exit_code"] = proc.returncode
+    if proc.returncode != 0 and payload.get("status") != "FAIL":
+        payload["status"] = "FAIL"
+    return payload
+
+
 def stage_s8(ctx: Ctx) -> StageResult:
     p = ctx.p
     p.deliver.mkdir(parents=True, exist_ok=True)
+    knowledge = knowledge_sync_summary(ctx)
+    ctx.state["knowledge_sync"] = knowledge
     write_checkpoint(ctx)
     approved = p.approval.is_file()
     res = StageResult(PASS if approved else "AWAITING_APPROVAL")
@@ -5247,6 +5280,7 @@ def stage_s8(ctx: Ctx) -> StageResult:
         "checkpoint": str(p.checkpoint),
         "approval_flag": str(p.approval),
         "approved": approved,
+        "knowledge_sync": knowledge,
         "unblock_with": (f"{VENV} {RT_TOOLS / 'nalu_pipeline.py'} approve --episode {ctx.episode} "
                          f"--by {shlex.quote(str(ctx.authority.get('line_owner_id') or '<LINE_OWNER_ID>'))}"),
         "platform_upload": "NEVER — this pipeline has no publish path.",
@@ -5342,6 +5376,20 @@ def write_checkpoint(ctx: Ctx) -> Path:
         if interesting:
             add(f"* **{sid}** — " + "; ".join(
                 f"`{key}`={json.dumps(value, ensure_ascii=False)}" for key, value in interesting.items()))
+    add("")
+    add("## Knowledge base")
+    add("")
+    ks = state.get("knowledge_sync") or {}
+    ks_status = ks.get("status") or "NOT_RUN"
+    add(f"* sync: **{ks_status}** — new rows {json.dumps(ks.get('new_ids') or [], ensure_ascii=False)}, "
+        f"registry now {ks.get('rule_count', '?')} entries")
+    if ks.get("gaps"):
+        add(f"* **unabstracted causes ({len(ks['gaps'])})** — this episode hit failures that are NOT yet "
+            f"rules; write them before the next episode starts: "
+            f"{'; '.join('`%s`' % g for g in ks['gaps'][:8])}")
+    elif ks_status == "NO_NEW_KNOWLEDGE":
+        add("* nothing new was abstracted this episode. If it hit a failure that cost money, that cause "
+            "is not in the registry yet — see AGENTS.md §7 step 0.")
     add("")
     add("## Rights basis on record")
     add("")

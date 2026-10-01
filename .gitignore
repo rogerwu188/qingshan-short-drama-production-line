@@ -107,6 +107,13 @@ lines/*/working_assets/
 # /Users/<line-owner>/ paths, so they stay local.
 lines/*/runtime/pipeline_logs/
 lines/*/runtime/pipeline_state/
+# Deliverables and shot media are the produced work itself, never source.
+lines/*/deliverables/
+lines/*/preproduction/
+lines/*/voice/
+lines/*/video/
+lines/*/assembly/
+lines/*/identity/
 # Per-episode one-offs: they name one episode and carry that episode's own
 # content.  Generalized helpers (asr_units, contact_sheet, video_sheets,
 # s6_loop.sh) stay tracked on purpose.

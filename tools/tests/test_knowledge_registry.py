@@ -12,8 +12,19 @@ class KnowledgeRegistryTests(unittest.TestCase):
     def setUp(self):
         self.data = json.loads((ROOT / REGISTRY).read_text())
 
+    # The catalog GROWS: the pipeline appends a row per episode
+    # (lines/nalu/runtime/tools/knowledge_sync.py, called by nalu_pipeline S8).  Asserting an
+    # exact count made every past episode's knowledge fail CI, which is why the base went
+    # unwritten -- keep a floor for the original catalog, not a ceiling on future entries.
+    CATALOG_FLOOR = 70
+
     def test_complete_catalog(self):
-        self.assertEqual(70, len(validate(self.data, ROOT)["rules"]))
+        rules = validate(self.data, ROOT)["rules"]
+        self.assertGreaterEqual(len(rules), self.CATALOG_FLOOR)
+        ids = [row["id"] for row in rules]
+        self.assertEqual(sorted(set(ids)), sorted(ids), "duplicate knowledge id")
+        self.assertEqual([f"K{n:03d}" for n in range(1, len(rules) + 1)], ids,
+                         "ids must be contiguous from K001; knowledge_sync assigns max+1")
 
     NALU_S7_SYNC_E03_IDS = tuple(f"K{n:03d}" for n in range(23, 35))
     NALU_S7_SYNC_E04_IDS = tuple(f"K{n:03d}" for n in range(35, 42))
