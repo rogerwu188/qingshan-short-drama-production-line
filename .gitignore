@@ -102,6 +102,11 @@
 # generalized code — never uploaded (see AGENTS.md S7-SYNC).
 lines/*/runtime/budget/
 lines/*/working_assets/
+# Run logs and pipeline state are runtime data (AGENTS.md §8: never upload
+# logs, receipts or absolute paths).  They carry per-episode run ids and
+# /Users/<line-owner>/ paths, so they stay local.
+lines/*/runtime/pipeline_logs/
+lines/*/runtime/pipeline_state/
 # Per-episode one-offs: they name one episode and carry that episode's own
 # content.  Generalized helpers (asr_units, contact_sheet, video_sheets,
 # s6_loop.sh) stay tracked on purpose.
