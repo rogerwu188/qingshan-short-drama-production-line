@@ -63,6 +63,9 @@ def main() -> int:
     ap.add_argument("--media", action="append", default=[],
                     help="<item_id>=<media path> — bind this file's sha256 to the item instead of the "
                          "item's keyframe (a post-generation acceptance binds the unit's mp4).  Repeatable.")
+    ap.add_argument("--owner-id", default="",
+                    help="line owner id written as issued_by; must equal NALU_LINE_OWNER_ID / qingshan.json "
+                         "authorization.line_owner_id.  Default: $NALU_LINE_OWNER_ID, else Roger (original deployment).")
     ap.add_argument("--recorded-by", default="",
                     help="who ran this, when it is not the owner typing.  Names the standing order the "
                          "operator is applying, e.g. \"operator applying seq=43\".")
@@ -113,13 +116,19 @@ def main() -> int:
                              ensure_ascii=False))
             return 2
         shas[item_id] = hashlib.sha256(path.read_bytes()).hexdigest()
+    # 2026-10-01: an explicit --media item that is not a detector name is still bound (the final-cut
+    # audience acceptance in nalu_pipeline looks up media_item_id "loudness", which is never a detector).
+    for item_id, path in media_override.items():
+        shas.setdefault(item_id, hashlib.sha256(path.read_bytes()).hexdigest())
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    order_id = f"ROGER-{now[:10].replace('-', '')}-{args.episode}-{args.gate_id}-SEQ{args.seq:03d}"
+    import os
+    owner = args.owner_id or os.environ.get("NALU_LINE_OWNER_ID") or "Roger"
+    order_id = f"{owner.upper()}-{now[:10].replace('-', '')}-{args.episode}-{args.gate_id}-SEQ{args.seq:03d}"
     row = {
         "seq": args.seq,
         "id": order_id,
-        "issued_by": "Roger",
+        "issued_by": owner,
         "issued_at": now,
         "status": "active",
         "recorded_by": (f"record_supervisor_order.py ({args.recorded_by.strip()})" if args.recorded_by.strip()
@@ -140,7 +149,7 @@ def main() -> int:
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
         receipt_path.write_text(json.dumps({
             "schema": "qingshan.line_owner_order_source_receipt.v1", "status": "CONFIRMED",
-            "issued_by": "Roger", "order_seq": args.seq, "order_id": order_id,
+            "issued_by": owner, "order_seq": args.seq, "order_id": order_id,
             "verbatim": args.order, "recorded_at_utc": now,
             "recorded_by": row["recorded_by"],
         }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

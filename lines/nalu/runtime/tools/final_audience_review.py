@@ -305,7 +305,11 @@ def prepare(*, episode: str, video: Path, metrics_path: Path, contact_sheet: Pat
         raise ValueError("producer_process_id is required to enforce reviewer process separation")
     video_sha = _sha(video)
 
-    _load_required(asr_path, "final-cut ASR")
+    # 2026-10-01: the S7 producer writes the ASR windows as a JSON list of line windows; only its
+    # presence/validity and sha are bound here, so accept a non-empty list as well as an object.
+    _asr = read_json(asr_path)
+    if not (isinstance(_asr, dict) or (isinstance(_asr, list) and _asr)):
+        raise ValueError(f"final-cut ASR missing or invalid JSON: {asr_path}")
     detector = _load_required(detector_path, "final-cut audience detector report")
     technical = _load_required(technical_path, "final-cut technical gate")
     if detector.get("schema") != "qingshan.final_cut_audience_detectors.v1":
