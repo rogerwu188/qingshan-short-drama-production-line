@@ -11,6 +11,14 @@
 - 私有运行时里的原著、角色素材、事务、账本与审核回执；
 - 审核位上的代理：五类审核都是「实际看图 → 逐条填结构化答案」，由代理完成。
 
+**具体到文件（Roger 2026-10-01：仓库里不允许有剧本原文）**——逐集构建器
+`lines/*/runtime/tools/build_e*_layers*.py` 内嵌该集镜头表与逐字台词，属作品文本，
+**不入库**（`.gitignore` 拦截），只存在于线主的本地工作区。第三方部署要在自己的机器上
+按 §5 骨架为每一集自写一个。同一理由，逐集命名的一次性脚本
+（`review_fill/e<NN>_*.py`、`tools/build_e<NN>_reroll*.py`）也不入库；
+`review_fill/` 下保留的是**通用**件：`asr_units.py`、`contact_sheet.py`、
+`video_sheets.py`、`s6_loop.sh`。
+
 ## 1. 引擎与虚拟环境
 
 ```bash
@@ -64,7 +72,12 @@ python3 lines/nalu/runtime/tools/nalu_paths.py        # 打印解析出的 ENGIN
 
 ## 5. 一集的剧本层（免费，MANUAL_REQUIRED）
 
-每集四层：叙事正典（手写）、导演脚本、生成合同（JSON）、manifest。逐集构建器 `build_e0N_layers.py` 是作品专用文件（内含该集镜头表与逐字台词，属于作品文本，不入库）；仓库提供的是它依赖的规则与校验：`nalu_prompt_rules.py`（提示词规则）、`static_design_gate.py`（机位运动 R1–R8）、`nalu_qa_common.py`。新作品的构建器按这个骨架自写：SCENES（场次：地点/时间/秒数/信息条数）→ CAMERA_PLANS（每镜景别/机位/运动族/起止取景）→ SHOTS（每镜 3–6 s：动作主体/对白/entry_state/completion_state/状态维度/参考指代）→ 校验（单场可切 4–8 s 单元、无对白 ≤4 s、LOCKED ≤30%、远景后露脸镜 identity_reanchor、道具在 action 就必须在 entry/exit、姿态词不进 entry/exit 文本）→ 写 directing script / generation contract（qingshan.generation_contract.v3）/ manifest（beat_disposition 逐拍申报）。新地点还要写
+**开工前必读**：`configs/ENGINEERING_KNOWLEDGE_V1.json`（K001–，抽象后的规则）与
+`knowledge/failure_memory.jsonl`（`failure_code` → `do_not_repeat`）。读的是**原因**——哪类错不要再犯——
+不是照搬旧集的镜头表或台词。收工侧写 K 号（§6 之后的 S7-SYNC）与开工侧读 K 号是同一件事的两端；
+只有写没有读，本集就会重犯已经付过学费的错。
+
+每集四层：叙事正典（手写）、导演脚本、生成合同（JSON）、manifest。逐集构建器 `build_e0N_layers.py` 是作品专用文件（内含该集镜头表与逐字台词，属于作品文本，**不入库**——`.gitignore` 已拦 `lines/*/runtime/tools/build_e*_layers*.py`）；仓库提供的是它依赖的规则与校验：`nalu_prompt_rules.py`（提示词规则）、`static_design_gate.py`（机位运动 R1–R8）、`nalu_qa_common.py`。新作品的构建器按这个骨架自写：SCENES（场次：地点/时间/秒数/信息条数）→ CAMERA_PLANS（每镜景别/机位/运动族/起止取景）→ SHOTS（每镜 3–6 s：动作主体/对白/entry_state/completion_state/状态维度/参考指代）→ 校验（单场可切 4–8 s 单元、无对白 ≤4 s、LOCKED ≤30%、远景后露脸镜 identity_reanchor、道具在 action 就必须在 entry/exit、姿态词不进 entry/exit 文本）→ 写 directing script / generation contract（qingshan.generation_contract.v3）/ manifest（beat_disposition 逐拍申报）。新地点还要写
 `preproduction/<EP>/new_location_place_spec.json`（作者命名与坐标）。
 
 ## 6. S1 → S8
@@ -88,7 +101,7 @@ $P $T/nalu_pipeline.py status --episode E01
 | S7 | 装配、字幕、片尾、BGM 时间线规划/事务核验/账单对账/QA/混音、响度；**零 provider POST** | — | 配乐对账见 K032（提供者音乐账单无 project_id → 按提交窗口隔离） |
 | S8 | 写 CHECKPOINT，等线主 `approve` | 线主看片 | `nalu_pipeline.py approve --episode E01` |
 
-波次循环：`tools/review_fill/nalu_e03_s6_loop.sh <EP>`（每 3 分钟 `run --from S6 --paid`，直到不再是
+波次循环：`tools/review_fill/s6_loop.sh <EP>`（每 3 分钟 `run --from S6 --paid`，直到不再是
 VIDEO_NOT_ALL_COMPLETED；其他阻塞会停下等人）。心跳模式：定时检查状态/日志，REVIEW_REQUIRED 就看图填答，
 API 错误就从断点续跑，付费 POST 靠 `workflow/tasks/*_transactions/` 的指纹不会重复。
 

@@ -1,0 +1,89 @@
+{
+  "schema": "nalu.writer_selfcheck_seq29.v1",
+  "episode": "E08",
+  "authority": "SUPERVISOR_ORDERS seq=29 (Roger 2026-09-18 memo 九–十四)",
+  "declared": true,
+  "enforced": true,
+  "rule8_authorized": false,
+  "status": "PASS",
+  "failures": [],
+  "warnings": [
+    "RULE8_NOT_AUTHORISED_INFO:R8A_PRESSURE_SOURCE_LATE:100.0",
+    "RULE8_NOT_AUTHORISED_INFO:R8B_EPISODE_PAYOFF_MISSING"
+  ],
+  "measurements": {
+    "dialogue_shots": 20,
+    "no_dialogue_shots": 24,
+    "derived_seconds_by_shot": {
+      "E08-S01-03": 1.5,
+      "E08-S02-03": 3.5,
+      "E08-S04-01": 2.5,
+      "E08-S05-02": 3.5,
+      "E08-S05-04": 2.5,
+      "E08-S06-02": 2.0,
+      "E08-S06-03": 1.5,
+      "E08-S07-03": 4.5,
+      "E08-S08-01": 5.0,
+      "E08-S09-02": 2.5,
+      "E08-S09-04": 2.0,
+      "E08-S10-02": 3.0,
+      "E08-S11-02": 1.5,
+      "E08-S11-03": 5.0,
+      "E08-S12-01": 3.5,
+      "E08-S12-02": 3.0,
+      "E08-S12-03": 3.0,
+      "E08-S12-04": 2.5,
+      "E08-S13-01": 5.5,
+      "E08-S14-01": 3.5
+    },
+    "emotions_by_scene": {
+      "E08-S01": [
+        "惊"
+      ],
+      "E08-S02": [
+        "盼"
+      ],
+      "E08-S04": [
+        "坚"
+      ],
+      "E08-S05": [
+        "惊",
+        "喜"
+      ],
+      "E08-S06": [
+        "惊",
+        "冷"
+      ],
+      "E08-S07": [
+        "喜"
+      ],
+      "E08-S08": [
+        "喜"
+      ],
+      "E08-S09": [
+        "喜",
+        "怜"
+      ],
+      "E08-S10": [
+        "惊"
+      ],
+      "E08-S11": [
+        "怯",
+        "坚"
+      ],
+      "E08-S12": [
+        "惊",
+        "戏",
+        "喜",
+        "戏"
+      ],
+      "E08-S13": [
+        "惊"
+      ],
+      "E08-S14": [
+        "倦"
+      ]
+    }
+  },
+  "note": "writer-layer self-check, no gate_id; enforced only when the contract declares writer_selfcheck_seq29.enforced"
+}

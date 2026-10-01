@@ -1027,7 +1027,7 @@ measurement policy, not content; `post_generation_qa_runner.py` now records:
 
 ## D-36 (2026-09-15 05:40Z) — E03 S6 done (33/33 admitted for assembly): waves, VU-010 subtitles, foreign statement, profile-frame identity
 * Videos: 4 waves (33 units; 1420 + 2220 cr as submitted, statements archived per wave) + VU-010 ×2 rerolls (200 cr).
-  Wave loop `/tmp/nalu_e03_s6_loop.sh` = `run --from S6 --paid` every 3 min while VIDEO_NOT_ALL_COMPLETED; it stops on
+  Wave loop `tools/review_fill/s6_loop.sh <EP>` = `run --from S6 --paid` every 3 min while VIDEO_NOT_ALL_COMPLETED; it stops on
   any other blocker (REVIEW_REQUIRED, FAIL) and must be restarted by hand after the fix.
 * VU-010 (S04-04, the two-line hook) burned subtitles in twice: the OCR pass is objective and unarbitrable → reroll.
   Third take clean after the action text was prefixed with a no-text clause (【画面…禁止出现任何文字、字幕…】); the

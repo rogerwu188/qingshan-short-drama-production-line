@@ -1,0 +1,550 @@
+{
+ "schema": "nalu.pipeline_state.v1",
+ "episode": "E08",
+ "created_at": "2026-09-25T19:33:28Z",
+ "updated_at": "2026-09-25T19:33:28Z",
+ "tool": "nalu_pipeline.v1",
+ "current_stage": "S1",
+ "overall_status": "STOPPED_AT_S1_BLOCKED",
+ "cap_credits": 8000,
+ "credits": {
+  "cap": 8000,
+  "planned_by_stage": {
+   "S1": 0,
+   "S2": 0,
+   "S3": 0,
+   "S4": 0,
+   "S5": 0,
+   "S6": 0,
+   "S7": 0,
+   "S8": 0
+  },
+  "planned_total": 0,
+  "recorded_total_credits": 4228,
+  "headroom_credits": 3772,
+  "cost_plan_first_pass_total": null,
+  "ledger": "/Users/rogerwu/nalu/lines/nalu/runtime/budget/ledger.json"
+ },
+ "approval": {
+  "status": "PENDING",
+  "approved_at": null,
+  "by": null,
+  "note": null
+ },
+ "runs": [
+  {
+   "run_id": "20260925T193328.674081Z_8374_bdecac15",
+   "at": "2026-09-25T19:33:28Z",
+   "stages": [
+    "S1",
+    "S2",
+    "S3",
+    "S4",
+    "S5",
+    "S6"
+   ],
+   "dry_run": false,
+   "paid_requested": false,
+   "paid_enabled": false,
+   "log": "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/run_20260925T193328.674081Z_8374_bdecac15.log"
+  }
+ ],
+ "stages": {
+  "S1": {
+   "stage": "S1",
+   "title": "script-ready (four layers + gate 10 + character entity contract)",
+   "status": "BLOCKED",
+   "attempts": 1,
+   "started_at": "2026-09-25T19:33:28Z",
+   "finished_at": "2026-09-25T19:33:28Z",
+   "input_fingerprint": "5c78540c1c1e942ef0c033d66cc0d794dac243408cfd95761b1cf8a27338d603",
+   "details": {
+    "layer_sha256": {
+     "narrative_canonical": "54f31a6ccdfc82220326ba668b1a55f7ea7505b32f3d3e83d1cf5e6601231fa9",
+     "directing_script": "ff28dabda3c5729b58b3695bc9f0ba21d1b8f4c3e55345ccd1d8782eaa76f54d",
+     "generation_contract": "c1bef7a906b0c505bbb794d7ccc2a087bde51590b37de90bbacd547b2d447e5b",
+     "writer_manifest": "418068be2dedfe11ecf942736c66bdfc19dbcc0af336153bbdcf65e0928e6683"
+    },
+    "gate10": {
+     "exit_code": 0,
+     "status": "PASS",
+     "log": "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_s1_gate10_writer_scene_source_declaration.log"
+    },
+    "static_design_gate": {
+     "exit_code": 0,
+     "status": "PASS",
+     "report": "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_static_design_gate.json",
+     "stdout_tail": "{\"status\": \"PASS\", \"locked_share\": 0.0, \"failures\": 0}\n"
+    },
+    "character_entity_contract": {
+     "schema": "qingshan.character_entity_gate.v1",
+     "status": "PASS",
+     "required": false,
+     "character_count": 9,
+     "failures": []
+    },
+    "note": "Both gates must PASS.  character_entity_contract 'required' is false below ACTIVE_FROM_EPISODE=54, but this pipeline treats it as blocking anyway — a role-semantics defect is a real data defect.",
+    "canonical_writer_handoff": {
+     "status": "NOT_APPLICABLE_LEGACY_REPLAY",
+     "failures": [],
+     "report": "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_writer_handoff_verification.json",
+     "exit_code": 0
+    },
+    "project_scope_check": {
+     "scope_id": "NALU-YEWUJIANG",
+     "series_id": "NALU-YEWUJIANG",
+     "asset_library": "/Users/rogerwu/nalu/lines/nalu/runtime/E01_ASSET_LIBRARY_V1.json",
+     "asset_library_project_id": null,
+     "default_scope": true,
+     "status": "FAIL",
+     "failures": [
+      "ASSET_LIBRARY_PROJECT_MISMATCH:None!=NALU-YEWUJIANG"
+     ]
+    },
+    "writer_selfcheck_seq29": {
+     "status": "PASS",
+     "enforced": true,
+     "failures": [],
+     "failure_count": 0,
+     "report": "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_writer_selfcheck_seq29.json",
+     "exit_code": 0
+    },
+    "layers": {
+     "source": "DEFAULT_V1_SLOTS",
+     "paths": {
+      "narrative_canonical": "/Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_NARRATIVE_CANONICAL_v1.md",
+      "directing_script": "/Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_DIRECTING_SCRIPT_v1.md",
+      "generation_contract": "/Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_GENERATION_CONTRACT_v1.json",
+      "writer_manifest": "/Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_manifest_v1.json"
+     }
+    },
+    "script_structure_contract_gate": {
+     "exit_code": 0,
+     "status": "PASS",
+     "report": "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_script_structure_contract_gate.json",
+     "stdout_tail": "…h_seconds\": 0.0\n        },\n        {\n          \"shot_id\": \"E08-S07-02\",\n          \"speech_seconds\": 0.0\n        },\n        {\n          \"shot_id\": \"E08-S07-03\",\n          \"speech_seconds\": 5.0\n        },\n        {\n          \"shot_id\": \"E08-S08-01\",\n          \"speech_seconds\": 5.25\n        },\n        {\n          \"shot_id\": \"E08-S08-02\",\n          \"speech_seconds\": 0.0\n        },\n        {\n          \"shot_id\": \"E08-S08-03\",\n          \"speech_seconds\": 0.0\n        },\n        {\n          \"shot_id\": \"E08-S09-01\",\n          \"speech_seconds\": 0.0\n        },\n        {\n          \"shot_id\": \"E08-S09-02\",\n          \"speech_seconds\": 2.0\n        },\n        {\n          \"shot_id\": \"E08-S09-03\",\n          \"speech_seconds\": 0.0\n        },\n        {\n          \"shot_id\": \"E08-S09-04\",\n          \"speech_seconds\": 1.75\n        },\n        {\n          \"shot_id\": \"E08-S10-01\",\n          \"speech_seconds\": 0.0\n        },\n        {\n          \"shot_id\": \"E08-S10-02\",\n          \"speech_seconds\": 2.75\n        },\n        {\n          \"shot_id\": \"E08-S11-01\",\n          \"speech_seconds\": 0.0\n        },\n        {\n          \"shot_id\": \"E08-S11-02\",\n          \"speech_seconds\": 1.0\n        },\n        {\n          \"shot_id\": \"E08-S11-03\",\n          \"speech_seconds\": 5.25\n        },\n        {\n          \"shot_id\": \"E08-S12-01\",\n          \"speech_seconds\": 3.5\n        },\n        {\n          \"shot_id\": \"E08-S12-02\",\n          \"speech_seconds\": 3.0\n        },\n        {\n          \"shot_id\": \"E08-S12-03\",\n          \"speech_seconds\": 3.0\n        },\n        {\n          \"shot_id\": \"E08-S12-04\",\n          \"speech_seconds\": 2.25\n        },\n        {\n          \"shot_id\": \"E08-S13-01\",\n          \"speech_seconds\": 5.75\n        },\n        {\n          \"shot_id\": \"E08-S13-02\",\n          \"speech_seconds\": 0.0\n        },\n        {\n          \"shot_id\": \"E08-S13-03\",\n          \"speech_seconds\": 0.0\n        },\n        {\n          \"shot_id\": \"E08-S14-01\",\n          \"speech_seconds\": 3.75\n        },\n        {\n          \"shot_id\": \"E08-S14-02\",\n          \"speech_seconds\": 0.0\n        },\n        {\n          \"shot_id\": \"E08-S14-03\",\n          \"speech_seconds\": 0.0\n        }\n      ]\n    },\n    \"action_outcome\": {\n      \"beat_count\": 14,\n      \"action_beats\": []\n    },\n    \"antagonist_motive\": {\n      \"antagonist_role_declared\": false,\n      \"trigger_shots\": []\n    },\n    \"prop_source\": {\n      \"props_checked\": [\n        {\n          \"prop_id\": \"PROP-IRON-POT\",\n          \"payoff_shot_ids\": [\n            \"E08-S07-01\"\n          ],\n          \"named_in\": [],\n          \"first_payoff_seconds\": 65.5\n        },\n        {\n          \"prop_id\": \"PROP-ROAST-DEER-LEG\",\n          \"payoff_shot_ids\": [\n            \"E08-S07-02\"\n          ],\n          \"named_in\": [],\n          \"first_payoff_seconds\": 68.5\n        },\n        {\n          \"prop_id\": \"SET-MOON-INSECT-LIGHT\",\n          \"payoff_shot_ids\": [\n            \"E08-S03-02\"\n          ],\n          \"named_in\": [],\n          \"first_payoff_seconds\": 26.0\n        },\n        {\n          \"prop_id\": \"SET-SILVER-LIT-RIDGE\",\n          \"payoff_shot_ids\": [\n            \"E08-S03-01\"\n          ],\n          \"named_in\": [],\n          \"first_payoff_seconds\": 22.0\n        }\n      ]\n    },\n    \"entity_introduction\": {\n      \"protagonist_ids\": [\n        \"CHAR-QINMING\"\n      ],\n      \"required_entities\": [\n        \"PROP-BLADE-HORN-STAG\",\n        \"PROP-DONKEY-HEAD-WOLF\",\n        \"PROP-IRON-POT\",\n        \"PROP-ROAST-DEER-LEG\",\n        \"PROP-MEAT-BROTH-BOWL\",\n        \"PROP-KANG\",\n        \"PROP-WOODEN-STAFF\",\n        \"SET-SILVER-LIT-RIDGE\",\n        \"CHAR-LUZE\",\n        \"CHAR-LIANGWANQING\",\n        \"CHAR-LUWENRUI\",\n        \"CHAR-LUWENHUI\",\n        \"CHAR-LIULAOTOU\",\n        \"CHAR-BOY-THIN\",\n        \"CHAR-GIRL-PATCHED\"\n      ],\n      \"carry_in_entities\": [\n        \"CHAR-YANGYONGQING\",\n        \"PROP-BOW-ARROWS\",\n        \"PROP-HUNTING-FORK\",\n        \"PROP-SHORT-KNIFE\"\n      ]\n    },\n    \"lexicon\": {\n      \"texts_scanned\": 40,\n      \"forbidden_terms\": 10,\n      \"name_variants\": 3\n    }\n  }\n}\n"
+    },
+    "continuity_state_contract_gate": {
+     "exit_code": 0,
+     "status": "PASS",
+     "report": "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_continuity_state_contract_gate.json",
+     "stdout_tail": "{\n  \"schema\": \"qingshan.continuity_state_contract_gate.v1\",\n  \"status\": \"PASS\",\n  \"failures\": [],\n  \"warnings\": [],\n  \"unverified\": [\n    \"perceived_life_state / visible_group_count / creature_locomotion on generated video: NOT_IMPLEMENTED (post-generation review questions)\"\n  ],\n  \"measurements\": {\n    \"episode\": \"E08\",\n    \"shot_count\": 44,\n    \"life_state\": {\n      \"cast_rows_declared\": 65,\n      \"cast_rows_undeclared\": 0,\n      \"final_life_state\": {\n        \"CHAR-QINMING\": \"alive\",\n        \"CHAR-BOY-THIN\": \"alive\",\n        \"CHAR-LIANGWANQING\": \"alive\",\n        \"CHAR-LUZE\": \"alive\",\n        \"CHAR-LUWENRUI\": \"alive\",\n        \"CHAR-LUWENHUI\": \"alive\",\n        \"CHAR-GIRL-PATCHED\": \"alive\",\n        \"CHAR-YANGYONGQING\": \"alive\",\n        \"CHAR-LIULAOTOU\": \"alive\"\n      },\n      \"final_group_counts\": {}\n    },\n    \"creature_card\": {\n      \"creatures\": [\n        {\n          \"entity_id\": \"PROP-BLADE-HORN-STAG\",\n          \"kind_inferred\": false,\n          \"locomotion\": \"quadruped\",\n          \"appearances\": [\n            \"E08-S05-02\",\n            \"E08-S05-03\"\n          ]\n        },\n        {\n          \"entity_id\": \"PROP-DONKEY-HEAD-WOLF\",\n          \"kind_inferred\": false,\n          \"locomotion\": \"biped\",\n          \"appearances\": [\n            \"E08-S05-03\"\n          ]\n        }\n      ]\n    },\n    \"ambush_space\": {\n      \"trigger_shots\": [],\n      \"ambush_contracts\": []\n    },\n    \"costume_inheritance\": {\n      \"int_ext_transitions\": [\n        {\n          \"scene_id\": \"E08-S14\",\n          \"from\": \"EXT\",\n          \"to\": \"INT\",\n          \"costume_mentioned\": false\n        }\n      ]\n    }\n  }\n}\n"
+    },
+    "s1_gate_receipt": {
+     "path": "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/S1_GATE_RECEIPT.json",
+     "sha256": "3dc37f078ad27ffb7576d4a5e306f89cb8195113b3cfd0fe0f5962ed4197168f",
+     "status": "BLOCKED"
+    }
+   },
+   "steps": [
+    {
+     "exit_code": 0,
+     "log": null,
+     "stdout_tail": "LEGACY_REPLAY_PROFILE"
+    },
+    {
+     "name": "s1_gate10_writer_scene_source_declaration",
+     "argv": [
+      "/Users/rogerwu/nalu/.qingshan-venv/bin/python",
+      "/Users/rogerwu/nalu/agent_factory/claude_writer_v2/gates/writer_scene_source_declaration_gate.py",
+      "/Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_manifest_v1.json",
+      "--warn-is-fail",
+      "--out",
+      "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_gate10.json"
+     ],
+     "argv_shell": "/Users/rogerwu/nalu/.qingshan-venv/bin/python /Users/rogerwu/nalu/agent_factory/claude_writer_v2/gates/writer_scene_source_declaration_gate.py /Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_manifest_v1.json --warn-is-fail --out /Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_gate10.json",
+     "cwd": "/Users/rogerwu/nalu",
+     "extra_env": {},
+     "paid": false,
+     "exit_code": 0,
+     "log": "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_s1_gate10_writer_scene_source_declaration.log",
+     "started_at": "2026-09-25T19:33:28Z",
+     "finished_at": "2026-09-25T19:33:28Z",
+     "stdout_tail": "PASS E08 v1  场次 14\n\n报告已写出：/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_gate10.json\n\n合计 1 集，失败 0 集\n",
+     "stderr_tail": ""
+    },
+    {
+     "name": "s1_character_entity_contract",
+     "argv": [
+      "/Users/rogerwu/nalu/.qingshan-venv/bin/python",
+      "-c",
+      "import json,sys;sys.path.insert(0,'.')\nfrom tools.character_entity_contract import validate_character_entity_contract\nprint(json.dumps(validate_character_entity_contract(json.load(open('/Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_GENERATION_CONTRACT_v1.json'))),ensure_ascii=False))"
+     ],
+     "argv_shell": "/Users/rogerwu/nalu/.qingshan-venv/bin/python -c 'import json,sys;sys.path.insert(0,'\"'\"'.'\"'\"')\nfrom tools.character_entity_contract import validate_character_entity_contract\nprint(json.dumps(validate_character_entity_contract(json.load(open('\"'\"'/Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_GENERATION_CONTRACT_v1.json'\"'\"'))),ensure_ascii=False))'",
+     "cwd": "/Users/rogerwu/nalu",
+     "extra_env": {},
+     "paid": false,
+     "exit_code": 0,
+     "log": "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_s1_character_entity_contract.log",
+     "started_at": "2026-09-25T19:33:28Z",
+     "finished_at": "2026-09-25T19:33:28Z",
+     "stdout_tail": "{\"schema\": \"qingshan.character_entity_gate.v1\", \"status\": \"PASS\", \"required\": false, \"character_count\": 9, \"failures\": []}\n",
+     "stderr_tail": "",
+     "verdict": {
+      "schema": "qingshan.character_entity_gate.v1",
+      "status": "PASS",
+      "required": false,
+      "character_count": 9,
+      "failures": []
+     }
+    },
+    {
+     "name": "s1_static_design_gate",
+     "argv": [
+      "/Users/rogerwu/nalu/.qingshan-venv/bin/python",
+      "/Users/rogerwu/nalu/lines/nalu/runtime/tools/static_design_gate.py",
+      "--contract",
+      "/Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_GENERATION_CONTRACT_v1.json",
+      "--episode",
+      "E08",
+      "--out",
+      "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_static_design_gate.json"
+     ],
+     "argv_shell": "/Users/rogerwu/nalu/.qingshan-venv/bin/python /Users/rogerwu/nalu/lines/nalu/runtime/tools/static_design_gate.py --contract /Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_GENERATION_CONTRACT_v1.json --episode E08 --out /Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_static_design_gate.json",
+     "cwd": "/Users/rogerwu/nalu",
+     "extra_env": {},
+     "paid": false,
+     "exit_code": 0,
+     "log": "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_s1_static_design_gate.log",
+     "started_at": "2026-09-25T19:33:28Z",
+     "finished_at": "2026-09-25T19:33:28Z",
+     "stdout_tail": "{\"status\": \"PASS\", \"locked_share\": 0.0, \"failures\": 0}\n",
+     "stderr_tail": ""
+    },
+    {
+     "name": "s1_script_structure_contract_gate",
+     "argv": [
+      "/Users/rogerwu/nalu/.qingshan-venv/bin/python",
+      "/Users/rogerwu/nalu/tools/script_structure_contract_gate.py",
+      "--contract",
+      "/Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_GENERATION_CONTRACT_v1.json",
+      "--manifest",
+      "/Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_manifest_v1.json",
+      "--lexicon",
+      "/Users/rogerwu/nalu/lines/nalu/runtime/configs/LEXICON_yewujiang_v1.json",
+      "--out",
+      "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_script_structure_contract_gate.json"
+     ],
+     "argv_shell": "/Users/rogerwu/nalu/.qingshan-venv/bin/python /Users/rogerwu/nalu/tools/script_structure_contract_gate.py --contract /Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_GENERATION_CONTRACT_v1.json --manifest /Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_manifest_v1.json --lexicon /Users/rogerwu/nalu/lines/nalu/runtime/configs/LEXICON_yewujiang_v1.json --out /Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_script_structure_contract_gate.json",
+     "cwd": "/Users/rogerwu/nalu",
+     "extra_env": {},
+     "paid": false,
+     "exit_code": 0,
+     "log": "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_s1_script_structure_contract_gate.log",
+     "started_at": "2026-09-25T19:33:28Z",
+     "finished_at": "2026-09-25T19:33:28Z",
+     "stderr_tail": ""
+    },
+    {
+     "name": "s1_continuity_state_contract_gate",
+     "argv": [
+      "/Users/rogerwu/nalu/.qingshan-venv/bin/python",
+      "/Users/rogerwu/nalu/tools/continuity_state_contract_gate.py",
+      "--contract",
+      "/Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_GENERATION_CONTRACT_v1.json",
+      "--out",
+      "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_continuity_state_contract_gate.json"
+     ],
+     "argv_shell": "/Users/rogerwu/nalu/.qingshan-venv/bin/python /Users/rogerwu/nalu/tools/continuity_state_contract_gate.py --contract /Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_GENERATION_CONTRACT_v1.json --out /Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_continuity_state_contract_gate.json",
+     "cwd": "/Users/rogerwu/nalu",
+     "extra_env": {},
+     "paid": false,
+     "exit_code": 0,
+     "log": "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_s1_continuity_state_contract_gate.log",
+     "started_at": "2026-09-25T19:33:28Z",
+     "finished_at": "2026-09-25T19:33:28Z",
+     "stdout_tail": "{\n  \"schema\": \"qingshan.continuity_state_contract_gate.v1\",\n  \"status\": \"PASS\",\n  \"failures\": [],\n  \"warnings\": [],\n  \"unverified\": [\n    \"perceived_life_state / visible_group_count / creature_locomotion on generated video: NOT_IMPLEMENTED (post-generation review questions)\"\n  ],\n  \"measurements\": {\n    \"episode\": \"E08\",\n    \"shot_count\": 44,\n    \"life_state\": {\n      \"cast_rows_declared\": 65,\n      \"cast_rows_undeclared\": 0,\n      \"final_life_state\": {\n        \"CHAR-QINMING\": \"alive\",\n        \"CHAR-BOY-THIN\": \"alive\",\n        \"CHAR-LIANGWANQING\": \"alive\",\n        \"CHAR-LUZE\": \"alive\",\n        \"CHAR-LUWENRUI\": \"alive\",\n        \"CHAR-LUWENHUI\": \"alive\",\n        \"CHAR-GIRL-PATCHED\": \"alive\",\n        \"CHAR-YANGYONGQING\": \"alive\",\n        \"CHAR-LIULAOTOU\": \"alive\"\n      },\n      \"final_group_counts\": {}\n    },\n    \"creature_card\": {\n      \"creatures\": [\n        {\n          \"entity_id\": \"PROP-BLADE-HORN-STAG\",\n          \"kind_inferred\": false,\n          \"locomotion\": \"quadruped\",\n          \"appearances\": [\n            \"E08-S05-02\",\n            \"E08-S05-03\"\n          ]\n        },\n        {\n          \"entity_id\": \"PROP-DONKEY-HEAD-WOLF\",\n          \"kind_inferred\": false,\n          \"locomotion\": \"biped\",\n          \"appearances\": [\n            \"E08-S05-03\"\n          ]\n        }\n      ]\n    },\n    \"ambush_space\": {\n      \"trigger_shots\": [],\n      \"ambush_contracts\": []\n    },\n    \"costume_inheritance\": {\n      \"int_ext_transitions\": [\n        {\n          \"scene_id\": \"E08-S14\",\n          \"from\": \"EXT\",\n          \"to\": \"INT\",\n          \"costume_mentioned\": false\n        }\n      ]\n    }\n  }\n}\n",
+     "stderr_tail": ""
+    }
+   ],
+   "receipts": [
+    "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_s1_gate10_writer_scene_source_declaration.log",
+    "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_s1_character_entity_contract.log",
+    "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_s1_static_design_gate.log",
+    "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_s1_script_structure_contract_gate.log",
+    "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_s1_continuity_state_contract_gate.log",
+    "/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/S1_GATE_RECEIPT.json"
+   ],
+   "blockers": [
+    "PROJECT_SCOPE_FAIL:ASSET_LIBRARY_PROJECT_MISMATCH:None!=NALU-YEWUJIANG"
+   ],
+   "planned_credits": 0
+  },
+  "S2": {
+   "stage": "S2",
+   "title": "preproduction (build_nalu_preproduction, free)",
+   "status": "NOT_RUN",
+   "attempts": 0,
+   "started_at": null,
+   "finished_at": null,
+   "input_fingerprint": null,
+   "details": {},
+   "steps": [],
+   "receipts": [],
+   "blockers": [],
+   "planned_credits": 0
+  },
+  "S3": {
+   "stage": "S3",
+   "title": "identity cards (paid, SHA-reuse across episodes)",
+   "status": "NOT_RUN",
+   "attempts": 0,
+   "started_at": null,
+   "finished_at": null,
+   "input_fingerprint": null,
+   "details": {},
+   "steps": [],
+   "receipts": [],
+   "blockers": [],
+   "planned_credits": 0
+  },
+  "S4": {
+   "stage": "S4",
+   "title": "voices (paid, once per speaking character)",
+   "status": "NOT_RUN",
+   "attempts": 0,
+   "started_at": null,
+   "finished_at": null,
+   "input_fingerprint": null,
+   "details": {},
+   "steps": [],
+   "receipts": [],
+   "blockers": [],
+   "planned_credits": 0
+  },
+  "S5": {
+   "stage": "S5",
+   "title": "keyframes (paid) + Q1 admission + start-frame receipts",
+   "status": "NOT_RUN",
+   "attempts": 0,
+   "started_at": null,
+   "finished_at": null,
+   "input_fingerprint": null,
+   "details": {},
+   "steps": [],
+   "receipts": [],
+   "blockers": [],
+   "planned_credits": 0
+  },
+  "S6": {
+   "stage": "S6",
+   "title": "video + selective-BGM sources (paid) + post-generation QA + Q2 assembly admission",
+   "status": "NOT_RUN",
+   "attempts": 0,
+   "started_at": null,
+   "finished_at": null,
+   "input_fingerprint": null,
+   "details": {},
+   "steps": [],
+   "receipts": [],
+   "blockers": [],
+   "planned_credits": 0
+  },
+  "S7": {
+   "stage": "S7",
+   "title": "Q2 verify + assembly + BGM placement/QA/mix + release loudness + final QA (no provider POST)",
+   "status": "NOT_RUN",
+   "attempts": 0,
+   "started_at": null,
+   "finished_at": null,
+   "input_fingerprint": null,
+   "details": {},
+   "steps": [],
+   "receipts": [],
+   "blockers": [],
+   "planned_credits": 0
+  },
+  "S8": {
+   "stage": "S8",
+   "title": "checkpoint + block for line-owner approval",
+   "status": "NOT_RUN",
+   "attempts": 0,
+   "started_at": null,
+   "finished_at": null,
+   "input_fingerprint": null,
+   "details": {},
+   "steps": [],
+   "receipts": [],
+   "blockers": [],
+   "planned_credits": 0
+  }
+ },
+ "open_decisions": [
+  {
+   "id": "D-1",
+   "stage": "S3",
+   "status": "RESOLVED",
+   "detail": "The nalu character asset registry for QINGSHAN_CHARACTER_REGISTRY is now generated by runtime/tools/identity_qa_lock.py registry, from LOCKED plates only, in the shape multimodal_character_binding_guard._character_authority reads (characters[<registry_id>].generation_reference_image, guard:204-206 and 430-436) and character_identity_admission_gate.evaluate membership-tests.",
+   "resolution": "runtime/tools/identity_qa_lock.py registry --episode <EP>",
+   "residual": "the registry is only written once at least one character reaches status LOCKED + qa.status PASS; an unlocked character is deliberately absent so the binding guard reports CANONICAL_VISUAL_REFERENCE_MISMATCH"
+  },
+  {
+   "id": "D-2",
+   "stage": "S3",
+   "status": "RESOLVED",
+   "detail": "insightface 2.0 is installed in .qingshan-venv (with onnx 1.22, opencv-python 5.0, scikit-image 0.26) and the buffalo_l ONNX weights are already present under ~/.insightface/models/buffalo_l, so CHARACTER-IDENTITY-ADMISSION runs INSIGHTFACE_COSINE_V1 for real.",
+   "resolution": "verified: FaceAnalysis(name='buffalo_l').prepare(ctx_id=-1) loads and embeds a real 512-d normed_embedding from a source plate",
+   "residual": "the weights live in the user's home, not in the clone. On a fresh machine the first prepare() downloads buffalo_l (~289 MB) from the insightface model zoo; if that download is blocked the gate raises INSIGHTFACE_RUNTIME_UNAVAILABLE and every identity QA FAILs closed."
+  },
+  {
+   "id": "D-3",
+   "stage": "S3",
+   "status": "RESOLVED",
+   "detail": "runtime/tools/identity_qa_lock.py writes qa.status PASS/FAIL and status LOCKED (only on PASS) into ai_drama.production_asset_library.v1 in exactly the shape initial_asset_library.gate_asset demands (status == 'LOCKED' by exact equality, non-empty lock fields per category, artifacts with role/media_type/path/sha256, non-empty provenance, qa.checks). The verdict comes from a Claude VLM plate review plus a real insightface cosine — not from --accept-source-qa, which is an operator declaration.",
+   "resolution": "runtime/tools/vlm_review_protocol.py request --kind identity → identity_qa_lock.py lock --episode <EP> --review <submitted>",
+   "residual": "gate_asset also demands rights.status PASS with a named basis. The basis now comes only from the validated deployment-private paid-production order and its confirmed source receipt; it is never a reviewer observation or an engine default. It is passed as --rights-basis to bootstrap_identity_cards.py and identity_qa_lock.py and recorded under rights_basis with declaration_type LINE_OWNER_DECLARATION_NOT_A_REVIEWER_OBSERVATION. Publication remains outside scope unless the order explicitly says publication_allowed=true."
+  },
+  {
+   "id": "D-4",
+   "stage": "S5",
+   "status": "RESOLVED",
+   "detail": "runtime/tools/keyframe_q1_builder.py is the parameterised builder of qingshan.shot_media_admission_request.v2 and invokes tools/shot_media_admission_gate.py for real. Its three P0 objective blocks are real runs: VLM_STRUCTURED_STATE_QA_V1 from the submitted keyframe review, CLOSED_SET_ANACHRONISM_OCR_V1 from tools/still_image_ocr_audit.py (RapidOCR/ONNX, rapidocr-onnxruntime 1.4.4 installed), and INSIGHTFACE_COSINE_V1 through the engine's own identity gate.",
+   "resolution": "route validated end to end: a real review of a real image returned FAIL / FAIL_NOT_ADMITTED with the named P0 gate failures, and a labelled positive control returned ADMITTED / ADMITTED_FOR_VIDEO_SUBMIT with all four registered gates passing — for both the STRUCTURED_NO_VISIBLE_CHARACTER_V1 and the INSIGHTFACE_COSINE_V1 identity block. See runtime/reviews/_route_validation/.",
+   "residual": "see D-13: a still cannot supply 3 sample frames from one source, so the identity measurement is corpus-scoped per character."
+  },
+  {
+   "id": "D-5",
+   "stage": "S5",
+   "status": "RESOLVED",
+   "detail": "runtime/tools/start_frame_evidence_writer.py writes qingshan.start_frame_semantic_evidence.v1 per unit with review_method CLAUDE_VLM_STRUCTURED_REVIEW, at the path build_nalu_preproduction.py already declares in expected_evidence_ref (reports/start_frame_evidence/<UNIT>_start_frame_evidence.json, resolved against the engine root by grouped_anchor_semantic_contract._resolve). build_nalu_preproduction.build_start_frame_contracts now READS that path and adopts only what the receipt itself states; a missing, non-PASS or sha-stale receipt leaves the contract BLOCKED exactly as before.",
+   "resolution": "vlm_review_protocol.py request --kind start_frame → start_frame_evidence_writer.py write, then the S6 preproduction rebuild picks it up and 4.4 re-verifies every field",
+   "residual": "none"
+  },
+  {
+   "id": "D-6",
+   "stage": "S6",
+   "status": "RESOLVED",
+   "detail": "runtime/tools/post_generation_qa_runner.py performs all 12 allowed technical checks and all 5 allowed basic-plot checks, and no forbidden check. Real measurers: ffprobe (decode/duration/resolution/aspect_ratio/codec/audio_stream/av_sync/frame_rate/sample_rate/corruption), run_regression_ci.pure_black_frame_stats (black_frame), run_regression_ci.freeze_stats + static_hold_stats (freeze), tools/frame_cadence_audit.py, tools/source_brightness_jump_audit.py, tools/media_boundary_acceptance.py, and tools/source_video_dialogue_gate.py (faster-whisper 1.2.1) for dialogue presence. It writes TECHNICAL_PASS_CONTENT_UNREVIEWED per unit, an ADMIT/REJECT with reasons, and a reroll request list the real reroll_cost_guard accepts.",
+   "resolution": "validated against a real 720x1280/24fps/48kHz clip: all 12 technical checks measured and PASSed, the ASR gate ran, the 2-fps contact sheet rendered, and reroll_cost_guard.py returned PASS_AUTO_REROLL_ALLOWED for a generated request row",
+   "residual": "homophones are RECORDED and never rejected, per runtime/configs/BASIC_DIALOGUE_QA_POLICY.json — see D-14 for that file's provenance."
+  },
+  {
+   "id": "D-9",
+   "stage": "S7",
+   "status": "RESOLVED",
+   "detail": "runtime/tools/final_qa_evidence_bundle.py classifies 12 final/release gates APPLICABLE and 9 NOT_APPLICABLE for a native-audio SD2 line with no BGM and no audience-score stage, assembles the 15-key bundle (the runbook's 11 plus credit_ledger, watch_report and the sha-verified canonical_script pair) and invokes episode_stage_gate_runner.py with an explicit --gate list.",
+   "resolution": "proved against E01's current empty state: the runner parsed the bundle, the sha-verified canonical_script binding passed (zero canonical_script failures), 11 gates failed only on required_evidence_missing:<key> and GIGGLE-CREDIT-LEDGER-CLOSURE actually executed on the real runtime/budget/ledger.json. The bundle SHAPE is accepted.",
+   "residual": "see D-12."
+  },
+  {
+   "id": "D-7",
+   "stage": "S6",
+   "status": "RESOLVED",
+   "detail": "Q2 content admission (shot_media_admission_gate.py kind VIDEO_ASSEMBLY, terminal downstream_status ADMITTED_FOR_ASSEMBLY) needs FIVE registered gates — the four keyframe gates plus DEFECT-TIER-TOLERANCE — and a technical_qa block whose status is exactly TECHNICAL_PASS_CONTENT_UNREVIEWED (the keyframe branch forbids that string; the video branch demands it). The only precedent, tools/build_e40_video_q2_evidence.py, is hard-disabled (LEGACY_E40_Q2_EVIDENCE_BUILDER_DISABLED) and its evidence rows predate the P0 objective requirement entirely, so it would fail today with p0_objective_method_invalid:MISSING on three gates.",
+   "resolution": "runtime/tools/video_q2_builder.py is the parameterised builder, invoked as sub-stage S6.q2 and re-verified at the head of S7. Every block is a real run: VLM_STRUCTURED_STATE_QA_V1 from a submitted `video_q2` review (a new closed 12-question kind added to vlm_review_protocol.py, every question inside post_generation_qa_scope_gate's ALLOWED scope — none of its 16 forbidden gesture/choreography/trajectory/optical-flow checks is asked); CLOSED_SET_ANACHRONISM_OCR_V1 from a real still_image_ocr_audit.py pass over EVERY extracted original-resolution frame; INSIGHTFACE_COSINE_V1 through the engine's own character_identity_admission_gate; DEFECT-TIER-TOLERANCE from a real tools/defect_tolerance_gate.py run over the reviewer's own defect list at the unit's measured ffprobe duration; and technical_qa copied verbatim from the D-6 record.",
+   "residual": "a clip reaches sample_frames_per_source_min from ONE source (5 real distinct frames of that very asset), so D-13's corpus-scoping is neither needed nor used here. A P2 defect the reviewer did not locate (shot_index + at_seconds) is NOT guessed and NOT dropped: the unit is REJECTED with DEFECT_TIER_LOCATION_MISSING, because defect_tolerance_gate.py prices its opening-10s / tail-5s zero-tolerance windows from that location."
+  },
+  {
+   "id": "D-8",
+   "stage": "S7",
+   "status": "RESOLVED",
+   "detail": "build_agentcut_from_admitted_storyboard_sources.py requires --receipt (tasks[].source_id/output_path/status/duration) and --review-result (passed_items[].path) inputs that only exist once D-7 is resolved, and it hard-fails unless the count of distinct admitted source_ids equals --expected-slots exactly AND every admitted slot's path also appears in a review result's passed_items.",
+   "resolution": "S6.q2 writes both per unit — admission_result.json (the gate's own report) and ai_review.json (passed_items only for a unit whose downstream_status is ADMITTED_FOR_ASSEMBLY). S7 is wired as Q2 verify -> build_agentcut_from_admitted_storyboard_sources.py --generation-contract -> render_portable_timeline.py (--dry-run then real) -> level_native_release_audio.py -> final_qa_evidence_bundle.py run --gate-subset applicable -> deliverables/<EP>/<EP>_final_9x16.mp4 + CHECKPOINT.md.",
+   "residual": "no media is ever stubbed. Until the paid video stage runs, S7 prints every command it would run and BLOCKS on the precise missing input (the ADMITTED_FOR_ASSEMBLY receipts). The final gate execution still carries D-12."
+  },
+  {
+   "id": "D-10",
+   "stage": "S2/S3 (E02+)",
+   "status": "RESOLVED",
+   "detail": "asset_requirements.json, the identity prompts and the global space map existed only for E01, and the E01 generators under runtime/preproduction/E01/tools/ take no arguments and hardcode E01 paths.",
+   "resolution": "S2 and S3 now run a shared, cached pre-step (ensure_episode_inputs): extend_global_space_map.py first WITHOUT --asset-requirements (base = the previous episode's locked GSM when it exists, else E01's), then build_episode_asset_requirements.py with --overlay when preproduction/<EP>/asset_requirements_overlay.json (or overlay.json) exists and without it otherwise, then extend_global_space_map.py again WITH --asset-requirements so a new location picks up its authored key_fixed_elements. E01 keeps its authored files: when both the GSM and the requirements already exist the pre-step runs nothing at all. Exit 3 from the requirements builder (an AUTHORING_REQUIRED_* sentinel landed in the output) is a FAIL-CLOSED stop with state AUTHORING_REQUIRED, the authoring gaps listed and the overlay path to author named.",
+   "residual": "series_bible_sha256 is still a stand-in (stage-map blocker R-1). A new location the tool auto-sited is gate-clean but its position relative to the village was chosen by the tool, so the stage records AUTO_SITED_REQUIRES_SPATIAL_REVIEW as a warning for a human to confirm or to author preproduction/<EP>/new_location_place_spec.json."
+  },
+  {
+   "id": "D-11",
+   "stage": "S3/S5/S6",
+   "status": "RESOLVED",
+   "detail": "Every paid submit needs a real authorization_ref and provider_post_allowed true, and the image submitter's validate_submission_authority (which --precheck-only SKIPS) additionally needs EXACTLY ONE GIGGLE-REROLL-COST-GUARD report bound to the submitted manifest's exact SHA.",
+   "resolution": "The deployment explicitly configures a private SUPERVISOR_ORDERS path, paid order sequence, observed latest sequence and line-owner identity. The materialiser validates the order schema, unique sequence, confirmed source receipt, exact episode scope, rights declaration, cap, model and paid_requests_allowed=true. Immediately before each paid submit the orchestrator runs materialize_paid_authorization.py on the plan (S3) or the manifest (S5 keyframes, S6 video), which writes a *_PAID_AUTHORIZED copy plus the real reroll-cost-guard report, and the submitter is fed THAT copy — never the original, which stays on disk un-authorised as evidence of what was compiled. In a dry run the exact command is printed and NOT executed (it appends to the real credit ledger through nalu_budget_ledger.py --check).",
+   "residual": "provider_post_allowed:true in a file is only ONE of the locks: --paid and qingshan.json generation.paid_requests_enabled=true remain independently required, and today the config still says false. The materialiser must be re-run after ANY edit to the input file, because the guard report binds its byte SHA."
+  },
+  {
+   "id": "D-12",
+   "stage": "S7",
+   "detail": "Neither configs/GATE_REGISTRY_v3_20260716.json nor tools/episode_stage_gate_runner.py has ANY applicability mechanism: there is no applies_when field, no required_inputs, no waiver and no skip. tools/gate_result_contract.py already allows an N_A status but the runner can only ever write PASS or FAIL. So a line with no BGM and no audience-score stage can only express 'this gate does not apply' by omitting it from the --gate list, which REGISTRY-META-05-RUNTIME-INVOCATION calls fail-closed. tools/run_episode_qa.sh cannot express it at all because it hardcodes --phase final --phase release.",
+   "candidates": [
+    "configs/GATE_REGISTRY_v3_20260716.json",
+    "tools/episode_stage_gate_runner.py",
+    "tools/gate_result_contract.py",
+    "tools/run_episode_qa.sh"
+   ],
+   "missing": "an engine-side applies_when (or profile-scoped gate set) the runner honours by emitting the existing N_A status, plus a run_episode_qa.sh that accepts a gate list. Until then this pipeline omits the 9 inapplicable gates BY NAME with a written reason and writes no self-issued waiver — FINAL-CUT-NO-SELF-WAIVER exists to forbid that."
+  },
+  {
+   "id": "D-13",
+   "stage": "S5",
+   "detail": "CHARACTER-IDENTITY-ADMISSION is registered with sample_frames_per_source_min 3 and character_identity_admission_gate enforces it literally, but a keyframe is one still and can only ever supply one sample. keyframe_q1_builder therefore scopes the measurement to one source PER CHARACTER over every keyframe the script declares that character visible in, which reaches the minimum with real distinct frames and still reports each keyframe's own cosine. A character declared visible in fewer than three keyframes cannot reach the minimum and its keyframes are REJECTED with SAMPLE_MINIMUM_UNREACHABLE.",
+   "candidates": [
+    "tools/character_identity_admission_gate.py",
+    "configs/GATE_REGISTRY_v3_20260716.json"
+   ],
+   "missing": "a line-owner decision: accept the corpus-scoped reading, or register a still-specific sample minimum. Nothing is waived either way — a character below the minimum blocks."
+  },
+  {
+   "id": "D-14",
+   "stage": "S6",
+   "detail": "configs/BASIC_DIALOGUE_QA_POLICY.json does not exist in this engine clone. runtime/configs/BASIC_DIALOGUE_QA_POLICY.json was authored for this line and every threshold in it is copied verbatim from the engine code that already enforces it (source_video_dialogue_gate.py --minimum-recall 0.55 and its failure codes, run_regression_ci.speech_density_stats 15.0/10.0 segments per minute, source_video_dialogue_gate's orthographic variants, apply_asr_homophone_adjudication.py's HOMOPHONE_OR_SCRIPT_VARIANT).",
+   "candidates": [
+    "runtime/configs/BASIC_DIALOGUE_QA_POLICY.json",
+    "tools/source_video_dialogue_gate.py",
+    "tools/apply_asr_homophone_adjudication.py"
+   ],
+   "missing": "confirmation from the engine owner that the recorded thresholds are the intended line policy, or an engine-side config to supersede it"
+  }
+ ],
+ "rights_basis": {
+  "basis": null,
+  "declared_by": null,
+  "declared_on": null,
+  "declaration_required": true,
+  "declaration_type": "NOT_VERIFIED",
+  "authority": null,
+  "order_seq": null,
+  "order_id": null,
+  "conditions": [],
+  "scope": null,
+  "not_covered": "platform publication is not authorised by this paid-production order",
+  "source_receipt": null,
+  "validation": "BLOCKED",
+  "validation_failures": [
+   "SUPERVISOR_ORDERS_PATH_NOT_CONFIGURED",
+   "LINE_OWNER_ID_NOT_CONFIGURED",
+   "PAID_ORDER_SEQ_NOT_CONFIGURED",
+   "LATEST_ORDER_SEQ_NOT_CONFIGURED"
+  ],
+  "consumed_by": [
+   "bootstrap_identity_cards.py --rights-basis",
+   "identity_qa_lock.py lock --rights-basis"
+  ]
+ },
+ "line_owner_authority": {
+  "orders_path": null,
+  "paid_order_seq": null,
+  "latest_order_seq": null,
+  "line_owner_id": null,
+  "status": "BLOCKED",
+  "failures": [
+   "SUPERVISOR_ORDERS_PATH_NOT_CONFIGURED",
+   "LINE_OWNER_ID_NOT_CONFIGURED",
+   "PAID_ORDER_SEQ_NOT_CONFIGURED",
+   "LATEST_ORDER_SEQ_NOT_CONFIGURED"
+  ],
+  "order_id": null,
+  "orders_file_sha256": null,
+  "source_receipt": null
+ },
+ "layers": {
+  "source": "DEFAULT_V1_SLOTS",
+  "paths": {
+   "narrative_canonical": "/Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_NARRATIVE_CANONICAL_v1.md",
+   "directing_script": "/Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_DIRECTING_SCRIPT_v1.md",
+   "generation_contract": "/Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_GENERATION_CONTRACT_v1.json",
+   "writer_manifest": "/Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_manifest_v1.json"
+  }
+ },
+ "series_scope": {
+  "scope_id": "NALU-YEWUJIANG",
+  "series_id": "NALU-YEWUJIANG",
+  "asset_library": "/Users/rogerwu/nalu/lines/nalu/runtime/asset_library.json"
+ }
+}

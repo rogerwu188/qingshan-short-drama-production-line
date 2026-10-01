@@ -1,0 +1,12 @@
+# 2026-09-25T19:33:28Z
+# cwd=/Users/rogerwu/nalu
+# paid=False
+# argv=/Users/rogerwu/nalu/.qingshan-venv/bin/python -c 'import json,sys;sys.path.insert(0,'"'"'.'"'"')
+from tools.character_entity_contract import validate_character_entity_contract
+print(json.dumps(validate_character_entity_contract(json.load(open('"'"'/Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_GENERATION_CONTRACT_v1.json'"'"'))),ensure_ascii=False))'
+# exit=0
+--- stdout ---
+{"schema": "qingshan.character_entity_gate.v1", "status": "PASS", "required": false, "character_count": 9, "failures": []}
+
+--- stderr ---
+

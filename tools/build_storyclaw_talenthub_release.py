@@ -2038,7 +2038,7 @@ def _generic_line_tool(relative: str) -> bool:
     nested = relative[len(prefix):]
     if nested == "ingest_yewujiang_source.py":
         return False
-    if nested == "review_fill/nalu_e03_s6_loop.sh":
+    if nested == "review_fill/s6_loop.sh":
         return False
     if re.fullmatch(r"review_fill/e\d+_fill_[A-Za-z0-9_]+\.py", nested):
         return False
@@ -2090,7 +2090,7 @@ def _project_replay_path(relative: str) -> bool:
         return True
     nested = relative.removeprefix("lines/nalu/runtime/tools/")
     return bool(
-        nested == "review_fill/nalu_e03_s6_loop.sh"
+        nested == "review_fill/s6_loop.sh"
         or re.fullmatch(r"review_fill/e\d+_fill_[A-Za-z0-9_]+\.py", nested)
     )
 

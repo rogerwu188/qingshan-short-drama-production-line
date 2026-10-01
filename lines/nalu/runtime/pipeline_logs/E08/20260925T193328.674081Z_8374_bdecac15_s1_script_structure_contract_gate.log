@@ -1,0 +1,438 @@
+# 2026-09-25T19:33:28Z
+# cwd=/Users/rogerwu/nalu
+# paid=False
+# argv=/Users/rogerwu/nalu/.qingshan-venv/bin/python /Users/rogerwu/nalu/tools/script_structure_contract_gate.py --contract /Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_GENERATION_CONTRACT_v1.json --manifest /Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_manifest_v1.json --lexicon /Users/rogerwu/nalu/lines/nalu/runtime/configs/LEXICON_yewujiang_v1.json --out /Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_script_structure_contract_gate.json
+# exit=0
+--- stdout ---
+{
+  "schema": "qingshan.script_structure_contract_gate.v1",
+  "status": "PASS",
+  "failures": [],
+  "warnings": [],
+  "unverified": [],
+  "measurements": {
+    "episode": "E08",
+    "shot_count": 44,
+    "total_seconds": 158.5,
+    "hook": {
+      "first_dialogue_seconds": 8.0,
+      "hook_type": "shock",
+      "hook_at_seconds": 0.0
+    },
+    "dialogue_density": {
+      "total_seconds": 158.5,
+      "speech_seconds_estimate": 59.25,
+      "coverage": 0.3738,
+      "dialogue_cps": 4.0,
+      "policy": {
+        "max_silent_run_seconds": 15.0,
+        "max_silent_run_action_seconds": 25.0,
+        "min_coverage": 0.35
+      },
+      "verdict": "FAIL",
+      "first_dialogue_seconds": 8.0,
+      "silent_runs": [
+        {
+          "start": 0.0,
+          "end": 8.0,
+          "seconds": 8.0,
+          "shots": [
+            "E08-S01-01",
+            "E08-S01-02"
+          ],
+          "in_action_beat": false,
+          "limit": 15.0
+        },
+        {
+          "start": 10.0,
+          "end": 18.0,
+          "seconds": 8.0,
+          "shots": [
+            "E08-S02-01",
+            "E08-S02-02"
+          ],
+          "in_action_beat": false,
+          "limit": 15.0
+        },
+        {
+          "start": 22.0,
+          "end": 34.0,
+          "seconds": 12.0,
+          "shots": [
+            "E08-S03-01",
+            "E08-S03-02",
+            "E08-S03-03"
+          ],
+          "in_action_beat": false,
+          "limit": 15.0
+        },
+        {
+          "start": 36.5,
+          "end": 43.5,
+          "seconds": 7.0,
+          "shots": [
+            "E08-S04-02",
+            "E08-S05-01"
+          ],
+          "in_action_beat": false,
+          "limit": 15.0
+        },
+        {
+          "start": 47.5,
+          "end": 51.0,
+          "seconds": 3.5,
+          "shots": [
+            "E08-S05-03"
+          ],
+          "in_action_beat": false,
+          "limit": 15.0
+        },
+        {
+          "start": 54.0,
+          "end": 57.0,
+          "seconds": 3.0,
+          "shots": [
+            "E08-S06-01"
+          ],
+          "in_action_beat": false,
+          "limit": 15.0
+        },
+        {
+          "start": 62.0,
+          "end": 71.0,
+          "seconds": 9.0,
+          "shots": [
+            "E08-S06-04",
+            "E08-S07-01",
+            "E08-S07-02"
+          ],
+          "in_action_beat": false,
+          "limit": 15.0
+        },
+        {
+          "start": 82.0,
+          "end": 91.0,
+          "seconds": 9.0,
+          "shots": [
+            "E08-S08-02",
+            "E08-S08-03",
+            "E08-S09-01"
+          ],
+          "in_action_beat": false,
+          "limit": 15.0
+        },
+        {
+          "start": 94.0,
+          "end": 97.5,
+          "seconds": 3.5,
+          "shots": [
+            "E08-S09-03"
+          ],
+          "in_action_beat": false,
+          "limit": 15.0
+        },
+        {
+          "start": 100.0,
+          "end": 103.5,
+          "seconds": 3.5,
+          "shots": [
+            "E08-S10-01"
+          ],
+          "in_action_beat": false,
+          "limit": 15.0
+        },
+        {
+          "start": 107.0,
+          "end": 110.5,
+          "seconds": 3.5,
+          "shots": [
+            "E08-S11-01"
+          ],
+          "in_action_beat": false,
+          "limit": 15.0
+        },
+        {
+          "start": 138.0,
+          "end": 146.0,
+          "seconds": 8.0,
+          "shots": [
+            "E08-S13-02",
+            "E08-S13-03"
+          ],
+          "in_action_beat": false,
+          "limit": 15.0
+        },
+        {
+          "start": 150.5,
+          "end": 158.5,
+          "seconds": 8.0,
+          "shots": [
+            "E08-S14-02",
+            "E08-S14-03"
+          ],
+          "in_action_beat": false,
+          "limit": 15.0
+        }
+      ],
+      "largest_silent_run_seconds": 12.0,
+      "per_shot_speech": [
+        {
+          "shot_id": "E08-S01-01",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S01-02",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S01-03",
+          "speech_seconds": 1.0
+        },
+        {
+          "shot_id": "E08-S02-01",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S02-02",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S02-03",
+          "speech_seconds": 3.25
+        },
+        {
+          "shot_id": "E08-S03-01",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S03-02",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S03-03",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S04-01",
+          "speech_seconds": 2.0
+        },
+        {
+          "shot_id": "E08-S04-02",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S05-01",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S05-02",
+          "speech_seconds": 3.75
+        },
+        {
+          "shot_id": "E08-S05-03",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S05-04",
+          "speech_seconds": 2.25
+        },
+        {
+          "shot_id": "E08-S06-01",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S06-02",
+          "speech_seconds": 1.5
+        },
+        {
+          "shot_id": "E08-S06-03",
+          "speech_seconds": 1.25
+        },
+        {
+          "shot_id": "E08-S06-04",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S07-01",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S07-02",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S07-03",
+          "speech_seconds": 5.0
+        },
+        {
+          "shot_id": "E08-S08-01",
+          "speech_seconds": 5.25
+        },
+        {
+          "shot_id": "E08-S08-02",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S08-03",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S09-01",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S09-02",
+          "speech_seconds": 2.0
+        },
+        {
+          "shot_id": "E08-S09-03",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S09-04",
+          "speech_seconds": 1.75
+        },
+        {
+          "shot_id": "E08-S10-01",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S10-02",
+          "speech_seconds": 2.75
+        },
+        {
+          "shot_id": "E08-S11-01",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S11-02",
+          "speech_seconds": 1.0
+        },
+        {
+          "shot_id": "E08-S11-03",
+          "speech_seconds": 5.25
+        },
+        {
+          "shot_id": "E08-S12-01",
+          "speech_seconds": 3.5
+        },
+        {
+          "shot_id": "E08-S12-02",
+          "speech_seconds": 3.0
+        },
+        {
+          "shot_id": "E08-S12-03",
+          "speech_seconds": 3.0
+        },
+        {
+          "shot_id": "E08-S12-04",
+          "speech_seconds": 2.25
+        },
+        {
+          "shot_id": "E08-S13-01",
+          "speech_seconds": 5.75
+        },
+        {
+          "shot_id": "E08-S13-02",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S13-03",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S14-01",
+          "speech_seconds": 3.75
+        },
+        {
+          "shot_id": "E08-S14-02",
+          "speech_seconds": 0.0
+        },
+        {
+          "shot_id": "E08-S14-03",
+          "speech_seconds": 0.0
+        }
+      ]
+    },
+    "action_outcome": {
+      "beat_count": 14,
+      "action_beats": []
+    },
+    "antagonist_motive": {
+      "antagonist_role_declared": false,
+      "trigger_shots": []
+    },
+    "prop_source": {
+      "props_checked": [
+        {
+          "prop_id": "PROP-IRON-POT",
+          "payoff_shot_ids": [
+            "E08-S07-01"
+          ],
+          "named_in": [],
+          "first_payoff_seconds": 65.5
+        },
+        {
+          "prop_id": "PROP-ROAST-DEER-LEG",
+          "payoff_shot_ids": [
+            "E08-S07-02"
+          ],
+          "named_in": [],
+          "first_payoff_seconds": 68.5
+        },
+        {
+          "prop_id": "SET-MOON-INSECT-LIGHT",
+          "payoff_shot_ids": [
+            "E08-S03-02"
+          ],
+          "named_in": [],
+          "first_payoff_seconds": 26.0
+        },
+        {
+          "prop_id": "SET-SILVER-LIT-RIDGE",
+          "payoff_shot_ids": [
+            "E08-S03-01"
+          ],
+          "named_in": [],
+          "first_payoff_seconds": 22.0
+        }
+      ]
+    },
+    "entity_introduction": {
+      "protagonist_ids": [
+        "CHAR-QINMING"
+      ],
+      "required_entities": [
+        "PROP-BLADE-HORN-STAG",
+        "PROP-DONKEY-HEAD-WOLF",
+        "PROP-IRON-POT",
+        "PROP-ROAST-DEER-LEG",
+        "PROP-MEAT-BROTH-BOWL",
+        "PROP-KANG",
+        "PROP-WOODEN-STAFF",
+        "SET-SILVER-LIT-RIDGE",
+        "CHAR-LUZE",
+        "CHAR-LIANGWANQING",
+        "CHAR-LUWENRUI",
+        "CHAR-LUWENHUI",
+        "CHAR-LIULAOTOU",
+        "CHAR-BOY-THIN",
+        "CHAR-GIRL-PATCHED"
+      ],
+      "carry_in_entities": [
+        "CHAR-YANGYONGQING",
+        "PROP-BOW-ARROWS",
+        "PROP-HUNTING-FORK",
+        "PROP-SHORT-KNIFE"
+      ]
+    },
+    "lexicon": {
+      "texts_scanned": 40,
+      "forbidden_terms": 10,
+      "name_variants": 3
+    }
+  }
+}
+
+--- stderr ---
+

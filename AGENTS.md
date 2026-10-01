@@ -20,7 +20,7 @@
 | 角色 | 目录（本文用变量） | 内容 | 来源 |
 |---|---|---|---|
 | 引擎 clone | `$ENGINE_ROOT` | 本仓库：分阶段编译器、门、提交/收割/事务、装配、QA 工具、写手 v2 | `git clone` 本仓库；nalu 线跑在分支 `nalu-line`（= main + 补丁 e08–e20，见 §6） |
-| 运行时工作区 | `$RUNTIME_ROOT` | `qingshan.json`、`sources/<作品>/`、`preproduction/<EP>/`、`runtime/`（编排器、线专属工具、runbook、登记表、账本、审核、状态）、`deliverables/<EP>/` | `qingshan init --workspace $RUNTIME_ROOT`，再把伴生仓库 **nalu-production-runtime** 的 `runtime/` 放进去 |
+| 运行时工作区 | `$RUNTIME_ROOT` | `qingshan.json`、`sources/<作品>/`、`preproduction/<EP>/`、`runtime/`（编排器、线专属工具、runbook、登记表、账本、审核、状态）、`deliverables/<EP>/` | `qingshan init --workspace $RUNTIME_ROOT` 后跑 `lines/nalu/runtime/tools/bootstrap_runtime_root.py`（模板与空登记表随本仓库提供；**不需要**任何第二个仓库） |
 | 引擎侧工作树（gitignored） | `$ENGINE_ROOT/workflow/nalu/<EP>/{preproduction,identity,voice,video,assembly}`、`$ENGINE_ROOT/workflow/tasks/giggle_*_transactions/<EP>/`、`$ENGINE_ROOT/workflow/production_line/EPISODE_PROMPT_BATCH_POLICY.json` | 引擎工具的既有路径约定 | 自动生成 |
 | 写手状态（gitignored） | `$ENGINE_ROOT/workflow/claude_writer_agent/{SUPERVISOR_ORDERS.json,PROGRESS.json,MEMORY.md,scripts/}` | 线主指令（带序号）、进度、四层剧本 | 代理维护 |
 
@@ -39,10 +39,9 @@ git clone https://github.com/rogerwu188/qingshan-short-drama-production-line.git
 cd $ENGINE_ROOT && git checkout nalu-line          # 或 main + 手动打 runtime/engine_patches/*.diff
 python3.12 -m venv .qingshan-venv && .qingshan-venv/bin/pip install -e '.[media,asr,cloud]' insightface onnxruntime rapidocr-onnxruntime faster-whisper opencc
 .qingshan-venv/bin/qingshan init --workspace $RUNTIME_ROOT
+python3 lines/nalu/runtime/tools/bootstrap_runtime_root.py --runtime-root "$RUNTIME_ROOT" --line-id <你的线号> --work <作品名>
 .qingshan-venv/bin/qingshan doctor --profile all --config $RUNTIME_ROOT/qingshan.json
 .qingshan-venv/bin/qingshan test
-git clone https://github.com/rogerwu188/nalu-production-runtime.git /tmp/npr && cp -R /tmp/npr/runtime $RUNTIME_ROOT/runtime
-# 手工：.env、qingshan.json（title / paid_requests_enabled=false / 只留 seedance-2.0-pro）、runtime/voice_registry.json（空表）、runtime/voice_catalog.json
 .qingshan-venv/bin/python $RUNTIME_ROOT/runtime/tools/nalu_pipeline.py run --episode E01     # 无 --paid：S1/S2 免费执行，S3 起 DRY_PLANNED 并打印本应执行的付费命令
 ```
 
@@ -143,8 +142,14 @@ git clone https://github.com/rogerwu188/nalu-production-runtime.git /tmp/npr && 
 
 ## 7. 起新集 checklist（E0N，从 E0N-1 克隆）
 
+0. **开工前必读（硬要求，先读再动笔）**：`configs/ENGINEERING_KNOWLEDGE_V1.json`（K001–，每条是抽象后的规则）
+   与 `knowledge/failure_memory.jsonl`（`failure_code` → `do_not_repeat`）。这两份是**原因**，不是模板：
+   读的是「哪类错不要再犯」，**不是**照搬旧集的镜头表或台词。收工侧写 K 号（§8）与开工侧读 K 号是同一件事的两端，
+   只有写没有读，本集就会重犯已经付过学费的错。Roger 2026-10-01。
 1. 读源章、写 `E0N_NARRATIVE_CANONICAL_v1.md`（头部逐字引上一集 canonical 末段 5 行；声明观众已知不复证；选择性配乐节点）。
-2. `cp build_e0N-1_layers.py build_e0N_layers.py`，重写数据块（SHOTS/SCENES/CAMERA_PLANS/TRANSITION_NOTES/BEATS/PROPS/SETS/WARDROBE/CHARACTER_ROWS/BGM_CUES），跑通自检。
+2. 写 `build_e0N_layers.py`：逐集构建器内嵌本集镜头表与逐字台词，属**作品文本，不入库**（`.gitignore` 已拦）。
+   按 `lines/nalu/docs/DEPLOY_NEW_MACHINE.md` §5 的骨架自写，或从上一集的本地副本（若本机有）改写数据块
+   （SHOTS/SCENES/CAMERA_PLANS/TRANSITION_NOTES/BEATS/PROPS/SETS/WARDROBE/CHARACTER_ROWS/BGM_CUES），跑通自检。
 3. 写 `preproduction/E0N/asset_requirements_overlay.json`、`new_location_place_spec.json`、`view_reference_policy.json`；新说话角色先进 `voice_catalog.json`；复用角色靠 `asset_library.json` 的 LOCKED 行（换代重做时把状态改成 `SUPERSEDED_…_PENDING_REGENERATION` 并保留 `superseded_locks`）。
 4. `run --episode E0N --until S3`（无 --paid）→ 看 DRY_PLANNED 的计划与费用；`sed s/E0N-1/E0N/g` 生成审核填答脚本与 S6 循环脚本。
 5. 线主授权后：S3 付费 → 身份审 → S4 → S5 干跑 → 规划编译 → 登记 → 摘要 → 答案 → 回执 → 登记 → S5 付费 → Q1 → S6 波次 → post-gen/Q2 → S7 → S8 → S7-SYNC。

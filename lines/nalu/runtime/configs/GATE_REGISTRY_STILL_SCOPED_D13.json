@@ -266,7 +266,7 @@
       "implementation_type": "MANUAL_GATE",
       "code_paths": [],
       "test_paths": [],
-      "manual_checklist_path": "workflow/cloud_factory_migration_v1_20260724/charters/青山AI_剧本创作_云端可移植宪章.md",
+      "manual_checklist_path": "agent_factory/storyclaw_portable/SCRIPT_COUNCIL_CHECKLIST.md",
       "parameters": {
         "five_independent_advisors_required": true,
         "chair_verdict_required": true,
@@ -980,7 +980,7 @@
       "implementation_type": "CODED",
       "code_paths": [
         "tools/validate_three_episode_concurrency.py",
-        "workflow/production_line/THREE_EPISODE_CONCURRENCY_POLICY.json"
+        "workflow/production_line/PORTABLE_CONCURRENCY_POLICY_TEMPLATE.json"
       ],
       "test_paths": [
         "tools/tests/test_validate_three_episode_concurrency.py"
@@ -1008,7 +1008,7 @@
       "implementation_type": "CODED",
       "code_paths": [
         "workflow/dashboard/build_status.py",
-        "workflow/time_ledger/E17_time_ledger.json",
+        "workflow/time_ledger/PORTABLE_TIME_LEDGER_TEMPLATE.json",
         "tools/poll_giggle_submit_report.py"
       ],
       "test_paths": [
@@ -2319,9 +2319,9 @@
     }
   ],
   "derived_schema": "nalu.still_scoped_gate_registry.v1",
-  "derived_from": "configs/GATE_REGISTRY_v3_20260716.json",
-  "derived_from_sha256": "7dd0c9a0cd8e865dfbd0931345657f2a3224104de30aaf1ce218d071ae3f8af9",
-  "derived_at": "2026-09-19T14:47:39Z",
+  "derived_from": "/Users/rogerwu/nalu/configs/GATE_REGISTRY_v3_20260716.json",
+  "derived_from_sha256": "b1bafb93dc1276598c6d54340160a657ca4d9e899c8c802ce577e551e6ebd960",
+  "derived_at": "2026-09-29T07:45:20Z",
   "derived_by": "keyframe_q1_builder.v1",
   "scope": "KEYFRAME_VIDEO_SUBMIT (stills) ONLY — video Q2 uses the engine registry",
   "decision_ref": "SUPERVISOR_ORDERS seq=4 / D-13 operator call 2026-09-09",

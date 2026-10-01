@@ -1,0 +1,25 @@
+[2026-09-25T19:33:28Z] ==============================================================================
+[2026-09-25T19:33:28Z] nalu_pipeline run  episode=E08  stages=S1..S6
+[2026-09-25T19:33:28Z]   mode: dry_run=False  --paid=False  qingshan.json paid_requests_enabled=False  => PAID STEPS DISABLED
+[2026-09-25T19:33:28Z]   cap=8000 credits/episode   concurrency<= 6
+[2026-09-25T19:33:28Z]   state=/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_state/E08.json
+[2026-09-25T19:33:28Z]   logs=/Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08
+[2026-09-25T19:33:28Z] ==============================================================================
+[2026-09-25T19:33:28Z] 
+-- S1 script-ready (four layers + gate 10 + character entity contract)
+[2026-09-25T19:33:28Z] $ /Users/rogerwu/nalu/.qingshan-venv/bin/python /Users/rogerwu/nalu/agent_factory/claude_writer_v2/gates/writer_scene_source_declaration_gate.py /Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_manifest_v1.json --warn-is-fail --out /Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_gate10.json
+[2026-09-25T19:33:28Z]   -> exit=0 log=20260925T193328.674081Z_8374_bdecac15_s1_gate10_writer_scene_source_declaration.log
+[2026-09-25T19:33:28Z] $ /Users/rogerwu/nalu/.qingshan-venv/bin/python -c 'import json,sys;sys.path.insert(0,'"'"'.'"'"')
+from tools.character_entity_contract import validate_character_entity_contract
+print(json.dumps(validate_character_entity_contract(json.load(open('"'"'/Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_GENERATION_CONTRACT_v1.json'"'"'))),ensure_ascii=False))'
+[2026-09-25T19:33:28Z]   -> exit=0 log=20260925T193328.674081Z_8374_bdecac15_s1_character_entity_contract.log
+[2026-09-25T19:33:28Z] $ /Users/rogerwu/nalu/.qingshan-venv/bin/python /Users/rogerwu/nalu/lines/nalu/runtime/tools/static_design_gate.py --contract /Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_GENERATION_CONTRACT_v1.json --episode E08 --out /Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_static_design_gate.json
+[2026-09-25T19:33:28Z]   -> exit=0 log=20260925T193328.674081Z_8374_bdecac15_s1_static_design_gate.log
+[2026-09-25T19:33:28Z] $ /Users/rogerwu/nalu/.qingshan-venv/bin/python /Users/rogerwu/nalu/tools/script_structure_contract_gate.py --contract /Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_GENERATION_CONTRACT_v1.json --manifest /Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_manifest_v1.json --lexicon /Users/rogerwu/nalu/lines/nalu/runtime/configs/LEXICON_yewujiang_v1.json --out /Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_script_structure_contract_gate.json
+[2026-09-25T19:33:28Z]   -> exit=0 log=20260925T193328.674081Z_8374_bdecac15_s1_script_structure_contract_gate.log
+[2026-09-25T19:33:28Z] $ /Users/rogerwu/nalu/.qingshan-venv/bin/python /Users/rogerwu/nalu/tools/continuity_state_contract_gate.py --contract /Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_GENERATION_CONTRACT_v1.json --out /Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_continuity_state_contract_gate.json
+[2026-09-25T19:33:28Z]   -> exit=0 log=20260925T193328.674081Z_8374_bdecac15_s1_continuity_state_contract_gate.log
+[2026-09-25T19:33:28Z] $ /Users/rogerwu/nalu/.qingshan-venv/bin/python /Users/rogerwu/nalu/lines/nalu/runtime/tools/nalu_writer_selfcheck_seq29.py --contract /Users/rogerwu/nalu/workflow/claude_writer_agent/scripts/E08_GENERATION_CONTRACT_v1.json --out /Users/rogerwu/nalu/lines/nalu/runtime/pipeline_logs/E08/20260925T193328.674081Z_8374_bdecac15_writer_selfcheck_seq29.json
+[2026-09-25T19:33:28Z]   -> exit=0 log=20260925T193328.674081Z_8374_bdecac15_s1_writer_selfcheck_seq29.log
+[2026-09-25T19:33:28Z]    S1 => BLOCKED   blockers: PROJECT_SCOPE_FAIL:ASSET_LIBRARY_PROJECT_MISMATCH:None!=NALU-YEWUJIANG
+[2026-09-25T19:33:28Z] !! S1 did not pass — stopping (resume with --from S1 once the blocker is cleared)

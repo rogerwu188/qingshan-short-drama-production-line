@@ -102,8 +102,17 @@
 # generalized code — never uploaded (see AGENTS.md S7-SYNC).
 lines/*/runtime/budget/
 lines/*/working_assets/
-lines/*/runtime/tools/review_fill/e[0-9][0-9]_fill_*.py
+# Per-episode one-offs: they name one episode and carry that episode's own
+# content.  Generalized helpers (asr_units, contact_sheet, video_sheets,
+# s6_loop.sh) stay tracked on purpose.
+lines/*/runtime/tools/review_fill/e[0-9][0-9]_*.py
 lines/*/runtime/*_character_asset_registry.json
 tools/build_e[0-9][0-9]_reroll*.py
+# Per-episode builders embed the episode's shot table and verbatim dialogue
+# (work text, never published).  Roger 2026-10-01: 仓库里不允许有剧本原文.
+# These were removed on 2026-09-15 and re-added by the 09-22 merge because no
+# rule covered them; this rule is the guard that keeps that from repeating.
+lines/*/runtime/tools/build_e*_layers*.py
+lines/*/runtime/tools/build_e*_layers*.py.txt
 !/deploy/
 !/deploy/**
