@@ -4845,6 +4845,27 @@ def s7_final_audience_review(ctx: Ctx, res: StageResult) -> dict[str, Any]:
     }
 
 
+def _reusable_release_level(p: Any, source: Any) -> dict[str, Any] | None:
+    """The existing levelled release, if it is a PASS made from the current source picture."""
+    report = read_json(p.leveled_audio_report, {}) or {}
+    source = Path(str(source))
+    if not (p.final_mp4.is_file() and source.is_file()
+            and str(report.get("status") or "").startswith("PASS")
+            and report.get("source_video_stream_sha256")):
+        return None
+    try:
+        sys.path.insert(0, str(ENGINE / "tools"))
+        import level_native_release_audio as _lvl
+        current = _lvl.stream_hash(source, "0:v:0")
+        final = _lvl.stream_hash(p.final_mp4, "0:v:0")
+    except Exception:  # noqa: BLE001 -- if we cannot prove it is the same, run the leveller
+        return None
+    if current != report["source_video_stream_sha256"] or final != report.get("output_video_stream_sha256"):
+        return None
+    return {"report": str(p.leveled_audio_report), "status": report["status"],
+            "source_video_stream_sha256": current, "final_sha256": sha256_file(p.final_mp4)}
+
+
 def stage_s7(ctx: Ctx) -> StageResult:
     """Q2 admission -> AgentCut project -> render -> release loudness -> final QA.
 
@@ -5115,7 +5136,17 @@ def stage_s7(ctx: Ctx) -> StageResult:
     if asr_windows_pre.is_file():
         level_argv = level_argv[:-2] + ["--line-windows", asr_windows_pre] + level_argv[-2:]
     res.details["commands"]["level_native_release_audio"] = q(level_argv)
-    steps.append(ctx.run(level_argv, name="s7_level_native_release_audio"))
+    _lvl_source = level_argv[level_argv.index("--source") + 1] if "--source" in level_argv else p.picture_native
+    reused_level = _reusable_release_level(p, _lvl_source)
+    if reused_level:
+        # Idempotent re-entry: the leveller refuses to overwrite its immutable output/QA, so a
+        # re-run of S7 (e.g. after an audience-detector order) used to dead-end here even though
+        # the release is unchanged.  Reuse only when the recorded report PASSed and the current
+        # source picture stream is byte-for-byte the one it was levelled from (E10, 2026-10-02).
+        res.details["release_audio_level_reused"] = reused_level
+        steps.append({"name": "s7_level_native_release_audio", "exit_code": 0, "reused": reused_level})
+    else:
+        steps.append(ctx.run(level_argv, name="s7_level_native_release_audio"))
     res.receipts.append(str(p.leveled_audio_report))
     if steps[-1]["exit_code"] != 0 or not p.final_mp4.is_file():
         # The measurement stays honest (leveled_audio_report keeps its real FAIL and
