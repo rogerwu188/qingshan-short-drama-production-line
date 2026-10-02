@@ -32,6 +32,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import prompt_batch_hint as _hint  # bounded, order-preserving per-unit parallelism
+
 ENGINE = Path(f"{_np.ENGINE_ROOT}")
 WORK = Path(os.environ.get("NALU_WORK_ROOT", str(_np.RUNTIME_ROOT / "workflow" / "nalu"))).expanduser().resolve()
 
@@ -65,32 +67,62 @@ def load_ctx(ep: str, execution_id: str, *, batch_path: Path | None = None,
     return pre, batch, tx_path, tx, planned
 
 
+def compare_unit(task: dict, planned: dict, *, engine: Path | None = None) -> dict:
+    """One unit's planned-vs-final comparison, as a digest row.
+
+    Pure and self-contained (reads only this unit's prompt files) so ``diff`` can run it over a
+    thread pool.  Raises only for a programming error: a missing final prompt is a recorded row,
+    not an exception, exactly as the serial loop behaved.
+    """
+    engine = ENGINE if engine is None else engine
+    uid = task["unit_id"]
+    final_path = engine / task["prompt_file"]
+    if not final_path.is_file():
+        return {"unit_id": uid, "status": "FINAL_PROMPT_MISSING"}
+    final_sha = sha(final_path)
+    pl = planned[uid]
+    planned_path = engine / pl["video_prompt"]["path"]
+    planned_sha = pl["video_prompt"]["sha256"]
+    if final_sha == planned_sha:
+        return {"unit_id": uid, "status": "UNCHANGED", "sha256": final_sha}
+    a = planned_path.read_text(encoding="utf-8").splitlines()
+    b = final_path.read_text(encoding="utf-8").splitlines()
+    ud = list(difflib.unified_diff(a, b, fromfile="planned", tofile="final", lineterm="", n=0))
+    changed = [l for l in ud if l.startswith(("+", "-")) and not l.startswith(("+++", "---"))]
+    return {"unit_id": uid, "status": "CHANGED", "planned_sha256": planned_sha, "final_sha256": final_sha,
+            "planned_path": rel(planned_path), "final_path": rel(final_path),
+            "changed_line_count": len(changed), "diff": changed[:80]}
+
+
 def diff(ep: str, execution_id: str, out: Path, **context_paths) -> dict:
     pre, batch, tx_path, tx, planned = load_ctx(ep, execution_id, **context_paths)
+    task_by_uid = {task["unit_id"]: task for task in tx["tasks"]}
+    # Per-unit comparison is independent (each unit reads only its own files) and runs on a bounded
+    # thread pool; rows are re-emitted in the transaction's own task order, so the digest bytes are
+    # identical to the serial loop for the same inputs.  A unit whose comparison raises is recorded
+    # as its own row and never corrupts another unit's row.
+    compared = _hint.parallel_map(
+        _hint.never_raise(lambda unit_id: compare_unit(task_by_uid[unit_id], planned)),
+        [task["unit_id"] for task in tx["tasks"]],
+    )
     rows = []
     for task in tx["tasks"]:
-        uid = task["unit_id"]
-        final_path = ENGINE / task["prompt_file"]
-        if not final_path.is_file():
-            rows.append({"unit_id": uid, "status": "FINAL_PROMPT_MISSING"}); continue
-        final_sha = sha(final_path)
-        pl = planned[uid]
-        planned_path = ENGINE / pl["video_prompt"]["path"]
-        planned_sha = pl["video_prompt"]["sha256"]
-        if final_sha == planned_sha:
-            rows.append({"unit_id": uid, "status": "UNCHANGED", "sha256": final_sha}); continue
-        a = planned_path.read_text(encoding="utf-8").splitlines()
-        b = final_path.read_text(encoding="utf-8").splitlines()
-        ud = list(difflib.unified_diff(a, b, fromfile="planned", tofile="final", lineterm="", n=0))
-        changed = [l for l in ud if l.startswith(("+", "-")) and not l.startswith(("+++", "---"))]
-        rows.append({"unit_id": uid, "status": "CHANGED", "planned_sha256": planned_sha, "final_sha256": final_sha,
-                     "planned_path": rel(planned_path), "final_path": rel(final_path),
-                     "changed_line_count": len(changed), "diff": changed[:80]})
+        row = compared[task["unit_id"]]
+        error = row.get("__error__") if isinstance(row, dict) else None
+        if error:
+            rows.append({"unit_id": task["unit_id"], "status": "COMPARE_FAILED", "error": error})
+        else:
+            rows.append(row)
     report = {"schema": "nalu.prompt_batch_finalization_digest.v1", "episode": ep, "execution_id": execution_id,
               "generated_at": datetime.now(timezone.utc).isoformat(), "rows": rows,
               "summary": {"unchanged": sum(1 for r in rows if r["status"] == "UNCHANGED"),
                           "changed": sum(1 for r in rows if r["status"] == "CHANGED"),
-                          "missing": sum(1 for r in rows if r["status"] == "FINAL_PROMPT_MISSING")}}
+                          "missing": sum(1 for r in rows if r["status"] == "FINAL_PROMPT_MISSING"),
+                          "compare_failed": sum(1 for r in rows if r["status"] == "COMPARE_FAILED")}}
+    if not report["summary"]["compare_failed"]:
+        # Byte-identity guard: a clean run keeps the exact summary shape (and therefore the exact
+        # digest bytes) every consumer/reviewer has already SHA-bound.
+        report["summary"].pop("compare_failed")
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     print(json.dumps(report["summary"], ensure_ascii=False))
     return report
@@ -143,12 +175,18 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("diff"); d.add_argument("--episode", required=True); d.add_argument("--execution-id", required=True); d.add_argument("--out", required=True)
+    d.add_argument("--batch-path"); d.add_argument("--transaction-path")
     r = sub.add_parser("receipts"); r.add_argument("--episode", required=True); r.add_argument("--execution-id", required=True)
     r.add_argument("--digest", required=True); r.add_argument("--answers", required=True); r.add_argument("--out-dir", required=True)
+    r.add_argument("--batch-path"); r.add_argument("--transaction-path")
     args = ap.parse_args()
+    context: dict[str, Path] = {}
+    if args.batch_path or args.transaction_path:
+        # Both or neither; isolated finalisation (offline tests, dedicated runtimes).
+        context = {"batch_path": Path(args.batch_path), "transaction_path": Path(args.transaction_path)}
     if args.cmd == "diff":
-        diff(args.episode, args.execution_id, Path(args.out)); return 0
-    s = receipts(args.episode, args.execution_id, Path(args.digest), Path(args.answers), Path(args.out_dir))
+        diff(args.episode, args.execution_id, Path(args.out), **context); return 0
+    s = receipts(args.episode, args.execution_id, Path(args.digest), Path(args.answers), Path(args.out_dir), **context)
     return 0 if not s["failed"] else 2
 
 

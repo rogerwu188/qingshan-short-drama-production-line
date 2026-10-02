@@ -5869,7 +5869,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "532fb3fbe8e72dc39c6bc6ebb6269087fe28a20e0bcd202ef4d5c670c970244f"
+      "sha256": "f1cdf573da61bd7d960af0154bfcad1d346d2bf3cf40d25cc3d585699c153b95"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -6969,7 +6969,7 @@
     },
     {
       "path": "tools/tests/test_nalu_runtime_port.py",
-      "sha256": "b5d200c97defd3264106e6a60eda6d6197fb7bf352a322ae4093f51cae96371e"
+      "sha256": "dc8754590c3a216d6be042bc4edb5a014f5aa07238ecce775db272b4c7f7d640"
     },
     {
       "path": "tools/tests/test_nalu_s3_locked_view_reuse.py",
@@ -7513,7 +7513,7 @@
     },
     {
       "path": "tools/tests/test_video_prompt_compiler.py",
-      "sha256": "4b823eedf5fc3b163e471b0d53caf249f18250492a348d13b51769bb3021b58b"
+      "sha256": "24555621d33599ea48e9646787d0ec8c4d7ee475436ca1aec809fafb15d7cc92"
     },
     {
       "path": "tools/tests/test_video_q2_line_owner_acceptance.py",
@@ -7861,7 +7861,7 @@
     },
     {
       "path": "tools/video_prompt_compiler.py",
-      "sha256": "5335f55d400bee4b544f0e45b4b637e50b62ff909de01c60e013e86542ffcad7"
+      "sha256": "3ed46771ed3204daac851ab41e25007b6405e820a061dbcec6de30db55b1ce44"
     },
     {
       "path": "tools/video_sequence_rhythm_gate.py",

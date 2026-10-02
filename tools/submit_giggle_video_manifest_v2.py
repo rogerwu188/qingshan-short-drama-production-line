@@ -45,7 +45,7 @@ class PromptScopeGateBlocked(ValueError):
 
 
 try:
-    from giggle_api_client import _image_list, _request, paid_video_submission_context
+    from giggle_api_client import _image_list, _registered_asset, _request, paid_video_submission_context
     from giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from video_model_adapter import require_paid_model_contract
     from retry_cap_gate import validate_submission_attempt
@@ -69,7 +69,7 @@ try:
     from opening_anchor_chain_gate import validate_opening_anchor_chain
     from provider_scope_projection import validate_provider_scope_projection
 except ModuleNotFoundError:
-    from tools.giggle_api_client import _image_list, _request, paid_video_submission_context
+    from tools.giggle_api_client import _image_list, _registered_asset, _request, paid_video_submission_context
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from tools.video_model_adapter import require_paid_model_contract
     from tools.retry_cap_gate import validate_submission_attempt
@@ -338,11 +338,17 @@ def task_fingerprint(task: dict[str, Any]) -> str:
 # All reference images go base64 inside ONE JSON POST.  Large bodies die at the edge: 2026-09-21
 # 12/12 Broken pipe/524 at concurrency 6, and 2026-10-01 E10-VU-020 (7 refs, 37 MB raw ≈ 51 MB
 # base64) hit HTTP 524 twice -- the second one charged 160 credits with no task id.  Over the limit
-# every reference is re-encoded as JPEG q90 in memory; the files on disk (and reference_sha256) are
-# unchanged, and the transport is part of the fingerprint so it never collides with an earlier,
-# uncompressed transaction for the same unit.  Line-owner order seq=21 (Roger 2026-10-01).
+# every reference is registered through the existing asset service (upload_giggle_asset, the same
+# path audio references already use) and transported as an {"asset_id": ...} entry, which is what
+# giggle_api_client.generate_omni_video already accepts via --image-asset-id.  The files on disk
+# (and reference_sha256) are unchanged, and the transport is part of the fingerprint so an
+# asset-id submission never collides with an earlier, base64 one for the same unit.  Line-owner
+# order seq=21 (Roger 2026-10-01); asset transport 2026-10-02.
 REFERENCE_PAYLOAD_RAW_LIMIT_BYTES = int(os.environ.get("GIGGLE_REFERENCE_PAYLOAD_LIMIT_BYTES") or 15_000_000)
 REFERENCE_JPEG_TRANSPORT = "JPEG_Q90_V1"
+REFERENCE_ASSET_TRANSPORT = "ASSET_ID_V1"
+#: Token recorded in the transaction intent so recovery/audit can name the over-limit transport.
+REFERENCE_IMAGE_ASSET_IDS_KEY = "reference_image_asset_ids"
 
 
 def reference_transport(task: dict[str, Any]) -> str | None:
@@ -351,23 +357,35 @@ def reference_transport(task: dict[str, Any]) -> str | None:
         path = resolve(value)
         if path.is_file():
             total += path.stat().st_size
-    return REFERENCE_JPEG_TRANSPORT if total > REFERENCE_PAYLOAD_RAW_LIMIT_BYTES else None
+    return REFERENCE_ASSET_TRANSPORT if total > REFERENCE_PAYLOAD_RAW_LIMIT_BYTES else None
 
 
 def reference_image_payload(task: dict[str, Any]) -> list[dict[str, str]]:
+    """Reference-image transport for one task; also records registered ids on the task.
+
+    Over the raw limit the images travel as registered ``{"asset_id": ...}`` entries; at or below
+    it they stay base64 exactly as before.  Callers that need the ids for the transaction intent
+    use :func:`_reference_image_transport`, which returns both.
+    """
+    return _reference_image_transport(task)[0]
+
+
+def _reference_image_transport(task: dict[str, Any]) -> tuple[list[dict[str, str]], list[str]]:
+    """Build the ``images`` payload and, for the asset transport, the ordered asset ids.
+
+    Idempotent-safe: a re-entry that already registered this task's references (e.g. across a
+    second wave pass over the same task dict) reuses the recorded ids instead of re-uploading the
+    same bytes.  A task hard-bound to a task id never reaches here -- ``prior_bound`` returns first.
+    """
     paths = [str(resolve(value)) for value in task["reference_images"]]
-    if reference_transport(task) != REFERENCE_JPEG_TRANSPORT:
-        return _image_list(paths)
-    import base64
-    import io
-    from PIL import Image
-    out = []
-    for path in paths:
-        with Image.open(path) as image:
-            buffer = io.BytesIO()
-            image.convert("RGB").save(buffer, format="JPEG", quality=90, optimize=True)
-        out.append({"base64": base64.b64encode(buffer.getvalue()).decode("ascii")})
-    return out
+    if reference_transport(task) != REFERENCE_ASSET_TRANSPORT:
+        return _image_list(paths), []
+    cached = task.get(REFERENCE_IMAGE_ASSET_IDS_KEY)
+    if isinstance(cached, list) and len(cached) == len(paths) and all(str(v).strip() for v in cached):
+        return [{"asset_id": str(value)} for value in cached], [str(value) for value in cached]
+    asset_ids = [str(_registered_asset(path)["asset_id"]) for path in paths]
+    task[REFERENCE_IMAGE_ASSET_IDS_KEY] = asset_ids
+    return [{"asset_id": value} for value in asset_ids], list(asset_ids)
 
 
 def validate_submission_camera(task: dict[str, Any]) -> dict[str, Any]:
@@ -879,14 +897,27 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         prompt_text = resolve(task["prompt_file"]).read_text(encoding="utf-8")
         scope_evidence = run_prompt_scope_gate(task, prompt_text, transaction_dir)
     transaction = transaction_path(transaction_dir, task)
+    # Bind the fingerprint before any upload: task_fingerprint() reads reference_transport (the
+    # transport mode) but never the registered ids, so it is stable across a registration retry.
+    fingerprint = task_fingerprint(task)
+    # Register over-limit references BEFORE the intent record.  A failed upload must not leave an
+    # INTENT_RECORDED transaction (that would look like an in-flight submission and block recovery);
+    # no POST is attempted, so the task is simply not charged and follows the pre-intent convention
+    # (no transaction file -> classify_failures reports submit_failed_before_intent / NOT_CHARGED).
+    images_payload, reference_image_asset_ids = _reference_image_transport(task)
     intent = {
         "schema": "qingshan.giggle_video_submit_transaction.v1",
         "task_key": task["task_key"], "attempt_id": str(uuid.uuid4()),
-        "submission_fingerprint": task_fingerprint(task), "state": "INTENT_RECORDED",
+        "submission_fingerprint": fingerprint, "state": "INTENT_RECORDED",
         "intent_recorded_at": utc_now(), "prompt_sha256": task["prompt_sha256"],
         "reference_sha256": task["reference_sha256"], "model": task["model"],
         "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
     }
+    if reference_image_asset_ids:
+        # Over-limit transport: record the registered ids so recovery and audit can see exactly
+        # which provider assets this transaction is bound to without re-reading the request body.
+        intent["reference_transport"] = REFERENCE_ASSET_TRANSPORT
+        intent[REFERENCE_IMAGE_ASSET_IDS_KEY] = list(reference_image_asset_ids)
     if scope_evidence is not None:
         intent["prompt_scope_conflict_gate"] = scope_evidence["gate"]
         intent["loaded_modules"] = scope_evidence["loaded_modules"]
@@ -896,7 +927,7 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         "model": task["model"], "duration": int(task["duration_seconds"]),
         "aspect_ratio": task.get("aspect_ratio", "9:16"), "resolution": task["resolution"],
         "generating_count": 1,
-        "images": reference_image_payload(task),
+        "images": images_payload,
     }
     audio_asset_ids = [
         *(task.get("exact_dialogue_audio_asset_ids") or []),

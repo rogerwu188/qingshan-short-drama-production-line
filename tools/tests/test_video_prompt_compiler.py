@@ -11,10 +11,15 @@ from tools.h3_provider_english_contract import (
 )
 from tools.speaker_voice_contract import attach_speaker_voice_contract
 from tools.video_prompt_compiler import (
+    PROVIDER_PROMPT_RUNE_LIMIT,
     compile_model_prompt,
     compile_receipt,
     model_family,
     validate_model_prompt_for_model,
+)
+from tools.visual_culture_contract import (
+    DEFAULT_CONTRACT as DEFAULT_VISUAL_CULTURE_CONTRACT,
+    validate_visual_culture_contract,
 )
 from tools.submit_giggle_video_manifest_v2 import uses_structured_role_gate
 
@@ -81,6 +86,13 @@ def _unit(*, dialogue: str = "", transitions: bool = False) -> dict:
     unit = {
         "unit_id": "E45-VU-TEST",
         "model": "MiniMax-H3",
+        # Every real production unit carries the writer-locked visual-culture contract, and
+        # compile_model_prompt (video_prompt_compiler.py:120) fails closed without it.  The shared
+        # fixture must model a complete unit, so each test below exercises its own subject instead
+        # of dying on VISUAL_CULTURE_CONTRACT_MISSING.  The negative direction (a contract-less unit
+        # still fails closed) is asserted separately in
+        # test_unit_without_visual_culture_contract_fails_closed_without_autofill.
+        "visual_culture_contract": deepcopy(DEFAULT_VISUAL_CULTURE_CONTRACT),
         "duration_seconds": 6,
         "aspect_ratio": "9:16",
         "resolution": "720p",
@@ -348,11 +360,64 @@ class VideoPromptCompilerTest(unittest.TestCase):
     def test_model_prompt_is_compact_and_does_not_leak_machine_contract(self):
         unit = _unit(dialogue="白鲤：陈迹。")
         text = _compile_h3(unit)
-        self.assertLess(len(text), 3000)
+        # The provider hard limit is PROVIDER_PROMPT_RUNE_LIMIT (10,000 runes; Giggle OmniVideo,
+        # enforced by validate_model_prompt_for_model and by compile_model_prompt itself).  This
+        # test guards headroom, not the provider limit: 8000 is a documented safety budget that
+        # leaves ~20% of the provider limit for reference-image caption growth.  It is deliberately
+        # NOT the old 3000: a legitimate unit with every identity/voice/per-shot-camera/visibility
+        # constraint intact renders at 3354 runes (combat units reach ~3478), so a 3000 bound would
+        # only pass by deleting legitimate constraints.  Default headroom was chosen to keep the
+        # bound below the provider limit on purpose -- it is a *tighter* self-imposed guard.
+        safety_budget = 8000
+        self.assertLess(len(text), safety_budget)
+        self.assertLess(len(text), PROVIDER_PROMPT_RUNE_LIMIT)
         for forbidden in ("qingshan.", "sha256", "ROLE_LOCK[", "immutable_contract_sha256"):
             self.assertNotIn(forbidden, text)
         receipt = compile_receipt(unit["unit_id"])
         self.assertEqual(receipt["provider_semantic_coverage_receipt"]["status"], "PASS")
+
+    def test_unit_without_visual_culture_contract_fails_closed_without_autofill(self):
+        # The contract requirement added by dc86553 must stay enforced for real production units:
+        # the compiler must not auto-fill it, so a unit lacking one fails closed with the exact
+        # failure code rather than silently gaining a default.
+        unit = _unit(dialogue="白鲤：陈迹。")
+        unit.pop("visual_culture_contract")
+        report = validate_visual_culture_contract(unit)
+        self.assertEqual(report["status"], "FAIL")
+        self.assertIn("VISUAL_CULTURE_CONTRACT_MISSING", report["failures"])
+        with self.assertRaisesRegex(ValueError, "VISUAL_CULTURE_CONTRACT_MISSING"):
+            _compile_h3(unit)
+
+    def test_compile_time_rune_limit_fails_before_submission_and_reports_headroom(self):
+        # The provider rune limit used to be caught only at submission preflight.  A strict compile
+        # now fails at COMPILE time with the same code and a message naming the limit and the
+        # overage, so an over-limit unit can never reach a paid POST.  Planning-only compiles stay
+        # non-fatal and record the overage on the receipt instead (reported, not silently passed).
+        unit = _unit(dialogue="白鲤：陈迹。")
+        # Pad a legitimate unit's dialogue so the rendered H3 payload lands past the provider limit
+        # without deleting any identity/voice/camera/visibility constraint.
+        unit["ordered_prompt_specs"][0]["dialogue"] = "白鲤：" + "陈迹" * (PROVIDER_PROMPT_RUNE_LIMIT // 2)
+        with self.assertRaisesRegex(ValueError, "PROVIDER_PROMPT_RUNE_LIMIT_EXCEEDED"):
+            _compile_h3(unit)
+        with self.assertRaisesRegex(
+            ValueError, f"provider limit {PROVIDER_PROMPT_RUNE_LIMIT} runes"
+        ):
+            _compile_h3(unit)
+        # preproduction_only must still compile, recording the overage rather than raising.
+        bind_h3_provider_english_contract(unit, _english_payload(unit))
+        compiled = compile_model_prompt(unit, preproduction_only=True)
+        self.assertGreater(len(compiled), PROVIDER_PROMPT_RUNE_LIMIT)
+        receipt = compile_receipt(unit["unit_id"])["provider_prompt_rune_limit"]
+        self.assertEqual(receipt["status"], "FAIL")
+        self.assertEqual(receipt["maximum_prompt_runes"], PROVIDER_PROMPT_RUNE_LIMIT)
+        self.assertGreater(receipt["overage_runes"], 0)
+        report = validate_model_prompt_for_model(
+            "x" * (PROVIDER_PROMPT_RUNE_LIMIT + 5),
+            model="MiniMax-H3",
+            source_id="E99-VU-OVR",
+        )
+        self.assertEqual(report["status"], "FAIL")
+        self.assertEqual(report["maximum_prompt_runes"], PROVIDER_PROMPT_RUNE_LIMIT)
 
     def test_h3_adult_female_visual_is_explicitly_adult_and_model_specific(self):
         unit = _unit()

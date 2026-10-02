@@ -22,9 +22,28 @@ class NaluRuntimePortTest(unittest.TestCase):
         env.pop("GIGGLE_API_KEY", None)
         return env
 
+    def _shipped_nalu_files(self) -> list[Path]:
+        """Files under lines/nalu that a clone would actually receive.
+
+        A working clone also holds gitignored local state (pipeline_state/,
+        pipeline_logs/, nalu_character_asset_registry.json, review-fill
+        scratch) that a clean clone never has and that legitimately carries
+        absolute paths.  Scanning the whole tree would make this portable-
+        contract test fail only on the machine that produced the state, which
+        is exactly backwards.  Prefer git's own view of the tree; fall back to
+        the portable manifest's declared files when git is unavailable.
+        """
+        listed = subprocess.run(["git", "ls-files", "-z", "lines/nalu"], cwd=REPO,
+                                capture_output=True, text=True)
+        if listed.returncode == 0:
+            return [REPO / name for name in listed.stdout.split("\0") if name]
+        manifest = json.loads((REPO / "configs/PORTABLE_CORE_MANIFEST.json").read_text())
+        return [REPO / value for value in manifest["required_files"]
+                if value.startswith("lines/nalu/")]
+
     def test_no_machine_specific_paths(self) -> None:
         offenders = []
-        for path in NALU.rglob("*"):
+        for path in self._shipped_nalu_files():
             if path.is_file() and path.suffix in {".py", ".sh", ".json", ".md", ".diff"}:
                 if ("/Us" + "ers/") in path.read_text(encoding="utf-8", errors="replace"):
                     offenders.append(str(path.relative_to(REPO)))

@@ -97,6 +97,12 @@ except ModuleNotFoundError:
 SEEDANCE_MODELS = {"seedance-2.0-pro"}
 H3_MODELS = {"minimax-h3", "h3"}
 
+# Giggle's OmniVideo endpoint enforces an inclusive 10,000-rune limit on the rendered payload.
+# This one constant is the single source of truth: the submission preflight
+# (validate_model_prompt_for_model) and the compile-time guard both read it, so the two can never
+# disagree about what the provider will reject.
+PROVIDER_PROMPT_RUNE_LIMIT = 10_000
+
 
 def model_family(model: object) -> str:
     value = str(model or "").strip().lower()
@@ -105,6 +111,31 @@ def model_family(model: object) -> str:
     if value in H3_MODELS:
         return "minimax-h3"
     raise ValueError(f"No prompt compiler registered for video model: {model}")
+
+
+def prompt_rune_limit_report(text: str, *, source_id: str) -> dict[str, Any]:
+    """Check one rendered provider payload against the provider rune limit.
+
+    Returns the same PROVIDER_PROMPT_RUNE_LIMIT_EXCEEDED failure code the submission preflight
+    uses, plus the exact overage, so an over-limit prompt fails before a request is ever built.
+    """
+    prompt_runes = len(text)
+    failures: list[str] = []
+    overage = prompt_runes - PROVIDER_PROMPT_RUNE_LIMIT
+    if overage > 0:
+        failures.append(
+            f"PROVIDER_PROMPT_RUNE_LIMIT_EXCEEDED:{source_id}:{prompt_runes}>"
+            f"{PROVIDER_PROMPT_RUNE_LIMIT}"
+        )
+    return {
+        "schema": "qingshan.provider_prompt_rune_limit.v1",
+        "status": "PASS" if not failures else "FAIL",
+        "source_id": source_id,
+        "prompt_runes": prompt_runes,
+        "maximum_prompt_runes": PROVIDER_PROMPT_RUNE_LIMIT,
+        "overage_runes": max(0, overage),
+        "failures": failures,
+    }
 
 
 def compile_model_prompt(
@@ -135,13 +166,31 @@ def compile_model_prompt(
         text, receipt = render_sd2_prompt(working, plan)
     else:
         text, receipt = render_h3_prompt(working, plan)
+    unit_id = str(unit.get("unit_id") or "UNKNOWN")
+    # Compile-time provider rune limit.  Before this the limit was only enforced at submission
+    # preflight, so an over-limit unit stayed green through S1-S5 planning and blocked the whole
+    # batch at the first paid POST.  A strict (media-admission) compile now fails here with the
+    # same failure code the preflight uses.  Planning-only compiles (preproduction_only=True) are
+    # not admissions, so a planning prompt that runs long is recorded on the receipt (reported,
+    # never silently passed) rather than raised -- planning prompts are not the payload the
+    # provider sees.
+    rune_limit = prompt_rune_limit_report(text, source_id=unit_id)
+    if rune_limit["status"] != "PASS" and not preproduction_only:
+        raise ValueError(
+            f"{';'.join(rune_limit['failures'])}; provider limit "
+            f"{rune_limit['maximum_prompt_runes']} runes, compiled prompt is "
+            f"{rune_limit['prompt_runes']} runes ({rune_limit['overage_runes']} over)"
+        )
     immutability = assert_structured_contract_unchanged(
-        unit, source_sha, source_id=str(unit.get("unit_id") or "UNKNOWN")
+        unit, source_sha, source_id=unit_id
     )
     if immutability["status"] != "PASS":
         raise ValueError(";".join(immutability["failures"]))
-    unit_id = str(unit.get("unit_id") or "UNKNOWN")
-    COMPILE_RECEIPTS[unit_id] = {**receipt, "immutability": immutability}
+    COMPILE_RECEIPTS[unit_id] = {
+        **receipt,
+        "immutability": immutability,
+        "provider_prompt_rune_limit": rune_limit,
+    }
     if preproduction_only:
         COMPILE_RECEIPTS[unit_id].update(scope="PLANNED_PROMPT_COMPILATION_NOT_MEDIA_ADMISSION", provider_post_allowed=False)
     return text
@@ -178,11 +227,10 @@ def validate_model_prompt_for_model(
     # Giggle's OmniVideo endpoint enforces an inclusive 10,000-rune limit.
     # Check the exact rendered payload so preflight cannot approve a request
     # that the provider will reject before creating a task.
-    prompt_runes = len(text)
-    if prompt_runes > 10_000:
-        failures.append(
-            f"PROVIDER_PROMPT_RUNE_LIMIT_EXCEEDED:{source_id}:{prompt_runes}>10000"
-        )
+    rune_limit = prompt_rune_limit_report(text, source_id=source_id)
+    prompt_runes = rune_limit["prompt_runes"]
+    if rune_limit["status"] != "PASS":
+        failures.append(rune_limit["failures"][0])
     boundary = validate_provider_prompt_boundary(
         text,
         source_id=source_id,
@@ -213,7 +261,7 @@ def validate_model_prompt_for_model(
         "source_id": source_id,
         "model_family": family,
         "prompt_runes": prompt_runes,
-        "maximum_prompt_runes": 10_000,
+        "maximum_prompt_runes": PROVIDER_PROMPT_RUNE_LIMIT,
         "semantic_receipt": receipt,
         "failures": failures,
     }
