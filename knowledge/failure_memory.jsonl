@@ -27,3 +27,8 @@
 {"failure_code": "PAID_LOCK_NOT_PROPAGATED_FOR_PROFILE", "do_not_repeat": "新增付费锁时同时检查所有 profile 的导出路径；不要为了过门在子进程里放宽锁校验，改编排器的传递条件并补 fail-closed 测试", "stage": "S4", "scope": "generalizable", "knowledge_id": "K068"}
 {"failure_code": "VOICE_OUT_OF_BAND", "do_not_repeat": "不要把音色类成片检测失败当测量噪声放行；不要在台词前写改变嗓音的措辞；未在付费生产验证前不要声称逐句绑定能锁住 SD2 声线", "stage": "S6", "scope": "generalizable", "knowledge_id": "K069"}
 {"failure_code": "KEYFRAME_CAMERA_NOTE_CROSS_SHOT_LEAK", "do_not_repeat": "不要把按机位聚合的标签（任何含多个镜号的文字）拷进单镜提示词；不要回溯改 E01–E10 已登记提示词；GSM 机位标签仍是多镜聚合，只能作索引，不能作本镜描述", "stage": "S5", "scope": "generalizable", "knowledge_id": "K070"}
+{"failure_code": "NON_FIRST_SHOT_CAMERA_DROPPED", "do_not_repeat": "不要把只写在非首镜机位/轴线里的约束当作已生效；改镜头文字后要在最终提示词里逐条搜到", "stage": "S6", "scope": "generalizable", "knowledge_id": "K071"}
+{"failure_code": "PARTIAL_VISIBILITY_RULE_LEAK", "do_not_repeat": "不要把“防止多生局部人物”写成对所有人物的禁止露脸；新规则必须有反向测试并在最终请求上检查实际影响范围", "stage": "S6", "scope": "generalizable", "knowledge_id": "K072"}
+{"failure_code": "REFERENCE_PAYLOAD_EDGE_TIMEOUT", "do_not_repeat": "不要对已扣费未拿到任务 ID 的事务直接重发同一指纹；不要把多张大尺寸 PNG 原样塞进一个请求", "stage": "S6", "scope": "generalizable", "knowledge_id": "K073"}
+{"failure_code": "KNOWLEDGE_WRITE_ONLY", "do_not_repeat": "不要只在收工侧写 K 号而开工不读；不要用未申报的本地覆盖替换引擎模块", "stage": "PIPELINE", "scope": "generalizable", "knowledge_id": "K074"}
+{"failure_code": "IDENTITY_TRANSFER_FROM_PASSIVE_REFERENCE", "do_not_repeat": "不要用改文字的方式反复重拍换脸问题；先检查参考图集合里有没有不该出现的正脸身份牌", "stage": "S6", "scope": "generalizable", "knowledge_id": "K075"}

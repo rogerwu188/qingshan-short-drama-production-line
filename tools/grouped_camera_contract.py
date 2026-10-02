@@ -174,14 +174,22 @@ def validate_camera_sequence(units: list[dict[str, Any]]) -> None:
         expanded = []
         for unit in units:
             if unit.get("camera_scope_policy") == "PER_SHOT_EXPLICIT":
-                expanded.extend({"unit_id": row["shot_id"], "camera_plan": row["camera_plan"]}
-                                for row in compile_shot_cameras(unit, classify_unit(unit)))
+                # Adjacent-motion repetition is checked shot by shot.  The five-unit window
+                # keeps counting generated units by the camera the unit-wide path validated
+                # (the unit's first shot): counting every shot of a 2-3 shot unit against a
+                # five-unit budget would fail almost any authored episode.
+                expanded.extend({"unit_id": row["shot_id"], "camera_plan": row["camera_plan"],
+                                 "window_member": index == 0}
+                                for index, row in enumerate(compile_shot_cameras(unit, classify_unit(unit))))
             else:
                 expanded.append(unit)
         validate_camera_sequence(expanded)
         return
     dynamic: list[tuple[int, str, str, str]] = []
     previous: tuple[str, str, str] | None = None
+    # Window position per row; per-shot rows after a unit's first shot are not window members.
+    members = [unit.get("window_member", True) for unit in units]
+    positions = [sum(members[:index + 1]) - 1 for index in range(len(units))]
     for index, unit in enumerate(units):
         unit_id = str(unit.get("unit_id") or f"unit-{index + 1}")
         plan = validate_camera_plan(unit.get("camera_plan"), source_id=unit_id)
@@ -202,9 +210,10 @@ def validate_camera_sequence(units: list[dict[str, Any]]) -> None:
                 f"{previous[2]} -> {unit_id}"
             )
         previous = (family, direction, unit_id)
-        dynamic.append((index, direction, family, unit_id))
+        if members[index]:
+            dynamic.append((positions[index], direction, family, unit_id))
 
-    for start in range(max(0, len(units) - 4) + 1):
+    for start in range(max(0, sum(members) - 4) + 1):
         window = [row for row in dynamic if start <= row[0] < start + 5]
         counts: dict[str, int] = {}
         for _, direction, _, _ in window:

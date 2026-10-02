@@ -39,6 +39,11 @@ INSUFFICIENT_CREDIT_TERMS = (
 class ProviderInsufficientCreditsError(RuntimeError):
     """The provider rejected submission because the account cannot fund it."""
 
+
+class PromptScopeGateBlocked(ValueError):
+    """The submit-boundary scope conflict gate failed before any intent or POST (not charged)."""
+
+
 try:
     from giggle_api_client import _image_list, _request, paid_video_submission_context
     from giggle_credit_statements import fetch_pay_statements, reconcile_rows
@@ -88,8 +93,27 @@ except ModuleNotFoundError:
     from tools.opening_anchor_chain_gate import validate_opening_anchor_chain
     from tools.provider_scope_projection import validate_provider_scope_projection
 
+# Shot-scope upgrade (configs/PROMPT_SHOT_SCOPE_POLICY_V1.json): submit-boundary conflict gate
+# and loaded-module audit.  Inactive episodes/models never call either, so their request,
+# transaction intent and fingerprint stay byte-for-byte as before.
+try:
+    from tools.prompt_shot_scope_policy import active_for as shot_scope_active_for
+    from tools.prompt_scope_conflict_gate import (
+        check_task as check_prompt_scope_conflicts,
+        loaded_module_audit,
+    )
+except ModuleNotFoundError:
+    from prompt_shot_scope_policy import active_for as shot_scope_active_for
+    from prompt_scope_conflict_gate import (
+        check_task as check_prompt_scope_conflicts,
+        loaded_module_audit,
+    )
+
 
 ROOT = Path(__file__).resolve().parents[1]
+# The engine checkout this file was loaded from (ROOT may be re-pointed at a project by
+# --project-root); used only to make the loaded-module audit paths portable.
+ENGINE_ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_GATE_IDS = frozenset({"WRITER-TO-PROVIDER-PROMPT-FIELD-LINEAGE"})
 RUNTIME_GATE_BINDINGS = {
     "WRITER-TO-PROVIDER-PROMPT-FIELD-LINEAGE": "validate_required_sd2_field_coverage",
@@ -304,7 +328,46 @@ def task_fingerprint(task: dict[str, Any]) -> str:
         or task.get("shot_state_contracts")
         or [],
     }
+    transport = reference_transport(task)
+    if transport:
+        # Only present when compression applies, so every under-limit task keeps its fingerprint.
+        contract["reference_transport"] = transport
     return hashlib.sha256(json.dumps(contract, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+# All reference images go base64 inside ONE JSON POST.  Large bodies die at the edge: 2026-09-21
+# 12/12 Broken pipe/524 at concurrency 6, and 2026-10-01 E10-VU-020 (7 refs, 37 MB raw ≈ 51 MB
+# base64) hit HTTP 524 twice -- the second one charged 160 credits with no task id.  Over the limit
+# every reference is re-encoded as JPEG q90 in memory; the files on disk (and reference_sha256) are
+# unchanged, and the transport is part of the fingerprint so it never collides with an earlier,
+# uncompressed transaction for the same unit.  Line-owner order seq=21 (Roger 2026-10-01).
+REFERENCE_PAYLOAD_RAW_LIMIT_BYTES = int(os.environ.get("GIGGLE_REFERENCE_PAYLOAD_LIMIT_BYTES") or 15_000_000)
+REFERENCE_JPEG_TRANSPORT = "JPEG_Q90_V1"
+
+
+def reference_transport(task: dict[str, Any]) -> str | None:
+    total = 0
+    for value in task.get("reference_images") or []:
+        path = resolve(value)
+        if path.is_file():
+            total += path.stat().st_size
+    return REFERENCE_JPEG_TRANSPORT if total > REFERENCE_PAYLOAD_RAW_LIMIT_BYTES else None
+
+
+def reference_image_payload(task: dict[str, Any]) -> list[dict[str, str]]:
+    paths = [str(resolve(value)) for value in task["reference_images"]]
+    if reference_transport(task) != REFERENCE_JPEG_TRANSPORT:
+        return _image_list(paths)
+    import base64
+    import io
+    from PIL import Image
+    out = []
+    for path in paths:
+        with Image.open(path) as image:
+            buffer = io.BytesIO()
+            image.convert("RGB").save(buffer, format="JPEG", quality=90, optimize=True)
+        out.append({"base64": base64.b64encode(buffer.getvalue()).decode("ascii")})
+    return out
 
 
 def validate_submission_camera(task: dict[str, Any]) -> dict[str, Any]:
@@ -751,6 +814,48 @@ def _batch_requires_serial_tail_chain(tasks: list[dict[str, Any]]) -> bool:
     )
 
 
+def prompt_scope_gate_active(task: dict[str, Any]) -> bool:
+    episode = task.get("episode") or task.get("unit_id") or task.get("task_key")
+    return shot_scope_active_for(episode, task.get("model"))
+
+
+def submitter_module_audit() -> list[dict[str, Any]]:
+    return loaded_module_audit(ENGINE_ROOT, extra=("__main__",) if __name__ == "__main__" else ())
+
+
+def pre_intent_block_path(transaction_dir: Path, task: dict[str, Any]) -> Path:
+    # A sub-directory, so nothing that globs transaction_dir/*.json mistakes it for a transaction.
+    return transaction_dir / "_pre_intent_blocks" / transaction_path(transaction_dir, task).name
+
+
+def run_prompt_scope_gate(task: dict[str, Any], prompt_text: str, transaction_dir: Path) -> dict[str, Any]:
+    """Fresh check bound to the exact prompt text + reference SHAs; never reuses an older PASS."""
+    result = check_prompt_scope_conflicts(task, prompt_text)
+    audit = submitter_module_audit()
+    if result.get("status") == "PASS" and result.get("prompt_sha256") == task["prompt_sha256"]:
+        return {"gate": result, "loaded_modules": audit}
+    failures = list(result.get("failures") or [])
+    if result.get("status") == "PASS":
+        failures.append("PROMPT_SCOPE_GATE_PROMPT_SHA_NOT_BOUND")
+    # Same convention as every other pre-intent failure: no transaction file is written, so
+    # classify_failures() reports submit_failed_before_intent / NOT_CHARGED_NO_INTENT_RECORDED.
+    atomic_json(pre_intent_block_path(transaction_dir, task), {
+        "schema": "qingshan.giggle_video_submit_pre_intent_block.v1",
+        "task_key": task["task_key"], "submission_fingerprint": task_fingerprint(task),
+        "state": "BLOCKED_BEFORE_INTENT_PROMPT_SCOPE_CONFLICT",
+        "status": "submit_failed_before_intent", "credit": 0,
+        "credit_status": "NOT_CHARGED_NO_INTENT_RECORDED",
+        "blocked_at": utc_now(), "prompt_sha256": task["prompt_sha256"],
+        "reference_sha256": task["reference_sha256"], "model": task.get("model"),
+        "prompt_scope_conflict_gate": {**result, "status": "FAIL", "failures": failures},
+        "loaded_modules": audit,
+    })
+    raise PromptScopeGateBlocked(
+        f"{task['task_key']} PROMPT_SCOPE_CONFLICT_GATE_FAILED (not charged, no intent recorded): "
+        + ",".join(failures)
+    )
+
+
 def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -> dict[str, Any]:
     prior = prior_bound(task, transaction_dir)
     if prior:
@@ -767,6 +872,12 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
     for reference, expected in zip(task["reference_images"], task["reference_sha256"]):
         if sha256(resolve(reference)) != expected:
             raise ValueError(f"{task['task_key']} reference changed while waiting for submission")
+    scope_evidence = None
+    prompt_text = None
+    if prompt_scope_gate_active(task):
+        # Gate the exact string that is POSTed below; the PASS is bound to its SHA + reference SHAs.
+        prompt_text = resolve(task["prompt_file"]).read_text(encoding="utf-8")
+        scope_evidence = run_prompt_scope_gate(task, prompt_text, transaction_dir)
     transaction = transaction_path(transaction_dir, task)
     intent = {
         "schema": "qingshan.giggle_video_submit_transaction.v1",
@@ -776,13 +887,16 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         "reference_sha256": task["reference_sha256"], "model": task["model"],
         "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
     }
+    if scope_evidence is not None:
+        intent["prompt_scope_conflict_gate"] = scope_evidence["gate"]
+        intent["loaded_modules"] = scope_evidence["loaded_modules"]
     atomic_json(transaction, intent)
     payload = {
-        "prompt": resolve(task["prompt_file"]).read_text(encoding="utf-8"),
+        "prompt": prompt_text if prompt_text is not None else resolve(task["prompt_file"]).read_text(encoding="utf-8"),
         "model": task["model"], "duration": int(task["duration_seconds"]),
         "aspect_ratio": task.get("aspect_ratio", "9:16"), "resolution": task["resolution"],
         "generating_count": 1,
-        "images": _image_list([str(resolve(value)) for value in task["reference_images"]]),
+        "images": reference_image_payload(task),
     }
     audio_asset_ids = [
         *(task.get("exact_dialogue_audio_asset_ids") or []),
@@ -997,6 +1111,8 @@ def main() -> int:
                     except ProviderInsufficientCreditsError as exc:
                         credit_fuse_tripped = True
                         failures.append({"task_key": task["task_key"], "state": "provider_insufficient_credits", "error": str(exc), "transaction": portable(transaction_path(transactions, task))})
+                    except PromptScopeGateBlocked as exc:
+                        failures.append({"task_key": task["task_key"], "state": "submit_failed_before_intent", "error": str(exc), "transaction": portable(transaction_path(transactions, task)), "pre_intent_block": portable(pre_intent_block_path(transactions, task)), "credit": 0, "credit_status": "NOT_CHARGED_NO_INTENT_RECORDED"})
                     except (Exception, SystemExit) as exc:
                         failures.append({"task_key": task["task_key"], "state": "submit_failed", "error": str(exc), "transaction": portable(transaction_path(transactions, task))})
             if credit_fuse_tripped:
@@ -1012,7 +1128,8 @@ def main() -> int:
     ambiguity = "NOT_APPLICABLE"
     if not args.precheck_only:
         newly_bound = sum(not row.get("recovered_from_transaction") for row in results)
-        maximum = newly_bound + len(failures)
+        # A scope-gate block happens before any intent or POST, so it can never own a pay row.
+        maximum = newly_bound + sum(row.get("state") != "submit_failed_before_intent" for row in failures)
         if maximum == 0:
             # nalu e21: nothing was POSTed in this run (every task recovered from the durable store, no
             # failures) — there is no charge to reconcile.  Matching a statement window here only picks up

@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1973,
+  "file_count": 1983,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -221,7 +221,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "fafb9d444f72117fb2cb5142260e52c2912f6451e9b2e0337ec06761eb4acfaf"
+      "sha256": "9aa8ccb3d9ba3051b5b671ded136d739a559b884cfb58795c24cd7094249402f"
     },
     {
       "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
@@ -246,6 +246,10 @@
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
       "sha256": "506bed1d5346017b70da28a76e28ce0f9d18e6d96ccca708dbf7c200f98857f2"
+    },
+    {
+      "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
+      "sha256": "de42e54f9c9b34c5ddc6a9fbe059b9eb9d96ff6af4b1fd467cf3ca524f6f6b62"
     },
     {
       "path": "configs/VIDEO_MODEL_CAPABILITY_REGISTRY_v1.json",
@@ -293,7 +297,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "79d25aa96cc9d8d4a0767cda6a42d2507955582c213ad8e0940232f9b0c6070b"
+      "sha256": "284617192c6541581204d242c5618ac9311b7ca160d2c036051a6be6ed18fa57"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -302,6 +306,10 @@
     {
       "path": "docs/knowledge/INTEGRATION_STATUS.md",
       "sha256": "9a05cafb4785770d0e39f4f39e6332c50d8a2d97d32d22259f97886df84efa2e"
+    },
+    {
+      "path": "docs/knowledge/LINE_UPGRADE_PROTOCOL.md",
+      "sha256": "4aa23a57c9a4dcff5fd88c36128c9744928e0f8ae2bbca61cbb9f1cb34df2955"
     },
     {
       "path": "docs/knowledge/VALIDATION_REPORT.md",
@@ -4293,7 +4301,7 @@
     },
     {
       "path": "tools/grouped_camera_contract.py",
-      "sha256": "b7426e85d701cff5d6b409c700f9de931300663cfc95442c0c07c574b475a261"
+      "sha256": "518ffa23f163fd15cdcad6da159f90b32ae7980e6e7e64c2f9fefddb5d89b91a"
     },
     {
       "path": "tools/grouped_continuity_gate.py",
@@ -4309,7 +4317,7 @@
     },
     {
       "path": "tools/grouped_transition_contract.py",
-      "sha256": "171fb5a9bafa75e8e5e351515ab3fd5ce64931e97af08555ca2f0d5751f9d6ee"
+      "sha256": "f56db1bc3f0bf74b9ec0dfb48778346e48f6583dc782a0eb9be88e620d411afa"
     },
     {
       "path": "tools/h3_crossmodal_speaker_gate.py",
@@ -4325,7 +4333,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "305107149139181f3768bf2fafc88c96e4b94118b2f76e872c4f0a9b7b56d91c"
+      "sha256": "31ee80d84d4a9c6aa859287f37a80d7a6b765a259a31f64805a58ac68ee66170"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -4532,12 +4540,20 @@
       "sha256": "f0e095c2500333e49673daec968e65396a7ef13ed6cf0b111491b89132b264f2"
     },
     {
+      "path": "tools/knowledge_sync_core.py",
+      "sha256": "bd1d697c557e18f193b5511c33bd915a8c1be10a51316e9d7a7c7a1c452aaff9"
+    },
+    {
       "path": "tools/level_native_release_audio.py",
       "sha256": "6db2a70c2248ba8254344e5a66c3b20be73d21062fb4b2471d307f8170993e0e"
     },
     {
       "path": "tools/line_heartbeat.py",
       "sha256": "33c20dba694a44b59aee993d2a3abfd21b1cccea30ba98b00a02d0eec16d4738"
+    },
+    {
+      "path": "tools/line_upgrade_gate.py",
+      "sha256": "4479a9036a679e6a800900ddacae0ed8d56a7a807f25e8f852614936e9443023"
     },
     {
       "path": "tools/local_lora_memory_sync.py",
@@ -4858,6 +4874,14 @@
     {
       "path": "tools/prompt_budget_observability.py",
       "sha256": "c608c1bd20f7d8e593b5fe72f9315aa9819ef3bdb23ea1ea2e1d516a2d0798e1"
+    },
+    {
+      "path": "tools/prompt_scope_conflict_gate.py",
+      "sha256": "2038a0208d8cb6408d1a2aa132674153c17758420a4c3a2c09530a7476d7823c"
+    },
+    {
+      "path": "tools/prompt_shot_scope_policy.py",
+      "sha256": "097970e0ce4f4d776ee1671b7700ceb80b0aeb61c587785c6785d446c17b089c"
     },
     {
       "path": "tools/prop_state_contract.py",
@@ -5621,7 +5645,7 @@
     },
     {
       "path": "tools/sd2_shot_camera_adapter.py",
-      "sha256": "4675090097d85eca042fbc17143b0eaa0882316695e3130904e5f1fb3abcc752"
+      "sha256": "3372061e70b9d1a921ee198026c22b8ab5279939021a7910261d6af8284639cb"
     },
     {
       "path": "tools/seedance2_prompt_compiler.py",
@@ -5845,7 +5869,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "5b3150a0f22fbd74f2515137dad50a994fe5f08f65e8b71cbdccc78a6ef91ba9"
+      "sha256": "532fb3fbe8e72dc39c6bc6ebb6269087fe28a20e0bcd202ef4d5c670c970244f"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -6772,6 +6796,10 @@
       "sha256": "8a01d2824bfc1cff02102c6aecc0ff9af9ee7e5459c4b13f2dd85cc9d9552293"
     },
     {
+      "path": "tools/tests/test_h3_shot_scope_v1.py",
+      "sha256": "19c9ed32c3027a0cd680911cc16b76ee5e86ba28b0bfd0d27fe6501625d21582"
+    },
+    {
       "path": "tools/tests/test_harvest_giggle_image_batch.py",
       "sha256": "561abe4e08b14b4e854c54163c49ee268aae8e36fe9eb36e18666cfaf7dbf7c3"
     },
@@ -6838,6 +6866,10 @@
     {
       "path": "tools/tests/test_line_heartbeat.py",
       "sha256": "ae1a1a087be722016442dd642ccb06107e596f5806292eb9b2ec1cbc25fc1598"
+    },
+    {
+      "path": "tools/tests/test_line_upgrade_gate.py",
+      "sha256": "2a0b4bdbf75fdfedec691c96ca1c55eef2096970441c15c3f5e9a43f1a7d7817"
     },
     {
       "path": "tools/tests/test_long_take_score_gate.py",
@@ -7056,6 +7088,10 @@
       "sha256": "873ea289e216c8729b9c2fbbf80bb41bfcbf91278a587b90be6d5c834541a83b"
     },
     {
+      "path": "tools/tests/test_prompt_scope_conflict_gate.py",
+      "sha256": "067d84a09a94b0c8828a73da96a3b1243a8448e38e313b62856b49e02a33816a"
+    },
+    {
       "path": "tools/tests/test_prompt_test_migration_map.py",
       "sha256": "f7436f54254bebcfd05df48ac82f4a80a648aee797f384b14b89933da0e73feb"
     },
@@ -7206,6 +7242,10 @@
     {
       "path": "tools/tests/test_sd2_background_ecology_contract.py",
       "sha256": "81f2c3da1904ded4df4cffbff655ddab0ba783fce348a6ebe2e0c8be8674d4ea"
+    },
+    {
+      "path": "tools/tests/test_sd2_per_shot_camera_scope.py",
+      "sha256": "9c819efb1e7a9a6d50dff8baac4b8f4f54c515e5bbdaae1aac363265b10b54e0"
     },
     {
       "path": "tools/tests/test_sd2_shot_camera_adapter.py",

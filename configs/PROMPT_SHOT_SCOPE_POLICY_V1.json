@@ -1,0 +1,17 @@
+{
+  "schema": "qingshan.prompt_shot_scope_policy.v1",
+  "version": "v1",
+  "authority": "Roger 2026-10-01: 现在全部做，彻底解决（CC_PREFLIGHT_FRAMING_SCOPE_INCIDENT_AND_UPGRADE_20261001 + E10 per-shot camera loss）",
+  "purpose": "One switch for the shot-scope upgrade so every line opts in by episode and every earlier episode compiles byte-for-byte as before (no fingerprint change for submitted or in-flight tasks).",
+  "rules": {
+    "per_shot_camera_serialization": "Every shot of a multi-shot unit carries its own camera line (scale, height, side, motion family/direction, start framing, end framing, follow subject) into the final provider prompt; a LOCKED shot states a locked camera and never 'execute the move once'.",
+    "entity_scoped_visibility": "A partial-visibility clause (hands/paws/arm/legs only, face out of frame) is bound to one entity + one shot/beat + its time window and names that entity; it never applies to other entities, other shots, or entities whose visibility is missing. Missing visibility is never silently read as 'face forbidden'.",
+    "submit_boundary_conflict_gate": "Before any paid POST the final serialized request is checked: no entity is both a visible-mouth speaker and face/mouth-forbidden in the same window; no partial clause leaks beyond its declared entity/shot; a LOCKED shot carries no move instruction. A changed request needs a fresh check bound to its exact hash. Bound task_id recovery/poll/download is never blocked.",
+    "loaded_module_audit": "Each request records the path and sha256 of the renderer/gate modules actually loaded (including local overlays), so a local override cannot impersonate the repository version."
+  },
+  "lines": {
+    "nalu": {"models": ["seedance-2.0-pro", "seedance-2.0"], "active_from_episode": 11},
+    "qingshan": {"models": ["minimax-h3", "h3"], "active_from_episode": 64}
+  },
+  "default": {"active_from_episode": null, "note": "a line not listed keeps legacy behaviour until it is added here"}
+}

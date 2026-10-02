@@ -123,7 +123,10 @@ def still_gate_registry(out: Path | None = None) -> Path:
             params["video_sample_frames_per_source_min_unchanged"] = changed["engine_value"]
     derived.update({
         "derived_schema": STILL_REGISTRY_SCHEMA,
-        "derived_from": str(GATE_REGISTRY),
+        # engine-relative: this file is committed, and an absolute home path here broke the
+        # portability test every time Q1 regenerated it (2026-10-01, twice)
+        "derived_from": (str(GATE_REGISTRY.resolve().relative_to(ENGINE.resolve()))
+                         if GATE_REGISTRY.resolve().is_relative_to(ENGINE.resolve()) else GATE_REGISTRY.name),
         "derived_from_sha256": sha256_file(GATE_REGISTRY),
         "derived_at": now(),
         "derived_by": TOOL_ID,

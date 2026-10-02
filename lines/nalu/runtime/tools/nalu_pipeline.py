@@ -1198,8 +1198,59 @@ def fp_s1(ctx: Ctx) -> str:
     return sha256_text(json.dumps(payload, sort_keys=True))
 
 
+def _record_line_upgrade(ctx: Any, key: str, step: str) -> None:
+    """Store the advisory result when the context carries state; never raise into the stage."""
+    state = getattr(ctx, "state", None)
+    if isinstance(state, dict) and getattr(ctx, "episode", None):
+        state[key] = line_upgrade_gate_summary(ctx, step)
+
+
+def line_upgrade_gate_summary(ctx: Ctx, step: str) -> dict[str, Any]:
+    # advisory: any failure here is recorded, never raised into the stage that called it
+    try:
+        return _line_upgrade_gate_summary(ctx, step)
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{exc}"}
+
+
+def _line_upgrade_gate_summary(ctx: Ctx, step: str) -> dict[str, Any]:
+    """Shared line-upgrade gate (tools/line_upgrade_gate.py; docs/knowledge/LINE_UPGRADE_PROTOCOL.md).
+
+    step="preflight" at S1: engine freshness/overlay check + writes the episode's
+    knowledge briefing (the read side of the knowledge base).  step="close" at S8:
+    verifies that briefing exists (the writer itself already ran via knowledge_sync).
+    Advisory, never blocking: the result is recorded in state and CHECKPOINT only.
+    """
+    tool = ENGINE / "tools" / "line_upgrade_gate.py"
+    if not tool.is_file():
+        return {"status": "TOOL_MISSING", "tool": str(tool)}
+    import subprocess as _sp
+    cmd = [str(VENV), str(tool), step, "--line", "nalu", "--episode", ctx.episode,
+           "--runtime-root", str(RT), "--engine-root", str(ENGINE)]
+    if step == "close":
+        cmd.append("--skip-sync")
+    try:
+        proc = _sp.run(cmd, cwd=str(ENGINE), capture_output=True, text=True, timeout=180)
+    except (OSError, _sp.TimeoutExpired) as exc:
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{exc}", "argv": cmd}
+    try:
+        payload = json.loads(proc.stdout or "{}")
+    except ValueError:
+        payload = {"status": "UNPARSEABLE", "stdout_tail": (proc.stdout or "")[-400:]}
+    keep = ("status", "findings", "notes", "receipt", "knowledge", "knowledge_read", "error")
+    summary = {key: payload[key] for key in keep if key in payload}
+    if isinstance(payload.get("engine"), dict):
+        summary["engine"] = {key: payload["engine"].get(key)
+                             for key in ("head", "upstream", "behind", "status")}
+    if isinstance(payload.get("overlays"), dict):
+        summary["overlays"] = payload["overlays"].get("status")
+    summary["exit_code"] = proc.returncode
+    return summary
+
+
 def stage_s1(ctx: Ctx) -> StageResult:
     p = ctx.p
+    _record_line_upgrade(ctx, "line_upgrade_preflight", "preflight")  # advisory read side
     missing = [str(path) for path in p.layers().values() if not path.is_file()]
     if missing:
         res = StageResult(BLOCKED, missing_layers=missing, layer_sha256={})
@@ -3699,123 +3750,208 @@ def stage_s6(ctx: Ctx) -> StageResult:
         # Q1 (keyframe questionnaire) admission of that frame before the unit can join a wave.
         derived_rows = materialise_derived_keyframes(ctx)
         pending_q1 = [(uid, shot) for uid, shot in derived_units_pending_q1(ctx) if uid not in done]
+        # A unit waiting on its own Q1 must only hold ITSELF back.  Until 2026-10-01 any pending
+        # derived unit returned here before the wave was planned, so one rejected start frame
+        # (E10-VU-022) froze ten admitted, tail-ready units for two days.  Units run concurrently
+        # unless they need a predecessor's tail (Roger: 能并发一定并发).
+        pending_ids = {uid for uid, _ in pending_q1}
+        _derived_now = continuity_derived_units(ctx)
+        others_ready = [uid for uid, prev, needs in deps
+                        if uid not in done and uid not in pending_ids
+                        and (not needs or prev is None or (tails_dir / f"{prev}.png").is_file())
+                        and (uid not in _derived_now or _derived_now[uid]["keyframe_path"].is_file())]
+        if others_ready and pending_q1:
+            ctx.say(f"-- S6: {sorted(pending_ids)} wait(s) on Q1; not holding back {len(others_ready)} ready unit(s)")
+            pending_q1_deferred, pending_q1 = pending_q1, []
+        else:
+            pending_q1_deferred = []
         # D-5 receipts for derived frames that are already Q1-admitted (the review protocol's submit
         # may have materialised the admissions itself, so this must not depend on pending_q1)
         need_sfe_now = [uid for uid, info in continuity_derived_units(ctx).items()
                         if uid not in done and info["keyframe_path"].is_file()
-                        and (uid, info["first_shot_id"]) not in pending_q1
+                        and uid not in pending_ids
                         and not (ENGINE / "reports/start_frame_evidence" / f"{uid}_start_frame_evidence.json").is_file()]
-        if need_sfe_now and not pending_q1:
-            res = StageResult(REVIEW_REQUIRED)
-            res.details["derived_units_need_start_frame_receipt"] = need_sfe_now
-            sf_path, sf_review = latest_submitted_review(ctx, "start_frame")
-            sf_answered = {str(it.get("item_id")) for it in ((sf_review or {}).get("items") or [])}
-            if sf_path is not None and all(uid in sf_answered for uid in need_sfe_now):
-                write_step = qa_run(ctx, [START_FRAME_EVIDENCE, "write", "--episode", ctx.episode,
-                                          "--review", sf_path], name="s6_sfe_write_receipts_derived")
-                res.steps.append(write_step)
-                if (qa_json(write_step) or {}).get("status") == PASS:
-                    continue
-                res.status = BLOCKED
-                res.blockers.append("S6.sfe_derived:START_FRAME_EVIDENCE_NOT_PASS")
-                return res
-            res.details.update(request_review(ctx, res, "start_frame", sub_stage="S6.sfe_derived",
-                                              note="start-frame receipts for continuity-derived frames",
-                                              items=need_sfe_now))
-            res.blockers.append(f"S6.sfe_derived:REVIEW_REQUIRED:{len(need_sfe_now)}_frames")
-            return res
-        if pending_q1:
-            res = StageResult(REVIEW_REQUIRED)
-            res.details["derived_keyframes"] = derived_rows
-            res.details["derived_units_pending_q1"] = pending_q1
-            review_path, review = latest_submitted_review(ctx, "keyframe")
-            answered = set()
-            if review_path is not None:
-                answered = {str(it.get("item_id")) for it in (review.get("items") or [])}
-            unanswered = [shot for _, shot in pending_q1 if shot not in answered]
-            if not unanswered and review_path is not None:
-                build_step = qa_run(ctx, [KEYFRAME_Q1, "build", "--episode", ctx.episode, "--review", review_path],
-                                    name="s6_q1_build_admission_derived")
-                res.steps.append(build_step)
-                # D-70: the same order-keyed acceptance overlay as S5.q1 (roger_gate_acceptance, never
-                # self-issued) — a continuity-derived opener is the previous clip's real final frame, so
-                # a by-design profile/back/out-of-frame face there needs the line owner's order too.
-                _dv = qa_json(build_step) or {}
-                _ip = Path(str(_dv.get("out") or ""))
-                _ix = read_json(_ip, {}) or {}
-                if _ix:
-                    res.details["derived_q1_roger_acceptance"] = apply_roger_q1_acceptance(ctx, _ix, _ip)
-                still = [(uid, shot) for uid, shot in derived_units_pending_q1(ctx) if uid not in done]
-                if still:
+        # 2026-10-01: a review gate must not stop the pipeline from polling/downloading a wave that is
+        # already submitted.  The review request is still issued at once (so the reviewer works while the
+        # provider renders); its blocker is merged into the result after the wave poll.  With no wave in
+        # flight the review returns exactly as before.
+        _wave_in_flight = any(not w.get("completed_at") and any(u not in done for u in w.get("units") or [])
+                              for w in wave_state.get("waves") or [])
+        _CONT = object()
+
+        def _derived_reviews():
+            if need_sfe_now and not pending_q1:
+                res = StageResult(REVIEW_REQUIRED)
+                res.details["derived_units_need_start_frame_receipt"] = need_sfe_now
+                sf_path, sf_review = latest_submitted_review(ctx, "start_frame")
+                sf_answered = {str(it.get("item_id")) for it in ((sf_review or {}).get("items") or [])}
+                if sf_path is not None and all(uid in sf_answered for uid in need_sfe_now):
+                    write_step = qa_run(ctx, [START_FRAME_EVIDENCE, "write", "--episode", ctx.episode,
+                                              "--review", sf_path], name="s6_sfe_write_receipts_derived")
+                    res.steps.append(write_step)
+                    if (qa_json(write_step) or {}).get("status") == PASS:
+                        return _CONT
                     res.status = BLOCKED
-                    res.blockers.append("S6.q1_derived:NOT_ADMITTED:" + ",".join(uid for uid, _ in still))
+                    res.blockers.append("S6.sfe_derived:START_FRAME_EVIDENCE_NOT_PASS")
                     return res
-                # D-5 start-frame receipt for the derived frames (same route as S5.sfe, scoped)
-                need_sfe = [uid for uid, _ in pending_q1
-                            if not (ENGINE / "reports/start_frame_evidence" / f"{uid}_start_frame_evidence.json").is_file()]
-                if need_sfe:
-                    sf_path, sf_review = latest_submitted_review(ctx, "start_frame")
-                    sf_answered = {str(it.get("item_id")) for it in ((sf_review or {}).get("items") or [])}
-                    if sf_path is not None and all(uid in sf_answered for uid in need_sfe):
-                        write_step = qa_run(ctx, [START_FRAME_EVIDENCE, "write", "--episode", ctx.episode,
-                                                  "--review", sf_path], name="s6_sfe_write_receipts_derived")
-                        res.steps.append(write_step)
-                        if (qa_json(write_step) or {}).get("status") == PASS:
-                            continue  # receipts written; re-plan the wave
-                        res.status = BLOCKED
-                        res.blockers.append("S6.sfe_derived:START_FRAME_EVIDENCE_NOT_PASS")
-                        return res
-                    res.details.update(request_review(ctx, res, "start_frame", sub_stage="S6.sfe_derived",
-                                                      note="start-frame receipts for continuity-derived frames",
-                                                      items=need_sfe))
-                    res.blockers.append(f"S6.sfe_derived:REVIEW_REQUIRED:{len(need_sfe)}_frames")
-                    return res
-                continue  # admissions + receipts present; re-plan the wave
-            res.details.update(request_review(ctx, res, "keyframe", sub_stage="S6.q1_derived",
-                                              note="continuity-derived start frames (previous unit real tail) need the keyframe questionnaire",
-                                              items=unanswered))
-            res.blockers.append(f"S6.q1_derived:REVIEW_REQUIRED:{len(unanswered)}_frames")
-            return res
-        open_wave = next((w for w in wave_state.get("waves") or []
-                          if not w.get("completed_at")
-                          and any(uid not in done for uid in w.get("units") or [])), None)
-        if open_wave:
-            wave_no, ready = int(open_wave["wave"]), list(open_wave["units"])
-            ctx.say(f"-- S6 rolling wave {wave_no} (re-entry, frozen membership): {len(ready)} unit(s) {ready}; "
-                    f"{sum(1 for u in ready if u in done)} of them already on disk; {len(done)}/{len(deps)} videos on disk")
-        else:
-            derived = continuity_derived_units(ctx)
-            ready = [uid for uid, prev, needs in deps
-                     if uid not in done and (not needs or prev is None or (tails_dir / f"{prev}.png").is_file())
-                     and (uid not in derived or derived[uid]["keyframe_path"].is_file())]
-            if not ready:
-                res = StageResult(BLOCKED)
-                res.blockers.append("ROLLING_WAVE_NO_READY_UNITS")
-                res.details = {"done": sorted(done), "waiting": [uid for uid, _, _ in deps if uid not in done]}
+                res.details.update(request_review(ctx, res, "start_frame", sub_stage="S6.sfe_derived",
+                                                  note="start-frame receipts for continuity-derived frames",
+                                                  items=need_sfe_now))
+                res.blockers.append(f"S6.sfe_derived:REVIEW_REQUIRED:{len(need_sfe_now)}_frames")
                 return res
-            wave_no = len(wave_state.get("waves") or []) + 1
-            wave_state.setdefault("waves", []).append({"wave": wave_no, "units": ready, "opened_at": now(),
-                                                       "done_before": sorted(done)})
+            if pending_q1:
+                res = StageResult(REVIEW_REQUIRED)
+                res.details["derived_keyframes"] = derived_rows
+                res.details["derived_units_pending_q1"] = pending_q1
+                review_path, review = latest_submitted_review(ctx, "keyframe")
+                answered = set()
+                if review_path is not None:
+                    answered = {str(it.get("item_id")) for it in (review.get("items") or [])}
+                unanswered = [shot for _, shot in pending_q1 if shot not in answered]
+                if not unanswered and review_path is not None:
+                    build_step = qa_run(ctx, [KEYFRAME_Q1, "build", "--episode", ctx.episode, "--review", review_path],
+                                        name="s6_q1_build_admission_derived")
+                    res.steps.append(build_step)
+                    # D-70: the same order-keyed acceptance overlay as S5.q1 (roger_gate_acceptance, never
+                    # self-issued) — a continuity-derived opener is the previous clip's real final frame, so
+                    # a by-design profile/back/out-of-frame face there needs the line owner's order too.
+                    _dv = qa_json(build_step) or {}
+                    _ip = Path(str(_dv.get("out") or ""))
+                    _ix = read_json(_ip, {}) or {}
+                    if _ix:
+                        res.details["derived_q1_roger_acceptance"] = apply_roger_q1_acceptance(ctx, _ix, _ip)
+                    still = [(uid, shot) for uid, shot in derived_units_pending_q1(ctx) if uid not in done]
+                    if still:
+                        res.status = BLOCKED
+                        res.blockers.append("S6.q1_derived:NOT_ADMITTED:" + ",".join(uid for uid, _ in still))
+                        return res
+                    # D-5 start-frame receipt for the derived frames (same route as S5.sfe, scoped)
+                    need_sfe = [uid for uid, _ in pending_q1
+                                if not (ENGINE / "reports/start_frame_evidence" / f"{uid}_start_frame_evidence.json").is_file()]
+                    if need_sfe:
+                        sf_path, sf_review = latest_submitted_review(ctx, "start_frame")
+                        sf_answered = {str(it.get("item_id")) for it in ((sf_review or {}).get("items") or [])}
+                        if sf_path is not None and all(uid in sf_answered for uid in need_sfe):
+                            write_step = qa_run(ctx, [START_FRAME_EVIDENCE, "write", "--episode", ctx.episode,
+                                                      "--review", sf_path], name="s6_sfe_write_receipts_derived")
+                            res.steps.append(write_step)
+                            if (qa_json(write_step) or {}).get("status") == PASS:
+                                return _CONT  # receipts written; re-plan the wave
+                            res.status = BLOCKED
+                            res.blockers.append("S6.sfe_derived:START_FRAME_EVIDENCE_NOT_PASS")
+                            return res
+                        res.details.update(request_review(ctx, res, "start_frame", sub_stage="S6.sfe_derived",
+                                                          note="start-frame receipts for continuity-derived frames",
+                                                          items=need_sfe))
+                        res.blockers.append(f"S6.sfe_derived:REVIEW_REQUIRED:{len(need_sfe)}_frames")
+                        return res
+                    return _CONT  # admissions + receipts present; re-plan the wave
+                res.details.update(request_review(ctx, res, "keyframe", sub_stage="S6.q1_derived",
+                                                  note="continuity-derived start frames (previous unit real tail) need the keyframe questionnaire",
+                                                  items=unanswered))
+                res.blockers.append(f"S6.q1_derived:REVIEW_REQUIRED:{len(unanswered)}_frames")
+                return res
+            return None
+
+        _rv = _derived_reviews()
+        if _rv is _CONT:
+            continue
+        deferred_review = None
+        if _rv is not None:
+            if _rv.status == REVIEW_REQUIRED and _wave_in_flight:
+                deferred_review = _rv
+                ctx.say(f"-- S6: review requested ({', '.join(_rv.blockers)}); polling the in-flight wave meanwhile")
+            else:
+                return _rv
+        # Overlapping waves (2026-10-01).  A wave keeps its frozen membership until every video is on
+        # disk (the 09-13 double-POST came from re-entering ONE wave with a different list), but a unit
+        # that was never in any wave no longer waits for the in-flight wave to finish: it opens its own
+        # wave in the same pass.  Each wave records its own submit/status report, because the submitter
+        # overwrites its --out file and the poller only downloads what that report lists -- a shared
+        # report would silently drop the in-flight wave's tasks.  Waves opened before this change have no
+        # recorded report and keep the legacy shared paths.
+        waves = wave_state.setdefault("waves", [])
+        open_waves = [w for w in waves if not w.get("completed_at")
+                      and any(uid not in done for uid in w.get("units") or [])]
+        in_open = {u for w in open_waves for u in (w.get("units") or [])}
+        derived = continuity_derived_units(ctx)
+        new_ready = [uid for uid, prev, needs in deps
+                     if uid not in done and uid not in pending_ids and uid not in in_open
+                     and (not needs or prev is None or (tails_dir / f"{prev}.png").is_file())
+                     and (uid not in derived or derived[uid]["keyframe_path"].is_file())]
+        if not open_waves and not new_ready:
+            res = StageResult(BLOCKED)
+            res.blockers.append("ROLLING_WAVE_NO_READY_UNITS")
+            res.details = {"done": sorted(done), "waiting": [uid for uid, _, _ in deps if uid not in done]}
+            return res
+        if new_ready:
+            wave_no = max([int(w["wave"]) for w in waves] or [0]) + 1
+            stem = ctx.p.video_submit.stem
+            waves.append({"wave": wave_no, "units": new_ready, "opened_at": now(), "done_before": sorted(done),
+                          "submit_report": str(ctx.p.video_submit.with_name(f"{stem}_wave{wave_no}.json")),
+                          "status_report": str(ctx.p.video_remote_status.with_name(
+                              f"{ctx.p.video_remote_status.stem}_wave{wave_no}.json"))})
             write_json(wave_state_path, wave_state)
-            ctx.say(f"-- S6 rolling wave {wave_no}: {len(ready)} ready unit(s) {ready}; {len(done)}/{len(deps)} videos on disk")
-        res = _stage_s6_body(ctx, ready_units=ready, run_qa=False)
-        res.details["rolling_wave"] = {"wave": wave_no, "ready_units": ready, "done_before": sorted(done)}
-        if res.status != PASS:
-            return res
-        extracted = [extract_real_final_frame(ctx, uid) for uid in ready]
-        res.details["real_final_frames"] = extracted
-        write_json(tails_dir / f"_extraction_wave{wave_no}.json", {"wave": wave_no, "rows": extracted, "at": now()})
-        for w in wave_state.get("waves") or []:
-            if int(w["wave"]) == wave_no:
-                w["completed_at"] = now()
-        write_json(wave_state_path, wave_state)
-        bad = [row for row in extracted if row["status"] not in ("EXTRACTED", "ALREADY_PRESENT")]
-        if bad:
-            res.status = BLOCKED
-            res.blockers.append(f"REAL_FINAL_FRAME_EXTRACTION_FAILED:{','.join(r['unit_id'] for r in bad)}")
-            return res
+            ctx.say(f"-- S6 rolling wave {wave_no}: {len(new_ready)} ready unit(s) {new_ready}; "
+                    f"{len(done)}/{len(deps)} videos on disk"
+                    + (f"; overlapping in-flight wave(s) {[int(w['wave']) for w in open_waves]}" if open_waves else ""))
+            open_waves.append(waves[-1])
+        legacy_submit, legacy_status = ctx.p.video_submit, ctx.p.video_remote_status
+        results: list[tuple[int, StageResult]] = []
+        try:
+            for w in open_waves:
+                wave_no, ready = int(w["wave"]), list(w["units"])
+                if w is not waves[-1] or not new_ready:
+                    ctx.say(f"-- S6 rolling wave {wave_no} (re-entry, frozen membership): {len(ready)} unit(s) {ready}; "
+                            f"{sum(1 for u in ready if u in done)} of them already on disk; {len(done)}/{len(deps)} videos on disk")
+                ctx.p.video_submit = Path(w["submit_report"]) if w.get("submit_report") else legacy_submit
+                ctx.p.video_remote_status = Path(w["status_report"]) if w.get("status_report") else legacy_status
+                r = _stage_s6_body(ctx, ready_units=ready, run_qa=False)
+                r.details["rolling_wave"] = {"wave": wave_no, "ready_units": ready, "done_before": sorted(done)}
+                if r.status == PASS:
+                    extracted = [extract_real_final_frame(ctx, uid) for uid in ready]
+                    r.details["real_final_frames"] = extracted
+                    write_json(tails_dir / f"_extraction_wave{wave_no}.json", {"wave": wave_no, "rows": extracted, "at": now()})
+                    bad = [row for row in extracted if row["status"] not in ("EXTRACTED", "ALREADY_PRESENT")]
+                    if bad:
+                        r.status = BLOCKED
+                        r.blockers.append(f"REAL_FINAL_FRAME_EXTRACTION_FAILED:{','.join(x['unit_id'] for x in bad)}")
+                    else:
+                        w["completed_at"] = now()
+                        write_json(wave_state_path, wave_state)
+                results.append((wave_no, r))
+                if ctx.dry:
+                    break
+        finally:
+            ctx.p.video_submit, ctx.p.video_remote_status = legacy_submit, legacy_status
         if ctx.dry:
+            return results[0][1]
+        pending = [(n, r) for n, r in results if r.status != PASS]
+        if pending and len(pending) < len(results) and deferred_review is None:
+            # a wave completed this pass, so new tails exist: re-plan now and submit what they unblock,
+            # instead of leaving it for the next loop tick.  Progress-only, bounded by the outer loop.
+            continue
+        if pending or deferred_review is not None:
+            # report the most actionable wave first (a review the agent can answer beats "still rendering")
+            order = {REVIEW_REQUIRED: 0, BLOCKED: 1}
+            pending.sort(key=lambda nr: order.get(nr[1].status, 2))
+            res = pending[0][1] if pending else deferred_review
+            for n, r in pending[1:]:
+                res.blockers = list(res.blockers) + [f"wave{n}:{b}" for b in r.blockers if b not in res.blockers]
+            if deferred_review is not None and res is not deferred_review:
+                res.blockers = list(res.blockers) + [b for b in deferred_review.blockers if b not in res.blockers]
+                res.details["deferred_review"] = deferred_review.details
+            res.details["waves_this_pass"] = {str(n): r.status for n, r in results}
             return res
+    _deps_final = unit_dependency_order(ctx)
+    _missing = [uid for uid, _, _ in _deps_final if not (p.video_media / f"{uid}.mp4").is_file()]
+    if _missing:
+        # the wave loop ran out of iterations with work still in flight; never fall into the
+        # all-units final pass with videos missing -- report and let the next tick continue.
+        res = StageResult(BLOCKED)
+        res.blockers.append("VIDEO_NOT_ALL_COMPLETED")
+        res.details = {"missing_videos": _missing, "note": "wave loop iteration budget exhausted this pass"}
+        return res
     ctx.say("-- S6 final pass: all unit videos on disk; full compile + post-generation QA")
     # final pass = every unit with its real predecessor tail bound (the wave block of the builder
     # binds tails only for listed units), submit step SKIPPED: nothing may be POSTed here.
@@ -5273,6 +5409,7 @@ def stage_s8(ctx: Ctx) -> StageResult:
     p.deliver.mkdir(parents=True, exist_ok=True)
     knowledge = knowledge_sync_summary(ctx)
     ctx.state["knowledge_sync"] = knowledge
+    _record_line_upgrade(ctx, "line_upgrade_close", "close")  # advisory: was it read?
     write_checkpoint(ctx)
     approved = p.approval.is_file()
     res = StageResult(PASS if approved else "AWAITING_APPROVAL")
@@ -5390,6 +5527,12 @@ def write_checkpoint(ctx: Ctx) -> Path:
     elif ks_status == "NO_NEW_KNOWLEDGE":
         add("* nothing new was abstracted this episode. If it hit a failure that cost money, that cause "
             "is not in the registry yet — see AGENTS.md §7 step 0.")
+    lu_pre = state.get("line_upgrade_preflight") or {}
+    lu_close = state.get("line_upgrade_close") or {}
+    add(f"* read before writing (S1 preflight): **{lu_pre.get('status') or 'NOT_RUN'}** "
+        f"{json.dumps(lu_pre.get('findings') or [], ensure_ascii=False)}; "
+        f"at close: **{lu_close.get('status') or 'NOT_RUN'}** "
+        f"(briefing {(lu_close.get('knowledge_read') or {}).get('status') or '?'})")
     add("")
     add("## Rights basis on record")
     add("")

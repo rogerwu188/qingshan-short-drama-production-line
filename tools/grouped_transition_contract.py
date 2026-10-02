@@ -103,6 +103,20 @@ def _visible_props(spec: dict[str, Any]) -> list[str]:
     return sorted({str(row.get("prop") or "").strip() for row in spec.get("props") or [] if row.get("prop")})
 
 
+def _boundary_camera(unit: dict[str, Any]) -> dict[str, Any]:
+    """Camera a unit boundary is bound to.
+
+    A PER_SHOT_EXPLICIT unit carries no unit-wide camera; its boundary authority is the
+    first shot's camera -- the same plan compile_grouped_seedance_manifest validates the
+    start anchor with and the grouping spec bound the transition contract to.
+    """
+    camera = unit.get("camera_plan") or {}
+    if not camera and unit.get("camera_scope_policy") == "PER_SHOT_EXPLICIT":
+        specs = unit.get("ordered_prompt_specs") or []
+        camera = (specs[0].get("camera_plan") if specs else None) or {}
+    return camera
+
+
 def _requirements(value: Any, *, label: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"{label} must be an object")
@@ -195,8 +209,8 @@ def validate_transition_contract(
         "anchor_semantic_requirements": requirements,
     })
 
-    previous_camera = previous.get("camera_plan") or {}
-    current_camera = current.get("camera_plan") or {}
+    previous_camera = _boundary_camera(previous)
+    current_camera = _boundary_camera(current)
     if source["scene_id"] != str(previous.get("scene_id") or ""):
         raise ValueError(f"{label} source scene mismatch")
     if target["scene_id"] != str(current.get("scene_id") or ""):

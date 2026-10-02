@@ -146,6 +146,7 @@ python3 lines/nalu/runtime/tools/bootstrap_runtime_root.py --runtime-root "$RUNT
    与 `knowledge/failure_memory.jsonl`（`failure_code` → `do_not_repeat`）。这两份是**原因**，不是模板：
    读的是「哪类错不要再犯」，**不是**照搬旧集的镜头表或台词。收工侧写 K 号（§8）与开工侧读 K 号是同一件事的两端，
    只有写没有读，本集就会重犯已经付过学费的错。Roger 2026-10-01。
+   **自动化**：任何生产线开工前调 `tools/line_upgrade_gate.py preflight`（写 `<EP>_KNOWLEDGE_BRIEFING.md` 给写手读，并检查引擎是否落后 origin/main、是否有未声明的 overlay 遮蔽引擎模块）；nalu 线由 S1 自动调用。协议见 `docs/knowledge/LINE_UPGRADE_PROTOCOL.md`。
 1. 读源章、写 `E0N_NARRATIVE_CANONICAL_v1.md`（头部逐字引上一集 canonical 末段 5 行；声明观众已知不复证；选择性配乐节点）。
 2. 写 `build_e0N_layers.py`：逐集构建器内嵌本集镜头表与逐字台词，属**作品文本，不入库**（`.gitignore` 已拦）。
    按 `lines/nalu/docs/DEPLOY_NEW_MACHINE.md` §5 的骨架自写，或从上一集的本地副本（若本机有）改写数据块
@@ -158,6 +159,8 @@ python3 lines/nalu/runtime/tools/bootstrap_runtime_root.py --runtime-root "$RUNT
 ## 8. 收工：S7-SYNC（线主常设规则）
 
 集收工 = 生产收工 + 仓库收工。把本集新增/修改的工具以通用形态（参数化路径、无集次实值）回灌本仓库；每个坑写成 K 号条目进 `configs/ENGINEERING_KNOWLEDGE_V1.json` 与 `docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md`（状态如实：REFERENCE_IMPLEMENTATION / GUIDANCE_ONLY / INTEGRATION_PENDING）；README/AGENTS 改到与生产一致；`python3 tools/knowledge_registry.py --validate`、`tools/run_portable_ci.py`、`tools/deployment_code_integrity.py` PASS 后合并 main 并打 tag `vYYYY.MM.DD-…`。不上传媒体、canonical、事务、回执、日志、凭据、绝对路径、作品正文。
+
+任何生产线批准后调 `tools/line_upgrade_gate.py close`（共享写入器 `tools/knowledge_sync_core.py` 写入本集作者整理的 `<EP>_knowledge_candidates.json`，并核对开工 briefing 是否存在，缺失 = `KNOWLEDGE_NOT_READ`）；nalu 线 S8 已自动执行。见 `docs/knowledge/LINE_UPGRADE_PROTOCOL.md`。
 
 ## 9. 本文件的验证记录（2026-09-15，只用仓库内容 + 本文件，dry-run，不付费）
 

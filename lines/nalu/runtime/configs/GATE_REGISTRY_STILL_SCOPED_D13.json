@@ -2321,7 +2321,7 @@
   "derived_schema": "nalu.still_scoped_gate_registry.v1",
   "derived_from": "configs/GATE_REGISTRY_v3_20260716.json",
   "derived_from_sha256": "b1bafb93dc1276598c6d54340160a657ca4d9e899c8c802ce577e551e6ebd960",
-  "derived_at": "2026-09-29T07:45:20Z",
+  "derived_at": "2026-10-01T20:07:44Z",
   "derived_by": "keyframe_q1_builder.v1",
   "scope": "KEYFRAME_VIDEO_SUBMIT (stills) ONLY — video Q2 uses the engine registry",
   "decision_ref": "SUPERVISOR_ORDERS seq=4 / D-13 operator call 2026-09-09",

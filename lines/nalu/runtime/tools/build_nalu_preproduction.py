@@ -1354,6 +1354,9 @@ def main() -> int:
     parser.add_argument("--legacy-plan", help="optional prior production grouping plan used to migrate authored internal transitions")
     parser.add_argument("--state-authoring", help="contract-SHA-bound new-episode state attachment; incompatible with legacy ledgers")
     parser.add_argument("--engine-root")
+    parser.add_argument("--shot-scope-policy",
+                        help="override configs/PROMPT_SHOT_SCOPE_POLICY_V1.json (offline what-if only; "
+                             "the committed config stays the production switch)")
     args = parser.parse_args()
 
     if os.environ.get("GIGGLE_API_KEY", "").strip():
@@ -1619,6 +1622,16 @@ def main() -> int:
     # authorized_content_seconds (the cut length); the slot is the ceiling; the difference is the
     # declared trim handle.  Applied AFTER the engine grouping gate validated the editorial sums.
     plan = project_provider_slots(plan)
+    # Shot-scope upgrade (configs/PROMPT_SHOT_SCOPE_POLICY_V1.json): from the line's active episode
+    # every multi-shot unit takes the per-shot camera path, so shot 2..n camera/axis text reaches the
+    # provider prompt instead of only the first shot's.  Inactive episodes are left byte-identical.
+    from tools.sd2_shot_camera_adapter import scope_grouping_plan_cameras
+    from tools.prompt_shot_scope_policy import load_policy
+    per_shot_camera_units = scope_grouping_plan_cameras(
+        plan, episode=episode, model=MODEL_CONTRACT["model"],
+        policy=load_policy(Path(args.shot_scope_policy).expanduser().resolve()) if args.shot_scope_policy else None)
+    if per_shot_camera_units:
+        stage("4.2c_per_shot_camera_scope", "PASS", units=per_shot_camera_units)
     plan_path = write_json(out_dir / f"{prefix}VIDEO_UNIT_GROUPING_PLAN_V1.json", plan)
     stage("4.2b_video_unit_grouping_gate", grouping_report["status"],
           failures=grouping_report.get("failures") or [], report=portable(grouping_report_path, root))
