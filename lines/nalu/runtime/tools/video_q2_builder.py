@@ -75,6 +75,7 @@ import argparse
 import json
 import math
 import os
+import re
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -1103,6 +1104,74 @@ def _evidence_file(out: Path, *, gate_id: str, episode: str, unit_id: str,
     return payload
 
 
+Q2_ACCEPTANCE_GATE_ID = "VIDEO-Q2-ASSEMBLY-ADMISSION"
+
+
+def _q2_acceptance_detectors(unit_id: str, failures: list[Any]) -> list[str]:
+    """"<unit>:<registered gate id>" for every gate the engine reported not passing.
+
+    The order names gates, not measured values (a P2 list or an OCR string changes with
+    every take); the media sha binding is what pins the take."""
+    gates = set()
+    for failure in failures:
+        text = str(failure)
+        match = re.search(r"([A-Z][A-Z0-9]+(?:-[A-Z0-9]+)+)", text)
+        gates.add(match.group(1) if match else text)
+    return sorted(f"{unit_id}:{gate}" for gate in gates)
+
+
+def _line_owner_q2_acceptance(episode: str, unit_id: str, asset_sha: str,
+                              result: dict[str, Any], result_path: Path) -> dict[str, Any] | None:
+    """Admit a Q2-rejected unit only on an explicit, media-bound line-owner order.
+
+    Same contract as the S5 Q1 overlay (nalu_pipeline.apply_line_owner_q1_acceptance) and the
+    S6 post-generation overlay (post_generation_qa_runner.apply_roger_postgen_acceptance): an
+    active GATE_FAIL_ACCEPTANCE order for this episode and gate VIDEO-Q2-ASSEMBLY-ADMISSION whose
+    detectors cover EVERY failing gate of this unit and whose media_sha256_by_item[<unit>] equals
+    this exact take.  Q2 had no such channel (E09 seq=15 had to be resolved by the reviewer
+    withdrawing a P2 instead); added 2026-10-01 so a reviewer's honest defect list never has to be
+    rewritten to pass.  The engine's own admission_result stays on disk next to the acceptance."""
+    failures = list(result.get("failures") or [])
+    if not failures:
+        return None
+    try:
+        import roger_gate_acceptance as _rga
+    except ImportError:
+        return None
+    orders_path = os.environ.get("NALU_SUPERVISOR_ORDERS_PATH")
+    if not orders_path:
+        return None
+    try:
+        expected_latest_seq = int(os.environ.get("NALU_LATEST_ORDER_SEQ") or 0)
+    except ValueError:
+        expected_latest_seq = 0
+    orders = _rga._orders(Path(orders_path), expected_latest_seq=expected_latest_seq, engine_root=ENGINE)
+    detectors = _q2_acceptance_detectors(unit_id, failures)
+    order = _rga.find_acceptance(
+        orders, episode=episode, gate_id=Q2_ACCEPTANCE_GATE_ID, failing=detectors,
+        media_sha256=asset_sha, media_item_id=unit_id,
+        expected_issuer=str(os.environ.get("NALU_LINE_OWNER_ID") or "Roger"), engine_root=ENGINE)
+    bound = str(((order or {}).get("decision") or {}).get("media_sha256_by_item", {}).get(unit_id) or "")
+    if order is None or bound != asset_sha:
+        return None
+    record = _rga.acceptance_record(order, episode=episode, gate_id=Q2_ACCEPTANCE_GATE_ID,
+                                    failing=detectors, media_sha256=asset_sha, media_item_id=unit_id,
+                                    gate_result_path=str(result_path))
+    record.update({"unit_id": unit_id, "engine_status": result.get("status"),
+                   "engine_downstream_status": result.get("downstream_status"),
+                   "engine_failures": failures})
+    engine_copy = result_path.with_suffix(".engine.json")
+    if result_path.is_file():
+        write_json(engine_copy, result)
+    write_json(result_path, {**result, "engine_status": result.get("status"),
+                             "engine_downstream_status": result.get("downstream_status"),
+                             "engine_failures": failures, "engine_result_copy": str(engine_copy),
+                             "status": "ADMITTED_BY_LINE_OWNER_ORDER",
+                             "downstream_status": TERMINAL_DOWNSTREAM, "failures": [],
+                             "line_owner_acceptance": record})
+    return record
+
+
 def materialise(episode: str, submitted: dict[str, Any],
                 submitted_path: Path) -> dict[str, Any]:
     """Build one VIDEO_ASSEMBLY admission request per unit and run the ENGINE gate."""
@@ -1316,6 +1385,11 @@ def materialise(episode: str, submitted: dict[str, Any],
             # the gate cannot see an orchestration precondition (a stale prepare,
             # a missing D-6 record).  Never report an admission we do not have.
             downstream = "FAIL_NOT_ADMITTED"
+        acceptance = None
+        if downstream != TERMINAL_DOWNSTREAM and not blockers:
+            acceptance = _line_owner_q2_acceptance(episode, unit_id, asset_sha, result, result_path)
+            if acceptance:
+                downstream = TERMINAL_DOWNSTREAM
         rows.append({
             "unit_id": unit_id,
             "asset_path": str(asset),
@@ -1328,6 +1402,7 @@ def materialise(episode: str, submitted: dict[str, Any],
             "conditional_p2_registered_gates": result.get("conditional_p2_registered_gates") or [],
             "failures": (result.get("failures") or []) + blockers,
             "orchestration_blockers": blockers,
+            "line_owner_acceptance": acceptance,
             "gate_exit_code": completed.returncode,
             "gate_argv": argv,
             "gate_stdout": (completed.stdout or "").strip()[-1000:],
