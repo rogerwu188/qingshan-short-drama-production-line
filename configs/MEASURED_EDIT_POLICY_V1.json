@@ -1,0 +1,26 @@
+{
+  "schema": "qingshan.measured_edit_policy.v1",
+  "description": "Episode-level opt-in for ASR-driven source trimming (measured edit constraints)",
+  "lines": {
+    "nalu": {
+      "active_from_episode": 11,
+      "lead_seconds": 0.08,
+      "trail_seconds": 0.12,
+      "min_interval_seconds": 2.0
+    },
+    "qingshan": {
+      "active_from_episode": 65,
+      "lead_seconds": 0.08,
+      "trail_seconds": 0.12,
+      "min_interval_seconds": 2.0
+    }
+  },
+  "rationale": "Trim head/tail wait frames while preserving complete dialogue. Only trim units with PASS dialogue_qa and non-empty ASR segments. Units without dialogue fall back to full-length.",
+  "authority": "CC_PIPELINE_FRAMING_EDITING_FIX_PROPOSAL.md §五 (2026-10-02)",
+  "implementation": [
+    "lines/nalu/runtime/tools/build_measured_edit_constraints.py",
+    "tools/measured_edit_constraints.py",
+    "tools/measured_edit_policy.py"
+  ],
+  "deployment_coordination": "E01-E10 already delivered, not retroactive. E11 first to use."
+}

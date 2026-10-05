@@ -83,6 +83,7 @@ STATE_DIR = RT / "pipeline_state"
 APPROVAL_DIR = STATE_DIR / "approvals"
 LOG_ROOT = RT / "pipeline_logs"
 BUDGET_LEDGER = RT_TOOLS / "nalu_budget_ledger.py"
+BUILD_MEASURED_EDIT_CONSTRAINTS = RT_TOOLS / "build_measured_edit_constraints.py"
 
 # cross-episode authorities this orchestrator maintains
 ASSET_LIBRARY = RT / "asset_library.json"
@@ -4886,7 +4887,50 @@ def stage_s7(ctx: Ctx) -> StageResult:
     receipts = [Path(value) for value in q2["receipts"]]
     reviews = [Path(value) for value in q2["review_results"]]
 
-    # -------------------------------------------------------- 2. the chain argv
+    # -------------------------------------------------------- 2. measured edit constraints (opt-in per episode)
+    import sys
+    sys.path.insert(0, str(ENGINE / "tools"))
+    from measured_edit_policy import active_for, get_policy_params
+
+    constraints_file = None
+    if active_for(ctx.episode, line="nalu"):
+        params = get_policy_params(ctx.episode, line="nalu")
+        evidence_dir = p.assembly / "asr_evidence"
+        constraints_file = p.assembly / f"{ctx.episode}_MEASURED_EDIT_CONSTRAINTS.json"
+
+        build_constraints_argv = [
+            VENV, BUILD_MEASURED_EDIT_CONSTRAINTS,
+            "--episode", ctx.episode,
+            "--postgen-dir", p.postgen_dir,
+            "--video-media", p.video_media,
+            "--grouping-plan", p.grouping_plan,
+            "--out-constraints", constraints_file,
+            "--out-evidence-dir", evidence_dir,
+            "--lead-seconds", str(params.get("lead_seconds", 0.08)),
+            "--trail-seconds", str(params.get("trail_seconds", 0.12)),
+        ]
+
+        log_path = LOG_ROOT / ctx.episode / "s7_build_measured_edit_constraints.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("w") as log:
+            cc = subprocess.run(build_constraints_argv, stdout=log, stderr=subprocess.STDOUT, text=True)
+            if cc.returncode != 0:
+                res.blockers = [f"MEASURED_EDIT_CONSTRAINTS_BUILD_FAILED:see {log_path}"]
+                res.steps.append({
+                    "name": "build_measured_edit_constraints",
+                    "status": "FAIL",
+                    "log": str(log_path),
+                })
+                return res
+
+        res.steps.append({
+            "name": "build_measured_edit_constraints",
+            "status": "PASS",
+            "constraints_file": str(constraints_file),
+            "log": str(log_path),
+        })
+
+    # -------------------------------------------------------- 3. the chain argv
     build_argv: list[Any] = [
         VENV, ENGINE / "tools/build_agentcut_from_admitted_storyboard_sources.py",
         "--episode", ctx.episode]
@@ -4902,6 +4946,9 @@ def stage_s7(ctx: Ctx) -> StageResult:
         # required: audio_profile_binding classifies audio_contract.bgm and stamps
         # the contract's sha into the project (NO_BGM -> NATIVE_MULTIMODAL_NO_EXTERNAL_BGM)
         "--generation-contract", p.contract]
+
+    if constraints_file and constraints_file.is_file():
+        build_argv += ["--measured-edit-constraints", constraints_file]
 
     render_dry_argv = [VENV, ENGINE / "tools/render_portable_timeline.py",
                        p.agentcut_project, "--output", p.picture_native, "--dry-run"]

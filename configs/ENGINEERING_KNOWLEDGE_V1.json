@@ -1433,6 +1433,51 @@
       "runtime_gate_added": false,
       "owner": "DEPLOYMENT_MAINTAINER",
       "scope": "generalizable"
+    },
+    {
+      "id": "K076",
+      "stage": "S7_ASSEMBLY",
+      "rule": "按集 opt-in ASR 裁剪：有对白单元裁头尾等待帧、保护完整台词；无对白单元保留全长。measured_edit_constraints 信封形状 {unit_id, media_sha256, result:{status:PASS, segments}}，由 build_measured_edit_constraints 从 S6 post_generation_qa 证据生成。",
+      "lesson": "E64 33 单元保留完整供应商素材长度（含等待帧），观众反馈「每秒都是等待」；CC_PIPELINE_FRAMING_EDITING_FIX_PROPOSAL.md §五要求生成长度 vs 使用长度分离。",
+      "recovery": "tools/measured_edit_constraints.py 已实现区间包含校验与 ASR 不切句；lines/nalu/runtime/tools/build_measured_edit_constraints.py 生成证据信封；nalu_pipeline.py S7 接线传 --measured-edit-constraints；configs/MEASURED_EDIT_POLICY_V1.json 策略配置 nalu E11+。",
+      "implementation": [
+        "tools/measured_edit_constraints.py",
+        "lines/nalu/runtime/tools/build_measured_edit_constraints.py",
+        "tools/measured_edit_policy.py",
+        "configs/MEASURED_EDIT_POLICY_V1.json"
+      ],
+      "status": "REFERENCE_IMPLEMENTATION",
+      "evidence": "E64 native_source_receipts.json + audience_review 反馈",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "CC_PIPELINE_FRAMING_EDITING_FIX_PROPOSAL.md (2026-10-02)",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_measured_edit_constraints.py",
+      "runtime_gate_added": false,
+      "failure_code": "MEASURED_EDIT_ASR_NOT_VERIFIED",
+      "do_not_repeat": "只裁头尾（区间包含约束），中间空档动不了；字幕/BGM/片尾已自动跟随裁剪",
+      "scope": "video",
+      "category": "EDITORIAL"
+    },
+    {
+      "id": "K077",
+      "stage": "S2_PREPRODUCTION",
+      "rule": "实体数量对账门禁：non_character_entities[].instance_count（声明）vs reference_identity_bindings（绑定）vs compiled_prompt（最终）三方一致。无 instance_count 字段 → 跳过不假设默认值；instance_count 非正整数 → BLOCK。",
+      "lesson": "E64 合同声明两只狸花猫，提交单元只带一张参考图；CC_PIPELINE_FRAMING_EDITING_FIX_PROPOSAL.md §四「两只声明三个实体绑定 / 模板追加同类动物」空缺。",
+      "recovery": "tools/entity_instance_count_gate.py evaluate(contract, unit_plan, provider_scope_projection, prompt_text) 检查每个有 instance_count 的实体：绑定数 == instance_count && 标签出现在提示词。可选参数扩展 provider_scope_projection 放宽「每实体恒为 1」约束（不动 H3 现有合规路径）。",
+      "implementation": [
+        "tools/entity_instance_count_gate.py"
+      ],
+      "status": "REFERENCE_IMPLEMENTATION",
+      "evidence": "E64 S3 identity_qa_lock: PROP-BLACK-MOON-SEED 一张卡，合同要求四颗",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "CC_PIPELINE_FRAMING_EDITING_FIX_PROPOSAL.md §四 (2026-10-02)",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_entity_instance_count_gate.py",
+      "runtime_gate_added": false,
+      "failure_code": "ENTITY_INSTANCE_COUNT_UNDERBOUND",
+      "do_not_repeat": "声明数量就必须绑定同等数量参考图，且最终提示词含该实体",
+      "scope": "image",
+      "category": "IDENTITY"
     }
   ]
 }
