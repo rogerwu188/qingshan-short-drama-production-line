@@ -685,3 +685,35 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：E10 VU-020 重拍 2 的 Q2 人脸比对
 - **授权**：Roger 2026-10-01 会话：VU-020 选 C（接受现状）
 - **状态**：GUIDANCE_ONLY
+### K076 — S7_ASSEMBLY
+
+- **规则**：按集 opt-in ASR 裁剪：有对白单元裁头尾等待帧、保护完整台词；无对白单元保留全长。measured_edit_constraints 信封形状 {unit_id, media_sha256, result:{status:PASS, segments}}，由 build_measured_edit_constraints 从 S6 post_generation_qa 证据生成。
+- **教训**：E64 33 单元保留完整供应商素材长度（含等待帧），观众反馈「每秒都是等待」；CC_PIPELINE_FRAMING_EDITING_FIX_PROPOSAL.md §五要求生成长度 vs 使用长度分离。
+- **恢复**：tools/measured_edit_constraints.py 已实现区间包含校验与 ASR 不切句；lines/nalu/runtime/tools/build_measured_edit_constraints.py 生成证据信封；nalu_pipeline.py S7 接线传 --measured-edit-constraints；configs/MEASURED_EDIT_POLICY_V1.json 策略配置 nalu E11+。
+- **实现**：`tools/measured_edit_constraints.py`、`lines/nalu/runtime/tools/build_measured_edit_constraints.py`、`tools/measured_edit_policy.py`、`configs/MEASURED_EDIT_POLICY_V1.json`
+- **回归**：`tools/tests/test_measured_edit_constraints.py`
+- **证据**：E64 native_source_receipts.json + audience_review 反馈
+- **授权**：CC_PIPELINE_FRAMING_EDITING_FIX_PROPOSAL.md (2026-10-02)
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K077 — S2_PREPRODUCTION
+
+- **规则**：实体数量对账门禁：non_character_entities[].instance_count（声明）vs reference_identity_bindings（绑定）vs compiled_prompt（最终）三方一致。无 instance_count 字段 → 跳过不假设默认值；instance_count 非正整数 → BLOCK。
+- **教训**：E64 合同声明两只狸花猫，提交单元只带一张参考图；CC_PIPELINE_FRAMING_EDITING_FIX_PROPOSAL.md §四「两只声明三个实体绑定 / 模板追加同类动物」空缺。
+- **恢复**：tools/entity_instance_count_gate.py evaluate(contract, unit_plan, provider_scope_projection, prompt_text) 检查每个有 instance_count 的实体：绑定数 == instance_count && 标签出现在提示词。可选参数扩展 provider_scope_projection 放宽「每实体恒为 1」约束（不动 H3 现有合规路径）。
+- **实现**：`tools/entity_instance_count_gate.py`
+- **回归**：`tools/tests/test_entity_instance_count_gate.py`
+- **证据**：E64 S3 identity_qa_lock: PROP-BLACK-MOON-SEED 一张卡，合同要求四颗
+- **授权**：CC_PIPELINE_FRAMING_EDITING_FIX_PROPOSAL.md §四 (2026-10-02)
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K078 — S3_IDENTITY
+
+- **规则**：全复用集（new_asset_groups 为空）的身份审请求必须为空集：构建器要按 reuse.status 丢掉 REUSED_FROM_PRIOR_LIBRARY 主体，且**丢弃结果为空时不能跳过这步过滤**——`if planned:` 这种空集守卫会让过滤在最需要它的那一集静默失效。同理，任何「先看媒体再填答」的审核请求，在其媒体不存在时必须拒绝签发（不是签一张没人能答的 0 有效项请求）。
+- **教训**：E11 是首集全复用（38 个资产已 LOCKED、0 新生成）：new_asset_groups=[]，两个有本地源照的角色又都在 61 条 REUSED_FROM_PRIOR_LIBRARY 里，planned 相减为空 → `if planned:` 守卫不成立 → 26 个主体全进请求，其中 23 个指向本集不存在的 plate 路径，S3 永久 REVIEW_REQUIRED。修复后同一缺口在 S6.are 复现：S5 尚 DRY、关键帧未生成，S6.are 仍为一个 20 项、媒体全缺失的 action_role 请求要审核；S5 早有「No review is requested for media that does not exist」这道守卫，S6.are 缺它。
+- **恢复**：(1) tools 侧过滤按「计划可读」而非「结果非空」判定：有 plan 文件就应用过滤，即使得空集。(2) 审核签发函数加 skip_when_empty：0 项请求仍落盘为证据，但不置 REVIEW_REQUIRED，阶段继续走复用锁。(3) 每个「看图填答」的请求前，先断言媒体在盘；不在即 BLOCKED 且点名缺失，绝不签发。(4) 子步骤返回 BLOCKED 时要把状态与 blockers 冒泡到 StageResult，不能只返回 detail（否则 body 报 PASS 而首个子步骤已 BLOCKED）。
+- **实现**：`lines/nalu/runtime/tools/vlm_review_protocol.py`、`lines/nalu/runtime/tools/nalu_pipeline.py`
+- **回归**：`tools/tests/test_nalu_runtime_port.py`
+- **证据**：nalu E11 S3/S6 2026-10-05/06（首个全复用集）
+- **授权**：nalu production 2026-10-06
+- **状态**：REFERENCE_IMPLEMENTATION

@@ -850,7 +850,11 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
 
     # -------------------------------------------------------------------- sfx
     sfx: list[dict[str, Any]] = []
-    for sfx_id, spec in (overlay.get("sfx") or {}).items():
+    sfx_overlay = overlay.get("sfx") or {}
+    sfx_declared_none = sfx_overlay.get("_declared_none", False)
+    for sfx_id, spec in sfx_overlay.items():
+        if sfx_id.startswith("_"):  # Skip meta fields like _declared_none
+            continue
         scope = scoped(sfx_id)
         sfx.append(order(
             {"asset_id": sfx_id, "label": spec["label"],
@@ -865,7 +869,7 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
             },
             [a_cont],
         ))
-    if not sfx:
+    if not sfx and not sfx_declared_none:
         missing.append({"asset_id": f"SFX-*-{episode}", "field": "overlay.sfx",
                         "resolution": "AUTHORING_REQUIRED",
                         "sentinel": AUTHORING + "SFX_TABLE"})

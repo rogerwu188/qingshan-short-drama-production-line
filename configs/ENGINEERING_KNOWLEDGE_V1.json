@@ -1478,6 +1478,28 @@
       "do_not_repeat": "声明数量就必须绑定同等数量参考图，且最终提示词含该实体",
       "scope": "image",
       "category": "IDENTITY"
+    },
+    {
+      "id": "K078",
+      "stage": "S3_IDENTITY",
+      "rule": "全复用集（new_asset_groups 为空）的身份审请求必须为空集：构建器要按 reuse.status 丢掉 REUSED_FROM_PRIOR_LIBRARY 主体，且**丢弃结果为空时不能跳过这步过滤**——`if planned:` 这种空集守卫会让过滤在最需要它的那一集静默失效。同理，任何「先看媒体再填答」的审核请求，在其媒体不存在时必须拒绝签发（不是签一张没人能答的 0 有效项请求）。",
+      "lesson": "E11 是首集全复用（38 个资产已 LOCKED、0 新生成）：new_asset_groups=[]，两个有本地源照的角色又都在 61 条 REUSED_FROM_PRIOR_LIBRARY 里，planned 相减为空 → `if planned:` 守卫不成立 → 26 个主体全进请求，其中 23 个指向本集不存在的 plate 路径，S3 永久 REVIEW_REQUIRED。修复后同一缺口在 S6.are 复现：S5 尚 DRY、关键帧未生成，S6.are 仍为一个 20 项、媒体全缺失的 action_role 请求要审核；S5 早有「No review is requested for media that does not exist」这道守卫，S6.are 缺它。",
+      "recovery": "(1) tools 侧过滤按「计划可读」而非「结果非空」判定：有 plan 文件就应用过滤，即使得空集。(2) 审核签发函数加 skip_when_empty：0 项请求仍落盘为证据，但不置 REVIEW_REQUIRED，阶段继续走复用锁。(3) 每个「看图填答」的请求前，先断言媒体在盘；不在即 BLOCKED 且点名缺失，绝不签发。(4) 子步骤返回 BLOCKED 时要把状态与 blockers 冒泡到 StageResult，不能只返回 detail（否则 body 报 PASS 而首个子步骤已 BLOCKED）。",
+      "implementation": [
+        "lines/nalu/runtime/tools/vlm_review_protocol.py",
+        "lines/nalu/runtime/tools/nalu_pipeline.py"
+      ],
+      "status": "REFERENCE_IMPLEMENTATION",
+      "evidence": "nalu E11 S3/S6 2026-10-05/06（首个全复用集）",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "nalu production 2026-10-06",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "regression": "tools/tests/test_nalu_runtime_port.py",
+      "runtime_gate_added": false,
+      "failure_code": "REUSE_FILTER_SKIPPED_ON_EMPTY_SET",
+      "do_not_repeat": "空集守卫不能吞掉过滤；为不存在的媒体绝不签发审核请求",
+      "scope": "episode",
+      "category": "IDENTITY"
     }
   ]
 }

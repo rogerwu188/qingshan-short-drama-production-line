@@ -350,6 +350,7 @@ def build(manifest: dict[str, Any], source_sha: str) -> tuple[dict[str, Any], di
         row = {
             "unit_id": f"{episode}-VU-{index:03d}",
             "editorial_shot_ids": [shot["shot_id"] for shot in group],
+            "duration_seconds": duration,
             "action_unit": any((shot.get("prompt_spec") or {}).get("action") for shot in group),
             "narrative_beat": narrative_beat(group),
             "camera_plan": camera_plan,

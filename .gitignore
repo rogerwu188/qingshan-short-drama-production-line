@@ -127,5 +127,11 @@ tools/build_e[0-9][0-9]_reroll*.py
 # rule covered them; this rule is the guard that keeps that from repeating.
 lines/*/runtime/tools/build_e*_layers*.py
 lines/*/runtime/tools/build_e*_layers*.py.txt
+# Runtime outputs that name an episode and carry its state or absolute paths:
+# the knowledge briefing / upgrade preflight (written per episode by
+# line_upgrade_gate.py) and the tail-ad opt-in prompt + ledger.  AGENTS §8:
+# no logs, receipts, absolute paths or per-episode runtime state in the repo.
+lines/*/runtime/reports/
+lines/*/ads/
 !/deploy/
 !/deploy/**

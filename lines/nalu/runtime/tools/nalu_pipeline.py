@@ -2182,10 +2182,18 @@ def stage_s3(ctx: Ctx) -> StageResult:
         res.details["submitter_precheck"] = round_rec["submitter_precheck"]
         res.details["asset_library_gate"] = str(p.identity_library_gate)
         res.details["asset_library_gate_status"] = round_rec["asset_library_gate_status"]
-        if not pending and round_no == 1:
+        # Check for empty plan on first round, but allow all-reuse episodes
+        reused = plan.get("verified_reused_subjects") or []
+        if not pending and not reused and round_no == 1:
             res.status = BLOCKED
             res.blockers.append("IDENTITY_PLAN_EMPTY_NOTHING_TO_GENERATE_AND_NOTHING_LOCKED")
             return res
+        if not pending and reused and round_no == 1:
+            # All-reuse episode: nothing to generate; fall through so the engine's own
+            # S3.qa gates decide the verdict (this orchestrator never writes its own PASS).
+            res.details["all_reuse_episode"] = True
+            res.details["reused_asset_count"] = len(reused)
+            ctx.say(f"   S3: all-reuse episode ({len(reused)} verified reused assets, 0 new generation)")
 
         if not new_rows and not unharvested:
             if deferred:
@@ -2692,8 +2700,17 @@ def latest_submitted_review(ctx: Ctx, kind: str) -> tuple[Path | None, dict[str,
 
 
 def request_review(ctx: Ctx, res: StageResult, kind: str, *, sub_stage: str,
-                   note: str = "", items: list[str] | None = None) -> dict[str, Any]:
-    """Write a review request, mark the stage REVIEW_REQUIRED, and say how to answer."""
+                   note: str = "", items: list[str] | None = None,
+                   skip_when_empty: bool = False) -> dict[str, Any]:
+    """Write a review request, mark the stage REVIEW_REQUIRED, and say how to answer.
+
+    ``skip_when_empty``: an episode whose every identity subject is
+    REUSED_FROM_PRIOR_LIBRARY generates no plate of its own, so the request has no
+    items — and a 0-item review is a request nobody can answer (``validate_answers``
+    rejects an empty item list with ``answer_items_missing``), which would deadlock
+    the stage forever.  With this flag the request is still written as evidence, but
+    the stage is NOT marked REVIEW_REQUIRED; the caller continues to the reuse lock.
+    """
     argv: list[Any] = [VLM_PROTOCOL, "request", "--kind", kind, "--episode", ctx.episode]
     if items:
         argv += ["--items", json.dumps(sorted(items))]
@@ -2702,7 +2719,6 @@ def request_review(ctx: Ctx, res: StageResult, kind: str, *, sub_stage: str,
     payload = qa_json(step)
     request_path = payload.get("request")
     detail = {
-        "status": REVIEW_REQUIRED,
         "sub_stage": sub_stage,
         "kind": kind,
         "reviewer": REVIEWER_ID,
@@ -2711,16 +2727,30 @@ def request_review(ctx: Ctx, res: StageResult, kind: str, *, sub_stage: str,
         "items": payload.get("items"),
         "media_missing": payload.get("media_missing"),
         "note": note,
-        "how_to_answer": [
-            f"{VENV} {VLM_PROTOCOL} example-answers --request {request_path}",
-            "open every media path in the request, answer every question of every "
-            "item with an enumerated value, write an observation of >=20 chars and "
-            "list every defect",
-            f"{VENV} {VLM_PROTOCOL} submit --request {request_path} --answers <answers.json>",
-            f"{VENV} {RT_TOOLS / 'nalu_pipeline.py'} run --episode {ctx.episode} "
-            f"--from {sub_stage.split('.')[0].upper()}",
-        ],
     }
+    if skip_when_empty and int(payload.get("items") or 0) == 0:
+        detail["status"] = "NOT_REQUIRED_NO_SUBJECT"
+        detail["reason"] = (
+            "every requirement row for this kind is REUSED_FROM_PRIOR_LIBRARY, so this "
+            "episode generates no plate and there is no subject for a reviewer to look at; "
+            "the prior LOCKED rows (with their own recorded reviews) are copied into this "
+            "episode's library by library_lock_non_plate and re-checked against the files' "
+            "sha256.  A 0-item review is never submitted.")
+        detail["how_to_answer"] = []
+        res.receipts.append(str(request_path) if request_path else "")
+        ctx.say(f"   {sub_stage}: no review required — the {kind} request has 0 items "
+                "(every subject reused from the prior library)")
+        return detail
+    detail["status"] = REVIEW_REQUIRED
+    detail["how_to_answer"] = [
+        f"{VENV} {VLM_PROTOCOL} example-answers --request {request_path}",
+        "open every media path in the request, answer every question of every "
+        "item with an enumerated value, write an observation of >=20 chars and "
+        "list every defect",
+        f"{VENV} {VLM_PROTOCOL} submit --request {request_path} --answers <answers.json>",
+        f"{VENV} {RT_TOOLS / 'nalu_pipeline.py'} run --episode {ctx.episode} "
+        f"--from {sub_stage.split('.')[0].upper()}",
+    ]
     res.status = REVIEW_REQUIRED
     res.blockers.append(f"{sub_stage}:REVIEW_REQUIRED:{kind}")
     res.receipts.append(str(request_path) if request_path else "")
@@ -2778,38 +2808,50 @@ def s3_qa(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str, Any]:
 
     review_path, review = latest_submitted_review(ctx, "identity")
     if review_path is None:
-        detail.update(request_review(ctx, res, "identity", sub_stage="S3.qa",
-                                     note="identity plates changed or were never reviewed"))
-        write_json(p.identity_admission, {
-            "schema": "nalu.identity_qa_route_status.v1", "episode": ctx.episode,
-            "recorded_at": now(), "recorded_by": TOOL_ID, **detail})
-        res.receipts.append(str(p.identity_admission))
-        return detail
+        requested = request_review(ctx, res, "identity", sub_stage="S3.qa",
+                                   note="identity plates changed or were never reviewed",
+                                   skip_when_empty=True)
+        if requested.get("status") == REVIEW_REQUIRED:
+            detail.update(requested)
+            write_json(p.identity_admission, {
+                "schema": "nalu.identity_qa_route_status.v1", "episode": ctx.episode,
+                "recorded_at": now(), "recorded_by": TOOL_ID, **detail})
+            res.receipts.append(str(p.identity_admission))
+            return detail
+        # No reviewable subject: every identity requirement is REUSED_FROM_PRIOR_LIBRARY.
+        # Nothing to review and nothing to lock here — the prior LOCKED rows are copied
+        # by library_lock_non_plate below and the engine gate re-checks their bytes.
+        detail["review"] = requested
+        detail["status"] = PASS
+        # fall through to the non-plate lock + registry rebuild below, skipping the
+        # review-driven lock step, which has nothing to materialise.
+        review_path, review = None, None
 
-    # identity_qa_lock.py writes qa.status from the review + the real cosine.
-    # rights.status can only reach PASS with a NAMED basis, and a rights basis is
-    # a legal declaration by the configured line owner — never a reviewer observation.
-    lock_argv = [IDENTITY_QA_LOCK, "lock", "--episode", ctx.episode,
-                 "--review", review_path,
-                 "--rights-basis", ctx.rights_basis]
-    detail["rights_basis"] = ctx.rights_declaration
-    lock_step = qa_run(ctx, lock_argv, name="s3_qa_identity_lock")
-    res.steps.append(lock_step)
-    verdict = qa_json(lock_step)
-    detail.update({
-        "review_file": str(review_path),
-        "review_file_sha256": sha256_file(review_path),
-        "reviewed_at": review.get("reviewed_at"),
-        "verdict_counts": review.get("verdict_counts"),
-        "lock": verdict,
-        "status": PASS if verdict.get("status") == "PASS" else BLOCKED,
-        "blockers": ([] if verdict.get("status") == "PASS"
-                     else ["S3_IDENTITY_QA_FAILED"] + list(verdict.get("remaining") or [])),
-        "character_registry": str(ctx.p.scope["character_registry"]),
-        "character_registry_present": ctx.p.scope["character_registry"].is_file(),
-        "rights": (verdict.get("rights")
-                   or {"status": "SEE_ASSET_LIBRARY", "basis": ctx.rights_basis}),
-    })
+    if review_path is not None:
+        # identity_qa_lock.py writes qa.status from the review + the real cosine.
+        # rights.status can only reach PASS with a NAMED basis, and a rights basis is
+        # a legal declaration by the configured line owner — never a reviewer observation.
+        lock_argv = [IDENTITY_QA_LOCK, "lock", "--episode", ctx.episode,
+                     "--review", review_path,
+                     "--rights-basis", ctx.rights_basis]
+        detail["rights_basis"] = ctx.rights_declaration
+        lock_step = qa_run(ctx, lock_argv, name="s3_qa_identity_lock")
+        res.steps.append(lock_step)
+        verdict = qa_json(lock_step)
+        detail.update({
+            "review_file": str(review_path),
+            "review_file_sha256": sha256_file(review_path),
+            "reviewed_at": review.get("reviewed_at"),
+            "verdict_counts": review.get("verdict_counts"),
+            "lock": verdict,
+            "status": PASS if verdict.get("status") == "PASS" else BLOCKED,
+            "blockers": ([] if verdict.get("status") == "PASS"
+                         else ["S3_IDENTITY_QA_FAILED"] + list(verdict.get("remaining") or [])),
+            "character_registry": str(ctx.p.scope["character_registry"]),
+            "character_registry_present": ctx.p.scope["character_registry"].is_file(),
+            "rights": (verdict.get("rights")
+                       or {"status": "SEE_ASSET_LIBRARY", "basis": ctx.rights_basis}),
+        })
     # D-15 (2026-09-12): the engine gate below checks EVERY requirement category, not only
     # the plate subjects D-3 locks.  Lock wardrobe / voices / scenes / reference materials /
     # declared native-audio rows from on-disk evidence first (see the tool's docstring).
@@ -3984,6 +4026,21 @@ def s6_action_role_evidence(ctx: Ctx, res: StageResult, units: list[str] | None)
     if not needing:
         detail["status"] = PASS
         return detail
+    # The action-role review is answered by looking at each unit's START FRAME — the
+    # keyframe.  Before S5 has produced them there is no media to look at, so a request
+    # here would ask a reviewer to answer 20 items whose every media path is missing
+    # (E11, 2026-10-06: S5 was still DRY_PLANNED and the forward run reached S6 anyway).
+    # S5 already refuses in exactly this case ("No review is requested for media that
+    # does not exist"); S6.are must refuse the same way instead of emitting the request.
+    keyframes_on_disk = (sorted(ctx.p.keyframes.glob("*-keyframe-v*.png"))
+                         if ctx.p.keyframes.is_dir() else [])
+    if not keyframes_on_disk:
+        detail["status"] = BLOCKED
+        detail["blockers"] = ["KEYFRAMES_NOT_ON_DISK"]
+        detail["reason"] = ("no start-frame keyframe exists yet (S5 has not produced them), "
+                            "so the action-role review has no media to look at.  No review is "
+                            "requested for media that does not exist.")
+        return detail
     review_path, review = latest_submitted_review(ctx, "action_role")
     covered = {row.get("item_id") for row in (review.get("items") or [])} if review_path else set()
     if review_path is not None and set(needing) <= covered:
@@ -4063,6 +4120,12 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
     are = s6_action_role_evidence(ctx, res, ready_units)
     res.details = {"action_role_evidence": are}
     if are.get("status") != PASS:
+        # request_review sets res.status itself; a non-review refusal (e.g. the start
+        # frames do not exist yet) returns only its detail, so propagate it here —
+        # otherwise the body reports PASS while its very first sub-step was BLOCKED.
+        if not res.status or res.status == PASS:
+            res.status = are.get("status") or BLOCKED
+            res.blockers.extend(are.get("blockers") or [])
         return res
     # 6.1 re-run preproduction with --keyframe-dir (and, for a rolling wave, the ready subset).
     rebuilt = stage_s2(ctx, with_keyframes=True, ready_units=ready_units)

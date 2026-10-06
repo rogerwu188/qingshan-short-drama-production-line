@@ -525,7 +525,14 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
         reused = {str(row.get("asset_id")) for cat in req_rows.values() if isinstance(cat, list) for row in cat
                   if str(((row.get("reuse") or {}).get("status")) or "") == "REUSED_FROM_PRIOR_LIBRARY"}
         planned -= reused
-        if planned:
+        # Apply the filter whenever the plan was readable, even when the result is EMPTY.
+        # An episode whose every requirement row is REUSED_FROM_PRIOR_LIBRARY generates no
+        # plate of its own, so its reviewable set is the empty set — and gating this on
+        # `if planned:` silently dropped the filter exactly then, putting all 26 subjects
+        # into the request with 23 of them pointing at plate paths that do not exist in
+        # this episode (E11, 2026-10-05, the first all-reuse episode).  With no plan file
+        # at all the filter is still skipped, which keeps the old permissive behaviour.
+        if plan:
             rows = [row for row in rows if row["asset_id"] in planned]
         for row in rows:
             plates = sorted(p.plates.glob(f"*{row['asset_id']}*")) if p.plates.is_dir() else []

@@ -32,3 +32,6 @@
 {"failure_code": "REFERENCE_PAYLOAD_EDGE_TIMEOUT", "do_not_repeat": "不要对已扣费未拿到任务 ID 的事务直接重发同一指纹；不要把多张大尺寸 PNG 原样塞进一个请求", "stage": "S6", "scope": "generalizable", "knowledge_id": "K073"}
 {"failure_code": "KNOWLEDGE_WRITE_ONLY", "do_not_repeat": "不要只在收工侧写 K 号而开工不读；不要用未申报的本地覆盖替换引擎模块", "stage": "PIPELINE", "scope": "generalizable", "knowledge_id": "K074"}
 {"failure_code": "IDENTITY_TRANSFER_FROM_PASSIVE_REFERENCE", "do_not_repeat": "不要用改文字的方式反复重拍换脸问题；先检查参考图集合里有没有不该出现的正脸身份牌", "stage": "S6", "scope": "generalizable", "knowledge_id": "K075"}
+{"failure_code": "MEASURED_EDIT_ASR_NOT_VERIFIED", "do_not_repeat": "只裁头尾（区间包含约束），中间空档动不了；字幕/BGM/片尾已自动跟随裁剪", "stage": "S7_ASSEMBLY", "scope": "video", "knowledge_id": "K076"}
+{"failure_code": "ENTITY_INSTANCE_COUNT_UNDERBOUND", "do_not_repeat": "声明数量就必须绑定同等数量参考图，且最终提示词含该实体", "stage": "S2_PREPRODUCTION", "scope": "image", "knowledge_id": "K077"}
+{"failure_code": "REUSE_FILTER_SKIPPED_ON_EMPTY_SET", "do_not_repeat": "空集守卫不能吞掉过滤；为不存在的媒体绝不签发审核请求", "stage": "S3_IDENTITY", "scope": "episode", "knowledge_id": "K078"}
