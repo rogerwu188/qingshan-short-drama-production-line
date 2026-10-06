@@ -81,6 +81,13 @@ python3 lines/nalu/runtime/tools/bootstrap_runtime_root.py --runtime-root "$RUNT
 ## 4. 必须停下来问人的点（不问就是越权）
 
 1. **付费**：翻 `paid_requests_enabled`、第一次 `--paid`、每集上限、超守卫的重做、任何新的付费种类（首次配乐、换装 i2i）。
+   **已按线主常设指令（Roger 2026-10-06「以后无需要我批准，直接执行」）授权的付费，不必再问**：走唯一入口
+   `lines/nalu/runtime/tools/paid_stage.sh <EP> <FROM> <UNTIL>`（`--check <EP>` 只看预算、不花钱）。
+   该脚本自身不授予任何许可——订单序号/集次范围/上限/模型/权利声明、第二把锁 `paid_requests_enabled`、
+   每集积分上限（HARD_STOP 由 `nalu_budget_ledger.py` 在 POST 前拦）、整批提示词门（K041）、事务存档去重，
+   全部照旧在运行时强制。它只把「source .env + --paid」这套无法用权限规则窄匹配的一行命令，收成一个具名 argv；
+   运行时需要为它加一条 `Bash(./lines/nalu/runtime/tools/paid_stage.sh:*)` 权限规则，模型自己不得改权限配置。
+   仍要问线主的，是订单**未**覆盖的付费：新的付费种类（首次配乐、换装 i2i）、超重做守卫、集级缺陷预算超限。
 2. **发布/上传**：本线没有发布代码路径；任何平台上传都要线主另行授权（`release-preflight` 是失败关闭门，不是许可）。
 3. **版权/肖像**：源作品改编权、真人照片肖像权由线主声明；引擎不核验，代理只登记 `rights_basis` 原话与日期。
 4. **身份判定**：主角源照与剧本年龄/形象冲突、余弦低于失败线（0.30）、换源照、年轻化——任一都问。
