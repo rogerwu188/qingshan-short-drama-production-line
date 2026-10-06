@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1984,
+  "file_count": 1990,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -221,7 +221,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "9aa8ccb3d9ba3051b5b671ded136d739a559b884cfb58795c24cd7094249402f"
+      "sha256": "98c0fe4411d60cde559990ffae24a9c31554dbfd117b5c9c15c710a607324090"
     },
     {
       "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
@@ -238,6 +238,10 @@
     {
       "path": "configs/KEYFRAME_CAMERA_NOTE_SCOPE_V1.json",
       "sha256": "e0c1a2d3ad9a904674ad29c43b6ecbf10338b5a4a09e0e03ace8f89de6dd17af"
+    },
+    {
+      "path": "configs/MEASURED_EDIT_POLICY_V1.json",
+      "sha256": "74a4e78c495e8e6a055ab75e5ec8e05f6ff5da4c73507f370144b5c0ad5de65a"
     },
     {
       "path": "configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json",
@@ -297,7 +301,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "284617192c6541581204d242c5618ac9311b7ca160d2c036051a6be6ed18fa57"
+      "sha256": "badfcdaa6c2933ea901cd565ae6f7bbbbfde4f53ccec0edf0aa4170a0d61f333"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -3049,7 +3053,7 @@
     },
     {
       "path": "tools/build_video_unit_grouping_spec.py",
-      "sha256": "dd4e4d70bd6ee48ae3694f2c664a4608bc558210102755feda148d08b8461b97"
+      "sha256": "47d9e32244b882781e4e2ac01713599bbc2566f35c482a078f8d95cf35522d84"
     },
     {
       "path": "tools/build_writer_agent_image_batch.py",
@@ -3690,6 +3694,10 @@
     {
       "path": "tools/editorial_selection_gate.py",
       "sha256": "711a3efd123f1e2590336caa0bc7bb3cba03d1a4fb22ba1b5bd417eb805f1bcd"
+    },
+    {
+      "path": "tools/entity_instance_count_gate.py",
+      "sha256": "a6b8739bba0ca67b120c86de96bab417c71cd8751fe5c9898849a03e66b3997e"
     },
     {
       "path": "tools/episode_candidate_supervisor.py",
@@ -4553,7 +4561,7 @@
     },
     {
       "path": "tools/line_upgrade_gate.py",
-      "sha256": "4479a9036a679e6a800900ddacae0ed8d56a7a807f25e8f852614936e9443023"
+      "sha256": "8ec3f03367d88e3a0cdedecd6657548a5f534bc9523bf652a00f59ad35a42ad4"
     },
     {
       "path": "tools/local_lora_memory_sync.py",
@@ -4582,6 +4590,10 @@
     {
       "path": "tools/measured_edit_constraints.py",
       "sha256": "e18e4cc924da67a13490a5133d4e09e495f89c4d2fc32be95ab45e561de2eb55"
+    },
+    {
+      "path": "tools/measured_edit_policy.py",
+      "sha256": "748a1f8ae137603b4dbd58c7421d7cee3571caa223e9e218a452a52342aeeab1"
     },
     {
       "path": "tools/mechanical_default_gate.py",
@@ -6592,6 +6604,10 @@
       "sha256": "4c2f68038c7f3c7e367f4c19bb6024e0d4fac3a73cb76f10e090673b77eaf040"
     },
     {
+      "path": "tools/tests/test_entity_instance_count_gate.py",
+      "sha256": "b167d0d098fb126498cdf912796d9dbac9284231736c54144e547246dd461e86"
+    },
+    {
       "path": "tools/tests/test_entity_scoped_trajectory.py",
       "sha256": "4566249e6907cd81682af7b06d36c5ffa4ce27f6d7592edab18e5ee07484e115"
     },
@@ -6885,7 +6901,7 @@
     },
     {
       "path": "tools/tests/test_measured_edit_constraints.py",
-      "sha256": "6b790a778ea97a2fe3721930748ba138edc427c3522f861e91ef585f0bed0726"
+      "sha256": "098959d9ba9ff7a9f06c4e5445fb9019b6a5c6028dcf369dde7bc32cca5488d9"
     },
     {
       "path": "tools/tests/test_mechanical_default_gate.py",
@@ -7074,6 +7090,10 @@
     {
       "path": "tools/tests/test_production_liveness_probe.py",
       "sha256": "17e020d66a3fa63baaa108528bcbd5e6c5d41eb9a8aa160447ac4bfa9345b6fe"
+    },
+    {
+      "path": "tools/tests/test_prompt_batch_finalize_parallel.py",
+      "sha256": "b7ceac91148c52966be291f6fe2737dbff925cacfb3ffca66952af5dbf85aa27"
     },
     {
       "path": "tools/tests/test_prompt_batch_reuse.py",
@@ -7438,6 +7458,10 @@
     {
       "path": "tools/tests/test_submit_giggle_video_manifest_dialogue_transport.py",
       "sha256": "3414ce36f21e36447f50273215f0d051e6e3d9c8956d1b6fe439e4ee6cce2296"
+    },
+    {
+      "path": "tools/tests/test_submit_giggle_video_reference_asset_transport.py",
+      "sha256": "24ab20969a9af1c56c32305ca767abb876193ed65631d392ad5b88ebdb36307c"
     },
     {
       "path": "tools/tests/test_submit_giggle_video_response_evidence.py",

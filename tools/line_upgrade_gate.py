@@ -84,7 +84,24 @@ def _write_json(path: Path, payload: Any) -> None:
 
 
 def _reports(runtime_root: Path) -> Path:
-    return runtime_root / "reports"
+    """Where this gate writes and reads its per-episode receipts.
+
+    Two conventions meet here and they must agree, or close() reads a different
+    directory than preflight() wrote and reports KNOWLEDGE_NOT_READ for an episode
+    whose briefing is sitting on disk.  nalu_pipeline.py passes its ``RT``, which is
+    ``<RUNTIME_ROOT>/runtime`` (nalu_pipeline.py:80), and the knowledge candidates
+    reader in knowledge_sync_core looks in both ``<root>/reports`` and
+    ``<root>/runtime/reports``.  So: use ``<root>/runtime/reports`` when that is the
+    tree this root is shaped like, and ``<root>/reports`` otherwise — accepting a
+    root that is already the runtime tree (E11, 2026-10-06: preflight wrote
+    runtime/reports/E11_KNOWLEDGE_BRIEFING.json, close looked in reports/ and
+    declared the episode had not read the knowledge base).
+    """
+    candidates = [runtime_root / "runtime" / "reports", runtime_root / "reports"]
+    if (runtime_root / "runtime").is_dir():
+        return candidates[0]
+    existing = next((p for p in candidates if p.is_dir()), None)
+    return existing or candidates[1]
 
 
 # --------------------------------------------------------------------------- (i) engine

@@ -717,3 +717,33 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：nalu E11 S3/S6 2026-10-05/06（首个全复用集）
 - **授权**：nalu production 2026-10-06
 - **状态**：REFERENCE_IMPLEMENTATION
+### K079 — S1
+
+- **规则**：把逐镜机位契约（K071 的 PER_SHOT_EXPLICIT）打开的同一集，写手层的机位均衡必须同步从「只均衡单元首镜」扩到「按引擎实际展开顺序逐镜检查同族同向与同向两种重复」。均衡顺序：先在本族内换向（PUSH_IN↔PULL_OUT、RISE↔FALL、正/逆时针），本族无解再换族；改动必须读写一致的单一来源。
+- **教训**：E11 一开逐镜检查，planning 编译当场报 adjacent grouped units repeat camera motion DOLLY:PUSH_IN: E11-S01-01 -> E11-S01-02，接着是 E11-S01-05 -> E11-S02-01，逐个修会一直在追。全量枚举得 16 处冲突，因为构建器的 balance_camera_directions 只用 [g[0] for g in UNIT_GROUPS] 均衡单元首镜、且它的 ok() 只比方向不比族，而引擎的 grouped_camera_contract 逐镜检查「同族同向」与「同向」两条。37/77 镜是 PUSH_IN，只靠首镜均衡永远压不住。
+- **恢复**：构建器新增 balance_shot_camera_sequence()，按 SHOTS 全序逐镜均衡，接进原来的收敛循环与首镜均衡同轮跑（改首镜会改引擎切分，切分变则相邻对变，必须同轮迭代到双稳定）。候选顺序 = 本族另一方向 + 其他族全部。
+- **实现**：`lines/nalu/runtime/tools/build_e01_layers.py`
+- **回归**：`tools/tests/test_grouped_camera_contract.py`
+- **证据**：nalu E11 planning 编译：修前 16 处相邻冲突，修后 validate_camera_sequence 独立复验 PASS，41 单元
+- **授权**：nalu production 2026-10-06
+- **状态**：REFERENCE_IMPLEMENTATION
+### K080 — S1
+
+- **规则**：一个镜头的运镜文字只有一个权威来源：任何自动改机位（族/方向）的步骤都必须同时改写 (a) 该镜的镜头表字段（供关键帧提示词的摄影句）与 (b) 机位方案的 lens_intent／起止取景（供视频提示词），且改写括注里的档位名不得与目标同名（「环绕改为环绕」这类空话说明标注没写对）。
+- **教训**：E11 的首镜均衡器只改了 camera_plan 的 motion_family/motion_direction 与文案，没改镜头表的 cam 元组；而 SH() 把 cam[5] 同时放进 shot['camera']（关键帧提示词）和 camera_plan['lens_intent']（视频提示词）。结果同一单元的关键帧说「50mm推近」、视频说「50mm拉开」——两处都是付费文本。另外它把 4 处族已改 ARC 的镜留在「特写推近」，文字与机位直接矛盾；ARC 正/逆两个方向中文同名，标注退回机器名才读得出改了什么。
+- **恢复**：改机位统一走 _apply_motion_change()：先按 (族,方向) 词表改文字（同族换向换方向词、跨族换族词），再回写镜头表的 camera 与 cam 元组，最后加标注；_motion_label() 在族内两方向中文同名时退回机器名。回写用的镜头表私有引用 _shot 在对外序列化（合同、引擎分组）时剥离，避免与镜头表成环、污染哈希。
+- **实现**：`lines/nalu/runtime/tools/build_e01_layers.py`
+- **回归**：`tools/tests/test_keyframe_camera_note_scope.py`
+- **证据**：nalu E11：S02-01/S06-00/S07-01/S12-01/S14-01/S15-02/S15-00/S16-01/S16-02/S17-01/S18-00/S19-00 的关键帧摄影句与视频摄影行对不上；统一后 0 处不一致
+- **授权**：nalu production 2026-10-06
+- **状态**：REFERENCE_IMPLEMENTATION
+### K081 — S2
+
+- **规则**：衣柜圣经行由合同的结构化字段生成，而付费身份牌提示词由本集 asset_requirements 的 authored 文案生成；两者冲突时，以「与本集授权文案 + 实际参考图一致」的那份为准并改写结构化字段，不能留着一行自相矛盾的圣经。判定方式：打开该角色的身份牌实物看。
+- **教训**：E11 整批提示词门对杨永青报 4 处 kf_wardrobe_hide_coat_consistent FAIL：圣经 outer_layer 写「黑褐旧皮坎肩（外层）」（沿 E04 的结构化字段），authored_description 却写「厚粗布棉衣外罩整张兽皮大衣」；门把「兽皮」判为需要外层兽皮衣（True），而 outer_layer 不含兽皮词（False）。看 E01 身份牌实物：是一件及膝整张毛皮大衣——authored 文案与图一致，旧皮坎肩是 E01/E04 时代的另一套描述，E09/E10 的提示词也一直在说坎肩。按本集授权口径改写结构化字段四个（silhouette/outer_layer/inner_layer/belt_or_fastening），与秦铭那件袍子的同案处理一致。
+- **恢复**：改写构建器 WARDROBE_GARMENTS 里该角色的结构化字段，使其与本集授权文案一致；重建 S1/S2 与关键帧清单后重跑 digest，4 处 FAIL 归零。
+- **实现**：`lines/nalu/runtime/tools/build_e01_layers.py`
+- **回归**：`tools/tests/test_nalu_runtime_port.py`
+- **证据**：nalu E11 prompt_batch digest 58 行 4 行 FAIL（E11-S03-02/S03-03/VU-007/VU-023，全为杨永青）；改后 58 行 0 FAIL
+- **授权**：nalu production 2026-10-06
+- **状态**：REFERENCE_IMPLEMENTATION

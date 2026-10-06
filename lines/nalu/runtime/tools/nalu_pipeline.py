@@ -254,6 +254,18 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def _unit_count(grouping_plan: Path) -> int | None:
+    """Video units in the plan, or None when it has not been built yet.
+
+    The checkpoint text used to hardcode this number ("29-unit grouping plan"): a per-episode
+    figure frozen into shared code.  Read it instead so the line owner is never handed a count
+    that does not match the plan next to it.
+    """
+    row = read_json(grouping_plan, {}) or {}
+    value = row.get("video_unit_count")
+    return int(value) if isinstance(value, int) else None
+
+
 def sha256_file(path: Path) -> str | None:
     if not path or not Path(path).is_file():
         return None
@@ -5624,7 +5636,14 @@ def write_checkpoint(ctx: Ctx) -> Path:
         add(f"`{p.final_mp4}`.  What exists to review instead:")
         for label, path in (
                 ("preproduction report", p.preprod_report),
-                ("29-unit grouping plan", p.grouping_plan),
+                # The unit count is read off the plan, never written as a literal: the label
+                # said "29-unit" from E07 through E09, then kept saying it while the plan grew
+                # (E11: 41).  A stale number here is a line-owner-facing lie about the episode
+                # they are being asked to review, and the count moves for innocent reasons —
+                # the builder re-cuts shots into 4–8 s units, so it is not even stable across
+                # a text edit.  Read it, and say nothing when the plan is absent.
+                (f"{_unit_count(p.grouping_plan)}-unit grouping plan"
+                 if _unit_count(p.grouping_plan) else "video unit grouping plan", p.grouping_plan),
                 ("video transaction manifest", p.video_transaction),
                 ("identity bootstrap report", p.identity_report),
                 ("identity admission route status", p.identity_admission),
