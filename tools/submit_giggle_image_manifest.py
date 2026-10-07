@@ -520,7 +520,19 @@ def submit_all(
 
 
 def _provider_declined(failure: dict[str, Any], transaction_dir: Path | None = None) -> bool:
-    """True when the recorded provider response is an explicit non-200 failure (no task_id)."""
+    """True when the recorded provider response is an explicit non-200 failure (no task_id).
+
+    The marker list must stay in step with the video path's
+    ``submit_giggle_video_manifest_v2._provider_declined``: K054 (e24, 2026-09-17) settled that a
+    transport failure with no task_id AND a credit window whose pay rows equal the task ids we
+    already hold means nothing was bought, and the video submitter implements it.  This image
+    submitter was written 2026-09-05, before that rule existed, and only ever recognised an
+    explicit provider decline — so the same class of failure that the video path retries landed
+    here as CHARGE_STATE_UNRESOLVED_BATCH and quarantined the episode (nalu E11 S5, 2026-10-07:
+    two HTTP 524s out of 50, window 48 rows == 48 bound task ids, 528 charged, batch halted).
+    A Cloudflare 5xx or a dropped connection is not an accept-into-charge: the provider answers
+    only a request it processed, and the window is what proves whether it did.
+    """
     text = str(failure.get("provider_response") or "")
     if not text and transaction_dir is not None and failure.get("transaction"):
         path = transaction_dir / Path(failure["transaction"]).name
@@ -531,7 +543,10 @@ def _provider_declined(failure: dict[str, Any], transaction_dir: Path | None = N
                 text = ""
     text = text or str(failure.get("error") or "")
     return ("task_id" not in text or "missing data.task_id" in text) and any(
-        marker in text for marker in ("'code': 500", '"code":500', "payment failed", "status: 500", "status: 4")
+        marker in text for marker in ("'code': 500", '"code":500', '"code": 500', "payment failed",
+                                      "status: 500", "status: 4",
+                                      "NETWORK:", "Broken pipe", "HTTP 524", "HTTP 502", "HTTP 503",
+                                      "timed out", "Connection reset")
     )
 
 
@@ -613,7 +628,53 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.reconcile_unresolved_report:
-        raise SystemExit("Aggregate zero-charge windows cannot settle individual timeout transactions; provider task-history evidence is required")
+        # Offline reclassification of a batch's quarantined response-loss rows.  This never POSTs a
+        # generation: it re-fetches the credit window and runs the SAME classifier the submit path
+        # runs, so a timeout the provider never charged settles and a charge is never hidden.  It
+        # exists because the submit path only classifies on the way out of a run, and a run whose
+        # stage is already BLOCKED cannot get there — the ledger's own UNRECONCILED_TRANSACTIONS
+        # check refuses to start it again (nalu E11 S5, 2026-10-07: two HTTP 524s out of 50 left
+        # the episode unable to re-enter S5 to reach its own recovery path).
+        report_path = resolve(args.reconcile_unresolved_report)
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        failures = list(report.get("failures") or [])
+        if not failures:
+            raise SystemExit("reconcile report has no failures to reclassify")
+        known = int((report.get("credit_reconciliation") or {}).get("known_task_id_count")
+                    or report.get("newly_submitted") or report.get("submitted") or 0)
+        window = report.get("credit_reconciliation") or {}
+        start = window.get("window_start_utc") or report.get("recorded_at")
+        end = window.get("window_end_utc") or report.get("recorded_at")
+        model = str((report.get("results") or [{}])[0].get("model") or "gpt-image-2-pro")
+        fresh = reconcile_rows(
+            fetch_pay_statements(),
+            start=datetime.fromisoformat(str(start).replace("Z", "+00:00")) - timedelta(seconds=10),
+            end=datetime.fromisoformat(str(end).replace("Z", "+00:00")) + timedelta(minutes=10),
+            expected_count=int(window.get("expected_count") or known),
+            event_description="SingleGenerateImage",
+            model=model,
+        )
+        matched = int(fresh.get("matched_count", 0))
+        transaction_dir = resolve(
+            report.get("transaction_dir")
+            or f"workflow/tasks/giggle_submit_transactions/{report.get('episode') or ''}"
+        )
+        summary = classify_ambiguous_failures(
+            failures, known_submitted=known, matched_ledger_rows=matched,
+            transaction_dir=transaction_dir,
+        )
+        result = {
+            "schema": "qingshan.giggle_image_reconcile.v1", "report": portable_path(report_path),
+            "known_task_id_count": known, "matched_ledger_rows": matched,
+            "charged_credits": fresh.get("charged_credits"),
+            "summary": summary,
+            "rows": [{"task_key": f.get("task_key"), "credit_status": f.get("credit_status")}
+                     for f in failures],
+            "posted": 0,
+        }
+        atomic_json(resolve(args.out), result)
+        print(json.dumps(result, ensure_ascii=False))
+        return 0
 
     manifest_path = resolve(args.manifest)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

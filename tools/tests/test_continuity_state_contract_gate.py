@@ -211,6 +211,71 @@ class E04NegativeSampleTests(unittest.TestCase):
         self.assertFalse(any(f.startswith("DEAD_THEN_ALIVE") for f in result["failures"]))
 
 
+class AdjacentStateLeakTests(unittest.TestCase):
+    """K082 — a shot's entry_state copied verbatim from the previous shot's completion_state."""
+
+    def contract(self, shots):
+        return {"episode": "E99", "shots": shots, "scene_states": []}
+
+    def test_copy_across_a_cast_change_is_reported(self):
+        # nalu E11 S07-03 -> S08-01: the line describes 刘老头 striking the ground with his staff
+        # and the prop list still carries 木杖, while the next shot's cast is 秦铭.
+        shots = [
+            shot("E99-S01-01", "E99-S01", [("CHAR-LIULAOTOU", "alive")], props=("PROP-WOODEN-STAFF",),
+                 entry="刘老头站着", completion="刘老头站着，木杖重重顿在地上"),
+            shot("E99-S01-02", "E99-S01", [("CHAR-QINMING", "alive")], props=("PROP-WOODEN-STAFF",),
+                 entry="刘老头站着，木杖重重顿在地上", completion="秦铭坐着"),
+        ]
+        result = gate.check_adjacent_state_leak(self.contract(shots))
+        self.assertIn("ADJACENT_STATE_LEAK:E99-S01-01->E99-S01-02", result["warnings"])
+        row = result["measurements"]["adjacent_state_leaks"][0]
+        self.assertTrue(row["cast_changed"])
+        self.assertFalse(row["scene_changed"])
+
+    def test_copy_across_a_prop_change_is_reported(self):
+        shots = [
+            shot("E99-S01-01", "E99-S01", [("CHAR-QINMING", "alive")], props=("PROP-BOX",),
+                 entry="秦铭坐着", completion="秦铭坐着，目光离开木盒"),
+            shot("E99-S01-02", "E99-S01", [("CHAR-QINMING", "alive")], props=(),
+                 entry="秦铭坐着，目光离开木盒", completion="秦铭站起来"),
+        ]
+        result = gate.check_adjacent_state_leak(self.contract(shots))
+        self.assertIn("ADJACENT_STATE_LEAK:E99-S01-01->E99-S01-02", result["warnings"])
+        self.assertTrue(result["measurements"]["adjacent_state_leaks"][0]["props_changed"])
+
+    def test_same_cast_and_props_may_legitimately_repeat_the_line(self):
+        """A hard cut on the same person in the same pose repeats the line on purpose."""
+        shots = [
+            shot("E99-S01-01", "E99-S01", [("CHAR-QINMING", "alive")], props=(),
+                 entry="秦铭坐着", completion="秦铭坐着，盯着许岳平"),
+            shot("E99-S01-02", "E99-S01", [("CHAR-QINMING", "alive")], props=(),
+                 entry="秦铭坐着，盯着许岳平", completion="秦铭开口"),
+        ]
+        result = gate.check_adjacent_state_leak(self.contract(shots))
+        self.assertEqual(result["warnings"], [])
+        self.assertEqual(result["measurements"]["adjacent_state_leaks"], [])
+
+    def test_a_rewritten_entry_is_never_reported(self):
+        shots = [
+            shot("E99-S01-01", "E99-S01", [("CHAR-LIULAOTOU", "alive")], props=(),
+                 entry="刘老头站着", completion="刘老头站着，木杖顿地"),
+            shot("E99-S01-02", "E99-S01", [("CHAR-QINMING", "alive")], props=(),
+                 entry="秦铭坐在长凳上", completion="秦铭起身"),
+        ]
+        self.assertEqual(gate.check_adjacent_state_leak(self.contract(shots))["warnings"], [])
+
+    def test_it_is_a_warning_not_a_failure(self):
+        shots = [
+            shot("E99-S01-01", "E99-S01", [("CHAR-LIULAOTOU", "alive")], props=(),
+                 entry="刘老头站着", completion="刘老头站着，木杖顿地"),
+            shot("E99-S01-02", "E99-S01", [("CHAR-QINMING", "alive")], props=(),
+                 entry="刘老头站着，木杖顿地", completion="秦铭坐着"),
+        ]
+        report = gate.evaluate(self.contract(shots))
+        self.assertEqual(report["status"], "WARN")
+        self.assertEqual(report["failures"], [])
+
+
 class CliTests(unittest.TestCase):
     def test_cli_writes_report_and_exits_nonzero_on_fail(self):
         with tempfile.TemporaryDirectory() as tmp:

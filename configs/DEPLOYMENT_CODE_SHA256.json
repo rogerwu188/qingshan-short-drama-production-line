@@ -221,7 +221,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "98c0fe4411d60cde559990ffae24a9c31554dbfd117b5c9c15c710a607324090"
+      "sha256": "2c979ee84ebcfb6fe75e977484fc1237ed3957ee02c5dae48d416a98bd78435e"
     },
     {
       "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
@@ -301,7 +301,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "badfcdaa6c2933ea901cd565ae6f7bbbbfde4f53ccec0edf0aa4170a0d61f333"
+      "sha256": "8104037b99de43533d6e74c36baadb3aeab7eac4c12b4b1560cd47e7e42ef89c"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -3285,7 +3285,7 @@
     },
     {
       "path": "tools/continuity_state_contract_gate.py",
-      "sha256": "f8473e9471d9c816f075c3df9af98097bac641d21a79f76278872ec4d8430311"
+      "sha256": "fa27ff14d2aa8c357604068808f59555b155c14acad4f7403c691411b98b8127"
     },
     {
       "path": "tools/correct_e36_v19_bounded_watch_source_bindings.py",
@@ -5873,7 +5873,7 @@
     },
     {
       "path": "tools/submit_giggle_image_manifest.py",
-      "sha256": "c929049df1b8626885948f90aba9b6ddbd42b4cb02b995f7d56fea037d018276"
+      "sha256": "84e2a7b13fb15f9ddfb29b652aa167a4468e2d9863e434dd94ee22ae546f4503"
     },
     {
       "path": "tools/submit_giggle_task_manifest.py",
@@ -6405,7 +6405,7 @@
     },
     {
       "path": "tools/tests/test_continuity_state_contract_gate.py",
-      "sha256": "26b2532f9ccf619dfe7538d8e2300fc1b920c181c8cb8885f628a583325a874f"
+      "sha256": "93caa23e80368bc8c98a34fc2d418037f5034c4df58a9ae2c1fb1036b938ea2d"
     },
     {
       "path": "tools/tests/test_credit_window_isolation.py",
@@ -7437,7 +7437,7 @@
     },
     {
       "path": "tools/tests/test_submit_giggle_image_manifest_transactions.py",
-      "sha256": "2b1949fba353dfacf58c0d5349da3684fb318d1f313c7388f5830734564d38f5"
+      "sha256": "f642e95c7065d61a6f9197c5e596aa903dc549f8b0f805582e77e7f97eec229d"
     },
     {
       "path": "tools/tests/test_submit_giggle_key_environment.py",

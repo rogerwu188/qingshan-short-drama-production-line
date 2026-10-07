@@ -322,6 +322,56 @@ def check_costume_inheritance(contract: dict[str, Any]) -> dict[str, Any]:
     return _result(warnings=warnings, measurements={"int_ext_transitions": transitions})
 
 
+# --------------------------------------------------------------------------- B5 adjacent shot state leak
+
+
+def check_adjacent_state_leak(contract: dict[str, Any]) -> dict[str, Any]:
+    """A shot's entry_state must not be a verbatim copy of the previous shot's completion_state
+    when the people or props on screen changed between them.
+
+    The state contract is declared per shot, so the cheapest way to fill it in is to carry the
+    previous shot's line forward.  That is invisible in every existing check here — life state,
+    creature card, ambush space and costume inheritance all look at one scene or one entity — but
+    it is not invisible to the model: the keyframe prompt renders entry_state under
+    "逐字绑定；本帧唯一允许表现的状态" and binds it to the shot's cast by id, so a copied line
+    asks for the previous shot's person doing the previous shot's action (nalu E11 S08-01,
+    2026-10-07: entry_state "刘老头站着，木杖重重顿在地上" copied verbatim from S07-03, whose cast
+    is 刘老头 and whose prop is 木杖, while S08-01's cast is 秦铭 — the paid keyframe came back
+    with a bearded man holding a staff and no sign of 秦铭, and the identity measurement then
+    reported DECLARED_CHARACTER_FACE_NOT_FOUND).
+
+    WARN, not FAIL: a same-scene cut where the same person holds the same pose legitimately
+    repeats the line, and this gate cannot tell a deliberate continuity carry from a careless
+    copy.  The writer layer is where it is fixed; this is the report that makes it visible
+    before anything is paid for.
+    """
+    shots = _shots(contract)
+    warnings: list[str] = []
+    rows: list[dict[str, Any]] = []
+    for prev, cur in zip(shots, shots[1:]):
+        before, after = _clean(prev.get("completion_state")), _clean(cur.get("entry_state"))
+        if not before or before != after:
+            continue
+        people_changed = set(_cast_ids(prev)) != set(_cast_ids(cur))
+        props_changed = {_clean(p.get("prop")) for p in (_spec(prev).get("props") or [])
+                         if isinstance(p, dict)} != \
+                        {_clean(p.get("prop")) for p in (_spec(cur).get("props") or [])
+                         if isinstance(p, dict)}
+        scene_changed = _clean(prev.get("scene_id")) != _clean(cur.get("scene_id"))
+        if not (people_changed or props_changed or scene_changed):
+            continue
+        row = {
+            "shot_id": _shot_id(cur, shots.index(cur)),
+            "previous_shot_id": _shot_id(prev, shots.index(prev)),
+            "text": after,
+            "cast_changed": people_changed, "props_changed": props_changed,
+            "scene_changed": scene_changed,
+        }
+        rows.append(row)
+        warnings.append(f"ADJACENT_STATE_LEAK:{row['previous_shot_id']}->{row['shot_id']}")
+    return _result(warnings=warnings, measurements={"adjacent_state_leaks": rows})
+
+
 # --------------------------------------------------------------------------- evaluate
 
 
@@ -331,6 +381,7 @@ def evaluate(contract: dict[str, Any]) -> dict[str, Any]:
         "creature_card": check_creature_card(contract),
         "ambush_space": check_ambush_space(contract),
         "costume_inheritance": check_costume_inheritance(contract),
+        "adjacent_state_leak": check_adjacent_state_leak(contract),
     }
     failures: list[str] = []
     warnings: list[str] = []

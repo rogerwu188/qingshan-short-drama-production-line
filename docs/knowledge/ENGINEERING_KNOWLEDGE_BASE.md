@@ -747,3 +747,23 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：nalu E11 prompt_batch digest 58 行 4 行 FAIL（E11-S03-02/S03-03/VU-007/VU-023，全为杨永青）；改后 58 行 0 FAIL
 - **授权**：nalu production 2026-10-06
 - **状态**：REFERENCE_IMPLEMENTATION
+### K082 — S1
+
+- **规则**：镜头表的 entry_state 是「本帧唯一允许表现的状态」，逐字绑定、并按 cast 的 character_id 绑到人。它绝不能是上一镜 completion_state 的原样拷贝——只要两镜之间在场人物、道具或场景有任一变化，拷贝出来的那一句就在要求模型画「上一个人做上一个动作」。连续性门新增 ADJACENT_STATE_LEAK（WARN）逐对报出，人在写手层改。
+- **教训**：E11 关键帧出图后肉眼复核发现 S08-01 声明 cast=秦铭，画出来却是个留胡子、手握木杖的中年男人。查提示词：S08-01 的 entry_state 写「刘老头站着，木杖重重顿在地上」，与上一镜 S07-03 的 completion_state 逐字相同，而 S07-03 的 cast 是刘老头、道具是木杖；逐实体状态行甚至把这句绑给了 CHAR-QINMING。模型完全照着文字画，没有出错。身份测量因此报 DECLARED_CHARACTER_FACE_NOT_FOUND。全片扫出 21 处逐字相同，其中 19 处 cast 或 props 真的变了。既有的 continuity_state_contract_gate 四项（life_state / creature_card / ambush_space / costume_inheritance）都看不出它——三项看单个实体，一项看整场，没有一项看相邻两镜。
+- **恢复**：tools/continuity_state_contract_gate.py 新增 check_adjacent_state_leak()：逐对比较 prev.completion_state 与 cur.entry_state，逐字相同且（cast 集合变了 或 props 集合变了 或 scene_id 变了）则报 ADJACENT_STATE_LEAK:<prev>-><cur>，measurements.adjacent_state_leaks 记 cast_changed/props_changed/scene_changed。定为 WARN 不阻断：同场同人同姿势的硬切本来就该重复那句，门分不出是刻意承接还是顺手拷贝，由写手层处置。
+- **实现**：`tools/continuity_state_contract_gate.py`
+- **回归**：`tools/tests/test_continuity_state_contract_gate.py`
+- **证据**：nalu E11 S1（2026-10-07）：21 处逐字相同，19 处 cast/props 变化；S07-03->S08-01 的付费关键帧画成刘老头模样
+- **授权**：nalu production 2026-10-07（Roger 复核 E11 关键帧时发现错人）
+- **状态**：REFERENCE_IMPLEMENTATION
+### K083 — S7
+
+- **规则**：把异构处理的音频段直接交给 concat demuxer 会出包时间戳前跳/回退，随后 async 重采样补出长段静音。两处必须一致：(a) 有声段与无声段（anullsrc）的采样率/声道必须显式统一，不能一段写死 r=48000、另一段沿用源采样率；(b) 中间音频用统一 PCM，别让每段 AAC 编码延迟累积。主装配链（-filter_complex 逐输入 atrim/asetpts/aresample 再 concat 滤镜）不受影响；受影响的只有 concat demuxer + -c copy 那几处。
+- **教训**：Codex 线 2026-10-07 报来 CC_AUDIO_FRAMING_CONTINUITY_FIX.md，说源片段有声但成片长静音，根因是混采样率包时间戳进入 concat demuxer。核对引擎：主链 render_portable_timeline.py 本来就是逐输入重置时基再走 concat 滤镜（安全）；但 build_e39_agentcut_release.py 的 native 分支有声段用 -map 0:a:0 -c:a aac（不带 -ar，沿用源采样率），无声段用 anullsrc=r=48000，两者 `-c copy` 进同一个 concat demuxer——正是它描述的形状。e04/e17 两处同样用 demuxer 但输入是同源同参数渲染，风险低。素材不在本部署，无法实测，故如实标 GUIDANCE_ONLY 而非已修复。
+- **恢复**：检查方向：凡 concat demuxer 的输入，逐段 ffprobe 采样率/声道/codec；不一致就显式归一化（统一 -ar 48000 -ac 2，或中间 PCM）再拼。容许的容器舍入差要有命名阈值与依据，不能用无限 apad/async 掩盖截断。
+- **实现**：（未链接到代码；状态见下）
+- **回归**：`tools/tests/test_audio_postproduction_contract.py`
+- **证据**：Codex 线 CC_AUDIO_FRAMING_CONTINUITY_FIX.md（2026-10-07）；引擎侧 build_e39_agentcut_release.py:122-126 与 :220-224
+- **授权**：Roger 2026-10-07 转来 Codex 修复要求并要求核对是否合理
+- **状态**：GUIDANCE_ONLY

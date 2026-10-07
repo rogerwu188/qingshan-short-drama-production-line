@@ -38,3 +38,5 @@
 {"failure_code": "PER_SHOT_CAMERA_REPEAT_UNBALANCED", "do_not_repeat": "打开逐镜契约的集，不要沿用只均衡首镜的均衡器；也不要靠逐个撞报错来收口——先全量枚举一遍相邻对", "stage": "S1", "scope": "generalizable", "knowledge_id": "K079"}
 {"failure_code": "CAMERA_FIELD_AND_PROSE_DIVERGED", "do_not_repeat": "改机位不要只改一个字段；改完要在最终提示词里搜到新词、且搜不到旧词的两处（关键帧与视频）都要查", "stage": "S1", "scope": "generalizable", "knowledge_id": "K080"}
 {"failure_code": "WARDROBE_STRUCTURED_VS_AUTHORED_CONFLICT", "do_not_repeat": "整批提示词门报 hide_coat 不一致时，不要改门的判据，也不要凭散文改文案——先看参考图确认实物是哪一件，再让结构化字段与授权文案对齐", "stage": "S2", "scope": "episode", "knowledge_id": "K081"}
+{"failure_code": "ADJACENT_STATE_LEAK", "do_not_repeat": "不要用上一镜的完成态填这一镜的 entry_state；相邻镜 cast/props/scene 任一变化时必须重写", "stage": "S1", "scope": "generalizable", "knowledge_id": "K082"}
+{"failure_code": "CONCAT_DEMUXER_CLOCK_MISMATCH", "do_not_repeat": "不要让同一 concat demuxer 的输入一段写死 48k、一段沿用源采样率；不要用无限 apad/async 掩盖截断", "stage": "S7", "scope": "generalizable", "knowledge_id": "K083"}

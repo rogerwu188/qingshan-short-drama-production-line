@@ -55,17 +55,20 @@ if [ "$1" = "--check" ]; then CHECK_ONLY=1; EPISODE="$2"; else
 fi
 case "$EPISODE" in E[0-9][0-9]) ;; *) die "episode must look like E11, got '$EPISODE'" 2 ;; esac
 
-# The runtime workspace carries the credential file, the ledgers, the reviews and the sources.
-# It is deliberately NOT guessed from a sibling directory: a machine may hold more than one.
+# The credential and the authority coordinates normally sit in .env.  Load it only when they are
+# not already in the environment: a deployment that injects them per-process (for example an agent
+# runtime whose settings carry an `env` block) then never has this script read a secret file at
+# all, which is the difference between "the runtime can run its own paid stages" and "every paid
+# step needs a human to type a command".  Never echo the values either way.
 ENV_FILE="$ENGINE_ROOT/.env"
-[ -f "$ENV_FILE" ] || die "no $ENV_FILE — the provider credential and the line-owner authority coordinates live there"
+if [ -z "${GIGGLE_API_KEY:-}" ] || [ -z "${NALU_PAID_ORDER_SEQ:-}" ]; then
+  [ -f "$ENV_FILE" ] || die "credentials are not in the environment and there is no $ENV_FILE"
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
+fi
 [ -x "$VENV" ] || die "no interpreter at $VENV (set NALU_VENV_PYTHON)"
-
-# Source the credential and the authority coordinates into THIS process only.  Nothing is echoed.
-set -a
-# shellcheck disable=SC1090
-. "$ENV_FILE"
-set +a
 
 for var in NALU_RUNTIME_ROOT NALU_ENGINE_ROOT NALU_SUPERVISOR_ORDERS_PATH NALU_PAID_ORDER_SEQ \
            NALU_LATEST_ORDER_SEQ NALU_LINE_OWNER_ID; do
