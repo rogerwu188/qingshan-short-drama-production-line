@@ -39,6 +39,23 @@ class EntryScope(unittest.TestCase):
     def test_empty_legacy_role_is_unchanged(self):
         self.assertEqual(self.run_role({}, []), {})
 
+    def test_entry_state_binds_to_an_actor_outside_the_visible_cast_blocks(self):
+        """nalu E11 S03-01 (2026-10-07): 邻居甲 as actor, cast=[], entry '冯易安转过身朝向门口'.
+        The prompt shipped both that sentence and '画面内无人物；空镜'; the paid still came back as
+        the shot's completion state, an empty doorway."""
+        with self.assertRaisesRegex(ValueError, 'ENTRY_STATE_BINDS_TO_ABSENT_ACTOR:CHAR-A'):
+            self.run_role({'primary_actor': 'A', 'primary_actor_id': 'CHAR-A'}, [])
+
+    def test_actor_inside_the_visible_cast_is_untouched(self):
+        result = self.run_role({'primary_actor': 'A', 'primary_actor_id': 'CHAR-A'}, ['CHAR-A'])
+        self.assertEqual(result['entity_presence']['CHAR-A'], 'VISIBLE_AND_IDENTITY_LOCKED')
+
+    def test_a_non_character_actor_is_exempt(self):
+        """A creature insert declares primary_actor_kind=CREATURE with no character id (nalu E05 乌鸦)."""
+        result = self.run_role({'primary_actor': '紫眼乌鸦', 'primary_actor_kind': 'CREATURE',
+                                'primary_actor_id': ''}, [])
+        self.assertEqual(result['entity_presence']['紫眼乌鸦'], 'ABSENT_REFERENCE_ONLY')
+
     def test_wardrobe_exclusion_requires_record_and_authored_costume(self):
         self.assertFalse(wardrobe_plate_excluded({}, 'A'))
         spec = {'wardrobe_reference_exclusions': {'A': {'reason': 'wrong color', 'evidence_ref': 'review.json'}}}

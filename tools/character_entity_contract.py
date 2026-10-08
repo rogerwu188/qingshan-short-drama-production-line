@@ -15,6 +15,11 @@ SCHEMA = "qingshan.character_entity_contract.v1"
 ACTIVE_FROM_EPISODE = 54
 VISIBLE = {"VISIBLE_AND_IDENTITY_LOCKED", "OWNER_PARTIALLY_OCCLUDED_BUT_AN_CONTINUOUS"}
 SILENT_MARKERS = ("闭口", "不得张口", "不可张口", "不说话", "silent")
+# A shot whose entry line names somebody who is not in its cast.  The keyframe
+# renderer binds the entry sentence to the shot's cast by id, so the name has
+# to resolve here or the prompt goes out with two instructions that contradict
+# each other (see check in validate_character_entity_contract).
+CLAUSE_SPLIT = re.compile(r"[，,。；;]")
 
 
 def _clean(value: Any) -> str:
@@ -80,8 +85,17 @@ def validate_character_entity_contract(payload: dict[str, Any]) -> dict[str, Any
     if not required and not payload.get("character_entities"):
         return {"schema": "qingshan.character_entity_gate.v1", "status": "PASS", "required": False, "failures": []}
     by_id, aliases, failures = build_character_index(payload)
-    for spec_index, spec in enumerate(_specs(payload), 1):
-        sid = _clean(spec.get("shot_id")) or f"SPEC-{spec_index}"
+    # entry_state is authored on the shot while _specs() yields prompt_spec, so pair
+    # the two lists positionally to keep each shot id and its entry line next to its
+    # spec.  Some payloads carry no shot rows and inline entry_state in the spec.
+    shot_rows = [row for row in payload.get("shots") or [] if isinstance(row, dict)]
+    specs = _specs(payload)
+    paired = bool(shot_rows) and not payload.get("ordered_prompt_specs") and len(shot_rows) == len(specs)
+    for spec_index, spec in enumerate(specs, 1):
+        sid = _clean(spec.get("shot_id")) or (
+            _clean(shot_rows[spec_index - 1].get("shot_id")) if paired else ""
+        ) or f"SPEC-{spec_index}"
+        entry_at_shot = _clean(shot_rows[spec_index - 1].get("entry_state")) if paired else ""
         cast_ids: set[str] = set()
         cast_names: dict[str, str] = {}
         for cast in spec.get("cast") or []:
@@ -139,6 +153,51 @@ def validate_character_entity_contract(payload: dict[str, Any]) -> dict[str, Any
             failures.append(f"{sid}_ACTION_SUBJECT_ID_MISSING")
         elif action_subject_id and actor_is_character and action_subject_id != role_actor_id:
             failures.append(f"{sid}_ACTION_SUBJECT_ROLE_ACTOR_MISMATCH:{action_subject_id}:{role_actor_id}")
+
+        # The keyframe renderer draws the entry_state sentence and then binds every
+        # visible person to it; a name the cast does not contain has nowhere to
+        # bind, so the prompt ships one block saying the person acts and another
+        # saying nobody is in frame.  Both contradictions are refused here.
+        #
+        # E11 S03-01 (2026-10-07): subject 邻居甲 / cast [] / entry "冯易安转过身
+        # 朝向门口" — paid keyframe came back as an empty doorway, i.e. the shot's
+        # completion state.  E11 S08-01: entry "刘老头站着，木杖重重顿在地上"
+        # carried verbatim from S07-03, whose cast is 刘老头 and whose prop is 木杖,
+        # while S08-01's cast is 秦铭 — the keyframe came back with the wrong man.
+        entry_text = _clean(spec.get("entry_state")) or entry_at_shot
+        if entry_text:
+            visible_cast = {
+                _clean(c.get("character_id")) for c in spec.get("cast") or []
+                if c.get("first_frame_visible", True) is not False
+            }
+            if actor_is_character and role_actor_id and role_actor_id in by_id and role_actor_id not in visible_cast:
+                failures.append(f"{sid}_PRIMARY_ACTOR_NOT_IN_VISIBLE_CAST:{role_actor_id}")
+
+            declared_non_character = {
+                _clean(row.get("name")) for row in payload.get("non_character_entities") or []
+                if _clean(row.get("name"))
+            }
+            entry_head = CLAUSE_SPLIT.split(entry_text)[0]
+            if entry_head and not any(name in entry_head for name in declared_non_character):
+                # Only a head that names *nobody* in this shot's cast is a defect.
+                # A name that is in the cast but not first-frame visible is a gaze
+                # or relationship target ("秦铭坐着盯着许岳平") and is left alone,
+                # as is a creature whose role name differs from its character id.
+                named_head = {
+                    label for label in aliases
+                    if len(label) >= 2 and label in entry_head
+                }
+                in_cast_named = {aliases[l] for l in named_head if aliases[l] in cast_ids}
+                actor_label = _clean(role.get("primary_actor"))
+                absent_named = {
+                    aliases[l] for l in named_head
+                    if aliases[l] not in cast_ids and l not in actor_label
+                }
+                if absent_named and not in_cast_named and role_actor_id not in absent_named:
+                    failures.append(
+                        f"{sid}_ENTRY_STATE_NAMES_ABSENT_CHARACTER:"
+                        + ",".join(sorted(absent_named))
+                    )
         if dialogue and role_speaker_id != speaker_id:
             failures.append(f"{sid}_DIALOGUE_ROLE_SPEAKER_MISMATCH:{speaker_name}:{speaker_id}:{role_speaker_id}")
         presence = role.get("entity_presence") or {}

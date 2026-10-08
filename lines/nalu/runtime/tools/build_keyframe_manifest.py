@@ -899,6 +899,18 @@ def normalize_keyframe_role_semantics(
     states = dict(role.get("entity_states") or {})
     presence = dict(role.get("entity_presence") or {})
     visible = set(map(str, visible_contract_ids))
+    # The renderer prints the entry_state sentence verbatim and then binds the people
+    # on screen to it under one hard lock.  When the contract declares a character as
+    # this shot's actor but leaves them out of the visible cast, the code further down
+    # silently labels that actor ABSENT_REFERENCE_ONLY / "本首帧不入画" while the
+    # sentence still describes them acting: the prompt then carries both "冯易安转过身
+    # 朝向门口" and "画面内无人物；空镜", and the provider picks one.  nalu E11 S03-01
+    # (2026-10-07) was paid for and came back as the shot's completion state — an empty
+    # doorway.  Refuse it here instead of letting the model resolve the contradiction.
+    actor_kind = str(role.get("primary_actor_kind") or "CHARACTER").upper()
+    actor_id = str(role.get("primary_actor_id") or "").strip()
+    if entry_state and actor_kind == "CHARACTER" and actor_id and actor_id not in visible:
+        raise ValueError(f"{shot_id}: ENTRY_STATE_BINDS_TO_ABSENT_ACTOR:{actor_id}")
     participant_keys = []
     for id_key, name_key in (
         ("primary_actor_id", "primary_actor"),
