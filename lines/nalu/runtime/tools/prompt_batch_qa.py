@@ -67,6 +67,49 @@ def foreign_dialogue(text: str, dialogue_by_shot: dict, unit_shots: list) -> lis
                    and line.split("：", 1)[1] in text})
 
 
+#: Tokens that mean "an outer garment made of hide": 兽皮大衣 / 裘氅 / 兽皮短袄 / 皮袄.
+HIDE_COAT_TOKENS = ("兽皮", "裘氅", "皮袄")
+#: Words that negate a hide coat inside one wardrobe field.  The check below uses these to
+#: strip negated spans before deciding whether the field asks for fur at all.
+HIDE_COAT_NEGATIONS = ("不披", "不带", "没有", "无", "非", "不要")
+#: A fur/hide HAT is not an outer coat (E03 兽皮护耳帽 / 皮帽).
+HIDE_COAT_HAT_TOKENS = r"兽皮护耳帽|皮护耳帽|兽皮帽|皮帽"
+#: A denial together with the garment words it scopes over.  The denial must swallow the whole
+#: phrase: 不披兽皮裘氅 is one denial of one garment, and stripping only 「不披兽皮」 would leave
+#: a bare 「裘氅」 behind and read the denial as a requirement.  A negation scoped to a different
+#: garment (「无毛领的兽皮大衣」) still leaves its coat standing: 的 breaks the run and the coat
+#: is not in the denial's word class.
+HIDE_COAT_DENIAL_RE = re.compile(
+    r"(?:不披|不带|不穿|没有|无|非)(?:兽皮|裘氅|毛领|皮袄|皮草|外披|外衣|大衣|衣)+")
+#: Outside a denial run a negation must sit immediately before the token.  A looser window
+#: would clear a real coat through a negation that addresses a different garment.
+HIDE_COAT_NEGATION_MAX_GAP = 1
+
+
+def mentions_hide_coat(text: str) -> bool:
+    """True when the field asks for a hide/fur OUTER coat, not when it denies one.
+
+    nalu E11 秦铭 renders 「…都不披兽皮裘氅、不带毛领…」 while the E01 library row said
+    「陈旧兽皮大衣（外层…）」.  The old check scanned for the bare token 裘氅 and read the
+    denial as a requirement, so the gate compared True against a correctly-plain line.
+    Hat tokens are stripped too (E03 兽皮护耳帽).
+    """
+    value = re.sub(HIDE_COAT_HAT_TOKENS, "", str(text or ""))
+    value = HIDE_COAT_DENIAL_RE.sub("", value)
+    for clause in re.split(r"[；;，,。、（）()]", value):
+        for token in HIDE_COAT_TOKENS:
+            start = 0
+            while True:
+                found = clause.find(token, start)
+                if found < 0:
+                    break
+                window = clause[max(0, found - HIDE_COAT_NEGATION_MAX_GAP):found]
+                if not any(negation in window for negation in HIDE_COAT_NEGATIONS):
+                    return True
+                start = found + len(token)
+    return False
+
+
 def wardrobe_expectation(spec, name, bible_row):
     overrides = spec.get('wardrobe_state_overrides') or {}
     ids = [c.get('character_id') for c in spec.get('cast', [])
@@ -182,11 +225,11 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
                 head, expected_outer = wardrobe_expectation(shot['prompt_spec'], name, b)
                 chk(f"kf_wardrobe_authored_text:{name}", bool(head) and head in line, f"{head!r} in line")
                 # E04: 皮袄 (a hide jacket) and 裘氅 are hide coats too — the line-side test already counts them
-                hide_expected = any(t in expected_outer for t in ("兽皮", "裘氅", "皮袄"))
-                # E01 idiom 兽皮大衣/小披; E02+ Tang/Song idiom 裘氅 / 兽皮短袄 (seq=7)
-                # E03: a fur/hide HAT (兽皮护耳帽 / 皮帽) is not an outer coat — strip hat tokens before the coat test
-                line_no_hat = re.sub(r"兽皮护耳帽|皮护耳帽|兽皮帽|皮帽", "", line)
-                hide_in_line = ("兽皮" in line_no_hat or "裘氅" in line_no_hat or "皮袄" in line_no_hat) and not any(x in line for x in ("无外披兽皮", "无兽皮外披", "无外披"))
+                # K085: read the FIELD with the same negation-aware test as the line.  A denial
+                # (「无外披（全集不披裘氅、不带毛领…）」) is not a requirement for fur.
+                hide_expected = mentions_hide_coat(expected_outer)
+                # E03: a fur/hide HAT (兽皮护耳帽 / 皮帽) is not an outer coat — the helper strips hats
+                hide_in_line = mentions_hide_coat(line)
                 chk(f"kf_wardrobe_hide_coat_consistent:{name}", hide_expected == hide_in_line, f"expected={hide_expected} line={hide_in_line}")
         sc = scenes[shot["scene_id"]]
         chk("kf_time_id", f"时间：{sc['time_id']}" in kf_text, sc["time_id"])
@@ -207,6 +250,14 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
         chk("kf_room_exists_in_gsm", bool(loc and gm and loc.group(2) in kf_text), f"{gm.group(1) if gm else ''}/{loc.group(2) if loc else ''}")
         chk("kf_no_completion_state_leak", shot["completion_state"] not in section(kf_text, "entry_state") , shot["completion_state"][:30])
         chk("kf_9_16_and_no_text_rule", "9:16" in kf_text and "不得出现任何文字" in kf_text, "")
+        # K087: an authored-prose gap must never reach the provider.  When the writer leaves a
+        # wardrobe/voice/space field unfilled, the asset build inherits whatever the prior
+        # library held — and for a character whose description was never authorised that is the
+        # sentinel itself.  nalu E11 刘老头 rendered
+        # 「AUTHORING_REQUIRED_WARDROBE_STATE_DESCRIPTION；拄着木杖…」 into the paid keyframe
+        # prompt.  The build report calls this PASS, so nothing upstream stops it.
+        sentinels = sorted(set(re.findall(r"AUTHORING_REQUIRED_[A-Z_]+", kf_text + "\n" + vp_text)))
+        chk("kf_no_authoring_required_sentinel", not sentinels, ",".join(sentinels))
         for h in boiler_kf:
             boiler_kf[h].add(section(kf_text, h))
         # video prompt checks
