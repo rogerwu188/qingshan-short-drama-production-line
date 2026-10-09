@@ -64,6 +64,34 @@ if [ $FORCE = 0 ] && [ -f "$STATE" ] && grep -q "\"status\":\"READY\"" "$STATE" 
   finish READY ""
 fi
 
+# an episode in flight (Claude Code running, or its last NALU_STATUS is anything but FINAL_CUT_READY)
+# keeps the engine + venv it started with; a new pin is applied on the first wake after it finishes.
+IN_FLIGHT="$(python3 - "$RUNTIME" "$S" <<'PY' 2>/dev/null
+import json, sys
+from pathlib import Path
+runtime, scripts = Path(sys.argv[1]), sys.argv[2]
+sys.path.insert(0, scripts)
+import claude_production as cp
+busy = []
+for session in sorted((runtime / "claude_code").glob("*/session.json")):
+    s = json.loads(session.read_text(encoding="utf-8"))
+    state = ((cp.parse_log(Path(s.get("log") or "")).get("nalu_status")) or {}).get("state")
+    if cp.alive(s.get("pid")) or state != "FINAL_CUT_READY":
+        busy.append(f"{session.parent.name}:{'RUNNING' if cp.alive(s.get('pid')) else state}")
+print(",".join(busy))
+PY
+)"
+CUR="$(git -C "$ENGINE" rev-parse HEAD 2>/dev/null)"
+DEFER=0
+if [ -n "$IN_FLIGHT" ] && [ -n "$CUR" ] && [ "$CUR" != "$PIN" ] && [ -x "$ENGINE/.qingshan-venv/bin/python" ]; then
+  DEFER=1; NOTES+=("episode in flight ($IN_FLIGHT): engine stays at ${CUR:0:7}; ${PIN:0:7} applies after it reaches FINAL_CUT_READY")
+  if command -v claude >/dev/null && [ -f "$HOME/.claude/settings.json" ]; then
+    STEP_deps=OK_CACHED; STEP_engine=DEFERRED_IN_FLIGHT; STEP_runtime=OK_CACHED; STEP_python=DEFERRED_IN_FLIGHT
+    STEP_claude_install=OK_CACHED; STEP_claude_config=OK_CACHED
+    finish READY ""
+  fi
+fi
+
 # ---------------------------------------------------------------- 1. system deps
 SUDO=""; sudo -n true 2>/dev/null && SUDO="sudo -n"
 if [ -n "$SUDO" ] && command -v apt-get >/dev/null; then
@@ -105,10 +133,11 @@ elif [ -e "$ENGINE" ]; then
 fi
 [ -d "$ENGINE/.git" ] || run git clone -q "$REPO" "$ENGINE" || { STEP_engine=CLONE_FAILED; finish BLOCKED engine; }
 before="$(git -C "$ENGINE" rev-parse HEAD)"
-run git -C "$ENGINE" checkout -q --detach "$PIN" || { STEP_engine=CHECKOUT_FAILED; finish BLOCKED engine; }
-[ "$before" = "$PIN" ] || NOTES+=("engine moved ${before:0:7} -> ${PIN:0:7}")
-[ -d "$ENGINE/skills/nalu-claude-code/scripts" ] || { STEP_engine=SKILL_DIR_MISSING_AT_PIN; finish BLOCKED engine; }
-STEP_engine=OK
+if [ $DEFER = 1 ]; then PIN_EFFECTIVE="$before"; else PIN_EFFECTIVE="$PIN"; fi
+run git -C "$ENGINE" checkout -q --detach "$PIN_EFFECTIVE" || { STEP_engine=CHECKOUT_FAILED; finish BLOCKED engine; }
+[ "$before" = "$PIN_EFFECTIVE" ] || NOTES+=("engine moved ${before:0:7} -> ${PIN_EFFECTIVE:0:7}")
+[ $DEFER = 1 ] || [ -d "$ENGINE/skills/nalu-claude-code/scripts" ] || { STEP_engine=SKILL_DIR_MISSING_AT_PIN; finish BLOCKED engine; }
+STEP_engine=OK; [ $DEFER = 1 ] && STEP_engine=DEFERRED_IN_FLIGHT
 
 # ---------------------------------------------------------------- 3. runtime (keep ours, set aside foreign ones)
 if [ -d "$RUNTIME" ] && [ ! -f "$RUNTIME/.nalu_setup_owner" ]; then
@@ -118,7 +147,7 @@ STEP_runtime=OK
 
 # ---------------------------------------------------------------- 4. python env + runtime bootstrap
 cd "$ENGINE" || finish BLOCKED python
-if [ ! -x .qingshan-venv/bin/python ] || [ "$before" != "$PIN" ] || [ $FORCE = 1 ]; then
+if [ ! -x .qingshan-venv/bin/python ] || [ "$before" != "$PIN_EFFECTIVE" ] || [ $FORCE = 1 ]; then
   run uv python install 3.12 && run uv venv --allow-existing -q --python 3.12 --seed .qingshan-venv || { STEP_python=VENV_FAILED; finish BLOCKED python; }
   export VIRTUAL_ENV="$ENGINE/.qingshan-venv"
   run uv pip install -q -r requirements-core.txt -r requirements-media.txt && run uv pip install -q -e . \

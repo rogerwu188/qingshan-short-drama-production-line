@@ -40,10 +40,13 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 - `runtime/nalu_entity_registry.json` 每个说话角色一行（`$S/apply_runtime_fixups.py --character 名=CHAR-ID:slug`，编排代理已跑过；新增角色时你补跑）。
 
 ## 3. 付费授权（等线主原话）
+先检查付费凭据：`grep -qE '^GIGGLE_API_KEY=.+' .env`（只看有没有，绝不打印值）。为空时以
+`OWNER_DECISION_REQUIRED` 结束本轮，`question` 请线主在对话里发 Giggle API key；编排代理写入 `.env` 后会用
+「已配置 GIGGLE_API_KEY」恢复你（消息里不会出现 key 本身），你再复查一次。
 S3 DRY_PLANNED 后结束本轮，`NALU_STATUS.state = OWNER_DECISION_REQUIRED`，`question` 里给出：剧本梗概、镜头/单元数、
 预计积分（身份牌 11/张、配音 2/角色、关键帧 11/张、视频约 20/秒）、需要的授权原话与版权声明。收到线主原话后：
 ```bash
-$P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERVISOR_ORDERS.json --owner-id <简报里的 owner_id> \
+$P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERVISOR_ORDERS.json --owner-id <简报里的 owner_id，缺省 owner> \
   --order "<线主原话，逐字>" --episode <EP> --stages S3,S4,S5,S6 --cap <上限> --rights-basis "<线主版权声明，逐字>" \
   --work "<剧名>" --recorded-by claude-code --authorizing-order-ref "<编排代理转达的出处>"
 ```
@@ -67,7 +70,7 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
 ## 5. 线主接受订单（只在线主原话同意后）
 穿帮、身份、观众检测器等门禁失败而线主表示接受时，用：
 ```bash
-$P $T/record_supervisor_order.py --owner-id <owner_id> --seq <下一个 seq> --order "<线主原话>" --episode <EP> \
+$P $T/record_supervisor_order.py --owner-id <简报 owner_id，缺省 owner> --seq <下一个 seq> --order "<线主原话>" --episode <EP> \
   --gate-id <门禁 ID> --detector <…> [--media <item>=<文件>] --context "<事实>" \
   --orders $NALU_RUNTIME_ROOT/runtime/SUPERVISOR_ORDERS.json --recorded-by claude-code
 ```

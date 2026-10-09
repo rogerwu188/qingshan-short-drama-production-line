@@ -17,7 +17,8 @@ bash $S/setup_host.sh --pin <PIN>
 幂等：已就绪的机器 1–2 秒内返回；否则自动补齐 §1 系统依赖与引擎、Python 环境、运行时初始化，安装 Claude Code 并运行
 `configure_claude_code.py --verify`（从 `~/.openclaw/openclaw.json` 读 StoryClaw provider 写入 Claude Code 配置）。
 旧部署残留会被安全处理：引擎切到钉住的提交（有本地改动先 `git stash`），不是本脚本建的 `~/nalu_runtime` 改名为
-`~/nalu_runtime_old_<时间>` 保留。只读最后一行 `NALU_SETUP: {...}`：`status=READY` 才继续；`BLOCKED` 时 `failed_step`
+`~/nalu_runtime_old_<时间>` 保留。有一集还在生产中（Claude Code 在跑，或最后状态不是 `FINAL_CUT_READY`）时，
+脚本不切换引擎和 venv（`engine=DEFERRED_IN_FLIGHT`），新钉住的提交等那一集完成后的第一次唤醒再生效。只读最后一行 `NALU_SETUP: {...}`：`status=READY` 才继续；`BLOCKED` 时 `failed_step`
 和 `~/.nalu_setup.log` 末尾说明原因（缺免密 sudo 编译 insightface、网络、relay 校验失败等），如实告诉用户。
 `notes` 里有改名/切换记录时告诉用户一句。下面 §1–§2 是脚本做的事，供排障参考。
 
@@ -55,12 +56,12 @@ python3 $S/configure_claude_code.py --verify     # 读 ~/.openclaw/openclaw.json
 - 线主 id、剧名、风格、单集时长、预算：没给就用默认值，写进简报，付费前由 Claude Code 统一报给线主确认。
 
 ## 4. 剧本交接（代理执行，免费）
-每集写两个文件，然后跑运行时修复：
+每集写两个文件，然后跑运行时修复（目录先建好：`mkdir -p $NALU_ENGINE_ROOT/workflow/claude_writer_agent/scripts $NALU_RUNTIME_ROOT/briefs $NALU_RUNTIME_ROOT/sources`）：
 1. `$NALU_ENGINE_ROOT/workflow/claude_writer_agent/scripts/<EP>_NARRATIVE_CANONICAL_v1.md`：按仓库模板
    `agent_factory/claude_writer_v2/templates/NARRATIVE_CANONICAL.template.md`。只写事实、可表演的动作和**逐字台词**，按
    `## <EP>-S01｜<LOC-ID>｜<时间>｜线A` 分场；不写机位、灯光、资产。一集 2–4 场、20–60 秒为宜；台词决定时长（每 4 个汉字约 1 秒）。
 2. `$NALU_RUNTIME_ROOT/briefs/<EP>_PRODUCTION_BRIEF.json`：
-   `{"episode","title","owner_id","style","target_seconds","budget_cap","characters":[{"character_id":"CHAR-XXX","name","slug","role":"protagonist|supporting","sex","apparent_age_range","appearance","wardrobe","voice_brief"}],"locations":[{"location_id":"LOC-XXX","label","description","fixed_elements":[]}],"owner_words":{"<日期>":"<线主原话>"}}`
+   `{"episode","title","owner_id"（用户没指定就填 "owner"）,"style","target_seconds","budget_cap","characters":[{"character_id":"CHAR-XXX","name","slug","role":"protagonist|supporting","sex","apparent_age_range","appearance","wardrobe","voice_brief"}],"locations":[{"location_id":"LOC-XXX","label","description","fixed_elements":[]}],"owner_words":{"<日期>":"<线主原话>"}}`
 3. `python3 $S/apply_runtime_fixups.py --runtime-root $NALU_RUNTIME_ROOT --character <名>=<CHAR-ID>:<slug> ... --cap <预算>`
    以及 `$NALU_ENGINE_ROOT/.qingshan-venv/bin/python $S/make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第一集 · <集名>"`。
 写剧本时避开这些已知坑：首帧要看得见的道具别设计成「从怀里掏出」；古装灯写「无罩敞口油盏」；每个说话角色男女/音色要能区分；不写全黑画面。
