@@ -767,3 +767,33 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：Codex 线 CC_AUDIO_FRAMING_CONTINUITY_FIX.md（2026-10-07）；引擎侧 build_e39_agentcut_release.py:122-126 与 :220-224
 - **授权**：Roger 2026-10-07 转来 Codex 修复要求并要求核对是否合理
 - **状态**：GUIDANCE_ONLY
+### K084 — S1
+
+- **规则**：关键帧提示词里，镜头入场句点名的人必须落在本镜可见卡司内。渲染器把 entry_state 逐字打印，再把画面里每个人按 character_id 绑定到它；点名者不在卡司里就没有可绑对象，提示词会同时写着「某人正在动作」与「画面内无人物」（engine build_keyframe_manifest 旧行为：把该执行者静默标成 ABSENT_REFERENCE_ONLY／本首帧不入画）。两种形态都要拦：(a) 入场句首句点名了一个本镜卡司完全没有的人；(b) 本镜声明的主动作执行者不在本镜可见卡司里。合法豁免三类——首句点名的就是本镜声明的执行者（生物卡/角色卡同名不同 id）、点名者在本镜卡司里只是非首帧可见（视线/关系目标）、首句以已登记的非人物实体名开头（道具/生物插入镜）。
+- **教训**：E11 一集两处同源事故。S08-01 的 entry 写「刘老头站着，木杖重重顿在地上」——与上一镜 S07-03 的 completion 逐字相同，而 S07-03 的 cast 是刘老头、道具是木杖，S08-01 的 cast 只有秦铭；渲染器把这句话整句绑给了唯一可见的人，付费关键帧画回来是个留胡子、握木杖的中年男人，不是秦铭；身份测量因为「脸测得到、余弦 0.7695 PASS」放过了它——测得准，只是测错了人。S03-01 的 entry 写「冯易安转过身朝向门口」（承 S02-03 的收尾），执行者却声明成邻居甲且 cast 为空，逐实体状态因此写「CHAR-VILLAGER-A=本首帧不入画」，同一份提示词里既有「冯易安转过身朝向门口」又有「画面内无人物；空镜」，模型二选一，画回来是门口空着——正是本镜的完成态。既有 continuity_state_contract_gate 复查后确认：四项判据（life_state/creature_card/ambush_space/costume_inheritance）都不看「相邻两镜点名的人是否在本镜」，character_entity_contract 只检查 subject==role actor，都不覆盖它；身份测量又按设计跳过 HANDS_ONLY/空卡司镜，所以两道门都不响。E08 及更早的集扫描出同类 8 处（已播出，不改历史），E09/E10 干净。
+- **恢复**：tools/character_entity_contract.py 新增 PRIMARY_ACTOR_NOT_IN_VISIBLE_CAST 与 ENTRY_STATE_NAMES_ABSENT_CHARACTER 两条 fail-closed 检查（entry_state 在镜头层而 _specs() 只给 prompt_spec，故按序配对两列表）；lines/nalu/runtime/tools/build_keyframe_manifest.py::normalize_keyframe_role_semantics 改为 raise ENTRY_STATE_BINDS_TO_ABSENT_ACTOR，不再静默取默认值。修合同：把入场句改成本镜自己的状态（点出本镜在场的人/道具），并把非人物主体镜的执行者登记为对应实体。
+- **实现**：`tools/character_entity_contract.py`、`lines/nalu/runtime/tools/build_keyframe_manifest.py`
+- **回归**：`tools/tests/test_character_entity_contract.py`
+- **证据**：E11 S08-01 关键帧（留胡男子握木杖，声明 cast=秦铭；身份余弦 0.76954 PASS）；E11 S03-01 关键帧（空门口＝完成态）；渲染提示词 workflow/nalu/E11/preproduction/prompts/keyframes/E11-S03-01-KEYFRAME-V1.txt 的「entry 时刻站位」块
+- **授权**：Roger 2026-10-08「提示词为什么没有 qa，怎么会犯这么简单的错误，查出原因，修改代码」
+- **状态**：REFERENCE_IMPLEMENTATION
+### K085 — S5
+
+- **规则**：服装结构性检查要区分「带毛皮的外衣」的肯定与否定表述，且否定必须连同它统辖的衣物词一起剥离——「不披兽皮裘氅」是一处否定；只剥掉「不披兽皮」会剩下一个孤零零的「裘氅」，判定反而转成肯定。反过来，否定词若统辖的是另一件衣物（「无毛领的兽皮大衣」，无只作用于毛领），那件大衣仍然成立。同一镜头文字里既写「披大衣」又写「不披裘氅」时，必须两边都报出来，不能让它们互相抵消。
+- **教训**：E11 秦铭的渲染服装行仍带着 E01 资产库的旧文「陈旧兽皮大衣（外层，毛面磨秃、下摆结冰霜）」，而本集结构化字段、本集服装口径、以及逐镜轴线里追加的「秦铭只穿浅色本色粗布交领袍…不披裘氅」都说不披毛皮——提示词自相矛盾，模型这一次选对了（画成素色粗布袍）。旧判据在 outer_layer 里搜「裘氅」原文，把「无外披（全集不披裘氅、不带毛领）」读成「需要毛皮外衣」，于是 expected 与 line 恰好都为真、门一声不响。同时刘老头从未授权服装描述，构建器把上游库里的 AUTHORING_REQUIRED_WARDROBE_STATE_DESCRIPTION 原样继承，并逐字渲染进付费提示词；资产构建报告把这种继承记为 PASS，所以上游没有任何一道门会拦。
+- **恢复**：lines/nalu/runtime/tools/prompt_batch_qa.py：新增 mentions_hide_coat()——先剥帽子词，再用 (不披|不带|不穿|没有|无|非)(兽皮|裘氅|毛领|皮袄|皮草|外披|外衣|大衣|衣)+ 剥掉否定连同其统辖的衣物词，然后逐分句判剩余毛皮词；expected 与 line 两侧同用一个函数。另加 kf_no_authoring_required_sentinel：关键帧或视频提示词里出现 AUTHORING_REQUIRED_[A-Z_]+ 即 FAIL。修数据：E11 的 asset_requirements_overlay.wardrobe 补齐秦铭（与结构化字段一致）与刘老头（沿 E08/E09 身份牌）两行。
+- **实现**：`lines/nalu/runtime/tools/prompt_batch_qa.py`
+- **回归**：`tools/tests/test_prompt_batch_qa_hide_coat.py`
+- **证据**：E11 渲染提示词 workflow/nalu/E11/preproduction/prompts/keyframes/E11-S01-03-KEYFRAME-V1.txt 服装锁块（含 AUTHORING_REQUIRED_WARDROBE_STATE_DESCRIPTION）；E11-S01-01 关键帧实物（秦铭为素色粗布袍，并未披毛皮）；runtime/preproduction/E11/asset_requirements_build_report.json 的 authoring_gaps 全为 INHERITED_FROM_PRIOR_LIBRARY
+- **授权**：Roger 2026-10-08 要求把这类简单错误的成因查清并修代码
+- **状态**：REFERENCE_IMPLEMENTATION
+### K086 — S5
+
+- **规则**：身份测量只对「能测到正脸」的镜跑余弦。仅局部镜（HANDS_ONLY／FACE_OUT_OF_FRAME）与空卡司镜一律跳过，不进 per_keyframe 表；这批镜在测量层没有任何客观判据，唯一守着它们的只剩 Q1 的审核者问题 cast_exactly_as_declared（「画面里的人是否与合同声明完全一致」）。所以这批镜一旦 Q1 未作答，整条链上就没有任何一道门在管它们——确定性门看不出来，余弦也不会跑。推论：Q1 的 33 项必须在任何付费重做之前答完；否则重做出来的图同样没人验。
+- **教训**：E11 一集 50 张关键帧里只有 26 张进测量。被跳过的 24 张里，四张事后证实画面错误：S12-00 声明只有陆泽的手、画出来却是秦铭站在雪地门前回头；S03-01／S13-02／S20-03 声明无人物，画面里出现了人物或把完成态画了出来。反过来 S08-01 进了测量——余弦 0.76954 PASS、decision=PASS，而画面里根本不是秦铭：测量的语义是「声明的人像不像他本人」，回答不了「画里的人是不是声明的那个」。两条路都不管「画里出现了谁」，而那正是本集实际翻车的形态。查证 keyframe_q1_builder 后确认：这类镜不需要新判据，IDENTITY_GATE 已经带 cast_exactly_as_declared 这道题，且角色无关插入分支（NO_CHARACTER_METHOD）也会把该题计入 failures——缺的是作答，不是判据。
+- **恢复**：按 vlm_review_protocol 逐张看图作答 33 项 Q1 请求（缩略总表通读 + 可疑帧放大），重点核 cast_exactly_as_declared；这批镜的答案就是它们的全部保护。作答前不要重做任何关键帧。
+- **实现**：（未链接到代码；状态见下）
+- **回归**：`lines/nalu/runtime/tools/keyframe_q1_builder.py`
+- **证据**：workflow/nalu/E11/preproduction/reports/qa/E11_KEYFRAME_IDENTITY_MEASUREMENT.json（per_keyframe 26 项；S03-01/S12-00/S13-02/S20-03 均不在其中；S08-01 cosine_vs_locked_plate=0.76954、decision=PASS）；lines/nalu/runtime/tools/keyframe_q1_builder.py 的 GATE_QUESTIONS[IDENTITY_GATE] 与 NO_CHARACTER_METHOD 分支
+- **授权**：Roger 2026-10-08「提示词为什么没有 qa」
+- **状态**：GUIDANCE_ONLY

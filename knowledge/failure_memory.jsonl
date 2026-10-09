@@ -40,3 +40,6 @@
 {"failure_code": "WARDROBE_STRUCTURED_VS_AUTHORED_CONFLICT", "do_not_repeat": "整批提示词门报 hide_coat 不一致时，不要改门的判据，也不要凭散文改文案——先看参考图确认实物是哪一件，再让结构化字段与授权文案对齐", "stage": "S2", "scope": "episode", "knowledge_id": "K081"}
 {"failure_code": "ADJACENT_STATE_LEAK", "do_not_repeat": "不要用上一镜的完成态填这一镜的 entry_state；相邻镜 cast/props/scene 任一变化时必须重写", "stage": "S1", "scope": "generalizable", "knowledge_id": "K082"}
 {"failure_code": "CONCAT_DEMUXER_CLOCK_MISMATCH", "do_not_repeat": "不要让同一 concat demuxer 的输入一段写死 48k、一段沿用源采样率；不要用无限 apad/async 掩盖截断", "stage": "S7", "scope": "generalizable", "knowledge_id": "K083"}
+{"failure_code": "ENTRY_STATE_NAMES_ABSENT_CHARACTER", "do_not_repeat": "不要把上一镜的 completion_state 逐字抄成本镜的 entry_state，除非本镜卡司与道具真的没变；入场句里点到的人必须在本镜可见卡司内，否则改文字或把非人物主体登记成实体——不要指望身份余弦能发现，它测的是「测得准」，不是「对不对」", "stage": "S1", "scope": "generalizable", "knowledge_id": "K084"}
+{"failure_code": "HIDE_COAT_NEGATION_MISCOUNTED", "do_not_repeat": "不要在否定式服装描述里用「裘氅/毛领/兽皮」这类词做肯定判断；否定式白名单不要靠枚举短语，要处理「否定词与毛皮词同现」这一形态", "stage": "S5", "scope": "generalizable", "knowledge_id": "K085"}
+{"failure_code": "IDENTITY_SCOPE_LEAVES_Q1_AS_SOLE_GUARD", "do_not_repeat": "不要在仅局部镜或空卡司镜上断言「无脸可测所以没有身份风险」；也不要在 Q1 未作答时先花钱重做——这批镜只有审核者的 cast_exactly_as_declared 一道保护。", "stage": "S5", "scope": "generalizable", "knowledge_id": "K086"}

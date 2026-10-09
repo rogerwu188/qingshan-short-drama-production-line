@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 1990,
+  "file_count": 1991,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -221,7 +221,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "2c979ee84ebcfb6fe75e977484fc1237ed3957ee02c5dae48d416a98bd78435e"
+      "sha256": "9afe74c58be2bd509bf73c26cfa2cd1023509c3d13a6f46c686a7406eca427a9"
     },
     {
       "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
@@ -301,7 +301,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "8104037b99de43533d6e74c36baadb3aeab7eac4c12b4b1560cd47e7e42ef89c"
+      "sha256": "f4d65df990475215d928ff62b8367601a3d50dc26e055e06196cac10538c70ad"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -3105,7 +3105,7 @@
     },
     {
       "path": "tools/character_entity_contract.py",
-      "sha256": "d9ffe79bf69f649ae90e846746f45fe3e72dfc2ae286a2fd7f98e4c95215d9b7"
+      "sha256": "34965dfe34c31b99d6eb40fcea93a0cf670236d0bbe30958d3c3e75d7f7f2259"
     },
     {
       "path": "tools/character_identity_admission_gate.py",
@@ -6329,7 +6329,7 @@
     },
     {
       "path": "tools/tests/test_character_entity_contract.py",
-      "sha256": "8a273501e1513bb1ed4dbfadd330d3ee03c2be31f084536c9adf1caaa97d3c29"
+      "sha256": "e6153ed8a6ccca317f6db6cef90bb541bbb2a4fc96bb45d56e6883485a07f019"
     },
     {
       "path": "tools/tests/test_character_identity_admission_gate.py",
@@ -6861,7 +6861,7 @@
     },
     {
       "path": "tools/tests/test_keyframe_entry_scope.py",
-      "sha256": "38331180b9b4c2294cb44e6a947a3777e3549e02adf9abf085ca6d7736251aae"
+      "sha256": "3c8fbbe8c3ee35ebd56ed3be0573d1dc2e16db5e1a1cb8204142c27a794bb16b"
     },
     {
       "path": "tools/tests/test_keyframe_output_identity_gate.py",
@@ -7094,6 +7094,10 @@
     {
       "path": "tools/tests/test_prompt_batch_finalize_parallel.py",
       "sha256": "b7ceac91148c52966be291f6fe2737dbff925cacfb3ffca66952af5dbf85aa27"
+    },
+    {
+      "path": "tools/tests/test_prompt_batch_qa_hide_coat.py",
+      "sha256": "d1c246be24e27c408f3edd8730b835faf1388c851796c12c426ba633a482d5cb"
     },
     {
       "path": "tools/tests/test_prompt_batch_reuse.py",
