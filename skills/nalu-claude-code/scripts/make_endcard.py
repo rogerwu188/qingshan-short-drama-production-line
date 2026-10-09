@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Make the 3 s 9:16 studio end card S7 requires: $NALU_RUNTIME_ROOT/brand/NALU_MOTION_endcard_3s_9x16.mp4.
 
-usage: make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title 青灯巷 --subtitle "第一集 · 买命信" [--font <ttf/ttc>]
+usage: make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第一集 · <集名>" [--font <ttf/ttc>]
 Font: first existing of --font, $QINGSHAN_CJK_FONT, Noto CJK (Linux), Hiragino (macOS).
 """
 import argparse
