@@ -64,7 +64,7 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
   之后有 keyframe Q1、start_frame 审核。改了剧本：重跑构建器 → `run --until S2` → prepare/finish → S5。被拒关键帧：把 `keyframes/<shot>-keyframe-v1.png` 和 `keyframe_harvest/_raw/<shot>*` 移走再跑。
 - **S6 视频**（`paid_stage.sh <EP> S6 S6`）：先 action_role 审核，再波次提交。`VIDEO_NOT_ALL_COMPLETED` 是正常等待：`sleep 240` 后再跑同一命令，最多连续等 30 分钟；仍未完成就结束本轮报 `WAITING_REMOTE`。
   其后 q1_derived（上一单元尾帧作起始帧）、post_gen_plot（用 `$T/review_fill/asr_units.py` 转写核对台词；同音字只记录）、video_q2。
-  Q2 中 OCR 读出的低置信乱码（药柜标签、信纸手写）在 `observed_text_strings` 写 `NOISE:<文本>`；动作幅度/表情细节不算缺陷。
+  Q2 中 OCR 读出的低置信乱码（背景招牌/标签纹理、道具上的手写字）在 `observed_text_strings` 写 `NOISE:<文本>`；动作幅度/表情细节不算缺陷。
 - **S7 装配**（`env -u GIGGLE_API_KEY $P $T/nalu_pipeline.py run --episode <EP> --from S7 --until S8`）：需要 `$NALU_RUNTIME_ROOT/brand/NALU_MOTION_endcard_3s_9x16.mp4`（没有就 `$P $S/make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第N集 · <集名>"`）。
 
 ## 5. 线主接受订单（只在线主原话同意后）

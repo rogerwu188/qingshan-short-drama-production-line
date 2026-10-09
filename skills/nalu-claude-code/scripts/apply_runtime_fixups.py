@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fix the bootstrap templates of a fresh nalu runtime root so S1-S8 can run (offline, idempotent).
 
-Run AFTER lines/nalu/runtime/tools/bootstrap_runtime_root.py.  Verified on macOS 2026-10-01 (E01 of 青灯巷):
+Run AFTER lines/nalu/runtime/tools/bootstrap_runtime_root.py.  Each fix below was found on a real end-to-end run:
   1. runtime/nalu_entity_registry.json  template schema is wrong -> S2 crashes; rewritten with
      schema qingshan.entity_registry_extension.v1 and one [display_name, CHAR-ID] row per speaking character.
   2. runtime/asset_library.json         schema must be ai_drama.production_asset_library.v1 (identity lock) and
@@ -9,8 +9,8 @@ Run AFTER lines/nalu/runtime/tools/bootstrap_runtime_root.py.  Verified on macOS
   3. runtime/series_scopes.json         child processes run CURRENT_PORTABLE and refuse to start without it.
   4. qingshan.json                      authorization block placeholder + episode budget cap (paid lock stays false).
 
-usage: apply_runtime_fixups.py --runtime-root $NALU_RUNTIME_ROOT --character 沈青=CHAR-SHENQING:shen_qing \
-           [--character 陆九=CHAR-LUJIU:lu_jiu ...] [--cap 2500]
+usage: apply_runtime_fixups.py --runtime-root $NALU_RUNTIME_ROOT --character <角色名>=CHAR-<ID>:<pinyin_slug> \
+           [--character ... ] [--cap <credits>]
 """
 from __future__ import annotations
 
