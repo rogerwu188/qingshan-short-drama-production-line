@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ENGINE = Path(f"{_np.ENGINE_ROOT}")
+RUNTIME = Path(f"{_np.RUNTIME_ROOT}")
 WORK = Path(os.environ.get("NALU_WORK_ROOT", str(_np.RUNTIME_ROOT / "workflow" / "nalu"))).expanduser().resolve()
 
 
@@ -164,9 +165,20 @@ def main() -> int:
                 "rows": rows}
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
+    # A registration is per-episode runtime state, so it is written under the runtime root, which
+    # tools/episode_prompt_batch_gate.py also reads first.  Writing it into the engine clone left a
+    # tracked file dirty after every pipeline run, and the line-upgrade preflight flags exactly that.
+    # The read and write paths come from one resolver so the two cannot drift apart again.
+    os.environ.setdefault("NALU_RUNTIME_ROOT", str(RUNTIME))
+    if str(ENGINE) not in sys.path:
+        sys.path.insert(0, str(ENGINE))
+    from tools.episode_prompt_batch_gate import resolve_policy_path, registration_write_path
     policy_src = ENGINE / "configs/EPISODE_PROMPT_BATCH_POLICY.json"
-    policy_dst = ENGINE / "workflow/production_line/EPISODE_PROMPT_BATCH_POLICY.json"
-    policy = json.loads(policy_dst.read_text(encoding="utf-8")) if policy_dst.is_file() else json.loads(policy_src.read_text(encoding="utf-8"))
+    policy_dst = registration_write_path(ENGINE)
+    seed = resolve_policy_path(ENGINE)
+    if not seed.is_file():
+        seed = policy_src
+    policy = json.loads(seed.read_text(encoding="utf-8"))
     policy.setdefault("task_key_execution_prefixes", {})[f"{ep}-"] = args.execution_id
     policy.setdefault("executions", {})[args.execution_id] = {
         "required": True,

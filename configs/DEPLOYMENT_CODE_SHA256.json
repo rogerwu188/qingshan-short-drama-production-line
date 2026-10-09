@@ -3717,7 +3717,7 @@
     },
     {
       "path": "tools/episode_prompt_batch_gate.py",
-      "sha256": "fcdb7f658989575a421b4cab7cabf46af257454c5fb0b3fc1f81c08ec349b27c"
+      "sha256": "e5620bb7877a14645d35cb2a187a7a71e01598e42f1397ddf0a5b71c8d688df2"
     },
     {
       "path": "tools/episode_stage_gate_runner.py",
@@ -6633,7 +6633,7 @@
     },
     {
       "path": "tools/tests/test_episode_prompt_batch_gate.py",
-      "sha256": "150d71b5f54f005c9e93273f3bd0b241d50911dd83e5d785b5ac496806ac3d03"
+      "sha256": "b4ce90c15b251ad0d0d885543beb095d090d810fc23fd4313da85b2b0598a35e"
     },
     {
       "path": "tools/tests/test_episode_prompt_batch_paid_boundary.py",

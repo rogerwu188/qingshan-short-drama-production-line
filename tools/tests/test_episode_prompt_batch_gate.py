@@ -1,8 +1,11 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
-from tools.episode_prompt_batch_gate import evaluate,digest,require_generation_batch
+from unittest.mock import patch
+from tools.episode_prompt_batch_gate import (evaluate,digest,require_generation_batch,
+                                             resolve_policy_path,registration_write_path)
 
 class BatchGateTests(unittest.TestCase):
     def setUp(self):
@@ -54,5 +57,41 @@ class BatchGateTests(unittest.TestCase):
         self.assertEqual(require_generation_batch(t,self.root)['status'],'PASS')
         t['prompt_sha256']='another-final'
         with self.assertRaisesRegex(ValueError,'FINALIZATION_QA_MISMATCH'):require_generation_batch(t,self.root)
+
+class RuntimePolicyPrecedenceTests(unittest.TestCase):
+    """A registration is per-episode runtime state, so it is written under the runtime root.  The
+    engine clone used to be the destination, which left a tracked file dirty after every pipeline
+    run — exactly what the line-upgrade preflight reports as an uncommitted engine change.
+
+    The gate and prompt_batch_register.py share one resolver, so it is tested directly.
+    """
+
+    def resolve(self, engine, runtime_env):
+        with patch.dict(os.environ, {'NALU_RUNTIME_ROOT': runtime_env}):
+            return resolve_policy_path(engine), registration_write_path(engine)
+
+    def test_runtime_registration_wins_over_the_engine_copy(self):
+        with tempfile.TemporaryDirectory() as engine_tmp, tempfile.TemporaryDirectory() as runtime_tmp:
+            engine, runtime = Path(engine_tmp), Path(runtime_tmp)
+            (engine/'workflow/production_line').mkdir(parents=True)
+            (engine/'workflow/production_line/EPISODE_PROMPT_BATCH_POLICY.json').write_text(
+                json.dumps({'executions':{'ENGINE-ONLY':{}}}))
+            (runtime/'workflow/production_line').mkdir(parents=True)
+            (runtime/'workflow/production_line/EPISODE_PROMPT_BATCH_POLICY.json').write_text(
+                json.dumps({'executions':{'RUNTIME-ONLY':{}}}))
+            chosen, write = self.resolve(engine, str(runtime))
+            self.assertEqual(json.loads(chosen.read_text())['executions'], {'RUNTIME-ONLY':{}})
+            self.assertEqual(write, chosen)
+
+    def test_without_a_runtime_copy_the_engine_copy_still_decides(self):
+        with tempfile.TemporaryDirectory() as engine_tmp, tempfile.TemporaryDirectory() as runtime_tmp:
+            engine = Path(engine_tmp)
+            (engine/'workflow/production_line').mkdir(parents=True)
+            (engine/'workflow/production_line/EPISODE_PROMPT_BATCH_POLICY.json').write_text(
+                json.dumps({'executions':{'ENGINE-ONLY':{}}}))
+            chosen, write = self.resolve(engine, str(runtime_tmp))
+            self.assertEqual(json.loads(chosen.read_text())['executions'], {'ENGINE-ONLY':{}})
+            # the next registration still goes to the runtime root, never into the engine clone
+            self.assertEqual(write, Path(runtime_tmp)/'workflow/production_line/EPISODE_PROMPT_BATCH_POLICY.json')
 
 if __name__=='__main__':unittest.main()
