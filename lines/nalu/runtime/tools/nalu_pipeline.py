@@ -3254,6 +3254,9 @@ def apply_keyframe_renames(ctx: Ctx, manifest: dict[str, Any]) -> dict[str, Any]
             "moved": moved, "missing": missing}
 
 
+Q1_ACCEPTABLE_GATES = ("CHARACTER-IDENTITY-ADMISSION", "PERIOD-ANACHRONISM-LOCK")
+
+
 def apply_line_owner_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: Path) -> dict[str, Any]:
     """Order-keyed acceptance of CHARACTER-IDENTITY-ADMISSION failures at S5 Q1.
 
@@ -3276,12 +3279,21 @@ def apply_line_owner_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: 
             continue
         item_id, uid = row.get("item_id"), row.get("unit_id")
         failures = [str(f) for f in (row.get("failures") or [])]
-        if not failures or any(gate_id not in f for f in failures):
+        # 2026-10-01: the same order-keyed acceptance also covers a keyframe whose ONLY failing gate is
+        # PERIOD-ANACHRONISM-LOCK (detector "<item_id>:PERIOD-ANACHRONISM-LOCK"), e.g. a background prop the
+        # image model keeps rendering anachronistically after the guarded rerolls.  One gate per row; a row
+        # failing two gates stays rejected.
+        row_gate = next((g for g in Q1_ACCEPTABLE_GATES if failures and all(g in f for f in failures)), None)
+        if row_gate is None:
             still_rejected.append(uid)
             continue
-        detectors = sorted({f"{item_id}:{d.get('character_id')}" for d in decisions
-                            if str(d.get("source_id") or "").endswith(f":{item_id}")
-                            and d.get("decision") not in ("PASS", "ADMIT_BEST_EFFORT")})
+        gate_id = row_gate
+        if gate_id != "CHARACTER-IDENTITY-ADMISSION":
+            detectors = [f"{item_id}:{gate_id}"]
+        else:
+            detectors = sorted({f"{item_id}:{d.get('character_id')}" for d in decisions
+                                if str(d.get("source_id") or "").endswith(f":{item_id}")
+                                and d.get("decision") not in ("PASS", "ADMIT_BEST_EFFORT")})
         if not detectors:
             # D-70: a keyframe where InsightFace found NO face sample for a declared character has no
             # decision row at all (NO_EMBEDDING_SAMPLE_FOR_DECLARED_CHARACTER:<char>).  That failure is
@@ -3346,7 +3358,8 @@ def apply_line_owner_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: 
         index["line_owner_gate_acceptance"] = accepted
         write_json(index_path, index)
         write_json(ctx.p.preprod_reports / "qa" / "q1" / f"{ctx.episode}_LINE_OWNER_GATE_ACCEPTANCE.json", {
-            "schema": "nalu.q1_line_owner_gate_acceptance.v2", "episode": ctx.episode, "gate_id": gate_id,
+            "schema": "nalu.q1_line_owner_gate_acceptance.v2", "episode": ctx.episode,
+            "gate_ids": sorted({r.get("gate_id") for r in accepted}),
             "recorded_at": now(), "recorded_by": TOOL_ID, "orders_path": str(orders_path),
             "accepted": accepted, "still_rejected_unit_ids": still_rejected})
     return {"accepted_unit_ids": [r["unit_id"] for r in accepted], "still_rejected_unit_ids": still_rejected,
