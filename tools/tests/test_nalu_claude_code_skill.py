@@ -37,10 +37,21 @@ class ConfigureClaudeCodeTests(unittest.TestCase):
             settings = json.loads((home / ".claude/settings.json").read_text())
             self.assertEqual(settings["env"]["ANTHROPIC_BASE_URL"], "https://llm.example.test")
             self.assertEqual(settings["env"]["ANTHROPIC_API_KEY"], KEY)
-            self.assertEqual(settings["env"]["ANTHROPIC_MODEL"], "claude-opus-5")
+            self.assertEqual(settings["env"]["ANTHROPIC_MODEL"], "claude-opus-5-5")  # line-owner default
             self.assertIn("Read(~/.openclaw/**)", settings["permissions"]["deny"])
             self.assertEqual(oct((home / ".claude/settings.json").stat().st_mode & 0o777), "0o600")
             self.assertTrue(json.loads((home / ".claude.json").read_text())["hasCompletedOnboarding"])
+
+    def test_uses_the_relays_own_spelling_of_opus_5_5(self):
+        with tempfile.TemporaryDirectory() as d:
+            home = Path(d)
+            (home / ".openclaw").mkdir()
+            (home / ".openclaw/openclaw.json").write_text(json.dumps({"models": {"providers": {"storyclaw": {
+                "baseUrl": "https://llm.example.test", "apiKey": KEY,
+                "models": [{"id": "storyclaw/claude-opus-5"}, {"id": "storyclaw/claude-opus-5.5"}]}}}}))
+            code, out = self.run_tool(home)
+            self.assertEqual(code, 0)
+            self.assertEqual(out["model"], "storyclaw/claude-opus-5.5")
 
     def test_missing_provider_is_blocked(self):
         with tempfile.TemporaryDirectory() as d:

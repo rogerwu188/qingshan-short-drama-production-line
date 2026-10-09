@@ -5,7 +5,7 @@ Line-owner requirement (2026-10-09): production runs unattended on a dedicated m
 initial setup needs no human at the terminal.  The OpenClaw agent therefore runs this once:
 
 * reads the provider (default ``storyclaw``) from ``~/.openclaw/openclaw.json`` — ``baseUrl``,
-  ``apiKey`` and, when listed, the first Claude model id;
+  ``apiKey``; Claude Code's model is Claude Opus 5.5 (the relay's own spelling when it lists one);
 * writes them into Claude Code's user settings ``~/.claude/settings.json`` (``env`` block, mode 600);
 * sets a permission policy for unattended production: Bash/Read/Edit/Write are allowed, while
   privilege escalation, recursive deletes, remote shells, git push, publishing and any access to
@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -55,12 +56,18 @@ def find_provider(cfg: dict[str, Any], name: str) -> dict[str, Any] | None:
     return None
 
 
-def claude_model(provider: dict[str, Any]) -> str | None:
+#: line-owner default (2026-10-09): Claude Code runs on Claude Opus 5.5.
+DEFAULT_MODEL = "claude-opus-5-5"
+
+
+def claude_model(provider: dict[str, Any]) -> str:
+    """The relay's own spelling of Opus 5.5 when it lists one (claude-opus-5-5, claude-opus-5.5,
+    storyclaw/claude-opus-5.5 ...), else the Anthropic id ``claude-opus-5-5``."""
     for row in provider.get("models") or []:
         mid = str(row.get("id") if isinstance(row, dict) else row or "")
-        if "claude" in mid.lower():
+        if re.sub(r"[^a-z0-9]", "", mid.lower().rsplit("/", 1)[-1]) == "claudeopus55":
             return mid
-    return None
+    return DEFAULT_MODEL
 
 
 def load(path: Path) -> dict[str, Any]:
@@ -82,7 +89,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--openclaw-config", default="~/.openclaw/openclaw.json")
     ap.add_argument("--provider", default="storyclaw")
-    ap.add_argument("--model", default="", help="relay model id; default: first Claude model the provider lists")
+    ap.add_argument("--model", default="", help="relay model id; default: Claude Opus 5.5 (claude-opus-5-5 or the relay's listed spelling)")
     ap.add_argument("--verify", action="store_true", help="run one tiny claude -p call through the relay")
     a = ap.parse_args()
 
@@ -112,9 +119,8 @@ def main() -> int:
                 "DISABLE_TELEMETRY": "1", "DISABLE_ERROR_REPORTING": "1",
                 # paid stages poll remote renders and run local QA for minutes at a time
                 "BASH_DEFAULT_TIMEOUT_MS": "900000", "BASH_MAX_TIMEOUT_MS": "1800000"})
-    if model:
-        env.update({"ANTHROPIC_MODEL": model, "ANTHROPIC_SMALL_FAST_MODEL": model,
-                    "ANTHROPIC_DEFAULT_HAIKU_MODEL": model})
+    env.update({"ANTHROPIC_MODEL": model, "ANTHROPIC_SMALL_FAST_MODEL": model,
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": model, "ANTHROPIC_DEFAULT_OPUS_MODEL": model})
     perms = settings.setdefault("permissions", {})
     perms["allow"] = sorted(set(perms.get("allow") or []) | set(ALLOW))
     perms["deny"] = sorted(set(perms.get("deny") or []) | set(DENY))
@@ -129,7 +135,7 @@ def main() -> int:
     save(state_path, state)
 
     out: dict[str, Any] = {"status": "CONFIGURED", "settings": str(settings_path), "base_url": base,
-                           "api_key": f"...{key[-4:]}", "model": model or "CLAUDE_CODE_DEFAULT",
+                           "api_key": f"...{key[-4:]}", "model": model,
                            "env_written": sorted(env), "deny": DENY}
     if a.verify:
         exe = shutil.which("claude")
