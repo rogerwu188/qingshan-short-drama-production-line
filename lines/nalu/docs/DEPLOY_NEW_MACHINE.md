@@ -135,3 +135,36 @@ API 错误就从断点续跑，付费 POST 靠 `workflow/tasks/*_transactions/` 
   antagonist-motive / new-entity-purpose (plot) questions; fill scripts must answer them from the media.
 - `knowledge/failure_memory.jsonl` is generated from the K registry; only `stage == "prompt"` rows are injected into
   prompts (`nalu_prompt_rules.apply`, ctx["failure_memory"]).
+
+## 8. 无人值守（每个部署做一次，之后不再问人）
+
+§6 的循环里，每次 `REVIEW_REQUIRED` 都要一个能看图的代理坐着填答；交互会话还会为每条不在允许表上的
+命令弹问——新机器上没人应答，流程就停在那里。**部署时授权一次**，之后可以无人推进到 S8：
+
+```bash
+# 1. 生成三份文件（入库的只有相对路径那份；其余是本机的）
+python3 lines/nalu/runtime/tools/automation_profile.py write \
+  --repo-root "$NALU_ENGINE_ROOT" --runtime-root "$NALU_RUNTIME_ROOT" --line-owner "<线主 id>"
+python3 lines/nalu/runtime/tools/automation_profile.py check --repo-root "$NALU_ENGINE_ROOT"
+
+# 2. 把订单坐标与凭据放进进程环境（keychain / 服务定义 / 容器 secret），不要依赖 .env 文件：
+#    GIGGLE_API_KEY、NALU_RUNTIME_ROOT、NALU_ENGINE_ROOT、NALU_SUPERVISOR_ORDERS_PATH、
+#    NALU_PAID_ORDER_SEQ、NALU_LATEST_ORDER_SEQ、NALU_LINE_OWNER_ID
+#    paid_stage.sh 只在它们缺失时才回退去读 .env，且从不打印值。
+
+# 3. 线主在有人的时候写一次常设订单（这一条就是全部授权；模型不能自己写）：
+python3 lines/nalu/runtime/tools/record_supervisor_order.py --seq <N> --order "…原话…" \
+  --episode <EP> --kind STANDING_RULE --gate-id <…> --context "<…>" --orders "$NALU_SUPERVISOR_ORDERS_PATH"
+
+# 4. 无人推进（cron/launchd 每 20 分钟一次即可）
+lines/nalu/runtime/tools/run_unattended.sh <EP> --max-turns 200 --max-budget-usd 5
+```
+
+- `--permission-mode dontAsk` 让不在允许表上的动作**被拒绝而不是弹问**；代理撞上就越不过去，
+  会写 `runtime/reports/<EP>_OWNER_DECISION_PENDING.md` 停下（该文件存在时下一次触发直接跳过，exit 5）。
+- 权限只写命令名，**不是授权来源**：付费仍要订单（D-11 核对签发者/原文/回执/上限/权利）、
+  `qingshan.json` 的 `paid_requests_enabled`、逐集积分上限、K041 整批提示词门与事务指纹去重全过。
+  允许表放宽不了其中任何一条，`.claude/settings.json` 也禁止改 `workflow/**`（订单与回执）与 `.claude/**`（权限面本身）。
+- 仍需线主：订单未覆盖的付费类别、音色一致性失败、剧情台词改动、S8 看片与发布。见 `AGENTS.md` §12。
+- 想完全不走 Claude Code 的运行时，也可以只用 `paid_stage.sh` + 自己的定时器驱动免费阶段；
+  无人值守层省掉的是「填答与重跑之间的等待」，不是任何一道门。

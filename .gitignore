@@ -135,3 +135,9 @@ lines/*/runtime/reports/
 lines/*/ads/
 !/deploy/
 !/deploy/**
+
+# Unattended-run permission profile (tracked: relative rules only; the machine-specific
+# settings.local.json beside it carries absolute paths and stays ignored).
+!/.claude/
+/.claude/*
+!/.claude/settings.json
