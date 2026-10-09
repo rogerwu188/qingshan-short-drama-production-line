@@ -107,6 +107,35 @@ class LineOwnerQ1AcceptanceTests(unittest.TestCase):
             extra_failure="required_registered_gate_not_pass:PERIOD-ANACHRONISM-LOCK")
         self.assertEqual(out["accepted_unit_ids"], [])
 
+    def _anachronism_case(self, gate_id: str, detectors: tuple[str, ...]):
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d); index, ip, ar = _fixture(tmp)
+            row = index["results"][1]
+            row["failures"] = ["evidence_4:PERIOD-ANACHRONISM-LOCK:evidence_payload_not_pass:FAIL_NOT_ADMITTED",
+                               "required_registered_gate_not_pass:PERIOD-ANACHRONISM-LOCK"]
+            ip.write_text(json.dumps(index))
+            order = _order(tmp, detectors=detectors)
+            order["decision"]["gate_id"] = gate_id
+            saved = rga._orders
+            rga._orders = lambda *args, **kwargs: [order]
+            try:
+                out = npl.apply_line_owner_q1_acceptance(_ctx(tmp), index, ip)
+            finally:
+                rga._orders = saved
+            return out, json.loads(ar.read_text())
+
+    def test_anachronism_only_failure_admits_on_matching_order(self):
+        out, ar = self._anachronism_case("PERIOD-ANACHRONISM-LOCK",
+                                         ("E06-S02-01:PERIOD-ANACHRONISM-LOCK",))
+        self.assertEqual(out["accepted_unit_ids"], ["E06-VU-004"])
+        self.assertEqual(ar["downstream_status"], "ADMITTED_FOR_VIDEO_SUBMIT")
+        self.assertEqual(ar["line_owner_acceptance"]["gate_id"], "PERIOD-ANACHRONISM-LOCK")
+
+    def test_identity_order_never_admits_an_anachronism_failure(self):
+        out, ar = self._anachronism_case("CHARACTER-IDENTITY-ADMISSION", ("E06-S02-01:CHAR-QINMING",))
+        self.assertEqual(out["accepted_unit_ids"], [])
+        self.assertEqual(ar["downstream_status"], "FAIL_NOT_ADMITTED")
+
     def test_full_match_admits_by_order_and_keeps_engine_copy(self):
         out, index, ar, flags = self.run_case()
         self.assertEqual(out["accepted_unit_ids"], ["E06-VU-004"])
