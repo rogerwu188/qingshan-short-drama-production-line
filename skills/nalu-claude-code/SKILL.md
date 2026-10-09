@@ -47,7 +47,8 @@ npm install -g @anthropic-ai/claude-code || curl -fsSL https://claude.ai/install
 python3 $S/configure_claude_code.py --verify     # 读 ~/.openclaw/openclaw.json 的 storyclaw provider，写 ~/.claude/settings.json
 ```
 必须输出 `"status": "VERIFIED"`。脚本只显示 key 末 4 位，绝不要把 key 打印、转述或写进聊天。provider 名不是 `storyclaw`
-时用 `--provider <名>`；中转不认默认模型名时用 `--model <中转支持的 Claude 模型 id>`。
+时用 `--provider <名>`。Claude Code 默认使用 Claude Opus 5.5（provider 列表里有它就用中转自己的写法，否则用
+`claude-opus-5-5`）；中转不认这个名字导致 `VERIFY_FAILED` 时，用 `--model <中转里 Opus 5.5 的 id>` 重跑。
 
 ## 3. 线主提供的信息（只通过对话）
 - Giggle API key：线主在对话里发来时，直接写入 `$NALU_ENGINE_ROOT/.env` 的 `GIGGLE_API_KEY=`（保持 600），只回复「已配置 GIGGLE_API_KEY」。
