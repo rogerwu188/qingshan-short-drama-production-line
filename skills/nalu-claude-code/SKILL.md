@@ -10,6 +10,17 @@ description: Install the Qingshan/NALU short-drama line on an OpenClaw host, wir
 登录机器或在终端里输入任何东西。本目录脚本路径下文记作 `$S`（安装后为
 `$TALENTHUB_WORKSPACE/skills/nalu-claude-code/scripts`；引擎克隆后也在 `$NALU_ENGINE_ROOT/skills/nalu-claude-code/scripts`）。
 
+## 0. 一键准备（每次唤醒先跑）
+```bash
+bash $S/setup_host.sh --pin <PIN>
+```
+幂等：已就绪的机器 1–2 秒内返回；否则自动补齐 §1 系统依赖与引擎、Python 环境、运行时初始化，安装 Claude Code 并运行
+`configure_claude_code.py --verify`（从 `~/.openclaw/openclaw.json` 读 StoryClaw provider 写入 Claude Code 配置）。
+旧部署残留会被安全处理：引擎切到钉住的提交（有本地改动先 `git stash`），不是本脚本建的 `~/nalu_runtime` 改名为
+`~/nalu_runtime_old_<时间>` 保留。只读最后一行 `NALU_SETUP: {...}`：`status=READY` 才继续；`BLOCKED` 时 `failed_step`
+和 `~/.nalu_setup.log` 末尾说明原因（缺免密 sudo 编译 insightface、网络、relay 校验失败等），如实告诉用户。
+`notes` 里有改名/切换记录时告诉用户一句。下面 §1–§2 是脚本做的事，供排障参考。
+
 ## 1. 安装生产线（代理执行）
 以 OpenClaw 的普通用户运行（不要 root）。`<PIN>` 为 IDENTITY.md 里钉住的提交。
 ```bash
