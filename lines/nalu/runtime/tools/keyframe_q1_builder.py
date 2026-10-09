@@ -479,6 +479,20 @@ def measure_still_identity(episode: str, keyframes: dict[str, Path],
     # 2. one source PER KEYFRAME: crop each declared character's face from it
     import cv2  # provided by the insightface install
 
+    # A declared character with no LOCKED plate in the registry this run read is not a verdict on
+    # any image: nothing about that face was measured.  E11 (2026-10-09): a submit run without
+    # NALU_RUNTIME_ROOT read an unrelated work's registry, found no plate for either declared
+    # character, measured nothing, and the empty result was recorded as 26 identity P0s against
+    # keyframes that measure 0.6-0.9 when the runtime root is set.  Name the cause, not the image.
+    absent = sorted({char for chars in visible_by_item.values() for char in chars or []}
+                    - set(canonical))
+    if absent:
+        result["status"] = "CANONICAL_PLATES_ABSENT_FOR_DECLARED_CHARACTERS"
+        result["failures"].append(
+            "IDENTITY_MEASUREMENT_NO_CANONICAL_PLATES:" + ",".join(absent)
+            + f" (registry={resolved_registry})")
+        return result
+
     p.identity_embed_cache.mkdir(parents=True, exist_ok=True)
     sources: list[dict[str, Any]] = []
     crop_by_item: dict[str, dict[str, Path]] = {}
@@ -603,6 +617,14 @@ def measure_still_identity(episode: str, keyframes: dict[str, Path],
 
     if not sources:
         result["status"] = "NO_CHARACTER_SOURCE_MEASURED"
+        # A declared face that nobody measured is a broken measurement, not a verdict on the
+        # image.  E11 (2026-10-09): a submit run without NALU_RUNTIME_ROOT measured nothing, and
+        # the empty result was recorded as 26 identity P0s against keyframes that pass at 0.6-0.9.
+        declared = sorted({char for chars in visible_by_item.values() for char in chars or []})
+        if declared and not canonical:
+            result["failures"].append(
+                "IDENTITY_MEASUREMENT_NO_CANONICAL_PLATES_FOR_DECLARED:" + ",".join(declared)
+                + f" (registry={resolved_registry}; check NALU_RUNTIME_ROOT)")
         return result
 
     # 3. the ENGINE decides, under the still-scoped policy
