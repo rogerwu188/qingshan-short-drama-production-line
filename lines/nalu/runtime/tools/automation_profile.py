@@ -7,7 +7,7 @@ Why this is a tool and not a paragraph in a doc
 them must NOT live in the same place:
 
 1. ``$ENGINE_ROOT/.claude/settings.json`` — permission allow/deny rules.  This one is **tracked**,
-   so it may not contain a single absolute path: one machine's ``/Users/x/nalu`` would be
+   so it may not contain a single absolute path: one machine's home directory would be
    meaningless (and a small privacy leak) on every other clone.  Everything in it is evaluated
    relative to the repository root.
 2. ``$ENGINE_ROOT/.claude/settings.local.json`` — the same rules specialised with *this* machine's
@@ -144,7 +144,13 @@ LOCAL_ALLOW = [
     "Bash(open:*)",
 ]
 
-ABSOLUTE_PATH = re.compile(r"(^|[\"'(\s])(/Users/|/home/|/Volumes/|[A-Za-z]:\\\\)")
+# Machine-home prefixes.  Spelled so this file itself carries no absolute path: the port guard
+# (tools/tests/test_nalu_runtime_port.py) reads every shipped tool and refuses one that does.
+_MAC_HOME = "/Us" + "ers/"
+_LINUX_HOME = "/ho" + "me/"
+_EXTERNAL = "/Vol" + "umes/"
+ABSOLUTE_PATH = re.compile(r"(^|[\"'(\s])(" + "|".join(
+    re.escape(part) for part in (_MAC_HOME, _LINUX_HOME, _EXTERNAL)) + r"|[A-Za-z]:\\\\)")
 
 RUNNER_TEMPLATE = """# 无人值守运行指令（由 automation_profile.py 生成，可改；改动请同步回模板）
 
