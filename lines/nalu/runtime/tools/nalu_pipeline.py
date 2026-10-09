@@ -3235,21 +3235,37 @@ def apply_keyframe_renames(ctx: Ctx, manifest: dict[str, Any]) -> dict[str, Any]
         dest = Path(expected)
         if not dest.is_absolute():
             dest = ENGINE / dest
-        if dest.is_file():
-            moved.append({"task_key": row["task_key"], "dest": str(dest), "action": "ALREADY_PRESENT"})
-            continue
         # harvest_giggle_image_batch.py names files <EP>_<task key>_<task id>.png (observed
         # 2026-09-13: 29 harvested, 29 "NO_HARVESTED_FILE"); accept both spellings.
         candidates = sorted(set(p.keyframe_harvest_dir.glob(f"{row['task_key']}*"))
                             | set(p.keyframe_harvest_dir.glob(f"{ctx.episode}_{row['task_key']}_*")))
         if not candidates:
-            missing.append({"task_key": row["task_key"], "reason": "NO_HARVESTED_FILE",
-                            "searched": str(p.keyframe_harvest_dir)})
+            if dest.is_file():
+                moved.append({"task_key": row["task_key"], "dest": str(dest), "action": "ALREADY_PRESENT"})
+            else:
+                missing.append({"task_key": row["task_key"], "reason": "NO_HARVESTED_FILE",
+                                "searched": str(p.keyframe_harvest_dir)})
             continue
+        # A harvested file only exists between a harvest and this rename (the rename moves it out), so
+        # one sitting next to an existing keyframe is a regeneration of it.  Keeping the old image
+        # because "the destination already exists" sent E11's 50 paid redos to an unread directory
+        # while Q1 re-reviewed the 2-day-old frames.  Park the old one instead of discarding it.
+        parked = None
+        if dest.is_file():
+            if sha256_file(dest) == sha256_file(candidates[0]):
+                candidates[0].unlink()
+                moved.append({"task_key": row["task_key"], "dest": str(dest), "action": "ALREADY_PRESENT"})
+                continue
+            park_dir = dest.parent / f"_superseded_{ctx.run_id}"
+            park_dir.mkdir(parents=True, exist_ok=True)
+            parked = park_dir / dest.name
+            os.replace(dest, parked)
         dest.parent.mkdir(parents=True, exist_ok=True)
         os.replace(candidates[0], dest)
         moved.append({"task_key": row["task_key"], "src": str(candidates[0]),
-                      "dest": str(dest), "sha256": sha256_file(dest), "action": "RENAMED"})
+                      "dest": str(dest), "sha256": sha256_file(dest),
+                      "action": "REPLACED_PARKED_PREVIOUS" if parked else "RENAMED",
+                      **({"parked_previous": str(parked)} if parked else {})})
     return {"mode": "APPLIED", "keyframe_dir": str(p.keyframes),
             "moved": moved, "missing": missing}
 
