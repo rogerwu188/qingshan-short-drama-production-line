@@ -39,20 +39,25 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 - 古装场景的灯写成「无罩敞口油盏」并把它声明为道具（`non_character_entities` + 镜头 props），否则图像模型画玻璃罩煤油灯，命中禁用词表。
 - `runtime/nalu_entity_registry.json` 每个说话角色一行（`$S/apply_runtime_fixups.py --character 名=CHAR-ID:slug`，编排代理已跑过；新增角色时你补跑）。
 
-## 3. 付费授权（等线主原话）
-先检查付费凭据：`grep -qE '^GIGGLE_API_KEY=.+' .env`（只看有没有，绝不打印值）。为空时以
-`OWNER_DECISION_REQUIRED` 结束本轮，`question` 请线主在对话里发 Giggle API key；编排代理写入 `.env` 后会用
-「已配置 GIGGLE_API_KEY」恢复你（消息里不会出现 key 本身），你再复查一次。
-S3 DRY_PLANNED 后结束本轮，`NALU_STATUS.state = OWNER_DECISION_REQUIRED`，`question` 里给出：剧本梗概、镜头/单元数、
-预计积分（身份牌 11/张、配音 2/角色、关键帧 11/张、视频约 20/秒）、需要的授权原话与版权声明。收到线主原话后：
+## 3. 付费授权（默认授权，不停下来问）
+本工作流的默认条款（用户安装时已在 USER.md 读到）：**用户提供 Giggle API key，即授权本项目每一集的付费生产，
+每集上限取简报 `budget_cap`（用户没指定时 1500 积分），并承诺对所提供的原著与素材有使用权。** 所以 S3 前不要停下来问。
+1. 检查付费凭据：`grep -qE '^GIGGLE_API_KEY=.+' .env`（只看有没有，绝不打印值）。为空时以
+   `OWNER_DECISION_REQUIRED` 结束本轮，`question` 请线主在对话里发 Giggle API key；编排代理写入 `.env` 后会用
+   「已配置 GIGGLE_API_KEY」恢复你（消息里不会出现 key 本身），你再复查一次。
+2. 本集还没有付费订单时，按简报 `authorization` 字段逐字记录（编排代理已写好条款原文与用户的原话，key 已去除）：
 ```bash
-$P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERVISOR_ORDERS.json --owner-id <简报里的 owner_id，缺省 owner> \
-  --order "<线主原话，逐字>" --episode <EP> --stages S3,S4,S5,S6 --cap <上限> --rights-basis "<线主版权声明，逐字>" \
-  --work "<剧名>" --recorded-by claude-code --authorizing-order-ref "<编排代理转达的出处>"
+$P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERVISOR_ORDERS.json --owner-id <简报 owner_id，缺省 owner> \
+  --order "<简报 authorization.order_text，逐字>" --episode <EP> --stages S3,S4,S5,S6 --cap <简报 budget_cap，缺省 1500> \
+  --rights-basis "<简报 authorization.rights_basis，逐字>" --work "<剧名>" --recorded-by claude-code \
+  --authorizing-order-ref "短剧工作流默认授权条款；<简报 authorization.consent_ref>"
 ```
-把它打印的授权坐标同时写进 `$NALU_RUNTIME_ROOT/qingshan.json` 的 `authorization` 和 `.env`
-（`NALU_SUPERVISOR_ORDERS_PATH`、`NALU_PAID_ORDER_SEQ`、`NALU_LATEST_ORDER_SEQ`、`NALU_LINE_OWNER_ID`、`NALU_RUNTIME_ROOT`、`NALU_ENGINE_ROOT`），
-设 `generation.paid_requests_enabled=true`、`budget_cap_credits_per_episode=<上限>`。**以后每记一条订单都要把两处的 latest_order_seq 改成最新**，否则全部订单失效。
+   把它打印的授权坐标同时写进 `$NALU_RUNTIME_ROOT/qingshan.json` 的 `authorization` 和 `.env`
+   （`NALU_SUPERVISOR_ORDERS_PATH`、`NALU_PAID_ORDER_SEQ`、`NALU_LATEST_ORDER_SEQ`、`NALU_LINE_OWNER_ID`、`NALU_RUNTIME_ROOT`、`NALU_ENGINE_ROOT`），
+   设 `generation.paid_requests_enabled=true`、`budget_cap_credits_per_episode=<上限>`。**以后每记一条订单都要把两处的 latest_order_seq 改成最新**，否则全部订单失效。
+   简报里没有 `authorization` 字段时，不得自行编写授权文字：以 `OWNER_DECISION_REQUIRED` 请线主确认默认条款。
+3. 直接进入 S3。仍需停下来问线主的只有：预计或实际花费将超过本集上限、订单范围外的新付费类别（例如首次配乐）、
+   同一镜第 2 次创意重做仍失败、门禁失败需要线主接受。
 
 ## 4. S3→S7（每次 exit=4 = 有审核请求）
 审核通用做法：`$NALU_RUNTIME_ROOT/runtime/reviews/<EP>/` 最新 `*_request.json` → `$P $T/vlm_review_protocol.py example-answers --request <req>` →
