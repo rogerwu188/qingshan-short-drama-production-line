@@ -128,7 +128,6 @@ def still_gate_registry(out: Path | None = None) -> Path:
         "derived_from": (str(GATE_REGISTRY.resolve().relative_to(ENGINE.resolve()))
                          if GATE_REGISTRY.resolve().is_relative_to(ENGINE.resolve()) else GATE_REGISTRY.name),
         "derived_from_sha256": sha256_file(GATE_REGISTRY),
-        "derived_at": now(),
         "derived_by": TOOL_ID,
         "scope": "KEYFRAME_VIDEO_SUBMIT (stills) ONLY — video Q2 uses the engine registry",
         "decision_ref": STILL_DECISION_REF,
@@ -136,8 +135,32 @@ def still_gate_registry(out: Path | None = None) -> Path:
         "decision_text": STILL_DECISION_TEXT,
         "single_parameter_changed": changed,
     })
+    # This file is committed, so a fresh timestamp on every Q1 run left the tree dirty after every
+    # episode and, during an unattended run, the model could not write it back (D-13).  The stamp
+    # answers "when did this derivation last change", and re-deriving the identical registry does
+    # not change the answer — so it is set last, against the fully-built payload.
+    derived["derived_at"] = _unchanged_derived_at(out, derived)
     write_json(out, derived)
     return out
+
+
+def _unchanged_derived_at(out: Path, derived: dict[str, Any]) -> str:
+    """The previous ``derived_at`` when re-deriving produced the same registry, else now.
+
+    Compares the whole derived payload with ``derived_at`` removed.  If a real parameter moved,
+    the old timestamp is discarded and the new one is written, so the field still marks the
+    moment the content last changed.
+    """
+    try:
+        previous = read_json(out, {}) or {}
+    except Exception:  # unreadable or absent: a fresh timestamp is correct
+        return now()
+    if not isinstance(previous, dict):
+        return now()
+    before = {k: v for k, v in previous.items() if k != "derived_at"}
+    after = {k: v for k, v in derived.items() if k != "derived_at"}
+    stamp = str(previous.get("derived_at") or "")
+    return stamp if stamp and before == after else now()
 
 
 def still_identity_policy() -> dict[str, Any]:
