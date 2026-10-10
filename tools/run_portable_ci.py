@@ -73,6 +73,22 @@ def main() -> int:
         except (OSError, json.JSONDecodeError) as exc:
             failures.append(f"INVALID_SCHEMA_JSON:{path.relative_to(ROOT)}:{exc}")
 
+    # The knowledge registry's own link check.  AGENTS.md §8 makes this validator a release
+    # step, but it was not in CI, so three entries citing a per-episode builder (gitignored by
+    # pattern, therefore absent from every clone) shipped broken for weeks and only surfaced
+    # when someone finally ran it on a clean checkout.  A validation a release depends on has
+    # to run where the release is checked, not only when a human remembers.
+    knowledge = subprocess.run(
+        [sys.executable, str(ROOT / "tools" / "knowledge_registry.py"), "--validate"],
+        cwd=ROOT, check=False, capture_output=True, text=True,
+    )
+    if knowledge.returncode:
+        try:
+            why = json.loads(knowledge.stdout).get("failures") or json.loads(knowledge.stdout).get("error") or ""
+        except (json.JSONDecodeError, AttributeError):
+            why = knowledge.stderr.strip() or knowledge.stdout.strip()
+        failures.append(f"KNOWLEDGE_REGISTRY_INVALID:{why}")
+
     with tempfile.TemporaryDirectory(prefix="qingshan-registry-audit-") as temp_dir:
         registry_report = Path(temp_dir) / "gate_registry_integrity.json"
         registry_command = [
