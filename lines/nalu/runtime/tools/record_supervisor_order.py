@@ -164,11 +164,21 @@ def main() -> int:
         payload["updated_at_utc"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     orders_path.parent.mkdir(parents=True, exist_ok=True)
     orders_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"status": "RECORDED", "seq": args.seq, "orders": str(orders_path),
-                      "private_inbox": private, "order_id": order_id,
-                      "detectors": len(args.detector), "sha_bound_items": len(shas),
-                      "latest_order_seq": payload.get("latest_order_seq") if isinstance(payload, dict) else None},
-                     ensure_ascii=False))
+    latest = payload.get("latest_order_seq") if isinstance(payload, dict) else None
+    deployed = os.environ.get("NALU_LATEST_ORDER_SEQ") or ""
+    out = {"status": "RECORDED", "seq": args.seq, "orders": str(orders_path),
+           "private_inbox": private, "order_id": order_id,
+           "detectors": len(args.detector), "sha_bound_items": len(shas),
+           "latest_order_seq": latest}
+    if latest is not None and str(latest) != deployed:
+        # D-11 refuses to spend while the deployment's NALU_LATEST_ORDER_SEQ trails the inbox.
+        # E11 (2026-10-09): an acceptance order was recorded, nothing said so, and the next paid
+        # run stopped at SUPERVISOR_ORDERS_LATEST_SEQ_MISMATCH.  Say it while the owner is here.
+        out["deployment_action_required"] = (
+            f"set NALU_LATEST_ORDER_SEQ={latest} where the deployment keeps it (.env or the service "
+            f"environment; currently {deployed or 'unset in this shell'}); paid stages refuse until then. "
+            "NALU_PAID_ORDER_SEQ stays as is unless this order is itself a paid order.")
+    print(json.dumps(out, ensure_ascii=False))
     return 0
 
 
