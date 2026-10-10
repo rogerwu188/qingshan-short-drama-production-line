@@ -178,8 +178,17 @@ RUNNER_TEMPLATE = """# 无人值守运行指令（由 automation_profile.py 生�
 
 ## 停下来的正确姿势
 
-不是等到超时。写一份简短的待决说明到 `runtime/reports/`（要什么、为什么、估算花多少、
-不做的后果），然后退出。线主回来只读这一个文件就能决定。
+不是等到超时。用 `lines/nalu/runtime/tools/owner_decision_queue.py raise` 记一条待决，写清
+要什么、为什么、估算花多少、不做的后果，然后按范围决定要不要停：
+
+- `--class` 属于上面四类必问时，**范围强制为 line**，这条线停下等线主；
+- 其余类别可以 `--scope unit --unit-id <UID>` 或 `--scope stage --stage <S>`，**只停局部**，
+  其余单元照常推进。
+
+`runtime/reports/<EP>_OWNER_DECISION_PENDING.md` 是渲染出来的视图，**不要手写**；记录在
+`runtime/reports/<EP>_OWNER_DECISIONS.jsonl`。回答只能靠订单：
+`owner_decision_queue.py answer --episode <EP> --id <ID> --order-seq <N>`，没有源回执的订单号会被拒。
+代理不能回答自己提出的问题。
 
 ## 交付与记录
 

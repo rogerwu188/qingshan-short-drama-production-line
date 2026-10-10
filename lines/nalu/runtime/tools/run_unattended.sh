@@ -45,19 +45,27 @@ done
 : "${NALU_RUNTIME_ROOT:?set NALU_RUNTIME_ROOT}"
 export NALU_ENGINE_ROOT="${NALU_ENGINE_ROOT:-$ENGINE_ROOT}"
 command -v claude >/dev/null || die "claude CLI not on PATH"
+PY="${NALU_VENV_PYTHON:-$ENGINE_ROOT/.qingshan-venv/bin/python}"
 
 # The profile must exist and be clean before an unattended session is allowed to start: without it
 # dontAsk refuses even the line's own entry points and the run achieves nothing.
-"${NALU_VENV_PYTHON:-$ENGINE_ROOT/.qingshan-venv/bin/python}" "$HERE/automation_profile.py" check \
+"$PY" "$HERE/automation_profile.py" check \
   --repo-root "$ENGINE_ROOT" >/dev/null || die "automation profile missing or unsafe; run automation_profile.py write"
 
 REPORTS="$NALU_RUNTIME_ROOT/runtime/reports"
 mkdir -p "$REPORTS"
 PENDING="$REPORTS/${EPISODE}_OWNER_DECISION_PENDING.md"
-if [ -f "$PENDING" ]; then
-  printf 'run_unattended: %s is waiting on the line owner: %s\n' "$EPISODE" "$PENDING" >&2
+# The queue, not the markdown, is the record.  A LINE-scope entry stops the run; a unit- or
+# stage-scope one does not — the rest of the episode can continue, which is the whole point
+# (2026-10-10: one open question used to freeze every remaining unit).
+if ! "$PY" "$HERE/owner_decision_queue.py" status --episode "$EPISODE" --blocking-line >/dev/null 2>&1; then
+  "$PY" "$HERE/owner_decision_queue.py" render --episode "$EPISODE" >/dev/null 2>&1 || true
+  printf 'run_unattended: %s has a line-scope decision waiting on the line owner: %s\n' \
+    "$EPISODE" "$PENDING" >&2
   exit 5
 fi
+# keep the rendered view current even when the run is allowed to start
+"$PY" "$HERE/owner_decision_queue.py" render --episode "$EPISODE" >/dev/null 2>&1 || true
 
 LOCK="$NALU_RUNTIME_ROOT/runtime/.unattended_${EPISODE}.lock"
 if ! mkdir "$LOCK" 2>/dev/null; then
@@ -72,8 +80,7 @@ echo $$ > "$LOCK/pid"
 trap 'rm -rf "$LOCK"' EXIT
 
 LOG="$REPORTS/${EPISODE}_unattended_$(date -u +%Y%m%dT%H%M%SZ).jsonl"
-PROMPT="按 .claude/unattended_runner.md 推进 ${EPISODE}。先读它，再读 configs/ENGINEERING_KNOWLEDGE_V1.json 与 knowledge/failure_memory.jsonl。\
-遇到不允许的动作或四类必须交线主的决定时，把待决说明写到 ${PENDING} 后结束。"
+PROMPT="按 .claude/unattended_runner.md 推进 ${EPISODE}。先读它，再读 configs/ENGINEERING_KNOWLEDGE_V1.json 与 knowledge/failure_memory.jsonl。遇到四类必须交线主的决定时，用 $HERE/owner_decision_queue.py raise 记一条（写清要什么、为什么、估算多少、不做的后果），不要手写那个 md——它是渲染出来的视图。只有 line 范围的待决会停这条线；unit/stage 范围的记下来后照常推进其余单元。"
 
 cd "$ENGINE_ROOT"
 ARGS=(-p "$PROMPT" --permission-mode dontAsk --max-turns "$MAX_TURNS"
@@ -87,5 +94,9 @@ claude "${ARGS[@]}" > "$LOG" 2>&1
 rc=$?
 set -e
 printf 'run_unattended: %s session ended rc=%s log=%s\n' "$EPISODE" "$rc" "$LOG"
-[ -f "$PENDING" ] && { printf 'run_unattended: owner decision pending: %s\n' "$PENDING"; exit 5; }
+"$PY" "$HERE/owner_decision_queue.py" render --episode "$EPISODE" >/dev/null 2>&1 || true
+if ! "$PY" "$HERE/owner_decision_queue.py" status --episode "$EPISODE" --blocking-line >/dev/null 2>&1; then
+  printf 'run_unattended: owner decision pending: %s\n' "$PENDING" >&2
+  exit 5
+fi
 exit "$rc"
