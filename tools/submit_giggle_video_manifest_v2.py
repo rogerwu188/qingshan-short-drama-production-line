@@ -1026,13 +1026,26 @@ def _provider_declined(failure: dict[str, Any], transaction_dir: Path | None = N
     )
 
 
+def _attempted(failure: dict[str, Any]) -> bool:
+    """False for a failure that stopped before its intent record (no POST was attempted).
+
+    Such a failure carries no charge question at all, so it must not take part in deciding whether
+    the POSTs that DID go out were declined (nalu E11 wave 9: a pre-intent prompt-gate refusal of
+    VU-003 sat in the same batch as VU-026's DNS failure, and its non-network error text flipped
+    the whole batch to CHARGE_STATE_UNRESOLVED_BATCH although the ledger matched exactly, 2 == 2)."""
+    if failure.get("state") == "submit_failed_before_intent" or failure.get("pre_intent_block"):
+        return False
+    return True
+
+
 def classify_failures(failures: list[dict[str, Any]], known: int, matched: int, transaction_dir: Path) -> str:
     extra = matched - known
     if not failures:
         return "NO_AMBIGUOUS_SUBMISSIONS"
-    if len(failures) == 1 and extra == 1:
+    posted = [f for f in failures if _attempted(f)]
+    if len(posted) == 1 and extra == 1:
         state, summary = "CHARGED_TASK_ID_MISSING", "RECOVER_ONE_TASK_ID_FROM_PROVIDER_HISTORY"
-    elif extra == 0 and all(_provider_declined(f, transaction_dir) for f in failures):
+    elif extra == 0 and all(_provider_declined(f, transaction_dir) for f in posted):
         # nalu e24 (2026-09-18, mirrors e18 for images): the provider answered with an explicit
         # non-charging failure (code != 200, e.g. "payment failed ... 500", no task_id) AND the ledger
         # window shows exactly as many pay rows as the task ids we hold — nothing was bought; the
@@ -1074,9 +1087,52 @@ def main() -> int:
     parser.add_argument("--out", required=True)
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--precheck-only", action="store_true")
+    parser.add_argument(
+        "--reconcile-unresolved-report",
+        help="Offline re-classification of a submit report's failures against a re-fetched credit window; never POSTs",
+    )
     args = parser.parse_args()
     if args.project_root:
         ROOT = Path(args.project_root).expanduser().resolve()
+    if args.reconcile_unresolved_report:
+        # Mirrors submit_giggle_image_manifest.py --reconcile-unresolved-report.  The submit path only
+        # classifies on its way out of a run; once a transaction is CHARGE_STATE_UNRESOLVED_BATCH the
+        # durable guard refuses to POST it again, so a misclassified row could never be re-settled
+        # (nalu E11 wave 9, VU-026: DNS failure, ledger 2 == 2, quarantined by a co-batched
+        # pre-intent refusal).  This re-fetches the SAME window and runs the SAME classifier; a charge
+        # is never hidden because extra pay rows still keep the row quarantined.
+        report_path = resolve(args.reconcile_unresolved_report)
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        failures = list(report.get("failures") or [])
+        if not failures:
+            raise SystemExit("reconcile report has no failures to reclassify")
+        window = report.get("credit_reconciliation") or {}
+        known = int(window.get("known_task_id_count") or report.get("submitted") or 0)
+        start = datetime.fromisoformat(str(window.get("window_start_utc") or report["recorded_at"]).replace("Z", "+00:00"))
+        end = datetime.fromisoformat(str(window.get("window_end_utc") or report["recorded_at"]).replace("Z", "+00:00"))
+        expected = known + sum(_attempted(f) for f in failures)
+        fresh = reconcile_rows(fetch_pay_statements(), start=start - timedelta(seconds=10),
+                               end=end + timedelta(minutes=10), expected_count=expected,
+                               event_description="SingleGenerateVideo",
+                               model=str(window.get("model") or "seedance-2.0-pro"))
+        matched = int(fresh.get("matched_count", 0))
+        transactions = ROOT / "workflow/tasks/giggle_video_submit_transactions" / str(report.get("episode") or "")
+        for failure in failures:
+            path = resolve(failure["transaction"]) if failure.get("transaction") else None
+            if path is not None and path.is_file():
+                row = json.loads(path.read_text(encoding="utf-8"))
+                if row.get("state") == "SUBMITTED_TASK_ID_BOUND":
+                    continue
+                failure.setdefault("error", row.get("error"))
+        summary = classify_failures(failures, known, matched, transactions)
+        result = {"schema": "qingshan.giggle_video_reconcile.v1", "report": portable(report_path),
+                  "known_task_id_count": known, "matched_ledger_rows": matched,
+                  "charged_credits": fresh.get("charged_credits"), "summary": summary,
+                  "rows": [{"task_key": f.get("task_key"), "credit_status": f.get("credit_status")} for f in failures],
+                  "posted": 0}
+        atomic_json(resolve(args.out), result)
+        print(json.dumps(result, ensure_ascii=False))
+        return 0
     manifest_path = resolve(args.manifest)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     efficiency_gate = require_e47_efficiency_contract(manifest)

@@ -179,7 +179,8 @@
     "tools/tests/test_storyclaw_dependency_bundle.py",
     "tools/storyclaw_registry_clean_install_smoke.py",
     "tools/tests/test_storyclaw_registry_clean_install_smoke.py",
-    "tools/tests/test_nalu_release_unposted_waves.py"
+    "tools/tests/test_nalu_release_unposted_waves.py",
+    "tools/tests/test_video_preintent_failure_classification.py"
   ],
   "portable_test_modules": [
     "tools.tests.test_editorial_pacing_contract",
@@ -270,6 +271,7 @@
     "tools.tests.test_direction_policy_gate",
     "tools.tests.test_stage_time_ledger",
     "tools.tests.test_audio_cut_overlap",
-    "tools.tests.test_nalu_release_unposted_waves"
+    "tools.tests.test_nalu_release_unposted_waves",
+    "tools.tests.test_video_preintent_failure_classification"
   ]
 }
