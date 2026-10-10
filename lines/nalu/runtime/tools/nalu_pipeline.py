@@ -3870,6 +3870,55 @@ def unit_dependency_order(ctx: Ctx) -> list[tuple[str, str | None, bool]]:
     return rows
 
 
+def _units_with_bound_submission(ctx: Ctx) -> set[str]:
+    """Unit ids that have a SUBMITTED_TASK_ID_BOUND record in the durable submit store."""
+    store_dir = ENGINE / "workflow/tasks/giggle_video_submit_transactions" / ctx.episode
+    bound: set[str] = set()
+    for path in (store_dir.glob("*.json") if store_dir.is_dir() else []):
+        row = read_json(path, {}) or {}
+        if row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id"):
+            text = json.dumps(row, ensure_ascii=False)
+            bound.update(re.findall(rf"{re.escape(ctx.episode)}-VU-\d+", text))
+    return bound
+
+
+def release_unposted_waves(ctx: Ctx, wave_state: dict[str, Any]) -> list[dict[str, Any]]:
+    """Release open waves that never reached a provider POST, so they are re-planned.
+
+    A wave keeps a frozen membership because re-entering a SUBMITTED wave with a different list
+    double-POSTed on 2026-09-13.  That protection is only meaningful once something was POSTed.
+    E11's wave 1 was opened on 2026-10-06 when a forward run reached S6 before S5 had produced any
+    keyframe; it never submitted, yet its frozen list held a unit id that is in no plan (VU-042)
+    and a continuity-derived unit whose start frame cannot exist until its predecessor renders
+    (VU-040).  Every later pass then asked for a review of a frame that did not exist.
+
+    A wave is released only when ALL of these hold: no submit report on disk, no unit of it has a
+    bound transaction in the durable store, and none of its videos is on disk.  Anything that
+    may have POSTed keeps its frozen membership exactly as before."""
+    plan = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json", {}) or {}
+    planned = {u["unit_id"] for u in plan.get("units") or []}
+    bound = _units_with_bound_submission(ctx)
+    released = []
+    for w in wave_state.get("waves") or []:
+        if w.get("completed_at") or w.get("released_at"):
+            continue
+        units = list(w.get("units") or [])
+        report = Path(w["submit_report"]) if w.get("submit_report") else None
+        if report is not None and report.is_file():
+            continue
+        if any(u in bound for u in units):
+            continue
+        if any((ctx.p.video_media / f"{u}.mp4").is_file() for u in units):
+            continue
+        unknown = sorted(u for u in units if u not in planned)
+        reason = ("NEVER_POSTED" + (f"; unit(s) not in the grouping plan: {unknown}" if unknown else ""))
+        w["released_at"] = now()
+        w["completed_at"] = w["released_at"]
+        w["release_reason"] = reason
+        released.append({"wave": w.get("wave"), "reason": reason})
+    return released
+
+
 def extract_real_final_frame(ctx: Ctx, unit_id: str) -> dict[str, Any]:
     """ffmpeg last-frame grab of the harvested unit video (same recipe as the engine's
     episode_parallel_batch_supervisor.bind_predecessor_tail_frame: -sseof -0.10/-0.20/-0.50)."""
@@ -4001,6 +4050,11 @@ def stage_s6(ctx: Ctx) -> StageResult:
     # keeps exactly its recorded unit list until every one of its videos is on disk.
     wave_state_path = p.preprod_reports / f"{ctx.episode}_S6_WAVE_STATE.json"
     wave_state = read_json(wave_state_path, {}) or {"schema": "nalu.s6_wave_state.v1", "waves": []}
+    released = release_unposted_waves(ctx, wave_state)
+    if released:
+        write_json(wave_state_path, wave_state)
+        ctx.say(f"-- S6: released {len(released)} wave(s) that never POSTed: "
+                + "; ".join(f"wave {r['wave']} ({r['reason']})" for r in released))
     for _iteration in range(1, 8):
         deps = unit_dependency_order(ctx)
         done = {uid for uid, _, _ in deps if (p.video_media / f"{uid}.mp4").is_file()}
