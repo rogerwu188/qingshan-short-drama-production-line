@@ -141,3 +141,6 @@ lines/*/ads/
 !/.claude/
 /.claude/*
 !/.claude/settings.json
+
+# machine-local deployment pin (paths only; nalu_paths.py pin)
+.nalu_deployment.json

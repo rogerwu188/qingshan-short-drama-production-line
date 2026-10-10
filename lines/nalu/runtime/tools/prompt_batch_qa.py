@@ -34,7 +34,7 @@ from pathlib import Path
 
 ENGINE = Path(f"{_np.ENGINE_ROOT}")
 RUNTIME = Path(f"{_np.RUNTIME_ROOT}")
-WORK = Path(os.environ.get("NALU_WORK_ROOT", str(_np.RUNTIME_ROOT / "workflow" / "nalu"))).expanduser().resolve()
+WORK = Path(_np.WORK_ROOT).expanduser().resolve()  # one definition in nalu_paths (was <runtime>/workflow/nalu here only)
 
 
 def sha(path: Path) -> str:

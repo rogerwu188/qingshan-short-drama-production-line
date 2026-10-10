@@ -35,7 +35,7 @@ from pathlib import Path
 
 ENGINE = Path(f"{_np.ENGINE_ROOT}")
 RUNTIME = Path(f"{_np.RUNTIME_ROOT}")
-WORK = Path(os.environ.get("NALU_WORK_ROOT", str(_np.RUNTIME_ROOT / "workflow" / "nalu"))).expanduser().resolve()
+WORK = Path(_np.WORK_ROOT).expanduser().resolve()  # one definition in nalu_paths (was <runtime>/workflow/nalu here only)
 
 
 def sha(path: Path) -> str:
@@ -156,6 +156,22 @@ def main() -> int:
             rows.append(row2)
 
     manifest_path = pre / f"{ep}_PROMPT_BATCH_V1.json"
+    if problems:
+        # A unit whose prompt cannot be bound is DROPPED from `rows` above.  Writing that set would
+        # replace the last good registration with one that silently lacks the unit (E11
+        # 2026-10-09: a stale planning-index row turned a 58-row batch into 57 on disk).  Refuse to
+        # write; the previous registration stays exactly as it was.  Missing QA receipts are not a
+        # problem here: the first registration must be written before receipts can exist.
+        report = {"schema": "nalu.prompt_batch_register_report.v1", "episode": ep,
+                  "execution_id": args.execution_id, "manifest": str(manifest_path),
+                  "manifest_written": False, "rows": len(rows),
+                  "units_expected": len(grouping["units"]), "aliases": len(aliases),
+                  "missing_qa": missing_qa, "problems": problems, "status": "HOLD",
+                  "note": "nothing was written; the previous registration is unchanged"}
+        Path(args.report).write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps({k: report[k] for k in ("status", "rows", "units_expected", "missing_qa",
+                                                 "problems", "manifest_written")}, ensure_ascii=False))
+        return 2
     manifest = {"schema": "nalu.prompt_batch_manifest.v1", "execution_id": args.execution_id, "episode": ep,
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "generated_by": "prompt_batch_register.v1",

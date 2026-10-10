@@ -63,6 +63,7 @@ class NaluRuntimePortTest(unittest.TestCase):
         env = dict(os.environ)
         for key in ("NALU_ENGINE_ROOT", "QINGSHAN_ENGINE_ROOT", "ENGINE_ROOT", "NALU_RUNTIME_ROOT", "RUNTIME_ROOT"):
             env.pop(key, None)
+        env["NALU_IGNORE_DEPLOYMENT_PIN"] = "1"  # this machine may carry a pin; test the clean-clone fallback
         info = json.loads(subprocess.run([sys.executable, str(TOOLS / "nalu_paths.py")], env=env,
                                          capture_output=True, text=True, check=True).stdout)
         self.assertEqual(info["ENGINE_ROOT"], str(REPO))

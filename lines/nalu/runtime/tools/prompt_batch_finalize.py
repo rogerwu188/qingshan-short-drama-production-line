@@ -35,7 +35,7 @@ from pathlib import Path
 import prompt_batch_hint as _hint  # bounded, order-preserving per-unit parallelism
 
 ENGINE = Path(f"{_np.ENGINE_ROOT}")
-WORK = Path(os.environ.get("NALU_WORK_ROOT", str(_np.RUNTIME_ROOT / "workflow" / "nalu"))).expanduser().resolve()
+WORK = Path(_np.WORK_ROOT).expanduser().resolve()  # one definition in nalu_paths (was <runtime>/workflow/nalu here only)
 
 
 def sha(path: Path) -> str:

@@ -6997,7 +6997,7 @@
     },
     {
       "path": "tools/tests/test_nalu_runtime_port.py",
-      "sha256": "dc8754590c3a216d6be042bc4edb5a014f5aa07238ecce775db272b4c7f7d640"
+      "sha256": "073e38164f5de629609d4fdc78bda544d9b7540f936a7327bb5582e7c8d9283a"
     },
     {
       "path": "tools/tests/test_nalu_s3_locked_view_reuse.py",
