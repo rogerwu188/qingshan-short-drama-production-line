@@ -3364,13 +3364,57 @@ def apply_keyframe_renames(ctx: Ctx, manifest: dict[str, Any]) -> dict[str, Any]
             "moved": moved, "missing": missing}
 
 
+def q1_identity_evidence(row: dict[str, Any], gate_id: str) -> tuple[dict[str, Any], str]:
+    """The registered identity-gate evidence for one Q1 row: (payload, path).
+
+    The index row carries only a one-line finding; the evidence file is what lists the
+    declared characters and the raw failure codes, which is what the standing rule has to
+    read.  Returns ({}, "") when the file is absent, and the caller then admits nothing.
+    """
+    req = read_json(Path(str(row.get("admission_request") or "")), {}) or {}
+    for ev in req.get("evidence") or []:
+        if not isinstance(ev, dict) or str(ev.get("gate_id") or "") != gate_id:
+            continue
+        raw = str(ev.get("evidence_path") or "")
+        if not raw:
+            continue
+        path = Path(raw) if Path(raw).is_absolute() else ENGINE / raw
+        return (read_json(path, {}) or {}), str(path)
+    return {}, ""
+
+
+#: The engine writes a failing registered gate in two shapes, with the gate id in a different
+#: position in each: "evidence_1:<GATE>:registered_gate_not_pass:FAIL_NOT_ADMITTED:P0" and
+#: "required_registered_gate_not_pass:<GATE>".  The first needs the capture BEFORE the marker.
+FAILED_GATE_RE = re.compile(r"(?:^|:)([A-Z][A-Z0-9-]*):registered_gate_not_pass:"
+                            r"|^required_registered_gate_not_pass:([A-Z][A-Z0-9-]*)$")
+
+
+def failing_registered_gates(failures: list[Any]) -> list[str]:
+    """Registered gate ids a Q1 index row reports as not passing."""
+    found: set[str] = set()
+    for raw in failures:
+        match = FAILED_GATE_RE.search(str(raw))
+        if match:
+            found.add(match.group(1) or match.group(2))
+    return sorted(found)
+
+
 def apply_line_owner_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: Path) -> dict[str, Any]:
     """Order-keyed acceptance of CHARACTER-IDENTITY-ADMISSION failures at S5 Q1.
 
-    The engine gate result keeps its FAIL row and evidence; a unit is admitted only when an active line-owner order of kind
-    GATE_FAIL_ACCEPTANCE for this episode and gate names EVERY failing "<item_id>:<character_id>" detector of
-    that keyframe and the order's item binding exactly matches the current keyframe sha256. Never self-issued; anything
-    outside the order (another gate failing, another sha, another episode) stays rejected."""
+    Two ways a still gets admitted, both requiring an active source-receipted line-owner order:
+
+    * GATE_FAIL_ACCEPTANCE — names EVERY failing "<item_id>:<character_id>" detector and binds the
+      current keyframe's sha256.  Exact, but it dies the moment the frame is regenerated.
+    * STANDING_RULE — carries the NO_FACE_PIXELS_IN_STILL scope, so it covers a *condition* rather
+      than a list of shas and the line applies it without stopping.  See roger_gate_acceptance for
+      what the condition requires; the short version is that the identity gate must be the only
+      failing gate, every identity failure must be a no-face-pixels code, and every other declared
+      character must have measured a real PASS.
+
+    The engine gate result keeps its FAIL row and evidence either way.  Never self-issued: no order,
+    or a still that fails a second gate, stays rejected."""
     orders_path = ctx.authority.get("orders_path")
     orders = (_rga._orders(orders_path,
                            expected_latest_seq=ctx.authority.get("latest_order_seq") or 0,
@@ -3380,13 +3424,25 @@ def apply_line_owner_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: 
     ident = read_json(Path(str((index.get("identity_measurement") or {}).get("engine_report") or "")), {}) or {}
     decisions = ((ident.get("objective_verification") or {}).get("decisions")) or []
     accepted, still_rejected = [], []
+    by_standing_rule: list[dict[str, Any]] = []
+    rule_refused: list[dict[str, Any]] = []
     allowed = list(index.get("video_submission_allowed_unit_ids") or [])
+    issuer = ctx.authority.get("line_owner_id") or ""
+    standing_rule = (_rga.find_standing_rule(orders, episode=ctx.episode, gate_id=gate_id,
+                                            expected_issuer=issuer, engine_root=ENGINE)
+                     if orders else None)
     for row in index.get("results") or []:
         if row.get("status") == "PASS" or row.get("downstream_status") == "ADMITTED_FOR_VIDEO_SUBMIT":
             continue
         item_id, uid = row.get("item_id"), row.get("unit_id")
         failures = [str(f) for f in (row.get("failures") or [])]
-        if not failures or any(gate_id not in f for f in failures):
+        # Which registered gates this still failed.  A still that failed anything besides the
+        # identity gate is a different problem: the per-item order must still name the identity
+        # detectors and nothing else, and no standing rule covers it.  This reproduces the old
+        # check (every failure string had to mention the identity gate) while also giving the
+        # standing rule the gate list it needs.
+        failed_gates = failing_registered_gates(failures)
+        if failed_gates != [gate_id]:
             still_rejected.append(uid)
             continue
         detectors = sorted({f"{item_id}:{d.get('character_id')}" for d in decisions
@@ -3409,22 +3465,54 @@ def apply_line_owner_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: 
                         texts.append(str(evd.get("finding") or ""))
             detectors = sorted({f"{item_id}:{m}" for f in texts
                                 for m in re.findall(r"NO_EMBEDDING_SAMPLE_FOR_DECLARED_CHARACTER:(CHAR-[A-Z0-9-]+)", f)})
+        # A per-item signature is exact and the cheapest thing to audit, so it is tried first; the
+        # standing rule is the fallback for the case this feature exists for — the frame was
+        # regenerated and the old sha binding no longer applies.
         order = _rga.find_acceptance(
             orders, episode=ctx.episode, gate_id=gate_id, failing=detectors,
             media_sha256=str(row.get("asset_sha256") or ""), media_item_id=item_id,
-            expected_issuer=ctx.authority.get("line_owner_id") or "", engine_root=ENGINE,
+            expected_issuer=issuer, engine_root=ENGINE,
         ) if detectors else None
-        if order is None:
+        if order is not None:
+            cos = {f"{item_id}:{d.get('character_id')}": d.get("aggregate_median") for d in decisions
+                   if str(d.get("source_id") or "").endswith(f":{item_id}")}
+            record = _rga.acceptance_record(order, episode=ctx.episode, gate_id=gate_id, failing=detectors,
+                                            media_sha256=str(row.get("asset_sha256") or ""),
+                                            media_item_id=item_id,
+                                            gate_result_path=str(row.get("admission_result") or ""))
+            record.update({"item_id": item_id, "unit_id": uid, "cosines": cos,
+                           "engine_status": row.get("status"), "engine_failures": failures,
+                           "accepted_under": "PER_ITEM_ORDER"})
+        elif standing_rule is not None:
+            evidence, evidence_path = q1_identity_evidence(row, gate_id)
+            verified = (evidence.get("objective_verification") or {})
+            condition = _rga.standing_rule_condition(
+                failed_gates=failed_gates,
+                identity_failures=list(verified.get("failures") or []),
+                identity_gate_id=gate_id,
+                # the per-still decisions live in the evidence file's objective_verification, not in
+                # the index-level identity report (whose source_ids are shaped E11:STILL:<item>)
+                decisions=list(verified.get("decisions") or []),
+                declared_characters=[str(c) for c in verified.get("declared_visible_character_ids") or []])
+            if not condition.get("covered"):
+                rule_refused.append({"item_id": item_id, "unit_id": uid, "condition": condition,
+                                     "evidence_path": evidence_path})
+                still_rejected.append(uid)
+                continue
+            cos = {f"{item_id}:{d.get('character_id')}": d.get("aggregate_median") for d in decisions
+                   if str(d.get("source_id") or "").endswith(f":{item_id}")}
+            record = _rga.standing_rule_acceptance(
+                standing_rule, episode=ctx.episode, gate_id=gate_id,
+                excused_detectors=[f"{item_id}:{c}" for c in condition.get("excused_characters") or []],
+                condition=condition, media_sha256=str(row.get("asset_sha256") or ""),
+                media_item_id=item_id, gate_result_path=str(row.get("admission_result") or ""))
+            record.update({"item_id": item_id, "unit_id": uid, "cosines": cos,
+                           "engine_status": row.get("status"), "engine_failures": failures,
+                           "accepted_under": "STANDING_RULE"})
+            by_standing_rule.append(record)
+        else:
             still_rejected.append(uid)
             continue
-        cos = {f"{item_id}:{d.get('character_id')}": d.get("aggregate_median") for d in decisions
-               if str(d.get("source_id") or "").endswith(f":{item_id}")}
-        record = _rga.acceptance_record(order, episode=ctx.episode, gate_id=gate_id, failing=detectors,
-                                        media_sha256=str(row.get("asset_sha256") or ""),
-                                        media_item_id=item_id,
-                                        gate_result_path=str(row.get("admission_result") or ""))
-        record.update({"item_id": item_id, "unit_id": uid, "cosines": cos, "engine_status": row.get("status"),
-                       "engine_failures": failures})
         row.update({"engine_status": row.get("status"), "engine_failures": failures,
                     "status": "ADMITTED_BY_LINE_OWNER_ORDER", "downstream_status": "ADMITTED_FOR_VIDEO_SUBMIT",
                     "failures": [], "line_owner_acceptance": record})
@@ -3458,8 +3546,15 @@ def apply_line_owner_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: 
         write_json(ctx.p.preprod_reports / "qa" / "q1" / f"{ctx.episode}_LINE_OWNER_GATE_ACCEPTANCE.json", {
             "schema": "nalu.q1_line_owner_gate_acceptance.v2", "episode": ctx.episode, "gate_id": gate_id,
             "recorded_at": now(), "recorded_by": TOOL_ID, "orders_path": str(orders_path),
-            "accepted": accepted, "still_rejected_unit_ids": still_rejected})
-    return {"accepted_unit_ids": [r["unit_id"] for r in accepted], "still_rejected_unit_ids": still_rejected,
+            "standing_rule_order_seq": (standing_rule or {}).get("seq"),
+            "accepted": accepted,
+            "accepted_by_standing_rule": by_standing_rule,
+            "standing_rule_refusals": rule_refused,
+            "still_rejected_unit_ids": still_rejected})
+    return {"accepted_unit_ids": [r["unit_id"] for r in accepted],
+            "accepted_by_standing_rule_unit_ids": [r["unit_id"] for r in by_standing_rule],
+            "standing_rule_refusals": rule_refused,
+            "still_rejected_unit_ids": still_rejected,
             "effective_status": index.get("status")}
 
 

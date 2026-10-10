@@ -69,7 +69,29 @@ def main() -> int:
     ap.add_argument("--recorded-by", default="",
                     help="who ran this, when it is not the owner typing.  Names the standing order the "
                          "operator is applying, e.g. \"operator applying seq=43\".")
+    ap.add_argument("--auto-accept-no-face-pixels", action="store_true",
+                    help="STANDING_RULE scope only.  The rule covers a still whose ONLY failing registered "
+                         "gate is the identity gate, where every identity failure says the detector found no "
+                         "face pixels at all, and where every other declared character measured a real PASS.  "
+                         "A measured low-similarity failure or any second failing gate is outside the rule.  "
+                         "Requires --auto-accept-criteria so the order states what was authorised.  Without "
+                         "this flag a STANDING_RULE admits nothing.")
+    ap.add_argument("--auto-accept-criteria", default="",
+                    help="the condition in the owner's own words, e.g. "
+                         "\"前景人物背对镜头、无脸可测；画内可见人物余弦全部通过\".  Recorded verbatim in the "
+                         "order so every acceptance can cite what was authorised.  Required with "
+                         "--auto-accept-no-face-pixels.")
     args = ap.parse_args()
+
+    if bool(args.auto_accept_no_face_pixels) != bool(args.auto_accept_criteria.strip()):
+        print(json.dumps({"status": "REFUSED",
+                          "reason": "AUTO_ACCEPT_SCOPE_INCOMPLETE: --auto-accept-no-face-pixels and "
+                                    "--auto-accept-criteria must be given together"}, ensure_ascii=False))
+        return 2
+    if args.auto_accept_no_face_pixels and args.kind != "STANDING_RULE":
+        print(json.dumps({"status": "REFUSED",
+                          "reason": "AUTO_ACCEPT_SCOPE_REQUIRES_STANDING_RULE"}, ensure_ascii=False))
+        return 2
 
     orders_path = Path(args.orders).expanduser().resolve() if args.orders else ORDERS
     if args.orders and not Path(args.orders).expanduser().is_absolute():
@@ -143,6 +165,22 @@ def main() -> int:
             "media_sha256_by_item": shas,
         },
     }
+    if args.auto_accept_no_face_pixels:
+        # The scope of a standing rule is a CONDITION, not a list of media shas: a per-item sha
+        # binding would die the moment the frame it names is regenerated, which is exactly the case
+        # a standing rule exists to cover.  So the order carries the condition and the acceptance
+        # evaluator re-derives it from the still's own measurements, every time.
+        row["decision"]["auto_accept_scope"] = {
+            "rule": "NO_FACE_PIXELS_IN_STILL",
+            "criteria_verbatim": args.auto_accept_criteria,
+            "applies_to_gate_id": args.gate_id,
+            "applies_to_episode": args.episode,
+            "requires": ("only failing registered gate is this one; every identity failure is a "
+                         "no-face-pixels code; every other declared character measured PASS"),
+            "excludes": ("a measured low-similarity identity failure, and any still with a second "
+                         "failing registered gate"),
+            "sha_binding": "NONE_BY_DESIGN: the condition is re-derived per still, never a blanket waiver",
+        }
     if private:
         # roger_gate_acceptance._receipt_valid: CONFIRMED receipt, outside the engine, verbatim-matched.
         receipt_path = orders_path.parent / "order_receipts" / f"order_seq{args.seq:03d}_{order_id}.receipt.json"
