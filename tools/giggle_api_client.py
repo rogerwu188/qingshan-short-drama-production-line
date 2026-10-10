@@ -155,14 +155,83 @@ def _get(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
     return _urlopen_json(req, allow_retry=True)
 
 
+#: Roger 2026-10-01 (SUPERVISOR_ORDERS seq=21), verbatim:
+#:   「参考图请求体过大时提交前自动压缩」 — a standing rule, not a per-case decision.
+#: WHY: E10-VU-020 lost two responses at HTTP 524 with ~51 MB of base64 reference images;
+#: E11-S02-01 then failed with a broken pipe at ~22 MB (7 references, 16.6 MB on disk).  The
+#: request body is the cause, and the fix belongs here rather than in a per-episode manifest:
+#: a reference image is visual guidance, so re-encoding it smaller costs a little fidelity and
+#: nothing else.
+#: WHAT THIS MUST NOT DO: change a file the pipeline binds by sha256.  Compression happens on a
+#: temp copy at encode time, so every prompt_contract/reference_bindings hash still describes
+#: the bytes on disk.  Below the threshold nothing is touched at all.
+REFERENCE_COMPRESS_THRESHOLD_BYTES = 1_500_000
+REFERENCE_MAX_EDGE_PX = 1600
+REFERENCE_JPEG_QUALITY = 88
+
+
+def _compressed_reference_bytes(path: Path) -> tuple[bytes, dict[str, Any]]:
+    """Read a reference image, downscaling/re-encoding only when it is big enough to matter.
+
+    Returns (bytes to encode, note).  The note records what was done — or why nothing was —
+    so a reviewer can tell a compressed reference from an unmodified one in the transcript.
+    """
+    raw = path.read_bytes()
+    note: dict[str, Any] = {"path": path.name, "original_bytes": len(raw), "compressed": False}
+    if len(raw) <= REFERENCE_COMPRESS_THRESHOLD_BYTES:
+        note["reason"] = "BELOW_THRESHOLD"
+        return raw, note
+    try:
+        import io
+        from PIL import Image
+    except ImportError:
+        note["reason"] = "PIL_UNAVAILABLE"
+        return raw, note
+    try:
+        with Image.open(io.BytesIO(raw)) as image:
+            image.load()
+            note["original_size"] = list(image.size)
+            work = image.convert("RGB") if image.mode not in ("RGB", "L") else image.copy()
+        if max(work.size) > REFERENCE_MAX_EDGE_PX:
+            scale = REFERENCE_MAX_EDGE_PX / max(work.size)
+            work = work.resize((max(1, round(work.width * scale)), max(1, round(work.height * scale))),
+                               Image.LANCZOS)
+        buffer = io.BytesIO()
+        work.save(buffer, format="JPEG", quality=REFERENCE_JPEG_QUALITY, optimize=True)
+        encoded = buffer.getvalue()
+        if len(encoded) >= len(raw):
+            # a PNG that re-encodes larger is left alone; compression must never inflate the body
+            note["reason"] = "RE_ENCODE_NOT_SMALLER"
+            return raw, note
+        note.update({"compressed": True, "final_bytes": len(encoded), "final_size": list(work.size),
+                     "format": "JPEG", "quality": REFERENCE_JPEG_QUALITY})
+        return encoded, note
+    except Exception as exc:  # an unreadable image is the submitter's problem to report, not ours
+        note["reason"] = f"COMPRESSION_FAILED:{type(exc).__name__}"
+        return raw, note
+
+
 def _b64(path: str) -> str:
     p = Path(path).expanduser()
-    data = p.read_bytes()
-    return base64.b64encode(data).decode("ascii")
+    payload, note = _compressed_reference_bytes(p)
+    _REFERENCE_ENCODING_NOTES.append(note)
+    return base64.b64encode(payload).decode("ascii")
+
+
+#: What the last _image_list call actually sent.  Read by the submitter's report so the evidence
+#: says a reference was re-encoded, instead of leaving the operator to wonder why the body shrank.
+_REFERENCE_ENCODING_NOTES: List[Dict[str, Any]] = []
 
 
 def _image_list(paths: List[str]) -> List[Dict[str, str]]:
+    _REFERENCE_ENCODING_NOTES.clear()
     return [{"base64": _b64(p)} for p in paths]
+
+
+def reference_encoding_notes() -> List[Dict[str, Any]]:
+    """Per-reference record of the last _image_list call (empty when nothing has been encoded)."""
+    return list(_REFERENCE_ENCODING_NOTES)
+
 
 
 def _registered_asset(path: str) -> Dict[str, str]:

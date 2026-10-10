@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from giggle_api_client import _image_list, _request, durable_generation_context
+    from giggle_api_client import (_image_list, _request, durable_generation_context,
+                                   reference_encoding_notes, REFERENCE_COMPRESS_THRESHOLD_BYTES)
     from giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from shot_space_camera_constraint_gate import evaluate_task as evaluate_spatial_task
     from global_space_layout_gate import evaluate_batch as evaluate_global_space_map
@@ -31,7 +32,8 @@ try:
         keyframe_entry_contract_required,
     )
 except ModuleNotFoundError:  # Imported as tools.submit_giggle_image_manifest.
-    from tools.giggle_api_client import _image_list, _request, durable_generation_context
+    from tools.giggle_api_client import (_image_list, _request, durable_generation_context,
+                                        reference_encoding_notes, REFERENCE_COMPRESS_THRESHOLD_BYTES)
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from tools.shot_space_camera_constraint_gate import evaluate_task as evaluate_spatial_task
     from tools.global_space_layout_gate import evaluate_batch as evaluate_global_space_map
@@ -422,9 +424,17 @@ def _submit_one_locked(task: dict[str, Any], receipt_dir: Path, transaction_dir:
         )
     validate_reference_count(task)
     references = [str(resolve(path)) for path in task["reference_images"]]
+    encoded_references = _image_list(references)
+    # SUPERVISOR_ORDERS seq=21: a reference body that is too large loses the response (E10-VU-020
+    # at ~51 MB / HTTP 524; E11-S02-01 at ~22 MB / broken pipe).  _image_list re-encodes oversized
+    # references at ENCODE time, so the shas the pipeline binds still describe the files on disk.
+    # Record what was sent, so "why did the body shrink" is answerable from the transaction alone.
+    reference_encoding = [row for row in reference_encoding_notes() if row.get("compressed")] or \
+                         [{"all_below_threshold": True,
+                           "threshold_bytes": REFERENCE_COMPRESS_THRESHOLD_BYTES}]
     payload = {
         "prompt": prompt,
-        "reference_images": _image_list(references),
+        "reference_images": encoded_references,
         "generate_count": 1,
         "model": task.get("model", "gpt-image-2-pro"),
         "aspect_ratio": task.get("aspect_ratio", "9:16"),
@@ -442,6 +452,7 @@ def _submit_one_locked(task: dict[str, Any], receipt_dir: Path, transaction_dir:
         "model": payload["model"],
         "prompt_sha256": task.get("prompt_sha256"),
         "reference_sha256": [row.get("sha256") for row in task.get("reference_bindings") or []],
+        "reference_encoding": reference_encoding,
         "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
     }
     atomic_json(transaction, intent)
