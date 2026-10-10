@@ -3179,6 +3179,14 @@ def stage_s5(ctx: Ctx) -> StageResult:
     paid_argv = [VENV, ENGINE / "tools/submit_giggle_image_manifest.py",
                  "--manifest", auth_manifest, "--out", p.keyframe_submit,
                  "--concurrency", min(ctx.max_parallel, 6)]
+    # D-46 narrows the AUTHORISED copy (only the needed tasks get provider_post_allowed and the
+    # manifest's maximum_new_submissions), but the image submitter selects every task in the file
+    # unless told otherwise, and then refuses: "maximum_new_submissions is below the selected task
+    # count" (E11 2026-10-10, before any POST).  The video submitter skips unauthorised tasks on
+    # its own; this one needs the same selection passed explicitly.
+    if keyframes_done and needs_post:
+        for key in needs_post:
+            paid_argv += ["--task-key", key]
     dry_argv = [VENV, ENGINE / "tools/submit_giggle_image_manifest.py",
                 "--manifest", p.keyframe_manifest,
                 "--out", p.preprod_reports / f"{ctx.episode}_KEYFRAME_PRECHECK.json",
