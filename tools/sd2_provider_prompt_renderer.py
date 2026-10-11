@@ -34,10 +34,18 @@ SCHEMA = "qingshan.seedance2_provider_renderer.v1_shared_execution_ir"
 
 
 def _sanitize_provider_ids(value: str) -> str:
-    """Translate internal map/space IDs to provider-safe natural language."""
-    value = re.sub(r"\bGLOBAL-SPACE-[A-Z0-9-]+", "已锁定的同一全局空间", value, flags=re.IGNORECASE)
-    value = re.sub(r"\bLOC-[A-Z0-9-]+", "已锁定的同一地点", value, flags=re.IGNORECASE)
-    return re.sub(r"\bSUB(?:SPACE)?-[A-Z0-9-]+", "已锁定的同一子空间", value, flags=re.IGNORECASE)
+    """Translate internal map/space IDs to provider-safe natural language.
+
+    The guard is "not preceded by an ID character", not \\b: Python treats CJK characters as word
+    characters, so \\bLOC- never matched in 「人物在LOC-XU-HOUSE-INT内」 and the raw id reached the
+    provider.  E11-VU-021 also sent 「刘老头与ZONE-STREET-SOUTH-APPROACH的接触」: a zone id reads as
+    an object to touch, not a place, so the contact had no body part to land on.
+    """
+    edge = r"(?<![A-Za-z0-9-])"
+    value = re.sub(edge + r"GLOBAL-SPACE-[A-Z0-9-]+", "已锁定的同一全局空间", value, flags=re.IGNORECASE)
+    value = re.sub(edge + r"LOC-[A-Z0-9-]+", "已锁定的同一地点", value, flags=re.IGNORECASE)
+    value = re.sub(edge + r"ZONE-[A-Z0-9-]+", "已锁定的同一区域", value, flags=re.IGNORECASE)
+    return re.sub(edge + r"SUB(?:SPACE)?-[A-Z0-9-]+", "已锁定的同一子空间", value, flags=re.IGNORECASE)
 
 
 def _dialogue(beat: dict[str, Any], voice_slots: dict[str, str] | None = None) -> str:

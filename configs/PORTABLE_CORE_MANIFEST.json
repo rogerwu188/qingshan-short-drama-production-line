@@ -182,7 +182,8 @@
     "tools/tests/test_nalu_release_unposted_waves.py",
     "tools/tests/test_video_preintent_failure_classification.py",
     "tools/tests/test_nalu_derived_q1_answer_merge.py",
-    "tools/tests/test_nalu_self_acknowledging_orders.py"
+    "tools/tests/test_nalu_self_acknowledging_orders.py",
+    "tools/tests/test_sd2_provider_id_sanitizer.py"
   ],
   "portable_test_modules": [
     "tools.tests.test_editorial_pacing_contract",
@@ -276,6 +277,7 @@
     "tools.tests.test_nalu_release_unposted_waves",
     "tools.tests.test_video_preintent_failure_classification",
     "tools.tests.test_nalu_derived_q1_answer_merge",
-    "tools.tests.test_nalu_self_acknowledging_orders"
+    "tools.tests.test_nalu_self_acknowledging_orders",
+    "tools.tests.test_sd2_provider_id_sanitizer"
   ]
 }
