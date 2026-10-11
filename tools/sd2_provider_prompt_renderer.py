@@ -149,8 +149,14 @@ def _role_line(row: dict[str, Any]) -> str:
     else:
         pieces.append("本拍无对白，不生成可辨人声；嘴部仅随已声明的非对白动作活动")
     pieces.append("不得交换人物、肢体、武器、动作或声音")
+    names = row.get("entity_names") or {}
+    unnamed_listener = (listener if listener and listener not in set(names.values()) else "")
     for cid, state in (row.get("entity_states") or {}).items():
-        name = (row.get("entity_names") or {}).get(cid, cid)
+        # A state row whose id is missing from entity_names used to print the raw id
+        # (「CHAR-QINMING的独立状态」, E11-VU-015/019/030).  The only character such a row can
+        # be in practice is the listener the shot addresses but did not name; otherwise say
+        # who it is in words rather than leak an internal id to the provider.
+        name = names.get(cid) or unnamed_listener or "画中另一位已声明人物"
         visibility = (row.get("entity_face_visibility") or {}).get(cid) or (row.get("entity_presence") or {}).get(cid)
         pieces.append(f"{name}的独立状态：{state}" + (f"；入画约束={visibility}" if visibility else ""))
     return "，".join(pieces) + "。"

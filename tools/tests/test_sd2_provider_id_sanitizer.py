@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import unittest
 
-from tools.sd2_provider_prompt_renderer import _sanitize_provider_ids as S
+from tools.sd2_provider_prompt_renderer import _role_line, _sanitize_provider_ids as S
 
 
 class ProviderIdSanitizerTest(unittest.TestCase):
@@ -28,6 +28,29 @@ class ProviderIdSanitizerTest(unittest.TestCase):
 
     def test_plain_text_unchanged(self):
         self.assertEqual(S("秦铭坐着，握了握拳"), "秦铭坐着，握了握拳")
+
+
+
+class RoleLineNamesTest(unittest.TestCase):
+    def row(self, names):
+        return {"shot_id": "E11-S06-04", "primary_actor": "许岳平", "dialogue_speaker": "许岳平",
+                "dialogue_listener": "秦铭", "entity_names": names,
+                "entity_states": {"CHAR-XUYUEPING": "许岳平坐下", "CHAR-QINMING": "听者保持承接状态"}}
+
+    def test_unnamed_listener_state_uses_the_listener_name_not_the_id(self):
+        line = _role_line(self.row({"CHAR-XUYUEPING": "许岳平"}))
+        self.assertNotIn("CHAR-", line)
+        self.assertIn("秦铭的独立状态：听者保持承接状态", line)
+
+    def test_named_entities_are_unchanged(self):
+        line = _role_line(self.row({"CHAR-XUYUEPING": "许岳平", "CHAR-QINMING": "秦铭"}))
+        self.assertIn("秦铭的独立状态", line)
+        self.assertNotIn("CHAR-", line)
+
+    def test_unknown_entity_without_listener_never_prints_its_id(self):
+        row = self.row({"CHAR-XUYUEPING": "许岳平", "CHAR-QINMING": "秦铭"})
+        row["entity_states"]["CHAR-STRANGER"] = "站着"
+        self.assertNotIn("CHAR-STRANGER", _role_line(row))
 
 
 if __name__ == "__main__":
