@@ -43,3 +43,9 @@
 {"failure_code": "ENTRY_STATE_NAMES_ABSENT_CHARACTER", "do_not_repeat": "不要把上一镜的 completion_state 逐字抄成本镜的 entry_state，除非本镜卡司与道具真的没变；入场句里点到的人必须在本镜可见卡司内，否则改文字或把非人物主体登记成实体——不要指望身份余弦能发现，它测的是「测得准」，不是「对不对」", "stage": "S1", "scope": "generalizable", "knowledge_id": "K084"}
 {"failure_code": "HIDE_COAT_NEGATION_MISCOUNTED", "do_not_repeat": "不要在否定式服装描述里用「裘氅/毛领/兽皮」这类词做肯定判断；否定式白名单不要靠枚举短语，要处理「否定词与毛皮词同现」这一形态", "stage": "S5", "scope": "generalizable", "knowledge_id": "K085"}
 {"failure_code": "IDENTITY_SCOPE_LEAVES_Q1_AS_SOLE_GUARD", "do_not_repeat": "不要在仅局部镜或空卡司镜上断言「无脸可测所以没有身份风险」；也不要在 Q1 未作答时先花钱重做——这批镜只有审核者的 cast_exactly_as_declared 一道保护。", "stage": "S5", "scope": "generalizable", "knowledge_id": "K086"}
+{"failure_code": "S6_NEVER_POSTED_WAVE_FROZEN", "do_not_repeat": "不要把「冻结波次」的保护套用到从未 POST 的波次；波次卡住时先查它有没有提交报告和绑定事务，而不是逐个审核其中单元", "stage": "S6", "scope": "generalizable", "knowledge_id": "K087"}
+{"failure_code": "PREINTENT_REFUSAL_MISCLASSIFIED_AS_CHARGED", "do_not_repeat": "不要把没有意图记录的本地拒绝计入「已 POST 的失败」集合；隔离状态先离线对账，不要手工改事务状态", "stage": "S6", "scope": "generalizable", "knowledge_id": "K088"}
+{"failure_code": "DERIVED_Q1_REVIEW_PING_PONG", "do_not_repeat": "订单合法却不生效时，不要反复让线主重签；先看请求序列是否在两帧之间来回，查答案是从哪份审核里读的", "stage": "S6", "scope": "generalizable", "knowledge_id": "K089"}
+{"failure_code": "TAIL_DROPS_NEXT_UNIT_OPENING_CAST", "do_not_repeat": "不要在喂给派生起始帧的那一镜里把下一单元的开场人物写成「画外」；也不要在没 grep 最终提示词的情况下付费重做", "stage": "S2", "scope": "generalizable", "knowledge_id": "K090"}
+{"failure_code": "IDENTITY_JUDGED_BY_EYE", "do_not_repeat": "不要只看服装就写人名；不要在 observed 字段里写注册 ID", "stage": "S5", "scope": "generalizable", "knowledge_id": "K091"}
+{"failure_code": "DERIVED_FRAME_JUDGED_AS_FRESH_SHOT", "do_not_repeat": "不要用本镜的 camera/shot_size 去判派生起始帧", "stage": "S6", "scope": "generalizable", "knowledge_id": "K092"}

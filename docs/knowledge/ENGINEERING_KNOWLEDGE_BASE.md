@@ -797,3 +797,69 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：workflow/nalu/E11/preproduction/reports/qa/E11_KEYFRAME_IDENTITY_MEASUREMENT.json（per_keyframe 26 项；S03-01/S12-00/S13-02/S20-03 均不在其中；S08-01 cosine_vs_locked_plate=0.76954、decision=PASS）；lines/nalu/runtime/tools/keyframe_q1_builder.py 的 GATE_QUESTIONS[IDENTITY_GATE] 与 NO_CHARACTER_METHOD 分支
 - **授权**：Roger 2026-10-08「提示词为什么没有 qa」
 - **状态**：GUIDANCE_ONLY
+
+### K087 — S6
+
+- **规则**：滚动波次一旦写入 wave_state 就冻结成员名单，保护已 POST 的任务不被重发；但一个从未到达供应商 POST 的波次（无提交报告、无已绑定事务、无视频）也被同样冻结，其中若含已不在分组计划里的单元或尚不可提交的派生单元，整个 S6 永久卡死。从未 POST 的开放波次必须释放并重新规划。
+- **教训**：E11 的 wave 1 在 10-06 打开，含幽灵单元 E11-VU-042 与待审派生单元 VU-040，从未 POST，却挡住后续所有波次四天。
+- **恢复**：nalu_pipeline.py 新增 _units_with_bound_submission() 与 release_unposted_waves()：三条同时成立才释放——无提交报告、无单元在持久事务库有 SUBMITTED_TASK_ID_BOUND、无视频落盘；释放原因写入 wave_state（NEVER_POSTED，附不在计划中的单元名）。
+- **实现**：`lines/nalu/runtime/tools/nalu_pipeline.py`
+- **回归**：`tools/tests/test_nalu_release_unposted_waves.py`
+- **证据**：E11_S6_WAVE_STATE.json 中 wave 1/2 的 release_reason
+- **授权**：Roger 2026-10-11：「你所有这些教训不会再下一集还要重犯吧？」——要求把本集暴露的问题写成可复用规则
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K088 — S6
+
+- **规则**：批次失败分类判断「是否全部为供应商拒绝」时，必须先排除在记录意图之前就被本地门禁拒掉、根本没有尝试 POST 的任务；否则一个本地拒绝会让同批真正可重试的网络失败被隔离为 CHARGE_STATE_UNRESOLVED_BATCH。账单行数等于已知 task 数时，可离线对账恢复，不得重发 POST。
+- **教训**：E11 wave 9：VU-003 被提示词门本地拒绝（pre-intent），VU-026 遭 DNS 失败；账单 2==2，VU-026 却被错误隔离。
+- **恢复**：submit_giggle_video_manifest_v2.py：_attempted() 过滤 pre-intent 失败后再分类；新增 --reconcile-unresolved-report 离线复核路径（只读账单、不 POST）。
+- **实现**：`tools/submit_giggle_video_manifest_v2.py`
+- **回归**：`tools/tests/test_video_preintent_failure_classification.py`
+- **证据**：E11_VIDEO_SUBMIT_V1_wave9 报告与离线对账结果 VERIFIED_ZERO_RETRYABLE
+- **授权**：Roger 2026-10-11：「你所有这些教训不会再下一集还要重犯吧？」——要求把本集暴露的问题写成可复用规则
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K089 — S6
+
+- **规则**：派生起始帧（D-68）逐帧单独送审。判断「这张帧是否已答」时必须按帧分别取最新的有效答案（媒体 sha 仍匹配），而不是只看最新一份审核；否则两个派生单元同时待审时，最新审核永远只覆盖另一张，两张轮流被重新请求，流水线永远到不了 Q1 构建，线主已记录的常设规则也无法生效。
+- **教训**：E11 的 VU-013 与 VU-040 请求序列为 S19-03→S19-03→S05-06→S05-06；seq=29 常设规则已合法记录却一直不生效。
+- **恢复**：nalu_pipeline.py 新增 merge_keyframe_answers()：跨审核合并每帧最新有效答案为一份文件交给构建；任一帧无有效答案则拒绝构建并只请求该帧；帧重新生成即旧答案失效。
+- **实现**：`lines/nalu/runtime/tools/nalu_pipeline.py`
+- **回归**：`tools/tests/test_nalu_derived_q1_answer_merge.py`
+- **证据**：runtime reviews/E11 下 keyframe 请求时间序列与 E11_LINE_OWNER_GATE_ACCEPTANCE.json（standing_rule_order_seq=29）
+- **授权**：Roger 2026-10-11：「你所有这些教训不会再下一集还要重犯吧？」——要求把本集暴露的问题写成可复用规则
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K090 — S2
+
+- **规则**：一个单元的尾帧若是下一单元的派生起始帧（CONTINUITY_DERIVED_KEYFRAME），该单元最后一镜的取景文字必须让下一单元开场所需的人物留在画内。「面向某人（画右外）」这类写法会让模型合法地把那人移出画框，尾帧丢主体，下一单元无法开拍，只能付费重做。改完取景后必须在最终提示词里搜到新词再付费。
+- **教训**：E11-VU-039 的 S19-02 写「面向秦铭（画右外）」，秦铭自第 2 秒起再未出现（余弦 ≤0.02），尾帧只剩许岳平特写，VU-040 起始帧被拒；改为「秦铭在画右前景、肩线入画、保持在场」后重做一次即解决（160 积分）。
+- **恢复**：逐集构建器里该镜补 slots 与在场约束；prompt_batch_finalize diff 确认只改该行后写回执再提交。
+- **实现**：（未链接到代码；状态见下）
+- **回归**：`lines/nalu/runtime/tools/prompt_batch_finalize.py`
+- **证据**：E11-VU-039 新旧两版逐秒余弦；E11_PROMPT_FINALIZATION_DIGEST.json 的单行差异
+- **授权**：Roger 2026-10-11：「你所有这些教训不会再下一集还要重犯吧？」——要求把本集暴露的问题写成可复用规则
+- **状态**：GUIDANCE_ONLY
+
+### K091 — S5
+
+- **规则**：审核答案里关于「画里是谁」的结论必须来自对锁定身份牌（或已确认参照帧）的人脸余弦测量，不能凭服装或印象；同场两个穿兽皮的中年男性极易互认错。observed_visible_characters 写显示名（如「冯易安」），不要写注册 ID——起始帧凭证按显示名比对，写 ID 会得到 REQUIRED_CHARACTER_NOT_OBSERVED。
+- **教训**：E11 本会话我两次凭眼判错：把 S06-03 的许岳平认成刘老头（实测许岳平 0.473），把 VU-039 尾帧的许岳平说成陌生人（实测 0.856）；另一次用 CHAR-FENGYIAN 导致 VU-004 凭证 FAIL、PARTIAL_32_OF_33。
+- **恢复**：审核前对每张脸跑 InsightFace 余弦并写入 observation；起始帧填表脚本支持 --overrides 用显示名覆盖。
+- **实现**：（未链接到代码；状态见下）
+- **回归**：`lines/nalu/runtime/tools/start_frame_evidence_writer.py`
+- **证据**：E11 keyframe/start_frame 审核提交记录中的余弦数值
+- **授权**：Roger 2026-10-11：「你所有这些教训不会再下一集还要重犯吧？」——要求把本集暴露的问题写成可复用规则
+- **状态**：GUIDANCE_ONLY
+
+### K092 — S6
+
+- **规则**：派生起始帧（camera_start_framing=MOTIVATED_CUT）就是上一单元的真实尾帧，不由本镜取景文字生成。审它时机位与景别按继承判读，不得因与本镜 camera 行不符而报景别缺陷；要验的是尾帧金丝雀：本单元需要的主体在画内、声明人物可见、服装正确、未出现 completion_state。背对角色无脸可测属合同设计，由线主常设规则（NO_FACE_PIXELS_IN_STILL）接受。
+- **教训**：E11-VU-040：我先写了「景别与主体分配错误」的 P0，提交前对回合同才发现是按错了标准。
+- **恢复**：审派生帧先查 opening_anchor_contract.source；是 CONTINUITY_DERIVED_KEYFRAME 就按尾帧标准作答。
+- **实现**：（未链接到代码；状态见下）
+- **回归**：`lines/nalu/runtime/tools/keyframe_q1_builder.py`
+- **证据**：E11-keyframe 审核 E11-S19-03 的 observation
+- **授权**：Roger 2026-10-11：「你所有这些教训不会再下一集还要重犯吧？」——要求把本集暴露的问题写成可复用规则
+- **状态**：GUIDANCE_ONLY
