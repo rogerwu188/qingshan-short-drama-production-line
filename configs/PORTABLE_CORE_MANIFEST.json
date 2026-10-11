@@ -181,7 +181,8 @@
     "tools/tests/test_storyclaw_registry_clean_install_smoke.py",
     "tools/tests/test_nalu_release_unposted_waves.py",
     "tools/tests/test_video_preintent_failure_classification.py",
-    "tools/tests/test_nalu_derived_q1_answer_merge.py"
+    "tools/tests/test_nalu_derived_q1_answer_merge.py",
+    "tools/tests/test_nalu_self_acknowledging_orders.py"
   ],
   "portable_test_modules": [
     "tools.tests.test_editorial_pacing_contract",
@@ -274,6 +275,7 @@
     "tools.tests.test_audio_cut_overlap",
     "tools.tests.test_nalu_release_unposted_waves",
     "tools.tests.test_video_preintent_failure_classification",
-    "tools.tests.test_nalu_derived_q1_answer_merge"
+    "tools.tests.test_nalu_derived_q1_answer_merge",
+    "tools.tests.test_nalu_self_acknowledging_orders"
   ]
 }

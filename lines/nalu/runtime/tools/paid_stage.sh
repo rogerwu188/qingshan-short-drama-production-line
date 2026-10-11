@@ -88,11 +88,20 @@ export NALU_WORK_ROOT="${NALU_WORK_ROOT:-$ENGINE_ROOT/workflow/nalu}"
 INBOX_LATEST="$("$VENV" -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("latest_order_seq", ""))' \
   "$NALU_SUPERVISOR_ORDERS_PATH" 2>/dev/null || true)"
 if [ "$INBOX_LATEST" != "$NALU_LATEST_ORDER_SEQ" ]; then
-  die "order inbox latest_order_seq=${INBOX_LATEST:-unreadable} but NALU_LATEST_ORDER_SEQ=$NALU_LATEST_ORDER_SEQ.
-  A newer order was recorded after deployment.  Read it, then set NALU_LATEST_ORDER_SEQ=$INBOX_LATEST
+  # Newer orders that cannot touch spending (receipted acceptances / standing rules / S8
+  # approvals) are read without a manual ack; a paid order or revocation still stops here.
+  ACK="$(cd "$(dirname "$0")" && "$VENV" -c '
+import json, sys, roger_gate_acceptance as r
+rows = json.load(open(sys.argv[1], encoding="utf-8")).get("orders") or []
+ok, why = r.newer_orders_self_acknowledging(rows, expected_latest_seq=int(sys.argv[2]), expected_issuer=sys.argv[3])
+print(("OK " if ok else "NO ") + why)' "$NALU_SUPERVISOR_ORDERS_PATH" "$NALU_LATEST_ORDER_SEQ" "$NALU_LINE_OWNER_ID" 2>&1 || true)"
+  case "$ACK" in
+    OK*) echo "paid_stage: inbox seq=$INBOX_LATEST > acknowledged $NALU_LATEST_ORDER_SEQ; newer orders are receipted non-paid ($ACK)" >&2 ;;
+    *) die "order inbox latest_order_seq=${INBOX_LATEST:-unreadable} but NALU_LATEST_ORDER_SEQ=$NALU_LATEST_ORDER_SEQ ($ACK).
+  A newer order that can change spending was recorded after deployment.  Read it, then set NALU_LATEST_ORDER_SEQ=$INBOX_LATEST
   where the deployment keeps it ($ENV_FILE or the service environment).
-  NALU_PAID_ORDER_SEQ (=$NALU_PAID_ORDER_SEQ) stays as is unless the new order is itself a paid order.
-  No POST was attempted."
+  No POST was attempted." ;;
+  esac
 fi
 
 LEDGER="$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_budget_ledger.py"

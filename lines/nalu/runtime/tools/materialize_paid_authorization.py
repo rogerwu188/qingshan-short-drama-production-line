@@ -248,7 +248,14 @@ def read_order(orders_path: Path, seq: int, episode: str, cap: int, *,
     if isinstance(latest, bool) or not isinstance(latest, int):
         raise Refused("SUPERVISOR_ORDERS_LATEST_SEQ_INVALID")
     if latest != expected_latest_seq:
-        raise Refused(f"SUPERVISOR_ORDERS_LATEST_SEQ_MISMATCH:{latest}!={expected_latest_seq}")
+        # newer receipted non-paid orders (acceptances, standing rules, S8 approvals) cannot
+        # change spending authority, so they need no manual ack; anything else still refuses
+        import roger_gate_acceptance as _rga
+        ok, reason = _rga.newer_orders_self_acknowledging(
+            rows, expected_latest_seq=expected_latest_seq, expected_issuer=expected_owner,
+            engine_root=engine_root)
+        if not ok:
+            raise Refused(f"SUPERVISOR_ORDERS_LATEST_SEQ_MISMATCH:{latest}!={expected_latest_seq}:{reason}")
     if (max(seqs) if seqs else 0) != latest:
         raise Refused("SUPERVISOR_ORDERS_LATEST_SEQ_DOES_NOT_MATCH_ROWS")
     match = [row for row in rows if row["seq"] == seq]

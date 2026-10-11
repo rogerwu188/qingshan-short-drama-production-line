@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -57,9 +58,50 @@ def _orders(path: Path, *, expected_latest_seq: int,
     latest = payload.get("latest_order_seq")
     if isinstance(latest, bool) or not isinstance(latest, int):
         return []
-    if latest != expected_latest_seq or (max(seqs) if seqs else 0) != latest:
+    if (max(seqs) if seqs else 0) != latest:
         return []
+    if latest != expected_latest_seq:
+        ok, _reason = newer_orders_self_acknowledging(
+            rows, expected_latest_seq=expected_latest_seq,
+            expected_issuer=os.environ.get("NALU_LINE_OWNER_ID", ""), engine_root=engine_root)
+        if not ok:
+            return []
     return rows
+
+
+# Kinds that can only admit or approve; none of them can grant, widen or revoke spending.
+NON_PAID_ORDER_KINDS = frozenset({"GATE_FAIL_ACCEPTANCE", "STANDING_RULE", "S8_APPROVAL"})
+
+
+def newer_orders_self_acknowledging(rows: list[dict[str, Any]], *, expected_latest_seq: int,
+                                    expected_issuer: str,
+                                    engine_root: Path | None = None) -> tuple[bool, str]:
+    """May orders appended after the deployment's acknowledged seq be read without a manual ack?
+
+    The acknowledged seq (NALU_LATEST_ORDER_SEQ) exists so a newer order that changes spending
+    authority is never silently ignored.  Requiring a hand edit of that number for EVERY new
+    order -- including a gate acceptance the line owner just signed -- stopped E11 twice
+    (2026-10-09, 2026-10-11) with nothing to decide.  A newer row is self-acknowledging only when
+    it is active, issued by the expected line owner with a valid source receipt, and of a kind
+    that cannot grant, widen or revoke spending.  Anything else (a paid order, a revocation, an
+    unknown kind, a bad receipt, an inbox below the acknowledged seq) still refuses.
+    """
+    if not expected_issuer:
+        return False, "LINE_OWNER_ID_NOT_SET"
+    latest = max((int(r.get("seq") or 0) for r in rows), default=0)
+    if latest < expected_latest_seq:
+        return False, f"INBOX_SEQ_{latest}_BELOW_ACKNOWLEDGED_{expected_latest_seq}"
+    for row in rows:
+        if int(row.get("seq") or 0) <= expected_latest_seq:
+            continue
+        dec = row.get("decision") or {}
+        kind = str(dec.get("kind") or "")
+        if (kind not in NON_PAID_ORDER_KINDS or dec.get("paid_requests_allowed")
+                or str(row.get("status") or "") != "active"
+                or str(row.get("issued_by") or "") != expected_issuer
+                or not _receipt_valid(row, expected_issuer=expected_issuer, engine_root=engine_root)):
+            return False, f"ORDER_SEQ_{row.get('seq')}_NEEDS_ACKNOWLEDGEMENT:{kind or 'UNKNOWN_KIND'}"
+    return True, "NEWER_ORDERS_ARE_RECEIPTED_NON_PAID"
 
 
 def _receipt_valid(order: dict[str, Any], *, expected_issuer: str,
