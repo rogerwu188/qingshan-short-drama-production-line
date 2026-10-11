@@ -30,7 +30,14 @@ from pathlib import Path
 from typing import Any
 
 HERE = Path(__file__).resolve().parent
-CONTRACT = HERE.parent / "CLAUDE_CODE_PRODUCTION.md"
+
+
+def contract_path() -> Path:
+    """The contract of the engine checked out at the pinned commit wins over this script's own copy:
+    TalentHub never overwrites an installed skill, so the skill directory can be older than the pin."""
+    engine = Path(os.environ.get("NALU_ENGINE_ROOT") or "~/nalu_engine").expanduser()
+    pinned = engine / "skills" / "nalu-claude-code" / "CLAUDE_CODE_PRODUCTION.md"
+    return pinned if pinned.is_file() else HERE.parent / "CLAUDE_CODE_PRODUCTION.md"
 STATUS_RE = re.compile(r"NALU_STATUS:\s*(\{.*\})")
 
 
@@ -138,12 +145,13 @@ def main() -> int:
     d = run_dir(a.episode)
     session = read_json(d / "session.json")
     if a.cmd == "start":
-        if not CONTRACT.is_file():
-            print(json.dumps({"status": "BLOCKED", "reason": f"CONTRACT_MISSING:{CONTRACT}"}))
+        contract = contract_path()
+        if not contract.is_file():
+            print(json.dumps({"status": "BLOCKED", "reason": f"CONTRACT_MISSING:{contract}"}))
             return 2
         brief = Path(a.brief).read_text(encoding="utf-8") if a.brief else ""
         prompt = (f"你是 NALU 短剧生产线的生产执行者。严格按照下面的生产合同执行集 {a.episode}。\n\n"
-                  + CONTRACT.read_text(encoding="utf-8")
+                  + contract.read_text(encoding="utf-8")
                   + (f"\n\n## 本次线主/编排代理附加说明\n{brief}" if brief else ""))
         out = launch(a.episode, prompt, None)
     elif a.cmd == "resume":
