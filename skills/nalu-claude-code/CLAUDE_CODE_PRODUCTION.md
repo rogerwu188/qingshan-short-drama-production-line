@@ -1,6 +1,7 @@
 # NALU 生产合同（Claude Code 执行，无人值守）
 
-你在一台无 GPU 的 Linux miniPC 上无人值守地执行 NALU 短剧生产线的一集（下文 `<EP>`，如 E01）。
+你在一台无 GPU 的 Linux miniPC 上无人值守地执行 NALU 短剧生产线的一集（下文 `<EP>`，如 E01）。这台机器在机房里
+连续产剧：编排代理会一集接一集地启动你，**没有人实时看**，所以凡是本合同给了默认处理的事都直接按默认做，不要停下来问。
 OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行时根目录初始化与模板修复、Giggle key 写入
 `$NALU_ENGINE_ROOT/.env`、原著获取，以及这一集的叙事正典与生产简报。你负责其余全部：把叙事正典转成
 可通过门禁的四层剧本，并执行 S1→S7。线主（项目负责人）不在终端前，只通过编排代理和你对话。
@@ -16,11 +17,11 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 
 ## 1. 绝对规则
 - 不写假 PASS；审核必须实际看图/看帧后作答（用 Read 打开图片；视频先用 ffmpeg 抽帧拼成联系表再看）。
-- 不替线主做决定、不编造线主原话。需要线主决定时立即结束本轮（见 §6 NALU_STATUS），由编排代理转达；
-  编排代理会用线主的**原话**恢复你的会话，你再用仓库工具逐字记录。
+- 默认条款（§3、§5）覆盖付费、版权、预算追加和质量接受；只有本合同明确写了「停下」的情况才结束本轮问线主（见 §6）。
+  不编造线主原话：记录订单时用简报里的条款原文与线主原话，接受类订单写明依据的默认条款。
 - 不删事务文件和回执（`workflow/tasks/**`、`reviews/**`），作废的东西移到 `_superseded_<日期>_<原因>/`。
 - 不发布、不上传任何平台；不 git push；不改门禁阈值。
-- 同一镜第 2 次创意重做仍失败、预算将超上限、出现新的付费类别：停下问线主。
+- 必须停下的只有：追加一次预算后仍不够（§3）、订单范围外的新付费类别（例如首次配乐）、Giggle key 缺失或失效。
 
 ## 2. 四层剧本（免费）
 写 `lines/nalu/runtime/tools/build_<ep小写>_layers.py`（作品文本，.gitignore 已拦，不入库），由叙事正典和简报生成
@@ -39,25 +40,26 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 - 古装场景的灯写成「无罩敞口油盏」并把它声明为道具（`non_character_entities` + 镜头 props），否则图像模型画玻璃罩煤油灯，命中禁用词表。
 - `runtime/nalu_entity_registry.json` 每个说话角色一行（`$S/apply_runtime_fixups.py --character 名=CHAR-ID:slug`，编排代理已跑过；新增角色时你补跑）。
 
-## 3. 付费授权（默认授权，不停下来问）
-本工作流的默认条款（用户安装时已在 USER.md 读到）：**用户提供 Giggle API key，即授权本项目每一集的付费生产，
-每集上限取简报 `budget_cap`（用户没指定时 1500 积分），并承诺对所提供的原著与素材有使用权。** 所以 S3 前不要停下来问。
-1. 检查付费凭据：`grep -qE '^GIGGLE_API_KEY=.+' .env`（只看有没有，绝不打印值）。为空时以
-   `OWNER_DECISION_REQUIRED` 结束本轮，`question` 请线主在对话里发 Giggle API key；编排代理写入 `.env` 后会用
-   「已配置 GIGGLE_API_KEY」恢复你（消息里不会出现 key 本身），你再复查一次。
-2. 本集还没有付费订单时，按简报 `authorization` 字段逐字记录（编排代理已写好条款原文与用户的原话，key 已去除）：
+## 3. 付费授权、版权与预算（默认条款，不问）
+默认条款（USER.md 已告知用户）：**用户提供 Giggle API key，即授权本项目每一集的付费生产，并承诺对所提供的原著与素材
+有使用权。** 版权声明一律用默认条款文字，不向用户索要。
+1. 检查付费凭据：`grep -qE '^GIGGLE_API_KEY=.+' .env`（只看有没有，绝不打印值）。为空时以 `OWNER_DECISION_REQUIRED`
+   结束本轮，`question` 请线主发 Giggle API key；编排代理写入后会用「已配置 GIGGLE_API_KEY」恢复你。
+2. 本集上限：简报 `budget_cap` 有数就用；没有时 = `max(1500, S3 DRY_PLANNED 后你估算的全集积分 × 1.6)`，向上取整到 100。
+3. 本集还没有付费订单时记录（文字取简报 `authorization`；简报缺这个字段时用下面括号里的默认文字，不要停下）：
 ```bash
 $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERVISOR_ORDERS.json --owner-id <简报 owner_id，缺省 owner> \
-  --order "<简报 authorization.order_text，逐字>" --episode <EP> --stages S3,S4,S5,S6 --cap <简报 budget_cap，缺省 1500> \
-  --rights-basis "<简报 authorization.rights_basis，逐字>" --work "<剧名>" --recorded-by claude-code \
-  --authorizing-order-ref "短剧工作流默认授权条款；<简报 authorization.consent_ref>"
+  --order "<简报 authorization.order_text；缺省：默认授权：用户已提供 Giggle API key，按短剧工作流条款同意本项目每集付费生产，本集上限 <上限> 积分>" \
+  --episode <EP> --stages S3,S4,S5,S6 --cap <上限> \
+  --rights-basis "<简报 authorization.rights_basis；缺省：用户承诺对所提供的原著与素材有使用权（短剧工作流默认条款）>" \
+  --work "<剧名>" --recorded-by claude-code --authorizing-order-ref "短剧工作流默认授权条款"
 ```
-   把它打印的授权坐标同时写进 `$NALU_RUNTIME_ROOT/qingshan.json` 的 `authorization` 和 `.env`
+   把打印的授权坐标同时写进 `$NALU_RUNTIME_ROOT/qingshan.json` 的 `authorization` 和 `.env`
    （`NALU_SUPERVISOR_ORDERS_PATH`、`NALU_PAID_ORDER_SEQ`、`NALU_LATEST_ORDER_SEQ`、`NALU_LINE_OWNER_ID`、`NALU_RUNTIME_ROOT`、`NALU_ENGINE_ROOT`），
    设 `generation.paid_requests_enabled=true`、`budget_cap_credits_per_episode=<上限>`。**以后每记一条订单都要把两处的 latest_order_seq 改成最新**，否则全部订单失效。
-   简报里没有 `authorization` 字段时，不得自行编写授权文字：以 `OWNER_DECISION_REQUIRED` 请线主确认默认条款。
-3. 直接进入 S3。仍需停下来问线主的只有：预计或实际花费将超过本集上限、订单范围外的新付费类别（例如首次配乐）、
-   同一镜第 2 次创意重做仍失败、门禁失败需要线主接受。
+4. 预算将超上限时，按默认条款**自动追加一次**：新记一条订单，`--cap` = 原上限 × 1.5，`--order` 写「默认条款自动追加：本集预算由 X 追加到 Y」，
+   同步两处坐标后继续。追加后仍不够才以 `OWNER_DECISION_REQUIRED` 停下。
+5. 直接进入 S3，不等任何确认。
 
 ## 4. S3→S7（每次 exit=4 = 有审核请求）
 审核通用做法：`$NALU_RUNTIME_ROOT/runtime/reviews/<EP>/` 最新 `*_request.json` → `$P $T/vlm_review_protocol.py example-answers --request <req>` →
@@ -72,18 +74,23 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
   Q2 中 OCR 读出的低置信乱码（背景招牌/标签纹理、道具上的手写字）在 `observed_text_strings` 写 `NOISE:<文本>`；动作幅度/表情细节不算缺陷。
 - **S7 装配**（`env -u GIGGLE_API_KEY $P $T/nalu_pipeline.py run --episode <EP> --from S7 --until S8`）：需要 `$NALU_RUNTIME_ROOT/brand/NALU_MOTION_endcard_3s_9x16.mp4`（没有就 `$P $S/make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第N集 · <集名>"`）。
 
-## 5. 线主接受订单（只在线主原话同意后）
-穿帮、身份、观众检测器等门禁失败而线主表示接受时，用：
+## 5. 质量不阻塞：默认接受（不问）
+默认条款：**质量问题不阻塞连续生产。** 门禁 FAIL 时先按 §4 正常修复/受控重做；同一镜第 2 次创意重做仍失败，或失败无法靠重做解决
+（例如派生起始帧、成片观众检测器、模型反复画出的穿帮），就直接记录接受订单并继续，不停下问：
 ```bash
-$P $T/record_supervisor_order.py --owner-id <简报 owner_id，缺省 owner> --seq <下一个 seq> --order "<线主原话>" --episode <EP> \
-  --gate-id <门禁 ID> --detector <…> [--media <item>=<文件>] --context "<事实>" \
+$P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下一个 seq> \
+  --order "默认条款自动接受：质量问题不阻塞连续生产（短剧工作流）" --episode <EP> \
+  --gate-id <门禁 ID> --detector <…> [--media <item>=<文件>] --context "<失败事实：门禁、帧号/单元、原因、已重做次数>" \
   --orders $NALU_RUNTIME_ROOT/runtime/SUPERVISOR_ORDERS.json --recorded-by claude-code
 ```
-- 关键帧（S5/S6 派生）：`--gate-id PERIOD-ANACHRONISM-LOCK --detector <shot_id>:PERIOD-ANACHRONISM-LOCK`（身份类用 `<shot_id>:<CHAR-ID>`）。
-- 视频 Q2：`--gate-id VIDEO-Q2-ASSEMBLY-ADMISSION --detector <unit>:<每个失败门禁 ID> --media <unit>=<unit mp4>`。
+- 关键帧（S5/S6 派生）：`--gate-id PERIOD-ANACHRONISM-LOCK --detector <shot_id>:PERIOD-ANACHRONISM-LOCK`（身份类用 `CHARACTER-IDENTITY-ADMISSION`、`<shot_id>:<CHAR-ID>`）。
+- 视频 Q2：`--gate-id VIDEO-Q2-ASSEMBLY-ADMISSION --detector <unit>:<每个失败门禁 ID> --media <unit>=<unit mp4>`；
+  6 镜左右的短集任何 P2 都会超 10% 缺陷预算：同时写 `$NALU_RUNTIME_ROOT/preproduction/<EP>/qa_overrides.json` 的
+  `defect_tolerance_minor_budget_override`（只列失败码，`authorized_by` 写「短剧工作流默认条款：质量不阻塞」）。
 - 成片观众检测器：`--gate-id FINAL-CUT-AUDIENCE-DETECTORS --detector <每个失败检测器> --media loudness=<成片> --media <检测器>=<成片>`；
   记好后把 `deliverables/<EP>/<EP>_final_9x16.mp4` 和 `workflow/nalu/<EP>/assembly/<EP>_NATIVE_AUDIO_LOUDNESS.json` 移到 `_superseded_*` 再跑 S7（成片编码确定，sha 不变）。
-- 记完同步更新 `.env` 与 `qingshan.json` 的 latest_order_seq。
+- 每条接受都要在 `NALU_STATUS.note` 里列一句（门禁 + 单元），编排代理会汇总给用户。记完同步更新 `.env` 与 `qingshan.json` 的 latest_order_seq。
+- 审核答案仍必须如实（看到穿帮就判 FAIL）；默认接受只改变「失败后停不停」，不改变「怎么判」。
 
 ## 6. 每轮结束的固定格式（编排代理只读这一行）
 本轮最后一行必须是：
@@ -95,3 +102,15 @@ STATE 取值：`OWNER_DECISION_REQUIRED`（需要线主原话）· `WAITING_REMO
 ## 7. 已知停点
 S7 最后的「独立终审」要求独立进程、StoryClaw 白名单模型的审核者。没有时停在 `REVIEW_REQUIRED: FINAL_AUDIENCE_REVIEW_REQUIRED`——成片已在
 `$NALU_RUNTIME_ROOT/deliverables/<EP>/<EP>_final_9x16.mp4`。不得冒充审核者身份或绕过该门，报 `FINAL_CUT_READY`。
+
+## 8. 连续产剧：E02 及以后
+编排代理在上一集 `FINAL_CUT_READY` 后为下一集写好叙事正典与简报，再新开一个你的会话。每集都是独立会话，按本合同从 §2 开始，另外：
+- 叙事正典开头承接上一集结尾状态；读上一集的 `<EP-1>_GENERATION_CONTRACT_v1.json` 末镜 `completion_state`，本集首镜 `entry_state` 与之一致。
+- 角色沿用：已出现的角色用**同一个** `character_id` / 名字 / 服装文字（逐字复制上一集合同里的 `character_entities` 行与 `wardrobe_garments`），
+  只给新角色起新 ID。复用角色的身份牌与配音在 `runtime/asset_library.json`、`runtime/voice_registry.json` 里是 LOCKED，S3/S4 会自动跳过，不要重做。
+- 地点沿用：已有地点用同一个 `location_id`；只有新地点写进本集 `new_location_place_spec.json`。S2 会以上一集的空间图为底自动扩展。
+- `asset_requirements_overlay.json` 只写本集新角色/新地点/新道具；新说话角色先补 `apply_runtime_fixups.py --character` 和 `voice_catalog.json`，
+  音色要与已有角色区分（同场 F0 差 ≥ 25%）。
+- 构建器写成 `build_<ep小写>_layers.py`，可以复制上一集的构建器改数据块，但每集的镜头、台词必须来自本集叙事正典。
+- 预算按 §3 每集单独记订单；默认接受按 §5。本集完成后报 `FINAL_CUT_READY`，编排代理负责发行和启动下一集。
+
