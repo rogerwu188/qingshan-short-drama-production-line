@@ -2711,6 +2711,65 @@ def latest_submitted_review(ctx: Ctx, kind: str) -> tuple[Path | None, dict[str,
     return None, {}
 
 
+def merge_keyframe_answers(ctx: Ctx, shots: list[str]) -> tuple[Path | None, list[str], list[str]]:
+    """One merged answer file covering ``shots``, built from the submitted reviews that touched them.
+
+    ``latest_submitted_review`` returns only the NEWEST review of a kind, and the derived-Q1 branch
+    used to decide "is this still answered?" from that single review.  Continuity-derived openers are
+    reviewed one frame per request, so once two derived units are pending the newest review covers
+    only the other one and each frame looks unanswered forever: E11 alternated
+    S19-03 → S19-03 → S05-06 → S05-06, never reaching the Q1 build where the line owner's
+    acceptance is applied (2026-10-11, order seq=29 already recorded).
+
+    This gathers, per still, the newest valid submitted review whose media sha still matches what is
+    on disk — the same staleness rule ``latest_submitted_review`` applies — and writes them as one
+    review file the builder can materialise in a single pass.  Returns
+    (merged_path, covered_shots, still_missing); nothing is written when a still is uncovered, so
+    the caller keeps asking for a real review instead of building on absent answers.
+    """
+    directory = REVIEWS_ROOT / ctx.episode
+    if not directory.is_dir():
+        return None, [], list(shots)
+    wanted = set(shots)
+    picked: dict[str, dict[str, Any]] = {}
+    source_files: list[str] = []
+    source_sha: list[str] = []
+    base: dict[str, Any] = {}
+    for path in sorted(directory.glob("*_submitted.json"), reverse=True):
+        payload = read_json(path)
+        if (not isinstance(payload, dict) or payload.get("kind") != "keyframe"
+                or (payload.get("validation") or {}).get("status") != "PASS"
+                or str(payload.get("reviewer") or "") != REVIEWER_ID):
+            continue
+        if not base:
+            base = payload
+        for item in payload.get("items") or []:
+            item_id = str(item.get("item_id"))
+            if item_id not in wanted or item_id in picked:
+                continue
+            media = (item.get("request_item") or {}).get("media") or [{}]
+            declared, media_path = media[0].get("sha256"), media[0].get("path")
+            if not media_path or declared != sha256_file(Path(media_path)):
+                continue  # a regenerated frame invalidates the review that judged the old bytes
+            picked[item_id] = item
+            source_files.append(str(path))
+            source_sha.append(sha256_file(path))
+    missing = sorted(wanted - set(picked))
+    if missing or not picked:
+        return None, sorted(picked), missing
+    merged = dict(base)
+    merged["items"] = [picked[s] for s in sorted(picked)]
+    merged["reviewer"] = REVIEWER_ID
+    merged["review_method"] = base.get("review_method") or "CLAUDE_VLM_STRUCTURED_REVIEW"
+    merged["reviewed_at"] = max(str((picked[s].get("reviewed_at") or "")) for s in picked)
+    merged["_merged_from"] = {"reviews": sorted(set(source_files)), "sha256": source_sha,
+                              "note": "one review file per still, merged so the Q1 builder can "
+                                      "materialise a pending derived set in a single pass"}
+    merged_path = REVIEWS_ROOT / ctx.episode / f"{ctx.episode}-keyframe-merged-{now().replace(':', '')}.json"
+    write_json(merged_path, merged)
+    return merged_path, sorted(picked), []
+
+
 def request_review(ctx: Ctx, res: StageResult, kind: str, *, sub_stage: str,
                    note: str = "", items: list[str] | None = None,
                    skip_when_empty: bool = False) -> dict[str, Any]:
@@ -4117,12 +4176,19 @@ def stage_s6(ctx: Ctx) -> StageResult:
                 res = StageResult(REVIEW_REQUIRED)
                 res.details["derived_keyframes"] = derived_rows
                 res.details["derived_units_pending_q1"] = pending_q1
-                review_path, review = latest_submitted_review(ctx, "keyframe")
-                answered = set()
+                # One review file per still: gather the answered ones across every valid submitted
+                # review (newest per still) instead of only the newest review, or two pending derived
+                # frames ask for each other in turn and never reach the build below.
+                review_path, covered, unanswered = merge_keyframe_answers(
+                    ctx, [shot for _, shot in pending_q1])
+                if unanswered:
+                    # a still with no valid submitted answer: ask for exactly those
+                    res.details.update(request_review(ctx, res, "keyframe", sub_stage="S6.q1_derived",
+                                                      note="continuity-derived start frames (previous unit real tail) need the keyframe questionnaire",
+                                                      items=unanswered))
+                    res.blockers.append(f"S6.q1_derived:REVIEW_REQUIRED:{len(unanswered)}_frames")
+                    return res
                 if review_path is not None:
-                    answered = {str(it.get("item_id")) for it in (review.get("items") or [])}
-                unanswered = [shot for _, shot in pending_q1 if shot not in answered]
-                if not unanswered and review_path is not None:
                     build_step = qa_run(ctx, [KEYFRAME_Q1, "build", "--episode", ctx.episode, "--review", review_path],
                                         name="s6_q1_build_admission_derived")
                     res.steps.append(build_step)
@@ -4160,10 +4226,13 @@ def stage_s6(ctx: Ctx) -> StageResult:
                         res.blockers.append(f"S6.sfe_derived:REVIEW_REQUIRED:{len(need_sfe)}_frames")
                         return res
                     return _CONT  # admissions + receipts present; re-plan the wave
+                # no valid submitted answer covered the pending stills (merge_keyframe_answers
+                # returned missing): ask for exactly those, never build on absent answers.
+                missing_now = sorted(set(shot for _, shot in pending_q1) - set(covered))
                 res.details.update(request_review(ctx, res, "keyframe", sub_stage="S6.q1_derived",
                                                   note="continuity-derived start frames (previous unit real tail) need the keyframe questionnaire",
-                                                  items=unanswered))
-                res.blockers.append(f"S6.q1_derived:REVIEW_REQUIRED:{len(unanswered)}_frames")
+                                                  items=missing_now or [shot for _, shot in pending_q1]))
+                res.blockers.append(f"S6.q1_derived:REVIEW_REQUIRED:{len(missing_now or pending_q1)}_frames")
                 return res
             return None
 
