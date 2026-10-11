@@ -17,6 +17,7 @@
 # usage: setup_host.sh --pin <engine commit> [--force] [--skip-verify]
 set -uo pipefail
 
+ORIG_ARGS=("$@")
 PIN="${NALU_ENGINE_PIN:-}"; FORCE=0; VERIFY=1
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -137,6 +138,14 @@ if [ $DEFER = 1 ]; then PIN_EFFECTIVE="$before"; else PIN_EFFECTIVE="$PIN"; fi
 run git -C "$ENGINE" checkout -q --detach "$PIN_EFFECTIVE" || { STEP_engine=CHECKOUT_FAILED; finish BLOCKED engine; }
 [ "$before" = "$PIN_EFFECTIVE" ] || NOTES+=("engine moved ${before:0:7} -> ${PIN_EFFECTIVE:0:7}")
 [ $DEFER = 1 ] || [ -d "$ENGINE/skills/nalu-claude-code/scripts" ] || { STEP_engine=SKILL_DIR_MISSING_AT_PIN; finish BLOCKED engine; }
+# the setup script itself follows the pin: if the pinned engine carries a different setup_host.sh than
+# the (possibly stale, TalentHub-installed) copy running now, hand over to it once.
+PINNED_SETUP="$ENGINE/skills/nalu-claude-code/scripts/setup_host.sh"
+if [ $DEFER = 0 ] && [ -z "${NALU_SETUP_REEXEC:-}" ] && [ -f "$PINNED_SETUP" ] \
+   && ! cmp -s "${BASH_SOURCE[0]}" "$PINNED_SETUP"; then
+  log "handing over to the pinned setup_host.sh ($PINNED_SETUP)"
+  NALU_SETUP_REEXEC=1 exec bash "$PINNED_SETUP" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
+fi
 STEP_engine=OK; [ $DEFER = 1 ] && STEP_engine=DEFERRED_IN_FLIGHT
 
 # ---------------------------------------------------------------- 3. runtime (keep ours, set aside foreign ones)

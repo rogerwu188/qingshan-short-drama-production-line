@@ -23,7 +23,16 @@ bash $S/setup_host.sh --pin <PIN>
 `~/nalu_runtime_old_<时间>` 保留。有一集还在生产中（Claude Code 在跑，或最后状态不是 `FINAL_CUT_READY`）时，
 脚本不切换引擎和 venv（`engine=DEFERRED_IN_FLIGHT`），新钉住的提交等那一集完成后的第一次唤醒再生效。只读最后一行 `NALU_SETUP: {...}`：`status=READY` 才继续；`BLOCKED` 时 `failed_step`
 和 `~/.nalu_setup.log` 末尾说明原因（缺免密 sudo 编译 insightface、网络、relay 校验失败等），如实告诉用户。
-`notes` 里有改名/切换记录时告诉用户一句。下面 §1–§2 是脚本做的事，供排障参考。
+`notes` 里有改名/切换记录时告诉用户一句。`setup_host.sh` 自己也跟随钉住版本：引擎切到新提交后，若引擎里的 `setup_host.sh`
+与正在运行的不同，会自动交给引擎里的那份重跑一次。下面 §1–§2 是脚本做的事，供排障参考。
+
+READY 之后检查代理自身是否有新版本（有一集在生产中时自动跳过）：
+```bash
+bash $S/self_update.sh --agent-id <本代理 id> --restart
+```
+只读最后一行 `SELF_UPDATE: {...}`：`UPDATED` 表示 TalentHub 上的新版已装好（指令文件、skill），30 秒后重启 OpenClaw gateway，
+新指令从下一次会话生效——此时不要再开始新的生产步骤，告诉用户「已更新到 <版本>，重启后按新版继续」后结束本轮；
+`UP_TO_DATE` / `DEFERRED_IN_FLIGHT` / `SKIPPED` 照常继续；`ERROR` 记进 `series/STATUS.md` 后照常继续。
 
 ## 1. 安装生产线（代理执行）
 以 OpenClaw 的普通用户运行（不要 root）。`<PIN>` 为 IDENTITY.md 里钉住的提交。
