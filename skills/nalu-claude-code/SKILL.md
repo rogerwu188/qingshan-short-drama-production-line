@@ -64,8 +64,15 @@ python3 $S/configure_claude_code.py --verify     # 读 ~/.openclaw/openclaw.json
 
 ## 3. 线主提供的信息（只通过对话）
 - Giggle API key：线主在对话里发来时，直接写入 `$NALU_ENGINE_ROOT/.env` 的 `GIGGLE_API_KEY=`（保持 600），只回复「已配置 GIGGLE_API_KEY」。
-- 原著：网址/文件/粘贴正文/大纲。网址直接抓取（翻页、目录逐章、必要时无头浏览器）；需要登录就向线主要账号或 Cookie；
-  抓不全时如实报 `SOURCE_ACQUISITION_BLOCKED`，不凭搜索摘要补写。原文存 `$NALU_RUNTIME_ROOT/sources/<作品>/`，记 URL、时间、SHA-256。
+- 原著：**代理自己上网找、自己抓正文，不向线主索要原著。**
+  - 线主给了网址、文件或粘贴正文：直接用。
+  - 只给了作品名：自己搜索正文所在的网站（维基文库、古登堡、公版书库、各大小说站等），目录逐章抓取、自动翻页，必要时用无头浏览器；
+    一个站抓不全就换下一个站，至少试 3 个来源再说抓不到。
+  - 什么都没给（例如只说「开始生产」）：自己选一部**公有领域**的中文小说（作者去世超过 50 年，如晚清、民国作品），
+    不选本机 `series/` 里已做过的，然后按上面的方法抓正文；选定后告诉线主一句剧名即可，不等回复。
+  - 需要登录或会员的站点：先找有没有免登录的来源；都没有才向线主要账号或 Cookie。
+  - 抓不全时不凭搜索摘要或记忆补写：线主指定的作品报 `SOURCE_ACQUISITION_BLOCKED`；自己选的作品就换一部重新选，不停下。
+  原文存 `$NALU_RUNTIME_ROOT/sources/<作品>/`，记 URL、时间、SHA-256。
 - X2C（x2creel.ai）发行 API key：线主发来时写入 `$NALU_RUNTIME_ROOT/credentials/x2c_api_key`（`chmod 600`），只回复「已配置 X2C_API_KEY」。
   机房批量部署时也可以由运维预先放好这个文件。
 - 线主 id、剧名、风格、单集时长、预算、目标集数：没给就用默认值写进简报（目标集数默认按原著能改编的集数做完），不再征求确认。
@@ -78,7 +85,7 @@ python3 $S/configure_claude_code.py --verify     # 读 ~/.openclaw/openclaw.json
 2. `$NALU_RUNTIME_ROOT/briefs/<EP>_PRODUCTION_BRIEF.json`：
    `{"episode","title","owner_id"（用户没指定就填 "owner"）,"style","target_seconds","budget_cap"（用户指定了才填；不填时 Claude Code 按预估 ×1.6、不低于 1500 自定）,"genre"（X2C 分类名，见 §6）,"synopsis"（全剧简介，发行用）,"authorization":{"order_text","rights_basis","consent_ref"},"characters":[{"character_id":"CHAR-XXX","name","slug","role":"protagonist|supporting","sex","apparent_age_range","appearance","wardrobe","voice_brief"}],"locations":[{"location_id":"LOC-XXX","label","description","fixed_elements":[]}],"owner_words":{"<日期>":"<线主原话>"}}`
    `authorization` 按默认授权条款填写（见代理 AGENTS.md §6）：`order_text` = 「默认授权：用户已提供 Giggle API key，按短剧工作流条款同意本项目每集付费生产，每集上限 <budget_cap> 积分」+ 用户关于预算/授权的原话（去掉任何 key、Cookie、密码）；
-   `rights_basis` = 「用户承诺对所提供的原著与素材有使用权（短剧工作流默认条款）」+ 用户关于版权的原话（如有）；`consent_ref` = 用户提供 key 的对话时间。
+   `rights_basis` = 「用户承诺对所提供的原著与素材有使用权（短剧工作流默认条款）」+ 用户关于版权的原话（如有）；代理自选的公有领域作品写「公有领域作品：<作者>，卒于 <年份>」；`consent_ref` = 用户提供 key 的对话时间。
 3. `python3 $S/apply_runtime_fixups.py --runtime-root $NALU_RUNTIME_ROOT --character <名>=<CHAR-ID>:<slug> ... --cap <预算>`
    以及 `$NALU_ENGINE_ROOT/.qingshan-venv/bin/python $S/make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第N集 · <集名>"`
    （片尾每集重做一次，文件名固定，S7 直接用最新的）。
