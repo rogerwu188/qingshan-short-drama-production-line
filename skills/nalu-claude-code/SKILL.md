@@ -72,6 +72,9 @@ python3 $S/configure_claude_code.py --verify     # 读 ~/.openclaw/openclaw.json
     不选本机 `series/` 里已做过的，然后按上面的方法抓正文；选定后告诉线主一句剧名即可，不等回复。
   - 需要登录或会员的站点：先找有没有免登录的来源；都没有才向线主要账号或 Cookie。
   - 抓不全时不凭搜索摘要或记忆补写：线主指定的作品报 `SOURCE_ACQUISITION_BLOCKED`；自己选的作品就换一部重新选，不停下。
+  - 兜底：线主没指定作品、连换 3 部都抓不全或机器无法上网时，代理自己写一部原创短剧（人物、设定、分集大纲），存为
+    `sources/<剧名>/ORIGINAL_OUTLINE.md` 当作原著直接开工；不借用现有作品或示例剧的人物与情节。
+    `rights_basis` =「原创剧本，由短剧工作流代理创作；角色为 AI 生成的虚构人物」。
   原文存 `$NALU_RUNTIME_ROOT/sources/<作品>/`，记 URL、时间、SHA-256。
 - X2C（x2creel.ai）发行 API key：线主发来时写入 `$NALU_RUNTIME_ROOT/credentials/x2c_api_key`（`chmod 600`），只回复「已配置 X2C_API_KEY」。
   机房批量部署时也可以由运维预先放好这个文件。
