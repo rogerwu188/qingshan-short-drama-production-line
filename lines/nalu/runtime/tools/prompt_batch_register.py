@@ -34,7 +34,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ENGINE = Path(f"{_np.ENGINE_ROOT}")
-WORK = Path(os.environ.get("NALU_WORK_ROOT", str(_np.RUNTIME_ROOT / "workflow" / "nalu"))).expanduser().resolve()
+RUNTIME = Path(f"{_np.RUNTIME_ROOT}")
+WORK = Path(_np.WORK_ROOT).expanduser().resolve()  # one definition in nalu_paths (was <runtime>/workflow/nalu here only)
 
 
 def sha(path: Path) -> str:
@@ -155,6 +156,22 @@ def main() -> int:
             rows.append(row2)
 
     manifest_path = pre / f"{ep}_PROMPT_BATCH_V1.json"
+    if problems:
+        # A unit whose prompt cannot be bound is DROPPED from `rows` above.  Writing that set would
+        # replace the last good registration with one that silently lacks the unit (E11
+        # 2026-10-09: a stale planning-index row turned a 58-row batch into 57 on disk).  Refuse to
+        # write; the previous registration stays exactly as it was.  Missing QA receipts are not a
+        # problem here: the first registration must be written before receipts can exist.
+        report = {"schema": "nalu.prompt_batch_register_report.v1", "episode": ep,
+                  "execution_id": args.execution_id, "manifest": str(manifest_path),
+                  "manifest_written": False, "rows": len(rows),
+                  "units_expected": len(grouping["units"]), "aliases": len(aliases),
+                  "missing_qa": missing_qa, "problems": problems, "status": "HOLD",
+                  "note": "nothing was written; the previous registration is unchanged"}
+        Path(args.report).write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps({k: report[k] for k in ("status", "rows", "units_expected", "missing_qa",
+                                                 "problems", "manifest_written")}, ensure_ascii=False))
+        return 2
     manifest = {"schema": "nalu.prompt_batch_manifest.v1", "execution_id": args.execution_id, "episode": ep,
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "generated_by": "prompt_batch_register.v1",
@@ -164,9 +181,20 @@ def main() -> int:
                 "rows": rows}
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
+    # A registration is per-episode runtime state, so it is written under the runtime root, which
+    # tools/episode_prompt_batch_gate.py also reads first.  Writing it into the engine clone left a
+    # tracked file dirty after every pipeline run, and the line-upgrade preflight flags exactly that.
+    # The read and write paths come from one resolver so the two cannot drift apart again.
+    os.environ.setdefault("NALU_RUNTIME_ROOT", str(RUNTIME))
+    if str(ENGINE) not in sys.path:
+        sys.path.insert(0, str(ENGINE))
+    from tools.episode_prompt_batch_gate import resolve_policy_path, registration_write_path
     policy_src = ENGINE / "configs/EPISODE_PROMPT_BATCH_POLICY.json"
-    policy_dst = ENGINE / "workflow/production_line/EPISODE_PROMPT_BATCH_POLICY.json"
-    policy = json.loads(policy_dst.read_text(encoding="utf-8")) if policy_dst.is_file() else json.loads(policy_src.read_text(encoding="utf-8"))
+    policy_dst = registration_write_path(ENGINE)
+    seed = resolve_policy_path(ENGINE)
+    if not seed.is_file():
+        seed = policy_src
+    policy = json.loads(seed.read_text(encoding="utf-8"))
     policy.setdefault("task_key_execution_prefixes", {})[f"{ep}-"] = args.execution_id
     policy.setdefault("executions", {})[args.execution_id] = {
         "required": True,

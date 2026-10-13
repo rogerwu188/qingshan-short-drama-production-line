@@ -196,3 +196,61 @@ python3 lines/nalu/runtime/tools/bootstrap_runtime_root.py --runtime-root "$RUNT
 - **时长/积分账本**（§六）：`tools/stage_time_ledger.py`，append-only 写 `workflow/nalu/<EP>/TIME_LEDGER.jsonl`，挂在 `nalu_pipeline.py` 的 `run_episode()` 阶段循环里每个阶段终态已知的那一行（不另设定时器；`SKIPPED_ALREADY_PASS` 不记事件）；`breakdown`（compute/remote_wait/human_wait/idle）是粗略近似（`compute` 恒 0，无法测；`human_wait` 取该阶段状态是否 `REVIEW_REQUIRED` 或含人工审核子步骤；`remote_wait` 取该阶段是否跑过付费步骤；其余算 `idle`），如实标注不是精确拆分。`print_status()` 末尾打印累计秒数/积分与逐阶段表。
 
 
+
+## 12. 无人值守运行（部署时授权一次，之后不再问人）
+
+问题不是「代理不够聪明」，是**权限问答本没有另一方**：交互会话里每条不在允许表上的命令都会弹问，
+部署机器上没有人应答，会话就永远停在那里。三层一起解决，缺一层都不成立。
+
+### 12.1 三份文件
+
+| 文件 | 入库 | 内容 | 谁写 |
+|---|---|---|---|
+| `.claude/settings.json` | **是**（相对路径） | 允许本线自己的入口（`paid_stage.sh`、`nalu_pipeline.py`、review_fill、只读 shell）；禁止推送、发布、破坏性 git、读 `.env`、编辑 `workflow/**` 与 `.claude/**` | `automation_profile.py write` |
+| `.claude/settings.local.json` | 否 | 同一套规则 + **本机绝对路径**（运行时根进 `additionalDirectories`，私密订单文件按绝对路径禁改） | 同上（生成物） |
+| `.claude/unattended_runner.md` | 否 | 无人会话的行为准则：循环、四类必须交线主的决定、停下来的姿势 | 同上 |
+
+```bash
+python3 lines/nalu/runtime/tools/automation_profile.py write \
+  --repo-root "$NALU_ENGINE_ROOT" --runtime-root "$NALU_RUNTIME_ROOT" --line-owner "<线主>"
+python3 lines/nalu/runtime/tools/automation_profile.py check --repo-root "$NALU_ENGINE_ROOT"
+```
+
+入库的那份**不含任何绝对路径**（`write` 会自检并拒绝写出），否则一台机器的目录布局会跟着克隆跑遍所有机器。
+
+### 12.2 怎么跑
+
+```bash
+lines/nalu/runtime/tools/run_unattended.sh E11 --max-turns 200 --max-budget-usd 5
+```
+
+`--permission-mode dontAsk`：**不在允许表上的动作被拒绝，而不是弹问**——没人应答时「问」等于「永久挂起」。
+脚本持锁（同集不重叠）、把 `stream-json` 落到 `runtime/reports/<EP>_unattended_*.jsonl`；
+若线主待决文件存在则**直接不启动**（exit 5），交给 cron/launchd 每 20 分钟触发即可。
+
+停下来不是等超时：代理把待决说明（要什么、为什么、估算多少、不做的后果）写到
+`runtime/reports/<EP>_OWNER_DECISION_PENDING.md` 然后退出。线主只读这一个文件就能决定。
+
+### 12.3 权限不是授权（这层故意做不到的事）
+
+允许表只写命令名。**模型不能给自己发钱**——任何机器上都不能：
+
+- 订单（seq、集次范围、付费阶段、模型、上限、`paid_requests_allowed`）在线主的**私有 inbox**，
+  由 `materialize_paid_authorization.py`（D-11）核对签发者、原文、回执字节、逐集上限与权利声明，
+  任一项不符是**拒绝**不是警告；
+- 第二把锁 `generation.paid_requests_enabled` 在运行时根；
+- 逐集积分硬上限在 `nalu_budget_ledger.py`；
+- 整批提示词门 K041、事务指纹去重也都在仓库自己的代码里。
+
+所以 `Edit(./workflow/**)` 与 `Edit(./.claude/**)` 被**禁止**：前者是订单与审核回执所在，
+后者是权限面本身——两者都是模型给自己扩权的路径。改这两处需要线主动手或改仓库。
+
+一次只能授权一次：`NALU_PAID_ORDER_SEQ` 等坐标来自部署时写入的私有 inbox 与进程环境
+（keychain / 服务定义），**不从 `.env` 文件读**——`paid_stage.sh` 只是在该文件不存在时才回退去读它，
+且任何时候都不打印其值。
+
+### 12.4 仍然必须交线主（自动化不改变这些）
+
+订单未覆盖的付费类别（首个 BGM、换装 i2i、超出返工守卫的重拍、单集缺陷预算超支）、
+音色一致性失败（`VOICE_OUT_OF_BAND` / `VOICE_COLLISION`）、剧情与台词文本改动、S8 看片与发布。
+前两类与第四类由 §4 定义；代理撞上就写待决说明停下，不自行批准。

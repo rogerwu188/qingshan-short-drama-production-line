@@ -34,10 +34,18 @@ SCHEMA = "qingshan.seedance2_provider_renderer.v1_shared_execution_ir"
 
 
 def _sanitize_provider_ids(value: str) -> str:
-    """Translate internal map/space IDs to provider-safe natural language."""
-    value = re.sub(r"\bGLOBAL-SPACE-[A-Z0-9-]+", "已锁定的同一全局空间", value, flags=re.IGNORECASE)
-    value = re.sub(r"\bLOC-[A-Z0-9-]+", "已锁定的同一地点", value, flags=re.IGNORECASE)
-    return re.sub(r"\bSUB(?:SPACE)?-[A-Z0-9-]+", "已锁定的同一子空间", value, flags=re.IGNORECASE)
+    """Translate internal map/space IDs to provider-safe natural language.
+
+    The guard is "not preceded by an ID character", not \\b: Python treats CJK characters as word
+    characters, so \\bLOC- never matched in 「人物在LOC-XU-HOUSE-INT内」 and the raw id reached the
+    provider.  E11-VU-021 also sent 「刘老头与ZONE-STREET-SOUTH-APPROACH的接触」: a zone id reads as
+    an object to touch, not a place, so the contact had no body part to land on.
+    """
+    edge = r"(?<![A-Za-z0-9-])"
+    value = re.sub(edge + r"GLOBAL-SPACE-[A-Z0-9-]+", "已锁定的同一全局空间", value, flags=re.IGNORECASE)
+    value = re.sub(edge + r"LOC-[A-Z0-9-]+", "已锁定的同一地点", value, flags=re.IGNORECASE)
+    value = re.sub(edge + r"ZONE-[A-Z0-9-]+", "已锁定的同一区域", value, flags=re.IGNORECASE)
+    return re.sub(edge + r"SUB(?:SPACE)?-[A-Z0-9-]+", "已锁定的同一子空间", value, flags=re.IGNORECASE)
 
 
 def _dialogue(beat: dict[str, Any], voice_slots: dict[str, str] | None = None) -> str:
@@ -141,8 +149,14 @@ def _role_line(row: dict[str, Any]) -> str:
     else:
         pieces.append("本拍无对白，不生成可辨人声；嘴部仅随已声明的非对白动作活动")
     pieces.append("不得交换人物、肢体、武器、动作或声音")
+    names = row.get("entity_names") or {}
+    unnamed_listener = (listener if listener and listener not in set(names.values()) else "")
     for cid, state in (row.get("entity_states") or {}).items():
-        name = (row.get("entity_names") or {}).get(cid, cid)
+        # A state row whose id is missing from entity_names used to print the raw id
+        # (「CHAR-QINMING的独立状态」, E11-VU-015/019/030).  The only character such a row can
+        # be in practice is the listener the shot addresses but did not name; otherwise say
+        # who it is in words rather than leak an internal id to the provider.
+        name = names.get(cid) or unnamed_listener or "画中另一位已声明人物"
         visibility = (row.get("entity_face_visibility") or {}).get(cid) or (row.get("entity_presence") or {}).get(cid)
         pieces.append(f"{name}的独立状态：{state}" + (f"；入画约束={visibility}" if visibility else ""))
     return "，".join(pieces) + "。"
@@ -346,9 +360,13 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         if beat.get("contact_time_seconds") is not None:
             clause_evidence[f"{prefix}.CONTACT_TIME"] = f"{float(beat['contact_time_seconds']):g}秒"
         if beat.get("contact_point"):
-            clause_evidence[f"{prefix}.CONTACT_POINT"] = beat["contact_point"]
+            # Coverage is measured against the rendered text, and the rendered text has the
+            # internal ids translated away.  Evidence left unsanitised therefore never matched
+            # and the unit failed as PROVIDER_SEMANTIC_FACT_UNCOVERED (E11-VU-002 BEAT.1/2
+            # CONTACT_POINT + PRIMARY_FEEDBACK: 「秦铭与ZONE-XU-HOUSE-INT-2的接触…」).
+            clause_evidence[f"{prefix}.CONTACT_POINT"] = _sanitize_provider_ids(beat["contact_point"])
         if beat.get("primary_feedback"):
-            clause_evidence[f"{prefix}.PRIMARY_FEEDBACK"] = beat["primary_feedback"]
+            clause_evidence[f"{prefix}.PRIMARY_FEEDBACK"] = _sanitize_provider_ids(beat["primary_feedback"])
         for secondary_index, value in enumerate(beat.get("secondary_feedback") or [], 1):
             clause_evidence[f"{prefix}.SECONDARY_FEEDBACK.{secondary_index}"] = value
         if beat.get("dialogue"):

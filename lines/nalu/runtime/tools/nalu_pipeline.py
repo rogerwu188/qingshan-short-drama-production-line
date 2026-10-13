@@ -2711,6 +2711,65 @@ def latest_submitted_review(ctx: Ctx, kind: str) -> tuple[Path | None, dict[str,
     return None, {}
 
 
+def merge_keyframe_answers(ctx: Ctx, shots: list[str]) -> tuple[Path | None, list[str], list[str]]:
+    """One merged answer file covering ``shots``, built from the submitted reviews that touched them.
+
+    ``latest_submitted_review`` returns only the NEWEST review of a kind, and the derived-Q1 branch
+    used to decide "is this still answered?" from that single review.  Continuity-derived openers are
+    reviewed one frame per request, so once two derived units are pending the newest review covers
+    only the other one and each frame looks unanswered forever: E11 alternated
+    S19-03 → S19-03 → S05-06 → S05-06, never reaching the Q1 build where the line owner's
+    acceptance is applied (2026-10-11, order seq=29 already recorded).
+
+    This gathers, per still, the newest valid submitted review whose media sha still matches what is
+    on disk — the same staleness rule ``latest_submitted_review`` applies — and writes them as one
+    review file the builder can materialise in a single pass.  Returns
+    (merged_path, covered_shots, still_missing); nothing is written when a still is uncovered, so
+    the caller keeps asking for a real review instead of building on absent answers.
+    """
+    directory = REVIEWS_ROOT / ctx.episode
+    if not directory.is_dir():
+        return None, [], list(shots)
+    wanted = set(shots)
+    picked: dict[str, dict[str, Any]] = {}
+    source_files: list[str] = []
+    source_sha: list[str] = []
+    base: dict[str, Any] = {}
+    for path in sorted(directory.glob("*_submitted.json"), reverse=True):
+        payload = read_json(path)
+        if (not isinstance(payload, dict) or payload.get("kind") != "keyframe"
+                or (payload.get("validation") or {}).get("status") != "PASS"
+                or str(payload.get("reviewer") or "") != REVIEWER_ID):
+            continue
+        if not base:
+            base = payload
+        for item in payload.get("items") or []:
+            item_id = str(item.get("item_id"))
+            if item_id not in wanted or item_id in picked:
+                continue
+            media = (item.get("request_item") or {}).get("media") or [{}]
+            declared, media_path = media[0].get("sha256"), media[0].get("path")
+            if not media_path or declared != sha256_file(Path(media_path)):
+                continue  # a regenerated frame invalidates the review that judged the old bytes
+            picked[item_id] = item
+            source_files.append(str(path))
+            source_sha.append(sha256_file(path))
+    missing = sorted(wanted - set(picked))
+    if missing or not picked:
+        return None, sorted(picked), missing
+    merged = dict(base)
+    merged["items"] = [picked[s] for s in sorted(picked)]
+    merged["reviewer"] = REVIEWER_ID
+    merged["review_method"] = base.get("review_method") or "CLAUDE_VLM_STRUCTURED_REVIEW"
+    merged["reviewed_at"] = max(str((picked[s].get("reviewed_at") or "")) for s in picked)
+    merged["_merged_from"] = {"reviews": sorted(set(source_files)), "sha256": source_sha,
+                              "note": "one review file per still, merged so the Q1 builder can "
+                                      "materialise a pending derived set in a single pass"}
+    merged_path = REVIEWS_ROOT / ctx.episode / f"{ctx.episode}-keyframe-merged-{now().replace(':', '')}.json"
+    write_json(merged_path, merged)
+    return merged_path, sorted(picked), []
+
+
 def request_review(ctx: Ctx, res: StageResult, kind: str, *, sub_stage: str,
                    note: str = "", items: list[str] | None = None,
                    skip_when_empty: bool = False) -> dict[str, Any]:
@@ -3014,6 +3073,64 @@ def s3_admission(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str
 # --------------------------------------------------------------------------- #
 # S5 — keyframes (paid) + Q1 admission + start-frame receipts
 # --------------------------------------------------------------------------- #
+def keyframe_needs_post(ctx: Ctx, index: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Which keyframe tasks a paid S5 must POST, and which are already done.
+
+    The third instance of D-46, after S3's round re-entry and S6's clip-on-disk rule.  E11
+    (2026-10-09): the 50-keyframe batch was paid for and harvested, the keyframes on disk were
+    reviewed, and a later free rebuild moved the prompt bytes of all 56 units; S5 — unlike S6 —
+    had no rule excluding work that is already done, so the next paid S5 would have re-POSTed all
+    50 (550 credits) to re-render images Q1 had just approved.
+
+    Three cases, in this order:
+
+    * Q1 reviewed this shot and admitted the image now on disk -> done.
+    * Q1 reviewed this shot and did not admit it (REJECT / a gate FAIL) -> POST; this is the
+      reroll the review actually asked for.  The row binds the sha it judged, so an image that
+      was re-rendered after the review also lands here.
+    * Q1 has no row for this shot -> it is not a shot Q1 reviews (the mid-unit keyframes: Q1
+      covers the unit-start stills).  POST only when nothing is on disk; an image generated by an
+      earlier paid batch is complete, and re-rendering it would produce another still that the
+      same review still does not cover.
+
+    Returns (task_keys_needing_a_post, task_keys_already_done).
+    """
+    p, need, done = ctx.p, [], []
+    admitted: dict[str, str] = {}
+    reviewed: set[str] = set()
+    for row in index.get("results") or []:
+        item = str(row.get("item_id") or "")
+        if not item:
+            continue
+        reviewed.add(item)
+        if (row.get("status") in ("PASS", "ADMITTED", "ADMITTED_BY_LINE_OWNER_ORDER")
+                or row.get("downstream_status") == "ADMITTED_FOR_VIDEO_SUBMIT"):
+            sha = str(row.get("asset_sha256") or "")
+            if sha:
+                admitted[item] = sha
+    for task in (read_json(p.keyframe_manifest, {}) or {}).get("tasks") or []:
+        key = str(task.get("task_key") or "")
+        shot = str(task.get("shot_id") or task.get("unit_id") or "")
+        name = task.get("output_contract", {}).get("expected_output_path")
+        dest = Path(name) if name else p.keyframes / f"{shot}-keyframe-v1.png"
+        if not dest.is_absolute():
+            dest = ENGINE / dest
+        versions = sorted(p.keyframes.glob(f"{shot}-keyframe-v*.png"))
+        on_disk = {sha256_file(path) for path in ([dest] + versions) if path.is_file()}
+        if shot in reviewed:
+            # Q1 judged this shot: the admitted sha must be the image on disk now.
+            if admitted.get(shot) and admitted[shot] in on_disk:
+                done.append(key)
+            else:
+                need.append(key)
+        elif on_disk:
+            # not a Q1-reviewed shot, but an earlier paid batch produced it
+            done.append(key)
+        else:
+            need.append(key)
+    return need, done
+
+
 def stage_s5(ctx: Ctx) -> StageResult:
     p = ctx.p
     library = p.identity_library if p.identity_library.is_file() else ctx.p.scope["asset_library"]
@@ -3089,9 +3206,27 @@ def stage_s5(ctx: Ctx) -> StageResult:
     res.details["keyframe_entry_state_gate"] = (read_json(p.keyframe_entry_gate, {}) or {}).get("status")
 
     # 2) D-11 paid authorisation, then the paid submit of the MATERIALISED manifest.
+    # D-46 for S5: authorise a POST only for shots with no admitted keyframe of the CURRENT image.
+    # S6 excludes tasks whose clip is on disk; S5 had no such rule, so every prompt byte that moved
+    # in a free rebuild turned all 50 tasks into "new" ones.  See keyframe_needs_post().
+    _q1_now = read_json(q1_index, {}) or {}
+    needs_post, keyframes_done = keyframe_needs_post(ctx, _q1_now)
+    if keyframes_done and needs_post:
+        ctx.say(f"   D-46: {len(keyframes_done)} keyframe task(s) already admitted at the current "
+                f"image sha and are excluded from the authorised copy; "
+                f"{len(needs_post)} still need a POST: {needs_post}")
+    res.details["d46_needs_post"] = needs_post
+    res.details["d46_already_admitted"] = keyframes_done
     planned = ctx.planned_credits("S5")
+    if not needs_post:
+        # Nothing to generate.  Do not materialise authority, do not POST, do not harvest — go
+        # straight to the Q1 admission tail, which is what decides whether S5 is done.
+        ctx.say("   D-46: every keyframe at the current image sha is already admitted — "
+                "no POST, no spend; going straight to Q1")
+        return s5_finish_q1(ctx, res)
     auth_status, auth_manifest, auth = materialize_paid_authorization(
         ctx, res, sid="S5", target=p.keyframe_manifest, is_plan=False,
+        task_keys=(needs_post if (keyframes_done and needs_post) else None),
         note=("the image submitter's validate_submission_authority additionally demands "
               "EXACTLY ONE GIGGLE-REROLL-COST-GUARD report whose reviewed_manifest_sha256 "
               "equals the submitted manifest's own SHA — that report is what this produces"))
@@ -3103,6 +3238,14 @@ def stage_s5(ctx: Ctx) -> StageResult:
     paid_argv = [VENV, ENGINE / "tools/submit_giggle_image_manifest.py",
                  "--manifest", auth_manifest, "--out", p.keyframe_submit,
                  "--concurrency", min(ctx.max_parallel, 6)]
+    # D-46 narrows the AUTHORISED copy (only the needed tasks get provider_post_allowed and the
+    # manifest's maximum_new_submissions), but the image submitter selects every task in the file
+    # unless told otherwise, and then refuses: "maximum_new_submissions is below the selected task
+    # count" (E11 2026-10-10, before any POST).  The video submitter skips unauthorised tasks on
+    # its own; this one needs the same selection passed explicitly.
+    if keyframes_done and needs_post:
+        for key in needs_post:
+            paid_argv += ["--task-key", key]
     dry_argv = [VENV, ENGINE / "tools/submit_giggle_image_manifest.py",
                 "--manifest", p.keyframe_manifest,
                 "--out", p.preprod_reports / f"{ctx.episode}_KEYFRAME_PRECHECK.json",
@@ -3173,6 +3316,16 @@ def stage_s5(ctx: Ctx) -> StageResult:
         return res
 
     # 4) S5.q1 — keyframe Q1 admission (D-4)
+    return s5_finish_q1(ctx, res)
+
+
+def s5_finish_q1(ctx: Ctx, res: StageResult) -> StageResult:
+    """S5's tail: Q1 admission, then the start-frame receipts.
+
+    Split out of stage_s5 so the D-46 no-POST path reaches it without passing through the paid
+    submit and its harvest.
+    """
+    # 4) S5.q1 — keyframe Q1 admission (D-4)
     q1 = s5_q1(ctx, res)
     res.details["q1_admission"] = q1
     if q1["status"] == REVIEW_REQUIRED:
@@ -3235,35 +3388,98 @@ def apply_keyframe_renames(ctx: Ctx, manifest: dict[str, Any]) -> dict[str, Any]
         dest = Path(expected)
         if not dest.is_absolute():
             dest = ENGINE / dest
-        if dest.is_file():
-            moved.append({"task_key": row["task_key"], "dest": str(dest), "action": "ALREADY_PRESENT"})
-            continue
         # harvest_giggle_image_batch.py names files <EP>_<task key>_<task id>.png (observed
         # 2026-09-13: 29 harvested, 29 "NO_HARVESTED_FILE"); accept both spellings.
         candidates = sorted(set(p.keyframe_harvest_dir.glob(f"{row['task_key']}*"))
                             | set(p.keyframe_harvest_dir.glob(f"{ctx.episode}_{row['task_key']}_*")))
         if not candidates:
-            missing.append({"task_key": row["task_key"], "reason": "NO_HARVESTED_FILE",
-                            "searched": str(p.keyframe_harvest_dir)})
+            if dest.is_file():
+                moved.append({"task_key": row["task_key"], "dest": str(dest), "action": "ALREADY_PRESENT"})
+            else:
+                missing.append({"task_key": row["task_key"], "reason": "NO_HARVESTED_FILE",
+                                "searched": str(p.keyframe_harvest_dir)})
             continue
+        # A harvested file only exists between a harvest and this rename (the rename moves it out), so
+        # one sitting next to an existing keyframe is a regeneration of it.  Keeping the old image
+        # because "the destination already exists" sent E11's 50 paid redos to an unread directory
+        # while Q1 re-reviewed the 2-day-old frames.  Park the old one instead of discarding it.
+        parked = None
+        if dest.is_file():
+            if sha256_file(dest) == sha256_file(candidates[0]):
+                candidates[0].unlink()
+                moved.append({"task_key": row["task_key"], "dest": str(dest), "action": "ALREADY_PRESENT"})
+                continue
+            park_dir = dest.parent / f"_superseded_{ctx.run_id}"
+            park_dir.mkdir(parents=True, exist_ok=True)
+            parked = park_dir / dest.name
+            os.replace(dest, parked)
         dest.parent.mkdir(parents=True, exist_ok=True)
         os.replace(candidates[0], dest)
         moved.append({"task_key": row["task_key"], "src": str(candidates[0]),
-                      "dest": str(dest), "sha256": sha256_file(dest), "action": "RENAMED"})
+                      "dest": str(dest), "sha256": sha256_file(dest),
+                      "action": "REPLACED_PARKED_PREVIOUS" if parked else "RENAMED",
+                      **({"parked_previous": str(parked)} if parked else {})})
     return {"mode": "APPLIED", "keyframe_dir": str(p.keyframes),
             "moved": moved, "missing": missing}
 
 
+#: Gates the line owner may accept by order.  CHARACTER-IDENTITY-ADMISSION is the original; 2026-10-01
+#: added a keyframe whose ONLY failing gate is PERIOD-ANACHRONISM-LOCK, e.g. a background prop the image
+#: model keeps rendering anachronistically after the guarded rerolls.
 Q1_ACCEPTABLE_GATES = ("CHARACTER-IDENTITY-ADMISSION", "PERIOD-ANACHRONISM-LOCK")
+
+
+def q1_identity_evidence(row: dict[str, Any], gate_id: str) -> tuple[dict[str, Any], str]:
+    """The registered identity-gate evidence for one Q1 row: (payload, path).
+
+    The index row carries only a one-line finding; the evidence file is what lists the
+    declared characters and the raw failure codes, which is what the standing rule has to
+    read.  Returns ({}, "") when the file is absent, and the caller then admits nothing.
+    """
+    req = read_json(Path(str(row.get("admission_request") or "")), {}) or {}
+    for ev in req.get("evidence") or []:
+        if not isinstance(ev, dict) or str(ev.get("gate_id") or "") != gate_id:
+            continue
+        raw = str(ev.get("evidence_path") or "")
+        if not raw:
+            continue
+        path = Path(raw) if Path(raw).is_absolute() else ENGINE / raw
+        return (read_json(path, {}) or {}), str(path)
+    return {}, ""
+
+
+#: The engine writes a failing registered gate in two shapes, with the gate id in a different
+#: position in each: "evidence_1:<GATE>:registered_gate_not_pass:FAIL_NOT_ADMITTED:P0" and
+#: "required_registered_gate_not_pass:<GATE>".  The first needs the capture BEFORE the marker.
+FAILED_GATE_RE = re.compile(r"(?:^|:)([A-Z][A-Z0-9-]*):registered_gate_not_pass:"
+                            r"|^required_registered_gate_not_pass:([A-Z][A-Z0-9-]*)$")
+
+
+def failing_registered_gates(failures: list[Any]) -> list[str]:
+    """Registered gate ids a Q1 index row reports as not passing."""
+    found: set[str] = set()
+    for raw in failures:
+        match = FAILED_GATE_RE.search(str(raw))
+        if match:
+            found.add(match.group(1) or match.group(2))
+    return sorted(found)
 
 
 def apply_line_owner_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: Path) -> dict[str, Any]:
     """Order-keyed acceptance of CHARACTER-IDENTITY-ADMISSION failures at S5 Q1.
 
-    The engine gate result keeps its FAIL row and evidence; a unit is admitted only when an active line-owner order of kind
-    GATE_FAIL_ACCEPTANCE for this episode and gate names EVERY failing "<item_id>:<character_id>" detector of
-    that keyframe and the order's item binding exactly matches the current keyframe sha256. Never self-issued; anything
-    outside the order (another gate failing, another sha, another episode) stays rejected."""
+    Two ways a still gets admitted, both requiring an active source-receipted line-owner order:
+
+    * GATE_FAIL_ACCEPTANCE — names EVERY failing "<item_id>:<character_id>" detector and binds the
+      current keyframe's sha256.  Exact, but it dies the moment the frame is regenerated.
+    * STANDING_RULE — carries the NO_FACE_PIXELS_IN_STILL scope, so it covers a *condition* rather
+      than a list of shas and the line applies it without stopping.  See roger_gate_acceptance for
+      what the condition requires; the short version is that the identity gate must be the only
+      failing gate, every identity failure must be a no-face-pixels code, and every other declared
+      character must have measured a real PASS.
+
+    The engine gate result keeps its FAIL row and evidence either way.  Never self-issued: no order,
+    or a still that fails a second gate, stays rejected."""
     orders_path = ctx.authority.get("orders_path")
     orders = (_rga._orders(orders_path,
                            expected_latest_seq=ctx.authority.get("latest_order_seq") or 0,
@@ -3273,7 +3489,13 @@ def apply_line_owner_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: 
     ident = read_json(Path(str((index.get("identity_measurement") or {}).get("engine_report") or "")), {}) or {}
     decisions = ((ident.get("objective_verification") or {}).get("decisions")) or []
     accepted, still_rejected = [], []
+    by_standing_rule: list[dict[str, Any]] = []
+    rule_refused: list[dict[str, Any]] = []
     allowed = list(index.get("video_submission_allowed_unit_ids") or [])
+    issuer = ctx.authority.get("line_owner_id") or ""
+    standing_rule = (_rga.find_standing_rule(orders, episode=ctx.episode, gate_id=gate_id,
+                                            expected_issuer=issuer, engine_root=ENGINE)
+                     if orders else None)
     for row in index.get("results") or []:
         if row.get("status") == "PASS" or row.get("downstream_status") == "ADMITTED_FOR_VIDEO_SUBMIT":
             continue
@@ -3283,11 +3505,20 @@ def apply_line_owner_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: 
         # PERIOD-ANACHRONISM-LOCK (detector "<item_id>:PERIOD-ANACHRONISM-LOCK"), e.g. a background prop the
         # image model keeps rendering anachronistically after the guarded rerolls.  One gate per row; a row
         # failing two gates stays rejected.
+        #
+        # This substring test is the guard that keeps a still which failed something ELSE out of both
+        # acceptance paths: an extra failing gate's own failure string does not name this gate, so
+        # ``all(g in f ...)`` is false and the row never reaches the standing rule.
         row_gate = next((g for g in Q1_ACCEPTABLE_GATES if failures and all(g in f for f in failures)), None)
         if row_gate is None:
             still_rejected.append(uid)
             continue
         gate_id = row_gate
+        # The standing rule is not given this row's gate alone but the whole failing-gate list, so it
+        # can refuse a still that failed another registered gate too.  failing_registered_gates reads
+        # the engine's two failure shapes rather than substring-matching; the gate under test is always
+        # included even if a row's strings match neither shape, so the list is never short of it.
+        failed_gates = sorted(set(failing_registered_gates(failures)) | {gate_id})
         if gate_id != "CHARACTER-IDENTITY-ADMISSION":
             detectors = [f"{item_id}:{gate_id}"]
         else:
@@ -3311,22 +3542,54 @@ def apply_line_owner_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: 
                         texts.append(str(evd.get("finding") or ""))
             detectors = sorted({f"{item_id}:{m}" for f in texts
                                 for m in re.findall(r"NO_EMBEDDING_SAMPLE_FOR_DECLARED_CHARACTER:(CHAR-[A-Z0-9-]+)", f)})
+        # A per-item signature is exact and the cheapest thing to audit, so it is tried first; the
+        # standing rule is the fallback for the case this feature exists for — the frame was
+        # regenerated and the old sha binding no longer applies.
         order = _rga.find_acceptance(
             orders, episode=ctx.episode, gate_id=gate_id, failing=detectors,
             media_sha256=str(row.get("asset_sha256") or ""), media_item_id=item_id,
-            expected_issuer=ctx.authority.get("line_owner_id") or "", engine_root=ENGINE,
+            expected_issuer=issuer, engine_root=ENGINE,
         ) if detectors else None
-        if order is None:
+        if order is not None:
+            cos = {f"{item_id}:{d.get('character_id')}": d.get("aggregate_median") for d in decisions
+                   if str(d.get("source_id") or "").endswith(f":{item_id}")}
+            record = _rga.acceptance_record(order, episode=ctx.episode, gate_id=gate_id, failing=detectors,
+                                            media_sha256=str(row.get("asset_sha256") or ""),
+                                            media_item_id=item_id,
+                                            gate_result_path=str(row.get("admission_result") or ""))
+            record.update({"item_id": item_id, "unit_id": uid, "cosines": cos,
+                           "engine_status": row.get("status"), "engine_failures": failures,
+                           "accepted_under": "PER_ITEM_ORDER"})
+        elif standing_rule is not None:
+            evidence, evidence_path = q1_identity_evidence(row, gate_id)
+            verified = (evidence.get("objective_verification") or {})
+            condition = _rga.standing_rule_condition(
+                failed_gates=failed_gates,
+                identity_failures=list(verified.get("failures") or []),
+                identity_gate_id=gate_id,
+                # the per-still decisions live in the evidence file's objective_verification, not in
+                # the index-level identity report (whose source_ids are shaped E11:STILL:<item>)
+                decisions=list(verified.get("decisions") or []),
+                declared_characters=[str(c) for c in verified.get("declared_visible_character_ids") or []])
+            if not condition.get("covered"):
+                rule_refused.append({"item_id": item_id, "unit_id": uid, "condition": condition,
+                                     "evidence_path": evidence_path})
+                still_rejected.append(uid)
+                continue
+            cos = {f"{item_id}:{d.get('character_id')}": d.get("aggregate_median") for d in decisions
+                   if str(d.get("source_id") or "").endswith(f":{item_id}")}
+            record = _rga.standing_rule_acceptance(
+                standing_rule, episode=ctx.episode, gate_id=gate_id,
+                excused_detectors=[f"{item_id}:{c}" for c in condition.get("excused_characters") or []],
+                condition=condition, media_sha256=str(row.get("asset_sha256") or ""),
+                media_item_id=item_id, gate_result_path=str(row.get("admission_result") or ""))
+            record.update({"item_id": item_id, "unit_id": uid, "cosines": cos,
+                           "engine_status": row.get("status"), "engine_failures": failures,
+                           "accepted_under": "STANDING_RULE"})
+            by_standing_rule.append(record)
+        else:
             still_rejected.append(uid)
             continue
-        cos = {f"{item_id}:{d.get('character_id')}": d.get("aggregate_median") for d in decisions
-               if str(d.get("source_id") or "").endswith(f":{item_id}")}
-        record = _rga.acceptance_record(order, episode=ctx.episode, gate_id=gate_id, failing=detectors,
-                                        media_sha256=str(row.get("asset_sha256") or ""),
-                                        media_item_id=item_id,
-                                        gate_result_path=str(row.get("admission_result") or ""))
-        record.update({"item_id": item_id, "unit_id": uid, "cosines": cos, "engine_status": row.get("status"),
-                       "engine_failures": failures})
         row.update({"engine_status": row.get("status"), "engine_failures": failures,
                     "status": "ADMITTED_BY_LINE_OWNER_ORDER", "downstream_status": "ADMITTED_FOR_VIDEO_SUBMIT",
                     "failures": [], "line_owner_acceptance": record})
@@ -3361,8 +3624,15 @@ def apply_line_owner_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: 
             "schema": "nalu.q1_line_owner_gate_acceptance.v2", "episode": ctx.episode,
             "gate_ids": sorted({r.get("gate_id") for r in accepted}),
             "recorded_at": now(), "recorded_by": TOOL_ID, "orders_path": str(orders_path),
-            "accepted": accepted, "still_rejected_unit_ids": still_rejected})
-    return {"accepted_unit_ids": [r["unit_id"] for r in accepted], "still_rejected_unit_ids": still_rejected,
+            "standing_rule_order_seq": (standing_rule or {}).get("seq"),
+            "accepted": accepted,
+            "accepted_by_standing_rule": by_standing_rule,
+            "standing_rule_refusals": rule_refused,
+            "still_rejected_unit_ids": still_rejected})
+    return {"accepted_unit_ids": [r["unit_id"] for r in accepted],
+            "accepted_by_standing_rule_unit_ids": [r["unit_id"] for r in by_standing_rule],
+            "standing_rule_refusals": rule_refused,
+            "still_rejected_unit_ids": still_rejected,
             "effective_status": index.get("status")}
 
 
@@ -3678,6 +3948,55 @@ def unit_dependency_order(ctx: Ctx) -> list[tuple[str, str | None, bool]]:
     return rows
 
 
+def _units_with_bound_submission(ctx: Ctx) -> set[str]:
+    """Unit ids that have a SUBMITTED_TASK_ID_BOUND record in the durable submit store."""
+    store_dir = ENGINE / "workflow/tasks/giggle_video_submit_transactions" / ctx.episode
+    bound: set[str] = set()
+    for path in (store_dir.glob("*.json") if store_dir.is_dir() else []):
+        row = read_json(path, {}) or {}
+        if row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id"):
+            text = json.dumps(row, ensure_ascii=False)
+            bound.update(re.findall(rf"{re.escape(ctx.episode)}-VU-\d+", text))
+    return bound
+
+
+def release_unposted_waves(ctx: Ctx, wave_state: dict[str, Any]) -> list[dict[str, Any]]:
+    """Release open waves that never reached a provider POST, so they are re-planned.
+
+    A wave keeps a frozen membership because re-entering a SUBMITTED wave with a different list
+    double-POSTed on 2026-09-13.  That protection is only meaningful once something was POSTed.
+    E11's wave 1 was opened on 2026-10-06 when a forward run reached S6 before S5 had produced any
+    keyframe; it never submitted, yet its frozen list held a unit id that is in no plan (VU-042)
+    and a continuity-derived unit whose start frame cannot exist until its predecessor renders
+    (VU-040).  Every later pass then asked for a review of a frame that did not exist.
+
+    A wave is released only when ALL of these hold: no submit report on disk, no unit of it has a
+    bound transaction in the durable store, and none of its videos is on disk.  Anything that
+    may have POSTed keeps its frozen membership exactly as before."""
+    plan = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json", {}) or {}
+    planned = {u["unit_id"] for u in plan.get("units") or []}
+    bound = _units_with_bound_submission(ctx)
+    released = []
+    for w in wave_state.get("waves") or []:
+        if w.get("completed_at") or w.get("released_at"):
+            continue
+        units = list(w.get("units") or [])
+        report = Path(w["submit_report"]) if w.get("submit_report") else None
+        if report is not None and report.is_file():
+            continue
+        if any(u in bound for u in units):
+            continue
+        if any((ctx.p.video_media / f"{u}.mp4").is_file() for u in units):
+            continue
+        unknown = sorted(u for u in units if u not in planned)
+        reason = ("NEVER_POSTED" + (f"; unit(s) not in the grouping plan: {unknown}" if unknown else ""))
+        w["released_at"] = now()
+        w["completed_at"] = w["released_at"]
+        w["release_reason"] = reason
+        released.append({"wave": w.get("wave"), "reason": reason})
+    return released
+
+
 def extract_real_final_frame(ctx: Ctx, unit_id: str) -> dict[str, Any]:
     """ffmpeg last-frame grab of the harvested unit video (same recipe as the engine's
     episode_parallel_batch_supervisor.bind_predecessor_tail_frame: -sseof -0.10/-0.20/-0.50)."""
@@ -3809,6 +4128,11 @@ def stage_s6(ctx: Ctx) -> StageResult:
     # keeps exactly its recorded unit list until every one of its videos is on disk.
     wave_state_path = p.preprod_reports / f"{ctx.episode}_S6_WAVE_STATE.json"
     wave_state = read_json(wave_state_path, {}) or {"schema": "nalu.s6_wave_state.v1", "waves": []}
+    released = release_unposted_waves(ctx, wave_state)
+    if released:
+        write_json(wave_state_path, wave_state)
+        ctx.say(f"-- S6: released {len(released)} wave(s) that never POSTed: "
+                + "; ".join(f"wave {r['wave']} ({r['reason']})" for r in released))
     for _iteration in range(1, 8):
         deps = unit_dependency_order(ctx)
         done = {uid for uid, _, _ in deps if (p.video_media / f"{uid}.mp4").is_file()}
@@ -3871,12 +4195,19 @@ def stage_s6(ctx: Ctx) -> StageResult:
                 res = StageResult(REVIEW_REQUIRED)
                 res.details["derived_keyframes"] = derived_rows
                 res.details["derived_units_pending_q1"] = pending_q1
-                review_path, review = latest_submitted_review(ctx, "keyframe")
-                answered = set()
+                # One review file per still: gather the answered ones across every valid submitted
+                # review (newest per still) instead of only the newest review, or two pending derived
+                # frames ask for each other in turn and never reach the build below.
+                review_path, covered, unanswered = merge_keyframe_answers(
+                    ctx, [shot for _, shot in pending_q1])
+                if unanswered:
+                    # a still with no valid submitted answer: ask for exactly those
+                    res.details.update(request_review(ctx, res, "keyframe", sub_stage="S6.q1_derived",
+                                                      note="continuity-derived start frames (previous unit real tail) need the keyframe questionnaire",
+                                                      items=unanswered))
+                    res.blockers.append(f"S6.q1_derived:REVIEW_REQUIRED:{len(unanswered)}_frames")
+                    return res
                 if review_path is not None:
-                    answered = {str(it.get("item_id")) for it in (review.get("items") or [])}
-                unanswered = [shot for _, shot in pending_q1 if shot not in answered]
-                if not unanswered and review_path is not None:
                     build_step = qa_run(ctx, [KEYFRAME_Q1, "build", "--episode", ctx.episode, "--review", review_path],
                                         name="s6_q1_build_admission_derived")
                     res.steps.append(build_step)
@@ -3914,10 +4245,13 @@ def stage_s6(ctx: Ctx) -> StageResult:
                         res.blockers.append(f"S6.sfe_derived:REVIEW_REQUIRED:{len(need_sfe)}_frames")
                         return res
                     return _CONT  # admissions + receipts present; re-plan the wave
+                # no valid submitted answer covered the pending stills (merge_keyframe_answers
+                # returned missing): ask for exactly those, never build on absent answers.
+                missing_now = sorted(set(shot for _, shot in pending_q1) - set(covered))
                 res.details.update(request_review(ctx, res, "keyframe", sub_stage="S6.q1_derived",
                                                   note="continuity-derived start frames (previous unit real tail) need the keyframe questionnaire",
-                                                  items=unanswered))
-                res.blockers.append(f"S6.q1_derived:REVIEW_REQUIRED:{len(unanswered)}_frames")
+                                                  items=missing_now or [shot for _, shot in pending_q1]))
+                res.blockers.append(f"S6.q1_derived:REVIEW_REQUIRED:{len(missing_now or pending_q1)}_frames")
                 return res
             return None
 

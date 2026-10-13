@@ -985,7 +985,16 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                 "time": str(scene.get("time_id") or ""),
                 "weather": str(scene.get("weather") or ""),
                 "lighting": str(scene.get("lighting") or ""),
-                "palette": str(palette.get("base") or ""),
+                # A room scene must not inherit the episode-level outdoor colour cast.  The
+                # contract's ``palette_system.base`` is the whole episode's answer ("靛黑夜色、
+                # 雪面月色青蓝、林木深青灰"), and every INTERIOR_NO_WEATHER scene was handing it to
+                # the provider as 「综合色调=…」 — E11-VU-030's reverse shot then drifted outdoors
+                # (雪地、木栅栏、白桦林) inside a 堂屋 dialogue.  An interior scene carries its own
+                # authoring; only a scene that admits the weather keeps the episode palette.
+                "palette": str(scene.get("palette")
+                               or ("" if "INTERIOR" in str(scene.get("weather_provenance") or "").upper()
+                                   or str(scene.get("weather_provenance") or "").endswith("NO_WEATHER")
+                                   else palette.get("base") or "")),
                 # writer production fields required by tools/sd2_background_ecology_contract.py
                 # (BEAT_n_WRITER_AMBIENT_LIFE_MISSING / BEAT_n_WEATHER_PROVENANCE_MISSING); passed
                 # through verbatim from the generation contract, never synthesised here.
@@ -2247,6 +2256,28 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
         chars = sorted({str(c.get("character_id") or name2char.get(str(c.get("character")), ""))
                         for spec in specs for c in spec.get("cast") or []
                         if str(c.get("face_visibility") or "") != "OFFSCREEN_VOICE_ONLY"} - {""})
+        # K075 (E10 VU-020, GUIDANCE_ONLY until now): when several cast members each contribute an
+        # identity plate, the plate of the character the unit puts in front of the camera goes
+        # first.  This list is alphabetical by character_id, so E11-VU-015 shipped
+        # [CHAR-QINMING, CHAR-XUYUEPING] while 许岳平 was the primary actor, speaker and anchor of
+        # the unit — and the model handed 陆泽's/秦铭's plate face to the speaking man.  Only the
+        # plate order changes here; ``chars`` itself keeps its order for canonical_characters,
+        # unbound_canonical_entities and the trajectory walk.
+        def _speaker_first(character_ids: list[str]) -> list[str]:
+            def key(cid: str) -> tuple[int, int]:
+                for index, spec in enumerate(specs):
+                    role = spec.get("role_semantic_disambiguation") or {}
+                    if str(role.get("dialogue_speaker_id") or "") == cid and str(role.get("dialogue_speaker") or ""):
+                        return (0, index)
+                for index, spec in enumerate(specs):
+                    role = spec.get("role_semantic_disambiguation") or {}
+                    actor_id = str(role.get("primary_actor_id") or "")
+                    actor_name = str(role.get("primary_actor") or "")
+                    if actor_id == cid or (actor_name and name2char.get(actor_name) == cid):
+                        return (1, index)
+                return (2, character_ids.index(cid))
+            return sorted(character_ids, key=key)
+        plate_order = _speaker_first(list(chars))
         props = sorted({str(p.get("prop_id") or name2prop.get(str(p.get("prop")), ""))
                         for spec in specs for p in spec.get("props") or []} - {""})
         empty_unit = not chars and not props
@@ -2308,7 +2339,7 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
         # each unit with a single 720p keyframe (face ~80 px) and no identity plate at all.
         if not _policy_profile.uses_legacy_first_episode_exception(episode):
             plate_rows, plate_dropped, plate_missing = identity_plate_reference_rows(
-                chars, lambda character_id: _locked_identity_plate(character_id, episode=episode),
+                plate_order, lambda character_id: _locked_identity_plate(character_id, episode=episode),
                 existing_paths=task["reference_images"])
             for row in plate_rows:
                 task["reference_images"].append(row["path"])

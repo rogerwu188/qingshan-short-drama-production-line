@@ -80,6 +80,30 @@ export PYTHONPATH="$ENGINE_ROOT:$ENGINE_ROOT/lines/nalu/runtime/tools${PYTHONPAT
 export QINGSHAN_VOICE_REGISTRY="${QINGSHAN_VOICE_REGISTRY:-$NALU_RUNTIME_ROOT/runtime/voice_registry.json}"
 export NALU_WORK_ROOT="${NALU_WORK_ROOT:-$ENGINE_ROOT/workflow/nalu}"
 
+# Every order recorded after deployment (an acceptance, a new paid order) moves the inbox's
+# latest_order_seq, and D-11 refuses to spend until the deployment acknowledges it.  That refusal
+# is deliberate; arriving at it only after the pipeline has started was not: E11 (2026-10-09) the
+# line owner signed seq=28, `--check` said PASS on budget alone, and the paid run then stopped at
+# SUPERVISOR_ORDERS_LATEST_SEQ_MISMATCH:28!=27.  Say it here, before anything runs, with the fix.
+INBOX_LATEST="$("$VENV" -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("latest_order_seq", ""))' \
+  "$NALU_SUPERVISOR_ORDERS_PATH" 2>/dev/null || true)"
+if [ "$INBOX_LATEST" != "$NALU_LATEST_ORDER_SEQ" ]; then
+  # Newer orders that cannot touch spending (receipted acceptances / standing rules / S8
+  # approvals) are read without a manual ack; a paid order or revocation still stops here.
+  ACK="$(cd "$(dirname "$0")" && "$VENV" -c '
+import json, sys, roger_gate_acceptance as r
+rows = json.load(open(sys.argv[1], encoding="utf-8")).get("orders") or []
+ok, why = r.newer_orders_self_acknowledging(rows, expected_latest_seq=int(sys.argv[2]), expected_issuer=sys.argv[3])
+print(("OK " if ok else "NO ") + why)' "$NALU_SUPERVISOR_ORDERS_PATH" "$NALU_LATEST_ORDER_SEQ" "$NALU_LINE_OWNER_ID" 2>&1 || true)"
+  case "$ACK" in
+    OK*) echo "paid_stage: inbox seq=$INBOX_LATEST > acknowledged $NALU_LATEST_ORDER_SEQ; newer orders are receipted non-paid ($ACK)" >&2 ;;
+    *) die "order inbox latest_order_seq=${INBOX_LATEST:-unreadable} but NALU_LATEST_ORDER_SEQ=$NALU_LATEST_ORDER_SEQ ($ACK).
+  A newer order that can change spending was recorded after deployment.  Read it, then set NALU_LATEST_ORDER_SEQ=$INBOX_LATEST
+  where the deployment keeps it ($ENV_FILE or the service environment).
+  No POST was attempted." ;;
+  esac
+fi
+
 LEDGER="$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_budget_ledger.py"
 if [ -f "$LEDGER" ]; then
   echo "paid_stage: budget position for $EPISODE"

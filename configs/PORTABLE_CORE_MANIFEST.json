@@ -68,6 +68,9 @@
     "lines/nalu/runtime/tools/video_q2_builder.py",
     "lines/nalu/runtime/tools/keyframe_q1_builder.py",
     "lines/nalu/docs/DEPLOY_NEW_MACHINE.md",
+    "tools/tests/test_nalu_standing_rule_and_still_registry.py",
+    "tools/tests/test_nalu_owner_decision_queue.py",
+    "tools/tests/test_reference_image_compression.py",
     "tools/tests/test_nalu_runtime_port.py",
     "tools/tests/test_nalu_media_tools.py",
     "tools/script_structure_contract_gate.py",
@@ -78,6 +81,7 @@
     "tools/final_cut_audience_gate.py",
     "lines/nalu/runtime/tools/build_voice_cast.py",
     "lines/nalu/runtime/tools/build_final_cut_speaker_map.py",
+    "lines/nalu/runtime/tools/owner_decision_queue.py",
     "lines/nalu/runtime/tools/roger_gate_acceptance.py",
     "knowledge/failure_memory.jsonl",
     "lines/nalu/runtime/tools/final_cut_shot_plan_parity.py",
@@ -174,7 +178,12 @@
     "tools/storyclaw_dependency_bundle.py",
     "tools/tests/test_storyclaw_dependency_bundle.py",
     "tools/storyclaw_registry_clean_install_smoke.py",
-    "tools/tests/test_storyclaw_registry_clean_install_smoke.py"
+    "tools/tests/test_storyclaw_registry_clean_install_smoke.py",
+    "tools/tests/test_nalu_release_unposted_waves.py",
+    "tools/tests/test_video_preintent_failure_classification.py",
+    "tools/tests/test_nalu_derived_q1_answer_merge.py",
+    "tools/tests/test_nalu_self_acknowledging_orders.py",
+    "tools/tests/test_sd2_provider_id_sanitizer.py"
   ],
   "portable_test_modules": [
     "tools.tests.test_editorial_pacing_contract",
@@ -226,6 +235,9 @@
     "tools.tests.test_credit_window_isolation",
     "tools.tests.test_knowledge_registry",
     "agent_factory.claude_writer_v2.tests.test_smoke",
+    "tools.tests.test_nalu_standing_rule_and_still_registry",
+    "tools.tests.test_nalu_owner_decision_queue",
+    "tools.tests.test_reference_image_compression",
     "tools.tests.test_nalu_runtime_port",
     "tools.tests.test_nalu_media_tools",
     "tools.tests.test_dialogue_voice_metrics",
@@ -261,6 +273,11 @@
     "tools.tests.test_storyclaw_registry_clean_install_smoke",
     "tools.tests.test_direction_policy_gate",
     "tools.tests.test_stage_time_ledger",
-    "tools.tests.test_audio_cut_overlap"
+    "tools.tests.test_audio_cut_overlap",
+    "tools.tests.test_nalu_release_unposted_waves",
+    "tools.tests.test_video_preintent_failure_classification",
+    "tools.tests.test_nalu_derived_q1_answer_merge",
+    "tools.tests.test_nalu_self_acknowledging_orders",
+    "tools.tests.test_sd2_provider_id_sanitizer"
   ]
 }

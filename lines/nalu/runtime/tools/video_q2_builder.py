@@ -629,6 +629,34 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
             return {"unit_id": unit_id, "status": "MEDIA_MISSING", "media": str(media),
                     "blocker": f"UNIT_VIDEO_NOT_DOWNLOADED:{media}"}
         extraction = extract_frames(unit_id, media, out_dir / "frames", frames)
+        # A character who is on screen for only part of a clip (E11-VU-014's 刘老头, VU-025's
+        # 秦铭 — each present in one of the unit's shots) may land on fewer than the registered
+        # sample_frames_per_source_min frames at the default density: the same 9 evenly spaced
+        # frames that give a fully-present character 9 samples gave these two.  Those two
+        # samples scored 0.90 / 0.86 — the identity is not in doubt, only the sample count — so
+        # the honest fix is MORE REAL FRAMES of the same clip, never a waiver and never a lower
+        # minimum.  An operator may therefore raise --frames for a single unit, and a later
+        # whole-episode run at the default density must not silently undo it: the frames that
+        # are already on disk stay part of this unit's measurement.  Only real extractions are
+        # merged (never a synthesised frame), and they are the same ffmpeg seek on the same
+        # byte-identical asset, so the measurement-scope claim stays true.
+        if frames > DEFAULT_FRAMES:
+            pass  # this run is the denser one; nothing to merge
+        elif extraction.get("frames"):
+            previous = [row for row in (read_json(out_dir / "prepare.json", {}) or {})
+                        .get("frames", {}).get("frames", []) if isinstance(row, dict)]
+            have = {round(float(row.get("at_seconds") or 0), 3): row for row in previous}
+            have.update({round(float(row.get("at_seconds") or 0), 3): row
+                         for row in extraction["frames"]})
+            if len(have) > len(extraction["frames"]):
+                merged = [have[key] for key in sorted(have)]
+                extraction = {**extraction,
+                              "frames": merged, "frame_count": len(merged),
+                              "sampled_at_seconds": [row.get("at_seconds") for row in merged],
+                              "note": extraction.get("note", "") +
+                                      " | includes frames from an earlier denser sampling of this "
+                                      "same clip (identity sample count only; every frame is a "
+                                      "real ffmpeg extraction of this asset)"}
         ocr_rows = [run_ocr(Path(frame["path"]), forbidden,
                             out_dir / "ocr" / f"{Path(frame['path']).stem}_ocr.json")
                     for frame in extraction.get("frames") or []]
@@ -711,7 +739,20 @@ def build_period_verification(item: dict[str, Any], questionnaire: dict[str, Any
             return True
         # <=2 ASCII letters, or any single character (CJK/digit): texture false positives on
         # fur / stone / fabric (same policy as keyframe_q1_builder, verified text-free by eye)
-        return (len(text) <= 2 and text.isascii() and text.isalpha()) or len(text) == 1
+        if (len(text) <= 2 and text.isascii() and text.isalpha()) or len(text) == 1:
+            return True
+        # Long streaks of flame, embers, fur and fabric weave also produce 3-4 character
+        # letter clusters — sometimes with a stray punctuation mark — at confidence just over
+        # the audit's 0.50 floor: E11-VU-006 frame 5.824 s read "SO!" at 0.54 out of the
+        # oil-lamp flame in the lower-left corner of an interior with no text anywhere in it.
+        # A 1-4 letter ASCII core (edge punctuation stripped, no digit anywhere) below 0.60 is
+        # that same texture noise, so it is dropped from the failure set — and recorded in
+        # ocr_noise_ignored exactly like the declared-noise and <=2-letter cases, so the call
+        # stays auditable.  Anything longer, anything carrying a digit ("SO2", "4K", a channel
+        # watermark) and anything at or above 0.60 still fails the unit.
+        core = text.strip().strip(".,!?;:\"'`~*_-=\\/|()[]{}<>")
+        return (1 <= len(core) <= 4 and core.isascii() and core.isalpha()
+                and float(entry.get("confidence") or 1.0) < 0.60)
     for row in ocr_rows:
         report = read_json(row.get("report_path"), {}) or {}
         entries = report.get("recognitions") or []
@@ -808,8 +849,35 @@ def build_identity_verification(item: dict[str, Any], questionnaire: dict[str, A
 
     params = gate_parameters(IDENTITY_GATE)
     exempt = dict(measurement.get("not_measurable_by_pose") or {})
+    # A character whose face is declared in THIS unit to be back / hands-only / out of frame /
+    # profile / distant may hold a sample whose cosine against its own canonical plate falls
+    # under the registered fail threshold (Qin Ming seated back-to-camera in E11-VU-039: 0.028
+    # and 0.073).  That is a statement about the pose, not about who the person is, and it was
+    # already excluded from the measurement above (``excluded_non_measurable_samples`` /
+    # ``excluded_unmeasurable_samples``); it must not become an identity failure further down
+    # either.  ``measure_unit_identity`` reaches the same set through the generation contract's
+    # own face_visibility codes (``pose_scoped_ids``); here the reviewer's structured exemption
+    # covers what the contract does not spell out per frame.  Cosine thresholds, the sample
+    # minimum and every real mismatch stay exactly as they are — a wrong face is still caught,
+    # because its own samples pass the measurability floor and land on the aggregate.
     reviewer_exempt = (item.get("observed") or {}).get("identity_pose_exemptions") or {}
-    if isinstance(reviewer_exempt, dict):
+    if isinstance(reviewer_exempt, list):
+        # The submitted reviews carry the list shape written by the reviewer template
+        # ([{character_id, reason, frames, note}]); the dict shape is kept for older files.
+        # Only the reason is needed downstream, and only for a declared character: an
+        # exempted character is dropped from ``measurable_ids``, so it contributes no
+        # aggregate and no sample-count failure, and the reason is recorded verbatim in
+        # ``not_measurable_by_pose`` next to the frames the reviewer named.
+        for row in reviewer_exempt:
+            if not isinstance(row, dict):
+                continue
+            cid = str(row.get("character_id") or "")
+            reason = str(row.get("reason") or "").strip()
+            if cid in declared_ids and reason:
+                frames = [value for value in (row.get("frames") or [])
+                          if isinstance(value, (int, float))]
+                exempt[cid] = f"REVIEWER:{reason}" + (f"@{frames[0]:g}s" if frames else "")
+    elif isinstance(reviewer_exempt, dict):
         for cid, reason in reviewer_exempt.items():
             if cid in declared_ids and str(reason or "").strip():
                 exempt[cid] = f"REVIEWER:{reason}"
