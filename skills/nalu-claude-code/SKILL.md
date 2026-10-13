@@ -1,12 +1,14 @@
 ---
 name: nalu-claude-code
-description: Install the Qingshan/NALU short-drama line on an OpenClaw host, wire Claude Code to the host's own LLM relay, prepare the episode's narrative script, and hand S1-S7 to an unattended Claude Code run that the agent monitors.
+description: Install the Qingshan/NALU short-drama line on an OpenClaw host, wire the Codex CLI (gpt-5.6) to the LLM provider the line owner gives, prepare each episode's narrative script, hand S1-S7 to an unattended Codex run, publish to X2C and keep producing episode after episode.
 ---
 
-# NALU 生产线 · OpenClaw 编排 + Claude Code 执行
+# NALU 生产线 · OpenClaw 编排 + Codex 执行
 
-分工（线主 2026-10-09/10 定）：OpenClaw 代理负责安装、配置 Claude Code、取原著、逐集写叙事正典与生产简报、
-监控进度、把成片发行到 X2C、接着启动下一集；Claude Code 负责每一集的四层剧本结构化与 S1→S7 全部生产。机器放在机房里
+分工（线主 2026-10-09/10 定；2026-10-13 起执行者由 Claude Code 换成 Codex + gpt-5.6）：OpenClaw 代理负责安装、配置 Codex、
+取原著、逐集写叙事正典与生产简报、监控进度、接着启动下一集；Codex 负责每一集的四层剧本结构化与 S1→S7 全部生产；
+发行到 X2C 由心跳脚本自动完成。（目录名 `nalu-claude-code` 与合同文件名 `CLAUDE_CODE_PRODUCTION.md` 为兼容保留；
+合同对 Codex 的适配由 `codex_production.py` 自动附加。）机器放在机房里
 连续产剧，全程无人值守，没有人实时看，线主不需要登录机器或在终端里输入任何东西。
 
 本目录脚本路径下文记作 `$S`。只有 `setup_host.sh` 从 TalentHub 安装的 skill 目录（或 `~/.nalu_bootstrap`）运行；
@@ -17,13 +19,23 @@ description: Install the Qingshan/NALU short-drama line on an OpenClaw host, wir
 ```bash
 bash $S/setup_host.sh --pin <PIN>
 ```
-幂等：已就绪的机器 1–2 秒内返回；否则自动补齐 §1 系统依赖与引擎、Python 环境、运行时初始化，安装 Claude Code 并运行
-`configure_claude_code.py --verify`（从 `~/.openclaw/openclaw.json` 读 StoryClaw provider 写入 Claude Code 配置）。
+幂等：已就绪的机器 1–2 秒内返回；否则自动补齐 §1 系统依赖与引擎、Python 环境、运行时初始化，安装 Codex 并运行
+`configure_codex.py --verify`（provider 见 §2）。返回 `status=NEEDS_PROVIDER` 表示其余都已就绪、只差 LLM provider：
+向线主要一次 provider 地址和 key（§2），写好后重跑本脚本。
 旧部署残留会被安全处理：引擎切到钉住的提交（有本地改动先 `git stash`），不是本脚本建的 `~/nalu_runtime` 改名为
-`~/nalu_runtime_old_<时间>` 保留。有一集还在生产中（Claude Code 在跑，或最后状态不是 `FINAL_CUT_READY`）时，
+`~/nalu_runtime_old_<时间>` 保留。有一集还在生产中（Codex 在跑，或最后状态不是 `FINAL_CUT_READY`）时，
 脚本不切换引擎和 venv（`engine=DEFERRED_IN_FLIGHT`），新钉住的提交等那一集完成后的第一次唤醒再生效。只读最后一行 `NALU_SETUP: {...}`：`status=READY` 才继续；`BLOCKED` 时 `failed_step`
-和 `~/.nalu_setup.log` 末尾说明原因（缺免密 sudo 编译 insightface、网络、relay 校验失败等），如实告诉用户。
-`notes` 里有改名/切换记录时告诉用户一句。下面 §1–§2 是脚本做的事，供排障参考。
+和 `~/.nalu_setup.log` 末尾说明原因（缺免密 sudo 编译 insightface、网络、provider 校验失败等），如实告诉用户。
+`notes` 里有改名/切换记录时告诉用户一句。`setup_host.sh` 自己也跟随钉住版本：引擎切到新提交后，若引擎里的 `setup_host.sh`
+与正在运行的不同，会自动交给引擎里的那份重跑一次。下面 §1–§2 是脚本做的事，供排障参考。
+
+READY 之后检查代理自身是否有新版本（有一集在生产中时自动跳过）：
+```bash
+bash $S/self_update.sh --agent-id <本代理 id> --restart
+```
+只读最后一行 `SELF_UPDATE: {...}`：`UPDATED` 表示 TalentHub 上的新版已装好（指令文件、skill），30 秒后重启 OpenClaw gateway，
+新指令从下一次会话生效——此时不要再开始新的生产步骤，告诉用户「已更新到 <版本>，重启后按新版继续」后结束本轮；
+`UP_TO_DATE` / `DEFERRED_IN_FLIGHT` / `SKIPPED` 照常继续；`ERROR` 记进 `series/STATUS.md` 后照常继续。
 
 ## 1. 安装生产线（代理执行）
 以 OpenClaw 的普通用户运行（不要 root）。`<PIN>` 为 IDENTITY.md 里钉住的提交。
@@ -44,19 +56,37 @@ cp configs/pipeline.example.json $NALU_RUNTIME_ROOT/qingshan.json
 ```
 把上面的 export 写进 `~/.bashrc`。不要设 `NALU_POLICY_PROFILE`。不需要 AgentCut、不需要角色照片（无照片走文生图）。
 
-## 2. 安装并配置 Claude Code（代理执行）
+## 2. LLM provider 与 Codex（首次配置时向线主要一次）
+miniPC 只用 Codex（模型 gpt-5.6），不装 Claude Code，也**不沿用** StoryClaw/OpenClaw 自己的模型配置。首次配置时（`setup_host.sh`
+返回 `NEEDS_PROVIDER`）向线主要一次：provider 的 **base URL**（OpenAI Responses 兼容，形如 `https://…/v1`）和 **API key**，
+模型不说就用 `gpt-5.6`。收到后写：
 ```bash
-npm install -g @anthropic-ai/claude-code || curl -fsSL https://claude.ai/install.sh | bash
-python3 $S/configure_claude_code.py --verify     # 读 ~/.openclaw/openclaw.json 的 storyclaw provider，写 ~/.claude/settings.json
+umask 077; python3 - <<'PY'
+import json, os, pathlib
+p = pathlib.Path(os.path.expanduser("~/nalu_runtime/credentials/llm_provider.json"))
+p.parent.mkdir(parents=True, exist_ok=True)
+p.write_text(json.dumps({"base_url": "<URL>", "api_key": "<KEY>", "model": "gpt-5.6"}))
+os.chmod(p, 0o600)
+PY
+bash $S/setup_host.sh --pin <PIN>          # 自动安装 Codex（npm）、写 ~/.codex/config.toml、发一条测试请求
 ```
-必须输出 `"status": "VERIFIED"`。脚本只显示 key 末 4 位，绝不要把 key 打印、转述或写进聊天。provider 名不是 `storyclaw`
-时用 `--provider <名>`。Claude Code 默认使用 Claude Opus 5.5（provider 列表里有它就用中转自己的写法，否则用
-`claude-opus-5-5`）；中转不认这个名字导致 `VERIFY_FAILED` 时，用 `--model <中转里 Opus 5.5 的 id>` 重跑。
+只回复「已配置 LLM provider」，绝不把 key 打印、转述或写进聊天。线主以后换 provider 时同样改这个文件，下一次唤醒会自动重新配置。
+`CODEX_CONFIG` / `codex_config` 为 `VERIFY_FAILED` 时把 `detail`（key 已打码）告诉线主，多半是地址、key 或模型名不对。
 
 ## 3. 线主提供的信息（只通过对话）
 - Giggle API key：线主在对话里发来时，直接写入 `$NALU_ENGINE_ROOT/.env` 的 `GIGGLE_API_KEY=`（保持 600），只回复「已配置 GIGGLE_API_KEY」。
-- 原著：网址/文件/粘贴正文/大纲。网址直接抓取（翻页、目录逐章、必要时无头浏览器）；需要登录就向线主要账号或 Cookie；
-  抓不全时如实报 `SOURCE_ACQUISITION_BLOCKED`，不凭搜索摘要补写。原文存 `$NALU_RUNTIME_ROOT/sources/<作品>/`，记 URL、时间、SHA-256。
+- 原著：**代理自己上网找、自己抓正文，不向线主索要原著。**
+  - 线主给了网址、文件或粘贴正文：直接用。
+  - 只给了作品名：自己搜索正文所在的网站（维基文库、古登堡、公版书库、各大小说站等），目录逐章抓取、自动翻页，必要时用无头浏览器；
+    一个站抓不全就换下一个站，至少试 3 个来源再说抓不到。
+  - 什么都没给（例如只说「开始生产」）：自己选一部**公有领域**的中文小说（作者去世超过 50 年，如晚清、民国作品），
+    不选本机 `series/` 里已做过的，然后按上面的方法抓正文；选定后告诉线主一句剧名即可，不等回复。
+  - 需要登录或会员的站点：先找有没有免登录的来源；都没有才向线主要账号或 Cookie。
+  - 抓不全时不凭搜索摘要或记忆补写：线主指定的作品报 `SOURCE_ACQUISITION_BLOCKED`；自己选的作品就换一部重新选，不停下。
+  - 兜底：线主没指定作品、连换 3 部都抓不全或机器无法上网时，代理自己写一部原创短剧（人物、设定、分集大纲），存为
+    `sources/<剧名>/ORIGINAL_OUTLINE.md` 当作原著直接开工；不借用现有作品或示例剧的人物与情节。
+    `rights_basis` =「原创剧本，由短剧工作流代理创作；角色为 AI 生成的虚构人物」。
+  原文存 `$NALU_RUNTIME_ROOT/sources/<作品>/`，记 URL、时间、SHA-256。
 - X2C（x2creel.ai）发行 API key：线主发来时写入 `$NALU_RUNTIME_ROOT/credentials/x2c_api_key`（`chmod 600`），只回复「已配置 X2C_API_KEY」。
   机房批量部署时也可以由运维预先放好这个文件。
 - 线主 id、剧名、风格、单集时长、预算、目标集数：没给就用默认值写进简报（目标集数默认按原著能改编的集数做完），不再征求确认。
@@ -67,22 +97,30 @@ python3 $S/configure_claude_code.py --verify     # 读 ~/.openclaw/openclaw.json
    `agent_factory/claude_writer_v2/templates/NARRATIVE_CANONICAL.template.md`。只写事实、可表演的动作和**逐字台词**，按
    `## <EP>-S01｜<LOC-ID>｜<时间>｜线A` 分场；不写机位、灯光、资产。一集 2–4 场、20–60 秒为宜；台词决定时长（每 4 个汉字约 1 秒）。
 2. `$NALU_RUNTIME_ROOT/briefs/<EP>_PRODUCTION_BRIEF.json`：
-   `{"episode","title","owner_id"（用户没指定就填 "owner"）,"style","target_seconds","budget_cap"（用户指定了才填；不填时 Claude Code 按预估 ×1.6、不低于 1500 自定）,"genre"（X2C 分类名，见 §6）,"synopsis"（全剧简介，发行用）,"authorization":{"order_text","rights_basis","consent_ref"},"characters":[{"character_id":"CHAR-XXX","name","slug","role":"protagonist|supporting","sex","apparent_age_range","appearance","wardrobe","voice_brief"}],"locations":[{"location_id":"LOC-XXX","label","description","fixed_elements":[]}],"owner_words":{"<日期>":"<线主原话>"}}`
+   `{"episode","title","owner_id"（用户没指定就填 "owner"）,"style","target_seconds","budget_cap"（用户指定了才填；不填时执行者按预估 ×1.6、不低于 1500 自定）,"genre"（X2C 分类名，见 §6）,"synopsis"（全剧简介，发行用）,"authorization":{"order_text","rights_basis","consent_ref"},"characters":[{"character_id":"CHAR-XXX","name","slug","role":"protagonist|supporting","sex","apparent_age_range","appearance","wardrobe","voice_brief"}],"locations":[{"location_id":"LOC-XXX","label","description","fixed_elements":[]}],"owner_words":{"<日期>":"<线主原话>"}}`
    `authorization` 按默认授权条款填写（见代理 AGENTS.md §6）：`order_text` = 「默认授权：用户已提供 Giggle API key，按短剧工作流条款同意本项目每集付费生产，每集上限 <budget_cap> 积分」+ 用户关于预算/授权的原话（去掉任何 key、Cookie、密码）；
-   `rights_basis` = 「用户承诺对所提供的原著与素材有使用权（短剧工作流默认条款）」+ 用户关于版权的原话（如有）；`consent_ref` = 用户提供 key 的对话时间。
+   `rights_basis` = 「用户承诺对所提供的原著与素材有使用权（短剧工作流默认条款）」+ 用户关于版权的原话（如有）；代理自选的公有领域作品写「公有领域作品：<作者>，卒于 <年份>」；`consent_ref` = 用户提供 key 的对话时间。
 3. `python3 $S/apply_runtime_fixups.py --runtime-root $NALU_RUNTIME_ROOT --character <名>=<CHAR-ID>:<slug> ... --cap <预算>`
    以及 `$NALU_ENGINE_ROOT/.qingshan-venv/bin/python $S/make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第N集 · <集名>"`
    （片尾每集重做一次，文件名固定，S7 直接用最新的）。
 写剧本时避开这些已知坑：首帧要看得见的道具别设计成「从怀里掏出」；古装灯写「无罩敞口油盏」；每个说话角色男女/音色要能区分；不写全黑画面。
 
-## 5. 交给 Claude Code 并监控
+## 5. 交给 Codex 并监控
 ```bash
-python3 $S/claude_production.py start  --episode <EP>                 # 后台启动；生产合同见 ../CLAUDE_CODE_PRODUCTION.md
-python3 $S/claude_production.py status --episode <EP>                 # 读最后一行 NALU_STATUS 与流水线状态
-python3 $S/claude_production.py resume --episode <EP> --message "<文本>"
+python3 $S/codex_production.py start  --episode <EP>                 # 后台启动；生产合同见 ../CLAUDE_CODE_PRODUCTION.md
+python3 $S/codex_production.py status --episode <EP>                 # 读最后一行 NALU_STATUS 与流水线状态
+python3 $S/codex_production.py resume --episode <EP> --message "<文本>"
+python3 $S/codex_production.py tick                                  # 心跳：例行动作脚本自己做，见下
+python3 $S/codex_production.py report                                # 给线主的进度摘要（一次 X2C 查询）
 ```
-心跳（建议每 5 分钟）按 `status` 输出行动：
-- `RUNNING`：不打扰。
+**心跳（每 15 分钟）只跑 `tick`**，只读最后一行 `NALU_TICK: {...}` 的 `action`：
+- `NONE`：脚本已处理完（在跑、已续跑、已发行或发行暂缓、在等线主），**立即结束本轮**，不要再读别的文件。
+- `WRITE_NEXT_EPISODE`：本集已出片——按 §7 写下一集并 `start`（发行脚本会自己按顺序做）。
+- `AGENT`：看 `reason` 和 `nalu_status`，按下面处理；同一个情况脚本只交给你一次，之后的心跳返回 `NONE`。
+`tick` 自己做的事：按集号顺序发行已出片未发行的集（一次一集，有待审集时暂缓，见 §6）；Codex 会话结束但没给 `NALU_STATUS` 时
+续跑最多 3 次；`WAITING_REMOTE` 续跑；以前用 Claude Code 起的、已停下的集改用 Codex 接着跑；`series/PAUSED` 存在时什么都不做。
+`AGENT` 时的处理（`state` 即 `nalu_status.state`）：
+- 在跑时（`status` 为 `RUNNING`）：不打扰。
 - `IDLE` + `OWNER_DECISION_REQUIRED`：只剩少数情况会出现（Giggle key 缺失/失效、追加一次后预算仍不够、新的付费类别）。
   把 `question` 原样转给线主，**本项目暂停**等回复；线主回复后用 `resume --message "线主原话：<逐字>"`。不得替线主回答。
 - `IDLE` + `WAITING_REMOTE`：5 分钟后 `resume --message "继续"`。
@@ -90,9 +128,13 @@ python3 $S/claude_production.py resume --episode <EP> --message "<文本>"
   `$NALU_RUNTIME_ROOT/series/STATUS.md` 并告诉线主，本项目暂停。
 - `IDLE` + `FINAL_CUT_READY`：不要停，按 §6 发行，再按 §7 启动下一集。`note` 里的默认接受记录汇总进 `series/STATUS.md`。
 - `IDLE` 但没有 NALU_STATUS 行（会话异常结束）：`resume --message "继续，并在最后输出 NALU_STATUS 行"`。
-只读 `status` 的结构化输出；不要改 Claude Code 写的剧本、订单、审核或事务文件。
+- `reason` 以 `PROVIDER_ERROR` 开头：LLM provider 的 key、额度或地址出问题，告诉线主，本项目暂停。
+- `PUBLISH_BLOCKED` / `PUBLISH_EPISODE_NUMBER_COLLISION`：见 §6。
+只读结构化输出；不要改 Codex 写的剧本、订单、审核或事务文件。用户说「暂停」：`touch $NALU_RUNTIME_ROOT/series/PAUSED`；
+恢复时删掉它。
 
 ## 6. 发行到 X2C（x2creel.ai，每集成片后自动做）
+心跳 `tick` 会自动发行（第一集用简报的 `title` / `synopsis` / `genre` 建项目）；下面的命令供排障和手动重发。
 ```bash
 P=$NALU_ENGINE_ROOT/.qingshan-venv/bin/python
 $P $S/publish_x2creel.py categories                       # 可用分类：玄幻异能/悬疑惊悚/科幻末世/都市复仇/热门综合/霸总甜宠/仙侠古装 …
@@ -101,6 +143,11 @@ $P $S/publish_x2creel.py status                           # 本地记录 + X2C �
 ```
 - 第一集创建 X2C 项目（封面默认取成片第 1.5 秒画面，也可 `--cover <图>`）；之后每集自动追加到同一个项目，`--title/--description/--category`
   可省略。项目 id 与已发的集记在 `$NALU_RUNTIME_ROOT/distribution/x2creel.json`，同一集重跑返回 `ALREADY_PUBLISHED`，不会重复发。
+- **按集号顺序发，一次只追加一集**：X2C 追加集按「已过审集数 + 1」发号，有集还在 `pending_review` 时再追加，新集会拿到同一个号并
+  静默顶掉它。脚本发前先查远端：有待审集就返回 `DEFERRED_PENDING_REVIEW`（什么都没发），记一行「发行暂缓：等待第 N 集过审」进
+  `series/STATUS.md`，下次心跳重试。**还没发的成片按集号从小到大逐集重试，前一集没发出去不发后一集**；生产和下一集照常推进。
+- 返回 `EPISODE_NUMBER_COLLISION`（`collides_with` 里的集多半已被顶掉）：记进 `series/STATUS.md`，等本集过审后对被顶的集
+  `publish_x2creel.py forget --episode <被顶的集>`（自动备份本地记录）再 `publish` 重发。`forget` 只在这种情况或线主要求重发时用。
 - 分类按题材选（简报 `genre`）；找不到时脚本落到「热门综合」。
 - 返回 `BLOCKED: X2C_API_KEY_MISSING` 时请线主发 X2C key（§3），收到后重跑；其余 `ERROR` 记进 `series/STATUS.md`，下一次心跳重试，不阻塞下一集生产。
 - 只用 X2C 分发 API 的 1、2、3、4、5、6 步（分类、上传 URL、发布、追加、查询、列出），不用 3.5（Developer JWT 代发布）。
@@ -111,8 +158,8 @@ $P $S/publish_x2creel.py status                           # 本地记录 + X2C �
 2. 写 `<EP+1>_PRODUCTION_BRIEF.json`：沿用上一集简报的 owner_id、剧名、风格、genre、synopsis、authorization（`order_text` 里的集号与上限改成本集）；
    `characters`/`locations` 里**已出现的角色和地点逐字沿用原 ID 和设定**，只追加新的。
 3. 有新的说话角色时补跑 `apply_runtime_fixups.py --character …`；重做片尾（§4.3，副标题换成本集）。
-4. `claude_production.py start --episode <EP+1>`（每集一个新的 Claude Code 会话）。
-5. 每集结束更新 `$NALU_RUNTIME_ROOT/series/STATUS.md`：集号、时长、Giggle 积分、X2C 集号/状态、默认接受了哪些质量问题、Claude Code 会话费用（`status` 里的 `cost_usd`）。
+4. `codex_production.py start --episode <EP+1>`（每集一个新的 Codex 会话）。
+5. 每集结束更新 `$NALU_RUNTIME_ROOT/series/STATUS.md`：集号、时长、本机已花费的 Giggle 积分（不是余额）、X2C 集号/状态、默认接受了哪些质量问题、Codex 会话 token 用量（`status` / `report` 里的 usage；不报美元）。
 全部集完成后在 `series/STATUS.md` 写「SERIES_DONE」并告诉线主。
 
 ## 8. 不做的事

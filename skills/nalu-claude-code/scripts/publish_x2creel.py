@@ -10,10 +10,17 @@ Workflow (https://www.x2creel.ai/api-docs, 分发 API):
   publish_x2creel.py publish --episode E01 --title <剧名> --description <简介> --category <名称或 id>
                              [--video <mp4>] [--cover <jpg/png>]
   publish_x2creel.py status
+  publish_x2creel.py forget --episode E02     (drop one episode's local record, backed up, so it can be re-sent)
 
 State lives in $NALU_RUNTIME_ROOT/distribution/x2creel.json: the project id, the category, and every
 episode already sent (with the video SHA-256), so a re-run never publishes or appends an episode
-twice.  The first ``publish`` creates the project; every later episode is appended to it.  The default
+twice (the key is the video SHA-256; to re-send the same cut, ``forget`` the episode first).
+
+Pending-review guard: X2C numbers an appended episode as (approved episodes + 1), so appending while an
+earlier episode is still ``pending_review`` silently gives the new one the SAME number and replaces it.
+``publish`` therefore queries the project first and returns DEFERRED_PENDING_REVIEW (exit 0, nothing
+sent) while ``pending_videos`` is non-empty; the caller retries on a later heartbeat.  A number already
+held by another local episode is reported as EPISODE_NUMBER_COLLISION.  The first ``publish`` creates the project; every later episode is appended to it.  The default
 video is $NALU_RUNTIME_ROOT/deliverables/<EP>/<EP>_final_9x16.mp4 and the default cover is a frame
 taken from it with ffmpeg.
 
@@ -165,6 +172,14 @@ def cmd_publish(a: argparse.Namespace) -> dict[str, Any]:
     if not state.get("project_id"):
         cover = Path(a.cover).expanduser() if a.cover else cover_from_video(video)
         files.insert(0, {"file_type": "cover", "file_name": f"cover{cover.suffix or '.jpg'}", "content_type": mime(cover)})
+    if state.get("project_id"):
+        remote = call("distribution/query", project_id=state["project_id"])
+        pending = remote.get("pending_videos") or []
+        if pending:
+            return {"status": "DEFERRED_PENDING_REVIEW", "episode": a.episode, "project_id": state["project_id"],
+                    "pending_videos": pending, "approved_episodes": remote.get("total_episodes"),
+                    "note": "an earlier episode is still pending review; appending now would reuse its number. "
+                            "Nothing was sent; retry on a later heartbeat."}
     up = call("distribution/upload-url", files=files)
     urls: dict[str, str] = {}
     for row in up.get("uploads") or []:
@@ -185,11 +200,30 @@ def cmd_publish(a: argparse.Namespace) -> dict[str, Any]:
         res = call("distribution/add-episodes", project_id=state["project_id"], video_urls=[urls["video"]])
         number = ((res.get("new_episodes") or [{}])[0]).get("episode_number")
         status = res.get("routed_to")
+    clash = sorted(ep for ep, row in state["episodes"].items()
+                   if ep != a.episode and number is not None and row.get("episode_number") == number)
     state["episodes"][a.episode] = {"episode_number": number, "video_sha256": digest, "video_url": urls["video"],
                                     "sent_at": now, "status": status}
+    if clash:
+        state["episodes"][a.episode]["collides_with"] = clash
     save_state(state)
-    return {"status": "PUBLISHED", "episode": a.episode, "project_id": state["project_id"],
-            "episode_number": number, "x2c_status": status}
+    return {"status": "EPISODE_NUMBER_COLLISION" if clash else "PUBLISHED", "episode": a.episode,
+            "project_id": state["project_id"], "episode_number": number, "x2c_status": status,
+            **({"collides_with": clash,
+                "note": "X2C gave this episode a number another local episode already holds; that episode "
+                        "was probably replaced. Check `status` and re-send it after this one is approved."}
+               if clash else {})}
+
+
+def cmd_forget(a: argparse.Namespace) -> dict[str, Any]:
+    state = load_state()
+    row = state["episodes"].pop(a.episode, None)
+    if row is None:
+        return {"status": "NOT_FOUND", "episode": a.episode}
+    backup = state_path().with_name(f"x2creel.{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.bak.json")
+    backup.write_text(state_path().read_text(encoding="utf-8"), encoding="utf-8")
+    save_state(state)
+    return {"status": "FORGOTTEN", "episode": a.episode, "removed": row, "backup": str(backup)}
 
 
 def main() -> int:
@@ -201,16 +235,24 @@ def main() -> int:
     p.add_argument("--description", default=""); p.add_argument("--category", default="")
     p.add_argument("--video", default=""); p.add_argument("--cover", default="")
     sub.add_parser("status")
+    f = sub.add_parser("forget"); f.add_argument("--episode", required=True)
     a = ap.parse_args()
     if a.cmd == "categories":
         out = {"status": "OK", "categories": [{"id": x["id"], "name": x["name"]}
                                               for x in call("distribution/categories", lang=a.lang).get("categories") or []]}
     elif a.cmd == "publish":
         out = cmd_publish(a)
+    elif a.cmd == "forget":
+        out = cmd_forget(a)
     else:
         state = load_state()
+        numbers: dict[Any, list[str]] = {}
+        for ep, row in state["episodes"].items():
+            numbers.setdefault(row.get("episode_number"), []).append(ep)
+        dupes = {str(n): eps for n, eps in numbers.items() if n is not None and len(eps) > 1}
         out = {"status": "NO_PROJECT_YET", "state": state} if not state.get("project_id") else {
-            "status": "OK", "local": state, "remote": call("distribution/query", project_id=state["project_id"])}
+            "status": "OK", "local": state, "local_number_collisions": dupes,
+            "remote": call("distribution/query", project_id=state["project_id"])}
     print(json.dumps(out, ensure_ascii=False, indent=2))
     return 0 if out["status"] not in ("BLOCKED", "ERROR") else 3
 

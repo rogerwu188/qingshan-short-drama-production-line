@@ -19,7 +19,7 @@ class PublishFlowTests(unittest.TestCase):
         root = Path(self.tmp.name)
         os.environ["NALU_RUNTIME_ROOT"] = str(root)
         os.environ["X2C_API_KEY"] = "x2c_sk_test"
-        for ep in ("E01", "E02"):
+        for ep in ("E01", "E02", "E03"):
             d = root / "deliverables" / ep
             d.mkdir(parents=True)
             (d / f"{ep}_final_9x16.mp4").write_bytes(f"video-{ep}".encode())
@@ -27,6 +27,8 @@ class PublishFlowTests(unittest.TestCase):
         self.cover = str(root / "cover.jpg")
         self.calls: list[tuple[str, dict]] = []
         self.puts: list[str] = []
+        self.pending: list[dict] = []
+        self.next_number = 2
 
         def fake_call(action, **payload):
             self.calls.append((action, payload))
@@ -40,7 +42,10 @@ class PublishFlowTests(unittest.TestCase):
                 return {"success": True, "project_id": "proj-1", "status": "pending_review",
                         "episodes": [{"episode_number": 1}]}
             if action == "distribution/add-episodes":
-                return {"success": True, "new_episodes": [{"episode_number": 2}], "routed_to": "writer_director"}
+                return {"success": True, "new_episodes": [{"episode_number": self.next_number}],
+                        "routed_to": "writer_director"}
+            if action == "distribution/query":
+                return {"success": True, "total_episodes": 1, "pending_videos": list(self.pending)}
             raise AssertionError(action)
 
         self.saved = (px.call, px.put_file)
@@ -74,6 +79,30 @@ class PublishFlowTests(unittest.TestCase):
         add = next(p for a, p in self.calls if a == "distribution/add-episodes")
         self.assertEqual(add["project_id"], "proj-1")
         self.assertEqual(sum(1 for a, _ in self.calls if a == "distribution/publish"), 1)
+
+    def test_append_is_deferred_while_an_episode_is_pending_review(self):
+        px.cmd_publish(self.args("E01", title="剧名", description="简介", category="仙侠古装", cover=self.cover))
+        self.pending = [{"episode_number": 2, "status": "pending_review"}]
+        before = len(self.calls)
+        out = px.cmd_publish(self.args("E02"))
+        self.assertEqual(out["status"], "DEFERRED_PENDING_REVIEW")
+        self.assertEqual([a for a, _ in self.calls[before:]], ["distribution/query"])  # nothing uploaded or appended
+        self.assertNotIn("E02", px.load_state()["episodes"])
+        self.pending = []
+        self.assertEqual(px.cmd_publish(self.args("E02"))["status"], "PUBLISHED")
+
+    def test_reused_episode_number_is_reported_and_forget_allows_resend(self):
+        px.cmd_publish(self.args("E01", title="剧名", description="简介", category="仙侠古装", cover=self.cover))
+        px.cmd_publish(self.args("E02"))
+        out = px.cmd_publish(self.args("E03"))  # X2C hands out number 2 again
+        self.assertEqual(out["status"], "EPISODE_NUMBER_COLLISION")
+        self.assertEqual(out["collides_with"], ["E02"])
+        self.assertEqual(px.cmd_publish(self.args("E02"))["status"], "ALREADY_PUBLISHED")
+        gone = px.cmd_forget(argparse.Namespace(episode="E02"))
+        self.assertEqual(gone["status"], "FORGOTTEN")
+        self.assertTrue(Path(gone["backup"]).is_file())
+        self.next_number = 3
+        self.assertEqual(px.cmd_publish(self.args("E02"))["status"], "PUBLISHED")
 
     def test_first_publish_requires_metadata(self):
         out = px.cmd_publish(self.args("E01", cover=self.cover))

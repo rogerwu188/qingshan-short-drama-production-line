@@ -48,7 +48,8 @@ python3 lines/nalu/runtime/tools/bootstrap_runtime_root.py --runtime-root "$RUNT
 ## 2. 素材进来先做什么（四类素材 → canonical 前的落位）
 
 用户只给：短剧要求与集数预算 / 小说网址或剧本文件 / 图片（人物照、场景、历史地图）/ 其它素材。
-**代理不从网络抓取小说正文**；网址只用于登记出处，正文由用户以文件提供。
+**代理不从网络抓取小说正文**；网址只用于登记出处，正文由用户以文件提供。（例外：通过 TalentHub 部署的「短剧工作流」代理
+按 `skills/nalu-claude-code/SKILL.md` §3 自己搜索、抓取原著正文或写原创故事，以该 skill 为准。）
 
 | 素材 | 最低要求 | 落位（`$RUNTIME_ROOT` 相对） | 做法 | 状态 |
 |---|---|---|---|---|

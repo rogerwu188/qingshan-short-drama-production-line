@@ -67,6 +67,11 @@ def alive(pid: int | None) -> bool:
         os.kill(pid, 0)
     except OSError:
         return False
+    try:  # a zombie (exited, not yet reaped) is not a live run
+        if Path(f"/proc/{pid}/stat").read_text().split(") ", 1)[1].startswith("Z"):
+            return False
+    except (OSError, IndexError):
+        pass
     return True
 
 

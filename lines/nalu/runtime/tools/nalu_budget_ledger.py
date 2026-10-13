@@ -55,6 +55,21 @@ if str(ENGINE_ROOT) not in sys.path:
 
 SCHEMA = "nalu.episode_credit_budget_ledger.v1"
 DEFAULT_CAP = 8000
+
+
+def configured_cap() -> int:
+    """The per-episode cap in force right now: the live ``qingshan.json`` (written when the paid order is
+    recorded) wins over $NALU_EPISODE_CREDIT_CAP, which a long-running session may have inherited from
+    before the order existed; a bare --check must not rewrite the ledger's cap back to that stale value."""
+    try:
+        gen = (json.loads((Path(f"{_np.RUNTIME_ROOT}") / "qingshan.json").read_text(encoding="utf-8"))
+               .get("generation") or {})
+        cap = gen.get("budget_cap_credits_per_episode") or gen.get("budget_credits_per_episode_cap")
+        if isinstance(cap, int) and not isinstance(cap, bool) and cap > 0:
+            return cap
+    except (OSError, ValueError, AttributeError):
+        pass
+    return int(os.environ.get("NALU_EPISODE_CREDIT_CAP", DEFAULT_CAP))
 DEFAULT_LEDGER = Path(f"{_np.RUNTIME_ROOT}/runtime/budget/ledger.json")
 DEFAULT_ENV_FILE = ENGINE_ROOT / ".env"
 
@@ -628,7 +643,7 @@ def build_report(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--episode", required=True)
-    parser.add_argument("--cap", type=int, default=int(os.environ.get("NALU_EPISODE_CREDIT_CAP", DEFAULT_CAP)))
+    parser.add_argument("--cap", type=int, default=None, help="Defaults to the live qingshan.json cap (see configured_cap).")
     parser.add_argument("--check", action="store_true", help="Pre-submit gate. Exits 2 when the cap would be exceeded or spend is unreconciled.")
     parser.add_argument("--planned-credits", type=float, default=None)
     parser.add_argument(
@@ -649,6 +664,8 @@ def main() -> int:
     parser.add_argument("--out", help="Also write this run's report here (the ledger always gets an entry).")
     parser.add_argument("--strict-balance", action="store_true", help="Treat a failed balance request as a blocking failure.")
     args = parser.parse_args()
+    if args.cap is None:
+        args.cap = configured_cap()
 
     episode = episode_key(args.episode)
     if args.bgm_transactions_dir is not None and not args.bgm_transactions_dir.is_absolute():
