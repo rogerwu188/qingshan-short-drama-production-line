@@ -15,6 +15,8 @@ Compatibility:
 * Runs live in ``$NALU_RUNTIME_ROOT/claude_code/<EP>/`` (session.json + run_<ts>.jsonl).  When Codex exits,
   the runner appends ``{"type":"result","result":<Codex's last message verbatim>,...,"engine":"codex"}``
   so setup_host.sh / self_update.sh (claude_production.parse_log) still recognise an episode in flight.
+* ``$CODEX_HOME`` (if set) is inherited by every run, so a host can keep the NALU Codex config apart from a
+  personal ~/.codex (configure_codex.py writes to the same place).
 * Provider: ``$NALU_RUNTIME_ROOT/credentials/llm_provider.json`` (base_url / api_key / model, mode 600,
   written by the agent from the owner's message); ``credentials/codex_api_key`` is the older layout.
   The key reaches codex only as $HOPS_API_KEY (the env_key configure_codex.py writes); the shell
