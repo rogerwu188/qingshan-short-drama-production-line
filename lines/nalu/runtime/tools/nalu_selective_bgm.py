@@ -45,9 +45,17 @@ import os
 import re
 import subprocess
 import sys
+import datetime as _dt
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+# Statement walking (see cmd_reconcile): the provider returns newest-first pages of
+# STATEMENT_PAGE_SIZE rows; we walk them until the page basis is older than the
+# earliest submit window we need to isolate.  MAX_STATEMENT_PAGES bounds the walk
+# so a provider that never reaches that point fails closed instead of looping.
+STATEMENT_PAGE_SIZE = 100
+MAX_STATEMENT_PAGES = 20
 
 ENGINE = Path(f"{_np.ENGINE_ROOT}")
 VENV = Path(f"{_np.VENV_PYTHON}")
@@ -777,8 +785,43 @@ def cmd_reconcile(a: argparse.Namespace) -> int:
         isolation = "EXACT_PROJECT_ID"
         if str(ledger.get("status")) == "INCOMPLETE" and not ledger.get("statement_rows"):
             if statements is None:
-                resp = _get(STATEMENT_PATH, {"page": 1, "page_size": 100, "project_id": ""})
-                statements = ((resp.get("data") or {}).get("list") or []) if resp.get("code") == 200 else []
+                # Paginate until the page reaches back before the EARLIEST submit
+                # window in this episode's transaction set.  A single page-1 fetch
+                # was the 2026-10-13 E11 blocker: the provider returns 100 rows per
+                # page newest-first, and by the time S7 reconciled (17:22 on the
+                # 13th) page 1 only reached back to 01:30 that day, while E11's
+                # three music windows sat at 23:21-23:26 on the 12th.  The oldest
+                # fetched row was therefore NEWER than every window start, and
+                # `_window_isolated_ledger` refused with FAIL_STATEMENT_PAGE_TOO_SHORT
+                # (fail closed, correctly) — the rows themselves were present, one
+                # page further down.  Keep the fail-closed check: stopping early is
+                # only allowed once the page basis is strictly older than the oldest
+                # window start, and a page that comes back empty or short ends the
+                # walk so the check can still refuse.
+                def _window_start(row: dict):
+                    try:
+                        return _iso(row["intent_recorded_at"])
+                    except Exception:  # noqa: BLE001 — a row without a usable stamp cannot bound the walk
+                        return None
+
+                starts = [value for value in (_window_start(row) for row in all_tx) if value is not None]
+                earliest = min(starts) if starts else None
+                statements = []
+                for page in range(1, MAX_STATEMENT_PAGES + 1):
+                    resp = _get(STATEMENT_PATH, {"page": page, "page_size": STATEMENT_PAGE_SIZE,
+                                                 "project_id": ""})
+                    if resp.get("code") != 200:
+                        statements = []
+                        break
+                    page_rows = (resp.get("data") or {}).get("list") or []
+                    statements.extend(page_rows)
+                    stamps = [_dt.datetime.strptime(str(r.get("created_at")), "%Y-%m-%d %H:%M:%S")
+                              .replace(tzinfo=_dt.timezone.utc)
+                              for r in page_rows if r.get("created_at")]
+                    if len(page_rows) < STATEMENT_PAGE_SIZE or not stamps:
+                        break
+                    if earliest is not None and min(stamps) <= earliest:
+                        break
             ledger = {"exact_query": ledger,
                       **_window_isolated_ledger({**tx, "source_key": tx_path.stem}, all_tx, statements)}
             isolation = "SUBMIT_WINDOW"
@@ -800,7 +843,7 @@ def cmd_reconcile(a: argparse.Namespace) -> int:
                               "net_charged_credits": net, "ledger": ledger, "recorded_at": now(),
                               "method": ("GET /api/v1/payment/credit-statements?project_id=<task_id>: Pay minus Refund for this task only"
                                          if isolation == "EXACT_PROJECT_ID" else
-                                         "GET /api/v1/payment/credit-statements (page 1): GenerateMusic Pay minus Refund rows inside this "
+                                         "GET /api/v1/payment/credit-statements (newest-first pages, walked back past the earliest window start): GenerateMusic Pay minus Refund rows inside this "
                                          "task's own submit window; windows sequential and non-overlapping; provider leaves project_id empty for music")})
         rows.append({"source_key": source_key, "task_id": tx["task_id"], "status": ledger.get("status"),
                      "isolation": isolation, "net": net})

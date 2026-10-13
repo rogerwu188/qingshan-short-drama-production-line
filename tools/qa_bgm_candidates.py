@@ -169,4 +169,20 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    import os
+    import sys
+
+    _rc = main()
+    # faster-whisper (ctranslate2/av) and OpenCV ship duplicate libavdevice builds; when both are
+    # loaded in one process the interpreter can abort during teardown (recursive_mutex lock
+    # failed, exit -6 / 134) *after* the candidate report is already written.  E11 2026-10-13:
+    # the third source aborted on 2 of 3 identical runs, the caller saw only the non-zero exit
+    # code, and S7 reported SELECTIVE_BGM_CANDIDATES_REJECTED against a report that said
+    # PASS_SELECTED — the failure text was the tool's own truncated success line.
+    #
+    # This is the same fix tools/final_cut_audience_detectors.py already carries (see its
+    # __main__ block) and the same abort post_generation_qa_runner.py documents.  Flush and exit
+    # hard so the real exit code survives; without it the gate's verdict varies run to run.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(_rc)

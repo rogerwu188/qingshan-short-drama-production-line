@@ -9,11 +9,22 @@ from typing import Any
 
 
 def load_policy(path: Path | None = None) -> dict[str, Any]:
-    """Load measured edit policy from config."""
+    """Load measured edit policy from config.
+
+    The default location is the repo's ``configs/``.  It used to be ``tools/configs/``,
+    a directory that does not exist in this clone, so the None return from the
+    ``not path.is_file()`` branch reached ``active_for`` and raised
+    ``AttributeError: 'NoneType' object has no attribute 'get'`` — S7 crashed on
+    E11 (2026-10-12), the first episode the policy covers (nalu active_from 11),
+    because no earlier episode ever called into this module.  A missing policy
+    file means "no episode is opted in", which ``active_for`` already handles
+    correctly through ``active_from is None``; it must therefore be an empty
+    mapping, never None.
+    """
     if path is None:
-        path = Path(__file__).parent / "configs" / "MEASURED_EDIT_POLICY_V1.json"
+        path = Path(__file__).parent.parent / "configs" / "MEASURED_EDIT_POLICY_V1.json"
     if not path.is_file():
-        return
+        return {}
     return json.loads(path.read_text())
 
 
