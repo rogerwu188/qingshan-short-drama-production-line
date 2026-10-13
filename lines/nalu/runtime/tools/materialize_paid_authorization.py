@@ -35,13 +35,15 @@ What this tool does
    issuer, verbatim text, receipt bytes, exact episode list, per-episode cap,
    rights declaration and an explicit ``paid_requests_allowed: true`` decision
    must all agree.  Any mismatch is a refusal, not a warning.
-3. Checks every model named by the manifest/plan.  A video manifest must be
-   ``seedance-2.0-pro`` on every task; any other ``seedance-*`` variant, or
-   ``MiniMax-H3`` anywhere, is a refusal (order condition 1).  Image batches keep
+3. Checks every model named by the manifest/plan.  A video manifest must use the
+   order's ``video_model`` on every task — ``seedance-2.0-pro`` (condition
+   VIDEO_MODEL_SD2_ONLY; any other seedance variant or MiniMax-H3 is refused) or, since
+   2026-10-13, ``MiniMax-H3`` (condition VIDEO_MODEL_H3_ONLY; any seedance model is refused).  Image batches keep
    ``gpt-image-2-pro`` — the engine's only image route — which condition 1 does not
    govern; any other image model is refused unless ``--allow-image-model`` is given.
-4. Prices the batch (images ``--image-credits`` each, video
-   ``--video-credits-per-second`` × total ``duration_seconds``) and runs
+4. Prices the batch (images ``--image-credits`` each; SD2 video
+   ``--video-credits-per-second`` × total ``duration_seconds``; H3 video
+   ``H3_CREDITS_PER_SECOND`` × seconds + ``H3_CREDITS_PER_TASK`` per task) and runs
    ``runtime/tools/nalu_budget_ledger.py --check`` offline.  Planned credits over the
    cap, or a non-PASS ledger verdict, is a refusal.
 5. Writes the materialised copy with the authority fields set, then computes that
@@ -120,16 +122,23 @@ BUDGET_TOOL = Path(f"{_np.TOOLS_DIR}") / "nalu_budget_ledger.py"  # port fix 202
 
 GUARD_GATE_ID = "GIGGLE-REROLL-COST-GUARD"
 SD2 = "seedance-2.0-pro"
+H3 = "MiniMax-H3"
 IMAGE_MODEL = "gpt-image-2-pro"
 FORBIDDEN_MODEL = re.compile(
     r"(seedance-2\.0-(?!pro\b)[a-z0-9.]+|seedance-2\.0\b(?!-pro)|minimax-h3|\bh3\b)",
     re.IGNORECASE,
 )
+# an H3 order forbids every seedance SKU (and any other spelling of H3)
+FORBIDDEN_UNDER_H3 = re.compile(r"(seedance|\bh3\b(?<!MiniMax-H3))", re.IGNORECASE)
+# Observed Giggle pricing for MiniMax-H3 768p (E48: 14 credits/s + 6 per task; statements show
+# "SingleGenerateVideo ... MiniMax-H3").  Used for planning; actual charges come from the statements.
+H3_CREDITS_PER_SECOND = 14
+H3_CREDITS_PER_TASK = 6
+VIDEO_MODEL_CONDITIONS = {SD2: "VIDEO_MODEL_SD2_ONLY", H3: "VIDEO_MODEL_H3_ONLY"}
 ORDERS_SCHEMA = "supervisor_orders_v1"
 RECEIPT_SCHEMA = "qingshan.line_owner_order_source_receipt.v1"
 PAID_DECISION_KIND = "PAID_PRODUCTION_AUTHORIZATION"
 REQUIRED_CONDITIONS = {
-    "VIDEO_MODEL_SD2_ONLY",
     "PAID_REQUESTS_EXPLICITLY_AUTHORIZED",
     "RIGHTS_BASIS_DECLARED",
 }
@@ -292,8 +301,9 @@ def read_order(orders_path: Path, seq: int, episode: str, cap: int, *,
     if isinstance(decision.get("budget_cap_credits_per_episode"), bool) or \
             decision.get("budget_cap_credits_per_episode") != cap:
         raise Refused(f"ORDER_CAP_MISMATCH:{decision.get('budget_cap_credits_per_episode')}!={cap}")
-    if str(decision.get("video_model") or "") != SD2:
-        raise Refused("ORDER_VIDEO_MODEL_DOES_NOT_NAME_seedance-2.0-pro")
+    video_model = str(decision.get("video_model") or "")
+    if video_model not in VIDEO_MODEL_CONDITIONS:
+        raise Refused(f"ORDER_VIDEO_MODEL_NOT_SUPPORTED:{video_model or 'MISSING'}")
     rights_basis = _required_text(decision.get("rights_basis"), "ORDER_RIGHTS_BASIS")
     if str(decision.get("rights_declared_by") or "") != expected_owner:
         raise Refused("ORDER_RIGHTS_DECLARER_MISMATCH")
@@ -301,7 +311,7 @@ def read_order(orders_path: Path, seq: int, episode: str, cap: int, *,
     if not isinstance(conditions, list) or any(not isinstance(row, dict) for row in conditions):
         raise Refused("ORDER_CONDITIONS_INVALID")
     condition_ids = {str(row.get("id") or "") for row in conditions}
-    missing = sorted(REQUIRED_CONDITIONS - condition_ids)
+    missing = sorted((REQUIRED_CONDITIONS | {VIDEO_MODEL_CONDITIONS[video_model]}) - condition_ids)
     if missing:
         raise Refused(f"ORDER_MISSING_REQUIRED_CONDITIONS:{','.join(missing)}")
     cap_rows = [row for row in conditions if row.get("id") in CAP_CONDITION_IDS]
@@ -314,11 +324,11 @@ def read_order(orders_path: Path, seq: int, episode: str, cap: int, *,
             f"ORDER_CAP_MISMATCH: --cap {cap} is not the cap the order declares "
             f"({sorted(declared_caps)})"
         )
-    sd2_condition = next(
-        row for row in conditions if row.get("id") == "VIDEO_MODEL_SD2_ONLY"
+    model_condition = next(
+        row for row in conditions if row.get("id") == VIDEO_MODEL_CONDITIONS[video_model]
     )
-    if SD2 not in str(sd2_condition.get("text") or ""):
-        raise Refused("ORDER_SD2_CONDITION_DOES_NOT_NAME_seedance-2.0-pro")
+    if video_model not in str(model_condition.get("text") or ""):
+        raise Refused(f"ORDER_VIDEO_MODEL_CONDITION_DOES_NOT_NAME_{video_model}")
     return {
         "seq": seq,
         "id": order_id,
@@ -338,6 +348,7 @@ def read_order(orders_path: Path, seq: int, episode: str, cap: int, *,
         "rights_scope": str(decision.get("rights_scope") or "").strip(),
         "publication_allowed": decision.get("publication_allowed") is True,
         "paid_requests_allowed": True,
+        "video_model": video_model,
         "paid_stages": list(paid_stages),
         "authorized_stage": paid_stage,
     }
@@ -354,20 +365,21 @@ def is_video(document: dict[str, Any]) -> bool:
 
 
 def check_models(document: dict[str, Any], tasks: list[dict[str, Any]], *,
-                 video: bool, allow_image_model: bool) -> dict[str, Any]:
+                 video: bool, allow_image_model: bool, video_model: str = SD2) -> dict[str, Any]:
     named = [str(document.get("model") or "")] + [str(task.get("model") or "") for task in tasks]
     named += [str((document.get("format_contract") or {}).get("model") or "")]
     named = [value for value in named if value]
+    forbidden = FORBIDDEN_UNDER_H3 if video_model == H3 else FORBIDDEN_MODEL
     for value in named:
-        if FORBIDDEN_MODEL.search(value):
+        if value != video_model and forbidden.search(value):
             raise Refused(f"MODEL_FORBIDDEN_BY_ORDER_CONDITION_1:{value}")
     if video:
         offenders = sorted({
             str(task.get("model") or "MISSING") for task in tasks
-            if str(task.get("model") or "") != SD2
+            if str(task.get("model") or "") != video_model
         })
         if offenders:
-            raise Refused(f"VIDEO_MODEL_IS_NOT_{SD2}:{','.join(offenders)}")
+            raise Refused(f"VIDEO_MODEL_IS_NOT_{video_model}:{','.join(offenders)}")
     else:
         offenders = sorted({
             str(task.get("model") or "MISSING") for task in tasks
@@ -378,11 +390,20 @@ def check_models(document: dict[str, Any], tasks: list[dict[str, Any]], *,
                 f"IMAGE_MODEL_IS_NOT_{IMAGE_MODEL}:{','.join(offenders)} "
                 "(pass --allow-image-model only with a named authorisation)"
             )
-    return {"models_named": sorted(set(named)), "video": video, "sd2_only_enforced": video}
+    return {"models_named": sorted(set(named)), "video": video, "video_model": video_model,
+            "sd2_only_enforced": video and video_model == SD2, "model_lock_enforced": video}
 
 
 def price(tasks: list[dict[str, Any]], *, video: bool, image_credits: int,
-          video_credits_per_second: int) -> dict[str, Any]:
+          video_credits_per_second: int, video_model: str = SD2) -> dict[str, Any]:
+    if video and video_model == H3:
+        seconds = sum(float(task.get("duration_seconds") or 0) for task in tasks)
+        return {
+            "basis": "VIDEO_SECONDS_PLUS_PER_TASK", "seconds": seconds,
+            "credits_per_second": H3_CREDITS_PER_SECOND, "credits_per_task": H3_CREDITS_PER_TASK,
+            "planned_credits": int(round(seconds * H3_CREDITS_PER_SECOND)) + H3_CREDITS_PER_TASK * len(tasks),
+            "task_count": len(tasks),
+        }
     if video:
         seconds = sum(float(task.get("duration_seconds") or 0) for task in tasks)
         return {
@@ -678,9 +699,11 @@ def process(source: Path, *, kind: str, args: argparse.Namespace,
             tasks = [task for task in all_tasks if task.get("task_key") in requested]
         video = is_video(document)
         model_report = check_models(document, tasks, video=video,
-                                    allow_image_model=args.allow_image_model)
+                                    allow_image_model=args.allow_image_model,
+                                    video_model=order["video_model"])
         pricing = price(tasks, video=video, image_credits=args.image_credits,
-                        video_credits_per_second=args.video_credits_per_second)
+                        video_credits_per_second=args.video_credits_per_second,
+                        video_model=order["video_model"])
 
     if pricing["planned_credits"] > order["cap_credits"]:
         raise Refused(
