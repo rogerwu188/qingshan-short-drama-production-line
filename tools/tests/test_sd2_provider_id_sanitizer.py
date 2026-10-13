@@ -31,6 +31,27 @@ class ProviderIdSanitizerTest(unittest.TestCase):
 
 
 
+class BeatEvidenceSanitiserTest(unittest.TestCase):
+    """The coverage receipt is measured against the rendered text, and the rendered text has the
+    internal ids translated away.  Evidence that kept its raw id could never match, so an id in a
+    beat's contact point failed the unit as PROVIDER_SEMANTIC_FACT_UNCOVERED instead of passing
+    (E11-VU-002 BEAT.1/2 CONTACT_POINT + PRIMARY_FEEDBACK after the ZONE- id became translatable)."""
+
+    def test_beat_evidence_is_sanitised_like_the_prompt(self):
+        import inspect
+
+        from tools import sd2_provider_prompt_renderer as R
+
+        source = inspect.getsource(R.render_sd2_prompt)
+        self.assertIn('clause_evidence[f"{prefix}.CONTACT_POINT"] = _sanitize_provider_ids(', source)
+        self.assertIn('clause_evidence[f"{prefix}.PRIMARY_FEEDBACK"] = _sanitize_provider_ids(', source)
+
+    def test_contact_point_after_sanitising_matches_the_prompt(self):
+        beat = {"contact_point": "秦铭与ZONE-XU-HOUSE-INT-2的接触/反应落点：INTEGRITY：手背松弛→手背绷起"}
+        prompt = S("秦铭与ZONE-XU-HOUSE-INT-2的接触/反应落点：INTEGRITY：手背松弛→手背绷起")
+        self.assertIn(S(beat["contact_point"]), prompt)
+
+
 class RoleLineNamesTest(unittest.TestCase):
     def row(self, names):
         return {"shot_id": "E11-S06-04", "primary_actor": "许岳平", "dialogue_speaker": "许岳平",

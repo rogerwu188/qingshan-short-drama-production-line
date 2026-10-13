@@ -360,9 +360,13 @@ def render_sd2_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, 
         if beat.get("contact_time_seconds") is not None:
             clause_evidence[f"{prefix}.CONTACT_TIME"] = f"{float(beat['contact_time_seconds']):g}秒"
         if beat.get("contact_point"):
-            clause_evidence[f"{prefix}.CONTACT_POINT"] = beat["contact_point"]
+            # Coverage is measured against the rendered text, and the rendered text has the
+            # internal ids translated away.  Evidence left unsanitised therefore never matched
+            # and the unit failed as PROVIDER_SEMANTIC_FACT_UNCOVERED (E11-VU-002 BEAT.1/2
+            # CONTACT_POINT + PRIMARY_FEEDBACK: 「秦铭与ZONE-XU-HOUSE-INT-2的接触…」).
+            clause_evidence[f"{prefix}.CONTACT_POINT"] = _sanitize_provider_ids(beat["contact_point"])
         if beat.get("primary_feedback"):
-            clause_evidence[f"{prefix}.PRIMARY_FEEDBACK"] = beat["primary_feedback"]
+            clause_evidence[f"{prefix}.PRIMARY_FEEDBACK"] = _sanitize_provider_ids(beat["primary_feedback"])
         for secondary_index, value in enumerate(beat.get("secondary_feedback") or [], 1):
             clause_evidence[f"{prefix}.SECONDARY_FEEDBACK.{secondary_index}"] = value
         if beat.get("dialogue"):
