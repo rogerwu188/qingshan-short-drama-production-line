@@ -79,7 +79,8 @@ def main() -> int:
     engine = Path(os.environ.get("NALU_ENGINE_ROOT") or "~/nalu_engine").expanduser()
     runtime = Path(os.environ.get("NALU_RUNTIME_ROOT") or "~/nalu_runtime").expanduser()
     cred = runtime / "credentials"
-    cfg = Path.home() / ".codex" / "config.toml"
+    # $CODEX_HOME (Codex's own setting) keeps this config apart from a personal ~/.codex on shared machines
+    cfg = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex").expanduser() / "config.toml"
     p = load_provider(cred, cfg)
     if not p:
         return say("NEEDS_PROVIDER", file=str(cred / "llm_provider.json"),
