@@ -120,6 +120,11 @@ $P $S/publish_x2creel.py status                           # 本地记录 + X2C �
 ```
 - 第一集创建 X2C 项目（封面默认取成片第 1.5 秒画面，也可 `--cover <图>`）；之后每集自动追加到同一个项目，`--title/--description/--category`
   可省略。项目 id 与已发的集记在 `$NALU_RUNTIME_ROOT/distribution/x2creel.json`，同一集重跑返回 `ALREADY_PUBLISHED`，不会重复发。
+- **按集号顺序发，一次只追加一集**：X2C 追加集按「已过审集数 + 1」发号，有集还在 `pending_review` 时再追加，新集会拿到同一个号并
+  静默顶掉它。脚本发前先查远端：有待审集就返回 `DEFERRED_PENDING_REVIEW`（什么都没发），记一行「发行暂缓：等待第 N 集过审」进
+  `series/STATUS.md`，下次心跳重试。**还没发的成片按集号从小到大逐集重试，前一集没发出去不发后一集**；生产和下一集照常推进。
+- 返回 `EPISODE_NUMBER_COLLISION`（`collides_with` 里的集多半已被顶掉）：记进 `series/STATUS.md`，等本集过审后对被顶的集
+  `publish_x2creel.py forget --episode <被顶的集>`（自动备份本地记录）再 `publish` 重发。`forget` 只在这种情况或线主要求重发时用。
 - 分类按题材选（简报 `genre`）；找不到时脚本落到「热门综合」。
 - 返回 `BLOCKED: X2C_API_KEY_MISSING` 时请线主发 X2C key（§3），收到后重跑；其余 `ERROR` 记进 `series/STATUS.md`，下一次心跳重试，不阻塞下一集生产。
 - 只用 X2C 分发 API 的 1、2、3、4、5、6 步（分类、上传 URL、发布、追加、查询、列出），不用 3.5（Developer JWT 代发布）。
@@ -131,7 +136,7 @@ $P $S/publish_x2creel.py status                           # 本地记录 + X2C �
    `characters`/`locations` 里**已出现的角色和地点逐字沿用原 ID 和设定**，只追加新的。
 3. 有新的说话角色时补跑 `apply_runtime_fixups.py --character …`；重做片尾（§4.3，副标题换成本集）。
 4. `claude_production.py start --episode <EP+1>`（每集一个新的 Claude Code 会话）。
-5. 每集结束更新 `$NALU_RUNTIME_ROOT/series/STATUS.md`：集号、时长、Giggle 积分、X2C 集号/状态、默认接受了哪些质量问题、Claude Code 会话费用（`status` 里的 `cost_usd`）。
+5. 每集结束更新 `$NALU_RUNTIME_ROOT/series/STATUS.md`：集号、时长、本机已花费的 Giggle 积分（不是余额）、X2C 集号/状态、默认接受了哪些质量问题、执行者会话用量（Claude Code 报 `cost_usd`；其他执行者报 token 数）。
 全部集完成后在 `series/STATUS.md` 写「SERIES_DONE」并告诉线主。
 
 ## 8. 不做的事
