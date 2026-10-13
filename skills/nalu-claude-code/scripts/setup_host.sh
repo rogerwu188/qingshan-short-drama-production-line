@@ -9,10 +9,13 @@
 #                    (a checkout with local changes is renamed ~/nalu_engine_old_<ts>, never deleted)
 #   3. runtime       a ~/nalu_runtime this script did not create is renamed ~/nalu_runtime_old_<ts>
 #   4. python        .qingshan-venv (uv, CPython 3.12) + core/media/QA deps, runtime bootstrap
-#   5. claude code   install (native installer, npm fallback) + configure_claude_code.py --verify
-#                    (reads the StoryClaw provider from ~/.openclaw/openclaw.json; never prints the key)
+#   5. codex         configure_codex.py --verify: install the Codex CLI (npm) and point it at the provider
+#                    in ~/nalu_runtime/credentials/llm_provider.json (asked from the line owner once; the
+#                    miniPCs produce with Codex + gpt-5.6 only since 2026-10-13; Claude Code is not installed)
 # Result: ~/.nalu_setup_state.json and ONE final JSON line on stdout:
-#   NALU_SETUP: {"status":"READY|BLOCKED", "failed_step":..., "steps":{...}, ...}
+#   NALU_SETUP: {"status":"READY|NEEDS_PROVIDER|BLOCKED", "failed_step":..., "steps":{...}, ...}
+#   NEEDS_PROVIDER: everything else is ready; the agent asks the owner for the provider URL + key, writes
+#   the file, and runs this again.
 #
 # usage: setup_host.sh --pin <engine commit> [--force] [--skip-verify]
 set -uo pipefail
@@ -43,7 +46,7 @@ log() { printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$*" >>"$LOG"; }
 run() { log "\$ $*"; "$@" >>"$LOG" 2>&1; }
 finish() {  # status failed_step
   local steps="" k
-  for k in deps engine runtime python claude_install claude_config; do
+  for k in deps engine runtime python codex_install codex_config; do
     v="STEP_$k"; steps="$steps\"$k\":\"${!v:-NOT_RUN}\","
   done
   local notes="" n
@@ -57,15 +60,20 @@ finish() {  # status failed_step
 [ "$(id -u)" != 0 ] || { NOTES+=("run as the OpenClaw user, not root"); finish BLOCKED preflight; }
 log "==== setup_host.sh pin=$PIN force=$FORCE"
 
-# fast path: ready host, same pin, claude still answers through the relay
+PROVIDER="$RUNTIME/credentials/llm_provider.json"
+CODEX_CFG="$HOME/.codex/config.toml"
+codex_ready() {  # installed, configured, and configured after the provider file last changed
+  command -v codex >/dev/null && [ -f "$PROVIDER" ] && [ -f "$CODEX_CFG" ] && ! [ "$PROVIDER" -nt "$CODEX_CFG" ]
+}
+# fast path: ready host, same pin, codex configured for the current provider
 if [ $FORCE = 0 ] && [ -f "$STATE" ] && grep -q "\"status\":\"READY\"" "$STATE" && grep -q "\"pin\":\"$PIN\"" "$STATE" \
    && [ "$(git -C "$ENGINE" rev-parse HEAD 2>/dev/null)" = "$PIN" ] && [ -x "$ENGINE/.qingshan-venv/bin/python" ] \
-   && command -v claude >/dev/null && [ -f "$HOME/.claude/settings.json" ]; then
-  for k in deps engine runtime python claude_install claude_config; do eval "STEP_$k=OK_CACHED"; done
+   && codex_ready; then
+  for k in deps engine runtime python codex_install codex_config; do eval "STEP_$k=OK_CACHED"; done
   finish READY ""
 fi
 
-# an episode in flight (Claude Code running, or its last NALU_STATUS is anything but FINAL_CUT_READY)
+# an episode in flight (the executor running, or its last NALU_STATUS is anything but FINAL_CUT_READY)
 # keeps the engine + venv it started with; a new pin is applied on the first wake after it finishes.
 IN_FLIGHT="$(python3 - "$RUNTIME" "$S" <<'PY' 2>/dev/null
 import json, sys
@@ -86,9 +94,9 @@ CUR="$(git -C "$ENGINE" rev-parse HEAD 2>/dev/null)"
 DEFER=0
 if [ -n "$IN_FLIGHT" ] && [ -n "$CUR" ] && [ "$CUR" != "$PIN" ] && [ -x "$ENGINE/.qingshan-venv/bin/python" ]; then
   DEFER=1; NOTES+=("episode in flight ($IN_FLIGHT): engine stays at ${CUR:0:7}; ${PIN:0:7} applies after it reaches FINAL_CUT_READY")
-  if command -v claude >/dev/null && [ -f "$HOME/.claude/settings.json" ]; then
+  if codex_ready; then
     STEP_deps=OK_CACHED; STEP_engine=DEFERRED_IN_FLIGHT; STEP_runtime=OK_CACHED; STEP_python=DEFERRED_IN_FLIGHT
-    STEP_claude_install=OK_CACHED; STEP_claude_config=OK_CACHED
+    STEP_codex_install=OK_CACHED; STEP_codex_config=OK_CACHED
     finish READY ""
   fi
 fi
@@ -182,22 +190,18 @@ export PATH="\$HOME/.local/bin:\$HOME/.npm-global/bin:\$PATH"
 EOF
 STEP_python=OK
 
-# ---------------------------------------------------------------- 5. claude code + relay config
-if ! command -v claude >/dev/null; then
-  run sh -c 'curl -fsSL https://claude.ai/install.sh | bash'
-  if ! command -v claude >/dev/null && command -v npm >/dev/null; then
-    npm config get prefix 2>/dev/null | grep -q "^$HOME" || run npm config set prefix "$HOME/.npm-global"
-    run npm install -g @anthropic-ai/claude-code
-  fi
-fi
-command -v claude >/dev/null || { STEP_claude_install=INSTALL_FAILED; finish BLOCKED claude_install; }
-STEP_claude_install="OK:$(claude --version 2>/dev/null | head -1)"
+# ---------------------------------------------------------------- 5. codex + provider
+command -v npm >/dev/null || { [ -n "$SUDO" ] && command -v apt-get >/dev/null && run $SUDO apt-get install -y -qq nodejs npm; }
 args=(); [ $VERIFY = 1 ] && args+=(--verify)
-out="$(python3 "$S/configure_claude_code.py" ${args[@]+"${args[@]}"} 2>>"$LOG")"; rc=$?
-log "configure_claude_code: $(printf '%s' "$out" | tr -d '\n' | cut -c1-400)"
-status="$(printf '%s' "$out" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))' 2>/dev/null)"
-if [ $rc != 0 ] || { [ $VERIFY = 1 ] && [ "$status" != VERIFIED ]; }; then
-  STEP_claude_config="${status:-FAILED}"; finish BLOCKED claude_config
-fi
-STEP_claude_config="$status"
+out="$(NALU_RUNTIME_ROOT="$RUNTIME" NALU_ENGINE_ROOT="$ENGINE" python3 "$S/configure_codex.py" ${args[@]+"${args[@]}"} 2>>"$LOG" | tail -1)"
+log "configure_codex: $(printf '%s' "$out" | cut -c1-400)"
+status="$(printf '%s' "${out#CODEX_CONFIG: }" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))' 2>/dev/null)"
+command -v codex >/dev/null && STEP_codex_install="OK:$(codex --version 2>/dev/null | head -1)" || STEP_codex_install=NOT_INSTALLED
+STEP_codex_config="${status:-FAILED}"
+case "$status" in
+  VERIFIED) ;;
+  CONFIGURED) [ $VERIFY = 0 ] || finish BLOCKED codex_config ;;
+  NEEDS_PROVIDER) finish NEEDS_PROVIDER codex_config ;;
+  *) [ "$STEP_codex_install" = NOT_INSTALLED ] && finish BLOCKED codex_install; finish BLOCKED codex_config ;;
+esac
 finish READY ""
