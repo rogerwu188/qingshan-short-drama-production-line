@@ -62,11 +62,6 @@ def main() -> int:
     gen = cfg.setdefault("generation", {})
     gen.setdefault("paid_requests_enabled", False)
     gen["budget_cap_credits_per_episode"] = a.cap
-    # line owner 2026-10-13: video is generated with MiniMax-H3, never seedance.  Each episode keeps the
-    # model its first S2 build recorded (preproduction/<EP>/video_model.json), so this only affects
-    # episodes that have not been built yet.
-    gen["video_model"] = "MiniMax-H3"
-    gen["video_profile"] = "MINIMAX_H3_768P_9X16"
     cfg.setdefault("authorization", {"supervisor_orders_path": str(rt / "SUPERVISOR_ORDERS.json"),
                                      "paid_order_seq": 0, "latest_order_seq": 0, "line_owner_id": ""})
     dump(root / "qingshan.json", cfg)

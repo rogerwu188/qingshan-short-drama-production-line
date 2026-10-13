@@ -52,7 +52,7 @@
       "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
     },
     {
-      "path": "agent_factory/claude_writer/runtime_templates/观众已知清单.md",
+      "path": "agent_factory/claude_writer/runtime_templates/\u89c2\u4f17\u5df2\u77e5\u6e05\u5355.md",
       "sha256": "20aeda7beb8aaf9aa591df6a1aee5254d48bb5c0868fec2fd0fc05f81a9b9830"
     },
     {
@@ -3245,7 +3245,7 @@
     },
     {
       "path": "tools/compile_grouped_seedance_manifest.py",
-      "sha256": "77bec313ec1ab75b73fb4697ca33192b33522c58a4e49cb5196d9621d7db7b0b"
+      "sha256": "ac8252b641dd2715282327b951f2f0d4b6c1def8e25c265e5daff4c0eebd92a5"
     },
     {
       "path": "tools/compile_grouped_seedance_transaction_manifest.py",
@@ -3725,7 +3725,7 @@
     },
     {
       "path": "tools/episode_video_generation_guard.py",
-      "sha256": "25ee6c7635bb200d07cdb5a03d2165e87071ba9e22a8106279aa7fd96216d5bc"
+      "sha256": "06257dad1e7dac86d2b17d9bab9a3edd089ad47eca7ce3df8a541cb183cb3e6c"
     },
     {
       "path": "tools/evaluate_e21_existing_candidate_reuse.py",
@@ -5881,7 +5881,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "87660b0fc38f39f38cf1370e2e734b999c44ecd51401ca2555d3bef6a5d2abf9"
+      "sha256": "f1cdf573da61bd7d960af0154bfcad1d346d2bf3cf40d25cc3d585699c153b95"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",

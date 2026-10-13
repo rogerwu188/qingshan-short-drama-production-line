@@ -314,11 +314,9 @@ def technical_checks(unit_id: str, media: Path, planned_duration: float | None,
 
     width = int(video.get("width") or 0) if video else 0
     height = int(video.get("height") or 0) if video else 0
-    # native unit rasters: seedance-2.0-pro 720p = 720x1280; MiniMax-H3 768p = 768x1366 (provider may
-    # round the long side by a few px).  The final cut is rescaled to TARGET either way.
-    native_ok = (width, height) == (TARGET["width"], TARGET["height"]) or (width == 768 and abs(height - 1366) <= 8)
-    record("resolution", "PASS" if native_ok else "FAIL", measured=f"{width}x{height}",
-           expected=f"{TARGET['width']}x{TARGET['height']} (SD2) or 768x1366 (MiniMax-H3)")
+    record("resolution", "PASS" if (width, height) == (TARGET["width"], TARGET["height"])
+           else "FAIL", measured=f"{width}x{height}",
+           expected=f"{TARGET['width']}x{TARGET['height']}")
     ratio = (width / height) if height else 0.0
     expected_ratio = TARGET["width"] / TARGET["height"]
     record("aspect_ratio", "PASS" if abs(ratio - expected_ratio) < 0.01 else "FAIL",
