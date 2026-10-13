@@ -424,24 +424,6 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
         or [],
     }
     task["internal_transition_contracts"] = validate_internal_transition_sequence(internal_unit)
-    expected_prompt = compile_model_prompt(provider_prompt_unit(task))
-    if prompt_text != expected_prompt:
-        raise ValueError(
-            f"{task.get('task_key')} provider prompt is not the exact output of the current "
-            f"{task.get('model')} compiler"
-        )
-    scope_report = validate_provider_scope_projection(task, prompt_text=prompt_text, model=str(task.get("model") or ""))
-    if scope_report.get("status") == "FAIL":
-        raise ValueError(";".join(scope_report.get("failures") or []))
-
-
-def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
-    """The compiler input the paid boundary re-renders a grouped task's prompt from.
-
-    Lines that materialise references after their grouped compile (NALU attaches identity plates
-    in its finalizer) render the final provider prompt from this same function, so the text they
-    write is byte-identical to the boundary's expectation."""
-    machine = task.get("machine_contract") or {}
     prompt_unit = grouped_sequence_unit(task)
     prompt_unit["model"] = task.get("model")
     prompt_unit["h3_prompt_profile"] = task.get("h3_prompt_profile")
@@ -452,9 +434,6 @@ def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
     prompt_unit["visual_culture_contract"] = machine.get("visual_culture_contract") or task.get("visual_culture_contract")
     prompt_unit["speaker_voice_contract"] = machine.get("speaker_voice_contract") or task.get("speaker_voice_contract")
     prompt_unit["provider_scope_projection"] = task.get("provider_scope_projection")
-    # H3 speaker -> SUBJECT_n binding (h3_crossmodal_speaker_gate); absent for SD2 tasks
-    if task.get("provider_entity_token_map"):
-        prompt_unit["provider_entity_token_map"] = task.get("provider_entity_token_map")
     # Failed-only rerolls carry an explicit full performance rewrite.  Keep it
     # in the compiler input so the paid-boundary byte comparison validates the
     # same prompt that was registered for this new fingerprint.
@@ -475,7 +454,15 @@ def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
             task.get("reference_roles") or ["SEMANTIC_REFERENCE"] * len(task.get("reference_images") or []),
         )
     ]
-    return prompt_unit
+    expected_prompt = compile_model_prompt(prompt_unit)
+    if prompt_text != expected_prompt:
+        raise ValueError(
+            f"{task.get('task_key')} provider prompt is not the exact output of the current "
+            f"{task.get('model')} compiler"
+        )
+    scope_report = validate_provider_scope_projection(task, prompt_text=prompt_text, model=str(task.get("model") or ""))
+    if scope_report.get("status") == "FAIL":
+        raise ValueError(";".join(scope_report.get("failures") or []))
     prompt_report = validate_model_prompt_for_model(
         prompt_text,
         model=task.get("model"),
@@ -698,10 +685,7 @@ def validate_task(task: dict[str, Any]) -> None:
             # still transported by the bound reference audio URLs, while the
             # provider-facing prompt uses opaque entity tokens plus exact
             # <d>[Chinese] dialogue literals.
-            # the H3 renderer serializes the canonical @音频N slot in its English form @AudioN
-            prompt_slot = (re.sub(r"^@音频(\d+)$", r"@Audio\1", slot)
-                           if str(task.get("model") or "").lower() in {"minimax-h3", "h3"} else slot)
-            if not english_machine_rescue and prompt_slot not in prompt_text:
+            if not english_machine_rescue and slot not in prompt_text:
                 raise ValueError(f"{task['task_key']} canonical speaker audio slot missing from prompt")
         if english_machine_rescue:
             if not task.get("provider_entity_token_map"):

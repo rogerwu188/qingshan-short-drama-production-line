@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 import hashlib
-import os
 import json
 import math
 from pathlib import Path
@@ -855,19 +854,15 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             raise ValueError(f"{unit_id} anchor role count mismatch")
         source_transport = str(anchor.get("reference_transport_strategy") or "")
         references = []
-        # optional, aligned with reference_image_paths: {"entity_id", "provider_entity_label"} for an
-        # identity reference (NALU H3 units carry their locked plates here), null for a semantic anchor
-        entity_rows = list(anchor.get("reference_entity_bindings") or [])
-        for index, (value, role) in enumerate(zip(paths, roles)):
-            entity = entity_rows[index] if index < len(entity_rows) and isinstance(entity_rows[index], dict) else {}
+        for value, role in zip(paths, roles):
             path = resolve(value)
             if planning_only and not path.is_file():
-                references.append({"path": value, "sha256": None, "role": role, **entity,
+                references.append({"path": value, "sha256": None, "role": role,
                                    "planning_placeholder": "NOT_ADMITTED_PLANNED_PROMPT_COMPILATION"})
                 continue
             if not path.is_file():
                 raise ValueError(f"{unit_id} anchor missing: {value}")
-            references.append({"path": value, "sha256": digest(path), "role": role, **entity})
+            references.append({"path": value, "sha256": digest(path), "role": role})
         shots = [shot_by_id[shot_id] for shot_id in unit["editorial_shot_ids"]]
         models = {str(row.get("model") or "") for row in shots}
         resolutions = {str(row.get("resolution") or "") for row in shots}
@@ -1058,24 +1053,6 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             location_ids=[str(first_space.get("location") or "")] if first_space.get("location") else [],
             environment_terms=[], sound_terms=[],
         )
-        if model == "MiniMax-H3":
-            # h3_crossmodal_speaker_gate: each speaker -> SUBJECT_n of its identity reference
-            names_by_id: dict[str, set[str]] = {}
-            for row in character_entities or []:
-                cid = str(row.get("character_id") or row.get("entity_id") or "")
-                names_by_id.setdefault(cid, set()).update(
-                    str(v).strip() for v in [row.get("canonical_name"), *(row.get("aliases") or [])] if v)
-            for spec in prompt_specs:
-                for member in spec.get("cast") or []:
-                    cid = str(member.get("character_id") or "")
-                    if cid and member.get("character"):
-                        names_by_id.setdefault(cid, set()).add(str(member["character"]).strip())
-            token_map: dict[str, str] = {}
-            for subject_index, row in enumerate(
-                    compiled_unit["provider_scope_projection"].get("reference_identity_bindings") or [], 1):
-                for name in sorted(names_by_id.get(str(row.get("entity_id") or ""), set())) or []:
-                    token_map.setdefault(name, f"SUBJECT_{subject_index}")
-            compiled_unit["provider_entity_token_map"] = token_map
         # Authored continuity/state text may mention a prior-shot character
         # without putting that person in the current visual cast.  Such a
         # referent is not a provider-visible entity; remove only those
@@ -1262,12 +1239,6 @@ def main() -> int:
                         help="nalu e13b: after a STRICT compile, write <unit_id>.txt final provider prompts here "
                              "(compile_model_prompt default strict mode) and a <out>.final_prompts.json index; "
                              "for lines that do not carry the full grouped-preflight artifact set")
-    parser.add_argument("--h3-english-contracts", type=Path,
-                        default=Path(os.environ["QINGSHAN_H3_ENGLISH_CONTRACTS"])
-                        if os.environ.get("QINGSHAN_H3_ENGLISH_CONTRACTS") else None,
-                        help="answers file of per-unit English contracts for MiniMax-H3 units "
-                             "(tools/h3_english_contract_io.py); missing/stale units are written to "
-                             "<file>.REQUEST.json and the compile stops with H3_ENGLISH_CONTRACT_REQUIRED")
     parser.add_argument("--planned-prompt-dir", type=Path,
                         help="with --planning-only: write <unit_id>.txt planned prompts here and a "
                              "<out>.planned_prompts.json index next to --out")
@@ -1299,22 +1270,6 @@ def main() -> int:
         for compiled_unit in result.get("units") or []:
             compiled_unit["generation_audio_profile_id"] = audio_binding["resolved_audio_profile_id"]
             compiled_unit["audio_profile_binding"] = dict(audio_binding)
-    h3_units = [u for u in result.get("units") or [] if str(u.get("model") or "") == "MiniMax-H3"]
-    if h3_units and (args.final_prompt_dir or args.planned_prompt_dir):
-        try:
-            from tools.h3_english_contract_io import bind_or_request
-        except ModuleNotFoundError:
-            from h3_english_contract_io import bind_or_request
-        # one answers file per episode, shared by the planning and the final compile (same out dir)
-        answers_path = args.h3_english_contracts or args.out.with_name(
-            f"{str(result.get('episode') or args.out.name.split('_')[0])}_H3_ENGLISH_CONTRACTS.json")
-        for unit in h3_units:
-            unit["action_timeline"] = action_timeline(unit)
-        pending = bind_or_request(h3_units, answers_path)
-        if pending:
-            raise SystemExit(
-                f"H3_ENGLISH_CONTRACT_REQUIRED:{len(pending)}_units:"
-                f"{answers_path.with_name(answers_path.stem + '.REQUEST.json')}")
     if not args.planning_only and args.final_prompt_dir:
         try:
             from tools.video_prompt_compiler import compile_model_prompt, validate_model_prompt_for_model, compile_receipt

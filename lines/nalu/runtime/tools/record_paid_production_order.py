@@ -39,18 +39,7 @@ ORDERS_SCHEMA = "supervisor_orders_v1"
 RECEIPT_SCHEMA = "qingshan.line_owner_order_source_receipt.v1"
 KIND = "PAID_PRODUCTION_AUTHORIZATION"
 SD2 = "seedance-2.0-pro"
-H3 = "MiniMax-H3"
-VIDEO_MODEL_CONDITIONS = {SD2: "VIDEO_MODEL_SD2_ONLY", H3: "VIDEO_MODEL_H3_ONLY"}
 STAGES = ("S3", "S4", "S5", "S6")
-
-
-def default_video_model(episodes: list[str]) -> str:
-    """The episodes' video model (nalu_video_model: recorded / existing build / qingshan.json)."""
-    import nalu_video_model as _vm
-    seen = {_vm.recorded_video_model(ep) for ep in episodes} - {None}
-    if len(seen) > 1:
-        raise SystemExit(json.dumps({"status": "FAIL", "error": f"EPISODES_USE_DIFFERENT_VIDEO_MODELS:{sorted(seen)}"}))
-    return seen.pop() if seen else _vm.configured_video_model()
 
 
 def utc_now() -> str:
@@ -80,8 +69,6 @@ def main() -> int:
     ap.add_argument("--rights-scope", default="")
     ap.add_argument("--publication-allowed", action="store_true")
     ap.add_argument("--work", default="")
-    ap.add_argument("--video-model", default="", choices=["", SD2, H3],
-                    help="default: the episodes' recorded model (preproduction/<EP>/video_model.json)")
     ap.add_argument("--receipt-dir", default="", help="default: <orders dir>/order_receipts")
     ap.add_argument("--recorded-by", default="",
                     help="who typed this in.  Default: the line owner.  An operator materialising the "
@@ -119,9 +106,6 @@ def main() -> int:
     seqs = [int(r.get("seq")) for r in rows if isinstance(r, dict) and isinstance(r.get("seq"), int)]
     seq = (max(seqs) if seqs else 0) + 1
     episodes = sorted(dict.fromkeys(a.episode))
-    video_model = a.video_model or default_video_model(episodes)
-    if video_model not in VIDEO_MODEL_CONDITIONS:
-        print(json.dumps({"status": "FAIL", "error": f"VIDEO_MODEL_NOT_SUPPORTED:{video_model}"})); return 2
     now = utc_now()
     order_id = f"{a.owner_id.upper()}-{datetime.now().strftime('%Y%m%d')}-{'-'.join(episodes)}-PAID"
 
@@ -145,7 +129,7 @@ def main() -> int:
         "decision": {
             "kind": KIND, "paid_requests_allowed": True, "paid_stages": stages,
             "episode_scope": episodes, "budget_cap_credits_per_episode": a.cap,
-            "video_model": video_model, "rights_basis": a.rights_basis, "rights_declared_by": a.owner_id,
+            "video_model": SD2, "rights_basis": a.rights_basis, "rights_declared_by": a.owner_id,
             "rights_scope": a.rights_scope, "publication_allowed": bool(a.publication_allowed),
         },
         "conditions": [
@@ -153,9 +137,8 @@ def main() -> int:
              "text": f"Paid provider requests are authorised for {', '.join(episodes)} in stages {', '.join(stages)}."},
             {"id": "BUDGET_CAP_PER_EPISODE", "severity": "HARD_STOP",
              "text": f"Budget cap {a.cap} credits per episode; the offline ledger guard stops any paid step that would exceed {a.cap}."},
-            {"id": VIDEO_MODEL_CONDITIONS[video_model], "severity": "HARD_STOP",
-             "text": (f"Video generation uses {SD2} only; no fast/mini substitutes." if video_model == SD2
-                      else f"Video generation uses {H3} only (768p); no seedance substitutes.")},
+            {"id": "VIDEO_MODEL_SD2_ONLY", "severity": "HARD_STOP",
+             "text": f"Video generation uses {SD2} only; no fast/mini substitutes."},
             {"id": "RIGHTS_BASIS_DECLARED", "severity": "AUTHORIZATION",
              "text": "Rights basis declared by the line owner (verbatim in decision.rights_basis); the engine records it and does not verify it."},
             {"id": "NO_PLATFORM_PUBLICATION", "severity": "HARD_STOP",
@@ -168,7 +151,6 @@ def main() -> int:
     write_json(orders_path, payload)
     print(json.dumps({
         "status": "PASS", "orders": str(orders_path), "seq": seq, "order_id": order_id, "receipt": str(receipt_path),
-        "video_model": video_model,
         "qingshan_json_authorization": {"supervisor_orders_path": str(orders_path), "paid_order_seq": seq,
                                         "latest_order_seq": seq, "line_owner_id": a.owner_id},
         "env_equivalent": {"NALU_SUPERVISOR_ORDERS_PATH": str(orders_path), "NALU_PAID_ORDER_SEQ": str(seq),

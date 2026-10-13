@@ -49,21 +49,10 @@ def rel(path: Path) -> str:
         return str(resolved)
 
 
-H3_SECTION = {"任务": "summary", "时间轴": "detailed_description", "摄影": "camera",
-              "声音": "overall_soundscape", "锚点": "subject_definitions", "限制": "negative_constraints"}
-
-
 def section(text: str, header: str) -> str:
-    """Text of a 【header】 block up to the next 【 (SD2), or of the matching English ``key:`` block (H3)."""
+    """Text of a 【header】 block up to the next 【."""
     m = re.search(r"【" + re.escape(header) + r"[^】]*】\s*(.*?)(?=\n【|\Z)", text, re.S)
-    if m:
-        return m.group(1).strip()
-    key = H3_SECTION.get(header)
-    if key:
-        m = re.search(r"^" + re.escape(key) + r":\s*(.*?)(?=\n[a-z_]+:(?:\s|$)|\Z)", text, re.S | re.M)
-        if m:
-            return m.group(1).strip()
-    return ""
+    return m.group(1).strip() if m else ""
 
 
 def foreign_dialogue(text: str, dialogue_by_shot: dict, unit_shots: list) -> list[str]:
@@ -273,15 +262,10 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
             boiler_kf[h].add(section(kf_text, h))
         # video prompt checks
         unit_shots = unit["editorial_shot_ids"]
-        # MiniMax-H3 prompts are English six-part text (Chinese only inside <d>[Chinese]...</d>
-        # dialogue), rendered from the unit's bound English contract; the Chinese states and cast
-        # names are checked through that contract, not by substring.
-        vp_is_h3 = vp_text.startswith("subject_definitions:") or "summary: [reference generation" in vp_text
         for sid in unit_shots:
             s = shots[sid]
-            if not vp_is_h3:
-                chk(f"vp_start_state_present:{sid}", s["entry_state"] in vp_text, s["entry_state"][:30])
-                chk(f"vp_completion_state_present:{sid}", s["completion_state"] in vp_text, s["completion_state"][:30])
+            chk(f"vp_start_state_present:{sid}", s["entry_state"] in vp_text, s["entry_state"][:30])
+            chk(f"vp_completion_state_present:{sid}", s["completion_state"] in vp_text, s["completion_state"][:30])
             for line in dialogue_by_shot.get(sid, []):
                 spoken = line.split("：", 1)[1]
                 chk(f"vp_dialogue_verbatim:{sid}", spoken in vp_text, spoken[:30])
@@ -290,24 +274,12 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
         vp_cast = set()
         for sid in unit_shots:
             vp_cast.update(c["character"] for c in shots[sid]["prompt_spec"]["cast"])
-        if vp_is_h3:
-            outside = re.sub(r"<d>\[Chinese\].*?</d>", "", vp_text, flags=re.S)
-            cjk = re.findall(r"[\u3400-\u9fff]", outside)
-            chk("vp_h3_no_cjk_outside_dialogue", not cjk, "".join(cjk[:10]))
-            chk("vp_h3_identity_references", "@Image1" in vp_text, "")
-            chk("vp_h3_cast_count", len(re.findall(r"^@Image\d+: exclusive identity of ", vp_text, flags=re.M)) >= len(
-                [n for n in vp_cast if n]) or "SUBJECT_1" in vp_text, f"{len(vp_cast)} cast")
-        else:
-            for name in vp_cast:
-                chk(f"vp_cast_named:{name}", name in vp_text, "")
+        for name in vp_cast:
+            chk(f"vp_cast_named:{name}", name in vp_text, "")
         chk("vp_duration_declared", str(int(round(unit["duration_seconds"]))) in vp_text or f"{unit['duration_seconds']}" in vp_text, str(unit["duration_seconds"]))
-        h3_sections = ("subject_definitions:", "summary:", "detailed_description:", "camera:",
-                       "overall_soundscape:", "negative_constraints:")
-        chk("vp_required_sections", all(h in vp_text for h in (h3_sections if vp_is_h3 else (
-            "【任务】", "【锚点】", "【时间轴】", "【摄影】", "【声音】", "【限制】"))), "")
+        chk("vp_required_sections", all(h in vp_text for h in ("【任务】", "【锚点】", "【时间轴】", "【摄影】", "【声音】", "【限制】")), "")
         chk("vp_rune_limit", len(vp_text) <= 10000, str(len(vp_text)))
-        if not vp_is_h3:
-            boiler_vp["限制"].add(section(vp_text, "限制"))
+        boiler_vp["限制"].add(section(vp_text, "限制"))
         age_note = ("十六七岁" in vp_text) or ("十六七岁" in kf_text)
         rows.append({
             "unit_id": uid, "shot_id": shot_id, "editorial_shot_ids": unit_shots,
