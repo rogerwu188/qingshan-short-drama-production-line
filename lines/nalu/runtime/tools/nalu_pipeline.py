@@ -1697,7 +1697,7 @@ def voice_rows(registry: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
-def locked_voice_entities(registry: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def locked_voice_entities(registry: dict[str, Any], *, require_public_url: bool = False) -> dict[str, dict[str, Any]]:
     """Speaking characters whose voice reference is already production-locked.
 
     Locked means: status LOCKED_PRODUCTION_READY, a real provider asset id, and a
@@ -1710,6 +1710,9 @@ def locked_voice_entities(registry: dict[str, Any]) -> dict[str, dict[str, Any]]
         if not entity_id or row.get("status") != "LOCKED_PRODUCTION_READY":
             continue
         local = row.get("local_reference")
+        # MiniMax-H3 takes voice references only as public HTTPS URLs: a row without one is redone
+        if require_public_url and not str(row.get("remote_url") or "").startswith("https://"):
+            continue
         if row.get("remote_asset_id") and local and sha256_file(Path(local)) == row.get("local_sha256"):
             value = {"remote_asset_id": row["remote_asset_id"],
                      "remote_url": row.get("remote_url")}
@@ -2382,7 +2385,7 @@ def stage_s4(ctx: Ctx) -> StageResult:
     payloads = read_json(p.speech_payloads, {}) or {}
     tasks = payloads.get("tasks") or []
     registry = read_json(ctx.p.scope["voice_registry"], {}) or {}
-    already = locked_voice_entities(registry)
+    already = locked_voice_entities(registry, require_public_url=episode_video_model(ctx.episode) == "MiniMax-H3")
     todo = [task for task in tasks
             if canonical_voice_entity(str(task.get("entity_id") or "")) not in already]
 
@@ -4426,8 +4429,22 @@ def s6_action_role_evidence(ctx: Ctx, res: StageResult, units: list[str] | None)
 
 
 
+def episode_video_model(episode: str) -> str:
+    """The episode's video model (nalu_video_model: recorded / existing build / qingshan.json)."""
+    import nalu_video_model as _vm
+    return _vm.episode_video_model(episode)
+
+
+def video_task_credits(model: str, seconds: float, tasks: int) -> int:
+    """Planning price: SD2 720p 20 credits/s; MiniMax-H3 768p 14 credits/s + 6 per task
+    (materialize_paid_authorization.H3_CREDITS_PER_SECOND / H3_CREDITS_PER_TASK)."""
+    if model == "MiniMax-H3":
+        return int(round(seconds * _paid_order.H3_CREDITS_PER_SECOND)) + _paid_order.H3_CREDITS_PER_TASK * tasks
+    return int(round(seconds * 20))
+
+
 def s6_planned_credits_for_unbound(ctx: Ctx) -> int:
-    """Credits a paid S6 submit can still spend: SD2 720p = 20 credits/s for every task of the
+    """Credits a paid S6 submit can still spend (video_task_credits) for every task of the
     current transaction manifest whose submission fingerprint is NOT already bound to a remote
     task in the durable store.  A frozen-wave re-entry (poll only) therefore plans 0 instead of
     the whole-episode estimate: on 2026-09-13 03:14Z the guard projected 4793 + 3500 > 8000 and
@@ -4450,7 +4467,8 @@ def s6_planned_credits_for_unbound(ctx: Ctx) -> int:
         if row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id"):
             bound.add(str(row.get("submission_fingerprint")))
     unbound = [t for t in tasks if task_fingerprint(t) not in bound]
-    planned = int(round(sum(float(t.get("duration_seconds") or 0) for t in unbound) * 20))
+    planned = video_task_credits(episode_video_model(ctx.episode),
+                                 sum(float(t.get("duration_seconds") or 0) for t in unbound), len(unbound))
     ctx.say(f"   S6 planned credits: {planned} for {len(unbound)} unbound task(s) "
             f"({len(tasks) - len(unbound)} already bound in the durable store)")
     return planned
@@ -4504,12 +4522,19 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
     })
     ready = (inner.get("4.3_video_unit_anchor_plan") == PASS
              and inner.get("4.4_compile_grouped_seedance_manifest") == PASS
+             # MiniMax-H3 only: final prompts re-rendered from the finalized tasks (needs English contracts)
+             and inner.get("4.5_h3_final_prompts_from_finalized_tasks", PASS) == PASS
              and inner.get("5_video_preflight") == PASS)
     res.details["video_preflight_pass"] = ready
     if not ready:
         res.status = BLOCKED
         res.blockers = [f"VIDEO_CHAIN_NOT_READY:{key}={value}" for key, value in inner.items()
-                        if key.startswith(("4.3", "4.4", "5")) and value != PASS]
+                        if key.startswith(("4.3", "4.4", "4.5", "5")) and value != PASS]
+        h3_block = next((row.get("blocking_check") for row in (report.get("stages") or [])
+                         if row.get("stage") == "4.5_h3_final_prompts_from_finalized_tasks"
+                         and row.get("status") != PASS), None)
+        if h3_block:
+            res.blockers.append(str(h3_block))
         res.details["hint"] = ("S5 keyframes + Q1 admission + start-frame receipts must land "
                               "first; video-preflight fails closed on a missing gate report, "
                               "an uncompiled prompt, or a non-PASS start_frame_semantic_contract.")

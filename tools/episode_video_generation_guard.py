@@ -180,7 +180,7 @@ def _singleton_video_task(payload: dict) -> dict | None:
         return None
     schema = str(payload.get("schema") or "").lower()
     model = str(payload.get("model") or "").lower()
-    if "video" not in schema and not model.startswith("seedance"):
+    if "video" not in schema and not model.startswith(("seedance", "minimax-h3")):
         return None
     credit = payload.get("actual_charged_credits")
     status = str(payload.get("status") or "").upper()

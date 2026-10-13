@@ -78,6 +78,12 @@ STATEMENT_PATH = "/api/v1/payment/credit-statements"
 # Observed authoritative unit prices, each with its in-repo evidence. Used for
 # planning only; the actual charge always comes from the statement ledger.
 UNIT_PRICES = {
+    "video_minimax_h3_768p": {
+        "credits_per_second": 14,
+        "credits_per_task": 6,
+        "evidence": "tools/authorize_e48_v5_h3_a4_remaining4.py (E48 observed 14 x seconds + 6 per task); "
+                    "lines/nalu/runtime/tools/materialize_paid_authorization.py H3_CREDITS_*",
+    },
     "image_gpt_image_2_pro": {
         "credits": 5,
         "hard_upper": 11,
