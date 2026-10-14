@@ -1189,7 +1189,13 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
     # the motion-word scan while retaining the scan for every authored segment.
     prompt_without_entry = prompt.replace(entry_state, "").replace(
         role_semantic_prompt_block(role), ""
-    ).replace("保持闭口", "")
+    ).replace("保持闭口", "").replace(
+        # NON_ACTOR_END_STATE is a machine-generated standby-entity contract for non-performing
+        # cast members (defined in every episode builder as the entity_states value for characters
+        # who are present but not the primary actor).  It is a static presence constraint, not a
+        # motion extension, so 「保持」 there must not fail the keyframe forbidden-word scan.
+        "保持已声明站位与出入画状态，闭口，不执行主动作，不接管其他实体动作", ""
+    )
     # Wardrobe contracts may legitimately say “保持自然比例/颜色”等静态
     # 保持约束；exclude those lines from the motion-extension scan as well.
     for wardrobe_line in wardrobe_lines:
