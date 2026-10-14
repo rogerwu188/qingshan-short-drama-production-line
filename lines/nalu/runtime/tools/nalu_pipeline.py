@@ -710,6 +710,10 @@ class Ctx:
             (self.config.get("storyclaw") or {}).get("paid_requests_enabled")
         )
         self.max_parallel = int(gen.get("max_parallel_tasks") or 6)
+        # Provider-side concurrency ceiling, separate from the POST thread pool above.  Unset by
+        # default: the scheduler then applies no remote-in-flight bound at all, exactly as before
+        # 2026-10-13.  A deployment that knows its account's generator slots sets it.
+        self.max_remote_inflight = int(gen["max_remote_inflight"]) if gen.get("max_remote_inflight") else None
         self.cap = int(
             gen.get("budget_cap_credits_per_episode")
             or gen.get("budget_credits_per_episode_cap")
@@ -4287,18 +4291,28 @@ def stage_s6(ctx: Ctx) -> StageResult:
         # Remote-in-flight bound (2026-10-13).  ``--concurrency`` only bounds how many POST threads
         # the submitter runs; it says nothing about how many units are still generating on the
         # provider's side.  A wave used to open with EVERY ready unit, so one tick could put the whole
-        # remaining episode into remote generation (E11: a 20-unit wave at concurrency 3).  The HTTP
-        # response returning a task_id does not mean the provider freed a generation slot, so the
-        # ceiling has to be counted in remote tasks, not in POST threads.
+        # remaining episode into remote generation (E11 wave 1: 20 units) while --concurrency stayed
+        # at 3.  The HTTP response returning a task_id does not free a provider generation slot, so a
+        # ceiling on this has to be counted in remote tasks, not in POST threads.
         #
-        # Units in open waves that have no video on disk yet are still occupying the provider.
-        remote_in_flight = {uid for w in open_waves for uid in (w.get("units") or []) if uid not in done}
-        ceiling = getattr(ctx, "max_remote_inflight", None) or getattr(ctx, "max_parallel", 6)
-        headroom = max(0, int(ceiling) - len(remote_in_flight))
-        if len(new_ready) > headroom:
-            ctx.say(f"-- S6 remote in-flight bound: {len(remote_in_flight)}/{ceiling} provider task(s) "
-                    f"still generating; deferring {len(new_ready) - headroom} of {len(new_ready)} ready unit(s)")
-            new_ready = new_ready[:headroom]
+        # OPT-IN, and that is deliberate.  This bound is only applied when the runtime config names
+        # one (generation.max_remote_inflight); with no configured limit the scheduler behaves exactly
+        # as before.  Defaulting it to max_parallel would silently cap every wave at 3 and hand the
+        # provider far less concurrent work than production deliberately does — a throughput
+        # regression dressed as a fix.  The right ceiling is a property of the provider account, not
+        # of a POST thread pool, so it is a deployment decision (proposal §5: do not write 1, 3 or 6
+        # into every deployment).  Shadow-compare before enabling it.
+        ceiling = getattr(ctx, "max_remote_inflight", None)
+        if ceiling:
+            # Units in open waves with no video on disk are still occupying the provider.
+            remote_in_flight = {uid for w in open_waves
+                                for uid in (w.get("units") or []) if uid not in done}
+            headroom = max(0, int(ceiling) - len(remote_in_flight))
+            if len(new_ready) > headroom:
+                ctx.say(f"-- S6 remote in-flight bound: {len(remote_in_flight)}/{ceiling} provider "
+                        f"task(s) still generating; deferring {len(new_ready) - headroom} of "
+                        f"{len(new_ready)} ready unit(s)")
+                new_ready = new_ready[:headroom]
         if not open_waves and not new_ready:
             res = StageResult(BLOCKED)
             res.blockers.append("ROLLING_WAVE_NO_READY_UNITS")
@@ -4307,13 +4321,33 @@ def stage_s6(ctx: Ctx) -> StageResult:
         if new_ready:
             wave_no = max([int(w["wave"]) for w in waves] or [0]) + 1
             stem = ctx.p.video_submit.stem
+            # Dispatch observability (proposal §5).  Record why the units that are NOT in this wave
+            # are waiting, so a slow pass can be attributed instead of guessed at.  These counters
+            # only observe: nothing here changes which units are submitted.
+            blocked_by_tail = [uid for uid, prev, needs in deps
+                               if uid not in done and uid not in pending_ids and uid not in in_open
+                               and needs and prev is not None and not (tails_dir / f"{prev}.png").is_file()]
+            ready_now = {uid for uid in new_ready}
+            ready_units = {
+                "ready_count": len(new_ready),
+                "blocked_by_dependency": sorted(blocked_by_tail),
+                "blocked_by_tail_frame_count": len(blocked_by_tail),
+                "in_flight_waves": [int(w["wave"]) for w in open_waves],
+                "in_flight_unit_count": len({uid for w in open_waves
+                                             for uid in (w.get("units") or []) if uid not in done}),
+                "videos_on_disk": len(done),
+                "units_total": len(deps),
+                "waves_opened_total": wave_no,
+            }
             waves.append({"wave": wave_no, "units": new_ready, "opened_at": now(), "done_before": sorted(done),
+                          "readiness": ready_units,
                           "submit_report": str(ctx.p.video_submit.with_name(f"{stem}_wave{wave_no}.json")),
                           "status_report": str(ctx.p.video_remote_status.with_name(
                               f"{ctx.p.video_remote_status.stem}_wave{wave_no}.json"))})
             write_json(wave_state_path, wave_state)
-            ctx.say(f"-- S6 rolling wave {wave_no}: {len(new_ready)} ready unit(s) {new_ready}; "
+            ctx.say(f"-- S6 rolling wave {wave_no}: {len(new_ready)} ready unit(s) {sorted(ready_now)}; "
                     f"{len(done)}/{len(deps)} videos on disk"
+                    + (f"; {len(blocked_by_tail)} blocked on a predecessor tail frame" if blocked_by_tail else "")
                     + (f"; overlapping in-flight wave(s) {[int(w['wave']) for w in open_waves]}" if open_waves else ""))
             open_waves.append(waves[-1])
         legacy_submit, legacy_status = ctx.p.video_submit, ctx.p.video_remote_status
