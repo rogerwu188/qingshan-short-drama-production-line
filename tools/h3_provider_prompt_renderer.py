@@ -499,6 +499,10 @@ def _beat(
         contact_time = f"{float(source['contact_time_seconds']):g}s"
         line += f" Interaction mode: {interaction_label}; the interaction point is reached at {contact_time}"
         evidence[f"{prefix}.CONTACT_TIME"] = contact_time
+    elif interaction_mode != "NONE":
+        # No contact timestamp, but the interaction mode is still required by the coverage gate.
+        # Emit the label unconditionally so coverage can find it in the rendered text.
+        line += f" Interaction mode: {interaction_label}"
     if source.get("contact_point"):
         line += f" at {translated['contact_point']}"
         evidence[f"{prefix}.CONTACT_POINT"] = translated["contact_point"]
