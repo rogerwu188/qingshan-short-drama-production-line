@@ -4284,6 +4284,21 @@ def stage_s6(ctx: Ctx) -> StageResult:
                      if uid not in done and uid not in pending_ids and uid not in in_open
                      and (not needs or prev is None or (tails_dir / f"{prev}.png").is_file())
                      and (uid not in derived or derived[uid]["keyframe_path"].is_file())]
+        # Remote-in-flight bound (2026-10-13).  ``--concurrency`` only bounds how many POST threads
+        # the submitter runs; it says nothing about how many units are still generating on the
+        # provider's side.  A wave used to open with EVERY ready unit, so one tick could put the whole
+        # remaining episode into remote generation (E11: a 20-unit wave at concurrency 3).  The HTTP
+        # response returning a task_id does not mean the provider freed a generation slot, so the
+        # ceiling has to be counted in remote tasks, not in POST threads.
+        #
+        # Units in open waves that have no video on disk yet are still occupying the provider.
+        remote_in_flight = {uid for w in open_waves for uid in (w.get("units") or []) if uid not in done}
+        ceiling = getattr(ctx, "max_remote_inflight", None) or getattr(ctx, "max_parallel", 6)
+        headroom = max(0, int(ceiling) - len(remote_in_flight))
+        if len(new_ready) > headroom:
+            ctx.say(f"-- S6 remote in-flight bound: {len(remote_in_flight)}/{ceiling} provider task(s) "
+                    f"still generating; deferring {len(new_ready) - headroom} of {len(new_ready)} ready unit(s)")
+            new_ready = new_ready[:headroom]
         if not open_waves and not new_ready:
             res = StageResult(BLOCKED)
             res.blockers.append("ROLLING_WAVE_NO_READY_UNITS")
@@ -4313,17 +4328,33 @@ def stage_s6(ctx: Ctx) -> StageResult:
                 ctx.p.video_remote_status = Path(w["status_report"]) if w.get("status_report") else legacy_status
                 r = _stage_s6_body(ctx, ready_units=ready, run_qa=False)
                 r.details["rolling_wave"] = {"wave": wave_no, "ready_units": ready, "done_before": sorted(done)}
-                if r.status == PASS:
-                    extracted = [extract_real_final_frame(ctx, uid) for uid in ready]
+                # Extract each unit's real final frame as soon as ITS OWN video lands, not when the
+                # whole wave passes poll (2026-10-13).  The extraction is what unblocks a tail-chained
+                # successor, so tying it to wave completion made a ready successor wait for every
+                # unrelated unit in its wave (E11 wave11 carried 6 units at concurrency 3; a chain
+                # successor in it waited on all 6).  extract_real_final_frame is idempotent
+                # (ALREADY_PRESENT), so re-running it per tick costs one stat per finished unit.
+                on_disk = [uid for uid in ready if (ctx.p.video_media / f"{uid}.mp4").is_file()]
+                extracted = [extract_real_final_frame(ctx, uid) for uid in on_disk]
+                if extracted:
+                    # accumulate across ticks: the wave's row set must keep every unit it has
+                    # finished, or a later tick would publish a receipt that lost earlier tails.
+                    receipt_path = tails_dir / f"_extraction_wave{wave_no}.json"
+                    prior = read_json(receipt_path, {}) or {}
+                    merged = {str(row.get("unit_id")): row for row in (prior.get("rows") or [])}
+                    for row in extracted:
+                        merged[str(row.get("unit_id"))] = row
                     r.details["real_final_frames"] = extracted
-                    write_json(tails_dir / f"_extraction_wave{wave_no}.json", {"wave": wave_no, "rows": extracted, "at": now()})
-                    bad = [row for row in extracted if row["status"] not in ("EXTRACTED", "ALREADY_PRESENT")]
+                    write_json(receipt_path, {"wave": wave_no, "rows": [merged[k] for k in sorted(merged)],
+                                              "at": now()})
+                    bad = [row for row in extracted
+                           if row["status"] not in ("EXTRACTED", "ALREADY_PRESENT")]
                     if bad:
                         r.status = BLOCKED
                         r.blockers.append(f"REAL_FINAL_FRAME_EXTRACTION_FAILED:{','.join(x['unit_id'] for x in bad)}")
-                    else:
-                        w["completed_at"] = now()
-                        write_json(wave_state_path, wave_state)
+                if r.status == PASS:
+                    w["completed_at"] = now()
+                    write_json(wave_state_path, wave_state)
                 results.append((wave_no, r))
                 if ctx.dry:
                     break

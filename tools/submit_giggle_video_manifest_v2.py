@@ -14,7 +14,7 @@ import sys
 import time
 import tempfile
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -1203,12 +1203,39 @@ def main() -> int:
     else:
         concurrency = max(1, args.concurrency)
         credit_fuse_tripped = False
-        for offset in range(0, len(tasks), concurrency):
-            wave = tasks[offset:offset + concurrency]
-            with ThreadPoolExecutor(max_workers=concurrency) as pool:
-                futures = {pool.submit(submit_one, task, receipts, transactions): task for task in wave}
-                for future in as_completed(futures):
-                    task = futures[future]
+        # Bounded ready queue instead of a fixed wave barrier (2026-10-13).  The old loop sliced the
+        # batch into range(0, len(tasks), concurrency) waves and only opened the next slice after
+        # as_completed() had drained the whole wave, so one slow POST held a free submit slot idle
+        # while other READY tasks waited on it.  E11 wave11 (2026-10-11) spread 124.4 s over 6 tasks
+        # at concurrency 3 for exactly this reason.
+        #
+        # What is NOT relaxed by this change:
+        #   * every gate, the whole-batch prompt registration and the per-task fingerprint lock are
+        #     untouched — submit_one still refuses a second POST for the same fingerprint;
+        #   * results/failures keep one row per task and the report keeps one entry per task_key, so
+        #     the reconciliation below still accounts for every submission attempt;
+        #   * the provider-insufficient-credits fuse still stops DISPATCH, and it now stops it at the
+        #     first free slot rather than at a wave boundary.
+        # The ceiling is the same: at most ``concurrency`` POSTs are in flight at any instant.
+        task_iter = iter(tasks)
+        in_flight: dict[Any, dict[str, Any]] = {}
+        with ThreadPoolExecutor(max_workers=concurrency) as pool:
+            def _start(task: dict[str, Any]) -> None:
+                in_flight[pool.submit(submit_one, task, receipts, transactions)] = task
+
+            # Prime exactly ``concurrency`` slots.  Tasks are NOT all queued up front: the
+            # insufficient-credits fuse has to be able to stop DISPATCH, and a pool already holding
+            # the whole batch would run the remaining tasks anyway.
+            for task in task_iter:
+                _start(task)
+                if len(in_flight) >= concurrency:
+                    break
+            while in_flight:
+                # FIRST_COMPLETED, not as_completed over the whole set: a slot is refilled the moment
+                # ITS POST returns, without waiting for the batch's slowest in-flight request.
+                done, _ = wait(list(in_flight), return_when=FIRST_COMPLETED)
+                for future in done:
+                    task = in_flight.pop(future)
                     try:
                         results.append(future.result())
                     except ProviderInsufficientCreditsError as exc:
@@ -1218,15 +1245,27 @@ def main() -> int:
                         failures.append({"task_key": task["task_key"], "state": "submit_failed_before_intent", "error": str(exc), "transaction": portable(transaction_path(transactions, task)), "pre_intent_block": portable(pre_intent_block_path(transactions, task)), "credit": 0, "credit_status": "NOT_CHARGED_NO_INTENT_RECORDED"})
                     except (Exception, SystemExit) as exc:
                         failures.append({"task_key": task["task_key"], "state": "submit_failed", "error": str(exc), "transaction": portable(transaction_path(transactions, task))})
-            if credit_fuse_tripped:
-                for task in tasks[offset + len(wave):]:
-                    failures.append({
-                        "task_key": task["task_key"],
-                        "state": "not_submitted_provider_insufficient_credits",
-                        "error": "batch dispatch stopped after provider insufficient-credits response",
-                        "transaction": portable(transaction_path(transactions, task)),
-                    })
-                break
+                    if credit_fuse_tripped:
+                        break
+                    # a submit slot just freed: start the next READY task now instead of waiting for
+                    # this batch's slowest POST to return.
+                    nxt = next(task_iter, None)
+                    if nxt is not None:
+                        in_flight[pool.submit(submit_one, nxt, receipts, transactions)] = nxt
+                if credit_fuse_tripped:
+                    break
+        if credit_fuse_tripped:
+            # every task that never got a slot is reported as not-submitted, exactly as before
+            reported = {row["task_key"] for row in results} | {row["task_key"] for row in failures}
+            for task in tasks:
+                if task["task_key"] in reported:
+                    continue
+                failures.append({
+                    "task_key": task["task_key"],
+                    "state": "not_submitted_provider_insufficient_credits",
+                    "error": "batch dispatch stopped after provider insufficient-credits response",
+                    "transaction": portable(transaction_path(transactions, task)),
+                })
     credit = None
     ambiguity = "NOT_APPLICABLE"
     if not args.precheck_only:

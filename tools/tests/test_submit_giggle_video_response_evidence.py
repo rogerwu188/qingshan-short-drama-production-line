@@ -24,7 +24,30 @@ class VideoSubmitResponseEvidenceTests(unittest.TestCase):
         source = SUBMITTER.read_text(encoding="utf-8")
         self.assertIn('"PROVIDER_INSUFFICIENT_CREDITS"', source)
         self.assertIn('"not_submitted_provider_insufficient_credits"', source)
-        self.assertIn("for offset in range(0, len(tasks), concurrency)", source)
+
+    def test_submitter_dispatch_is_a_ready_queue_not_a_fixed_wave_barrier(self):
+        """The scheduling shape is asserted by behaviour, not by source text.
+
+        This test used to assert the literal string
+        ``for offset in range(0, len(tasks), concurrency)``.  That pinned the fixed-wave
+        barrier as if it were the contract, so the barrier could not be replaced without
+        breaking a test that was protecting the thing being fixed (2026-10-13).  What
+        actually matters is that a free submit slot is refilled from a ready queue rather
+        than at a whole-batch boundary, and the behavioural proof of that lives in
+        tools/tests/test_concurrent_dispatch_audit_repro.py
+        (SubmitterFixedWaveBarrierRepro).  Here we only assert that the batch is not
+        queued up front, which is what makes the insufficient-credits fuse able to stop
+        dispatch at all.
+        """
+        import tools.submit_giggle_video_manifest_v2 as submitter
+
+        source = SUBMITTER.read_text(encoding="utf-8")
+        # the fuse must still be reachable: tasks are pulled one at a time from an iterator
+        self.assertIn("task_iter = iter(tasks)", source)
+        self.assertIn("FIRST_COMPLETED", source)
+        # and the module still exposes the fuse + per-fingerprint lock it always had
+        self.assertTrue(hasattr(submitter, "submit_one"))
+        self.assertIn("fcntl", source)
 
 
 if __name__ == "__main__":
