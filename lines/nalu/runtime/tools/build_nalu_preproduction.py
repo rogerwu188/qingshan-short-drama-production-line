@@ -46,14 +46,51 @@ RESOLUTION_ORDER = [
     "SHOT_SUBSPACE_LAYOUT",
     "CHARACTER_PROP_BLOCKING",
 ]
-MODEL_CONTRACT = {
-    "model": "seedance-2.0-pro",
-    "model_registry_key": "SEEDANCE_2_STANDARD_GIGGLE",
-    "resolution": "720p",
-    "native_raster": "720x1280",
-    "aspect_ratio": "9:16",
-    "route": "STANDARD_MULTI_REFERENCE",
+VIDEO_MODEL_CONTRACTS = {
+    "seedance-2.0-pro": {
+        "model": "seedance-2.0-pro",
+        "model_registry_key": "SEEDANCE_2_STANDARD_GIGGLE",
+        "resolution": "720p",
+        "native_raster": "720x1280",
+        "aspect_ratio": "9:16",
+        "route": "STANDARD_MULTI_REFERENCE",
+    },
+    # configs/VIDEO_MODEL_CAPABILITY_REGISTRY_v1.json MINIMAX_H3_GIGGLE: 768p, 3-15 s, <=9 images,
+    # audio references as public HTTPS URLs only.  The final cut is still rendered at 720x1280.
+    "MiniMax-H3": {
+        "model": "MiniMax-H3",
+        "model_registry_key": "MINIMAX_H3_GIGGLE",
+        "resolution": "768p",
+        "native_raster": "768x1366",
+        "aspect_ratio": "9:16",
+        "route": "STANDARD_MULTI_REFERENCE",
+    },
 }
+# Selected per episode in main() (select_video_model); module default keeps legacy behaviour.
+MODEL_CONTRACT = dict(VIDEO_MODEL_CONTRACTS["seedance-2.0-pro"])
+
+
+def select_video_model(episode: str) -> dict[str, Any]:
+    """The episode's video model, chosen once and then sticky (nalu_video_model.py).
+
+    Line owner 2026-10-13: new episodes generate video with MiniMax-H3 (qingshan.json
+    ``generation.video_model``).  The first preproduction build of an episode records the choice in
+    ``preproduction/<EP>/video_model.json``; an episode already built before that file existed keeps the
+    model of its existing editorial manifest.  Changing the config never re-models an episode whose
+    units, prompts or paid tasks already exist.
+    """
+    import nalu_video_model as _vm
+    record = _vm.record_path(episode)
+    chosen = _vm.recorded_video_model(episode) or _vm.configured_video_model()
+    if chosen not in VIDEO_MODEL_CONTRACTS:
+        raise SystemExit(f"video_model={chosen!r} for {episode} is not one of {sorted(VIDEO_MODEL_CONTRACTS)}")
+    if not record.is_file():
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_text(json.dumps({"episode": episode, "video_model": chosen, "chosen_at": now()},
+                                     ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    MODEL_CONTRACT.clear()
+    MODEL_CONTRACT.update(VIDEO_MODEL_CONTRACTS[chosen])
+    return MODEL_CONTRACT
 _OPPOSITE_FACING = {
     "north": "south", "south": "north", "east": "west", "west": "east",
     "northeast": "southwest", "southwest": "northeast",
@@ -1118,6 +1155,8 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
         "episode": episode,
         "generated_by": TOOL_ID,
         "generated_at": now(),
+        # build_video_unit_grouping_spec reads the top-level model (H3: one speaker per unit)
+        "model": MODEL_CONTRACT["model"],
         "source_generation_contract": portable(contract_path, root),
         "source_generation_contract_sha256": sha256_file(contract_path),
         "source_episode_global_space_map": portable(gsm_path, root),
@@ -1382,6 +1421,7 @@ def main() -> int:
         contract_path, out_dir, Path(__file__))
     engine = Engine(root)
     episode = str(args.episode)
+    select_video_model(episode)
     prefix = f"{episode}_"
     stages: list[dict[str, Any]] = []
     gate_reports: list[dict[str, Any]] = []
@@ -1740,6 +1780,23 @@ def main() -> int:
           failures=anchor_report.get("failures") or [], report=portable(anchor_report_path, root))
     if anchor_report["status"] == "PASS":
         gate_reports.append({"gate_id": anchor_report["gate_id"], "path": portable(anchor_report_path, root)})
+    # MiniMax-H3: the grouped compile reads a copy of the gated anchor plan whose units also carry the
+    # locked identity plates (entity-bound).  The anchor-count gate judges semantic anchors only, so the
+    # plates never enter the gated plan; plan_compile.sh uses the same copy.
+    compile_anchor_path = anchor_path
+    if MODEL_CONTRACT["model"] == "MiniMax-H3":
+        compile_anchor = json.loads(anchor_path.read_text(encoding="utf-8"))
+        missing_plates = append_h3_identity_plates(
+            compile_anchor, json.loads(plan_path.read_text(encoding="utf-8")), editorial, episode=episode)
+        compile_anchor["h3_identity_plates_missing"] = missing_plates
+        compile_anchor["source_gated_anchor_plan_sha256"] = sha256_file(anchor_path)
+        compile_anchor["planned_reference_image_count"] = sum(
+            int(u.get("planned_reference_image_count") or 0) for u in compile_anchor.get("units") or [])
+        compile_anchor_path = write_json(anchor_path.with_name(anchor_path.name.replace(
+            "ANCHOR_PLAN", "ANCHOR_PLAN_H3_COMPILE")), compile_anchor)
+        stage("4.3h_h3_identity_references", "PASS" if not missing_plates else "BLOCKED",
+              blocking_check=(f"H3_LOCKED_IDENTITY_PLATE_MISSING:{','.join(missing_plates)}" if missing_plates else None),
+              path=portable(compile_anchor_path, root))
     stage("4.3c_start_frame_semantic_contracts",
           "PASS" if all(row["status"] == "PASS" for row in start_frames) else "BLOCKED_MISSING_KEYFRAME_EVIDENCE",
           units=len(start_frames), path=portable(start_frame_path, root),
@@ -1823,7 +1880,7 @@ def main() -> int:
 
     compile_attempt = run_cli(engine, [
         str(root / "tools" / "compile_grouped_seedance_manifest.py"),
-        "--grouping-plan", str(plan_path), "--anchor-plan", str(anchor_path),
+        "--grouping-plan", str(plan_path), "--anchor-plan", str(compile_anchor_path),
         "--editorial-seedance-manifest", str(editorial_path),
         # The grouped compiler owns the visual-culture and character contracts;
         # pass the same v4 generation contract used by this builder instead of
@@ -1844,6 +1901,11 @@ def main() -> int:
                              out_dir=out_dir, prefix=prefix, root=root, episode=episode,
                              ready_units=(json.loads(args.ready_units) if args.ready_units else None))
         transaction["blocking_note"] = "prompt files compiled by stage 4.4 (strict) for every task in this manifest"
+        if MODEL_CONTRACT["model"] == "MiniMax-H3":
+            h3 = render_h3_final_prompts(transaction, out_dir=out_dir, root=root, episode=episode,
+                                         final_index_path=final_index_path)
+            stage("4.5_h3_final_prompts_from_finalized_tasks", h3["status"],
+                  blocking_check=h3["blocking_check"], rendered=h3["rendered"], pending=h3["pending"])
         transaction_path = write_json(out_dir / f"{prefix}VIDEO_TRANSACTION_MANIFEST_V1.json", transaction)
 
     preflight_out = reports_dir / f"{prefix}VIDEO_PREFLIGHT_V1.json"
@@ -2103,6 +2165,59 @@ def entity_scoped_trajectory(entity_id, specs, shot_ids, name2char, name2prop):
     }
 
 
+def h3_identity_label(character_id: str) -> str:
+    """ASCII provider label for an H3 identity reference (H3 forbids CJK outside dialogue)."""
+    return re.sub(r"[^A-Za-z0-9]+", " ", str(character_id).replace("CHAR-", "", 1)).strip().title() or "Character"
+
+
+def append_h3_identity_plates(anchor_plan: dict[str, Any], plan: dict[str, Any], editorial: dict[str, Any],
+                              *, episode: str) -> list[str]:
+    """MiniMax-H3 renders identity, speaker and voice bindings from the unit's own references, so the
+    locked identity plate of every visible character (speakers first) joins the unit's anchors before
+    the grouped compile, with an aligned ``reference_entity_bindings`` row.  SD2 units are untouched
+    (their plates are added by finalize_video_tasks).  Returns characters without a locked plate."""
+    shots = {str(row.get("shot_id")): row for row in editorial.get("shots") or []}
+    shot_ids_by_unit = {str(u.get("unit_id")): list(u.get("editorial_shot_ids") or []) for u in plan.get("units") or []}
+    missing: list[str] = []
+    for unit in anchor_plan.get("units") or []:
+        speakers: list[str] = []
+        visible: list[str] = []
+        for sid in shot_ids_by_unit.get(str(unit.get("unit_id")), []):
+            spec = (shots.get(sid) or {}).get("prompt_spec") or {}
+            name_to_id = {str(m.get("character") or ""): str(m.get("character_id") or "")
+                          for m in spec.get("cast") or []}
+            speaker = str(spec.get("dialogue") or "").partition("：")[0].strip()
+            if speaker and name_to_id.get(speaker) and name_to_id[speaker] not in speakers:
+                speakers.append(name_to_id[speaker])
+            for member in spec.get("cast") or []:
+                cid = str(member.get("character_id") or "")
+                if cid and str(member.get("face_visibility") or "") != "OFFSCREEN_VOICE_ONLY" and cid not in visible:
+                    visible.append(cid)
+        order = speakers + [cid for cid in visible if cid not in speakers]
+        paths = list(unit.get("reference_image_paths") or [])
+        decision = unit.setdefault("anchor_count_decision", {})
+        roles = list(decision.get("anchor_roles") or [])
+        keys = list(unit.get("reference_image_task_keys") or [])
+        entities: list[Any] = [None] * len(paths)
+        for cid in order:
+            plate = _locked_identity_plate(cid, episode=episode)
+            if plate is None:
+                missing.append(cid)
+                continue
+            if str(plate) in paths or len(paths) >= VIDEO_REFERENCE_MAX:
+                continue
+            paths.append(str(plate)); roles.append("CHARACTER_IDENTITY_REFERENCE")
+            keys.append(f"IDENTITY_PLATE:{cid}")
+            entities.append({"entity_id": cid, "provider_entity_label": h3_identity_label(cid)})
+        unit["reference_image_paths"] = paths
+        unit["reference_image_task_keys"] = keys
+        unit["planned_reference_image_count"] = len(paths)
+        decision["anchor_roles"] = roles
+        decision["planned_reference_image_count"] = len(paths)
+        unit["reference_entity_bindings"] = entities
+    return sorted(set(missing))
+
+
 def identity_plate_reference_rows(character_ids: list[str], plate_lookup, *, existing_paths: list[str],
                                   cap: int = VIDEO_REFERENCE_MAX) -> tuple[list[dict[str, Any]], list[str], list[str]]:
     """Roger 2026-09-18 (identity chain ③): one front-neutral-headshot plate per visible character,
@@ -2144,6 +2259,73 @@ def project_provider_slots(plan: dict[str, Any]) -> dict[str, Any]:
     plan["editorial_runtime_seconds"] = plan.get("runtime_seconds")
     plan["runtime_seconds"] = round(sum(float(u["duration_seconds"]) for u in plan.get("units") or []), 6)
     return plan
+
+
+def render_h3_final_prompts(transaction: dict[str, Any], *, out_dir: Path, root: Path, episode: str,
+                            final_index_path: Path) -> dict[str, Any]:
+    """MiniMax-H3: render each finalized task's provider prompt with the paid boundary's own compiler input
+    (submit_giggle_video_manifest_v2.provider_prompt_unit), after the identity plates, reference sequence
+    and voice URLs are attached, so the boundary's exact-text check passes.  The English contract is bound
+    to that same input (tools/h3_english_contract_io); missing/stale translations are written to
+    ``<EP>_H3_ENGLISH_CONTRACTS.REQUEST.json`` and the stage reports H3_ENGLISH_CONTRACT_REQUIRED."""
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    from tools.h3_english_contract_io import apply_answers, bind_or_request  # noqa: F401
+    from tools.submit_giggle_video_manifest_v2 import provider_prompt_unit
+    from tools.video_prompt_compiler import compile_model_prompt
+    answers_path = out_dir / f"{episode}_H3_ENGLISH_CONTRACTS.json"
+    try:
+        answers = json.loads(answers_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        answers = {}
+    index = json.loads(final_index_path.read_text(encoding="utf-8")) if final_index_path.is_file() else {"rows": []}
+    index_rows = {row.get("unit_id"): row for row in index.get("rows") or []}
+    pending, rendered, failed = [], [], []
+    for task in transaction.get("tasks") or []:
+        if str(task.get("model") or "") != "MiniMax-H3" or not task.get("prompt_file"):
+            continue
+        uid = str(task.get("unit_id") or task.get("task_key"))
+        try:
+            unit = provider_prompt_unit(task)
+            row = apply_answers(unit, answers)
+            if row:
+                pending.append(row)
+                continue
+            task["h3_provider_english_contract"] = unit["h3_provider_english_contract"]
+            text = compile_model_prompt(provider_prompt_unit(task))
+        except Exception as exc:  # noqa: BLE001 - reported as a blocker, never a silent PASS
+            failed.append(f"{uid}:{type(exc).__name__}:{str(exc)[:300]}")
+            continue
+        prompt_path = Path(task["prompt_file"])
+        prompt_path = prompt_path if prompt_path.is_absolute() else root / prompt_path
+        prompt_path.write_text(text, encoding="utf-8")
+        task["prompt_sha256"] = sha256_file(prompt_path)
+        task["h3_final_prompt_render"] = "PROVIDER_PROMPT_UNIT_AFTER_FINALIZE"
+        if uid in index_rows:
+            index_rows[uid]["sha256"] = task["prompt_sha256"]
+            index_rows[uid]["runes"] = len(text)
+            index_rows[uid]["h3_final_prompt_render"] = "PROVIDER_PROMPT_UNIT_AFTER_FINALIZE"
+        rendered.append(uid)
+    if index_rows:
+        final_index_path.write_text(json.dumps(index, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    request_path = answers_path.with_name(answers_path.stem + ".REQUEST.json")
+    if pending:
+        from tools.h3_english_contract_io import ANSWERS_SCHEMA, REQUEST_SCHEMA
+        existing = json.loads(request_path.read_text(encoding="utf-8")) if request_path.is_file() else {}
+        keep = [r for r in existing.get("units") or [] if r.get("answer_key") not in {p["answer_key"] for p in pending}]
+        request_path.write_text(json.dumps({
+            "schema": REQUEST_SCHEMA, "answers_file": str(answers_path), "answers_schema": ANSWERS_SCHEMA,
+            "instructions": existing.get("instructions") or (
+                "Fill `english` for every unit (same shape, non-empty, no Chinese), store it in the answers file "
+                "under its answer_key with execution_semantics_sha256 copied, keep existing entries, re-run."),
+            "units": keep + pending}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    status = "PASS" if not pending and not failed else "BLOCKED"
+    blocking = []
+    if pending:
+        blocking.append(f"H3_ENGLISH_CONTRACT_REQUIRED:{len(pending)}_units:{request_path}")
+    blocking.extend(f"H3_FINAL_PROMPT_RENDER_FAILED:{row}" for row in failed)
+    return {"status": status, "rendered": rendered, "pending": [p["answer_key"] for p in pending],
+            "blocking_check": ";".join(blocking) or None}
 
 
 def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, dict[str, Any]],
@@ -2449,7 +2631,12 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
         task["dialogue_transport"] = "MODEL_NATIVE_TEXT_DIALOGUE" if lines else "SAME_TASK_NATIVE_AMBIENCE_FOLEY_ACTION_SOUND"
         task["model_native_text_dialogue"] = bool(lines)
         task["source_subtitle_policy"] = "FORBID"
-        task["reference_audio_asset_ids"] = [str(b.get("voice_reference_asset_id") or "") for b in voice_bindings]
+        if str(task.get("model") or MODEL_CONTRACT["model"]) == "MiniMax-H3":
+            # H3 takes audio references only as public HTTPS URLs (S4 stores remote_url = upload file_url)
+            task["reference_audio_asset_ids"] = []
+            task["reference_audio_urls"] = [str(b.get("voice_reference_url") or "") for b in voice_bindings]
+        else:
+            task["reference_audio_asset_ids"] = [str(b.get("voice_reference_asset_id") or "") for b in voice_bindings]
         expected_speakers = list(dict.fromkeys(r["speaker"] for r in dialogue_rows if r["speaker"]))
         task["speaker_order_matches_voice_contract"] = (
             [str(b.get("speaker") or "") for b in voice_bindings] == expected_speakers)
