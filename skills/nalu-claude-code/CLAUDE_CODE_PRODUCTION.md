@@ -101,6 +101,9 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
   `--detector <unit_id>:<blocker>`（列表型拆开写：`<unit_id>:REQUIRED_CHARACTER_NOT_OBSERVED:<人名>`、
   `<unit_id>:REQUIRED_PROP_NOT_OBSERVED:<道具名>`）；然后重跑 `start_frame_evidence_writer.py write` 与 S6。
   回执里的观察照实写（没看到的人不写成看到）；`KEYFRAME_MISSING` / `KEYFRAME_CHANGED_SINCE_REVIEW` 不能接受，要重新出图或重审。
+- 动作归属证据（S6 action_role 审核 FAIL，例如起始帧里看不到动作的发起人/道具）：同样做法，`--gate-id ACTION-ROLE-EVIDENCE
+  --media <unit_id>=<起始帧图>`，回执 `blockers` 每一项加 `--detector <unit_id>:<blocker>`；然后重跑
+  `action_role_evidence_writer.py write --review <已提交的审核>` 与 S6。`CONTRACT_INITIATOR_OR_TARGET_UNDECLARED` 是剧本层缺口，不能接受，改剧本。
 - 视频 Q2：`--gate-id VIDEO-Q2-ASSEMBLY-ADMISSION --detector <unit>:<每个失败门禁 ID> --media <unit>=<unit mp4>`；
   6 镜左右的短集任何 P2 都会超 10% 缺陷预算：同时写 `$NALU_RUNTIME_ROOT/preproduction/<EP>/qa_overrides.json` 的
   `defect_tolerance_minor_budget_override`（只列失败码，`authorized_by` 写「短剧工作流默认条款：质量不阻塞」）。
