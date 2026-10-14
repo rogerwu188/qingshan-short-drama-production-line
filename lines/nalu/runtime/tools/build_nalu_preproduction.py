@@ -61,7 +61,7 @@ VIDEO_MODEL_CONTRACTS = {
         "model": "MiniMax-H3",
         "model_registry_key": "MINIMAX_H3_GIGGLE",
         "resolution": "768p",
-        "native_raster": "768x1366",
+        "native_raster": "768x1344",  # as delivered on E02 (2026-10-14); earlier H3 builders assumed 768x1366
         "aspect_ratio": "9:16",
         "route": "STANDARD_MULTI_REFERENCE",
     },
@@ -1313,7 +1313,9 @@ def build_start_frame_contracts(anchor_plan: dict[str, Any], editorial: dict[str
             if isinstance(candidate, dict):
                 receipt_sha = str(candidate.get("reference_sha256") or "")
                 actual_sha = sha256_file(reference_path) if exists else None
-                if candidate.get("status") != "PASS":
+                accepted = (candidate.get("status") == "ACCEPTED_BY_LINE_OWNER_ORDER"
+                            and isinstance(candidate.get("line_owner_acceptance"), dict))
+                if candidate.get("status") != "PASS" and not accepted:
                     pending.append("START_FRAME_OBSERVATION_EVIDENCE_RECEIPT_NOT_PASS")
                 elif str(candidate.get("reference_path") or "") != (reference_value or ""):
                     pending.append("START_FRAME_OBSERVATION_EVIDENCE_RECEIPT_PATH_MISMATCH")
@@ -1325,8 +1327,11 @@ def build_start_frame_contracts(anchor_plan: dict[str, Any], editorial: dict[str
             pending.append("START_FRAME_OBSERVATION_EVIDENCE_RECEIPT_MISSING")
         rows.append({
             "unit_id": unit["unit_id"],
-            "status": ("PASS" if receipt is not None and not pending
+            "status": (("ACCEPTED_BY_LINE_OWNER_ORDER" if receipt.get("status") == "ACCEPTED_BY_LINE_OWNER_ORDER"
+                        else "PASS") if receipt is not None and not pending
                        else "BLOCKED_UNTIL_EXACT_SHA_START_FRAME_SEMANTIC_EVIDENCE_PASS"),
+            **({"line_owner_acceptance": receipt["line_owner_acceptance"]}
+               if receipt is not None and receipt.get("line_owner_acceptance") else {}),
             "derived_from": {
                 "shot_id": first_shot["shot_id"],
                 "entry_state": spec["action"]["start_state"],
@@ -1798,7 +1803,8 @@ def main() -> int:
               blocking_check=(f"H3_LOCKED_IDENTITY_PLATE_MISSING:{','.join(missing_plates)}" if missing_plates else None),
               path=portable(compile_anchor_path, root))
     stage("4.3c_start_frame_semantic_contracts",
-          "PASS" if all(row["status"] == "PASS" for row in start_frames) else "BLOCKED_MISSING_KEYFRAME_EVIDENCE",
+          "PASS" if all(row["status"] in ("PASS", "ACCEPTED_BY_LINE_OWNER_ORDER") for row in start_frames)
+          else "BLOCKED_MISSING_KEYFRAME_EVIDENCE",
           units=len(start_frames), path=portable(start_frame_path, root),
           pending_inputs=sorted({value.split(":")[0] for row in start_frames for value in row["pending_inputs"]}))
 

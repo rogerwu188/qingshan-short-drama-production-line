@@ -600,6 +600,8 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         ref = {**bound, **ref}
         entity = str(ref.get("provider_entity_label") or ref.get("entity_id") or "").strip()
         role = str(ref.get("role") or "REFERENCE").strip()
+        if role in {"ADMITTED_NEW_EVENT_ENTRY_STATE", "PREVIOUS_UNIT_FINAL_FRAME", "IDENTITY_OR_PROP_REANCHOR"}:
+            entity = ""
         if entity:
             if positive_single_subject:
                 reference_lines.append(

@@ -169,6 +169,14 @@ class GateTest(unittest.TestCase):
 
 
 class VisibilityScopeTest(unittest.TestCase):
+    def test_opening_frame_does_not_inherit_identity_from_scope_index(self):
+        unit, plan = build([{"cast": [A, B]}])
+        unit["reference_images"][0]["role"] = "ADMITTED_NEW_EVENT_ENTRY_STATE"
+        unit["reference_images"][0]["entity_id"] = A
+        text, _ = render_h3_prompt(unit, plan)
+        self.assertIn("@Image1: opening composition, location, camera axis, pose and state", text)
+        self.assertNotIn("@Image1: exclusive identity", text)
+
     def test_single_character_dialogue_keeps_face_and_mouth(self):
         unit, plan = build([{"cast": [A], "speaker": A}])
         text, receipt = render_h3_prompt(unit, plan)

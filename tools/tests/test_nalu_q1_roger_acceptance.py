@@ -147,5 +147,67 @@ class LineOwnerQ1AcceptanceTests(unittest.TestCase):
         self.assertTrue(flags["engine_copy"]); self.assertTrue(flags["record"])
 
 
+class MultiGateQ1AcceptanceTests(unittest.TestCase):
+    """2026-10-14 (first MiniMax-H3 episode): a derived start frame failing identity AND the action/state
+    handoff is admitted only when each failing gate has its own order bound to the same still."""
+
+    HANDOFF = "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF"
+
+    def run_multi(self, gates_with_orders, *, extra_failure=None):
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d); index, ip, ar = _fixture(tmp)
+            row = index["results"][1]
+            row["failures"] = [
+                "evidence_1:CHARACTER-IDENTITY-ADMISSION:registered_gate_not_pass:FAIL_NOT_ADMITTED:P0",
+                f"evidence_3:{self.HANDOFF}:registered_gate_not_pass:FAIL_NOT_ADMITTED:P0",
+                "required_registered_gate_not_pass:CHARACTER-IDENTITY-ADMISSION",
+                f"required_registered_gate_not_pass:{self.HANDOFF}"] + ([extra_failure] if extra_failure else [])
+            ip.write_text(json.dumps(index))
+            orders = []
+            for seq, gate in enumerate(gates_with_orders, start=31):
+                detectors = (("E06-S02-01:CHAR-QINMING",) if gate == "CHARACTER-IDENTITY-ADMISSION"
+                             else (f"E06-S02-01:{gate}",))
+                order = _order(tmp, detectors=detectors, source_receipt=False)
+                order["seq"], order["id"] = seq, f"ACCEPT-{seq}"
+                order["decision"]["gate_id"] = gate
+                receipt = {"schema": rga.RECEIPT_SCHEMA, "status": "CONFIRMED", "issued_by": "owner-1",
+                           "order_seq": seq, "order_id": order["id"], "verbatim": order["order"],
+                           "recorded_at_utc": "2026-10-14T00:00:00Z"}
+                path = tmp / f"accept-source-{seq}.json"; path.write_text(json.dumps(receipt))
+                order["source_receipt"] = {"path": str(path),
+                                           "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+                orders.append(order)
+            saved = rga._orders
+            rga._orders = lambda *args, **kwargs: orders
+            try:
+                out = npl.apply_line_owner_q1_acceptance(_ctx(tmp), index, ip)
+            finally:
+                rga._orders = saved
+            return out, json.loads(ar.read_text())
+
+    def test_each_failing_gate_covered_by_its_own_order_admits(self):
+        out, ar = self.run_multi(["CHARACTER-IDENTITY-ADMISSION", self.HANDOFF])
+        self.assertEqual(out["accepted_unit_ids"], ["E06-VU-004"])
+        self.assertEqual(ar["downstream_status"], "ADMITTED_FOR_VIDEO_SUBMIT")
+        record = ar["line_owner_acceptance"]
+        self.assertEqual(record["gate_ids"], sorted(["CHARACTER-IDENTITY-ADMISSION", self.HANDOFF]))
+        self.assertEqual(len(record["per_gate"]), 2)
+        self.assertFalse(record["self_issued"])
+        self.assertEqual(ar["engine_status"], "FAIL")
+
+    def test_one_gate_without_its_order_stays_rejected(self):
+        for only in (["CHARACTER-IDENTITY-ADMISSION"], [self.HANDOFF]):
+            out, ar = self.run_multi(only)
+            self.assertEqual(out["accepted_unit_ids"], [])
+            self.assertEqual(ar["downstream_status"], "FAIL_NOT_ADMITTED")
+
+    def test_unacceptable_gate_or_unattributed_failure_stays_rejected(self):
+        out, _ = self.run_multi(["CHARACTER-IDENTITY-ADMISSION", self.HANDOFF, "VIDEO-TEXT-OCR-LOCK"],
+                                extra_failure="required_registered_gate_not_pass:VIDEO-TEXT-OCR-LOCK")
+        self.assertEqual(out["accepted_unit_ids"], [])
+        out, _ = self.run_multi(["CHARACTER-IDENTITY-ADMISSION", self.HANDOFF], extra_failure="KEYFRAME_MISSING")
+        self.assertEqual(out["accepted_unit_ids"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
