@@ -58,6 +58,72 @@ from nalu_qa_common import (  # noqa: E402
 )
 
 TOOL_ID = "start_frame_evidence_writer.v1"
+
+#: Line-owner default acceptance of a start frame that does not show the unit's entry state (2026-10-14).
+#: A derived start frame is the previous unit's REAL tail; when the video model ends the previous unit off
+#: script (character turned away or out of frame, prop gone) the receipt FAILs and the line stops for good,
+#: although the production contract says quality never blocks.  An active, source-receipted
+#: GATE_FAIL_ACCEPTANCE order for this pseudo-gate, naming EVERY blocker of the unit as
+#: "<unit_id>:<blocker>[:<item>]" and binding the start frame's exact sha256 (media_sha256_by_item keyed by
+#: unit id), turns the receipt into ACCEPTED_BY_LINE_OWNER_ORDER.  The observations stay as reviewed (a
+#: missing character is NOT listed as observed); the blockers stay on the receipt; the engine validator
+#: (grouped_anchor_semantic_contract) waives exactly the accepted gaps.  Integrity blockers — a missing
+#: keyframe or one changed since review — are never acceptable.
+START_FRAME_GATE_ID = "START-FRAME-SEMANTIC-EVIDENCE"
+NEVER_ACCEPTABLE_BLOCKERS = ("KEYFRAME_MISSING", "KEYFRAME_CHANGED_SINCE_REVIEW")
+AUTH_ENV = {"orders_path": "NALU_SUPERVISOR_ORDERS_PATH", "latest_order_seq": "NALU_LATEST_ORDER_SEQ",
+            "line_owner_id": "NALU_LINE_OWNER_ID"}
+
+
+def blocker_detectors(unit_id: str, blockers: list[str]) -> list[str]:
+    """One detector per accepted gap: list-valued blockers are split per item."""
+    out: list[str] = []
+    for blocker in blockers:
+        code, sep, items = blocker.partition(":")
+        if sep and code.startswith("REQUIRED_") and items:
+            out.extend(f"{unit_id}:{code}:{item}" for item in items.split(",") if item)
+        else:
+            out.append(f"{unit_id}:{blocker}")
+    return sorted(set(out))
+
+
+def line_owner_orders() -> tuple[list[dict[str, Any]], str]:
+    """The private, source-receipted order inbox named by qingshan.json ``authorization`` (or NALU_* env)."""
+    import os
+    import nalu_paths as _np
+    import roger_gate_acceptance as _rga
+    cfg = read_json(Path(f"{_np.RUNTIME_ROOT}") / "qingshan.json", {}) or {}
+    raw = cfg.get("authorization") if isinstance(cfg.get("authorization"), dict) else {}
+    path = os.environ.get(AUTH_ENV["orders_path"]) or raw.get("supervisor_orders_path") or ""
+    issuer = str(os.environ.get(AUTH_ENV["line_owner_id"]) or raw.get("line_owner_id") or "").strip()
+    try:
+        latest = int(os.environ.get(AUTH_ENV["latest_order_seq"]) or raw.get("latest_order_seq") or 0)
+    except (TypeError, ValueError):
+        latest = 0
+    if not path or not issuer or latest < 1 or not Path(str(path)).is_absolute():
+        return [], issuer
+    return _rga._orders(Path(str(path)), expected_latest_seq=latest, engine_root=ENGINE), issuer
+
+
+def start_frame_acceptance(episode: str, unit_id: str, blockers: list[str], reference_sha: str | None,
+                           orders: list[dict[str, Any]], issuer: str) -> dict[str, Any] | None:
+    """The acceptance record for a failing start-frame receipt, or None (stays FAIL)."""
+    import roger_gate_acceptance as _rga
+    if not blockers or not reference_sha or not orders or not issuer:
+        return None
+    if any(b.split(":")[0] in NEVER_ACCEPTABLE_BLOCKERS for b in blockers):
+        return None
+    detectors = blocker_detectors(unit_id, blockers)
+    order = _rga.find_acceptance(orders, episode=episode, gate_id=START_FRAME_GATE_ID, failing=detectors,
+                                 media_sha256=reference_sha, media_item_id=unit_id, expected_issuer=issuer,
+                                 engine_root=ENGINE)
+    if order is None:
+        return None
+    record = _rga.acceptance_record(order, episode=episode, gate_id=START_FRAME_GATE_ID, failing=detectors,
+                                    media_sha256=reference_sha, media_item_id=unit_id,
+                                    gate_result_path=str(evidence_path(episode, unit_id)))
+    record["accepted_blockers"] = list(blockers)
+    return record
 EVIDENCE_SCHEMA = "qingshan.start_frame_semantic_evidence.v1"
 
 
@@ -83,6 +149,7 @@ def materialise(episode: str, submitted: dict[str, Any],
     by_unit = {str(row.get("unit_id")): row for row in contracts.get("units") or []}
 
     rows: list[dict[str, Any]] = []
+    orders, issuer = line_owner_orders()
     for item in submitted.get("items") or []:
         unit_id = item["item_id"]
         contract = by_unit.get(unit_id) or {}
@@ -144,7 +211,9 @@ def materialise(episode: str, submitted: dict[str, Any],
         if space_match is not True:
             blockers.append("MAPPED_START_SPACE_NOT_VERIFIED")
 
-        status = "PASS" if not blockers else "FAIL"
+        acceptance = (start_frame_acceptance(episode, unit_id, blockers, reference_sha, orders, issuer)
+                      if blockers else None)
+        status = "PASS" if not blockers else ("ACCEPTED_BY_LINE_OWNER_ORDER" if acceptance else "FAIL")
         payload = {
             "schema": EVIDENCE_SCHEMA,
             "episode": episode,
@@ -176,6 +245,7 @@ def materialise(episode: str, submitted: dict[str, Any],
             "observation": item.get("observation"),
             "defects": item.get("defects") or [],
             "blockers": blockers,
+            **({"line_owner_acceptance": acceptance} if acceptance else {}),
             "recorded_at": now(),
             "recorded_by": TOOL_ID,
             "consumed_by": "tools/grouped_anchor_semantic_contract.py"
@@ -196,7 +266,7 @@ def materialise(episode: str, submitted: dict[str, Any],
             "blockers": blockers,
         })
 
-    passing = [row for row in rows if row["status"] == "PASS"]
+    passing = [row for row in rows if row["status"] in ("PASS", "ACCEPTED_BY_LINE_OWNER_ORDER")]
     record = {
         "schema": "nalu.start_frame_evidence_index.v1",
         "episode": episode,

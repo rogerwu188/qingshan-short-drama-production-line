@@ -249,7 +249,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "506bed1d5346017b70da28a76e28ce0f9d18e6d96ccca708dbf7c200f98857f2"
+      "sha256": "5acbf58d87b11f3b4b4265606aef3b4a0821520cdc49810f7afb75ad9fe22ac8"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -4305,7 +4305,7 @@
     },
     {
       "path": "tools/grouped_anchor_semantic_contract.py",
-      "sha256": "b39fa9569b00b2d8877431862ecb591b5b0581638b2e819f6895fa6c0bf00f64"
+      "sha256": "ecdf37e4cec1f0b01a506404b3c592ae51bc990deae95fdeac6486f8bf2ede1b"
     },
     {
       "path": "tools/grouped_camera_contract.py",
@@ -4341,7 +4341,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "31ee80d84d4a9c6aa859287f37a80d7a6b765a259a31f64805a58ac68ee66170"
+      "sha256": "e6073fe4a3ec594de0e20e9e9fd56f24139dbdef810a6cf32ff191ec6ae80bea"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -6817,7 +6817,7 @@
     },
     {
       "path": "tools/tests/test_h3_shot_scope_v1.py",
-      "sha256": "19c9ed32c3027a0cd680911cc16b76ee5e86ba28b0bfd0d27fe6501625d21582"
+      "sha256": "922a8c77e1c1bfc9b11bff729956328a4dc510c3eb29f1f740c3484ee45c0175"
     },
     {
       "path": "tools/tests/test_harvest_giggle_image_batch.py",
@@ -6989,7 +6989,7 @@
     },
     {
       "path": "tools/tests/test_nalu_q1_roger_acceptance.py",
-      "sha256": "3d35fbf01a4ee5c7fa15063927f0f9cb9a001248c018bb8b205dcb4ddd47401d"
+      "sha256": "1ce264530db8ffd4d226f31d0b910cafe6c2195ecafeebe88488807df53af351"
     },
     {
       "path": "tools/tests/test_nalu_roger_gate_acceptance.py",

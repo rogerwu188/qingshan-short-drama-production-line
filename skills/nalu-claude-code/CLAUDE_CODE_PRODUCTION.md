@@ -93,7 +93,14 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
   --gate-id <门禁 ID> --detector <…> [--media <item>=<文件>] --context "<失败事实：门禁、帧号/单元、原因、已重做次数>" \
   --orders $NALU_RUNTIME_ROOT/runtime/SUPERVISOR_ORDERS.json --recorded-by claude-code
 ```
-- 关键帧（S5/S6 派生）：`--gate-id PERIOD-ANACHRONISM-LOCK --detector <shot_id>:PERIOD-ANACHRONISM-LOCK`（身份类用 `CHARACTER-IDENTITY-ADMISSION`、`<shot_id>:<CHAR-ID>`）。
+- 关键帧（S5/S6 派生）：`--gate-id PERIOD-ANACHRONISM-LOCK --detector <shot_id>:PERIOD-ANACHRONISM-LOCK`（身份类用 `CHARACTER-IDENTITY-ADMISSION`、`<shot_id>:<CHAR-ID>`；
+  动作/状态交接用 `ACTION-SHOT-DESIGN-AND-STATE-HANDOFF`、`<shot_id>:ACTION-SHOT-DESIGN-AND-STATE-HANDOFF`），`--media <shot_id>=<关键帧/尾帧>`。
+  **一张图同时挂多个门禁**（派生起始帧常见：身份 + 动作/状态交接）：每个失败门禁各记一条订单，绑同一张图；少一个门禁就不会放行。
+- 起始帧语义证据（start_frame 审核 FAIL，例如上一单元尾帧里缺人、背身、缺道具）：
+  `--gate-id START-FRAME-SEMANTIC-EVIDENCE --media <unit_id>=<起始帧图>`，并对证据回执 `blockers` 里的**每一项**加
+  `--detector <unit_id>:<blocker>`（列表型拆开写：`<unit_id>:REQUIRED_CHARACTER_NOT_OBSERVED:<人名>`、
+  `<unit_id>:REQUIRED_PROP_NOT_OBSERVED:<道具名>`）；然后重跑 `start_frame_evidence_writer.py write` 与 S6。
+  回执里的观察照实写（没看到的人不写成看到）；`KEYFRAME_MISSING` / `KEYFRAME_CHANGED_SINCE_REVIEW` 不能接受，要重新出图或重审。
 - 视频 Q2：`--gate-id VIDEO-Q2-ASSEMBLY-ADMISSION --detector <unit>:<每个失败门禁 ID> --media <unit>=<unit mp4>`；
   6 镜左右的短集任何 P2 都会超 10% 缺陷预算：同时写 `$NALU_RUNTIME_ROOT/preproduction/<EP>/qa_overrides.json` 的
   `defect_tolerance_minor_budget_override`（只列失败码，`authorized_by` 写「短剧工作流默认条款：质量不阻塞」）。
