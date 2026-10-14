@@ -2307,6 +2307,19 @@ def render_h3_final_prompts(transaction: dict[str, Any], *, out_dir: Path, root:
         prompt_path.write_text(text, encoding="utf-8")
         task["prompt_sha256"] = sha256_file(prompt_path)
         task["h3_final_prompt_render"] = "PROVIDER_PROMPT_UNIT_AFTER_FINALIZE"
+        # finalize_video_tasks attached the reviewed incremental-finalization receipt against the 4.4 prompt
+        # sha; this render changed the sha, so re-attach by the SAME exact rule against the final one (and
+        # drop a receipt that no longer binds).  Without this S6 asked for the same review forever (E02).
+        task.pop("prompt_batch_finalization", None)
+        receipt_path = out_dir / "prompt_batch_finalization" / f"{uid}.json"
+        if receipt_path.is_file():
+            try:
+                receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            except Exception:  # noqa: BLE001
+                receipt = {}
+            if receipt.get("status") == "PASS" and receipt.get("final_prompt_sha256") == task["prompt_sha256"]:
+                task["prompt_batch_finalization"] = {"path": portable(receipt_path, root),
+                                                     "sha256": sha256_file(receipt_path)}
         if uid in index_rows:
             index_rows[uid]["sha256"] = task["prompt_sha256"]
             index_rows[uid]["runes"] = len(text)
