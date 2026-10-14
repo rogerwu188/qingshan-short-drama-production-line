@@ -51,6 +51,38 @@ TOOL_ID = "action_role_evidence_writer.v1"
 SCHEMA = "qingshan.exact_output_action_role_verification.v1"
 STATES = {"PRE_CONTACT", "CONTACT_RESULT", "BRIDGE_STATE_NO_ACTION_OWNER_VISIBLE"}
 
+#: Line-owner default acceptance of a failing action-role review (2026-10-14, E02-VU-004): a derived start
+#: frame (previous unit's real tail) that does not show the action's owner fails initiator/prop ownership
+#: and the line stopped for good.  Same mechanism as START-FRAME-SEMANTIC-EVIDENCE: an active,
+#: source-receipted GATE_FAIL_ACCEPTANCE order for this pseudo-gate naming every blocker as
+#: "<unit_id>:<blocker>" and binding the reviewed start frame's sha256 turns the receipt into
+#: ACCEPTED_BY_LINE_OWNER_ORDER; answers, observations and blockers stay as reviewed.  Integrity and
+#: contract blockers (missing/changed keyframe, undeclared initiator/target) are never acceptable.
+ACTION_ROLE_GATE_ID = "ACTION-ROLE-EVIDENCE"
+NEVER_ACCEPTABLE_BLOCKERS = ("KEYFRAME_MISSING", "KEYFRAME_CHANGED_SINCE_REVIEW",
+                             "CONTRACT_INITIATOR_OR_TARGET_UNDECLARED")
+
+
+def action_role_acceptance(episode: str, unit_id: str, blockers: list[str], reference_sha: str | None,
+                           orders: list[dict[str, Any]], issuer: str) -> dict[str, Any] | None:
+    import roger_gate_acceptance as _rga
+    from start_frame_evidence_writer import blocker_detectors
+    if not blockers or not reference_sha or not orders or not issuer:
+        return None
+    if any(b.split(":")[0] in NEVER_ACCEPTABLE_BLOCKERS for b in blockers):
+        return None
+    detectors = blocker_detectors(unit_id, blockers)
+    order = _rga.find_acceptance(orders, episode=episode, gate_id=ACTION_ROLE_GATE_ID, failing=detectors,
+                                 media_sha256=reference_sha, media_item_id=unit_id, expected_issuer=issuer,
+                                 engine_root=ENGINE)
+    if order is None:
+        return None
+    record = _rga.acceptance_record(order, episode=episode, gate_id=ACTION_ROLE_GATE_ID, failing=detectors,
+                                    media_sha256=reference_sha, media_item_id=unit_id,
+                                    gate_result_path=str(evidence_path(episode, unit_id)))
+    record["accepted_blockers"] = list(blockers)
+    return record
+
 
 def evidence_path(episode: str, unit_id: str) -> Path:
     if os.environ.get("NALU_QA_CONTEXT"):
@@ -80,6 +112,8 @@ def materialise(episode: str, submitted: dict[str, Any], submitted_path: Path) -
     p = QaPaths(episode)
     review_sha = sha256_file(submitted_path)
     rows: list[dict[str, Any]] = []
+    from start_frame_evidence_writer import line_owner_orders
+    orders, issuer = line_owner_orders()
     for item in submitted.get("items") or []:
         unit_id = item["item_id"]
         request_item = item.get("request_item") or {}
@@ -110,7 +144,9 @@ def materialise(episode: str, submitted: dict[str, Any], submitted_path: Path) -
         target = str(expectations.get("target_entity_id") or "")
         if not initiator or not target:
             blockers.append("CONTRACT_INITIATOR_OR_TARGET_UNDECLARED")
-        status = "PASS" if not blockers else "FAIL"
+        acceptance = (action_role_acceptance(episode, unit_id, blockers, reference_sha, orders, issuer)
+                      if blockers else None)
+        status = "PASS" if not blockers else ("ACCEPTED_BY_LINE_OWNER_ORDER" if acceptance else "FAIL")
         payload = {
             "schema": SCHEMA,
             "episode": episode,
@@ -141,6 +177,7 @@ def materialise(episode: str, submitted: dict[str, Any], submitted_path: Path) -
             "observation": item.get("observation"),
             "defects": item.get("defects") or [],
             "blockers": blockers,
+            **({"line_owner_acceptance": acceptance} if acceptance else {}),
             "recorded_at": now(),
             "recorded_by": TOOL_ID,
             "consumed_by": "tools/shot_media_admission_gate.precheck_submission_inputs via the "
@@ -156,7 +193,7 @@ def materialise(episode: str, submitted: dict[str, Any], submitted_path: Path) -
                      "evidence_ref": str(target_path),
                      "evidence_path": str(target_path), "evidence_sha256": sha256_file(target_path),
                      "reviewed_asset_sha256": reference_sha, "blockers": blockers})
-    passing = [row for row in rows if row["status"] == "PASS"]
+    passing = [row for row in rows if row["status"] in ("PASS", "ACCEPTED_BY_LINE_OWNER_ORDER")]
     record = {
         "schema": "nalu.action_role_evidence_index.v1", "episode": episode,
         "recorded_at": now(), "recorded_by": TOOL_ID, "reviewer": REVIEWER_ID,

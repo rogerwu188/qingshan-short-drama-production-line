@@ -303,18 +303,35 @@ def _validate_action_role_verification(
         return ["Q1_ACTION_ROLE_VERIFICATION_MISSING"]
     if verification.get("schema") != ACTION_ROLE_VERIFICATION_SCHEMA:
         failures.append("Q1_ACTION_ROLE_VERIFICATION_INVALID")
-    if str(verification.get("status") or "").upper() != "PASS":
+    # A line-owner default acceptance (nalu action_role_evidence_writer, pseudo-gate ACTION-ROLE-EVIDENCE)
+    # keeps the review's real FAIL answers and waives exactly the blockers its sha-bound order names.
+    accepted: set[str] = set()
+    status = str(verification.get("status") or "").upper()
+    if status == "ACCEPTED_BY_LINE_OWNER_ORDER":
+        record = verification.get("line_owner_acceptance")
+        if (not isinstance(record, dict) or record.get("self_issued") is not False
+                or record.get("gate_id") != "ACTION-ROLE-EVIDENCE" or record.get("gate_status_kept") != "FAIL"
+                or not record.get("order_seq") or not expected_sha
+                or record.get("media_sha256") != expected_sha
+                or record.get("media_sha256_bound_by_order") != expected_sha):
+            failures.append("Q1_ACTION_ROLE_VERIFICATION_INVALID")
+        else:
+            unit = str(verification.get("unit_id") or record.get("media_item_id") or "")
+            accepted = {str(d).split(":", 1)[1].split(":")[0] for d in record.get("accepted_detectors") or []
+                        if str(d).startswith(f"{unit}:")}
+    elif status != "PASS":
         failures.append("Q1_ACTION_ROLE_VERIFICATION_INVALID")
     reviewed_sha = str(verification.get("reviewed_asset_sha256") or "")
     if not expected_sha or reviewed_sha != expected_sha:
         failures.append("Q1_ACTION_ROLE_SHA_MISMATCH")
-    if str(verification.get("interaction_state") or "").upper() not in ACTION_ROLE_STATES:
+    if (str(verification.get("interaction_state") or "").upper() not in ACTION_ROLE_STATES
+            and "INTERACTION_STATE_NOT_DECIDED" not in accepted):
         failures.append("Q1_ACTION_ROLE_VERIFICATION_INVALID")
     if not str(verification.get("initiator_entity_id") or ""):
         failures.append("Q1_ACTION_ROLE_INITIATOR_MISSING")
     if not str(verification.get("target_entity_id") or ""):
         failures.append("Q1_ACTION_ROLE_TARGET_MISSING")
-    if verification.get("forbidden_role_reversal") is not True:
+    if verification.get("forbidden_role_reversal") is not True and "ROLE_REVERSAL_NOT_EXCLUDED" not in accepted:
         failures.append("Q1_ACTION_ROLE_REVERSAL_NOT_FORBIDDEN")
     if not isinstance(verification.get("prop_ownership"), list):
         failures.append("Q1_ACTION_ROLE_VERIFICATION_INVALID")

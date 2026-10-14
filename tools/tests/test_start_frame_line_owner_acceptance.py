@@ -15,6 +15,8 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "lines/nalu/runtime/tools"))
 import roger_gate_acceptance as rga  # noqa: E402
 import start_frame_evidence_writer as sfw  # noqa: E402
+import action_role_evidence_writer as arw  # noqa: E402
+from tools.shot_media_admission_gate import _validate_action_role_verification  # noqa: E402
 from tools.grouped_anchor_semantic_contract import validate_start_anchor_semantics  # noqa: E402
 
 UNIT = "E02-VU-004"
@@ -136,6 +138,53 @@ class ValidatorTests(unittest.TestCase):
         self.write_evidence(evidence)
         with self.assertRaises(ValueError):  # a PASS receipt may not hide a missing character
             self.validate(contract)
+
+
+class ActionRoleAcceptanceTests(unittest.TestCase):
+    """E02-VU-004 (2026-10-14): the derived start frame shows neither the action's owner nor the prop."""
+
+    AR_BLOCKERS = ["VLM_REVIEW_REJECT", "INITIATOR_IS_EXPECTED_ENTITY_NOT_PASS", "PROP_OWNERSHIP_AS_EXPECTED_NOT_PASS"]
+
+    def test_writer_accepts_only_a_full_sha_bound_order(self):
+        sha = "f" * 64
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            full = _order(tmp, detectors=sfw.blocker_detectors(UNIT, self.AR_BLOCKERS), sha=sha,
+                          gate=arw.ACTION_ROLE_GATE_ID)
+            record = arw.action_role_acceptance("E02", UNIT, self.AR_BLOCKERS, sha, [full], "owner-1")
+            self.assertEqual(record["gate_id"], arw.ACTION_ROLE_GATE_ID)
+            # a start-frame order never covers the action-role gate
+            sf = _order(tmp, detectors=sfw.blocker_detectors(UNIT, self.AR_BLOCKERS), sha=sha, seq=12)
+            self.assertIsNone(arw.action_role_acceptance("E02", UNIT, self.AR_BLOCKERS, sha, [sf], "owner-1"))
+            bad = self.AR_BLOCKERS + ["CONTRACT_INITIATOR_OR_TARGET_UNDECLARED"]
+            o = _order(tmp, detectors=sfw.blocker_detectors(UNIT, bad), sha=sha, seq=13, gate=arw.ACTION_ROLE_GATE_ID)
+            self.assertIsNone(arw.action_role_acceptance("E02", UNIT, bad, sha, [o], "owner-1"))
+
+    def payload(self, sha, **record_overrides):
+        record = {"gate_id": arw.ACTION_ROLE_GATE_ID, "gate_status_kept": "FAIL", "order_seq": 12,
+                  "media_item_id": UNIT, "media_sha256": sha, "media_sha256_bound_by_order": sha,
+                  "self_issued": False, "accepted_detectors": sfw.blocker_detectors(UNIT, self.AR_BLOCKERS)}
+        record.update(record_overrides)
+        return {"schema": "qingshan.action_role_verification.v1", "unit_id": UNIT,
+                "status": "ACCEPTED_BY_LINE_OWNER_ORDER", "reviewed_asset_sha256": sha,
+                "interaction_state": "BRIDGE_STATE_NO_ACTION_OWNER_VISIBLE", "initiator_entity_id": "CHAR-SHENQING",
+                "target_entity_id": "PROP-TEAPOT", "forbidden_role_reversal": True, "prop_ownership": [],
+                "blockers": self.AR_BLOCKERS, "line_owner_acceptance": record}
+
+    def test_gate_accepts_bound_record_and_refuses_forged_or_unbound(self):
+        import tools.shot_media_admission_gate as gate
+        sha = "f" * 64
+        good = self.payload(sha)
+        good["schema"] = gate.ACTION_ROLE_VERIFICATION_SCHEMA
+        self.assertEqual(_validate_action_role_verification(good, expected_sha=sha), [])
+        for overrides in ({"media_sha256": "0" * 64}, {"self_issued": True}, {"gate_id": sfw.START_FRAME_GATE_ID}):
+            bad = self.payload(sha, **overrides)
+            bad["schema"] = gate.ACTION_ROLE_VERIFICATION_SCHEMA
+            self.assertIn("Q1_ACTION_ROLE_VERIFICATION_INVALID", _validate_action_role_verification(bad, expected_sha=sha))
+        failing = self.payload(sha)
+        failing["schema"] = gate.ACTION_ROLE_VERIFICATION_SCHEMA
+        failing["status"] = "FAIL"
+        self.assertIn("Q1_ACTION_ROLE_VERIFICATION_INVALID", _validate_action_role_verification(failing, expected_sha=sha))
 
 
 if __name__ == "__main__":
