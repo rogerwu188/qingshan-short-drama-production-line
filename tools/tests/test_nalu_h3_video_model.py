@@ -160,3 +160,54 @@ class StickyVideoModelTests(unittest.TestCase):
                     else:
                         os.environ[k] = v
                 importlib.reload(nalu_paths)
+
+
+class H3FinalRenderReceiptTests(unittest.TestCase):
+    """E02 (2026-10-14): the H3 final render changes the prompt sha after finalize attached the reviewed
+    finalization receipt; the receipt must be re-attached against the final sha (or dropped)."""
+
+    def run_render(self, receipt_sha):
+        import hashlib
+        import types
+        sys.path.insert(0, str(ROOT / "lines/nalu/runtime/tools"))
+        import build_nalu_preproduction as bnp
+        rendered = "subject_definitions:\n@Image1: final h3 text\n"
+        stub_submit = types.SimpleNamespace(provider_prompt_unit=lambda task: {
+            "unit_id": task["unit_id"], "h3_provider_english_contract": {"ok": True}})
+        stub_compiler = types.SimpleNamespace(compile_model_prompt=lambda unit: rendered)
+        stub_io = types.SimpleNamespace(apply_answers=lambda unit, answers: None, bind_or_request=None,
+                                        ANSWERS_SCHEMA="x", REQUEST_SCHEMA="y")
+        saved = {k: sys.modules.get(k) for k in ("tools.submit_giggle_video_manifest_v2",
+                                                 "tools.video_prompt_compiler", "tools.h3_english_contract_io")}
+        sys.modules["tools.submit_giggle_video_manifest_v2"] = stub_submit
+        sys.modules["tools.video_prompt_compiler"] = stub_compiler
+        sys.modules["tools.h3_english_contract_io"] = stub_io
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                root = Path(d); out = root / "pre"; (out / "prompt_batch_finalization").mkdir(parents=True)
+                prompt = out / "E02-VU-002.txt"; prompt.write_text("old 4.4 text")
+                final_sha = hashlib.sha256(rendered.encode()).hexdigest()
+                (out / "prompt_batch_finalization" / "E02-VU-002.json").write_text(json.dumps(
+                    {"status": "PASS", "final_prompt_sha256": receipt_sha or final_sha}))
+                task = {"unit_id": "E02-VU-002", "model": "MiniMax-H3", "prompt_file": str(prompt),
+                        "prompt_batch_finalization": {"path": "stale", "sha256": "stale"}}
+                out_res = bnp.render_h3_final_prompts({"tasks": [task]}, out_dir=out, root=root, episode="E02",
+                                                      final_index_path=out / "index.json")
+                return out_res, task, final_sha
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    sys.modules.pop(k, None)
+                else:
+                    sys.modules[k] = v
+
+    def test_receipt_reattached_against_final_sha(self):
+        res, task, final_sha = self.run_render(None)
+        self.assertEqual(res["status"], "PASS")
+        self.assertEqual(task["prompt_sha256"], final_sha)
+        self.assertIn("prompt_batch_finalization", task)
+        self.assertNotEqual(task["prompt_batch_finalization"]["path"], "stale")
+
+    def test_stale_receipt_is_dropped(self):
+        _, task, _ = self.run_render("0" * 64)
+        self.assertNotIn("prompt_batch_finalization", task)
