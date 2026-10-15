@@ -211,3 +211,12 @@ class H3FinalRenderReceiptTests(unittest.TestCase):
     def test_stale_receipt_is_dropped(self):
         _, task, _ = self.run_render("0" * 64)
         self.assertNotIn("prompt_batch_finalization", task)
+
+
+class LedgerParkedCopyTests(unittest.TestCase):
+    def test_parked_dirs_are_not_charged_twice(self):
+        sys.path.insert(0, str(ROOT / "lines/nalu/runtime/tools"))
+        import nalu_budget_ledger as led
+        self.assertTrue(led._is_parked(Path("workflow/nalu/E02/_superseded_20261014_controlled_repair1/x_credit_statement.json")))
+        self.assertTrue(led._is_parked(Path("keyframes/_rejected_v1/a.json")))
+        self.assertFalse(led._is_parked(Path("workflow/nalu/E02/preproduction/reports/E02_S6_credit_statement.json")))
