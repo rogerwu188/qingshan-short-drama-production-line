@@ -307,10 +307,22 @@ def fetch_balance_snapshot(page_size: int) -> dict[str, Any]:
 # Durable spend scan (offline)
 # --------------------------------------------------------------------------- #
 
+#: Directories the production contract parks superseded/rejected material in (old images, `_raw`, their
+#: receipts).  A parked copy is evidence, not a second charge: E02 (2026-10-14) double-counted a credit
+#: statement copied into workflow/nalu/E02/_superseded_*_controlled_repair1/ by a controlled repair.
+PARKED_DIR_PREFIXES = ("_superseded", "_rejected", "_parked", "_archive")
+
+
+def _is_parked(path: Path) -> bool:
+    return any(part.startswith(PARKED_DIR_PREFIXES) for part in path.parts)
+
+
 def _iter_task_json(root: Path):
     if not root.is_dir():
         return
     for path in sorted(root.rglob("*.json")):
+        if _is_parked(path.relative_to(root)):
+            continue
         try:
             yield path, load_json(path)
         except (OSError, json.JSONDecodeError):
@@ -393,6 +405,8 @@ def scan_non_video_spend(
 
     # Layer 2: batch reconciliation statements written next to submit reports.
     for path in sorted(ENGINE_ROOT.rglob("*_credit_statement.json")):
+        if _is_parked(path.relative_to(ENGINE_ROOT)):
+            continue
         try:
             payload = load_json(path)
         except (OSError, json.JSONDecodeError):
