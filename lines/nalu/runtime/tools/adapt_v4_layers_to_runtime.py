@@ -478,10 +478,25 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
             "action_patient_id": patient_id if patient_id in ov.by_id else "",
             "lip_owner_id": lip_owner, "entity_states": states, "entity_presence": presence,
         }
-        dims = list(o.get("state_delta_dimensions") or ["POSTURE"])
-        evidence = o.get("state_delta_evidence") or {d: {"entry": ffms, "exit": frame} for d in dims}
+        # State evidence must be authored, never manufactured.  This used to
+        # default the dimension to POSTURE and copy frame_content in as the exit
+        # state — and frame_content is sometimes a line of dialogue, so speech
+        # became a "posture change" that the motion gate accepted because the two
+        # strings differed.  Undeclared evidence is now reported as missing; a
+        # dialogue shot whose posture really does not change declares
+        # state_delta_mode=STATIC_POSTURE_PERFORMANCE in the overlay instead.
+        state_delta_mode = str(o.get("state_delta_mode") or "").strip().upper()
+        dims = list(o.get("state_delta_dimensions") or [])
+        evidence = dict(o.get("state_delta_evidence") or {})
+        if not dims and state_delta_mode != "STATIC_POSTURE_PERFORMANCE":
+            errors.append(f"STATE_DELTA_UNDECLARED:{sid}")
+        for d in dims:
+            if d not in evidence:
+                errors.append(f"STATE_DELTA_EVIDENCE_UNDECLARED:{sid}:{d}")
         thread = v4_scenes[scene_id].get("thread")
-        action_kind = o.get("action_kind") or ("ACTION_COMBAT" if scene_id in set(ov.data.get("combat_scenes") or []) else "DRAMA")
+        raw_kind = o.get("action_kind") or ("COMBAT" if scene_id in set(ov.data.get("combat_scenes") or []) else "DRAMA")
+        # The plan compiler only recognises COMBAT; "ACTION_COMBAT" read as drama.
+        action_kind = "COMBAT" if str(raw_kind).strip().upper() in {"COMBAT", "ACTION_COMBAT"} else str(raw_kind)
         shot_out = {
             "shot_id": sid, "scene_id": scene_id, "target_seconds": target,
             "v4_duration_seconds": v4_dur, "v4_start_seconds": shot.get("start_seconds"), "duration_stretch": stretch,
@@ -502,6 +517,7 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
                 "action": {"subject_id": subject_id if actor_kind == "CHARACTER" else "", "primary_action": primary_action,
                            "patient_id": patient_id if patient_id in ov.by_id else "", "start_state": ffms, "end_state": frame,
                            "action_kind": action_kind,
+                           **({"state_delta_mode": state_delta_mode} if state_delta_mode else {}),
                            "performance": o.get("performance") or ({"emotion": "focused", "body_action": ffms or "保持自然呼吸并完成当前动作", "delivery": "清晰、自然、不中断"} if line else None)},
                 "referent_resolution_contract": {"status": "PASS", "source_scan_complete": True,
                                                  "resolved_source_referents": referents, "unresolved_source_referents": []},

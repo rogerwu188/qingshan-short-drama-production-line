@@ -105,6 +105,24 @@ TRAVEL_TERMS = ("走", "穿过", "跑", "奔", "追", "离开", "进入", "跨",
 # --------------------------------------------------------------------------- #
 # small helpers
 # --------------------------------------------------------------------------- #
+#: Spellings writers and adapters use for "this beat is a fight".  The plan
+#: compiler and the physical-continuity contract only recognise COMBAT, so every
+#: other spelling silently classified a fight as ordinary drama.
+COMBAT_ACTION_KIND_ALIASES = {"COMBAT", "ACTION_COMBAT", "FIGHT", "COMBAT_IMPULSE", "COMBAT_EXCHANGE"}
+
+
+def normalize_action_kind(value: Any) -> str:
+    """One action-kind vocabulary for the plan compiler: COMBAT or NON_COMBAT.
+
+    An undeclared kind stays NON_COMBAT (the historical value), so contracts
+    that never declared one compile byte-for-byte as before.
+    """
+    text = str(value or "").strip().upper()
+    if not text:
+        return "NON_COMBAT"
+    return "COMBAT" if text in COMBAT_ACTION_KIND_ALIASES else "NON_COMBAT"
+
+
 def now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -1062,10 +1080,21 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                     f"眼神先于头部改变一次，呼吸与下颌在因果点响应，随后保持「{arc_exit}」"
                     if cast_rows else
                     f"无人物；微观变化只发生在{scene.get('weather')}的雪幕、火光与呼出白气等环境细节上"),
-                "physical_action_design": (
+                # Authored design wins; the template is only a fallback.  Before
+                # this, an authored physical_action_design was silently replaced.
+                "physical_action_design": source_action.get('physical_action_design') or (
                     f"「{primary or entry}」一次完成并停在「{completion}」；"
                     f"尾帧保留呼吸、衣料与道具惯性微动，禁止循环、复位或另起动作"),
-                "action_kind": "NON_COMBAT",
+                # Was hard-coded NON_COMBAT.  is_combat_unit trusts declared kinds
+                # once every beat has one, so the constant classified every unit
+                # on this line as non-combat and skipped every combat check.  The
+                # authored kind passes through; a contract that declares none
+                # keeps NON_COMBAT exactly as before.
+                "action_kind": normalize_action_kind(source_action.get("action_kind")),
+                **({"state_delta_mode": str(source_action["state_delta_mode"]).strip().upper()}
+                   if source_action.get("state_delta_mode") else {}),
+                **({"state_delta_semantics": str(source_action["state_delta_semantics"]).strip().upper()}
+                   if source_action.get("state_delta_semantics") else {}),
                 "subject_id": str(source_action.get("subject_id") or ""),
                 "patient_id": str(source_action.get("patient_id") or ""),
                 "state_delta_dimensions": dims,

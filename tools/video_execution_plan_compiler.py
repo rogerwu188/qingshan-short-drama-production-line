@@ -328,6 +328,13 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
             "exit_state": str(action.get("completion_state") or "").strip(),
             "state_delta_dimensions": list(action.get("state_delta_dimensions") or []),
             "state_delta_evidence": deepcopy(action.get("state_delta_evidence") or {}),
+            # STATE_DELTA_SEMANTICS_V1 (configs/STATE_DELTA_SEMANTICS_V1.json): an
+            # authored "posture unchanged, speech carries the beat" declaration,
+            # and the per-contract opt-in.  Absent on every older contract.
+            "state_delta_mode": str(action.get("state_delta_mode") or "").strip().upper(),
+            "state_delta_semantics": str(
+                action.get("state_delta_semantics") or unit.get("state_delta_semantics") or ""
+            ).strip().upper(),
             "dialogue": str(spec.get("dialogue") or "").strip(),
             "dialogue_delivery": deepcopy(spec.get("dialogue_delivery") or {}),
             "performance_cue": str(

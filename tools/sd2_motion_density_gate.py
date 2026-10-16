@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 from typing import Any
 
 
@@ -39,9 +41,60 @@ def extend_word_hits(text: object) -> list[str]:
     return [word for word in EXTEND_WORDS for _ in re.finditer(re.escape(word), value)]
 
 
+STATIC_POSTURE_PERFORMANCE = "STATIC_POSTURE_PERFORMANCE"
+_SEMANTICS_POLICY = Path(__file__).resolve().parents[1] / "configs" / "STATE_DELTA_SEMANTICS_V1.json"
+
+
+def state_delta_semantics_active(source_id: str, *, declared: Any = None) -> bool:
+    """Whether STATE_DELTA_SEMANTICS_V1 applies to this beat.
+
+    Off unless the episode is listed in the policy (or reaches its
+    enabled_from_episode) or the contract declares state_delta_semantics=V1.
+    Episodes already in production therefore keep the locked behaviour.
+    """
+    if str(declared or "").strip().upper() == "V1":
+        return True
+    try:
+        policy = json.loads(_SEMANTICS_POLICY.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    match = re.match(r"(E\d+)", str(source_id or "").upper())
+    if not match:
+        return False
+    episode = match.group(1)
+    if episode in {str(value).upper() for value in policy.get("enabled_episodes") or []}:
+        return True
+    start = policy.get("enabled_from_episode")
+    if isinstance(start, str) and re.fullmatch(r"E\d+", start.upper()):
+        return int(episode[1:]) >= int(start[1:])
+    return False
+
+
+def _speech(text: object) -> str:
+    """Dialogue reduced to its spoken characters, for containment tests."""
+    value = re.sub(r"^[^：:]{1,12}[：:]", "", str(text or "").strip())  # drop a 「名：」 prefix
+    return re.sub(r"[\s\W_]+", "", value)
+
+
+def evidence_is_dialogue(state_text: object, dialogue: object) -> bool:
+    """True when a state string is the beat's own spoken line, not a physical state.
+
+    Containment in either direction counts once the overlap is long enough to
+    be the line itself (4+ spoken characters); a short word shared by speech
+    and blocking is not evidence of copying.
+    """
+    state = _speech(state_text)
+    spoken = _speech(dialogue)
+    if len(state) < 4 or len(spoken) < 4:
+        return False
+    return state in spoken or spoken in state
+
+
 def validate_state_delta(
     beat: dict[str, Any], *, combat: bool, source_id: str
 ) -> dict[str, Any]:
+    if state_delta_semantics_active(source_id, declared=beat.get("state_delta_semantics")):
+        return _validate_state_delta_semantic(beat, combat=combat, source_id=source_id)
     failures: list[str] = []
     dimensions = list(beat.get("state_delta_dimensions") or [])
     evidence = beat.get("state_delta_evidence") or {}
@@ -82,6 +135,103 @@ def validate_state_delta(
         "status": "PASS" if not failures else "FAIL",
         "source_id": source_id,
         "combat": combat,
+        "state_delta_dimensions": dimensions,
+        "state_delta_evidence": evidence,
+        "failures": failures,
+    }
+
+
+def _validate_state_delta_semantic(
+    beat: dict[str, Any], *, combat: bool, source_id: str
+) -> dict[str, Any]:
+    """STATE_DELTA_SEMANTICS_V1: a change must be a physical change, not a string change.
+
+    Three differences from the legacy check, and only these:
+      * an entry/exit state that is the beat's dialogue is speech, not a state;
+      * a non-combat dialogue beat may declare its posture unchanged
+        (STATIC_POSTURE_PERFORMANCE) and carry the beat with speech and
+        performance, instead of inventing a head turn to pass;
+      * that declaration is refused for combat, which keeps every requirement.
+    Everything else — dimension vocabulary, codes, the combat minimum — is the
+    legacy rule unchanged.
+    """
+    failures: list[str] = []
+    dimensions = list(beat.get("state_delta_dimensions") or [])
+    evidence = beat.get("state_delta_evidence") or {}
+    dialogue = str(beat.get("dialogue") or "").strip()
+    mode = str(beat.get("state_delta_mode") or "").strip().upper()
+    static_posture = mode == STATIC_POSTURE_PERFORMANCE
+
+    if len(dimensions) != len(set(dimensions)):
+        failures.append(f"STATE_DELTA_DUPLICATE_DIMENSION:{source_id}")
+    unknown = [value for value in dimensions if value not in STATE_DELTA_DIMENSIONS]
+    if unknown:
+        failures.append(f"STATE_DELTA_UNKNOWN_DIMENSION:{source_id}:{','.join(unknown)}")
+
+    if static_posture:
+        if combat:
+            failures.append(f"STATIC_POSTURE_FORBIDDEN_FOR_COMBAT:{source_id}")
+        if not dialogue:
+            failures.append(f"STATIC_POSTURE_REQUIRES_DIALOGUE:{source_id}")
+        performance = " ".join(str(beat.get(key) or "") for key in (
+            "microexpression_cue", "performance_cue", "body_sync_cue"
+        )).strip()
+        if not performance:
+            # "posture unchanged" is only honest when something else carries
+            # the beat; an empty performance would be a frozen frame.
+            failures.append(f"STATIC_POSTURE_PERFORMANCE_EVIDENCE_MISSING:{source_id}")
+    # The dimension minimum is waived only for a legitimate non-combat static
+    # posture.  A fight that declares static posture keeps the full minimum, so
+    # the declaration can never be used to escape a combat requirement.
+    if not static_posture or combat:
+        minimum = 2 if combat else 1
+        if len(dimensions) < minimum:
+            failures.append(
+                f"STATE_DELTA_DIMENSION_COUNT:{source_id}:{len(dimensions)}<{minimum}"
+            )
+
+    for dimension in dimensions:
+        row = evidence.get(dimension) or {}
+        entry = str(row.get("entry") or "").strip()
+        exit_state = str(row.get("exit") or "").strip()
+        entry_code = str(row.get("entry_code") or "").strip().upper()
+        exit_code = str(row.get("exit_code") or "").strip().upper()
+        spoken = [label for label, text in (("entry", entry), ("exit", exit_state))
+                  if evidence_is_dialogue(text, dialogue)]
+        if spoken:
+            # The defect this policy exists for: a line of dialogue standing in
+            # for a body state.  It is not a change and not evidence of one.
+            failures.append(
+                f"STATE_DELTA_EVIDENCE_IS_DIALOGUE:{source_id}:{dimension}:{'+'.join(spoken)}"
+            )
+            continue
+        if not entry or not exit_state:
+            failures.append(f"STATE_DELTA_EVIDENCE_MISSING:{source_id}:{dimension}")
+        elif entry == exit_state:
+            failures.append(f"STATE_DELTA_EVIDENCE_NO_CHANGE:{source_id}:{dimension}")
+        if not entry_code or not exit_code:
+            failures.append(f"STATE_DELTA_EVIDENCE_CODE_MISSING:{source_id}:{dimension}")
+        elif entry_code == exit_code:
+            failures.append(
+                f"STATE_DELTA_EVIDENCE_CODE_NO_CHANGE:{source_id}:{dimension}:{entry_code}"
+            )
+
+    entry_state = str(beat.get("entry_state") or "").strip()
+    exit_state = str(beat.get("exit_state") or "").strip()
+    if not entry_state or not exit_state:
+        failures.append(f"STATE_ENDPOINT_MISSING:{source_id}")
+    elif entry_state == exit_state and (not static_posture or combat):
+        failures.append(f"STATE_ENDPOINT_IDENTICAL:{source_id}")
+    for label, text in (("entry_state", entry_state), ("exit_state", exit_state)):
+        if evidence_is_dialogue(text, dialogue):
+            failures.append(f"STATE_ENDPOINT_IS_DIALOGUE:{source_id}:{label}")
+    return {
+        "schema": POLICY_VERSION,
+        "semantics": "STATE_DELTA_SEMANTICS_V1",
+        "status": "PASS" if not failures else "FAIL",
+        "source_id": source_id,
+        "combat": combat,
+        "state_delta_mode": mode or None,
         "state_delta_dimensions": dimensions,
         "state_delta_evidence": evidence,
         "failures": failures,

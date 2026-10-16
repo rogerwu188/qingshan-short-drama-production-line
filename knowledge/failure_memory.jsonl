@@ -57,3 +57,4 @@
 {"failure_code": "REROLL_LEDGER_HAS_NO_WRITER", "do_not_repeat": "不要让守卫读一份永远为空的账本还以为上限生效了", "stage": "S6", "scope": "generalizable", "knowledge_id": "K098"}
 {"failure_code": "POLICY_KEY_HAS_NO_CONSUMER", "do_not_repeat": "不要往策略文件里加没人读的键", "stage": "S6", "scope": "generalizable", "knowledge_id": "K099"}
 {"failure_code": "REVIEW_FINDING_CONFIDENCE_UNDECLARED", "do_not_repeat": "不要让审核结论只有归因没有置信度", "stage": "S6", "scope": "generalizable", "knowledge_id": "K100"}
+{"failure_code": "STATE_DELTA_EVIDENCE_IS_DIALOGUE", "do_not_repeat": "不要把台词或画面描述填进物理状态证据；不要为过门给不变的姿态编造转头", "stage": "S2", "scope": "generalizable", "knowledge_id": "K101"}

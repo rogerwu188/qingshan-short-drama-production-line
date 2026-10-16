@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2033,
+  "file_count": 2034,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -221,7 +221,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "8fcc109cb2e8d22dec8a9f44945f0ef1dfe5b112fa1f615a7e7248e3a1debc68"
+      "sha256": "28faaa8f2582c69a3415605573f330bdd830a23162b71e6d0f49c025e05dcf04"
     },
     {
       "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
@@ -249,7 +249,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "62cc5aa4ce0220fa0309c810f22177f27d764e4080a4b2f86568b35df1e5aa1a"
+      "sha256": "a6b900b385b47e445297e8457ba5a520e368f764fac45d63d7268a8d0227bd77"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -301,7 +301,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "ff1d6f0a693a5443db743a863e3c7f9ac5f3ae6f16ae50b0a35d7a4b2a64c3c2"
+      "sha256": "5fb5e716ca86a3bee1880bb0bff39b593c51d1d491b1bcf7d02e00c2adaad913"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -317,7 +317,7 @@
     },
     {
       "path": "docs/knowledge/PREGEN_CONSISTENCY_AND_RETRY_CLOSURE.md",
-      "sha256": "28374ef3f07ef2d2fac8d86ba02e659335dc400c97ece40b73be8bdac366fe1e"
+      "sha256": "ddaf74513b392dfc008b8c65a13821e165f46877fae9ab097ef8ca4ca82f671e"
     },
     {
       "path": "docs/knowledge/VALIDATION_REPORT.md",
@@ -5713,7 +5713,7 @@
     },
     {
       "path": "tools/sd2_motion_density_gate.py",
-      "sha256": "bc01f666cb25561199aa701870b22558b375aea42816c52518571879882bece4"
+      "sha256": "e102a513d3fbe1b0cf23ddb2d1cf937584f378fb4c7e371aa3907cebd9e18a25"
     },
     {
       "path": "tools/sd2_provider_prompt_renderer.py",
@@ -7508,6 +7508,10 @@
       "sha256": "2a5dc86064a257b8bcbe04010714ec19e975389d5e94bc80afba66cbcae454fa"
     },
     {
+      "path": "tools/tests/test_state_delta_semantics.py",
+      "sha256": "1f58e7cab420f6852129d5e5074d6b9a495e6f9a6c56a98ddf8fc259bd700b43"
+    },
+    {
       "path": "tools/tests/test_state_lock_action_scope.py",
       "sha256": "c8dda82d8c994efca70f305da84307e972878bdbdcc4ed48872fd11b77112724"
     },
@@ -8033,7 +8037,7 @@
     },
     {
       "path": "tools/video_execution_plan_compiler.py",
-      "sha256": "50531f2ea3c2a72b6df4cf4ce007576774836201eb91ccd97ab45b7bf6e34372"
+      "sha256": "cd9660a6e2233e6522c7ff330990f8e4e81d55e88443e9a22b48f983ca3da814"
     },
     {
       "path": "tools/video_generation_failure_policy.py",

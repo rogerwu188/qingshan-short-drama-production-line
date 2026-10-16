@@ -1,6 +1,6 @@
 {
   "schema": "qingshan.portable_core_manifest.v1",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "required_files": [
     ".env.example",
     ".github/workflows/storyclaw-release-candidate.yml",
@@ -28,6 +28,7 @@
     "configs/GATE_REGISTRY_v3_20260716.json",
     "configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json",
     "configs/PORTABLE_CORE_MANIFEST.json",
+    "configs/STATE_DELTA_SEMANTICS_V1.json",
     "configs/VIDEO_MODEL_CAPABILITY_REGISTRY_v1.json",
     "configs/reroll_cost_guard_policy_v1_20260716.json",
     "configs/storyclaw_release_signing_probe.txt",
@@ -121,6 +122,7 @@
     "tools/run_episode_qa.sh",
     "tools/run_portable_ci.py",
     "tools/script_structure_contract_gate.py",
+    "tools/sd2_motion_density_gate.py",
     "tools/sd2_provider_prompt_renderer.py",
     "tools/shot_media_admission_gate.py",
     "tools/speaker_identity_voice_release_gate.py",
@@ -266,6 +268,7 @@
     "tools.tests.test_speaker_voice_contract",
     "tools.tests.test_stage_time_ledger",
     "tools.tests.test_start_frame_line_owner_acceptance",
+    "tools.tests.test_state_delta_semantics",
     "tools.tests.test_storyclaw_asset_plan_gate",
     "tools.tests.test_storyclaw_audio_provider",
     "tools.tests.test_storyclaw_bootstrap",

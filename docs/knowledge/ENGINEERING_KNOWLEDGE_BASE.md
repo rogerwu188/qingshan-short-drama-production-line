@@ -951,3 +951,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：tools/tests/test_pregen_consistency_retry_closure.py::CauseConfidenceTest
 - **授权**：Roger 2026-10-16：转来共享引擎「生成前一致性与付费重试闭环修复」提案，要求先给归属再修，只改通用代码/配置/测试/运行手册
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K101 — S2
+
+- **规则**：状态差证据必须是身体/物件的物理状态，不得是对白。v4 适配器缺声明时把维度默认成 POSTURE、把画面描述填进结束态，画面描述有时就是一句台词；动作密度门只比两个字符串和两个代码，于是台词被当成姿态变化放行。STATE_DELTA_SEMANTICS_V1：证据或端点等于本拍台词即 STATE_DELTA_EVIDENCE_IS_DIALOGUE；非打斗对白镜可声明 STATIC_POSTURE_PERFORMANCE（姿态不变、靠台词与表演推进），须有表演证据；打斗镜不得用此声明，两维下限与全部打斗检查照旧。适配器缺证据改为报缺失，不再编造。构建器原把 action_kind 写死为 NON_COMBAT，使全线打斗检查失效；现透传作者声明并统一为 COMBAT。
+- **教训**：字段、哈希、格式都合格，变化却只是字符串不同；合法的静止对白镜反而只能靠编造转头过门。
+- **恢复**：对白镜姿态确实不变时在合同 action 写 state_delta_mode=STATIC_POSTURE_PERFORMANCE；打斗镜写 action_kind=COMBAT 并给两维物理结果。按集在 configs/STATE_DELTA_SEMANTICS_V1.json 启用。
+- **实现**：`tools/sd2_motion_density_gate.py`、`lines/nalu/runtime/tools/adapt_v4_layers_to_runtime.py`、`lines/nalu/runtime/tools/build_nalu_preproduction.py`、`tools/video_execution_plan_compiler.py`
+- **回归**：`tools/tests/test_state_delta_semantics.py`
+- **证据**：tools/tests/test_state_delta_semantics.py（对白入证据、合法静止对白、打斗仍需结果、未启用集兼容）
+- **授权**：Roger 2026-10-16：通用生产线优化方案 §5「停止用字符串变化冒充动作变化」，要求先修已复现的错误链
+- **状态**：REFERENCE_IMPLEMENTATION

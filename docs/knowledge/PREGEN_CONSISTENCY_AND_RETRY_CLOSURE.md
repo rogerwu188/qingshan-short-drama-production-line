@@ -68,3 +68,26 @@
 ## 四、变更历史
 
 - 2026-10-16：首版。基线与归属见 `docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md` 的 K093–K100。
+
+## 五、合同语义：状态差（STATE_DELTA_SEMANTICS_V1，2026-10-16）
+
+**修的错误链**（生产线优化方案 §5.2）：v4 适配器缺声明时把维度默认成 POSTURE、把画面描述填进结束态 →
+画面描述有时是一句台词 → 动作密度门只比较两段字符串与两个代码 → 台词被当成姿态变化放行。
+同时构建器把 `action_kind` 写死 `NON_COMBAT`，而 `is_combat_unit` 在每拍都有声明时只信声明 → 全线打斗检查失效。
+
+| 改动 | 文件 |
+|---|---|
+| 证据/端点等于本拍台词 → `STATE_DELTA_EVIDENCE_IS_DIALOGUE` / `STATE_ENDPOINT_IS_DIALOGUE` | `tools/sd2_motion_density_gate.py` |
+| 非打斗对白镜可声明 `state_delta_mode=STATIC_POSTURE_PERFORMANCE`，须有表演证据；打斗镜声明即失败且两维下限不免 | 同上 |
+| 适配器缺状态证据报 `STATE_DELTA_UNDECLARED`，不再编造；`ACTION_COMBAT` 统一为 `COMBAT` | `adapt_v4_layers_to_runtime.py` |
+| `action_kind`、`physical_action_design`、`state_delta_mode` 透传作者值；未声明时输出与旧版逐字节相同 | `build_nalu_preproduction.py`、`video_execution_plan_compiler.py` |
+
+**启用**：`configs/STATE_DELTA_SEMANTICS_V1.json` 的 `enabled_episodes` 列出集号（或 `enabled_from_episode`），
+或合同在 action 上写 `state_delta_semantics: "V1"`。**默认一个集都不启用。**
+**回退**：从 `enabled_episodes` 删掉集号即可，旧规则原样恢复；无需改代码。
+**在产兼容**：未启用的集走旧规则（测试 `InactiveEpisodesKeepLockedBehaviourTest`）。已离线验证：用新代码重建 E12 的 S2，
+111 镜中本次涉及的字段逐字节不变。透传类改动对不声明这些字段的合同无效果，因此不会改变任何已锁定任务的提示词或指纹。
+
+**仍不能保证**：
+- 状态代码（`entry_code/exit_code`）仍由作者手写，门只能查"不同"与"不是台词"，不能证明代码与文字语义一致。
+- 打斗只有作者声明 `action_kind=COMBAT` 才会被当作打斗；没声明的打斗仍只靠文字线索兜底。
