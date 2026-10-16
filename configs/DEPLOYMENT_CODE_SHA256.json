@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2029,
+  "file_count": 2031,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -221,7 +221,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "a5816e40861b25140529a65efbbbd2dbb9e0be383347087bcf3523bbff15f846"
+      "sha256": "8fcc109cb2e8d22dec8a9f44945f0ef1dfe5b112fa1f615a7e7248e3a1debc68"
     },
     {
       "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
@@ -249,7 +249,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "5acbf58d87b11f3b4b4265606aef3b4a0821520cdc49810f7afb75ad9fe22ac8"
+      "sha256": "7a666248073e03d9b8e5a4724fb975286c7df636b910d123c2970d0c8b570d48"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -301,7 +301,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "2e9835cd1a4d9a2be9101cdc0ea06d4411f9e842ac6dc62398dfae255afafee9"
+      "sha256": "ff1d6f0a693a5443db743a863e3c7f9ac5f3ae6f16ae50b0a35d7a4b2a64c3c2"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -314,6 +314,10 @@
     {
       "path": "docs/knowledge/LINE_UPGRADE_PROTOCOL.md",
       "sha256": "4aa23a57c9a4dcff5fd88c36128c9744928e0f8ae2bbca61cbb9f1cb34df2955"
+    },
+    {
+      "path": "docs/knowledge/PREGEN_CONSISTENCY_AND_RETRY_CLOSURE.md",
+      "sha256": "28374ef3f07ef2d2fac8d86ba02e659335dc400c97ece40b73be8bdac366fe1e"
     },
     {
       "path": "docs/knowledge/VALIDATION_REPORT.md",
@@ -4401,7 +4405,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "e6073fe4a3ec594de0e20e9e9fd56f24139dbdef810a6cf32ff191ec6ae80bea"
+      "sha256": "a445886225d10d1997e866431fcccea3b459b772e267cb383735ec575489ee48"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -4965,7 +4969,7 @@
     },
     {
       "path": "tools/provider_scope_projection.py",
-      "sha256": "876c2bc021274708dba9f6b3d262462cbc3307b5fef64676ed1baae4c2e932e9"
+      "sha256": "1eec9548a7d2346736dddb85f2c889ab88229dca95b5ea7e6b5d3a4f6571cbf3"
     },
     {
       "path": "tools/provider_semantic_coverage.py",
@@ -5377,7 +5381,7 @@
     },
     {
       "path": "tools/reroll_cost_guard.py",
-      "sha256": "cadf404b7f4af93503c2e743261bce211af4cf33be0c5e8c5d4720c81cb520d8"
+      "sha256": "720b8a34bc581013048d50461e6328b6fc22ea54d79a349a8781eca6d4fc14e4"
     },
     {
       "path": "tools/retry_cap_gate.py",
@@ -5729,7 +5733,7 @@
     },
     {
       "path": "tools/shot_media_admission_gate.py",
-      "sha256": "7ebef94fe387ac5e6b2bd39d1b89166ef589d10d08cb3f9e5e23f6485f3780cc"
+      "sha256": "e4a9fc55d104af641eb97274bac38460a3180e1ed51288d36fd6fdbeaf85bf1f"
     },
     {
       "path": "tools/shot_prompt_professionalism_gate.py",
@@ -5933,7 +5937,7 @@
     },
     {
       "path": "tools/submit_giggle_image_manifest.py",
-      "sha256": "d726fd9f04b56357b70c25da0fe3debc93a9eb648b411f836b2cdb30a618d572"
+      "sha256": "00e2237d7022babe02567f3b4003e513e216a40d35c1921e130e75a08513e65f"
     },
     {
       "path": "tools/submit_giggle_task_manifest.py",
@@ -5941,7 +5945,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "e042f2c7d59a820c93df97a969f3d3dbc3a1de0cc5217571b65cbd48c6b27503"
+      "sha256": "4dd644ff5e2154200b99c3faf5a2e7206d0f6466ca522e5f1c6ba8d247ab089f"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -6461,7 +6465,7 @@
     },
     {
       "path": "tools/tests/test_concurrent_dispatch.py",
-      "sha256": "2264cace5e172dabf4efa5c5f436b078e009d9704327f7b32cfc1f4f69bd4221"
+      "sha256": "09eb853ddb5ca37a2cde84a72fb5e10487736209c10ca9792c6023a4fcf1f45b"
     },
     {
       "path": "tools/tests/test_concurrent_dispatch_audit_repro.py",
@@ -7202,6 +7206,10 @@
     {
       "path": "tools/tests/test_post_generation_qa_scope_gate.py",
       "sha256": "3d4a2dfa1ee45cca7f99dde618406b43c291b761eaa86656b4b7cf23a397c08f"
+    },
+    {
+      "path": "tools/tests/test_pregen_consistency_retry_closure.py",
+      "sha256": "d1a433f28cd99f3a462c5427f3283eb399b33a187a0e97bbe5d65bee6a635835"
     },
     {
       "path": "tools/tests/test_prepare_agentcut_release_branding.py",

@@ -11,6 +11,23 @@ import re
 from typing import Any
 
 try:
+    from tools.provider_scope_projection import (
+        instance_cardinality_clauses,
+        is_single_subject_mode,
+        is_tight_pov_mode,
+        population_clause,
+        positive_single_subject_composition_clause,
+    )
+except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
+    from provider_scope_projection import (
+        instance_cardinality_clauses,
+        is_single_subject_mode,
+        is_tight_pov_mode,
+        population_clause,
+        positive_single_subject_composition_clause,
+    )
+
+try:
     from tools.h3_provider_english_contract import (
         require_h3_provider_english_contract,
         validate_h3_provider_text_boundary,
@@ -563,11 +580,10 @@ def _beat(
 def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     uid = str(plan["unit_id"])
     profile = str(unit.get("h3_prompt_profile") or "").strip()
-    positive_single_subject = profile in {
-        "H3_POSITIVE_SINGLE_SUBJECT_V1",
-        "H3_TIGHT_POV_SINGLE_SUBJECT_V1",
-    }
-    tight_pov_single_subject = profile == "H3_TIGHT_POV_SINGLE_SUBJECT_V1"
+    # The image presubmit gate and the projection carry the same flag under two
+    # other spellings; normalize so one value reaches all three.
+    positive_single_subject = is_single_subject_mode(profile)
+    tight_pov_single_subject = is_tight_pov_mode(profile)
     scoped = shot_scope_active(unit, plan)
     refs = unit.get("reference_images") or []
     if not refs or len(refs) > 9:
@@ -600,9 +616,26 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         ref = {**bound, **ref}
         entity = str(ref.get("provider_entity_label") or ref.get("entity_id") or "").strip()
         role = str(ref.get("role") or "REFERENCE").strip()
+        binding_role = str(bound.get("binding_role") or "")
+        role_is_identity = binding_role == "IDENTITY" or (
+            not binding_role
+            and str(bound.get("entity_id") or ref.get("entity_id") or "").startswith("CHAR-")
+        )
         if role in {"ADMITTED_NEW_EVENT_ENTRY_STATE", "PREVIOUS_UNIT_FINAL_FRAME", "IDENTITY_OR_PROP_REANCHOR"}:
             entity = ""
-        if entity:
+        if entity and not role_is_identity:
+            # A geometry / location / prop plate: it carries no face, so it must
+            # not be described as an identity lock.  Previously every binding was
+            # rendered as "exclusive identity of X", which is what let a plate in
+            # the wrong slot read as an identity anchor.
+            reference_lines.append(
+                f"@Image{index}: exclusive {role} reference for {entity}; bind only that declared role, "
+                f"map geometry, material and scale only; define no face and never overwrite a named identity; role={role}."
+            )
+        elif entity:
+            declared_count = int(
+                (scope.get("visible_entity_instance_counts") or {}).get(str(ref.get("entity_id") or "")) or 1
+            )
             if positive_single_subject:
                 reference_lines.append(
                     f"@Image{index}: {entity} is SUBJECT_1; preserve this face, age, hair, body, wardrobe, "
@@ -611,14 +644,16 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             elif scoped:
                 reference_lines.append(
                     f"@Image{index}: exclusive identity of {entity}; lock this entity's face, age, hair, body and wardrobe; "
-                    f"render at most one visible instance of {entity}; this reference alone does not put {entity} "
+                    + instance_cardinality_clauses(entity, declared_count)[-1]
+                    + f"; this reference alone does not put {entity} "
                     "in frame, presence and visible range follow each timed beat; "
                     f"never duplicate or assign it to another entity; role={role}."
                 )
             else:
                 reference_lines.append(
                     f"@Image{index}: exclusive identity of {entity}; lock this entity's face, age, hair, body and wardrobe; "
-                    f"render exactly one visible instance of {entity}; never duplicate or assign it to another entity; "
+                    + instance_cardinality_clauses(entity, declared_count)[0]
+                    + f"; never duplicate or assign it to another entity; "
                     f"role={role}."
                 )
         elif index == 1:
@@ -631,23 +666,36 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
                 f"@Image{index}: exclusive {role} reference; bind only that declared role and never overwrite a named identity."
             )
     translated_transition = contract.get("transition") or {}
-    visible_total = int(scope.get("visible_living_entity_instance_total") or len(scope_bindings))
-    population_scope = (
-        (
-            "SUBJECT_1 fills a tight head-and-shoulders point-of-view close-up as the single human figure; "
-            "the closed shallow architectural background preserves the opening image"
+    # A unit with no projection declares nothing, and the historical rendering
+    # for that case is a zero population; several units below the projection
+    # gate legitimately have none, so that case keeps its old meaning.  What is
+    # no longer tolerated is a projection that exists and still fails to state
+    # its population: the old code silently replaced the missing declaration
+    # with a count derived from whatever bindings happened to be attached.
+    if not scope:
+        visible_total = 0
+        background_total = 0
+        unbound_total = 0
+    elif "visible_living_entity_instance_total" not in scope:
+        raise ValueError(f"{uid}:H3_PROVIDER_SCOPE_POPULATION_UNDECLARED")
+    else:
+        visible_total = int(scope.get("visible_living_entity_instance_total") or 0)
+        background_total = int(scope.get("background_population_count") or 0)
+        unbound_total = int(scope.get("unbound_visible_living_entity_count") or 0)
+    if positive_single_subject:
+        composition = positive_single_subject_composition_clause(tight_pov_single_subject)
+        population_scope = (
+            composition + "; the closed shallow architectural background preserves the opening image"
             if tight_pov_single_subject
-            else
-            "SUBJECT_1 fills the composed medium frame as its single human figure; "
-            "the shallow architectural background preserves the opening image"
+            else composition + "; the shallow architectural background preserves the opening image"
         )
-        if positive_single_subject
-        else (
-            "Only bound identities are visible; "
-            f"render exactly {visible_total} living entity instances in total; "
-            "background population count=0; unbound living entity count=0"
+    else:
+        population_scope = population_clause(
+            visible_total,
+            background_population_count=background_total,
+            unbound_visible_living_entity_count=unbound_total,
+            anonymous_role_descriptors=scope.get("anonymous_role_descriptors") or [],
         )
-    )
     source_transition = plan.get("transition") or {}
     description: list[str] = []
     content_window = content_window_clause(plan, "EN")

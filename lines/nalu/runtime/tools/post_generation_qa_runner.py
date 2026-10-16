@@ -855,17 +855,18 @@ def contact_sheet(unit_id: str, media: Path, out_dir: Path,
 def build_reroll_requests(episode: str, rejected: list[dict[str, Any]],
                           total_paid_tasks: int) -> dict[str, Any]:
     p = QaPaths(episode)
+    reroll_ledger = engine_module("reroll_cost_guard")
     ledger = read_json(p.reroll_ledger, {"schema": "nalu.reroll_ledger.v1",
                                          "episode": episode, "events": []})
-    events = ledger.setdefault("events", [])
     requests: list[dict[str, Any]] = []
+    recorded_at = now()
     for row in rejected:
         unit_id = row["unit_id"]
         reason = row["primary_reason"]
-        prior = sum(1 for event in events
-                    if event.get("shot_id") == unit_id
-                    and str(event.get("outcome")) in {"SUBMITTED", "COMPLETED"})
-        reroll_number = prior + 1
+        failure_class = row.get("failure_class", "CANDIDATE_QA_FAILURE")
+        # Counted by the guard's own reader so the ordinal here and the ordinal
+        # the guard recomputes from the same ledger can never disagree.
+        reroll_number = reroll_ledger.reroll_number_for(ledger, unit_id)
         out = p.qa_root / "reroll" / f"{unit_id}_reroll_cost_guard.json"
         argv = [str(VENV), str(ENGINE / "tools/reroll_cost_guard.py"),
                 "--policy", str(REROLL_POLICY), "--ledger", str(p.reroll_ledger),
@@ -883,7 +884,7 @@ def build_reroll_requests(episode: str, rejected: list[dict[str, Any]],
             "failure_reason": reason,
             "required_prompt_change": ("PERFORMANCE_INSTRUCTION_CHANGE (seq=29 规则 6：换表演指令，不许只改字/秒)"
                                        if "SPEECH_RATE_UNDER_TARGET" in str(reason) else None),
-            "failure_class": row.get("failure_class", "CANDIDATE_QA_FAILURE"),
+            "failure_class": failure_class,
             "total_paid_tasks": total_paid_tasks,
             "all_reasons": row.get("reasons") or [],
             "guard_argv": argv,
@@ -893,10 +894,26 @@ def build_reroll_requests(episode: str, rejected: list[dict[str, Any]],
             "rule": "a reroll runs only on a PASS_* status from this guard AND a fresh "
                     "nalu_budget_ledger.py --check inside the 8000-credit cap",
         })
+    # Record the requests in the ledger the guard reads.  Outcome REQUESTED,
+    # not SUBMITTED: this builder decides what to ask for and never POSTs, and
+    # the guard only counts SUBMITTED / COMPLETED toward the episode budget, so
+    # an unspent request must not consume it.  Without this write the events
+    # list stayed empty forever and every reroll read as the first one.
+    for request in requests:
+        reroll_ledger.record_reroll_event(
+            ledger,
+            shot_id=request["unit_id"],
+            reroll_number=request["reroll_number"],
+            failure_reason=request["failure_reason"],
+            failure_class=request["failure_class"],
+            outcome="REQUESTED",
+            recorded_at=recorded_at,
+            extra={"episode": episode, "guard_out": request["guard_out"], "tool_id": TOOL_ID},
+        )
     payload = {
         "schema": "nalu.reroll_request_list.v1",
         "episode": episode,
-        "recorded_at": now(),
+        "recorded_at": recorded_at,
         "recorded_by": TOOL_ID,
         "gate_id": "GIGGLE-REROLL-COST-GUARD",
         "guard": str(ENGINE / "tools/reroll_cost_guard.py"),

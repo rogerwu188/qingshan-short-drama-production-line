@@ -68,6 +68,8 @@ try:
     from video_sequence_rhythm_gate import validate_combat_sequence_rhythm
     from opening_anchor_chain_gate import validate_opening_anchor_chain
     from provider_scope_projection import validate_provider_scope_projection
+    from action_video_prompt_compiler import validate_action_contract
+    from shot_media_admission_gate import compute_input_template_id, precheck_submission_inputs
 except ModuleNotFoundError:
     from tools.giggle_api_client import _image_list, _registered_asset, _request, paid_video_submission_context
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
@@ -92,6 +94,8 @@ except ModuleNotFoundError:
     from tools.video_sequence_rhythm_gate import validate_combat_sequence_rhythm
     from tools.opening_anchor_chain_gate import validate_opening_anchor_chain
     from tools.provider_scope_projection import validate_provider_scope_projection
+    from tools.action_video_prompt_compiler import validate_action_contract
+    from tools.shot_media_admission_gate import compute_input_template_id, precheck_submission_inputs
 
 # Shot-scope upgrade (configs/PROMPT_SHOT_SCOPE_POLICY_V1.json): submit-boundary conflict gate
 # and loaded-module audit.  Inactive episodes/models never call either, so their request,
@@ -1176,6 +1180,11 @@ def main() -> int:
     grouped_camera_units = []
     for task in tasks:
         validate_task(task)
+        gate_failures = validate_task_submission_gates(task)
+        if gate_failures:
+            raise RuntimeError(
+                f"{task.get('task_key')} submission gate failed: " + ",".join(gate_failures)
+            )
         if task.get("semantic_video_unit"):
             grouped_camera_units.append(grouped_sequence_unit(task))
     skip_cross_task_sequence = bool(manifest.get("partial_repair_scope") or manifest.get("staged_generation_scope"))
@@ -1312,6 +1321,35 @@ def main() -> int:
     return 0 if report["status"] == "PASS" else 2
 
 
+def validate_task_submission_gates(task: dict[str, Any]) -> list[str]:
+    """Every per-task gate that must pass before a paid video POST.
+
+    These checks used to live only inside ``exec_deployed_submitter()``, which
+    nothing calls: ``main()`` — the entrypoint production actually runs — did
+    validate_task and the sequence gates but never reached any of this, so the
+    repo path and the deployed path validated different things.  One function,
+    called by both, is the only way they stay equal.
+    """
+    failures: list[str] = []
+    for label, raised in (
+        ("BLOCK_RETRY_CAP_GATE", validate_submission_attempt(task)),
+        ("BLOCK_STRUCTURED_ACTION_CONTRACT_INVALID", validate_action_contract(task)),
+    ):
+        if raised:
+            failures.append(f"{label}:{','.join(raised)}")
+    expected_template_id = compute_input_template_id(task)
+    if task.get("input_template_id") != expected_template_id:
+        failures.append("INPUT_TEMPLATE_ID_MISSING_OR_STALE")
+    precheck = precheck_submission_inputs(task, enforce=True, root=ROOT)
+    if precheck.get("status") != "PASS":
+        missing = [*(precheck.get("missing_characters") or []), *(precheck.get("missing_props") or [])]
+        failures.append(
+            f"INPUT_COMPLETENESS_FAILED:{precheck.get('failure_code')}"
+            + (f":missing={','.join(missing)}" if missing else "")
+        )
+    return failures
+
+
 def exec_deployed_submitter() -> None:
     forwarded = list(sys.argv[1:])
     try:
@@ -1323,36 +1361,16 @@ def exec_deployed_submitter() -> None:
     require_e47_efficiency_contract(manifest)
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
-    from tools.action_video_prompt_compiler import validate_action_contract
-    from tools.shot_media_admission_gate import compute_input_template_id, precheck_submission_inputs
-
     grouped_camera_units = []
     for task in manifest.get("tasks") or []:
         validate_task(task)
+        gate_failures = validate_task_submission_gates(task)
+        if gate_failures:
+            raise RuntimeError(
+                f"{task.get('task_key')} submission gate failed: " + ",".join(gate_failures)
+            )
         if task.get("semantic_video_unit"):
             grouped_camera_units.append(grouped_sequence_unit(task))
-        retry_failures = validate_submission_attempt(task)
-        if retry_failures:
-            raise RuntimeError(
-                f"{task.get('task_key')} BLOCK_RETRY_CAP_GATE: "
-                f"{','.join(retry_failures)}"
-            )
-        action_failures = validate_action_contract(task)
-        if action_failures:
-            raise RuntimeError(
-                f"{task.get('task_key')} BLOCK_STRUCTURED_ACTION_CONTRACT_INVALID: "
-                f"{','.join(action_failures)}"
-            )
-        expected_template_id = compute_input_template_id(task)
-        if task.get("input_template_id") != expected_template_id:
-            raise RuntimeError(f"{task.get('task_key')} missing or stale input_template_id")
-        precheck = precheck_submission_inputs(task, enforce=True, root=ROOT)
-        if precheck.get("status") != "PASS":
-            missing = [*(precheck.get("missing_characters") or []), *(precheck.get("missing_props") or [])]
-            raise RuntimeError(
-                f"{task.get('task_key')} input completeness failed: "
-                f"{precheck.get('failure_code')} missing={','.join(missing)}"
-            )
     # A scene-first wave is intentionally non-contiguous in episode order:
     # every selected task is the first unit of a different scene.  Per-task
     # prompt/transition contracts are still validated above, while adjacent

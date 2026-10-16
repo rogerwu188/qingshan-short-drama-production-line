@@ -863,3 +863,91 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：E11-keyframe 审核 E11-S19-03 的 observation
 - **授权**：Roger 2026-10-11：「你所有这些教训不会再下一集还要重犯吧？」——要求把本集暴露的问题写成可复用规则
 - **状态**：GUIDANCE_ONLY
+
+### K093 — S2
+
+- **规则**：投影里的背景人数/实体例数必须是声明值，不得是常量。两者曾是字面量 0 与 {id: 1}，于是剧本写明的街上行人在机器侧不可表达，且任何非零都会判失败——硬编码把正确结果判成错的。数量由 build_provider_scope_projection 的入参声明，校验器检查字段存在与自洽（unbound ≥ background、例数 ≥1），缺字段是 FAIL 不是默认 0。
+- **教训**：E12 街心火泉池与镇主街需要过场人物；此前它们只能落进 forbidden absent terms。
+- **恢复**：写集时若画面需要无名过场，声明 background_population_count/visible_entity_instance_counts，或把该角色登记为 ANONYMOUS_FUNCTIONAL 身份层（K096）。
+- **实现**：`tools/provider_scope_projection.py`、`tools/h3_provider_prompt_renderer.py`
+- **回归**：`tools/tests/test_pregen_consistency_retry_closure.py`
+- **证据**：tools/tests/test_pregen_consistency_retry_closure.py（用例：hardcoded-population-count-hides-scripted-crowds 对应的 TestCase）
+- **授权**：Roger 2026-10-16：转来共享引擎「生成前一致性与付费重试闭环修复」提案，要求先给归属再修，只改通用代码/配置/测试/运行手册
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K094 — S2
+
+- **规则**：同一语义的开关字段只允许一套词表。单主体模式曾有三处拼法：投影/渲染 provider_scope_prompt_mode、镜像预检 scope_mode、视频提交 h3_prompt_profile，取值后缀还各不相同 → 改一处另两处不会跟进。现在统一经 provider_scope_projection.normalize_prompt_mode 归一，未知值保持原样而非吞成默认。
+- **教训**：三处拼法意味着任何一次语义变更都只生效三分之一，且没人会注意到。
+- **恢复**：新增模式先在 normalize_prompt_mode 的别名表登记，再在三个调用点使用。
+- **实现**：`tools/provider_scope_projection.py`、`tools/submit_giggle_image_manifest.py`
+- **回归**：`tools/tests/test_pregen_consistency_retry_closure.py`
+- **证据**：tools/tests/test_pregen_consistency_retry_closure.py（用例：one-flag-three-spellings 对应的 TestCase）
+- **授权**：Roger 2026-10-16：转来共享引擎「生成前一致性与付费重试闭环修复」提案，要求先给归属再修，只改通用代码/配置/测试/运行手册
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K095 — S2
+
+- **规则**：参考图按角色分层：只有身份位承载脸并声明 exclusive_identity_owner，场景/空间/道具位声明 may_define_identity=false。此前所有绑定一律渲染成 exclusive identity of X，于是一张放错位的拓扑图读起来就是一张身份锚。提交前预检比对声明角色与 id 命名空间，不一致即 REFERENCE_ROLE_SEMANTICS_INVALID；两张身份位共用同一文件也判失败。
+- **教训**：E12 关键帧有 4–5 张参考图（全集空间图/本地空间图/子空间/场景/道具），角色混淆与串图由此而来。
+- **恢复**：绑定参考图时同时给出 role；预检报 REFERENCE_ROLE_NAMESPACE_CONFLICT 就是槽位被换过。
+- **实现**：`tools/provider_scope_projection.py`、`tools/shot_media_admission_gate.py`、`tools/h3_provider_prompt_renderer.py`
+- **回归**：`tools/tests/test_pregen_consistency_retry_closure.py`
+- **证据**：tools/tests/test_pregen_consistency_retry_closure.py（用例：reference-plate-role-tiers 对应的 TestCase）
+- **授权**：Roger 2026-10-16：转来共享引擎「生成前一致性与付费重试闭环修复」提案，要求先给归属再修，只改通用代码/配置/测试/运行手册
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K096 — S2
+
+- **规则**：角色表新增身份层 identity_tier（NAMED / ANONYMOUS_FUNCTIONAL / BACKGROUND_CROWD）。非 NAMED 角色不进 forbidden absent terms，而是进 anonymous_role_descriptors，由人口子句声明为可入画的过场；脸不做身份比对。此前无名路人只有禁区词表一个去处。
+- **教训**：审核把匿名过场判成「未列入允许入画名单」——判读错，但缺这一层是代码侧的成因。
+- **恢复**：剧本需要店小二、路人、围观者时，在角色表登记其 identity_tier，不要塞进具名角色表。
+- **实现**：`tools/provider_scope_projection.py`
+- **回归**：`tools/tests/test_pregen_consistency_retry_closure.py`
+- **证据**：tools/tests/test_pregen_consistency_retry_closure.py（用例：anonymous-functional-role-tier 对应的 TestCase）
+- **授权**：Roger 2026-10-16：转来共享引擎「生成前一致性与付费重试闭环修复」提案，要求先给归属再修，只改通用代码/配置/测试/运行手册
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K097 — S6
+
+- **规则**：生产实际执行的是仓库内 main()，不是 exec_deployed_submitter()。预检链（retry_cap / action contract / input_template_id / precheck_submission_inputs）此前只存在于后者，而后者无人调用，于是仓库路径比部署路径少校验。现在抽出 validate_task_submission_gates，两条路径都调它，并有 AST 测试断言 main() 必须调用它。
+- **教训**：死代码里的门等于没有门；契约测试只覆盖三个函数，漏掉的就是这个分支。
+- **恢复**：新增付费前门时，写进 validate_task_submission_gates，不要写进某一个入口。
+- **实现**：`tools/submit_giggle_video_manifest_v2.py`
+- **回归**：`tools/tests/test_pregen_consistency_retry_closure.py`
+- **证据**：tools/tests/test_pregen_consistency_retry_closure.py（用例：repo-entrypoint-must-run-every-deployed-gate 对应的 TestCase）
+- **授权**：Roger 2026-10-16：转来共享引擎「生成前一致性与付费重试闭环修复」提案，要求先给归属再修，只改通用代码/配置/测试/运行手册
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K098 — S6
+
+- **规则**：重抽账本只有读取方没有写入方：守卫按 events 计算第几次重抽、集级预算、重复原因规则，但没有任何代码 append 事件 → events 恒空、reroll_number 恒 1、预算永不推进。写入器与读取器同址放在 reroll_cost_guard，构建重抽请求时记 outcome=REQUESTED（请求不消耗预算，只有 SUBMITTED/COMPLETED 计数）。
+- **教训**：自动重抽的上限与预算此前从未真正生效，因为没有历史可数。
+- **恢复**：新增任何账本读取方前，先确认写入方存在且双方对 outcome 词表一致。
+- **实现**：`tools/reroll_cost_guard.py`、`lines/nalu/runtime/tools/post_generation_qa_runner.py`
+- **回归**：`tools/tests/test_pregen_consistency_retry_closure.py`
+- **证据**：tools/tests/test_pregen_consistency_retry_closure.py（用例：reroll-ledger-needs-a-writer 对应的 TestCase）
+- **授权**：Roger 2026-10-16：转来共享引擎「生成前一致性与付费重试闭环修复」提案，要求先给归属再修，只改通用代码/配置/测试/运行手册
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K099 — S6
+
+- **规则**：策略文件里声明的键必须有读取方，否则它只是文档。block_failure_classes 与 advise_margin_fraction 此前无人读：现在前者参与判定（策略阻断类必须按 BLOCK 层），后者参与告警（剩余预算比例低于该值时不再只是 ADVISE），两者都进结论供调用方查。
+- **教训**：无法被读取的策略键会让人以为已经配好了保护。
+- **恢复**：改策略文件时同步确认消费者；没有消费者的键应在文件里标 GUIDANCE_ONLY。
+- **实现**：`tools/reroll_cost_guard.py`
+- **回归**：`tools/tests/test_pregen_consistency_retry_closure.py`
+- **证据**：tools/tests/test_pregen_consistency_retry_closure.py（用例：policy-keys-must-be-read 对应的 TestCase）
+- **授权**：Roger 2026-10-16：转来共享引擎「生成前一致性与付费重试闭环修复」提案，要求先给归属再修，只改通用代码/配置/测试/运行手册
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K100 — S6
+
+- **规则**：审核结论除 failure_attribution 外给出 cause_confidence：DETERMINATE 来自不可能判错的比较（文件缺失、SHA 不符、角色与命名空间冲突），INFERRED 来自本门套用的规则，NOT_APPLICABLE 表示无失败。两者在重试规则里待遇不同，此前的结论无法区分。
+- **教训**：没有置信度字段时，机器判定的硬事实与审核者的推断长得一模一样。
+- **恢复**：读结论时先看 cause_confidence 再决定是重做还是先复核判读。
+- **实现**：`tools/shot_media_admission_gate.py`
+- **回归**：`tools/tests/test_pregen_consistency_retry_closure.py`
+- **证据**：tools/tests/test_pregen_consistency_retry_closure.py::CauseConfidenceTest
+- **授权**：Roger 2026-10-16：转来共享引擎「生成前一致性与付费重试闭环修复」提案，要求先给归属再修，只改通用代码/配置/测试/运行手册
+- **状态**：REFERENCE_IMPLEMENTATION

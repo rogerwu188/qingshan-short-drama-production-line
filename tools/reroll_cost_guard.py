@@ -20,6 +20,66 @@ def load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+LEDGER_SCHEMA = "qingshan.reroll_ledger.v1"
+
+
+def load_ledger(path: Path) -> dict:
+    return load_json(path) or {"schema": LEDGER_SCHEMA, "events": []}
+
+
+def record_reroll_event(
+    ledger: dict,
+    *,
+    shot_id: str,
+    reroll_number: int,
+    failure_reason: str,
+    failure_class: str = "CANDIDATE_QA_FAILURE",
+    outcome: str,
+    recorded_at: str,
+    net_charged_credits: int | None = None,
+    extra: dict | None = None,
+) -> dict:
+    """Append one reroll event to the ledger.
+
+    ``evaluate`` has always *read* ``ledger["events"]`` to compute the per-shot
+    reroll number, the episode reroll budget and the repeated-reason rule, but
+    nothing in the repository ever wrote one: every caller passed a ledger whose
+    ``events`` list was empty, so ``reroll_number`` was always 1, the episode
+    budget never advanced, and the repeated-reason rule could never fire.  The
+    writer lives here, next to the reader, so the two cannot drift.
+    """
+    events = ledger.setdefault("events", [])
+    if not isinstance(events, list):
+        raise ValueError("reroll ledger 'events' must be a list")
+    event: dict = {
+        "shot_id": str(shot_id),
+        "reroll_number": int(reroll_number),
+        "failure_reason": str(failure_reason),
+        "failure_class": str(failure_class or "").upper(),
+        "outcome": str(outcome).upper(),
+        "recorded_at": str(recorded_at),
+    }
+    if net_charged_credits is not None:
+        event["net_charged_credits"] = int(net_charged_credits)
+    for key, value in (extra or {}).items():
+        event.setdefault(str(key), value)
+    events.append(event)
+    ledger["schema"] = str(ledger.get("schema") or LEDGER_SCHEMA)
+    ledger["event_count"] = len(events)
+    return event
+
+
+def reroll_number_for(ledger: dict, shot_id: str) -> int:
+    """The ordinal this shot's next paid reroll will be, counting prior attempts."""
+    events = ledger.get("events") or []
+    prior = sum(
+        1 for event in events
+        if str(event.get("shot_id") or "") == str(shot_id)
+        and str(event.get("outcome") or "").upper() in {"SUBMITTED", "COMPLETED"}
+    )
+    return prior + 1
+
+
 def evaluate(
     policy: dict,
     ledger: dict,
@@ -86,6 +146,32 @@ def evaluate(
     if provider_failure:
         warnings.append("PROVIDER_FAILURE_DOES_NOT_CONSUM_CREATIVE_OR_PAID_REROLL")
 
+    # block_failure_classes: the named objective defect classes the policy owner
+    # decided must block.  It was declared in the policy file and read by
+    # nothing, so a run could not tell a class the policy blocks from one it
+    # merely dislikes.  Read here; the failure class is matched on its own
+    # name, and membership is reported so the caller need not re-read policy.
+    block_classes = {
+        str(value).upper() for value in policy.get("block_failure_classes") or []
+    }
+    policy_blocks_this_class = bool(block_classes) and normalized_class in block_classes
+    if policy_blocks_this_class and not provider_failure and failure_tier != "BLOCK":
+        failures.append("POLICY_BLOCK_CLASS_REQUIRES_BLOCK_TIER")
+
+    # advise_margin_fraction: how close to the episode reroll budget an ADVISE
+    # decision may run before it stops advising.  Also declared and unread.
+    margin_fraction = float(policy.get("advise_margin_fraction") or 0)
+    budget_headroom_ratio = (
+        (max_paid_rerolls - paid_reroll_count_after_submit) / max_paid_rerolls
+        if max_paid_rerolls else 0.0
+    )
+    if (
+        not provider_failure
+        and failure_tier == "ADVISE"
+        and budget_headroom_ratio < margin_fraction
+    ):
+        warnings.append("ADVISE_WITHIN_EPISODE_REROLL_MARGIN")
+
     return {
         "schema": "qingshan.reroll_cost_guard_result.v1",
         "status": (
@@ -105,6 +191,9 @@ def evaluate(
         "episode_paid_reroll_count_after_submit": paid_reroll_count_after_submit,
         "episode_paid_reroll_limit": max_paid_rerolls,
         "episode_total_paid_task_count": total_paid_tasks,
+        "policy_block_failure_classes": sorted(block_classes),
+        "policy_blocks_this_failure_class": policy_blocks_this_class,
+        "episode_budget_headroom_ratio": round(budget_headroom_ratio, 6),
         "failures": failures,
         "warnings": warnings,
     }

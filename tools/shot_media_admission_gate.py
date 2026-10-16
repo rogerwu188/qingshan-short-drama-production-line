@@ -15,6 +15,11 @@ import re
 from pathlib import Path
 from typing import Any
 
+try:
+    from tools.provider_scope_projection import binding_role_for
+except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
+    from provider_scope_projection import binding_role_for
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REGISTRY = ROOT / "configs/GATE_REGISTRY_v3_20260716.json"
@@ -53,6 +58,25 @@ ATTRIBUTION_REQUIRED_CHANGE = {
     "CANONICAL_MISMATCH": "QA_TARGET",
     "MODEL_STOCHASTIC": "NONE",
 }
+# Variables an attribution has already cleared.  MODEL_STOCHASTIC says the
+# reference anchor, the space chain and the QA target were all correct, so a
+# reroll may re-sample the prompt but must not move any of those.
+SETTLED_VARIABLES = frozenset({"REFERENCE_ANCHORS", "SPACE_CHAIN", "QA_TARGET"})
+
+
+def _switch_coverage_declared(task: dict[str, Any]) -> bool:
+    """Whether a repeated-attribution retry carries a redesign contract.
+
+    SWITCH_COVERAGE_REQUIRED used to fire on the second same-attribution attempt
+    with no way to satisfy it, so the code was unreachable-in-practice.  The
+    coverage-redesign contract that answers it already exists in
+    retry_cap_gate; this reuses that contract rather than adding a second one.
+    """
+    for key in ("coverage_redesign_contract", "execution_prompt_redesign_contract"):
+        contract = task.get(key)
+        if isinstance(contract, dict) and str(contract.get("status") or "").upper() == "PASS":
+            return True
+    return False
 CHARACTER_ROLES = frozenset({"CHARACTER", "IDENTITY", "CHARACTER_REFERENCE", "SPEAKER"})
 PROP_ROLES = frozenset({"PROP", "PROP_REFERENCE", "OBJECT", "OBJECT_REFERENCE"})
 ACTION_ROLE_VERIFICATION_SCHEMA = "qingshan.exact_output_action_role_verification.v1"
@@ -339,7 +363,7 @@ def _validate_action_role_verification(
 
 
 def _validate_population_scope_verification(
-    verification: Any, *, expected_sha: str, expected_total: int,
+    verification: Any, *, expected_sha: str, expected_total: int, expected_background: int = 0,
 ) -> list[str]:
     if not isinstance(verification, dict):
         return ["Q1_POPULATION_SCOPE_VERIFICATION_MISSING"]
@@ -354,8 +378,14 @@ def _validate_population_scope_verification(
         failures.append("Q1_POPULATION_SCOPE_EXPECTED_COUNT_MISMATCH")
     if verification.get("observed_visible_living_entity_count") != expected_total:
         failures.append("Q1_POPULATION_SCOPE_OBSERVED_COUNT_MISMATCH")
-    if verification.get("observed_unbound_living_entity_count") != 0:
-        failures.append("Q1_POPULATION_SCOPE_UNBOUND_ENTITY_VISIBLE")
+    # An unbound entity is any living thing in frame with no identity binding.
+    # The projection declares how many of those the unit expects, so observing
+    # fewer is as much a mismatch as observing more.
+    declared_unbound = verification.get("expected_unbound_living_entity_count")
+    if declared_unbound is not None and declared_unbound != expected_background:
+        failures.append("Q1_POPULATION_SCOPE_EXPECTED_UNBOUND_MISMATCH")
+    if verification.get("observed_unbound_living_entity_count") != expected_background:
+        failures.append("Q1_POPULATION_SCOPE_UNBOUND_ENTITY_COUNT_MISMATCH")
     return list(dict.fromkeys(failures))
 
 
@@ -379,6 +409,8 @@ def precheck_submission_inputs(
     bindings = _reference_bindings(task)
     bound_characters: set[str] = set()
     bound_props: set[str] = set()
+    reference_semantics_failures: list[str] = []
+    path_to_identity_entities: dict[str, set[str]] = {}
     for row in bindings:
         entity_id = str(row.get("entity_id") or "")
         role = str(row.get("role") or "").upper()
@@ -387,10 +419,33 @@ def precheck_submission_inputs(
         # file must also be in the exact sequence sent to the provider.
         if not entity_id or not path or (transmitted and path not in transmitted):
             continue
+        binding_role = binding_role_for(entity_id, role)
+        # The declared role and the machine id namespace have to agree.  A
+        # scene/location plate labelled as an identity, or a character plate
+        # labelled as scenery, is a slot that got swapped somewhere upstream;
+        # nothing downstream used to notice, because only role-less ids and
+        # file SHAs were ever compared.
+        namespace_role = binding_role_for(entity_id, None)
+        if binding_role != namespace_role:
+            # The role claim and the id namespace disagree about what this
+            # plate is.  An explicit role that contradicts the namespace is the
+            # swapped-slot signature, whichever way round it goes.
+            reference_semantics_failures.append("REFERENCE_ROLE_NAMESPACE_CONFLICT:" + entity_id)
+        if role in CHARACTER_ROLES and namespace_role != "IDENTITY":
+            reference_semantics_failures.append("REFERENCE_IDENTITY_ROLE_NOT_A_CHARACTER:" + entity_id)
+        if binding_role == "IDENTITY":
+            path_to_identity_entities.setdefault(path, set()).add(entity_id)
         if role in CHARACTER_ROLES or entity_id.startswith("CHAR-"):
             bound_characters.add(entity_id)
         if role in PROP_ROLES or entity_id.startswith("PROP-"):
             bound_props.add(entity_id)
+    # One image may legitimately serve several roles only when they are not
+    # identity roles: two different characters cannot share one face plate.
+    for path, entities in path_to_identity_entities.items():
+        if len(entities) > 1:
+            reference_semantics_failures.append(
+                "REFERENCE_IDENTITY_PLATE_SHARED_BY:" + ",".join(sorted(entities))
+            )
     missing_characters = sorted(characters - bound_characters)
     missing_props = sorted(props - bound_props)
     catalog = asset_catalog or task.get("anchor_asset_catalog") or {}
@@ -447,12 +502,20 @@ def precheck_submission_inputs(
                     )
                 episode_match = re.match(r"E(\d+)", str(task.get("episode") or "").upper())
                 projection = task.get("provider_scope_projection") or {}
-                if episode_match and int(episode_match.group(1)) >= 57 and projection:
+                # A unit only has a population to verify when its projection
+                # declares one.  The episode threshold alone meant the check was
+                # dead for every episode below it regardless of what the unit
+                # actually declared, which is how the field stayed empty.
+                population_policy_active = bool(
+                    projection.get("population_scope_verification_required")
+                ) or (episode_match and int(episode_match.group(1)) >= 57)
+                if population_policy_active and projection:
                     population_evidence_failures.extend(
                         _validate_population_scope_verification(
                             start_frame_admission.get("population_scope_verification"),
                             expected_sha=expected_sha,
                             expected_total=int(projection.get("visible_living_entity_instance_total") or 0),
+                            expected_background=int(projection.get("background_population_count") or 0),
                         )
                     )
     elif semantic_policy:
@@ -486,15 +549,31 @@ def precheck_submission_inputs(
     failures: list[str] = list(semantic_policy_failures)
     if not declaration_present:
         failures.append("CANONICAL_ENTITY_DECLARATION_MISSING")
+    if reference_semantics_failures:
+        failures.append("REFERENCE_ROLE_SEMANTICS_INVALID")
     if missing:
         failures.append("MISSING_ANCHOR_FOR_CANONICAL_ENTITY")
     if semantic_evidence_missing:
         failures.append("SEMANTIC_ANCHOR_EVIDENCE_MISSING")
     if semantic_evidence_invalid:
         failures.append("SEMANTIC_ANCHOR_EVIDENCE_INVALID")
+    failures.extend(reference_semantics_failures)
     failures.extend(action_role_evidence_failures)
     failures.extend(population_evidence_failures)
     status = "PASS" if not failures else ("FAIL" if enforce else "WARNING")
+    # An attribution alone cannot tell a determinate machine finding apart from
+    # a reviewer's hunch, and the retry rules treat those differently.  Record
+    # how confident this gate is in its own cause: DETERMINATE findings come
+    # from a comparison that cannot be wrong (a missing file, a SHA mismatch, a
+    # role/namespace conflict), INFERRED ones from a rule this gate applied.
+    cause_confidence = (
+        "DETERMINATE"
+        if (
+            missing or semantic_evidence_missing or semantic_evidence_invalid
+            or reference_semantics_failures
+        )
+        else "INFERRED" if failures else "NOT_APPLICABLE"
+    )
     return {
         "schema": "qingshan.submission_input_precheck.v2",
         "gate_id": "CHARACTER-IDENTITY-ADMISSION",
@@ -506,6 +585,8 @@ def precheck_submission_inputs(
             if missing or semantic_evidence_missing or semantic_evidence_invalid
             else "CANONICAL_MISMATCH" if failures else None
         ),
+        "cause_confidence": cause_confidence,
+        "reference_role_semantics_failures": reference_semantics_failures,
         "failures": failures,
         "canonical_entity_declaration_present": declaration_present,
         "canonical_characters": sorted(characters),
@@ -593,12 +674,15 @@ def validate_retry_change(task: dict[str, Any]) -> dict[str, Any]:
         required = ATTRIBUTION_REQUIRED_CHANGE[attribution]
         if required != "NONE" and required not in changed:
             failures.append("RETRY_CHANGED_WRONG_VARIABLE")
+        # MODEL_STOCHASTIC is the provider's own sampling being the cause, so
+        # the retry is a re-sample: same inputs, new dice.  Any declared change
+        # means the builder is guessing instead of re-rolling, hence rejected.
         if attribution == "MODEL_STOCHASTIC" and changed:
             failures.append("RETRY_CHANGED_WRONG_VARIABLE")
         if attribution == "CANONICAL_MISMATCH":
             failures.append("CANONICAL_MISMATCH_MEDIA_RETRY_FORBIDDEN")
     same_count = int(task.get("same_attribution_consecutive_count") or 0)
-    if same_count >= 2:
+    if same_count >= 2 and not _switch_coverage_declared(task):
         failures.append("SWITCH_COVERAGE_REQUIRED")
     # Provider entrypoints also enforce this in retry_cap_gate.  Keep the
     # admission-level diagnostic so builders fail before they can reach a

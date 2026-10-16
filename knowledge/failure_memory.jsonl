@@ -49,3 +49,11 @@
 {"failure_code": "TAIL_DROPS_NEXT_UNIT_OPENING_CAST", "do_not_repeat": "不要在喂给派生起始帧的那一镜里把下一单元的开场人物写成「画外」；也不要在没 grep 最终提示词的情况下付费重做", "stage": "S2", "scope": "generalizable", "knowledge_id": "K090"}
 {"failure_code": "IDENTITY_JUDGED_BY_EYE", "do_not_repeat": "不要只看服装就写人名；不要在 observed 字段里写注册 ID", "stage": "S5", "scope": "generalizable", "knowledge_id": "K091"}
 {"failure_code": "DERIVED_FRAME_JUDGED_AS_FRESH_SHOT", "do_not_repeat": "不要用本镜的 camera/shot_size 去判派生起始帧", "stage": "S6", "scope": "generalizable", "knowledge_id": "K092"}
+{"failure_code": "PROVIDER_SCOPE_BACKGROUND_POPULATION_INVALID", "do_not_repeat": "不要把人数写成常量；缺声明要 FAIL，不要静默补一个看起来合理的数", "stage": "S2", "scope": "generalizable", "knowledge_id": "K093"}
+{"failure_code": "POSITIVE_SINGLE_SUBJECT_MODE_NOT_RECOGNIZED", "do_not_repeat": "不要为新调用点另起一个字段名或值名", "stage": "S2", "scope": "generalizable", "knowledge_id": "K094"}
+{"failure_code": "REFERENCE_ROLE_SEMANTICS_INVALID", "do_not_repeat": "不要让非身份位的图声明身份所有权；不要让两个角色共用一张脸牌", "stage": "S2", "scope": "generalizable", "knowledge_id": "K095"}
+{"failure_code": "PROVIDER_SCOPE_ABSOLUTE_ABSENT_GATE_FALSE_POSITIVE", "do_not_repeat": "不要把功能性命名的过场角色当成必须缺席的具名实体", "stage": "S2", "scope": "generalizable", "knowledge_id": "K096"}
+{"failure_code": "SUBMISSION_PREHECK_BYPASSED_BY_REPO_ENTRYPOINT", "do_not_repeat": "不要把付费前校验放进只有部署副本才走的函数", "stage": "S6", "scope": "generalizable", "knowledge_id": "K097"}
+{"failure_code": "REROLL_LEDGER_HAS_NO_WRITER", "do_not_repeat": "不要让守卫读一份永远为空的账本还以为上限生效了", "stage": "S6", "scope": "generalizable", "knowledge_id": "K098"}
+{"failure_code": "POLICY_KEY_HAS_NO_CONSUMER", "do_not_repeat": "不要往策略文件里加没人读的键", "stage": "S6", "scope": "generalizable", "knowledge_id": "K099"}
+{"failure_code": "REVIEW_FINDING_CONFIDENCE_UNDECLARED", "do_not_repeat": "不要让审核结论只有归因没有置信度", "stage": "S6", "scope": "generalizable", "knowledge_id": "K100"}

@@ -102,6 +102,11 @@ class _SubmitterHarness:
             mock.patch.object(submitter, "run_authoritative_submission_gate", lambda _m, _p: {"status": "PASS"}),
             mock.patch.object(submitter, "validate_gate", lambda _v: {"status": "PASS"}),
             mock.patch.object(submitter, "validate_task", lambda _t: None),
+            # main() now runs every pre-POST gate through one shared chain so the
+            # repo entrypoint cannot validate less than the deployed one.  Those
+            # gates are file- and contract-based; this harness isolates wave
+            # scheduling, so it fakes the chain exactly as it fakes the rest.
+            mock.patch.object(submitter, "validate_task_submission_gates", lambda _t: []),
             mock.patch.object(submitter, "submit_one", fake_submit_one),
             mock.patch.object(submitter, "_request", self._forbidden_request),
             mock.patch.object(submitter, "fetch_pay_statements", lambda: []),

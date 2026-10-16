@@ -27,6 +27,7 @@ try:
     from image_model_adapter import require_paid_image_model_contract
     from retry_cap_gate import validate_submission_attempt
     from role_semantic_prompt_gate import validate_role_semantics, validate_role_semantics_structure
+    from provider_scope_projection import is_single_subject_mode
     from keyframe_entry_state_gate import (
         evaluate_task as evaluate_keyframe_entry_task,
         keyframe_entry_contract_required,
@@ -45,6 +46,7 @@ except ModuleNotFoundError:  # Imported as tools.submit_giggle_image_manifest.
         evaluate_task as evaluate_keyframe_entry_task,
         keyframe_entry_contract_required,
     )
+    from tools.provider_scope_projection import is_single_subject_mode
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -336,9 +338,18 @@ def validate_task(task: dict[str, Any]) -> None:
         raise ValueError(f"{task['task_key']} source action SHA mismatch")
     prompt_text = prompt_path.read_text(encoding="utf-8")
     scope_mode = str(task.get("provider_prompt_scope_mode") or contract.get("provider_prompt_scope_mode") or "")
+    if not scope_mode:
+        # The projection, the image gate and the video submitter each spelled
+        # this flag differently.  Accept any of the known spellings, from the
+        # task or from the projection the task carries.
+        scope_mode = str(
+            task.get("provider_scope_prompt_mode")
+            or (task.get("provider_scope_projection") or {}).get("provider_scope_prompt_mode")
+            or ""
+        )
     role_failures = (
         validate_positive_single_subject_provider_scope(task, prompt_text)
-        if scope_mode == "POSITIVE_SINGLE_SUBJECT_MACHINE_ROLE_GRAPH_ONLY"
+        if is_single_subject_mode(scope_mode)
         else validate_role_semantics(task, prompt_text)
     )
     if role_failures:
