@@ -577,6 +577,31 @@ def _beat(
     return line, evidence
 
 
+#: Period lock for H3 units below visual_culture_contract.ACTIVE_FROM_EPISODE.  The qingshan block
+#: (prompt_block_en) spells the qingshan profile's Northern-Song wuxia/armour prose; the SD2 renderer already
+#: renders it only for the episodes that contract governs (sd2_provider_prompt_renderer._vc_prompt_block_for_unit),
+#: but H3 rendered it for every unit — so a Qing-era Jiangnan NALU drama (2026-10-16) and the Song apothecary
+#: of 青灯巷 E02 both got "Northern Song Chinese wuxia ... lamellar armor".  Below that episode the line's own
+#: era comes from the references and the bound English facts; this lock only names what to avoid.
+H3_NEUTRAL_PERIOD_LOCK = (
+    "EAST-ASIAN PERIOD VISUAL LOCK: keep the period, architecture, dress and props exactly as the reference "
+    "images and the described facts show; real materials, soft motivated light, muted natural palette. Never "
+    "European medieval/Gothic, Western plate armor or knight helmets, heraldry, black-gold Western fantasy or "
+    "game-poster light, teal-orange grade, or modern objects."
+)
+
+
+def h3_visual_culture_block(unit: dict[str, Any]) -> str:
+    try:
+        from tools.visual_culture_contract import ACTIVE_FROM_EPISODE
+    except ImportError:  # pragma: no cover - direct-script import path
+        from visual_culture_contract import ACTIVE_FROM_EPISODE
+    match = re.search(r"(?:^|[^A-Z])E(\d+)", str(unit.get("episode") or unit.get("unit_id") or "").upper())
+    if match and int(match.group(1)) >= ACTIVE_FROM_EPISODE:
+        return visual_culture_prompt_block(unit.get("visual_culture_contract"))
+    return H3_NEUTRAL_PERIOD_LOCK
+
+
 def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     uid = str(plan["unit_id"])
     profile = str(unit.get("h3_prompt_profile") or "").strip()
@@ -878,7 +903,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         "subject_definitions:", *reference_lines,
         "population_scope: " + population_scope + ".",
         f"summary: [reference generation + keyframe completion] {plan['duration_seconds']:g}s vertical 9:16 live-action short drama; {contract['identity_prop_fact']}; {contract['space_weather_fact']}.",
-        "visual_culture: " + visual_culture_prompt_block(unit.get("visual_culture_contract")),
+        "visual_culture: " + h3_visual_culture_block(unit),
         *( ["persistent_state_lock: " + persistent_state_lock + "."] if persistent_state_lock else [] ),
         *( ["shot_state_chain:", *[f"SHOT_{index}: {value}." for index, value in enumerate(shot_state_locks, 1)]] if shot_state_locks else [] ),
         "retention_analysis: @Image1 locks the opening identity and space; later references bind only their declared identity, prop, or result state.",

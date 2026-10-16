@@ -121,3 +121,29 @@ class CodexExecutorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EngineModificationTests(unittest.TestCase):
+    def test_tick_reports_a_patched_engine_once_and_keeps_the_diff(self):
+        import importlib
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            engine, runtime = root / "engine", root / "runtime"
+            (engine / "tools").mkdir(parents=True); runtime.mkdir()
+            (engine / "tools/x.py").write_text("A = 1\n")
+            for cmd in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x"]):
+                subprocess.run(["git", "-C", str(engine), *cmd], check=True)
+            saved = dict(os.environ)
+            os.environ.update(NALU_ENGINE_ROOT=str(engine), NALU_RUNTIME_ROOT=str(runtime))
+            try:
+                import codex_production as cp
+                importlib.reload(cp)
+                self.assertIsNone(cp.engine_modification())
+                (engine / "tools/x.py").write_text("A = 2\n")
+                first = cp.tick()
+                self.assertEqual(first["reason"], "ENGINE_MODIFIED_ON_HOST")
+                self.assertTrue(Path(first["engine_modification"]["patch"]).is_file())
+                self.assertIn("A = 2", Path(first["engine_modification"]["patch"]).read_text())
+                self.assertNotEqual(cp.tick().get("reason"), "ENGINE_MODIFIED_ON_HOST")  # once per diff
+            finally:
+                os.environ.clear(); os.environ.update(saved)
