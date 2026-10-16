@@ -71,6 +71,33 @@ from tools.initial_asset_library import (  # noqa: E402
     requirement_errors,
 )
 from tools.visual_culture_contract import DEFAULT_CONTRACT as QINGSHAN_VISUAL_CULTURE_CONTRACT, prompt_block_zh as qingshan_visual_prompt_block  # noqa: E402
+from tools.visual_culture_contract import ACTIVE_FROM_EPISODE as QINGSHAN_ACTIVE_FROM_EPISODE  # noqa: E402
+
+#: 2026-10-16 (miniPC 《画皮》 E01 CODE_BLOCKER): every identity plate got the qingshan Northern-Song
+#: wuxia block, so a late-Ming/Qing story was asked for Song dress and lamellar armour.  The qingshan
+#: profile only governs episodes >= visual_culture_contract.ACTIVE_FROM_EPISODE (the submitter checks
+#: profile and tokens only there too); below it the row carries a structurally complete contract whose
+#: period comes from the writer's brief and this neutral lock only names what to avoid.
+NEUTRAL_PERIOD_CONTRACT: dict[str, Any] = {
+    **QINGSHAN_VISUAL_CULTURE_CONTRACT,
+    "profile_id": "NALU_SOURCE_PERIOD_FROM_BRIEF",
+    "decision_basis": "本集剧本与生产简报写明的时代、地域与人物设定",
+    "story_world": "按本集剧本与生产简报写明的时代与地域",
+    "production_design": "按本集剧本写明的时代与地域：真实建筑、器物与衣冠",
+    "armor_tradition": "仅当剧本写明时出现，形制取剧本时代的东方兵甲；不使用欧洲板甲轮廓",
+    "lighting_language": "自然动机光、柔和高光滚降、保留暗部细节；不用黑金海报硬光",
+}
+NEUTRAL_PERIOD_PROMPT_BLOCK_ZH = (
+    "【东方时代视觉锁】时代、地域、建筑、衣冠与器物严格按本提示词前文与剧本设定，不改朝代；"
+    "低饱和自然色，自然柔光、真实材质。禁欧洲骑士/哥特/西式板甲尖面盔/纹章/黑金奇幻游戏海报/蓝橙调色/现代物件。"
+)
+
+
+def culture_lock_for(episode: str) -> tuple[dict[str, Any], str]:
+    match = re.match(r"E(\d+)", str(episode or "").upper())
+    if match and int(match.group(1)) >= QINGSHAN_ACTIVE_FROM_EPISODE:
+        return QINGSHAN_VISUAL_CULTURE_CONTRACT, qingshan_visual_prompt_block(QINGSHAN_VISUAL_CULTURE_CONTRACT)
+    return NEUTRAL_PERIOD_CONTRACT, NEUTRAL_PERIOD_PROMPT_BLOCK_ZH
 
 SCHEMA = "nalu.identity_card_bootstrap.v1"
 PLAN_SCHEMA = "qingshan.character_asset_plan.v1"
@@ -815,16 +842,16 @@ def build_plan(
         "deferred_view_rows": deferred,
         "new_asset_groups": rows,
     }
+    contract, block = culture_lock_for(episode)
     for row in plan["new_asset_groups"]:
         # The submitter validates the culture contract on each transport row,
         # not only inside the asset-requirements specification.  Carry the
-        # sealed Qingshan contract onto migrated prop/character rows so the
-        # old line's cultural lock is not lost at the new boundary.
-        row.setdefault("visual_culture_contract", dict(QINGSHAN_VISUAL_CULTURE_CONTRACT))
+        # episode's culture lock (qingshan from ACTIVE_FROM_EPISODE on, else the
+        # neutral period lock) onto migrated prop/character rows.
+        row.setdefault("visual_culture_contract", dict(contract))
         prompt_path = Path(row.get("prompt_file") or "")
         if prompt_path.is_file():
             text = prompt_path.read_text(encoding="utf-8")
-            block = qingshan_visual_prompt_block(QINGSHAN_VISUAL_CULTURE_CONTRACT)
             if block not in text:
                 prompt_path.write_text(text.rstrip() + "\n" + block + "\n", encoding="utf-8")
                 row["prompt_sha256"] = sha256_file(prompt_path)
