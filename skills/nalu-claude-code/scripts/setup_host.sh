@@ -133,6 +133,10 @@ STEP_deps=OK
 if [ -d "$ENGINE/.git" ]; then
   run git -C "$ENGINE" fetch -q origin
   if [ -n "$(git -C "$ENGINE" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+    # keep the exact local patch outside the engine too (the executor must not patch the engine; this is
+    # evidence for the maintainer, and a stash is easy to lose)
+    mkdir -p "$RUNTIME/engine_patches" && git -C "$ENGINE" diff HEAD >"$RUNTIME/engine_patches/setup_$TS.patch" 2>/dev/null \
+      && NOTES+=("engine local changes saved to $RUNTIME/engine_patches/setup_$TS.patch")
     # keep local edits recoverable without moving .env / workflow state away from the engine
     run git -C "$ENGINE" -c user.name=setup -c user.email=setup@localhost stash push -m "setup_host $TS" \
       && NOTES+=("engine local changes stashed: git -C $ENGINE stash list")

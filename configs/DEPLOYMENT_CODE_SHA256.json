@@ -52,7 +52,7 @@
       "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
     },
     {
-      "path": "agent_factory/claude_writer/runtime_templates/\u89c2\u4f17\u5df2\u77e5\u6e05\u5355.md",
+      "path": "agent_factory/claude_writer/runtime_templates/观众已知清单.md",
       "sha256": "20aeda7beb8aaf9aa591df6a1aee5254d48bb5c0868fec2fd0fc05f81a9b9830"
     },
     {
@@ -345,7 +345,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "33646f94af3f2941be8829f34a25c25e1023cdce5fc18f388b47321840a35597"
+      "sha256": "687f738d669741d0ad98a3729d6237c873f6a8c85d2f761ee35c961d0d5d45b0"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -361,7 +361,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "a668df3f2f6242e5139be3f671a35ee28944a7de6797b3ee07f5c0c1cf8cea5a"
+      "sha256": "ff193d8a1b3d005ff6c0a152afeb66fc11f0ed1d715948afb6273a5d5a021919"
     },
     {
       "path": "skills/nalu-claude-code/scripts/configure_claude_code.py",
@@ -397,7 +397,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/setup_host.sh",
-      "sha256": "cde9636db2de9f0d0c7edbd227b178d67f3d977284d9a70bb6cb18c2ed15c83a"
+      "sha256": "da21882dfece7838d376f9d054228d9ebfabc01101d18666e539c9d1cb8d5eb5"
     },
     {
       "path": "skills/qingshan-nalu/SKILL.md",
@@ -4405,7 +4405,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "a445886225d10d1997e866431fcccea3b459b772e267cb383735ec575489ee48"
+      "sha256": "c7a436a7b7b711bf80b5ce94d69e56714994b8055fd5a3a4780610bda54c62b9"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -7029,7 +7029,7 @@
     },
     {
       "path": "tools/tests/test_nalu_codex_executor.py",
-      "sha256": "cc3e50c20dd19c0b5a06c141c5af00f17aede4c1220b69215f766cdba4d82578"
+      "sha256": "7e1e04c8fbe48df968eebad9f009976f9287822605ef6c840d5ae68d309136d1"
     },
     {
       "path": "tools/tests/test_nalu_current_policy_profile.py",
@@ -7049,7 +7049,7 @@
     },
     {
       "path": "tools/tests/test_nalu_h3_video_model.py",
-      "sha256": "839edef06e35530240a5722694668592f1672b392b0ebb80706cf58d9cb923a1"
+      "sha256": "30a737dea6d8e4497af638fae5e9046481f757bd54c46cdb13ed13acd9c070af"
     },
     {
       "path": "tools/tests/test_nalu_identity_chain_fixes.py",

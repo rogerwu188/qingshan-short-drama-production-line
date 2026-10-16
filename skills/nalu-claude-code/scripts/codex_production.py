@@ -376,6 +376,30 @@ def publish_next() -> dict[str, Any] | None:
     return out
 
 
+def engine_modification() -> dict[str, Any] | None:
+    """Tracked engine files changed on this host (the executor must never patch the engine).
+
+    The full diff is kept in ``$NALU_RUNTIME_ROOT/engine_patches/<sha12>.patch`` so it survives the
+    ``git stash`` setup_host.sh does at the next engine switch and can be reported upstream.  Returns
+    {files, patch, sha} or None when the checkout is clean."""
+    engine, runtime = roots()
+    try:
+        files = subprocess.run(["git", "-C", str(engine), "diff", "--name-only", "HEAD"],
+                               capture_output=True, text=True, timeout=60).stdout.split()
+        if not files:
+            return None
+        diff = subprocess.run(["git", "-C", str(engine), "diff", "HEAD"], capture_output=True, timeout=60).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    import hashlib
+    sha = hashlib.sha256(diff).hexdigest()[:12]
+    out = runtime / "engine_patches" / f"{sha}.patch"
+    if not out.is_file():
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(diff)
+    return {"files": files, "patch": str(out), "sha": sha}
+
+
 def tick() -> dict[str, Any]:
     _, runtime = roots()
     did: list[str] = []
@@ -383,6 +407,15 @@ def tick() -> dict[str, Any]:
     if (runtime / "series" / "PAUSED").exists():
         res["reason"] = "PAUSED"
         return res
+    modified = engine_modification()
+    if modified:
+        seen = runtime / "engine_patches" / ".reported"
+        reported = set(seen.read_text(encoding="utf-8").split()) if seen.is_file() else set()
+        if modified["sha"] not in reported:
+            seen.write_text("\n".join(sorted(reported | {modified["sha"]})) + "\n", encoding="utf-8")
+            note(f"【需要处理】引擎源码被改（{len(modified['files'])} 个文件），完整 diff 已存 {modified['patch']}；"
+                 "不要在本机保留补丁，交给维护者修上游")
+            res.update(action="AGENT", reason="ENGINE_MODIFIED_ON_HOST", engine_modification=modified)
     pub = publish_next()
     if pub:
         did.append(f"publish:{pub.get('episode')}:{pub.get('status')}")

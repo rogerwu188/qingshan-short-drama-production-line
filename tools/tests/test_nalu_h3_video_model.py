@@ -220,3 +220,18 @@ class LedgerParkedCopyTests(unittest.TestCase):
         self.assertTrue(led._is_parked(Path("workflow/nalu/E02/_superseded_20261014_controlled_repair1/x_credit_statement.json")))
         self.assertTrue(led._is_parked(Path("keyframes/_rejected_v1/a.json")))
         self.assertFalse(led._is_parked(Path("workflow/nalu/E02/preproduction/reports/E02_S6_credit_statement.json")))
+
+
+class H3VisualCultureScopeTests(unittest.TestCase):
+    """2026-10-16: the qingshan Northern-Song block belongs to the episodes its contract governs (as in SD2)."""
+
+    def test_low_episode_gets_neutral_lock_high_episode_keeps_qingshan_block(self):
+        from tools.h3_provider_prompt_renderer import H3_NEUTRAL_PERIOD_LOCK, h3_visual_culture_block
+        from tools.visual_culture_contract import DEFAULT_CONTRACT, prompt_block_en
+        qing = {"profile_id": "RULIN_QING_JIANGNAN_REALISM", "story_world": "清代江南"}
+        low = h3_visual_culture_block({"unit_id": "E09-VU-003", "visual_culture_contract": qing})
+        self.assertEqual(low, H3_NEUTRAL_PERIOD_LOCK)
+        self.assertNotIn("Song", low)
+        self.assertNotRegex(low, r"[㐀-鿿]")
+        high = h3_visual_culture_block({"unit_id": "E64-VU-001", "visual_culture_contract": DEFAULT_CONTRACT})
+        self.assertEqual(high, prompt_block_en(DEFAULT_CONTRACT))
