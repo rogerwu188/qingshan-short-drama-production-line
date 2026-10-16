@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2031,
+  "file_count": 2033,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -52,7 +52,7 @@
       "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
     },
     {
-      "path": "agent_factory/claude_writer/runtime_templates/观众已知清单.md",
+      "path": "agent_factory/claude_writer/runtime_templates/\u89c2\u4f17\u5df2\u77e5\u6e05\u5355.md",
       "sha256": "20aeda7beb8aaf9aa591df6a1aee5254d48bb5c0868fec2fd0fc05f81a9b9830"
     },
     {
@@ -249,7 +249,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "7a666248073e03d9b8e5a4724fb975286c7df636b910d123c2970d0c8b570d48"
+      "sha256": "62cc5aa4ce0220fa0309c810f22177f27d764e4080a4b2f86568b35df1e5aa1a"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -4620,6 +4620,10 @@
       "sha256": "6db2a70c2248ba8254344e5a66c3b20be73d21062fb4b2471d307f8170993e0e"
     },
     {
+      "path": "tools/lighting_participant_scope.py",
+      "sha256": "69366442e5d6f6c60623834df306413d2b1d989344f8c3ea12797849aa84af79"
+    },
+    {
       "path": "tools/line_heartbeat.py",
       "sha256": "33c20dba694a44b59aee993d2a3abfd21b1cccea30ba98b00a02d0eec16d4738"
     },
@@ -6962,6 +6966,10 @@
     {
       "path": "tools/tests/test_legacy_voice_migration.py",
       "sha256": "997a8cc2fb92b3bce2bd338568622ec89b3dbf7bc90628d548f5560d1472f969"
+    },
+    {
+      "path": "tools/tests/test_lighting_participant_scope.py",
+      "sha256": "dee6bc4d30a9241516c491339fd99da13eaf0dc6e335de830e62161e4824ea2a"
     },
     {
       "path": "tools/tests/test_line_heartbeat.py",

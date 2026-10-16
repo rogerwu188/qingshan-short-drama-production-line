@@ -97,6 +97,21 @@ class PresentCastTest(unittest.TestCase):
         )
         self.assertEqual(removals, [])
 
+    def test_every_cast_row_shape_counts_as_present(self):
+        # A cast row is authored as `character`, `canonical_name`,
+        # `display_name` or `character_id` depending on which contract version
+        # wrote it.  Reading only some of them makes a present person look
+        # absent, which is the one way this rule could remove a name it should
+        # keep — so every shape must be recognised.
+        for key in ("character", "canonical_name", "display_name",
+                    "character_id", "entity_id"):
+            shot = _shot(cast=[{key: "许岳平"}])
+            _, removals = scoped_lighting_line(
+                "灯盏的光照着许岳平偏向一边的脸",
+                shot=shot, name_to_entity=NAME2ID, entity_label=LABEL,
+            )
+            self.assertEqual(removals, [], key)
+
     def test_alias_in_cast_is_enough(self):
         # A cast row may carry the display name while the line uses the same
         # string; the identity match must not depend on which namespace it is.

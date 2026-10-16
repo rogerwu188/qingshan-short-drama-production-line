@@ -32,6 +32,11 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    from tools.lighting_participant_scope import scoped_lighting_line
+except ModuleNotFoundError:
+    from lighting_participant_scope import scoped_lighting_line
+
 ENGINE = Path(f"{_np.ENGINE_ROOT}")
 RUNTIME = Path(f"{_np.RUNTIME_ROOT}")
 WORK = Path(_np.WORK_ROOT).expanduser().resolve()  # one definition in nalu_paths (was <runtime>/workflow/nalu here only)
@@ -168,6 +173,21 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
     shots = {s["shot_id"]: s for s in contract["shots"]}
     scenes = {s["scene_id"]: s for s in contract["scene_states"]}
     units = {u["unit_id"]: u for u in grouping["units"]}
+    # display name / alias -> entity id, for the lighting-participant scope
+    character_name_map: dict[str, str] = {}
+    character_label_map: dict[str, str] = {}
+    for row in contract.get("character_entities") or []:
+        if not isinstance(row, dict):
+            continue
+        entity_id = str(row.get("character_id") or row.get("entity_id") or "").strip()
+        label = str(row.get("canonical_name") or "").strip()
+        if not entity_id:
+            continue
+        if label:
+            character_label_map[entity_id] = label
+        for alias in [label, *[str(a).strip() for a in row.get("aliases") or []]]:
+            if alias:
+                character_name_map[alias] = entity_id
     bible = {r["character"]: r for r in grouping["wardrobe_bible"]["characters"]}
     for row in list(bible.values()):
         for alias in (row.get("aliases") or []):
@@ -254,7 +274,19 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
             except (ValueError, KeyError, OSError, TypeError) as exc:
                 chk('kf_entry_scene_projection', False, str(exc))
         chk("kf_weather", scene_expected["weather"] in kf_text, scene_expected["weather"])
-        chk("kf_lighting", scene_expected["lighting"] in kf_text, scene_expected["lighting"][:30])
+        # The scene's lighting line names the person whose face motivates the
+        # light.  A shot that does not put that person in frame carries a scoped
+        # line instead (tools/lighting_participant_scope.py), so comparing
+        # against the raw scene string would fail a correctly scoped prompt.
+        # Compare against the line this shot is entitled to carry.
+        expected_lighting, scope_removals = scoped_lighting_line(
+            str(scene_expected["lighting"] or ""), shot=shot,
+            name_to_entity=character_name_map, entity_label=character_label_map,
+        )
+        chk("kf_lighting", expected_lighting in kf_text, expected_lighting[:30])
+        if scope_removals:
+            chk("kf_lighting_participants_scoped_to_cast", True,
+                ",".join(sorted({r["name"] for r in scope_removals})))
         loc = re.search(r"地点：(LOC-[A-Z0-9-]+)｜房间：(ROOM-[A-Z0-9-]+)", kf_text)
         gm = re.search(r"→ (GSM-[A-Z0-9-]+) → SUBSPACE", kf_text)
         chk("kf_location_matches_scene", bool(loc) and loc.group(1) == sc["location_id"], loc.group(1) if loc else "")

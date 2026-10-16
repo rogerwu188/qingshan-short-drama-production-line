@@ -42,16 +42,18 @@ SHOT_AUTHORITY_FIELDS = ("axis", "blocking", "primary_action", "dialogue", "acti
 
 def _shot_authority_text(shot: dict[str, Any]) -> str:
     parts: list[str] = []
-    for field in SHOT_AUTHORITY_FIELDS:
-        value = shot.get(field)
-        if isinstance(value, str) and value.strip():
-            parts.append(value.strip())
-        elif isinstance(value, dict):
-            for key in ("primary_action", "start_state", "completion_state"):
-                inner = value.get(key)
-                if isinstance(inner, str) and inner.strip():
-                    parts.append(inner.strip())
-    for row in shot.get("cast") or []:
+    containers = [shot, (shot.get("prompt_spec") or {}) if isinstance(shot.get("prompt_spec"), dict) else {}]
+    for container in containers:
+        for field in SHOT_AUTHORITY_FIELDS:
+            value = container.get(field)
+            if isinstance(value, str) and value.strip():
+                parts.append(value.strip())
+            elif isinstance(value, dict):
+                for key in ("primary_action", "start_state", "completion_state"):
+                    inner = value.get(key)
+                    if isinstance(inner, str) and inner.strip():
+                        parts.append(inner.strip())
+    for row in (shot.get("cast") or (shot.get("prompt_spec") or {}).get("cast") or []):
         if isinstance(row, dict):
             for key in ("character_id", "canonical_name", "display_name"):
                 value = row.get(key)
@@ -63,15 +65,26 @@ def _shot_authority_text(shot: dict[str, Any]) -> str:
 
 
 def _visible_names(shot: dict[str, Any]) -> set[str]:
+    """Every name string a cast row may use for one identity.
+
+    A cast row is authored in several shapes across the contract versions —
+    ``character``, ``canonical_name``, ``display_name``, ``character_id`` — and
+    it may sit either on the shot itself or inside its ``prompt_spec``, because
+    callers pass whichever of the two they hold.  Reading only some of them
+    makes a present person look absent, which is the one way this module could
+    remove a name it should keep.  Read them all.
+    """
     names: set[str] = set()
-    for row in shot.get("cast") or []:
-        if isinstance(row, dict):
-            for key in ("character_id", "canonical_name", "display_name"):
-                value = str(row.get(key) or "").strip()
-                if value:
-                    names.add(value)
-        elif isinstance(row, str) and row.strip():
-            names.add(row.strip())
+    containers = [shot, (shot.get("prompt_spec") or {}) if isinstance(shot.get("prompt_spec"), dict) else {}]
+    for container in containers:
+        for row in container.get("cast") or []:
+            if isinstance(row, dict):
+                for key in ("character", "canonical_name", "display_name", "character_id", "entity_id"):
+                    value = str(row.get(key) or "").strip()
+                    if value:
+                        names.add(value)
+            elif isinstance(row, str) and row.strip():
+                names.add(row.strip())
     return names
 
 
