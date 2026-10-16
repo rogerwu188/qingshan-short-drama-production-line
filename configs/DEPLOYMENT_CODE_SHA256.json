@@ -52,7 +52,7 @@
       "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
     },
     {
-      "path": "agent_factory/claude_writer/runtime_templates/\u89c2\u4f17\u5df2\u77e5\u6e05\u5355.md",
+      "path": "agent_factory/claude_writer/runtime_templates/观众已知清单.md",
       "sha256": "20aeda7beb8aaf9aa591df6a1aee5254d48bb5c0868fec2fd0fc05f81a9b9830"
     },
     {
@@ -249,7 +249,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "a6b900b385b47e445297e8457ba5a520e368f764fac45d63d7268a8d0227bd77"
+      "sha256": "0a07c6cfc28664da0414fb3f3a266573f89ef8bac322985179bb47b75f67f1c3"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -7502,6 +7502,10 @@
     {
       "path": "tools/tests/test_stage_time_ledger.py",
       "sha256": "d0c1e9dc32d182829b1c330a7919c7786798c17a134fae59fcf0d99de8211338"
+    },
+    {
+      "path": "tools/tests/test_identity_cards_period_lock.py",
+      "sha256": "39ac6458fb8dc0d75bf29feab884c1d24c8061d0b29750efc64ba05a5c8f0db6"
     },
     {
       "path": "tools/tests/test_start_frame_line_owner_acceptance.py",
