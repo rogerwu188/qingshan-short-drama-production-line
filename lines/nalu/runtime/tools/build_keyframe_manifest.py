@@ -52,10 +52,12 @@ try:
     from role_semantic_prompt_gate import role_semantic_prompt_block
     from image_model_adapter import compile_labeled_flat_identity_transport
     from provider_scope_projection import build_provider_scope_projection
+    from lighting_participant_scope import scoped_lighting_line
 except ModuleNotFoundError:  # Imported as a package in tests
     from tools.role_semantic_prompt_gate import role_semantic_prompt_block
     from tools.image_model_adapter import compile_labeled_flat_identity_transport
     from tools.provider_scope_projection import build_provider_scope_projection
+    from tools.lighting_participant_scope import scoped_lighting_line
 
 SCHEMA_MANIFEST = "qingshan.giggle_image_batch_manifest.v2"
 SCHEMA_REPORT = "nalu.keyframe_manifest_build_report.v1"
@@ -1059,6 +1061,62 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
     # forbidden_influences; emit each constraint exactly once.
     negatives = [row for row in (spec.get("negative_prompts") or []) if row not in forbidden]
 
+    # Lighting participants are scoped to this shot's own cast (see
+    # tools/lighting_participant_scope.py).  The scene-level line may name the
+    # person whose face motivates the light; a shot that does not show that
+    # person must not carry the name, or the provider renders them.
+    character_name_map: dict[str, str] = {}
+    character_label_map: dict[str, str] = {}
+    for row in inputs.contract.get("character_entities") or []:
+        if not isinstance(row, dict):
+            continue
+        entity_id = str(row.get("character_id") or row.get("entity_id") or "").strip()
+        display = str(row.get("canonical_name") or "").strip()
+        if not entity_id:
+            continue
+        if display:
+            character_label_map[entity_id] = display
+        for name in [
+            str(row.get("canonical_name") or "").strip(),
+            *[str(value).strip() for value in row.get("aliases") or []],
+        ]:
+            if name:
+                character_name_map[name] = entity_id
+    lighting_scope_shot = {
+        "shot_id": shot_id,
+        "axis": shot.get("axis"),
+        "blocking": shot.get("blocking"),
+        "primary_action": (spec.get("action") or {}).get("primary_action"),
+        "dialogue": spec.get("dialogue"),
+        "cast": (blocking.get("characters") or []),
+    }
+    scoped_lighting, lighting_scope_removals = scoped_lighting_line(
+        str(scene_state.get("lighting") or ""), shot=lighting_scope_shot,
+        name_to_entity=character_name_map, entity_label=character_label_map,
+    )
+    # key_light is the scene line + the culture template, joined by '；'.  Only
+    # its first segment is a lighting participant; the template tail names
+    # characters in a world-level sense and is left untouched.
+    key_light_segments = str(design.get("key_light") or "").split("；")
+    if key_light_segments:
+        key_light_segments[0], extra = scoped_lighting_line(
+            key_light_segments[0], shot=lighting_scope_shot,
+            name_to_entity=character_name_map, entity_label=character_label_map,
+        )
+        for row in extra:
+            if row not in lighting_scope_removals:
+                lighting_scope_removals.append(row)
+    scoped_key_light = "；".join(key_light_segments)
+    # Every removal is visible in the build report with the reason: a reviewer
+    # has to be able to see that the light lost a name and why, without reading
+    # the shot text again.
+    for removal in lighting_scope_removals:
+        dropped.append({
+            "kind": "LIGHTING_PARTICIPANT_SCOPED_TO_SHOT_CAST",
+            "shot_id": shot_id,
+            **removal,
+        })
+
     place = inputs.place_maps.get(str(sp_task.get("global_space_map_id"))) or {}
     unit = str(((place.get("coordinate_system") or {}).get("unit")) or "meter")
 
@@ -1116,8 +1174,15 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
         ("blank6", "", True),
         ("state_head", "【场景状态】", True),
         ("time_weather", f"时间：{scene_state.get('time')}｜天气：{scene_state.get('weather')}", True),
-        ("lighting", f"光线：{scene_state.get('lighting')}", True),
-        ("key_light", f"关键光：{design.get('key_light')}", False),
+        # The lighting line is authored per SCENE and copied into every shot of
+        # that scene, but a person named in it is the light's motivation, not
+        # this shot's cast.  Carried into a shot that does not show that person
+        # — or that explicitly marks them 画外 — it tells the provider to render
+        # them, so an empty plate comes back with a face in it.  The scoped line
+        # keeps the light and drops only the participant clause; the reason is
+        # recorded in lighting_participant_scope.json beside the manifest.
+        ("lighting", f"光线：{scoped_lighting}", True),
+        ("key_light", f"关键光：{scoped_key_light}", False),
         ("palette", f"主色：{scene_state.get('palette')}", True),
         ("atmosphere", f"空气与质感：{design.get('atmosphere')}", False),
         ("material_detail", f"材质细节：{join(design.get('material_detail'), '、')}", False),
