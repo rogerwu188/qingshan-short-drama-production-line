@@ -19,10 +19,12 @@ try:
     from tools.giggle_api_client import _request, durable_generation_context
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from tools.visual_culture_contract import validate_visual_culture_contract
+    from tools.provider_request_digest import request_digest, SCHEMA as DIGEST_SCHEMA
 except ModuleNotFoundError:
     from giggle_api_client import _request, durable_generation_context
     from giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from visual_culture_contract import validate_visual_culture_contract
+    from provider_request_digest import request_digest, SCHEMA as DIGEST_SCHEMA
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -75,14 +77,32 @@ def transaction_path(transaction_dir: Path, row: dict, model: str, resolution: s
 
 def prior_submission(row: dict, transaction_dir: Path, model: str, resolution: str) -> dict | None:
     path = transaction_path(transaction_dir, row, model, resolution)
+    current_fingerprint = submission_fingerprint(row, model, resolution)
+    char_id = row["id"]
+
+    # Plan §5.4: supersede old transactions when contract changes.
+    if transaction_dir.is_dir():
+        for old_tx_path in transaction_dir.glob(f"{char_id}__*.json"):
+            if old_tx_path == path:
+                continue
+            try:
+                old_tx = json.loads(old_tx_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            old_fp = old_tx.get("submission_fingerprint")
+            if old_fp and old_fp != current_fingerprint and not old_tx.get("superseded_by"):
+                old_tx["superseded_by"] = current_fingerprint
+                old_tx["superseded_at"] = utc_now()
+                atomic_json(old_tx_path, old_tx)
+
     if not path.is_file():
         return None
     transaction = json.loads(path.read_text(encoding="utf-8"))
-    if transaction.get("submission_fingerprint") != submission_fingerprint(row, model, resolution):
-        raise DuplicateSubmissionBlocked(f"{row['id']} transaction fingerprint mismatch")
+    if transaction.get("submission_fingerprint") != current_fingerprint:
+        raise DuplicateSubmissionBlocked(f"{char_id} transaction fingerprint mismatch")
     if transaction.get("state") == "SUBMITTED_TASK_ID_BOUND" and transaction.get("task_id"):
         return {
-            "task_key": row["id"], "character_id": row["id"],
+            "task_key": char_id, "character_id": char_id,
             "task_id": transaction["task_id"], "status": "SUBMITTED",
             "receipt": transaction.get("receipt"),
             "transaction": str(path.relative_to(ROOT)), "recovered_from_transaction": True,
@@ -92,7 +112,7 @@ def prior_submission(row: dict, transaction_dir: Path, model: str, resolution: s
         "CHARGED_TASK_ID_MISSING", "CHARGE_STATE_UNRESOLVED_BATCH",
     }:
         raise DuplicateSubmissionBlocked(
-            f"{row['id']} duplicate submit blocked by {transaction.get('state')}"
+            f"{char_id} duplicate submit blocked by {transaction.get('state')}"
         )
     return None
 
@@ -128,8 +148,24 @@ def submit(row: dict, output_dir: Path, transaction_dir: Path, model: str, resol
     if actual_sha != row["prompt_sha256"]:
         raise ValueError(f"{row['id']} prompt SHA mismatch")
     references = resolved_reference_images(row)
+    prompt_text = prompt_path.read_text(encoding="utf-8")
+
+    # Plan §7.1: bind review to the semantic request about to be sent.
+    ref_shas = [hashlib.sha256(p.read_bytes()).hexdigest() for p in references]
+    computed_digest = request_digest(
+        prompt_text=prompt_text, model=model, aspect_ratio="9:16", resolution=resolution,
+        reference_sha256=ref_shas, reference_roles=["identity_reference"] * len(ref_shas)
+    )
+    declared_digest = row.get("reviewed_request_sha256")
+    if declared_digest and declared_digest != computed_digest:
+        raise RuntimeError(
+            f"{row['id']}: reviewed_request_sha256 mismatch. "
+            f"The request about to be sent (digest {computed_digest[:16]}) does not match "
+            f"the reviewed version ({declared_digest[:16]}). Zero POST."
+        )
+
     payload = {
-        "prompt": prompt_path.read_text(encoding="utf-8"),
+        "prompt": prompt_text,
         "generate_count": 1,
         "model": model,
         "aspect_ratio": "9:16",

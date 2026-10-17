@@ -113,12 +113,31 @@ def transaction_path(transaction_dir: Path, task: dict[str, Any]) -> Path:
 
 def prior_submission_result(task: dict[str, Any], transaction_dir: Path) -> dict[str, Any] | None:
     path = transaction_path(transaction_dir, task)
+    current_fingerprint = submission_fingerprint(task)
+    task_key = task["task_key"]
+
+    # Plan §5.4: supersede old transactions when contract changes.
+    # Scan all transactions with this task_key; mark those with a different fingerprint as superseded.
+    if transaction_dir.is_dir():
+        for old_tx_path in transaction_dir.glob(f"{task_key}__*.json"):
+            if old_tx_path == path:
+                continue
+            try:
+                old_tx = json.loads(old_tx_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            old_fp = old_tx.get("submission_fingerprint")
+            if old_fp and old_fp != current_fingerprint and not old_tx.get("superseded_by"):
+                old_tx["superseded_by"] = current_fingerprint
+                old_tx["superseded_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+                atomic_json(old_tx_path, old_tx)
+
     if not path.is_file():
         return None
     transaction = json.loads(path.read_text(encoding="utf-8"))
-    if transaction.get("submission_fingerprint") != submission_fingerprint(task):
+    if transaction.get("submission_fingerprint") != current_fingerprint:
         raise DuplicateSubmissionBlocked(
-            f"{task['task_key']} has a transaction with a different submission fingerprint"
+            f"{task_key} has a transaction with a different submission fingerprint"
         )
     state = transaction.get("state")
     if state == "SUBMITTED_TASK_ID_BOUND" and transaction.get("task_id"):
@@ -127,7 +146,7 @@ def prior_submission_result(task: dict[str, Any], transaction_dir: Path) -> dict
             if not receipt.is_file():
                 atomic_json(receipt, transaction["provider_response"])
         return {
-            "task_key": task["task_key"],
+            "task_key": task_key,
             "beat_id": task.get("beat_id"),
             "task_id": transaction["task_id"],
             "status": "submitted",
@@ -137,7 +156,7 @@ def prior_submission_result(task: dict[str, Any], transaction_dir: Path) -> dict
         }
     if state != "NOT_CHARGED_RETRYABLE":
         raise DuplicateSubmissionBlocked(
-            f"{task['task_key']} duplicate submit blocked by transaction state {state}"
+            f"{task_key} duplicate submit blocked by transaction state {state}"
         )
     return None
 
