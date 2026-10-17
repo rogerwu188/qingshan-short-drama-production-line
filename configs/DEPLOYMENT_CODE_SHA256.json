@@ -345,7 +345,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "b90d8f44b8af9ae9ceeb302d9d57cef3710847db88325d5eb79fe07299d777cf"
+      "sha256": "c4bb5c59341f3f9a98b6ec108048307e995688a6cfd37da18adf2d5547ddb4f5"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -374,6 +374,10 @@
     {
       "path": "skills/nalu-claude-code/scripts/make_endcard.py",
       "sha256": "9134279a28b1f6487eb8f725e63d875f07e8cdc915b2f6d8944b3582ca38067d"
+    },
+    {
+      "path": "skills/nalu-claude-code/scripts/list_voices.sh",
+      "sha256": "e1fbb7543f2cd236df4f793d2f2fd55e8dcef7e70e6e2294d1e0265224e2148d"
     },
     {
       "path": "skills/nalu-claude-code/scripts/plan_compile.sh",
