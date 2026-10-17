@@ -2748,7 +2748,11 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             admission["downstream_status"] = "FAIL_NOT_ADMITTED"
         ar_path = action_role_dir / f"{uid}_action_role_verification.json"
         ar = json.loads(ar_path.read_text(encoding="utf-8")) if ar_path.is_file() else {}
-        if ar and ar.get("status") == "PASS" and ar.get("reviewed_asset_sha256") == first_ref.get("sha256"):
+        # ACCEPTED_BY_LINE_OWNER_ORDER (action_role_evidence_writer, #71) is a valid verdict the admission gate
+        # checks itself (_validate_action_role_verification); dropping it here failed the unit as missing
+        # evidence (400334 《画皮》 / 400030 / 400926 E01 S6, 2026-10-16)
+        if (ar and ar.get("status") in ("PASS", "ACCEPTED_BY_LINE_OWNER_ORDER")
+                and ar.get("reviewed_asset_sha256") == first_ref.get("sha256")):
             admission["action_role_verification"] = ar
             admission["action_role_evidence_ref"] = portable(ar_path, root)
             task["action_role_evidence_status"] = "PRESENT"

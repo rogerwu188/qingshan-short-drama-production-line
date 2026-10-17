@@ -4993,7 +4993,7 @@
     },
     {
       "path": "tools/provider_scope_projection.py",
-      "sha256": "1eec9548a7d2346736dddb85f2c889ab88229dca95b5ea7e6b5d3a4f6571cbf3"
+      "sha256": "cebaefb6856cdd619cbffcb5da64a82ba29bf4bf21c0e23303446358de409aef"
     },
     {
       "path": "tools/provider_semantic_coverage.py",
