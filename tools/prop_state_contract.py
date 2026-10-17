@@ -23,24 +23,26 @@ def compile_prop_states(spec: dict[str, Any], *, source_id: str, preproduction_o
         # action.start_state/end_state.  Materialise the same structured state
         # here instead of treating that valid v4 form as missing data.  Values
         # are intentionally opaque authored text; no new story event is inferred.
+        #
+        # Ownership and authorization are bound to the source field only when
+        # explicitly present; do not fabricate writer_authored or visual PASS
+        # from the compiler's own inference.
         action = spec.get("action") or {}
         if not entry and not exit_state and (prop.get("binding") or prop.get("note") or action.get("start_state")):
-            owner = str(action.get("subject_id") or "UNSPECIFIED_AUTHORED_SUBJECT")
+            # Bind owner to source field only; do not invent it from subject_id
+            owner_field = prop.get("owner") or action.get("prop_owner")
+            if not owner_field:
+                # Leave owner empty if not explicitly authored; downstream will report MISSING
+                owner_field = ""
             anchor = str(prop.get("anchor") or "PRIMARY_ACTION_PLANE")
-            entry = {"owner": owner, "hand": "按动作合同声明的手部/持有关系",
+            entry = {"owner": owner_field, "hand": "按动作合同声明的手部/持有关系",
                      "position": anchor, "disposition": str(action.get("start_state") or prop.get("binding"))}
-            exit_state = {"owner": owner, "hand": "按动作合同声明的手部/持有关系",
+            exit_state = {"owner": owner_field, "hand": "按动作合同声明的手部/持有关系",
                           "position": anchor, "disposition": str(action.get("end_state") or action.get("primary_action") or prop.get("binding"))}
-            prop.setdefault("state", {"entry": deepcopy(entry), "exit": deepcopy(exit_state)})
-            prop.setdefault("transition_authorization", {
-                "writer_authored": True,
-                "basis": "v4 authored action.start_state/end_state",
-            })
-            prop.setdefault("start_frame_visual_confirmation", {
-                "status": "PASS",
-                "evidence_ref": f"reports/start_frame_evidence/{source_id.split(':', 1)[0]}_start_frame_evidence.json",
-                "basis": "Q1_ADMITTED_START_FRAME_EVIDENCE",
-            })
+            # Only set state fields that are actually bound to source; do not
+            # modify the input dict or fabricate authorization/visual status.
+            # Authorization and visual confirmation must come from the source
+            # contract; the compiler does not grant them.
         if not entry or not exit_state:
             failures.append(f"PROP_STATE_MISSING:{source_id}:{prop_id}")
             continue
@@ -55,8 +57,17 @@ def compile_prop_states(spec: dict[str, Any], *, source_id: str, preproduction_o
         if action_kind == "DIALOGUE" and ownership_changed and authorization.get("writer_authored") is not True:
             failures.append(f"DIALOGUE_PROP_OWNERSHIP_CHANGE_FORBIDDEN:{source_id}:{prop_id}")
         visual = prop.get("start_frame_visual_confirmation") or state.get("start_frame_visual_confirmation") or {}
-        if not preproduction_only and (visual.get("status") != "PASS" or not visual.get("evidence_ref")):
-            failures.append(f"START_FRAME_PROP_STATE_NOT_VISUALLY_CONFIRMED:{source_id}:{prop_id}")
+        # Time-scope check: only require visual confirmation at the beat where
+        # the prop first enters the action plane. If the prop is declared hidden
+        # or appears later, defer to the source contract's visibility scope.
+        visibility = prop.get("visibility_scope") or state.get("visibility_scope") or "VISIBLE_AT_START"
+        if not preproduction_only and visibility == "VISIBLE_AT_START":
+            if visual.get("status") != "PASS" or not visual.get("evidence_ref"):
+                failures.append(f"START_FRAME_PROP_STATE_NOT_VISUALLY_CONFIRMED:{source_id}:{prop_id}")
+        elif visibility in ("HIDDEN_UNTIL_ACTION", "APPEARS_LATER"):
+            # These scopes defer visual confirmation to the action/beat where the
+            # prop enters the frame; do not require it at the segment start frame.
+            pass
         states.append({
             "prop_id": prop_id,
             "entry": entry,

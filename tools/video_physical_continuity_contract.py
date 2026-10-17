@@ -79,7 +79,42 @@ def is_combat_unit(unit: dict[str, Any]) -> bool:
 
 
 def requires_interaction_topology(unit: dict[str, Any]) -> bool:
-    return is_combat_unit(unit) or any(cue in unit_text(unit) for cue in CONTACT_CUES)
+    """Return whether a unit requires initiator/target action-role evidence.
+
+    Structured interaction_mode declarations take precedence. Only CONTACT and
+    COMBAT modes require topology evidence (initiator + target + role reversal
+    check). NONE mode opts out even when keywords appear in the text — body/prop
+    continuity is still checked separately, but no fabricated contact object.
+
+    Keyword fallback remains only for legacy/unclassified manifests.
+    """
+    if is_combat_unit(unit):
+        return True
+    # Check structured declarations across all specs
+    has_structured_declaration = False
+    for spec in unit.get("ordered_prompt_specs") or []:
+        action = spec.get("action") or {}
+        mode = str(action.get("interaction_mode") or "").strip().upper()
+        kind = str(action.get("action_kind") or "").strip().upper()
+
+        if mode or kind in ("CONTACT", "COMBAT", "NONE"):
+            has_structured_declaration = True
+
+        if mode == "NONE":
+            # Explicit NONE: limb/prop continuity still applies, but no target required
+            continue
+        if mode in ("CONTACT", "COMBAT"):
+            return True
+        # If action_kind is explicitly set to CONTACT/COMBAT, require topology
+        if kind in ("CONTACT", "COMBAT"):
+            return True
+
+    # If any spec had a structured declaration, trust that; no fallback
+    if has_structured_declaration:
+        return False
+
+    # No structured declaration: fallback to keyword heuristic
+    return any(cue in unit_text(unit) for cue in CONTACT_CUES)
 
 
 def enrich_unit_contract(unit: dict[str, Any]) -> dict[str, Any]:
