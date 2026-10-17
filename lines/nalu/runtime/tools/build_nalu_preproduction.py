@@ -2521,17 +2521,30 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             if m:
                 ref_by_shot.setdefault(m.group(1), r)
         bindings, bound = [], set()
+        # 2026-10-16 (miniPC 400926 《雨伞缘》 E01 S6): a two-shot keyframe was bound as the
+        # CHARACTER_REFERENCE of every face in it, and shot_media_admission_gate rejects one image as
+        # the identity of two characters (REFERENCE_IDENTITY_PLATE_SHARED_BY), so no multi-character
+        # unit could submit.  A keyframe now identifies one character (speaker first); the others get
+        # their locked identity plate below.
+        identity_ref_paths: set[str] = set()
         for shot_id, spec in zip(shot_ids, specs):
             ref = ref_by_shot.get(shot_id)
             if not ref:
                 continue
+            visible = []
             for c in spec.get("cast") or []:
                 if str(c.get("face_visibility") or "") == "OFFSCREEN_VOICE_ONLY":
                     continue
                 eid = str(c.get("character_id") or name2char.get(str(c.get("character")), ""))
-                if eid and eid not in bound:
-                    bindings.append({"entity_id": eid, "role": "CHARACTER_REFERENCE", "path": str(ref["path"]),
-                                     "sha256": str(ref["sha256"]), "source_shot_id": shot_id}); bound.add(eid)
+                if eid and eid not in visible:
+                    visible.append(eid)
+            visible.sort(key=lambda cid: plate_order.index(cid) if cid in plate_order else len(plate_order))
+            for eid in visible:
+                if eid in bound or str(ref["path"]) in identity_ref_paths:
+                    continue
+                bindings.append({"entity_id": eid, "role": "CHARACTER_REFERENCE", "path": str(ref["path"]),
+                                 "sha256": str(ref["sha256"]), "source_shot_id": shot_id}); bound.add(eid)
+                identity_ref_paths.add(str(ref["path"]))
             for p in spec.get("props") or []:
                 eid = str(p.get("prop_id") or name2prop.get(str(p.get("prop")), ""))
                 if eid and eid not in bound:
@@ -2587,6 +2600,21 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
                 raise ValueError(
                     f"IDENTITY_REFERENCE_BINDING_INCOMPLETE:{uid}:"
                     f"missing={','.join(plate_missing)}:over_cap={','.join(plate_dropped)}")
+        else:
+            # legacy E01 adds no plates for keyframe-bound faces; a face left unbound because its
+            # keyframe already identifies another character still needs its own locked plate
+            unbound_faces = [cid for cid in plate_order if cid not in bound]
+            plate_rows, _dropped, _missing = identity_plate_reference_rows(
+                unbound_faces, lambda character_id: _locked_identity_plate(character_id, episode=episode),
+                existing_paths=task["reference_images"])
+            for row in plate_rows:
+                task["reference_images"].append(row["path"])
+                task["reference_sha256"].append(row["sha256"])
+                task["reference_roles"].append("CHARACTER_IDENTITY_REFERENCE")
+                bindings.append({"entity_id": row["character_id"], "role": "CHARACTER_REFERENCE", "path": row["path"],
+                                 "sha256": row["sha256"], "source": "IDENTITY_PLATE_FOR_SHARED_KEYFRAME"})
+                bound.add(row["character_id"])
+                task.setdefault("identity_reference_auto", []).append(row)
         task["unbound_canonical_entities"] = sorted(set(chars + props) - bound)
         task["reference_image_sequence"] = bindings
         task["reference_bindings"] = space_map_bindings + bindings
