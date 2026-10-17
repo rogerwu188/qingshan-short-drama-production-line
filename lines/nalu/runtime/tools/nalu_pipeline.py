@@ -3442,8 +3442,12 @@ Q1_ACCEPTABLE_GATES = ("CHARACTER-IDENTITY-ADMISSION", "PERIOD-ANACHRONISM-LOCK"
 #: left the "quality never blocks" default acceptance with no route.  Every failing gate must be in this
 #: set and covered by its own order; any failure string not attributable to a registered gate keeps the
 #: still rejected.  No standing rule applies on this path.
+#: 2026-10-16 (miniPCs 400030 / 400926, S6 derived stills): a real previous tail used as the next unit's
+#: start frame cannot meet the next shot's framing, and keyframe_q1_builder files framing/axis under
+#: SCENE-AUTHORITY-LOCK, so that gate fails alongside the others and the default acceptance had no route.
+#: It still needs its own sha-bound order like every gate here.
 Q1_MULTI_GATE_ACCEPTABLE = ("CHARACTER-IDENTITY-ADMISSION", "PERIOD-ANACHRONISM-LOCK",
-                            "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF")
+                            "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF", "SCENE-AUTHORITY-LOCK")
 
 
 def q1_gate_detectors(row: dict[str, Any], gate_id: str, failures: list[str],
@@ -3494,10 +3498,11 @@ def q1_identity_evidence(row: dict[str, Any], gate_id: str) -> tuple[dict[str, A
     return {}, ""
 
 
-#: The engine writes a failing registered gate in two shapes, with the gate id in a different
-#: position in each: "evidence_1:<GATE>:registered_gate_not_pass:FAIL_NOT_ADMITTED:P0" and
-#: "required_registered_gate_not_pass:<GATE>".  The first needs the capture BEFORE the marker.
-FAILED_GATE_RE = re.compile(r"(?:^|:)([A-Z][A-Z0-9-]*):registered_gate_not_pass:"
+#: The engine writes a failing registered gate in three shapes, with the gate id in a different
+#: position in each: "evidence_1:<GATE>:registered_gate_not_pass:FAIL_NOT_ADMITTED:P0",
+#: "evidence_4:<GATE>:evidence_payload_not_pass:FAIL_NOT_ADMITTED" (seen 2026-10-16 on derived stills)
+#: and "required_registered_gate_not_pass:<GATE>".  The first two capture BEFORE the marker.
+FAILED_GATE_RE = re.compile(r"(?:^|:)([A-Z][A-Z0-9-]*):(?:registered_gate|evidence_payload)_not_pass:"
                             r"|^required_registered_gate_not_pass:([A-Z][A-Z0-9-]*)$")
 
 

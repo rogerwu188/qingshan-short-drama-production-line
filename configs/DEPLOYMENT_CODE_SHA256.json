@@ -52,7 +52,7 @@
       "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
     },
     {
-      "path": "agent_factory/claude_writer/runtime_templates/\u89c2\u4f17\u5df2\u77e5\u6e05\u5355.md",
+      "path": "agent_factory/claude_writer/runtime_templates/观众已知清单.md",
       "sha256": "20aeda7beb8aaf9aa591df6a1aee5254d48bb5c0868fec2fd0fc05f81a9b9830"
     },
     {
@@ -7125,7 +7125,7 @@
     },
     {
       "path": "tools/tests/test_nalu_q1_roger_acceptance.py",
-      "sha256": "1ce264530db8ffd4d226f31d0b910cafe6c2195ecafeebe88488807df53af351"
+      "sha256": "20921c3ffd870af9e9479df8a4b334198a651b7b261e913ae763c93192f5418a"
     },
     {
       "path": "tools/tests/test_nalu_release_unposted_waves.py",

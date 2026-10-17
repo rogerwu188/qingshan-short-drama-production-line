@@ -153,7 +153,7 @@ class MultiGateQ1AcceptanceTests(unittest.TestCase):
 
     HANDOFF = "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF"
 
-    def run_multi(self, gates_with_orders, *, extra_failure=None):
+    def run_multi(self, gates_with_orders, *, extra_failure=None, extra_failures=()):
         with tempfile.TemporaryDirectory() as d:
             tmp = Path(d); index, ip, ar = _fixture(tmp)
             row = index["results"][1]
@@ -161,7 +161,8 @@ class MultiGateQ1AcceptanceTests(unittest.TestCase):
                 "evidence_1:CHARACTER-IDENTITY-ADMISSION:registered_gate_not_pass:FAIL_NOT_ADMITTED:P0",
                 f"evidence_3:{self.HANDOFF}:registered_gate_not_pass:FAIL_NOT_ADMITTED:P0",
                 "required_registered_gate_not_pass:CHARACTER-IDENTITY-ADMISSION",
-                f"required_registered_gate_not_pass:{self.HANDOFF}"] + ([extra_failure] if extra_failure else [])
+                f"required_registered_gate_not_pass:{self.HANDOFF}"] + ([extra_failure] if extra_failure else []) \
+                + list(extra_failures)
             ip.write_text(json.dumps(index))
             orders = []
             for seq, gate in enumerate(gates_with_orders, start=31):
@@ -207,6 +208,21 @@ class MultiGateQ1AcceptanceTests(unittest.TestCase):
         self.assertEqual(out["accepted_unit_ids"], [])
         out, _ = self.run_multi(["CHARACTER-IDENTITY-ADMISSION", self.HANDOFF], extra_failure="KEYFRAME_MISSING")
         self.assertEqual(out["accepted_unit_ids"], [])
+
+    def test_scene_lock_and_evidence_payload_shape_admit_with_their_orders(self):
+        """2026-10-16 (400030 / 400926 S6): a derived still also failing SCENE-AUTHORITY-LOCK, and a gate
+        reported as evidence_payload_not_pass, are admitted only when each gate has its own order."""
+        extra = ("evidence_2:SCENE-AUTHORITY-LOCK:registered_gate_not_pass:FAIL_NOT_ADMITTED:P0",
+                 "evidence_4:PERIOD-ANACHRONISM-LOCK:evidence_payload_not_pass:FAIL_NOT_ADMITTED")
+        self.assertEqual(npl.failing_registered_gates(list(extra)),
+                         ["PERIOD-ANACHRONISM-LOCK", "SCENE-AUTHORITY-LOCK"])
+        gates = ["CHARACTER-IDENTITY-ADMISSION", self.HANDOFF, "SCENE-AUTHORITY-LOCK", "PERIOD-ANACHRONISM-LOCK"]
+        out, ar = self.run_multi(gates, extra_failures=extra)
+        self.assertEqual(out["accepted_unit_ids"], ["E06-VU-004"])
+        self.assertEqual(len(ar["line_owner_acceptance"]["per_gate"]), 4)
+        out, ar = self.run_multi(gates[:3], extra_failures=extra)  # period gate without its order
+        self.assertEqual(out["accepted_unit_ids"], [])
+        self.assertEqual(ar["downstream_status"], "FAIL_NOT_ADMITTED")
 
 
 if __name__ == "__main__":
