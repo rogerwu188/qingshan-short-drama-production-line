@@ -235,7 +235,8 @@ class _S6Harness:
             episode="E99", dry=False, say=lambda *_a, **_k: None,
             p=SimpleNamespace(preprod=self.preprod, video_media=self.video, preprod_reports=self.reports,
                               video_submit=tmp / "video_submit.json",
-                              video_remote_status=tmp / "video_remote_status.json"),
+                              video_remote_status=tmp / "video_remote_status.json",
+                              contract=tmp / "contract.json"),
             paths=SimpleNamespace(contract=tmp / "contract.json"),
             **ctx_extra,
         )
