@@ -648,7 +648,7 @@ def resolve_library_asset_id(
     return candidates[0] if len(set(candidates)) == 1 else requested_id
 
 
-def cap_non_character_bindings(rows: list[dict[str, Any]], *, limit: int = NON_CHARACTER_REFERENCE_MAX,
+def cap_non_character_bindings(rows: list[dict[str, Any]], *, episode: str, limit: int = NON_CHARACTER_REFERENCE_MAX,
                                total_limit: int = REFERENCE_TOTAL_MAX,
                                optional_character_ids: set[str] | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Roger 2026-09-18 ②: space maps + scene + props <= ``limit`` (5).  Roger 2026-10-17 K059: character_wardrobe
@@ -837,6 +837,7 @@ def build_bindings(inputs: Inputs, shot_id: str, gate_ref: str) -> tuple[list[di
             optional_background_ids.add(str(cast_row.get("character_id") or ""))
     rows, dropped = cap_non_character_bindings(
         space_rows + face_rows + [scene_row] + wardrobe_rows + prop_rows,
+        episode=inputs.episode,
         optional_character_ids=optional_background_ids,
     )
     if dropped:

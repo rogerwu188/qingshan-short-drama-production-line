@@ -35,7 +35,7 @@ def build_timing_map(
     *,
     transaction_manifest: dict[str, Any] | None = None,
     media_dir: Path | None = None,
-    edit_decisions: list[dict[str, Any]] | None = None,
+    edit_decisions: dict[str, Any] | list[dict[str, Any]] | None = None,
     chars_per_second: float = 4.5,
 ) -> dict[str, Any]:
     failures: list[dict[str, Any]] = []
@@ -52,8 +52,18 @@ def build_timing_map(
     tasks = {str(t.get("unit_id") or t.get("source_id") or t.get("task_key")): t
              for t in (transaction_manifest or {}).get("tasks") or []}
     edits_by_unit: dict[str, list[dict[str, Any]]] = {}
-    for row in edit_decisions or []:
-        edits_by_unit.setdefault(str(row.get("unit_id")), []).append(row)
+    # P1.2 / P1.4: support both AgentCut project dicts and edit-decision lists.
+    if edit_decisions:
+        if isinstance(edit_decisions, dict):  # AgentCut project: {"videoTracks": ..., "audioTracks": ...}
+            for track in (edit_decisions.get("videoTracks") or []) + (edit_decisions.get("audioTracks") or []):
+                for clip in track.get("clips") or []:
+                    meta = clip.get("metadata") or {}
+                    uid = meta.get("unit_id")
+                    if uid:
+                        edits_by_unit.setdefault(str(uid), []).append(clip)
+        else:  # legacy list[dict] with "unit_id" at top level
+            for row in edit_decisions:
+                edits_by_unit.setdefault(str(row.get("unit_id")), []).append(row)
 
     line_owner: dict[str, str] = {}
     rows = []
@@ -109,12 +119,14 @@ def build_timing_map(
             fail("TAIL_DEPENDENCY_WITHOUT_TAIL_FRAME", uid, str(dependency))
         cut = []
         for row in edits_by_unit.get(uid, []):
+            # P1.2 / P1.4: AgentCut clips carry `in`/`out`/`timelinePosition` in seconds.
             in_point, out_point = float(row.get("in", 0)), float(row.get("out", 0))
+            timeline_start = float(row.get("timelinePosition", 0))
             if out_point <= in_point:
                 fail("CUT_INTERVAL_EMPTY", uid, f"{in_point}->{out_point}")
             if returned is not None and out_point > returned + TOLERANCE:
                 fail("CUT_BEYOND_RETURNED_MEDIA", uid, f"out {out_point} > returned {returned}")
-            cut.append({"in": in_point, "out": out_point, "timeline_start": row.get("timeline_start")})
+            cut.append({"in": in_point, "out": out_point, "timeline_start": timeline_start})
         rows.append({
             "unit_id": uid,
             "shots": shot_rows,

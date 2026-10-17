@@ -384,7 +384,7 @@ def previs_gate(ctx: "Ctx", stage: str) -> dict[str, Any]:
 
 
 def timing_map(ctx: "Ctx", *, stage: str, media_dir: Path | None = None,
-               edit_decisions: Path | None = None) -> dict[str, Any]:
+               edit_decisions: Path | dict[str, Any] | None = None) -> dict[str, Any]:
     """Plan §6: record the five durations separately, each with its source.
 
     story / dialogue / request / returned / cut.  One request is not assumed to
@@ -395,6 +395,9 @@ def timing_map(ctx: "Ctx", *, stage: str, media_dir: Path | None = None,
     Recorded as evidence at each point the numbers actually change: after S2
     (request durations are known), after S6 (returned media is measurable) and
     after S7 (cut intervals exist).
+
+    P1.4: ``edit_decisions`` can now be an AgentCut project object (dict with
+    videoTracks/audioTracks) or a Path to one, for S7 compatibility.
     """
     p = ctx.p
     row: dict[str, Any] = {"schema": "nalu.timing_map_evidence.v1", "stage": stage,
@@ -410,7 +413,8 @@ def timing_map(ctx: "Ctx", *, stage: str, media_dir: Path | None = None,
             contract, grouping,
             transaction_manifest=read_json(p.video_transaction, None),
             media_dir=media_dir,
-            edit_decisions=(read_json(edit_decisions, None) if edit_decisions else None),
+            edit_decisions=(edit_decisions if isinstance(edit_decisions, dict)
+                           else (read_json(edit_decisions, None) if edit_decisions else None)),
         )
     except Exception as exc:  # noqa: BLE001 — evidence must never crash a stage
         row.update({"status": "ERROR", "detail": f"{type(exc).__name__}: {exc}"})
