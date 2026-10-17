@@ -70,7 +70,7 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
 审核通用做法：`$NALU_RUNTIME_ROOT/runtime/reviews/<EP>/` 最新 `*_request.json` → `$P $T/vlm_review_protocol.py example-answers --request <req>` →
 看媒体、逐题作答（每题枚举值、观察 ≥ 20 字、FAIL 必须带 defect）→ `submit --request <req> --answers <ans>` → 再跑同一阶段。
 - **S3 身份牌**（`paid_stage.sh <EP> S3 S3`）：拼缩略图看全部 plates。年龄/外形不符判 FAIL；重做 = 改 `$NALU_RUNTIME_ROOT/preproduction/<EP>/prompts/` 中该角色 3 个 txt 的措辞（指纹=提示词 sha），把旧图、`_raw`、回执移到 `_rejected_*`，重跑。
-- **S4 配音**：`$P tools/storyclaw_audio_provider.py speech-voices --out voices.json`（免费），给每个说话角色挑 voice_id 写 `runtime/voice_catalog.json`（键=拼音 slug）。同场两人参考音 F0 必须差 ≥ 25%（男女搭配最稳；男声挑「沉稳/醇厚」类）。换音色：旧 registry 行移到 `superseded_rows`，旧参考音目录和 `workflow/tasks/giggle_audio_transactions/**/speech/<slug>.json` 移到 `_superseded`。
+- **S4 配音**：`$S/list_voices.sh voices.json` 拉音色目录（免费 GET、不扣积分；供应商仍要鉴权，脚本内部自己读 `.env`，你不要直接跑 `storyclaw_audio_provider.py speech-voices`——无 key 会 exit=1，这不是阻塞），给每个说话角色挑 voice_id 写 `runtime/voice_catalog.json`（键=拼音 slug）。同场两人参考音 F0 必须差 ≥ 25%（男女搭配最稳；男声挑「沉稳/醇厚」类）。换音色：旧 registry 行移到 `superseded_rows`，旧参考音目录和 `workflow/tasks/giggle_audio_transactions/**/speech/<slug>.json` 移到 `_superseded`。
 - **视频模型是 MiniMax-H3**（线主 2026-10-13：一律 H3，不用 seedance；每集第一次 S2 构建时记在
   `$NALU_RUNTIME_ROOT/preproduction/<EP>/video_model.json`，之后固定）。H3 的视频提示词是英文，由每个单元的英文合同生成：
   S2 或规划编译报 `H3_ENGLISH_CONTRACT_REQUIRED:<n>_units:<请求文件>` 时，打开请求文件
