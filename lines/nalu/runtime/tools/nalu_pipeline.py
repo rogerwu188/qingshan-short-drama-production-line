@@ -349,11 +349,11 @@ def previs_gate(ctx: "Ctx", stage: str) -> dict[str, Any]:
                     "failures": [f"PREVIS_FAILED:{type(exc).__name__}:{exc}"]})
         return row
     round_number = 1 + int((ctx.state.get("previs_review_rounds") or {}).get(stage) or 0)
-    max_rounds = int((policy.get("director_review") or {}).get("max_rounds") or _previs.MAX_REVIEW_ROUNDS)
+    max_rounds = int(policy.get("max_director_review_rounds") or _previs.MAX_REVIEW_ROUNDS)
     review = _previs.director_review_request(previs, round_number=max(1, min(round_number, max_rounds + 1)))
     # P1.4 (codex §2.2): write back round number so next attempt increments.
     ctx.state.setdefault("previs_review_rounds", {})[stage] = round_number
-    machine_mode = str(policy.get("machine_failure_mode") or "BLOCK").upper()
+    machine_mode = "BLOCK" if policy.get("gate_on_machine_failures", True) else "ADVISORY"
     failures = previs.get("machine_failures") or []
     out_path = p.preprod_reports / f"{ctx.episode}_PREVIS_{stage}.json"
     previs["gate"] = {"stage": stage, "policy": str(_previs.POLICY_PATH),

@@ -658,11 +658,14 @@ def cap_non_character_bindings(rows: list[dict[str, Any]], *, limit: int = NON_C
     dropped: list[dict[str, Any]] = []
     optional_character_ids = optional_character_ids or set()
 
-    # K059 fix: drop ALL character_wardrobe to protect face signal
-    wardrobe_rows = [r for r in kept if str(r["role"]) == "character_wardrobe"]
-    for victim in wardrobe_rows:
-        kept.remove(victim)
-        dropped.append({**victim, "dropped_reason": "WARDROBE_DROPPED_K059_FACE_SIGNAL_PROTECTION"})
+    # K059 fix (applies from E10 onwards): drop ALL character_wardrobe to protect face signal.
+    # Earlier episodes keep wardrobe references as-is for byte-for-byte compatibility.
+    episode_num = int((episode or "E00")[1:])
+    if episode_num >= 10:
+        wardrobe_rows = [r for r in kept if str(r["role"]) == "character_wardrobe"]
+        for victim in wardrobe_rows:
+            kept.remove(victim)
+            dropped.append({**victim, "dropped_reason": "WARDROBE_DROPPED_K059_FACE_SIGNAL_PROTECTION"})
 
     # Check non-character (excluding wardrobe which is already gone) <= limit
     non_char_strict = [r for r in kept if str(r["role"]) not in ("character", "character_reference")]

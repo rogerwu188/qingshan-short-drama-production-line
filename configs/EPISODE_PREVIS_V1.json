@@ -3,8 +3,8 @@
   "policy_id": "EPISODE_PREVIS_V1",
   "authority": "Line owner 2026-10-16 production-line optimisation plan §4: see a scene's timing before anything is paid for.",
   "enabled_episodes": [],
-  "enabled_from_episode": "E12",
-  "activation_note": "Enabled from E12 onwards (2026-10-17) after offline validation.  Earlier episodes keep the locked behaviour; E12+ may opt out via previs_policy=null in the contract.",
+  "enabled_from_episode": null,
+  "activation_note": "Default off; each episode opts in via contract previs_policy=EPISODE_PREVIS_V1.  Shared config has no line/work scope, so enabled_from_episode must stay null to avoid cross-line activation.",
   "gate_on_machine_failures": true,
   "max_director_review_rounds": 2,
   "rules": {
