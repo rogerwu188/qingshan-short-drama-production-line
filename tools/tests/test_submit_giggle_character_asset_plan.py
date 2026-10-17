@@ -42,6 +42,29 @@ class CharacterAssetSubmitterTests(unittest.TestCase):
                 if prior is not None:
                     os.environ["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = prior
 
+    def test_missing_task_id_keeps_provider_response_in_transaction(self):
+        with tempfile.TemporaryDirectory(dir=submitter.ROOT) as temporary:
+            root = Path(temporary)
+            prompt = root / "prompt.txt"
+            prompt.write_text("vertical historical character", encoding="utf-8")
+            row = {
+                "id": "CHAR-E02-TEST",
+                "episode": "E02",
+                "prompt_file": str(prompt),
+                "prompt_sha256": submitter.hashlib.sha256(prompt.read_bytes()).hexdigest(),
+                "reference_images": [],
+                "reference_image_sha256s": [],
+            }
+            body = {"code": 500, "msg": "payment failed", "uuid": "u-1", "data": None}
+            with patch.object(submitter, "_request", return_value=body):
+                with self.assertRaises(RuntimeError) as raised:
+                    submitter.submit(row, root / "receipts", root / "transactions", "gpt-image-2-pro", "2K")
+            self.assertIn("code=500", str(raised.exception))
+            path = submitter.transaction_path(root / "transactions", row, "gpt-image-2-pro", "2K")
+            transaction = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(transaction["state"], "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION")
+            self.assertEqual(transaction["provider_response"], body)
+
 
 if __name__ == "__main__":
     unittest.main()
