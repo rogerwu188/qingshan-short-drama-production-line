@@ -249,7 +249,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "437a51ffbd642c003867ea4923a4f7cfd01efa4a0492748e3bc50d334733620b"
+      "sha256": "1c7bdec3f23ac9c2e7d19ad654784a9a8903abea4309a30e9002481bdfdba301"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -4417,7 +4417,7 @@
     },
     {
       "path": "tools/h3_provider_english_contract.py",
-      "sha256": "6014e2fb08197422ef3d5c6d7c47e6895f6947a3dbcc55d8db3643f7d0a17037"
+      "sha256": "1b1314a0800386d6ece7a057a9e1f5ab87b5baece1c5e7cc9d362589ef6ddb3b"
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
@@ -6926,6 +6926,10 @@
     {
       "path": "tools/tests/test_human_realism_prompt_contract.py",
       "sha256": "e2f164e2283c67b905f8169fcb5e6e53a72987da8c95c57001ef9c93690e1d72"
+    },
+    {
+      "path": "tools/tests/test_h3_quoted_cjk_inside_dialogue.py",
+      "sha256": "cb094270b5a2d6d13c4b22b7d8808be21e3499cd17137233a94d587da3ac750f"
     },
     {
       "path": "tools/tests/test_identity_cards_period_lock.py",
