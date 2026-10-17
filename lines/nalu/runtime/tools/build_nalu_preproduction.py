@@ -2738,6 +2738,11 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             "source_q1_sha256": sha256_file(q1) if q1.is_file() else None,
             "recorded_at": now(), "recorded_by": TOOL_ID,
         }
+        # a still admitted by a line-owner order: carry its acceptance record so the admission gate
+        # can bind it to this exact start frame (#87; 400334 《画皮》 E01-VU-015)
+        if isinstance(q1_payload.get("line_owner_acceptance"), dict):
+            admission["line_owner_acceptance"] = q1_payload["line_owner_acceptance"]
+            admission["engine_status"] = q1_payload.get("engine_status")
         if not admission["q1_asset_matches_first_reference"]:
             admission["status"] = "Q1_ASSET_SHA_MISMATCH"
             admission["downstream_status"] = "FAIL_NOT_ADMITTED"
