@@ -253,7 +253,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "4798f3f8b45296652bf3dd760807b20af7f1bf1372dafbcc60757d858d7cacef"
+      "sha256": "f5d13c10b55ee1ce4ae266bf03f109228f65f42aefe4ba9cf9e5264403cf14c5"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -6928,6 +6928,10 @@
       "sha256": "cb094270b5a2d6d13c4b22b7d8808be21e3499cd17137233a94d587da3ac750f"
     },
     {
+      "path": "tools/tests/test_new_space_cut_transition_scope.py",
+      "sha256": "3544d08a31a784188ac6f29f09dedef8f9d812986a1321c94ec67bedb157029a"
+    },
+    {
       "path": "tools/tests/test_h3_shot_scope_v1.py",
       "sha256": "922a8c77e1c1bfc9b11bff729956328a4dc510c3eb29f1f740c3484ee45c0175"
     },
@@ -8097,7 +8101,7 @@
     },
     {
       "path": "tools/video_execution_plan_compiler.py",
-      "sha256": "cd9660a6e2233e6522c7ff330990f8e4e81d55e88443e9a22b48f983ca3da814"
+      "sha256": "75650379a8fd1b7b2e150cf49162f88b4369c9cc9667ebc3ac44efca832898a7"
     },
     {
       "path": "tools/video_generation_failure_policy.py",

@@ -150,6 +150,15 @@ def _action_risk(beat: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_NEW_SPACE_CUT_REASONS = {"NEW_SPACE_MATCH_CUT", "NEW_SPACE_ESTABLISH", "SOUND_BRIDGE_NEW_SPACE"}
+
+
+def _is_new_space_cut(contract: dict[str, Any]) -> bool:
+    relation = str(contract.get("space_relation") or "").strip()
+    reason = str(contract.get("cut_reason") or "").strip()
+    return (bool(relation) and relation != "SAME_SUBSPACE") or reason in _NEW_SPACE_CUT_REASONS
+
+
 def _compact_transition(unit: dict[str, Any]) -> dict[str, str]:
     incoming = unit.get("incoming_transition_contract") or {}
     outgoing = unit.get("outgoing_transition_contract") or {}
@@ -157,8 +166,12 @@ def _compact_transition(unit: dict[str, Any]) -> dict[str, str]:
     outbound = ""
     if incoming:
         target = incoming.get("target_initial_state") or {}
+        # A cut into a new space is not a continuation: the bridge strings name the previous
+        # unit's terminal state (its cast, place, props), which would leak into this unit's
+        # prompt as a required action.  Such a cut opens on this unit's own start state only.
         inbound = str(
-            incoming.get("action_bridge")
+            (target.get("blocking") if _is_new_space_cut(incoming) else None)
+            or incoming.get("action_bridge")
             or incoming.get("visual_bridge")
             or target.get("blocking")
             or ""
@@ -173,8 +186,11 @@ def _compact_transition(unit: dict[str, Any]) -> dict[str, str]:
             inbound = f"{inbound}；{ownership_clause}；不得把该起态转移给下一拍主角"
     if outgoing:
         source = outgoing.get("source_terminal_state") or {}
+        # likewise a cut out to a new space ends on this unit's own terminal state; the next
+        # unit's start state constrains only the next unit
         outbound = str(
-            outgoing.get("action_bridge")
+            (source.get("blocking") if _is_new_space_cut(outgoing) else None)
+            or outgoing.get("action_bridge")
             or outgoing.get("visual_bridge")
             or source.get("blocking")
             or ""
