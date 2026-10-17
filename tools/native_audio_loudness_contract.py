@@ -115,7 +115,10 @@ def measure_loudness(
         raise RuntimeError(result.stderr[-4000:])
     integrated = re.findall(r"Integrated loudness:\s*\n\s*I:\s*(-?[0-9.]+) LUFS", result.stderr)
     lra = re.findall(r"Loudness range:\s*\n\s*LRA:\s*([0-9.]+) LU", result.stderr)
-    peak = re.findall(r"True peak:\s*\n\s*Peak:\s*(-?[0-9.]+) dBFS", result.stderr)
+    # a silent segment (the NALU 3 s endcard) reports "Peak: -inf dBFS"; it is recorded as a -120 dBFS floor so
+    # downstream gain math and JSON stay finite (400334 《画皮》 E01 S7, 2026-10-17)
+    peak = [("-120.0" if p.lower() == "-inf" else p)
+            for p in re.findall(r"True peak:\s*\n\s*Peak:\s*(-?inf|-?[0-9.]+) dBFS", result.stderr, re.IGNORECASE)]
     if not integrated or not lra or not peak:
         raise RuntimeError(f"could not parse EBU R128 metrics for {path}")
     return {
