@@ -13,6 +13,7 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 - 输入：`workflow/claude_writer_agent/scripts/<EP>_NARRATIVE_CANONICAL_v1.md`（叙事正典，事实与逐字台词的唯一来源）、
   `$NALU_RUNTIME_ROOT/briefs/<EP>_PRODUCTION_BRIEF.json`（人物外貌/年龄/性别/服装、地点、画风、目标时长、预算与线主原话）。
 - 免费命令一律不带 key：`env -u GIGGLE_API_KEY $P $T/nalu_pipeline.py run --episode <EP> --until <Sx>`。
+- 跑 `nalu_pipeline.py` 时不要设 `NALU_POLICY_PROFILE` / `NALU_SERIES_SCOPE_ID`（本线解析为 LEGACY_EPISODE_COMPAT）。`$S/plan_compile.sh` 里的 `NALU_POLICY_PROFILE=CURRENT_PORTABLE` 只作用于它自己的编译子进程，不要抄进你的 shell。S1 报 `CANONICAL_WRITER_HANDOFF_FAIL:PRIVATE_PROJECT_METADATA_INVALID`（缺 `runtime/project.json`）= 你的环境带了 CURRENT_PORTABLE：`unset NALU_POLICY_PROFILE NALU_SERIES_SCOPE_ID` 后重跑；绝不要自己创建 `project.json` 或 `ACTIVE_WRITER_HANDOFF.json`，也不要单独调 `storyclaw_writer_workflow.py verify` 当作 S1 结论（那是 StoryClaw 托管项目的路径，不在本线 S1 上）。
 - 付费命令只用一个入口：`./lines/nalu/runtime/tools/paid_stage.sh <EP> <FROM> <UNTIL>`（它自己读 `.env`；你不要 `cat`/打印 `.env`）。
 
 ## 1. 绝对规则
