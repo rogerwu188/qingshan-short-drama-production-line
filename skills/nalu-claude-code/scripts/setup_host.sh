@@ -148,6 +148,12 @@ fi
 [ -d "$ENGINE/.git" ] || run git clone -q "$REPO" "$ENGINE" || { STEP_engine=CLONE_FAILED; finish BLOCKED engine; }
 before="$(git -C "$ENGINE" rev-parse HEAD)"
 if [ $DEFER = 1 ]; then PIN_EFFECTIVE="$before"; else PIN_EFFECTIVE="$PIN"; fi
+# never move an engine BACK: a host already upgraded past this pin mid-episode (setup --pin <newer> without
+# self_update, so AGENTS.md still names the older pin) was being reverted by the next heartbeat's setup
+# (400334 《画皮》 2026-10-16 23:35: fae9be0 -> 96ddc8f).  A pin that is a strict ancestor of HEAD keeps HEAD.
+if [ $DEFER = 0 ] && [ "$before" != "$PIN" ] && git -C "$ENGINE" merge-base --is-ancestor "$PIN" "$before" 2>/dev/null; then
+  PIN_EFFECTIVE="$before"; NOTES+=("engine ${before:0:7} is newer than pin ${PIN:0:7}; kept (no downgrade)")
+fi
 run git -C "$ENGINE" checkout -q --detach "$PIN_EFFECTIVE" || { STEP_engine=CHECKOUT_FAILED; finish BLOCKED engine; }
 [ "$before" = "$PIN_EFFECTIVE" ] || NOTES+=("engine moved ${before:0:7} -> ${PIN_EFFECTIVE:0:7}")
 [ $DEFER = 1 ] || [ -d "$ENGINE/skills/nalu-claude-code/scripts" ] || { STEP_engine=SKILL_DIR_MISSING_AT_PIN; finish BLOCKED engine; }
