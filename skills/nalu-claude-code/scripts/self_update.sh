@@ -3,7 +3,7 @@
 #
 # Run by the agent on every wake-up, after setup_host.sh returned READY:
 #   self_update.sh --agent-id qingshan-ai-drama-factory-minipc [--restart]
-# * an episode in flight (Claude Code running, or its last NALU_STATUS is not FINAL_CUT_READY) -> no change;
+# * an episode in flight (the executor running, or its last NALU_STATUS is neither FINAL_CUT_READY nor BLOCKED) -> no change;
 # * otherwise `talenthub agent list` (registry catalog, cached by talenthub for up to 1 h); when this agent
 #   shows "Update available", `talenthub agent update <id>` rewrites its instruction files and refreshes
 #   its skills.  The new instructions apply from the next session; with --restart the OpenClaw gateway is
@@ -35,7 +35,8 @@ out = []
 for session in sorted((runtime / "claude_code").glob("*/session.json")):
     s = json.loads(session.read_text(encoding="utf-8"))
     state = ((cp.parse_log(Path(s.get("log") or "")).get("nalu_status")) or {}).get("state")
-    if cp.alive(s.get("pid")) or state != "FINAL_CUT_READY":
+    # a stopped BLOCKED episode is waiting for a fix (often this very update), not in flight
+    if cp.alive(s.get("pid")) or state not in ("FINAL_CUT_READY", "BLOCKED"):
         out.append(session.parent.name)
 print(",".join(out))
 PY

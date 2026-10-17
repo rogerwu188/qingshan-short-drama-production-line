@@ -73,7 +73,7 @@ if [ $FORCE = 0 ] && [ -f "$STATE" ] && grep -q "\"status\":\"READY\"" "$STATE" 
   finish READY ""
 fi
 
-# an episode in flight (the executor running, or its last NALU_STATUS is anything but FINAL_CUT_READY)
+# an episode in flight (the executor running, or its last NALU_STATUS is anything but FINAL_CUT_READY / BLOCKED)
 # keeps the engine + venv it started with; a new pin is applied on the first wake after it finishes.
 IN_FLIGHT="$(python3 - "$RUNTIME" "$S" <<'PY' 2>/dev/null
 import json, sys
@@ -85,7 +85,8 @@ busy = []
 for session in sorted((runtime / "claude_code").glob("*/session.json")):
     s = json.loads(session.read_text(encoding="utf-8"))
     state = ((cp.parse_log(Path(s.get("log") or "")).get("nalu_status")) or {}).get("state")
-    if cp.alive(s.get("pid")) or state != "FINAL_CUT_READY":
+    # a stopped BLOCKED episode is waiting for a fix (often this very pin), not in flight
+    if cp.alive(s.get("pid")) or state not in ("FINAL_CUT_READY", "BLOCKED"):
         busy.append(f"{session.parent.name}:{'RUNNING' if cp.alive(s.get('pid')) else state}")
 print(",".join(busy))
 PY
