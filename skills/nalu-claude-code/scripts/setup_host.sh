@@ -11,7 +11,7 @@
 #   4. python        .qingshan-venv (uv, CPython 3.12) + core/media/QA deps, runtime bootstrap
 #   5. codex         configure_codex.py --verify: install the Codex CLI (npm) and point it at the provider
 #                    in ~/nalu_runtime/credentials/llm_provider.json (asked from the line owner once; the
-#                    miniPCs produce with Codex + gpt-5.6 only since 2026-10-13; Claude Code is not installed)
+#                    miniPCs produce with Codex only since 2026-10-13 (default model gpt-6.1-sol since 2026-10-16); Claude Code is not installed)
 # Result: ~/.nalu_setup_state.json and ONE final JSON line on stdout:
 #   NALU_SETUP: {"status":"READY|NEEDS_PROVIDER|BLOCKED", "failed_step":..., "steps":{...}, ...}
 #   NEEDS_PROVIDER: everything else is ready; the agent asks the owner for the provider URL + key, writes

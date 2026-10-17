@@ -349,7 +349,7 @@
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "8a8d71cc22f0bcd5ba74ea0675fbc9015f3f8a096138b1e44a9a75c7ad13f28c"
+      "sha256": "c4430df1f3f7bd6b7c25d60a2a7f328bfb10b49f80c0b3e77c6fd00d3869c8b7"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
@@ -361,7 +361,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "ff193d8a1b3d005ff6c0a152afeb66fc11f0ed1d715948afb6273a5d5a021919"
+      "sha256": "eaa9aeacc2e7e9f435780e8a707cf9d236fde45bc5f3401e92006dac67b6599c"
     },
     {
       "path": "skills/nalu-claude-code/scripts/configure_claude_code.py",
@@ -369,7 +369,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/configure_codex.py",
-      "sha256": "62ee86c8e5ad8f17f628f111a82cdd2f1aa8619e07c619f5f0f7c5988af87310"
+      "sha256": "4a6a0fc31499276dd9edaaabfbb15346b4428892f731e22def8af6a2837b61ef"
     },
     {
       "path": "skills/nalu-claude-code/scripts/make_endcard.py",
@@ -401,7 +401,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/setup_host.sh",
-      "sha256": "071217ec85287242b395161d787d0cad4922acf5f4baa3c37ac5dbae14cd76a3"
+      "sha256": "9eec0e2fce0490769e6ef6a8050e3fc358de9a40a770410f6a2b67be439ca442"
     },
     {
       "path": "skills/qingshan-nalu/SKILL.md",
