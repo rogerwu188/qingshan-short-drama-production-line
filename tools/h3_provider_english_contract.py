@@ -25,7 +25,9 @@ def validate_h3_provider_text_boundary(text: str, *, source_id: str) -> dict[str
     outside = DIALOGUE_TAG.sub("", text)
     if CJK.search(outside):
         failures.append(f"H3_CJK_OUTSIDE_DIALOGUE:{source_id}")
-    if QUOTED_CJK.search(text):
+    # quoted Chinese is only forbidden OUTSIDE the dialogue tags: a line like 「好，走吧。」 or a book-title
+    # quote inside <d>[Chinese]...</d> is the permitted dialogue itself (401122 《新石头记》 E13, 2026-10-16)
+    if QUOTED_CJK.search(outside):
         failures.append(f"H3_QUOTED_CJK_FORBIDDEN:{source_id}")
     return {
         "schema": SCHEMA,
