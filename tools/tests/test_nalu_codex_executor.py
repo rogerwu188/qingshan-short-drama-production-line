@@ -60,12 +60,17 @@ class CodexExecutorTests(unittest.TestCase):
         self.write_provider()
         out = self.configure("--verify")
         self.assertEqual(out["status"], "VERIFIED")
-        self.assertEqual(out["model"], "gpt-5.6")
+        # gpt-5.6 is a retired default: it follows DEFAULT_MODEL unless the provider file locks it
+        self.assertEqual(out["model"], "gpt-6.1-sol")
         cfg = (self.home / ".codex/config.toml").read_text()
         self.assertIn('base_url = "https://relay.example/v1"', cfg)
         self.assertNotIn("sk-test-1234", cfg)
         self.assertNotIn("sk-test-1234", json.dumps(out))
         self.assertEqual(oct((self.runtime / "credentials/llm_provider.json").stat().st_mode & 0o777), "0o600")
+
+    def test_model_locked_keeps_retired_default(self):
+        self.write_provider(model_locked=True)
+        self.assertEqual(self.configure()["model"], "gpt-5.6")
 
     def test_legacy_codex_key_host_is_migrated(self):
         (self.home / ".codex").mkdir()

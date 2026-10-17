@@ -249,7 +249,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "0a07c6cfc28664da0414fb3f3a266573f89ef8bac322985179bb47b75f67f1c3"
+      "sha256": "3d329199b4d479d36bc0eced68ba377359997ac7a3492047a20c43e37c9e6623"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -7041,7 +7041,7 @@
     },
     {
       "path": "tools/tests/test_nalu_codex_executor.py",
-      "sha256": "7e1e04c8fbe48df968eebad9f009976f9287822605ef6c840d5ae68d309136d1"
+      "sha256": "21721cac218551694546d838edde51f6014a05d8f042722f12b184aa0f76ea3b"
     },
     {
       "path": "tools/tests/test_nalu_current_policy_profile.py",
@@ -7510,6 +7510,10 @@
     {
       "path": "tools/tests/test_identity_cards_period_lock.py",
       "sha256": "39ac6458fb8dc0d75bf29feab884c1d24c8061d0b29750efc64ba05a5c8f0db6"
+    },
+    {
+      "path": "tools/tests/test_prompt_batch_foreign_dialogue_clause.py",
+      "sha256": "063fe244b134ee6d44ce20e1700e6c63afeede5efaff83ea8a4f8056b6d9686e"
     },
     {
       "path": "tools/tests/test_start_frame_line_owner_acceptance.py",

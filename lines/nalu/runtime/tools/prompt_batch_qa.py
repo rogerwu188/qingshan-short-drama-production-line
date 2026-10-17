@@ -75,12 +75,19 @@ def foreign_dialogue(text: str, dialogue_by_shot: dict, unit_shots: list) -> lis
     """A transition never exempts out-of-scope dialogue from pre-submit QA."""
     local = {line.split("：", 1)[1] for sid in unit_shots
              for line in dialogue_by_shot.get(sid, [])}
+    # 2026-10-16 (miniPC 《画皮》 E01-VU-007): a foreign line that is a clause of a local line
+    # (「須秘密，勿泄。」 inside 「如憐妾而活之，須秘密，勿泄。」) matched inside the local line itself.
+    # Mask the unit's own lines first, longest first, then look for foreign lines in what is left.
+    remaining = text
+    for own in sorted(local, key=len, reverse=True):
+        if own:
+            remaining = remaining.replace(own, "\u0000")
     return sorted({line.split("：", 1)[1]
                    for sid, lines in dialogue_by_shot.items() if sid not in unit_shots
                    for line in lines
                    if line.split("：", 1)[1] not in local
                    and len(line.split("：", 1)[1]) > 4
-                   and line.split("：", 1)[1] in text})
+                   and line.split("：", 1)[1] in remaining})
 
 
 #: Tokens that mean "an outer garment made of hide": 兽皮大衣 / 裘氅 / 兽皮短袄 / 皮袄.
