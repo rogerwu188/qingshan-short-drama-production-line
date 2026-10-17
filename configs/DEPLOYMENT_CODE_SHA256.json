@@ -4729,7 +4729,7 @@
     },
     {
       "path": "tools/native_audio_loudness_contract.py",
-      "sha256": "7c2eedca2743a4adf845a95482f3a39b10efbeb773f0ab2ffa90e125a0eb1f5a"
+      "sha256": "4b31df89f06040a22edb7d18d65469d0838a1d0a2470e42a15d6f00e9953ca9e"
     },
     {
       "path": "tools/opening_anchor_chain_gate.py",
