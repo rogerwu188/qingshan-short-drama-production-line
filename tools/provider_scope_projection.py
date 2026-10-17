@@ -94,7 +94,9 @@ def binding_role_for(entity_id: str, role: Any = None) -> str:
         return "IDENTITY"
     if entity.startswith(("PROP-", "OBJ-")):
         return "PROP"
-    if entity.startswith(("GSM-", "LOC-", "SUBSPACE-", "ROOM-", "ZONE-", "FIXED-", "ANGLE-")):
+    # EGSM- is the per-episode global space map (nalu, e.g. EGSM-AQ-E04); it was falling through to
+    # IDENTITY and failed every keyframe of 401286 《阿Q正传》 E04 (2026-10-16)
+    if entity.startswith(("GSM-", "EGSM-", "LOC-", "SUBSPACE-", "ROOM-", "ZONE-", "FIXED-", "ANGLE-")):
         return "NON_IDENTITY"
     return "IDENTITY"
 
