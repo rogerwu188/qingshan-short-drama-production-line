@@ -9,7 +9,7 @@
   report                                  compact progress summary for the line owner
 
 Line owner 2026-10-12/13: Claude Code is retired on the miniPCs (E01 cost about $208 through the relay);
-Codex with gpt-5.6 runs S1-S7.  Written and run on 新石头记 E02-E03 by the miniPC agent, folded in here.
+Codex (gpt-6.1-sol by default) runs S1-S7.  Written and run on 新石头记 E02-E03 by the miniPC agent, folded in here.
 
 Compatibility:
 * Runs live in ``$NALU_RUNTIME_ROOT/claude_code/<EP>/`` (session.json + run_<ts>.jsonl).  When Codex exits,

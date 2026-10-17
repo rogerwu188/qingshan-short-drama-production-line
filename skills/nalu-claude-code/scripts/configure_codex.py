@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Install the OpenAI Codex CLI and point it at the LLM provider the line owner gave the agent.
 
-Line owner 2026-10-13: the miniPCs produce with Codex only (gpt-5.6), and the provider URL + key are
+Line owner 2026-10-13: the miniPCs produce with Codex only (gpt-6.1-sol since 2026-10-16; was gpt-5.6), and the provider URL + key are
 asked from the owner once at first setup instead of being copied from the StoryClaw/OpenClaw config.
 
 * Provider: ``$NALU_RUNTIME_ROOT/credentials/llm_provider.json`` (mode 600, written by the agent):
-  ``{"base_url": "https://…/v1", "api_key": "…", "model": "gpt-5.6"}``.  The relay must speak the
+  ``{"base_url": "https://…/v1", "api_key": "…", "model": "gpt-6.1-sol"}``.  The relay must speak the
   OpenAI Responses API over plain HTTP.  Hosts that predate this file (``credentials/codex_api_key`` +
   an existing ~/.codex/config.toml) are migrated once, keeping their URL and model.
 * The key never goes into config.toml and is never printed: codex_production.py hands it to codex as
@@ -26,7 +26,10 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-DEFAULT_MODEL = "gpt-5.6"
+DEFAULT_MODEL = "gpt-6.1-sol"
+#: earlier defaults, written verbatim into every provider file; line owner 2026-10-16: "默认 codex 模型都用 GPT 6.1 Sol"
+#: so they follow the default.  Applied when setup reconfigures Codex (not while an episode is in flight).
+RETIRED_DEFAULT_MODELS = frozenset({"gpt-5.6"})
 KEY_ENV = "HOPS_API_KEY"  # the name codex_production.py exports; kept for hosts configured before 2026-10-13
 
 
@@ -49,7 +52,8 @@ def load_provider(cred: Path, cfg: Path) -> dict[str, str] | None:
     if p.get("base_url") and p.get("api_key"):
         os.chmod(path, 0o600)
         return {"base_url": str(p["base_url"]).rstrip("/"), "api_key": str(p["api_key"]).strip(),
-                "model": str(p.get("model") or DEFAULT_MODEL)}
+                "model": (DEFAULT_MODEL if str(p.get("model") or "") in RETIRED_DEFAULT_MODELS
+                          else str(p.get("model") or DEFAULT_MODEL))}
     legacy = cred / "codex_api_key"
     old = cfg.read_text(encoding="utf-8") if cfg.is_file() else ""
     if legacy.is_file() and legacy.read_text(encoding="utf-8").strip() and toml_value(old, "base_url"):
@@ -84,7 +88,7 @@ def main() -> int:
     if not p:
         return say("NEEDS_PROVIDER", file=str(cred / "llm_provider.json"),
                    hint='ask the line owner for the provider base URL and API key; write '
-                        '{"base_url","api_key","model":"gpt-5.6"} there with mode 600')
+                        '{"base_url","api_key","model":"gpt-6.1-sol"} there with mode 600')
     exe = ensure_codex()
     if not exe:
         return say("BLOCKED", reason="CODEX_INSTALL_FAILED" if shutil.which("npm") else "NPM_MISSING_CANNOT_INSTALL_CODEX")
