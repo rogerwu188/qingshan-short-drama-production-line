@@ -979,7 +979,8 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
 
         depth_layers = [
             f"前景：{element_names[0] if element_names else zone_names[0]}（{row['zone_id']} 内已声明的固定物）",
-            f"中景：{'、'.join(member['character'] for member in cast) or '雪面与空气本身'}执行「{primary or entry}」",
+            # no-cast mid layer: the shot's own subject (a creature, or the environment), never 夜无疆's snow
+            f"中景：{'、'.join(member['character'] for member in cast) or subject}执行「{primary or entry}」",
             f"背景：{room.get('name') or room_id} 的 {'、'.join(zone_names)} 纵深",
         ]
         if len(element_names) > 1:
