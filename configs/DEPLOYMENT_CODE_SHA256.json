@@ -393,11 +393,11 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/self_update.sh",
-      "sha256": "d6ee678272b3170992964518c3dac0c3f764566898b51c2e62322cb5abc91189"
+      "sha256": "2d0138dd4d7f66ed8b964fcd31887d8443198f69907a23ad3d57a4592b5a3997"
     },
     {
       "path": "skills/nalu-claude-code/scripts/setup_host.sh",
-      "sha256": "da21882dfece7838d376f9d054228d9ebfabc01101d18666e539c9d1cb8d5eb5"
+      "sha256": "071217ec85287242b395161d787d0cad4922acf5f4baa3c37ac5dbae14cd76a3"
     },
     {
       "path": "skills/qingshan-nalu/SKILL.md",
