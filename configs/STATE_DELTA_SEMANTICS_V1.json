@@ -1,0 +1,13 @@
+{
+  "schema": "qingshan.state_delta_semantics_policy.v1",
+  "policy_id": "STATE_DELTA_SEMANTICS_V1",
+  "authority": "Line owner 2026-10-16 production-line optimisation plan §5: a string change must not stand in for a physical change.  Dialogue copied into a POSTURE end state passed the motion gate because the gate only compared two strings and two codes; and a legitimate dialogue shot whose posture does not change could not be expressed without inventing a head turn or a weight shift.",
+  "enabled_episodes": [],
+  "enabled_from_episode": null,
+  "activation_note": "Empty by default.  Episodes already in production keep the locked behaviour byte-for-byte; enable one episode at a time after an offline check.  A contract may also opt in with state_delta_semantics=\"V1\" on the unit or plan.",
+  "rules": {
+    "evidence_must_not_be_dialogue": "An entry or exit state that is the beat's own dialogue line is speech, not a physical state.  It fails STATE_DELTA_EVIDENCE_IS_DIALOGUE instead of counting as a change.",
+    "static_posture_performance": "A non-combat beat with dialogue may declare state_delta_mode=STATIC_POSTURE_PERFORMANCE: posture is unchanged, speech and performance carry the beat.  It needs no invented state dimension, but it must carry a performance cue; it is never available to a combat beat.",
+    "combat_still_needs_physical_result": "Combat beats keep the two-dimension minimum and every combat check.  A static-posture declaration on a combat beat fails."
+  }
+}

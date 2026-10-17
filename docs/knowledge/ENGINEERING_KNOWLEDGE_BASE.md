@@ -962,3 +962,36 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：tools/tests/test_state_delta_semantics.py（对白入证据、合法静止对白、打斗仍需结果、未启用集兼容）
 - **授权**：Roger 2026-10-16：通用生产线优化方案 §5「停止用字符串变化冒充动作变化」，要求先修已复现的错误链
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K102 — S2
+
+- **规则**：付费前用已有素材做零费用预演：tools/episode_previs.py 从合同、分组计划、已有关键帧（无图用占位卡）生成时间线，机器检查对白覆盖与未授权重复、对白能否装进本镜、镜头缺失/重复/未入单元、说话人与演员 ID 是否登记；对白时长无实测音频时一律标 ESTIMATED。导演审查问题不阻断，最多两轮，之后转 ADVISORY，不自动重生成。场景导演意图未声明只报建议项，不替作者编。
+- **教训**：字段、哈希、格式都合格的镜头设计仍可能有歧义，付费之后才看见就要花钱重做。
+- **恢复**：S2 后跑 episode_previs.py；机器失败改权威合同再跑，主观问题最多两轮。需要看片时加 --render，用现有 render_portable_timeline.py 出片。
+- **实现**：`tools/episode_previs.py`
+- **回归**：`tools/tests/test_previs_and_timing_map.py`
+- **证据**：tools/tests/test_previs_and_timing_map.py
+- **授权**：Roger 2026-10-16：通用生产线优化方案 §4/§6/§7，按顺序执行第二、三、四步
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K103 — S6
+
+- **规则**：审核要绑定真正发出去的请求，而不是某个文件。tools/provider_request_digest.py 对提示词正文、模型参数、按顺序的参考图（盘上 sha + 角色）、音频列表算一个摘要；两个提交器在所有适配与序列化之后、记意图之前比对 reviewed_request_sha256，不符即拒绝，零 POST、无事务记录。发送时压缩后的实际图片字节另记 sent_reference_sha256（传输证据，不进审核摘要）。启用的集里，已按另一指纹提交过的任务必须声明 supersedes_submission_fingerprints 才能再 POST。视频 payload 组装挪到意图之前，顺带修掉 H3 配音 asset_id 报错留下“在途”事务的问题；压缩记录改为线程安全。
+- **教训**：H3 重渲染、参考图重排、配音挂接、发送时压缩都发生在审核回执之后，回执只绑文件 sha，管不住实际请求。
+- **恢复**：审核完成后、付费授权前运行 tools/provider_request_digest.py --manifest 写入 reviewed_request_sha256；在 configs/PROVIDER_REQUEST_REVIEW_BINDING_V1.json 按集启用。
+- **实现**：`tools/provider_request_digest.py`、`tools/submit_giggle_video_manifest_v2.py`、`tools/submit_giggle_image_manifest.py`、`tools/giggle_api_client.py`
+- **回归**：`tools/tests/test_provider_request_binding.py`
+- **证据**：tools/tests/test_provider_request_binding.py（API mock 证明不符时零 POST）
+- **授权**：Roger 2026-10-16：通用生产线优化方案 §4/§6/§7，按顺序执行第二、三、四步
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K104 — S6
+
+- **规则**：剧情时长、对白时长、请求时长、返回素材时长、剪辑区间是五个数，分开记录并标来源：tools/unit_timing_map.py。同一句台词只能由一个单元生成（DIALOGUE_GENERATED_BY_TWO_UNITS）；请求超出剧情内容的余量如实记录；只有真有尾帧依赖的单元串行，其余并发。分组门原来对超出建议窗口的单元自动贴例外原因并放行，从不检查硬上限；现在例外原因只能解释离开建议窗口，不能越过硬上下限。
+- **教训**：一个数同时代表剧情、请求和剪辑，补余量、截台词、冻帧凑时长都会悄悄发生。
+- **恢复**：S2 后跑 unit_timing_map.py；收割后加 --media-dir，剪辑后加 --edit-decisions。
+- **实现**：`tools/unit_timing_map.py`、`tools/video_unit_grouping_gate.py`
+- **回归**：`tools/tests/test_previs_and_timing_map.py`
+- **证据**：tools/tests/test_previs_and_timing_map.py
+- **授权**：Roger 2026-10-16：通用生产线优化方案 §4/§6/§7，按顺序执行第二、三、四步
+- **状态**：REFERENCE_IMPLEMENTATION

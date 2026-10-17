@@ -68,6 +68,10 @@ try:
     from video_sequence_rhythm_gate import validate_combat_sequence_rhythm
     from opening_anchor_chain_gate import validate_opening_anchor_chain
     from provider_scope_projection import validate_provider_scope_projection
+    from provider_request_digest import (
+        require_no_silent_resubmission, require_reviewed_request,
+        sent_audio_references, sent_image_sha256, task_request_digest,
+    )
     from action_video_prompt_compiler import validate_action_contract
     from shot_media_admission_gate import compute_input_template_id, precheck_submission_inputs
 except ModuleNotFoundError:
@@ -94,6 +98,10 @@ except ModuleNotFoundError:
     from tools.video_sequence_rhythm_gate import validate_combat_sequence_rhythm
     from tools.opening_anchor_chain_gate import validate_opening_anchor_chain
     from tools.provider_scope_projection import validate_provider_scope_projection
+    from tools.provider_request_digest import (
+        require_no_silent_resubmission, require_reviewed_request,
+        sent_audio_references, sent_image_sha256, task_request_digest,
+    )
     from tools.action_video_prompt_compiler import validate_action_contract
     from tools.shot_media_admission_gate import compute_input_template_id, precheck_submission_inputs
 
@@ -925,23 +933,10 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
     # no POST is attempted, so the task is simply not charged and follows the pre-intent convention
     # (no transaction file -> classify_failures reports submit_failed_before_intent / NOT_CHARGED).
     images_payload, reference_image_asset_ids = _reference_image_transport(task)
-    intent = {
-        "schema": "qingshan.giggle_video_submit_transaction.v1",
-        "task_key": task["task_key"], "attempt_id": str(uuid.uuid4()),
-        "submission_fingerprint": fingerprint, "state": "INTENT_RECORDED",
-        "intent_recorded_at": utc_now(), "prompt_sha256": task["prompt_sha256"],
-        "reference_sha256": task["reference_sha256"], "model": task["model"],
-        "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
-    }
-    if reference_image_asset_ids:
-        # Over-limit transport: record the registered ids so recovery and audit can see exactly
-        # which provider assets this transaction is bound to without re-reading the request body.
-        intent["reference_transport"] = REFERENCE_ASSET_TRANSPORT
-        intent[REFERENCE_IMAGE_ASSET_IDS_KEY] = list(reference_image_asset_ids)
-    if scope_evidence is not None:
-        intent["prompt_scope_conflict_gate"] = scope_evidence["gate"]
-        intent["loaded_modules"] = scope_evidence["loaded_modules"]
-    atomic_json(transaction, intent)
+    # Build the request BEFORE the intent record (plan §7.2).  Everything below
+    # is local; nothing here can reach the provider.  The review binding is
+    # checked against these exact values, and a refusal leaves no transaction,
+    # so it is NOT_CHARGED_NO_INTENT_RECORDED with zero POSTs.
     payload = {
         "prompt": prompt_text if prompt_text is not None else resolve(task["prompt_file"]).read_text(encoding="utf-8"),
         "model": task["model"], "duration": int(task["duration_seconds"]),
@@ -958,11 +953,38 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         *(task.get("reference_audio_urls") or []),
     ]
     if str(task.get("model") or "").lower() in {"minimax-h3", "h3"} and audio_asset_ids:
+        # Raised before the intent record: it used to fire after it and leave a
+        # transaction that looked like an in-flight submission.
         raise ValueError("MiniMax-H3 requires URL audio references; asset IDs are not valid transport")
     if audio_asset_ids:
         payload["audios"] = [{"asset_id": value} for value in audio_asset_ids]
     elif audio_urls:
         payload["audios"] = [{"url": value} for value in audio_urls]
+    request_binding = require_reviewed_request(task, task_request_digest(
+        task, prompt_text=payload["prompt"],
+        reference_paths=[resolve(value) for value in task["reference_images"]],
+        duration=payload["duration"], audio=sent_audio_references(task),
+    )["request_sha256"])
+    require_no_silent_resubmission(task, transaction_dir, fingerprint)
+    intent = {
+        "schema": "qingshan.giggle_video_submit_transaction.v1",
+        "task_key": task["task_key"], "attempt_id": str(uuid.uuid4()),
+        "submission_fingerprint": fingerprint, "state": "INTENT_RECORDED",
+        "intent_recorded_at": utc_now(), "prompt_sha256": task["prompt_sha256"],
+        "reference_sha256": task["reference_sha256"], "model": task["model"],
+        "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
+    }
+    if reference_image_asset_ids:
+        # Over-limit transport: record the registered ids so recovery and audit can see exactly
+        # which provider assets this transaction is bound to without re-reading the request body.
+        intent["reference_transport"] = REFERENCE_ASSET_TRANSPORT
+        intent[REFERENCE_IMAGE_ASSET_IDS_KEY] = list(reference_image_asset_ids)
+    if scope_evidence is not None:
+        intent["prompt_scope_conflict_gate"] = scope_evidence["gate"]
+        intent["loaded_modules"] = scope_evidence["loaded_modules"]
+    intent["request_binding"] = request_binding
+    intent["sent_reference_sha256"] = sent_image_sha256(images_payload)
+    atomic_json(transaction, intent)
     try:
         with paid_video_submission_context():
             response = _request("/api/v1/generation/omni-video", payload)

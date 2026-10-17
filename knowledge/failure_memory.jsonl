@@ -58,3 +58,6 @@
 {"failure_code": "POLICY_KEY_HAS_NO_CONSUMER", "do_not_repeat": "不要往策略文件里加没人读的键", "stage": "S6", "scope": "generalizable", "knowledge_id": "K099"}
 {"failure_code": "REVIEW_FINDING_CONFIDENCE_UNDECLARED", "do_not_repeat": "不要让审核结论只有归因没有置信度", "stage": "S6", "scope": "generalizable", "knowledge_id": "K100"}
 {"failure_code": "STATE_DELTA_EVIDENCE_IS_DIALOGUE", "do_not_repeat": "不要把台词或画面描述填进物理状态证据；不要为过门给不变的姿态编造转头", "stage": "S2", "scope": "generalizable", "knowledge_id": "K101"}
+{"failure_code": "DIALOGUE_REPEATED_WITHOUT_REASON", "do_not_repeat": "不要把估算时长写成实测；不要把预演通过当成成片合格", "stage": "S2", "scope": "generalizable", "knowledge_id": "K102"}
+{"failure_code": "REVIEWED_REQUEST_MISMATCH", "do_not_repeat": "不要在审核之后改写提示词、参考图顺序或模型参数", "stage": "S6", "scope": "generalizable", "knowledge_id": "K103"}
+{"failure_code": "DIALOGUE_GENERATED_BY_TWO_UNITS", "do_not_repeat": "不要让相邻单元各自生成同一句台词；不要用例外原因越过模型硬时长", "stage": "S6", "scope": "generalizable", "knowledge_id": "K104"}

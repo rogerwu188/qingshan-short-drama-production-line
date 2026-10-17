@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+"""Beat -> shot -> provider request -> returned media -> final cut interval.
+
+Plan §6.  Five durations that used to be one number, recorded separately and
+each with its source:
+  story_seconds      what the action / drama needs        (contract target)
+  dialogue_seconds   speech, MEASURED from audio or ESTIMATED from text
+  request_seconds    what is asked of the provider        (grouping / transaction)
+  returned_seconds   what the provider actually returned  (ffprobe on the media)
+  cut interval       in / out / timeline position used     (edit decisions)
+
+One request is not assumed to be one final shot.  Read-only: it never edits a
+contract, never pads or trims, and never changes how units are scheduled.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+from typing import Any
+
+try:
+    from tools.episode_previs import estimate_dialogue_seconds, probe_seconds, _spoken
+except ModuleNotFoundError:  # flat sys.path
+    from episode_previs import estimate_dialogue_seconds, probe_seconds, _spoken
+
+SCHEMA = "qingshan.unit_timing_map.v1"
+TOLERANCE = 0.05
+
+
+def build_timing_map(
+    contract: dict[str, Any],
+    grouping: dict[str, Any],
+    *,
+    transaction_manifest: dict[str, Any] | None = None,
+    media_dir: Path | None = None,
+    edit_decisions: list[dict[str, Any]] | None = None,
+    chars_per_second: float = 4.5,
+) -> dict[str, Any]:
+    failures: list[dict[str, Any]] = []
+    notes: list[dict[str, Any]] = []
+
+    def fail(code: str, ref: str, detail: str = "") -> None:
+        failures.append({"code": code, "ref": ref, "detail": detail})
+
+    shots = {s["shot_id"]: s for s in contract.get("shots") or []}
+    scene_beats = {s.get("scene_id"): list(s.get("source_events") or []) for s in contract.get("scene_states") or []}
+    dialogue_by_shot: dict[str, list[dict[str, Any]]] = {}
+    for unit in (contract.get("audio_contract") or {}).get("dialogue_units") or []:
+        dialogue_by_shot.setdefault(str(unit.get("shot_id")), []).append(unit)
+    tasks = {str(t.get("unit_id") or t.get("source_id") or t.get("task_key")): t
+             for t in (transaction_manifest or {}).get("tasks") or []}
+    edits_by_unit: dict[str, list[dict[str, Any]]] = {}
+    for row in edit_decisions or []:
+        edits_by_unit.setdefault(str(row.get("unit_id")), []).append(row)
+
+    line_owner: dict[str, str] = {}
+    rows = []
+    for unit in grouping.get("units") or []:
+        uid = str(unit.get("unit_id"))
+        shot_rows = []
+        for sid in unit.get("editorial_shot_ids") or []:
+            shot = shots.get(sid) or {}
+            lines = []
+            for line in dialogue_by_shot.get(sid, []):
+                spoken = _spoken(line.get("text", ""))
+                # §6: one line, one sound source.  Two units that each generate
+                # the same line would be stitched into a doubled line.
+                if spoken and spoken in line_owner and line_owner[spoken] != uid:
+                    fail("DIALOGUE_GENERATED_BY_TWO_UNITS", sid, f"also in {line_owner[spoken]}")
+                line_owner.setdefault(spoken, uid)
+                lines.append({"speaker_id": line.get("speaker_id"),
+                              "seconds": estimate_dialogue_seconds(line.get("text", ""), chars_per_second),
+                              "duration_source": "ESTIMATED",
+                              "sound_source_unit_id": uid})
+            shot_rows.append({
+                "shot_id": sid,
+                "beat_ids": scene_beats.get(shot.get("scene_id"), []),
+                "story_seconds": float(shot.get("target_seconds") or 0),
+                "dialogue": lines,
+            })
+        task = tasks.get(uid) or {}
+        request_seconds = float(task.get("duration_seconds") or unit.get("duration_seconds") or 0)
+        content_seconds = float(unit.get("authorized_content_seconds") or sum(r["story_seconds"] for r in shot_rows))
+        handle = round(request_seconds - content_seconds, 3)
+        if handle > TOLERANCE:
+            # §6: a handle is legitimate only when declared; record it, never hide it.
+            notes.append({"code": "REQUEST_EXCEEDS_STORY", "ref": uid,
+                          "detail": f"{handle:g}s beyond authored content",
+                          "declared_handle_seconds": unit.get("authorized_tail_handle_seconds")})
+        returned = None
+        if media_dir is not None:
+            media = sorted(Path(media_dir).glob(f"{uid}*.mp4"))
+            returned = probe_seconds(media[-1]) if media else None
+        dependency = (task.get("action_sequence_contract") or {}).get("depends_on_task")
+        tail = task.get("predecessor_tail_frame")
+        if dependency and not tail:
+            fail("TAIL_DEPENDENCY_WITHOUT_TAIL_FRAME", uid, str(dependency))
+        cut = []
+        for row in edits_by_unit.get(uid, []):
+            in_point, out_point = float(row.get("in", 0)), float(row.get("out", 0))
+            if out_point <= in_point:
+                fail("CUT_INTERVAL_EMPTY", uid, f"{in_point}->{out_point}")
+            if returned is not None and out_point > returned + TOLERANCE:
+                fail("CUT_BEYOND_RETURNED_MEDIA", uid, f"out {out_point} > returned {returned}")
+            cut.append({"in": in_point, "out": out_point, "timeline_start": row.get("timeline_start")})
+        rows.append({
+            "unit_id": uid,
+            "shots": shot_rows,
+            "story_seconds": round(sum(r["story_seconds"] for r in shot_rows), 3),
+            "authorized_content_seconds": content_seconds,
+            "request_seconds": request_seconds,
+            "returned_seconds": returned,
+            "returned_source": "MEASURED" if returned is not None else "NOT_YET_GENERATED",
+            "depends_on_previous_tail": bool(dependency and tail),
+            "cut_intervals": cut,
+        })
+
+    # §6 / plan §10.12: tail chaining is for real dependencies only.
+    dependent = [r["unit_id"] for r in rows if r["depends_on_previous_tail"]]
+    return {
+        "schema": SCHEMA,
+        "episode": contract.get("episode"),
+        "status": "PASS" if not failures else "FAIL",
+        "unit_count": len(rows),
+        "tail_dependent_units": dependent,
+        "independent_units": len(rows) - len(dependent),
+        "failures": failures,
+        "notes": notes,
+        "units": rows,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--contract", required=True, type=Path)
+    parser.add_argument("--grouping-plan", required=True, type=Path)
+    parser.add_argument("--transaction-manifest", type=Path)
+    parser.add_argument("--media-dir", type=Path)
+    parser.add_argument("--edit-decisions", type=Path)
+    parser.add_argument("--out", required=True, type=Path)
+    args = parser.parse_args(argv)
+    load = lambda p: json.loads(p.read_text(encoding="utf-8")) if p else None
+    result = build_timing_map(
+        load(args.contract), load(args.grouping_plan),
+        transaction_manifest=load(args.transaction_manifest),
+        media_dir=args.media_dir, edit_decisions=load(args.edit_decisions),
+    )
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps({k: result[k] for k in ("status", "unit_count", "independent_units")}
+                     | {"tail_dependent": len(result["tail_dependent_units"]),
+                        "failures": len(result["failures"]), "notes": len(result["notes"])}, ensure_ascii=False))
+    return 0 if result["status"] == "PASS" else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

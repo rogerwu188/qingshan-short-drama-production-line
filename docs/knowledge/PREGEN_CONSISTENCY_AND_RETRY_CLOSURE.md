@@ -91,3 +91,41 @@
 **仍不能保证**：
 - 状态代码（`entry_code/exit_code`）仍由作者手写，门只能查"不同"与"不是台词"，不能证明代码与文字语义一致。
 - 打斗只有作者声明 `action_kind=COMBAT` 才会被当作打斗；没声明的打斗仍只靠文字线索兜底。
+
+## 六、零费用预演（优化方案 §4，`tools/episode_previs.py`）
+
+```bash
+python3 tools/episode_previs.py --contract <EP>_GENERATION_CONTRACT_v1.json \
+  --grouping-plan <EP>_VIDEO_UNIT_GROUPING_PLAN_V1.json --keyframe-dir <keyframes> \
+  --out <reports>/<EP>_PREVIS.json [--review-round N] [--render previs.mp4]
+```
+- 不调任何付费图片/视频/语音接口，不加视觉模型。`--render` 用已有 `render_portable_timeline.py` 出片（关键帧或占位卡）。
+- **机器检查（阻断）**：对白未授权重复（`repeat_reason` 可声明合理重复）、对白装不进本镜、镜头缺失/重复/未入单元/顺序错、说话人或演员未登记。
+- **导演审查（不阻断）**：六个问题，最多两轮；第三轮起转 `CLOSED_ADVISORY`，不再请求、不自动重生成。轮数上限永远不豁免机器失败、预算或事务检查。
+- 对白时长无实测音频时一律 `ESTIMATED`。场景导演意图（§3 七项）未声明只报 `SCENE_INTENT_NOT_DECLARED` 建议项。
+- 预演通过只表示可以进入后续生产，不是动作、身份或口型通过的证据。
+
+## 七、审核绑定实际发送的请求（优化方案 §7，`tools/provider_request_digest.py`）
+
+- 摘要覆盖：提示词正文、模型、时长、比例、分辨率、按顺序的参考图（盘上 sha + 角色）、音频列表。发送时压缩后的图片字节另记 `sent_reference_sha256`，不进摘要。
+- 检查位置：两个提交器内，所有适配与序列化之后、记意图之前。不符即 `REVIEWED_REQUEST_MISMATCH`，零 POST、无事务。
+- **启用**：`configs/PROVIDER_REQUEST_REVIEW_BINDING_V1.json` 列集号。顺序：审核 → `python3 tools/provider_request_digest.py --manifest <manifest>` 写入 `reviewed_request_sha256` → 付费授权（D-11 绑定的是写入后的清单 sha）→ 提交。
+- 启用的集里，同一 `task_key` 已按另一指纹提交过，须声明 `supersedes_submission_fingerprints` 才能再 POST（`BOUND_UNDER_OTHER_FINGERPRINT`）。
+- 携带 `reviewed_request_sha256` 的任务无论是否启用都会被比对。
+- **在产兼容**：未启用、未写摘要的任务只多记两条证据字段，不改指纹、不改恢复逻辑；已绑定任务仍按 task_id 恢复。
+
+## 八、节拍—镜头—请求—剪辑映射（优化方案 §6，`tools/unit_timing_map.py`）
+
+- 每单元记录剧情时长、对白时长（来源）、请求时长、返回素材时长（实测或 `NOT_YET_GENERATED`）、剪辑入出点。
+- 失败：同一句台词由两个单元生成、尾帧依赖缺尾帧、剪辑区间为空或超出返回素材。请求超出剧情内容只记 `REQUEST_EXCEEDS_STORY`（附声明的余量）。
+- 只有真有尾帧依赖的单元串行，报告列出 `tail_dependent_units`，其余并发。
+- 分组门新增硬上下限：例外原因只能解释离开建议窗口，不能越过 `duration_policy_seconds`。已回放 E09–E12 均 PASS。
+
+## 九、仍未实现或不能保证
+
+1. 合同里没有场景导演意图字段（§3）；预演只能报"未声明"，写手层需要补写，代码不替作者生成。
+2. 分组规格构建器仍会给建议窗口外的单元自动贴 `CONTINUOUS_CAUSAL_ACTION`；改它会改分组计划字节与指纹，本轮只在门上加硬限，不改标签。
+3. 对白时长目前全是估算；接入 S4 参考音或试读后才有 `MEASURED`。
+4. 状态代码仍由作者手写，门不能证明代码与文字语义一致。
+5. 相邻镜头换人换道具后是否无依据复制上一镜状态（§10.4），依赖既有的 `entity_state_scoping`，本轮未加新检查。
+6. 参考图内容是否符合声明，仍靠人工看图（线主已决定不加视觉模型）。

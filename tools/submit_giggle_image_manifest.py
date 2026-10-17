@@ -28,6 +28,11 @@ try:
     from retry_cap_gate import validate_submission_attempt
     from role_semantic_prompt_gate import validate_role_semantics, validate_role_semantics_structure
     from provider_scope_projection import is_single_subject_mode
+    from giggle_api_client import encode_reference_images
+    from provider_request_digest import (
+        require_no_silent_resubmission, require_reviewed_request,
+        sent_image_sha256, task_request_digest,
+    )
     from keyframe_entry_state_gate import (
         evaluate_task as evaluate_keyframe_entry_task,
         keyframe_entry_contract_required,
@@ -47,6 +52,11 @@ except ModuleNotFoundError:  # Imported as tools.submit_giggle_image_manifest.
         keyframe_entry_contract_required,
     )
     from tools.provider_scope_projection import is_single_subject_mode
+    from tools.giggle_api_client import encode_reference_images
+    from tools.provider_request_digest import (
+        require_no_silent_resubmission, require_reviewed_request,
+        sent_image_sha256, task_request_digest,
+    )
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -435,12 +445,14 @@ def _submit_one_locked(task: dict[str, Any], receipt_dir: Path, transaction_dir:
         )
     validate_reference_count(task)
     references = [str(resolve(path)) for path in task["reference_images"]]
-    encoded_references = _image_list(references)
+    # Notes are returned per call: the module-global notes list was shared by
+    # up to six POST threads, so one task could record another task's encoding.
+    encoded_references, encoding_notes = encode_reference_images(references)
     # SUPERVISOR_ORDERS seq=21: a reference body that is too large loses the response (E10-VU-020
     # at ~51 MB / HTTP 524; E11-S02-01 at ~22 MB / broken pipe).  _image_list re-encodes oversized
     # references at ENCODE time, so the shas the pipeline binds still describe the files on disk.
     # Record what was sent, so "why did the body shrink" is answerable from the transaction alone.
-    reference_encoding = [row for row in reference_encoding_notes() if row.get("compressed")] or \
+    reference_encoding = [row for row in encoding_notes if row.get("compressed")] or \
                          [{"all_below_threshold": True,
                            "threshold_bytes": REFERENCE_COMPRESS_THRESHOLD_BYTES}]
     payload = {
@@ -452,9 +464,18 @@ def _submit_one_locked(task: dict[str, Any], receipt_dir: Path, transaction_dir:
         "resolution": task.get("resolution", "1K"),
         "watermark": False,
     }
+    # Plan §7: the review binds the request as sent — this prompt text, these
+    # parameters, these references in this order.  Checked before the intent
+    # record, so a refusal is NOT_CHARGED_NO_INTENT_RECORDED with zero POSTs.
+    request_binding = require_reviewed_request(task, task_request_digest(
+        task, prompt_text=prompt, reference_paths=[Path(p) for p in references],
+    )["request_sha256"])
+    require_no_silent_resubmission(task, transaction_dir, submission_fingerprint(task))
     transaction = transaction_path(transaction_dir, task)
     intent = {
         "schema": "qingshan.giggle_submit_transaction.v1",
+        "request_binding": request_binding,
+        "sent_reference_sha256": sent_image_sha256(encoded_references),
         "task_key": task["task_key"],
         "attempt_id": str(uuid.uuid4()),
         "submission_fingerprint": submission_fingerprint(task),

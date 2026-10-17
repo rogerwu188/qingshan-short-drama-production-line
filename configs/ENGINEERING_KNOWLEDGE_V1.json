@@ -2061,6 +2061,82 @@
       "sync_slug": "E12-manual-state-delta-semantics",
       "runtime_gate_added": false,
       "implementation_note": "默认未对任何集启用；在产 E12 逐字节不变。"
+    },
+    {
+      "scope": "generalizable",
+      "episode": "E12",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "runtime_gate_added": false,
+      "authority": "Roger 2026-10-16：通用生产线优化方案 §4/§6/§7，按顺序执行第二、三、四步",
+      "id": "K102",
+      "key": "zero-credit-previs-before-paid",
+      "stage": "S2",
+      "category": "PLANNING",
+      "rule": "付费前用已有素材做零费用预演：tools/episode_previs.py 从合同、分组计划、已有关键帧（无图用占位卡）生成时间线，机器检查对白覆盖与未授权重复、对白能否装进本镜、镜头缺失/重复/未入单元、说话人与演员 ID 是否登记；对白时长无实测音频时一律标 ESTIMATED。导演审查问题不阻断，最多两轮，之后转 ADVISORY，不自动重生成。场景导演意图未声明只报建议项，不替作者编。",
+      "lesson": "字段、哈希、格式都合格的镜头设计仍可能有歧义，付费之后才看见就要花钱重做。",
+      "recovery": "S2 后跑 episode_previs.py；机器失败改权威合同再跑，主观问题最多两轮。需要看片时加 --render，用现有 render_portable_timeline.py 出片。",
+      "implementation": [
+        "tools/episode_previs.py"
+      ],
+      "evidence": "tools/tests/test_previs_and_timing_map.py",
+      "regression": "tools/tests/test_previs_and_timing_map.py",
+      "failure_code": "DIALOGUE_REPEATED_WITHOUT_REASON",
+      "do_not_repeat": "不要把估算时长写成实测；不要把预演通过当成成片合格",
+      "sync_slug": "E12-manual-zero-credit-previs"
+    },
+    {
+      "scope": "generalizable",
+      "episode": "E12",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "runtime_gate_added": false,
+      "authority": "Roger 2026-10-16：通用生产线优化方案 §4/§6/§7，按顺序执行第二、三、四步",
+      "id": "K103",
+      "key": "review-binds-the-sent-request",
+      "stage": "S6",
+      "category": "GATE",
+      "rule": "审核要绑定真正发出去的请求，而不是某个文件。tools/provider_request_digest.py 对提示词正文、模型参数、按顺序的参考图（盘上 sha + 角色）、音频列表算一个摘要；两个提交器在所有适配与序列化之后、记意图之前比对 reviewed_request_sha256，不符即拒绝，零 POST、无事务记录。发送时压缩后的实际图片字节另记 sent_reference_sha256（传输证据，不进审核摘要）。启用的集里，已按另一指纹提交过的任务必须声明 supersedes_submission_fingerprints 才能再 POST。视频 payload 组装挪到意图之前，顺带修掉 H3 配音 asset_id 报错留下“在途”事务的问题；压缩记录改为线程安全。",
+      "lesson": "H3 重渲染、参考图重排、配音挂接、发送时压缩都发生在审核回执之后，回执只绑文件 sha，管不住实际请求。",
+      "recovery": "审核完成后、付费授权前运行 tools/provider_request_digest.py --manifest 写入 reviewed_request_sha256；在 configs/PROVIDER_REQUEST_REVIEW_BINDING_V1.json 按集启用。",
+      "implementation": [
+        "tools/provider_request_digest.py",
+        "tools/submit_giggle_video_manifest_v2.py",
+        "tools/submit_giggle_image_manifest.py",
+        "tools/giggle_api_client.py"
+      ],
+      "evidence": "tools/tests/test_provider_request_binding.py（API mock 证明不符时零 POST）",
+      "regression": "tools/tests/test_provider_request_binding.py",
+      "failure_code": "REVIEWED_REQUEST_MISMATCH",
+      "do_not_repeat": "不要在审核之后改写提示词、参考图顺序或模型参数",
+      "sync_slug": "E12-manual-review-binds-sent-request"
+    },
+    {
+      "scope": "generalizable",
+      "episode": "E12",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "runtime_gate_added": false,
+      "authority": "Roger 2026-10-16：通用生产线优化方案 §4/§6/§7，按顺序执行第二、三、四步",
+      "id": "K104",
+      "key": "beat-shot-request-cut-timing-map",
+      "stage": "S6",
+      "category": "TIMING",
+      "rule": "剧情时长、对白时长、请求时长、返回素材时长、剪辑区间是五个数，分开记录并标来源：tools/unit_timing_map.py。同一句台词只能由一个单元生成（DIALOGUE_GENERATED_BY_TWO_UNITS）；请求超出剧情内容的余量如实记录；只有真有尾帧依赖的单元串行，其余并发。分组门原来对超出建议窗口的单元自动贴例外原因并放行，从不检查硬上限；现在例外原因只能解释离开建议窗口，不能越过硬上下限。",
+      "lesson": "一个数同时代表剧情、请求和剪辑，补余量、截台词、冻帧凑时长都会悄悄发生。",
+      "recovery": "S2 后跑 unit_timing_map.py；收割后加 --media-dir，剪辑后加 --edit-decisions。",
+      "implementation": [
+        "tools/unit_timing_map.py",
+        "tools/video_unit_grouping_gate.py"
+      ],
+      "evidence": "tools/tests/test_previs_and_timing_map.py",
+      "regression": "tools/tests/test_previs_and_timing_map.py",
+      "failure_code": "DIALOGUE_GENERATED_BY_TWO_UNITS",
+      "do_not_repeat": "不要让相邻单元各自生成同一句台词；不要用例外原因越过模型硬时长",
+      "sync_slug": "E12-manual-timing-map"
     }
   ]
 }

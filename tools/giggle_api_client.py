@@ -228,6 +228,22 @@ def _image_list(paths: List[str]) -> List[Dict[str, str]]:
     return [{"base64": _b64(p)} for p in paths]
 
 
+def encode_reference_images(paths: List[str]) -> tuple[List[Dict[str, str]], List[Dict[str, Any]]]:
+    """Thread-safe form of _image_list: returns the images AND their encoding notes.
+
+    _image_list keeps its notes in a module-global list that every call clears.
+    Submitters run up to six POST threads, so one thread could read another
+    thread's notes into its transaction.  This keeps the notes local to the call.
+    """
+    images: List[Dict[str, str]] = []
+    notes: List[Dict[str, Any]] = []
+    for value in paths:
+        payload, note = _compressed_reference_bytes(Path(value).expanduser())
+        images.append({"base64": base64.b64encode(payload).decode("ascii")})
+        notes.append(note)
+    return images, notes
+
+
 def reference_encoding_notes() -> List[Dict[str, Any]]:
     """Per-reference record of the last _image_list call (empty when nothing has been encoded)."""
     return list(_REFERENCE_ENCODING_NOTES)

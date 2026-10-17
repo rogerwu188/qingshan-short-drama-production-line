@@ -1,0 +1,8 @@
+{
+  "schema": "qingshan.provider_request_review_binding_policy.v1",
+  "policy_id": "PROVIDER_REQUEST_REVIEW_BINDING_V1",
+  "authority": "Line owner 2026-10-16 production-line optimisation plan §7: the review must bind the request that is actually sent.  Receipts bound prompt and reference FILES; the H3 re-render, reference reordering, voice attachment and send-time compression all happen after them.",
+  "enabled_episodes": [],
+  "enabled_from_episode": null,
+  "activation_note": "Empty by default; in-production episodes are unaffected.  When an episode is enabled, every task must carry reviewed_request_sha256 (stamp with tools/provider_request_digest.py --manifest after the review, before paid authorization), and a task_key already bound under another fingerprint must declare supersedes_submission_fingerprints before it can POST again.  A task that carries reviewed_request_sha256 is checked even when its episode is not enabled."
+}

@@ -15,6 +15,14 @@ def evaluate(plan: dict[str, Any]) -> dict[str, Any]:
     preferred = plan.get("preferred_duration_seconds") or {}
     preferred_minimum = float(preferred.get("minimum", 5))
     preferred_maximum = float(preferred.get("maximum", 8))
+    # The hard bounds are a model constraint, not a preference.  An exception
+    # reason may explain leaving the preferred window; it can never carry a
+    # unit outside the hard window.  Before this, every out-of-window unit was
+    # given an automatic reason by the spec builder and the gate accepted the
+    # reason, so the hard maximum was never enforced.
+    hard = plan.get("duration_policy_seconds") or {}
+    hard_minimum = float(hard["minimum"]) if hard.get("minimum") is not None else None
+    hard_maximum = float(hard["maximum"]) if hard.get("maximum") is not None else None
 
     accepted_schemas = {
         "qingshan.video_unit_grouping_plan.v1",
@@ -47,6 +55,10 @@ def evaluate(plan: dict[str, Any]) -> dict[str, Any]:
                 failures.append(f"short_unit_exception_missing:{unit.get('unit_id')}")
         if duration > preferred_maximum and not unit.get("duration_exception_reason"):
             failures.append(f"long_unit_exception_missing:{unit.get('unit_id')}")
+        if hard_maximum is not None and duration > hard_maximum + 0.001:
+            failures.append(f"unit_exceeds_hard_maximum:{unit.get('unit_id')}:{duration:g}>{hard_maximum:g}")
+        if hard_minimum is not None and duration < hard_minimum - 0.001:
+            failures.append(f"unit_below_hard_minimum:{unit.get('unit_id')}:{duration:g}<{hard_minimum:g}")
     if editorial_count != len(seen) or len(seen) != len(set(seen)):
         failures.append("editorial_shot_coverage_not_exact")
     if len(units) >= 8 and short / len(units) > 0.25:
