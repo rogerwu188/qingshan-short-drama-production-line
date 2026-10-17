@@ -59,7 +59,7 @@ cp configs/pipeline.example.json $NALU_RUNTIME_ROOT/qingshan.json
 ## 2. LLM provider 与 Codex（首次配置时向线主要一次）
 miniPC 只用 Codex（模型 gpt-6.1-sol），不装 Claude Code，也**不沿用** StoryClaw/OpenClaw 自己的模型配置。首次配置时（`setup_host.sh`
 返回 `NEEDS_PROVIDER`）向线主要一次：provider 的 **base URL**（OpenAI Responses 兼容，形如 `https://…/v1`）和 **API key**，
-模型不说就用 `gpt-6.1-sol`。收到后写：
+模型不说就用 `gpt-6.1-sol`（文件里留着旧默认 `gpt-5.6` 的会在下次 setup 重配时自动改成新默认；要按集对比模型时加 `"model_locked": true` 保持原样）。收到后写：
 ```bash
 umask 077; python3 - <<'PY'
 import json, os, pathlib

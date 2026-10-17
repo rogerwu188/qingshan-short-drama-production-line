@@ -52,7 +52,9 @@ def load_provider(cred: Path, cfg: Path) -> dict[str, str] | None:
     if p.get("base_url") and p.get("api_key"):
         os.chmod(path, 0o600)
         return {"base_url": str(p["base_url"]).rstrip("/"), "api_key": str(p["api_key"]).strip(),
+                # "model_locked": true keeps a retired default as written (e.g. one episode measured per model)
                 "model": (DEFAULT_MODEL if str(p.get("model") or "") in RETIRED_DEFAULT_MODELS
+                          and not p.get("model_locked")
                           else str(p.get("model") or DEFAULT_MODEL))}
     legacy = cred / "codex_api_key"
     old = cfg.read_text(encoding="utf-8") if cfg.is_file() else ""
