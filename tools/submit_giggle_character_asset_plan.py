@@ -173,9 +173,11 @@ def submit(row: dict, output_dir: Path, transaction_dir: Path, model: str, resol
             os.environ["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = previous_context
     task_id = (response.get("data") or {}).get("task_id")
     if not task_id:
-        intent.update({"state": "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION", "error": "response has no task_id", "response_lost_at": utc_now()})
+        # keep the provider body (code/msg) so a charged-but-unbound row can be diagnosed;
+        # the image-manifest submitter already records it the same way
+        intent.update({"state": "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION", "error": "response has no task_id", "provider_response": response, "response_lost_at": utc_now()})
         atomic_json(transaction, intent)
-        raise RuntimeError(f"{row['id']} response has no task_id")
+        raise RuntimeError(f"{row['id']} response has no task_id: code={response.get('code')!r} msg={str(response.get('msg'))[:200]!r}")
     receipt_path = output_dir / f"{row['id']}_submit_response.json"
     atomic_json(receipt_path, response)
     intent.update({"state": "SUBMITTED_TASK_ID_BOUND", "task_id": task_id, "receipt": portable_path(receipt_path), "response_recorded_at": utc_now()})

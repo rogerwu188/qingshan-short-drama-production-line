@@ -5957,7 +5957,7 @@
     },
     {
       "path": "tools/submit_giggle_character_asset_plan.py",
-      "sha256": "dfc9739b349deaf4d8d9a0e935e0cfcde8d5636efd5af2941ef7b6389e427abb"
+      "sha256": "fffd008dbb2d74ce80771e317d9db38fed80f5bc89eb03d7e59b227d7b695ae1"
     },
     {
       "path": "tools/submit_giggle_image_manifest.py",
@@ -7637,7 +7637,7 @@
     },
     {
       "path": "tools/tests/test_submit_giggle_character_asset_plan.py",
-      "sha256": "533c643c0612c776cc919857de5bd7c1d86e5a270b391f6165b9014534a691fb"
+      "sha256": "57cf6d71d84351bf1c9b898d8da80260324c7133bb2c3a7eb40eb9fc12eb2692"
     },
     {
       "path": "tools/tests/test_submit_giggle_image_manifest.py",
