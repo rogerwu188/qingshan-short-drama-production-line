@@ -487,7 +487,13 @@ def precheck_submission_inputs(
                 downstream = str(start_frame_admission.get("downstream_status") or "")
                 admitted_sha = str(start_frame_admission.get("asset_sha256") or "")
                 expected_sha = str(task.get("exact_first_frame_sha256") or task.get("start_frame_sha256") or "")
-                if status not in {"ADMITTED", "ADMITTED_WITH_P2"}:
+                # A start frame the line owner admitted by a GATE_FAIL_ACCEPTANCE order (nalu
+                # accept_q1_row) keeps the engine's FAIL beside it and is admitted only for the exact
+                # still its acceptance record is bound to (miniPC 400334 《画皮》 E01-VU-015, 2026-10-16).
+                owner = start_frame_admission.get("line_owner_acceptance") or {}
+                owner_admitted = (status == "ADMITTED_BY_LINE_OWNER_ORDER" and isinstance(owner, dict)
+                                  and bool(expected_sha) and str(owner.get("media_sha256") or "") == expected_sha)
+                if status not in {"ADMITTED", "ADMITTED_WITH_P2"} and not owner_admitted:
                     semantic_evidence_invalid.append("Q1_START_FRAME_NOT_ADMITTED")
                 if downstream and downstream != "ADMITTED_FOR_VIDEO_SUBMIT":
                     semantic_evidence_invalid.append("Q1_DOWNSTREAM_STATUS_INVALID")
