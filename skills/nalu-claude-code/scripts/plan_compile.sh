@@ -3,6 +3,8 @@
 set -eo pipefail
 EP=${1:-E01}
 E=${NALU_ENGINE_ROOT:?}; R=${NALU_RUNTIME_ROOT:?}
+# CURRENT_PORTABLE here is for this compile subprocess only; never export it in the executor's shell
+# (nalu_pipeline S1 would then demand a StoryClaw private project.json and block a clean miniPC).
 export NALU_WORK_ROOT=$E/workflow/nalu NALU_POLICY_PROFILE=CURRENT_PORTABLE NALU_SERIES_SCOPES=$R/runtime/series_scopes.json \
   NALU_SERIES_SCOPE_ID=NALU-YEWUJIANG QINGSHAN_VOICE_REGISTRY=$R/runtime/voice_registry.json \
   QINGSHAN_ENTITY_REGISTRY=$R/runtime/nalu_entity_registry.json QINGSHAN_CHARACTER_REGISTRY=$R/runtime/nalu_character_asset_registry.json PYTHONPATH=$E
