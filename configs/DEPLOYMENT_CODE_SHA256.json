@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2044,
+  "file_count": 2049,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -52,7 +52,7 @@
       "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
     },
     {
-      "path": "agent_factory/claude_writer/runtime_templates/观众已知清单.md",
+      "path": "agent_factory/claude_writer/runtime_templates/\u89c2\u4f17\u5df2\u77e5\u6e05\u5355.md",
       "sha256": "20aeda7beb8aaf9aa591df6a1aee5254d48bb5c0868fec2fd0fc05f81a9b9830"
     },
     {
@@ -224,6 +224,10 @@
       "sha256": "5e021d34b51ef1ea5fa173eb71d0d60c8222189b0fc7b46946624c79e9929887"
     },
     {
+      "path": "configs/EPISODE_PREVIS_V1.json",
+      "sha256": "1d693796b27e59792d44e6a6a376f96780cbf932ab87e160d40148db95ebfcfb"
+    },
+    {
       "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
       "sha256": "9ee040c0a00caf9a61e4fd9995ff84c2f22abcaa1a3a2ac60bd01035e929fb0e"
     },
@@ -249,7 +253,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "1c7bdec3f23ac9c2e7d19ad654784a9a8903abea4309a30e9002481bdfdba301"
+      "sha256": "4798f3f8b45296652bf3dd760807b20af7f1bf1372dafbcc60757d858d7cacef"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -322,6 +326,10 @@
     {
       "path": "docs/knowledge/LINE_UPGRADE_PROTOCOL.md",
       "sha256": "4aa23a57c9a4dcff5fd88c36128c9744928e0f8ae2bbca61cbb9f1cb34df2955"
+    },
+    {
+      "path": "docs/knowledge/OPTIMIZATION_PLAN_STATUS_20261017.md",
+      "sha256": "7a4e09a296cc7ab04cb37cfc34db0c5882521fb9037f17b9277e035111f830f7"
     },
     {
       "path": "docs/knowledge/PREGEN_CONSISTENCY_AND_RETRY_CLOSURE.md",
@@ -3789,7 +3797,7 @@
     },
     {
       "path": "tools/episode_previs.py",
-      "sha256": "62c1f75dcb7c29adb5c21fcd8aaef3df4617a917eaf30664bb8ad86933cc3a1b"
+      "sha256": "6604aafe319bc159fcdfad78ca34ad2cef95c1fc7497f7d149e4ad9fa899b3d7"
     },
     {
       "path": "tools/episode_prompt_batch_gate.py",
@@ -5957,11 +5965,11 @@
     },
     {
       "path": "tools/submit_giggle_character_asset_plan.py",
-      "sha256": "fffd008dbb2d74ce80771e317d9db38fed80f5bc89eb03d7e59b227d7b695ae1"
+      "sha256": "d2d90acd959eeda05d72e050003c9a5cd17ab59248bf13aa6979d279da1632ef"
     },
     {
       "path": "tools/submit_giggle_image_manifest.py",
-      "sha256": "d7ee9ecd445423dd54633e8f152f99ef2d549142a39f8170c3cc99dfa8d59047"
+      "sha256": "0f149890753cfdc445ca76ba96d94c281c831c0077d75d7fff206e32ece63e6e"
     },
     {
       "path": "tools/submit_giggle_task_manifest.py",
@@ -6916,6 +6924,10 @@
       "sha256": "8a01d2824bfc1cff02102c6aecc0ff9af9ee7e5459c4b13f2dd85cc9d9552293"
     },
     {
+      "path": "tools/tests/test_h3_quoted_cjk_inside_dialogue.py",
+      "sha256": "cb094270b5a2d6d13c4b22b7d8808be21e3499cd17137233a94d587da3ac750f"
+    },
+    {
       "path": "tools/tests/test_h3_shot_scope_v1.py",
       "sha256": "922a8c77e1c1bfc9b11bff729956328a4dc510c3eb29f1f740c3484ee45c0175"
     },
@@ -6926,10 +6938,6 @@
     {
       "path": "tools/tests/test_human_realism_prompt_contract.py",
       "sha256": "e2f164e2283c67b905f8169fcb5e6e53a72987da8c95c57001ef9c93690e1d72"
-    },
-    {
-      "path": "tools/tests/test_h3_quoted_cjk_inside_dialogue.py",
-      "sha256": "cb094270b5a2d6d13c4b22b7d8808be21e3499cd17137233a94d587da3ac750f"
     },
     {
       "path": "tools/tests/test_identity_cards_period_lock.py",
@@ -7260,6 +7268,10 @@
       "sha256": "e794aeec155cbb20a5bbb88236f2f9ecb4896a5d05fa1bc5b247d1968fb58d47"
     },
     {
+      "path": "tools/tests/test_previs_gate_wiring.py",
+      "sha256": "04ffacd2cc385acc202b9ed62378e6cd0effea579eda907b83947948d1cf3355"
+    },
+    {
       "path": "tools/tests/test_production_efficiency_contract.py",
       "sha256": "b89db18298ec35bff4f1edff8b102685edd5323c2c3819587411db235dc62c42"
     },
@@ -7554,6 +7566,10 @@
     {
       "path": "tools/tests/test_state_lock_action_scope.py",
       "sha256": "c8dda82d8c994efca70f305da84307e972878bdbdcc4ed48872fd11b77112724"
+    },
+    {
+      "path": "tools/tests/test_static_design_gate_motion.py",
+      "sha256": "7dab53379844add78699d8600fe5023c54068390f436147b4ccd1c5fea1af0c4"
     },
     {
       "path": "tools/tests/test_storyboard_sheet_gate.py",
