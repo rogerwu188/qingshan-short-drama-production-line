@@ -35,6 +35,23 @@ def _cp(shot: dict) -> dict:
     return ((shot.get("prompt_spec") or {}).get("camera_plan") or {})
 
 
+def _motion_purpose_active(contract: dict) -> bool:
+    """Whether the narrow (purposeful-motion) R3 applies to this episode.
+
+    Same switch as the previs gate: an episode is affected only once it is
+    listed in configs/EPISODE_PREVIS_V1.json or reaches enabled_from_episode,
+    or the contract opts in itself.  Episodes already produced keep R3 as it
+    was — the plan forbids retroactive rework, and a changed verdict on a paid
+    episode would be exactly that.
+    """
+    try:
+        import episode_previs
+        return episode_previs.gate_active(
+            str(contract.get("episode") or contract.get("episode_id") or ""), contract=contract)
+    except Exception:  # noqa: BLE001 — no policy module means the locked behaviour
+        return False
+
+
 def _dialogue(shot: dict) -> bool:
     d = (shot.get("prompt_spec") or {}).get("dialogue")
     if isinstance(d, list):
@@ -61,7 +78,28 @@ def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> d
         if locked and prev_locked:
             row["flags"].append("R2_CONSECUTIVE_LOCKED")
         if locked and not dlg:
-            row["flags"].append("R3_NO_DIALOGUE_SHOT_WITHOUT_CAMERA_MOTION")
+            # R3 was originally "every no-dialogue shot must have camera motion".  The
+            # production-line optimisation plan (2026-10-17) makes the intent more precise:
+            # a locked camera on a no-dialogue shot is acceptable when a character is visibly
+            # performing, but a shot with no dialogue AND no body-level motion AND a locked
+            # camera has nothing to show for itself.  R7 (seq=10) already fires when
+            # primary_action lacks body-level verbs for a no-dialogue shot >= 3 s.
+            #
+            # The narrower rule is gated on the previs policy so an episode already paid for
+            # keeps its locked behaviour byte-for-byte: the plan is explicit that nothing is
+            # reworked retroactively.  Episodes below the switch keep the original R3.
+            if _motion_purpose_active(contract):
+                ps_act = str(((sh.get("prompt_spec") or {}).get("action") or {}).get("primary_action") or "")
+                try:
+                    import nalu_prompt_rules as _npr_r3
+                    has_body = any(v in ps_act for v in _npr_r3.BODY_VERBS)
+                    is_moving = fam in _npr_r3.MOVING_CAMERA
+                except Exception:  # noqa: BLE001
+                    has_body, is_moving = False, False
+                if not is_moving and not has_body:
+                    row["flags"].append("R3_LOCKED_NO_DIALOGUE_NO_BODY_MOTION")
+            else:
+                row["flags"].append("R3_NO_DIALOGUE_SHOT_WITHOUT_CAMERA_MOTION")
         if locked and dlg and secs > policy["locked_dialogue_seconds_max"]:
             row["flags"].append(f"R4_LOCKED_DIALOGUE_SHOT_OVER_{policy['locked_dialogue_seconds_max']:g}S")
         # seq=10 root-cause rules (nalu_prompt_rules): R7 body motion for no-dialogue holds, R8 dialogue length

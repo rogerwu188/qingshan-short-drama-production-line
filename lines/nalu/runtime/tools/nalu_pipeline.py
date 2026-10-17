@@ -49,6 +49,8 @@ import nalu_tail_ad_opt_in as _tail_ad_optin
 if str(_np.ENGINE_ROOT / "tools") not in _sys.path:
     _sys.path.insert(0, str(_np.ENGINE_ROOT / "tools"))
 import stage_time_ledger as _time_ledger
+import episode_previs as _previs  # plan §4: zero-credit previs, run before every paid stage
+import unit_timing_map as _timing  # plan §6: beat/shot/request/returned/cut durations, recorded separately
 
 import argparse
 import copy
@@ -285,6 +287,148 @@ def read_json(path: Path, default: Any = None) -> Any:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return default
+
+
+# --------------------------------------------------------------------------- #
+# Plan §4: zero-credit previs gate in front of every paid stage
+# --------------------------------------------------------------------------- #
+#: One previs run per stage attempt is enough; the result is keyed by the exact
+#: contract+grouping bytes it read, so a resume after an edit recomputes and a
+#: resume after nothing changed reuses.  Never cached across an edit.
+PREVIS_GATE_STAGES = ("S5", "S6")
+
+
+def _previs_policy() -> dict[str, Any]:
+    return _previs.policy_settings()
+
+
+def previs_gate(ctx: "Ctx", stage: str) -> dict[str, Any]:
+    """Run the episode previs and decide whether the paid stage may start.
+
+    Read-only and free: it reads the generation contract, the grouping plan and
+    whatever keyframes/audio already exist.  It never calls a provider.
+
+    Returns a row the stage records as evidence.  ``blocked`` is True only for a
+    machine failure under machine_failure_mode=BLOCK; the director-review
+    questions are advisory and never block (plan §4.3).
+    """
+    p = ctx.p
+    policy = _previs_policy()
+    row: dict[str, Any] = {
+        "schema": "nalu.previs_gate.v1",
+        "stage": stage,
+        "episode": ctx.episode,
+        "ran_at": now(),
+        "policy": str(_previs.POLICY_PATH),
+        "blocks_paid_stage": (_previs_policy().get("blocks") or {}).get(stage),
+    }
+    if not _previs.gate_active(ctx.episode, contract=read_json(p.contract, {}) or {}):
+        row.update({"status": "NOT_ENABLED", "blocked": False,
+                    "note": "episode not listed in the previs policy and the contract does not opt in"})
+        return row
+    if not p.contract.is_file():
+        row.update({"status": "BLOCKED", "blocked": True,
+                    "failures": [f"GENERATION_CONTRACT_MISSING:{p.contract}"]})
+        return row
+    contract = read_json(p.contract, {}) or {}
+    grouping = read_json(p.grouping_plan, {}) or {}
+    if not grouping.get("units"):
+        # The grouping plan is S2 output.  Without it the shot-to-unit coverage
+        # check (§4.2.3) cannot run, and a paid stage without it would be
+        # exactly the "sampled before the plan was read" failure plan §2 warns
+        # about.
+        row.update({"status": "BLOCKED", "blocked": True,
+                    "failures": [f"GROUPING_PLAN_MISSING_OR_EMPTY:{p.grouping_plan}"]})
+        return row
+    try:
+        previs = _previs.build_previs(
+            contract, grouping,
+            keyframe_dir=p.keyframes if p.keyframes.is_dir() else None)
+    except Exception as exc:  # noqa: BLE001 — a gate crash must not read as PASS
+        row.update({"status": "BLOCKED", "blocked": True,
+                    "failures": [f"PREVIS_FAILED:{type(exc).__name__}:{exc}"]})
+        return row
+    round_number = 1 + int((ctx.state.get("previs_review_rounds") or {}).get(stage) or 0)
+    max_rounds = int((policy.get("director_review") or {}).get("max_rounds") or _previs.MAX_REVIEW_ROUNDS)
+    review = _previs.director_review_request(previs, round_number=max(1, min(round_number, max_rounds + 1)))
+    machine_mode = str(policy.get("machine_failure_mode") or "BLOCK").upper()
+    failures = previs.get("machine_failures") or []
+    out_path = p.preprod_reports / f"{ctx.episode}_PREVIS_{stage}.json"
+    previs["gate"] = {"stage": stage, "policy": str(_previs.POLICY_PATH),
+                      "machine_failure_mode": machine_mode,
+                      "request": "tools/episode_previs.py"}
+    previs["director_review"] = review
+    write_json(out_path, previs)
+    blocked = bool(failures) and machine_mode == "BLOCK"
+    row.update({
+        "status": ("BLOCKED" if blocked else "PASS"),
+        "blocked": blocked,
+        "receipt": str(out_path),
+        "receipt_sha256": sha256_file(out_path),
+        "shot_count": previs.get("shot_count"),
+        "total_seconds": previs.get("total_seconds"),
+        "estimated_dialogue_lines": previs.get("estimated_dialogue_lines"),
+        "measured_dialogue_lines": previs.get("measured_dialogue_lines"),
+        "machine_failures": failures,
+        "machine_failure_mode": machine_mode,
+        "advisories": previs.get("advisories") or [],
+        "director_review": {"status": review.get("status"), "round": review.get("round"),
+                            "blocking": False, "max_rounds": max_rounds},
+        "note": ("a previs PASS means the plan is internally consistent enough to go on to "
+                 "production; it is not a cut and not evidence that an action, an identity "
+                 "or a lip sync works"),
+    })
+    return row
+
+
+def timing_map(ctx: "Ctx", *, stage: str, media_dir: Path | None = None,
+               edit_decisions: Path | None = None) -> dict[str, Any]:
+    """Plan §6: record the five durations separately, each with its source.
+
+    story / dialogue / request / returned / cut.  One request is not assumed to
+    be one final shot, and a line generated by two units is a failure rather
+    than a silent double.  Read-only: it never edits a contract, never pads or
+    trims, and never changes how units are scheduled.
+
+    Recorded as evidence at each point the numbers actually change: after S2
+    (request durations are known), after S6 (returned media is measurable) and
+    after S7 (cut intervals exist).
+    """
+    p = ctx.p
+    row: dict[str, Any] = {"schema": "nalu.timing_map_evidence.v1", "stage": stage,
+                           "episode": ctx.episode, "ran_at": now()}
+    contract = read_json(p.contract, {}) or {}
+    grouping = read_json(p.grouping_plan, {}) or {}
+    if not contract or not grouping.get("units"):
+        row.update({"status": "SKIPPED_INPUTS_MISSING",
+                    "detail": f"contract={p.contract.is_file()} grouping={bool(grouping.get('units'))}"})
+        return row
+    try:
+        result = _timing.build_timing_map(
+            contract, grouping,
+            transaction_manifest=read_json(p.video_transaction, None),
+            media_dir=media_dir,
+            edit_decisions=(read_json(edit_decisions, None) if edit_decisions else None),
+        )
+    except Exception as exc:  # noqa: BLE001 — evidence must never crash a stage
+        row.update({"status": "ERROR", "detail": f"{type(exc).__name__}: {exc}"})
+        return row
+    out_path = p.preprod_reports / f"{ctx.episode}_UNIT_TIMING_MAP_{stage}.json"
+    write_json(out_path, result)
+    row.update({
+        "status": result.get("status"),
+        "receipt": str(out_path),
+        "receipt_sha256": sha256_file(out_path),
+        "unit_count": result.get("unit_count"),
+        "tail_dependent_units": result.get("tail_dependent_units"),
+        "independent_units": result.get("independent_units"),
+        # §6: a failure here is a contract conflict.  It is recorded, and the
+        # stage decides — S2 blocking would strand a free stage on a timing
+        # note, so the paid-stage previs gate is where a conflict stops money.
+        "failures": result.get("failures") or [],
+        "notes": result.get("notes") or [],
+    })
+    return row
 
 
 def write_json(path: Path, payload: Any) -> Path:
@@ -1591,6 +1735,26 @@ def stage_s2(ctx: Ctx, *, with_keyframes: bool = False, ready_units=None) -> Sta
             "status": status,
         }
         res.receipts.append(str(s2_receipt))
+    # Plan §6: the grouping plan now exists, so the request duration of every
+    # unit is known.  Record the five durations once here; S6 and S7 add the
+    # returned-media and cut-interval halves as they become measurable.
+    if status == PASS:
+        timing = timing_map(ctx, stage="S2")
+        res.details["unit_timing_map"] = timing
+        if timing.get("receipt"):
+            res.receipts.append(timing["receipt"])
+        # A line generated by two units is the §6 defect this map exists for: it
+        # means the same speech is bought twice and then stitched.  It is a
+        # contract conflict, so it stops the stage before anything is paid — but
+        # only for an episode the plan policy has been enabled for, so an
+        # in-production episode keeps its locked behaviour until someone lists it.
+        if _previs.gate_active(ctx.episode, contract=read_json(p.contract, {}) or {}):
+            doubled = [f for f in timing.get("failures") or []
+                       if f.get("code") == "DIALOGUE_GENERATED_BY_TWO_UNITS"]
+            if doubled:
+                res.status = BLOCKED
+                res.blockers = [f"DOUBLED_DIALOGUE_LINE:{row.get('ref')}:{row.get('detail')}"
+                                for row in doubled]
     return res
 
 
@@ -3140,6 +3304,16 @@ def keyframe_needs_post(ctx: Ctx, index: dict[str, Any]) -> tuple[list[str], lis
 
 def stage_s5(ctx: Ctx) -> StageResult:
     p = ctx.p
+    # Plan §4: the zero-credit previs gate runs BEFORE any manifest is built and
+    # before any POST.  A machine failure there is an objective contract
+    # conflict; paying to render it would be paying twice.
+    previs = previs_gate(ctx, "S5")
+    if previs.get("blocked"):
+        res = StageResult(BLOCKED, previs_gate=previs)
+        res.blockers = [f"PREVIS_MACHINE_FAILURE:{row.get('code')}:{row.get('ref')}"
+                        for row in previs.get("machine_failures") or []] or ["PREVIS_BLOCKED"]
+        res.receipts = [previs["receipt"]] if previs.get("receipt") else []
+        return res
     library = p.identity_library if p.identity_library.is_file() else ctx.p.scope["asset_library"]
     if not library.is_file():
         res = StageResult(BLOCKED, asset_library=str(library))
@@ -4202,6 +4376,16 @@ def stage_s6(ctx: Ctx) -> StageResult:
     and the post-generation QA / Q2 route runs over all units."""
     p = ctx.p
     tails_dir = p.preprod / "real_final_frames"
+    # Plan §4: the same zero-credit previs gate guards the video stage.  It runs
+    # before the wave scheduler plans anything, so a contract conflict is caught
+    # before a single unit is authorised.
+    previs = previs_gate(ctx, "S6")
+    if previs.get("blocked"):
+        res = StageResult(BLOCKED, previs_gate=previs)
+        res.blockers = [f"PREVIS_MACHINE_FAILURE:{row.get('code')}:{row.get('ref')}"
+                        for row in previs.get("machine_failures") or []] or ["PREVIS_BLOCKED"]
+        res.receipts = [previs["receipt"]] if previs.get("receipt") else []
+        return res
     # Wave membership is FROZEN once a wave has been submitted: the engine's submission
     # fingerprint covers position-dependent compiled contracts, so re-entering with a
     # different unit list (e.g. dropping the two units already downloaded) re-compiled

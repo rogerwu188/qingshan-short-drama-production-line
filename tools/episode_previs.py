@@ -33,6 +33,40 @@ SCHEMA = "qingshan.episode_previs.v1"
 MAX_REVIEW_ROUNDS = 2
 DEFAULT_CHARS_PER_SECOND = 4.5
 GAP_TOLERANCE_SECONDS = 0.05
+_POLICY = Path(__file__).resolve().parents[1] / "configs" / "EPISODE_PREVIS_V1.json"
+POLICY_PATH = _POLICY
+
+
+def gate_active(episode: str, *, contract: dict[str, Any] | None = None) -> bool:
+    """Whether the previs gate applies to this episode.
+
+    Off unless the episode is listed in configs/EPISODE_PREVIS_V1.json (or
+    reaches its enabled_from_episode) or the contract opts in by declaring
+    previs_policy=EPISODE_PREVIS_V1.  Episodes already in production keep the
+    locked behaviour byte-for-byte until someone lists them.
+    """
+    declared = str((contract or {}).get("previs_policy") or "").strip().upper()
+    if declared == "EPISODE_PREVIS_V1":
+        return True
+    policy = policy_settings()
+    match = re.match(r"(E\d+)", str(episode or "").upper())
+    if not match:
+        return False
+    if match.group(1) in {str(v).upper() for v in policy.get("enabled_episodes") or []}:
+        return True
+    start = policy.get("enabled_from_episode")
+    if isinstance(start, str) and re.fullmatch(r"E\d+", start.upper()):
+        return int(match.group(1)[1:]) >= int(start[1:])
+    return False
+
+
+def policy_settings() -> dict[str, Any]:
+    """The active policy body, or the in-code defaults when no file is present."""
+    try:
+        return json.loads(_POLICY.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
 
 #: Plan §3: the questions a scene's director intent answers.  Read when the
 #: contract declares them; never invented when it does not.
