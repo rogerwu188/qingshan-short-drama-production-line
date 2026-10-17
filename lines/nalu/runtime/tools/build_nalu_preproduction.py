@@ -1079,7 +1079,11 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                 "microexpression_design": source_action.get('microexpression_design') or (
                     f"眼神先于头部改变一次，呼吸与下颌在因果点响应，随后保持「{arc_exit}」"
                     if cast_rows else
-                    f"无人物；微观变化只发生在{scene.get('weather')}的雪幕、火光与呼出白气等环境细节上"),
+                    # 2026-10-16 (miniPC 《画皮》 E01 S5): the no-cast fallback spelled 夜无疆's snow, so a
+                    # dry-weather scene got snowfall and a creature shot read "no one acts"; it now names only
+                    # the registered subject and the scene's own weather/light.
+                    f"无真人表情；只表现本镜已登记主体的动作，环境微变化限于「{scene.get('weather') or '本场天气'}」下的"
+                    f"光影与空气，不新增天气或物件"),
                 # Authored design wins; the template is only a fallback.  Before
                 # this, an authored physical_action_design was silently replaced.
                 "physical_action_design": source_action.get('physical_action_design') or (
@@ -1112,7 +1116,7 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                 "expression_arc": f"{arc_entry}→{arc_exit}",
                 "continuous_micro_action": (
                     "呼吸连续，眼神先动，眼睑与下颌只在因果点变化一次"
-                    if cast_rows else "雪幕、火光与屋顶积雪保持连续微动"),
+                    if cast_rows else "本镜已登记主体与场景光影保持连续微动，不新增天气或物件"),
                 "event_reaction": (spec.get('performance') or {}).get('event_reaction') or f"对「{primary or entry}」只发生一次可见反应，随后保持「{completion}」",
                 "body_sync": (spec.get('performance') or {}).get('body_sync') or (
                     "视线先行，下颌与肩颈随后，手部或重心最后完成并保持"
