@@ -5757,7 +5757,7 @@
     },
     {
       "path": "tools/shot_media_admission_gate.py",
-      "sha256": "e4a9fc55d104af641eb97274bac38460a3180e1ed51288d36fd6fdbeaf85bf1f"
+      "sha256": "a3688615228c4c495e477b1344924bdf657daad91ceb8dca2f79b99b61d09ac2"
     },
     {
       "path": "tools/shot_prompt_professionalism_gate.py",
