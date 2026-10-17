@@ -1,21 +1,15 @@
 {
-  "schema": "nalu.episode_previs_policy.v1",
+  "schema": "qingshan.episode_previs_policy.v1",
   "policy_id": "EPISODE_PREVIS_V1",
-  "authority": "Line owner 2026-10-16 production-line optimisation plan §4: see a scene's timing before anything is paid for.  The previs module (tools/episode_previs.py) existed but no pipeline stage ever called it, so every episode reached its first paid stage without a single machine check of dialogue coverage, dialogue fit, grouping coverage or speaker registration.",
+  "authority": "Line owner 2026-10-16 production-line optimisation plan §4: see a scene's timing before anything is paid for.",
   "enabled_episodes": [],
-  "enabled_from_episode": null,
-  "activation_note": "Empty by default: no episode changes behaviour until it is listed here.  Gate roles, how a machine failure is treated, and the director-review round limit are set below.  A contract may opt in on its own with previs_policy=\"EPISODE_PREVIS_V1\".",
-  "blocks": {
-    "S5": "PAID_KEYFRAMES",
-    "S6": "PAID_VIDEO_UNITS"
-  },
-  "block_note": "The previs gate runs at the START of each listed stage, before any manifest is built and before any POST.  It is read-only and costs nothing.  S7 (assembly) is deliberately not listed: by then the money is spent and a machine failure can only be recorded, not prevented.",
-  "machine_failure_mode": "BLOCK",
-  "machine_failure_note": "Plan §4.2 machine failures are objective contract conflicts (a speaker who is not registered, a line that cannot fit its shot, an unauthorised repeated line, a shot no unit covers).  They block the paid stage.  They are never waived by the director-review round limit.",
-  "director_review": {
-    "blocking": false,
-    "max_rounds": 2,
-    "note": "Plan §4.2 and §4.3: the six subjective questions are advisory.  After max_rounds anything still open is recorded as ADVISORY and the run continues; a previs PASS means the plan is internally consistent enough to go on to production, never that a cut is good."
-  },
-  "advisory_waiver_note": "A recorded advisory never becomes a gate: the round limit cannot waive a machine failure, a budget guard or a transaction check."
+  "enabled_from_episode": "E12",
+  "activation_note": "Enabled from E12 onwards (2026-10-17) after offline validation.  Earlier episodes keep the locked behaviour; E12+ may opt out via previs_policy=null in the contract.",
+  "gate_on_machine_failures": true,
+  "max_director_review_rounds": 2,
+  "rules": {
+    "zero_credit_previs": "Built only from artefacts the line already has — generation contract, grouping plan, existing keyframes, existing dialogue audio.  Never calls an image, video, voice or VLM provider.",
+    "machine_checks_block": "Objective contract conflicts (dialogue coverage, shot coverage, speaker registration, unit order) block before any POST.",
+    "director_review_advisory": "Subjective questions (scene readable, redundant shots, reactions, cuts, combat, static dialogue) are advisory after max_rounds; they never auto-regenerate."
+  }
 }

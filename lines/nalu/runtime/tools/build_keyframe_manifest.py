@@ -651,17 +651,23 @@ def resolve_library_asset_id(
 def cap_non_character_bindings(rows: list[dict[str, Any]], *, limit: int = NON_CHARACTER_REFERENCE_MAX,
                                total_limit: int = REFERENCE_TOTAL_MAX,
                                optional_character_ids: set[str] | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Roger 2026-09-18 ②: space maps + scene + props <= ``limit``.  The engine gates make every one of those
-    mandatory (SCENE-AUTHORITY-LOCK needs the three maps; the image submitter needs every prop the contract
-    declares), so an over-cap shot is REPORTED (``dropped_reason`` OVER_CAP_NOT_DROPPED_GATE_MANDATORY) and the
-    writer is expected to declare fewer props per shot.  Only full-body wardrobe plates are dropped, and only
-    to hold the provider's total limit; face plates, maps, scene and declared props are never removed."""
+    """Roger 2026-09-18 ②: space maps + scene + props <= ``limit`` (5).  Roger 2026-10-17 K059: character_wardrobe
+    dilutes face signal and is ALWAYS dropped (full-body plate should not have a face; wardrobe is in text already).
+    Face plates, episode/place/subspace maps, scene are never removed."""
     kept = list(rows)
     dropped: list[dict[str, Any]] = []
     optional_character_ids = optional_character_ids or set()
-    non_char = [r for r in kept if str(r["role"]) not in ("character", "character_wardrobe")]
-    if len(non_char) > limit:
-        for r in non_char[limit:]:
+
+    # K059 fix: drop ALL character_wardrobe to protect face signal
+    wardrobe_rows = [r for r in kept if str(r["role"]) == "character_wardrobe"]
+    for victim in wardrobe_rows:
+        kept.remove(victim)
+        dropped.append({**victim, "dropped_reason": "WARDROBE_DROPPED_K059_FACE_SIGNAL_PROTECTION"})
+
+    # Check non-character (excluding wardrobe which is already gone) <= limit
+    non_char_strict = [r for r in kept if str(r["role"]) not in ("character", "character_reference")]
+    if len(non_char_strict) > limit:
+        for r in non_char_strict[limit:]:
             dropped.append({**r, "dropped_reason": f"OVER_CAP_NOT_DROPPED_GATE_MANDATORY_{limit}"})
     # Multiple semantic authorities can share one provider file (for example,
     # a subspace layout also serving as the scene reference). Keep every
@@ -1297,6 +1303,7 @@ def compile_task(inputs: Inputs, decision: dict[str, Any], prompt_dir: Path,
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", task_key):
         raise ValueError(f"{shot_id}: task_key is not a portable identifier")
     bindings, character_ids, prop_ids = build_bindings(inputs, shot_id, gate_ref)
+    print(f"[DEBUG {shot_id}] build_bindings returned {len(bindings)} bindings: {[r['role'] for r in bindings]}")
     entry_state = str(shot.get("entry_state") or "").strip()
     role = normalize_keyframe_role_semantics(
         spec.get("role_semantic_disambiguation") or {},

@@ -351,6 +351,8 @@ def previs_gate(ctx: "Ctx", stage: str) -> dict[str, Any]:
     round_number = 1 + int((ctx.state.get("previs_review_rounds") or {}).get(stage) or 0)
     max_rounds = int((policy.get("director_review") or {}).get("max_rounds") or _previs.MAX_REVIEW_ROUNDS)
     review = _previs.director_review_request(previs, round_number=max(1, min(round_number, max_rounds + 1)))
+    # P1.4 (codex §2.2): write back round number so next attempt increments.
+    ctx.state.setdefault("previs_review_rounds", {})[stage] = round_number
     machine_mode = str(policy.get("machine_failure_mode") or "BLOCK").upper()
     failures = previs.get("machine_failures") or []
     out_path = p.preprod_reports / f"{ctx.episode}_PREVIS_{stage}.json"
@@ -5105,6 +5107,10 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
         elif bgm_sources.get("status") == DRY:
             res.status = DRY
             res.blockers.append("SELECTIVE_BGM_GENERATION_NEEDS_PAID")
+        # Plan §6: timing map updated after video harvest completes.
+        if final_pass:
+            timing = timing_map(ctx, stage="S6", media_dir=ctx.p.video_media)
+            res.details["unit_timing_map"] = timing
     return res
 
 
@@ -6138,6 +6144,9 @@ def stage_s7(ctx: Ctx) -> StageResult:
         "steps": [{"name": step["name"], "exit_code": step["exit_code"], "log": step["log"]}
                   for step in steps]})
     res.receipts.append(str(p.qa_report))
+    # Plan §6: timing map updated after editing completes.
+    timing = timing_map(ctx, stage="S7", media_dir=p.video_media, edit_decisions=p.agentcut_project)
+    res.details["unit_timing_map"] = timing
     return res
 
 

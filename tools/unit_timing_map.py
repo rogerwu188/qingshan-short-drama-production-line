@@ -67,7 +67,10 @@ def build_timing_map(
                 spoken = _spoken(line.get("text", ""))
                 # §6: one line, one sound source.  Two units that each generate
                 # the same line would be stitched into a doubled line.
-                if spoken and spoken in line_owner and line_owner[spoken] != uid:
+                # P1.1 (codex §3.1): respect explicit repeat_reason; only reject
+                # if BOTH (a) text matches AND (b) no repeat authorization.
+                repeat_reason = str(line.get("repeat_reason") or "").strip()
+                if spoken and spoken in line_owner and line_owner[spoken] != uid and not repeat_reason:
                     fail("DIALOGUE_GENERATED_BY_TWO_UNITS", sid, f"also in {line_owner[spoken]}")
                 line_owner.setdefault(spoken, uid)
                 lines.append({"speaker_id": line.get("speaker_id"),
@@ -90,9 +93,16 @@ def build_timing_map(
                           "detail": f"{handle:g}s beyond authored content",
                           "declared_handle_seconds": unit.get("authorized_tail_handle_seconds")})
         returned = None
+        returned_source = "NOT_YET_GENERATED"
         if media_dir is not None:
+            # P1.2 (codex §4.3): prefer explicit admission binding over glob-last.
+            # admission_source = admitted.get(uid, {}).get("path")
+            # For now, keep glob-last for compatibility, but mark it INFERRED.
             media = sorted(Path(media_dir).glob(f"{uid}*.mp4"))
-            returned = probe_seconds(media[-1]) if media else None
+            if media:
+                returned = probe_seconds(media[-1])
+                returned_source = "MEASURED_INFERRED_FROM_GLOB_LAST"
+            # TODO: read admission record, verify SHA, fail on mismatch.
         dependency = (task.get("action_sequence_contract") or {}).get("depends_on_task")
         tail = task.get("predecessor_tail_frame")
         if dependency and not tail:
@@ -112,7 +122,7 @@ def build_timing_map(
             "authorized_content_seconds": content_seconds,
             "request_seconds": request_seconds,
             "returned_seconds": returned,
-            "returned_source": "MEASURED" if returned is not None else "NOT_YET_GENERATED",
+            "returned_source": returned_source,
             "depends_on_previous_tail": bool(dependency and tail),
             "cut_intervals": cut,
         })

@@ -74,8 +74,12 @@ def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> d
         row = {"shot_id": sid, "scene_id": sh.get("scene_id"), "motion_family": fam or "MISSING", "dialogue": dlg,
                "seconds": secs, "axis": cp.get("camera_side"), "scale": cp.get("shot_scale"), "flags": []}
         if i == 0 and locked:
+            # P1.3 TODO (codex §2.5): when motion-purpose is active, check if opening
+            # shot has clear motivation + body action, not just "it's locked".
             row["flags"].append("R6_OPENING_SHOT_LOCKED")
         if locked and prev_locked:
+            # P1.3 TODO (codex §2.5): when motion-purpose is active, check if each
+            # locked shot has motivation + body action, not just "two in a row".
             row["flags"].append("R2_CONSECUTIVE_LOCKED")
         if locked and not dlg:
             # R3 was originally "every no-dialogue shot must have camera motion".  The
@@ -140,6 +144,8 @@ def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> d
     locked_n = sum(1 for r in rows if r["motion_family"] in ("LOCKED", "STATIC", "MISSING"))
     share = round(locked_n / len(rows), 3) if rows else 0.0
     if rows and share > policy["locked_share_max"]:
+        # P1.3 TODO (codex §2.5): when motion-purpose is active, R1 should count
+        # locked shots WITHOUT valid motivation + body action, not all locked shots.
         failures.insert(0, f"R1_LOCKED_SHARE_{share}_OVER_{policy['locked_share_max']}")
     return {"shot_count": len(rows), "locked_count": locked_n, "locked_share": share, "rows": rows, "failures": failures}
 

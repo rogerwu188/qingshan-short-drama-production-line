@@ -80,6 +80,16 @@ def validate_generation_contract(payload: dict[str, Any]) -> dict[str, Any]:
             for field in ("source_type", "source_ref", "visibility_mode"):
                 if not _text(weather.get(field)):
                     failures.append(f"{scene_id}_WEATHER_PROVENANCE_{field.upper()}_MISSING")
+        # Plan §3: scene director intent must be declared.
+        intent = scene.get("scene_intent")
+        if not isinstance(intent, dict):
+            failures.append(f"{scene_id}_SCENE_INTENT_MISSING")
+        else:
+            for field in ("scene_goal", "information_change", "character_goal_and_obstacle",
+                          "dramatic_beats", "attention_targets", "visible_audible_evidence",
+                          "scene_end_state"):
+                if not _text(intent.get(field)):
+                    failures.append(f"{scene_id}_SCENE_INTENT_{field.upper()}_MISSING")
 
     for shot in shots:
         shot_id = _text(shot.get("shot_id")) or "UNKNOWN_SHOT"
