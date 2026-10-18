@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 
-ROOT = Path("/Users/rogerwu/qingshan_short_drama")
+ROOT = Path(os.environ.get("QINGSHAN_PROJECT_ROOT") or Path(__file__).resolve().parents[1])
 SCHEMA_PATH = ROOT / "tools" / "schemas" / "qingshan_image_visual_adjudication_v1.schema.json"
 CACHE_ROOT = ROOT / "workflow" / "runtime_cache" / "image_visual_v2"
 REQUIRED_CHECKS = (

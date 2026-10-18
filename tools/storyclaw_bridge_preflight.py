@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import os
+
 import argparse
 import socket
 import subprocess
@@ -10,7 +12,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 
-PROJECT = Path("/Users/rogerwu/qingshan_short_drama")
+PROJECT = Path(os.environ.get("QINGSHAN_PROJECT_ROOT") or Path(__file__).resolve().parents[1])
 DEFAULT_FIXED_URL = "https://qingshan-bridge-api.rogerwu188.workers.dev"
 
 

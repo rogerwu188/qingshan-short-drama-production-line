@@ -8,6 +8,8 @@ file of content hashes and uploads only changed files.
 
 from __future__ import annotations
 
+PROJECT_ROOT = Path(os.environ.get("QINGSHAN_PROJECT_ROOT") or Path(__file__).resolve().parents[1])
+
 import argparse
 import hashlib
 import json
@@ -205,10 +207,10 @@ def retry_is_deferred(state: dict, now: Optional[datetime] = None) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Upload changed producer-review files to StoryClaw bridge.")
-    parser.add_argument("--base", default="/Users/rogerwu/qingshan_short_drama")
+    parser.add_argument("--base", default=str(PROJECT_ROOT))
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
-    parser.add_argument("--state", default="/Users/rogerwu/qingshan_short_drama/workflow/storyclaw_sync/STORYCLAW_REALTIME_SYNC_STATE.json")
-    parser.add_argument("--receipt", default="/Users/rogerwu/qingshan_short_drama/workflow/storyclaw_sync/STORYCLAW_REALTIME_SYNC_RECEIPT.md")
+    parser.add_argument("--state", default=str(PROJECT_ROOT / "workflow/storyclaw_sync/STORYCLAW_REALTIME_SYNC_STATE.json"))
+    parser.add_argument("--receipt", default=str(PROJECT_ROOT / "workflow/storyclaw_sync/STORYCLAW_REALTIME_SYNC_RECEIPT.md"))
     parser.add_argument("--max-bytes", type=int, default=80 * 1024 * 1024)
     parser.add_argument("--token-env", default="STORYCLAW_BRIDGE_TOKEN")
     parser.add_argument("--dry-run", action="store_true")

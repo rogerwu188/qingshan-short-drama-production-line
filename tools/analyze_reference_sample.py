@@ -3,6 +3,8 @@ import json
 import math
 import os
 import subprocess
+
+PROJECT_ROOT = Path(os.environ.get("QINGSHAN_PROJECT_ROOT") or Path(__file__).resolve().parents[1])
 from pathlib import Path
 
 import cv2
@@ -10,8 +12,8 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 
-VIDEO = Path("/Users/rogerwu/Downloads/参考视频1.mp4")
-OUT = Path("/Users/rogerwu/qingshan_short_drama/qa/reference_video_1_20260712")
+VIDEO = Path(os.environ.get("REFERENCE_VIDEO_PATH", str(PROJECT_ROOT.parent / "Downloads/参考视频1.mp4")))
+OUT = Path(os.environ.get("REFERENCE_OUT_DIR") or PROJECT_ROOT / "qa/reference_video_1_20260712")
 FFMPEG = Path("/tmp/qingshan_video_deps/imageio_ffmpeg/binaries/ffmpeg-macos-aarch64-v7.1")
 W, H, SAMPLE_FPS = 213, 120, 2.0
 

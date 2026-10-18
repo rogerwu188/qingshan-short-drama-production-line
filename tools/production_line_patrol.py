@@ -8,6 +8,8 @@ into a compact patrol JSON for heartbeat checks.
 
 from __future__ import annotations
 
+import os
+
 import argparse
 import json
 import re
@@ -15,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 
-ROOT = Path("/Users/rogerwu/qingshan_short_drama")
+ROOT = Path(os.environ.get("QINGSHAN_PROJECT_ROOT") or Path(__file__).resolve().parents[1])
 
 
 def read_json(path: Path) -> dict:

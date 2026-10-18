@@ -821,7 +821,7 @@
         "E59-S12-06": "E59-VU-030",
         "E59-S12-07": "E59-VU-030"
       },
-      "manifest_ref": "/Users/rogerwu/nalu_runtime_e59/workflow/nalu/E59/preproduction/E59_PROMPT_BATCH_V1.json",
+      "manifest_ref": "workflow/nalu/E59/preproduction/E59_PROMPT_BATCH_V1.json",
       "registered_at": "2026-09-22T22:48:24.888288+00:00",
       "registered_by": "prompt_batch_register.v1 (nalu line)",
       "authorization": "ENGINE_PROMPT_BATCH_POLICY: free preproduction registration only; does not authorize a provider POST or paid production",
@@ -915,7 +915,7 @@
     },
     "E59-CONSISTENCY-REPAIR-V12": {
       "required": true,
-      "manifest_ref": "/Users/rogerwu/nalu_runtime_e59/workflow/nalu/E59/repair_consistency_v1/keyframe_v16_qa/E59_FULL_BATCH_WITH_V16_DELTA.json",
+      "manifest_ref": "workflow/nalu/E59/repair_consistency_v1/keyframe_v16_qa/E59_FULL_BATCH_WITH_V16_DELTA.json",
       "unit_ids": [
         "E59-VU-001",
         "E59-S01-02",
@@ -1090,7 +1090,7 @@
         "E60-S11-08": "E60-VU-029",
         "E60-S11-09": "E60-VU-029"
       },
-      "manifest_ref": "/Users/rogerwu/nalu_runtime_e60/workflow/nalu/E60/preproduction/E60_PROMPT_BATCH_V1.json",
+      "manifest_ref": "workflow/nalu/E60/preproduction/E60_PROMPT_BATCH_V1.json",
       "registered_at": "2026-09-25T20:34:44.823827+00:00",
       "registered_by": "prompt_batch_register.v1 (nalu line)",
       "authorization": "ENGINE_PROMPT_BATCH_POLICY: free preproduction registration only; does not authorize a provider POST or paid production",
