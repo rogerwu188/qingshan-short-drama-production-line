@@ -995,3 +995,25 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：tools/tests/test_previs_and_timing_map.py
 - **授权**：Roger 2026-10-16：通用生产线优化方案 §4/§6/§7，按顺序执行第二、三、四步
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K105 — S5
+
+- **规则**：①关键帧的逐角色入帧姿态是「计划」字段 entity_entry_states，每个可见角色必须有一条点名自己的姿态；构建器缺字段直接 SystemExit(ENTITY_ENTRY_STATE_REQUIRED)，不得用 completion_state、整句 entry_state 或 NON_ACTOR 默认值顶替。②Q1 证据里 planned_measurable_character_ids（计划）与 measured_character_ids（引擎实测行）分开写，measurement_evidence 标明来源；计划不得写成观察。③删服装参考只按 configs/KEYFRAME_WARDROBE_REFERENCE_POLICY_V1.json 的作品作用域（asset_library.project_id）+ drop_wardrobe_references=true + active_from_episode 生效，且需替代证据（该镜每个角色都有 服装锁 文本）；未声明作品、无策略文件、作用域/集号不可解析、激活前集次，一律保持参考数组与顺序原样并写明 reason。④部署 SHA 清单必须覆盖 lines/ 下受 git 跟踪的生产入口。
+- **教训**：E12 S5 八镜 DECLARED_CHARACTER_FACE_NOT_FOUND：build_e12_layers.entity_states_for 把 exit 当 actor 状态 → normalize_keyframe_role_semantics 发现等于 completion_state 就整句替换为 entry_state → S15-01 冯易安拿到「许岳平又垂下眼」、S17-03 冯易安拿到「巡山者甲靠回椅背」，模型照画别人，脸没出现；两次付费重做都复现同一错误。同期 b9850c7 用 episode_num>=10 硬删服装参考：E10 51/51、E11 48/50 已付费登记的提示词都带服装牌，按该硬编码重编会全部漂移。deployment_code_integrity 的 file_count 与 files 长度不一致导致校验直接抛错，且 lines/ 从未入清单。
+- **恢复**：构建器 SH() 加 entries={...} 逐角色写入帧姿态并发出 entity_entry_states；keyframe_q1_builder 分写 planned/measured；cap_non_character_bindings 改为 wardrobe_decision+wardrobe_text_present 驱动、episode 不再是决策输入；deployment_code_integrity.included 纳入 lines/ 并 --build 重建；.gitignore 允许列表加新配置；三组关键帧测试进 PORTABLE_CORE_MANIFEST.portable_test_modules（原 transport_count 是 pytest 裸函数，unittest 收集为 0）。
+- **实现**：`lines/nalu/runtime/tools/build_keyframe_manifest.py`、`lines/nalu/runtime/tools/keyframe_q1_builder.py`、`configs/KEYFRAME_WARDROBE_REFERENCE_POLICY_V1.json`、`tools/deployment_code_integrity.py`
+- **回归**：`tools/tests/test_keyframe_wardrobe_reference_policy.py`
+- **证据**：A/B 同输入重编：E10 已登记 wardrobe=51/51、HEAD 硬编码=0/51、本修复=51/51；E11 48/50、0/49、47/49。E12 重建合同 111 镜 entity_entry_states 全部点名本人，其余字段与重建前逐项相同。
+- **授权**：Roger 2026-10-17（codex 共享修复审查六条 + 补充六条）
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K106 — S5
+
+- **规则**：图片事务离线对账：嵌入式批次元组 (known, pay_rows, unmapped) 与归档账单相等只证明「同一批」，不证明「未扣费」。unmapped_pay_row_count ≠ 0 的事务一律保持 CHARGE_STATE_UNRESOLVED_BATCH；只有 K054 条件（Pay 行数 == 已绑定 任务标识数）或零扣费闭合窗口才允许 NOT_CHARGED_RETRYABLE。重分类写入的 batch_unmapped_pay_rows 必须来自证据，不能写常量 0。提供者上游超时会先扣费再丢 任务标识：停下，等恢复后用已绑定旧 任务标识 的免费 GET 探通路，再决定是否重做。
+- **教训**：E12 S5 重做 10 镜，10 行 Pay、0 个 任务标识，提交器正确隔离；对账工具按 (0,10,10) 命中账单把 10 条全改成可重试并把 unmapped 覆写成 0，随后两次付费重跑在同一故障窗口又扣 88+77 积分。三轮 275 积分，0 张新图。
+- **恢复**：reconcile EMBEDDED 分支加 unmapped==0 守卫（跳过原因 EMBEDDED_BATCH_HAS_UNMAPPED_PAY_ROWS）；误改事务离线回退为隔离态并记录 reconciliation_reverted；旧 BOUND 事务放回存档目录。
+- **实现**：`tools/reconcile_giggle_image_transactions.py`
+- **回归**：`tools/tests/test_reconcile_giggle_image_transactions.py`
+- **证据**：E12 三个账单窗口 07:53/09:28/09:38，10+8+7 行 Pay，provider_response 均为 code 500 i/o timeout 或 502 presigned URL。
+- **授权**：Roger 2026-10-18
+- **状态**：REFERENCE_IMPLEMENTATION

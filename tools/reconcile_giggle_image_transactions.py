@@ -215,6 +215,27 @@ def main() -> int:
                 payload.get("batch_ledger_pay_rows"),
                 payload.get("batch_unmapped_pay_rows"),
             ), [])
+            # K106 (nalu E12, 2026-10-18): matching the embedded tuple only proves that the
+            # transaction and the statement describe the same batch — it says nothing about
+            # whether that batch was paid for.  A tuple of (known=0, pay_rows=10, unmapped=10)
+            # means ten Pay rows exist that no task id explains: every one of them is a bought
+            # image whose id was lost.  Reclassifying those as NOT_CHARGED_RETRYABLE let the
+            # submitter POST the same eight keyframes twice more (88 + 77 credits) while the
+            # provider's upstream was timing out.  The closed-batch argument is only valid when
+            # the pay rows are all accounted for by bound task ids (K054: pay rows == known).
+            unmapped_rows = statement.get("unmapped_pay_row_count")
+            if not isinstance(unmapped_rows, int) or unmapped_rows != 0:
+                skipped.append({
+                    "transaction": str(path),
+                    "reason": "EMBEDDED_BATCH_HAS_UNMAPPED_PAY_ROWS",
+                    "statement": str(statement_path),
+                    "unmapped_pay_row_count": unmapped_rows,
+                    "known_task_id_count": statement.get("known_task_id_count"),
+                    "matched_count": statement.get("matched_count"),
+                    "note": ("each unmapped Pay row is a charged generation whose task id was lost; "
+                             "recover the id from provider history before any retry"),
+                })
+                continue
             if len(group) == statement.get("ambiguous_response_count"):
                 eligible.append({
                     "transaction": str(path),
@@ -320,7 +341,10 @@ def main() -> int:
                 "ledger_reconciled_at": report["recorded_at_utc"],
                 "batch_known_task_ids": item["known_task_ids"],
                 "batch_ledger_pay_rows": item["matched_pay_rows"],
-                "batch_unmapped_pay_rows": 0,
+                # Every eligibility branch above requires unmapped == 0; write the figure the
+                # evidence actually carries instead of a constant, so an audit of the transaction
+                # alone can re-derive why the retry was allowed.
+                "batch_unmapped_pay_rows": item.get("unmapped_pay_rows", 0),
                 "retry_guard": "RETRY_ALLOWED_NEW_ATTEMPT",
                 "reconciliation_evidence": {
                     "method": "PASS_BOUNDED_UNIQUE_WINDOW_CLOSED_BATCH",

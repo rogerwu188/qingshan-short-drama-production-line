@@ -2477,6 +2477,11 @@ def stage_s3(ctx: Ctx) -> StageResult:
                         + str((submit_report.get("credit_reconciliation") or {}).get("status")))
                     res.details.setdefault("warnings", []).append(round_rec["submit_warning"])
                 else:
+                    # Same overwrite loss as S5/S6: a failed identity round can still have
+                    # charged part of the batch, and the statement sits under a fixed name.
+                    # Archive it before returning, or the next round erases the evidence.
+                    round_rec["credit_statement"] = archive_credit_statement(
+                        ctx, ctx.p.identity_submit, f"{ctx.run_id}_r{round_no}")
                     res.status = BLOCKED
                     res.blockers.append("IDENTITY_SUBMIT_FAILED")
                     return res
@@ -3498,6 +3503,14 @@ def stage_s5(ctx: Ctx) -> StageResult:
             res.blockers.append("KEYFRAME_RENAME_SOURCE_MISSING")
             return res
     else:
+        # E10 (2026-09-29) fixed this for S6 and it reproduced on S5 (nalu E12, 2026-10-18):
+        # submit_giggle_image_manifest.py writes its batch window statement next to the report
+        # under a FIXED name whenever it is not a precheck, including the BLOCKED path where some
+        # tasks genuinely charged.  Archiving only on PASS let the next round's statement overwrite
+        # that evidence before nalu_budget_ledger.py ever globbed it, so recorded spend silently
+        # dropped.  Archive on every outcome that has a statement (K054/K106).
+        res.details["credit_statement"] = archive_credit_statement(
+            ctx, ctx.p.keyframe_submit, ctx.run_id)
         res.status = BLOCKED
         res.blockers.append("KEYFRAME_SUBMIT_FAILED")
         return res
@@ -4267,14 +4280,35 @@ def extract_real_final_frame(ctx: Ctx, unit_id: str) -> dict[str, Any]:
     dst = dst_dir / f"{unit_id}.png"
     if not src.is_file():
         return {"unit_id": unit_id, "status": "SOURCE_MISSING", "source": str(src)}
+    # E12 audit (2026-10-18): ffmpeg used to write straight to `dst`, and a destination that
+    # merely existed was reported ALREADY_PRESENT with no validity check.  A run killed mid-write
+    # (SIGKILL/OOM/host crash) left a truncated PNG that every later tick trusted and handed
+    # downstream as a paid unit's start-frame anchor.  Extract to a temp file, verify it decodes
+    # to a non-empty image, then atomically replace; a destination is only ALREADY_PRESENT when
+    # it still matches the source video it was derived from.
+    source_sha = sha256_file(src)
     if dst.is_file():
-        return {"unit_id": unit_id, "status": "ALREADY_PRESENT", "path": str(dst), "sha256": sha256_file(dst)}
+        marker = dst.with_suffix(".source.sha256")
+        recorded = marker.read_text(encoding="utf-8").strip() if marker.is_file() else ""
+        if recorded == source_sha and dst.stat().st_size > 0:
+            return {"unit_id": unit_id, "status": "ALREADY_PRESENT", "path": str(dst),
+                    "sha256": sha256_file(dst), "source_sha256": source_sha}
+        # stale or unverifiable: fall through and re-extract, keeping the old file aside
+        park_dir = dst.parent / f"_superseded_{ctx.run_id}"
+        park_dir.mkdir(parents=True, exist_ok=True)
+        os.replace(dst, park_dir / dst.name)
+        marker.unlink(missing_ok=True)
     for off in ("-0.10", "-0.20", "-0.50"):
+        partial = dst.with_name(f"{dst.stem}.{ctx.run_id}.part.png")
+        partial.unlink(missing_ok=True)
         proc = subprocess.run([_media.require_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-sseof", off,
-                               "-i", str(src), "-frames:v", "1", "-q:v", "2", str(dst)], check=False)
-        if proc.returncode == 0 and dst.is_file() and dst.stat().st_size > 0:
+                               "-i", str(src), "-frames:v", "1", "-q:v", "2", str(partial)], check=False)
+        if proc.returncode == 0 and partial.is_file() and partial.stat().st_size > 0:
+            os.replace(partial, dst)
+            dst.with_suffix(".source.sha256").write_text(source_sha + "\n", encoding="utf-8")
             return {"unit_id": unit_id, "status": "EXTRACTED", "path": str(dst), "sha256": sha256_file(dst),
-                    "source": str(src), "source_sha256": sha256_file(src), "sseof": off}
+                    "source": str(src), "source_sha256": source_sha, "sseof": off}
+        partial.unlink(missing_ok=True)
     return {"unit_id": unit_id, "status": "EXTRACT_FAILED", "source": str(src)}
 
 

@@ -38,7 +38,7 @@ QA_ROOT = ROOT / "qa/agentcut_character_voice_refs_v1_20260723"
 RECEIPT_ROOT = ROOT / "workflow/tasks/agentcut_character_voice_refs_v1_20260723"
 FINAL_RECEIPT = ROOT / "workflow/tasks/AGENTCUT_CHARACTER_VOICE_REFERENCE_BATCH_V1_20260723.json"
 WHISPER_MODEL = Path(
-    "/Users/rogerwu/.cache/huggingface/hub/models--Systran--faster-whisper-small/"
+    os.environ.get("FASTER_WHISPER_CACHE") or str(Path.home() / ".cache/huggingface/hub/models--Systran--faster-whisper-small/")
     "snapshots/536b0662742c02347bc0e980a01041f333bce120"
 )
 AGENTCUT_VENDOR = next(

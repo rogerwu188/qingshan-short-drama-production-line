@@ -38,6 +38,13 @@ def included(name: str) -> bool:
         # inventory limited to source text and executable helpers; private
         # runtime state and credentials do not belong under this tree.
         return path.suffix in {".md", ".py", ".sh", ".json", ".txt", ".yaml", ".yml"}
+    if path.parts[0] == "lines":
+        # codex audit 2026-10-17: the production entry points live here (nalu_pipeline,
+        # build_keyframe_manifest, keyframe_q1_builder, the paid_stage wrapper, engine
+        # patches, runtime configs and templates) and were never fingerprinted.  Per-episode
+        # builders (build_eNN_layers.py) carry script text and are gitignored, so they never
+        # reach git ls-files; private registries and ledgers live in the runtime root.
+        return path.suffix in {".py", ".sh", ".json", ".md", ".diff"}
     return name in {
         "pyproject.toml", "setup.py", "requirements.txt",
         "configs/PORTABLE_CORE_MANIFEST.json",

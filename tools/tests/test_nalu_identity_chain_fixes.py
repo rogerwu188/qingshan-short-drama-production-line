@@ -102,11 +102,12 @@ class KeyframeReferences(unittest.TestCase):
                 + [{"role": "character_wardrobe", "entity_id": "CHAR-A", "path": "/x/wardrobe-a.png"},
                    {"role": "character_wardrobe", "entity_id": "CHAR-B", "path": "/x/wardrobe-b.png"}]
                 + [{"role": "prop", "entity_id": f"PROP-{i}", "path": f"/x/prop-{i}.png"} for i in range(4)])
-        kept, dropped = kfm.cap_non_character_bindings(rows)
+        kept, dropped = kfm.cap_non_character_bindings(
+            rows, wardrobe_decision=kfm.wardrobe_reference_decision("NALU-YEWUJIANG", episode="E12"), wardrobe_text_present=True)
         non_char = [r for r in kept if r["role"] not in ("character", "character_wardrobe")]
         self.assertEqual(len(non_char), 8)   # gate-mandatory rows are never dropped, only reported
         self.assertTrue(any(str(r["dropped_reason"]).startswith("OVER_CAP_NOT_DROPPED") for r in dropped))
-        self.assertEqual(sum(1 for r in kept if r["role"] == "character_wardrobe"), 0)   # only wardrobe plates drop for the total cap
+        self.assertEqual(sum(1 for r in kept if r["role"] == "character_wardrobe"), 0)   # declared work + 服装锁 text present: wardrobe plates drop
         self.assertEqual(len(kept), 10)   # 3 maps + 2 faces + scene + 4 declared props: gate-mandatory rows stay even over 9
         self.assertEqual([r["role"] for r in kept][3:5], ["character", "character"])
         self.assertIn("subspace_layout", [r["role"] for r in kept]); self.assertEqual(sum(1 for r in kept if r["role"] == "prop"), 4)

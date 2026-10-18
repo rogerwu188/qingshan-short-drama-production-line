@@ -3,7 +3,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 import textwrap
 
-ROOT = Path("/Users/rogerwu/qingshan_short_drama")
+ROOT = Path(os.environ.get("QINGSHAN_PROJECT_ROOT") or Path(__file__).resolve().parents[1])
 OUT = ROOT / "storyboards" / "e05_repair_cards_20260703"
 OUT.mkdir(parents=True, exist_ok=True)
 

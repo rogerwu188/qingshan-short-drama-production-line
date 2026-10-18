@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import os
+
 import argparse
 import json
 import re
@@ -18,7 +20,7 @@ except ModuleNotFoundError:
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODEL = Path("/Users/rogerwu/.cache/faster-whisper/models--Systran--faster-whisper-small/snapshots/536b0662742c02347bc0e980a01041f333bce120")
+MODEL = Path(os.environ.get("FASTER_WHISPER_CACHE") or Path.home() / ".cache/faster-whisper/models--Systran--faster-whisper-small/snapshots/536b0662742c02347bc0e980a01041f333bce120")
 META_TOKENS = (
     "提示词", "镜头", "摄影机", "摄影", "转场", "节拍", "动作设计", "动作交接", "表演",
     "微表情", "参考图", "画面", "对白", "旁白", "环境声", "拟音", "字幕", "水印",

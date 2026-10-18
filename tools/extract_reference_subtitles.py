@@ -1,3 +1,6 @@
+import os
+
+PROJECT_ROOT = Path(os.environ.get("QINGSHAN_PROJECT_ROOT") or Path(__file__).resolve().parents[1])
 #!/usr/bin/env python3
 import json
 import subprocess
@@ -9,8 +12,8 @@ import numpy as np
 from rapidocr_onnxruntime import RapidOCR
 
 
-VIDEO = Path("/Users/rogerwu/Downloads/参考视频1.mp4")
-OUT = Path("/Users/rogerwu/qingshan_short_drama/qa/reference_video_1_20260712")
+VIDEO = Path(os.environ.get("REFERENCE_VIDEO_PATH", str(PROJECT_ROOT.parent / "Downloads/参考视频1.mp4")))
+OUT = Path(os.environ.get("REFERENCE_OUT_DIR") or PROJECT_ROOT / "qa/reference_video_1_20260712")
 FFMPEG = Path("/tmp/qingshan_video_deps/imageio_ffmpeg/binaries/ffmpeg-macos-aarch64-v7.1")
 W, H, FPS = 426, 240, 0.5
 

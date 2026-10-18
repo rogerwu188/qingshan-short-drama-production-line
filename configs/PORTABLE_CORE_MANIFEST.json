@@ -200,7 +200,10 @@
     "workflow/dashboard/build_status.py",
     "workflow/production_line/PORTABLE_CONCURRENCY_POLICY_TEMPLATE.json",
     "workflow/s3_relay/S3_RELAY_UPLOAD_SAFETY_CHECKLIST.json",
-    "workflow/time_ledger/PORTABLE_TIME_LEDGER_TEMPLATE.json"
+    "workflow/time_ledger/PORTABLE_TIME_LEDGER_TEMPLATE.json",
+    "configs/KEYFRAME_CAMERA_NOTE_SCOPE_V1.json",
+    "configs/KEYFRAME_WARDROBE_REFERENCE_POLICY_V1.json",
+    "tools/tests/test_keyframe_wardrobe_reference_policy.py"
   ],
   "portable_test_modules": [
     "agent_factory.claude_writer_v2.tests.test_smoke",
@@ -306,6 +309,10 @@
     "tools.tests.test_video_prompt_compiler",
     "tools.tests.test_visual_culture_contract",
     "tools.tests.test_voice_cast_gate",
-    "tools.tests.test_writer_production_field_gate"
+    "tools.tests.test_writer_production_field_gate",
+    "tools.tests.test_keyframe_camera_note_scope",
+    "tools.tests.test_keyframe_reference_transport_count",
+    "tools.tests.test_keyframe_wardrobe_reference_policy",
+    "tools.tests.test_reconcile_giggle_image_transactions"
   ]
 }

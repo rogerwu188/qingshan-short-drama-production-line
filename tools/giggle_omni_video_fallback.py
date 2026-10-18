@@ -18,6 +18,10 @@ import urllib.request
 
 API_BASE = "https://giggle.pro/api/v1/generation"
 
+# QINGSHAN_PROJECT_ROOT overrides the instance this script operates on; the default is the
+# checkout this file lives in, so a fresh clone never inherits the original machine's layout.
+PROJECT_ROOT = pathlib.Path(os.environ.get("QINGSHAN_PROJECT_ROOT") or pathlib.Path(__file__).resolve().parents[1])
+
 
 STORYBOARD_URLS = {
     "02": "https://assets.giggle.pro/public/ai_director/48848a03de8b954d64/l273e6jnl3r.jpg",
@@ -152,8 +156,8 @@ def poll_task(task_id, api_key, interval, max_wait):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="/Users/rogerwu/qingshan_short_drama/configs/e04_v5_continuity_config.json")
-    parser.add_argument("--out", default="/Users/rogerwu/qingshan_short_drama/working_assets/e04_v5_api_fallback")
+    parser.add_argument("--config", default=str(PROJECT_ROOT / "configs/e04_v5_continuity_config.json"))
+    parser.add_argument("--out", default=str(PROJECT_ROOT / "working_assets/e04_v5_api_fallback"))
     parser.add_argument("--shots", required=True, help="comma-separated shot ids, e.g. 02,03,04")
     parser.add_argument("--model", default="seedance-2.0-pro")
     parser.add_argument("--submit-only", action="store_true")

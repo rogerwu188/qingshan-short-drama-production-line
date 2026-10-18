@@ -916,7 +916,17 @@ def materialise(episode: str, submitted: dict[str, Any],
                   for row in expectations.get("cast") or []
                   if row.get("character_id") in required_all and row.get("character_id") not in required}
         identity_v["declared_visible_character_ids"] = required_all
-        identity_v["measured_character_ids"] = required
+        # codex review 2026-10-17: "the plan says this face should be measurable" and "the
+        # detector measured this face" are different facts.  The old key `measured_character_ids`
+        # held the PLAN (the D-16 measurable subset) and read as an observation.  Keep both,
+        # named for what they are; the observation comes only from the engine measurement rows.
+        identity_v["planned_measurable_character_ids"] = required
+        identity_v["measured_character_ids"] = sorted({
+            str(row.get("character_id") or "")
+            for row in (measurement.get("per_keyframe", {}).get(item_id) or [])
+            if row.get("character_id")
+        })
+        identity_v["measurement_evidence"] = "ENGINE_INSIGHTFACE_PER_KEYFRAME_ROWS" if identity_v["measured_character_ids"] else "NO_FACE_MEASURED"
         identity_v["not_measurable_by_pose"] = exempt
         identity_v["not_measurable_policy"] = ("Roger 2026-09-18 (identity chain ④) narrows D-16: 3/4, profile, head-down, "
                                                "turned and shadowed faces ARE measured (a face the detector cannot find is "

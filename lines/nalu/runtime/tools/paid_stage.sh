@@ -111,6 +111,23 @@ if [ -f "$LEDGER" ]; then
 fi
 [ "$CHECK_ONLY" = 1 ] && exit 0
 
+# One paid run per episode at a time (E12 audit, 2026-10-18).  nalu_budget_ledger.py --check
+# rescans already-settled transaction files and holds no lock, so two concurrent invocations both
+# pass the cap check and both POST: in-flight spend from the first is invisible to the second
+# until its statement lands.  The same mkdir-lock pattern run_unattended.sh uses: a stale lock
+# from a crashed run is reclaimed, a live holder is refused.  This narrows a real double-spend
+# window; it is not a substitute for the cap, the order or the transaction store.
+LOCK="$NALU_RUNTIME_ROOT/runtime/.paid_${EPISODE}.lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+  holder="$(cat "$LOCK/pid" 2>/dev/null || true)"
+  if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+    die "another paid run for $EPISODE is active (pid $holder); refusing to start a second one" 4
+  fi
+  rm -rf "$LOCK"; mkdir "$LOCK"   # stale lock from a crashed run
+fi
+echo $$ > "$LOCK/pid"
+trap 'rm -rf "$LOCK"' EXIT
+
 echo "paid_stage: $EPISODE $FROM_STAGE..$UNTIL_STAGE --paid (order seq=$NALU_PAID_ORDER_SEQ, owner=$NALU_LINE_OWNER_ID)"
-exec "$VENV" "$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_pipeline.py" run \
+"$VENV" "$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_pipeline.py" run \
   --episode "$EPISODE" --from "$FROM_STAGE" --until "$UNTIL_STAGE" --paid

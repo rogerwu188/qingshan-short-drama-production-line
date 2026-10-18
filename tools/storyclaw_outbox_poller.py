@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+PROJECT_ROOT = Path(os.environ.get("QINGSHAN_PROJECT_ROOT") or Path(__file__).resolve().parents[1])
+
 import argparse
 import json
 import subprocess
@@ -64,10 +66,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Poll StoryClaw outbox and download new SC2X files.")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--token-env", default="STORYCLAW_BRIDGE_TOKEN")
-    parser.add_argument("--outdir", default="/Users/rogerwu/qingshan_short_drama/workflow/storyclaw_outbox")
-    parser.add_argument("--state", default="/Users/rogerwu/qingshan_short_drama/workflow/storyclaw_outbox/STORYCLAW_OUTBOX_POLLER_STATE.json")
-    parser.add_argument("--mailbox", default="/Users/rogerwu/qingshan_short_drama/codex_docs/CLAUDE_TO_CODEX.md")
-    parser.add_argument("--receipt", default="/Users/rogerwu/qingshan_short_drama/workflow/storyclaw_outbox/STORYCLAW_OUTBOX_POLLER_RECEIPT.md")
+    parser.add_argument("--outdir", default=str(PROJECT_ROOT / "workflow/storyclaw_outbox"))
+    parser.add_argument("--state", default=str(PROJECT_ROOT / "workflow/storyclaw_outbox/STORYCLAW_OUTBOX_POLLER_STATE.json"))
+    parser.add_argument("--mailbox", default=str(PROJECT_ROOT / "codex_docs/CLAUDE_TO_CODEX.md"))
+    parser.add_argument("--receipt", default=str(PROJECT_ROOT / "workflow/storyclaw_outbox/STORYCLAW_OUTBOX_POLLER_RECEIPT.md"))
     args = parser.parse_args()
 
     if not storyclaw_reads_enabled():

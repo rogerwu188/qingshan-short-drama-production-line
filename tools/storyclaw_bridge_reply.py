@@ -9,6 +9,10 @@ local Codex mailbox.
 
 from __future__ import annotations
 
+PROJECT_ROOT = Path(os.environ.get("QINGSHAN_PROJECT_ROOT") or Path(__file__).resolve().parents[1])
+
+import os
+
 import argparse
 import json
 import subprocess
@@ -23,7 +27,7 @@ from storyclaw_bridge_config import token as configured_token
 
 
 DEFAULT_BASE_URL = configured_base_url()
-DEFAULT_OUTDIR = "/Users/rogerwu/qingshan_short_drama/workflow/storyclaw_bridge_outgoing"
+DEFAULT_OUTDIR = str(Path(os.environ.get("QINGSHAN_PROJECT_ROOT") or Path(__file__).resolve().parents[1]) / "workflow/storyclaw_bridge_outgoing")
 
 
 def safe_slug(text: str) -> str:
