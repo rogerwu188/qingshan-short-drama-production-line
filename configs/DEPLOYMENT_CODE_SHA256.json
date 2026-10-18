@@ -221,7 +221,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "4bc161b9bdc511e95fa2cd2bfbbd326af675a5b5822947dfbe7be7ea68f6a676"
+      "sha256": "a3c76fec473c0d651cbe5e203a12921b94a87d5674d470174dcc1790f80b1bf5"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -257,7 +257,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "23470cc4c7f3824c1d4b67d1883e9f3244e0bba3d8f022ceb510cd81cb1006d7"
+      "sha256": "e1121afa5eec624897db449020b81a8b0ddeb5f434d8c6f0e811838513c7644b"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -321,7 +321,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "26cf9a5bbd97ebe699dc4490f2d732ca4096bef4643a6eb285b60b7a52c7f1ce"
+      "sha256": "2720ade4b418b7ff7193dee3ad0ac1a430f7bd6696d0a4220a9b612280cfb42f"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -5545,7 +5545,7 @@
     },
     {
       "path": "tools/reconcile_giggle_image_transactions.py",
-      "sha256": "3a454132ed2ce9c035ccffdfa413b41cc8c9ad185533a0ab451cc509a49652e5"
+      "sha256": "a7452c1598db79e1a09150335fb20d8cb0b8d8b7361b33cd1d42807b62e1b161"
     },
     {
       "path": "tools/reconcile_legacy_video_credit_ledgers.py",

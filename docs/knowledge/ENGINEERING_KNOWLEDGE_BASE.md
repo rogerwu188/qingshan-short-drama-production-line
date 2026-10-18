@@ -1006,3 +1006,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：A/B 同输入重编：E10 已登记 wardrobe=51/51、HEAD 硬编码=0/51、本修复=51/51；E11 48/50、0/49、47/49。E12 重建合同 111 镜 entity_entry_states 全部点名本人，其余字段与重建前逐项相同。
 - **授权**：Roger 2026-10-17（codex 共享修复审查六条 + 补充六条）
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K106 — S5
+
+- **规则**：图片事务离线对账：嵌入式批次元组 (known, pay_rows, unmapped) 与归档账单相等只证明「同一批」，不证明「未扣费」。unmapped_pay_row_count ≠ 0 的事务一律保持 CHARGE_STATE_UNRESOLVED_BATCH；只有 K054 条件（Pay 行数 == 已绑定 任务标识数）或零扣费闭合窗口才允许 NOT_CHARGED_RETRYABLE。重分类写入的 batch_unmapped_pay_rows 必须来自证据，不能写常量 0。提供者上游超时会先扣费再丢 任务标识：停下，等恢复后用已绑定旧 任务标识 的免费 GET 探通路，再决定是否重做。
+- **教训**：E12 S5 重做 10 镜，10 行 Pay、0 个 任务标识，提交器正确隔离；对账工具按 (0,10,10) 命中账单把 10 条全改成可重试并把 unmapped 覆写成 0，随后两次付费重跑在同一故障窗口又扣 88+77 积分。三轮 275 积分，0 张新图。
+- **恢复**：reconcile EMBEDDED 分支加 unmapped==0 守卫（跳过原因 EMBEDDED_BATCH_HAS_UNMAPPED_PAY_ROWS）；误改事务离线回退为隔离态并记录 reconciliation_reverted；旧 BOUND 事务放回存档目录。
+- **实现**：`tools/reconcile_giggle_image_transactions.py`
+- **回归**：`tools/tests/test_reconcile_giggle_image_transactions.py`
+- **证据**：E12 三个账单窗口 07:53/09:28/09:38，10+8+7 行 Pay，provider_response 均为 code 500 i/o timeout 或 502 presigned URL。
+- **授权**：Roger 2026-10-18
+- **状态**：REFERENCE_IMPLEMENTATION

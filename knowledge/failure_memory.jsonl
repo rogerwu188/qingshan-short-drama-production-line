@@ -62,3 +62,4 @@
 {"failure_code": "REVIEWED_REQUEST_MISMATCH", "do_not_repeat": "不要在审核之后改写提示词、参考图顺序或模型参数", "stage": "S6", "scope": "generalizable", "knowledge_id": "K103"}
 {"failure_code": "DIALOGUE_GENERATED_BY_TWO_UNITS", "do_not_repeat": "不要让相邻单元各自生成同一句台词；不要用例外原因越过模型硬时长", "stage": "S6", "scope": "generalizable", "knowledge_id": "K104"}
 {"failure_code": "ENTRY_STATE_BOUND_TO_OTHER_CHARACTER", "do_not_repeat": "不要用结果态或整句 entry 顶替逐角色入帧姿态；不要按集号删创作输入；计划字段不得写成观察字段；清单改动后必须 --build 而不是手改 file_count", "stage": "S5", "scope": "generalizable", "knowledge_id": "K105"}
+{"failure_code": "IMAGE_RECONCILE_UNMAPPED_PAY_ROWS_MARKED_RETRYABLE", "do_not_repeat": "账单里有没被 任务标识 解释的 Pay 行就不是未扣费；同批不等于闭合；对账工具不得把 unmapped 写成常量 0；提供者超时时不要连续重发付费 POST", "stage": "S5", "scope": "generalizable", "knowledge_id": "K106"}

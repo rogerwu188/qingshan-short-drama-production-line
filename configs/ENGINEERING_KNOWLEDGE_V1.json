@@ -2164,6 +2164,30 @@
       "failure_code": "ENTRY_STATE_BOUND_TO_OTHER_CHARACTER",
       "do_not_repeat": "不要用结果态或整句 entry 顶替逐角色入帧姿态；不要按集号删创作输入；计划字段不得写成观察字段；清单改动后必须 --build 而不是手改 file_count",
       "sync_slug": "E12-keyframe-entry-pose-scoped-wardrobe"
+    },
+    {
+      "id": "K106",
+      "key": "image-reconcile-unmapped-pay-rows-stay-quarantined",
+      "stage": "S5",
+      "category": "LEDGER",
+      "scope": "generalizable",
+      "episode": "E12",
+      "rule": "图片事务离线对账（reconcile_giggle_image_transactions）：嵌入式批次元组 (known, pay_rows, unmapped) 与归档账单相等只证明「同一批」，不证明「未扣费」；unmapped_pay_row_count ≠ 0 的事务一律保持 CHARGE_STATE_UNRESOLVED_BATCH，不得改成 NOT_CHARGED_RETRYABLE。只有 K054 条件（账单 Pay 行数 == 已绑定 任务标识数，unmapped == 0）或零扣费闭合窗口才允许重试。被重分类的事务写入的 batch_unmapped_pay_rows 必须是证据里的数字，不能写常量 0。提供者上游超时（dial tcp i/o timeout / 502 presigned URL）会先扣费再丢 任务标识：此时不要重发，先停，等提供者恢复后用已绑定旧 任务标识 验证 GET 通路，再决定是否重做。",
+      "lesson": "E12 S5 重做 10 镜：提供者上游超时，10 行 Pay、0 个 任务标识，提交器正确隔离为 CHARGE_STATE_UNRESOLVED_BATCH；离线对账工具按 (0,10,10) 元组命中归档账单，把「同批」当「闭合」，10 条全改 NOT_CHARGED_RETRYABLE 并把 unmapped 覆写成 0。随后两次付费重跑在同一故障窗口再 POST 8 镜，88+77 积分再次扣费、再次丢 任务标识。三轮共 275 积分，0 张新图。",
+      "recovery": "reconcile 的 EMBEDDED 分支加 unmapped==0 守卫并写 EMBEDDED_BATCH_HAS_UNMAPPED_PAY_ROWS 跳过原因；已误改的 10 条事务离线回退为隔离态并保留 reconciliation_reverted 记录；被搬走的 8 条旧 BOUND 事务放回存档目录；提交前先用免费 GET 查已绑定 任务标识 探测提供者通路。",
+      "implementation": [
+        "tools/reconcile_giggle_image_transactions.py"
+      ],
+      "regression": "tools/tests/test_reconcile_giggle_image_transactions.py",
+      "evidence": "E12_KEYFRAME_SUBMIT_REPORT_credit_statement.json 三个窗口：07:53–07:57 10 行 110 积分 known=0；09:28–09:31 8 行 88；09:38–09:41 7 行 77；三次事务 provider_response 均为 code 500 i/o timeout / 502 presigned URL。",
+      "authority": "Roger 2026-10-18「等 giggle api 恢复，在此期间完整自检整个生产线代码，优化后提交 git」",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "runtime_gate_added": false,
+      "failure_code": "IMAGE_RECONCILE_UNMAPPED_PAY_ROWS_MARKED_RETRYABLE",
+      "do_not_repeat": "账单里有没被 任务标识 解释的 Pay 行就不是未扣费；同批不等于闭合；对账工具不得把 unmapped 写成常量 0；提供者超时时不要连续重发付费 POST",
+      "sync_slug": "E12-image-reconcile-unmapped-guard"
     }
   ]
 }

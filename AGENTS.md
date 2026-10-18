@@ -103,6 +103,7 @@ python3 lines/nalu/runtime/tools/bootstrap_runtime_root.py --runtime-root "$RUNT
 | 现象 | 归类 | 动作 |
 |---|---|---|
 | POST 无任务标识、HTTP 断流 | 事务 `RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION` | **先对账**（账单窗口 Pay 行数 == 已知 task 数）→ `NOT_CHARGED_RETRYABLE` 才可重提；绝不删事务文件 |
+| 提供者上游超时（`dial tcp … i/o timeout` / 502 presigned URL），账单有 Pay 行但 0 个 task_id | `CHARGE_STATE_UNRESOLVED_BATCH`，钱已扣、图已生成、id 丢了 | **停**，不重发（K106）。离线对账工具对 unmapped_pay_row_count ≠ 0 的事务一律跳过；用已绑定旧 task_id 的免费 GET 探提供者通路，恢复后再决定重做。E12 连续三轮 275 积分 0 图就是这样花掉的 |
 | 提供者明确拒单（code 500 payment failed 等） | `NOT_CHARGED_RETRYABLE`（补丁 e18） | 直接重跑同阶段，指纹相同不重发已绑定行 |
 | 提交前门拦下（`WHOLE_BATCH_PROMPT_QA_REQUIRED…`、precheck） | `NOT_CHARGED_NO_INTENT_RECORDED`（补丁 e17） | 修门的输入（多数是回执 sha 与文件不一致 → 重做 digest/receipts/register）再跑 |
 | 403 invalid api key | 凭据 | 停，问线主换 key；恢复后先对账再重提 |

@@ -312,6 +312,7 @@
     "tools.tests.test_writer_production_field_gate",
     "tools.tests.test_keyframe_camera_note_scope",
     "tools.tests.test_keyframe_reference_transport_count",
-    "tools.tests.test_keyframe_wardrobe_reference_policy"
+    "tools.tests.test_keyframe_wardrobe_reference_policy",
+    "tools.tests.test_reconcile_giggle_image_transactions"
   ]
 }
