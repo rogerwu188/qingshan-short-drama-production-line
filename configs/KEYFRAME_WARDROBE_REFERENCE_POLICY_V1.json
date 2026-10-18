@@ -1,0 +1,24 @@
+{
+  "schema": "nalu.keyframe_wardrobe_reference_policy.v1",
+  "authority": "Roger 2026-09-18 K059 (identity chain ②/③): a full-body wardrobe plate dilutes face signal; the keyframe prompt already carries the authored 服装锁 text, so the plate is redundant for a declared work that opts in. Roger 2026-10-17 + codex review: the drop must be scoped to a declared line/work and enabled explicitly, never inferred from an episode number alone.",
+  "rule": "Keyframe reference arrays are unchanged unless the work (asset_library.project_id / series scope) is declared in `scopes` with drop_wardrobe_references=true, and the episode is at or after that scope's active_from_episode. An undeclared work, a missing policy file, an unresolvable work, or an episode before activation keeps every reference and its order exactly as authored. The drop additionally requires substitute evidence (the authored 服装锁 text for every character in the shot) at the call site.",
+  "default": {
+    "drop_wardrobe_references": false,
+    "on_scope_unresolved": "KEEP_REFERENCES_AND_RECORD_WARDROBE_POLICY_SCOPE_UNRESOLVED"
+  },
+  "substitute_evidence_required": [
+    "keyframe_prompt 服装锁 section names the character's authored wardrobe for this shot",
+    "identity plate retains the FRONT_NEUTRAL_HEADSHOT face reference"
+  ],
+  "scopes": {
+    "NALU-YEWUJIANG": {
+      "drop_wardrobe_references": true,
+      "active_from_episode": 12,
+      "active_note": "E01–E11 of this work were paid and registered WITH wardrobe plates (E10 51/51, E11 48/50 prompts); re-running S5 on them must stay byte-identical. E12 is the first episode whose keyframe batch was compiled without them.",
+      "reason": "K059 face-signal protection; 服装锁 text is the wardrobe authority for every shot of this work",
+      "activated_at": "2026-10-17",
+      "activated_by": "Roger (relayed via codex review, shared-fix request)",
+      "failure_code": "IDENTITY_SIGNAL_DILUTED_ALONG_CHAIN"
+    }
+  }
+}

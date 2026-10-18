@@ -35,6 +35,7 @@ from __future__ import annotations
 import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
+_sys.path.insert(0, str(_np.ENGINE_ROOT))  # for tools.* imports
 import argparse
 import hashlib
 import json
@@ -118,6 +119,15 @@ CAMERA_NOTE_POLICY_PATH = Path(
     or DEFAULT_ENGINE_ROOT / "configs" / "KEYFRAME_CAMERA_NOTE_SCOPE_V1.json"
 )
 CAMERA_NOTE_POLICY_SCHEMA = "nalu.keyframe_camera_note_scope.v1"
+#: Roger 2026-10-17 + codex review: the K059 wardrobe drop is a WORK-scoped, explicitly
+#: declared decision, never an episode-number rule.  An undeclared work, a missing policy
+#: file or an unresolvable work keeps every reference and its order exactly as authored.
+#: Env override exists for offline regression only.
+WARDROBE_POLICY_PATH = Path(
+    os.environ.get("NALU_KEYFRAME_WARDROBE_POLICY")
+    or DEFAULT_ENGINE_ROOT / "configs" / "KEYFRAME_WARDROBE_REFERENCE_POLICY_V1.json"
+)
+WARDROBE_POLICY_SCHEMA = "nalu.keyframe_wardrobe_reference_policy.v1"
 
 
 # --------------------------------------------------------------------------- #
@@ -213,6 +223,55 @@ def camera_note_scoped(episode: str, policy: dict[str, Any] | None = None) -> bo
     start = policy.get("active_from_episode")
     number = episode_ordinal(episode)
     return bool(policy) and start is not None and number is not None and number >= int(start)
+
+
+_WARDROBE_POLICY_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def load_wardrobe_policy(path: Path | None = None) -> dict[str, Any]:
+    """KEYFRAME_WARDROBE_REFERENCE policy; a missing file means no work has opted in."""
+    target = Path(path or WARDROBE_POLICY_PATH)
+    key = str(target)
+    if key not in _WARDROBE_POLICY_CACHE:
+        data: dict[str, Any] = {}
+        if target.is_file():
+            data = json.loads(target.read_text(encoding="utf-8"))
+            if data.get("schema") != WARDROBE_POLICY_SCHEMA:
+                raise ValueError(f"KEYFRAME_WARDROBE_POLICY_SCHEMA_INVALID:{target}")
+        _WARDROBE_POLICY_CACHE[key] = data
+    return _WARDROBE_POLICY_CACHE[key]
+
+
+def wardrobe_reference_decision(work_id: str | None, policy: dict[str, Any] | None = None,
+                                episode: str | None = None) -> dict[str, Any]:
+    """Whether the declared work opted into dropping character_wardrobe references.
+
+    Returns ``{"drop": bool, "scope": str|None, "reason": str}``.  The outcomes are kept
+    distinct on purpose (codex review 2026-10-17): the work is declared and opted in (and the
+    episode is at/after the scope's ``active_from_episode``), the work is declared but opted
+    out, the episode predates activation, or the work is unresolved / undeclared.  Only the
+    first touches the reference array; every other reason leaves it exactly as authored.
+    """
+    policy = load_wardrobe_policy() if policy is None else policy
+    work = str(work_id or "").strip()
+    if not policy:
+        return {"drop": False, "scope": None, "reason": "WARDROBE_POLICY_FILE_ABSENT"}
+    if not work:
+        return {"drop": False, "scope": None, "reason": "WARDROBE_POLICY_SCOPE_UNRESOLVED"}
+    scope = (policy.get("scopes") or {}).get(work)
+    if not isinstance(scope, dict):
+        return {"drop": False, "scope": work, "reason": "WARDROBE_POLICY_SCOPE_UNDECLARED"}
+    enabled = scope.get("drop_wardrobe_references")
+    if enabled is not True:
+        return {"drop": False, "scope": work, "reason": "WARDROBE_POLICY_SCOPE_OPTED_OUT"}
+    start = scope.get("active_from_episode")
+    if start is not None:
+        number = episode_ordinal(episode or "")
+        if number is None:
+            return {"drop": False, "scope": work, "reason": "WARDROBE_POLICY_EPISODE_UNRESOLVED"}
+        if number < int(start):
+            return {"drop": False, "scope": work, "reason": f"WARDROBE_POLICY_BEFORE_ACTIVATION:E{int(start):02d}"}
+    return {"drop": True, "scope": work, "reason": str(scope.get("failure_code") or "WARDROBE_DROPPED_BY_WORK_POLICY")}
 
 
 def own_camera_text(spec_camera: Any, shot_size: Any) -> str:
@@ -648,26 +707,40 @@ def resolve_library_asset_id(
     return candidates[0] if len(set(candidates)) == 1 else requested_id
 
 
-def cap_non_character_bindings(rows: list[dict[str, Any]], *, episode: str, limit: int = NON_CHARACTER_REFERENCE_MAX,
+def cap_non_character_bindings(rows: list[dict[str, Any]], *, limit: int = NON_CHARACTER_REFERENCE_MAX,
                                total_limit: int = REFERENCE_TOTAL_MAX,
-                               optional_character_ids: set[str] | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Roger 2026-09-18 ②: space maps + scene + props <= ``limit`` (5).  Roger 2026-10-17 K059: character_wardrobe
-    dilutes face signal and is ALWAYS dropped (full-body plate should not have a face; wardrobe is in text already).
-    Face plates, episode/place/subspace maps, scene are never removed."""
+                               optional_character_ids: set[str] | None = None,
+                               wardrobe_decision: dict[str, Any] | None = None,
+                               wardrobe_text_present: bool | None = None,
+                               episode: str | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Roger 2026-09-18 ②: space maps + scene + props <= ``limit`` (5).  Face plates, episode/place/
+    subspace maps and scene are never removed.
+
+    K059 wardrobe drop (Roger 2026-10-17, codex review): a character_wardrobe plate is removed ONLY
+    when ``wardrobe_decision["drop"]`` is True — that is a declared work opting in through
+    KEYFRAME_WARDROBE_REFERENCE_POLICY — AND the substitute evidence is present
+    (``wardrobe_text_present``: the prompt's 服装锁 text names this character's wardrobe).  Without
+    both, the reference array and its order are returned exactly as authored.  ``episode`` is
+    accepted for call-site compatibility and is not a decision input.
+    """
     kept = list(rows)
     dropped: list[dict[str, Any]] = []
     optional_character_ids = optional_character_ids or set()
+    decision = wardrobe_decision or {"drop": False, "scope": None, "reason": "WARDROBE_POLICY_NOT_CONSULTED"}
 
-    # K059 fix (applies from E10 onwards): drop ALL character_wardrobe to protect face signal.
-    # Earlier episodes keep wardrobe references as-is for byte-for-byte compatibility.
-    episode_num = int((episode or "E00")[1:])
-    if episode_num >= 10:
-        wardrobe_rows = [r for r in kept if str(r["role"]) == "character_wardrobe"]
-        for victim in wardrobe_rows:
-            kept.remove(victim)
-            dropped.append({**victim, "dropped_reason": "WARDROBE_DROPPED_K059_FACE_SIGNAL_PROTECTION"})
+    if decision.get("drop") is True:
+        if wardrobe_text_present is not True:
+            # The policy allows exclusion but the substitute evidence is absent: keep the plate
+            # and say why, instead of silently deleting a creative input.
+            for r in kept:
+                if str(r["role"]) == "character_wardrobe":
+                    r.setdefault("policy_note", "WARDROBE_KEPT_SUBSTITUTE_EVIDENCE_ABSENT")
+        else:
+            for victim in [r for r in kept if str(r["role"]) == "character_wardrobe"]:
+                kept.remove(victim)
+                dropped.append({**victim, "dropped_reason": f"WARDROBE_DROPPED_BY_WORK_POLICY:{decision.get('scope')}:{decision.get('reason')}"})
 
-    # Check non-character (excluding wardrobe which is already gone) <= limit
+    # Check non-character (excluding any wardrobe already dropped) <= limit
     non_char_strict = [r for r in kept if str(r["role"]) not in ("character", "character_reference")]
     if len(non_char_strict) > limit:
         for r in non_char_strict[limit:]:
@@ -835,11 +908,30 @@ def build_bindings(inputs: Inputs, shot_id: str, gate_ref: str) -> tuple[list[di
     for cast_row in prompt_cast:
         if str(cast_row.get("screen_slot") or "").startswith("BACKGROUND_"):
             optional_background_ids.add(str(cast_row.get("character_id") or ""))
+    # K059 wardrobe drop is a declared-work decision, not an episode rule.  The work id comes
+    # from the asset library this batch binds against; the substitute evidence is the authored
+    # 服装锁 text that build_prompt will print for every character in this shot.
+    work_id = str(inputs.asset_library.get("project_id") or "").strip()
+    wardrobe_decision = wardrobe_reference_decision(work_id, episode=inputs.episode)
+    wardrobe_text_present = bool(character_ids) and all(
+        bool(inputs.wardrobe_by_character.get(asset_id)) for asset_id in character_ids
+    )
     rows, dropped = cap_non_character_bindings(
         space_rows + face_rows + [scene_row] + wardrobe_rows + prop_rows,
-        episode=inputs.episode,
         optional_character_ids=optional_background_ids,
+        wardrobe_decision=wardrobe_decision,
+        wardrobe_text_present=wardrobe_text_present,
+        episode=inputs.episode,
     )
+    policy_report = getattr(inputs, "wardrobe_policy_report", None)
+    if policy_report is None:
+        policy_report = {"work_id": work_id or None, "decision": wardrobe_decision, "shots": {}}
+        setattr(inputs, "wardrobe_policy_report", policy_report)
+    policy_report["shots"][shot_id] = {
+        "wardrobe_text_present": wardrobe_text_present,
+        "wardrobe_rows_authored": len(wardrobe_rows),
+        "wardrobe_rows_kept": sum(1 for r in rows if str(r["role"]) == "character_wardrobe"),
+    }
     if dropped:
         report = getattr(inputs, "reference_cap_report", None)
         if report is None:
@@ -1004,15 +1096,17 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
 
     reference_lines = []
     for index, row in enumerate(bindings, 1):
+        binding_role = str(row["role"])
         purpose = {
             "episode_global_space_map": "仅提供全集空间拓扑与地点相对位置",
             "global_space_map": "仅提供本地点的房间/区域拓扑与坐标",
             "subspace_layout": "仅提供本镜机位、轴线、可见固定元素与站位几何",
             "scene": "唯一场景参考位",
             "character": "正面头像：锁定该人物的脸型、五官、发型与年龄（脸以此图为准）",
+            "character_reference": "补充视角：配合主参考理解面部几何（同一人）",
             "character_wardrobe": "全身像：仅锁定该人物的服装形制、体型比例与配饰；脸不以此图为准",
             "prop": "仅锁定该道具的形制、材质与尺度",
-        }[str(row["role"])]
+        }[binding_role]
         # Binding bookkeeping stays out of the provider text so the prompt SHA is
         # stable across the stage-3(a) plate upgrade.
         reference_lines.append(
@@ -1307,8 +1401,13 @@ def compile_task(inputs: Inputs, decision: dict[str, Any], prompt_dir: Path,
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", task_key):
         raise ValueError(f"{shot_id}: task_key is not a portable identifier")
     bindings, character_ids, prop_ids = build_bindings(inputs, shot_id, gate_ref)
-    print(f"[DEBUG {shot_id}] build_bindings returned {len(bindings)} bindings: {[r['role'] for r in bindings]}")
     entry_state = str(shot.get("entry_state") or "").strip()
+    # K059 identity chain fix: supplement pose references BEFORE building the prompt,
+    # so the reference-use section lists them.
+    from tools.identity_pose_reference import supplement_pose_references
+    bindings, pose_reference_report = supplement_pose_references(
+        bindings, inputs.asset_library, entry_state, limit=REFERENCE_TOTAL_MAX
+    )
     role = normalize_keyframe_role_semantics(
         spec.get("role_semantic_disambiguation") or {},
         shot_id=shot_id,
@@ -1317,10 +1416,6 @@ def compile_task(inputs: Inputs, decision: dict[str, Any], prompt_dir: Path,
         completion_state=str(shot.get("completion_state") or "").strip(),
     )
     prompt = build_prompt(inputs, shot_id, bindings, character_ids, decision, dropped)
-    from tools.identity_pose_reference import supplement_pose_references
-    bindings, pose_reference_report = supplement_pose_references(
-        bindings, inputs.asset_library, entry_state, limit=REFERENCE_TOTAL_MAX
-    )
     identity_sequence, identity_transport, prompt = compile_labeled_flat_identity_transport(
         task_key, bindings, prompt
     )
@@ -1588,6 +1683,7 @@ def build_manifest(inputs: Inputs, tasks: list[dict[str, Any]], keyframe_dir: Pa
                              "wardrobe_view": CHARACTER_WARDROBE_VIEW, "non_character_reference_max": NON_CHARACTER_REFERENCE_MAX,
                              "reference_total_max": REFERENCE_TOTAL_MAX, "drop_order": NON_CHARACTER_DROP_ORDER},
         "reference_cap_report": getattr(inputs, "reference_cap_report", {}) or {},
+        "wardrobe_policy_report": getattr(inputs, "wardrobe_policy_report", {}) or {},
         "generated_by": "runtime/tools/build_keyframe_manifest.py",
         "generated_at": utc_now(),
     }
