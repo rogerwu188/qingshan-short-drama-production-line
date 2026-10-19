@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2163,
+  "file_count": 2164,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -7406,6 +7406,10 @@
     {
       "path": "tools/tests/test_keyframe_camera_note_scope.py",
       "sha256": "a5ed70043084db30e88f18124975763c4d69b60b6aa2d2c3af9fb57dea26879a"
+    },
+    {
+      "path": "tools/tests/test_keyframe_compile_parallel.py",
+      "sha256": "5e008ad34e4ab93794eddd6ae97525e250c3d42d65e0dd870d5d7b157a774634"
     },
     {
       "path": "tools/tests/test_keyframe_entry_scene_projection.py",
