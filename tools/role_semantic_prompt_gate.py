@@ -11,6 +11,11 @@ from typing import Any
 
 SCHEMA = "qingshan.role_semantic_disambiguation.v1"
 
+try:
+    from tools import spatial_dialogue_contract
+except ModuleNotFoundError:  # flat sys.path deployments
+    import spatial_dialogue_contract  # type: ignore
+
 
 def _clean(value: Any) -> str:
     text = str(value or "").strip()
@@ -237,6 +242,8 @@ def validate_role_semantics(
         for entity, value in presence.items():
             if _clean(value) not in allowed_presence:
                 failures.append(f"{prefix}_ENTITY_PRESENCE_INVALID:{entity}:{value}")
+        for spatial_failure in spatial_dialogue_contract.validate(row):
+            failures.append(f"{prefix}_{spatial_failure}")
         for label, value, key in (
             ("PRIMARY_ACTOR", actor, actor_key),
             ("DIALOGUE_SPEAKER", speaker, speaker_key),
@@ -381,6 +388,8 @@ def validate_role_semantics_structure(
         for entity, value in presence.items():
             if _clean(value) not in allowed_presence:
                 failures.append(f"{prefix}_ENTITY_PRESENCE_INVALID:{entity}:{value}")
+        for spatial_failure in spatial_dialogue_contract.validate(row):
+            failures.append(f"{prefix}_{spatial_failure}")
         for field in (
             "first_person_pronoun", "second_person_pronoun", "action_pronoun_referent",
             "action_counterparty_referent", "dialogue_third_person_referent", "body_part_owner",

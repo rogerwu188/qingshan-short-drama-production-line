@@ -11,6 +11,11 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from tools import unit_action_continuity_contract
+except ModuleNotFoundError:  # flat sys.path deployments
+    import unit_action_continuity_contract  # type: ignore
+
+try:
     from tools.event_boundary_continuity_contract import (
         POLICY, classify_boundary, compile_internal_shot_boundaries,
     )
@@ -98,6 +103,9 @@ def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Pat
         boundary = classify_boundary(previous_unit, unit)
         if boundary["status"] != "PASS":
             raise ValueError(";".join(boundary["failures"]))
+        action_continuity = unit_action_continuity_contract.evaluate(previous_unit, unit)
+        if action_continuity["status"] == "FAIL":
+            raise ValueError(";".join(action_continuity["failures"]))
         previous_unit_id = boundary.get("previous_unit_id")
         boundary_class = str(boundary["boundary_class"])
         independent_opening = boundary_class in {"NEW_EVENT_ANCHOR", "MOTIVATED_CUT"}
@@ -178,6 +186,7 @@ def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Pat
             "scene_id": scene_id,
             "scene_first_unit": boundary_class == "NEW_EVENT_ANCHOR",
             "event_boundary_decision": boundary,
+            "action_event_continuity": action_continuity,
             "persistent_state_contract": deepcopy(unit.get("persistent_state_contract") or {}),
             "shot_state_contracts": deepcopy(unit.get("shot_state_contracts") or []),
             "internal_shot_state_chain": internal_chain,

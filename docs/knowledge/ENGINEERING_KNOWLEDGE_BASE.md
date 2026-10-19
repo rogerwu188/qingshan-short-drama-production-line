@@ -1017,3 +1017,43 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：E12 三个账单窗口 07:53/09:28/09:38，10+8+7 行 Pay，provider_response 均为 code 500 i/o timeout 或 502 presigned URL。
 - **授权**：Roger 2026-10-18
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K107 — S2
+
+- **规则**：说话人身份绑定与交流空间关系是两件事。角色行可选声明六个空间字段（说话人朝向/视线、听者相对位置/朝向/视线、画外视觉线索），缺省不渲染也不推断；对某人说话不等于看着某人，低头、看道具、看画外、主动看镜头都合法；视线目标必须在已登记实体内；已声明站位时画外听者必须给视觉线索。SD2 与 H3 分别渲染，H3 走英文合同翻译。
+- **教训**：E66 VU030 首帧人物正面居中、视线近乎朝镜头，视频提示词只把另一方写成画外听者，没写听者在哪一侧、双方视线如何对应，朝镜头倾向从输入带到成片。
+- **恢复**：写手按需补六个空间字段，不写就不补默认；改字段会使执行语义指纹变化，旧英文合同与请求审核按既有规则失效。
+- **实现**：`tools/spatial_dialogue_contract.py`、`tools/role_semantic_prompt_gate.py`、`tools/sd2_provider_prompt_renderer.py`、`tools/h3_provider_prompt_renderer.py`、`tools/h3_english_contract_io.py`、`tools/h3_provider_english_contract.py`、`tools/video_execution_plan_compiler.py`
+- **回归**：`tools/tests/test_spatial_dialogue_contract.py`
+- **授权**：Roger 2026-10-18
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K108 — S2
+
+- **规则**：单元划分是生产包装，不是叙事节拍。单元可声明 action_event_contract（event_id、phase、continues_event_id、authorized_repeat）；相邻边界检查「已完成动作被重新 START」「同一事件被二次 START」「CONTINUE 指向已完成事件」，作者安排的重复必须带出处。未声明的单元不阻断。禁止文本相似度。
+- **教训**：E66 约 23 秒对峙拆六个单元，每段独立起势，拼起来反复重演。此前没有跨单元重演判据。
+- **恢复**：为跨单元连续动作声明事件与阶段；重演须授权并写出处。
+- **实现**：`tools/unit_action_continuity_contract.py`、`tools/build_video_unit_anchor_plan.py`
+- **回归**：`tools/tests/test_unit_action_continuity_contract.py`
+- **授权**：Roger 2026-10-18
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K109 — S7_ASSEMBLY
+
+- **规则**：S7 在配乐混音后、响度精修前，对同一音轨在每个单元边界做对称音量下潜（默认 0.08 s），视频复制、总时长不变；下潜不是静音，空间底噪连续。按集启用，默认不改在产集；下潜失败即阻断装配。
+- **教训**：E65 修复版为去掉错误对白把三段直接静音，缺连续环境声甚至保留嘴在动的画面。
+- **恢复**：开启该集切点连续化并核对边界数；真正缺失素材仍按缺陷门重做。
+- **实现**：`tools/assembly_audio_continuity_policy.py`、`tools/audio_cut_overlap.py`、`configs/ASSEMBLY_AUDIO_CONTINUITY_V1.json`、`lines/nalu/runtime/tools/nalu_pipeline.py`
+- **回归**：`tools/tests/test_assembly_audio_continuity.py`
+- **授权**：Roger 2026-10-18
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K110 — S7_ASSEMBLY
+
+- **规则**：供应商槽长是天花板不是成片长度。任务元数据可声明 editorial_keep_seconds 与 verified_speech_end_seconds；含对白单元只有给出已核实语音结束点才允许剪短，否则报 EDITORIAL_SPEECH_BOUNDARY_REQUIRED；应用结果写入 clip_metadata.editorial_keep。
+- **教训**：各单元按整槽固定长度剪辑，短句后保留大段等待，节奏由生成槽决定；editorial_duration 已实现但无生产调用方。
+- **恢复**：声明 keep 目标；含对白必须带已核实结束点；不声明时行为与之前一致。
+- **实现**：`tools/build_agentcut_from_admitted_storyboard_sources.py`、`tools/editorial_pacing_contract.py`
+- **回归**：`tools/tests/test_editorial_pacing_contract.py`
+- **授权**：Roger 2026-10-18
+- **状态**：REFERENCE_IMPLEMENTATION

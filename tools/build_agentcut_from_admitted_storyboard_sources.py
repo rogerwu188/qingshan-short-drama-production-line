@@ -11,11 +11,13 @@ try:
     from tools.audio_postproduction_contract import PROFILE_CONFIG, validate_audio_profile
     from tools.audio_profile_binding import apply_audio_profile_binding, validate_audio_profile_binding
     from tools.sound_cue_contract import evaluate as evaluate_sound_cues
+    from tools.editorial_pacing_contract import editorial_duration
 except ModuleNotFoundError:  # Direct execution from tools/.
     from measured_edit_constraints import load_constraints, resolve_source_interval
     from audio_postproduction_contract import PROFILE_CONFIG, validate_audio_profile  # type: ignore
     from audio_profile_binding import apply_audio_profile_binding, validate_audio_profile_binding  # type: ignore
     from sound_cue_contract import evaluate as evaluate_sound_cues  # type: ignore
+    from editorial_pacing_contract import editorial_duration  # type: ignore
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -116,6 +118,32 @@ def build(
                 raise ValueError("MEASURED_EDIT_REQUIRES_SAME_NATIVE_AV_SOURCE")
             source_in, duration, measured_edit = resolve_source_interval(
                 edit_constraints[source_id], source, duration)
+        # Whole-scene cut margin (editorial_keep_seconds).  The provider slot is a
+        # ceiling, not a required length: when the admitted task declares a
+        # keep target, the clip ends there instead of holding the full slot.
+        # A dialogue-bearing task may shorten only with a verified speech end;
+        # a duration target alone is never evidence of where speech ends.
+        editorial_keep = float(metadata.get("editorial_keep_seconds") or 0) or None
+        if editorial_keep is not None:
+            verified_end = metadata.get("verified_speech_end_seconds")
+            kept = editorial_duration(
+                {"duration_seconds": duration, "editorial_keep_seconds": editorial_keep},
+                duration,
+                contains_dialogue=bool(dialogue_lines),
+                verified_end=float(verified_end) if verified_end is not None else None,
+            )
+            if abs(kept - duration) > 1e-6:
+                clip_metadata_editorial = {
+                    "requested_keep_seconds": editorial_keep,
+                    "applied_keep_seconds": kept,
+                    "provider_slot_seconds": duration,
+                    "verified_speech_end_seconds": float(verified_end) if verified_end is not None else None,
+                }
+                duration = kept
+            else:
+                clip_metadata_editorial = None
+        else:
+            clip_metadata_editorial = None
         audio_metadata = audio_task.get("metadata") or {}
         audio_dialogue_lines = audio_metadata.get("selected_dialogue") or []
         audio_expected_text = "".join(str(row.get("text") or "") for row in audio_dialogue_lines)
@@ -141,6 +169,8 @@ def build(
         if measured_edit is not None:
             measured_edit["applied_to_project"] = True
             clip_metadata["measured_edit"] = measured_edit
+        if clip_metadata_editorial is not None:
+            clip_metadata["editorial_keep"] = clip_metadata_editorial
         video_clips.append({
             "id": f"{episode}-{source_id}-VIDEO",
             "source": str(source),

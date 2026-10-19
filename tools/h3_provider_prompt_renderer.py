@@ -51,6 +51,10 @@ try:
     from tools.prompt_shot_scope_policy import active_for as shot_scope_active_for
 except ModuleNotFoundError:
     from prompt_shot_scope_policy import active_for as shot_scope_active_for
+try:
+    from tools import spatial_dialogue_contract
+except ModuleNotFoundError:
+    import spatial_dialogue_contract  # type: ignore
 
 
 SCHEMA = "qingshan.minimax_h3_provider_renderer.v2_english_machine_dialogue_tags"
@@ -775,6 +779,28 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
                 evidence[f"BEAT.{beat_number}.SPEAKER_FACE_VISIBLE"] = keep
         description.append(line)
         clause_evidence.update(evidence)
+    # Spatial staging: who faces where, where the listener stands and where the
+    # eyes go.  Only emitted for the role rows that declared it; an absent
+    # declaration renders nothing and never defaults to mutual eye contact.
+    spatial_roles = [
+        (role, translated_row)
+        for role, translated_row in zip(
+            [role for role in (plan.get("role_bindings") or []) if role.get("spatial_dialogue")],
+            contract.get("spatial_dialogue") or [],
+        )
+    ]
+    labels = _entity_labels(unit, plan)
+    for index, (role, translated_row) in enumerate(spatial_roles, 1):
+        speaker = str(role.get("dialogue_speaker") or "")
+        listener = str(role.get("dialogue_listener") or "")
+        clause = spatial_dialogue_contract.render_en(
+            role, translated=translated_row,
+            speaker_label=labels.get(str(role.get("shot_id") or ""), speaker),
+            listener_label=labels.get(str(role.get("shot_id") or ""), listener),
+        )
+        if clause:
+            description.append(f"Staging: {clause}.")
+            clause_evidence[f"SPATIAL_DIALOGUE.{index}"] = clause
     if source_transition.get("outgoing"):
         outgoing = str(translated_transition.get("outgoing") or "").strip()
         if not outgoing:

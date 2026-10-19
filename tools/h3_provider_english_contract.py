@@ -101,6 +101,25 @@ def require_h3_provider_english_contract(
         for key, value in row.items():
             if isinstance(value, str) and CJK.search(value):
                 failures.append(f"H3_ENGLISH_CONTRACT_CJK:{uid}:beats[{index}].{key}")
+    source_spatial = [
+        role for role in (plan.get("role_bindings") or []) if role.get("spatial_dialogue")
+    ]
+    if source_spatial:
+        translated_spatial = contract.get("spatial_dialogue") or []
+        if len(translated_spatial) != len(source_spatial):
+            failures.append(
+                f"H3_ENGLISH_CONTRACT_SPATIAL_COUNT:{uid}:"
+                f"{len(translated_spatial)}!={len(source_spatial)}"
+            )
+        for index, row in enumerate(translated_spatial):
+            if not isinstance(row, dict):
+                failures.append(f"H3_ENGLISH_CONTRACT_SPATIAL_INVALID:{uid}:{index + 1}")
+                continue
+            for key, value in row.items():
+                if isinstance(value, str) and CJK.search(value):
+                    failures.append(
+                        f"H3_ENGLISH_CONTRACT_CJK:{uid}:spatial_dialogue[{index}].{key}"
+                    )
     for section in ("sounds", "environment_motion", "negative_constraints", "transition"):
         value = contract.get(section)
         if value is None:

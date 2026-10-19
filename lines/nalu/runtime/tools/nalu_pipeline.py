@@ -5968,6 +5968,42 @@ def stage_s7(ctx: Ctx) -> StageResult:
                                         "stem": str(p.assembly / f"{ctx.episode}_bgm_stem.wav"),
                                         "provider_posts": 0,
                                         "source_generation_stage": "S6"}
+    # 5e. cut-point audio continuity (W1 wiring).  Roger 2026-10-18: E65's published
+    # repair removed wrong dialogue by silencing 1:10-1:14 / 1:25-1:28 / 1:52-1:55,
+    # leaving the room sound broken at those cuts.  The dip never mutes and never
+    # changes duration: at each unit boundary the same single audio stream is
+    # lowered into the cut and restored out of it, so the space keeps one
+    # continuous bed.  Off per episode unless the policy opts in; a failure here
+    # blocks the assembly because a silent patch is worse than no dip at all.
+    audio_continuity = None
+    try:
+        import assembly_audio_continuity_policy as _aac
+    except ModuleNotFoundError:
+        _aac = None
+    if _aac is not None:
+        contract_payload = read_json(p.contract, {}) or {}
+        audio_continuity = {"status": "NOT_ENABLED"}
+        if _aac.active_for(ctx.episode, contract=contract_payload):
+            timeline_payload = read_json(release_timeline, {}) or {}
+            boundaries = _aac.boundaries_from_release_timeline(timeline_payload)
+            dipped = p.assembly / f"{ctx.episode}_picture_native_audio_continuous.mp4"
+            try:
+                import audio_cut_overlap as _cut
+                report = _cut.apply_cut_point_dips(
+                    subbed, boundaries, _aac.crossfade_seconds(), dipped)
+            except Exception as exc:  # noqa: BLE001
+                res.steps.extend(steps)
+                res.blockers = [f"CUT_POINT_AUDIO_CONTINUITY_FAILED:{type(exc).__name__}:{exc}"]
+                return res
+            subbed = dipped
+            audio_continuity = {"status": "PASS", "output": str(dipped),
+                                "boundaries": len(boundaries), **report}
+        res.details["cut_point_audio_continuity"] = audio_continuity
+        if audio_continuity.get("status") == "PASS":
+            step = {"name": "s7_cut_point_audio_continuity", "exit_code": 0,
+                    "status": "PASS", "boundaries": audio_continuity["boundaries"],
+                    "log": "in-process (audio_cut_overlap.apply_cut_point_dips)"}
+            steps.append(step)
     level_argv[level_argv.index("--source") + 1] = subbed
 
     # ------------------------------------------------- 6. release loudness

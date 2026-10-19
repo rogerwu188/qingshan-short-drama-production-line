@@ -1,0 +1,16 @@
+{
+  "schema": "nalu.assembly_audio_continuity.v1",
+  "authority": "Roger 2026-10-18: E65 published repair silenced 1:10-1:14, 1:25-1:28 and 1:52-1:55 to remove wrong dialogue and left the room sound broken at those cuts.  A cut must keep one continuous room tone even when a line was removed.",
+  "active_note": "Off by default (active_from_episode null) so no in-production episode changes byte-for-byte.  Opt in by setting active_from_episode, or per episode via contract assembly_audio_continuity=ASSEMBLY_AUDIO_CONTINUITY_V1.",
+  "crossfade_seconds": 0.08,
+  "applies_to": "S7 assembly, after the selective-BGM mix and before release loudness levelling",
+  "guarantees": [
+    "The dip is applied to the same single audio stream: total duration never changes and video frames are copied, so no sync risk.",
+    "The dip is a soft transition, never a mute: it lowers level at the cut point and restores it, so room tone stays continuous.",
+    "A fully silent unit is not hidden by the dip; that is a diagnostic, not something this pass may paper over."
+  ],
+  "lines": {
+    "nalu": {"active_from_episode": null},
+    "qingshan": {"active_from_episode": null}
+  }
+}

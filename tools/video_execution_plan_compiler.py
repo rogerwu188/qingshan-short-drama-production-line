@@ -7,6 +7,11 @@ from copy import deepcopy
 import hashlib
 import json
 from typing import Any
+
+try:
+    from tools import spatial_dialogue_contract
+except ModuleNotFoundError:  # flat sys.path deployments
+    import spatial_dialogue_contract  # type: ignore
 import re
 
 try:
@@ -431,6 +436,12 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
                              for c in spec.get("cast") or [] if c.get("character_id")},
             "entity_face_visibility": {str(c.get("character_id")): str(c.get("face_visibility") or "")
                                        for c in spec.get("cast") or [] if c.get("character_id")},
+            # Optional staging facts; absent fields stay absent and render nothing.
+            "spatial_dialogue": {
+                key: str(role.get(key) or "").strip()
+                for key in spatial_dialogue_contract.FIELDS
+                if str(role.get(key) or "").strip()
+            },
         })
     shot_cameras = []
     if unit.get('camera_scope_policy') == 'PER_SHOT_EXPLICIT':

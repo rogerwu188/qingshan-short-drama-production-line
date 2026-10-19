@@ -17,6 +17,7 @@ try:
         provider_shot_state_lock_texts, provider_state_lock_text,
     )
     from tools import voice_timbre_lock
+    from tools import spatial_dialogue_contract as spatial_dialogue
 except ModuleNotFoundError:
     from editorial_pacing_contract import delivery_clause, content_window_clause
     from grouped_camera_contract import compile_camera_prompt
@@ -28,6 +29,7 @@ except ModuleNotFoundError:
         provider_shot_state_lock_texts, provider_state_lock_text,
     )
     import voice_timbre_lock
+    import spatial_dialogue_contract as spatial_dialogue
 
 
 SCHEMA = "qingshan.seedance2_provider_renderer.v1_shared_execution_ir"
@@ -159,6 +161,11 @@ def _role_line(row: dict[str, Any]) -> str:
         name = names.get(cid) or unnamed_listener or "画中另一位已声明人物"
         visibility = (row.get("entity_face_visibility") or {}).get(cid) or (row.get("entity_presence") or {}).get(cid)
         pieces.append(f"{name}的独立状态：{state}" + (f"；入画约束={visibility}" if visibility else ""))
+    # Spatial staging is stated only when the role row declared it; identity
+    # binding and addressing never imply facing, position or gaze.
+    spatial = spatial_dialogue.render_zh(row)
+    if spatial:
+        pieces.append(spatial)
     return "，".join(pieces) + "。"
 
 

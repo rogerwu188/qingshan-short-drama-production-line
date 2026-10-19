@@ -34,6 +34,9 @@ OPTIONAL_BEAT_FIELDS = ("contact_point", "force_feedback", "primary_feedback", "
                         "microexpression_cue", "body_sync_cue", "internal_transition_after")
 CAMERA_TEXT_FIELDS = ("start_framing", "end_framing", "follow_subject", "subject_to_keep")
 SOUND_KEYS = ("ambience", "foley", "action_sound")
+SPATIAL_FIELDS = ("speaker_facing_direction", "speaker_gaze_target",
+                  "listener_position_relative_to_speaker", "listener_facing_direction",
+                  "listener_gaze_target", "offscreen_listener_visual_cues")
 
 
 def is_h3(unit: dict[str, Any]) -> bool:
@@ -106,6 +109,21 @@ def request_row(unit: dict[str, Any], plan: dict[str, Any] | None = None) -> dic
     transition = plan.get("transition") or {}
     src["transition"] = {k: transition[k] for k in ("incoming", "outgoing") if transition.get(k)}
     tpl["transition"] = {k: "" for k in src["transition"]}
+    spatial_src, spatial_tpl = [], []
+    for role in plan.get("role_bindings") or []:
+        values = role.get("spatial_dialogue") or {}
+        if not values:
+            continue
+        row_src = {"shot_id": str(role.get("shot_id") or "")}
+        row_tpl = {"shot_id": ""}
+        for key in SPATIAL_FIELDS:
+            if values.get(key):
+                row_src[key] = values[key]
+                row_tpl[key] = ""
+        spatial_src.append(row_src)
+        spatial_tpl.append(row_tpl)
+    if spatial_src:
+        src["spatial_dialogue"], tpl["spatial_dialogue"] = spatial_src, spatial_tpl
     rows = _camera_rows(unit, plan)
     if rows:
         pairs = [_camera_slots(row.get("camera_plan") or {}) for row in rows]
