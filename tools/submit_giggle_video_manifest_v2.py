@@ -972,6 +972,7 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         "submission_fingerprint": fingerprint, "state": "INTENT_RECORDED",
         "intent_recorded_at": utc_now(), "prompt_sha256": task["prompt_sha256"],
         "reference_sha256": task["reference_sha256"], "model": task["model"],
+        "estimated_credits": int(task.get("duration_seconds", 6) * 20),
         "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
     }
     if reference_image_asset_ids:

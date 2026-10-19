@@ -536,6 +536,131 @@ def scan_transaction_states(episode: str) -> dict[str, Any]:
     return result
 
 
+def reservation_ledger_path(episode: str) -> Path:
+    return ENGINE_ROOT / "workflow" / "nalu" / episode / "BUDGET_RESERVATION.jsonl"
+
+
+def scan_reservations(episode: str) -> dict[str, Any]:
+    """Read active budget reservations (not yet released or expired)."""
+    ledger = reservation_ledger_path(episode)
+    active: dict[str, dict] = {}
+    if not ledger.is_file():
+        return {"active_reservations": [], "active_credits": 0}
+    try:
+        for line in ledger.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            rid = row.get("reservation_id")
+            if row.get("released_at"):
+                active.pop(rid, None)
+            elif rid:
+                active[rid] = row
+    except (OSError, json.JSONDecodeError):
+        pass
+    reservations = list(active.values())
+    total = sum(Decimal(str(r.get("credits") or 0)) for r in reservations)
+    return {"active_reservations": reservations, "active_credits": number(total)}
+
+
+def scan_pending_exposure(episode: str) -> Decimal:
+    """Estimate pending exposure from SUBMITTED_TASK_ID_BOUND transactions."""
+    tasks_root = ENGINE_ROOT / "workflow" / "tasks"
+    total = Decimal("0")
+    for dirname in (IMAGE_TRANSACTION_DIRNAME, VIDEO_TRANSACTION_DIRNAME):
+        directory = tasks_root / dirname / episode
+        if not directory.is_dir():
+            continue
+        for path in directory.glob("*.json"):
+            try:
+                payload = load_json(path)
+            except (OSError, json.JSONDecodeError):
+                continue
+            state = str(payload.get("state") or "")
+            if state == "SUBMITTED_TASK_ID_BOUND" and payload.get("task_id"):
+                # Read estimated_credits from intent (submitter writes this at INTENT_RECORDED)
+                estimated = payload.get("estimated_credits")
+                if isinstance(estimated, (int, float)) and estimated > 0:
+                    total += Decimal(str(estimated))
+                else:
+                    # Fallback: conservative upper bound (8s video * 20 cr/s or 11 cr image)
+                    if "video" in dirname:
+                        total += Decimal("160")
+                    else:
+                        total += Decimal("11")
+    return total
+
+
+def reserve_credits(episode: str, planned: Decimal, reservation_id: str,
+                    cap: Decimal = Decimal(8000)) -> dict[str, Any]:
+    """Atomically reserve credits before submission. Returns {"reserved": True/False, ...}."""
+    import fcntl  # noqa: PLC0415
+    ledger = reservation_ledger_path(episode)
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = ledger.with_suffix(".lock")
+    with lock_path.open("a") as lock_handle:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        # Re-scan inside lock
+        current_reservations = scan_reservations(episode)
+        active_reserved = Decimal(str(current_reservations["active_credits"]))
+        # Read recorded spend (no new build_report recursion: use engine gate directly)
+        from tools.episode_video_generation_guard import evaluate_episode_credit_gate  # noqa: PLC0415
+        video = evaluate_episode_credit_gate(episode)
+        video_credits = Decimal(str(video.get("actual_charged_credits_known_total") or 0))
+        non_video = scan_non_video_spend(episode, bgm_transactions_dir=None)
+        non_video_credits = Decimal(str(non_video["subtotal_credits"]))
+        recorded = video_credits + non_video_credits
+        pending_exposure = scan_pending_exposure(episode)
+        projected = recorded + active_reserved + pending_exposure + planned
+        if projected > cap:
+            return {
+                "reserved": False,
+                "reason": "EPISODE_CREDIT_CAP_WOULD_BE_EXCEEDED",
+                "recorded": number(recorded),
+                "active_reserved": number(active_reserved),
+                "pending_exposure": number(pending_exposure),
+                "planned": number(planned),
+                "projected": number(projected),
+                "cap": number(cap),
+            }
+        # Write reservation
+        reservation = {
+            "reservation_id": reservation_id,
+            "episode": episode,
+            "credits": number(planned),
+            "reserved_at": utc_now(),
+            "released_at": None,
+        }
+        with ledger.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(reservation, ensure_ascii=False) + "\n")
+        return {
+            "reserved": True,
+            "reservation_id": reservation_id,
+            "credits": number(planned),
+            "projected_after_reserve": number(projected),
+        }
+
+
+def release_reservation(episode: str, reservation_id: str) -> None:
+    """Mark a reservation as released (append a release row to the ledger)."""
+    import fcntl  # noqa: PLC0415
+    ledger = reservation_ledger_path(episode)
+    if not ledger.is_file():
+        return
+    lock_path = ledger.with_suffix(".lock")
+    with lock_path.open("a") as lock_handle:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        release_row = {
+            "reservation_id": reservation_id,
+            "episode": episode,
+            "credits": 0,
+            "reserved_at": None,
+            "released_at": utc_now(),
+        }
+        with ledger.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(release_row, ensure_ascii=False) + "\n")
+
+
 def scan_voice_registry_spend(registry_path: Path | None) -> dict[str, Any]:
     if registry_path is None or not registry_path.is_file():
         return {"registry": str(registry_path) if registry_path else None, "present": False, "credits": 0, "rows": []}
@@ -565,6 +690,8 @@ def build_report(
     voice_registry: Path | None,
     strict: bool,
     bgm_transactions_dir: Path | None = None,
+    reserve_if_pass: bool = False,
+    reservation_id: str | None = None,
 ) -> dict[str, Any]:
     from tools.episode_video_generation_guard import evaluate_episode_credit_gate  # noqa: PLC0415
 
@@ -576,15 +703,21 @@ def build_report(
     non_video_credits = Decimal(str(non_video["subtotal_credits"]))
     voices = scan_voice_registry_spend(voice_registry)
     transactions = scan_transaction_states(episode)
+    reservations_scan = scan_reservations(episode)
+    active_reserved = Decimal(str(reservations_scan["active_credits"]))
+
+    # Read pending exposure from SUBMITTED_TASK_ID_BOUND transactions
+    pending_exposure = scan_pending_exposure(episode)
 
     recorded = video_credits + non_video_credits
-    projected = recorded + (planned or Decimal("0"))
-    headroom = Decimal(cap) - recorded
+    projected = recorded + active_reserved + pending_exposure + (planned or Decimal("0"))
+    headroom = Decimal(cap) - recorded - active_reserved - pending_exposure
 
     failures: list[str] = []
     if planned is not None and projected > Decimal(cap):
         failures.append(
             f"EPISODE_CREDIT_CAP_WOULD_BE_EXCEEDED:recorded={number(recorded)}"
+            f":active_reserved={number(active_reserved)}:pending_exposure={number(pending_exposure)}"
             f":planned={number(planned)}:projected={number(projected)}:cap={cap}"
         )
     if recorded > Decimal(cap):
@@ -604,6 +737,15 @@ def build_report(
     if strict and balance is not None and not balance.get("ok"):
         failures.append("BALANCE_SNAPSHOT_REQUEST_FAILED")
 
+    # Atomic reservation if requested and check passes
+    reservation_result: dict[str, Any] | None = None
+    if reserve_if_pass and planned is not None and not failures:
+        rid = reservation_id or str(uuid.uuid4())
+        reservation_result = reserve_credits(episode, planned, rid, Decimal(cap))
+        if not reservation_result.get("reserved"):
+            # Reservation failed after check passed: re-read and report
+            failures.append(f"RESERVATION_FAILED:{reservation_result.get('reason')}")
+
     status = "PASS" if not failures else "BLOCKED"
     return {
         "schema": SCHEMA,
@@ -620,6 +762,8 @@ def build_report(
             "video_credits": number(video_credits),
             "non_video_credits": number(non_video_credits),
             "recorded_total_credits": number(recorded),
+            "active_reserved_credits": number(active_reserved),
+            "pending_exposure_credits": number(pending_exposure),
             "planned_credits": number(planned) if planned is not None else None,
             "projected_total_credits": number(projected) if planned is not None else None,
             "headroom_credits": number(headroom),
@@ -650,6 +794,8 @@ def build_report(
         "non_video_spend": non_video,
         "voice_registry_spend": voices,
         "durable_transaction_stores": transactions,
+        "budget_reservations": reservations_scan,
+        "reservation_result": reservation_result,
         "unit_prices": UNIT_PRICES,
         "balance_snapshot": balance,
         "release_closure": {

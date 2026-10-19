@@ -2295,6 +2295,32 @@
       "failure_code": "EDITORIAL_SPEECH_BOUNDARY_REQUIRED",
       "do_not_repeat": "不要把供应商槽长当成成片长度；不要在没有核实语音结束点时剪短对白单元；不要用时长目标冒充语音结束证据",
       "sync_slug": "E66-editorial-keep-seconds"
+    },
+    {
+      "id": "K111",
+      "key": "budget-check-must-reserve-atomically-and-count-pending-exposure",
+      "stage": "TRANSACTIONS",
+      "category": "BUDGET",
+      "scope": "generalizable",
+      "episode": "E11",
+      "rule": "付费前预算判定必须是原子预留，不接受「只读检查通过就放行」。build_report 增加 reserve_if_pass：判定通过即在 flock 保护下追加一条 reservation 到 workflow/nalu/<EP>/BUDGET_RESERVATION.jsonl，重扫在锁内进行，因此两个并发进程最多一个取得预留。判定对象是 projected = recorded + active_reserved + pending_exposure + planned：pending_exposure 由 SUBMITTED_TASK_ID_BOUND 事务的 estimated_credits 求和（提交器在 INTENT_RECORDED 时写入，视频 = duration_seconds × 20，图片 = 11；旧事务无该字段时按视频 160 / 图片 11 的保守上限计）。预留只在证据支持时释放（release_reservation 追加释放行），超时不得当作未扣费。--check 本身保持只读，预留由需要花钱的调用方显式要求。",
+      "lesson": "nalu_budget_ledger --check 只读且不记录预留：两个并发付费调用都读到 recorded=7000、各申请 600，双双通过 8000 上限，合起来放行 8200。另一个缺口是已提交未对账的 SUBMITTED_TASK_ID_BOUND 任务不计入任何暴露，账单窗口滞后时一个 600 积分的波次看起来像没花过钱。",
+      "recovery": "付费调用方用 build_report(..., reserve_if_pass=True) 取得原子预留；预留失败即 HARD_STOP，不 POST。pending 暴露从事务文件读取 estimated_credits，不再用固定假设。",
+      "implementation": [
+        "lines/nalu/runtime/tools/nalu_budget_ledger.py",
+        "tools/submit_giggle_video_manifest_v2.py",
+        "tools/submit_giggle_image_manifest.py"
+      ],
+      "regression": "tools/tests/test_concurrent_dispatch_audit_repro.py",
+      "evidence": "BudgetConcurrentReservationRepro 两个用例在修改前均 FAIL（BUDGET_CHECK_THEN_ACT / PENDING_EXPOSURE_NOT_COUNTED），修改后 PASS。",
+      "authority": "Roger 2026-10-18「单集内全流程并行，检查不缩水，预算不超支」",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "runtime_gate_added": false,
+      "failure_code": "BUDGET_CHECK_THEN_ACT",
+      "do_not_repeat": "不要把 --check 的只读通过当成花费许可；不要用固定单价假设替代事务里的 estimated_credits；不要在超时后把预留当作未扣费释放",
+      "sync_slug": "concurrency-atomic-budget-reservation"
     }
   ]
 }

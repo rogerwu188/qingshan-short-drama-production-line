@@ -67,3 +67,4 @@
 {"failure_code": "COMPLETED_ACTION_RESTARTED", "do_not_repeat": "不要用字符重叠或文本相似度判重复动作；不要要求相邻单元 exit_state 与 entry_state 字面相等；不要把计划层连续性检查变成所有单元等待前驱生成的串行条件", "stage": "S2", "scope": "generalizable", "knowledge_id": "K108"}
 {"failure_code": "SILENT_PATCH_BREAKS_ROOM_TONE", "do_not_repeat": "不要为了去掉错误对白把整段音量清零；不要用补静音或 BGM 掩盖缺失素材；不要在真实成片上未验证前默认开启该集的下潜", "stage": "S7_ASSEMBLY", "scope": "generalizable", "knowledge_id": "K109"}
 {"failure_code": "EDITORIAL_SPEECH_BOUNDARY_REQUIRED", "do_not_repeat": "不要把供应商槽长当成成片长度；不要在没有核实语音结束点时剪短对白单元；不要用时长目标冒充语音结束证据", "stage": "S7_ASSEMBLY", "scope": "generalizable", "knowledge_id": "K110"}
+{"failure_code": "BUDGET_CHECK_THEN_ACT", "do_not_repeat": "不要把 --check 的只读通过当成花费许可；不要用固定单价假设替代事务里的 estimated_credits；不要在超时后把预留当作未扣费释放", "stage": "TRANSACTIONS", "scope": "generalizable", "knowledge_id": "K111"}

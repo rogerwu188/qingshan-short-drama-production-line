@@ -225,7 +225,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "9bc5f0401e601ae7f5a42303c9ae0f5b2bf9593ad500c766a30ef420a644e377"
+      "sha256": "38dc48e3ff8f8ac6b8bdf2e4c098d742696a7ea05d9493f7d831219c81eaa658"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -325,7 +325,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "ea357aa3f3f57c0dd948bac9207c348ad2e5140d89f9d61d81f431c590b22adc"
+      "sha256": "a3f6c56ce6ab4fc26515073a40a9d3ee050e2e79538de7b058aabcdd45ad9a36"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -613,7 +613,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_budget_ledger.py",
-      "sha256": "324bb56770a2feecf645e6042fccdd4381d850aa514359164ba824bd5d40a78f"
+      "sha256": "1c1ad7c54639f4f2603836933c21e0307b9c3867f89836b70e8bd9ceb02bbbe2"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_media_tools.py",
@@ -6393,7 +6393,7 @@
     },
     {
       "path": "tools/submit_giggle_image_manifest.py",
-      "sha256": "0f149890753cfdc445ca76ba96d94c281c831c0077d75d7fff206e32ece63e6e"
+      "sha256": "370b11851786f196e99d94b76b9903a9f995ee7459ab1ed07eaa8466a4f339ef"
     },
     {
       "path": "tools/submit_giggle_task_manifest.py",
@@ -6401,7 +6401,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "0033678776af8f87cc24f8a5a3d63a844946d2f6ef91eb514bda06f9ac3f9c27"
+      "sha256": "b6288183692e6bf46ae382d77ed57ec4175a1a9709b41ad13d87f3b8b47273cc"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -6933,7 +6933,7 @@
     },
     {
       "path": "tools/tests/test_concurrent_dispatch_audit_repro.py",
-      "sha256": "64f78d63fa829ff12a3eaddeb3db75a7d72ee1ec49f5b4d5d7923205e2878916"
+      "sha256": "67b8c662013e6a209937e79a52b1423ab2c45992192c56b8510a8b8a5dba6888"
     },
     {
       "path": "tools/tests/test_concurrent_dispatch_crossprocess_repro.py",

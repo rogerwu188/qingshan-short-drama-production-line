@@ -325,6 +325,7 @@ class _BudgetHarness:
         self.B = B
         self.engine = tmp / "engine"
         (self.engine / "workflow" / "tasks").mkdir(parents=True)
+        (self.engine / "workflow" / "nalu" / "E99").mkdir(parents=True)
         statement = self.engine / "workflow" / "tasks" / "E99" / "E99_wave1_submit_credit_statement.json"
         statement.parent.mkdir(parents=True)
         statement.write_text(json.dumps({"episode": "E99", "status": "PASS_BOUNDED",
@@ -352,11 +353,14 @@ class _BudgetHarness:
             patch.stop()
         return False
 
-    def check(self, planned: int) -> dict:
+    def check(self, planned: int, *, reserve: bool = False) -> dict:
         from decimal import Decimal
+        import uuid
 
+        rid = str(uuid.uuid4()) if reserve else None
         return self.B.build_report(episode="E99", cap=self.CAP, planned=Decimal(planned), balance=None,
-                                   voice_registry=None, strict=False, bgm_transactions_dir=None)
+                                   voice_registry=None, strict=False, bgm_transactions_dir=None,
+                                   reserve_if_pass=reserve, reservation_id=rid)
 
 
 class BudgetConcurrentReservationRepro(unittest.TestCase):
@@ -367,8 +371,8 @@ class BudgetConcurrentReservationRepro(unittest.TestCase):
             with _BudgetHarness(Path(tmp), statement_credits=7000) as h:
                 # Two paid invocations for the same episode (e.g. a heartbeat run and a manual run;
                 # there is no episode-level process lock on this code) each ask for 600 credits.
-                first = h.check(600)
-                second = h.check(600)  # first has been admitted but has not POSTed / reconciled yet
+                first = h.check(600, reserve=True)
+                second = h.check(600, reserve=True)  # first reserved, second should be refused
         self.assertEqual(first["status"], "PASS")
         self.assertNotEqual(
             second["status"], "PASS",
@@ -384,6 +388,7 @@ class BudgetConcurrentReservationRepro(unittest.TestCase):
                 # archived statement nor credit_attempts (success=None) carries the 600.
                 (h.video_store / "E99-VU-009__0123456789abcdef.json").write_text(json.dumps({
                     "task_key": "E99-VU-009", "state": "SUBMITTED_TASK_ID_BOUND", "task_id": "tid-9",
+                    "estimated_credits": 600,
                 }), encoding="utf-8")
                 h.engine_gate.update({"pending_attempt_count": 1, "actual_total_complete": False})
                 report = h.check(600)

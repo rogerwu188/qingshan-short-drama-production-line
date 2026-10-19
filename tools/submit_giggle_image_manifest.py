@@ -504,6 +504,7 @@ def _submit_one_locked(task: dict[str, Any], receipt_dir: Path, transaction_dir:
         "prompt_sha256": task.get("prompt_sha256"),
         "reference_sha256": [row.get("sha256") for row in task.get("reference_bindings") or []],
         "reference_encoding": reference_encoding,
+        "estimated_credits": 11,
         "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
     }
     atomic_json(transaction, intent)
