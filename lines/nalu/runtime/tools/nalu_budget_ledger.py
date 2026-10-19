@@ -559,7 +559,7 @@ def scan_reservations(episode: str) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError):
         pass
     reservations = list(active.values())
-    total = sum(Decimal(str(r.get("credits") or 0)) for r in reservations)
+    total = sum((Decimal(str(r.get("credits") or 0)) for r in reservations), Decimal("0"))
     return {"active_reservations": reservations, "active_credits": number(total)}
 
 

@@ -86,6 +86,10 @@ class _SubmitterHarness:
             mock.patch.object(submitter, "run_authoritative_submission_gate", lambda _m, _p: {"status": "PASS"}),
             mock.patch.object(submitter, "validate_gate", lambda _v: {"status": "PASS"}),
             mock.patch.object(submitter, "validate_task", lambda _t: None),
+            # main() later moved every pre-POST gate into one shared chain so the repo
+            # entrypoint cannot validate less than the deployed one; this harness isolates
+            # wave scheduling, so it fakes that chain exactly as it fakes the rest.
+            mock.patch.object(submitter, "validate_task_submission_gates", lambda _t: []),
             mock.patch.object(submitter, "submit_one", fake_submit_one),
             mock.patch.object(submitter, "_request", self._forbidden_request),
             mock.patch.object(submitter, "fetch_pay_statements", lambda: []),
@@ -214,7 +218,11 @@ class _S6Harness:
             episode="E99", dry=False, say=lambda *_a, **_k: None,
             p=SimpleNamespace(preprod=self.preprod, video_media=self.video, preprod_reports=self.reports,
                               video_submit=tmp / "video_submit.json",
-                              video_remote_status=tmp / "video_remote_status.json"),
+                              video_remote_status=tmp / "video_remote_status.json",
+                              # previs_gate() reads p.contract (added with the S5/S6 previs wiring);
+                              # a missing attribute aborted every stage_s6 tick in this harness.
+                              contract=tmp / "contract.json"),
+            paths=SimpleNamespace(contract=tmp / "contract.json"),
             **ctx_extra,
         )
 

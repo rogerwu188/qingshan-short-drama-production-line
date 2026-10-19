@@ -378,6 +378,106 @@ class EngineSupervisorStreamingScheduler(unittest.TestCase):
                          ["U01", "U02"])
 
 
+# --------------------------------------------------------------------------- #
+# Budget guard: lines/nalu/runtime/tools/nalu_budget_ledger.py build_report()
+# --------------------------------------------------------------------------- #
+class _BudgetHarness:
+    CAP = 8000
+
+    def __init__(self, tmp: Path, *, statement_credits: int):
+        import nalu_budget_ledger as B
+        import tools.episode_video_generation_guard as guard
+
+        self.B = B
+        self.engine = tmp / "engine"
+        (self.engine / "workflow" / "tasks").mkdir(parents=True)
+        (self.engine / "workflow" / "nalu" / "E99").mkdir(parents=True)
+        statement = self.engine / "workflow" / "tasks" / "E99" / "E99_wave1_submit_credit_statement.json"
+        statement.parent.mkdir(parents=True)
+        statement.write_text(json.dumps({"episode": "E99", "status": "PASS_BOUNDED",
+                                         "charged_credits": statement_credits}), encoding="utf-8")
+        self.video_store = self.engine / "workflow" / "tasks" / "giggle_video_submit_transactions" / "E99"
+        self.video_store.mkdir(parents=True)
+        self.engine_gate = {
+            "status": "PASS", "actual_charged_credits_known_total": 0, "actual_total_complete": True,
+            "configured_limit_credits": 6000, "effective_limit_credits": 6000,
+            "successful_attempt_count": 0, "successful_unknown_credit_count": 0,
+            "pending_attempt_count": 0, "failures": [],
+        }
+        self.patches = [
+            mock.patch.object(B, "ENGINE_ROOT", self.engine),
+            mock.patch.object(guard, "evaluate_episode_credit_gate", lambda _ep, *a, **k: dict(self.engine_gate)),
+        ]
+
+    def __enter__(self):
+        for patch in self.patches:
+            patch.start()
+        return self
+
+    def __exit__(self, *exc):
+        for patch in reversed(self.patches):
+            patch.stop()
+        return False
+
+    def check(self, planned: int, *, reserve: bool = False) -> dict:
+        from decimal import Decimal
+        import uuid
+
+        rid = str(uuid.uuid4()) if reserve else None
+        return self.B.build_report(episode="E99", cap=self.CAP, planned=Decimal(planned), balance=None,
+                                   voice_registry=None, strict=False, bgm_transactions_dir=None,
+                                   reserve_if_pass=reserve, reservation_id=rid)
+
+
+class BudgetAtomicReservationTest(unittest.TestCase):
+    """K111: a passing budget check must reserve atomically, and pending exposure must count.
+
+    Both properties FAILED before commit 02f7bc5 and are regression-guarded here so the
+    fix cannot be silently undone.  The audit reproductions live in
+    test_concurrent_dispatch_audit_repro.py; this module is the portable-CI guard.
+    """
+
+    def test_two_concurrent_checks_cannot_both_admit_spend_beyond_cap(self):
+        with tempfile.TemporaryDirectory() as tmp, _NoNetwork():
+            with _BudgetHarness(Path(tmp), statement_credits=7000) as h:
+                first = h.check(600, reserve=True)
+                second = h.check(600, reserve=True)
+        self.assertEqual(first["status"], "PASS")
+        self.assertNotEqual(
+            second["status"], "PASS",
+            "BUDGET_CHECK_THEN_ACT: both checks PASS because --check records no reservation; "
+            "together they admit 8200 against an 8000 cap",
+        )
+
+    def test_bound_task_whose_charge_is_not_yet_reconciled_counts_as_exposure(self):
+        with tempfile.TemporaryDirectory() as tmp, _NoNetwork():
+            with _BudgetHarness(Path(tmp), statement_credits=7000) as h:
+                (h.video_store / "E99-VU-009__0123456789abcdef.json").write_text(json.dumps({
+                    "task_key": "E99-VU-009", "state": "SUBMITTED_TASK_ID_BOUND", "task_id": "tid-9",
+                    "estimated_credits": 600,
+                }), encoding="utf-8")
+                h.engine_gate.update({"pending_attempt_count": 1, "actual_total_complete": False})
+                report = h.check(600)
+        self.assertNotEqual(
+            report["status"], "PASS",
+            "PENDING_EXPOSURE_NOT_COUNTED: a bound, not-yet-reconciled 600-credit task adds no "
+            "exposure, so 7000 + 600 pending + 600 planned passes an 8000 cap",
+        )
+
+    def test_a_released_reservation_frees_its_credits(self):
+        with tempfile.TemporaryDirectory() as tmp, _NoNetwork():
+            with _BudgetHarness(Path(tmp), statement_credits=7000) as h:
+                first = h.check(600, reserve=True)
+                rid = (first.get("reservation_result") or {}).get("reservation_id")
+                self.assertTrue(rid)
+                h.B.release_reservation("E99", rid)
+                third = h.check(600, reserve=True)
+        self.assertEqual(first["status"], "PASS")
+        self.assertEqual(third["status"], "PASS",
+                         "RELEASED_RESERVATION_STILL_HELD: a released reservation must not keep "
+                         "blocking the next wave")
+
+
 
 
 if __name__ == "__main__":
