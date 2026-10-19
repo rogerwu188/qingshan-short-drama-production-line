@@ -1068,3 +1068,13 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：`BudgetConcurrentReservationRepro` 两个用例修改前 FAIL（BUDGET_CHECK_THEN_ACT / PENDING_EXPOSURE_NOT_COUNTED），修改后 PASS
 - **授权**：Roger 2026-10-18「单集内全流程并行，检查不缩水，预算不超支」
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K112 — S5
+
+- **规则**：非付费准备阶段逐镜编译并发执行。`build_keyframe_manifest.compile_tasks` 用 `ThreadPoolExecutor` 并发调用 `compile_task`（默认 `min(8, 镜数)`），每镜写自己的 prompt 文件、只读共享不可变输入；唯一跨镜可变数据 `dropped_prompt_segments` 按镜收集、池排空后按输入顺序合并，避免并发 `append` 交错导致报告不确定。任一镜抛错则整批失败，半套 prompt 不得报成功。`workers=1` 保留串行路径且输出顺序一致。真正收益在 `compile_task` 内部对参考图的 SHA 校验（文件 I/O 释放 GIL）。
+- **教训**：S5 关键帧清单构建曾用单线程列表推导逐镜编译，一镜慢读取拖住其后所有镜，而这些镜之间没有真实依赖。
+- **恢复**：新增逐镜准备工作时复用并发+有序归并模式；跨镜共享累加数据一律按任务收集后归并。
+- **实现**：`lines/nalu/runtime/tools/build_keyframe_manifest.py`
+- **回归**：`tools/tests/test_keyframe_compile_parallel.py`
+- **授权**：Roger 2026-10-18「单集内全流程并行，检查不缩水」
+- **状态**：REFERENCE_IMPLEMENTATION

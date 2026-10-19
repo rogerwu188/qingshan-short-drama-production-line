@@ -2321,6 +2321,30 @@
       "failure_code": "BUDGET_CHECK_THEN_ACT",
       "do_not_repeat": "不要把 --check 的只读通过当成花费许可；不要用固定单价假设替代事务里的 estimated_credits；不要在超时后把预留当作未扣费释放",
       "sync_slug": "concurrency-atomic-budget-reservation"
+    },
+    {
+      "id": "K112",
+      "key": "nonpaid-per-shot-compile-runs-concurrently-with-ordered-merge",
+      "stage": "S5",
+      "category": "SCHEDULING",
+      "scope": "generalizable",
+      "episode": "E66",
+      "rule": "非付费准备阶段逐镜编译并发执行：build_keyframe_manifest.compile_tasks 用 ThreadPoolExecutor 并发调用 compile_task（默认 min(8, 镜数)），每镜写自己的 prompt 文件、只读共享不可变输入；唯一跨镜可变数据 dropped_prompt_segments 按镜收集、池排空后按输入顺序合并，避免并发 append 交错导致报告不确定。任一镜抛错则整批失败，半套 prompt 不得报成功。workers=1 保留串行路径且输出顺序一致。真正收益在 compile_task 内部对参考图的 SHA 校验（文件 I/O 释放 GIL），纯文本构建本身便宜；不要为此把编译改成异步或重写渲染器。",
+      "lesson": "S5 关键帧清单构建曾用单线程列表推导逐镜编译：每镜要读并校验多张参考图，一镜慢读拖住其后所有镜；而这些镜之间没有真实依赖。",
+      "recovery": "新增逐镜准备工作时复用 compile_tasks 的并发+有序归并模式；跨镜共享的累加数据一律按任务收集后归并，不要在线程里直接 append 共享列表。",
+      "implementation": [
+        "lines/nalu/runtime/tools/build_keyframe_manifest.py"
+      ],
+      "regression": "tools/tests/test_keyframe_compile_parallel.py",
+      "evidence": "编译循环原为基于 new_shots 的单线程列表推导；测试用 Barrier 断言四镜真实重叠、慢镜不改变归并顺序、单镜异常使整批失败。",
+      "authority": "Roger 2026-10-18「单集内全流程并行，检查不缩水」",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "runtime_gate_added": false,
+      "failure_code": "NONPAID_COMPILE_SERIAL_BY_DEFAULT",
+      "do_not_repeat": "不要在线程里直接 append 跨镜共享列表；不要因并发跳过逐镜校验；不要为并行改写 prompt 渲染语义",
+      "sync_slug": "concurrency-nonpaid-compile-parallel"
     }
   ]
 }

@@ -1832,6 +1832,50 @@ def derived_opener_shot_ids(inputs: "Inputs") -> set[str]:
     return out
 
 
+def compile_tasks(inputs: Inputs, rows: list[dict[str, Any]], prompt_dir: Path,
+                  keyframe_dir: Path, gate_ref: str, model: str, resolution: str,
+                  dropped: list[dict[str, str]], task_version: str = "V1",
+                  workers: int | None = None) -> list[dict[str, Any]]:
+    """Compile every shot's keyframe task concurrently, deterministically ordered.
+
+    Non-paid preparation: each shot writes its own prompt file and reads only shared,
+    immutable inputs, so the shots are independent.  The one cross-shot datum,
+    ``dropped_prompt_segments``, is collected per shot and merged in input order after
+    the pool drains — concurrent appends to one list would interleave and make the
+    report nondeterministic.  Any shot's exception propagates and fails the whole
+    build; a partially written prompt set is never reported as success.
+
+    Reference-image SHA verification inside compile_task is file I/O and releases the
+    GIL, which is where this actually wins; the prompt text building itself is cheap.
+    """
+    if not rows:
+        return []
+    from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+
+    if workers is None:
+        workers = min(8, len(rows))
+    per_row_dropped: list[list[dict[str, str]]] = [[] for _ in rows]
+    results: list[dict[str, Any] | None] = [None] * len(rows)
+
+    def _one(index: int, row: dict[str, Any]) -> None:
+        results[index] = compile_task(
+            inputs, row, prompt_dir, keyframe_dir, gate_ref, model, resolution,
+            per_row_dropped[index], task_version,
+        )
+
+    if workers <= 1:
+        for index, row in enumerate(rows):
+            _one(index, row)
+    else:
+        with ThreadPoolExecutor(max_workers=min(workers, len(rows))) as pool:
+            futures = [pool.submit(_one, index, row) for index, row in enumerate(rows)]
+            for future in futures:
+                future.result()
+    for segments in per_row_dropped:
+        dropped.extend(segments)
+    return [task for task in results if task is not None]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Build the Giggle IMAGE manifest for one episode's per-shot keyframes.",
@@ -1897,11 +1941,9 @@ def main(argv: list[str] | None = None) -> int:
     reuse_shots = [row for row in decisions if row["decision"] != "NEW_KEYFRAME"]
 
     dropped_prompt_segments: list[dict[str, str]] = []
-    all_tasks = [
-        compile_task(inputs, row, prompt_dir, keyframe_dir, gate_ref,
-                     args.model, args.image_resolution, dropped_prompt_segments, task_version)
-        for row in new_shots
-    ]
+    all_tasks = compile_tasks(inputs, new_shots, prompt_dir, keyframe_dir, gate_ref,
+                              args.model, args.image_resolution, dropped_prompt_segments,
+                              task_version)
     selected = [task for task in all_tasks if task_is_fully_bound(task)] if args.locations_only else all_tasks
     if not selected:
         raise SystemExit("no tasks selected; nothing to write")
