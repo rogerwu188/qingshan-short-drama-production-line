@@ -828,6 +828,48 @@ def project_scope_check(
     return detail
 
 
+#: spoken-dialogue languages the production path supports ("zh" is the historical default)
+DIALOGUE_LANGUAGES = ("zh", "en")
+DIALOGUE_LANGUAGE_LOCALES = {"zh": "zh-CN", "en": "en-US"}
+
+
+def _dialogue_language_code(value: Any) -> str | None:
+    """"zh" / "zh-CN" / "zh-Hans" -> "zh"; "en" / "en-US" -> "en"; anything else -> None."""
+    text = str(value or "").strip().lower().replace("_", "-")
+    for code in DIALOGUE_LANGUAGES:
+        if text == code or text.startswith(code + "-"):
+            return code
+    return None
+
+
+def resolve_dialogue_language(contract: Any, config: Any) -> str:
+    """One source for the episode's spoken-dialogue language:
+    generation contract ``dialogue_language`` -> runtime config ``project.language`` -> "zh"."""
+    from_contract = _dialogue_language_code((contract or {}).get("dialogue_language")
+                                            if isinstance(contract, dict) else None)
+    if from_contract:
+        return from_contract
+    project = (config or {}).get("project") if isinstance(config, dict) else None
+    from_config = _dialogue_language_code((project or {}).get("language")
+                                          if isinstance(project, dict) else None)
+    return from_config or "zh"
+
+
+def ctx_language(ctx: Any) -> str:
+    """The run's resolved dialogue language (Ctx.language); stage test doubles without it
+    are the historical Chinese line."""
+    return getattr(ctx, "language", None) or "zh"
+
+
+def ctx_language_locale(ctx: Any) -> str:
+    return DIALOGUE_LANGUAGE_LOCALES[ctx_language(ctx)]
+
+
+def subtitles_ass_path(ctx: Any) -> Path:
+    """Burn-in subtitle path; zh keeps the historical ``_subtitles_zh.ass`` name."""
+    return ctx.p.assembly / f"{ctx.episode}_subtitles_{ctx_language(ctx)}.ass"
+
+
 class Ctx:
     def __init__(self, episode: str, args: argparse.Namespace) -> None:
         self.episode = episode
@@ -920,6 +962,19 @@ class Ctx:
         self.run_log = self.p.logs / f"run_{self.run_id}.log"
         self.state = self.load_state()
         self.planned_commands: list[dict[str, Any]] = []
+        self._language: str | None = None
+
+    @property
+    def language(self) -> str:
+        """The episode's dialogue language ("zh" | "en"), resolved once per run by
+        resolve_dialogue_language.  Not cached until the generation contract exists (S1 writes it)."""
+        if self._language is None:
+            contract = read_json(self.p.contract, None) if self.p.contract.is_file() else None
+            language = resolve_dialogue_language(contract, self.config)
+            if contract is None:
+                return language
+            self._language = language
+        return self._language
 
     # ---------------------------------------------------------------- logging
     def log(self, line: str) -> None:
@@ -1659,6 +1714,7 @@ def s2_argv(ctx: Ctx, *, with_keyframes: bool, ready_units=None) -> list[Any]:
         # the authored WARD-* rows are the wardrobe bible authority (fp_s2 already
         # fingerprints this file)
         "--asset-requirements", p.asset_requirements,
+        "--language", ctx_language(ctx),
     ]
     if p.legacy_grouping_plan.is_file():
         argv += ["--legacy-plan", p.legacy_grouping_plan]
@@ -1686,6 +1742,8 @@ def fp_s2(ctx: Ctx) -> str:
         "shot_state_authoring": sha256_file(p.rt_pre / "shot_state_authoring.json"),
         "overlay": sha256_file(p.overlay) if p.overlay else None,
         "keyframes": sorted(item.name for item in p.keyframes.glob("*.png")) if p.keyframes.is_dir() else [],
+        # a config-only language switch re-runs S2; zh fingerprints are unchanged
+        **({"dialogue_language": ctx_language(ctx)} if ctx_language(ctx) != "zh" else {}),
     }, sort_keys=True))
 
 
@@ -2684,6 +2742,7 @@ def stage_s4(ctx: Ctx) -> StageResult:
              "--report", p.voice_report,
              "--voice-catalog", ctx.p.scope["voice_catalog"],
              "--audio-output-root", p.voice / "references",
+             "--language", ctx_language(ctx),
              "--dry-run"],
             name="s4_bootstrap_voice_references")
         if boot["exit_code"] != 0 or not p.speech_payloads.is_file():
@@ -2868,7 +2927,7 @@ def write_voice_registry_row(ctx: Ctx, entity: str, task: dict[str, Any],
         "local_sha256": sha256_file(wav),
         "duration_seconds": receipt.get("duration"),
         "sample_text": task["request"]["text"],
-        "language": "zh-CN",
+        "language": ctx_language_locale(ctx),
         "capability_id": "AGENTCUT-SPEECH-001",
         "status": "LOCKED_PRODUCTION_READY",
         "recorded_at_utc": now(),
@@ -3189,6 +3248,7 @@ def s3_qa(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str, Any]:
              "--report", p.voice_report,
              "--voice-catalog", ctx.p.scope["voice_catalog"],
              "--audio-output-root", p.voice / "references",
+             "--language", ctx_language(ctx),
              "--dry-run"],
             name="s3_qa_prepare_speech_payloads")
         res.steps.append(prep)
@@ -3247,7 +3307,8 @@ def s3_qa(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str, Any]:
                              "--requirements", scoped_req,
                              "--library", p.identity_library,
                              "--episode", ctx.episode,
-                             "--report", p.identity_library_gate],
+                             "--report", p.identity_library_gate,
+                             "--voice-language", ctx_language_locale(ctx)],
                      name="s3_qa_initial_asset_library_gate")
     res.steps.append(gate_step)
     detail["asset_library_gate_status"] = (read_json(p.identity_library_gate, {}) or {}).get("status")
@@ -5368,7 +5429,8 @@ def s6_qa(ctx: Ctx, res: StageResult) -> dict[str, Any]:
                                      note="the 5 basic-plot checks the scope gate allows"))
         return detail
 
-    run_argv = [POST_GEN_QA, "run", "--episode", ctx.episode, "--review", review_path]
+    run_argv = [POST_GEN_QA, "run", "--episode", ctx.episode, "--review", review_path,
+                "--language", ctx_language(ctx)]
     run_step = qa_run(ctx, run_argv, name="s6_qa_post_generation_qa_runner")
     res.steps.append(run_step)
     verdict = qa_json(run_step)
@@ -5767,7 +5829,7 @@ def transcribe_units(ctx: Ctx, media_dir: Path, episode: str) -> dict[str, list[
     model = WhisperModel("small", device="cpu", compute_type="int8")
 
     def _one(mp4: Path) -> list[dict[str, Any]]:
-        segs, _ = model.transcribe(str(mp4), language="zh", beam_size=5, vad_filter=True)
+        segs, _ = model.transcribe(str(mp4), language=ctx_language(ctx), beam_size=5, vad_filter=True)
         return [{"start": round(x.start, 3), "end": round(x.end, 3), "text": x.text.strip()}
                 for x in segs]
 
@@ -5992,8 +6054,9 @@ def stage_s7(ctx: Ctx) -> StageResult:
     sub_step = ctx.run([VENV, RT_TOOLS / "build_burnin_subtitles.py", "--episode", ctx.episode,
                         "--project", p.agentcut_project, "--asr", asr_json, "--contract", p.contract,
                         "--grouping", p.grouping_plan, "--source", p.picture_native,
-                        "--out-ass", p.assembly / f"{ctx.episode}_subtitles_zh.ass", "--out-video", subbed,
-                        "--out-report", p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json"],
+                        "--out-ass", subtitles_ass_path(ctx), "--out-video", subbed,
+                        "--out-report", p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json",
+                        "--language", ctx_language(ctx)],
                        name="s7_burnin_subtitles")
     steps.append(sub_step)
     if sub_step["exit_code"] != 0 or not subbed.is_file():
@@ -6223,7 +6286,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
         # per-unit ASR windows (timing) with contract attribution; whole-file ASR of the levelled final
         # merges speech with wind/music into 10-20 s windows and mismeasures every line (E04 v2, 23:30Z)
         detector_argv += ["--asr-json", asr_windows]
-    subtitles = p.assembly / f"{ctx.episode}_subtitles_zh.ass"
+    subtitles = subtitles_ass_path(ctx)
     if subtitles.is_file():
         detector_argv += ["--subtitles", subtitles]
     if (RUNTIME / "brand").is_dir():

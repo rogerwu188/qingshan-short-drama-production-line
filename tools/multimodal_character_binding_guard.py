@@ -129,6 +129,9 @@ FORBIDDEN_APPEARANCE_PHRASES = {
 }
 
 DIALOGUE_CHARACTER_LIMIT = 30
+# English-dialogue tasks count words instead: 30 Mandarin characters ~ 7 s at 4.2 cps,
+# ~ 19 words at 2.7 words/s, rounded to 20.
+DIALOGUE_WORD_LIMIT_EN = 20
 GENERIC_TTS_PATTERN = re.compile(r"(?:Azure|Edge\s*TTS|[A-Za-z-]+Neural)", re.I)
 AGENTCUT_VOICE_EXEMPTIONS = {"chenji", "baili"}
 POSE_FIRST_PATTERN = re.compile(r"先摆(?:出)?姿势|摆好姿势再|定格起手|pose[- ]first", re.I)
@@ -175,9 +178,16 @@ def _positive_motion_directives(prompt: str) -> str:
     return positive
 
 
-def _dialogue_length(text: str) -> int:
-    """Count spoken CJK/alphanumeric characters while ignoring punctuation."""
+def _dialogue_length(text: str, language: str = "zh") -> int:
+    """Count spoken CJK/alphanumeric characters while ignoring punctuation
+    (English dialogue: count words)."""
+    if language == "en":
+        return len(re.findall(r"[A-Za-z0-9]+(?:['\u2019][A-Za-z0-9]+)*", text))
     return len(re.findall(r"[\u3400-\u9fffA-Za-z0-9]", text))
+
+
+def dialogue_limit(language: str = "zh") -> int:
+    return DIALOGUE_WORD_LIMIT_EN if language == "en" else DIALOGUE_CHARACTER_LIMIT
 
 
 def _voice_authority() -> dict[str, dict]:
@@ -491,15 +501,17 @@ def evaluate_task(task: dict) -> dict:
                 failures.append({"code": "CANONICAL_VISUAL_NOT_FORWARDED_TO_MODEL", "entity_id": entity_id})
 
     dialogue_assets = {str(row.get("dia_id") or ""): row for row in task.get("dialogue_audio_assets") or []}
+    dialogue_language = str(task.get("dialogue_language") or "zh")
+    line_limit = dialogue_limit(dialogue_language)
     for line in task.get("dialogue") or []:
         spoken_text = str(line.get("spoken_text") or line.get("text") or "")
-        spoken_length = _dialogue_length(spoken_text)
-        if spoken_length > DIALOGUE_CHARACTER_LIMIT:
+        spoken_length = _dialogue_length(spoken_text, dialogue_language)
+        if spoken_length > line_limit:
             failures.append({
                 "code": "DIALOGUE_LINE_TOO_LONG",
                 "dia_id": str(line.get("dia_id") or ""),
                 "length": spoken_length,
-                "limit": DIALOGUE_CHARACTER_LIMIT,
+                "limit": line_limit,
             })
         speaker_name = str(line.get("speaker") or "")
         entity_id = next((key for key, (name, _) in ENTITY_ALIASES.items() if name == speaker_name), None)

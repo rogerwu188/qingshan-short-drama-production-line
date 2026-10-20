@@ -71,9 +71,17 @@ def section(text: str, header: str) -> str:
     return ""
 
 
+def spoken_part(line: str) -> str:
+    """Text after the speaker prefix: ``speaker：text``, or ``Speaker: text`` (English dialogue)."""
+    for mark in ("：", ":"):
+        if mark in line:
+            return line.split(mark, 1)[1].lstrip(" ") if mark == ":" else line.split(mark, 1)[1]
+    return line
+
+
 def foreign_dialogue(text: str, dialogue_by_shot: dict, unit_shots: list) -> list[str]:
     """A transition never exempts out-of-scope dialogue from pre-submit QA."""
-    local = {line.split("：", 1)[1] for sid in unit_shots
+    local = {spoken_part(line) for sid in unit_shots
              for line in dialogue_by_shot.get(sid, [])}
     # 2026-10-16 (miniPC 《画皮》 E01-VU-007): a foreign line that is a clause of a local line
     # (「須秘密，勿泄。」 inside 「如憐妾而活之，須秘密，勿泄。」) matched inside the local line itself.
@@ -82,12 +90,12 @@ def foreign_dialogue(text: str, dialogue_by_shot: dict, unit_shots: list) -> lis
     for own in sorted(local, key=len, reverse=True):
         if own:
             remaining = remaining.replace(own, "\u0000")
-    return sorted({line.split("：", 1)[1]
+    return sorted({spoken_part(line)
                    for sid, lines in dialogue_by_shot.items() if sid not in unit_shots
                    for line in lines
-                   if line.split("：", 1)[1] not in local
-                   and len(line.split("：", 1)[1]) > 4
-                   and line.split("：", 1)[1] in remaining})
+                   if spoken_part(line) not in local
+                   and len(spoken_part(line)) > 4
+                   and spoken_part(line) in remaining})
 
 
 #: Tokens that mean "an outer garment made of hide": 兽皮大衣 / 裘氅 / 兽皮短袄 / 皮袄.
@@ -322,7 +330,7 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
                 chk(f"vp_start_state_present:{sid}", s["entry_state"] in vp_text, s["entry_state"][:30])
                 chk(f"vp_completion_state_present:{sid}", s["completion_state"] in vp_text, s["completion_state"][:30])
             for line in dialogue_by_shot.get(sid, []):
-                spoken = line.split("：", 1)[1]
+                spoken = spoken_part(line)
                 chk(f"vp_dialogue_verbatim:{sid}", spoken in vp_text, spoken[:30])
         leaked = foreign_dialogue(vp_text, dialogue_by_shot, unit_shots)
         chk("vp_no_foreign_dialogue", not leaked, str(leaked[:2]))

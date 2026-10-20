@@ -536,13 +536,34 @@ def _has_chinese(value: str) -> bool:
     return any("\u4e00" <= ch <= "\u9fff" for ch in value)
 
 
-def _verify_no_speech(media: Path) -> dict[str, Any]:
+def _has_speech_text(value: str, language: str = "zh") -> bool:
+    """zh: any CJK ideograph; en: any Latin letter."""
+    if language == "en":
+        return any(("a" <= ch <= "z") or ("A" <= ch <= "Z") for ch in value)
+    return _has_chinese(value)
+
+
+def _script_normalise(text: str, language: str = "zh") -> str:
+    """Traditional -> simplified only for Chinese; English text is returned unchanged."""
+    return _t2s(text) if language == "zh" else text
+
+
+def _speech_codes(language: str = "zh") -> dict[str, str]:
+    """The source_video_dialogue_gate failure codes for this language."""
+    if language == "en":
+        return {"missing": "native_speech_missing",
+                "unexpected": "unexpected_native_speech_present"}
+    return {"missing": "native_mandarin_speech_missing",
+            "unexpected": "unexpected_native_mandarin_speech_present"}
+
+
+def _verify_no_speech(media: Path, language: str = "zh") -> dict[str, Any]:
     """Second faster-whisper pass exposing per-segment no_speech_prob / avg_logprob."""
     try:
         rows = []
         with _ASR_LOCK:
             model = _whisper_model_locked()
-            segments, _info = model.transcribe(str(media), language="zh", beam_size=5, vad_filter=True,
+            segments, _info = model.transcribe(str(media), language=language, beam_size=5, vad_filter=True,
                                                word_timestamps=True)
             for seg in segments:
                 text = seg.text.strip()
@@ -555,7 +576,8 @@ def _verify_no_speech(media: Path) -> dict[str, Any]:
                              "known_hallucination_pattern": hallucination})
         real = [r for r in rows if not r["known_hallucination_pattern"]
                 and r["no_speech_prob"] < 0.5 and r["avg_logprob"] > -1.0
-                and any("一" <= ch <= "鿿" for ch in r["text"])]
+                and (any("一" <= ch <= "鿿" for ch in r["text"]) if language == "zh"
+                     else _has_speech_text(r["text"], language))]
         return {"type": "ASR_NO_SPEECH_VERIFICATION", "segments": rows, "real_speech_segments": real,
                 "rule": "known whisper boilerplate on non-speech audio, or no_speech_prob>=0.5, or "
                         "avg_logprob<=-1.0 is not Mandarin dialogue"}
@@ -611,7 +633,8 @@ def _measure_tail(media: Path, segments: list[dict[str, Any]]) -> dict[str, Any]
                                             "is a non-speech transient")
     return result
 
-def _rate_segments(media: Path, segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _rate_segments(media: Path, segments: list[dict[str, Any]],
+                   language: str = "zh") -> list[dict[str, Any]]:
     """Segments for the seq=29 rule-6 speech-rate measurement.  The engine dialogue gate's rows carry
     padded VAD-chunk bounds (a 4-character line spanning a 7.6 s wind chunk), which under-measures cps;
     when they carry no per-word timing, take one word-timestamp pass (same model, beam 1) so the
@@ -622,10 +645,10 @@ def _rate_segments(media: Path, segments: list[dict[str, Any]]) -> list[dict[str
     try:
         with _ASR_LOCK:
             model = _whisper_model_locked()
-            segs, _info = model.transcribe(str(media), language="zh", beam_size=1, vad_filter=True,
+            segs, _info = model.transcribe(str(media), language=language, beam_size=1, vad_filter=True,
                                            word_timestamps=True)
             timed = [{"start": round(float(seg.start), 2), "end": round(float(seg.end), 2),
-                      "text": _t2s(str(seg.text).strip()),
+                      "text": _script_normalise(str(seg.text).strip(), language),
                       "words": [{"start": round(float(w.start), 3), "end": round(float(w.end), 3), "word": str(w.word)}
                                 for w in (seg.words or [])],
                       "timing_pass": "WORD_TIMESTAMPS_BEAM1"} for seg in segs]
@@ -634,30 +657,7 @@ def _rate_segments(media: Path, segments: list[dict[str, Any]]) -> list[dict[str
         return rows
 
 
-def _rate_segments(media: Path, segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Segments for the seq=29 rule-6 speech-rate measurement.  The engine dialogue gate's rows carry
-    padded VAD-chunk bounds (a 4-character line spanning a 7.6 s wind chunk), which under-measures cps;
-    when they carry no per-word timing, take one word-timestamp pass (same model, beam 1) so the
-    realised speech time is the sum of word spans.  Falls back to the given rows on any failure."""
-    rows = [r for r in (segments or []) if isinstance(r, dict)]
-    if not rows or any(r.get("words") for r in rows):
-        return rows
-    try:
-        with _ASR_LOCK:
-            model = _whisper_model_locked()
-            segs, _info = model.transcribe(str(media), language="zh", beam_size=1, vad_filter=True,
-                                           word_timestamps=True)
-            timed = [{"start": round(float(seg.start), 2), "end": round(float(seg.end), 2),
-                      "text": _t2s(str(seg.text).strip()),
-                      "words": [{"start": round(float(w.start), 3), "end": round(float(w.end), 3), "word": str(w.word)}
-                                for w in (seg.words or [])],
-                      "timing_pass": "WORD_TIMESTAMPS_BEAM1"} for seg in segs]
-        return timed if any(t["words"] for t in timed) else rows
-    except Exception:  # noqa: BLE001
-        return rows
-
-
-def _reverify_dialogue(media: Path, expected_texts: list[str]) -> dict[str, Any]:
+def _reverify_dialogue(media: Path, expected_texts: list[str], language: str = "zh") -> dict[str, Any]:
     """In-process faster-whisper (small, int8) with vad_filter + beam 1; character recall of the
     expected spoken text after t2s normalisation.  Never rejects on its own — only rescues a
     recall miss whose gate transcript was known hallucination boilerplate."""
@@ -665,22 +665,32 @@ def _reverify_dialogue(media: Path, expected_texts: list[str]) -> dict[str, Any]
     try:
         with _ASR_LOCK:
             model = _whisper_model_locked()
-            segments, _info = model.transcribe(str(media), language="zh", beam_size=1, vad_filter=True,
+            segments, _info = model.transcribe(str(media), language=language, beam_size=1, vad_filter=True,
                                                word_timestamps=True)
-            rows = [{"start": round(float(seg.start), 2), "end": round(float(seg.end), 2), "text": _t2s(str(seg.text).strip()),
+            rows = [{"start": round(float(seg.start), 2), "end": round(float(seg.end), 2),
+                     "text": _script_normalise(str(seg.text).strip(), language),
                      "words": [{"start": round(float(w.start), 3), "end": round(float(w.end), 3), "word": str(w.word)}
                                for w in (seg.words or [])]}
                     for seg in segments]
     except Exception as exc:  # noqa: BLE001
         return {"status": "REVERIFY_FAILED", "error": f"{type(exc).__name__}: {exc}", "recall": None}
-    transcript = "".join(r["text"] for r in rows)
+    transcript = (" " if language == "en" else "").join(r["text"] for r in rows)
     if any(pat.lower() in transcript.lower() for pat in ASR_HALLUCINATION_PATTERNS):
         return {"status": "STILL_HALLUCINATION", "transcript": transcript, "segments": rows, "recall": 0.0}
+    from collections import Counter
+    if language == "en":
+        words = lambda t: _re.findall(r"[a-z0-9]+(?:'[a-z0-9]+)*", str(t).lower().replace("\u2019", "'"))
+        exp_w, got_w = words(" ".join(expected_texts)), words(transcript)
+        if not exp_w:
+            return {"status": "NO_EXPECTED_TEXT", "transcript": transcript, "segments": rows, "recall": None}
+        ce, cg = Counter(exp_w), Counter(got_w)
+        hit = sum(min(n, cg.get(w, 0)) for w, n in ce.items())
+        return {"status": "REVERIFIED", "method": "faster-whisper small int8, language=en, beam_size=1, vad_filter=True; lowercase word recall",
+                "transcript": transcript, "segments": rows, "recall": round(hit / max(1, len(exp_w)), 3)}
     clean = lambda t: _re.sub(r"[^\u4e00-\u9fff0-9a-zA-Z]", "", _t2s(str(t)))
     exp = clean("".join(expected_texts)); got = clean(transcript)
     if not exp:
         return {"status": "NO_EXPECTED_TEXT", "transcript": transcript, "segments": rows, "recall": None}
-    from collections import Counter
     ce, cg = Counter(exp), Counter(got)
     hit = sum(min(n, cg.get(ch, 0)) for ch, n in ce.items())
     recall = round(hit / max(1, len(exp)), 3)
@@ -689,7 +699,7 @@ def _reverify_dialogue(media: Path, expected_texts: list[str]) -> dict[str, Any]
 
 
 def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, Any]],
-                   out_dir: Path) -> dict[str, Any]:
+                   out_dir: Path, language: str = "zh") -> dict[str, Any]:
     policy = read_json(DIALOGUE_QA_POLICY, {}) or {}
     rules = policy.get("rules") or {}
     asr = policy.get("asr") or {}
@@ -701,14 +711,23 @@ def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, 
     # (2026-09-13: "秦铭：陆哥。" vs transcript "陆哥" scored 0.5 and rejected E01-VU-011)
     def spoken_only(value: Any) -> str:
         text = str(value or "")
+        if language == "en":
+            # English plots write "Name: line" (ASCII colon); names run longer than CJK names.
+            head = text[:32]
+            for mark in ("：", ":"):
+                if mark in head:
+                    return text.split(mark, 1)[1].strip()
+            return text
         return text.split("：", 1)[1] if "：" in text[:8] else text
+    codes = _speech_codes(language)
     write_json(dialogue_json, {"dialogue": [
         {"dia_id": f"{row.get('shot_id')}-D-{index}", "spoken_text": spoken_only(row.get("spoken_text"))}
         for index, row in enumerate(expected_dialogue, 1)]})
     report = out_dir / f"{unit_id}_source_video_dialogue_gate.json"
     argv = [VENV, ENGINE / "tools/source_video_dialogue_gate.py",
             "--video", media, "--dialogue-json", dialogue_json, "--out", report,
-            "--minimum-recall", minimum_recall, "--ffprobe", require_ffprobe()]
+            "--minimum-recall", minimum_recall, "--ffprobe", require_ffprobe(),
+            "--language", language]
     if asr.get("model"):
         argv += ["--model", asr["model"]]
     if not expected_dialogue:
@@ -721,7 +740,7 @@ def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, 
     machine_adjudications: list[dict[str, Any]] = []
     # nalu D-18a: whisper emits traditional characters at times (陸哥 / 讓我看一看); an
     # orthographic variant is RECORDED, never rejected (policy) — normalise t2s first.
-    t2s = _t2s(str(payload.get("transcript") or ""))
+    t2s = _script_normalise(str(payload.get("transcript") or ""), language)
     if t2s != str(payload.get("transcript") or ""):
         payload["transcript_t2s"] = t2s
         machine_adjudications.append({"type": "ORTHOGRAPHIC_VARIANT_TRADITIONAL_TO_SIMPLIFIED",
@@ -730,23 +749,24 @@ def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, 
     # nalu D-18b: a "no dialogue" unit whose only transcript is a known whisper hallucination
     # on non-speech audio is re-verified with a second faster-whisper pass that exposes
     # no_speech_prob / avg_logprob per segment; only real speech keeps the failure.
-    if not expected_dialogue and "unexpected_native_mandarin_speech_present" in failures:
-        verify = _verify_no_speech(media)
+    if not expected_dialogue and codes["unexpected"] in failures:
+        verify = _verify_no_speech(media, language)
         machine_adjudications.append(verify)
         if verify.get("real_speech_segments") == []:
-            failures = [v for v in failures if v != "unexpected_native_mandarin_speech_present"]
+            failures = [v for v in failures if v != codes["unexpected"]]
     # nalu D-18d (E04 VU-012): the engine gate primes whisper with initial_prompt=<expected text>;
     # on some clips that primed decode degenerates to a single replacement char ("\ufffd") and the
     # gate reports native_mandarin_speech_missing although the line is spoken.  Re-verify with an
     # UNPRIMED pass (same model, vad on); the failure is cleared only when the expected line is
     # actually recalled (>= minimum_recall) and every segment is real speech.
-    if expected_dialogue and "native_mandarin_speech_missing" in failures \
-            and not _has_chinese(str(payload.get("transcript") or "")):
-        verify = _verify_no_speech(media)
+    if expected_dialogue and codes["missing"] in failures \
+            and not _has_speech_text(str(payload.get("transcript") or ""), language):
+        verify = _verify_no_speech(media, language)
         gate = engine_module("source_video_dialogue_gate")
-        expected_join = "".join(spoken_only(row.get("spoken_text")) for row in expected_dialogue)
-        second = "".join(r["text"] for r in (verify.get("segments") or []))
-        second_recall = gate.recall(expected_join, _t2s(second)) if second else 0.0
+        joiner = " " if language == "en" else ""
+        expected_join = joiner.join(spoken_only(row.get("spoken_text")) for row in expected_dialogue)
+        second = joiner.join(r["text"] for r in (verify.get("segments") or []))
+        second_recall = gate.recall(expected_join, _script_normalise(second, language), language) if second else 0.0
         verify = dict(verify, type="ASR_DEGENERATE_PRIMED_DECODE_REVERIFIED",
                       primed_transcript=payload.get("transcript"), unprimed_transcript=second,
                       unprimed_recall=round(second_recall, 3), minimum_recall=minimum_recall,
@@ -755,7 +775,7 @@ def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, 
         machine_adjudications.append(verify)
         if second and second_recall >= minimum_recall and verify.get("real_speech_segments") \
                 and len(verify["real_speech_segments"]) == len(verify.get("segments") or []):
-            failures = [v for v in failures if v != "native_mandarin_speech_missing"]
+            failures = [v for v in failures if v != codes["missing"]]
             payload["transcript_unprimed"] = second
     # nalu D-18c: "tail clipped or unverified" is VERIFIED by measuring the audio envelope of
     # the last 120 ms against the last speech segment; a decayed tail is not clipped.
@@ -764,7 +784,8 @@ def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, 
         machine_adjudications.append(tail)
         if tail.get("status") in ("TAIL_DECAYED_NOT_CLIPPED", "TAIL_DECAYED_THEN_LATE_NON_SPEECH_TRANSIENT"):
             failures = [v for v in failures if v != "dialogue_tail_clipped_or_unverified"]
-    if expected_dialogue and payload:
+    # homophone / pinyin adjudication is a Chinese-only rescue; English recall misses stay failures
+    if expected_dialogue and payload and language == "zh":
         transcript = str(payload.get("transcript") or "")
         for row in expected_dialogue:
             verdict = adjudicate_homophones(spoken_only(row.get("spoken_text")),
@@ -791,7 +812,7 @@ def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, 
     if expected_dialogue and recall_failed:
         payload["transcript_gate_pass"] = transcript_now
         payload["gate_transcript_was_hallucination_boilerplate"] = boilerplate
-        rv = _reverify_dialogue(media, [spoken_only(r.get("spoken_text")) for r in expected_dialogue])
+        rv = _reverify_dialogue(media, [spoken_only(r.get("spoken_text")) for r in expected_dialogue], language)
         machine_adjudications.append({"type": "ASR_HALLUCINATION_REVERIFIED_WITH_VAD", **rv})
         if rv.get("recall") is not None and rv["recall"] >= minimum_recall:
             failures = [v for v in failures if not str(v).startswith("dialogue_recall_below_threshold")]
@@ -812,6 +833,7 @@ def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, 
     return {
         "check": "major_dialogue_presence_asr_support",
         "status": status,
+        "language": language,
         "policy": str(DIALOGUE_QA_POLICY),
         "expected_line_count": len(expected_dialogue),
         "recall_score": payload.get("recall_score"),
@@ -961,7 +983,7 @@ def unit_media(episode: str, unit_id: str) -> Path:
 
 
 def run(episode: str, *, review_path: Path | None = None,
-        units: list[str] | None = None) -> dict[str, Any]:
+        units: list[str] | None = None, language: str = "zh") -> dict[str, Any]:
     if POSTGEN_POLICY_ERROR:
         raise ValueError(POSTGEN_POLICY_ERROR)
     p = QaPaths(episode)
@@ -996,7 +1018,7 @@ def run(episode: str, *, review_path: Path | None = None,
         # nalu D-28: dialogue first — its speech segments make the static-hold measurement
         # speech-aware (a held frame under a spoken line is not an unmotivated static hold).
         dialogue = dialogue_check(unit_id, media,
-                                  expectations.get("expected_dialogue") or [], out_dir)
+                                  expectations.get("expected_dialogue") or [], out_dir, language=language)
         technical = technical_checks(unit_id, media,
                                      expectations.get("duration_seconds"), out_dir,
                                      designed_shot_count=len(expectations.get("editorial_shot_ids") or []) or 1,
@@ -1006,8 +1028,9 @@ def run(episode: str, *, review_path: Path | None = None,
         # SUPERVISOR_ORDERS seq=29 规则 6: realised cps from the SAME ASR segments vs the director's
         # per-shot target — MINOR is recorded, BLOCKER joins the reroll flow (no new capture, no new gate).
         import speech_rate_check as _src
-        speech_rate = _src.measure_unit(unit_id, _rate_segments(media, dialogue.get("segments") or []),
-                                        expectations.get("expected_dialogue") or [], _src.shot_targets(exp.contract))
+        speech_rate = _src.measure_unit(unit_id, _rate_segments(media, dialogue.get("segments") or [], language),
+                                        expectations.get("expected_dialogue") or [],
+                                        _src.shot_targets(exp.contract, language), language=language)
         write_json(out_dir / f"{unit_id}_speech_rate.json", speech_rate)
         # VOICE_TIMBRE_LOCK (Roger 2026-09-28, E10+): the speaker's F0 on this unit's own ASR
         # segments against the voice_cast band — the final-cut voice_distinctness measurement,
@@ -1015,7 +1038,8 @@ def run(episode: str, *, review_path: Path | None = None,
         voice = None
         if voice_check_active:
             voice = _uvc.check_unit(unit_id, media, dialogue.get("segments") or [],
-                                    expectations.get("expected_dialogue") or [], voice_cast, name_to_id)
+                                    expectations.get("expected_dialogue") or [], voice_cast, name_to_id,
+                                    language=language)
             write_json(out_dir / f"{unit_id}_voice_consistency.json", voice)
         return {"media": media, "media_sha256": sha256_file(media),
                 "technical": technical, "dialogue": dialogue, "sheet": sheet, "speech_rate": speech_rate,
@@ -1181,7 +1205,8 @@ def run(episode: str, *, review_path: Path | None = None,
         "reroll_request_count": rerolls["request_count"],
     }
     import speech_rate_check as _src
-    summary["speech_rate_episode"] = _src.episode_summary([row.get("speech_rate_qa") or {} for row in rows])
+    summary["speech_rate_episode"] = _src.episode_summary([row.get("speech_rate_qa") or {} for row in rows],
+                                                          language)
     summary["speech_rate_episode"]["reroll_rule"] = "规则 6：SPEECH_RATE 重做时提示词必须换表演指令（performance），不许只把字/秒数字改大"
     out = write_json(p.postgen_dir / f"{episode}_POST_GENERATION_QA_SUMMARY.json", summary)
     summary["_written_to"] = str(out)
@@ -1359,6 +1384,8 @@ def main() -> int:
     rn.add_argument("--episode", required=True)
     rn.add_argument("--review", type=Path)
     rn.add_argument("--unit", action="append", default=[])
+    rn.add_argument("--language", choices=("zh", "en"), default="zh",
+                    help="dialogue language resolved by nalu_pipeline (default zh)")
     args = parser.parse_args()
 
     if args.command == "status":
@@ -1400,7 +1427,8 @@ def main() -> int:
                          ensure_ascii=False, indent=2)[:4000])
         return 0
 
-    summary = run(args.episode, review_path=args.review, units=args.unit or None)
+    summary = run(args.episode, review_path=args.review, units=args.unit or None,
+                  language=args.language)
     print(json.dumps({"status": summary["status"], "units": summary["unit_count"],
                       "admitted": summary["admitted_count"],
                       "rejected": summary["rejected_count"],

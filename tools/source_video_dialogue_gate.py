@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify native Mandarin dialogue and audio presence in one harvested source clip."""
+"""Verify native dialogue (Mandarin by default, or English) and audio presence in one harvested source clip."""
 
 from __future__ import annotations
 
@@ -25,7 +25,29 @@ def chinese(value: str) -> str:
     return "".join(re.findall(r"[\u4e00-\u9fff]", normalized))
 
 
-def recall(expected: str, actual: str) -> float:
+def english_words(value: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+(?:'[a-z0-9]+)*", value.lower().replace("\u2019", "'"))
+
+
+def spoken(value: str, language: str = "zh") -> str:
+    """Language-specific normalized speech text ("" means no speech)."""
+    if language == "en":
+        return " ".join(english_words(value))
+    return chinese(value)
+
+
+def recall(expected: str, actual: str, language: str = "zh") -> float:
+    if language == "en":
+        expected_words, actual_words = english_words(expected), english_words(actual)
+        if not expected_words:
+            return 1.0
+        matched = sum(
+            block.size
+            for block in SequenceMatcher(
+                None, expected_words, actual_words, autojunk=False
+            ).get_matching_blocks()
+        )
+        return matched / len(expected_words)
     expected_text, actual_text = chinese(expected), chinese(actual)
     if not expected_text:
         return 1.0
@@ -40,8 +62,10 @@ def recall(expected: str, actual: str) -> float:
     return matched / len(expected_text)
 
 
-def transcription_prompt(expected: str) -> str:
+def transcription_prompt(expected: str, language: str = "zh") -> str:
     """Keep punctuation-only cues from turning into Whisper hallucinations."""
+    if language == "en":
+        return " ".join(expected.split())
     return chinese(expected)
 
 
@@ -93,8 +117,10 @@ def evaluate(
     segments: list[dict],
     minimum_recall: float,
     require_no_dialogue: bool = False,
+    language: str = "zh",
 ) -> dict:
     failures: list[str] = []
+    english = language == "en"
     streams = probe_payload.get("streams") or []
     video_stream = any(row.get("codec_type") == "video" for row in streams)
     audio_stream = any(row.get("codec_type") == "audio" for row in streams)
@@ -113,16 +139,20 @@ def evaluate(
     ]
     if rows and (any(not value for value in expected_ids) or len(set(expected_ids)) != len(expected_ids)):
         failures.append("dialogue_ids_missing_or_duplicate")
-    if rows and any(not chinese(value) for value in expected_texts):
-        failures.append("expected_mandarin_text_missing")
-    expected = "".join(expected_texts)
-    score = recall(expected, transcript)
-    if rows and not chinese(transcript):
-        failures.append("native_mandarin_speech_missing")
+    if rows and any(not spoken(value, language) for value in expected_texts):
+        failures.append("expected_text_missing" if english else "expected_mandarin_text_missing")
+    expected = (" " if english else "").join(expected_texts)
+    score = recall(expected, transcript, language)
+    if rows and not spoken(transcript, language):
+        failures.append("native_speech_missing" if english else "native_mandarin_speech_missing")
     elif rows and score < minimum_recall:
         failures.append(f"dialogue_recall_below_threshold:{score:.3f}")
-    if require_no_dialogue and chinese(transcript):
-        failures.append("unexpected_native_mandarin_speech_present")
+    if require_no_dialogue and spoken(transcript, language):
+        failures.append(
+            "unexpected_native_speech_present"
+            if english
+            else "unexpected_native_mandarin_speech_present"
+        )
     if rows and segments and float(segments[-1].get("end") or 0) >= duration - 0.05:
         failures.append("dialogue_tail_clipped_or_unverified")
     return {
@@ -139,8 +169,13 @@ def evaluate(
         "recall_score": round(score, 3),
         "minimum_recall": minimum_recall,
         "dialogue_difference_policy": evaluate_dialogue_findings(
-            ["ASR_TEXT_MISMATCH"] if rows and chinese(transcript) and chinese(expected) != chinese(transcript) else []
+            ["ASR_TEXT_MISMATCH"]
+            if rows
+            and spoken(transcript, language)
+            and spoken(expected, language) != spoken(transcript, language)
+            else []
         ),
+        "language": language,
         "asr_recall_is_diagnostic_not_phonetic_proof": True,
         "automatic_regeneration_from_asr_alone_allowed": False,
         "failures": failures,
@@ -156,6 +191,7 @@ def main() -> int:
     parser.add_argument("--ffprobe")
     parser.add_argument("--minimum-recall", type=float, default=0.55)
     parser.add_argument("--require-no-dialogue", action="store_true")
+    parser.add_argument("--language", choices=("zh", "en"), default="zh")
     args = parser.parse_args()
     video = args.video.expanduser().resolve()
     if not video.is_file():
@@ -177,15 +213,15 @@ def main() -> int:
         from faster_whisper import WhisperModel
 
         model = WhisperModel(model_ref, device="cpu", compute_type="int8")
-        expected = "".join(
+        expected = (" " if args.language == "en" else "").join(
             str(row.get("spoken_text") or row.get("text") or "") for row in rows
         )
         segments, _ = model.transcribe(
             str(video),
-            language="zh",
+            language=args.language,
             vad_filter=True,
             beam_size=5,
-            initial_prompt=transcription_prompt(expected),
+            initial_prompt=transcription_prompt(expected, args.language),
         )
         segments_payload = [
             {
@@ -195,7 +231,9 @@ def main() -> int:
             }
             for segment in segments
         ]
-        transcript = "".join(row["text"] for row in segments_payload)
+        transcript = (" " if args.language == "en" else "").join(
+            row["text"] for row in segments_payload
+        )
     report = evaluate(
         video,
         rows,
@@ -204,6 +242,7 @@ def main() -> int:
         segments=segments_payload,
         minimum_recall=args.minimum_recall,
         require_no_dialogue=args.require_no_dialogue,
+        language=args.language,
     )
     report.update(
         {

@@ -2,7 +2,8 @@
 """Validate H3's English-only machine-instruction projection.
 
 MiniMax H3 receives English machine metadata.  Chinese is permitted only in
-literal dialogue inside ``<d>[Chinese]...</d>``.  The English projection is a
+literal dialogue inside ``<d>[Chinese]...</d>`` (English-dialogue episodes tag
+their literals ``<d>[English]...</d>``).  The English projection is a
 translation layer over the immutable shared execution plan; it never replaces
 or mutates the Chinese directing contract used by SD2.
 """
@@ -16,7 +17,7 @@ from typing import Any
 
 SCHEMA = "qingshan.h3_provider_english_contract.v1_source_sha_bound"
 CJK = re.compile(r"[\u3400-\u9fff]")
-DIALOGUE_TAG = re.compile(r"<d>\[Chinese\]\s*(.*?)</d>", re.DOTALL)
+DIALOGUE_TAG = re.compile(r"<d>\[(?:Chinese|English)\]\s*(.*?)</d>", re.DOTALL)
 QUOTED_CJK = re.compile(r"(?:\"[^\"\n]*[\u3400-\u9fff][^\"\n]*\"|[“”「」『』][^\n]*[\u3400-\u9fff])")
 
 

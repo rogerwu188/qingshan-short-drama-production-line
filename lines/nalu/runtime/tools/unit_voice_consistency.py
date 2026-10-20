@@ -52,7 +52,9 @@ def active_for(episode: str) -> bool:
     return vtl.active_for(episode) and bool(check_policy().get("enabled"))
 
 
-def _norm(text: str) -> str:
+def _norm(text: str, language: str = "zh") -> str:
+    if language == "en":
+        return re.sub(r"[\W_]+", "", str(text or "").lower())
     try:
         import opencc  # type: ignore
         text = opencc.OpenCC("t2s").convert(text)
@@ -61,24 +63,27 @@ def _norm(text: str) -> str:
     return re.sub(r"[\W_]+", "", str(text or ""))
 
 
-def expected_lines(expected_dialogue: list[dict[str, Any]], name_to_id: dict[str, str]) -> list[dict[str, Any]]:
+def expected_lines(expected_dialogue: list[dict[str, Any]], name_to_id: dict[str, str],
+                   language: str = "zh") -> list[dict[str, Any]]:
     rows = []
     for row in expected_dialogue:
         raw = str(row.get("spoken_text") or "")
         name, sep, words = raw.partition("：")
+        if not sep and language == "en":
+            name, sep, words = raw.partition(":")
         if not sep:
             continue
         rows.append({"shot_id": row.get("shot_id"), "speaker_name": name.strip(),
-                     "character_id": name_to_id.get(name.strip(), ""), "text": _norm(words)})
+                     "character_id": name_to_id.get(name.strip(), ""), "text": _norm(words, language)})
     return rows
 
 
 def attribute(segments: list[dict[str, Any]], lines: list[dict[str, Any]],
-              min_similarity: float) -> list[dict[str, Any]]:
+              min_similarity: float, language: str = "zh") -> list[dict[str, Any]]:
     speakers = sorted({row["character_id"] for row in lines if row["character_id"]})
     out = []
     for seg in segments:
-        text = _norm(seg.get("text") or "")
+        text = _norm(seg.get("text") or "", language)
         row = {"start": seg.get("start"), "end": seg.get("end"), "text": seg.get("text")}
         if not text:
             row.update(speaker=None, attribution="NO_TEXT")
@@ -99,18 +104,19 @@ def attribute(segments: list[dict[str, Any]], lines: list[dict[str, Any]],
 
 def check_unit(unit_id: str, media: Path, segments: list[dict[str, Any]],
                expected_dialogue: list[dict[str, Any]], cast: dict[str, Any],
-               name_to_id: dict[str, str], policy: dict[str, Any] | None = None) -> dict[str, Any]:
+               name_to_id: dict[str, str], policy: dict[str, Any] | None = None,
+               language: str = "zh") -> dict[str, Any]:
     policy = check_policy() if policy is None else policy
     extra = float(policy.get("band_extra_tolerance_ratio") or 0.0)
     code = str(policy.get("reason_code") or "VOICE_OUT_OF_BAND")
-    lines = expected_lines(expected_dialogue, name_to_id)
+    lines = expected_lines(expected_dialogue, name_to_id, language)
     base = {"schema": SCHEMA, "unit_id": unit_id, "measured_by": TOOL_ID,
             "band_source": "voice_cast.f0_band_hz", "band_extra_tolerance_ratio": extra}
     if not lines:
         return {**base, "status": "NOT_APPLICABLE", "failures": [], "unverified": [], "speakers": {}}
     unverified: list[str] = []
     attributed = attribute([s for s in segments or [] if s.get("text")], lines,
-                           float(policy.get("min_attribution_similarity") or 0.5))
+                           float(policy.get("min_attribution_similarity") or 0.5), language)
     for row in attributed:
         if not row.get("speaker"):
             unverified.append(f"SPEAKER_UNATTRIBUTED:{row.get('start')}:{row.get('attribution')}")

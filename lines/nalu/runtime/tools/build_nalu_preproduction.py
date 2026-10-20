@@ -217,7 +217,7 @@ class Engine:
         from tools.grouped_performance_contract import validate_grouped_beat_contract
         from tools.grouped_transition_contract import boundary_id
         from tools.multimodal_character_binding_guard import (
-            DIALOGUE_CHARACTER_LIMIT, _dialogue_length,
+            DIALOGUE_CHARACTER_LIMIT, _dialogue_length, dialogue_limit,
         )
 
         self.render_build = render_build
@@ -231,6 +231,16 @@ class Engine:
         self.boundary_id = boundary_id
         self.dialogue_limit = DIALOGUE_CHARACTER_LIMIT
         self.dialogue_length = _dialogue_length
+        self._dialogue_limit_for = dialogue_limit
+        self.language = "zh"
+
+    def set_dialogue_language(self, language: str) -> None:
+        """English dialogue counts words (limit 20) instead of characters (limit 30)."""
+        self.language = language
+        if language != "zh":
+            self.dialogue_limit = self._dialogue_limit_for(language)
+            base_length = self.dialogue_length
+            self.dialogue_length = lambda text: base_length(text, language)
 
     def python(self) -> str:
         return sys.executable
@@ -528,22 +538,33 @@ def build_subspace_tasks(contract: dict[str, Any], index: SpaceIndex,
 # --------------------------------------------------------------------------- #
 # editorial seedance manifest (E-4 / E-5 / E-10)
 # --------------------------------------------------------------------------- #
-def split_dialogue(dialogue: str, limit: int, length: Any) -> tuple[str, list[dict[str, Any]]]:
+def _speaker_partition(line: str, language: str = "zh") -> tuple[str, str, str]:
+    """``speaker：text``; English dialogue may also use an ASCII colon."""
+    speaker, separator, spoken = line.partition("：")
+    if not separator and language == "en":
+        speaker, separator, spoken = line.partition(":")
+    return speaker, separator, spoken
+
+
+def split_dialogue(dialogue: str, limit: int, length: Any,
+                   language: str = "zh") -> tuple[str, list[dict[str, Any]]]:
     """Split any over-limit dialogue LINE at a punctuation boundary.
 
     Not one character of the authored text changes: the same speaker prefix is
-    repeated and the original line is cut at an existing punctuation mark.
+    repeated and the original line is cut at an existing punctuation mark
+    (English also splits at ASCII , . ; ! ?).
     """
     if not dialogue:
         return dialogue, []
     output: list[str] = []
     splits: list[dict[str, Any]] = []
     for line in str(dialogue).split("\n"):
-        speaker, separator, spoken = line.partition("：")
+        speaker, separator, spoken = _speaker_partition(line, language)
         if not separator or length(spoken) <= limit:
             output.append(line)
             continue
-        marks = [match.end() for match in re.finditer(r"[，、；。！？]", spoken)]
+        marks_pattern = r"[，、；。！？,.;!?]" if language == "en" else r"[，、；。！？]"
+        marks = [match.end() for match in re.finditer(marks_pattern, spoken)]
         target = len(spoken) / 2
         cut = min(marks, key=lambda value: abs(value - target)) if marks else None
         if cut is None or cut >= len(spoken):
@@ -554,6 +575,9 @@ def split_dialogue(dialogue: str, limit: int, length: Any) -> tuple[str, list[di
             })
             continue
         head, tail = spoken[:cut], spoken[cut:]
+        if language == "en":
+            # keep the authored text exactly; only the inter-word space moves to the line break
+            head, tail = head.rstrip(" "), spoken[len(head.rstrip(" ")):].lstrip(" ")
         output.append(f"{speaker}：{head}")
         output.append(f"{speaker}：{tail}")
         splits.append({
@@ -562,7 +586,8 @@ def split_dialogue(dialogue: str, limit: int, length: Any) -> tuple[str, list[di
             "split_at_character_index": cut,
             "resulting_lines": [f"{speaker}：{head}", f"{speaker}：{tail}"],
             "resulting_spoken_lengths": [length(head), length(tail)],
-            "text_preserved_exactly": head + tail == spoken,
+            "text_preserved_exactly": (head + tail == spoken if language != "en"
+                                       else " ".join((head + " " + tail).split()) == " ".join(spoken.split())),
             "status": "SPLIT_AT_EXISTING_PUNCTUATION_BOUNDARY",
         })
     return "\n".join(output), splits
@@ -739,7 +764,7 @@ def wardrobe_bible(contract: dict[str, Any], episode: str,
     }
 
 
-def bind_dialogue_cast(dialogue, cast, entities):
+def bind_dialogue_cast(dialogue, cast, entities, language="zh"):
     """Resolve speakers by registered identity, not display-name inequality."""
     names = {}
     for cid, entity in entities.items():
@@ -753,9 +778,11 @@ def bind_dialogue_cast(dialogue, cast, entities):
     known_ids = {c.get("character_id") for c in result}
     lines = []
     for line in dialogue.splitlines():
-        speaker, separator, spoken = line.partition("：")
+        speaker, separator, spoken = _speaker_partition(line, language)
         if not separator or not speaker.strip():
             raise ValueError("DIALOGUE_SPEAKER_UNRESOLVED")
+        if language == "en":
+            spoken = spoken.lstrip(" ")
         cid = names.get(speaker.strip())
         if not cid:
             raise ValueError(f"DIALOGUE_SPEAKER_UNREGISTERED:{speaker.strip()}")
@@ -837,6 +864,8 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                     contract_path: Path, gsm_path: Path,
                     root: Path, requirements: dict[str, Any] | None = None
                     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    # dialogue language set by main() via Engine.set_dialogue_language (stand-in engines: zh)
+    language = getattr(engine, "language", "zh")
     vcc = contract.get("visual_culture_contract") or {}
     palette = vcc.get("palette_system") or {}
     audio = contract.get("audio_contract") or {}
@@ -897,7 +926,8 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
         ) or f"{entry}→{completion}"
 
         dialogue, splits = split_dialogue(str(spec.get("dialogue") or ""),
-                                         engine.dialogue_limit, engine.dialogue_length)
+                                         engine.dialogue_limit, engine.dialogue_length,
+                                         language)
         for entry_row in splits:
             all_splits.append({"shot_id": shot_id, **entry_row})
 
@@ -921,7 +951,7 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                 "identity_card_required": True,
                 "entity_presence": (role.get("entity_presence") or {}).get(str(member.get("character_id") or "")),
             })
-        dialogue, cast = bind_dialogue_cast(dialogue, cast, entities)
+        dialogue, cast = bind_dialogue_cast(dialogue, cast, entities, language)
         props = [{
             "prop": str(props_by_id[prop_id].get("name") or prop_id),
             "prop_id": prop_id,
@@ -1444,6 +1474,8 @@ def main() -> int:
     parser.add_argument("--shot-scope-policy",
                         help="override configs/PROMPT_SHOT_SCOPE_POLICY_V1.json (offline what-if only; "
                              "the committed config stays the production switch)")
+    parser.add_argument("--language", choices=("zh", "en"), default="zh",
+                        help="episode dialogue language resolved by nalu_pipeline (default zh)")
     args = parser.parse_args()
 
     if os.environ.get("GIGGLE_API_KEY", "").strip():
@@ -1459,6 +1491,7 @@ def main() -> int:
     root = Path(args.engine_root).expanduser().resolve() if args.engine_root else find_engine_root(
         contract_path, out_dir, Path(__file__))
     engine = Engine(root)
+    engine.set_dialogue_language(args.language)
     episode = str(args.episode)
     select_video_model(episode)
     prefix = f"{episode}_"
@@ -1928,6 +1961,7 @@ def main() -> int:
         "--generation-contract", str(contract_path),
         "--out", str(out_dir / f"{prefix}GROUPED_SEEDANCE_MANIFEST_V1.json"),
         "--final-prompt-dir", str(prompt_dir),  # nalu e13b: strict final prompts + index
+        *(["--dialogue-language", args.language] if args.language != "zh" else []),
     ], root)
     stage("4.4_compile_grouped_seedance_manifest",
           "PASS" if compile_attempt["returncode"] == 0 else "BLOCKED",
@@ -2707,6 +2741,8 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
         svc = cu.get("speaker_voice_contract") or {}
         voice_bindings = list(svc.get("bindings") or [])
         task["dialogue"] = dialogue_rows
+        if cu.get("dialogue_language"):
+            task["dialogue_language"] = cu["dialogue_language"]
         task["dialogue_lines"] = lines
         task["native_dialogue_required"] = bool(lines)
         task["dialogue_transport"] = "MODEL_NATIVE_TEXT_DIALOGUE" if lines else "SAME_TASK_NATIVE_AMBIENCE_FOLEY_ACTION_SOUND"

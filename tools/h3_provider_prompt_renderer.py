@@ -2,7 +2,8 @@
 """MiniMax-H3 renderer over the shared execution plan.
 
 All machine-facing prose is English. Original-language dialogue is the only
-text allowed inside ``<d>[Chinese]...</d>`` tags.
+text allowed inside ``<d>[Chinese]...</d>`` tags (``<d>[English]...</d>`` when the
+unit's ``dialogue_language`` is ``en``).
 """
 
 from __future__ import annotations
@@ -492,9 +493,20 @@ def locked_camera_move_conflicts(text: str) -> list[str]:
     return findings
 
 
+DIALOGUE_LANGUAGE_TAGS = {"zh": "Chinese", "en": "English"}
+
+
+def _dialogue_partition(raw: str, language: str = "zh") -> tuple[str, str, str]:
+    """``speaker：words``; English dialogue may also use an ASCII colon."""
+    speaker, separator, words = raw.partition("：")
+    if not separator and language == "en":
+        speaker, separator, words = raw.partition(":")
+    return speaker, separator, words
+
+
 def _beat(
     source: dict[str, Any], translated: dict[str, Any], *, dialogue_binding: dict[str, Any] | None,
-    positive_single_subject: bool = False,
+    positive_single_subject: bool = False, language: str = "zh",
 ) -> tuple[str, dict[str, str]]:
     index = int(source["source_index"])
     prefix = f"BEAT.{index}"
@@ -538,10 +550,10 @@ def _beat(
     line += f". End at {translated['exit_state']}."
     raw = str(source.get("dialogue") or "").strip()
     if raw:
-        speaker, separator, words = raw.partition("：")
+        speaker, separator, words = _dialogue_partition(raw, language)
         if not separator or not words.strip() or dialogue_binding is None:
             raise ValueError(f"DIALOGUE_SPEAKER_BINDING_INVALID:{raw}")
-        literal = f"<d>[Chinese] {words.strip()}</d>"
+        literal = f"<d>[{DIALOGUE_LANGUAGE_TAGS[language]}] {words.strip()}</d>"
         label = str(dialogue_binding["provider_entity_label"])
         subject = str(dialogue_binding["subject_token"])
         image_slot = str(dialogue_binding["image_slot"])
@@ -608,6 +620,9 @@ def h3_visual_culture_block(unit: dict[str, Any]) -> str:
 
 def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     uid = str(plan["unit_id"])
+    language = str(unit.get("dialogue_language") or "zh")
+    if language not in DIALOGUE_LANGUAGE_TAGS:
+        raise ValueError(f"{uid}:H3_DIALOGUE_LANGUAGE_UNSUPPORTED:{language}")
     profile = str(unit.get("h3_prompt_profile") or "").strip()
     # The image presubmit gate and the projection carry the same flag under two
     # other spellings; normalize so one value reaches all three.
@@ -754,7 +769,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     for beat_number, (source, translated) in enumerate(zip(action_beats, contract["beats"]), 1):
         dialogue_binding = None
         if source.get("dialogue"):
-            speaker = str(source.get("dialogue") or "").partition("：")[0].strip()
+            speaker = _dialogue_partition(str(source.get("dialogue") or ""), language)[0].strip()
             dialogue_binding = crossmodal_by_speaker.get(speaker)
             if dialogue_binding is None:
                 raise ValueError(f"H3_DIALOGUE_CROSSMODAL_BINDING_MISSING:{uid}:{speaker}")
@@ -763,6 +778,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             translated,
             dialogue_binding=dialogue_binding,
             positive_single_subject=positive_single_subject,
+            language=language,
         )
         if scoped:
             scope_text, scope_evidence = _beat_scope_clauses(

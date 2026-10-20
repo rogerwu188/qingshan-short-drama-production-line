@@ -19,6 +19,9 @@ def delivery_clause(beat, language="ZH"):
         return ""
     cps = delivery.get("chinese_characters_per_second")
     if cps is None:
+        # English-dialogue units carry their rate as words per second instead
+        cps = delivery.get("english_words_per_second")
+    if cps is None:
         return ""
     # The rate stays in contract metadata for post-gen ASR comparison and is still validated here,
     # but the model never reads the number (Roger 2026-09-25 R5 / DIRECTION_POLICY DP5): delivery words
