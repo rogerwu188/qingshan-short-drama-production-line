@@ -43,6 +43,7 @@ import argparse
 import json
 import os
 import re
+import uuid
 import sys
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
