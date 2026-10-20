@@ -9,6 +9,13 @@ capture) and compared with the director's per-shot ``dialogue_delivery.chinese_c
   ratio < 0.7 or a hook/conflict line → SPEECH_RATE_UNDER_TARGET_BLOCKER (BLOCKER: existing reroll flow; the reroll
                                         prompt MUST change the performance instruction, not just the number)
 Episode level: mean realised cps < 4.5 is written to CHECKPOINT.md for the S8 screening.
+
+English dialogue (language="en") measures words per second instead, against
+``dialogue_delivery.english_words_per_second`` (default target 2.8 wps, inside the 2.5-3.0 wps
+natural English drama range).  The same 0.8 / 0.7 ratios apply; the episode floor is 2.6 wps
+(the zh floor/target proportion, 4.5 / 4.9 = 0.92, applied to 2.8).  The record keys keep their
+historical names (measured_cps / target_cps / spoken_chars) and ``rate_unit`` says which unit
+they are in.
 """
 from __future__ import annotations
 
@@ -19,16 +26,31 @@ MINOR_RATIO = 0.8
 BLOCKER_RATIO = 0.7
 EPISODE_MEAN_MIN_CPS = 4.5
 DEFAULT_TARGET_CPS = 4.9
+EPISODE_MEAN_MIN_WPS = 2.6
+DEFAULT_TARGET_WPS = 2.8
 CONFLICT_EMOTIONS = {"急", "怒", "惧", "慌", "狠", "惊"}
 _CJK = re.compile(r"[一-鿿]")
+
+
+_EN_WORD = re.compile(r"[A-Za-z0-9]+(?:['\u2019][A-Za-z0-9]+)*")
 
 
 def cjk_count(text: str) -> int:
     return len(_CJK.findall(str(text or "")))
 
 
-def shot_targets(contract: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """shot_id → {cps, hook, conflict} from the generation contract."""
+def word_count(text: str) -> int:
+    return len(_EN_WORD.findall(str(text or "")))
+
+
+def spoken_count(text: str, language: str = "zh") -> int:
+    """Characters (zh) or words (en) of real speech."""
+    return word_count(text) if language == "en" else cjk_count(text)
+
+
+def shot_targets(contract: dict[str, Any], language: str = "zh") -> dict[str, dict[str, Any]]:
+    """shot_id → {cps, hook, conflict} from the generation contract (for en, ``cps`` holds the
+    words-per-second target)."""
     out: dict[str, dict[str, Any]] = {}
     for shot in contract.get("shots") or []:
         spec = shot.get("prompt_spec") or {}
@@ -36,8 +58,10 @@ def shot_targets(contract: dict[str, Any]) -> dict[str, dict[str, Any]]:
             continue
         perf = ((spec.get("action") or {}).get("performance") or {}) if isinstance((spec.get("action") or {}).get("performance"), dict) else {}
         flags = shot.get("pacing_flags") or {}
+        delivery = shot.get("dialogue_delivery") or {}
         out[str(shot.get("shot_id"))] = {
-            "cps": float((shot.get("dialogue_delivery") or {}).get("chinese_characters_per_second") or DEFAULT_TARGET_CPS),
+            "cps": (float(delivery.get("english_words_per_second") or DEFAULT_TARGET_WPS) if language == "en"
+                    else float(delivery.get("chinese_characters_per_second") or DEFAULT_TARGET_CPS)),
             "hook": bool(flags.get("hook")),
             "conflict": bool(flags.get("conflict_line")) or str(perf.get("emotion") or "") in CONFLICT_EMOTIONS,
         }
@@ -45,10 +69,11 @@ def shot_targets(contract: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def measure_unit(unit_id: str, segments: list[dict[str, Any]], expected_dialogue: list[dict[str, Any]],
-                 targets: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    """Realised cps over the unit's real speech segments vs the mean director target of its lines."""
+                 targets: dict[str, dict[str, Any]], language: str = "zh") -> dict[str, Any]:
+    """Realised cps (zh) / wps (en) over the unit's real speech segments vs the mean director target."""
     rows = [s for s in segments or [] if isinstance(s, dict)]
-    chars = sum(cjk_count(s.get("text")) for s in rows)
+    chars = sum(spoken_count(s.get("text"), language) for s in rows)
+    default_target = DEFAULT_TARGET_WPS if language == "en" else DEFAULT_TARGET_CPS
     # Timing basis (2026-09-18, first E06 data): whisper SEGMENT bounds are padded to the VAD chunk
     # (a 4-character line measured over a 7.6 s wind segment; short lines land on 1.00 / 2.00 s), which
     # under-measures cps and would trigger rerolls on measurement noise.  When the ASR rows carry
@@ -64,7 +89,7 @@ def measure_unit(unit_id: str, segments: list[dict[str, Any]], expected_dialogue
         timing_basis = "SEGMENT_BOUNDS_PADDED"
     shot_ids = [str(r.get("shot_id")) for r in expected_dialogue or [] if r.get("shot_id")]
     known = [targets[s] for s in shot_ids if s in targets]
-    target = (sum(t["cps"] for t in known) / len(known)) if known else (DEFAULT_TARGET_CPS if shot_ids else None)
+    target = (sum(t["cps"] for t in known) / len(known)) if known else (default_target if shot_ids else None)
     hook_or_conflict = any(t["hook"] or t["conflict"] for t in known)
     result: dict[str, Any] = {"check": "speech_rate_vs_director_target", "authority": "SUPERVISOR_ORDERS seq=29 规则 6",
                               "unit_id": unit_id, "spoken_chars": chars, "speech_seconds": round(seconds, 3),
@@ -72,6 +97,8 @@ def measure_unit(unit_id: str, segments: list[dict[str, Any]], expected_dialogue
                               "measured_cps": round(chars / seconds, 3) if seconds > 0 and chars else None,
                               "target_cps": round(target, 3) if target else None, "shot_ids": shot_ids,
                               "hook_or_conflict_line": hook_or_conflict, "tier": "N/A", "code": None, "status": "PASS"}
+    if language == "en":
+        result["rate_unit"] = "words_per_second"
     if not expected_dialogue or not target or result["measured_cps"] is None:
         result["tier"] = "NOT_APPLICABLE" if not expected_dialogue else "UNMEASURED"
         return result
@@ -99,10 +126,20 @@ def measure_unit(unit_id: str, segments: list[dict[str, Any]], expected_dialogue
     return result
 
 
-def episode_summary(unit_results: list[dict[str, Any]]) -> dict[str, Any]:
+def episode_summary(unit_results: list[dict[str, Any]], language: str = "zh") -> dict[str, Any]:
     chars = sum(int(r.get("spoken_chars") or 0) for r in unit_results)
     seconds = sum(float(r.get("speech_seconds") or 0) for r in unit_results)
     mean = round(chars / seconds, 3) if seconds > 0 else None
+    if language == "en":
+        floor = EPISODE_MEAN_MIN_WPS
+        return {"authority": "SUPERVISOR_ORDERS seq=29 规则 6", "rate_unit": "words_per_second",
+                "units_measured": sum(1 for r in unit_results if r.get("measured_cps") is not None),
+                "mean_measured_cps": mean, "episode_mean_min_cps": floor,
+                "below_episode_min": (mean is not None and mean < floor),
+                "minor": [r["unit_id"] for r in unit_results if r.get("tier") == "MINOR"],
+                "blocker": [r["unit_id"] for r in unit_results if r.get("tier") == "BLOCKER"],
+                "checkpoint_line": (f"- 规则 6 语速：全片实测均值 {mean} words/s（< {floor}，S8 看片对照）" if mean is not None and mean < floor
+                                    else (f"- 规则 6 语速：全片实测均值 {mean} words/s" if mean is not None else "- 规则 6 语速：无实测"))}
     return {"authority": "SUPERVISOR_ORDERS seq=29 规则 6", "units_measured": sum(1 for r in unit_results if r.get("measured_cps") is not None),
             "mean_measured_cps": mean, "episode_mean_min_cps": EPISODE_MEAN_MIN_CPS,
             "below_episode_min": (mean is not None and mean < EPISODE_MEAN_MIN_CPS),
