@@ -106,41 +106,81 @@ def atomic_json(path: Path, payload: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
+def harvest_workers(default: int = 6) -> int:
+    """How many task queries/downloads run at once inside one poll tick.
+
+    One image batch is commonly ~50 tasks and the watch loop polls every 15 s;
+    each task is one HTTP GET plus one download, both of which release the GIL.
+    The bound is a poll-tick bound, not provider capacity; NALU_HARVEST_WORKERS
+    overrides it.
+    """
+    try:
+        return max(1, int(os.environ.get("NALU_HARVEST_WORKERS") or default))
+    except ValueError:
+        return default
+
+
+def harvest_one(
+    row: dict[str, Any],
+    episode: str,
+    output_dir: Path,
+    raw_dir: Path,
+    batch_credit: int | float | None,
+) -> dict[str, Any]:
+    """Query one submitted image task and download its plate when complete.
+
+    Writes only files keyed by this row (raw response by task key + id, plate by
+    episode + task key + id), so rows are independent.  ``batch_credit`` is read
+    once by the caller and passed in unchanged.
+    """
+    task_id = row["task_id"]
+    response = query_task(SimpleNamespace(task_id=task_id))
+    raw_path = raw_dir / f"{safe(row['task_key'])}_{task_id}.json"
+    atomic_json(raw_path, response)
+    data = response.get("data") or {}
+    status = str(data.get("status") or "unknown").lower()
+    explicit = explicit_credit(response)
+    credit = explicit if explicit is not None else batch_credit if status == "completed" else None
+    item: dict[str, Any] = {
+        **row,
+        "remote_status": status,
+        "credit": 0 if status in {"failed", "error", "cancelled", "timeout"} else credit,
+        "credit_status": (
+            "FAILED_ZERO" if status in {"failed", "error", "cancelled", "timeout"}
+            else "EXPLICIT" if explicit is not None
+            else "KNOWN_BATCH_LEDGER_EXACT_COUNT" if credit is not None
+            else "UNKNOWN_API_FIELD_MISSING" if status == "completed"
+            else "PENDING"
+        ),
+        "raw_response": str(raw_path),
+    }
+    urls = data.get("urls") or []
+    if status == "completed" and urls:
+        output = output_dir / f"{episode}_{safe(row['task_key'])}_{task_id}.png"
+        if not output.is_file():
+            download(str(urls[0]), output)
+        item.update({"output_path": str(output), "sha256": sha256(output), "bytes": output.stat().st_size})
+    return item
+
+
 def poll_once(submit_report: Path, output_dir: Path, raw_dir: Path) -> dict[str, Any]:
     source = json.loads(submit_report.read_text(encoding="utf-8"))
     episode = safe(str(source.get("episode") or "EPISODE"))
     rows = source.get("results") or []
     batch_credit, credit_reconciliation = batch_credit_assignment(source, len(rows))
-    results: list[dict[str, Any]] = []
-    for row in rows:
-        task_id = row["task_id"]
-        response = query_task(SimpleNamespace(task_id=task_id))
-        raw_path = raw_dir / f"{safe(row['task_key'])}_{task_id}.json"
-        atomic_json(raw_path, response)
-        data = response.get("data") or {}
-        status = str(data.get("status") or "unknown").lower()
-        explicit = explicit_credit(response)
-        credit = explicit if explicit is not None else batch_credit if status == "completed" else None
-        item: dict[str, Any] = {
-            **row,
-            "remote_status": status,
-            "credit": 0 if status in {"failed", "error", "cancelled", "timeout"} else credit,
-            "credit_status": (
-                "FAILED_ZERO" if status in {"failed", "error", "cancelled", "timeout"}
-                else "EXPLICIT" if explicit is not None
-                else "KNOWN_BATCH_LEDGER_EXACT_COUNT" if credit is not None
-                else "UNKNOWN_API_FIELD_MISSING" if status == "completed"
-                else "PENDING"
-            ),
-            "raw_response": str(raw_path),
-        }
-        urls = data.get("urls") or []
-        if status == "completed" and urls:
-            output = output_dir / f"{episode}_{safe(row['task_key'])}_{task_id}.png"
-            if not output.is_file():
-                download(str(urls[0]), output)
-            item.update({"output_path": str(output), "sha256": sha256(output), "bytes": output.stat().st_size})
-        results.append(item)
+    workers = harvest_workers()
+    if workers <= 1 or len(rows) <= 1:
+        results = [harvest_one(row, episode, output_dir, raw_dir, batch_credit) for row in rows]
+    else:
+        # Query the whole batch concurrently; results stay in submit-report order so
+        # the status file and its counts are stable.  Any row's exception fails the
+        # tick, exactly as the serial loop did.
+        from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+
+        with ThreadPoolExecutor(max_workers=min(workers, len(rows))) as pool:
+            futures = [pool.submit(harvest_one, row, episode, output_dir, raw_dir, batch_credit)
+                       for row in rows]
+            results = [future.result() for future in futures]
     counts: dict[str, int] = {}
     for item in results:
         counts[item["remote_status"]] = counts.get(item["remote_status"], 0) + 1

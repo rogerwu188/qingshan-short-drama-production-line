@@ -1089,3 +1089,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：`PollConcurrencyTest`：Barrier 断言四任务真实重叠、慢任务不改变行序、单任务异常使整次轮询失败、worker 数默认与覆盖行为
 - **授权**：Roger 2026-10-18「单集内全流程并行，检查不缩水」
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K114 — S5
+
+- **规则**：图片批次收割按波并发。`harvest_giggle_image_batch.poll_once` 把逐任务 `query_task` 与逐张下载抽成 `harvest_one`，放到 `ThreadPoolExecutor`（默认 `min(6, 任务数)`，`NALU_HARVEST_WORKERS` 可覆盖），结果按提交报告原始顺序回填，`status_counts` 与 `all_terminal`/`all_completed` 因此稳定；任一任务查询抛错仍使整轮失败。每任务只写自己的 raw 响应与图片文件（按任务键 + 远端标识命名），批次级 credit 分配在调用方只读计算一次后传入，不在线程里重算。`--watch` 每轮的串行往返因此消失。
+- **教训**：S3/S5 的图片批常在 50 个任务量级，`--watch` 每 15 秒轮询一轮；旧 `poll_once` 逐任务串行查询并逐张下载，每轮约 50 次串行 HTTP 往返。
+- **恢复**：收割端新增远端调用时沿用 `harvest_one` + 有序回填的并发结构；限流用 `NALU_HARVEST_WORKERS`；批次级账单分配保持在调用方计算一次。
+- **实现**：`tools/harvest_giggle_image_batch.py`
+- **回归**：`tools/tests/test_harvest_giggle_image_batch.py`
+- **证据**：`HarvestConcurrencyTest`：Barrier 断言四任务真实重叠、慢任务不改变行序、单任务异常使整轮失败、worker 数默认与覆盖行为
+- **授权**：Roger 2026-10-18「单集内全流程并行，检查不缩水」
+- **状态**：REFERENCE_IMPLEMENTATION

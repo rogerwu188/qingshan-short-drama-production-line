@@ -2370,6 +2370,30 @@
       "failure_code": "POLL_TICK_QUERIES_SERIALLY",
       "do_not_repeat": "不要在轮询里逐任务串行查询；不要在并发回填时打乱提交报告顺序；不要把缺少远端任务标识的行送进线程池",
       "sync_slug": "concurrency-poll-tick-parallel"
+    },
+    {
+      "id": "K114",
+      "key": "image-harvest-tick-queries-the-whole-batch-concurrently",
+      "stage": "S5",
+      "category": "SCHEDULING",
+      "scope": "generalizable",
+      "episode": "E11",
+      "rule": "图片批次收割按波并发：harvest_giggle_image_batch.poll_once 把逐任务 query_task 与逐张下载抽成 harvest_one，放到 ThreadPoolExecutor（默认 min(6, 任务数)，NALU_HARVEST_WORKERS 可覆盖），结果按提交报告原始顺序回填，status_counts 与 all_terminal/all_completed 因此稳定；任一任务查询抛错仍使整轮失败。每任务只写自己的 raw 响应与图片文件（按 task_key + 远端标识命名），批次级 credit 分配在调用方只读计算一次后传入，不在线程里重算。--watch 每轮的串行往返因此消失。",
+      "lesson": "S3/S5 的图片批常在 50 个任务量级，--watch 每 15 秒轮询一轮；旧 poll_once 逐任务串行查询并逐张下载，每轮约 50 次串行 HTTP 往返，等待落在每一轮上。",
+      "recovery": "收割端新增远端调用时沿用 harvest_one + 有序回填的并发结构；限流用 NALU_HARVEST_WORKERS；批次级账单分配保持在调用方计算一次。",
+      "implementation": [
+        "tools/harvest_giggle_image_batch.py"
+      ],
+      "regression": "tools/tests/test_harvest_giggle_image_batch.py",
+      "evidence": "HarvestConcurrencyTest：Barrier 断言四任务真实重叠、慢任务不改变行序、单任务异常使整轮失败、worker 数默认与覆盖行为。",
+      "authority": "Roger 2026-10-18「单集内全流程并行，检查不缩水」",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "runtime_gate_added": false,
+      "failure_code": "IMAGE_HARVEST_TICK_QUERIES_SERIALLY",
+      "do_not_repeat": "不要在收割轮询里逐任务串行查询；不要在线程里重算批次级账单分配；不要在并发回填时打乱提交报告顺序",
+      "sync_slug": "concurrency-image-harvest-parallel"
     }
   ]
 }

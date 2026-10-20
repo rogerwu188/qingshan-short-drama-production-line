@@ -225,7 +225,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "56aa511cc7de62ea3b639b561178f870f3dd124503a6172d624dfa964a9563a2"
+      "sha256": "375fcb8e73c819115bd15dd106a1ea8ed39230739f3542ca98e43f6b2a624cf0"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -261,7 +261,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "a365f5244f6c45a28b14db36369eabd244aba301f6f5464b5ff01e8e275146ec"
+      "sha256": "d797f41cd8ef61c5dc2039014513d65be430b7b8529ef001c2987ab5a61436ed"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -325,7 +325,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "918fdaa62e8cfdc9416caa6ea8425ee99611bbb43b506df31ac38848b2fcb248"
+      "sha256": "1356ff30d944be0c4274bd600b83172cb02a8bd0bc7869b31993c05a8902938b"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -4929,7 +4929,7 @@
     },
     {
       "path": "tools/harvest_giggle_image_batch.py",
-      "sha256": "6548cfc496085d67a9c37603d1a92d0597087fbe80db00dd0cedbc481566ea9e"
+      "sha256": "158d9180950ed30a5495b69943220f8dd7c5c0a5b64f191ad9a3b6fe8082c4b2"
     },
     {
       "path": "tools/harvest_giggle_image_submit.py",
@@ -7365,7 +7365,7 @@
     },
     {
       "path": "tools/tests/test_harvest_giggle_image_batch.py",
-      "sha256": "561abe4e08b14b4e854c54163c49ee268aae8e36fe9eb36e18666cfaf7dbf7c3"
+      "sha256": "eb48819230d787feb91e2c0ed7cfcc0f6a368379d5a87e9297856e1ffa0f2dc4"
     },
     {
       "path": "tools/tests/test_human_realism_prompt_contract.py",
