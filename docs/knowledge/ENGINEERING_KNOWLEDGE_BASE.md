@@ -1060,12 +1060,12 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 
 ### K111 — TRANSACTIONS
 
-- **规则**：付费前预算判定必须是原子预留。`build_report(..., reserve_if_pass=True)` 判定通过即在 flock 保护下追加一条 reservation 到 `workflow/nalu/<EP>/BUDGET_RESERVATION.jsonl`，锁内重扫，因此两个并发进程最多一个取得预留。判定对象是 `projected = recorded + active_reserved + pending_exposure + planned`：`pending_exposure` 由 `SUBMITTED_TASK_ID_BOUND` 事务的 `estimated_credits` 求和（提交器在 `INTENT_RECORDED` 时写入，视频 = `duration_seconds × 20`，图片 = 11；旧事务无该字段按视频 160 / 图片 11 的保守上限计）。`--check` 保持只读；预留由需要花钱的调用方显式要求。
-- **教训**：`nalu_budget_ledger --check` 只读不记录预留，两个并发调用各读 recorded=7000、各申请 600，双双通过 8000 上限，合起来放行 8200；已提交未对账的 `SUBMITTED_TASK_ID_BOUND` 任务不计入任何暴露，账单滞后时一个 600 积分波次看起来像没花过钱。
-- **恢复**：付费调用方用 `reserve_if_pass=True` 取原子预留；预留失败即 HARD_STOP，不 POST。pending 暴露从事务读取 `estimated_credits`。
-- **实现**：`lines/nalu/runtime/tools/nalu_budget_ledger.py`、`tools/submit_giggle_video_manifest_v2.py`、`tools/submit_giggle_image_manifest.py`
-- **回归**：`tools/tests/test_concurrent_dispatch_audit_repro.py`
-- **证据**：`BudgetConcurrentReservationRepro` 两个用例修改前 FAIL（BUDGET_CHECK_THEN_ACT / PENDING_EXPOSURE_NOT_COUNTED），修改后 PASS
+- **规则**：付费前预算判定必须是原子预留。`build_report(reserve_if_pass=True)` 判定通过即在 flock 保护下追加一条 reservation 到 `workflow/nalu/<EP>/BUDGET_RESERVATION.jsonl`，锁内重扫，因此两个并发进程最多一个取得预留。CLI 以 `--reserve` 触发、`--release-reservation <id>` 追加释放行；`nalu_pipeline` 的 `paid_step` 在真正执行前预留，退出码为 0 才释放，非 0 保留并写 `KEEP_UNTIL_LEDGER_RECONCILIATION`——超时不得当作未扣费。判定对象是 `projected = recorded + active_reserved + pending_exposure + planned`；`estimated_credits` 按模型计价（SD2 20/秒；MiniMax-H3 14/秒 + 6/任务），旧事务按视频 160 / 图片 11 的保守上限计。`--check` 保持只读。
+- **教训**：`--check` 只读不记录预留，两个并发调用各读 recorded=7000、各申请 600，双双通过 8000 上限，合起来放行 8200；已提交未对账的 `SUBMITTED_TASK_ID_BOUND` 任务不计入暴露。第一版修复只接到测试，CLI 与付费路径都没有调用方；视频暴露一律按 20/秒计，会把 H3 集高估约 30%。
+- **恢复**：付费调用方用 `reserve_if_pass=True` 或 `--reserve` 取原子预留；失败即 HARD_STOP。花费绑定后 `--release-reservation`；非 0 退出保留预留走对账。
+- **实现**：`lines/nalu/runtime/tools/nalu_budget_ledger.py`、`lines/nalu/runtime/tools/nalu_pipeline.py`、`tools/submit_giggle_video_manifest_v2.py`、`tools/submit_giggle_image_manifest.py`
+- **回归**：`tools/tests/test_concurrent_dispatch.py`
+- **证据**：`BudgetConcurrentReservationRepro` 修改前 FAIL（BUDGET_CHECK_THEN_ACT / PENDING_EXPOSURE_NOT_COUNTED），修改后 PASS；CLI 接线、失败保留预留、H3/SD2 分价各有用例
 - **授权**：Roger 2026-10-18「单集内全流程并行，检查不缩水，预算不超支」
 - **状态**：REFERENCE_IMPLEMENTATION
 

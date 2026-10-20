@@ -902,6 +902,19 @@ def run_prompt_scope_gate(task: dict[str, Any], prompt_text: str, transaction_di
     )
 
 
+def estimated_video_credits(task: dict[str, Any]) -> int:
+    """Exposure a bound-but-unreconciled task presents to the episode cap (K111).
+
+    Priced per the provider's own schedule, matching nalu_pipeline.video_task_credits:
+    SD2 720p 20 credits/s; MiniMax-H3 768p 14 credits/s + 6 per task.  Over-estimating
+    here would stop a healthy H3 episode early; under-estimating would hide exposure.
+    """
+    seconds = int(task.get("duration_seconds", 6))
+    if str(task.get("model") or "") == "MiniMax-H3":
+        return int(round(seconds * 14)) + 6
+    return int(seconds * 20)
+
+
 def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -> dict[str, Any]:
     prior = prior_bound(task, transaction_dir)
     if prior:
@@ -972,7 +985,9 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         "submission_fingerprint": fingerprint, "state": "INTENT_RECORDED",
         "intent_recorded_at": utc_now(), "prompt_sha256": task["prompt_sha256"],
         "reference_sha256": task["reference_sha256"], "model": task["model"],
-        "estimated_credits": int(task.get("duration_seconds", 6) * 20),
+        # Exposure while this task is bound but unreconciled (K111); priced by model
+        # so an H3 episode is not stopped by an SD2-rate overestimate.
+        "estimated_credits": estimated_video_credits(task),
         "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
     }
     if reference_image_asset_ids:

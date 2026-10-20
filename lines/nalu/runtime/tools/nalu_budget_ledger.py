@@ -829,6 +829,18 @@ def main() -> int:
     )
     parser.add_argument("--out", help="Also write this run's report here (the ledger always gets an entry).")
     parser.add_argument("--strict-balance", action="store_true", help="Treat a failed balance request as a blocking failure.")
+    parser.add_argument(
+        "--reserve",
+        action="store_true",
+        help=("Take an atomic reservation for --planned-credits when the check passes.  "
+              "The reservation row is written under flock and rescanned inside the lock, so two "
+              "racing processes cannot both admit the same headroom.  Use --release-reservation "
+              "with the printed reservation_id once the spend is bound or proven not charged."),
+    )
+    parser.add_argument(
+        "--release-reservation",
+        help="Release a reservation by id (append a release row; never edit history).",
+    )
     args = parser.parse_args()
     if args.cap is None:
         args.cap = configured_cap()
@@ -836,9 +848,16 @@ def main() -> int:
     episode = episode_key(args.episode)
     if args.bgm_transactions_dir is not None and not args.bgm_transactions_dir.is_absolute():
         raise SystemExit("--bgm-transactions-dir must be an absolute private path")
+    if args.release_reservation:
+        release_reservation(episode, args.release_reservation)
+        print(json.dumps({"status": "RELEASED", "episode": episode,
+                          "reservation_id": args.release_reservation}, ensure_ascii=False))
+        return 0
     planned = Decimal(str(args.planned_credits)) if args.planned_credits is not None else None
     if args.check and planned is None:
         raise SystemExit("--check requires --planned-credits (use 0 to audit recorded spend only)")
+    if args.reserve and planned is None:
+        raise SystemExit("--reserve requires --planned-credits")
 
     balance = None
     key_source = None
@@ -856,6 +875,7 @@ def main() -> int:
         voice_registry=Path(args.voice_registry) if args.voice_registry else None,
         strict=args.strict_balance,
         bgm_transactions_dir=args.bgm_transactions_dir,
+        reserve_if_pass=bool(args.reserve),
     )
     report["mode"] = "CHECK" if args.check else "RECORD"
     report["network_calls_made"] = 1 if args.refresh_balance else 0
@@ -882,6 +902,7 @@ def main() -> int:
         "projected_total_credits": report["spend"]["projected_total_credits"],
         "headroom_credits": report["spend"]["headroom_credits"],
         "accounting_complete": report["spend"]["accounting_complete"],
+        "reservation_result": report.get("reservation_result"),
         "failures": report["failures"],
         "balance_snapshot": balance,
         "network_calls_made": report["network_calls_made"],

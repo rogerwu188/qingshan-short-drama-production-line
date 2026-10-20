@@ -225,7 +225,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "cc16e5767f0f6943e0e66dd1dcd85f4852ae1a08c74a0901e83eda65efa84538"
+      "sha256": "91a5c8befb8dedbc5e92e113c25766851d438fe04e1ce1181e28f505a0171c54"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -325,7 +325,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "9e9fed4ccc12dd6e61f20b3c23260b10edfee89b95320ba1fadb77070e572c3c"
+      "sha256": "9c07ff8782a400e601172cfcb828266c18e98516840474559faffbf1d3196dfe"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -613,7 +613,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_budget_ledger.py",
-      "sha256": "15a15a0f5adc1869a6b8c7a400c21e8ec188c67d83fde8158d83a3f3af96db1f"
+      "sha256": "3e4d43f342d3c9b7e125e2b14a881b783b1842471be44934fa0d3dc3ea115907"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_media_tools.py",
@@ -625,7 +625,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "ec8b06e447edd75a6ba500fcbad55c7b58b7f0adc4bdfe1ad45cd4eb824c9671"
+      "sha256": "82fc1161250d959761df64b98f734daea1c8becafa2b501c6d530f1e5cceca9c"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -6401,7 +6401,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "b6288183692e6bf46ae382d77ed57ec4175a1a9709b41ad13d87f3b8b47273cc"
+      "sha256": "a99e5c2bb24dc10751a744cedf89c925b78c36f99d4a937dfd93bdc7a41cfef2"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -6929,7 +6929,7 @@
     },
     {
       "path": "tools/tests/test_concurrent_dispatch.py",
-      "sha256": "58c950253c1b15cafecf97232534b027b75fe926179238ab766a701f66e003ed"
+      "sha256": "a539c604da1688f987240d85c889dd4c0cc08e47f1134742d464161a20720fe2"
     },
     {
       "path": "tools/tests/test_concurrent_dispatch_audit_repro.py",

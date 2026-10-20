@@ -477,6 +477,66 @@ class BudgetAtomicReservationTest(unittest.TestCase):
                          "RELEASED_RESERVATION_STILL_HELD: a released reservation must not keep "
                          "blocking the next wave")
 
+    def test_cli_reserve_flag_is_wired_to_the_atomic_reservation(self):
+        from decimal import Decimal
+
+        seen = {}
+
+        def fake_build_report(**kwargs):
+            seen.update(kwargs)
+            return {"schema": "x", "episode": "E99", "status": "PASS", "failures": [],
+                    "authority": "t", "recorded_at_utc": "t", "cap_credits": 8000,
+                    "spend": {"recorded_total_credits": 0, "non_video_credits": 0,
+                              "planned_credits": 600, "projected_total_credits": 600,
+                              "headroom_credits": 7400, "accounting_complete": True,
+                              "active_reserved_credits": 0, "pending_exposure_credits": 0},
+                    "reservation_result": {"reserved": True, "reservation_id": "rid-1"}}
+
+        import nalu_budget_ledger as B
+
+        argv = ["nalu_budget_ledger.py", "--episode", "E99", "--check",
+                "--planned-credits", "600", "--reserve", "--ledger", "/tmp/never-used.json"]
+        with mock.patch.object(sys, "argv", argv), \
+             mock.patch.object(B, "configured_cap", lambda: 8000), \
+             mock.patch.object(B, "build_report", fake_build_report), \
+             mock.patch.object(B, "load_json", lambda _p: {}), \
+             mock.patch.object(B, "atomic_json", lambda *_a, **_k: None):
+            rc = B.main()
+        self.assertEqual(rc, 0)
+        self.assertTrue(seen.get("reserve_if_pass"),
+                        "CLI --reserve must reach build_report(reserve_if_pass=True); otherwise the "
+                        "atomic reservation exists only in tests")
+        self.assertEqual(seen.get("planned"), Decimal("600"))
+
+    def test_paid_step_keeps_a_reservation_when_the_step_fails(self):
+        source = (Path(__file__).resolve().parents[2]
+                  / "lines/nalu/runtime/tools/nalu_pipeline.py").read_text(encoding="utf-8")
+        self.assertIn("--reserve", source)
+        self.assertIn("KEEP_UNTIL_LEDGER_RECONCILIATION", source,
+                      "a non-zero paid step must keep its reservation; a timeout is not evidence "
+                      "that nothing was charged")
+        reserve = source.index("budget_check(planned_credits")
+        release = source.index("budget_release(reservation_id")
+        self.assertLess(reserve, release)
+
+
+class VideoExposurePricingTest(unittest.TestCase):
+    """K111: pending exposure must be priced per model, not at one global rate."""
+
+    def test_sd2_is_twenty_per_second(self):
+        from tools.submit_giggle_video_manifest_v2 import estimated_video_credits
+
+        self.assertEqual(estimated_video_credits(
+            {"model": "seedance-2.0-pro", "duration_seconds": 6}), 120)
+
+    def test_h3_is_fourteen_per_second_plus_six_per_task(self):
+        from tools.submit_giggle_video_manifest_v2 import estimated_video_credits
+
+        self.assertEqual(estimated_video_credits(
+            {"model": "MiniMax-H3", "duration_seconds": 6}), 90)
+        self.assertEqual(estimated_video_credits(
+            {"model": "MiniMax-H3", "duration_seconds": 10}), 146)
+
 
 
 

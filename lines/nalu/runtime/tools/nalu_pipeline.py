@@ -1049,16 +1049,22 @@ class Ctx:
         return step
 
     # ---------------------------------------------------------------- budget
-    def budget_check(self, planned_credits: int, *, label: str) -> dict[str, Any]:
-        """MANDATORY before every paid step.  Non-zero exit == HARD_STOP."""
+    def budget_check(self, planned_credits: int, *, label: str,
+                     reserve: bool = False) -> dict[str, Any]:
+        """MANDATORY before every paid step.  Non-zero exit == HARD_STOP.
+
+        ``reserve=True`` makes the ledger take an atomic reservation when the check
+        passes (K111): two racing processes cannot both admit the same headroom.
+        """
         bgm_transactions = selective_bgm_transaction_dir(self)
-        step = self.run(
-            [VENV, BUDGET_LEDGER, "--check", "--episode", self.episode,
-             "--planned-credits", int(planned_credits),
-             "--bgm-transactions-dir", bgm_transactions,
-             "--cap", self.cap, "--out",
-             self.p.logs / f"{self.run_id}_budget_{label}.json"],
-            name=f"budget_check_{label}", paid=False)
+        argv = [VENV, BUDGET_LEDGER, "--check", "--episode", self.episode,
+                "--planned-credits", int(planned_credits),
+                "--bgm-transactions-dir", bgm_transactions,
+                "--cap", self.cap, "--out",
+                self.p.logs / f"{self.run_id}_budget_{label}.json"]
+        if reserve:
+            argv.append("--reserve")
+        step = self.run(argv, name=f"budget_check_{label}", paid=False)
         verdict = {}
         for line in (step.get("stdout_tail") or "").splitlines():
             line = line.strip()
@@ -1066,6 +1072,14 @@ class Ctx:
                 verdict = json.loads(line)
         step["budget_verdict"] = verdict
         return step
+
+    def budget_release(self, reservation_id: str, *, label: str) -> dict[str, Any]:
+        """Append a release row once the spend is bound or proven not charged."""
+        return self.run(
+            [VENV, BUDGET_LEDGER, "--episode", self.episode,
+             "--release-reservation", reservation_id],
+            name=f"budget_release_{label}", paid=False,
+        )
 
     def planned_credits(self, sid: str) -> int:
         plan = self.cost_plan.get("first_pass") or {}
@@ -1118,15 +1132,18 @@ class Ctx:
                 "argv": argv, "argv_shell": q(argv), "planned_credits": planned_credits,
             }
 
-        budget = self.budget_check(planned_credits, label=name)
+        budget = self.budget_check(planned_credits, label=name,
+                                   reserve=self.paid_enabled and not self.dry)
         verdict = budget.get("budget_verdict") or {}
         if budget["exit_code"] != 0:
             self.say(f"!! HARD_STOP budget guard refused {name}: "
                      f"{json.dumps(verdict, ensure_ascii=False)}")
             return HARD_STOP, budget
+        reservation_id = (verdict.get("reservation_result") or {}).get("reservation_id")
         self.say(f"   budget ok: planned={planned_credits} "
                  f"projected={verdict.get('projected_total_credits')} "
-                 f"cap={verdict.get('cap_credits')}")
+                 f"cap={verdict.get('cap_credits')}"
+                 + (f" reserved={reservation_id}" if reservation_id else ""))
 
         if not self.paid_enabled:
             reason = ("--dry-run" if self.dry else
@@ -1149,6 +1166,17 @@ class Ctx:
         step = self.run(argv, name=name, paid=True, extra_env=paid_env)
         step["planned_credits"] = planned_credits
         step["budget"] = budget
+        # A reservation is released only once the spend is bound (submitter exited 0)
+        # or the step is proven not to have charged.  A non-zero exit keeps it: the
+        # money may be in flight, and a timeout must never be read as "not charged".
+        if reservation_id:
+            step["budget_reservation"] = reservation_id
+            if step["exit_code"] == 0:
+                step["budget_release"] = self.budget_release(reservation_id, label=name)
+            else:
+                step["budget_reservation_held"] = (
+                    "KEEP_UNTIL_LEDGER_RECONCILIATION: exit is non-zero; the charge may be in "
+                    "flight, so the reservation is not released on a timeout")
         return (PASS if step["exit_code"] == 0 else BLOCKED), step
 
 
