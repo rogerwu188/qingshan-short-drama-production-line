@@ -76,6 +76,14 @@ RECOMMENDED_MAX_SECONDS = 10.0
 ASR_SIMILARITY_FLOOR = 0.70
 # Mandarin reading rate for a clean single-speaker reference read.
 SYLLABLES_PER_SECOND = 4.2
+# English reading rate (words per second) for the same kind of read.  For English
+# dialogue the floor/ceiling below are measured in words: 8 words ~ 3 s and
+# 27 words ~ 10 s, the same recommended window the Mandarin 12/42-char defaults give.
+WORDS_PER_SECOND = 2.7
+EN_FLOOR_WORDS = 8
+EN_CEILING_WORDS = 27
+LANGUAGE_LOCALES = {"zh": "zh-CN", "en": "en-US"}
+ENGLISH_WORD = re.compile(r"[A-Za-z0-9]+(?:['\u2019][A-Za-z0-9]+)*")
 AUDIO_UNIT_PRICE_CREDITS = 2
 
 PRODUCTION_READY_STATUSES = {"LOCKED_PRODUCTION_READY", "AGENTCUT_GENERATED_REGISTERED_PRODUCTION_READY"}
@@ -97,7 +105,10 @@ def atomic_json(path: Path, payload: Any) -> None:
     os.replace(temporary, path)
 
 
-def spoken_length(value: str) -> int:
+def spoken_length(value: str, language: str = "zh") -> int:
+    """zh: Han/alnum characters; en: words."""
+    if language == "en":
+        return len(ENGLISH_WORD.findall(value))
     return len(HAN_ALNUM.findall(value))
 
 
@@ -109,7 +120,7 @@ def entity_id_of(character_id: str) -> str:
 # Dialogue extraction
 # --------------------------------------------------------------------------- #
 
-def extract_dialogue(contract: dict[str, Any]) -> list[dict[str, str]]:
+def extract_dialogue(contract: dict[str, Any], language: str = "zh") -> list[dict[str, str]]:
     """Every line, in shot order, as (shot_id, speaker, text).
 
     prompt_spec.dialogue is a single string using the engine's canonical
@@ -126,6 +137,8 @@ def extract_dialogue(contract: dict[str, Any]) -> list[dict[str, str]]:
             if not line:
                 continue
             speaker, separator, spoken = line.partition("：")
+            if not separator and language == "en":
+                speaker, separator, spoken = line.partition(":")
             if not separator:
                 raise ValueError(f"{shot.get('shot_id')} dialogue is not speaker：text: {line}")
             rows.append({
@@ -138,7 +151,7 @@ def extract_dialogue(contract: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def choose_sample_text(
-    lines: list[str], *, floor_chars: int, ceiling_chars: int
+    lines: list[str], *, floor_chars: int, ceiling_chars: int, language: str = "zh"
 ) -> tuple[str, str, list[str]]:
     """Pick a verbatim sample_text from the character's own lines.
 
@@ -152,33 +165,35 @@ def choose_sample_text(
     floor, use all of it and return a risk flag.  Nothing is invented.
     """
     flags: list[str] = []
-    in_range = [line for line in lines if floor_chars <= spoken_length(line) <= ceiling_chars]
+    joiner = " " if language == "en" else ""
+    in_range = [line for line in lines if floor_chars <= spoken_length(line, language) <= ceiling_chars]
     if in_range:
-        best = max(in_range, key=lambda line: (spoken_length(line), -lines.index(line)))
+        best = max(in_range, key=lambda line: (spoken_length(line, language), -lines.index(line)))
         return best, "LONGEST_SINGLE_IN_RANGE_LINE", flags
     accumulated: list[str] = []
     for line in lines:
         accumulated.append(line)
-        if spoken_length("".join(accumulated)) >= floor_chars:
+        if spoken_length(joiner.join(accumulated), language) >= floor_chars:
             break
-    text = "".join(accumulated)
-    if spoken_length(text) < floor_chars:
+    text = joiner.join(accumulated)
+    if spoken_length(text, language) < floor_chars:
         flags.append("SHORT_SAMPLE_TEXT_ALL_LINES_BELOW_FLOOR")
         return text, "ALL_LINES_STILL_BELOW_FLOOR", flags
-    if spoken_length(text) > ceiling_chars:
+    if spoken_length(text, language) > ceiling_chars:
         flags.append("SAMPLE_TEXT_ABOVE_CEILING_MAY_EXCEED_10S")
     return text, "CONSECUTIVE_LINES_ACCUMULATED", flags
 
 
-def estimated_seconds(text: str, speed: float) -> float:
-    return round(spoken_length(text) / (SYLLABLES_PER_SECOND * max(speed, 0.01)), 2)
+def estimated_seconds(text: str, speed: float, language: str = "zh") -> float:
+    rate = WORDS_PER_SECOND if language == "en" else SYLLABLES_PER_SECOND
+    return round(spoken_length(text, language) / (rate * max(speed, 0.01)), 2)
 
 
-def choose_speed(text: str, *, default_speed: float) -> tuple[float, list[str]]:
+def choose_speed(text: str, *, default_speed: float, language: str = "zh") -> tuple[float, list[str]]:
     """Slow a very short sample down so it still clears the duration floor."""
     flags: list[str] = []
     speed = default_speed
-    if estimated_seconds(text, speed) < SD2_MIN_SECONDS:
+    if estimated_seconds(text, speed, language) < SD2_MIN_SECONDS:
         speed = 0.85
         flags.append("SPEED_REDUCED_TO_0P85_TO_CLEAR_SD2_2S_FLOOR")
     return speed, flags
@@ -229,6 +244,7 @@ def build_brief(
     ceiling_chars: int,
     default_speed: float,
     default_emotion: str,
+    language: str = "zh",
 ) -> dict[str, Any]:
     appearance = str(character.get("appearance_ch1") or "")
     spec = voice_requirement.get("specification") or {}
@@ -237,10 +253,10 @@ def build_brief(
     age, band = derive_age_and_band(appearance, declared_age)
     sex = derive_sex(appearance, (skeleton_row or {}).get("gender") or spec.get("sex"))
     sample_text, rule, sample_flags = choose_sample_text(
-        lines, floor_chars=floor_chars, ceiling_chars=ceiling_chars
+        lines, floor_chars=floor_chars, ceiling_chars=ceiling_chars, language=language
     )
-    speed, speed_flags = choose_speed(sample_text, default_speed=default_speed)
-    seconds = estimated_seconds(sample_text, speed)
+    speed, speed_flags = choose_speed(sample_text, default_speed=default_speed, language=language)
+    seconds = estimated_seconds(sample_text, speed, language)
     duration_flags: list[str] = []
     if seconds < HARD_MIN_SECONDS:
         duration_flags.append("ESTIMATED_DURATION_BELOW_HARD_1S_FLOOR")
@@ -266,14 +282,14 @@ def build_brief(
         "temperament": str(authored.get("temperament") or "UNSPECIFIED_IN_SOURCE"),
         "dramatic_function": str(authored.get("dramatic_function") or "UNSPECIFIED_IN_SOURCE"),
         "appearance_source": appearance,
-        "language": str(spec.get("language") or "zh-CN"),
+        "language": str(spec.get("language") or LANGUAGE_LOCALES[language]),
         "accent_id": str(spec.get("accent_id") or accent_id),
         "line_count": len(lines),
         "all_lines": lines,
         "sample_text": sample_text,
         "sample_text_rule": rule,
         "sample_text_is_verbatim_script": all(part in "".join(lines) for part in [sample_text]) or sample_text in "".join(lines),
-        "sample_text_spoken_length": spoken_length(sample_text),
+        "sample_text_spoken_length": spoken_length(sample_text, language),
         "emotion": default_emotion,
         "speed": speed,
         "estimated_duration_seconds": seconds,
@@ -286,7 +302,8 @@ def build_brief(
         },
         "risk_flags": sample_flags + speed_flags + duration_flags,
         "voice_selection_criteria": {
-            "language": "zh-CN Mandarin, no accent processing, no pitch shifting",
+            "language": ("en-US English, no accent processing, no pitch shifting" if language == "en"
+                         else "zh-CN Mandarin, no accent processing, no pitch shifting"),
             "sex": sex,
             "apparent_age_range": age,
             "timbre": timbre,
@@ -402,7 +419,8 @@ def catalog_voice_for_brief(brief: dict[str, Any], voices: dict[str, dict[str, A
 # --------------------------------------------------------------------------- #
 
 def build_registry(
-    briefs: list[dict[str, Any]], *, episode: str, accent_id: str, output_root: Path, voices: dict[str, dict[str, Any]]
+    briefs: list[dict[str, Any]], *, episode: str, accent_id: str, output_root: Path, voices: dict[str, dict[str, Any]],
+    language: str = "zh",
 ) -> dict[str, Any]:
     rows = []
     for brief in briefs:
@@ -457,7 +475,7 @@ def build_registry(
         "read_via": "QINGSHAN_VOICE_REGISTRY (tools/speaker_voice_contract.py:78-90)",
         "registry_authority": "QINGSHAN_VOICE_REGISTRY points to this project's private scoped file",
         "policy": {
-            "language": "zh-CN",
+            "language": LANGUAGE_LOCALES[language],
             "accent_id": accent_id,
             "max_audio_references_per_provider_task": 2,
             "h3_speaking_identities_per_task": 1,
@@ -523,14 +541,15 @@ def performance_brief_sha256(role: dict[str, Any]) -> str | None:
 
 # --------------------------------------------------------------------------- #
 
-def probe_speaker_contract(registry_path: Path, briefs: list[dict[str, Any]], contract: dict[str, Any]) -> dict[str, Any]:
+def probe_speaker_contract(registry_path: Path, briefs: list[dict[str, Any]], contract: dict[str, Any],
+                           language: str = "zh") -> dict[str, Any]:
     """Run the engine's real contract compiler against our registry. Offline."""
     previous = os.environ.get("QINGSHAN_VOICE_REGISTRY")
     os.environ["QINGSHAN_VOICE_REGISTRY"] = str(registry_path)
     try:
         from tools.speaker_voice_contract import compile_speaker_voice_contract  # noqa: PLC0415
 
-        dialogue = extract_dialogue(contract)
+        dialogue = extract_dialogue(contract, language)
         by_speaker: dict[str, list[dict[str, str]]] = {}
         for row in dialogue:
             by_speaker.setdefault(row["speaker"], []).append(row)
@@ -595,13 +614,20 @@ def main() -> int:
     parser.add_argument("--accent-id", default="ACCENT-ZH-CN-STANDARD-V1")
     parser.add_argument("--emotion", default="neutral")
     parser.add_argument("--speed", type=float, default=1.0)
-    parser.add_argument("--floor-chars", type=int, default=12, help="Minimum spoken length of sample_text (fix for R-8)")
-    parser.add_argument("--ceiling-chars", type=int, default=42)
+    parser.add_argument("--floor-chars", type=int, help="Minimum spoken length of sample_text (fix for R-8); default 12 chars (zh) / 8 words (en)")
+    parser.add_argument("--ceiling-chars", type=int, help="default 42 chars (zh) / 27 words (en)")
+    parser.add_argument("--language", choices=("zh", "en"), default="zh",
+                        help="dialogue language resolved by nalu_pipeline (default zh)")
     parser.add_argument("--probe-speaker-contract", action="store_true")
     parser.add_argument("--dry-run", action="store_true", default=True, help="Always on. This tool has no submit path.")
     args = parser.parse_args()
 
     episode = args.episode.strip().upper()
+    language = args.language
+    if args.floor_chars is None:
+        args.floor_chars = EN_FLOOR_WORDS if language == "en" else 12
+    if args.ceiling_chars is None:
+        args.ceiling_chars = EN_CEILING_WORDS if language == "en" else 42
     contract = load_json(Path(args.generation_contract))
     requirements = load_json(Path(args.asset_requirements))
     skeleton = load_json(Path(args.voice_skeleton)) if args.voice_skeleton else {}
@@ -625,7 +651,7 @@ def main() -> int:
             if voice_id:
                 seen[voice_id] = entity_id
 
-    dialogue = extract_dialogue(contract)
+    dialogue = extract_dialogue(contract, language)
     lines_by_speaker: dict[str, list[str]] = {}
     for row in dialogue:
         lines_by_speaker.setdefault(row["speaker"], []).append(row["text"])
@@ -668,6 +694,7 @@ def main() -> int:
             ceiling_chars=args.ceiling_chars,
             default_speed=args.speed,
             default_emotion=args.emotion,
+            language=language,
         ))
 
     from tools.voice_reference_sample import apply_reference_sample
@@ -679,7 +706,8 @@ def main() -> int:
         else Path(_np.RUNTIME_ROOT) / "working_assets" / "voices" / episode
     )
     registry = build_registry(
-        briefs, episode=episode, accent_id=args.accent_id, output_root=output_root, voices=voices
+        briefs, episode=episode, accent_id=args.accent_id, output_root=output_root, voices=voices,
+        language=language,
     )
     policy = build_policy(briefs, voices=voices)
     for role in policy["roles"]:
@@ -714,7 +742,8 @@ def main() -> int:
     atomic_json(Path(args.policy_out), policy)
     atomic_json(Path(args.task_payloads_out), payloads)
 
-    probe = probe_speaker_contract(Path(args.registry_out), briefs, contract) if args.probe_speaker_contract else None
+    probe = (probe_speaker_contract(Path(args.registry_out), briefs, contract, language)
+             if args.probe_speaker_contract else None)
 
     blockers: list[dict[str, Any]] = []
     if not voices:
@@ -760,7 +789,8 @@ def main() -> int:
                 "character": brief["name"],
                 "previous_skeleton_sample_text": (skeleton_rows.get(brief["entity_id"]) or {}).get("performance_brief", {}).get("sample_text"),
                 "previous_spoken_length": spoken_length(
-                    str((skeleton_rows.get(brief["entity_id"]) or {}).get("performance_brief", {}).get("sample_text") or "")
+                    str((skeleton_rows.get(brief["entity_id"]) or {}).get("performance_brief", {}).get("sample_text") or ""),
+                    language,
                 ),
                 "new_sample_text": brief["sample_text"],
                 "new_spoken_length": brief["sample_text_spoken_length"],

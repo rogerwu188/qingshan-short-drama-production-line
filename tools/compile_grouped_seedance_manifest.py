@@ -829,7 +829,8 @@ def write_preflight_artifacts(
 
 def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editorial: dict[str, Any],
                      *, planning_only: bool = False, visual_culture_contract: dict[str, Any] | None = None,
-                     character_entities: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+                     character_entities: list[dict[str, Any]] | None = None,
+                     dialogue_language: str = "zh") -> dict[str, Any]:
     """``planning_only`` (nalu engine patch e13, 2026-09-12): compile the structured unit
     contracts BEFORE any keyframe exists, for the whole-batch prompt QA that
     tools/episode_prompt_batch_gate.py demands ahead of the first paid image POST
@@ -987,6 +988,8 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
         compiled_unit = {
             "unit_id": unit_id,
             "scene_id": unit["scene_id"],
+            # English-dialogue episodes only; zh units stay byte-identical (absent == "zh")
+            **({"dialogue_language": dialogue_language} if dialogue_language != "zh" else {}),
             "duration_seconds": unit["duration_seconds"],
             # Optional duration authority declared by the grouping plan (integer provider slot over a
             # half-second editorial sum): pass through so stage-4.4 and the paid-boundary recompile
@@ -1118,10 +1121,15 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             # same immutable dialogue text.  If it still cannot fit, retain
             # the hard failure.
             adjusted = False
+            # English dialogue: the same +20% / dense-beat allowances on words per second
+            # (2.7 wps default -> 3.3 -> 4.0); Chinese keeps 5.8 / 7.2 cps exactly as before.
+            rate_key, fit_rate, dense_rate = (
+                ("english_words_per_second", 3.3, 4.0) if dialogue_language == "en"
+                else ("chinese_characters_per_second", 5.8, 7.2))
             for spec in compiled_unit.get("ordered_prompt_specs") or []:
                 delivery = spec.get("dialogue_delivery") or {}
-                if spec.get("dialogue") and float(delivery.get("chinese_characters_per_second") or 0) < 5.8:
-                    delivery["chinese_characters_per_second"] = 5.8
+                if spec.get("dialogue") and float(delivery.get(rate_key) or 0) < fit_rate:
+                    delivery[rate_key] = fit_rate
                     delivery["basis"] = str(delivery.get("basis") or "") + ";fit-safe +20% delivery allowance"
                     spec["dialogue_delivery"] = delivery
                     adjusted = True
@@ -1138,8 +1146,8 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
                     for spec in compiled_unit.get("ordered_prompt_specs") or []:
                         if spec.get("dialogue"):
                             delivery = spec.setdefault("dialogue_delivery", {})
-                            delivery["chinese_characters_per_second"] = max(
-                                float(delivery.get("chinese_characters_per_second") or 0), 7.2
+                            delivery[rate_key] = max(
+                                float(delivery.get(rate_key) or 0), dense_rate
                             )
                             delivery["basis"] = str(delivery.get("basis") or "") + ";fit-safe dense-beat delivery allowance"
                     compiled_unit["dialogue_cut_safety"] = compile_dialogue_windows(compiled_unit)
@@ -1268,6 +1276,8 @@ def main() -> int:
                         help="answers file of per-unit English contracts for MiniMax-H3 units "
                              "(tools/h3_english_contract_io.py); missing/stale units are written to "
                              "<file>.REQUEST.json and the compile stops with H3_ENGLISH_CONTRACT_REQUIRED")
+    parser.add_argument("--dialogue-language", choices=("zh", "en"), default="zh",
+                        help="episode dialogue language resolved by nalu_pipeline (default zh)")
     parser.add_argument("--planned-prompt-dir", type=Path,
                         help="with --planning-only: write <unit_id>.txt planned prompts here and a "
                              "<out>.planned_prompts.json index next to --out")
@@ -1288,7 +1298,8 @@ def main() -> int:
               "forbidden_influences": list(dict.fromkeys(list(vc.get("forbidden_influences") or []) + ["欧洲中世纪骑士", "西式板甲", "黑金奇幻"]))}
     result = compile_manifest(load(args.grouping_plan), load(args.anchor_plan), load(args.editorial_seedance_manifest),
                               planning_only=bool(args.planning_only), visual_culture_contract=vc,
-                              character_entities=character_entities)
+                              character_entities=character_entities,
+                              dialogue_language=args.dialogue_language)
     # The grouped unit is the source of truth for the transaction manifest.
     # Bind the authored audio profile here as well, so a later transaction
     # rebuild cannot silently lose the writer/director audio decision.

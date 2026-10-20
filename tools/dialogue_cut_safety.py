@@ -12,20 +12,34 @@ from typing import Any
 SCHEMA = "qingshan.dialogue_cut_safety.v3_quarter_second_boundary_handle"
 DEFAULT_SAFETY_PAD_SECONDS = 0.32
 DEFAULT_CHINESE_CHARACTERS_PER_SECOND = 4.2
+# English dialogue (unit ``dialogue_language`` == "en") is estimated by words; the
+# rate lives in ``dialogue_delivery.english_words_per_second``.
+DEFAULT_ENGLISH_WORDS_PER_SECOND = 2.7
+ENGLISH_WORD = re.compile(r"[A-Za-z0-9]+(?:['\u2019][A-Za-z0-9]+)*")
 
 
-def spoken_text(raw: object) -> str:
+def spoken_text(raw: object, language: str = "zh") -> str:
     text = str(raw or "").strip()
     _, separator, words = text.partition("：")
+    if not separator and language == "en":
+        _, separator, words = text.partition(":")
     return words.strip() if separator else text
 
 
 def estimated_spoken_seconds(
-    raw: object, *, chinese_characters_per_second: float = DEFAULT_CHINESE_CHARACTERS_PER_SECOND
+    raw: object, *, chinese_characters_per_second: float = DEFAULT_CHINESE_CHARACTERS_PER_SECOND,
+    language: str = "zh", english_words_per_second: float = DEFAULT_ENGLISH_WORDS_PER_SECOND,
 ) -> float:
-    words = spoken_text(raw)
+    words = spoken_text(raw, language)
     if not words:
         return 0.0
+    if language == "en":
+        wps = float(english_words_per_second)
+        if wps <= 0:
+            raise ValueError("english_words_per_second must be positive")
+        count = len(ENGLISH_WORD.findall(words))
+        punctuation = len(re.findall(r"[,.!?;:]", words))
+        return round(count / wps + punctuation * 0.16, 3)
     cps = float(chinese_characters_per_second)
     if cps <= 0:
         raise ValueError("chinese_characters_per_second must be positive")
@@ -48,6 +62,7 @@ def compile_dialogue_windows(unit: dict[str, Any]) -> list[dict[str, Any]]:
     outgoing = unit.get("outgoing_transition_contract") or {}
     tail = float(outgoing.get("outgoing_handle_seconds") or (0.25 if unit.get("outgoing_transition_contract") is None else 0))
     dialogue_deadline = target - tail
+    language = str(unit.get("dialogue_language") or "zh")
     cursor = 0.0
     rows: list[dict[str, Any]] = []
     for index, (spec, source_span) in enumerate(zip(specs, source_spans)):
@@ -59,8 +74,13 @@ def compile_dialogue_windows(unit: dict[str, Any]) -> list[dict[str, Any]]:
                 delivery.get("chinese_characters_per_second")
                 or DEFAULT_CHINESE_CHARACTERS_PER_SECOND
             )
+            wps = float(
+                delivery.get("english_words_per_second")
+                or DEFAULT_ENGLISH_WORDS_PER_SECOND
+            )
             duration = estimated_spoken_seconds(
-                raw, chinese_characters_per_second=cps
+                raw, chinese_characters_per_second=cps,
+                language=language, english_words_per_second=wps,
             )
             available_end = min(beat_end, dialogue_deadline if index == len(specs) - 1 else beat_end)
             start = cursor + 0.12
@@ -79,6 +99,9 @@ def compile_dialogue_windows(unit: dict[str, Any]) -> list[dict[str, Any]]:
                 "chinese_characters_per_second": cps,
                 "must_be_silent_after_seconds": round(end, 3),
             })
+            if language == "en":
+                rows[-1]["dialogue_language"] = language
+                rows[-1]["english_words_per_second"] = wps
         cursor = beat_end
     return rows
 

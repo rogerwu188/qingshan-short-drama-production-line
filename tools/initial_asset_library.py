@@ -318,7 +318,9 @@ def artifact_errors(asset: dict[str, Any]) -> list[str]:
     return errors
 
 
-def gate_asset(category: str, asset: dict[str, Any]) -> list[str]:
+def gate_asset(
+    category: str, asset: dict[str, Any], voice_language: str = "zh-CN"
+) -> list[str]:
     errors: list[str] = []
     if asset.get("status") != "LOCKED":
         errors.append(f"status_not_locked:{asset.get('status')}")
@@ -331,8 +333,8 @@ def gate_asset(category: str, asset: dict[str, Any]) -> list[str]:
         for field in CATEGORY_LOCK_FIELDS[category]:
             if lock.get(field) in (None, "", [], {}, False):
                 errors.append(f"lock_missing:{field}")
-    if category == "voices" and (asset.get("lock") or {}).get("language") != "zh-CN":
-        errors.append("voice_language_not_zh-CN")
+    if category == "voices" and (asset.get("lock") or {}).get("language") != voice_language:
+        errors.append(f"voice_language_not_{voice_language}")
     errors.extend(artifact_errors(asset))
     provenance = asset.get("provenance")
     if not isinstance(provenance, list) or not provenance:
@@ -347,7 +349,10 @@ def gate_asset(category: str, asset: dict[str, Any]) -> list[str]:
 
 
 def gate_library(
-    library: dict[str, Any], requirements: dict[str, Any], episode: int | str
+    library: dict[str, Any],
+    requirements: dict[str, Any],
+    episode: int | str,
+    voice_language: str = "zh-CN",
 ) -> dict[str, Any]:
     episode = episode_number(episode)
     failures: list[dict[str, Any]] = []
@@ -374,7 +379,7 @@ def gate_library(
                     {"category": category, "asset_id": asset_id, "errors": ["missing"]}
                 )
                 continue
-            errors = gate_asset(category, candidate)
+            errors = gate_asset(category, candidate, voice_language)
             if candidate.get("requirement_sha256") != canonical_sha256(requirement):
                 errors.append("requirement_changed")
             if errors:
@@ -418,7 +423,7 @@ def command_gate(args: argparse.Namespace) -> int:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 2
     library = load_json(Path(args.library).expanduser().resolve())
-    report = gate_library(library, requirements, args.episode)
+    report = gate_library(library, requirements, args.episode, args.voice_language)
     if args.report:
         atomic_write_json(Path(args.report).expanduser().resolve(), report)
     print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -440,6 +445,11 @@ def main() -> int:
     gate_parser.add_argument("--library", required=True)
     gate_parser.add_argument("--episode", required=True)
     gate_parser.add_argument("--report", "--out", dest="report")
+    gate_parser.add_argument(
+        "--voice-language",
+        default="zh-CN",
+        help="locale every locked voice must declare (zh-CN default; en-US for English dialogue)",
+    )
     gate_parser.set_defaults(handler=command_gate)
     args = parser.parse_args()
     return args.handler(args)
