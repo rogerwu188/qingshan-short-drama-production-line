@@ -1133,3 +1133,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：`TranscribeUnitsConcurrencyTest` 断言四个单元片真实重叠、结果按 stem 归档、单单元异常使整步失败；`WhisperModelConstructionTest` 断言模型只构造一次、worker 上限默认与非法值回退、无单元时不加载模型
 - **授权**：Roger 2026-10-18「单集内全流程并行，检查不缩水」
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K118 — S5_KEYFRAME_GENERATION
+
+- **规则**：付费图片批次已被计费但全部远端任务标识不可恢复时，按订单核销，而不是留在未决态。写 off 工具在写入前逐条校验证据：事务存在且处于未决态；计费凭据指向归档的 `PASS_BOUNDED` 账单且其 SHA256 与磁盘一致；账单窗口包含该事务自身的时间戳；账单存在未映射的付费行（`unmapped_pay_row_count > 0`）。没有存活账单窗口的事务，只有在给出明确理由时才可核销，且计入 0 credits。核销只改事务状态（`CHARGED_WRITTEN_OFF_BY_ORDER`），保留上一状态、核销时间、计费凭据与 `DO_NOT_RESUBMIT_THIS_FINGERPRINT` 重试守卫。金额不改账本：账本统计的是归档账单文件，核销不删账。
+- **教训**：E12 关键帧 09:38 批次因上游 `dial tcp ... i/o timeout` 丢失全部 8 个响应，账单证明 7 个付费行共 77 credits，却没有任何任务标识可以对账；另有 2 条更早的隔离事务根本没有存活窗口。缺少核销写入者时，这 10 条永久卡在未决态，付费阶段被 `UNRECONCILED_TRANSACTIONS` 永久阻断，而重新提交同一指纹等于为同一张图付第二次钱。
+- **恢复**：出现「已计费、标识不可恢复」时，先用离线对账器确认未映射付费行与唯一窗口，再以订单（含逐字授权原话）为凭据运行核销工具，核销后重跑只读预算检查确认未决事务清零。绝不以重投作为对账手段。
+- **实现**：`tools/write_off_charged_losses.py`
+- **回归**：`tools/tests/test_write_off_charged_losses.py`
+- **证据**：`WriteOffToolTests` 断言有账单证据的行核销并保留下批费用与守卫、账单 SHA 不符拒绝、已结算事务永不改写、无证据且无理由拒绝、有理由无窗口按 0 credits 结算并记录理由、事务落在账单窗口外拒绝、干跑不改动任何事务且零网络调用
+- **授权**：Roger 2026-10-20「按 K073 核销」
+- **状态**：REFERENCE_IMPLEMENTATION

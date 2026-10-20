@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2166,
+  "file_count": 2169,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -225,7 +225,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "bcf5fa73b52f48ab321fe06ccbd1086b6f055a062ac706b1fbcbfdb5a580c1e0"
+      "sha256": "5e6d7043cb293a47010c8600dcff8a520f416d4ebd7bf8de2ec19d9328bc15d6"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -261,7 +261,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "563c20f526587a6bde63442a79907d9c178f2dc1be9eb61549740f6cfcfcd25f"
+      "sha256": "3be092b9746de5de7753651c8851fcf7f6a3e93a57111f632c663badc94bd03d"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -325,7 +325,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "433f013277b8de265fefdb6ab71e51c04d812aac1ca137d16dbeb0ac49e2c0e4"
+      "sha256": "e8b34249cd863fa22618841e2a6e0f5b1acc35ef90516b74ba07911a3b08c900"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -7900,6 +7900,10 @@
       "sha256": "460c51797444c8940f3a54e4ba411476f5059bec1322e0dc0ddbe5d5cc173999"
     },
     {
+      "path": "tools/tests/test_s7_asr_parallel.py",
+      "sha256": "bdec242e4d6d65cafad5c32029f67df40d2ad3b4e3fc11958d14b42dbb7281d5"
+    },
+    {
       "path": "tools/tests/test_scene_authority_lock.py",
       "sha256": "a317c135912dfd62c91624b79ed7ece61228bf0556599660a999eb23673131f2"
     },
@@ -8065,7 +8069,7 @@
     },
     {
       "path": "tools/tests/test_storyclaw_install.py",
-      "sha256": "1be5cfe472870e6e3f5b9932caa433fb263be91a54aaaaf8611d6994c08546aa"
+      "sha256": "4c2ac605638b8b5fa859bcb2dbba4531256ddb91e80df6b2745c6aefa0710b14"
     },
     {
       "path": "tools/tests/test_storyclaw_nalu_runtime.py",
@@ -8306,6 +8310,10 @@
     {
       "path": "tools/tests/test_weak_media_admission.py",
       "sha256": "886cb778969c886644dd9a09f7dde7aca44fa5456357d5935a00cb6392daee1d"
+    },
+    {
+      "path": "tools/tests/test_write_off_charged_losses.py",
+      "sha256": "c5b451fd08d6666be8e4ece2709e26e097067d3ec29a98551a988095a2d9e3f1"
     },
     {
       "path": "tools/tests/test_writer_checkpoint_guard.py",
@@ -8638,6 +8646,10 @@
     {
       "path": "tools/weak_media_admission.py",
       "sha256": "d6c6e01dd16417aa2e23280fba823b098329216dabf57f4531a58103bc1c6da2"
+    },
+    {
+      "path": "tools/write_off_charged_losses.py",
+      "sha256": "be1e3f51173350f5e5090368596a6f4600cb3b852b58fc21b55a21273921bf34"
     },
     {
       "path": "tools/writer_checkpoint_guard.py",

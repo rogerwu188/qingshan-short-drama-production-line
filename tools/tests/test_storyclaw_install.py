@@ -42,6 +42,18 @@ class StoryClawInstallTests(unittest.TestCase):
         runtime = self.runtime.resolve()
         venv = runtime / "venvs/copied"
         subprocess.run([sys.executable, "-m", "venv", "--copies", "--without-pip", str(venv)], check=True)
+        # A uv-managed CPython keeps its standard library beside a symlinked
+        # binary; ``--copies`` produces an interpreter that cannot import
+        # ``encodings`` at all.  The selector can only be exercised when the
+        # host can actually build a runnable copied venv.
+        probe = subprocess.run([str(venv / "bin/python"), "-c", "import sys"],
+                               capture_output=True, text=True)
+        if probe.returncode != 0:
+            self.skipTest(
+                "HOST_PYTHON_CANNOT_COPY_VENV: "
+                f"{sys.executable} builds a venv whose interpreter cannot start "
+                f"({probe.stderr.strip().splitlines()[:1] or probe.stderr.strip()}); "
+                "this is an interpreter packaging limit, not an installer defect")
         report = installer._ensure_initial_venv_selector(runtime, venv)
         self.assertEqual(report["status"], "PASS")
         python = installer._venv_python_path(venv)
@@ -446,7 +458,13 @@ class StoryClawInstallTests(unittest.TestCase):
             '    (root/"METADATA").write_text("Metadata-Version: 2.1\\nName: storyclaw-fixture\\nVersion: 0.0.1\\n")\n'
             '    return name\n'
         )
-        command = [sys.executable, "-m", "pip", "install", "--dry-run",
+        # Run the probe from a fresh venv: the host interpreter may be PEP 668
+        # externally managed, in which case pip refuses before hash checking
+        # and the assertion below would test the wrong thing.
+        probe_venv = self.root / "hash-probe-venv"
+        subprocess.run([sys.executable, "-m", "venv", str(probe_venv)], check=True)
+        command = [str(installer._venv_python_path(probe_venv)), "-m", "pip",
+                   "install", "--dry-run",
                    "--no-index", "--no-deps", "--no-build-isolation", str(project)]
         old = subprocess.run(command, env=pip_environment, capture_output=True, text=True)
         self.assertNotEqual(old.returncode, 0)
