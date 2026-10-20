@@ -1,8 +1,10 @@
 import sys
 import json
+import threading
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -11,6 +13,8 @@ sys.path.insert(0, str(ROOT / "tools"))
 from poll_giggle_submit_report import (
     close_remote_generation_line,
     output_path,
+    poll,
+    poll_workers,
     result_rows,
     safe_stem,
 )
@@ -72,6 +76,65 @@ class PollGiggleSubmitReportTest(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "not blocked by REMOTE_GENERATION"):
                 close_remote_generation_line(ledger_path, "E19_W1_W2", Path(tmp) / "status.json")
+
+
+class PollConcurrencyTest(unittest.TestCase):
+    """K113: one poll tick queries the whole wave at once, order fixed.
+
+    The old loop issued one query_task per submitted task in sequence, so a
+    six-unit wave paid six serial HTTP round trips on every scheduler tick.
+    """
+
+    def _run(self, rows, fake_query, *, env=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            report = root / "submit.json"
+            report.write_text(json.dumps({"results": rows}), encoding="utf-8")
+            with mock.patch.dict("os.environ", {"GIGGLE_API_KEY": "MOCK", **(env or {})}), \
+                 mock.patch("poll_giggle_submit_report.ensure_giggle_api_key", lambda: "MOCK"), \
+                 mock.patch("poll_giggle_submit_report.query_task", fake_query):
+                return poll(report, root / "out", root / "status.json", False)
+
+    def test_tasks_are_queried_concurrently(self):
+        barrier = threading.Barrier(4, timeout=4.0)
+
+        def fake_query(_args):
+            barrier.wait()  # a serial loop deadlocks here and fails the test
+            return {"data": {"status": "running", "urls": []}}
+
+        payload = self._run([{"task_key": f"U{i}", "task_id": f"t{i}"} for i in range(4)],
+                            fake_query, env={"NALU_POLL_WORKERS": "4"})
+        self.assertEqual(len(payload["results"]), 4)
+
+    def test_status_rows_keep_the_submit_report_order(self):
+        def fake_query(args):
+            if args.task_id == "t0":
+                threading.Event().wait(0.05)  # finishes last, must still be row 0
+            return {"data": {"status": "completed", "urls": []}}
+
+        payload = self._run([{"task_key": f"U{i}", "task_id": f"t{i}"} for i in range(3)],
+                            fake_query, env={"NALU_POLL_WORKERS": "3"})
+        self.assertEqual([row["task_key"] for row in payload["results"]],
+                         ["U0", "U1", "U2"])
+
+    def test_one_task_error_fails_the_whole_tick(self):
+        def fake_query(args):
+            if args.task_id == "t1":
+                raise RuntimeError("provider query failed")
+            return {"data": {"status": "running", "urls": []}}
+
+        with self.assertRaisesRegex(RuntimeError, "provider query failed"):
+            self._run([{"task_key": "U0", "task_id": "t0"},
+                       {"task_key": "U1", "task_id": "t1"}],
+                      fake_query, env={"NALU_POLL_WORKERS": "2"})
+
+    def test_worker_count_defaults_and_honours_the_environment(self):
+        with mock.patch.dict("os.environ", {"NALU_POLL_WORKERS": "3"}):
+            self.assertEqual(poll_workers(), 3)
+        with mock.patch.dict("os.environ", {"NALU_POLL_WORKERS": "not-a-number"}):
+            self.assertEqual(poll_workers(), 6)
+        with mock.patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(poll_workers(), 6)
 
 
 if __name__ == "__main__":

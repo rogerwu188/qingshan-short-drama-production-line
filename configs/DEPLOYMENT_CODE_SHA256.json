@@ -225,7 +225,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "91a5c8befb8dedbc5e92e113c25766851d438fe04e1ce1181e28f505a0171c54"
+      "sha256": "56aa511cc7de62ea3b639b561178f870f3dd124503a6172d624dfa964a9563a2"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -261,7 +261,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "2efaae03535fb5a3f4480ce7e5751e71c8b6a96fa7ae65fc36bcf2aebc544cc9"
+      "sha256": "a365f5244f6c45a28b14db36369eabd244aba301f6f5464b5ff01e8e275146ec"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -325,7 +325,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "9c07ff8782a400e601172cfcb828266c18e98516840474559faffbf1d3196dfe"
+      "sha256": "918fdaa62e8cfdc9416caa6ea8425ee99611bbb43b506df31ac38848b2fcb248"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -5325,7 +5325,7 @@
     },
     {
       "path": "tools/poll_giggle_submit_report.py",
-      "sha256": "a795f7995da17edb5178a3b4da3e254f263082b6ec1f9d0277e9d7f383341583"
+      "sha256": "bd78c02040e300d44693ba2bb7905888735e784e49d53d0cee7829f79ecfb84d"
     },
     {
       "path": "tools/portable_runtime.py",
@@ -7681,7 +7681,7 @@
     },
     {
       "path": "tools/tests/test_poll_giggle_submit_report.py",
-      "sha256": "1ed8d218c2e7629429eb9b0334bfc83d6e42694c75c00884e70ad79d84704feb"
+      "sha256": "075702fcd96820f72adf2688b9f5418771d145cec998640d859313b6d09854d9"
     },
     {
       "path": "tools/tests/test_portable_runtime.py",

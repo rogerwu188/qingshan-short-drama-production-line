@@ -99,6 +99,62 @@ def close_remote_generation_line(
     return line
 
 
+def poll_workers(default: int = 6) -> int:
+    """How many task queries/downloads run at once inside one poll tick.
+
+    Each task's query is one HTTP GET and each download one GET; both release the
+    GIL, so a tick that polls a six-unit wave serially pays six round trips.  The
+    bound is per-tick (not remote generation capacity, which the provider holds)
+    and can be overridden with NALU_POLL_WORKERS.
+    """
+    try:
+        return max(1, int(os.environ.get("NALU_POLL_WORKERS") or default))
+    except ValueError:
+        return default
+
+
+def poll_one(
+    index: int,
+    row: dict[str, Any],
+    out_dir: Path,
+    download: bool,
+) -> dict[str, Any]:
+    """Query (and optionally download) one submitted task.  Order-independent."""
+    task_id = row.get("task_id")
+    label = str(
+        row.get("task_key")
+        or row.get("dialogue_id")
+        or row.get("shot_id")
+        or f"task-{index:03d}"
+    )
+    if not task_id:
+        return {**row, "remote_status": "NO_TASK_ID", "downloaded_files": []}
+
+    response = query_task(SimpleNamespace(task_id=task_id))
+    data = response.get("data") or {}
+    remote_status = str(data.get("status") or "UNKNOWN")
+    urls = data.get("urls") or []
+    files: list[str] = []
+    if download and remote_status == "completed":
+        for url_index, url in enumerate(urls, 1):
+            destination = output_path(out_dir, label, url_index, len(urls))
+            if not destination.exists():
+                download_atomic(str(url), destination)
+            files.append(str(destination))
+    elif remote_status == "completed":
+        files = [
+            str(path)
+            for path in sorted(out_dir.glob(f"{safe_stem(label)}*.mp4"))
+        ]
+
+    return {
+        **row,
+        "remote_status": remote_status,
+        "result_url_count": len(urls),
+        "downloaded_files": files,
+    }
+
+
 def poll(
     submit_report: Path,
     out_dir: Path,
@@ -112,44 +168,20 @@ def poll(
         raise SystemExit("GIGGLE_API_KEY is not set")
 
     source = read_json(submit_report)
-    statuses: list[dict[str, Any]] = []
-    for index, row in enumerate(result_rows(source), 1):
-        task_id = row.get("task_id")
-        label = str(
-            row.get("task_key")
-            or row.get("dialogue_id")
-            or row.get("shot_id")
-            or f"task-{index:03d}"
-        )
-        if not task_id:
-            statuses.append({**row, "remote_status": "NO_TASK_ID", "downloaded_files": []})
-            continue
+    rows = list(enumerate(result_rows(source), 1))
+    workers = poll_workers()
+    if workers <= 1 or len(rows) <= 1:
+        statuses = [poll_one(index, row, out_dir, download) for index, row in rows]
+    else:
+        # Query every submitted task concurrently.  Results are kept in the submit
+        # report's order so the status file (and any diff against it) is stable, and
+        # an exception in any task still fails the whole run, exactly as serially.
+        from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
 
-        response = query_task(SimpleNamespace(task_id=task_id))
-        data = response.get("data") or {}
-        remote_status = str(data.get("status") or "UNKNOWN")
-        urls = data.get("urls") or []
-        files: list[str] = []
-        if download and remote_status == "completed":
-            for url_index, url in enumerate(urls, 1):
-                destination = output_path(out_dir, label, url_index, len(urls))
-                if not destination.exists():
-                    download_atomic(str(url), destination)
-                files.append(str(destination))
-        elif remote_status == "completed":
-            files = [
-                str(path)
-                for path in sorted(out_dir.glob(f"{safe_stem(label)}*.mp4"))
-            ]
-
-        statuses.append(
-            {
-                **row,
-                "remote_status": remote_status,
-                "result_url_count": len(urls),
-                "downloaded_files": files,
-            }
-        )
+        with ThreadPoolExecutor(max_workers=min(workers, len(rows))) as pool:
+            futures = [pool.submit(poll_one, index, row, out_dir, download)
+                       for index, row in rows]
+            statuses = [future.result() for future in futures]
 
     counts: dict[str, int] = {}
     for row in statuses:

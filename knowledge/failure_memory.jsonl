@@ -69,3 +69,4 @@
 {"failure_code": "EDITORIAL_SPEECH_BOUNDARY_REQUIRED", "do_not_repeat": "不要把供应商槽长当成成片长度；不要在没有核实语音结束点时剪短对白单元；不要用时长目标冒充语音结束证据", "stage": "S7_ASSEMBLY", "scope": "generalizable", "knowledge_id": "K110"}
 {"failure_code": "BUDGET_CHECK_THEN_ACT", "do_not_repeat": "不要把 --check 的只读通过当成花费许可；不要用固定单价假设替代事务里的 estimated_credits；不要在超时后把预留当作未扣费释放", "stage": "TRANSACTIONS", "scope": "generalizable", "knowledge_id": "K111"}
 {"failure_code": "NONPAID_COMPILE_SERIAL_BY_DEFAULT", "do_not_repeat": "不要在线程里直接 append 跨镜共享列表；不要因并发跳过逐镜校验；不要为并行改写 prompt 渲染语义", "stage": "S5", "scope": "generalizable", "knowledge_id": "K112"}
+{"failure_code": "POLL_TICK_QUERIES_SERIALLY", "do_not_repeat": "不要在轮询里逐任务串行查询；不要在并发回填时打乱提交报告顺序；不要把缺少远端任务标识的行送进线程池", "stage": "S6", "scope": "generalizable", "knowledge_id": "K113"}

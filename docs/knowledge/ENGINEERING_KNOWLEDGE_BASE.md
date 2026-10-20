@@ -1078,3 +1078,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **回归**：`tools/tests/test_keyframe_compile_parallel.py`
 - **授权**：Roger 2026-10-18「单集内全流程并行，检查不缩水」
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K113 — S6
+
+- **规则**：视频状态轮询按波并发。`poll_giggle_submit_report.poll` 把逐任务 `query_task` 与逐 URL 下载放到 `ThreadPoolExecutor`（默认 `min(6, 任务数)`，`NALU_POLL_WORKERS` 可覆盖），结果按提交报告原始顺序回填，状态文件保持稳定；任一任务查询抛错仍使整次轮询失败，与串行时一致。缺少远端任务标识的行不进线程池，直接记 `NO_TASK_ID`。下载仍走 `.part`→replace 原子替换且已存在即跳过。
+- **教训**：S6 每个调度 tick 都要对整波单元查一次远端状态；旧循环逐任务串行 `query_task`、逐 URL 串行下载，6 个单元就是 6 次串行往返，且这段等待落在每次 tick 上。
+- **恢复**：轮询端新增远端调用时沿用 `poll_one` + 有序回填的并发结构；限流用 `NALU_POLL_WORKERS`，不要按波次大小硬编码。
+- **实现**：`tools/poll_giggle_submit_report.py`
+- **回归**：`tools/tests/test_poll_giggle_submit_report.py`
+- **证据**：`PollConcurrencyTest`：Barrier 断言四任务真实重叠、慢任务不改变行序、单任务异常使整次轮询失败、worker 数默认与覆盖行为
+- **授权**：Roger 2026-10-18「单集内全流程并行，检查不缩水」
+- **状态**：REFERENCE_IMPLEMENTATION
