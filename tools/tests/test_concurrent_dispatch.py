@@ -419,11 +419,11 @@ class _BudgetHarness:
             patch.stop()
         return False
 
-    def check(self, planned: int, *, reserve: bool = False) -> dict:
+    def check(self, planned: int, *, reserve: bool = False, explicit_id: bool = True) -> dict:
         from decimal import Decimal
         import uuid
 
-        rid = str(uuid.uuid4()) if reserve else None
+        rid = str(uuid.uuid4()) if reserve and explicit_id else None
         return self.B.build_report(episode="E99", cap=self.CAP, planned=Decimal(planned), balance=None,
                                    voice_registry=None, strict=False, bgm_transactions_dir=None,
                                    reserve_if_pass=reserve, reservation_id=rid)
@@ -448,6 +448,14 @@ class BudgetAtomicReservationTest(unittest.TestCase):
             "BUDGET_CHECK_THEN_ACT: both checks PASS because --check records no reservation; "
             "together they admit 8200 against an 8000 cap",
         )
+
+    def test_reservation_without_an_explicit_id_generates_one(self):
+        # the CLI path (nalu_pipeline -> nalu_budget_ledger --reserve) passes no
+        # reservation id; build_report must mint one instead of raising NameError
+        with tempfile.TemporaryDirectory() as tmp, _NoNetwork():
+            with _BudgetHarness(Path(tmp), statement_credits=7000) as h:
+                report = h.check(600, reserve=True, explicit_id=False)
+        self.assertEqual(report["status"], "PASS")
 
     def test_bound_task_whose_charge_is_not_yet_reconciled_counts_as_exposure(self):
         with tempfile.TemporaryDirectory() as tmp, _NoNetwork():
