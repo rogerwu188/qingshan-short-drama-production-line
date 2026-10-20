@@ -82,3 +82,38 @@
 - **S7 提前处理**：`build_measured_edit_constraints` 已是单遍文件读取；ASR 证据来自 S6 post-gen QA，不在 S7 重跑。最终装配仍要求全集素材齐备（门禁要求，不是性能取舍）。
 - **S5 收割提前**：`--watch` 每轮已逐张下载；Q1 审核前必须汇总，未把审核拆成逐单元。
 - **移除 `paid_stage.sh` 集锁**：预算预留已修正双进程竞态，但集锁仍承担跨进程互斥，本轮不冒险移除。
+
+## 8. 后续轮次补充（K113–K115 与刻意未改项）
+
+### 8.1 后续提交
+
+| 项 | 提交 |
+|---|---|
+| 预算预留接线付费路径 + 按模型计价暴露 | `0157941` |
+| 视频轮询按波并发（K113） | `39f9b1e` |
+| 图片收割按批并发（K114） | `9903ce4` |
+| S4 配音按角色并发（K115） | `585e659` |
+
+### 8.2 新增的并发点与保留的串行点
+
+| 位置 | 处理 | 原因 |
+|---|---|---|
+| `poll_giggle_submit_report.poll` | 并发查询+下载，`NALU_POLL_WORKERS` 限流 | S6 每个 tick 都轮询整波，旧实现逐任务串行往返 |
+| `harvest_giggle_image_batch.poll_once` | 并发查询+下载，`NALU_HARVEST_WORKERS` 限流 | 50 任务量级、每 15 秒一轮，旧实现逐任务串行 |
+| `nalu_pipeline.s4_generate_all` | 按角色并发；registry 行仍顺序写 | 角色间无依赖；voice_registry 是整份读改写，不能在线程里写 |
+| `nalu_selective_bgm.cmd_generate` | **保留串行** | `--paid` 下失败或响应丢失即停止提交，是先对账再继续的金额安全规则 |
+| `keyframe_q1_builder.measure_still_identity` | **保留串行** | 共享单个 FaceAnalysis 实例，并发推理有正确性风险；每集只跑一次 |
+| `build_nalu_preproduction` 各 stage | **保留串行** | stage 之间有真实依赖（后一 stage 读前一 stage 产物） |
+| 提交器逐任务 SHA 校验 | **保留串行** | 每批一次、属付费前门；收益小、风险不对称 |
+
+### 8.3 并发上限（全部可配置，无硬编码）
+
+| 控制项 | 默认 | 覆盖方式 |
+|---|---|---|
+| 逐镜关键帧编译 | `min(8, 镜数)` | `compile_tasks(workers=)` |
+| 视频轮询 | 6 | `NALU_POLL_WORKERS` |
+| 图片收割 | 6 | `NALU_HARVEST_WORKERS` |
+| S4 配音 | `min(max_parallel, 角色数)` | `generation.max_parallel_tasks` |
+| S6 提交线程 | `min(max_parallel, 6)` | `generation.max_parallel_tasks` |
+| S6 远端在飞 | 未配置即不限 | `generation.max_remote_inflight` |
+| 后期 QA | 4 | `NALU_QA_WORKERS` |
