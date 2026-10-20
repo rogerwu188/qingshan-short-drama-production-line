@@ -7,7 +7,7 @@ Workflow (https://www.x2creel.ai/api-docs, 分发 API):
   distribution/query.  Developer-JWT publishing (3.5) is not used.
 
   publish_x2creel.py categories [--lang zh]
-  publish_x2creel.py publish --episode E01 --title <剧名> --description <简介> --category <名称或 id>
+  publish_x2creel.py publish --episode E01 --title <剧名> --description <简介> --category <X2C 列表里的 name / name_key / id> [--lang zh]
                              [--video <mp4>] [--cover <jpg/png>]
   publish_x2creel.py status
   publish_x2creel.py forget --episode E02     (drop one episode's local record, backed up, so it can be re-sent)
@@ -140,18 +140,20 @@ def mime(path: Path) -> str:
                                                                                      "application/octet-stream")
 
 
-def resolve_category(category: str) -> str:
-    if len(category) == 36 and category.count("-") == 4:
-        return category
-    cats = call("distribution/categories", lang="zh").get("categories") or []
+def resolve_category(category: str, lang: str = "zh") -> str:
+    """Exact match against X2C's own category list (id, name or name_key) — never a guess.
+
+    The category decides where X2C files the series, so an unmatched value is an error that lists
+    what X2C offers; there is no fallback category.  Pick the value with ``categories`` first."""
+    cats = call("distribution/categories", lang=lang).get("categories") or []
+    wanted = category.strip()
     for c in cats:
-        if category in (c.get("name"), c.get("name_key")):
+        if wanted and wanted in (c.get("id"), c.get("name"), c.get("name_key")):
             return c["id"]
-    for c in cats:  # fall back to the catch-all category
-        if c.get("name") == "热门综合":
-            return c["id"]
-    raise SystemExit(json.dumps({"status": "ERROR", "reason": f"CATEGORY_NOT_FOUND:{category}",
-                                 "available": [c.get("name") for c in cats]}, ensure_ascii=False))
+    raise SystemExit(json.dumps({"status": "ERROR", "reason": f"CATEGORY_NOT_IN_X2C_LIST:{category}",
+                                 "lang": lang,
+                                 "available": [{"name": c.get("name"), "name_key": c.get("name_key")} for c in cats]},
+                                ensure_ascii=False))
 
 
 def cmd_publish(a: argparse.Namespace) -> dict[str, Any]:
@@ -180,6 +182,8 @@ def cmd_publish(a: argparse.Namespace) -> dict[str, Any]:
                     "pending_videos": pending, "approved_episodes": remote.get("total_episodes"),
                     "note": "an earlier episode is still pending review; appending now would reuse its number. "
                             "Nothing was sent; retry on a later heartbeat."}
+    # resolve the category before anything is uploaded, so a wrong genre costs nothing
+    cat = None if state.get("project_id") else resolve_category(a.category, getattr(a, "lang", "zh") or "zh")
     up = call("distribution/upload-url", files=files)
     urls: dict[str, str] = {}
     for row in up.get("uploads") or []:
@@ -189,7 +193,6 @@ def cmd_publish(a: argparse.Namespace) -> dict[str, Any]:
 
     now = datetime.now(timezone.utc).isoformat()
     if not state.get("project_id"):
-        cat = resolve_category(a.category)
         res = call("distribution/publish", title=a.title[:100], description=a.description[:2000], category_id=cat,
                    cover_url=urls["cover"], video_urls=[urls["video"]], enable_prediction=False)
         state.update(project_id=res["project_id"], tag_id=res.get("tag_id"), category_id=cat,
@@ -234,11 +237,12 @@ def main() -> int:
     p.add_argument("--episode", required=True); p.add_argument("--title", default="")
     p.add_argument("--description", default=""); p.add_argument("--category", default="")
     p.add_argument("--video", default=""); p.add_argument("--cover", default="")
+    p.add_argument("--lang", default="zh", help="language of the X2C category list the --category value comes from")
     sub.add_parser("status")
     f = sub.add_parser("forget"); f.add_argument("--episode", required=True)
     a = ap.parse_args()
     if a.cmd == "categories":
-        out = {"status": "OK", "categories": [{"id": x["id"], "name": x["name"]}
+        out = {"status": "OK", "lang": a.lang, "categories": [{"id": x["id"], "name": x["name"], "name_key": x.get("name_key")}
                                               for x in call("distribution/categories", lang=a.lang).get("categories") or []]}
     elif a.cmd == "publish":
         out = cmd_publish(a)

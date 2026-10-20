@@ -80,6 +80,20 @@ class PublishFlowTests(unittest.TestCase):
         self.assertEqual(add["project_id"], "proj-1")
         self.assertEqual(sum(1 for a, _ in self.calls if a == "distribution/publish"), 1)
 
+    def test_category_must_be_on_x2cs_list_and_has_no_fallback(self):
+        with self.assertRaises(SystemExit) as raised:
+            px.cmd_publish(self.args("E01", title="剧名", description="简介", category="科幻", cover=self.cover))
+        self.assertIn("CATEGORY_NOT_IN_X2C_LIST", str(raised.exception.code))
+        self.assertIn("仙侠古装", str(raised.exception.code))  # the error lists what X2C offers
+        self.assertEqual([a for a, _ in self.calls], ["distribution/categories"])  # nothing uploaded or created
+        self.assertEqual(self.puts, [])
+
+    def test_category_matches_name_key_and_listed_id_only(self):
+        self.assertEqual(px.resolve_category("xianxia"), "c" * 36)
+        self.assertEqual(px.resolve_category("c" * 36), "c" * 36)
+        with self.assertRaises(SystemExit):
+            px.resolve_category("d" * 8 + "-" + "d" * 4 + "-" + "d" * 4 + "-" + "d" * 4 + "-" + "d" * 12)
+
     def test_append_is_deferred_while_an_episode_is_pending_review(self):
         px.cmd_publish(self.args("E01", title="剧名", description="简介", category="仙侠古装", cover=self.cover))
         self.pending = [{"episode_number": 2, "status": "pending_review"}]
