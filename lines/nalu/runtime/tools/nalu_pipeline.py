@@ -2557,6 +2557,109 @@ def stage_s3(ctx: Ctx) -> StageResult:
 # --------------------------------------------------------------------------- #
 # S4 — voices (paid, once per speaking character, 2 credits each)
 # --------------------------------------------------------------------------- #
+
+def s4_generate_all(ctx: "Ctx", p: Any, todo: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Run every character's voice generation concurrently, results in `todo` order.
+
+    Each character is independent: one durable audio transaction per entity, its own
+    wav and its own upload receipt.  The registry row is applied by the caller in
+    `todo` order because that file is one read-modify-write.
+    """
+    workers = min(int(getattr(ctx, "max_parallel", 6) or 6), len(todo))
+    if workers > 1:
+        from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(s4_generate_one, ctx, p, task) for task in todo]
+            return [future.result() for future in futures]
+    return [s4_generate_one(ctx, p, task) for task in todo]
+
+
+def s4_generate_one(ctx: "Ctx", p: Any, task: dict[str, Any]) -> dict[str, Any]:
+    """Generate, normalize and upload one character's voice reference.
+
+    Independent per character: the speech provider holds one durable
+    transaction per entity, normalization writes that entity's wav and the
+    upload writes that entity's receipt.  The registry row is NOT written
+    here — the registry is one whole-file read-modify-write, so rows are
+    applied in `todo` order by the caller after the pool drains.
+    """
+    entity = task["entity_id"]
+    wav = Path(task["post_generation_normalization"]["target_wav"])
+    mp3 = Path(task["request"]["output_mp3"])
+    voice_id = str(task["request"].get("voice_id") or "").strip()
+    if not voice_id:
+        return {"entity": entity, "status": BLOCKED,
+                "blockers": [f"VOICE_ID_NOT_SELECTED:{entity}"]}
+    safe_entity = re.sub(r"[^A-Za-z0-9._-]+", "_", str(entity)).strip("._")[:48]
+    safe_entity = safe_entity or sha256_text(str(entity))[:16]
+    scope_id = str(p.scope["scope_id"])
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", scope_id):
+        return {"entity": entity, "status": BLOCKED,
+                "blockers": [f"SERIES_SCOPE_ID_UNSAFE_FOR_TRANSACTION_PATH:{scope_id}"]}
+    audio_transaction = (
+        AUDIO_TRANSACTION_ROOT / scope_id / ctx.episode
+        / "speech" / f"{safe_entity}.json"
+    ).resolve()
+    argv = [
+        VENV, PORTABLE_AUDIO_PROVIDER, "speech-generate",
+        str(task["request"]["text"]),
+        "--voice-id", voice_id,
+        "--emotion", str(task["request"]["emotion"]),
+        "--speed", str(task["request"]["speed"]),
+        "--output-dir", mp3.parent,
+        "--file-name", mp3.name,
+        "--poll-interval", "2",
+        "--timeout", "300",
+        "--transaction", audio_transaction,
+        "--paid",
+    ]
+    norm_argv = [_media.require_ffmpeg() if item == "${FFMPEG}" else str(item)
+                 for item in task["post_generation_normalization"]["command"]]
+    upload_out = p.voice_upload_dir / f"{entity}_giggle_asset.json"
+    # tools/upload_giggle_asset.py: --file / --out / --public  (verified from --help)
+    upload_argv = [VENV, ENGINE / "tools/upload_giggle_asset.py",
+                   "--file", wav, "--out", upload_out, "--public"]
+
+    # Each task reserves only its own 2 credits.  The reservation is atomic, so
+    # concurrent characters cannot jointly overrun the cap; the old serial
+    # `2 * remaining` argument assumed later characters were not yet guarded.
+    status, step = ctx.paid_step(
+        argv, name=f"s4_speech_generate_{entity}", sid="S4",
+        planned_credits=2,
+        note=(f"Portable Giggle speech provider, 2 credits. "
+              f"voice_id={voice_id} ({task['request'].get('voice_name')}).  "
+              f"Durable transaction={audio_transaction}; the provider records intent "
+              "before its only POST, binds task_id immediately, and resumes without "
+              "reposting."))
+    steps: list[dict[str, Any]] = [step]
+    if status == HARD_STOP:
+        return {"entity": entity, "status": HARD_STOP, "steps": steps,
+                "blockers": [f"BUDGET_HARD_STOP_S4:{entity}"]}
+    if status == DRY:
+        return {"entity": entity, "status": DRY, "steps": steps, "dry": True,
+                "norm_argv": norm_argv, "upload_argv": upload_argv}
+    if status != PASS:
+        return {"entity": entity, "status": BLOCKED, "steps": steps,
+                "blockers": [f"SPEECH_GENERATE_FAILED:{entity}"]}
+    if not mp3.is_file():
+        return {"entity": entity, "status": BLOCKED, "steps": steps,
+                "blockers": [f"SPEECH_OUTPUT_MISSING:{mp3}"]}
+    norm = ctx.run(norm_argv, name=f"s4_normalize_{entity}")
+    steps.append(norm)
+    if norm["exit_code"] != 0 or not wav.is_file():
+        return {"entity": entity, "status": BLOCKED, "steps": steps,
+                "blockers": [f"VOICE_NORMALIZATION_FAILED:{entity}"]}
+    upload = ctx.run(upload_argv, name=f"s4_upload_{entity}", paid=True)
+    steps.append(upload)
+    receipt = upload_receipt_fields(read_json(upload_out, {}) or {})
+    asset_id = receipt.get("asset_id") or receipt.get("assetId")
+    if upload["exit_code"] != 0 or not asset_id:
+        return {"entity": entity, "status": BLOCKED, "steps": steps,
+                "blockers": [f"VOICE_UPLOAD_FAILED_NO_ASSET_ID:{entity}"]}
+    return {"entity": entity, "status": PASS, "steps": steps, "task": task,
+            "wav": wav, "receipt": receipt, "receipt_path": str(upload_out)}
+
+
 def stage_s4(ctx: Ctx) -> StageResult:
     p = ctx.p
     catalog_path = Path(str(ctx.p.scope["voice_catalog"]))
@@ -2625,101 +2728,36 @@ def stage_s4(ctx: Ctx) -> StageResult:
         return res
 
     any_dry = False
-    for offset, task in enumerate(todo):
-        entity = task["entity_id"]
-        # charge the guard for every voice still outstanding, not just this one,
-        # so the cap is tested against the whole remaining stage
-        remaining_credits = 2 * (len(todo) - offset)
-        wav = Path(task["post_generation_normalization"]["target_wav"])
-        mp3 = Path(task["request"]["output_mp3"])
-        voice_id = str(task["request"].get("voice_id") or "").strip()
-        if not voice_id:
-            res.status = BLOCKED
-            res.blockers.append(f"VOICE_ID_NOT_SELECTED:{entity}")
-            return res
-        safe_entity = re.sub(r"[^A-Za-z0-9._-]+", "_", str(entity)).strip("._")[:48]
-        safe_entity = safe_entity or sha256_text(str(entity))[:16]
-        scope_id = str(p.scope["scope_id"])
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", scope_id):
-            res.status = BLOCKED
-            res.blockers.append(f"SERIES_SCOPE_ID_UNSAFE_FOR_TRANSACTION_PATH:{scope_id}")
-            return res
-        audio_transaction = (
-            AUDIO_TRANSACTION_ROOT / scope_id / ctx.episode
-            / "speech" / f"{safe_entity}.json"
-        ).resolve()
-        argv = [
-            VENV, PORTABLE_AUDIO_PROVIDER, "speech-generate",
-            str(task["request"]["text"]),
-            "--voice-id", voice_id,
-            "--emotion", str(task["request"]["emotion"]),
-            "--speed", str(task["request"]["speed"]),
-            "--output-dir", mp3.parent,
-            "--file-name", mp3.name,
-            "--poll-interval", "2",
-            "--timeout", "300",
-            "--transaction", audio_transaction,
-            "--paid",
-        ]
-        norm_argv = [_media.require_ffmpeg() if item == "${FFMPEG}" else str(item)
-                     for item in task["post_generation_normalization"]["command"]]
-        upload_out = p.voice_upload_dir / f"{entity}_giggle_asset.json"
-        # tools/upload_giggle_asset.py: --file / --out / --public  (verified from --help)
-        upload_argv = [VENV, ENGINE / "tools/upload_giggle_asset.py",
-                       "--file", wav, "--out", upload_out, "--public"]
+    outcomes = s4_generate_all(ctx, p, todo)
 
-        status, step = ctx.paid_step(
-            argv, name=f"s4_speech_generate_{entity}", sid="S4",
-            planned_credits=remaining_credits,
-            note=(f"Portable Giggle speech provider, 2 credits. "
-                  f"voice_id={voice_id} ({task['request'].get('voice_name')}).  "
-                  f"Durable transaction={audio_transaction}; the provider records intent "
-                  "before its only POST, binds task_id immediately, and resumes without "
-                  "reposting."))
-        res.steps.append(step)
-        if status == HARD_STOP:
-            res.status = HARD_STOP
-            res.blockers.append(f"BUDGET_HARD_STOP_S4:{entity}")
-            return res
-        if status == DRY:
+    # Apply outcomes in `todo` order.  Ordering matters twice: journal/console order
+    # must not depend on which character finished first, and every registry row is a
+    # read-modify-write of ONE file, so rows are written here, never inside the pool.
+    for outcome in outcomes:
+        entity = outcome["entity"]
+        res.steps.extend(outcome.get("steps") or [])
+        if outcome.get("dry"):
             any_dry = True
-            ctx.say(f"   then (free): {q(norm_argv)}")
-            ctx.say(f"   then (network write, no credits): {q(upload_argv)}")
+            ctx.say(f"   then (free): {q(outcome['norm_argv'])}")
+            ctx.say(f"   then (network write, no credits): {q(outcome['upload_argv'])}")
             ctx.planned_commands.append({
                 "stage": "S4", "step": f"s4_normalize_{entity}", "planned_credits": 0,
-                "paid_argv": norm_argv, "paid_command": q(norm_argv),
+                "paid_argv": outcome["norm_argv"], "paid_command": q(outcome["norm_argv"]),
                 "note": "ffmpeg mono/48k/pcm_s16le — free, local"})
             ctx.planned_commands.append({
                 "stage": "S4", "step": f"s4_upload_{entity}", "planned_credits": 0,
-                "paid_argv": [str(x) for x in upload_argv], "paid_command": q(upload_argv),
+                "paid_argv": [str(x) for x in outcome["upload_argv"]],
+                "paid_command": q(outcome["upload_argv"]),
                 "note": ("upload_giggle_asset.py has NO dry mode and is an unconditional "
                          "network write; it costs no credits and returns asset_id (SD2 "
                          "remote_asset_id), file_url (H3 remote_url) and duration in one call")})
             continue
-        if status != PASS:
-            res.status = BLOCKED
-            res.blockers.append(f"SPEECH_GENERATE_FAILED:{entity}")
+        if outcome["status"] in (HARD_STOP, BLOCKED):
+            res.status = outcome["status"]
+            res.blockers.extend(outcome.get("blockers") or [])
             return res
-        if not mp3.is_file():
-            res.status = BLOCKED
-            res.blockers.append(f"SPEECH_OUTPUT_MISSING:{mp3}")
-            return res
-        norm = ctx.run(norm_argv, name=f"s4_normalize_{entity}")
-        res.steps.append(norm)
-        if norm["exit_code"] != 0 or not wav.is_file():
-            res.status = BLOCKED
-            res.blockers.append(f"VOICE_NORMALIZATION_FAILED:{entity}")
-            return res
-        upload = ctx.run(upload_argv, name=f"s4_upload_{entity}", paid=True)
-        res.steps.append(upload)
-        receipt = upload_receipt_fields(read_json(upload_out, {}) or {})
-        asset_id = receipt.get("asset_id") or receipt.get("assetId")
-        if upload["exit_code"] != 0 or not asset_id:
-            res.status = BLOCKED
-            res.blockers.append(f"VOICE_UPLOAD_FAILED_NO_ASSET_ID:{entity}")
-            return res
-        write_voice_registry_row(ctx, entity, task, wav, receipt)
-        res.receipts.append(str(upload_out))
+        write_voice_registry_row(ctx, entity, outcome["task"], outcome["wav"], outcome["receipt"])
+        res.receipts.append(outcome["receipt_path"])
 
     if any_dry:
         res.status = DRY

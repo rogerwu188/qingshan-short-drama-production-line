@@ -2394,6 +2394,30 @@
       "failure_code": "IMAGE_HARVEST_TICK_QUERIES_SERIALLY",
       "do_not_repeat": "不要在收割轮询里逐任务串行查询；不要在线程里重算批次级账单分配；不要在并发回填时打乱提交报告顺序",
       "sync_slug": "concurrency-image-harvest-parallel"
+    },
+    {
+      "id": "K115",
+      "key": "voice-references-generate-concurrently-and-registry-writes-stay-ordered",
+      "stage": "S4",
+      "category": "SCHEDULING",
+      "scope": "generalizable",
+      "episode": "E11",
+      "rule": "配音参考按角色并发：s4_generate_all 用 ThreadPoolExecutor（min(max_parallel, 角色数)）并发执行 s4_generate_one（语音生成 → 归一化 → 上传），结果按待办顺序回填。每个角色持有自己的持久音频事务、自己的 wav 与自己上传回执，互不共享；但 voice_registry 是整份读改写，所以 registry 行只由调用方在池排空后按顺序写入，绝不放进线程。预算按任务各预留 2 分（原子预留已使并发不会合计超限）；旧的 remaining_credits = 2 × 剩余角色数是串行假设，并发下会重复计入。单角色 HARD_STOP/BLOCKED 仍使整阶段停止并报告，不静默跳过。",
+      "lesson": "S4 曾逐角色生成、逐角色等语音提供者轮询到完成（2 秒间隔、最长 300 秒），N 个新角色就是 N 次串行的独立等待；这些角色之间没有真实依赖。",
+      "recovery": "新增按角色的付费准备时沿用「并发执行 + 有序回填 + 共享文件只在主线程写」的结构；预算按任务预留，不要用剩余总数代替单个任务。",
+      "implementation": [
+        "lines/nalu/runtime/tools/nalu_pipeline.py"
+      ],
+      "regression": "tools/tests/test_nalu_s4_concurrency.py",
+      "evidence": "S4ConcurrencyTest：Barrier 断言三角色真实重叠、结果顺序等于待办顺序、单角色 HARD_STOP 被报告、每任务只预留 2 分、workers=1 走串行路径。",
+      "authority": "Roger 2026-10-18「单集内全流程并行，检查不缩水，预算不超支」",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "runtime_gate_added": false,
+      "failure_code": "VOICE_GENERATION_SERIAL_BY_DEFAULT",
+      "do_not_repeat": "不要逐角色串行等待语音提供者；不要在线程里写整份 voice_registry；不要用剩余角色总数做每个任务的预算预留",
+      "sync_slug": "concurrency-s4-voice-parallel"
     }
   ]
 }

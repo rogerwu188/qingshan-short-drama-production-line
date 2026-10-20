@@ -1100,3 +1100,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：`HarvestConcurrencyTest`：Barrier 断言四任务真实重叠、慢任务不改变行序、单任务异常使整轮失败、worker 数默认与覆盖行为
 - **授权**：Roger 2026-10-18「单集内全流程并行，检查不缩水」
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K115 — S4
+
+- **规则**：配音参考按角色并发。`s4_generate_all` 用 `ThreadPoolExecutor`（`min(max_parallel, 角色数)`）并发执行 `s4_generate_one`（语音生成 → 归一化 → 上传），结果按待办顺序回填。每个角色持有自己的持久音频事务、自己的 wav 与自己上传回执，互不共享；但 `voice_registry` 是整份读改写，所以 registry 行只由调用方在池排空后按顺序写入，绝不放进线程。预算按任务各预留 2 分（原子预留已使并发不会合计超限）；旧的 `remaining_credits = 2 × 剩余角色数` 是串行假设，并发下会重复计入。单角色 HARD_STOP/BLOCKED 仍使整阶段停止并报告，不静默跳过。
+- **教训**：S4 曾逐角色生成、逐角色等语音提供者轮询到完成（2 秒间隔、最长 300 秒），N 个新角色就是 N 次串行的独立等待；这些角色之间没有真实依赖。
+- **恢复**：新增按角色的付费准备时沿用「并发执行 + 有序回填 + 共享文件只在主线程写」的结构；预算按任务预留，不要用剩余总数代替单个任务。
+- **实现**：`lines/nalu/runtime/tools/nalu_pipeline.py`
+- **回归**：`tools/tests/test_nalu_s4_concurrency.py`
+- **证据**：`S4ConcurrencyTest`：Barrier 断言三角色真实重叠、结果顺序等于待办顺序、单角色 HARD_STOP 被报告、每任务只预留 2 分、`workers=1` 走串行路径
+- **授权**：Roger 2026-10-18「单集内全流程并行，检查不缩水，预算不超支」
+- **状态**：REFERENCE_IMPLEMENTATION

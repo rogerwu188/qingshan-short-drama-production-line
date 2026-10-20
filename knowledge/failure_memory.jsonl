@@ -71,3 +71,4 @@
 {"failure_code": "NONPAID_COMPILE_SERIAL_BY_DEFAULT", "do_not_repeat": "不要在线程里直接 append 跨镜共享列表；不要因并发跳过逐镜校验；不要为并行改写 prompt 渲染语义", "stage": "S5", "scope": "generalizable", "knowledge_id": "K112"}
 {"failure_code": "POLL_TICK_QUERIES_SERIALLY", "do_not_repeat": "不要在轮询里逐任务串行查询；不要在并发回填时打乱提交报告顺序；不要把缺少远端任务标识的行送进线程池", "stage": "S6", "scope": "generalizable", "knowledge_id": "K113"}
 {"failure_code": "IMAGE_HARVEST_TICK_QUERIES_SERIALLY", "do_not_repeat": "不要在收割轮询里逐任务串行查询；不要在线程里重算批次级账单分配；不要在并发回填时打乱提交报告顺序", "stage": "S5", "scope": "generalizable", "knowledge_id": "K114"}
+{"failure_code": "VOICE_GENERATION_SERIAL_BY_DEFAULT", "do_not_repeat": "不要逐角色串行等待语音提供者；不要在线程里写整份 voice_registry；不要用剩余角色总数做每个任务的预算预留", "stage": "S4", "scope": "generalizable", "knowledge_id": "K115"}
