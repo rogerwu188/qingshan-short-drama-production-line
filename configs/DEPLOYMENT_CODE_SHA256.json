@@ -781,7 +781,7 @@
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "99c63e417d4899ea0a369599bd475b6798b38160c4653e5df1c9bd0c24e2f522"
+      "sha256": "5c1625c46ccba9d83ccac9ecd5773086e51267ee5ef8608d329e835d827c13a0"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
@@ -793,7 +793,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "eaa9aeacc2e7e9f435780e8a707cf9d236fde45bc5f3401e92006dac67b6599c"
+      "sha256": "8f9ba67de777893d1d36ec0fa3721946ae4280dee1d100f5408e881e0ab8ef7f"
     },
     {
       "path": "skills/nalu-claude-code/scripts/configure_claude_code.py",
@@ -825,7 +825,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/publish_x2creel.py",
-      "sha256": "d77861b3ef79c0867a0c8a31a83a60526680b26c3267f80919c3f651c5383ac6"
+      "sha256": "48a949429b0d21f312d934db12570f566ada6f6168e0a580d042896eb163e5fc"
     },
     {
       "path": "skills/nalu-claude-code/scripts/self_update.sh",
@@ -7581,7 +7581,7 @@
     },
     {
       "path": "tools/tests/test_nalu_publish_x2creel.py",
-      "sha256": "6594ecb1948227bed61c3f155be4ece450af94c54667c34d0ccce28d1fc4052f"
+      "sha256": "fd152a21cefad822a0a8d74a9cb901f5bc985406ab08c8915f132bf3fd275f3a"
     },
     {
       "path": "tools/tests/test_nalu_q1_roger_acceptance.py",

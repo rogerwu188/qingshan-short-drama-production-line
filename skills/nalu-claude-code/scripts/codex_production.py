@@ -352,7 +352,7 @@ def publish_next() -> dict[str, Any] | None:
     brief = read_json(runtime / "briefs" / f"{ep}_PRODUCTION_BRIEF.json")
     args = argparse.Namespace(episode=ep, title=str(brief.get("title") or ""),
                               description=str(brief.get("synopsis") or ""), category=str(brief.get("genre") or ""),
-                              video="", cover="")
+                              lang=str(brief.get("genre_lang") or "zh"), video="", cover="")
     buf = io.StringIO()
     try:
         with contextlib.redirect_stdout(buf):
@@ -371,6 +371,9 @@ def publish_next() -> dict[str, Any] | None:
         note(f"X2C 发行暂缓 {ep}：等待第 {','.join(nums) or '?'} 集过审，避免追加时重复发号顶掉它")
     elif st == "EPISODE_NUMBER_COLLISION":
         note(f"【需要处理】X2C {ep} 拿到第 {out.get('episode_number')} 集，与 {out.get('collides_with')} 撞号（见 SKILL.md §6）")
+    elif str(out.get("reason") or "").startswith("CATEGORY_NOT_IN_X2C_LIST"):
+        note(f"【需要处理】X2C {ep} 未发行：简报 genre「{brief.get('genre')}」不在 X2C 分类列表里，"
+             f"按 publish_x2creel.py categories 的原名改简报后再发（见 SKILL.md §6）")
     else:
         note(f"X2C 发行 {ep} 失败：{json.dumps(out, ensure_ascii=False)[:300]}（下次心跳重试）")
     return out
