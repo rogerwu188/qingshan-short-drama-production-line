@@ -11,8 +11,14 @@ segments than lines, the speech span is split by character count).  Style follow
 engine's add_agentcut_subtitle_track DEFAULT_STYLE (42 px, white, 3 px black outline,
 bottom-centre, 170 px bottom margin, wrap at 15 chars) with a resolved CJK font file.
 
+--language en (English dialogue): similarity on lowercase letters+digits, word-count timing
+weights, word-boundary wrap at ~42 chars and at most 2 lines, style "EN" at 36 px (shrunk per
+caption to fit the frame width) with nalu_media_tools.resolve_latin_font (QINGSHAN_LATIN_FONT /
+NALU_LATIN_FONT, common system paths, else the CJK font, which also carries Latin glyphs).
+
   build --episode EP --project <agentcut project> --asr <per-unit asr json> --contract <generation contract>
         --grouping <grouping plan> --source <picture_native.mp4> --out-ass <.ass> --out-video <subbed.mp4>
+        [--language zh|en]
 """
 from __future__ import annotations
 import sys as _sys, pathlib as _pathlib
@@ -25,11 +31,27 @@ from pathlib import Path
 # Prefer clearing a cut only when the measured speech leaves room for it.
 TAIL_GUARD = 0.25
 
+EN_WRAP_CHARS = 42
+EN_FONT_SIZE = 36
+
 def cjk(text: str) -> str:
     return "".join(ch for ch in text if "一" <= ch <= "鿿")
 
-def sim(a: str, b: str) -> float:
-    a, b = cjk(a), cjk(b)
+def latin(text: str) -> str:
+    """English comparison form: lowercase letters and digits only."""
+    return "".join(ch for ch in text.lower() if ("a" <= ch <= "z") or ch.isdigit())
+
+def speech(text: str, language: str = "zh") -> str:
+    return latin(text) if language == "en" else cjk(text)
+
+def weight(text: str, language: str = "zh") -> int:
+    """Timing weight of one line: CJK characters (zh) or words (en)."""
+    if language == "en":
+        return len(re.findall(r"[A-Za-z0-9]+(?:['\u2019][A-Za-z0-9]+)*", text))
+    return len(cjk(text))
+
+def sim(a: str, b: str, language: str = "zh") -> float:
+    a, b = speech(a, language), speech(b, language)
     return difflib.SequenceMatcher(None, a, b).ratio() if a and b else 0.0
 
 def ass_time(t: float) -> str:
@@ -48,9 +70,23 @@ def wrap(text: str, width: int = 15) -> str:
     cut = cut or width
     return text[:cut] + "\\N" + wrap(text[cut:], width)
 
-def assign(lines: list[dict], segs: list[dict], clip_dur: float) -> list[tuple[dict, float, float]]:
+def wrap_en(text: str, width: int = EN_WRAP_CHARS) -> str:
+    """Word-boundary wrap, at most 2 lines: a line over ``width`` is split at the word
+    boundary that best balances the two halves (never inside a word)."""
+    text = " ".join(text.split())
+    words = text.split(" ")
+    if len(text) <= width or len(words) < 2:
+        return text
+    best = min(range(1, len(words)),
+               key=lambda i: (max(len(" ".join(words[:i])), len(" ".join(words[i:]))),
+                              -int(words[i - 1][-1:] in ",.;:!?")))
+    return " ".join(words[:best]) + "\\N" + " ".join(words[best:])
+
+def assign(lines: list[dict], segs: list[dict], clip_dur: float,
+           language: str = "zh") -> list[tuple[dict, float, float]]:
     """Return (line, local_start, local_end) per line."""
-    segs = [s for s in segs if cjk(s["text"])]
+    segs = [s for s in segs if speech(s["text"], language)]
+    joiner = " " if language == "en" else ""
     if not lines:
         return []
     if not segs:
@@ -66,7 +102,7 @@ def assign(lines: list[dict], segs: list[dict], clip_dur: float) -> list[tuple[d
             score = 0.0
             for i in range(n):
                 group = segs[bounds[i]:bounds[i + 1]]
-                score += sim(lines[i]["text"], "".join(g["text"] for g in group))
+                score += sim(lines[i]["text"], joiner.join(g["text"] for g in group), language)
             if best is None or score > best[0]:
                 best = (score, bounds)
         bounds = best[1]
@@ -75,12 +111,12 @@ def assign(lines: list[dict], segs: list[dict], clip_dur: float) -> list[tuple[d
             group = segs[bounds[i]:bounds[i + 1]]
             out.append((lines[i], group[0]["start"], group[-1]["end"]))
         return out
-    # fewer segments than lines: split the whole speech span by character count
+    # fewer segments than lines: split the whole speech span by character (zh) / word (en) count
     start, end = segs[0]["start"], segs[-1]["end"]
-    total = sum(len(cjk(ln["text"])) or 1 for ln in lines)
+    total = sum(weight(ln["text"], language) or 1 for ln in lines)
     out, t = [], start
     for ln in lines:
-        d = (end - start) * ((len(cjk(ln["text"])) or 1) / total)
+        d = (end - start) * ((weight(ln["text"], language) or 1) / total)
         out.append((ln, t, t + d)); t += d
     return out
 
@@ -119,8 +155,12 @@ def main() -> int:
     ap.add_argument("--grouping", required=True, type=Path); ap.add_argument("--source", required=True, type=Path)
     ap.add_argument("--out-ass", required=True, type=Path); ap.add_argument("--out-video", required=True, type=Path)
     ap.add_argument("--out-report", type=Path); ap.add_argument("--pad", type=float, default=0.08)
+    ap.add_argument("--language", choices=("zh", "en"), default="zh")
     a = ap.parse_args()
-    font_file, font_source = _media.resolve_cjk_font()
+    english = a.language == "en"
+    style, font_size = ("EN", EN_FONT_SIZE) if english else ("ZH", 42)
+    wrap_text = wrap_en if english else wrap
+    font_file, font_source = _media.resolve_latin_font() if english else _media.resolve_cjk_font()
     font_name = Path(font_file).stem
     project = json.loads(a.project.read_text(encoding="utf-8"))
     asr = json.loads(a.asr.read_text(encoding="utf-8"))
@@ -143,11 +183,11 @@ def main() -> int:
             continue
         cstart, cdur = float(clip["start"]), float(clip["duration"])
         segs = asr.get(uid) or []
-        valid_segs = [seg for seg in segs if cjk(seg["text"])]
+        valid_segs = [seg for seg in segs if speech(seg["text"], a.language)]
         timing_basis = ("ASR_SEGMENT_MATCH" if len(valid_segs) >= len(lines) else
                         "TEXT_WEIGHTED_ESTIMATE" if valid_segs else "CLIP_SPAN_ESTIMATE")
         source_in = float(clip.get("in", 0))
-        for ln, ls, le in assign(lines, segs, cdur):
+        for ln, ls, le in assign(lines, segs, cdur, a.language):
             if not valid_segs:
                 ls, le = ls + source_in, le + source_in
             window = caption_window(clip, ls, le, a.pad)
@@ -168,24 +208,30 @@ def main() -> int:
             report[i]["end"] = round(events[i][1], 3)
     header = ("[Script Info]\nScriptType: v4.00+\nPlayResX: 720\nPlayResY: 1280\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n"
               "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
-              f"Style: ZH,{font_name},42,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,0,2,72,72,170,1\n\n"
+              f"Style: {style},{font_name},{font_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,0,2,72,72,170,1\n\n"
               "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
-    body = "".join(f"Dialogue: 0,{ass_time(s)},{ass_time(e)},ZH,{ln['speaker']},0,0,0,,{wrap(ln['text'])}\n" for s, e, ln in events)
+    body = "".join(f"Dialogue: 0,{ass_time(s)},{ass_time(e)},{style},{ln['speaker']},0,0,0,,{wrap_text(ln['text'])}\n" for s, e, ln in events)
     a.out_ass.parent.mkdir(parents=True, exist_ok=True); a.out_ass.write_text(header + body, encoding="utf-8")
     a.out_video.parent.mkdir(parents=True, exist_ok=True)
     # this ffmpeg build has no libass/drawtext: render each caption to a transparent PNG (PIL,
     # resolved CJK font, white with 3 px black outline) and overlay it time-gated.
     from PIL import Image, ImageDraw, ImageFont
-    font = ImageFont.truetype(font_file, 42)
+    font = ImageFont.truetype(font_file, font_size)
     png_dir = a.out_ass.parent / "subtitle_png"; png_dir.mkdir(parents=True, exist_ok=True)
     inputs, chain = [], []
     W, H, MARGIN_BOTTOM, LINE_H = 720, 1280, 170, 54
     for i, (s_t, e_t, ln) in enumerate(events):
-        rows = wrap(ln["text"]).split("\\N")
+        rows = wrap_text(ln["text"]).split("\\N")
         img = Image.new("RGBA", (W, LINE_H * len(rows) + 24), (0, 0, 0, 0)); d = ImageDraw.Draw(img)
+        cap_font = font
+        if english:
+            # Latin rows run wider than 15-char CJK rows: shrink this caption to fit the frame
+            widest = max(d.textlength(row, font=font) for row in rows)
+            if widest > W - 40:
+                cap_font = ImageFont.truetype(font_file, max(22, int(font_size * (W - 40) / widest)))
         for r, row in enumerate(rows):
-            tw = d.textlength(row, font=font)
-            d.text(((W - tw) / 2, 8 + r * LINE_H), row, font=font, fill=(255, 255, 255, 255),
+            tw = d.textlength(row, font=cap_font)
+            d.text(((W - tw) / 2, 8 + r * LINE_H), row, font=cap_font, fill=(255, 255, 255, 255),
                    stroke_width=3, stroke_fill=(0, 0, 0, 255))
         png = png_dir / f"cap_{i + 1:03d}.png"; img.save(png)
         inputs += ["-i", str(png)]
@@ -202,6 +248,8 @@ def main() -> int:
            "video": str(a.out_video), "ffmpeg_exit": proc.returncode, "stderr": proc.stderr[-800:], "rows": report,
            "text_source": "generation contract dialogue_units (verbatim)", "timing_source": str(a.asr),
            "font": font_name, "font_file": font_file, "font_source": font_source}
+    if english:
+        out["language"] = a.language
     if a.out_report:
         a.out_report.write_text(json.dumps(out, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({k: out[k] for k in ("captions", "ffmpeg_exit", "video")}, ensure_ascii=False))

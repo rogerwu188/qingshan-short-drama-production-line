@@ -44,6 +44,17 @@ CJK_FONT_PATHS = (
     Path("/System/Library/Fonts/PingFang.ttc"),
 )
 
+#: Latin subtitle fonts for English dialogue; the CJK fonts above also carry Latin glyphs
+#: and are the fallback.
+LATIN_FONT_ENV_NAMES = ("QINGSHAN_LATIN_FONT", "NALU_LATIN_FONT")
+LATIN_FONT_PATHS = (
+    Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+    Path("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
+    Path("/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"),
+    Path("/System/Library/Fonts/Supplemental/Arial.ttf"),
+    Path("/System/Library/Fonts/Helvetica.ttc"),
+)
+
 
 def _executable(path: str | os.PathLike[str]) -> Path | None:
     candidate = Path(path).expanduser()
@@ -155,3 +166,28 @@ def resolve_cjk_font(
         "BLOCKED_CJK_FONT:no CJK font found; set QINGSHAN_CJK_FONT/NALU_CJK_FONT "
         "or install fonts-noto-cjk"
     )
+
+
+def resolve_latin_font(
+    *,
+    environ: Mapping[str, str] | None = None,
+    candidates: tuple[Path, ...] | None = None,
+) -> tuple[str, str]:
+    """Return a Latin font file for English subtitles, else the CJK resolver's font."""
+    environment = os.environ if environ is None else environ
+    for env_name in LATIN_FONT_ENV_NAMES:
+        raw = str(environment.get(env_name) or "").strip()
+        if not raw:
+            continue
+        font = _regular_file(raw)
+        if font is None:
+            raise MediaToolBlocked(
+                f"BLOCKED_LATIN_FONT:{env_name}={raw!r} is not a readable font file"
+            )
+        return str(font), env_name
+    for path in LATIN_FONT_PATHS if candidates is None else candidates:
+        font = _regular_file(path)
+        if font is not None:
+            return str(font), "COMMON_EXISTING_PATH"
+    font_file, source = resolve_cjk_font(environ=environ)
+    return font_file, f"CJK_FALLBACK:{source}"
