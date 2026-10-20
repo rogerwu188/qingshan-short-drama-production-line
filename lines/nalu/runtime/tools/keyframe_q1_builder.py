@@ -52,6 +52,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -259,6 +260,60 @@ def run_ocr(image: Path, forbidden_terms: list[str], out: Path) -> dict[str, Any
         "report_sha256": sha256_file(out),
         "report": report,
     }
+
+
+def ocr_keyframes(items: list[dict[str, Any]], keyframes: dict[str, Path],
+                  forbidden_terms: list[str], q1_dir: Path,
+                  workers: int | None = None) -> dict[str, dict[str, Any]]:
+    """Run each keyframe's still-image OCR concurrently, keyed by item id.
+
+    One engine subprocess per keyframe and OCR model startup dominates a rebuild,
+    so a serial loop pays that startup once per still.  Items are independent; but
+    a unit can carry more than one keyframe, so a second item in the same unit
+    writes a distinctly named report instead of racing the first one's
+    ``ocr_audit.json``.  Missing assets are skipped here and rejected by the
+    caller in its own order.
+    """
+    jobs: list[tuple[str, Path, Path]] = []
+    seen_units: set[str] = set()
+    for item in items:
+        item_id = str(item.get("item_id") or "")
+        request_item = item.get("request_item") or {}
+        unit_id = str(request_item.get("unit_id") or item_id)
+        asset = keyframes.get(item_id)
+        if asset is None or not asset.is_file():
+            continue
+        unit_dir = q1_dir / unit_id
+        if unit_id in seen_units:
+            safe_item = re.sub(r"[^A-Za-z0-9._-]+", "-", item_id).strip("-.") or "item"
+            out = unit_dir / f"ocr_audit_{safe_item}.json"
+        else:
+            seen_units.add(unit_id)
+            out = unit_dir / "ocr_audit.json"   # legacy name, so exact-input caches still hit
+        jobs.append((item_id, asset, out))
+    if not jobs:
+        return {}
+    if workers is None:
+        try:
+            workers = max(1, int(os.environ.get("NALU_Q1_OCR_WORKERS") or 4))
+        except ValueError:
+            workers = 4
+    results: dict[str, dict[str, Any]] = {}
+
+    def _one(job: tuple[str, Path, Path]) -> None:
+        item_id, asset, out = job
+        results[item_id] = run_ocr(asset, forbidden_terms, out)
+
+    if workers <= 1 or len(jobs) == 1:
+        for job in jobs:
+            _one(job)
+    else:
+        from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+        with ThreadPoolExecutor(max_workers=min(workers, len(jobs))) as pool:
+            futures = [pool.submit(_one, job) for job in jobs]
+            for future in futures:
+                future.result()
+    return results
 
 
 def build_period_verification(item: dict[str, Any], questionnaire: dict[str, Any],
@@ -891,6 +946,10 @@ def materialise(episode: str, submitted: dict[str, Any],
     measurement = measure_still_identity(episode, keyframes, visible)
     write_json(p.qa_root / f"{episode}_KEYFRAME_IDENTITY_MEASUREMENT.json", measurement)
 
+    # OCR startup dominates a rebuild, so run every still's audit once up front, in
+    # parallel, and keep the per-item assembly below strictly ordered.
+    ocr_by_item = ocr_keyframes(submitted.get("items") or [], keyframes, forbidden_terms, p.q1_dir)
+
     rows: list[dict[str, Any]] = []
     for item in submitted.get("items") or []:
         item_id = item["item_id"]
@@ -906,7 +965,7 @@ def materialise(episode: str, submitted: dict[str, Any],
             continue
         asset_sha = sha256_file(asset)
 
-        ocr = run_ocr(asset, forbidden_terms, unit_dir / "ocr_audit.json")
+        ocr = ocr_by_item[item_id]
         period_v, period_f = build_period_verification(item, questionnaire, ocr, forbidden_terms)
         required_all = list(expectations.get("required_visible_character_ids") or [])
         required = face_measurable_ids(request_item)  # D-16: frontal, measurable faces only

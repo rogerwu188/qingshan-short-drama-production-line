@@ -225,7 +225,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "fe238443490fe4bffb84424f8ca151d1dc7b1384f9650ce3e01e72567fc1fcd7"
+      "sha256": "6dbbebc282bcceec1eb07d928184a3f7dadb703499265c74d35fb4d92f2095c7"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -261,7 +261,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "b3b3818d18d10fd3108454088048a47fda968fec0104a6a8bcc772cec5178e50"
+      "sha256": "d201ad8f3aa3e0c98ed0b7a71f510fdf50957d9d115c9833423762d8380486db"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -325,7 +325,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "28c7af299e8b6cc1066f2fedbe5c0b35644aa3385172f7696ab0d491c340a836"
+      "sha256": "511357d73413b3b478104cdd1dde0131ff71414b645a782f9091de20bf3fb956"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -593,7 +593,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/keyframe_q1_builder.py",
-      "sha256": "b2aa5798934bae3a6ef1a334bcd45e7776a0bc3fbe7acd36ce84bcccfe6415e0"
+      "sha256": "55da86ba9d46addb8652f2dd0566206184777ac9d170ef6f9fa6a0986dc1ff74"
     },
     {
       "path": "lines/nalu/runtime/tools/knowledge_sync.py",

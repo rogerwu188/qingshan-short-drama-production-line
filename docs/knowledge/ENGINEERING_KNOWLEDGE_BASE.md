@@ -1111,3 +1111,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：`S4ConcurrencyTest`：Barrier 断言三角色真实重叠、结果顺序等于待办顺序、单角色 HARD_STOP 被报告、每任务只预留 2 分、`workers=1` 走串行路径
 - **授权**：Roger 2026-10-18「单集内全流程并行，检查不缩水，预算不超支」
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K116 — S5
+
+- **规则**：Q1 静帧 OCR 并发。`ocr_keyframes` 在装配循环之前一次性对全部静帧并发调用引擎的 OCR 子进程（默认 `min(4, 静帧数)`，`NALU_Q1_OCR_WORKERS` 可覆盖），结果按 `item_id` 归档，随后每项装配仍严格保持原顺序。OCR 模型冷启动是每次调用的主要成本，串行等于按静帧数重复付这份开销。关键陷阱：一个视频单元可承载多个静帧，而遗留输出名是按单元命名的 `ocr_audit.json`，同一单元的第二个静帧必须改写 `ocr_audit_<item>.json`，否则两个进程争写同一文件；单元内第一个静帧仍沿用遗留名，使既有「同一输入 + 同一策略即复用」的缓存继续命中。缺失素材在此跳过，由调用方按自身顺序拒绝。
+- **教训**：S5 Q1 装配循环逐静帧串行执行 OCR 子进程，一次重建里静帧数就是启动开销的倍数，而静帧之间没有依赖。
+- **恢复**：新增逐静帧的引擎调用时复用「先并发、后按序装配」结构；凡按单元命名的中间产物都要先确认单元内是否会有第二个同类项。
+- **实现**：`lines/nalu/runtime/tools/keyframe_q1_builder.py`
+- **回归**：`tools/tests/test_keyframe_q1_ocr_parallel.py`
+- **证据**：`OcrKeyframesConcurrencyTest`：Barrier 断言四个静帧真实重叠、同一单元两个静帧输出不同报告且首个保留遗留名、缺失素材不被扫描、结果按 `item_id` 归档
+- **授权**：Roger 2026-10-18「单集内全流程并行，检查不缩水」
+- **状态**：REFERENCE_IMPLEMENTATION
