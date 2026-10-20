@@ -5748,6 +5748,41 @@ def _reusable_release_level(p: Any, source: Any) -> dict[str, Any] | None:
             "source_video_stream_sha256": current, "final_sha256": sha256_file(p.final_mp4)}
 
 
+def transcribe_units(ctx: Ctx, media_dir: Path, episode: str) -> dict[str, list[dict[str, Any]]]:
+    """Transcribe every unit clip for caption timing, concurrently.
+
+    One ASR pass per unit; the clips are independent and a serial loop pays the
+    whisper model's per-file overhead once per unit.  A single model instance is
+    shared deliberately: loading it per worker would multiply its memory, and the
+    ctranslate2 backend it wraps accepts concurrent calls on one model.  Results
+    are keyed by clip stem, which is exactly how the subtitle builder consumes
+    them, so completion order cannot affect the captions.  Any unit's exception
+    still fails the whole step.
+    """
+    from faster_whisper import WhisperModel  # type: ignore
+
+    clips = sorted(media_dir.glob(f"{episode}-VU-*.mp4"))
+    if not clips:
+        return {}
+    model = WhisperModel("small", device="cpu", compute_type="int8")
+
+    def _one(mp4: Path) -> list[dict[str, Any]]:
+        segs, _ = model.transcribe(str(mp4), language="zh", beam_size=5, vad_filter=True)
+        return [{"start": round(x.start, 3), "end": round(x.end, 3), "text": x.text.strip()}
+                for x in segs]
+
+    try:
+        workers = max(1, int(os.environ.get("NALU_S7_ASR_WORKERS") or 2))
+    except ValueError:
+        workers = 2
+    if workers <= 1 or len(clips) <= 1:
+        return {mp4.stem: _one(mp4) for mp4 in clips}
+    from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+    with ThreadPoolExecutor(max_workers=min(workers, len(clips))) as pool:
+        futures = [pool.submit(_one, mp4) for mp4 in clips]
+        return {mp4.stem: future.result() for mp4, future in zip(clips, futures)}
+
+
 def stage_s7(ctx: Ctx) -> StageResult:
     """Q2 admission -> AgentCut project -> render -> release loudness -> final QA.
 
@@ -5948,12 +5983,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
     subbed = p.assembly / f"{ctx.episode}_picture_native_subbed.mp4"
     asr_json = p.assembly / f"{ctx.episode}_unit_asr.json"
     try:
-        from faster_whisper import WhisperModel  # type: ignore
-        model = WhisperModel("small", device="cpu", compute_type="int8")
-        asr = {}
-        for mp4 in sorted(p.video_media.glob(f"{ctx.episode}-VU-*.mp4")):
-            segs, _ = model.transcribe(str(mp4), language="zh", beam_size=5, vad_filter=True)
-            asr[mp4.stem] = [{"start": round(x.start, 3), "end": round(x.end, 3), "text": x.text.strip()} for x in segs]
+        asr = transcribe_units(ctx, p.video_media, ctx.episode)
         write_json(asr_json, asr)
     except Exception as exc:  # noqa: BLE001
         res.steps.extend(steps)

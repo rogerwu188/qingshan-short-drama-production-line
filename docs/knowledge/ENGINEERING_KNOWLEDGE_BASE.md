@@ -1122,3 +1122,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：`OcrKeyframesConcurrencyTest`：Barrier 断言四个静帧真实重叠、同一单元两个静帧输出不同报告且首个保留遗留名、缺失素材不被扫描、结果按 `item_id` 归档
 - **授权**：Roger 2026-10-18「单集内全流程并行，检查不缩水」
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K117 — S7_ASSEMBLY
+
+- **规则**：S7 字幕时间轴按单元并发转写。`transcribe_units` 对每个单元片并发执行一次 whisper（默认 `min(2, 单元数)`，`NALU_S7_ASR_WORKERS` 可覆盖），结果按单元片名（stem）归档，字幕构建器正是按该键取用，因此完成顺序不影响字幕。整个运行只构造一个 `WhisperModel` 并在线程间共享：它封装 ctranslate2，支持同一模型上的并发调用；每线程各建一个模型只会成倍占用内存。默认并发刻意取 2 而不是更大：whisper 在 CPU 上本身已用多线程，再把 worker 数堆高只会互相争抢核心；该上限由环境变量调整，不改代码。任一单元抛错仍使整步失败。
+- **教训**：S7 烧录字幕前用单线程循环逐单元调用 whisper，单元之间没有依赖，每个单元都要付一次模型的文件级开销；整集十几到几十个单元就是十几次串行转写。
+- **恢复**：新增逐单元的音视频分析时沿用「单个共享模型 + 并发转写 + 按单元键归档」的结构；并发上限给环境变量，不要按单元数硬编码。
+- **实现**：`lines/nalu/runtime/tools/nalu_pipeline.py`
+- **回归**：`tools/tests/test_s7_asr_parallel.py`
+- **证据**：`TranscribeUnitsConcurrencyTest` 断言四个单元片真实重叠、结果按 stem 归档、单单元异常使整步失败；`WhisperModelConstructionTest` 断言模型只构造一次、worker 上限默认与非法值回退、无单元时不加载模型
+- **授权**：Roger 2026-10-18「单集内全流程并行，检查不缩水」
+- **状态**：REFERENCE_IMPLEMENTATION

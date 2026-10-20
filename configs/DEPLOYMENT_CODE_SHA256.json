@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2165,
+  "file_count": 2166,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -225,7 +225,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "6dbbebc282bcceec1eb07d928184a3f7dadb703499265c74d35fb4d92f2095c7"
+      "sha256": "bcf5fa73b52f48ab321fe06ccbd1086b6f055a062ac706b1fbcbfdb5a580c1e0"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -261,7 +261,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "d201ad8f3aa3e0c98ed0b7a71f510fdf50957d9d115c9833423762d8380486db"
+      "sha256": "563c20f526587a6bde63442a79907d9c178f2dc1be9eb61549740f6cfcfcd25f"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -325,7 +325,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "511357d73413b3b478104cdd1dde0131ff71414b645a782f9091de20bf3fb956"
+      "sha256": "433f013277b8de265fefdb6ab71e51c04d812aac1ca137d16dbeb0ac49e2c0e4"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -625,7 +625,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "abe2519d90809c9eeea6b1e5c310425228ddf5a5c0476156a44dee3f1039cd1b"
+      "sha256": "da5346221d76683c34629051a2f433c94329ac9a4300cde6dfee32672201855e"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -7426,6 +7426,10 @@
     {
       "path": "tools/tests/test_keyframe_output_identity_gate.py",
       "sha256": "7f8a5fbba456aafb65a6ed6f916907d82e483edeb1baed8c8d4fd35ce8f37cb5"
+    },
+    {
+      "path": "tools/tests/test_keyframe_q1_ocr_parallel.py",
+      "sha256": "ebe71a0f7ad7c7de5e25d9674905b1fdce336bdd14ebf4db9ae893b49fecd0a7"
     },
     {
       "path": "tools/tests/test_keyframe_reference_transport_count.py",
