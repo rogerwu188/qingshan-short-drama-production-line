@@ -225,7 +225,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "5e6d7043cb293a47010c8600dcff8a520f416d4ebd7bf8de2ec19d9328bc15d6"
+      "sha256": "1c2f7b61445faec55c803d415987cdc8e7633bce6ee29a097edae5710b854106"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -261,7 +261,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "4bb99ec14c4ac0500a8fbf5330a5e379a798ab5a84d62208c7ed41033fa56d78"
+      "sha256": "bceb4dd0f144bedf6311b44d3e1a0a95f0955177692caa8ebf7ce69273940642"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -325,7 +325,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "e8b34249cd863fa22618841e2a6e0f5b1acc35ef90516b74ba07911a3b08c900"
+      "sha256": "dfe144e8facac02ddcca623bee27d6fa9ae392b826da6adf24de6ac418d8c9cf"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
