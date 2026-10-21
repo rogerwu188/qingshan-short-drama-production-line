@@ -28,6 +28,13 @@ from typing import Any
 
 
 UNRESOLVED = {"CHARGE_STATE_UNRESOLVED_BATCH", "CHARGED_TASK_ID_MISSING"}
+DNS_FAILURE_PHRASES = ("NOT_SENT_DNS_RESOLUTION_FAILED", "Temporary failure in name resolution",
+                       "Name or service not known", "nodename nor servname provided")
+
+
+def _dns_failed(text: Any) -> bool:
+    value = str(text or "")
+    return any(phrase in value for phrase in DNS_FAILURE_PHRASES)
 
 
 def load(path: Path) -> dict[str, Any] | None:
@@ -318,6 +325,17 @@ def main() -> int:
                 "expected_count": expected,
             })
 
+    # A response-lost row whose error proves the host name never resolved was never sent, so it
+    # cannot have been charged — no statement window is needed (e.g. a DNS outage that also
+    # stopped the batch's own statement reconciliation from running).
+    for path in sorted(args.transactions.glob("*.json")):
+        payload = load(path)
+        if (payload and payload.get("state") == "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION"
+                and _dns_failed(payload.get("error"))):
+            eligible.append({"transaction": str(path), "task_key": payload.get("task_key"),
+                             "evidence_mode": "DNS_RESOLUTION_FAILED_BEFORE_CONNECT",
+                             "error": str(payload.get("error"))[:300]})
+
     report: dict[str, Any] = {
         "schema": "qingshan.giggle_image_transaction_reconciliation.v1",
         "episode": args.episode,
@@ -334,6 +352,18 @@ def main() -> int:
         for item in eligible:
             path = Path(item["transaction"])
             payload = load(path)
+            if item.get("evidence_mode") == "DNS_RESOLUTION_FAILED_BEFORE_CONNECT":
+                if not payload or payload.get("state") != "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION":
+                    continue
+                payload.update({
+                    "state": "NOT_CHARGED_RETRYABLE",
+                    "ledger_reconciled_at": report["recorded_at_utc"],
+                    "retry_guard": "RETRY_ALLOWED_NEW_ATTEMPT",
+                    "reconciliation_evidence": {"method": "DNS_RESOLUTION_FAILED_BEFORE_CONNECT",
+                                                "error": item["error"]},
+                })
+                atomic_write(path, payload)
+                continue
             if not payload or payload.get("state") not in UNRESOLVED:
                 continue
             payload.update({

@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2170,
+  "file_count": 2171,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -261,7 +261,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "bceb4dd0f144bedf6311b44d3e1a0a95f0955177692caa8ebf7ce69273940642"
+      "sha256": "38fbc68a5519aae8a8d4cdb2a94c9eeb7749a7fab0b530cb7733d0b48a6374e0"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -4773,7 +4773,7 @@
     },
     {
       "path": "tools/giggle_api_client.py",
-      "sha256": "a38ddc96f1d672ea8f8f500b03f37748769deb00a89bc817cb6866bccf650edb"
+      "sha256": "c783bcfe1fd1f98833b51046a319d17f6ba8e848229dfce5caa587cfba966c3a"
     },
     {
       "path": "tools/giggle_api_shot_runner.py",
@@ -5553,7 +5553,7 @@
     },
     {
       "path": "tools/reconcile_giggle_image_transactions.py",
-      "sha256": "a7452c1598db79e1a09150335fb20d8cb0b8d8b7361b33cd1d42807b62e1b161"
+      "sha256": "5d169f92e22643cc2275458ddf7435a6de0a8ca94e7dc5d8d29544de47386b58"
     },
     {
       "path": "tools/reconcile_legacy_video_credit_ledgers.py",
@@ -6389,7 +6389,7 @@
     },
     {
       "path": "tools/submit_giggle_character_asset_plan.py",
-      "sha256": "d2d90acd959eeda05d72e050003c9a5cd17ab59248bf13aa6979d279da1632ef"
+      "sha256": "7615c011e390bd176b280f92052ef23fc2a34bd7f2a7722af0293730e2624a2b"
     },
     {
       "path": "tools/submit_giggle_image_manifest.py",
@@ -7648,6 +7648,10 @@
       "sha256": "3544d08a31a784188ac6f29f09dedef8f9d812986a1321c94ec67bedb157029a"
     },
     {
+      "path": "tools/tests/test_reconcile_dns_not_sent.py",
+      "sha256": "c4dc18c3d5744f5a37ad1e38d925f2b0892aff4ad5ba5b528bde4a0d2e7c0adb"
+    },
+    {
       "path": "tools/tests/test_no_disabled_regression_ci.py",
       "sha256": "4a4e43de85d3d83bfa074bea89760c7bbc8de398298b1d225f13aa08dbd28db6"
     },
@@ -8121,7 +8125,7 @@
     },
     {
       "path": "tools/tests/test_submit_giggle_character_asset_plan.py",
-      "sha256": "57cf6d71d84351bf1c9b898d8da80260324c7133bb2c3a7eb40eb9fc12eb2692"
+      "sha256": "75a91c15d71e873f31f5a903a997bc554f0d60fe5248489a3a36e7a7314a15fd"
     },
     {
       "path": "tools/tests/test_submit_giggle_image_manifest.py",

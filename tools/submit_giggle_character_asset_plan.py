@@ -16,12 +16,12 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from tools.giggle_api_client import _request, durable_generation_context
+    from tools.giggle_api_client import _request, dns_failed_before_connect, durable_generation_context
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from tools.visual_culture_contract import validate_visual_culture_contract
     from tools.provider_request_digest import request_digest, SCHEMA as DIGEST_SCHEMA
 except ModuleNotFoundError:
-    from giggle_api_client import _request, durable_generation_context
+    from giggle_api_client import _request, dns_failed_before_connect, durable_generation_context
     from giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from visual_culture_contract import validate_visual_culture_contract
     from provider_request_digest import request_digest, SCHEMA as DIGEST_SCHEMA
@@ -199,7 +199,14 @@ def submit(row: dict, output_dir: Path, transaction_dir: Path, model: str, resol
         with durable_generation_context():
             response = _request(endpoint, payload)
     except (Exception, SystemExit) as exc:
-        intent.update({"state": "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION", "error": str(exc), "response_lost_at": utc_now()})
+        if dns_failed_before_connect(exc):
+            # the host name never resolved: no connection, no request, no charge
+            intent.update({"state": "NOT_CHARGED_RETRYABLE", "error": str(exc), "response_lost_at": utc_now(),
+                           "retry_guard": "RETRY_ALLOWED_NEW_ATTEMPT",
+                           "reconciliation_evidence": {"method": "DNS_RESOLUTION_FAILED_BEFORE_CONNECT"}})
+        else:
+            intent.update({"state": "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION", "error": str(exc),
+                           "response_lost_at": utc_now()})
         atomic_json(transaction, intent)
         raise
     finally:

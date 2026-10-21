@@ -66,5 +66,24 @@ class CharacterAssetSubmitterTests(unittest.TestCase):
             self.assertEqual(transaction["provider_response"], body)
 
 
+    def test_dns_failure_is_recorded_as_not_charged_and_retryable(self):
+        with tempfile.TemporaryDirectory(dir=submitter.ROOT) as temporary:
+            root = Path(temporary)
+            prompt = root / "prompt.txt"
+            prompt.write_text("vertical historical character", encoding="utf-8")
+            row = {"id": "CHAR-DNS-TEST", "episode": "E01", "prompt_file": str(prompt),
+                   "prompt_sha256": submitter.hashlib.sha256(prompt.read_bytes()).hexdigest(),
+                   "reference_images": [], "reference_image_sha256s": []}
+            err = SystemExit("NETWORK: NOT_SENT_DNS_RESOLUTION_FAILED: <urlopen error [Errno -3] "
+                             "Temporary failure in name resolution>")
+            with patch.object(submitter, "_request", side_effect=err):
+                with self.assertRaises(SystemExit):
+                    submitter.submit(row, root / "receipts", root / "transactions", "gpt-image-2-pro", "2K")
+            path = submitter.transaction_path(root / "transactions", row, "gpt-image-2-pro", "2K")
+            transaction = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(transaction["state"], "NOT_CHARGED_RETRYABLE")
+            self.assertIsNone(submitter.prior_submission(row, root / "transactions", "gpt-image-2-pro", "2K"))
+
+
 if __name__ == "__main__":
     unittest.main()
