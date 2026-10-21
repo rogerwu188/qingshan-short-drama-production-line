@@ -37,6 +37,7 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 - 每镜 `prompt_spec.camera_plan` 全字段（shot_scale/camera_height/camera_side/motion_family/motion_direction/lens_intent/axis_relation/start_framing/end_framing/motivation）；
   LOCKED 起止取景相同、运动镜不同；相邻单元首镜方向不能相同，5 个单元内同方向不超过 2 次。
 - `state_delta_dimensions` 只能取 POSITION/POSTURE/CONTACT/POSSESSION/INTEGRITY/MOMENTUM，且 entry/exit 证据要不同；entry/completion 各 ≥ 6 字。
+  每个镜头都要有（S5 `keyframe_entry_state_gate` 对空维度无条件拒绝）。`state_delta_mode: STATIC_POSTURE_PERFORMANCE` 只给对白镜用；无对白的「静立 + 环境在动」揭示镜不能靠运镜过关，要让一个已登记主体（人物，或没有人物时的生物/道具卡）真的变一次：转头、跨一步、放下手里的东西。
 - 每个 scene_state：`ambient_life{grade A|B|C, motion_trend, first_frame_state, reaction_progression}` 和 `weather_provenance{source_type, source_ref, visibility_mode}`。
 - 同场相邻镜头都写 `internal_transition_authoring`（transition_mode ∈ CONTINUOUS_ACTION/CAMERA_REFRAME/PAN_REVEAL/OCCLUSION_REVEAL/MOTIVATED_CUT/REACTION_CUT/MATCH_CUT）。
 - 对白镜 `action.performance{emotion(词表 PERFORMANCE_EMOTION_LEXICON_v1), body_action(非琐碎), delivery}`；同场同情绪不连续 3 次；`writer_selfcheck_seq29.enforced: true`。
