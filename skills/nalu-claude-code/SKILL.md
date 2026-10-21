@@ -95,12 +95,13 @@ bash $S/setup_host.sh --pin <PIN>          # 自动安装 Codex（npm）、写 ~
 每集写两个文件，然后跑运行时修复（目录先建好：`mkdir -p $NALU_ENGINE_ROOT/workflow/claude_writer_agent/scripts $NALU_RUNTIME_ROOT/briefs $NALU_RUNTIME_ROOT/sources`）：
 1. `$NALU_ENGINE_ROOT/workflow/claude_writer_agent/scripts/<EP>_NARRATIVE_CANONICAL_v1.md`：按仓库模板
    `agent_factory/claude_writer_v2/templates/NARRATIVE_CANONICAL.template.md`。只写事实、可表演的动作和**逐字台词**，按
-   `## <EP>-S01｜<LOC-ID>｜<时间>｜线A` 分场；不写机位、灯光、资产。一集 2–4 场、20–60 秒为宜；台词决定时长（每 4 个汉字约 1 秒）。
+   `## <EP>-S01｜<LOC-ID>｜<时间>｜线A` 分场；不写机位、灯光、资产。一集 2–4 场、20–60 秒为宜；台词决定时长（中文每 4 个汉字约 1 秒；英文约每秒 2.5 个词）。英文剧的台词与旁白直接写英文；只有声音、没有画面形象的旁白角色在简报里照常列出，`appearance` 写「voice only」。
 2. `$NALU_RUNTIME_ROOT/briefs/<EP>_PRODUCTION_BRIEF.json`：
-   `{"episode","title","owner_id"（用户没指定就填 "owner"）,"style","target_seconds","budget_cap"（用户指定了才填；不填时执行者按预估 ×1.6、不低于 1500 自定）,"genre"（必须是 `publish_x2creel.py categories --lang <剧集语言>` 列出的显示名 name，逐字复制，不得自拟；见 §6）,"genre_lang"（剧集语言 zh|en，与对白语言一致）,"synopsis"（全剧简介，发行用）,"authorization":{"order_text","rights_basis","consent_ref"},"characters":[{"character_id":"CHAR-XXX","name","slug","role":"protagonist|supporting","sex","apparent_age_range","appearance","wardrobe","voice_brief"}],"locations":[{"location_id":"LOC-XXX","label","description","fixed_elements":[]}],"owner_words":{"<日期>":"<线主原话>"}}`
+   `{"episode","title","owner_id"（用户没指定就填 "owner"）,"style","target_seconds","budget_cap"（用户指定了才填；不填时执行者按预估 ×1.6、不低于 1500 自定）,"genre"（必须是 `publish_x2creel.py categories --lang <剧集语言>` 列出的显示名 name，逐字复制，不得自拟；见 §6）,"dialogue_language"（对白语言 zh|en，默认 zh；英文剧写 en，台词、旁白、字幕都是英文）,"genre_lang"（剧集语言 zh|en，与 dialogue_language 一致）,"synopsis"（全剧简介，发行用）,"authorization":{"order_text","rights_basis","consent_ref"},"characters":[{"character_id":"CHAR-XXX","name","slug","role":"protagonist|supporting","sex","apparent_age_range","appearance","wardrobe","voice_brief"}],"locations":[{"location_id":"LOC-XXX","label","description","fixed_elements":[]}],"owner_words":{"<日期>":"<线主原话>"}}`
    `authorization` 按默认授权条款填写（见代理 AGENTS.md §6）：`order_text` = 「默认授权：用户已提供 Giggle API key，按短剧工作流条款同意本项目每集付费生产，每集上限 <budget_cap> 积分」+ 用户关于预算/授权的原话（去掉任何 key、Cookie、密码）；
    `rights_basis` = 「用户承诺对所提供的原著与素材有使用权（短剧工作流默认条款）」+ 用户关于版权的原话（如有）；代理自选的公有领域作品写「公有领域作品：<作者>，卒于 <年份>」；`consent_ref` = 用户提供 key 的对话时间。
-3. `python3 $S/apply_runtime_fixups.py --runtime-root $NALU_RUNTIME_ROOT --character <名>=<CHAR-ID>:<slug> ... --cap <预算>`
+3. `python3 $S/apply_runtime_fixups.py --runtime-root $NALU_RUNTIME_ROOT --character <名>=<CHAR-ID>:<slug> ... --cap <预算> --language <简报 dialogue_language>`
+   （`--language en` 把 `qingshan.json` 的 `project.language` 设为 en-US；不设时引擎按中文做识别、对白检查、字幕和 H3 语言标签）
    以及 `$NALU_ENGINE_ROOT/.qingshan-venv/bin/python $S/make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第N集 · <集名>"`
    （片尾每集重做一次，文件名固定，S7 直接用最新的）。
 写剧本时避开这些已知坑：首帧要看得见的道具别设计成「从怀里掏出」；古装灯写「无罩敞口油盏」；每个说话角色男女/音色要能区分；不写全黑画面。

@@ -8,9 +8,12 @@ Run AFTER lines/nalu/runtime/tools/bootstrap_runtime_root.py.  Each fix below wa
      project_id must equal the series id NALU-YEWUJIANG (S1 project_scope_check).
   3. runtime/series_scopes.json         child processes run CURRENT_PORTABLE and refuse to start without it.
   4. qingshan.json                      authorization block placeholder + episode budget cap (paid lock stays false).
+  5. qingshan.json project.language     the series' spoken-dialogue language (--language zh|en).  The engine
+     resolves it contract dialogue_language -> project.language -> zh (nalu_pipeline.resolve_dialogue_language),
+     so an English series must set it here or ASR, dialogue QA, subtitles and the H3 language tag run as Chinese.
 
 usage: apply_runtime_fixups.py --runtime-root $NALU_RUNTIME_ROOT --character <角色名>=CHAR-<ID>:<pinyin_slug> \
-           [--character ... ] [--cap <credits>]
+           [--character ... ] [--cap <credits>] [--language zh|en]
 """
 from __future__ import annotations
 
@@ -34,6 +37,8 @@ def main() -> int:
     ap.add_argument("--character", action="append", default=[],
                     help="<display name>=<CHAR-ID>:<pinyin_slug>, one per speaking character")
     ap.add_argument("--cap", type=int, default=2500)
+    ap.add_argument("--language", choices=["zh", "en"],
+                    help="the series' dialogue language (= brief dialogue_language); omitted = leave as is (zh)")
     a = ap.parse_args()
     root = Path(a.runtime_root).expanduser().resolve()
     rt = root / "runtime"
@@ -67,6 +72,8 @@ def main() -> int:
     # episodes that have not been built yet.
     gen["video_model"] = "MiniMax-H3"
     gen["video_profile"] = "MINIMAX_H3_768P_9X16"
+    if a.language:
+        cfg.setdefault("project", {})["language"] = {"zh": "zh-CN", "en": "en-US"}[a.language]
     cfg.setdefault("authorization", {"supervisor_orders_path": str(rt / "SUPERVISOR_ORDERS.json"),
                                      "paid_order_seq": 0, "latest_order_seq": 0, "line_owner_id": ""})
     dump(root / "qingshan.json", cfg)
