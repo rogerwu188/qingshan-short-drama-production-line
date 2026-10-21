@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2171,
+  "file_count": 2172,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -781,11 +781,11 @@
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "1a3282bd4d5088641dbb119321138bd3739718027479cb3400ccb2fb3c9e2958"
+      "sha256": "b287f763fd51406b0ce6e04d284d4fc42ceb1b9aa8101bd2ac2396ff7c86ba7a"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
-      "sha256": "d1b27861ca542c193e894319119351655d4e749104c04c650d33d4999c731af8"
+      "sha256": "9ccd602eedc23d1b9c997c2c76c4e0a82812d51fa0af287d3fd12fd5618f1aaa"
     },
     {
       "path": "skills/nalu-claude-code/scripts/claude_production.py",
@@ -6642,6 +6642,10 @@
     {
       "path": "tools/tests/test_apply_image_tier_score_gate.py",
       "sha256": "4b191e9545ae93657f1079d96a2945d243f937d9a6efb30067023ff17e9580e7"
+    },
+    {
+      "path": "tools/tests/test_apply_runtime_fixups_language.py",
+      "sha256": "bebdfdb22518b0d97839ef01eaf75243b1cfb236cbd2f8bae09faa6d17d83dda"
     },
     {
       "path": "tools/tests/test_assembly_audio_continuity.py",
