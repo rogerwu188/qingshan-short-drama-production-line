@@ -88,11 +88,26 @@ class PublishFlowTests(unittest.TestCase):
         self.assertEqual([a for a, _ in self.calls], ["distribution/categories"])  # nothing uploaded or created
         self.assertEqual(self.puts, [])
 
-    def test_category_matches_name_key_and_listed_id_only(self):
-        self.assertEqual(px.resolve_category("xianxia"), "c" * 36)
+    def test_category_matches_display_name_and_listed_id_only(self):
+        self.assertEqual(px.resolve_category("仙侠古装"), "c" * 36)
         self.assertEqual(px.resolve_category("c" * 36), "c" * 36)
+        with self.assertRaises(SystemExit):  # name_key is not trusted (X2C's en list has misaligned keys)
+            px.resolve_category("xianxia")
         with self.assertRaises(SystemExit):
             px.resolve_category("d" * 8 + "-" + "d" * 4 + "-" + "d" * 4 + "-" + "d" * 4 + "-" + "d" * 12)
+
+    def test_category_language_must_match_the_series_language(self):
+        listed = {"zh": [{"id": "z" * 36, "name": "科幻末世", "target_language": "zh"}],
+                  "en": [{"id": "e" * 36, "name": "Suspense & Horror", "target_language": "en"},
+                         {"id": "m" * 36, "name": "Mixed Row", "target_language": "zh"}]}
+        px.call = lambda action, **payload: {"success": True, "categories": listed[payload["lang"]]}
+        self.assertEqual(px.resolve_category("Suspense & Horror", "en-US"), "e" * 36)
+        with self.assertRaises(SystemExit) as raised:  # a zh category inside the en list is still refused
+            px.resolve_category("Mixed Row", "en")
+        self.assertIn("CATEGORY_LANGUAGE_MISMATCH", str(raised.exception.code))
+        with self.assertRaises(SystemExit) as raised:  # the zh name is not on the en list
+            px.resolve_category("科幻末世", "en")
+        self.assertIn("CATEGORY_NOT_IN_X2C_LIST", str(raised.exception.code))
 
     def test_append_is_deferred_while_an_episode_is_pending_review(self):
         px.cmd_publish(self.args("E01", title="剧名", description="简介", category="仙侠古装", cover=self.cover))
