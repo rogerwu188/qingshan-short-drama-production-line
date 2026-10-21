@@ -14,6 +14,7 @@ import contextlib
 from contextvars import ContextVar
 import json
 import os
+import socket
 import sys
 import time
 import urllib.error
@@ -87,6 +88,18 @@ def _retryable_http(code: int, raw: str) -> bool:
     return code in RETRYABLE_HTTP_CODES or code >= 500 or "error code: 1010" in raw.lower()
 
 
+#: tag for a DNS failure: the request never left this host, so it cannot have been charged
+DNS_NOT_SENT_MARKER = "NOT_SENT_DNS_RESOLUTION_FAILED"
+DNS_FAILURE_PHRASES = (DNS_NOT_SENT_MARKER, "Temporary failure in name resolution",
+                       "Name or service not known", "nodename nor servname provided")
+
+
+def dns_failed_before_connect(text: object) -> bool:
+    """True when an error text proves the host name never resolved (no request was sent)."""
+    value = str(text or "")
+    return any(phrase in value for phrase in DNS_FAILURE_PHRASES)
+
+
 def _urlopen_json(
     req: urllib.request.Request, *, allow_retry: bool = True, timeout_seconds: float | None = None
 ) -> Dict[str, Any]:
@@ -102,6 +115,9 @@ def _urlopen_json(
             retryable = _retryable_http(exc.code, raw)
         except (urllib.error.URLError, TimeoutError) as exc:
             last_error = f"NETWORK: {exc}"
+            if isinstance(getattr(exc, "reason", None), socket.gaierror):
+                # the host name never resolved, so no connection was opened and nothing was sent
+                last_error = f"NETWORK: {DNS_NOT_SENT_MARKER}: {exc}"
             retryable = True
         if allow_retry and attempt == 0 and retryable:
             print(f"Giggle interface failure; retrying once after {RETRY_DELAY_SECONDS:g}s", file=sys.stderr)
