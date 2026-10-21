@@ -6,8 +6,8 @@ Workflow (https://www.x2creel.ai/api-docs, 分发 API):
   (first episode creates the project) / distribution/add-episodes (every later episode) ->
   distribution/query.  Developer-JWT publishing (3.5) is not used.
 
-  publish_x2creel.py categories [--lang zh]
-  publish_x2creel.py publish --episode E01 --title <剧名> --description <简介> --category <X2C 列表里的 name / name_key / id> [--lang zh]
+  publish_x2creel.py categories [--lang zh|en]      (zh / en = the series' language)
+  publish_x2creel.py publish --episode E01 --title <剧名> --description <简介> --category <X2C 列表里的 name（显示名）或 id> --lang <剧集语言 zh|en>
                              [--video <mp4>] [--cover <jpg/png>]
   publish_x2creel.py status
   publish_x2creel.py forget --episode E02     (drop one episode's local record, backed up, so it can be re-sent)
@@ -140,19 +140,35 @@ def mime(path: Path) -> str:
                                                                                      "application/octet-stream")
 
 
+def _lang_code(value: str) -> str:
+    """X2C groups categories by target_language ("zh" / "en"); accept zh-CN / en-US style values."""
+    return str(value or "zh").strip().lower().split("-")[0] or "zh"
+
+
 def resolve_category(category: str, lang: str = "zh") -> str:
-    """Exact match against X2C's own category list (id, name or name_key) — never a guess.
+    """Exact match against X2C's own category list for the series' language — never a guess.
 
     The category decides where X2C files the series, so an unmatched value is an error that lists
-    what X2C offers; there is no fallback category.  Pick the value with ``categories`` first."""
+    what X2C offers; there is no fallback category.  ``lang`` is the series' language: the chosen
+    category must carry the same ``target_language`` (an English series cannot be filed under a
+    Chinese category).  Only the display ``name`` or the ``id`` identify a category — X2C's English
+    list has ``name_key`` values that do not belong to their rows (2026-10-20), so name_key is not
+    trusted.  Pick the value from ``categories --lang <series language>`` first."""
+    lang = _lang_code(lang)
     cats = call("distribution/categories", lang=lang).get("categories") or []
     wanted = category.strip()
     for c in cats:
-        if wanted and wanted in (c.get("id"), c.get("name"), c.get("name_key")):
+        if wanted and wanted in (c.get("id"), c.get("name")):
+            target = c.get("target_language")
+            if target and _lang_code(target) != lang:
+                raise SystemExit(json.dumps({"status": "ERROR", "reason": f"CATEGORY_LANGUAGE_MISMATCH:{category}",
+                                             "series_lang": lang, "category_target_language": target},
+                                            ensure_ascii=False))
             return c["id"]
     raise SystemExit(json.dumps({"status": "ERROR", "reason": f"CATEGORY_NOT_IN_X2C_LIST:{category}",
                                  "lang": lang,
-                                 "available": [{"name": c.get("name"), "name_key": c.get("name_key")} for c in cats]},
+                                 "available": [{"name": c.get("name"), "target_language": c.get("target_language")}
+                                               for c in cats]},
                                 ensure_ascii=False))
 
 
@@ -237,12 +253,12 @@ def main() -> int:
     p.add_argument("--episode", required=True); p.add_argument("--title", default="")
     p.add_argument("--description", default=""); p.add_argument("--category", default="")
     p.add_argument("--video", default=""); p.add_argument("--cover", default="")
-    p.add_argument("--lang", default="zh", help="language of the X2C category list the --category value comes from")
+    p.add_argument("--lang", default="zh", help="the series' language (zh|en); the category must have this target_language")
     sub.add_parser("status")
     f = sub.add_parser("forget"); f.add_argument("--episode", required=True)
     a = ap.parse_args()
     if a.cmd == "categories":
-        out = {"status": "OK", "lang": a.lang, "categories": [{"id": x["id"], "name": x["name"], "name_key": x.get("name_key")}
+        out = {"status": "OK", "lang": a.lang, "categories": [{"id": x["id"], "name": x["name"], "target_language": x.get("target_language")}
                                               for x in call("distribution/categories", lang=a.lang).get("categories") or []]}
     elif a.cmd == "publish":
         out = cmd_publish(a)
