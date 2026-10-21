@@ -43,6 +43,10 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 - 首帧可见角色默认必须露正脸；远小/背影在 `cast[].face_visibility` 写 `FAR_FIGURE_*` / `BACK_*`。入场文字里只写本镜 cast 里有的人。
 - 道具名一旦出现在某镜文字里，该镜首帧就必须看得见。别设计「从怀里掏出来」这种首帧不可见的道具镜，尤其是承接上一单元尾帧的镜（会被派生起始帧审核卡死、重做也救不了）。
 - 古装场景的灯写成「无罩敞口油盏」并把它声明为道具（`non_character_entities` + 镜头 props），否则图像模型画玻璃罩煤油灯，命中禁用词表。
+- 没有人脸的可见存在（怪物、雕像、机器外壳、无五官的人形等）不进 `character_entities`：S3 身份锁定对每个人物身份牌都做 insightface 人脸测量，
+  无脸的牌只会 `FACE_COUNT_ZERO`、永远锁不上。把它写成 `non_character_entities` 的生物/道具卡（镜头里作为 props 出现），这一类不测人脸。
+  它若还要说话，另在 `character_entities` 留一行声音角色，`identity_source.mode = VOICE_ONLY_NO_PLATE`（不出身份牌，只建配音；E05 乌鸦先例）。
+  只有声音、画面上没有形象的旁白同样用 `VOICE_ONLY_NO_PLATE`。
 - `runtime/nalu_entity_registry.json` 每个说话角色一行（`$S/apply_runtime_fixups.py --character 名=CHAR-ID:slug`，编排代理已跑过；新增角色时你补跑）。
 
 ## 3. 付费授权、版权与预算（默认条款，不问）

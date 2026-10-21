@@ -777,11 +777,11 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "8e3e293323cf82a3241fbe68b201e9ff588bab1000259ec4807cc1329de28dd3"
+      "sha256": "39f10a431f0ae37898e1a2bf27445db008501a85ccf04a16ecfa31460dc7b99c"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "b287f763fd51406b0ce6e04d284d4fc42ceb1b9aa8101bd2ac2396ff7c86ba7a"
+      "sha256": "0671ed6ad4a8909251c17d56658bc4bdd1d69a13a9f9b32628a782977b4b1074"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
