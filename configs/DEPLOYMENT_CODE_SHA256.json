@@ -553,7 +553,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "6316733106cbbbb327b8f47ce4c1154b4535e85782f0e8b0d89de1443a803d68"
+      "sha256": "54c205eac69f1f9a061374614bd35f877f61476c1689cb32b26a1ee83da22c87"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -8301,7 +8301,7 @@
     },
     {
       "path": "tools/tests/test_voice_over_narration.py",
-      "sha256": "127e72156b31d3af77d3398e2ad45cc5f85e6173ac5fe56ed79f1eee06d6e7d4"
+      "sha256": "f560b1105ba54ec2173b1d4a8c02388c70f082e1311fb6a022402a4943c33f8c"
     },
     {
       "path": "tools/tests/test_voice_reference_sample.py",
