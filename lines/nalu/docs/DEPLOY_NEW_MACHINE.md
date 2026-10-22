@@ -77,7 +77,7 @@ python3 lines/nalu/runtime/tools/nalu_paths.py        # 打印解析出的 ENGIN
 不是照搬旧集的镜头表或台词。收工侧写 K 号（§6 之后的 S7-SYNC）与开工侧读 K 号是同一件事的两端；
 只有写没有读，本集就会重犯已经付过学费的错。
 
-每集四层：叙事正典（手写）、导演脚本、生成合同（JSON）、manifest。逐集构建器 `build_e0N_layers.py` 是作品专用文件（内含该集镜头表与逐字台词，属于作品文本，**不入库**——`.gitignore` 已拦 `lines/*/runtime/tools/build_e*_layers*.py`）；仓库提供的是它依赖的规则与校验：`nalu_prompt_rules.py`（提示词规则）、`static_design_gate.py`（机位运动 R1–R8）、`nalu_qa_common.py`。新作品的构建器按这个骨架自写：SCENES（场次：地点/时间/秒数/信息条数）→ CAMERA_PLANS（每镜景别/机位/运动族/起止取景）→ SHOTS（每镜 3–6 s：动作主体/对白/entry_state/completion_state/状态维度/参考指代）→ 校验（单场可切 4–8 s 单元、无对白 ≤4 s、LOCKED ≤30%、远景后露脸镜 identity_reanchor、道具在 action 就必须在 entry/exit、姿态词不进 entry/exit 文本）→ 写 directing script / generation contract（qingshan.generation_contract.v3）/ manifest（beat_disposition 逐拍申报）。新地点还要写
+每集四层：叙事正典（手写）、导演脚本、生成合同（JSON）、manifest。逐集构建器 `build_e0N_layers.py` 是作品专用文件（内含该集镜头表与逐字台词，属于作品文本，**不入库**——`.gitignore` 已拦 `lines/*/runtime/tools/build_e*_layers*.py`）；仓库提供的是它依赖的规则与校验：`nalu_prompt_rules.py`（提示词规则）、`static_design_gate.py`（机位运动 R1–R8）、`nalu_qa_common.py`。新作品的构建器按这个骨架自写：SCENES（场次：地点/时间/秒数/信息条数）→ CAMERA_PLANS（每镜景别/机位/运动族/起止取景）→ SHOTS（每镜 3–6 s：动作主体/对白/entry_state/completion_state/状态维度/参考指代）→ 校验（单场可切 4–8 s 单元、无对白 ≤4 s、LOCKED ≤30%（2026-10-22 起新封版合同走 CAMERA_GRAMMAR_V1：不强制运镜，运镜按动机，只提示不阻断，见 `configs/CAMERA_GRAMMAR_V1.json`）、远景后露脸镜 identity_reanchor、道具在 action 就必须在 entry/exit、姿态词不进 entry/exit 文本）→ 写 directing script / generation contract（qingshan.generation_contract.v3）/ manifest（beat_disposition 逐拍申报）。新地点还要写
 `preproduction/<EP>/new_location_place_spec.json`（作者命名与坐标）。
 
 ## 6. S1 → S8

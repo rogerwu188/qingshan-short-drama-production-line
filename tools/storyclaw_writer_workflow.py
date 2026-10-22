@@ -612,6 +612,26 @@ def _materialize_lexicon(
     return lexicon_path
 
 
+def _stamp_camera_grammar_policy(contract_path: Path) -> bool:
+    """CAMERA_GRAMMAR_V1 (2026-10-22): every contract sealed from this engine version on is under the
+    camera grammar policy unless the writer declared camera_grammar_policy itself.
+
+    Runs only while the writer receipt is still RUNNING, i.e. before ``finish`` binds the layer
+    hashes, so the stamped bytes are the sealed bytes.  An unreadable contract is left for the
+    regular validation to report.
+    """
+    from tools import camera_grammar_policy as _camera_grammar
+
+    try:
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not _camera_grammar.stamp_contract(contract):
+        return False
+    _atomic_json(contract_path, contract)
+    return True
+
+
 def _write_or_check_seal(paths: dict[str, Path]) -> dict[str, Any]:
     already_sealed = paths["seal"].is_file()
     args = argparse.Namespace(
@@ -694,6 +714,8 @@ def finalize_writer_run(
             raise WriterWorkflowBlocked(f"WRITER_INPUT_BUNDLE_FIELD_MISMATCH:{key}")
     _validate_bound_sources(root, marker, bundle)
     _validate_bound_rules(engine, bundle, receipt)
+    if receipt.get("status") == "RUNNING":
+        _stamp_camera_grammar_policy(paths["generation_contract"])
     contract, manifest = _validate_pre_manifest_outputs(paths, episode, version)
     receipt = _completed_receipt(paths)
     manifest = _materialize_manifest(paths, manifest, receipt)

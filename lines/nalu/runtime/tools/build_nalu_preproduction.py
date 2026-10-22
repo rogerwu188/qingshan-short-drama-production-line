@@ -883,6 +883,17 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
     bible = wardrobe_bible(contract, episode, requirements)
     bible_by_name = {row["character"]: row for row in bible["characters"]}
     forbidden = [str(row) for row in vcc.get("forbidden_influences") or []]
+    # CAMERA_GRAMMAR_V1 (2026-10-22): every camera plan of an episode under the policy carries the marker
+    # camera_grammar=CAMERA_GRAMMAR_V1, so the grouped direction caps relax and the H3 camera clause adds
+    # the film-grammar wording per plan.  Episodes outside the policy keep their plans byte-identical.
+    try:
+        try:
+            from tools import camera_grammar_policy as _camera_grammar
+        except ImportError:
+            import camera_grammar_policy as _camera_grammar  # type: ignore
+        camera_grammar = bool(_camera_grammar.active(contract, episode=episode))
+    except Exception:  # noqa: BLE001
+        camera_grammar = False
 
     # V.O. narration (tools/voice_over_narration.py): a line whose speaker is a VOICE_ONLY_NO_PLATE
     # character never reaches the video model.  It is moved to prompt_spec.voice_over here; S4
@@ -1208,7 +1219,9 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
             "referent_resolution_contract": spec.get("referent_resolution_contract"),
             # director-authored camera plan (generation contract prompt_spec.camera_plan) — the
             # grouping builder treats a first-shot camera_plan as authoritative
-            **({"camera_plan": spec["camera_plan"]} if isinstance(spec.get("camera_plan"), dict) else {}),
+            **({"camera_plan": ({**spec["camera_plan"], "camera_grammar": "CAMERA_GRAMMAR_V1"}
+                                if camera_grammar else spec["camera_plan"])}
+               if isinstance(spec.get("camera_plan"), dict) else {}),
             **({"wardrobe_state_overrides": spec["wardrobe_state_overrides"]} if isinstance(spec.get("wardrobe_state_overrides"), dict) else {}),
             **({"wardrobe_reference_exclusions": spec["wardrobe_reference_exclusions"]} if isinstance(spec.get("wardrobe_reference_exclusions"), dict) else {}),
             "role_semantic_disambiguation": role,

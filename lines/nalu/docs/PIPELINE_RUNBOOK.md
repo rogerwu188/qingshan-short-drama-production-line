@@ -740,6 +740,15 @@ measurement policy, not content; `post_generation_qa_runner.py` now records:
   LOCKED shots, every no-dialogue shot has camera motion, LOCKED dialogue shots ≤ 5 s, ≤ 2 same-axis+scale shots in a
   row per scene, opening shot moves.  E01 baseline REPORT_ONLY: locked share 0.875, 48 findings — the authored root of
   E01's slow feel (not the SD2 4-s floor; nalu requests per grouped unit so the floor never bites).
+* 2026-10-22 CAMERA_GRAMMAR_V1 (`configs/CAMERA_GRAMMAR_V1.json`, `tools/camera_grammar_policy.py`; only contracts
+  that declare `camera_grammar_policy=CAMERA_GRAMMAR_V1` — storyclaw finalize stamps every newly sealed contract —
+  or episodes listed in the config).  No new blocking check: the forced-motion rules R1–R4/R6/R7 become REPORT_ONLY
+  (only R5/R8 still block), film-grammar notes R9–R13 are REPORT_ONLY with fix hints; camera plans are stamped
+  `camera_grammar` in the editorial manifest so the grouped adjacent-direction and five-unit direction caps no longer
+  apply (identical family+direction twice in a row still fails as before) and the H3 camera clause adds
+  "a still, composed frame" / "a motivated move ... settles on the end framing" wording; authored cuts / scene
+  changes start from their own keyframe instead of the previous tail (`build_keyframe_manifest.camera_grammar_cut_openers`);
+  the zero-credit previs runs ADVISORY at S5/S6.  Older contracts keep every verdict and prompt byte unchanged.
 * Codex E58 diagnosis (relayed by Roger 2026-09-13) agreed on: provider vs authored duration, no `max(planned, actual)`
   in the cutter, task-fingerprint (not unit_id) as the join key, dialogue contract + adjacent-duplicate gate.
   nalu follow-ups for E02: adjacent-unit duplicate-dialogue ASR gate in post-gen QA, cut at authorized seconds with a

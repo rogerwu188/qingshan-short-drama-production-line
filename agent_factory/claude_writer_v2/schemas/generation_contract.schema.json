@@ -7,6 +7,10 @@
   "properties": {
     "schema": {"const": "qingshan.generation_contract.v3"},
     "episode": {"pattern": "^E[0-9]+$"},
+    "camera_grammar_policy": {
+      "enum": ["CAMERA_GRAMMAR_V1", "LEGACY_FORCED_MOTION"],
+      "description": "CAMERA_GRAMMAR_V1 (configs/CAMERA_GRAMMAR_V1.json): motivated camera motion and film grammar as writer guidance (no blocking check); prompt_spec.camera_plan.motion_motivation FOLLOW_SUBJECT|REVEAL|EMPHASIS|SUBJECTIVE is optional. storyclaw finalize stamps it when absent."
+    },
     "visual_culture_contract": {
       "type": "object",
       "required": ["schema", "status", "profile_id", "decision_owner", "decision_basis", "source_ref"],

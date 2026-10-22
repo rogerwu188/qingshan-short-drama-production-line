@@ -2490,6 +2490,33 @@
       "failure_code": "CHARGED_BATCH_STUCK_UNRESOLVED_NO_WRITE_OFF_WRITER",
       "do_not_repeat": "不要把已计费但标识不可恢复的事务留在未决态；不要为对账而重投同一提交指纹；不要在核销时改动账本金额或删除账单；不要在没有理由字段时把无窗口事务静默归零；不要在未执行过的预算预留分支上直接跑付费阶段",
       "sync_slug": "charged-loss-write-off-by-order-k073"
+    },
+    {
+      "id": "K119",
+      "key": "camera-grammar-motivated-motion-real-cuts",
+      "stage": "S1",
+      "category": "DIRECTOR",
+      "scope": "generalizable",
+      "episode": "E01",
+      "rule": "CAMERA_GRAMMAR_V1（仅对声明 camera_grammar_policy=CAMERA_GRAMMAR_V1 的合同或配置列出的集生效；storyclaw finalize 给新封版合同自动补该字段，旧合同判定与提示词逐字节不变）不新增任何阻断门或必填字段：static_design_gate 的强制运镜规则 R1–R4/R6/R7 对新集降为提示（仅 R5/R8 仍阻断）；编辑清单给 camera_plan 打 camera_grammar 标记，分组运镜去掉「相邻同向」与「5 单元同向 ≤2」上限（保留原有相邻同族同向）；H3 运镜句加电影语法措辞；剧本写切或换场的单元用自己的关键帧起幅；建立镜、同景别 ≤2 连、听者反应镜、运镜动机写进编剧/导演指引，门里只作 REPORT_ONLY 提示；previs 以 ADVISORY 运行。",
+      "lesson": "Twelve Gazes E01（英文、H3、12 单元、几乎无对白）观众反馈运镜与剪辑不符合看片习惯：R3「无对白镜必须运镜」+ BODY_VERBS 只有中文，使英文线几乎每镜都摇/环绕却无动机；validate_camera_sequence 的相邻同向与 5 窗口同向上限让方向机械交替；D-68 让剧本写的切从上一单元尾帧慢慢漂过去；没有景别语法，同一过肩景别连用三单元、场景无建立镜。",
+      "recovery": "新集按 WRITER_CONTRACT 的 Camera grammar 一节写导演脚本与合同；static_design_gate 的 advisories/fix_hints 是建议不是阻断；已产出的集不重做；要退出新规则时在合同写 camera_grammar_policy=LEGACY_FORCED_MOTION。",
+      "implementation": [
+        "tools/camera_grammar_policy.py",
+        "lines/nalu/runtime/tools/static_design_gate.py",
+        "tools/grouped_camera_contract.py",
+        "tools/h3_provider_prompt_renderer.py",
+        "lines/nalu/runtime/tools/build_keyframe_manifest.py",
+        "lines/nalu/runtime/tools/build_nalu_preproduction.py"
+      ],
+      "regression": "tools/tests/test_camera_grammar_policy.py",
+      "evidence": "test_camera_grammar_policy：旧合同静态门判定、分组方向上限与 H3 运镜句逐字节不变；新合同强制运镜与语法提示只进 advisories、R5/R8 仍阻断；带标记的运镜免方向交替但同族同向仍拒；剧本切点不再沿用尾帧；previs 不阻断。",
+      "authority": "线主 2026-10-22 批准 Twelve Gazes 运镜/剪辑修复",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "runtime_gate_added": false,
+      "sync_slug": "camera-grammar-v1"
     }
   ]
 }

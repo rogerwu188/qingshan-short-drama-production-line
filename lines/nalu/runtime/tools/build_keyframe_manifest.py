@@ -1803,8 +1803,44 @@ def precheck_each_task(python: Path, engine_root: Path, manifest_path: Path,
 # main
 # --------------------------------------------------------------------------- #
 
-def derived_opener_shot_ids(inputs: "Inputs") -> set[str]:
+def _camera_grammar():
+    """tools/camera_grammar_policy, or None (old engines / flat deployments keep D-68 unchanged)."""
+    try:
+        from tools import camera_grammar_policy as module
+    except ImportError:
+        try:
+            import camera_grammar_policy as module  # type: ignore
+        except ImportError:
+            return None
+    return module
+
+
+def camera_grammar_cut_openers(inputs: "Inputs") -> dict[str, dict[str, str]]:
+    """CAMERA_GRAMMAR_V1 (2026-10-22): unit_id -> {shot_id, previous_shot_id, reason} for units whose
+    incoming boundary is an authored cut (internal_transition_authoring transition_mode MOTIVATED_CUT /
+    REACTION_CUT / MATCH_CUT / HARD_CUT) or a scene/location change.  Such a unit starts from its own
+    keyframe, not from the previous unit's real tail: a scripted cut must read as a cut, not a drift.
+    Empty for every episode outside the policy (contracts sealed before it keep D-68 byte for byte)."""
+    grammar = _camera_grammar()
+    if grammar is None or not grammar.active(inputs.contract, episode=inputs.episode):
+        return {}
+    try:
+        units = load_json(inputs.grouping_plan_path).get("units") or []
+    except Exception:  # noqa: BLE001
+        return {}
+    out: dict[str, dict[str, str]] = {}
+    for prev, cur in zip(units, units[1:]):
+        first = str((cur.get("editorial_shot_ids") or [""])[0])
+        prev_last = str((prev.get("editorial_shot_ids") or [""])[-1])
+        reason = grammar.opener_cut_reason(inputs.contract, prev_last, first) if first and prev_last else None
+        if reason:
+            out[str(cur.get("unit_id"))] = {"shot_id": first, "previous_shot_id": prev_last, "reason": reason}
+    return out
+
+
+def derived_opener_shot_ids(inputs: "Inputs", *, apply_camera_grammar: bool = True) -> set[str]:
     """First shots of units whose opening_anchor_contract.source is CONTINUITY_DERIVED_KEYFRAME (D-68)."""
+    cut_openers = camera_grammar_cut_openers(inputs) if apply_camera_grammar else {}
     try:
         plan = load_json(inputs.grouping_plan_path)
         anchors = inputs.anchor_plan
@@ -1827,6 +1863,9 @@ def derived_opener_shot_ids(inputs: "Inputs") -> set[str]:
         # previous tail (it would open on the wrong person); only same-cast continuations stay tail-derived.
         prev_last = last_of_previous.get(uid)
         if prev_last and cast.get(first[uid], frozenset()) != cast.get(prev_last, frozenset()):
+            continue
+        if uid in cut_openers:
+            # CAMERA_GRAMMAR_V1: an authored cut / scene change keeps its own generated keyframe
             continue
         out.add(first[uid])
     return out
@@ -2037,6 +2076,21 @@ def main(argv: list[str] | None = None) -> int:
         ),
         "credits": credit_estimate(engine_root, len(selected)),
     }
+    cut_openers = camera_grammar_cut_openers(inputs)
+    if cut_openers:
+        # CAMERA_GRAMMAR_V1: openers that would have been the previous unit's tail under D-68 and now
+        # start from their own keyframe (each NEW_KEYFRAME among them is one extra paid still)
+        restored = sorted(derived_opener_shot_ids(inputs, apply_camera_grammar=False)
+                          - derived_opener_shot_ids(inputs))
+        report["camera_grammar_cut_openers"] = {
+            "policy": "CAMERA_GRAMMAR_V1",
+            "rule": "authored cut or scene/location change -> the unit starts from its own keyframe",
+            "units": cut_openers,
+            "openers_no_longer_tail_derived": restored,
+            "extra_new_keyframes": sorted(
+                sid for sid in restored
+                if any(d.get("shot_id") == sid and d.get("decision") == "NEW_KEYFRAME" for d in decisions)),
+        }
 
     if args.precheck_only:
         batch_out = report_path.parent / f"{out_path.stem}_precheck.json"
