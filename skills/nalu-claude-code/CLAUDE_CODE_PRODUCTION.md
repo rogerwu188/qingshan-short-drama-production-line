@@ -57,7 +57,6 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
   旁白可以盖过后面的无对白镜，但不能压到画内对白上（S7 实测重叠即 `VOICE_OVER_OVERLAPS_DIALOGUE`）。只含旁白的镜头按无对白镜写（要有动作/运镜）。
 - H3 视频提示词的视觉锁：中文剧默认是「东亚古代」锁（禁现代物件）；英文剧默认按作者自己的世界（只跟参考图和事实走，不限时代、不禁现代物件）。
   需要反过来时在 `visual_culture_contract.era_lock` 写 `AUTHORED_WORLD`（如中文现代/科幻剧）或 `EAST_ASIAN_PERIOD`。
-  同一规则管 S5/S6 的 PERIOD-ANACHRONISM-LOCK：作者世界不禁现代物件（只查作者自己的 forbidden_influences，证据记 NOT_APPLICABLE）；英文剧画面里的英文字只记 advisory，不算 P0。
 - `runtime/nalu_entity_registry.json` 每个说话角色一行（`$S/apply_runtime_fixups.py --character 名=CHAR-ID:slug`，编排代理已跑过；新增角色时你补跑）。
 
 ## 3. 付费授权、版权与预算（默认条款，不问）

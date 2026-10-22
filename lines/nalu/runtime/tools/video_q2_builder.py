@@ -241,15 +241,12 @@ def extract_frames(unit_id: str, media: Path, out_dir: Path, count: int) -> dict
     }
 
 
-def run_ocr(image: Path, forbidden_terms: list[str], out: Path,
-            text_language: str | None = None) -> dict[str, Any]:
+def run_ocr(image: Path, forbidden_terms: list[str], out: Path) -> dict[str, Any]:
     """Execute the ENGINE's still-image OCR audit for real on one frame."""
     argv = [str(VENV), str(ENGINE / "tools/still_image_ocr_audit.py"),
             "--image", str(image), "--out", str(out)]
     for term in forbidden_terms:
         argv += ["--forbid-text", term]
-    if text_language:
-        argv += ["--text-language", text_language]
     completed = _run(argv, timeout=900)
     report = read_json(out, {}) or {}
     return {
@@ -614,7 +611,6 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
     p = QaPaths(episode)
     exp = Expectations(episode)
     forbidden = exp.forbidden_terms()
-    ocr_language = exp.ocr_text_language()
     if frames < int(gate_parameters(IDENTITY_GATE).get("sample_frames_per_source_min", 3)):
         raise SystemExit(
             f"--frames {frames} is below the registered sample_frames_per_source_min; "
@@ -662,8 +658,7 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
                                       "same clip (identity sample count only; every frame is a "
                                       "real ffmpeg extraction of this asset)"}
         ocr_rows = [run_ocr(Path(frame["path"]), forbidden,
-                            out_dir / "ocr" / f"{Path(frame['path']).stem}_ocr.json",
-                            *([ocr_language] if ocr_language else []))
+                            out_dir / "ocr" / f"{Path(frame['path']).stem}_ocr.json")
                     for frame in extraction.get("frames") or []]
         declared_all = list(item["expectations"].get("required_visible_character_ids") or [])
         measurable, exempt = pose_scoped_ids(item)
@@ -721,17 +716,9 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
 # objective blocks
 # --------------------------------------------------------------------------- #
 def build_period_verification(item: dict[str, Any], questionnaire: dict[str, Any],
-                              ocr_rows: list[dict[str, Any]], forbidden_terms: list[str],
-                              *, authored_world: bool = False, language: str = "zh",
+                              ocr_rows: list[dict[str, Any]], forbidden_terms: list[str]
                               ) -> tuple[dict[str, Any], list[str]]:
     """CLOSED_SET_ANACHRONISM_OCR_V1 over EVERY extracted frame of the clip."""
-    # English line (tools/authored_world.py): in-world Latin lettering is advisory, not P0.
-    latin_advisory = str(language or "zh").lower().startswith("en")
-    advisory: list[dict[str, Any]] = []
-
-    def _is_advisory(entry: dict[str, Any]) -> bool:
-        return latin_advisory and not (entry.get("forbidden_tokens") or []) and not re.search(
-            r"[\u3400-\u9fff]", str(entry.get("text") or ""))
     failures: list[str] = []
     recognised: list[str] = []
     per_frame = []
@@ -771,10 +758,7 @@ def build_period_verification(item: dict[str, Any], questionnaire: dict[str, Any
         entries = report.get("recognitions") or []
         noise_ignored.extend({"frame": row.get("frame"), "text": e.get("text"), "confidence": e.get("confidence")}
                              for e in entries if _is_noise(e))
-        advisory.extend({"frame": row.get("frame"), "text": e.get("text"), "confidence": e.get("confidence")}
-                        for e in entries if not _is_noise(e) and _is_advisory(e))
-        strings = [str(entry.get("text") or "") for entry in entries
-                   if not _is_noise(entry) and not _is_advisory(entry)]
+        strings = [str(entry.get("text") or "") for entry in entries if not _is_noise(entry)]
         recognised.extend(strings)
         hits = sorted({term for entry in report.get("recognitions") or []
                        for term in entry.get("forbidden_tokens") or []})
@@ -787,7 +771,7 @@ def build_period_verification(item: dict[str, Any], questionnaire: dict[str, Any
         if int(report.get("critical_text_failures") or 0) > 0 and not all_noise:
             frame_failures.append(
                 f"OCR_CRITICAL_TEXT_FAILURES:{report.get('critical_text_failures')}")
-        if int(report.get("latin_chars") or 0) > 0 and not all_noise and not latin_advisory:
+        if int(report.get("latin_chars") or 0) > 0 and not all_noise:
             frame_failures.append(f"OCR_LATIN_CHARACTERS_PRESENT:{report.get('latin_chars')}")
         if hits:
             frame_failures.append("OCR_FORBIDDEN_TERM_VISIBLE:" + ",".join(hits))
@@ -836,17 +820,6 @@ def build_period_verification(item: dict[str, Any], questionnaire: dict[str, Any
         "failures": failures,
         "questions_must_be_closed_and_contract_derived": True,
     }
-    if authored_world:
-        verification["period_anachronism_lock"] = "NOT_APPLICABLE"
-        verification["not_applicable_reason"] = (
-            "AUTHORED_WORLD (tools/authored_world.py): the writer authored this world, so there is no "
-            "closed modern-object ban; only the writer's own forbidden influences / negative_prompts "
-            "and burned-in text are checked")
-        verification["closed_set_source"] = ("visual_culture_contract.forbidden_influences + this "
-                                             "episode's authored negative_prompts (authored world)")
-    if latin_advisory:
-        verification["latin_text_policy"] = "ADVISORY_ENGLISH_LINE"
-        verification["advisory_findings"] = [{"code": "OCR_LATIN_TEXT_ADVISORY", **row} for row in advisory]
     return verification, failures
 
 
@@ -1276,8 +1249,6 @@ def materialise(episode: str, submitted: dict[str, Any],
     questionnaire = submitted.get("questionnaire") or {}
     reviewed_at = submitted.get("reviewed_at")
     forbidden_terms = exp.forbidden_terms()
-    authored_world = exp.authored_world()
-    language = exp.dialogue_language()
     review_sha = sha256_file(submitted_path)
     postgen = {row["unit_id"]: row for row in [
         read_json(path, {}) or {} for path in
@@ -1321,8 +1292,7 @@ def materialise(episode: str, submitted: dict[str, Any],
         identity_measurement = prepared.get("identity") or {}
 
         period_v, period_f = build_period_verification(
-            item, questionnaire, ocr_rows, forbidden_terms,
-            authored_world=authored_world, language=language)
+            item, questionnaire, ocr_rows, forbidden_terms)
         identity_v, identity_f, identity_method = build_identity_verification(
             item, questionnaire, asset_sha, declared, identity_measurement)
         action_checks = _checks(item, questionnaire, GATE_QUESTIONS[ACTION_GATE])

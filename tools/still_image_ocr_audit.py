@@ -33,12 +33,7 @@ def main() -> int:
     parser.add_argument("--confidence", type=float, default=0.50)
     parser.add_argument("--allow-text", action="append", default=[])
     parser.add_argument("--forbid-text", action="append", default=[])
-    parser.add_argument("--text-language", choices=["zh", "en"], default=None,
-                        help="Line language policy (tools/authored_world.py).  en: Latin text is an "
-                             "advisory finding, not critical.  Also counts as a configured policy for an "
-                             "authored world whose closed forbidden set is empty.  Omitted: historical zh.")
     args = parser.parse_args()
-    latin_advisory = args.text_language == "en"
 
     engine = RapidOCR()
     paths = image_paths(args.image)
@@ -63,7 +58,7 @@ def main() -> int:
             classification = classify_text(clean, args.allow_text, args.forbid_text)
             latin_count = classification["latin_chars"]
             latin_chars += latin_count
-            if classification["forbidden"] or (latin_count and not latin_advisory):
+            if classification["forbidden"] or latin_count:
                 critical_failures += 1
             if classification["unlisted_chinese"]:
                 unlisted_chinese.append({"file": str(path), "text": clean})
@@ -81,8 +76,7 @@ def main() -> int:
                 "numeric_string": classification["numeric_string"],
             })
 
-    lexicon_policy_configured = bool(args.allow_text or args.forbid_text or args.text_language)
-    latin_blocking = 0 if latin_advisory else latin_chars
+    lexicon_policy_configured = bool(args.allow_text or args.forbid_text)
     payload = {
         "schema": "qingshan.still_image_ocr_audit.v1",
         "engine": "RapidOCR / ONNX Runtime",
@@ -96,11 +90,8 @@ def main() -> int:
         "unlisted_chinese_warnings": unlisted_chinese,
         "numeric_string_warnings": numeric_strings,
         "critical_text_failures": critical_failures,
-        "status": "PASS" if lexicon_policy_configured and latin_blocking == 0 and critical_failures == 0 else "FAIL",
+        "status": "PASS" if lexicon_policy_configured and latin_chars == 0 and critical_failures == 0 else "FAIL",
     }
-    if args.text_language:
-        payload["text_language"] = args.text_language
-        payload["latin_policy"] = "ADVISORY" if latin_advisory else "CRITICAL"
 
     out = Path(args.out).expanduser().resolve()
     out.parent.mkdir(parents=True, exist_ok=True)

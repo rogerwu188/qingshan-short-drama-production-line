@@ -412,51 +412,6 @@ QUESTIONNAIRES: dict[str, dict[str, dict[str, Any]]] = {
     },
 }
 
-#: Authored world (tools/authored_world.py: era_lock, else an English line): there is no closed
-#: modern-object set, so the period question asks about the writer's own world instead.  Same
-#: question ids, so the builders that score them (GATE_QUESTIONS) are unchanged.
-AUTHORED_WORLD_QUESTIONS: dict[str, dict[str, str]] = {
-    "keyframe": {
-        "no_anachronism_from_closed_set":
-            "Is the frame free of anything outside the authored world the expectations and "
-            "references show, and is every term in closed_vocabulary.forbidden_terms (the "
-            "writer's own forbidden influences) absent?  Modern objects that world contains "
-            "are allowed."},
-    "video_q2": {
-        "no_anachronism_from_closed_set":
-            "Is every frame of the clip free of anything outside the authored world the "
-            "expectations and references show, and is every term in "
-            "closed_vocabulary.forbidden_terms (the writer's own forbidden influences) absent?  "
-            "Modern objects that world contains are allowed."},
-}
-#: English line: in-world Latin lettering is advisory (recorded, not P0).
-ENGLISH_LINE_QUESTIONS: dict[str, dict[str, str]] = {
-    "keyframe": {
-        "no_burned_in_text_or_subtitle":
-            "Is the frame free of burned-in subtitles, captions, logos and watermarks?  In-world "
-            "English lettering on screens, labels or signs is allowed: list it in "
-            "observed_text_strings."},
-    "video_q2": {
-        "no_burned_in_text_or_subtitle":
-            "Is the clip free of any burned-in caption, subtitle, watermark, logo or pseudo-glyph "
-            "in every frame?  In-world English lettering on screens, labels or signs is allowed: "
-            "list it in observed_text_strings."},
-}
-
-
-def questionnaire_for(kind: str, *, authored_world: bool = False,
-                      language: str = "zh") -> dict[str, dict[str, Any]]:
-    """QUESTIONNAIRES[kind] with the authored-world / English-line wording applied."""
-    rows = {key: dict(row) for key, row in QUESTIONNAIRES[kind].items()}
-    overrides = dict(AUTHORED_WORLD_QUESTIONS.get(kind) or {}) if authored_world else {}
-    if str(language or "zh").lower().startswith("en"):
-        overrides.update(ENGLISH_LINE_QUESTIONS.get(kind) or {})
-    for key, question in overrides.items():
-        if key in rows:
-            rows[key]["question"] = question
-    return rows
-
-
 #: structured observed lists the reviewer must fill, per kind.  Values are
 #: checked against the request's own closed vocabulary; anything genuinely
 #: unexpected is reported with the ``UNDECLARED:`` prefix, never silently.
@@ -648,8 +603,6 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
         if kind in {"keyframe", "video_q2"}:
             row["closed_vocabulary"]["forbidden_terms"] = vocabulary["forbidden_terms"]
 
-    authored = exp.authored_world() if kind in {"keyframe", "video_q2"} else False
-    language = exp.dialogue_language() if kind in {"keyframe", "video_q2"} else "zh"
     request_id = f"{episode}-{kind}-{run_id()}"
     out = Path(out) if out else REVIEWS_ROOT / episode / f"{request_id}_request.json"
     visual_qa_profile = selected_profile() if kind == 'keyframe' else 'STRICT'
@@ -684,8 +637,7 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
         },
         "questionnaire": {
             key: {"question": row["question"], "enum": row["enum"], "maps_to": row["maps_to"]}
-            for key, row in questionnaire_for(kind, authored_world=authored,
-                                              language=language).items()},
+            for key, row in QUESTIONNAIRES[kind].items()},
         "observed_fields": OBSERVED_FIELDS[kind],
         "identity_measurement_decision": ({
             "decision_ref": "SUPERVISOR_ORDERS seq=4 / D-13 operator call 2026-09-09",
