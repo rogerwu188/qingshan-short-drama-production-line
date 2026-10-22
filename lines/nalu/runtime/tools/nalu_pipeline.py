@@ -4927,6 +4927,13 @@ def stage_s6(ctx: Ctx) -> StageResult:
                       and any(uid not in done for uid in w.get("units") or [])]
         in_open = {u for w in open_waves for u in (w.get("units") or [])}
         derived = continuity_derived_units(ctx)
+        # A clip harvested by a run that was killed before its tail frame was extracted (extraction
+        # only runs inside the wave loop below) would keep its tail-chained successor "not ready"
+        # forever: no open wave, no ready unit -> ROLLING_WAVE_NO_READY_UNITS on every tick
+        # (Twelve Gazes E01, 2026-10-22).  Extract missing tails of on-disk clips first (idempotent).
+        for uid in sorted(done):
+            if not (tails_dir / f"{uid}.png").is_file():
+                extract_real_final_frame(ctx, uid)
         new_ready = [uid for uid, prev, needs in deps
                      if uid not in done and uid not in pending_ids and uid not in in_open
                      and (not needs or prev is None or (tails_dir / f"{prev}.png").is_file())

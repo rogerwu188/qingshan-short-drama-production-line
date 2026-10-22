@@ -592,6 +592,46 @@ def scan_pending_exposure(episode: str) -> Decimal:
     return total
 
 
+def scan_unevidenced_exposure(episode: str, non_video: dict[str, Any]) -> Decimal:
+    """Exposure of SUBMITTED_TASK_ID_BOUND tasks whose charge ``recorded`` does not already count.
+
+    ``scan_pending_exposure`` prices every bound transaction, but a bound task stays in that state
+    after its charge is evidenced, so adding it on top of ``recorded`` counted it twice (Twelve
+    Gazes E01 S6 resume, 2026-10-22: recorded 822 + pending 822 for the same 35 tasks refused a
+    492-credit wave under a 2000 cap).  Here:
+
+    * bound IMAGE tasks are already inside ``recorded`` (the non-video subtotal is at least the
+      bound-image upper layer), so they add nothing;
+    * bound VIDEO tasks are covered up to the number of rows the SingleGenerateVideo credit
+      statements matched -- but only when that batch layer is the one ``recorded`` uses; the rest
+      (the most expensive first) stay as exposure, so a bound task with no statement still counts.
+    """
+    tasks_root = ENGINE_ROOT / "workflow" / "tasks"
+    directory = tasks_root / VIDEO_TRANSACTION_DIRNAME / episode
+    estimates: list[Decimal] = []
+    for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
+        try:
+            payload = load_json(path)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if str(payload.get("state") or "") == "SUBMITTED_TASK_ID_BOUND" and payload.get("task_id"):
+            estimated = payload.get("estimated_credits")
+            estimates.append(Decimal(str(estimated)) if isinstance(estimated, (int, float)) and estimated > 0
+                             else Decimal("160"))
+    batch_used = (Decimal(str(non_video.get("batch_reconciled_credits") or 0))
+                  >= max(Decimal(str(non_video.get("per_task_credits") or 0)),
+                         Decimal(str(non_video.get("bound_image_transaction_upper_credits") or 0))))
+    matched = 0
+    if batch_used:
+        for row in non_video.get("batch_rows") or []:
+            if (str(row.get("event_description") or "") == "SingleGenerateVideo"
+                    and str(row.get("status") or "").startswith("PASS")
+                    and isinstance(row.get("matched_count"), int)):
+                matched += row["matched_count"]
+    uncovered = sorted(estimates, reverse=True)[:max(0, len(estimates) - matched)]
+    return sum(uncovered, Decimal("0"))
+
+
 def reserve_credits(episode: str, planned: Decimal, reservation_id: str,
                     cap: Decimal = Decimal(8000)) -> dict[str, Any]:
     """Atomically reserve credits before submission. Returns {"reserved": True/False, ...}."""
@@ -611,7 +651,7 @@ def reserve_credits(episode: str, planned: Decimal, reservation_id: str,
         non_video = scan_non_video_spend(episode, bgm_transactions_dir=None)
         non_video_credits = Decimal(str(non_video["subtotal_credits"]))
         recorded = video_credits + non_video_credits
-        pending_exposure = scan_pending_exposure(episode)
+        pending_exposure = scan_unevidenced_exposure(episode, non_video)
         projected = recorded + active_reserved + pending_exposure + planned
         if projected > cap:
             return {
@@ -707,8 +747,9 @@ def build_report(
     reservations_scan = scan_reservations(episode)
     active_reserved = Decimal(str(reservations_scan["active_credits"]))
 
-    # Read pending exposure from SUBMITTED_TASK_ID_BOUND transactions
-    pending_exposure = scan_pending_exposure(episode)
+    # Pending exposure: SUBMITTED_TASK_ID_BOUND tasks whose charge recorded does not already count
+    bound_exposure = scan_pending_exposure(episode)
+    pending_exposure = scan_unevidenced_exposure(episode, non_video)
 
     recorded = video_credits + non_video_credits
     projected = recorded + active_reserved + pending_exposure + (planned or Decimal("0"))
@@ -765,6 +806,7 @@ def build_report(
             "recorded_total_credits": number(recorded),
             "active_reserved_credits": number(active_reserved),
             "pending_exposure_credits": number(pending_exposure),
+            "bound_exposure_credits": number(bound_exposure),
             "planned_credits": number(planned) if planned is not None else None,
             "projected_total_credits": number(projected) if planned is not None else None,
             "headroom_credits": number(headroom),
