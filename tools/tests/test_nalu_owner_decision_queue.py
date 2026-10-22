@@ -52,16 +52,21 @@ class DecisionQueueTest(unittest.TestCase):
         self.assertEqual(status.returncode, 5, status.stdout)
 
     def test_each_always_ask_class_is_forced_to_line_scope(self):
-        for kind in ("PAID_CATEGORY_NOT_IN_ORDER", "VOICE_CONSISTENCY", "STORY_TEXT_CHANGE", "PUBLICATION"):
+        for kind in ("PAID_CATEGORY_NOT_IN_ORDER", "STORY_TEXT_CHANGE", "PUBLICATION"):
             with self.subTest(kind=kind):
                 # raising it without a scope yields line scope, and the run must stop
                 self.assertEqual(self.raise_(kind).returncode, 0)
                 self.assertEqual(run(self.root, "status", "--episode", "E11", "--blocking-line").returncode, 5)
 
     def test_narrowing_an_always_ask_class_is_refused(self):
-        got = self.raise_("VOICE_CONSISTENCY", "--scope", "unit", "--unit-id", "E11-VU-001")
+        got = self.raise_("STORY_TEXT_CHANGE", "--scope", "unit", "--unit-id", "E11-VU-001")
         self.assertNotEqual(got.returncode, 0)
         self.assertIn("must be line scope", got.stderr + got.stdout)
+
+    def test_voice_consistency_may_be_raised_at_unit_scope(self):
+        # line owner 2026-10-22 (supersedes K069): voice out of band is default-accepted after the
+        # controlled redo; raising it is optional and no longer stops the whole line
+        self.assertEqual(self.raise_("VOICE_CONSISTENCY", "--scope", "unit", "--unit-id", "E11-VU-001").returncode, 0)
 
     def test_a_non_line_scope_needs_something_to_act_on(self):
         got = self.raise_("ASSET_AMBIGUITY", "--scope", "unit")
