@@ -126,6 +126,12 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
 - 动作归属证据（S6 action_role 审核 FAIL，例如起始帧里看不到动作的发起人/道具）：同样做法，`--gate-id ACTION-ROLE-EVIDENCE
   --media <unit_id>=<起始帧图>`，回执 `blockers` 每一项加 `--detector <unit_id>:<blocker>`；然后重跑
   `action_role_evidence_writer.py write --review <已提交的审核>` 与 S6。`CONTRACT_INITIATOR_OR_TARGET_UNDECLARED` 是剧本层缺口，不能接受，改剧本。
+- **视频 Q2 的「观众一眼可见」失败先重做一次再接受**（线主 2026-10-22，Twelve Gazes E01：10/12 单元 Q2 REJECT 一次没重做全部接受，
+  成片出现多余人形、主角换装、结尾冒出真人手）。Q2 失败项含 `cast_exactly_as_declared`、`each_visible_character_identity_recognisable`、
+  `wardrobe_matches_bible`、`no_extra_scene_or_replayed_beat`、`creature_locomotion_matches_card`、`visible_group_count_matches_declared`
+  之一的单元，**「起始帧继承缺口」不是跳过重做的理由**：按 §4 受控创意重做该单元一次（镜头文字写明要去掉的东西：多余人物、错穿的服装、
+  不该出现的手/人），重做仍失败再按下面默认接受。只有预算不够（`paid_stage.sh <EP> --check` 投影超本集上限）才跳过，`--context` 写「预算不足未重做」。
+  多个单元要重做时按观众影响排序：开场前 10 秒 > 有台词/主角正脸 > 结尾 > 其余；预算用到上限为止。其余 Q2 失败项（构图、道具数量、动作细节）照旧直接接受。
 - 视频 Q2：`--gate-id VIDEO-Q2-ASSEMBLY-ADMISSION --detector <unit>:<每个失败门禁 ID> --media <unit>=<unit mp4>`；
   6 镜左右的短集任何 P2 都会超 10% 缺陷预算：同时写 `$NALU_RUNTIME_ROOT/preproduction/<EP>/qa_overrides.json` 的
   `defect_tolerance_minor_budget_override`（只列失败码，`authorized_by` 写「短剧工作流默认条款：质量不阻塞」）。
