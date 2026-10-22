@@ -1745,7 +1745,22 @@ def fp_s2(ctx: Ctx) -> str:
         "keyframes": sorted(item.name for item in p.keyframes.glob("*.png")) if p.keyframes.is_dir() else [],
         # a config-only language switch re-runs S2; zh fingerprints are unchanged
         **({"dialogue_language": ctx_language(ctx)} if ctx_language(ctx) != "zh" else {}),
+        # V.O. narration: an episode that passed S2 before the rule existed re-runs S2 once so its
+        # editorial carries prompt_spec.voice_over; contracts without narration are unchanged
+        **({"voice_over_rule": _vo.RULE_VERSION}
+           if _vo.contract_has_voice_over(read_json(p.contract, {}) or {}, ctx_language(ctx)) else {}),
     }, sort_keys=True))
+
+
+def fp_s4(ctx: Ctx) -> str | None:
+    """S4 re-runs when the editorial's V.O. narration lines change (or first appear on an episode
+    whose voices were LOCKED before the rule existed); no narration = no fingerprint = unchanged."""
+    lines = editorial_voice_over_lines(read_json(ctx.p.editorial, {}) or {})
+    if not lines:
+        return None
+    return sha256_text(json.dumps(
+        [[line["shot_id"], int(line["line_index"]), str(line["character_id"]), _vo.text_sha256(line["text"])]
+         for line in lines], sort_keys=True))
 
 
 def stage_s2(ctx: Ctx, *, with_keyframes: bool = False, ready_units=None) -> StageResult:
@@ -2836,7 +2851,9 @@ def s4_voice_over(ctx: Ctx, res: StageResult) -> None:
                      and str(u.get("speaker_id")) == str(line["character_id"])
                      and _vo.norm_text(u.get("text") or "") == _vo.norm_text(text)), {})
         emotion = str(unit.get("emotion") or reference["emotion"])
-        safe = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{sid}_{index}").strip("._")[:80]
+        # the text hash is part of the name: an edited line gets a new transaction (one new paid
+        # synthesis) instead of colliding with the provider's fingerprint of the old text
+        safe = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{sid}_{index}_{text_sha[:12]}").strip("._")[:96]
         mp3, wav = out_dir / f"{safe}.mp3", out_dir / f"{safe}.wav"
         transaction = (AUDIO_TRANSACTION_ROOT / scope_id / ctx.episode / "voice_over" / f"{safe}.json").resolve()
         argv = [VENV, PORTABLE_AUDIO_PROVIDER, "speech-generate", text,
@@ -7039,7 +7056,7 @@ STAGE_FUNCS: dict[str, Callable[[Ctx], StageResult]] = {
     "S7": stage_s7,
     "S8": stage_s8,
 }
-FINGERPRINTS: dict[str, Callable[[Ctx], str]] = {"S1": fp_s1, "S2": fp_s2}
+FINGERPRINTS: dict[str, Callable[[Ctx], str | None]] = {"S1": fp_s1, "S2": fp_s2, "S4": fp_s4}
 
 OPEN_DECISIONS = [
     # --------------------------------------------------------------- resolved

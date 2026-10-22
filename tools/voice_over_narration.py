@@ -134,6 +134,28 @@ def separate_voice_over(dialogue: str, entities: Any, language: str = "zh", *,
     return "\n".join(keep), rows
 
 
+RULE_VERSION = "VO_NARRATION_V1"
+
+
+def contract_has_voice_over(contract: dict[str, Any], language: str | None = None) -> bool:
+    """True when a shot of this generation contract speaks a VOICE_ONLY_NO_PLATE line (CURRENT_PORTABLE).
+
+    Used by the S2 fingerprint: an episode whose S2 already passed before the V.O. rule existed
+    re-runs S2 once so its editorial gets ``prompt_spec.voice_over``; contracts without
+    narration keep their fingerprint unchanged.
+    """
+    entities = contract.get("character_entities") or []
+    ids = voice_over_character_ids(entities)
+    if not ids:
+        return False
+    language = language or contract_language(contract)
+    for shot in contract.get("shots") or []:
+        dialogue = str(((shot.get("prompt_spec") or {}).get("dialogue")) or "")
+        if separate_voice_over(dialogue, entities, language, vo_ids=ids)[1]:
+            return True
+    return False
+
+
 def in_video_dialogue(dialogue: str, entities: Any, language: str = "zh") -> str:
     return separate_voice_over(dialogue, entities, language)[0]
 

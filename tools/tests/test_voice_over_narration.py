@@ -427,6 +427,24 @@ class SelectiveBgmDuckingTests(unittest.TestCase):
         self.assertTrue(plan["cues"][0]["dialogue_present"])
 
 
+class ContractDetectionTests(unittest.TestCase):
+    """contract_has_voice_over drives the S2 fingerprint (one re-run for in-flight episodes)."""
+
+    def contract(self, dialogue: str, ents: list[dict]) -> dict:
+        return {"dialogue_language": "en", "character_entities": ents,
+                "shots": [shot("E01-S01-01", 6.0, dialogue)]}
+
+    def test_detects_a_narrated_contract_only_under_current_portable(self):
+        narrated = self.contract("The Ledger：It was recorded.", entities())
+        with patch.dict(os.environ, CURRENT, clear=False):
+            self.assertTrue(vo.contract_has_voice_over(narrated))
+            self.assertFalse(vo.contract_has_voice_over(self.contract("Elias：Who is there?", entities())))
+            self.assertFalse(vo.contract_has_voice_over(self.contract("Elias：Who is there?",
+                                                                      entities(with_ledger=False))))
+        with patch.dict(os.environ, LEGACY, clear=False):
+            self.assertFalse(vo.contract_has_voice_over(narrated))
+
+
 class S4SynthesisTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -476,7 +494,8 @@ class S4SynthesisTests(unittest.TestCase):
                 self.assertTrue(manifest["complete"])
                 self.assertEqual((row["shot_id"], row["line_index"], row["text_sha256"], row["duration_seconds"]),
                                  ("E01-S01-01", 0, vo.text_sha256("Recorded."), 1.1))
-                self.assertTrue(row["transaction"].endswith("/TWELVE-GAZES/E01/voice_over/E01-S01-01_0.json"))
+                self.assertTrue(row["transaction"].endswith(
+                    f"/TWELVE-GAZES/E01/voice_over/E01-S01-01_0_{vo.text_sha256('Recorded.')[:12]}.json"))
                 argv = calls[0]
                 self.assertEqual(argv[argv.index("speech-generate") + 1], "Recorded.")
                 self.assertEqual([argv[argv.index(f) + 1] for f in ("--voice-id", "--emotion", "--speed")],
@@ -485,6 +504,37 @@ class S4SynthesisTests(unittest.TestCase):
                 res2 = self.pipeline.StageResult(self.pipeline.PASS)
                 self.pipeline.s4_voice_over(ctx, res2)
                 self.assertEqual((len(calls), res2.status), (1, self.pipeline.PASS))
+
+    def test_edited_line_gets_a_new_transaction(self):
+        calls: list = []
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            ctx = self.ctx(tmp, calls)
+            with patch.object(self.pipeline, "voice_over_asr", return_value={"recall": 1.0, "transcript": "x"}), \
+                    patch.object(self.pipeline, "media_seconds", return_value=1.1), \
+                    patch.object(self.pipeline._media, "require_ffmpeg", return_value="ffmpeg"):
+                self.pipeline.s4_voice_over(ctx, self.pipeline.StageResult(self.pipeline.PASS))
+                editorial = json.loads((tmp / "editorial.json").read_text())
+                editorial["shots"][0]["prompt_spec"]["voice_over"][0]["text"] = "Recorded twice."
+                (tmp / "editorial.json").write_text(json.dumps(editorial))
+                res = self.pipeline.StageResult(self.pipeline.PASS)
+                self.pipeline.s4_voice_over(ctx, res)
+        transactions = [argv[argv.index("--transaction") + 1] for argv in calls]
+        self.assertEqual((res.status, len(transactions), len(set(transactions))), (self.pipeline.PASS, 2, 2))
+
+    def test_s4_fingerprint_follows_the_narration_lines(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            ctx = self.ctx(tmp, [])
+            first = self.pipeline.fp_s4(ctx)
+            self.assertIsNotNone(first)
+            editorial = json.loads((tmp / "editorial.json").read_text())
+            editorial["shots"][0]["prompt_spec"]["voice_over"][0]["text"] = "Recorded twice."
+            (tmp / "editorial.json").write_text(json.dumps(editorial))
+            self.assertNotEqual(self.pipeline.fp_s4(ctx), first)
+            editorial["shots"][0]["prompt_spec"].pop("voice_over")
+            (tmp / "editorial.json").write_text(json.dumps(editorial))
+            self.assertIsNone(self.pipeline.fp_s4(ctx))  # no narration: S4 skip behaviour unchanged
 
     def test_asr_mismatch_blocks_without_retry(self):
         calls: list = []
