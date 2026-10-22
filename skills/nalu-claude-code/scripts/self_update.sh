@@ -35,8 +35,10 @@ out = []
 for session in sorted((runtime / "claude_code").glob("*/session.json")):
     s = json.loads(session.read_text(encoding="utf-8"))
     state = ((cp.parse_log(Path(s.get("log") or "")).get("nalu_status")) or {}).get("state")
-    # a stopped BLOCKED episode is waiting for a fix (often this very update), not in flight
-    if cp.alive(s.get("pid")) or state not in ("FINAL_CUT_READY", "BLOCKED"):
+    # a stopped BLOCKED episode is waiting for a fix (often this very update), not in flight; neither is
+    # a run whose executor is gone without ever printing NALU_STATUS (killed or crashed) -- same rule as
+    # setup_host.sh (#110), else the update that fixes the episode can never install
+    if cp.alive(s.get("pid")) or (state is not None and state not in ("FINAL_CUT_READY", "BLOCKED")):
         out.append(session.parent.name)
 print(",".join(out))
 PY
