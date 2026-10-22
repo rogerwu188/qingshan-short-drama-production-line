@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2178,
+  "file_count": 2179,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -6405,7 +6405,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "a99e5c2bb24dc10751a744cedf89c925b78c36f99d4a937dfd93bdc7a41cfef2"
+      "sha256": "1e315802d3958e0a654cccfcd41951f4ba0925d991dea1b4f4d575563dc00de2"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -8134,6 +8134,10 @@
     {
       "path": "tools/tests/test_storyclaw_writer_workflow.py",
       "sha256": "8164862b5bd28e4ba9a22c706c4d48d9319f83a0319d870faf1ccb897b3a5be4"
+    },
+    {
+      "path": "tools/tests/test_submit_boundary_dialogue_language.py",
+      "sha256": "1d3ac27e87d99b4c29ccebc27c448f4438fbe91150ab170c887d470807d87c1d"
     },
     {
       "path": "tools/tests/test_submit_corrected_pipeline_gate.py",
