@@ -39,8 +39,8 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 2. `workflow/claude_writer_agent/scripts/<EP>_NARRATIVE_CANONICAL_v1.md`：只写事实、可表演的动作和**逐字台词**，按
    `## <EP>-S01｜<LOC-ID>｜<时间>｜线A` 分场；不写机位、灯光、资产。一集 2–4 场、20–60 秒为宜；台词决定时长（中文每 4 个汉字约 1 秒；
    英文约每秒 2.5 个词）。英文剧台词与旁白直接写英文；只有声音没有形象的旁白角色写成「旁白角色名：台词」，简报里照常列出、
-   `appearance` 写「voice only」，登记为 `VOICE_ONLY_NO_PLATE`。没有人脸又不说话的可见存在写进 `locations[].fixed_elements` 或作道具，
-   不列成人物。E02 起开头承接上一集结尾状态，不重演上一集。
+   `appearance` 写「voice only」，登记为 `VOICE_ONLY_NO_PLATE`。没有人脸又不说话的可见存在（怪物、雕像、无五官人形）登记为
+   `non_character_entities`（`kind: CREATURE`，`creature_card`，`note` 用英文一句话写清长相），不列成人物、也不当道具（H3 改编指南 §3）。E02 起开头承接上一集结尾状态，不重演上一集。
 3. `$NALU_RUNTIME_ROOT/briefs/<EP>_PRODUCTION_BRIEF.json`：字段同编排代理 SKILL.md §4（episode/title/owner_id/style/target_seconds/
    budget_cap/genre/dialogue_language/genre_lang/synopsis/authorization/characters/locations/owner_words）。派单给出的 title、owner_id、
    style、genre、dialogue_language、budget_cap、`authorization`（含 `rights_basis` 原话）和 owner_words **逐字复制**；`synopsis`、
