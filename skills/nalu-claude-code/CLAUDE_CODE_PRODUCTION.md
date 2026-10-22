@@ -114,7 +114,7 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
   --gate-id <门禁 ID> --detector <…> [--media <item>=<文件>] --context "<失败事实：门禁、帧号/单元、原因、已重做次数>" \
   --orders $NALU_RUNTIME_ROOT/runtime/SUPERVISOR_ORDERS.json --recorded-by claude-code
 ```
-- 关键帧（S5/S6 派生）：`--gate-id PERIOD-ANACHRONISM-LOCK --detector <shot_id>:PERIOD-ANACHRONISM-LOCK`（身份类用 `CHARACTER-IDENTITY-ADMISSION`、`<shot_id>:<CHAR-ID>`；无人物镜头里出现未登记人物（`CHARACTER_OBSERVED_IN_CHARACTER_FREE_INSERT`）时用 `<shot_id>:CHARACTER-IDENTITY-ADMISSION`；
+- 关键帧（S5/S6 派生）：`--gate-id PERIOD-ANACHRONISM-LOCK --detector <shot_id>:PERIOD-ANACHRONISM-LOCK`（身份类用 `CHARACTER-IDENTITY-ADMISSION`、`<shot_id>:<CHAR-ID>`；给不出 `<CHAR-ID>` 的身份失败（无人物镜头出现未登记人物、人脸测不到而判 UNCERTAIN 等）用 `<shot_id>:CHARACTER-IDENTITY-ADMISSION`；
   动作/状态交接用 `ACTION-SHOT-DESIGN-AND-STATE-HANDOFF`、`<shot_id>:ACTION-SHOT-DESIGN-AND-STATE-HANDOFF`），`--media <shot_id>=<关键帧/尾帧>`。
   **一张图同时挂多个门禁**（派生起始帧常见：身份 + 动作/状态交接）：每个失败门禁各记一条订单，绑同一张图；少一个门禁就不会放行。
 - 起始帧语义证据（start_frame 审核 FAIL，例如上一单元尾帧里缺人、背身、缺道具）：
