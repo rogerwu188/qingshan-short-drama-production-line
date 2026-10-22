@@ -833,7 +833,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/setup_host.sh",
-      "sha256": "737ca266ce5877b5626b751268947223772f3e4928b29273a0b65c04280c7b81"
+      "sha256": "294d7fe99dd66435934f53137b84cf9045644225847882d11117812eebb028c5"
     },
     {
       "path": "skills/qingshan-nalu/SKILL.md",
