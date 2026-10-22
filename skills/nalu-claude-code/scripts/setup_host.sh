@@ -85,8 +85,11 @@ busy = []
 for session in sorted((runtime / "claude_code").glob("*/session.json")):
     s = json.loads(session.read_text(encoding="utf-8"))
     state = ((cp.parse_log(Path(s.get("log") or "")).get("nalu_status")) or {}).get("state")
-    # a stopped BLOCKED episode is waiting for a fix (often this very pin), not in flight
-    if cp.alive(s.get("pid")) or state not in ("FINAL_CUT_READY", "BLOCKED"):
+    # a stopped BLOCKED episode is waiting for a fix (often this very pin), not in flight; neither is a
+    # run whose executor is gone without ever printing NALU_STATUS (killed or crashed): nothing is
+    # running on the old engine, and deferring would keep that episode on it forever
+    # (Twelve Gazes E01 2026-10-22: Codex stopped by pid to wait for an engine fix -> fix never applied)
+    if cp.alive(s.get("pid")) or (state is not None and state not in ("FINAL_CUT_READY", "BLOCKED")):
         busy.append(f"{session.parent.name}:{'RUNNING' if cp.alive(s.get('pid')) else state}")
 print(",".join(busy))
 PY
