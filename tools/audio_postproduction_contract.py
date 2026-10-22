@@ -60,10 +60,39 @@ def _track_ids(project: dict) -> set[str]:
     }
 
 
+def _voice_over_module():
+    try:
+        from tools import voice_over_narration
+    except ImportError:  # Direct execution from tools/.
+        import voice_over_narration  # type: ignore
+    return voice_over_narration
+
+
+def voice_over_binding_failures(project: dict) -> tuple[list[str], set[str]]:
+    """V.O. narration mixed in at S7 is non-native speech by construction.
+
+    It is admitted only through ``metadata.voice_over_narration`` whose placement file is
+    sha-bound (placement sha256 recorded here, manifest sha256 and every wav sha256 inside
+    the placement, see voice_over_narration.binding_failures).  Returns (failures, bound wav
+    sha256 set).  No declaration -> no failures and nothing is admitted.
+    """
+    declared = (project.get("metadata") or {}).get("voice_over_narration")
+    if not declared:
+        return [], set()
+    vo = _voice_over_module()
+    placement = Path(str(declared.get("placement") or ""))
+    if not str(declared.get("placement") or "") or vo.file_sha256(placement) != declared.get("placement_sha256"):
+        return [f"VOICE_OVER_PLACEMENT_SHA_MISMATCH:{placement}"], set()
+    failures = vo.binding_failures(placement)
+    return failures, (set() if failures else vo.bound_wav_shas(placement))
+
+
 def _native_dialogue_binding_failures(project: dict, profile: dict) -> list[str]:
     """Forbid redubbing a speaking multimodal shot with another audio source."""
     failures: list[str] = []
     metadata = project.get("metadata") or {}
+    voice_over_failures, voice_over_wavs = voice_over_binding_failures(project)
+    failures.extend(voice_over_failures)
     expected_policy = str(profile.get("source_audio_policy") or "")
     if metadata.get("source_audio_policy") != expected_policy:
         failures.append("SOURCE_AUDIO_POLICY_PROFILE_MISMATCH")
@@ -91,6 +120,14 @@ def _native_dialogue_binding_failures(project: dict, profile: dict) -> list[str]
             continue
         for clip in track.get("clips") or []:
             clip_meta = clip.get("metadata") or {}
+            if clip_meta.get("audio_origin") == "VOICE_OVER_NARRATION":
+                # admitted only when its file is one of the sha-bound S4 V.O. wavs
+                label = str(clip.get("id") or "UNKNOWN")
+                source_sha = _voice_over_module().file_sha256(
+                    Path(str(clip.get("source") or "")).expanduser()) if clip.get("source") else None
+                if not source_sha or source_sha not in voice_over_wavs:
+                    failures.append(f"VOICE_OVER_AUDIO_NOT_BOUND:{label}")
+                continue
             dialogue_lines = clip_meta.get("dialogue_lines") or []
             expected_text = str(clip_meta.get("expected_text") or "")
             classification = str(clip_meta.get("dialogue_classification") or "")

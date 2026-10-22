@@ -24,6 +24,9 @@ import argparse, json, sys, datetime
 from pathlib import Path
 
 import nalu_policy_profile as _policy_profile
+if str(Path(__file__).resolve().parents[4] / "tools") not in sys.path:
+    sys.path.append(str(Path(__file__).resolve().parents[4] / "tools"))
+import voice_over_narration as _vo  # V.O. lines are not in the video: R3/R4/R7/R8 judge in-video dialogue
 
 POLICY = {"locked_share_max": 0.35, "locked_dialogue_seconds_max": 5.0, "same_axis_run_max": 2,
           "authority": "Roger 2026-09-13 + SUPERVISOR_ORDERS seq=7 PACING_E02_PLUS"}
@@ -61,6 +64,17 @@ def _dialogue(shot: dict) -> bool:
 
 def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> dict:
     shots = list(contract.get("shots") or [])
+    vo_entities = contract.get("character_entities") or []
+    if _vo.voice_over_character_ids(vo_entities):
+        # a VOICE_ONLY_NO_PLATE narrator's line never reaches the video model; its timing is the
+        # S2 window rule (VOICE_OVER_WINDOW_TOO_SHORT), so these rules see in-video dialogue only
+        language = _vo.contract_language(contract)
+        shots = [
+            {**sh, "prompt_spec": {**(sh.get("prompt_spec") or {}), "dialogue": _vo.in_video_dialogue(
+                (sh.get("prompt_spec") or {}).get("dialogue"), vo_entities, language)}}
+            if isinstance((sh.get("prompt_spec") or {}).get("dialogue"), str) else sh
+            for sh in shots
+        ]
     rows, failures = [], []
     prev_locked = False
     axis_run, prev_key, prev_scene = 0, None, None

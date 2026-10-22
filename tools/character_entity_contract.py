@@ -10,6 +10,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
+try:
+    from tools import voice_over_narration as _vo
+except ImportError:  # direct execution from tools/
+    import voice_over_narration as _vo  # type: ignore
+
 
 SCHEMA = "qingshan.character_entity_contract.v1"
 ACTIVE_FROM_EPISODE = 54
@@ -85,6 +90,9 @@ def validate_character_entity_contract(payload: dict[str, Any]) -> dict[str, Any
     if not required and not payload.get("character_entities"):
         return {"schema": "qingshan.character_entity_gate.v1", "status": "PASS", "required": False, "failures": []}
     by_id, aliases, failures = build_character_index(payload)
+    # V.O. narrator (VOICE_ONLY_NO_PLATE, CURRENT_PORTABLE): never on screen, so it is judged like an
+    # off-screen voice — no visible-cast row and no lip owner.  Empty set -> nothing changes.
+    voice_over_ids = _vo.voice_over_character_ids(list(by_id.values()))
     # entry_state is authored on the shot while _specs() yields prompt_spec, so pair
     # the two lists positionally to keep each shot id and its entry line next to its
     # spec.  Some payloads carry no shot rows and inline entry_state in the spec.
@@ -202,7 +210,8 @@ def validate_character_entity_contract(payload: dict[str, Any]) -> dict[str, Any
             failures.append(f"{sid}_DIALOGUE_ROLE_SPEAKER_MISMATCH:{speaker_name}:{speaker_id}:{role_speaker_id}")
         presence = role.get("entity_presence") or {}
         states = role.get("entity_states") or {}
-        offscreen = role_speaker_id and _clean(presence.get(role_speaker_id)) == "OFFSCREEN_VOICE_ONLY"
+        offscreen = role_speaker_id and (_clean(presence.get(role_speaker_id)) == "OFFSCREEN_VOICE_ONLY"
+                                         or role_speaker_id in voice_over_ids)
         if role_speaker_id and role_speaker_id not in cast_ids and not offscreen:
             failures.append(f"{sid}_DIALOGUE_SPEAKER_NOT_IN_VISIBLE_CAST:{role_speaker_id}")
         lip_owner_id = _clean(role.get("lip_owner_id"))

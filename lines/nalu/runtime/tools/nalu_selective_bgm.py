@@ -114,6 +114,7 @@ class Paths:
         self.project = project or self.assembly / f"{episode}_agentcut_project.json"
         self.release_timeline = self.assembly / f"{episode}_release_timeline.json"
         self.unit_asr = self.assembly / f"{episode}_unit_asr.json"
+        self.voice_over_placement = self.assembly / f"{episode}_voice_over_placement.json"  # S7 V.O. (optional)
         self.plan = self.assembly / f"{episode}_BGM_PLAN.json"
         self.selection = self.assembly / f"{episode}_BGM_SELECTION.json"
         self.stem = self.assembly / f"{episode}_bgm_stem.wav"                    # solo music, cue-only, unity gain (gate)
@@ -371,6 +372,7 @@ def cmd_plan(a: argparse.Namespace) -> int:
     timeline = read_json(p.release_timeline, {})
     grouping = read_json(p.grouping, {})
     asr = read_json(p.unit_asr, {}) or {}
+    voice_over = list((read_json(p.voice_over_placement, {}) or {}).get("rows") or [])
     if not timeline or not grouping:
         raise SystemExit(f"release timeline / grouping plan missing: {p.release_timeline} {p.grouping}")
     seg_by_unit = {s["unit_id"]: s for s in timeline["segments"]}
@@ -413,6 +415,14 @@ def cmd_plan(a: argparse.Namespace) -> int:
                 ds, de = u0 + float(row["start"]), u0 + float(row["end"])
                 if de > t0 and ds < t1:
                     dialogue.append({"start": round(max(ds, t0), 3), "end": round(min(de, t1), 3), "unit_id": uid})
+        # V.O. narration mixed in at S7 (release-timeline seconds): music ducks under it like dialogue
+        for row in voice_over:
+            ds, de = float(row["start"]), float(row["end"])
+            if de > t0 and ds < t1:
+                dialogue.append({"start": round(max(ds, t0), 3), "end": round(min(de, t1), 3),
+                                 "unit_id": None, "source": "VOICE_OVER", "shot_id": row.get("shot_id")})
+        if voice_over:
+            dialogue.sort(key=lambda w: w["start"])
         cues_out.append({"cue_id": cue_id, "narrative_function": func, "source_key": cue["source_key"],
                          "shots": shots, "timeline_start": t0, "duration": round(t1 - t0, 3),
                          "volume": volume, "dialogue_duck_db": duck, "dialogue_windows": dialogue,

@@ -48,6 +48,13 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
   无脸的牌只会 `FACE_COUNT_ZERO`、永远锁不上。把它写成 `non_character_entities` 的生物/道具卡（镜头里作为 props 出现），这一类不测人脸。
   它若还要说话，另在 `character_entities` 留一行声音角色，`identity_source.mode = VOICE_ONLY_NO_PLATE`（不出身份牌，只建配音；E05 乌鸦先例）。
   只有声音、画面上没有形象的旁白同样用 `VOICE_ONLY_NO_PLATE`。
+- 旁白（V.O.）照对白写：在镜头的 `prompt_spec.dialogue` 里写 `旁白角色名：台词`（英文剧也用全角冒号分隔），`audio_contract.dialogue_units`
+  照常一行（speaker_id 写该 `VOICE_ONLY_NO_PLATE` 角色）；旁白角色不进 `cast`，`lip_owner_id` 留空。凡说话人是 `VOICE_ONLY_NO_PLATE`
+  角色的台词，引擎自动当旁白处理（CURRENT_PORTABLE）：S2 把它移出视频对白（写进 `prompt_spec.voice_over`，视频模型不生成这句、不要身份牌），
+  S4 用该角色锁定的配音逐句合成并做免费识别核对，S7 在原生成片上压低现场声、混入旁白并按实际时长上字幕。不要为旁白另设流程或手动配音。
+  时长规则（S2 免费检查，不满足即 `VOICE_OVER_WINDOW_TOO_SHORT:<镜>:<需要>:<可用>`）：需要 = 0.3 s 起始留白 + 每句旁白时长
+  （中文汉字数/4、英文词数/2.7，各 +0.5 后向上取整到 0.5）+ 句间 0.25 s；可用 = 本镜开始 → 下一个有画内对白或旁白的镜头开始（或集尾）。
+  旁白可以盖过后面的无对白镜，但不能压到画内对白上（S7 实测重叠即 `VOICE_OVER_OVERLAPS_DIALOGUE`）。只含旁白的镜头按无对白镜写（要有动作/运镜）。
 - `runtime/nalu_entity_registry.json` 每个说话角色一行（`$S/apply_runtime_fixups.py --character 名=CHAR-ID:slug`，编排代理已跑过；新增角色时你补跑）。
 
 ## 3. 付费授权、版权与预算（默认条款，不问）

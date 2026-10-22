@@ -207,12 +207,14 @@
     "tools/tests/test_storyclaw_writer_workflow.py",
     "tools/tests/test_unit_action_continuity_contract.py",
     "tools/tests/test_video_preintent_failure_classification.py",
+    "tools/tests/test_voice_over_narration.py",
     "tools/tests/test_write_off_charged_losses.py",
     "tools/unit_action_continuity_contract.py",
     "tools/unit_timing_map.py",
     "tools/video_prompt_compiler.py",
     "tools/video_unit_grouping_gate.py",
     "tools/visual_culture_contract.py",
+    "tools/voice_over_narration.py",
     "tools/voice_cast_gate.py",
     "tools/write_off_charged_losses.py",
     "tools/writer_production_field_gate.py",
@@ -343,6 +345,7 @@
     "tools.tests.test_video_prompt_compiler",
     "tools.tests.test_visual_culture_contract",
     "tools.tests.test_voice_cast_gate",
+    "tools.tests.test_voice_over_narration",
     "tools.tests.test_write_off_charged_losses",
     "tools.tests.test_writer_production_field_gate"
   ]

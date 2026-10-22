@@ -84,6 +84,24 @@ def unit_role(unit: dict) -> str:
     return "AMBIENCE"
 
 
+def voice_over_windows(placement_path: Path | None) -> list[tuple[float, float]]:
+    """Release-timeline windows of V.O. narration mixed in at S7.
+
+    Mixed-in narration is not provider-native audio, so it is accepted only with its
+    sha-bound evidence chain (placement -> S4 manifest -> every wav); otherwise the
+    leveller refuses to run (fail closed)."""
+    if placement_path is None:
+        return []
+    try:
+        from tools import voice_over_narration as vo
+    except ImportError:
+        import voice_over_narration as vo  # type: ignore
+    failures = vo.binding_failures(placement_path)
+    if failures:
+        raise RuntimeError("VOICE_OVER_PLACEMENT_UNBOUND:" + ";".join(failures))
+    return [(float(row["start"]), float(row["end"])) for row in vo.windows_from_placement(placement_path)]
+
+
 def level_release(
     *, source: Path, timeline_path: Path, grouped_path: Path,
     output: Path, qa_path: Path, episode: str, version: str,
@@ -91,6 +109,7 @@ def level_release(
     line_windows: list[dict] | None = None,
     line_band_lufs: tuple[float, float] = (-18.0, -12.0),
     line_target_lufs: float = -13.5,
+    voice_over_placement: Path | None = None,
 ) -> dict:
     """``line_windows`` (seq=19 C3, 2026-09-17): dialogue windows [{start, end}] on the release timeline.
     After each render every window is measured (ebur128 on the OUTPUT); a window outside
@@ -119,11 +138,14 @@ def level_release(
     # limiter and the per-segment gating shift the rendered result by several LU (E02: VU-001 landed
     # 4 LU above its prediction, VU-006 2 LU below).  Render, measure the OUTPUT per unit, and
     # refine the per-unit gain toward (role target + program gain) — up to 3 passes.
+    narration = voice_over_windows(voice_over_placement)
     measured_inputs = []
     for segment in segments:
         uid = segment["unit_id"]
         start, end = float(segment["output_start"]), float(segment["output_end"])
         role = unit_role(units[uid])
+        if role != "DIALOGUE" and any(we > start and ws < end for ws, we in narration):
+            role = "DIALOGUE"  # a unit carrying bound V.O. narration is levelled as speech
         measured_inputs.append((uid, start, end, role,
                                 measure_loudness(source, start_seconds=start, duration_seconds=end - start)))
     outro_measured = measure_loudness(
@@ -291,6 +313,12 @@ def level_release(
                            "windows": line_rows, "gains_db": line_adjust} if line_windows else None,
         "failures": failures,
     }
+    if voice_over_placement is not None:
+        payload["voice_over_narration"] = {
+            "placement": str(voice_over_placement), "placement_sha256": sha256(voice_over_placement),
+            "windows": [[round(ws, 3), round(we, 3)] for ws, we in narration],
+            "binding": "PASS_SHA_BOUND_TO_S4_MANIFEST_AND_WAVS",
+        }
     qa_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return payload
 
@@ -306,6 +334,8 @@ def main() -> int:
     parser.add_argument("--version", required=True)
     parser.add_argument("--expected-sha256")
     parser.add_argument("--line-windows", type=Path, help="dialogue windows [{start,end}] on the release timeline (seq=19 C3 line levelling)")
+    parser.add_argument("--voice-over-placement", type=Path,
+                        help="S7 <EP>_voice_over_placement.json; mixed-in narration must be sha-bound to the S4 manifest")
     args = parser.parse_args()
     payload = level_release(
         source=args.source.resolve(), timeline_path=args.timeline.resolve(),
@@ -314,6 +344,7 @@ def main() -> int:
         expected_sha256=args.expected_sha256,
         line_windows=(json.loads(args.line_windows.read_text(encoding="utf-8"))
                       if args.line_windows and args.line_windows.is_file() else None),
+        voice_over_placement=args.voice_over_placement.resolve() if args.voice_over_placement else None,
     )
     print(json.dumps({
         "status": payload["status"], "output": payload["output_release"],

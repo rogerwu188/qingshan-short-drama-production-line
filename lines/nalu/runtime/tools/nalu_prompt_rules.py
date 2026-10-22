@@ -93,10 +93,24 @@ def _spoken_chars(text: str) -> int:
     return len(re.sub(r"[^一-鿿0-9A-Za-z]", "", text or ""))
 
 
-def min_dialogue_seconds(text: str, cps: float | None) -> float:
-    """seq=29 规则 5a：台词秒数 + 0.5 s，向上取整到 0.5 s（10 字 @5.0 字/秒 → 2.5 s）。"""
+#: English lines are timed in words (tools/dialogue_cut_safety.DEFAULT_ENGLISH_WORDS_PER_SECOND).
+DEFAULT_EN_WPS = 2.7
+
+
+def _spoken_words(text: str) -> int:
+    return len(re.findall(r"[A-Za-z0-9]+(?:['\u2019][A-Za-z0-9]+)*", text or ""))
+
+
+def min_dialogue_seconds(text: str, cps: float | None, language: str = "zh") -> float:
+    """seq=29 规则 5a：台词秒数 + 0.5 s，向上取整到 0.5 s（10 字 @5.0 字/秒 → 2.5 s）。
+
+    ``language="en"`` counts words at ``cps`` words/s (default 2.7); the default
+    ``zh`` path is unchanged."""
     import math
-    raw = _spoken_chars(text) / float(cps or DEFAULT_CPS) + DLG_LEAD_S + DLG_TAIL_S
+    if language == "en":
+        raw = _spoken_words(text) / float(cps or DEFAULT_EN_WPS) + DLG_LEAD_S + DLG_TAIL_S
+    else:
+        raw = _spoken_chars(text) / float(cps or DEFAULT_CPS) + DLG_LEAD_S + DLG_TAIL_S
     return math.ceil(raw / DLG_ROUND_S - 1e-9) * DLG_ROUND_S
 
 
