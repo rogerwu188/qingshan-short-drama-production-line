@@ -1803,8 +1803,31 @@ def precheck_each_task(python: Path, engine_root: Path, manifest_path: Path,
 # main
 # --------------------------------------------------------------------------- #
 
-def derived_opener_shot_ids(inputs: "Inputs") -> set[str]:
-    """First shots of units whose opening_anchor_contract.source is CONTINUITY_DERIVED_KEYFRAME (D-68)."""
+CUT_TRANSITION_MODES = {"MOTIVATED_CUT", "REACTION_CUT", "MATCH_CUT", "HARD_CUT"}
+
+
+def _authored_cut(contract: dict[str, Any], prev_last: str, first: str) -> bool:
+    """CAMERA_GRAMMAR_V1: the writer authored a cut, or the scene changes, between these two shots."""
+    shots = {str(s.get("shot_id")): s for s in contract.get("shots") or []}
+    if str((shots.get(prev_last) or {}).get("scene_id")) != str((shots.get(first) or {}).get("scene_id")):
+        return True
+    return any(str(r.get("from_shot_id")) == prev_last and str(r.get("to_shot_id")) == first
+               and str(r.get("transition_mode") or "").upper() in CUT_TRANSITION_MODES
+               for r in contract.get("internal_transition_authoring") or [])
+
+
+def derived_opener_shot_ids(inputs: "Inputs", *, camera_grammar: bool | None = None) -> set[str]:
+    """First shots of units whose opening_anchor_contract.source is CONTINUITY_DERIVED_KEYFRAME (D-68).
+
+    CAMERA_GRAMMAR_V1 (2026-10-22): for a contract under the policy, a unit whose incoming boundary is an
+    authored cut or a scene change keeps its own keyframe, so a scripted cut reads as a cut, not a drift
+    from the previous tail.  Contracts outside the policy keep D-68 unchanged."""
+    if camera_grammar is None:
+        try:
+            from tools.camera_grammar_policy import active
+            camera_grammar = active(inputs.contract, episode=inputs.episode)
+        except ImportError:
+            camera_grammar = False
     try:
         plan = load_json(inputs.grouping_plan_path)
         anchors = inputs.anchor_plan
@@ -1827,6 +1850,8 @@ def derived_opener_shot_ids(inputs: "Inputs") -> set[str]:
         # previous tail (it would open on the wrong person); only same-cast continuations stay tail-derived.
         prev_last = last_of_previous.get(uid)
         if prev_last and cast.get(first[uid], frozenset()) != cast.get(prev_last, frozenset()):
+            continue
+        if camera_grammar and prev_last and _authored_cut(inputs.contract, prev_last, first[uid]):
             continue
         out.add(first[uid])
     return out
@@ -2037,6 +2062,10 @@ def main(argv: list[str] | None = None) -> int:
         ),
         "credits": credit_estimate(engine_root, len(selected)),
     }
+    # CAMERA_GRAMMAR_V1: openers that now get their own keyframe instead of the previous tail
+    cut_openers = sorted(derived_opener_shot_ids(inputs, camera_grammar=False) - derived_openers)
+    if cut_openers:
+        report["camera_grammar_cut_openers"] = cut_openers
 
     if args.precheck_only:
         batch_out = report_path.parent / f"{out_path.stem}_precheck.json"

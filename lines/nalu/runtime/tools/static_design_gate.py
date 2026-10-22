@@ -15,6 +15,9 @@ Free, offline.  Reads <EP>_GENERATION_CONTRACT_v1.json and checks the authored c
   R8  (seq=10) a dialogue shot must last >= spoken_chars/cps + 1.0 s lead + 0.5 s tail (E02-VU-029's last
       syllable was cut)
 
+CAMERA_GRAMMAR_V1 (line owner 2026-10-22; contracts declaring camera_grammar_policy=CAMERA_GRAMMAR_V1 only):
+the forced-motion rules R1-R4/R6/R7 are REPORT_ONLY ("advisories"), and English dialogue is timed in words.
+
 E01 (delivered under the old rules) is REPORT_ONLY; E02+ BLOCK on any failure of R1-R6.  R7/R8 are REPORT_ONLY
 for E01/E02 (already generated; the E02 reroll shots were restaged by hand) and BLOCK from E03.
 exit 0 PASS / REPORT_ONLY, 3 BLOCK, 2 unreadable.
@@ -27,10 +30,13 @@ import nalu_policy_profile as _policy_profile
 if str(Path(__file__).resolve().parents[4] / "tools") not in sys.path:
     sys.path.append(str(Path(__file__).resolve().parents[4] / "tools"))
 import voice_over_narration as _vo  # V.O. lines are not in the video: R3/R4/R7/R8 judge in-video dialogue
+import camera_grammar_policy as _cg
 
 POLICY = {"locked_share_max": 0.35, "locked_dialogue_seconds_max": 5.0, "same_axis_run_max": 2,
           "authority": "Roger 2026-09-13 + SUPERVISOR_ORDERS seq=7 PACING_E02_PLUS"}
 REPORT_ONLY_EPISODES = {"E01"}
+#: CAMERA_GRAMMAR_V1: a LOCKED / slow push-in shot is a valid choice; these rules only advise.
+ADVISORY_UNDER_GRAMMAR = {"R1", "R2", "R3", "R4", "R6", "R7"}
 R7R8_REPORT_ONLY_EPISODES = {"E01", "E02"}   # seq=10 rules; BLOCK from E03
 
 
@@ -75,7 +81,9 @@ def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> d
             if isinstance((sh.get("prompt_spec") or {}).get("dialogue"), str) else sh
             for sh in shots
         ]
-    rows, failures = [], []
+    grammar = _cg.active(contract)  # CAMERA_GRAMMAR_V1: forced-motion rules only advise
+    language = _vo.contract_language(contract) if grammar else "zh"
+    rows, failures, advisories = [], [], []
     prev_locked = False
     axis_run, prev_key, prev_scene = 0, None, None
     for i, sh in enumerate(shots):
@@ -134,7 +142,10 @@ def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> d
                     str(x.get("text") if isinstance(x, dict) else x) for x in (dtxt or []))
                 dtxt = dtxt.split("：", 1)[1] if "：" in dtxt[:8] else dtxt
                 cps = (sh.get("dialogue_delivery") or {}).get("chinese_characters_per_second")
-                need = npr.min_dialogue_seconds(dtxt, cps)
+                if language == "en":  # words, not letters (CAMERA_GRAMMAR_V1 contracts only)
+                    dtxt = dtxt.split(":", 1)[1] if ":" in dtxt[:24] else dtxt
+                    cps = (sh.get("dialogue_delivery") or {}).get("english_words_per_second")
+                need = npr.min_dialogue_seconds(dtxt, cps, language)
                 if secs < need:
                     row["flags"].append(f"R8_DIALOGUE_SHOT_SHORTER_THAN_{need:g}S")
         except Exception as exc:  # noqa: BLE001 - the rule module is optional for old contracts
@@ -153,15 +164,20 @@ def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> d
             and str(contract.get("episode") or contract.get("episode_id") or "")
             in R7R8_REPORT_ONLY_EPISODES
         )
-        failures.extend(f"{sid}:{f}" for f in row["flags"]
-                        if not (report_only and (f.startswith("R7_") or f.startswith("R8_"))))
+        for f in row["flags"]:
+            if report_only and (f.startswith("R7_") or f.startswith("R8_")):
+                continue
+            (advisories if grammar and f.split("_", 1)[0] in ADVISORY_UNDER_GRAMMAR else failures).append(f"{sid}:{f}")
     locked_n = sum(1 for r in rows if r["motion_family"] in ("LOCKED", "STATIC", "MISSING"))
     share = round(locked_n / len(rows), 3) if rows else 0.0
     if rows and share > policy["locked_share_max"]:
         # P1.3 TODO (codex §2.5): when motion-purpose is active, R1 should count
         # locked shots WITHOUT valid motivation + body action, not all locked shots.
-        failures.insert(0, f"R1_LOCKED_SHARE_{share}_OVER_{policy['locked_share_max']}")
-    return {"shot_count": len(rows), "locked_count": locked_n, "locked_share": share, "rows": rows, "failures": failures}
+        (advisories if grammar else failures).insert(0, f"R1_LOCKED_SHARE_{share}_OVER_{policy['locked_share_max']}")
+    result = {"shot_count": len(rows), "locked_count": locked_n, "locked_share": share, "rows": rows, "failures": failures}
+    if grammar:
+        result.update({"camera_grammar_policy": _cg.POLICY_ID, "advisories": advisories})
+    return result
 
 
 def main() -> int:

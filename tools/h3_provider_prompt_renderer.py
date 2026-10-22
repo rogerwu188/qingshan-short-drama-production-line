@@ -104,12 +104,21 @@ def _optical(plan: dict[str, Any]) -> str:
     return "; " + "; ".join(optical) if optical else ""
 
 
+def _camera_grammar_clause(plan: dict[str, Any]) -> str:
+    """CAMERA_GRAMMAR_V1 film-grammar wording, only for plans stamped camera_grammar (else "")."""
+    if plan.get("camera_grammar") != "CAMERA_GRAMMAR_V1":
+        return ""
+    if str(plan.get("motion_family") or "STATIC").upper() in {"STATIC", "LOCKED"}:
+        return "; a still, composed frame: the action plays inside it, no drift"
+    return "; a motivated move: it starts with the action, settles on the end framing and holds; never sweep across empty space"
+
+
 def _camera(plan: dict[str, Any]) -> str:
     """Legacy unit camera line (gate off).  Kept byte-identical."""
     family = str(plan.get("motion_family") or "STATIC").upper()
     direction = str(plan.get("motion_direction") or "NONE").upper()
     scale = str(plan.get("shot_scale") or "MEDIUM").upper()
-    suffix = _optical(plan)
+    suffix = _optical(plan) + _camera_grammar_clause(plan)
     return f"shot scale={scale}; {_MOTION_MAPPING.get(family, family)}; direction={direction}; execute the declared move once{suffix}"
 
 # ---------------------------------------------------------------------------
@@ -338,7 +347,7 @@ def _camera_scoped(camera_plan: dict[str, Any], english: dict[str, str]) -> str:
             parts.append(f"start framing: {start}")
         if end:
             parts.append(f"the move lands on and holds the end framing: {end}")
-    return "; ".join(parts) + _optical(camera_plan)
+    return "; ".join(parts) + _optical(camera_plan) + _camera_grammar_clause(camera_plan)
 
 
 def _shot_rows(unit: dict[str, Any], plan: dict[str, Any], action_beats: list[dict[str, Any]]) -> list[dict[str, Any]]:

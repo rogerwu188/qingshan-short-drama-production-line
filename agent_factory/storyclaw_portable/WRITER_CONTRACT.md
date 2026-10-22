@@ -83,6 +83,26 @@ writer run; sealed older bytes remain unchanged.
   performance, sound, and start/end state evidence required by the registered
   gates. Missing fields remain a failure; do not lower thresholds.
 
+## Camera grammar (CAMERA_GRAMMAR_V1)
+
+`finalize` stamps `"camera_grammar_policy": "CAMERA_GRAMMAR_V1"` on every newly sealed contract. It adds no
+blocking check; direct the episode the way people watch films:
+
+- The camera does not have to move. A no-dialogue shot may be `LOCKED` or a slow `DOLLY` `PUSH_IN` when someone
+  performs inside the frame, or when it is a short atmosphere/insert shot. Do not move the camera to avoid a
+  static shot, and do not alternate directions for their own sake.
+- Move the camera only for a reason: follow a moving subject, reveal what comes next, emphasise a beat, or a
+  character's point of view. Never sweep across empty space or let the subject leave frame and return.
+- Open every new location with an establishing framing (`shot_scale` `WIDE` or `MEDIUM_WIDE`) within its first
+  two shots; at most two consecutive shots at the same `shot_scale`; cover a spoken line's listener with a
+  reaction shot.
+- Write the cuts the script implies: `internal_transition_authoring.transition_mode` `MOTIVATED_CUT` /
+  `REACTION_CUT` / `MATCH_CUT` / `HARD_CUT` (or a scene change) makes the next video unit open on its own
+  keyframe, a clean cut; continuous modes keep the previous unit's real tail as the start frame.
+
+Under this policy the S1 static design gate reports its old forced-motion rules (R1–R4, R6, R7) as
+`advisories`; they never block.
+
 ## Provenance and privacy
 
 The installed TalentHub agent id is `ai-drama-factory`, the provider is

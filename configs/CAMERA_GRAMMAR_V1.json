@@ -1,0 +1,13 @@
+{
+  "schema": "qingshan.camera_grammar_policy.v1",
+  "policy_id": "CAMERA_GRAMMAR_V1",
+  "authority": "Line owner 2026-10-22: Twelve Gazes E01 viewer review (forced camera motion, mechanical direction alternation, scripted cuts rendered as drifts). Quality from better direction, not more gates.",
+  "enabled_episodes": [],
+  "activation_note": "Never retroactive. Active only when the generation contract declares camera_grammar_policy=CAMERA_GRAMMAR_V1 (storyclaw finalize stamps newly sealed contracts) or the episode is listed here. LEGACY_FORCED_MOTION opts out.",
+  "effects": [
+    "static_design_gate: forced-motion rules R1-R4/R6/R7 are REPORT_ONLY advisories; English dialogue timed in words (R8)",
+    "camera plans stamped camera_grammar: grouped adjacent-direction and five-unit direction caps dropped (identical family+direction check kept)",
+    "h3_provider_prompt_renderer: short film-grammar camera clause",
+    "build_keyframe_manifest: an authored cut or scene change opens on its own keyframe instead of the previous tail"
+  ]
+}

@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2182,
+  "file_count": 2185,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -149,7 +149,7 @@
     },
     {
       "path": "agent_factory/claude_writer_v2/schemas/generation_contract.schema.json",
-      "sha256": "f347abae4e5c8ca6ed2769d056d47d15db6baf6ae6fcade29ed28046bda943c9"
+      "sha256": "5486bdaf5bd9bca6d1f40eb130b31506a5ab27f3e0afb12ab2631457b42d9e1d"
     },
     {
       "path": "agent_factory/claude_writer_v2/schemas/manifest.schema.json",
@@ -197,7 +197,7 @@
     },
     {
       "path": "agent_factory/storyclaw_portable/WRITER_CONTRACT.md",
-      "sha256": "1aaaadaeedd73188ef0c726950a9246d21c678089a26b8314e6b0f3f55bbf285"
+      "sha256": "98cc20635b827271f70ce1719c8adc937b76a719636d228541e8a096b70dac05"
     },
     {
       "path": "configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json",
@@ -216,6 +216,10 @@
       "sha256": "b34444116919b408965b62d35212aa911757e26ab77618202fd573354ed8a0e1"
     },
     {
+      "path": "configs/CAMERA_GRAMMAR_V1.json",
+      "sha256": "2bb3f8ae896e787c0bb0516b87003d773eb83a5ccf8c27b4a12a3219d8c4873c"
+    },
+    {
       "path": "configs/COMBAT_ACTION_LIBRARY_V1.json",
       "sha256": "23af3e4be699f125e925fa90af3f470cc671b15b0528d9fbe9b6531ad25c9c96"
     },
@@ -225,7 +229,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "1c2f7b61445faec55c803d415987cdc8e7633bce6ee29a097edae5710b854106"
+      "sha256": "147c628ce0b59bc9aae793d6699f4a2e42dd296a922ba8fa55e8ec2e6077751d"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -261,7 +265,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "a6950fdb14def35d52835f8d201cfcfee997b3706a3f0260e5a23290624721e8"
+      "sha256": "8f248004a556579390370b33d5604c27fcbb92406f94ae3b6f3c3db34909f583"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -329,7 +333,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "dfe144e8facac02ddcca623bee27d6fa9ae392b826da6adf24de6ac418d8c9cf"
+      "sha256": "24101094a4727ea8eaa09f7257a0179cb2e76c0762ec1f8f2a08365d189276e2"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -361,11 +365,11 @@
     },
     {
       "path": "lines/nalu/docs/DEPLOY_NEW_MACHINE.md",
-      "sha256": "1aa1624a8ddae6cebcc2a0830b5f05c506d0282bbb8e18df81c9f547523b3d93"
+      "sha256": "d34f697e0d50d04c025e73cb81fc57647195afbf4af92c9d13efce7ce5800834"
     },
     {
       "path": "lines/nalu/docs/PIPELINE_RUNBOOK.md",
-      "sha256": "ce758a873245452b1671ef7b6c881ba4398cdcca345193591fb64837ea005ee5"
+      "sha256": "2c2ffd9d740e8f5caabfacb371b448b522bb26c3eb3a613c0c9e386b4b2daad4"
     },
     {
       "path": "lines/nalu/docs/PORT_PARITY_REPORT.md",
@@ -549,7 +553,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_keyframe_manifest.py",
-      "sha256": "f10fbe346757cbb44b732ac2b1eea836d4d6741436e64fce279145d580d6298f"
+      "sha256": "421663e5deac90f578339a6f47ad3591c29acabcf266f7e71d7e1e4bbd2adcc1"
     },
     {
       "path": "lines/nalu/runtime/tools/build_measured_edit_constraints.py",
@@ -557,7 +561,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "54c205eac69f1f9a061374614bd35f877f61476c1689cb32b26a1ee83da22c87"
+      "sha256": "64d5c95777d2da1e87ccbd8e51730a8b495aa5fe9593d09309013d837f3aa95a"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -741,7 +745,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/static_design_gate.py",
-      "sha256": "d4c8f52d65e47a19fd455da7348a70999d6dd09752186edc02d48f072717574f"
+      "sha256": "655bfef1a8028821b2febd4fb0a5a3a2e50a80bcae41c35e3c3c0edb72374ce3"
     },
     {
       "path": "lines/nalu/runtime/tools/tests/test_standing_rule_auto_acceptance.py",
@@ -789,7 +793,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "7b239608581010d8658d5355cf832ff7d4da59be5cebfb795b70c9b7b9151509"
+      "sha256": "37238316a5d1c95a4505cc5d34b78b2589715ebe7ea9cd97bf7596d331e5a9d0"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -3565,7 +3569,7 @@
     },
     {
       "path": "tools/build_video_unit_grouping_spec.py",
-      "sha256": "47d9e32244b882781e4e2ac01713599bbc2566f35c482a078f8d95cf35522d84"
+      "sha256": "0ad37f404b1dc7f26bc481b54b494054b374356c44d952ba7246bf475be2d699"
     },
     {
       "path": "tools/build_writer_agent_image_batch.py",
@@ -3586,6 +3590,10 @@
     {
       "path": "tools/burn_e40_v16_canonical_subtitles.py",
       "sha256": "9e192e86d1cb45fc87e7c52702922017588067ebe991b4bb6bdbd441100c5a58"
+    },
+    {
+      "path": "tools/camera_grammar_policy.py",
+      "sha256": "061dfa65848f38d0d88274fc6ef6e4b1c3eb6ff248efc4c4fcc6ab60cef4baac"
     },
     {
       "path": "tools/camera_language_selector.py",
@@ -4825,7 +4833,7 @@
     },
     {
       "path": "tools/grouped_camera_contract.py",
-      "sha256": "518ffa23f163fd15cdcad6da159f90b32ae7980e6e7e64c2f9fefddb5d89b91a"
+      "sha256": "4b7dfd4c741fc0adc3271fc47d390effdaffcb1bd0019b7f29476327a9e3086d"
     },
     {
       "path": "tools/grouped_continuity_gate.py",
@@ -4861,7 +4869,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "dc21e98df9095f803221d126222a293dd26f0145db34ee2b6fab42eeb1a5976d"
+      "sha256": "ca732ee3baf4fae9b2469d469b74e2ea20f80c63ba563991ea82caa0c86eb225"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -6333,7 +6341,7 @@
     },
     {
       "path": "tools/storyclaw_writer_workflow.py",
-      "sha256": "b43b5482176d868c886fcd600d862b3150e3366ee51a848ce8a1d9aec4454b8a"
+      "sha256": "f57e01f0a0985f12642864fa1f999a6886f1c9c01ec4ea9556dea8de51c55389"
     },
     {
       "path": "tools/submit_e18_e19_omni_multimodal_batch.py",
@@ -6854,6 +6862,10 @@
     {
       "path": "tools/tests/test_burnin_subtitle_time_mapping.py",
       "sha256": "9a375eb5837fd34eb2a753a6509f0ac0d804c4eeed1838e71d1718ff5ce387db"
+    },
+    {
+      "path": "tools/tests/test_camera_grammar_policy.py",
+      "sha256": "0b4b57301a014e6f58a084d002a7e4bd6cbbb1cd56fe256b678557dcdd0b29a1"
     },
     {
       "path": "tools/tests/test_camera_language_selector.py",

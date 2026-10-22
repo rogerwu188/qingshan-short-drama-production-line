@@ -67,8 +67,8 @@ python3 lines/nalu/runtime/tools/bootstrap_runtime_root.py --runtime-root "$RUNT
 
 | 阶段 | 前置 | 产出 | 门（免费） | 人工点 | 费用 | 停下来问人 |
 |---|---|---|---|---|---|---|
-| 写手 | 源章 zh-CN、上一集合同末镜 `completion_state`、SUPERVISOR_ORDERS | `scripts/<EP>_NARRATIVE_CANONICAL_v1.md`（手写）；`build_e0N_layers.py` → `DIRECTING_SCRIPT`、`GENERATION_CONTRACT`、`manifest` | 构建器自检：单镜 3–7 s、无对白 ≤5 s 且机位必动、R7/R8 台词时长、单场 ≤22 s、道具名出现在 action 就必须在 entry/exit、远景之后露脸镜声明 `identity_reanchor`、key_quote 逐字在源章、每场能切成 4–8 s 单元 | 写 narrative 与镜头表 | 0 | 需改剧本**文字**（非排版）时停 |
-| S1 | 四层文件 | gate10、实体合同、静态设计门报告 | `writer_scene_source_declaration_gate --warn-is-fail`；`character_entity_contract`（非人物主体 id 留空、别名跨角色唯一）；`static_design_gate` R1–R8（E03 起阻断） | 无 | 0 | — |
+| 写手 | 源章 zh-CN、上一集合同末镜 `completion_state`、SUPERVISOR_ORDERS | `scripts/<EP>_NARRATIVE_CANONICAL_v1.md`（手写）；`build_e0N_layers.py` → `DIRECTING_SCRIPT`、`GENERATION_CONTRACT`、`manifest` | 构建器自检：单镜 3–7 s、无对白 ≤5 s（旧合同机位必动；CAMERA_GRAMMAR_V1 合同不再强制运镜，运镜按动机、景别语法写进导演脚本，见 `configs/CAMERA_GRAMMAR_V1.json`）、R7/R8 台词时长、单场 ≤22 s、道具名出现在 action 就必须在 entry/exit、远景之后露脸镜声明 `identity_reanchor`、key_quote 逐字在源章、每场能切成 4–8 s 单元 | 写 narrative 与镜头表 | 0 | 需改剧本**文字**（非排版）时停 |
+| S1 | 四层文件 | gate10、实体合同、静态设计门报告 | `writer_scene_source_declaration_gate --warn-is-fail`；`character_entity_contract`（非人物主体 id 留空、别名跨角色唯一）；`static_design_gate` R1–R8（E03 起阻断；CAMERA_GRAMMAR_V1 合同的 R1–R4/R6/R7 只提示不阻断） | 无 | 0 | — |
 | S2 | 合同+manifest+`preproduction/<EP>/{asset_requirements_overlay,new_location_place_spec,view_reference_policy}.json` | D-10：空间图扩展 + 需求文件 + 提示词；引擎编辑清单/分组/锚点计划/关键帧清单 | 布局门、分组门、锚点计数门 | 新地点的作者命名（place spec）、覆盖文件里的服装/年龄/音色简述 | 0 | — |
 | S3 | 需求文件、角色源照、`runtime/asset_library.json`（跨集复用：LOCKED + sha 匹配即跳过） | 身份牌三视图 + 道具/构筑物卡 | precheck、预算守卫、身份审（缩略总表 + InsightFace 余弦）、非板类锁、`initial_asset_library gate` | **MANUAL_REQUIRED 身份审**：代理实际看图，`review_fill/e0N_fill_identity_answers.py` 填答 | 11/张 | 余弦 <0.30 的主角、源照与剧本年龄冲突 → 问线主 |
 | S4 | `voice/speech_task_payloads.json`（由 voice_catalog 生成） | 参考音 + registry 行 | ffprobe 48k mono、上传回执 | 挑音色 | 2/角色 | — |

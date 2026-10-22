@@ -204,13 +204,16 @@ def validate_camera_sequence(units: list[dict[str, Any]]) -> None:
                 f"adjacent grouped units repeat camera motion {family}:{direction}: "
                 f"{previous[2]} -> {unit_id}"
             )
-        if previous and previous[1] == direction:
+        # CAMERA_GRAMMAR_V1 (2026-10-22): plans stamped camera_grammar (build_nalu_preproduction) follow the
+        # story, not a rotation; only the identical family+direction repeat above applies to them.
+        free = plan.get("camera_grammar") == "CAMERA_GRAMMAR_V1"
+        if previous and previous[1] == direction and not free:
             raise ValueError(
                 f"adjacent grouped units repeat camera direction {direction}: "
                 f"{previous[2]} -> {unit_id}"
             )
         previous = (family, direction, unit_id)
-        if members[index]:
+        if members[index] and not free:
             dynamic.append((positions[index], direction, family, unit_id))
 
     for start in range(max(0, sum(members) - 4) + 1):
