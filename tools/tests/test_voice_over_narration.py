@@ -118,6 +118,17 @@ class SeparationTests(EditorialBase):
         self.assertEqual(manifest["voice_over_character_ids"], [LEDGER])
         self.assertNotIn("voice_over", manifest["shots"][1]["prompt_spec"])
 
+    def test_authored_delivery_is_dropped_on_a_narration_only_shot(self):
+        # Twelve Gazes E01 S2: a shot authored with dialogue_delivery whose only line is narration
+        # kept the delivery and grouped_performance_contract rejected it (no dialogue left).
+        narrated = shot("E01-S01-01", 6.0, "The Ledger：Subject: the Arbiter.", speaker_id=LEDGER)
+        narrated["dialogue_delivery"] = {"words_per_second": 2.4}
+        mixed = shot("E01-S01-02", 6.0, "Elias：Not yet.\nThe Ledger：Recorded.", cast=[ELIAS], speaker_id=ELIAS)
+        mixed["dialogue_delivery"] = {"words_per_second": 2.4}
+        manifest = self.build([narrated, mixed], entities())
+        self.assertNotIn("dialogue_delivery", manifest["shots"][0]["prompt_spec"])
+        self.assertEqual(manifest["shots"][1]["prompt_spec"]["dialogue_delivery"].get("words_per_second"), 2.4)
+
     def test_mixed_shot_keeps_the_on_screen_line_verbatim(self):
         manifest = self.build([shot("E01-S01-01", 6.0, "Elias：Not yet.\nThe Ledger：Recorded.",
                                     cast=[ELIAS], speaker_id=LEDGER)], entities())

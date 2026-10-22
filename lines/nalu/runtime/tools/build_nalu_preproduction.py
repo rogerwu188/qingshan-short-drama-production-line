@@ -1197,7 +1197,10 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
             **({"voice_over": voice_over} if voice_over else {}),
             # authored delivery rate (tools/dialogue_cut_safety.py reads
             # spec.dialogue_delivery.chinese_characters_per_second); passed through verbatim
-            **({"dialogue_delivery": shot["dialogue_delivery"]} if isinstance(shot.get("dialogue_delivery"), dict) else {}),
+            # (only when in-video dialogue remains: a narration-only shot is silent picture, and
+            # grouped_performance_contract forbids dialogue_delivery on a shot with no dialogue)
+            **({"dialogue_delivery": shot["dialogue_delivery"]}
+               if dialogue and isinstance(shot.get("dialogue_delivery"), dict) else {}),
             "visual_design": visual,
             "sound_design": sound,
             "audio_contract": "SAME_VIDEO_TASK_NATIVE_AUDIO" if dialogue else "DIEGETIC_OR_SILENT_NO_TTS",
