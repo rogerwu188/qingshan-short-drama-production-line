@@ -829,7 +829,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/self_update.sh",
-      "sha256": "2d0138dd4d7f66ed8b964fcd31887d8443198f69907a23ad3d57a4592b5a3997"
+      "sha256": "2f38698c901af743499734627d6bdcd210faf481f3db46616227635d6b211965"
     },
     {
       "path": "skills/nalu-claude-code/scripts/setup_host.sh",
