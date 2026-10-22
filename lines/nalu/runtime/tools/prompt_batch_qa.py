@@ -38,6 +38,9 @@ except ModuleNotFoundError:
     from lighting_participant_scope import scoped_lighting_line
 
 ENGINE = Path(f"{_np.ENGINE_ROOT}")
+if str(ENGINE / "tools") not in sys.path:
+    sys.path.append(str(ENGINE / "tools"))
+import voice_over_narration as _vo  # noqa: E402  V.O. narration lines never reach the video prompt
 RUNTIME = Path(f"{_np.RUNTIME_ROOT}")
 WORK = Path(_np.WORK_ROOT).expanduser().resolve()  # one definition in nalu_paths (was <runtime>/workflow/nalu here only)
 
@@ -183,6 +186,28 @@ def load(ep: str, *, preproduction_dir=None, contract_file=None):
     return pre, contract, grouping, batch, gsm
 
 
+def dialogue_expectations(contract: dict, id2name: dict) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """(in-video dialogue lines by shot as "speaker：text", V.O. narration texts by shot).
+
+    V.O. narration (VOICE_ONLY_NO_PLATE speakers, tools/voice_over_narration.py) is synthesized in
+    S4 and mixed in S7: it must be ABSENT from the video prompt, so it is never expected verbatim.
+    """
+    voice_over_ids = _vo.voice_over_character_ids(contract.get("character_entities") or [])
+    dialogue_by_shot: dict[str, list[str]] = {}
+    voice_over_by_shot: dict[str, list[str]] = {}
+    for d in contract["audio_contract"]["dialogue_units"]:
+        if str(d.get("speaker_id") or "") in voice_over_ids:
+            voice_over_by_shot.setdefault(d["shot_id"], []).append(str(d.get("text") or ""))
+            continue
+        speaker_name = id2name.get(d.get("speaker_id")) or d.get("speaker")
+        if not speaker_name:
+            # V4 legacy dialogue IDs are scoped labels; resolve only through
+            # the authored display field, never by guessing from an ID suffix.
+            speaker_name = str(d.get("speaker_id") or "UNRESOLVED")
+        dialogue_by_shot.setdefault(d["shot_id"], []).append(f"{speaker_name}：{d['text']}")
+    return dialogue_by_shot, voice_over_by_shot
+
+
 def digest(ep: str, out: Path, **input_paths) -> dict:
     pre, contract, grouping, batch, gsm = load(ep, **input_paths)
     shots = {s["shot_id"]: s for s in contract["shots"]}
@@ -221,14 +246,7 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
         bible.setdefault("白鲤郡主", bible["白鲤"])
     id2name = {e["character_id"]: e["canonical_name"] for e in contract["character_entities"]}
     rooms = {(m["global_space_map_id"], r["room_id"]) for m in gsm["space_maps"] for r in m.get("rooms", [])}
-    dialogue_by_shot: dict[str, list[str]] = {}
-    for d in contract["audio_contract"]["dialogue_units"]:
-        speaker_name = id2name.get(d.get("speaker_id")) or d.get("speaker")
-        if not speaker_name:
-            # V4 legacy dialogue IDs are scoped labels; resolve only through
-            # the authored display field, never by guessing from an ID suffix.
-            speaker_name = str(d.get("speaker_id") or "UNRESOLVED")
-        dialogue_by_shot.setdefault(d["shot_id"], []).append(f"{speaker_name}：{d['text']}")
+    dialogue_by_shot, voice_over_by_shot = dialogue_expectations(contract, id2name)
     # boilerplate identity across prompts
     boiler_kf: dict[str, set] = {"视觉文化档案": set(), "严格禁止": set(), "参考图用途": set()}
     boiler_vp: dict[str, set] = {"限制": set()}
@@ -332,6 +350,11 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
             for line in dialogue_by_shot.get(sid, []):
                 spoken = spoken_part(line)
                 chk(f"vp_dialogue_verbatim:{sid}", spoken in vp_text, spoken[:30])
+        for sid in unit_shots:
+            for spoken in voice_over_by_shot.get(sid, []):
+                spoken = spoken.strip()
+                if spoken:
+                    chk(f"vp_voice_over_not_in_video_prompt:{sid}", spoken not in vp_text, spoken[:30])
         leaked = foreign_dialogue(vp_text, dialogue_by_shot, unit_shots)
         chk("vp_no_foreign_dialogue", not leaked, str(leaked[:2]))
         vp_cast = set()

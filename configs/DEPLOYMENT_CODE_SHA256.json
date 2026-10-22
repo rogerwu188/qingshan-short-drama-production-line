@@ -681,7 +681,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_qa.py",
-      "sha256": "b3c2d64b37a3cab71f7389ebea0405ab848b073a918068bb5f970853092303e5"
+      "sha256": "127982dc33d4a4f9f480f3cb512d302be435f195afc4a0b1a771974e8895eb56"
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_register.py",
@@ -8301,7 +8301,7 @@
     },
     {
       "path": "tools/tests/test_voice_over_narration.py",
-      "sha256": "f560b1105ba54ec2173b1d4a8c02388c70f082e1311fb6a022402a4943c33f8c"
+      "sha256": "50bc754ae7ca1094e202aca96ce216c407519cd6235f8638517d062d45458725"
     },
     {
       "path": "tools/tests/test_voice_reference_sample.py",
@@ -8373,7 +8373,7 @@
     },
     {
       "path": "tools/unit_timing_map.py",
-      "sha256": "52a2ef4f05b581effb7fc7f166c3b8fe1c58dc8efa6b0bf5bfb96888f98abb94"
+      "sha256": "a6b1e61386e5789da8463b0d26f59a74d79889063c37272a0df1f5e8315dc6e4"
     },
     {
       "path": "tools/update_e36_line10_salvage_state.py",
