@@ -49,10 +49,6 @@ except ModuleNotFoundError:
     from wardrobe_identity_contract import h3_adult_female_visual_block
     from visual_culture_contract import prompt_block_en as visual_culture_prompt_block
 try:
-    from tools.authored_world import authored_world_from
-except ModuleNotFoundError:
-    from authored_world import authored_world_from
-try:
     from tools.prompt_shot_scope_policy import active_for as shot_scope_active_for
 except ModuleNotFoundError:
     from prompt_shot_scope_policy import active_for as shot_scope_active_for
@@ -628,7 +624,11 @@ def authored_world(unit: dict[str, Any]) -> bool:
     ``visual_culture_contract.era_lock`` decides when authored ("AUTHORED_WORLD" / "EAST_ASIAN_PERIOD");
     otherwise an English-dialogue line is an authored world and every Chinese line keeps the period lock.
     """
-    return authored_world_from(unit.get("visual_culture_contract"), unit.get("dialogue_language"))
+    vcc = unit.get("visual_culture_contract") if isinstance(unit.get("visual_culture_contract"), dict) else {}
+    mode = str(vcc.get("era_lock") or "").strip().upper()
+    if mode in {"AUTHORED_WORLD", "EAST_ASIAN_PERIOD"}:
+        return mode == "AUTHORED_WORLD"
+    return str(unit.get("dialogue_language") or "zh").strip().lower().startswith("en")
 
 
 def h3_visual_culture_block(unit: dict[str, Any]) -> str:

@@ -209,8 +209,7 @@ def _checks(item: dict[str, Any], questionnaire: dict[str, Any],
 # --------------------------------------------------------------------------- #
 # CLOSED_SET_ANACHRONISM_OCR_V1 — a real RapidOCR run
 # --------------------------------------------------------------------------- #
-def run_ocr(image: Path, forbidden_terms: list[str], out: Path,
-            text_language: str | None = None) -> dict[str, Any]:
+def run_ocr(image: Path, forbidden_terms: list[str], out: Path) -> dict[str, Any]:
     """Execute the ENGINE's still-image OCR audit for real and return its report.
 
     ``tools/still_image_ocr_audit.py`` is the engine's only still-image OCR route
@@ -222,8 +221,6 @@ def run_ocr(image: Path, forbidden_terms: list[str], out: Path,
             "--image", str(image), "--out", str(out)]
     for term in forbidden_terms:
         argv += ["--forbid-text", term]
-    if text_language:
-        argv += ["--text-language", text_language]
     # OCR model startup dominates a batch rebuild.  Reuse a prior objective report only
     # when it names this exact versioned image, was written after the image, and carries
     # the identical closed-set policy.  The Q1 decision is still rebuilt below, so a gate
@@ -234,7 +231,6 @@ def run_ocr(image: Path, forbidden_terms: list[str], out: Path,
         and out.stat().st_mtime_ns >= image.stat().st_mtime_ns
         and list(cached.get("source_images") or []) == [str(image.resolve())]
         and list(cached.get("forbid_text") or []) == list(forbidden_terms)
-        and cached.get("text_language") == text_language
         and cached.get("engine") == "RapidOCR / ONNX Runtime"
         and cached.get("lexicon_policy_configured") is True
     )
@@ -268,8 +264,7 @@ def run_ocr(image: Path, forbidden_terms: list[str], out: Path,
 
 def ocr_keyframes(items: list[dict[str, Any]], keyframes: dict[str, Path],
                   forbidden_terms: list[str], q1_dir: Path,
-                  workers: int | None = None,
-                  text_language: str | None = None) -> dict[str, dict[str, Any]]:
+                  workers: int | None = None) -> dict[str, dict[str, Any]]:
     """Run each keyframe's still-image OCR concurrently, keyed by item id.
 
     One engine subprocess per keyframe and OCR model startup dominates a rebuild,
@@ -307,9 +302,7 @@ def ocr_keyframes(items: list[dict[str, Any]], keyframes: dict[str, Path],
 
     def _one(job: tuple[str, Path, Path]) -> None:
         item_id, asset, out = job
-        # zh period line: the historical three-argument call (unchanged argv and cache key)
-        results[item_id] = (run_ocr(asset, forbidden_terms, out, text_language) if text_language
-                            else run_ocr(asset, forbidden_terms, out))
+        results[item_id] = run_ocr(asset, forbidden_terms, out)
 
     if workers <= 1 or len(jobs) == 1:
         for job in jobs:
@@ -324,14 +317,9 @@ def ocr_keyframes(items: list[dict[str, Any]], keyframes: dict[str, Path],
 
 
 def build_period_verification(item: dict[str, Any], questionnaire: dict[str, Any],
-                              ocr: dict[str, Any], forbidden_terms: list[str],
-                              *, authored_world: bool = False, language: str = "zh",
+                              ocr: dict[str, Any], forbidden_terms: list[str]
                               ) -> tuple[dict[str, Any], list[str]]:
     report = ocr.get("report") or {}
-    # English line (tools/authored_world.py): in-world Latin lettering (screens, labels) is an
-    # advisory finding, never P0; a Latin/digit-only recognition without a forbidden token is
-    # recorded in advisory_findings instead of failing the lock.  Chinese lines are unchanged.
-    latin_advisory = str(language or "zh").lower().startswith("en")
     # OCR noise policy (2026-09-13): RapidOCR reads isolated one- or two-letter Latin
     # fragments out of fur / fabric texture (observed "h" @0.70 on E01-S07-03, "T" @0.76 on
     # E01-S08-04).  A fragment of <=2 ASCII letters carrying no forbidden token is recorded
@@ -379,11 +367,6 @@ def build_period_verification(item: dict[str, Any], questionnaire: dict[str, Any
         return (len(text) <= 2 and text.isascii() and text.isalpha()) or len(text) == 1
     noise = [row for row in all_recognitions if _is_noise(row)]
     real = [row for row in all_recognitions if not _is_noise(row)]
-    advisory: list[dict[str, Any]] = []
-    if latin_advisory:
-        advisory = [row for row in real if not (row.get("forbidden_tokens") or [])
-                    and not re.search(r"[\u3400-\u9fff]", str(row.get("text") or ""))]
-        real = [row for row in real if row not in advisory]
     recognised = [str(row.get("text") or "") for row in real]
     reviewer_text = [str(value) for value in
                      (item.get("observed") or {}).get("observed_text_strings") or []
@@ -398,7 +381,7 @@ def build_period_verification(item: dict[str, Any], questionnaire: dict[str, Any
     if critical_real > 0:
         failures.append(f"OCR_CRITICAL_TEXT_FAILURES:{critical_real}")
     latin_real = sum(1 for row in real for ch in str(row.get("text") or "") if ch.isascii() and ch.isalpha())
-    if latin_real > 0 and not latin_advisory:
+    if latin_real > 0:
         failures.append(f"OCR_LATIN_CHARACTERS_PRESENT:{latin_real}")
     hit_terms = sorted({term for row in all_recognitions
                         for term in row.get("forbidden_tokens") or []})
@@ -441,29 +424,7 @@ def build_period_verification(item: dict[str, Any], questionnaire: dict[str, Any
         "failures": failures,
         "questions_must_be_closed_and_contract_derived": True,
     }
-    _authored_world_period_fields(verification, authored_world=authored_world,
-                                  latin_advisory=latin_advisory, advisory=advisory)
     return verification, failures
-
-
-def _authored_world_period_fields(verification: dict[str, Any], *, authored_world: bool,
-                                  latin_advisory: bool, advisory: list[dict[str, Any]]) -> None:
-    """Record why the period ban does not apply (authored world) and the advisory Latin text
-    (English line).  Nothing is added for a Chinese period line."""
-    if authored_world:
-        verification["period_anachronism_lock"] = "NOT_APPLICABLE"
-        verification["not_applicable_reason"] = (
-            "AUTHORED_WORLD (tools/authored_world.py): the writer authored this world, so there is no "
-            "closed modern-object ban; only the writer's own forbidden influences / negative_prompts "
-            "and burned-in text are checked")
-        verification["closed_set_source"] = ("visual_culture_contract.forbidden_influences + this "
-                                             "episode's authored negative_prompts (authored world)")
-    if latin_advisory:
-        verification["latin_text_policy"] = "ADVISORY_ENGLISH_LINE"
-        verification["advisory_findings"] = [
-            {"code": "OCR_LATIN_TEXT_ADVISORY", "text": row.get("text"),
-             "confidence": row.get("confidence"), **({"frame": row["frame"]} if row.get("frame") else {})}
-            for row in advisory]
 
 
 # --------------------------------------------------------------------------- #
@@ -969,9 +930,6 @@ def materialise(episode: str, submitted: dict[str, Any],
     questionnaire = submitted.get("questionnaire") or {}
     reviewed_at = submitted.get("reviewed_at")
     forbidden_terms = exp.forbidden_terms()
-    authored_world = exp.authored_world()
-    language = exp.dialogue_language()
-    ocr_language = exp.ocr_text_language()
     review_sha = sha256_file(submitted_path)
 
     keyframes: dict[str, Path] = {}
@@ -990,8 +948,7 @@ def materialise(episode: str, submitted: dict[str, Any],
 
     # OCR startup dominates a rebuild, so run every still's audit once up front, in
     # parallel, and keep the per-item assembly below strictly ordered.
-    ocr_by_item = ocr_keyframes(submitted.get("items") or [], keyframes, forbidden_terms, p.q1_dir,
-                                text_language=ocr_language)
+    ocr_by_item = ocr_keyframes(submitted.get("items") or [], keyframes, forbidden_terms, p.q1_dir)
 
     rows: list[dict[str, Any]] = []
     for item in submitted.get("items") or []:
@@ -1009,9 +966,7 @@ def materialise(episode: str, submitted: dict[str, Any],
         asset_sha = sha256_file(asset)
 
         ocr = ocr_by_item[item_id]
-        period_v, period_f = build_period_verification(item, questionnaire, ocr, forbidden_terms,
-                                                       authored_world=authored_world,
-                                                       language=language)
+        period_v, period_f = build_period_verification(item, questionnaire, ocr, forbidden_terms)
         required_all = list(expectations.get("required_visible_character_ids") or [])
         required = face_measurable_ids(request_item)  # D-16: frontal, measurable faces only
         identity_v, identity_f, identity_method = build_identity_verification(
@@ -1300,7 +1255,7 @@ def main() -> int:
     if args.command == "ocr":
         exp = Expectations(args.episode)
         out = args.out or (QaPaths(args.episode).qa_root / f"ocr_{args.image.stem}.json")
-        record = run_ocr(args.image, exp.forbidden_terms(), out, exp.ocr_text_language())
+        record = run_ocr(args.image, exp.forbidden_terms(), out)
         print(json.dumps({"exit_code": record["exit_code"],
                           "status": (record["report"] or {}).get("status"),
                           "recognitions": len((record["report"] or {}).get("recognitions") or []),

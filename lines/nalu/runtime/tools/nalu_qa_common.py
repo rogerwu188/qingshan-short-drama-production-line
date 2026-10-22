@@ -447,23 +447,6 @@ class Expectations:
         return {str(row.get("character")): str(row.get("character_id"))
                 for row in self.wardrobe_by_id.values()}
 
-    def dialogue_language(self) -> str:
-        """contract ``dialogue_language`` -> runtime config ``project.language`` -> "zh"."""
-        rule = engine_module("authored_world")
-        return rule.resolve_dialogue_language(self.contract, rule.load_runtime_config(RUNTIME))
-
-    def authored_world(self) -> bool:
-        """tools/authored_world.py: era_lock decides, else an English line is an authored world."""
-        rule = engine_module("authored_world")
-        return rule.authored_world_from(self.contract.get("visual_culture_contract"),
-                                        self.dialogue_language())
-
-    def ocr_text_language(self) -> str | None:
-        """``--text-language`` for tools/still_image_ocr_audit.py: None (historical zh argv) for a
-        Chinese period line, else the dialogue language (en: Latin text is advisory)."""
-        language = self.dialogue_language()
-        return language if (language != "zh" or self.authored_world()) else None
-
     def forbidden_terms(self) -> list[str]:
         """The closed anachronism vocabulary actually enforced by the engine.
 
@@ -471,22 +454,8 @@ class Expectations:
         engine's own hardcoded closed set), unioned with this episode's authored
         negative_prompts so the review is contract-derived as the registry
         requires (``p0_questions_must_be_closed_and_contract_derived``).
-
-        An authored world (tools/authored_world.py) has no modern-object ban: the
-        closed set is only the writer's own ``visual_culture_contract.forbidden_influences``
-        plus the authored negative_prompts.
         """
         terms: list[str] = []
-        if self.authored_world():
-            vcc = self.contract.get("visual_culture_contract") or {}
-            for value in (vcc.get("forbidden_influences") or []) if isinstance(vcc, dict) else []:
-                if str(value).strip() and str(value) not in terms:
-                    terms.append(str(value))
-            for shot in self.shots.values():
-                for value in (shot.get("prompt_spec") or {}).get("negative_prompts") or []:
-                    if str(value) not in terms:
-                        terms.append(str(value))
-            return terms
         try:
             gate = engine_module("anachronism_lock_gate")
             terms.extend(str(value) for value in getattr(gate, "FORBIDDEN_VISIBLE_TERMS", ()))
