@@ -291,5 +291,100 @@ class StoryClawWriterWorkflowTests(unittest.TestCase):
         self.assertIn("STORYCLAW_MODEL_HOST_EVIDENCE_REQUIRED", result.stderr)
 
 
+OWNER_RIGHTS_QUOTE = "支持直接从原著改编成短剧剧本并且制作，版权线下已经谈好了，与你无关"
+
+
+class CodexWriterWorkflowTests(StoryClawWriterWorkflowTests):
+    """Line owner 2026-10-22: Codex authors every layer; the agent only dispatches."""
+
+    def setUp(self):
+        super().setUp()
+        # A real-novel adaptation recorded with the owner's verbatim rights basis.
+        intake.intake_pasted_text(self.project, "adapted novel chapter fixture",
+                                  rights_statement=OWNER_RIGHTS_QUOTE)
+
+    def _no_storyclaw_env(self, **extra):
+        env = {key: value for key, value in os.environ.items()
+               if key not in {"STORYCLAW_MODEL", "STORYCLAW_TASK_ID", "WRITER_AUTHOR", "CODEX_MODEL"}}
+        env.update(extra)
+        return patch.dict(os.environ, env, clear=True)
+
+    def test_codex_round_trip_records_codex_provenance_and_passes_s1_verify(self):
+        with self._no_storyclaw_env(CODEX_MODEL="gpt-6.1-sol", STORYCLAW_TASK_ID="sc-task-42"):
+            task = writer.begin_writer_run(self.project, "E01", 1, writer="codex")
+            self.assertIn("-CODEX-", task["writer_run_id"])
+            self.assertEqual(task["provider"], "codex")
+            self.assertEqual(task["dispatch_task_id"], "sc-task-42")
+            self._write_outputs(task)
+            active = writer.finalize_writer_run(
+                self.project, "E01", 1, writer_run_id=task["writer_run_id"]
+            )
+            report = writer.verify_writer_handoff(self.project, "E01")
+        self.assertEqual(report["status"], "PASS", report)
+        self.assertEqual(active["provider"], "codex")
+        self.assertEqual(active["writer_author"], "codex")
+        self.assertEqual(active["dispatch_task_id"], "sc-task-42")
+        provenance = json.loads(
+            Path(active["layers"]["writer_manifest"]["path"]).read_text()
+        )["writer_provenance"]
+        self.assertEqual(provenance["provider"], "codex")
+        self.assertEqual(provenance["model_id"], "gpt-6.1-sol")
+        bundle = json.loads(Path(active["input_bundle"]["path"]).read_text())
+        statements = {row["receipt_path"]: json.loads(Path(row["receipt_path"]).read_text())
+                      .get("rights_statement") for row in bundle["source_receipts"]}
+        self.assertIn(OWNER_RIGHTS_QUOTE, statements.values())
+
+    def test_codex_cli_runs_without_any_storyclaw_input(self):
+        env = {key: value for key, value in os.environ.items()
+               if key not in {"STORYCLAW_MODEL", "STORYCLAW_TASK_ID"}}
+        env["CODEX_MODEL"] = "gpt-6.1-sol"
+        tool = str(ROOT / "tools/storyclaw_writer_workflow.py")
+        begun = subprocess.run(
+            [sys.executable, tool, "begin", "--project-root", str(self.project),
+             "--episode", "E01", "--writer", "codex"],
+            cwd=ROOT, env=env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(begun.returncode, 0, begun.stderr)
+        task = json.loads(begun.stdout)
+        self._write_outputs(task)
+        finished = subprocess.run(
+            [sys.executable, tool, "finalize", "--project-root", str(self.project),
+             "--episode", "E01", "--version", "1", "--writer-run-id", task["writer_run_id"]],
+            cwd=ROOT, env=env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(finished.returncode, 0, finished.stderr)
+        self.assertEqual(json.loads(finished.stdout)["verification"]["status"], "PASS")
+        self.assertIsNone(task["dispatch_task_id"])
+
+    def test_codex_generic_or_missing_model_is_rejected(self):
+        with self._no_storyclaw_env():
+            with self.assertRaisesRegex(writer.WriterWorkflowBlocked, "CODEX_WRITER_MODEL"):
+                writer.begin_writer_run(self.project, "E01", 1, writer="codex")
+            with self.assertRaisesRegex(writer.WriterWorkflowBlocked, "CODEX_WRITER_MODEL"):
+                writer.begin_writer_run(self.project, "E01", 1, writer="codex", model_id="auto")
+
+    def test_storyclaw_handoff_still_verifies_after_codex_support(self):
+        active = self.finalize(self.begin())
+        self.assertEqual(active["provider"], "storyclaw")
+        self.assertNotIn("writer_author", active)
+        self.assertEqual(writer.verify_writer_handoff(self.project, "E01")["status"], "PASS")
+
+
+class OwnerRightsQuoteTests(unittest.TestCase):
+    def test_intake_source_text_records_owner_quote_verbatim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            novel = Path(tmp) / "novel.txt"
+            novel.write_text("第1章 开端\n正文一。\n第2章 转折\n正文二。\n", encoding="utf-8")
+            out = Path(tmp) / "sources"
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "tools/intake_source_text.py"), "--input", str(novel),
+                 "--work", "fixture", "--out", str(out), "--authorization", OWNER_RIGHTS_QUOTE],
+                cwd=ROOT, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            index = json.loads(next(out.rglob("SOURCE_INDEX.json")).read_text(encoding="utf-8"))
+            self.assertIn(OWNER_RIGHTS_QUOTE, json.dumps(index, ensure_ascii=False))
+
+
 if __name__ == "__main__":
     unittest.main()

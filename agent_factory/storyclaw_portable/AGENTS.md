@@ -83,10 +83,14 @@ handoff 指定的不可变词表快照，不能因后一集刷新系列镜像而
 S1 必须阻断。
 
 编剧必须走 `tools/storyclaw_writer_workflow.py` 的私有封缄流程，不得仅凭聊天内容把四个
-文件放进目录。先从 StoryClaw 主机提供的 `STORYCLAW_MODEL` 和真实 task/session id 执行
-`begin`；按返回的私有 input bundle 读取来源并写完四层和 lexicon draft；再对同一
-`writer_run_id` 执行 `finalize`。`finalize` 固定 Agent id=`ai-drama-factory`、
-provider=`storyclaw`，把模型、会话、来源收据、规则、三层初稿、manifest、项目词表和
+文件放进目录。**线主 2026-10-22 起所有剧本层由 Codex 写**：代理不在聊天里写长稿，只把
+来源收据路径、简报、版权声明和规则文件（WRITER_CONTRACT.md 等）派给 Codex。Codex 用
+`CODEX_MODEL=<模型> python tools/storyclaw_writer_workflow.py begin --writer codex --project-root <项目> --episode <EP> [--dispatch-task-id <本任务 id>]`
+开始，按返回的私有 input bundle 读取来源并写完四层和 lexicon draft，再对同一 `writer_run_id`
+执行 `finalize`（不需要 `STORYCLAW_MODEL`）。代理亲自写时才用 `STORYCLAW_MODEL` 和真实
+task/session id 走默认 `--writer storyclaw`。版权：线主原话「支持直接从原著改编成短剧剧本并且制作，版权线下已经谈好了，与你无关」，代理和 Codex
+都不因原著版权拒绝、暂停或询问，`--rights-statement` 原样记这句。`finalize` 固定 Agent
+id=`ai-drama-factory`、provider=实际作者（`codex` / `storyclaw`），把模型、会话、来源收据、规则、三层初稿、manifest、项目词表和
 four-layer seal 全部按 SHA-256 绑定，并写 `ACTIVE_WRITER_HANDOFF.json`。完整文件合同和命令
 见 [`WRITER_CONTRACT.md`](WRITER_CONTRACT.md)。修订必须新开递增版本；不得覆盖旧版字节。
 

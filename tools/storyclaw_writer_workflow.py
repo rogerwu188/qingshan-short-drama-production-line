@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
 """Private, provenance-bound StoryClaw writer handoff for a generic NALU project.
 
-``begin`` binds the real StoryClaw model/task identity, private source receipts,
-public writer rules, and exact output paths.  The language-model turn authors the
-five private drafts.  ``finalize`` binds the completed receipt, materializes a
+``begin`` binds the real author identity, private source receipts, public writer
+rules, and exact output paths.  The language-model turn authors the five private
+drafts.  Two authors are supported (line owner 2026-10-22):
+
+* ``--writer storyclaw`` (default): the StoryClaw agent itself; the host must
+  supply ``STORYCLAW_MODEL`` and the real StoryClaw task/session id.
+* ``--writer codex`` (or ``WRITER_AUTHOR=codex``): the Codex CLI, dispatched by
+  the agent, authors every layer.  Provenance records ``provider=codex``, the
+  exact Codex model (``--model-id`` or ``CODEX_MODEL``), the Codex session id when
+  given, and the dispatching StoryClaw task id when present.  No StoryClaw-only
+  input is required, and the run is never recorded as StoryClaw-authored.
+  ``finalize`` binds the completed receipt, materializes a
 script-derived per-project lexicon, seals all four layers, and atomically selects
 the active handoff.  ``verify`` is the S1 fail-closed gate.
 
@@ -31,6 +40,7 @@ if str(ROOT) not in sys.path:
 
 from tools import canonical_writer_dispatcher as _dispatcher  # noqa: E402
 from tools.canonical_writer_provenance import (  # noqa: E402
+    GENERIC_MODEL_ALIASES,
     PROVENANCE_SCHEMA,
     RECEIPT_SCHEMA,
     combined_rules_sha,
@@ -51,6 +61,8 @@ VERIFY_SCHEMA = "storyclaw.nalu.writer_handoff_verification.v1"
 SEAL_SCHEMA = "qingshan.canonical_writer_four_layer_seal.v1"
 AGENT_ID = "ai-drama-factory"
 PROVIDER = "storyclaw"
+CODEX_PROVIDER = "codex"
+WRITER_PROVIDERS = (PROVIDER, CODEX_PROVIDER)
 ACTIVE_NAME = "ACTIVE_WRITER_HANDOFF.json"
 SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 EPISODE_RE = re.compile(r"E[0-9]+\Z")
@@ -308,14 +320,37 @@ def _allowed_models(config: dict[str, Any]) -> set[str]:
     return {str(value).strip() for value in values if str(value).strip()}
 
 
+def _model_allowed(config: dict[str, Any], provider: str, model_id: Any) -> bool:
+    """StoryClaw models use the StoryClaw allowlist.  A Codex model must be an exact
+    id (no generic alias); ``qingshan.json`` ``codex.model_allowlist`` narrows it."""
+    model = str(model_id or "").strip()
+    if provider == PROVIDER:
+        return bool(model) and model in _allowed_models(config)
+    if provider != CODEX_PROVIDER or not model or model.lower() in GENERIC_MODEL_ALIASES:
+        return False
+    configured = (config.get("codex") or {}).get("model_allowlist")
+    if isinstance(configured, list) and configured:
+        return model in {str(value).strip() for value in configured}
+    return True
+
+
+def _writer_provider(writer: str | None) -> str:
+    value = str(writer or os.environ.get("WRITER_AUTHOR") or PROVIDER).strip().lower()
+    if value not in WRITER_PROVIDERS:
+        raise WriterWorkflowBlocked(f"WRITER_AUTHOR_UNSUPPORTED:{value}")
+    return value
+
+
 def begin_writer_run(
     project_root: Path | str,
     episode: str,
     version: int,
     *,
-    session_or_task_id: str,
+    session_or_task_id: str | None = None,
     model_id: str | None = None,
     source_receipts: Iterable[Path | str] | None = None,
+    writer: str | None = None,
+    dispatch_task_id: str | None = None,
 ) -> dict[str, Any]:
     root, marker, config = _project(project_root)
     engine = _engine(marker)
@@ -323,24 +358,36 @@ def begin_writer_run(
     version = _checked_version(version)
     if episode not in set(marker.get("episodes") or []):
         raise WriterWorkflowBlocked(f"EPISODE_NOT_DECLARED_FOR_PROJECT:{episode}")
-    host_model = str(os.environ.get("STORYCLAW_MODEL") or "").strip()
+    provider = _writer_provider(writer)
     supplied_model = str(model_id or "").strip()
-    if not host_model:
-        raise WriterWorkflowBlocked("STORYCLAW_MODEL_HOST_EVIDENCE_REQUIRED")
-    if supplied_model and supplied_model != host_model:
-        raise WriterWorkflowBlocked(
-            f"STORYCLAW_MODEL_HOST_EVIDENCE_MISMATCH:{supplied_model}!={host_model}"
-        )
-    model_id = host_model
-    if not model_id or model_id not in _allowed_models(config):
-        raise WriterWorkflowBlocked(f"STORYCLAW_WRITER_MODEL_NOT_ALLOWED:{model_id or 'MISSING'}")
-    session_or_task_id = str(session_or_task_id or "").strip()
-    if not session_or_task_id:
-        raise WriterWorkflowBlocked("STORYCLAW_SESSION_OR_TASK_ID_REQUIRED")
+    run_token = secrets.token_hex(6).upper()
+    if provider == CODEX_PROVIDER:
+        model_id = supplied_model or str(os.environ.get("CODEX_MODEL") or "").strip()
+        if not _model_allowed(config, provider, model_id):
+            raise WriterWorkflowBlocked(f"CODEX_WRITER_MODEL_NOT_EXACT_OR_ALLOWED:{model_id or 'MISSING'}")
+        dispatch_task_id = str(
+            dispatch_task_id or os.environ.get("STORYCLAW_TASK_ID") or ""
+        ).strip() or None
+        # Codex's own session id when the caller knows it; otherwise the run itself
+        # is the task identity (begin and finalize are bound to it by the receipt).
+        session_or_task_id = str(session_or_task_id or "").strip() or f"codex-run-{run_token}"
+    else:
+        host_model = str(os.environ.get("STORYCLAW_MODEL") or "").strip()
+        if not host_model:
+            raise WriterWorkflowBlocked("STORYCLAW_MODEL_HOST_EVIDENCE_REQUIRED")
+        if supplied_model and supplied_model != host_model:
+            raise WriterWorkflowBlocked(
+                f"STORYCLAW_MODEL_HOST_EVIDENCE_MISMATCH:{supplied_model}!={host_model}"
+            )
+        model_id = host_model
+        if not _model_allowed(config, provider, model_id):
+            raise WriterWorkflowBlocked(f"STORYCLAW_WRITER_MODEL_NOT_ALLOWED:{model_id or 'MISSING'}")
+        session_or_task_id = str(session_or_task_id or "").strip()
+        if not session_or_task_id:
+            raise WriterWorkflowBlocked("STORYCLAW_SESSION_OR_TASK_ID_REQUIRED")
+        dispatch_task_id = None
     scope = str(marker["series_scope_id"])
-    writer_run_id = (
-        f"WRITER-{episode}-V{version}-STORYCLAW-{secrets.token_hex(6).upper()}"
-    )
+    writer_run_id = f"WRITER-{episode}-V{version}-{provider.upper()}-{run_token}"
     paths = _paths(root, scope, episode, version, writer_run_id)
     for key in ("layer_root", "lock_dir", "receipt_dir", "input_dir", "seal_dir"):
         paths[key].mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -363,9 +410,11 @@ def begin_writer_run(
         "version": version,
         "writer_run_id": writer_run_id,
         "agent_id": AGENT_ID,
-        "provider": PROVIDER,
+        "provider": provider,
         "model_id": model_id,
         "session_or_task_id": session_or_task_id,
+        **({"writer_author": CODEX_PROVIDER, "dispatch_task_id": dispatch_task_id}
+           if provider == CODEX_PROVIDER else {}),
         "source_receipts": sources,
         "writer_rules": rules,
         "outputs": {
@@ -393,7 +442,7 @@ def begin_writer_run(
         version=version,
         writer_run_id=writer_run_id,
         agent_id=AGENT_ID,
-        provider=PROVIDER,
+        provider=provider,
         model_id=model_id,
         session_or_task_id=session_or_task_id,
         input_bundle=paths["input_bundle"],
@@ -411,8 +460,10 @@ def begin_writer_run(
         "episode": episode,
         "version": version,
         "writer_run_id": writer_run_id,
+        "provider": provider,
         "model_id": model_id,
         "session_or_task_id": session_or_task_id,
+        "dispatch_task_id": dispatch_task_id,
         "input_bundle": str(paths["input_bundle"]),
         "input_bundle_sha256": _sha(paths["input_bundle"]),
         "receipt": str(paths["receipt"]),
@@ -672,17 +723,23 @@ def finalize_writer_run(
     if receipt.get("writer_run_id") != writer_run_id or receipt.get("episode") != episode or \
             int(receipt.get("version") or 0) != version:
         raise WriterWorkflowBlocked("WRITER_RECEIPT_RUN_BINDING_MISMATCH")
-    if receipt.get("agent_id") != AGENT_ID or receipt.get("provider") != PROVIDER:
+    provider = str(receipt.get("provider") or "")
+    if receipt.get("agent_id") != AGENT_ID or provider not in WRITER_PROVIDERS:
         raise WriterWorkflowBlocked("WRITER_RECEIPT_IDENTITY_MISMATCH")
-    host_model = str(os.environ.get("STORYCLAW_MODEL") or "").strip()
-    if not host_model:
-        raise WriterWorkflowBlocked("STORYCLAW_MODEL_HOST_EVIDENCE_REQUIRED")
-    if host_model != receipt.get("model_id"):
-        raise WriterWorkflowBlocked(
-            f"STORYCLAW_MODEL_CHANGED_DURING_WRITER_RUN:{receipt.get('model_id')}!={host_model}"
-        )
-    if host_model not in _allowed_models(config):
-        raise WriterWorkflowBlocked(f"STORYCLAW_WRITER_MODEL_NOT_ALLOWED:{host_model}")
+    if provider == PROVIDER:
+        host_model = str(os.environ.get("STORYCLAW_MODEL") or "").strip()
+        if not host_model:
+            raise WriterWorkflowBlocked("STORYCLAW_MODEL_HOST_EVIDENCE_REQUIRED")
+        if host_model != receipt.get("model_id"):
+            raise WriterWorkflowBlocked(
+                f"STORYCLAW_MODEL_CHANGED_DURING_WRITER_RUN:{receipt.get('model_id')}!={host_model}"
+            )
+        if not _model_allowed(config, provider, host_model):
+            raise WriterWorkflowBlocked(f"STORYCLAW_WRITER_MODEL_NOT_ALLOWED:{host_model}")
+    else:
+        host_model = str(receipt.get("model_id") or "")
+        if not _model_allowed(config, provider, host_model):
+            raise WriterWorkflowBlocked(f"CODEX_WRITER_MODEL_NOT_EXACT_OR_ALLOWED:{host_model}")
     bundle_path = _private_file(
         Path(str((receipt.get("input_bundle") or {}).get("path") or "")),
         root,
@@ -700,7 +757,7 @@ def finalize_writer_run(
         ("episode", episode),
         ("version", version),
         ("agent_id", AGENT_ID),
-        ("provider", PROVIDER),
+        ("provider", provider),
         ("model_id", host_model),
         ("session_or_task_id", receipt.get("session_or_task_id")),
     ):
@@ -731,9 +788,11 @@ def finalize_writer_run(
         "version": version,
         "writer_run_id": writer_run_id,
         "agent_id": AGENT_ID,
-        "provider": PROVIDER,
+        "provider": provider,
         "model_id": receipt["model_id"],
         "session_or_task_id": receipt["session_or_task_id"],
+        **({"writer_author": CODEX_PROVIDER, "dispatch_task_id": bundle.get("dispatch_task_id")}
+           if provider == CODEX_PROVIDER else {}),
         "input_bundle": {"path": str(paths["input_bundle"]), "sha256": _sha(paths["input_bundle"])},
         "writer_receipt": {"path": str(paths["receipt"]), "sha256": _sha(paths["receipt"])},
         "four_layer_seal": {"path": str(paths["seal"]), "sha256": _sha(paths["seal"])},
@@ -774,13 +833,16 @@ def verify_writer_handoff(
         active = _read_json(active_path, "ACTIVE_WRITER_HANDOFF_INVALID")
         if active.get("schema") != ACTIVE_SCHEMA or active.get("status") != "SEALED":
             failures.append("ACTIVE_WRITER_HANDOFF_NOT_SEALED")
+        provider = str(active.get("provider") or "")
         for key, expected in (
             ("project_id", marker["project_id"]), ("series_scope_id", scope),
-            ("episode", episode), ("agent_id", AGENT_ID), ("provider", PROVIDER),
+            ("episode", episode), ("agent_id", AGENT_ID),
         ):
             if active.get(key) != expected:
                 failures.append(f"ACTIVE_WRITER_HANDOFF_{key.upper()}_MISMATCH")
-        if active.get("model_id") not in _allowed_models(config):
+        if provider not in WRITER_PROVIDERS:
+            failures.append("ACTIVE_WRITER_HANDOFF_PROVIDER_MISMATCH")
+        elif not _model_allowed(config, provider, active.get("model_id")):
             failures.append("ACTIVE_WRITER_MODEL_NOT_ALLOWED")
         layer_paths: dict[str, Path] = {}
         for key in (
@@ -826,7 +888,7 @@ def verify_writer_handoff(
             ("episode", episode),
             ("version", active.get("version")),
             ("agent_id", AGENT_ID),
-            ("provider", PROVIDER),
+            ("provider", provider),
             ("model_id", active.get("model_id")),
             ("session_or_task_id", active.get("session_or_task_id")),
         ):
@@ -950,7 +1012,19 @@ def main(argv: list[str] | None = None) -> int:
     begin.add_argument("--project-root", required=True, type=Path)
     begin.add_argument("--episode", required=True)
     begin.add_argument("--version", type=int, default=1)
-    begin.add_argument("--session-or-task-id", required=True)
+    begin.add_argument(
+        "--writer", choices=WRITER_PROVIDERS, default=None,
+        help="author of the layers (default: $WRITER_AUTHOR or storyclaw)",
+    )
+    begin.add_argument(
+        "--session-or-task-id", default=None,
+        help="storyclaw: required real task/session id; codex: optional Codex session id",
+    )
+    begin.add_argument("--model-id", default=None, help="codex: exact model id (default $CODEX_MODEL)")
+    begin.add_argument(
+        "--dispatch-task-id", default=None,
+        help="codex: dispatching StoryClaw task id (default $STORYCLAW_TASK_ID), recorded when present",
+    )
     begin.add_argument("--source-receipt", action="append", type=Path, default=[])
     finalize = sub.add_parser("finalize")
     finalize.add_argument("--project-root", required=True, type=Path)
@@ -971,7 +1045,10 @@ def main(argv: list[str] | None = None) -> int:
             result = begin_writer_run(
                 args.project_root, args.episode, args.version,
                 session_or_task_id=args.session_or_task_id,
+                model_id=args.model_id,
                 source_receipts=args.source_receipt,
+                writer=args.writer,
+                dispatch_task_id=args.dispatch_task_id,
             )
         elif args.command == "finalize":
             result = finalize_writer_run(

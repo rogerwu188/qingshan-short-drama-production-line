@@ -173,7 +173,7 @@
     },
     {
       "path": "agent_factory/storyclaw_portable/AGENTS.md",
-      "sha256": "7477f7a55ad446d88ecb963b68ec55c6294edfa1c8f0ac59e5d26b7b803eac23"
+      "sha256": "9f6d67c8ba7df532e5f8985638cf75157ec6edb1a23e90baafa564f63cc18938"
     },
     {
       "path": "agent_factory/storyclaw_portable/HEARTBEAT.md",
@@ -197,7 +197,7 @@
     },
     {
       "path": "agent_factory/storyclaw_portable/WRITER_CONTRACT.md",
-      "sha256": "98cc20635b827271f70ce1719c8adc937b76a719636d228541e8a096b70dac05"
+      "sha256": "dd2ddb40b16ef899d563b3d0329ab433c328e29d431f3bbd8265cb5347a0d346"
     },
     {
       "path": "configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json",
@@ -793,11 +793,11 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "37238316a5d1c95a4505cc5d34b78b2589715ebe7ea9cd97bf7596d331e5a9d0"
+      "sha256": "677b24c79ca0ff81dd55326fcedf5e113d44ba321d4ec48cb162eda2c82f1a49"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "4c17b061a1e1cb11a2e4cc89059f29fc9b79d9dd2043f502b47f787cc603f20d"
+      "sha256": "9cb5233b7a970ddea796376729cea4ad1e8b46096601622ce0605c807bc6ff88"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
@@ -853,7 +853,7 @@
     },
     {
       "path": "skills/qingshan-nalu/SKILL.md",
-      "sha256": "005e8fe4342503a2e23ed51dd5fa86a39832d01d186d8ff433fc6efcbd0f78dd"
+      "sha256": "f8d3e6858d99196d8881ab004125ac3891f830d4b7bf3b75bd7ccdb284d25f1e"
     },
     {
       "path": "skills/qingshan-nalu/bootstrap_storyclaw.py",
@@ -6341,7 +6341,7 @@
     },
     {
       "path": "tools/storyclaw_writer_workflow.py",
-      "sha256": "f57e01f0a0985f12642864fa1f999a6886f1c9c01ec4ea9556dea8de51c55389"
+      "sha256": "25d0235496511afd005463e2f53e851c63636af57d8c26f0f938d057642c0156"
     },
     {
       "path": "tools/submit_e18_e19_omni_multimodal_batch.py",
@@ -8153,7 +8153,7 @@
     },
     {
       "path": "tools/tests/test_storyclaw_writer_workflow.py",
-      "sha256": "8164862b5bd28e4ba9a22c706c4d48d9319f83a0319d870faf1ccb897b3a5be4"
+      "sha256": "b1e84725fac62f80835f0d677db460c1c2993ae0cf48e9667069724276daede0"
     },
     {
       "path": "tools/tests/test_submit_boundary_dialogue_language.py",
