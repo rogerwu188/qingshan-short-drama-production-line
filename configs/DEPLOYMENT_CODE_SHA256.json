@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2176,
+  "file_count": 2177,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -613,7 +613,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_budget_ledger.py",
-      "sha256": "c55e867f47b382a5cf0b3282a563aaf91612d782934214811e21abc37ac73124"
+      "sha256": "160e45a4236b969c40b003365a3f6a3b0298e7dbbd1d6669f13ddd81f4770aaa"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_media_tools.py",
@@ -625,7 +625,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "7fc148d41498c4adbd245dc0a7956c69cc4b3be38fdc4e364bfda949e477d93f"
+      "sha256": "64f7e6bd37dc8b6c2171a9811ce5800b222fadb8ef420a719477fa37abcb0e16"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -7918,6 +7918,10 @@
     {
       "path": "tools/tests/test_s3_relay_client.py",
       "sha256": "460c51797444c8940f3a54e4ba411476f5059bec1322e0dc0ddbe5d5cc173999"
+    },
+    {
+      "path": "tools/tests/test_s6_resume_budget_and_tails.py",
+      "sha256": "8a4fffbc04fac94ee8f8c28b4262d293a0bfd0b51e39da9ae123928d273dff80"
     },
     {
       "path": "tools/tests/test_s7_asr_parallel.py",
