@@ -641,3 +641,40 @@ class S7MixTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PromptBatchAndTimingTests(unittest.TestCase):
+    """Twelve Gazes E01 S5: prompt batch QA still expected narration verbatim in the H3 prompt."""
+
+    def contract(self) -> dict:
+        return {"character_entities": entities(), "shots": [
+                    {"shot_id": "E01-S01-01", "scene_id": "S1", "target_seconds": 6.0},
+                    {"shot_id": "E01-S01-02", "scene_id": "S1", "target_seconds": 6.0}],
+                "scene_states": [{"scene_id": "S1", "source_events": ["EV-1"]}],
+                "audio_contract": {"dialogue_units": [
+                    {"shot_id": "E01-S01-01", "speaker_id": LEDGER, "text": "It was recorded."},
+                    {"shot_id": "E01-S01-02", "speaker_id": LEDGER, "text": "It was recorded."},
+                    {"shot_id": "E01-S01-02", "speaker_id": ELIAS, "text": "Not yet."}]}}
+
+    def test_narration_is_not_expected_in_the_video_prompt(self):
+        pbq = load("prompt_batch_qa_vo", NALU_TOOLS / "prompt_batch_qa.py")
+        id2name = {LEDGER: "The Ledger", ELIAS: "Elias"}
+        with patch.dict(os.environ, CURRENT, clear=False):
+            dialogue, narration = pbq.dialogue_expectations(self.contract(), id2name)
+        self.assertEqual(dialogue, {"E01-S01-02": ["Elias：Not yet."]})
+        self.assertEqual(narration, {"E01-S01-01": ["It was recorded."], "E01-S01-02": ["It was recorded."]})
+        with patch.dict(os.environ, LEGACY, clear=False):
+            dialogue, narration = pbq.dialogue_expectations(self.contract(), id2name)
+        self.assertEqual((len(dialogue["E01-S01-01"]), narration), (1, {}))
+
+    def test_timing_map_never_assigns_narration_to_a_video_unit(self):
+        from tools.unit_timing_map import build_timing_map
+        grouping = {"units": [{"unit_id": "E01-VU-001", "editorial_shot_ids": ["E01-S01-01"], "duration_seconds": 6},
+                              {"unit_id": "E01-VU-002", "editorial_shot_ids": ["E01-S01-02"], "duration_seconds": 6}]}
+        with patch.dict(os.environ, CURRENT, clear=False):
+            report = build_timing_map(self.contract(), grouping)
+        self.assertNotIn("DIALOGUE_GENERATED_BY_TWO_UNITS", [f["code"] for f in report["failures"]])
+        rows = [line for unit in report["units"] for shot in unit["shots"] for line in shot["dialogue"]]
+        self.assertEqual(sorted(str(r.get("sound_source") or r["sound_source_unit_id"]) for r in rows),
+                         ["E01-VU-002", "VOICE_OVER_S4", "VOICE_OVER_S4"])
+
