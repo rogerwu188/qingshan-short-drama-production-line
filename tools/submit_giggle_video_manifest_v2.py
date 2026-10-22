@@ -456,6 +456,10 @@ def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
     machine = task.get("machine_contract") or {}
     prompt_unit = grouped_sequence_unit(task)
     prompt_unit["model"] = task.get("model")
+    # English-dialogue episodes carry dialogue_language on the task (absent == zh); without it the
+    # paid-boundary / finalizer re-render tagged English lines <d>[Chinese] (Twelve Gazes E01-VU-011)
+    if task.get("dialogue_language") or machine.get("dialogue_language"):
+        prompt_unit["dialogue_language"] = task.get("dialogue_language") or machine.get("dialogue_language")
     prompt_unit["h3_prompt_profile"] = task.get("h3_prompt_profile")
     prompt_unit["duration_seconds"] = task.get("duration_seconds")
     prompt_unit["resolution"] = task.get("resolution")
