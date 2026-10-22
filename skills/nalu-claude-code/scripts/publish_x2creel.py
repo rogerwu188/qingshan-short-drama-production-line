@@ -21,8 +21,9 @@ earlier episode is still ``pending_review`` silently gives the new one the SAME 
 ``publish`` therefore queries the project first and returns DEFERRED_PENDING_REVIEW (exit 0, nothing
 sent) while ``pending_videos`` is non-empty; the caller retries on a later heartbeat.  A number already
 held by another local episode is reported as EPISODE_NUMBER_COLLISION.  The first ``publish`` creates the project; every later episode is appended to it.  The default
-video is $NALU_RUNTIME_ROOT/deliverables/<EP>/<EP>_final_9x16.mp4 and the default cover is a frame
-taken from it with ffmpeg.
+video is the tail-ad version $NALU_RUNTIME_ROOT/deliverables/<EP>/<EP>_final_9x16_AD.mp4 when S7 produced
+one (and it is not older than the final), else <EP>_final_9x16.mp4; the result and the state record which
+file was sent (``published_variant`` AD|FINAL).  The default cover is a frame taken from it with ffmpeg.
 
 The API key is read from $X2C_API_KEY, else $NALU_RUNTIME_ROOT/credentials/x2c_api_key (mode 600).
 It is never printed.
@@ -172,16 +173,36 @@ def resolve_category(category: str, lang: str = "zh") -> str:
                                 ensure_ascii=False))
 
 
+def default_video(episode: str) -> tuple[Path, str]:
+    """(video, variant): the S7 tail-ad version <EP>_final_9x16_AD.mp4 when present and not older than
+    the final (an AD left over from an earlier cut is never sent), else <EP>_final_9x16.mp4."""
+    folder = runtime() / "deliverables" / episode
+    final = folder / f"{episode}_final_9x16.mp4"
+    ad = folder / f"{episode}_final_9x16_AD.mp4"
+    if ad.is_file() and (not final.is_file() or ad.stat().st_mtime >= final.stat().st_mtime):
+        return ad, "AD"
+    return final, "FINAL"
+
+
 def cmd_publish(a: argparse.Namespace) -> dict[str, Any]:
     state = load_state()
-    video = Path(a.video or runtime() / "deliverables" / a.episode / f"{a.episode}_final_9x16.mp4").expanduser()
+    if a.video:
+        video, variant = Path(a.video).expanduser(), "EXPLICIT"
+    else:
+        video, variant = default_video(a.episode)
     if not video.is_file():
         return {"status": "BLOCKED", "reason": f"FINAL_CUT_MISSING:{video}"}
     digest = sha256(video)
     done = state["episodes"].get(a.episode)
-    if done and done.get("video_sha256") == digest:
+    known = {digest}
+    if variant == "AD":  # sent before its tail-ad version existed: still the same episode
+        final = video.with_name(f"{a.episode}_final_9x16.mp4")
+        if final.is_file():
+            known.add(sha256(final))
+    if done and done.get("video_sha256") in known:
         return {"status": "ALREADY_PUBLISHED", "episode": a.episode, "project_id": state["project_id"],
-                "episode_number": done.get("episode_number")}
+                "episode_number": done.get("episode_number"),
+                "published_video": done.get("published_video"), "published_variant": done.get("published_variant")}
 
     if not state.get("project_id") and not (a.title and a.description and a.category):
         return {"status": "BLOCKED", "reason": "FIRST_PUBLISH_NEEDS_TITLE_DESCRIPTION_CATEGORY"}
@@ -222,12 +243,14 @@ def cmd_publish(a: argparse.Namespace) -> dict[str, Any]:
     clash = sorted(ep for ep, row in state["episodes"].items()
                    if ep != a.episode and number is not None and row.get("episode_number") == number)
     state["episodes"][a.episode] = {"episode_number": number, "video_sha256": digest, "video_url": urls["video"],
-                                    "sent_at": now, "status": status}
+                                    "sent_at": now, "status": status, "published_video": str(video),
+                                    "published_variant": variant}
     if clash:
         state["episodes"][a.episode]["collides_with"] = clash
     save_state(state)
     return {"status": "EPISODE_NUMBER_COLLISION" if clash else "PUBLISHED", "episode": a.episode,
             "project_id": state["project_id"], "episode_number": number, "x2c_status": status,
+            "published_video": str(video), "published_variant": variant,
             **({"collides_with": clash,
                 "note": "X2C gave this episode a number another local episode already holds; that episode "
                         "was probably replaced. Check `status` and re-send it after this one is approved."}

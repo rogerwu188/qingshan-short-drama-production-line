@@ -102,7 +102,8 @@ bash $S/setup_host.sh --pin <PIN>          # 自动安装 Codex（npm）、写 ~
    `rights_basis` = 「用户承诺对所提供的原著与素材有使用权（短剧工作流默认条款）」+ 用户关于版权的原话（如有）；代理自选的公有领域作品写「公有领域作品：<作者>，卒于 <年份>」；`consent_ref` = 用户提供 key 的对话时间。
 3. `python3 $S/apply_runtime_fixups.py --runtime-root $NALU_RUNTIME_ROOT --character <名>=<CHAR-ID>:<slug> ... --cap <预算> --language <简报 dialogue_language>`
    （`--language en` 把 `qingshan.json` 的 `project.language` 设为 en-US；不设时引擎按中文做识别、对白检查、字幕和 H3 语言标签）
-   以及 `$NALU_ENGINE_ROOT/.qingshan-venv/bin/python $S/make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第N集 · <集名>"`
+   以及 `$NALU_ENGINE_ROOT/.qingshan-venv/bin/python $S/make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第N集 · <集名>" --language <简报 dialogue_language>`
+   （英文剧：`--subtitle "EPISODE 01 · <episode title>" --language en`，片尾写 TO BE CONTINUED、用拉丁字体；文字过长会自动缩小或折成两行）
    （片尾每集重做一次，文件名固定，S7 直接用最新的）。
 写剧本时避开这些已知坑：首帧要看得见的道具别设计成「从怀里掏出」；古装灯写「无罩敞口油盏」；每个说话角色男女/音色要能区分；不写全黑画面。
 

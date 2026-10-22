@@ -34,6 +34,7 @@
     "cta_url_captioned_only": true
   },
   "spoken_chars_max": 20,
+  "spoken_words_max_en": 12,
   "output_filename_suffix": "_AD",
   "ocr_clean_scope": "RAW_MODEL_GENERATED_PICTURE_ONLY",
   "ocr_clean_exempt": ["SUBTITLE_LAYER", "AD_LABEL_BADGE"],

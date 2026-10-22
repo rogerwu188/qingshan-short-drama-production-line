@@ -26,7 +26,7 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
   上游缺陷、改了能跑通。遇到代码缺口：把复现命令、日志、文件与行号写进
   `workflow/nalu/<EP>/preproduction/reports/<EP>_CODE_BLOCKER_<日期>.md`，本轮以 `BLOCKED` 结束（note 写报告路径），
   由维护者修上游后发新版。心跳会检查引擎是否被改，改动会被存档并上报，下次换引擎时会被清掉——本机补丁不会留下来。
-- 必须停下的只有：追加一次预算后仍不够（§3）、订单范围外的新付费类别（例如首次配乐）、Giggle key 缺失或失效。
+- 必须停下的只有：追加一次预算后仍不够（§3）、订单范围外的新付费类别（例如换装 i2i；背景音乐不算，见 §3）、Giggle key 缺失或失效。
 
 ## 2. 四层剧本（免费）
 写 `lines/nalu/runtime/tools/build_<ep小写>_layers.py`（作品文本，.gitignore 已拦，不入库），由叙事正典和简报生成
@@ -78,6 +78,9 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
    设 `generation.paid_requests_enabled=true`、`budget_cap_credits_per_episode=<上限>`。**以后每记一条订单都要把两处的 latest_order_seq 改成最新**，否则全部订单失效。
 4. 预算将超上限时，按默认条款**自动追加一次**：新记一条订单，`--cap` = 原上限 × 1.5，`--order` 写「默认条款自动追加：本集预算由 X 追加到 Y」，
    同步两处坐标后继续。追加后仍不够才以 `OWNER_DECISION_REQUIRED` 停下。
+5. 背景音乐默认开启（线主 2026-10-22「背景音乐开吧」），属默认条款、由本集 S3–S6 付费订单覆盖，不是新付费类别，不要停下问：
+   合同 `audio_contract.bgm` 不写或写 `NO_BGM` 时，引擎按默认在最后一场末尾几镜配一段选择性配乐（S6 生成约 8 积分，S7 混音）；
+   想自己定配乐节点就写 `{"mode":"SELECTIVE","cues":[...]}`；确实不要配乐才写 `"NONE"`。
 5. 直接进入 S3，不等任何确认。
 
 ## 4. S3→S7（每次 exit=4 = 有审核请求）
@@ -102,7 +105,9 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
 - S6 预检报 `MISSING_ANCHOR_FOR_CANONICAL_ENTITY`（多人单元，常见于 E01）：多人关键帧只给一个角色当人物参考，其余角色需要自己的身份牌，而 E01 的身份牌不在锁定资产库里。用引擎支持的覆盖文件补：`$NALU_RUNTIME_ROOT/preproduction/<EP>/identity_reference_overrides.json` 写 `{"units": {"<unit_id>": [{"character_id": "CHAR-…", "path": "<该角色 S3 已过审的正脸身份牌绝对路径>", "role": "CHARACTER_IDENTITY_REFERENCE"}]}}`（只补缺锚的角色），再重跑 S6 编译与预检。这不是绕门，不写 CODE_BLOCKER。
   其后 q1_derived（上一单元尾帧作起始帧）、post_gen_plot（用 `$T/review_fill/asr_units.py` 转写核对台词；同音字只记录）、video_q2。
   Q2 中 OCR 读出的低置信乱码（背景招牌/标签纹理、道具上的手写字）在 `observed_text_strings` 写 `NOISE:<文本>`；动作幅度/表情细节不算缺陷。
-- **S7 装配**（`env -u GIGGLE_API_KEY $P $T/nalu_pipeline.py run --episode <EP> --from S7 --until S8`）：需要 `$NALU_RUNTIME_ROOT/brand/NALU_MOTION_endcard_3s_9x16.mp4`（没有就 `$P $S/make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第N集 · <集名>"`）。
+- **S7 装配**（`env -u GIGGLE_API_KEY $P $T/nalu_pipeline.py run --episode <EP> --from S7 --until S8`）：需要 `$NALU_RUNTIME_ROOT/brand/NALU_MOTION_endcard_3s_9x16.mp4`（没有就 `$P $S/make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第N集 · <集名>" --language <简报 dialogue_language>`）。
+  S7 自动加片头标题（简报 `title` + 集数，前 2.5 秒叠加，免费、不加时长）、默认配乐混音（S6 已生成并对账）和尾贴广告版（素材缺失只记 `AD_ASSET_MISSING`，不阻塞）。
+  S7 报 `SELECTIVE_BGM_CREDIT_RECONCILIATION_NEEDS_KEY`（S6 时配乐账单还没出）：改用 `./lines/nalu/runtime/tools/paid_stage.sh <EP> S7 S7` 重跑 S7（S7 没有任何提交路径，key 只用于只读账单查询），不是新付费。
 
 ## 5. 质量不阻塞：默认接受（不问）
 默认条款：**质量问题不阻塞连续生产。** 门禁 FAIL 时先按 §4 正常修复/受控重做；同一镜第 2 次创意重做仍失败，或失败无法靠重做解决

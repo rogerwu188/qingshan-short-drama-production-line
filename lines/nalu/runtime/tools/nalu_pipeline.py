@@ -112,6 +112,10 @@ ADS_BRIEFS = ADS_ROOT / "briefs"
 ADS_PACKAGED = ADS_ROOT / "packaged"
 ADS_PROMPTS = ADS_ROOT / "prompts"
 ADS_POLICY = ADS_ROOT / "policy.json"
+# Repo-shipped defaults (line owner 2026-10-22: every episode ends with the tail ad): the policy used when
+# the runtime has no ads/policy.json, and a second lookup folder for INBOX:<sku>.mp4 drops.
+ADS_DEFAULT_POLICY = ENGINE / "configs/ads/AD_POLICY_DEFAULT.json"
+ADS_REPO_ASSETS = ENGINE / "assets/ads"
 ADS_TRANSACTIONS = ADS_ROOT / "transactions"
 AD_SLOT_CONTRACT = ENGINE / "configs/AD_SLOT_CONTRACT_V1.json"
 AD_TAIL_PACKAGE_TOOL = ENGINE / "tools/ad_tail_package.py"
@@ -4451,9 +4455,42 @@ def selective_bgm_transaction_dir(ctx: Ctx) -> Path:
     return path.resolve()
 
 
-def selective_bgm_common_argv(ctx: Ctx) -> list[Any]:
+def bgm_work_dir(ctx: Ctx) -> Path:
+    """nalu_selective_bgm.Paths' default work dir (source plan lives here)."""
+    return ENGINE / f"workflow/nalu/{ctx.episode}/preproduction/bgm"
+
+
+def bgm_contract(ctx: Ctx) -> dict[str, Any]:
+    """BGM default ON (line owner 2026-10-22): the contract the BGM tool / AgentCut builder get.
+
+    Authored SELECTIVE/REQUIRED or an explicit NONE opt-out -> the sealed contract itself.  NO_BGM /
+    omitted -> a derived copy with a default SELECTIVE_NARRATIVE_CUES declaration (nalu_bgm_default)."""
+    import nalu_bgm_default as _bgm_default
+
+    return _bgm_default.write_effective_contract(
+        ctx.p.contract, bgm_work_dir(ctx) / f"{ctx.episode}_GENERATION_CONTRACT_BGM_DEFAULT.json")
+
+
+def s7_bgm_contract(ctx: Ctx) -> dict[str, Any]:
+    """S7 uses the default-BGM contract only when S6 generated its sources (S7 never generates
+    music).  An episode whose S6 ran before the default existed keeps its authored no-BGM contract."""
+    try:
+        info = bgm_contract(ctx)
+    except Exception as exc:  # noqa: BLE001 -- the default must never break the authored path
+        return {"source": "DEFAULT_ERROR", "contract": str(ctx.p.contract),
+                "reason": f"{type(exc).__name__}:{exc}"}
+    if info.get("source") != "LINE_DEFAULT":
+        return info
+    source_plan = read_json(bgm_work_dir(ctx) / f"{ctx.episode}_BGM_SOURCE_PLAN.json", {}) or {}
+    if source_plan.get("contract_sha256") != sha256_file(Path(info["contract"])):
+        return {**info, "source": "LINE_DEFAULT_SKIPPED", "contract": str(ctx.p.contract),
+                "reason": "S6_HAS_NO_DEFAULT_BGM_SOURCE_PLAN"}
+    return info
+
+
+def selective_bgm_common_argv(ctx: Ctx, contract: Path | None = None) -> list[Any]:
     """Bind BGM receipts to this run's exact private layer and episode work paths."""
-    return ["--episode", ctx.episode, "--contract", ctx.p.contract,
+    return ["--episode", ctx.episode, "--contract", contract or ctx.p.contract,
             "--assembly", ctx.p.assembly, "--grouping", ctx.p.grouping_plan,
             "--project", ctx.p.agentcut_project,
             "--bgm-transactions-dir", selective_bgm_transaction_dir(ctx)]
@@ -4467,14 +4504,23 @@ def s6_selective_bgm_sources(ctx: Ctx, res: StageResult) -> dict[str, Any]:
     route for BGM; S7 can only verify, place, reconcile, QA, and mix the already
     completed durable transactions.
     """
-    contract = read_json(ctx.p.contract, {}) or {}
+    # BGM default ON (2026-10-22): NO_BGM / omitted -> derived default-cue contract; NONE opt-out kept.
+    try:
+        default_info = bgm_contract(ctx)
+    except Exception as exc:  # noqa: BLE001 -- unreadable contract: the authored path decides, as before
+        default_info = {"source": "DEFAULT_ERROR", "contract": str(ctx.p.contract),
+                        "reason": f"{type(exc).__name__}:{exc}"}
+    contract_path = Path(default_info["contract"])
+    contract = read_json(contract_path, {}) or {}
     bgm = (contract.get("audio_contract") or {}).get("bgm")
     mode = str((bgm or {}).get("mode") or (bgm or {}).get("usage_mode") or "").upper() \
         if isinstance(bgm, dict) else ""
     if mode not in {"SELECTIVE", "SELECTIVE_NARRATIVE_CUES"}:
-        return {"status": "NOT_APPLICABLE", "mode": mode or "UNDECLARED", "provider_posts": 0}
+        return {"status": "NOT_APPLICABLE", "mode": mode or "UNDECLARED", "provider_posts": 0,
+                "bgm_default": default_info}
+    res.details["bgm_default"] = default_info
 
-    common = selective_bgm_common_argv(ctx)
+    common = selective_bgm_common_argv(ctx, contract_path)
     source = ctx.run([VENV, SELECTIVE_BGM, "source-plan", *common], name="s6_bgm_source_plan")
     res.steps.append(source)
     if source["exit_code"] != 0:
@@ -4497,7 +4543,9 @@ def s6_selective_bgm_sources(ctx: Ctx, res: StageResult) -> dict[str, Any]:
         return {"status": PASS if verify["exit_code"] == 0 else BLOCKED,
                 "blocker": None if verify["exit_code"] == 0 else "SELECTIVE_BGM_TRANSACTION_VERIFY_FAILED",
                 "source_plan": qa_json(source), "pending": pending,
-                "provider_posts": 0, "verify": qa_json(verify)}
+                "provider_posts": 0, "verify": qa_json(verify),
+                "credit_reconciliation": (s6_bgm_reconcile_best_effort(ctx, res, common)
+                                          if verify["exit_code"] == 0 else None)}
 
     paid_argv = [VENV, SELECTIVE_BGM, "generate", *common, "--paid"]
     dry_argv = [VENV, SELECTIVE_BGM, "generate", *common]
@@ -4529,7 +4577,33 @@ def s6_selective_bgm_sources(ctx: Ctx, res: StageResult) -> dict[str, Any]:
     return {"status": PASS, "pending_before": keys, "planned_credits": planned,
             "provider_posts": len(new_post_candidates),
             "resumed_without_post": list(pending.get("resume_without_post") or []),
-            "verify": qa_json(verify)}
+            "verify": qa_json(verify),
+            "credit_reconciliation": s6_bgm_reconcile_best_effort(ctx, res, common)}
+
+
+def bgm_credit_reconciled(ctx: Ctx) -> bool:
+    """Every completed music transaction already carries a PASS_* credit reconciliation."""
+    try:
+        tx_dir = selective_bgm_transaction_dir(ctx)
+    except Exception:  # noqa: BLE001
+        return False
+    rows = [read_json(path, {}) or {} for path in sorted(tx_dir.glob("*.json"))] if tx_dir.is_dir() else []
+    completed = [row for row in rows if row.get("state") == "TERMINAL_COMPLETED" and row.get("task_id")]
+    return bool(completed) and all(
+        str((row.get("credit") or {}).get("statement_status") or "").startswith("PASS_") for row in completed)
+
+
+def s6_bgm_reconcile_best_effort(ctx: Ctx, res: StageResult, common: list[Any]) -> dict[str, Any]:
+    """Read-only credit reconciliation while the paid S6 run still holds the key (BGM default ON:
+    S7 is normally run without GIGGLE_API_KEY).  Diagnostic here, never blocks S6; S7 re-checks."""
+    if bgm_credit_reconciled(ctx):
+        return {"status": "ALREADY_RECONCILED"}
+    if not os.environ.get("GIGGLE_API_KEY"):
+        return {"status": "SKIPPED_NO_KEY"}
+    step = ctx.run([VENV, SELECTIVE_BGM, "reconcile", *common], name="s6_bgm_reconcile_read_only", paid=True)
+    step["diagnostic_only"] = True
+    res.steps.append(step)
+    return {"status": PASS if step["exit_code"] == 0 else "NOT_YET_RECONCILED", "exit_code": step["exit_code"]}
 
 
 def video_submit_argv(ctx: Ctx, *, manifest: Path, concurrency: int) -> list[Any]:
@@ -5838,6 +5912,23 @@ def _write_release_timeline(ctx: "Ctx", p: "Paths", picture: Path, outro_seconds
             "content_runtime_seconds": content_runtime, "release_runtime_seconds": release_runtime}
 
 
+def s7_opening_title(ctx: Ctx, res: StageResult, picture: Path) -> Path:
+    """Overlay the opening title on the subtitled picture; returns the picture to continue with.
+
+    Never blocks: on SKIPPED/FAILED the input picture is returned unchanged and the reason is
+    recorded in res.details["opening_title"]."""
+    import nalu_opening_title as _title
+
+    out = ctx.p.assembly / f"{ctx.episode}_picture_native_subbed_titled.mp4"
+    info = _title.apply_opening_title(runtime_root=Path(f"{_np.RUNTIME_ROOT}"), episode=ctx.episode,
+                                      language=ctx_language(ctx), source=picture, out=out)
+    res.details["opening_title"] = info
+    if info.get("status") == "APPLIED":
+        return out
+    ctx.say(f"   -- opening title {info.get('status')}: {info.get('reason')}")
+    return picture
+
+
 def s7_tail_ad(ctx: Ctx, res: StageResult, *, endcard_seconds: float) -> dict[str, Any]:
     """Optional per-episode tail ad (codex_docs/ROGER-20260925-AD-TAIL-INTEGRATION.md).
 
@@ -5855,9 +5946,22 @@ def s7_tail_ad(ctx: Ctx, res: StageResult, *, endcard_seconds: float) -> dict[st
         return {"status": "SKIPPED", "reason": f"EXCEPTION:{type(exc).__name__}:{exc}"}
 
 
+def resolve_ad_inbox_asset(sku: str) -> Path | None:
+    """INBOX:<sku> clip: runtime ads/inbox/<sku>.mp4 first, then the repo's assets/ads/<sku>.mp4."""
+    for folder in (ADS_INBOX, ADS_REPO_ASSETS):
+        candidate = folder / f"{sku}.mp4"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _s7_tail_ad_body(ctx: Ctx, res: StageResult, *, endcard_seconds: float) -> dict[str, Any]:
     p = ctx.p
-    decision = ctx.state.get("tail_ad_opt_in") or {"answer": "NONE", "reason": "NO_OPT_IN_RECORDED"}
+    # No recorded decision (episode passed S1 before the 2026-10-22 default) or one that only holds a
+    # policy default -> the current policy default for this episode's dialogue language.
+    decision = _tail_ad_optin.default_decision_at_s7(
+        ctx.state.get("tail_ad_opt_in"), policy_path=ADS_POLICY, language=ctx_language(ctx),
+        default_policy_path=ADS_DEFAULT_POLICY)
     decision = _tail_ad_optin.recheck_before_s7(
         ctx.episode, answer_dir=ADS_PROMPTS, ledger_path=ADS_TRANSACTIONS / "opt_in_ledger.json",
         current_decision=decision, say=ctx.say)
@@ -5877,14 +5981,15 @@ def _s7_tail_ad_body(ctx: Ctx, res: StageResult, *, endcard_seconds: float) -> d
     packaged_qa = ADS_PACKAGED / f"{sku}_tail.qa.json"
 
     if answer.startswith("INBOX:"):
-        raw_input = ADS_INBOX / f"{sku}.mp4"
-        if not raw_input.is_file():
-            return {"status": "SKIPPED", "reason": "INBOX_SKU_MISSING", "sku": sku}
+        raw_input = resolve_ad_inbox_asset(sku)
+        if raw_input is None:
+            return {"status": "SKIPPED", "reason": f"AD_ASSET_MISSING:{sku}", "sku": sku,
+                    "searched": [str(ADS_INBOX / f"{sku}.mp4"), str(ADS_REPO_ASSETS / f"{sku}.mp4")]}
         provenance = "INBOX"
         # optional sidecar: a Mode-A drop may already carry its own burned-in CTA
         # (e.g. the AdForge demo); declare it here so AD_TAIL_OCR_CLEAN allows it
         # instead of misreading known, approved branding as anomalous text.
-        meta_path = ADS_INBOX / f"{sku}.meta.json"
+        meta_path = raw_input.with_name(f"{sku}.meta.json")
         cta_text = str((read_json(meta_path, {}) or {}).get("cta_text") or "") if meta_path.is_file() else None
     elif answer.startswith("BRIEF:"):
         brief_path = ADS_BRIEFS / f"{sku}.json"
@@ -5922,7 +6027,7 @@ def _s7_tail_ad_body(ctx: Ctx, res: StageResult, *, endcard_seconds: float) -> d
 
     package_argv = [VENV, AD_TAIL_PACKAGE_TOOL, "package", "--input", raw_input, "--sku", sku,
                     "--provenance", provenance, "--slot-contract", AD_SLOT_CONTRACT,
-                    "--out", packaged, "--out-qa", packaged_qa]
+                    "--out", packaged, "--out-qa", packaged_qa, "--language", ctx_language(ctx)]
     if cta_text:
         package_argv += ["--cta-text", cta_text]
     package_step = ctx.run(package_argv, name="s7_ad_tail_package")
@@ -6263,6 +6368,8 @@ def stage_s7(ctx: Ctx) -> StageResult:
         })
 
     # -------------------------------------------------------- 3. the chain argv
+    s7_bgm = s7_bgm_contract(ctx)
+    res.details["bgm_default"] = s7_bgm
     build_argv: list[Any] = [
         VENV, ENGINE / "tools/build_agentcut_from_admitted_storyboard_sources.py",
         "--episode", ctx.episode]
@@ -6276,8 +6383,9 @@ def stage_s7(ctx: Ctx) -> StageResult:
         "--output-video", p.final_mp4,
         "--expected-slots", expected_slots,
         # required: audio_profile_binding classifies audio_contract.bgm and stamps
-        # the contract's sha into the project (NO_BGM -> NATIVE_MULTIMODAL_NO_EXTERNAL_BGM)
-        "--generation-contract", p.contract]
+        # the contract's sha into the project (NONE -> NATIVE_MULTIMODAL_NO_EXTERNAL_BGM).  BGM default ON:
+        # NO_BGM/omitted -> the derived default-cue contract (SELECTIVE) once S6 generated its sources.
+        "--generation-contract", s7_bgm["contract"]]
 
     if constraints_file and constraints_file.is_file():
         build_argv += ["--measured-edit-constraints", constraints_file]
@@ -6430,6 +6538,10 @@ def stage_s7(ctx: Ctx) -> StageResult:
         res.blockers = ["SUBTITLE_BURNIN_FAILED"]
         return res
     res.details["subtitles"] = {"picture": str(subbed), "report": str(p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json")}
+    # 5b'. opening title (line owner 2026-10-22: every episode needs a proper opening).  Free overlay of
+    # the brief's series title + episode line on the first 2.5 s; no added duration, audio stream copy.
+    # A missing brief title / font or an ffmpeg failure only skips it (recorded) and never blocks S7.
+    subbed = s7_opening_title(ctx, res, subbed)
     # 5c. studio end card (Roger 2026-09-13): append nalu_runtime/brand/NALU_MOTION_endcard_3s_9x16.mp4
     endcard = Path(f"{_np.RUNTIME_ROOT}/brand/NALU_MOTION_endcard_3s_9x16.mp4")
     outro_seconds = 0.0
@@ -6462,7 +6574,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
     binding = ((read_json(p.agentcut_project, {}) or {}).get("metadata") or {}).get("audio_profile_binding") or {}
     profile = str(binding.get("resolved_audio_profile_id") or binding.get("profile") or "")
     if profile == "NATIVE_MULTIMODAL_SELECTIVE_BGM":
-        bgm_common = selective_bgm_common_argv(ctx)
+        bgm_common = selective_bgm_common_argv(ctx, Path(s7_bgm["contract"]))
         verify_step = ctx.run([VENV, SELECTIVE_BGM, "verify", *bgm_common], name="s7_bgm_verify_s6_transactions")
         steps.append(verify_step)
         if verify_step["exit_code"] != 0:
@@ -6474,7 +6586,19 @@ def stage_s7(ctx: Ctx) -> StageResult:
         if plan_step["exit_code"] != 0:
             res.steps.extend(steps); res.blockers = ["SELECTIVE_BGM_PLAN_FAILED"]; return res
         # Read-only statement query needs the key; nalu_selective_bgm reconcile has no POST route.
-        rec_step = ctx.run([VENV, SELECTIVE_BGM, "reconcile", *bgm_common], name="s7_bgm_reconcile_read_only", paid=True)
+        # S7 normally runs without the key (env -u GIGGLE_API_KEY): reuse S6's PASS reconciliation then.
+        if os.environ.get("GIGGLE_API_KEY") or not bgm_credit_reconciled(ctx):
+            if not os.environ.get("GIGGLE_API_KEY"):
+                res.steps.extend(steps)
+                res.blockers = ["SELECTIVE_BGM_CREDIT_RECONCILIATION_NEEDS_KEY"]
+                res.details["hint"] = ("S6 could not reconcile the music charge yet; rerun S7 with the key via "
+                                       f"./lines/nalu/runtime/tools/paid_stage.sh {ctx.episode} S7 S7 "
+                                       "(S7 has no provider POST route; the key is used for the read-only "
+                                       "statement query only).")
+                return res
+            rec_step = ctx.run([VENV, SELECTIVE_BGM, "reconcile", *bgm_common], name="s7_bgm_reconcile_read_only", paid=True)
+        else:
+            rec_step = {"name": "s7_bgm_reconcile_read_only", "exit_code": 0, "reused": "S6_RECONCILIATION_PASS"}
         steps.append(rec_step)
         if rec_step["exit_code"] != 0:
             res.steps.extend(steps); res.blockers = ["SELECTIVE_BGM_CREDIT_RECONCILIATION_FAILED"]; return res
@@ -7379,7 +7503,8 @@ def run_episode(ctx: Ctx) -> int:
         decision = _tail_ad_optin.run_opt_in(
             ctx.episode, prompts_dir=ADS_PROMPTS, answer_dir=ADS_PROMPTS,
             policy_path=ADS_POLICY, ledger_path=ADS_TRANSACTIONS / "opt_in_ledger.json",
-            manifest_path=ctx.p.writer_manifest, say=ctx.say)
+            manifest_path=ctx.p.writer_manifest, say=ctx.say,
+            language=ctx_language(ctx), default_policy_path=ADS_DEFAULT_POLICY)
         ctx.state["tail_ad_opt_in"] = decision
         ctx.save_state()
 

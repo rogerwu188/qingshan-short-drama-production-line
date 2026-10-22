@@ -75,20 +75,21 @@ python3 lines/nalu/runtime/tools/bootstrap_runtime_root.py --runtime-root "$RUNT
 | 整批提示词门 | 关键帧提示词 + 规划编译（`compile_grouped_seedance_manifest.py --planning-only --planned-prompt-dir`） | `EPISODE_PROMPT_BATCH_POLICY.json` 登记 + 每行回执 | `prompt_batch_register` sha 绑定 + `prompt_batch_qa digest` 确定性检查 | **MANUAL_REQUIRED**：通读摘要写逐行答案 → `receipts` → 再 `register` | 0 | 确定性检查 FAIL 且非误报时改合同 |
 | S5 | 关键帧清单 | `preproduction/keyframes/<shot>-keyframe-v1.png` | entry_state 门、预算守卫、Q1（RapidOCR + 身份余弦 + 人工）、起始帧证据 | **MANUAL_REQUIRED Q1**：缩略总表看图填答；REJECT → 改镜头文字 → 重建 → 停放旧提示词/旧图 → S5 干跑 → 规划编译 → 重登记 → S5 付费 | 11/张 | 同镜第 2 次创意重做失败 |
 | S6 | 关键帧 + 上一单元真实尾帧（波次） | 单元 mp4 | 波次循环脚本、reroll 守卫、post-gen QA（技术 12 项 + ASR + 剧情 5 项）、Q2（5 帧 OCR/身份 + 人工）、缺陷容忍门 | **MANUAL_REQUIRED**：post-gen 剧情审、Q2 审 | 20/s | 重做超守卫上限、集级缺陷预算超限 |
-| S7 | 全部单元 ADMITTED_FOR_ASSEMBLY | `deliverables/<EP>/<EP>_final_9x16.mp4`（烧录字幕、3 s 片尾、-16 LUFS；选择性配乐：plan → generate → reconcile → qa → mix，solo stem 归档） | `final_qa_evidence_bundle`（两键无生产者 → N/A）；配乐账单按提交窗隔离（K032） | 无 | 配乐 8/段 | 首次配乐付费；配乐窗口标签是否被发布门接受（线主决定） |
+| S7 | 全部单元 ADMITTED_FOR_ASSEMBLY | `deliverables/<EP>/<EP>_final_9x16.mp4`（烧录字幕、3 s 片尾、-16 LUFS；选择性配乐：plan → generate → reconcile → qa → mix，solo stem 归档） | `final_qa_evidence_bundle`（两键无生产者 → N/A）；配乐账单按提交窗隔离（K032） | 无 | 配乐 8/段 | 配乐已属默认条款（2026-10-22，计入本集预算）；配乐窗口标签是否被发布门接受（线主决定） |
 | S8 | 成片 | `CHECKPOINT.md` + 审批标志 | — | **线主看片** | 0 | 总是停 |
 | S7-SYNC | S8 通过 | 仓库：代码泛化回灌、K 号经验、README/AGENTS 改到与生产一致、新 tag | `knowledge_registry --validate`、`run_portable_ci.py`、`deployment_code_integrity.py` | 改动清单给线主确认后 push | 0 | push/合并前 |
 
 ## 4. 必须停下来问人的点（不问就是越权）
 
-1. **付费**：翻 `paid_requests_enabled`、第一次 `--paid`、每集上限、超守卫的重做、任何新的付费种类（首次配乐、换装 i2i）。
+1. **付费**：翻 `paid_requests_enabled`、第一次 `--paid`、每集上限、超守卫的重做、任何新的付费种类（如换装 i2i）。
+   **背景音乐不再是新付费种类**：线主 2026-10-22「背景音乐开吧」——选择性配乐默认开启（写手未声明或只写 `NO_BGM` 时按默认片尾配乐节点走，显式 `NONE` 仍可关），属每集默认条款，S6 生成（约 8 积分/段，默认 1 段）计入本集预算上限，由既有 S3–S6 付费订单覆盖，不另要线主订单、不停线。
    **已按线主常设指令（Roger 2026-10-06「以后无需要我批准，直接执行」）授权的付费，不必再问**：走唯一入口
    `lines/nalu/runtime/tools/paid_stage.sh <EP> <FROM> <UNTIL>`（`--check <EP>` 只看预算、不花钱）。
    该脚本自身不授予任何许可——订单序号/集次范围/上限/模型/权利声明、第二把锁 `paid_requests_enabled`、
    每集积分上限（HARD_STOP 由 `nalu_budget_ledger.py` 在 POST 前拦）、整批提示词门（K041）、事务存档去重，
    全部照旧在运行时强制。它只把「source .env + --paid」这套无法用权限规则窄匹配的一行命令，收成一个具名 argv；
    运行时需要为它加一条 `Bash(./lines/nalu/runtime/tools/paid_stage.sh:*)` 权限规则，模型自己不得改权限配置。
-   仍要问线主的，是订单**未**覆盖的付费：新的付费种类（首次配乐、换装 i2i）、超重做守卫、集级缺陷预算超限。
+   仍要问线主的，是订单**未**覆盖的付费：新的付费种类（如换装 i2i；配乐已属默认条款）、超重做守卫、集级缺陷预算超限。
 2. **发布/上传**：本线没有发布代码路径；任何平台上传都要线主另行授权（`release-preflight` 是失败关闭门，不是许可）。
 3. **版权/肖像**：源作品改编权、真人照片肖像权由线主声明；引擎不核验，代理只登记 `rights_basis` 原话与日期。
 4. **身份判定**：主角源照与剧本年龄/形象冲突、余弦低于失败线（0.30）、换源照、年轻化——任一都问。
@@ -180,9 +181,12 @@ python3 lines/nalu/runtime/tools/bootstrap_runtime_root.py --runtime-root "$RUNT
 3. **第一次卡住**：走到「S1」需要四层剧本文件 + 逐集编排器 `nalu_pipeline.py`；编排器与线专属工具现已随本仓库发布在 `lines/nalu/runtime/tools/`（路径参数化，`tools/tests/test_nalu_runtime_port.py` 离线验证 bootstrap + status 可跑）；剩下的卡点是剧本四层本身必须手写（MANUAL_REQUIRED），本文件如实标注。
 4. 真实边界：S3 起必须凭据 + 付费；每集有 5 处人工看图审核；发布无代码路径。
 
-## 10. 尾贴广告（可选，按集 opt-in；codex_docs/ROGER-20260925-AD-TAIL-INTEGRATION.md）
+## 10. 尾贴广告（每集默认植入，线主 2026-10-22；codex_docs/ROGER-20260925-AD-TAIL-INTEGRATION.md）
 
-- **默认关闭**：`manifest.ad_slot` 不存在 = 本集无广告，`final_9x16.mp4` 逐字节不受影响。写手层四层文件封缄之后、S1 之前，编排器写 `ads/prompts/<EP>_AD_PROMPT.json` 问一次「本集是否植入尾贴广告？」，60 秒墙钟轮询 `ads/prompts/<EP>_AD_ANSWER.json`（文件问答，不用 `input()`，避免无人值守 heartbeat 挂死）；超时/未答默认走 `ads/policy.json` 的 `default`（当前策略：默认植入 demo 广告 `INBOX:giggle_tail5s`，除非当集显式答 `NONE` 或指定别的 sku/brief——Roger 2026-09-25/26 明确要求）。答案写入 `manifest.ad_slot` **仅一次**（该文件被 S2 等阶段指纹绑定，二次改写会使后续阶段的缓存失效）；S7 开始前若晚到答案会被采纳（记 state 不改 manifest），S7 已开始则记入下一集。
+- **默认开启（每集）**：仓库自带策略 `configs/ads/AD_POLICY_DEFAULT.json`（`ask:false`，按对白语言选 sku：zh → `INBOX:giggle_tail5s`，en → `INBOX:giggle_tail5s_en`）；运行时 `ads/policy.json` 存在时以它为准（可写 `default_by_language` 或 `default`）。当集显式答 `NONE` 或别的 sku/brief 照旧生效；策略 `ask:true` 时编排器在 S1 前写 `ads/prompts/<EP>_AD_PROMPT.json`，60 秒轮询 `ads/prompts/<EP>_AD_ANSWER.json`（文件问答，不用 `input()`），超时走策略默认。S7 时本集没有记录（S1 早于本规则）或记录只是策略默认值的，按当前策略 + 本集语言重新取默认 sku。
+- **素材位置**：`INBOX:<sku>` 先找运行时 `ads/inbox/<sku>.mp4`，再找仓库 `assets/ads/<sku>.mp4`（线主后补 `giggle_tail5s.mp4` / `giggle_tail5s_en.mp4`）；都没有记 `AD_ASSET_MISSING:<sku>`，照常出无广告成片，绝不卡 S7。角标按语言：zh「广告」、en「Ad」（槽合同 `label.text_zh/text_en`）；口播上限 zh 按汉字数 `spoken_chars_max`，en 按词数 `spoken_words_max_en`=12。
+- **发行用广告版**：`deliverables/<EP>/<EP>_final_9x16_AD.mp4` 存在（且不早于正片）时 `publish_x2creel.py` / `codex_production.py` 心跳发行上传广告版，否则上传正片；发行记录写 `published_variant`（AD|FINAL）和 `published_video`。
+- 答案写入 `manifest.ad_slot` **仅一次**（该文件被 S2 等阶段指纹绑定，二次改写会使后续阶段的缓存失效）；S7 开始前若晚到答案会被采纳（记 state 不改 manifest），S7 已开始则记入下一集。
 - **两种输入方式，同一个槽**：方式 A `ads/inbox/<sku>.mp4`（现成成片，允许已自带「广告」角标/CTA字幕）；方式 B `ads/briefs/<sku>.json`（url/idea/assets/brand_docs/cta，走 `tools/adforge_adapter.py` 调外部 AdForge，`ADFORGE_ROOT` 未配置即 `ADAPTER_REQUIRED`，本线照常出无广告成片）。两种都进 `tools/ad_tail_package.py`（唯一技术门：格式/时长/响度/角标/OCR/口播字数与CTA不念，全部 fail-closed），再进 `tools/ad_tail_insert.py` 拼进 `content | ad | endcard`，产物 `<EP>_final_9x16_AD.mp4` 与原片分开存放，绝不覆盖。
 - **不走剧集创意门**：广告只过技术门，不算镜头分母、不占缺陷预算、不进 FS-1；六项诊断（AD_TAIL_FORMAT/DURATION/LOUDNESS/LABEL_PRESENT/SHA_BOUND/OCR_CLEAN）挂在既有 `FINAL-AUDIT-COMPLETENESS` 之下，任一不过就是本集没有广告版，正片版完全不受影响。
 - **独立账本**：`ads/transactions/` 与集内制作积分账本分开；配乐/视频以外的这笔新付费类别（首次投放广告）已按 seq=... 记入私有 SUPERVISOR_ORDERS。
@@ -255,7 +259,7 @@ lines/nalu/runtime/tools/run_unattended.sh E11 --max-turns 200 --max-budget-usd 
 
 ### 12.4 仍然必须交线主（自动化不改变这些）
 
-订单未覆盖的付费类别（首个 BGM、换装 i2i、超出返工守卫的重拍、单集缺陷预算超支）、
+订单未覆盖的付费类别（换装 i2i、超出返工守卫的重拍、单集缺陷预算超支；BGM 自 2026-10-22 起属默认条款，不在此列）、
 剧情与台词文本改动、S8 看片与发布。
 第一类与第三类由 §4 定义；代理撞上就写待决说明停下，不自行批准。
 （音色一致性失败自 2026-10-22 起按 §4.9 重做后默认接受并记录，不再停线。）

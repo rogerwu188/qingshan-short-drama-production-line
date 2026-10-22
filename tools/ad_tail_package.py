@@ -28,11 +28,21 @@ if str(ENGINE) not in sys.path:
 
 try:
     from lines.nalu.runtime.tools.nalu_media_tools import (
-        MediaToolBlocked, require_ffmpeg, require_ffprobe, resolve_cjk_font,
+        MediaToolBlocked, require_ffmpeg, require_ffprobe, resolve_cjk_font, resolve_latin_font,
     )
 except ModuleNotFoundError:
     sys.path.insert(0, str(ENGINE / "lines/nalu/runtime/tools"))
-    from nalu_media_tools import MediaToolBlocked, require_ffmpeg, require_ffprobe, resolve_cjk_font  # type: ignore
+    from nalu_media_tools import (  # type: ignore
+        MediaToolBlocked, require_ffmpeg, require_ffprobe, resolve_cjk_font, resolve_latin_font,
+    )
+
+LANGUAGES = ("zh", "en")
+
+
+def label_text(slot: dict[str, Any], language: str = "zh") -> str:
+    """The badge text for the episode's dialogue language (slot label text_en / text_zh)."""
+    label = slot["label"]
+    return str(label.get("text_en") or label["text_zh"]) if language == "en" else str(label["text_zh"])
 
 
 def now() -> str:
@@ -86,7 +96,7 @@ def check_format(probe: dict[str, Any], slot: dict[str, Any]) -> dict[str, Any]:
 
 
 def check_ocr_clean(ffmpeg_unused: str, input_path: Path, out_dir: Path, slot: dict[str, Any],
-                    cta_text: str | None = None) -> dict[str, Any]:
+                    cta_text: str | None = None, language: str = "zh") -> dict[str, Any]:
     """AD_TAIL_OCR_CLEAN.  Scans the RAW, pre-overlay clip.  Mode A may hand us an
     already-finished drop (e.g. the AdForge demo) that legitimately already carries
     its own '广告' badge and CTA caption — those are ALLOWED, expected branding,
@@ -108,7 +118,7 @@ def check_ocr_clean(ffmpeg_unused: str, input_path: Path, out_dir: Path, slot: d
         failures.append(f"OCR_TOOL_ERROR:{result.stderr[-500:]}")
     elif payload.get("status") != "PASS":
         failures.append(f"OCR_NOT_CLEAN:critical_text_failures={payload.get('critical_text_failures')}")
-    badge_text = slot["label"]["text_zh"]
+    badge_text = label_text(slot, language)
     badge_already_present = any(
         row.get("text") == badge_text and row.get("allowed")
         for row in payload.get("recognitions") or [])
@@ -117,27 +127,45 @@ def check_ocr_clean(ffmpeg_unused: str, input_path: Path, out_dir: Path, slot: d
             "badge_already_present": badge_already_present}
 
 
-def check_spoken_content(input_path: Path, slot: dict[str, Any], cta_text: str | None) -> dict[str, Any]:
+def _transcribe(input_path: Path, language: str) -> str:
+    from faster_whisper import WhisperModel  # type: ignore
+    model = WhisperModel("small", device="cpu", compute_type="int8")
+    segments, _ = model.transcribe(str(input_path), language=language, beam_size=5, vad_filter=True)
+    joiner = " " if language == "en" else ""
+    return joiner.join(seg.text.strip() for seg in segments).strip()
+
+
+def check_spoken_content(input_path: Path, slot: dict[str, Any], cta_text: str | None,
+                         language: str = "zh") -> dict[str, Any]:
     """Not one of the spec's six named diagnostics, but enforced as a hard gate
-    (spoken_chars_max, CTA never spoken) — see AD-TAIL-INTEGRATION §二/§四."""
+    (spoken length cap, CTA never spoken) — see AD-TAIL-INTEGRATION §二/§四.
+    zh counts CJK characters against spoken_chars_max; en counts words against
+    spoken_words_max_en (default 12)."""
     failures: list[str] = []
     try:
-        from faster_whisper import WhisperModel  # type: ignore
-        model = WhisperModel("small", device="cpu", compute_type="int8")
-        segments, _ = model.transcribe(str(input_path), language="zh", beam_size=5, vad_filter=True)
-        transcript = "".join(seg.text.strip() for seg in segments)
+        transcript = _transcribe(input_path, language)
     except Exception as exc:  # noqa: BLE001
         return {"status": "FAIL", "failures": [f"ASR_UNAVAILABLE:{type(exc).__name__}:{exc}"],
-                "spoken_chars": None, "transcript": None, "cta_spoken": None}
-    spoken_chars = _count_cjk_chars(transcript)
-    cap = int(slot.get("spoken_chars_max", 20))
-    if spoken_chars > cap:
-        failures.append(f"SPOKEN_CHARS_OVER_CAP:{spoken_chars}>{cap}")
-    cta_spoken = bool(cta_text and cta_text.strip() and cta_text.strip() in transcript)
+                "spoken_chars": None, "transcript": None, "cta_spoken": None, "language": language}
+    result: dict[str, Any] = {"language": language}
+    if language == "en":
+        spoken_words = _count_words(transcript)
+        cap = int(slot.get("spoken_words_max_en", 12))
+        if spoken_words > cap:
+            failures.append(f"SPOKEN_WORDS_OVER_CAP:{spoken_words}>{cap}")
+        result.update(spoken_words=spoken_words, spoken_chars=None)
+    else:
+        spoken_chars = _count_cjk_chars(transcript)
+        cap = int(slot.get("spoken_chars_max", 20))
+        if spoken_chars > cap:
+            failures.append(f"SPOKEN_CHARS_OVER_CAP:{spoken_chars}>{cap}")
+        result.update(spoken_chars=spoken_chars)
+    cta = (cta_text or "").strip()
+    cta_spoken = bool(cta and cta.lower() in transcript.lower())
     if cta_spoken:
         failures.append("CTA_URL_SPOKEN_MUST_BE_CAPTION_ONLY")
     return {"status": "PASS" if not failures else "FAIL", "failures": failures,
-            "spoken_chars": spoken_chars, "transcript": transcript, "cta_spoken": cta_spoken}
+            "transcript": transcript, "cta_spoken": cta_spoken, **result}
 
 
 _CJK_RE = re.compile(r"[一-鿿㐀-䶿]")
@@ -149,6 +177,14 @@ def _count_cjk_chars(text: str) -> int:
     characters, not raw string length — a short spoken word like "AI" or
     "Director" is a handful of Latin letters, not several spoken 'characters'."""
     return len(_CJK_RE.findall(text))
+
+
+_WORD_RE = re.compile(r"[A-Za-z0-9]+(?:['’][A-Za-z]+)?")
+
+
+def _count_words(text: str) -> int:
+    """English spoken length: whitespace/punctuation separated words (contractions count once)."""
+    return len(_WORD_RE.findall(text or ""))
 
 
 
@@ -177,14 +213,14 @@ def _two_pass_loudnorm_filter(ffmpeg: str, input_path: Path, pre_filters: str, s
     return f"{pre_filters}{linear},alimiter=limit={limiter_linear:.6f}:attack=5:release=50:level=false"
 
 
-def _render_badge_png(text: str, out_path: Path) -> Path:
+def _render_badge_png(text: str, out_path: Path, language: str = "zh") -> Path:
     """Render the persistent top-right badge as a PNG, composited later via
     ffmpeg's `overlay` filter. Deliberately NOT drawtext/subtitles: those
     require an ffmpeg build linked against libfreetype/libass, which is not
     guaranteed on every deployment (confirmed absent on at least one dev
     machine this session) — `overlay` has no such dependency."""
     from PIL import Image, ImageDraw, ImageFont
-    font_path, _ = resolve_cjk_font()
+    font_path, _ = resolve_latin_font() if language == "en" else resolve_cjk_font()
     font = ImageFont.truetype(font_path, 34)
     width, height = 166, 54
     canvas = Image.new("RGBA", (width, height), (0, 0, 0, int(255 * 0.45)))
@@ -200,7 +236,7 @@ def _render_badge_png(text: str, out_path: Path) -> Path:
 
 def burn_and_normalize(*, ffmpeg: str, input_path: Path, out_path: Path,
                         slot: dict[str, Any], subtitle_ass: Path | None,
-                        skip_badge: bool = False) -> None:
+                        skip_badge: bool = False, language: str = "zh") -> None:
     fmt = slot["format"]
     fade_seconds = float(slot["transition_in"]["seconds"])
     base_filters = [f"fps={fmt['fps']}", f"format={fmt['pixel_format']}",
@@ -238,7 +274,7 @@ def burn_and_normalize(*, ffmpeg: str, input_path: Path, out_path: Path,
         return
 
     badge_png = out_path.parent / f"{out_path.stem}_badge.png"
-    _render_badge_png(slot["label"]["text_zh"], badge_png)
+    _render_badge_png(label_text(slot, language), badge_png, language)
     filter_complex = f"[0:v]{video_chain}[base];[base][1:v]overlay=W-w-24:24[v]"
     result = _run([
         ffmpeg, "-y", "-hide_banner", "-loglevel", "warning",
@@ -311,8 +347,11 @@ def check_label_present(ffmpeg: str, out_path: Path, slot: dict[str, Any], out_d
 
 
 def package(*, input_path: Path, sku: str, provenance: str, slot_contract_path: Path,
-            subtitle_ass: Path | None, cta_text: str | None, out_path: Path, out_qa_path: Path) -> dict[str, Any]:
+            subtitle_ass: Path | None, cta_text: str | None, out_path: Path, out_qa_path: Path,
+            language: str = "zh") -> dict[str, Any]:
     slot = load_contract(slot_contract_path)
+    if language not in LANGUAGES:
+        raise ValueError(f"unsupported ad language {language!r}; expected one of {LANGUAGES}")
     input_sha = sha256(input_path)
 
     if out_qa_path.is_file():
@@ -337,16 +376,17 @@ def package(*, input_path: Path, sku: str, provenance: str, slot_contract_path: 
     out_dir.mkdir(parents=True, exist_ok=True)
 
     probe = ffprobe_format(ffprobe, input_path)
-    ad_tail_ocr_clean = check_ocr_clean(ffmpeg, input_path, out_dir, slot, cta_text=cta_text)
+    ad_tail_ocr_clean = check_ocr_clean(ffmpeg, input_path, out_dir, slot, cta_text=cta_text, language=language)
     ad_tail_duration = check_duration(probe, slot)
     ad_tail_format = check_format(probe, slot)
-    spoken_content_contract = check_spoken_content(input_path, slot, cta_text)
+    spoken_content_contract = check_spoken_content(input_path, slot, cta_text, language=language)
 
     pre_burn_failures = (ad_tail_ocr_clean["status"] != "PASS" or ad_tail_duration["status"] != "PASS"
                           or ad_tail_format["status"] != "PASS" or spoken_content_contract["status"] != "PASS")
     payload: dict[str, Any] = {
         "schema": "qingshan.ad_tail_package_qa.v1", "sku": sku, "provenance": provenance,
-        "input_sha256": input_sha, "recorded_at": now(),
+        "input_sha256": input_sha, "recorded_at": now(), "language": language,
+        "label_text": label_text(slot, language),
         "ad_tail_ocr_clean": ad_tail_ocr_clean, "ad_tail_duration": ad_tail_duration,
         "ad_tail_format": ad_tail_format, "spoken_content_contract": spoken_content_contract,
     }
@@ -361,7 +401,8 @@ def package(*, input_path: Path, sku: str, provenance: str, slot_contract_path: 
     try:
         burn_and_normalize(ffmpeg=ffmpeg, input_path=input_path, out_path=out_path,
                             slot=slot, subtitle_ass=subtitle_ass,
-                            skip_badge=ad_tail_ocr_clean.get("badge_already_present", False))
+                            skip_badge=ad_tail_ocr_clean.get("badge_already_present", False),
+                            language=language)
     except Exception as exc:  # noqa: BLE001
         payload["ad_tail_loudness"] = {"status": "NOT_RUN", "failures": []}
         payload["ad_tail_label_present"] = {"status": "NOT_RUN", "failures": []}
@@ -398,6 +439,8 @@ def main() -> int:
     p.add_argument("--cta-text")
     p.add_argument("--out", required=True, type=Path)
     p.add_argument("--out-qa", required=True, type=Path)
+    p.add_argument("--language", choices=LANGUAGES, default="zh",
+                   help="episode dialogue language: badge text (label text_zh/text_en) and spoken-length rule")
     args = parser.parse_args()
 
     payload = package(
@@ -405,6 +448,7 @@ def main() -> int:
         slot_contract_path=args.slot_contract.resolve(),
         subtitle_ass=args.subtitle_ass.resolve() if args.subtitle_ass else None,
         cta_text=args.cta_text, out_path=args.out.resolve(), out_qa_path=args.out_qa.resolve(),
+        language=args.language,
     )
     print(json.dumps({"status": payload["status"], "sku": payload["sku"],
                       "out_qa": str(args.out_qa), "reused": payload.get("reused", False)}, ensure_ascii=False))
