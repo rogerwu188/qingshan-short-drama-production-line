@@ -103,6 +103,8 @@ blocking check; direct the episode the way people watch films:
 Under this policy the S1 static design gate reports its old forced-motion rules (R1–R4, R6, R7) as
 `advisories`; they never block.
 
+For MiniMax-H3 episodes, adapt the script to what H3 can shoot: `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md`.
+
 ## Provenance and privacy
 
 The installed TalentHub agent id is `ai-drama-factory`, the provider is

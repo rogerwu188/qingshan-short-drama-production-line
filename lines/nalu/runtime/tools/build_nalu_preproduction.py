@@ -688,6 +688,15 @@ def build_internal_transition_contracts(group: dict[str, Any], by_shot: dict[str
     return rows
 
 
+def _being_fields(entity: dict[str, Any]) -> dict[str, Any]:
+    """kind/creature_card of a non-character being (CREATURE / ANIMAL / any card); {} for a plain prop."""
+    kind = str(entity.get("kind") or "").strip().upper()
+    card = entity.get("creature_card")
+    if kind not in {"CREATURE", "ANIMAL"} and not isinstance(card, dict):
+        return {}
+    return {"kind": kind or "CREATURE", **({"creature_card": copy.deepcopy(card)} if isinstance(card, dict) else {})}
+
+
 def wardrobe_bible(contract: dict[str, Any], episode: str,
                    requirements: dict[str, Any] | None = None) -> dict[str, Any]:
     """Itemized wardrobe bible.
@@ -1001,6 +1010,8 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
             "anchor": "PRIMARY_ACTION_PLANE",
             "continuity_scope": "SCENE_OR_RECURRING_PROP",
             "note": str(props_by_id[prop_id].get("note") or ""),
+            # CAMERA_GRAMMAR_V1 director prompt: a creature/animal card is a visible subject, not a prop
+            **(_being_fields(props_by_id[prop_id]) if camera_grammar else {}),
         } for prop_id in row["prop_ids"] if prop_id in props_by_id]
 
         subject = str(role.get("primary_actor") or "")
