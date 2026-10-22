@@ -4691,6 +4691,11 @@ def voice_reference_duration_failures(ctx: Ctx) -> list[dict[str, Any]]:
 
     def walk(node: Any) -> None:
         if isinstance(node, dict):
+            # a regenerated reference keeps its old row as history (superseded_rows / SUPERSEDED*); only
+            # the live row binds the provider.  Scanning history kept the 1.405 s row of a reference
+            # already regenerated at 3.239 s failing forever (Twelve Gazes E01 Elias, 2026-10-22).
+            if str(node.get("status") or "").upper().startswith("SUPERSEDED"):
+                return
             entity = str(node.get("entity_id") or "")
             seconds = node.get("duration_seconds")
             if entity in used and isinstance(seconds, (int, float)) and not (low <= float(seconds) <= high):
@@ -4699,8 +4704,9 @@ def voice_reference_duration_failures(ctx: Ctx) -> list[dict[str, Any]]:
                             "provider_window_seconds": [low, high],
                             "remedy": "regenerate the reference with a longer sample_text on the same voice_id, "
                                       "re-upload, and update remote_asset_id/duration_seconds (see D-77)"})
-            for value in node.values():
-                walk(value)
+            for key, value in node.items():
+                if "superseded" not in str(key).lower():
+                    walk(value)
         elif isinstance(node, list):
             for value in node:
                 walk(value)
