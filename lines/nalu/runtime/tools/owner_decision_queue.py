@@ -49,18 +49,20 @@ import nalu_paths as _np  # noqa: E402  portable roots
 
 import roger_gate_acceptance as _rga  # noqa: E402  the order/receipt validator
 
-#: The four categories AGENTS.md §4 and the unattended runner say always reach the owner.  These
+#: The categories AGENTS.md §4 and the unattended runner say always reach the owner.  These
 #: are forced to line scope: a bug or a future edit must not be able to narrow them into
 #: "continue without asking".
 MUST_ASK = {
     "PAID_CATEGORY_NOT_IN_ORDER": "订单未覆盖的付费类别（首个配乐、换装 i2i、超守卫重拍、缺陷预算超支）",
-    "VOICE_CONSISTENCY": "声线一致性失败（VOICE_OUT_OF_BAND / VOICE_COLLISION，K069）",
     "STORY_TEXT_CHANGE": "剧情与台词文本改动",
     "PUBLICATION": "发布/上传（本部署订单未授权）",
 }
 #: Categories the line may raise without stopping everything.  They can still be line-scope; the
 #: raiser chooses.
-OTHER_CLASSES = ("ASSET_AMBIGUITY", "CREATIVE_RETRY", "BUDGET_PROJECTION", "OTHER")
+#: VOICE_CONSISTENCY left MUST_ASK on 2026-10-22 (line owner, superseding K069): a voice out of band
+#: after the controlled redo is default-accepted and recorded with its measured F0 (AGENTS.md §4.9);
+#: it can still be raised, at unit scope, when the agent wants the owner to listen.
+OTHER_CLASSES = ("VOICE_CONSISTENCY", "ASSET_AMBIGUITY", "CREATIVE_RETRY", "BUDGET_PROJECTION", "OTHER")
 CLASSES = tuple(MUST_ASK) + OTHER_CLASSES
 SCOPES = ("line", "stage", "unit")
 

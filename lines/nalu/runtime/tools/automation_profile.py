@@ -168,11 +168,10 @@ RUNNER_TEMPLATE = """# 无人值守运行指令（由 automation_profile.py 生�
 4. 波次未跑完（`VIDEO_NOT_ALL_COMPLETED`）→ 等 3 分钟重跑，别的阻塞停下来处理。
 5. S8 写 CHECKPOINT 后**停**，等线主 `approve`。发布动作永远不属于你。
 
-## 四件永远不能当成自动批准的事
+## 三件永远不能当成自动批准的事
 
 - **订单里没有的付费类别**：首个 BGM、换装 i2i、超出返工守卫的重拍、单集缺陷预算超支。
   停下，把估算和理由留在 `runtime/reports/`，通知线主。
-- **音色一致性失败**（`VOICE_OUT_OF_BAND` / `VOICE_COLLISION`）：交线主，不自动接受。
 - **剧情与台词文本的改动**：交线主。镜头与取景措辞是你的事。
 - **发布**：永远不是你的动作（本部署订单未授权发布）。
 
@@ -181,7 +180,7 @@ RUNNER_TEMPLATE = """# 无人值守运行指令（由 automation_profile.py 生�
 不是等到超时。用 `lines/nalu/runtime/tools/owner_decision_queue.py raise` 记一条待决，写清
 要什么、为什么、估算花多少、不做的后果，然后按范围决定要不要停：
 
-- `--class` 属于上面四类必问时，**范围强制为 line**，这条线停下等线主；
+- `--class` 属于上面三类必问时，**范围强制为 line**，这条线停下等线主；
 - 其余类别可以 `--scope unit --unit-id <UID>` 或 `--scope stage --stage <S>`，**只停局部**，
   其余单元照常推进。
 

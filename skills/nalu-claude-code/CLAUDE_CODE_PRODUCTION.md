@@ -116,6 +116,8 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
 - 关键帧（S5/S6 派生）：`--gate-id PERIOD-ANACHRONISM-LOCK --detector <shot_id>:PERIOD-ANACHRONISM-LOCK`（身份类用 `CHARACTER-IDENTITY-ADMISSION`、`<shot_id>:<CHAR-ID>`；给不出 `<CHAR-ID>` 的身份失败（无人物镜头出现未登记人物、人脸测不到而判 UNCERTAIN 等）用 `<shot_id>:CHARACTER-IDENTITY-ADMISSION`；
   动作/状态交接用 `ACTION-SHOT-DESIGN-AND-STATE-HANDOFF`、`<shot_id>:ACTION-SHOT-DESIGN-AND-STATE-HANDOFF`），`--media <shot_id>=<关键帧/尾帧>`。
   **一张图同时挂多个门禁**（派生起始帧常见：身份 + 动作/状态交接）：每个失败门禁各记一条订单，绑同一张图；少一个门禁就不会放行。
+- 声线一致性（S6 `voice:VOICE_OUT_OF_BAND`、成片 `voice_distinctness` 的 VOICE_OUT_OF_BAND / VOICE_COLLISION）：受控重做一次仍失败就默认接受，不停线问人；
+  `--context` 必须写说话人、时间段、实测 F0 与登记范围（引擎 AGENTS.md §4.9，线主 2026-10-22）。
 - 起始帧语义证据（start_frame 审核 FAIL，例如上一单元尾帧里缺人、背身、缺道具）：
   `--gate-id START-FRAME-SEMANTIC-EVIDENCE --media <unit_id>=<起始帧图>`，并对证据回执 `blockers` 里的**每一项**加
   `--detector <unit_id>:<blocker>`（列表型拆开写：`<unit_id>:REQUIRED_CHARACTER_NOT_OBSERVED:<人名>`、
