@@ -166,7 +166,35 @@ def voice_timbre_findings(contract: dict[str, Any], policy: dict[str, Any] | Non
     return {"blocking": blocking and bool(policy), "codes": codes, "by_shot": by_shot}
 
 
+def in_video_contract(contract: dict[str, Any]) -> dict[str, Any]:
+    """The contract as the video model will see it: V.O. narrator lines removed.
+
+    A VOICE_ONLY_NO_PLATE speaker's line (tools/voice_over_narration.py, CURRENT_PORTABLE) is
+    synthesized in S4 and mixed in S7; its shot is timed by the S2 V.O. window rule, not 5a/5c/7b.
+    Without a V.O. speaker the contract object is returned unchanged.
+    """
+    tools_dir = _pathlib.Path(__file__).resolve().parents[4] / "tools"
+    if str(tools_dir) not in _sys.path:
+        _sys.path.append(str(tools_dir))
+    import voice_over_narration as _vo
+    entities = contract.get("character_entities") or []
+    if not _vo.voice_over_character_ids(entities):
+        return contract
+    language = _vo.contract_language(contract)
+    shots = []
+    for shot in contract.get("shots") or []:
+        spec = shot.get("prompt_spec") if isinstance(shot, dict) else None
+        if isinstance(spec, dict) and isinstance(spec.get("dialogue"), str):
+            in_video, voice_over = _vo.separate_voice_over(spec["dialogue"], entities, language)
+            if voice_over:
+                shot = {**shot, "prompt_spec": {**spec, "dialogue": in_video},
+                        "_voice_over_lines": len(voice_over)}
+        shots.append(shot)
+    return {**contract, "shots": shots}
+
+
 def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) -> dict[str, Any]:
+    contract = in_video_contract(contract)
     lex = lexicon or load_lexicon()
     emotions = set(lex.get("emotions") or [])
     trivial = list(lex.get("trivial_body_actions") or [])
@@ -197,7 +225,8 @@ def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) ->
                 break
         if not dialogue:
             m["no_dialogue_shots"] += 1
-            if target > NO_DIALOGUE_SHOT_MAX_S:
+            # a shot carrying V.O. narration is not a silent hold; the S2 V.O. window rule times it
+            if target > NO_DIALOGUE_SHOT_MAX_S and not shot.get("_voice_over_lines"):
                 failures.append(f"R5C_NO_DIALOGUE_SHOT_OVER_5S:{sid}:{target:g}")
             if shot.get("scene_id") != prev_scene:
                 prev_scene, run_word, run_len = shot.get("scene_id"), None, 0

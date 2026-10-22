@@ -51,6 +51,7 @@ if str(_np.ENGINE_ROOT / "tools") not in _sys.path:
 import stage_time_ledger as _time_ledger
 import episode_previs as _previs  # plan §4: zero-credit previs, run before every paid stage
 import unit_timing_map as _timing  # plan §6: beat/shot/request/returned/cut durations, recorded separately
+import voice_over_narration as _vo  # V.O. narration: S4 synthesis, S7 placement/mix
 
 import argparse
 import copy
@@ -1744,7 +1745,22 @@ def fp_s2(ctx: Ctx) -> str:
         "keyframes": sorted(item.name for item in p.keyframes.glob("*.png")) if p.keyframes.is_dir() else [],
         # a config-only language switch re-runs S2; zh fingerprints are unchanged
         **({"dialogue_language": ctx_language(ctx)} if ctx_language(ctx) != "zh" else {}),
+        # V.O. narration: an episode that passed S2 before the rule existed re-runs S2 once so its
+        # editorial carries prompt_spec.voice_over; contracts without narration are unchanged
+        **({"voice_over_rule": _vo.RULE_VERSION}
+           if _vo.contract_has_voice_over(read_json(p.contract, {}) or {}, ctx_language(ctx)) else {}),
     }, sort_keys=True))
+
+
+def fp_s4(ctx: Ctx) -> str | None:
+    """S4 re-runs when the editorial's V.O. narration lines change (or first appear on an episode
+    whose voices were LOCKED before the rule existed); no narration = no fingerprint = unchanged."""
+    lines = editorial_voice_over_lines(read_json(ctx.p.editorial, {}) or {})
+    if not lines:
+        return None
+    return sha256_text(json.dumps(
+        [[line["shot_id"], int(line["line_index"]), str(line["character_id"]), _vo.text_sha256(line["text"])]
+         for line in lines], sort_keys=True))
 
 
 def stage_s2(ctx: Ctx, *, with_keyframes: bool = False, ready_units=None) -> StageResult:
@@ -2718,6 +2734,203 @@ def s4_generate_one(ctx: "Ctx", p: Any, task: dict[str, Any]) -> dict[str, Any]:
             "wav": wav, "receipt": receipt, "receipt_path": str(upload_out)}
 
 
+# --------------------------------------------------------------------------- #
+# S4 / S7 — V.O. narration (tools/voice_over_narration.py)
+# --------------------------------------------------------------------------- #
+def voice_over_manifest_path(ctx: Any) -> Path:
+    return ctx.p.voice / "voice_over" / f"{ctx.episode}_voice_over_manifest.json"
+
+
+def voice_over_placement_path(ctx: Any) -> Path:
+    return ctx.p.assembly / f"{ctx.episode}_voice_over_placement.json"
+
+
+def editorial_voice_over_lines(editorial: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every S2 ``prompt_spec.voice_over`` row, in episode order, with its shot id."""
+    rows: list[dict[str, Any]] = []
+    for shot in editorial.get("shots") or []:
+        for line in (shot.get("prompt_spec") or {}).get("voice_over") or []:
+            rows.append({"shot_id": str(shot.get("shot_id")), **line})
+    return rows
+
+
+def voice_over_reference(registry: dict[str, Any], payload_tasks: list[dict[str, Any]],
+                         character_id: str) -> dict[str, Any] | None:
+    """voice_id / emotion / speed of a V.O. character's LOCKED voice reference."""
+    entity = re.sub(r"^CHAR-", "", character_id.strip().upper()).replace("-", "_").lower()
+    candidates = {character_id, entity, canonical_voice_entity(entity)}
+    row = next((r for r in voice_rows(registry)
+                if r.get("status") == "LOCKED_PRODUCTION_READY" and str(r.get("voice_id") or "").strip()
+                and (str(r.get("character_id") or "") == character_id
+                     or str(r.get("entity_id") or "") in candidates
+                     or canonical_voice_entity(str(r.get("entity_id") or "")) in candidates)), None)
+    if row is None:
+        return None
+    task = next((t for t in payload_tasks
+                 if str(t.get("character_id") or "") == character_id
+                 or str(t.get("entity_id") or "") in candidates
+                 or str(t.get("entity_id") or "") == str(row.get("entity_id") or "")), None) or {}
+    request = task.get("request") or {}
+    return {"entity_id": str(row.get("entity_id")), "voice_id": str(row["voice_id"]),
+            "voice_name": row.get("voice_name"),
+            "emotion": str(request.get("emotion") or row.get("generation_emotion") or "neutral"),
+            "speed": float(request.get("speed") or row.get("generation_speed") or 1.0)}
+
+
+def voice_over_minimum_recall() -> float:
+    """The existing dialogue match threshold (BASIC_DIALOGUE_QA_POLICY rules.minimum_recall)."""
+    for path in (RT / "configs/BASIC_DIALOGUE_QA_POLICY.json",
+                 RT_TOOLS.parent / "configs/BASIC_DIALOGUE_QA_POLICY.json"):
+        value = ((read_json(path, {}) or {}).get("rules") or {}).get("minimum_recall")
+        if isinstance(value, (int, float)):
+            return float(value)
+    return 0.55
+
+
+def voice_over_asr(wav: Path, text: str, language: str) -> dict[str, Any]:
+    """Free faster-whisper check of one V.O. wav (same model/settings/recall as source_video_dialogue_gate)."""
+    import source_video_dialogue_gate as _svdg  # noqa: PLC0415 - engine tools/ is on sys.path
+    from faster_whisper import WhisperModel  # type: ignore  # noqa: PLC0415
+    model = WhisperModel("small", device="cpu", compute_type="int8")
+    segments, _ = model.transcribe(str(wav), language=language, vad_filter=True, beam_size=5,
+                                   initial_prompt=_svdg.transcription_prompt(text, language))
+    transcript = (" " if language == "en" else "").join(seg.text.strip() for seg in segments)
+    return {"transcript": transcript, "recall": round(_svdg.recall(text, transcript, language), 3)}
+
+
+def media_seconds(path: Path) -> float | None:
+    probe = subprocess.run([_media.require_ffprobe(), "-v", "error", "-show_entries", "format=duration",
+                            "-of", "csv=p=0", str(path)], capture_output=True, text=True, check=False)
+    try:
+        return round(float(probe.stdout.strip()), 3)
+    except ValueError:
+        return None
+
+
+def s4_voice_over(ctx: Ctx, res: StageResult) -> None:
+    """Synthesize every V.O. line after the voice references are LOCKED (S4 PASS requires it).
+
+    One paid speech task per line through ``ctx.paid_step`` (2 credits, budget reservation,
+    DRY / HARD_STOP like the references).  The durable transaction path is fixed per line, so a
+    re-run resumes the provider without a second POST.  Each wav is normalized, measured and ASR
+    checked (free); a recall below the dialogue threshold BLOCKS with no automatic paid retry.
+    """
+    p = ctx.p
+    editorial = read_json(p.editorial, {}) or {}
+    lines = editorial_voice_over_lines(editorial)
+    if not lines:
+        return
+    manifest_path = voice_over_manifest_path(ctx)
+    out_dir = manifest_path.parent / "lines"
+    manifest = read_json(manifest_path, {}) or {}
+    done = {(str(r.get("shot_id")), int(r.get("line_index", -1))): r for r in manifest.get("rows") or []}
+    registry = read_json(ctx.p.scope["voice_registry"], {}) or {}
+    payload_tasks = (read_json(p.speech_payloads, {}) or {}).get("tasks") or []
+    units = (read_json(p.contract, {}) or {}).get("audio_contract", {}).get("dialogue_units") or []
+    language = ctx_language(ctx)
+    scope_id = str(p.scope["scope_id"])
+    minimum = voice_over_minimum_recall()
+    rows: list[dict[str, Any]] = []
+    any_dry = False
+    details: list[dict[str, Any]] = []
+    for line in lines:
+        sid, index, text = line["shot_id"], int(line["line_index"]), str(line["text"])
+        text_sha = _vo.text_sha256(text)
+        previous = done.get((sid, index))
+        if (previous and previous.get("text_sha256") == text_sha and previous.get("wav")
+                and sha256_file(Path(previous["wav"])) == previous.get("wav_sha256")):
+            rows.append(previous)
+            details.append({"shot_id": sid, "line_index": index, "status": "REUSED"})
+            continue
+        reference = voice_over_reference(registry, payload_tasks, str(line["character_id"]))
+        if reference is None:
+            res.status = BLOCKED
+            res.blockers.append(f"VOICE_OVER_VOICE_NOT_LOCKED:{line['character_id']}")
+            return
+        unit = next((u for u in units if str(u.get("shot_id")) == sid
+                     and str(u.get("speaker_id")) == str(line["character_id"])
+                     and _vo.norm_text(u.get("text") or "") == _vo.norm_text(text)), {})
+        emotion = str(unit.get("emotion") or reference["emotion"])
+        # the text hash is part of the name: an edited line gets a new transaction (one new paid
+        # synthesis) instead of colliding with the provider's fingerprint of the old text
+        safe = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{sid}_{index}_{text_sha[:12]}").strip("._")[:96]
+        mp3, wav = out_dir / f"{safe}.mp3", out_dir / f"{safe}.wav"
+        transaction = (AUDIO_TRANSACTION_ROOT / scope_id / ctx.episode / "voice_over" / f"{safe}.json").resolve()
+        argv = [VENV, PORTABLE_AUDIO_PROVIDER, "speech-generate", text,
+                "--voice-id", reference["voice_id"], "--emotion", emotion, "--speed", str(reference["speed"]),
+                "--output-dir", out_dir, "--file-name", mp3.name,
+                "--poll-interval", "2", "--timeout", "300", "--transaction", transaction, "--paid"]
+        norm_argv = [_media.require_ffmpeg(), "-y", "-i", str(mp3), "-vn", "-ac", "1", "-ar", "48000",
+                     "-c:a", "pcm_s16le", str(wav)]
+        out_dir.mkdir(parents=True, exist_ok=True)
+        status, step = ctx.paid_step(
+            argv, name=f"s4_voice_over_{safe}", sid="S4", planned_credits=2,
+            note=(f"V.O. narration line {sid}#{index} ({line.get('speaker')}), voice_id={reference['voice_id']}; "
+                  f"durable transaction={transaction} (resumes without reposting)."))
+        res.steps.append(step)
+        if status == HARD_STOP:
+            res.status = HARD_STOP
+            res.blockers.append(f"BUDGET_HARD_STOP_S4_VOICE_OVER:{sid}:{index}")
+            return
+        if status == DRY:
+            any_dry = True
+            ctx.planned_commands.append({
+                "stage": "S4", "step": f"s4_voice_over_normalize_{safe}", "planned_credits": 0,
+                "paid_argv": [str(x) for x in norm_argv], "paid_command": q(norm_argv),
+                "note": "ffmpeg mono/48k/pcm_s16le — free, local"})
+            continue
+        if status != PASS or not mp3.is_file():
+            res.status = BLOCKED
+            res.blockers.append(f"VOICE_OVER_SPEECH_GENERATE_FAILED:{sid}:{index}")
+            return
+        norm = ctx.run(norm_argv, name=f"s4_voice_over_normalize_{safe}")
+        res.steps.append(norm)
+        if norm["exit_code"] != 0 or not wav.is_file():
+            res.status = BLOCKED
+            res.blockers.append(f"VOICE_OVER_NORMALIZATION_FAILED:{sid}:{index}")
+            return
+        try:
+            check = voice_over_asr(wav, text, language)
+        except Exception as exc:  # noqa: BLE001 - a missing ASR is not a pass
+            res.status = BLOCKED
+            res.blockers.append(f"VOICE_OVER_ASR_UNAVAILABLE:{sid}:{index}:{type(exc).__name__}")
+            return
+        details.append({"shot_id": sid, "line_index": index, "status": "GENERATED", **check})
+        if check["recall"] < minimum:
+            res.status = BLOCKED
+            res.blockers.append(f"VOICE_OVER_ASR_MISMATCH:{sid}:{index}")
+            res.details["voice_over"] = {"manifest": str(manifest_path), "lines": details,
+                                         "minimum_recall": minimum}
+            return
+        row = {"shot_id": sid, "line_index": index, "speaker": line.get("speaker"),
+               "character_id": line.get("character_id"), "text": text, "text_sha256": text_sha,
+               "wav": str(wav), "wav_sha256": sha256_file(wav),
+               "duration_seconds": media_seconds(wav), "transaction": str(transaction),
+               "voice_id": reference["voice_id"], "emotion": emotion, "speed": reference["speed"],
+               "asr_recall": check["recall"]}
+        rows.append(row)
+        # persist after every line so an interrupted run keeps what it already paid for
+        done[(sid, index)] = row
+        write_json(manifest_path, {"schema": _vo.MANIFEST_SCHEMA, "episode": ctx.episode,
+                                   "editorial": str(p.editorial), "rows": list(done.values()),
+                                   "complete": False, "updated_at": now()})
+    res.details["voice_over"] = {"manifest": str(manifest_path), "lines": details, "minimum_recall": minimum}
+    if any_dry:
+        res.status = DRY
+        return
+    expected = {(line["shot_id"], int(line["line_index"])): _vo.text_sha256(line["text"]) for line in lines}
+    write_json(manifest_path, {"schema": _vo.MANIFEST_SCHEMA, "episode": ctx.episode,
+                               "editorial": str(p.editorial), "editorial_sha256": sha256_file(p.editorial),
+                               "rows": rows, "complete": True, "updated_at": now()})
+    got = {(r["shot_id"], int(r["line_index"])): r.get("text_sha256") for r in rows
+           if r.get("wav") and Path(r["wav"]).is_file()}
+    if got != expected:
+        res.status = BLOCKED
+        res.blockers.append("VOICE_OVER_MANIFEST_INCOMPLETE")
+        return
+    res.receipts.append(str(manifest_path))
+
+
 def stage_s4(ctx: Ctx) -> StageResult:
     p = ctx.p
     catalog_path = Path(str(ctx.p.scope["voice_catalog"]))
@@ -2775,6 +2988,7 @@ def stage_s4(ctx: Ctx) -> StageResult:
     if not todo:
         ctx.say("   every speaking character already has a LOCKED_PRODUCTION_READY voice — "
                 "nothing to generate")
+        s4_voice_over(ctx, res)
         return res
 
     planned = 2 * len(todo)
@@ -2841,6 +3055,9 @@ def stage_s4(ctx: Ctx) -> StageResult:
     elif voice_cast_step["exit_code"] != 0:
         res.status = BLOCKED
         res.blockers.append("VOICE_CAST_FAIL:" + str(voice_cast_step.get("stdout_tail") or "")[-300:])
+    if res.status == PASS:
+        # V.O. narration lines are spoken with the narrator's now-LOCKED voice reference
+        s4_voice_over(ctx, res)
     return res
 
 
@@ -5845,6 +6062,121 @@ def transcribe_units(ctx: Ctx, media_dir: Path, episode: str) -> dict[str, list[
         return {mp4.stem: future.result() for mp4, future in zip(clips, futures)}
 
 
+def _video_stream_hash(path: Path) -> str:
+    run = subprocess.run([_media.require_ffmpeg(), "-v", "error", "-i", str(path), "-map", "0:v:0",
+                          "-c", "copy", "-f", "md5", "-"], capture_output=True, text=True, check=False)
+    return run.stdout.strip()
+
+
+def voice_over_speech_windows(project: dict[str, Any], unit_asr: dict[str, Any],
+                              speaking_units: set[str] | None = None) -> list[tuple[float, float]]:
+    """In-video speech on the final timeline: each unit's ASR segment mapped through its clip.
+
+    ``speaking_units`` limits the scan to units that carry in-video dialogue: a unit without
+    any was admitted by the S6 no-speech ASR gate, so a transcript segment there is a known
+    whisper hallucination on ambience, not speech the narration could collide with.
+    """
+    windows: list[tuple[float, float]] = []
+    for track in (project.get("timeline") or {}).get("videoTracks") or []:
+        for clip in track.get("clips") or []:
+            uid = str((clip.get("metadata") or {}).get("source_id") or "")
+            if speaking_units is not None and uid not in speaking_units:
+                continue
+            start, duration = float(clip.get("start") or 0), float(clip.get("duration") or 0)
+            source_in = float(clip.get("in") or 0)
+            for seg in unit_asr.get(uid) or []:
+                if not _vo.norm_text(seg.get("text") or ""):
+                    continue
+                s0 = max(float(seg["start"]) - source_in, 0.0)
+                s1 = min(float(seg.get("end") or seg["start"]) - source_in, duration)
+                if s1 > s0:
+                    windows.append((round(start + s0, 3), round(start + s1, 3)))
+    return sorted(windows)
+
+
+def s7_voice_over(ctx: Ctx, res: StageResult, picture: Path, unit_asr: dict[str, Any]
+                  ) -> tuple[Path, list[str]]:
+    """Place and mix V.O. narration onto the rendered native cut (before burn-in subtitles).
+
+    Shot timing reuses build_final_cut_speaker_map.shot_start_times (unit clip start + earlier
+    shots' target_seconds).  The native audio is ducked to 0.35 under each V.O. window with
+    short fades; the S4 wavs are added at unity; the video stream is copied and verified
+    bit-exact.  Writes <EP>_voice_over_placement.json (sha-bound to the S4 manifest) and records
+    it in the AgentCut project (metadata.voice_over_narration).  Returns (picture, blockers).
+    """
+    p = ctx.p
+    placement_path = voice_over_placement_path(ctx)
+    editorial = read_json(p.editorial, {}) or {}
+    lines = editorial_voice_over_lines(editorial)
+    if not lines:
+        placement_path.unlink(missing_ok=True)  # never let a stale placement reach BGM / captions
+        return picture, []
+    manifest_path = voice_over_manifest_path(ctx)
+    manifest = read_json(manifest_path, {}) or {}
+    by_key = {(str(r.get("shot_id")), int(r.get("line_index", -1))): r for r in manifest.get("rows") or []}
+    ordered: list[dict[str, Any]] = []
+    for line in lines:
+        row = by_key.get((line["shot_id"], int(line["line_index"])))
+        if (row is None or row.get("text_sha256") != _vo.text_sha256(line["text"])
+                or sha256_file(Path(str(row.get("wav") or ""))) != row.get("wav_sha256")
+                or not row.get("duration_seconds")):
+            return picture, [f"VOICE_OVER_MANIFEST_INCOMPLETE:{line['shot_id']}:{line['line_index']}"]
+        ordered.append(row)
+    import build_final_cut_speaker_map as _speaker_map  # noqa: PLC0415 - runtime tools dir is on sys.path
+    project = read_json(p.agentcut_project, {}) or {}
+    unit_start = {str((clip.get("metadata") or {}).get("source_id") or ""): float(clip.get("start") or 0)
+                  for track in (project.get("timeline") or {}).get("videoTracks") or []
+                  for clip in track.get("clips") or []}
+    grouping = read_json(p.grouping_plan, {}) or {}
+    shot_starts, _ = _speaker_map.shot_start_times(read_json(p.contract, {}) or {}, grouping, unit_start)
+    spoken_shots = {str(shot.get("shot_id")) for shot in editorial.get("shots") or []
+                    if str((shot.get("prompt_spec") or {}).get("dialogue") or "").strip()}
+    speaking_units = {str(unit.get("unit_id")) for unit in grouping.get("units") or []
+                      if spoken_shots & {str(sid) for sid in unit.get("editorial_shot_ids") or []}}
+    rows, failures = _vo.place(ordered, shot_starts, voice_over_speech_windows(project, unit_asr, speaking_units),
+                               picture_end=media_seconds(picture))
+    if failures:
+        return picture, failures
+    mixed = p.assembly / f"{ctx.episode}_picture_native_vo.mp4"
+    argv = [_media.require_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-i", str(picture)]
+    for row in rows:
+        argv += ["-i", str(row["wav"])]
+    argv += ["-filter_complex", _vo.mix_filter([(r["start"], r["end"]) for r in rows], len(rows)),
+             "-map", "0:v:0", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+             "-ar", "48000", "-ac", "2", "-movflags", "+faststart", str(mixed)]
+    run = subprocess.run(argv, capture_output=True, text=True, check=False)
+    res.steps.append({"name": "s7_voice_over_mix", "exit_code": run.returncode, "argv": argv,
+                      "log": "in-process ffmpeg", "stderr_tail": tail(run.stderr)})
+    if run.returncode != 0 or not mixed.is_file():
+        return picture, [f"VOICE_OVER_MIX_FAILED:{(run.stderr or '')[-200:]}"]
+    if _video_stream_hash(picture) != _video_stream_hash(mixed):
+        mixed.unlink(missing_ok=True)
+        return picture, ["VOICE_OVER_MIX_CHANGED_VIDEO_STREAM"]
+    write_json(placement_path, {
+        "schema": _vo.PLACEMENT_SCHEMA, "episode": ctx.episode, "recorded_at": now(),
+        "timeline": "final-timeline seconds of the native cut (before the end card)",
+        "rule": {"lead_in_seconds": _vo.LEAD_IN_SECONDS, "line_gap_seconds": _vo.LINE_GAP_SECONDS,
+                 "min_separation_seconds": _vo.MIN_SEPARATION_SECONDS, "native_duck_gain": _vo.DUCK_GAIN,
+                 "duck_fade_seconds": _vo.DUCK_FADE_SECONDS,
+                 "shot_timing": "build_final_cut_speaker_map.shot_start_times"},
+        "voice_over_manifest": str(manifest_path), "voice_over_manifest_sha256": sha256_file(manifest_path),
+        "source_picture": str(picture), "source_picture_sha256": sha256_file(picture),
+        "output_picture": str(mixed), "output_picture_sha256": sha256_file(mixed),
+        "video_stream_bit_exact": True,
+        "rows": rows,
+    })
+    project.setdefault("metadata", {})["voice_over_narration"] = {
+        "placement": str(placement_path), "placement_sha256": sha256_file(placement_path),
+        "voice_over_manifest": str(manifest_path), "voice_over_manifest_sha256": sha256_file(manifest_path),
+        "lines": len(rows), "audio_origin": "VOICE_OVER_NARRATION",
+        "mix": "post-render ffmpeg: native ducked to 0.35 under each line, V.O. at unity, video copied",
+    }
+    write_json(p.agentcut_project, project)
+    res.receipts.append(str(placement_path))
+    res.details["voice_over"] = {"placement": str(placement_path), "picture": str(mixed), "lines": len(rows)}
+    return mixed, []
+
+
 def stage_s7(ctx: Ctx) -> StageResult:
     """Q2 admission -> AgentCut project -> render -> release loudness -> final QA.
 
@@ -6051,12 +6383,24 @@ def stage_s7(ctx: Ctx) -> StageResult:
         res.steps.extend(steps)
         res.blockers = [f"SUBTITLE_ASR_FAILED:{type(exc).__name__}:{exc}"]
         return res
+    # 5a'. V.O. narration (VOICE_ONLY_NO_PLATE lines, S4 wavs): placed on the native cut, native audio
+    # ducked under it, mixed in with the video stream copied — after the render, BEFORE the captions,
+    # so the captions, end card, BGM, dips and release levelling all see the narrated picture.
+    # Order: native cut -> V.O. mix -> subtitles -> end card -> BGM -> cut dips -> release levelling.
+    captioned_source, vo_blockers = s7_voice_over(ctx, res, p.picture_native, asr)
+    if vo_blockers:
+        res.steps.extend(steps)
+        res.blockers = vo_blockers
+        return res
+    vo_placement = voice_over_placement_path(ctx)
+    vo_argv: list[Any] = (["--voice-over-placement", vo_placement]
+                          if captioned_source != p.picture_native and vo_placement.is_file() else [])
     sub_step = ctx.run([VENV, RT_TOOLS / "build_burnin_subtitles.py", "--episode", ctx.episode,
                         "--project", p.agentcut_project, "--asr", asr_json, "--contract", p.contract,
-                        "--grouping", p.grouping_plan, "--source", p.picture_native,
+                        "--grouping", p.grouping_plan, "--source", captioned_source,
                         "--out-ass", subtitles_ass_path(ctx), "--out-video", subbed,
                         "--out-report", p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json",
-                        "--language", ctx_language(ctx)],
+                        "--language", ctx_language(ctx), *vo_argv],
                        name="s7_burnin_subtitles")
     steps.append(sub_step)
     if sub_step["exit_code"] != 0 or not subbed.is_file():
@@ -6188,10 +6532,13 @@ def stage_s7(ctx: Ctx) -> StageResult:
         [VENV, RT_TOOLS / "build_final_cut_speaker_map.py", "--contract", p.contract,
          "--grouping", p.grouping_plan, "--timeline", release_timeline, "--manifest", p.writer_manifest,
          "--out", speaker_map_pre, "--action-windows-out", p.assembly / f"{ctx.episode}_FINAL_CUT_ACTION_WINDOWS.json",
-         "--unit-asr", p.assembly / f"{ctx.episode}_unit_asr.json", "--asr-windows-out", asr_windows_pre],
+         "--unit-asr", p.assembly / f"{ctx.episode}_unit_asr.json", "--asr-windows-out", asr_windows_pre,
+         *vo_argv],
         name="s7_build_final_cut_speaker_map"))
     if asr_windows_pre.is_file():
         level_argv = level_argv[:-2] + ["--line-windows", asr_windows_pre] + level_argv[-2:]
+    if vo_argv:
+        level_argv = level_argv[:-2] + vo_argv + level_argv[-2:]
     res.details["commands"]["level_native_release_audio"] = q(level_argv)
     _lvl_source = level_argv[level_argv.index("--source") + 1] if "--source" in level_argv else p.picture_native
     reused_level = _reusable_release_level(p, _lvl_source)
@@ -6709,7 +7056,7 @@ STAGE_FUNCS: dict[str, Callable[[Ctx], StageResult]] = {
     "S7": stage_s7,
     "S8": stage_s8,
 }
-FINGERPRINTS: dict[str, Callable[[Ctx], str]] = {"S1": fp_s1, "S2": fp_s2}
+FINGERPRINTS: dict[str, Callable[[Ctx], str | None]] = {"S1": fp_s1, "S2": fp_s2, "S4": fp_s4}
 
 OPEN_DECISIONS = [
     # --------------------------------------------------------------- resolved

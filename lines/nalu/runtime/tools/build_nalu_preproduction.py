@@ -25,6 +25,10 @@ _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_p
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
 import nalu_policy_profile as _policy_profile
 import nalu_series_scope as _series_scope
+import nalu_prompt_rules as _npr
+if str(_pathlib.Path(__file__).resolve().parents[4] / "tools") not in _sys.path:
+    _sys.path.append(str(_pathlib.Path(__file__).resolve().parents[4] / "tools"))
+import voice_over_narration as _vo  # V.O. narration: VOICE_ONLY_NO_PLATE lines stay out of the video
 import argparse
 import copy
 import hashlib
@@ -880,6 +884,28 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
     bible_by_name = {row["character"]: row for row in bible["characters"]}
     forbidden = [str(row) for row in vcc.get("forbidden_influences") or []]
 
+    # V.O. narration (tools/voice_over_narration.py): a line whose speaker is a VOICE_ONLY_NO_PLATE
+    # character never reaches the video model.  It is moved to prompt_spec.voice_over here; S4
+    # synthesizes it, S7 mixes and captions it.  No V.O. speaker -> nothing below changes.
+    vo_ids = _vo.voice_over_character_ids(entities)
+    separated: dict[str, tuple[str, list[dict[str, Any]]]] = {}
+    if vo_ids:
+        window_rows: list[dict[str, Any]] = []
+        clock = 0.0
+        for shot in contract.get("shots") or []:
+            sid = str(shot["shot_id"])
+            in_video, vo_rows = _vo.separate_voice_over(
+                str((shot.get("prompt_spec") or {}).get("dialogue") or ""), entities, language, vo_ids=vo_ids)
+            separated[sid] = (in_video, vo_rows)
+            window_rows.append({"shot_id": sid, "start": round(clock, 3),
+                                "has_in_video": bool(in_video.strip()), "voice_over": vo_rows})
+            clock = round(clock + float(shot["target_seconds"]), 3)
+        for check in _vo.window_failures(
+                window_rows, clock, lambda text: _npr.min_dialogue_seconds(text, None, language)):
+            if check["status"] != "PASS":
+                raise ValueError(
+                    f"VOICE_OVER_WINDOW_TOO_SHORT:{check['shot_id']}:{check['need']:.2f}:{check['have']:.2f}")
+
     shots: list[dict[str, Any]] = []
     all_splits: list[dict[str, Any]] = []
     cursor = 0.0
@@ -893,6 +919,19 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
         cursor = round(cursor + duration, 3)
         spec = shot.get("prompt_spec") or {}
         role = spec.get("role_semantic_disambiguation") or {}
+        source_dialogue, voice_over = separated.get(shot_id) or (str(spec.get("dialogue") or ""), [])
+        if voice_over and str(role.get("dialogue_speaker_id") or "") in vo_ids:
+            # The authored speaker role names the narrator.  In the video the speaker (if any) is the
+            # first in-video line's; a V.O.-only shot has no on-screen speaker and no lip owner.
+            role = copy.deepcopy(role)
+            first = _vo.partition_line((source_dialogue.splitlines() or [""])[0], language)[0].strip()
+            first_id = _vo.speaker_index(entities).get(first, "") if first else ""
+            visible_ids = {str(member.get("character_id") or "") for member in spec.get("cast") or []
+                           if str(member.get("face_visibility") or "") != "OFFSCREEN_VOICE_ONLY"}
+            role["dialogue_speaker"] = str((entities.get(first_id) or {}).get("canonical_name") or "")
+            role["dialogue_speaker_id"] = first_id
+            role["lip_owner_id"] = first_id if first_id in visible_ids else ""
+            role["voice_over_speaker_ids"] = sorted({line["character_id"] for line in voice_over})
         source_action = spec.get("action") or {}
         entry = str(shot.get("entry_state") or "")
         completion = str(shot.get("completion_state") or "")
@@ -925,7 +964,7 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
             for name in dims
         ) or f"{entry}→{completion}"
 
-        dialogue, splits = split_dialogue(str(spec.get("dialogue") or ""),
+        dialogue, splits = split_dialogue(source_dialogue,
                                          engine.dialogue_limit, engine.dialogue_length,
                                          language)
         for entry_row in splits:
@@ -1155,6 +1194,7 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                 "actor_performance": actor_performance,
             },
             "dialogue": dialogue,
+            **({"voice_over": voice_over} if voice_over else {}),
             # authored delivery rate (tools/dialogue_cut_safety.py reads
             # spec.dialogue_delivery.chinese_characters_per_second); passed through verbatim
             **({"dialogue_delivery": shot["dialogue_delivery"]} if isinstance(shot.get("dialogue_delivery"), dict) else {}),
@@ -1233,6 +1273,14 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
         "wardrobe_bible": bible,
         "shots": shots,
     }
+    if any(shot["prompt_spec"].get("voice_over") for shot in shots):
+        manifest["voice_over_character_ids"] = sorted(vo_ids)
+        manifest["voice_over_policy"] = {
+            "source": "tools/voice_over_narration.py",
+            "rule": ("VOICE_ONLY_NO_PLATE speaker lines never reach the video model; "
+                     "S4 synthesizes them, S7 mixes and captions them"),
+            "lead_in_seconds": _vo.LEAD_IN_SECONDS, "line_gap_seconds": _vo.LINE_GAP_SECONDS,
+        }
     return manifest, all_splits
 
 
@@ -2252,6 +2300,8 @@ def append_h3_identity_plates(anchor_plan: dict[str, Any], plan: dict[str, Any],
     (their plates are added by finalize_video_tasks).  Returns characters without a locked plate."""
     shots = {str(row.get("shot_id")): row for row in editorial.get("shots") or []}
     shot_ids_by_unit = {str(u.get("unit_id")): list(u.get("editorial_shot_ids") or []) for u in plan.get("units") or []}
+    # a V.O. narrator (VOICE_ONLY_NO_PLATE) has no plate and never appears in the video
+    voice_over_ids = {str(cid) for cid in editorial.get("voice_over_character_ids") or []}
     missing: list[str] = []
     for unit in anchor_plan.get("units") or []:
         speakers: list[str] = []
@@ -2267,7 +2317,8 @@ def append_h3_identity_plates(anchor_plan: dict[str, Any], plan: dict[str, Any],
                 cid = str(member.get("character_id") or "")
                 if cid and str(member.get("face_visibility") or "") != "OFFSCREEN_VOICE_ONLY" and cid not in visible:
                     visible.append(cid)
-        order = speakers + [cid for cid in visible if cid not in speakers]
+        order = [cid for cid in speakers + [cid for cid in visible if cid not in speakers]
+                 if cid not in voice_over_ids]
         paths = list(unit.get("reference_image_paths") or [])
         decision = unit.setdefault("anchor_count_decision", {})
         roles = list(decision.get("anchor_roles") or [])

@@ -16,9 +16,13 @@ weights, word-boundary wrap at ~42 chars and at most 2 lines, style "EN" at 36 p
 caption to fit the frame width) with nalu_media_tools.resolve_latin_font (QINGSHAN_LATIN_FONT /
 NALU_LATIN_FONT, common system paths, else the CJK font, which also carries Latin glyphs).
 
+--voice-over-placement (S7 V.O. narration): dialogue units spoken by a VOICE_ONLY_NO_PLATE narrator
+are captioned at the placement's start/end (the mixed-in S4 wav), never ASR-assigned; every other
+caption is built exactly as before.
+
   build --episode EP --project <agentcut project> --asr <per-unit asr json> --contract <generation contract>
         --grouping <grouping plan> --source <picture_native.mp4> --out-ass <.ass> --out-video <subbed.mp4>
-        [--language zh|en]
+        [--language zh|en] [--voice-over-placement <EP>_voice_over_placement.json]
 """
 from __future__ import annotations
 import sys as _sys, pathlib as _pathlib
@@ -148,6 +152,30 @@ def caption_window(clip: dict, source_start: float, source_end: float,
     return (start + s, start + e) if e > s else None
 
 
+def voice_over_captions(contract: dict, placement: dict | None) -> dict[int, dict]:
+    """dialogue_units index -> placement row for V.O. narration (speaker is VOICE_ONLY_NO_PLATE).
+
+    Without a placement file nothing is treated as V.O., so every other caption is built exactly
+    as before.  Rows are matched on shot id + normalized text, in authored order.
+    """
+    if not placement:
+        return {}
+    voice_only = {str(e.get("character_id")) for e in contract.get("character_entities") or []
+                  if str((e.get("identity_source") or {}).get("mode") or "") == "VOICE_ONLY_NO_PLATE"}
+    norm = lambda text: "".join(ch for ch in str(text).lower() if ch.isalnum())  # noqa: E731
+    remaining = list(placement.get("rows") or [])
+    out: dict[int, dict] = {}
+    for index, d in enumerate((contract.get("audio_contract") or {}).get("dialogue_units") or []):
+        if str(d.get("speaker_id") or "") not in voice_only:
+            continue
+        hit = next((row for row in remaining if str(row.get("shot_id")) == str(d.get("shot_id"))
+                    and norm(row.get("text") or "") == norm(d.get("text") or "")), None)
+        if hit is not None:
+            remaining.remove(hit)
+            out[index] = hit
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--episode", required=True); ap.add_argument("--project", required=True, type=Path)
@@ -156,6 +184,8 @@ def main() -> int:
     ap.add_argument("--out-ass", required=True, type=Path); ap.add_argument("--out-video", required=True, type=Path)
     ap.add_argument("--out-report", type=Path); ap.add_argument("--pad", type=float, default=0.08)
     ap.add_argument("--language", choices=("zh", "en"), default="zh")
+    ap.add_argument("--voice-over-placement", type=Path,
+                    help="<EP>_voice_over_placement.json: V.O. narration lines are timed from it, never ASR-assigned")
     a = ap.parse_args()
     english = a.language == "en"
     style, font_size = ("EN", EN_FONT_SIZE) if english else ("ZH", 42)
@@ -169,7 +199,11 @@ def main() -> int:
     id2name = {e["character_id"]: e["canonical_name"] for e in contract["character_entities"]}
     shot2unit = {s: u["unit_id"] for u in grouping["units"] for s in u["editorial_shot_ids"]}
     lines_by_unit: dict[str, list[dict]] = {}
-    for d in contract["audio_contract"]["dialogue_units"]:
+    voice_over = voice_over_captions(contract, json.loads(a.voice_over_placement.read_text(encoding="utf-8"))
+                                     if a.voice_over_placement else None)
+    for index, d in enumerate(contract["audio_contract"]["dialogue_units"]):
+        if index in voice_over:
+            continue  # V.O. narration: not in the unit's native audio, timed from the S7 placement below
         lines_by_unit.setdefault(shot2unit[d["shot_id"]], []).append(
             {"shot_id": d["shot_id"], "speaker": id2name[d["speaker_id"]], "text": d["text"]})
     clips = []
@@ -199,6 +233,15 @@ def main() -> int:
                            "start": round(s, 3), "end": round(e, 3),
                            "source_start": ls, "source_end": le, "source_in": source_in,
                            "timing_basis": timing_basis, "timing_verification": "NOT_VERIFIED"})
+    for index, placed in sorted(voice_over.items()):
+        d = contract["audio_contract"]["dialogue_units"][index]
+        ln = {"shot_id": d["shot_id"], "speaker": id2name[d["speaker_id"]], "text": d["text"]}
+        s, e = float(placed["start"]), float(placed["end"]) + a.pad
+        events.append((s, e, ln))
+        report.append({"unit_id": shot2unit.get(d["shot_id"]), "shot_id": d["shot_id"], "speaker": ln["speaker"],
+                       "text": d["text"], "start": round(s, 3), "end": round(e, 3),
+                       "timing_basis": "VOICE_OVER_PLACEMENT", "presence": "VOICE_OVER",
+                       "timing_verification": "PLACED_FROM_S4_WAV_DURATION"})
     # no overlaps: clamp each caption's end to the next start
     events.sort(key=lambda x: x[0])
     report.sort(key=lambda row: row["start"])

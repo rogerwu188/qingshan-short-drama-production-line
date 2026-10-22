@@ -22,6 +22,9 @@ Mappings (v4 → runtime):
                                         role_semantic_disambiguation.{primary_actor_id, action_patient_id,
                                         dialogue_listener_id, lip_owner_id, entity_states, entity_presence}
   overlay.shots[sid].offscreen_voice → entity_presence OFFSCREEN_VOICE_ONLY (speaker behind the veil)
+  speaker with identity_source.mode VOICE_ONLY_NO_PLATE → V.O. narration (CURRENT_PORTABLE): needs no
+                                        cast/offscreen row, dialogue_units[].presence VOICE_OVER, no R8 stretch
+                                        (S2 window rule VOICE_OVER_WINDOW_TOO_SHORT governs its timing)
   shots[].duration_seconds           → target_seconds, stretched to nalu_prompt_rules.min_dialogue_seconds
                                         when a dialogue shot is shorter (R8); the v4 value is kept alongside
   camera slug + overlay/defaults     → prompt_spec.camera_plan (motion_family etc., static_design_gate R1–R7)
@@ -38,6 +41,9 @@ import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
 import nalu_paths as _np  # noqa: E402
 import nalu_prompt_rules as npr  # noqa: E402
+if str(_pathlib.Path(__file__).resolve().parents[4] / "tools") not in _sys.path:
+    _sys.path.append(str(_pathlib.Path(__file__).resolve().parents[4] / "tools"))
+import voice_over_narration as _vo  # noqa: E402
 
 import argparse  # noqa: E402
 import copy  # noqa: E402
@@ -74,6 +80,7 @@ SCALES_NO_DIALOGUE = ["MEDIUM", "WIDE", "FULL", "MEDIUM_CLOSE_UP"]
 SCALES_DIALOGUE = ["MEDIUM_CLOSE_UP", "CLOSE_UP", "MEDIUM"]
 VISIBLE = "VISIBLE_AND_IDENTITY_LOCKED"
 OFFSCREEN = "OFFSCREEN_VOICE_ONLY"
+VOICE_OVER = "VOICE_OVER"   # tools/voice_over_narration.PRESENCE
 PRONOUNS = ("他", "她")
 
 
@@ -322,6 +329,7 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
         character_entities.append(entry)
 
     # ---------------------------------------------------------------- shots
+    vo_ids = _vo.voice_over_character_ids(ov.registry)   # empty outside CURRENT_PORTABLE
     shots_out: list[dict[str, Any]] = []
     dialogue_units: list[dict[str, Any]] = []
     stretched: list[dict[str, Any]] = []
@@ -370,7 +378,14 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
                 errors.append(f"SUBJECT_ID_MISSING:{sid}")
             elif subject_id not in ov.by_id:
                 errors.append(f"SUBJECT_ID_UNREGISTERED:{sid}:{subject_id}")
-        if speaker_id and speaker_id not in cast_ids and speaker_id not in offscreen_ids:
+        # V.O. narration (tools/voice_over_narration.py): a VOICE_ONLY_NO_PLATE speaker has no body
+        # in the shot.  Its line stays in prompt_spec.dialogue / dialogue_units (presence VOICE_OVER)
+        # and S2 moves it out of the video; here the shot is treated as silent for R8 stretch, camera
+        # and pacing — the S2 window rule (VOICE_OVER_WINDOW_TOO_SHORT) is the timing authority.
+        voice_over_line = line if (speaker_id and speaker_id in vo_ids) else ""
+        if voice_over_line:
+            line = ""
+        if speaker_id and speaker_id not in cast_ids and speaker_id not in offscreen_ids and not voice_over_line:
             errors.append(f"SPEAKER_NOT_IN_CAST_NOR_OFFSCREEN:{sid}:{speaker_id}")
         # names in the v4 text that the overlay did not place — reviewer must decide
         text_all = ffms + frame + line
@@ -535,6 +550,10 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
             dialogue_units.append({"shot_id": sid, "speaker_id": speaker_id or "", "listener_id": listener_id if listener_id in ov.by_id else "",
                                    "text": line, "verbatim_in_source": True, "emotion": o.get("emotion") or "neutral",
                                    "presence": OFFSCREEN if speaker_id in offscreen_ids else VISIBLE})
+        elif voice_over_line:
+            dialogue_units.append({"shot_id": sid, "speaker_id": speaker_id, "listener_id": "",
+                                   "text": voice_over_line, "verbatim_in_source": True,
+                                   "emotion": o.get("emotion") or "neutral", "presence": VOICE_OVER})
         if o.get("entry_state_override") is not None:
             shot_out["production_entry_state_override"] = dict(o["entry_state_override"])
             # A copied action description is an active prompt input too. Keep

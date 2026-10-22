@@ -121,6 +121,11 @@ def build_previs(
     scenes = {s.get("scene_id"): s for s in contract.get("scene_states") or []}
     registry = {str(e.get("character_id")) for e in contract.get("character_entities") or []}
     units = list((contract.get("audio_contract") or {}).get("dialogue_units") or [])
+    try:
+        from tools import voice_over_narration as _vo
+    except ImportError:  # direct execution from tools/
+        import voice_over_narration as _vo  # type: ignore
+    voice_over_ids = _vo.voice_over_character_ids(contract.get("character_entities") or [])
     audio = dialogue_audio or {}
     failures: list[dict[str, Any]] = []
     advisories: list[dict[str, Any]] = []
@@ -168,6 +173,11 @@ def build_previs(
                 "duration_basis": (str(audio[key]) if measured is not None
                                    else f"{cps:g} chars/s from contract pacing or default"),
             })
+            if speaker in voice_over_ids:
+                # V.O. narration may run across the following silent shots; the S2 window rule
+                # (VOICE_OVER_WINDOW_TOO_SHORT) is its fit check, not this shot's own length
+                lines[-1]["voice_over"] = True
+                continue
             speech_total += seconds
         if duration > 0 and speech_total > duration + GAP_TOLERANCE_SECONDS:
             # Plan §4.2.2: the dialogue cannot fit the shot it is assigned to.

@@ -16,11 +16,17 @@ from  <assembly>/<EP>_release_timeline.json (unit_id, output_start),
 
 Output {schema, lines:[{time, speaker, emotion, scene, shot_id}], action_windows:[[s,e]],
         undeclared_emotion:[shot_id...]}.
+
+--voice-over-placement (S7 V.O. narration): rows spoken by a VOICE_ONLY_NO_PLATE narrator take the
+placement's start/end, carry presence VOICE_OVER, are never attributed native unit-ASR windows, and
+are appended to the ASR windows (the narration is real speech in the final cut).
 """
 from __future__ import annotations
 import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))
 import nalu_paths as _np  # noqa: F401
+if str(_pathlib.Path(__file__).resolve().parents[4] / "tools") not in _sys.path:
+    _sys.path.append(str(_pathlib.Path(__file__).resolve().parents[4] / "tools"))  # voice_over_narration
 
 import argparse
 import json
@@ -37,11 +43,14 @@ def read_json(path: Path, default=None):
         return default
 
 
-def build_map(contract: dict[str, Any], grouping: dict[str, Any], timeline: dict[str, Any],
-              manifest: dict[str, Any] | None = None) -> dict[str, Any]:
+def shot_start_times(contract: dict[str, Any], grouping: dict[str, Any],
+                     unit_start: dict[str, float]) -> tuple[dict[str, float], dict[str, str]]:
+    """Release-timeline start of every shot: unit start + the unit's earlier shots' target_seconds.
+
+    The single source of shot timing for the speaker map and the S7 V.O. placement
+    (nalu_pipeline.s7_voice_over), so captions, attribution and narration agree.
+    """
     shots = {str(s.get("shot_id")): s for s in contract.get("shots") or []}
-    unit_start = {str(seg.get("unit_id")): float(seg.get("output_start") or 0.0)
-                  for seg in timeline.get("segments") or []}
     shot_time: dict[str, float] = {}
     unit_of_shot: dict[str, str] = {}
     for unit in grouping.get("units") or []:
@@ -54,19 +63,55 @@ def build_map(contract: dict[str, Any], grouping: dict[str, Any], timeline: dict
             shot_time[sid] = offset
             unit_of_shot[sid] = uid
             offset += float((shots.get(sid) or {}).get("target_seconds") or 0.0)
+    return shot_time, unit_of_shot
+
+
+def _voice_over_rows(contract: dict[str, Any], placement: dict[str, Any] | None) -> dict[int, dict[str, Any]]:
+    """dialogue_units index -> its V.O. placement row (speaker is a VOICE_ONLY_NO_PLATE narrator)."""
+    if not placement:
+        return {}
+    import voice_over_narration as _vo
+    vo_ids = _vo.voice_over_character_ids(contract.get("character_entities") or [], force=True)
+    remaining = list(placement.get("rows") or [])
+    out: dict[int, dict[str, Any]] = {}
+    for index, row in enumerate((contract.get("audio_contract") or {}).get("dialogue_units") or []):
+        if str(row.get("speaker_id") or "") not in vo_ids:
+            continue
+        hit = next((p for p in remaining if str(p.get("shot_id")) == str(row.get("shot_id"))
+                    and _vo.norm_text(p.get("text") or "") == _vo.norm_text(row.get("text") or "")), None)
+        if hit is not None:
+            remaining.remove(hit)
+            out[index] = hit
+    return out
+
+
+def build_map(contract: dict[str, Any], grouping: dict[str, Any], timeline: dict[str, Any],
+              manifest: dict[str, Any] | None = None,
+              voice_over_placement: dict[str, Any] | None = None) -> dict[str, Any]:
+    shots = {str(s.get("shot_id")): s for s in contract.get("shots") or []}
+    unit_start = {str(seg.get("unit_id")): float(seg.get("output_start") or 0.0)
+                  for seg in timeline.get("segments") or []}
+    shot_time, unit_of_shot = shot_start_times(contract, grouping, unit_start)
     lines: list[dict[str, Any]] = []
     undeclared: list[str] = []
     dialogue_units = (contract.get("audio_contract") or {}).get("dialogue_units") or []
-    for row in dialogue_units:
+    voice_over = _voice_over_rows(contract, voice_over_placement)
+    for index, row in enumerate(dialogue_units):
         sid = str(row.get("shot_id") or "")
         if sid not in shot_time:
             continue
         emotion = row.get("emotion")
         if not emotion:
             undeclared.append(sid)
-        lines.append({"time": round(shot_time[sid] + DIALOGUE_LEAD_S, 3), "speaker": row.get("speaker_id"),
-                      "emotion": emotion, "scene": (shots.get(sid) or {}).get("scene_id"), "shot_id": sid,
-                      "unit_id": unit_of_shot.get(sid)})
+        line = {"time": round(shot_time[sid] + DIALOGUE_LEAD_S, 3), "speaker": row.get("speaker_id"),
+                "emotion": emotion, "scene": (shots.get(sid) or {}).get("scene_id"), "shot_id": sid,
+                "unit_id": unit_of_shot.get(sid)}
+        placed = voice_over.get(index)
+        if placed is not None:
+            # V.O. narration: mixed in at S7 from the S4 wav, timed by the placement, not by unit ASR
+            line.update({"time": round(float(placed["start"]), 3), "end": round(float(placed["end"]), 3),
+                         "presence": "VOICE_OVER", "time_source": "VOICE_OVER_PLACEMENT"})
+        lines.append(line)
     action_windows: list[list[float]] = []
     for beat in (manifest or {}).get("structure") or []:
         if str(beat.get("type") or "") != "action":
@@ -98,7 +143,10 @@ def align_with_unit_asr(result: dict[str, Any], unit_asr: dict[str, Any], contra
     unit_start = {str(seg.get("unit_id")): float(seg.get("output_start") or 0.0)
                   for seg in timeline.get("segments") or []}
     by_unit: dict[str, list[dict[str, Any]]] = {}
+    voice_over_lines = [line for line in result.get("lines") or [] if line.get("presence") == "VOICE_OVER"]
     for line in result.get("lines") or []:
+        if line.get("presence") == "VOICE_OVER":
+            continue  # the native unit audio carries no V.O.; never attribute an ASR window to it
         by_unit.setdefault(str(line.get("unit_id")), []).append(line)
     windows: list[dict[str, Any]] = []
     for unit in grouping.get("units") or []:
@@ -147,6 +195,17 @@ def align_with_unit_asr(result: dict[str, Any], unit_asr: dict[str, Any], contra
                 line["time_source"] = "ASR"
             else:
                 line["time_source"] = "CONTRACT_EXPECTED"
+    for line in voice_over_lines:
+        # the mixed-in narration is real speech in the final cut: detectors and line levelling see it
+        row = {"start": line["time"], "end": line["end"], "unit_id": line.get("unit_id"),
+               "speaker": line.get("speaker"), "shot_id": line.get("shot_id"), "presence": "VOICE_OVER"}
+        if line.get("emotion"):
+            row["emotion"] = line["emotion"]
+        if line.get("scene"):
+            row["scene"] = line["scene"]
+        windows.append(row)
+    if voice_over_lines:
+        windows.sort(key=lambda w: float(w["start"]))
     result["asr_windows"] = windows
     result["speaker_map_time_source"] = "UNIT_ASR"
     return result
@@ -162,11 +221,15 @@ def main() -> int:
     ap.add_argument("--action-windows-out", type=Path)
     ap.add_argument("--unit-asr", type=Path, help="<EP>_unit_asr.json: per-unit ASR windows (timing source)")
     ap.add_argument("--asr-windows-out", type=Path, help="write the attributed release-timeline ASR windows for the detectors")
+    ap.add_argument("--voice-over-placement", type=Path,
+                    help="<EP>_voice_over_placement.json (S7): V.O. rows take these times, presence VOICE_OVER")
     args = ap.parse_args()
     contract = read_json(args.contract, {}) or {}
     grouping = read_json(args.grouping, {}) or {}
     timeline = read_json(args.timeline, {}) or {}
-    result = build_map(contract, grouping, timeline, read_json(args.manifest, {}) if args.manifest else None)
+    placement = (read_json(args.voice_over_placement, {}) or {}) if args.voice_over_placement else None
+    result = build_map(contract, grouping, timeline, read_json(args.manifest, {}) if args.manifest else None,
+                       voice_over_placement=placement)
     if args.unit_asr and args.unit_asr.is_file():
         result = align_with_unit_asr(result, read_json(args.unit_asr, {}) or {}, contract, grouping, timeline)
         if args.asr_windows_out:
