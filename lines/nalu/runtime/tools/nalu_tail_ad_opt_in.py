@@ -21,6 +21,13 @@ SCHEMA_PROMPT = "qingshan.nalu_tail_ad_prompt.v1"
 SCHEMA_LEDGER = "qingshan.nalu_ad_opt_in_ledger.v1"
 QUESTION_ZH = "本集是否植入尾贴广告？"
 OPTIONS = ("NONE", "INBOX:<sku>", "BRIEF:<sku>")
+#: The repo-shipped default policy (configs/ads/AD_POLICY_DEFAULT.json, line owner 2026-10-22: every
+#: episode ends with the tail ad) is passed in by the pipeline as ``default_policy_path``; a runtime
+#: ``ads/policy.json`` still overrides it per machine.
+#: Decision reasons that only reflect a policy default (nobody answered); S7 re-resolves
+#: these against the current policy + episode language.  Explicit answers are never touched.
+DEFAULTED_REASONS = frozenset({"TIMEOUT_DEFAULT", "POLICY_SKIP_NO_ASK", "NO_OPT_IN_RECORDED",
+                               "NO_OPT_IN_RECORDED_POLICY_DEFAULT", "POLICY_DEFAULT_AT_S7"})
 
 
 def now() -> str:
@@ -59,8 +66,38 @@ def _valid_answer_value(value: str) -> bool:
     return False
 
 
-def _load_policy(policy_path: Path) -> dict[str, Any]:
-    return read_json(policy_path) or {"ask": True, "default": "NONE"}
+def _load_policy(policy_path: Path, default_policy_path: Path | None = None) -> dict[str, Any]:
+    """Runtime ads/policy.json if present, else the repo default policy (when given), else ask/NONE."""
+    return (read_json(policy_path)
+            or (read_json(default_policy_path) if default_policy_path else None)
+            or {"ask": True, "default": "NONE"})
+
+
+def policy_default(policy: dict[str, Any], language: str = "zh") -> str:
+    """The policy's default answer for an episode of this dialogue language:
+    ``default_by_language[language]`` -> ``default`` -> NONE."""
+    by_language = policy.get("default_by_language")
+    if isinstance(by_language, dict) and str(by_language.get(language) or "").strip():
+        value = str(by_language[language]).strip()
+    else:
+        value = str(policy.get("default") or "NONE").strip()
+    return value if _valid_answer_value(value) else "NONE"
+
+
+def default_decision_at_s7(current: dict[str, Any] | None, *, policy_path: Path, language: str,
+                           default_policy_path: Path | None = None) -> dict[str, Any]:
+    """Decision S7 uses: an explicit recorded answer as-is; otherwise (no record, or a record that
+    only holds a policy default) the current policy default for the episode's language."""
+    if current and str(current.get("reason") or "") not in DEFAULTED_REASONS:
+        return current
+    answer = policy_default(_load_policy(policy_path, default_policy_path), language)
+    if current and current.get("answer") == answer:
+        return current
+    reason = "NO_OPT_IN_RECORDED_POLICY_DEFAULT" if not current else "POLICY_DEFAULT_AT_S7"
+    decision = {"answer": answer, "reason": reason, "language": language}
+    if current:
+        decision["previous"] = {"answer": current.get("answer"), "reason": current.get("reason")}
+    return decision
 
 
 def run_opt_in(
@@ -73,6 +110,8 @@ def run_opt_in(
     manifest_path: Path,
     say: Callable[[str], None],
     deadline_seconds: float = 60.0,
+    language: str = "zh",
+    default_policy_path: Path | None = None,
     poll_interval_seconds: float = 2.0,
     sleep_fn: Callable[[float], None] = time.sleep,
     now_fn: Callable[[], float] = time.time,
@@ -80,11 +119,11 @@ def run_opt_in(
     """Ask (once) whether this episode carries a tail ad; write manifest.ad_slot
     exactly once.  Returns the resolved decision dict; always also appended to
     the append-only opt-in ledger."""
-    policy = _load_policy(policy_path)
+    policy = _load_policy(policy_path, default_policy_path)
     asked_at = now()
 
     if policy.get("ask") is False:
-        default = str(policy.get("default") or "NONE")
+        default = policy_default(policy, language)
         decision = {"answer": default, "reason": "POLICY_SKIP_NO_ASK"}
         append_ledger(ledger_path, {
             "event": "POLICY_SKIP_NO_ASK", "episode": episode, "asked_at": asked_at,
@@ -111,7 +150,7 @@ def run_opt_in(
             break
         sleep_fn(poll_interval_seconds)
 
-    decision, ledger_event = _resolve_answer(episode, raw_answer, policy)
+    decision, ledger_event = _resolve_answer(episode, raw_answer, policy, language)
     append_ledger(ledger_path, {
         "event": ledger_event, "episode": episode, "asked_at": asked_at,
         "deadline_seconds": deadline_seconds, "raw_answer": raw_answer,
@@ -123,8 +162,8 @@ def run_opt_in(
 
 
 def _resolve_answer(episode: str, raw_answer: dict[str, Any] | None,
-                     policy: dict[str, Any]) -> tuple[dict[str, Any], str]:
-    default = str(policy.get("default") or "NONE")
+                     policy: dict[str, Any], language: str = "zh") -> tuple[dict[str, Any], str]:
+    default = policy_default(policy, language)
     if raw_answer is None:
         return {"answer": default, "reason": "TIMEOUT_DEFAULT"}, "TIMEOUT_DEFAULT"
     if str(raw_answer.get("episode") or "") != episode:
@@ -166,7 +205,7 @@ def recheck_before_s7(
     answer (arriving after the original 60s window but before S7 starts) still
     counts.  Updates ctx.state only, never the manifest (see
     _write_manifest_ad_slot's docstring)."""
-    if current_decision.get("reason") != "TIMEOUT_DEFAULT":
+    if current_decision.get("reason") not in DEFAULTED_REASONS:
         return current_decision
     answer_path = answer_dir / f"{episode}_AD_ANSWER.json"
     raw_answer = read_json(answer_path)

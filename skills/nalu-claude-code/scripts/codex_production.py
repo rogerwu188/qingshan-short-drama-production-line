@@ -333,7 +333,10 @@ def current_episode() -> str | None:
 
 
 def publish_next() -> dict[str, Any] | None:
-    """Send the earliest finished-but-unsent episode (one per tick, in episode order)."""
+    """Send the earliest finished-but-unsent episode (one per tick, in episode order).
+
+    The file sent is publish_x2creel.default_video: <EP>_final_9x16_AD.mp4 (S7 tail-ad version) when
+    present, else <EP>_final_9x16.mp4; the result carries published_video / published_variant."""
     _, runtime = roots()
     sys.path.insert(0, str(HERE))
     import publish_x2creel as px  # noqa: E402
@@ -365,7 +368,9 @@ def publish_next() -> dict[str, Any] | None:
     out.setdefault("episode", ep)
     st = out.get("status")
     if st == "PUBLISHED":
-        note(f"X2C 发行 {ep}：第 {out.get('episode_number')} 集（{out.get('x2c_status')}）")
+        variant = "含尾贴广告版" if out.get("published_variant") == "AD" else "正片版（无广告版）"
+        note(f"X2C 发行 {ep}：第 {out.get('episode_number')} 集（{out.get('x2c_status')}），{variant} "
+             f"{Path(str(out.get('published_video') or '')).name}")
     elif st == "DEFERRED_PENDING_REVIEW":
         nums = [str(v.get("episode_number")) for v in out.get("pending_videos") or [] if isinstance(v, dict)]
         note(f"X2C 发行暂缓 {ep}：等待第 {','.join(nums) or '?'} 集过审，避免追加时重复发号顶掉它")

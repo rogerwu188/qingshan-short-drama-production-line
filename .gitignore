@@ -31,6 +31,9 @@
 !/configs/ENGINEERING_KNOWLEDGE_V1.json
 !/configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json
 !/configs/AD_SLOT_CONTRACT_V1.json
+!/configs/ads/
+/configs/ads/*
+!/configs/ads/AD_POLICY_DEFAULT.json
 !/configs/DIRECTION_POLICY_V1.json
 !/configs/VOICE_TIMBRE_LOCK_V1.json
 !/configs/KEYFRAME_CAMERA_NOTE_SCOPE_V1.json
@@ -102,6 +105,13 @@
 !/configs/PLATFORM_RELEASE_AUTOMATION_POLICY_V1.json
 !/configs/pipeline.example.json
 !/configs/storyclaw_nalu_config.example.json
+!/assets/
+/assets/*
+!/assets/ads/
+/assets/ads/*
+!/assets/ads/README.md
+!/assets/ads/*.mp4
+!/assets/ads/*.meta.json
 !/lines/
 # Per-episode one-off scripts, generated registries and local working
 # media inside a line's runtime tree are local production state, not
