@@ -777,7 +777,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "620af1346a5b8132192a77de6ec31ceb0890be82cc76a71b625d581e71b648a0"
+      "sha256": "87368d033f88e542b7d252cfa21a5545544f1b665e9710aa82649037cd44d346"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -4849,7 +4849,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "21df5ef26c077c6b1cdc47068b0a46b1e633fac15541ec903aea1190cf83b854"
+      "sha256": "dc21e98df9095f803221d126222a293dd26f0145db34ee2b6fab42eeb1a5976d"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -7545,7 +7545,7 @@
     },
     {
       "path": "tools/tests/test_nalu_h3_video_model.py",
-      "sha256": "30a737dea6d8e4497af638fae5e9046481f757bd54c46cdb13ed13acd9c070af"
+      "sha256": "d17ddff0061f7ef5921aa5a9c302aab7e7896680bbe6ff0c3d9a65d3b2a825ba"
     },
     {
       "path": "tools/tests/test_nalu_identity_chain_fixes.py",

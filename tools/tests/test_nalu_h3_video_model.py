@@ -235,3 +235,23 @@ class H3VisualCultureScopeTests(unittest.TestCase):
         self.assertNotRegex(low, r"[㐀-鿿]")
         high = h3_visual_culture_block({"unit_id": "E64-VU-001", "visual_culture_contract": DEFAULT_CONTRACT})
         self.assertEqual(high, prompt_block_en(DEFAULT_CONTRACT))
+
+    def test_authored_world_lock_for_english_lines_and_explicit_era_lock(self):
+        # Twelve Gazes E01 (near-future English line) got the East-Asian period lock.
+        from tools.h3_provider_prompt_renderer import (
+            H3_AUTHORED_WORLD_LOCK, H3_NEUTRAL_PERIOD_LOCK, h3_visual_culture_block)
+        world = {"profile_id": "TWELVE_GAZES_NEAR_FUTURE", "story_world": "near-future archive"}
+        en = h3_visual_culture_block({"unit_id": "E01-VU-001", "dialogue_language": "en",
+                                      "visual_culture_contract": world})
+        self.assertEqual(en, H3_AUTHORED_WORLD_LOCK)
+        self.assertNotIn("EAST-ASIAN", en)
+        self.assertNotIn("modern objects", en)
+        self.assertNotRegex(en, r"[㐀-鿿]")
+        # Chinese lines are unchanged unless the writer declares otherwise
+        self.assertEqual(h3_visual_culture_block({"unit_id": "E01-VU-001", "visual_culture_contract": world}),
+                         H3_NEUTRAL_PERIOD_LOCK)
+        self.assertEqual(h3_visual_culture_block({"unit_id": "E01-VU-001", "visual_culture_contract":
+                                                  {**world, "era_lock": "AUTHORED_WORLD"}}), H3_AUTHORED_WORLD_LOCK)
+        self.assertEqual(h3_visual_culture_block({"unit_id": "E01-VU-001", "dialogue_language": "en",
+                                                  "visual_culture_contract": {**world, "era_lock": "EAST_ASIAN_PERIOD"}}),
+                         H3_NEUTRAL_PERIOD_LOCK)
