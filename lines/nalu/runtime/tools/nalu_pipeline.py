@@ -4012,8 +4012,20 @@ def q1_gate_detectors(row: dict[str, Any], gate_id: str, failures: list[str],
             if evp:
                 evd = read_json(Path(evp) if Path(evp).is_absolute() else ENGINE / evp, {}) or {}
                 texts.append(str(evd.get("finding") or ""))
-    return sorted({f"{item_id}:{m}" for f in texts
-                   for m in re.findall(r"NO_EMBEDDING_SAMPLE_FOR_DECLARED_CHARACTER:(CHAR-[A-Z0-9-]+)", f)})
+    detectors = sorted({f"{item_id}:{m}" for f in texts
+                        for m in re.findall(r"NO_EMBEDDING_SAMPLE_FOR_DECLARED_CHARACTER:(CHAR-[A-Z0-9-]+)", f)})
+    if detectors:
+        return detectors
+    # A character-free insert that shows an undeclared (often faceless) figure fails the structured
+    # no-character method: no face is measured and no character is declared, so neither path above
+    # yields a detector and the "quality never blocks" default acceptance had nothing to bind to --
+    # the still stayed rejected forever (Twelve Gazes E01-VU-004, 2026-10-22: a derived start frame
+    # showing a rifle and a hand in a character-free insert).  The gate itself is the detector here,
+    # exactly as for every other registered gate; the FAIL stays recorded.
+    if any(code in f for f in texts
+           for code in ("CHARACTER_OBSERVED_IN_CHARACTER_FREE_INSERT", "STRUCTURED_NO_VISIBLE_CHARACTER")):
+        return [f"{item_id}:{gate_id}"]
+    return []
 
 
 def q1_identity_evidence(row: dict[str, Any], gate_id: str) -> tuple[dict[str, Any], str]:
