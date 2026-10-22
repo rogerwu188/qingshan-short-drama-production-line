@@ -625,7 +625,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "64f338a8aea4d83f2995a413df72b23f86eae35a5e74702bcf3fea333d93ecc6"
+      "sha256": "2d3a3c8ffbe057d460c31c4bb44d370c8fee2772b432a0c57c7c57c2ee949c00"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -777,7 +777,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "502f7df3fe0b304ca2e70bda561c5458c61c904a3e99e66b574c868345242a9d"
+      "sha256": "e6af4ab9b2bf14d885a1f6b8eb8274c5e98bdbd7c5f773b16db40ca5a03fff07"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -7661,7 +7661,7 @@
     },
     {
       "path": "tools/tests/test_q1_no_character_insert_detector.py",
-      "sha256": "3e1ac7f39e61eb50ae419d8189c230f59d4dbad666872b3222a8b5ef70f54513"
+      "sha256": "2e0367218aefac9a6b7e5fc627d8c4f6bc65860a7b8a56a5be3e09a7d8ac3690"
     },
     {
       "path": "tools/tests/test_reconcile_dns_not_sent.py",

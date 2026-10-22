@@ -34,6 +34,8 @@ def test_declared_character_detectors_are_unchanged():
     assert p.q1_gate_detectors(ROW, GATE, ["FAIL:low cosine"], decisions) == ["E01-S02-03:CHAR-ELIAS"]
 
 
-def test_unattributed_identity_failure_still_has_no_detector():
+def test_identity_failure_without_measurable_face_gets_the_gate_detector():
+    # E01-VU-009: declared character, reviewer UNCERTAIN, NO_FACE_MEASURED -> no per-character row
     p = _pipeline()
-    assert p.q1_gate_detectors(ROW, GATE, ["FAIL:something else"], []) == []
+    assert p.q1_gate_detectors(ROW, GATE, ["FAIL:UNCERTAIN:NO_FACE_MEASURED"], []) == [
+        "E01-S02-03:CHARACTER-IDENTITY-ADMISSION"]
