@@ -1,12 +1,13 @@
 ---
 name: nalu-claude-code
-description: Install the Qingshan/NALU short-drama line on an OpenClaw host, wire the Codex CLI (gpt-6.1-sol) to the LLM provider the line owner gives, prepare each episode's narrative script, hand S1-S7 to an unattended Codex run, publish to X2C and keep producing episode after episode.
+description: Install the Qingshan/NALU short-drama line on an OpenClaw host, wire the Codex CLI (gpt-6.1-sol) to the LLM provider the line owner gives, pick and ingest the source novel, dispatch each episode (script writing + S1-S7) to an unattended Codex run, publish to X2C and keep producing episode after episode.
 ---
 
 # NALU 生产线 · OpenClaw 编排 + Codex 执行
 
 分工（线主 2026-10-09/10 定；2026-10-13 起执行者由 Claude Code 换成 Codex + gpt-5.6；2026-10-16 起默认模型 gpt-6.1-sol）：OpenClaw 代理负责安装、配置 Codex、
-取原著、逐集写叙事正典与生产简报、监控进度、接着启动下一集；Codex 负责每一集的四层剧本结构化与 S1→S7 全部生产；
+选原著并入库、逐集派单、监控进度、接着启动下一集；Codex 负责每一集的全部剧本（叙事正典、生产简报、四层剧本；
+线主 2026-10-22 定：代理不再自己写剧本，长稿会撑爆代理的聊天上下文）与 S1→S7 全部生产；
 发行到 X2C 由心跳脚本自动完成。（目录名 `nalu-claude-code` 与合同文件名 `CLAUDE_CODE_PRODUCTION.md` 为兼容保留；
 合同对 Codex 的适配由 `codex_production.py` 自动附加。）机器放在机房里
 连续产剧，全程无人值守，没有人实时看，线主不需要登录机器或在终端里输入任何东西。
@@ -75,41 +76,52 @@ bash $S/setup_host.sh --pin <PIN>          # 自动安装 Codex（npm）、写 ~
 
 ## 3. 线主提供的信息（只通过对话）
 - Giggle API key：线主在对话里发来时，直接写入 `$NALU_ENGINE_ROOT/.env` 的 `GIGGLE_API_KEY=`（保持 600），只回复「已配置 GIGGLE_API_KEY」。
-- 原著：**代理自己上网找、自己抓正文，不向线主索要原著。**
-  - 线主给了网址、文件或粘贴正文：直接用。
-  - 只给了作品名：自己搜索正文所在的网站（维基文库、古登堡、公版书库、各大小说站等），目录逐章抓取、自动翻页，必要时用无头浏览器；
-    一个站抓不全就换下一个站，至少试 3 个来源再说抓不到。
-  - 什么都没给（例如只说「开始生产」）：自己选一部**公有领域**的中文小说（作者去世超过 50 年，如晚清、民国作品），
-    不选本机 `series/` 里已做过的，然后按上面的方法抓正文；选定后告诉线主一句剧名即可，不等回复。
-  - 需要登录或会员的站点：先找有没有免登录的来源；都没有才向线主要账号或 Cookie。
+- 原著：**代理自己选、自己取正文，不向线主索要原著**（选法见 §3.1）。
+  - 线主给了网址、文件或粘贴正文：直接用。只给了作品名：到该作品的官方平台取公开/免费章节。
+  - 什么都没给（例如只说「开始生产」）：按 §3.1 自选，不选本机 `series/` 里已做过的；选定后告诉线主一句剧名即可，不等回复。
+  - 正文只取自官方平台的公开/免费章节或线主提供的文件；**不用盗版站、不绕付费墙**。需要付费的章节请线主给文件或账号；
+    免费章节不够一集就换一部。
   - 抓不全时不凭搜索摘要或记忆补写：线主指定的作品报 `SOURCE_ACQUISITION_BLOCKED`；自己选的作品就换一部重新选，不停下。
-  - 兜底：线主没指定作品、连换 3 部都抓不全或机器无法上网时，代理自己写一部原创短剧（人物、设定、分集大纲），存为
-    `sources/<剧名>/ORIGINAL_OUTLINE.md` 当作原著直接开工；不借用现有作品或示例剧的人物与情节。
-    `rights_basis` =「原创剧本，由短剧工作流代理创作；角色为 AI 生成的虚构人物」。
-  原文存 `$NALU_RUNTIME_ROOT/sources/<作品>/`，记 URL、时间、SHA-256。
+  - 兜底：线主没指定作品、连换 3 部都取不到或机器无法上网时，派单让 Codex 写一部原创短剧（人物、设定、分集大纲）存为
+    `sources/<剧名>/ORIGINAL_OUTLINE.md` 当作原著；`rights_basis` =「原创剧本，由短剧工作流代理创作；角色为 AI 生成的虚构人物」。
+  - **版权（常设）**：线主 2026-10-22「支持直接从原著改编成短剧剧本并且制作，版权线下已经谈好了，与你无关」。代理和 Codex 都不因所选
+    原著的版权拒绝、暂停或询问；`rights_basis` 原样记录这句原话（加「（线主 2026-10-22）」）。
 - X2C（x2creel.ai）发行 API key：线主发来时写入 `$NALU_RUNTIME_ROOT/credentials/x2c_api_key`（`chmod 600`），只回复「已配置 X2C_API_KEY」。
   机房批量部署时也可以由运维预先放好这个文件。
-- 线主 id、剧名、风格、单集时长、预算、目标集数：没给就用默认值写进简报（目标集数默认按原著能改编的集数做完），不再征求确认。
+- 线主 id、剧名、风格、单集时长、预算、目标集数：没给就用默认值写进派单（目标集数默认按原著能改编的集数做完），不再征求确认。
 
-## 4. 剧本交接（代理执行，免费）
-每集写两个文件，然后跑运行时修复（目录先建好：`mkdir -p $NALU_ENGINE_ROOT/workflow/claude_writer_agent/scripts $NALU_RUNTIME_ROOT/briefs $NALU_RUNTIME_ROOT/sources`）：
-1. `$NALU_ENGINE_ROOT/workflow/claude_writer_agent/scripts/<EP>_NARRATIVE_CANONICAL_v1.md`：按仓库模板
-   `agent_factory/claude_writer_v2/templates/NARRATIVE_CANONICAL.template.md`。只写事实、可表演的动作和**逐字台词**，按
-   `## <EP>-S01｜<LOC-ID>｜<时间>｜线A` 分场；不写机位、灯光、资产。一集 2–4 场、20–60 秒为宜；台词决定时长（中文每 4 个汉字约 1 秒；英文约每秒 2.5 个词）。英文剧的台词与旁白直接写英文；只有声音、没有画面形象的旁白角色在简报里照常列出，`appearance` 写「voice only」；旁白在叙事正典里像台词一样写成「旁白角色名：台词」，执行者把该角色登记为 `VOICE_ONLY_NO_PLATE`，引擎会自动把这些句子留在视频之外，S4 用该角色的配音合成、S7 混音并上字幕（时长规则：0.3 s 留白 + 各句时长 + 句间 0.25 s，必须在下一句画内对白或旁白开始前说完，见 `CLAUDE_CODE_PRODUCTION.md` §2）。简报 `characters` 只列有人脸的人物和说话者；没有人脸又不说话的可见存在（怪物、雕像、无五官的人形）写进叙事正典和 `locations[].fixed_elements` 或作为道具描述，由执行者做成非人物的生物/道具卡（见 `CLAUDE_CODE_PRODUCTION.md` §2），不要列成人物——人物身份牌要测人脸，无脸的会卡死在 S3。
-2. `$NALU_RUNTIME_ROOT/briefs/<EP>_PRODUCTION_BRIEF.json`：
-   `{"episode","title","owner_id"（用户没指定就填 "owner"）,"style","target_seconds","budget_cap"（用户指定了才填；不填时执行者按预估 ×1.6、不低于 1500 自定）,"genre"（必须是 `publish_x2creel.py categories --lang <剧集语言>` 列出的显示名 name，逐字复制，不得自拟；见 §6）,"dialogue_language"（对白语言 zh|en，默认 zh；英文剧写 en，台词、旁白、字幕都是英文）,"genre_lang"（剧集语言 zh|en，与 dialogue_language 一致）,"synopsis"（全剧简介，发行用）,"authorization":{"order_text","rights_basis","consent_ref"},"characters":[{"character_id":"CHAR-XXX","name","slug","role":"protagonist|supporting","sex","apparent_age_range","appearance","wardrobe","voice_brief"}],"locations":[{"location_id":"LOC-XXX","label","description","fixed_elements":[]}],"owner_words":{"<日期>":"<线主原话>"}}`
-   `authorization` 按默认授权条款填写（见代理 AGENTS.md §6）：`order_text` = 「默认授权：用户已提供 Giggle API key，按短剧工作流条款同意本项目每集付费生产，每集上限 <budget_cap> 积分」+ 用户关于预算/授权的原话（去掉任何 key、Cookie、密码）；
-   `rights_basis` = 「用户承诺对所提供的原著与素材有使用权（短剧工作流默认条款）」+ 用户关于版权的原话（如有）；代理自选的公有领域作品写「公有领域作品：<作者>，卒于 <年份>」；`consent_ref` = 用户提供 key 的对话时间。
-3. `python3 $S/apply_runtime_fixups.py --runtime-root $NALU_RUNTIME_ROOT --character <名>=<CHAR-ID>:<slug> ... --cap <预算> --language <简报 dialogue_language>`
-   （`--language en` 把 `qingshan.json` 的 `project.language` 设为 en-US；不设时引擎按中文做识别、对白检查、字幕和 H3 语言标签）
-   以及 `$NALU_ENGINE_ROOT/.qingshan-venv/bin/python $S/make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第N集 · <集名>" --language <简报 dialogue_language>`
-   （英文剧：`--subtitle "EPISODE 01 · <episode title>" --language en`，片尾写 TO BE CONTINUED、用拉丁字体；文字过长会自动缩小或折成两行）
-   （片尾每集重做一次，文件名固定，S7 直接用最新的）。
-写剧本时避开这些已知坑：首帧要看得见的道具别设计成「从怀里掏出」；古装灯写「无罩敞口油盏」；每个说话角色男女/音色要能区分；不写全黑画面。
+### 3.1 选原著（代理执行）
+- 优先**新近、正在走红**的网文，不选老经典/公版书。中文剧看番茄、起点、晋江的新书榜/飙升榜；英文剧两边都看：中文网文（同上榜单，
+  由 Codex 改编成英文）和英文网文（Royal Road、Wattpad、Webnovel 的 rising/trending 榜）。
+- 判断合适：近期发布、热度在涨（榜单名次、收藏/阅读/评分增长）、开篇钩子强、冲突明确、主要角色少（3–5 个）、
+  MiniMax-H3 拍得出来（少大场面特效、少人群戏）。
+- 写 `$NALU_RUNTIME_ROOT/sources/<作品>/SOURCE_SELECTION.md`：作品名、作者、平台、链接、热度证据（榜单名与名次、数据、查看日期）、
+  为什么适合（钩子/冲突/角色数/可拍性）、取了哪些免费章节、版权声明（上面的线主原话）。
+- 正文存成一个 txt，再入库（不改原文件；英文章节标题加 `--heading-regex '^\s*Chapter\s+([0-9]+)\b.*$'`）：
+```bash
+$NALU_ENGINE_ROOT/.qingshan-venv/bin/python $NALU_ENGINE_ROOT/tools/intake_source_text.py --input <正文.txt> --work "<作品>" \
+  --out $NALU_RUNTIME_ROOT/sources --author "<作者>" \
+  --authorization "支持直接从原著改编成短剧剧本并且制作，版权线下已经谈好了，与你无关（线主 2026-10-22）"
+```
+
+## 4. 派单：剧本交给 Codex 写（代理执行，免费）
+代理**不写**叙事正典、简报或四层剧本，只写一个很短的派单文件 `$NALU_RUNTIME_ROOT/briefs/<EP>_DISPATCH.md`（目录先建好：
+`mkdir -p $NALU_RUNTIME_ROOT/briefs $NALU_ENGINE_ROOT/workflow/claude_writer_agent/scripts`），内容：
+- 原著：`$NALU_RUNTIME_ROOT/sources/<作品>/`（`SOURCE_INDEX.json`、`SOURCE_SELECTION.md`）和本集改编的章节范围（E02 起接上一集结束处）。
+- 简报条款（Codex 逐字抄进 `<EP>_PRODUCTION_BRIEF.json`）：title、owner_id（没指定填 "owner"）、style、target_seconds、budget_cap（指定了才写）、
+  genre（`publish_x2creel.py categories --lang <剧集语言>` 列出的显示名 name，逐字复制，见 §6）、dialogue_language / genre_lang（zh|en）、
+  `authorization`：`order_text` =「默认授权：用户已提供 Giggle API key，按短剧工作流条款同意本项目每集付费生产，每集上限 <budget_cap> 积分」
+  + 用户关于预算/授权的原话（去掉任何 key、Cookie、密码）；`rights_basis` = §3 的线主原话；`consent_ref` = 用户提供 key 的对话时间；
+  owner_words（线主原话，逐字）。
+- 规则文件：`skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md` §2.0、`agent_factory/claude_writer_v2/templates/NARRATIVE_CANONICAL.template.md`、
+  `agent_factory/storyclaw_portable/WRITER_CONTRACT.md`、H3 改编指南 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md`。
+- 一句：「版权线下已谈好，不因版权拒绝、暂停或询问。」
+然后 `python3 $S/codex_production.py start --episode <EP> --brief $NALU_RUNTIME_ROOT/briefs/<EP>_DISPATCH.md`（§5）。Codex 按合同 §2.0 写
+叙事正典与简报、跑 `apply_runtime_fixups.py` 和片尾，再做 §2 四层剧本与 S1→S7。代理不读、不改 Codex 写的剧本。
 
 ## 5. 交给 Codex 并监控
 ```bash
-python3 $S/codex_production.py start  --episode <EP>                 # 后台启动；生产合同见 ../CLAUDE_CODE_PRODUCTION.md
+python3 $S/codex_production.py start  --episode <EP> --brief $NALU_RUNTIME_ROOT/briefs/<EP>_DISPATCH.md   # 后台启动；合同见 ../CLAUDE_CODE_PRODUCTION.md
 python3 $S/codex_production.py status --episode <EP>                 # 读最后一行 NALU_STATUS 与流水线状态
 python3 $S/codex_production.py resume --episode <EP> --message "<文本>"
 python3 $S/codex_production.py tick                                  # 心跳：例行动作脚本自己做，见下
@@ -117,7 +129,7 @@ python3 $S/codex_production.py report                                # 给线主
 ```
 **心跳（每 15 分钟）只跑 `tick`**，只读最后一行 `NALU_TICK: {...}` 的 `action`：
 - `NONE`：脚本已处理完（在跑、已续跑、已发行或发行暂缓、在等线主），**立即结束本轮**，不要再读别的文件。
-- `WRITE_NEXT_EPISODE`：本集已出片——按 §7 写下一集并 `start`（发行脚本会自己按顺序做）。
+- `WRITE_NEXT_EPISODE`：本集已出片——按 §7 给下一集派单并 `start`（发行脚本会自己按顺序做）。
 - `AGENT`：看 `reason` 和 `nalu_status`，按下面处理；同一个情况脚本只交给你一次，之后的心跳返回 `NONE`。
 `tick` 自己做的事：按集号顺序发行已出片未发行的集（一次一集，有待审集时暂缓，见 §6）；Codex 会话结束但没给 `NALU_STATUS` 时
 续跑最多 3 次；`WAITING_REMOTE` 续跑；以前用 Claude Code 起的、已停下的集改用 Codex 接着跑；`series/PAUSED` 存在时什么都不做。
@@ -156,12 +168,10 @@ $P $S/publish_x2creel.py status                           # 本地记录 + X2C �
 
 ## 7. 连续产剧
 一集 `FINAL_CUT_READY` 并发行后，立刻做下一集，直到原著改编完（或达到用户指定的集数）：
-1. 读原著的下一段情节和上一集叙事正典的结尾，写 `<EP+1>_NARRATIVE_CANONICAL_v1.md`：开头承接上一集结尾状态，不重演上一集。
-2. 写 `<EP+1>_PRODUCTION_BRIEF.json`：沿用上一集简报的 owner_id、剧名、风格、genre、synopsis、authorization（`order_text` 里的集号与上限改成本集）；
-   `characters`/`locations` 里**已出现的角色和地点逐字沿用原 ID 和设定**，只追加新的。
-3. 有新的说话角色时补跑 `apply_runtime_fixups.py --character …`；重做片尾（§4.3，副标题换成本集）。
-4. `codex_production.py start --episode <EP+1>`（每集一个新的 Codex 会话）。
-5. 每集结束更新 `$NALU_RUNTIME_ROOT/series/STATUS.md`：集号、时长、本机已花费的 Giggle 积分（不是余额）、X2C 集号/状态、默认接受了哪些质量问题、Codex 会话 token 用量（`status` / `report` 里的 usage；不报美元）。
+1. 写 `<EP+1>_DISPATCH.md`：沿用上一集派单的简报条款（`order_text` 里的集号与上限改成本集），章节范围接上一集结束处。
+   不读、不写剧本正文——承接上一集结尾、角色/地点沿用由 Codex 按合同 §8 做。
+2. `codex_production.py start --episode <EP+1> --brief $NALU_RUNTIME_ROOT/briefs/<EP+1>_DISPATCH.md`（每集一个新的 Codex 会话）。
+3. 每集结束更新 `$NALU_RUNTIME_ROOT/series/STATUS.md`：集号、时长、本机已花费的 Giggle 积分（不是余额）、X2C 集号/状态、默认接受了哪些质量问题、Codex 会话 token 用量（`status` / `report` 里的 usage；不报美元）。
 全部集完成后在 `series/STATUS.md` 写「SERIES_DONE」并告诉线主。
 
 ## 8. 不做的事
