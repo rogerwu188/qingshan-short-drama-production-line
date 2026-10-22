@@ -1147,11 +1147,11 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 
 ### K119 — S1
 
-- **规则**：CAMERA_GRAMMAR_V1 只对声明 `camera_grammar_policy=CAMERA_GRAMMAR_V1` 的合同（storyclaw finalize 给新封版合同自动补）或 `configs/CAMERA_GRAMMAR_V1.json` 列出的集生效，旧合同判定与提示词逐字节不变。不新增任何阻断门或必填字段：静态设计门强制运镜规则 R1–R4/R6/R7 对新集降为提示（仅 R5/R8 仍阻断）；编辑清单给 `camera_plan` 打 `camera_grammar` 标记，分组运镜去掉相邻同向与 5 单元同向上限（保留原有相邻同族同向）；H3 运镜句加电影语法措辞；剧本写切或换场的单元用自己的关键帧起幅；建立镜、同景别 ≤2 连、听者反应镜、运镜动机写进编剧/导演指引，门里只作 REPORT_ONLY 提示；previs 以 ADVISORY 运行。
-- **教训**：Twelve Gazes E01（英文、H3、几乎无对白）观众反馈运镜与剪辑不符合看片习惯：「无对白镜必须运镜」加上只有中文的 BODY_VERBS，使英文线几乎每镜都无动机地摇/环绕；相邻同向与 5 窗口同向上限让方向机械交替；D-68 让剧本写的切从上一单元尾帧慢慢漂过去；没有景别语法。线主定调：质量靠更好的导演指引与提示词，不靠更多会卡住 Codex 的门。
-- **恢复**：新集按 WRITER_CONTRACT 的 Camera grammar 一节写；`static_design_gate` 的 `advisories`/`fix_hints` 是建议不是阻断；已产出的集不重做；需退出时在合同写 `camera_grammar_policy=LEGACY_FORCED_MOTION`。
-- **实现**：`tools/camera_grammar_policy.py`、`lines/nalu/runtime/tools/static_design_gate.py`、`tools/grouped_camera_contract.py`、`tools/h3_provider_prompt_renderer.py`、`lines/nalu/runtime/tools/build_keyframe_manifest.py`、`lines/nalu/runtime/tools/build_nalu_preproduction.py`
+- **规则**：CAMERA_GRAMMAR_V1 只对声明 `camera_grammar_policy=CAMERA_GRAMMAR_V1` 的合同（storyclaw finalize 给新封版合同自动补）或 `configs/CAMERA_GRAMMAR_V1.json` 列出的集生效，旧合同不变。不加任何门：静态设计门 R1–R4/R6/R7 降为提示；`camera_plan` 打 `camera_grammar` 标记后分组运镜去掉相邻同向与 5 单元同向上限（保留相邻同族同向），H3 运镜句加电影语法措辞；剧本写切或换场的单元用自己的关键帧起幅。建立镜、景别节奏、反应镜、运镜动机只写进编剧/导演指引。
+- **教训**：Twelve Gazes E01 观众反馈运镜与剪辑不符合看片习惯：「无对白镜必须运镜」使英文线几乎每镜无动机地摇/环绕；方向上限让运镜机械交替；D-68 让剧本写的切从上一单元尾帧漂过去。线主定调：质量靠更好的导演，不靠更多会卡住 Codex 的门。
+- **恢复**：新集按 WRITER_CONTRACT 的 Camera grammar 一节写；已产出的集不重做；需退出时在合同写 `camera_grammar_policy=LEGACY_FORCED_MOTION`。
+- **实现**：`tools/camera_grammar_policy.py`、`lines/nalu/runtime/tools/static_design_gate.py`、`tools/grouped_camera_contract.py`、`tools/h3_provider_prompt_renderer.py`、`lines/nalu/runtime/tools/build_keyframe_manifest.py`
 - **回归**：`tools/tests/test_camera_grammar_policy.py`
-- **证据**：旧合同判定、方向上限与 H3 运镜句逐字节不变；新合同只增提示不增阻断；剧本切点不再沿用尾帧；previs 不阻断
+- **证据**：旧合同判定、方向上限与 H3 运镜句不变；新合同强制运镜规则只提示；剧本切点不再沿用尾帧
 - **授权**：线主 2026-10-22 批准 Twelve Gazes 运镜/剪辑修复（同日改为「只留最关键的门，靠更好的导演」）
 - **状态**：REFERENCE_IMPLEMENTATION

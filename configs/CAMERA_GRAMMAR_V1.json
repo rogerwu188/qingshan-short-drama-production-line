@@ -1,43 +1,13 @@
 {
   "schema": "qingshan.camera_grammar_policy.v1",
   "policy_id": "CAMERA_GRAMMAR_V1",
-  "authority": "Line owner 2026-10-22: Twelve Gazes E01 viewer review — camera work and cuts do not follow how people watch films (forced motion, mechanical direction alternation, scripted cuts rendered as drifts, no shot-scale grammar).",
-  "contract_field": "camera_grammar_policy",
+  "authority": "Line owner 2026-10-22: Twelve Gazes E01 viewer review (forced camera motion, mechanical direction alternation, scripted cuts rendered as drifts). Quality from better direction, not more gates.",
   "enabled_episodes": [],
-  "activation_note": "Never retroactive. An episode is under this policy only when its generation contract declares camera_grammar_policy=CAMERA_GRAMMAR_V1 (storyclaw_writer_workflow finalize stamps it on every contract sealed from this engine version on, unless the writer declared another value) or the episode is listed in enabled_episodes. Contracts sealed before this change carry no field and keep the old rules byte for byte. camera_grammar_policy=LEGACY_FORCED_MOTION is an explicit opt-out.",
-  "thresholds": {
-    "same_scale_run_max": 2,
-    "establishing_within_first_shots": 2,
-    "hold_insert_max_seconds": 3.0
-  },
-  "motion_motivations": [
-    "FOLLOW_SUBJECT",
-    "REVEAL",
-    "EMPHASIS",
-    "SUBJECTIVE"
-  ],
-  "establishing_shot_scales": [
-    "WIDE",
-    "MEDIUM_WIDE",
-    "FULL",
-    "EXTREME_WIDE",
-    "LONG",
-    "LONG_SHOT"
-  ],
-  "cut_transition_modes": [
-    "MOTIVATED_CUT",
-    "REACTION_CUT",
-    "MATCH_CUT",
-    "HARD_CUT"
-  ],
-  "previs_director_review": "ADVISORY",
-  "rules": {
-    "no_new_blocking_check": "Line owner 2026-10-22: quality comes from writer/director guidance and the provider prompt, not from more gates. This policy only relaxes or advises; it adds no blocking check and no required field.",
-    "motivated_motion": "static_design_gate: the forced-motion rules R1-R4/R6/R7 are REPORT_ONLY for these episodes (only R5/R8 still block). A LOCKED or slow DOLLY PUSH_IN no-dialogue shot is fine; camera_plan.motion_motivation (FOLLOW_SUBJECT | REVEAL | EMPHASIS | SUBJECTIVE) is optional.",
-    "no_mechanical_alternation": "build_nalu_preproduction stamps camera_plan.camera_grammar=CAMERA_GRAMMAR_V1; grouped_camera_contract.validate_camera_sequence then drops the adjacent-direction and five-unit direction caps for those plans. The pre-existing identical family+direction repeat check stays.",
-    "real_cuts": "A unit whose incoming boundary is an authored cut (internal_transition_authoring transition_mode in cut_transition_modes) or a scene/location change starts from its own keyframe instead of the previous unit's real tail (build_keyframe_manifest.derived_opener_shot_ids); continuous transitions keep the tail chain. Existing gates unchanged.",
-    "shot_scale_grammar": "Writer guidance plus REPORT_ONLY notes R10 (establishing framing within the first 2 shots of a new location), R11 (more than 2 consecutive shots at one shot_scale), R12 (listener without reaction shot), R9 (move without stated motivation), R13 (identical move twice).",
-    "prompt": "h3_provider_prompt_renderer adds a short film-grammar clause to stamped camera plans: locked = a still, composed frame with no drift; moving = a motivated move that starts with the action and settles on the end framing.",
-    "previs": "The zero-credit episode previs runs at S5/S6 for these episodes with machine_failure_mode ADVISORY: it records findings and the director-review questions but never blocks and never regenerates."
-  }
+  "activation_note": "Never retroactive. Active only when the generation contract declares camera_grammar_policy=CAMERA_GRAMMAR_V1 (storyclaw finalize stamps newly sealed contracts) or the episode is listed here. LEGACY_FORCED_MOTION opts out.",
+  "effects": [
+    "static_design_gate: forced-motion rules R1-R4/R6/R7 are REPORT_ONLY advisories; English dialogue timed in words (R8)",
+    "camera plans stamped camera_grammar: grouped adjacent-direction and five-unit direction caps dropped (identical family+direction check kept)",
+    "h3_provider_prompt_renderer: short film-grammar camera clause",
+    "build_keyframe_manifest: an authored cut or scene change opens on its own keyframe instead of the previous tail"
+  ]
 }

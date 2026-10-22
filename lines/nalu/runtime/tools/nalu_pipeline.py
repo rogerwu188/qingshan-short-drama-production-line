@@ -50,10 +50,6 @@ if str(_np.ENGINE_ROOT / "tools") not in _sys.path:
     _sys.path.insert(0, str(_np.ENGINE_ROOT / "tools"))
 import stage_time_ledger as _time_ledger
 import episode_previs as _previs  # plan §4: zero-credit previs, run before every paid stage
-try:
-    import camera_grammar_policy as _camera_grammar  # CAMERA_GRAMMAR_V1 (2026-10-22): advisory previs
-except ImportError:  # an engine without the module keeps the previs switch as it was
-    _camera_grammar = None
 import unit_timing_map as _timing  # plan §6: beat/shot/request/returned/cut durations, recorded separately
 import voice_over_narration as _vo  # V.O. narration: S4 synthesis, S7 placement/mix
 
@@ -331,45 +327,16 @@ def previs_gate(ctx: "Ctx", stage: str) -> dict[str, Any]:
         "policy": str(_previs.POLICY_PATH),
         "blocks_paid_stage": (_previs_policy().get("blocks") or {}).get(stage),
     }
-    _contract_now = read_json(p.contract, {}) or {}
-    # CAMERA_GRAMMAR_V1 (2026-10-22): an episode under the camera grammar policy that has not opted
-    # into the previs gate itself still gets the zero-credit previs and its director-review questions,
-    # but strictly ADVISORY — no machine finding, missing input or crash may block an unattended run.
-    advisory_only = False
-    if not _previs.gate_active(ctx.episode, contract=_contract_now):
-        try:
-            advisory_only = bool(_camera_grammar is not None
-                                 and _camera_grammar.active(_contract_now, episode=ctx.episode))
-        except Exception:  # noqa: BLE001
-            advisory_only = False
-        if not advisory_only:
-            row.update({"status": "NOT_ENABLED", "blocked": False,
-                        "note": "episode not listed in the previs policy and the contract does not opt in"})
-            return row
-        row["mode"] = "CAMERA_GRAMMAR_V1_ADVISORY"
-    if advisory_only:
-        try:
-            return _previs_gate_body(ctx, stage, policy, row, advisory_only=True)
-        except Exception as exc:  # noqa: BLE001 — advisory previs never blocks
-            row.update({"status": "ADVISORY_ERROR", "blocked": False,
-                        "error": f"{type(exc).__name__}:{exc}"})
-            return row
-    return _previs_gate_body(ctx, stage, policy, row, advisory_only=False)
-
-
-def _previs_gate_body(ctx: "Ctx", stage: str, policy: dict[str, Any], row: dict[str, Any],
-                      *, advisory_only: bool) -> dict[str, Any]:
-    p = ctx.p
+    if not _previs.gate_active(ctx.episode, contract=read_json(p.contract, {}) or {}):
+        row.update({"status": "NOT_ENABLED", "blocked": False,
+                    "note": "episode not listed in the previs policy and the contract does not opt in"})
+        return row
     if not p.contract.is_file():
-        row.update({"status": "ADVISORY_SKIPPED" if advisory_only else "BLOCKED", "blocked": not advisory_only,
+        row.update({"status": "BLOCKED", "blocked": True,
                     "failures": [f"GENERATION_CONTRACT_MISSING:{p.contract}"]})
         return row
     contract = read_json(p.contract, {}) or {}
     grouping = read_json(p.grouping_plan, {}) or {}
-    if advisory_only and not grouping.get("units"):
-        row.update({"status": "ADVISORY_SKIPPED", "blocked": False,
-                    "failures": [f"GROUPING_PLAN_MISSING_OR_EMPTY:{p.grouping_plan}"]})
-        return row
     if not grouping.get("units"):
         # The grouping plan is S2 output.  Without it the shot-to-unit coverage
         # check (§4.2.3) cannot run, and a paid stage without it would be
@@ -383,7 +350,7 @@ def _previs_gate_body(ctx: "Ctx", stage: str, policy: dict[str, Any], row: dict[
             contract, grouping,
             keyframe_dir=p.keyframes if p.keyframes.is_dir() else None)
     except Exception as exc:  # noqa: BLE001 — a gate crash must not read as PASS
-        row.update({"status": "ADVISORY_ERROR" if advisory_only else "BLOCKED", "blocked": not advisory_only,
+        row.update({"status": "BLOCKED", "blocked": True,
                     "failures": [f"PREVIS_FAILED:{type(exc).__name__}:{exc}"]})
         return row
     round_number = 1 + int((ctx.state.get("previs_review_rounds") or {}).get(stage) or 0)
@@ -391,8 +358,7 @@ def _previs_gate_body(ctx: "Ctx", stage: str, policy: dict[str, Any], row: dict[
     review = _previs.director_review_request(previs, round_number=max(1, min(round_number, max_rounds + 1)))
     # P1.4 (codex §2.2): write back round number so next attempt increments.
     ctx.state.setdefault("previs_review_rounds", {})[stage] = round_number
-    machine_mode = ("ADVISORY" if advisory_only
-                    else "BLOCK" if policy.get("gate_on_machine_failures", True) else "ADVISORY")
+    machine_mode = "BLOCK" if policy.get("gate_on_machine_failures", True) else "ADVISORY"
     failures = previs.get("machine_failures") or []
     out_path = p.preprod_reports / f"{ctx.episode}_PREVIS_{stage}.json"
     previs["gate"] = {"stage": stage, "policy": str(_previs.POLICY_PATH),
@@ -402,7 +368,7 @@ def _previs_gate_body(ctx: "Ctx", stage: str, policy: dict[str, Any], row: dict[
     write_json(out_path, previs)
     blocked = bool(failures) and machine_mode == "BLOCK"
     row.update({
-        "status": ("BLOCKED" if blocked else "ADVISORY_FINDINGS" if (advisory_only and failures) else "PASS"),
+        "status": ("BLOCKED" if blocked else "PASS"),
         "blocked": blocked,
         "receipt": str(out_path),
         "receipt_sha256": sha256_file(out_path),

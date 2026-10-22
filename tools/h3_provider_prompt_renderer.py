@@ -104,25 +104,13 @@ def _optical(plan: dict[str, Any]) -> str:
     return "; " + "; ".join(optical) if optical else ""
 
 
-_GRAMMAR_MOTIVATION_EN = {
-    "FOLLOW_SUBJECT": "to stay with the moving subject", "REVEAL": "to reveal what the scene needs next",
-    "EMPHASIS": "to underline the beat", "SUBJECTIVE": "as the character's point of view",
-}
-
-
 def _camera_grammar_clause(plan: dict[str, Any]) -> str:
-    """CAMERA_GRAMMAR_V1 (2026-10-22) film-grammar wording, only for plans stamped camera_grammar.
-
-    A plan without the marker (every episode sealed before the policy) renders byte-identically.
-    The locked wording carries no move word, so locked_camera_move_conflicts stays clean."""
-    if str(plan.get("camera_grammar") or "").strip().upper() != "CAMERA_GRAMMAR_V1":
+    """CAMERA_GRAMMAR_V1 film-grammar wording, only for plans stamped camera_grammar (else "")."""
+    if plan.get("camera_grammar") != "CAMERA_GRAMMAR_V1":
         return ""
-    family = str(plan.get("motion_family") or "STATIC").upper()
-    if family in {"STATIC", "LOCKED"}:
+    if str(plan.get("motion_family") or "STATIC").upper() in {"STATIC", "LOCKED"}:
         return "; a still, composed frame: the action plays inside it, no drift"
-    reason = _GRAMMAR_MOTIVATION_EN.get(str(plan.get("motion_motivation") or "").strip().upper(), "")
-    return ("; a motivated move" + (f" {reason}" if reason else "")
-            + ": it starts with the action, settles on the end framing and holds; never sweep across empty space")
+    return "; a motivated move: it starts with the action, settles on the end framing and holds; never sweep across empty space"
 
 
 def _camera(plan: dict[str, Any]) -> str:

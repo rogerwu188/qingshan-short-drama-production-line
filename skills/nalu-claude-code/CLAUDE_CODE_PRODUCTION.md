@@ -38,13 +38,11 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
   LOCKED 起止取景相同、运动镜不同。
 - **运镜语法 CAMERA_GRAMMAR_V1**（2026-10-22 起新封版的合同；storyclaw finalize 自动在合同顶层补
   `"camera_grammar_policy": "CAMERA_GRAMMAR_V1"`；之前已封版的集仍按旧规则）。新规则不加任何阻断门，只是导演写法：
-  - 机位不再「必须动」，相邻单元也不必换方向（只保留原有的「相邻同族同向」不许）；静态设计门的 R1–R4/R6/R7 对这些集只提示不阻断。
-  - 运镜要有理由：跟人（FOLLOW_SUBJECT）、揭示（REVEAL）、强调（EMPHASIS）、主观（SUBJECTIVE），可写进 `camera_plan.motion_motivation`（可选）；
-    没有理由就用 LOCKED 或慢推（DOLLY PUSH_IN），让动作在构图里发生，别为了「动」去扫空墙、让人出画再回。
+  - 机位不再「必须动」，相邻单元也不必换方向（只保留原有的「相邻同族同向」不许）；静态设计门的 R1–R4/R6/R7 对这些集只提示（`advisories`）不阻断。
+  - 运镜要有理由：跟人、揭示、强调或主观视角；没有理由就用 LOCKED 或慢推（DOLLY PUSH_IN），让动作在构图里发生，别为了「动」去扫空墙、让人出画再回。
   - 每个新地点前 2 镜给一个建立镜（WIDE / MEDIUM_WIDE）；同场同一景别连续不超过 2 镜；对白镜后给听者一个反应镜。
   - 剧本是「切」的地方就写切（`internal_transition_authoring` 用 MOTIVATED_CUT/REACTION_CUT/MATCH_CUT/HARD_CUT）：
     该单元会用自己的关键帧起幅，不从上一单元尾帧漂过去（每个切点多一张关键帧，约 11 积分）；连续动作写 CONTINUOUS_ACTION/CAMERA_REFRAME 接尾帧。
-  - `static_design_gate` 报告里的 `advisories` + `fix_hints` 是建议，按需改，不会卡住流程。
 - `state_delta_dimensions` 只能取 POSITION/POSTURE/CONTACT/POSSESSION/INTEGRITY/MOMENTUM，且 entry/exit 证据要不同；entry/completion 各 ≥ 6 字。
   每个镜头都要有（S5 `keyframe_entry_state_gate` 对空维度无条件拒绝）。`state_delta_mode: STATIC_POSTURE_PERFORMANCE` 只给对白镜用；无对白的「静立 + 环境在动」揭示镜不能靠运镜过关，要让一个已登记主体（人物，或没有人物时的生物/道具卡）真的变一次：转头、跨一步、放下手里的东西。
 - 每个 scene_state：`ambient_life{grade A|B|C, motion_trend, first_frame_state, reaction_progression}` 和 `weather_provenance{source_type, source_ref, visibility_mode}`。

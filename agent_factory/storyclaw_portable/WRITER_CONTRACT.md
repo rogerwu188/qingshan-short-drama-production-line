@@ -92,8 +92,7 @@ blocking check; direct the episode the way people watch films:
   performs inside the frame, or when it is a short atmosphere/insert shot. Do not move the camera to avoid a
   static shot, and do not alternate directions for their own sake.
 - Move the camera only for a reason: follow a moving subject, reveal what comes next, emphasise a beat, or a
-  character's point of view. You may record it as `camera_plan.motion_motivation` (`FOLLOW_SUBJECT`, `REVEAL`,
-  `EMPHASIS`, `SUBJECTIVE`). Never sweep across empty space or let the subject leave frame and return.
+  character's point of view. Never sweep across empty space or let the subject leave frame and return.
 - Open every new location with an establishing framing (`shot_scale` `WIDE` or `MEDIUM_WIDE`) within its first
   two shots; at most two consecutive shots at the same `shot_scale`; cover a spoken line's listener with a
   reaction shot.
@@ -101,7 +100,8 @@ blocking check; direct the episode the way people watch films:
   `REACTION_CUT` / `MATCH_CUT` / `HARD_CUT` (or a scene change) makes the next video unit open on its own
   keyframe, a clean cut; continuous modes keep the previous unit's real tail as the start frame.
 
-The S1 static design gate lists departures from this as `advisories` with `fix_hints`; they never block.
+Under this policy the S1 static design gate reports its old forced-motion rules (R1–R4, R6, R7) as
+`advisories`; they never block.
 
 ## Provenance and privacy
 

@@ -613,13 +613,7 @@ def _materialize_lexicon(
 
 
 def _stamp_camera_grammar_policy(contract_path: Path) -> bool:
-    """CAMERA_GRAMMAR_V1 (2026-10-22): every contract sealed from this engine version on is under the
-    camera grammar policy unless the writer declared camera_grammar_policy itself.
-
-    Runs only while the writer receipt is still RUNNING, i.e. before ``finish`` binds the layer
-    hashes, so the stamped bytes are the sealed bytes.  An unreadable contract is left for the
-    regular validation to report.
-    """
+    """CAMERA_GRAMMAR_V1: stamp every newly sealed contract (before ``finish`` binds the layer hashes)."""
     from tools import camera_grammar_policy as _camera_grammar
 
     try:

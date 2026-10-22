@@ -81,13 +81,8 @@ def _group_camera_direction(group: list[dict[str, Any]]) -> str | None:
     accounting.
     """
     explicit = (group[0].get("prompt_spec") or {}).get("camera_plan")
-    if not explicit:
-        return None
-    if (str(explicit.get("motion_motivation") or "").strip()
-            or str(explicit.get("camera_grammar") or "").strip().upper() == "CAMERA_GRAMMAR_V1"):
-        # CAMERA_GRAMMAR_V1: a motivated move is exempt from the direction caps in
-        # validate_camera_sequence, so it takes no part in the rhythm accounting either
-        return None
+    if not explicit or explicit.get("camera_grammar") == "CAMERA_GRAMMAR_V1":
+        return None  # CAMERA_GRAMMAR_V1 plans are exempt from the direction caps
     direction = str(explicit.get("motion_direction") or "")
     return direction if direction and direction != "NONE" else None
 

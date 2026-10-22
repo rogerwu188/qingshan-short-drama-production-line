@@ -24,9 +24,6 @@ SELECTION_MODES = {"AUTO", "HYBRID", "LOCKED"}
 SHUTTER_VISUAL_INTENTS = {
     "NATURAL_MOTION_CLARITY", "CRISP_ACTION_DIRECTION", "DIRECTIONAL_ACTION_BLUR",
 }
-#: CAMERA_GRAMMAR_V1 (2026-10-22, tools/camera_grammar_policy.py): why a camera moves.  Optional and never
-#: validated (no new failure path); a plan that declares one is exempt from the mechanical direction caps.
-MOTION_MOTIVATIONS = {"FOLLOW_SUBJECT", "REVEAL", "EMPHASIS", "SUBJECTIVE"}
 DEPTH_OF_FIELD_INTENTS = {
     "DEEP_SPATIAL_READABILITY", "BALANCED_SUBJECT_SPACE", "CONTROLLED_SUBJECT_SEPARATION",
 }
@@ -95,15 +92,6 @@ def _required_text(plan: dict[str, Any], key: str, source_id: str) -> str:
     if not value:
         raise ValueError(f"{source_id} camera_plan.{key} is required")
     return value
-
-
-CAMERA_GRAMMAR_MARKER = "CAMERA_GRAMMAR_V1"
-
-
-def camera_grammar_plan(plan: dict[str, Any]) -> bool:
-    """True for a plan exempt from the mechanical direction caps (CAMERA_GRAMMAR_V1)."""
-    return (str(plan.get("camera_grammar") or "").strip().upper() == CAMERA_GRAMMAR_MARKER
-            or str(plan.get("motion_motivation") or "").strip().upper() in MOTION_MOTIVATIONS)
 
 
 def camera_signature(plan: dict[str, Any]) -> str:
@@ -216,18 +204,16 @@ def validate_camera_sequence(units: list[dict[str, Any]]) -> None:
                 f"adjacent grouped units repeat camera motion {family}:{direction}: "
                 f"{previous[2]} -> {unit_id}"
             )
-        # CAMERA_GRAMMAR_V1: a camera plan of an episode under the policy (stamped camera_grammar by
-        # build_nalu_preproduction) or one that declares its motion_motivation follows the story, not a
-        # rotation; only the identical family+direction repeat above still applies to it.  Plans of
-        # every episode sealed before 2026-10-22 carry neither and keep both direction caps.
-        motivated = camera_grammar_plan(plan)
-        if previous and previous[1] == direction and not motivated:
+        # CAMERA_GRAMMAR_V1 (2026-10-22): plans stamped camera_grammar (build_nalu_preproduction) follow the
+        # story, not a rotation; only the identical family+direction repeat above applies to them.
+        free = plan.get("camera_grammar") == "CAMERA_GRAMMAR_V1"
+        if previous and previous[1] == direction and not free:
             raise ValueError(
                 f"adjacent grouped units repeat camera direction {direction}: "
                 f"{previous[2]} -> {unit_id}"
             )
         previous = (family, direction, unit_id)
-        if members[index] and not motivated:
+        if members[index] and not free:
             dynamic.append((positions[index], direction, family, unit_id))
 
     for start in range(max(0, sum(members) - 4) + 1):

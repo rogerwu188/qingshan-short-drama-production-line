@@ -883,17 +883,10 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
     bible = wardrobe_bible(contract, episode, requirements)
     bible_by_name = {row["character"]: row for row in bible["characters"]}
     forbidden = [str(row) for row in vcc.get("forbidden_influences") or []]
-    # CAMERA_GRAMMAR_V1 (2026-10-22): every camera plan of an episode under the policy carries the marker
-    # camera_grammar=CAMERA_GRAMMAR_V1, so the grouped direction caps relax and the H3 camera clause adds
-    # the film-grammar wording per plan.  Episodes outside the policy keep their plans byte-identical.
-    try:
-        try:
-            from tools import camera_grammar_policy as _camera_grammar
-        except ImportError:
-            import camera_grammar_policy as _camera_grammar  # type: ignore
-        camera_grammar = bool(_camera_grammar.active(contract, episode=episode))
-    except Exception:  # noqa: BLE001
-        camera_grammar = False
+    # CAMERA_GRAMMAR_V1: mark camera plans so the grouped direction caps relax and the H3 camera clause
+    # adds film-grammar wording; episodes outside the policy keep their plans byte-identical.
+    import camera_grammar_policy as _camera_grammar
+    camera_grammar = _camera_grammar.active(contract, episode=episode)
 
     # V.O. narration (tools/voice_over_narration.py): a line whose speaker is a VOICE_ONLY_NO_PLATE
     # character never reaches the video model.  It is moved to prompt_spec.voice_over here; S4
