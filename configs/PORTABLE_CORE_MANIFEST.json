@@ -91,6 +91,7 @@
     "skills/qingshan-nalu/SKILL.md",
     "skills/qingshan-nalu/bootstrap_storyclaw.py",
     "tools/assembly_audio_continuity_policy.py",
+    "tools/authored_world.py",
     "tools/authorized_insertion_and_form_disclosure_assert.py",
     "tools/build_agentcut_from_admitted_storyboard_sources.py",
     "tools/build_storyclaw_talenthub_release.py",

@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2174,
+  "file_count": 2176,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -261,7 +261,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "e8442e7064620c0e2fbc1a67eadc437cf615b3e21a2b1e206925e19799367ee5"
+      "sha256": "b3b8c37ff56520eb27f97a3fdd104b326f5b96136ad16aa8b2d7526931a519ee"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -593,7 +593,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/keyframe_q1_builder.py",
-      "sha256": "55da86ba9d46addb8652f2dd0566206184777ac9d170ef6f9fa6a0986dc1ff74"
+      "sha256": "c1098517bf3758d419eb3c2faabd7c75f2c50c6f70ead7381ed30f08f1385fbc"
     },
     {
       "path": "lines/nalu/runtime/tools/knowledge_sync.py",
@@ -637,7 +637,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_qa_common.py",
-      "sha256": "258dfc33a9f21752c918cb072f3b175ec67999f02b1bf599dbcb3759c7af538f"
+      "sha256": "fdc98b2aa3752a5fcded93322c1b50567030b6ebe22a5822aa5230e2121b6750"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_selective_bgm.py",
@@ -721,7 +721,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/speech_rate_check.py",
-      "sha256": "86f5cca9d39a5eeaa87257938d846d30af9f5f66742017392723ff8aa6c93c57"
+      "sha256": "4b622c31dc95c84c5d60859149e22f6b878c819bfe8d49414de95f14212e532b"
     },
     {
       "path": "lines/nalu/runtime/tools/start_frame_evidence_writer.py",
@@ -745,7 +745,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/video_q2_builder.py",
-      "sha256": "3b5278bdddef93f272fe1badd617a9e076eba0e823ca4ebdb551776088c35be2"
+      "sha256": "b38e7044702e207076a9bfb46464844ae24ff9338343c1e50697bc189b97e716"
     },
     {
       "path": "lines/nalu/runtime/tools/visual_review_policy.py",
@@ -753,7 +753,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/vlm_review_protocol.py",
-      "sha256": "aa6db51f093f041ca6eb8432e1b5b33dab40afa3ca72c83e05159436ee45e8b3"
+      "sha256": "c0077db6a1aecfa33cbab1bc934f9a7b9a377e125e746ec5aaa1ef3ef314eecd"
     },
     {
       "path": "lines/nalu/runtime/tools/with_line_env.sh",
@@ -777,7 +777,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "87368d033f88e542b7d252cfa21a5545544f1b665e9710aa82649037cd44d346"
+      "sha256": "4c173919e263ae53253c0eb7dc2af3b75fbe01e1e55af5b13eaed7d5000b1e84"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -1486,6 +1486,10 @@
     {
       "path": "tools/authored_shot_state_attachment.py",
       "sha256": "9afee2d968fa1800bcd7d0e9b2a7d13791383f17c803a3d9f41e0ca3b7d91031"
+    },
+    {
+      "path": "tools/authored_world.py",
+      "sha256": "6f4f6111ec9bfe5c24a2bd13e63c39a08fed25a9c264d96f2b570cf6d3698ae6"
     },
     {
       "path": "tools/authorize_e40_full_coverage_keyframe_wave.py",
@@ -4849,7 +4853,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "dc21e98df9095f803221d126222a293dd26f0145db34ee2b6fab42eeb1a5976d"
+      "sha256": "c5a7efb3cd91ff9620a6d450db1a4ad14a51e76391881566cdacc30845f7b88e"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -6237,7 +6241,7 @@
     },
     {
       "path": "tools/still_image_ocr_audit.py",
-      "sha256": "2fe7b81c47f7ca712e0b3cd2e4daca89c7fd3d8db3e1b7851ee253c7377a267b"
+      "sha256": "c6fbcd88ec3057505408ff3d373dbc076c24be45a8c2a6a93872528b8430dcb6"
     },
     {
       "path": "tools/storyboard_sheet_gate.py",
@@ -6690,6 +6694,10 @@
     {
       "path": "tools/tests/test_authored_shot_state_attachment.py",
       "sha256": "e17df10664ea15676f2acf3b670f6414d1e87555c8620d3be68a2855f78ed706"
+    },
+    {
+      "path": "tools/tests/test_authored_world_language.py",
+      "sha256": "80fb6b96dc46fa455820e06093a0fa5fb9922f7cd36cc99304fc4056174f330e"
     },
     {
       "path": "tools/tests/test_authorize_e40_full_coverage_keyframe_wave.py",

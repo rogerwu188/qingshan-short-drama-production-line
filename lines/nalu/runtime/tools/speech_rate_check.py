@@ -107,7 +107,7 @@ def measure_unit(unit_id: str, segments: list[dict[str, Any]], expected_dialogue
     # Authored trailing-off (SUPERVISOR_ORDERS seq=31 standing rule C, applied 2026-09-18 seq=33): a line the
     # writer ends with 「……」 is directed to break off (愣住 / 哽咽), so a slow realised rate is the performance,
     # not a dragged delivery.  Recorded as a note, never as a reroll — unless the line is a hook/conflict line.
-    authored_trailing_off = any(str(r.get("spoken_text") or "").rstrip("」”\"' ").endswith(("……", "…"))
+    authored_trailing_off = any(str(r.get("spoken_text") or "").rstrip("」”\"' ").endswith(("……", "…", "..."))
                                 for r in expected_dialogue or [])
     result["authored_trailing_off"] = authored_trailing_off
     hook_line = any(t["hook"] for t in known)
