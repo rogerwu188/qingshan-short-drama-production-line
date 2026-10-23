@@ -44,6 +44,7 @@ def build(
     measured_edit_constraints=None,
     weak_admission=None,
     dialogue_tail_trim=None,
+    dialogue_sound_bridge=None,
 ):
     if generation_contract is None:
         raise ValueError("generation_contract is required for automatic audio-profile binding")
@@ -225,6 +226,18 @@ def build(
         })
         cursor += duration
 
+    # CAMERA_GRAMMAR_V1 dialogue sound bridge / L-cut (S7 report, tools/dialogue_sound_bridge.py): the
+    # speaker clip ends early, its audio is mixed back over the reaction picture after the render.
+    bridges = None
+    if dialogue_sound_bridge:
+        try:
+            from tools import dialogue_sound_bridge as _bridge
+        except ModuleNotFoundError:
+            import dialogue_sound_bridge as _bridge  # type: ignore
+        bridges = _bridge.apply(video_clips, audio_clips,
+                                json.loads(_abs(dialogue_sound_bridge).read_text(encoding="utf-8")))
+        cursor = sum(float(clip["duration"]) for clip in video_clips)
+
     project_path = _abs(out_project)
     admission_path = _abs(out_admission)
     output_path = _abs(output_video)
@@ -273,6 +286,9 @@ def build(
             "subtitleTracks": [],
         },
     }
+    if bridges is not None:
+        project["metadata"]["dialogue_sound_bridge"] = {"report": str(_abs(dialogue_sound_bridge)),
+                                                        "bridges": bridges}
     binding = apply_audio_profile_binding(
         project,
         generation_contract_payload,
@@ -317,6 +333,7 @@ def main():
     parser.add_argument("--generation-contract", required=True)
     parser.add_argument("--measured-edit-constraints", help="Optional SHA-bound observed-dialogue source intervals; explicitly rebases following clips")
     parser.add_argument("--dialogue-tail-trim", help="Optional S7 dialogue tail-trim report (CAMERA_GRAMMAR_V1): cut each trimmed unit at its kept_seconds")
+    parser.add_argument("--dialogue-sound-bridge", help="Optional S7 dialogue sound-bridge report (CAMERA_GRAMMAR_V1): L-cut the speaker picture before a silent reaction unit")
     args = parser.parse_args()
     print(json.dumps(build(
         args.episode,
@@ -330,6 +347,7 @@ def main():
         args.measured_edit_constraints,
         args.weak_admission,
         args.dialogue_tail_trim,
+        args.dialogue_sound_bridge,
     ), ensure_ascii=False))
 
 

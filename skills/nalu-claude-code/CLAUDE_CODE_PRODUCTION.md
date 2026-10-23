@@ -63,10 +63,15 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
   `"camera_grammar_policy": "CAMERA_GRAMMAR_V1"`；之前已封版的集仍按旧规则）。新规则不加任何阻断门，只是导演写法：
   - 机位不再「必须动」，相邻单元也不必换方向（只保留原有的「相邻同族同向」不许）；静态设计门的 R1–R4/R6/R7 对这些集只提示（`advisories`）不阻断。
   - 运镜要有理由：跟人、揭示、强调或主观视角；没有理由就用 LOCKED 或慢推（DOLLY PUSH_IN），让动作在构图里发生，别为了「动」去扫空墙、让人出画再回。
-  - 每个新地点前 2 镜给一个建立镜（WIDE / MEDIUM_WIDE）；同场同一景别连续不超过 2 镜；对白镜后给听者一个反应镜。
+  - 每个新地点前 2 镜给一个建立镜（WIDE / MEDIUM_WIDE）；同场同一景别连续不超过 2 镜（同机位对白接力除外）。
+  - **对白不逐句切**（线主 2026-10-23）：一个单元仍只一个说话人，但 ① 两人来回的连续几句用同一个双人镜（两人都在画、
+    camera_side/shot_scale/camera_height 不变），单元之间写 CONTINUOUS_ACTION，接上一单元尾帧，看着是一条镜头；
+    ② 开场双人镜/中景，只在情绪转折切近到单人/近景，最狠一句给最紧的镜头，同一人连说留在同一镜，听者无声反应只在「反应就是戏」时才切；
+    ③ L-cut：说话镜后紧跟的无对白反应镜（下一个单元）可写 `prompt_spec.transition.sound_bridge_from_previous_seconds`（0.3–2.0 s），
+    S7 把说话人画面提前切走、这句话的声音和字幕盖到反应镜上，反应镜现场声压成环境声；不写就是硬切。
   - 剧本是「切」的地方就写切（`internal_transition_authoring` 用 MOTIVATED_CUT/REACTION_CUT/MATCH_CUT/HARD_CUT）：
     该单元会用自己的关键帧起幅，不从上一单元尾帧漂过去（每个切点多一张关键帧，约 11 积分）；连续动作写 CONTINUOUS_ACTION/CAMERA_REFRAME 接尾帧。
-- H3 出视频的集按 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` 改编剧本（每拍分桶、≤2 人、无脸存在登记为 CREATURE 并写长相、服装写成文字、反打即切）。
+- H3 出视频的集按 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` 改编剧本（每拍分桶、≤2 人、无脸存在登记为 CREATURE 并写长相、服装写成文字、对白同机位接力、转折才切）。
 - `state_delta_dimensions` 只能取 POSITION/POSTURE/CONTACT/POSSESSION/INTEGRITY/MOMENTUM，且 entry/exit 证据要不同；entry/completion 各 ≥ 6 字。
   每个镜头都要有（S5 `keyframe_entry_state_gate` 对空维度无条件拒绝）。`state_delta_mode: STATIC_POSTURE_PERFORMANCE` 只给对白镜用；无对白的「静立 + 环境在动」揭示镜不能靠运镜过关，要让一个已登记主体（人物，或没有人物时的生物/道具卡）真的变一次：转头、跨一步、放下手里的东西。
 - 每个 scene_state：`ambient_life{grade A|B|C, motion_trend, first_frame_state, reaction_progression}` 和 `weather_provenance{source_type, source_ref, visibility_mode}`。

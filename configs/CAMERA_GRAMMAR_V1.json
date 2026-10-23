@@ -8,6 +8,8 @@
     "static_design_gate: forced-motion rules R1-R4/R6/R7 are REPORT_ONLY advisories; English dialogue timed in words (R8)",
     "camera plans stamped camera_grammar: grouped adjacent-direction and five-unit direction caps dropped (identical family+direction check kept)",
     "h3_provider_prompt_renderer: short film-grammar camera clause",
-    "build_keyframe_manifest: an authored cut or scene change opens on its own keyframe instead of the previous tail"
+    "build_keyframe_manifest: an authored cut or scene change opens on its own keyframe instead of the previous tail",
+    "dialogue: consecutive lines of an exchange relay in one two-shot via CONTINUOUS_ACTION (not a cut per line); cut in only at an emotional turn",
+    "S7 L-cut: a silent reaction shot's prompt_spec.transition.sound_bridge_from_previous_seconds (0.3-2.0) cuts the speaker picture early and plays the line (and subtitle) over the reaction (tools/dialogue_sound_bridge.py)"
   ]
 }

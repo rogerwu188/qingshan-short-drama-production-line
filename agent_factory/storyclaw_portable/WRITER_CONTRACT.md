@@ -129,8 +129,17 @@ blocking check; direct the episode the way people watch films:
 - Move the camera only for a reason: follow a moving subject, reveal what comes next, emphasise a beat, or a
   character's point of view. Never sweep across empty space or let the subject leave frame and return.
 - Open every new location with an establishing framing (`shot_scale` `WIDE` or `MEDIUM_WIDE`) within its first
-  two shots; at most two consecutive shots at the same `shot_scale`; cover a spoken line's listener with a
-  reaction shot.
+  two shots; at most two consecutive shots at the same `shot_scale`.
+- Do not cut on every line of a dialogue scene (line owner 2026-10-23). One H3 unit still carries one speaker,
+  but (1) consecutive lines of a two-person exchange share the SAME two-shot (both visible, same `camera_side` /
+  `shot_scale` / `camera_height`), joined with `CONTINUOUS_ACTION` so each unit starts from the previous unit's
+  real tail frame and the exchange reads as one take; (2) open the scene on a two-shot/medium, cut in to
+  singles/close-ups only at an emotional turn (`MOTIVATED_CUT` / `REACTION_CUT`), give the hardest line the
+  tightest shot, keep one speaker's consecutive lines in one shot, and cut to a listener's silent reaction only
+  when the reaction is the story; (3) L-cut: a silent reaction shot that directly follows a dialogue shot (in the
+  next unit) may set `prompt_spec.transition.sound_bridge_from_previous_seconds` (0.3–2.0): S7 cuts the speaker's
+  picture that much earlier and lets the line (and its subtitle) finish over the reaction, the reaction's own
+  sound ducked to ambience. Omit it for a plain cut.
 - Write the cuts the script implies: `internal_transition_authoring.transition_mode` `MOTIVATED_CUT` /
   `REACTION_CUT` / `MATCH_CUT` / `HARD_CUT` (or a scene change) makes the next video unit open on its own
   keyframe, a clean cut; continuous modes keep the previous unit's real tail as the start frame.

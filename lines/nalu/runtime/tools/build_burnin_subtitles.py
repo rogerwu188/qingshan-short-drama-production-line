@@ -125,11 +125,13 @@ def assign(lines: list[dict], segs: list[dict], clip_dur: float,
     return out
 
 def caption_window(clip: dict, source_start: float, source_end: float,
-                   pad: float = 0.08) -> tuple[float, float] | None:
+                   pad: float = 0.08, bridge_seconds: float = 0.0) -> tuple[float, float] | None:
     """Map source seconds to timeline seconds; never clip measured speech for styling.
 
     Match the portable renderer: constant 1x only. Unsupported retiming must
     be implemented in both consumers before it can be accepted here.
+    ``bridge_seconds`` (CAMERA_GRAMMAR_V1 L-cut, clip metadata ``sound_bridge_out``): the clip's
+    audio plays on that long over the next picture, so its captions may too.
     """
     start, duration, source_in = (float(clip.get(k, default)) for k, default in
                                   (("start", 0), ("duration", 0), ("in", 0)))
@@ -142,6 +144,8 @@ def caption_window(clip: dict, source_start: float, source_end: float,
         if key in clip and float(clip[key]) != 1:
             raise ValueError("subtitle timing requires supported 1x portable timeline")
     local_start, local_end = source_start - source_in, source_end - source_in
+    if bridge_seconds > 0:
+        duration += float(bridge_seconds)
     if local_end <= 0 or local_start >= duration:
         return None
     # Do not resurrect speech removed by a source trim using padding.
@@ -224,7 +228,8 @@ def main() -> int:
         for ln, ls, le in assign(lines, segs, cdur, a.language):
             if not valid_segs:
                 ls, le = ls + source_in, le + source_in
-            window = caption_window(clip, ls, le, a.pad)
+            bridge = float(((clip.get("metadata") or {}).get("sound_bridge_out") or {}).get("seconds") or 0.0)
+            window = caption_window(clip, ls, le, a.pad, bridge_seconds=bridge)
             if window is None:
                 continue
             s, e = window

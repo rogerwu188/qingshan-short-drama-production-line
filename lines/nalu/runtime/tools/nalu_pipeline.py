@@ -6348,6 +6348,72 @@ def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
     return _trim.trim_unit_asr(asr, report), (report_path if report["trimmed_units"] else None)
 
 
+def s7_dialogue_sound_bridge(ctx: Ctx, res: StageResult, contract: dict[str, Any],
+                             unit_asr: dict[str, Any] | None) -> Path | None:
+    """CAMERA_GRAMMAR_V1 only (line owner 2026-10-23): plan the authored L-cuts.
+
+    A silent reaction shot right after a dialogue shot may author
+    ``prompt_spec.transition.sound_bridge_from_previous_seconds``; tools/dialogue_sound_bridge.plan
+    turns each into a REQUESTED/SKIPPED row, the AgentCut build applies them (--dialogue-sound-bridge)
+    and s7_sound_bridge_mix lays the speaker's audio back over the reaction picture.  ``unit_asr`` is
+    the tail-trimmed unit ASR (None outside the policy).  Returns the report path when any bridge is
+    requested; otherwise nothing is written and S7 runs exactly as before.
+    """
+    import camera_grammar_policy as _cgp
+    import dialogue_sound_bridge as _bridge
+    if unit_asr is None or not _cgp.active(contract, episode=ctx.episode):
+        return None
+    report = _bridge.plan(contract, read_json(ctx.p.grouping_plan, {}) or {}, unit_asr)
+    if not report["rows"]:
+        return None
+    path = ctx.p.assembly / f"{ctx.episode}_DIALOGUE_SOUND_BRIDGE.json"
+    write_json(path, report)
+    res.details["dialogue_sound_bridge"] = {"report": str(path), "requested": report["requested"],
+                                            "skipped": len(report["rows"]) - report["requested"]}
+    return path if report["requested"] else None
+
+
+def s7_sound_bridge_mix(ctx: Ctx, res: StageResult, picture: Path) -> tuple[Path, list[str]]:
+    """Mix each applied L-cut's speaker audio over the reaction picture (native ducked); video copied.
+
+    Reads the bridges the AgentCut build recorded (metadata.dialogue_sound_bridge); none -> the
+    picture is returned untouched.  The applied rows and the mix are written back into the S7 report
+    <EP>_DIALOGUE_SOUND_BRIDGE.json.  Returns (picture, blockers).
+    """
+    import dialogue_sound_bridge as _bridge
+    p = ctx.p
+    meta = ((read_json(p.agentcut_project, {}) or {}).get("metadata") or {}).get("dialogue_sound_bridge") or {}
+    bridges = [row for row in meta.get("bridges") or [] if row.get("status") == "APPLIED"]
+    if not bridges:
+        return picture, []
+    mixed = p.assembly / f"{ctx.episode}_picture_native_lcut.mp4"
+    argv = [_media.require_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-i", str(picture)]
+    for row in bridges:
+        argv += ["-i", str(row["audio_source"])]
+    argv += ["-filter_complex", _bridge.mix_filter(bridges),
+             "-map", "0:v:0", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+             "-ar", "48000", "-ac", "2", "-movflags", "+faststart", str(mixed)]
+    run = subprocess.run(argv, capture_output=True, text=True, check=False)
+    res.steps.append({"name": "s7_dialogue_sound_bridge_mix", "exit_code": run.returncode, "argv": argv,
+                      "log": "in-process ffmpeg", "stderr_tail": tail(run.stderr)})
+    if run.returncode != 0 or not mixed.is_file():
+        return picture, [f"DIALOGUE_SOUND_BRIDGE_MIX_FAILED:{(run.stderr or '')[-200:]}"]
+    if _video_stream_hash(picture) != _video_stream_hash(mixed):
+        mixed.unlink(missing_ok=True)
+        return picture, ["DIALOGUE_SOUND_BRIDGE_MIX_CHANGED_VIDEO_STREAM"]
+    report_path = Path(str(meta.get("report") or p.assembly / f"{ctx.episode}_DIALOGUE_SOUND_BRIDGE.json"))
+    report = read_json(report_path, {}) or {}
+    report.update({"applied": meta.get("bridges") or [], "applied_count": len(bridges),
+                   "mix": {"source_picture": str(picture), "output_picture": str(mixed),
+                           "output_picture_sha256": sha256_file(mixed), "video_stream_bit_exact": True,
+                           "native_duck_db": _bridge.DUCK_DB, "fade_seconds": _bridge.FADE_SECONDS}})
+    write_json(report_path, report)
+    res.receipts.append(str(report_path))
+    res.details["dialogue_sound_bridge"] = {**(res.details.get("dialogue_sound_bridge") or {}),
+                                            "applied": len(bridges), "picture": str(mixed)}
+    return mixed, []
+
+
 def stage_s7(ctx: Ctx) -> StageResult:
     """Q2 admission -> AgentCut project -> render -> release loudness -> final QA.
 
@@ -6536,6 +6602,10 @@ def stage_s7(ctx: Ctx) -> StageResult:
     if tail_trim is not None:
         build_argv += ["--dialogue-tail-trim", tail_trim]
         res.details["commands"]["build_agentcut"] = q(build_argv)
+    sound_bridge = s7_dialogue_sound_bridge(ctx, res, read_json(p.contract, {}) or {}, trimmed_asr)
+    if sound_bridge is not None:
+        build_argv += ["--dialogue-sound-bridge", sound_bridge]
+        res.details["commands"]["build_agentcut"] = q(build_argv)
 
     # ------------------------------------------------------------ 4. assemble
     steps: list[dict[str, Any]] = [ctx.run(build_argv, name="s7_build_agentcut_project")]
@@ -6571,14 +6641,21 @@ def stage_s7(ctx: Ctx) -> StageResult:
     # ducked under it, mixed in with the video stream copied — after the render, BEFORE the captions,
     # so the captions, end card, BGM, dips and release levelling all see the narrated picture.
     # Order: native cut -> V.O. mix -> subtitles -> end card -> BGM -> cut dips -> release levelling.
-    captioned_source, vo_blockers = s7_voice_over(ctx, res, p.picture_native, asr)
+    # 5a. L-cuts (CAMERA_GRAMMAR_V1, authored sound bridges): the speaker's line plays on over the
+    # reaction picture; no applied bridge -> the native picture continues unchanged.
+    native_source, bridge_blockers = s7_sound_bridge_mix(ctx, res, p.picture_native)
+    if bridge_blockers:
+        res.steps.extend(steps)
+        res.blockers = bridge_blockers
+        return res
+    captioned_source, vo_blockers = s7_voice_over(ctx, res, native_source, asr)
     if vo_blockers:
         res.steps.extend(steps)
         res.blockers = vo_blockers
         return res
     vo_placement = voice_over_placement_path(ctx)
     vo_argv: list[Any] = (["--voice-over-placement", vo_placement]
-                          if captioned_source != p.picture_native and vo_placement.is_file() else [])
+                          if captioned_source != native_source and vo_placement.is_file() else [])
     sub_step = ctx.run([VENV, RT_TOOLS / "build_burnin_subtitles.py", "--episode", ctx.episode,
                         "--project", p.agentcut_project, "--asr", asr_json, "--contract", p.contract,
                         "--grouping", p.grouping_plan, "--source", captioned_source,
