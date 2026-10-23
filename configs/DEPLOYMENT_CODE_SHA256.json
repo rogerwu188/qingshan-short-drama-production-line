@@ -801,7 +801,7 @@
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "9cb5233b7a970ddea796376729cea4ad1e8b46096601622ce0605c807bc6ff88"
+      "sha256": "2113369f145e51ce26870a7331da3140753565f0efd88e74d627bb6e1fc444df"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
