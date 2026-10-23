@@ -1306,6 +1306,18 @@ def main() -> int:
                               planning_only=bool(args.planning_only), visual_culture_contract=vc,
                               character_entities=character_entities,
                               dialogue_language=args.dialogue_language)
+    # Opt-in DIRECTOR_PROMPT_V2 H3 prompt style (generation contract top-level h3_prompt_style): stamp only
+    # the H3 units of a contract that declares it; every other unit stays byte-identical (no field).
+    if args.generation_contract and args.generation_contract.is_file():
+        try:
+            from tools.provider_scope_projection import H3_PROMPT_STYLE_FIELD, h3_prompt_style
+        except ModuleNotFoundError:
+            from provider_scope_projection import H3_PROMPT_STYLE_FIELD, h3_prompt_style
+        declared_style = h3_prompt_style(generation_payload if isinstance(generation_payload, dict) else {})
+        if declared_style:
+            for compiled_unit in result.get("units") or []:
+                if str(compiled_unit.get("model") or "") == "MiniMax-H3":
+                    compiled_unit[H3_PROMPT_STYLE_FIELD] = declared_style
     # The grouped unit is the source of truth for the transaction manifest.
     # Bind the authored audio profile here as well, so a later transaction
     # rebuild cannot silently lose the writer/director audio decision.

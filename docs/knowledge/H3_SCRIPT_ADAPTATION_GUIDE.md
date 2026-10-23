@@ -116,6 +116,26 @@ H3 当真人短剧拍，凭空加了好几双真人的手。
 若剧情一定要实物，就拍一个能拍的物件——例如石墙上十二个烛台、第一支被点亮——
 单元里没有人物，渲染器会按「实拍物件插入镜、无人无手」出提示词。
 
+## 7b. 导演式提示词 DIRECTOR_PROMPT_V2（可选，线主 2026-10-23）
+
+- **开关**：生成合同顶层写 `"h3_prompt_style": "DIRECTOR_PROMPT_V2"`。只有声明了的合同的 H3 单元换成 V2；
+  没写（或写别的值）的集一字不变，仍是 `subject_definitions:` 那版 V1 提示词。分组编译把字段盖到 H3 单元上，
+  交易任务带着它，付费边界按同一字段重渲染并逐字比对（「提示词必须是当前编译器的原样输出」不变）。
+- **形状**：像导演给摄影和演员讲戏，依次是 References（每张参考图/每条参考音一句：开场画面 / X 的脸和身体 / X 的声音只取音色）、
+  Who is in frame（"exactly these two people, each exactly once, both visible from the first frame to the last"
+  这一句就是人数约束，逐人写画左画右、长相、服装；有人入画出画或只露手，就逐人写时段）、Setting、Camera、Action（每拍说话的人
+  和听的人各做什么）、Dialogue（`<d>[Chinese] …</d>` 只出现一次 + delivery_en；说完后 "After the line nobody speaks"）、
+  Sound（一行，"No background music"）、Never。不再出现内部 id、retention_analysis、Force origin/Interaction mode 模板、
+  NO_BGM、"render at most one visible instance…" 之类机器句。一般 2–4k 字符（构图文字长的单元会更长）。
+- **英文长相、服装、场景**：V2 单元的英文合同请求（`<EP>_H3_ENGLISH_CONTRACTS.REQUEST.json`）多一个 `director_v2` 块：
+  只有中文的人物长相（appearance：脸、年龄、发型、体型）、服装（wardrobe）、生物外观（look）和一两句场景（setting：地点与布局，
+  时间、天气、光另有字段）。英文剧已有英文字段的不会再要。
+- **听者在做什么**（可选）：对白镜可写 `prompt_spec.action.listener_reaction_en`——一句英文，或按人物 id/英文名分别写
+  （`{"CHAR-LINQIAO": "holds his gaze, jaw tight, lifts her chin on the second question"}`）。不写时默认
+  「X listens without speaking, holding Y's gaze.」；无对白镜默认「X stays silent, watching Y.」。V1 提示词不读这个字段。
+- 覆盖面不变：每条执行事实仍要在 V2 文本里找到对应句子（semantic coverage receipt）；只有微表情/身体同步模板和
+  非打斗、无接触时刻的拍里的接触点/反馈模板改由「每个人在做什么」表达，回执里逐条列为 `style_omitted_fact_ids`。
+
 ## 8. 写完自查（不是门禁）
 
 - [ ] 每一拍都分了桶；②③没有直接塞给 H3。

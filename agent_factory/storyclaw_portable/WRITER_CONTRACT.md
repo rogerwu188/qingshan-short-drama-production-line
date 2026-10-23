@@ -147,6 +147,11 @@ blocking check; direct the episode the way people watch films:
   emotion + how the line is said, e.g. `"cold and contemptuous, low and clipped, a beat of silence before the
   second sentence"`. H3 reads it instead of the generic brisk-delivery line; without it, a common `emotion` word
   (厌/怒/冷/疑/…) is mapped to English, otherwise the generic line stays.
+- Optional `"h3_prompt_style": "DIRECTOR_PROMPT_V2"` (contract top level) switches the episode's H3 units to the
+  director-style prompt (docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md §7b); absent = the current prompt, unchanged.
+  Under it, dialogue shots may add `prompt_spec.action.listener_reaction_en` (optional): one English sentence of what
+  the listener(s) do while the line is spoken, or `{<character_id or English name>: sentence}` per listener; without
+  it the listener "listens without speaking, holding the speaker's gaze".
 
 Under this policy the S1 static design gate reports its old forced-motion rules (R1–R4, R6, R7) as
 `advisories`; they never block.

@@ -14,6 +14,7 @@ from typing import Any
 try:
     from tools.provider_scope_projection import (
         instance_cardinality_clauses,
+        is_director_prompt_v2,
         is_single_subject_mode,
         is_tight_pov_mode,
         population_clause,
@@ -22,6 +23,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
     from provider_scope_projection import (
         instance_cardinality_clauses,
+        is_director_prompt_v2,
         is_single_subject_mode,
         is_tight_pov_mode,
         population_clause,
@@ -912,6 +914,16 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         visible_total = int(scope.get("visible_living_entity_instance_total") or 0)
         background_total = int(scope.get("background_population_count") or 0)
         unbound_total = int(scope.get("unbound_visible_living_entity_count") or 0)
+    if is_director_prompt_v2(unit) and not positive_single_subject:
+        # opt-in DIRECTOR_PROMPT_V2 (generation contract h3_prompt_style); every other unit continues below
+        # on the V1 path byte-identically.  The single-subject rescue profiles keep their own grammar.
+        try:
+            from tools.h3_director_prompt_v2 import render_director_v2
+        except ModuleNotFoundError:  # pragma: no cover
+            from h3_director_prompt_v2 import render_director_v2
+        return render_director_v2(
+            unit, plan, contract, crossmodal_rows=crossmodal_rows, language=language,
+            visible_total=visible_total, background_total=background_total, unbound_total=unbound_total)
     if positive_single_subject:
         composition = positive_single_subject_composition_clause(tight_pov_single_subject)
         population_scope = (

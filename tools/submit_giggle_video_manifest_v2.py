@@ -461,6 +461,10 @@ def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
     if task.get("dialogue_language") or machine.get("dialogue_language"):
         prompt_unit["dialogue_language"] = task.get("dialogue_language") or machine.get("dialogue_language")
     prompt_unit["h3_prompt_profile"] = task.get("h3_prompt_profile")
+    # opt-in DIRECTOR_PROMPT_V2 (generation contract h3_prompt_style): absent on every other task, so their
+    # compiler input stays byte-identical
+    if task.get("h3_prompt_style") or machine.get("h3_prompt_style"):
+        prompt_unit["h3_prompt_style"] = task.get("h3_prompt_style") or machine.get("h3_prompt_style")
     prompt_unit["duration_seconds"] = task.get("duration_seconds")
     prompt_unit["resolution"] = task.get("resolution")
     prompt_unit["aspect_ratio"] = task.get("aspect_ratio")
@@ -646,11 +650,14 @@ def uses_structured_role_gate(task: dict[str, Any], prompt_text: str) -> bool:
     ) or (
         "subject_definitions:" in prompt_text and "retention_analysis:" in prompt_text
     )
+    # DIRECTOR_PROMPT_V2 is compiler-native too (exact-compiler check + semantic receipt below)
+    director_v2 = (str(task.get("h3_prompt_style") or "").strip().upper() == "DIRECTOR_PROMPT_V2"
+                   and prompt_text.startswith("References:\n") and "\n\nWho is in frame" in prompt_text)
     official_h3_ref2va = (
         str(task.get("model") or "").lower() in {"minimax-h3", "h3"}
         and task.get("h3_prompt_profile") == "H3_OFFICIAL_REF2VA_V1"
     )
-    return shared_ir_prompt or official_h3_ref2va
+    return shared_ir_prompt or official_h3_ref2va or director_v2
 
 
 def transaction_path(transaction_dir: Path, task: dict[str, Any]) -> Path:
