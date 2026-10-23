@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2185,
+  "file_count": 2186,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -561,7 +561,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "64d5c95777d2da1e87ccbd8e51730a8b495aa5fe9593d09309013d837f3aa95a"
+      "sha256": "3decb29a29e08f091a156c3bc89ea00ceae70ea2dad7bc989bde7ebafe12447e"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -3569,7 +3569,7 @@
     },
     {
       "path": "tools/build_video_unit_grouping_spec.py",
-      "sha256": "0ad37f404b1dc7f26bc481b54b494054b374356c44d952ba7246bf475be2d699"
+      "sha256": "461b68ab573bb44ba135533307ea9f89045117dbdf62092e97cc7b0bf1c70bca"
     },
     {
       "path": "tools/build_writer_agent_image_batch.py",
@@ -3789,7 +3789,7 @@
     },
     {
       "path": "tools/compile_video_unit_plan.py",
-      "sha256": "93c162d4537f2d36fc610d71a8ef788981e92c5705963fc1b2a35176b013aa1b"
+      "sha256": "37aaae474212be6eb87f02b12af39f03c9af0ca68d759d30788f0667128edc8d"
     },
     {
       "path": "tools/concat_mp4s.swift",
@@ -7380,6 +7380,10 @@
       "sha256": "e3bb5d71473eb51ab22facff63ee6720f86320e6e28a8aec7f1249d2a4135afd"
     },
     {
+      "path": "tools/tests/test_grouping_respects_cuts.py",
+      "sha256": "fed67f26cf1cfb653ccd9788ecf14dfecec39e06ad1b97e80fc3823caf22914a"
+    },
+    {
       "path": "tools/tests/test_h3_crossmodal_speaker_gate.py",
       "sha256": "826f78782fc0d6ef09bccbd913229a3a9617167d24a4fa10d2b264fcf674f06e"
     },
@@ -8673,7 +8677,7 @@
     },
     {
       "path": "tools/video_unit_grouping_gate.py",
-      "sha256": "0270eb8e5be2261c8737c85433965b9535c51b3939287e84510f65e20fe7ab35"
+      "sha256": "8f2aca1379830918f4dd0c80de1d6f08a16afdc910f5b35a0eaf63ed10541039"
     },
     {
       "path": "tools/video_unit_state_plan_gate.py",
