@@ -55,7 +55,8 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 `<EP>_DIRECTING_SCRIPT_v1.md`、`<EP>_GENERATION_CONTRACT_v1.json`（qingshan.generation_contract.v3）、`<EP>_manifest_v1.json`，
 以及 `$NALU_RUNTIME_ROOT/preproduction/<EP>/{asset_requirements_overlay.json,new_location_place_spec.json,view_reference_policy.json}`。
 然后 `run --until S3`，直到 S1 PASS、S2 PASS、S3 DRY_PLANNED。必须满足（门禁源码在 `$T` 与 `tools/`，报错就读源码改剧本，不改门禁）：
-- 对白镜时长 = 汉字数/4 + 0.5，向上取整到 0.5，最多再 +1；无对白镜 ≤ 5 s；单元（同场连续镜头）4–8 s 可切分。
+- 对白镜时长 = 汉字数/4 + 0.5，向上取整到 0.5，不再额外加长；无对白镜 ≤ 5 s；单元（同场连续镜头）4–8 s 可切分。
+- 对白镜只比台词长 0.5–1.0 s（线主 2026-10-23）：`target_seconds` = 说话时长（中文约 4 字/秒，英文约 2.5 词/秒）+ 0.5–1.0 s，不给对白镜加长——H3 会用乱码般的假语言填满多出来的时间（CAMERA_GRAMMAR_V1 的集 S7 会剪在最后一句后约 0.5 s）；要停顿或反应就另写一个无对白的反应镜。
 - 每镜 `prompt_spec.camera_plan` 全字段（shot_scale/camera_height/camera_side/motion_family/motion_direction/lens_intent/axis_relation/start_framing/end_framing/motivation）；
   LOCKED 起止取景相同、运动镜不同。
 - **运镜语法 CAMERA_GRAMMAR_V1**（2026-10-22 起新封版的合同；storyclaw finalize 自动在合同顶层补

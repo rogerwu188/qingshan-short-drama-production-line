@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2191,
+  "file_count": 2193,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -337,7 +337,7 @@
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
-      "sha256": "805d0b931386be778ab1b404e5f236f920e95ce3b96e588d4ed1e0cdbbd13836"
+      "sha256": "a6146c3cb38fd5d49d00d551ba3504e07d1fc825de03ab536d80a72f551ea418"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -645,7 +645,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "1d8620b9603668962046951e7065bdff98c8e6100c4df89929190f70e0ddef49"
+      "sha256": "780d7af0ed7622752aed3686281bba053539ad630c52272e9e55e6b718d5a401"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -797,7 +797,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "0985a7b7d96132933246324acb7f797139b889c8362eb209a533a959c602b149"
+      "sha256": "12fd7163a95508ee9c010b12cd3e062b71c47f7b2dac31e6665d8b1b2f833e49"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -1601,7 +1601,7 @@
     },
     {
       "path": "tools/build_agentcut_from_admitted_storyboard_sources.py",
-      "sha256": "c48ffecfec4a80f8d87779e6cf8b1ca008fe1618f62933960bdbc65228ff3009"
+      "sha256": "fba4f44ed133589dabcc7b6018d5c47b7098f72aa7dc7606d8a64a23b6feda6f"
     },
     {
       "path": "tools/build_and_validate_e40_u02_v3_package.py",
@@ -8766,6 +8766,14 @@
     {
       "path": "tools/tests/test_grouping_respects_cuts.py",
       "sha256": "fed67f26cf1cfb653ccd9788ecf14dfecec39e06ad1b97e80fc3823caf22914a"
+    },
+    {
+      "path": "tools/dialogue_tail_trim.py",
+      "sha256": "f77b1c295debe283349c4ac7ef4f58c05fe0b54ca8397480c0958dc4559617cc"
+    },
+    {
+      "path": "tools/tests/test_dialogue_tail_trim.py",
+      "sha256": "2a8125064a18e844d50205663ecee59f68f229f10690c66f54a3f178c5fd5aa7"
     }
   ]
 }
