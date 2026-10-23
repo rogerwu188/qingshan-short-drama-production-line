@@ -50,6 +50,10 @@
   `"cold and contemptuous, low and clipped, a beat of silence before the second sentence"`。H3 不收中文，中文的 `delivery`
   到不了模型；不写时只有常见 `emotion` 单字（厌/怒/冷/疑/急/惊…）会被译成形容词，否则只剩通用的「清晰、偏快」一句，听着像念稿。
   要写出声音的走向：重读哪个词、哪里扬起、哪里压低到近乎耳语、哪里突然大声、哪里停顿；只写「冷淡」「生气」起伏不够。
+- **残缺与显眼的身体特征要写硬**（实验集：设定缺右臂的老师，大部分镜头被画回了两只手）：在人物外观、服装和每一镜动作里
+  都写同一句——缺什么、空袖/伤疤怎么呈现（"right arm missing from the shoulder, empty right sleeve folded flat and tucked
+  into the belt"）；该人物的动作只用剩下的那只手，避免「双手」「拍手」「抱臂」这类会让模型补出肢体的词；
+  能用构图避开的就避开（侧向健全一侧、中近景）。
 
 ## 5. 景别、机位与切
 
@@ -60,6 +64,9 @@
 - 机位要变的地方，一个单元只放一拍。一个单元两拍只适合同一机位里的连续动作。
 - 运镜要有动机（#121）：跟人、揭示、强调、主观视角；否则 `LOCKED` 或慢推。
   不要写「Framing changes with the camera motion.」这类空话当 `end_framing`——写清落幅是谁、多大、在画面哪里。
+- **关键帧的取景要写成画面范围**（实验集 2026-10-22：中近景被生图画成站立全身「定妆照」）：`start_framing` 写清从哪里截
+  （"framed from mid-chest up"、"head and shoulders"、"seated behind the desk, waist up"）和人在做什么、看向谁；
+  不写成正面站立直视镜头。同一场连续几镜的构图要有变化（角度、高低、前景）。
 
 ## 6. 避开人群和手
 
