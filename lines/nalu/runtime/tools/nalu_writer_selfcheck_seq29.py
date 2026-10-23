@@ -27,7 +27,8 @@ _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
 import nalu_prompt_rules as npr  # noqa: E402
 
 import argparse  # noqa: E402
-import json  # noqa: E402
+import json
+import re  # noqa: E402
 import math  # noqa: E402
 from pathlib import Path  # noqa: E402
 from typing import Any  # noqa: E402
@@ -53,8 +54,15 @@ def _spoken(dialogue: str) -> str:
 
 
 def derived_dialogue_seconds(dialogue: str, cps: float | None) -> float:
-    """Rule 5a: line seconds + 0.5, rounded UP to 0.5 s (10 chars @ 5.0 → 2.5 s)."""
-    return npr.min_dialogue_seconds(_spoken(dialogue), cps)
+    """Rule 5a: line seconds + 0.5, rounded UP to 0.5 s (10 chars @ 5.0 → 2.5 s).
+
+    A line with no CJK character at all is English: timed by words (same as static_design_gate R8),
+    never letter by letter; Chinese lines always contain CJK and are unchanged."""
+    spoken = _spoken(dialogue)
+    if not re.search(r"[\u3400-\u9fff]", spoken) and re.search(r"[A-Za-z]", spoken):
+        spoken = spoken.split(":", 1)[1] if ":" in spoken[:24] else spoken
+        return npr.min_dialogue_seconds(spoken, None, "en")
+    return npr.min_dialogue_seconds(spoken, cps)
 
 
 def action_texts(shot: dict[str, Any]) -> list[str]:
