@@ -5445,7 +5445,7 @@
     },
     {
       "path": "tools/provider_scope_projection.py",
-      "sha256": "cebaefb6856cdd619cbffcb5da64a82ba29bf4bf21c0e23303446358de409aef"
+      "sha256": "59e5b0317915ce4a2314a0fcc642cc21c415c9e05939adef67d905fbcbf9a78e"
     },
     {
       "path": "tools/provider_semantic_coverage.py",
