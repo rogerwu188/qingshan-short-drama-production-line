@@ -8709,7 +8709,7 @@
     },
     {
       "path": "tools/voice_reference_sample.py",
-      "sha256": "2269fa31f26ce27eb952b20c84a22fec54ca98c1f876f81b1d6ada276066ed48"
+      "sha256": "28b08d5967b1df4124342961edbdeaa004c58be378ca2d0614a6ff453e1df08a"
     },
     {
       "path": "tools/voice_timbre_lock.py",

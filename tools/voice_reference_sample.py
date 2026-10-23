@@ -1,6 +1,7 @@
 """Explicit calibration text is reference-only, never an episode dialogue edit."""
 from copy import deepcopy
 import math
+import re
 
 
 def apply_reference_sample(brief, voice):
@@ -15,8 +16,13 @@ def apply_reference_sample(brief, voice):
     speed=float(sample.get('speed',1.2))
     if not math.isfinite(speed) or not 1.0<=speed<=1.5:
         raise ValueError('REFERENCE_SAMPLE_SPEED_INVALID')
-    chars=sum(c.isalnum() for c in text)
-    seconds=round(chars/(4.2*speed),2)
+    # a text with no CJK is English: ~2.7 words/s (bootstrap_voice_references' rate), not letters at 4.2/s
+    if not re.search(r'[\u3400-\u9fff]', text) and re.search(r'[A-Za-z]', text):
+        chars=len(re.findall(r"[A-Za-z0-9']+", text))
+        seconds=round(chars/(2.7*speed),2)
+    else:
+        chars=sum(c.isalnum() for c in text)
+        seconds=round(chars/(4.2*speed),2)
     if not 3<=seconds<=10:
         raise ValueError('REFERENCE_SAMPLE_ESTIMATED_DURATION_INVALID')
     result=deepcopy(brief)
