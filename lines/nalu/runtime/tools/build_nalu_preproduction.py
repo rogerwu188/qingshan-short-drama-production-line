@@ -1171,6 +1171,10 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                     f"接触先发生，眼神与下颌随后，肩颈与重心最后完成" if target else
                     f"{subject}完成本镜动作「{primary or entry}」，到达「{completion}」；不增加接触对象"),
                 "freeze_or_speed_ramp_forbidden": True,
+                # CAMERA_GRAMMAR_V1: carry the writer's performance (emotion / delivery_en) through so the
+                # H3 renderer can direct the line; other contracts keep their action mapping byte-identical.
+                **({"performance": source_action["performance"]}
+                   if camera_grammar and isinstance(source_action.get("performance"), dict) else {}),
                 "microexpression_design": source_action.get('microexpression_design') or (
                     f"眼神先于头部改变一次，呼吸与下颌在因果点响应，随后保持「{arc_exit}」"
                     if cast_rows else
