@@ -896,6 +896,10 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
     # adds film-grammar wording; episodes outside the policy keep their plans byte-identical.
     import camera_grammar_policy as _camera_grammar
     camera_grammar = _camera_grammar.active(contract, episode=episode)
+    if camera_grammar:
+        _H3_ENGLISH_NAMES.update({str(row.get("character_id")): str(row.get("english_name") or "").strip()
+                                  for row in contract.get("character_entities") or []
+                                  if str(row.get("english_name") or "").strip()})
 
     # V.O. narration (tools/voice_over_narration.py): a line whose speaker is a VOICE_ONLY_NO_PLATE
     # character never reaches the video model.  It is moved to prompt_spec.voice_over here; S4
@@ -2325,8 +2329,16 @@ def entity_scoped_trajectory(entity_id, specs, shot_ids, name2char, name2prop):
     }
 
 
+# CAMERA_GRAMMAR_V1 contracts: the author's character_entities[].english_name is the one English name
+# the whole prompt uses (cast roster, beats, identity references); filled in main(), empty otherwise.
+_H3_ENGLISH_NAMES: dict[str, str] = {}
+
+
 def h3_identity_label(character_id: str) -> str:
     """ASCII provider label for an H3 identity reference (H3 forbids CJK outside dialogue)."""
+    authored = _H3_ENGLISH_NAMES.get(str(character_id), "")
+    if authored and authored.isascii():
+        return authored
     return re.sub(r"[^A-Za-z0-9]+", " ", str(character_id).replace("CHAR-", "", 1)).strip().title() or "Character"
 
 
@@ -2701,6 +2713,8 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
                 task["reference_roles"].append(str(extra.get("role") or "CHARACTER_IDENTITY_REFERENCE"))
             if extra["character_id"] not in bound:
                 bindings.append({"entity_id": extra["character_id"], "role": "CHARACTER_REFERENCE", "path": str(extra_path),
+                                 **({"provider_entity_label": h3_identity_label(extra["character_id"])}
+                                    if _H3_ENGLISH_NAMES else {}),
                                  "sha256": extra_sha, "source": "IDENTITY_REFERENCE_OVERRIDE_LOCKED_PLATE"})
                 bound.add(extra["character_id"])
             task.setdefault("identity_reference_overrides", []).append({**extra, "sha256": extra_sha})
