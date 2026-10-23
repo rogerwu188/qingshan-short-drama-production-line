@@ -5443,35 +5443,44 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
             ctx.say(f"   D-46: {len(on_disk)} task(s) already have a clip on disk and are excluded from the "
                     f"authorised copy: {on_disk}")
         res.details["d46_needs_post"] = needs_post
-        auth_status, auth_manifest, auth = materialize_paid_authorization(
-            ctx, res, sid="S6", target=p.video_transaction, is_plan=False,
-            task_keys=(needs_post if (on_disk and needs_post) else None),
-            note=("production_video_submission_gate.py has NO authority-field checks, so for video "
-                  "these fields are set for auditability and for the reroll guard, not because the "
-                  "submitter enforces them"))
-        res.details["paid_authorization"] = auth
-        if auth_status == BLOCKED:
-            res.status = BLOCKED
-            res.blockers.append(auth["blocker"])
-            return res
-        paid_argv = video_submit_argv(ctx, manifest=auth_manifest, concurrency=concurrency)
-        dry_argv = video_preflight_argv(ctx)
-        status, submit = ctx.paid_step(
-            paid_argv, name="s6_submit_giggle_video_manifest_v2", sid="S6",
-            planned_credits=planned, dry_argv=dry_argv, extra_env=VIDEO_SUBMIT_ENV,
-            note=(f"Submitted file is the D-11 materialised copy {auth_manifest.name}.  "
-                  f"POST /api/v1/generation/omni-video, concurrency {concurrency} "
-                  "(<=6 per production_efficiency_contract rolling waves).  Durable store "
-                  f"{ENGINE}/workflow/tasks/giggle_video_submit_transactions/{ctx.episode}/, "
-                  "per-task flock, intent-before-POST.  A lost HTTP response becomes "
-                  "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION and MUST NOT be blindly resent. "
-                  "qingshan video-preflight is literally this tool with --precheck-only."))
-        res.steps.append(submit)
-        res.planned_credits += planned
-        if status == HARD_STOP:
-            res.status = HARD_STOP
-            res.blockers.append("BUDGET_HARD_STOP_S6")
-            return res
+        # A re-entry whose remaining tasks are all already bound to remote task ids (charged, waiting for
+        # download) must only poll: authorising them again priced the whole wave as new spend and the
+        # budget guard refused a poll that costs nothing (lab E01 2026-10-22: 360 already charged).
+        unbound_keys = set(s6_unbound_task_keys(ctx))
+        post_keys = [k for k in needs_post if k in unbound_keys]
+        if not post_keys:
+            ctx.say("   every task without a clip is already bound to a remote task: poll only, no authorisation")
+            status = PASS
+        else:
+            auth_status, auth_manifest, auth = materialize_paid_authorization(
+                ctx, res, sid="S6", target=p.video_transaction, is_plan=False,
+                task_keys=(needs_post if (on_disk and needs_post) else None),
+                note=("production_video_submission_gate.py has NO authority-field checks, so for video "
+                      "these fields are set for auditability and for the reroll guard, not because the "
+                      "submitter enforces them"))
+            res.details["paid_authorization"] = auth
+            if auth_status == BLOCKED:
+                res.status = BLOCKED
+                res.blockers.append(auth["blocker"])
+                return res
+            paid_argv = video_submit_argv(ctx, manifest=auth_manifest, concurrency=concurrency)
+            dry_argv = video_preflight_argv(ctx)
+            status, submit = ctx.paid_step(
+                paid_argv, name="s6_submit_giggle_video_manifest_v2", sid="S6",
+                planned_credits=planned, dry_argv=dry_argv, extra_env=VIDEO_SUBMIT_ENV,
+                note=(f"Submitted file is the D-11 materialised copy {auth_manifest.name}.  "
+                      f"POST /api/v1/generation/omni-video, concurrency {concurrency} "
+                      "(<=6 per production_efficiency_contract rolling waves).  Durable store "
+                      f"{ENGINE}/workflow/tasks/giggle_video_submit_transactions/{ctx.episode}/, "
+                      "per-task flock, intent-before-POST.  A lost HTTP response becomes "
+                      "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION and MUST NOT be blindly resent. "
+                      "qingshan video-preflight is literally this tool with --precheck-only."))
+            res.steps.append(submit)
+            res.planned_credits += planned
+            if status == HARD_STOP:
+                res.status = HARD_STOP
+                res.blockers.append("BUDGET_HARD_STOP_S6")
+                return res
 
         poll_argv = video_poll_argv(ctx)
         # E10 (2026-09-29): the submitter writes its batch window statement next to the report under a
@@ -5479,7 +5488,7 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
         # short before PASS (E10 wave 1: 1980 cr charged, wave stopped at a review blocker) left the
         # statement on disk, the next wave's submit overwrote it, and the ledger lost the whole batch
         # (K054 repeated).  Archive on every outcome that has a statement.
-        if status != DRY:
+        if status != DRY and post_keys:  # a poll-only re-entry submitted nothing: no new statement
             res.details["credit_statement"] = archive_credit_statement(
                 ctx, p.video_submit, f"{ctx.run_id}_wave{len(ready_units or [])}u")
         if status == DRY:
