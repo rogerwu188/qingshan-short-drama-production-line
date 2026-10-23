@@ -72,6 +72,7 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 - 同场相邻镜头都写 `internal_transition_authoring`（transition_mode ∈ CONTINUOUS_ACTION/CAMERA_REFRAME/PAN_REVEAL/OCCLUSION_REVEAL/MOTIVATED_CUT/REACTION_CUT/MATCH_CUT）。
 - 对白镜 `action.performance{emotion(词表 PERFORMANCE_EMOTION_LEXICON_v1), body_action(非琐碎), delivery}`；同场同情绪不连续 3 次；`writer_selfcheck_seq29.enforced: true`。
 - H3 线对白镜再写 `performance.delivery_en`（可选，一句英文：情绪 + 怎么说，如 `"cold and contemptuous, low and clipped, a beat of silence before the second sentence"`）；H3 不收中文，没有它只剩通用念白句，演出发机械。
+  写法要具体到声音怎么走（线主 2026-10-22「再起伏大一点」）：哪个词重读、哪里音调扬起或压到近乎耳语、哪里突然提高音量、哪里停顿，如 `"low and slow at first, then snaps up loud and sharp on 'repeat it', last word bitten off"`；只写情绪词（cold / angry）起伏不够。
 - 首帧可见角色默认必须露正脸；远小/背影在 `cast[].face_visibility` 写 `FAR_FIGURE_*` / `BACK_*`。入场文字里只写本镜 cast 里有的人。
 - 道具名一旦出现在某镜文字里，该镜首帧就必须看得见。别设计「从怀里掏出来」这种首帧不可见的道具镜，尤其是承接上一单元尾帧的镜（会被派生起始帧审核卡死、重做也救不了）。
 - 古装场景的灯写成「无罩敞口油盏」并把它声明为道具（`non_character_entities` + 镜头 props），否则图像模型画玻璃罩煤油灯，命中禁用词表。
@@ -121,7 +122,7 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
 看媒体、逐题作答（每题枚举值、观察 ≥ 20 字、FAIL 必须带 defect）→ `submit --request <req> --answers <ans>` → 再跑同一阶段。
 - **S3 身份牌**（`paid_stage.sh <EP> S3 S3`）：拼缩略图看全部 plates。年龄/外形不符判 FAIL；重做 = 改 `$NALU_RUNTIME_ROOT/preproduction/<EP>/prompts/` 中该角色 3 个 txt 的措辞（指纹=提示词 sha），把旧图、`_raw`、回执移到 `_rejected_*`，重跑。
 - **S4 配音**：`$S/list_voices.sh voices.json` 拉音色目录（免费 GET、不扣积分；供应商仍要鉴权，脚本内部自己读 `.env`，你不要直接跑 `storyclaw_audio_provider.py speech-voices`——无 key 会 exit=1，这不是阻塞），给每个说话角色挑 voice_id 写 `runtime/voice_catalog.json`（键=拼音 slug）。同场两人参考音 F0 必须差 ≥ 25%（男女搭配最稳；男声挑「沉稳/醇厚」类）。换音色：旧 registry 行移到 `superseded_rows`，旧参考音目录和 `workflow/tasks/giggle_audio_transactions/**/speech/<slug>.json` 移到 `_superseded`。
-  - **选角规则（线主 2026-10-22，不是门禁）**：通读整个目录（约 170 条，字段 voice_id / voice_name / style / gender / age / language），每个角色拿 gender、age、style 标签去对角色的年龄、身份、性格和整部剧的调子，选标签最贴的一条；旁白/播报类角色可用播音腔，普通角色优先选与性格相符的演绎/戏剧类 style，不用播音腔。同场说话人要一听就分得开。每个角色在 `voice_catalog.json` 行里写一句 `casting_rationale`（voice_name + 标签 + 为什么）。参考音不用中性朗读：在该行加 `reference_sample{text=该角色情绪最重的一句原台词, purpose:"VOICE_REFERENCE_ONLY", author, source_ref=镜头 id, speed 1.0–1.5, emotion=对应情绪}`（speech-generate 的 `--emotion` 是自由字符串，如 angry / sad / fearful / disgusted / surprised / happy；文本须读 3–10 秒，太短就换下一句情绪重的台词）。
+  - **选角规则（线主 2026-10-22，不是门禁）**：通读整个目录（约 170 条，字段 voice_id / voice_name / style / gender / age / language），每个角色拿 gender、age、style 标签去对角色的年龄、身份、性格和整部剧的调子，选标签最贴的一条；旁白/播报类角色可用播音腔，普通角色优先选与性格相符的演绎/戏剧类 style，不用播音腔。同场说话人要一听就分得开。每个角色在 `voice_catalog.json` 行里写一句 `casting_rationale`（voice_name + 标签 + 为什么）。参考音不用中性朗读：在该行加 `reference_sample{text=该角色情绪最重的一句原台词, purpose:"VOICE_REFERENCE_ONLY", author, source_ref=镜头 id, speed 1.0–1.5, emotion=对应情绪}`；参考句选情绪最外露、音调起伏最大的一句，情绪拉满读——H3 照参考音学语调，参考平，生成就平（speech-generate 的 `--emotion` 是自由字符串，如 angry / sad / fearful / disgusted / surprised / happy；文本须读 3–10 秒，太短就换下一句情绪重的台词）。
 - **视频模型是 MiniMax-H3**（线主 2026-10-13：一律 H3，不用 seedance；每集第一次 S2 构建时记在
   `$NALU_RUNTIME_ROOT/preproduction/<EP>/video_model.json`，之后固定）。H3 的视频提示词是英文，由每个单元的英文合同生成：
   S2 或规划编译报 `H3_ENGLISH_CONTRACT_REQUIRED:<n>_units:<请求文件>` 时，打开请求文件

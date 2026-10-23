@@ -49,6 +49,7 @@
 - **台词的情绪写成一句英文**：对白镜加 `action.performance.delivery_en`（可选），一句话写情绪 + 怎么说，如
   `"cold and contemptuous, low and clipped, a beat of silence before the second sentence"`。H3 不收中文，中文的 `delivery`
   到不了模型；不写时只有常见 `emotion` 单字（厌/怒/冷/疑/急/惊…）会被译成形容词，否则只剩通用的「清晰、偏快」一句，听着像念稿。
+  要写出声音的走向：重读哪个词、哪里扬起、哪里压低到近乎耳语、哪里突然大声、哪里停顿；只写「冷淡」「生气」起伏不够。
 
 ## 5. 景别、机位与切
 

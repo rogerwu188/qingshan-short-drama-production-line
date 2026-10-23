@@ -337,7 +337,7 @@
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
-      "sha256": "75f6e639f751cbe71288e51c9da4f049a130a86c33d5cef5ea4c6a8830ac54e1"
+      "sha256": "6e635f4d74a745fd1a5c312e9d8357f80d0c904410e4cdd9c07ff7049587ad68"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -797,7 +797,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "ee22a15230775536106ce360249f810d4d8733c72b6374f846a46caab15cbc81"
+      "sha256": "96fa55a29a4f5702f92d29053f5e4067eca1394422b9ef44cebba2c09af52a5c"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -4873,7 +4873,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "79a1549ec3f5bffdd5b819ffadca5edd0ebd28c2429b30abd20d98bd137a9a52"
+      "sha256": "9fc82a2473a41e1171c3403125235a2b99167f9536d2b287cc467350240a1d38"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",

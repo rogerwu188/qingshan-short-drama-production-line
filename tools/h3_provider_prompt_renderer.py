@@ -634,7 +634,8 @@ def _performance_direction(performance: Any) -> str:
         direction = ", ".join(word for _, word in sorted(found))
     if not direction:
         return ""
-    return f"Performance: {direction}. Natural human speech with real breaths and pauses; never a flat read-aloud tone."
+    return (f"Performance: {direction}. Natural human speech with real breaths and pauses; expressive intonation "
+            "with clear rises and falls in pitch and volume, the key words stressed; never a flat read-aloud tone.")
 
 
 def _spec_performance(specs: list[Any], source_index: Any) -> Any:
