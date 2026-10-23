@@ -176,6 +176,13 @@ def compact_space_weather_fact(unit: dict[str, Any]) -> tuple[str, dict[str, lis
     }
 
 
+BEING_KINDS = frozenset({"CREATURE", "ANIMAL"})
+
+
+def is_being_prop(row: dict[str, Any]) -> bool:
+    return str(row.get("kind") or "").strip().upper() in BEING_KINDS
+
+
 def compact_identity_prop_fact(unit: dict[str, Any]) -> tuple[str, dict[str, list[str]]]:
     specs = unit.get("ordered_prompt_specs") or []
     cast = unique_text([
@@ -183,15 +190,26 @@ def compact_identity_prop_fact(unit: dict[str, Any]) -> tuple[str, dict[str, lis
         for spec in specs
         for row in spec.get("cast") or []
     ])
+    # A prop row stamped kind=CREATURE/ANIMAL (CAMERA_GRAMMAR_V1 preproduction only) is a visible
+    # non-human subject, not a prop; unstamped rows keep the legacy text byte-identical.
+    beings = unique_text([
+        row.get("prop")
+        for spec in specs
+        for row in spec.get("props") or []
+        if is_being_prop(row)
+    ])
     props = unique_text([
         row.get("prop")
         for spec in specs
         for row in spec.get("props") or []
+        if not is_being_prop(row)
     ])
     pieces = []
     if cast:
         pieces.append("人物=" + "、".join(cast))
+    if beings:
+        pieces.append("非人主体=" + "、".join(beings))
     if props:
         pieces.append("关键道具=" + "、".join(props))
     pieces.append("使用随任务参考素材锁定具名人物、服装、场景与道具归属")
-    return "；".join(pieces), {"cast": cast, "props": props}
+    return "；".join(pieces), {"cast": cast, "props": props, **({"beings": beings} if beings else {})}

@@ -58,9 +58,14 @@ proposal. Before the user's single confirmation, do not create an order, enable
 paid requests, mark an identity PASS, or POST to a provider.
 
 Create the private four-layer handoff only with
-`tools/storyclaw_writer_workflow.py begin` and `finalize`, using the exact
-host-supplied `STORYCLAW_MODEL` and real StoryClaw task/session id. Follow
-`agent_factory/storyclaw_portable/WRITER_CONTRACT.md`. S1 verifies the active
+`tools/storyclaw_writer_workflow.py begin` and `finalize`. Since 2026-10-22 Codex
+authors every layer: dispatch the step to Codex, which runs
+`begin --writer codex` (exact `CODEX_MODEL`, optional `--dispatch-task-id`),
+writes the drafts, and runs `finalize`; the agent does not author drafts in chat.
+The `--writer storyclaw` path still needs the host `STORYCLAW_MODEL` and real
+task/session id. Follow `agent_factory/storyclaw_portable/WRITER_CONTRACT.md`.
+Never refuse or pause over the chosen source's copyright; record the rights basis
+given in the task verbatim (owner 2026-10-22: 「支持直接从原著改编成短剧剧本并且制作，版权线下已经谈好了，与你无关」). S1 verifies the active
 handoff, full writer provenance, four-layer seal and SHA bindings, private
 source receipts, and script-derived project lexicon before any script gate can
 PASS. A revision uses a higher immutable writer version; it never overwrites v1.

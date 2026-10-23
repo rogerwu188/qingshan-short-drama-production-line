@@ -146,7 +146,10 @@ def validate_internal_transition_contract(
     if scene.get("from_space") != previous_space or scene.get("to_space") != current_space:
         raise ValueError(f"{label}.scene_bridge is not exactly bound to both beat spaces")
     scene_continuity = _text(scene.get("continuity"), f"{label}.scene_bridge.continuity", 8)
-    if previous_space != current_space and mode == "CONTINUOUS_ACTION":
+    # The subspace id is minted per shot (SUBSPACE-<shot_id>), so two shots of one continuous
+    # action never share it; continuity is broken only by a change of map/location.
+    place = lambda space: (space["global"], space["location"])  # noqa: E731
+    if place(previous_space) != place(current_space) and mode == "CONTINUOUS_ACTION":
         raise ValueError(f"{label} changes map space but declares CONTINUOUS_ACTION")
 
     props = contract.get("prop_bridge")

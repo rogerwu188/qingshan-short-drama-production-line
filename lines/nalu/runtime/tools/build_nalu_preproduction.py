@@ -688,6 +688,15 @@ def build_internal_transition_contracts(group: dict[str, Any], by_shot: dict[str
     return rows
 
 
+def _being_fields(entity: dict[str, Any]) -> dict[str, Any]:
+    """kind/creature_card of a non-character being (CREATURE / ANIMAL / any card); {} for a plain prop."""
+    kind = str(entity.get("kind") or "").strip().upper()
+    card = entity.get("creature_card")
+    if kind not in {"CREATURE", "ANIMAL"} and not isinstance(card, dict):
+        return {}
+    return {"kind": kind or "CREATURE", **({"creature_card": copy.deepcopy(card)} if isinstance(card, dict) else {})}
+
+
 def wardrobe_bible(contract: dict[str, Any], episode: str,
                    requirements: dict[str, Any] | None = None) -> dict[str, Any]:
     """Itemized wardrobe bible.
@@ -887,6 +896,10 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
     # adds film-grammar wording; episodes outside the policy keep their plans byte-identical.
     import camera_grammar_policy as _camera_grammar
     camera_grammar = _camera_grammar.active(contract, episode=episode)
+    if camera_grammar:
+        _H3_ENGLISH_NAMES.update({str(row.get("character_id")): str(row.get("english_name") or "").strip()
+                                  for row in contract.get("character_entities") or []
+                                  if str(row.get("english_name") or "").strip()})
 
     # V.O. narration (tools/voice_over_narration.py): a line whose speaker is a VOICE_ONLY_NO_PLATE
     # character never reaches the video model.  It is moved to prompt_spec.voice_over here; S4
@@ -913,6 +926,12 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
     shots: list[dict[str, Any]] = []
     all_splits: list[dict[str, Any]] = []
     cursor = 0.0
+    # CAMERA_GRAMMAR_V1 grouping inputs: the authored incoming transition (top-level list row, else the
+    # shot's own internal_transition_authoring) and the visible subjects, so grouping can cut where the
+    # writer cut.  Episodes outside the policy get neither field.
+    authored_modes = {(str(r.get("from_shot_id")), str(r.get("to_shot_id"))): str(r.get("transition_mode") or "")
+                      for r in contract.get("internal_transition_authoring") or [] if isinstance(r, dict)}
+    previous_shot_id = ""
     for shot in contract.get("shots") or []:
         shot_id = str(shot["shot_id"])
         scene_id = str(shot["scene_id"])
@@ -1001,6 +1020,8 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
             "anchor": "PRIMARY_ACTION_PLANE",
             "continuity_scope": "SCENE_OR_RECURRING_PROP",
             "note": str(props_by_id[prop_id].get("note") or ""),
+            # CAMERA_GRAMMAR_V1 director prompt: a creature/animal card is a visible subject, not a prop
+            **(_being_fields(props_by_id[prop_id]) if camera_grammar else {}),
         } for prop_id in row["prop_ids"] if prop_id in props_by_id]
 
         subject = str(role.get("primary_actor") or "")
@@ -1150,6 +1171,10 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                     f"接触先发生，眼神与下颌随后，肩颈与重心最后完成" if target else
                     f"{subject}完成本镜动作「{primary or entry}」，到达「{completion}」；不增加接触对象"),
                 "freeze_or_speed_ramp_forbidden": True,
+                # CAMERA_GRAMMAR_V1: carry the writer's performance (emotion / delivery_en) through so the
+                # H3 renderer can direct the line; other contracts keep their action mapping byte-identical.
+                **({"performance": source_action["performance"]}
+                   if camera_grammar and isinstance(source_action.get("performance"), dict) else {}),
                 "microexpression_design": source_action.get('microexpression_design') or (
                     f"眼神先于头部改变一次，呼吸与下颌在因果点响应，随后保持「{arc_exit}」"
                     if cast_rows else
@@ -1262,6 +1287,17 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                                if name in bible_by_name],
             },
         })
+        if camera_grammar:
+            own = shot.get("internal_transition_authoring")
+            shots[-1]["incoming_transition_mode"] = (
+                authored_modes.get((previous_shot_id, shot_id))
+                or str((own if isinstance(own, dict) else {}).get("transition_mode") or ""))
+            shots[-1]["visible_subject_ids"] = [
+                member["character_id"] or member["character"] for member in cast
+                if member["face_visibility"] != "OFFSCREEN_VOICE_ONLY"] + [
+                prop_id for prop_id in row["prop_ids"]
+                if str((props_by_id.get(prop_id) or {}).get("kind") or "").upper() in {"CREATURE", "ANIMAL"}]
+        previous_shot_id = shot_id
 
     manifest = {
         "schema": "qingshan.editorial_seedance_manifest.v2_performance_complete",
@@ -1280,6 +1316,7 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
         "dialogue_character_limit": engine.dialogue_limit,
         "runtime_seconds": round(sum(float(row["duration_seconds"]) for row in shots), 3),
         "wardrobe_bible": bible,
+        **({"camera_grammar_policy": "CAMERA_GRAMMAR_V1"} if camera_grammar else {}),
         "shots": shots,
     }
     if any(shot["prompt_spec"].get("voice_over") for shot in shots):
@@ -2296,8 +2333,16 @@ def entity_scoped_trajectory(entity_id, specs, shot_ids, name2char, name2prop):
     }
 
 
+# CAMERA_GRAMMAR_V1 contracts: the author's character_entities[].english_name is the one English name
+# the whole prompt uses (cast roster, beats, identity references); filled in main(), empty otherwise.
+_H3_ENGLISH_NAMES: dict[str, str] = {}
+
+
 def h3_identity_label(character_id: str) -> str:
     """ASCII provider label for an H3 identity reference (H3 forbids CJK outside dialogue)."""
+    authored = _H3_ENGLISH_NAMES.get(str(character_id), "")
+    if authored and authored.isascii():
+        return authored
     return re.sub(r"[^A-Za-z0-9]+", " ", str(character_id).replace("CHAR-", "", 1)).strip().title() or "Character"
 
 
@@ -2385,6 +2430,8 @@ def project_provider_slots(plan: dict[str, Any]) -> dict[str, Any]:
     for unit in plan.get("units") or []:
         content = float(unit["duration_seconds"])
         slot = int(math.ceil(content - 1e-9))
+        if unit.get("duration_exception_reason") == "PROVIDER_MINIMUM_PADDED":  # CAMERA_GRAMMAR_V1 short shot
+            slot = max(slot, int(math.ceil(float((plan.get("duration_policy_seconds") or {}).get("minimum") or 3))))
         unit["authorized_content_seconds"] = round(content, 3)
         unit["authorized_tail_handle_seconds"] = round(max(0.25, slot - content), 3)
         unit["provider_slot_projection"] = ("CEIL_TO_INTEGER_PROVIDER_SECONDS" if slot != content
@@ -2670,6 +2717,8 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
                 task["reference_roles"].append(str(extra.get("role") or "CHARACTER_IDENTITY_REFERENCE"))
             if extra["character_id"] not in bound:
                 bindings.append({"entity_id": extra["character_id"], "role": "CHARACTER_REFERENCE", "path": str(extra_path),
+                                 **({"provider_entity_label": h3_identity_label(extra["character_id"])}
+                                    if _H3_ENGLISH_NAMES else {}),
                                  "sha256": extra_sha, "source": "IDENTITY_REFERENCE_OVERRIDE_LOCKED_PLATE"})
                 bound.add(extra["character_id"])
             task.setdefault("identity_reference_overrides", []).append({**extra, "sha256": extra_sha})

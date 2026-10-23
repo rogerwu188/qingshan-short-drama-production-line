@@ -23,5 +23,8 @@ def apply_reference_sample(brief, voice):
     result.update(sample_text=text,sample_text_rule='AUTHORED_REFERENCE_ONLY_CALIBRATION',
         sample_text_is_verbatim_script=False,sample_text_spoken_length=chars,
         speed=speed,estimated_duration_seconds=seconds,reference_sample_provenance=deepcopy(sample))
+    # optional speech-generate --emotion for the sample (e.g. the character's most emotional line); absent keeps the run default
+    if isinstance(sample.get('emotion'),str) and sample['emotion'].strip():
+        result['emotion']=sample['emotion'].strip()
     result['risk_flags']=[f for f in result.get('risk_flags',[]) if not f.startswith(('SHORT_SAMPLE_TEXT','ESTIMATED_DURATION_','SPEED_REDUCED_'))]
     return result

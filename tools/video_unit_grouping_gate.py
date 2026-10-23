@@ -23,6 +23,9 @@ def evaluate(plan: dict[str, Any]) -> dict[str, Any]:
     hard = plan.get("duration_policy_seconds") or {}
     hard_minimum = float(hard["minimum"]) if hard.get("minimum") is not None else None
     hard_maximum = float(hard["maximum"]) if hard.get("maximum") is not None else None
+    # CAMERA_GRAMMAR_V1 grouping follows the writer's cuts: near 1:1 units and short authored shots are
+    # intended, and a shot below the provider minimum is padded to it, so those rules do not block there.
+    cut_grammar = plan.get("grouping_policy") == "CAMERA_GRAMMAR_V1"
 
     accepted_schemas = {
         "qingshan.video_unit_grouping_plan.v1",
@@ -34,7 +37,7 @@ def evaluate(plan: dict[str, Any]) -> dict[str, Any]:
         failures.append("grouping_counts_missing")
     elif unit_count != len(units):
         failures.append("video_unit_count_mismatch")
-    elif editorial_count >= 12 and unit_count >= editorial_count:
+    elif editorial_count >= 12 and unit_count >= editorial_count and not cut_grammar:
         failures.append("editorial_shot_to_video_unit_one_to_one_forbidden")
     if derivation.get("unit_count_selected_in_advance") is not False:
         failures.append("unit_count_must_emerge_from_semantic_groups")
@@ -57,11 +60,12 @@ def evaluate(plan: dict[str, Any]) -> dict[str, Any]:
             failures.append(f"long_unit_exception_missing:{unit.get('unit_id')}")
         if hard_maximum is not None and duration > hard_maximum + 0.001:
             failures.append(f"unit_exceeds_hard_maximum:{unit.get('unit_id')}:{duration:g}>{hard_maximum:g}")
-        if hard_minimum is not None and duration < hard_minimum - 0.001:
+        padded = cut_grammar and unit.get("duration_exception_reason") == "PROVIDER_MINIMUM_PADDED"
+        if hard_minimum is not None and duration < hard_minimum - 0.001 and not padded:
             failures.append(f"unit_below_hard_minimum:{unit.get('unit_id')}:{duration:g}<{hard_minimum:g}")
     if editorial_count != len(seen) or len(seen) != len(set(seen)):
         failures.append("editorial_shot_coverage_not_exact")
-    if len(units) >= 8 and short / len(units) > 0.25:
+    if len(units) >= 8 and short / len(units) > 0.25 and not cut_grammar:
         failures.append("excessive_short_video_units")
 
     return {

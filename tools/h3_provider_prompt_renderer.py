@@ -49,6 +49,10 @@ except ModuleNotFoundError:
     from wardrobe_identity_contract import h3_adult_female_visual_block
     from visual_culture_contract import prompt_block_en as visual_culture_prompt_block
 try:
+    from tools.provider_contract_boundary import is_being_prop
+except ModuleNotFoundError:
+    from provider_contract_boundary import is_being_prop
+try:
     from tools.prompt_shot_scope_policy import active_for as shot_scope_active_for
 except ModuleNotFoundError:
     from prompt_shot_scope_policy import active_for as shot_scope_active_for
@@ -111,6 +115,95 @@ def _camera_grammar_clause(plan: dict[str, Any]) -> str:
     if str(plan.get("motion_family") or "STATIC").upper() in {"STATIC", "LOCKED"}:
         return "; a still, composed frame: the action plays inside it, no drift"
     return "; a motivated move: it starts with the action, settles on the end framing and holds; never sweep across empty space"
+
+
+# ---------------------------------------------------------------------------
+# CAMERA_GRAMMAR_V1 director block (docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md): named roster,
+# wardrobe and creature looks in words, no extras, object inserts without people, no boilerplate
+# framing.  Only for units whose camera plans carry the camera_grammar stamp (build_nalu_preproduction
+# stamps them when camera_grammar_policy.active(contract, episode)); other units render byte-identically.
+# ---------------------------------------------------------------------------
+_PROVIDER_RUNE_LIMIT = 10_000  # = video_prompt_compiler.PROVIDER_PROMPT_RUNE_LIMIT (importing it would cycle)
+_BOILERPLATE_FRAMING = re.compile(
+    r"^(?:the )?framing (?:changes|moves|follows) with the camera(?: motion| move| movement)?$", re.IGNORECASE)
+_NO_TRANSFER = ("Each subject wears only its own clothing; never transfer clothing, collars, hands or "
+                "materials between subjects")
+_NO_EXTRAS = ("No other people, figures, silhouettes, hands or body parts appear anywhere in frame, "
+              "including the background and frame edges")
+_WARDROBE_FIELDS = ("silhouette", "outer_layer", "inner_layer", "primary_color", "material", "footwear", "accessory")
+
+
+def director_active(unit: dict[str, Any], plan: dict[str, Any]) -> bool:
+    rows = [plan.get("camera_plan"), unit.get("camera_plan"),
+            *[spec.get("camera_plan") for spec in unit.get("ordered_prompt_specs") or []]]
+    for row in [*(plan.get("per_shot_camera_plans") or []), *(unit.get("per_shot_camera_plans") or [])]:
+        rows += [row, row.get("camera_plan")] if isinstance(row, dict) else []
+    return any(isinstance(row, dict) and row.get("camera_grammar") == "CAMERA_GRAMMAR_V1" for row in rows)
+
+
+def _plain_en(value: Any, limit: int = 220) -> str:
+    text = " ".join(str(value or "").split()).strip().rstrip(".;,")
+    if not text or _CJK.search(text):
+        return ""
+    return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0].rstrip(",;")
+
+
+def _director_subjects(
+    unit: dict[str, Any], plan: dict[str, Any],
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]], list[str]]:
+    """(people [(label, wardrobe)], beings [(label, look)], plain prop labels) of the unit, English only."""
+    labels = _entity_labels(unit, plan)
+    wardrobe = {}
+    for row in (unit.get("wardrobe_contract") or {}).get("characters") or []:
+        desc = _plain_en(row.get("authored_description")) or _plain_en(
+            ", ".join(v for v in (_plain_en(row.get(k), 80) for k in _WARDROBE_FIELDS) if v)
+        ) or _plain_en(row.get("appearance_ch1"))
+        for key in (row.get("character_id"), row.get("character")):
+            if key:
+                wardrobe.setdefault(str(key), desc)
+    people: dict[str, str] = {}
+    beings: dict[str, str] = {}
+    props: list[str] = []
+    for spec in unit.get("ordered_prompt_specs") or []:
+        for member in spec.get("cast") or []:
+            if str(member.get("face_visibility") or "") == "OFFSCREEN_VOICE_ONLY":
+                continue
+            cid = str(member.get("character_id") or "")
+            label = labels.get(cid) or _plain_en(member.get("character"), 80)
+            if label and label not in people:
+                people[label] = wardrobe.get(cid) or wardrobe.get(str(member.get("character") or "")) or ""
+        for row in spec.get("props") or []:
+            label = _plain_en(row.get("prop"), 80)
+            if not label:
+                continue
+            if not is_being_prop(row):
+                props += [label] if label not in props else []
+                continue
+            card = row.get("creature_card") or {}
+            gait = {"biped": "moves upright on two legs", "quadruped": "moves on four legs"}.get(
+                str(card.get("locomotion") or "").strip().lower(), "")
+            eyes = _plain_en(card.get("eye_color"), 60)
+            look = [_plain_en(row.get("note")), gait,
+                    f"eyes: {eyes}" if eyes and eyes.lower() not in {"none", "n/a", "no eyes"} else ""]
+            beings.setdefault(label, "; ".join(v for v in look if v))
+    return list(people.items()), list(beings.items()), props
+
+
+def _director_roster(people: list[tuple[str, str]], beings: list[tuple[str, str]], *, crowd: bool,
+                     compact: bool) -> str:
+    names = [label for label, _ in people] + [label for label, _ in beings]
+    if not names:
+        return ""
+    joined = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+    parts = [("Named subjects: " if crowd else "The only subjects in this clip are ") + joined]
+    parts += [f"{label} wears {desc}" for label, desc in people if desc and not compact]
+    parts += [f"{label} is a non-human subject, not a prop" + (f": {look}" if look and not compact else "")
+              for label, look in beings]
+    if len(names) > 1:
+        parts.append(_NO_TRANSFER)
+    if not crowd:
+        parts.append(_NO_EXTRAS)
+    return "cast_roster: " + ". ".join(parts) + "."
 
 
 def _camera(plan: dict[str, Any]) -> str:
@@ -331,6 +424,8 @@ def _camera_scoped(camera_plan: dict[str, Any], english: dict[str, str]) -> str:
     if camera_plan.get("camera_side"):
         parts.append(f"camera side={str(camera_plan['camera_side']).upper()}")
     start, end = english.get("start_framing"), english.get("end_framing")
+    if camera_plan.get("camera_grammar") == "CAMERA_GRAMMAR_V1":  # boilerplate framing says nothing
+        start, end = (None if value and _BOILERPLATE_FRAMING.match(value) else value for value in (start, end))
     if family in {"STATIC", "LOCKED"}:
         parts.append("locked camera with no camera movement")
         if start:
@@ -513,9 +608,49 @@ def _dialogue_partition(raw: str, language: str = "zh") -> tuple[str, str, str]:
     return speaker, separator, words
 
 
+#: Writer emotion word -> English adjective for director units without performance.delivery_en
+#: (multi-character keys first so 平静 is not read as 静).  Unmapped emotions keep the canned clause.
+_EMOTION_EN = (
+    ("平静", "calm"), ("紧张", "tense"), ("厌", "contemptuous"), ("怒", "angry"), ("冷", "cold"),
+    ("惧", "frightened"), ("怕", "frightened"), ("悲", "grieving"), ("哀", "grieving"), ("喜", "delighted"),
+    ("疑", "suspicious"), ("急", "urgent"), ("讥", "mocking"), ("嘲", "mocking"), ("惊", "startled"),
+    ("羞", "embarrassed"), ("疲", "weary"),
+)
+
+
+def _performance_direction(performance: Any) -> str:
+    """CAMERA_GRAMMAR_V1 dialogue delivery from the writer's performance column ("" = keep the canned clause)."""
+    if not isinstance(performance, dict):
+        return ""
+    direction = _plain_en(re.sub(r"[<>\[\]]", "", str(performance.get("delivery_en") or "")), 200)
+    if not direction:
+        emotion = str(performance.get("emotion") or "")
+        found: list[tuple[int, str]] = []
+        for key, word in _EMOTION_EN:
+            at = emotion.find(key)
+            if at >= 0 and word not in [w for _, w in found]:
+                found.append((at, word))
+                emotion = emotion.replace(key, " " * len(key))
+        direction = ", ".join(word for _, word in sorted(found))
+    if not direction:
+        return ""
+    return (f"Performance: {direction}. Natural human speech with real breaths and pauses; expressive intonation "
+            "with clear rises and falls in pitch and volume, the key words stressed; never a flat read-aloud tone.")
+
+
+def _spec_performance(specs: list[Any], source_index: Any) -> Any:
+    """``ordered_prompt_specs[source_index - 1].action.performance`` (beats are 1-based over the specs)."""
+    try:
+        position = int(source_index) - 1
+    except (TypeError, ValueError):
+        return None
+    spec = specs[position] if 0 <= position < len(specs) else None
+    return ((spec.get("action") or {}) if isinstance(spec, dict) else {}).get("performance")
+
+
 def _beat(
     source: dict[str, Any], translated: dict[str, Any], *, dialogue_binding: dict[str, Any] | None,
-    positive_single_subject: bool = False, language: str = "zh",
+    positive_single_subject: bool = False, language: str = "zh", performance: Any = None,
 ) -> tuple[str, dict[str, str]]:
     index = int(source["source_index"])
     prefix = f"BEAT.{index}"
@@ -583,6 +718,8 @@ def _beat(
             )
         evidence[f"{prefix}.DIALOGUE"] = literal
         pace = delivery_clause(source, "EN")
+        # director units (CAMERA_GRAMMAR_V1): the writer's performance replaces the brisk canned clause
+        pace = _performance_direction(performance) or pace
         if pace:
             line += " " + pace
             evidence[f"{prefix}.DIALOGUE_DELIVERY"] = pace
@@ -685,13 +822,18 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         if row.get("reference_index") is not None
     }
     scope = unit.get("provider_scope_projection") or {}
+    # Director units: a reference without its own provider label (e.g. the continuity-derived opening
+    # frame) takes the same English name the unit's other bindings use, never the raw CHAR-* id.
+    director_labels = _entity_labels(unit, plan) if director_active(unit, plan) else {}
     for index, raw_ref in enumerate(refs, 1):
         ref = raw_ref if isinstance(raw_ref, dict) else {"path": str(raw_ref)}
         # Index binding is authoritative.  Path lookup is compatibility-only:
         # different role references may legitimately share one source image.
         bound = scope_bindings.get(index) or sequence_by_path.get(str(ref.get("path") or ""), {})
         ref = {**bound, **ref}
-        entity = str(ref.get("provider_entity_label") or ref.get("entity_id") or "").strip()
+        entity = str(ref.get("provider_entity_label")
+                     or director_labels.get(str(ref.get("entity_id") or "").strip())
+                     or ref.get("entity_id") or "").strip()
         role = str(ref.get("role") or "REFERENCE").strip()
         binding_role = str(bound.get("binding_role") or "")
         role_is_identity = binding_role == "IDENTITY" or (
@@ -799,6 +941,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     action_beats = (plan.get("action_ir") or {}).get("causal_chains") or plan["beats"]
     visibility_scopes = beat_visibility_scopes(unit, plan) if scoped else []
     visible_speakers = _visible_speaker_ids(plan) if scoped else []
+    director_specs = (unit.get("ordered_prompt_specs") or []) if director_active(unit, plan) else []
     for beat_number, (source, translated) in enumerate(zip(action_beats, contract["beats"]), 1):
         dialogue_binding = None
         if source.get("dialogue"):
@@ -812,6 +955,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             dialogue_binding=dialogue_binding,
             positive_single_subject=positive_single_subject,
             language=language,
+            performance=_spec_performance(director_specs, source.get("source_index")),
         )
         if scoped:
             scope_text, scope_evidence = _beat_scope_clauses(
@@ -974,10 +1118,24 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     }
     if profile in profile_constraints:
         negatives.append(profile_constraints[profile])
-    text = "\n".join([
+    genre = "live-action short drama"
+    roster_variants = [""]
+    if director_active(unit, plan) and not positive_single_subject:
+        people, beings, plain_props = _director_subjects(unit, plan)
+        if not people and not beings:
+            genre = (f"a single photographic insert shot of {' and '.join(plain_props) or 'the object described below'}; "
+                     "no people, no hands, no body parts")
+        else:
+            crowd = bool(background_total or unbound_total or scope.get("anonymous_role_descriptors"))
+            roster_variants = [_director_roster(people, beings, crowd=crowd, compact=compact)
+                               for compact in (False, True)] + [""]
+
+    def assemble(roster: str) -> str:
+        return "\n".join([
         "subject_definitions:", *reference_lines,
         "population_scope: " + population_scope + ".",
-        f"summary: [reference generation + keyframe completion] {plan['duration_seconds']:g}s vertical 9:16 live-action short drama; {contract['identity_prop_fact']}; {contract['space_weather_fact']}.",
+        *([roster] if roster else []),
+        f"summary: [reference generation + keyframe completion] {plan['duration_seconds']:g}s vertical 9:16 {genre}; {contract['identity_prop_fact']}; {contract['space_weather_fact']}.",
         "visual_culture: " + h3_visual_culture_block(unit),
         *( ["persistent_state_lock: " + persistent_state_lock + "."] if persistent_state_lock else [] ),
         *( ["shot_state_chain:", *[f"SHOT_{index}: {value}." for index, value in enumerate(shot_state_locks, 1)]] if shot_state_locks else [] ),
@@ -993,6 +1151,12 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         "non_diegetic_music: none unless the structured audio profile explicitly binds a cue.",
         "negative_constraints: " + "; ".join(dict.fromkeys(value.strip().rstrip(".; ") for value in negatives if value.strip())) + ".",
     ]) + "\n"
+
+    # the director roster is trimmed (looks dropped, then the whole line) rather than ever failing the limit
+    for roster in roster_variants:
+        text = assemble(roster)
+        if len(text) <= _PROVIDER_RUNE_LIMIT:
+            break
     boundary = validate_provider_prompt_boundary(text, source_id=uid, model_family="MINIMAX_H3")
     h3_boundary = validate_h3_provider_text_boundary(text, source_id=uid)
     failures = [*boundary["failures"], *h3_boundary["failures"]]

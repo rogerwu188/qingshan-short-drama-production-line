@@ -55,6 +55,67 @@ def duration_cost(duration: float) -> float:
     return 1000.0
 
 
+# CAMERA_GRAMMAR_V1 (line owner 2026-10-22): an authored cut where the visible cast changes is a unit
+# boundary, and no unit shows more than two distinct visible subjects, so the provider never performs a
+# scripted cut on its own.  Shots that share their cast may still share a unit (same-pair shot/reverse).
+CUT_MODES = {"MOTIVATED_CUT", "REACTION_CUT", "MATCH_CUT", "HARD_CUT"}
+MAX_VISIBLE_SUBJECTS = 2
+PROVIDER_MAX_SECONDS = 15.0  # MiniMax-H3 / SD2 request window (video_execution_plan_compiler)
+MULTI_SHOT_MAX_SECONDS = 8.0
+
+
+def cut_grammar_active(manifest: dict[str, Any]) -> bool:
+    """The editorial manifest of a CAMERA_GRAMMAR_V1 contract (build_nalu_preproduction.build_editorial)."""
+    if str(manifest.get("camera_grammar_policy") or "").upper() == "CAMERA_GRAMMAR_V1":
+        return True
+    return any(((shot.get("prompt_spec") or {}).get("camera_plan") or {}).get("camera_grammar") == "CAMERA_GRAMMAR_V1"
+               for shot in manifest.get("shots") or [])
+
+
+def provider_min_seconds(model: str | None) -> float:
+    return 3.0 if str(model or "").strip().lower() in {"minimax-h3", "h3"} else 4.0
+
+
+def visible_subjects(shot: dict[str, Any]) -> set[str]:
+    if isinstance(shot.get("visible_subject_ids"), list):
+        return {str(value) for value in shot["visible_subject_ids"] if value}
+    return {str(row.get("character_id") or row.get("character") or "")
+            for row in (shot.get("prompt_spec") or {}).get("cast") or []
+            if (row.get("character_id") or row.get("character"))
+            and str(row.get("face_visibility") or "") != "OFFSCREEN_VOICE_ONLY"}
+
+
+def cast_changing_cut(previous: dict[str, Any], shot: dict[str, Any]) -> bool:
+    """An authored (or unauthored) cut into a shot whose visible cast differs from the previous shot's."""
+    if visible_subjects(previous) == visible_subjects(shot):
+        return False
+    mode = str(shot.get("incoming_transition_mode") or "").strip().upper()
+    return not mode or mode in CUT_MODES
+
+
+def cut_grammar_target(model: str | None) -> tuple[float, float, float]:
+    """(preferred_min, preferred_max, multi_shot_max): the line's preferred window clamped to 4-8 s."""
+    _hmin, pmin, pmax, hmax = _unit_duration_policy()
+    target_min = max(provider_min_seconds(model), min(pmin, 4.0))
+    target_max = max(target_min, min(pmax, MULTI_SHOT_MAX_SECONDS))
+    return target_min, target_max, max(target_max, min(hmax, MULTI_SHOT_MAX_SECONDS))
+
+
+def _cut_grammar_cost(duration: float, shot_count: int, internal_cuts: int, model: str | None) -> float:
+    provider_min = provider_min_seconds(model)
+    target_min, target_max, multi_max = cut_grammar_target(model)
+    cost = 20.0 * internal_cuts
+    if shot_count > 1 and duration > multi_max:
+        cost += 100.0 + duration  # only when a sub-minimum shot leaves no other choice
+    if duration < provider_min:
+        return cost + 10.0 + provider_min - duration  # padded to the provider minimum; cheaper than a cut
+    if duration < target_min:
+        return cost + 4.0 + (target_min - duration)
+    if duration > target_max and shot_count > 1:
+        return cost + 3.0 + (duration - target_max)
+    return cost + 1.0  # an authored single shot may run to the provider maximum
+
+
 def _dialogue_speaker(shot: dict[str, Any]) -> str:
     raw = str(
         (shot.get("prompt_spec") or {}).get("dialogue")
@@ -89,7 +150,7 @@ def _group_camera_direction(group: list[dict[str, Any]]) -> str | None:
 
 def partition_scene(
     shots: list[dict[str, Any]], *, model: str | None = None,
-    recent_directions: list[str] | None = None,
+    recent_directions: list[str] | None = None, cut_grammar: bool = False,
 ) -> list[list[dict[str, Any]]]:
     """Partition by duration, continuity, native-dialogue isolation, and camera rhythm.
 
@@ -112,6 +173,9 @@ def partition_scene(
     the camera constraint dropped, so duration/beat/dialogue feasibility
     (the pre-existing hard requirements) always wins.
     """
+    if cut_grammar:
+        return _partition_scene(shots, model=model, recent_directions=None, enforce_camera=False,
+                                cut_grammar=True)
     try:
         return _partition_scene(shots, model=model, recent_directions=recent_directions,
                                 enforce_camera=True)
@@ -122,25 +186,34 @@ def partition_scene(
 
 def _partition_scene(
     shots: list[dict[str, Any]], *, model: str | None, recent_directions: list[str] | None,
-    enforce_camera: bool,
+    enforce_camera: bool, cut_grammar: bool = False,
 ) -> list[list[dict[str, Any]]]:
     count = len(shots)
     seed_tail = list(recent_directions or [])[-4:]
     best: list[tuple[float, list[list[dict[str, Any]]], list[str]] | None] = [None] * (count + 1)
     best[0] = (0.0, [], seed_tail)
     h3 = str(model or "").strip().lower() in {"minimax-h3", "h3"}
+    max_duration = PROVIDER_MAX_SECONDS if cut_grammar else 12
     for end in range(1, count + 1):
         duration = 0.0
         dialogue_count = 0
         dialogue_speakers: set[str] = set()
+        subjects: set[str] = set()
+        internal_cuts = 0
         for start in range(end - 1, -1, -1):
             duration = round(duration + float(shots[start]["duration_seconds"]), 6)
+            if cut_grammar:
+                subjects |= visible_subjects(shots[start])
+                if start < end - 1:
+                    internal_cuts += cast_changing_cut(shots[start], shots[start + 1])
+                    if len(subjects) > MAX_VISIBLE_SUBJECTS:
+                        break
             prompt_spec = shots[start].get("prompt_spec") or {}
             dialogue_count += 1 if str(prompt_spec.get("dialogue") or shots[start].get("dialogue") or "").strip() else 0
             speaker = _dialogue_speaker(shots[start]) if h3 else ""
             if speaker:
                 dialogue_speakers.add(speaker)
-            if duration > 12:
+            if duration > max_duration:
                 break
             # Required SD2/H3 semantic fields are fail-closed and may not be
             # dropped merely to fit the provider prompt limit.  Bound semantic
@@ -157,7 +230,8 @@ def _partition_scene(
                 continue
             if best[start] is None:
                 continue
-            cost = duration_cost(duration)
+            cost = (_cut_grammar_cost(duration, end - start, internal_cuts, model)
+                    if cut_grammar else duration_cost(duration))
             whole_scene = start == 0 and end == count
             if cost >= 1000 and not whole_scene:
                 continue
@@ -312,6 +386,7 @@ def build(manifest: dict[str, Any], source_sha: str) -> tuple[dict[str, Any], di
         raise ValueError("manifest has no editorial shots")
     groups: list[list[dict[str, Any]]] = []
     recent_directions: list[str] = []
+    cut_grammar = cut_grammar_active(manifest)
     start = 0
     while start < len(shots):
         key = scene_key(shots[start])
@@ -319,7 +394,7 @@ def build(manifest: dict[str, Any], source_sha: str) -> tuple[dict[str, Any], di
         while end < len(shots) and scene_key(shots[end]) == key:
             end += 1
         scene_groups = partition_scene(shots[start:end], model=manifest.get("model"),
-                                       recent_directions=recent_directions)
+                                       recent_directions=recent_directions, cut_grammar=cut_grammar)
         for group in scene_groups:
             direction = _group_camera_direction(group)
             if direction:
@@ -356,10 +431,17 @@ def build(manifest: dict[str, Any], source_sha: str) -> tuple[dict[str, Any], di
             "camera_plan": camera_plan,
         }
         _hmin, _pmin, _pmax, _hmax = _unit_duration_policy()
+        if cut_grammar:
+            _pmin, _pmax, _multi_max = cut_grammar_target(manifest.get("model"))
         if not _pmin <= duration <= _pmax:
             row["duration_exception_reason"] = (
                 "SCENE_LOCAL_REMAINDER" if duration < _pmin else "CONTINUOUS_CAUSAL_ACTION"
             )
+            if cut_grammar:
+                row["duration_exception_reason"] = (
+                    "PROVIDER_MINIMUM_PADDED" if duration < provider_min_seconds(manifest.get("model"))
+                    else "AUTHORED_CUT_BOUNDARY" if duration < _pmin
+                    else "AUTHORED_SINGLE_SHOT" if len(group) == 1 else "CONTINUOUS_CAUSAL_ACTION")
         spec_groups.append(row)
     spec = {
         "episode": episode,
@@ -377,6 +459,13 @@ def build(manifest: dict[str, Any], source_sha: str) -> tuple[dict[str, Any], di
             for index in range(1, len(spec_groups))
         ],
     }
+    if cut_grammar:
+        _pmin, _pmax, _multi_max = cut_grammar_target(manifest.get("model"))
+        spec["grouping_policy"] = "CAMERA_GRAMMAR_V1"
+        spec["duration_policy_seconds"] = {"minimum": provider_min_seconds(manifest.get("model")),
+                                           "maximum": PROVIDER_MAX_SECONDS,
+                                           "authority": "CAMERA_GRAMMAR_V1 provider window"}
+        spec["preferred_duration_seconds"] = {"minimum": _pmin, "maximum": _pmax}
     return production, spec
 
 

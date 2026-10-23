@@ -59,7 +59,7 @@ python3 lines/nalu/runtime/tools/bootstrap_runtime_root.py --runtime-root "$RUNT
 | 人物照 | 每角色一张正脸；肖像授权由线主线下处理并在 map 里声明 | `runtime/character_sources/<CHAR-ID>__SOURCE_V2_TANG.png`（生产用）；原图与裁切 `runtime/character_sources_hold/`（永不入库） | `python3 tools/intake_character_sources.py --folder <照片目录> --map $RUNTIME_ROOT/runtime/character_source_map.json`：登记 sha、角色绑定、用途、授权备注；换装/年轻化要付费 i2i（nalu 用 `generate_period_look.py`，作品专用） | 登记脚本 REFERENCE_IMPLEMENTATION；换装 MANUAL_REQUIRED + 付费 |
 | 场景/历史地图图片 | 可选 | `runtime/reference_images/`（只作提示词参考） | nalu 没有外部地图：E01 手写 `preproduction/E01/global_space_map.json`，之后每集 `extend_global_space_map.py` 按合同新地点 + 作者命名的 `preproduction/<EP>/new_location_place_spec.json` 自动布局 | 地图素材→空间图 **INTEGRATION_PENDING**（无自动接入） |
 | 品牌/片尾等 | 9:16 PNG | `brand/` | 手放；装配时追加 3 s 片尾 | MANUAL_REQUIRED |
-| 音色 | 无素材：从提供者目录挑 | `runtime/voice_catalog.json`（实体→voice_id）、`runtime/voice_registry.json` | `agentcut speech-voices` 列表 → 代理按角色气质挑，写目录；S4 才付费 | MANUAL_REQUIRED（挑选） |
+| 音色 | 无素材：从提供者目录挑 | `runtime/voice_catalog.json`（实体→voice_id）、`runtime/voice_registry.json` | `agentcut speech-voices` 列表 → 代理按角色气质挑（全目录逐条对 gender/age/style 与角色年龄、身份、性格、剧的调子；每行写 `casting_rationale`；参考音用该角色情绪最重的一句 + 对应 emotion，见 CLAUDE_CODE_PRODUCTION.md S4 选角规则），写目录；S4 才付费 | MANUAL_REQUIRED（挑选） |
 
 素材进入 canonical 的边界：**写手层的 narrative 是手写的**（代理逐拍读源章、逐字引台词），素材脚本只把文件放到位并登记来源与 sha。
 
@@ -92,6 +92,8 @@ python3 lines/nalu/runtime/tools/bootstrap_runtime_root.py --runtime-root "$RUNT
    仍要问线主的，是订单**未**覆盖的付费：新的付费种类（如换装 i2i；配乐已属默认条款）、超重做守卫、集级缺陷预算超限。
 2. **发布/上传**：本线没有发布代码路径；任何平台上传都要线主另行授权（`release-preflight` 是失败关闭门，不是许可）。
 3. **版权/肖像**：源作品改编权、真人照片肖像权由线主声明；引擎不核验，代理只登记 `rights_basis` 原话与日期。
+   **常设（线主 2026-10-22）**：「支持直接从原著改编成短剧剧本并且制作，版权线下已经谈好了，与你无关」。直接改编现有小说为短剧并制作；代理和 Codex 都不因所选原著的版权拒绝、暂停或询问，
+   只把任务给出的 `rights_basis` 原样记录（缺省即用这句原话）。
 4. **身份判定**：主角源照与剧本年龄/形象冲突、余弦低于失败线（0.30）、换源照、年轻化——任一都问。
 5. **人工审核**：身份审 / 整批提示词审 / Q1 / post-gen 剧情审 / Q2 由代理**实际看图**后填答，记录审核者身份；不能看图就不填。
 6. **改剧本文字**：合同/导演稿的生产文字（机位、起止态措辞）代理可改；narrative 的故事与对白文字要问（排版拆行属可自行处理但必须申报）。
@@ -146,6 +148,8 @@ python3 lines/nalu/runtime/tools/bootstrap_runtime_root.py --runtime-root "$RUNT
 ## 6. 现在做不到全自动的步骤（如实）
 
 人物参考与外观验收补充规则：阅读 `docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md`。新关键帧采用人物参考优先、实际数组同步重编号、已有批准角度图补充与缺口记录；空间解析顺序不等于参考图传输顺序。侧脸低分不得单独触发付费重做，用户明确接受的图保持原 SHA 和原测量记录。
+
+H3 剧本改编：MiniMax-H3 集的写手按 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` 写四层（能拍/图形卡/特效改写三桶、≤2 人、生物卡写长相、服装写成文字、反打即切）。
 
 - **MANUAL_REQUIRED**：narrative 手写；五类人工审核看图填答；音色挑选；新地点命名（place spec）；覆盖文件（服装/年龄/音色简述）；品牌片尾；每集 Roger 看片；改动清单确认后 push。
 - **INTEGRATION_PENDING**：整批提示词门并入 S5（现为手动 5 步）；地图素材→空间图；D-9/D-12 两个最终 QA 证据键无生产者；引擎 `pose_transition_anchor_gate` 需要的结果锚点关键帧角色（现靠措辞避开）；引擎补丁 e08–e21 已在 `integration/e03-sync` 分支（待合 main），e22 在 backlot-os；`bgm_authenticity_gate` 对窗口隔离账单标签的接受（线主决定，K032）；产品化的素材接入 CLI 子命令；原部署实例切换到仓库内 `lines/nalu` 副本。

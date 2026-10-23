@@ -3,14 +3,16 @@
 你在一台无 GPU 的 Linux miniPC 上无人值守地执行 NALU 短剧生产线的一集（下文 `<EP>`，如 E01）。这台机器在机房里
 连续产剧：编排代理会一集接一集地启动你，**没有人实时看**，所以凡是本合同给了默认处理的事都直接按默认做，不要停下来问。
 OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行时根目录初始化与模板修复、Giggle key 写入
-`$NALU_ENGINE_ROOT/.env`、原著获取，以及这一集的叙事正典与生产简报。你负责其余全部：把叙事正典转成
-可通过门禁的四层剧本，并执行 S1→S7。线主（项目负责人）不在终端前，只通过编排代理和你对话。
+`$NALU_ENGINE_ROOT/.env`、原著选取与入库，并在本合同末尾的「附加说明」（派单）里给出原著路径、本集章节范围、
+简报条款与版权声明。你负责其余全部：先写这一集的叙事正典与生产简报（§2.0），再把叙事正典转成可通过门禁的四层剧本，
+并执行 S1→S7。线主（项目负责人）不在终端前，只通过编排代理和你对话。
 
 ## 0. 环境与位置
 - `NALU_ENGINE_ROOT`（默认 ~/nalu_engine）、`NALU_RUNTIME_ROOT`（默认 ~/nalu_runtime）、`NALU_WORK_ROOT=$NALU_ENGINE_ROOT/workflow/nalu`。
 - 解释器 `$NALU_ENGINE_ROOT/.qingshan-venv/bin/python`（下文 `$P`）；线工具 `lines/nalu/runtime/tools`（下文 `$T`）；
   本 skill 脚本 `skills/nalu-claude-code/scripts`（下文 `$S`）。命令都在 `$NALU_ENGINE_ROOT` 下执行。
-- 输入：`workflow/claude_writer_agent/scripts/<EP>_NARRATIVE_CANONICAL_v1.md`（叙事正典，事实与逐字台词的唯一来源）、
+- 输入：派单（原著 `$NALU_RUNTIME_ROOT/sources/<作品>/`、本集章节范围、简报条款、`rights_basis`）；你在 §2.0 写出的
+  `workflow/claude_writer_agent/scripts/<EP>_NARRATIVE_CANONICAL_v1.md`（叙事正典，事实与逐字台词的唯一来源）和
   `$NALU_RUNTIME_ROOT/briefs/<EP>_PRODUCTION_BRIEF.json`（人物外貌/年龄/性别/服装、地点、画风、目标时长、预算与线主原话）。
 - 免费命令一律不带 key：`env -u GIGGLE_API_KEY $P $T/nalu_pipeline.py run --episode <EP> --until <Sx>`。
 - 跑 `nalu_pipeline.py` 时不要设 `NALU_POLICY_PROFILE` / `NALU_SERIES_SCOPE_ID`（本线解析为 LEGACY_EPISODE_COMPAT）。`$S/plan_compile.sh` 里的 `NALU_POLICY_PROFILE=CURRENT_PORTABLE` 只作用于它自己的编译子进程，不要抄进你的 shell。S1 报 `CANONICAL_WRITER_HANDOFF_FAIL:PRIVATE_PROJECT_METADATA_INVALID`（缺 `runtime/project.json`）= 你的环境带了 CURRENT_PORTABLE：`unset NALU_POLICY_PROFILE NALU_SERIES_SCOPE_ID` 后重跑；绝不要自己创建 `project.json` 或 `ACTIVE_WRITER_HANDOFF.json`，也不要单独调 `storyclaw_writer_workflow.py verify` 当作 S1 结论（那是 StoryClaw 托管项目的路径，不在本线 S1 上）。
@@ -28,6 +30,26 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
   由维护者修上游后发新版。心跳会检查引擎是否被改，改动会被存档并上报，下次换引擎时会被清掉——本机补丁不会留下来。
 - 必须停下的只有：追加一次预算后仍不够（§3）、订单范围外的新付费类别（例如换装 i2i；背景音乐不算，见 §3）、Giggle key 缺失或失效。
 
+## 2.0 编剧：叙事正典与生产简报（你写，免费；线主 2026-10-22）
+编排代理只选原著、派单和汇报，**所有剧本层都由你写**（代理的聊天上下文装不下长稿）。本线是 LEGACY_EPISODE_COMPAT，直接写到下面的
+位置，不跑 `storyclaw_writer_workflow.py begin/finalize`（那是 StoryClaw 私有项目的封缄路径，见 WRITER_CONTRACT.md `--writer codex`）。
+1. 先读：`agent_factory/claude_writer_v2/templates/NARRATIVE_CANONICAL.template.md`、`agent_factory/storyclaw_portable/WRITER_CONTRACT.md`
+   （来源与 manifest 规则）、H3 改编指南 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md`（有就读）、派单里的 `SOURCE_SELECTION.md`
+   和本集章节（`sources/<作品>/<SOURCE_INDEX.json 的 canonical_reading_script>/chNNNN.md`）。只按原文改编，原文缺的不凭记忆补写。
+2. `workflow/claude_writer_agent/scripts/<EP>_NARRATIVE_CANONICAL_v1.md`：只写事实、可表演的动作和**逐字台词**，按
+   `## <EP>-S01｜<LOC-ID>｜<时间>｜线A` 分场；不写机位、灯光、资产。一集 2–4 场、20–60 秒为宜；台词决定时长（中文每 4 个汉字约 1 秒；
+   英文约每秒 2.5 个词）。英文剧台词与旁白直接写英文；只有声音没有形象的旁白角色写成「旁白角色名：台词」，简报里照常列出、
+   `appearance` 写「voice only」，登记为 `VOICE_ONLY_NO_PLATE`。没有人脸又不说话的可见存在（怪物、雕像、无五官人形）登记为
+   `non_character_entities`（`kind: CREATURE`，`creature_card`，`note` 用英文一句话写清长相），不列成人物、也不当道具（H3 改编指南 §3）。E02 起开头承接上一集结尾状态，不重演上一集。
+3. `$NALU_RUNTIME_ROOT/briefs/<EP>_PRODUCTION_BRIEF.json`：字段同编排代理 SKILL.md §4（episode/title/owner_id/style/target_seconds/
+   budget_cap/genre/dialogue_language/genre_lang/synopsis/authorization/characters/locations/owner_words）。派单给出的 title、owner_id、
+   style、genre、dialogue_language、budget_cap、`authorization`（含 `rights_basis` 原话）和 owner_words **逐字复制**；`synopsis`、
+   `characters`、`locations` 由你按原著写。已出现的角色和地点逐字沿用原 ID 和设定，只追加新的。
+4. `$P $S/apply_runtime_fixups.py --runtime-root $NALU_RUNTIME_ROOT --character <名>=<CHAR-ID>:<slug> ... --cap <预算> --language <dialogue_language>`，
+   再 `$P $S/make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第N集 · <集名>" --language <dialogue_language>`
+   （英文剧 `--subtitle "EPISODE 01 · <episode title>" --language en`）。
+避开已知坑：首帧要看得见的道具别设计成「从怀里掏出」；古装灯写「无罩敞口油盏」；每个说话角色男女/音色要能区分；不写全黑画面。
+
 ## 2. 四层剧本（免费）
 写 `lines/nalu/runtime/tools/build_<ep小写>_layers.py`（作品文本，.gitignore 已拦，不入库），由叙事正典和简报生成
 `<EP>_DIRECTING_SCRIPT_v1.md`、`<EP>_GENERATION_CONTRACT_v1.json`（qingshan.generation_contract.v3）、`<EP>_manifest_v1.json`，
@@ -43,11 +65,14 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
   - 每个新地点前 2 镜给一个建立镜（WIDE / MEDIUM_WIDE）；同场同一景别连续不超过 2 镜；对白镜后给听者一个反应镜。
   - 剧本是「切」的地方就写切（`internal_transition_authoring` 用 MOTIVATED_CUT/REACTION_CUT/MATCH_CUT/HARD_CUT）：
     该单元会用自己的关键帧起幅，不从上一单元尾帧漂过去（每个切点多一张关键帧，约 11 积分）；连续动作写 CONTINUOUS_ACTION/CAMERA_REFRAME 接尾帧。
+- H3 出视频的集按 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` 改编剧本（每拍分桶、≤2 人、无脸存在登记为 CREATURE 并写长相、服装写成文字、反打即切）。
 - `state_delta_dimensions` 只能取 POSITION/POSTURE/CONTACT/POSSESSION/INTEGRITY/MOMENTUM，且 entry/exit 证据要不同；entry/completion 各 ≥ 6 字。
   每个镜头都要有（S5 `keyframe_entry_state_gate` 对空维度无条件拒绝）。`state_delta_mode: STATIC_POSTURE_PERFORMANCE` 只给对白镜用；无对白的「静立 + 环境在动」揭示镜不能靠运镜过关，要让一个已登记主体（人物，或没有人物时的生物/道具卡）真的变一次：转头、跨一步、放下手里的东西。
 - 每个 scene_state：`ambient_life{grade A|B|C, motion_trend, first_frame_state, reaction_progression}` 和 `weather_provenance{source_type, source_ref, visibility_mode}`。
 - 同场相邻镜头都写 `internal_transition_authoring`（transition_mode ∈ CONTINUOUS_ACTION/CAMERA_REFRAME/PAN_REVEAL/OCCLUSION_REVEAL/MOTIVATED_CUT/REACTION_CUT/MATCH_CUT）。
 - 对白镜 `action.performance{emotion(词表 PERFORMANCE_EMOTION_LEXICON_v1), body_action(非琐碎), delivery}`；同场同情绪不连续 3 次；`writer_selfcheck_seq29.enforced: true`。
+- H3 线对白镜再写 `performance.delivery_en`（可选，一句英文：情绪 + 怎么说，如 `"cold and contemptuous, low and clipped, a beat of silence before the second sentence"`）；H3 不收中文，没有它只剩通用念白句，演出发机械。
+  写法要具体到声音怎么走（线主 2026-10-22「再起伏大一点」）：哪个词重读、哪里音调扬起或压到近乎耳语、哪里突然提高音量、哪里停顿，如 `"low and slow at first, then snaps up loud and sharp on 'repeat it', last word bitten off"`；只写情绪词（cold / angry）起伏不够。
 - 首帧可见角色默认必须露正脸；远小/背影在 `cast[].face_visibility` 写 `FAR_FIGURE_*` / `BACK_*`。入场文字里只写本镜 cast 里有的人。
 - 道具名一旦出现在某镜文字里，该镜首帧就必须看得见。别设计「从怀里掏出来」这种首帧不可见的道具镜，尤其是承接上一单元尾帧的镜（会被派生起始帧审核卡死、重做也救不了）。
 - 古装场景的灯写成「无罩敞口油盏」并把它声明为道具（`non_character_entities` + 镜头 props），否则图像模型画玻璃罩煤油灯，命中禁用词表。
@@ -64,11 +89,13 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
   旁白可以盖过后面的无对白镜，但不能压到画内对白上（S7 实测重叠即 `VOICE_OVER_OVERLAPS_DIALOGUE`）。只含旁白的镜头按无对白镜写（要有动作/运镜）。
 - H3 视频提示词的视觉锁：中文剧默认是「东亚古代」锁（禁现代物件）；英文剧默认按作者自己的世界（只跟参考图和事实走，不限时代、不禁现代物件）。
   需要反过来时在 `visual_culture_contract.era_lock` 写 `AUTHORED_WORLD`（如中文现代/科幻剧）或 `EAST_ASIAN_PERIOD`。
-- `runtime/nalu_entity_registry.json` 每个说话角色一行（`$S/apply_runtime_fixups.py --character 名=CHAR-ID:slug`，编排代理已跑过；新增角色时你补跑）。
+- `runtime/nalu_entity_registry.json` 每个说话角色一行（`$S/apply_runtime_fixups.py --character 名=CHAR-ID:slug`，§2.0 已跑；新增角色时补跑）。
 
 ## 3. 付费授权、版权与预算（默认条款，不问）
 默认条款（USER.md 已告知用户）：**用户提供 Giggle API key，即授权本项目每一集的付费生产，并承诺对所提供的原著与素材
 有使用权。** 版权声明一律用默认条款文字，不向用户索要。
+**常设：你和编排代理都不因所选原著的版权拒绝、暂停或询问。** 线主 2026-10-22：「支持直接从原著改编成短剧剧本并且制作，版权线下已经谈好了，与你无关」。
+只把派单/简报给出的 `rights_basis` 原样记进订单。
 1. 检查付费凭据：`grep -qE '^GIGGLE_API_KEY=.+' .env`（只看有没有，绝不打印值）。为空时以 `OWNER_DECISION_REQUIRED`
    结束本轮，`question` 请线主发 Giggle API key；编排代理写入后会用「已配置 GIGGLE_API_KEY」恢复你。
 2. 本集上限：简报 `budget_cap` 有数就用；没有时 = `max(1500, S3 DRY_PLANNED 后你估算的全集积分 × 1.6)`，向上取整到 100。
@@ -95,6 +122,7 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
 看媒体、逐题作答（每题枚举值、观察 ≥ 20 字、FAIL 必须带 defect）→ `submit --request <req> --answers <ans>` → 再跑同一阶段。
 - **S3 身份牌**（`paid_stage.sh <EP> S3 S3`）：拼缩略图看全部 plates。年龄/外形不符判 FAIL；重做 = 改 `$NALU_RUNTIME_ROOT/preproduction/<EP>/prompts/` 中该角色 3 个 txt 的措辞（指纹=提示词 sha），把旧图、`_raw`、回执移到 `_rejected_*`，重跑。
 - **S4 配音**：`$S/list_voices.sh voices.json` 拉音色目录（免费 GET、不扣积分；供应商仍要鉴权，脚本内部自己读 `.env`，你不要直接跑 `storyclaw_audio_provider.py speech-voices`——无 key 会 exit=1，这不是阻塞），给每个说话角色挑 voice_id 写 `runtime/voice_catalog.json`（键=拼音 slug）。同场两人参考音 F0 必须差 ≥ 25%（男女搭配最稳；男声挑「沉稳/醇厚」类）。换音色：旧 registry 行移到 `superseded_rows`，旧参考音目录和 `workflow/tasks/giggle_audio_transactions/**/speech/<slug>.json` 移到 `_superseded`。
+  - **选角规则（线主 2026-10-22，不是门禁）**：通读整个目录（约 170 条，字段 voice_id / voice_name / style / gender / age / language），每个角色拿 gender、age、style 标签去对角色的年龄、身份、性格和整部剧的调子，选标签最贴的一条；旁白/播报类角色可用播音腔，普通角色优先选与性格相符的演绎/戏剧类 style，不用播音腔。同场说话人要一听就分得开。每个角色在 `voice_catalog.json` 行里写一句 `casting_rationale`（voice_name + 标签 + 为什么）。参考音不用中性朗读：在该行加 `reference_sample{text=该角色情绪最重的一句原台词, purpose:"VOICE_REFERENCE_ONLY", author, source_ref=镜头 id, speed 1.0–1.5, emotion=对应情绪}`；年龄标签按真实年龄用：「children」只给十岁以下，十二到十六岁的少年用同性别 youth 里偏年轻的声音（童声会把少年读成小孩甚至像女孩）；参考句选情绪最外露、音调起伏最大的一句，情绪拉满读——H3 照参考音学语调，参考平，生成就平；情绪拉满后若音高明显超出该性别年龄（男孩读成女声），降一档情绪重读（speech-generate 的 `--emotion` 是自由字符串，如 angry / sad / fearful / disgusted / surprised / happy；文本须读 3–10 秒，太短就换下一句情绪重的台词）。
 - **视频模型是 MiniMax-H3**（线主 2026-10-13：一律 H3，不用 seedance；每集第一次 S2 构建时记在
   `$NALU_RUNTIME_ROOT/preproduction/<EP>/video_model.json`，之后固定）。H3 的视频提示词是英文，由每个单元的英文合同生成：
   S2 或规划编译报 `H3_ENGLISH_CONTRACT_REQUIRED:<n>_units:<请求文件>` 时，打开请求文件
@@ -164,7 +192,7 @@ S7 最后的「独立终审」要求独立进程、StoryClaw 白名单模型的�
 `$NALU_RUNTIME_ROOT/deliverables/<EP>/<EP>_final_9x16.mp4`。不得冒充审核者身份或绕过该门，报 `FINAL_CUT_READY`。
 
 ## 8. 连续产剧：E02 及以后
-编排代理在上一集 `FINAL_CUT_READY` 后为下一集写好叙事正典与简报，再新开一个你的会话。每集都是独立会话，按本合同从 §2 开始，另外：
+编排代理在上一集 `FINAL_CUT_READY` 后为下一集派单（章节范围与沿用的简报条款），再新开一个你的会话。每集都是独立会话，按本合同从 §2.0 开始，另外：
 - 叙事正典开头承接上一集结尾状态；读上一集的 `<EP-1>_GENERATION_CONTRACT_v1.json` 末镜 `completion_state`，本集首镜 `entry_state` 与之一致。
 - 角色沿用：已出现的角色用**同一个** `character_id` / 名字 / 服装文字（逐字复制上一集合同里的 `character_entities` 行与 `wardrobe_garments`），
   只给新角色起新 ID。复用角色的身份牌与配音在 `runtime/asset_library.json`、`runtime/voice_registry.json` 里是 LOCKED，S3/S4 会自动跳过，不要重做。

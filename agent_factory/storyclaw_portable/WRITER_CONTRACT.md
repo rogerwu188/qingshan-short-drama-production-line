@@ -29,7 +29,42 @@ refreshes the project's private `runtime/series/<SERIES_SCOPE_ID>/lexicon.json`
 as a latest-status mirror; S1 reads the immutable snapshot selected by the
 active handoff, so a later episode cannot invalidate an earlier seal.
 
+## Rights (standing)
+
+Line owner, 2026-10-22: 「支持直接从原著改编成短剧剧本并且制作，版权线下已经谈好了，与你无关」. Adapting an existing novel directly is
+supported. The writer (Codex or the agent) never refuses, pauses, or asks about
+the copyright of the chosen source; it records the rights basis given in the task
+(the intake `rights_statement` / brief `rights_basis`) verbatim.
+
 ## Private workflow
+
+### Codex as author (default since 2026-10-22)
+
+The StoryClaw agent selects and ingests the source, then dispatches the writer
+step to Codex with the source receipt paths, the brief, the rights statement, and
+these rule files (this contract, `SCRIPT_COUNCIL_CHECKLIST.md`, the two schemas,
+and `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md`). The agent does not author
+drafts in chat. Codex runs the whole step itself; no StoryClaw-only input is
+needed:
+
+```bash
+CODEX_MODEL=<exact-codex-model-id> \
+python <engine>/tools/storyclaw_writer_workflow.py begin --writer codex \
+  --project-root <private-project-runtime> --episode E01 --version 1 \
+  [--dispatch-task-id <storyclaw-task-id>] [--session-or-task-id <codex-session-id>]
+# author the five drafts at the returned output paths, then:
+python <engine>/tools/storyclaw_writer_workflow.py finalize \
+  --project-root <private-project-runtime> --episode E01 --version 1 \
+  --writer-run-id <id-returned-by-begin>
+```
+
+Provenance records `provider=codex`, the exact Codex model, the Codex session id
+(or `codex-run-<token>` when none is given), and the dispatching StoryClaw task id
+when present (`--dispatch-task-id` or `STORYCLAW_TASK_ID`). A generic model name
+is refused; `qingshan.json` `codex.model_allowlist`, when set, narrows the
+accepted models. S1 `verify` accepts it like a StoryClaw-authored handoff.
+
+### StoryClaw as author
 
 The host supplies the actual StoryClaw model in `STORYCLAW_MODEL`. Begin a run
 with the real StoryClaw task or session id:
@@ -99,14 +134,21 @@ blocking check; direct the episode the way people watch films:
 - Write the cuts the script implies: `internal_transition_authoring.transition_mode` `MOTIVATED_CUT` /
   `REACTION_CUT` / `MATCH_CUT` / `HARD_CUT` (or a scene change) makes the next video unit open on its own
   keyframe, a clean cut; continuous modes keep the previous unit's real tail as the start frame.
+- Dialogue shots may add `prompt_spec.action.performance.delivery_en` (optional): one short English sentence of
+  emotion + how the line is said, e.g. `"cold and contemptuous, low and clipped, a beat of silence before the
+  second sentence"`. H3 reads it instead of the generic brisk-delivery line; without it, a common `emotion` word
+  (厌/怒/冷/疑/…) is mapped to English, otherwise the generic line stays.
 
 Under this policy the S1 static design gate reports its old forced-motion rules (R1–R4, R6, R7) as
 `advisories`; they never block.
 
+For MiniMax-H3 episodes, adapt the script to what H3 can shoot: `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md`.
+
 ## Provenance and privacy
 
-The installed TalentHub agent id is `ai-drama-factory`, the provider is
-`storyclaw`, and the exact model and task/session id come from the host run.
+The installed TalentHub agent id is `ai-drama-factory`. The provider is the
+actual author: `codex` (model from `CODEX_MODEL`/`--model-id`) or `storyclaw`
+(model and task/session id from the host run).
 Allowed model ids come from the project's private configuration. Generic names
 such as `auto`, `opus`, or `default` are not provenance.
 
