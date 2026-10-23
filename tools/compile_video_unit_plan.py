@@ -95,6 +95,9 @@ def compile_grouping_spec(production: dict[str, Any], spec: dict[str, Any]) -> d
     if not 0 < minimum <= preferred_minimum <= preferred_maximum <= maximum:
         raise ValueError("duration policy must satisfy 0 < hard min <= preferred min <= preferred max <= hard max")
 
+    # CAMERA_GRAMMAR_V1 grouping cuts where the writer cut: near 1:1 units and short authored shots are
+    # expected there, and a shot below the provider minimum is padded (project_provider_slots), not refused.
+    cut_grammar = spec.get("grouping_policy") == "CAMERA_GRAMMAR_V1"
     groups = spec.get("groups")
     if not isinstance(groups, list) or not groups:
         raise ValueError("grouping spec must contain semantic groups")
@@ -123,9 +126,10 @@ def compile_grouping_spec(production: dict[str, Any], spec: dict[str, Any]) -> d
             _number(shot_by_id[shot_id]["duration_seconds"], f"{shot_id} duration_seconds")
             for shot_id in shot_ids
         ), 6)
-        if not minimum <= duration <= maximum:
-            raise ValueError(f"{unit_id} duration {duration} is outside {minimum}-{maximum} seconds")
         exception_reason = group.get("duration_exception_reason")
+        padded = cut_grammar and exception_reason == "PROVIDER_MINIMUM_PADDED"
+        if not (0 if padded else minimum) <= duration <= maximum:
+            raise ValueError(f"{unit_id} duration {duration} is outside {minimum}-{maximum} seconds")
         if not preferred_minimum <= duration <= preferred_maximum and not exception_reason:
             raise ValueError(f"{unit_id} needs a preferred-duration exception reason")
 
@@ -179,14 +183,14 @@ def compile_grouping_spec(production: dict[str, Any], spec: dict[str, Any]) -> d
     short_exception_count = sum(
         1 for unit in units if unit["duration_seconds"] < preferred_minimum
     )
-    if len(shots) >= 12 and len(units) == len(shots):
+    if len(shots) >= 12 and len(units) == len(shots) and not cut_grammar:
         raise ValueError("editorial shots may not map one-to-one to video units; semantic grouping is required")
-    if len(units) >= 8 and short_exception_count / len(units) > 0.25:
+    if len(units) >= 8 and short_exception_count / len(units) > 0.25 and not cut_grammar:
         raise ValueError("too many sub-preferred video units; regroup continuous editorial beats")
 
     validate_transition_sequence(units)
 
-    return {
+    plan = {
         "schema": "qingshan.video_unit_grouping_plan.v2_transition_contract",
         "episode": episode,
         "source_script_sha256": script_sha,
@@ -217,6 +221,9 @@ def compile_grouping_spec(production: dict[str, Any], spec: dict[str, Any]) -> d
         "grouping_spec_sha256": spec.get("grouping_spec_sha256"),
         "units": units,
     }
+    if cut_grammar:
+        plan["grouping_policy"] = "CAMERA_GRAMMAR_V1"
+    return plan
 
 
 def validate_compiled_plan(production: dict[str, Any], plan: dict[str, Any]) -> None:
@@ -239,6 +246,7 @@ def validate_compiled_plan(production: dict[str, Any], plan: dict[str, Any]) -> 
         "duration_policy_seconds": plan.get("duration_policy_seconds"),
         "preferred_duration_seconds": plan.get("preferred_duration_seconds"),
         "groups": groups,
+        **({"grouping_policy": plan["grouping_policy"]} if plan.get("grouping_policy") else {}),
     }
     compiled = compile_grouping_spec(production, spec)
     if plan.get("video_unit_count") != compiled["video_unit_count"]:

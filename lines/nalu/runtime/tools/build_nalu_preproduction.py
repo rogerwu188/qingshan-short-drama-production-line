@@ -922,6 +922,12 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
     shots: list[dict[str, Any]] = []
     all_splits: list[dict[str, Any]] = []
     cursor = 0.0
+    # CAMERA_GRAMMAR_V1 grouping inputs: the authored incoming transition (top-level list row, else the
+    # shot's own internal_transition_authoring) and the visible subjects, so grouping can cut where the
+    # writer cut.  Episodes outside the policy get neither field.
+    authored_modes = {(str(r.get("from_shot_id")), str(r.get("to_shot_id"))): str(r.get("transition_mode") or "")
+                      for r in contract.get("internal_transition_authoring") or [] if isinstance(r, dict)}
+    previous_shot_id = ""
     for shot in contract.get("shots") or []:
         shot_id = str(shot["shot_id"])
         scene_id = str(shot["scene_id"])
@@ -1273,6 +1279,17 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                                if name in bible_by_name],
             },
         })
+        if camera_grammar:
+            own = shot.get("internal_transition_authoring")
+            shots[-1]["incoming_transition_mode"] = (
+                authored_modes.get((previous_shot_id, shot_id))
+                or str((own if isinstance(own, dict) else {}).get("transition_mode") or ""))
+            shots[-1]["visible_subject_ids"] = [
+                member["character_id"] or member["character"] for member in cast
+                if member["face_visibility"] != "OFFSCREEN_VOICE_ONLY"] + [
+                prop_id for prop_id in row["prop_ids"]
+                if str((props_by_id.get(prop_id) or {}).get("kind") or "").upper() in {"CREATURE", "ANIMAL"}]
+        previous_shot_id = shot_id
 
     manifest = {
         "schema": "qingshan.editorial_seedance_manifest.v2_performance_complete",
@@ -1291,6 +1308,7 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
         "dialogue_character_limit": engine.dialogue_limit,
         "runtime_seconds": round(sum(float(row["duration_seconds"]) for row in shots), 3),
         "wardrobe_bible": bible,
+        **({"camera_grammar_policy": "CAMERA_GRAMMAR_V1"} if camera_grammar else {}),
         "shots": shots,
     }
     if any(shot["prompt_spec"].get("voice_over") for shot in shots):
@@ -2396,6 +2414,8 @@ def project_provider_slots(plan: dict[str, Any]) -> dict[str, Any]:
     for unit in plan.get("units") or []:
         content = float(unit["duration_seconds"])
         slot = int(math.ceil(content - 1e-9))
+        if unit.get("duration_exception_reason") == "PROVIDER_MINIMUM_PADDED":  # CAMERA_GRAMMAR_V1 short shot
+            slot = max(slot, int(math.ceil(float((plan.get("duration_policy_seconds") or {}).get("minimum") or 3))))
         unit["authorized_content_seconds"] = round(content, 3)
         unit["authorized_tail_handle_seconds"] = round(max(0.25, slot - content), 3)
         unit["provider_slot_projection"] = ("CEIL_TO_INTEGER_PROVIDER_SECONDS" if slot != content
