@@ -802,7 +802,10 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     # other spellings; normalize so one value reaches all three.
     positive_single_subject = is_single_subject_mode(profile)
     tight_pov_single_subject = is_tight_pov_mode(profile)
-    scoped = shot_scope_active(unit, plan)
+    # CAMERA_GRAMMAR_V1 units always serialize the authored start/end framing: the per-episode policy row
+    # (H3 from E64) left every new series' early episodes on the legacy line that drops framing and tells
+    # a LOCKED shot to 'execute the declared move once' (urban lab E01 2026-10-23: pans lost a subject).
+    scoped = shot_scope_active(unit, plan) or director_active(unit, plan)
     refs = unit.get("reference_images") or []
     if not refs or len(refs) > 9:
         raise ValueError(f"{uid}:H3_REFERENCE_COUNT_OUT_OF_RANGE:{len(refs)}")
