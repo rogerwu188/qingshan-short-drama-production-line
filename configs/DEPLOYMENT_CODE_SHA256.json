@@ -557,7 +557,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_keyframe_manifest.py",
-      "sha256": "421663e5deac90f578339a6f47ad3591c29acabcf266f7e71d7e1e4bbd2adcc1"
+      "sha256": "18622c6b18618127e335ed9855b9cd31abfbb1d4d519047e33de30bba37c7e39"
     },
     {
       "path": "lines/nalu/runtime/tools/build_measured_edit_constraints.py",
@@ -701,7 +701,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_qa.py",
-      "sha256": "127982dc33d4a4f9f480f3cb512d302be435f195afc4a0b1a771974e8895eb56"
+      "sha256": "104a03975d03914f1b89b6a7f5722369052662baa152865a0d2728e89007caa7"
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_register.py",
@@ -833,7 +833,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/plan_compile.sh",
-      "sha256": "10e493df25861c2e9c5b8ce6218b84ec7615d876e8b8d6e3ec87172e7fc639a0"
+      "sha256": "d4821de8ce40028154c946e46da50a44dcea5cfdedba75ee612822c7ad7decb1"
     },
     {
       "path": "skills/nalu-claude-code/scripts/prompt_batch_finish.sh",

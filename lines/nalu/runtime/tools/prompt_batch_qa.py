@@ -32,14 +32,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+ENGINE = Path(f"{_np.ENGINE_ROOT}")
+if str(ENGINE / "tools") not in sys.path:  # before the fallback import below needs it (no PYTHONPATH on a fresh host)
+    sys.path.append(str(ENGINE / "tools"))
 try:
     from tools.lighting_participant_scope import scoped_lighting_line
 except ModuleNotFoundError:
     from lighting_participant_scope import scoped_lighting_line
-
-ENGINE = Path(f"{_np.ENGINE_ROOT}")
-if str(ENGINE / "tools") not in sys.path:
-    sys.path.append(str(ENGINE / "tools"))
 import voice_over_narration as _vo  # noqa: E402  V.O. narration lines never reach the video prompt
 RUNTIME = Path(f"{_np.RUNTIME_ROOT}")
 WORK = Path(_np.WORK_ROOT).expanduser().resolve()  # one definition in nalu_paths (was <runtime>/workflow/nalu here only)
