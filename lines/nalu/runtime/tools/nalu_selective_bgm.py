@@ -209,6 +209,8 @@ def _source_plan_payload(p: Paths, episode: str) -> dict[str, Any]:
             "authored_duration_seconds": authored_seconds,
             "volume": volume,
             "dialogue_duck_db": duck,
+            # optional per-cue fades (nalu_bgm_default's CAMERA_GRAMMAR_V1 episode bed); absent = FADE_IN_S/FADE_OUT_S
+            **{k: float(cue[k]) for k in ("fade_in_s", "fade_out_s") if cue.get(k) is not None},
         })
 
     return {
@@ -426,7 +428,8 @@ def cmd_plan(a: argparse.Namespace) -> int:
         cues_out.append({"cue_id": cue_id, "narrative_function": func, "source_key": cue["source_key"],
                          "shots": shots, "timeline_start": t0, "duration": round(t1 - t0, 3),
                          "volume": volume, "dialogue_duck_db": duck, "dialogue_windows": dialogue,
-                         "dialogue_present": bool(dialogue)})
+                         "dialogue_present": bool(dialogue),
+                         **{k: cue[k] for k in ("fade_in_s", "fade_out_s") if k in cue}})
     cues_out.sort(key=lambda c: c["timeline_start"])
     covered = sum(c["duration"] for c in cues_out)
     failures = []
@@ -591,6 +594,11 @@ def duck_expr(cue: dict) -> str:
     return f"1-(1-{lin:.4f})*({env})"
 
 
+def _fades(cue: dict) -> tuple[float, float]:
+    """(fade in, fade out) seconds: the cue's own when declared, else the global defaults."""
+    return cue.get("fade_in_s", FADE_IN_S), cue.get("fade_out_s", FADE_OUT_S)
+
+
 def cmd_mix(a: argparse.Namespace) -> int:
     p = Paths(a.episode, contract=a.contract, assembly=a.assembly, grouping=a.grouping,
               project=a.project, work=a.work, transactions=a.bgm_transactions_dir)
@@ -610,10 +618,11 @@ def cmd_mix(a: argparse.Namespace) -> int:
     for i, cue in enumerate(plan["cues"]):
         idx = srcs[cue["source_key"]]
         dur = float(cue["duration"]); start = float(cue["timeline_start"])
+        fin, fout = _fades(cue)
         filters.append(
             f"[{idx}:a]atrim=start=0:end={dur:.3f},asetpts=PTS-STARTPTS,aresample=48000,"
             f"aformat=sample_fmts=fltp:channel_layouts=stereo,"
-            f"afade=t=in:st=0:d={FADE_IN_S},afade=t=out:st={max(dur - FADE_OUT_S, 0):.3f}:d={FADE_OUT_S},"
+            f"afade=t=in:st=0:d={fin},afade=t=out:st={max(dur - fout, 0):.3f}:d={fout},"
             f"volume='{duck_expr(cue)}':eval=frame,volume={float(cue['volume']):.3f},"
             f"adelay={int(round(start * 1000))}|{int(round(start * 1000))}[c{i}]")
         labels.append(f"[c{i}]")
@@ -638,9 +647,10 @@ def cmd_mix(a: argparse.Namespace) -> int:
     solo_filters, solo_labels = [], []
     for i, cue in enumerate(plan["cues"]):
         idx = srcs[cue["source_key"]]; dur = float(cue["duration"])
+        fin, fout = _fades(cue)
         solo_filters.append(f"[{idx}:a]atrim=start=0:end={dur:.3f},asetpts=PTS-STARTPTS,aresample=48000,"
-                            f"aformat=sample_fmts=fltp:channel_layouts=stereo,afade=t=in:st=0:d={FADE_IN_S},"
-                            f"afade=t=out:st={max(dur - FADE_OUT_S, 0):.3f}:d={FADE_OUT_S}[s{i}]")
+                            f"aformat=sample_fmts=fltp:channel_layouts=stereo,afade=t=in:st=0:d={fin},"
+                            f"afade=t=out:st={max(dur - fout, 0):.3f}:d={fout}[s{i}]")
         solo_labels.append(f"[s{i}]")
     solo_filters.append("".join(solo_labels) + f"concat=n={len(solo_labels)}:v=0:a=1[solo]")
     solo_argv = [_media.require_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y"]
@@ -665,8 +675,8 @@ def cmd_mix(a: argparse.Namespace) -> int:
         row = selection["sources"][cue["source_key"]]
         clips.append({"id": f"{a.episode}-BGM-{cue['cue_id']}", "source": row["selected"], "start": cue["timeline_start"],
                       "in": 0.0, "duration": cue["duration"], "volume": cue["volume"],
-                      "transitionIn": {"type": "fade", "duration": FADE_IN_S},
-                      "transitionOut": {"type": "fade", "duration": FADE_OUT_S},
+                      "transitionIn": {"type": "fade", "duration": _fades(cue)[0]},
+                      "transitionOut": {"type": "fade", "duration": _fades(cue)[1]},
                       "metadata": {"cue_role": cue["narrative_function"], "dialogue_present": cue["dialogue_present"],
                                    "dialogue_duck_db": cue["dialogue_duck_db"] if cue["dialogue_present"] else 0.0,
                                    "source_sha256": row["selected_sha256"]}})

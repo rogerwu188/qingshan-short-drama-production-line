@@ -488,6 +488,47 @@ class BgmDefaultTests(unittest.TestCase):
             self.assertEqual(bgm_default.write_effective_contract(opted_out, root / "x.json")["contract"],
                              str(opted_out))
 
+    def test_camera_grammar_default_is_one_episode_bed_entering_on_a_scene_cut(self) -> None:
+        # lab Holmes E01 shape: hook S01 14.5 s, S02 20 s, S03 21.5 s (56 s); the old cue was S03 only
+        secs = {1: (4.5, 2.5, 4.5, 3.0), 2: (5.0, 5.0, 3.0, 7.0), 3: (7.0, 5.0, 6.5, 3.0)}
+        shots = [{"shot_id": f"E01-S0{s}-0{i}", "scene_id": f"E01-S0{s}", "target_seconds": sec}
+                 for s, row in secs.items() for i, sec in enumerate(row, 1)]
+        stamped = {"episode": "E01", "camera_grammar_policy": "CAMERA_GRAMMAR_V1", "shots": shots,
+                   "audio_contract": {"bgm": "NO_BGM"}}
+        cue = bgm_default.resolve(stamped)["declaration"]["cues"][0]
+        # backwards fill reaches E01-S01-04 (start 11.5 s, 44.5 s); the S01->S02 cut 3.0 s later wins
+        self.assertEqual(cue["shots"], [f"E01-S02-0{i}" for i in range(1, 5)] + [f"E01-S03-0{i}" for i in range(1, 5)])
+        covered = sum(row["target_seconds"] for row in shots if row["shot_id"] in cue["shots"])
+        self.assertLessEqual(covered / 56.0, bgm_default.MAX_DEFAULT_COVERAGE_RATIO)
+        self.assertGreaterEqual(56.0 - covered, bgm_default.MIN_DEFAULT_AMBIENCE_SECONDS)
+        self.assertEqual((cue["fade_in_s"], cue["fade_out_s"]), (2.0, 1.5))
+        self.assertIn("whole short-drama episode", cue["brief"])
+        # unstamped: the last-scene cue exactly as before
+        legacy = bgm_default.resolve({**stamped, "camera_grammar_policy": "LEGACY_FORCED_MOTION"})
+        self.assertEqual(legacy["declaration"]["cues"], [{
+            "cue_id": "DEFAULT_EPISODE_ENDING", "shots": [f"E01-S03-0{i}" for i in range(1, 5)],
+            "narrative_function": "EPISODE_ENDING_CLIFFHANGER", "brief": bgm_default.DEFAULT_BRIEF}])
+
+    def test_camera_grammar_default_keeps_mid_scene_start_without_a_near_cut(self) -> None:
+        stamped = {**contract("NO_BGM"), "camera_grammar_policy": "CAMERA_GRAMMAR_V1"}
+        cue = bgm_default.resolve(stamped)["declaration"]["cues"][0]
+        self.assertEqual(cue["shots"], ["E01-S02-02", "E01-S02-03", "E01-S02-04"])  # the S02 cut is earlier
+
+    def test_per_cue_fades_flow_to_the_source_plan_and_mix(self) -> None:
+        sbgm = importlib.import_module("nalu_selective_bgm")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            sealed = root / "E01_GENERATION_CONTRACT_v1.json"
+            for stamp, expected in (("CAMERA_GRAMMAR_V1", (2.0, 1.5)), (None, (sbgm.FADE_IN_S, sbgm.FADE_OUT_S))):
+                payload = contract("NO_BGM")
+                if stamp:
+                    payload["camera_grammar_policy"] = stamp
+                sealed.write_text(json.dumps(payload), encoding="utf-8")
+                derived = Path(bgm_default.write_effective_contract(sealed, root / "bgm/E01_DEFAULT.json")["contract"])
+                plan = sbgm._source_plan_payload(sbgm.Paths("E01", contract=derived, work=root / "work"), "E01")
+                self.assertEqual(sbgm._fades(plan["cues"][0]), expected)
+                self.assertEqual("fade_in_s" in plan["cues"][0], bool(stamp))
+
     def test_credit_reconciliation_reuse_and_best_effort_without_key(self) -> None:
         pipeline = importlib.import_module("nalu_pipeline")
         with tempfile.TemporaryDirectory() as td:

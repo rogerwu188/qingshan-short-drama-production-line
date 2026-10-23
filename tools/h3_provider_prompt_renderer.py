@@ -130,6 +130,10 @@ _NO_TRANSFER = ("Each subject wears only its own clothing; never transfer clothi
                 "materials between subjects")
 _NO_EXTRAS = ("No other people, figures, silhouettes, hands or body parts appear anywhere in frame, "
               "including the background and frame edges")
+_AUDIO_TIMBRE_ONLY = "Each @Audio reference supplies timbre only; never speak or echo its words"
+_SILENT_AFTER_LINE = ("After the tagged line ends nobody speaks again: the remaining seconds are silent room tone "
+                      "and natural movement, no mumbling, no extra words.")
+_NO_NATIVE_MUSIC = "No background music, score or soundtrack in this clip; only dialogue, foley and ambience"
 _WARDROBE_FIELDS = ("silhouette", "outer_layer", "inner_layer", "primary_color", "material", "footwear", "accessory")
 
 
@@ -1137,7 +1141,21 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             roster_variants = [_director_roster(people, beings, crowd=crowd, compact=compact)
                                for compact in (False, True)] + [""]
 
-    def assemble(roster: str) -> str:
+    # CAMERA_GRAMMAR_V1 audio hygiene (lab Holmes E01 ASR: reference-sample words echoed into other units,
+    # babble after a short line in a long slot, H3-baked music between shots).  Dropped before the roster.
+    director_audio = director_active(unit, plan)
+    has_dialogue = any(beat.get("dialogue") for beat in action_beats)
+
+    def assemble(roster: str, extras: bool = False) -> str:
+        voice_text = "; ".join(voice_rows) or "No dialogue voice reference is required"
+        vocal_text = vocal_rule
+        negative_rows = list(negatives)
+        if extras:
+            if voice_rows:
+                voice_text += "; " + _AUDIO_TIMBRE_ONLY
+            if has_dialogue:
+                vocal_text += " " + _SILENT_AFTER_LINE
+            negative_rows.append(_NO_NATIVE_MUSIC)
         return "\n".join([
         "subject_definitions:", *reference_lines,
         "population_scope: " + population_scope + ".",
@@ -1153,15 +1171,17 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         *( ["adult_woman_style: " + adult_style + "."] if adult_style else [] ),
         "environment_motion: " + ("; ".join(environment_rows) or "Background life moves naturally only when motivated by the story; never freeze into a still image") + ".",
         "overall_soundscape: " + ("; ".join(sound_rows) or "Native location ambience, cloth, foley, action contact, and declared dialogue only") + ".",
-        "voice_binding: " + ("; ".join(voice_rows) or "No dialogue voice reference is required") + ".",
-        "vocal_rule: " + vocal_rule,
+        "voice_binding: " + voice_text + ".",
+        "vocal_rule: " + vocal_text,
         "non_diegetic_music: none unless the structured audio profile explicitly binds a cue.",
-        "negative_constraints: " + "; ".join(dict.fromkeys(value.strip().rstrip(".; ") for value in negatives if value.strip())) + ".",
+        "negative_constraints: " + "; ".join(dict.fromkeys(value.strip().rstrip(".; ") for value in negative_rows if value.strip())) + ".",
     ]) + "\n"
 
-    # the director roster is trimmed (looks dropped, then the whole line) rather than ever failing the limit
-    for roster in roster_variants:
-        text = assemble(roster)
+    # the director audio lines go first, then the roster is trimmed (looks dropped, then the whole line)
+    # rather than ever failing the limit
+    variants = ([(roster_variants[0], True)] if director_audio else []) + [(r, False) for r in roster_variants]
+    for roster, extras in variants:
+        text = assemble(roster, extras)
         if len(text) <= _PROVIDER_RUNE_LIMIT:
             break
     boundary = validate_provider_prompt_boundary(text, source_id=uid, model_family="MINIMAX_H3")
