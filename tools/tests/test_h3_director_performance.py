@@ -12,7 +12,8 @@ from tools.h3_provider_prompt_renderer import render_h3_prompt
 from tools.tests.test_h3_shot_scope_v1 import A, LOCKED, build
 
 CANNED = "Delivery: clear, connected, naturally brisk speech without stretched syllables"
-TAIL = "Natural human speech with real breaths and pauses; never a flat read-aloud tone."
+TAIL = ("Natural human speech with real breaths and pauses; expressive intonation "
+        "with clear rises and falls in pitch and volume, the key words stressed; never a flat read-aloud tone.")
 
 
 def unit_plan(*, stamped: bool, performance: dict | None) -> tuple[dict, dict]:

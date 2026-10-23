@@ -7389,7 +7389,7 @@
     },
     {
       "path": "tools/tests/test_h3_director_performance.py",
-      "sha256": "a6f0899058ba119d510100cd5798f380f9dd26f95c1cfad6cc2cec2fb31c9d40"
+      "sha256": "576e240783a0710c0fa11faaa69264fc951ee2388175a8ef601ae9952766e077"
     },
     {
       "path": "tools/tests/test_h3_director_prompt.py",
