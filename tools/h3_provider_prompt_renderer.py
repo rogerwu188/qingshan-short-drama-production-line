@@ -780,13 +780,18 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         if row.get("reference_index") is not None
     }
     scope = unit.get("provider_scope_projection") or {}
+    # Director units: a reference without its own provider label (e.g. the continuity-derived opening
+    # frame) takes the same English name the unit's other bindings use, never the raw CHAR-* id.
+    director_labels = _entity_labels(unit, plan) if director_active(unit, plan) else {}
     for index, raw_ref in enumerate(refs, 1):
         ref = raw_ref if isinstance(raw_ref, dict) else {"path": str(raw_ref)}
         # Index binding is authoritative.  Path lookup is compatibility-only:
         # different role references may legitimately share one source image.
         bound = scope_bindings.get(index) or sequence_by_path.get(str(ref.get("path") or ""), {})
         ref = {**bound, **ref}
-        entity = str(ref.get("provider_entity_label") or ref.get("entity_id") or "").strip()
+        entity = str(ref.get("provider_entity_label")
+                     or director_labels.get(str(ref.get("entity_id") or "").strip())
+                     or ref.get("entity_id") or "").strip()
         role = str(ref.get("role") or "REFERENCE").strip()
         binding_role = str(bound.get("binding_role") or "")
         role_is_identity = binding_role == "IDENTITY" or (
