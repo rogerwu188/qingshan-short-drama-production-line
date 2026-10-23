@@ -16,6 +16,11 @@ class ReferenceSampleTests(unittest.TestCase):
         self.assertGreaterEqual(out['estimated_duration_seconds'],3)
         self.assertEqual(out['risk_flags'],[])
 
+    def test_optional_emotion_overrides_the_default_only_when_given(self):
+        self.assertEqual(apply_reference_sample({'emotion':'neutral'},self.sample())['emotion'],'neutral')
+        s=self.sample();s['reference_sample']['emotion']='angry'
+        self.assertEqual(apply_reference_sample({'emotion':'neutral'},s)['emotion'],'angry')
+
     def test_legacy_unchanged(self):
         b={'sample_text':'a'};self.assertIs(apply_reference_sample(b,{}),b)
 

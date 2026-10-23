@@ -59,7 +59,7 @@ python3 lines/nalu/runtime/tools/bootstrap_runtime_root.py --runtime-root "$RUNT
 | 人物照 | 每角色一张正脸；肖像授权由线主线下处理并在 map 里声明 | `runtime/character_sources/<CHAR-ID>__SOURCE_V2_TANG.png`（生产用）；原图与裁切 `runtime/character_sources_hold/`（永不入库） | `python3 tools/intake_character_sources.py --folder <照片目录> --map $RUNTIME_ROOT/runtime/character_source_map.json`：登记 sha、角色绑定、用途、授权备注；换装/年轻化要付费 i2i（nalu 用 `generate_period_look.py`，作品专用） | 登记脚本 REFERENCE_IMPLEMENTATION；换装 MANUAL_REQUIRED + 付费 |
 | 场景/历史地图图片 | 可选 | `runtime/reference_images/`（只作提示词参考） | nalu 没有外部地图：E01 手写 `preproduction/E01/global_space_map.json`，之后每集 `extend_global_space_map.py` 按合同新地点 + 作者命名的 `preproduction/<EP>/new_location_place_spec.json` 自动布局 | 地图素材→空间图 **INTEGRATION_PENDING**（无自动接入） |
 | 品牌/片尾等 | 9:16 PNG | `brand/` | 手放；装配时追加 3 s 片尾 | MANUAL_REQUIRED |
-| 音色 | 无素材：从提供者目录挑 | `runtime/voice_catalog.json`（实体→voice_id）、`runtime/voice_registry.json` | `agentcut speech-voices` 列表 → 代理按角色气质挑，写目录；S4 才付费 | MANUAL_REQUIRED（挑选） |
+| 音色 | 无素材：从提供者目录挑 | `runtime/voice_catalog.json`（实体→voice_id）、`runtime/voice_registry.json` | `agentcut speech-voices` 列表 → 代理按角色气质挑（全目录逐条对 gender/age/style 与角色年龄、身份、性格、剧的调子；每行写 `casting_rationale`；参考音用该角色情绪最重的一句 + 对应 emotion，见 CLAUDE_CODE_PRODUCTION.md S4 选角规则），写目录；S4 才付费 | MANUAL_REQUIRED（挑选） |
 
 素材进入 canonical 的边界：**写手层的 narrative 是手写的**（代理逐拍读源章、逐字引台词），素材脚本只把文件放到位并登记来源与 sha。
 

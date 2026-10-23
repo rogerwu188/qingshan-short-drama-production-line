@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2188,
+  "file_count": 2189,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -197,7 +197,7 @@
     },
     {
       "path": "agent_factory/storyclaw_portable/WRITER_CONTRACT.md",
-      "sha256": "bda01883151c7af73556d3bc071a72a0163032bc0e82c5af93e93c2d47a0aa50"
+      "sha256": "a3a757d8f0b3a5cea5882cb2b020bf5c23b1feef042d2fdcf953c370a1e132fb"
     },
     {
       "path": "configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json",
@@ -337,7 +337,7 @@
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
-      "sha256": "f20499916f2bd3c17995bee2d764e3e28e14d9dee428d5fcb776d3dd590afbf4"
+      "sha256": "75f6e639f751cbe71288e51c9da4f049a130a86c33d5cef5ea4c6a8830ac54e1"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -797,7 +797,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "4fb253533a165cbbc710023f1bc384c5dea2f223c238cfd13000af3c5795d74c"
+      "sha256": "ee22a15230775536106ce360249f810d4d8733c72b6374f846a46caab15cbc81"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -4873,7 +4873,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "89b11a7f449b4cd446562cbd7cf80b39afeed4d934892a4f58101d1adf64dc94"
+      "sha256": "79a1549ec3f5bffdd5b819ffadca5edd0ebd28c2429b30abd20d98bd137a9a52"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -7388,6 +7388,10 @@
       "sha256": "826f78782fc0d6ef09bccbd913229a3a9617167d24a4fa10d2b264fcf674f06e"
     },
     {
+      "path": "tools/tests/test_h3_director_performance.py",
+      "sha256": "a6f0899058ba119d510100cd5798f380f9dd26f95c1cfad6cc2cec2fb31c9d40"
+    },
+    {
       "path": "tools/tests/test_h3_director_prompt.py",
       "sha256": "67728014e625454ba36a01fe1c77324e0efc3487e2fccfbde6996e0436b18794"
     },
@@ -8357,7 +8361,7 @@
     },
     {
       "path": "tools/tests/test_voice_reference_sample.py",
-      "sha256": "bf17b143c924a9a8907e8648eb9fe767b3fa4ee69486ccade287b0a3977f14ba"
+      "sha256": "c81ee172b1e22ae11c792d7e9452795a7cbbfe3d6dfda67aa3aff8bf4c431e6b"
     },
     {
       "path": "tools/tests/test_voice_timbre_lock.py",
@@ -8705,7 +8709,7 @@
     },
     {
       "path": "tools/voice_reference_sample.py",
-      "sha256": "8a00b8e445232e780eddd0781113c712541fa580416bb96aab51dbcf17346b80"
+      "sha256": "2269fa31f26ce27eb952b20c84a22fec54ca98c1f876f81b1d6ada276066ed48"
     },
     {
       "path": "tools/voice_timbre_lock.py",

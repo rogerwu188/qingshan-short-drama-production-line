@@ -134,6 +134,10 @@ blocking check; direct the episode the way people watch films:
 - Write the cuts the script implies: `internal_transition_authoring.transition_mode` `MOTIVATED_CUT` /
   `REACTION_CUT` / `MATCH_CUT` / `HARD_CUT` (or a scene change) makes the next video unit open on its own
   keyframe, a clean cut; continuous modes keep the previous unit's real tail as the start frame.
+- Dialogue shots may add `prompt_spec.action.performance.delivery_en` (optional): one short English sentence of
+  emotion + how the line is said, e.g. `"cold and contemptuous, low and clipped, a beat of silence before the
+  second sentence"`. H3 reads it instead of the generic brisk-delivery line; without it, a common `emotion` word
+  (厌/怒/冷/疑/…) is mapped to English, otherwise the generic line stays.
 
 Under this policy the S1 static design gate reports its old forced-motion rules (R1–R4, R6, R7) as
 `advisories`; they never block.

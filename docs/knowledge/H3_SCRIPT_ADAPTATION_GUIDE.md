@@ -46,6 +46,9 @@
   让一场戏里所有人、连船上的另一场人物都带上「右脸旧伤」。要强调某人的特征，写进他的 `appearance_ch1` 或那一镜的 action。
 - **每个人物只有一个英文名，全集一致**：H3 英文翻译里的称呼必须和人物登记的英文名一致（cast_roster 用的那个），不要一处
   「Liwei Adult」一处「Adult Li Wei」。身份/职务要意译成英文（特工 → the agent，老师 → Teacher Wu），不要拼音（Te Gong、Wu Laoshi）。
+- **台词的情绪写成一句英文**：对白镜加 `action.performance.delivery_en`（可选），一句话写情绪 + 怎么说，如
+  `"cold and contemptuous, low and clipped, a beat of silence before the second sentence"`。H3 不收中文，中文的 `delivery`
+  到不了模型；不写时只有常见 `emotion` 单字（厌/怒/冷/疑/急/惊…）会被译成形容词，否则只剩通用的「清晰、偏快」一句，听着像念稿。
 
 ## 5. 景别、机位与切
 

@@ -608,9 +608,48 @@ def _dialogue_partition(raw: str, language: str = "zh") -> tuple[str, str, str]:
     return speaker, separator, words
 
 
+#: Writer emotion word -> English adjective for director units without performance.delivery_en
+#: (multi-character keys first so 平静 is not read as 静).  Unmapped emotions keep the canned clause.
+_EMOTION_EN = (
+    ("平静", "calm"), ("紧张", "tense"), ("厌", "contemptuous"), ("怒", "angry"), ("冷", "cold"),
+    ("惧", "frightened"), ("怕", "frightened"), ("悲", "grieving"), ("哀", "grieving"), ("喜", "delighted"),
+    ("疑", "suspicious"), ("急", "urgent"), ("讥", "mocking"), ("嘲", "mocking"), ("惊", "startled"),
+    ("羞", "embarrassed"), ("疲", "weary"),
+)
+
+
+def _performance_direction(performance: Any) -> str:
+    """CAMERA_GRAMMAR_V1 dialogue delivery from the writer's performance column ("" = keep the canned clause)."""
+    if not isinstance(performance, dict):
+        return ""
+    direction = _plain_en(re.sub(r"[<>\[\]]", "", str(performance.get("delivery_en") or "")), 200)
+    if not direction:
+        emotion = str(performance.get("emotion") or "")
+        found: list[tuple[int, str]] = []
+        for key, word in _EMOTION_EN:
+            at = emotion.find(key)
+            if at >= 0 and word not in [w for _, w in found]:
+                found.append((at, word))
+                emotion = emotion.replace(key, " " * len(key))
+        direction = ", ".join(word for _, word in sorted(found))
+    if not direction:
+        return ""
+    return f"Performance: {direction}. Natural human speech with real breaths and pauses; never a flat read-aloud tone."
+
+
+def _spec_performance(specs: list[Any], source_index: Any) -> Any:
+    """``ordered_prompt_specs[source_index - 1].action.performance`` (beats are 1-based over the specs)."""
+    try:
+        position = int(source_index) - 1
+    except (TypeError, ValueError):
+        return None
+    spec = specs[position] if 0 <= position < len(specs) else None
+    return ((spec.get("action") or {}) if isinstance(spec, dict) else {}).get("performance")
+
+
 def _beat(
     source: dict[str, Any], translated: dict[str, Any], *, dialogue_binding: dict[str, Any] | None,
-    positive_single_subject: bool = False, language: str = "zh",
+    positive_single_subject: bool = False, language: str = "zh", performance: Any = None,
 ) -> tuple[str, dict[str, str]]:
     index = int(source["source_index"])
     prefix = f"BEAT.{index}"
@@ -678,6 +717,8 @@ def _beat(
             )
         evidence[f"{prefix}.DIALOGUE"] = literal
         pace = delivery_clause(source, "EN")
+        # director units (CAMERA_GRAMMAR_V1): the writer's performance replaces the brisk canned clause
+        pace = _performance_direction(performance) or pace
         if pace:
             line += " " + pace
             evidence[f"{prefix}.DIALOGUE_DELIVERY"] = pace
@@ -899,6 +940,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     action_beats = (plan.get("action_ir") or {}).get("causal_chains") or plan["beats"]
     visibility_scopes = beat_visibility_scopes(unit, plan) if scoped else []
     visible_speakers = _visible_speaker_ids(plan) if scoped else []
+    director_specs = (unit.get("ordered_prompt_specs") or []) if director_active(unit, plan) else []
     for beat_number, (source, translated) in enumerate(zip(action_beats, contract["beats"]), 1):
         dialogue_binding = None
         if source.get("dialogue"):
@@ -912,6 +954,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             dialogue_binding=dialogue_binding,
             positive_single_subject=positive_single_subject,
             language=language,
+            performance=_spec_performance(director_specs, source.get("source_index")),
         )
         if scoped:
             scope_text, scope_evidence = _beat_scope_clauses(
