@@ -173,7 +173,11 @@ def _director_subjects(
             if label and label not in people:
                 people[label] = wardrobe.get(cid) or wardrobe.get(str(member.get("character") or "")) or ""
         for row in spec.get("props") or []:
-            label = _plain_en(row.get("prop"), 80)
+            label = _plain_en(row.get("english_name") or row.get("prop"), 80)
+            if not label and is_being_prop(row):
+                # a Chinese-named being (醉狐) still needs an English name: fall back to its machine id (PROP-FOX → Fox)
+                label = re.sub(r"[^A-Za-z0-9]+", " ", re.sub(r"^(PROP|OBJ|SET|CREATURE|BEING)-", "",
+                                                              str(row.get("prop_id") or ""))).strip().title()
             if not label:
                 continue
             if not is_being_prop(row):

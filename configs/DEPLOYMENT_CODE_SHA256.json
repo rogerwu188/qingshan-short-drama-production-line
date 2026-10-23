@@ -3769,7 +3769,7 @@
     },
     {
       "path": "tools/compile_grouped_seedance_manifest.py",
-      "sha256": "51c551e8b27cede67ab0d38a2fe4846704930c3e70b7b38a5456ac2c17edba4b"
+      "sha256": "41fe5ff4a3c7abed235d4b05aa755f9041310ac1bef317d67c52836af01a735e"
     },
     {
       "path": "tools/compile_grouped_seedance_transaction_manifest.py",
@@ -4873,7 +4873,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "9fc82a2473a41e1171c3403125235a2b99167f9536d2b287cc467350240a1d38"
+      "sha256": "a6b96889b98a81e692c50c221a2cc5e20c4ab8d71b91d244f6496ad10a75d86b"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",

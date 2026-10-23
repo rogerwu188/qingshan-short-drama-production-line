@@ -1046,6 +1046,12 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
         visible_character_ids = [str(member.get("character_id") or member.get("character") or "")
                                  for spec in prompt_specs for member in (spec.get("cast") or [])
                                  if str(member.get("character_id") or member.get("character") or "")]
+        # A carded living being (kind CREATURE/ANIMAL, stamped only on CAMERA_GRAMMAR_V1 contracts) is a visible
+        # living entity: count it, or the population clause says "0 living entities" over a shot of the fox.
+        visible_character_ids += [str(prop.get("prop_id") or "")
+                                  for spec in prompt_specs for prop in (spec.get("props") or [])
+                                  if str(prop.get("kind") or "").upper() in {"CREATURE", "ANIMAL"}
+                                  and str(prop.get("prop_id") or "")]
         visible_prop_ids = [str(prop.get("prop_id") or prop.get("prop") or "")
                             for spec in prompt_specs for prop in (spec.get("props") or [])
                             if str(prop.get("prop_id") or prop.get("prop") or "")]
