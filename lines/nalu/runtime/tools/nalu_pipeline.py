@@ -3394,7 +3394,14 @@ def s3_qa(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str, Any]:
         "harvested_plates": [item.name for item in plates],
         "reviewer": REVIEWER_ID,
     }
-    if not plates:
+    # An all-reuse episode (every identity requirement REUSED_FROM_PRIOR_LIBRARY, nothing new to generate)
+    # has no episode-local plates by design: let it reach the no-reviewable-subject path below, where the
+    # prior LOCKED rows are copied and byte-checked by the non-plate lock and the engine gate.
+    _plan_now = read_json(ctx.p.identity_plan, {}) or {}
+    all_reuse = (not plates and bool(_plan_now.get("verified_reused_subjects"))
+                 and not (_plan_now.get("new_asset_groups") or []))
+    detail["all_reuse_episode"] = all_reuse
+    if not plates and not all_reuse:
         detail["status"] = BLOCKED
         detail["blockers"] = ["IDENTITY_PLATES_NOT_ON_DISK"]
         detail["reason"] = ("S3 has not produced plates yet (paid step disabled or not run). "
