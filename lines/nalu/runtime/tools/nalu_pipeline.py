@@ -3668,6 +3668,13 @@ def keyframe_needs_post(ctx: Ctx, index: dict[str, Any]) -> tuple[list[str], lis
     return need, done
 
 
+def s5_keyframes_missing(ctx: Ctx) -> list[str]:
+    """Planned keyframe prompts whose image is not on disk (a §4 controlled redo parks the rejected one)."""
+    p = ctx.p
+    return [prompt.name for prompt in sorted((p.preprod / "prompts" / "keyframes").glob("*-KEYFRAME-V1.txt"))
+            if not (p.keyframes / prompt.name.replace("-KEYFRAME-V1.txt", "-keyframe-v1.png")).is_file()]
+
+
 def stage_s5(ctx: Ctx) -> StageResult:
     p = ctx.p
     # Plan §4: the zero-credit previs gate runs BEFORE any manifest is built and
@@ -3693,8 +3700,12 @@ def stage_s5(ctx: Ctx) -> StageResult:
     # duplicate POSTs.  Reuse the admitted evidence and continue to S6.
     q1_index = p.preprod / "reports/qa/q1" / f"{ctx.episode}_KEYFRAME_Q1_INDEX.json"
     q1 = read_json(q1_index, {}) or {}
+    # ...but only while every keyframe the episode plans is still on disk: the §4 controlled redo parks a
+    # rejected keyframe and reruns S5, which must then render the missing image instead of reusing the
+    # stale ALL_ADMITTED index (urban lab E02 2026-10-23: a parked keyframe was never regenerated).
+    keyframe_missing = s5_keyframes_missing(ctx)
     if (q1.get("status") == "ALL_ADMITTED" and p.anchor_plan.is_file()
-            and int(q1.get("unit_count") or 0) > 0):
+            and int(q1.get("unit_count") or 0) > 0 and not keyframe_missing):
         res = StageResult(PASS)
         res.details = {
             "reuse": "Q1_ALL_ADMITTED",
@@ -3765,6 +3776,10 @@ def stage_s5(ctx: Ctx) -> StageResult:
     res.details["d46_needs_post"] = needs_post
     res.details["d46_already_admitted"] = keyframes_done
     planned = ctx.planned_credits("S5")
+    if keyframes_done and needs_post:
+        # a partial redo plans only the images it will POST, not the whole-episode default estimate
+        image_credits = int(((ctx.cost_plan.get("price_basis") or {}).get("image_credits_per_task")) or 11)
+        planned = min(planned, len(needs_post) * image_credits)
     if not needs_post:
         # Nothing to generate.  Do not materialise authority, do not POST, do not harvest — go
         # straight to the Q1 admission tail, which is what decides whether S5 is done.
@@ -7651,7 +7666,8 @@ def run_episode(ctx: Ctx) -> int:
         row = ctx.stage_state(sid)
         fingerprint = FINGERPRINTS.get(sid, lambda _c: None)(ctx)
         if (not ctx.force and row.get("status") in TERMINAL_OK
-                and (fingerprint is None or fingerprint == row.get("input_fingerprint"))):
+                and (fingerprint is None or fingerprint == row.get("input_fingerprint"))
+                and not (sid == "S5" and s5_keyframes_missing(ctx))):
             ctx.say(f"\n-- {sid} {STAGE_TITLES[sid]}: SKIPPED (already PASS, inputs unchanged)")
             row["status"] = SKIPPED
             ctx.save_state()
