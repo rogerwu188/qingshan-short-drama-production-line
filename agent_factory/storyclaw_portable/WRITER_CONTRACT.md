@@ -130,16 +130,18 @@ blocking check; direct the episode the way people watch films:
   character's point of view. Never sweep across empty space or let the subject leave frame and return.
 - Open every new location with an establishing framing (`shot_scale` `WIDE` or `MEDIUM_WIDE`) within its first
   two shots; at most two consecutive shots at the same `shot_scale`.
-- Do not cut on every line of a dialogue scene (line owner 2026-10-23). One H3 unit still carries one speaker,
-  but (1) consecutive lines of a two-person exchange share the SAME two-shot (both visible, same `camera_side` /
-  `shot_scale` / `camera_height`), joined with `CONTINUOUS_ACTION` so each unit starts from the previous unit's
-  real tail frame and the exchange reads as one take; (2) open the scene on a two-shot/medium, cut in to
-  singles/close-ups only at an emotional turn (`MOTIVATED_CUT` / `REACTION_CUT`), give the hardest line the
-  tightest shot, keep one speaker's consecutive lines in one shot, and cut to a listener's silent reaction only
-  when the reaction is the story; (3) L-cut: a silent reaction shot that directly follows a dialogue shot (in the
-  next unit) may set `prompt_spec.transition.sound_bridge_from_previous_seconds` (0.3–2.0): S7 cuts the speaker's
-  picture that much earlier and lets the line (and its subtitle) finish over the reaction, the reaction's own
-  sound ducked to ambience. Omit it for a plain cut.
+- Do not cut on every line of a dialogue scene, and do not put two people in frame while one of them speaks
+  (line owner 2026-10-23; four lab runs: H3 turns/pushes the camera to the speaker, drops the listener, and ghosts
+  or duplicates a person who is both in the opening frame and a face reference). One H3 unit carries one speaker.
+  (1) Speaking shots show only the speaker: a single, or an over-the-shoulder with a sliver of the listener, speaker
+  centred and the only front face; one speaker's consecutive lines stay in one shot. (2) Two-shots only when nobody
+  speaks: opening geography, silent stand-off, physical reaction. (3) Rhythm: open on a silent two-shot, play the lines
+  in singles, cut tighter only at an emotional turn, give the hardest line the tightest shot, cut to a listener's
+  silent reaction only when the reaction is the story. (4) L-cut: a silent reaction shot that directly follows a
+  dialogue shot (next unit) may set `prompt_spec.transition.sound_bridge_from_previous_seconds` (0.3–2.0): S7 cuts the
+  speaker's picture that much earlier and lets the line (and its subtitle) finish over the reaction, the reaction's own
+  sound ducked to ambience. Omit it for a plain cut. Vertical silent two-shots: stack them front/back
+  (over-the-shoulder), never two people pinned to the left and right edges. No extra cost: no multi-take, no post fixes.
 - Write the cuts the script implies: `internal_transition_authoring.transition_mode` `MOTIVATED_CUT` /
   `REACTION_CUT` / `MATCH_CUT` / `HARD_CUT` (or a scene change) makes the next video unit open on its own
   keyframe, a clean cut; continuous modes keep the previous unit's real tail as the start frame.
