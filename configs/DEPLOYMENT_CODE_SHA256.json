@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2201,
+  "file_count": 2202,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -765,7 +765,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/video_q2_builder.py",
-      "sha256": "eb3b9db02a72136aaafd7b4b47e784b66f80a56464d4b5ce332bd2bb129e95cb"
+      "sha256": "098093554ef330273fe889c0fe5004abde14105f7047d4ea2232f008ebcdfad6"
     },
     {
       "path": "lines/nalu/runtime/tools/visual_review_policy.py",
@@ -797,7 +797,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "9c54c21e56cf04b4989da352611e6bf02b918ef57e245238d4c63d827e39f0e7"
+      "sha256": "cbdec73e694f471212ccff33aed3039668ecdec0cc5b26a94bd1a7b9d4497545"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -8110,6 +8110,10 @@
     {
       "path": "tools/tests/test_spatial_dialogue_contract.py",
       "sha256": "25f6288a1924abc195dc9d3d81a80545799b8a0b754c07f3dee0defa337bd8cc"
+    },
+    {
+      "path": "tools/tests/test_speaker_framing.py",
+      "sha256": "ede2d10123f499e806369a8c527a2c898b19623bf6c2483448d4eef6ec99a939"
     },
     {
       "path": "tools/tests/test_speaker_identity_voice_release_gate.py",

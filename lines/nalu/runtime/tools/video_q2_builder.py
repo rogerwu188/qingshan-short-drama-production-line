@@ -653,8 +653,9 @@ def face_count_verdict(expectations: dict[str, Any], per_frame: list[dict[str, A
     return result
 
 
-def measure_face_count(expectations: dict[str, Any], frames: list[dict[str, Any]]) -> dict[str, Any]:
-    """Count detected faces on the unit's extracted frames with the engine's own FaceAnalysis."""
+def detect_unit_faces(frames: list[dict[str, Any]]) -> dict[str, Any]:
+    """One InsightFace pass over the unit's sampled frames (shared by the face count and the speaker
+    framing measurement): [{row, frame_index, height, width, faces}] with the kept faces only."""
     try:
         import cv2
         gate = engine_module("character_identity_admission_gate")
@@ -662,8 +663,8 @@ def measure_face_count(expectations: dict[str, Any], frames: list[dict[str, Any]
         with _INSIGHT_LOCK:
             backend = _insightface_backend(gate, model)
     except Exception as exc:  # noqa: BLE001
-        return {"method": FACE_COUNT_METHOD, "status": "NOT_MEASURED", "reason": f"INSIGHTFACE_UNAVAILABLE:{exc}"}
-    per_frame = []
+        return {"status": "NOT_MEASURED", "reason": f"INSIGHTFACE_UNAVAILABLE:{exc}"}
+    rows = []
     for row in sample_rows([r for r in frames if r.get("path")]):
         image = cv2.imread(str(row["path"]))
         if image is None:
@@ -673,13 +674,239 @@ def measure_face_count(expectations: dict[str, Any], frames: list[dict[str, Any]
         min_h = FACE_COUNT_MIN_HEIGHT_RATIO * image.shape[0]
         kept = [f for f in faces if float(getattr(f, "det_score", 0.0)) >= FACE_COUNT_MIN_DET_SCORE
                 and float(f.bbox[3] - f.bbox[1]) >= min_h]
-        per_frame.append({"frame_index": frames.index(row) + 1, "frame": str(row["path"]),
+        rows.append({"row": row, "frame_index": frames.index(row) + 1, "height": int(image.shape[0]),
+                     "width": int(image.shape[1]), "faces": kept})
+    return {"status": "OK", "backend": backend, "frames": rows}
+
+
+def measure_face_count(expectations: dict[str, Any], frames: list[dict[str, Any]],
+                       detections: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Count detected faces on the unit's extracted frames with the engine's own FaceAnalysis."""
+    detections = detections if detections is not None else detect_unit_faces(frames)
+    if detections.get("status") != "OK":
+        return {"method": FACE_COUNT_METHOD, "status": "NOT_MEASURED", "reason": detections.get("reason")}
+    per_frame = []
+    for det in detections["frames"]:
+        row, kept = det["row"], det["faces"]
+        per_frame.append({"frame_index": det["frame_index"], "frame": str(row["path"]),
                           "at_seconds": row.get("at_seconds"), "faces": len(kept),
                           "boxes": [[round(float(v), 1) for v in f.bbox.tolist()] + [round(float(f.det_score), 3)]
                                     for f in kept]})
     if not per_frame:
         return {"method": FACE_COUNT_METHOD, "status": "NOT_MEASURED", "reason": "NO_READABLE_FRAME"}
     return face_count_verdict(expectations, per_frame)
+
+
+#: CAMERA_GRAMMAR_V1 objective speaker framing (line owner 2026-10-24, lab Holmes E02: Helen speaking
+#: half-cropped at the left frame edge / cut out of frame in VU-001/005/007/008 while the reviewer
+#: answered PASS).  Not a new gate: a FAIL only makes ``cast_exactly_as_declared`` fail (the declared
+#: speaker is not visibly in frame), which the existing CLAUDE_CODE_PRODUCTION §5 one-redo rule keys
+#: on.  Only units whose dialogue is spoken by a declared on-screen cast member (never V.O. / offscreen /
+#: back-only); only the speaker's face is judged.  Thresholds tuned on lab Holmes E02 + urban E03.
+SPEAKER_FRAMING_METHOD = "INSIGHTFACE_SPEAKER_FRAMING_V1"
+SPEAKER_EDGE_TOUCH_RATIO = 0.02      # bbox x within 2% of the left/right edge ...
+SPEAKER_CLOSEUP_WIDTH_RATIO = 0.25   # ... unless the face is a close-up (>= 25% of frame width)
+SPEAKER_CUT_FRACTION = 0.15          # >= 15% of the face box outside the frame = cut (any size)
+SPEAKER_OUTER_BAND = 0.12            # face centre in the outer 12% horizontal band
+SPEAKER_ID_MIN_SIMILARITY = 0.30     # a face is "character X" when cosine >= 0.30 ...
+SPEAKER_ID_MIN_MARGIN = 0.10         # ... and >= 0.10 above every other declared character
+SPEAKER_NOT_ID_MAX = 0.20          # below 0.20 to every speaker plate a face is not the speaker
+SPEAKER_SIDE_AMBIGUITY = 0.10        # two candidate faces within 10% of width of the declared side
+SPEAKER_MIN_FRAMES = 3
+NO_SPEAKER_VISIBILITY = NO_FACE_VISIBILITY + ("BACK", "VOICE_OVER", "V.O.")
+
+
+def _speaker_name(line: str) -> str:
+    head = line[:24]
+    for sep in ("：", ":"):
+        if sep in head:
+            return head.split(sep, 1)[0].strip()
+    return ""
+
+
+def declared_speakers(expectations: dict[str, Any]) -> dict[str, Any]:
+    """{speaker character ids, their declared screen side, the other face cast ids} from the
+    unit's dialogue + cast; a speaker who is not a face-visible cast member of that shot is skipped."""
+    _, face_ids = declared_face_budget(expectations)
+    speakers: list[str] = []
+    for line_row in expectations.get("expected_dialogue") or []:
+        shot = str(line_row.get("shot_id") or "")
+        for line in str(line_row.get("spoken_text") or "").splitlines():
+            name = _speaker_name(line.strip())
+            if not name:
+                continue
+            for row in expectations.get("cast") or []:
+                cid = str(row.get("character_id") or "")
+                if (str(row.get("shot_id") or "") != shot or cid not in face_ids
+                        or name not in {str(row.get("character") or ""), cid}):
+                    continue
+                fv = str(row.get("face_visibility") or "VISIBLE_PER_FRAME_CONTENT").upper()
+                if not any(token in fv for token in NO_SPEAKER_VISIBILITY) and cid not in speakers:
+                    speakers.append(cid)
+    slots = {}
+    for row in expectations.get("cast") or []:
+        cid = str(row.get("character_id") or "")
+        if cid in face_ids and cid not in slots:
+            slots[cid] = str(row.get("screen_slot") or "").upper()
+    ordinal = sorted((int(m.group(1)), cid) for cid, slot in slots.items()
+                     if (m := re.fullmatch(r"SLOT_(\d+)", slot)))
+    sides = {}
+    for cid in speakers:
+        slot = slots.get(cid, "")
+        if "LEFT" in slot:
+            sides[cid] = "LEFT"
+        elif "RIGHT" in slot:
+            sides[cid] = "RIGHT"
+        elif len(ordinal) >= 2 and ordinal[0][1] == cid:
+            sides[cid] = "LEFT"
+        elif len(ordinal) >= 2 and ordinal[-1][1] == cid:
+            sides[cid] = "RIGHT"
+    return {"speaker_ids": speakers, "speaker_sides": sides, "face_cast_ids": face_ids}
+
+
+def _identify(face: dict[str, Any], ids: list[str]) -> str | None:
+    sims = face.get("similarity") or {}
+    scored = sorted(((float(sims[c]), c) for c in ids if c in sims), reverse=True)
+    if not scored or scored[0][0] < SPEAKER_ID_MIN_SIMILARITY:
+        return None
+    if len(scored) > 1 and scored[0][0] - scored[1][0] < SPEAKER_ID_MIN_MARGIN:
+        return None
+    return scored[0][1]
+
+
+def _frame_framing(declared: dict[str, Any], frame: dict[str, Any]) -> dict[str, Any]:
+    """Pure: which face is the speaker in this frame, and is it cramped / cut at the edge."""
+    width = float(frame["width"])
+    faces = frame.get("faces") or []
+    speakers, cast = declared["speaker_ids"], declared["face_cast_ids"]
+    out: dict[str, Any] = {"frame_index": frame["frame_index"], "at_seconds": frame.get("at_seconds"),
+                           "faces": len(faces)}
+    if not faces:
+        return {**out, "flag": "NO_FACE_DETECTED"}
+    have_ids = any(face.get("similarity") for face in faces)
+    ident = [_identify(face, cast) if have_ids else None for face in faces]
+    mine = [i for i, cid in enumerate(ident) if cid in speakers]
+    # with embeddings, an unidentified face that is clearly NOT the speaker (an undeclared extra) is no
+    # speaker candidate either
+    unknown = [i for i, cid in enumerate(ident) if cid is None and not (have_ids and max(
+        float((faces[i].get("similarity") or {}).get(c, 0.0)) for c in speakers) < SPEAKER_NOT_ID_MAX)]
+    pick, basis = None, None
+    if mine:
+        pick = max(mine, key=lambda i: max(float((faces[i].get("similarity") or {}).get(c, 0)) for c in speakers))
+        basis = "IDENTITY_MATCH"
+    elif not unknown:
+        return {**out, "flag": "SPEAKER_NOT_IN_FRAME", "identified": ident}
+    elif len(cast) <= 1:
+        pick = max(unknown, key=lambda i: (faces[i]["bbox"][2] - faces[i]["bbox"][0])
+                   * (faces[i]["bbox"][3] - faces[i]["bbox"][1]))
+        basis = "LARGEST_FACE"
+    else:
+        sides = {declared["speaker_sides"].get(c) for c in speakers}
+        if len(sides) != 1 or None in sides:
+            return {**out, "flag": None, "basis": "AMBIGUOUS_NO_FLAG"}
+        side = sides.pop()
+
+        def dist(i: int) -> float:
+            x1, _, x2, _ = faces[i]["bbox"]
+            return (x1 + x2) / 2 if side == "LEFT" else width - (x1 + x2) / 2
+        ranked = sorted(unknown, key=dist)
+        if len(ranked) > 1 and dist(ranked[1]) - dist(ranked[0]) < SPEAKER_SIDE_AMBIGUITY * width:
+            return {**out, "flag": None, "basis": "AMBIGUOUS_NO_FLAG"}
+        if len(ranked) == 1 and len(cast) - sum(1 for c in ident if c) > 1:
+            return {**out, "flag": None, "basis": "AMBIGUOUS_NO_FLAG"}
+        pick, basis = ranked[0], f"DECLARED_SIDE_{side}"
+    x1, _, x2, _ = (float(v) for v in faces[pick]["bbox"])
+    face_w = max(x2 - x1, 1.0)
+    centre = (x1 + x2) / 2 / width
+    cut = (max(0.0, -x1) + max(0.0, x2 - width)) / face_w
+    touches = x1 <= SPEAKER_EDGE_TOUCH_RATIO * width or x2 >= (1 - SPEAKER_EDGE_TOUCH_RATIO) * width
+    flag = ("FACE_CUT_AT_EDGE" if cut >= SPEAKER_CUT_FRACTION
+            else "FACE_CENTRE_IN_OUTER_BAND" if centre < SPEAKER_OUTER_BAND or centre > 1 - SPEAKER_OUTER_BAND
+            else "FACE_TOUCHES_EDGE" if touches and face_w < SPEAKER_CLOSEUP_WIDTH_RATIO * width
+            else None)
+    return {**out, "flag": flag, "basis": basis, "speaker_bbox": [round(v, 1) for v in (x1, x2)],
+            "centre_x_ratio": round(centre, 3), "cut_fraction": round(cut, 3),
+            **({"speaker_similarity": faces[pick].get("similarity")} if have_ids else {})}
+
+
+def speaker_framing_verdict(expectations: dict[str, Any], per_frame: list[dict[str, Any]]) -> dict[str, Any]:
+    """Pure verdict over [{frame_index, at_seconds, width, faces: [{bbox, similarity?}]}]."""
+    declared = declared_speakers(expectations)
+    result: dict[str, Any] = {"method": SPEAKER_FRAMING_METHOD, "speaker_ids": declared["speaker_ids"],
+                              "speaker_sides": declared["speaker_sides"],
+                              "thresholds": {"edge_touch_ratio": SPEAKER_EDGE_TOUCH_RATIO,
+                                             "closeup_width_ratio": SPEAKER_CLOSEUP_WIDTH_RATIO,
+                                             "cut_fraction": SPEAKER_CUT_FRACTION,
+                                             "outer_band": SPEAKER_OUTER_BAND,
+                                             "id_min_similarity": SPEAKER_ID_MIN_SIMILARITY,
+                                             "id_min_margin": SPEAKER_ID_MIN_MARGIN,
+                                             "not_speaker_max_similarity": SPEAKER_NOT_ID_MAX,
+                                             "min_frames_fraction": f"1/{SPEAKER_MIN_FRAMES}"}}
+    if not declared["speaker_ids"]:
+        return {**result, "status": "NOT_APPLICABLE", "reason": "NO_ON_SCREEN_SPEAKER_DECLARED"}
+    if expectations.get("group_counts"):
+        return {**result, "status": "NOT_APPLICABLE", "reason": "GROUP_OR_CROWD_DECLARED"}
+    if not per_frame:
+        return {**result, "status": "NOT_MEASURED", "reason": "NO_READABLE_FRAME"}
+    frames = [_frame_framing(declared, frame) for frame in per_frame]
+    flagged = [row for row in frames if row.get("flag")]
+    need = max(2, math.ceil(len(frames) / SPEAKER_MIN_FRAMES))
+    result.update({"per_frame": frames, "frames_flagged": len(flagged), "frames_sampled": len(frames),
+                   "min_frames_flagged": need,
+                   "status": "FAIL" if len(flagged) >= need else "PASS"})
+    if result["status"] == "FAIL":
+        result["failure"] = ("OBJECTIVE_SPEAKER_FRAMING_CRAMPED_OR_CUT:" + ",".join(
+            f"f{row['frame_index']}={row['flag']}" for row in flagged))
+    return result
+
+
+def _speaker_canonicals(episode: str, char_ids: list[str], backend: Any) -> dict[str, list[list[float]]]:
+    """Canonical face embeddings of the cast (cached per process); {} when not available."""
+    try:
+        from tools.original_identity_authority import measurement_paths
+        characters = (read_json(QaPaths(episode).character_registry, {}) or {}).get("characters") or {}
+    except Exception:  # noqa: BLE001
+        return {}
+    out: dict[str, list[list[float]]] = {}
+    for cid in char_ids:
+        embeddings: list[list[float]] = []
+        for value in (measurement_paths(characters[cid]) if cid in characters else []):
+            if Path(value).is_file():
+                try:
+                    with _INSIGHT_LOCK:
+                        embeddings.extend(_canonical_embeddings(backend, value))
+                except Exception:  # noqa: BLE001
+                    continue
+        if embeddings:
+            out[cid] = embeddings
+    return out
+
+
+def measure_speaker_framing(episode: str, expectations: dict[str, Any], frames: list[dict[str, Any]],
+                            detections: dict[str, Any] | None = None) -> dict[str, Any]:
+    declared = declared_speakers(expectations)
+    if not declared["speaker_ids"]:
+        return speaker_framing_verdict(expectations, [])
+    detections = detections if detections is not None else detect_unit_faces(frames)
+    if detections.get("status") != "OK":
+        return {"method": SPEAKER_FRAMING_METHOD, "status": "NOT_MEASURED", "reason": detections.get("reason")}
+    canon = _speaker_canonicals(episode, declared["face_cast_ids"], detections["backend"])
+    use_ids = all(cid in canon for cid in declared["speaker_ids"])
+    per_frame = []
+    for det in detections["frames"]:
+        faces = []
+        for face in det["faces"]:
+            row: dict[str, Any] = {"bbox": [round(float(v), 1) for v in face.bbox.tolist()]}
+            if use_ids:
+                emb = [float(v) for v in face.normed_embedding]
+                row["similarity"] = {cid: round(max(sum(a * b for a, b in zip(ref, emb)) for ref in refs), 3)
+                                     for cid, refs in canon.items()}
+            faces.append(row)
+        per_frame.append({"frame_index": det["frame_index"], "at_seconds": det["row"].get("at_seconds"),
+                          "frame": str(det["row"]["path"]), "width": det["width"], "faces": faces})
+    result = speaker_framing_verdict(expectations, per_frame)
+    result["speaker_identity"] = "CANONICAL_EMBEDDING" if use_ids else "GEOMETRY_ONLY"
+    return result
 
 
 def apply_face_count(face_count: dict[str, Any] | None, checks: list[dict[str, Any]],
@@ -700,6 +927,28 @@ def apply_face_count(face_count: dict[str, Any] | None, checks: list[dict[str, A
     if "cast_exactly_as_declared" not in failures:
         failures.append("cast_exactly_as_declared")
     failures.append(str(face_count.get("failure")))
+    return True
+
+
+def apply_speaker_framing(framing: dict[str, Any] | None, checks: list[dict[str, Any]],
+                          failures: list[Any]) -> bool:
+    """An objective speaker-framing FAIL forces ``cast_exactly_as_declared`` to FAIL (the declared speaker
+    is not visibly in frame); the reviewer's answer is kept as ``reviewer_answer``.  True when applied."""
+    if not framing or framing.get("status") != "FAIL":
+        return False
+    row = next((r for r in checks if r.get("question_id") == "cast_exactly_as_declared"), None)
+    if row is None:
+        row = {"question_id": "cast_exactly_as_declared", "reviewer_answer": None, "contract_derived": True}
+        checks.append(row)
+    overrides = row.get("objective_overrides") or ([row["objective_override"]] if row.get("objective_override") else [])
+    row.update({"answer": "FAIL", "objective_overrides": overrides + [
+        {"method": SPEAKER_FRAMING_METHOD, "failure": framing.get("failure")}]})
+    checks.append({"question_id": "objective_speaker_framing", "method": SPEAKER_FRAMING_METHOD, "answer": "FAIL",
+                   "speaker_ids": framing.get("speaker_ids"), "frames_flagged": framing.get("frames_flagged"),
+                   "contract_derived": True})
+    if "cast_exactly_as_declared" not in failures:
+        failures.append("cast_exactly_as_declared")
+    failures.append(str(framing.get("failure")))
     return True
 
 
@@ -788,7 +1037,11 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
             "closed_set_size": len(forbidden),
         }
         if face_count_on:
-            row["face_count"] = measure_face_count(item["expectations"], extraction.get("frames") or [])
+            unit_frames = extraction.get("frames") or []
+            detections = detect_unit_faces(unit_frames)
+            row["face_count"] = measure_face_count(item["expectations"], unit_frames, detections)
+            row["speaker_framing"] = measure_speaker_framing(episode, item["expectations"], unit_frames,
+                                                             detections)
         return row
 
     prepared = parallel_map(prepare_unit, range(len(items)))
@@ -1415,6 +1668,16 @@ def materialise(episode: str, submitted: dict[str, Any],
             identity_v["failures"] = identity_f
             identity_v["decision"] = "FAIL"
             identity_v["face_count"] = face_count
+        # CAMERA_GRAMMAR_V1 objective speaker framing (absent otherwise): the declared on-screen speaker
+        # cramped / cut at the frame edge / out of frame in >= 1/3 of the frames fails the same question.
+        speaker_framing = prepared.get("speaker_framing")
+        if apply_speaker_framing(speaker_framing, action_checks, action_failed):
+            if identity_f is not identity_v.get("failures"):
+                identity_f = list(identity_f)
+            apply_speaker_framing(speaker_framing, identity_v.setdefault("checks", []), identity_f)
+            identity_v["failures"] = identity_f
+            identity_v["decision"] = "FAIL"
+            identity_v["speaker_framing"] = speaker_framing
         action_v = {
             "method": "VLM_STRUCTURED_STATE_QA_V1",
             "decision": "PASS" if not action_failed else "FAIL",
@@ -1440,6 +1703,7 @@ def materialise(episode: str, submitted: dict[str, Any],
                           "see post_generation_qa_scope_gate.FORBIDDEN_POST_GENERATION_CHECKS",
             "failures": action_failed,
             **({"objective_face_count": face_count} if face_count else {}),
+            **({"objective_speaker_framing": speaker_framing} if speaker_framing else {}),
         }
         scene_checks = _checks(item, questionnaire, GATE_QUESTIONS[SCENE_GATE])
         scene_failed = [row["question_id"] for row in scene_checks if row["answer"] != "PASS"]
@@ -1647,6 +1911,12 @@ def materialise(episode: str, submitted: dict[str, Any],
             **({"objective_face_count": {k: face_count.get(k) for k in
                                          ("status", "declared_face_budget", "frames_over", "failure", "reason")
                                          if k in face_count}} if face_count else {}),
+            **({"objective_speaker_framing": {
+                **{k: speaker_framing.get(k) for k in ("status", "speaker_ids", "speaker_identity", "frames_flagged",
+                                                       "frames_sampled", "failure", "reason")
+                   if k in speaker_framing},
+                "per_frame": [{k: v for k, v in r.items() if k != "speaker_similarity"}
+                              for r in speaker_framing.get("per_frame") or []]}} if speaker_framing else {}),
             "defect_tolerance_status": (defect_block.get("defect_tolerance_report") or {}
                                         ).get("status"),
             "frames_reviewed": len(review_frames),

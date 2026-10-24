@@ -181,6 +181,7 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
   不该出现的手/人），重做仍失败再按下面默认接受。只有预算不够（`paid_stage.sh <EP> --check` 投影超本集上限）才跳过，`--context` 写「预算不足未重做」。
   多个单元要重做时按观众影响排序：开场前 10 秒 > 有台词/主角正脸 > 结尾 > 其余；预算用到上限为止。其余 Q2 失败项（构图、道具数量、动作细节）照旧直接接受。
   CAMERA_GRAMMAR_V1 剧集的 Q2 会客观数脸（InsightFace，`objective_face_count`）：≥2 帧人脸数多于声明人数时 `cast_exactly_as_declared` 自动判 FAIL（审核答 PASS 也不能改回），同样走这条重做一次。
+  同样客观量说话人构图（`objective_speaker_framing`）：有台词且说话人声明在画面内的单元，≥1/3 帧里说话人脸不在画面、被画框切掉、贴左右边（≤2%）或脸中心落在外侧 12% 时 `cast_exactly_as_declared` 自动判 FAIL，同样走这条重做一次（镜头文字写明说话人居中、完整入画）。
 - 视频 Q2：`--gate-id VIDEO-Q2-ASSEMBLY-ADMISSION --detector <unit>:<每个失败门禁 ID> --media <unit>=<unit mp4>`；
   6 镜左右的短集任何 P2 都会超 10% 缺陷预算：同时写 `$NALU_RUNTIME_ROOT/preproduction/<EP>/qa_overrides.json` 的
   `defect_tolerance_minor_budget_override`（只列失败码，`authorized_by` 写「短剧工作流默认条款：质量不阻塞」）。
