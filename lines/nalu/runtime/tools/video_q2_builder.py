@@ -599,6 +599,110 @@ def pose_scoped_ids(item: dict[str, Any]) -> tuple[list[str], dict[str, str]]:
             exempt[cid] = "+".join(dict.fromkeys(codes))
     return measurable, exempt
 
+#: CAMERA_GRAMMAR_V1 objective face count (line owner 2026-10-23, lab urban E03: two identical Lin Qiao
+#: side by side in VU-003/VU-010 while the reviewer answered cast_exactly_as_declared PASS).  It is not a
+#: new gate: a FAIL only makes ``cast_exactly_as_declared`` fail, which is what the existing
+#: CLAUDE_CODE_PRODUCTION §5 one-redo rule keys on.  Lenient by construction: every declared human cast
+#: member who can show a face (back / over-the-shoulder included) is allowed one face; creatures and
+#: offscreen / hands-only roles add none; a unit that declares a group/crowd is not counted.
+FACE_COUNT_METHOD = "INSIGHTFACE_FACE_COUNT_V1"
+FACE_COUNT_FRAMES = DEFAULT_FRAMES  # 6 of 9 missed E03-VU-003 (duplicate on f2/f8/f9); the 9 frames are already extracted
+FACE_COUNT_MIN_DET_SCORE = 0.6
+FACE_COUNT_MIN_HEIGHT_RATIO = 0.04
+FACE_COUNT_MIN_FRAMES_OVER = 2
+NO_FACE_VISIBILITY = ("OFFSCREEN", "HIDDEN", "HANDS", "FACE_OUT_OF_FRAME", "VOICE_ONLY")
+CREATURE_KINDS = {"CREATURE", "ANIMAL"}
+
+
+def declared_face_budget(expectations: dict[str, Any]) -> tuple[int, list[str]]:
+    """(max faces allowed, the human cast ids that may show one)."""
+    creatures = set(map(str, (expectations.get("creature_cards") or {}).keys()))
+    ids: list[str] = []
+    for row in expectations.get("cast") or []:
+        cid = str(row.get("character_id") or "")
+        fv = str(row.get("face_visibility") or "VISIBLE_PER_FRAME_CONTENT").upper()
+        if (not cid or cid in ids or cid in creatures or str(row.get("kind") or "").upper() in CREATURE_KINDS
+                or any(token in fv for token in NO_FACE_VISIBILITY)):
+            continue
+        ids.append(cid)
+    return len(ids), ids
+
+
+def sample_rows(rows: list[dict[str, Any]], count: int = FACE_COUNT_FRAMES) -> list[dict[str, Any]]:
+    if len(rows) <= count:
+        return list(rows)
+    return [rows[round(i * (len(rows) - 1) / (count - 1))] for i in range(count)]
+
+
+def face_count_verdict(expectations: dict[str, Any], per_frame: list[dict[str, Any]]) -> dict[str, Any]:
+    """Pure verdict over per-frame counts [{frame_index, frame, at_seconds, faces}]."""
+    allowed, ids = declared_face_budget(expectations)
+    result: dict[str, Any] = {"method": FACE_COUNT_METHOD, "declared_face_budget": allowed,
+                              "declared_face_character_ids": ids, "min_det_score": FACE_COUNT_MIN_DET_SCORE,
+                              "min_face_height_ratio": FACE_COUNT_MIN_HEIGHT_RATIO,
+                              "min_frames_over": FACE_COUNT_MIN_FRAMES_OVER, "per_frame": per_frame}
+    if expectations.get("group_counts"):
+        return {**result, "status": "NOT_APPLICABLE", "reason": "GROUP_OR_CROWD_DECLARED"}
+    over = [row for row in per_frame if int(row["faces"]) > allowed]
+    result["frames_over"] = [{"frame_index": row["frame_index"], "at_seconds": row.get("at_seconds"),
+                              "faces": row["faces"]} for row in over]
+    result["status"] = "FAIL" if len(over) >= FACE_COUNT_MIN_FRAMES_OVER else "PASS"
+    if result["status"] == "FAIL":
+        result["failure"] = ("OBJECTIVE_FACE_COUNT_EXCEEDS_DECLARED:" + ",".join(
+            f"f{row['frame_index']}={row['faces']}>{allowed}" for row in over))
+    return result
+
+
+def measure_face_count(expectations: dict[str, Any], frames: list[dict[str, Any]]) -> dict[str, Any]:
+    """Count detected faces on the unit's extracted frames with the engine's own FaceAnalysis."""
+    try:
+        import cv2
+        gate = engine_module("character_identity_admission_gate")
+        model = str(gate_parameters(IDENTITY_GATE).get("embedding_model", "buffalo_l"))
+        with _INSIGHT_LOCK:
+            backend = _insightface_backend(gate, model)
+    except Exception as exc:  # noqa: BLE001
+        return {"method": FACE_COUNT_METHOD, "status": "NOT_MEASURED", "reason": f"INSIGHTFACE_UNAVAILABLE:{exc}"}
+    per_frame = []
+    for row in sample_rows([r for r in frames if r.get("path")]):
+        image = cv2.imread(str(row["path"]))
+        if image is None:
+            continue
+        with _INSIGHT_LOCK:
+            faces = backend._app.get(image)  # noqa: SLF001 — engine's own FaceAnalysis instance
+        min_h = FACE_COUNT_MIN_HEIGHT_RATIO * image.shape[0]
+        kept = [f for f in faces if float(getattr(f, "det_score", 0.0)) >= FACE_COUNT_MIN_DET_SCORE
+                and float(f.bbox[3] - f.bbox[1]) >= min_h]
+        per_frame.append({"frame_index": frames.index(row) + 1, "frame": str(row["path"]),
+                          "at_seconds": row.get("at_seconds"), "faces": len(kept),
+                          "boxes": [[round(float(v), 1) for v in f.bbox.tolist()] + [round(float(f.det_score), 3)]
+                                    for f in kept]})
+    if not per_frame:
+        return {"method": FACE_COUNT_METHOD, "status": "NOT_MEASURED", "reason": "NO_READABLE_FRAME"}
+    return face_count_verdict(expectations, per_frame)
+
+
+def apply_face_count(face_count: dict[str, Any] | None, checks: list[dict[str, Any]],
+                     failures: list[Any]) -> bool:
+    """An objective count FAIL forces ``cast_exactly_as_declared`` to FAIL (the reviewer's answer is kept
+    as ``reviewer_answer``; a PASS cannot override the count).  Returns True when applied."""
+    if not face_count or face_count.get("status") != "FAIL":
+        return False
+    row = next((r for r in checks if r.get("question_id") == "cast_exactly_as_declared"), None)
+    if row is None:
+        row = {"question_id": "cast_exactly_as_declared", "reviewer_answer": None, "contract_derived": True}
+        checks.append(row)
+    row.update({"answer": "FAIL", "objective_override": {"method": FACE_COUNT_METHOD,
+                                                         "failure": face_count.get("failure")}})
+    checks.append({"question_id": "objective_face_count", "method": FACE_COUNT_METHOD, "answer": "FAIL",
+                   "declared_face_budget": face_count.get("declared_face_budget"),
+                   "frames_over": face_count.get("frames_over"), "contract_derived": True})
+    if "cast_exactly_as_declared" not in failures:
+        failures.append("cast_exactly_as_declared")
+    failures.append(str(face_count.get("failure")))
+    return True
+
+
 def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
             units: list[str] | None = None) -> dict[str, Any]:
     """Extract frames, run OCR over every one, and measure identity per unit.
@@ -617,6 +721,8 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
             "the identity measurement could not reach the minimum from one source")
     items = [item for item in exp.video_unit_items()
              if not units or item["unit_id"] in set(units)]
+    # CAMERA_GRAMMAR_V1 only: objective face count (see FACE_COUNT_METHOD); other episodes unchanged.
+    face_count_on = engine_module("camera_grammar_policy").active(exp.contract, episode=episode)
 
     def prepare_unit(index: int) -> dict[str, Any]:
         """Frames + OCR + identity of ONE unit — independent of every other unit."""
@@ -681,6 +787,8 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
             "identity": identity,
             "closed_set_size": len(forbidden),
         }
+        if face_count_on:
+            row["face_count"] = measure_face_count(item["expectations"], extraction.get("frames") or [])
         return row
 
     prepared = parallel_map(prepare_unit, range(len(items)))
@@ -1297,6 +1405,16 @@ def materialise(episode: str, submitted: dict[str, Any],
             item, questionnaire, asset_sha, declared, identity_measurement)
         action_checks = _checks(item, questionnaire, GATE_QUESTIONS[ACTION_GATE])
         action_failed = [row["question_id"] for row in action_checks if row["answer"] != "PASS"]
+        # CAMERA_GRAMMAR_V1 objective face count (absent from prepare.json otherwise): a count FAIL makes
+        # cast_exactly_as_declared fail in both gates that ask it, whatever the reviewer answered.
+        face_count = prepared.get("face_count")
+        if apply_face_count(face_count, action_checks, action_failed):
+            if identity_f is not identity_v.get("failures"):
+                identity_f = list(identity_f)
+            apply_face_count(face_count, identity_v.setdefault("checks", []), identity_f)
+            identity_v["failures"] = identity_f
+            identity_v["decision"] = "FAIL"
+            identity_v["face_count"] = face_count
         action_v = {
             "method": "VLM_STRUCTURED_STATE_QA_V1",
             "decision": "PASS" if not action_failed else "FAIL",
@@ -1321,6 +1439,7 @@ def materialise(episode: str, submitted: dict[str, Any],
                           "choreography / trajectory / optical-flow / motion-energy) is asked; "
                           "see post_generation_qa_scope_gate.FORBIDDEN_POST_GENERATION_CHECKS",
             "failures": action_failed,
+            **({"objective_face_count": face_count} if face_count else {}),
         }
         scene_checks = _checks(item, questionnaire, GATE_QUESTIONS[SCENE_GATE])
         scene_failed = [row["question_id"] for row in scene_checks if row["answer"] != "PASS"]
@@ -1525,6 +1644,9 @@ def materialise(episode: str, submitted: dict[str, Any],
             })),
             "identity_status": identity_measurement.get("status"),
             "identity_method": identity_method,
+            **({"objective_face_count": {k: face_count.get(k) for k in
+                                         ("status", "declared_face_budget", "frames_over", "failure", "reason")
+                                         if k in face_count}} if face_count else {}),
             "defect_tolerance_status": (defect_block.get("defect_tolerance_report") or {}
                                         ).get("status"),
             "frames_reviewed": len(review_frames),

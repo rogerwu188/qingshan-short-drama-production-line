@@ -1175,6 +1175,9 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                 # H3 renderer can direct the line; other contracts keep their action mapping byte-identical.
                 **({"performance": source_action["performance"]}
                    if camera_grammar and isinstance(source_action.get("performance"), dict) else {}),
+                # optional authored listener behaviour (English) for DIRECTOR_PROMPT_V2; absent == unchanged
+                **({"listener_reaction_en": source_action["listener_reaction_en"]}
+                   if source_action.get("listener_reaction_en") else {}),
                 "microexpression_design": source_action.get('microexpression_design') or (
                     f"眼神先于头部改变一次，呼吸与下颌在因果点响应，随后保持「{arc_exit}」"
                     if cast_rows else
@@ -2852,6 +2855,8 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
         task["dialogue"] = dialogue_rows
         if cu.get("dialogue_language"):
             task["dialogue_language"] = cu["dialogue_language"]
+        if cu.get("h3_prompt_style"):  # opt-in DIRECTOR_PROMPT_V2; absent == V1 prompt
+            task["h3_prompt_style"] = cu["h3_prompt_style"]
         task["dialogue_lines"] = lines
         task["native_dialogue_required"] = bool(lines)
         task["dialogue_transport"] = "MODEL_NATIVE_TEXT_DIALOGUE" if lines else "SAME_TASK_NATIVE_AMBIENCE_FOLEY_ACTION_SOUND"

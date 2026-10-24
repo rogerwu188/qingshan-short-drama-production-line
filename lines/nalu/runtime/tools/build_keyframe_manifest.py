@@ -967,7 +967,10 @@ def visual_culture_block(contract: dict[str, Any]) -> str:
         f"色彩：底色{palette.get('base')}；点色{palette.get('accent')}；肤色{palette.get('skin')}",
         f"光线：{contract.get('lighting_language')}",
         f"质感：{contract.get('image_texture')}",
-        "画幅：9:16 竖构图。画面内不得出现任何文字、字幕、水印、logo。禁欧洲、板甲、黑金。",
+        "画幅：9:16 竖构图。画面内不得出现任何文字、字幕、水印、logo。"
+        # the period ban belongs to the East-Asian period lock; an AUTHORED_WORLD contract (Victorian London,
+        # sci-fi, modern) must not be told 禁欧洲 (holmes lab E01 2026-10-23)
+        + ("" if str(contract.get("era_lock") or "").upper() == "AUTHORED_WORLD" else "禁欧洲、板甲、黑金。"),
     ])
 
 

@@ -55,17 +55,23 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 `<EP>_DIRECTING_SCRIPT_v1.md`、`<EP>_GENERATION_CONTRACT_v1.json`（qingshan.generation_contract.v3）、`<EP>_manifest_v1.json`，
 以及 `$NALU_RUNTIME_ROOT/preproduction/<EP>/{asset_requirements_overlay.json,new_location_place_spec.json,view_reference_policy.json}`。
 然后 `run --until S3`，直到 S1 PASS、S2 PASS、S3 DRY_PLANNED。必须满足（门禁源码在 `$T` 与 `tools/`，报错就读源码改剧本，不改门禁）：
-- 对白镜时长 = 汉字数/4 + 0.5，向上取整到 0.5，最多再 +1；无对白镜 ≤ 5 s；单元（同场连续镜头）4–8 s 可切分。
+- 对白镜时长 = 汉字数/4 + 0.5，向上取整到 0.5，不再额外加长；无对白镜 ≤ 5 s；单元（同场连续镜头）4–8 s 可切分。
+- 对白镜只比台词长 0.5–1.0 s（线主 2026-10-23）：`target_seconds` = 说话时长（中文约 4 字/秒，英文约 2.5 词/秒）+ 0.5–1.0 s，不给对白镜加长——H3 会用乱码般的假语言填满多出来的时间（CAMERA_GRAMMAR_V1 的集 S7 会剪在最后一句后约 0.5 s）；要停顿或反应就另写一个无对白的反应镜。
 - 每镜 `prompt_spec.camera_plan` 全字段（shot_scale/camera_height/camera_side/motion_family/motion_direction/lens_intent/axis_relation/start_framing/end_framing/motivation）；
   LOCKED 起止取景相同、运动镜不同。
 - **运镜语法 CAMERA_GRAMMAR_V1**（2026-10-22 起新封版的合同；storyclaw finalize 自动在合同顶层补
   `"camera_grammar_policy": "CAMERA_GRAMMAR_V1"`；之前已封版的集仍按旧规则）。新规则不加任何阻断门，只是导演写法：
   - 机位不再「必须动」，相邻单元也不必换方向（只保留原有的「相邻同族同向」不许）；静态设计门的 R1–R4/R6/R7 对这些集只提示（`advisories`）不阻断。
   - 运镜要有理由：跟人、揭示、强调或主观视角；没有理由就用 LOCKED 或慢推（DOLLY PUSH_IN），让动作在构图里发生，别为了「动」去扫空墙、让人出画再回。
-  - 每个新地点前 2 镜给一个建立镜（WIDE / MEDIUM_WIDE）；同场同一景别连续不超过 2 镜；对白镜后给听者一个反应镜。
+  - 每个新地点前 2 镜给一个建立镜（WIDE / MEDIUM_WIDE）；同场同一景别连续不超过 2 镜（同机位对白接力除外）。
+  - **对白不逐句切**（线主 2026-10-23）：一个单元仍只一个说话人，但 ① 两人来回的连续几句用同一个双人镜（两人都在画、
+    camera_side/shot_scale/camera_height 不变），单元之间写 CONTINUOUS_ACTION，接上一单元尾帧，看着是一条镜头；
+    ② 开场双人镜/中景，只在情绪转折切近到单人/近景，最狠一句给最紧的镜头，同一人连说留在同一镜，听者无声反应只在「反应就是戏」时才切；
+    ③ L-cut：说话镜后紧跟的无对白反应镜（下一个单元）可写 `prompt_spec.transition.sound_bridge_from_previous_seconds`（0.3–2.0 s），
+    S7 把说话人画面提前切走、这句话的声音和字幕盖到反应镜上，反应镜现场声压成环境声；不写就是硬切。
   - 剧本是「切」的地方就写切（`internal_transition_authoring` 用 MOTIVATED_CUT/REACTION_CUT/MATCH_CUT/HARD_CUT）：
     该单元会用自己的关键帧起幅，不从上一单元尾帧漂过去（每个切点多一张关键帧，约 11 积分）；连续动作写 CONTINUOUS_ACTION/CAMERA_REFRAME 接尾帧。
-- H3 出视频的集按 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` 改编剧本（每拍分桶、≤2 人、无脸存在登记为 CREATURE 并写长相、服装写成文字、反打即切）。
+- H3 出视频的集按 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` 改编剧本（每拍分桶、≤2 人、无脸存在登记为 CREATURE 并写长相、服装写成文字、对白说话镜只拍说话人、双人镜留给无台词时刻、转折才切）。
 - `state_delta_dimensions` 只能取 POSITION/POSTURE/CONTACT/POSSESSION/INTEGRITY/MOMENTUM，且 entry/exit 证据要不同；entry/completion 各 ≥ 6 字。
   每个镜头都要有（S5 `keyframe_entry_state_gate` 对空维度无条件拒绝）。`state_delta_mode: STATIC_POSTURE_PERFORMANCE` 只给对白镜用；无对白的「静立 + 环境在动」揭示镜不能靠运镜过关，要让一个已登记主体（人物，或没有人物时的生物/道具卡）真的变一次：转头、跨一步、放下手里的东西。
 - 每个 scene_state：`ambient_life{grade A|B|C, motion_trend, first_frame_state, reaction_progression}` 和 `weather_provenance{source_type, source_ref, visibility_mode}`。
@@ -115,6 +121,7 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
 5. 背景音乐默认开启（线主 2026-10-22「背景音乐开吧」），属默认条款、由本集 S3–S6 付费订单覆盖，不是新付费类别，不要停下问：
    合同 `audio_contract.bgm` 不写或写 `NO_BGM` 时，引擎按默认在最后一场末尾几镜配一段选择性配乐（S6 生成约 8 积分，S7 混音）；
    想自己定配乐节点就写 `{"mode":"SELECTIVE","cues":[...]}`；确实不要配乐才写 `"NONE"`。
+   - 编剧自写 `audio_contract.bgm` 时（线主 2026-10-23，城市实验 E03 只配了第 3 场）：cue 在开场钩子之后进入一次、持续到全集结尾（整集铺底，淡入淡出），绝不只配某一场；拿不准就不写 bgm，让本线默认规则生效。
 5. 直接进入 S3，不等任何确认。
 
 ## 4. S3→S7（每次 exit=4 = 有审核请求）
@@ -122,7 +129,7 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
 看媒体、逐题作答（每题枚举值、观察 ≥ 20 字、FAIL 必须带 defect）→ `submit --request <req> --answers <ans>` → 再跑同一阶段。
 - **S3 身份牌**（`paid_stage.sh <EP> S3 S3`）：拼缩略图看全部 plates。年龄/外形不符判 FAIL；重做 = 改 `$NALU_RUNTIME_ROOT/preproduction/<EP>/prompts/` 中该角色 3 个 txt 的措辞（指纹=提示词 sha），把旧图、`_raw`、回执移到 `_rejected_*`，重跑。
 - **S4 配音**：`$S/list_voices.sh voices.json` 拉音色目录（免费 GET、不扣积分；供应商仍要鉴权，脚本内部自己读 `.env`，你不要直接跑 `storyclaw_audio_provider.py speech-voices`——无 key 会 exit=1，这不是阻塞），给每个说话角色挑 voice_id 写 `runtime/voice_catalog.json`（键=拼音 slug）。同场两人参考音 F0 必须差 ≥ 25%（男女搭配最稳；男声挑「沉稳/醇厚」类）。换音色：旧 registry 行移到 `superseded_rows`，旧参考音目录和 `workflow/tasks/giggle_audio_transactions/**/speech/<slug>.json` 移到 `_superseded`。
-  - **选角规则（线主 2026-10-22，不是门禁）**：通读整个目录（约 170 条，字段 voice_id / voice_name / style / gender / age / language），每个角色拿 gender、age、style 标签去对角色的年龄、身份、性格和整部剧的调子，选标签最贴的一条；旁白/播报类角色可用播音腔，普通角色优先选与性格相符的演绎/戏剧类 style，不用播音腔。同场说话人要一听就分得开。每个角色在 `voice_catalog.json` 行里写一句 `casting_rationale`（voice_name + 标签 + 为什么）。参考音不用中性朗读：在该行加 `reference_sample{text=该角色情绪最重的一句原台词, purpose:"VOICE_REFERENCE_ONLY", author, source_ref=镜头 id, speed 1.0–1.5, emotion=对应情绪}`；年龄标签按真实年龄用：「children」只给十岁以下，十二到十六岁的少年用同性别 youth 里偏年轻的声音（童声会把少年读成小孩甚至像女孩）；参考句选情绪最外露、音调起伏最大的一句，情绪拉满读——H3 照参考音学语调，参考平，生成就平；情绪拉满后若音高明显超出该性别年龄（男孩读成女声），降一档情绪重读（speech-generate 的 `--emotion` 是自由字符串，如 angry / sad / fearful / disgusted / surprised / happy；文本须读 3–10 秒，太短就换下一句情绪重的台词）。
+  - **选角规则（线主 2026-10-22，不是门禁）**：通读整个目录（约 170 条，字段 voice_id / voice_name / style / gender / age / language），每个角色拿 gender、age、style 标签去对角色的年龄、身份、性格和整部剧的调子，选标签最贴的一条；旁白/播报类角色可用播音腔，普通角色优先选与性格相符的演绎/戏剧类 style，不用播音腔。同场说话人要一听就分得开。每个角色在 `voice_catalog.json` 行里写一句 `casting_rationale`（voice_name + 标签 + 为什么）。参考音不用中性朗读：在该行加 `reference_sample{text=一句不在本集剧本里的校准句（如「天快黑了，我们还是趁早回去吧，路上小心一点。」/ "The evening is drawing in; we ought to head home before the weather turns."）, purpose:"VOICE_REFERENCE_ONLY", author, source_ref=该角色情绪最重的那场戏的镜头 id, speed 1.0–1.5, emotion=该角色最强烈的情绪}`；年龄标签按真实年龄用：「children」只给十岁以下，十二到十六岁的少年用同性别 youth 里偏年轻的声音（童声会把少年读成小孩甚至像女孩）；参考句绝不能是剧本台词（H3 会把参考音里的词串进别的单元，说出「像英文又不是英文」的乱码）：用一句剧本外的句子，按该角色情绪最外露、音调起伏最大的那场戏的情绪拉满读——H3 照参考音学语调，参考平，生成就平；CAMERA_GRAMMAR_V1 合同里 S4 遇到与本集台词相同的参考句会自动换成校准句并记录原因；情绪拉满后若音高明显超出该性别年龄（男孩读成女声），降一档情绪重读（speech-generate 的 `--emotion` 是自由字符串，如 angry / sad / fearful / disgusted / surprised / happy；文本须读 3–10 秒，太短就换一句更长的剧本外句子）。
 - **视频模型是 MiniMax-H3**（线主 2026-10-13：一律 H3，不用 seedance；每集第一次 S2 构建时记在
   `$NALU_RUNTIME_ROOT/preproduction/<EP>/video_model.json`，之后固定）。H3 的视频提示词是英文，由每个单元的英文合同生成：
   S2 或规划编译报 `H3_ENGLISH_CONTRACT_REQUIRED:<n>_units:<请求文件>` 时，打开请求文件
@@ -141,6 +148,7 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
   其后 q1_derived（上一单元尾帧作起始帧）、post_gen_plot（用 `$T/review_fill/asr_units.py` 转写核对台词；同音字只记录）、video_q2。
   Q2 中 OCR 读出的低置信乱码（背景招牌/标签纹理、道具上的手写字）在 `observed_text_strings` 写 `NOISE:<文本>`；动作幅度/表情细节不算缺陷。
 - **S7 装配**（`env -u GIGGLE_API_KEY $P $T/nalu_pipeline.py run --episode <EP> --from S7 --until S8`）：需要 `$NALU_RUNTIME_ROOT/brand/NALU_MOTION_endcard_3s_9x16.mp4`（没有就 `$P $S/make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第N集 · <集名>" --language <简报 dialogue_language>`）。
+  CAMERA_GRAMMAR_V1 剧集 S7 按简报自动生成本集片尾卡（`workflow/nalu/<EP>/assembly/<EP>_endcard_3s_9x16.mp4`，失败才回落到全局卡）；简报 `episode_display_number`（本剧第几集，如 E03 = 2）同时用于片头和片尾，缺省用 EP 编号。
   S7 自动加片头标题（简报 `title` + 集数，前 2.5 秒叠加，免费、不加时长）、默认配乐混音（S6 已生成并对账）和尾贴广告版（素材缺失只记 `AD_ASSET_MISSING`，不阻塞）。
   S7 报 `SELECTIVE_BGM_CREDIT_RECONCILIATION_NEEDS_KEY`（S6 时配乐账单还没出）：改用 `./lines/nalu/runtime/tools/paid_stage.sh <EP> S7 S7` 重跑 S7（S7 没有任何提交路径，key 只用于只读账单查询），不是新付费。
 
@@ -172,6 +180,7 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
   之一的单元，**「起始帧继承缺口」不是跳过重做的理由**：按 §4 受控创意重做该单元一次（镜头文字写明要去掉的东西：多余人物、错穿的服装、
   不该出现的手/人），重做仍失败再按下面默认接受。只有预算不够（`paid_stage.sh <EP> --check` 投影超本集上限）才跳过，`--context` 写「预算不足未重做」。
   多个单元要重做时按观众影响排序：开场前 10 秒 > 有台词/主角正脸 > 结尾 > 其余；预算用到上限为止。其余 Q2 失败项（构图、道具数量、动作细节）照旧直接接受。
+  CAMERA_GRAMMAR_V1 剧集的 Q2 会客观数脸（InsightFace，`objective_face_count`）：≥2 帧人脸数多于声明人数时 `cast_exactly_as_declared` 自动判 FAIL（审核答 PASS 也不能改回），同样走这条重做一次。
 - 视频 Q2：`--gate-id VIDEO-Q2-ASSEMBLY-ADMISSION --detector <unit>:<每个失败门禁 ID> --media <unit>=<unit mp4>`；
   6 镜左右的短集任何 P2 都会超 10% 缺陷预算：同时写 `$NALU_RUNTIME_ROOT/preproduction/<EP>/qa_overrides.json` 的
   `defect_tolerance_minor_budget_override`（只列失败码，`authorized_by` 写「短剧工作流默认条款：质量不阻塞」）。

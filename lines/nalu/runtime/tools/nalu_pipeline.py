@@ -1124,7 +1124,10 @@ class Ctx:
                 self.p.logs / f"{self.run_id}_budget_{label}.json"]
         if reserve:
             argv.append("--reserve")
-        step = self.run(argv, name=f"budget_check_{label}", paid=False)
+        # The reservation's owner is this orchestrator: once it has exited, the ledger may treat
+        # a reservation it left behind (non-zero step exit) as settled by the durable stores.
+        step = self.run(argv, name=f"budget_check_{label}", paid=False,
+                        extra_env={"NALU_BUDGET_RESERVATION_OWNER_PID": str(os.getpid())})
         verdict = {}
         for line in (step.get("stdout_tail") or "").splitlines():
             line = line.strip()
@@ -3394,7 +3397,14 @@ def s3_qa(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str, Any]:
         "harvested_plates": [item.name for item in plates],
         "reviewer": REVIEWER_ID,
     }
-    if not plates:
+    # An all-reuse episode (every identity requirement REUSED_FROM_PRIOR_LIBRARY, nothing new to generate)
+    # has no episode-local plates by design: let it reach the no-reviewable-subject path below, where the
+    # prior LOCKED rows are copied and byte-checked by the non-plate lock and the engine gate.
+    _plan_now = read_json(ctx.p.identity_plan, {}) or {}
+    all_reuse = (not plates and bool(_plan_now.get("verified_reused_subjects"))
+                 and not (_plan_now.get("new_asset_groups") or []))
+    detail["all_reuse_episode"] = all_reuse
+    if not plates and not all_reuse:
         detail["status"] = BLOCKED
         detail["blockers"] = ["IDENTITY_PLATES_NOT_ON_DISK"]
         detail["reason"] = ("S3 has not produced plates yet (paid step disabled or not run). "
@@ -3661,6 +3671,13 @@ def keyframe_needs_post(ctx: Ctx, index: dict[str, Any]) -> tuple[list[str], lis
     return need, done
 
 
+def s5_keyframes_missing(ctx: Ctx) -> list[str]:
+    """Planned keyframe prompts whose image is not on disk (a §4 controlled redo parks the rejected one)."""
+    p = ctx.p
+    return [prompt.name for prompt in sorted((p.preprod / "prompts" / "keyframes").glob("*-KEYFRAME-V1.txt"))
+            if not (p.keyframes / prompt.name.replace("-KEYFRAME-V1.txt", "-keyframe-v1.png")).is_file()]
+
+
 def stage_s5(ctx: Ctx) -> StageResult:
     p = ctx.p
     # Plan §4: the zero-credit previs gate runs BEFORE any manifest is built and
@@ -3686,8 +3703,12 @@ def stage_s5(ctx: Ctx) -> StageResult:
     # duplicate POSTs.  Reuse the admitted evidence and continue to S6.
     q1_index = p.preprod / "reports/qa/q1" / f"{ctx.episode}_KEYFRAME_Q1_INDEX.json"
     q1 = read_json(q1_index, {}) or {}
+    # ...but only while every keyframe the episode plans is still on disk: the §4 controlled redo parks a
+    # rejected keyframe and reruns S5, which must then render the missing image instead of reusing the
+    # stale ALL_ADMITTED index (urban lab E02 2026-10-23: a parked keyframe was never regenerated).
+    keyframe_missing = s5_keyframes_missing(ctx)
     if (q1.get("status") == "ALL_ADMITTED" and p.anchor_plan.is_file()
-            and int(q1.get("unit_count") or 0) > 0):
+            and int(q1.get("unit_count") or 0) > 0 and not keyframe_missing):
         res = StageResult(PASS)
         res.details = {
             "reuse": "Q1_ALL_ADMITTED",
@@ -3758,6 +3779,10 @@ def stage_s5(ctx: Ctx) -> StageResult:
     res.details["d46_needs_post"] = needs_post
     res.details["d46_already_admitted"] = keyframes_done
     planned = ctx.planned_credits("S5")
+    if keyframes_done and needs_post:
+        # a partial redo plans only the images it will POST, not the whole-episode default estimate
+        image_credits = int(((ctx.cost_plan.get("price_basis") or {}).get("image_credits_per_task")) or 11)
+        planned = min(planned, len(needs_post) * image_credits)
     if not needs_post:
         # Nothing to generate.  Do not materialise authority, do not POST, do not harvest — go
         # straight to the Q1 admission tail, which is what decides whether S5 is done.
@@ -5448,6 +5473,12 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
         # budget guard refused a poll that costs nothing (lab E01 2026-10-22: 360 already charged).
         unbound_keys = set(s6_unbound_task_keys(ctx))
         post_keys = [k for k in needs_post if k in unbound_keys]
+        if on_disk and post_keys:
+            # plan only what will actually be POSTed, not every recompiled-but-on-disk task
+            post_rows = [t for t in manifest_now.get("tasks") or [] if str(t.get("task_key")) in set(post_keys)]
+            planned = min(planned, video_task_credits(
+                episode_video_model(ctx.episode),
+                sum(float(t.get("duration_seconds") or 0) for t in post_rows), len(post_rows)))
         if not post_keys:
             ctx.say("   every task without a clip is already bound to a remote task: poll only, no authorisation")
             status = PASS
@@ -5938,6 +5969,42 @@ def s7_opening_title(ctx: Ctx, res: StageResult, picture: Path) -> Path:
     return picture
 
 
+def s7_episode_endcard(ctx: Ctx, res: StageResult) -> Path | None:
+    """CAMERA_GRAMMAR_V1 only (line owner 2026-10-23, lab E03 reused E02's card): render this episode's
+    own 3 s end card from the brief (series title, display number, episode title, language) with
+    skills/nalu-claude-code/scripts/make_endcard.py.  None (-> the global brand card) outside the
+    policy, without a brief title, or on any failure (recorded in res.details["episode_endcard"])."""
+    import camera_grammar_policy as _cgp
+    import nalu_opening_title as _title
+    if not _cgp.active(read_json(ctx.p.contract, {}) or {}, episode=ctx.episode):
+        return None
+    out = ctx.p.assembly / f"{ctx.episode}_endcard_3s_9x16.mp4"
+    try:
+        brief = _title.load_brief(Path(f"{_np.RUNTIME_ROOT}"), ctx.episode)
+        language = "en" if str(ctx_language(ctx)).lower().startswith("en") else "zh"
+        series, episode_line = _title.title_lines(brief, ctx.episode, language)
+        if not series:
+            res.details["episode_endcard"] = {"status": "SKIPPED", "reason": "NO_BRIEF_TITLE"}
+            return None
+        scripts = str(ENGINE / "skills/nalu-claude-code/scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        import make_endcard as _endcard
+        font = _endcard.resolve_font(language)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        _endcard.make(series, episode_line, language, font, out.with_suffix(".png"), out,
+                      ffmpeg=_media.require_ffmpeg())
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 -- fall back to the global card
+        res.details["episode_endcard"] = {"status": "FAILED", "reason": f"{type(exc).__name__}:{exc}"}
+        return None
+    if not out.is_file():
+        res.details["episode_endcard"] = {"status": "FAILED", "reason": "NO_OUTPUT"}
+        return None
+    res.details["episode_endcard"] = {"status": "APPLIED", "asset": str(out), "title": series,
+                                      "subtitle": episode_line, "language": language}
+    return out
+
+
 def s7_tail_ad(ctx: Ctx, res: StageResult, *, endcard_seconds: float) -> dict[str, Any]:
     """Optional per-episode tail ad (codex_docs/ROGER-20260925-AD-TAIL-INTEGRATION.md).
 
@@ -6313,6 +6380,182 @@ def s7_voice_over(ctx: Ctx, res: StageResult, picture: Path, unit_asr: dict[str,
     return mixed, []
 
 
+def _probe_seconds(path: Path) -> float | None:
+    probe = subprocess.run([_media.require_ffprobe(), "-v", "error", "-show_entries", "format=duration",
+                            "-of", "csv=p=0", str(path)], capture_output=True, text=True, check=False)
+    try:
+        return round(float(probe.stdout.strip()), 6)
+    except ValueError:
+        return None
+
+
+def _unit_energy_db(path: Path, hop: float = 0.02) -> list[float] | None:
+    """Mono 16 kHz RMS dBFS per ``hop`` seconds of a unit clip's audio (free, local ffmpeg); None on failure."""
+    import array
+    import math
+    run = subprocess.run([_media.require_ffmpeg(), "-v", "error", "-i", str(path), "-vn", "-ac", "1", "-ar", "16000",
+                          "-f", "s16le", "-"], capture_output=True, check=False)
+    if run.returncode != 0 or not run.stdout:
+        return None
+    pcm = array.array("h")
+    pcm.frombytes(run.stdout[:len(run.stdout) // 2 * 2])
+    if sys.byteorder != "little":
+        pcm.byteswap()
+    n = max(1, int(16000 * hop))
+    out = []
+    for i in range(0, len(pcm) - n + 1, n):
+        block = pcm[i:i + n]
+        rms = math.sqrt(sum(v * v for v in block) / n) / 32768.0
+        out.append(round(20 * math.log10(rms), 2) if rms > 0 else -120.0)
+    return out
+
+
+def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
+                          ) -> tuple[dict[str, Any] | None, Path | None]:
+    """CAMERA_GRAMMAR_V1 only (line owner 2026-10-23): cut each dialogue unit 0.5 s after its last line.
+
+    H3 fills the slot after the line with garbled speech.  The unit ASR runs before the AgentCut
+    build here, tools/dialogue_tail_trim.plan decides each unit's kept length, and the build cuts
+    there (--dialogue-tail-trim), so render, captions, V.O., BGM and the release timeline all see
+    the trimmed timeline.  Returns (unit ASR without the removed segments, report path when any
+    unit is cut).  Any other episode returns (None, None) and S7 runs exactly as before.
+    """
+    import camera_grammar_policy as _cgp
+    import dialogue_tail_trim as _trim
+    if not _cgp.active(contract, episode=ctx.episode):
+        return None, None
+    p = ctx.p
+    asr = transcribe_units(ctx, p.video_media, ctx.episode)
+    write_json(p.assembly / f"{ctx.episode}_unit_asr_untrimmed.json", asr)
+    clip_seconds = {mp4.stem: _probe_seconds(mp4) for mp4 in sorted(p.video_media.glob(f"{ctx.episode}-VU-*.mp4"))}
+    energy = {mp4.stem: _unit_energy_db(mp4, _trim.ENERGY_HOP)
+              for mp4 in sorted(p.video_media.glob(f"{ctx.episode}-VU-*.mp4"))}
+    report = _trim.plan(contract, read_json(p.grouping_plan, {}) or {}, asr, clip_seconds,
+                        unit_energy={k: v for k, v in energy.items() if v})
+    report_path = p.assembly / f"{ctx.episode}_DIALOGUE_TAIL_TRIM.json"
+    write_json(report_path, report)
+    res.details["dialogue_tail_trim"] = {"report": str(report_path), "trimmed_units": report["trimmed_units"],
+                                         "removed_seconds": report["removed_seconds"]}
+    return _trim.trim_unit_asr(asr, report), (report_path if report["trimmed_units"] else None)
+
+
+def s7_dialogue_sound_bridge(ctx: Ctx, res: StageResult, contract: dict[str, Any],
+                             unit_asr: dict[str, Any] | None) -> Path | None:
+    """CAMERA_GRAMMAR_V1 only (line owner 2026-10-23): plan the authored L-cuts.
+
+    A silent reaction shot right after a dialogue shot may author
+    ``prompt_spec.transition.sound_bridge_from_previous_seconds``; tools/dialogue_sound_bridge.plan
+    turns each into a REQUESTED/SKIPPED row, the AgentCut build applies them (--dialogue-sound-bridge)
+    and s7_sound_bridge_mix lays the speaker's audio back over the reaction picture.  ``unit_asr`` is
+    the tail-trimmed unit ASR (None outside the policy).  Returns the report path when any bridge is
+    requested; otherwise nothing is written and S7 runs exactly as before.
+    """
+    import camera_grammar_policy as _cgp
+    import dialogue_sound_bridge as _bridge
+    if unit_asr is None or not _cgp.active(contract, episode=ctx.episode):
+        return None
+    report = _bridge.plan(contract, read_json(ctx.p.grouping_plan, {}) or {}, unit_asr)
+    if not report["rows"]:
+        return None
+    path = ctx.p.assembly / f"{ctx.episode}_DIALOGUE_SOUND_BRIDGE.json"
+    write_json(path, report)
+    res.details["dialogue_sound_bridge"] = {"report": str(path), "requested": report["requested"],
+                                            "skipped": len(report["rows"]) - report["requested"]}
+    return path if report["requested"] else None
+
+
+def s7_leading_burst_mute(ctx: Ctx, res: StageResult, picture: Path,
+                          unit_asr: dict[str, Any] | None) -> Path:
+    """CAMERA_GRAMMAR_V1 only (line owner 2026-10-23): mute the ~0.1 s vocal burst some H3 units open with.
+
+    tools/dialogue_leading_burst.plan measures each unit clip's first 0.5 s and its ASR; the burst
+    window of each flagged unit is muted on the rendered native cut (20/30 ms ramps, video stream
+    copied, duration unchanged) BEFORE the L-cut mix, so a bridged speaker line is never touched.
+    Report: <EP>_DIALOGUE_LEADING_BURST.json.  ``unit_asr`` is None outside the policy -> picture
+    returned untouched; any failure only skips the mute (recorded), never blocks S7."""
+    import camera_grammar_policy as _cgp
+    import dialogue_leading_burst as _burst
+    p = ctx.p
+    if unit_asr is None or not _cgp.active(read_json(p.contract, {}) or {}, episode=ctx.episode):
+        return picture
+    report_path = p.assembly / f"{ctx.episode}_DIALOGUE_LEADING_BURST.json"
+    try:
+        clips = {mp4.stem: mp4 for mp4 in sorted(p.video_media.glob(f"{ctx.episode}-VU-*.mp4"))}
+        report = _burst.plan(clips, unit_asr, ffmpeg=_media.require_ffmpeg())
+        windows = _burst.timeline_windows(report, read_json(p.agentcut_project, {}) or {})
+        report.update({"episode": ctx.episode, "source_picture": str(picture), "timeline_windows": windows})
+        if not windows:
+            write_json(report_path, report)
+            res.details["dialogue_leading_burst"] = {"report": str(report_path), "muted_units": 0}
+            return picture
+        out = p.assembly / f"{ctx.episode}_picture_native_burstmute.mp4"
+        argv = [_media.require_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-i", str(picture),
+                "-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy", "-af", _burst.mix_filter(windows),
+                "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", str(out)]
+        run = subprocess.run(argv, capture_output=True, text=True, check=False)
+        res.steps.append({"name": "s7_dialogue_leading_burst_mute", "exit_code": run.returncode, "argv": argv,
+                          "log": "in-process ffmpeg", "stderr_tail": tail(run.stderr)})
+        if run.returncode != 0 or not out.is_file() or _video_stream_hash(picture) != _video_stream_hash(out):
+            out.unlink(missing_ok=True)
+            report["status"] = "SKIPPED_MIX_FAILED"
+            write_json(report_path, report)
+            res.details["dialogue_leading_burst"] = {"report": str(report_path), "status": report["status"]}
+            return picture
+        report.update({"status": "APPLIED", "output_picture": str(out), "output_picture_sha256": sha256_file(out),
+                       "video_stream_bit_exact": True})
+        write_json(report_path, report)
+    except Exception as exc:  # noqa: BLE001 -- the mute is a polish step, never a blocker
+        write_json(report_path, {"schema": _burst.SCHEMA, "episode": ctx.episode,
+                                 "status": f"SKIPPED_ERROR:{type(exc).__name__}:{exc}"})
+        res.details["dialogue_leading_burst"] = {"report": str(report_path), "status": "SKIPPED_ERROR"}
+        return picture
+    res.receipts.append(str(report_path))
+    res.details["dialogue_leading_burst"] = {"report": str(report_path), "muted_units": len(windows),
+                                             "picture": str(out)}
+    return out
+
+
+def s7_sound_bridge_mix(ctx: Ctx, res: StageResult, picture: Path) -> tuple[Path, list[str]]:
+    """Mix each applied L-cut's speaker audio over the reaction picture (native ducked); video copied.
+
+    Reads the bridges the AgentCut build recorded (metadata.dialogue_sound_bridge); none -> the
+    picture is returned untouched.  The applied rows and the mix are written back into the S7 report
+    <EP>_DIALOGUE_SOUND_BRIDGE.json.  Returns (picture, blockers).
+    """
+    import dialogue_sound_bridge as _bridge
+    p = ctx.p
+    meta = ((read_json(p.agentcut_project, {}) or {}).get("metadata") or {}).get("dialogue_sound_bridge") or {}
+    bridges = [row for row in meta.get("bridges") or [] if row.get("status") == "APPLIED"]
+    if not bridges:
+        return picture, []
+    mixed = p.assembly / f"{ctx.episode}_picture_native_lcut.mp4"
+    argv = [_media.require_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-i", str(picture)]
+    for row in bridges:
+        argv += ["-i", str(row["audio_source"])]
+    argv += ["-filter_complex", _bridge.mix_filter(bridges),
+             "-map", "0:v:0", "-map", "[aout]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+             "-ar", "48000", "-ac", "2", "-movflags", "+faststart", str(mixed)]
+    run = subprocess.run(argv, capture_output=True, text=True, check=False)
+    res.steps.append({"name": "s7_dialogue_sound_bridge_mix", "exit_code": run.returncode, "argv": argv,
+                      "log": "in-process ffmpeg", "stderr_tail": tail(run.stderr)})
+    if run.returncode != 0 or not mixed.is_file():
+        return picture, [f"DIALOGUE_SOUND_BRIDGE_MIX_FAILED:{(run.stderr or '')[-200:]}"]
+    if _video_stream_hash(picture) != _video_stream_hash(mixed):
+        mixed.unlink(missing_ok=True)
+        return picture, ["DIALOGUE_SOUND_BRIDGE_MIX_CHANGED_VIDEO_STREAM"]
+    report_path = Path(str(meta.get("report") or p.assembly / f"{ctx.episode}_DIALOGUE_SOUND_BRIDGE.json"))
+    report = read_json(report_path, {}) or {}
+    report.update({"applied": meta.get("bridges") or [], "applied_count": len(bridges),
+                   "mix": {"source_picture": str(picture), "output_picture": str(mixed),
+                           "output_picture_sha256": sha256_file(mixed), "video_stream_bit_exact": True,
+                           "native_duck_db": _bridge.DUCK_DB, "fade_seconds": _bridge.FADE_SECONDS}})
+    write_json(report_path, report)
+    res.receipts.append(str(report_path))
+    res.details["dialogue_sound_bridge"] = {**(res.details.get("dialogue_sound_bridge") or {}),
+                                            "applied": len(bridges), "picture": str(mixed)}
+    return mixed, []
+
+
 def stage_s7(ctx: Ctx) -> StageResult:
     """Q2 admission -> AgentCut project -> render -> release loudness -> final QA.
 
@@ -6492,6 +6735,20 @@ def stage_s7(ctx: Ctx) -> StageResult:
         res.blockers.extend(final_qa.get("blockers") or [])
         return res
 
+    # ------------------------------------------- 3b. dialogue tail trim (CAMERA_GRAMMAR_V1 only)
+    try:
+        trimmed_asr, tail_trim = s7_dialogue_tail_trim(ctx, res, read_json(p.contract, {}) or {})
+    except Exception as exc:  # noqa: BLE001
+        res.blockers = [f"SUBTITLE_ASR_FAILED:{type(exc).__name__}:{exc}"]
+        return res
+    if tail_trim is not None:
+        build_argv += ["--dialogue-tail-trim", tail_trim]
+        res.details["commands"]["build_agentcut"] = q(build_argv)
+    sound_bridge = s7_dialogue_sound_bridge(ctx, res, read_json(p.contract, {}) or {}, trimmed_asr)
+    if sound_bridge is not None:
+        build_argv += ["--dialogue-sound-bridge", sound_bridge]
+        res.details["commands"]["build_agentcut"] = q(build_argv)
+
     # ------------------------------------------------------------ 4. assemble
     steps: list[dict[str, Any]] = [ctx.run(build_argv, name="s7_build_agentcut_project")]
     if steps[-1]["exit_code"] != 0 or not p.agentcut_project.is_file():
@@ -6516,7 +6773,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
     subbed = p.assembly / f"{ctx.episode}_picture_native_subbed.mp4"
     asr_json = p.assembly / f"{ctx.episode}_unit_asr.json"
     try:
-        asr = transcribe_units(ctx, p.video_media, ctx.episode)
+        asr = trimmed_asr if trimmed_asr is not None else transcribe_units(ctx, p.video_media, ctx.episode)
         write_json(asr_json, asr)
     except Exception as exc:  # noqa: BLE001
         res.steps.extend(steps)
@@ -6526,20 +6783,33 @@ def stage_s7(ctx: Ctx) -> StageResult:
     # ducked under it, mixed in with the video stream copied — after the render, BEFORE the captions,
     # so the captions, end card, BGM, dips and release levelling all see the narrated picture.
     # Order: native cut -> V.O. mix -> subtitles -> end card -> BGM -> cut dips -> release levelling.
-    captioned_source, vo_blockers = s7_voice_over(ctx, res, p.picture_native, asr)
+    # 5a. L-cuts (CAMERA_GRAMMAR_V1, authored sound bridges): the speaker's line plays on over the
+    # reaction picture; no applied bridge -> the native picture continues unchanged.
+    # 5a0. leading vocal burst (CAMERA_GRAMMAR_V1): muted on the native cut before the L-cut mix.
+    native_source, bridge_blockers = s7_sound_bridge_mix(
+        ctx, res, s7_leading_burst_mute(ctx, res, p.picture_native, trimmed_asr))
+    if bridge_blockers:
+        res.steps.extend(steps)
+        res.blockers = bridge_blockers
+        return res
+    captioned_source, vo_blockers = s7_voice_over(ctx, res, native_source, asr)
     if vo_blockers:
         res.steps.extend(steps)
         res.blockers = vo_blockers
         return res
     vo_placement = voice_over_placement_path(ctx)
     vo_argv: list[Any] = (["--voice-over-placement", vo_placement]
-                          if captioned_source != p.picture_native and vo_placement.is_file() else [])
+                          if captioned_source != native_source and vo_placement.is_file() else [])
+    # CAMERA_GRAMMAR_V1 (lab E02 VU-001): a line too long for 2 normal-size rows becomes sequential cues
+    import camera_grammar_policy as _cgp
+    split_argv: list[Any] = (["--split-long-captions"]
+                             if _cgp.active(read_json(p.contract, {}) or {}, episode=ctx.episode) else [])
     sub_step = ctx.run([VENV, RT_TOOLS / "build_burnin_subtitles.py", "--episode", ctx.episode,
                         "--project", p.agentcut_project, "--asr", asr_json, "--contract", p.contract,
                         "--grouping", p.grouping_plan, "--source", captioned_source,
                         "--out-ass", subtitles_ass_path(ctx), "--out-video", subbed,
                         "--out-report", p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json",
-                        "--language", ctx_language(ctx), *vo_argv],
+                        "--language", ctx_language(ctx), *vo_argv, *split_argv],
                        name="s7_burnin_subtitles")
     steps.append(sub_step)
     if sub_step["exit_code"] != 0 or not subbed.is_file():
@@ -6552,7 +6822,9 @@ def stage_s7(ctx: Ctx) -> StageResult:
     # A missing brief title / font or an ffmpeg failure only skips it (recorded) and never blocks S7.
     subbed = s7_opening_title(ctx, res, subbed)
     # 5c. studio end card (Roger 2026-09-13): append nalu_runtime/brand/NALU_MOTION_endcard_3s_9x16.mp4
-    endcard = Path(f"{_np.RUNTIME_ROOT}/brand/NALU_MOTION_endcard_3s_9x16.mp4")
+    # CAMERA_GRAMMAR_V1: this episode's own card when it renders; otherwise the global brand card.
+    endcard = (s7_episode_endcard(ctx, res)
+               or Path(f"{_np.RUNTIME_ROOT}/brand/NALU_MOTION_endcard_3s_9x16.mp4"))
     outro_seconds = 0.0
     if not endcard.is_file():
         res.steps.extend(steps)
@@ -7522,7 +7794,8 @@ def run_episode(ctx: Ctx) -> int:
         row = ctx.stage_state(sid)
         fingerprint = FINGERPRINTS.get(sid, lambda _c: None)(ctx)
         if (not ctx.force and row.get("status") in TERMINAL_OK
-                and (fingerprint is None or fingerprint == row.get("input_fingerprint"))):
+                and (fingerprint is None or fingerprint == row.get("input_fingerprint"))
+                and not (sid == "S5" and s5_keyframes_missing(ctx))):
             ctx.say(f"\n-- {sid} {STAGE_TITLES[sid]}: SKIPPED (already PASS, inputs unchanged)")
             row["status"] = SKIPPED
             ctx.save_state()

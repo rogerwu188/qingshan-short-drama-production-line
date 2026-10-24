@@ -97,7 +97,13 @@ class DirectorPromptTest(unittest.TestCase):
     def test_overlong_prompt_trims_the_roster_instead_of_failing(self):
         unit, plan = vu011(stamped=True)
         full, _ = render_h3_prompt(unit, plan)
+        # the CAMERA_GRAMMAR_V1 audio lines are dropped first, then the roster looks
         unit["h3_provider_english_contract"]["space_weather_fact"] = "x" * (10_100 - len(full))
+        text, _ = render_h3_prompt(unit, plan)
+        self.assertLessEqual(len(text), 10_000)
+        self.assertNotIn("No background music", text)
+        self.assertIn("cassock", text)
+        unit["h3_provider_english_contract"]["space_weather_fact"] = "x" * (10_200 - len(full))
         text, _ = render_h3_prompt(unit, plan)
         self.assertLessEqual(len(text), 10_000)
         self.assertIn("Arbiter is a non-human subject, not a prop.", text)

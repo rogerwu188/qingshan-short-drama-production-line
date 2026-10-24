@@ -699,6 +699,12 @@ def main() -> int:
 
     from tools.voice_reference_sample import apply_reference_sample
     briefs = [apply_reference_sample(brief, catalog_voice_for_brief(brief, voices)) for brief in briefs]
+    from tools.camera_grammar_policy import active as _camera_grammar_active
+    if _camera_grammar_active(contract, episode=episode):
+        # the reference sample text is never a line of the script (it leaks into other units' speech)
+        from tools.voice_reference_sample import calibration_sample
+        episode_lines = [row["text"] for row in dialogue]
+        briefs = [calibration_sample(brief, episode_lines, language) for brief in briefs]
 
     output_root = (
         Path(args.audio_output_root)

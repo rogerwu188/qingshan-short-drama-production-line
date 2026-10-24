@@ -49,11 +49,20 @@ def zh_number(n: int) -> str:
     return str(n)
 
 
+def display_number(brief: dict[str, Any], episode: str) -> int | None:
+    """Brief ``episode_display_number`` (the series' own count, e.g. E03 = 第2集) else the EP number."""
+    try:
+        value = int(brief.get("episode_display_number"))
+    except (TypeError, ValueError):
+        return episode_number(episode)
+    return value if value > 0 else episode_number(episode)
+
+
 def title_lines(brief: dict[str, Any], episode: str, language: str) -> tuple[str, str]:
     """(series title, episode line); the series title is '' when the brief has none."""
     series = str(brief.get("title") or "").strip()
     ep_title = str(brief.get("episode_title") or "").strip()
-    number = episode_number(episode)
+    number = display_number(brief, episode)
     if language == "en":
         head = f"EPISODE {number:02d}" if number is not None else str(episode)
     else:

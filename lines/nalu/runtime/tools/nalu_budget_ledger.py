@@ -541,12 +541,117 @@ def reservation_ledger_path(episode: str) -> Path:
     return ENGINE_ROOT / "workflow" / "nalu" / episode / "BUDGET_RESERVATION.jsonl"
 
 
-def scan_reservations(episode: str) -> dict[str, Any]:
-    """Read active budget reservations (not yet released or expired)."""
+RESERVATION_OWNER_ENV = "NALU_BUDGET_RESERVATION_OWNER_PID"
+# Transaction states whose POST may have happened with no bound task id yet: a reservation
+# whose window holds one of these is never treated as settled (the money may be in flight).
+IN_FLIGHT_TRANSACTION_STATES = {"INTENT_RECORDED"} | UNRESOLVED_TRANSACTION_STATES | BGM_UNRESOLVED_STATES
+
+
+def _parse_utc(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _pid_alive(pid: int) -> bool:
+    if pid <= 1:
+        return True  # unknown owner: assume alive (never release on a guess)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True  # exists but not ours (EPERM) -- alive
+    return True
+
+
+def _reservation_owner() -> dict[str, Any]:
+    """The process a reservation belongs to: the paid step's orchestrator.
+
+    ``nalu_pipeline.py`` exports its own pid; otherwise the parent of this CLI process
+    (the caller that will submit) owns it.
+    """
+    raw = os.environ.get(RESERVATION_OWNER_ENV, "").strip()
+    try:
+        pid = int(raw) if raw else os.getppid()
+    except ValueError:
+        pid = os.getppid()
+    import socket  # noqa: PLC0415
+    return {"owner_pid": pid, "owner_host": socket.gethostname()}
+
+
+def _spend_evidence(episode: str, bgm_transactions_dir: Path | None = None) -> list[dict[str, Any]]:
+    """Every durable paid-transaction row of the episode with its intent time and the credits
+    the recorded / pending-exposure legs already count for it (``None`` = counts nothing)."""
+    tasks_root = ENGINE_ROOT / "workflow" / "tasks"
+    directories: list[Path] = sorted(p for p in tasks_root.glob(f"*/{episode}") if p.is_dir())
+    if bgm_transactions_dir is not None and bgm_transactions_dir.is_dir() \
+            and bgm_transactions_dir not in directories:
+        directories.append(bgm_transactions_dir)
+    rows: list[dict[str, Any]] = []
+    for directory in directories:
+        is_bgm = directory.parent.name == "giggle_bgm_transactions" or directory == bgm_transactions_dir
+        for path in sorted(directory.glob("*.json")):
+            try:
+                payload = load_json(path)
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            state = str(payload.get("state") or "UNKNOWN")
+            credits: Decimal | None = None
+            if is_bgm:
+                net = (payload.get("credit") or {}).get("net_charged_credits")
+                if state in {"COMPLETED", "TERMINAL_COMPLETED"} and isinstance(net, (int, float)):
+                    credits = Decimal(str(net))
+                elif state in BGM_PROVISIONAL_STATES or state in {"COMPLETED", "TERMINAL_COMPLETED"}:
+                    credits = BGM_PROVISIONAL_CREDITS_PER_TASK
+            elif state == "SUBMITTED_TASK_ID_BOUND" and payload.get("task_id"):
+                if directory.parent.name == IMAGE_TRANSACTION_DIRNAME:
+                    credits = Decimal(str(UNIT_PRICES["image_gpt_image_2_pro"]["hard_upper"]))
+                else:
+                    estimated = payload.get("estimated_credits")
+                    credits = (Decimal(str(estimated)) if isinstance(estimated, (int, float)) and estimated > 0
+                               else None)
+            rows.append({
+                "source": str(path), "state": state, "credits": credits,
+                "at": _parse_utc(payload.get("intent_recorded_at")),
+                "in_flight": state in IN_FLIGHT_TRANSACTION_STATES,
+            })
+    return rows
+
+
+def scan_reservations(episode: str, bgm_transactions_dir: Path | None = None) -> dict[str, Any]:
+    """Read active budget reservations (not yet released, and not yet settled).
+
+    A reservation only guards spend that the durable stores cannot see yet.  Once its paid
+    step's spend is in those stores (bound / reconciled rows, which ``recorded`` and the pending
+    exposure already count), keeping it active counts the same credits twice (lab E02,
+    2026-10-24: spend 1069 + 244 of stale reservations).  An unreleased reservation is
+    *settled* -- and no longer counted -- when either
+
+    * ``OWNER_ENDED``: its owner process (recorded at reserve time, same host) has exited
+      and no transaction intent-recorded since the reservation is still in flight
+      (INTENT_RECORDED / unresolved).  Everything the step submitted is then bound,
+      reconciled, or blocking the check as unresolved; or
+    * ``COVERED_BY_RECORDED_SPEND`` (legacy rows with no owner): the settled transactions
+      intent-recorded inside the reservation's window (its ``reserved_at`` up to the next
+      reservation's) already count at least its credits, and none in the window is in flight.
+
+    A live owner keeps its reservation whatever the stores say: it may still submit.
+    Settled rows are reported in ``settled_reservations``; ``build_report`` appends release
+    rows for them (history is never edited).
+    """
     ledger = reservation_ledger_path(episode)
-    active: dict[str, dict] = {}
+    empty = {"active_reservations": [], "active_credits": 0, "settled_reservations": []}
     if not ledger.is_file():
-        return {"active_reservations": [], "active_credits": 0}
+        return empty
+    active: dict[str, dict] = {}
+    starts: list[datetime] = []
     try:
         for line in ledger.read_text(encoding="utf-8").splitlines():
             if not line.strip():
@@ -557,11 +662,49 @@ def scan_reservations(episode: str) -> dict[str, Any]:
                 active.pop(rid, None)
             elif rid:
                 active[rid] = row
+                started = _parse_utc(row.get("reserved_at"))
+                if started:
+                    starts.append(started)
     except (OSError, json.JSONDecodeError):
         pass
-    reservations = list(active.values())
-    total = sum((Decimal(str(r.get("credits") or 0)) for r in reservations), Decimal("0"))
-    return {"active_reservations": reservations, "active_credits": number(total)}
+    evidence: list[dict[str, Any]] | None = None
+    host: str | None = None
+    held: list[dict] = []
+    settled: list[dict] = []
+    for rid, row in active.items():
+        started = _parse_utc(row.get("reserved_at"))
+        reason = None
+        detail: dict[str, Any] = {}
+        if started is not None:
+            if evidence is None:
+                evidence = _spend_evidence(episode, bgm_transactions_dir)
+            since = [e for e in evidence if e["at"] is None or e["at"] >= started]
+            if isinstance(row.get("owner_pid"), int) and row.get("owner_host"):
+                if host is None:
+                    import socket  # noqa: PLC0415
+                    host = socket.gethostname()
+                if (row["owner_host"] == host and not _pid_alive(row["owner_pid"])
+                        and not any(e["in_flight"] for e in since)):
+                    reason = "OWNER_ENDED"
+                    detail = {"owner_pid": row["owner_pid"]}
+            elif "owner_pid" not in row:
+                later = [s for s in starts if s > started]
+                end = min(later) if later else None
+                window = [e for e in since if e["at"] is not None and (end is None or e["at"] < end)]
+                covered = sum((e["credits"] for e in window if e["credits"] is not None), Decimal("0"))
+                if (window and not any(e["in_flight"] for e in window)
+                        and not any(e["at"] is None and e["in_flight"] for e in evidence)
+                        and covered >= Decimal(str(row.get("credits") or 0))):
+                    reason = "COVERED_BY_RECORDED_SPEND"
+                    detail = {"covered_credits": number(covered),
+                              "window_transactions": [e["source"] for e in window]}
+        if reason:
+            settled.append({**row, "settle_reason": reason, **detail})
+        else:
+            held.append(row)
+    total = sum((Decimal(str(r.get("credits") or 0)) for r in held), Decimal("0"))
+    return {"active_reservations": held, "active_credits": number(total),
+            "settled_reservations": settled}
 
 
 def scan_pending_exposure(episode: str) -> Decimal:
@@ -671,6 +814,7 @@ def reserve_credits(episode: str, planned: Decimal, reservation_id: str,
             "credits": number(planned),
             "reserved_at": utc_now(),
             "released_at": None,
+            **_reservation_owner(),
         }
         with ledger.open("a", encoding="utf-8") as f:
             f.write(json.dumps(reservation, ensure_ascii=False) + "\n")
@@ -682,7 +826,8 @@ def reserve_credits(episode: str, planned: Decimal, reservation_id: str,
         }
 
 
-def release_reservation(episode: str, reservation_id: str) -> None:
+def release_reservation(episode: str, reservation_id: str, *, reason: str | None = None,
+                        evidence: dict[str, Any] | None = None) -> None:
     """Mark a reservation as released (append a release row to the ledger)."""
     import fcntl  # noqa: PLC0415
     ledger = reservation_ledger_path(episode)
@@ -698,6 +843,11 @@ def release_reservation(episode: str, reservation_id: str) -> None:
             "reserved_at": None,
             "released_at": utc_now(),
         }
+        if reason:
+            release_row["release_reason"] = reason
+            release_row["auto_release"] = True
+        if evidence:
+            release_row["release_evidence"] = evidence
         with ledger.open("a", encoding="utf-8") as f:
             f.write(json.dumps(release_row, ensure_ascii=False) + "\n")
 
@@ -744,8 +894,13 @@ def build_report(
     non_video_credits = Decimal(str(non_video["subtotal_credits"]))
     voices = scan_voice_registry_spend(voice_registry)
     transactions = scan_transaction_states(episode)
-    reservations_scan = scan_reservations(episode)
+    reservations_scan = scan_reservations(episode, bgm_transactions_dir)
     active_reserved = Decimal(str(reservations_scan["active_credits"]))
+    # Settled reservations (their spend is already in the stores) get an append-only release row.
+    for settled in reservations_scan["settled_reservations"]:
+        release_reservation(episode, settled["reservation_id"], reason=settled["settle_reason"],
+                            evidence={k: settled[k] for k in ("owner_pid", "covered_credits")
+                                      if k in settled})
 
     # Pending exposure: SUBMITTED_TASK_ID_BOUND tasks whose charge recorded does not already count
     bound_exposure = scan_pending_exposure(episode)
@@ -965,6 +1120,12 @@ def main() -> int:
         "projected_total_credits": report["spend"]["projected_total_credits"],
         "headroom_credits": report["spend"]["headroom_credits"],
         "accounting_complete": report["spend"]["accounting_complete"],
+        "active_reserved_credits": report["spend"].get("active_reserved_credits"),
+        # nalu_pipeline.paid_step reads the reservation id from this line to release it once
+        # the step exits 0; without it every pipeline reservation stayed active forever.
+        "reservation_result": report.get("reservation_result"),
+        "auto_released_reservations": [r["reservation_id"] for r in
+                                       (report.get("budget_reservations") or {}).get("settled_reservations") or []],
         "balance_availability": (balance or {}).get("balance_availability"),
         "window_net_credits": (balance or {}).get("window_net_credits"),
         "failures": report["failures"],

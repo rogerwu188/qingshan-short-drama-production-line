@@ -59,14 +59,35 @@
 
 - 景别跟内容走：两个人隔着一条石拱廊远远对望 = `WIDE` / `MEDIUM_WIDE`，不是 `EXTREME_CLOSE_UP`；
   特写只给一张脸、一只手、一个物件。
-- 剧本里的反打、「忽然就在那里」、视角换到另一个人 = 一次切 = 另起一个单元，
+- 「忽然就在那里」、视角换到另一个人、换景别 = 一次切 = 另起一个单元，
   `internal_transition_authoring` 写 `REACTION_CUT` / `MOTIVATED_CUT` / `HARD_CUT`。
+- **对白戏不要每句一切，也不要让两人同框说话**（线主 2026-10-23；实验集 E02 四轮实测）：一个 H3 单元只有一个说话人（引擎硬规则）；
+  而 H3 在「两人同框、一人说话」的镜头里会把镜头转向/推向说话人、把听者摇出画，同一人既在起始帧又有正脸参考时还会出重影或第二个人——
+  提示词写清、去矛盾、改过肩构图、写明「同一人」都只能减轻，消除不了。所以按下面写，不靠多抽、不靠后期补救：
+  ① **说话镜只拍说话的人**：单人中近景/近景，或带对方一点肩膀/后脑的过肩近景，说话人居中、是唯一正脸；
+  听者不给正脸、不要求整个人在画内。同一个人连着说的几句留在同一个镜头里。
+  ② **双人镜只用在没人说话的时刻**：开场交代关系、沉默对视、动作反应——没人开口，H3 就没有「对准谁」的冲动。
+  ③ **景别节奏**：开场一个无对白双人镜交代空间；对白用单人镜一来一回；情绪转折才切更紧的景别；最狠的那句给最紧的镜头；
+  听者的无声反应只在「反应本身就是戏」时才切过去。
+  ④ **声音桥（L-cut）把单人镜连起来**：说话镜后面紧跟对方的无对白反应镜时，在反应镜写
+  `prompt_spec.transition.sound_bridge_from_previous_seconds`（0.3–2.0 s）：S7 把说话人的画面提前这么多秒切走，
+  他这句话的声音（和字幕）继续盖在反应镜开头，反应镜自己的现场声压成环境声——看起来是顺着反应剪，不是一句一跳。
+  只对 CAMERA_GRAMMAR_V1 的集、且两镜分属相邻两个单元时生效；不写 = 照旧硬切。
 - 机位要变的地方，一个单元只放一拍。一个单元两拍只适合同一机位里的连续动作。
+
+**对白戏示例**（两人，5 镜，转折在第 4 句）：
+1. `MEDIUM_WIDE` 无对白双人镜：A、B 对峙，A 前倾、B 站直（交代空间）。
+2. `MEDIUM_CLOSE_UP` A 单人（带 B 一点肩背），A 说第 1–2 句。
+3. `MEDIUM_CLOSE_UP` B 单人（带 A 一点肩背），B 回第 3 句（`REACTION_CUT`，`sound_bridge_from_previous_seconds: 0.6`，A 的话尾先盖在 B 脸上）。
+4. `CLOSE_UP` A，最狠的第 4 句（`MOTIVATED_CUT`，转折才切近）。
+5. `MEDIUM_CLOSE_UP` B 无对白反应（`REACTION_CUT`，`sound_bridge_from_previous_seconds: 0.8`）。
+- 竖屏双人镜（无对白时）优先前后叠放的过肩构图，不要两人左右分列画面两侧边缘。
 - 运镜要有动机（#121）：跟人、揭示、强调、主观视角；否则 `LOCKED` 或慢推。
   不要写「Framing changes with the camera motion.」这类空话当 `end_framing`——写清落幅是谁、多大、在画面哪里。
 - **关键帧的取景要写成画面范围**（实验集 2026-10-22：中近景被生图画成站立全身「定妆照」）：`start_framing` 写清从哪里截
   （"framed from mid-chest up"、"head and shoulders"、"seated behind the desk, waist up"）和人在做什么、看向谁；
   不写成正面站立直视镜头。同一场连续几镜的构图要有变化（角度、高低、前景）。
+- **对白镜不留空**（线主 2026-10-23：H3 会用乱码般的「像英文但不是英文」的话填满台词说完后的时间）：对白镜 `target_seconds` = 台词说话时长 + 0.5–1.0 s（中文约 4 字/秒，英文约 2.5 词/秒）；不要给对白镜加长，需要停顿、反应就另写一个无对白的反应镜。S7 也会把每个对白单元剪在最后一句说完后约 0.5 s，多给的时长只会被剪掉。
 
 ## 6. 避开人群和手
 
@@ -97,11 +118,32 @@ H3 当真人短剧拍，凭空加了好几双真人的手。
 若剧情一定要实物，就拍一个能拍的物件——例如石墙上十二个烛台、第一支被点亮——
 单元里没有人物，渲染器会按「实拍物件插入镜、无人无手」出提示词。
 
+## 7b. 导演式提示词 DIRECTOR_PROMPT_V2（可选，线主 2026-10-23）
+
+- **开关**：生成合同顶层写 `"h3_prompt_style": "DIRECTOR_PROMPT_V2"`。只有声明了的合同的 H3 单元换成 V2；
+  没写（或写别的值）的集一字不变，仍是 `subject_definitions:` 那版 V1 提示词。分组编译把字段盖到 H3 单元上，
+  交易任务带着它，付费边界按同一字段重渲染并逐字比对（「提示词必须是当前编译器的原样输出」不变）。
+- **形状**：像导演给摄影和演员讲戏，依次是 References（每张参考图/每条参考音一句：开场画面 / X 的脸和身体 / X 的声音只取音色）、
+  Who is in frame（"exactly these two people, each exactly once, both visible from the first frame to the last"
+  这一句就是人数约束，逐人写画左画右、长相、服装；有人入画出画或只露手，就逐人写时段）、Setting、Camera、Action（每拍说话的人
+  和听的人各做什么）、Dialogue（`<d>[Chinese] …</d>` 只出现一次 + delivery_en；说完后 "After the line nobody speaks"）、
+  Sound（一行，"No background music"）、Never。不再出现内部 id、retention_analysis、Force origin/Interaction mode 模板、
+  NO_BGM、"render at most one visible instance…" 之类机器句。一般 2–4k 字符（构图文字长的单元会更长）。
+- **英文长相、服装、场景**：V2 单元的英文合同请求（`<EP>_H3_ENGLISH_CONTRACTS.REQUEST.json`）多一个 `director_v2` 块：
+  只有中文的人物长相（appearance：脸、年龄、发型、体型）、服装（wardrobe）、生物外观（look）和一两句场景（setting：地点与布局，
+  时间、天气、光另有字段）。英文剧已有英文字段的不会再要。
+- **听者在做什么**（可选）：对白镜可写 `prompt_spec.action.listener_reaction_en`——一句英文，或按人物 id/英文名分别写
+  （`{"CHAR-LINQIAO": "holds his gaze, jaw tight, lifts her chin on the second question"}`）。不写时默认
+  「X listens without speaking, holding Y's gaze.」；无对白镜默认「X stays silent, watching Y.」。V1 提示词不读这个字段。
+- 覆盖面不变：每条执行事实仍要在 V2 文本里找到对应句子（semantic coverage receipt）；只有微表情/身体同步模板和
+  非打斗、无接触时刻的拍里的接触点/反馈模板改由「每个人在做什么」表达，回执里逐条列为 `style_omitted_fact_ids`。
+
 ## 8. 写完自查（不是门禁）
 
 - [ ] 每一拍都分了桶；②③没有直接塞给 H3。
 - [ ] 每个单元 ≤ 2 个可见主体；无脸存在登记为 CREATURE，`note` 写了长相。
 - [ ] 每个可见人物服装写成英文（英文剧）一句话。
-- [ ] 景别和人物距离对得上；反打/突然出现都切开了。
+- [ ] 配乐（线主 2026-10-23，城市实验 E03 只给第 3 场写了 cue）：写了 `audio_contract.bgm` 就写成整集铺底——一条 cue 在开场钩子之后进入、一直持续到结尾（淡入淡出），绝不只配某一场；拿不准就不写 bgm，让本线默认规则生效。
+- [ ] 景别和人物距离对得上；突然出现、换景别都切开了；对白来回用同一双人镜 `CONTINUOUS_ACTION` 接力，只在转折处切近。
 - [ ] 机位要变的单元只有一拍；运镜都有理由；`end_framing` 不是空话。
 - [ ] 没有人群、路人；插入镜里没有无主的手。
