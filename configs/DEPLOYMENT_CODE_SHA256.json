@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2198,
+  "file_count": 2200,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -337,7 +337,7 @@
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
-      "sha256": "edb32ebf9f0116416a0c1045b94c59686bbb895ea8d1c52208a83be7e9b6963c"
+      "sha256": "631567dda3c98beaceb2eb320ea56d00f723a2a5d9a94323e950ef7e4d8e20d4"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -637,7 +637,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_opening_title.py",
-      "sha256": "89449470a818f688343b422485115c05a4619ca8ac92d4d242a5ffe2d538783a"
+      "sha256": "ba84b15c9d067630c6f24f6f1c30b178bc60dfe559e87bd486cfcbc7d200aaac"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_paths.py",
@@ -645,7 +645,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "2a7fadeb7c620878374a6a29b95e816c6a41848e804fdd56e7e45c30464d684f"
+      "sha256": "91505f467a614745842a68a54cabd216b37ab4885d8775f24f10f2e7fd4fd727"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -765,7 +765,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/video_q2_builder.py",
-      "sha256": "3b5278bdddef93f272fe1badd617a9e076eba0e823ca4ebdb551776088c35be2"
+      "sha256": "eb3b9db02a72136aaafd7b4b47e784b66f80a56464d4b5ce332bd2bb129e95cb"
     },
     {
       "path": "lines/nalu/runtime/tools/visual_review_policy.py",
@@ -797,7 +797,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "5aff607a168647620e8008ec66cca10225f701438b9584704b0728f775a2a9cc"
+      "sha256": "9c54c21e56cf04b4989da352611e6bf02b918ef57e245238d4c63d827e39f0e7"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -829,7 +829,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/make_endcard.py",
-      "sha256": "10afdb70d695b383e02fa26f7570eafdb55d8b587a2e5e785a76c14d52538d42"
+      "sha256": "6b3b7c352d10ccebe2c4a2d77419522a58e65979d654cd09af4dc0935f325e88"
     },
     {
       "path": "skills/nalu-claude-code/scripts/plan_compile.sh",
@@ -3862,6 +3862,10 @@
     {
       "path": "tools/dialogue_cut_safety.py",
       "sha256": "d38f71598f7dd06f5c686dc239a9821a77736c88fc7d48cf0a6214a13c6f601a"
+    },
+    {
+      "path": "tools/dialogue_leading_burst.py",
+      "sha256": "1fbf3c4866414d34cfcb2e78b4d1bcd991802244cfc3990bca6a6b52e739617b"
     },
     {
       "path": "tools/dialogue_sound_bridge.py",
@@ -7518,6 +7522,10 @@
     {
       "path": "tools/tests/test_knowledge_registry.py",
       "sha256": "148223c9c9998db46a9c0b6871f6ad25fb4b192264f470a15841ba339267e1b3"
+    },
+    {
+      "path": "tools/tests/test_leading_burst_face_count_endcard.py",
+      "sha256": "66cedee6f0a763771d07d3d7fbc8d9f25227ee828d8ccff9eadcd94aa9a36eb7"
     },
     {
       "path": "tools/tests/test_legacy_voice_migration.py",

@@ -121,6 +121,7 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
 5. 背景音乐默认开启（线主 2026-10-22「背景音乐开吧」），属默认条款、由本集 S3–S6 付费订单覆盖，不是新付费类别，不要停下问：
    合同 `audio_contract.bgm` 不写或写 `NO_BGM` 时，引擎按默认在最后一场末尾几镜配一段选择性配乐（S6 生成约 8 积分，S7 混音）；
    想自己定配乐节点就写 `{"mode":"SELECTIVE","cues":[...]}`；确实不要配乐才写 `"NONE"`。
+   - 编剧自写 `audio_contract.bgm` 时（线主 2026-10-23，城市实验 E03 只配了第 3 场）：cue 在开场钩子之后进入一次、持续到全集结尾（整集铺底，淡入淡出），绝不只配某一场；拿不准就不写 bgm，让本线默认规则生效。
 5. 直接进入 S3，不等任何确认。
 
 ## 4. S3→S7（每次 exit=4 = 有审核请求）
@@ -147,6 +148,7 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
   其后 q1_derived（上一单元尾帧作起始帧）、post_gen_plot（用 `$T/review_fill/asr_units.py` 转写核对台词；同音字只记录）、video_q2。
   Q2 中 OCR 读出的低置信乱码（背景招牌/标签纹理、道具上的手写字）在 `observed_text_strings` 写 `NOISE:<文本>`；动作幅度/表情细节不算缺陷。
 - **S7 装配**（`env -u GIGGLE_API_KEY $P $T/nalu_pipeline.py run --episode <EP> --from S7 --until S8`）：需要 `$NALU_RUNTIME_ROOT/brand/NALU_MOTION_endcard_3s_9x16.mp4`（没有就 `$P $S/make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第N集 · <集名>" --language <简报 dialogue_language>`）。
+  CAMERA_GRAMMAR_V1 剧集 S7 按简报自动生成本集片尾卡（`workflow/nalu/<EP>/assembly/<EP>_endcard_3s_9x16.mp4`，失败才回落到全局卡）；简报 `episode_display_number`（本剧第几集，如 E03 = 2）同时用于片头和片尾，缺省用 EP 编号。
   S7 自动加片头标题（简报 `title` + 集数，前 2.5 秒叠加，免费、不加时长）、默认配乐混音（S6 已生成并对账）和尾贴广告版（素材缺失只记 `AD_ASSET_MISSING`，不阻塞）。
   S7 报 `SELECTIVE_BGM_CREDIT_RECONCILIATION_NEEDS_KEY`（S6 时配乐账单还没出）：改用 `./lines/nalu/runtime/tools/paid_stage.sh <EP> S7 S7` 重跑 S7（S7 没有任何提交路径，key 只用于只读账单查询），不是新付费。
 
@@ -178,6 +180,7 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
   之一的单元，**「起始帧继承缺口」不是跳过重做的理由**：按 §4 受控创意重做该单元一次（镜头文字写明要去掉的东西：多余人物、错穿的服装、
   不该出现的手/人），重做仍失败再按下面默认接受。只有预算不够（`paid_stage.sh <EP> --check` 投影超本集上限）才跳过，`--context` 写「预算不足未重做」。
   多个单元要重做时按观众影响排序：开场前 10 秒 > 有台词/主角正脸 > 结尾 > 其余；预算用到上限为止。其余 Q2 失败项（构图、道具数量、动作细节）照旧直接接受。
+  CAMERA_GRAMMAR_V1 剧集的 Q2 会客观数脸（InsightFace，`objective_face_count`）：≥2 帧人脸数多于声明人数时 `cast_exactly_as_declared` 自动判 FAIL（审核答 PASS 也不能改回），同样走这条重做一次。
 - 视频 Q2：`--gate-id VIDEO-Q2-ASSEMBLY-ADMISSION --detector <unit>:<每个失败门禁 ID> --media <unit>=<unit mp4>`；
   6 镜左右的短集任何 P2 都会超 10% 缺陷预算：同时写 `$NALU_RUNTIME_ROOT/preproduction/<EP>/qa_overrides.json` 的
   `defect_tolerance_minor_budget_override`（只列失败码，`authorized_by` 写「短剧工作流默认条款：质量不阻塞」）。
