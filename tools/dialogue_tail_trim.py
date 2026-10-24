@@ -11,6 +11,16 @@ next ASR segment (the babble) starts.  A unit is never cut below
 ``MIN_UNIT_SECONDS``, never inside a non-final shot, never lengthened; when the line end
 cannot be matched confidently the unit stays untrimmed and the reason is recorded.
 
+The line's last word must not be cut (lab E02 VU-007: ASR split "...of a terrified" | "woman.", the
+fuzzy tail match accepted the first segment and the cap at the next segment start cut "woman"):
+when the matched segment does not contain the line's last word (en; last CJK character for zh)
+but one of the next ASR segments does, the line ends at that segment instead; when no segment
+contains it and the word is not a proper name (ASR misspells names: E01 "Farintosh"), the unit
+stays untrimmed (LINE_LAST_WORD_NOT_HEARD).  With measured audio energy (``unit_energy``: per-unit
+RMS dBFS frames of ``ENERGY_HOP`` s) a cut that is not at a following ASR segment start is also
+checked: speech-level energy in the ``ENERGY_GUARD_SECONDS`` after it moves the cut to where the
+energy falls (at most ``ENERGY_EXTEND_MAX`` later), else the unit stays untrimmed.
+
 Pure functions only: the S7 caller supplies the contract, grouping plan, unit ASR and the
 measured clip durations, passes the plan to the AgentCut build (``--dialogue-tail-trim``) and
 drops the ASR segments that the cut removed, so captions, V.O. placement, BGM and the
@@ -31,6 +41,13 @@ MATCH_THRESHOLD = 0.55
 EN_TAIL_WORDS = 3
 ZH_TAIL_CHARS = 4
 VOICE_ONLY_MODE = "VOICE_ONLY_NO_PLATE"
+WORD_MATCH = 0.75
+LAST_WORD_LOOKAHEAD = 2
+ENERGY_HOP = 0.02
+ENERGY_GUARD_SECONDS = 0.3
+ENERGY_EXTEND_MAX = 1.0
+ENERGY_BELOW_SPEECH_DB = 15.0
+ENERGY_FLOOR_DB = -45.0
 
 
 def _cjk(text: str) -> str:
@@ -62,8 +79,47 @@ def tail_match_score(expected: str, segment_text: str, *, cjk_mode: bool) -> flo
     return best
 
 
+def has_last_word(expected: str, segment_text: str, *, cjk_mode: bool) -> bool:
+    """True when the segment contains the expected line's last word (en, fuzzy) / last CJK character."""
+    want = _tokens(expected, cjk_mode)
+    have = _tokens(segment_text, cjk_mode)
+    if not want or not have:
+        return False
+    if cjk_mode:
+        return want[-1] in have
+    return any(difflib.SequenceMatcher(None, want[-1], w).ratio() >= WORD_MATCH for w in have)
+
+
+def _last_word_is_name(expected: str) -> bool:
+    words = re.findall(r"[A-Za-z][A-Za-z'’-]*", str(expected))
+    return bool(words) and words[-1][:1].isupper() and len(words) > 1
+
+
+def speech_after(frames: list[float] | None, cut: float, line_end: float) -> tuple[bool, float | None]:
+    """(speech-level energy right after ``cut``?, time the energy falls below the threshold or None).
+
+    Threshold: the line's own speech level (75th percentile of the frames before ``line_end``) minus
+    ``ENERGY_BELOW_SPEECH_DB``, never below ``ENERGY_FLOOR_DB``.  Speech = 3+ frames (60 ms) above it
+    in the guard window.
+    """
+    if not frames:
+        return False, None
+    spoken = sorted(frames[:max(1, int(line_end / ENERGY_HOP))])
+    level = spoken[int(0.75 * (len(spoken) - 1))]
+    threshold = max(ENERGY_FLOOR_DB, level - ENERGY_BELOW_SPEECH_DB)
+    i0 = int(round(cut / ENERGY_HOP))
+    guard = frames[i0:i0 + int(round(ENERGY_GUARD_SECONDS / ENERGY_HOP))]
+    if sum(1 for v in guard if v > threshold) < 3:
+        return False, None
+    quiet_run = int(round(0.1 / ENERGY_HOP))
+    for i in range(i0, min(len(frames), i0 + int(round(ENERGY_EXTEND_MAX / ENERGY_HOP)))):
+        if all(v <= threshold for v in frames[i:i + quiet_run]) and len(frames[i:i + quiet_run]) == quiet_run:
+            return True, round(i * ENERGY_HOP, 3)
+    return True, None
+
+
 def plan(contract: dict[str, Any], grouping: dict[str, Any], unit_asr: dict[str, Any],
-         clip_seconds: dict[str, float]) -> dict[str, Any]:
+         clip_seconds: dict[str, float], unit_energy: dict[str, list[float]] | None = None) -> dict[str, Any]:
     """Per-unit trim plan: rows of {unit_id, original_seconds, kept_seconds, trimmed, matched_text, reason}."""
     language = str(contract.get("dialogue_language") or "zh").lower()
     shots = {str(s.get("shot_id")): s for s in contract.get("shots") or []}
@@ -108,6 +164,16 @@ def plan(contract: dict[str, Any], grouping: dict[str, Any], unit_asr: dict[str,
         if hit is None:
             row["reason"] = "LINE_END_NOT_MATCHED"
             continue
+        if not has_last_word(expected, str(hit.get("text") or ""), cjk_mode=cjk_mode):
+            later_hit = next((s for s in segs[segs.index(hit) + 1:segs.index(hit) + 1 + LAST_WORD_LOOKAHEAD]
+                              if has_last_word(expected, str(s.get("text") or ""), cjk_mode=cjk_mode)), None)
+            if later_hit is not None:
+                hit = later_hit
+                row["line_end_extended_to_last_word"] = True
+            elif not cjk_mode and not _last_word_is_name(expected):
+                row["matched_text"] = str(hit.get("text") or "")
+                row["reason"] = "LINE_LAST_WORD_NOT_HEARD"
+                continue
         line_end = float(hit["end"])
         row["matched_text"] = str(hit.get("text") or "")
         row["line_end_seconds"] = round(line_end, 3)
@@ -121,6 +187,17 @@ def plan(contract: dict[str, Any], grouping: dict[str, Any], unit_asr: dict[str,
         tail_end = max(line_end, min([line_end + TAIL_SECONDS, *later]))
         row["tail_capped_by_next_speech"] = tail_end < line_end + TAIL_SECONDS
         kept = min(original, max(tail_end, MIN_UNIT_SECONDS, last_shot_start))
+        frames = (unit_energy or {}).get(uid)
+        capped_cut = bool(row["tail_capped_by_next_speech"]) and kept == tail_end  # cut at the babble onset
+        if frames and original - kept >= MIN_TRIM_SECONDS and not capped_cut:
+            loud, quiet_at = speech_after(frames, kept, line_end)
+            row["energy_checked"] = True
+            if loud:
+                if quiet_at is None:
+                    row["reason"] = "SPEECH_ENERGY_AT_CUT"
+                    continue
+                row["energy_extended_seconds"] = round(quiet_at - kept, 3)
+                kept = tail_end = min(original, quiet_at)
         if original - kept < MIN_TRIM_SECONDS:
             row["reason"] = "LINE_FILLS_SLOT"
             continue

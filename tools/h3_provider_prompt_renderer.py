@@ -409,9 +409,15 @@ def _camera_english(
     line that has not yet authored English framing.
     """
     values: dict[str, str] = {}
+    # CAMERA_GRAMMAR_V1 (lab E02): a source field the writer already authored in English is the
+    # framing itself; the English-contract answer only translates CJK sources (E02's answers replaced
+    # every writer framing with the placeholder "authored framing", so H3 never saw the framing).
+    source_wins = camera_plan.get("camera_grammar") == "CAMERA_GRAMMAR_V1"
     for key in _CAMERA_TEXT_FIELDS:
         source = camera_plan.get(key)
         value = english.get(key) or camera_plan.get(f"{key}_en")
+        if source_wins and source and str(source).strip() and not _CJK.search(str(source)):
+            value = source
         if not value and source and not _CJK.search(str(source)):
             value = source
         value = str(value or "").strip().rstrip(".; ")

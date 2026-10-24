@@ -6386,6 +6386,27 @@ def _probe_seconds(path: Path) -> float | None:
         return None
 
 
+def _unit_energy_db(path: Path, hop: float = 0.02) -> list[float] | None:
+    """Mono 16 kHz RMS dBFS per ``hop`` seconds of a unit clip's audio (free, local ffmpeg); None on failure."""
+    import array
+    import math
+    run = subprocess.run([_media.require_ffmpeg(), "-v", "error", "-i", str(path), "-vn", "-ac", "1", "-ar", "16000",
+                          "-f", "s16le", "-"], capture_output=True, check=False)
+    if run.returncode != 0 or not run.stdout:
+        return None
+    pcm = array.array("h")
+    pcm.frombytes(run.stdout[:len(run.stdout) // 2 * 2])
+    if sys.byteorder != "little":
+        pcm.byteswap()
+    n = max(1, int(16000 * hop))
+    out = []
+    for i in range(0, len(pcm) - n + 1, n):
+        block = pcm[i:i + n]
+        rms = math.sqrt(sum(v * v for v in block) / n) / 32768.0
+        out.append(round(20 * math.log10(rms), 2) if rms > 0 else -120.0)
+    return out
+
+
 def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
                           ) -> tuple[dict[str, Any] | None, Path | None]:
     """CAMERA_GRAMMAR_V1 only (line owner 2026-10-23): cut each dialogue unit 0.5 s after its last line.
@@ -6404,7 +6425,10 @@ def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
     asr = transcribe_units(ctx, p.video_media, ctx.episode)
     write_json(p.assembly / f"{ctx.episode}_unit_asr_untrimmed.json", asr)
     clip_seconds = {mp4.stem: _probe_seconds(mp4) for mp4 in sorted(p.video_media.glob(f"{ctx.episode}-VU-*.mp4"))}
-    report = _trim.plan(contract, read_json(p.grouping_plan, {}) or {}, asr, clip_seconds)
+    energy = {mp4.stem: _unit_energy_db(mp4, _trim.ENERGY_HOP)
+              for mp4 in sorted(p.video_media.glob(f"{ctx.episode}-VU-*.mp4"))}
+    report = _trim.plan(contract, read_json(p.grouping_plan, {}) or {}, asr, clip_seconds,
+                        unit_energy={k: v for k, v in energy.items() if v})
     report_path = p.assembly / f"{ctx.episode}_DIALOGUE_TAIL_TRIM.json"
     write_json(report_path, report)
     res.details["dialogue_tail_trim"] = {"report": str(report_path), "trimmed_units": report["trimmed_units"],
@@ -6773,6 +6797,10 @@ def stage_s7(ctx: Ctx) -> StageResult:
     vo_placement = voice_over_placement_path(ctx)
     vo_argv: list[Any] = (["--voice-over-placement", vo_placement]
                           if captioned_source != native_source and vo_placement.is_file() else [])
+    # CAMERA_GRAMMAR_V1 (lab E02 VU-001): a line too long for 2 normal-size rows becomes sequential cues
+    import camera_grammar_policy as _cgp
+    if _cgp.active(read_json(p.contract, {}) or {}, episode=ctx.episode):
+        vo_argv.append("--split-long-captions")
     sub_step = ctx.run([VENV, RT_TOOLS / "build_burnin_subtitles.py", "--episode", ctx.episode,
                         "--project", p.agentcut_project, "--asr", asr_json, "--contract", p.contract,
                         "--grouping", p.grouping_plan, "--source", captioned_source,

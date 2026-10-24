@@ -203,6 +203,53 @@ class EnglishSubtitleTests(unittest.TestCase):
         self.assertTrue(all(len(row) <= burnin.EN_WRAP_CHARS for row in rows))
         self.assertEqual(burnin.wrap_en("Short line."), "Short line.")
 
+    # lab E02 VU-001: a 197-character line was wrapped into 2 rows of ~98 characters and shrunk, so the
+    # caption ran off both frame edges.
+    E02_VU001 = ("My name is Helen Stoner, and I am living with my stepfather, who is the last survivor of one of "
+                 "the oldest Saxon families in England, the Roylotts of Stoke Moran, on the western border of Surrey.")
+    E02_VU001_ASR = [{"start": 0.0, "end": 5.68, "text": "My name is Helen Stoner, and I am living with my stepfather, "
+                                                          "who is the last survivor of one of"},
+                     {"start": 5.68, "end": 12.4, "text": "the oldest Saxon families in England, the Roylets of Stoke "
+                                                           "Moran, on the western border of Surrey."}]
+
+    def _fits(self):
+        from PIL import Image, ImageDraw, ImageFont
+        font = ImageFont.truetype(burnin._media.resolve_latin_font()[0], burnin.EN_FONT_SIZE)
+        draw = ImageDraw.Draw(Image.new("RGBA", (8, 8)))
+
+        def fits(chunk: str) -> bool:
+            rows = burnin.wrap_en(chunk).split("\\N")
+            return len(rows) <= 2 and all(draw.textlength(r, font=font) <= burnin.CAPTION_MAX_WIDTH for r in rows)
+        return fits
+
+    def test_long_line_splits_into_sequential_normal_size_cues(self) -> None:
+        fits = self._fits()
+        self.assertFalse(fits(self.E02_VU001))
+        cues = burnin.split_cues(self.E02_VU001, fits, "en")
+        self.assertGreaterEqual(len(cues), 2)
+        self.assertEqual(" ".join(cues), self.E02_VU001)
+        self.assertTrue(all(fits(cue) for cue in cues))
+        self.assertTrue(all(cue[-1] in ",." for cue in cues))  # clause breaks preferred
+        bounds = burnin.cue_boundaries(cues, 0.0, 12.4, self.E02_VU001_ASR, "en")
+        self.assertEqual((bounds[0], bounds[-1]), (0.0, 12.4))
+        self.assertEqual(bounds, sorted(bounds))
+        self.assertEqual(len(bounds), len(cues) + 1)
+        # a line that fits stays one cue
+        self.assertEqual(burnin.split_cues("Pray be precise as to details.", fits, "en"),
+                         ["Pray be precise as to details."])
+
+    def test_cue_boundaries_follow_asr_segments(self) -> None:
+        segs = [{"start": 0.0, "end": 2.0, "text": "aaaa aaaa"}, {"start": 6.0, "end": 8.0, "text": "bbbb bbbb"}]
+        self.assertEqual(burnin.cue_boundaries(["aaaa aaaa", "bbbb bbbb"], 0.0, 8.0, segs, "en"), [0.0, 4.0, 8.0])
+        # single segment: proportional to speech characters
+        self.assertEqual(burnin.cue_boundaries(["aa", "aaaaaa"], 0.0, 8.0, segs[:1], "en"), [0.0, 2.0, 8.0])
+
+    def test_chinese_long_line_splits_into_two_row_cues(self) -> None:
+        text = "一二三四五六七八九十，一二三四五六七八九十一二三四五六七八九十。一二三四五"
+        cues = burnin.split_cues(text, lambda c: len(burnin.wrap(c).split("\\N")) <= 2, "zh")
+        self.assertEqual("".join(cues), text)
+        self.assertTrue(all(len(burnin.wrap(c).split("\\N")) <= 2 for c in cues))
+
     def test_assignment_matches_english_segments(self) -> None:
         lines = [{"text": "Where were you last night?"}, {"text": "At home, alone."}]
         segs = [{"start": 0.1, "end": 1.0, "text": "Where were you"},

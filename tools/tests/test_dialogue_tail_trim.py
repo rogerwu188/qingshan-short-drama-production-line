@@ -100,6 +100,64 @@ class PlanTests(unittest.TestCase):
         self.assertAlmostEqual(row["kept_seconds"], 2.9)
         self.assertFalse(row["tail_capped_by_next_speech"])
 
+    # lab E02 VU-007: ASR split the last word into its own segment; the fuzzy tail match accepted the
+    # first segment and the next-speech cap then cut "woman".
+    E02_VU007 = [{"start": 0.0, "end": 7.28,
+                  "text": "Suddenly, amid all the hubbub of the gale, there burst forth the wild scream of a terrified"},
+                 {"start": 7.28, "end": 7.8, "text": "woman."}]
+    E02_LINE = "Suddenly, amid all the hubbub of the gale, there burst forth the wild scream of a terrified woman."
+
+    def test_last_word_in_next_segment_is_never_cut(self):
+        c = contract([("S1", "CHAR-A", self.E02_LINE)])
+        row = trim.plan(c, grouping([("U1", ["S1"])]), {"U1": self.E02_VU007}, {"U1": 8.0})["units"][0]
+        self.assertFalse(row["trimmed"])
+        self.assertEqual(row["line_end_seconds"], 7.8)
+        self.assertTrue(row["line_end_extended_to_last_word"])
+        self.assertEqual(row["kept_seconds"], 8.0)
+        # a longer slot is still cut — after "woman", never before it
+        segs = self.E02_VU007 + [{"start": 8.6, "end": 9.9, "text": "and then blabber"}]
+        row = trim.plan(c, grouping([("U1", ["S1"])]), {"U1": segs}, {"U1": 10.0})["units"][0]
+        self.assertTrue(row["trimmed"])
+        self.assertAlmostEqual(row["kept_seconds"], 8.3)
+        asr = trim.trim_unit_asr({"U1": segs}, {"units": [row]})
+        self.assertEqual([s["text"] for s in asr["U1"]], ["Suddenly, amid all the hubbub of the gale, there burst "
+                                                          "forth the wild scream of a terrified", "woman."])
+
+    def test_last_word_never_heard_stays_untrimmed(self):
+        c = contract([("S1", "CHAR-A", self.E02_LINE)])
+        row = trim.plan(c, grouping([("U1", ["S1"])]), {"U1": self.E02_VU007[:1]}, {"U1": 8.0})["units"][0]
+        self.assertFalse(row["trimmed"])
+        self.assertEqual(row["reason"], "LINE_LAST_WORD_NOT_HEARD")
+
+    def test_energy_after_cut_moves_cut_or_skips(self):
+        c = contract([("S1", "CHAR-A", "Go now.")])
+        segs = [{"start": 0.2, "end": 1.0, "text": "Go now."}]
+        hop = trim.ENERGY_HOP
+        loud, quiet = -12.0, -80.0
+
+        def frames(loud_until, total=5.0):
+            return [loud if i * hop < 1.0 or 1.5 <= i * hop < loud_until else quiet for i in range(int(total / hop))]
+
+        g = grouping([("U1", ["S1"])])
+        # quiet after the 1.5 s cut: unchanged
+        row = trim.plan(c, g, {"U1": segs}, {"U1": 5.0}, unit_energy={"U1": frames(1.5)})["units"][0]
+        self.assertAlmostEqual(row["kept_seconds"], 1.5)
+        self.assertTrue(row["energy_checked"])
+        # speech-level energy runs on to 2.1 s: the cut moves there
+        row = trim.plan(c, g, {"U1": segs}, {"U1": 5.0}, unit_energy={"U1": frames(2.1)})["units"][0]
+        self.assertAlmostEqual(row["kept_seconds"], 2.1, places=2)
+        self.assertTrue(row["trimmed"])
+        # energy runs on past the extension limit: untrimmed
+        row = trim.plan(c, g, {"U1": segs}, {"U1": 5.0}, unit_energy={"U1": frames(4.5)})["units"][0]
+        self.assertFalse(row["trimmed"])
+        self.assertEqual(row["reason"], "SPEECH_ENERGY_AT_CUT")
+        # a cut at the onset of the next ASR segment (the babble) is not energy-checked
+        c9 = contract([("S1", "CHAR-A", "I have heard of you, Mr. Holmes; I have heard of you from Mrs. Farintosh,")])
+        row = trim.plan(c9, g, {"U1": HOLMES_009}, {"U1": 7.292},
+                        unit_energy={"U1": [loud] * int(7.292 / hop)})["units"][0]
+        self.assertAlmostEqual(row["kept_seconds"], 4.32)
+        self.assertNotIn("energy_checked", row)
+
 
 class BuildTests(unittest.TestCase):
     def _fixture(self, root):

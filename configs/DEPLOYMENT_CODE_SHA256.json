@@ -545,7 +545,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_burnin_subtitles.py",
-      "sha256": "f26679fa770ab6ffb6102262ce1972c636535cf120c5c71a500aec2385993806"
+      "sha256": "11b048c2c015de0c5580fa4089254f98605b72ca3f47613e321d0898f54e0628"
     },
     {
       "path": "lines/nalu/runtime/tools/build_episode_asset_requirements.py",
@@ -645,7 +645,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "d089fa258325c7c9318a9a767e0c482af39cb8c38715c71fa89b381007173f99"
+      "sha256": "7fd0620f97dd38116083b97adee030e658dac9194d60aa2888fbba9cc82dcecf"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -3873,7 +3873,7 @@
     },
     {
       "path": "tools/dialogue_tail_trim.py",
-      "sha256": "f77b1c295debe283349c4ac7ef4f58c05fe0b54ca8397480c0958dc4559617cc"
+      "sha256": "d28c7cdfd7b8101de12393cd793427dc5be7ba3872b4fe3fa0eb60986ee0cd08"
     },
     {
       "path": "tools/dialogue_voice_metrics.py",
@@ -4889,7 +4889,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "bbdb13375ffb284c96a96043fb5434e00201e0a6f7d7f51daa5abde981ee3249"
+      "sha256": "1dc85d5ab7eacbce413438610460221855bcba064b6d4333e9d3b8e311ac1e5f"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -7049,7 +7049,7 @@
     },
     {
       "path": "tools/tests/test_dialogue_language_en.py",
-      "sha256": "fcb4368be879173910ed6478f36a55c98b1b6feacb6053bf962c9b26431e23b7"
+      "sha256": "fba90b810c657d697f30e5a19c625de00ca454c2d7368e7e7dccf8c3b408251d"
     },
     {
       "path": "tools/tests/test_dialogue_sound_bridge.py",
@@ -7057,7 +7057,7 @@
     },
     {
       "path": "tools/tests/test_dialogue_tail_trim.py",
-      "sha256": "2a8125064a18e844d50205663ecee59f68f229f10690c66f54a3f178c5fd5aa7"
+      "sha256": "b73feca98893a7e72ab5feaa6a640a26d7358d75fdc488acc31e4d77bf43f337"
     },
     {
       "path": "tools/tests/test_dialogue_voice_metrics.py",
@@ -7429,7 +7429,7 @@
     },
     {
       "path": "tools/tests/test_h3_director_prompt_v2.py",
-      "sha256": "109618aa81fd4d2146c27d0a4f68175436da4499f4e333d85501019b6e189658"
+      "sha256": "1daaf746c3f3b55e1d322b9c0823d87b2ae8da871e72df46c4eabd290e1fec87"
     },
     {
       "path": "tools/tests/test_h3_native_audio_whitelist_gate.py",

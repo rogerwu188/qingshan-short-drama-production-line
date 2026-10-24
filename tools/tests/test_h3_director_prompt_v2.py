@@ -246,3 +246,25 @@ class V1ByteIdentity(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WriterFramingReachesPromptTests(unittest.TestCase):
+    """Lab E02: the English-contract answers replaced every writer framing with "authored framing"."""
+
+    def test_stamped_english_source_framing_beats_placeholder_answer(self) -> None:
+        from tools import h3_provider_prompt_renderer as v1
+        plan = {"motion_family": "LOCKED", "shot_scale": "CLOSE_UP", "camera_grammar": "CAMERA_GRAMMAR_V1",
+                "start_framing": "Helen seated, head and shoulders with face unobscured, listener off camera.",
+                "end_framing": "Helen seated, head and shoulders with face unobscured, listener off camera."}
+        answer = {"start_framing": "authored framing", "end_framing": "authored framing"}
+        english = v1._camera_english("U1", "S1", plan, answer, [])
+        self.assertEqual(english["start_framing"],
+                         "Helen seated, head and shoulders with face unobscured, listener off camera")
+        self.assertIn("Framing: Helen seated, head and shoulders", v2._camera_entry(plan, english))
+        # unstamped: the answer still wins exactly as before
+        legacy = {k: v for k, v in plan.items() if k != "camera_grammar"}
+        self.assertEqual(v1._camera_english("U1", "S1", legacy, answer, [])["start_framing"], "authored framing")
+        # a CJK source is still taken from the translation
+        cjk = dict(plan, start_framing="海伦坐着，头肩近景。")
+        self.assertEqual(v1._camera_english("U1", "S1", cjk, {"start_framing": "Helen seated, close-up"}, [])
+                         ["start_framing"], "Helen seated, close-up")

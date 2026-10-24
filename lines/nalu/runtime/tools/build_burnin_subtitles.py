@@ -16,6 +16,14 @@ weights, word-boundary wrap at ~42 chars and at most 2 lines, style "EN" at 36 p
 caption to fit the frame width) with nalu_media_tools.resolve_latin_font (QINGSHAN_LATIN_FONT /
 NALU_LATIN_FONT, common system paths, else the CJK font, which also carries Latin glyphs).
 
+--split-long-captions (CAMERA_GRAMMAR_V1 episodes; lab E02 VU-001): a line whose wrapped rows do not
+fit the frame at the normal font size (more than 2 rows, or a row wider than the frame) becomes
+several sequential cues of at most 2 rows each, preferring clause punctuation as the break; the
+line's speech window is divided between them by the ASR segment boundaries inside it (linear by
+speech characters within each segment) — proportional to characters when the line has one
+segment.  Captions are never shrunk below the normal size unless one word alone is too wide.
+Without the flag every caption is built exactly as before.
+
 --voice-over-placement (S7 V.O. narration): dialogue units spoken by a VOICE_ONLY_NO_PLATE narrator
 are captioned at the placement's start/end (the mixed-in S4 wav), never ASR-assigned; every other
 caption is built exactly as before.
@@ -37,6 +45,7 @@ TAIL_GUARD = 0.25
 
 EN_WRAP_CHARS = 42
 EN_FONT_SIZE = 36
+CAPTION_MAX_WIDTH = 720 - 40
 
 def cjk(text: str) -> str:
     return "".join(ch for ch in text if "一" <= ch <= "鿿")
@@ -85,6 +94,96 @@ def wrap_en(text: str, width: int = EN_WRAP_CHARS) -> str:
                key=lambda i: (max(len(" ".join(words[:i])), len(" ".join(words[i:]))),
                               -int(words[i - 1][-1:] in ",.;:!?")))
     return " ".join(words[:best]) + "\\N" + " ".join(words[best:])
+
+CUE_BREAK_PUNCT = ",.;:!?—，。！？；：、"
+
+
+def split_cues(text: str, fits, language: str = "zh") -> list[str]:
+    """Split one dialogue line into sequential caption cues that each ``fits`` (normal size, <= 2 rows).
+
+    Tokens are words (en) or characters (zh).  The cue count is the smallest that fits; among the
+    splits with that count the one with the most even cue lengths wins, a break right after clause
+    punctuation being preferred.  A line that already fits is returned unchanged as a single cue.
+    """
+    english = language == "en"
+    text = " ".join(text.split()) if english else text.strip()
+    if not text or fits(text):
+        return [text] if text else []
+    tokens = text.split(" ") if english else list(text)
+    joiner = " " if english else ""
+    T = len(tokens)
+    cache: dict[tuple[int, int], bool] = {}
+
+    def ok(i: int, j: int) -> bool:
+        if (i, j) not in cache:
+            cache[(i, j)] = j == i + 1 or fits(joiner.join(tokens[i:j]))
+        return cache[(i, j)]
+
+    # fewest cues: BFS layers over token boundaries
+    reach, n = {0}, 0
+    while T not in reach:
+        reach = {j for i in reach for j in range(i + 1, T + 1) if ok(i, j)} - {0}
+        n += 1
+    target = len(text) / n
+
+    def cost(i: int, j: int) -> float:
+        c = ((len(joiner.join(tokens[i:j])) - target) / target) ** 2
+        return c if j == T or tokens[j - 1][-1:] in CUE_BREAK_PUNCT else c + 0.5
+
+    # best[k][j]: cheapest split of tokens[:j] into k cues
+    INF = float("inf")
+    best = [{0: (0.0, None)}] + [dict() for _ in range(n)]
+    for k in range(1, n + 1):
+        for i, (c0, _) in best[k - 1].items():
+            for j in range(i + 1, T + 1):
+                if not ok(i, j):
+                    break
+                c = c0 + cost(i, j)
+                if c < best[k].get(j, (INF, None))[0]:
+                    best[k][j] = (c, i)
+    cuts, j = [], T
+    for k in range(n, 0, -1):
+        i = best[k][j][1]
+        cuts.append((i, j))
+        j = i
+    return [joiner.join(tokens[i:j]) for i, j in reversed(cuts)]
+
+
+def cue_boundaries(cues: list[str], start: float, end: float, segs: list[dict],
+                   language: str = "zh") -> list[float]:
+    """Source-time boundaries [start, b1, ..., end] of ``cues`` inside the line window [start, end].
+
+    The ASR segments lying in the window are knots (cumulative speech characters -> segment end /
+    next segment start), so a cue boundary follows the measured speech; inside a segment, and when
+    the window holds a single segment, time is linear in speech characters.
+    """
+    weights = [max(1, len(speech(c, language))) for c in cues]
+    total = float(sum(weights))
+    inside = [s for s in segs if speech(s.get("text") or "", language)
+              and float(s["start"]) >= start - 0.05 and float(s["end"]) <= end + 0.05]
+    knots = [(0.0, start)]
+    if len(inside) >= 2:
+        seg_total = float(sum(len(speech(s["text"], language)) for s in inside)) or 1.0
+        acc = 0.0
+        for a, b in zip(inside, inside[1:]):
+            acc += len(speech(a["text"], language))
+            t = (max(start, min(end, float(a["end"]))) + max(start, min(end, float(b["start"])))) / 2
+            knots.append((acc / seg_total, max(knots[-1][1], t)))
+    knots.append((1.0, max(knots[-1][1], end)))
+
+    def at(frac: float) -> float:
+        for (f0, t0), (f1, t1) in zip(knots, knots[1:]):
+            if frac <= f1:
+                return t0 if f1 <= f0 else t0 + (t1 - t0) * (frac - f0) / (f1 - f0)
+        return end
+
+    out, acc = [start], 0.0
+    for w in weights[:-1]:
+        acc += w
+        out.append(at(acc / total))
+    out.append(end)
+    return out
+
 
 def assign(lines: list[dict], segs: list[dict], clip_dur: float,
            language: str = "zh") -> list[tuple[dict, float, float]]:
@@ -190,6 +289,8 @@ def main() -> int:
     ap.add_argument("--language", choices=("zh", "en"), default="zh")
     ap.add_argument("--voice-over-placement", type=Path,
                     help="<EP>_voice_over_placement.json: V.O. narration lines are timed from it, never ASR-assigned")
+    ap.add_argument("--split-long-captions", action="store_true",
+                    help="CAMERA_GRAMMAR_V1: a line too long for 2 normal-size rows becomes sequential cues")
     a = ap.parse_args()
     english = a.language == "en"
     style, font_size = ("EN", EN_FONT_SIZE) if english else ("ZH", 42)
@@ -214,6 +315,15 @@ def main() -> int:
     for track in (project.get("timeline") or {}).get("videoTracks") or []:
         clips.extend(track.get("clips") or [])
     events, report = [], []
+    fits = None
+    if a.split_long_captions:
+        from PIL import Image as _Image, ImageDraw as _ImageDraw, ImageFont as _ImageFont
+        _measure = _ImageDraw.Draw(_Image.new("RGBA", (8, 8)))
+        _font = _ImageFont.truetype(font_file, font_size)
+
+        def fits(chunk: str) -> bool:
+            rows = wrap_text(chunk).split("\\N")
+            return len(rows) <= 2 and all(_measure.textlength(r, font=_font) <= CAPTION_MAX_WIDTH for r in rows)
     for clip in sorted(clips, key=lambda c: float(c["start"])):
         uid = str((clip.get("metadata") or {}).get("source_id") or "")
         lines = lines_by_unit.get(uid) or []
@@ -233,11 +343,28 @@ def main() -> int:
             if window is None:
                 continue
             s, e = window
-            events.append((s, e, ln))
-            report.append({"unit_id": uid, "shot_id": ln["shot_id"], "speaker": ln["speaker"], "text": ln["text"],
-                           "start": round(s, 3), "end": round(e, 3),
-                           "source_start": ls, "source_end": le, "source_in": source_in,
-                           "timing_basis": timing_basis, "timing_verification": "NOT_VERIFIED"})
+            cues = split_cues(ln["text"], fits, a.language) if fits is not None else [ln["text"]]
+            if len(cues) <= 1:
+                events.append((s, e, ln))
+                report.append({"unit_id": uid, "shot_id": ln["shot_id"], "speaker": ln["speaker"], "text": ln["text"],
+                               "start": round(s, 3), "end": round(e, 3),
+                               "source_start": ls, "source_end": le, "source_in": source_in,
+                               "timing_basis": timing_basis, "timing_verification": "NOT_VERIFIED"})
+                continue
+            # long line: sequential cues inside the line's caption window, split at the speech boundaries
+            bounds = cue_boundaries(cues, ls, le, valid_segs, a.language)
+            times = [s] + [min(e, max(s, cstart + b - source_in)) for b in bounds[1:-1]] + [e]
+            for k, cue in enumerate(cues):
+                cs, ce = times[k], times[k + 1]
+                if ce <= cs:
+                    continue
+                events.append((cs, ce, dict(ln, text=cue)))
+                report.append({"unit_id": uid, "shot_id": ln["shot_id"], "speaker": ln["speaker"], "text": cue,
+                               "line_text": ln["text"], "cue": k + 1, "cues": len(cues),
+                               "start": round(cs, 3), "end": round(ce, 3),
+                               "source_start": ls, "source_end": le, "source_in": source_in,
+                               "timing_basis": timing_basis, "cue_timing": "ASR_SEGMENT_KNOTS_CHAR_WEIGHTED",
+                               "timing_verification": "NOT_VERIFIED"})
     for index, placed in sorted(voice_over.items()):
         d = contract["audio_contract"]["dialogue_units"][index]
         ln = {"shot_id": d["shot_id"], "speaker": id2name[d["speaker_id"]], "text": d["text"]}
