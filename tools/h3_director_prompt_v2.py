@@ -425,6 +425,7 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         "ANCHOR.IDENTITY_PROP": "", "ANCHOR.SPACE_WEATHER": "",
     }
     crossmodal_by_speaker = {str(row.get("speaker") or "").strip(): row for row in crossmodal_rows}
+    stamped = v1.director_active(unit, plan)  # CAMERA_GRAMMAR_V1 camera plans
 
     # --- subjects and per-beat presence ----------------------------------------------------------------
     sources = subject_sources(unit)
@@ -698,6 +699,7 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                 evidence[f"{prefix}.DIALOGUE_DELIVERY"] = delivery
             dialogue_rows.append({"label": speaker_label, "literal": literal, "delivery": delivery,
                                   "visible": bool(binding.get("visible_speaker")),
+                                  "gaze": v1.speaker_gaze_clause(unit, binding) if stamped else "",
                                   "window": (float(source["start_seconds"]), float(source["end_seconds"]))})
             evidence[f"{prefix}.DIALOGUE_SPEAKER"] = speaker.strip()
             parts.append(_sentence(f"{speaker_label} speaks" + (f" line {len(dialogue_rows)}" if multi_beat else "")
@@ -768,6 +770,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                           "their mouth closed):", row["literal"]]
         if row["delivery"]:
             dialogue_lines.append(row["delivery"])
+        if row.get("gaze"):
+            dialogue_lines.append(row["gaze"])
         dialogue_lines.append("After the line nobody speaks; the remaining time is room tone.")
     else:
         dialogue_lines = ["Dialogue (in this order, each line exactly once, lips in sync; only the named speaker "
@@ -775,7 +779,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         for number, row in enumerate(dialogue_rows, 1):
             who = row["label"] + ("" if row["visible"] else " (offscreen, not shown)")
             dialogue_lines.append(f"{number}. {who}, {_span(row['window'])}: {row['literal']}"
-                                  + (f" {row['delivery']}" if row["delivery"] else ""))
+                                  + (f" {row['delivery']}" if row["delivery"] else "")
+                                  + (f" {row['gaze']}" if row.get("gaze") else ""))
         dialogue_lines.append("After the last line nobody speaks; the remaining time is room tone.")
 
     # --- never -----------------------------------------------------------------------------------------

@@ -882,14 +882,10 @@ def _speaker_canonicals(episode: str, char_ids: list[str], backend: Any) -> dict
     return out
 
 
-def measure_speaker_framing(episode: str, expectations: dict[str, Any], frames: list[dict[str, Any]],
-                            detections: dict[str, Any] | None = None) -> dict[str, Any]:
-    declared = declared_speakers(expectations)
-    if not declared["speaker_ids"]:
-        return speaker_framing_verdict(expectations, [])
-    detections = detections if detections is not None else detect_unit_faces(frames)
-    if detections.get("status") != "OK":
-        return {"method": SPEAKER_FRAMING_METHOD, "status": "NOT_MEASURED", "reason": detections.get("reason")}
+def _framing_frames(episode: str, declared: dict[str, Any],
+                    detections: dict[str, Any]) -> tuple[list[dict[str, Any]], bool]:
+    """Detections -> the pure verdict's per-frame rows (with canonical similarities when every speaker has a
+    canonical plate) and whether identities were used."""
     canon = _speaker_canonicals(episode, declared["face_cast_ids"], detections["backend"])
     use_ids = all(cid in canon for cid in declared["speaker_ids"])
     per_frame = []
@@ -904,9 +900,106 @@ def measure_speaker_framing(episode: str, expectations: dict[str, Any], frames: 
             faces.append(row)
         per_frame.append({"frame_index": det["frame_index"], "at_seconds": det["row"].get("at_seconds"),
                           "frame": str(det["row"]["path"]), "width": det["width"], "faces": faces})
+    return per_frame, use_ids
+
+
+def measure_speaker_framing(episode: str, expectations: dict[str, Any], frames: list[dict[str, Any]],
+                            detections: dict[str, Any] | None = None) -> dict[str, Any]:
+    declared = declared_speakers(expectations)
+    if not declared["speaker_ids"]:
+        return speaker_framing_verdict(expectations, [])
+    detections = detections if detections is not None else detect_unit_faces(frames)
+    if detections.get("status") != "OK":
+        return {"method": SPEAKER_FRAMING_METHOD, "status": "NOT_MEASURED", "reason": detections.get("reason")}
+    per_frame, use_ids = _framing_frames(episode, declared, detections)
     result = speaker_framing_verdict(expectations, per_frame)
     result["speaker_identity"] = "CANONICAL_EMBEDDING" if use_ids else "GEOMETRY_ONLY"
     return result
+
+
+#: CAMERA_GRAMMAR_V1 derived (tail-frame) start frames (line owner 2026-10-24, lab Holmes E03 VU-002: the
+#: previous unit's last frame had Helen out of frame, and VU-002 opened on the empty room).  The same
+#: objective speaker-framing measurement, on ONE candidate still: a unit whose first shot has a declared
+#: on-screen speaker does not start from a tail where the speaker is missing / at the edge / cut, or where
+#: more faces show than the shot declares.  Not a gate: the unit then starts from its own keyframe.
+START_FRAME_CHECK_METHOD = "INSIGHTFACE_TAIL_START_FRAME_SPEAKER_V1"
+#: one still decides the whole clip's opening composition (H3 holds it), so on top of the per-frame Q2 flags a
+#: start frame is "at the edge" when the speaker's face centre lies in the outer 20% band, or the face box
+#: touches the left/right edge (within 2%) at any face size (lab E03: VU-002/VU-005 tails, Helen's face centre
+#: at 0.155 / 0.136 of the width, pass the per-frame Q2 flags yet open the next clip on an empty room).
+START_FRAME_OUTER_BAND = 0.20
+
+
+def first_shot_expectations(expectations: dict[str, Any]) -> dict[str, Any]:
+    """The unit's expectations scoped to its FIRST editorial shot (a start frame is that shot's entry)."""
+    shots = [str(v) for v in expectations.get("editorial_shot_ids") or []]
+    if not shots:
+        return dict(expectations)
+    first = shots[0]
+    return {**expectations,
+            "cast": [r for r in expectations.get("cast") or [] if str(r.get("shot_id") or first) == first],
+            "expected_dialogue": [r for r in expectations.get("expected_dialogue") or []
+                                  if str(r.get("shot_id") or first) == first],
+            "group_counts": {k: v for k, v in (expectations.get("group_counts") or {}).items() if str(k) == first}}
+
+
+def start_frame_speaker_verdict(expectations: dict[str, Any], frame: dict[str, Any] | None) -> dict[str, Any]:
+    """Pure: ACCEPT / REJECT / NOT_APPLICABLE for one candidate start frame {width, faces: [{bbox, similarity?}]}."""
+    declared = declared_speakers(expectations)
+    allowed, _ = declared_face_budget(expectations)
+    result: dict[str, Any] = {"method": START_FRAME_CHECK_METHOD, "speaker_ids": declared["speaker_ids"],
+                              "declared_face_budget": allowed,
+                              "thresholds": {"edge_touch_ratio": SPEAKER_EDGE_TOUCH_RATIO,
+                                             "closeup_width_ratio": SPEAKER_CLOSEUP_WIDTH_RATIO,
+                                             "cut_fraction": SPEAKER_CUT_FRACTION,
+                                             "outer_band": SPEAKER_OUTER_BAND}}
+    if not declared["speaker_ids"]:
+        return {**result, "status": "NOT_APPLICABLE", "verdict": "ACCEPT", "reason": "NO_ON_SCREEN_SPEAKER_DECLARED"}
+    if expectations.get("group_counts"):
+        return {**result, "status": "NOT_APPLICABLE", "verdict": "ACCEPT", "reason": "GROUP_OR_CROWD_DECLARED"}
+    if frame is None:
+        return {**result, "status": "NOT_MEASURED", "verdict": "ACCEPT", "reason": "NO_READABLE_FRAME"}
+    row = _frame_framing(declared, {"frame_index": 1, **frame})
+    faces = len(frame.get("faces") or [])
+    flag = row.get("flag")
+    if not flag and row.get("speaker_bbox"):
+        width = float(frame["width"])
+        x1, x2 = (float(v) for v in row["speaker_bbox"])
+        centre = float(row.get("centre_x_ratio") or 0.5)
+        if x1 <= SPEAKER_EDGE_TOUCH_RATIO * width or x2 >= (1 - SPEAKER_EDGE_TOUCH_RATIO) * width:
+            flag = "START_FRAME_FACE_TOUCHES_EDGE"
+        elif centre < START_FRAME_OUTER_BAND or centre > 1 - START_FRAME_OUTER_BAND:
+            flag = "START_FRAME_FACE_CENTRE_AT_EDGE"
+    reasons = ([str(flag)] if flag else []) + (
+        [f"FACE_COUNT_EXCEEDS_DECLARED:{faces}>{allowed}"] if faces > allowed else [])
+    result["thresholds"]["start_frame_outer_band"] = START_FRAME_OUTER_BAND
+    return {**result, "status": "MEASURED", "verdict": "REJECT" if reasons else "ACCEPT",
+            "reasons": reasons, "faces": faces,
+            "measurement": {k: v for k, v in row.items() if k != "speaker_similarity"}}
+
+
+def check_start_frame(episode: str, unit_id: str, image: Path,
+                      expectations: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Measure one candidate start frame (a previous unit's tail) for ``unit_id``."""
+    if expectations is None:
+        item = next((row for row in Expectations(episode).video_unit_items() if row["unit_id"] == unit_id), None)
+        if item is None:
+            return {"method": START_FRAME_CHECK_METHOD, "status": "NOT_MEASURED", "verdict": "ACCEPT",
+                    "reason": f"UNIT_NOT_IN_PLAN:{unit_id}"}
+        expectations = item["expectations"]
+    scoped = first_shot_expectations(expectations)
+    declared = declared_speakers(scoped)
+    base = {"unit_id": unit_id, "image": str(image),
+            "image_sha256": sha256_file(image) if Path(image).is_file() else None}
+    if not declared["speaker_ids"] or scoped.get("group_counts"):
+        return {**base, **start_frame_speaker_verdict(scoped, None)}
+    detections = detect_unit_faces([{"path": str(image), "at_seconds": None}])
+    if detections.get("status") != "OK":
+        return {**base, "method": START_FRAME_CHECK_METHOD, "status": "NOT_MEASURED", "verdict": "ACCEPT",
+                "reason": detections.get("reason")}
+    per_frame, use_ids = _framing_frames(episode, declared, detections)
+    result = start_frame_speaker_verdict(scoped, per_frame[0] if per_frame else None)
+    return {**base, **result, "speaker_identity": "CANONICAL_EMBEDDING" if use_ids else "GEOMETRY_ONLY"}
 
 
 def apply_face_count(face_count: dict[str, Any] | None, checks: list[dict[str, Any]],
@@ -2042,7 +2135,16 @@ def main() -> int:
     stat = sub.add_parser("status", help="route readiness")
     stat.add_argument("--episode", required=True)
 
+    sfc = sub.add_parser("start-frame-check",
+                         help="CAMERA_GRAMMAR_V1: speaker framing + face count of one candidate (tail) start frame")
+    sfc.add_argument("--episode", required=True)
+    sfc.add_argument("--unit", required=True)
+    sfc.add_argument("--image", required=True, type=Path)
+
     args = parser.parse_args()
+    if args.command == "start-frame-check":
+        print(json.dumps(check_start_frame(args.episode, args.unit, args.image), ensure_ascii=False))
+        return 0
     if args.command == "prepare":
         summary = prepare(args.episode, frames=args.frames, units=args.unit or None)
         print(json.dumps({key: value for key, value in summary.items() if key != "units"},

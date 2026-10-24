@@ -654,6 +654,36 @@ def _performance_direction(performance: Any) -> str:
             "with clear rises and falls in pitch and volume, the key words stressed; never a flat read-aloud tone.")
 
 
+_FEMALE_WORDS = re.compile(r"\b(woman|women|girl|lady|female|mother|wife|daughter|widow|sister|she|her)\b", re.I)
+_MALE_WORDS = re.compile(r"\b(man|men|boy|gentleman|male|father|husband|son|brother|he|his)\b", re.I)
+
+
+def _possessive(row: dict[str, Any]) -> str:
+    """her / his / their for a character entity row (declared sex first, else its English appearance)."""
+    sex = str(row.get("sex") or row.get("gender") or "").strip().upper()
+    if sex in {"F", "FEMALE", "WOMAN", "女"}:
+        return "her"
+    if sex in {"M", "MALE", "MAN", "男"}:
+        return "his"
+    text = " ".join(str(row.get(k) or "") for k in ("appearance_en", "appearance_ch1", "appearance", "description"))
+    female, male = bool(_FEMALE_WORDS.search(text)), bool(_MALE_WORDS.search(text))
+    return "her" if female and not male else "his" if male and not female else "their"
+
+
+def speaker_gaze_clause(unit: dict[str, Any], binding: dict[str, Any] | None) -> str:
+    """CAMERA_GRAMMAR_V1 speaking units (line owner 2026-10-24, lab Holmes E03): H3 pans to reveal whatever
+    the speaker looks at, so the speaker's eyes stay on the listener and the camera never follows the gaze.
+    "" for an offscreen speaker."""
+    if not binding or not binding.get("visible_speaker"):
+        return ""
+    cid = str(binding.get("character_id") or "")
+    row = next((r for r in unit.get("character_entities") or []
+                if isinstance(r, dict) and str(r.get("character_id") or r.get("entity_id") or "") == cid), {})
+    label = str(binding.get("provider_entity_label") or "").strip() or "The speaker"
+    own = _possessive(row)
+    return f"While speaking {label} keeps {own} eyes on the listener; the camera does not follow {own} gaze."
+
+
 def _spec_performance(specs: list[Any], source_index: Any) -> Any:
     """``ordered_prompt_specs[source_index - 1].action.performance`` (beats are 1-based over the specs)."""
     try:
@@ -992,6 +1022,10 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             )
             line += scope_text
             evidence.update(scope_evidence)
+            if director_active(unit, plan) and dialogue_binding is not None:
+                gaze = speaker_gaze_clause(unit, dialogue_binding)
+                if gaze:
+                    line += f" {gaze}"
             if dialogue_binding is not None and dialogue_binding.get("visible_speaker"):
                 keep = (
                     f"{dialogue_binding['provider_entity_label']}'s face and mouth stay readable in frame "

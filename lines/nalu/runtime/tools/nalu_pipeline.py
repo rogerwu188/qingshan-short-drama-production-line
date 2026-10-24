@@ -3672,10 +3672,23 @@ def keyframe_needs_post(ctx: Ctx, index: dict[str, Any]) -> tuple[list[str], lis
 
 
 def s5_keyframes_missing(ctx: Ctx) -> list[str]:
-    """Planned keyframe prompts whose image is not on disk (a §4 controlled redo parks the rejected one)."""
+    """Planned keyframe prompts whose image is not on disk (a §4 controlled redo parks the rejected one).
+
+    CAMERA_GRAMMAR_V1: plus the own keyframe of a tail-derived unit whose tail start frame was rejected
+    (start_frame_source OWN_KEYFRAME_TAIL_REJECTED) — its prompt is only written by the next build."""
     p = ctx.p
-    return [prompt.name for prompt in sorted((p.preprod / "prompts" / "keyframes").glob("*-KEYFRAME-V1.txt"))
-            if not (p.keyframes / prompt.name.replace("-KEYFRAME-V1.txt", "-keyframe-v1.png")).is_file()]
+    missing = [prompt.name for prompt in sorted((p.preprod / "prompts" / "keyframes").glob("*-KEYFRAME-V1.txt"))
+               if not (p.keyframes / prompt.name.replace("-KEYFRAME-V1.txt", "-keyframe-v1.png")).is_file()]
+    decisions = start_frame_source_decisions(ctx)
+    if decisions:
+        derived = continuity_derived_units(ctx)
+        for uid, row in sorted(decisions.items()):
+            info = derived.get(uid)
+            name = f"{(info or {}).get('first_shot_id')}-KEYFRAME-V1.txt"
+            if (info and row.get("start_frame_source") == START_FRAME_OWN and not info["keyframe_path"].is_file()
+                    and not (p.video_media / f"{uid}.mp4").is_file() and name not in missing):
+                missing.append(name)
+    return missing
 
 
 def stage_s5(ctx: Ctx) -> StageResult:
@@ -3708,7 +3721,8 @@ def stage_s5(ctx: Ctx) -> StageResult:
     # stale ALL_ADMITTED index (urban lab E02 2026-10-23: a parked keyframe was never regenerated).
     keyframe_missing = s5_keyframes_missing(ctx)
     if (q1.get("status") == "ALL_ADMITTED" and p.anchor_plan.is_file()
-            and int(q1.get("unit_count") or 0) > 0 and not keyframe_missing):
+            and int(q1.get("unit_count") or 0) > 0 and not keyframe_missing
+            and not redo_keyframes_unadmitted(ctx)):
         res = StageResult(PASS)
         res.details = {
             "reuse": "Q1_ALL_ADMITTED",
@@ -4922,11 +4936,58 @@ def continuity_derived_units(ctx: Ctx) -> dict[str, dict[str, Any]]:
     return out
 
 
+#: CAMERA_GRAMMAR_V1 start-frame source per unit (line owner 2026-10-24, lab Holmes E03), recorded in the
+#: S6 wave state under ``start_frame_source``: TAIL_FRAME (the previous unit's real tail, measured), or
+#: OWN_KEYFRAME_TAIL_REJECTED (the unit starts from its own keyframe, generated through the normal S5
+#: keyframe path when none exists — one image, ~11 credits).
+START_FRAME_TAIL = "TAIL_FRAME"
+START_FRAME_OWN = "OWN_KEYFRAME_TAIL_REJECTED"
+#: Q2 objective failures whose controlled redo must not re-shoot from the same start frame.
+REDO_START_FRAME_FAILURES = ("speaker_framing", "face_count")
+
+
+def _camera_grammar_on(ctx: Ctx) -> bool:
+    import camera_grammar_policy as _cgp
+    return _cgp.active(read_json(ctx.p.contract, {}) or {}, episode=ctx.episode)
+
+
+def _wave_state_path(ctx: Ctx) -> Path:
+    return ctx.p.preprod_reports / f"{ctx.episode}_S6_WAVE_STATE.json"
+
+
+def start_frame_source_decisions(ctx: Ctx) -> dict[str, dict[str, Any]]:
+    return dict((read_json(_wave_state_path(ctx), {}) or {}).get("start_frame_source") or {})
+
+
+def record_start_frame_source(ctx: Ctx, unit_id: str, row: dict[str, Any]) -> None:
+    path = _wave_state_path(ctx)
+    state = read_json(path, {}) or {"schema": "nalu.s6_wave_state.v1", "waves": []}
+    state.setdefault("start_frame_source", {})[unit_id] = {**row, "recorded_at": now(), "recorded_by": TOOL_ID}
+    write_json(path, state)
+
+
+def check_tail_start_frame(ctx: Ctx, unit_id: str, tail: Path) -> dict[str, Any]:
+    """Objective speaker framing + face count of a candidate tail start frame (video_q2_builder
+    start-frame-check, free).  A check that did not run never rejects (the tail stays, as before)."""
+    step = qa_run(ctx, [VIDEO_Q2, "start-frame-check", "--episode", ctx.episode, "--unit", unit_id,
+                        "--image", tail], name=f"s6_tail_start_frame_check_{unit_id}")
+    verdict = qa_json(step) or {}
+    if verdict.get("verdict") not in ("ACCEPT", "REJECT"):
+        return {"verdict": "ACCEPT", "status": "NOT_MEASURED", "reason": "START_FRAME_CHECK_DID_NOT_RUN",
+                "exit_code": step.get("exit_code")}
+    return verdict
+
+
 def materialise_derived_keyframes(ctx: Ctx) -> list[dict[str, Any]]:
     """Copy the previous unit's real final frame into keyframes/<first_shot>-keyframe-v1.png for
-    every continuity-derived unit whose tail exists (write-if-missing; sidecar records the source)."""
+    every continuity-derived unit whose tail exists (write-if-missing; sidecar records the source).
+
+    CAMERA_GRAMMAR_V1: a unit whose first shot has a declared on-screen speaker only takes the tail when the
+    objective speaker check accepts it; otherwise it starts from its own keyframe (start_frame_source)."""
     rows = []
     tails = ctx.p.preprod / "real_final_frames"
+    stamped = _camera_grammar_on(ctx)
+    decisions = start_frame_source_decisions(ctx) if stamped else {}
     for uid, info in continuity_derived_units(ctx).items():
         dst: Path = info["keyframe_path"]; prev = info["previous_unit_id"]
         src = tails / f"{prev}.png" if prev else None
@@ -4934,15 +4995,145 @@ def materialise_derived_keyframes(ctx: Ctx) -> list[dict[str, Any]]:
             rows.append({"unit_id": uid, "status": "ALREADY_PRESENT", "path": str(dst)}); continue
         if not src or not src.is_file():
             rows.append({"unit_id": uid, "status": "TAIL_NOT_YET_EXTRACTED", "previous_unit_id": prev}); continue
+        check: dict[str, Any] | None = None
+        if stamped:
+            tail_sha = sha256_file(src)
+            prior = decisions.get(uid) or {}
+            if prior.get("start_frame_source") == START_FRAME_OWN and (
+                    prior.get("reason") != "TAIL_REJECTED" or prior.get("tail_sha256") == tail_sha):
+                rows.append({"unit_id": uid, "status": "OWN_KEYFRAME_REQUIRED", "start_frame_source": START_FRAME_OWN,
+                             "reason": prior.get("reason"), "path": str(dst)}); continue
+            check = check_tail_start_frame(ctx, uid, src)
+            measured = {k: check.get(k) for k in ("method", "status", "verdict", "reasons", "reason", "faces",
+                                                  "declared_face_budget", "speaker_ids", "speaker_identity",
+                                                  "measurement", "thresholds") if k in check}
+            if check.get("verdict") == "REJECT":
+                record_start_frame_source(ctx, uid, {
+                    "start_frame_source": START_FRAME_OWN, "reason": "TAIL_REJECTED", "previous_unit_id": prev,
+                    "tail": str(src), "tail_sha256": tail_sha, "first_shot_id": info["first_shot_id"],
+                    "measurement": measured,
+                    "next": "the unit's own keyframe (S5 keyframe path; ~11 credits when none exists)"})
+                rows.append({"unit_id": uid, "status": "OWN_KEYFRAME_REQUIRED", "start_frame_source": START_FRAME_OWN,
+                             "reason": "TAIL_REJECTED", "reasons": check.get("reasons")}); continue
+            record_start_frame_source(ctx, uid, {
+                "start_frame_source": START_FRAME_TAIL, "previous_unit_id": prev, "tail": str(src),
+                "tail_sha256": tail_sha, "first_shot_id": info["first_shot_id"], "measurement": measured})
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src, dst)
         side = {"schema": "nalu.continuity_derived_keyframe.v1", "unit_id": uid, "shot_id": info["first_shot_id"],
                 "source_real_final_frame": str(src), "source_sha256": sha256_file(src), "sha256": sha256_file(dst),
                 "previous_unit_id": prev, "materialised_at": now(), "recorded_by": TOOL_ID,
                 "note": "anchor policy v4 CONTINUITY_DERIVED_KEYFRAME: the start frame IS the previous unit's real tail; reviewed by the keyframe (Q1) questionnaire before the unit becomes wave-ready"}
+        if check is not None:
+            side["start_frame_source"] = START_FRAME_TAIL
+            side["start_frame_check"] = {k: check.get(k) for k in ("verdict", "status", "reasons", "reason")
+                                         if k in check}
         write_json(dst.with_suffix(".derived.json"), side)
         rows.append({"unit_id": uid, "status": "MATERIALISED", "path": str(dst), "sha256": side["sha256"]})
     return rows
+
+
+def redo_switch_start_frames(ctx: Ctx) -> list[dict[str, Any]]:
+    """CAMERA_GRAMMAR_V1 §4/§5 controlled redo (line owner 2026-10-24): a unit whose clip was parked for a
+    redo after an objective Q2 speaker-framing / face-count FAIL must not re-shoot from the same start frame.
+    The start frame that made the failed clip (older than that Q2 measurement) is parked so the unit gets its
+    own keyframe again (S5 path, current framing rules); a tail-derived unit switches to OWN keyframe."""
+    if not _camera_grammar_on(ctx):
+        return []
+    plan = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json", {}) or {}
+    derived = continuity_derived_units(ctx)
+    out: list[dict[str, Any]] = []
+    for unit in plan.get("units") or []:
+        uid = str(unit.get("unit_id") or "")
+        shots = unit.get("editorial_shot_ids") or []
+        if not uid or not shots or (ctx.p.video_media / f"{uid}.mp4").is_file():
+            continue
+        prepare = ctx.p.q2_dir / uid / "prepare.json"
+        q2 = read_json(prepare, {}) or {}
+        failed = [k for k in REDO_START_FRAME_FAILURES if (q2.get(k) or {}).get("status") == "FAIL"]
+        if not failed:
+            continue
+        keyframe = ctx.p.keyframes / f"{shots[0]}-keyframe-v1.png"
+        if not keyframe.is_file() or keyframe.stat().st_mtime > prepare.stat().st_mtime:
+            continue  # already replaced after the failed measurement
+        park = ctx.p.keyframes / f"_superseded_{ctx.run_id}_q2_redo_start_frame"
+        park.mkdir(parents=True, exist_ok=True)
+        moved = [str(keyframe)]
+        os.replace(keyframe, park / keyframe.name)
+        sidecar = keyframe.with_suffix(".derived.json")
+        if sidecar.is_file():
+            os.replace(sidecar, park / sidecar.name); moved.append(str(sidecar))
+        receipt = ENGINE / "reports/start_frame_evidence" / f"{uid}_start_frame_evidence.json"
+        if receipt.is_file():
+            os.replace(receipt, park / receipt.name); moved.append(str(receipt))
+        row = {"start_frame_source": START_FRAME_OWN, "reason": "Q2_REDO_" + "+".join(f.upper() for f in failed),
+               "first_shot_id": shots[0], "failed_clip_sha256": q2.get("media_sha256"),
+               "failed_measurement": {k: {kk: (q2.get(k) or {}).get(kk) for kk in ("status", "failure", "frames_flagged")}
+                                      for k in failed},
+               "parked": moved, "parked_to": str(park),
+               "next": "own keyframe regenerated through the S5 keyframe path (current framing rules)"}
+        if uid in derived:
+            record_start_frame_source(ctx, uid, row)
+        record_redo_start_frame_switch(ctx, uid, row)
+        out.append({"unit_id": uid, **row})
+    return out
+
+
+def record_redo_start_frame_switch(ctx: Ctx, unit_id: str, row: dict[str, Any]) -> None:
+    path = _wave_state_path(ctx)
+    state = read_json(path, {}) or {"schema": "nalu.s6_wave_state.v1", "waves": []}
+    state.setdefault("redo_start_frame_switch", {})[unit_id] = {**row, "recorded_at": now(), "recorded_by": TOOL_ID}
+    write_json(path, state)
+
+
+def _q1_admitted_now(ctx: Ctx, unit_id: str, keyframe: Path) -> bool:
+    q1 = read_json(ctx.p.preprod_reports / "qa" / "q1" / unit_id / "admission_result.json", {}) or {}
+    return (keyframe.is_file() and q1.get("downstream_status") == "ADMITTED_FOR_VIDEO_SUBMIT"
+            and q1.get("asset_sha256") == sha256_file(keyframe))
+
+
+def redo_keyframes_unadmitted(ctx: Ctx) -> list[str]:
+    """Units whose start keyframe a CAMERA_GRAMMAR_V1 redo switched (not tail-derived) and whose current
+    image has no Q1 admission + start-frame receipt yet: S5 owns that review, so it must not reuse a stale
+    ALL_ADMITTED index for them."""
+    switched = (read_json(_wave_state_path(ctx), {}) or {}).get("redo_start_frame_switch") or {}
+    if not switched:
+        return []
+    derived = continuity_derived_units(ctx)
+    out = []
+    for uid, row in sorted(switched.items()):
+        if uid in derived or (ctx.p.video_media / f"{uid}.mp4").is_file():
+            continue
+        keyframe = ctx.p.keyframes / f"{row.get('first_shot_id')}-keyframe-v1.png"
+        receipt = ENGINE / "reports/start_frame_evidence" / f"{uid}_start_frame_evidence.json"
+        if not _q1_admitted_now(ctx, uid, keyframe) or not receipt.is_file():
+            out.append(uid)
+    return out
+
+
+def own_keyframes_needed(ctx: Ctx) -> list[str]:
+    """CAMERA_GRAMMAR_V1: units without a video whose own start keyframe must be (re)generated now — a
+    tail-derived unit whose tail was rejected / switched by a redo, or a keyframe a redo parked."""
+    if not _camera_grammar_on(ctx):
+        return []
+    plan = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json", {}) or {}
+    derived = continuity_derived_units(ctx)
+    decisions = start_frame_source_decisions(ctx)
+    prompts = ctx.p.preprod / "prompts" / "keyframes"
+    need = []
+    for unit in plan.get("units") or []:
+        uid = str(unit.get("unit_id") or "")
+        shots = unit.get("editorial_shot_ids") or []
+        if not uid or not shots or (ctx.p.video_media / f"{uid}.mp4").is_file():
+            continue
+        if (ctx.p.keyframes / f"{shots[0]}-keyframe-v1.png").is_file():
+            continue
+        if uid in derived:
+            if (decisions.get(uid) or {}).get("start_frame_source") == START_FRAME_OWN:
+                need.append(uid)
+        elif (prompts / f"{shots[0]}-KEYFRAME-V1.txt").is_file():
+            need.append(uid)
+    return sorted(set(need) | set(redo_keyframes_unadmitted(ctx)))
 
 
 def derived_units_pending_q1(ctx: Ctx) -> list[tuple[str, str]]:
@@ -4996,7 +5187,28 @@ def stage_s6(ctx: Ctx) -> StageResult:
             break
         # E02+ continuity-derived start frames: materialise from the previous tail, then require a
         # Q1 (keyframe questionnaire) admission of that frame before the unit can join a wave.
+        # CAMERA_GRAMMAR_V1: a §4/§5 redo after an objective speaker-framing / face-count FAIL first parks the
+        # start frame that made the failed clip; a speaking unit only takes a tail that passes the objective
+        # speaker check; either way the unit's own keyframe comes from the S5 keyframe path (one image each).
+        redo_switched = redo_switch_start_frames(ctx)
+        if redo_switched:
+            ctx.say("-- S6: controlled redo switches start frame to own keyframe: "
+                    + ", ".join(f"{r['unit_id']} ({r['reason']})" for r in redo_switched))
         derived_rows = materialise_derived_keyframes(ctx)
+        own_needed = own_keyframes_needed(ctx)
+        if own_needed and not ctx.dry:
+            ctx.say(f"-- S6: {own_needed} start from their own keyframe; generating via the S5 keyframe path "
+                    "(~11 credits per image, D-46 plans only the missing images)")
+            r5 = stage_s5(ctx)
+            still_missing = own_keyframes_needed(ctx)
+            if r5.status != PASS or still_missing:
+                r5.status = r5.status if r5.status in (HARD_STOP, REVIEW_REQUIRED) else BLOCKED
+                r5.blockers = [f"S6.own_keyframe:{b}" for b in r5.blockers] or [
+                    "S6.own_keyframe:OWN_KEYFRAME_NOT_GENERATED:" + ",".join(still_missing)]
+                r5.details["own_keyframe_units"] = own_needed
+                r5.details["redo_start_frame_switch"] = redo_switched
+                return r5
+            derived_rows = materialise_derived_keyframes(ctx)
         pending_q1 = [(uid, shot) for uid, shot in derived_units_pending_q1(ctx) if uid not in done]
         # A unit waiting on its own Q1 must only hold ITSELF back.  Until 2026-10-01 any pending
         # derived unit returned here before the wave was planned, so one rejected start frame

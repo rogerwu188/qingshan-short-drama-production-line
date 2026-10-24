@@ -37,9 +37,11 @@ ORDER = ("References:\n", "\n\nWho is in frame (", "\n\nSetting:\n", "\n\nCamera
          "\n\nDialogue (", "\n\nSound: ", "\n\nNever: ")
 INTERNAL = re.compile(r"\b(?:CHAR|SUBSPACE|LOC|SET|PROP|AXIS|ANGLE)-[A-Z0-9-]+|\bE\d+-(?:VU|S)\d|\bVU-T01\b")
 #: sha256 of the V1 render of fixture(style=False) / fixture(style=False, director=False), computed with the
-#: pre-V2 engine (HEAD 7bd213c): the opt-in must leave every other unit byte-identical.
+#: pre-V2 engine (HEAD 7bd213c): the opt-in must leave every other unit byte-identical.  The stamped (director)
+#: V1 render changed once on purpose (2026-10-24): it gains only the speaker-gaze clause "While speaking Alpha
+#: keeps their eyes on the listener; the camera does not follow their gaze." (was 0857f610...).
 V1_SHA = {
-    True: "0857f6108bb1499f90b181328a418c582c853a02fcc572a38a62f385cbddfb83",
+    True: "d5479374441bbb799a7b706750f135d04fd25544c36967bec26a719b13760aac",
     False: "ab9d6ae00614e4f89f53a4a7e0960162458dd56af941aa23f2abec8481a3561d",
 }
 

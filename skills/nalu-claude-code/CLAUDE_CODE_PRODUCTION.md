@@ -69,6 +69,9 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
     ② 开场双人镜/中景，只在情绪转折切近到单人/近景，最狠一句给最紧的镜头，同一人连说留在同一镜，听者无声反应只在「反应就是戏」时才切；
     ③ L-cut：说话镜后紧跟的无对白反应镜（下一个单元）可写 `prompt_spec.transition.sound_bridge_from_previous_seconds`（0.3–2.0 s），
     S7 把说话人画面提前切走、这句话的声音和字幕盖到反应镜上，反应镜现场声压成环境声；不写就是硬切。
+    ④ 说话时眼睛看听者（线主 2026-10-24，实验集 E03）：说话镜的动作/起止状态里说话人视线一直在听者身上（或略偏离镜头朝听者一侧）；
+    绝不写说话时转头看窗/门/画外物、「eyes fixed on X」——H3 会摇过去揭示他看的东西、把说话人丢出画。要看某物就另写无对白镜或插入镜。
+  - 近景关键帧不要求房间固定元素（引擎按景别自动处理：CLOSE_UP/EXTREME_CLOSE_UP/MEDIUM_CLOSE_UP 不要求、MEDIUM 最多 2 件）；要交代房间写建立镜。
   - 剧本是「切」的地方就写切（`internal_transition_authoring` 用 MOTIVATED_CUT/REACTION_CUT/MATCH_CUT/HARD_CUT）：
     该单元会用自己的关键帧起幅，不从上一单元尾帧漂过去（每个切点多一张关键帧，约 11 积分）；连续动作写 CONTINUOUS_ACTION/CAMERA_REFRAME 接尾帧。
 - H3 出视频的集按 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` 改编剧本（每拍分桶、≤2 人、无脸存在登记为 CREATURE 并写长相、服装写成文字、对白说话镜只拍说话人、双人镜留给无台词时刻、转折才切）。
@@ -182,6 +185,14 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
   多个单元要重做时按观众影响排序：开场前 10 秒 > 有台词/主角正脸 > 结尾 > 其余；预算用到上限为止。其余 Q2 失败项（构图、道具数量、动作细节）照旧直接接受。
   CAMERA_GRAMMAR_V1 剧集的 Q2 会客观数脸（InsightFace，`objective_face_count`）：≥2 帧人脸数多于声明人数时 `cast_exactly_as_declared` 自动判 FAIL（审核答 PASS 也不能改回），同样走这条重做一次。
   同样客观量说话人构图（`objective_speaker_framing`）：有台词且说话人声明在画面内的单元，≥1/3 帧里说话人脸不在画面、被画框切掉、贴左右边（≤2%）或脸中心落在外侧 12% 时 `cast_exactly_as_declared` 自动判 FAIL，同样走这条重做一次（镜头文字写明说话人居中、完整入画）。
+  **说话人构图 / 多人（`objective_speaker_framing` 或 `objective_face_count` FAIL）的重做必须换掉原因，不许用同一张起始帧 + 同一段动作文字重拍**（线主 2026-10-24，E03 VU-001/002/007 重做前后一模一样）：
+  ① 把该单元成片 `video/<unit>.mp4` 移到 `_superseded_*`（和平常重做一样）；② 改剧本：删掉说话镜里看窗/门/画外物、「eyes fixed on X」之类的视线动作（§2 ④），起止状态写说话人看着听者、居中，**台词一字不改**；
+  重跑构建器 → `run --until S2` → `prompt_batch_prepare/finish`；③ 直接 `paid_stage.sh <EP> S6 S6`：CAMERA_GRAMMAR_V1 集的 S6 发现「成片已移走 + Q2 prepare.json 记录了这两类 FAIL + 起始帧比那次测量旧」，
+  会自动把旧起始帧（关键帧、派生 `.derived.json`、起始帧回执）移到 `keyframes/_superseded_<run>_q2_redo_start_frame/`，
+  承接尾帧的单元改记 `start_frame_source: OWN_KEYFRAME_TAIL_REJECTED`，然后走 S5 关键帧路径给该单元出一张自己的关键帧（按新的近景取景规则，约 11 积分/张，D-46 只算缺的那几张），
+  之后照常做 keyframe Q1 / start_frame 审核再出视频。不要自己手动把尾帧拷成关键帧。
+  派生起始帧（S6 自动）：承接上一单元尾帧、且首镜有画内说话人的单元，S6 先用同一套 InsightFace 量尾帧——说话人不在画面/贴边/被切/脸中心在外侧 20%，或人脸数多于声明——就不用尾帧，改用该单元自己的关键帧（没有就自动出一张）；
+  决定逐单元记在 `reports/<EP>_S6_WAVE_STATE.json` 的 `start_frame_source`（`TAIL_FRAME` / `OWN_KEYFRAME_TAIL_REJECTED` + 测量值）。估预算时每个这样的单元多算 11 积分。
 - 视频 Q2：`--gate-id VIDEO-Q2-ASSEMBLY-ADMISSION --detector <unit>:<每个失败门禁 ID> --media <unit>=<unit mp4>`；
   6 镜左右的短集任何 P2 都会超 10% 缺陷预算：同时写 `$NALU_RUNTIME_ROOT/preproduction/<EP>/qa_overrides.json` 的
   `defect_tolerance_minor_budget_override`（只列失败码，`authorized_by` 写「短剧工作流默认条款：质量不阻塞」）。

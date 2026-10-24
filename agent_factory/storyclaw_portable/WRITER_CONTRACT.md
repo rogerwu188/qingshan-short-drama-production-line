@@ -142,6 +142,10 @@ blocking check; direct the episode the way people watch films:
   speaker's picture that much earlier and lets the line (and its subtitle) finish over the reaction, the reaction's own
   sound ducked to ambience. Omit it for a plain cut. Vertical silent two-shots: stack them front/back
   (over-the-shoulder), never two people pinned to the left and right edges. No extra cost: no multi-take, no post fixes.
+  (5) During a spoken line the speaker's eyes stay on the listener (or just off-lens toward the listener's side).
+  Never write the speaker turning to look at a window / door / off-screen object, or "eyes fixed on X", inside a
+  speaking shot: H3 pans to reveal what they look at and loses the speaker (line owner 2026-10-24, lab Holmes E03).
+  A look at something gets its own silent shot, or an insert of the thing.
 - Write the cuts the script implies: `internal_transition_authoring.transition_mode` `MOTIVATED_CUT` /
   `REACTION_CUT` / `MATCH_CUT` / `HARD_CUT` (or a scene change) makes the next video unit open on its own
   keyframe, a clean cut; continuous modes keep the previous unit's real tail as the start frame.
