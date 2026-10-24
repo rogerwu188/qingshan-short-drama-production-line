@@ -6799,14 +6799,14 @@ def stage_s7(ctx: Ctx) -> StageResult:
                           if captioned_source != native_source and vo_placement.is_file() else [])
     # CAMERA_GRAMMAR_V1 (lab E02 VU-001): a line too long for 2 normal-size rows becomes sequential cues
     import camera_grammar_policy as _cgp
-    if _cgp.active(read_json(p.contract, {}) or {}, episode=ctx.episode):
-        vo_argv.append("--split-long-captions")
+    split_argv: list[Any] = (["--split-long-captions"]
+                             if _cgp.active(read_json(p.contract, {}) or {}, episode=ctx.episode) else [])
     sub_step = ctx.run([VENV, RT_TOOLS / "build_burnin_subtitles.py", "--episode", ctx.episode,
                         "--project", p.agentcut_project, "--asr", asr_json, "--contract", p.contract,
                         "--grouping", p.grouping_plan, "--source", captioned_source,
                         "--out-ass", subtitles_ass_path(ctx), "--out-video", subbed,
                         "--out-report", p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json",
-                        "--language", ctx_language(ctx), *vo_argv],
+                        "--language", ctx_language(ctx), *vo_argv, *split_argv],
                        name="s7_burnin_subtitles")
     steps.append(sub_step)
     if sub_step["exit_code"] != 0 or not subbed.is_file():
