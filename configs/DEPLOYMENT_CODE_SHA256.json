@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2200,
+  "file_count": 2201,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -629,7 +629,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_budget_ledger.py",
-      "sha256": "160e45a4236b969c40b003365a3f6a3b0298e7dbbd1d6669f13ddd81f4770aaa"
+      "sha256": "933d4fa4c3930454245d45880b650776666a500fe0edcbc4bf2ca287fc4cbef6"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_media_tools.py",
@@ -645,7 +645,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "737c2a5107c6936e633ae93c8e20a388eb437a8641b3fe3bdb4d722f6edde64b"
+      "sha256": "523758458e1570d74e7d10bd04a6d15b35499d132f4f19ca905dd5ec0cfbe7c8"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -7590,6 +7590,10 @@
     {
       "path": "tools/tests/test_nalu_budget_reservation.py",
       "sha256": "2876dd9ad85e6d9710539f3c4547b15d7446cdcb39493860c6b09367e4e88c73"
+    },
+    {
+      "path": "tools/tests/test_nalu_budget_reservation_settle.py",
+      "sha256": "215adf229872bd86d4c4f497af55ec98281fe6fb29a75f61a3567f3e7e49da86"
     },
     {
       "path": "tools/tests/test_nalu_build_final_cut_speaker_map.py",

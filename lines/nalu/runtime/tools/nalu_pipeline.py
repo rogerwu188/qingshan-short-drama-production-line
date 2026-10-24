@@ -1124,7 +1124,10 @@ class Ctx:
                 self.p.logs / f"{self.run_id}_budget_{label}.json"]
         if reserve:
             argv.append("--reserve")
-        step = self.run(argv, name=f"budget_check_{label}", paid=False)
+        # The reservation's owner is this orchestrator: once it has exited, the ledger may treat
+        # a reservation it left behind (non-zero step exit) as settled by the durable stores.
+        step = self.run(argv, name=f"budget_check_{label}", paid=False,
+                        extra_env={"NALU_BUDGET_RESERVATION_OWNER_PID": str(os.getpid())})
         verdict = {}
         for line in (step.get("stdout_tail") or "").splitlines():
             line = line.strip()
