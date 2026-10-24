@@ -305,3 +305,85 @@ class StageS6OwnKeyframeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TailRejectedAnchorPlanTests(unittest.TestCase):
+    """A tail rejected as start frame is not bound as a reference; normal continuity units keep it."""
+
+    @staticmethod
+    def _grouping(flag: bool, tail: Path) -> tuple[dict, dict]:
+        sys.path.insert(0, str(ROOT / "tools" / "tests"))
+        from test_e51_pipeline_rectification import E51PipelineRectificationTests as E51
+        state = E51._persistent_state()
+        space = {"global": "MAP-1", "location": "LOC-ROOM"}
+        u1 = {"episode": "E54", "unit_id": "E54-VU-001", "scene_id": "E54-S01", "editorial_shot_ids": ["A"],
+              "camera_plan": {"shot_scale": "MEDIUM", "camera_side": "AXIS_A"}, "persistent_state_contract": state,
+              "ordered_prompt_specs": [{"space": {**space, "subspace": "BED"}, "scene_state": {"time": "当夜亥时"}}],
+              "outgoing_transition_contract": {"source_terminal_state": {"space": {**space, "subspace": "BED"}}}}
+        u2 = {"episode": "E54", "unit_id": "E54-VU-002", "scene_id": "E54-S02", "editorial_shot_ids": ["B"],
+              "camera_plan": {"shot_scale": "CLOSE", "camera_side": "AXIS_A"}, "persistent_state_contract": state,
+              "ordered_prompt_specs": [{"space": {**space, "subspace": "DOOR"}, "scene_state": {"time": "当夜亥时"}}],
+              "incoming_transition_contract": {"transition_device": "REACTION_CUT",
+                                               "plot_motivation": "切到门口人物对陈迹伤势的直接反应",
+                                               "target_initial_state": {"space": {**space, "subspace": "DOOR"}}},
+              "previous_unit_final_frame": {"path": str(tail), "sha256": "abc"}}
+        if flag:
+            u2["start_frame_source"] = "OWN_KEYFRAME_TAIL_REJECTED"
+        editorial = {"shots": [{"shot_id": "A", "scene_id": "E54-S01", "prompt_spec": {}},
+                               {"shot_id": "B", "scene_id": "E54-S02", "prompt_spec": {}}]}
+        return {"episode": "E54", "units": [u1, u2]}, editorial
+
+    def test_tail_dropped_only_when_rejected(self):
+        from tools import build_video_unit_anchor_plan as bva
+        from tools.video_unit_anchor_count_gate import evaluate
+
+        def boundary(prev, unit):
+            if prev is None:
+                return {"status": "PASS", "boundary_class": "NEW_EVENT_ANCHOR", "previous_unit_id": None}
+            return {"status": "PASS", "boundary_class": "MOTIVATED_CUT", "previous_unit_id": prev["unit_id"],
+                    "same_continuous_event": True}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(bva, "classify_boundary", boundary), \
+                mock.patch.object(bva, "compile_internal_shot_boundaries", lambda _u: {"status": "PASS"}), \
+                mock.patch.object(bva.unit_action_continuity_contract, "evaluate", lambda *_a: {"status": "PASS"}):
+            for name in ("A", "B"):
+                Path(tmp, f"{name}-keyframe-v1.png").touch()
+            tail = Path(tmp) / "E54-VU-001.png"
+            normal = bva.build(*self._grouping(False, tail), Path(tmp))
+            rejected = bva.build(*self._grouping(True, tail), Path(tmp))
+        n, r = normal["units"][1], rejected["units"][1]
+        self.assertEqual(n["event_boundary_decision"]["boundary_class"], "MOTIVATED_CUT")
+        self.assertIn(str(tail), n["reference_image_paths"])
+        self.assertIn("PREVIOUS_REAL_TAIL_STATE_AUTHORITY", n["anchor_count_decision"]["anchor_roles"])
+        self.assertNotIn(str(tail), r["reference_image_paths"])
+        self.assertEqual(r["anchor_count_decision"]["anchor_roles"], ["CONTINUITY_DERIVED_ENTRY_STATE"])
+        self.assertEqual(r["opening_anchor_contract"]["start_frame_source"], "OWN_KEYFRAME_TAIL_REJECTED")
+        self.assertIsNone(r["opening_anchor_contract"]["previous_state_reference_path"])
+        self.assertEqual(evaluate(normal)["status"], "PASS")
+        self.assertEqual(evaluate(rejected)["status"], "PASS")
+        # without the matching transport marker the gate still demands the tail
+        r["opening_anchor_contract"].pop("previous_state_reference_transport")
+        self.assertEqual(evaluate(rejected)["status"], "FAIL")
+
+    def test_opening_chain_gate_allows_rejected_tail_only_when_not_bound(self):
+        from tools import opening_anchor_chain_gate as gate
+        contract = {"source": "CONTINUITY_DERIVED_KEYFRAME", "previous_unit_id": "U1",
+                    "materialized_path": "/kf/B.png", "start_frame_source": "OWN_KEYFRAME_TAIL_REJECTED",
+                    "previous_state_reference_transport": "NOT_TRANSPORTED_TAIL_REJECTED",
+                    "rejected_tail_path": "/tails/U1.png"}
+        self.assertTrue(gate._rejected_tail_own_keyframe({"reference_images": ["/kf/B.png", "/id.png"]},
+                                                         contract=contract))
+        self.assertFalse(gate._rejected_tail_own_keyframe({"reference_images": ["/kf/B.png", "/tails/U1.png"]},
+                                                          contract=contract))
+        self.assertFalse(gate._rejected_tail_own_keyframe(
+            {"reference_images": ["/kf/B.png"]}, contract={**contract, "start_frame_source": None}))
+
+    def test_preproduction_reads_rejections_only_for_stamped(self):
+        import build_nalu_preproduction as bnp
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "reports").mkdir()
+            (Path(tmp) / "reports" / "E03_S6_WAVE_STATE.json").write_text(json.dumps({"start_frame_source": {
+                "E03-VU-002": {"start_frame_source": "OWN_KEYFRAME_TAIL_REJECTED"},
+                "E03-VU-003": {"start_frame_source": "TAIL_FRAME"}}}))
+            self.assertEqual(bnp.tail_rejected_start_frame_units(Path(tmp), "E03", STAMPED), {"E03-VU-002"})
+            self.assertEqual(bnp.tail_rejected_start_frame_units(Path(tmp), "E03", LEGACY), set())

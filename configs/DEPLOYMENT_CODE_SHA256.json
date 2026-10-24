@@ -565,7 +565,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "7a6e4b87b38d044ca6d52d1f489f196d7fc858fd9afe9df02b9314263ea748a6"
+      "sha256": "f3b4417f488f285816474fe4488adab242bf469ab7f2f646b09569e57dc9e5fb"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -797,7 +797,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "32b8b6e1715c0c92f7f5abf85e86f44342dda89c47ea6b8a30dce0c8699befbb"
+      "sha256": "cc21010f2dc4c7665e41f5f942c81ab3dea68588bf3b93579632b48b2f63a089"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -3569,7 +3569,7 @@
     },
     {
       "path": "tools/build_video_unit_anchor_plan.py",
-      "sha256": "1be43abe7fdb7087eb58a8e8e70458a568062eded814ad3332b0b9b24fd4288c"
+      "sha256": "cd044c54dffa77baf966dfbfec0bb3a21f35da4408d748663199c780c1bbb148"
     },
     {
       "path": "tools/build_video_unit_grouping_spec.py",
@@ -5201,7 +5201,7 @@
     },
     {
       "path": "tools/opening_anchor_chain_gate.py",
-      "sha256": "3e525bc290c4d65cfd4efb291bbc8e16fcc64f9ac42604adaadec2536a5b9077"
+      "sha256": "390dc95c29ffb8a1a3db62000bf686a6f212652dc5b667da6923f2c7224ef94e"
     },
     {
       "path": "tools/original_identity_authority.py",
@@ -6889,7 +6889,7 @@
     },
     {
       "path": "tools/tests/test_camera_grammar_start_frames.py",
-      "sha256": "6a7f472942074db53164ac5d8a92474dc94b2a76ed691afd41b1de017b08afdf"
+      "sha256": "688012c54307196c1a1fe6ba356083e120544b506de07df07a9da63edc7ad0e4"
     },
     {
       "path": "tools/tests/test_camera_language_selector.py",
@@ -8741,7 +8741,7 @@
     },
     {
       "path": "tools/video_unit_anchor_count_gate.py",
-      "sha256": "a66b5ac83fd04db99d1eea95182aac1884cc7259a729feecc255a93bfd1b9969"
+      "sha256": "39f739b64dcc0c0e01f2961d5d2fa0f7ff596011678fb776e4492a5c8bbf684b"
     },
     {
       "path": "tools/video_unit_boundary_continuity_gate.py",

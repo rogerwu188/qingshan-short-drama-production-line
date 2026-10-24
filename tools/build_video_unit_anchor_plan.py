@@ -25,6 +25,11 @@ except ModuleNotFoundError:
     )
 
 
+#: S6 start_frame_source of a continuity unit whose predecessor tail was rejected as its start frame.
+TAIL_REJECTED_START_FRAME_SOURCE = "OWN_KEYFRAME_TAIL_REJECTED"
+TAIL_REJECTED_TRANSPORT = "NOT_TRANSPORTED_TAIL_REJECTED"
+
+
 def _visible_characters(row: dict[str, Any]) -> set[str]:
     spec = row.get("prompt_spec") or {}
     return {
@@ -109,6 +114,11 @@ def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Pat
         previous_unit_id = boundary.get("previous_unit_id")
         boundary_class = str(boundary["boundary_class"])
         independent_opening = boundary_class in {"NEW_EVENT_ANCHOR", "MOTIVATED_CUT"}
+        # CAMERA_GRAMMAR_V1 (2026-10-24): S6 rejected this continuity unit's tail start frame (speaker missing /
+        # at the edge / extra face; start_frame_source recorded in the S6 wave state, copied onto the grouping
+        # unit by build_nalu_preproduction).  Only a motivated-cut opener can drop the tail state reference.
+        tail_rejected = (boundary_class == "MOTIVATED_CUT"
+                         and unit.get("start_frame_source") == TAIL_REJECTED_START_FRAME_SOURCE)
         has_dialogue = any(str((row.get("prompt_spec") or {}).get("dialogue") or "").strip() for row in rows)
         has_props = any((row.get("prompt_spec") or {}).get("props") for row in rows)
         action_class = (
@@ -149,10 +159,15 @@ def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Pat
             opening_role = "CONTINUITY_DERIVED_ENTRY_STATE"
             opening_source = "CONTINUITY_DERIVED_KEYFRAME"
             materialization_required = False
-            tail_key = f"{previous_unit_id}:REAL_FINAL_FRAME:STATE_REFERENCE"
-            tail_path = str(previous_final.get("path") or unit.get("previous_unit_final_frame_path") or "")
-            task_keys = [opening_key, tail_key, *anchor_shots[1:]]
-            reference_paths = [opening_path, tail_path, *[str(path) for path in paths[1:]]]
+            if tail_rejected:
+                # the unit starts from its own keyframe; the rejected tail never reaches the provider
+                task_keys = [opening_key, *anchor_shots[1:]]
+                reference_paths = [opening_path, *[str(path) for path in paths[1:]]]
+            else:
+                tail_key = f"{previous_unit_id}:REAL_FINAL_FRAME:STATE_REFERENCE"
+                tail_path = str(previous_final.get("path") or unit.get("previous_unit_final_frame_path") or "")
+                task_keys = [opening_key, tail_key, *anchor_shots[1:]]
+                reference_paths = [opening_path, tail_path, *[str(path) for path in paths[1:]]]
         count = len(task_keys)
         if boundary_class == "NEW_EVENT_ANCHOR" and count == 1:
             reason = (
@@ -166,6 +181,14 @@ def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Pat
                 f"{previous_unit_id}'s materialized real final frame."
             )
             transport = "IMAGE_TO_VIDEO_PREVIOUS_FINAL_FRAME"
+        elif tail_rejected:
+            reason = (
+                f"{unit['unit_id']} continues the same event, but its predecessor tail was rejected as a start "
+                "frame (declared speaker missing, at the edge or an extra face), so it opens on its own admitted "
+                "keyframe; the persistent person/environment state ledger stays binding and the rejected tail "
+                "is never provider-visible."
+            )
+            transport = "OMNI_MULTI_REFERENCE"
         elif boundary_class == "MOTIVATED_CUT":
             reason = (
                 f"{unit['unit_id']} makes a motivated camera cut inside the same continuous event; "
@@ -201,22 +224,27 @@ def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Pat
                 "materialized_path": opening_path,
                 "sha256": previous_final.get("sha256") if boundary_class == "HARD_CONTINUATION" else None,
                 "materialization_required_before_submit": materialization_required,
-                "previous_state_reference_path": str(previous_final.get("path") or "") if boundary_class == "MOTIVATED_CUT" else None,
-                "previous_state_reference_sha256": previous_final.get("sha256") if boundary_class == "MOTIVATED_CUT" else None,
+                "previous_state_reference_path": str(previous_final.get("path") or "") if boundary_class == "MOTIVATED_CUT" and not tail_rejected else None,
+                "previous_state_reference_sha256": previous_final.get("sha256") if boundary_class == "MOTIVATED_CUT" and not tail_rejected else None,
+                **({"start_frame_source": TAIL_REJECTED_START_FRAME_SOURCE,
+                    "previous_state_reference_transport": TAIL_REJECTED_TRANSPORT,
+                    "rejected_tail_path": str(previous_final.get("path") or "") or None,
+                    "rejected_tail_sha256": previous_final.get("sha256")} if tail_rejected else {}),
             },
             "anchor_count_decision": {
                 "planned_reference_image_count": count,
                 "reason": reason,
                 "criteria": {
                     "continuous_motion_from_single_start": count == 1,
-                    "identity_or_space_reanchor": identity_reanchor or boundary_class == "MOTIVATED_CUT",
+                    "identity_or_space_reanchor": identity_reanchor or (boundary_class == "MOTIVATED_CUT"
+                                                                        and not tail_rejected),
                     "prop_ownership_transition": prop_reanchor,
                     "non_interpolable_terminal_state": False,
                 },
                 "anchor_roles": [opening_role] + (
                     ["PREVIOUS_REAL_TAIL_STATE_AUTHORITY"]
                     + ["IDENTITY_OR_PROP_REANCHOR"] * (count - 2)
-                    if boundary_class == "MOTIVATED_CUT"
+                    if boundary_class == "MOTIVATED_CUT" and not tail_rejected
                     else ["IDENTITY_OR_PROP_REANCHOR"] * (count - 1)
                 ),
                 "action_design_class": action_class,

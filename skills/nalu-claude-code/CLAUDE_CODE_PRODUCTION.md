@@ -191,7 +191,7 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
   会自动把旧起始帧（关键帧、派生 `.derived.json`、起始帧回执）移到 `keyframes/_superseded_<run>_q2_redo_start_frame/`，
   承接尾帧的单元改记 `start_frame_source: OWN_KEYFRAME_TAIL_REJECTED`，然后走 S5 关键帧路径给该单元出一张自己的关键帧（按新的近景取景规则，约 11 积分/张，D-46 只算缺的那几张），
   之后照常做 keyframe Q1 / start_frame 审核再出视频。不要自己手动把尾帧拷成关键帧。
-  派生起始帧（S6 自动）：承接上一单元尾帧、且首镜有画内说话人的单元，S6 先用同一套 InsightFace 量尾帧——说话人不在画面/贴边/被切/脸中心在外侧 20%，或人脸数多于声明——就不用尾帧，改用该单元自己的关键帧（没有就自动出一张）；
+  派生起始帧（S6 自动）：承接上一单元尾帧、且首镜有画内说话人的单元，S6 先用同一套 InsightFace 量尾帧——说话人不在画面/贴边/被切/脸中心在外侧 20%，或人脸数多于声明——就不用尾帧，改用该单元自己的关键帧（没有就自动出一张），被拒的尾帧也不再作为参考图发给 H3；
   决定逐单元记在 `reports/<EP>_S6_WAVE_STATE.json` 的 `start_frame_source`（`TAIL_FRAME` / `OWN_KEYFRAME_TAIL_REJECTED` + 测量值）。估预算时每个这样的单元多算 11 积分。
 - 视频 Q2：`--gate-id VIDEO-Q2-ASSEMBLY-ADMISSION --detector <unit>:<每个失败门禁 ID> --media <unit>=<unit mp4>`；
   6 镜左右的短集任何 P2 都会超 10% 缺陷预算：同时写 `$NALU_RUNTIME_ROOT/preproduction/<EP>/qa_overrides.json` 的

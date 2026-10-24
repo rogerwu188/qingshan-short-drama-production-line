@@ -99,7 +99,12 @@ def evaluate(plan: dict) -> dict:
                             reasons.append("motivated cut must use a continuity-derived keyframe")
                         if not opening.get("previous_unit_id"):
                             reasons.append("motivated cut is missing previous_unit_id")
-                        if count is not None and count < 2:
+                        # CAMERA_GRAMMAR_V1: a tail rejected as start frame (S6 objective speaker check) is
+                        # deliberately not transported; the unit's own keyframe is its only opening reference.
+                        tail_rejected = (opening.get("start_frame_source") == "OWN_KEYFRAME_TAIL_REJECTED"
+                                         and opening.get("previous_state_reference_transport")
+                                         == "NOT_TRANSPORTED_TAIL_REJECTED")
+                        if count is not None and count < 2 and not tail_rejected:
                             reasons.append("motivated cut must bind both its new composition and previous-tail state authority")
                     elif boundary_class not in {"NEW_EVENT_ANCHOR", "HARD_CONTINUATION", "MOTIVATED_CUT"}:
                         reasons.append("event boundary class is missing or invalid")

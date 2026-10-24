@@ -142,6 +142,23 @@ def _allows_structured_state_only_motivated_cut(
     return _exact_population_clean_opening(task)
 
 
+TAIL_REJECTED_START_FRAME_SOURCE = "OWN_KEYFRAME_TAIL_REJECTED"
+TAIL_REJECTED_TRANSPORT = "NOT_TRANSPORTED_TAIL_REJECTED"
+
+
+def _rejected_tail_own_keyframe(task: dict[str, Any], *, contract: dict[str, Any]) -> bool:
+    """CAMERA_GRAMMAR_V1: S6 rejected the predecessor tail as start frame (objective speaker check); the unit's
+    own keyframe is the first provider image and the rejected tail must NOT be provider-visible."""
+    if (contract.get("start_frame_source") != TAIL_REJECTED_START_FRAME_SOURCE
+            or contract.get("previous_state_reference_transport") != TAIL_REJECTED_TRANSPORT):
+        return False
+    references = [str(v.get("path") or v.get("url") or "") if isinstance(v, dict) else str(v)
+                  for v in task.get("reference_images") or []]
+    rejected = str(contract.get("rejected_tail_path") or "")
+    return bool(references) and references[0] == str(contract.get("materialized_path") or "") and (
+        not rejected or rejected not in references)
+
+
 def validate_opening_anchor_chain(task: dict[str, Any]) -> list[str]:
     if not task.get("semantic_video_unit"):
         return []
@@ -187,6 +204,8 @@ def validate_opening_anchor_chain(task: dict[str, Any]) -> list[str]:
             if source != "CONTINUITY_DERIVED_KEYFRAME" or not contract.get("previous_unit_id"):
                 failures.append(f"MOTIVATED_CUT_OPENING_SOURCE_INVALID:{unit_id}")
             if _allows_structured_state_only_motivated_cut(task, contract=contract):
+                return list(dict.fromkeys(failures))
+            if _rejected_tail_own_keyframe(task, contract=contract):
                 return list(dict.fromkeys(failures))
             tail_path = str(contract.get("previous_state_reference_path") or "")
             tail_sha = str(contract.get("previous_state_reference_sha256") or "")
