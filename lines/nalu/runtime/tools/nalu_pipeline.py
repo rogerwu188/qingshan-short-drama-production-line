@@ -5470,6 +5470,12 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
         # budget guard refused a poll that costs nothing (lab E01 2026-10-22: 360 already charged).
         unbound_keys = set(s6_unbound_task_keys(ctx))
         post_keys = [k for k in needs_post if k in unbound_keys]
+        if on_disk and post_keys:
+            # plan only what will actually be POSTed, not every recompiled-but-on-disk task
+            post_rows = [t for t in manifest_now.get("tasks") or [] if str(t.get("task_key")) in set(post_keys)]
+            planned = min(planned, video_task_credits(
+                episode_video_model(ctx.episode),
+                sum(float(t.get("duration_seconds") or 0) for t in post_rows), len(post_rows)))
         if not post_keys:
             ctx.say("   every task without a clip is already bound to a remote task: poll only, no authorisation")
             status = PASS

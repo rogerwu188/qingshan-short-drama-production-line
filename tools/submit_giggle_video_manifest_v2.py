@@ -1210,6 +1210,15 @@ def main() -> int:
     tasks = manifest.get("tasks") or []
     if not gates or not tasks:
         raise SystemExit("Video manifest requires passing gates and tasks")
+    # D-46 partial redo: the materialised copy authorises only the units without a clip on disk and marks
+    # the rest provider_post_allowed=False.  Those rows are not part of this submission — validating them
+    # (their recompiled prompts no longer match the registered batch) failed the whole redo before any POST
+    # (urban lab E03 2026-10-24).  Keep only authorised rows when at least one row is authorised.
+    unauthorised_rows = [t for t in tasks if t.get("provider_post_allowed") is False]
+    if not args.precheck_only and unauthorised_rows and len(unauthorised_rows) < len(tasks):
+        tasks = [t for t in tasks if t.get("provider_post_allowed") is not False]
+        manifest = {**manifest, "tasks": tasks, "partial_repair_scope": manifest.get("partial_repair_scope")
+                    or "D46_UNAUTHORISED_ROWS_EXCLUDED"}
     # E47+ production uses rolling parallel waves.  Serial submission is only
     # valid when every unit is causally chained to an exact predecessor tail;
     # otherwise a caller that explicitly passes ``--concurrency 1`` is a

@@ -645,7 +645,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "91505f467a614745842a68a54cabd216b37ab4885d8775f24f10f2e7fd4fd727"
+      "sha256": "d089fa258325c7c9318a9a767e0c482af39cb8c38715c71fa89b381007173f99"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -6441,7 +6441,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "fc9ff7d815014a91572ece379fefae4d4741ab07a001322f946e2710fdce3da8"
+      "sha256": "9d5fbb0e2913782e45cb6fde5cfb2e786970059b38fb8696b8c389330b72a36c"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
