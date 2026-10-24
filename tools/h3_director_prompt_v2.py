@@ -388,6 +388,11 @@ def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: se
             line = f"@Image{index} is {entity}'s {body}."
             if entity_id and onscreen and entity_id not in onscreen:
                 line += f" It is for identity only: {entity} stays out of frame in this clip."
+            elif index > 1:
+                # a face reference of someone already in the opening frame is that SAME person, not a second
+                # one: H3 otherwise sometimes renders the reference as an extra copy (lab E02 2026-10-23)
+                line += (f" This is the same {entity} already standing in @Image1 — one person; never draw a "
+                         f"second {entity}.")
             lines.append(line)
         elif entity:
             lines.append(f"@Image{index} is the {entity}: match its shape, material and scale only; it shows no face.")

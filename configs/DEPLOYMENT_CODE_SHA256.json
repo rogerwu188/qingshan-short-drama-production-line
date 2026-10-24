@@ -4869,7 +4869,7 @@
     },
     {
       "path": "tools/h3_director_prompt_v2.py",
-      "sha256": "739b2020994c1e1e34228844feeccd125f516fefa8f5b0074fae937ade91671d"
+      "sha256": "99249dab3202eb715344a95a4d0c8a36d7de33269308ac574397751c451b19ec"
     },
     {
       "path": "tools/h3_english_contract_io.py",
@@ -7425,7 +7425,7 @@
     },
     {
       "path": "tools/tests/test_h3_director_prompt_v2.py",
-      "sha256": "14cb3f661fb7f3b1f0b0ebaa5da91186bd72bf4c0d8447daad3e0e3df5c27ea2"
+      "sha256": "109618aa81fd4d2146c27d0a4f68175436da4499f4e333d85501019b6e189658"
     },
     {
       "path": "tools/tests/test_h3_native_audio_whitelist_gate.py",
