@@ -4296,6 +4296,98 @@ def apply_line_owner_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: 
 # Historical API alias for old runtime callers. New receipts and state keys are neutral.
 apply_roger_q1_acceptance = apply_line_owner_q1_acceptance
 
+#: Gate id of the start-frame receipt (start_frame_evidence_writer.START_FRAME_GATE_ID).
+START_FRAME_GATE_ID = "START-FRAME-SEMANTIC-EVIDENCE"
+
+
+def apply_derived_start_frame_acceptance(ctx: Ctx, index: dict[str, Any], index_path: Path) -> dict[str, Any]:
+    """S6.q1_derived: admit a continuity-derived start frame whose line-owner (default) acceptance was
+    recorded against the START-FRAME-SEMANTIC-EVIDENCE gate rather than per Q1 gate.
+
+    Lab Holmes E03 (2026-10-24): VU-002/005/008 were reviewed FAIL (speaker edge crop, undeclared figure),
+    one controlled redo was spent, and the default "quality never blocks" orders were recorded — bound to
+    each derived still's exact sha — for the start-frame gate; the writer turned the receipts into
+    ACCEPTED_BY_LINE_OWNER_ORDER.  The Q1 overlay only looks for orders keyed by the failing Q1 gates, so
+    every S6 re-entry rejected the same stills and the line stopped for good.
+
+    A still is admitted here only when ALL of these hold: the unit is continuity-derived; every Q1 failure
+    names a registered gate in Q1_MULTI_GATE_ACCEPTABLE; its start-frame receipt is
+    ACCEPTED_BY_LINE_OWNER_ORDER for this exact sha (== the Q1 row's sha == the keyframe on disk); and the
+    order the receipt cites is re-found NOW — active, source-receipted, issued by the line owner, naming
+    every accepted detector and bound to that sha.  The review answers and the engine FAIL stay recorded."""
+    orders_path = ctx.authority.get("orders_path")
+    orders = (_rga._orders(orders_path, expected_latest_seq=ctx.authority.get("latest_order_seq") or 0,
+                           engine_root=ENGINE)
+              if orders_path and not ctx.authority_blockers else [])
+    issuer = ctx.authority.get("line_owner_id") or ""
+    derived = continuity_derived_units(ctx)
+    accepted: list[dict[str, Any]] = []
+    refused: list[dict[str, Any]] = []
+    if not orders or not issuer:
+        return {"accepted_unit_ids": [], "refused": [], "reason": "NO_LINE_OWNER_ORDERS"}
+    allowed = list(index.get("video_submission_allowed_unit_ids") or [])
+    for row in index.get("results") or []:
+        if row.get("status") == "PASS" or row.get("downstream_status") == "ADMITTED_FOR_VIDEO_SUBMIT":
+            continue
+        uid, sha = str(row.get("unit_id") or ""), str(row.get("asset_sha256") or "")
+        info = derived.get(uid)
+        if not info or not info["keyframe_path"].is_file():
+            continue
+        failures = [str(f) for f in (row.get("failures") or [])]
+        gates = failing_registered_gates(failures)
+        why = None
+        if not failures or not gates or any(not FAILED_GATE_RE.search(f) for f in failures):
+            why = "UNATTRIBUTED_Q1_FAILURE"
+        elif any(g not in Q1_MULTI_GATE_ACCEPTABLE for g in gates):
+            why = "Q1_GATE_NOT_ACCEPTABLE"
+        elif sha != sha256_file(info["keyframe_path"]):
+            why = "KEYFRAME_CHANGED_SINCE_Q1"
+        receipt_path = ENGINE / "reports/start_frame_evidence" / f"{uid}_start_frame_evidence.json"
+        receipt = read_json(receipt_path, {}) or {}
+        owner = receipt.get("line_owner_acceptance") or {}
+        if why is None and (receipt.get("status") != "ACCEPTED_BY_LINE_OWNER_ORDER"
+                            or str(receipt.get("reference_sha256") or "") != sha
+                            or str(owner.get("media_sha256") or "") != sha):
+            why = "NO_ACCEPTED_START_FRAME_RECEIPT_FOR_THIS_SHA"
+        detectors = [str(d) for d in owner.get("accepted_detectors") or [] if str(d)]
+        order = (_rga.find_acceptance(orders, episode=ctx.episode, gate_id=START_FRAME_GATE_ID,
+                                      failing=detectors, media_sha256=sha, media_item_id=uid,
+                                      expected_issuer=issuer, engine_root=ENGINE)
+                 if why is None and detectors else None)
+        if why is None and order is None:
+            why = "START_FRAME_ORDER_NOT_FOUND"
+        if why is not None:
+            refused.append({"unit_id": uid, "reason": why})
+            continue
+        record = _rga.acceptance_record(order, episode=ctx.episode, gate_id=START_FRAME_GATE_ID,
+                                        failing=detectors, media_sha256=sha, media_item_id=uid,
+                                        gate_result_path=str(receipt_path))
+        record.update({"item_id": row.get("item_id"), "unit_id": uid,
+                       "acceptance_status": "ACCEPTED_BY_DEFAULT_ORDER",
+                       "accepted_under": "START_FRAME_SEMANTIC_EVIDENCE_ORDER",
+                       "q1_gate_ids_kept_fail": gates, "engine_status": row.get("status"),
+                       "engine_failures": failures, "start_frame_receipt": str(receipt_path)})
+        accept_q1_row(row, record, failures)
+        if uid not in allowed:
+            allowed.append(uid)
+        accepted.append(record)
+    if accepted:
+        engine_index = index_path.with_suffix(".engine.json")
+        if not engine_index.is_file() and index_path.is_file():
+            shutil.copy2(index_path, engine_index)
+        still = [u for u in index.get("rejected_unit_ids") or [] if u not in allowed]
+        index["video_submission_allowed_unit_ids"] = allowed
+        index["rejected_unit_ids"] = still
+        index["admitted_count"] = len(allowed)
+        index["engine_status"] = index.get("engine_status") or index.get("status")
+        index["status"] = ("ALL_ADMITTED" if not still
+                           else f"PARTIAL_{len(allowed)}_OF_{index.get('unit_count')}_ADMITTED")
+        index["status_basis"] = "ENGINE_ADMITTED+LINE_OWNER_ORDER_ACCEPTANCE (source-receipted, never self-issued)"
+        index["derived_start_frame_acceptance"] = accepted
+        write_json(index_path, index)
+    return {"accepted_unit_ids": [r["unit_id"] for r in accepted], "refused": refused,
+            "effective_status": index.get("status")}
+
 
 def s5_q1(ctx: Ctx, res: StageResult) -> dict[str, Any]:
     """D-4 — keyframe Q1 admission through the engine's own admission gate.
@@ -4983,6 +5075,8 @@ def stage_s6(ctx: Ctx) -> StageResult:
                     _ix = read_json(_ip, {}) or {}
                     if _ix:
                         res.details["derived_q1_roger_acceptance"] = apply_roger_q1_acceptance(ctx, _ix, _ip)
+                        res.details["derived_start_frame_acceptance"] = apply_derived_start_frame_acceptance(
+                            ctx, _ix, _ip)
                     still = [(uid, shot) for uid, shot in derived_units_pending_q1(ctx) if uid not in done]
                     if still:
                         res.status = BLOCKED
