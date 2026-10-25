@@ -32,14 +32,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+ENGINE = Path(f"{_np.ENGINE_ROOT}")
+if str(ENGINE / "tools") not in sys.path:  # before the fallback import below needs it (no PYTHONPATH on a fresh host)
+    sys.path.append(str(ENGINE / "tools"))
 try:
     from tools.lighting_participant_scope import scoped_lighting_line
 except ModuleNotFoundError:
     from lighting_participant_scope import scoped_lighting_line
-
-ENGINE = Path(f"{_np.ENGINE_ROOT}")
-if str(ENGINE / "tools") not in sys.path:
-    sys.path.append(str(ENGINE / "tools"))
 import voice_over_narration as _vo  # noqa: E402  V.O. narration lines never reach the video prompt
 RUNTIME = Path(f"{_np.RUNTIME_ROOT}")
 WORK = Path(_np.WORK_ROOT).expanduser().resolve()  # one definition in nalu_paths (was <runtime>/workflow/nalu here only)
@@ -61,11 +60,27 @@ H3_SECTION = {"任务": "summary", "时间轴": "detailed_description", "摄影"
               "声音": "overall_soundscape", "锚点": "subject_definitions", "限制": "negative_constraints"}
 
 
+#: DIRECTOR_PROMPT_V2 H3 prompts (tools/h3_director_prompt_v2.py): blank-line separated director sections
+H3_V2_SECTION = {"任务": "Who is in frame", "时间轴": "Action (", "摄影": "Camera:", "声音": "Sound:",
+                 "锚点": "References:", "限制": "Never:"}
+H3_V2_REQUIRED = ("References:\n", "Who is in frame", "Setting:\n", "Camera:\n", "Action (0", "Dialogue",
+                  "Sound: ", "Never: ")
+
+
+def is_h3_director_v2(text: str) -> bool:
+    return text.startswith("References:\n") and "\n\nWho is in frame" in text
+
+
 def section(text: str, header: str) -> str:
     """Text of a 【header】 block up to the next 【 (SD2), or of the matching English ``key:`` block (H3)."""
     m = re.search(r"【" + re.escape(header) + r"[^】]*】\s*(.*?)(?=\n【|\Z)", text, re.S)
     if m:
         return m.group(1).strip()
+    if is_h3_director_v2(text):
+        key = H3_V2_SECTION.get(header)
+        body = r"\s*(.*?)" if key in ("Sound:", "Never:") else r"[^\n]*\n(.*?)"  # one-line vs headed blocks
+        m = re.search(r"(?:^|\n\n)" + re.escape(key) + body + r"(?=\n\n|\Z)", text, re.S) if key else None
+        return m.group(1).strip() if m else ""
     key = H3_SECTION.get(header)
     if key:
         m = re.search(r"^" + re.escape(key) + r":\s*(.*?)(?=\n[a-z_]+:(?:\s|$)|\Z)", text, re.S | re.M)
@@ -341,7 +356,8 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
         # MiniMax-H3 prompts are English six-part text (Chinese only inside <d>[Chinese]...</d>
         # dialogue), rendered from the unit's bound English contract; the Chinese states and cast
         # names are checked through that contract, not by substring.
-        vp_is_h3 = vp_text.startswith("subject_definitions:") or "summary: [reference generation" in vp_text
+        vp_is_v2 = is_h3_director_v2(vp_text)
+        vp_is_h3 = vp_is_v2 or vp_text.startswith("subject_definitions:") or "summary: [reference generation" in vp_text
         for sid in unit_shots:
             s = shots[sid]
             if not vp_is_h3:
@@ -365,7 +381,9 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
             cjk = re.findall(r"[\u3400-\u9fff]", outside)
             chk("vp_h3_no_cjk_outside_dialogue", not cjk, "".join(cjk[:10]))
             chk("vp_h3_identity_references", "@Image1" in vp_text, "")
-            chk("vp_h3_cast_count", len(re.findall(r"^@Image\d+: exclusive identity of ", vp_text, flags=re.M)) >= len(
+            identity_lines = (r"^@Image\d+ is .+'s (?:face and body|look)\." if vp_is_v2
+                              else r"^@Image\d+: exclusive identity of ")
+            chk("vp_h3_cast_count", len(re.findall(identity_lines, vp_text, flags=re.M)) >= len(
                 [n for n in vp_cast if n]) or "SUBJECT_1" in vp_text, f"{len(vp_cast)} cast")
         else:
             for name in vp_cast:
@@ -373,7 +391,7 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
         chk("vp_duration_declared", str(int(round(unit["duration_seconds"]))) in vp_text or f"{unit['duration_seconds']}" in vp_text, str(unit["duration_seconds"]))
         h3_sections = ("subject_definitions:", "summary:", "detailed_description:", "camera:",
                        "overall_soundscape:", "negative_constraints:")
-        chk("vp_required_sections", all(h in vp_text for h in (h3_sections if vp_is_h3 else (
+        chk("vp_required_sections", all(h in vp_text for h in (H3_V2_REQUIRED if vp_is_v2 else h3_sections if vp_is_h3 else (
             "【任务】", "【锚点】", "【时间轴】", "【摄影】", "【声音】", "【限制】"))), "")
         chk("vp_rune_limit", len(vp_text) <= 10000, str(len(vp_text)))
         if not vp_is_h3:

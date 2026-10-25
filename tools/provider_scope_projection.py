@@ -92,7 +92,9 @@ def binding_role_for(entity_id: str, role: Any = None) -> str:
     entity = str(entity_id or "").strip().upper()
     if entity.startswith("CHAR-"):
         return "IDENTITY"
-    if entity.startswith(("PROP-", "OBJ-")):
+    # SET- is a set piece (build_episode_asset_requirements is_set_piece): bound as a prop plate at S5, so it
+    # must not fall through to IDENTITY (urban lab E01 2026-10-23: SET-DESK failed every keyframe precheck)
+    if entity.startswith(("PROP-", "OBJ-", "SET-")):
         return "PROP"
     # EGSM- is the per-episode global space map (nalu, e.g. EGSM-AQ-E04); it was falling through to
     # IDENTITY and failed every keyframe of 401286 《阿Q正传》 E04 (2026-10-16)
@@ -188,6 +190,77 @@ def instance_cardinality_clauses(label: str, count: int = 1) -> tuple[str, ...]:
             f"render at most one visible instance of {label}",
         )
     return (f"render exactly {int(count)} visible instances of {label}",)
+
+
+# --------------------------------------------------------------------------- #
+# DIRECTOR_PROMPT_V2 (opt-in H3 prompt style, tools/h3_director_prompt_v2.py)
+# --------------------------------------------------------------------------- #
+# A generation contract opts in with ``"h3_prompt_style": "DIRECTOR_PROMPT_V2"``; the grouped compiler stamps
+# the field on its H3 units and the transaction task carries it.  The renderer writes these clauses and the
+# scope gate looks for exactly them on V2 payloads; V1 payloads keep the V1 clauses above.
+H3_PROMPT_STYLE_FIELD = "h3_prompt_style"
+DIRECTOR_PROMPT_V2 = "DIRECTOR_PROMPT_V2"
+DIRECTOR_V2_SECTION_MARKERS = ("References:\n", "Who is in frame", "Setting:\n", "Camera:\n", "Action (0",
+                               "Dialogue", "Sound: ", "Never: ", "captions, subtitles")
+_NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+                 "eleven", "twelve")
+
+
+def h3_prompt_style(payload: dict[str, Any] | None) -> str:
+    """The declared style, normalized; "" for anything that is not a known opt-in."""
+    value = str((payload or {}).get(H3_PROMPT_STYLE_FIELD) or "").strip().upper()
+    return value if value == DIRECTOR_PROMPT_V2 else ""
+
+
+def is_director_prompt_v2(payload: dict[str, Any] | None) -> bool:
+    return h3_prompt_style(payload) == DIRECTOR_PROMPT_V2
+
+
+def number_word(count: int) -> str:
+    count = int(count)
+    return _NUMBER_WORDS[count] if 0 <= count < len(_NUMBER_WORDS) else str(count)
+
+
+def director_v2_population_core(total: int) -> str:
+    """The exact-count words of the "Who is in frame" header ("exactly these two" people)."""
+    total = int(total)
+    if total <= 0:
+        return "nobody"
+    return "exactly this one" if total == 1 else f"exactly these {number_word(total)}"
+
+
+def director_v2_background_clause(unbound: int, descriptors: list[str] | None = None) -> str:
+    unbound = int(unbound or 0)
+    names = [str(value).strip() for value in descriptors or [] if str(value).strip()]
+    if unbound <= 0:
+        return ""
+    clause = f"plus {unbound} unnamed background figure" + ("" if unbound == 1 else "s")
+    return clause + (": " + ", ".join(names) if names else "")
+
+
+def director_v2_roster_marker(label: str, count: int = 1) -> str:
+    """The roster line start for one bound entity: "- Lin Qiao" (count 1) or with an explicit count."""
+    return f"- {label}" if int(count) == 1 else f"- {label} (exactly {int(count)} instances)"
+
+
+def director_v2_onscreen_entity_ids(payload: dict[str, Any], projection: dict[str, Any]) -> list[str]:
+    """Projection-visible entities minus those that are offscreen (voice only) in every spec they appear in.
+
+    The projection counts every cast member, including an offscreen speaker; a V2 prompt lists only who is
+    on screen, so both the renderer and the gate count from this one function."""
+    visible = [str(value) for value in projection.get("visible_character_ids") or []]
+    seen: dict[str, bool] = {}
+    for spec in payload.get("ordered_prompt_specs") or []:
+        role = spec.get("role_semantic_disambiguation") or {}
+        presence = role.get("entity_presence") or {}
+        for member in spec.get("cast") or []:
+            cid = str(member.get("character_id") or member.get("character") or "")
+            if not cid:
+                continue
+            offscreen = (str(member.get("face_visibility") or "").upper() == "OFFSCREEN_VOICE_ONLY"
+                         or "OFFSCREEN" in str(presence.get(cid) or "").upper())
+            seen[cid] = seen.get(cid, False) or not offscreen
+    return [cid for cid in visible if seen.get(cid, True)]
 
 
 def positive_single_subject_composition_clause(tight_pov: bool) -> str:
@@ -522,8 +595,34 @@ def validate_provider_scope_projection(
                         "PROVIDER_SCOPE_ABSENT_ENTITY_IN_POSITIVE_PROMPT:"
                         + str(row.get("entity_id") or "UNKNOWN") + ":" + token
                     )
-        if str(model or payload.get("model") or "").strip().lower() in {"minimax-h3", "h3"}:
-            prompt_mode = projection.get("provider_scope_prompt_mode")
+        h3_model = str(model or payload.get("model") or "").strip().lower() in {"minimax-h3", "h3"}
+        prompt_mode = projection.get("provider_scope_prompt_mode")
+        if h3_model and is_director_prompt_v2(payload) and not is_single_subject_mode(prompt_mode):
+            # DIRECTOR_PROMPT_V2: same three promises (every reference mapped, every bound identity listed
+            # once with its count, the exact population), in the V2 wording.
+            onscreen = director_v2_onscreen_entity_ids(payload, projection)
+            for row in bindings:
+                entity_id = str(row.get("entity_id") or "")
+                is_identity = (
+                    str(row.get("binding_role") or "") or binding_role_for(entity_id, row.get("role"))
+                ) == "IDENTITY"
+                label = str(row.get("provider_entity_label") or "").casefold()
+                if f"@image{row['reference_index']} is ".casefold() not in positive or not label or label not in positive:
+                    failures.append("H3_PROVIDER_SCOPE_REFERENCE_MAPPING_MISSING:" + (entity_id or "UNKNOWN"))
+                if not is_identity or entity_id not in onscreen:
+                    continue
+                marker = director_v2_roster_marker(label, counts.get(entity_id, 1)).casefold()
+                if not any(line.startswith(marker) for line in positive.splitlines()):
+                    failures.append("H3_PROVIDER_SCOPE_INSTANCE_CARDINALITY_MISSING:" + (entity_id or "UNKNOWN"))
+            total = sum(int(counts.get(entity_id) or 1) for entity_id in onscreen)
+            required = ["who is in frame", director_v2_population_core(total).casefold()]
+            background_clause = director_v2_background_clause(
+                unbound if isinstance(unbound, int) else 0, projection.get("anonymous_role_descriptors") or [])
+            if background_clause:
+                required.append(background_clause.casefold())
+            if not all(value in positive for value in required):
+                failures.append("H3_PROVIDER_SCOPE_EXCLUSIVE_POPULATION_CLAUSE_MISSING")
+        elif h3_model:
             positive_single_subject = is_single_subject_mode(prompt_mode)
             tight_pov_single_subject = is_tight_pov_mode(prompt_mode)
             for row in bindings:

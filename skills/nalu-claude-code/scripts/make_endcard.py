@@ -108,6 +108,15 @@ def render_png(title, subtitle, language, font, png):
     return png
 
 
+def make(title, subtitle, language, font, png, out, ffmpeg="ffmpeg"):
+    """Render the card PNG and its 3 s mp4 (silent stereo track); returns out."""
+    png = render_png(title, subtitle, language, font, png)
+    subprocess.run([ffmpeg, "-v", "error", "-y", "-loop", "1", "-i", str(png), "-f", "lavfi", "-i",
+                    "anullsrc=r=48000:cl=stereo", "-t", "3", "-r", "24", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-shortest", str(out)], check=True)
+    return out
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--runtime-root", required=True)
@@ -115,16 +124,18 @@ def main(argv=None):
     ap.add_argument("--subtitle", default="")
     ap.add_argument("--language", choices=["zh", "en"], default="zh")
     ap.add_argument("--font", default="")
+    ap.add_argument("--out", default="", help="per-episode card mp4 (PNG next to it); default = the global brand card")
     a = ap.parse_args(argv)
     font = resolve_font(a.language, a.font)
-    brand = Path(a.runtime_root).expanduser() / "brand"
-    brand.mkdir(parents=True, exist_ok=True)
-    png = render_png(a.title, a.subtitle, a.language, font, brand / "endcard_9x16.png")
-    out = brand / "NALU_MOTION_endcard_3s_9x16.mp4"
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-loop", "1", "-i", str(png), "-f", "lavfi", "-i",
-                    "anullsrc=r=48000:cl=stereo", "-t", "3", "-r", "24", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                    "-c:a", "aac", "-shortest", str(out)], check=True)
-    print(out)
+    if a.out:
+        out = Path(a.out).expanduser()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        png = out.with_suffix(".png")
+    else:
+        brand = Path(a.runtime_root).expanduser() / "brand"
+        brand.mkdir(parents=True, exist_ok=True)
+        png, out = brand / "endcard_9x16.png", brand / "NALU_MOTION_endcard_3s_9x16.mp4"
+    print(make(a.title, a.subtitle, a.language, font, png, out))
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ from typing import Any
 try:
     from tools.provider_scope_projection import (
         instance_cardinality_clauses,
+        is_director_prompt_v2,
         is_single_subject_mode,
         is_tight_pov_mode,
         population_clause,
@@ -22,6 +23,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
     from provider_scope_projection import (
         instance_cardinality_clauses,
+        is_director_prompt_v2,
         is_single_subject_mode,
         is_tight_pov_mode,
         population_clause,
@@ -130,6 +132,10 @@ _NO_TRANSFER = ("Each subject wears only its own clothing; never transfer clothi
                 "materials between subjects")
 _NO_EXTRAS = ("No other people, figures, silhouettes, hands or body parts appear anywhere in frame, "
               "including the background and frame edges")
+_AUDIO_TIMBRE_ONLY = "Each @Audio reference supplies timbre only; never speak or echo its words"
+_SILENT_AFTER_LINE = ("After the tagged line ends nobody speaks again: the remaining seconds are silent room tone "
+                      "and natural movement, no mumbling, no extra words.")
+_NO_NATIVE_MUSIC = "No background music, score or soundtrack in this clip; only dialogue, foley and ambience"
 _WARDROBE_FIELDS = ("silhouette", "outer_layer", "inner_layer", "primary_color", "material", "footwear", "accessory")
 
 
@@ -173,7 +179,11 @@ def _director_subjects(
             if label and label not in people:
                 people[label] = wardrobe.get(cid) or wardrobe.get(str(member.get("character") or "")) or ""
         for row in spec.get("props") or []:
-            label = _plain_en(row.get("prop"), 80)
+            label = _plain_en(row.get("english_name") or row.get("prop"), 80)
+            if not label and is_being_prop(row):
+                # a Chinese-named being (醉狐) still needs an English name: fall back to its machine id (PROP-FOX → Fox)
+                label = re.sub(r"[^A-Za-z0-9]+", " ", re.sub(r"^(PROP|OBJ|SET|CREATURE|BEING)-", "",
+                                                              str(row.get("prop_id") or ""))).strip().title()
             if not label:
                 continue
             if not is_being_prop(row):
@@ -399,9 +409,15 @@ def _camera_english(
     line that has not yet authored English framing.
     """
     values: dict[str, str] = {}
+    # CAMERA_GRAMMAR_V1 (lab E02): a source field the writer already authored in English is the
+    # framing itself; the English-contract answer only translates CJK sources (E02's answers replaced
+    # every writer framing with the placeholder "authored framing", so H3 never saw the framing).
+    source_wins = camera_plan.get("camera_grammar") == "CAMERA_GRAMMAR_V1"
     for key in _CAMERA_TEXT_FIELDS:
         source = camera_plan.get(key)
         value = english.get(key) or camera_plan.get(f"{key}_en")
+        if source_wins and source and str(source).strip() and not _CJK.search(str(source)):
+            value = source
         if not value and source and not _CJK.search(str(source)):
             value = source
         value = str(value or "").strip().rstrip(".; ")
@@ -638,6 +654,36 @@ def _performance_direction(performance: Any) -> str:
             "with clear rises and falls in pitch and volume, the key words stressed; never a flat read-aloud tone.")
 
 
+_FEMALE_WORDS = re.compile(r"\b(woman|women|girl|lady|female|mother|wife|daughter|widow|sister|she|her)\b", re.I)
+_MALE_WORDS = re.compile(r"\b(man|men|boy|gentleman|male|father|husband|son|brother|he|his)\b", re.I)
+
+
+def _possessive(row: dict[str, Any]) -> str:
+    """her / his / their for a character entity row (declared sex first, else its English appearance)."""
+    sex = str(row.get("sex") or row.get("gender") or "").strip().upper()
+    if sex in {"F", "FEMALE", "WOMAN", "女"}:
+        return "her"
+    if sex in {"M", "MALE", "MAN", "男"}:
+        return "his"
+    text = " ".join(str(row.get(k) or "") for k in ("appearance_en", "appearance_ch1", "appearance", "description"))
+    female, male = bool(_FEMALE_WORDS.search(text)), bool(_MALE_WORDS.search(text))
+    return "her" if female and not male else "his" if male and not female else "their"
+
+
+def speaker_gaze_clause(unit: dict[str, Any], binding: dict[str, Any] | None) -> str:
+    """CAMERA_GRAMMAR_V1 speaking units (line owner 2026-10-24, lab Holmes E03): H3 pans to reveal whatever
+    the speaker looks at, so the speaker's eyes stay on the listener and the camera never follows the gaze.
+    "" for an offscreen speaker."""
+    if not binding or not binding.get("visible_speaker"):
+        return ""
+    cid = str(binding.get("character_id") or "")
+    row = next((r for r in unit.get("character_entities") or []
+                if isinstance(r, dict) and str(r.get("character_id") or r.get("entity_id") or "") == cid), {})
+    label = str(binding.get("provider_entity_label") or "").strip() or "The speaker"
+    own = _possessive(row)
+    return f"While speaking {label} keeps {own} eyes on the listener; the camera does not follow {own} gaze."
+
+
 def _spec_performance(specs: list[Any], source_index: Any) -> Any:
     """``ordered_prompt_specs[source_index - 1].action.performance`` (beats are 1-based over the specs)."""
     try:
@@ -798,7 +844,10 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     # other spellings; normalize so one value reaches all three.
     positive_single_subject = is_single_subject_mode(profile)
     tight_pov_single_subject = is_tight_pov_mode(profile)
-    scoped = shot_scope_active(unit, plan)
+    # CAMERA_GRAMMAR_V1 units always serialize the authored start/end framing: the per-episode policy row
+    # (H3 from E64) left every new series' early episodes on the legacy line that drops framing and tells
+    # a LOCKED shot to 'execute the declared move once' (urban lab E01 2026-10-23: pans lost a subject).
+    scoped = shot_scope_active(unit, plan) or director_active(unit, plan)
     refs = unit.get("reference_images") or []
     if not refs or len(refs) > 9:
         raise ValueError(f"{uid}:H3_REFERENCE_COUNT_OUT_OF_RANGE:{len(refs)}")
@@ -901,6 +950,16 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         visible_total = int(scope.get("visible_living_entity_instance_total") or 0)
         background_total = int(scope.get("background_population_count") or 0)
         unbound_total = int(scope.get("unbound_visible_living_entity_count") or 0)
+    if is_director_prompt_v2(unit) and not positive_single_subject:
+        # opt-in DIRECTOR_PROMPT_V2 (generation contract h3_prompt_style); every other unit continues below
+        # on the V1 path byte-identically.  The single-subject rescue profiles keep their own grammar.
+        try:
+            from tools.h3_director_prompt_v2 import render_director_v2
+        except ModuleNotFoundError:  # pragma: no cover
+            from h3_director_prompt_v2 import render_director_v2
+        return render_director_v2(
+            unit, plan, contract, crossmodal_rows=crossmodal_rows, language=language,
+            visible_total=visible_total, background_total=background_total, unbound_total=unbound_total)
     if positive_single_subject:
         composition = positive_single_subject_composition_clause(tight_pov_single_subject)
         population_scope = (
@@ -963,6 +1022,10 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             )
             line += scope_text
             evidence.update(scope_evidence)
+            if director_active(unit, plan) and dialogue_binding is not None:
+                gaze = speaker_gaze_clause(unit, dialogue_binding)
+                if gaze:
+                    line += f" {gaze}"
             if dialogue_binding is not None and dialogue_binding.get("visible_speaker"):
                 keep = (
                     f"{dialogue_binding['provider_entity_label']}'s face and mouth stay readable in frame "
@@ -1130,7 +1193,21 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             roster_variants = [_director_roster(people, beings, crowd=crowd, compact=compact)
                                for compact in (False, True)] + [""]
 
-    def assemble(roster: str) -> str:
+    # CAMERA_GRAMMAR_V1 audio hygiene (lab Holmes E01 ASR: reference-sample words echoed into other units,
+    # babble after a short line in a long slot, H3-baked music between shots).  Dropped before the roster.
+    director_audio = director_active(unit, plan)
+    has_dialogue = any(beat.get("dialogue") for beat in action_beats)
+
+    def assemble(roster: str, extras: bool = False) -> str:
+        voice_text = "; ".join(voice_rows) or "No dialogue voice reference is required"
+        vocal_text = vocal_rule
+        negative_rows = list(negatives)
+        if extras:
+            if voice_rows:
+                voice_text += "; " + _AUDIO_TIMBRE_ONLY
+            if has_dialogue:
+                vocal_text += " " + _SILENT_AFTER_LINE
+            negative_rows.append(_NO_NATIVE_MUSIC)
         return "\n".join([
         "subject_definitions:", *reference_lines,
         "population_scope: " + population_scope + ".",
@@ -1146,15 +1223,17 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         *( ["adult_woman_style: " + adult_style + "."] if adult_style else [] ),
         "environment_motion: " + ("; ".join(environment_rows) or "Background life moves naturally only when motivated by the story; never freeze into a still image") + ".",
         "overall_soundscape: " + ("; ".join(sound_rows) or "Native location ambience, cloth, foley, action contact, and declared dialogue only") + ".",
-        "voice_binding: " + ("; ".join(voice_rows) or "No dialogue voice reference is required") + ".",
-        "vocal_rule: " + vocal_rule,
+        "voice_binding: " + voice_text + ".",
+        "vocal_rule: " + vocal_text,
         "non_diegetic_music: none unless the structured audio profile explicitly binds a cue.",
-        "negative_constraints: " + "; ".join(dict.fromkeys(value.strip().rstrip(".; ") for value in negatives if value.strip())) + ".",
+        "negative_constraints: " + "; ".join(dict.fromkeys(value.strip().rstrip(".; ") for value in negative_rows if value.strip())) + ".",
     ]) + "\n"
 
-    # the director roster is trimmed (looks dropped, then the whole line) rather than ever failing the limit
-    for roster in roster_variants:
-        text = assemble(roster)
+    # the director audio lines go first, then the roster is trimmed (looks dropped, then the whole line)
+    # rather than ever failing the limit
+    variants = ([(roster_variants[0], True)] if director_audio else []) + [(r, False) for r in roster_variants]
+    for roster, extras in variants:
+        text = assemble(roster, extras)
         if len(text) <= _PROVIDER_RUNE_LIMIT:
             break
     boundary = validate_provider_prompt_boundary(text, source_id=uid, model_family="MINIMAX_H3")

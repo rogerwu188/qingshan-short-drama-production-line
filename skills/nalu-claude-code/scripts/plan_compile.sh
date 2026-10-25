@@ -13,7 +13,18 @@ PRE=$E/workflow/nalu/$EP/preproduction
 # MiniMax-H3 episodes compile from the anchor plan copy that also carries the locked identity plates
 ANCHOR=$PRE/${EP}_VIDEO_UNIT_ANCHOR_PLAN_H3_COMPILE_V1.json; [ -f "$ANCHOR" ] || ANCHOR=$PRE/${EP}_VIDEO_UNIT_ANCHOR_PLAN_V1.json
 cd $E
+# English lines: the contract's dialogue_language (else qingshan.json project.language) decides; zh is the default
+LANG_ARG=$("$E/.qingshan-venv/bin/python" - "$E/workflow/claude_writer_agent/scripts/${EP}_GENERATION_CONTRACT_v1.json" "$R/qingshan.json" <<'PY'
+import json, sys
+def read(path):
+    try: return json.load(open(path, encoding="utf-8"))
+    except Exception: return {}
+lang = str(read(sys.argv[1]).get("dialogue_language") or (read(sys.argv[2]).get("project") or {}).get("language") or "zh")
+print("en" if lang.lower().startswith("en") else "zh")
+PY
+)
 $E/.qingshan-venv/bin/python tools/compile_grouped_seedance_manifest.py --grouping-plan $PRE/${EP}_VIDEO_UNIT_GROUPING_PLAN_V1.json \
   --anchor-plan $ANCHOR --editorial-seedance-manifest $PRE/${EP}_EDITORIAL_SEEDANCE_MANIFEST_V1.json \
   --generation-contract $E/workflow/claude_writer_agent/scripts/${EP}_GENERATION_CONTRACT_v1.json \
-  --out $PRE/${EP}_GROUPED_SEEDANCE_MANIFEST_PLANNING_V1.json --planning-only --planned-prompt-dir $PRE/planned_video_prompts
+  --out $PRE/${EP}_GROUPED_SEEDANCE_MANIFEST_PLANNING_V1.json --planning-only --planned-prompt-dir $PRE/planned_video_prompts \
+  --dialogue-language "$LANG_ARG"

@@ -949,6 +949,29 @@ def build_bindings(inputs: Inputs, shot_id: str, gate_ref: str) -> tuple[list[di
 # prompt
 # --------------------------------------------------------------------------- #
 
+def keyframe_framing_rule(inputs: "Inputs", shot: dict[str, Any], spec: dict[str, Any]) -> dict[str, Any] | None:
+    """CAMERA_GRAMMAR_V1 scale-aware fixed-element rule for this shot's keyframe; None when unstamped."""
+    try:
+        from tools import camera_grammar_policy as _cgp
+    except ImportError:  # pragma: no cover - tools/ on sys.path instead
+        import camera_grammar_policy as _cgp
+    if not _cgp.active(inputs.contract, episode=inputs.episode):
+        return None
+    size = shot.get("shot_size") or (spec.get("camera_plan") or {}).get("shot_scale")
+    return _cgp.fixed_element_rule(size)
+
+
+def fixed_elements_prompt_line(framing_rule: dict[str, Any] | None, fixed_ids: str) -> str:
+    """The keyframe prompt's fixed-element line; ``framing_rule`` None (unstamped) = the legacy wording."""
+    if framing_rule and framing_rule["mode"] == "NONE_REQUIRED":
+        return (f"背景固定元素（{framing_rule['scale']} 近景：不要求出现；人物占满画面，最多一两件在人物身后"
+                f"局部、虚化露出，露出的仍与拓扑图相对位置一致）：{fixed_ids}")
+    if framing_rule and framing_rule["mode"] == "AT_MOST_TWO":
+        return (f"可见固定元素（MEDIUM 中景：最多出现其中 {framing_rule['max_required']} 件，"
+                f"其余不入画；出现的与拓扑图相对位置一致）：{fixed_ids}")
+    return f"可见固定元素（必须全部出现且相对位置与拓扑图一致）：{fixed_ids}"
+
+
 def describe_blocking(rows: list[dict[str, Any]], id_field: str, name_field: str) -> str:
     parts = [
         f"{row.get(name_field) or row.get(id_field)}（{row.get(id_field)}）位于 {row.get('zone_id')}"
@@ -967,7 +990,10 @@ def visual_culture_block(contract: dict[str, Any]) -> str:
         f"色彩：底色{palette.get('base')}；点色{palette.get('accent')}；肤色{palette.get('skin')}",
         f"光线：{contract.get('lighting_language')}",
         f"质感：{contract.get('image_texture')}",
-        "画幅：9:16 竖构图。画面内不得出现任何文字、字幕、水印、logo。禁欧洲、板甲、黑金。",
+        "画幅：9:16 竖构图。画面内不得出现任何文字、字幕、水印、logo。"
+        # the period ban belongs to the East-Asian period lock; an AUTHORED_WORLD contract (Victorian London,
+        # sci-fi, modern) must not be told 禁欧洲 (holmes lab E01 2026-10-23)
+        + ("" if str(contract.get("era_lock") or "").upper() == "AUTHORED_WORLD" else "禁欧洲、板甲、黑金。"),
     ])
 
 
@@ -1224,6 +1250,13 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
     place = inputs.place_maps.get(str(sp_task.get("global_space_map_id"))) or {}
     unit = str(((place.get("coordinate_system") or {}).get("unit")) or "meter")
 
+    # CAMERA_GRAMMAR_V1 (line owner 2026-10-24, lab Holmes E03-S01-01): the fixed-element requirement is
+    # scale-aware.  "All five room fixed elements must appear" on a MEDIUM_CLOSE_UP made the image model
+    # draw a wide room with Helen small at the frame edge.  Close scales require none (at most one or two
+    # soft behind the person), MEDIUM at most two, wider scales keep the full list.  Unstamped: unchanged.
+    framing_rule = keyframe_framing_rule(inputs, shot, spec)
+    fixed_elements_line = fixed_elements_prompt_line(framing_rule, join(subspace.get('visible_fixed_element_ids'), '；'))
+
     # Decorative/derived lines are optional: if an authored source string carries
     # an extend-word (持续/保持/连续) the line is dropped and recorded rather than
     # rewritten, because a keyframe prompt must never invite continuation.  Lines
@@ -1248,11 +1281,12 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
          f"机位：{sp_task.get('angle_id')}｜轴线：{subspace.get('axis_id')}"
          f"｜银幕方向：{subspace.get('screen_direction')}｜机位坐标：{subspace.get('camera_position')}"
          f"｜机位朝向：{subspace.get('camera_facing')}", True),
-        ("fixed_elements",
-         f"可见固定元素（必须全部出现且相对位置与拓扑图一致）：{join(subspace.get('visible_fixed_element_ids'), '；')}", True),
+        ("fixed_elements", fixed_elements_line, True),
         ("blank3", "", True),
         ("size_head", "【景别与摄影】", True),
         ("shot_size", f"景别：{shot.get('shot_size')}", True),
+        *([("picture_range", f"取景范围：{framing_rule['picture_range_zh']}", True)]
+          if framing_rule and framing_rule.get("picture_range_zh") else []),
         ("camera", f"摄影：{spec.get('camera')}", True),
         ("axis", f"轴线声明：{shot.get('axis')}", True),
         # K070: E01–E10 keep the legacy multi-shot angle label byte-for-byte; from the policy's
@@ -1270,8 +1304,10 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
         ("role_semantics", role_semantic_prompt_block(role), True),
         ("cast_clause", cast_clause, True),
         ("scale",
-         f"比例基准：以已声明的可见固定元素与人物肩宽为真实比例基准；place map "
-         f"{sp_task.get('global_space_map_id')} 的坐标单位为{unit}。", True),
+         (f"比例基准：以人物肩宽为真实比例基准；place map "
+          if framing_rule and framing_rule["mode"] == "NONE_REQUIRED" else
+          f"比例基准：以已声明的可见固定元素与人物肩宽为真实比例基准；place map ")
+         + f"{sp_task.get('global_space_map_id')} 的坐标单位为{unit}。", True),
         ("blank5", "", True),
         ("wardrobe_head", "【服装锁】" if wardrobe_lines else "【服装锁】无人物，无需服装锁。", True),
         *[(f"wardrobe_{index}", line, True) for index, line in enumerate(wardrobe_lines)],
@@ -1853,8 +1889,25 @@ def derived_opener_shot_ids(inputs: "Inputs", *, camera_grammar: bool | None = N
             continue
         if camera_grammar and prev_last and _authored_cut(inputs.contract, prev_last, first[uid]):
             continue
+        # CAMERA_GRAMMAR_V1 (2026-10-24): S6 rejected this unit's tail start frame (speaker missing / at the
+        # edge / extra face) or a controlled redo switched it: the unit starts from its own keyframe.
+        if camera_grammar and uid in own_start_frame_units(inputs):
+            continue
         out.add(first[uid])
     return out
+
+
+def own_start_frame_units(inputs: "Inputs") -> set[str]:
+    """Units the S6 wave state records as start_frame_source OWN_KEYFRAME_TAIL_REJECTED."""
+    if getattr(inputs, "dir", None) is None:
+        return set()
+    path = Path(inputs.dir) / "reports" / f"{inputs.episode}_S6_WAVE_STATE.json"
+    try:
+        rows = (load_json(path).get("start_frame_source") or {}) if path.is_file() else {}
+    except Exception:  # noqa: BLE001
+        return set()
+    return {str(uid) for uid, row in rows.items()
+            if isinstance(row, dict) and row.get("start_frame_source") == "OWN_KEYFRAME_TAIL_REJECTED"}
 
 
 def compile_tasks(inputs: Inputs, rows: list[dict[str, Any]], prompt_dir: Path,

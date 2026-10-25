@@ -20,6 +20,7 @@ try:
     from tools.visual_culture_contract import validate_visual_culture_contract
     from tools.character_entity_contract import validate_character_entity_contract
     from tools.provider_scope_projection import validate_provider_scope_projection
+    from tools.provider_scope_projection import DIRECTOR_V2_SECTION_MARKERS, is_director_prompt_v2
 except ModuleNotFoundError:
     from h3_provider_prompt_renderer import render_h3_prompt
     from h3_provider_english_contract import validate_h3_provider_text_boundary
@@ -35,6 +36,7 @@ except ModuleNotFoundError:
     from visual_culture_contract import validate_visual_culture_contract
     from character_entity_contract import validate_character_entity_contract
     from provider_scope_projection import validate_provider_scope_projection
+    from provider_scope_projection import DIRECTOR_V2_SECTION_MARKERS, is_director_prompt_v2
 
 try:
     from tools.compile_grouped_seedance_manifest import (
@@ -216,6 +218,9 @@ def validate_model_prompt_for_model(
     required = (
         ("【任务】", "【锚点】", "【时间轴】", "【摄影】", "【声音】", "【限制】")
         if family == "seedance2"
+        # DIRECTOR_PROMPT_V2 (opt-in, tools/h3_director_prompt_v2.py): the same promise in its own sections
+        else DIRECTOR_V2_SECTION_MARKERS if (is_director_prompt_v2(unit) if unit is not None
+                                             else text.startswith("References:\n"))
         else ("subject_definitions:", "summary:", "retention_analysis:",
               "detailed_description:", "camera:", "overall_soundscape:",
               "non_diegetic_music:", "negative_constraints:", "TEXT-FREE FRAME")

@@ -1175,6 +1175,9 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                 # H3 renderer can direct the line; other contracts keep their action mapping byte-identical.
                 **({"performance": source_action["performance"]}
                    if camera_grammar and isinstance(source_action.get("performance"), dict) else {}),
+                # optional authored listener behaviour (English) for DIRECTOR_PROMPT_V2; absent == unchanged
+                **({"listener_reaction_en": source_action["listener_reaction_en"]}
+                   if source_action.get("listener_reaction_en") else {}),
                 "microexpression_design": source_action.get('microexpression_design') or (
                     f"眼神先于头部改变一次，呼吸与下颌在因果点响应，随后保持「{arc_exit}」"
                     if cast_rows else
@@ -1429,6 +1432,20 @@ def build_transition(engine: Engine, previous_group: dict[str, Any], group: dict
 # --------------------------------------------------------------------------- #
 # start frame semantic contracts (E-7)
 # --------------------------------------------------------------------------- #
+def tail_rejected_start_frame_units(out_dir: Path, episode: str, contract: dict[str, Any]) -> set[str]:
+    """CAMERA_GRAMMAR_V1 units recorded by S6 as start_frame_source OWN_KEYFRAME_TAIL_REJECTED."""
+    import camera_grammar_policy as _cg
+    if not _cg.active(contract, episode=episode):
+        return set()
+    path = out_dir / "reports" / f"{episode}_S6_WAVE_STATE.json"
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8")).get("start_frame_source") or {} if path.is_file() else {}
+    except (OSError, ValueError):
+        return set()
+    return {str(uid) for uid, row in rows.items()
+            if isinstance(row, dict) and row.get("start_frame_source") == "OWN_KEYFRAME_TAIL_REJECTED"}
+
+
 def build_start_frame_contracts(anchor_plan: dict[str, Any], editorial: dict[str, Any],
                                 root: Path) -> list[dict[str, Any]]:
     by_shot = {str(row["shot_id"]): row for row in editorial["shots"]}
@@ -1862,6 +1879,7 @@ def main() -> int:
     # planned_video_unit_count of the full plan) and every ready unit whose predecessor tail
     # exists under --real-final-frames gets previous_unit_final_frame {path, sha256}.
     full_plan_path = plan_path
+    tail_rejected_units = tail_rejected_start_frame_units(out_dir, episode, contract)
     if args.ready_units:
         ready = [str(x) for x in json.loads(args.ready_units)]
         tails = Path(args.real_final_frames).expanduser().resolve() if args.real_final_frames else None
@@ -1896,7 +1914,13 @@ def main() -> int:
         stage("4.2w_rolling_wave_grouping", "PASS", units=len(wave_units), path=portable(plan_path, root),
               ready_units=wave["wave"]["ready_units"], with_previous_final_frame=wave["wave"]["with_previous_final_frame"])
     def build_anchor_outputs(plan_path_x: Path, suffix: str):
-        anchor_plan = engine.anchor_build(json.loads(plan_path_x.read_text(encoding="utf-8")), editorial, keyframe_dir)
+        grouping_x = json.loads(plan_path_x.read_text(encoding="utf-8"))
+        # CAMERA_GRAMMAR_V1 (2026-10-24): a unit whose tail start frame S6 rejected opens on its own keyframe and
+        # the rejected tail is not bound as a reference (start_frame_source in the S6 wave state).
+        for unit in grouping_x.get("units") or []:
+            if unit.get("unit_id") in tail_rejected_units:
+                unit["start_frame_source"] = "OWN_KEYFRAME_TAIL_REJECTED"
+        anchor_plan = engine.anchor_build(grouping_x, editorial, keyframe_dir)
         anchor_plan["video_unit_grouping_plan_sha256"] = sha256_file(plan_path_x)
         anchor_plan["keyframe_dir"] = str(keyframe_dir)
         anchor_plan["keyframe_dir_exists"] = keyframe_dir.is_dir()
@@ -2852,6 +2876,8 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
         task["dialogue"] = dialogue_rows
         if cu.get("dialogue_language"):
             task["dialogue_language"] = cu["dialogue_language"]
+        if cu.get("h3_prompt_style"):  # opt-in DIRECTOR_PROMPT_V2; absent == V1 prompt
+            task["h3_prompt_style"] = cu["h3_prompt_style"]
         task["dialogue_lines"] = lines
         task["native_dialogue_required"] = bool(lines)
         task["dialogue_transport"] = "MODEL_NATIVE_TEXT_DIALOGUE" if lines else "SAME_TASK_NATIVE_AMBIENCE_FOLEY_ACTION_SOUND"

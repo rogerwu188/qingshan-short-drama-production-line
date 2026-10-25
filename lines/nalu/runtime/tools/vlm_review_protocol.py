@@ -470,6 +470,17 @@ def _media_row(path: Any, role: str) -> dict[str, Any]:
 RUNTIME_PREPRODUCTION = Path(f"{_np.RUNTIME_ROOT}/preproduction")
 
 
+#: CAMERA_GRAMMAR_V1 keyframes (line owner 2026-10-24, lab Holmes E03): the fixed-element requirement follows
+#: the shot size, exactly as the keyframe prompt states it (expectations.fixed_element_rule).  Only requests
+#: whose items carry that rule (stamped contracts) use this wording; every other request is unchanged.
+SCALE_AWARE_SPACE_ANCHORS_QUESTION = (
+    "Is the depicted place the declared expectations.space (location + subspace), with the fixed elements "
+    "shown as expectations.fixed_element_rule allows?  Close scales (CLOSE_UP / EXTREME_CLOSE_UP / "
+    "MEDIUM_CLOSE_UP) require NO mapped fixed element: a frame filled by the person, with at most one or two "
+    "elements partly or softly behind, is PASS; MEDIUM needs at most two; wider scales need the mapped fixed "
+    "elements in their mapped relationship.  A shown element must not contradict its mapped position.")
+
+
 def build_request(kind: str, episode: str, *, items_filter: list[str] | None = None,
                   media_override: dict[str, list[dict[str, Any]]] | None = None,
                   out: Path | None = None) -> dict[str, Any]:
@@ -477,6 +488,7 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
         raise SystemExit(f"--kind must be one of {list(KINDS)}")
     exp = Expectations(episode)
     p = QaPaths(episode)
+    questionnaire = QUESTIONNAIRES[kind]
     vocabulary = {
         "characters": exp.character_ids() + sorted(exp.character_name_to_id()),
         "props": sorted({str(row.get("prop"))
@@ -549,6 +561,9 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
         rows = exp.keyframe_items()
         for row in rows:
             row["media"] = [_media_row(row.pop("media_path"), "KEYFRAME")]
+        if any("fixed_element_rule" in (row.get("expectations") or {}) for row in rows):
+            questionnaire = {**questionnaire, "space_anchors_match": {
+                **questionnaire["space_anchors_match"], "question": SCALE_AWARE_SPACE_ANCHORS_QUESTION}}
     elif kind == "start_frame":
         rows = exp.start_frame_items()
         for row in rows:
@@ -637,7 +652,7 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
         },
         "questionnaire": {
             key: {"question": row["question"], "enum": row["enum"], "maps_to": row["maps_to"]}
-            for key, row in QUESTIONNAIRES[kind].items()},
+            for key, row in questionnaire.items()},
         "observed_fields": OBSERVED_FIELDS[kind],
         "identity_measurement_decision": ({
             "decision_ref": "SUPERVISOR_ORDERS seq=4 / D-13 operator call 2026-09-09",

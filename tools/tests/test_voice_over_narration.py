@@ -15,6 +15,11 @@ import sys
 import tempfile
 import types
 import unittest
+try:
+    import PIL  # noqa: F401
+    HAVE_PIL = True
+except ImportError:  # CI image has no Pillow; production installs it
+    HAVE_PIL = False
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -371,6 +376,7 @@ class SpeakerMapAndCaptionTests(unittest.TestCase):
         self.assertEqual(smap.shot_start_times(CONTRACT_S7, GROUPING, {"E01-VU-001": 0.0, "E01-VU-002": 5.0})[0],
                          {"S1": 0.0, "S2": 2.0, "S3": 5.0})
 
+    @unittest.skipUnless(HAVE_PIL, "Pillow not installed")
     def test_burnin_captions_take_voice_over_timing_from_the_placement(self):
         burnin = load("burnin_vo", NALU_TOOLS / "build_burnin_subtitles.py")
         self.assertEqual(burnin.voice_over_captions(CONTRACT_S7, None), {})
