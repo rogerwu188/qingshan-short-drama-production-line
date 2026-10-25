@@ -7769,7 +7769,7 @@
     },
     {
       "path": "tools/tests/test_packaging_ads_bgm.py",
-      "sha256": "d4f1a4053dcc68fb1b864cb58595dd202f12a9fc8c48c7b3e45e68413e0f1404"
+      "sha256": "691ea8555d129d7cd8d34d51b4bc09d9b13e8f419c4915aea7fe6899079b8126"
     },
     {
       "path": "tools/tests/test_performance_tempo_gate_combat_contract.py",

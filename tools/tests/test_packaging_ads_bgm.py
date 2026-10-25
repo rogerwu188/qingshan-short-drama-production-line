@@ -28,8 +28,6 @@ except ImportError:  # CI image has no Pillow; production installs it
     HAVE_PIL = False
 if HAVE_PIL:
     import make_endcard  # noqa: E402
-else:
-    raise unittest.SkipTest("Pillow not installed")
 import nalu_bgm_default as bgm_default  # noqa: E402
 import nalu_media_tools as media  # noqa: E402
 import nalu_opening_title as opening  # noqa: E402
@@ -90,6 +88,7 @@ def frame(path: Path, ts: float, out: Path) -> Path:
 
 # --------------------------------------------------------------------------------------- A. end card
 @unittest.skipUnless(FFMPEG, "ffmpeg required")
+@unittest.skipUnless(HAVE_PIL, "Pillow not installed")
 class EndCardTests(unittest.TestCase):
     LONG_EN = "EPISODE 01 · The Arbiter Does Not Dream Of Electric Sheep Tonight"
     LONG_ZH = "第一集 · 仲裁者不会做梦而且这个集名真的非常非常长"
@@ -119,7 +118,7 @@ class EndCardTests(unittest.TestCase):
     def test_english_e01_subtitle_fits(self) -> None:
         self.assert_inside_margins(self.render("en", "Twelve Gazes", "EPISODE 01 · The Arbiter Does Not Dream"))
 
-    @unittest.skipUnless(cjk_font_available() or any(Path(p).is_file() for p in make_endcard.CANDIDATES),
+    @unittest.skipUnless(HAVE_PIL and (cjk_font_available() or any(Path(p).is_file() for p in make_endcard.CANDIDATES)),
                          "CJK font required")
     def test_chinese_card_fits(self) -> None:
         self.assert_inside_margins(self.render("zh", "十二道凝视之长长长长长长剧名", self.LONG_ZH))
@@ -135,6 +134,7 @@ class EndCardTests(unittest.TestCase):
 
 
 # ----------------------------------------------------------------------------------- B. opening title
+@unittest.skipUnless(HAVE_PIL, "Pillow not installed")
 class OpeningTitleTextTests(unittest.TestCase):
     def test_episode_line_by_language(self) -> None:
         self.assertEqual(opening.title_lines({"title": "Twelve Gazes"}, "E01", "en"), ("Twelve Gazes", "EPISODE 01"))
@@ -151,6 +151,7 @@ class OpeningTitleTextTests(unittest.TestCase):
 
 
 @unittest.skipUnless(FFMPEG and FFPROBE, "ffmpeg/ffprobe required")
+@unittest.skipUnless(HAVE_PIL, "Pillow not installed")
 class OpeningTitleRenderTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
@@ -186,6 +187,7 @@ class OpeningTitleRenderTests(unittest.TestCase):
         self.assertEqual(info["episode_line"], "第一集")
 
 
+@unittest.skipUnless(HAVE_PIL, "Pillow not installed")
 class PipelineOpeningTitleTests(unittest.TestCase):
     def test_s7_opening_title_skips_without_blocking(self) -> None:
         pipeline = importlib.import_module("nalu_pipeline")
@@ -358,6 +360,7 @@ class AdTailPackageLanguageTests(unittest.TestCase):
         self.assertEqual(out["status"], "FAIL")
         self.assertTrue(out["failures"][0].startswith("SPOKEN_CHARS_OVER_CAP:"))
 
+    @unittest.skipUnless(HAVE_PIL, "Pillow not installed")
     def test_english_badge_renders_without_cjk_font(self) -> None:
         def no_cjk():
             raise media.MediaToolBlocked("BLOCKED_CJK_FONT:test")
