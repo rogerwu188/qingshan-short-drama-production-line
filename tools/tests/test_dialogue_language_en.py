@@ -11,6 +11,11 @@ import sys
 import tempfile
 import types
 import unittest
+try:
+    import PIL  # noqa: F401
+    HAVE_PIL = True
+except ImportError:  # CI image has no Pillow; production installs it
+    HAVE_PIL = False
 from pathlib import Path
 from unittest.mock import patch
 
@@ -222,6 +227,7 @@ class EnglishSubtitleTests(unittest.TestCase):
             return len(rows) <= 2 and all(draw.textlength(r, font=font) <= burnin.CAPTION_MAX_WIDTH for r in rows)
         return fits
 
+    @unittest.skipUnless(HAVE_PIL, "Pillow not installed")
     def test_long_line_splits_into_sequential_normal_size_cues(self) -> None:
         fits = self._fits()
         self.assertFalse(fits(self.E02_VU001))

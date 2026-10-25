@@ -7053,7 +7053,7 @@
     },
     {
       "path": "tools/tests/test_dialogue_language_en.py",
-      "sha256": "fba90b810c657d697f30e5a19c625de00ca454c2d7368e7e7dccf8c3b408251d"
+      "sha256": "776f39bff48f75f38fa6402aa630d3a9a87432d6d015198fade8b7d77877e2aa"
     },
     {
       "path": "tools/tests/test_dialogue_sound_bridge.py",
@@ -7769,7 +7769,7 @@
     },
     {
       "path": "tools/tests/test_packaging_ads_bgm.py",
-      "sha256": "349f7b9b479748f5c8ed536f0214ebd5d799558000639ef8f978c0ca444a20e5"
+      "sha256": "d4f1a4053dcc68fb1b864cb58595dd202f12a9fc8c48c7b3e45e68413e0f1404"
     },
     {
       "path": "tools/tests/test_performance_tempo_gate_combat_contract.py",
@@ -8417,7 +8417,7 @@
     },
     {
       "path": "tools/tests/test_voice_over_narration.py",
-      "sha256": "50bc754ae7ca1094e202aca96ce216c407519cd6235f8638517d062d45458725"
+      "sha256": "1c4b4e7c72c4f420267300f03c0566398af758a27ffb3175d13fee695057f766"
     },
     {
       "path": "tools/tests/test_voice_reference_calibration.py",

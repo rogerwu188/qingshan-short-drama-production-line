@@ -21,7 +21,15 @@ for _p in (str(NALU_TOOLS), str(SCRIPTS), str(REPO / "tools")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import make_endcard  # noqa: E402
+try:
+    import PIL  # noqa: F401
+    HAVE_PIL = True
+except ImportError:  # CI image has no Pillow; production installs it
+    HAVE_PIL = False
+if HAVE_PIL:
+    import make_endcard  # noqa: E402
+else:
+    raise unittest.SkipTest("Pillow not installed")
 import nalu_bgm_default as bgm_default  # noqa: E402
 import nalu_media_tools as media  # noqa: E402
 import nalu_opening_title as opening  # noqa: E402
