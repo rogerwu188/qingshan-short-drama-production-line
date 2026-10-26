@@ -4992,6 +4992,78 @@ def record_start_frame_source(ctx: Ctx, unit_id: str, row: dict[str, Any]) -> No
     write_json(path, state)
 
 
+def bound_take_on_disk(ctx: Ctx, unit_id: str) -> dict[str, Any] | None:
+    """The bound provider take that produced ``video/<unit>.mp4`` (the oldest live binding, which is the one the
+    poll harvests to the assembly path), or None when there is no clip or no bound transaction."""
+    if not (ctx.p.video_media / f"{unit_id}.mp4").is_file():
+        return None
+    live = s6_live_bindings(ctx, unit_id)
+    return live[0] if live else None
+
+
+def record_start_frames_as_submitted(ctx: Ctx) -> dict[str, dict[str, Any]]:
+    """CAMERA_GRAMMAR_V1: per unit whose clip on disk came from a bound transaction, whether that submission
+    carried the predecessor's real tail (its sha among the bound reference shas).  Written to the S6 wave state
+    as ``start_frame_as_submitted`` (whole map, rewritten every pass, so a parked/redone unit drops out);
+    build_nalu_preproduction never re-attaches a tail the submitted take did not have (lab Holmes E06)."""
+    if not _camera_grammar_on(ctx):
+        return {}
+    plan = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json", {}) or {}
+    order = [str(u.get("unit_id") or "") for u in plan.get("units") or [] if u.get("unit_id")]
+    tails = ctx.p.preprod / "real_final_frames"
+    rows: dict[str, dict[str, Any]] = {}
+    for idx, uid in enumerate(order):
+        prev = order[idx - 1] if idx > 0 else None
+        tail = tails / f"{prev}.png" if prev else None
+        if tail is None or not tail.is_file():
+            continue
+        take = bound_take_on_disk(ctx, uid)
+        if take is None:
+            continue
+        refs = [str(v) for v in take.get("reference_sha256") or []]
+        tail_sha = sha256_file(tail)
+        rows[uid] = {"predecessor_tail_submitted": tail_sha in refs, "previous_unit_id": prev,
+                     "tail_sha256": tail_sha, "task_id": take.get("task_id"),
+                     "transaction": _engine_rel(Path(str(take.get("transaction") or ""))),
+                     "prompt_sha256": take.get("prompt_sha256"), "reference_sha256": refs}
+    path = _wave_state_path(ctx)
+    state = read_json(path, {}) or {"schema": "nalu.s6_wave_state.v1", "waves": []}
+    if (state.get("start_frame_as_submitted") or {}) != rows:
+        state["start_frame_as_submitted"] = rows
+        write_json(path, state)
+    return rows
+
+
+def exempt_harvested_bound_takes(ctx: Ctx, unbound: list[str], fin_report: dict[str, Any],
+                                 as_submitted: dict[str, dict[str, Any]]) -> tuple[list[str], dict[str, Any]]:
+    """CAMERA_GRAMMAR_V1: split the changed-without-receipt units into those that still need a finalization
+    review and those whose clip on disk was produced by a bound transaction.  The latter are never submitted
+    again, so a recompiled prompt for them needs no review: their authority is the bound submission (prompt /
+    reference shas in the durable transaction store), recorded here for audit (lab Holmes E06 2026-10-26: the
+    final pass asked to approve 10 recompiled prompts that would never be submitted)."""
+    rows = {str(r.get("unit_id")): r for r in fin_report.get("rows") or []}
+    harvested: dict[str, Any] = {}
+    for uid in unbound:
+        take = bound_take_on_disk(ctx, uid)
+        if take is None:
+            continue
+        row = rows.get(uid) or {}
+        receipt = read_json(ctx.p.preprod / "prompt_batch_finalization" / f"{uid}.json", {}) or {}
+        submitted_sha = str(take.get("prompt_sha256") or "")
+        harvested[uid] = {
+            "task_id": take.get("task_id"), "transaction": _engine_rel(Path(str(take.get("transaction") or ""))),
+            "submitted_prompt_sha256": submitted_sha, "recompiled_prompt_sha256": row.get("final_sha256"),
+            "recompiled_matches_submitted": row.get("final_sha256") == submitted_sha,
+            "submitted_reference_sha256": take.get("reference_sha256"),
+            "start_frame_as_submitted": as_submitted.get(uid),
+            "submitted_prompt_review": (
+                "FINALIZATION_RECEIPT_PASS" if receipt.get("status") == "PASS"
+                and receipt.get("final_prompt_sha256") == submitted_sha
+                else "PLANNED_PROMPT_UNCHANGED" if row.get("planned_sha256") == submitted_sha
+                else "NO_MATCHING_RECEIPT_ON_DISK")}
+    return [uid for uid in unbound if uid not in harvested], harvested
+
+
 def check_tail_start_frame(ctx: Ctx, unit_id: str, tail: Path) -> dict[str, Any]:
     """Objective speaker framing + face count of a candidate tail start frame (video_q2_builder
     start-frame-check, free).  A check that did not run never rejects (the tail stays, as before)."""
@@ -6165,6 +6237,8 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
             res.blockers.extend(are.get("blockers") or [])
         return res
     # 6.1 re-run preproduction with --keyframe-dir (and, for a rolling wave, the ready subset).
+    # CAMERA_GRAMMAR_V1: the recompile keeps each harvested take's start-frame decision (no tail re-attached).
+    as_submitted = record_start_frames_as_submitted(ctx)
     rebuilt = stage_s2(ctx, with_keyframes=True, ready_units=ready_units)
     res.steps.extend(rebuilt.steps)
     res.receipts = list(rebuilt.receipts)
@@ -6234,6 +6308,14 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
                    for t in tx_now.get("tasks") or [])]
     res.details["prompt_finalization"] = {"digest": str(fin_digest), "summary": fin_report.get("summary"),
                                           "changed_without_receipt": unbound}
+    if unbound and _camera_grammar_on(ctx):
+        # CAMERA_GRAMMAR_V1: only units that will be (re)submitted need finalization receipts.
+        unbound, harvested = exempt_harvested_bound_takes(ctx, unbound, fin_report, as_submitted)
+        if harvested:
+            res.details["prompt_finalization"]["changed_without_receipt"] = unbound
+            res.details["prompt_finalization"]["harvested_bound_takes_exempt"] = harvested
+            ctx.say(f"   prompt finalization: {len(harvested)} recompiled prompt(s) belong to clips already "
+                    f"produced by bound transactions (never re-submitted, no review needed): {sorted(harvested)}")
     if fin["exit_code"] != 0 or (fin_report.get("summary") or {}).get("missing"):
         res.status = BLOCKED
         res.blockers.append("PROMPT_FINALIZATION_DIGEST_FAILED")

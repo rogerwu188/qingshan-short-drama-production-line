@@ -85,6 +85,11 @@ _MOVE_WORDS = {
 _IDENTITY_FREE_REFERENCE_ROLES = {"ADMITTED_NEW_EVENT_ENTRY_STATE", "PREVIOUS_UNIT_FINAL_FRAME",
                                   "IDENTITY_OR_PROP_REANCHOR"}
 _PREVIOUS_FRAME_ROLES = {"PREVIOUS_REAL_TAIL_STATE_AUTHORITY", "PREVIOUS_UNIT_FINAL_FRAME"}
+#: CAMERA_GRAMMAR_V1: roles of the unit's start frame.  At @Image1 they are always the opening / exact first frame,
+#: even when the reference sequence tags that keyframe with the CHAR-* id of the person in it (lab Holmes E06
+#: 2026-10-26: a recompile turned the own keyframe of a motivated cut into "@Image1 is Holmes's face and body.").
+_OPENING_FRAME_ROLES = {"ADMITTED_NEW_EVENT_ENTRY_STATE", "CONTINUITY_DERIVED_ENTRY_STATE", "PREVIOUS_UNIT_FINAL_FRAME",
+                        "PREVIOUS_UNIT_REAL_FINAL_FRAME"}
 _NEGATED_MOVES = re.compile(r"\bno (?:pan|zoom|drift|dolly|tilt|track|push|pull|follow)\b", re.IGNORECASE)
 TOPOLOGY_V2 = "Every hand stays attached to its owner's body; no extra, isolated or severed limbs"
 _ECHO_FILLER = {"visible", "subtle", "motion", "consistent", "with", "and", "the", "continuous", "slight"}
@@ -395,6 +400,8 @@ def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: se
         identity = binding_role == "IDENTITY" or (not binding_role and str(bound.get("entity_id") or entity_id).startswith("CHAR-"))
         if role in _IDENTITY_FREE_REFERENCE_ROLES:
             entity = ""
+        if exact_first_frame and index == 1 and role in _OPENING_FRAME_ROLES:
+            entity = ""  # the start frame, never an identity line (identity lines only for identity/sheet roles)
         if entity and identity:
             body = "face and body" if entity_id.startswith("CHAR-") or not entity_id else "look"
             line = (f"@Image{index} is {v1.reference_sheet_clause(entity)}." if v1.is_reference_sheet(ref)

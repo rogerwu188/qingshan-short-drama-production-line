@@ -1480,6 +1480,23 @@ def tail_rejected_start_frame_units(out_dir: Path, episode: str, contract: dict[
             if isinstance(row, dict) and row.get("start_frame_source") == "OWN_KEYFRAME_TAIL_REJECTED"}
 
 
+def submitted_without_tail_units(out_dir: Path, episode: str, contract: dict[str, Any]) -> set[str]:
+    """CAMERA_GRAMMAR_V1 units whose clip on disk was produced by a bound submission that opened on the unit's
+    own keyframe without the predecessor tail (``start_frame_as_submitted`` in the S6 wave state, rewritten by
+    nalu_pipeline on every S6 pass from the durable transaction store).  A recompile must keep that decision:
+    re-attaching the tail would materialize a prompt that was never submitted (lab Holmes E05/E06 2026-10-26)."""
+    import camera_grammar_policy as _cg
+    if not _cg.active(contract, episode=episode):
+        return set()
+    path = out_dir / "reports" / f"{episode}_S6_WAVE_STATE.json"
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8")).get("start_frame_as_submitted") or {} if path.is_file() else {}
+    except (OSError, ValueError):
+        return set()
+    return {str(uid) for uid, row in rows.items()
+            if isinstance(row, dict) and row.get("predecessor_tail_submitted") is False}
+
+
 def build_start_frame_contracts(anchor_plan: dict[str, Any], editorial: dict[str, Any],
                                 root: Path) -> list[dict[str, Any]]:
     by_shot = {str(row["shot_id"]): row for row in editorial["shots"]}
@@ -1914,6 +1931,11 @@ def main() -> int:
     # exists under --real-final-frames gets previous_unit_final_frame {path, sha256}.
     full_plan_path = plan_path
     tail_rejected_units = tail_rejected_start_frame_units(out_dir, episode, contract)
+    # CAMERA_GRAMMAR_V1: own-keyframe start-frame decisions (S6 tail rejection, or the bound take that was
+    # submitted without the predecessor tail) never get the tail re-attached on a recompile; the tail is kept
+    # on the unit only as withheld audit evidence (never a provider reference).
+    as_submitted_own_units = submitted_without_tail_units(out_dir, episode, contract)
+    own_start_units = tail_rejected_units | as_submitted_own_units
     if args.ready_units:
         ready = [str(x) for x in json.loads(args.ready_units)]
         tails = Path(args.real_final_frames).expanduser().resolve() if args.real_final_frames else None
@@ -1929,9 +1951,14 @@ def main() -> int:
             if prev_id and tails is not None:
                 tail = tails / f"{prev_id}.png"
                 if tail.is_file():
-                    unit["previous_unit_final_frame"] = {"path": str(tail), "sha256": sha256_file(tail),
-                                                         "previous_unit_id": prev_id,
-                                                         "source": "REAL_FINAL_FRAME_OF_HARVESTED_VIDEO"}
+                    row = {"path": str(tail), "sha256": sha256_file(tail), "previous_unit_id": prev_id,
+                           "source": "REAL_FINAL_FRAME_OF_HARVESTED_VIDEO"}
+                    if unit["unit_id"] in own_start_units:
+                        unit["withheld_previous_unit_final_frame"] = {
+                            **row, "reason": ("TAIL_REJECTED" if unit["unit_id"] in tail_rejected_units
+                                              else "SUBMITTED_WITHOUT_PREDECESSOR_TAIL")}
+                    else:
+                        unit["previous_unit_final_frame"] = row
             wave_units.append(unit)
         wave = copy.deepcopy(full)
         wave["schema"] = str(full.get("schema") or "qingshan.video_unit_grouping_plan.v1") + ".partial_ready.wave"
@@ -1952,7 +1979,7 @@ def main() -> int:
         # CAMERA_GRAMMAR_V1 (2026-10-24): a unit whose tail start frame S6 rejected opens on its own keyframe and
         # the rejected tail is not bound as a reference (start_frame_source in the S6 wave state).
         for unit in grouping_x.get("units") or []:
-            if unit.get("unit_id") in tail_rejected_units:
+            if unit.get("unit_id") in own_start_units:
                 unit["start_frame_source"] = "OWN_KEYFRAME_TAIL_REJECTED"
         anchor_plan = engine.anchor_build(grouping_x, editorial, keyframe_dir)
         anchor_plan["video_unit_grouping_plan_sha256"] = sha256_file(plan_path_x)

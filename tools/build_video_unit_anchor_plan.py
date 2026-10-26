@@ -133,6 +133,11 @@ def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Pat
         paths = [_latest_keyframe(keyframe_dir, shot_id) for shot_id in anchor_shots]
         missing.extend(shot_id for shot_id, path in zip(anchor_shots, paths) if not path.is_file())
         previous_final = unit.get("previous_unit_final_frame") or {}
+        # CAMERA_GRAMMAR_V1: an own-keyframe start-frame decision withholds the tail from the grouping unit; a hard
+        # continuation still opens on it, and a rejected tail stays on record as audit evidence.
+        withheld = unit.get("withheld_previous_unit_final_frame") or {}
+        if withheld and not previous_final and (boundary_class == "HARD_CONTINUATION" or tail_rejected):
+            previous_final = withheld
         if boundary_class == "NEW_EVENT_ANCHOR":
             opening_key = anchor_shots[0]
             opening_path = str(paths[0])

@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2215,
+  "file_count": 2216,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -565,7 +565,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "da4156bab1fa382019c8cb64ab24d223dcb73eeb45bc56cb1be8f006af93b1c3"
+      "sha256": "a54fd448e24b4f06dfd58472810fafc0b107fd68cf5f006ebd6b73238380e199"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -649,7 +649,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "302f1caa513f3a627788ce1a55144dc06ba41a93fb9b08e772f0e42ab0ed5911"
+      "sha256": "0a904b581dab61a74f14a9e57e3b4902de12c7cfefa1fcb586f83dc5bd08bedf"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -3577,7 +3577,7 @@
     },
     {
       "path": "tools/build_video_unit_anchor_plan.py",
-      "sha256": "cd044c54dffa77baf966dfbfec0bb3a21f35da4408d748663199c780c1bbb148"
+      "sha256": "0c180817cc09c4f4824b2054adb2e1e49907d448ae3d99266c81e92f3249c020"
     },
     {
       "path": "tools/build_video_unit_grouping_spec.py",
@@ -4889,7 +4889,7 @@
     },
     {
       "path": "tools/h3_director_prompt_v2.py",
-      "sha256": "c7ab2b3d4ecdb18308bc977d060048cc813ea659e640c51a6ca4a03f2fe025d1"
+      "sha256": "33a0f105071036285cb23fb1078e01d1bf4d5455274e7d67ea9c6f72f37f2908"
     },
     {
       "path": "tools/h3_english_contract_io.py",
@@ -8046,6 +8046,10 @@
     {
       "path": "tools/tests/test_s3_relay_client.py",
       "sha256": "460c51797444c8940f3a54e4ba411476f5059bec1322e0dc0ddbe5d5cc173999"
+    },
+    {
+      "path": "tools/tests/test_s6_final_pass_as_submitted.py",
+      "sha256": "a54a7d1ea4179fd334dabe765d47d9bed4657d89cea87fc25211e1e22d29890f"
     },
     {
       "path": "tools/tests/test_s6_resume_budget_and_tails.py",
