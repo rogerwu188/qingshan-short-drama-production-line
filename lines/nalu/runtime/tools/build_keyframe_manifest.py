@@ -972,6 +972,28 @@ def fixed_elements_prompt_line(framing_rule: dict[str, Any] | None, fixed_ids: s
     return f"可见固定元素（必须全部出现且相对位置与拓扑图一致）：{fixed_ids}"
 
 
+def keyframe_eyeline(framing_rule: dict[str, Any] | None, role: dict[str, Any], spec: dict[str, Any],
+                     visible_ids: list[str], contract: dict[str, Any]) -> str:
+    """CAMERA_GRAMMAR_V1 speaking shot (line owner 2026-10-26, lab Holmes E05): the same off-lens eyeline as the H3
+    prompt (camera_grammar_policy.speaker_gaze_side), so the start image already looks toward the listener's side
+    and not into the lens.  "" when unstamped, silent, or the speaker is not in frame."""
+    try:
+        from tools import camera_grammar_policy as _cgp
+    except ImportError:  # pragma: no cover - tools/ on sys.path instead
+        import camera_grammar_policy as _cgp
+    speaker_id = str(role.get("dialogue_speaker_id") or "").strip()
+    if framing_rule is None or not str(spec.get("dialogue") or "").strip() or speaker_id not in visible_ids:
+        return ""
+    listener_id = str(role.get("dialogue_listener_id") or "").strip()
+    names = {str(r.get("character_id") or r.get("entity_id") or ""): str(r.get("canonical_name") or "")
+             for r in contract.get("character_entities") or [] if isinstance(r, dict)}
+    side = _cgp.speaker_gaze_side(speaker_id, listener_id, declared=_cgp.declared_listener_side(role, spec),
+                                  cast_ids=visible_ids)
+    speaker = str(role.get("dialogue_speaker") or names.get(speaker_id) or speaker_id)
+    listener = str(role.get("dialogue_listener") or names.get(listener_id) or "") if listener_id else ""
+    return _cgp.keyframe_eyeline_line(speaker, side["side"], listener)
+
+
 def describe_blocking(rows: list[dict[str, Any]], id_field: str, name_field: str) -> str:
     parts = [
         f"{row.get(name_field) or row.get(id_field)}（{row.get(id_field)}）位于 {row.get('zone_id')}"
@@ -1256,6 +1278,7 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
     # soft behind the person), MEDIUM at most two, wider scales keep the full list.  Unstamped: unchanged.
     framing_rule = keyframe_framing_rule(inputs, shot, spec)
     fixed_elements_line = fixed_elements_prompt_line(framing_rule, join(subspace.get('visible_fixed_element_ids'), '；'))
+    eyeline = keyframe_eyeline(framing_rule, role, spec, visible_contract_ids, inputs.contract)
 
     # Decorative/derived lines are optional: if an authored source string carries
     # an extend-word (持续/保持/连续) the line is dropped and recorded rather than
@@ -1303,6 +1326,7 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
          f"道具：{describe_blocking(blocking.get('props') or [], 'prop_id', 'prop')}", True),
         ("role_semantics", role_semantic_prompt_block(role), True),
         ("cast_clause", cast_clause, True),
+        *([("eyeline", eyeline, True)] if eyeline else []),
         ("scale",
          (f"比例基准：以人物肩宽为真实比例基准；place map "
           if framing_rule and framing_rule["mode"] == "NONE_REQUIRED" else

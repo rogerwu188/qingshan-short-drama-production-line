@@ -66,6 +66,10 @@ try:
     from tools import spatial_dialogue_contract
 except ModuleNotFoundError:
     import spatial_dialogue_contract  # type: ignore
+try:
+    from tools import camera_grammar_policy as _cgp
+except ModuleNotFoundError:
+    import camera_grammar_policy as _cgp  # type: ignore
 
 
 SCHEMA = "qingshan.minimax_h3_provider_renderer.v2_english_machine_dialogue_tags"
@@ -721,34 +725,40 @@ def _performance_direction(performance: Any) -> str:
             "with clear rises and falls in pitch and volume, the key words stressed; never a flat read-aloud tone.")
 
 
-_FEMALE_WORDS = re.compile(r"\b(woman|women|girl|lady|female|mother|wife|daughter|widow|sister|she|her)\b", re.I)
-_MALE_WORDS = re.compile(r"\b(man|men|boy|gentleman|male|father|husband|son|brother|he|his)\b", re.I)
-
-
-def _possessive(row: dict[str, Any]) -> str:
-    """her / his / their for a character entity row (declared sex first, else its English appearance)."""
-    sex = str(row.get("sex") or row.get("gender") or "").strip().upper()
-    if sex in {"F", "FEMALE", "WOMAN", "女"}:
-        return "her"
-    if sex in {"M", "MALE", "MAN", "男"}:
-        return "his"
-    text = " ".join(str(row.get(k) or "") for k in ("appearance_en", "appearance_ch1", "appearance", "description"))
-    female, male = bool(_FEMALE_WORDS.search(text)), bool(_MALE_WORDS.search(text))
-    return "her" if female and not male else "his" if male and not female else "their"
+def speaker_listener(unit: dict[str, Any], speaker_id: str) -> dict[str, str]:
+    """{listener_id, listener (English label or ""), declared_side} of the spec where ``speaker_id`` speaks."""
+    for spec in unit.get("ordered_prompt_specs") or []:
+        if not isinstance(spec, dict):
+            continue
+        role = spec.get("role_semantic_disambiguation") or {}
+        if str(role.get("dialogue_speaker_id") or role.get("lip_owner_id") or "") != speaker_id:
+            continue
+        listener_id = str(role.get("dialogue_listener_id") or "").strip()
+        row = next((r for r in unit.get("character_entities") or []
+                    if isinstance(r, dict) and listener_id
+                    and str(r.get("character_id") or r.get("entity_id") or "") == listener_id), {})
+        label = next((_english_label(v) for v in (row.get("name_en"), row.get("english_name"),
+                                                  row.get("canonical_name"), role.get("dialogue_listener"))
+                      if _english_label(v)), "")
+        return {"listener_id": listener_id, "listener": label,
+                "declared_side": _cgp.declared_listener_side(role, spec)}
+    return {"listener_id": "", "listener": "", "declared_side": ""}
 
 
 def speaker_gaze_clause(unit: dict[str, Any], binding: dict[str, Any] | None) -> str:
-    """CAMERA_GRAMMAR_V1 speaking units (line owner 2026-10-24, lab Holmes E03): H3 pans to reveal whatever
-    the speaker looks at, so the speaker's eyes stay on the listener and the camera never follows the gaze.
-    "" for an offscreen speaker."""
+    """CAMERA_GRAMMAR_V1 speaking units: H3 pans to reveal whatever the speaker looks at (lab Holmes E03), and
+    "eyes on the listener" alone let the speaker stare into the lens (E05, line owner 2026-10-26).  The speaker
+    looks just off the lens toward the listener's side (declared side, else the pair order so a shot and its
+    reverse face each other); the camera never follows the gaze.  "" for an offscreen speaker."""
     if not binding or not binding.get("visible_speaker"):
         return ""
     cid = str(binding.get("character_id") or "")
-    row = next((r for r in unit.get("character_entities") or []
-                if isinstance(r, dict) and str(r.get("character_id") or r.get("entity_id") or "") == cid), {})
     label = str(binding.get("provider_entity_label") or "").strip() or "The speaker"
-    own = _possessive(row)
-    return f"While speaking {label} keeps {own} eyes on the listener; the camera does not follow {own} gaze."
+    found = speaker_listener(unit, cid)
+    cast = [r.get("character_id") or r.get("entity_id") for r in unit.get("character_entities") or []
+            if isinstance(r, dict)]
+    side = _cgp.speaker_gaze_side(cid, found["listener_id"], declared=found["declared_side"], cast_ids=cast)
+    return _cgp.speaker_gaze_sentence(label, side["side"], found["listener"])
 
 
 def _spec_performance(specs: list[Any], source_index: Any) -> Any:

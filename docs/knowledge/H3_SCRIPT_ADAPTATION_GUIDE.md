@@ -77,7 +77,10 @@
   H3 就摇向窗户/空房间，把说话人丢出画，受控重做一次照样丢）：说话镜里说话人的视线一直在听者身上（或略偏离镜头、朝听者那一侧）；
   说话镜里绝不写转头看窗/门/画外某物，也不写「目光盯着 X」——H3 会摇镜去揭示他看的东西。要「看某物」就单独写一个无对白镜
   （人物看过去），或者直接给那个东西一个插入镜。CAMERA_GRAMMAR_V1 的集里渲染器也会在每个说话单元加一句
-  「While speaking <名字> keeps her/his eyes on the listener; the camera does not follow her/his gaze.」。
+  「<名字> looks just off the lens to the left/right, at <听者>, never into the camera; the camera does not follow the gaze.」
+  （线主 2026-10-26，实验集 E05：只写「看听者」时说话人会直视镜头）：视线略偏离镜头、朝听者那一侧，不直视镜头；
+  方向取写作者声明的听者画面侧（`role_semantic_disambiguation.dialogue_listener_screen_side` = LEFT/RIGHT，可选），
+  没声明就按说话人/听者一对固定分边（同一对人的正反打单人镜朝相反两侧，彼此相对）。关键帧提示词同样写这条视线。
 - 机位要变的地方，一个单元只放一拍。一个单元两拍只适合同一机位里的连续动作。
 
 **对白戏示例**（两人，5 镜，转折在第 4 句）：

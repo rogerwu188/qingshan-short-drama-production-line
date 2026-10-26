@@ -41,9 +41,11 @@ INTERNAL = re.compile(r"\b(?:CHAR|SUBSPACE|LOC|SET|PROP|AXIS|ANGLE)-[A-Z0-9-]+|\
 #: V1 render changed once on purpose (2026-10-24): it gains only the speaker-gaze clause "While speaking Alpha
 #: keeps their eyes on the listener; the camera does not follow their gaze." (was 0857f610...).  It changed again
 #: on purpose 2026-10-26 (MiniMax-H3 provider-expert wording: fixed-camera clause, one continuous take, "only
-#: this one line" voice sentence, final anti-duplicate line; was d5479374...).  The unstamped pin never changes.
+#: this one line" voice sentence, final anti-duplicate line; was d5479374...).  And on 2026-10-26 (lab E05) the gaze
+#: clause became the off-lens eyeline "Alpha looks just off the lens to the <side>, at <listener>, never into the
+#: camera; the camera does not follow the gaze." (was 412240e1...).  The unstamped pin never changes.
 V1_SHA = {
-    True: "412240e1e61c341ef6cc2ca9e42f80d32364c2ae1ac6aa5a6d7335e7054884c6",
+    True: "abf2f1a610b7b38fa86f681968c4dd21760dbdddb66bccc9a2a7e8b065287739",
     False: "ab9d6ae00614e4f89f53a4a7e0960162458dd56af941aa23f2abec8481a3561d",
 }
 

@@ -45,6 +45,7 @@ def build(
     weak_admission=None,
     dialogue_tail_trim=None,
     dialogue_sound_bridge=None,
+    dialogue_head_trim=None,
 ):
     if generation_contract is None:
         raise ValueError("generation_contract is required for automatic audio-profile binding")
@@ -105,6 +106,14 @@ def build(
         tail_keep = {str(row["unit_id"]): float(row["kept_seconds"])
                      for row in tail_report.get("units") or [] if row.get("trimmed")}
 
+    # CAMERA_GRAMMAR_V1 dialogue head trim (S7 report, tools/dialogue_head_trim.py): unit -> new source in-point
+    # (extra speech before the scripted line is cut; picture and sound move together).
+    head_cut = {}
+    if dialogue_head_trim:
+        head_report = json.loads(_abs(dialogue_head_trim).read_text(encoding="utf-8"))
+        head_cut = {str(row["unit_id"]): float(row["head_cut_seconds"])
+                    for row in head_report.get("units") or [] if row.get("trimmed")}
+
     video_clips = []
     audio_clips = []
     admissions = []
@@ -159,6 +168,13 @@ def build(
                          "kept_seconds": round(tail_keep[source_id] - source_in, 6),
                          "report": str(_abs(dialogue_tail_trim))}
             duration = tail_trim["kept_seconds"]
+        head_trim = None
+        if source_id in head_cut and source_in == 0.0 and 0 < head_cut[source_id] < duration:
+            head_trim = {"head_cut_seconds": round(head_cut[source_id], 6),
+                         "kept_seconds": round(duration - head_cut[source_id], 6),
+                         "report": str(_abs(dialogue_head_trim))}
+            source_in = head_trim["head_cut_seconds"]
+            duration = head_trim["kept_seconds"]
         audio_metadata = audio_task.get("metadata") or {}
         audio_dialogue_lines = audio_metadata.get("selected_dialogue") or []
         audio_expected_text = "".join(str(row.get("text") or "") for row in audio_dialogue_lines)
@@ -188,6 +204,8 @@ def build(
             clip_metadata["editorial_keep"] = clip_metadata_editorial
         if tail_trim is not None:
             clip_metadata["dialogue_tail_trim"] = tail_trim
+        if head_trim is not None:
+            clip_metadata["dialogue_head_trim"] = head_trim
         video_clips.append({
             "id": f"{episode}-{source_id}-VIDEO",
             "source": str(source),
@@ -333,6 +351,7 @@ def main():
     parser.add_argument("--generation-contract", required=True)
     parser.add_argument("--measured-edit-constraints", help="Optional SHA-bound observed-dialogue source intervals; explicitly rebases following clips")
     parser.add_argument("--dialogue-tail-trim", help="Optional S7 dialogue tail-trim report (CAMERA_GRAMMAR_V1): cut each trimmed unit at its kept_seconds")
+    parser.add_argument("--dialogue-head-trim", help="Optional S7 dialogue head-trim report (CAMERA_GRAMMAR_V1): start each trimmed unit at its head_cut_seconds")
     parser.add_argument("--dialogue-sound-bridge", help="Optional S7 dialogue sound-bridge report (CAMERA_GRAMMAR_V1): L-cut the speaker picture before a silent reaction unit")
     args = parser.parse_args()
     print(json.dumps(build(
@@ -348,6 +367,7 @@ def main():
         args.weak_admission,
         args.dialogue_tail_trim,
         args.dialogue_sound_bridge,
+        dialogue_head_trim=args.dialogue_head_trim,
     ), ensure_ascii=False))
 
 

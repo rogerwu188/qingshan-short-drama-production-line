@@ -1,7 +1,7 @@
 """CAMERA_GRAMMAR_V1 start frames (line owner 2026-10-24, lab Holmes E03 VU-001/002/007).
 
 1. keyframe framing vs required fixed elements (scale-aware prompt line + Q1 question);
-2. speaking units keep the speaker's eyes on the listener (renderer clause);
+2. speaking units: off-lens eyeline toward the listener's side (renderer clause + keyframe line, 2026-10-26);
 3. a speaking unit only takes the previous tail as start frame when the objective speaker check accepts it;
 4. a controlled redo after an objective speaker-framing / face-count FAIL switches to an own keyframe.
 Unstamped contracts are unchanged.
@@ -93,22 +93,61 @@ class FixedElementRuleTests(unittest.TestCase):
 
 
 class SpeakerGazeClauseTests(unittest.TestCase):
-    def unit(self, appearance="An English woman of thirty."):
-        return {"character_entities": [{"character_id": "CHAR-H", "appearance_ch1": appearance}]}
+    """Off-lens eyeline toward the listener's side (line owner 2026-10-26, lab Holmes E05)."""
 
-    def test_clause_uses_name_and_pronoun(self):
-        binding = {"character_id": "CHAR-H", "provider_entity_label": "Helen", "visible_speaker": True}
-        self.assertEqual(h3.speaker_gaze_clause(self.unit(), binding),
-                         "While speaking Helen keeps her eyes on the listener; the camera does not follow her gaze.")
-        self.assertIn("keeps his eyes", h3.speaker_gaze_clause(self.unit("A lean English man."), binding))
-        self.assertIn("keeps their eyes", h3.speaker_gaze_clause(self.unit("A figure."), binding))
+    @staticmethod
+    def unit(speaker="CHAR-HELEN", listener="CHAR-HOLMES", listener_name="Holmes", **role_extra):
+        role = {"dialogue_speaker_id": speaker, "dialogue_listener_id": listener,
+                "dialogue_listener": listener_name, **role_extra}
+        return {"character_entities": [{"character_id": "CHAR-HELEN", "canonical_name": "Helen"},
+                                       {"character_id": "CHAR-HOLMES", "canonical_name": "Holmes"}],
+                "ordered_prompt_specs": [{"role_semantic_disambiguation": role}]}
+
+    def test_shot_and_reverse_look_to_opposite_sides(self):
+        helen = h3.speaker_gaze_clause(self.unit(), {"character_id": "CHAR-HELEN", "provider_entity_label": "Helen",
+                                                     "visible_speaker": True})
+        holmes = h3.speaker_gaze_clause(self.unit("CHAR-HOLMES", "CHAR-HELEN", "Helen"),
+                                        {"character_id": "CHAR-HOLMES", "provider_entity_label": "Holmes",
+                                         "visible_speaker": True})
+        self.assertEqual(helen, "Helen looks just off the lens to the right, at Holmes, never into the camera; "
+                                "the camera does not follow the gaze.")
+        self.assertEqual(holmes, "Holmes looks just off the lens to the left, at Helen, never into the camera; "
+                                 "the camera does not follow the gaze.")
+
+    def test_declared_side_wins_and_unknown_listener_is_generic(self):
+        binding = {"character_id": "CHAR-HELEN", "provider_entity_label": "Helen", "visible_speaker": True}
+        declared = h3.speaker_gaze_clause(self.unit(dialogue_listener_screen_side="SCREEN_LEFT"), binding)
+        self.assertIn("to the left, at Holmes", declared)
+        anonymous = h3.speaker_gaze_clause(self.unit(listener="", listener_name="霍"), binding)
+        self.assertIn(", at the other person, never into the camera", anonymous)
         self.assertEqual(h3.speaker_gaze_clause(self.unit(), {**binding, "visible_speaker": False}), "")
+
+    def test_policy_side_rules(self):
+        self.assertEqual(cg.speaker_gaze_side("B", "A")["side"], "left")
+        self.assertEqual(cg.speaker_gaze_side("A", "B")["side"], "right")
+        self.assertEqual(cg.speaker_gaze_side("A", "B", declared="left")["method"], "DECLARED_LISTENER_SIDE")
+        self.assertEqual(cg.speaker_gaze_side("B", None, cast_ids=["A", "B"])["side"], "left")
+        self.assertIn("镜头右侧", cg.keyframe_eyeline_line("海伦", "right", "Holmes"))
+        self.assertIn("not looking into the lens", cg.keyframe_eyeline_line("Helen", "left"))
+
+    def test_keyframe_eyeline_only_for_stamped_visible_speaker(self):
+        rule = cg.fixed_element_rule("MEDIUM_CLOSE_UP")
+        role = {"dialogue_speaker_id": "CHAR-HELEN", "dialogue_speaker": "Helen",
+                "dialogue_listener_id": "CHAR-HOLMES", "dialogue_listener": "Holmes"}
+        spec = {"dialogue": "Helen：It goes to the housekeeper's room."}
+        line = bkm.keyframe_eyeline(rule, role, spec, ["CHAR-HELEN"], {})
+        self.assertIn("镜头右侧", line)
+        self.assertIn("eyes just off-camera to the right, not looking into the lens", line)
+        self.assertEqual(bkm.keyframe_eyeline(None, role, spec, ["CHAR-HELEN"], {}), "")  # unstamped
+        self.assertEqual(bkm.keyframe_eyeline(rule, role, {"dialogue": ""}, ["CHAR-HELEN"], {}), "")
+        self.assertEqual(bkm.keyframe_eyeline(rule, role, spec, ["CHAR-HOLMES"], {}), "")  # speaker offscreen
 
     def test_v2_renders_clause_only_for_stamped_units(self):
         sys.path.insert(0, str(ROOT / "tools" / "tests"))
         import test_h3_director_prompt_v2 as v2t
         text, _ = v2t.render()
-        self.assertIn("keeps their eyes on the listener; the camera does not follow their gaze.", text)
+        self.assertIn("looks just off the lens to the", text)
+        self.assertIn("never into the camera; the camera does not follow the gaze.", text)
         legacy, _ = v2t.render(style=False, director=False)
         self.assertNotIn("does not follow", legacy)
 

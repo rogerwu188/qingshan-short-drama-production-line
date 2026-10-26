@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2213,
+  "file_count": 2215,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -197,7 +197,7 @@
     },
     {
       "path": "agent_factory/storyclaw_portable/WRITER_CONTRACT.md",
-      "sha256": "15c8c00b189b25c9c2cde845e133d2f0602a4bc30a331251f7be34753b63e242"
+      "sha256": "48fa78e70dfac55f815fe31c064e1d225646c30fd2675bae7db235f4c6cd5985"
     },
     {
       "path": "configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json",
@@ -217,7 +217,7 @@
     },
     {
       "path": "configs/CAMERA_GRAMMAR_V1.json",
-      "sha256": "b387f61d3a36a706d59794779892832ea635016dac1c0f1cd50c078299465525"
+      "sha256": "4d5abd1b6ce5200bbf688a4b6dee0dc7150d5cd034d80f8e3f18a92fe909286e"
     },
     {
       "path": "configs/COMBAT_ACTION_LIBRARY_V1.json",
@@ -337,7 +337,7 @@
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
-      "sha256": "07de462e5ded89fcee8a596d6d093884ab613954953b6f035be181a3b0760175"
+      "sha256": "cbb40ee4457db0f14e30b6263b9b03aed891267df4db93151a79704c6dcc4b72"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -557,7 +557,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_keyframe_manifest.py",
-      "sha256": "c394f548f20954d04562beb848711ab36b4fa5985313ae208b2995f299ed9613"
+      "sha256": "7d96a7a6edf4a5702792b4e33a75b5a2139e586ba58d1f12c6c7a5060c1e295b"
     },
     {
       "path": "lines/nalu/runtime/tools/build_measured_edit_constraints.py",
@@ -649,7 +649,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "6d401d8cbcc8aec2d6bf4cc2475606d67569c5fc9f1a467387520960367a6a8e"
+      "sha256": "302f1caa513f3a627788ce1a55144dc06ba41a93fb9b08e772f0e42ab0ed5911"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -805,7 +805,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "0f1789e86d2a3f6b5544894a830bc77786a7fc1ae1339938f0242c9993f58bec"
+      "sha256": "aa6d2f5bee7140a3b16752d0d79c8708ecacc4b261d159c3acae2b3b1a099761"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -1609,7 +1609,7 @@
     },
     {
       "path": "tools/build_agentcut_from_admitted_storyboard_sources.py",
-      "sha256": "2b5105bb5d9c5f1da265c5eba764529592f2306439747011a4fa71d079de8e56"
+      "sha256": "9c0cf55b1ed71e4a3240419dcde2dec112ad59e03aa493f7e97da64612b30d98"
     },
     {
       "path": "tools/build_and_validate_e40_u02_v3_package.py",
@@ -3605,7 +3605,7 @@
     },
     {
       "path": "tools/camera_grammar_policy.py",
-      "sha256": "01434ba86458a66de2e48c0828e07bac63b321baeb02a77457c8c3577b29004d"
+      "sha256": "3fea7fdeea6f47a4d9d9de180be2b400da1ce0adb14684e9945aa5d30abd816f"
     },
     {
       "path": "tools/camera_language_selector.py",
@@ -3870,6 +3870,10 @@
     {
       "path": "tools/dialogue_cut_safety.py",
       "sha256": "d38f71598f7dd06f5c686dc239a9821a77736c88fc7d48cf0a6214a13c6f601a"
+    },
+    {
+      "path": "tools/dialogue_head_trim.py",
+      "sha256": "d2dcb7f52a0b1ac982ff11d4997a7312ea79866dcde3067fccda577e9f79d681"
     },
     {
       "path": "tools/dialogue_leading_burst.py",
@@ -4901,7 +4905,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "25885c6fc78f127293befd082864ac2347a074a0048a8a8c7fc5cc399c8844e8"
+      "sha256": "7552c51b641302a37387fc8dcff264f3a6cc8a78f8654e456fd43e2a498b6edc"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -6905,7 +6909,7 @@
     },
     {
       "path": "tools/tests/test_camera_grammar_start_frames.py",
-      "sha256": "688012c54307196c1a1fe6ba356083e120544b506de07df07a9da63edc7ad0e4"
+      "sha256": "959e028fadc0965c7c27f48840569033941371d0102fd045580c84f86a016128"
     },
     {
       "path": "tools/tests/test_camera_language_selector.py",
@@ -7066,6 +7070,10 @@
     {
       "path": "tools/tests/test_dialogue_cut_safety.py",
       "sha256": "ae00d86aa58834a2464dd6fd452823f7fc1ee963517a0e0e55f22a6c9e56b9c3"
+    },
+    {
+      "path": "tools/tests/test_dialogue_head_trim.py",
+      "sha256": "d22bb803907797d4c4d5270139f7ba4b8759b94447ee1d8030b49604f3917009"
     },
     {
       "path": "tools/tests/test_dialogue_language_en.py",
@@ -7449,7 +7457,7 @@
     },
     {
       "path": "tools/tests/test_h3_director_prompt_v2.py",
-      "sha256": "7f2f3deebc54abb5075c2f36b0c37054906e31f17e5bf7118435828910aade72"
+      "sha256": "45725ad5eda55118c08b4b505406d0feedf60ff6a55095095380045413bae1a3"
     },
     {
       "path": "tools/tests/test_h3_native_audio_whitelist_gate.py",

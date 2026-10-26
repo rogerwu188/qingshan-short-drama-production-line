@@ -7124,7 +7124,8 @@ def _reusable_release_level(p: Any, source: Any) -> dict[str, Any] | None:
             "source_video_stream_sha256": current, "final_sha256": sha256_file(p.final_mp4)}
 
 
-def transcribe_units(ctx: Ctx, media_dir: Path, episode: str) -> dict[str, list[dict[str, Any]]]:
+def transcribe_units(ctx: Ctx, media_dir: Path, episode: str, *,
+                     words: bool = False) -> dict[str, list[dict[str, Any]]]:
     """Transcribe every unit clip for caption timing, concurrently.
 
     One ASR pass per unit; the clips are independent and a serial loop pays the
@@ -7134,6 +7135,9 @@ def transcribe_units(ctx: Ctx, media_dir: Path, episode: str) -> dict[str, list[
     are keyed by clip stem, which is exactly how the subtitle builder consumes
     them, so completion order cannot affect the captions.  Any unit's exception
     still fails the whole step.
+
+    ``words`` (CAMERA_GRAMMAR_V1 S7 only, 2026-10-26): the same pass also returns per-segment word timestamps
+    (faster-whisper ``word_timestamps``) for the dialogue head trim; the default call is unchanged.
     """
     from faster_whisper import WhisperModel  # type: ignore
 
@@ -7143,6 +7147,13 @@ def transcribe_units(ctx: Ctx, media_dir: Path, episode: str) -> dict[str, list[
     model = WhisperModel("small", device="cpu", compute_type="int8")
 
     def _one(mp4: Path) -> list[dict[str, Any]]:
+        if words:
+            segs, _ = model.transcribe(str(mp4), language=ctx_language(ctx), beam_size=5, vad_filter=True,
+                                       word_timestamps=True)
+            return [{"start": round(x.start, 3), "end": round(x.end, 3), "text": x.text.strip(),
+                     "words": [{"start": round(w.start, 3), "end": round(w.end, 3), "word": w.word}
+                               for w in (getattr(x, "words", None) or [])]}
+                    for x in segs]
         segs, _ = model.transcribe(str(mp4), language=ctx_language(ctx), beam_size=5, vad_filter=True)
         return [{"start": round(x.start, 3), "end": round(x.end, 3), "text": x.text.strip()}
                 for x in segs]
@@ -7313,13 +7324,19 @@ def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
     there (--dialogue-tail-trim), so render, captions, V.O., BGM and the release timeline all see
     the trimmed timeline.  Returns (unit ASR without the removed segments, report path when any
     unit is cut).  Any other episode returns (None, None) and S7 runs exactly as before.
+
+    The same pass (with word timestamps) plans the dialogue HEAD trim (line owner 2026-10-26, lab E05:
+    "Ha!" / "That." / "Closh key" before the scripted line; tools/dialogue_head_trim.py): report
+    <EP>_DIALOGUE_HEAD_TRIM.json, ``res.details["dialogue_head_trim"]["apply"]`` is the report path for the
+    AgentCut build (--dialogue-head-trim) when any unit is cut, and the returned ASR is shifted to match.
     """
     import camera_grammar_policy as _cgp
+    import dialogue_head_trim as _head
     import dialogue_tail_trim as _trim
     if not _cgp.active(contract, episode=ctx.episode):
         return None, None
     p = ctx.p
-    asr = transcribe_units(ctx, p.video_media, ctx.episode)
+    asr = transcribe_units(ctx, p.video_media, ctx.episode, words=True)
     write_json(p.assembly / f"{ctx.episode}_unit_asr_untrimmed.json", asr)
     clip_seconds = {mp4.stem: _probe_seconds(mp4) for mp4 in sorted(p.video_media.glob(f"{ctx.episode}-VU-*.mp4"))}
     energy = {mp4.stem: _unit_energy_db(mp4, _trim.ENERGY_HOP)
@@ -7330,7 +7347,14 @@ def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
     write_json(report_path, report)
     res.details["dialogue_tail_trim"] = {"report": str(report_path), "trimmed_units": report["trimmed_units"],
                                          "removed_seconds": report["removed_seconds"]}
-    return _trim.trim_unit_asr(asr, report), (report_path if report["trimmed_units"] else None)
+    head = _head.plan(contract, read_json(p.grouping_plan, {}) or {}, asr, clip_seconds, report)
+    head_path = p.assembly / f"{ctx.episode}_DIALOGUE_HEAD_TRIM.json"
+    write_json(head_path, head)
+    res.details["dialogue_head_trim"] = {"report": str(head_path), "trimmed_units": head["trimmed_units"],
+                                         "removed_seconds": head["removed_seconds"],
+                                         "apply": str(head_path) if head["trimmed_units"] else None}
+    trimmed = _head.strip_words(_head.shift_unit_asr(_trim.trim_unit_asr(asr, report), head))
+    return trimmed, (report_path if report["trimmed_units"] else None)
 
 
 def s7_dialogue_sound_bridge(ctx: Ctx, res: StageResult, contract: dict[str, Any],
@@ -7637,6 +7661,10 @@ def stage_s7(ctx: Ctx) -> StageResult:
         return res
     if tail_trim is not None:
         build_argv += ["--dialogue-tail-trim", tail_trim]
+        res.details["commands"]["build_agentcut"] = q(build_argv)
+    head_trim = (res.details.get("dialogue_head_trim") or {}).get("apply")
+    if head_trim:
+        build_argv += ["--dialogue-head-trim", head_trim]
         res.details["commands"]["build_agentcut"] = q(build_argv)
     sound_bridge = s7_dialogue_sound_bridge(ctx, res, read_json(p.contract, {}) or {}, trimmed_asr)
     if sound_bridge is not None:

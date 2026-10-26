@@ -84,6 +84,8 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
     ③ L-cut：说话镜后紧跟的无对白反应镜（下一个单元）可写 `prompt_spec.transition.sound_bridge_from_previous_seconds`（0.3–2.0 s），
     S7 把说话人画面提前切走、这句话的声音和字幕盖到反应镜上，反应镜现场声压成环境声；不写就是硬切。
     ④ 说话时眼睛看听者（线主 2026-10-24，实验集 E03）：说话镜的动作/起止状态里说话人视线一直在听者身上（或略偏离镜头朝听者一侧）；
+    引擎（2026-10-26，E05）在 H3 提示词和关键帧里写「视线略偏离镜头、朝左/右侧的听者，不直视镜头」，正反打两人朝相反两侧；
+    要指定方向就在 `role_semantic_disambiguation` 写 `dialogue_listener_screen_side: LEFT|RIGHT`（听者在画面哪一侧）；
     绝不写说话时转头看窗/门/画外物、「eyes fixed on X」——H3 会摇过去揭示他看的东西、把说话人丢出画。要看某物就另写无对白镜或插入镜。
   - 近景关键帧不要求房间固定元素（引擎按景别自动处理：CLOSE_UP/EXTREME_CLOSE_UP/MEDIUM_CLOSE_UP 不要求、MEDIUM 最多 2 件）；要交代房间写建立镜。
   - 剧本是「切」的地方就写切（`internal_transition_authoring` 用 MOTIVATED_CUT/REACTION_CUT/MATCH_CUT/HARD_CUT）：
@@ -166,6 +168,7 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
   Q2 中 OCR 读出的低置信乱码（背景招牌/标签纹理、道具上的手写字）在 `observed_text_strings` 写 `NOISE:<文本>`；动作幅度/表情细节不算缺陷。
 - **S7 装配**（`env -u GIGGLE_API_KEY $P $T/nalu_pipeline.py run --episode <EP> --from S7 --until S8`）：需要 `$NALU_RUNTIME_ROOT/brand/NALU_MOTION_endcard_3s_9x16.mp4`（没有就 `$P $S/make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第N集 · <集名>" --language <简报 dialogue_language>`）。
   CAMERA_GRAMMAR_V1 剧集 S7 按简报自动生成本集片尾卡（`workflow/nalu/<EP>/assembly/<EP>_endcard_3s_9x16.mp4`，失败才回落到全局卡）；简报 `episode_display_number`（本剧第几集，如 E03 = 2）同时用于片头和片尾，缺省用 EP 编号。
+  CAMERA_GRAMMAR_V1 剧集 S7 同一遍 ASR 带词级时间戳：单元开头在台词第一个词之前多出的话（如「Ha!」「That.」）自动剪掉，画面和声音一起从台词第一个词前 0.15 秒开始（单元不短于 1.5 秒；台词开头自己的重复不剪），记在 `workflow/nalu/<EP>/assembly/<EP>_DIALOGUE_HEAD_TRIM.json`（线主 2026-10-26）。
   S7 自动加片头标题（简报 `title` + 集数，前 2.5 秒叠加，免费、不加时长）、默认配乐混音（S6 已生成并对账）和尾贴广告版（素材缺失只记 `AD_ASSET_MISSING`，不阻塞）。
   S7 报 `SELECTIVE_BGM_CREDIT_RECONCILIATION_NEEDS_KEY`（S6 时配乐账单还没出）：改用 `./lines/nalu/runtime/tools/paid_stage.sh <EP> S7 S7` 重跑 S7（S7 没有任何提交路径，key 只用于只读账单查询），不是新付费。
 
