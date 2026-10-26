@@ -949,6 +949,9 @@ def main() -> int:
     parser.add_argument("--plates-dir", help="harvest dir of already generated plates; a character's "
                                              "non-base views are planned only once its base plate is here")
     parser.add_argument("--venv-python", default=str(ENGINE_ROOT / ".qingshan-venv/bin/python"))
+    parser.add_argument("--series-asset-library",
+                        help="cross-episode library; CAMERA_GRAMMAR_V1 contracts plan the H3 multi-view reference "
+                             "sheet of every character it does not hold yet (character_reference_sheet.py)")
     parser.add_argument(
         "--precheck-only",
         action="store_true",
@@ -1027,6 +1030,29 @@ def main() -> int:
         authorization_ref=args.authorization_ref.strip(),
         plates_dir=Path(args.plates_dir) if args.plates_dir else None,
     )
+    # CAMERA_GRAMMAR_V1: one multi-view reference sheet per character (+ one per declared state variant), once
+    # per series; nothing for any other contract (character_reference_sheet.active).
+    import character_reference_sheet as _sheet
+    series_library_path = Path(args.series_asset_library) if args.series_asset_library else None
+    sheet_rows, sheet_deferred, sheet_skipped = _sheet.plan_rows(
+        contract, load_json(series_library_path) if series_library_path and series_library_path.is_file() else library,
+        episode=episode, prompt_dir=prompt_dir, plates_dir=Path(args.plates_dir) if args.plates_dir else None,
+        new_subject_ids={s["subject_id"] for s in subjects if s["subject_id"] not in reused_subjects})
+    if sheet_rows or sheet_deferred or sheet_skipped:
+        culture, block = culture_lock_for(episode)
+        for row in sheet_rows:
+            row["visual_culture_contract"] = dict(culture)
+            prompt_path = Path(row["prompt_file"])
+            text = prompt_path.read_text(encoding="utf-8")
+            if block not in text:
+                prompt_path.write_text(text.rstrip() + "\n" + block + "\n", encoding="utf-8")
+                row["prompt_sha256"] = sha256_file(prompt_path)
+        plan["new_asset_groups"].extend(sheet_rows)
+        plan["maximum_new_submissions"] = len(plan["new_asset_groups"])
+        plan["deferred_view_rows"] = list(plan.get("deferred_view_rows") or []) + sheet_deferred
+        deferred = plan["deferred_view_rows"]
+        plan["reference_sheet_policy"] = {"view": _sheet.SHEET_VIEW, "planned": [r["id"] for r in sheet_rows],
+                                          "deferred": [r["id"] for r in sheet_deferred], "skipped": sheet_skipped}
     atomic_json(gate_report_path, build_gate_report(episode, plan["new_asset_groups"], args.aspect_ratio))
     plan['verified_reused_subjects'] = sorted(reused_subjects)
     atomic_json(plan_out, plan)

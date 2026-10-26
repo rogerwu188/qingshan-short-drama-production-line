@@ -465,6 +465,9 @@ def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
     # compiler input stays byte-identical
     if task.get("h3_prompt_style") or machine.get("h3_prompt_style"):
         prompt_unit["h3_prompt_style"] = task.get("h3_prompt_style") or machine.get("h3_prompt_style")
+    # opt-in Chinese constraint sentences (generation contract h3_constraint_language "zh"; A/B variant tasks)
+    if task.get("h3_constraint_language") or machine.get("h3_constraint_language"):
+        prompt_unit["h3_constraint_language"] = task.get("h3_constraint_language") or machine.get("h3_constraint_language")
     prompt_unit["duration_seconds"] = task.get("duration_seconds")
     prompt_unit["resolution"] = task.get("resolution")
     prompt_unit["aspect_ratio"] = task.get("aspect_ratio")

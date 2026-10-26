@@ -872,6 +872,30 @@ def scope_shot_sound(sound, shot_id):
     return result
 
 
+def _speaking_shot_duration(shot: dict[str, Any], separated_row: tuple[str, list[dict[str, Any]]] | None,
+                            language: str, authored: float, report: list[dict[str, Any]]) -> float:
+    """CAMERA_GRAMMAR_V1 speaking-shot duration (tools/speaking_unit_duration.py); appends its report row.
+
+    Only an on-screen line counts: voice-over narration and an offscreen (voice-only) speaker keep the
+    authored duration."""
+    import speaking_unit_duration as _sud
+    spec = shot.get("prompt_spec") or {}
+    in_video = (separated_row or (str(spec.get("dialogue") or ""), []))[0]
+    lines = [line for line in str(in_video or "").splitlines() if line.strip()]
+    if not lines:
+        return authored
+    role = spec.get("role_semantic_disambiguation") or {}
+    speaker = str(role.get("lip_owner_id") or role.get("dialogue_speaker_id") or "")
+    offscreen = {str(m.get("character_id") or "") for m in spec.get("cast") or []
+                 if str(m.get("face_visibility") or "") == "OFFSCREEN_VOICE_ONLY"}
+    if not speaker or speaker in offscreen:
+        return authored
+    row = _sud.speaking_duration(authored, lines, language, shot.get("dialogue_delivery"))
+    if row["action"] != "UNCHANGED":
+        report.append({"shot_id": str(shot.get("shot_id")), **row})
+    return float(row["duration_seconds"])
+
+
 def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                     index: SpaceIndex, engine: Engine, episode: str,
                     contract_path: Path, gsm_path: Path,
@@ -896,6 +920,9 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
     # adds film-grammar wording; episodes outside the policy keep their plans byte-identical.
     import camera_grammar_policy as _camera_grammar
     camera_grammar = _camera_grammar.active(contract, episode=episode)
+    import character_reference_sheet as _reference_sheet
+    _REFERENCE_SHEET_POLICY["active"] = bool(camera_grammar and MODEL_CONTRACT["model"] == "MiniMax-H3"
+                                             and _reference_sheet.active(contract, episode=episode))
     if camera_grammar:
         _H3_ENGLISH_NAMES.update({str(row.get("character_id")): str(row.get("english_name") or "").strip()
                                   for row in contract.get("character_entities") or []
@@ -926,6 +953,7 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
     shots: list[dict[str, Any]] = []
     all_splits: list[dict[str, Any]] = []
     cursor = 0.0
+    duration_report: list[dict[str, Any]] = []
     # CAMERA_GRAMMAR_V1 grouping inputs: the authored incoming transition (top-level list row, else the
     # shot's own internal_transition_authoring) and the visible subjects, so grouping can cut where the
     # writer cut.  Episodes outside the policy get neither field.
@@ -938,6 +966,8 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
         scene = scenes.get(scene_id) or {}
         row = by_shot[shot_id]
         duration = float(shot["target_seconds"])
+        if camera_grammar:  # CAMERA_GRAMMAR_V1: a speaking shot runs line + 0.5 s (3-5 s), reported, never blocked
+            duration = _speaking_shot_duration(shot, separated.get(shot_id), language, duration, duration_report)
         start_seconds = round(cursor, 3)
         cursor = round(cursor + duration, 3)
         spec = shot.get("prompt_spec") or {}
@@ -1320,6 +1350,10 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
         "runtime_seconds": round(sum(float(row["duration_seconds"]) for row in shots), 3),
         "wardrobe_bible": bible,
         **({"camera_grammar_policy": "CAMERA_GRAMMAR_V1"} if camera_grammar else {}),
+        **({"speaking_unit_duration_report": {
+            "schema": "qingshan.speaking_unit_duration.v1", "source": "tools/speaking_unit_duration.py",
+            "rule": "speaking shot = estimated line + 0.5 s, 3-5 s, whole seconds; longer lines: writer splits",
+            "rows": duration_report}} if duration_report else {}),
         "shots": shots,
     }
     if any(shot["prompt_spec"].get("voice_over") for shot in shots):
@@ -2299,6 +2333,43 @@ def _locked_identity_plate(character_id: str, *, episode: str) -> Path | None:
     return (front or views)[0]
 
 
+#: CAMERA_GRAMMAR_V1 H3 units: the character's registered multi-view reference sheet replaces the headshot as its
+#: one H3 face-and-body reference (character_reference_sheet.py).  Set per build in build_editorial.
+_REFERENCE_SHEET_POLICY: dict[str, Any] = {"active": False}
+
+
+def unit_reference_states(specs: list[dict[str, Any]]) -> dict[str, str]:
+    """cast[].reference_state per character over a unit's specs (first declaration wins)."""
+    states: dict[str, str] = {}
+    for spec in specs or []:
+        for member in (spec or {}).get("cast") or []:
+            cid, state = str(member.get("character_id") or ""), str(member.get("reference_state") or "").strip()
+            if cid and state:
+                states.setdefault(cid, state)
+    return states
+
+
+def _h3_reference_plate(character_id: str, *, episode: str, state: str | None = None) -> Path | None:
+    """The plate H3 receives for a character: its reference sheet (declared state first) when the policy is
+    on and a sheet is registered, otherwise the locked identity plate exactly as before."""
+    if _REFERENCE_SHEET_POLICY.get("active"):
+        import character_reference_sheet as _sheet
+        _locked_identity_plate(character_id, episode=episode)  # loads + validates the scoped library
+        library = _ASSET_LIBRARY_CACHE.get(str(_scoped_asset_library_path(episode).resolve())) or {}
+        if not _has_original_authority(library, character_id):
+            row = (((library.get("assets") or {}).get("characters") or {}).get(character_id)) or {}
+            sheet = (_sheet.registered_sheet(row, state) if state else None) or _sheet.registered_sheet(row)
+            if sheet is not None:
+                return sheet
+    return _locked_identity_plate(character_id, episode=episode)
+
+
+def _has_original_authority(library: dict[str, Any], character_id: str) -> bool:
+    row = (((library.get("assets") or {}).get("characters") or {}).get(character_id)) or {}
+    from tools.original_identity_authority import original_reference
+    return original_reference(row) is not None
+
+
 def locked_artifact_headshot(row):
     """Read the current artifact schema without inventing legacy lock data."""
     if row.get("status") != "LOCKED" or (row.get("qa") or {}).get("status") != "PASS":
@@ -2397,13 +2468,15 @@ def append_h3_identity_plates(anchor_plan: dict[str, Any], plan: dict[str, Any],
                     visible.append(cid)
         order = [cid for cid in speakers + [cid for cid in visible if cid not in speakers]
                  if cid not in voice_over_ids]
+        states = unit_reference_states([(shots.get(sid) or {}).get("prompt_spec") or {}
+                                        for sid in shot_ids_by_unit.get(str(unit.get("unit_id")), [])])
         paths = list(unit.get("reference_image_paths") or [])
         decision = unit.setdefault("anchor_count_decision", {})
         roles = list(decision.get("anchor_roles") or [])
         keys = list(unit.get("reference_image_task_keys") or [])
         entities: list[Any] = [None] * len(paths)
         for cid in order:
-            plate = _locked_identity_plate(cid, episode=episode)
+            plate = _h3_reference_plate(cid, episode=episode, state=states.get(cid))
             if plate is None:
                 missing.append(cid)
                 continue
@@ -2443,6 +2516,7 @@ def identity_plate_reference_rows(character_ids: list[str], plate_lookup, *, exi
             continue
         rows.append({"character_id": cid, "path": str(plate), "sha256": sha256_file(Path(plate)),
                      "view": ("FRONT_NEUTRAL_HEADSHOT" if "FRONT_NEUTRAL_HEADSHOT" in Path(plate).name
+                              else "MULTIVIEW_REFERENCE_SHEET" if "__MULTIVIEW_REFERENCE_SHEET" in Path(plate).name
                               else "IDENTITY_REFERENCE_VIEW_UNSPECIFIED"),
                      "role": "CHARACTER_IDENTITY_REFERENCE"})
         seen.add(str(plate))
@@ -2678,6 +2752,7 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
                 return (2, character_ids.index(cid))
             return sorted(character_ids, key=key)
         plate_order = _speaker_first(list(chars))
+        unit_states = unit_reference_states(specs)
         props = sorted({str(p.get("prop_id") or name2prop.get(str(p.get("prop")), ""))
                         for spec in specs for p in spec.get("props") or []} - {""})
         empty_unit = not chars and not props
@@ -2754,7 +2829,7 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
         # each unit with a single 720p keyframe (face ~80 px) and no identity plate at all.
         if not _policy_profile.uses_legacy_first_episode_exception(episode):
             plate_rows, plate_dropped, plate_missing = identity_plate_reference_rows(
-                plate_order, lambda character_id: _locked_identity_plate(character_id, episode=episode),
+                plate_order, lambda character_id: _h3_reference_plate(character_id, episode=episode, state=unit_states.get(character_id)),
                 existing_paths=task["reference_images"])
             for row in plate_rows:
                 task["reference_images"].append(row["path"])
@@ -2777,7 +2852,7 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             # keyframe already identifies another character still needs its own locked plate
             unbound_faces = [cid for cid in plate_order if cid not in bound]
             plate_rows, _dropped, _missing = identity_plate_reference_rows(
-                unbound_faces, lambda character_id: _locked_identity_plate(character_id, episode=episode),
+                unbound_faces, lambda character_id: _h3_reference_plate(character_id, episode=episode, state=unit_states.get(character_id)),
                 existing_paths=task["reference_images"])
             for row in plate_rows:
                 task["reference_images"].append(row["path"])
@@ -2878,6 +2953,8 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             task["dialogue_language"] = cu["dialogue_language"]
         if cu.get("h3_prompt_style"):  # opt-in DIRECTOR_PROMPT_V2; absent == V1 prompt
             task["h3_prompt_style"] = cu["h3_prompt_style"]
+        if cu.get("h3_constraint_language"):  # opt-in "zh" provider-expert constraint sentences; absent == en
+            task["h3_constraint_language"] = cu["h3_constraint_language"]
         task["dialogue_lines"] = lines
         task["native_dialogue_required"] = bool(lines)
         task["dialogue_transport"] = "MODEL_NATIVE_TEXT_DIALOGUE" if lines else "SAME_TASK_NATIVE_AMBIENCE_FOLEY_ACTION_SOUND"

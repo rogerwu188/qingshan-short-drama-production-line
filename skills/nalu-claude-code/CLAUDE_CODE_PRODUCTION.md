@@ -57,6 +57,14 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 然后 `run --until S3`，直到 S1 PASS、S2 PASS、S3 DRY_PLANNED。必须满足（门禁源码在 `$T` 与 `tools/`，报错就读源码改剧本，不改门禁）：
 - 对白镜时长 = 汉字数/4 + 0.5，向上取整到 0.5，不再额外加长；无对白镜 ≤ 5 s；单元（同场连续镜头）4–8 s 可切分。
 - 对白镜只比台词长 0.5–1.0 s（线主 2026-10-23）：`target_seconds` = 说话时长（中文约 4 字/秒，英文约 2.5 词/秒）+ 0.5–1.0 s，不给对白镜加长——H3 会用乱码般的假语言填满多出来的时间（CAMERA_GRAMMAR_V1 的集 S7 会剪在最后一句后约 0.5 s）；要停顿或反应就另写一个无对白的反应镜。
+- H3 约束语言 A/B（线主 2026-10-26）：合同顶层 `"h3_constraint_language": "zh"`（缺省 `en`）只把服务方专家的几句约束（一镜到底/机位固定、无其他人声、
+  只说这一句、防重复人物）换成专家原文中文，其余描述、台词标签、表演说明不变，仅 CAMERA_GRAMMAR_V1 单元生效。对比测试单个单元不必改合同：
+  `$P tools/h3_constraint_ab_variant.py --manifest <preproduction>/<EP>_VIDEO_TRANSACTION_MANIFEST_V1.json --unit <EP>-VU-00X --prompt-dir <preproduction>/video_prompts --out <preproduction>/<EP>-VU-00X-ZH_AB.json`
+  生成任务键 `<EP>-VU-00X-ZH` 的单任务清单（同参考图、同时长，`provider_post_allowed:false`，打印 `estimated_credits`）；先 `paid_stage.sh <EP> --check` 看余量，
+  变体提示词照常登记进提示词批次，再按正常单任务路径提交。成片落 `video/<EP>-VU-00X-ZH.mp4`，不覆盖原单元，不进装配。
+- 对白镜 3–5 s，一句一镜（线主 2026-10-26，CAMERA_GRAMMAR_V1）：编译器把画内对白镜定为「估算说话时长 + 0.5 s」取整秒（3–5 s，`tools/speaking_unit_duration.py`，报告在编辑清单 `speaking_unit_duration_report`）。
+  一句估算超过 4.5 s（含标点停顿，英文约 12 词、中文约 17 字以上）放不进 5 s：**写手必须拆成两镜**（台词一字不改，在自然停顿处断开）；编译器不拦，只记 `WRITER_SPLIT_REQUIRED_*`，写手时长超出台词 1.5 s 以上会被自动缩短。
+  无台词的动作（推门、走位、取物）单独写一镜，不和台词放在同一镜。
 - 每镜 `prompt_spec.camera_plan` 全字段（shot_scale/camera_height/camera_side/motion_family/motion_direction/lens_intent/axis_relation/start_framing/end_framing/motivation）；
   LOCKED 起止取景相同、运动镜不同。
 - **运镜语法 CAMERA_GRAMMAR_V1**（2026-10-22 起新封版的合同；storyclaw finalize 自动在合同顶层补
@@ -185,6 +193,14 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
   多个单元要重做时按观众影响排序：开场前 10 秒 > 有台词/主角正脸 > 结尾 > 其余；预算用到上限为止。其余 Q2 失败项（构图、道具数量、动作细节）照旧直接接受。
   CAMERA_GRAMMAR_V1 剧集的 Q2 会客观数脸（InsightFace，`objective_face_count`）：≥2 帧人脸数多于声明人数时 `cast_exactly_as_declared` 自动判 FAIL（审核答 PASS 也不能改回），同样走这条重做一次。
   同样客观量说话人构图（`objective_speaker_framing`）：有台词且说话人声明在画面内的单元，≥1/3 帧里说话人脸不在画面、被画框切掉、贴左右边（≤2%）或脸中心落在外侧 12% 时 `cast_exactly_as_declared` 自动判 FAIL，同样走这条重做一次（镜头文字写明说话人居中、完整入画）。
+  **引擎自动重做（线主 2026-10-26，实验集 E04 派单里的 Q2 重做被跳过）**：CAMERA_GRAMMAR_V1 集的这两类客观 FAIL 不再等你决定——
+  S6.q2 在 `video_q2_builder prepare` 量完、发 video_q2 审核请求**之前**，由引擎（`lines/nalu/runtime/tools/q2_auto_redo.py`，`nalu_pipeline.s6_q2_auto_redo`）
+  挑出 `prepare.json` 里 `face_count`（多人/重复人物）或 `speaker_framing` FAIL 的单元，按「重复人物 > 说话人构图 > 单元顺序」排序，
+  每单元只重做一次（记在 `reports/<EP>_S6_WAVE_STATE.json` 的 `q2_auto_redo`），费用 = 该单元视频价 + 1 张自有关键帧（~11 积分），
+  先查本集余量（`budget_check`），累计放不下就停，剩下的单元照旧走审核 + 默认接受（`--context` 写「预算不足未重做」或「已重做一次」）。
+  选中的单元成片移到 `video/_superseded_<run>_q2_auto_redo/`，同一次 `paid_stage.sh <EP> S6 S7`（或正常 `run`）里 S6 立刻重进波次循环：
+  下面 ③ 的自动换起始帧 → S5 出自有关键帧 → 单单元波次提交。你只需照常回答它产生的审核请求（关键帧 Q1、start_frame、新的 video_q2）；
+  不要再手动移成片或重复重做。重做后仍 FAIL 的单元按下面默认接受。下面 ①② 的改剧本仍可做（让重做换掉原因），但不是重做的前提。
   **说话人构图 / 多人（`objective_speaker_framing` 或 `objective_face_count` FAIL）的重做必须换掉原因，不许用同一张起始帧 + 同一段动作文字重拍**（线主 2026-10-24，E03 VU-001/002/007 重做前后一模一样）：
   ① 把该单元成片 `video/<unit>.mp4` 移到 `_superseded_*`（和平常重做一样）；② 改剧本：删掉说话镜里看窗/门/画外物、「eyes fixed on X」之类的视线动作（§2 ④），起止状态写说话人看着听者、居中，**台词一字不改**；
   重跑构建器 → `run --until S2` → `prompt_batch_prepare/finish`；③ 直接 `paid_stage.sh <EP> S6 S6`：CAMERA_GRAMMAR_V1 集的 S6 发现「成片已移走 + Q2 prepare.json 记录了这两类 FAIL + 起始帧比那次测量旧」，

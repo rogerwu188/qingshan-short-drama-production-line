@@ -32,6 +32,8 @@ except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
 
 try:
     from tools.h3_provider_english_contract import (
+        H3_CONSTRAINT_ZH,
+        h3_constraint_language,
         require_h3_provider_english_contract,
         validate_h3_provider_text_boundary,
     )
@@ -42,6 +44,8 @@ try:
     from tools.visual_culture_contract import prompt_block_en as visual_culture_prompt_block
 except ModuleNotFoundError:
     from h3_provider_english_contract import (
+        H3_CONSTRAINT_ZH,
+        h3_constraint_language,
         require_h3_provider_english_contract,
         validate_h3_provider_text_boundary,
     )
@@ -115,7 +119,9 @@ def _camera_grammar_clause(plan: dict[str, Any]) -> str:
     if plan.get("camera_grammar") != "CAMERA_GRAMMAR_V1":
         return ""
     if str(plan.get("motion_family") or "STATIC").upper() in {"STATIC", "LOCKED"}:
-        return "; a still, composed frame: the action plays inside it, no drift"
+        # the camera lock itself is FIXED_CAMERA_POSITION (provider-expert wording, 2026-10-26); this only
+        # keeps the action inside the frame instead of restating the lock
+        return "; the action plays inside the frame"
     return "; a motivated move: it starts with the action, settles on the end framing and holds; never sweep across empty space"
 
 
@@ -133,10 +139,32 @@ _NO_TRANSFER = ("Each subject wears only its own clothing; never transfer clothi
 _NO_EXTRAS = ("No other people, figures, silhouettes, hands or body parts appear anywhere in frame, "
               "including the background and frame edges")
 _AUDIO_TIMBRE_ONLY = "Each @Audio reference supplies timbre only; never speak or echo its words"
-_SILENT_AFTER_LINE = ("After the tagged line ends nobody speaks again: the remaining seconds are silent room tone "
-                      "and natural movement, no mumbling, no extra words.")
 _NO_NATIVE_MUSIC = "No background music, score or soundtrack in this clip; only dialogue, foley and ambience"
+# MiniMax-H3 provider-expert wording (line owner 2026-10-26, lab Holmes E04: 6-8 s units with a short line made H3
+# invent garbled speech and pan away).  CAMERA_GRAMMAR_V1 units only; shared with h3_director_prompt_v2.
+NO_VOICE_SILENT = "This shot has no dialogue, no voice-over, no narration and no human voice; nobody speaks."
+ONLY_THIS_LINE = ("Only this one line is spoken, once; before and after it there is no other dialogue, voice-over, "
+                  "narration or human voice.")
+ONLY_THESE_LINES = ("Only these lines are spoken, each once, in order; before, between and after them there is no "
+                    "other dialogue, voice-over, narration or human voice.")
+ONE_TAKE = "One continuous take from the first frame to the last, no cuts or splices."
+FIXED_CAMERA_POSITION = "Fixed camera position: no push in, no pull out, no pan, no tilt, no tracking."
+NO_DUPLICATE_PEOPLE = ("Never show two people with identical appearance, clothing or accessories; no clones, no twins, "
+                       "no duplicate of any person \u2014 each person appears exactly once in the frame.")
 _WARDROBE_FIELDS = ("silhouette", "outer_layer", "inner_layer", "primary_color", "material", "footwear", "accessory")
+
+
+REFERENCE_SHEET_MARK = "__MULTIVIEW_REFERENCE_SHEET"
+
+
+def is_reference_sheet(ref: dict[str, Any]) -> bool:
+    """A CAMERA_GRAMMAR_V1 multi-view character sheet (lines/nalu/runtime/tools/character_reference_sheet.py)."""
+    return REFERENCE_SHEET_MARK in str(ref.get("path") or "").rsplit("/", 1)[-1]
+
+
+def reference_sheet_clause(entity: str) -> str:
+    return (f"a character sheet of one person: {entity}'s face close-up and full-body front, side and back views "
+            f"in the same clothes; these are views of a single person, render {entity} only once")
 
 
 def director_active(unit: dict[str, Any], plan: dict[str, Any]) -> bool:
@@ -443,7 +471,10 @@ def _camera_scoped(camera_plan: dict[str, Any], english: dict[str, str]) -> str:
     if camera_plan.get("camera_grammar") == "CAMERA_GRAMMAR_V1":  # boilerplate framing says nothing
         start, end = (None if value and _BOILERPLATE_FRAMING.match(value) else value for value in (start, end))
     if family in {"STATIC", "LOCKED"}:
-        parts.append("locked camera with no camera movement")
+        if camera_plan.get("camera_grammar") == "CAMERA_GRAMMAR_V1":
+            parts.append("locked camera; " + _FIXED_CAMERA_CLAUSE)
+        else:
+            parts.append("locked camera with no camera movement")
         if start:
             parts.append(f"hold the framing: {start}")
         if end and end != start:
@@ -511,7 +542,8 @@ def _camera_section(
         camera_plan = plan.get("camera_plan") or {}
         failures: list[str] = []
         english = _camera_english(uid, "UNIT", camera_plan, contract.get("camera_plan") or {}, failures)
-        return _camera_scoped(camera_plan, english), [{
+        one_take = _ONE_TAKE_CLAUSE if camera_plan.get("camera_grammar") == "CAMERA_GRAMMAR_V1" else ""
+        return _camera_scoped(camera_plan, english) + one_take, [{
             "shot_id": "UNIT", "fields": sorted(english), "untranslated_fields": failures,
         }]
     translated = contract.get("camera_plans") or contract.get("per_shot_camera_plans") or []
@@ -530,7 +562,41 @@ def _camera_section(
         receipt.append({
             "shot_id": label, "boundary": boundary, "fields": sorted(english), "untranslated_fields": missing,
         })
+    if one_take_applies([row["camera_plan"] for row in rows], [row["boundary"] for row in receipt]):
+        lines[0] += _ONE_TAKE_CLAUSE
     return "\n".join(lines), receipt
+
+
+_ONE_TAKE_CLAUSE = "; " + ONE_TAKE[0].lower() + ONE_TAKE[1:].rstrip(".")
+_FIXED_CAMERA_CLAUSE = FIXED_CAMERA_POSITION[0].lower() + FIXED_CAMERA_POSITION[1:].rstrip(".")
+#: English constraint sentence -> the provider expert's Chinese wording (h3_constraint_language "zh"), longest first
+_ZH_CONSTRAINTS = (
+    (ONE_TAKE + " " + FIXED_CAMERA_POSITION,
+     H3_CONSTRAINT_ZH["one_take"] + "；" + H3_CONSTRAINT_ZH["fixed_camera"] + "。"),
+    (NO_DUPLICATE_PEOPLE, H3_CONSTRAINT_ZH["no_duplicate"]),
+    (ONLY_THESE_LINES, H3_CONSTRAINT_ZH["only_these_lines"]),
+    (ONLY_THIS_LINE, H3_CONSTRAINT_ZH["only_this_line"]),
+    (NO_VOICE_SILENT, H3_CONSTRAINT_ZH["silent"]),
+    (ONE_TAKE, H3_CONSTRAINT_ZH["one_take"] + "。"),
+    (FIXED_CAMERA_POSITION, H3_CONSTRAINT_ZH["fixed_camera"] + "。"),
+    (_ONE_TAKE_CLAUSE, "; " + H3_CONSTRAINT_ZH["one_take"]),
+    (_FIXED_CAMERA_CLAUSE, H3_CONSTRAINT_ZH["fixed_camera"]),
+)
+
+
+def localize_constraints(text: str, language: str) -> str:
+    """Swap only the provider-expert constraint sentences into Chinese ("zh"); "en" returns text unchanged."""
+    if language != "zh" or not text:
+        return text
+    for english, chinese in _ZH_CONSTRAINTS:
+        text = text.replace(english, chinese)
+    return text
+
+
+def one_take_applies(camera_plans: list[dict[str, Any]], boundaries: list[str]) -> bool:
+    """CAMERA_GRAMMAR_V1 units whose shots join without a hard cut are one continuous take."""
+    return (any(isinstance(row, dict) and row.get("camera_grammar") == "CAMERA_GRAMMAR_V1" for row in camera_plans)
+            and not any("cut" in str(b) and not str(b).startswith("no cut") for b in boundaries))
 
 
 # ---------------------------------------------------------------------------
@@ -607,7 +673,8 @@ def locked_camera_move_conflicts(text: str) -> list[str]:
         return []
     findings = []
     for index, entry in enumerate(re.split(r"\n(?=SHOT \d+ )", match.group(1)), 1):
-        instructions = re.sub(r"(?:hold the framing|start framing|end framing): [^;]*", "", entry)
+        instructions = re.sub(r"(?:hold the framing|start framing|end framing|fixed camera position): [^;]*", "", entry,
+                              flags=re.IGNORECASE)
         if "locked camera" in instructions and _MOVE_WORDS.search(instructions):
             findings.append(f"LOCKED_CAMERA_WITH_MOVE_INSTRUCTION:{index}:{entry.strip()[:80]}")
     return findings
@@ -911,7 +978,9 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
                 )
             elif scoped:
                 reference_lines.append(
-                    f"@Image{index}: exclusive identity of {entity}; lock this entity's face, age, hair, body and wardrobe; "
+                    f"@Image{index}: exclusive identity of {entity}; "
+                    + (reference_sheet_clause(entity) + "; " if is_reference_sheet(ref) else "")
+                    + "lock this entity's face, age, hair, body and wardrobe; "
                     + instance_cardinality_clauses(entity, declared_count)[-1]
                     + f"; this reference alone does not put {entity} "
                     "in frame, presence and visible range follow each timed beat; "
@@ -1183,9 +1252,11 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         negatives.append(profile_constraints[profile])
     genre = "live-action short drama"
     roster_variants = [""]
+    insert_without_people = False
     if director_active(unit, plan) and not positive_single_subject:
         people, beings, plain_props = _director_subjects(unit, plan)
         if not people and not beings:
+            insert_without_people = True  # no person to duplicate: the anti-duplicate line would invite one
             genre = (f"a single photographic insert shot of {' and '.join(plain_props) or 'the object described below'}; "
                      "no people, no hands, no body parts")
         else:
@@ -1197,6 +1268,9 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     # babble after a short line in a long slot, H3-baked music between shots).  Dropped before the roster.
     director_audio = director_active(unit, plan)
     has_dialogue = any(beat.get("dialogue") for beat in action_beats)
+    spoken_lines = sum(1 for beat in action_beats if beat.get("dialogue"))
+    # provider-expert voice wording replaces the older after-line sentence (CAMERA_GRAMMAR_V1 only)
+    voice_hygiene = (ONLY_THIS_LINE if spoken_lines == 1 else ONLY_THESE_LINES) if has_dialogue else NO_VOICE_SILENT
 
     def assemble(roster: str, extras: bool = False) -> str:
         voice_text = "; ".join(voice_rows) or "No dialogue voice reference is required"
@@ -1205,8 +1279,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         if extras:
             if voice_rows:
                 voice_text += "; " + _AUDIO_TIMBRE_ONLY
-            if has_dialogue:
-                vocal_text += " " + _SILENT_AFTER_LINE
+            vocal_text += " " + voice_hygiene
             negative_rows.append(_NO_NATIVE_MUSIC)
         return "\n".join([
         "subject_definitions:", *reference_lines,
@@ -1227,15 +1300,20 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         "vocal_rule: " + vocal_text,
         "non_diegetic_music: none unless the structured audio profile explicitly binds a cue.",
         "negative_constraints: " + "; ".join(dict.fromkeys(value.strip().rstrip(".; ") for value in negative_rows if value.strip())) + ".",
+        # provider expert: the anti-duplicate rule goes last (CAMERA_GRAMMAR_V1 units only)
+        *([NO_DUPLICATE_PEOPLE] if director_audio and not insert_without_people else []),
     ]) + "\n"
 
     # the director audio lines go first, then the roster is trimmed (looks dropped, then the whole line)
     # rather than ever failing the limit
     variants = ([(roster_variants[0], True)] if director_audio else []) + [(r, False) for r in roster_variants]
+    constraint_language = h3_constraint_language(unit) if director_audio else "en"
     for roster, extras in variants:
-        text = assemble(roster, extras)
+        text = localize_constraints(assemble(roster, extras), constraint_language)
         if len(text) <= _PROVIDER_RUNE_LIMIT:
             break
+    if constraint_language == "zh":
+        clause_evidence = {key: localize_constraints(value, "zh") for key, value in clause_evidence.items()}
     boundary = validate_provider_prompt_boundary(text, source_id=uid, model_family="MINIMAX_H3")
     h3_boundary = validate_h3_provider_text_boundary(text, source_id=uid)
     failures = [*boundary["failures"], *h3_boundary["failures"]]
@@ -1276,4 +1354,5 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         "h3_english_boundary": h3_boundary,
         "prompt_budget": measure_prompt(text, source_id=uid, model_family="MINIMAX_H3"),
         **shot_scope_receipt,
+        **({"h3_constraint_language": "zh"} if constraint_language == "zh" else {}),
     }

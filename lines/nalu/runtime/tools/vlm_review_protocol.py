@@ -548,6 +548,9 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
             rows = [row for row in rows if row["asset_id"] in planned]
         for row in rows:
             plates = sorted(p.plates.glob(f"*{row['asset_id']}*")) if p.plates.is_dir() else []
+            # an H3 multi-view reference sheet (character_reference_sheet.py) shows several faces of one person: it
+            # is not an identity plate and never enters the identity lock / InsightFace single-face measurement
+            plates = [item for item in plates if "__MULTIVIEW_REFERENCE_SHEET" not in item.name]
             source = find_scoped_operator_source(row["asset_id"], p.character_sources)
             # A source-matched subject has no provider-generated plate by
             # design.  Review the real operator source as the canonical

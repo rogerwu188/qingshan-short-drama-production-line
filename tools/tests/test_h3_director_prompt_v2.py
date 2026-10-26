@@ -39,9 +39,11 @@ INTERNAL = re.compile(r"\b(?:CHAR|SUBSPACE|LOC|SET|PROP|AXIS|ANGLE)-[A-Z0-9-]+|\
 #: sha256 of the V1 render of fixture(style=False) / fixture(style=False, director=False), computed with the
 #: pre-V2 engine (HEAD 7bd213c): the opt-in must leave every other unit byte-identical.  The stamped (director)
 #: V1 render changed once on purpose (2026-10-24): it gains only the speaker-gaze clause "While speaking Alpha
-#: keeps their eyes on the listener; the camera does not follow their gaze." (was 0857f610...).
+#: keeps their eyes on the listener; the camera does not follow their gaze." (was 0857f610...).  It changed again
+#: on purpose 2026-10-26 (MiniMax-H3 provider-expert wording: fixed-camera clause, one continuous take, "only
+#: this one line" voice sentence, final anti-duplicate line; was d5479374...).  The unstamped pin never changes.
 V1_SHA = {
-    True: "d5479374441bbb799a7b706750f135d04fd25544c36967bec26a719b13760aac",
+    True: "412240e1e61c341ef6cc2ca9e42f80d32364c2ae1ac6aa5a6d7335e7054884c6",
     False: "ab9d6ae00614e4f89f53a4a7e0960162458dd56af941aa23f2abec8481a3561d",
 }
 
@@ -127,7 +129,9 @@ class DirectorPromptV2Shape(unittest.TestCase):
         text, _ = render()
         self.assertEqual(text.count("<d>[Chinese] 你好。</d>"), 1)
         self.assertIn("Dialogue (Alpha only, once, lips in sync):\n<d>[Chinese] 你好。</d>\n", text)
-        self.assertIn("After the line nobody speaks; the remaining time is room tone.", text)
+        # stamped (CAMERA_GRAMMAR_V1) units: provider-expert voice sentence (2026-10-26)
+        self.assertIn("Only this one line is spoken, once; before and after it there is no other dialogue, "
+                      "voice-over, narration or human voice.", text)
         self.assertIn("Beta listens without speaking, holding Alpha's gaze.", text)
         self.assertIn("Sound: Low air-conditioning hum. Cloth rustle from this action. One sleeve brush. "
                       "No background music.", text)

@@ -1318,6 +1318,17 @@ def main() -> int:
             for compiled_unit in result.get("units") or []:
                 if str(compiled_unit.get("model") or "") == "MiniMax-H3":
                     compiled_unit[H3_PROMPT_STYLE_FIELD] = declared_style
+        # Opt-in Chinese provider-expert constraint sentences (top-level h3_constraint_language "zh"); absent
+        # or "en" adds no field, so every other unit stays byte-identical.  The renderer honours it only on
+        # CAMERA_GRAMMAR_V1 units.
+        try:
+            from tools.h3_provider_english_contract import H3_CONSTRAINT_LANGUAGE_FIELD, h3_constraint_language
+        except ModuleNotFoundError:
+            from h3_provider_english_contract import H3_CONSTRAINT_LANGUAGE_FIELD, h3_constraint_language
+        if h3_constraint_language(generation_payload if isinstance(generation_payload, dict) else {}) == "zh":
+            for compiled_unit in result.get("units") or []:
+                if str(compiled_unit.get("model") or "") == "MiniMax-H3":
+                    compiled_unit[H3_CONSTRAINT_LANGUAGE_FIELD] = "zh"
     # The grouped unit is the source of truth for the transaction manifest.
     # Bind the authored audio profile here as well, so a later transaction
     # rebuild cannot silently lose the writer/director audio decision.

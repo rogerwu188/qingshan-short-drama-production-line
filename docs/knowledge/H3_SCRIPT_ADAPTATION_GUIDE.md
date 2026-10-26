@@ -97,6 +97,19 @@
   （"framed from mid-chest up"、"head and shoulders"、"seated behind the desk, waist up"）和人在做什么、看向谁；
   不写成正面站立直视镜头。同一场连续几镜的构图要有变化（角度、高低、前景）。
 - **对白镜不留空**（线主 2026-10-23：H3 会用乱码般的「像英文但不是英文」的话填满台词说完后的时间）：对白镜 `target_seconds` = 台词说话时长 + 0.5–1.0 s（中文约 4 字/秒，英文约 2.5 词/秒）；不要给对白镜加长，需要停顿、反应就另写一个无对白的反应镜。S7 也会把每个对白单元剪在最后一句说完后约 0.5 s，多给的时长只会被剪掉。
+- **对白镜 3–5 s，一句一镜**（线主 2026-10-26，实验集 E04：6–8 s 的对白单元里 H3 编出乱码台词、机位摇走；3–5 s 的单元干净）：
+  CAMERA_GRAMMAR_V1 合同里，有画内台词的镜头时长由编译器定为「估算说话时长 + 0.5 s」，向上取整到整秒，最短 3 s、最长 5 s
+  （估算 = `tools/dialogue_cut_safety.estimated_spoken_seconds`：中文 4.2 字/秒、英文 2.7 词/秒，每个标点另加 0.16 s；镜头写了
+  `dialogue_delivery` 语速就按它）。**一句台词估算超过 4.5 s（放不进 5 s）就拆成两镜**（两句各一镜，或一句在自然停顿处断开，台词一字不改）；
+  编译器不拦：照写手时长保留，若写手时长比台词长 1.5 s 以上就自动缩短到「台词 + 0.5 s」取整，并在编辑清单
+  `speaking_unit_duration_report` 里记 `WRITER_SPLIT_REQUIRED_*`，下一集照规则拆。**无台词的动作单独成镜**（推门、走位、拿东西不和台词放一镜），
+  对白镜只拍说话。实现：`tools/speaking_unit_duration.py`，由 `build_nalu_preproduction.build_editorial` 调用。
+- **角色多视图设定图**（服务方专家建议，线主 2026-10-26）：CAMERA_GRAMMAR_V1 合同的每个角色在 S3 多出一张图（一次性，约 11 积分/角色）：
+  正面脸部特写 + 全身正面/侧面/背面，纯灰底、同一套服装（`lines/nalu/runtime/tools/character_reference_sheet.py`）。H3 单元拿它代替头像牌作为该角色的
+  脸和身体参考（参考图张数不变）；头像/半身/全身身份牌仍是 InsightFace 身份锁与 Q1/Q2 的依据，设定图不进身份锁。已登记角色在下一个 CAMERA_GRAMMAR_V1 集
+  用锁定的全身 + 头像牌补出设定图。外貌里写了身体特征（断臂、疤、独眼、眼罩……）时设定图必须画出来；同一角色有不同状态（如断臂前后）时在
+  `character_entities[].state_variants` 写 `{"one_arm": "左臂肘下缺失，袖子别起"}`，每个状态多一张设定图（不写不花钱），镜头 `cast[].reference_state: "one_arm"` 选用。
+  合同写 `"character_reference_sheet": "NONE"` 可关闭。
 
 ## 6. 避开人群和手
 

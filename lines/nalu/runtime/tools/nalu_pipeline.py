@@ -2304,6 +2304,8 @@ def s3_bootstrap_argv(ctx: Ctx, *, accept_qa: bool, rights_basis: str | None,
         "--run-submitter-precheck",
         # a character's non-base views are planned only once its base plate is here
         "--plates-dir", p.identity_harvest_dir,
+        # CAMERA_GRAMMAR_V1: the series library says which characters still need their H3 reference sheet
+        "--series-asset-library", (getattr(p, "scope", None) or {}).get("asset_library") or ASSET_LIBRARY,
     ]
     if rights_basis:
         argv += ["--rights-basis", rights_basis]
@@ -2345,6 +2347,21 @@ def s3_plate_on_disk(ctx: Ctx, row_id: str) -> bool:
         return False
     pattern = re.compile(rf"^{re.escape(ctx.episode)}_{re.escape(row_id)}_[0-9a-fA-F-]{{8,}}\.png$")
     return any(pattern.match(item.name) for item in plates.iterdir())
+
+
+def s3_register_reference_sheets(ctx: Ctx) -> list[dict[str, Any]]:
+    """CAMERA_GRAMMAR_V1 H3 multi-view reference sheets harvested this episode -> series library rows
+    (character_reference_sheet.register; a face mismatch is recorded and H3 keeps the headshot).  Never
+    blocks S3: the sheet is an H3 reference, not an identity authority."""
+    try:
+        import character_reference_sheet as _sheet
+        library_path = Path((getattr(ctx.p, "scope", None) or {}).get("asset_library") or ASSET_LIBRARY)
+        plates = ctx.p.identity_harvest_dir
+        if not _sheet.harvested_sheets(plates, ctx.episode):
+            return []
+        return _sheet.register(library_path, plates, ctx.episode, measure=_sheet.insightface_measure())
+    except Exception as exc:  # noqa: BLE001 - advisory step
+        return [{"status": "REGISTRATION_ERROR", "error": f"{type(exc).__name__}: {exc}"}]
 
 
 def stage_s3(ctx: Ctx) -> StageResult:
@@ -2626,6 +2643,8 @@ def stage_s3(ctx: Ctx) -> StageResult:
     # S3.qa — machine identity QA + LOCK + the D-1 character asset registry.
     admission = s3_qa(ctx, res, harvested_dir=p.identity_harvest_dir)
     res.details["identity_qa"] = admission
+    if admission["status"] == PASS:
+        res.details["reference_sheets"] = s3_register_reference_sheets(ctx)
     if admission["status"] == REVIEW_REQUIRED:
         res.status = REVIEW_REQUIRED
         return res
@@ -5495,7 +5514,13 @@ def stage_s6(ctx: Ctx) -> StageResult:
     ctx.say("-- S6 final pass: all unit videos on disk; full compile + post-generation QA")
     # final pass = every unit with its real predecessor tail bound (the wave block of the builder
     # binds tails only for listed units), submit step SKIPPED: nothing may be POSTed here.
-    return _stage_s6_body(ctx, ready_units=[uid for uid, _, _ in deps], run_qa=True, final_pass=True)
+    result = _stage_s6_body(ctx, ready_units=[uid for uid, _, _ in deps], run_qa=True, final_pass=True)
+    # CAMERA_GRAMMAR_V1 engine redo: the Q2 sub-stage parked clips for their one controlled redo; run the wave
+    # loop again in this same pass (own keyframe, single-unit wave) instead of waiting for an operator decision
+    if (result.details.get("q2_admission") or {}).get("q2_auto_redo_parked") and not getattr(ctx, "_q2_auto_redo_reentered", False):
+        ctx._q2_auto_redo_reentered = True
+        return stage_s6(ctx)
+    return result
 
 
 ACTION_ROLE_EVIDENCE = RT_TOOLS / "action_role_evidence_writer.py"
@@ -5941,6 +5966,58 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
 # --------------------------------------------------------------------------- #
 # S6.q2 — Q2 VIDEO_ASSEMBLY content admission (D-7)
 # --------------------------------------------------------------------------- #
+def s6_q2_auto_redo(ctx: Ctx) -> dict[str, Any]:
+    """CAMERA_GRAMMAR_V1: the engine's own one controlled redo after an objective Q2 FAIL (q2_auto_redo.py;
+    CLAUDE_CODE_PRODUCTION §5).  Runs after ``prepare`` and before the video_q2 review: units it selects get
+    their clip parked and the S6 wave loop redoes them (own keyframe + single-unit wave).  Never blocks."""
+    if not _camera_grammar_on(ctx):
+        return {"status": "NOT_APPLICABLE"}
+    import q2_auto_redo as _redo
+    grouping = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json", {}) or {}
+    order = [str(u.get("unit_id") or "") for u in grouping.get("units") or [] if u.get("unit_id")]
+    rows = {uid: read_json(ctx.p.q2_dir / uid / "prepare.json", {}) or {} for uid in order
+            if (ctx.p.video_media / f"{uid}.mp4").is_file()}
+    if not any(_redo.objective_failures(row) for row in rows.values()):
+        return {"status": "NONE"}
+    state_path = _wave_state_path(ctx)
+    state = read_json(state_path, {}) or {"schema": "nalu.s6_wave_state.v1", "waves": []}
+    attempted = state.get(_redo.STATE_KEY) or {}
+    seconds = {str(t.get("unit_id") or t.get("task_key")): float(t.get("duration_seconds") or 0)
+               for t in (read_json(ctx.p.video_transaction, {}) or {}).get("tasks") or []}
+    model = episode_video_model(ctx.episode)
+
+    def unit_cost(uid: str) -> int:
+        return video_task_credits(model, seconds.get(uid, 6.0), 1) + _redo.OWN_KEYFRAME_CREDITS
+
+    headroom = None
+    if not ctx.dry:
+        verdict = ctx.budget_check(0, label="s6_q2_auto_redo_headroom").get("budget_verdict") or {}
+        headroom = verdict.get("headroom_credits")
+    decision = _redo.plan(rows, attempted, headroom=None if headroom is None else int(headroom),
+                          unit_cost=unit_cost, unit_order=order)
+    if ctx.dry:
+        decision["status"] = DRY
+        decision["note"] = "dry run: would redo the failing units when the paid run has headroom"
+        return decision
+    park = ctx.p.video_media / f"_superseded_{ctx.run_id}_q2_auto_redo"
+    for row in decision["selected"]:
+        clip = ctx.p.video_media / f"{row['unit_id']}.mp4"
+        if not clip.is_file():
+            continue
+        park.mkdir(parents=True, exist_ok=True)
+        os.replace(clip, park / clip.name)
+        state.setdefault(_redo.STATE_KEY, {})[row["unit_id"]] = {
+            **row, "parked_clip": str(park / clip.name), "run_id": ctx.run_id, "headroom_at_decision": headroom,
+            "recorded_at": now(), "recorded_by": TOOL_ID,
+            "next": "S6 wave loop: redo_switch_start_frames -> own keyframe (S5, Q1) -> single-unit wave -> Q2"}
+    if decision["selected"]:
+        write_json(state_path, state)
+    decision["status"] = "PARKED_FOR_REDO" if decision["selected"] else "NONE_SELECTED"
+    for row in decision["skipped"]:
+        ctx.say(f"   S6.q2 auto-redo skipped {row['unit_id']} ({row['reason']}): review + §5 default accept")
+    return decision
+
+
 def s6_q2(ctx: Ctx, res: StageResult) -> dict[str, Any]:
     """D-7 — the ONLY route to downstream_status ADMITTED_FOR_ASSEMBLY.
 
@@ -6010,6 +6087,17 @@ def s6_q2(ctx: Ctx, res: StageResult) -> dict[str, Any]:
         detail["blockers"] = [f"Q2_PREPARE_{prepare.get('status')}"] + [
             f"{row.get('unit_id')}:{row.get('blocker') or row.get('status')}"
             for row in (prepare.get("blocked") or [])[:8]]
+        return detail
+
+    # CAMERA_GRAMMAR_V1: objective FAILs are redone by the engine once, before anyone reviews those clips
+    auto_redo = s6_q2_auto_redo(ctx)
+    detail["auto_redo"] = auto_redo
+    if auto_redo.get("status") == "PARKED_FOR_REDO":
+        units = [row["unit_id"] for row in auto_redo.get("selected") or []]
+        ctx.say("-- S6.q2: engine redo (objective Q2 FAIL, once per unit): " + ", ".join(units))
+        detail["status"] = BLOCKED
+        detail["blockers"] = ["Q2_AUTO_REDO_PARKED:" + ",".join(units)]
+        detail["q2_auto_redo_parked"] = units
         return detail
 
     review_path, review = latest_submitted_review(ctx, "video_q2")
