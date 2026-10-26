@@ -31,6 +31,13 @@
 #
 #   paid_stage.sh --check <EPISODE>            print the budget position, spend nothing
 #
+#   paid_stage.sh <EPISODE> --ab-variant <variant_manifest.json>
+#       ONE owner-approved A/B task written by tools/h3_constraint_ab_variant.py, through the same
+#       guards as S6 (provenance + source unit, whole-batch prompt registration, D-11 for that one
+#       task key, budget reservation against the cap, durable fingerprint store, credit statement +
+#       ledger).  The clip goes to workflow/nalu/<EP>/video_ab/ and never enters assembly.
+#       Free rehearsal: nalu_pipeline.py ab-variant --episode <EP> --variant <json>   (no --paid)
+#
 # Exit codes: 0 ok · 2 usage · 3 preflight refused (no spend, no POST attempted) · other = pipeline.
 
 set -euo pipefail
@@ -44,13 +51,20 @@ die() { printf 'paid_stage: %s\n' "$*" >&2; exit "${2:-3}"; }
 usage() {
   printf 'usage: paid_stage.sh <EPISODE> <FROM_STAGE> <UNTIL_STAGE>\n' >&2
   printf '       paid_stage.sh --check <EPISODE>\n' >&2
+  printf '       paid_stage.sh <EPISODE> --ab-variant <variant_manifest.json>\n' >&2
   exit 2
 }
 
 [ $# -ge 2 ] || usage
 CHECK_ONLY=0
-if [ "$1" = "--check" ]; then CHECK_ONLY=1; EPISODE="$2"; else
+AB_VARIANT=""
+if [ "$1" = "--check" ]; then CHECK_ONLY=1; EPISODE="$2"
+elif [ "$2" = "--ab-variant" ]; then
+  [ $# -eq 3 ] && [ -n "$3" ] || usage
+  EPISODE="$1"; AB_VARIANT="$3"
+else
   [ $# -eq 3 ] || usage
+  case "$2$3" in *--*) usage ;; esac
   EPISODE="$1"; FROM_STAGE="$2"; UNTIL_STAGE="$3"
 fi
 case "$EPISODE" in E[0-9][0-9]) ;; *) die "episode must look like E11, got '$EPISODE'" 2 ;; esac
@@ -127,6 +141,13 @@ if ! mkdir "$LOCK" 2>/dev/null; then
 fi
 echo $$ > "$LOCK/pid"
 trap 'rm -rf "$LOCK"' EXIT
+
+if [ -n "$AB_VARIANT" ]; then
+  echo "paid_stage: $EPISODE A/B variant $AB_VARIANT --paid (order seq=$NALU_PAID_ORDER_SEQ, owner=$NALU_LINE_OWNER_ID)"
+  "$VENV" "$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_pipeline.py" ab-variant \
+    --episode "$EPISODE" --variant "$AB_VARIANT" --paid
+  exit $?
+fi
 
 echo "paid_stage: $EPISODE $FROM_STAGE..$UNTIL_STAGE --paid (order seq=$NALU_PAID_ORDER_SEQ, owner=$NALU_LINE_OWNER_ID)"
 "$VENV" "$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_pipeline.py" run \

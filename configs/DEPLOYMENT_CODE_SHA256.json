@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2210,
+  "file_count": 2211,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -649,7 +649,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "493ac7510ec3b0e9b9c38c8dc095c8f4ab9cfb302bd12b716bc12da0f21d7ad9"
+      "sha256": "4d23e40c6b02176ea353ef342d5063e149f46e7d180807bacd2ae5d2fadbf33b"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -689,7 +689,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/paid_stage.sh",
-      "sha256": "3733c967314387f69fe5f83366a0b3ed2f845db6b757c59ade8b74ac2bda5ecb"
+      "sha256": "7c2b09ab900d092cfbd1007eb91f6cf8c214822842d2ec4c579c887f574da3b4"
     },
     {
       "path": "lines/nalu/runtime/tools/post_generation_qa_runner.py",
@@ -805,7 +805,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "6bc124617783b7b66c9f3755d29e02ed3a9beb4df4355b8f98e2b938814237eb"
+      "sha256": "0f1789e86d2a3f6b5544894a830bc77786a7fc1ae1339938f0242c9993f58bec"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -4877,7 +4877,7 @@
     },
     {
       "path": "tools/h3_constraint_ab_variant.py",
-      "sha256": "652adec155344c931b3c305366220d1816b9bf536f8376d663b00964b3189b1d"
+      "sha256": "4ab2b0d8a7c8980c133ab276e74de48ad841a5e2e2a83df7599f246141cc4287"
     },
     {
       "path": "tools/h3_crossmodal_speaker_gate.py",
@@ -7610,6 +7610,10 @@
     {
       "path": "tools/tests/test_multimodal_character_binding_guard.py",
       "sha256": "2a549b359db73fedec90c8595c264dfaa39e130133cd61a3ad67bb70f5472782"
+    },
+    {
+      "path": "tools/tests/test_nalu_ab_variant_entry.py",
+      "sha256": "c9a42b7c25cd4b136e2ec7efebdd29caac1d9123bede51128c995887b10a2bac"
     },
     {
       "path": "tools/tests/test_nalu_budget_reservation.py",

@@ -60,8 +60,14 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 - H3 约束语言 A/B（线主 2026-10-26）：合同顶层 `"h3_constraint_language": "zh"`（缺省 `en`）只把服务方专家的几句约束（一镜到底/机位固定、无其他人声、
   只说这一句、防重复人物）换成专家原文中文，其余描述、台词标签、表演说明不变，仅 CAMERA_GRAMMAR_V1 单元生效。对比测试单个单元不必改合同：
   `$P tools/h3_constraint_ab_variant.py --manifest <preproduction>/<EP>_VIDEO_TRANSACTION_MANIFEST_V1.json --unit <EP>-VU-00X --prompt-dir <preproduction>/video_prompts --out <preproduction>/<EP>-VU-00X-ZH_AB.json`
-  生成任务键 `<EP>-VU-00X-ZH` 的单任务清单（同参考图、同时长，`provider_post_allowed:false`，打印 `estimated_credits`）；先 `paid_stage.sh <EP> --check` 看余量，
-  变体提示词照常登记进提示词批次，再按正常单任务路径提交。成片落 `video/<EP>-VU-00X-ZH.mp4`，不覆盖原单元，不进装配。
+  生成任务键 `<EP>-VU-00X-ZH` 的单任务清单（同参考图、同时长，`provider_post_allowed:false`，打印 `estimated_credits`）。
+  **A/B 付费入口只有一个**（2026-10-26）：`lines/nalu/runtime/tools/paid_stage.sh <EP> --ab-variant <preproduction>/<EP>-VU-00X-ZH_AB.json`。
+  它走和 S6 完全相同的守卫：校验清单出自 `h3_constraint_ab_variant.py`（`--verify` 重渲染一致）、属本集、CAMERA_GRAMMAR_V1、源单元在本集权威清单
+  （或其已绑定的英文交易）里且参考图一致；整批提示词登记——变体文本需要自己的 INCREMENTAL_EXACT_MATERIALIZATION_QA 回执，缺就 exit=4 并打印
+  `prompt_batch_finalize.py diff/receipts`（`--out-dir <preproduction>/prompt_batch_finalization_ab --transaction-path <变体清单>`，不覆盖原单元回执），审完重跑同一命令；
+  然后 D-11 只授权这一个任务键、按本集上限做预算检查 + 预留、提交器指纹去重、积分对账单 + 账本记录、提交成功即释放预留。
+  成片落 `workflow/nalu/<EP>/video_ab/<EP>-VU-00X-ZH.mp4`（报告 `video_ab/<TASK>_AB_RUN.json`），不覆盖原单元，不进装配；未完成就重跑同一命令（只轮询，不再 POST）。
+  免费预演（不花钱，不留授权副本和预留）：`$P lines/nalu/runtime/tools/nalu_pipeline.py ab-variant --episode <EP> --variant <清单>`（不加 `--paid`）。
 - 对白镜 3–5 s，一句一镜（线主 2026-10-26，CAMERA_GRAMMAR_V1）：编译器把画内对白镜定为「估算说话时长 + 0.5 s」取整秒（3–5 s，`tools/speaking_unit_duration.py`，报告在编辑清单 `speaking_unit_duration_report`）。
   一句估算超过 4.5 s（含标点停顿，英文约 12 词、中文约 17 字以上）放不进 5 s：**写手必须拆成两镜**（台词一字不改，在自然停顿处断开）；编译器不拦，只记 `WRITER_SPLIT_REQUIRED_*`，写手时长超出台词 1.5 s 以上会被自动缩短。
   无台词的动作（推门、走位、取物）单独写一镜，不和台词放在同一镜。
