@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2209,
+  "file_count": 2210,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -705,7 +705,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_qa.py",
-      "sha256": "ea02af293194262c459c5999629248939963a0ca39e7e5f40b45b6abb2773bc0"
+      "sha256": "6e34876808c0ae831c98223c436a5fe9fea3b36eef4a1ce3229b55ab0a564754"
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_register.py",
@@ -7866,6 +7866,10 @@
     {
       "path": "tools/tests/test_prompt_batch_qa_hide_coat.py",
       "sha256": "d1c246be24e27c408f3edd8730b835faf1388c851796c12c426ba633a482d5cb"
+    },
+    {
+      "path": "tools/tests/test_prompt_batch_qa_sheet_identity.py",
+      "sha256": "e7f6324705cf3d486397dd07cee77ceb75feb003bde88ebde1c9752c395e7f65"
     },
     {
       "path": "tools/tests/test_prompt_batch_register_no_write_on_problem.py",
