@@ -71,10 +71,40 @@ class CutRespectingGroupingTest(unittest.TestCase):
         self.assertEqual(spec["duration_policy_seconds"]["minimum"], 3.0)
         self.assertEqual(spec["duration_policy_seconds"]["maximum"], 15.0)
 
-    def test_same_pair_shot_reverse_stays_in_one_unit(self):
-        rows = [("01", 3, ["A", "B"]), ("02", 3, ["A", "B"], "REACTION_CUT")]
+    def test_authored_cut_is_a_boundary_even_with_unchanged_cast(self):
+        # line owner 2026-10-26 (lab Holmes E05): one unit = one fixed-camera take
+        rows = [("01", 3, ["A", "B"]), ("02", 3, ["A", "B"], "REACTION_CUT"), ("03", 3, ["A", "B"], "HARD_CUT"),
+                ("04", 3, ["A", "B"], "MATCH_CUT"), ("05", 3, ["A", "B"], "SMASH_CUT")]
         units, _ = _units(_manifest(_scene(rows, "S01")))
-        self.assertEqual(units, [["S01-01", "S01-02"]])
+        self.assertEqual(units, [["S01-01"], ["S01-02"], ["S01-03"], ["S01-04"], ["S01-05"]])
+        # an authored continuous take (or no authored mode) still groups
+        rows = [("01", 2, ["A"]), ("02", 2, ["A"], "CONTINUOUS_ACTION"), ("03", 2, ["A"], "CAMERA_REFRAME")]
+        units, _ = _units(_manifest(_scene(rows, "S01")))
+        self.assertEqual(units, [["S01-01", "S01-02", "S01-03"]])
+
+    def test_spoken_line_stands_alone_and_one_line_per_unit(self):
+        rows = [("01", 2, ["H"]), ("02", 3, ["H"], "CONTINUOUS_ACTION", "S01", "Holmes：Why, it is a dummy."),
+                ("03", 2, ["H"], "CONTINUOUS_ACTION"),
+                ("04", 3, ["H"], "CONTINUOUS_ACTION", "S01", "Holmes：and we shall investigate"),
+                ("05", 3, ["H"], "CONTINUOUS_ACTION", "S01", "Holmes：which has disturbed you.")]
+        shots = [_shot(r[0], r[1], r[2], *r[3:]) for r in rows]
+        units, spec = _units(_manifest(shots))
+        self.assertEqual(units, [["S01-01"], ["S01-02"], ["S01-03"], ["S01-04"], ["S01-05"]])
+        self.assertEqual(spec["groups"][0]["duration_exception_reason"], "PROVIDER_MINIMUM_PADDED")
+        # an offscreen (voice-only) line does not isolate the shot, but still counts as the unit's one line
+        shots = [_shot("01", 2, ["H"]), _shot("02", 2, ["H"], "CONTINUOUS_ACTION", dialogue="Helen：Won't it ring?"),
+                 _shot("03", 2, ["H"], "CONTINUOUS_ACTION", dialogue="Helen：No?")]
+        for shot in shots[1:]:
+            shot["prompt_spec"]["cast"].append({"character": "Helen", "character_id": "CHAR-Helen",
+                                                "face_visibility": "OFFSCREEN_VOICE_ONLY"})
+            shot["prompt_spec"]["role_semantic_disambiguation"] = {"dialogue_speaker_id": "CHAR-Helen"}
+        units, _ = _units(_manifest(shots))
+        self.assertEqual(units, [["S01-01", "S01-02"], ["S01-03"]])
+
+    def test_overlong_speaking_unit_is_flagged_not_blocked(self):
+        shots = [_shot("01", 6, ["H"], dialogue="Holmes：a line far too long to fit five seconds of speech")]
+        _units_, spec = _units(_manifest(shots))
+        self.assertEqual(spec["groups"][0]["duration_exception_reason"], "SPEAKING_LINE_WRITER_SPLIT_REQUIRED")
 
     def test_never_more_than_two_visible_subjects_even_without_a_cut(self):
         rows = [("01", 2.5, ["A"]), ("02", 2.5, ["B"], "CONTINUOUS_ACTION"), ("03", 2.5, ["C"], "CONTINUOUS_ACTION")]

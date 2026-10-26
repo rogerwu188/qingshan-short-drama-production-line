@@ -3581,7 +3581,7 @@
     },
     {
       "path": "tools/build_video_unit_grouping_spec.py",
-      "sha256": "461b68ab573bb44ba135533307ea9f89045117dbdf62092e97cc7b0bf1c70bca"
+      "sha256": "39c284ea798e398598df0843dbf62746c8bc3eed0e8ee85b304130b4d88340b5"
     },
     {
       "path": "tools/build_writer_agent_image_batch.py",
@@ -7429,7 +7429,7 @@
     },
     {
       "path": "tools/tests/test_grouping_respects_cuts.py",
-      "sha256": "fed67f26cf1cfb653ccd9788ecf14dfecec39e06ad1b97e80fc3823caf22914a"
+      "sha256": "6944ad7ddd2a0def15cfe9b9de5c0c2ce9190f4bede2126cdc35f3b3ec32c3b7"
     },
     {
       "path": "tools/tests/test_h3_crossmodal_speaker_gate.py",

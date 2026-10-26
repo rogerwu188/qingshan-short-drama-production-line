@@ -55,9 +55,10 @@ def duration_cost(duration: float) -> float:
     return 1000.0
 
 
-# CAMERA_GRAMMAR_V1 (line owner 2026-10-22): an authored cut where the visible cast changes is a unit
-# boundary, and no unit shows more than two distinct visible subjects, so the provider never performs a
-# scripted cut on its own.  Shots that share their cast may still share a unit (same-pair shot/reverse).
+# CAMERA_GRAMMAR_V1 (line owner 2026-10-22, tightened 2026-10-26): every authored cut is a unit boundary
+# (authored_cut), a spoken line stands alone in its unit, and no unit shows more than two distinct visible
+# subjects, so the provider never performs a scripted cut on its own.  Only an authored continuous take (or
+# an unauthored boundary with unchanged cast) shares a unit.
 CUT_MODES = {"MOTIVATED_CUT", "REACTION_CUT", "MATCH_CUT", "HARD_CUT"}
 MAX_VISIBLE_SUBJECTS = 2
 PROVIDER_MAX_SECONDS = 15.0  # MiniMax-H3 / SD2 request window (video_execution_plan_compiler)
@@ -83,6 +84,32 @@ def visible_subjects(shot: dict[str, Any]) -> set[str]:
             for row in (shot.get("prompt_spec") or {}).get("cast") or []
             if (row.get("character_id") or row.get("character"))
             and str(row.get("face_visibility") or "") != "OFFSCREEN_VOICE_ONLY"}
+
+
+def authored_cut(shot: dict[str, Any]) -> bool:
+    """CAMERA_GRAMMAR_V1 (line owner 2026-10-26, lab Holmes E05): an explicitly authored cut into ``shot``
+    (MOTIVATED_CUT / REACTION_CUT / MATCH_CUT / HARD_CUT or any other ``*_CUT`` mode) is always a unit
+    boundary, whatever the cast: one unit is one fixed-camera take.  Same-take modes (CONTINUOUS_ACTION,
+    CAMERA_REFRAME, PAN_REVEAL, OCCLUSION_REVEAL) and an unauthored (empty) mode may still share a unit."""
+    mode = str(shot.get("incoming_transition_mode") or "").strip().upper()
+    return mode in CUT_MODES or mode.endswith("_CUT")
+
+
+def on_screen_speaking(shot: dict[str, Any]) -> bool:
+    """A spoken line whose speaker is on screen (an OFFSCREEN_VOICE_ONLY speaker does not count; the same
+    rule as build_nalu_preproduction._speaking_shot_duration)."""
+    spec = shot.get("prompt_spec") or {}
+    if not str(spec.get("dialogue") or shot.get("dialogue") or "").strip():
+        return False
+    role = spec.get("role_semantic_disambiguation") or {}
+    speaker = str(role.get("lip_owner_id") or role.get("dialogue_speaker_id") or "")
+    offscreen = {str(m.get("character_id") or "") for m in spec.get("cast") or []
+                 if str(m.get("face_visibility") or "") == "OFFSCREEN_VOICE_ONLY"}
+    return not (speaker and speaker in offscreen)
+
+
+#: a speaking unit runs one short line, at most this long (tools/speaking_unit_duration.MAX_SECONDS)
+SPEAKING_UNIT_MAX_SECONDS = 5.0
 
 
 def cast_changing_cut(previous: dict[str, Any], shot: dict[str, Any]) -> bool:
@@ -200,16 +227,22 @@ def _partition_scene(
         dialogue_speakers: set[str] = set()
         subjects: set[str] = set()
         internal_cuts = 0
+        speaking = False
         for start in range(end - 1, -1, -1):
             duration = round(duration + float(shots[start]["duration_seconds"]), 6)
+            prompt_spec = shots[start].get("prompt_spec") or {}
+            dialogue_count += 1 if str(prompt_spec.get("dialogue") or shots[start].get("dialogue") or "").strip() else 0
             if cut_grammar:
                 subjects |= visible_subjects(shots[start])
+                speaking = speaking or on_screen_speaking(shots[start])
                 if start < end - 1:
+                    # one unit = one take: never across an authored cut; a spoken line stands alone (no
+                    # silent shot, no second line in its unit).  Every condition only grows with the group.
+                    if authored_cut(shots[start + 1]) or dialogue_count > 1 or speaking:
+                        break
                     internal_cuts += cast_changing_cut(shots[start], shots[start + 1])
                     if len(subjects) > MAX_VISIBLE_SUBJECTS:
                         break
-            prompt_spec = shots[start].get("prompt_spec") or {}
-            dialogue_count += 1 if str(prompt_spec.get("dialogue") or shots[start].get("dialogue") or "").strip() else 0
             speaker = _dialogue_speaker(shots[start]) if h3 else ""
             if speaker:
                 dialogue_speakers.add(speaker)
@@ -442,6 +475,10 @@ def build(manifest: dict[str, Any], source_sha: str) -> tuple[dict[str, Any], di
                     "PROVIDER_MINIMUM_PADDED" if duration < provider_min_seconds(manifest.get("model"))
                     else "AUTHORED_CUT_BOUNDARY" if duration < _pmin
                     else "AUTHORED_SINGLE_SHOT" if len(group) == 1 else "CONTINUOUS_CAUSAL_ACTION")
+        if (cut_grammar and duration > SPEAKING_UNIT_MAX_SECONDS + 1e-9
+                and any(on_screen_speaking(shot) for shot in group)):
+            # the line does not fit 5 s (tools/speaking_unit_duration WRITER_SPLIT_REQUIRED): never blocks
+            row["duration_exception_reason"] = "SPEAKING_LINE_WRITER_SPLIT_REQUIRED"
         spec_groups.append(row)
     spec = {
         "episode": episode,
