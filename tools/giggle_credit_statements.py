@@ -164,8 +164,23 @@ def reconcile_rows(
     expected_count: int,
     event_description: str,
     model: str,
+    known_task_ids: set[str] | frozenset[str] | None = None,
+    exclude_task_ids: set[str] | frozenset[str] | None = None,
 ) -> dict[str, Any]:
+    """Pay rows of one submission batch.
+
+    ``known_task_ids``: provider task ids this batch bound.  A Pay row whose ``project_id`` is one of
+    them is the batch's own charge and is matched by id, inside or outside the time window.
+    ``exclude_task_ids``: task ids already attributed to another durable transaction (another wave,
+    another episode).  Such a row is never counted here, even inside the window -- adjacent waves'
+    windows overlap (lab E05 2026-10-26: wave 29 counted wave 28's row, 2 matched, expected 1).
+    Rows without a recognised id still fall back to the exact-count time window, as before.
+    """
+    known = {str(v) for v in (known_task_ids or ()) if v}
+    excluded = {str(v) for v in (exclude_task_ids or ()) if v} - known
     matches = []
+    by_id = 0
+    skipped_attributed = []
     for row in rows:
         if row.get("event_type") != "Pay":
             continue
@@ -173,8 +188,16 @@ def reconcile_rows(
             continue
         if row.get("model") != model:
             continue
+        project_id = str(row.get("project_id") or "")
+        if project_id and project_id in known:
+            matches.append(row)
+            by_id += 1
+            continue
         created = parse_statement_time(str(row.get("created_at", "")))
         if start <= created <= end:
+            if project_id and project_id in excluded:
+                skipped_attributed.append(project_id)
+                continue
             matches.append(row)
     matches.sort(key=lambda row: row["created_at"])
 
@@ -191,7 +214,10 @@ def reconcile_rows(
     return {
         "status": "PASS" if exact_count and exact_credits else "FAIL",
         "endpoint": STATEMENT_PATH,
-        "method": "BATCH_TIME_WINDOW_EVENT_MODEL_EXACT_COUNT",
+        "method": ("TASK_ID_FIRST_THEN_TIME_WINDOW_EXACT_COUNT" if (known or excluded)
+                   else "BATCH_TIME_WINDOW_EVENT_MODEL_EXACT_COUNT"),
+        "matched_by_task_id_count": by_id,
+        "excluded_rows_attributed_elsewhere": sorted(skipped_attributed),
         "window_start_utc": start.isoformat().replace("+00:00", "Z"),
         "window_end_utc": end.isoformat().replace("+00:00", "Z"),
         "event_description": event_description,

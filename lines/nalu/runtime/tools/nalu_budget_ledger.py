@@ -314,6 +314,22 @@ def fetch_balance_snapshot(page_size: int) -> dict[str, Any]:
 PARKED_DIR_PREFIXES = ("_superseded", "_rejected", "_parked", "_archive")
 
 
+def _statement_row_key(row: Any) -> tuple[str, ...] | None:
+    """Identity of one provider Pay row across archived statements (None: not identifiable)."""
+    if not isinstance(row, dict):
+        return None
+    project_id = str(row.get("project_id") or "")
+    try:
+        credit = str(abs(Decimal(str(row["credit"]))))
+    except (KeyError, InvalidOperation):
+        return None
+    if not project_id:
+        # no provider id: only an exact duplicate of every field is the same row
+        return ("", json.dumps(row, sort_keys=True, ensure_ascii=False))
+    return (project_id, str(row.get("event_type") or ""), str(row.get("event_description") or ""),
+            str(row.get("created_at") or ""), credit)
+
+
 def _is_parked(path: Path) -> bool:
     return any(part.startswith(PARKED_DIR_PREFIXES) for part in path.parts)
 
@@ -405,6 +421,8 @@ def scan_non_video_spend(
         })
 
     # Layer 2: batch reconciliation statements written next to submit reports.
+    seen_statement_rows: set[tuple[str, ...]] = set()
+    duplicate_statement_rows: list[dict[str, Any]] = []
     for path in sorted(ENGINE_ROOT.rglob("*_credit_statement.json")):
         if _is_parked(path.relative_to(ENGINE_ROOT)):
             continue
@@ -417,6 +435,22 @@ def scan_non_video_spend(
         if episode not in str(path) and str(payload.get("episode") or "").upper() != episode:
             continue
         credits = payload.get("charged_credits")
+        # One provider Pay row is one charge, however many batch windows matched it.  Overlapping
+        # windows of adjacent waves both archived the same row (lab E05 2026-10-26: 1eb26c4b's 48 cr
+        # in wave 28's AND wave 29's statement, ledger 1382 vs 1334 provider truth).  Statements are
+        # never rewritten: a row already counted from an earlier statement is just not added again.
+        rows = payload.get("statement_rows")
+        if isinstance(credits, (int, float)) and isinstance(rows, list) and rows:
+            keys = [_statement_row_key(row) for row in rows]
+            if all(key is not None for key in keys):
+                fresh = [(key, row) for key, row in zip(keys, rows) if key not in seen_statement_rows]
+                seen_statement_rows.update(key for key, _ in fresh)
+                counted = sum((abs(Decimal(str(row["credit"]))) for _, row in fresh), Decimal("0"))
+                duplicate_rows = len(rows) - len(fresh)
+                if duplicate_rows:
+                    duplicate_statement_rows.append({"source": str(path), "duplicate_rows": duplicate_rows,
+                                                     "statement_credits": credits, "counted_credits": number(counted)})
+                credits = number(counted)
         if isinstance(credits, (int, float)):
             batch_total += Decimal(str(credits))
             batch_rows.append({
@@ -488,6 +522,7 @@ def scan_non_video_spend(
         "successful_attempts_with_unknown_cost": unknown_success,
         "batch_reconciled_credits": number(batch_total),
         "batch_rows": batch_rows,
+        "batch_duplicate_statement_rows": duplicate_statement_rows,
         "bound_image_transaction_count": len(bound_image_task_ids),
         "bound_image_transaction_upper_credits": number(bound_image_upper),
         "bound_image_transaction_rows": bound_image_rows,

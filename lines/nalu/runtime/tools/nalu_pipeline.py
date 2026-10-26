@@ -5456,7 +5456,17 @@ def stage_s6(ctx: Ctx) -> StageResult:
                             f"{sum(1 for u in ready if u in done)} of them already on disk; {len(done)}/{len(deps)} videos on disk")
                 ctx.p.video_submit = Path(w["submit_report"]) if w.get("submit_report") else legacy_submit
                 ctx.p.video_remote_status = Path(w["status_report"]) if w.get("status_report") else legacy_status
-                r = _stage_s6_body(ctx, ready_units=ready, run_qa=False)
+                # Harvest before recompile (lab E05 2026-10-26).  A re-entry wave whose missing clips
+                # are ALL live-bound to provider tasks is polled from the durable store directly: no
+                # S2 rebuild, no fingerprint, no submitter.  Recompiling first drifted VU-001's
+                # fingerprint and POSTed a duplicate 48-credit task for a redo that was still rendering.
+                live_poll = None
+                if w is not waves[-1] or not new_ready:
+                    live_poll = _s6_live_bound_wave(ctx, ready)
+                if live_poll is not None:
+                    r = _s6_poll_live_bound_wave(ctx, w, live_poll)
+                else:
+                    r = _stage_s6_body(ctx, ready_units=ready, run_qa=False)
                 r.details["rolling_wave"] = {"wave": wave_no, "ready_units": ready, "done_before": sorted(done)}
                 # Extract each unit's real final frame as soon as ITS OWN video lands, not when the
                 # whole wave passes poll (2026-10-13).  The extraction is what unblocks a tail-chained
@@ -5486,12 +5496,16 @@ def stage_s6(ctx: Ctx) -> StageResult:
                     w["completed_at"] = now()
                     write_json(wave_state_path, wave_state)
                 results.append((wave_no, r))
-                if ctx.dry:
-                    break
+                if ctx.dry and live_poll is None:
+                    break  # a live-bound poll wave compiles nothing: keep showing the other waves' plans
         finally:
             ctx.p.video_submit, ctx.p.video_remote_status = legacy_submit, legacy_status
         if ctx.dry:
-            return results[0][1]
+            first = results[0][1]
+            first.details["waves_this_pass"] = {str(n): r.status for n, r in results}
+            first.details["live_bound_polls"] = {str(n): r.details["live_bound_poll"] for n, r in results
+                                                 if r.details.get("live_bound_poll")}
+            return first
         pending = [(n, r) for n, r in results if r.status != PASS]
         if pending and len(pending) < len(results) and deferred_review is None:
             # a wave completed this pass, so new tails exist: re-plan now and submit what they unblock,
@@ -5627,13 +5641,8 @@ def s6_planned_credits_for_unbound(ctx: Ctx) -> int:
     except Exception as exc:  # noqa: BLE001 - fall back to the conservative plan
         ctx.say(f"   planned-credit refinement unavailable ({type(exc).__name__}); using cost plan")
         return ctx.planned_credits("S6")
-    store_dir = ENGINE / "workflow/tasks/giggle_video_submit_transactions" / ctx.episode
-    bound = set()
-    for path in (store_dir.glob("*.json") if store_dir.is_dir() else []):
-        row = read_json(path, {}) or {}
-        if row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id"):
-            bound.add(str(row.get("submission_fingerprint")))
-    unbound = [t for t in tasks if task_fingerprint(t) not in bound]
+    bound_keys = s6_bound_task_keys(ctx, tasks, task_fingerprint)
+    unbound = [t for t in tasks if str(t.get("task_key")) not in bound_keys]
     planned = video_task_credits(episode_video_model(ctx.episode),
                                  sum(float(t.get("duration_seconds") or 0) for t in unbound), len(unbound))
     ctx.say(f"   S6 planned credits: {planned} for {len(unbound)} unbound task(s) "
@@ -5647,13 +5656,133 @@ def s6_unbound_task_keys(ctx: Ctx) -> list[str]:
     if str(ENGINE) not in sys.path:
         sys.path.insert(0, str(ENGINE))
     from tools.submit_giggle_video_manifest_v2 import task_fingerprint  # engine, read-only
-    store_dir = ENGINE / "workflow/tasks/giggle_video_submit_transactions" / ctx.episode
+    bound_keys = s6_bound_task_keys(ctx, tasks, task_fingerprint)
+    return [str(t.get("task_key")) for t in tasks if str(t.get("task_key")) not in bound_keys]
+
+
+def s6_live_bindings(ctx: Ctx, task_key: str, *, exclude_fingerprints=()) -> list[dict[str, Any]]:
+    """Live provider bindings of one task key, whatever its recompiled fingerprint
+    (tools/video_live_binding.py): bound, not terminally failed, and newer than the unit's last
+    park.  Such a task is polled and harvested, never POSTed again."""
+    if str(ENGINE) not in sys.path:
+        sys.path.insert(0, str(ENGINE))
+    from tools.video_live_binding import live_bindings  # engine, read-only
+    return live_bindings(video_store_dir(ctx.episode), str(task_key), root=ENGINE, episode=ctx.episode,
+                         exclude_fingerprints=exclude_fingerprints,
+                         video_dirs=[ctx.p.video_media] + ([ctx.p.work / AB_VIDEO_DIRNAME]
+                                                           if getattr(ctx.p, "work", None) else []))
+
+
+def s6_bound_task_keys(ctx: Ctx, tasks: list[dict[str, Any]], task_fingerprint) -> set[str]:
+    """Task keys already bound to a remote task: by exact fingerprint, or -- when a recompile drifted
+    the fingerprint (lab E05 2026-10-26, episode-wide generation_contract_sha256) -- by a live
+    binding of the same task key.  The submitter applies the same rule before any POST."""
+    store_dir = video_store_dir(ctx.episode)
     bound = set()
     for path in (store_dir.glob("*.json") if store_dir.is_dir() else []):
         row = read_json(path, {}) or {}
         if row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id"):
             bound.add(str(row.get("submission_fingerprint")))
-    return [str(t.get("task_key")) for t in tasks if task_fingerprint(t) not in bound]
+    keys = set()
+    for t in tasks:
+        key = str(t.get("task_key"))
+        if task_fingerprint(t) in bound:
+            keys.add(key)
+            continue
+        declared = [str(v) for v in (t.get("supersedes_submission_fingerprints") or [])]
+        if s6_live_bindings(ctx, key, exclude_fingerprints=declared):
+            keys.add(key)
+    return keys
+
+
+#: tools/video_live_binding.ALT_TAKES_DIRNAME: a second live take of a unit is harvested here,
+#: never over the unit's assembly clip and never into a park directory.
+S6_ALT_TAKES_DIRNAME = "_alt_takes"
+
+
+def _s6_live_bound_wave(ctx: Ctx, units: list[str]) -> dict[str, Any] | None:
+    """{missing, live} when every unit of a re-entry wave without a clip on disk is live-bound to a
+    provider task (so the wave needs a poll, not a compile); None otherwise."""
+    missing = [uid for uid in units if not (ctx.p.video_media / f"{uid}.mp4").is_file()]
+    if not missing:
+        return None
+    manifest_path = getattr(ctx.p, "video_transaction", None)
+    manifest = (read_json(manifest_path, {}) or {}) if manifest_path else {}
+    declared = {str(t.get("task_key")): [str(v) for v in (t.get("supersedes_submission_fingerprints") or [])]
+                for t in manifest.get("tasks") or []}
+    live = {uid: s6_live_bindings(ctx, uid, exclude_fingerprints=declared.get(uid) or ()) for uid in missing}
+    if not all(live.values()):
+        return None
+    return {"missing": missing, "live": live}
+
+
+def _s6_poll_live_bound_wave(ctx: Ctx, wave: dict[str, Any], plan: dict[str, Any]) -> StageResult:
+    """Poll/harvest a re-entry wave straight from its live bindings: GET only, zero POSTs.
+
+    The poll input is written from the durable store, not from the wave's submit report: the
+    submitter overwrites that report, so a take bound by an earlier run (E05 wave 28: 4e2d4a56)
+    is missing from it.  The oldest live take lands at <unit>.mp4; any further live take of the
+    same unit goes to video/_alt_takes/ for the reviewer to choose from."""
+    res = StageResult(PASS)
+    wave_no = int(wave["wave"])
+    rows: list[dict[str, Any]] = []
+    for uid in plan["missing"]:
+        for index, take in enumerate(plan["live"][uid]):
+            label = uid if index == 0 else f"{uid}__take_{take['task_id'][:8]}"
+            row = {"task_key": label, "unit_id": uid, "task_id": take["task_id"],
+                   "transaction": take["transaction"], "submission_fingerprint": take["submission_fingerprint"],
+                   "bound_at": take["bound_at"], "request_sha256": take.get("request_sha256"),
+                   "live_take": index + 1, "recovered_from_transaction": True}
+            if index:
+                row["output_name"] = f"{S6_ALT_TAKES_DIRNAME}/{label}.mp4"
+            rows.append(row)
+    submit_report = Path(wave.get("submit_report") or ctx.p.video_submit)
+    live_report = submit_report.with_name(f"{submit_report.stem}_live_bindings.json")
+    write_json(live_report, {
+        "schema": "nalu.s6_live_binding_poll.v1", "episode": ctx.episode, "wave": wave_no,
+        "generated_at": now(), "posts_planned": 0, "tasks": rows,
+        "note": "re-entry wave whose missing clips are all live-bound: poll/harvest only, no compile, no POST"})
+    poll_argv = [VENV, ENGINE / "tools/poll_giggle_submit_report.py",
+                 "--submit-report", live_report, "--out-dir", ctx.p.video_media,
+                 "--status-report", ctx.p.video_remote_status, "--download"]
+    res.details["live_bound_poll"] = {
+        "wave": wave_no, "units": plan["missing"], "posts_planned": 0, "poll_input": str(live_report),
+        "tasks": [{"task_key": r["task_key"], "task_id": r["task_id"], "bound_at": r["bound_at"]} for r in rows]}
+    ctx.say(f"-- S6 wave {wave_no}: every missing clip is live-bound ({len(rows)} provider task(s): "
+            + ", ".join(f"{r['task_key']}={r['task_id'][:8]}" for r in rows)
+            + "); poll/harvest only, no recompile, no POST")
+    if not ctx.paid_enabled:
+        res.status = DRY
+        res.blockers.append("PAID_STEPS_DISABLED_WAVE_NOT_POLLED")
+        ctx.say("   then (needs GIGGLE_API_KEY, GET only, no POST, free):")
+        ctx.say(f"     {q(poll_argv)}")
+        ctx.planned_commands.append({
+            "stage": "S6", "step": f"s6_poll_live_bound_wave{wave_no}", "planned_credits": 0,
+            "paid_argv": [str(x) for x in poll_argv], "paid_command": q(poll_argv), "posts": 0,
+            "note": "polls the live-bound provider tasks from the durable store; downloads completed clips only"})
+        return res
+    poll = ctx.run(poll_argv, name=f"s6_poll_live_bound_wave{wave_no}", paid=True, extra_env=VIDEO_SUBMIT_ENV)
+    res.steps.append(poll)
+    res.receipts.append(str(ctx.p.video_remote_status))
+    remote = read_json(ctx.p.video_remote_status, {}) or {}
+    res.details["remote_status_counts"] = remote.get("status_counts")
+    res.details["all_completed"] = remote.get("all_completed")
+    terminal = []
+    for row in remote.get("results") or []:
+        if str(row.get("remote_status") or "").lower() in {"failed", "error", "cancelled", "canceled", "timeout"}:
+            # durable mark: the status report is overwritten by the next poll, the transaction is not
+            tx_path = Path(str(row.get("transaction") or ""))
+            tx = read_json(tx_path, {}) if tx_path.is_file() else {}
+            if tx and tx.get("task_id") == row.get("task_id") and not tx.get("remote_terminal_state"):
+                tx.update({"remote_terminal_state": str(row.get("remote_status")), "remote_terminal_observed_at": now()})
+                write_json(tx_path, tx)
+            terminal.append(str(row.get("task_key")))
+    if poll.get("exit_code") != 0 or not remote.get("all_completed"):
+        res.status = BLOCKED
+        res.blockers.append("VIDEO_NOT_ALL_COMPLETED")
+        if terminal:
+            res.blockers.append("LIVE_BOUND_TASK_TERMINAL_REMOTE_FAILURE:" + ",".join(terminal))
+    return res
 
 
 # --------------------------------------------------------------------------- #
