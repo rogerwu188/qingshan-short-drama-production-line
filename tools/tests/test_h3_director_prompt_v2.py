@@ -118,7 +118,7 @@ class DirectorPromptV2Shape(unittest.TestCase):
         self.assertIn("- Alpha, frame left: Man, 30, short black hair. Plain navy suit.\n", text)
         self.assertIn("- Beta, frame right: Woman, 28, long black hair. A plain off-white shirt and grey trousers.\n", text)
         self.assertIn("Each keeps only their own clothes. Nobody else appears", text)
-        self.assertIn("@Image1 is the opening frame", text)
+        self.assertIn("@Image1 is the exact first frame: the clip starts on this image with the same shot size", text)
         self.assertIn("@Image2 is Alpha's face and body. This is the same Alpha already standing in @Image1 — one "
                       "person; never draw a second Alpha.\n@Image3 is Beta's face and body. This is the same Beta "
                       "already standing in @Image1 — one person; never draw a second Beta.\n", text)

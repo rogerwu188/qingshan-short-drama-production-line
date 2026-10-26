@@ -375,7 +375,7 @@ def locked_camera_conflicts(text: str) -> list[str]:
 # render
 # ----------------------------------------------------------------------------------------------------------
 def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: set[str], people: int,
-                     beings: int) -> list[str]:
+                     beings: int, exact_first_frame: bool = False) -> list[str]:
     refs = unit.get("reference_images") or []
     sequence_by_path = {str(row.get("path") or ""): row for row in unit.get("reference_image_sequence") or []
                         if row.get("path") and str(row.get("entity_id") or "").startswith("CHAR-")}
@@ -414,8 +414,15 @@ def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: se
             who = ("the objects' places" if total == 0 else "the person's place" if people == 1 and total == 1
                    else "the subject's place" if total == 1 else f"the {number_word(total)} people's places"
                    if people == total and total <= 3 else "everyone's places")
-            lines.append(f"@Image1 is the opening frame: match its setting, camera position and {who}. "
-                         "Faces come from the face references; never freeze its pose.")
+            if exact_first_frame:
+                # lab Holmes E05: H3 sometimes opened wider than @Image1 and pushed in to it; pin the first frame
+                lines.append(f"@Image1 is the exact first frame: the clip starts on this image with the same shot "
+                             f"size, framing, camera position and {who} as shown; never start wider or closer than @Image1. "
+                             "Faces come from the face "
+                             "references; never freeze its pose.")
+            else:
+                lines.append(f"@Image1 is the opening frame: match its setting, camera position and {who}. "
+                             "Faces come from the face references; never freeze its pose.")
         elif role in _PREVIOUS_FRAME_ROLES:
             lines.append(f"@Image{index} is the previous shot's last frame: continuity of positions, clothing "
                          "and props only; it defines no face.")
@@ -467,7 +474,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     label_by_id = {s["entity_id"]: s["label"] for s in subjects}
 
     # --- references ------------------------------------------------------------------------------------
-    reference_lines = _reference_lines(unit, plan, onscreen=onscreen_ids, people=len(people), beings=len(beings))
+    reference_lines = _reference_lines(unit, plan, onscreen=onscreen_ids, people=len(people), beings=len(beings),
+                                       exact_first_frame=stamped)
     for index, row in enumerate(crossmodal_rows, 1):
         binding = f"{row['audio_slot']} is {row['provider_entity_label']}'s voice"
         reference_lines.append(binding + ". It gives timbre only — never speak or echo its words.")
