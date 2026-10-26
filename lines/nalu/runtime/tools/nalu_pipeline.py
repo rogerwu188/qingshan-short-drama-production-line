@@ -5886,14 +5886,20 @@ def ab_variant_failures(ctx: Ctx, path: Path, doc: dict[str, Any]) -> list[str]:
     authority = read_json(ctx.p.video_transaction, {}) or {}
     if any(str(t.get("task_key")) == str(task.get("task_key")) for t in authority.get("tasks") or []):
         failures.append(f"AB_VARIANT_TASK_KEY_COLLIDES_WITH_EPISODE_TASK:{task.get('task_key')}")
-    origin = next((t for t in authority.get("tasks") or [] if str(t.get("task_key")) == source), None)
-    origin_kind = "TRANSACTION_MANIFEST"
+    # The A/B pairs with the English take that was actually submitted: prefer its immutable bound transaction.
+    # A later recompile of the manifest may carry different references (e.g. a predecessor tail) that the
+    # English clip never had (lab E05 2026-10-26).
+    origin, origin_kind = None, "BOUND_TRANSACTION"
+    store = video_store_dir(ctx.episode)
+    bound = [read_json(c, {}) or {} for c in (sorted(store.glob(f"{source}__*.json")) if store.is_dir() else [])]
+    bound = [r for r in bound if r.get("state") == "SUBMITTED_TASK_ID_BOUND" and r.get("task_id")]
+    origin = next((r for r in bound if list(r.get("reference_sha256") or []) == list(task.get("reference_sha256") or [])
+                   and str(r.get("model") or "") == str(task.get("model") or "")), None)
+    if origin is None and bound:
+        origin = bound[-1]
     if origin is None:
-        store = video_store_dir(ctx.episode)
-        for candidate in sorted(store.glob(f"{source}__*.json")) if store.is_dir() else []:
-            record = read_json(candidate, {}) or {}
-            if record.get("state") == "SUBMITTED_TASK_ID_BOUND" and record.get("task_id"):
-                origin, origin_kind = record, "BOUND_TRANSACTION"
+        origin = next((t for t in authority.get("tasks") or [] if str(t.get("task_key")) == source), None)
+        origin_kind = "TRANSACTION_MANIFEST"
     if origin is None:
         failures.append(f"AB_SOURCE_UNIT_NOT_IN_AUTHORITATIVE_MANIFEST:{source}")
     else:

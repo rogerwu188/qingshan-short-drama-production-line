@@ -197,6 +197,20 @@ class AbVariantEntryTests(unittest.TestCase):
                {"state": "SUBMITTED_TASK_ID_BOUND", "task_id": "T0", "model": "MiniMax-H3", "reference_sha256": REFS})
         self.assertEqual(pipeline.ab_variant_failures(ctx, path, json.loads(path.read_text())), [])
 
+    def test_bound_english_take_wins_over_a_recompiled_manifest(self):
+        # lab E05: a later recompile added a predecessor tail the English clip never had
+        ctx = FakeCtx(self.root)
+        path = fixture(self.root, ctx)
+        _write(ctx.p.video_transaction, {"tasks": [{"task_key": SOURCE, "model": "MiniMax-H3",
+                                                    "reference_sha256": [REFS[0], "e" * 64, *REFS[1:]]}]})
+        _write(self.store / f"{SOURCE}__0123456789abcdef.json",
+               {"state": "SUBMITTED_TASK_ID_BOUND", "task_id": "T0", "model": "MiniMax-H3", "reference_sha256": REFS})
+        self.assertEqual(pipeline.ab_variant_failures(ctx, path, json.loads(path.read_text())), [])
+        # a variant whose references match neither the bound take nor the manifest is still refused
+        bad = fixture(self.root, ctx, **{"task.reference_sha256": ["d" * 64]})
+        failures = pipeline.ab_variant_failures(ctx, bad, json.loads(bad.read_text()))
+        self.assertIn("AB_VARIANT_REFERENCES_DIFFER_FROM_SOURCE:BOUND_TRANSACTION", failures)
+
     def test_already_authorised_or_retargeted_copy_is_refused(self):
         ctx = FakeCtx(self.root)
         path = fixture(self.root, ctx, provider_post_allowed=True, **{"task.reference_sha256": ["d" * 64]})
