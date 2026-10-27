@@ -1155,3 +1155,70 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：旧合同判定、方向上限与 H3 运镜句不变；新合同强制运镜规则只提示；剧本切点不再沿用尾帧
 - **授权**：线主 2026-10-22 批准 Twelve Gazes 运镜/剪辑修复（同日改为「只留最关键的门，靠更好的导演」）
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K120 — S5
+
+- **规则**：previs 的导演审阅轮次来自落盘的审阅回执（回执必须写审阅人且答完全部导演问题），不来自「跑了几次」。重跑同一次预演不消耗轮次，也不会把未审阅的序列自动升为 `CLOSED_ADVISORY`。
+- **教训**：旧实现用进程内计数器，第二次运行就把轮次 +1，于是门自己给自己签了「已审阅」——同一份没人看过的预演跑两次即 PASS。
+- **恢复**：剧本或机位改动后需重新提交回执；仅重跑构建不能推进审阅。
+- **实现**：[tools/episode_previs.py](../../tools/episode_previs.py)、[lines/nalu/runtime/tools/nalu_pipeline.py](../../lines/nalu/runtime/tools/nalu_pipeline.py)
+- **回归**：`tools/tests/test_previs_review_round_semantics.py`
+- **证据**：重跑不增轮；有具名回执才计一轮；问题未答完不计
+- **授权**：Codex CC_H3 提示词与跨镜头预演修复方案 2026-10-26 §四-缺口C
+- **状态**：`REFERENCE_IMPLEMENTATION`
+
+### K121 — S5
+
+- **规则**：预演必须把已有的运镜/转场/动作连续性合同投影到真实的剪辑相邻关系上，输出逐边界的 `boundaries` 列表；预演模块不重新实现这些合同，只读引擎已有的判定。
+- **教训**：旧预演时间线只有镜号、起点、时长与静帧，两种完全不同的运镜/动作设计产出字节相同的 PASS：审阅者看不到切点节奏，预演无法作为剪辑依据。
+- **恢复**：新合同若新增边界语义，应扩展投影字段而不是在预演里复制判定。
+- **实现**：[tools/episode_previs.py](../../tools/episode_previs.py)
+- **回归**：`tools/tests/test_previs_boundary_projection.py`
+- **证据**：同向连摇+动作重启与全锁定边界不同；未声明转场报 `NOT_DECLARED` 不臆造
+- **授权**：Codex CC_H3 提示词与跨镜头预演修复方案 2026-10-26 §四-缺口A
+- **状态**：`REFERENCE_IMPLEMENTATION`
+
+### K122 — S5
+
+- **规则**：审阅回执绑定 `sequence_digest`（`timeline` + `boundaries` 的 sha256），不绑定输出文件的 sha。序列任一处机位、时长或转场改动都会使旧回执自动失效；与该序列无关的字段变动不会。
+- **教训**：旧实现记录的是输出 json 的 sha，而输出每次运行都变，无法区分「这份审阅仍描述当前剪辑」与「剪辑在审阅后被改过」。
+- **恢复**：改剪辑后需重新审阅；不要用重跑刷新回执 sha 来「续命」。
+- **实现**：[tools/episode_previs.py](../../tools/episode_previs.py)、[lines/nalu/runtime/tools/nalu_pipeline.py](../../lines/nalu/runtime/tools/nalu_pipeline.py)
+- **回归**：`tools/tests/test_previs_sequence_digest_binding.py`
+- **证据**：改运镜或时长即改变 digest；旧回执对新序列计 0 轮
+- **授权**：Codex CC_H3 提示词与跨镜头预演修复方案 2026-10-26 §四-缺口D
+- **状态**：`REFERENCE_IMPLEMENTATION`
+
+### K123 — S6
+
+- **规则**：局部修复批次（`partial_repair_scope` / `staged_generation_scope`）不得整体跳过跨单元校验。应由构建阶段记录全局分组计划及其 sha256，提交阶段把该计划的紧邻前驱/后继单元作为只读上下文拼进序列，只校验受影响边界；邻居永不进入 manifest 的 `tasks`，绝不重复 POST。计划在批次构建后被改动则拒绝提交。
+- **教训**：旧实现一旦看到作用域标记就同时跳过运镜序列、转场序列与节奏三个校验。非连续子集不被当成连续集是对的，但「什么都不查」让批次与集内邻接处的边界完全失守：重画的运镜可能撞上邻居的出向运动，重写的转场可能与邻居终态矛盾。
+- **补充**：分组计划本身不带 `ordered_prompt_specs`，而边界校验要把目标要求绑到邻居的首/末拍，因此构建阶段另记录提示词上下文计划（`global_context_units` ＋ sha256），只用于补这个字段；邻居的机位/场景/转场仍取自分组计划。切片序列的第一项是邻居而非整集首单元，`starts_episode=False` 保留它自己的入向转场。
+- **恢复**：无全局计划引用的历史修复批次维持仅逐任务校验；新批次应带计划。
+- **实现**：[lines/nalu/runtime/tools/build_nalu_preproduction.py](../../lines/nalu/runtime/tools/build_nalu_preproduction.py)、[tools/submit_giggle_video_manifest_v2.py](../../tools/submit_giggle_video_manifest_v2.py)
+- **回归**：`tools/tests/test_staged_scope_neighbour_context.py`
+- **证据**：波次拼出前后邻居并按集内顺序排列；manifest 不被改写；计划 sha 不符或单元不在计划内则拒
+- **授权**：Codex CC_H3 提示词与跨镜头预演修复方案 2026-10-26 §四-缺口E
+- **状态**：`REFERENCE_IMPLEMENTATION`
+
+### K124 — S6
+
+- **规则**：`SUBMITTED_TASK_ID_BOUND` 事务在生成成功后不会自动结清，因此「待发额」只能在它比本类目最新归档账单更新的窗口内计入；已被账单覆盖的事务由 `recorded_total_credits` 统计一次，不得再计。同一账号其他项目的扣费不得计入本集。
+- **教训**：旧实现每次调用都把历史上所有绑定事务重新计入，待发额只增不减，最终在真实敞口接近零时误报 `EPISODE_CREDIT_CAP_WOULD_BE_EXCEEDED`（一次现场里 130 条历史事务被读成约 4185 额度）。账单归集只按时间窗匹配，会把同账号其他项目的扣费算进本集。
+- **恢复**：账单归集按任务 id 归属；外来行单独列报为 `FOREIGN_ACCOUNT_ACTIVITY_NOT_ATTRIBUTED_TO_THIS_EPISODE`，既不静默丢弃也不静默计入。
+- **实现**：[lines/nalu/runtime/tools/nalu_budget_ledger.py](../../lines/nalu/runtime/tools/nalu_budget_ledger.py)、[tools/giggle_credit_statements.py](../../tools/giggle_credit_statements.py)
+- **回归**：`tools/tests/test_nalu_budget_reservation_settle.py`
+- **证据**：已归档事务不再计入待发；外来行被隔离并单独报数
+- **授权**：Codex CC_H3 提示词与跨镜头预演修复方案 2026-10-26（配合现场账目）
+- **状态**：`REFERENCE_IMPLEMENTATION`
+
+### K125 — S5
+
+- **规则**：预演渲染必须呈现声明的运镜并接入真实对白音频，不能用静音床加静态卡代替。只动画化合同里声明过的 `(motion_family, motion_direction)` 组合；`LOCKED` 镜绝不补运镜；某镜有对白但没有提供音频时必须报告，不能假作静音通过。正式入口默认不渲（会为整条时间线调用 ffmpeg），由环境变量显式开启。
+- **教训**：旧入口只调用 `build_previs`、从不调用渲染，也从不传已有对白音频映射；可选渲染只把静态图／占位卡拼起来并配 `anullsrc`。机器检查可以彼此自洽而结果根本没法看——这恰是观众能抓、JSON 门抓不到的东西：观众能不能跟着说话对象、动作和切点走。
+- **恢复**：需要看片时设 `NALU_PREVIS_RENDER=<输出 mp4>` 与 `NALU_PREVIS_RENDER_ENABLED=1`，可选 `NALU_PREVIS_DIALOGUE_AUDIO` 指向对白音频清单；渲染结果写进回执并出现在门记录里。
+- **实现**：[tools/episode_previs.py](../../tools/episode_previs.py)、[lines/nalu/runtime/tools/nalu_pipeline.py](../../lines/nalu/runtime/tools/nalu_pipeline.py)
+- **回归**：`tools/tests/test_previs_render_watchable.py`
+- **证据**：端到端实渲：PAN/DOLLY/CRANE 有动画，`LOCKED` 静止；对白段实测 `-21.1 dB`、静默段 `-91 dB`；缺对白音频的镜被列入 `shots_dialogue_audio_missing`
+- **授权**：Codex CC_H3 提示词与跨镜头预演修复方案 2026-10-26 §四-缺口B
+- **状态**：`REFERENCE_IMPLEMENTATION`

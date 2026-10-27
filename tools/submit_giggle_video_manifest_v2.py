@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import fcntl
 import hashlib
 import importlib.util
@@ -611,10 +612,17 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
         "internal_transition_contracts": machine.get("internal_transition_contracts")
         or task.get("internal_transition_contracts")
         or [],
+        # A grouping-plan unit names this boundary `transition_contract`; a paid
+        # task carries it as `incoming_transition_contract`.  Accept both, or a
+        # read-only neighbour loses its inbound and the slice looks unbound.
         "transition_contract": machine.get("incoming_transition_contract")
-        or task.get("incoming_transition_contract"),
+        or machine.get("transition_contract")
+        or task.get("incoming_transition_contract")
+        or task.get("transition_contract"),
         "incoming_transition_contract": machine.get("incoming_transition_contract")
-        or task.get("incoming_transition_contract"),
+        or machine.get("transition_contract")
+        or task.get("incoming_transition_contract")
+        or task.get("transition_contract"),
         "outgoing_transition_contract": machine.get("outgoing_transition_contract")
         or task.get("outgoing_transition_contract"),
         "action_classification": machine.get("action_classification")
@@ -651,6 +659,141 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
         "h3_ref2va_contract": machine.get("h3_ref2va_contract")
         or task.get("h3_ref2va_contract"),
     }
+
+
+def scoped_sequence_with_global_neighbours(
+    manifest: dict[str, Any], submitted: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Splice READ-ONLY global neighbours around a scoped repair wave.
+
+    A partial repair batch is a non-contiguous slice of the episode, so its
+    first and last units are NOT real episode endpoints.  Skipping the
+    cross-unit validators hides the boundaries the wave actually breaks:
+    a repainted camera can now repeat the outgoing motion of a neighbour it
+    never POSTs, and a rewritten transition can disagree with the neighbour's
+    terminal state.  The fix is to restore the missing context, not to waive
+    the check.
+
+    Neighbours come from the sha-bound global grouping plan recorded by
+    ``build_nalu_preproduction`` in ``staged_generation_scope``.  They are
+    projected with the same ``grouped_sequence_unit`` shape as subtasks, are
+    only ever read, and never enter ``manifest["tasks"]`` — so a repair wave
+    still POSTs exactly the units it was authorized to POST.
+
+    Returns (ordered sequence covering the wave plus its immediate neighbours,
+    report).  Empty report sequence with ``status=MISSING_GLOBAL_PLAN`` when no
+    bound plan is available; callers fall back to per-task validation only.
+    """
+    scope = manifest.get("staged_generation_scope") or {}
+    report: dict[str, Any] = {
+        "schema": "qingshan.staged_scope_neighbour_context.v1",
+        "neighbour_units_read_only": [],
+    }
+    if not submitted:
+        report["status"] = "NO_UNITS"
+        return [], report
+    plan_value = scope.get("global_grouping_plan")
+    if not plan_value:
+        report["status"] = "MISSING_GLOBAL_PLAN"
+        return [], report
+    plan_path = resolve(plan_value)
+    if not plan_path.is_file():
+        raise RuntimeError(f"staged_generation_scope global plan is missing: {plan_value}")
+    actual_sha = sha256(plan_path)
+    expected_sha = str(scope.get("global_grouping_plan_sha256") or "")
+    if expected_sha and actual_sha != expected_sha:
+        raise RuntimeError(
+            "staged_generation_scope global plan changed after the batch was built "
+            f"({plan_value}): expected {expected_sha}, found {actual_sha}"
+        )
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    plan_units = plan.get("units") or []
+    order = {str(unit.get("unit_id") or ""): index for index, unit in enumerate(plan_units)}
+    by_id = {str(unit.get("unit_id") or ""): unit for unit in plan_units}
+    missing = [str(unit.get("unit_id")) for unit in submitted
+               if str(unit.get("unit_id") or "") not in order]
+    if missing:
+        raise RuntimeError(
+            f"staged wave units are absent from the bound global plan: {','.join(missing)}"
+        )
+
+    # The grouping plan carries a neighbour's camera and transition but not its
+    # ordered_prompt_specs, and the boundary check binds the target requirements
+    # to the neighbour's first/last beat.  A separate prompt-spec context plan
+    # (recorded by the builder) supplies only that missing field; per-unit
+    # camera/scene/transition always come from the grouping plan.
+    spec_context: dict[str, dict[str, Any]] = {}
+    context_value = scope.get("global_context_units")
+    if context_value:
+        context_path = resolve(context_value)
+        if not context_path.is_file():
+            raise RuntimeError(f"staged_generation_scope context plan is missing: {context_value}")
+        expected_context_sha = str(scope.get("global_context_units_sha256") or "")
+        actual_context_sha = sha256(context_path)
+        if expected_context_sha and actual_context_sha != expected_context_sha:
+            raise RuntimeError(
+                "staged_generation_scope context plan changed after the batch was built "
+                f"({context_value}): expected {expected_context_sha}, found {actual_context_sha}"
+            )
+        for row in (json.loads(context_path.read_text(encoding="utf-8")).get("units")
+                    or json.loads(context_path.read_text(encoding="utf-8")).get("tasks") or []):
+            uid = str(row.get("unit_id") or row.get("task_key") or "")
+            if uid:
+                spec_context[uid] = row
+
+    def neighbour(unit: dict[str, Any], offset: int) -> dict[str, Any] | None:
+        index = order[str(unit["unit_id"])] + offset
+        if index < 0 or index >= len(plan_units):
+            return None
+        candidate = copy.deepcopy(plan_units[index])
+        if not candidate.get("ordered_prompt_specs"):
+            extra = spec_context.get(str(candidate.get("unit_id") or "")) or {}
+            for field in ("ordered_prompt_specs", "duration_seconds", "aspect_ratio",
+                          "resolution", "model", "character_entities"):
+                if extra.get(field) is not None and candidate.get(field) is None:
+                    candidate[field] = copy.deepcopy(extra[field])
+        # The grouping plan stores the same contract fields a task carries, but
+        # grouped_sequence_unit() reads most of them from ``machine_contract``
+        # (that is where the paid boundary keeps them).  Project the neighbour
+        # through the same shape so a neighbour and a real task are validated
+        # by identical code paths rather than a lookalike projection.
+        return grouped_sequence_unit({
+            "semantic_video_unit": True,
+            "task_key": candidate.get("unit_id"),
+            "machine_contract": candidate,
+        })
+
+    wave = sorted(submitted, key=lambda unit: order[str(unit["unit_id"])])
+    sequence: list[dict[str, Any]] = []
+    for unit in wave:
+        before = neighbour(unit, -1)
+        after = neighbour(unit, +1)
+        if before is not None and (not sequence or sequence[-1]["unit_id"] != before["unit_id"]):
+            sequence.append(before)
+            report["neighbour_units_read_only"].append(before["unit_id"])
+        sequence.append(unit)
+        if after is not None:
+            sequence.append(after)
+            report["neighbour_units_read_only"].append(after["unit_id"])
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for unit in sequence:
+        if unit["unit_id"] in seen:
+            continue
+        seen.add(unit["unit_id"])
+        deduped.append(unit)
+    report.update({
+        "status": "VALIDATED_WITH_NEIGHBOURS",
+        "global_grouping_plan": plan_value,
+        "global_grouping_plan_sha256": actual_sha,
+        "submitted_unit_count": len(wave),
+        "neighbour_units_read_only": sorted(
+            {uid for uid in report["neighbour_units_read_only"] if uid not in
+             {str(unit["unit_id"]) for unit in wave}}
+        ),
+        "sequence_unit_count": len(deduped),
+    })
+    return deduped, report
 
 
 def uses_structured_role_gate(task: dict[str, Any], prompt_text: str) -> bool:
@@ -1288,14 +1431,27 @@ def main() -> int:
             )
         if task.get("semantic_video_unit"):
             grouped_camera_units.append(grouped_sequence_unit(task))
-    skip_cross_task_sequence = bool(manifest.get("partial_repair_scope") or manifest.get("staged_generation_scope"))
-    if not skip_cross_task_sequence:
+    scoped = bool(manifest.get("partial_repair_scope") or manifest.get("staged_generation_scope"))
+    if scoped:
+        # A scoped repair batch is a non-contiguous slice of the episode, so it
+        # must not be validated as a standalone contiguous episode.  It also
+        # must not skip the cross-unit checks: the boundaries it actually
+        # touches are exactly the risk.  Splice the read-only global
+        # neighbours from the sha-bound grouping plan and validate the whole
+        # affected run (see CC_H3 audit 2026-10-26 §四-缺口E).
+        sequence, neighbour_report = scoped_sequence_with_global_neighbours(
+            manifest, grouped_camera_units)
+        if sequence:
+            validate_camera_sequence(sequence)
+            # The slice starts inside the episode: its first unit is a read-only
+            # neighbour that legitimately has an inbound transition.
+            validate_transition_sequence(sequence, require_prompt_specs=True,
+                                        starts_episode=False)
+            rhythm = validate_combat_sequence_rhythm(sequence)
+            if rhythm["status"] != "PASS":
+                raise ValueError("Combat sequence rhythm gate failed: " + ",".join(rhythm["failures"]))
+    else:
         validate_camera_sequence(grouped_camera_units)
-    # A scoped repair batch may contain non-adjacent units from the full
-    # episode.  Each unit still validates its own inbound/outbound prompt
-    # binding above, but the subset must not be mistaken for a new contiguous
-    # episode whose first/last units have no external neighbors.
-    if not skip_cross_task_sequence:
         validate_transition_sequence(grouped_camera_units, require_prompt_specs=True)
         rhythm = validate_combat_sequence_rhythm(grouped_camera_units)
         if rhythm["status"] != "PASS":
@@ -1481,15 +1637,27 @@ def exec_deployed_submitter() -> None:
         if task.get("semantic_video_unit"):
             grouped_camera_units.append(grouped_sequence_unit(task))
     # A scene-first wave is intentionally non-contiguous in episode order:
-    # every selected task is the first unit of a different scene.  Per-task
-    # prompt/transition contracts are still validated above, while adjacent
-    # list validation must wait for the complete materialized chain.
-    skip_cross_task_sequence = bool(
+    # every selected task may be the first unit of a different scene.  Per-task
+    # prompt/transition contracts are validated above; here the affected
+    # boundaries are validated against the read-only global neighbours the
+    # batch recorded, never against the subset treated as a fresh episode.
+    scoped = bool(
         manifest.get("partial_repair_scope") or manifest.get("staged_generation_scope")
     )
-    if not skip_cross_task_sequence:
+    if scoped:
+        sequence, neighbour_report = scoped_sequence_with_global_neighbours(
+            manifest, grouped_camera_units)
+        if sequence:
+            validate_camera_sequence(sequence)
+            # The slice starts inside the episode: its first unit is a read-only
+            # neighbour that legitimately has an inbound transition.
+            validate_transition_sequence(sequence, require_prompt_specs=True,
+                                        starts_episode=False)
+            rhythm = validate_combat_sequence_rhythm(sequence)
+            if rhythm["status"] != "PASS":
+                raise RuntimeError("Combat sequence rhythm gate failed: " + ",".join(rhythm["failures"]))
+    else:
         validate_camera_sequence(grouped_camera_units)
-    if not skip_cross_task_sequence:
         validate_transition_sequence(grouped_camera_units, require_prompt_specs=True)
         rhythm = validate_combat_sequence_rhythm(grouped_camera_units)
         if rhythm["status"] != "PASS":

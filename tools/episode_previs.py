@@ -22,6 +22,7 @@ character count is ESTIMATED and is never reported as MEASURED.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -84,6 +85,62 @@ DIRECTOR_QUESTIONS = (
     ("static_dialogue_attention", "连续静态对话是否缺乏合理的注意力变化？"),
 )
 
+REVIEW_SCHEMA = SCHEMA + ".director_review_receipt"
+
+
+def sequence_digest(previs: dict[str, Any]) -> str:
+    """Hash of exactly what a reviewer looked at: the shot timeline and the
+    adjacent-boundary projection.  Excludes director_review, gate and advisories,
+    which change on every run without the sequence itself changing — hashing
+    those would fail a review that is still valid and never catch the case that
+    matters (CC_H3 audit 2026-10-26 §四-缺口D: receipt_sha256 hashed the OUTPUT
+    file, not an input snapshot, so nothing bound a review to the sequence
+    version it actually read).
+    """
+    material = {"timeline": previs.get("timeline") or [], "boundaries": previs.get("boundaries") or []}
+    raw = json.dumps(material, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def review_receipt_path(directory: Path, episode: str, stage: str) -> Path:
+    return Path(directory) / f"{episode}_PREVIS_REVIEW_{stage}.json"
+
+
+def submitted_review_count(directory: Path, episode: str, stage: str,
+                           sequence_digest_value: str | None = None) -> int:
+    """How many ACCEPTED director reviews exist for this episode's previs stage.
+
+    A receipt only counts when it names a reviewer, answers every question of the
+    round it claims, and (when ``sequence_digest_value`` is given) its own
+    ``sequence_digest`` still equals the current one.  A stale receipt bound to a
+    since-changed timeline or boundary set does not count — the sequence changed,
+    so the review no longer describes it.
+    """
+    path = review_receipt_path(directory, episode, stage)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0
+    if not isinstance(payload, dict) or payload.get("schema") != REVIEW_SCHEMA:
+        return 0
+    rounds = payload.get("rounds")
+    if not isinstance(rounds, list):
+        return 0
+    accepted = 0
+    for row in rounds:
+        if not isinstance(row, dict) or not str(row.get("reviewer") or "").strip():
+            continue
+        if sequence_digest_value is not None and row.get("sequence_digest") != sequence_digest_value:
+            continue
+        answers = row.get("answers") or {}
+        if not isinstance(answers, dict) or not answers:
+            continue
+        missing = [qid for qid, _ in DIRECTOR_QUESTIONS if qid not in answers]
+        if missing:
+            continue
+        accepted += 1
+    return accepted
+
 
 def _spoken(text: str) -> str:
     value = re.sub(r"^[^：:]{1,12}[：:]", "", str(text or "").strip())
@@ -138,6 +195,12 @@ def build_previs(
     for index, unit in enumerate(units):
         by_shot.setdefault(str(unit.get("shot_id")), []).append({**unit, "_index": index})
 
+    camera_by_shot: dict[str, dict[str, Any]] = {}
+    for unit in (grouping or {}).get("units") or []:
+        plan = unit.get("camera_plan") or {}
+        for sid_value in unit.get("editorial_shot_ids") or []:
+            camera_by_shot[str(sid_value)] = plan
+
     timeline: list[dict[str, Any]] = []
     cursor = 0.0
     seen_ids: set[str] = set()
@@ -188,6 +251,7 @@ def build_previs(
             cid = str(cast.get("character_id") or "")
             if cid and registry and cid not in registry:
                 fail("CAST_ID_NOT_REGISTERED", sid, cid)
+        plan = camera_by_shot.get(sid) or {}
         timeline.append({
             "shot_id": sid,
             "scene_id": shot.get("scene_id"),
@@ -196,6 +260,16 @@ def build_previs(
             "visual": image or "PLACEHOLDER_CARD",
             "visual_source": "EXISTING_KEYFRAME" if image else "PLACEHOLDER",
             "dialogue": lines,
+            # The declared camera is what the viewer is meant to see move.  A
+            # still card cannot show whether a pan reads, so the projection is
+            # explicit here and the renderer animates only what was declared.
+            "camera": {
+                "motion_family": plan.get("motion_family"),
+                "motion_direction": plan.get("motion_direction"),
+                "start_framing": plan.get("start_framing"),
+                "end_framing": plan.get("end_framing"),
+                "declared": bool(plan),
+            },
         })
         cursor += duration
 
@@ -234,7 +308,10 @@ def build_previs(
             advisories.append({"code": "SCENE_INTENT_NOT_DECLARED", "ref": scene_id,
                                "detail": ",".join(absent)})
 
-    return {
+    dialogue_by_shot = {row["shot_id"]: row["dialogue"] for row in timeline if row["dialogue"]}
+    boundaries = build_boundaries(grouping, timeline, dialogue_by_shot)
+
+    result = {
         "schema": SCHEMA,
         "episode": contract.get("episode"),
         "status": "PASS" if not failures else "FAIL",
@@ -249,64 +326,307 @@ def build_previs(
         "machine_failures": failures,
         "advisories": advisories,
         "timeline": timeline,
+        "boundaries": boundaries,
     }
+    result["sequence_digest"] = sequence_digest(result)
+    return result
+
+
+def _attempt(fn, **kwargs):
+    """Run a validator previs only READS; its own PASS/FAIL stays load-bearing
+    wherever it already runs (S2 grouping gate etc).  A raise here becomes a
+    reported boundary problem, never a crash and never a second copy of the
+    validator's rules."""
+    try:
+        return fn(**kwargs), None
+    except Exception as exc:  # noqa: BLE001 — reported, not re-raised
+        return None, str(exc)
+
+
+def _dialogue_crosses_cut(previous_shot_ids: list[str], current_shot_ids: list[str],
+                          dialogue_by_shot: dict[str, list[dict[str, Any]]]) -> bool:
+    """A line that starts in the outgoing shot and has no matching start in the
+    incoming shot is understood to run across the cut (sound bridge territory)."""
+    if not previous_shot_ids or not current_shot_ids:
+        return False
+    tail_has_line = bool(dialogue_by_shot.get(previous_shot_ids[-1]))
+    head_has_line = bool(dialogue_by_shot.get(current_shot_ids[0]))
+    return tail_has_line and not head_has_line
+
+
+def build_boundaries(grouping: dict[str, Any] | None, timeline: list[dict[str, Any]],
+                     dialogue_by_shot: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    """Project the existing camera / transition / action-continuity contracts onto
+    the REAL clip-order adjacency, so a reviewer sees what actually joins to what.
+
+    CC_H3 audit 2026-10-26 §四-缺口A: a previs timeline with only shot id, start,
+    duration and a static image cannot show whether two shots cut together with
+    any rhythm.  This reuses grouped_transition_contract, grouped_camera_contract
+    and unit_action_continuity_contract exactly as written — no second camera or
+    continuity rule set — and reports NOT_APPLICABLE wherever the unit itself
+    never declared the optional structured fields (action_event_contract is
+    opt-in; absence is legal, per that module's own contract).
+    """
+    units = list((grouping or {}).get("units") or [])
+    if len(units) < 2:
+        return []
+    try:
+        from tools import grouped_transition_contract as _gtc
+        from tools import unit_action_continuity_contract as _uac
+    except ImportError:
+        from grouped_transition_contract import boundary_id as _bid  # type: ignore
+        _gtc = None
+        _uac = None
+    shot_index = {row["shot_id"]: index for index, row in enumerate(timeline)}
+    boundaries: list[dict[str, Any]] = []
+    for index in range(1, len(units)):
+        previous, current = units[index - 1], units[index]
+        prev_id = str(previous.get("unit_id") or f"unit-{index}")
+        curr_id = str(current.get("unit_id") or f"unit-{index + 1}")
+        prev_shots = list(previous.get("editorial_shot_ids") or [])
+        curr_shots = list(current.get("editorial_shot_ids") or [])
+        row: dict[str, Any] = {
+            "boundary_id": (_gtc.boundary_id(prev_id, curr_id) if _gtc else f"BND-{prev_id}-{curr_id}"),
+            "from_unit_id": prev_id, "to_unit_id": curr_id,
+            "from_shot_id": prev_shots[-1] if prev_shots else None,
+            "to_shot_id": curr_shots[0] if curr_shots else None,
+            "from_end_seconds": None, "to_start_seconds": None,
+        }
+        if row["from_shot_id"] in shot_index:
+            tail = timeline[shot_index[row["from_shot_id"]]]
+            row["from_end_seconds"] = round(tail["start"] + tail["duration"], 3)
+        if row["to_shot_id"] in shot_index:
+            row["to_start_seconds"] = timeline[shot_index[row["to_shot_id"]]]["start"]
+
+        transition_contract = current.get("transition_contract")
+        if transition_contract and _gtc is not None:
+            normalized, error = _attempt(
+                _gtc.validate_transition_contract, contract=transition_contract,
+                previous=previous, current=current)
+            if error:
+                row["transition"] = {"status": "DECLARED_BUT_INVALID", "error": error}
+            else:
+                row["transition"] = {
+                    "status": "DECLARED", "cut_reason": normalized["cut_reason"],
+                    "space_relation": normalized["space_relation"],
+                    "transition_device": normalized["transition_device"],
+                    "plot_motivation": normalized["plot_motivation"],
+                    "visual_bridge": normalized["visual_bridge"],
+                    "action_bridge": normalized["action_bridge"],
+                    "sound_bridge": normalized["sound_bridge"],
+                    "axis_strategy": normalized["axis_strategy"],
+                    "new_information_for_viewer": normalized["plot_motivation"],
+                }
+        else:
+            row["transition"] = {"status": "NOT_DECLARED",
+                                 "reason": "unit carries no transition_contract"}
+
+        prev_camera = previous.get("camera_plan") or {}
+        curr_camera = current.get("camera_plan") or {}
+        row["camera"] = {
+            "from_end_framing": prev_camera.get("end_framing"),
+            "from_motion": f"{prev_camera.get('motion_family')}:{prev_camera.get('motion_direction')}"
+                           if prev_camera else None,
+            "to_start_framing": curr_camera.get("start_framing"),
+            "to_motion": f"{curr_camera.get('motion_family')}:{curr_camera.get('motion_direction')}"
+                        if curr_camera else None,
+        }
+
+        if _uac is not None:
+            verdict = _uac.evaluate(previous, current)
+            row["action_continuity"] = {
+                "status": verdict["status"], "event_id": verdict.get("event_id") or None,
+                "phase": verdict.get("phase") or None,
+                "failures": verdict.get("failures") or [],
+            }
+        else:
+            row["action_continuity"] = {"status": "NOT_APPLICABLE", "failures": []}
+
+        row["dialogue_crosses_cut"] = _dialogue_crosses_cut(prev_shots, curr_shots, dialogue_by_shot)
+        boundaries.append(row)
+    return boundaries
 
 
 def director_review_request(previs: dict[str, Any], *, round_number: int,
-                            prior_open: list[str] | None = None) -> dict[str, Any]:
+                            prior_open: list[str] | None = None,
+                            submitted_reviews: int | None = None) -> dict[str, Any]:
     """Issue a subjective review round, or close the loop after MAX_REVIEW_ROUNDS.
+
+    The round budget counts SUBMITTED reviews, never stage invocations.  A stage
+    that was merely re-run has not been reviewed, so it stays NOT_VERIFIED; before
+    2026-10-26 the call count itself advanced the round, and the third bare run
+    returned "2 rounds done" with no reviewer and no answers (audit §四-C).
 
     Round limits cover subjective questions only.  They never waive a machine
     failure, a budget guard or a transaction check — those stay in
     previs["machine_failures"] regardless of the round.
     """
-    if round_number > MAX_REVIEW_ROUNDS:
+    done = max(0, int(submitted_reviews)) if submitted_reviews is not None else 0
+    machine_failures = previs.get("machine_failures") or []
+    if done >= MAX_REVIEW_ROUNDS:
         return {
             "schema": SCHEMA + ".director_review",
             "status": "CLOSED_ADVISORY",
             "round": round_number,
+            "submitted_reviews": done,
             "advisory_carried": list(prior_open or []),
-            "note": f"{MAX_REVIEW_ROUNDS} rounds done; remaining subjective items are ADVISORY. "
-                    "No further round, no automatic regeneration.",
+            "machine_failure_count": len(machine_failures),
+            "note": f"{MAX_REVIEW_ROUNDS} submitted review(s) done; remaining subjective items are "
+                    "ADVISORY. No further round, no automatic regeneration.",
         }
     return {
         "schema": SCHEMA + ".director_review",
-        "status": "REVIEW_REQUESTED",
+        "status": "REVIEW_REQUESTED" if done else "NOT_VERIFIED",
         "round": round_number,
+        "submitted_reviews": done,
         "max_rounds": MAX_REVIEW_ROUNDS,
         "blocking": False,
+        "machine_failure_count": len(machine_failures),
         "questions": [{"id": qid, "question": text, "answer": None} for qid, text in DIRECTOR_QUESTIONS],
         "rule": "Edit only the shots a finding names and their dependants; re-run previs.",
     }
 
 
+_MOTION_MOVES = {
+    # (motion_family, motion_direction) -> how the viewer is meant to see the
+    # frame change.  Only declared motion is animated: a LOCKED unit must stay
+    # LOCKED in the previs, or the previs would invent a camera the shot
+    # contract says not to have.
+    ("PAN", "LEFT_TO_RIGHT"): ("x", 0.0, 1.0),
+    ("TRACK", "LEFT_TO_RIGHT"): ("x", 0.0, 1.0),
+    ("PAN", "RIGHT_TO_LEFT"): ("x", 1.0, 0.0),
+    ("TRACK", "RIGHT_TO_LEFT"): ("x", 1.0, 0.0),
+    ("DOLLY", "PUSH_IN"): ("z", 1.0, 1.12),
+    ("DOLLY", "PULL_OUT"): ("z", 1.12, 1.0),
+    ("CRANE", "RISE"): ("y", 1.0, 0.0),
+    ("CRANE", "FALL"): ("y", 0.0, 1.0),
+    ("ARC", "CLOCKWISE"): ("x", 0.35, 0.65),
+    ("ARC", "COUNTERCLOCKWISE"): ("x", 0.65, 0.35),
+}
+
+
+def _still_filter(row: dict[str, Any], width: int, height: int, fps: int) -> str:
+    """Render one still as a clip, animating only the camera motion the shot declared."""
+    camera = row.get("camera") or {}
+    move = _MOTION_MOVES.get((str(camera.get("motion_family") or "").upper(),
+                              str(camera.get("motion_direction") or "").upper()))
+    frames = max(1, int(round(float(row["duration"]) * fps)))
+    if move is None:
+        return (f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,fps={fps},format=yuv420p")
+    axis, first, last = move
+    if axis == "z":
+        zoom = f"1.0+{last - 1.0:.6f}*on/{frames}"
+        x_expr, y_expr = "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
+    elif axis == "x":
+        # Overscan slightly so the pan has somewhere to travel.
+        zoom = "1.12"
+        x_expr = f"(iw-iw/zoom)*({first:.4f}+({last - first:.4f})*on/{frames})"
+        y_expr = "ih/2-(ih/zoom/2)"
+    else:
+        zoom = "1.12"
+        x_expr = "iw/2-(iw/zoom/2)"
+        y_expr = f"(ih-ih/zoom)*({first:.4f}+({last - first:.4f})*on/{frames})"
+    return (f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,"
+            f"zoompan=z='{zoom}':x='{x_expr}':y='{y_expr}':d=1:s={width}x{height}:fps={fps},"
+            f"format=yuv420p")
+
+
 def render_previs(previs: dict[str, Any], out: Path, *, renderer: Path, width: int = 720,
-                  height: int = 1280, fps: int = 24) -> Path:
-    """Optional: stills/placeholder cards -> clips -> the existing portable timeline renderer."""
+                  height: int = 1280, fps: int = 24,
+                  dialogue_audio: dict[str, list[dict[str, Any]]] | None = None
+                  ) -> dict[str, Any]:
+    """Render a watchable sequence previs: declared camera motion plus real dialogue.
+
+    The machine timeline can be self-consistent while the result is unwatchable —
+    that is exactly what a viewer catches and a JSON gate cannot.  So this renders
+    the declared camera move and places each measured dialogue clip where the
+    contract puts it, instead of an ``anullsrc`` silent bed.
+
+    ``dialogue_audio`` maps shot_id -> [{path, source_start, source_seconds}].
+    A shot with dialogue but no supplied clip is reported, never silently faked:
+    a previs that plays silence over a speaking shot claims a check it did not do.
+    """
+    audio = dialogue_audio or {}
     work = Path(tempfile.mkdtemp(prefix="previs_"))
-    video, audio = [], []
+    video, audio_clips = [], []
+    missing_audio: list[str] = []
+    silent: list[str] = []
     for row in previs["timeline"]:
         clip = work / f"{row['shot_id']}.mp4"
         src = row["visual"]
         image_input = (["-loop", "1", "-i", src] if src != "PLACEHOLDER_CARD"
                        else ["-f", "lavfi", "-i", f"color=c=0x202020:s={width}x{height}"])
+        clips = [c for c in audio.get(row["shot_id"], [])
+                 if Path(str(c.get("path") or "")).is_file()]
+        if row.get("dialogue") and not clips:
+            missing_audio.append(row["shot_id"])
+        elif not clips:
+            silent.append(row["shot_id"])
+
+        inputs = list(image_input)
+        filters = [f"[0:v]{_still_filter(row, width, height, fps)}[v0]"]
+        maps = ["-map", "[v0]"]
+        # ffmpeg indexes inputs by their -i order, not by argv position: the
+        # image above is input 0 even though it can span two argv elements.
+        next_input = 1
+        if clips:
+            # One audio input per dialogue unit, delayed to the beat's offset
+            # inside the shot.  normalize=0 keeps a two-hander's relative level.
+            labels = []
+            for cue in clips:
+                inputs += ["-i", str(cue["path"])]
+                offset_ms = max(0, int(round(float(cue.get("offset_seconds") or 0) * 1000)))
+                start_s = float(cue.get("source_start") or 0)
+                span = float(cue.get("source_seconds") or row["duration"])
+                filters.append(
+                    f"[{next_input}:a]atrim=start={start_s:.6f}:duration={span:.6f},"
+                    f"asetpts=PTS-STARTPTS,adelay={offset_ms}|{offset_ms}[a{next_input}]"
+                )
+                labels.append(f"[a{next_input}]")
+                next_input += 1
+            if len(labels) == 1:
+                mix = labels[0]
+            else:
+                filters.append("".join(labels) + f"amix=inputs={len(labels)}:normalize=0[mixa]")
+                mix = "[mixa]"
+        else:
+            inputs += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono"]
+            mix = f"[{next_input}:a]"
+        filters.append(f"{mix}apad,atrim=duration={float(row['duration']):.6f},"
+                       f"aresample=48000[aout]")
+        maps += ["-map", "[aout]"]
         subprocess.run([
-            "ffmpeg", "-y", "-v", "error", *image_input,
-            "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
-            "-t", f"{row['duration']}", "-vf", f"scale={width}:{height},fps={fps},format=yuv420p",
-            "-shortest", "-c:v", "libx264", "-c:a", "aac", str(clip),
+            "ffmpeg", "-y", "-v", "error", *inputs,
+            "-filter_complex", ";".join(filters), *maps,
+            "-t", f"{row['duration']}", "-c:a", "aac", "-c:v", "libx264",
+            str(clip),
         ], check=True)
         video.append({"source": str(clip), "start": row["start"], "duration": row["duration"]})
-        audio.append({"source": str(clip), "start": row["start"], "duration": row["duration"]})
+        audio_clips.append({"source": str(clip), "start": row["start"], "duration": row["duration"]})
+
     project = work / "previs_timeline.json"
     # The shape tools/render_portable_timeline.py reads: one video track and
     # one matching native-audio track under timeline.
     project.write_text(json.dumps({
         "output": {"width": width, "height": height, "fps": fps},
-        "timeline": {"videoTracks": [{"clips": video}], "audioTracks": [{"clips": audio}]},
+        "timeline": {"videoTracks": [{"clips": video}], "audioTracks": [{"clips": audio_clips}]},
     }), encoding="utf-8")
     subprocess.run(["python3", str(renderer), str(project), "--output", str(out)], check=True)
-    return out
+    return {
+        "status": "RENDERED_WITH_DIALOGUE" if not missing_audio else "RENDERED_WITHOUT_DECLARED_DIALOGUE",
+        "output": str(out),
+        "shots_rendered": len(video),
+        "shots_with_declared_dialogue_audio": len(video) - len(missing_audio) - len(silent),
+        "shots_dialogue_audio_missing": missing_audio,
+        "shots_silent": silent,
+        "camera_moves_animated": sorted({
+            f"{row['camera']['motion_family']}:{row['camera']['motion_direction']}"
+            for row in previs["timeline"]
+            if (str((row.get("camera") or {}).get("motion_family") or "").upper(),
+                str((row.get("camera") or {}).get("motion_direction") or "").upper()) in _MOTION_MOVES}),
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -317,6 +637,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--review-round", type=int, default=1)
     parser.add_argument("--render", type=Path, help="optional mp4 output via render_portable_timeline.py")
+    parser.add_argument("--dialogue-audio", type=Path,
+                        help='optional JSON: {"SHOT_ID": [{"path","offset_seconds","source_start","source_seconds"}]}')
     args = parser.parse_args(argv)
     contract = json.loads(args.contract.read_text(encoding="utf-8"))
     grouping = json.loads(args.grouping_plan.read_text(encoding="utf-8")) if args.grouping_plan else None
@@ -325,11 +647,19 @@ def main(argv: list[str] | None = None) -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(previs, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if args.render:
-        render_previs(previs, args.render, renderer=Path(__file__).with_name("render_portable_timeline.py"))
+        dialogue_audio = (json.loads(args.dialogue_audio.read_text(encoding="utf-8"))
+                          if args.dialogue_audio else None)
+        render = render_previs(
+            previs, args.render,
+            renderer=Path(__file__).with_name("render_portable_timeline.py"),
+            dialogue_audio=dialogue_audio)
+        previs["render"] = render
     print(json.dumps({k: previs[k] for k in ("status", "shot_count", "total_seconds",
                                              "estimated_dialogue_lines", "measured_dialogue_lines")}
                      | {"machine_failures": len(previs["machine_failures"]),
-                        "advisories": len(previs["advisories"])}, ensure_ascii=False))
+                        "advisories": len(previs["advisories"]),
+                        **({"render": previs["render"]} if "render" in previs else {})},
+                     ensure_ascii=False))
     return 0 if previs["status"] == "PASS" else 2
 
 

@@ -40,6 +40,9 @@ import soundfile as sf
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import nalu_paths as _np  # noqa: E402  (stdlib-only path resolver; NALU_RUNTIME_ROOT or auto-detect)
+# the F0 estimator lives in the engine's tools/ package; this script may run under the
+# Seed-VC interpreter, whose sys.path does not include the engine root
+sys.path.insert(0, str(Path(f"{_np.ENGINE_ROOT}")))
 
 SR = 44100
 
@@ -70,12 +73,19 @@ def rms(x: np.ndarray) -> float:
 
 
 def median_f0(x: np.ndarray, sr: int = SR) -> float | None:
-    import librosa
+    """Median F0 using the SAME estimator the admission check uses.
+
+    This used to call ``librosa.pyin``, whose subharmonic tolerance reads a fifth below
+    the true pitch on sustained male vowels (E12-VU-012: pyin 106.82 Hz against the
+    gate's 153.97 Hz on the same samples).  The correction shift was then computed from
+    that wrong number and pushed the line out of band the other way (154 -> 222 Hz).
+    One estimator for repair and for verification, or the repair fights the gate.
+    """
+    from tools.dialogue_voice_metrics import estimate_f0_median
     if len(x) < sr * 0.2:
         return None
-    f0, voiced, _ = librosa.pyin(x, fmin=65, fmax=500, sr=sr, frame_length=2048)
-    f0 = f0[voiced & ~np.isnan(f0)]
-    return round(float(np.median(f0)), 2) if len(f0) else None
+    value = estimate_f0_median(x, sr)
+    return round(float(value), 2) if value is not None else None
 
 
 def separate(audio_wav: Path, work: Path, python: str) -> tuple[Path, Path]:
@@ -157,7 +167,13 @@ def main() -> int:
         band = refs[w["speaker"]].get("band") or [None, None]
         shifts[i] = 0.0
         if args.per_line_pitch_normalise == "True" and band[0] is not None:
-            source_f0 = median_f0(clip)
+            # Measure on the declared line interval only, never on the padded context: the
+            # admission check measures exactly [start, end], and 0.12 s of surrounding breath
+            # and room tone pulls the median enough to change the decision
+            # (E12-VU-012: same audio, padded 131 Hz against exact 154 Hz).
+            exact_a = max(0, int(float(w["start"]) * SR))
+            exact_b = min(len(vocals_mono), int(float(w["end"]) * SR))
+            source_f0 = median_f0(vocals_mono[exact_a:exact_b])
             if source_f0:
                 target_f0 = (float(band[0]) + float(band[1])) / 2  # band = reference median ±15 %
                 step = 12 * float(np.log2(target_f0 / source_f0))
@@ -239,9 +255,27 @@ def main() -> int:
     remix = work / "remix.wav"
     sf.write(str(remix), (new_vocals[:n] + rest[:n]).astype(np.float32), SR)
     args.output.parent.mkdir(parents=True, exist_ok=True)
+    # Two-pass loudnorm still fell back to dynamic here (input LRA 15.0 against target LRA 11
+    # reports normalization_type=dynamic even with measured_* supplied), and dynamic mode moved
+    # the gate's reading 153.97 -> 212.05 Hz on the ORIGINAL cut with no pitch change.  A measured
+    # constant gain is what this needs: verified on E12-VU-012 that +-dB re-encode leaves the
+    # reading at 153.98 vs 153.97.  A hard limiter guards the true peak at the very end.
+    measure = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostats", "-i", str(remix),
+         "-af", f"loudnorm=I={args.release_lufs}:TP={args.release_tp}:LRA=11:print_format=json",
+         "-f", "null", "-"],
+        capture_output=True, text=True)
+    try:
+        measured = json.loads(measure.stderr[measure.stderr.rfind("{"):])
+        input_i = float(measured["input_i"])
+    except (ValueError, KeyError):
+        input_i = None
+    gain = round(float(args.release_lufs) - input_i, 2) if input_i is not None else None
+    audio_filter = (f"volume={gain}dB," if gain is not None else "volume=0dB,") + \
+        f"alimiter=limit={10 ** (float(args.release_tp) / 20):.6f}:level=false"
     run(["ffmpeg", "-loglevel", "error", "-y", "-i", args.final, "-i", remix,
          "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy",
-         "-af", f"loudnorm=I={args.release_lufs}:TP={args.release_tp}:LRA=11",
+         "-af", audio_filter,
          "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", args.output])
 
     report = {

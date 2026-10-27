@@ -133,7 +133,12 @@ def build(
     unit = {
         "unit_id": uid, "model": "MiniMax-H3",
         "reference_images": [{"path": f"ref{i}.png", "role": "CHARACTER_REFERENCE"} for i in range(1, len(used) + 1)],
-        "provider_scope_projection": {"reference_identity_bindings": bindings},
+        "provider_scope_projection": {
+            "reference_identity_bindings": bindings,
+            "visible_living_entity_instance_total": len(used),
+            "background_population_count": 0,
+            "unbound_visible_living_entity_count": 0,
+        },
         "ordered_prompt_specs": specs,
         "visual_culture_contract": {"provider_scene_domain": "REALITY_NORTHERN_SONG"},
         "h3_provider_english_contract": {

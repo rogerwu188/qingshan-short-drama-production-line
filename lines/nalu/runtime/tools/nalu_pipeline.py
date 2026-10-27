@@ -355,8 +355,19 @@ def previs_gate(ctx: "Ctx", stage: str) -> dict[str, Any]:
         return row
     round_number = 1 + int((ctx.state.get("previs_review_rounds") or {}).get(stage) or 0)
     max_rounds = int(policy.get("max_director_review_rounds") or _previs.MAX_REVIEW_ROUNDS)
-    review = _previs.director_review_request(previs, round_number=max(1, min(round_number, max_rounds + 1)))
-    # P1.4 (codex §2.2): write back round number so next attempt increments.
+    # The round budget counts ACCEPTED reviews, not stage invocations.  Keeping the
+    # call counter here let three bare runs report "2 rounds done" with no reviewer
+    # and no answers (CC_H3 audit 2026-10-26 §四-C); the counter is still advanced so
+    # a re-run is visible, but it no longer decides the review status.  A review only
+    # counts when it is bound to THIS sequence_digest (§四-缺口D): edit a shot's camera
+    # or a boundary's transition and the previous round's receipt stops counting,
+    # because it describes a sequence that no longer exists.
+    sequence_digest = previs.get("sequence_digest")
+    submitted_reviews = _previs.submitted_review_count(
+        p.preprod_reports, ctx.episode, stage, sequence_digest)
+    review = _previs.director_review_request(
+        previs, round_number=max(1, min(round_number, max_rounds + 1)),
+        submitted_reviews=submitted_reviews)
     ctx.state.setdefault("previs_review_rounds", {})[stage] = round_number
     machine_mode = "BLOCK" if policy.get("gate_on_machine_failures", True) else "ADVISORY"
     failures = previs.get("machine_failures") or []
@@ -365,6 +376,24 @@ def previs_gate(ctx: "Ctx", stage: str) -> dict[str, Any]:
                       "machine_failure_mode": machine_mode,
                       "request": "tools/episode_previs.py"}
     previs["director_review"] = review
+    # Optional watchable render (CC_H3 audit 2026-10-26 §四-缺口B).  Machine
+    # checks can agree while the sequence is unwatchable, and only a rendered
+    # clip plus real dialogue shows whether a viewer follows the speaker and
+    # the cut.  Off by default: it shells out to ffmpeg for the whole timeline,
+    # so a gate that runs on every stage attempt must not pay that cost unless
+    # the operator asked for a reviewable cut.  When enabled, a shot that has
+    # declared dialogue but no supplied clip is reported, never faked as silence.
+    render_target = os.environ.get("NALU_PREVIS_RENDER", "").strip()
+    if render_target and os.environ.get("NALU_PREVIS_RENDER_ENABLED", "").strip() == "1":
+        audio_map_path = os.environ.get("NALU_PREVIS_DIALOGUE_AUDIO", "").strip()
+        try:
+            dialogue_audio = (read_json(Path(audio_map_path), {}) or {}) if audio_map_path else None
+            previs["render"] = _previs.render_previs(
+                previs, Path(render_target),
+                renderer=Path(_previs.__file__).with_name("render_portable_timeline.py"),
+                dialogue_audio=dialogue_audio)
+        except Exception as exc:  # noqa: BLE001 — a failed render must not read as a pass
+            previs["render"] = {"status": "RENDER_FAILED", "error": f"{type(exc).__name__}:{exc}"}
     write_json(out_path, previs)
     blocked = bool(failures) and machine_mode == "BLOCK"
     row.update({
@@ -372,6 +401,8 @@ def previs_gate(ctx: "Ctx", stage: str) -> dict[str, Any]:
         "blocked": blocked,
         "receipt": str(out_path),
         "receipt_sha256": sha256_file(out_path),
+        "sequence_digest": sequence_digest,
+        "review_receipt_path": str(_previs.review_receipt_path(p.preprod_reports, ctx.episode, stage)),
         "shot_count": previs.get("shot_count"),
         "total_seconds": previs.get("total_seconds"),
         "estimated_dialogue_lines": previs.get("estimated_dialogue_lines"),
@@ -380,11 +411,20 @@ def previs_gate(ctx: "Ctx", stage: str) -> dict[str, Any]:
         "machine_failure_mode": machine_mode,
         "advisories": previs.get("advisories") or [],
         "director_review": {"status": review.get("status"), "round": review.get("round"),
-                            "blocking": False, "max_rounds": max_rounds},
+                            "blocking": False, "max_rounds": max_rounds,
+                            "submitted_reviews": review.get("submitted_reviews", submitted_reviews)},
         "note": ("a previs PASS means the plan is internally consistent enough to go on to "
                  "production; it is not a cut and not evidence that an action, an identity "
-                 "or a lip sync works"),
+                 "or a lip sync works.  The director review is only complete when submitted "
+                 "review receipts exist — re-running this stage does not advance it."),
     })
+    if "render" in previs:
+        row["render"] = {
+            key: previs["render"].get(key)
+            for key in ("status", "output", "shots_dialogue_audio_missing",
+                        "camera_moves_animated", "error")
+            if key in previs["render"]
+        }
     return row
 
 

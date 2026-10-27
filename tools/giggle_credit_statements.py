@@ -9,7 +9,7 @@ import re
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 try:
     from giggle_api_client import _get
@@ -164,23 +164,28 @@ def reconcile_rows(
     expected_count: int,
     event_description: str,
     model: str,
-    known_task_ids: set[str] | frozenset[str] | None = None,
-    exclude_task_ids: set[str] | frozenset[str] | None = None,
+    known_task_ids: Iterable[str] | None = None,
+    exclude_task_ids: Iterable[str] | None = None,
 ) -> dict[str, Any]:
-    """Pay rows of one submission batch.
+    """Pay rows of one submission batch.  A video Pay row carries the generation task id as its
+    ``project_id``.
 
     ``known_task_ids``: provider task ids this batch bound.  A Pay row whose ``project_id`` is one of
     them is the batch's own charge and is matched by id, inside or outside the time window.
     ``exclude_task_ids``: task ids already attributed to another durable transaction (another wave,
     another episode).  Such a row is never counted here, even inside the window -- adjacent waves'
     windows overlap (lab E05 2026-10-26: wave 29 counted wave 28's row, 2 matched, expected 1).
-    Rows without a recognised id still fall back to the exact-count time window, as before.
+    When ``known_task_ids`` is given, any other in-window row is another line's activity on the
+    shared provider account (2026-10-23: two foreign MiniMax-H3 rows, 152 cr, landed in the same
+    100 s window and were counted against E12); it is kept in ``foreign_statement_rows``: never
+    counted, never hidden.  Without known ids the exact-count time window applies, as before.
     """
     known = {str(v) for v in (known_task_ids or ()) if v}
     excluded = {str(v) for v in (exclude_task_ids or ()) if v} - known
-    matches = []
+    matches: list[dict[str, Any]] = []
+    foreign: list[dict[str, Any]] = []
     by_id = 0
-    skipped_attributed = []
+    skipped_attributed: list[str] = []
     for row in rows:
         if row.get("event_type") != "Pay":
             continue
@@ -194,11 +199,15 @@ def reconcile_rows(
             by_id += 1
             continue
         created = parse_statement_time(str(row.get("created_at", "")))
-        if start <= created <= end:
-            if project_id and project_id in excluded:
-                skipped_attributed.append(project_id)
-                continue
-            matches.append(row)
+        if not start <= created <= end:
+            continue
+        if project_id and project_id in excluded:
+            skipped_attributed.append(project_id)
+            continue
+        if known:
+            foreign.append(row)
+            continue
+        matches.append(row)
     matches.sort(key=lambda row: row["created_at"])
 
     total = Decimal("0")
@@ -227,6 +236,10 @@ def reconcile_rows(
         "invalid_credit_rows": invalid_credit_rows,
         "charged_credits": int(total) if total == total.to_integral() else str(total),
         "statement_rows": matches,
+        **({"foreign_statement_rows": foreign,
+            "foreign_charged_credits": int(sum(abs(Decimal(str(r["credit"]))) for r in foreign)),
+            "foreign_row_policy": "FOREIGN_ACCOUNT_ACTIVITY_NOT_ATTRIBUTED_TO_THIS_EPISODE"}
+           if foreign else {}),
         "limitation": "Giggle credit statements omit image task_id; evidence is batch-level and requires an isolated UTC window with exact event/model/count matching.",
     }
 

@@ -40,9 +40,13 @@
 
 **问题**：`nalu_pipeline.py:351` 读 `ctx.state["previs_review_rounds"][stage]`，但从不写回，导致每次重跑都是第 1 轮。
 
-**修复**：`lines/nalu/runtime/tools/nalu_pipeline.py:351-355` 现在在调 `director_review_request` 后立即写回 `ctx.state.setdefault("previs_review_rounds", {})[stage] = round_number`。
+**修复（已被取代）**：当时的做法是把 `round_number` 写回 `ctx.state["previs_review_rounds"]`。写回本身又把上限算错：轮次变成了「跑了几次」，同一份没人看过的预演连跑两次就算审阅两轮，`director_review_request` 于是在 `done >= MAX_REVIEW_ROUNDS` 时自行返回 `CLOSED_ADVISORY`，门自己给自己签了字。
 
-**证据**：`tools/tests/test_previs_and_timing_map.py::DirectorReviewLoopTest::test_rounds_stop_after_the_limit_without_regeneration` PASS。
+**现行做法（K120 / K121 / K122）**：轮次只来自落盘的审阅回执 `{episode}_PREVIS_REVIEW_{stage}.json`——回执必须写审阅人并答完全部 `DIRECTOR_QUESTIONS`，且其 `sequence_digest` 必须等于当前序列的 digest（`timeline` + `boundaries` 的 sha256）。重跑构建不消耗轮次，也不会刷新回执。见 [ENGINEERING_KNOWLEDGE_BASE.md](ENGINEERING_KNOWLEDGE_BASE.md) 的 K120–K122。
+
+**证据**：`tools/tests/test_previs_review_round_semantics.py`、`tools/tests/test_previs_sequence_digest_binding.py`、`tools/tests/test_previs_and_timing_map.py::DirectorReviewLoopTest`。
+
+**PASS 的含义**：previs 的 PASS 只表示「时间线、逐边界投影与运镜/转场/动作连续性合同彼此自洽」，不表示有人看过片子，也不表示成片可用。真正的观看发生在成片审核，不在 previs。
 
 ---
 

@@ -742,14 +742,84 @@ def scan_reservations(episode: str, bgm_transactions_dir: Path | None = None) ->
             "settled_reservations": settled}
 
 
+def _latest_credit_statement_mtime(episode: str, *, video: bool) -> datetime | None:
+    """Newest mtime of an archived ``*_credit_statement.json`` for this episode, split by category.
+
+    Mirrors the episode filter ``scan_non_video_spend`` already uses (path contains the episode
+    code, or the file's own ``episode`` field matches) so this reads the exact same population
+    ``recorded_total_credits`` is built from, never a different one.
+    """
+    latest: datetime | None = None
+    for path in ENGINE_ROOT.rglob("*_credit_statement.json"):
+        if _is_parked(path.relative_to(ENGINE_ROOT)):
+            continue
+        is_video = "VIDEO" in path.name.upper()
+        if is_video != video:
+            continue
+        try:
+            payload = load_json(path)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if episode not in str(path) and str(payload.get("episode") or "").upper() != episode:
+            continue
+        try:
+            mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        except OSError:
+            continue
+        if latest is None or mtime > latest:
+            latest = mtime
+    return latest
+
+
+def _transaction_bound_at(path: Path, payload: dict[str, Any]) -> datetime:
+    """When a bound transaction's charge was POSTed: ``response_recorded_at`` if present and
+    parseable, else the transaction file's own mtime (always a safe, available fallback)."""
+    raw = str(payload.get("response_recorded_at") or "")
+    if raw:
+        try:
+            return datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone(timezone.utc)
+        except ValueError:
+            pass
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+    except OSError:
+        return datetime.now(timezone.utc)
+
+
 def scan_pending_exposure(episode: str) -> Decimal:
-    """Estimate pending exposure from SUBMITTED_TASK_ID_BOUND transactions."""
+    """Estimate pending exposure from SUBMITTED_TASK_ID_BOUND transactions.
+
+    A transaction stays in state ``SUBMITTED_TASK_ID_BOUND`` forever once its generation
+    succeeds -- nothing in the normal happy path (unlike the lost-task-id write-off path)
+    ever moves it to a settled state.  Its cost is already counted exactly once, for good,
+    the moment the submission call's own in-process reconciliation step archives a
+    ``*_credit_statement.json`` for that wave: ``recorded_total_credits`` is built by
+    scanning every archived statement for the episode (``scan_non_video_spend`` / the video
+    guard), not by re-reading transaction files.  Without this check, every unit this
+    episode has ever generated keeps being re-added here on every later call, so the
+    apparent "pending" total only grows and eventually produces a false
+    EPISODE_CREDIT_CAP_WOULD_BE_EXCEEDED long before the cap is actually threatened
+    (E12, 2026-10-22: 130 historically-bound transactions inflated this to ~4185 against
+    a real outstanding exposure near zero).  A transaction only belongs in this estimate
+    while it is genuinely unreconciled: bound more recently than the newest archived
+    statement in its own category (video vs image), or bound before any statement in that
+    category exists at all yet -- exactly the transient, same-process window this function
+    was written for.
+    """
     tasks_root = ENGINE_ROOT / "workflow" / "tasks"
     total = Decimal("0")
+    latest_statement = {
+        True: _latest_credit_statement_mtime(episode, video=True),
+        False: _latest_credit_statement_mtime(episode, video=False),
+    }
     for dirname in (IMAGE_TRANSACTION_DIRNAME, VIDEO_TRANSACTION_DIRNAME):
         directory = tasks_root / dirname / episode
         if not directory.is_dir():
             continue
+        is_video = "video" in dirname
+        newest = latest_statement[is_video]
         for path in directory.glob("*.json"):
             try:
                 payload = load_json(path)
@@ -757,6 +827,8 @@ def scan_pending_exposure(episode: str) -> Decimal:
                 continue
             state = str(payload.get("state") or "")
             if state == "SUBMITTED_TASK_ID_BOUND" and payload.get("task_id"):
+                if newest is not None and _transaction_bound_at(path, payload) <= newest:
+                    continue  # already inside an archived statement that recorded_total_credits counts
                 # Read estimated_credits from intent (submitter writes this at INTENT_RECORDED)
                 estimated = payload.get("estimated_credits")
                 if isinstance(estimated, (int, float)) and estimated > 0:

@@ -67,11 +67,15 @@ class PrevisMachineChecksTest(unittest.TestCase):
 class DirectorReviewLoopTest(unittest.TestCase):                     # §10.13
     def test_rounds_stop_after_the_limit_without_regeneration(self):
         previs = build_previs(_contract())
-        for round_number in range(1, MAX_REVIEW_ROUNDS + 1):
-            request = director_review_request(previs, round_number=round_number)
-            self.assertEqual(request["status"], "REVIEW_REQUESTED")
-            self.assertFalse(request["blocking"])
-        closed = director_review_request(previs, round_number=MAX_REVIEW_ROUNDS + 1, prior_open=["pace"])
+        first = director_review_request(previs, round_number=1, submitted_reviews=0)
+        self.assertEqual(first["status"], "NOT_VERIFIED",
+                         "a run with no submitted review must not read as reviewed")
+        self.assertFalse(first["blocking"])
+        request = director_review_request(previs, round_number=2, submitted_reviews=1)
+        self.assertEqual(request["status"], "REVIEW_REQUESTED")
+        self.assertFalse(request["blocking"])
+        closed = director_review_request(previs, round_number=3, submitted_reviews=MAX_REVIEW_ROUNDS,
+                                         prior_open=["pace"])
         self.assertEqual(closed["status"], "CLOSED_ADVISORY")
         self.assertEqual(closed["advisory_carried"], ["pace"])
         self.assertNotIn("questions", closed)
@@ -79,7 +83,8 @@ class DirectorReviewLoopTest(unittest.TestCase):                     # §10.13
     def test_round_limit_never_waives_a_machine_failure(self):
         lines = [{"shot_id": "E99-S01-01", "speaker_id": "CHAR-A", "text": "甲：" + "长" * 40}]
         previs = build_previs(_contract(lines, target=1.0))
-        director_review_request(previs, round_number=MAX_REVIEW_ROUNDS + 1)
+        director_review_request(previs, round_number=MAX_REVIEW_ROUNDS + 1,
+                                submitted_reviews=MAX_REVIEW_ROUNDS)
         self.assertEqual(previs["status"], "FAIL")
 
 

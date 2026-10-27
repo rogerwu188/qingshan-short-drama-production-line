@@ -2152,7 +2152,13 @@ def main() -> int:
             (out_dir / f"{prefix}GROUPED_SEEDANCE_MANIFEST_V1.json").read_text(encoding="utf-8")).get("units") or [])}
         finalize_video_tasks(transaction, compiled_units, final_rows, rendered=rendered, contract=contract,
                              out_dir=out_dir, prefix=prefix, root=root, episode=episode,
-                             ready_units=(json.loads(args.ready_units) if args.ready_units else None))
+                             ready_units=(json.loads(args.ready_units) if args.ready_units else None),
+                             global_grouping_plan_path=full_plan_path,
+                             # Planning manifest = every unit WITH ordered_prompt_specs.
+                             # Only used to give a read-only neighbour the beat specs the
+                             # grouping plan does not carry; per-unit camera/scene are taken
+                             # from the grouping plan itself.
+                             context_units_path=(out_dir / f"{prefix}GROUPED_SEEDANCE_MANIFEST_PLANNING_V1.json"))
         transaction["blocking_note"] = "prompt files compiled by stage 4.4 (strict) for every task in this manifest"
         if MODEL_CONTRACT["model"] == "MiniMax-H3":
             h3 = render_h3_final_prompts(transaction, out_dir=out_dir, root=root, episode=episode,
@@ -2652,7 +2658,9 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
                          contract: dict[str, Any], out_dir: Path, prefix: str, root: Path,
                          episode: str, ready_units: list[str] | None,
                          source_grouped_path: Path | None = None,
-                         action_role_evidence_dir: Path | None = None) -> None:
+                         action_role_evidence_dir: Path | None = None,
+                         global_grouping_plan_path: Path | None = None,
+                         context_units_path: Path | None = None) -> None:
     """Turn every stage-4.4-compiled unit into the task shape the engine's own
     compile_grouped_seedance_transaction_manifest.py produces and its submitter validates
     (validate_task / validate_grouped_creative_task / action contract / tempo gate /
@@ -2870,6 +2878,21 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
                 task["identity_reference_dropped_over_cap"] = plate_dropped
             if plate_missing:
                 task["identity_reference_missing_locked_plate"] = plate_missing
+            # 2026-10-21: identity_plate_reference_rows treats a plate already present in
+            # reference_images as "seen" and returns no row for it, so the character never reached
+            # ``bound`` and shot_media_admission_gate raised MISSING_ANCHOR_FOR_CANONICAL_ENTITY.
+            # A plate that is already in the array still needs its binding row (binding only, the
+            # image is not appended twice).
+            for cid in plate_order:
+                if cid in bound:
+                    continue
+                plate = _locked_identity_plate(cid, episode=episode)
+                if not plate or str(plate) not in task["reference_images"]:
+                    continue
+                bindings.append({"entity_id": cid, "role": "CHARACTER_REFERENCE", "path": str(plate),
+                                 "sha256": sha256_file(Path(plate)),
+                                 "source": "IDENTITY_PLATE_ALREADY_PRESENT_BINDING_ONLY"})
+                bound.add(cid)
             if plate_dropped or plate_missing:
                 raise ValueError(
                     f"IDENTITY_REFERENCE_BINDING_INCOMPLETE:{uid}:"
@@ -3077,10 +3100,25 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
     transaction["source_grouped_manifest_sha256"] = sha256_file(grouped_path)
     if ready_units is not None:
         # a rolling wave is non-contiguous in episode order; the submitter then validates
-        # per-task contracts and defers adjacent-list checks to the complete chain
-        transaction["staged_generation_scope"] = {
+        # per-task contracts and reads only-read neighbours from the full grouping plan to
+        # check the boundaries this wave actually touches (CC_H3 audit 2026-10-26 §四-缺口E:
+        # the old policy text promised a deferred check that never ran on a staged wave that
+        # never reached a "final full compile" — most wave-produced units never get one).
+        scope: dict[str, Any] = {
             "kind": "ROLLING_WAVE_PARTIAL_READY", "unit_ids": [t["unit_id"] for t in transaction["tasks"]],
-            "policy": "cross-task camera/transition sequence validated on the final full compile"}
+            "policy": "cross-task camera/transition sequence validated against read-only global neighbours",
+        }
+        if global_grouping_plan_path is not None and Path(global_grouping_plan_path).is_file():
+            scope["global_grouping_plan"] = portable(Path(global_grouping_plan_path), root)
+            scope["global_grouping_plan_sha256"] = sha256_file(Path(global_grouping_plan_path))
+        if context_units_path is not None and Path(context_units_path).is_file():
+            # The grouping plan carries the neighbour's camera and transition but
+            # NOT its ordered_prompt_specs, and the boundary check binds the target
+            # requirements to the neighbour's first/last beat.  Record the plan that
+            # does carry them so the neighbour can be validated, not just skipped.
+            scope["global_context_units"] = portable(Path(context_units_path), root)
+            scope["global_context_units_sha256"] = sha256_file(Path(context_units_path))
+        transaction["staged_generation_scope"] = scope
 
 def _copy_compiled_transport_policies(machine: dict[str, Any], compiled: dict[str, Any]) -> None:
     """Carry only declared policies; never invent defaults or retain stale ones."""

@@ -787,9 +787,70 @@ def _spec_performance(specs: list[Any], source_index: Any) -> Any:
     return ((spec.get("action") or {}) if isinstance(spec, dict) else {}).get("performance")
 
 
+def _condense_feedback(value: Any, translated: dict[str, Any]) -> str:
+    """Collapse a feedback string that verbatim restates this beat's own action and exit state.
+
+    The provider already renders the action and the end state earlier in the same
+    beat line; restating both in the feedback clause doubles that text inside a
+    10,000-rune budget.  Only an exact restatement is collapsed, so a feedback
+    clause that adds a new fact is always passed through unchanged.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return text
+    action = str(translated.get("primary_action") or "").strip()
+    exit_state = str(translated.get("exit_state") or "").strip()
+    if len(action) < 40 or len(exit_state) < 20:
+        return text
+    if action[:40] not in text or exit_state[:20] not in text:
+        return text
+    return (
+        "the initiated action stated above plays through and settles at the end state stated above; "
+        "contact first, then gaze and jaw, shoulders, neck and weight settle last"
+    )
+
+
+def _condense_sound_quotes(rows: list[str], beats: list[dict[str, Any]]) -> list[str]:
+    """Point a sound row at the beat action instead of restating it verbatim."""
+    actions = [str(beat.get("primary_action") or "").strip() for beat in beats]
+    actions = [action for action in actions if len(action) >= 40]
+    if not actions:
+        return rows
+    condensed: list[str] = []
+    for row in rows:
+        text = row
+        for action in sorted(actions, key=len, reverse=True):
+            if action in text:
+                text = text.replace(action, "the action stated for that shot")
+        condensed.append(text)
+    return condensed
+
+
+def _collapse_shared_unit_policy(rows: list[str]) -> list[str]:
+    """Keep a byte-identical unit-wide trailing clause once instead of once per shot."""
+    if len(rows) < 2:
+        return rows
+    tail = rows[0]
+    for row in rows[1:]:
+        n = 0
+        while n < min(len(tail), len(row)) and tail[-1 - n] == row[-1 - n]:
+            n += 1
+        tail = tail[len(tail) - n:]
+    if len(tail) < 60:
+        return rows
+    collapsed = [rows[0]]
+    for row in rows[1:]:
+        trimmed = row[: len(row) - len(tail)].rstrip(" ;,，；")
+        collapsed.append(
+            trimmed + " (unit-wide music policy as stated on the first shot row)" if trimmed else rows[0]
+        )
+    return collapsed
+
+
 def _beat(
     source: dict[str, Any], translated: dict[str, Any], *, dialogue_binding: dict[str, Any] | None,
     positive_single_subject: bool = False, language: str = "zh", performance: Any = None,
+    shared_clauses: set[str] | None = None,
 ) -> tuple[str, dict[str, str]]:
     index = int(source["source_index"])
     prefix = f"BEAT.{index}"
@@ -824,6 +885,11 @@ def _beat(
         evidence[f"{prefix}.CONTACT_POINT"] = translated["contact_point"]
     if source.get("primary_feedback"):
         primary_feedback = translated.get("primary_feedback") or translated.get("force_feedback")
+        primary_feedback = _condense_feedback(primary_feedback, translated)
+        if shared_clauses is not None and primary_feedback in shared_clauses:
+            primary_feedback = "the shared result stated on the first beat of this unit"
+        elif shared_clauses is not None:
+            shared_clauses.add(primary_feedback)
         line += f"; primary feedback: {primary_feedback}"
         evidence[f"{prefix}.PRIMARY_FEEDBACK"] = primary_feedback
     translated_secondary = translated.get("secondary_feedback") or []
@@ -870,8 +936,13 @@ def _beat(
         line += f" Microexpression: {translated['microexpression_cue']}."
         evidence[f"{prefix}.MICROEXPRESSION"] = translated["microexpression_cue"]
     if source.get("body_sync_cue"):
-        line += f" Body synchronization: {translated['body_sync_cue']}."
-        evidence[f"{prefix}.BODY_SYNC"] = translated["body_sync_cue"]
+        body_sync = translated["body_sync_cue"]
+        if shared_clauses is not None and body_sync in shared_clauses:
+            body_sync = "the shared body synchronization stated on the first beat of this unit"
+        elif shared_clauses is not None and len(body_sync) >= 40:
+            shared_clauses.add(body_sync)
+        line += f" Body synchronization: {body_sync}."
+        evidence[f"{prefix}.BODY_SYNC"] = body_sync
     if source.get("internal_transition_after"):
         line += f" Then bridge into the next beat: {translated['internal_transition_after']}."
         evidence[f"{prefix}.INTERNAL_TRANSITION_AFTER"] = translated["internal_transition_after"]
@@ -1096,6 +1167,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     visibility_scopes = beat_visibility_scopes(unit, plan) if scoped else []
     visible_speakers = _visible_speaker_ids(plan) if scoped else []
     director_specs = (unit.get("ordered_prompt_specs") or []) if director_active(unit, plan) else []
+    shared_clauses: set[str] = set()
     for beat_number, (source, translated) in enumerate(zip(action_beats, contract["beats"]), 1):
         dialogue_binding = None
         if source.get("dialogue"):
@@ -1110,6 +1182,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             positive_single_subject=positive_single_subject,
             language=language,
             performance=_spec_performance(director_specs, source.get("source_index")),
+            shared_clauses=shared_clauses,
         )
         if scoped:
             scope_text, scope_evidence = _beat_scope_clauses(
@@ -1166,8 +1239,11 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         provider_rows = translated_sounds.get(key) or []
         if len(provider_rows) != len(source_rows):
             raise ValueError(f"H3_ENGLISH_CONTRACT_SOUND_COUNT:{uid}:{key}:{len(provider_rows)}!={len(source_rows)}")
-        for index, value in enumerate(provider_rows, 1):
-            value = str(value).strip()
+        values = [str(value).strip() for value in provider_rows]
+        if key == "action_sound":
+            values = _condense_sound_quotes(values, contract.get("beats") or [])
+            values = _collapse_shared_unit_policy(values)
+        for index, value in enumerate(values, 1):
             sound_rows.append(value)
             clause_evidence[f"SOUND.{key.upper()}.{index}"] = value
 
