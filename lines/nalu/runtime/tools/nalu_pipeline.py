@@ -355,8 +355,19 @@ def previs_gate(ctx: "Ctx", stage: str) -> dict[str, Any]:
         return row
     round_number = 1 + int((ctx.state.get("previs_review_rounds") or {}).get(stage) or 0)
     max_rounds = int(policy.get("max_director_review_rounds") or _previs.MAX_REVIEW_ROUNDS)
-    review = _previs.director_review_request(previs, round_number=max(1, min(round_number, max_rounds + 1)))
-    # P1.4 (codex §2.2): write back round number so next attempt increments.
+    # The round budget counts ACCEPTED reviews, not stage invocations.  Keeping the
+    # call counter here let three bare runs report "2 rounds done" with no reviewer
+    # and no answers (CC_H3 audit 2026-10-26 §四-C); the counter is still advanced so
+    # a re-run is visible, but it no longer decides the review status.  A review only
+    # counts when it is bound to THIS sequence_digest (§四-缺口D): edit a shot's camera
+    # or a boundary's transition and the previous round's receipt stops counting,
+    # because it describes a sequence that no longer exists.
+    sequence_digest = previs.get("sequence_digest")
+    submitted_reviews = _previs.submitted_review_count(
+        p.preprod_reports, ctx.episode, stage, sequence_digest)
+    review = _previs.director_review_request(
+        previs, round_number=max(1, min(round_number, max_rounds + 1)),
+        submitted_reviews=submitted_reviews)
     ctx.state.setdefault("previs_review_rounds", {})[stage] = round_number
     machine_mode = "BLOCK" if policy.get("gate_on_machine_failures", True) else "ADVISORY"
     failures = previs.get("machine_failures") or []
@@ -372,6 +383,8 @@ def previs_gate(ctx: "Ctx", stage: str) -> dict[str, Any]:
         "blocked": blocked,
         "receipt": str(out_path),
         "receipt_sha256": sha256_file(out_path),
+        "sequence_digest": sequence_digest,
+        "review_receipt_path": str(_previs.review_receipt_path(p.preprod_reports, ctx.episode, stage)),
         "shot_count": previs.get("shot_count"),
         "total_seconds": previs.get("total_seconds"),
         "estimated_dialogue_lines": previs.get("estimated_dialogue_lines"),
@@ -380,10 +393,12 @@ def previs_gate(ctx: "Ctx", stage: str) -> dict[str, Any]:
         "machine_failure_mode": machine_mode,
         "advisories": previs.get("advisories") or [],
         "director_review": {"status": review.get("status"), "round": review.get("round"),
-                            "blocking": False, "max_rounds": max_rounds},
+                            "blocking": False, "max_rounds": max_rounds,
+                            "submitted_reviews": review.get("submitted_reviews", submitted_reviews)},
         "note": ("a previs PASS means the plan is internally consistent enough to go on to "
                  "production; it is not a cut and not evidence that an action, an identity "
-                 "or a lip sync works"),
+                 "or a lip sync works.  The director review is only complete when submitted "
+                 "review receipts exist — re-running this stage does not advance it."),
     })
     return row
 

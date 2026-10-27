@@ -177,9 +177,11 @@ class PrevisGateWiringTest(unittest.TestCase):
         self.assertEqual(row["status"], "PASS")
 
     def test_the_director_review_never_blocks_and_stops_after_the_round_limit(self):
+        """Re-running the stage never counts as a review; only receipts close the loop."""
         row = self._run(_contract(), rounds={"S5": 99})
         self.assertFalse(row["blocked"])
-        self.assertEqual(row["director_review"]["status"], "CLOSED_ADVISORY")
+        self.assertEqual(row["director_review"]["status"], "NOT_VERIFIED")
+        self.assertEqual(row["director_review"]["submitted_reviews"], 0)
         self.assertFalse(row["director_review"]["blocking"])
 
     def test_the_round_limit_never_waives_a_machine_failure(self):

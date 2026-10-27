@@ -22,6 +22,7 @@ character count is ESTIMATED and is never reported as MEASURED.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -83,6 +84,62 @@ DIRECTOR_QUESTIONS = (
     ("combat_readable", "打斗是否有可理解的攻防与结果，而不是只堆姿态？"),
     ("static_dialogue_attention", "连续静态对话是否缺乏合理的注意力变化？"),
 )
+
+REVIEW_SCHEMA = SCHEMA + ".director_review_receipt"
+
+
+def sequence_digest(previs: dict[str, Any]) -> str:
+    """Hash of exactly what a reviewer looked at: the shot timeline and the
+    adjacent-boundary projection.  Excludes director_review, gate and advisories,
+    which change on every run without the sequence itself changing — hashing
+    those would fail a review that is still valid and never catch the case that
+    matters (CC_H3 audit 2026-10-26 §四-缺口D: receipt_sha256 hashed the OUTPUT
+    file, not an input snapshot, so nothing bound a review to the sequence
+    version it actually read).
+    """
+    material = {"timeline": previs.get("timeline") or [], "boundaries": previs.get("boundaries") or []}
+    raw = json.dumps(material, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def review_receipt_path(directory: Path, episode: str, stage: str) -> Path:
+    return Path(directory) / f"{episode}_PREVIS_REVIEW_{stage}.json"
+
+
+def submitted_review_count(directory: Path, episode: str, stage: str,
+                           sequence_digest_value: str | None = None) -> int:
+    """How many ACCEPTED director reviews exist for this episode's previs stage.
+
+    A receipt only counts when it names a reviewer, answers every question of the
+    round it claims, and (when ``sequence_digest_value`` is given) its own
+    ``sequence_digest`` still equals the current one.  A stale receipt bound to a
+    since-changed timeline or boundary set does not count — the sequence changed,
+    so the review no longer describes it.
+    """
+    path = review_receipt_path(directory, episode, stage)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0
+    if not isinstance(payload, dict) or payload.get("schema") != REVIEW_SCHEMA:
+        return 0
+    rounds = payload.get("rounds")
+    if not isinstance(rounds, list):
+        return 0
+    accepted = 0
+    for row in rounds:
+        if not isinstance(row, dict) or not str(row.get("reviewer") or "").strip():
+            continue
+        if sequence_digest_value is not None and row.get("sequence_digest") != sequence_digest_value:
+            continue
+        answers = row.get("answers") or {}
+        if not isinstance(answers, dict) or not answers:
+            continue
+        missing = [qid for qid, _ in DIRECTOR_QUESTIONS if qid not in answers]
+        if missing:
+            continue
+        accepted += 1
+    return accepted
 
 
 def _spoken(text: str) -> str:
@@ -234,7 +291,10 @@ def build_previs(
             advisories.append({"code": "SCENE_INTENT_NOT_DECLARED", "ref": scene_id,
                                "detail": ",".join(absent)})
 
-    return {
+    dialogue_by_shot = {row["shot_id"]: row["dialogue"] for row in timeline if row["dialogue"]}
+    boundaries = build_boundaries(grouping, timeline, dialogue_by_shot)
+
+    result = {
         "schema": SCHEMA,
         "episode": contract.get("episode"),
         "status": "PASS" if not failures else "FAIL",
@@ -249,32 +309,162 @@ def build_previs(
         "machine_failures": failures,
         "advisories": advisories,
         "timeline": timeline,
+        "boundaries": boundaries,
     }
+    result["sequence_digest"] = sequence_digest(result)
+    return result
+
+
+def _attempt(fn, **kwargs):
+    """Run a validator previs only READS; its own PASS/FAIL stays load-bearing
+    wherever it already runs (S2 grouping gate etc).  A raise here becomes a
+    reported boundary problem, never a crash and never a second copy of the
+    validator's rules."""
+    try:
+        return fn(**kwargs), None
+    except Exception as exc:  # noqa: BLE001 — reported, not re-raised
+        return None, str(exc)
+
+
+def _dialogue_crosses_cut(previous_shot_ids: list[str], current_shot_ids: list[str],
+                          dialogue_by_shot: dict[str, list[dict[str, Any]]]) -> bool:
+    """A line that starts in the outgoing shot and has no matching start in the
+    incoming shot is understood to run across the cut (sound bridge territory)."""
+    if not previous_shot_ids or not current_shot_ids:
+        return False
+    tail_has_line = bool(dialogue_by_shot.get(previous_shot_ids[-1]))
+    head_has_line = bool(dialogue_by_shot.get(current_shot_ids[0]))
+    return tail_has_line and not head_has_line
+
+
+def build_boundaries(grouping: dict[str, Any] | None, timeline: list[dict[str, Any]],
+                     dialogue_by_shot: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    """Project the existing camera / transition / action-continuity contracts onto
+    the REAL clip-order adjacency, so a reviewer sees what actually joins to what.
+
+    CC_H3 audit 2026-10-26 §四-缺口A: a previs timeline with only shot id, start,
+    duration and a static image cannot show whether two shots cut together with
+    any rhythm.  This reuses grouped_transition_contract, grouped_camera_contract
+    and unit_action_continuity_contract exactly as written — no second camera or
+    continuity rule set — and reports NOT_APPLICABLE wherever the unit itself
+    never declared the optional structured fields (action_event_contract is
+    opt-in; absence is legal, per that module's own contract).
+    """
+    units = list((grouping or {}).get("units") or [])
+    if len(units) < 2:
+        return []
+    try:
+        from tools import grouped_transition_contract as _gtc
+        from tools import unit_action_continuity_contract as _uac
+    except ImportError:
+        from grouped_transition_contract import boundary_id as _bid  # type: ignore
+        _gtc = None
+        _uac = None
+    shot_index = {row["shot_id"]: index for index, row in enumerate(timeline)}
+    boundaries: list[dict[str, Any]] = []
+    for index in range(1, len(units)):
+        previous, current = units[index - 1], units[index]
+        prev_id = str(previous.get("unit_id") or f"unit-{index}")
+        curr_id = str(current.get("unit_id") or f"unit-{index + 1}")
+        prev_shots = list(previous.get("editorial_shot_ids") or [])
+        curr_shots = list(current.get("editorial_shot_ids") or [])
+        row: dict[str, Any] = {
+            "boundary_id": (_gtc.boundary_id(prev_id, curr_id) if _gtc else f"BND-{prev_id}-{curr_id}"),
+            "from_unit_id": prev_id, "to_unit_id": curr_id,
+            "from_shot_id": prev_shots[-1] if prev_shots else None,
+            "to_shot_id": curr_shots[0] if curr_shots else None,
+            "from_end_seconds": None, "to_start_seconds": None,
+        }
+        if row["from_shot_id"] in shot_index:
+            tail = timeline[shot_index[row["from_shot_id"]]]
+            row["from_end_seconds"] = round(tail["start"] + tail["duration"], 3)
+        if row["to_shot_id"] in shot_index:
+            row["to_start_seconds"] = timeline[shot_index[row["to_shot_id"]]]["start"]
+
+        transition_contract = current.get("transition_contract")
+        if transition_contract and _gtc is not None:
+            normalized, error = _attempt(
+                _gtc.validate_transition_contract, contract=transition_contract,
+                previous=previous, current=current)
+            if error:
+                row["transition"] = {"status": "DECLARED_BUT_INVALID", "error": error}
+            else:
+                row["transition"] = {
+                    "status": "DECLARED", "cut_reason": normalized["cut_reason"],
+                    "space_relation": normalized["space_relation"],
+                    "transition_device": normalized["transition_device"],
+                    "plot_motivation": normalized["plot_motivation"],
+                    "visual_bridge": normalized["visual_bridge"],
+                    "action_bridge": normalized["action_bridge"],
+                    "sound_bridge": normalized["sound_bridge"],
+                    "axis_strategy": normalized["axis_strategy"],
+                    "new_information_for_viewer": normalized["plot_motivation"],
+                }
+        else:
+            row["transition"] = {"status": "NOT_DECLARED",
+                                 "reason": "unit carries no transition_contract"}
+
+        prev_camera = previous.get("camera_plan") or {}
+        curr_camera = current.get("camera_plan") or {}
+        row["camera"] = {
+            "from_end_framing": prev_camera.get("end_framing"),
+            "from_motion": f"{prev_camera.get('motion_family')}:{prev_camera.get('motion_direction')}"
+                           if prev_camera else None,
+            "to_start_framing": curr_camera.get("start_framing"),
+            "to_motion": f"{curr_camera.get('motion_family')}:{curr_camera.get('motion_direction')}"
+                        if curr_camera else None,
+        }
+
+        if _uac is not None:
+            verdict = _uac.evaluate(previous, current)
+            row["action_continuity"] = {
+                "status": verdict["status"], "event_id": verdict.get("event_id") or None,
+                "phase": verdict.get("phase") or None,
+                "failures": verdict.get("failures") or [],
+            }
+        else:
+            row["action_continuity"] = {"status": "NOT_APPLICABLE", "failures": []}
+
+        row["dialogue_crosses_cut"] = _dialogue_crosses_cut(prev_shots, curr_shots, dialogue_by_shot)
+        boundaries.append(row)
+    return boundaries
 
 
 def director_review_request(previs: dict[str, Any], *, round_number: int,
-                            prior_open: list[str] | None = None) -> dict[str, Any]:
+                            prior_open: list[str] | None = None,
+                            submitted_reviews: int | None = None) -> dict[str, Any]:
     """Issue a subjective review round, or close the loop after MAX_REVIEW_ROUNDS.
+
+    The round budget counts SUBMITTED reviews, never stage invocations.  A stage
+    that was merely re-run has not been reviewed, so it stays NOT_VERIFIED; before
+    2026-10-26 the call count itself advanced the round, and the third bare run
+    returned "2 rounds done" with no reviewer and no answers (audit §四-C).
 
     Round limits cover subjective questions only.  They never waive a machine
     failure, a budget guard or a transaction check — those stay in
     previs["machine_failures"] regardless of the round.
     """
-    if round_number > MAX_REVIEW_ROUNDS:
+    done = max(0, int(submitted_reviews)) if submitted_reviews is not None else 0
+    machine_failures = previs.get("machine_failures") or []
+    if done >= MAX_REVIEW_ROUNDS:
         return {
             "schema": SCHEMA + ".director_review",
             "status": "CLOSED_ADVISORY",
             "round": round_number,
+            "submitted_reviews": done,
             "advisory_carried": list(prior_open or []),
-            "note": f"{MAX_REVIEW_ROUNDS} rounds done; remaining subjective items are ADVISORY. "
-                    "No further round, no automatic regeneration.",
+            "machine_failure_count": len(machine_failures),
+            "note": f"{MAX_REVIEW_ROUNDS} submitted review(s) done; remaining subjective items are "
+                    "ADVISORY. No further round, no automatic regeneration.",
         }
     return {
         "schema": SCHEMA + ".director_review",
-        "status": "REVIEW_REQUESTED",
+        "status": "REVIEW_REQUESTED" if done else "NOT_VERIFIED",
         "round": round_number,
+        "submitted_reviews": done,
         "max_rounds": MAX_REVIEW_ROUNDS,
         "blocking": False,
+        "machine_failure_count": len(machine_failures),
         "questions": [{"id": qid, "question": text, "answer": None} for qid, text in DIRECTOR_QUESTIONS],
         "rule": "Edit only the shots a finding names and their dependants; re-run previs.",
     }
