@@ -164,8 +164,19 @@ def reconcile_rows(
     expected_count: int,
     event_description: str,
     model: str,
+    known_task_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    matches = []
+    """A video Pay row carries the generation task id as its ``project_id``.
+
+    When the caller knows the task ids it actually bound, restricting the window to
+    those rows separates this line's charge from another line's activity on a shared
+    provider account (2026-10-23: two foreign MiniMax-H3 rows, 152 cr, landed in the
+    same 100 s window and were counted against E12).  Rows outside the set are kept
+    in ``foreign_statement_rows``: never counted, never hidden.
+    """
+    wanted = {str(t) for t in (known_task_ids or []) if t}
+    matches: list[dict[str, Any]] = []
+    foreign: list[dict[str, Any]] = []
     for row in rows:
         if row.get("event_type") != "Pay":
             continue
@@ -174,8 +185,12 @@ def reconcile_rows(
         if row.get("model") != model:
             continue
         created = parse_statement_time(str(row.get("created_at", "")))
-        if start <= created <= end:
-            matches.append(row)
+        if not start <= created <= end:
+            continue
+        if wanted and str(row.get("project_id") or "") not in wanted:
+            foreign.append(row)
+            continue
+        matches.append(row)
     matches.sort(key=lambda row: row["created_at"])
 
     total = Decimal("0")
@@ -201,6 +216,10 @@ def reconcile_rows(
         "invalid_credit_rows": invalid_credit_rows,
         "charged_credits": int(total) if total == total.to_integral() else str(total),
         "statement_rows": matches,
+        **({"foreign_statement_rows": foreign,
+            "foreign_charged_credits": int(sum(abs(Decimal(str(r["credit"]))) for r in foreign)),
+            "foreign_row_policy": "FOREIGN_ACCOUNT_ACTIVITY_NOT_ATTRIBUTED_TO_THIS_EPISODE"}
+           if foreign else {}),
         "limitation": "Giggle credit statements omit image task_id; evidence is batch-level and requires an isolated UTC window with exact event/model/count matching.",
     }
 
