@@ -27,10 +27,13 @@ LIFE_STATES = ("alive", "injured", "unconscious", "dead")
 CREATURE_KIND = "CREATURE"
 CREATURE_ID_HINTS = ("PROP-MUTANT",)
 CREATURE_ID_SUBSTRINGS = ("BEAST",)
-LOCOMOTION_KINDS = ("biped", "quadruped")
+LOCOMOTION_KINDS = ("biped", "quadruped", "slithering", "flying")
+# words that would contradict a declared form (a snake that "stands upright" or "walks on four legs" drifted)
 LOCOMOTION_WORDS = {
     "biped": ("直立", "站立奔", "两足"),
     "quadruped": ("四足", "四肢着地", "匍匐"),
+    "slithering": ("蜿蜒", "滑行", "游动"),
+    "flying": ("振翅", "飞行", "盘旋"),
 }
 
 AMBUSH_TRIGGER_WORDS = ("伏击", "埋伏", "雪窟窿", "藏身")
@@ -201,7 +204,9 @@ def check_creature_card(contract: dict[str, Any]) -> dict[str, Any]:
             if not _clean(card.get(field)):
                 failures.append(f"CREATURE_CARD_FIELD_MISSING:{eid}:{field}")
         entry["locomotion"] = locomotion
-        other = [k for k in LOCOMOTION_KINDS if k != locomotion][0]
+        # legged forms must not drift into each other; a limbless or flying creature must not grow legs
+        others = ([k for k in ("biped", "quadruped") if k != locomotion] if locomotion in ("biped", "quadruped")
+                  else ["biped", "quadruped"])
         appearances: list[str] = []
         for index, shot in enumerate(shots):
             sid = _shot_id(shot, index)
@@ -210,7 +215,7 @@ def check_creature_card(contract: dict[str, Any]) -> dict[str, Any]:
                 continue
             appearances.append(sid)
             text = _action_text(shot)
-            if any(w in text for w in LOCOMOTION_WORDS[other]):
+            if any(w in text for other in others for w in LOCOMOTION_WORDS[other]):
                 failures.append(f"CREATURE_FORM_DRIFT:{eid}:{sid}")
         entry["appearances"] = appearances
     return _result(failures, measurements={"creatures": creatures})

@@ -75,6 +75,8 @@ try:
     )
     from action_video_prompt_compiler import validate_action_contract
     from shot_media_admission_gate import compute_input_template_id, precheck_submission_inputs
+    from video_live_binding import attributed_task_ids, live_bindings
+    from h3_provider_english_contract import is_director_v2_text
 except ModuleNotFoundError:
     from tools.giggle_api_client import _image_list, _registered_asset, _request, paid_video_submission_context
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
@@ -105,6 +107,8 @@ except ModuleNotFoundError:
     )
     from tools.action_video_prompt_compiler import validate_action_contract
     from tools.shot_media_admission_gate import compute_input_template_id, precheck_submission_inputs
+    from tools.video_live_binding import attributed_task_ids, live_bindings
+    from tools.h3_provider_english_contract import is_director_v2_text
 
 # Shot-scope upgrade (configs/PROMPT_SHOT_SCOPE_POLICY_V1.json): submit-boundary conflict gate
 # and loaded-module audit.  Inactive episodes/models never call either, so their request,
@@ -466,6 +470,12 @@ def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
     # compiler input stays byte-identical
     if task.get("h3_prompt_style") or machine.get("h3_prompt_style"):
         prompt_unit["h3_prompt_style"] = task.get("h3_prompt_style") or machine.get("h3_prompt_style")
+    # opt-in Chinese constraint sentences (generation contract h3_constraint_language "zh"; A/B variant tasks)
+    if task.get("h3_constraint_language") or machine.get("h3_constraint_language"):
+        prompt_unit["h3_constraint_language"] = task.get("h3_constraint_language") or machine.get("h3_constraint_language")
+    # declared camera lock (h3_camera_lock "strict" | "standard"; absent = renderer default)
+    if task.get("h3_camera_lock") or machine.get("h3_camera_lock"):
+        prompt_unit["h3_camera_lock"] = task.get("h3_camera_lock") or machine.get("h3_camera_lock")
     prompt_unit["duration_seconds"] = task.get("duration_seconds")
     prompt_unit["resolution"] = task.get("resolution")
     prompt_unit["aspect_ratio"] = task.get("aspect_ratio")
@@ -795,7 +805,7 @@ def uses_structured_role_gate(task: dict[str, Any], prompt_text: str) -> bool:
     )
     # DIRECTOR_PROMPT_V2 is compiler-native too (exact-compiler check + semantic receipt below)
     director_v2 = (str(task.get("h3_prompt_style") or "").strip().upper() == "DIRECTOR_PROMPT_V2"
-                   and prompt_text.startswith("References:\n") and "\n\nWho is in frame" in prompt_text)
+                   and is_director_v2_text(prompt_text))
     official_h3_ref2va = (
         str(task.get("model") or "").lower() in {"minimax-h3", "h3"}
         and task.get("h3_prompt_profile") == "H3_OFFICIAL_REF2VA_V1"
@@ -1069,10 +1079,39 @@ def estimated_video_credits(task: dict[str, Any]) -> int:
     return int(seconds * 20)
 
 
+def live_bound_elsewhere(task: dict[str, Any], transaction_dir: Path) -> dict[str, Any] | None:
+    """The task's live provider binding under ANOTHER fingerprint, as a recovered row (no POST).
+
+    Lab E05 2026-10-26: a recompile drifted the VU-001 fingerprint (the episode-wide
+    ``audio_profile_binding.generation_contract_sha256`` changed when VU-014 was rebuilt) while
+    its redo was still rendering, and the store lookup above -- keyed by fingerprint -- let a
+    second, byte-identical 48-credit task through.  A bound, not terminally failed take of the
+    same task_key that is newer than the unit's last park is the take we already paid for: poll
+    it.  Only an explicit ``supersedes_submission_fingerprints`` entry re-opens a POST."""
+    declared = {str(v) for v in (task.get("supersedes_submission_fingerprints") or [])}
+    episode = str(task.get("episode") or Path(transaction_dir).name)
+    live = live_bindings(transaction_dir, str(task["task_key"]), root=ROOT, episode=episode,
+                         exclude_fingerprints={task_fingerprint(task), *declared})
+    if not live:
+        return None
+    first = live[0]
+    return {
+        "task_key": task["task_key"], "task_id": first["task_id"], "state": "remote_running",
+        "receipt": first.get("receipt"), "transaction": portable(Path(first["transaction"])),
+        "recovered_from_transaction": True,
+        "recovered_via": "LIVE_BINDING_UNDER_OTHER_FINGERPRINT",
+        "live_takes": [{k: row.get(k) for k in ("task_id", "submission_fingerprint", "bound_at", "request_sha256")}
+                       for row in live],
+    }
+
+
 def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -> dict[str, Any]:
     prior = prior_bound(task, transaction_dir)
     if prior:
         return prior
+    live = live_bound_elsewhere(task, transaction_dir)
+    if live:
+        return live
     try:
         from tools.episode_prompt_batch_gate import require_generation_batch
     except ModuleNotFoundError:
@@ -1323,12 +1362,16 @@ def main() -> int:
         start = datetime.fromisoformat(str(window.get("window_start_utc") or report["recorded_at"]).replace("Z", "+00:00"))
         end = datetime.fromisoformat(str(window.get("window_end_utc") or report["recorded_at"]).replace("Z", "+00:00"))
         expected = known + sum(_attempted(f) for f in failures)
+        transactions = ROOT / "workflow/tasks/giggle_video_submit_transactions" / str(report.get("episode") or "")
+        own_ids = {str(row["task_id"]) for row in report.get("tasks") or []
+                   if isinstance(row, dict) and row.get("task_id") and not row.get("recovered_from_transaction")}
         fresh = reconcile_rows(fetch_pay_statements(), start=start - timedelta(seconds=10),
                                end=end + timedelta(minutes=10), expected_count=expected,
                                event_description="SingleGenerateVideo",
-                               model=str(window.get("model") or "seedance-2.0-pro"))
+                               model=str(window.get("model") or "seedance-2.0-pro"),
+                               known_task_ids=own_ids,
+                               exclude_task_ids=attributed_task_ids(transactions.parent) - own_ids)
         matched = int(fresh.get("matched_count", 0))
-        transactions = ROOT / "workflow/tasks/giggle_video_submit_transactions" / str(report.get("episode") or "")
         for failure in failures:
             path = resolve(failure["transaction"]) if failure.get("transaction") else None
             if path is not None and path.is_file():
@@ -1504,8 +1547,16 @@ def main() -> int:
                       "expected_count": 0, "known_task_id_count": 0, "ambiguous_response_count": 0,
                       "unmapped_pay_row_count": 0, "note": "no new submission in this run; window reconciliation skipped"}
             matched = 0
+        # Attribute Pay rows by provider task id first (project_id == task_id): the ids this run
+        # bound are ours wherever they fall, and an id another durable transaction already owns
+        # (an adjacent or overlapping wave) is never counted here again.  Lab E05 2026-10-26:
+        # wave 29's window opened 10 s before its POST and swallowed wave 28's 1eb26c4b row.
+        own_ids = {str(row["task_id"]) for row in results
+                   if row.get("task_id") and not row.get("recovered_from_transaction")}
+        foreign_ids = attributed_task_ids(transactions.parent) - own_ids
         for attempt in range(7 if maximum else 0):
-            credit = reconcile_rows(fetch_pay_statements(), start=start - timedelta(seconds=10), end=datetime.now(timezone.utc) + timedelta(seconds=10), expected_count=maximum, event_description="SingleGenerateVideo", model=str(tasks[0]["model"]), known_task_ids=[str(row.get("task_id") or "") for row in results if row.get("task_id")])
+            credit = reconcile_rows(fetch_pay_statements(), start=start - timedelta(seconds=10), end=datetime.now(timezone.utc) + timedelta(seconds=10), expected_count=maximum, event_description="SingleGenerateVideo", model=str(tasks[0]["model"]),
+                                    known_task_ids=own_ids, exclude_task_ids=foreign_ids)
             matched = int(credit.get("matched_count", 0))
             if matched >= newly_bound or attempt == 6:
                 break

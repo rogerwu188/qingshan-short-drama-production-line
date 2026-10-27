@@ -143,6 +143,15 @@ class CreatureCardTests(unittest.TestCase):
         self.assertIn("CREATURE_FORM_DRIFT:PROP-MUTANT-BEAST:E99-S02-01", failures)
 
 
+    def test_limbless_creature_is_valid_but_must_not_grow_legs(self):
+        # lab Holmes E07: the speckled band is a swamp adder — neither biped nor quadruped
+        contract = positive_contract()
+        card = contract["non_character_entities"][1]["creature_card"]
+        card["locomotion"] = "slithering"
+        failures = gate.check_creature_card(contract)["failures"]
+        self.assertFalse([f for f in failures if f.startswith("CREATURE_CARD_INVALID")], failures)
+        self.assertIn("CREATURE_FORM_DRIFT:PROP-MUTANT-BEAST:E99-S02-01", failures)  # the shot has it standing upright
+
 class AmbushSpaceTests(unittest.TestCase):
     def test_approacher_entering_hideout_before_reveal(self):
         contract = positive_contract()

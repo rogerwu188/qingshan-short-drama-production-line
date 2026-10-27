@@ -13,8 +13,10 @@ from tools.tests.test_h3_director_performance import unit_plan
 from tools.tests.test_h3_director_prompt import vu012
 
 TIMBRE = "Each @Audio reference supplies timbre only; never speak or echo its words"
-SILENT = ("After the tagged line ends nobody speaks again: the remaining seconds are silent room tone "
-          "and natural movement, no mumbling, no extra words.")
+# provider-expert wording (line owner 2026-10-26) replaced the older after-line sentence
+SILENT = ("Only this one line is spoken, once; before and after it there is no other dialogue, voice-over, "
+          "narration or human voice.")
+NO_VOICE = "This shot has no dialogue, no voice-over, no narration and no human voice; nobody speaks."
 MUSIC = "No background music, score or soundtrack in this clip; only dialogue, foley and ambience"
 
 
@@ -34,6 +36,7 @@ class DirectorAudioTest(unittest.TestCase):
         text, _ = render_h3_prompt(*vu012(stamped=True))
         self.assertNotIn(TIMBRE, text)
         self.assertNotIn(SILENT, text)
+        self.assertTrue(line(text, "vocal_rule: ").endswith(NO_VOICE))
         self.assertIn(MUSIC, line(text, "negative_constraints: "))
 
     def test_unstamped_units_get_none_of_it(self):
@@ -41,6 +44,7 @@ class DirectorAudioTest(unittest.TestCase):
                      render_h3_prompt(*vu012(stamped=False))[0]):
             self.assertNotIn(TIMBRE, text)
             self.assertNotIn(SILENT, text)
+            self.assertNotIn(NO_VOICE, text)
             self.assertNotIn(MUSIC, text)
 
 

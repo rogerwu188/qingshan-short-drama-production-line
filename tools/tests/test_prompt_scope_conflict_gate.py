@@ -231,6 +231,9 @@ class SubmitterWiringTests(unittest.TestCase):
         video.submit_one(first, self.receipts, self.tx)
         changed_text = GOOD_TEXT.replace("乙抬头看向甲", "乙抬头看向甲，甲不露脸")
         changed = self.make_task(changed_text, name="prompt_v2.txt")
+        # T-1 is still live-bound (no park): only an explicit supersede re-opens the POST path
+        # (lab E05 2026-10-26 live-binding idempotency), and that path must re-run the gate.
+        changed["supersedes_submission_fingerprints"] = [video.task_fingerprint(first)]
         with self.assertRaises(video.PromptScopeGateBlocked):
             video.submit_one(changed, self.receipts, self.tx)
         self.assertEqual(self.check.call_count, 2)

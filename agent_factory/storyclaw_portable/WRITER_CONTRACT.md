@@ -143,6 +143,10 @@ blocking check; direct the episode the way people watch films:
   sound ducked to ambience. Omit it for a plain cut. Vertical silent two-shots: stack them front/back
   (over-the-shoulder), never two people pinned to the left and right edges. No extra cost: no multi-take, no post fixes.
   (5) During a spoken line the speaker's eyes stay on the listener (or just off-lens toward the listener's side).
+  The engine writes the eyeline into the H3 prompt and the keyframe (line owner 2026-10-26, lab E05: "eyes on the
+  listener" alone made speakers stare into the lens): "<name> looks just off the lens to the left/right, at
+  <listener>, never into the camera"; the two singles of a shot/reverse pair look to opposite sides. To fix the
+  side, add `role_semantic_disambiguation.dialogue_listener_screen_side: LEFT|RIGHT` (the listener's screen side).
   Never write the speaker turning to look at a window / door / off-screen object, or "eyes fixed on X", inside a
   speaking shot: H3 pans to reveal what they look at and loses the speaker (line owner 2026-10-24, lab Holmes E03).
   A look at something gets its own silent shot, or an insert of the thing.

@@ -20,10 +20,84 @@ CJK = re.compile(r"[\u3400-\u9fff]")
 DIALOGUE_TAG = re.compile(r"<d>\[(?:Chinese|English)\]\s*(.*?)</d>", re.DOTALL)
 QUOTED_CJK = re.compile(r"(?:\"[^\"\n]*[\u3400-\u9fff][^\"\n]*\"|[“”「」『』][^\n]*[\u3400-\u9fff])")
 
+#: The only Chinese allowed outside the dialogue tags: the MiniMax-H3 provider expert's constraint sentences,
+#: verbatim, rendered when a CAMERA_GRAMMAR_V1 unit opts in with ``h3_constraint_language: "zh"`` (owner-approved
+#: Chinese-vs-English A/B, 2026-10-26).  Everything else in an H3 prompt stays English; any other CJK still fails.
+H3_CONSTRAINT_ZH = {
+    "one_take": "全程一镜到底，中间不要出现切镜或拼接",
+    "fixed_camera": "机位固定，不推、不拉、不摇、不移",
+    "silent": "本段没有任何对白、画外音、旁白或人声，人物都不说话。",
+    "only_this_line": "只说这一句台词，只说一次；台词前后没有任何其他对白、画外音、旁白或人声。",
+    "only_these_lines": "只说以下这几句台词，每句只说一次，按顺序；台词前后和之间没有任何其他对白、画外音、旁白或人声。",
+    "no_duplicate": ("视频全程禁止出现外形、着装、配饰完全一致的人物，禁止生成同款分身、双胞胎效果，"
+                     "同一画面中仅保留单个对应人物，不出现人物重复复刻。"),
+}
+H3_CONSTRAINT_LANGUAGE_FIELD = "h3_constraint_language"
+
+
+def h3_constraint_language(payload: dict[str, Any] | None) -> str:
+    """"zh" when a unit/contract opts into Chinese constraint sentences, else "en" (the default)."""
+    value = str((payload or {}).get(H3_CONSTRAINT_LANGUAGE_FIELD) or "").strip().lower()
+    return "zh" if value in {"zh", "zh-cn", "chinese"} else "en"
+
+
+#: Strict camera lock (owner A/B, lab Holmes E06 2026-10-26: locked units still pushed in, face width
+#: 0.41 -> 0.81; with this wording VU-008 push-in 65% -> 15%, VU-001 98% -> 39%).  DEFAULT for every
+#: CAMERA_GRAMMAR_V1 single-take locked-camera unit (owner 2026-10-26): this English block is the prompt's very
+#: first paragraph (DIRECTOR_PROMPT_V2), plus a frozen-frame-size camera sentence and extra Never items
+#: (the V1 director renders CAMERA_LOCK_FROZEN_CLAUSE in its camera line).  ``h3_camera_lock: "standard"``
+#: opts a unit/contract out; ``"strict"`` forces it (refused on a moving camera).  Unstamped units never get it.
+H3_CAMERA_LOCK_FIELD = "h3_camera_lock"
+CAMERA_LOCK_STRICT = (
+    "CAMERA LOCK \u2014 ABSOLUTE RULE: the camera is bolted to a tripod for the whole clip. No zoom, no push-in, "
+    "no dolly, no crop change. The subject's size in the frame stays exactly the same from the first frame to the "
+    "last; the face never gets bigger or smaller. Any move closer is a failed shot."
+)
+CAMERA_LOCK_FROZEN_FRAME = "Frame size is frozen: same shot size as @Image1 at every moment."
+CAMERA_LOCK_NEVER = "zooming in, pushing in, dollying in, moving closer to the face, tightening the frame"
+#: where a DIRECTOR_PROMPT_V2 text starts: "References:", optionally after the strict camera-lock block
+DIRECTOR_V2_TEXT_START = re.compile(r"(?:" + re.escape(CAMERA_LOCK_STRICT) + r"\n\n)?References:\n")
+
+
+#: V1 director (key: value) camera-line clause of the same rule
+CAMERA_LOCK_FROZEN_CLAUSE = ("frame size is frozen: the subject stays exactly the same size in frame from the first "
+                             "frame to the last, never closer, no zoom-in, no crop change")
+CAMERA_LOCK_MODES = ("strict", "standard")
+
+
+def h3_camera_lock(payload: dict[str, Any] | None) -> str:
+    """The declared camera-lock mode of a unit/contract: "strict", "standard" (opt-out) or "" (not declared)."""
+    value = str((payload or {}).get(H3_CAMERA_LOCK_FIELD) or "").strip().lower()
+    return value if value in CAMERA_LOCK_MODES else ""
+
+
+def strict_camera_lock_applies(payload: dict[str, Any] | None, *, stamped: bool, locked_single_take: bool) -> bool:
+    """Whether a unit renders the strict camera lock: CAMERA_GRAMMAR_V1 only; declared "standard" opts out,
+    declared "strict" forces it (the renderer refuses it on a moving camera), otherwise (the default) every
+    locked-camera single-take unit gets it."""
+    if not stamped:
+        return False
+    declared = h3_camera_lock(payload)
+    if declared == "standard":
+        return False
+    return declared == "strict" or locked_single_take
+
+
+def is_director_v2_text(text: str) -> bool:
+    """A DIRECTOR_PROMPT_V2 prompt (tools/h3_director_prompt_v2.py), with or without the camera-lock block."""
+    return bool(DIRECTOR_V2_TEXT_START.match(text)) and "\n\nWho is in frame" in text
+
+
+def _outside_allowed_text(text: str) -> str:
+    outside = DIALOGUE_TAG.sub("", text)
+    for phrase in sorted(H3_CONSTRAINT_ZH.values(), key=len, reverse=True):
+        outside = outside.replace(phrase, "")
+    return outside
+
 
 def validate_h3_provider_text_boundary(text: str, *, source_id: str) -> dict[str, Any]:
     failures: list[str] = []
-    outside = DIALOGUE_TAG.sub("", text)
+    outside = _outside_allowed_text(text)
     if CJK.search(outside):
         failures.append(f"H3_CJK_OUTSIDE_DIALOGUE:{source_id}")
     # quoted Chinese is only forbidden OUTSIDE the dialogue tags: a line like 「好，走吧。」 or a book-title

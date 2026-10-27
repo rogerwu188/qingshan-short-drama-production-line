@@ -88,3 +88,61 @@ def fixed_element_rule(shot_size: Any) -> dict[str, Any]:
                             f"show (in their mapped relationship); the frame is {en}.")}
     return {"scale": scale, "mode": "ALL_MAPPED", "max_required": None, "picture_range_zh": "",
             "picture_range_en": "", "rule_en": "Every mapped fixed element shows in its mapped relationship."}
+
+
+#: Speaking-shot eyeline (line owner 2026-10-26, lab Holmes E05): "eyes on the listener" alone let the speaker
+#: stare into the lens.  The speaker looks just off the lens toward the listener's screen side; shot/reverse
+#: singles of one pair look to opposite sides so the two singles face each other.
+GAZE_SIDES = ("left", "right")
+_SIDE_WORDS = {"LEFT": "left", "SCREEN_LEFT": "left", "FRAME_LEFT": "left", "L": "left",
+               "RIGHT": "right", "SCREEN_RIGHT": "right", "FRAME_RIGHT": "right", "R": "right"}
+#: optional writer fields naming the listener's screen side (role_semantic_disambiguation or prompt_spec)
+LISTENER_SIDE_FIELDS = ("dialogue_listener_screen_side", "listener_screen_side", "listener_side")
+
+
+def _side_word(value: Any) -> str:
+    return _SIDE_WORDS.get(normalise_scale(value), "")
+
+
+def speaker_gaze_side(speaker_id: Any, listener_id: Any = None, *, declared: Any = None,
+                      cast_ids: list[Any] | None = None) -> dict[str, str]:
+    """{side, method} of a speaker's off-lens eyeline.
+
+    1. a declared listener screen side (writer field) wins;
+    2. a speaker/listener pair: the two ids in sorted order — the first looks right, the second left (stable across
+       every unit of the scene, so the shot and its reverse face each other);
+    3. no listener: alternate by the speaker's position among the unit's declared cast (first right)."""
+    side = _side_word(declared)
+    if side:
+        return {"side": side, "method": "DECLARED_LISTENER_SIDE"}
+    speaker, listener = str(speaker_id or "").strip(), str(listener_id or "").strip()
+    if speaker and listener and speaker != listener:
+        return {"side": "right" if sorted([speaker, listener])[0] == speaker else "left",
+                "method": "PAIR_ORDER_SHOT_REVERSE"}
+    cast = sorted({str(v) for v in cast_ids or [] if str(v or "").strip()} | ({speaker} if speaker else set()))
+    index = cast.index(speaker) if speaker in cast else 0
+    return {"side": GAZE_SIDES[1 - index % 2], "method": "SPEAKER_ORDER_DEFAULT"}
+
+
+def declared_listener_side(*rows: Any) -> str:
+    for row in rows:
+        if isinstance(row, dict):
+            for key in LISTENER_SIDE_FIELDS:
+                if _side_word(row.get(key)):
+                    return _side_word(row.get(key))
+    return ""
+
+
+def speaker_gaze_sentence(label: str, side: str, listener: str = "") -> str:
+    """The H3 speaking-unit eyeline sentence."""
+    target = listener.strip() or "the other person"
+    return (f"{label} looks just off the lens to the {side}, at {target}, never into the camera; "
+            "the camera does not follow the gaze.")
+
+
+def keyframe_eyeline_line(speaker: str, side: str, listener: str = "") -> str:
+    """The keyframe prompt's eyeline line for a speaking shot (zh + the English picture instruction)."""
+    side_zh = "左" if side == "left" else "右"
+    target = listener.strip() or "对方"
+    return (f"视线：{speaker}的眼睛看向镜头{side_zh}侧略偏处、看着画外的{target}，不直视镜头"
+            f"（eyes just off-camera to the {side}, not looking into the lens）。")

@@ -39,6 +39,7 @@ PREMIX_LIMITER_INPUT_CEILING_DBTP = 6.0
 # native_audio_loudness_contract.DEFAULT_TRUE_PEAK_CEILING_DBTP (-1.5 dBTP, release max -1.0).
 FINAL_LOUDNORM_TRUE_PEAK_DBTP = -1.5
 FINAL_LIMITER_LINEAR = 0.841395  # 10 ** (-1.5 / 20)
+STATIC_TRUE_PEAK_LIMIT_LINEAR = 0.749894  # 10 ** (-2.5 / 20): --pre-levelled-units, oversampled, AAC headroom
 
 
 def now() -> str:
@@ -110,13 +111,21 @@ def level_release(
     line_band_lufs: tuple[float, float] = (-18.0, -12.0),
     line_target_lufs: float = -13.5,
     voice_over_placement: Path | None = None,
+    pre_levelled_units: Path | None = None,
 ) -> dict:
     """``line_windows`` (seq=19 C3, 2026-09-17): dialogue windows [{start, end}] on the release timeline.
     After each render every window is measured (ebur128 on the OUTPUT); a window outside
     ``line_band_lufs`` gets a per-window gain toward ``line_target_lufs`` (clamped -8..+4 dB, applied
     inside its unit's premix before the program loudnorm) and the render is repeated.  This is line
     levelling a mixer would do by hand, not a threshold change: the band and the target are the
-    release contract's."""
+    release contract's.
+
+    ``pre_levelled_units`` (CAMERA_GRAMMAR_V1, line owner 2026-10-27, lab E07): the units were already levelled
+    before the AgentCut build (tools/s7_audio_smoothing.py, <EP>_UNIT_AUDIO_LEVELLING.json, +-6 dB).  Staging a
+    second per-unit gain here (up to +24 dB) and per-line gain steps re-created the level jumps at every cut, and
+    the loudnorm fell back to dynamic normalisation (pumping).  In this mode every unit keeps unity gain, no line
+    gain is staged, and the program gain is one static gain + the final limiter, trimmed until the release lands
+    on the target.  The unit / release evaluation is unchanged and recorded honestly."""
     # Never let a failed leveling run erase an approved release or its inputs.
     protected = {path.resolve() for path in (source, timeline_path, grouped_path)}
     if output.resolve() in protected or qa_path.resolve() in protected:
@@ -139,6 +148,10 @@ def level_release(
     # 4 LU above its prediction, VU-006 2 LU below).  Render, measure the OUTPUT per unit, and
     # refine the per-unit gain toward (role target + program gain) — up to 3 passes.
     narration = voice_over_windows(voice_over_placement)
+    static_units = pre_levelled_units is not None
+    if static_units:
+        line_windows = None
+    program_trim = 0.0
     measured_inputs = []
     for segment in segments:
         uid = segment["unit_id"]
@@ -169,7 +182,7 @@ def level_release(
                 true_peak_ceiling_dbtp=PREMIX_LIMITER_INPUT_CEILING_DBTP,
                 max_gain_db=24.0 if quiet_ambience else 12.0,
             )
-            gain = float(plan["gain_db"]) + float(adjust.get(uid, 0.0))
+            gain = 0.0 if static_units else float(plan["gain_db"]) + float(adjust.get(uid, 0.0))
             label = f"a{index}"
             line_filters = ""
             for win in (line_windows or []):
@@ -216,9 +229,14 @@ def level_release(
             f"measured_TP={float(stats['input_tp']):.3f}:measured_thresh={float(stats['input_thresh']):.3f}:"
             f"offset={float(stats.get('target_offset') or 0.0):.3f}"
         )
+        limiter = f"alimiter=limit={FINAL_LIMITER_LINEAR}:attack=5:release=50:level=false,"
+        if static_units:
+            # static program gain; the limiter runs 4x oversampled (true peak) with headroom for the AAC encode
+            linear = f"volume={program_gain + program_trim:.3f}dB,aresample=192000"
+            limiter = f"alimiter=limit={STATIC_TRUE_PEAK_LIMIT_LINEAR}:attack=5:release=50:level=false:latency=1,"
         filters.append(
             premix + "," + linear + ","
-            + f"alimiter=limit={FINAL_LIMITER_LINEAR}:attack=5:release=50:level=false,"
+            + limiter
             + f"aresample=48000,apad=whole_dur={release_runtime:.6f},"
             + f"atrim=duration={release_runtime:.6f},asetpts=N/SR/TB[aout]"
         )
@@ -272,6 +290,13 @@ def level_release(
         iterations.append({"attempt": attempt, "program_gain_db": round(program_gain, 3),
                            "unit_failures": unit_failures, "max_abs_error_lu": max(abs(v) for v in errors.values()),
                            "line_windows_out_of_band": line_out_of_band})
+        if static_units:
+            release_now = float(measure_loudness(output)["integrated_loudness_lufs"])
+            iterations[-1].update(program_trim_db=round(program_trim, 3), release_integrated_lufs=release_now)
+            if abs(release_now - RELEASE_TARGET_LUFS) <= 0.3 or attempt >= 4:
+                break
+            program_trim = round(program_trim + RELEASE_TARGET_LUFS - release_now, 3)
+            continue
         if not unit_failures and not line_out_of_band:
             break
         if attempt == MAX_REFINEMENT_PASSES:
@@ -305,7 +330,10 @@ def level_release(
         "video_stream_bit_exact": source_video_hash == output_video_hash,
         "duration_seconds": decoded_duration,
         "unit_gain_plans": plans,
-        "final_loudnorm": {"mode": "TWO_PASS_LINEAR (nalu e20)", "first_pass_stats": stats, "filter": linear},
+        "final_loudnorm": ({"mode": "STATIC_PROGRAM_GAIN_PRE_LEVELLED_UNITS", "first_pass_stats": stats,
+                            "filter": linear, "pre_levelled_units": str(pre_levelled_units)}
+                           if static_units else
+                           {"mode": "TWO_PASS_LINEAR (nalu e20)", "first_pass_stats": stats, "filter": linear}),
         "refinement_iterations": iterations,
         "outro_gain_plan": {"input": outro_measured, "gain_plan": outro_plan},
         "output_unit_loudness": output_units, "release_loudness": release_metrics,
@@ -334,6 +362,9 @@ def main() -> int:
     parser.add_argument("--version", required=True)
     parser.add_argument("--expected-sha256")
     parser.add_argument("--line-windows", type=Path, help="dialogue windows [{start,end}] on the release timeline (seq=19 C3 line levelling)")
+    parser.add_argument("--pre-levelled-units", type=Path,
+                        help="CAMERA_GRAMMAR_V1 <EP>_UNIT_AUDIO_LEVELLING.json: units were levelled before the build; "
+                             "stage no per-unit / per-line gain, static program gain only")
     parser.add_argument("--voice-over-placement", type=Path,
                         help="S7 <EP>_voice_over_placement.json; mixed-in narration must be sha-bound to the S4 manifest")
     args = parser.parse_args()
@@ -345,6 +376,7 @@ def main() -> int:
         line_windows=(json.loads(args.line_windows.read_text(encoding="utf-8"))
                       if args.line_windows and args.line_windows.is_file() else None),
         voice_over_placement=args.voice_over_placement.resolve() if args.voice_over_placement else None,
+        pre_levelled_units=args.pre_levelled_units.resolve() if args.pre_levelled_units else None,
     )
     print(json.dumps({
         "status": payload["status"], "output": payload["output_release"],

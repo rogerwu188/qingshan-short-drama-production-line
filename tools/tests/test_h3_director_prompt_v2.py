@@ -39,9 +39,15 @@ INTERNAL = re.compile(r"\b(?:CHAR|SUBSPACE|LOC|SET|PROP|AXIS|ANGLE)-[A-Z0-9-]+|\
 #: sha256 of the V1 render of fixture(style=False) / fixture(style=False, director=False), computed with the
 #: pre-V2 engine (HEAD 7bd213c): the opt-in must leave every other unit byte-identical.  The stamped (director)
 #: V1 render changed once on purpose (2026-10-24): it gains only the speaker-gaze clause "While speaking Alpha
-#: keeps their eyes on the listener; the camera does not follow their gaze." (was 0857f610...).
+#: keeps their eyes on the listener; the camera does not follow their gaze." (was 0857f610...).  It changed again
+#: on purpose 2026-10-26 (MiniMax-H3 provider-expert wording: fixed-camera clause, one continuous take, "only
+#: this one line" voice sentence, final anti-duplicate line; was d5479374...).  And on 2026-10-26 (lab E05) the gaze
+#: clause became the off-lens eyeline "Alpha looks just off the lens to the <side>, at <listener>, never into the
+#: camera; the camera does not follow the gaze." (was 412240e1...).  The unstamped pin never changes.
 V1_SHA = {
-    True: "d5479374441bbb799a7b706750f135d04fd25544c36967bec26a719b13760aac",
+    # stamped V1 director: default strict camera lock (owner 2026-10-26); "standard" keeps the previous bytes
+    True: "799e26624ac943efe03087259b21f568206bff68eedd822c1ddeed8e312a71e7",
+    "standard": "abf2f1a610b7b38fa86f681968c4dd21760dbdddb66bccc9a2a7e8b065287739",
     False: "ab9d6ae00614e4f89f53a4a7e0960162458dd56af941aa23f2abec8481a3561d",
 }
 
@@ -114,10 +120,10 @@ class DirectorPromptV2Shape(unittest.TestCase):
         self.assertIn("- Alpha, frame left: Man, 30, short black hair. Plain navy suit.\n", text)
         self.assertIn("- Beta, frame right: Woman, 28, long black hair. A plain off-white shirt and grey trousers.\n", text)
         self.assertIn("Each keeps only their own clothes. Nobody else appears", text)
-        self.assertIn("@Image1 is the opening frame", text)
-        self.assertIn("@Image2 is Alpha's face and body. This is the same Alpha already standing in @Image1 — one "
+        self.assertIn("@Image1 is the exact first frame: the clip starts on this image with the same shot size", text)
+        self.assertIn("@Image2 is Alpha's face and body. This is the same Alpha already in @Image1 — one "
                       "person; never draw a second Alpha.\n@Image3 is Beta's face and body. This is the same Beta "
-                      "already standing in @Image1 — one person; never draw a second Beta.\n", text)
+                      "already in @Image1 — one person; never draw a second Beta.\n", text)
         self.assertIn("@Audio1 is Alpha's voice. It gives timbre only — never speak or echo its words.", text)
         self.assertEqual(receipt["status"], "PASS")
         self.assertEqual(receipt["h3_prompt_style"], "DIRECTOR_PROMPT_V2")
@@ -127,12 +133,15 @@ class DirectorPromptV2Shape(unittest.TestCase):
         text, _ = render()
         self.assertEqual(text.count("<d>[Chinese] 你好。</d>"), 1)
         self.assertIn("Dialogue (Alpha only, once, lips in sync):\n<d>[Chinese] 你好。</d>\n", text)
-        self.assertIn("After the line nobody speaks; the remaining time is room tone.", text)
+        # stamped (CAMERA_GRAMMAR_V1) units: provider-expert voice sentence (2026-10-26)
+        self.assertIn("Only this one line is spoken, once; before and after it there is no other dialogue, "
+                      "voice-over, narration or human voice.", text)
         self.assertIn("Beta listens without speaking, holding Alpha's gaze.", text)
         self.assertIn("Sound: Low air-conditioning hum. Cloth rustle from this action. One sleeve brush. "
                       "No background music.", text)
         self.assertIn("Never: captions, subtitles, letters or logos on screen; a second copy of anyone; "
-                      "anyone else in frame; music.", text)
+                      "anyone else in frame; music; zooming in, pushing in, dollying in, moving closer to the "
+                      "face, tightening the frame.", text)  # default strict camera lock (locked, single take)
         self.assertIn("Key prop: gray long table.", text)
         self.assertIn("Time: dusk; clear weather.", text)
 
@@ -234,6 +243,10 @@ class V1ByteIdentity(unittest.TestCase):
             self.assertTrue(text.startswith("subject_definitions:\n"))
             self.assertNotIn("prompt_style", receipt["provider_semantic_coverage_receipt"])
             self.assertEqual(hashlib.sha256(text.encode("utf-8")).hexdigest(), V1_SHA[director])
+        unit, plan = fixture(style=False, director=True)
+        unit["h3_camera_lock"] = "standard"
+        text, _ = render_h3_prompt(unit, plan)
+        self.assertEqual(hashlib.sha256(text.encode("utf-8")).hexdigest(), V1_SHA["standard"])
 
     def test_single_subject_profiles_keep_their_own_grammar(self):
         unit, plan = fixture()
