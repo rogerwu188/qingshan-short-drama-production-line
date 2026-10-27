@@ -95,5 +95,18 @@ def classify_reference_asset(entry):
 
 
 def measurement_paths(record):
+    """Every identity anchor the record can be measured against, original first.
+
+    An approved original source ADDS an anchor; it does not replace the locked
+    three-view plates.  Returning only the source (the old either/or) left a
+    record that had both with a single canonical view, which fails the
+    registry's canonical_views_min whenever that minimum is three — the unit
+    then reads as "identity unavailable" although four usable anchors exist
+    (E12, 2026-10-27).
+    """
     source = original_reference(record)
-    return [source['path']] if source else list(record.get('canonical_reference_paths') or [])
+    paths = [source['path']] if source else []
+    for value in record.get('canonical_reference_paths') or []:
+        if value and value not in paths:
+            paths.append(value)
+    return paths
