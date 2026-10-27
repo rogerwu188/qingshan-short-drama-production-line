@@ -49,6 +49,64 @@ def _reject_unsupported(container: dict) -> None:
             raise ValueError(f"portable renderer does not support {key}; use the full editing engine")
 
 
+def _audio_seconds(path: Path) -> float:
+    ffprobe = os.environ.get("FFPROBE_BIN") or shutil.which("ffprobe") or "ffprobe"
+    run = subprocess.run([ffprobe, "-v", "error", "-select_streams", "a:0", "-show_entries",
+                          "stream=duration:format=duration", "-of", "json", str(path)],
+                         capture_output=True, text=True, check=False)
+    try:
+        payload = json.loads(run.stdout or "{}")
+    except ValueError:
+        payload = {}
+    for row in (payload.get("streams") or []) + [payload.get("format") or {}]:
+        try:
+            return float(row["duration"])
+        except (KeyError, TypeError, ValueError):
+            continue
+    return 0.0
+
+
+def _crossfade_audio_filters(audio_rows: list[dict], audios: list[dict], seconds: float, sample_rate: int
+                             ) -> list[str]:
+    """CAMERA_GRAMMAR_V1 (metadata.audio_cut_crossfade): equal-power crossfade at every cut from the clips' own
+    handles (tools/s7_audio_smoothing.crossfade_plan); the timeline length and every in-point stay where they are."""
+    try:
+        from tools import s7_audio_smoothing as _smooth
+    except ImportError:
+        import s7_audio_smoothing as _smooth  # type: ignore
+    slots = [{**clip, "duration": row["duration"]} for clip, row in zip(audios, audio_rows)]
+    plan = _smooth.crossfade_plan(slots, [_audio_seconds(row["path"]) for row in audio_rows], seconds)
+    total = sum(row["duration"] for row in audio_rows)
+    filters = []
+    curve = _smooth.CROSSFADE_CURVE
+    for index, row in enumerate(audio_rows):
+        head = plan[index - 1]["head"] if index > 0 else 0.0
+        tail = plan[index]["tail"] if index < len(plan) else 0.0
+        length = row["duration"] + head + tail
+        fades = ""
+        fade_in = plan[index - 1]["fade"] if index > 0 else 0.0
+        fade_out = plan[index]["fade"] if index < len(plan) else 0.0
+        if fade_in > 0:
+            fades += f",afade=t=in:st=0:d={fade_in:.6f}:curve={curve}"
+        if fade_out > 0:
+            fades += f",afade=t=out:st={length - fade_out:.6f}:d={fade_out:.6f}:curve={curve}"
+        filters.append(
+            f"[{row['input']}:a:0]atrim=start={row['in'] - head:.6f}:duration={length:.6f},"
+            f"asetpts=PTS-STARTPTS,aresample={sample_rate},apad=whole_dur={length:.6f},volume={row['volume']:g}"
+            f"{fades}[c{index}]")
+    current = "[c0]"
+    for index, cut in enumerate(plan, start=1):
+        label = f"[x{index}]"
+        if cut["seconds"] > 0:
+            filters.append(f"{current}[c{index}]acrossfade=d={cut['seconds']:.6f}:"
+                           f"c1={_smooth.CROSSFADE_CURVE}:c2={_smooth.CROSSFADE_CURVE}{label}")
+        else:
+            filters.append(f"{current}[c{index}]concat=n=2:v=0:a=1{label}")
+        current = label
+    filters.append(f"{current}apad=whole_dur={total:.6f},atrim=duration={total:.6f}[aout]")
+    return filters
+
+
 def build_ffmpeg_command(project_path: Path, output_override: Path | None = None) -> list[str]:
     project_path = project_path.expanduser().resolve()
     project = json.loads(project_path.read_text(encoding="utf-8"))
@@ -88,6 +146,9 @@ def build_ffmpeg_command(project_path: Path, output_override: Path | None = None
     input_index = 0
     for track in video_tracks + audio_tracks:
         _reject_unsupported(track)
+    crossfade = (project.get("metadata") or {}).get("audio_cut_crossfade") or {}
+    crossfade_seconds = _number(crossfade.get("seconds", 0), "metadata.audio_cut_crossfade.seconds") if crossfade else 0.0
+    audio_rows: list[dict] = []
     if output_path == project_path:
         raise ValueError("output must not overwrite the timeline project")
 
@@ -122,11 +183,22 @@ def build_ffmpeg_command(project_path: Path, output_override: Path | None = None
         v_in = _number(video.get("in", 0), f"video[{index}].in")
         a_in = _number(audio.get("in", 0), f"audio[{index}].in")
         volume = _number(audio.get("volume", 1.0), f"audio[{index}].volume")
+        # crossfade path: every picture segment is exactly round(duration * fps) frames (last frame held if the
+        # source runs short) and its audio slot is exactly as long, so picture and sound stay locked at every cut
+        frames = max(1, round(duration * fps))
+        exact = (f",tpad=stop_mode=clone:stop=2,trim=end_frame={frames},setpts=PTS-STARTPTS"
+                 if crossfade_seconds > 0 else "")
         filters.append(
             f"[{v_index}:v:0]trim=start={v_in:.6f}:duration={duration:.6f},"
             f"setpts=PTS-STARTPTS,scale={width}:{height}:force_original_aspect_ratio=decrease,"
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,fps={fps:g},format=yuv420p[v{index}]"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,fps={fps:g},format=yuv420p{exact}[v{index}]"
         )
+        if crossfade_seconds > 0:
+            audio_rows.append({"input": a_index, "path": audio_path, "in": a_in, "volume": volume,
+                               "duration": frames / fps})
+            concat_inputs.append(f"[v{index}]")
+            cursor += duration
+            continue
         filters.append(
             f"[{a_index}:a:0]atrim=start={a_in:.6f}:duration={duration:.6f},"
             f"asetpts=PTS-STARTPTS,aresample={sample_rate},volume={volume:g}[a{index}]"
@@ -134,7 +206,11 @@ def build_ffmpeg_command(project_path: Path, output_override: Path | None = None
         concat_inputs.extend((f"[v{index}]", f"[a{index}]"))
         cursor += duration
 
-    filters.append("".join(concat_inputs) + f"concat=n={len(videos)}:v=1:a=1[vout][aout]")
+    if crossfade_seconds > 0:
+        filters.append("".join(concat_inputs) + f"concat=n={len(videos)}:v=1:a=0[vout]")
+        filters.extend(_crossfade_audio_filters(audio_rows, audios, crossfade_seconds, sample_rate))
+    else:
+        filters.append("".join(concat_inputs) + f"concat=n={len(videos)}:v=1:a=1[vout][aout]")
     command.extend(["-filter_complex", ";".join(filters), "-map", "[vout]", "-map", "[aout]"])
     if video_codec == "libx264":
         command.extend(["-c:v", video_codec, "-preset", "medium", "-crf", "18"])

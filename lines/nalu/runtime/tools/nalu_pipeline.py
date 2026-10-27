@@ -7494,6 +7494,54 @@ def s7_push_in_compensation(ctx: Ctx, res: StageResult, contract: dict[str, Any]
     return report_path if report["compensated_units"] else None
 
 
+def s7_unit_audio_levelling(ctx: Ctx, res: StageResult, contract: dict[str, Any],
+                            unit_asr: dict[str, Any] | None) -> Path | None:
+    """CAMERA_GRAMMAR_V1 only (line owner 2026-10-27, lab Holmes E07: "the sound goes louder/quieter").  Each unit's
+    integrated loudness is measured on the clip as cut (dialogue units on their ASR speech windows, other units over
+    the whole cut window) and a static gain toward the release role target (native_audio_loudness_contract
+    ROLE_TARGETS_LUFS, role as level_native_release_audio.unit_role) is applied, clamped to +-6 dB, with a 4x
+    oversampled peak limiter (tools/s7_audio_smoothing.py).  Each levelled unit is a remux in
+    assembly/unit_audio_levelling/ (the cut's video stream copied bit-exact + its own levelled audio); the AgentCut
+    picture and sound clips both point at it (same in/out).
+    Report <EP>_UNIT_AUDIO_LEVELLING.json; its path is returned for the build (--unit-audio-levelling) and the release
+    leveller (--pre-levelled-units).  Free; any failure only skips the step (recorded), never blocks S7."""
+    import camera_grammar_policy as _cgp
+    if not _cgp.active(contract, episode=ctx.episode):
+        return None
+    import push_in_compensation as _pic
+    import s7_audio_smoothing as _smooth
+    from level_native_release_audio import unit_role as _unit_role
+    from native_audio_loudness_contract import ROLE_TARGETS_LUFS as _targets
+    p = ctx.p
+    report_path = p.assembly / f"{ctx.episode}_UNIT_AUDIO_LEVELLING.json"
+    try:
+        clips = {mp4.stem: mp4 for mp4 in sorted(p.video_media.glob(f"{ctx.episode}-VU-*.mp4"))}
+        windows = _pic.cut_windows(
+            list(clips), {uid: _probe_seconds(path) for uid, path in clips.items()},
+            read_json(p.assembly / f"{ctx.episode}_DIALOGUE_TAIL_TRIM.json", {}) or {},
+            read_json(p.assembly / f"{ctx.episode}_DIALOGUE_HEAD_TRIM.json", {}) or {})
+        grouped = {str(u.get("unit_id")): u for u in (read_json(p.grouped_seedance, {}) or {}).get("units") or []}
+        roles = {uid: (_unit_role(grouped[uid]) if uid in grouped else "AMBIENCE") for uid in clips}
+        pictures = {uid: Path(str(row["output"])) for uid, row in _pic.applied_sources(
+            read_json(p.assembly / f"{ctx.episode}_PUSH_IN_COMPENSATION.json", {}) or {}).items()}
+        ffmpeg = _media.require_ffmpeg()
+        report = _smooth.build_levelling_report(
+            ctx.episode, clips, windows, roles, unit_asr, dict(_targets), p.assembly / "unit_audio_levelling",
+            measure_fn=lambda clip, spans: _smooth.measure_spans(clip, spans, ffmpeg=ffmpeg),
+            render_fn=lambda clip, picture, out, gain: _smooth.render_levelled(clip, picture, out, gain, ffmpeg=ffmpeg),
+            pictures=pictures)
+        write_json(report_path, report)
+    except Exception as exc:  # noqa: BLE001 -- a polish step, never a blocker
+        write_json(report_path, {"schema": _smooth.SCHEMA, "episode": ctx.episode,
+                                 "status": f"SKIPPED_ERROR:{type(exc).__name__}:{exc}"})
+        res.details["unit_audio_levelling"] = {"report": str(report_path), "status": "SKIPPED_ERROR"}
+        return None
+    res.receipts.append(str(report_path))
+    res.details["unit_audio_levelling"] = {"report": str(report_path), "applied_units": report["applied_units"],
+                                           "spread_lufs": report["spread_lufs"]}
+    return report_path if report["applied_units"] else None
+
+
 def s7_dialogue_sound_bridge(ctx: Ctx, res: StageResult, contract: dict[str, Any],
                              unit_asr: dict[str, Any] | None) -> Path | None:
     """CAMERA_GRAMMAR_V1 only (line owner 2026-10-23): plan the authored L-cuts.
@@ -7812,6 +7860,17 @@ def stage_s7(ctx: Ctx) -> StageResult:
     if sound_bridge is not None:
         build_argv += ["--dialogue-sound-bridge", sound_bridge]
         res.details["commands"]["build_agentcut"] = q(build_argv)
+    # 3d. per-unit native-audio levelling + equal-power cut crossfades (CAMERA_GRAMMAR_V1; free, never blocks)
+    unit_levelling = s7_unit_audio_levelling(ctx, res, read_json(p.contract, {}) or {}, trimmed_asr)
+    if unit_levelling is not None:
+        build_argv += ["--unit-audio-levelling", unit_levelling]
+        level_argv = level_argv[:-2] + ["--pre-levelled-units", unit_levelling] + level_argv[-2:]
+    import camera_grammar_policy as _cgp_xf
+    if _cgp_xf.active(read_json(p.contract, {}) or {}, episode=ctx.episode):
+        import s7_audio_smoothing as _smooth_xf
+        build_argv += ["--audio-cut-crossfade-seconds", f"{_smooth_xf.CUT_CROSSFADE_S:g}"]
+    res.details["commands"]["build_agentcut"] = q(build_argv)
+    res.details["commands"]["level_native_release_audio"] = q(level_argv)
 
     # ------------------------------------------------------------ 4. assemble
     steps: list[dict[str, Any]] = [ctx.run(build_argv, name="s7_build_agentcut_project")]
