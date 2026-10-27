@@ -43,6 +43,8 @@ def build(
     generation_contract=None,
     measured_edit_constraints=None,
     weak_admission=None,
+    dialogue_tail_trim=None,
+    dialogue_sound_bridge=None,
 ):
     if generation_contract is None:
         raise ValueError("generation_contract is required for automatic audio-profile binding")
@@ -96,6 +98,13 @@ def build(
     if set(edit_constraints) - set(admitted):
         raise ValueError("MEASURED_EDIT_UNKNOWN_SOURCE: " + str(sorted(set(edit_constraints) - set(admitted))))
 
+    # CAMERA_GRAMMAR_V1 dialogue tail trim (S7 report, tools/dialogue_tail_trim.py): unit -> kept source end.
+    tail_keep = {}
+    if dialogue_tail_trim:
+        tail_report = json.loads(_abs(dialogue_tail_trim).read_text(encoding="utf-8"))
+        tail_keep = {str(row["unit_id"]): float(row["kept_seconds"])
+                     for row in tail_report.get("units") or [] if row.get("trimmed")}
+
     video_clips = []
     audio_clips = []
     admissions = []
@@ -144,6 +153,12 @@ def build(
                 clip_metadata_editorial = None
         else:
             clip_metadata_editorial = None
+        tail_trim = None
+        if source_id in tail_keep and 0 < tail_keep[source_id] - source_in < duration:
+            tail_trim = {"provider_slot_seconds": duration,
+                         "kept_seconds": round(tail_keep[source_id] - source_in, 6),
+                         "report": str(_abs(dialogue_tail_trim))}
+            duration = tail_trim["kept_seconds"]
         audio_metadata = audio_task.get("metadata") or {}
         audio_dialogue_lines = audio_metadata.get("selected_dialogue") or []
         audio_expected_text = "".join(str(row.get("text") or "") for row in audio_dialogue_lines)
@@ -171,6 +186,8 @@ def build(
             clip_metadata["measured_edit"] = measured_edit
         if clip_metadata_editorial is not None:
             clip_metadata["editorial_keep"] = clip_metadata_editorial
+        if tail_trim is not None:
+            clip_metadata["dialogue_tail_trim"] = tail_trim
         video_clips.append({
             "id": f"{episode}-{source_id}-VIDEO",
             "source": str(source),
@@ -208,6 +225,18 @@ def build(
             **({"measured_edit": measured_edit} if measured_edit is not None else {}),
         })
         cursor += duration
+
+    # CAMERA_GRAMMAR_V1 dialogue sound bridge / L-cut (S7 report, tools/dialogue_sound_bridge.py): the
+    # speaker clip ends early, its audio is mixed back over the reaction picture after the render.
+    bridges = None
+    if dialogue_sound_bridge:
+        try:
+            from tools import dialogue_sound_bridge as _bridge
+        except ModuleNotFoundError:
+            import dialogue_sound_bridge as _bridge  # type: ignore
+        bridges = _bridge.apply(video_clips, audio_clips,
+                                json.loads(_abs(dialogue_sound_bridge).read_text(encoding="utf-8")))
+        cursor = sum(float(clip["duration"]) for clip in video_clips)
 
     project_path = _abs(out_project)
     admission_path = _abs(out_admission)
@@ -257,6 +286,9 @@ def build(
             "subtitleTracks": [],
         },
     }
+    if bridges is not None:
+        project["metadata"]["dialogue_sound_bridge"] = {"report": str(_abs(dialogue_sound_bridge)),
+                                                        "bridges": bridges}
     binding = apply_audio_profile_binding(
         project,
         generation_contract_payload,
@@ -300,6 +332,8 @@ def main():
     parser.add_argument("--expected-slots", type=int, required=True)
     parser.add_argument("--generation-contract", required=True)
     parser.add_argument("--measured-edit-constraints", help="Optional SHA-bound observed-dialogue source intervals; explicitly rebases following clips")
+    parser.add_argument("--dialogue-tail-trim", help="Optional S7 dialogue tail-trim report (CAMERA_GRAMMAR_V1): cut each trimmed unit at its kept_seconds")
+    parser.add_argument("--dialogue-sound-bridge", help="Optional S7 dialogue sound-bridge report (CAMERA_GRAMMAR_V1): L-cut the speaker picture before a silent reaction unit")
     args = parser.parse_args()
     print(json.dumps(build(
         args.episode,
@@ -312,6 +346,8 @@ def main():
         args.generation_contract,
         args.measured_edit_constraints,
         args.weak_admission,
+        args.dialogue_tail_trim,
+        args.dialogue_sound_bridge,
     ), ensure_ascii=False))
 
 

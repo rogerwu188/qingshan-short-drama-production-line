@@ -21,7 +21,13 @@ for _p in (str(NALU_TOOLS), str(SCRIPTS), str(REPO / "tools")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import make_endcard  # noqa: E402
+try:
+    import PIL  # noqa: F401
+    HAVE_PIL = True
+except ImportError:  # CI image has no Pillow; production installs it
+    HAVE_PIL = False
+if HAVE_PIL:
+    import make_endcard  # noqa: E402
 import nalu_bgm_default as bgm_default  # noqa: E402
 import nalu_media_tools as media  # noqa: E402
 import nalu_opening_title as opening  # noqa: E402
@@ -82,6 +88,7 @@ def frame(path: Path, ts: float, out: Path) -> Path:
 
 # --------------------------------------------------------------------------------------- A. end card
 @unittest.skipUnless(FFMPEG, "ffmpeg required")
+@unittest.skipUnless(HAVE_PIL, "Pillow not installed")
 class EndCardTests(unittest.TestCase):
     LONG_EN = "EPISODE 01 · The Arbiter Does Not Dream Of Electric Sheep Tonight"
     LONG_ZH = "第一集 · 仲裁者不会做梦而且这个集名真的非常非常长"
@@ -111,7 +118,7 @@ class EndCardTests(unittest.TestCase):
     def test_english_e01_subtitle_fits(self) -> None:
         self.assert_inside_margins(self.render("en", "Twelve Gazes", "EPISODE 01 · The Arbiter Does Not Dream"))
 
-    @unittest.skipUnless(cjk_font_available() or any(Path(p).is_file() for p in make_endcard.CANDIDATES),
+    @unittest.skipUnless(HAVE_PIL and (cjk_font_available() or any(Path(p).is_file() for p in make_endcard.CANDIDATES)),
                          "CJK font required")
     def test_chinese_card_fits(self) -> None:
         self.assert_inside_margins(self.render("zh", "十二道凝视之长长长长长长剧名", self.LONG_ZH))
@@ -127,6 +134,7 @@ class EndCardTests(unittest.TestCase):
 
 
 # ----------------------------------------------------------------------------------- B. opening title
+@unittest.skipUnless(HAVE_PIL, "Pillow not installed")
 class OpeningTitleTextTests(unittest.TestCase):
     def test_episode_line_by_language(self) -> None:
         self.assertEqual(opening.title_lines({"title": "Twelve Gazes"}, "E01", "en"), ("Twelve Gazes", "EPISODE 01"))
@@ -143,6 +151,7 @@ class OpeningTitleTextTests(unittest.TestCase):
 
 
 @unittest.skipUnless(FFMPEG and FFPROBE, "ffmpeg/ffprobe required")
+@unittest.skipUnless(HAVE_PIL, "Pillow not installed")
 class OpeningTitleRenderTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
@@ -178,6 +187,7 @@ class OpeningTitleRenderTests(unittest.TestCase):
         self.assertEqual(info["episode_line"], "第一集")
 
 
+@unittest.skipUnless(HAVE_PIL, "Pillow not installed")
 class PipelineOpeningTitleTests(unittest.TestCase):
     def test_s7_opening_title_skips_without_blocking(self) -> None:
         pipeline = importlib.import_module("nalu_pipeline")
@@ -350,6 +360,7 @@ class AdTailPackageLanguageTests(unittest.TestCase):
         self.assertEqual(out["status"], "FAIL")
         self.assertTrue(out["failures"][0].startswith("SPOKEN_CHARS_OVER_CAP:"))
 
+    @unittest.skipUnless(HAVE_PIL, "Pillow not installed")
     def test_english_badge_renders_without_cjk_font(self) -> None:
         def no_cjk():
             raise media.MediaToolBlocked("BLOCKED_CJK_FONT:test")
@@ -487,6 +498,47 @@ class BgmDefaultTests(unittest.TestCase):
             opted_out.write_text(json.dumps(contract("NONE")), encoding="utf-8")
             self.assertEqual(bgm_default.write_effective_contract(opted_out, root / "x.json")["contract"],
                              str(opted_out))
+
+    def test_camera_grammar_default_is_one_episode_bed_entering_on_a_scene_cut(self) -> None:
+        # lab Holmes E01 shape: hook S01 14.5 s, S02 20 s, S03 21.5 s (56 s); the old cue was S03 only
+        secs = {1: (4.5, 2.5, 4.5, 3.0), 2: (5.0, 5.0, 3.0, 7.0), 3: (7.0, 5.0, 6.5, 3.0)}
+        shots = [{"shot_id": f"E01-S0{s}-0{i}", "scene_id": f"E01-S0{s}", "target_seconds": sec}
+                 for s, row in secs.items() for i, sec in enumerate(row, 1)]
+        stamped = {"episode": "E01", "camera_grammar_policy": "CAMERA_GRAMMAR_V1", "shots": shots,
+                   "audio_contract": {"bgm": "NO_BGM"}}
+        cue = bgm_default.resolve(stamped)["declaration"]["cues"][0]
+        # backwards fill reaches E01-S01-04 (start 11.5 s, 44.5 s); the S01->S02 cut 3.0 s later wins
+        self.assertEqual(cue["shots"], [f"E01-S02-0{i}" for i in range(1, 5)] + [f"E01-S03-0{i}" for i in range(1, 5)])
+        covered = sum(row["target_seconds"] for row in shots if row["shot_id"] in cue["shots"])
+        self.assertLessEqual(covered / 56.0, bgm_default.MAX_DEFAULT_COVERAGE_RATIO)
+        self.assertGreaterEqual(56.0 - covered, bgm_default.MIN_DEFAULT_AMBIENCE_SECONDS)
+        self.assertEqual((cue["fade_in_s"], cue["fade_out_s"]), (2.0, 1.5))
+        self.assertIn("whole short-drama episode", cue["brief"])
+        # unstamped: the last-scene cue exactly as before
+        legacy = bgm_default.resolve({**stamped, "camera_grammar_policy": "LEGACY_FORCED_MOTION"})
+        self.assertEqual(legacy["declaration"]["cues"], [{
+            "cue_id": "DEFAULT_EPISODE_ENDING", "shots": [f"E01-S03-0{i}" for i in range(1, 5)],
+            "narrative_function": "EPISODE_ENDING_CLIFFHANGER", "brief": bgm_default.DEFAULT_BRIEF}])
+
+    def test_camera_grammar_default_keeps_mid_scene_start_without_a_near_cut(self) -> None:
+        stamped = {**contract("NO_BGM"), "camera_grammar_policy": "CAMERA_GRAMMAR_V1"}
+        cue = bgm_default.resolve(stamped)["declaration"]["cues"][0]
+        self.assertEqual(cue["shots"], ["E01-S02-02", "E01-S02-03", "E01-S02-04"])  # the S02 cut is earlier
+
+    def test_per_cue_fades_flow_to_the_source_plan_and_mix(self) -> None:
+        sbgm = importlib.import_module("nalu_selective_bgm")
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            sealed = root / "E01_GENERATION_CONTRACT_v1.json"
+            for stamp, expected in (("CAMERA_GRAMMAR_V1", (2.0, 1.5)), (None, (sbgm.FADE_IN_S, sbgm.FADE_OUT_S))):
+                payload = contract("NO_BGM")
+                if stamp:
+                    payload["camera_grammar_policy"] = stamp
+                sealed.write_text(json.dumps(payload), encoding="utf-8")
+                derived = Path(bgm_default.write_effective_contract(sealed, root / "bgm/E01_DEFAULT.json")["contract"])
+                plan = sbgm._source_plan_payload(sbgm.Paths("E01", contract=derived, work=root / "work"), "E01")
+                self.assertEqual(sbgm._fades(plan["cues"][0]), expected)
+                self.assertEqual("fade_in_s" in plan["cues"][0], bool(stamp))
 
     def test_credit_reconciliation_reuse_and_best_effort_without_key(self) -> None:
         pipeline = importlib.import_module("nalu_pipeline")

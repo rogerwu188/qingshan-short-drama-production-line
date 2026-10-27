@@ -71,6 +71,44 @@ def _camera_slots(camera_plan: dict[str, Any]) -> tuple[dict[str, str], dict[str
     return source, {k: "" for k in source}
 
 
+def _director_v2_slots(unit: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """DIRECTOR_PROMPT_V2 units only: English appearance / wardrobe / creature look per subject and one
+    setting sentence, for every such text the unit has only in Chinese.  V1 units get no slot, so their
+    request (and its digest) is unchanged."""
+    try:
+        from tools.provider_scope_projection import is_director_prompt_v2
+    except ModuleNotFoundError:
+        from provider_scope_projection import is_director_prompt_v2
+    if not is_director_prompt_v2(unit):
+        return None
+    try:
+        from tools.h3_director_prompt_v2 import setting_source, subject_sources
+    except ModuleNotFoundError:
+        from h3_director_prompt_v2 import setting_source, subject_sources
+    src_subjects: dict[str, Any] = {}
+    tpl_subjects: dict[str, Any] = {}
+    for row in subject_sources(unit):
+        keys = ("look",) if row["kind"] == "BEING" else ("appearance", "wardrobe")
+        slots = {key: row[key] for key in keys if row.get(key) and CJK.search(str(row[key]))}
+        if slots:
+            src_subjects[row["entity_id"]] = {"name": row.get("name") or row["entity_id"], **slots}
+            tpl_subjects[row["entity_id"]] = {key: "" for key in slots}
+    src: dict[str, Any] = {}
+    tpl: dict[str, Any] = {}
+    if src_subjects:
+        src["subjects"], tpl["subjects"] = src_subjects, tpl_subjects
+    setting = setting_source(unit)
+    if setting and CJK.search(setting):
+        src["setting"] = setting
+        tpl["setting"] = ""
+    if not src:
+        return None
+    src["instructions"] = ("appearance: face, age, hair and build only; wardrobe: the clothes in words; "
+                           "setting: one or two sentences naming the place and its layout (time, weather and light are "
+                           "stated from other fields)")
+    return src, tpl
+
+
 def request_row(unit: dict[str, Any], plan: dict[str, Any] | None = None) -> dict[str, Any]:
     plan = plan or plan_for(unit)
     src: dict[str, Any] = {}
@@ -124,6 +162,9 @@ def request_row(unit: dict[str, Any], plan: dict[str, Any] | None = None) -> dic
         spatial_tpl.append(row_tpl)
     if spatial_src:
         src["spatial_dialogue"], tpl["spatial_dialogue"] = spatial_src, spatial_tpl
+    director = _director_v2_slots(unit)
+    if director:
+        src["director_v2"], tpl["director_v2"] = director
     rows = _camera_rows(unit, plan)
     if rows:
         pairs = [_camera_slots(row.get("camera_plan") or {}) for row in rows]

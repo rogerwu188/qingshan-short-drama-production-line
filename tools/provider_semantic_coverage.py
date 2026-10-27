@@ -81,14 +81,46 @@ def required_fact_ids(plan: dict[str, Any]) -> list[str]:
     return ids
 
 
+DIRECTOR_PROMPT_V2 = "DIRECTOR_PROMPT_V2"
+
+
+def director_v2_omitted_fact_ids(plan: dict[str, Any]) -> list[str]:
+    """Facts a DIRECTOR_PROMPT_V2 prompt states another way, so they carry no clause of their own.
+
+    Per beat: the microexpression / body-sync cues (replaced by what each subject in frame does, speaker
+    and listeners), and -- only for a beat with no combat, no contact time and no evasion/threat mode --
+    the interaction label, contact point and feedback rows (the adapter's "soles contact the floor" /
+    "dialogue pressure triggers this body action" fillers).  Every other fact keeps its clause; the
+    receipt lists what was omitted so it is auditable, never silent.
+    """
+    omitted: list[str] = []
+    combat = bool(plan.get("combat_execution_required"))
+    beats = (plan.get("action_ir") or {}).get("causal_chains") or plan.get("beats") or []
+    for index, beat in enumerate(beats, 1):
+        prefix = f"BEAT.{index}"
+        omitted += [f"{prefix}.MICROEXPRESSION", f"{prefix}.BODY_SYNC"]
+        mode = str(beat.get("interaction_mode") or "NONE")
+        if combat or beat.get("contact_time_seconds") is not None or mode in {"EVASION", "THREAT_THRESHOLD"}:
+            continue
+        omitted += [f"{prefix}.INTERACTION_MODE", f"{prefix}.CONTACT_POINT", f"{prefix}.PRIMARY_FEEDBACK"]
+        omitted += [f"{prefix}.SECONDARY_FEEDBACK.{k}" for k, _ in enumerate(beat.get("secondary_feedback") or [], 1)]
+    return omitted
+
+
 def build_semantic_coverage_receipt(
     *,
     plan: dict[str, Any],
     prompt_text: str,
     model_family: str,
     clause_evidence: dict[str, str],
+    prompt_style: str | None = None,
 ) -> dict[str, Any]:
     required = required_fact_ids(plan)
+    omitted: list[str] = []
+    if prompt_style == DIRECTOR_PROMPT_V2:
+        candidates = set(director_v2_omitted_fact_ids(plan))
+        omitted = [fact_id for fact_id in required if fact_id in candidates]
+        required = [fact_id for fact_id in required if fact_id not in candidates]
     rows = []
     failures = []
     normalized_prompt = _normal(prompt_text)
@@ -104,6 +136,7 @@ def build_semantic_coverage_receipt(
             "covered": covered,
         })
     fact_set = sorted(required)
+    style = {"prompt_style": prompt_style, "style_omitted_fact_ids": omitted} if prompt_style else {}
     return {
         "schema": SCHEMA,
         "status": "PASS" if not failures else "FAIL",
@@ -115,6 +148,7 @@ def build_semantic_coverage_receipt(
         "required_fact_set_sha256": _sha(fact_set),
         "coverage_rows": rows,
         "failures": failures,
+        **style,
     }
 
 

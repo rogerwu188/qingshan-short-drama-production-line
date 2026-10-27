@@ -540,6 +540,13 @@ class Expectations:
         except Exception:  # noqa: BLE001
             derived = {}
         self.keyframe_items_skipped_continuity_derived = []
+        # CAMERA_GRAMMAR_V1: the keyframe prompt's fixed-element requirement is scale-aware (close scales
+        # need none, MEDIUM at most two); the reviewer judges space_anchors_match by the same rule.
+        try:
+            _cgp = engine_module("camera_grammar_policy")
+            stamped = _cgp.active(self.contract, episode=self.episode)
+        except Exception:  # noqa: BLE001
+            _cgp, stamped = None, False
         for unit_id, unit in sorted(self.units.items()):
             shot_id = self._unit_first_shot_id(unit)
             if unit_id in derived and not self.p.keyframe(shot_id).is_file():
@@ -595,6 +602,9 @@ class Expectations:
                     "negative_prompts": spec.get("negative_prompts") or [],
                     "aspect_ratio": shot.get("aspect_ratio") or "9:16",
                     "resolution": shot.get("resolution") or "720p",
+                    **({"fixed_element_rule": _cgp.fixed_element_rule(
+                        shot.get("shot_size") or (spec.get("camera_plan") or {}).get("shot_scale"))}
+                       if stamped else {}),
                 },
             })
         return rows
