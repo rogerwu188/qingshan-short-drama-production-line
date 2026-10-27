@@ -167,6 +167,80 @@ class ConstraintLanguageTest(unittest.TestCase):
         self.assertEqual(task["task_key"], "E04-VU-008")
 
 
+class CameraLockStrictTest(unittest.TestCase):
+    """h3_camera_lock "strict" (owner A/B, lab Holmes E06 2026-10-26: locked units still pushed in)."""
+
+    @staticmethod
+    def strict(pair):
+        unit, plan = pair
+        unit["h3_camera_lock"] = "strict"
+        return unit, plan
+
+    def test_v2_strict_adds_exactly_three_things(self):
+        from tools.h3_provider_english_contract import (
+            CAMERA_LOCK_FROZEN_FRAME, CAMERA_LOCK_NEVER, CAMERA_LOCK_STRICT, is_director_v2_text,
+            validate_h3_provider_text_boundary as boundary)
+        base, base_receipt = render(*v2())
+        text, receipt = render(*self.strict(v2()))
+        self.assertEqual(receipt["h3_camera_lock"], "strict")
+        self.assertNotIn("h3_camera_lock", base_receipt)
+        self.assertTrue(text.startswith(CAMERA_LOCK_STRICT + "\n\nReferences:\n"))
+        camera = text.split("Camera:\n", 1)[1].split("\n\n", 1)[0]
+        self.assertTrue(camera.endswith("\n" + CAMERA_LOCK_FROZEN_FRAME))
+        self.assertIn(h3.FIXED_CAMERA_POSITION, camera)  # the expert wording stays
+        never = next(line for line in text.splitlines() if line.startswith("Never: "))
+        self.assertTrue(never.endswith("; music; " + CAMERA_LOCK_NEVER + "."))
+        self.assertEqual(text.rstrip("\n").splitlines()[-1], h3.NO_DUPLICATE_PEOPLE)
+        undone = (text.replace(CAMERA_LOCK_STRICT + "\n\n", "", 1)
+                  .replace("\n" + CAMERA_LOCK_FROZEN_FRAME, "", 1).replace("; " + CAMERA_LOCK_NEVER, "", 1))
+        self.assertEqual(undone, base)
+        self.assertEqual(boundary(text, source_id="T")["status"], "PASS")
+        self.assertTrue(is_director_v2_text(text) and is_director_v2_text(base))
+        import prompt_batch_qa
+        self.assertTrue(prompt_batch_qa.is_h3_director_v2(text))
+        self.assertTrue(prompt_batch_qa.section(text, "锚点").startswith("@Image1"))
+
+    def test_strict_on_a_moving_camera_is_refused(self):
+        unit, plan = vu011(stamped=True)
+        unit.update(STYLE, h3_camera_lock="strict")
+        with self.assertRaisesRegex(ValueError, "H3_CAMERA_LOCK_STRICT_ON_MOVING_CAMERA"):
+            render(unit, plan)
+
+    def test_absent_unstamped_and_v1_stay_byte_identical(self):
+        for name, make in UNSTAMPED.items():
+            unit, plan = make()
+            unit["h3_camera_lock"] = "strict"
+            text, receipt = render(unit, plan)
+            self.assertEqual(hashlib.sha256(text.encode()).hexdigest(), UNSTAMPED_PINS[name], name)
+            self.assertNotIn("h3_camera_lock", receipt)
+        base, _ = render(*unit_plan(stamped=True, performance=None))  # V1 renderer: flag not applied
+        self.assertEqual(render(*self.strict(unit_plan(stamped=True, performance=None)))[0], base)
+        self.assertEqual(render(*v2())[0], render(*v2())[0])
+        unit, plan = v2()
+        unit["h3_camera_lock"] = "loose"  # anything but "strict" is the default
+        self.assertEqual(render(unit, plan)[0], render(*v2())[0])
+
+    def test_provider_prompt_unit_carries_the_flag(self):
+        from tools.submit_giggle_video_manifest_v2 import provider_prompt_unit
+        with mock.patch("tools.submit_giggle_video_manifest_v2.grouped_sequence_unit", lambda _t: {}):
+            self.assertEqual(provider_prompt_unit({"h3_camera_lock": "strict"}).get("h3_camera_lock"), "strict")
+            self.assertNotIn("h3_camera_lock", provider_prompt_unit({}))
+
+    def test_ab_variant_task(self):
+        import h3_constraint_ab_variant as ab
+        task = {"task_key": "E06-VU-008", "unit_id": "E06-VU-008", "prompt_batch_finalization": {"path": "x"}}
+        variant = ab.variant_task(task, variant_name="camera_lock_strict")
+        self.assertEqual(variant["task_key"], "E06-VU-008-LOCK")
+        self.assertEqual(variant["h3_camera_lock"], "strict")
+        self.assertNotIn("h3_constraint_language", variant)
+        self.assertNotIn("prompt_batch_finalization", variant)
+        self.assertEqual(ab.variant_task(task)["task_key"], "E06-VU-008-ZH")
+        self.assertEqual(ab.SCHEMA_VARIANT[ab.LOCK_SCHEMA], "camera_lock_strict")
+        self.assertEqual(ab.SCHEMA_VARIANT[ab.SCHEMA], "zh")
+        self.assertEqual(ab.verify({"ab_variant_schema": ab.LOCK_SCHEMA, "tasks": []})[:2],
+                         ["AB_VARIANT_KIND_MISMATCH:None", "AB_VARIANT_TASK_COUNT:0"])
+
+
 class ReferenceSheetTest(unittest.TestCase):
     CONTRACT = {"episode": "E05", "camera_grammar_policy": "CAMERA_GRAMMAR_V1", "character_entities": [
         {"character_id": "CHAR-HELEN", "canonical_name": "Helen", "english_name": "Helen",

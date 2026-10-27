@@ -291,5 +291,44 @@ class AbVariantEntryTests(unittest.TestCase):
         self.assertFalse(any(n.startswith("budget_check") for n in ctx.names()))
 
 
+    # ------------------------------------------------------------ camera-lock kind (lab E06 2026-10-26)
+    def lock_fixture(self, ctx, **overrides):
+        lock_key = f"{SOURCE}-LOCK"
+        base = {"ab_variant_schema": pipeline.AB_VARIANT_LOCK_SCHEMA, "ab_variant_kind": "camera_lock_strict",
+                "h3_camera_lock": "strict", "h3_constraint_language": None,
+                "task.task_key": lock_key, "task.h3_camera_lock": "strict", "task.h3_constraint_language": None}
+        base.update(overrides)
+        path = fixture(self.root, ctx, **{k: v for k, v in base.items() if not k.startswith("task.") and v is not None
+                                          } | {k: v for k, v in base.items() if k.startswith("task.")})
+        doc = json.loads(path.read_text())
+        if base.get("h3_constraint_language") is None:
+            doc.pop("h3_constraint_language", None)
+        return _write(path.with_name(f"{lock_key}_AB.json"), doc)
+
+    def test_camera_lock_variant_passes_the_same_guards(self):
+        ctx = FakeCtx(self.root)
+        path = self.lock_fixture(ctx)
+        self.assertEqual(pipeline.ab_variant_failures(ctx, path, json.loads(path.read_text())), [])
+        with mock.patch.dict(os.environ, {"GIGGLE_API_KEY": ""}):
+            pipeline.run_ab_variant(ctx, path)
+        report = json.loads((ctx.p.work / "video_ab" / f"{SOURCE}-LOCK_AB_RUN.json").read_text())
+        self.assertEqual(report["variant_kind"], "camera_lock_strict")
+        self.assertIn("ab_variant_verify", ctx.names())
+        paths = pipeline.ab_variant_paths(ctx, f"{SOURCE}-LOCK")
+        self.assertEqual(paths["clip"], ctx.p.work / "video_ab" / f"{SOURCE}-LOCK.mp4")
+        self.assertEqual(paths["finalization_dir"], ctx.p.preprod / "prompt_batch_finalization_ab_lock")
+        self.assertEqual(pipeline.ab_variant_paths(ctx, KEY)["finalization_dir"],
+                         ctx.p.preprod / "prompt_batch_finalization_ab")
+
+    def test_camera_lock_variant_must_match_its_kind(self):
+        ctx = FakeCtx(self.root)
+        for overrides, expected in (
+                ({"ab_variant_kind": "zh"}, "AB_VARIANT_KIND_MISMATCH:zh!=camera_lock_strict"),
+                ({"task.h3_camera_lock": None}, "AB_VARIANT_CAMERA_LOCK_UNSUPPORTED:strict/None"),
+                ({"task.task_key": f"{SOURCE}-ZH"}, f"AB_VARIANT_TASK_KEY_NOT_DERIVED_FROM_SOURCE:{SOURCE}-ZH<-{SOURCE}")):
+            path = self.lock_fixture(ctx, **overrides)
+            self.assertIn(expected, pipeline.ab_variant_failures(ctx, path, json.loads(path.read_text())), overrides)
+
+
 if __name__ == "__main__":
     unittest.main()

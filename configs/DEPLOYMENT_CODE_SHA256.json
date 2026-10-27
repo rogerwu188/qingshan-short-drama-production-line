@@ -565,7 +565,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "a54fd448e24b4f06dfd58472810fafc0b107fd68cf5f006ebd6b73238380e199"
+      "sha256": "d6c34bd511638d1de15a3cd0d9ec4e0b2b9d232e32e709ec42961f256dcac4e1"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -649,7 +649,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "0a904b581dab61a74f14a9e57e3b4902de12c7cfefa1fcb586f83dc5bd08bedf"
+      "sha256": "9d6e3a0950b5f5941877816fb3f03387225f6f035ac22f15d1e80b5cce832d49"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -689,7 +689,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/paid_stage.sh",
-      "sha256": "7c2b09ab900d092cfbd1007eb91f6cf8c214822842d2ec4c579c887f574da3b4"
+      "sha256": "63c4dd9558efffdfd20fb7d24068628212934443d8e9e3ed2187ed2c2cdd44c8"
     },
     {
       "path": "lines/nalu/runtime/tools/post_generation_qa_runner.py",
@@ -705,7 +705,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_qa.py",
-      "sha256": "6e34876808c0ae831c98223c436a5fe9fea3b36eef4a1ce3229b55ab0a564754"
+      "sha256": "fa518406707398075012b33061e89535346bdafb5a7cf16630e72dad8fe168cd"
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_register.py",
@@ -805,7 +805,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "aa6d2f5bee7140a3b16752d0d79c8708ecacc4b261d159c3acae2b3b1a099761"
+      "sha256": "692574a3868d9c93948af159f262b7bef29013851d15fe29428ecfd289662af1"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -3777,7 +3777,7 @@
     },
     {
       "path": "tools/compile_grouped_seedance_manifest.py",
-      "sha256": "e073ae52e5ec86ee83cbeb3f8f87ea151f24596c297a914d9bfffe6db793436a"
+      "sha256": "a552c64ef1820cd8759d57c5e625b61cb13ed3d7cb9b3179f05102cf1e2c9b0e"
     },
     {
       "path": "tools/compile_grouped_seedance_transaction_manifest.py",
@@ -4881,7 +4881,7 @@
     },
     {
       "path": "tools/h3_constraint_ab_variant.py",
-      "sha256": "4ab2b0d8a7c8980c133ab276e74de48ad841a5e2e2a83df7599f246141cc4287"
+      "sha256": "594f8c529bb25fe0d78b5bef01cf948b6271443007456e863cec6e33aef6a7e7"
     },
     {
       "path": "tools/h3_crossmodal_speaker_gate.py",
@@ -4889,7 +4889,7 @@
     },
     {
       "path": "tools/h3_director_prompt_v2.py",
-      "sha256": "33a0f105071036285cb23fb1078e01d1bf4d5455274e7d67ea9c6f72f37f2908"
+      "sha256": "e499d07347aa78f6c13e6ced2805f69466f553cb7d6b8943a0aad79b133c1ed7"
     },
     {
       "path": "tools/h3_english_contract_io.py",
@@ -4901,7 +4901,7 @@
     },
     {
       "path": "tools/h3_provider_english_contract.py",
-      "sha256": "08e24929976ab72276ba1b10990807cc3b321a07191f276ae5ed2b1e7b33a290"
+      "sha256": "64d27513d6a70c4657c883e2cb6d7b8d59e0d71eadd9252b0887e653905825e4"
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
@@ -6461,7 +6461,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "e0c3a546aca561632d7f291ac27653e7bea3658ce40eb758d7731e7cec37f5dc"
+      "sha256": "33613a233be27bc98c682a8749deb810a37f13a321bf1e770d854f60bdff9986"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -7465,7 +7465,7 @@
     },
     {
       "path": "tools/tests/test_h3_provider_expert_advice.py",
-      "sha256": "912b270155926ab2da55cd22cd166f390377f22abfa8b01e07bc2c1286562afb"
+      "sha256": "50dd59001f09c26fbc7449c02f3dd36947aa88f4d49bcc00aa7f23c55a19739c"
     },
     {
       "path": "tools/tests/test_h3_quoted_cjk_inside_dialogue.py",
@@ -7621,7 +7621,7 @@
     },
     {
       "path": "tools/tests/test_nalu_ab_variant_entry.py",
-      "sha256": "54d72c133bb77864b8c2aee5f7f80d2cdb33d92546c4b94680053925714d8eda"
+      "sha256": "233dbe0767c8b5e8059f1d51a3900939cde5df4b6a5b88d0322130ecc378f3f8"
     },
     {
       "path": "tools/tests/test_nalu_budget_reservation.py",
@@ -8781,7 +8781,7 @@
     },
     {
       "path": "tools/video_prompt_compiler.py",
-      "sha256": "751e7304f5ef8a7643c74840be86b4b5306b8aa3b52e52d98c4d3c726ea68028"
+      "sha256": "435674bd208e41cb920cb4d1629b6e199a0cd0febb875179c46cabe74abf6b59"
     },
     {
       "path": "tools/video_sequence_rhythm_gate.py",

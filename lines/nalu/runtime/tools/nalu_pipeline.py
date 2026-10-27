@@ -5863,6 +5863,13 @@ def _s6_poll_live_bound_wave(ctx: Ctx, wave: dict[str, Any], plan: dict[str, Any
 # --------------------------------------------------------------------------- #
 #: tools/h3_constraint_ab_variant.SCHEMA — the only producer this mode accepts.
 AB_VARIANT_SCHEMA = "qingshan.h3_constraint_language_ab_variant.v1"
+#: tools/h3_constraint_ab_variant.LOCK_SCHEMA (``--variant camera_lock_strict``, lab E06 2026-10-26)
+AB_VARIANT_LOCK_SCHEMA = "qingshan.h3_camera_lock_ab_variant.v1"
+#: schema -> (variant kind, manifest+task field, value, task-key suffix); same producer, same guards
+AB_VARIANT_KINDS = {
+    AB_VARIANT_SCHEMA: ("constraint_language_zh", "h3_constraint_language", "zh", "ZH"),
+    AB_VARIANT_LOCK_SCHEMA: ("camera_lock_strict", "h3_camera_lock", "strict", "LOCK"),
+}
 AB_VARIANT_PRODUCER = ENGINE / "tools/h3_constraint_ab_variant.py"
 AB_VIDEO_DIRNAME = "video_ab"
 
@@ -5886,8 +5893,10 @@ def ab_variant_paths(ctx: Ctx, task_key: str) -> dict[str, Path]:
         "rehearsal": root / f".rehearsal_{ctx.run_id}",
         "finalization_digest": ctx.p.preprod_reports / f"{task_key}_AB_PROMPT_FINALIZATION_DIGEST.json",
         # prompt_batch_finalize.py names receipts <unit_id>.json: a separate directory keeps the
-        # variant's receipt from overwriting the original unit's receipt.
-        "finalization_dir": ctx.p.preprod / "prompt_batch_finalization_ab",
+        # variant's receipt from overwriting the original unit's receipt (and, per variant kind, another
+        # variant's receipt for the same unit: <UNIT>-ZH keeps the original directory).
+        "finalization_dir": ctx.p.preprod / ("prompt_batch_finalization_ab" if task_key.endswith("-ZH") or "-" not in task_key
+                                             else f"prompt_batch_finalization_ab_{task_key.rsplit('-', 1)[1].lower()}"),
     }
 
 
@@ -5902,7 +5911,7 @@ def ab_variant_failures(ctx: Ctx, path: Path, doc: dict[str, Any]) -> list[str]:
     """Structural provenance checks (free, offline).  Every failure is a refusal before money moves.
 
     The variant must be exactly what tools/h3_constraint_ab_variant.py writes for a unit of THIS
-    episode: its schema, one task keyed ``<UNIT>-ZH``, not yet authorised, MiniMax-H3 under
+    episode: its schema, one task keyed ``<UNIT>-ZH`` (``<UNIT>-LOCK`` for the camera-lock kind), not yet authorised, MiniMax-H3 under
     CAMERA_GRAMMAR_V1, built from this episode's grouped manifest, and its source unit present in
     the episode's authority (grouping plan + whole-batch prompt registry + the transaction manifest,
     or — when a rolling wave has narrowed that manifest — the source's bound English transaction,
@@ -5912,8 +5921,12 @@ def ab_variant_failures(ctx: Ctx, path: Path, doc: dict[str, Any]) -> list[str]:
         Path(path).resolve().relative_to(ctx.p.preprod.resolve())
     except ValueError:
         failures.append(f"AB_VARIANT_OUTSIDE_EPISODE_PREPRODUCTION:{path}")
-    if doc.get("ab_variant_schema") != AB_VARIANT_SCHEMA:
+    kind = AB_VARIANT_KINDS.get(str(doc.get("ab_variant_schema") or ""))
+    if kind is None:
         failures.append(f"AB_VARIANT_SCHEMA_MISMATCH:{doc.get('ab_variant_schema')}")
+        kind = AB_VARIANT_KINDS[AB_VARIANT_SCHEMA]
+    elif kind[0] != "constraint_language_zh" and doc.get("ab_variant_kind") != kind[0]:
+        failures.append(f"AB_VARIANT_KIND_MISMATCH:{doc.get('ab_variant_kind')}!={kind[0]}")
     if str(doc.get("episode") or "") != ctx.episode:
         failures.append(f"AB_VARIANT_FOREIGN_EPISODE:{doc.get('episode')}!={ctx.episode}")
     if doc.get("provider_post_allowed") is not False or doc.get("maximum_new_submissions") != 1:
@@ -5924,11 +5937,13 @@ def ab_variant_failures(ctx: Ctx, path: Path, doc: dict[str, Any]) -> list[str]:
         return failures
     task = tasks[0]
     source = str(doc.get("ab_variant_of") or "")
-    language = str(doc.get("h3_constraint_language") or "")
-    if language != "zh" or task.get("h3_constraint_language") != language:
-        failures.append(f"AB_VARIANT_LANGUAGE_UNSUPPORTED:{language}/{task.get('h3_constraint_language')}")
+    _kind_name, field, expected, suffix = kind
+    value = str(doc.get(field) or "")
+    if value != expected or task.get(field) != value:
+        failures.append(("AB_VARIANT_LANGUAGE_UNSUPPORTED" if field == "h3_constraint_language"
+                         else "AB_VARIANT_CAMERA_LOCK_UNSUPPORTED") + f":{value}/{task.get(field)}")
     if (not source.startswith(f"{ctx.episode}-") or task.get("ab_variant_of") != source
-            or task.get("unit_id") != source or task.get("task_key") != f"{source}-{language.upper()}"):
+            or task.get("unit_id") != source or task.get("task_key") != f"{source}-{suffix}"):
         failures.append(f"AB_VARIANT_TASK_KEY_NOT_DERIVED_FROM_SOURCE:{task.get('task_key')}<-{source}")
     if str(task.get("episode") or "") != ctx.episode:
         failures.append(f"AB_VARIANT_TASK_FOREIGN_EPISODE:{task.get('episode')}")
@@ -6050,6 +6065,8 @@ def run_ab_variant(ctx: Ctx, variant: Path) -> int:
         path = (Path.cwd() / path) if (Path.cwd() / path).is_file() else ENGINE / path
     doc = read_json(path, None)
     report: dict[str, Any] = {"schema": "nalu.ab_variant_run.v1", "episode": ctx.episode, "variant": str(path),
+                              "variant_kind": ((AB_VARIANT_KINDS.get(str((doc or {}).get("ab_variant_schema") or ""))
+                                                or ("UNKNOWN",))[0] if isinstance(doc, dict) else "UNKNOWN"),
                               "variant_sha256": sha256_file(path) if path.is_file() else None,
                               "run_id": ctx.run_id, "started_at": now(), "paid_enabled": ctx.paid_enabled}
     if ctx.paid_enabled and not os.environ.get("GIGGLE_API_KEY", "").strip():

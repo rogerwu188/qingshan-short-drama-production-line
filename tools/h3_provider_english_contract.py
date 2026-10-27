@@ -41,6 +41,33 @@ def h3_constraint_language(payload: dict[str, Any] | None) -> str:
     return "zh" if value in {"zh", "zh-cn", "chinese"} else "en"
 
 
+#: Opt-in strict camera lock (owner A/B, lab Holmes E06 2026-10-26: locked units still pushed in, face width
+#: 0.41 -> 0.81).  A CAMERA_GRAMMAR_V1 unit/contract with ``h3_camera_lock: "strict"`` gets this English
+#: block as the prompt's very first paragraph (DIRECTOR_PROMPT_V2), a frozen-frame-size camera sentence and
+#: extra Never items.  Absent (the default) renders byte-identically.
+H3_CAMERA_LOCK_FIELD = "h3_camera_lock"
+CAMERA_LOCK_STRICT = (
+    "CAMERA LOCK \u2014 ABSOLUTE RULE: the camera is bolted to a tripod for the whole clip. No zoom, no push-in, "
+    "no dolly, no crop change. The subject's size in the frame stays exactly the same from the first frame to the "
+    "last; the face never gets bigger or smaller. Any move closer is a failed shot."
+)
+CAMERA_LOCK_FROZEN_FRAME = "Frame size is frozen: same shot size as @Image1 at every moment."
+CAMERA_LOCK_NEVER = "zooming in, pushing in, dollying in, moving closer to the face, tightening the frame"
+#: where a DIRECTOR_PROMPT_V2 text starts: "References:", optionally after the strict camera-lock block
+DIRECTOR_V2_TEXT_START = re.compile(r"(?:" + re.escape(CAMERA_LOCK_STRICT) + r"\n\n)?References:\n")
+
+
+def h3_camera_lock(payload: dict[str, Any] | None) -> str:
+    """"strict" when a unit/contract opts into the strict camera lock, else "" (the default)."""
+    value = str((payload or {}).get(H3_CAMERA_LOCK_FIELD) or "").strip().lower()
+    return "strict" if value == "strict" else ""
+
+
+def is_director_v2_text(text: str) -> bool:
+    """A DIRECTOR_PROMPT_V2 prompt (tools/h3_director_prompt_v2.py), with or without the camera-lock block."""
+    return bool(DIRECTOR_V2_TEXT_START.match(text)) and "\n\nWho is in frame" in text
+
+
 def _outside_allowed_text(text: str) -> str:
     outside = DIALOGUE_TAG.sub("", text)
     for phrase in sorted(H3_CONSTRAINT_ZH.values(), key=len, reverse=True):

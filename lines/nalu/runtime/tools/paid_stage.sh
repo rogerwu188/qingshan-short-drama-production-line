@@ -32,7 +32,8 @@
 #   paid_stage.sh --check <EPISODE>            print the budget position, spend nothing
 #
 #   paid_stage.sh <EPISODE> --ab-variant <variant_manifest.json>
-#       ONE owner-approved A/B task written by tools/h3_constraint_ab_variant.py, through the same
+#       ONE owner-approved A/B task written by tools/h3_constraint_ab_variant.py (--variant zh, the
+#       default, or camera_lock_strict), through the same
 #       guards as S6 (provenance + source unit, whole-batch prompt registration, D-11 for that one
 #       task key, budget reservation against the cap, durable fingerprint store, credit statement +
 #       ledger).  The clip goes to workflow/nalu/<EP>/video_ab/ and never enters assembly.

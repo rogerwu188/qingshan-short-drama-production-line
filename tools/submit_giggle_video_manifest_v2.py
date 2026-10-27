@@ -75,6 +75,7 @@ try:
     from action_video_prompt_compiler import validate_action_contract
     from shot_media_admission_gate import compute_input_template_id, precheck_submission_inputs
     from video_live_binding import attributed_task_ids, live_bindings
+    from h3_provider_english_contract import is_director_v2_text
 except ModuleNotFoundError:
     from tools.giggle_api_client import _image_list, _registered_asset, _request, paid_video_submission_context
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
@@ -106,6 +107,7 @@ except ModuleNotFoundError:
     from tools.action_video_prompt_compiler import validate_action_contract
     from tools.shot_media_admission_gate import compute_input_template_id, precheck_submission_inputs
     from tools.video_live_binding import attributed_task_ids, live_bindings
+    from tools.h3_provider_english_contract import is_director_v2_text
 
 # Shot-scope upgrade (configs/PROMPT_SHOT_SCOPE_POLICY_V1.json): submit-boundary conflict gate
 # and loaded-module audit.  Inactive episodes/models never call either, so their request,
@@ -470,6 +472,9 @@ def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
     # opt-in Chinese constraint sentences (generation contract h3_constraint_language "zh"; A/B variant tasks)
     if task.get("h3_constraint_language") or machine.get("h3_constraint_language"):
         prompt_unit["h3_constraint_language"] = task.get("h3_constraint_language") or machine.get("h3_constraint_language")
+    # opt-in strict camera lock (h3_camera_lock "strict"; camera-lock A/B variant tasks)
+    if task.get("h3_camera_lock") or machine.get("h3_camera_lock"):
+        prompt_unit["h3_camera_lock"] = task.get("h3_camera_lock") or machine.get("h3_camera_lock")
     prompt_unit["duration_seconds"] = task.get("duration_seconds")
     prompt_unit["resolution"] = task.get("resolution")
     prompt_unit["aspect_ratio"] = task.get("aspect_ratio")
@@ -657,7 +662,7 @@ def uses_structured_role_gate(task: dict[str, Any], prompt_text: str) -> bool:
     )
     # DIRECTOR_PROMPT_V2 is compiler-native too (exact-compiler check + semantic receipt below)
     director_v2 = (str(task.get("h3_prompt_style") or "").strip().upper() == "DIRECTOR_PROMPT_V2"
-                   and prompt_text.startswith("References:\n") and "\n\nWho is in frame" in prompt_text)
+                   and is_director_v2_text(prompt_text))
     official_h3_ref2va = (
         str(task.get("model") or "").lower() in {"minimax-h3", "h3"}
         and task.get("h3_prompt_profile") == "H3_OFFICIAL_REF2VA_V1"

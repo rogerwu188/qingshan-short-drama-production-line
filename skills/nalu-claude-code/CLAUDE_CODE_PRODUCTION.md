@@ -68,6 +68,10 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
   然后 D-11 只授权这一个任务键、按本集上限做预算检查 + 预留、提交器指纹去重、积分对账单 + 账本记录、提交成功即释放预留。
   成片落 `workflow/nalu/<EP>/video_ab/<EP>-VU-00X-ZH.mp4`（报告 `video_ab/<TASK>_AB_RUN.json`），不覆盖原单元，不进装配；未完成就重跑同一命令（只轮询，不再 POST）。
   免费预演（不花钱，不留授权副本和预留）：`$P lines/nalu/runtime/tools/nalu_pipeline.py ab-variant --episode <EP> --variant <清单>`（不加 `--paid`）。
+- 强机位锁 A/B（线主 2026-10-26，lab E06 锁机位仍推近）：单元/合同字段 `"h3_camera_lock": "strict"`（缺省不加，输出逐字节不变）只对 CAMERA_GRAMMAR_V1 的
+  DIRECTOR_PROMPT_V2 锁机位单元生效：提示词最前面加 `CAMERA LOCK — ABSOLUTE RULE` 一段、Camera 末尾加 `Frame size is frozen…`、Never 末尾加推近类禁项（全英文）；移动机位单元拒绝。
+  同一工具加 `--variant camera_lock_strict` 生成任务键 `<EP>-VU-00X-LOCK` 的单任务清单（`--out <preproduction>/<EP>-VU-00X-LOCK_AB.json`），
+  付费入口、守卫、`video_ab/` 输出完全相同；回执目录用 `<preproduction>/prompt_batch_finalization_ab_lock`（以 diff 打印的命令为准）。
 - 对白镜 3–5 s，一句一镜（线主 2026-10-26，CAMERA_GRAMMAR_V1）：编译器把画内对白镜定为「估算说话时长 + 0.5 s」取整秒（3–5 s，`tools/speaking_unit_duration.py`，报告在编辑清单 `speaking_unit_duration_report`）。
   一句估算超过 4.5 s（含标点停顿，英文约 12 词、中文约 17 字以上）放不进 5 s：**写手必须拆成两镜**（台词一字不改，在自然停顿处断开）；编译器不拦，只记 `WRITER_SPLIT_REQUIRED_*`，写手时长超出台词 1.5 s 以上会被自动缩短。
   无台词的动作（推门、走位、取物）单独写一镜，不和台词放在同一镜。

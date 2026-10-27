@@ -23,6 +23,12 @@ rehearsal of the same path: ``nalu_pipeline.py ab-variant --episode <EP> --varia
 
     python3 tools/h3_constraint_ab_variant.py --manifest <EP>_VIDEO_TRANSACTION_MANIFEST_V1.json \
         --unit E04-VU-008 --prompt-dir <preproduction>/video_prompts --out <preproduction>/E04_VU-008_ZH_AB.json
+
+``--variant camera_lock_strict`` (owner A/B, lab Holmes E06 2026-10-26, locked units that still pushed in) builds
+the same kind of one-task manifest with ``h3_camera_lock: "strict"`` instead: task key ``<UNIT>-LOCK``, schema
+``qingshan.h3_camera_lock_ab_variant.v1``, ``ab_variant_kind: "camera_lock_strict"``.  The renderer applies it only
+on CAMERA_GRAMMAR_V1 DIRECTOR_PROMPT_V2 locked-camera units; elsewhere the command refuses.  ``--variant zh``
+(the default) writes exactly what it always wrote.
 """
 
 from __future__ import annotations
@@ -41,17 +47,29 @@ for entry in (str(ENGINE_ROOT), str(ENGINE_ROOT / "tools")):
     if entry not in sys.path:
         sys.path.insert(0, entry)
 
-from tools.h3_provider_english_contract import H3_CONSTRAINT_LANGUAGE_FIELD  # noqa: E402
+from tools.h3_provider_english_contract import H3_CAMERA_LOCK_FIELD, H3_CONSTRAINT_LANGUAGE_FIELD  # noqa: E402
 
 SCHEMA = "qingshan.h3_constraint_language_ab_variant.v1"
+LOCK_SCHEMA = "qingshan.h3_camera_lock_ab_variant.v1"
+#: variant name -> (manifest schema, task-key suffix, task/unit field, value).  "zh" is the original A/B.
+VARIANTS: dict[str, tuple[str, str, str, str]] = {
+    "zh": (SCHEMA, "ZH", H3_CONSTRAINT_LANGUAGE_FIELD, "zh"),
+    "camera_lock_strict": (LOCK_SCHEMA, "LOCK", H3_CAMERA_LOCK_FIELD, "strict"),
+}
+SCHEMA_VARIANT = {schema: name for name, (schema, *_rest) in VARIANTS.items()}
 
 
-def variant_task(task: dict[str, Any], language: str = "zh") -> dict[str, Any]:
-    """The A/B copy of ``task``: own task key, the constraint-language flag, no submission state."""
+def variant_task(task: dict[str, Any], language: str = "zh", *, variant_name: str = "zh") -> dict[str, Any]:
+    """The A/B copy of ``task``: own task key, the variant's flag, no submission state."""
     variant = copy.deepcopy(task)
     base_key = str(task.get("task_key") or task.get("unit_id"))
-    variant["task_key"] = f"{base_key}-{language.upper()}"
-    variant[H3_CONSTRAINT_LANGUAGE_FIELD] = language
+    if variant_name == "zh":
+        variant["task_key"] = f"{base_key}-{language.upper()}"
+        variant[H3_CONSTRAINT_LANGUAGE_FIELD] = language
+    else:
+        _schema, suffix, field, value = VARIANTS[variant_name]
+        variant["task_key"] = f"{base_key}-{suffix}"
+        variant[field] = value
     variant["ab_variant_of"] = base_key
     # prompt_batch_finalization / reviewed_request_sha256 bind the ORIGINAL prompt; the variant's text
     # needs its own review, so carrying them over would only produce a mismatch at the gate.
@@ -61,22 +79,29 @@ def variant_task(task: dict[str, Any], language: str = "zh") -> dict[str, Any]:
     return variant
 
 
-def render_variant(task: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+def render_variant(task: dict[str, Any], variant_name: str = "zh") -> tuple[str, dict[str, Any]]:
     from tools.submit_giggle_video_manifest_v2 import estimated_video_credits, provider_prompt_unit
     from tools.video_prompt_compiler import COMPILE_RECEIPTS, compile_model_prompt
     text = compile_model_prompt(provider_prompt_unit(task))
     receipt = COMPILE_RECEIPTS.get(str(task.get("unit_id") or task.get("task_key"))) or {}
-    if receipt.get("h3_constraint_language") != "zh":
-        raise ValueError(f"{task['task_key']}:H3_CONSTRAINT_AB_NOT_APPLICABLE (only CAMERA_GRAMMAR_V1 H3 units)")
+    if variant_name == "zh":
+        if receipt.get("h3_constraint_language") != "zh":
+            raise ValueError(f"{task['task_key']}:H3_CONSTRAINT_AB_NOT_APPLICABLE (only CAMERA_GRAMMAR_V1 H3 units)")
+    else:
+        _schema, _suffix, field, value = VARIANTS[variant_name]
+        if receipt.get(field) != value:
+            raise ValueError(f"{task['task_key']}:H3_CAMERA_LOCK_AB_NOT_APPLICABLE "
+                             "(only CAMERA_GRAMMAR_V1 DIRECTOR_PROMPT_V2 H3 units)")
     return text, {"estimated_credits": estimated_video_credits(task)}
 
 
-def build(manifest: dict[str, Any], unit: str, prompt_dir: Path, language: str = "zh") -> dict[str, Any]:
+def build(manifest: dict[str, Any], unit: str, prompt_dir: Path, language: str = "zh",
+          variant_name: str = "zh") -> dict[str, Any]:
     source = next((t for t in manifest.get("tasks") or [] if str(t.get("task_key")) == unit), None)
     if source is None:
         raise ValueError(f"H3_CONSTRAINT_AB_UNIT_NOT_FOUND:{unit}")
-    task = variant_task(source, language)
-    text, cost = render_variant(task)
+    task = variant_task(source, language, variant_name=variant_name)
+    text, cost = render_variant(task, variant_name)
     prompt_dir.mkdir(parents=True, exist_ok=True)
     prompt_path = prompt_dir / f"{task['task_key']}.txt"
     prompt_path.write_text(text, encoding="utf-8")
@@ -86,8 +111,16 @@ def build(manifest: dict[str, Any], unit: str, prompt_dir: Path, language: str =
         task["prompt_file"] = str(prompt_path)
     task["prompt_sha256"] = hashlib.sha256(text.encode("utf-8")).hexdigest()
     out = {key: value for key, value in manifest.items() if key != "tasks"}
+    if variant_name == "zh":
+        out.update({
+            "ab_variant_schema": SCHEMA, "ab_variant_of": unit, "h3_constraint_language": language,
+            "provider_post_allowed": False, "maximum_new_submissions": 1, "video_unit_count": 1,
+            "estimated_credits": cost["estimated_credits"], "tasks": [task],
+        })
+        return out
+    schema, _suffix, field, value = VARIANTS[variant_name]
     out.update({
-        "ab_variant_schema": SCHEMA, "ab_variant_of": unit, "h3_constraint_language": language,
+        "ab_variant_schema": schema, "ab_variant_kind": variant_name, "ab_variant_of": unit, field: value,
         "provider_post_allowed": False, "maximum_new_submissions": 1, "video_unit_count": 1,
         "estimated_credits": cost["estimated_credits"], "tasks": [task],
     })
@@ -98,14 +131,18 @@ def verify(variant: dict[str, Any]) -> list[str]:
     """Failures when ``variant`` is not exactly what :func:`build` writes: schema, one task, and the
     prompt file re-rendered from that task reproducing its bytes and credit estimate."""
     failures: list[str] = []
-    if variant.get("ab_variant_schema") != SCHEMA:
+    variant_name = SCHEMA_VARIANT.get(str(variant.get("ab_variant_schema") or ""))
+    if variant_name is None:
         failures.append("AB_VARIANT_SCHEMA_MISMATCH")
+        variant_name = "zh"
+    elif variant_name != "zh" and variant.get("ab_variant_kind") != variant_name:
+        failures.append(f"AB_VARIANT_KIND_MISMATCH:{variant.get('ab_variant_kind')}")
     tasks = variant.get("tasks") or []
     if len(tasks) != 1:
         return failures + [f"AB_VARIANT_TASK_COUNT:{len(tasks)}"]
     task = tasks[0]
     try:
-        text, cost = render_variant(copy.deepcopy(task))
+        text, cost = render_variant(copy.deepcopy(task), variant_name)
     except Exception as exc:  # noqa: BLE001 - reported, never raised past the verifier
         return failures + [f"AB_VARIANT_RERENDER_FAILED:{type(exc).__name__}:{exc}"]
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -128,6 +165,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--prompt-dir", type=Path)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--language", default="zh", choices=["zh"])
+    parser.add_argument("--variant", default="zh", choices=sorted(VARIANTS),
+                        help="zh (default): Chinese constraint sentences; camera_lock_strict: h3_camera_lock strict")
     args = parser.parse_args(argv)
     if args.verify:
         failures = verify(json.loads(args.verify.read_text(encoding="utf-8")))
@@ -135,7 +174,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2 if failures else 0
     if not (args.manifest and args.unit and args.prompt_dir and args.out):
         parser.error("--manifest, --unit, --prompt-dir and --out are required to build a variant")
-    result = build(json.loads(args.manifest.read_text(encoding="utf-8")), args.unit, args.prompt_dir, args.language)
+    result = build(json.loads(args.manifest.read_text(encoding="utf-8")), args.unit, args.prompt_dir, args.language,
+                   args.variant)
     args.out.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     task = result["tasks"][0]
     print(json.dumps({"status": "PASS", "task_key": task["task_key"], "prompt_file": task["prompt_file"],

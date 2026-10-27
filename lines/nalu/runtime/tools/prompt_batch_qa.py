@@ -73,7 +73,12 @@ H3_V2_REQUIRED = ("References:\n", "Who is in frame", "Setting:\n", "Camera:\n",
 
 
 def is_h3_director_v2(text: str) -> bool:
-    return text.startswith("References:\n") and "\n\nWho is in frame" in text
+    # optionally after the opt-in strict camera-lock block (tools/h3_provider_english_contract.CAMERA_LOCK_STRICT)
+    try:
+        from tools.h3_provider_english_contract import is_director_v2_text
+    except ModuleNotFoundError:
+        from h3_provider_english_contract import is_director_v2_text
+    return is_director_v2_text(text)
 
 
 def section(text: str, header: str) -> str:

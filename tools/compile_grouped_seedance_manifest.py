@@ -1329,6 +1329,16 @@ def main() -> int:
             for compiled_unit in result.get("units") or []:
                 if str(compiled_unit.get("model") or "") == "MiniMax-H3":
                     compiled_unit[H3_CONSTRAINT_LANGUAGE_FIELD] = "zh"
+        # Opt-in strict camera lock (top-level h3_camera_lock "strict"); absent adds no field.  The renderer
+        # honours it only on CAMERA_GRAMMAR_V1 locked-camera units.
+        try:
+            from tools.h3_provider_english_contract import H3_CAMERA_LOCK_FIELD, h3_camera_lock
+        except ModuleNotFoundError:
+            from h3_provider_english_contract import H3_CAMERA_LOCK_FIELD, h3_camera_lock
+        if h3_camera_lock(generation_payload if isinstance(generation_payload, dict) else {}) == "strict":
+            for compiled_unit in result.get("units") or []:
+                if str(compiled_unit.get("model") or "") == "MiniMax-H3":
+                    compiled_unit[H3_CAMERA_LOCK_FIELD] = "strict"
     # The grouped unit is the source of truth for the transaction manifest.
     # Bind the authored audio profile here as well, so a later transaction
     # rebuild cannot silently lose the writer/director audio decision.

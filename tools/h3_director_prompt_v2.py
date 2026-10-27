@@ -7,6 +7,8 @@ from it (``submit_giggle_video_manifest_v2.provider_prompt_unit``).  Every other
 ``subject_definitions:`` prompt byte-identically (tools/h3_provider_prompt_renderer.py).
 
 Sections, in order: References / Who is in frame / Setting / Camera / Action / Dialogue / Sound / Never.
+An opt-in ``h3_camera_lock: "strict"`` (CAMERA_GRAMMAR_V1 locked-camera units only) adds a CAMERA LOCK block
+before References, a frozen-frame-size Camera sentence and push-in Never items; absent renders byte-identically.
 Every fact comes from the same execution plan and bound English contract V1 uses; the optional
 ``director_v2`` block of that contract (appearance, wardrobe, setting in English) is requested by
 tools/h3_english_contract_io.py for V2 units only.  Machine ids, retention/force/interaction templates,
@@ -29,7 +31,13 @@ try:
         number_word,
     )
     from tools.provider_contract_boundary import is_being_prop, validate_provider_prompt_boundary
-    from tools.h3_provider_english_contract import validate_h3_provider_text_boundary
+    from tools.h3_provider_english_contract import (
+        CAMERA_LOCK_FROZEN_FRAME,
+        CAMERA_LOCK_NEVER,
+        CAMERA_LOCK_STRICT,
+        h3_camera_lock,
+        validate_h3_provider_text_boundary,
+    )
     from tools.provider_semantic_coverage import build_semantic_coverage_receipt
     from tools.prompt_budget_observability import measure_prompt
     from tools.editorial_pacing_contract import content_window_clause, delivery_clause
@@ -44,7 +52,13 @@ except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
         number_word,
     )
     from provider_contract_boundary import is_being_prop, validate_provider_prompt_boundary  # type: ignore
-    from h3_provider_english_contract import validate_h3_provider_text_boundary  # type: ignore
+    from h3_provider_english_contract import (  # type: ignore
+        CAMERA_LOCK_FROZEN_FRAME,
+        CAMERA_LOCK_NEVER,
+        CAMERA_LOCK_STRICT,
+        h3_camera_lock,
+        validate_h3_provider_text_boundary,
+    )
     from provider_semantic_coverage import build_semantic_coverage_receipt  # type: ignore
     from prompt_budget_observability import measure_prompt  # type: ignore
     from editorial_pacing_contract import content_window_clause, delivery_clause  # type: ignore
@@ -453,6 +467,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     }
     crossmodal_by_speaker = {str(row.get("speaker") or "").strip(): row for row in crossmodal_rows}
     stamped = v1.director_active(unit, plan)  # CAMERA_GRAMMAR_V1 camera plans
+    # opt-in strict camera lock (h3_camera_lock "strict"; stamped units only, absent = byte-identical)
+    camera_lock = h3_camera_lock(unit) if stamped else ""
 
     # --- subjects and per-beat presence ----------------------------------------------------------------
     sources = subject_sources(unit)
@@ -632,6 +648,10 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
 
     # --- camera ----------------------------------------------------------------------------------------
     camera, camera_receipt = camera_section(unit, plan, contract, beats)
+    if camera_lock:
+        if any("Locked camera" not in line for line in camera.split("\n") if line != v1.ONE_TAKE):
+            raise ValueError(f"{uid}:H3_CAMERA_LOCK_STRICT_ON_MOVING_CAMERA")
+        camera += "\n" + CAMERA_LOCK_FROZEN_FRAME
     evidence["CAMERA.PLAN"] = camera
 
     # --- action + dialogue -----------------------------------------------------------------------------
@@ -826,6 +846,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     if wuxia.get("status") == "SELECTED":
         negatives.extend(scrub(v) for v in wuxia.get("negative_constraints_en") or [] if scrub(v))
     negatives.append("music")
+    if camera_lock:
+        negatives.append(CAMERA_LOCK_NEVER)
     never_line = "Never: " + "; ".join(dict.fromkeys(negatives)) + "."
     if stamped and subjects:  # provider expert: the anti-duplicate rule is the prompt's last sentence (no person: none)
         never_line += "\n" + v1.NO_DUPLICATE_PEOPLE
@@ -835,6 +857,7 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         if adult_line and subjects:
             who.append(adult_line)
         blocks = [
+            *([CAMERA_LOCK_STRICT] if camera_lock else []),
             "References:\n" + "\n".join(reference_lines),
             "\n".join(who),
             "Setting:\n" + "\n".join(setting_lines),
@@ -853,7 +876,7 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     if constraint_language == "zh":
         evidence = {key: v1.localize_constraints(value, "zh") for key, value in evidence.items()}
     if not evidence["ANCHOR.IDENTITY_PROP"]:  # no key props: the cast fact is the "Who is in frame" header
-        evidence["ANCHOR.IDENTITY_PROP"] = text.split("\n\n")[1].split("\n")[0]
+        evidence["ANCHOR.IDENTITY_PROP"] = text.split("\n\n")[2 if camera_lock else 1].split("\n")[0]
 
     boundary = validate_provider_prompt_boundary(text, source_id=uid, model_family="MINIMAX_H3")
     h3_boundary = validate_h3_provider_text_boundary(text, source_id=uid)
@@ -892,6 +915,7 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
             "camera_shots": camera_receipt,
         },
         **({"h3_constraint_language": "zh"} if constraint_language == "zh" else {}),
+        **({"h3_camera_lock": "strict"} if camera_lock else {}),
     }
 
 
