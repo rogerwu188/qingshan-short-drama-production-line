@@ -127,6 +127,11 @@ def poll_one(
         or row.get("shot_id")
         or f"task-{index:03d}"
     )
+    # A row may name its own file under out_dir (an alternate take of a unit that is already
+    # harvested to <task_key>.mp4 -- lab E05 2026-10-26); it must stay inside out_dir.
+    named = str(row.get("output_name") or "")
+    if named and (Path(named).is_absolute() or ".." in Path(named).parts or not named.endswith(".mp4")):
+        raise ValueError(f"output_name must be a relative .mp4 path inside out_dir: {named}")
     if not task_id:
         return {**row, "remote_status": "NO_TASK_ID", "downloaded_files": []}
 
@@ -137,10 +142,13 @@ def poll_one(
     files: list[str] = []
     if download and remote_status == "completed":
         for url_index, url in enumerate(urls, 1):
-            destination = output_path(out_dir, label, url_index, len(urls))
+            destination = (out_dir / named if named and len(urls) == 1
+                           else output_path(out_dir, label, url_index, len(urls)))
             if not destination.exists():
                 download_atomic(str(url), destination)
             files.append(str(destination))
+    elif remote_status == "completed" and named:
+        files = [str(out_dir / named)] if (out_dir / named).is_file() else []
     elif remote_status == "completed":
         files = [
             str(path)

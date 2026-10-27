@@ -37,7 +37,7 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
    （来源与 manifest 规则）、H3 改编指南 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md`（有就读）、派单里的 `SOURCE_SELECTION.md`
    和本集章节（`sources/<作品>/<SOURCE_INDEX.json 的 canonical_reading_script>/chNNNN.md`）。只按原文改编，原文缺的不凭记忆补写。
 2. `workflow/claude_writer_agent/scripts/<EP>_NARRATIVE_CANONICAL_v1.md`：只写事实、可表演的动作和**逐字台词**，按
-   `## <EP>-S01｜<LOC-ID>｜<时间>｜线A` 分场；不写机位、灯光、资产。一集 2–4 场、20–60 秒为宜；台词决定时长（中文每 4 个汉字约 1 秒；
+   `## <EP>-S01｜<LOC-ID>｜<时间>｜线A` 分场；不写机位、灯光、资产。一集 4–6 场、约 26–32 个镜头、镜头合计约 105 秒（成片约 1 分 50 秒，含片头片尾；线主 2026-10-27：每集约 2 分钟、留广告位，不超过 1 分 55 秒）——靠多写镜头和剧情拉长，不靠拉长单个镜头（对白镜仍 ≤5 秒）；台词决定时长（中文每 4 个汉字约 1 秒；
    英文约每秒 2.5 个词）。英文剧台词与旁白直接写英文；只有声音没有形象的旁白角色写成「旁白角色名：台词」，简报里照常列出、
    `appearance` 写「voice only」，登记为 `VOICE_ONLY_NO_PLATE`。没有人脸又不说话的可见存在（怪物、雕像、无五官人形）登记为
    `non_character_entities`（`kind: CREATURE`，`creature_card`，`note` 用英文一句话写清长相），不列成人物、也不当道具（H3 改编指南 §3）。E02 起开头承接上一集结尾状态，不重演上一集。
@@ -57,6 +57,29 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 然后 `run --until S3`，直到 S1 PASS、S2 PASS、S3 DRY_PLANNED。必须满足（门禁源码在 `$T` 与 `tools/`，报错就读源码改剧本，不改门禁）：
 - 对白镜时长 = 汉字数/4 + 0.5，向上取整到 0.5，不再额外加长；无对白镜 ≤ 5 s；单元（同场连续镜头）4–8 s 可切分。
 - 对白镜只比台词长 0.5–1.0 s（线主 2026-10-23）：`target_seconds` = 说话时长（中文约 4 字/秒，英文约 2.5 词/秒）+ 0.5–1.0 s，不给对白镜加长——H3 会用乱码般的假语言填满多出来的时间（CAMERA_GRAMMAR_V1 的集 S7 会剪在最后一句后约 0.5 s）；要停顿或反应就另写一个无对白的反应镜。
+- H3 约束语言 A/B（线主 2026-10-26）：合同顶层 `"h3_constraint_language": "zh"`（缺省 `en`）只把服务方专家的几句约束（一镜到底/机位固定、无其他人声、
+  只说这一句、防重复人物）换成专家原文中文，其余描述、台词标签、表演说明不变，仅 CAMERA_GRAMMAR_V1 单元生效。对比测试单个单元不必改合同：
+  `$P tools/h3_constraint_ab_variant.py --manifest <preproduction>/<EP>_VIDEO_TRANSACTION_MANIFEST_V1.json --unit <EP>-VU-00X --prompt-dir <preproduction>/video_prompts --out <preproduction>/<EP>-VU-00X-ZH_AB.json`
+  生成任务键 `<EP>-VU-00X-ZH` 的单任务清单（同参考图、同时长，`provider_post_allowed:false`，打印 `estimated_credits`）。
+  **A/B 付费入口只有一个**（2026-10-26）：`lines/nalu/runtime/tools/paid_stage.sh <EP> --ab-variant <preproduction>/<EP>-VU-00X-ZH_AB.json`。
+  它走和 S6 完全相同的守卫：校验清单出自 `h3_constraint_ab_variant.py`（`--verify` 重渲染一致）、属本集、CAMERA_GRAMMAR_V1、源单元在本集权威清单
+  （或其已绑定的英文交易）里且参考图一致；整批提示词登记——变体文本需要自己的 INCREMENTAL_EXACT_MATERIALIZATION_QA 回执，缺就 exit=4 并打印
+  `prompt_batch_finalize.py diff/receipts`（`--out-dir <preproduction>/prompt_batch_finalization_ab --transaction-path <变体清单>`，不覆盖原单元回执），审完重跑同一命令；
+  然后 D-11 只授权这一个任务键、按本集上限做预算检查 + 预留、提交器指纹去重、积分对账单 + 账本记录、提交成功即释放预留。
+  成片落 `workflow/nalu/<EP>/video_ab/<EP>-VU-00X-ZH.mp4`（报告 `video_ab/<TASK>_AB_RUN.json`），不覆盖原单元，不进装配；未完成就重跑同一命令（只轮询，不再 POST）。
+  免费预演（不花钱，不留授权副本和预留）：`$P lines/nalu/runtime/tools/nalu_pipeline.py ab-variant --episode <EP> --variant <清单>`（不加 `--paid`）。
+- 强机位锁默认开启（线主 2026-10-26，lab E06 A/B：VU-008 推近 65%→15%、VU-001 98%→39%）：CAMERA_GRAMMAR_V1 的锁机位一镜到底单元默认加
+  `CAMERA LOCK — ABSOLUTE RULE` 一段（DIRECTOR_PROMPT_V2 放在最前面）、Camera 末尾 `Frame size is frozen…`、Never 末尾推近类禁项；V1 提示词在 camera 行末加
+  `frame size is frozen…` 一句。移动机位、内部硬切的单元和未盖 CAMERA_GRAMMAR_V1 的集照旧（未盖章逐字节不变）。单元/合同字段 `"h3_camera_lock": "standard"` 关闭，
+  `"strict"` 强制（移动机位拒绝）。进行中的集重编译会让已提交单元的提示词变化：已由绑定交易产出成片的单元按提交时的提示词认定，不要求重新定稿回执；
+  尚未提交的单元照常走定稿 diff/回执。旧的 `--variant camera_lock_strict` A/B 仍可用（现与默认相同）。
+- S7 推近补偿（线主 2026-10-26，免费，CAMERA_GRAMMAR_V1）：锁机位单元按剪辑实际使用的片段（头尾裁剪之后）取 9 帧量最大人脸宽度（InsightFace）；
+  从首帧到末帧单调变大超过 25% 的单元（相邻两帧跳变 >40% 视为内部硬切、有脸帧 <6 都跳过）把前段画面以人脸为中心逐帧放大到末帧的大小
+  （最多 1.6 倍，超出只部分补偿，Lanczos 放大回原分辨率，音频原样复制、时长不变），装配用 `assembly/push_in_compensation/<单元>.mp4` 代替原片。
+  报告 `assembly/<EP>_PUSH_IN_COMPENSATION.json`（每单元宽度、裁剪曲线、是否触顶 `cap_hit`）；任何失败只跳过，不阻断 S7。实现 `tools/push_in_compensation.py`。
+- 对白镜 3–5 s，一句一镜（线主 2026-10-26，CAMERA_GRAMMAR_V1）：编译器把画内对白镜定为「估算说话时长 + 0.5 s」取整秒（3–5 s，`tools/speaking_unit_duration.py`，报告在编辑清单 `speaking_unit_duration_report`）。
+  一句估算超过 4.5 s（含标点停顿，英文约 12 词、中文约 17 字以上）放不进 5 s：**写手必须拆成两镜**（台词一字不改，在自然停顿处断开）；编译器不拦，只记 `WRITER_SPLIT_REQUIRED_*`，写手时长超出台词 1.5 s 以上会被自动缩短。
+  无台词的动作（推门、走位、取物）单独写一镜，不和台词放在同一镜。
 - 每镜 `prompt_spec.camera_plan` 全字段（shot_scale/camera_height/camera_side/motion_family/motion_direction/lens_intent/axis_relation/start_framing/end_framing/motivation）；
   LOCKED 起止取景相同、运动镜不同。
 - **运镜语法 CAMERA_GRAMMAR_V1**（2026-10-22 起新封版的合同；storyclaw finalize 自动在合同顶层补
@@ -70,6 +93,8 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
     ③ L-cut：说话镜后紧跟的无对白反应镜（下一个单元）可写 `prompt_spec.transition.sound_bridge_from_previous_seconds`（0.3–2.0 s），
     S7 把说话人画面提前切走、这句话的声音和字幕盖到反应镜上，反应镜现场声压成环境声；不写就是硬切。
     ④ 说话时眼睛看听者（线主 2026-10-24，实验集 E03）：说话镜的动作/起止状态里说话人视线一直在听者身上（或略偏离镜头朝听者一侧）；
+    引擎（2026-10-26，E05）在 H3 提示词和关键帧里写「视线略偏离镜头、朝左/右侧的听者，不直视镜头」，正反打两人朝相反两侧；
+    要指定方向就在 `role_semantic_disambiguation` 写 `dialogue_listener_screen_side: LEFT|RIGHT`（听者在画面哪一侧）；
     绝不写说话时转头看窗/门/画外物、「eyes fixed on X」——H3 会摇过去揭示他看的东西、把说话人丢出画。要看某物就另写无对白镜或插入镜。
   - 近景关键帧不要求房间固定元素（引擎按景别自动处理：CLOSE_UP/EXTREME_CLOSE_UP/MEDIUM_CLOSE_UP 不要求、MEDIUM 最多 2 件）；要交代房间写建立镜。
   - 剧本是「切」的地方就写切（`internal_transition_authoring` 用 MOTIVATED_CUT/REACTION_CUT/MATCH_CUT/HARD_CUT）：
@@ -152,6 +177,7 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
   Q2 中 OCR 读出的低置信乱码（背景招牌/标签纹理、道具上的手写字）在 `observed_text_strings` 写 `NOISE:<文本>`；动作幅度/表情细节不算缺陷。
 - **S7 装配**（`env -u GIGGLE_API_KEY $P $T/nalu_pipeline.py run --episode <EP> --from S7 --until S8`）：需要 `$NALU_RUNTIME_ROOT/brand/NALU_MOTION_endcard_3s_9x16.mp4`（没有就 `$P $S/make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第N集 · <集名>" --language <简报 dialogue_language>`）。
   CAMERA_GRAMMAR_V1 剧集 S7 按简报自动生成本集片尾卡（`workflow/nalu/<EP>/assembly/<EP>_endcard_3s_9x16.mp4`，失败才回落到全局卡）；简报 `episode_display_number`（本剧第几集，如 E03 = 2）同时用于片头和片尾，缺省用 EP 编号。
+  CAMERA_GRAMMAR_V1 剧集 S7 同一遍 ASR 带词级时间戳：单元开头在台词第一个词之前多出的话（如「Ha!」「That.」）自动剪掉，画面和声音一起从台词第一个词前 0.15 秒开始（单元不短于 1.5 秒；台词开头自己的重复不剪），记在 `workflow/nalu/<EP>/assembly/<EP>_DIALOGUE_HEAD_TRIM.json`（线主 2026-10-26）。
   S7 自动加片头标题（简报 `title` + 集数，前 2.5 秒叠加，免费、不加时长）、默认配乐混音（S6 已生成并对账）和尾贴广告版（素材缺失只记 `AD_ASSET_MISSING`，不阻塞）。
   S7 报 `SELECTIVE_BGM_CREDIT_RECONCILIATION_NEEDS_KEY`（S6 时配乐账单还没出）：改用 `./lines/nalu/runtime/tools/paid_stage.sh <EP> S7 S7` 重跑 S7（S7 没有任何提交路径，key 只用于只读账单查询），不是新付费。
 
@@ -185,6 +211,14 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
   多个单元要重做时按观众影响排序：开场前 10 秒 > 有台词/主角正脸 > 结尾 > 其余；预算用到上限为止。其余 Q2 失败项（构图、道具数量、动作细节）照旧直接接受。
   CAMERA_GRAMMAR_V1 剧集的 Q2 会客观数脸（InsightFace，`objective_face_count`）：≥2 帧人脸数多于声明人数时 `cast_exactly_as_declared` 自动判 FAIL（审核答 PASS 也不能改回），同样走这条重做一次。
   同样客观量说话人构图（`objective_speaker_framing`）：有台词且说话人声明在画面内的单元，≥1/3 帧里说话人脸不在画面、被画框切掉、贴左右边（≤2%）或脸中心落在外侧 12% 时 `cast_exactly_as_declared` 自动判 FAIL，同样走这条重做一次（镜头文字写明说话人居中、完整入画）。
+  **引擎自动重做（线主 2026-10-26，实验集 E04 派单里的 Q2 重做被跳过）**：CAMERA_GRAMMAR_V1 集的这两类客观 FAIL 不再等你决定——
+  S6.q2 在 `video_q2_builder prepare` 量完、发 video_q2 审核请求**之前**，由引擎（`lines/nalu/runtime/tools/q2_auto_redo.py`，`nalu_pipeline.s6_q2_auto_redo`）
+  挑出 `prepare.json` 里 `face_count`（多人/重复人物）或 `speaker_framing` FAIL 的单元，按「重复人物 > 说话人构图 > 单元顺序」排序，
+  每单元只重做一次（记在 `reports/<EP>_S6_WAVE_STATE.json` 的 `q2_auto_redo`），费用 = 该单元视频价 + 1 张自有关键帧（~11 积分），
+  先查本集余量（`budget_check`），累计放不下就停，剩下的单元照旧走审核 + 默认接受（`--context` 写「预算不足未重做」或「已重做一次」）。
+  选中的单元成片移到 `video/_superseded_<run>_q2_auto_redo/`，同一次 `paid_stage.sh <EP> S6 S7`（或正常 `run`）里 S6 立刻重进波次循环：
+  下面 ③ 的自动换起始帧 → S5 出自有关键帧 → 单单元波次提交。你只需照常回答它产生的审核请求（关键帧 Q1、start_frame、新的 video_q2）；
+  不要再手动移成片或重复重做。重做后仍 FAIL 的单元按下面默认接受。下面 ①② 的改剧本仍可做（让重做换掉原因），但不是重做的前提。
   **说话人构图 / 多人（`objective_speaker_framing` 或 `objective_face_count` FAIL）的重做必须换掉原因，不许用同一张起始帧 + 同一段动作文字重拍**（线主 2026-10-24，E03 VU-001/002/007 重做前后一模一样）：
   ① 把该单元成片 `video/<unit>.mp4` 移到 `_superseded_*`（和平常重做一样）；② 改剧本：删掉说话镜里看窗/门/画外物、「eyes fixed on X」之类的视线动作（§2 ④），起止状态写说话人看着听者、居中，**台词一字不改**；
   重跑构建器 → `run --until S2` → `prompt_batch_prepare/finish`；③ 直接 `paid_stage.sh <EP> S6 S6`：CAMERA_GRAMMAR_V1 集的 S6 发现「成片已移走 + Q2 prepare.json 记录了这两类 FAIL + 起始帧比那次测量旧」，

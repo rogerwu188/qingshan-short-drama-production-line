@@ -77,7 +77,10 @@
   H3 就摇向窗户/空房间，把说话人丢出画，受控重做一次照样丢）：说话镜里说话人的视线一直在听者身上（或略偏离镜头、朝听者那一侧）；
   说话镜里绝不写转头看窗/门/画外某物，也不写「目光盯着 X」——H3 会摇镜去揭示他看的东西。要「看某物」就单独写一个无对白镜
   （人物看过去），或者直接给那个东西一个插入镜。CAMERA_GRAMMAR_V1 的集里渲染器也会在每个说话单元加一句
-  「While speaking <名字> keeps her/his eyes on the listener; the camera does not follow her/his gaze.」。
+  「<名字> looks just off the lens to the left/right, at <听者>, never into the camera; the camera does not follow the gaze.」
+  （线主 2026-10-26，实验集 E05：只写「看听者」时说话人会直视镜头）：视线略偏离镜头、朝听者那一侧，不直视镜头；
+  方向取写作者声明的听者画面侧（`role_semantic_disambiguation.dialogue_listener_screen_side` = LEFT/RIGHT，可选），
+  没声明就按说话人/听者一对固定分边（同一对人的正反打单人镜朝相反两侧，彼此相对）。关键帧提示词同样写这条视线。
 - 机位要变的地方，一个单元只放一拍。一个单元两拍只适合同一机位里的连续动作。
 
 **对白戏示例**（两人，5 镜，转折在第 4 句）：
@@ -87,6 +90,11 @@
 4. `CLOSE_UP` A，最狠的第 4 句（`MOTIVATED_CUT`，转折才切近）。
 5. `MEDIUM_CLOSE_UP` B 无对白反应（`REACTION_CUT`，`sound_bridge_from_previous_seconds: 0.8`）。
 - 竖屏双人镜（无对白时）优先前后叠放的过肩构图，不要两人左右分列画面两侧边缘。
+- **锁机位就是锁死**（线主 2026-10-26，实验集 Holmes E06：写了 LOCKED 的单元 H3 仍推近，人脸宽度 0.41→0.81）：CAMERA_GRAMMAR_V1 的集里，
+  锁机位一镜到底的单元提示词默认带强机位锁（最前面一段 `CAMERA LOCK — ABSOLUTE RULE`、`Frame size is frozen`、Never 里禁推近），A/B 实测推近从 65–98% 降到 15–39%；
+  剩下的推近由 S7 免费补偿（把前段画面以人脸为中心放大到末帧大小，最多 1.6 倍，`<EP>_PUSH_IN_COMPENSATION.json`）。
+  所以要推近就把 `motion_family` 写成 DOLLY PUSH_IN（移动机位不受影响）；写 LOCKED 就是要画面大小不变。个别单元确实不要强锁时，合同/单元写
+  `"h3_camera_lock": "standard"`。
 - 运镜要有动机（#121）：跟人、揭示、强调、主观视角；否则 `LOCKED` 或慢推。
   不要写「Framing changes with the camera motion.」这类空话当 `end_framing`——写清落幅是谁、多大、在画面哪里。
 - **近景关键帧不要求房间固定元素**（线主 2026-10-24，E03-S01-01：中近景关键帧提示词要求「五个固定元素必须全部出现」，生图就画成了大全景、Helen 小小地坐在左边）：
@@ -97,6 +105,19 @@
   （"framed from mid-chest up"、"head and shoulders"、"seated behind the desk, waist up"）和人在做什么、看向谁；
   不写成正面站立直视镜头。同一场连续几镜的构图要有变化（角度、高低、前景）。
 - **对白镜不留空**（线主 2026-10-23：H3 会用乱码般的「像英文但不是英文」的话填满台词说完后的时间）：对白镜 `target_seconds` = 台词说话时长 + 0.5–1.0 s（中文约 4 字/秒，英文约 2.5 词/秒）；不要给对白镜加长，需要停顿、反应就另写一个无对白的反应镜。S7 也会把每个对白单元剪在最后一句说完后约 0.5 s，多给的时长只会被剪掉。
+- **对白镜 3–5 s，一句一镜**（线主 2026-10-26，实验集 E04：6–8 s 的对白单元里 H3 编出乱码台词、机位摇走；3–5 s 的单元干净）：
+  CAMERA_GRAMMAR_V1 合同里，有画内台词的镜头时长由编译器定为「估算说话时长 + 0.5 s」，向上取整到整秒，最短 3 s、最长 5 s
+  （估算 = `tools/dialogue_cut_safety.estimated_spoken_seconds`：中文 4.2 字/秒、英文 2.7 词/秒，每个标点另加 0.16 s；镜头写了
+  `dialogue_delivery` 语速就按它）。**一句台词估算超过 4.5 s（放不进 5 s）就拆成两镜**（两句各一镜，或一句在自然停顿处断开，台词一字不改）；
+  编译器不拦：照写手时长保留，若写手时长比台词长 1.5 s 以上就自动缩短到「台词 + 0.5 s」取整，并在编辑清单
+  `speaking_unit_duration_report` 里记 `WRITER_SPLIT_REQUIRED_*`，下一集照规则拆。**无台词的动作单独成镜**（推门、走位、拿东西不和台词放一镜），
+  对白镜只拍说话。实现：`tools/speaking_unit_duration.py`，由 `build_nalu_preproduction.build_editorial` 调用。
+- **角色多视图设定图**（服务方专家建议，线主 2026-10-26）：CAMERA_GRAMMAR_V1 合同的每个角色在 S3 多出一张图（一次性，约 11 积分/角色）：
+  正面脸部特写 + 全身正面/侧面/背面，纯灰底、同一套服装（`lines/nalu/runtime/tools/character_reference_sheet.py`）。H3 单元拿它代替头像牌作为该角色的
+  脸和身体参考（参考图张数不变）；头像/半身/全身身份牌仍是 InsightFace 身份锁与 Q1/Q2 的依据，设定图不进身份锁。已登记角色在下一个 CAMERA_GRAMMAR_V1 集
+  用锁定的全身 + 头像牌补出设定图。外貌里写了身体特征（断臂、疤、独眼、眼罩……）时设定图必须画出来；同一角色有不同状态（如断臂前后）时在
+  `character_entities[].state_variants` 写 `{"one_arm": "左臂肘下缺失，袖子别起"}`，每个状态多一张设定图（不写不花钱），镜头 `cast[].reference_state: "one_arm"` 选用。
+  合同写 `"character_reference_sheet": "NONE"` 可关闭。
 
 ## 6. 避开人群和手
 
@@ -148,6 +169,8 @@ H3 当真人短剧拍，凭空加了好几双真人的手。
   非打斗、无接触时刻的拍里的接触点/反馈模板改由「每个人在做什么」表达，回执里逐条列为 `style_omitted_fact_ids`。
 
 ## 8. 写完自查（不是门禁）
+
+- [ ] 全集镜头合计约 105 秒（成片约 1 分 50 秒，线主 2026-10-27）：短了就多写剧情和镜头，不拉长单镜；对白镜仍 ≤5 秒。
 
 - [ ] 每一拍都分了桶；②③没有直接塞给 H3。
 - [ ] 每个单元 ≤ 2 个可见主体；无脸存在登记为 CREATURE，`note` 写了长相。

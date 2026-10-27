@@ -44,6 +44,11 @@ RUNTIME = Path(f"{_np.RUNTIME_ROOT}")
 WORK = Path(_np.WORK_ROOT).expanduser().resolve()  # one definition in nalu_paths (was <runtime>/workflow/nalu here only)
 
 
+
+# A DIRECTOR_PROMPT_V2 identity reference line: a face/body plate, or (CAMERA_GRAMMAR_V1, lab E05) a multi-view
+# character sheet of one person.
+V2_IDENTITY_LINE = r"^@Image\d+ is (?:.+'s (?:face and body|look)\.|a character sheet of one person: )"
+
 def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -68,7 +73,12 @@ H3_V2_REQUIRED = ("References:\n", "Who is in frame", "Setting:\n", "Camera:\n",
 
 
 def is_h3_director_v2(text: str) -> bool:
-    return text.startswith("References:\n") and "\n\nWho is in frame" in text
+    # optionally after the opt-in strict camera-lock block (tools/h3_provider_english_contract.CAMERA_LOCK_STRICT)
+    try:
+        from tools.h3_provider_english_contract import is_director_v2_text
+    except ModuleNotFoundError:
+        from h3_provider_english_contract import is_director_v2_text
+    return is_director_v2_text(text)
 
 
 def section(text: str, header: str) -> str:
@@ -381,8 +391,7 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
             cjk = re.findall(r"[\u3400-\u9fff]", outside)
             chk("vp_h3_no_cjk_outside_dialogue", not cjk, "".join(cjk[:10]))
             chk("vp_h3_identity_references", "@Image1" in vp_text, "")
-            identity_lines = (r"^@Image\d+ is .+'s (?:face and body|look)\." if vp_is_v2
-                              else r"^@Image\d+: exclusive identity of ")
+            identity_lines = V2_IDENTITY_LINE if vp_is_v2 else r"^@Image\d+: exclusive identity of "
             chk("vp_h3_cast_count", len(re.findall(identity_lines, vp_text, flags=re.M)) >= len(
                 [n for n in vp_cast if n]) or "SUBJECT_1" in vp_text, f"{len(vp_cast)} cast")
         else:

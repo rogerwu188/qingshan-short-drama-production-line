@@ -425,11 +425,18 @@ def cmd_plan(a: argparse.Namespace) -> int:
                                  "unit_id": None, "source": "VOICE_OVER", "shot_id": row.get("shot_id")})
         if voice_over:
             dialogue.sort(key=lambda w: w["start"])
+        # CAMERA_GRAMMAR_V1 (line owner 2026-10-27, lab E07 "BGM goes louder/quieter"): one smooth, lighter duck
+        # over each dialogue exchange instead of a -8 dB toggle per line (tools/s7_audio_smoothing.py)
+        smooth = _smoothing(contract, a.episode)
+        shape = {}
+        if smooth is not None and dialogue:
+            duck = max(duck, smooth.STAMPED_DUCK_DB)
+            shape = {"duck_shape": smooth.duck_shape(dialogue)}
         cues_out.append({"cue_id": cue_id, "narrative_function": func, "source_key": cue["source_key"],
                          "shots": shots, "timeline_start": t0, "duration": round(t1 - t0, 3),
                          "volume": volume, "dialogue_duck_db": duck, "dialogue_windows": dialogue,
                          "dialogue_present": bool(dialogue),
-                         **{k: cue[k] for k in ("fade_in_s", "fade_out_s") if k in cue}})
+                         **{k: cue[k] for k in ("fade_in_s", "fade_out_s") if k in cue}, **shape})
     cues_out.sort(key=lambda c: c["timeline_start"])
     covered = sum(c["duration"] for c in cues_out)
     failures = []
@@ -579,8 +586,28 @@ def cmd_qa(a: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------------------------- mix
+def _smoothing(contract: dict, episode: str):
+    """tools/s7_audio_smoothing for a CAMERA_GRAMMAR_V1 contract, else None (the previous duck, unchanged)."""
+    tools = str(ENGINE / "tools")
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    import camera_grammar_policy as _cgp
+    if not _cgp.active(contract, episode=episode):
+        return None
+    import s7_audio_smoothing
+    return s7_audio_smoothing
+
+
 def duck_expr(cue: dict) -> str:
-    """volume expression: 1 outside dialogue, 10^(duck/20) inside, 0.25 s linear ramps (t relative to the cue)."""
+    """volume expression: 1 outside dialogue, 10^(duck/20) inside, 0.25 s linear ramps (t relative to the cue).
+
+    A cue carrying ``duck_shape`` (CAMERA_GRAMMAR_V1 plan) uses the merged, raised-cosine duck instead."""
+    if cue.get("duck_shape"):
+        tools = str(ENGINE / "tools")
+        if tools not in sys.path:
+            sys.path.insert(0, tools)
+        import s7_audio_smoothing
+        return s7_audio_smoothing.smooth_duck_expr(cue)
     lin = 10 ** (float(cue["dialogue_duck_db"]) / 20.0)
     parts = []
     for w in cue["dialogue_windows"]:

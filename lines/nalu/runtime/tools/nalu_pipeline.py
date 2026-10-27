@@ -1249,9 +1249,10 @@ class Ctx:
                  + (f" reserved={reservation_id}" if reservation_id else ""))
 
         if not self.paid_enabled:
-            reason = ("--dry-run" if self.dry else
+            reason = (getattr(self, "paid_disabled_reason", None) or (
+                      "--dry-run" if self.dry else
                       "--paid not given" if not self.want_paid else
-                      "qingshan.json generation.paid_requests_enabled=false")
+                      "qingshan.json generation.paid_requests_enabled=false"))
             self.say(f"   PAID STEP NOT EXECUTED ({reason}).  Exact command:")
             for key, value in sorted(paid_env.items()):
                 self.say(f"     export {key}={value}")
@@ -1293,7 +1294,9 @@ def materialised_path(target: Path, suffix: str = "_PAID_AUTHORIZED") -> Path:
 
 
 def paid_authorization_argv(ctx: Ctx, *, sid: str, target: Path, is_plan: bool,
-                            task_keys: list[str] | None = None) -> list[Any]:
+                            task_keys: list[str] | None = None,
+                            report: Path | None = None, out_dir: Path | None = None,
+                            ledger: Path | None = None) -> list[Any]:
     if ctx.authority_blockers or not ctx.paid_order:
         raise ValueError("paid authority is not configured and validated")
     argv: list[Any] = [
@@ -1306,9 +1309,11 @@ def paid_authorization_argv(ctx: Ctx, *, sid: str, target: Path, is_plan: bool,
         "--line-owner-id", ctx.authority["line_owner_id"],
         "--cap", str(ctx.cap),
         ("--plan" if is_plan else "--manifest"), target,
-        "--ledger", LEDGER,
-        "--report", REPORTS_DIR / f"{ctx.episode}_paid_authorization_{sid.lower()}.json",
+        "--ledger", ledger or LEDGER,
+        "--report", report or REPORTS_DIR / f"{ctx.episode}_paid_authorization_{sid.lower()}.json",
     ]
+    if out_dir is not None:
+        argv += ["--out-dir", out_dir]
     # D-46 (2026-09-16 22:02Z): restrict the authorised copy to the tasks that still NEED a POST.
     # Without this a wave re-entry whose fingerprints changed (regenerated finalization receipts)
     # re-posted five units that already had clips on disk (680 cr, ~560 wasted).
@@ -1319,7 +1324,8 @@ def paid_authorization_argv(ctx: Ctx, *, sid: str, target: Path, is_plan: bool,
 
 def materialize_paid_authorization(ctx: Ctx, res: StageResult, *, sid: str,
                                   target: Path, is_plan: bool,
-                                  note: str = "", task_keys: list[str] | None = None) -> tuple[str, Path, dict[str, Any]]:
+                                  note: str = "", task_keys: list[str] | None = None,
+                                  report: Path | None = None) -> tuple[str, Path, dict[str, Any]]:
     """Turn the deployment-configured line-owner order into paid authority fields.
 
     Runs IMMEDIATELY before the paid submit, on the plan / manifest that is about
@@ -1374,8 +1380,9 @@ def materialize_paid_authorization(ctx: Ctx, res: StageResult, *, sid: str,
         ctx.say("   !! D-11 paid authority is not configured and validated: "
                 + "; ".join(ctx.authority_blockers))
         return record["status"], out, record
+    report_path = report or REPORTS_DIR / f"{ctx.episode}_paid_authorization_{sid.lower()}.json"
     argv = paid_authorization_argv(ctx, sid=sid, target=target, is_plan=is_plan,
-                                   task_keys=task_keys)
+                                   task_keys=task_keys, report=report_path)
     record["argv"] = [str(item) for item in argv]
     record["command"] = q(argv)
     if not target.is_file():
@@ -1385,9 +1392,10 @@ def materialize_paid_authorization(ctx: Ctx, res: StageResult, *, sid: str,
         return BLOCKED, out, record
 
     if not ctx.paid_enabled:
-        reason = ("--dry-run" if ctx.dry else
+        reason = (getattr(ctx, "paid_disabled_reason", None) or (
+                  "--dry-run" if ctx.dry else
                   "--paid not given" if not ctx.want_paid else
-                  "qingshan.json generation.paid_requests_enabled=false")
+                  "qingshan.json generation.paid_requests_enabled=false"))
         record["status"] = DRY
         record["reason_not_run"] = reason
         ctx.say(f"   D-11 paid authorisation NOT EXECUTED ({reason}).  Exact command:")
@@ -1407,10 +1415,9 @@ def materialize_paid_authorization(ctx: Ctx, res: StageResult, *, sid: str,
 
     step = ctx.run(argv, name=f"{sid.lower()}_materialize_paid_authorization", paid=False)
     res.steps.append(step)
-    report = read_json(REPORTS_DIR / f"{ctx.episode}_paid_authorization_{sid.lower()}.json",
-                       {}) or {}
+    report = read_json(report_path, {}) or {}
     record["exit_code"] = step["exit_code"]
-    record["report"] = str(REPORTS_DIR / f"{ctx.episode}_paid_authorization_{sid.lower()}.json")
+    record["report"] = str(report_path)
     record["refusal"] = report.get("refusal") or report.get("status")
     record["cost_guard"] = (report.get("cost_guard") or {}).get("status") \
         if isinstance(report.get("cost_guard"), dict) else report.get("cost_guard")
@@ -2344,6 +2351,8 @@ def s3_bootstrap_argv(ctx: Ctx, *, accept_qa: bool, rights_basis: str | None,
         "--run-submitter-precheck",
         # a character's non-base views are planned only once its base plate is here
         "--plates-dir", p.identity_harvest_dir,
+        # CAMERA_GRAMMAR_V1: the series library says which characters still need their H3 reference sheet
+        "--series-asset-library", (getattr(p, "scope", None) or {}).get("asset_library") or ASSET_LIBRARY,
     ]
     if rights_basis:
         argv += ["--rights-basis", rights_basis]
@@ -2385,6 +2394,21 @@ def s3_plate_on_disk(ctx: Ctx, row_id: str) -> bool:
         return False
     pattern = re.compile(rf"^{re.escape(ctx.episode)}_{re.escape(row_id)}_[0-9a-fA-F-]{{8,}}\.png$")
     return any(pattern.match(item.name) for item in plates.iterdir())
+
+
+def s3_register_reference_sheets(ctx: Ctx) -> list[dict[str, Any]]:
+    """CAMERA_GRAMMAR_V1 H3 multi-view reference sheets harvested this episode -> series library rows
+    (character_reference_sheet.register; a face mismatch is recorded and H3 keeps the headshot).  Never
+    blocks S3: the sheet is an H3 reference, not an identity authority."""
+    try:
+        import character_reference_sheet as _sheet
+        library_path = Path((getattr(ctx.p, "scope", None) or {}).get("asset_library") or ASSET_LIBRARY)
+        plates = ctx.p.identity_harvest_dir
+        if not _sheet.harvested_sheets(plates, ctx.episode):
+            return []
+        return _sheet.register(library_path, plates, ctx.episode, measure=_sheet.insightface_measure())
+    except Exception as exc:  # noqa: BLE001 - advisory step
+        return [{"status": "REGISTRATION_ERROR", "error": f"{type(exc).__name__}: {exc}"}]
 
 
 def stage_s3(ctx: Ctx) -> StageResult:
@@ -2666,6 +2690,8 @@ def stage_s3(ctx: Ctx) -> StageResult:
     # S3.qa — machine identity QA + LOCK + the D-1 character asset registry.
     admission = s3_qa(ctx, res, harvested_dir=p.identity_harvest_dir)
     res.details["identity_qa"] = admission
+    if admission["status"] == PASS:
+        res.details["reference_sheets"] = s3_register_reference_sheets(ctx)
     if admission["status"] == REVIEW_REQUIRED:
         res.status = REVIEW_REQUIRED
         return res
@@ -5006,6 +5032,78 @@ def record_start_frame_source(ctx: Ctx, unit_id: str, row: dict[str, Any]) -> No
     write_json(path, state)
 
 
+def bound_take_on_disk(ctx: Ctx, unit_id: str) -> dict[str, Any] | None:
+    """The bound provider take that produced ``video/<unit>.mp4`` (the oldest live binding, which is the one the
+    poll harvests to the assembly path), or None when there is no clip or no bound transaction."""
+    if not (ctx.p.video_media / f"{unit_id}.mp4").is_file():
+        return None
+    live = s6_live_bindings(ctx, unit_id)
+    return live[0] if live else None
+
+
+def record_start_frames_as_submitted(ctx: Ctx) -> dict[str, dict[str, Any]]:
+    """CAMERA_GRAMMAR_V1: per unit whose clip on disk came from a bound transaction, whether that submission
+    carried the predecessor's real tail (its sha among the bound reference shas).  Written to the S6 wave state
+    as ``start_frame_as_submitted`` (whole map, rewritten every pass, so a parked/redone unit drops out);
+    build_nalu_preproduction never re-attaches a tail the submitted take did not have (lab Holmes E06)."""
+    if not _camera_grammar_on(ctx):
+        return {}
+    plan = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json", {}) or {}
+    order = [str(u.get("unit_id") or "") for u in plan.get("units") or [] if u.get("unit_id")]
+    tails = ctx.p.preprod / "real_final_frames"
+    rows: dict[str, dict[str, Any]] = {}
+    for idx, uid in enumerate(order):
+        prev = order[idx - 1] if idx > 0 else None
+        tail = tails / f"{prev}.png" if prev else None
+        if tail is None or not tail.is_file():
+            continue
+        take = bound_take_on_disk(ctx, uid)
+        if take is None:
+            continue
+        refs = [str(v) for v in take.get("reference_sha256") or []]
+        tail_sha = sha256_file(tail)
+        rows[uid] = {"predecessor_tail_submitted": tail_sha in refs, "previous_unit_id": prev,
+                     "tail_sha256": tail_sha, "task_id": take.get("task_id"),
+                     "transaction": _engine_rel(Path(str(take.get("transaction") or ""))),
+                     "prompt_sha256": take.get("prompt_sha256"), "reference_sha256": refs}
+    path = _wave_state_path(ctx)
+    state = read_json(path, {}) or {"schema": "nalu.s6_wave_state.v1", "waves": []}
+    if (state.get("start_frame_as_submitted") or {}) != rows:
+        state["start_frame_as_submitted"] = rows
+        write_json(path, state)
+    return rows
+
+
+def exempt_harvested_bound_takes(ctx: Ctx, unbound: list[str], fin_report: dict[str, Any],
+                                 as_submitted: dict[str, dict[str, Any]]) -> tuple[list[str], dict[str, Any]]:
+    """CAMERA_GRAMMAR_V1: split the changed-without-receipt units into those that still need a finalization
+    review and those whose clip on disk was produced by a bound transaction.  The latter are never submitted
+    again, so a recompiled prompt for them needs no review: their authority is the bound submission (prompt /
+    reference shas in the durable transaction store), recorded here for audit (lab Holmes E06 2026-10-26: the
+    final pass asked to approve 10 recompiled prompts that would never be submitted)."""
+    rows = {str(r.get("unit_id")): r for r in fin_report.get("rows") or []}
+    harvested: dict[str, Any] = {}
+    for uid in unbound:
+        take = bound_take_on_disk(ctx, uid)
+        if take is None:
+            continue
+        row = rows.get(uid) or {}
+        receipt = read_json(ctx.p.preprod / "prompt_batch_finalization" / f"{uid}.json", {}) or {}
+        submitted_sha = str(take.get("prompt_sha256") or "")
+        harvested[uid] = {
+            "task_id": take.get("task_id"), "transaction": _engine_rel(Path(str(take.get("transaction") or ""))),
+            "submitted_prompt_sha256": submitted_sha, "recompiled_prompt_sha256": row.get("final_sha256"),
+            "recompiled_matches_submitted": row.get("final_sha256") == submitted_sha,
+            "submitted_reference_sha256": take.get("reference_sha256"),
+            "start_frame_as_submitted": as_submitted.get(uid),
+            "submitted_prompt_review": (
+                "FINALIZATION_RECEIPT_PASS" if receipt.get("status") == "PASS"
+                and receipt.get("final_prompt_sha256") == submitted_sha
+                else "PLANNED_PROMPT_UNCHANGED" if row.get("planned_sha256") == submitted_sha
+                else "NO_MATCHING_RECEIPT_ON_DISK")}
+    return [uid for uid in unbound if uid not in harvested], harvested
+
+
 def check_tail_start_frame(ctx: Ctx, unit_id: str, tail: Path) -> dict[str, Any]:
     """Objective speaker framing + face count of a candidate tail start frame (video_q2_builder
     start-frame-check, free).  A check that did not run never rejects (the tail stays, as before)."""
@@ -5470,7 +5568,17 @@ def stage_s6(ctx: Ctx) -> StageResult:
                             f"{sum(1 for u in ready if u in done)} of them already on disk; {len(done)}/{len(deps)} videos on disk")
                 ctx.p.video_submit = Path(w["submit_report"]) if w.get("submit_report") else legacy_submit
                 ctx.p.video_remote_status = Path(w["status_report"]) if w.get("status_report") else legacy_status
-                r = _stage_s6_body(ctx, ready_units=ready, run_qa=False)
+                # Harvest before recompile (lab E05 2026-10-26).  A re-entry wave whose missing clips
+                # are ALL live-bound to provider tasks is polled from the durable store directly: no
+                # S2 rebuild, no fingerprint, no submitter.  Recompiling first drifted VU-001's
+                # fingerprint and POSTed a duplicate 48-credit task for a redo that was still rendering.
+                live_poll = None
+                if w is not waves[-1] or not new_ready:
+                    live_poll = _s6_live_bound_wave(ctx, ready)
+                if live_poll is not None:
+                    r = _s6_poll_live_bound_wave(ctx, w, live_poll)
+                else:
+                    r = _stage_s6_body(ctx, ready_units=ready, run_qa=False)
                 r.details["rolling_wave"] = {"wave": wave_no, "ready_units": ready, "done_before": sorted(done)}
                 # Extract each unit's real final frame as soon as ITS OWN video lands, not when the
                 # whole wave passes poll (2026-10-13).  The extraction is what unblocks a tail-chained
@@ -5500,12 +5608,16 @@ def stage_s6(ctx: Ctx) -> StageResult:
                     w["completed_at"] = now()
                     write_json(wave_state_path, wave_state)
                 results.append((wave_no, r))
-                if ctx.dry:
-                    break
+                if ctx.dry and live_poll is None:
+                    break  # a live-bound poll wave compiles nothing: keep showing the other waves' plans
         finally:
             ctx.p.video_submit, ctx.p.video_remote_status = legacy_submit, legacy_status
         if ctx.dry:
-            return results[0][1]
+            first = results[0][1]
+            first.details["waves_this_pass"] = {str(n): r.status for n, r in results}
+            first.details["live_bound_polls"] = {str(n): r.details["live_bound_poll"] for n, r in results
+                                                 if r.details.get("live_bound_poll")}
+            return first
         pending = [(n, r) for n, r in results if r.status != PASS]
         if pending and len(pending) < len(results) and deferred_review is None:
             # a wave completed this pass, so new tails exist: re-plan now and submit what they unblock,
@@ -5535,7 +5647,13 @@ def stage_s6(ctx: Ctx) -> StageResult:
     ctx.say("-- S6 final pass: all unit videos on disk; full compile + post-generation QA")
     # final pass = every unit with its real predecessor tail bound (the wave block of the builder
     # binds tails only for listed units), submit step SKIPPED: nothing may be POSTed here.
-    return _stage_s6_body(ctx, ready_units=[uid for uid, _, _ in deps], run_qa=True, final_pass=True)
+    result = _stage_s6_body(ctx, ready_units=[uid for uid, _, _ in deps], run_qa=True, final_pass=True)
+    # CAMERA_GRAMMAR_V1 engine redo: the Q2 sub-stage parked clips for their one controlled redo; run the wave
+    # loop again in this same pass (own keyframe, single-unit wave) instead of waiting for an operator decision
+    if (result.details.get("q2_admission") or {}).get("q2_auto_redo_parked") and not getattr(ctx, "_q2_auto_redo_reentered", False):
+        ctx._q2_auto_redo_reentered = True
+        return stage_s6(ctx)
+    return result
 
 
 ACTION_ROLE_EVIDENCE = RT_TOOLS / "action_role_evidence_writer.py"
@@ -5635,13 +5753,8 @@ def s6_planned_credits_for_unbound(ctx: Ctx) -> int:
     except Exception as exc:  # noqa: BLE001 - fall back to the conservative plan
         ctx.say(f"   planned-credit refinement unavailable ({type(exc).__name__}); using cost plan")
         return ctx.planned_credits("S6")
-    store_dir = ENGINE / "workflow/tasks/giggle_video_submit_transactions" / ctx.episode
-    bound = set()
-    for path in (store_dir.glob("*.json") if store_dir.is_dir() else []):
-        row = read_json(path, {}) or {}
-        if row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id"):
-            bound.add(str(row.get("submission_fingerprint")))
-    unbound = [t for t in tasks if task_fingerprint(t) not in bound]
+    bound_keys = s6_bound_task_keys(ctx, tasks, task_fingerprint)
+    unbound = [t for t in tasks if str(t.get("task_key")) not in bound_keys]
     planned = video_task_credits(episode_video_model(ctx.episode),
                                  sum(float(t.get("duration_seconds") or 0) for t in unbound), len(unbound))
     ctx.say(f"   S6 planned credits: {planned} for {len(unbound)} unbound task(s) "
@@ -5655,13 +5768,514 @@ def s6_unbound_task_keys(ctx: Ctx) -> list[str]:
     if str(ENGINE) not in sys.path:
         sys.path.insert(0, str(ENGINE))
     from tools.submit_giggle_video_manifest_v2 import task_fingerprint  # engine, read-only
-    store_dir = ENGINE / "workflow/tasks/giggle_video_submit_transactions" / ctx.episode
+    bound_keys = s6_bound_task_keys(ctx, tasks, task_fingerprint)
+    return [str(t.get("task_key")) for t in tasks if str(t.get("task_key")) not in bound_keys]
+
+
+def s6_live_bindings(ctx: Ctx, task_key: str, *, exclude_fingerprints=()) -> list[dict[str, Any]]:
+    """Live provider bindings of one task key, whatever its recompiled fingerprint
+    (tools/video_live_binding.py): bound, not terminally failed, and newer than the unit's last
+    park.  Such a task is polled and harvested, never POSTed again."""
+    if str(ENGINE) not in sys.path:
+        sys.path.insert(0, str(ENGINE))
+    from tools.video_live_binding import live_bindings  # engine, read-only
+    return live_bindings(video_store_dir(ctx.episode), str(task_key), root=ENGINE, episode=ctx.episode,
+                         exclude_fingerprints=exclude_fingerprints,
+                         video_dirs=[ctx.p.video_media] + ([ctx.p.work / AB_VIDEO_DIRNAME]
+                                                           if getattr(ctx.p, "work", None) else []))
+
+
+def s6_bound_task_keys(ctx: Ctx, tasks: list[dict[str, Any]], task_fingerprint) -> set[str]:
+    """Task keys already bound to a remote task: by exact fingerprint, or -- when a recompile drifted
+    the fingerprint (lab E05 2026-10-26, episode-wide generation_contract_sha256) -- by a live
+    binding of the same task key.  The submitter applies the same rule before any POST."""
+    store_dir = video_store_dir(ctx.episode)
     bound = set()
     for path in (store_dir.glob("*.json") if store_dir.is_dir() else []):
         row = read_json(path, {}) or {}
         if row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id"):
             bound.add(str(row.get("submission_fingerprint")))
-    return [str(t.get("task_key")) for t in tasks if task_fingerprint(t) not in bound]
+    keys = set()
+    for t in tasks:
+        key = str(t.get("task_key"))
+        if task_fingerprint(t) in bound:
+            keys.add(key)
+            continue
+        declared = [str(v) for v in (t.get("supersedes_submission_fingerprints") or [])]
+        if s6_live_bindings(ctx, key, exclude_fingerprints=declared):
+            keys.add(key)
+    return keys
+
+
+#: tools/video_live_binding.ALT_TAKES_DIRNAME: a second live take of a unit is harvested here,
+#: never over the unit's assembly clip and never into a park directory.
+S6_ALT_TAKES_DIRNAME = "_alt_takes"
+
+
+def _s6_live_bound_wave(ctx: Ctx, units: list[str]) -> dict[str, Any] | None:
+    """{missing, live} when every unit of a re-entry wave without a clip on disk is live-bound to a
+    provider task (so the wave needs a poll, not a compile); None otherwise."""
+    missing = [uid for uid in units if not (ctx.p.video_media / f"{uid}.mp4").is_file()]
+    if not missing:
+        return None
+    manifest_path = getattr(ctx.p, "video_transaction", None)
+    manifest = (read_json(manifest_path, {}) or {}) if manifest_path else {}
+    declared = {str(t.get("task_key")): [str(v) for v in (t.get("supersedes_submission_fingerprints") or [])]
+                for t in manifest.get("tasks") or []}
+    live = {uid: s6_live_bindings(ctx, uid, exclude_fingerprints=declared.get(uid) or ()) for uid in missing}
+    if not all(live.values()):
+        return None
+    return {"missing": missing, "live": live}
+
+
+def _s6_poll_live_bound_wave(ctx: Ctx, wave: dict[str, Any], plan: dict[str, Any]) -> StageResult:
+    """Poll/harvest a re-entry wave straight from its live bindings: GET only, zero POSTs.
+
+    The poll input is written from the durable store, not from the wave's submit report: the
+    submitter overwrites that report, so a take bound by an earlier run (E05 wave 28: 4e2d4a56)
+    is missing from it.  The oldest live take lands at <unit>.mp4; any further live take of the
+    same unit goes to video/_alt_takes/ for the reviewer to choose from."""
+    res = StageResult(PASS)
+    wave_no = int(wave["wave"])
+    rows: list[dict[str, Any]] = []
+    for uid in plan["missing"]:
+        for index, take in enumerate(plan["live"][uid]):
+            label = uid if index == 0 else f"{uid}__take_{take['task_id'][:8]}"
+            row = {"task_key": label, "unit_id": uid, "task_id": take["task_id"],
+                   "transaction": take["transaction"], "submission_fingerprint": take["submission_fingerprint"],
+                   "bound_at": take["bound_at"], "request_sha256": take.get("request_sha256"),
+                   "live_take": index + 1, "recovered_from_transaction": True}
+            if index:
+                row["output_name"] = f"{S6_ALT_TAKES_DIRNAME}/{label}.mp4"
+            rows.append(row)
+    submit_report = Path(wave.get("submit_report") or ctx.p.video_submit)
+    live_report = submit_report.with_name(f"{submit_report.stem}_live_bindings.json")
+    write_json(live_report, {
+        "schema": "nalu.s6_live_binding_poll.v1", "episode": ctx.episode, "wave": wave_no,
+        "generated_at": now(), "posts_planned": 0, "tasks": rows,
+        "note": "re-entry wave whose missing clips are all live-bound: poll/harvest only, no compile, no POST"})
+    poll_argv = [VENV, ENGINE / "tools/poll_giggle_submit_report.py",
+                 "--submit-report", live_report, "--out-dir", ctx.p.video_media,
+                 "--status-report", ctx.p.video_remote_status, "--download"]
+    res.details["live_bound_poll"] = {
+        "wave": wave_no, "units": plan["missing"], "posts_planned": 0, "poll_input": str(live_report),
+        "tasks": [{"task_key": r["task_key"], "task_id": r["task_id"], "bound_at": r["bound_at"]} for r in rows]}
+    ctx.say(f"-- S6 wave {wave_no}: every missing clip is live-bound ({len(rows)} provider task(s): "
+            + ", ".join(f"{r['task_key']}={r['task_id'][:8]}" for r in rows)
+            + "); poll/harvest only, no recompile, no POST")
+    if not ctx.paid_enabled:
+        res.status = DRY
+        res.blockers.append("PAID_STEPS_DISABLED_WAVE_NOT_POLLED")
+        ctx.say("   then (needs GIGGLE_API_KEY, GET only, no POST, free):")
+        ctx.say(f"     {q(poll_argv)}")
+        ctx.planned_commands.append({
+            "stage": "S6", "step": f"s6_poll_live_bound_wave{wave_no}", "planned_credits": 0,
+            "paid_argv": [str(x) for x in poll_argv], "paid_command": q(poll_argv), "posts": 0,
+            "note": "polls the live-bound provider tasks from the durable store; downloads completed clips only"})
+        return res
+    poll = ctx.run(poll_argv, name=f"s6_poll_live_bound_wave{wave_no}", paid=True, extra_env=VIDEO_SUBMIT_ENV)
+    res.steps.append(poll)
+    res.receipts.append(str(ctx.p.video_remote_status))
+    remote = read_json(ctx.p.video_remote_status, {}) or {}
+    res.details["remote_status_counts"] = remote.get("status_counts")
+    res.details["all_completed"] = remote.get("all_completed")
+    terminal = []
+    for row in remote.get("results") or []:
+        if str(row.get("remote_status") or "").lower() in {"failed", "error", "cancelled", "canceled", "timeout"}:
+            # durable mark: the status report is overwritten by the next poll, the transaction is not
+            tx_path = Path(str(row.get("transaction") or ""))
+            tx = read_json(tx_path, {}) if tx_path.is_file() else {}
+            if tx and tx.get("task_id") == row.get("task_id") and not tx.get("remote_terminal_state"):
+                tx.update({"remote_terminal_state": str(row.get("remote_status")), "remote_terminal_observed_at": now()})
+                write_json(tx_path, tx)
+            terminal.append(str(row.get("task_key")))
+    if poll.get("exit_code") != 0 or not remote.get("all_completed"):
+        res.status = BLOCKED
+        res.blockers.append("VIDEO_NOT_ALL_COMPLETED")
+        if terminal:
+            res.blockers.append("LIVE_BOUND_TASK_TERMINAL_REMOTE_FAILURE:" + ",".join(terminal))
+    return res
+
+
+# --------------------------------------------------------------------------- #
+# A/B variant — ONE isolated paid video task through the S6 machinery
+# (owner-approved constraint-language A/B, lab E05 2026-10-26)
+# --------------------------------------------------------------------------- #
+#: tools/h3_constraint_ab_variant.SCHEMA — the only producer this mode accepts.
+AB_VARIANT_SCHEMA = "qingshan.h3_constraint_language_ab_variant.v1"
+#: tools/h3_constraint_ab_variant.LOCK_SCHEMA (``--variant camera_lock_strict``, lab E06 2026-10-26)
+AB_VARIANT_LOCK_SCHEMA = "qingshan.h3_camera_lock_ab_variant.v1"
+#: schema -> (variant kind, manifest+task field, value, task-key suffix); same producer, same guards
+AB_VARIANT_KINDS = {
+    AB_VARIANT_SCHEMA: ("constraint_language_zh", "h3_constraint_language", "zh", "ZH"),
+    AB_VARIANT_LOCK_SCHEMA: ("camera_lock_strict", "h3_camera_lock", "strict", "LOCK"),
+}
+AB_VARIANT_PRODUCER = ENGINE / "tools/h3_constraint_ab_variant.py"
+AB_VIDEO_DIRNAME = "video_ab"
+
+
+def video_store_dir(episode: str) -> Path:
+    """The durable video transaction store the submitter writes (task fingerprint dedup)."""
+    return ENGINE / "workflow/tasks/giggle_video_submit_transactions" / episode
+
+
+def ab_variant_paths(ctx: Ctx, task_key: str) -> dict[str, Path]:
+    """Everything an A/B run writes.  The clip lands in ``<EP>/video_ab/`` — never in ``<EP>/video/``,
+    which is what S6 QA, Q2 and S7 assembly read — so the variant can never replace the original take."""
+    root = ctx.p.work / AB_VIDEO_DIRNAME
+    return {
+        "dir": root,
+        "clip": root / f"{task_key}.mp4",
+        "submit": root / f"{task_key}_VIDEO_SUBMIT.json",
+        "remote_status": root / f"{task_key}_VIDEO_REMOTE_STATUS.json",
+        "authorization_report": root / f"{task_key}_PAID_AUTHORIZATION.json",
+        "run_report": root / f"{task_key}_AB_RUN.json",
+        "rehearsal": root / f".rehearsal_{ctx.run_id}",
+        "finalization_digest": ctx.p.preprod_reports / f"{task_key}_AB_PROMPT_FINALIZATION_DIGEST.json",
+        # prompt_batch_finalize.py names receipts <unit_id>.json: a separate directory keeps the
+        # variant's receipt from overwriting the original unit's receipt (and, per variant kind, another
+        # variant's receipt for the same unit: <UNIT>-ZH keeps the original directory).
+        "finalization_dir": ctx.p.preprod / ("prompt_batch_finalization_ab" if task_key.endswith("-ZH") or "-" not in task_key
+                                             else f"prompt_batch_finalization_ab_{task_key.rsplit('-', 1)[1].lower()}"),
+    }
+
+
+def _engine_rel(path: Path) -> str:
+    try:
+        return str(Path(path).resolve().relative_to(ENGINE.resolve()))
+    except ValueError:
+        return str(Path(path).resolve())
+
+
+def ab_variant_failures(ctx: Ctx, path: Path, doc: dict[str, Any]) -> list[str]:
+    """Structural provenance checks (free, offline).  Every failure is a refusal before money moves.
+
+    The variant must be exactly what tools/h3_constraint_ab_variant.py writes for a unit of THIS
+    episode: its schema, one task keyed ``<UNIT>-ZH`` (``<UNIT>-LOCK`` for the camera-lock kind), not yet authorised, MiniMax-H3 under
+    CAMERA_GRAMMAR_V1, built from this episode's grouped manifest, and its source unit present in
+    the episode's authority (grouping plan + whole-batch prompt registry + the transaction manifest,
+    or — when a rolling wave has narrowed that manifest — the source's bound English transaction,
+    with the same references and model)."""
+    failures: list[str] = []
+    try:
+        Path(path).resolve().relative_to(ctx.p.preprod.resolve())
+    except ValueError:
+        failures.append(f"AB_VARIANT_OUTSIDE_EPISODE_PREPRODUCTION:{path}")
+    kind = AB_VARIANT_KINDS.get(str(doc.get("ab_variant_schema") or ""))
+    if kind is None:
+        failures.append(f"AB_VARIANT_SCHEMA_MISMATCH:{doc.get('ab_variant_schema')}")
+        kind = AB_VARIANT_KINDS[AB_VARIANT_SCHEMA]
+    elif kind[0] != "constraint_language_zh" and doc.get("ab_variant_kind") != kind[0]:
+        failures.append(f"AB_VARIANT_KIND_MISMATCH:{doc.get('ab_variant_kind')}!={kind[0]}")
+    if str(doc.get("episode") or "") != ctx.episode:
+        failures.append(f"AB_VARIANT_FOREIGN_EPISODE:{doc.get('episode')}!={ctx.episode}")
+    if doc.get("provider_post_allowed") is not False or doc.get("maximum_new_submissions") != 1:
+        failures.append("AB_VARIANT_NOT_AS_PRODUCED:authority fields are set only on the D-11 copy")
+    tasks = doc.get("tasks") or []
+    if len(tasks) != 1:
+        failures.append(f"AB_VARIANT_MUST_HAVE_EXACTLY_ONE_TASK:{len(tasks)}")
+        return failures
+    task = tasks[0]
+    source = str(doc.get("ab_variant_of") or "")
+    _kind_name, field, expected, suffix = kind
+    value = str(doc.get(field) or "")
+    if value != expected or task.get(field) != value:
+        failures.append(("AB_VARIANT_LANGUAGE_UNSUPPORTED" if field == "h3_constraint_language"
+                         else "AB_VARIANT_CAMERA_LOCK_UNSUPPORTED") + f":{value}/{task.get(field)}")
+    if (not source.startswith(f"{ctx.episode}-") or task.get("ab_variant_of") != source
+            or task.get("unit_id") != source or task.get("task_key") != f"{source}-{suffix}"):
+        failures.append(f"AB_VARIANT_TASK_KEY_NOT_DERIVED_FROM_SOURCE:{task.get('task_key')}<-{source}")
+    if str(task.get("episode") or "") != ctx.episode:
+        failures.append(f"AB_VARIANT_TASK_FOREIGN_EPISODE:{task.get('episode')}")
+    if str(task.get("model") or "") != "MiniMax-H3":
+        failures.append(f"AB_VARIANT_MODEL_NOT_H3:{task.get('model')}")
+    grammar = ((task.get("camera_plan") or {}).get("camera_grammar")
+               or ((task.get("machine_contract") or {}).get("camera_plan") or {}).get("camera_grammar"))
+    if grammar != "CAMERA_GRAMMAR_V1":
+        failures.append(f"AB_VARIANT_NOT_CAMERA_GRAMMAR_V1:{grammar}")
+    if str(doc.get("source_grouped_manifest") or "") != _engine_rel(ctx.p.grouped_seedance):
+        failures.append(f"AB_VARIANT_SOURCE_MANIFEST_MISMATCH:{doc.get('source_grouped_manifest')}")
+    prompt = ENGINE / str(task.get("prompt_file") or "")
+    try:
+        prompt.resolve().relative_to(ctx.p.preprod.resolve())
+        if not prompt.is_file() or sha256_file(prompt) != task.get("prompt_sha256"):
+            failures.append("AB_VARIANT_PROMPT_SHA_MISMATCH")
+    except ValueError:
+        failures.append(f"AB_VARIANT_PROMPT_OUTSIDE_EPISODE:{task.get('prompt_file')}")
+    # the source unit, against the episode's own authority
+    plan_units = {str(u.get("unit_id")) for u in (read_json(ctx.p.grouping_plan, {}) or {}).get("units") or []}
+    if source not in plan_units:
+        failures.append(f"AB_SOURCE_UNIT_NOT_IN_GROUPING_PLAN:{source}")
+    batch = read_json(ctx.p.preprod / f"{ctx.episode}_PROMPT_BATCH_V1.json", {}) or {}
+    row = next((r for r in batch.get("rows") or [] if r.get("unit_id") == source and not r.get("parent_unit_id")), None)
+    if row is None or row.get("mode") == "REUSE_EXISTING_MEDIA":
+        failures.append(f"AB_SOURCE_UNIT_NOT_IN_PROMPT_BATCH:{source}")
+    authority = read_json(ctx.p.video_transaction, {}) or {}
+    if any(str(t.get("task_key")) == str(task.get("task_key")) for t in authority.get("tasks") or []):
+        failures.append(f"AB_VARIANT_TASK_KEY_COLLIDES_WITH_EPISODE_TASK:{task.get('task_key')}")
+    # The A/B pairs with the English take that was actually submitted: prefer its immutable bound transaction.
+    # A later recompile of the manifest may carry different references (e.g. a predecessor tail) that the
+    # English clip never had (lab E05 2026-10-26).
+    origin, origin_kind = None, "BOUND_TRANSACTION"
+    store = video_store_dir(ctx.episode)
+    bound = [read_json(c, {}) or {} for c in (sorted(store.glob(f"{source}__*.json")) if store.is_dir() else [])]
+    bound = [r for r in bound if r.get("state") == "SUBMITTED_TASK_ID_BOUND" and r.get("task_id")]
+    origin = next((r for r in bound if list(r.get("reference_sha256") or []) == list(task.get("reference_sha256") or [])
+                   and str(r.get("model") or "") == str(task.get("model") or "")), None)
+    if origin is None and bound:
+        origin = bound[-1]
+    if origin is None:
+        origin = next((t for t in authority.get("tasks") or [] if str(t.get("task_key")) == source), None)
+        origin_kind = "TRANSACTION_MANIFEST"
+    if origin is None:
+        failures.append(f"AB_SOURCE_UNIT_NOT_IN_AUTHORITATIVE_MANIFEST:{source}")
+    else:
+        if list(origin.get("reference_sha256") or []) != list(task.get("reference_sha256") or []):
+            failures.append(f"AB_VARIANT_REFERENCES_DIFFER_FROM_SOURCE:{origin_kind}")
+        if str(origin.get("model") or "") != str(task.get("model") or ""):
+            failures.append(f"AB_VARIANT_MODEL_DIFFERS_FROM_SOURCE:{origin_kind}")
+    planned = video_task_credits(str(task.get("model") or ""), float(task.get("duration_seconds") or 0), 1)
+    if doc.get("estimated_credits") != planned:
+        failures.append(f"AB_VARIANT_ESTIMATE_MISMATCH:{doc.get('estimated_credits')}!={planned}")
+    return failures
+
+
+def ab_variant_registration(ctx: Ctx, task: dict[str, Any]) -> str | None:
+    """None when the variant's exact prompt is registered in the whole-batch prompt QA (K041) the way
+    the submitter will check it; otherwise the gate's refusal."""
+    if str(ENGINE) not in sys.path:
+        sys.path.insert(0, str(ENGINE))
+    try:
+        from tools.episode_prompt_batch_gate import require_generation_batch  # engine, read-only
+        require_generation_batch(task, VIDEO_PROJECT_ROOT, artifact_kind="video_prompt")
+    except Exception as exc:  # noqa: BLE001 - the refusal text is the answer
+        return f"{type(exc).__name__}:{exc}"
+    return None
+
+
+def ab_task_bound(ctx: Ctx, task: dict[str, Any]) -> bool:
+    """The variant's exact fingerprint is already bound to a remote task (re-entry: poll only)."""
+    if str(ENGINE) not in sys.path:
+        sys.path.insert(0, str(ENGINE))
+    from tools.submit_giggle_video_manifest_v2 import task_fingerprint  # engine, read-only
+    store = video_store_dir(ctx.episode)
+    fingerprint = task_fingerprint(task)
+    for path in sorted(store.glob(f"{task.get('task_key')}__*.json")) if store.is_dir() else []:
+        row = read_json(path, {}) or {}
+        if (row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id")
+                and str(row.get("submission_fingerprint")) == fingerprint):
+            return True
+    return False
+
+
+def ab_poll_until_complete(ctx: Ctx, res: StageResult, poll_argv: list[Any], status_path: Path) -> bool:
+    """Poll (no POST) until the one task completes and is downloaded, within a bounded wait.
+    A timeout is not a failure of the spend: re-running the same command polls again."""
+    timeout = int(os.environ.get("NALU_AB_POLL_TIMEOUT_SECONDS") or 1200)
+    interval = max(5, int(os.environ.get("NALU_AB_POLL_INTERVAL_SECONDS") or 20))
+    waited = 0
+    while True:
+        step = ctx.run(poll_argv, name="ab_poll_giggle_submit_report", paid=True, extra_env=VIDEO_SUBMIT_ENV)
+        res.steps.append(step)
+        remote = read_json(status_path, {}) or {}
+        res.details["remote_status_counts"] = remote.get("status_counts")
+        if remote.get("all_completed"):
+            return True
+        if any(str(k).lower() in {"failed", "error", "cancelled"} for k in (remote.get("status_counts") or {})):
+            return False
+        if waited >= timeout:
+            return False
+        time.sleep(interval)
+        waited += interval
+
+
+def run_ab_variant(ctx: Ctx, variant: Path) -> int:
+    """``paid_stage.sh <EP> --ab-variant <manifest>``: one A/B task, isolated from the episode.
+
+    Same machinery as a normal S6 submit, nothing bypassed: provenance + source checks, the whole-batch
+    prompt registration (an INCREMENTAL_EXACT_MATERIALIZATION_QA receipt for the variant's exact text),
+    D-11 materialisation from the active order restricted to this one task key, ``Ctx.paid_step``
+    (order-stage check, budget check with an atomic reservation against the episode cap, release once
+    the submitter exits 0), the durable fingerprint store, the batch credit statement archived where
+    the ledger counts it, and a ledger entry.  Output goes to ``<EP>/video_ab/`` only.
+    """
+    res = StageResult(PASS)
+    path = Path(variant)
+    if not path.is_absolute():
+        path = (Path.cwd() / path) if (Path.cwd() / path).is_file() else ENGINE / path
+    doc = read_json(path, None)
+    report: dict[str, Any] = {"schema": "nalu.ab_variant_run.v1", "episode": ctx.episode, "variant": str(path),
+                              "variant_kind": ((AB_VARIANT_KINDS.get(str((doc or {}).get("ab_variant_schema") or ""))
+                                                or ("UNKNOWN",))[0] if isinstance(doc, dict) else "UNKNOWN"),
+                              "variant_sha256": sha256_file(path) if path.is_file() else None,
+                              "run_id": ctx.run_id, "started_at": now(), "paid_enabled": ctx.paid_enabled}
+    if ctx.paid_enabled and not os.environ.get("GIGGLE_API_KEY", "").strip():
+        # Never reserve credits or materialise authority for a submit that cannot start: the
+        # submitter would exit "GIGGLE_API_KEY is not set" after both, leaving a held reservation.
+        ctx.paid_enabled = False
+        ctx.paid_disabled_reason = "GIGGLE_API_KEY is not set"
+    ctx.say(f"-- A/B variant {path} ({'PAID' if ctx.paid_enabled else 'NO SPEND'})")
+
+    def finish(status: str, blockers: list[str] | None = None, code: int | None = None) -> int:
+        res.status = status
+        res.blockers.extend(blockers or [])
+        report.update({"status": status, "blockers": res.blockers, "details": res.details,
+                       "steps": [{k: v for k, v in s.items() if k != "stdout_tail"} for s in res.steps],
+                       "planned_commands": ctx.planned_commands, "finished_at": now()})
+        out = report.get("run_report")
+        if out:
+            write_json(Path(out), report)
+        ctx.say(f"   A/B => {status}" + (f"   blockers: {', '.join(res.blockers)}" if res.blockers else ""))
+        if code is not None:
+            return code
+        return {PASS: 0, DRY: 0, REVIEW_REQUIRED: REVIEW_EXIT_CODE, HARD_STOP: 3}.get(status, 2)
+
+    if not isinstance(doc, dict):
+        return finish(BLOCKED, [f"AB_VARIANT_UNREADABLE:{path}"])
+    failures = ab_variant_failures(ctx, path, doc)
+    if failures:
+        return finish(BLOCKED, failures)
+    task = doc["tasks"][0]
+    key = str(task["task_key"])
+    paths = ab_variant_paths(ctx, key)
+    if paths["dir"].resolve() == ctx.p.video_media.resolve():
+        return finish(BLOCKED, ["AB_OUTPUT_WOULD_ENTER_EPISODE_VIDEO_DIR"])
+    paths["dir"].mkdir(parents=True, exist_ok=True)
+    report["run_report"] = str(paths["run_report"])
+    report["outputs"] = {k: str(v) for k, v in paths.items() if k != "rehearsal"}
+
+    # the producer re-renders the variant prompt and must reproduce these exact bytes
+    verify = ctx.run([VENV, AB_VARIANT_PRODUCER, "--verify", path], name="ab_variant_verify")
+    res.steps.append(verify)
+    if verify["exit_code"] != 0:
+        return finish(BLOCKED, ["AB_VARIANT_NOT_REPRODUCED_BY_PRODUCER:" + (verify.get("stdout_tail") or "")[-300:]])
+
+    if paths["clip"].is_file():
+        res.details["clip"] = str(paths["clip"])
+        ctx.say(f"   already harvested: {paths['clip']} (no POST)")
+        return finish(PASS)
+
+    poll_argv = [VENV, ENGINE / "tools/poll_giggle_submit_report.py", "--submit-report", paths["submit"],
+                 "--out-dir", paths["dir"], "--status-report", paths["remote_status"], "--download"]
+    bound = ab_task_bound(ctx, task)
+    res.details["bound_in_durable_store"] = bound
+    status = PASS
+    if not bound:
+        refusal = ab_variant_registration(ctx, task)
+        if refusal:
+            fin = ctx.run([VENV, RT_TOOLS / "prompt_batch_finalize.py", "diff", "--episode", ctx.episode,
+                           "--execution-id", f"{ctx.episode}-PROMPT-BATCH-V1", "--out", paths["finalization_digest"],
+                           "--batch-path", ctx.p.preprod / f"{ctx.episode}_PROMPT_BATCH_V1.json",
+                           "--transaction-path", path],
+                          name="ab_prompt_batch_finalization_diff")
+            res.steps.append(fin)
+            res.details["prompt_registration"] = {"refusal": refusal, "digest": str(paths["finalization_digest"])}
+            res.details["how_to_answer"] = [
+                f"read {paths['finalization_digest']} (only the changed lines of {key})",
+                "write answers {units: {<unit_id>: {verdict: PASS|FAIL, observation: ...}}, reviewer, review_method, reviewed_at}",
+                f"{VENV} {RT_TOOLS / 'prompt_batch_finalize.py'} receipts --episode {ctx.episode} "
+                f"--execution-id {ctx.episode}-PROMPT-BATCH-V1 --digest {paths['finalization_digest']} "
+                f"--answers <answers.json> --out-dir {paths['finalization_dir']} "
+                f"--batch-path {ctx.p.preprod / f'{ctx.episode}_PROMPT_BATCH_V1.json'} --transaction-path {path}",
+                f"{RT_TOOLS / 'paid_stage.sh'} {ctx.episode} --ab-variant {path}",
+            ]
+            for line in res.details["how_to_answer"]:
+                ctx.say(f"   {line}")
+            return finish(REVIEW_REQUIRED, [f"AB.prompt_finalization:REVIEW_REQUIRED:{refusal}"])
+        planned = max(int(doc.get("estimated_credits") or 0),
+                      video_task_credits(str(task.get("model")), float(task.get("duration_seconds") or 0), 1))
+        res.details["planned_credits"] = planned
+        submit_env = dict(VIDEO_SUBMIT_ENV)
+        if ctx.paid_enabled:
+            auth_status, auth_manifest, auth = materialize_paid_authorization(
+                ctx, res, sid="S6", target=path, is_plan=False, task_keys=[key],
+                report=paths["authorization_report"],
+                note="A/B variant: one task, its own report; never the episode's S6 authorised copy")
+            res.details["paid_authorization"] = auth
+            if auth_status != PASS:
+                return finish(BLOCKED, [auth.get("blocker") or "AB_PAID_AUTHORIZATION_REFUSED"])
+            paid_argv = [VENV, ENGINE / "tools/submit_giggle_video_manifest_v2.py", "--manifest", auth_manifest,
+                         "--out", paths["submit"], "--concurrency", 1, "--project-root", VIDEO_PROJECT_ROOT]
+            status, submit = ctx.paid_step(paid_argv, name="ab_submit_giggle_video_manifest_v2", sid="S6",
+                                           planned_credits=planned, extra_env=submit_env,
+                                           note=f"A/B variant {key}: D-11 copy {auth_manifest.name}; clip -> {paths['dir']}")
+        else:
+            # Rehearsal, the convention for a free run of a D-11 step: the real tool against a scratch
+            # --ledger / --out-dir / --report, then the submitter's own --precheck-only on that copy.
+            # The scratch directory is removed afterwards: no authorised copy, no ledger row, no
+            # reservation survives a run that spent nothing.
+            scratch = paths["rehearsal"]
+            scratch.mkdir(parents=True, exist_ok=True)
+            try:
+                rehearsal_argv = None
+                if not ctx.authority_blockers and ctx.paid_order:
+                    rehearsal_argv = paid_authorization_argv(
+                        ctx, sid="S6", target=path, is_plan=False, task_keys=[key],
+                        report=scratch / "paid_authorization.json", out_dir=scratch, ledger=scratch / "ledger.json")
+                    rehearsal = ctx.run(rehearsal_argv, name="ab_d11_rehearsal")
+                    res.steps.append(rehearsal)
+                    rehearsed = scratch / f"{path.stem}_PAID_AUTHORIZED{path.suffix}"
+                    res.details["d11_rehearsal"] = {
+                        "exit_code": rehearsal["exit_code"], "materialised": rehearsed.is_file(),
+                        "report": read_json(scratch / "paid_authorization.json", {}) or {}}
+                    if rehearsal["exit_code"] != 0 or not rehearsed.is_file():
+                        return finish(BLOCKED, ["AB_D11_REHEARSAL_REFUSED:" + (rehearsal.get("stderr_tail") or rehearsal.get("stdout_tail") or "")[-300:]])
+                    ctx.say(f"   D-11 rehearsal PASS (scratch, removed afterwards): {rehearsed.name}")
+                else:
+                    rehearsed = path
+                    res.details["d11_rehearsal"] = {"status": "NOT_RUN_AUTHORITY_INVALID",
+                                                    "authority_failures": list(ctx.authority_blockers)}
+                paid_argv = [VENV, ENGINE / "tools/submit_giggle_video_manifest_v2.py", "--manifest",
+                             materialised_path(path), "--out", paths["submit"], "--concurrency", 1,
+                             "--project-root", VIDEO_PROJECT_ROOT]
+                dry_argv = [VENV, ENGINE / "tools/submit_giggle_video_manifest_v2.py", "--manifest", rehearsed,
+                            "--out", scratch / "precheck.json", "--precheck-only", "--project-root", VIDEO_PROJECT_ROOT]
+                status, submit = ctx.paid_step(paid_argv, name="ab_submit_giggle_video_manifest_v2", sid="S6",
+                                               planned_credits=planned, dry_argv=dry_argv, extra_env=submit_env,
+                                               note=f"A/B variant {key}; clip -> {paths['dir']}")
+                precheck = (submit or {}).get("precheck") or {}
+                if precheck:
+                    res.details["submitter_precheck"] = {"exit_code": precheck.get("exit_code"),
+                                                         "stdout_tail": (precheck.get("stdout_tail") or "")[-400:],
+                                                         "stderr_tail": (precheck.get("stderr_tail") or "")[-400:]}
+                    if precheck.get("exit_code") != 0:
+                        res.steps.append(submit)
+                        return finish(BLOCKED, ["AB_SUBMITTER_PRECHECK_FAILED"])
+                if rehearsal_argv is not None:
+                    ctx.say("   then, on the paid run, D-11 for real:  " + q(paid_authorization_argv(
+                        ctx, sid="S6", target=path, is_plan=False, task_keys=[key],
+                        report=paths["authorization_report"])))
+            finally:
+                shutil.rmtree(scratch, ignore_errors=True)
+        res.steps.append(submit)
+        res.planned_credits += planned
+        if status == HARD_STOP:
+            return finish(HARD_STOP, ["BUDGET_HARD_STOP_AB"])
+        if status == DRY:
+            ctx.say(f"   then (no POST): {q(poll_argv)}")
+            reason = getattr(ctx, "paid_disabled_reason", None)
+            return finish(DRY, ["PAID_STEPS_DISABLED:" + (reason or (submit or {}).get("reason_not_run") or "")],
+                          code=2 if reason else None)
+        res.details["credit_statement"] = archive_credit_statement(ctx, paths["submit"], f"{ctx.run_id}_ab")
+        if status != PASS:
+            return finish(BLOCKED, ["AB_VIDEO_SUBMIT_FAILED"])
+    elif not ctx.paid_enabled:
+        ctx.say(f"   {key} is bound to a remote task; poll (needs the key, no POST): {q(poll_argv)}")
+        return finish(DRY, ["PAID_STEPS_DISABLED_POLL_NOT_RUN"],
+                      code=2 if getattr(ctx, "paid_disabled_reason", None) else None)
+    elif not paths["submit"].is_file():
+        return finish(BLOCKED, [f"AB_BOUND_BUT_SUBMIT_REPORT_MISSING:{paths['submit']}"])
+
+    completed = ab_poll_until_complete(ctx, res, poll_argv, paths["remote_status"])
+    ledger = ctx.run([VENV, BUDGET_LEDGER, "--episode", ctx.episode, "--planned-credits", 0,
+                      "--bgm-transactions-dir", selective_bgm_transaction_dir(ctx), "--cap", ctx.cap,
+                      "--out", paths["dir"] / f"{key}_LEDGER_AFTER_AB.json"], name="ab_budget_ledger_record")
+    res.steps.append(ledger)
+    if not completed or not paths["clip"].is_file():
+        return finish(BLOCKED, ["AB_VIDEO_NOT_YET_COMPLETED: re-run the same command to poll again (no POST)"])
+    res.details["clip"] = str(paths["clip"])
+    res.details["clip_sha256"] = sha256_file(paths["clip"])
+    return finish(PASS)
 
 
 def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
@@ -5680,6 +6294,8 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
             res.blockers.extend(are.get("blockers") or [])
         return res
     # 6.1 re-run preproduction with --keyframe-dir (and, for a rolling wave, the ready subset).
+    # CAMERA_GRAMMAR_V1: the recompile keeps each harvested take's start-frame decision (no tail re-attached).
+    as_submitted = record_start_frames_as_submitted(ctx)
     rebuilt = stage_s2(ctx, with_keyframes=True, ready_units=ready_units)
     res.steps.extend(rebuilt.steps)
     res.receipts = list(rebuilt.receipts)
@@ -5749,6 +6365,14 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
                    for t in tx_now.get("tasks") or [])]
     res.details["prompt_finalization"] = {"digest": str(fin_digest), "summary": fin_report.get("summary"),
                                           "changed_without_receipt": unbound}
+    if unbound and _camera_grammar_on(ctx):
+        # CAMERA_GRAMMAR_V1: only units that will be (re)submitted need finalization receipts.
+        unbound, harvested = exempt_harvested_bound_takes(ctx, unbound, fin_report, as_submitted)
+        if harvested:
+            res.details["prompt_finalization"]["changed_without_receipt"] = unbound
+            res.details["prompt_finalization"]["harvested_bound_takes_exempt"] = harvested
+            ctx.say(f"   prompt finalization: {len(harvested)} recompiled prompt(s) belong to clips already "
+                    f"produced by bound transactions (never re-submitted, no review needed): {sorted(harvested)}")
     if fin["exit_code"] != 0 or (fin_report.get("summary") or {}).get("missing"):
         res.status = BLOCKED
         res.blockers.append("PROMPT_FINALIZATION_DIGEST_FAILED")
@@ -5981,6 +6605,58 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
 # --------------------------------------------------------------------------- #
 # S6.q2 — Q2 VIDEO_ASSEMBLY content admission (D-7)
 # --------------------------------------------------------------------------- #
+def s6_q2_auto_redo(ctx: Ctx) -> dict[str, Any]:
+    """CAMERA_GRAMMAR_V1: the engine's own one controlled redo after an objective Q2 FAIL (q2_auto_redo.py;
+    CLAUDE_CODE_PRODUCTION §5).  Runs after ``prepare`` and before the video_q2 review: units it selects get
+    their clip parked and the S6 wave loop redoes them (own keyframe + single-unit wave).  Never blocks."""
+    if not _camera_grammar_on(ctx):
+        return {"status": "NOT_APPLICABLE"}
+    import q2_auto_redo as _redo
+    grouping = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json", {}) or {}
+    order = [str(u.get("unit_id") or "") for u in grouping.get("units") or [] if u.get("unit_id")]
+    rows = {uid: read_json(ctx.p.q2_dir / uid / "prepare.json", {}) or {} for uid in order
+            if (ctx.p.video_media / f"{uid}.mp4").is_file()}
+    if not any(_redo.objective_failures(row) for row in rows.values()):
+        return {"status": "NONE"}
+    state_path = _wave_state_path(ctx)
+    state = read_json(state_path, {}) or {"schema": "nalu.s6_wave_state.v1", "waves": []}
+    attempted = state.get(_redo.STATE_KEY) or {}
+    seconds = {str(t.get("unit_id") or t.get("task_key")): float(t.get("duration_seconds") or 0)
+               for t in (read_json(ctx.p.video_transaction, {}) or {}).get("tasks") or []}
+    model = episode_video_model(ctx.episode)
+
+    def unit_cost(uid: str) -> int:
+        return video_task_credits(model, seconds.get(uid, 6.0), 1) + _redo.OWN_KEYFRAME_CREDITS
+
+    headroom = None
+    if not ctx.dry:
+        verdict = ctx.budget_check(0, label="s6_q2_auto_redo_headroom").get("budget_verdict") or {}
+        headroom = verdict.get("headroom_credits")
+    decision = _redo.plan(rows, attempted, headroom=None if headroom is None else int(headroom),
+                          unit_cost=unit_cost, unit_order=order)
+    if ctx.dry:
+        decision["status"] = DRY
+        decision["note"] = "dry run: would redo the failing units when the paid run has headroom"
+        return decision
+    park = ctx.p.video_media / f"_superseded_{ctx.run_id}_q2_auto_redo"
+    for row in decision["selected"]:
+        clip = ctx.p.video_media / f"{row['unit_id']}.mp4"
+        if not clip.is_file():
+            continue
+        park.mkdir(parents=True, exist_ok=True)
+        os.replace(clip, park / clip.name)
+        state.setdefault(_redo.STATE_KEY, {})[row["unit_id"]] = {
+            **row, "parked_clip": str(park / clip.name), "run_id": ctx.run_id, "headroom_at_decision": headroom,
+            "recorded_at": now(), "recorded_by": TOOL_ID,
+            "next": "S6 wave loop: redo_switch_start_frames -> own keyframe (S5, Q1) -> single-unit wave -> Q2"}
+    if decision["selected"]:
+        write_json(state_path, state)
+    decision["status"] = "PARKED_FOR_REDO" if decision["selected"] else "NONE_SELECTED"
+    for row in decision["skipped"]:
+        ctx.say(f"   S6.q2 auto-redo skipped {row['unit_id']} ({row['reason']}): review + §5 default accept")
+    return decision
+
+
 def s6_q2(ctx: Ctx, res: StageResult) -> dict[str, Any]:
     """D-7 — the ONLY route to downstream_status ADMITTED_FOR_ASSEMBLY.
 
@@ -6050,6 +6726,17 @@ def s6_q2(ctx: Ctx, res: StageResult) -> dict[str, Any]:
         detail["blockers"] = [f"Q2_PREPARE_{prepare.get('status')}"] + [
             f"{row.get('unit_id')}:{row.get('blocker') or row.get('status')}"
             for row in (prepare.get("blocked") or [])[:8]]
+        return detail
+
+    # CAMERA_GRAMMAR_V1: objective FAILs are redone by the engine once, before anyone reviews those clips
+    auto_redo = s6_q2_auto_redo(ctx)
+    detail["auto_redo"] = auto_redo
+    if auto_redo.get("status") == "PARKED_FOR_REDO":
+        units = [row["unit_id"] for row in auto_redo.get("selected") or []]
+        ctx.say("-- S6.q2: engine redo (objective Q2 FAIL, once per unit): " + ", ".join(units))
+        detail["status"] = BLOCKED
+        detail["blockers"] = ["Q2_AUTO_REDO_PARKED:" + ",".join(units)]
+        detail["q2_auto_redo_parked"] = units
         return detail
 
     review_path, review = latest_submitted_review(ctx, "video_q2")
@@ -6576,7 +7263,8 @@ def _reusable_release_level(p: Any, source: Any) -> dict[str, Any] | None:
             "source_video_stream_sha256": current, "final_sha256": sha256_file(p.final_mp4)}
 
 
-def transcribe_units(ctx: Ctx, media_dir: Path, episode: str) -> dict[str, list[dict[str, Any]]]:
+def transcribe_units(ctx: Ctx, media_dir: Path, episode: str, *,
+                     words: bool = False) -> dict[str, list[dict[str, Any]]]:
     """Transcribe every unit clip for caption timing, concurrently.
 
     One ASR pass per unit; the clips are independent and a serial loop pays the
@@ -6586,6 +7274,9 @@ def transcribe_units(ctx: Ctx, media_dir: Path, episode: str) -> dict[str, list[
     are keyed by clip stem, which is exactly how the subtitle builder consumes
     them, so completion order cannot affect the captions.  Any unit's exception
     still fails the whole step.
+
+    ``words`` (CAMERA_GRAMMAR_V1 S7 only, 2026-10-26): the same pass also returns per-segment word timestamps
+    (faster-whisper ``word_timestamps``) for the dialogue head trim; the default call is unchanged.
     """
     from faster_whisper import WhisperModel  # type: ignore
 
@@ -6595,6 +7286,13 @@ def transcribe_units(ctx: Ctx, media_dir: Path, episode: str) -> dict[str, list[
     model = WhisperModel("small", device="cpu", compute_type="int8")
 
     def _one(mp4: Path) -> list[dict[str, Any]]:
+        if words:
+            segs, _ = model.transcribe(str(mp4), language=ctx_language(ctx), beam_size=5, vad_filter=True,
+                                       word_timestamps=True)
+            return [{"start": round(x.start, 3), "end": round(x.end, 3), "text": x.text.strip(),
+                     "words": [{"start": round(w.start, 3), "end": round(w.end, 3), "word": w.word}
+                               for w in (getattr(x, "words", None) or [])]}
+                    for x in segs]
         segs, _ = model.transcribe(str(mp4), language=ctx_language(ctx), beam_size=5, vad_filter=True)
         return [{"start": round(x.start, 3), "end": round(x.end, 3), "text": x.text.strip()}
                 for x in segs]
@@ -6765,13 +7463,19 @@ def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
     there (--dialogue-tail-trim), so render, captions, V.O., BGM and the release timeline all see
     the trimmed timeline.  Returns (unit ASR without the removed segments, report path when any
     unit is cut).  Any other episode returns (None, None) and S7 runs exactly as before.
+
+    The same pass (with word timestamps) plans the dialogue HEAD trim (line owner 2026-10-26, lab E05:
+    "Ha!" / "That." / "Closh key" before the scripted line; tools/dialogue_head_trim.py): report
+    <EP>_DIALOGUE_HEAD_TRIM.json, ``res.details["dialogue_head_trim"]["apply"]`` is the report path for the
+    AgentCut build (--dialogue-head-trim) when any unit is cut, and the returned ASR is shifted to match.
     """
     import camera_grammar_policy as _cgp
+    import dialogue_head_trim as _head
     import dialogue_tail_trim as _trim
     if not _cgp.active(contract, episode=ctx.episode):
         return None, None
     p = ctx.p
-    asr = transcribe_units(ctx, p.video_media, ctx.episode)
+    asr = transcribe_units(ctx, p.video_media, ctx.episode, words=True)
     write_json(p.assembly / f"{ctx.episode}_unit_asr_untrimmed.json", asr)
     clip_seconds = {mp4.stem: _probe_seconds(mp4) for mp4 in sorted(p.video_media.glob(f"{ctx.episode}-VU-*.mp4"))}
     energy = {mp4.stem: _unit_energy_db(mp4, _trim.ENERGY_HOP)
@@ -6782,7 +7486,100 @@ def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
     write_json(report_path, report)
     res.details["dialogue_tail_trim"] = {"report": str(report_path), "trimmed_units": report["trimmed_units"],
                                          "removed_seconds": report["removed_seconds"]}
-    return _trim.trim_unit_asr(asr, report), (report_path if report["trimmed_units"] else None)
+    head = _head.plan(contract, read_json(p.grouping_plan, {}) or {}, asr, clip_seconds, report)
+    head_path = p.assembly / f"{ctx.episode}_DIALOGUE_HEAD_TRIM.json"
+    write_json(head_path, head)
+    res.details["dialogue_head_trim"] = {"report": str(head_path), "trimmed_units": head["trimmed_units"],
+                                         "removed_seconds": head["removed_seconds"],
+                                         "apply": str(head_path) if head["trimmed_units"] else None}
+    trimmed = _head.strip_words(_head.shift_unit_asr(_trim.trim_unit_asr(asr, report), head))
+    return trimmed, (report_path if report["trimmed_units"] else None)
+
+
+def s7_push_in_compensation(ctx: Ctx, res: StageResult, contract: dict[str, Any]) -> Path | None:
+    """CAMERA_GRAMMAR_V1 only (line owner 2026-10-26, lab Holmes E06): remove the push-in H3 still adds to
+    locked-camera units (tools/push_in_compensation.py).  Each locked unit's largest face is measured on 9 frames
+    of the clip as cut (after the dialogue head/tail trims); a monotonic push-in above 25 % gets a time-varying
+    face-centred crop of the early frames (end framing kept, crop <= 1.6x, Lanczos, audio copied, duration
+    unchanged) written to assembly/push_in_compensation/<unit>.mp4.  Report <EP>_PUSH_IN_COMPENSATION.json; the
+    report path is returned for the AgentCut build (--push-in-compensation) when any unit was compensated.
+    Free; any failure only skips the step (recorded), never blocks S7."""
+    import camera_grammar_policy as _cgp
+    import push_in_compensation as _pic
+    if not _cgp.active(contract, episode=ctx.episode):
+        return None
+    p = ctx.p
+    report_path = p.assembly / f"{ctx.episode}_PUSH_IN_COMPENSATION.json"
+    try:
+        clips = {mp4.stem: mp4 for mp4 in sorted(p.video_media.glob(f"{ctx.episode}-VU-*.mp4"))}
+        windows = _pic.cut_windows(
+            list(clips), {uid: _probe_seconds(path) for uid, path in clips.items()},
+            read_json(p.assembly / f"{ctx.episode}_DIALOGUE_TAIL_TRIM.json", {}) or {},
+            read_json(p.assembly / f"{ctx.episode}_DIALOGUE_HEAD_TRIM.json", {}) or {})
+        ffmpeg, ffprobe = _media.require_ffmpeg(), _media.require_ffprobe()
+        app = _pic.face_backend()
+        report = _pic.build_report(
+            ctx.episode, read_json(p.grouping_plan, {}) or {}, clips, windows, p.assembly / "push_in_compensation",
+            measure_fn=lambda clip, times: _pic.measure(clip, times, app, ffmpeg),
+            render_fn=lambda clip, out, plan: _pic.render(clip, out, plan, ffmpeg=ffmpeg, ffprobe=ffprobe))
+        write_json(report_path, report)
+    except Exception as exc:  # noqa: BLE001 -- a polish step, never a blocker
+        write_json(report_path, {"schema": _pic.SCHEMA, "episode": ctx.episode,
+                                 "status": f"SKIPPED_ERROR:{type(exc).__name__}:{exc}"})
+        res.details["push_in_compensation"] = {"report": str(report_path), "status": "SKIPPED_ERROR"}
+        return None
+    res.receipts.append(str(report_path))
+    res.details["push_in_compensation"] = {"report": str(report_path),
+                                           "compensated_units": report["compensated_units"]}
+    return report_path if report["compensated_units"] else None
+
+
+def s7_unit_audio_levelling(ctx: Ctx, res: StageResult, contract: dict[str, Any],
+                            unit_asr: dict[str, Any] | None) -> Path | None:
+    """CAMERA_GRAMMAR_V1 only (line owner 2026-10-27, lab Holmes E07: "the sound goes louder/quieter").  Each unit's
+    integrated loudness is measured on the clip as cut (dialogue units on their ASR speech windows, other units over
+    the whole cut window) and a static gain toward the release role target (native_audio_loudness_contract
+    ROLE_TARGETS_LUFS, role as level_native_release_audio.unit_role) is applied, clamped to +-6 dB, with a 4x
+    oversampled peak limiter (tools/s7_audio_smoothing.py).  Each levelled unit is a remux in
+    assembly/unit_audio_levelling/ (the cut's video stream copied bit-exact + its own levelled audio); the AgentCut
+    picture and sound clips both point at it (same in/out).
+    Report <EP>_UNIT_AUDIO_LEVELLING.json; its path is returned for the build (--unit-audio-levelling) and the release
+    leveller (--pre-levelled-units).  Free; any failure only skips the step (recorded), never blocks S7."""
+    import camera_grammar_policy as _cgp
+    if not _cgp.active(contract, episode=ctx.episode):
+        return None
+    import push_in_compensation as _pic
+    import s7_audio_smoothing as _smooth
+    from level_native_release_audio import unit_role as _unit_role
+    from native_audio_loudness_contract import ROLE_TARGETS_LUFS as _targets
+    p = ctx.p
+    report_path = p.assembly / f"{ctx.episode}_UNIT_AUDIO_LEVELLING.json"
+    try:
+        clips = {mp4.stem: mp4 for mp4 in sorted(p.video_media.glob(f"{ctx.episode}-VU-*.mp4"))}
+        windows = _pic.cut_windows(
+            list(clips), {uid: _probe_seconds(path) for uid, path in clips.items()},
+            read_json(p.assembly / f"{ctx.episode}_DIALOGUE_TAIL_TRIM.json", {}) or {},
+            read_json(p.assembly / f"{ctx.episode}_DIALOGUE_HEAD_TRIM.json", {}) or {})
+        grouped = {str(u.get("unit_id")): u for u in (read_json(p.grouped_seedance, {}) or {}).get("units") or []}
+        roles = {uid: (_unit_role(grouped[uid]) if uid in grouped else "AMBIENCE") for uid in clips}
+        pictures = {uid: Path(str(row["output"])) for uid, row in _pic.applied_sources(
+            read_json(p.assembly / f"{ctx.episode}_PUSH_IN_COMPENSATION.json", {}) or {}).items()}
+        ffmpeg = _media.require_ffmpeg()
+        report = _smooth.build_levelling_report(
+            ctx.episode, clips, windows, roles, unit_asr, dict(_targets), p.assembly / "unit_audio_levelling",
+            measure_fn=lambda clip, spans: _smooth.measure_spans(clip, spans, ffmpeg=ffmpeg),
+            render_fn=lambda clip, picture, out, gain: _smooth.render_levelled(clip, picture, out, gain, ffmpeg=ffmpeg),
+            pictures=pictures)
+        write_json(report_path, report)
+    except Exception as exc:  # noqa: BLE001 -- a polish step, never a blocker
+        write_json(report_path, {"schema": _smooth.SCHEMA, "episode": ctx.episode,
+                                 "status": f"SKIPPED_ERROR:{type(exc).__name__}:{exc}"})
+        res.details["unit_audio_levelling"] = {"report": str(report_path), "status": "SKIPPED_ERROR"}
+        return None
+    res.receipts.append(str(report_path))
+    res.details["unit_audio_levelling"] = {"report": str(report_path), "applied_units": report["applied_units"],
+                                           "spread_lufs": report["spread_lufs"]}
+    return report_path if report["applied_units"] else None
 
 
 def s7_dialogue_sound_bridge(ctx: Ctx, res: StageResult, contract: dict[str, Any],
@@ -7090,10 +7887,30 @@ def stage_s7(ctx: Ctx) -> StageResult:
     if tail_trim is not None:
         build_argv += ["--dialogue-tail-trim", tail_trim]
         res.details["commands"]["build_agentcut"] = q(build_argv)
+    head_trim = (res.details.get("dialogue_head_trim") or {}).get("apply")
+    if head_trim:
+        build_argv += ["--dialogue-head-trim", head_trim]
+        res.details["commands"]["build_agentcut"] = q(build_argv)
+    # 3c. push-in compensation (CAMERA_GRAMMAR_V1 locked-camera units; measured on the trimmed cut, never blocks)
+    push_in = s7_push_in_compensation(ctx, res, read_json(p.contract, {}) or {})
+    if push_in is not None:
+        build_argv += ["--push-in-compensation", push_in]
+        res.details["commands"]["build_agentcut"] = q(build_argv)
     sound_bridge = s7_dialogue_sound_bridge(ctx, res, read_json(p.contract, {}) or {}, trimmed_asr)
     if sound_bridge is not None:
         build_argv += ["--dialogue-sound-bridge", sound_bridge]
         res.details["commands"]["build_agentcut"] = q(build_argv)
+    # 3d. per-unit native-audio levelling + equal-power cut crossfades (CAMERA_GRAMMAR_V1; free, never blocks)
+    unit_levelling = s7_unit_audio_levelling(ctx, res, read_json(p.contract, {}) or {}, trimmed_asr)
+    if unit_levelling is not None:
+        build_argv += ["--unit-audio-levelling", unit_levelling]
+        level_argv = level_argv[:-2] + ["--pre-levelled-units", unit_levelling] + level_argv[-2:]
+    import camera_grammar_policy as _cgp_xf
+    if _cgp_xf.active(read_json(p.contract, {}) or {}, episode=ctx.episode):
+        import s7_audio_smoothing as _smooth_xf
+        build_argv += ["--audio-cut-crossfade-seconds", f"{_smooth_xf.CUT_CROSSFADE_S:g}"]
+    res.details["commands"]["build_agentcut"] = q(build_argv)
+    res.details["commands"]["level_native_release_audio"] = q(level_argv)
 
     # ------------------------------------------------------------ 4. assemble
     steps: list[dict[str, Any]] = [ctx.run(build_argv, name="s7_build_agentcut_project")]
@@ -8485,6 +9302,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     return run_episode(Ctx(args.episode, args))
 
 
+def cmd_ab_variant(args: argparse.Namespace) -> int:
+    return run_ab_variant(Ctx(args.episode, args), Path(args.variant))
+
+
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
@@ -8542,6 +9363,15 @@ def build_parser() -> argparse.ArgumentParser:
     approve.add_argument("--note", default=None)
     approve.set_defaults(func=cmd_approve, dry_run=False, paid=False, force=False,
                          from_stage=None, until=None)
+
+    ab = subs.add_parser(
+        "ab-variant", help="submit ONE A/B variant task (tools/h3_constraint_ab_variant.py) through the S6 "
+                           "machinery; clip -> <EP>/video_ab/, never assembly.  Paid only via paid_stage.sh")
+    ab.add_argument("--episode", required=True)
+    ab.add_argument("--variant", required=True, help="the one-task manifest h3_constraint_ab_variant.py wrote")
+    ab.add_argument("--paid", action="store_true")
+    ab.add_argument("--dry-run", action="store_true")
+    ab.set_defaults(func=cmd_ab_variant, force=False, from_stage=None, until=None)
 
     loop = subs.add_parser("loop", help="run episodes in sequence, blocking at each checkpoint")
     loop.add_argument("--start", required=True)

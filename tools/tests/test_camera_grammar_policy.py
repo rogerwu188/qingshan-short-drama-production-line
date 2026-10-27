@@ -109,7 +109,10 @@ class H3PromptTest(unittest.TestCase):
     def test_clause_only_for_marked_plans_and_no_locked_move_conflict(self):
         self.assertEqual(h3._camera_grammar_clause(_plan()), "")
         locked = h3._camera_scoped({**_plan(), **MARK}, {"start_framing": "the hall"})
-        self.assertIn("a still, composed frame", locked)
+        # provider-expert wording (2026-10-26) replaced "a still, composed frame ... no drift"
+        self.assertIn("locked camera; fixed camera position: no push in, no pull out, no pan, no tilt, no tracking",
+                      locked)
+        self.assertIn("the action plays inside the frame", locked)
         self.assertEqual(h3.locked_camera_move_conflicts("camera: " + locked + "\nphysical_continuity: x"), [])
         self.assertIn("a motivated move", h3._camera({**_plan("PAN", "LEFT_TO_RIGHT"), **MARK}))
 

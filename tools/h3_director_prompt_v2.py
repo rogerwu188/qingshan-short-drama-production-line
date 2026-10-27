@@ -7,6 +7,9 @@ from it (``submit_giggle_video_manifest_v2.provider_prompt_unit``).  Every other
 ``subject_definitions:`` prompt byte-identically (tools/h3_provider_prompt_renderer.py).
 
 Sections, in order: References / Who is in frame / Setting / Camera / Action / Dialogue / Sound / Never.
+CAMERA_GRAMMAR_V1 single-take locked-camera units get the strict camera lock by default (owner 2026-10-26): a
+CAMERA LOCK block before References, a frozen-frame-size camera sentence and push-in Never items;
+``h3_camera_lock: "standard"`` opts out, moving cameras keep their wording, unstamped units render byte-identically.
 Every fact comes from the same execution plan and bound English contract V1 uses; the optional
 ``director_v2`` block of that contract (appearance, wardrobe, setting in English) is requested by
 tools/h3_english_contract_io.py for V2 units only.  Machine ids, retention/force/interaction templates,
@@ -29,7 +32,14 @@ try:
         number_word,
     )
     from tools.provider_contract_boundary import is_being_prop, validate_provider_prompt_boundary
-    from tools.h3_provider_english_contract import validate_h3_provider_text_boundary
+    from tools.h3_provider_english_contract import (
+        CAMERA_LOCK_FROZEN_FRAME,
+        CAMERA_LOCK_NEVER,
+        CAMERA_LOCK_STRICT,
+        h3_camera_lock,
+        strict_camera_lock_applies,
+        validate_h3_provider_text_boundary,
+    )
     from tools.provider_semantic_coverage import build_semantic_coverage_receipt
     from tools.prompt_budget_observability import measure_prompt
     from tools.editorial_pacing_contract import content_window_clause, delivery_clause
@@ -44,7 +54,14 @@ except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
         number_word,
     )
     from provider_contract_boundary import is_being_prop, validate_provider_prompt_boundary  # type: ignore
-    from h3_provider_english_contract import validate_h3_provider_text_boundary  # type: ignore
+    from h3_provider_english_contract import (  # type: ignore
+        CAMERA_LOCK_FROZEN_FRAME,
+        CAMERA_LOCK_NEVER,
+        CAMERA_LOCK_STRICT,
+        h3_camera_lock,
+        strict_camera_lock_applies,
+        validate_h3_provider_text_boundary,
+    )
     from provider_semantic_coverage import build_semantic_coverage_receipt  # type: ignore
     from prompt_budget_observability import measure_prompt  # type: ignore
     from editorial_pacing_contract import content_window_clause, delivery_clause  # type: ignore
@@ -85,6 +102,11 @@ _MOVE_WORDS = {
 _IDENTITY_FREE_REFERENCE_ROLES = {"ADMITTED_NEW_EVENT_ENTRY_STATE", "PREVIOUS_UNIT_FINAL_FRAME",
                                   "IDENTITY_OR_PROP_REANCHOR"}
 _PREVIOUS_FRAME_ROLES = {"PREVIOUS_REAL_TAIL_STATE_AUTHORITY", "PREVIOUS_UNIT_FINAL_FRAME"}
+#: CAMERA_GRAMMAR_V1: roles of the unit's start frame.  At @Image1 they are always the opening / exact first frame,
+#: even when the reference sequence tags that keyframe with the CHAR-* id of the person in it (lab Holmes E06
+#: 2026-10-26: a recompile turned the own keyframe of a motivated cut into "@Image1 is Holmes's face and body.").
+_OPENING_FRAME_ROLES = {"ADMITTED_NEW_EVENT_ENTRY_STATE", "CONTINUITY_DERIVED_ENTRY_STATE", "PREVIOUS_UNIT_FINAL_FRAME",
+                        "PREVIOUS_UNIT_REAL_FINAL_FRAME"}
 _NEGATED_MOVES = re.compile(r"\bno (?:pan|zoom|drift|dolly|tilt|track|push|pull|follow)\b", re.IGNORECASE)
 TOPOLOGY_V2 = "Every hand stays attached to its owner's body; no extra, isolated or severed limbs"
 _ECHO_FILLER = {"visible", "subtle", "motion", "consistent", "with", "and", "the", "continuous", "slight"}
@@ -282,7 +304,7 @@ def _span(window: tuple[float, float]) -> str:
 # ----------------------------------------------------------------------------------------------------------
 # camera
 # ----------------------------------------------------------------------------------------------------------
-def _camera_entry(camera_plan: dict[str, Any], english: dict[str, str]) -> str:
+def _camera_entry(camera_plan: dict[str, Any], english: dict[str, str], *, one_take: bool = False) -> str:
     family = str(camera_plan.get("motion_family") or "STATIC").upper()
     scale_raw = str(camera_plan.get("shot_scale") or "MEDIUM").upper()
     scale = _SCALE_WORDS.get(scale_raw, scale_raw.lower().replace("_", " "))
@@ -293,14 +315,20 @@ def _camera_entry(camera_plan: dict[str, Any], english: dict[str, str]) -> str:
     start, end = (None if v and v1._BOILERPLATE_FRAMING.match(v) else v for v in (start, end))
     parts: list[str] = []
     locked = family in {"STATIC", "LOCKED"}
+    stamped = camera_plan.get("camera_grammar") == "CAMERA_GRAMMAR_V1"
     if locked:
         parts.append(f"Locked camera, {head}." if head else "Locked camera.")
-        parts.append("The camera never moves: no pan, no zoom, no drift.")
+        if stamped:  # provider-expert wording (2026-10-26) replaces the older lock sentence, said once
+            parts += [v1.ONE_TAKE] if one_take else []
+            parts.append(v1.FIXED_CAMERA_POSITION)
+        else:
+            parts.append("The camera never moves: no pan, no zoom, no drift.")
     else:
         direction = str(camera_plan.get("motion_direction") or "NONE").upper()
         move = _MOVE_WORDS.get(family, "One motivated " + family.lower().replace("_", " ") + " move")
         dir_words = "" if direction in {"", "NONE"} else f" ({direction.lower().replace('_', ' ')})"
         parts.append(f"{move}{dir_words}, {head}." if head else f"{move}{dir_words}.")
+        parts += [v1.ONE_TAKE] if stamped and one_take else []
         if english.get("follow_subject"):
             parts.append(_sentence(f"the camera follows {scrub(english['follow_subject'])}"))
         if english.get("subject_to_keep"):
@@ -327,7 +355,7 @@ def camera_section(unit: dict[str, Any], plan: dict[str, Any], contract: dict[st
         camera_plan = plan.get("camera_plan") or {}
         failures: list[str] = []
         english = v1._camera_english(uid, "UNIT", camera_plan, contract.get("camera_plan") or {}, failures)
-        return _camera_entry(camera_plan, english), [
+        return _camera_entry(camera_plan, english, one_take=True), [
             {"shot_id": "UNIT", "fields": sorted(english), "untranslated_fields": failures}]
     translated = contract.get("camera_plans") or contract.get("per_shot_camera_plans") or []
     lines, receipt = [], []
@@ -343,6 +371,12 @@ def camera_section(unit: dict[str, Any], plan: dict[str, Any], contract: dict[st
                         "untranslated_fields": missing})
     if len(lines) == 1:
         lines = [lines[0].split("): ", 1)[1]]
+        if v1.one_take_applies([rows[0]["camera_plan"]], []):  # one shot: state the take inside its entry
+            english = v1._camera_english(uid, receipt[0]["shot_id"], rows[0]["camera_plan"],
+                                         translated[0] if translated and isinstance(translated[0], dict) else {}, [])
+            lines = [_camera_entry(rows[0]["camera_plan"], english, one_take=True)]
+    elif v1.one_take_applies([row["camera_plan"] for row in rows], [row["boundary"] for row in receipt]):
+        lines.insert(0, v1.ONE_TAKE)
     return "\n".join(lines), receipt
 
 
@@ -363,7 +397,7 @@ def locked_camera_conflicts(text: str) -> list[str]:
 # render
 # ----------------------------------------------------------------------------------------------------------
 def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: set[str], people: int,
-                     beings: int) -> list[str]:
+                     beings: int, exact_first_frame: bool = False) -> list[str]:
     refs = unit.get("reference_images") or []
     sequence_by_path = {str(row.get("path") or ""): row for row in unit.get("reference_image_sequence") or []
                         if row.get("path") and str(row.get("entity_id") or "").startswith("CHAR-")}
@@ -383,15 +417,18 @@ def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: se
         identity = binding_role == "IDENTITY" or (not binding_role and str(bound.get("entity_id") or entity_id).startswith("CHAR-"))
         if role in _IDENTITY_FREE_REFERENCE_ROLES:
             entity = ""
+        if exact_first_frame and index == 1 and role in _OPENING_FRAME_ROLES:
+            entity = ""  # the start frame, never an identity line (identity lines only for identity/sheet roles)
         if entity and identity:
             body = "face and body" if entity_id.startswith("CHAR-") or not entity_id else "look"
-            line = f"@Image{index} is {entity}'s {body}."
+            line = (f"@Image{index} is {v1.reference_sheet_clause(entity)}." if v1.is_reference_sheet(ref)
+                    else f"@Image{index} is {entity}'s {body}.")
             if entity_id and onscreen and entity_id not in onscreen:
                 line += f" It is for identity only: {entity} stays out of frame in this clip."
             elif index > 1:
                 # a face reference of someone already in the opening frame is that SAME person, not a second
                 # one: H3 otherwise sometimes renders the reference as an extra copy (lab E02 2026-10-23)
-                line += (f" This is the same {entity} already standing in @Image1 — one person; never draw a "
+                line += (f" This is the same {entity} already {'in' if exact_first_frame else 'standing in'} @Image1 — one person; never draw a "
                          f"second {entity}.")
             lines.append(line)
         elif entity:
@@ -401,8 +438,15 @@ def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: se
             who = ("the objects' places" if total == 0 else "the person's place" if people == 1 and total == 1
                    else "the subject's place" if total == 1 else f"the {number_word(total)} people's places"
                    if people == total and total <= 3 else "everyone's places")
-            lines.append(f"@Image1 is the opening frame: match its setting, camera position and {who}. "
-                         "Faces come from the face references; never freeze its pose.")
+            if exact_first_frame:
+                # lab Holmes E05: H3 sometimes opened wider than @Image1 and pushed in to it; pin the first frame
+                lines.append(f"@Image1 is the exact first frame: the clip starts on this image with the same shot "
+                             f"size, framing, camera position and {who} as shown; never start wider or closer than @Image1. "
+                             "Faces come from the face "
+                             "references; never freeze its pose.")
+            else:
+                lines.append(f"@Image1 is the opening frame: match its setting, camera position and {who}. "
+                             "Faces come from the face references; never freeze its pose.")
         elif role in _PREVIOUS_FRAME_ROLES:
             lines.append(f"@Image{index} is the previous shot's last frame: continuity of positions, clothing "
                          "and props only; it defines no face.")
@@ -454,7 +498,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     label_by_id = {s["entity_id"]: s["label"] for s in subjects}
 
     # --- references ------------------------------------------------------------------------------------
-    reference_lines = _reference_lines(unit, plan, onscreen=onscreen_ids, people=len(people), beings=len(beings))
+    reference_lines = _reference_lines(unit, plan, onscreen=onscreen_ids, people=len(people), beings=len(beings),
+                                       exact_first_frame=stamped)
     for index, row in enumerate(crossmodal_rows, 1):
         binding = f"{row['audio_slot']} is {row['provider_entity_label']}'s voice"
         reference_lines.append(binding + ". It gives timbre only — never speak or echo its words.")
@@ -475,7 +520,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         answer = subjects_v2.get(s["entity_id"]) or subjects_v2.get(s["label"]) or {}
         if s["kind"] == "BEING":
             card = s.get("creature_card") or {}
-            gait = {"biped": "moves upright on two legs", "quadruped": "moves on four legs"}.get(
+            gait = {"biped": "moves upright on two legs", "quadruped": "moves on four legs",
+                    "slithering": "has no legs and slithers along the ground", "flying": "flies on its wings"}.get(
                 str(card.get("locomotion") or "").strip().lower(), "")
             look = _en(answer.get("look")) or _en(s.get("look"))
             return "; ".join(v for v in ("a living non-human subject, not a prop", look, gait) if v)
@@ -604,6 +650,14 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
 
     # --- camera ----------------------------------------------------------------------------------------
     camera, camera_receipt = camera_section(unit, plan, contract, beats)
+    # strict camera lock: default on stamped single-take locked units, "standard" opts out (owner 2026-10-26)
+    all_locked = all("Locked camera" in line for line in camera.split("\n") if line != v1.ONE_TAKE)
+    if stamped and h3_camera_lock(unit) == "strict" and not all_locked:
+        raise ValueError(f"{uid}:H3_CAMERA_LOCK_STRICT_ON_MOVING_CAMERA")
+    camera_lock = strict_camera_lock_applies(unit, stamped=stamped,
+                                             locked_single_take=all_locked and v1.ONE_TAKE in camera)
+    if camera_lock:
+        camera += "\n" + CAMERA_LOCK_FROZEN_FRAME
     evidence["CAMERA.PLAN"] = camera
 
     # --- action + dialogue -----------------------------------------------------------------------------
@@ -762,7 +816,9 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         evidence["COMBAT.WUXIA_PROFILE_MODULE"] = module
 
     if not dialogue_rows:
-        dialogue_lines = ["Dialogue: none. Nobody speaks; every visible person keeps their mouth closed."]
+        dialogue_lines = ([f"Dialogue: none. {v1.NO_VOICE_SILENT} Every visible person keeps their mouth closed."]
+                          if stamped else
+                          ["Dialogue: none. Nobody speaks; every visible person keeps their mouth closed."])
     elif len(dialogue_rows) == 1:
         row = dialogue_rows[0]
         dialogue_lines = [f"Dialogue ({row['label']} only, once, lips in sync):" if row["visible"] else
@@ -772,7 +828,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
             dialogue_lines.append(row["delivery"])
         if row.get("gaze"):
             dialogue_lines.append(row["gaze"])
-        dialogue_lines.append("After the line nobody speaks; the remaining time is room tone.")
+        dialogue_lines.append(v1.ONLY_THIS_LINE if stamped else
+                              "After the line nobody speaks; the remaining time is room tone.")
     else:
         dialogue_lines = ["Dialogue (in this order, each line exactly once, lips in sync; only the named speaker "
                           "talks):"]
@@ -781,7 +838,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
             dialogue_lines.append(f"{number}. {who}, {_span(row['window'])}: {row['literal']}"
                                   + (f" {row['delivery']}" if row["delivery"] else "")
                                   + (f" {row['gaze']}" if row.get("gaze") else ""))
-        dialogue_lines.append("After the last line nobody speaks; the remaining time is room tone.")
+        dialogue_lines.append(v1.ONLY_THESE_LINES if stamped else
+                              "After the last line nobody speaks; the remaining time is room tone.")
 
     # --- never -----------------------------------------------------------------------------------------
     negatives = [NEVER_V2, "any person, hand or body part" if not subjects else
@@ -794,13 +852,18 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     if wuxia.get("status") == "SELECTED":
         negatives.extend(scrub(v) for v in wuxia.get("negative_constraints_en") or [] if scrub(v))
     negatives.append("music")
+    if camera_lock:
+        negatives.append(CAMERA_LOCK_NEVER)
     never_line = "Never: " + "; ".join(dict.fromkeys(negatives)) + "."
+    if stamped and subjects:  # provider expert: the anti-duplicate rule is the prompt's last sentence (no person: none)
+        never_line += "\n" + v1.NO_DUPLICATE_PEOPLE
 
     def assemble(compact: bool) -> str:
         who = who_block(compact)
         if adult_line and subjects:
             who.append(adult_line)
         blocks = [
+            *([CAMERA_LOCK_STRICT] if camera_lock else []),
             "References:\n" + "\n".join(reference_lines),
             "\n".join(who),
             "Setting:\n" + "\n".join(setting_lines),
@@ -812,11 +875,14 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         ]
         return "\n\n".join(blocks) + "\n"
 
-    text = assemble(False)
+    constraint_language = v1.h3_constraint_language(unit) if stamped else "en"
+    text = v1.localize_constraints(assemble(False), constraint_language)
     if len(text) > v1._PROVIDER_RUNE_LIMIT:
-        text = assemble(True)
+        text = v1.localize_constraints(assemble(True), constraint_language)
+    if constraint_language == "zh":
+        evidence = {key: v1.localize_constraints(value, "zh") for key, value in evidence.items()}
     if not evidence["ANCHOR.IDENTITY_PROP"]:  # no key props: the cast fact is the "Who is in frame" header
-        evidence["ANCHOR.IDENTITY_PROP"] = text.split("\n\n")[1].split("\n")[0]
+        evidence["ANCHOR.IDENTITY_PROP"] = text.split("\n\n")[2 if camera_lock else 1].split("\n")[0]
 
     boundary = validate_provider_prompt_boundary(text, source_id=uid, model_family="MINIMAX_H3")
     h3_boundary = validate_h3_provider_text_boundary(text, source_id=uid)
@@ -854,6 +920,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
             "partial_visibility_rules": [row for rows in partial for row in rows],
             "camera_shots": camera_receipt,
         },
+        **({"h3_constraint_language": "zh"} if constraint_language == "zh" else {}),
+        **({"h3_camera_lock": "strict"} if camera_lock else {}),
     }
 
 
