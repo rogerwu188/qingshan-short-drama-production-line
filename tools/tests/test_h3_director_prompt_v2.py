@@ -45,7 +45,9 @@ INTERNAL = re.compile(r"\b(?:CHAR|SUBSPACE|LOC|SET|PROP|AXIS|ANGLE)-[A-Z0-9-]+|\
 #: clause became the off-lens eyeline "Alpha looks just off the lens to the <side>, at <listener>, never into the
 #: camera; the camera does not follow the gaze." (was 412240e1...).  The unstamped pin never changes.
 V1_SHA = {
-    True: "abf2f1a610b7b38fa86f681968c4dd21760dbdddb66bccc9a2a7e8b065287739",
+    # stamped V1 director: default strict camera lock (owner 2026-10-26); "standard" keeps the previous bytes
+    True: "799e26624ac943efe03087259b21f568206bff68eedd822c1ddeed8e312a71e7",
+    "standard": "abf2f1a610b7b38fa86f681968c4dd21760dbdddb66bccc9a2a7e8b065287739",
     False: "ab9d6ae00614e4f89f53a4a7e0960162458dd56af941aa23f2abec8481a3561d",
 }
 
@@ -138,7 +140,8 @@ class DirectorPromptV2Shape(unittest.TestCase):
         self.assertIn("Sound: Low air-conditioning hum. Cloth rustle from this action. One sleeve brush. "
                       "No background music.", text)
         self.assertIn("Never: captions, subtitles, letters or logos on screen; a second copy of anyone; "
-                      "anyone else in frame; music.", text)
+                      "anyone else in frame; music; zooming in, pushing in, dollying in, moving closer to the "
+                      "face, tightening the frame.", text)  # default strict camera lock (locked, single take)
         self.assertIn("Key prop: gray long table.", text)
         self.assertIn("Time: dusk; clear weather.", text)
 
@@ -240,6 +243,10 @@ class V1ByteIdentity(unittest.TestCase):
             self.assertTrue(text.startswith("subject_definitions:\n"))
             self.assertNotIn("prompt_style", receipt["provider_semantic_coverage_receipt"])
             self.assertEqual(hashlib.sha256(text.encode("utf-8")).hexdigest(), V1_SHA[director])
+        unit, plan = fixture(style=False, director=True)
+        unit["h3_camera_lock"] = "standard"
+        text, _ = render_h3_prompt(unit, plan)
+        self.assertEqual(hashlib.sha256(text.encode("utf-8")).hexdigest(), V1_SHA["standard"])
 
     def test_single_subject_profiles_keep_their_own_grammar(self):
         unit, plan = fixture()

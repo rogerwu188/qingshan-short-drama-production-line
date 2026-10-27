@@ -162,6 +162,33 @@ class FinalizationExemptsHarvestedBoundTakes(unittest.TestCase):
             self.assertEqual((left, exempt), (["E03-VU-002"], {}))
 
 
+class DefaultStrictCameraLockKeepsBoundTakes(unittest.TestCase):
+    """Owner 2026-10-26: the strict camera lock became the default for stamped locked units, so an in-flight
+    episode's recompile re-renders already-submitted locked units differently; their harvested bound takes are
+    judged against the submitted prompt and need no re-finalization."""
+
+    def test_recompiled_default_lock_prompt_of_a_harvested_take_needs_no_receipt(self):
+        import hashlib
+        from tools.h3_provider_prompt_renderer import render_h3_prompt
+        from tools.tests.test_h3_director_prompt_v2 import fixture
+        unit, plan = fixture()
+        unit["h3_camera_lock"] = "standard"  # what was rendered (and submitted) before the default changed
+        submitted = hashlib.sha256(render_h3_prompt(unit, plan)[0].encode()).hexdigest()
+        recompiled = hashlib.sha256(render_h3_prompt(*fixture())[0].encode()).hexdigest()
+        self.assertNotEqual(submitted, recompiled)
+        take = [{"task_id": "T2", "transaction": "/store/E03-VU-002__x.json", "prompt_sha256": submitted,
+                 "reference_sha256": ["kf"]}]
+        report = {"rows": [{"unit_id": "E03-VU-002", "status": "CHANGED", "planned_sha256": submitted,
+                            "final_sha256": recompiled}]}
+        with tempfile.TemporaryDirectory() as d, PipelineFixture(Path(d), STAMPED) as fx:
+            (fx.ctx.p.video_media / "E03-VU-002.mp4").write_bytes(b"clip")
+            with mock.patch.object(npl, "s6_live_bindings", return_value=take):
+                left, exempt = npl.exempt_harvested_bound_takes(fx.ctx, ["E03-VU-002"], report, {})
+        self.assertEqual(left, [])
+        self.assertEqual(exempt["E03-VU-002"]["submitted_prompt_review"], "PLANNED_PROMPT_UNCHANGED")
+        self.assertFalse(exempt["E03-VU-002"]["recompiled_matches_submitted"])
+
+
 class HardContinuationOpeningRendering(unittest.TestCase):
     def test_char_tagged_previous_real_final_frame_opens_the_clip(self):
         unit = _unit("PREVIOUS_UNIT_REAL_FINAL_FRAME")

@@ -168,22 +168,25 @@ class ConstraintLanguageTest(unittest.TestCase):
 
 
 class CameraLockStrictTest(unittest.TestCase):
-    """h3_camera_lock "strict" (owner A/B, lab Holmes E06 2026-10-26: locked units still pushed in)."""
+    """Strict camera lock: DEFAULT for CAMERA_GRAMMAR_V1 single-take locked units (owner 2026-10-26 after the
+    lab Holmes E06 A/B: VU-008 push-in 65% -> 15%, VU-001 98% -> 39%); "standard" opts out."""
 
     @staticmethod
-    def strict(pair):
+    def mode(pair, value):
         unit, plan = pair
-        unit["h3_camera_lock"] = "strict"
+        unit["h3_camera_lock"] = value
         return unit, plan
 
-    def test_v2_strict_adds_exactly_three_things(self):
+    def test_v2_default_adds_exactly_three_things(self):
         from tools.h3_provider_english_contract import (
             CAMERA_LOCK_FROZEN_FRAME, CAMERA_LOCK_NEVER, CAMERA_LOCK_STRICT, is_director_v2_text,
             validate_h3_provider_text_boundary as boundary)
-        base, base_receipt = render(*v2())
-        text, receipt = render(*self.strict(v2()))
+        base, base_receipt = render(*self.mode(v2(), "standard"))
+        text, receipt = render(*v2())
         self.assertEqual(receipt["h3_camera_lock"], "strict")
         self.assertNotIn("h3_camera_lock", base_receipt)
+        self.assertEqual(render(*self.mode(v2(), "strict"))[0], text)  # explicit strict == the default
+        self.assertEqual(render(*self.mode(v2(), "loose"))[0], text)  # unknown value == the default
         self.assertTrue(text.startswith(CAMERA_LOCK_STRICT + "\n\nReferences:\n"))
         camera = text.split("Camera:\n", 1)[1].split("\n\n", 1)[0]
         self.assertTrue(camera.endswith("\n" + CAMERA_LOCK_FROZEN_FRAME))
@@ -200,25 +203,49 @@ class CameraLockStrictTest(unittest.TestCase):
         self.assertTrue(prompt_batch_qa.is_h3_director_v2(text))
         self.assertTrue(prompt_batch_qa.section(text, "锚点").startswith("@Image1"))
 
-    def test_strict_on_a_moving_camera_is_refused(self):
+    def test_moving_camera_keeps_its_wording_and_explicit_strict_is_refused(self):
+        from tools.h3_provider_english_contract import CAMERA_LOCK_STRICT
+        unit, plan = vu011(stamped=True)
+        unit.update(STYLE)
+        text, receipt = render(unit, plan)
+        self.assertNotIn(CAMERA_LOCK_STRICT, text)
+        self.assertNotIn("h3_camera_lock", receipt)
         unit, plan = vu011(stamped=True)
         unit.update(STYLE, h3_camera_lock="strict")
         with self.assertRaisesRegex(ValueError, "H3_CAMERA_LOCK_STRICT_ON_MOVING_CAMERA"):
             render(unit, plan)
 
-    def test_absent_unstamped_and_v1_stay_byte_identical(self):
+    def test_v1_director_default_and_opt_out(self):
+        from tools.h3_provider_english_contract import CAMERA_LOCK_FROZEN_CLAUSE
+        text, receipt = render(*unit_plan(stamped=True, performance=None))
+        base, base_receipt = render(*self.mode(unit_plan(stamped=True, performance=None), "standard"))
+        camera = next(line for line in text.splitlines() if line.startswith("camera: "))
+        self.assertTrue(camera.rstrip(".").endswith("; " + CAMERA_LOCK_FROZEN_CLAUSE), camera)
+        self.assertEqual(text.replace("; " + CAMERA_LOCK_FROZEN_CLAUSE, "", 1), base)
+        self.assertEqual((receipt.get("h3_camera_lock"), base_receipt.get("h3_camera_lock")), ("strict", None))
+        self.assertEqual(h3.locked_camera_move_conflicts(text), [])
+        moving, _ = render(*vu011(stamped=True))  # V1 moving camera: unchanged
+        self.assertNotIn(CAMERA_LOCK_FROZEN_CLAUSE, moving)
+
+    def test_unstamped_stay_byte_identical_whatever_is_declared(self):
         for name, make in UNSTAMPED.items():
-            unit, plan = make()
-            unit["h3_camera_lock"] = "strict"
-            text, receipt = render(unit, plan)
-            self.assertEqual(hashlib.sha256(text.encode()).hexdigest(), UNSTAMPED_PINS[name], name)
-            self.assertNotIn("h3_camera_lock", receipt)
-        base, _ = render(*unit_plan(stamped=True, performance=None))  # V1 renderer: flag not applied
-        self.assertEqual(render(*self.strict(unit_plan(stamped=True, performance=None)))[0], base)
-        self.assertEqual(render(*v2())[0], render(*v2())[0])
-        unit, plan = v2()
-        unit["h3_camera_lock"] = "loose"  # anything but "strict" is the default
-        self.assertEqual(render(unit, plan)[0], render(*v2())[0])
+            for value in (None, "strict", "standard"):
+                unit, plan = make()
+                if value:
+                    unit["h3_camera_lock"] = value
+                text, receipt = render(unit, plan)
+                self.assertEqual(hashlib.sha256(text.encode()).hexdigest(), UNSTAMPED_PINS[name], (name, value))
+                self.assertNotIn("h3_camera_lock", receipt)
+
+    def test_declared_mode_parsing(self):
+        from tools.h3_provider_english_contract import h3_camera_lock, strict_camera_lock_applies
+        self.assertEqual([h3_camera_lock({"h3_camera_lock": v}) for v in ("strict", " Standard ", "loose", None)],
+                         ["strict", "standard", "", ""])
+        self.assertFalse(strict_camera_lock_applies({}, stamped=False, locked_single_take=True))
+        self.assertTrue(strict_camera_lock_applies({}, stamped=True, locked_single_take=True))
+        self.assertFalse(strict_camera_lock_applies({}, stamped=True, locked_single_take=False))
+        self.assertFalse(strict_camera_lock_applies({"h3_camera_lock": "standard"}, stamped=True,
+                                                    locked_single_take=True))
 
     def test_provider_prompt_unit_carries_the_flag(self):
         from tools.submit_giggle_video_manifest_v2 import provider_prompt_unit

@@ -41,10 +41,12 @@ def h3_constraint_language(payload: dict[str, Any] | None) -> str:
     return "zh" if value in {"zh", "zh-cn", "chinese"} else "en"
 
 
-#: Opt-in strict camera lock (owner A/B, lab Holmes E06 2026-10-26: locked units still pushed in, face width
-#: 0.41 -> 0.81).  A CAMERA_GRAMMAR_V1 unit/contract with ``h3_camera_lock: "strict"`` gets this English
-#: block as the prompt's very first paragraph (DIRECTOR_PROMPT_V2), a frozen-frame-size camera sentence and
-#: extra Never items.  Absent (the default) renders byte-identically.
+#: Strict camera lock (owner A/B, lab Holmes E06 2026-10-26: locked units still pushed in, face width
+#: 0.41 -> 0.81; with this wording VU-008 push-in 65% -> 15%, VU-001 98% -> 39%).  DEFAULT for every
+#: CAMERA_GRAMMAR_V1 single-take locked-camera unit (owner 2026-10-26): this English block is the prompt's very
+#: first paragraph (DIRECTOR_PROMPT_V2), plus a frozen-frame-size camera sentence and extra Never items
+#: (the V1 director renders CAMERA_LOCK_FROZEN_CLAUSE in its camera line).  ``h3_camera_lock: "standard"``
+#: opts a unit/contract out; ``"strict"`` forces it (refused on a moving camera).  Unstamped units never get it.
 H3_CAMERA_LOCK_FIELD = "h3_camera_lock"
 CAMERA_LOCK_STRICT = (
     "CAMERA LOCK \u2014 ABSOLUTE RULE: the camera is bolted to a tripod for the whole clip. No zoom, no push-in, "
@@ -57,10 +59,28 @@ CAMERA_LOCK_NEVER = "zooming in, pushing in, dollying in, moving closer to the f
 DIRECTOR_V2_TEXT_START = re.compile(r"(?:" + re.escape(CAMERA_LOCK_STRICT) + r"\n\n)?References:\n")
 
 
+#: V1 director (key: value) camera-line clause of the same rule
+CAMERA_LOCK_FROZEN_CLAUSE = ("frame size is frozen: the subject stays exactly the same size in frame from the first "
+                             "frame to the last, never closer, no zoom-in, no crop change")
+CAMERA_LOCK_MODES = ("strict", "standard")
+
+
 def h3_camera_lock(payload: dict[str, Any] | None) -> str:
-    """"strict" when a unit/contract opts into the strict camera lock, else "" (the default)."""
+    """The declared camera-lock mode of a unit/contract: "strict", "standard" (opt-out) or "" (not declared)."""
     value = str((payload or {}).get(H3_CAMERA_LOCK_FIELD) or "").strip().lower()
-    return "strict" if value == "strict" else ""
+    return value if value in CAMERA_LOCK_MODES else ""
+
+
+def strict_camera_lock_applies(payload: dict[str, Any] | None, *, stamped: bool, locked_single_take: bool) -> bool:
+    """Whether a unit renders the strict camera lock: CAMERA_GRAMMAR_V1 only; declared "standard" opts out,
+    declared "strict" forces it (the renderer refuses it on a moving camera), otherwise (the default) every
+    locked-camera single-take unit gets it."""
+    if not stamped:
+        return False
+    declared = h3_camera_lock(payload)
+    if declared == "standard":
+        return False
+    return declared == "strict" or locked_single_take
 
 
 def is_director_v2_text(text: str) -> bool:

@@ -565,7 +565,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "d6c34bd511638d1de15a3cd0d9ec4e0b2b9d232e32e709ec42961f256dcac4e1"
+      "sha256": "308ec1f2afaa3ea7c582d3d777d7fa4922224a78235e80d5587414bd93b4db49"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -3777,7 +3777,7 @@
     },
     {
       "path": "tools/compile_grouped_seedance_manifest.py",
-      "sha256": "a552c64ef1820cd8759d57c5e625b61cb13ed3d7cb9b3179f05102cf1e2c9b0e"
+      "sha256": "b92b4f3834280d84bbc1d205fd81eac60a0245481796e42a07005a1425511048"
     },
     {
       "path": "tools/compile_grouped_seedance_transaction_manifest.py",
@@ -4889,7 +4889,7 @@
     },
     {
       "path": "tools/h3_director_prompt_v2.py",
-      "sha256": "e499d07347aa78f6c13e6ced2805f69466f553cb7d6b8943a0aad79b133c1ed7"
+      "sha256": "3a4ef34f7f5f8002dc858311c790520e223b3973f2783efa2563f4d335d36349"
     },
     {
       "path": "tools/h3_english_contract_io.py",
@@ -4901,11 +4901,11 @@
     },
     {
       "path": "tools/h3_provider_english_contract.py",
-      "sha256": "64d27513d6a70c4657c883e2cb6d7b8d59e0d71eadd9252b0887e653905825e4"
+      "sha256": "ef284b80660f795865e47b1b79024bb61707cc5f96d52e20c87b65b5107e5be0"
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "7552c51b641302a37387fc8dcff264f3a6cc8a78f8654e456fd43e2a498b6edc"
+      "sha256": "37daeff50d2e8618287f0c68e281671436a78b6f0748fdbcef6af8c04f74849a"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -6461,7 +6461,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "33613a233be27bc98c682a8749deb810a37f13a321bf1e770d854f60bdff9986"
+      "sha256": "2748f56604bfc4906a17ae3f506c741520cd4416edf0e127f7eca63749cb5069"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -7457,7 +7457,7 @@
     },
     {
       "path": "tools/tests/test_h3_director_prompt_v2.py",
-      "sha256": "8f862b7ec07e65e04daafc7ad2305623710fdc2f62e2ea4543806cbf1f2bb259"
+      "sha256": "8ea301351065f9e4b7646903dd440c4d2d27ad58396c94caeb564d32f9383d87"
     },
     {
       "path": "tools/tests/test_h3_native_audio_whitelist_gate.py",
@@ -7465,7 +7465,7 @@
     },
     {
       "path": "tools/tests/test_h3_provider_expert_advice.py",
-      "sha256": "50dd59001f09c26fbc7449c02f3dd36947aa88f4d49bcc00aa7f23c55a19739c"
+      "sha256": "e33af43ac3e316e62d0742cd78f53c67f31bf9d5da20407daa7d431f0c582349"
     },
     {
       "path": "tools/tests/test_h3_quoted_cjk_inside_dialogue.py",
@@ -8049,7 +8049,7 @@
     },
     {
       "path": "tools/tests/test_s6_final_pass_as_submitted.py",
-      "sha256": "a54a7d1ea4179fd334dabe765d47d9bed4657d89cea87fc25211e1e22d29890f"
+      "sha256": "bed0c13e619d9121fe8940e8ef7929cd150f6bf6e1ee51c5fd0e149b399ba933"
     },
     {
       "path": "tools/tests/test_s6_resume_budget_and_tails.py",

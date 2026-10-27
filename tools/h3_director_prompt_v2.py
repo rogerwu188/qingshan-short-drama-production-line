@@ -7,8 +7,9 @@ from it (``submit_giggle_video_manifest_v2.provider_prompt_unit``).  Every other
 ``subject_definitions:`` prompt byte-identically (tools/h3_provider_prompt_renderer.py).
 
 Sections, in order: References / Who is in frame / Setting / Camera / Action / Dialogue / Sound / Never.
-An opt-in ``h3_camera_lock: "strict"`` (CAMERA_GRAMMAR_V1 locked-camera units only) adds a CAMERA LOCK block
-before References, a frozen-frame-size Camera sentence and push-in Never items; absent renders byte-identically.
+CAMERA_GRAMMAR_V1 single-take locked-camera units get the strict camera lock by default (owner 2026-10-26): a
+CAMERA LOCK block before References, a frozen-frame-size camera sentence and push-in Never items;
+``h3_camera_lock: "standard"`` opts out, moving cameras keep their wording, unstamped units render byte-identically.
 Every fact comes from the same execution plan and bound English contract V1 uses; the optional
 ``director_v2`` block of that contract (appearance, wardrobe, setting in English) is requested by
 tools/h3_english_contract_io.py for V2 units only.  Machine ids, retention/force/interaction templates,
@@ -36,6 +37,7 @@ try:
         CAMERA_LOCK_NEVER,
         CAMERA_LOCK_STRICT,
         h3_camera_lock,
+        strict_camera_lock_applies,
         validate_h3_provider_text_boundary,
     )
     from tools.provider_semantic_coverage import build_semantic_coverage_receipt
@@ -57,6 +59,7 @@ except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
         CAMERA_LOCK_NEVER,
         CAMERA_LOCK_STRICT,
         h3_camera_lock,
+        strict_camera_lock_applies,
         validate_h3_provider_text_boundary,
     )
     from provider_semantic_coverage import build_semantic_coverage_receipt  # type: ignore
@@ -467,8 +470,6 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     }
     crossmodal_by_speaker = {str(row.get("speaker") or "").strip(): row for row in crossmodal_rows}
     stamped = v1.director_active(unit, plan)  # CAMERA_GRAMMAR_V1 camera plans
-    # opt-in strict camera lock (h3_camera_lock "strict"; stamped units only, absent = byte-identical)
-    camera_lock = h3_camera_lock(unit) if stamped else ""
 
     # --- subjects and per-beat presence ----------------------------------------------------------------
     sources = subject_sources(unit)
@@ -648,9 +649,13 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
 
     # --- camera ----------------------------------------------------------------------------------------
     camera, camera_receipt = camera_section(unit, plan, contract, beats)
+    # strict camera lock: default on stamped single-take locked units, "standard" opts out (owner 2026-10-26)
+    all_locked = all("Locked camera" in line for line in camera.split("\n") if line != v1.ONE_TAKE)
+    if stamped and h3_camera_lock(unit) == "strict" and not all_locked:
+        raise ValueError(f"{uid}:H3_CAMERA_LOCK_STRICT_ON_MOVING_CAMERA")
+    camera_lock = strict_camera_lock_applies(unit, stamped=stamped,
+                                             locked_single_take=all_locked and v1.ONE_TAKE in camera)
     if camera_lock:
-        if any("Locked camera" not in line for line in camera.split("\n") if line != v1.ONE_TAKE):
-            raise ValueError(f"{uid}:H3_CAMERA_LOCK_STRICT_ON_MOVING_CAMERA")
         camera += "\n" + CAMERA_LOCK_FROZEN_FRAME
     evidence["CAMERA.PLAN"] = camera
 

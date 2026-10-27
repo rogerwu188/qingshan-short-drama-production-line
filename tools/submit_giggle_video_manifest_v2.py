@@ -472,7 +472,7 @@ def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
     # opt-in Chinese constraint sentences (generation contract h3_constraint_language "zh"; A/B variant tasks)
     if task.get("h3_constraint_language") or machine.get("h3_constraint_language"):
         prompt_unit["h3_constraint_language"] = task.get("h3_constraint_language") or machine.get("h3_constraint_language")
-    # opt-in strict camera lock (h3_camera_lock "strict"; camera-lock A/B variant tasks)
+    # declared camera lock (h3_camera_lock "strict" | "standard"; absent = renderer default)
     if task.get("h3_camera_lock") or machine.get("h3_camera_lock"):
         prompt_unit["h3_camera_lock"] = task.get("h3_camera_lock") or machine.get("h3_camera_lock")
     prompt_unit["duration_seconds"] = task.get("duration_seconds")

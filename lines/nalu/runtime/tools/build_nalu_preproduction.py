@@ -2982,7 +2982,7 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             task["h3_prompt_style"] = cu["h3_prompt_style"]
         if cu.get("h3_constraint_language"):  # opt-in "zh" provider-expert constraint sentences; absent == en
             task["h3_constraint_language"] = cu["h3_constraint_language"]
-        if cu.get("h3_camera_lock"):  # opt-in strict camera lock; absent == current output
+        if cu.get("h3_camera_lock"):  # declared camera lock (strict|standard); absent == renderer default
             task["h3_camera_lock"] = cu["h3_camera_lock"]
         task["dialogue_lines"] = lines
         task["native_dialogue_required"] = bool(lines)

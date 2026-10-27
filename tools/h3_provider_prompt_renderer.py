@@ -33,6 +33,8 @@ except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
 try:
     from tools.h3_provider_english_contract import (
         H3_CONSTRAINT_ZH,
+        CAMERA_LOCK_FROZEN_CLAUSE,
+        strict_camera_lock_applies,
         h3_constraint_language,
         require_h3_provider_english_contract,
         validate_h3_provider_text_boundary,
@@ -45,6 +47,8 @@ try:
 except ModuleNotFoundError:
     from h3_provider_english_contract import (
         H3_CONSTRAINT_ZH,
+        CAMERA_LOCK_FROZEN_CLAUSE,
+        strict_camera_lock_applies,
         h3_constraint_language,
         require_h3_provider_english_contract,
         validate_h3_provider_text_boundary,
@@ -547,7 +551,8 @@ def _camera_section(
         failures: list[str] = []
         english = _camera_english(uid, "UNIT", camera_plan, contract.get("camera_plan") or {}, failures)
         one_take = _ONE_TAKE_CLAUSE if camera_plan.get("camera_grammar") == "CAMERA_GRAMMAR_V1" else ""
-        return _camera_scoped(camera_plan, english) + one_take, [{
+        return _camera_scoped(camera_plan, english) + one_take + _strict_lock_clause(
+            unit, plan, [camera_plan], bool(one_take)), [{
             "shot_id": "UNIT", "fields": sorted(english), "untranslated_fields": failures,
         }]
     translated = contract.get("camera_plans") or contract.get("per_shot_camera_plans") or []
@@ -567,8 +572,18 @@ def _camera_section(
             "shot_id": label, "boundary": boundary, "fields": sorted(english), "untranslated_fields": missing,
         })
     if one_take_applies([row["camera_plan"] for row in rows], [row["boundary"] for row in receipt]):
-        lines[0] += _ONE_TAKE_CLAUSE
+        lines[0] += _ONE_TAKE_CLAUSE + _strict_lock_clause(unit, plan, [row["camera_plan"] for row in rows], True)
     return "\n".join(lines), receipt
+
+
+def _strict_lock_clause(unit: dict[str, Any], plan: dict[str, Any], camera_plans: list[dict[str, Any]],
+                        one_take: bool) -> str:
+    """CAMERA_GRAMMAR_V1 default strict camera lock (owner 2026-10-26, lab E06): every single-take locked-camera
+    unit's camera line also freezes the frame size; h3_camera_lock "standard" opts out; else ""."""
+    locked = one_take and bool(camera_plans) and all(
+        str((p or {}).get("motion_family") or "STATIC").upper() in {"STATIC", "LOCKED"} for p in camera_plans)
+    applies = strict_camera_lock_applies(unit, stamped=director_active(unit, plan), locked_single_take=locked)
+    return "; " + CAMERA_LOCK_FROZEN_CLAUSE if applies and locked else ""
 
 
 _ONE_TAKE_CLAUSE = "; " + ONE_TAKE[0].lower() + ONE_TAKE[1:].rstrip(".")
@@ -1365,4 +1380,5 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         "prompt_budget": measure_prompt(text, source_id=uid, model_family="MINIMAX_H3"),
         **shot_scope_receipt,
         **({"h3_constraint_language": "zh"} if constraint_language == "zh" else {}),
+        **({"h3_camera_lock": "strict"} if CAMERA_LOCK_FROZEN_CLAUSE in camera else {}),
     }
