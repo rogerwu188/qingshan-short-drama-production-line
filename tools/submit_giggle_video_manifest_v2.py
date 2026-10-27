@@ -602,10 +602,17 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
         "internal_transition_contracts": machine.get("internal_transition_contracts")
         or task.get("internal_transition_contracts")
         or [],
+        # A grouping-plan unit names this boundary `transition_contract`; a paid
+        # task carries it as `incoming_transition_contract`.  Accept both, or a
+        # read-only neighbour loses its inbound and the slice looks unbound.
         "transition_contract": machine.get("incoming_transition_contract")
-        or task.get("incoming_transition_contract"),
+        or machine.get("transition_contract")
+        or task.get("incoming_transition_contract")
+        or task.get("transition_contract"),
         "incoming_transition_contract": machine.get("incoming_transition_contract")
-        or task.get("incoming_transition_contract"),
+        or machine.get("transition_contract")
+        or task.get("incoming_transition_contract")
+        or task.get("transition_contract"),
         "outgoing_transition_contract": machine.get("outgoing_transition_contract")
         or task.get("outgoing_transition_contract"),
         "action_classification": machine.get("action_classification")
@@ -700,11 +707,41 @@ def scoped_sequence_with_global_neighbours(
             f"staged wave units are absent from the bound global plan: {','.join(missing)}"
         )
 
+    # The grouping plan carries a neighbour's camera and transition but not its
+    # ordered_prompt_specs, and the boundary check binds the target requirements
+    # to the neighbour's first/last beat.  A separate prompt-spec context plan
+    # (recorded by the builder) supplies only that missing field; per-unit
+    # camera/scene/transition always come from the grouping plan.
+    spec_context: dict[str, dict[str, Any]] = {}
+    context_value = scope.get("global_context_units")
+    if context_value:
+        context_path = resolve(context_value)
+        if not context_path.is_file():
+            raise RuntimeError(f"staged_generation_scope context plan is missing: {context_value}")
+        expected_context_sha = str(scope.get("global_context_units_sha256") or "")
+        actual_context_sha = sha256(context_path)
+        if expected_context_sha and actual_context_sha != expected_context_sha:
+            raise RuntimeError(
+                "staged_generation_scope context plan changed after the batch was built "
+                f"({context_value}): expected {expected_context_sha}, found {actual_context_sha}"
+            )
+        for row in (json.loads(context_path.read_text(encoding="utf-8")).get("units")
+                    or json.loads(context_path.read_text(encoding="utf-8")).get("tasks") or []):
+            uid = str(row.get("unit_id") or row.get("task_key") or "")
+            if uid:
+                spec_context[uid] = row
+
     def neighbour(unit: dict[str, Any], offset: int) -> dict[str, Any] | None:
         index = order[str(unit["unit_id"])] + offset
         if index < 0 or index >= len(plan_units):
             return None
         candidate = copy.deepcopy(plan_units[index])
+        if not candidate.get("ordered_prompt_specs"):
+            extra = spec_context.get(str(candidate.get("unit_id") or "")) or {}
+            for field in ("ordered_prompt_specs", "duration_seconds", "aspect_ratio",
+                          "resolution", "model", "character_entities"):
+                if extra.get(field) is not None and candidate.get(field) is None:
+                    candidate[field] = copy.deepcopy(extra[field])
         # The grouping plan stores the same contract fields a task carries, but
         # grouped_sequence_unit() reads most of them from ``machine_contract``
         # (that is where the paid boundary keeps them).  Project the neighbour
@@ -1363,7 +1400,10 @@ def main() -> int:
             manifest, grouped_camera_units)
         if sequence:
             validate_camera_sequence(sequence)
-            validate_transition_sequence(sequence, require_prompt_specs=True)
+            # The slice starts inside the episode: its first unit is a read-only
+            # neighbour that legitimately has an inbound transition.
+            validate_transition_sequence(sequence, require_prompt_specs=True,
+                                        starts_episode=False)
             rhythm = validate_combat_sequence_rhythm(sequence)
             if rhythm["status"] != "PASS":
                 raise ValueError("Combat sequence rhythm gate failed: " + ",".join(rhythm["failures"]))
@@ -1558,7 +1598,10 @@ def exec_deployed_submitter() -> None:
             manifest, grouped_camera_units)
         if sequence:
             validate_camera_sequence(sequence)
-            validate_transition_sequence(sequence, require_prompt_specs=True)
+            # The slice starts inside the episode: its first unit is a read-only
+            # neighbour that legitimately has an inbound transition.
+            validate_transition_sequence(sequence, require_prompt_specs=True,
+                                        starts_episode=False)
             rhythm = validate_combat_sequence_rhythm(sequence)
             if rhythm["status"] != "PASS":
                 raise RuntimeError("Combat sequence rhythm gate failed: " + ",".join(rhythm["failures"]))

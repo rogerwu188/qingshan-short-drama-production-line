@@ -247,13 +247,24 @@ def validate_transition_contract(
 
 
 def validate_transition_sequence(
-    units: list[dict[str, Any]], *, require_prompt_specs: bool = False
+    units: list[dict[str, Any]], *, require_prompt_specs: bool = False,
+    starts_episode: bool = True,
 ) -> None:
+    """Validate adjacency between consecutive units.
+
+    ``starts_episode=False`` is for a call that validates a SLICE of the episode
+    with read-only context spliced around it (a repair wave plus its
+    neighbours).  There, ``units[0]`` is not the episode's first unit: it
+    legitimately declares an inbound transition to a predecessor that sits
+    outside the slice, so that row is neither rejected nor blanked.  Only the
+    boundaries that fall inside the slice are checked.
+    """
     for index, current in enumerate(units):
         if index == 0:
-            if current.get("transition_contract"):
-                raise ValueError(f"{current.get('unit_id')} first unit must not declare an inbound transition")
-            current["incoming_transition_contract"] = None
+            if starts_episode:
+                if current.get("transition_contract"):
+                    raise ValueError(f"{current.get('unit_id')} first unit must not declare an inbound transition")
+                current["incoming_transition_contract"] = None
             continue
         previous = units[index - 1]
         normalized = validate_transition_contract(

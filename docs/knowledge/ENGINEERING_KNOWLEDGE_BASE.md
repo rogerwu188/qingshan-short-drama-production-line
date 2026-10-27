@@ -1193,6 +1193,7 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 
 - **规则**：局部修复批次（`partial_repair_scope` / `staged_generation_scope`）不得整体跳过跨单元校验。应由构建阶段记录全局分组计划及其 sha256，提交阶段把该计划的紧邻前驱/后继单元作为只读上下文拼进序列，只校验受影响边界；邻居永不进入 manifest 的 `tasks`，绝不重复 POST。计划在批次构建后被改动则拒绝提交。
 - **教训**：旧实现一旦看到作用域标记就同时跳过运镜序列、转场序列与节奏三个校验。非连续子集不被当成连续集是对的，但「什么都不查」让批次与集内邻接处的边界完全失守：重画的运镜可能撞上邻居的出向运动，重写的转场可能与邻居终态矛盾。
+- **补充**：分组计划本身不带 `ordered_prompt_specs`，而边界校验要把目标要求绑到邻居的首/末拍，因此构建阶段另记录提示词上下文计划（`global_context_units` ＋ sha256），只用于补这个字段；邻居的机位/场景/转场仍取自分组计划。切片序列的第一项是邻居而非整集首单元，`starts_episode=False` 保留它自己的入向转场。
 - **恢复**：无全局计划引用的历史修复批次维持仅逐任务校验；新批次应带计划。
 - **实现**：[lines/nalu/runtime/tools/build_nalu_preproduction.py](../../lines/nalu/runtime/tools/build_nalu_preproduction.py)、[tools/submit_giggle_video_manifest_v2.py](../../tools/submit_giggle_video_manifest_v2.py)
 - **回归**：`tools/tests/test_staged_scope_neighbour_context.py`

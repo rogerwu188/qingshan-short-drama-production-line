@@ -2092,7 +2092,12 @@ def main() -> int:
         finalize_video_tasks(transaction, compiled_units, final_rows, rendered=rendered, contract=contract,
                              out_dir=out_dir, prefix=prefix, root=root, episode=episode,
                              ready_units=(json.loads(args.ready_units) if args.ready_units else None),
-                             global_grouping_plan_path=full_plan_path)
+                             global_grouping_plan_path=full_plan_path,
+                             # Planning manifest = every unit WITH ordered_prompt_specs.
+                             # Only used to give a read-only neighbour the beat specs the
+                             # grouping plan does not carry; per-unit camera/scene are taken
+                             # from the grouping plan itself.
+                             context_units_path=(out_dir / f"{prefix}GROUPED_SEEDANCE_MANIFEST_PLANNING_V1.json"))
         transaction["blocking_note"] = "prompt files compiled by stage 4.4 (strict) for every task in this manifest"
         if MODEL_CONTRACT["model"] == "MiniMax-H3":
             h3 = render_h3_final_prompts(transaction, out_dir=out_dir, root=root, episode=episode,
@@ -2553,7 +2558,8 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
                          episode: str, ready_units: list[str] | None,
                          source_grouped_path: Path | None = None,
                          action_role_evidence_dir: Path | None = None,
-                         global_grouping_plan_path: Path | None = None) -> None:
+                         global_grouping_plan_path: Path | None = None,
+                         context_units_path: Path | None = None) -> None:
     """Turn every stage-4.4-compiled unit into the task shape the engine's own
     compile_grouped_seedance_transaction_manifest.py produces and its submitter validates
     (validate_task / validate_grouped_creative_task / action contract / tempo gate /
@@ -2999,6 +3005,13 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
         if global_grouping_plan_path is not None and Path(global_grouping_plan_path).is_file():
             scope["global_grouping_plan"] = portable(Path(global_grouping_plan_path), root)
             scope["global_grouping_plan_sha256"] = sha256_file(Path(global_grouping_plan_path))
+        if context_units_path is not None and Path(context_units_path).is_file():
+            # The grouping plan carries the neighbour's camera and transition but
+            # NOT its ordered_prompt_specs, and the boundary check binds the target
+            # requirements to the neighbour's first/last beat.  Record the plan that
+            # does carry them so the neighbour can be validated, not just skipped.
+            scope["global_context_units"] = portable(Path(context_units_path), root)
+            scope["global_context_units_sha256"] = sha256_file(Path(context_units_path))
         transaction["staged_generation_scope"] = scope
 
 def _copy_compiled_transport_policies(machine: dict[str, Any], compiled: dict[str, Any]) -> None:

@@ -16,6 +16,7 @@ Synthetic units only — no episode text, task ids, media or production paths.
 
 from __future__ import annotations
 
+import copy
 import json
 import tempfile
 import unittest
@@ -124,6 +125,128 @@ class NeighbourSplice(unittest.TestCase):
             {"tasks": submitted, "staged_generation_scope": {}}, submitted)
         self.assertEqual(sequence, [])
         self.assertEqual(report["status"], "MISSING_GLOBAL_PLAN")
+
+    def test_the_opening_neighbour_keeps_its_inbound_transition(self):
+        """A sliced sequence starts inside the episode, so units[0] is a real
+        predecessor with a real inbound transition.  Treating it as the
+        episode's first unit rejected every repair wave whose neighbour had
+        one (E12 VU-053 re-entry, 2026-10-27)."""
+        from tools import grouped_transition_contract as transitions
+
+        units = [_plan_unit("T-VU01", transition={
+            "from_unit_id": "T-VU00", "to_unit_id": "T-VU01",
+            "boundary_id": "BND-T-VU00-T-VU01",
+            "cut_reason": "REACTION_CUT", "space_relation": "SAME_SUBSPACE",
+            "authorship": "DIRECTOR_AUTHORED", "transition_device": "GAZE_MATCH",
+            "outgoing_handle_seconds": 0.8, "incoming_handle_seconds": 0.8,
+            "plot_motivation": "the reaction reveals new information to the audience",
+            "visual_bridge": "A's raised eyes carry into B's matching look",
+            "action_bridge": "A looks up then B looks back",
+            "sound_bridge": "room tone continues unbroken",
+            "axis_strategy": "stays on axis A side",
+            "continuity_intent": "no reset, no replay of the prior beat",
+            "source_terminal_state": {"scene_id": "T-SC",
+                                      "space": {"global": "G", "location": "L", "subspace": "S"},
+                                      "camera_framing": "A holds", "camera_side": "AXIS_A",
+                                      "blocking": "A seated at table"},
+            "target_initial_state": {"scene_id": "T-SC",
+                                     "space": {"global": "G", "location": "L", "subspace": "S"},
+                                     "camera_framing": "A holds", "camera_side": "AXIS_A",
+                                     "blocking": "A seated at table"},
+            "anchor_semantic_requirements": {"target_visible_characters": [],
+                                             "target_visible_props": [],
+                                             "target_space_anchors": ["L"],
+                                             "empty_establishing_frame_allowed": True},
+        }), _plan_unit("T-VU02", transition={
+            "from_unit_id": "T-VU01", "to_unit_id": "T-VU02",
+            "boundary_id": "BND-T-VU01-T-VU02",
+            "cut_reason": "REACTION_CUT", "space_relation": "SAME_SUBSPACE",
+            "authorship": "DIRECTOR_AUTHORED", "transition_device": "GAZE_MATCH",
+            "outgoing_handle_seconds": 0.8, "incoming_handle_seconds": 0.8,
+            "plot_motivation": "the reaction reveals new information to the audience",
+            "visual_bridge": "A's raised eyes carry into B's matching look",
+            "action_bridge": "A looks up then B looks back",
+            "sound_bridge": "room tone continues unbroken",
+            "axis_strategy": "stays on axis A side",
+            "continuity_intent": "no reset, no replay of the prior beat",
+            "source_terminal_state": {"scene_id": "T-SC",
+                                      "space": {"global": "G", "location": "L", "subspace": "S"},
+                                      "camera_framing": "A holds", "camera_side": "AXIS_A",
+                                      "blocking": "A seated at table"},
+            "target_initial_state": {"scene_id": "T-SC",
+                                     "space": {"global": "G", "location": "L", "subspace": "S"},
+                                     "camera_framing": "A holds", "camera_side": "AXIS_A",
+                                     "blocking": "A seated at table"},
+            "anchor_semantic_requirements": {"target_visible_characters": [],
+                                             "target_visible_props": [],
+                                             "target_space_anchors": ["L"],
+                                             "empty_establishing_frame_allowed": True},
+        })]
+        with tempfile.TemporaryDirectory() as tmp:
+            path, sha = _write_plan(Path(tmp), units)
+            submitted = _projected([units[1]])
+            sequence, _ = submitter.scoped_sequence_with_global_neighbours(
+                _manifest(path, sha, submitted), submitted)
+        self.assertEqual(sequence[0]["unit_id"], "T-VU01")
+        self.assertTrue(sequence[0].get("transition_contract"),
+                        "the read-only neighbour's own inbound must survive the slice check")
+        transitions.validate_transition_sequence(sequence, require_prompt_specs=True,
+                                                 starts_episode=False)
+
+    def test_a_whole_episode_run_still_rejects_an_inbound_first_unit(self):
+        """The guard must stay on for normal submissions: an episode's first
+        unit may not declare an inbound transition."""
+        from tools import grouped_transition_contract as transitions
+
+        units = [_plan_unit("T-VU01", transition={"cut_reason": "REACTION_CUT"})]
+        with self.assertRaises(ValueError):
+            transitions.validate_transition_sequence(_projected(units))
+
+    def test_neighbour_prompt_specs_come_from_the_recorded_context_plan(self):
+        """The grouping plan has no ordered_prompt_specs, and the boundary check
+        binds target requirements to the neighbour's first/last beat.  Without
+        the context plan every scoped wave died on 'requires ordered prompt
+        specs' (E12 VU-053 re-entry, 2026-10-27)."""
+        units = [_plan_unit(f"T-VU{i:02d}") for i in range(1, 4)]
+        bare = copy.deepcopy(units)
+        for unit in bare:
+            unit.pop("ordered_prompt_specs", None)
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_path, plan_sha = _write_plan(Path(tmp), bare)
+            context_path = Path(tmp) / "T01_CONTEXT_UNITS.json"
+            context_path.write_text(json.dumps({"units": units}), encoding="utf-8")
+            import hashlib
+            manifest = _manifest(plan_path, plan_sha, _projected(units[1:2]))
+            manifest["staged_generation_scope"].update({
+                "global_context_units": str(context_path),
+                "global_context_units_sha256":
+                    hashlib.sha256(context_path.read_bytes()).hexdigest(),
+            })
+            sequence, _ = submitter.scoped_sequence_with_global_neighbours(
+                manifest, _projected(units[1:2]))
+        self.assertTrue(sequence[0]["ordered_prompt_specs"])
+        self.assertTrue(sequence[2]["ordered_prompt_specs"])
+
+    def test_a_changed_context_plan_is_refused(self):
+        units = [_plan_unit(f"T-VU{i:02d}") for i in range(1, 4)]
+        bare = copy.deepcopy(units)
+        for unit in bare:
+            unit.pop("ordered_prompt_specs", None)
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_path, plan_sha = _write_plan(Path(tmp), bare)
+            context_path = Path(tmp) / "T01_CONTEXT_UNITS.json"
+            context_path.write_text(json.dumps({"units": units}), encoding="utf-8")
+            import hashlib
+            stale_sha = hashlib.sha256(context_path.read_bytes()).hexdigest()
+            context_path.write_text(json.dumps({"units": units[:1]}), encoding="utf-8")
+            manifest = _manifest(plan_path, plan_sha, _projected(units[1:2]))
+            manifest["staged_generation_scope"].update({
+                "global_context_units": str(context_path),
+                "global_context_units_sha256": stale_sha,
+            })
+            with self.assertRaises(RuntimeError):
+                submitter.scoped_sequence_with_global_neighbours(
+                    manifest, _projected(units[1:2]))
 
     def test_wave_unit_absent_from_the_global_plan_is_refused(self):
         units = [_plan_unit("T-VU01")]
