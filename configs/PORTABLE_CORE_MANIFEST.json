@@ -312,6 +312,7 @@
     "tools.tests.test_pregen_consistency_retry_closure",
     "tools.tests.test_previs_and_timing_map",
     "tools.tests.test_previs_boundary_projection",
+    "tools.tests.test_previs_render_watchable",
     "tools.tests.test_previs_review_round_semantics",
     "tools.tests.test_previs_sequence_digest_binding",
     "tools.tests.test_production_efficiency_contract",

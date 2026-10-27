@@ -376,6 +376,24 @@ def previs_gate(ctx: "Ctx", stage: str) -> dict[str, Any]:
                       "machine_failure_mode": machine_mode,
                       "request": "tools/episode_previs.py"}
     previs["director_review"] = review
+    # Optional watchable render (CC_H3 audit 2026-10-26 §四-缺口B).  Machine
+    # checks can agree while the sequence is unwatchable, and only a rendered
+    # clip plus real dialogue shows whether a viewer follows the speaker and
+    # the cut.  Off by default: it shells out to ffmpeg for the whole timeline,
+    # so a gate that runs on every stage attempt must not pay that cost unless
+    # the operator asked for a reviewable cut.  When enabled, a shot that has
+    # declared dialogue but no supplied clip is reported, never faked as silence.
+    render_target = os.environ.get("NALU_PREVIS_RENDER", "").strip()
+    if render_target and os.environ.get("NALU_PREVIS_RENDER_ENABLED", "").strip() == "1":
+        audio_map_path = os.environ.get("NALU_PREVIS_DIALOGUE_AUDIO", "").strip()
+        try:
+            dialogue_audio = (read_json(Path(audio_map_path), {}) or {}) if audio_map_path else None
+            previs["render"] = _previs.render_previs(
+                previs, Path(render_target),
+                renderer=Path(_previs.__file__).with_name("render_portable_timeline.py"),
+                dialogue_audio=dialogue_audio)
+        except Exception as exc:  # noqa: BLE001 — a failed render must not read as a pass
+            previs["render"] = {"status": "RENDER_FAILED", "error": f"{type(exc).__name__}:{exc}"}
     write_json(out_path, previs)
     blocked = bool(failures) and machine_mode == "BLOCK"
     row.update({
@@ -400,6 +418,13 @@ def previs_gate(ctx: "Ctx", stage: str) -> dict[str, Any]:
                  "or a lip sync works.  The director review is only complete when submitted "
                  "review receipts exist — re-running this stage does not advance it."),
     })
+    if "render" in previs:
+        row["render"] = {
+            key: previs["render"].get(key)
+            for key in ("status", "output", "shots_dialogue_audio_missing",
+                        "camera_moves_animated", "error")
+            if key in previs["render"]
+        }
     return row
 
 

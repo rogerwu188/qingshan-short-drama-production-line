@@ -195,6 +195,12 @@ def build_previs(
     for index, unit in enumerate(units):
         by_shot.setdefault(str(unit.get("shot_id")), []).append({**unit, "_index": index})
 
+    camera_by_shot: dict[str, dict[str, Any]] = {}
+    for unit in (grouping or {}).get("units") or []:
+        plan = unit.get("camera_plan") or {}
+        for sid_value in unit.get("editorial_shot_ids") or []:
+            camera_by_shot[str(sid_value)] = plan
+
     timeline: list[dict[str, Any]] = []
     cursor = 0.0
     seen_ids: set[str] = set()
@@ -245,6 +251,7 @@ def build_previs(
             cid = str(cast.get("character_id") or "")
             if cid and registry and cid not in registry:
                 fail("CAST_ID_NOT_REGISTERED", sid, cid)
+        plan = camera_by_shot.get(sid) or {}
         timeline.append({
             "shot_id": sid,
             "scene_id": shot.get("scene_id"),
@@ -253,6 +260,16 @@ def build_previs(
             "visual": image or "PLACEHOLDER_CARD",
             "visual_source": "EXISTING_KEYFRAME" if image else "PLACEHOLDER",
             "dialogue": lines,
+            # The declared camera is what the viewer is meant to see move.  A
+            # still card cannot show whether a pan reads, so the projection is
+            # explicit here and the renderer animates only what was declared.
+            "camera": {
+                "motion_family": plan.get("motion_family"),
+                "motion_direction": plan.get("motion_direction"),
+                "start_framing": plan.get("start_framing"),
+                "end_framing": plan.get("end_framing"),
+                "declared": bool(plan),
+            },
         })
         cursor += duration
 
@@ -470,33 +487,146 @@ def director_review_request(previs: dict[str, Any], *, round_number: int,
     }
 
 
+_MOTION_MOVES = {
+    # (motion_family, motion_direction) -> how the viewer is meant to see the
+    # frame change.  Only declared motion is animated: a LOCKED unit must stay
+    # LOCKED in the previs, or the previs would invent a camera the shot
+    # contract says not to have.
+    ("PAN", "LEFT_TO_RIGHT"): ("x", 0.0, 1.0),
+    ("TRACK", "LEFT_TO_RIGHT"): ("x", 0.0, 1.0),
+    ("PAN", "RIGHT_TO_LEFT"): ("x", 1.0, 0.0),
+    ("TRACK", "RIGHT_TO_LEFT"): ("x", 1.0, 0.0),
+    ("DOLLY", "PUSH_IN"): ("z", 1.0, 1.12),
+    ("DOLLY", "PULL_OUT"): ("z", 1.12, 1.0),
+    ("CRANE", "RISE"): ("y", 1.0, 0.0),
+    ("CRANE", "FALL"): ("y", 0.0, 1.0),
+    ("ARC", "CLOCKWISE"): ("x", 0.35, 0.65),
+    ("ARC", "COUNTERCLOCKWISE"): ("x", 0.65, 0.35),
+}
+
+
+def _still_filter(row: dict[str, Any], width: int, height: int, fps: int) -> str:
+    """Render one still as a clip, animating only the camera motion the shot declared."""
+    camera = row.get("camera") or {}
+    move = _MOTION_MOVES.get((str(camera.get("motion_family") or "").upper(),
+                              str(camera.get("motion_direction") or "").upper()))
+    frames = max(1, int(round(float(row["duration"]) * fps)))
+    if move is None:
+        return (f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,fps={fps},format=yuv420p")
+    axis, first, last = move
+    if axis == "z":
+        zoom = f"1.0+{last - 1.0:.6f}*on/{frames}"
+        x_expr, y_expr = "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
+    elif axis == "x":
+        # Overscan slightly so the pan has somewhere to travel.
+        zoom = "1.12"
+        x_expr = f"(iw-iw/zoom)*({first:.4f}+({last - first:.4f})*on/{frames})"
+        y_expr = "ih/2-(ih/zoom/2)"
+    else:
+        zoom = "1.12"
+        x_expr = "iw/2-(iw/zoom/2)"
+        y_expr = f"(ih-ih/zoom)*({first:.4f}+({last - first:.4f})*on/{frames})"
+    return (f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,"
+            f"zoompan=z='{zoom}':x='{x_expr}':y='{y_expr}':d=1:s={width}x{height}:fps={fps},"
+            f"format=yuv420p")
+
+
 def render_previs(previs: dict[str, Any], out: Path, *, renderer: Path, width: int = 720,
-                  height: int = 1280, fps: int = 24) -> Path:
-    """Optional: stills/placeholder cards -> clips -> the existing portable timeline renderer."""
+                  height: int = 1280, fps: int = 24,
+                  dialogue_audio: dict[str, list[dict[str, Any]]] | None = None
+                  ) -> dict[str, Any]:
+    """Render a watchable sequence previs: declared camera motion plus real dialogue.
+
+    The machine timeline can be self-consistent while the result is unwatchable —
+    that is exactly what a viewer catches and a JSON gate cannot.  So this renders
+    the declared camera move and places each measured dialogue clip where the
+    contract puts it, instead of an ``anullsrc`` silent bed.
+
+    ``dialogue_audio`` maps shot_id -> [{path, source_start, source_seconds}].
+    A shot with dialogue but no supplied clip is reported, never silently faked:
+    a previs that plays silence over a speaking shot claims a check it did not do.
+    """
+    audio = dialogue_audio or {}
     work = Path(tempfile.mkdtemp(prefix="previs_"))
-    video, audio = [], []
+    video, audio_clips = [], []
+    missing_audio: list[str] = []
+    silent: list[str] = []
     for row in previs["timeline"]:
         clip = work / f"{row['shot_id']}.mp4"
         src = row["visual"]
         image_input = (["-loop", "1", "-i", src] if src != "PLACEHOLDER_CARD"
                        else ["-f", "lavfi", "-i", f"color=c=0x202020:s={width}x{height}"])
+        clips = [c for c in audio.get(row["shot_id"], [])
+                 if Path(str(c.get("path") or "")).is_file()]
+        if row.get("dialogue") and not clips:
+            missing_audio.append(row["shot_id"])
+        elif not clips:
+            silent.append(row["shot_id"])
+
+        inputs = list(image_input)
+        filters = [f"[0:v]{_still_filter(row, width, height, fps)}[v0]"]
+        maps = ["-map", "[v0]"]
+        # ffmpeg indexes inputs by their -i order, not by argv position: the
+        # image above is input 0 even though it can span two argv elements.
+        next_input = 1
+        if clips:
+            # One audio input per dialogue unit, delayed to the beat's offset
+            # inside the shot.  normalize=0 keeps a two-hander's relative level.
+            labels = []
+            for cue in clips:
+                inputs += ["-i", str(cue["path"])]
+                offset_ms = max(0, int(round(float(cue.get("offset_seconds") or 0) * 1000)))
+                start_s = float(cue.get("source_start") or 0)
+                span = float(cue.get("source_seconds") or row["duration"])
+                filters.append(
+                    f"[{next_input}:a]atrim=start={start_s:.6f}:duration={span:.6f},"
+                    f"asetpts=PTS-STARTPTS,adelay={offset_ms}|{offset_ms}[a{next_input}]"
+                )
+                labels.append(f"[a{next_input}]")
+                next_input += 1
+            if len(labels) == 1:
+                mix = labels[0]
+            else:
+                filters.append("".join(labels) + f"amix=inputs={len(labels)}:normalize=0[mixa]")
+                mix = "[mixa]"
+        else:
+            inputs += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono"]
+            mix = f"[{next_input}:a]"
+        filters.append(f"{mix}apad,atrim=duration={float(row['duration']):.6f},"
+                       f"aresample=48000[aout]")
+        maps += ["-map", "[aout]"]
         subprocess.run([
-            "ffmpeg", "-y", "-v", "error", *image_input,
-            "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
-            "-t", f"{row['duration']}", "-vf", f"scale={width}:{height},fps={fps},format=yuv420p",
-            "-shortest", "-c:v", "libx264", "-c:a", "aac", str(clip),
+            "ffmpeg", "-y", "-v", "error", *inputs,
+            "-filter_complex", ";".join(filters), *maps,
+            "-t", f"{row['duration']}", "-c:a", "aac", "-c:v", "libx264",
+            str(clip),
         ], check=True)
         video.append({"source": str(clip), "start": row["start"], "duration": row["duration"]})
-        audio.append({"source": str(clip), "start": row["start"], "duration": row["duration"]})
+        audio_clips.append({"source": str(clip), "start": row["start"], "duration": row["duration"]})
+
     project = work / "previs_timeline.json"
     # The shape tools/render_portable_timeline.py reads: one video track and
     # one matching native-audio track under timeline.
     project.write_text(json.dumps({
         "output": {"width": width, "height": height, "fps": fps},
-        "timeline": {"videoTracks": [{"clips": video}], "audioTracks": [{"clips": audio}]},
+        "timeline": {"videoTracks": [{"clips": video}], "audioTracks": [{"clips": audio_clips}]},
     }), encoding="utf-8")
     subprocess.run(["python3", str(renderer), str(project), "--output", str(out)], check=True)
-    return out
+    return {
+        "status": "RENDERED_WITH_DIALOGUE" if not missing_audio else "RENDERED_WITHOUT_DECLARED_DIALOGUE",
+        "output": str(out),
+        "shots_rendered": len(video),
+        "shots_with_declared_dialogue_audio": len(video) - len(missing_audio) - len(silent),
+        "shots_dialogue_audio_missing": missing_audio,
+        "shots_silent": silent,
+        "camera_moves_animated": sorted({
+            f"{row['camera']['motion_family']}:{row['camera']['motion_direction']}"
+            for row in previs["timeline"]
+            if (str((row.get("camera") or {}).get("motion_family") or "").upper(),
+                str((row.get("camera") or {}).get("motion_direction") or "").upper()) in _MOTION_MOVES}),
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -507,6 +637,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--review-round", type=int, default=1)
     parser.add_argument("--render", type=Path, help="optional mp4 output via render_portable_timeline.py")
+    parser.add_argument("--dialogue-audio", type=Path,
+                        help='optional JSON: {"SHOT_ID": [{"path","offset_seconds","source_start","source_seconds"}]}')
     args = parser.parse_args(argv)
     contract = json.loads(args.contract.read_text(encoding="utf-8"))
     grouping = json.loads(args.grouping_plan.read_text(encoding="utf-8")) if args.grouping_plan else None
@@ -515,11 +647,19 @@ def main(argv: list[str] | None = None) -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(previs, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if args.render:
-        render_previs(previs, args.render, renderer=Path(__file__).with_name("render_portable_timeline.py"))
+        dialogue_audio = (json.loads(args.dialogue_audio.read_text(encoding="utf-8"))
+                          if args.dialogue_audio else None)
+        render = render_previs(
+            previs, args.render,
+            renderer=Path(__file__).with_name("render_portable_timeline.py"),
+            dialogue_audio=dialogue_audio)
+        previs["render"] = render
     print(json.dumps({k: previs[k] for k in ("status", "shot_count", "total_seconds",
                                              "estimated_dialogue_lines", "measured_dialogue_lines")}
                      | {"machine_failures": len(previs["machine_failures"]),
-                        "advisories": len(previs["advisories"])}, ensure_ascii=False))
+                        "advisories": len(previs["advisories"]),
+                        **({"render": previs["render"]} if "render" in previs else {})},
+                     ensure_ascii=False))
     return 0 if previs["status"] == "PASS" else 2
 
 

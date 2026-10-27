@@ -1210,3 +1210,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：已归档事务不再计入待发；外来行被隔离并单独报数
 - **授权**：Codex CC_H3 提示词与跨镜头预演修复方案 2026-10-26（配合现场账目）
 - **状态**：`REFERENCE_IMPLEMENTATION`
+
+### K125 — S5
+
+- **规则**：预演渲染必须呈现声明的运镜并接入真实对白音频，不能用静音床加静态卡代替。只动画化合同里声明过的 `(motion_family, motion_direction)` 组合；`LOCKED` 镜绝不补运镜；某镜有对白但没有提供音频时必须报告，不能假作静音通过。正式入口默认不渲（会为整条时间线调用 ffmpeg），由环境变量显式开启。
+- **教训**：旧入口只调用 `build_previs`、从不调用渲染，也从不传已有对白音频映射；可选渲染只把静态图／占位卡拼起来并配 `anullsrc`。机器检查可以彼此自洽而结果根本没法看——这恰是观众能抓、JSON 门抓不到的东西：观众能不能跟着说话对象、动作和切点走。
+- **恢复**：需要看片时设 `NALU_PREVIS_RENDER=<输出 mp4>` 与 `NALU_PREVIS_RENDER_ENABLED=1`，可选 `NALU_PREVIS_DIALOGUE_AUDIO` 指向对白音频清单；渲染结果写进回执并出现在门记录里。
+- **实现**：[tools/episode_previs.py](../../tools/episode_previs.py)、[lines/nalu/runtime/tools/nalu_pipeline.py](../../lines/nalu/runtime/tools/nalu_pipeline.py)
+- **回归**：`tools/tests/test_previs_render_watchable.py`
+- **证据**：端到端实渲：PAN/DOLLY/CRANE 有动画，`LOCKED` 静止；对白段实测 `-21.1 dB`、静默段 `-91 dB`；缺对白音频的镜被列入 `shots_dialogue_audio_missing`
+- **授权**：Codex CC_H3 提示词与跨镜头预演修复方案 2026-10-26 §四-缺口B
+- **状态**：`REFERENCE_IMPLEMENTATION`
