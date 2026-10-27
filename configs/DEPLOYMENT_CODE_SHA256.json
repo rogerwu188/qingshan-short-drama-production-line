@@ -337,7 +337,7 @@
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
-      "sha256": "4a6c17c57a843e3f285661d478eaa5175bfc44080f4e5ea719a6215d16f2f03f"
+      "sha256": "e52272ea9d141c3890115ad66e20278a5c070b542d018ea15bb62d2aed425395"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -805,7 +805,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "6a2c6665982d619b3b8f0d02f931f44aa73842a3c1a3cc19dd67c20d86476841"
+      "sha256": "9b43f9b22104e5d8b06aa143475b2a3a036fad149f154a9dd3cceea16f72177a"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",

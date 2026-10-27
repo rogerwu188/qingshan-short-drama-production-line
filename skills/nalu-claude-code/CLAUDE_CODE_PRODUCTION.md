@@ -37,7 +37,7 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
    （来源与 manifest 规则）、H3 改编指南 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md`（有就读）、派单里的 `SOURCE_SELECTION.md`
    和本集章节（`sources/<作品>/<SOURCE_INDEX.json 的 canonical_reading_script>/chNNNN.md`）。只按原文改编，原文缺的不凭记忆补写。
 2. `workflow/claude_writer_agent/scripts/<EP>_NARRATIVE_CANONICAL_v1.md`：只写事实、可表演的动作和**逐字台词**，按
-   `## <EP>-S01｜<LOC-ID>｜<时间>｜线A` 分场；不写机位、灯光、资产。一集 2–4 场、20–60 秒为宜；台词决定时长（中文每 4 个汉字约 1 秒；
+   `## <EP>-S01｜<LOC-ID>｜<时间>｜线A` 分场；不写机位、灯光、资产。一集 4–6 场、约 26–32 个镜头、镜头合计约 105 秒（成片约 1 分 50 秒，含片头片尾；线主 2026-10-27：每集约 2 分钟、留广告位，不超过 1 分 55 秒）——靠多写镜头和剧情拉长，不靠拉长单个镜头（对白镜仍 ≤5 秒）；台词决定时长（中文每 4 个汉字约 1 秒；
    英文约每秒 2.5 个词）。英文剧台词与旁白直接写英文；只有声音没有形象的旁白角色写成「旁白角色名：台词」，简报里照常列出、
    `appearance` 写「voice only」，登记为 `VOICE_ONLY_NO_PLATE`。没有人脸又不说话的可见存在（怪物、雕像、无五官人形）登记为
    `non_character_entities`（`kind: CREATURE`，`creature_card`，`note` 用英文一句话写清长相），不列成人物、也不当道具（H3 改编指南 §3）。E02 起开头承接上一集结尾状态，不重演上一集。
