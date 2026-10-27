@@ -339,6 +339,7 @@
     "tools.tests.test_speaker_identity_voice_release_gate",
     "tools.tests.test_speaker_voice_contract",
     "tools.tests.test_stage_time_ledger",
+    "tools.tests.test_staged_scope_neighbour_context",
     "tools.tests.test_start_frame_line_owner_acceptance",
     "tools.tests.test_state_delta_semantics",
     "tools.tests.test_storyclaw_asset_plan_gate",
