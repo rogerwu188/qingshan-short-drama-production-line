@@ -43,20 +43,21 @@ class AnalyzeTests(unittest.TestCase):
         plan = pic.analyze(samples(PUSH))
         self.assertEqual(plan["status"], "COMPENSATE")
         crops = [p["crop"] for p in plan["curve"]]
-        self.assertEqual((crops[0], crops[-1]), (1.6, 1.0))
+        self.assertEqual((crops[0], crops[-1]), (pic.MAX_CROP, 1.0))
         self.assertTrue(all(a >= b for a, b in zip(crops, crops[1:])))
         self.assertTrue(plan["cap_hit"])
-        self.assertAlmostEqual(plan["predicted_residual_growth"], 2.0 / 1.6 - 1, places=3)
+        self.assertAlmostEqual(plan["predicted_residual_growth"], 2.0 / pic.MAX_CROP - 1, places=3)
 
-    def test_moderate_push_is_removed_completely(self):
-        widths = [0.40, 0.41, 0.43, 0.45, 0.47, 0.49, 0.51, 0.53, 0.54]  # +35 %
+    def test_moderate_push_is_left_alone(self):
+        # owner 2026-10-27: only big push-ins (>= GROWTH_MIN) are corrected; +35 % stays native and sharp
+        widths = [0.40, 0.41, 0.43, 0.45, 0.47, 0.49, 0.51, 0.53, 0.54]
+        self.assertEqual(pic.analyze(samples(widths))["status"], "NO_PUSH_IN")
+
+    def test_compensation_never_exceeds_the_cap(self):
+        widths = [0.40, 0.44, 0.48, 0.52, 0.56, 0.58, 0.60, 0.61, 0.62]  # +55 %
         plan = pic.analyze(samples(widths))
         self.assertEqual(plan["status"], "COMPENSATE")
-        self.assertFalse(plan["cap_hit"])
-        self.assertAlmostEqual(plan["curve"][0]["crop"], 0.54 / 0.40, places=3)
-        for point in plan["curve"]:  # compensated face width is the end width everywhere
-            self.assertAlmostEqual(point["fit_width"] * point["crop"], 0.54, places=3)
-        self.assertAlmostEqual(plan["predicted_residual_growth"], 0.0, places=3)
+        self.assertLessEqual(max(p["crop"] for p in plan["curve"]), pic.MAX_CROP + 1e-9)
 
     def test_small_growth_cut_and_few_faces_are_left_alone(self):
         self.assertEqual(pic.analyze(samples([0.40 + 0.01 * i for i in range(9)]))["status"], "NO_PUSH_IN")  # +20 %
@@ -67,7 +68,7 @@ class AnalyzeTests(unittest.TestCase):
         self.assertEqual(pic.analyze(samples([0.6, 0.55, 0.5, 0.45, 0.4, 0.4, 0.4, 0.4, 0.4]))["status"], "NO_PUSH_IN")
 
     def test_zigzag_is_not_a_push_in(self):
-        zigzag = [0.40, 0.55, 0.40, 0.55, 0.40, 0.55, 0.40, 0.55, 0.55]
+        zigzag = [0.40, 0.55, 0.40, 0.55, 0.40, 0.55, 0.40, 0.55, 0.62]
         self.assertEqual(pic.analyze(samples(zigzag))["status"], "SKIPPED_NOT_MONOTONIC")
 
     def test_monotone_fit(self):
@@ -92,7 +93,7 @@ class CropWindowTests(unittest.TestCase):
         c, x0, y0 = pic.crop_window(10.0, plan, 768, 1344)
         self.assertEqual((c, x0, y0), (1.0, 0.0, 0.0))
         c, x0, y0 = pic.crop_window(0.0, plan, 768, 1344)
-        self.assertAlmostEqual(c, 1.6)
+        self.assertAlmostEqual(c, pic.MAX_CROP)
         first = plan["curve"][0]
         face_out = (first["cx"] * 768 - x0) / (768 / c)
         self.assertAlmostEqual(face_out, plan["anchor"]["cx"], places=3)

@@ -5485,7 +5485,7 @@
     },
     {
       "path": "tools/push_in_compensation.py",
-      "sha256": "69ca97fbe7c9446b22277d55067399f7c0796c39768ddf71bfffb25aba6e0499"
+      "sha256": "a8e34ce6371e0f2c04e71a9bdf2bb6df6bca071d161128f55cf652c3f92365ff"
     },
     {
       "path": "tools/qa_bgm_candidates.py",
@@ -7921,7 +7921,7 @@
     },
     {
       "path": "tools/tests/test_push_in_compensation.py",
-      "sha256": "b9cba548c912b06ec85a4173462cd0f4b8cb18f14edd9156e72a87f8f60ebe06"
+      "sha256": "5e52254b04ce9dda0dde3da386e327e93cd5609603045bb07734a6d30a356bc9"
     },
     {
       "path": "tools/tests/test_q1_no_character_insert_detector.py",

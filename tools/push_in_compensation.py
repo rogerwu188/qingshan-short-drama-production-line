@@ -39,9 +39,9 @@ from typing import Any, Callable
 SCHEMA = "nalu.push_in_compensation.v1"
 SAMPLES = 9
 MIN_FACE_SAMPLES = 6
-GROWTH_MIN = 0.25
+GROWTH_MIN = 0.50  # owner 2026-10-27: only correct big push-ins
 CUT_JUMP = 0.40
-MAX_CROP = 1.6
+MAX_CROP = 1.3  # owner 2026-10-27: smaller crop, less softening
 #: residual of the monotone fit, relative to the mean face width, above which the curve is not a push-in
 MONOTONE_RESIDUAL_MAX = 0.12
 #: same face filter as video_q2_builder's face count (FACE_COUNT_MIN_DET_SCORE / FACE_COUNT_MIN_HEIGHT_RATIO)
