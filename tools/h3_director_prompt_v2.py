@@ -428,7 +428,7 @@ def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: se
             elif index > 1:
                 # a face reference of someone already in the opening frame is that SAME person, not a second
                 # one: H3 otherwise sometimes renders the reference as an extra copy (lab E02 2026-10-23)
-                line += (f" This is the same {entity} already standing in @Image1 — one person; never draw a "
+                line += (f" This is the same {entity} already {'in' if exact_first_frame else 'standing in'} @Image1 — one person; never draw a "
                          f"second {entity}.")
             lines.append(line)
         elif entity:
