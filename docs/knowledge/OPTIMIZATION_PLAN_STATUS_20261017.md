@@ -9,7 +9,7 @@
 | 方案章节 | 内容 | 位置 | 生产路径 |
 |---|---|---|---|
 | §3.3–3.5 | 运镜必须有目的、对白镜说话人/听者/口型、未解析角色生成前阻断 | `grouped_camera_contract.py`、`character_entity_contract.py`、`sd2_required_prompt_field_gate.py`、`prompt_scope_conflict_gate.py` | S1、S2、S6 付费 POST 前 |
-| §4 | 零费用预演（机器检查5项、导演审查6问、最多2轮）| `tools/episode_previs.py` + `render_portable_timeline.py` | **未接线**（HEAD 无 `gate_active`、配置文件被 `.gitignore` 吞、`enabled_episodes: []`） |
+| §4 | 零费用预演（机器检查5项、导演审查6问、最多2轮）| `tools/episode_previs.py` + `render_portable_timeline.py` | **已接线**（S5/S6 读 `previs_gate()`，按 `configs/EPISODE_PREVIS_V1.json` 或合同 `previs_policy` 逐步启用）。注意 previs 的 PASS 只代表时间线、逐边界投影与运镜/转场/动作连续性合同自洽，不代表有人看过片子（K120–K122） |
 | §6 | 节拍-镜头-请求-素材-剪辑时长映射（5个时长、标来源） | `tools/unit_timing_map.py` | **未接线**（库内完成、无生产代码调用） |
 | §7 | 请求摘要（语义 SHA）+ 提交前绑定检查 | `tools/provider_request_digest.py` + 本轮补充的 `submit_giggle_character_asset_plan.py` 审核绑定 | S3 身份牌（本轮加）；S5 关键帧 / S6 视频走 `submit_giggle_image_manifest.py:470` `require_reviewed_request()` |
 | §5.4 | 上游改变后旧事务 `superseded_by` 标记 | 本轮在 `submit_giggle_image_manifest.py:114` `prior_submission_result()` 和 `submit_giggle_character_asset_plan.py:78` `prior_submission()` 加扫描逻辑 | 每次提交前自动扫描同 task_key 旧事务 |
@@ -21,7 +21,7 @@
 
 ### 1.3 未接线（在库、未进生产）
 
-- **预演（§4）**：`episode_previs.py` HEAD 无 `gate_active` / `policy_settings`，工作区有接线但未提交且默认关闭（`configs/EPISODE_PREVIS_V1.json` 被 `.gitignore` 吞、`enabled_episodes: []`）。
+- **预演（§4）**：已接线（2026-10-26 修正本节旧结论）。启用范围由 `configs/EPISODE_PREVIS_V1.json` 的 `enabled_episodes` 或合同 `previs_policy=EPISODE_PREVIS_V1` 决定，未列出的集不跑，已投产的集不改判。
 - **时序图（§6）**：`unit_timing_map.py` 完全未被生产代码调用（应在 S2 后、S6 收割后、S7 剪辑后各跑一次）。
 - **场景导演意图（§3.1）**：`scene_intent` 在合同 schema / builder 无落点（18 集只有 E12 手填 18 场，其余 0 场）；S1 门不校验。
 

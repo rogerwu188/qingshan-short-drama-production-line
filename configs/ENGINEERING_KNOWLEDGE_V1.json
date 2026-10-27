@@ -2516,6 +2516,120 @@
       "status": "REFERENCE_IMPLEMENTATION",
       "runtime_gate_added": false,
       "sync_slug": "camera-grammar-v1"
+    },
+    {
+      "id": "K120",
+      "key": "previs-review-rounds-count-receipts",
+      "stage": "S5",
+      "category": "DIRECTOR",
+      "scope": "generalizable",
+      "episode": "E12",
+      "rule": "previs 的导演审阅轮次来自落盘的审阅回执（回执必须写审阅人且答完全部导演问题），不来自「跑了几次」。重跑同一次预演不消耗轮次，也不会把未审阅的序列自动升为 CLOSED_ADVISORY。",
+      "lesson": "旧实现用进程内计数器，第二次运行就把轮次 +1，于是 gate 自己给自己签了「已审阅」。审计复现：同一份没人看过的预演，跑两次即 PASS。",
+      "recovery": "剧本或机位改动后需重新提交回执；仅重跑构建不能推进审阅。",
+      "implementation": [
+        "tools/episode_previs.py",
+        "lines/nalu/runtime/tools/nalu_pipeline.py"
+      ],
+      "regression": "tools/tests/test_previs_review_round_semantics.py",
+      "evidence": "重跑不增轮；有具名回执才计一轮；问题未答完不计。",
+      "authority": "Codex CC_H3 提示词与跨镜头预演修复方案 2026-10-26 §四-缺口C",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "runtime_gate_added": false,
+      "sync_slug": "previs-review-rounds"
+    },
+    {
+      "id": "K121",
+      "key": "previs-boundary-projection",
+      "stage": "S5",
+      "category": "DIRECTOR",
+      "scope": "generalizable",
+      "episode": "E12",
+      "rule": "预演必须把已有的运镜/转场/动作连续性合同投影到真实的剪辑相邻关系上，输出逐边界的 boundaries 列表；预演模块不重新实现这些合同，只读引擎已有的判定。",
+      "lesson": "旧预演时间线只有镜号、起点、时长与静帧，两种完全不同的运镜/动作设计产出字节相同的 PASS：审阅者看不到切点节奏，预演无法作为剪辑依据。",
+      "recovery": "新合同若新增边界语义，应扩展投影字段而不是在预演里复制判定。",
+      "implementation": [
+        "tools/episode_previs.py"
+      ],
+      "regression": "tools/tests/test_previs_boundary_projection.py",
+      "evidence": "同向连摇+动作重启 vs 全锁定：边界不同；未声明转场报 NOT_DECLARED 不臆造。",
+      "authority": "Codex CC_H3 提示词与跨镜头预演修复方案 2026-10-26 §四-缺口A",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "runtime_gate_added": false,
+      "sync_slug": "previs-boundaries"
+    },
+    {
+      "id": "K122",
+      "key": "previs-receipt-bound-to-sequence-digest",
+      "stage": "S5",
+      "category": "DIRECTOR",
+      "scope": "generalizable",
+      "episode": "E12",
+      "rule": "审阅回执绑定 sequence_digest（timeline + boundaries 的 sha256），不绑定输出文件的 sha。序列任一处机位、时长或转场改动都会使旧回执自动失效；与该序列无关的字段变动不会。",
+      "lesson": "旧实现记录的是输出 json 的 sha，而输出每次运行都变，无法区分「这份审阅仍描述当前剪辑」与「剪辑在审阅后被改过」。",
+      "recovery": "改剪辑后需重新审阅；不要用重跑刷新回执 sha 来「续命」。",
+      "implementation": [
+        "tools/episode_previs.py",
+        "lines/nalu/runtime/tools/nalu_pipeline.py"
+      ],
+      "regression": "tools/tests/test_previs_sequence_digest_binding.py",
+      "evidence": "改运镜或时长即改变 digest；旧回执对新序列计 0 轮。",
+      "authority": "Codex CC_H3 提示词与跨镜头预演修复方案 2026-10-26 §四-缺口D",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "runtime_gate_added": false,
+      "sync_slug": "previs-digest-binding"
+    },
+    {
+      "id": "K123",
+      "key": "scoped-wave-validated-with-read-only-neighbours",
+      "stage": "S6",
+      "category": "TRANSACTIONS",
+      "scope": "generalizable",
+      "episode": "E12",
+      "rule": "局部修复批次（partial_repair_scope / staged_generation_scope）不得整体跳过跨单元校验。应由构建阶段记录全局分组计划及其 sha256，提交阶段把该计划的紧邻前驱/后继单元作为只读上下文拼进序列，只校验受影响边界；邻居永不进入 manifest 的 tasks，绝不重复 POST。计划在批次构建后被改动则拒绝提交。",
+      "lesson": "旧实现一旦看到作用域标记就同时跳过运镜序列、转场序列与节奏三个校验。非连续子集不被当成连续集是对的，但「什么都不查」让批次与集内邻接处的边界完全失守：重画的运镜可能撞上邻居的出向运动，重写的转场可能与邻居终态矛盾。",
+      "recovery": "无全局计划引用的历史修复批次维持仅逐任务校验；新批次应带计划。",
+      "implementation": [
+        "lines/nalu/runtime/tools/build_nalu_preproduction.py",
+        "tools/submit_giggle_video_manifest_v2.py"
+      ],
+      "regression": "tools/tests/test_staged_scope_neighbour_context.py",
+      "evidence": "波次拼出前后邻居并按集内顺序排列；manifest 不被改写；计划 sha 不符或单元不在计划内则拒。",
+      "authority": "Codex CC_H3 提示词与跨镜头预演修复方案 2026-10-26 §四-缺口E",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "runtime_gate_added": false,
+      "sync_slug": "scoped-wave-neighbours"
+    },
+    {
+      "id": "K124",
+      "key": "settled-transactions-are-not-pending-exposure",
+      "stage": "S6",
+      "category": "TRANSACTIONS",
+      "scope": "generalizable",
+      "episode": "E12",
+      "rule": "SUBMITTED_TASK_ID_BOUND 事务在生成成功后不会自动结清，因此「待发额」只能在它比本类目最新归档账单更新的窗口内计入；已被账单覆盖的事务由 recorded_total_credits 统计一次，不得再计。同一账号其他项目的扣费不得计入本集。",
+      "lesson": "旧实现每次调用都把历史上所有绑定事务重新计入，待发额只增不减，最终在真实敞口接近零时误报 EPISODE_CREDIT_CAP_WOULD_BE_EXCEEDED（E12 2026-10-22：130 条历史事务读成约 4185 额度）。账单归集只按时间窗匹配，会把同账号其他项目的扣费算进本集。",
+      "recovery": "账单归集应按任务 id 归属；外来行单独列报为 FOREIGN_ACCOUNT_ACTIVITY_NOT_ATTRIBUTED_TO_THIS_EPISODE，既不静默丢弃也不静默计入。",
+      "implementation": [
+        "lines/nalu/runtime/tools/nalu_budget_ledger.py",
+        "tools/giggle_credit_statements.py"
+      ],
+      "regression": "tools/tests/test_nalu_budget_reservation_settle.py",
+      "evidence": "已归档事务不再计入待发；外来行被隔离并单独报数。",
+      "authority": "Codex CC_H3 提示词与跨镜头预演修复方案 2026-10-26（配合 E12 现场账目）",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "runtime_gate_added": false,
+      "sync_slug": "settled-not-pending"
     }
   ]
 }
