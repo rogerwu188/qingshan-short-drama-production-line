@@ -536,6 +536,12 @@ def build_registry(episode: str, *, out: Path | None = None) -> dict[str, Any]:
                       if isinstance(value, list) and len(value) == 2}
 
     assets = ((library.get("assets") or {}).get("characters") or {})
+    # The episode library records what THIS episode locked; the approved original
+    # source of a recurring character is a series decision and lives in the
+    # reusable library.  Read it as a fallback so a row that locked only plates
+    # still carries the authority its character was approved under.
+    reusable_assets = ((read_json(exp.p.reusable_asset_library(), {}) or {})
+                       .get("assets", {}).get("characters") or {})
     # an imported source registry (legacy-line migration) sits beside the scope's character registry
     runtime_dir = Path(exp.p.character_registry).parent
     source_registry = read_json(runtime_dir / "character_asset_registry.json", {}) or {}
@@ -618,6 +624,17 @@ def build_registry(episode: str, *, out: Path | None = None) -> dict[str, Any]:
             "canonical_reference_paths": [row["path"] for row in artifacts],
             "canonical_reference_sha256": {row["path"]: row.get("sha256") for row in artifacts},
             "canonical_view_count": len(artifacts),
+            # The approved original source is an identity anchor in its own right
+            # (K123/D-68 era).  Dropping it here left the registry unable to answer
+            # original_reference() at all, so Q1/Q2 measured against three plate
+            # paths and nothing else — and when those plates were later moved or
+            # lost, EVERY unit failed CHARACTER-IDENTITY-ADMISSION with
+            # NO_CANONICAL_EMBEDDING_FOR_ANY_DECLARED_CHARACTER while the source
+            # image was still on disk the whole time (E12, 2026-10-27).
+            **({"original_identity_authority": authority}
+               if (authority := (asset.get("original_identity_authority")
+                                 or (reusable_assets.get(asset_id) or {})
+                                 .get("original_identity_authority"))) else {}),
             "identity_lock": lock,
             "status": "LOCKED",
             "qa_status": "PASS",
