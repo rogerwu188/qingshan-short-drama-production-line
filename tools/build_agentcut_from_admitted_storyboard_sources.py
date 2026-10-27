@@ -46,6 +46,7 @@ def build(
     dialogue_tail_trim=None,
     dialogue_sound_bridge=None,
     dialogue_head_trim=None,
+    push_in_compensation=None,
 ):
     if generation_contract is None:
         raise ValueError("generation_contract is required for automatic audio-profile binding")
@@ -114,6 +115,17 @@ def build(
         head_cut = {str(row["unit_id"]): float(row["head_cut_seconds"])
                     for row in head_report.get("units") or [] if row.get("trimmed")}
 
+    # CAMERA_GRAMMAR_V1 push-in compensation (S7 report, tools/push_in_compensation.py): unit -> compensated clip
+    # (same frames, audio stream copied bit-exact).  Used for the unit's picture AND native sound, so both clips keep
+    # one source; a row whose source or output sha no longer matches is ignored (the original clip is used).
+    push_in = {}
+    if push_in_compensation:
+        try:
+            from tools.push_in_compensation import applied_sources as _push_in_applied
+        except ModuleNotFoundError:
+            from push_in_compensation import applied_sources as _push_in_applied  # type: ignore
+        push_in = _push_in_applied(json.loads(_abs(push_in_compensation).read_text(encoding="utf-8")))
+
     video_clips = []
     audio_clips = []
     admissions = []
@@ -175,6 +187,15 @@ def build(
                          "report": str(_abs(dialogue_head_trim))}
             source_in = head_trim["head_cut_seconds"]
             duration = head_trim["kept_seconds"]
+        push_row = push_in.get(source_id)
+        push_in_meta = None
+        if push_row is not None and str(Path(str(push_row.get("source"))).resolve()) == str(source.resolve()) \
+                and push_row.get("source_sha256") == sha256(source):
+            compensated = _abs(push_row["output"])
+            push_in_meta = {"original_source": str(source), "original_sha256": push_row["source_sha256"],
+                            "compensated_source": str(compensated), "compensated_sha256": push_row["output_sha256"],
+                            "max_crop": push_row.get("max_crop"), "cap_hit": push_row.get("cap_hit"),
+                            "report": str(_abs(push_in_compensation))}
         audio_metadata = audio_task.get("metadata") or {}
         audio_dialogue_lines = audio_metadata.get("selected_dialogue") or []
         audio_expected_text = "".join(str(row.get("text") or "") for row in audio_dialogue_lines)
@@ -206,9 +227,11 @@ def build(
             clip_metadata["dialogue_tail_trim"] = tail_trim
         if head_trim is not None:
             clip_metadata["dialogue_head_trim"] = head_trim
+        if push_in_meta is not None:
+            clip_metadata["push_in_compensation"] = push_in_meta
         video_clips.append({
             "id": f"{episode}-{source_id}-VIDEO",
-            "source": str(source),
+            "source": push_in_meta["compensated_source"] if push_in_meta else str(source),
             "start": round(cursor, 6),
             "in": source_in,
             "duration": duration,
@@ -216,7 +239,9 @@ def build(
         })
         audio_clips.append({
             "id": f"{episode}-{source_id}-AUDIO",
-            "source": str(audio_source),
+            # the compensated clip carries the same audio stream (copied); one source for picture and sound
+            "source": (push_in_meta["compensated_source"] if push_in_meta and audio_source.resolve() == source.resolve()
+                       else str(audio_source)),
             "start": round(cursor, 6),
             "in": source_in,
             "duration": duration,
@@ -241,6 +266,7 @@ def build(
             "silent_visual_replacement": silent,
             "status": "PASS",
             **({"measured_edit": measured_edit} if measured_edit is not None else {}),
+            **({"push_in_compensation": push_in_meta} if push_in_meta is not None else {}),
         })
         cursor += duration
 
@@ -353,6 +379,7 @@ def main():
     parser.add_argument("--dialogue-tail-trim", help="Optional S7 dialogue tail-trim report (CAMERA_GRAMMAR_V1): cut each trimmed unit at its kept_seconds")
     parser.add_argument("--dialogue-head-trim", help="Optional S7 dialogue head-trim report (CAMERA_GRAMMAR_V1): start each trimmed unit at its head_cut_seconds")
     parser.add_argument("--dialogue-sound-bridge", help="Optional S7 dialogue sound-bridge report (CAMERA_GRAMMAR_V1): L-cut the speaker picture before a silent reaction unit")
+    parser.add_argument("--push-in-compensation", help="Optional S7 push-in compensation report (CAMERA_GRAMMAR_V1): use each compensated locked-camera clip (picture + its copied native audio)")
     args = parser.parse_args()
     print(json.dumps(build(
         args.episode,
@@ -368,6 +395,7 @@ def main():
         args.dialogue_tail_trim,
         args.dialogue_sound_bridge,
         dialogue_head_trim=args.dialogue_head_trim,
+        push_in_compensation=args.push_in_compensation,
     ), ensure_ascii=False))
 
 

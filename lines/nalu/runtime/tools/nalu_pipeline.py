@@ -7456,6 +7456,44 @@ def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
     return trimmed, (report_path if report["trimmed_units"] else None)
 
 
+def s7_push_in_compensation(ctx: Ctx, res: StageResult, contract: dict[str, Any]) -> Path | None:
+    """CAMERA_GRAMMAR_V1 only (line owner 2026-10-26, lab Holmes E06): remove the push-in H3 still adds to
+    locked-camera units (tools/push_in_compensation.py).  Each locked unit's largest face is measured on 9 frames
+    of the clip as cut (after the dialogue head/tail trims); a monotonic push-in above 25 % gets a time-varying
+    face-centred crop of the early frames (end framing kept, crop <= 1.6x, Lanczos, audio copied, duration
+    unchanged) written to assembly/push_in_compensation/<unit>.mp4.  Report <EP>_PUSH_IN_COMPENSATION.json; the
+    report path is returned for the AgentCut build (--push-in-compensation) when any unit was compensated.
+    Free; any failure only skips the step (recorded), never blocks S7."""
+    import camera_grammar_policy as _cgp
+    import push_in_compensation as _pic
+    if not _cgp.active(contract, episode=ctx.episode):
+        return None
+    p = ctx.p
+    report_path = p.assembly / f"{ctx.episode}_PUSH_IN_COMPENSATION.json"
+    try:
+        clips = {mp4.stem: mp4 for mp4 in sorted(p.video_media.glob(f"{ctx.episode}-VU-*.mp4"))}
+        windows = _pic.cut_windows(
+            list(clips), {uid: _probe_seconds(path) for uid, path in clips.items()},
+            read_json(p.assembly / f"{ctx.episode}_DIALOGUE_TAIL_TRIM.json", {}) or {},
+            read_json(p.assembly / f"{ctx.episode}_DIALOGUE_HEAD_TRIM.json", {}) or {})
+        ffmpeg, ffprobe = _media.require_ffmpeg(), _media.require_ffprobe()
+        app = _pic.face_backend()
+        report = _pic.build_report(
+            ctx.episode, read_json(p.grouping_plan, {}) or {}, clips, windows, p.assembly / "push_in_compensation",
+            measure_fn=lambda clip, times: _pic.measure(clip, times, app, ffmpeg),
+            render_fn=lambda clip, out, plan: _pic.render(clip, out, plan, ffmpeg=ffmpeg, ffprobe=ffprobe))
+        write_json(report_path, report)
+    except Exception as exc:  # noqa: BLE001 -- a polish step, never a blocker
+        write_json(report_path, {"schema": _pic.SCHEMA, "episode": ctx.episode,
+                                 "status": f"SKIPPED_ERROR:{type(exc).__name__}:{exc}"})
+        res.details["push_in_compensation"] = {"report": str(report_path), "status": "SKIPPED_ERROR"}
+        return None
+    res.receipts.append(str(report_path))
+    res.details["push_in_compensation"] = {"report": str(report_path),
+                                           "compensated_units": report["compensated_units"]}
+    return report_path if report["compensated_units"] else None
+
+
 def s7_dialogue_sound_bridge(ctx: Ctx, res: StageResult, contract: dict[str, Any],
                              unit_asr: dict[str, Any] | None) -> Path | None:
     """CAMERA_GRAMMAR_V1 only (line owner 2026-10-23): plan the authored L-cuts.
@@ -7764,6 +7802,11 @@ def stage_s7(ctx: Ctx) -> StageResult:
     head_trim = (res.details.get("dialogue_head_trim") or {}).get("apply")
     if head_trim:
         build_argv += ["--dialogue-head-trim", head_trim]
+        res.details["commands"]["build_agentcut"] = q(build_argv)
+    # 3c. push-in compensation (CAMERA_GRAMMAR_V1 locked-camera units; measured on the trimmed cut, never blocks)
+    push_in = s7_push_in_compensation(ctx, res, read_json(p.contract, {}) or {})
+    if push_in is not None:
+        build_argv += ["--push-in-compensation", push_in]
         res.details["commands"]["build_agentcut"] = q(build_argv)
     sound_bridge = s7_dialogue_sound_bridge(ctx, res, read_json(p.contract, {}) or {}, trimmed_asr)
     if sound_bridge is not None:

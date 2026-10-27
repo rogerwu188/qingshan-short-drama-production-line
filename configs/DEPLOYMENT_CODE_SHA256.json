@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2216,
+  "file_count": 2218,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -337,7 +337,7 @@
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
-      "sha256": "cbb40ee4457db0f14e30b6263b9b03aed891267df4db93151a79704c6dcc4b72"
+      "sha256": "4a6c17c57a843e3f285661d478eaa5175bfc44080f4e5ea719a6215d16f2f03f"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -649,7 +649,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "9d6e3a0950b5f5941877816fb3f03387225f6f035ac22f15d1e80b5cce832d49"
+      "sha256": "a2b86c947ca9fe6eaf4088cc708d9aaafdf5aa757f55dac6efb56cc3e4e9a08f"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -805,7 +805,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "692574a3868d9c93948af159f262b7bef29013851d15fe29428ecfd289662af1"
+      "sha256": "6a2c6665982d619b3b8f0d02f931f44aa73842a3c1a3cc19dd67c20d86476841"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -1609,7 +1609,7 @@
     },
     {
       "path": "tools/build_agentcut_from_admitted_storyboard_sources.py",
-      "sha256": "9c0cf55b1ed71e4a3240419dcde2dec112ad59e03aa493f7e97da64612b30d98"
+      "sha256": "28486f506805a14341d796682761cc1d7145f3f524f09ec6dd1aa3029ef0ce2c"
     },
     {
       "path": "tools/build_and_validate_e40_u02_v3_package.py",
@@ -5484,6 +5484,10 @@
       "sha256": "20d09d4d06777e3864eaa1efcafc762da8deaf307837d7826a33c18e336dcfed"
     },
     {
+      "path": "tools/push_in_compensation.py",
+      "sha256": "69ca97fbe7c9446b22277d55067399f7c0796c39768ddf71bfffb25aba6e0499"
+    },
+    {
       "path": "tools/qa_bgm_candidates.py",
       "sha256": "6a048bb6fd586fa3e87cc2e087ef5536c3d9145025446372a350eedde35254ee"
     },
@@ -7914,6 +7918,10 @@
     {
       "path": "tools/tests/test_provider_scope_projection.py",
       "sha256": "f8e57264d33ea0809eeb891edab6163b44f74d162acf50bf9c8ce566a5858ef5"
+    },
+    {
+      "path": "tools/tests/test_push_in_compensation.py",
+      "sha256": "b9cba548c912b06ec85a4173462cd0f4b8cb18f14edd9156e72a87f8f60ebe06"
     },
     {
       "path": "tools/tests/test_q1_no_character_insert_detector.py",

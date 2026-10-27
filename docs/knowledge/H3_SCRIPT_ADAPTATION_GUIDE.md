@@ -90,6 +90,11 @@
 4. `CLOSE_UP` A，最狠的第 4 句（`MOTIVATED_CUT`，转折才切近）。
 5. `MEDIUM_CLOSE_UP` B 无对白反应（`REACTION_CUT`，`sound_bridge_from_previous_seconds: 0.8`）。
 - 竖屏双人镜（无对白时）优先前后叠放的过肩构图，不要两人左右分列画面两侧边缘。
+- **锁机位就是锁死**（线主 2026-10-26，实验集 Holmes E06：写了 LOCKED 的单元 H3 仍推近，人脸宽度 0.41→0.81）：CAMERA_GRAMMAR_V1 的集里，
+  锁机位一镜到底的单元提示词默认带强机位锁（最前面一段 `CAMERA LOCK — ABSOLUTE RULE`、`Frame size is frozen`、Never 里禁推近），A/B 实测推近从 65–98% 降到 15–39%；
+  剩下的推近由 S7 免费补偿（把前段画面以人脸为中心放大到末帧大小，最多 1.6 倍，`<EP>_PUSH_IN_COMPENSATION.json`）。
+  所以要推近就把 `motion_family` 写成 DOLLY PUSH_IN（移动机位不受影响）；写 LOCKED 就是要画面大小不变。个别单元确实不要强锁时，合同/单元写
+  `"h3_camera_lock": "standard"`。
 - 运镜要有动机（#121）：跟人、揭示、强调、主观视角；否则 `LOCKED` 或慢推。
   不要写「Framing changes with the camera motion.」这类空话当 `end_framing`——写清落幅是谁、多大、在画面哪里。
 - **近景关键帧不要求房间固定元素**（线主 2026-10-24，E03-S01-01：中近景关键帧提示词要求「五个固定元素必须全部出现」，生图就画成了大全景、Helen 小小地坐在左边）：
