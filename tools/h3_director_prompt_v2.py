@@ -520,7 +520,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         answer = subjects_v2.get(s["entity_id"]) or subjects_v2.get(s["label"]) or {}
         if s["kind"] == "BEING":
             card = s.get("creature_card") or {}
-            gait = {"biped": "moves upright on two legs", "quadruped": "moves on four legs"}.get(
+            gait = {"biped": "moves upright on two legs", "quadruped": "moves on four legs",
+                    "slithering": "has no legs and slithers along the ground", "flying": "flies on its wings"}.get(
                 str(card.get("locomotion") or "").strip().lower(), "")
             look = _en(answer.get("look")) or _en(s.get("look"))
             return "; ".join(v for v in ("a living non-human subject, not a prop", look, gait) if v)

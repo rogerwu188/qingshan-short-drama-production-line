@@ -3817,7 +3817,7 @@
     },
     {
       "path": "tools/continuity_state_contract_gate.py",
-      "sha256": "fa27ff14d2aa8c357604068808f59555b155c14acad4f7403c691411b98b8127"
+      "sha256": "95b8e7c5f49f903d41e349d75f4faf5cf007d01b77faaffd0be9a716f2d6d953"
     },
     {
       "path": "tools/correct_e36_v19_bounded_watch_source_bindings.py",
@@ -4889,7 +4889,7 @@
     },
     {
       "path": "tools/h3_director_prompt_v2.py",
-      "sha256": "3a4ef34f7f5f8002dc858311c790520e223b3973f2783efa2563f4d335d36349"
+      "sha256": "2856558f97ce42550e044b6433dbb915fd26d090ad402969a63e5a49e76a8457"
     },
     {
       "path": "tools/h3_english_contract_io.py",
@@ -4905,7 +4905,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "37daeff50d2e8618287f0c68e281671436a78b6f0748fdbcef6af8c04f74849a"
+      "sha256": "f6c249525a4539fcb95377327a5c47469bbc2f04b1733ec9779cbfaebea9de12"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -7025,7 +7025,7 @@
     },
     {
       "path": "tools/tests/test_continuity_state_contract_gate.py",
-      "sha256": "93caa23e80368bc8c98a34fc2d418037f5034c4df58a9ae2c1fb1036b938ea2d"
+      "sha256": "d7e1d0d44068a36005cc43ed6f82107db7b022e3451ce3daa66ad7c24b6a713e"
     },
     {
       "path": "tools/tests/test_credit_window_isolation.py",

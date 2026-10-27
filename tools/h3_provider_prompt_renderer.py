@@ -226,7 +226,8 @@ def _director_subjects(
                 props += [label] if label not in props else []
                 continue
             card = row.get("creature_card") or {}
-            gait = {"biped": "moves upright on two legs", "quadruped": "moves on four legs"}.get(
+            gait = {"biped": "moves upright on two legs", "quadruped": "moves on four legs",
+                    "slithering": "has no legs and slithers along the ground", "flying": "flies on its wings"}.get(
                 str(card.get("locomotion") or "").strip().lower(), "")
             eyes = _plain_en(card.get("eye_color"), 60)
             look = [_plain_en(row.get("note")), gait,
