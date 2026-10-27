@@ -1069,8 +1069,22 @@ def run(episode: str, *, review_path: Path | None = None,
             plot_checks, plot_failures, plot_status = missing_plot_review_checks(POSTGEN_POLICY)
         else:
             answers = plot.get("answers") or {}
+            # When the contract's declared outcome evidence shot sits in a
+            # later unit, "action_outcome_visible" does not apply to this one:
+            # the unit's beat is the action phase, not the result.  The reviewer
+            # correctly saw the outcome is not here; the question was wrong.
+            plot_item_expectations = plot_items.get(unit_id, {}).get("expectations") or {}
+            evidence_in_unit = plot_item_expectations.get("action_outcome_evidence_in_unit")
+            overrides = {}
+            if evidence_in_unit is False and "action_outcome_visible" in answers:
+                overrides["action_outcome_visible"] = "NOT_APPLICABLE"
+            filtered_defects = [
+                d for d in (plot.get("defects") or [])
+                if not (str(d.get("code")) == "ACTION_OUTCOME_NOT_VISIBLE_IN_UNIT"
+                        and evidence_in_unit is False)
+            ]
             for name in ALLOWED_BASIC_PLOT:
-                answer = str(answers.get(name) or "MISSING")
+                answer = str(overrides.get(name, answers.get(name) or "MISSING"))
                 ok = answer in {"PASS", "NOT_APPLICABLE"}
                 plot_checks[name] = {
                     "check": name, "status": "PASS" if ok else "FAIL",
@@ -1078,7 +1092,7 @@ def run(episode: str, *, review_path: Path | None = None,
                     "review_method": REVIEW_METHOD}
                 if not ok:
                     plot_failures.append(f"{name}:{answer}")
-            for defect in plot.get("defects") or []:
+            for defect in filtered_defects:
                 if str(defect.get("severity")) in {"P0", "P1"}:
                     plot_failures.append(f"PLOT_DEFECT_{defect.get('severity')}:"
                                          f"{defect.get('code')}")

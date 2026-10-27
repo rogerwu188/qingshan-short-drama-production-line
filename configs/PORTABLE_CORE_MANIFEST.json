@@ -307,6 +307,7 @@
     "tools.tests.test_packaging_ads_bgm",
     "tools.tests.test_pipeline_reliability_audit",
     "tools.tests.test_platform_release_preflight",
+    "tools.tests.test_plot_outcome_evidence_scope",
     "tools.tests.test_poll_giggle_submit_report",
     "tools.tests.test_post_generation_qa_scope_gate",
     "tools.tests.test_pregen_consistency_retry_closure",

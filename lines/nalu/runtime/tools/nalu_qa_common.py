@@ -837,12 +837,19 @@ class Expectations:
         c = self.contract or {}
         manifest = read_json(SCRIPTS / f"{self.episode}_manifest_v1.json", {}) or {}
         ids = [str(x) for x in shot_ids]
-        beat_type, outcome = "", None
+        beat_type, outcome, outcome_evidence_in_unit = "", None, None
         for row in manifest.get("structure") or []:
             row_shots = [str(x) for x in row.get("shot_ids") or []]
             if row_shots and set(row_shots) & set(ids):
                 beat_type = str(row.get("type") or "")
                 outcome = row.get("outcome")
+                # If the evidence shot is not in this unit the outcome is visible
+                # in a later unit, not this one.  Mark it absent so the reviewer
+                # does not incorrectly FAIL a unit that stops at the action phase.
+                evidence_shot = str((outcome or {}).get("evidence_shot_id") or "")
+                outcome_evidence_in_unit = (
+                    (not evidence_shot or evidence_shot in ids) if outcome else None
+                )
                 break
         first_actions = [g for g in c.get("antagonist_groups") or []
                          if str(g.get("first_action_shot_id")) in ids]
@@ -868,6 +875,7 @@ class Expectations:
                 if pid in cards:
                     creature_cards[pid] = cards[pid]
         return {"beat_type": beat_type, "action_outcome": outcome,
+                "action_outcome_evidence_in_unit": outcome_evidence_in_unit,
                 "antagonist_first_action": [{"group_id": g.get("group_id"), "member_ids": g.get("member_ids"),
                                              "motive_setup": g.get("motive_setup")} for g in first_actions],
                 "new_entities": [{"entity_id": e.get("entity_id"), "setup": e.get("setup"),
