@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2232,
+  "file_count": 2233,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -265,7 +265,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "c70677e88e9465c040cfc93c0a6b94997aad00991520a00e3190408e0917b87f"
+      "sha256": "c4637819805b75995564b2aa8063eaf39111710129e92ddc9e5c75196788bbf6"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -349,7 +349,7 @@
     },
     {
       "path": "docs/knowledge/LINE_UPGRADE_PROTOCOL.md",
-      "sha256": "ef75c229c33b03069c1286bf6d35a1e0e614681cb0d7bfd0889163973c132674"
+      "sha256": "9b4d207dafeb92c1968ca82b517bb1a9ec6b04c5980e251fb8db26b900ccf185"
     },
     {
       "path": "docs/knowledge/OPTIMIZATION_PLAN_STATUS_20261017.md",
@@ -5109,7 +5109,7 @@
     },
     {
       "path": "tools/knowledge_consumption_ledger.py",
-      "sha256": "7f6900fa6c2de168fa6bf198f395937b8eda8547ed07c242dd7396325033774c"
+      "sha256": "090b71df8230ae765f053ed8e0132c7c2c4368b82949209c361e2870060d00aa"
     },
     {
       "path": "tools/knowledge_event_log.py",
@@ -7578,6 +7578,10 @@
     {
       "path": "tools/tests/test_knowledge_event_log.py",
       "sha256": "8d574b134186285053bec0060b6ab92603adf21cb60b8f33b6089ec5c19c0ad5"
+    },
+    {
+      "path": "tools/tests/test_knowledge_loop_behavioral_regression.py",
+      "sha256": "b413e699bf878d861a89299b889fd7aaa1c896dca2370b9e96cf4a3265373cdd"
     },
     {
       "path": "tools/tests/test_knowledge_registry.py",

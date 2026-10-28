@@ -277,9 +277,38 @@ def main() -> int:  # pragma: no cover -- thin CLI for manual/agent use
     status.add_argument("--episode", required=True)
     status.add_argument("--rule-id", required=True)
 
+    app = sub.add_parser("record-application")
+    app.add_argument("--runtime-root", type=Path, required=True)
+    app.add_argument("--episode", required=True)
+    app.add_argument("--line", required=True)
+    app.add_argument("--stage", required=True)
+    app.add_argument("--npr-applied", required=True, help="JSON object {shot_id: [tag, ...]}")
+    app.add_argument("--source", default="nalu_prompt_rules.apply")
+
+    ver = sub.add_parser("record-verification")
+    ver.add_argument("--runtime-root", type=Path, required=True)
+    ver.add_argument("--rule-id", required=True)
+    ver.add_argument("--test-name", required=True)
+    ver.add_argument("--assertion", required=True)
+    ver.add_argument("--checked-output", required=True)
+    ver.add_argument("--verified-by", default="regression_test")
+    ver.add_argument("--episode")
+
     args = parser.parse_args()
-    if args.cmd == "status":
-        result = status_for_rule(args.engine_root, args.runtime_root, args.episode, args.rule_id)
+    try:
+        if args.cmd == "status":
+            result = status_for_rule(args.engine_root, args.runtime_root, args.episode, args.rule_id)
+        elif args.cmd == "record-application":
+            result = record_application(args.runtime_root, episode=args.episode, line=args.line,
+                                        stage=args.stage, npr_applied=json.loads(args.npr_applied),
+                                        source=args.source)
+        else:
+            result = record_verification(args.runtime_root, rule_id=args.rule_id, test_name=args.test_name,
+                                         assertion=args.assertion, checked_output=args.checked_output,
+                                         verified_by=args.verified_by, episode=args.episode)
+    except ValueError as exc:
+        print(json.dumps({"status": "FAIL", "error": str(exc)}, ensure_ascii=False))
+        return 1
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
