@@ -48,5 +48,30 @@ class EmotionAndKnowledgeInjection(unittest.TestCase):
         self.assertFalse([a for a in applied if a.startswith("KNOWLEDGE:")])
 
 
+class AppliedSummaryTest(unittest.TestCase):
+    """applied_summary reshapes a builder's {shot_id: applied} collection --
+    the evidence every build_eNN_layers.py already computes and discards
+    (knowledge loop audit 2026-10-27 gap 3) -- for
+    tools/knowledge_consumption_ledger.record_application."""
+
+    def test_reverse_indexes_by_tag_and_extracts_knowledge_ids(self):
+        npr_applied = {
+            "E99-S01-01": ["NO_TEXT", "KNOWLEDGE:K043"],
+            "E99-S01-02": ["KNOWLEDGE:K043", "SOLO_FACE"],
+            "E99-S01-03": [],
+        }
+        summary = rules.applied_summary(npr_applied)
+        self.assertEqual(summary["shot_count"], 3)
+        self.assertEqual(summary["shots_by_tag"]["KNOWLEDGE:K043"], ["E99-S01-01", "E99-S01-02"])
+        self.assertEqual(summary["shots_by_tag"]["SOLO_FACE"], ["E99-S01-02"])
+        self.assertEqual(summary["knowledge_rule_ids"], ["K043"])
+
+    def test_empty_input_is_handled(self):
+        summary = rules.applied_summary({})
+        self.assertEqual(summary, {"shot_count": 0, "tags_by_shot": {}, "shots_by_tag": {},
+                                   "knowledge_rule_ids": []})
+        self.assertEqual(rules.applied_summary(None)["shot_count"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

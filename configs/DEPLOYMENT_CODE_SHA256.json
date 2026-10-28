@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2229,
+  "file_count": 2231,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -265,7 +265,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "323f1764d68b38f0dba0de0e06779b6b78fa60b3873ed9f9e1d13b42154c3ca7"
+      "sha256": "8ebcee5c81338a5d1ac31a90b2c85dc2e33ad82457c362fd4ee100c54bca0768"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -349,7 +349,7 @@
     },
     {
       "path": "docs/knowledge/LINE_UPGRADE_PROTOCOL.md",
-      "sha256": "4aa23a57c9a4dcff5fd88c36128c9744928e0f8ae2bbca61cbb9f1cb34df2955"
+      "sha256": "a1352045db85f3b55bb13c584c9a222c1636fb905a83ce6bfb5cb91c18e02bff"
     },
     {
       "path": "docs/knowledge/OPTIMIZATION_PLAN_STATUS_20261017.md",
@@ -657,7 +657,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_prompt_rules.py",
-      "sha256": "9458adf49fca8b775fc7d32bcf2853d88ced34615d036ebda833cef70b9fa51f"
+      "sha256": "8d43dd2e5bbb5bb508920dda28c6f28b06fe71f0c86cfbc5a96a9d1f155db283"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_qa_common.py",
@@ -5108,6 +5108,10 @@
       "sha256": "84c1b8e801cac7d6d1fbcf0cc56970e6b4ea301e61ecffa1b6105b567138928d"
     },
     {
+      "path": "tools/knowledge_consumption_ledger.py",
+      "sha256": "7f6900fa6c2de168fa6bf198f395937b8eda8547ed07c242dd7396325033774c"
+    },
+    {
       "path": "tools/knowledge_event_log.py",
       "sha256": "13f0574fe6630c5bd9e21081b81ac0cfc9f43b44807fc2156e844f61264cb0ec"
     },
@@ -7568,6 +7572,10 @@
       "sha256": "6ccc854f08e892ad02d0e58f8d8598b113780678103af1e2f1fe72e709fe9e55"
     },
     {
+      "path": "tools/tests/test_knowledge_consumption_ledger.py",
+      "sha256": "9327493f6b4880d42c2aca40ba5517e80caf0c2831217b0a3afbfba7faa0f654"
+    },
+    {
       "path": "tools/tests/test_knowledge_event_log.py",
       "sha256": "8d574b134186285053bec0060b6ab92603adf21cb60b8f33b6089ec5c19c0ad5"
     },
@@ -7721,7 +7729,7 @@
     },
     {
       "path": "tools/tests/test_nalu_prompt_rules_seq19.py",
-      "sha256": "5d51823dbab899ff25bfbe1d24608b4a4c6624b597f29d661b7d2600b9741dea"
+      "sha256": "743e51a2d7e28b5b95d1178e9d5b26975f868628e90d04ee5c9c3f1aed45e402"
     },
     {
       "path": "tools/tests/test_nalu_publish_x2creel.py",

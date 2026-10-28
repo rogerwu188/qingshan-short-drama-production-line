@@ -26,6 +26,7 @@ apply(shot, ctx) -> (action_text, applied, blocks)
 """
 from __future__ import annotations
 import re
+from typing import Any
 
 RULE_VERSION = "nalu_prompt_rules.v1 (seq=10)"
 
@@ -225,3 +226,36 @@ def apply(shot: dict, ctx: dict) -> tuple[str, list[str], list[str]]:
     if clauses:
         act = act.rstrip("；;。") + "；" + "；".join(clauses)
     return act, applied, blocks
+
+
+def applied_summary(npr_applied: dict[str, list[str]]) -> dict[str, Any]:
+    """Reverse-index a builder's ``{shot_id: applied}`` collection by rule tag.
+
+    Every ``build_eNN_layers.py`` already collects this per shot (``NPR_APPLIED[shot_id]
+    = applied``, e.g. ``build_e12_layers.py:1497-1498``) and then discards it: only
+    ``len(NPR_APPLIED)`` is printed, never which rule fired where.  That is the exact gap
+    Codex knowledge-loop audit 2026-10-27 gap 3 names ("已导出不是已应用的证据") -- the
+    evidence that a rule actually fired exists in memory during every real build and was
+    simply never persisted.  This is a pure, episode-text-free reshaping of that evidence
+    (only shot ids and rule tags, nothing a story-text guard would forbid writing into a
+    report) that a builder can pass straight to
+    ``tools/knowledge_consumption_ledger.record_application`` -- it does not read any
+    file, so it carries no opinion about where the input came from.
+
+    A tag of the form ``KNOWLEDGE:<id>`` names a registry rule id directly, matching
+    ``configs/ENGINEERING_KNOWLEDGE_V1.json``.  A bare tag (``SOLO_FACE``, ``NO_BLACK``,
+    ...) is one of this module's own hardcoded guards, not (yet) registry-tracked; callers
+    that want those linked to a registry id pass their own ``tag_to_rule_id`` mapping to
+    the consumption ledger, this function does not guess one.
+    """
+    by_tag: dict[str, list[str]] = {}
+    for shot_id, tags in (npr_applied or {}).items():
+        for tag in tags or ():
+            by_tag.setdefault(str(tag), []).append(str(shot_id))
+    knowledge_tags = {tag for tag in by_tag if tag.startswith("KNOWLEDGE:")}
+    return {
+        "shot_count": len(npr_applied or {}),
+        "tags_by_shot": {k: sorted(v) for k, v in (npr_applied or {}).items()},
+        "shots_by_tag": {k: sorted(v) for k, v in by_tag.items()},
+        "knowledge_rule_ids": sorted(tag.split(":", 1)[1] for tag in knowledge_tags),
+    }

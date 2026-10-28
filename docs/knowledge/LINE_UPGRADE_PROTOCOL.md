@@ -84,3 +84,22 @@ python3 <engine>/tools/line_upgrade_gate.py preflight --line <line> --episode <E
 ```
 
 It then hands `<runtime>/reports/<EP>_KNOWLEDGE_BRIEFING.md` to the agent that writes the episode.
+
+## Proving a rule was actually applied, not just read (gap closed 2026-10-28)
+
+Codex knowledge-loop audit 2026-10-27 found that `preflight`'s `knowledge.status = "READ"` means only that the briefing *file* was written — `verify_briefing` checks file existence (and, separately, a sha match that nothing currently gates on), never whether a single rule in it was consulted while the episode was written. "Exported" (in the briefing), "applied" (a rule's clause actually fired on a real shot) and "verified" (that firing's effect was checked against real compiled/submitted content) are three different claims. `preflight`/`close` still own EXPORTED; the other two are `tools/knowledge_consumption_ledger.py`'s job, fed from the one real place a prompt-stage rule can fire: `nalu_prompt_rules.apply(shot, ctx)`.
+
+Every `nalu` episode builder already calls `apply` once per shot and collects the result (`build_e12_layers.py:1497-1498`, unchanged since E02): `clauses, applied, blocks = NPR.apply(shot, ctx)` then `NPR_APPLIED[shot_id] = applied`. Until now `NPR_APPLIED` was discarded after the builder printed its length. The one-line adoption, added once at the end of the shot loop (after `NPR_BLOCKS` is confirmed empty, so a restaged shot is never recorded as applied):
+
+```python
+import knowledge_consumption_ledger as _kcl
+_kcl.record_application(RUNTIME_ROOT, episode=EP, line="nalu", stage="S1", npr_applied=NPR_APPLIED)
+```
+
+`record_application` reshapes `NPR_APPLIED` through `nalu_prompt_rules.applied_summary` (reverse-indexed by rule tag) and keeps only `KNOWLEDGE:<id>` tags as registry-rule evidence — `apply`'s own hardcoded guards (`SOLO_FACE`, `NO_BLACK`, ...) are not auto-claimed as a registry rule's evidence unless the caller passes `tag_to_rule_id={"SOLO_FACE": "K009", ...}` explicitly. It never reads episode text and never touches a paid task, transaction or budget ledger.
+
+A regression test that has actually asserted a rule's effect on real compiled/submitted content (not merely that a test file exists) calls the companion `record_verification(runtime_root, rule_id=..., test_name=..., assertion=..., checked_output=...)`.
+
+`tools/knowledge_consumption_ledger.status_for_rule(engine_root, runtime_root, episode, rule_id)` composes all three claims from their real sources (the briefing file for exported, this ledger for applied/verified) into one report — `{"exported": bool, "applied": bool, "applied_evidence": [...], "verified": bool, "verified_evidence": [...]}` — so nothing downstream has to re-derive "applied" from "exported" the way `KNOWLEDGE_NOT_READ` used to stand in for both.
+
+This was deliberately NOT retrofitted into any already-running episode's builder: `build_eNN_layers.py` is a private, gitignored, per-episode file (`.gitignore:144`, never a git-tracked path), and an in-production episode's generation contract is not something this change touches. The one-line call above is for the next episode's builder to adopt when it is written.
