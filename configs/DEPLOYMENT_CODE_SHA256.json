@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2227,
+  "file_count": 2229,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -265,7 +265,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "6913f44df6561829c2b544843d410e80abf3862559bbf4b93d0bfbb3db00c494"
+      "sha256": "323f1764d68b38f0dba0de0e06779b6b78fa60b3873ed9f9e1d13b42154c3ca7"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -5108,6 +5108,10 @@
       "sha256": "84c1b8e801cac7d6d1fbcf0cc56970e6b4ea301e61ecffa1b6105b567138928d"
     },
     {
+      "path": "tools/knowledge_event_log.py",
+      "sha256": "13f0574fe6630c5bd9e21081b81ac0cfc9f43b44807fc2156e844f61264cb0ec"
+    },
+    {
       "path": "tools/knowledge_registry.py",
       "sha256": "f0e095c2500333e49673daec968e65396a7ef13ed6cf0b111491b89132b264f2"
     },
@@ -7562,6 +7566,10 @@
     {
       "path": "tools/tests/test_keyframe_wardrobe_reference_policy.py",
       "sha256": "6ccc854f08e892ad02d0e58f8d8598b113780678103af1e2f1fe72e709fe9e55"
+    },
+    {
+      "path": "tools/tests/test_knowledge_event_log.py",
+      "sha256": "8d574b134186285053bec0060b6ab92603adf21cb60b8f33b6089ec5c19c0ad5"
     },
     {
       "path": "tools/tests/test_knowledge_registry.py",
