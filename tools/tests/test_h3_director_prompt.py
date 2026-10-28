@@ -111,9 +111,12 @@ class DirectorPromptTest(unittest.TestCase):
         self.assertNotIn("cassock", text)
 
     def test_unstamped_units_are_byte_identical(self):
-        # sha256 of the origin/main (df6e19b) renderer output for the same unstamped fixtures
-        pinned = {vu011: "971d2a98c3ed301ac8cfaaa190267b19cfec6c50eeec945beada0b00ef5437ca",
-                  vu012: "ee28d66c87057d6c3969fb71a54cdd37e9bf09c0a19ee5110a02d3fa64a9318d"}
+        # sha256 of the renderer output for the same unstamped fixtures.  Re-pinned when the
+        # H3 renderer's "Force origin: X" clause stopped repeating an X identical to the
+        # preceding "Start from X." (tools/h3_provider_prompt_renderer.py _beat,
+        # 10,000-rune budget fix, E12-VU-003); the only text change is that one dropped clause.
+        pinned = {vu011: "2adc4e39d28155e7775856b0e7021a74429c2f4e8ebbe47ad0ed48285f1061c3",
+                  vu012: "c53e07d6d487c895a998d95f594343b810a748b28d33785de416ed7c7b5d98e2"}
         for fixture, digest in pinned.items():
             text, _ = render_h3_prompt(*fixture(stamped=False))
             self.assertEqual(hashlib.sha256(text.encode()).hexdigest(), digest, fixture.__name__)

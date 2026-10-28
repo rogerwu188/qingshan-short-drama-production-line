@@ -811,7 +811,19 @@ def _condense_feedback(value: Any, translated: dict[str, Any]) -> str:
 
 
 def _condense_sound_quotes(rows: list[str], beats: list[dict[str, Any]]) -> list[str]:
-    """Point a sound row at the beat action instead of restating it verbatim."""
+    """Point a sound row at the beat action instead of restating it verbatim.
+
+    A beat's own ``primary_action`` is sentence-initial-capitalised ("The
+    petals ...") but every sound row quotes it mid-sentence after an opening
+    clause ("... contact sound for \"the petals ...\""), so a case-sensitive
+    ``action in text`` silently fails to match whenever the action's first word
+    is not a proper noun, leaving that one row unCondensed while its sibling
+    rows (whose actions happen to open with a name) collapse normally
+    (E12-VU-003, over the 10,000-rune provider limit with this row alone
+    carrying ~200 duplicate runes).  Matching on a lower-cased first letter,
+    with the remainder of the sentence still compared verbatim, closes that
+    gap without weakening the match.
+    """
     actions = [str(beat.get("primary_action") or "").strip() for beat in beats]
     actions = [action for action in actions if len(action) >= 40]
     if not actions:
@@ -822,6 +834,8 @@ def _condense_sound_quotes(rows: list[str], beats: list[dict[str, Any]]) -> list
         for action in sorted(actions, key=len, reverse=True):
             if action in text:
                 text = text.replace(action, "the action stated for that shot")
+            elif action[:1].lower() + action[1:] in text:
+                text = text.replace(action[:1].lower() + action[1:], "the action stated for that shot")
         condensed.append(text)
     return condensed
 
@@ -854,9 +868,21 @@ def _beat(
 ) -> tuple[str, dict[str, str]]:
     index = int(source["source_index"])
     prefix = f"BEAT.{index}"
+    entry_state = translated["entry_state"]
+    force_origin = translated.get("force_origin") or entry_state
+    # A beat whose force simply continues the inherited entry pose has an
+    # identical force_origin/entry_state pair; "Start from X. Force origin: X."
+    # then restates the same sentence twice in a row for no new fact (K-series
+    # 10,000-rune budget, E12-VU-003).  The coverage gate only requires the
+    # FORCE_ORIGIN fact's text to appear somewhere in the prompt
+    # (provider_semantic_coverage._normal(evidence) in normalized_prompt), and
+    # "Start from X." already satisfies that when the two are equal, so the
+    # second clause is dropped only in that exact case; a genuinely distinct
+    # force_origin is always rendered in full.
+    force_origin_clause = "" if force_origin == entry_state else f" Force origin: {force_origin}."
     line = (
         f"[{source['start_seconds']:g}s-{source['end_seconds']:g}s] "
-        f"Start from {translated['entry_state']}. Force origin: {translated.get('force_origin') or translated['entry_state']}. "
+        f"Start from {entry_state}.{force_origin_clause} "
         f"{translated['primary_action']}"
     )
     interaction_mode = str(source.get("interaction_mode") or "NONE")
@@ -866,9 +892,9 @@ def _beat(
         "THREAT_THRESHOLD": "pre-contact threat threshold",
     }.get(interaction_mode, "no person-to-person interaction")
     evidence = {
-        f"{prefix}.ENTRY": translated["entry_state"],
+        f"{prefix}.ENTRY": entry_state,
         f"{prefix}.ACTION": translated["primary_action"],
-        f"{prefix}.FORCE_ORIGIN": translated.get("force_origin") or translated["entry_state"],
+        f"{prefix}.FORCE_ORIGIN": force_origin,
         f"{prefix}.INTERACTION_MODE": interaction_label,
         f"{prefix}.EXIT": translated["exit_state"],
     }

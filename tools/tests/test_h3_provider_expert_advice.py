@@ -40,13 +40,17 @@ from tools.tests.test_h3_director_prompt_v2 import STYLE, fixture  # noqa: E402
 render = h3.render_h3_prompt
 ZH_CAMERA = H3_CONSTRAINT_ZH["one_take"] + "；" + H3_CONSTRAINT_ZH["fixed_camera"] + "。"
 
-#: sha256 of the origin/main (b2ba893) renderer output for unstamped fixtures: nothing here may move them
+#: sha256 of the renderer output for unstamped fixtures: nothing here may move them except a renderer-wide
+#: redundancy fix.  Re-pinned 2026-10-28 (10,000-rune budget fix, E12-VU-003): "Start from X. Force origin: X."
+#: no longer repeats X when force_origin equals entry_state; v2_unstamped's beat has a distinct force_origin
+#: so it is untouched (confirmed: still matches the b2ba893 bytes).  Every other pin here moved by exactly that
+#: one dropped clause, confirmed by diffing old vs new rendered text.
 UNSTAMPED_PINS = {
     "v2_unstamped": "8604f0b83bd9f1ea20b7f3127ea5d58fda388166968d537613521ab813fc19b2",
-    "v1_unstamped_two": "ab9d6ae00614e4f89f53a4a7e0960162458dd56af941aa23f2abec8481a3561d",
-    "v1_unstamped_dialogue": "5a265b01f2ab3b9901301cd37b8faa763956220532c4a393d4831dc3454d7f7b",
-    "v1_unstamped_vu011": "971d2a98c3ed301ac8cfaaa190267b19cfec6c50eeec945beada0b00ef5437ca",
-    "v1_unstamped_vu012": "ee28d66c87057d6c3969fb71a54cdd37e9bf09c0a19ee5110a02d3fa64a9318d",
+    "v1_unstamped_two": "7eadbca084a3cc0ef5e3ca01f518c492664ee6d7fe8b1964ef54863c85769c7c",
+    "v1_unstamped_dialogue": "f47e9a3ac20a3eb5d039b775859a5d3d6a3c1f2fde370e4aee2afebd59e9bae1",
+    "v1_unstamped_vu011": "2adc4e39d28155e7775856b0e7021a74429c2f4e8ebbe47ad0ed48285f1061c3",
+    "v1_unstamped_vu012": "c53e07d6d487c895a998d95f594343b810a748b28d33785de416ed7c7b5d98e2",
 }
 UNSTAMPED = {
     "v2_unstamped": lambda: fixture(style=True, director=False),

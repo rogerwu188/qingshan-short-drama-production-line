@@ -1222,3 +1222,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：端到端实渲：PAN/DOLLY/CRANE 有动画，`LOCKED` 静止；对白段实测 `-21.1 dB`、静默段 `-91 dB`；缺对白音频的镜被列入 `shots_dialogue_audio_missing`
 - **授权**：Codex CC_H3 提示词与跨镜头预演修复方案 2026-10-26 §四-缺口B
 - **状态**：`REFERENCE_IMPLEMENTATION`
+
+### K126 — S6
+
+- **规则**：H3 渲染器的两处去重已存在但覆盖不全，超 10000 rune 时先查这两处而不是删翻译文字：(1) `_condense_sound_quotes` 用大小写敏感的子串匹配把 `action_sound` 行里逐句复述的本镜动作句折叠成占位短语，但 `primary_action` 在句首大写、在引号内小写嵌入时匹配失败，恰好只有开头是专有名词的动作句能命中；(2) `_beat` 组装 `Start from X. Force origin: Y.` 时，Y 等于 X（`force_origin` 未声明、继承上一拍 `entry_state` 的常见情形）也原样打印两遍完全相同的句子。两处都是模板级重复，不是某一集文字写多了。
+- **教训**：`4.3c start_frame` 证据门一直处于 `BLOCKED`，掩盖了 4.4 strict compile 从未真正跑到 E12-VU-003；证据门修好后 4.4 第一次真正执行就在该单元炸出 `10361>10000`。两处修复合计省回 654 rune（10361→9707），仅靠其中任一处都不够（前者省 ~323，仍超 38）。覆盖率门（`provider_semantic_coverage.build_semantic_coverage_receipt`）只要求事实值的文本在渲染结果里出现一次，不要求特定小句字面出现，所以省略恒等的 `Force origin:` 分句不会让覆盖率门变红——`Start from X.` 已经让该事实的文本出现过了。
+- **恢复**：`_condense_sound_quotes` 在精确匹配失败时再按首字母小写重试一次（句子其余部分仍须逐字相同）；`_beat` 仅当 `force_origin != entry_state` 时才追加 `" Force origin: Y."`，相等时整段省略但 `evidence` 字典仍记录该事实供覆盖率门核对。任何因此改变字节的既有「unstamped 必须逐字节不变」测试，先用 `git stash` 取旧渲染器逐行 diff 新旧输出，确认改动只少了这一个分句，再更新该测试里写死的 sha256，不能跳过 diff 直接改哈希。
+- **实现**：[tools/h3_provider_prompt_renderer.py](../../tools/h3_provider_prompt_renderer.py)
+- **回归**：`tools/tests/test_h3_prompt_rune_elisions.py`
+- **证据**：E12-VU-003：10361 rune（超 361）→ 9707 rune；新增 `test_sentence_initial_action_quote_still_collapses` / `test_action_differing_mid_sentence_is_not_falsely_collapsed` / `test_force_origin_equal_to_entry_state_is_not_repeated` / `test_distinct_force_origin_still_renders_in_full` 四个回归用例；portable CI 1435 tests PASS（skipped=11）
+- **授权**：Roger 2026-10-06「以后无需要我批准，直接执行」常设授权；生产文字（机位/起止态措辞）代理可改
+- **状态**：`REFERENCE_IMPLEMENTATION`

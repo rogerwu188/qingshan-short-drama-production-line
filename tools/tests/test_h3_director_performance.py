@@ -64,11 +64,13 @@ class DirectorPerformanceTest(unittest.TestCase):
         self.assertEqual(text, baseline)
         self.assertIn(CANNED, text)
         self.assertNotIn("Performance:", text)
-        # sha256 of the pre-change renderer output for this fixture
+        # sha256 of the renderer output for this fixture.  Re-pinned 2026-10-28 (10,000-rune
+        # budget fix, E12-VU-003): "Start from X. Force origin: X." no longer repeats X when
+        # force_origin equals entry_state; confirmed as the only text change by diffing old vs new.
         self.assertEqual(hashlib.sha256(text.encode()).hexdigest(), PINNED)
 
 
-PINNED = "5a265b01f2ab3b9901301cd37b8faa763956220532c4a393d4831dc3454d7f7b"
+PINNED = "f47e9a3ac20a3eb5d039b775859a5d3d6a3c1f2fde370e4aee2afebd59e9bae1"
 
 if __name__ == "__main__":
     unittest.main()

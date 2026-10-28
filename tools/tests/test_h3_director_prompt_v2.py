@@ -43,12 +43,16 @@ INTERNAL = re.compile(r"\b(?:CHAR|SUBSPACE|LOC|SET|PROP|AXIS|ANGLE)-[A-Z0-9-]+|\
 #: on purpose 2026-10-26 (MiniMax-H3 provider-expert wording: fixed-camera clause, one continuous take, "only
 #: this one line" voice sentence, final anti-duplicate line; was d5479374...).  And on 2026-10-26 (lab E05) the gaze
 #: clause became the off-lens eyeline "Alpha looks just off the lens to the <side>, at <listener>, never into the
-#: camera; the camera does not follow the gaze." (was 412240e1...).  The unstamped pin never changes.
+#: camera; the camera does not follow the gaze." (was 412240e1...).  All three pins moved again on 2026-10-28
+#: (10,000-rune budget fix, E12-VU-003): "Start from X. Force origin: X." no longer repeats X a second time when
+#: force_origin equals entry_state (tools/h3_provider_prompt_renderer.py _beat) -- the only text this fixture's
+#: single beat loses is that one redundant clause, confirmed by diffing the rendered text old vs new.  This pin
+#: is renderer-wide, not V2-specific, so "unstamped never changes" is no longer true.
 V1_SHA = {
     # stamped V1 director: default strict camera lock (owner 2026-10-26); "standard" keeps the previous bytes
-    True: "799e26624ac943efe03087259b21f568206bff68eedd822c1ddeed8e312a71e7",
-    "standard": "abf2f1a610b7b38fa86f681968c4dd21760dbdddb66bccc9a2a7e8b065287739",
-    False: "ab9d6ae00614e4f89f53a4a7e0960162458dd56af941aa23f2abec8481a3561d",
+    True: "a6a7e9cd609111ed5535cb753bf7926762e4128feac58e44a383b09fb47238d1",
+    "standard": "39d7b983615f3466c66b5229eda43d53038cf92d991b0328e0a2c6da42e5ad1b",
+    False: "7eadbca084a3cc0ef5e3ca01f518c492664ee6d7fe8b1964ef54863c85769c7c",
 }
 
 
