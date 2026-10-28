@@ -8562,6 +8562,17 @@ def write_checkpoint(ctx: Ctx) -> Path:
     elif ks_status == "NO_NEW_KNOWLEDGE":
         add("* nothing new was abstracted this episode. If it hit a failure that cost money, that cause "
             "is not in the registry yet — see AGENTS.md §7 step 0.")
+    recheck = ks.get("free_recheck") or []
+    recheck_hit = [r["rule_id"] for r in recheck if r.get("free_matches")]
+    recheck_miss = [r["rule_id"] for r in recheck if r.get("found") and not r.get("free_matches")]
+    if recheck_hit:
+        add(f"* **new rule(s) matched a free step already run this episode** — "
+            f"{json.dumps(recheck_hit, ensure_ascii=False)}: re-run that free step before trusting its "
+            f"cached PASS under the new rule (never resubmit a paid one for this). See `knowledge_sync.free_recheck` "
+            f"in CHECKPOINT state for which step.")
+    if recheck_miss:
+        add(f"* new rule(s) {json.dumps(recheck_miss, ensure_ascii=False)} matched no free step this episode "
+            f"ran; only verified via their own `regression` test under `tools/run_portable_ci.py`.")
     lu_pre = state.get("line_upgrade_preflight") or {}
     lu_close = state.get("line_upgrade_close") or {}
     add(f"* read before writing (S1 preflight): **{lu_pre.get('status') or 'NOT_RUN'}** "
