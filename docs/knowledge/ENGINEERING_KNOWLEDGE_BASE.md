@@ -1233,3 +1233,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：E12-VU-003：10361 rune（超 361）→ 9707 rune；新增 `test_sentence_initial_action_quote_still_collapses` / `test_action_differing_mid_sentence_is_not_falsely_collapsed` / `test_force_origin_equal_to_entry_state_is_not_repeated` / `test_distinct_force_origin_still_renders_in_full` 四个回归用例；portable CI 1435 tests PASS（skipped=11）
 - **授权**：Roger 2026-10-06「以后无需要我批准，直接执行」常设授权；生产文字（机位/起止态措辞）代理可改
 - **状态**：`REFERENCE_IMPLEMENTATION`
+
+### K127 — S6
+
+- **规则**：`submit_giggle_video_manifest_v2.scoped_sequence_with_global_neighbours` 必须返回按真实相邻关系分段的列表（`list[list]`），不能把每个波次单元各自的「前后一邻居」首尾相接拼成一条扁平序列。当波次里有两个相距较远的单元（E12：VU-012、VU-028、VU-051，彼此相隔 16–23 个单元）时，A 单元的「后一邻居」与 B 单元的「前一邻居」在拼接后的列表里会紧挨着，而它们在真实剧集顺序里根本不相邻；`validate_transition_sequence` / `validate_camera_sequence` 按列表位置逐对校验，于是把这对从未真正相邻过的邻居当成了一次真实转场去核对。
+- **教训**：E12 第60波只提交 VU-012/VU-028/VU-051 三个分散单元时，4.4 编译报 `E12-VU-013->E12-VU-027 transition_contract unit binding mismatch`——VU-013 和 VU-027 都不在本次提交范围内，只是各自作为别的单元的只读邻居被拼接到了一起。2026-10-26 §四-缺口E 的修复（Gap E，见 K-系列更早条目）只解决了「完全跳过跨单元校验」，没有解决「把不相邻的邻居拼成相邻」这一新引入的边界情况；现有回归测试 `test_wave_gets_the_neighbours_it_actually_borders` 恰好选了两个邻居区间首尾相接的例子（间隔=1），没有覆盖真正有间隔的情形，所以没能发现。
+- **恢复**：按波次单元在全局编排计划里的下标，把每个单元的 `[idx-1, idx+1]` 邻居区间排序后合并：区间相邻或重叠的合并成一段，有真实间隔的保持独立分段；每一段各自调用 `validate_camera_sequence` / `validate_transition_sequence`（`starts_episode=False`）/ `validate_combat_sequence_rhythm`，不跨段校验。新增 `test_far_apart_waves_stay_in_separate_segments`（相隔足够远，验证真正分段）与 `test_adjacent_wave_units_share_one_segment`（相邻波次单元仍合并为一段）两个回归用例，区分"区间相接"与"区间有间隔"两种情形。
+- **实现**：[tools/submit_giggle_video_manifest_v2.py](../../tools/submit_giggle_video_manifest_v2.py)
+- **回归**：`tools/tests/test_staged_scope_neighbour_context.py`
+- **证据**：E12 第60波（VU-012/VU-028/VU-051）：旧实现在 4.4 编译阶段对 VU-013->VU-027 报 unit binding mismatch；按下标合并区间后 3 个波次单元各自落在独立分段，分段内部校验全部 PASS。portable CI 134 modules 0 failures。
+- **授权**：Roger 2026-10-06「以后无需要我批准，直接执行」常设授权；CC_H3 审计 2026-10-26 §四-缺口E 的后续边界修复
+- **状态**：`REFERENCE_IMPLEMENTATION`

@@ -77,9 +77,10 @@ class NeighbourSplice(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path, sha = _write_plan(Path(tmp), units)
             submitted = _projected([units[1], units[4]])
-            sequence, report = submitter.scoped_sequence_with_global_neighbours(
+            segments, report = submitter.scoped_sequence_with_global_neighbours(
                 _manifest(path, sha, submitted), submitted)
-        ids = [unit["unit_id"] for unit in sequence]
+        self.assertEqual(len(segments), 1, "touching spans must merge into one segment")
+        ids = [unit["unit_id"] for unit in segments[0]]
         self.assertEqual(ids, ["T-VU01", "T-VU02", "T-VU03",
                                "T-VU04", "T-VU05", "T-VU06"])
         self.assertEqual(report["status"], "VALIDATED_WITH_NEIGHBOURS")
@@ -87,14 +88,68 @@ class NeighbourSplice(unittest.TestCase):
                          ["T-VU01", "T-VU03", "T-VU04", "T-VU06"])
         self.assertEqual(report["submitted_unit_count"], 2)
 
+    def test_far_apart_waves_stay_in_separate_segments(self):
+        """E12-VU-012/VU-028/VU-051 (2026-10-28): three wave units 16+ apart in a
+        53-unit episode must not be concatenated into one flat list.  The old
+        implementation appended each unit's neighbours back to back regardless
+        of distance, so unit 13's "after" neighbour landed directly next to
+        unit 27's "before" neighbour -- two units the episode never places
+        next to each other -- and validate_transition_sequence raised
+        "E12-VU-013->E12-VU-027 transition_contract unit binding mismatch"
+        although neither unit was even in the wave."""
+        units = [_plan_unit(f"T-VU{i:02d}") for i in range(1, 14)]
+        with tempfile.TemporaryDirectory() as tmp:
+            path, sha = _write_plan(Path(tmp), units)
+            # 0-based indices 1, 6, 11 -> T-VU02, T-VU07, T-VU12: each pair of
+            # consecutive wave units leaves a real gap (T-VU04 and T-VU09 are
+            # covered by neither neighbour span), unlike spans that merely
+            # touch at a shared boundary unit.
+            submitted = _projected([units[1], units[6], units[11]])
+            segments, report = submitter.scoped_sequence_with_global_neighbours(
+                _manifest(path, sha, submitted), submitted)
+        self.assertEqual(len(segments), 3)
+        self.assertEqual([unit["unit_id"] for unit in segments[0]],
+                         ["T-VU01", "T-VU02", "T-VU03"])
+        self.assertEqual([unit["unit_id"] for unit in segments[1]],
+                         ["T-VU06", "T-VU07", "T-VU08"])
+        self.assertEqual([unit["unit_id"] for unit in segments[2]],
+                         ["T-VU11", "T-VU12", "T-VU13"])
+        self.assertEqual(report["segment_count"], 3)
+        self.assertEqual(report["submitted_unit_count"], 3)
+        self.assertEqual(report["sequence_unit_count"], 9)
+        # Camera-sequence validation has the same pairwise-adjacency shape as
+        # the transition check; it must run per segment without raising on
+        # the T-VU03 | T-VU06 and T-VU08 | T-VU11 gaps a flat concatenation
+        # would have treated as adjacent (the synthetic units are all LOCKED,
+        # which validate_camera_sequence never flags, so this only exercises
+        # that each segment is accepted as its own list).
+        from tools import grouped_camera_contract as camera
+        for segment in segments:
+            camera.validate_camera_sequence(segment)
+
+    def test_adjacent_wave_units_share_one_segment(self):
+        """Two wave units right next to each other must not be split or
+        duplicated: their neighbour spans overlap at the shared middle unit."""
+        units = [_plan_unit(f"T-VU{i:02d}") for i in range(1, 6)]
+        with tempfile.TemporaryDirectory() as tmp:
+            path, sha = _write_plan(Path(tmp), units)
+            submitted = _projected([units[1], units[2]])
+            segments, report = submitter.scoped_sequence_with_global_neighbours(
+                _manifest(path, sha, submitted), submitted)
+        self.assertEqual(len(segments), 1)
+        ids = [unit["unit_id"] for unit in segments[0]]
+        self.assertEqual(ids, ["T-VU01", "T-VU02", "T-VU03", "T-VU04"])
+        self.assertEqual(report["submitted_unit_count"], 2)
+
     def test_neighbours_are_ordered_by_episode_not_by_subset(self):
         units = [_plan_unit(f"T-VU{i:02d}") for i in range(1, 5)]
         with tempfile.TemporaryDirectory() as tmp:
             path, sha = _write_plan(Path(tmp), units)
             submitted = _projected([units[2], units[0]])
-            sequence, _ = submitter.scoped_sequence_with_global_neighbours(
+            segments, _ = submitter.scoped_sequence_with_global_neighbours(
                 _manifest(path, sha, submitted), submitted)
-        ids = [unit["unit_id"] for unit in sequence]
+        self.assertEqual(len(segments), 1)
+        ids = [unit["unit_id"] for unit in segments[0]]
         self.assertEqual(ids, ["T-VU01", "T-VU02", "T-VU03", "T-VU04"])
 
     def test_submitted_tasks_are_never_rewritten_by_the_splice(self):
@@ -121,9 +176,9 @@ class NeighbourSplice(unittest.TestCase):
 
     def test_missing_plan_falls_back_to_per_task_validation_only(self):
         submitted = _projected([_plan_unit("T-VU01")])
-        sequence, report = submitter.scoped_sequence_with_global_neighbours(
+        segments, report = submitter.scoped_sequence_with_global_neighbours(
             {"tasks": submitted, "staged_generation_scope": {}}, submitted)
-        self.assertEqual(sequence, [])
+        self.assertEqual(segments, [])
         self.assertEqual(report["status"], "MISSING_GLOBAL_PLAN")
 
     def test_the_opening_neighbour_keeps_its_inbound_transition(self):
@@ -185,8 +240,9 @@ class NeighbourSplice(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path, sha = _write_plan(Path(tmp), units)
             submitted = _projected([units[1]])
-            sequence, _ = submitter.scoped_sequence_with_global_neighbours(
+            segments, _ = submitter.scoped_sequence_with_global_neighbours(
                 _manifest(path, sha, submitted), submitted)
+        sequence = segments[0]
         self.assertEqual(sequence[0]["unit_id"], "T-VU01")
         self.assertTrue(sequence[0].get("transition_contract"),
                         "the read-only neighbour's own inbound must survive the slice check")
@@ -222,8 +278,9 @@ class NeighbourSplice(unittest.TestCase):
                 "global_context_units_sha256":
                     hashlib.sha256(context_path.read_bytes()).hexdigest(),
             })
-            sequence, _ = submitter.scoped_sequence_with_global_neighbours(
+            segments, _ = submitter.scoped_sequence_with_global_neighbours(
                 manifest, _projected(units[1:2]))
+        sequence = segments[0]
         self.assertTrue(sequence[0]["ordered_prompt_specs"])
         self.assertTrue(sequence[2]["ordered_prompt_specs"])
 

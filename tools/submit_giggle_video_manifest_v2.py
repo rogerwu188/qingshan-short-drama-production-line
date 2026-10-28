@@ -663,7 +663,7 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
 
 def scoped_sequence_with_global_neighbours(
     manifest: dict[str, Any], submitted: list[dict[str, Any]]
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+) -> tuple[list[list[dict[str, Any]]], dict[str, Any]]:
     """Splice READ-ONLY global neighbours around a scoped repair wave.
 
     A partial repair batch is a non-contiguous slice of the episode, so its
@@ -680,9 +680,17 @@ def scoped_sequence_with_global_neighbours(
     only ever read, and never enter ``manifest["tasks"]`` — so a repair wave
     still POSTs exactly the units it was authorized to POST.
 
-    Returns (ordered sequence covering the wave plus its immediate neighbours,
-    report).  Empty report sequence with ``status=MISSING_GLOBAL_PLAN`` when no
-    bound plan is available; callers fall back to per-task validation only.
+    Returns (ordered SEGMENTS covering the wave plus its immediate neighbours,
+    report).  Two wave units whose neighbour spans touch or overlap share one
+    segment; two that don't (E12 VU-012/VU-028/VU-051, 2026-10-28: 16 and 23
+    units apart) must NOT be concatenated into one flat list — a pairwise
+    validator walking that list would check a transition/camera-rotation
+    adjacency between two neighbours that are not actually adjacent in the
+    episode (it raised on "E12-VU-013->E12-VU-027 transition_contract unit
+    binding mismatch", neither of which was even in the wave).  Each caller
+    must validate every segment independently.  Empty list with
+    ``status=MISSING_GLOBAL_PLAN`` when no bound plan is available; callers
+    fall back to per-task validation only.
     """
     scope = manifest.get("staged_generation_scope") or {}
     report: dict[str, Any] = {
@@ -709,7 +717,6 @@ def scoped_sequence_with_global_neighbours(
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
     plan_units = plan.get("units") or []
     order = {str(unit.get("unit_id") or ""): index for index, unit in enumerate(plan_units)}
-    by_id = {str(unit.get("unit_id") or ""): unit for unit in plan_units}
     missing = [str(unit.get("unit_id")) for unit in submitted
                if str(unit.get("unit_id") or "") not in order]
     if missing:
@@ -741,10 +748,7 @@ def scoped_sequence_with_global_neighbours(
             if uid:
                 spec_context[uid] = row
 
-    def neighbour(unit: dict[str, Any], offset: int) -> dict[str, Any] | None:
-        index = order[str(unit["unit_id"])] + offset
-        if index < 0 or index >= len(plan_units):
-            return None
+    def neighbour_projection(index: int) -> dict[str, Any]:
         candidate = copy.deepcopy(plan_units[index])
         if not candidate.get("ordered_prompt_specs"):
             extra = spec_context.get(str(candidate.get("unit_id") or "")) or {}
@@ -764,36 +768,47 @@ def scoped_sequence_with_global_neighbours(
         })
 
     wave = sorted(submitted, key=lambda unit: order[str(unit["unit_id"])])
-    sequence: list[dict[str, Any]] = []
+    wave_by_id = {str(unit["unit_id"]): unit for unit in wave}
+    # Each wave unit needs its immediate predecessor/successor index (clipped to
+    # the plan's bounds).  Spans that touch or overlap share one contiguous
+    # segment; spans that don't stay in separate segments, so the pairwise
+    # validators never see two neighbours as adjacent when the episode itself
+    # does not place them next to each other.
+    spans = []
     for unit in wave:
-        before = neighbour(unit, -1)
-        after = neighbour(unit, +1)
-        if before is not None and (not sequence or sequence[-1]["unit_id"] != before["unit_id"]):
-            sequence.append(before)
-            report["neighbour_units_read_only"].append(before["unit_id"])
-        sequence.append(unit)
-        if after is not None:
-            sequence.append(after)
-            report["neighbour_units_read_only"].append(after["unit_id"])
-    deduped: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for unit in sequence:
-        if unit["unit_id"] in seen:
-            continue
-        seen.add(unit["unit_id"])
-        deduped.append(unit)
+        index = order[str(unit["unit_id"])]
+        spans.append([max(index - 1, 0), min(index + 1, len(plan_units) - 1)])
+    spans.sort()
+    merged: list[list[int]] = []
+    for lo, hi in spans:
+        if merged and lo <= merged[-1][1] + 1:
+            merged[-1][1] = max(merged[-1][1], hi)
+        else:
+            merged.append([lo, hi])
+
+    segments: list[list[dict[str, Any]]] = []
+    neighbour_ids: list[str] = []
+    for lo, hi in merged:
+        segment: list[dict[str, Any]] = []
+        for index in range(lo, hi + 1):
+            uid = str(plan_units[index].get("unit_id") or "")
+            if uid in wave_by_id:
+                segment.append(wave_by_id[uid])
+            else:
+                projected = neighbour_projection(index)
+                segment.append(projected)
+                neighbour_ids.append(projected["unit_id"])
+        segments.append(segment)
     report.update({
         "status": "VALIDATED_WITH_NEIGHBOURS",
         "global_grouping_plan": plan_value,
         "global_grouping_plan_sha256": actual_sha,
         "submitted_unit_count": len(wave),
-        "neighbour_units_read_only": sorted(
-            {uid for uid in report["neighbour_units_read_only"] if uid not in
-             {str(unit["unit_id"]) for unit in wave}}
-        ),
-        "sequence_unit_count": len(deduped),
+        "neighbour_units_read_only": sorted(set(neighbour_ids)),
+        "sequence_unit_count": sum(len(segment) for segment in segments),
+        "segment_count": len(segments),
     })
-    return deduped, report
+    return segments, report
 
 
 def uses_structured_role_gate(task: dict[str, Any], prompt_text: str) -> bool:
@@ -1439,15 +1454,19 @@ def main() -> int:
         # touches are exactly the risk.  Splice the read-only global
         # neighbours from the sha-bound grouping plan and validate the whole
         # affected run (see CC_H3 audit 2026-10-26 §四-缺口E).
-        sequence, neighbour_report = scoped_sequence_with_global_neighbours(
+        segments, neighbour_report = scoped_sequence_with_global_neighbours(
             manifest, grouped_camera_units)
-        if sequence:
-            validate_camera_sequence(sequence)
-            # The slice starts inside the episode: its first unit is a read-only
-            # neighbour that legitimately has an inbound transition.
-            validate_transition_sequence(sequence, require_prompt_specs=True,
+        for segment in segments:
+            validate_camera_sequence(segment)
+            # Each segment starts inside the episode: its first unit is a
+            # read-only neighbour that legitimately has an inbound transition.
+            # Segments are never concatenated across a real gap (2026-10-28:
+            # two unrelated neighbours landing adjacent in one flat list raised
+            # a spurious transition-binding mismatch between units nothing
+            # actually placed next to each other).
+            validate_transition_sequence(segment, require_prompt_specs=True,
                                         starts_episode=False)
-            rhythm = validate_combat_sequence_rhythm(sequence)
+            rhythm = validate_combat_sequence_rhythm(segment)
             if rhythm["status"] != "PASS":
                 raise ValueError("Combat sequence rhythm gate failed: " + ",".join(rhythm["failures"]))
     else:
@@ -1645,15 +1664,19 @@ def exec_deployed_submitter() -> None:
         manifest.get("partial_repair_scope") or manifest.get("staged_generation_scope")
     )
     if scoped:
-        sequence, neighbour_report = scoped_sequence_with_global_neighbours(
+        segments, neighbour_report = scoped_sequence_with_global_neighbours(
             manifest, grouped_camera_units)
-        if sequence:
-            validate_camera_sequence(sequence)
-            # The slice starts inside the episode: its first unit is a read-only
-            # neighbour that legitimately has an inbound transition.
-            validate_transition_sequence(sequence, require_prompt_specs=True,
+        for segment in segments:
+            validate_camera_sequence(segment)
+            # Each segment starts inside the episode: its first unit is a
+            # read-only neighbour that legitimately has an inbound transition.
+            # Segments are never concatenated across a real gap (2026-10-28:
+            # two unrelated neighbours landing adjacent in one flat list raised
+            # a spurious transition-binding mismatch between units nothing
+            # actually placed next to each other).
+            validate_transition_sequence(segment, require_prompt_specs=True,
                                         starts_episode=False)
-            rhythm = validate_combat_sequence_rhythm(sequence)
+            rhythm = validate_combat_sequence_rhythm(segment)
             if rhythm["status"] != "PASS":
                 raise RuntimeError("Combat sequence rhythm gate failed: " + ",".join(rhythm["failures"]))
     else:

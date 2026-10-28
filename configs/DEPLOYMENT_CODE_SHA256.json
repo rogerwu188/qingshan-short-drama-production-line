@@ -229,7 +229,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "f850e54a4fbbcfa2c4ec74a57cd2f8e52920c5b4a131114e9f7aaf0854ed6fd1"
+      "sha256": "c000e2b1c12e2f569e41759ddd512693d51fa5a4e5cdaa7f198d88823b8f844c"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -333,7 +333,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "dd314250718c2d4997e954f5d4aaa32a0dd024cbf1f70faa6da64c1a9859e80c"
+      "sha256": "b82789a55425aa72875895ba515a96bb6d2c0b2b54b118e528ae402fd7ec6a88"
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
@@ -6469,7 +6469,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "50815322968a61674037e459e96bc9a423728008dae35295008ff4aad6606a12"
+      "sha256": "eaf5becc7d9af10cfc0e89127db00dbd5f409226fc0b3d9fa2d1707370146439"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -8221,7 +8221,7 @@
     },
     {
       "path": "tools/tests/test_staged_scope_neighbour_context.py",
-      "sha256": "f2b764aa8822c1883159dc228708c0aa304798e88202c3ec404ae6a82c6d6a60"
+      "sha256": "1f0585c4e9d4cd019441cf19e60bce9b170da5f3d5851d928e1dbbfbe9a52e0f"
     },
     {
       "path": "tools/tests/test_start_frame_line_owner_acceptance.py",
