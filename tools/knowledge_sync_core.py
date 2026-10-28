@@ -15,6 +15,13 @@ Guarantees (moved unchanged from the nalu writer):
   3. It refuses to write a row it cannot make honest.  A candidate with no real
      `recovery` (or a REFERENCE_IMPLEMENTATION with no `implementation`) is reported
      as a gap for a human to fill, never padded with filler text.
+  4. Knowledge-loop audit 2026-10-27, constraint 4: every freshly-written row's
+     `free_recheck` (see `free_recheck_targets`) names which of THIS episode's
+     already-recorded FREE steps its `implementation` file matches, so a new rule
+     can point at what to recheck without ever naming a paid one.  This reads
+     `pipeline_state/<episode>.json` the same way `candidates_from_evidence`
+     deliberately does not: never to invent a candidate row from a status, only
+     to index steps a row the session already authored might affect.
 
 Input: rows an agent/human authored for the episode in
 `<runtime-root>/reports/<EP>_knowledge_candidates.json` (or
@@ -141,6 +148,66 @@ def _markdown_section(row: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def free_recheck_targets(state: dict[str, Any], rows: list[dict[str, Any]],
+                         rule_ids: list[str]) -> list[dict[str, Any]]:
+    """For each just-synced rule id, name the already-recorded FREE pipeline steps
+    (``paid`` is False in this episode's own run history) whose own script is that
+    rule's ``implementation`` file -- never a paid one.
+
+    Knowledge-loop audit 2026-10-27, constraint 4: new knowledge may point at the
+    free checks it affects, but must never auto-resubmit a paid task and must
+    never add a paid-redo condition.  This is a direct, textual match against
+    ``state["stages"][*]["steps"][*]["argv"]`` -- the exact command line
+    ``nalu_pipeline.py`` already recorded for every step it ran -- never an
+    inferred import graph.  A rule whose implementation file is a library
+    imported by other code, rather than a step's own script, correctly reports
+    no direct match instead of guessing which step would exercise it; its
+    ``regression`` field (already re-run by every portable-CI pass) is the
+    fallback verification surface in that case.
+
+    Read-only: ``state`` is the pipeline_state dict the caller already loaded
+    for its own purposes.  This function never opens a file, never calls a
+    provider, and never mutates ``state`` or ``rows`` -- it only reads them.
+    """
+    by_id = {row.get("id"): row for row in rows}
+    out: list[dict[str, Any]] = []
+    for rule_id in rule_ids:
+        row = by_id.get(rule_id)
+        if row is None:
+            out.append({"rule_id": rule_id, "found": False})
+            continue
+        impl_names = {Path(p).name for p in (row.get("implementation") or [])}
+        free_matches: list[dict[str, Any]] = []
+        paid_matches_excluded: list[dict[str, Any]] = []
+        for stage_id, stage in (state.get("stages") or {}).items():
+            if not isinstance(stage, dict):
+                continue
+            for step in stage.get("steps") or []:
+                if not isinstance(step, dict):
+                    continue
+                argv = step.get("argv") or []
+                script = str(argv[1]) if len(argv) > 1 else ""
+                if Path(script).name not in impl_names:
+                    continue
+                entry = {"stage": stage_id, "stage_status": stage.get("status"),
+                         "step_name": step.get("name"), "script": script,
+                         "exit_code": step.get("exit_code"), "finished_at": step.get("finished_at")}
+                if step.get("paid") is False:
+                    free_matches.append(entry)
+                else:
+                    paid_matches_excluded.append(entry)
+        out.append({
+            "rule_id": rule_id,
+            "found": True,
+            "implementation": sorted(row.get("implementation") or []),
+            "direct_match_found": bool(free_matches or paid_matches_excluded),
+            "free_matches": free_matches,
+            "paid_matches_excluded": paid_matches_excluded,
+            "fallback_verification": None if free_matches else row.get("regression"),
+        })
+    return out
+
+
 def sync(root: Path, runtime_root: Path, episode: str, extra: list[dict[str, Any]] | None = None,
          dry_run: bool = False) -> dict[str, Any]:
     """Append this episode's new knowledge rows; keep registry, markdown and jsonl in step."""
@@ -210,4 +277,5 @@ def sync(root: Path, runtime_root: Path, episode: str, extra: list[dict[str, Any
         (root / FAILURE_MEMORY).write_text(memory, encoding="utf-8")
 
     return {"status": "SYNCED", "episode": episode, "new_ids": [r["id"] for r in appended],
-            "candidates": len(candidates), "gaps": gaps, "rule_count": len(rows)}
+            "candidates": len(candidates), "gaps": gaps, "rule_count": len(rows),
+            "free_recheck": free_recheck_targets(state, rows, [r["id"] for r in appended])}

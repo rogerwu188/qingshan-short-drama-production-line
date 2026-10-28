@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2231,
+  "file_count": 2232,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -265,7 +265,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "8ebcee5c81338a5d1ac31a90b2c85dc2e33ad82457c362fd4ee100c54bca0768"
+      "sha256": "c70677e88e9465c040cfc93c0a6b94997aad00991520a00e3190408e0917b87f"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -349,7 +349,7 @@
     },
     {
       "path": "docs/knowledge/LINE_UPGRADE_PROTOCOL.md",
-      "sha256": "a1352045db85f3b55bb13c584c9a222c1636fb905a83ce6bfb5cb91c18e02bff"
+      "sha256": "ef75c229c33b03069c1286bf6d35a1e0e614681cb0d7bfd0889163973c132674"
     },
     {
       "path": "docs/knowledge/OPTIMIZATION_PLAN_STATUS_20261017.md",
@@ -649,7 +649,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "a6838678f3ec570e683eacf8f2bca7a1bf7189c83246059d50a533debd76765f"
+      "sha256": "2dc8be122661e1566de3fc6fff78752934e1da2104cffcbd7ffc3b6c17311c8a"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -5121,7 +5121,7 @@
     },
     {
       "path": "tools/knowledge_sync_core.py",
-      "sha256": "bd1d697c557e18f193b5511c33bd915a8c1be10a51316e9d7a7c7a1c452aaff9"
+      "sha256": "354173bf6b147bfa4ef42406aba83ab34612d0a5aed9ada29c421f74513c9735"
     },
     {
       "path": "tools/level_native_release_audio.py",
@@ -7582,6 +7582,10 @@
     {
       "path": "tools/tests/test_knowledge_registry.py",
       "sha256": "148223c9c9998db46a9c0b6871f6ad25fb4b192264f470a15841ba339267e1b3"
+    },
+    {
+      "path": "tools/tests/test_knowledge_sync_core.py",
+      "sha256": "9701c1e91d7dc8312fc7e8f0bff4c14eda3a7e24c3d26c7bf9154cdea6d5b20d"
     },
     {
       "path": "tools/tests/test_leading_burst_face_count_endcard.py",

@@ -278,6 +278,7 @@
     "tools.tests.test_knowledge_consumption_ledger",
     "tools.tests.test_knowledge_event_log",
     "tools.tests.test_knowledge_registry",
+    "tools.tests.test_knowledge_sync_core",
     "tools.tests.test_lighting_participant_scope",
     "tools.tests.test_manifest_self_limit_and_version_assert",
     "tools.tests.test_media_boundary_acceptance",
