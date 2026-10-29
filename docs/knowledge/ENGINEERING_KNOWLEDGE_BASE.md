@@ -1244,3 +1244,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：E12 第60波（VU-012/VU-028/VU-051）：旧实现在 4.4 编译阶段对 VU-013->VU-027 报 unit binding mismatch；按下标合并区间后 3 个波次单元各自落在独立分段，分段内部校验全部 PASS。portable CI 134 modules 0 failures。
 - **授权**：Roger 2026-10-06「以后无需要我批准，直接执行」常设授权；CC_H3 审计 2026-10-26 §四-缺口E 的后续边界修复
 - **状态**：`REFERENCE_IMPLEMENTATION`
+
+### K128 — S6
+
+- **规则**：S6 终态全量重编译只能为「还会被提交」的单元索要提示词终审回执。成片已由持久事务库中已绑定（SUBMITTED_TASK_ID_BOUND）的事务产出的单元，其重编译提示词永远不会再 POST：单元重投时按单单元波次编译，事件边界可判为新事件锚点（只带自身关键帧与身份参考）；全量编译把前一单元纳入范围后可改判为有动机切换并重新挂上前一单元真实尾帧，文本与引用 sha 都与已提交的不同。该差异不是提示词缺陷，审核依据只能是事务里的 prompt_sha256 与 reference_sha256；门必须把这类单元记为 harvested_bound_takes_exempt（含 submitted/recompiled 两个 sha 与是否一致），而不是停下来要回执。
+- **教训**：E12-VU-006 因配音越界重投，单单元波次以 2 张参考（关键帧 + 身份源）提交并绑定；视频落盘后的终态全量编译把它改判为承接 VU-005 的有动机切换，重挂 VU-005 真实尾帧成 3 张参考并出现重复的身份声明，门要求对这段从未提交的文本写 PASS 回执。该豁免（exempt_harvested_bound_takes）本已存在，却只在 CAMERA_GRAMMAR_V1 生效的集上启用；E12 是旧合同，豁免从未触发。
+- **恢复**：豁免对所有集生效，details.prompt_finalization.exemption_policy 标注 CAMERA_GRAMMAR_V1 或 BOUND_TAKE_AUTHORITY_LEGACY；旧集的尾帧改挂仅留在审计字段（recompiled_matches_submitted=false），不改成片、不改事务、不写假回执。遇到终态 REVIEW_REQUIRED 且该单元 mp4 已存在时，先比对 digest 的 final_sha256 与事务 prompt_sha256。
+- **实现**：`lines/nalu/runtime/tools/nalu_pipeline.py`（`exempt_harvested_bound_takes` 不再受 `_camera_grammar_on` 限制）
+- **回归**：`tools/tests/test_s6_final_pass_as_submitted.py`（`test_legacy_episode_clip_from_bound_take_is_exempt_too`）
+- **证据**：E12 事务 E12-VU-006__e54aa33da6b457a8：prompt_sha256 8975f460…、2 个 reference_sha256；终态 digest final_sha256 7e9deb68…、3 个参考；旧的 prompt_batch_finalization/E12-VU-006.json 回执正指向 8975f460…
+- **授权**：Roger 2026-10-29 授权 E12 VU-006 付费重投；本规则是重投后终态门暴露的免费检查修正，不新增任何付费授权
+- **状态**：REFERENCE_IMPLEMENTATION
