@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qingshan.collective.attribution_review.v1",
+  "title": "AttributionReview",
+  "type": "object",
+  "required": [
+    "review_id",
+    "event_id",
+    "reviewer_id",
+    "status",
+    "review_version"
+  ],
+  "properties": {
+    "review_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "reviewer_id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "ATTRIBUTED",
+        "INCONCLUSIVE"
+      ]
+    },
+    "review_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "root_cause_hypothesis": {
+      "type": "string"
+    },
+    "basis": {
+      "type": "string",
+      "enum": [
+        "MODEL_HYPOTHESIS",
+        "REPRODUCED",
+        "BEHAVIORAL_REGRESSION",
+        "HUMAN_JUDGEMENT"
+      ]
+    },
+    "confidence": {
+      "type": "string",
+      "enum": [
+        "LOW",
+        "MEDIUM",
+        "HIGH"
+      ]
+    },
+    "supporting_evidence": {
+      "type": "array"
+    },
+    "counter_evidence": {
+      "type": "array"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "candidate_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-]{0,127}$"
+      }
+    }
+  }
+}

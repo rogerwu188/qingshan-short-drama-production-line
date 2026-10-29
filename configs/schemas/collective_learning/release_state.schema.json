@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qingshan.collective.release_state.v1",
+  "title": "Knowledge release state machine",
+  "type": "object",
+  "properties": {
+    "states": {
+      "const": [
+        "CANDIDATE",
+        "NEEDS_EVIDENCE",
+        "REJECTED",
+        "VALIDATED",
+        "CANARY",
+        "RELEASED",
+        "DEPRECATED",
+        "REVOKED"
+      ]
+    },
+    "transitions": {
+      "const": {
+        "CANDIDATE": [
+          "NEEDS_EVIDENCE",
+          "REJECTED",
+          "VALIDATED"
+        ],
+        "NEEDS_EVIDENCE": [
+          "CANDIDATE",
+          "REJECTED"
+        ],
+        "VALIDATED": [
+          "CANARY",
+          "REJECTED"
+        ],
+        "CANARY": [
+          "DEPRECATED",
+          "RELEASED",
+          "REVOKED"
+        ],
+        "RELEASED": [
+          "DEPRECATED",
+          "REVOKED"
+        ],
+        "DEPRECATED": [
+          "REVOKED"
+        ],
+        "REJECTED": [],
+        "REVOKED": []
+      }
+    },
+    "validation_scopes": {
+      "const": [
+        "STRUCTURE_VALID",
+        "DETERMINISTIC_REGRESSION",
+        "REAL_MEDIA_REVIEW",
+        "CROSS_CASE_EFFECT"
+      ]
+    }
+  }
+}

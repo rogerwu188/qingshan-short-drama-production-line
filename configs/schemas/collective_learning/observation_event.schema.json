@@ -1,0 +1,262 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qingshan.collective.observation_event.v1",
+  "title": "ObservationEvent",
+  "type": "object",
+  "description": "A fact. Cannot carry root_cause, release or any authority key (validated in tools/collective_learning/contracts.py).",
+  "required": [
+    "schema_version",
+    "event_id",
+    "tenant_id",
+    "line_id",
+    "device_id",
+    "run_id",
+    "episode_id",
+    "unit_ids",
+    "stage",
+    "event_kind",
+    "occurred_at",
+    "producer_sequence",
+    "artifact_digest",
+    "engine_version",
+    "provider_model_version",
+    "knowledge_bundle_digest",
+    "detected_by",
+    "evidence",
+    "symptom",
+    "visibility"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-]{0,127}$"
+    },
+    "line_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-]{0,127}$"
+    },
+    "device_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-]{0,127}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-]{0,127}$"
+    },
+    "episode_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-]{0,127}$"
+    },
+    "unit_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-]{0,127}$"
+      }
+    },
+    "stage": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-]{0,127}$"
+    },
+    "event_kind": {
+      "type": "string",
+      "enum": [
+        "FAILURE_OBSERVATION",
+        "SUCCESS_OBSERVATION",
+        "USER_CORRECTION",
+        "FIX_RESULT",
+        "RUN_ANOMALY"
+      ]
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "received_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer_sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "artifact_digest": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        {
+          "const": "UNKNOWN"
+        }
+      ]
+    },
+    "engine_version": {
+      "type": "string"
+    },
+    "provider_model_version": {
+      "type": "string"
+    },
+    "knowledge_bundle_digest": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        {
+          "enum": [
+            "NONE",
+            "UNKNOWN"
+          ]
+        }
+      ]
+    },
+    "detected_by": {
+      "type": "string"
+    },
+    "symptom": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence": {
+      "type": "object",
+      "minProperties": 1,
+      "properties": {
+        "timecodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "video_sha256",
+              "timeline",
+              "start_ms",
+              "end_ms"
+            ],
+            "properties": {
+              "video_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "timeline": {
+                "type": "string",
+                "enum": [
+                  "GENERATED_SOURCE",
+                  "FINAL_CUT",
+                  "KEYFRAME_STILL"
+                ]
+              },
+              "start_ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "end_ms": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "PRIVATE_LOCAL",
+        "LINE",
+        "TENANT"
+      ]
+    },
+    "source_event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "opportunity": {
+      "type": "object",
+      "required": [
+        "applicable_units",
+        "observed_units"
+      ],
+      "properties": {
+        "applicable_units": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "observed_units": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "not": {
+    "anyOf": [
+      {
+        "required": [
+          "attribution"
+        ]
+      },
+      {
+        "required": [
+          "authorization"
+        ]
+      },
+      {
+        "required": [
+          "budget"
+        ]
+      },
+      {
+        "required": [
+          "budget_increase"
+        ]
+      },
+      {
+        "required": [
+          "paid_retry_authorized"
+        ]
+      },
+      {
+        "required": [
+          "promote"
+        ]
+      },
+      {
+        "required": [
+          "publication_authorized"
+        ]
+      },
+      {
+        "required": [
+          "publish"
+        ]
+      },
+      {
+        "required": [
+          "release"
+        ]
+      },
+      {
+        "required": [
+          "release_state"
+        ]
+      },
+      {
+        "required": [
+          "root_cause"
+        ]
+      },
+      {
+        "required": [
+          "scope_global"
+        ]
+      }
+    ]
+  }
+}

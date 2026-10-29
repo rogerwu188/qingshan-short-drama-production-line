@@ -322,6 +322,101 @@ class FinalAudienceReviewTests(unittest.TestCase):
         self.assertIn("opening_10s_no_hook", report["hard_fail"])
 
 
+    # ---- optional DIRECTOR_SCORE_V1 block (collective learning, requirement section 6)
+    LEGACY_RESULT_KEYS = {
+        "status", "episode", "request_sha256", "final_video_sha256", "report", "report_sha256",
+        "event_ledger", "event_ledger_sha256", "audience_gate", "audience_gate_status",
+        "quality_gate", "quality_gate_status", "verdict",
+    }
+
+    def _director_block(self) -> dict:
+        tc = {"video_sha256": _sha(self.video), "timeline": "FINAL_CUT", "start_ms": 1000, "end_ms": 5000}
+        return {
+            "prompt_version": "director-review-prompt-v1",
+            "dimensions": {
+                key: {"level": 3 if key == "performance_interaction" else 4,
+                      "reasons": f"{key} 在完整三遍观看中有对应时码的画面与声音证据",
+                      "evidence": [tc], "strengths": [f"{key} 有效"], "weaknesses": [f"{key} 可改进"]}
+                for key in ("narrative_causality", "pacing_information", "performance_interaction",
+                            "composition_camera_motivation", "editing_action_continuity",
+                            "sound_dialogue", "emotion_continuation")
+            },
+        }
+
+    def _director_files(self) -> list[Path]:
+        return [self.root / f"E01_{suffix}" for suffix in
+                ("DIRECTOR_EVALUATION.json", "DIRECTOR_EVALUATION.md", "NEXT_EPISODE_PLAN.json")]
+
+    def test_without_director_block_outputs_are_unchanged(self):
+        self._prepare()
+        code, result = self._submit(self._answers())
+        self.assertEqual(code, 0, result)
+        self.assertEqual(set(result), self.LEGACY_RESULT_KEYS)
+        self.assertFalse(any(path.exists() for path in self._director_files()))
+        report = json.loads(self.report.read_text(encoding="utf-8"))
+        self.assertNotIn("director_evaluation", report)
+
+    def test_valid_director_block_writes_bound_advisory_outputs(self):
+        self._prepare()
+        answers = self._answers()
+        answers["director_evaluation"] = self._director_block()
+        code, result = self._submit(answers)
+
+        self.assertEqual(code, 0, result)
+        self.assertEqual(set(result) - {"director_evaluation"}, self.LEGACY_RESULT_KEYS)
+        director = result["director_evaluation"]
+        self.assertEqual(director["authority"], "ADVISORY_NOT_A_GATE")
+        self.assertTrue(all(path.is_file() for path in self._director_files()))
+        evaluation = json.loads(self._director_files()[0].read_text(encoding="utf-8"))
+        self.assertEqual(evaluation["final_video_sha256"], _sha(self.video))
+        self.assertEqual(evaluation["evaluator"]["role"], "INDEPENDENT")
+        self.assertEqual(evaluation["evaluator"]["process_id"], "independent-review-process-3")
+        self.assertEqual(evaluation["coverage"]["mode"], "CONTINUOUS_AV")
+        self.assertEqual(evaluation["status"], "COMPLETE")
+        self.assertEqual(director["evaluation_sha256"], _sha(self._director_files()[0]))
+        plan = json.loads(self._director_files()[2].read_text(encoding="utf-8"))
+        self.assertEqual(plan["targets"][0]["dimension"], "performance_interaction")
+        self.assertEqual(director["collective_store"], {"status": "NOT_CONFIGURED"})
+        # The director score never reaches the existing gates.
+        gate = json.loads(self.audience_gate.read_text(encoding="utf-8"))
+        self.assertNotIn("director", json.dumps(gate))
+
+    def test_invalid_director_block_is_an_invalid_submission_with_codes(self):
+        self._prepare()
+        answers = self._answers()
+        block = self._director_block()
+        block["dimensions"]["sound_dialogue"]["evidence"] = []
+        del block["prompt_version"]
+        answers["director_evaluation"] = block
+        code, result = self._submit(answers)
+
+        self.assertEqual(code, 2)
+        self.assertEqual(result["status"], "INVALID_SUBMISSION")
+        self.assertIn("director_evaluation:DIMENSION_EVIDENCE_TIMECODE_REQUIRED:sound_dialogue", result["failures"])
+        self.assertIn("director_evaluation:EVALUATOR_PROMPT_VERSION_REQUIRED", result["failures"])
+        self.assertFalse(self.report.exists())
+
+    def test_director_evaluation_reaches_opted_in_store_and_plan_index(self):
+        from tools.collective_learning import device_store
+
+        self._prepare()
+        runtime = self.root / "line-runtime"
+        store = device_store.open_store(runtime, tenant_id="tenant-a", line_id="line-a", create=True)
+        answers = self._answers()
+        answers["director_evaluation"] = self._director_block()
+        answer_path = _write(self.root / "answers.json", answers)
+        code, result = review.submit(
+            request_path=self.request, answers_path=answer_path, report_path=self.report,
+            ledger_path=self.ledger, audience_gate_path=self.audience_gate,
+            quality_gate_path=self.quality_gate, plan_index_root=runtime, collective_runtime_root=runtime)
+
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result["director_evaluation"]["collective_store"]["status"], "RECORDED")
+        self.assertEqual(len(store.receipts("EVALUATION")), 1)
+        self.assertEqual(store.outbox_status()["counts"]["PENDING"], 1)
+        self.assertTrue(Path(result["director_evaluation"]["plan_index"]).is_file())
+
+
 class ShotWindowTests(unittest.TestCase):
     def test_requires_one_timestamped_row_per_measured_shot(self):
         broken = _metrics()

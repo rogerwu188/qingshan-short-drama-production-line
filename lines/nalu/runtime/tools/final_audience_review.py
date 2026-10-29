@@ -718,9 +718,82 @@ def _verify_bound_evidence(request: dict[str, Any]) -> list[str]:
     return failures
 
 
+def _director_score_module():
+    for entry in (str(ENGINE), str(ENGINE / "tools")):
+        if entry not in sys.path:
+            sys.path.insert(0, entry)
+    from tools.collective_learning import director_score  # noqa: PLC0415
+
+    return director_score
+
+
+def _director_evaluation(request: dict[str, Any], request_sha: str, clean: dict[str, Any],
+                         block: Any) -> tuple[list[str], dict[str, Any] | None]:
+    """Validate the optional DIRECTOR_SCORE_V1 block against the same request and video.
+
+    Coverage is derived from the viewing passes this tool already verified, not
+    from anything the block claims: full 1x + sound pass => continuous AV with a
+    whole-film pacing pass.  The evaluation is advisory output only; it never
+    feeds the audience/final-cut gates below.
+    """
+    if not isinstance(block, dict):
+        return ["director_evaluation:BLOCK_MUST_BE_OBJECT"], None
+    ds = _director_score_module()
+    passes = clean.get("viewing_passes") or {}
+    full, sound = passes.get("full_1x") is True, passes.get("sound") is True
+    coverage = {"mode": "CONTINUOUS_AV" if full else "NONE", "with_sound": full and sound,
+                "whole_film_pacing_pass": full}
+    reviewer = clean.get("reviewer") or {}
+    try:
+        evaluation = ds.evaluate(
+            episode_id=str(request.get("episode") or ""),
+            video_sha256=str((request.get("media") or {}).get("sha256") or ""),
+            timeline_version=str(block.get("timeline_version") or f"final_audience_request:{request_sha}"),
+            evaluator={"role": "INDEPENDENT", "model": reviewer.get("model"),
+                       "prompt_version": block.get("prompt_version"), "process_id": reviewer.get("process_id")},
+            coverage=coverage,
+            dimensions=block.get("dimensions") or {},
+            severe_defects=block.get("severe_defects") or [],
+            accepted_imperfections=block.get("accepted_imperfections") or [],
+            declared_inputs=block.get("declared_inputs") or [],
+            review_round=int(block.get("review_round") or 1),
+            evaluated_at=reviewer.get("reviewed_at"),
+        )
+    except (ValueError, TypeError) as exc:
+        codes = getattr(exc, "codes", None) or [str(exc)]
+        return [f"director_evaluation:{code}" for code in codes], None
+    return [], evaluation
+
+
+def _record_evaluation_in_device_store(runtime_root: Path | None, evaluation: dict[str, Any]) -> dict[str, Any]:
+    """Soft, failure-tolerant: only when the line opted into the collective store."""
+    if runtime_root is None:
+        return {"status": "NOT_CONFIGURED"}
+    try:
+        import sqlite3  # noqa: PLC0415
+
+        from tools.collective_learning import device_store  # noqa: PLC0415
+
+        path = device_store.store_path(Path(runtime_root))
+        if not path.is_file():
+            return {"status": "NOT_OPTED_IN"}
+        db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            meta = dict(db.execute("SELECT key, value FROM meta").fetchall())
+        finally:
+            db.close()
+        store = device_store.DeviceStore(path, tenant_id=meta["tenant_id"], line_id=meta["line_id"])
+        store.record_receipt("EVALUATION", {**evaluation, "tenant_id": meta["tenant_id"],
+                                            "line_id": meta["line_id"], "device_id": store.device_id})
+        return {"status": "RECORDED", "store": str(path)}
+    except Exception as exc:  # noqa: BLE001 -- never changes the review's exit code
+        return {"status": "FAILED", "error": f"{type(exc).__name__}:{exc}"}
+
+
 def submit(*, request_path: Path, answers_path: Path, report_path: Path,
            ledger_path: Path, audience_gate_path: Path,
-           quality_gate_path: Path) -> tuple[int, dict[str, Any]]:
+           quality_gate_path: Path, plan_index_root: Path | None = None,
+           collective_runtime_root: Path | None = None) -> tuple[int, dict[str, Any]]:
     request = _load_required(request_path, "final audience request")
     if request.get("schema") != REQUEST_SCHEMA or request.get("status") != "REVIEW_REQUIRED":
         raise ValueError(f"not an active {REQUEST_SCHEMA}: {request_path}")
@@ -729,6 +802,11 @@ def submit(*, request_path: Path, answers_path: Path, report_path: Path,
     failures = _verify_bound_evidence(request)
     answer_failures, clean = _validate_answers(request, request_sha, answers)
     failures.extend(answer_failures)
+    director_evaluation = None
+    if "director_evaluation" in answers and not answer_failures:
+        director_failures, director_evaluation = _director_evaluation(
+            request, request_sha, clean, answers["director_evaluation"])
+        failures.extend(director_failures)
     if failures:
         return 2, {
             "status": "INVALID_SUBMISSION",
@@ -843,7 +921,7 @@ def submit(*, request_path: Path, answers_path: Path, report_path: Path,
     _atomic_json(quality_gate_path, quality_result)
     passed = (audience_result.get("gate_status") == "PASS"
               and quality_result.get("gate_status") == "PASS")
-    return (0 if passed else 3), {
+    result = {
         "status": "PASS" if passed else "BLOCKED_BY_FINAL_AUDIENCE_GATE",
         "episode": request["episode"],
         "request_sha256": request_sha,
@@ -858,6 +936,34 @@ def submit(*, request_path: Path, answers_path: Path, report_path: Path,
         "quality_gate_status": quality_result.get("gate_status"),
         "verdict": verdict,
     }
+    if director_evaluation is not None:
+        # Advisory outputs written after the gates were evaluated, so they cannot
+        # influence them; the exit code below is the gates' alone.
+        ds = _director_score_module()
+        episode = request["episode"]
+        base = report_path.parent
+        eval_path = base / f"{episode}_DIRECTOR_EVALUATION.json"
+        md_path = base / f"{episode}_DIRECTOR_EVALUATION.md"
+        plan_path = base / f"{episode}_NEXT_EPISODE_PLAN.json"
+        plan = ds.next_episode_plan([director_evaluation], episode_id=episode)
+        _atomic_json(eval_path, director_evaluation)
+        _atomic_json(plan_path, plan)
+        md_path.write_text(ds.render_markdown(director_evaluation, plan), encoding="utf-8")
+        result["director_evaluation"] = {
+            "evaluation_id": director_evaluation["evaluation_id"],
+            "status": director_evaluation["status"],
+            "total": director_evaluation["total"],
+            "final_video_sha256": director_evaluation["final_video_sha256"],
+            "evaluation": str(eval_path), "evaluation_sha256": _sha(eval_path),
+            "report_md": str(md_path), "report_md_sha256": _sha(md_path),
+            "next_episode_plan": str(plan_path), "next_episode_plan_sha256": _sha(plan_path),
+            "authority": "ADVISORY_NOT_A_GATE",
+        }
+        if plan_index_root is not None:
+            result["director_evaluation"]["plan_index"] = str(ds.publish_plan(plan_index_root, plan))
+        result["director_evaluation"]["collective_store"] = _record_evaluation_in_device_store(
+            collective_runtime_root, director_evaluation)
+    return (0 if passed else 3), result
 
 
 def status(*, episode: str, video: Path, request_path: Path, report_path: Path,
@@ -995,6 +1101,8 @@ def main() -> int:
                 ledger_path=args.event_ledger_out or defaults["ledger"],
                 audience_gate_path=args.audience_gate_out or defaults["audience_gate"],
                 quality_gate_path=args.quality_gate_out or defaults["quality_gate"],
+                plan_index_root=RUNTIME,
+                collective_runtime_root=RUNTIME / "runtime" if (RUNTIME / "runtime").is_dir() else RUNTIME,
             )
         print(json.dumps(result, ensure_ascii=False))
         return code

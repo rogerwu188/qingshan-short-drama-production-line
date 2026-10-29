@@ -1,0 +1,175 @@
+{
+  "schema": "qingshan.collective.director_score_rubric.v1",
+  "rubric_version": "DIRECTOR_SCORE_V1",
+  "status": "FROZEN",
+  "versioning_rule": "Weights, dimension keys, level anchors and the formula are frozen for this version. Any change to a weight, a dimension, an anchor or the formula requires a new rubric_version; evaluations under different rubric versions are not comparable. The rubric sha256 is recorded at load time and bound into every evaluation.",
+  "not_an_authority": "The total is neither a publication authorisation nor a reroll/redo threshold. Identity, dialogue and authorisation safety gates run independently; a high total never offsets a severe defect.",
+  "formula": {
+    "per_dimension": "points = weight * level / 5",
+    "total": "round(sum(points)) over all seven dimensions",
+    "display": "integer total plus per-dimension levels; reviewer disagreement shown per dimension; no decimal precision theatre",
+    "missing_dimension": "If any dimension is UNASSESSED the total is null and comparable=false; a missing dimension is never scored zero and the remaining weights are never renormalised."
+  },
+  "levels": [0, 1, 2, 3, 4, 5],
+  "generic_anchors": {
+    "0": "基本不可理解或不可用",
+    "1": "频繁破坏观看",
+    "2": "多处明显打断",
+    "3": "能够顺畅理解，但仍有明显缺点",
+    "4": "持续有效，少有打断",
+    "5": "表现充分，选择明确，并有证据支持"
+  },
+  "dimensions": [
+    {
+      "key": "narrative_causality",
+      "label": "叙事理解与因果",
+      "weight": 20,
+      "question": "观众是否知道人物要什么、阻力是什么、事情为何变化",
+      "anchors": {
+        "0": "看完说不出谁要什么、发生了什么，事件之间没有可辨认的因果",
+        "1": "只能零星看懂个别事件，人物目标和阻力大多需要猜",
+        "2": "主线能拼出，但有多个关键转折缺少原因或交代错位",
+        "3": "目标、阻力和主要转折能看懂，个别因果靠台词硬补或略显跳跃",
+        "4": "人物目标、阻力和每次变化的原因都清楚，偶有一处交代稍弱",
+        "5": "每个转折都有画面或行动上的原因，观众能预判并被合理推翻，证据可指到具体时码"
+      },
+      "examples": {
+        "positive": "人物先被拒之门外，下一镜换路翻墙进入，观众无需台词就理解动机与阻力。",
+        "negative": "人物突然出现在另一地点并改变态度，前文既无动作也无信息解释这一变化。"
+      }
+    },
+    {
+      "key": "pacing_information",
+      "label": "节奏与信息推进",
+      "weight": 15,
+      "question": "每段是否提供新信息、行动或情绪变化，停顿是否有目的",
+      "anchors": {
+        "0": "大段重复或静止，几乎没有新信息",
+        "1": "多数段落停滞或重复同一信息，观看明显拖沓",
+        "2": "推进存在，但有多处无目的的停顿、重复镜头或信息过载",
+        "3": "整体在推进，偶有一两段拖沓或过于拥挤",
+        "4": "每段都带来新的信息、行动或情绪，停顿基本有目的",
+        "5": "推进与停顿都服务于情绪和悬念，留白有明确目的，结构可从时码证明"
+      },
+      "examples": {
+        "positive": "关键决定前保留两秒静默反应，随后立刻以行动兑现，停顿制造期待而非拖沓。",
+        "negative": "同一信息在连续三段中以不同台词重复说明，期间没有新的行动或变化。"
+      }
+    },
+    {
+      "key": "performance_interaction",
+      "label": "表演与人物交流",
+      "weight": 20,
+      "question": "表情是否适度，人物是否真正对彼此说话和作出反应",
+      "anchors": {
+        "0": "表演与情境无关或面部失控，无法读出人物状态",
+        "1": "普遍夸张或木然，人物之间几乎没有互相反应",
+        "2": "多处夸张、对错对象说话或视线与交谈对象不一致",
+        "3": "情绪基本可信，但有个别夸张或反应缺失",
+        "4": "表演适度，人物在听也在回应，视线与交流对象一致",
+        "5": "细微表情承载潜台词，听者反应推动下一句，交流关系清晰且有证据"
+      },
+      "examples": {
+        "positive": "说话者看向画外左侧的听者，下一镜听者在对应方位作出克制反应。",
+        "negative": "两人对话时说话者持续直视镜头，听者表情与台词内容无关。"
+      }
+    },
+    {
+      "key": "composition_camera_motivation",
+      "label": "构图与镜头动机",
+      "weight": 15,
+      "question": "关键主体是否可读，机位和运动是否服务剧情",
+      "anchors": {
+        "0": "关键主体经常不在画内或无法辨认，运镜混乱",
+        "1": "关键主体频繁被切半、出画，或运动与剧情无关",
+        "2": "多处主体可读性差或出现无动机的重复摇移",
+        "3": "主体大体可读，个别机位或运动缺乏动机",
+        "4": "主体清楚，景别与运动服务当下叙事",
+        "5": "每个机位与运动都有叙事理由，构图引导注意力，证据可指到时码"
+      },
+      "examples": {
+        "positive": "镜头随人物伸手的动作推近到手中物件，运动跟随叙事焦点。",
+        "negative": "对话中镜头无理由地连续左右摇移三次，主体在摇移中半脸出画。"
+      }
+    },
+    {
+      "key": "editing_action_continuity",
+      "label": "剪辑与动作连续性",
+      "weight": 15,
+      "question": "相邻镜头空间、方向、动作阶段与情绪是否连贯",
+      "anchors": {
+        "0": "镜头之间空间、方向、动作完全断裂",
+        "1": "频繁跳轴、动作重复起步或状态复位",
+        "2": "多处接点动作阶段不连或空间方向错乱",
+        "3": "多数接点连贯，个别动作重复或方向小错",
+        "4": "空间方向、动作阶段与情绪在接点处连续",
+        "5": "剪辑点选在动作或情绪的最佳时刻，接点干净，跨段接点经过逐一检查"
+      },
+      "examples": {
+        "positive": "上一镜人物起身到一半，下一镜从站直的瞬间接入，动作阶段自然衔接。",
+        "negative": "上一镜人物已站起，下一镜又从坐姿重新起身，动作重复起步。"
+      }
+    },
+    {
+      "key": "sound_dialogue",
+      "label": "声音与对白体验",
+      "weight": 10,
+      "question": "对白是否完整清楚，声音衔接与音乐是否支持画面",
+      "anchors": {
+        "0": "对白缺失或不可辨，声音与画面无关",
+        "1": "多句对白被截断、静音或归属错误",
+        "2": "对白基本存在，但有明显截断、音量跳变或音乐压住台词",
+        "3": "对白完整可听，个别衔接或混音不够平滑",
+        "4": "对白清楚、归属正确，环境声与音乐支持画面",
+        "5": "声音设计主动推动情绪与转场，对白、环境与音乐层次清楚"
+      },
+      "examples": {
+        "positive": "画外声先入，下一镜切到说话者，声音引导转场且台词完整。",
+        "negative": "一句台词在镜头切换处被截掉最后两个字，下一镜环境声突然跳高。"
+      }
+    },
+    {
+      "key": "emotion_continuation",
+      "label": "情绪与继续观看意愿",
+      "weight": 5,
+      "question": "观众是否在意结果，结尾是否产生合理的期待",
+      "anchors": {
+        "0": "观众没有理由关心任何结果",
+        "1": "情绪投入极弱，结尾无期待",
+        "2": "有零星情绪点，但结尾钩子缺失或不合理",
+        "3": "能让人关心结果，结尾期待一般",
+        "4": "情绪投入持续，结尾产生明确且合理的期待",
+        "5": "情绪层层累积，结尾未决之处让人迫切想看下一集，且由前文合理铺垫"
+      },
+      "examples": {
+        "positive": "结尾停在人物发现关键物件后的反应，前文已铺垫该物件的重要性。",
+        "negative": "结尾突然抛出与前文无关的新人物，观众无法建立合理期待。"
+      }
+    }
+  ],
+  "creative_counterexamples_not_defects": [
+    {
+      "id": "INTENTIONAL_PARTIAL_CLOSE_UP",
+      "description": "导演意图明确的局部特写（只拍眼睛、手或半张脸）不是半脸缺陷；只有在主体本应完整可读、且场景意图未声明局部时才判为构图问题。"
+    },
+    {
+      "id": "MOTIVATED_OFFSCREEN_DIALOGUE",
+      "description": "有叙事目的的画外对白（听者反应镜头、画外声引出转场）不是对白缺失；需结合连续音画确认台词完整且归属清楚。"
+    },
+    {
+      "id": "PURPOSEFUL_CAMERA_MOVEMENT",
+      "description": "跟随动作、揭示信息或强调情绪的运镜不是无动机摇镜；只有重复、无目的且破坏主体可读性的运动才计为问题。"
+    },
+    {
+      "id": "DESIGNED_DIRECT_TO_CAMERA",
+      "description": "设计为直视镜头的独白、旁白或打破第四面墙的表演不是视线错误；对话场景中未设计的对镜说话才计为问题。"
+    }
+  ],
+  "scoring_rules": [
+    "先评 0-5 档，再按权重换算；每个已评维度至少一个绑定成片版本的证据时码。",
+    "不得仅因命中关键词判错；须结合场景导演意图与连续音画。",
+    "非打斗集不评'有没有精彩打斗'，而在剪辑与动作维度评价本集实际发生的动作与衔接。",
+    "只看接触表/抽帧不能评价声音、运动连续性或整体节奏；这些维度记为 UNASSESSED，总分不可比较。",
+    "创作者自评与独立评审分开保存，互不覆盖；独立评审首轮不看创作者分数、目标分数与修复理由。"
+  ]
+}

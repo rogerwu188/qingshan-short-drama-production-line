@@ -7210,6 +7210,11 @@ def s7_final_audience_review(ctx: Ctx, res: StageResult) -> dict[str, Any]:
         for key in ("report", "event_ledger"):
             if detail.get(key):
                 res.receipts.append(str(detail[key]))
+        if detail.get("report"):  # advisory DIRECTOR_SCORE_V1 outputs, only when the reviewer wrote them
+            for suffix in ("DIRECTOR_EVALUATION.json", "DIRECTOR_EVALUATION.md", "NEXT_EPISODE_PLAN.json"):
+                extra = Path(str(detail["report"])).parent / f"{ctx.episode}_{suffix}"
+                if extra.is_file():
+                    res.receipts.append(str(extra))
         return {**detail, "status": PASS, "blockers": []}
 
     if code == 10:
