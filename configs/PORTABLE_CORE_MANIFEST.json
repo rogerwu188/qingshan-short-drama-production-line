@@ -410,6 +410,7 @@
     "tools.tests.test_s3ctl",
     "tools.tests.test_postgen_incremental_measurement",
     "tools.tests.test_line_owner_start_frame_decision",
-    "tools.tests.test_collective_s3_sync"
+    "tools.tests.test_collective_s3_sync",
+    "tools.tests.test_character_asset_reentry_binding"
   ]
 }

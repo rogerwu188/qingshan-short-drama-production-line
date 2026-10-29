@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import argparse
 import base64
+import glob as _glob
 import hashlib
 import json
 import os
+import re
+import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -47,9 +50,26 @@ class DuplicateSubmissionBlocked(RuntimeError):
     """A prior charged or unresolved character-asset intent cannot be repeated."""
 
 
+class PreIntentFailure(RuntimeError):
+    """A row failed before its intent record was written: no POST, no charge, no transaction file.
+
+    Lab E08 2026-10-29: such a failure was recorded with the transaction path the row WOULD have
+    used, the reconciliation loop then read that never-written file and the FileNotFoundError
+    masked the original error.  Same convention as the video submitter
+    (state submit_failed_before_intent, credit 0, NOT_CHARGED_NO_INTENT_RECORDED)."""
+
+    def __init__(self, original: BaseException):
+        self.original = original
+        super().__init__(f"{type(original).__name__}: {original}")
+
+
+BOUND_STATE = "SUBMITTED_TASK_ID_BOUND"
+
+
 def atomic_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".part")
+    # unique temporary per writer: two workers rewriting one file must never race on one ".part"
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex[:8]}.part")
     temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.replace(temporary, path)
 
@@ -75,27 +95,90 @@ def transaction_path(transaction_dir: Path, row: dict, model: str, resolution: s
     return transaction_dir / f"{row['id']}__{fingerprint[:16]}.json"
 
 
-def prior_submission(row: dict, transaction_dir: Path, model: str, resolution: str) -> dict | None:
+def safe_name(value: str) -> str:
+    """tools/harvest_giggle_image_batch.safe: the harvested image is <episode>_<safe(task_key)>_<task_id>.png."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-.") or "task"
+
+
+def own_transactions(transaction_dir: Path, task_key: str) -> list[tuple[Path, dict]]:
+    """Transactions of exactly ``task_key``.  ``CHAR-X__*.json`` also matches the view rows
+    ``CHAR-X__FRONT_NEUTRAL_HEADSHOT__*.json``; those belong to other rows and are never touched."""
+    rows: list[tuple[Path, dict]] = []
+    if not transaction_dir.is_dir():
+        return rows
+    for path in sorted(transaction_dir.glob(f"{_glob.escape(task_key)}__*.json")):
+        if path.stem.rsplit("__", 1)[0] != task_key:
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(payload, dict) and str(payload.get("task_key") or task_key) == task_key:
+            rows.append((path, payload))
+    return rows
+
+
+def harvested_binding(row: dict, transaction_dir: Path, plates_dir: Path | None, *,
+                      current_fingerprint: str) -> dict | None:
+    """A bound, already HARVESTED take of this row under another fingerprint (None if none).
+
+    Lab E08 2026-10-29: the multi-view sheet's reference list grows once the headshot is harvested,
+    so a normal S3 re-entry recomputed a new fingerprint for a sheet that was paid for, bound and on
+    disk, and planned/POSTed it again.  Mirrors tools/video_live_binding.py: same task_key (subject
+    + asset role) + SUBMITTED_TASK_ID_BOUND + its harvested image on disk => that take is reused,
+    whatever the recomputed fingerprint.  Only an explicit ``supersedes_submission_fingerprints``
+    entry on the row (a deliberate regeneration) lets a new POST through; parking/removing the
+    image does too.  ``superseded_by`` markers are ignored: they were written before a POST that
+    may never have happened."""
+    if plates_dir is None or not Path(plates_dir).is_dir():
+        return None
+    task_key = str(row["id"])
+    supersedes = {str(v) for v in row.get("supersedes_submission_fingerprints") or [] if v}
+    found: list[dict] = []
+    for path, tx in own_transactions(transaction_dir, task_key):
+        fingerprint = str(tx.get("submission_fingerprint") or "")
+        task_id = str(tx.get("task_id") or "")
+        if tx.get("state") != BOUND_STATE or not task_id or fingerprint == current_fingerprint:
+            continue
+        if fingerprint in supersedes or fingerprint[:16] in supersedes:
+            continue
+        episode = str(tx.get("episode") or row.get("episode") or "")
+        image = Path(plates_dir) / f"{episode}_{safe_name(task_key)}_{task_id}.png"
+        if not image.is_file():
+            continue
+        found.append({"path": path, "transaction": tx, "image": image})
+    if not found:
+        return None
+    found.sort(key=lambda item: str(item["transaction"].get("response_recorded_at") or ""))
+    return found[-1]
+
+
+def prior_submission(row: dict, transaction_dir: Path, model: str, resolution: str,
+                     plates_dir: Path | None = None) -> dict | None:
     path = transaction_path(transaction_dir, row, model, resolution)
     current_fingerprint = submission_fingerprint(row, model, resolution)
     char_id = row["id"]
 
-    # Plan §5.4: supersede old transactions when contract changes.
-    if transaction_dir.is_dir():
-        for old_tx_path in transaction_dir.glob(f"{char_id}__*.json"):
-            if old_tx_path == path:
-                continue
-            try:
-                old_tx = json.loads(old_tx_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
+    if not path.is_file():
+        binding = harvested_binding(row, transaction_dir, plates_dir, current_fingerprint=current_fingerprint)
+        if binding is not None:
+            tx = binding["transaction"]
+            return {
+                "task_key": char_id, "character_id": char_id,
+                "task_id": tx["task_id"], "status": "SUBMITTED",
+                "receipt": tx.get("receipt"),
+                "transaction": portable_path(binding["path"]), "recovered_from_transaction": True,
+                "reused_harvested_binding": True, "harvested_image": portable_path(binding["image"]),
+                "unposted_fingerprint": current_fingerprint,
+            }
+        # Plan §5.4: supersede this row's old transactions when its contract changes and a new
+        # intent is about to be recorded (never another row's, never a harvested take).
+        for old_tx_path, old_tx in own_transactions(transaction_dir, char_id):
             old_fp = old_tx.get("submission_fingerprint")
             if old_fp and old_fp != current_fingerprint and not old_tx.get("superseded_by"):
                 old_tx["superseded_by"] = current_fingerprint
                 old_tx["superseded_at"] = utc_now()
                 atomic_json(old_tx_path, old_tx)
-
-    if not path.is_file():
         return None
     transaction = json.loads(path.read_text(encoding="utf-8"))
     if transaction.get("submission_fingerprint") != current_fingerprint:
@@ -105,7 +188,7 @@ def prior_submission(row: dict, transaction_dir: Path, model: str, resolution: s
             "task_key": char_id, "character_id": char_id,
             "task_id": transaction["task_id"], "status": "SUBMITTED",
             "receipt": transaction.get("receipt"),
-            "transaction": str(path.relative_to(ROOT)), "recovered_from_transaction": True,
+            "transaction": portable_path(path), "recovered_from_transaction": True,
         }
     if transaction.get("state") in {
         "INTENT_RECORDED", "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION",
@@ -139,8 +222,29 @@ def resolved_reference_images(row: dict) -> list[Path]:
     return paths
 
 
-def submit(row: dict, output_dir: Path, transaction_dir: Path, model: str, resolution: str) -> dict:
-    recovered = prior_submission(row, transaction_dir, model, resolution)
+def submit(row: dict, output_dir: Path, transaction_dir: Path, model: str, resolution: str,
+           plates_dir: Path | None = None) -> dict:
+    try:
+        return _submit(row, output_dir, transaction_dir, model, resolution, plates_dir)
+    except _IntentRecorded as marker:
+        raise marker.original
+    except PreIntentFailure:
+        raise
+    except (Exception, SystemExit) as exc:
+        raise PreIntentFailure(exc) from exc
+
+
+class _IntentRecorded(Exception):
+    """Internal: an exception raised AFTER the intent record was written (charge question open)."""
+
+    def __init__(self, original: BaseException):
+        self.original = original
+        super().__init__(str(original))
+
+
+def _submit(row: dict, output_dir: Path, transaction_dir: Path, model: str, resolution: str,
+            plates_dir: Path | None) -> dict:
+    recovered = prior_submission(row, transaction_dir, model, resolution, plates_dir)
     if recovered:
         return recovered
     prompt_path = resolve(row["prompt_file"])
@@ -191,6 +295,14 @@ def submit(row: dict, output_dir: Path, transaction_dir: Path, model: str, resol
         "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
     }
     atomic_json(transaction, intent)
+    try:
+        return _post_after_intent(row, output_dir, transaction, intent, endpoint, payload)
+    except (Exception, SystemExit) as exc:
+        raise _IntentRecorded(exc) from exc
+
+
+def _post_after_intent(row: dict, output_dir: Path, transaction: Path, intent: dict, endpoint: str,
+                       payload: dict) -> dict:
     previous_context = os.environ.get("QINGSHAN_DURABLE_SUBMITTER_CONTEXT")
     os.environ["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = "1"
     try:
@@ -234,6 +346,8 @@ def main() -> int:
     parser.add_argument("--out", required=True)
     parser.add_argument("--concurrency", type=int, default=6)
     parser.add_argument("--precheck-only", action="store_true")
+    parser.add_argument("--plates-dir", default=None,
+                        help="harvested image dir; a bound take whose image is here is reused, never re-POSTed")
     args = parser.parse_args()
     plan_path = resolve(args.plan)
     plan = json.loads(plan_path.read_text(encoding="utf-8"))
@@ -277,19 +391,26 @@ def main() -> int:
         results = [{"character_id": row["id"], "status": "PRECHECK_PASS"} for row in rows]
     else:
         with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as pool:
-            futures = {pool.submit(submit, row, receipt_dir, transaction_dir, "gpt-image-2-pro", "2K"): row for row in rows}
+            plates_dir = resolve(args.plates_dir) if args.plates_dir else None
+            futures = {pool.submit(submit, row, receipt_dir, transaction_dir, "gpt-image-2-pro", "2K", plates_dir): row for row in rows}
             for future in as_completed(futures):
+                row = futures[future]
                 try:
                     results.append(future.result())
+                except PreIntentFailure as exc:
+                    # no intent was recorded by this attempt: no transaction to read or rewrite
+                    failures.append({"character_id": row["id"], "status": "SUBMIT_FAILED_BEFORE_INTENT",
+                                     "state": "submit_failed_before_intent", "error": str(exc),
+                                     "credit": 0, "credit_status": "NOT_CHARGED_NO_INTENT_RECORDED"})
                 except (Exception, SystemExit) as exc:
-                    row = futures[future]
-                    failures.append({"character_id": row["id"], "status": "SUBMIT_FAILED", "error": str(exc), "transaction": portable_path(transaction_path(transaction_dir, row, "gpt-image-2-pro", "2K"))})
+                    failures.append({"character_id": row["id"], "status": "SUBMIT_FAILED", "error": f"{type(exc).__name__}: {exc}", "transaction": portable_path(transaction_path(transaction_dir, row, "gpt-image-2-pro", "2K"))})
     credit_reconciliation = None
     ambiguity_resolution = "NOT_APPLICABLE"
     if not args.precheck_only:
         newly_submitted = sum(not row.get("recovered_from_transaction") for row in results)
         recovered = sum(bool(row.get("recovered_from_transaction")) for row in results)
-        maximum_possible = newly_submitted + len(failures)
+        posted_failures = [f for f in failures if f.get("transaction")]
+        maximum_possible = newly_submitted + len(posted_failures)
         if maximum_possible == 0:
             credit_reconciliation = {"status": "PASS_REUSED_TRANSACTIONS", "matched_count": 0, "charged_credits": 0}
             matched = 0
@@ -303,17 +424,24 @@ def main() -> int:
             if newly_submitted <= matched <= maximum_possible:
                 credit_reconciliation["status"] = "PASS_BOUNDED"
         extra_charges = matched - newly_submitted
-        if failures and extra_charges == 0:
+        if not posted_failures and failures:
+            ambiguity_resolution = "PRE_INTENT_FAILURES_NOT_CHARGED"
+            failure_state = None
+        elif posted_failures and extra_charges == 0:
             ambiguity_resolution = "ALL_RESPONSE_LOSSES_VERIFIED_NOT_CHARGED"
             failure_state = "VERIFIED_ZERO_RETRYABLE"
-        elif failures:
+        elif posted_failures:
             ambiguity_resolution = "CHARGED_OR_UNRESOLVED_RESPONSE_LOSS_QUARANTINED"
             failure_state = "CHARGE_STATE_UNRESOLVED_BATCH"
         else:
             ambiguity_resolution = "NO_AMBIGUOUS_SUBMISSIONS"
             failure_state = None
-        for failure in failures:
+        for failure in posted_failures:
             path = resolve(failure["transaction"])
+            if not path.is_file():
+                # never invent or crash on a transaction this run did not write; keep the real error
+                failure["transaction_missing"] = True
+                continue
             transaction = json.loads(path.read_text(encoding="utf-8"))
             transaction.update({"state": failure_state, "ledger_reconciled_at": utc_now(), "batch_known_task_ids": newly_submitted, "batch_ledger_pay_rows": matched})
             atomic_json(path, transaction)

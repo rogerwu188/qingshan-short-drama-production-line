@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2273,
+  "file_count": 2274,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -269,7 +269,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "638360d728beb0cbab2176ced2592ffff1a05a598ebfc3abeac5c28f9abc2145"
+      "sha256": "b953015e8b1c33c5bfba1ba5be0dca55a4d5e8209c87b8da9c2e0cc06cda94b6"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -673,7 +673,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "cab3ffd8d7ddb538041ed7a6782cacbb53361a29d9344f3f88d0ea16e7594ca0"
+      "sha256": "f2e5fd2f576137973eaeae181bed33d597600ec90b6cf3bdc31d9eee928127c3"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -6565,7 +6565,7 @@
     },
     {
       "path": "tools/submit_giggle_character_asset_plan.py",
-      "sha256": "7615c011e390bd176b280f92052ef23fc2a34bd7f2a7722af0293730e2624a2b"
+      "sha256": "419849f225a5ce3e6a76be7f026281d8550b215d5b8318f5a5c5fcdc57d65d2b"
     },
     {
       "path": "tools/submit_giggle_image_manifest.py",
@@ -7050,6 +7050,10 @@
     {
       "path": "tools/tests/test_certify_e40_work_queue_reconstruction.py",
       "sha256": "bc59aa7bb271b93fb823835e4e9e84251a5ae2f082ac13dc84796f2185332b63"
+    },
+    {
+      "path": "tools/tests/test_character_asset_reentry_binding.py",
+      "sha256": "cb47f21118379b1bf6ad2dd3a1abe80a0aac79419996c62091920477ae8bd18c"
     },
     {
       "path": "tools/tests/test_character_entity_contract.py",

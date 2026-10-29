@@ -2416,12 +2416,37 @@ def s3_transaction_bound(ctx: Ctx, row: dict[str, Any]) -> bool:
     fingerprint = hashlib.sha256(json.dumps(contract, sort_keys=True).encode("utf-8")).hexdigest()
     path = (ENGINE / "workflow/tasks/giggle_submit_transactions" / ctx.episode
             / f"{row['id']}__{fingerprint[:16]}.json")
-    if not path.is_file():
-        return False
-    transaction = read_json(path, {}) or {}
-    return (transaction.get("submission_fingerprint") == fingerprint
-            and transaction.get("state") == "SUBMITTED_TASK_ID_BOUND"
-            and bool(transaction.get("task_id")))
+    if path.is_file():
+        transaction = read_json(path, {}) or {}
+        return (transaction.get("submission_fingerprint") == fingerprint
+                and transaction.get("state") == "SUBMITTED_TASK_ID_BOUND"
+                and bool(transaction.get("task_id")))
+    # Lab E08 2026-10-29: the multi-view sheet's reference list grew once the headshot was
+    # harvested, the fingerprint drifted, and re-entry planned 11 credits for a sheet that was
+    # bound and on disk.  The submitter reuses a bound + harvested take of the same row whatever
+    # its recomputed fingerprint (tools/submit_giggle_character_asset_plan.harvested_binding,
+    # mirrors tools/video_live_binding.py), so the planner must cost it at zero too.
+    return s3_harvested_binding(ctx, row, fingerprint) is not None
+
+
+def s3_harvested_binding(ctx: Ctx, row: dict[str, Any], fingerprint: str) -> dict[str, Any] | None:
+    if str(ENGINE) not in sys.path:
+        sys.path.insert(0, str(ENGINE))
+    from tools.submit_giggle_character_asset_plan import harvested_binding  # engine, read-only
+    row = dict(row)
+    row.setdefault("episode", ctx.episode)
+    return harvested_binding(row, ENGINE / "workflow/tasks/giggle_submit_transactions" / ctx.episode,
+                             ctx.p.identity_harvest_dir, current_fingerprint=fingerprint)
+
+
+def s3_fresh_submit_report(path: Path, started: float) -> dict[str, Any]:
+    """The submit report only when the child under judgement wrote it ({} for a stale one)."""
+    try:
+        if path.stat().st_mtime < started:
+            return {}
+    except OSError:
+        return {}
+    return read_json(path, {}) or {}
 
 
 def s3_plate_on_disk(ctx: Ctx, row_id: str) -> bool:
@@ -2634,6 +2659,8 @@ def stage_s3(ctx: Ctx) -> StageResult:
                 "--plan", auth_plan,
                 "--out", p.identity_submit,
                 "--concurrency", min(ctx.max_parallel, 6),
+                # a bound take whose image is already harvested here is reused, never re-POSTed
+                "--plates-dir", p.identity_harvest_dir,
             ]
             dry_argv = [
                 VENV, ENGINE / "tools/submit_giggle_character_asset_plan.py",
@@ -2641,6 +2668,7 @@ def stage_s3(ctx: Ctx) -> StageResult:
                 "--out", p.identity / f"{ctx.episode}_IDENTITY_PRECHECK.json",
                 "--precheck-only",
             ]
+            submit_started = time.time()
             status, submit = ctx.paid_step(
                 paid_argv, name=f"s3_submit_giggle_character_asset_plan_r{round_no}", sid="S3",
                 planned_credits=planned, dry_argv=dry_argv,
@@ -2676,11 +2704,17 @@ def stage_s3(ctx: Ctx) -> StageResult:
                 # not bound the charge even though every row was accepted.  Every row
                 # SUBMITTED and zero failures = the images exist and the ledger refresh
                 # will settle the charge; record it, do not lose the batch.
-                submit_report = read_json(p.identity_submit, {}) or {}
+                # Lab E08 2026-10-29: the child crashed (exit 1, no report written) and the
+                # PREVIOUS run's PASS report was harvested as if it were this run's.  Only a report
+                # this child wrote, with exit 2 (the submitter's "reconciliation unbounded" exit),
+                # zero failures and every submitted row accounted for, is a warning.
+                submit_report = s3_fresh_submit_report(p.identity_submit, submit_started)
                 results = submit_report.get("results") or []
-                if (results and not submit_report.get("failures")
-                        and len(results) == len(rows)
-                        and all(r.get("status") == "SUBMITTED" for r in results)):
+                submitted_ids = {str(r.get("id")) for r in (read_json(auth_plan, {}) or {}).get(
+                    "new_asset_groups") or [] if isinstance(r, dict)}
+                accounted = {str(r.get("character_id")) for r in results if r.get("status") == "SUBMITTED"}
+                if (submit.get("exit_code") == 2 and results and not submit_report.get("failures")
+                        and submitted_ids and submitted_ids <= accounted):
                     round_rec["submit_warning"] = (
                         "CREDIT_RECONCILIATION_UNBOUNDED:"
                         + str((submit_report.get("credit_reconciliation") or {}).get("status")))
