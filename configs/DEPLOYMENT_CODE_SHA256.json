@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2267,
+  "file_count": 2268,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -269,7 +269,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "81e4ac42965e7687581b2defb8c0ebb6e4444e07fd4db58a231415f915122ed3"
+      "sha256": "2121b8dad0e0244c37c547d2ddb1cae14e7bbd7e5f69a25a4297e200d81b00f1"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -589,7 +589,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "a4f231f0e97c03c4fbe0085fb3359cbb8c3f16e55f11e5ce345bc92198cfa335"
+      "sha256": "0acb4d72c272e8cf0591da3a6d488fe5ff37ec53803e0ff04902f64a619c0d2c"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -673,7 +673,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "e282162da9e3607c0c0423c6d4898fbde9d774d097a490391b8d2a160dd9ea30"
+      "sha256": "f19a9e9d9c0aa5ab1dcc94368ccfcd876c3710ea29cb52f7f1480daac47ad333"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -7734,6 +7734,10 @@
     {
       "path": "tools/tests/test_line_heartbeat.py",
       "sha256": "ae1a1a087be722016442dd642ccb06107e596f5806292eb9b2ec1cbc25fc1598"
+    },
+    {
+      "path": "tools/tests/test_line_owner_start_frame_decision.py",
+      "sha256": "9ea909a0f91e5ad229a31e54f0d4e1f3839f5f544b59a6e79edb82147f33d0f2"
     },
     {
       "path": "tools/tests/test_line_upgrade_gate.py",

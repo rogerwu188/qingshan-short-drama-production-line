@@ -1467,17 +1467,19 @@ def build_transition(engine: Engine, previous_group: dict[str, Any], group: dict
 # start frame semantic contracts (E-7)
 # --------------------------------------------------------------------------- #
 def tail_rejected_start_frame_units(out_dir: Path, episode: str, contract: dict[str, Any]) -> set[str]:
-    """CAMERA_GRAMMAR_V1 units recorded by S6 as start_frame_source OWN_KEYFRAME_TAIL_REJECTED."""
+    """Units that open on their own keyframe: CAMERA_GRAMMAR_V1 units recorded by S6 as start_frame_source
+    OWN_KEYFRAME_TAIL_REJECTED (measured), plus explicit line-owner decisions (``decided_by: LINE_OWNER``,
+    honoured on every episode -- 2026-10-29)."""
     import camera_grammar_policy as _cg
-    if not _cg.active(contract, episode=episode):
-        return set()
+    measured_allowed = _cg.active(contract, episode=episode)
     path = out_dir / "reports" / f"{episode}_S6_WAVE_STATE.json"
     try:
         rows = json.loads(path.read_text(encoding="utf-8")).get("start_frame_source") or {} if path.is_file() else {}
     except (OSError, ValueError):
         return set()
     return {str(uid) for uid, row in rows.items()
-            if isinstance(row, dict) and row.get("start_frame_source") == "OWN_KEYFRAME_TAIL_REJECTED"}
+            if isinstance(row, dict) and row.get("start_frame_source") == "OWN_KEYFRAME_TAIL_REJECTED"
+            and (measured_allowed or row.get("decided_by") == "LINE_OWNER")}
 
 
 def submitted_without_tail_units(out_dir: Path, episode: str, contract: dict[str, Any]) -> set[str]:
