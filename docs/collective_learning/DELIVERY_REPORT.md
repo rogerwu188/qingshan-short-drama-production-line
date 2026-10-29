@@ -143,7 +143,7 @@
 4. 完整性清单：`deployment_code_integrity.py` 纳入 `tools/**/*.sql`（2270 → 2271 文件）。
 5. 隔离边界措辞：`DEPLOYMENT_OPERATIONS.md` §3b、`AUTHORIZATIONS_REQUIRED.md` §A 新增一行。
 
-提交 SHA、CI/完整性/注册表结果：见本节末尾（提交后补）。
+提交 `45c3283`（分支 feat/collective-director-learning，基于 main `56cb206`）。全量 portable CI：1,681 tests OK（skipped 11）；完整性清单 2,271 文件 PASS（含 `0001_init.sql`）；知识注册表 130 rules PASS。青山侧随后需同步新代码并以新批次验证：事件记录 → 上报 → 收集 ack → 已审发布包 → 拉取 → 真实免费编译采用 → 采用回执。
 
 ## 6. 未完成 / 诚实标注
 
