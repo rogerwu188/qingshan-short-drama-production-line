@@ -68,7 +68,7 @@ class CutRespectingGroupingTest(unittest.TestCase):
         self.assertEqual(units, [["S01-01"], ["S01-02"], ["S01-03"],
                                  ["S02-01"], ["S02-02", "S02-03"], ["S02-04"], ["S02-05"]])
         self.assertEqual(spec["grouping_policy"], "CAMERA_GRAMMAR_V1")
-        self.assertEqual(spec["duration_policy_seconds"]["minimum"], 3.0)
+        self.assertEqual(spec["duration_policy_seconds"]["minimum"], 4.0)  # HopsAPI H3 floor (owner 2026-10-29)
         self.assertEqual(spec["duration_policy_seconds"]["maximum"], 15.0)
 
     def test_authored_cut_is_a_boundary_even_with_unchanged_cast(self):
@@ -141,7 +141,7 @@ class CutRespectingGroupingTest(unittest.TestCase):
         except Exception as exc:  # noqa: BLE001 - the engine module needs the full engine tree
             self.skipTest(f"build_nalu_preproduction not importable here: {exc}")
         projected = bnp.project_provider_slots(copy.deepcopy(plan))
-        self.assertEqual([u["duration_seconds"] for u in projected["units"]], [5, 3, 5])
+        self.assertEqual([u["duration_seconds"] for u in projected["units"]], [5, 4, 5])  # padded to the 4 s floor
 
     def test_old_one_to_one_and_short_unit_rules_do_not_block_stamped_plans(self):
         rows = [(f"{i:02d}", 3.5, ["A"] if i % 2 else ["B"]) for i in range(1, 15)]

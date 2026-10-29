@@ -240,6 +240,31 @@ def _authority_config(config: dict[str, Any]) -> tuple[dict[str, Any], list[str]
 #: poll tool get the engine's tools dir explicitly.
 VIDEO_SUBMIT_ENV = {"BACKLOT_PIPELINE_TOOLS_DIR": str(ENGINE / "tools")}
 
+
+def _hopsapi():
+    """tools/hopsapi_video_client.py (engine, no network at import)."""
+    if str(ENGINE) not in sys.path:
+        sys.path.insert(0, str(ENGINE))
+    from tools import hopsapi_video_client  # noqa: PLC0415
+    return hopsapi_video_client
+
+
+def video_provider_info() -> dict[str, str]:
+    """The H3 video transport (owner 2026-10-29): env NALU_VIDEO_PROVIDER > qingshan.json
+    generation.video_provider > hopsapi when HOPSAPI_API_KEY is set, else giggle.  Resolved in this
+    process (which holds the keys) and handed to every child as NALU_VIDEO_PROVIDER, so a free child
+    whose keys were stripped plans the same transport the paid child will use."""
+    return _hopsapi().resolve_video_provider(config_path=CONFIG_PATH)
+
+
+def video_provider_for(model: str) -> str:
+    """hopsapi only for MiniMax-H3 under video_provider=hopsapi; giggle otherwise."""
+    return _hopsapi().provider_for_model(model, video_provider_info()["provider"])
+
+
+def video_key_env(model: str) -> str:
+    return _hopsapi().required_key_env(video_provider_for(model))
+
 TERMINAL_OK = {PASS, SKIPPED}
 
 
@@ -1100,6 +1125,10 @@ class Ctx:
             env["QINGSHAN_UNIT_MIN_SECONDS"] = str(policy.get("min_seconds") or 4)
         if self.p.scope["character_registry"].is_file():
             env["QINGSHAN_CHARACTER_REGISTRY"] = str(self.p.scope["character_registry"])
+        try:
+            env["NALU_VIDEO_PROVIDER"] = video_provider_info()["provider"]
+        except ValueError:
+            pass  # an invalid explicit value stays as given; the submitter refuses it
         if paid:
             # giggle_api_client.py:117-130 refuses every /api/v1/generation/ POST
             # unless a durable-submitter context is declared.  Set only for a
@@ -1107,6 +1136,7 @@ class Ctx:
             env["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = "1"
         else:
             env.pop("GIGGLE_API_KEY", None)
+            env.pop("HOPSAPI_API_KEY", None)
             env.pop("QINGSHAN_DURABLE_SUBMITTER_CONTEXT", None)
         for key, value in (extra or {}).items():
             env[str(key)] = str(value)
@@ -5730,7 +5760,11 @@ def episode_video_model(episode: str) -> str:
 
 def video_task_credits(model: str, seconds: float, tasks: int) -> int:
     """Planning price: SD2 720p 20 credits/s; MiniMax-H3 768p 14 credits/s + 6 per task
-    (materialize_paid_authorization.H3_CREDITS_PER_SECOND / H3_CREDITS_PER_TASK)."""
+    (materialize_paid_authorization.H3_CREDITS_PER_SECOND / H3_CREDITS_PER_TASK) on Giggle; on the
+    HopsAPI router (owner 2026-10-29) the configurable per-second price (default 1.56 credits/s,
+    tools/hopsapi_video_client.estimated_batch_credits), rounded up."""
+    if model == "MiniMax-H3" and video_provider_for(model) == "hopsapi":
+        return _hopsapi().estimated_batch_credits(seconds, tasks)
     if model == "MiniMax-H3":
         return int(round(seconds * _paid_order.H3_CREDITS_PER_SECOND)) + _paid_order.H3_CREDITS_PER_TASK * tasks
     return int(round(seconds * 20))
@@ -5866,7 +5900,7 @@ def _s6_poll_live_bound_wave(ctx: Ctx, wave: dict[str, Any], plan: dict[str, Any
     if not ctx.paid_enabled:
         res.status = DRY
         res.blockers.append("PAID_STEPS_DISABLED_WAVE_NOT_POLLED")
-        ctx.say("   then (needs GIGGLE_API_KEY, GET only, no POST, free):")
+        ctx.say(f"   then (needs {video_key_env(episode_video_model(ctx.episode))}, GET only, no POST, free):")
         ctx.say(f"     {q(poll_argv)}")
         ctx.planned_commands.append({
             "stage": "S6", "step": f"s6_poll_live_bound_wave{wave_no}", "planned_credits": 0,
@@ -6109,11 +6143,12 @@ def run_ab_variant(ctx: Ctx, variant: Path) -> int:
                                                 or ("UNKNOWN",))[0] if isinstance(doc, dict) else "UNKNOWN"),
                               "variant_sha256": sha256_file(path) if path.is_file() else None,
                               "run_id": ctx.run_id, "started_at": now(), "paid_enabled": ctx.paid_enabled}
-    if ctx.paid_enabled and not os.environ.get("GIGGLE_API_KEY", "").strip():
+    ab_key = video_key_env(episode_video_model(ctx.episode))
+    if ctx.paid_enabled and not os.environ.get(ab_key, "").strip():
         # Never reserve credits or materialise authority for a submit that cannot start: the
-        # submitter would exit "GIGGLE_API_KEY is not set" after both, leaving a held reservation.
+        # submitter would exit "<KEY> is not set" after both, leaving a held reservation.
         ctx.paid_enabled = False
-        ctx.paid_disabled_reason = "GIGGLE_API_KEY is not set"
+        ctx.paid_disabled_reason = f"{ab_key} is not set"
     ctx.say(f"-- A/B variant {path} ({'PAID' if ctx.paid_enabled else 'NO SPEND'})")
 
     def finish(status: str, blockers: list[str] | None = None, code: int | None = None) -> int:
@@ -6449,6 +6484,15 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
             planned = min(planned, video_task_credits(
                 episode_video_model(ctx.episode),
                 sum(float(t.get("duration_seconds") or 0) for t in post_rows), len(post_rows)))
+        provider = video_provider_for(episode_video_model(ctx.episode))
+        key_env = video_key_env(episode_video_model(ctx.episode))
+        res.details["video_provider"] = {**video_provider_info(), "effective": provider, "key_env": key_env}
+        if post_keys and ctx.paid_enabled and not os.environ.get(key_env, "").strip():
+            # Refuse before authorisation and reservation: the submitter would exit on the missing key
+            # after both and leave a held reservation (same rule as the A/B path).
+            res.status = BLOCKED
+            res.blockers.append(f"VIDEO_PROVIDER_KEY_MISSING:{provider}:{key_env}")
+            return res
         if not post_keys:
             ctx.say("   every task without a clip is already bound to a remote task: poll only, no authorisation")
             status = PASS
@@ -6470,7 +6514,9 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
                 paid_argv, name="s6_submit_giggle_video_manifest_v2", sid="S6",
                 planned_credits=planned, dry_argv=dry_argv, extra_env=VIDEO_SUBMIT_ENV,
                 note=(f"Submitted file is the D-11 materialised copy {auth_manifest.name}.  "
-                      f"POST /api/v1/generation/omni-video, concurrency {concurrency} "
+                      + ("HopsAPI POST /v1/router/task/create (OmniVideo, MiniMax-H3; key HOPSAPI_API_KEY), "
+                         if provider == "hopsapi" else "POST /api/v1/generation/omni-video, ")
+                      + f"concurrency {concurrency} "
                       "(<=6 per production_efficiency_contract rolling waves).  Durable store "
                       f"{ENGINE}/workflow/tasks/giggle_video_submit_transactions/{ctx.episode}/, "
                       "per-task flock, intent-before-POST.  A lost HTTP response becomes "
@@ -6494,7 +6540,7 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
                 ctx, p.video_submit, f"{ctx.run_id}_wave{len(ready_units or [])}u")
         if status == DRY:
             res.status = DRY
-            ctx.say("   then (needs GIGGLE_API_KEY, no new POST, free):")
+            ctx.say(f"   then (needs {key_env}, no new POST, free):")
             ctx.say(f"     {q(poll_argv)}")
             ctx.planned_commands.append({
                 "stage": "S6", "step": "s6_poll_giggle_submit_report", "planned_credits": 0,

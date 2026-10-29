@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import os
 import re
@@ -16,6 +16,9 @@ from typing import Any
 from giggle_api_client import query_task
 from submit_giggle_task_manifest import ensure_giggle_api_key
 from line_heartbeat import record_line_heartbeat
+import hopsapi_video_client as hopsapi
+
+ENGINE_ROOT = Path(__file__).resolve().parents[1]
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -113,6 +116,71 @@ def poll_workers(default: int = 6) -> int:
         return default
 
 
+def _transaction_file(row: dict[str, Any]) -> Path | None:
+    value = str(row.get("transaction") or "")
+    if not value:
+        return None
+    path = Path(value)
+    if not path.is_absolute():
+        path = path if path.is_file() else ENGINE_ROOT / path
+    return path if path.is_file() else None
+
+
+def row_provider(row: dict[str, Any]) -> str:
+    """Which provider owns this task id: the row, then its durable transaction, then the id shape
+    (HopsAPI ids are ``tsk_…``; Giggle ids are UUIDs)."""
+    if row.get("provider") in hopsapi.PROVIDERS:
+        return str(row["provider"])
+    path = _transaction_file(row)
+    if path is not None:
+        try:
+            recorded = json.loads(path.read_text(encoding="utf-8")).get("provider")
+        except (OSError, ValueError):
+            recorded = None
+        if recorded in hopsapi.PROVIDERS:
+            return str(recorded)
+    return hopsapi.PROVIDER_HOPSAPI if hopsapi.is_hopsapi_task_id(row.get("task_id")) else hopsapi.PROVIDER_GIGGLE
+
+
+def poll_one_hopsapi(row: dict[str, Any], label: str, named: str, out_dir: Path,
+                     download: bool) -> dict[str, Any]:
+    """GET the HopsAPI task, download + verify a completed clip to the exact path the Giggle harvest
+    uses, and record the settled ``cost`` (or 0 for status 3/4) on the durable transaction."""
+    status = hopsapi.query_task(str(row["task_id"]))
+    remote_status = status["remote_status"]
+    urls = status["urls"]
+    files: list[str] = []
+    downloads: list[dict[str, Any]] = []
+    if download and remote_status == "completed":
+        for url_index, url in enumerate(urls, 1):
+            destination = (out_dir / named if named and len(urls) == 1
+                           else output_path(out_dir, label, url_index, len(urls)))
+            if not destination.exists():
+                downloads.append(hopsapi.download_video(str(url), destination))
+            files.append(str(destination))
+    elif remote_status == "completed" and named:
+        files = [str(out_dir / named)] if (out_dir / named).is_file() else []
+    elif remote_status == "completed":
+        files = [str(path) for path in sorted(out_dir.glob(f"{safe_stem(label)}*.mp4"))]
+    settled = None
+    path = _transaction_file(row)
+    if path is not None and remote_status in {"completed", "failed", "cancelled"}:
+        settled = hopsapi.record_settlement(path, str(row["task_id"]), status,
+                                            now=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    return {
+        **row,
+        "provider": hopsapi.PROVIDER_HOPSAPI,
+        "remote_status": remote_status,
+        "provider_status_code": status.get("status_code"),
+        "provider_cost_credits": status.get("cost"),
+        "provider_cost_recorded_on_transaction": bool(settled and "provider_cost_credits" in settled),
+        "provider_failure": status.get("error"),
+        "result_url_count": len(urls),
+        "downloaded_files": files,
+        "download_verification": downloads,
+    }
+
+
 def poll_one(
     index: int,
     row: dict[str, Any],
@@ -134,6 +202,8 @@ def poll_one(
         raise ValueError(f"output_name must be a relative .mp4 path inside out_dir: {named}")
     if not task_id:
         return {**row, "remote_status": "NO_TASK_ID", "downloaded_files": []}
+    if row_provider(row) == hopsapi.PROVIDER_HOPSAPI:
+        return poll_one_hopsapi(row, label, named, out_dir, download)
 
     response = query_task(SimpleNamespace(task_id=task_id))
     data = response.get("data") or {}
@@ -171,12 +241,16 @@ def poll(
     time_ledger: Path | None = None,
     line_id: str | None = None,
 ) -> dict[str, Any]:
-    giggle_key_environment = ensure_giggle_api_key()
-    if not os.environ.get("GIGGLE_API_KEY"):
-        raise SystemExit("GIGGLE_API_KEY is not set")
-
     source = read_json(submit_report)
     rows = list(enumerate(result_rows(source), 1))
+    providers = {row_provider(row) for _index, row in rows if row.get("task_id")}
+    giggle_key_environment = "NOT_NEEDED_NO_GIGGLE_TASKS"
+    if hopsapi.PROVIDER_GIGGLE in providers or not providers:
+        giggle_key_environment = ensure_giggle_api_key()
+        if not os.environ.get("GIGGLE_API_KEY"):
+            raise SystemExit("GIGGLE_API_KEY is not set")
+    if hopsapi.PROVIDER_HOPSAPI in providers and not os.environ.get(hopsapi.API_KEY_ENV, "").strip():
+        raise SystemExit(f"{hopsapi.API_KEY_ENV} is not set")
     workers = poll_workers()
     if workers <= 1 or len(rows) <= 1:
         statuses = [poll_one(index, row, out_dir, download) for index, row in rows]

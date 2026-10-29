@@ -14,7 +14,7 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 - 输入：派单（原著 `$NALU_RUNTIME_ROOT/sources/<作品>/`、本集章节范围、简报条款、`rights_basis`）；你在 §2.0 写出的
   `workflow/claude_writer_agent/scripts/<EP>_NARRATIVE_CANONICAL_v1.md`（叙事正典，事实与逐字台词的唯一来源）和
   `$NALU_RUNTIME_ROOT/briefs/<EP>_PRODUCTION_BRIEF.json`（人物外貌/年龄/性别/服装、地点、画风、目标时长、预算与线主原话）。
-- 免费命令一律不带 key：`env -u GIGGLE_API_KEY $P $T/nalu_pipeline.py run --episode <EP> --until <Sx>`。
+- 免费命令一律不带 key：`env -u GIGGLE_API_KEY -u HOPSAPI_API_KEY $P $T/nalu_pipeline.py run --episode <EP> --until <Sx>`（编排器自己也会把两个 key 从免费子进程里剥掉）。
 - 跑 `nalu_pipeline.py` 时不要设 `NALU_POLICY_PROFILE` / `NALU_SERIES_SCOPE_ID`（本线解析为 LEGACY_EPISODE_COMPAT）。`$S/plan_compile.sh` 里的 `NALU_POLICY_PROFILE=CURRENT_PORTABLE` 只作用于它自己的编译子进程，不要抄进你的 shell。S1 报 `CANONICAL_WRITER_HANDOFF_FAIL:PRIVATE_PROJECT_METADATA_INVALID`（缺 `runtime/project.json`）= 你的环境带了 CURRENT_PORTABLE：`unset NALU_POLICY_PROFILE NALU_SERIES_SCOPE_ID` 后重跑；绝不要自己创建 `project.json` 或 `ACTIVE_WRITER_HANDOFF.json`，也不要单独调 `storyclaw_writer_workflow.py verify` 当作 S1 结论（那是 StoryClaw 托管项目的路径，不在本线 S1 上）。
 - 付费命令只用一个入口：`./lines/nalu/runtime/tools/paid_stage.sh <EP> <FROM> <UNTIL>`（它自己读 `.env`；你不要 `cat`/打印 `.env`）。
 
@@ -28,7 +28,7 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
   上游缺陷、改了能跑通。遇到代码缺口：把复现命令、日志、文件与行号写进
   `workflow/nalu/<EP>/preproduction/reports/<EP>_CODE_BLOCKER_<日期>.md`，本轮以 `BLOCKED` 结束（note 写报告路径），
   由维护者修上游后发新版。心跳会检查引擎是否被改，改动会被存档并上报，下次换引擎时会被清掉——本机补丁不会留下来。
-- 必须停下的只有：追加一次预算后仍不够（§3）、订单范围外的新付费类别（例如换装 i2i；背景音乐不算，见 §3）、Giggle key 缺失或失效。
+- 必须停下的只有：追加一次预算后仍不够（§3）、订单范围外的新付费类别（例如换装 i2i；背景音乐不算，见 §3）、Giggle key 缺失或失效、S6 视频所需的 HopsAPI key（`HOPSAPI_API_KEY`）缺失或失效。
 
 ## 2.0 编剧：叙事正典与生产简报（你写，免费；线主 2026-10-22）
 编排代理只选原著、派单和汇报，**所有剧本层都由你写**（代理的聊天上下文装不下长稿）。本线是 LEGACY_EPISODE_COMPAT，直接写到下面的
@@ -77,7 +77,8 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
   从首帧到末帧单调变大超过 25% 的单元（相邻两帧跳变 >40% 视为内部硬切、有脸帧 <6 都跳过）把前段画面以人脸为中心逐帧放大到末帧的大小
   （最多 1.6 倍，超出只部分补偿，Lanczos 放大回原分辨率，音频原样复制、时长不变），装配用 `assembly/push_in_compensation/<单元>.mp4` 代替原片。
   报告 `assembly/<EP>_PUSH_IN_COMPENSATION.json`（每单元宽度、裁剪曲线、是否触顶 `cap_hit`）；任何失败只跳过，不阻断 S7。实现 `tools/push_in_compensation.py`。
-- 对白镜 3–5 s，一句一镜（线主 2026-10-26，CAMERA_GRAMMAR_V1）：编译器把画内对白镜定为「估算说话时长 + 0.5 s」取整秒（3–5 s，`tools/speaking_unit_duration.py`，报告在编辑清单 `speaking_unit_duration_report`）。
+- 对白镜 4–5 s，一句一镜（线主 2026-10-26，CAMERA_GRAMMAR_V1；2026-10-29 视频改走 HopsAPI 后下限 4 s）：编译器把画内对白镜定为「估算说话时长 + 0.5 s」取整秒（4–5 s，`tools/speaking_unit_duration.py`，报告在编辑清单 `speaking_unit_duration_report`）。
+  写台词时每句写满约 3 s 的话（英文约 8–9 词、中文约 12–13 字）；很短的台词（≤ 约 5 个词）并到同一说话人的下一句，或在同一镜给说话人一个有表演的动作，不要让 H3 自己用乱码填时间（S7 头尾剪裁只是兜底）。无台词插入镜最短 4 s。细则见 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` §5。
   一句估算超过 4.5 s（含标点停顿，英文约 12 词、中文约 17 字以上）放不进 5 s：**写手必须拆成两镜**（台词一字不改，在自然停顿处断开）；编译器不拦，只记 `WRITER_SPLIT_REQUIRED_*`，写手时长超出台词 1.5 s 以上会被自动缩短。
   无台词的动作（推门、走位、取物）单独写一镜，不和台词放在同一镜。
 - 每镜 `prompt_spec.camera_plan` 全字段（shot_scale/camera_height/camera_side/motion_family/motion_direction/lens_intent/axis_relation/start_framing/end_framing/motivation）；
@@ -171,7 +172,11 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
 - **S5 关键帧**：先过整批提示词门：`$S/prompt_batch_prepare.sh <EP>` → 通读 `workflow/nalu/<EP>/preproduction/planned_video_prompts/*.txt`、`prompts/keyframes/*.txt`、`reports/<EP>_PROMPT_BATCH_DIGEST.json` →
   写 `reports/<EP>_PROMPT_BATCH_ANSWERS.json`（`{"schema":"nalu.prompt_batch_answers.v1","reviewer":"claude-code","review_method":"CLAUDE_STRUCTURED_PROMPT_REVIEW","reviewed_at":…,"units":{"<UNIT>":{"verdict":"PASS","cross_unit_continuity_checked":true,"observation":"…"}}}`）→ `$S/prompt_batch_finish.sh <EP>`（必须 register PASS）→ `paid_stage.sh <EP> S5 S5`。
   之后有 keyframe Q1、start_frame 审核。改了剧本：重跑构建器 → `run --until S2` → prepare/finish → S5。被拒关键帧：把 `keyframes/<shot>-keyframe-v1.png` 和 `keyframe_harvest/_raw/<shot>*` 移走再跑。
-- **S6 视频**（`paid_stage.sh <EP> S6 S6`）：先 action_role 审核，再波次提交（H3：每任务约 14 积分/秒 + 6 积分）。`VIDEO_NOT_ALL_COMPLETED` 是正常等待：`sleep 240` 后再跑同一命令，最多连续等 30 分钟；仍未完成就结束本轮报 `WAITING_REMOTE`。
+- **S6 视频**（`paid_stage.sh <EP> S6 S6`）：先 action_role 审核，再波次提交。MiniMax-H3 视频走 **HopsAPI**（线主 2026-10-29，`POST /v1/router/task/create`，OmniVideo，768p），
+  需要环境变量 `HOPSAPI_API_KEY`（与 Codex 同一个 key；可选 `HOPSAPI_BASE_URL`、`HOPSAPI_CONSOLE_URL`），**S6 没有它就停在 `VIDEO_PROVIDER_KEY_MISSING`**；
+  图片（S3/S5）、配音（S4）、配乐（S6 BGM）仍走 Giggle，`GIGGLE_API_KEY` 照旧必需。计划价约 1.56 积分/秒（向上取整，可用 `HOPSAPI_H3_CREDITS_PER_SECOND` 调），
+  实际扣费是每个任务完成时 HopsAPI 返回的 `cost`（与 Giggle 积分同单位），收割时写进事务、记入本集预算账本。回滚到 Giggle：`NALU_VIDEO_PROVIDER=giggle`
+  或运行时 `qingshan.json` 的 `generation.video_provider: "giggle"`（Giggle 价：每任务约 14 积分/秒 + 6 积分）。HopsAPI 只接受 4–15 s 整数秒，3 s 单元会在提交前被拒（不扣费），重编到 4 s 再提交。`VIDEO_NOT_ALL_COMPLETED` 是正常等待：`sleep 240` 后再跑同一命令，最多连续等 30 分钟；仍未完成就结束本轮报 `WAITING_REMOTE`。
 - S6 预检报 `MISSING_ANCHOR_FOR_CANONICAL_ENTITY`（多人单元，常见于 E01）：多人关键帧只给一个角色当人物参考，其余角色需要自己的身份牌，而 E01 的身份牌不在锁定资产库里。用引擎支持的覆盖文件补：`$NALU_RUNTIME_ROOT/preproduction/<EP>/identity_reference_overrides.json` 写 `{"units": {"<unit_id>": [{"character_id": "CHAR-…", "path": "<该角色 S3 已过审的正脸身份牌绝对路径>", "role": "CHARACTER_IDENTITY_REFERENCE"}]}}`（只补缺锚的角色），再重跑 S6 编译与预检。这不是绕门，不写 CODE_BLOCKER。
   其后 q1_derived（上一单元尾帧作起始帧）、post_gen_plot（用 `$T/review_fill/asr_units.py` 转写核对台词；同音字只记录）、video_q2。
   Q2 中 OCR 读出的低置信乱码（背景招牌/标签纹理、道具上的手写字）在 `observed_text_strings` 写 `NOISE:<文本>`；动作幅度/表情细节不算缺陷。

@@ -79,6 +79,13 @@ STATEMENT_PATH = "/api/v1/payment/credit-statements"
 # Observed authoritative unit prices, each with its in-repo evidence. Used for
 # planning only; the actual charge always comes from the statement ledger.
 UNIT_PRICES = {
+    "video_minimax_h3_768p_hopsapi": {
+        "credits_per_second": 1.56,
+        "credits_per_task": 0,
+        "evidence": "HopsAPI probe 2026-10-29 (E07-VU-005, 4 s, cost 6.23 = list 8.9/s x 0.175); planning "
+                    "rate configurable via HOPSAPI_H3_CREDITS_PER_SECOND / generation.hopsapi_h3_credits_per_second "
+                    "(tools/hopsapi_video_client.py); actual charge = per-task cost on the settled query",
+    },
     "video_minimax_h3_768p": {
         "credits_per_second": 14,
         "credits_per_task": 6,
@@ -542,6 +549,62 @@ def scan_non_video_spend(
     }
 
 
+HOPSAPI_PROVIDER = "hopsapi"
+HOPSAPI_TERMINAL_FAILED = {"failed", "cancelled"}
+
+
+def is_hopsapi_transaction(payload: dict[str, Any]) -> bool:
+    """A video transaction submitted through the HopsAPI router (owner 2026-10-29)."""
+    return str(payload.get("provider") or "").lower() == HOPSAPI_PROVIDER \
+        or str(payload.get("task_id") or "").startswith("tsk_")
+
+
+def scan_hopsapi_video_spend(episode: str) -> dict[str, Any]:
+    """HopsAPI video leg: per-task ``cost`` (credits, same unit as Giggle) from the durable store.
+
+    HopsAPI bills each task at settlement and never appears in Giggle's credit statements, so this leg
+    is additive to every Giggle layer.  A bound task with a recorded ``provider_cost_credits`` is
+    settled spend; a terminal failure (status 3/4) is 0; any other bound task counts its
+    ``estimated_credits`` as exposure until the poller records the settlement."""
+    directory = ENGINE_ROOT / "workflow" / "tasks" / VIDEO_TRANSACTION_DIRNAME / episode
+    settled = Decimal("0")
+    exposure = Decimal("0")
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
+        try:
+            payload = load_json(path)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict) or not is_hopsapi_transaction(payload):
+            continue
+        if str(payload.get("state") or "") != "SUBMITTED_TASK_ID_BOUND" or not payload.get("task_id"):
+            continue
+        task_id = str(payload["task_id"])
+        if task_id in seen:
+            continue
+        seen.add(task_id)
+        cost = payload.get("provider_cost_credits")
+        terminal = str(payload.get("remote_terminal_state") or payload.get("provider_remote_status") or "").lower()
+        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+            settled += Decimal(str(cost))
+            status = "SETTLED_PROVIDER_COST"
+        elif terminal in HOPSAPI_TERMINAL_FAILED:
+            cost = 0
+            status = "TERMINAL_NOT_CHARGED"
+        else:
+            estimated = payload.get("estimated_credits")
+            cost = estimated if isinstance(estimated, (int, float)) and estimated > 0 else 160
+            exposure += Decimal(str(cost))
+            status = "BOUND_AWAITING_SETTLEMENT"
+        rows.append({"source": str(path), "task_key": payload.get("task_key"), "task_id": task_id,
+                     "credits": cost, "status": status})
+    return {"settled_credits": number(settled), "pending_exposure_credits": number(exposure),
+            "unsettled_task_count": sum(1 for row in rows if row["status"] == "BOUND_AWAITING_SETTLEMENT"),
+            "rows": rows,
+            "method": "HOPSAPI_PER_TASK_COST (transaction.provider_cost_credits, written by the poller)"}
+
+
 def scan_transaction_states(episode: str) -> dict[str, Any]:
     tasks_root = ENGINE_ROOT / "workflow" / "tasks"
     result: dict[str, Any] = {}
@@ -648,6 +711,8 @@ def _spend_evidence(episode: str, bgm_transactions_dir: Path | None = None) -> l
             elif state == "SUBMITTED_TASK_ID_BOUND" and payload.get("task_id"):
                 if directory.parent.name == IMAGE_TRANSACTION_DIRNAME:
                     credits = Decimal(str(UNIT_PRICES["image_gpt_image_2_pro"]["hard_upper"]))
+                elif is_hopsapi_transaction(payload) and isinstance(payload.get("provider_cost_credits"), (int, float)):
+                    credits = Decimal(str(payload["provider_cost_credits"]))
                 else:
                     estimated = payload.get("estimated_credits")
                     credits = (Decimal(str(estimated)) if isinstance(estimated, (int, float)) and estimated > 0
@@ -826,6 +891,8 @@ def scan_pending_exposure(episode: str) -> Decimal:
             except (OSError, json.JSONDecodeError):
                 continue
             state = str(payload.get("state") or "")
+            if is_video and isinstance(payload, dict) and is_hopsapi_transaction(payload):
+                continue  # HopsAPI leg: scan_hopsapi_video_spend (no Giggle statement covers it)
             if state == "SUBMITTED_TASK_ID_BOUND" and payload.get("task_id"):
                 if newest is not None and _transaction_bound_at(path, payload) <= newest:
                     continue  # already inside an archived statement that recorded_total_credits counts
@@ -864,6 +931,8 @@ def scan_unevidenced_exposure(episode: str, non_video: dict[str, Any]) -> Decima
             payload = load_json(path)
         except (OSError, json.JSONDecodeError):
             continue
+        if isinstance(payload, dict) and is_hopsapi_transaction(payload):
+            continue  # never matched by a SingleGenerateVideo statement; counted by scan_hopsapi_video_spend
         if str(payload.get("state") or "") == "SUBMITTED_TASK_ID_BOUND" and payload.get("task_id"):
             estimated = payload.get("estimated_credits")
             estimates.append(Decimal(str(estimated)) if isinstance(estimated, (int, float)) and estimated > 0
@@ -900,8 +969,10 @@ def reserve_credits(episode: str, planned: Decimal, reservation_id: str,
         video_credits = Decimal(str(video.get("actual_charged_credits_known_total") or 0))
         non_video = scan_non_video_spend(episode, bgm_transactions_dir=None)
         non_video_credits = Decimal(str(non_video["subtotal_credits"]))
-        recorded = video_credits + non_video_credits
-        pending_exposure = scan_unevidenced_exposure(episode, non_video)
+        hopsapi_video = scan_hopsapi_video_spend(episode)
+        recorded = video_credits + non_video_credits + Decimal(str(hopsapi_video["settled_credits"]))
+        pending_exposure = (scan_unevidenced_exposure(episode, non_video)
+                            + Decimal(str(hopsapi_video["pending_exposure_credits"])))
         projected = recorded + active_reserved + pending_exposure + planned
         if projected > cap:
             return {
@@ -1010,10 +1081,13 @@ def build_report(
                                       if k in settled})
 
     # Pending exposure: SUBMITTED_TASK_ID_BOUND tasks whose charge recorded does not already count
-    bound_exposure = scan_pending_exposure(episode)
-    pending_exposure = scan_unevidenced_exposure(episode, non_video)
+    hopsapi_video = scan_hopsapi_video_spend(episode)
+    hopsapi_settled = Decimal(str(hopsapi_video["settled_credits"]))
+    hopsapi_pending = Decimal(str(hopsapi_video["pending_exposure_credits"]))
+    bound_exposure = scan_pending_exposure(episode) + hopsapi_pending
+    pending_exposure = scan_unevidenced_exposure(episode, non_video) + hopsapi_pending
 
-    recorded = video_credits + non_video_credits
+    recorded = video_credits + non_video_credits + hopsapi_settled
     projected = recorded + active_reserved + pending_exposure + (planned or Decimal("0"))
     headroom = Decimal(cap) - recorded - active_reserved - pending_exposure
 
@@ -1064,6 +1138,7 @@ def build_report(
         "failures": failures,
         "spend": {
             "video_credits": number(video_credits),
+            "hopsapi_video_credits": number(hopsapi_settled),
             "non_video_credits": number(non_video_credits),
             "recorded_total_credits": number(recorded),
             "active_reserved_credits": number(active_reserved),
@@ -1078,8 +1153,10 @@ def build_report(
                 and not non_video["bgm_provisional_rows"]
                 and not non_video["bgm_unresolved_transactions"]
                 and not transactions["unresolved_transactions"]
+                and not hopsapi_video["unsettled_task_count"]
             ),
         },
+        "hopsapi_video_spend": hopsapi_video,
         "engine_video_gate": {
             "tool": "tools/episode_video_generation_guard.evaluate_episode_credit_gate",
             "status": video.get("status"),

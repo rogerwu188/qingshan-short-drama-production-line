@@ -394,8 +394,30 @@ def check_models(document: dict[str, Any], tasks: list[dict[str, Any]], *,
             "sd2_only_enforced": video and video_model == SD2, "model_lock_enforced": video}
 
 
+def _hopsapi_client():
+    if str(DEFAULT_ENGINE_ROOT) not in sys.path:
+        sys.path.insert(0, str(DEFAULT_ENGINE_ROOT))
+    from tools import hopsapi_video_client  # noqa: PLC0415 - engine module, no network
+    return hopsapi_video_client
+
+
 def price(tasks: list[dict[str, Any]], *, video: bool, image_credits: int,
           video_credits_per_second: int, video_model: str = SD2) -> dict[str, Any]:
+    if video and video_model == H3 and _hopsapi_client().video_provider(
+            config_path=RUNTIME_ROOT / "qingshan.json") == "hopsapi":
+        # HopsAPI router (owner 2026-10-29): per-task rounded-up estimate at the configurable
+        # per-second price; the actual charge is the settled per-task ``cost``.
+        hops = _hopsapi_client()
+        seconds = sum(float(task.get("duration_seconds") or 0) for task in tasks)
+        return {
+            "basis": "HOPSAPI_VIDEO_SECONDS_ROUNDED_UP_PER_TASK", "seconds": seconds,
+            "video_provider": "hopsapi",
+            "credits_per_second": str(hops.h3_credits_per_second(config_path=RUNTIME_ROOT / "qingshan.json")),
+            "planned_credits": sum(hops.estimated_task_credits(
+                float(task.get("duration_seconds") or 0), len(task.get("reference_images") or []),
+                config_path=RUNTIME_ROOT / "qingshan.json") for task in tasks),
+            "task_count": len(tasks),
+        }
     if video and video_model == H3:
         seconds = sum(float(task.get("duration_seconds") or 0) for task in tasks)
         return {
@@ -821,6 +843,7 @@ def main() -> int:
         "network_calls_made": 0,
         "giggle_api_key_read": False,
         "giggle_api_key_present_in_env": bool(os.environ.get("GIGGLE_API_KEY", "").strip()),
+        "hopsapi_api_key_present_in_env": bool(os.environ.get("HOPSAPI_API_KEY", "").strip()),
         "results": [],
     }
     try:

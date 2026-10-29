@@ -74,7 +74,11 @@ def cut_grammar_active(manifest: dict[str, Any]) -> bool:
 
 
 def provider_min_seconds(model: str | None) -> float:
-    return 3.0 if str(model or "").strip().lower() in {"minimax-h3", "h3"} else 4.0
+    """Shortest provider request.  Only CAMERA_GRAMMAR_V1 plans call this.  MiniMax-H3 was 3 s on Giggle;
+    the HopsAPI router (owner 2026-10-29) accepts integer 4-15 s, so every stamped unit -- speaking units
+    4-5 s, silent inserts -- is at least 4 s (a shorter authored shot is PROVIDER_MINIMUM_PADDED to 4 s and
+    the S7 head/tail trim removes the handle)."""
+    return 4.0
 
 
 def visible_subjects(shot: dict[str, Any]) -> set[str]:

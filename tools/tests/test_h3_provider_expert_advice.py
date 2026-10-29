@@ -387,15 +387,17 @@ class ReferenceSheetTest(unittest.TestCase):
 class SpeakingDurationTest(unittest.TestCase):
     def test_rule(self):
         short = speaking_duration(8, ["Holmes: Which of you is Holmes?"], "en")  # 2.01 s line
-        self.assertEqual((short["duration_seconds"], short["action"]), (3.0, "SHORTENED"))
-        self.assertEqual(speaking_duration(3, ["A: Which of you is Holmes?"], "en")["action"], "UNCHANGED")
+        # HopsAPI floor (owner 2026-10-29): speaking units run 4-5 s
+        self.assertEqual((short["duration_seconds"], short["action"]), (4.0, "SHORTENED"))
+        self.assertEqual(speaking_duration(4, ["A: Which of you is Holmes?"], "en")["action"], "UNCHANGED")
+        self.assertEqual(speaking_duration(3, ["A: Which of you is Holmes?"], "en")["action"], "LENGTHENED")
         mid = speaking_duration(3, ["A: one two three four five six seven eight nine ten"], "en")  # 3.70 s
         self.assertEqual((mid["duration_seconds"], mid["action"]), (5.0, "LENGTHENED"))
         long = speaking_duration(6, ["A: He will be away all day. There would be nothing to disturb you."], "en")
         self.assertEqual((long["duration_seconds"], long["action"]), (6.0, "WRITER_SPLIT_REQUIRED_KEPT"))
         longer = speaking_duration(7.5, ["A: He will be away all day. There would be nothing to disturb you."], "en")
         self.assertEqual((longer["duration_seconds"], longer["action"]), (6.0, "WRITER_SPLIT_REQUIRED_SHORTENED"))
-        self.assertEqual(speaking_duration(4, ["甲：你好。"], "zh")["duration_seconds"], 3.0)
+        self.assertEqual(speaking_duration(4, ["甲：你好。"], "zh")["duration_seconds"], 4.0)
 
     def test_bnp_applies_it_to_on_screen_lines_only(self):
         import build_nalu_preproduction as bnp
@@ -404,7 +406,7 @@ class SpeakingDurationTest(unittest.TestCase):
             "role_semantic_disambiguation": {"lip_owner_id": "CHAR-H", "dialogue_speaker_id": "CHAR-H"},
             "cast": [{"character_id": "CHAR-H"}]}}
         report: list = []
-        self.assertEqual(bnp._speaking_shot_duration(shot, None, "en", 8.0, report), 3.0)
+        self.assertEqual(bnp._speaking_shot_duration(shot, None, "en", 8.0, report), 4.0)
         self.assertEqual(report[0]["action"], "SHORTENED")
         offscreen = json.loads(json.dumps(shot))
         offscreen["prompt_spec"]["cast"][0]["face_visibility"] = "OFFSCREEN_VOICE_ONLY"

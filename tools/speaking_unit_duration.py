@@ -3,9 +3,12 @@
 
 Lab Holmes E04: a 6-8 s H3 unit around a short line made H3 fill the spare seconds with invented, garbled
 speech and pan away; 3-5 s units were clean.  A shot with an on-screen spoken line therefore runs the
-estimated line + 0.5 s, at least 3 s and at most 5 s, rounded up to the whole seconds H3 accepts.
+estimated line + 0.5 s, at least 4 s and at most 5 s, rounded up to the whole seconds H3 accepts.
+HopsAPI (owner 2026-10-29) accepts integer 4-15 s only, so the floor moved from 3 s to 4 s: the writer
+fills a speaking shot with ~3 s of speech and merges a very short line with the speaker's next line or
+gives it a performed action (H3_SCRIPT_ADAPTATION_GUIDE §5); S7 head/tail trims remain the safety net.
 
-* fits (line + 0.5 <= 5 s): duration = max(3, ceil(line + 0.5)) — shorter or longer than authored;
+* fits (line + 0.5 <= 5 s): duration = max(4, ceil(line + 0.5)) — shorter or longer than authored;
 * does not fit: the writer must split the line into two shots (H3_SCRIPT_ADAPTATION_GUIDE §5).  The compiler
   never blocks: it keeps the authored duration, or shortens it to ceil(line + 0.5) when the authored shot runs
   more than line + 1.5 s, and reports ``WRITER_SPLIT_REQUIRED``.
@@ -35,7 +38,7 @@ except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
 
 SCHEMA = "qingshan.speaking_unit_duration.v1"
 LINE_PAD_SECONDS = 0.5
-MIN_SECONDS = 3
+MIN_SECONDS = 4  # HopsAPI H3 request floor (owner 2026-10-29; was 3 on Giggle)
 MAX_SECONDS = 5
 SHORTEN_ABOVE_LINE_PLUS = 1.5
 
