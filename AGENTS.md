@@ -187,7 +187,7 @@ H3 剧本改编：MiniMax-H3 集的写手按 `docs/knowledge/H3_SCRIPT_ADAPTATIO
 
 ## 10. 尾贴广告（每集默认植入，线主 2026-10-22；codex_docs/ROGER-20260925-AD-TAIL-INTEGRATION.md）
 
-- **默认开启（每集）**：仓库自带策略 `configs/ads/AD_POLICY_DEFAULT.json`（`ask:false`，按对白语言选 sku：zh → `INBOX:giggle_tail5s`，en → `INBOX:giggle_tail5s_en`）；运行时 `ads/policy.json` 存在时以它为准（可写 `default_by_language` 或 `default`）。当集显式答 `NONE` 或别的 sku/brief 照旧生效；策略 `ask:true` 时编排器在 S1 前写 `ads/prompts/<EP>_AD_PROMPT.json`，60 秒轮询 `ads/prompts/<EP>_AD_ANSWER.json`（文件问答，不用 `input()`），超时走策略默认。S7 时本集没有记录（S1 早于本规则）或记录只是策略默认值的，按当前策略 + 本集语言重新取默认 sku。
+- **默认关闭（线主 2026-10-29）**：广告由 X2C 统一加贴并分发，产线只发纯成片。仓库策略 `configs/ads/AD_POLICY_DEFAULT.json` 为 `ask:false, default:NONE`；某台机器确需片尾广告时，才在运行时放 `ads/policy.json`（`default_by_language` 或 `default`）开启。
 - **素材位置**：`INBOX:<sku>` 先找运行时 `ads/inbox/<sku>.mp4`，再找仓库 `assets/ads/<sku>.mp4`（线主后补 `giggle_tail5s.mp4` / `giggle_tail5s_en.mp4`）；都没有记 `AD_ASSET_MISSING:<sku>`，照常出无广告成片，绝不卡 S7。角标按语言：zh「广告」、en「Ad」（槽合同 `label.text_zh/text_en`）；口播上限 zh 按汉字数 `spoken_chars_max`，en 按词数 `spoken_words_max_en`=12。
 - **发行用广告版**：`deliverables/<EP>/<EP>_final_9x16_AD.mp4` 存在（且不早于正片）时 `publish_x2creel.py` / `codex_production.py` 心跳发行上传广告版，否则上传正片；发行记录写 `published_variant`（AD|FINAL）和 `published_video`。
 - 答案写入 `manifest.ad_slot` **仅一次**（该文件被 S2 等阶段指纹绑定，二次改写会使后续阶段的缓存失效）；S7 开始前若晚到答案会被采纳（记 state 不改 manifest），S7 已开始则记入下一集。

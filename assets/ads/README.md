@@ -1,3 +1,5 @@
+> **2026-10-29：默认不贴片尾广告**——X2C 统一加贴广告后分发，产线只发纯成片。以下内容仅在某台机器用运行时 `ads/policy.json` 主动开启时适用。
+
 # Tail-ad assets (repo copy)
 
 The line owner will add the finished tail-ad clips here:

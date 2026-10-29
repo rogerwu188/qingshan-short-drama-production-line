@@ -1,7 +1,5 @@
 {
   "ask": false,
-  "default_by_language": {
-    "zh": "INBOX:giggle_tail5s",
-    "en": "INBOX:giggle_tail5s_en"
-  }
+  "default": "NONE",
+  "note": "Owner 2026-10-29: X2C attaches and distributes ads; the production line ships the plain final cut. A runtime ads/policy.json can still opt a machine in."
 }
