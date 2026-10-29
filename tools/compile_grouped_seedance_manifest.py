@@ -629,7 +629,8 @@ def _collective_apply(unit: dict[str, Any], compile_fn: Any) -> dict[str, Any] |
         from tools.collective_learning import runtime_wiring
     except ModuleNotFoundError:
         from collective_learning import runtime_wiring
-    return runtime_wiring.apply_to_grouped_unit(unit, compile_fn)
+    return runtime_wiring.apply_to_grouped_unit(unit, compile_fn,
+                                                entrypoint="compile_grouped_seedance_manifest.compile_final_prompts")
 
 
 def compile_final_prompts(units: list[dict[str, Any]], final_prompt_dir: Path) -> list[dict[str, Any]]:

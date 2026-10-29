@@ -106,7 +106,10 @@ class SyncClient:
             for item in due:
                 by_kind.setdefault(item["item_kind"], []).append(item)
             progressed = False
-            for kind, items in by_kind.items():
+            # Facts before the revisions that cite them: a review uploaded ahead of its event
+            # is rejected with EVENT_NOT_FOUND, so kinds go in ROUTE_BY_KIND's dependency order.
+            for kind in sorted(by_kind, key=lambda k: list(ROUTE_BY_KIND).index(k) if k in ROUTE_BY_KIND else 99):
+                items = by_kind[kind]
                 result = self._send_kind(kind, items, now=now)
                 summary["batches"] += 1
                 summary["sent"] += len(items)
