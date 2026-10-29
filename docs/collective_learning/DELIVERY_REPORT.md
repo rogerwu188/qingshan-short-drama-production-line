@@ -108,9 +108,17 @@
 9. 无预算不用付费：本任务零 POST，零模型评审费。
 10. 旧版本与回滚：包版本不可变；评估按 sha 版本并存。
 
+## 5a. S3 模式（2026-10-29，线主：对象存储即云端）
+
+`tools/collective_learning/s3_sync.py`：`S3Transport`（outbox 批次 → inbox 对象，敏感条目上传前拒绝）、`Collector`（inbox → `Service.ingest_*` → acks → processed/quarantine，可重入）、`S3Channel`（签名频道指针、设备端取包校验入缓存、吊销列表）、CLI `bootstrap / device-sync / collect / publish-channel / status`。`line_upgrade_gate.collective_preflight` 回执新增 `sync_mode`，S1 仍只读本地缓存。测试 `test_collective_s3_sync`（7）：批次入箱与入库回执、重复上传不重复计数且收集器重跑幂等、敏感条目拒绝与坏对象隔离、桶断连只重试不崩、频道发布/清洁设备解析校验、篡改指针与陌生签名者拒绝、换包字节被 payload sha 拦下、CLI 全链。
+
+**真实桶闭环（租户 `loop-test`，独立 scratch 运行根，纯合成 JSON）**：bootstrap → `collective/loop-test/trust.json`（公网 200）→ 设备 A 记一条合成事件 → `device-sync` 推 1/1 → `collect` 入库 created 1、unique_events 1 → 再 sync/collect：sent 0、items 0、unique 仍 1 → 候选 CANDIDATE→VALIDATED→CANARY → 签名包 `directing-dialogue@2`（bundle digest `d07dc92f…`）镜像到 `bundles/directing-dialogue/2.json` → `publish-channel` 写 `channels/canary.json`（sequence 1）→ 干净设备目录从桶取 trust 与包：FETCHED、`resolve_local` 选中同一摘要 → 运行锁 CREATED，第二次 `EXISTING_LOCK_KEPT` → SELECTED 采用回执 → `device-sync` 推 1 → `collect` 入库 → `trace_candidate` 显示该回执（SELECTED）。清理：`s3ctl rm collective/loop-test/ --recursive --yes` 删 7 个对象，ls 为 0。
+
+生产租户 `nalu` 已在本机 bootstrap：`~/nalu_runtime/runtime/collective/`（sqlite、`publisher.key.json` 0600、`admin.token` 0600、trust），trust 已上传 `collective/nalu/trust.json`。**没有**给任何剧集写 `COLLECTIVE_LEARNING_CONFIG.json`：在制剧集仍完全关闭。
+
 ## 6. 未完成 / 诚实标注
 
-- **CLOUD_DEPLOYED**：未部署。需要主机、域名、admin 根凭证、发布者私钥保管（`AUTHORIZATIONS_REQUIRED.md`）。对象存储已定（§3a）。
+- **CLOUD_DEPLOYED**：按线主 2026-10-29 的定义（S3 即云端）已达到：桶在线，S3 模式闭环对真实桶通过（§5a），nalu 租户已 bootstrap。未做：任何生产线的 `COLLECTIVE_LEARNING_CONFIG.json`（需要线主指定首个带知识锁的批次）、cron 的安装、第二台设备。HTTP 服务模式保留但无人运行。
 - **PILOT_OBSERVED**：无真实 `OUTCOME_OBSERVED`；演示保持 `PENDING_REAL_FILM`。需要一个带知识锁的真实新批次（建议 E13 或 E12 的新 batch_id）并由线主决定。
 - **演示模型为 SD2**：唯一能走严格编译的共享对话夹具是 SD2；H3 的接线由 `H3FinalRenderTest` 证明（编译器打桩）。真实 H3 全链路需要在试点集上观察。
 - **创作类候选的 CANARY**：演示里评审员对合成片段记了 `REAL_MEDIA_REVIEW`，transcript 标注 `canary_basis_caveat`；不是真实成片评审。

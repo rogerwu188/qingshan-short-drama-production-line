@@ -248,6 +248,7 @@
     "tools/collective_learning/migrations/0001_init.sql",
     "tools/collective_learning/object_store.py",
     "tools/collective_learning/runtime_wiring.py",
+    "tools/collective_learning/s3_sync.py",
     "tools/collective_learning/selection.py",
     "tools/collective_learning/service.py",
     "tools/collective_learning/sync_client.py",
@@ -406,6 +407,7 @@
     "tools.tests.test_collective_object_store",
     "tools.tests.test_s3ctl",
     "tools.tests.test_postgen_incremental_measurement",
-    "tools.tests.test_line_owner_start_frame_decision"
+    "tools.tests.test_line_owner_start_frame_decision",
+    "tools.tests.test_collective_s3_sync"
   ]
 }

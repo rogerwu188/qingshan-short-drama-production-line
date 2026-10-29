@@ -340,7 +340,11 @@ def collective_preflight(line: str, episode: str, runtime_root: Path, engine: Pa
       {tenant_id, line_id, trust_store, cache_dir, channel, engine_api_version,
        capabilities: {model, aspect_ratio, language, ...}, batch_id, device_store: bool,
        revocations?: signed list path, baseline?: {path, digest},
-       provider_model_version?, rubric_version?, evaluation_model_version?}
+       provider_model_version?, rubric_version?, evaluation_model_version?,
+       sync?: {mode: "s3" | "http"}, object_store?: {endpoint_url, bucket, ...}}
+    ``sync.mode = "s3"`` (line owner 2026-10-29: the bucket is the cloud) changes nothing here:
+    the cache is filled by the operator/cron command ``s3_sync.py device-sync``; this preflight
+    reads only the local cache, so a slow or unreachable bucket never delays a run.
     The run id is ``<line>.<episode>.<batch_id>``: a new episode or an explicit new batch is
     what picks up a newer release; an existing lock is kept as-is.
     """
@@ -401,8 +405,12 @@ def collective_preflight(line: str, episode: str, runtime_root: Path, engine: Pa
     env = runtime_wiring.child_env(lock, cache_dir=cache_dir, trust_path=trust_path,
                                    engine_api_version=config["engine_api_version"], store_path=store_path,
                                    tenant_id=config.get("tenant_id"), line_id=config.get("line_id"))
+    sync_mode = str((config.get("sync") or {}).get("mode") or "http")
     return {
         "status": "LOCKED", "lock_status": lock["lock_status"], "run_id": run_id,
+        "sync_mode": sync_mode,
+        "sync_note": ("cache filled by s3_sync.py device-sync (cron); no network on this path" if sync_mode == "s3"
+                      else "cache filled by sync_client.pull_bundles; no network on this path"),
         "lock_path": lock["lock_path"], "lock_sha256": lock["lock_sha256"],
         "knowledge_bundle_digest": lock["knowledge_bundle_digest"],
         "bundles": [{k: e.get(k) for k in ("bundle_id", "version", "digest", "release_channel", "label")}

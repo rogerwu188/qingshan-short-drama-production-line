@@ -7,9 +7,9 @@
 
 | 事项 | 缺它阻塞 | 不缺它已完成 |
 |---|---|---|
-| 云端运行位置（自有 VPS / 托管容器 / 某云账户）与域名 | `CLOUD_DEPLOYED` 状态；跨机器真实试点 | 服务代码 `tools/collective_learning/service.py` + `http_api.py` 在本机 127.0.0.1 上完成全部行为测试与 100×1000 负载基线 |
-| 管理员根凭证的初始化方式（谁持有 admin token） | 设备注册（`POST /v1/devices` 需要 admin） | 本地演示用临时 admin token，测试内生成 |
-| 发布者签名私钥的保管位置（Ed25519） | 正式知识包发布；设备端信任文件 `trusted_publishers.json` 的正式条目 | 本地演示密钥对（仅测试目录），校验链路已验证 |
+| 云端运行位置与域名 | **不需要：S3 即云端（2026-10-29 线主）**。设备只与对象存储通信（`s3_sync.py device-sync`），关系库跟随收集器（`s3_sync.py collect`）跑在任一台能读环境变量凭证的机器上；HTTP 服务代码保留为可选模式 | S3 模式对真实桶完整闭环通过（`DELIVERY_REPORT.md` §S3 模式）；nalu 租户已在本机 bootstrap（`~/nalu_runtime/runtime/collective/`，trust 已上传 `collective/nalu/trust.json`） |
+| 管理员根凭证 | **已自动生成**：`s3_sync.py bootstrap` 在 `<runtime>/runtime/collective/admin.token`（0600，不入库）；S3 模式下设备不需要 token，收集器按批次对象里的 device/line 身份入库 | 本机已生成（tenant `nalu`） |
+| 发布者签名私钥（Ed25519） | **已自动生成**：`<runtime>/runtime/collective/publisher.key.json`（0600，不入库，key_id `pub-nalu`）；公钥在 `trust.json` 并已上传到桶，设备从桶取 trust | 本机已生成；换钥用 `bootstrap --rotate-key` |
 | 对象存储（证据与发布包） | **已决定（2026-10-29）**：自建 S3 `https://s3api.arkfs.co` / bucket `drama01` / us-east-1，所有生产线共用，按 `<line>/<batch_id>/<artifact>` 分前缀。见 `DEPLOYMENT_OPERATIONS.md` §3a。密钥只走环境变量。 | `object_store.py`：预检（PUT/GET/DELETE/验证）、线前缀命名、仅标准 API、公开读防泄露门、包镜像、证据上传与登记；本机对真实网关的预检结果见交付报告 |
 | TLS 终止方式 | 公网暴露 | 服务只监听 127.0.0.1；文档要求反向代理终止 TLS |
 

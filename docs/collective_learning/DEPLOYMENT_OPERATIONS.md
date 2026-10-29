@@ -31,7 +31,7 @@ curl -s http://127.0.0.1:8787/v1/health
 
 ## 3. 设备端：开通一条生产线
 
-1. 在运行时报告目录放 `COLLECTIVE_LEARNING_CONFIG.json`（没有此文件 = 完全关闭，所有钩子返回 `None`，生产行为字节不变）：
+1. 在运行时报告目录放 `COLLECTIVE_LEARNING_CONFIG.json`（没有此文件 = 完全关闭，所有钩子返回 `None`，生产行为字节不变；S3 模式加 `"sync": {"mode": "s3"}` 与 `"object_store": {...}` 块，见 §3b）：
 
 ```json
 {"tenant_id": "<tenant>", "line_id": "<line>", "device_store": true,
@@ -48,6 +48,31 @@ curl -s http://127.0.0.1:8787/v1/health
 3. 设备同步：`sync_client.BackgroundSync(SyncClient(store, HttpTransport(url, token)), interval).start()`，或 cron 调 `run_once()`。断网时事件留在 outbox；恢复后补传，幂等。
 4. 每集开工：S1 的 `line_upgrade_gate.preflight` 自动解析缓存里已验证的包 → 写 `<line>.<episode>.<batch_id>` 运行锁 → 记 SELECTED 回执。**锁一旦写出，该 run 不再解析 latest**；新集或新 `batch_id` 才会换包。
 5. 在制剧集：不要给正在跑的集加配置文件；它们没有锁，路径不变。
+
+## 3b. S3 模式（默认，2026-10-29 线主：对象存储即云端）
+
+没有 HTTP 主机。设备把 outbox 批次写成桶里的对象，收集器把它们入库并写回执，发布者把签名后的频道指针放进桶，设备从桶取包进本地缓存。布局（全部在 `collective/<tenant>/` 下）：`trust.json`、`revocations.json`、`inbox/<line>/<device>/<kind>/<batch>.json`、`acks/<line>/<device>/<batch>.json`、`processed/…`、`quarantine/…`、`bundles/<bundle_id>/<version>.json`、`channels/<CANARY|RELEASED>.json`。
+
+```bash
+# 凭证只在环境变量（AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY），其余非密参数：
+export S3CTL_ENDPOINT_URL=https://s3api.arkfs.co S3CTL_BUCKET=drama01 S3CTL_PUBLIC_BASE_URL=https://v.arkfs.co/drama01
+S3SYNC=".qingshan-venv/bin/python tools/collective_learning/s3_sync.py"
+
+# 一次：租户根（sqlite + 发布者私钥 0600 + trust）并上传 trust
+$S3SYNC bootstrap --runtime-root ~/nalu_runtime --tenant nalu
+
+# 设备（每条线的 reports 目录放 COLLECTIVE_LEARNING_CONFIG.json，含 "sync": {"mode": "s3"} 与 "object_store" 块；cron 每 10 分钟）
+$S3SYNC device-sync --config <reports>/COLLECTIVE_LEARNING_CONFIG.json      # 推 outbox，拉频道包进 bundle_cache
+
+# 收集器（同一台或任一台机器；cron 每 10 分钟）
+$S3SYNC collect --runtime-root ~/nalu_runtime --tenant nalu                  # inbox → 关系库 → acks/processed
+$S3SYNC status  --runtime-root ~/nalu_runtime --tenant nalu
+
+# 发布（候选在关系库里到 CANARY/RELEASED 后）
+$S3SYNC publish-channel --runtime-root ~/nalu_runtime --tenant nalu --channel CANARY --bundle-id <id> --version <n>
+```
+
+S1 仍只读本地缓存（`line_upgrade_gate.collective_preflight` 回执多一项 `sync_mode`），付费任务前没有任何云端等待；桶不通只意味着事件留在 outbox、设备继续用已锁定的本地包。桶公开读：上传前每个条目过 `sensitive_findings`，命中即 REJECTED 不上传；收集器隔离说明里的异常文本若含敏感片段会被脱敏。
 
 ## 3a. 对象存储（已定：自建 S3，MinIO / JuiceFS Gateway）
 
