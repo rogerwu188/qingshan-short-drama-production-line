@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2261,
+  "file_count": 2263,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -269,7 +269,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "63550f4d566756dadbb596b731ee82b87518a94b00e2004de53fb1093b0fad37"
+      "sha256": "ea29e28acb9e5467491386a0743a4979f15dfc109532ad92d36a2715c2685767"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -3716,6 +3716,10 @@
       "sha256": "1e831c0784d4ec4797216adca74e0041deffcaab17889693d10e50acf052cd5a"
     },
     {
+      "path": "tools/collective_learning/object_store.py",
+      "sha256": "87092d4df54a78eccd7792f0b73a9c1193f6544e591c8a9ec4cf32319d561764"
+    },
+    {
       "path": "tools/collective_learning/runtime_wiring.py",
       "sha256": "05b3d66ed62dd04132e3110f08c4ed40bf27179a88d7368427d6ea7c48f489aa"
     },
@@ -3725,7 +3729,7 @@
     },
     {
       "path": "tools/collective_learning/service.py",
-      "sha256": "ae0a3042085b3a57599498b2b692a7bde855316f4d7e6816200967301401374a"
+      "sha256": "801e072d974e7403ccf53621c414961b1c0571249e67cad159e45aa7d9c53512"
     },
     {
       "path": "tools/collective_learning/sync_client.py",
@@ -7058,6 +7062,10 @@
     {
       "path": "tools/tests/test_collective_e2e_demo.py",
       "sha256": "57e7fe4a316958c9a0d085c17ecc05413beba413779c1303fc8ec18fab53cf6e"
+    },
+    {
+      "path": "tools/tests/test_collective_object_store.py",
+      "sha256": "e9b4d0fd3b0998211336cd46acbf3b86674a79bf94a1bb54e22063a56f28215c"
     },
     {
       "path": "tools/tests/test_collective_real_entry_wiring.py",

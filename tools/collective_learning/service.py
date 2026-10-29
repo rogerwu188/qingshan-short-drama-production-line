@@ -183,16 +183,21 @@ def migrate(db: sqlite3.Connection) -> list[int]:
 class Service:
     def __init__(self, db_path: Path | str, *, max_batch: int = DEFAULT_MAX_BATCH,
                  trust_store: dict[str, Any] | None = None,
-                 signature_verifier: Callable[[dict[str, Any], bytes], tuple[bool, str]] | None = None):
+                 signature_verifier: Callable[[dict[str, Any], bytes], tuple[bool, str]] | None = None,
+                 object_store: Any | None = None):
         """``trust_store``: a ``bundles.make_trust_store`` document.  When given, every
         uploaded payload must be a ``bundles`` signed envelope that verifies against it.
         Without one the upload is accepted and marked NOT_VERIFIED_SERVER_SIDE (devices
-        still verify before adoption).  ``signature_verifier`` overrides both (tests)."""
+        still verify before adoption).  ``signature_verifier`` overrides both (tests).
+        ``object_store``: an ``object_store.ObjectStore`` (line ``collective``); bundle
+        bytes are mirrored there after the database commit.  The database stays the
+        source of truth: a failed mirror is recorded, never a failed upload."""
         self.db_path = str(db_path)
         self.max_batch = int(max_batch)
         self._local = threading.local()
         self._verifier = signature_verifier
         self._trust = trust_store
+        self._object_store = object_store
         db = self._db()
         db.execute("PRAGMA journal_mode=WAL")
         migrate(db)
@@ -791,10 +796,31 @@ class Service:
                         principal.principal_id, c.now_iso()))
             self._audit(db, principal, "upload_bundle", f"{body['bundle_id']}@{body['version']}", "OK",
                         {"digest": actual, "signature_check": note})
+        mirror = self._mirror_bundle(principal, body["bundle_id"], str(body["version"]), payload, manifest)
         return {"bundle_id": body["bundle_id"], "version": str(body["version"]), "digest": actual,
+                "object_mirror": mirror,
                 "status": "CREATED", "signature_check": note}
 
     @_audited
+
+    def _mirror_bundle(self, principal: Principal, bundle_id: str, version: str, payload: bytes,
+                       manifest: dict[str, Any]) -> dict[str, Any]:
+        """Mirror the immutable bundle bytes to object storage under
+        ``collective/<tenant>/bundles/<bundle_id>/<version>.json``.  Never raises."""
+        if self._object_store is None:
+            return {"status": "NOT_CONFIGURED"}
+        try:
+            result = self._object_store.put_artifact(
+                principal.tenant_id, f"bundles/{bundle_id}/{version}.json", payload,
+                content_type="application/json",
+                metadata={"bundle_id": bundle_id, "version": version, "scope": manifest.get("scope")})
+            outcome = {"status": "MIRRORED", "key": result["key"], "sha256": result["sha256"],
+                       "public_url": result.get("public_url")}
+        except Exception as exc:  # noqa: BLE001 -- the database row is authoritative
+            outcome = {"status": "MIRROR_FAILED", "error": f"{type(exc).__name__}: {str(exc)[:300]}"}
+        with self._tx() as db:
+            self._audit(db, principal, "mirror_bundle", f"{bundle_id}@{version}", outcome["status"], outcome)
+        return outcome
     def get_bundle(self, principal: Principal, bundle_id: str, version: str) -> dict[str, Any]:
         rows = self._read("SELECT digest, payload, signature_b64, key_id, manifest, uploaded_at FROM bundles "
                           "WHERE tenant_id=? AND bundle_id=? AND version=?", (principal.tenant_id, bundle_id, version))

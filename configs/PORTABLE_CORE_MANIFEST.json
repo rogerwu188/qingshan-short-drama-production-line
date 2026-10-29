@@ -246,6 +246,7 @@
     "tools/collective_learning/http_api.py",
     "tools/collective_learning/impact.py",
     "tools/collective_learning/migrations/0001_init.sql",
+    "tools/collective_learning/object_store.py",
     "tools/collective_learning/runtime_wiring.py",
     "tools/collective_learning/selection.py",
     "tools/collective_learning/service.py",
@@ -400,6 +401,7 @@
     "tools.tests.test_collective_selection_adoption",
     "tools.tests.test_collective_real_entry_wiring",
     "tools.tests.test_line_upgrade_gate",
-    "tools.tests.test_collective_e2e_demo"
+    "tools.tests.test_collective_e2e_demo",
+    "tools.tests.test_collective_object_store"
   ]
 }

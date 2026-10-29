@@ -49,12 +49,65 @@ curl -s http://127.0.0.1:8787/v1/health
 4. 每集开工：S1 的 `line_upgrade_gate.preflight` 自动解析缓存里已验证的包 → 写 `<line>.<episode>.<batch_id>` 运行锁 → 记 SELECTED 回执。**锁一旦写出，该 run 不再解析 latest**；新集或新 `batch_id` 才会换包。
 5. 在制剧集：不要给正在跑的集加配置文件；它们没有锁，路径不变。
 
+## 3a. 对象存储（已定：自建 S3，MinIO / JuiceFS Gateway）
+
+线主 2026-10-29 决定：所有生产线统一接入同一个自建 S3；对象存储不再是待授权项。
+
+| 参数 | 值 | 来源 |
+|---|---|---|
+| Endpoint | `https://s3api.arkfs.co`（443） | 配置文件 / `AWS_ENDPOINT_URL` |
+| Bucket | `drama01` | 配置文件 / `COLLECTIVE_OBJECT_BUCKET` |
+| Region | `us-east-1` | 配置文件 / `AWS_DEFAULT_REGION` |
+| 签名 / 寻址 | `s3v4`，path-style（`s3ForcePathStyle=true`） | 代码默认 |
+| 公网下载 | `https://v.arkfs.co/drama01/<object-key>`（匿名可读，CloudFlare，支持 Range） | `public_base_url` |
+| AccessKey / SecretKey | **只从环境变量读取**：`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`；或 AWS profile `drama01` | 密钥管理，不写代码、不写文档、不写配置文件 |
+
+**整个 bucket 公开读**：任何上传对象任何人都能下载，链接永久有效。因此代码里的正式上传路径（`ObjectStore.put_artifact`）对文本/JSON 负载与元数据跑 `sensitive_findings`，发现本机路径、签名 URL、密钥即拒绝；媒体类型（video/image/audio）在共享代码里默认拒绝，只有该线配置 `allow_media: true` 才放行。线主 2026-10-29 已决定 nalu 线允许上传成片切片与关键帧（`AUTHORIZATIONS_REQUIRED.md` §C），并知悉这些对象公开可读；完整剧本、人脸/声音参考、密钥、本机路径仍永远不上传（`sensitive_findings` 门不受此开关影响）。
+
+兼容性与限制：标准 PUT/GET/HEAD/List/Delete/Multipart 可用；**不支持** Object Lock、Versioning、Object Tagging、Glacier 存储类。代码永不调用这些 API（`object_store.UNSUPPORTED_OPERATIONS` 列出，测试扫描源码），重命名用 copy+delete（`ObjectStore.rename` / `aws s3 mv`）。
+
+对象命名：`<line>/<batch_id>/<artifact>`，全小写英文、无空格、不以 `/` 开头（`object_store.object_key` 强制，大写自动转小写，非法字符拒绝）。例：`nalu/e13/reports/digest.json`、`qingshan/e50/…`。云端服务镜像的知识包用 `collective/<tenant_id>/bundles/<bundle_id>/<version>.json`。`<line>/_preflight/` 保留给预检对象，正式路径不能写入。
+
+### 预检（先过预检，再接正式路径）
+
+```bash
+# 凭证只在环境里（或 ~/.aws 的 profile drama01）；本命令不打印密钥
+export AWS_ACCESS_KEY_ID=<从密钥管理取>  AWS_SECRET_ACCESS_KEY=<从密钥管理取>
+export AWS_ENDPOINT_URL=https://s3api.arkfs.co AWS_DEFAULT_REGION=us-east-1
+python3 tools/collective_learning/object_store.py --line nalu \
+  --endpoint-url https://s3api.arkfs.co --bucket drama01 --region us-east-1 \
+  --public-base-url https://v.arkfs.co/drama01 \
+  preflight --receipt <runtime>/reports/COLLECTIVE_OBJECT_STORE_PREFLIGHT.json --verify-public
+```
+
+预检 = PUT 1 KB 随机对象到 `<line>/_preflight/` → GET 比对字节 → （`--verify-public`：经公网域名再下载比对）→ DELETE → HEAD 确认已删。回执 `COLLECTIVE_OBJECT_STORE_PREFLIGHT.json` 记录每步耗时与错误码（PASSED/FAILED），不含密钥。`put_artifact` 要求同 endpoint/bucket/line 的 PASSED 回执且不超过 24 h（`preflight_max_age_s`），否则 `PREFLIGHT_REQUIRED`。预检是运维命令，不在流水线 S1 里跑：付费任务前没有云端等待。
+
+设备端配置（`COLLECTIVE_LEARNING_CONFIG.json` 新增可选块，不写密钥）：
+
+```json
+"object_store": {"endpoint_url": "https://s3api.arkfs.co", "bucket": "drama01", "region": "us-east-1",
+                 "public_base_url": "https://v.arkfs.co/drama01", "allow_media": true, "profile": "drama01"}
+```
+
+云端服务：`Service(db, object_store=ObjectStore.from_env(cfg, line_id="collective"))` 后，`POST /v1/bundles` 在数据库提交后把包字节镜像到对象存储，响应与 `audit_log` 带 `object_mirror`（MIRRORED / MIRROR_FAILED / NOT_CONFIGURED）；数据库始终是事实源，镜像失败不会让上传失败。证据字节：`object_store.upload_evidence(store, batch_id=…, artifact=…, data=…, content_type=…, register=svc.register_evidence 绑定)` 先 PUT 再登记 `storage_key + sha256`，登记元数据里没有 URL。
+
+常用命令（AWS CLI 需单独安装；profile `drama01` 放 `~/.aws/credentials`，`~/.aws/config` 里写 `endpoint_url` 与 `s3.addressing_style = path`）：
+
+```bash
+aws s3 ls s3://drama01/ --profile drama01 --endpoint-url https://s3api.arkfs.co
+aws s3 sync ./out/ s3://drama01/nalu/e13/ --profile drama01 --endpoint-url https://s3api.arkfs.co
+aws s3 mv s3://drama01/nalu/e13/a.json s3://drama01/nalu/e13/b.json --profile drama01 --endpoint-url https://s3api.arkfs.co
+python3 tools/collective_learning/object_store.py --config <reports>/COLLECTIVE_LEARNING_CONFIG.json --line nalu ls --prefix nalu/
+```
+
+boto3 等价：`boto3.client('s3', endpoint_url='https://s3api.arkfs.co', region_name='us-east-1', config=Config(signature_version='s3v4', s3={'addressing_style': 'path'}))`（`object_store.make_client` 就是这一行，凭证来自 `resolve_credentials`）。
+
 ## 4. 备份与恢复
 
 - 云端：`sqlite3 collective.sqlite ".backup /backup/collective-$(date -u +%Y%m%dT%H%M%SZ).sqlite"`（WAL 模式下在线备份安全）。恢复 = 停服务、换文件、起服务；`test_collective_service` 的 T26 用例验证重开同一文件后凭证、证据状态、包与通道、审计日志一致。
 - 设备端：`reports/COLLECTIVE_DEVICE_STORE.sqlite` 同样 `.backup`；outbox 状态随库一起恢复，未送达项恢复后继续送（T08）。
 - 发布包缓存 `bundle_cache/` 是内容寻址的，可随时从云端 `GET /v1/bundles/{id}/versions/{v}` 重拉；丢失缓存不丢锁（锁里有 digest，重拉后校验相同）。
-- 证据对象：元数据在库里；字节在对象存储（待授权）。删除证据后相关候选自动变 `EVIDENCE_UNAVAILABLE` 并失去推广资格，恢复数据库不会把它变回"证据齐全"。
+- 证据对象：元数据在库里；字节在对象存储（§3a，已接入；预检回执在运行时目录）。删除证据后相关候选自动变 `EVIDENCE_UNAVAILABLE` 并失去推广资格，恢复数据库不会把它变回"证据齐全"。
 
 ## 5. 凭证轮换与吊销
 

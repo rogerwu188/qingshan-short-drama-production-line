@@ -5,7 +5,7 @@
 
 ## 0. 状态一句话
 
-**LOCAL_INTEGRATION_VERIFIED**。代码、测试、真实入口接线、迁移、部署说明、端到端演示全部在本机隔离环境完成并通过；**CLOUD_DEPLOYED / PILOT_OBSERVED / ROLLOUT_VERIFIED 均未达到**，阻塞项只有线主决策（`AUTHORIZATIONS_REQUIRED.md`）。在制剧集（E11 已批、E12 在 S6）未被触碰：工作在独立 worktree，所有新接线在没有知识锁的运行上字节不变。
+**LOCAL_INTEGRATION_VERIFIED**。代码、测试、真实入口接线、迁移、部署说明、端到端演示全部在本机隔离环境完成并通过；**CLOUD_DEPLOYED / PILOT_OBSERVED / ROLLOUT_VERIFIED 均未达到**，阻塞项只有线主决策（`AUTHORIZATIONS_REQUIRED.md`）。**对象存储已定并接入**（2026-10-29）：自建 S3 网关的预检（PUT 1 KB / GET 比对 / 公网 GET / DELETE / 确认已删）对 `nalu` 与 `collective` 两个前缀在本机真实通过；密钥只在环境变量里。在制剧集（E11 已批、E12 在 S6）未被触碰：工作在独立 worktree，所有新接线在没有知识锁的运行上字节不变。
 
 ## 1. 提交
 
@@ -17,6 +17,8 @@
 | `9b6128b` | — | 测试登记、运维文档 |
 | `1543a11` | D | 跨设备端到端演示 + 两个由演示暴露的集成修复 |
 | `be8703c` | — | 部署完整性清单重建 |
+| `96c1543` | — | 交付报告 |
+| （本次） | E | 对象存储：`object_store.py` 预检 / 线前缀命名 / 仅标准 API / 公开读防泄露门 / 包镜像 / 证据上传，22 个测试，运维文档 §3a |
 
 48 个文件，+13,826 / −39 行。
 
@@ -48,6 +50,7 @@
 | T02 | `CrashConsistencyTest`：事实与 outbox 之间模拟崩溃 → 两者皆回滚；子进程写入后新对象重开 | PASS |
 | T03 | 单测 20 客户端 × 200；负载 100 × 1000（`LOADTEST_BASELINE.json`）：100,000 唯一行 | PASS |
 | T04 | 20 % 重复投递：唯一数不变，`delivery_log` 可追踪 20,000 次重复 | PASS |
+| OS | `test_collective_object_store`（22）：键命名、凭证只来自环境、预检四步与回执过期、媒体/敏感内容拒绝、copy+delete、源码不含不支持 API、包镜像失败不影响上传、文档无密钥 | PASS |
 | T05 | 服务端提交后丢响应 → 重传 ack=DUPLICATE，不重复计数 | PASS |
 | T06 | 同 ID 不同内容 → CONFLICT 审计，原事实保留；乱序修订保留 | PASS |
 | T07 | 批次夹一条坏数据 → 其余确认，坏项双端隔离 | PASS |
@@ -106,11 +109,11 @@
 
 ## 6. 未完成 / 诚实标注
 
-- **CLOUD_DEPLOYED**：未部署。需要主机、域名、admin 根凭证、发布者私钥保管、对象存储（`AUTHORIZATIONS_REQUIRED.md`）。
+- **CLOUD_DEPLOYED**：未部署。需要主机、域名、admin 根凭证、发布者私钥保管（`AUTHORIZATIONS_REQUIRED.md`）。对象存储已定（§3a）。
 - **PILOT_OBSERVED**：无真实 `OUTCOME_OBSERVED`；演示保持 `PENDING_REAL_FILM`。需要一个带知识锁的真实新批次（建议 E13 或 E12 的新 batch_id）并由线主决定。
 - **演示模型为 SD2**：唯一能走严格编译的共享对话夹具是 SD2；H3 的接线由 `H3FinalRenderTest` 证明（编译器打桩）。真实 H3 全链路需要在试点集上观察。
 - **创作类候选的 CANARY**：演示里评审员对合成片段记了 `REAL_MEDIA_REVIEW`，transcript 标注 `canary_basis_caveat`；不是真实成片评审。
-- **证据字节上传**：只实现元数据层；对象存储待授权。
+- **证据字节上传**：已实现（`object_store.upload_evidence`：先 PUT 再登记 storage_key + sha256），真实网关预检 PASSED（nalu、collective，2026-10-29，回执不入库）。bucket 整体公开读；共享代码默认拒绝媒体类型（`allow_media: false`），线主 2026-10-29 决定 nalu 线允许上传成片切片/关键帧（配置 `allow_media: true`），完整剧本、人脸/声音参考、密钥、本机路径仍被 `sensitive_findings` 门拒绝。预检发现并已处理两个真实差异：网关对 boto3 ≥ 1.36 默认的 aws-chunked 上传回 `MissingContentLength`（客户端改 `request_checksum_calculation=when_required` + 显式 Content-Length）；公网域名前的 CDN 对默认 `Python-urllib` UA 回 403（预检用显式 UA）。云端服务与真实设备尚未长期跑在它上面：状态仍是 LOCAL_INTEGRATION_VERIFIED。
 - **管理界面**：只读追溯页 + bearer，无登录/会话。
 - **未接线的入口**：S3/S5 图片提交器；gitignored 逐集构建器仍直接调 `nalu_prompt_rules.apply`；三个 raw-urllib 旁路（`giggle_omni_video_fallback.py`、`submit_e20_static_visual_lock_batch.py`、`giggle_asset_factory.py`）未改，有测试钉住它们不在正式路径上。
 - **效率报表**：`efficiency_report` 已实现，但成片评审提交点没有费用/等待数据可喂，需从 S7 账本调用方传入。
@@ -119,6 +122,6 @@
 
 ## 7. 下一步（需线主决定后）
 
-1. 批准 `AUTHORIZATIONS_REQUIRED.md` §A → 部署云端 → 把 nalu 线的新批次加 `COLLECTIVE_LEARNING_CONFIG.json`。
+1. 批准 `AUTHORIZATIONS_REQUIRED.md` §A 其余项（主机、admin 凭证、发布者私钥）→ 部署云端（`Service(..., object_store=…)`）→ 把 nalu 线的新批次加 `COLLECTIVE_LEARNING_CONFIG.json`（含 `object_store` 块）并在该机器跑一次 `object_store.py preflight`。
 2. 在该批次成片评审时填写 `director_evaluation` 块 → 产生第一份真实 DIRECTOR_SCORE_V1 与下一集计划。
 3. 第一条真实 `OUTCOME_OBSERVED` 之后，才把状态升到 PILOT_OBSERVED。
