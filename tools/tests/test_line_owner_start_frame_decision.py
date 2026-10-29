@@ -68,6 +68,31 @@ class LineOwnerDecisionTest(unittest.TestCase):
                 npl.record_line_owner_start_frame_decision(fx.ctx, "E03-VU-002", authority=AUTHORITY, reason="x")
             self.assertEqual(fx.decisions(), {})
 
+    def test_keyframe_manifest_builder_gives_the_unit_its_own_keyframe(self):
+        from types import SimpleNamespace
+        import build_keyframe_manifest as bkm
+        with tempfile.TemporaryDirectory() as d, PipelineFixture(Path(d), LEGACY) as fx:
+            preprod = fx.ctx.p.preprod
+            anchors = {"units": [
+                {"unit_id": "E03-VU-001", "opening_anchor_contract": {"source": "NEW_EVENT_GENERATED_KEYFRAME"}},
+                {"unit_id": "E03-VU-002", "opening_anchor_contract": {"source": "CONTINUITY_DERIVED_KEYFRAME",
+                                                                      "previous_unit_id": "E03-VU-001"}}]}
+            contract = {"episode": "E03", "shots": [
+                {"shot_id": "E03-S01-01", "prompt_spec": {"cast": [{"character_id": "CHAR-A"}]}},
+                {"shot_id": "E03-S01-02", "prompt_spec": {"cast": [{"character_id": "CHAR-A"}]}}]}
+            inputs = SimpleNamespace(contract=contract, episode="E03", dir=preprod, anchor_plan=anchors,
+                                     grouping_plan_path=preprod / "E03_VIDEO_UNIT_GROUPING_PLAN_V1.json")
+            self.assertEqual(bkm.derived_opener_shot_ids(inputs, camera_grammar=False), {"E03-S01-02"},
+                             "without a decision the tail-derived opener gets no generated keyframe")
+            npl.record_start_frame_source(fx.ctx, "E03-VU-002", {"start_frame_source": npl.START_FRAME_OWN,
+                                                                 "reason": "TAIL_REJECTED"})
+            self.assertEqual(bkm.derived_opener_shot_ids(inputs, camera_grammar=False), {"E03-S01-02"},
+                             "a measured row stays policy-only")
+            npl.record_line_owner_start_frame_decision(fx.ctx, "E03-VU-002", authority=AUTHORITY, reason="REDESIGN")
+            self.assertEqual(bkm.derived_opener_shot_ids(inputs, camera_grammar=False), set(),
+                             "the line-owner decision makes the builder generate the unit's own keyframe")
+            self.assertEqual(bkm.line_owner_start_frame_units(inputs), {"E03-VU-002"})
+
     def test_cli_subcommand_registered(self):
         src = (ROOT / "lines" / "nalu" / "runtime" / "tools" / "nalu_pipeline.py").read_text(encoding="utf-8")
         self.assertIn('subs.add_parser("start-frame-decision"', src)
