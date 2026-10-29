@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2263,
+  "file_count": 2266,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -269,7 +269,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "ea29e28acb9e5467491386a0743a4979f15dfc109532ad92d36a2715c2685767"
+      "sha256": "20639f1caf2afcc81a189c38a8b20ecaef5f07ea969a2f8c1a3f90cb0002eeeb"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -6280,6 +6280,10 @@
       "sha256": "be5f686f37e319baa8761e381a90025424c72a5eaeb3600675512c9631824211"
     },
     {
+      "path": "tools/s3ctl.py",
+      "sha256": "665f4defb548af8ab934e7994cb15a0679f6684e08e6c1a7e7b6fef26a10083b"
+    },
+    {
       "path": "tools/s7_audio_smoothing.py",
       "sha256": "736ed0c3002135c39553554a66337387ee7aac97e42d34e6427c2f276ad5f71c"
     },
@@ -6728,6 +6732,10 @@
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
+      "path": "tools/tests/fake_s3.py",
+      "sha256": "505434d3970a64d096030e39d686fe335e5be3b4e037b2aba0cd188d47691e18"
+    },
+    {
       "path": "tools/tests/test_action_causal_chain_compiler.py",
       "sha256": "b8418185fc59dad76eb773a02f449ba5cfcc98d08703a1f20b682cb1b110e5b8"
     },
@@ -7065,7 +7073,7 @@
     },
     {
       "path": "tools/tests/test_collective_object_store.py",
-      "sha256": "e9b4d0fd3b0998211336cd46acbf3b86674a79bf94a1bb54e22063a56f28215c"
+      "sha256": "053b38adb2a17875e8c1e920dfe36bb86df8394ad61e87f9402cb5ab8bb36451"
     },
     {
       "path": "tools/tests/test_collective_real_entry_wiring.py",
@@ -8226,6 +8234,10 @@
     {
       "path": "tools/tests/test_s3_relay_client.py",
       "sha256": "460c51797444c8940f3a54e4ba411476f5059bec1322e0dc0ddbe5d5cc173999"
+    },
+    {
+      "path": "tools/tests/test_s3ctl.py",
+      "sha256": "4f053769a723fadf837f1601c6480c514f84018371fe035ce6caa023c8ae9e1d"
     },
     {
       "path": "tools/tests/test_s6_final_pass_as_submitted.py",

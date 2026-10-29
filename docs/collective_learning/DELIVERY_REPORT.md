@@ -50,6 +50,7 @@
 | T02 | `CrashConsistencyTest`：事实与 outbox 之间模拟崩溃 → 两者皆回滚；子进程写入后新对象重开 | PASS |
 | T03 | 单测 20 客户端 × 200；负载 100 × 1000（`LOADTEST_BASELINE.json`）：100,000 唯一行 | PASS |
 | T04 | 20 % 重复投递：唯一数不变，`delivery_log` 可追踪 20,000 次重复 | PASS |
+| OS2 | `test_s3ctl`（9）：统一命令行封装（config/preflight/ls/put/sync/get/head/url/mv/rm），预检门、媒体与敏感内容拒绝、跨线移动拒绝、递归删除需确认；真实网关完整序列通过 | PASS |
 | OS | `test_collective_object_store`（22）：键命名、凭证只来自环境、预检四步与回执过期、媒体/敏感内容拒绝、copy+delete、源码不含不支持 API、包镜像失败不影响上传、文档无密钥 | PASS |
 | T05 | 服务端提交后丢响应 → 重传 ack=DUPLICATE，不重复计数 | PASS |
 | T06 | 同 ID 不同内容 → CONFLICT 审计，原事实保留；乱序修订保留 | PASS |

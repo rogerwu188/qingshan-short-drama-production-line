@@ -60,7 +60,7 @@ curl -s http://127.0.0.1:8787/v1/health
 | Region | `us-east-1` | 配置文件 / `AWS_DEFAULT_REGION` |
 | 签名 / 寻址 | `s3v4`，path-style（`s3ForcePathStyle=true`） | 代码默认 |
 | 公网下载 | `https://v.arkfs.co/drama01/<object-key>`（匿名可读，CloudFlare，支持 Range） | `public_base_url` |
-| AccessKey / SecretKey | **只从环境变量读取**：`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`；或 AWS profile `drama01` | 密钥管理，不写代码、不写文档、不写配置文件 |
+| AccessKey / SecretKey | **只从环境变量读取**：`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`（放 `~/nalu/.env`） | 密钥管理，不写代码、不写文档、不写配置文件 |
 
 **整个 bucket 公开读**：任何上传对象任何人都能下载，链接永久有效。因此代码里的正式上传路径（`ObjectStore.put_artifact`）对文本/JSON 负载与元数据跑 `sensitive_findings`，发现本机路径、签名 URL、密钥即拒绝；媒体类型（video/image/audio）在共享代码里默认拒绝，只有该线配置 `allow_media: true` 才放行。线主 2026-10-29 已决定 nalu 线允许上传成片切片与关键帧（`AUTHORIZATIONS_REQUIRED.md` §C），并知悉这些对象公开可读；完整剧本、人脸/声音参考、密钥、本机路径仍永远不上传（`sensitive_findings` 门不受此开关影响）。
 
@@ -91,14 +91,32 @@ python3 tools/collective_learning/object_store.py --line nalu \
 
 云端服务：`Service(db, object_store=ObjectStore.from_env(cfg, line_id="collective"))` 后，`POST /v1/bundles` 在数据库提交后把包字节镜像到对象存储，响应与 `audit_log` 带 `object_mirror`（MIRRORED / MIRROR_FAILED / NOT_CONFIGURED）；数据库始终是事实源，镜像失败不会让上传失败。证据字节：`object_store.upload_evidence(store, batch_id=…, artifact=…, data=…, content_type=…, register=svc.register_evidence 绑定)` 先 PUT 再登记 `storage_key + sha256`，登记元数据里没有 URL。
 
-常用命令（AWS CLI 需单独安装；profile `drama01` 放 `~/.aws/credentials`，`~/.aws/config` 里写 `endpoint_url` 与 `s3.addressing_style = path`）：
+### s3ctl（统一命令行，不用 AWS CLI）
+
+线主 2026-10-29 决定不装 AWS CLI；所有生产线用 `tools/s3ctl.py` 操作对象存储。它只是 `object_store.py` 的薄封装：同样的键名规则、同样的预检门、同样的公开读防泄露门，每条命令输出一个 JSON，成功退出 0，拒绝/失败退出 2。
 
 ```bash
-aws s3 ls s3://drama01/ --profile drama01 --endpoint-url https://s3api.arkfs.co
-aws s3 sync ./out/ s3://drama01/nalu/e13/ --profile drama01 --endpoint-url https://s3api.arkfs.co
-aws s3 mv s3://drama01/nalu/e13/a.json s3://drama01/nalu/e13/b.json --profile drama01 --endpoint-url https://s3api.arkfs.co
-python3 tools/collective_learning/object_store.py --config <reports>/COLLECTIVE_LEARNING_CONFIG.json --line nalu ls --prefix nalu/
+# 一次性放进 ~/nalu/.env（已 gitignore；密钥只在这里）：
+#   AWS_ACCESS_KEY_ID=<从密钥管理取>
+#   AWS_SECRET_ACCESS_KEY=<从密钥管理取>
+#   S3CTL_ENDPOINT_URL=https://s3api.arkfs.co
+#   S3CTL_BUCKET=drama01
+#   S3CTL_PUBLIC_BASE_URL=https://v.arkfs.co/drama01
+#   S3CTL_RECEIPT_DIR=<runtime>/reports        # 预检回执落在这里
+S3=".qingshan-venv/bin/python tools/s3ctl.py"
+$S3 config                                   # 看生效配置与凭证是否解析到（不打印密钥）
+$S3 preflight nalu --verify-public           # 先过预检；回执 S3CTL_PREFLIGHT_nalu.json
+$S3 ls nalu/e13/
+$S3 put ./out/digest.json nalu/e13/reports/digest.json
+$S3 sync ./out/ nalu/e13/reports/            # 同大小跳过，--force 全覆盖；非法文件名列在 refused
+$S3 get nalu/e13/reports/digest.json ./digest.json
+$S3 head nalu/e13/reports/digest.json
+$S3 url nalu/e13/reports/digest.json         # 公网链接
+$S3 mv nalu/e13/a.json nalu/e13/b.json       # copy + delete，不能跨线
+$S3 rm nalu/e13/a.json ; $S3 rm nalu/e13/tmp/ --recursive --yes
 ```
+
+`put`/`sync` 走正式路径：没有当天的 PASSED 预检回执 → `PREFLIGHT_REQUIRED`；JSON/文本里有本机路径、签名 URL、密钥 → `UPLOAD_REFUSED`；video/image/audio 需要 `--allow-media`（或 `S3CTL_ALLOW_MEDIA=1`）。2026-10-29 已对真实网关跑过完整序列（preflight → put → ls → url → get 字节一致 → mv → rm --recursive → ls 为空，公网 404），测试 `tools/tests/test_s3ctl.py`。
 
 boto3 等价：`boto3.client('s3', endpoint_url='https://s3api.arkfs.co', region_name='us-east-1', config=Config(signature_version='s3v4', s3={'addressing_style': 'path'}))`（`object_store.make_client` 就是这一行，凭证来自 `resolve_credentials`）。
 
