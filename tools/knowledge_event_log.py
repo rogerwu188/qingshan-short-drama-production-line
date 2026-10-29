@@ -156,6 +156,18 @@ def record_event(
     }
     rows.append(row)
     _write_all(path, rows)
+    # Collective learning dual-write (2026-10-29): the same fact goes to the line's DeviceStore outbox
+    # when the runtime opted in; inert otherwise, and a mirror failure never touches the record above.
+    try:
+        try:
+            from tools.collective_learning import runtime_wiring as _rw
+        except ImportError:  # run as a script from tools/
+            import sys as _sys
+            _sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+            from tools.collective_learning import runtime_wiring as _rw
+        row["collective_mirror"] = _rw.mirror_event_to_device_store(Path(runtime_root), row)
+    except Exception as exc:  # noqa: BLE001
+        row["collective_mirror"] = {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}"}
     return row
 
 

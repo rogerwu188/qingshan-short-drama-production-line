@@ -8,7 +8,8 @@
 | 事项 | 缺它阻塞 | 不缺它已完成 |
 |---|---|---|
 | 云端运行位置与域名 | **不需要：S3 即云端（2026-10-29 线主）**。设备只与对象存储通信（`s3_sync.py device-sync`），关系库跟随收集器（`s3_sync.py collect`）跑在任一台能读环境变量凭证的机器上；HTTP 服务代码保留为可选模式 | S3 模式对真实桶完整闭环通过（`DELIVERY_REPORT.md` §S3 模式）；nalu 租户已在本机 bootstrap（`~/nalu_runtime/runtime/collective/`，trust 已上传 `collective/nalu/trust.json`） |
-| 管理员根凭证 | **已自动生成**：`s3_sync.py bootstrap` 在 `<runtime>/runtime/collective/admin.token`（0600，不入库）；S3 模式下设备不需要 token，收集器按批次对象里的 device/line 身份入库 | 本机已生成（tenant `nalu`） |
+| 管理员根凭证 | **已自动生成**：`s3_sync.py bootstrap` 在 `<runtime>/runtime/collective/admin.token`（0600，不入库）；S3 模式下设备不用 token，但每台设备必须先 `register-device` 登记，收集器只入库「路径身份 = 正文身份且已登记」的批次 | 本机已生成（tenant `nalu`） |
+| S3 模式的隔离边界 | **线主须知悉**：所有设备共用一把桶写凭证，没有逐设备认证；登记 + 路径/正文一致性只是允许名单，不能证明来源；桶公开读。HTTP 模式的 token 隔离结论不适用。跨线权限隔离要靠每条线独立的桶凭证或回到 HTTP 模式 | 文档已写明（`DEPLOYMENT_OPERATIONS.md` §3b） |
 | 发布者签名私钥（Ed25519） | **已自动生成**：`<runtime>/runtime/collective/publisher.key.json`（0600，不入库，key_id `pub-nalu`）；公钥在 `trust.json` 并已上传到桶，设备从桶取 trust | 本机已生成；换钥用 `bootstrap --rotate-key` |
 | 对象存储（证据与发布包） | **已决定（2026-10-29）**：自建 S3 `https://s3api.arkfs.co` / bucket `drama01` / us-east-1，所有生产线共用，按 `<line>/<batch_id>/<artifact>` 分前缀。见 `DEPLOYMENT_OPERATIONS.md` §3a。密钥只走环境变量。 | `object_store.py`：预检（PUT/GET/DELETE/验证）、线前缀命名、仅标准 API、公开读防泄露门、包镜像、证据上传与登记；本机对真实网关的预检结果见交付报告 |
 | TLS 终止方式 | 公网暴露 | 服务只监听 127.0.0.1；文档要求反向代理终止 TLS |

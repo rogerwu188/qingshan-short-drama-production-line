@@ -24,7 +24,8 @@ def included(name: str) -> bool:
     if name.startswith(("docs/knowledge/", "docs/decisions/", "examples/handoff/")):
         return path.suffix == ".md"
     if path.parts[0] in {"tools", "qingshan_engine"}:
-        return (path.suffix in {".py", ".sh", ".swift", ".js"}
+        # .sql: collective-learning migrations are deployment code (codex acceptance 2026-10-29)
+        return (path.suffix in {".py", ".sh", ".swift", ".js", ".sql"}
                 or ("schemas" in path.parts and path.suffix == ".json"))
     if path.parts[0] == "configs":
         return path.suffix == ".json"

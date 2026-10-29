@@ -306,3 +306,56 @@ def record_provider_request(task: dict[str, Any], payload: dict[str, Any], *,
     if run:
         run.record(receipts)
     return receipts
+
+
+# --------------------------------------------------------------------------- production event chain
+def _reports_dir(runtime_root: Path) -> Path:
+    """Same convention as line_upgrade_gate._reports: ``<root>/runtime/reports`` when the root has a
+    ``runtime`` tree, else ``<root>/reports``."""
+    runtime_root = Path(runtime_root)
+    if (runtime_root / "runtime").is_dir():
+        return runtime_root / "runtime" / "reports"
+    return runtime_root / "reports"
+
+
+def mirror_event_to_device_store(runtime_root: Path | str, row: dict[str, Any]) -> dict[str, Any]:
+    """Dual-write one production ``knowledge_event_log`` row into the collective DeviceStore (fact +
+    outbox) when the runtime's ``COLLECTIVE_LEARNING_CONFIG.json`` exists with ``device_store: true``.
+
+    Codex acceptance 2026-10-29: the real entry points still write the legacy JSONL; without this hook
+    "findings reach the outbox" was only demonstrated by the demo.  Inert without the config; every
+    refusal (contract, sensitive content, store error) is returned as a status and never raised -- the
+    JSONL row is already the production record, this mirror must not block it.
+    """
+    try:
+        reports = _reports_dir(Path(runtime_root))
+        config_path = reports / "COLLECTIVE_LEARNING_CONFIG.json"
+        if not config_path.is_file():
+            return {"status": "INACTIVE", "reason": "no COLLECTIVE_LEARNING_CONFIG.json"}
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        if not config.get("device_store"):
+            return {"status": "INACTIVE", "reason": "device_store disabled in config"}
+        from . import contracts as c
+        from . import device_store as ds
+        tenant, line = str(config["tenant_id"]), str(config["line_id"])
+        unit_ids = [str(u) for u in (row.get("unit_ids") or [])]
+        episode = str(row.get("episode") or "")
+        run_id = f"{line}.{episode}.{config.get('batch_id') or 'LEGACY'}"
+        evidence = dict(row.get("evidence") or {})
+        evidence.setdefault("source", {"kind": "knowledge_event_log", "event_id": row.get("event_id")})
+        opportunity = {"applicable_units": max(1, len(unit_ids)), "observed_units": max(1, len(unit_ids))}
+        findings = c.sensitive_findings({"symptom": row.get("symptom"), "evidence": evidence, "unit_ids": unit_ids})
+        if findings:
+            return {"status": "REFUSED", "codes": findings[:8]}
+        store = ds.DeviceStore(reports / "COLLECTIVE_DEVICE_STORE.sqlite", tenant_id=tenant, line_id=line)
+        event = store.record_observation(
+            run_id=run_id, episode_id=episode, stage=str(row.get("stage") or ""), event_kind="FAILURE_OBSERVATION",
+            unit_ids=unit_ids, visibility=str(config.get("event_visibility") or "LINE"),
+            detected_by=str(row.get("detected_by") or "UNKNOWN"), symptom=str(row.get("symptom") or ""),
+            evidence=evidence, opportunity=opportunity, source_event_id=str(row.get("event_id") or "") or None,
+            provider_model_version=str(config.get("provider_model_version") or c.UNKNOWN))
+        return {"status": "MIRRORED", "event_id": event.get("event_id"), "store": str(store.path),
+                "outbox": "PENDING", "run_id": run_id}
+    except Exception as exc:  # noqa: BLE001 -- never block the production record
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:300]}"}
+

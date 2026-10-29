@@ -118,6 +118,33 @@
 
 生产租户 `nalu` 已在本机 bootstrap：`~/nalu_runtime/runtime/collective/`（sqlite、`publisher.key.json` 0600、`admin.token` 0600、trust），trust 已上传 `collective/nalu/trust.json`。**没有**给任何剧集写 `COLLECTIVE_LEARNING_CONFIG.json`：在制剧集仍完全关闭。
 
+## 5b. Codex 验收阻断项修复（2026-10-29，`给CC_本机部署验收与阻断项.txt`）
+
+青山侧离线复现脚本 `test_s3_deployment_safety.py`（未改动、未入库；只用 FakeS3 与合成数据，网络被禁）在修复前后的结果：
+
+| 项 | 修前 | 修前 observed | 修后 | 修后 observed |
+|---|---|---|---|---|
+| A 身份 | DEFECT_REPRODUCED | `{"created": 1, "victim_registered": false, "stored_identity": [["victim-line", "victim-device", "victim-device"]]}` | NOT_REPRODUCED | `{"created": 0, "victim_registered": false, "stored_identity": []}` |
+| B 投递/暂时失败 | DEFECT_REPRODUCED | `{"first_push_delivered": 1, "first_collect_quarantined": 1, "restart_collect_items": 0, "second_push_sent": 0, "unique_events": 0, "device_outbox": {"PENDING": ` | NOT_REPRODUCED | `{"first_push_delivered": 0, "first_collect_quarantined": 0, "restart_collect_items": 1, "second_push_sent": 1, "unique_events": 1, "device_outbox": {"PENDING": ` |
+| C 撤销传播 | DEFECT_REPRODUCED | `{"db_channels": [], "channels_moved": [{"channel": "RELEASED", "from_version": "2", "to_version": null}], "reconciled": {"published": [], "unchanged": [], "late` | NOT_REPRODUCED | `{"db_channels": [], "channels_moved": [{"channel": "RELEASED", "from_version": "2", "to_version": null}], "reconciled": {"published": [], "unchanged": [], "remo` |
+
+- 修前：`SAFETY_TESTS_FAIL`，tests_run 3，failures 3，errors 0。
+- 修后：`SAFETY_TESTS_PASS`，tests_run 3，failures 0，errors 0（证据 `s3_safety_after.json`，在会话 scratchpad，不入库）。
+
+修复内容（`tools/collective_learning/s3_sync.py`、`sync_client.py`，回归 `tools/tests/test_collective_s3_sync.py`）：
+- **A 身份**：收集器只入库「inbox 路径 `<line>/<device>` = 正文 line_id/device_id」且「device 已登记为该 line 的 device_writer」的批次；路径不符 → 隔离 `IDENTITY_PATH_MISMATCH`（并在路径身份下写 REJECTED 回执，诚实设备会本地隔离而不是反复重传）；一致但未登记 → 留在 inbox（`held_unregistered`），`register-device` 后入库。新增 CLI `register-device`。文档写明：共用桶凭证下没有逐设备认证，登记只是允许名单，HTTP token 的隔离结论不适用。
+- **B 投递**：上传不再标 DELIVERED。设备每次同步先查收集器回执对象，有才按逐条判定送达/隔离；没有则幂等确认 inbox 对象在，条目保持 PENDING（`IN_FLIGHT`，下一周期再查）。收集器把 TimeoutError/ConnectionError/OSError 与网关 5xx/限流 视为暂时失败：对象留在 inbox、`deferred_batches` 计数、不隔离；只有确定性坏数据隔离。重启后 unique_events=1。
+- **C 撤销**：`sync_channels` 把关系库里已无频道行的包从签名指针移除并重签（空指针合法），并按 `revocations` 表发布签名 `revocations.json`；`S3Channel.resolve` / `device-sync` 校验撤销列表后再解析，干净设备 selected=[]。已有运行锁不动。
+
+五项纠正：
+1. 文档：`run-cycle` = 入库 + 指针/撤销对账，不做归因/候选/评审/构包/发布；`install-agent` 只装收集器，设备同步用新增 `install-device-agent --config --env-file --interval`（launchd plist，`device-sync --env-file`）。
+2. 生产事件链：`tools/knowledge_event_log.record_event`（真实入口的写入器）在运行时根存在 `COLLECTIVE_LEARNING_CONFIG.json` 且 `device_store: true` 时双写到 `DeviceStore.record_observation`（事实 + outbox，一次事务），经 `sensitive_findings` 与合同校验，失败只记状态不阻断；无配置时字节不变。回归 `ProductionEventMirrorTest`。
+3. CI 依赖：`pyproject.toml` 基础依赖加入 `boto3`、`cryptography`，干净克隆 `pip install -e .` 即可跑 portable CI。
+4. 完整性清单：`deployment_code_integrity.py` 纳入 `tools/**/*.sql`（2270 → 2271 文件）。
+5. 隔离边界措辞：`DEPLOYMENT_OPERATIONS.md` §3b、`AUTHORIZATIONS_REQUIRED.md` §A 新增一行。
+
+提交 SHA、CI/完整性/注册表结果：见本节末尾（提交后补）。
+
 ## 6. 未完成 / 诚实标注
 
 - **CLOUD_DEPLOYED**：按线主 2026-10-29 的定义（S3 即云端）已达到：桶在线，S3 模式闭环对真实桶通过（§5a），nalu 租户已 bootstrap。未做（权限层拒绝，需线主执行，命令在 `DEPLOYMENT_OPERATIONS.md` §3b）：写 `~/nalu_runtime/runtime/collective/env`（5 行凭证，0600）与把 launchd 代理 plist 放进 `~/Library/LaunchAgents` 并 `launchctl bootstrap`；plist 已生成在会话 scratch 目录。未做：任何生产线的 `COLLECTIVE_LEARNING_CONFIG.json`（需要线主指定首个带知识锁的批次）、第二台设备。HTTP 服务模式保留但无人运行。

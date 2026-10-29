@@ -42,6 +42,10 @@ ROUTE_BY_KIND = {
 }
 DELIVERED_STATUSES = ("CREATED", "DUPLICATE")
 QUARANTINE_STATUSES = ("CONFLICT", "REJECTED")
+#: The transport accepted the batch into a durable inbox but no authority has judged it yet (S3 mode).
+#: Items stay PENDING with a normal backoff and are re-sent until the collector's ack arrives; the
+#: re-send is idempotent on the transport side.  Never counted as delivered, never as an error.
+IN_FLIGHT_STATUS = "IN_FLIGHT"
 RETRYABLE_HTTP = {401, 403, 408, 425, 429, 500, 502, 503, 504}
 
 
@@ -97,7 +101,7 @@ class SyncClient:
 
     # ------------------------------------------------------------------ push
     def run_once(self, *, now: float | None = None) -> dict[str, Any]:
-        summary = {"sent": 0, "delivered": 0, "quarantined": 0, "retry": 0, "batches": 0, "errors": []}
+        summary = {"sent": 0, "delivered": 0, "quarantined": 0, "retry": 0, "in_flight": 0, "batches": 0, "errors": []}
         for _ in range(self.max_batches_per_run):
             due = self.store.claim_due(self.batch_size, now=now)
             if not due:
@@ -113,8 +117,8 @@ class SyncClient:
                 result = self._send_kind(kind, items, now=now)
                 summary["batches"] += 1
                 summary["sent"] += len(items)
-                for key in ("delivered", "quarantined", "retry"):
-                    summary[key] += result[key]
+                for key in ("delivered", "quarantined", "retry", "in_flight"):
+                    summary[key] += result.get(key, 0)
                 if result.get("error"):
                     summary["errors"].append(result["error"])
                 progressed = progressed or result["delivered"] or result["quarantined"]
@@ -124,7 +128,7 @@ class SyncClient:
         return summary
 
     def _send_kind(self, kind: str, items: list[dict[str, Any]], *, now: float | None) -> dict[str, Any]:
-        out = {"delivered": 0, "quarantined": 0, "retry": 0}
+        out = {"delivered": 0, "quarantined": 0, "retry": 0, "in_flight": 0}
         route = ROUTE_BY_KIND.get(kind)
         if route is None:
             for item in items:
@@ -159,7 +163,7 @@ class SyncClient:
             out["error"] = f"HTTP_{status}:{code}"
             return out
         acks = {str(r.get("id")): r for r in body["results"] if isinstance(r, dict)}
-        delivered, retry = [], []
+        delivered, retry, in_flight = [], [], []
         for item in items:
             ack = acks.get(str(item["item_id"]))
             if ack is None:
@@ -169,14 +173,20 @@ class SyncClient:
             elif ack.get("status") in QUARANTINE_STATUSES:
                 self.store.quarantine(item["outbox_id"], f"{ack['status']}:{','.join(ack.get('codes') or [])}")
                 out["quarantined"] += 1
+            elif ack.get("status") == IN_FLIGHT_STATUS:
+                in_flight.append(item["outbox_id"])
             else:
                 retry.append(item["outbox_id"])
         if delivered:
             self.store.mark_delivered(delivered)
         if retry:
             self.store.mark_retry(retry, "NO_ACK_FOR_ITEM", base=self.backoff_base, cap=self.backoff_cap, now=now)
+        if in_flight:
+            # due again on the next run (the agent interval is the pacing); run_once itself never loops on it
+            self.store.mark_retry(in_flight, "IN_FLIGHT_AWAITING_COLLECT", base=0.0, cap=0.0, now=now)
         out["delivered"] = len(delivered)
         out["retry"] += len(retry)
+        out["in_flight"] = len(in_flight)
         return out
 
     # ------------------------------------------------------------------ pull

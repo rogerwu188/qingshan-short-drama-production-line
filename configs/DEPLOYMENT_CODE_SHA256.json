@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2270,
+  "file_count": 2271,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -813,7 +813,7 @@
     },
     {
       "path": "pyproject.toml",
-      "sha256": "d4f3cd3d0e1145eb98a0778d7aba1ce4e480b068a1015f30381b66bc627571d1"
+      "sha256": "7c45bef260031ee568012463f67738e168ce7347733a5f11eeb6a62a11310fdc"
     },
     {
       "path": "qingshan_engine/__init__.py",
@@ -3716,16 +3716,20 @@
       "sha256": "1e831c0784d4ec4797216adca74e0041deffcaab17889693d10e50acf052cd5a"
     },
     {
+      "path": "tools/collective_learning/migrations/0001_init.sql",
+      "sha256": "ff574b21ab5c5104a84be5500d67489aead8b9bfaf186d6ce21b7602830ea0e7"
+    },
+    {
       "path": "tools/collective_learning/object_store.py",
       "sha256": "87092d4df54a78eccd7792f0b73a9c1193f6544e591c8a9ec4cf32319d561764"
     },
     {
       "path": "tools/collective_learning/runtime_wiring.py",
-      "sha256": "05b3d66ed62dd04132e3110f08c4ed40bf27179a88d7368427d6ea7c48f489aa"
+      "sha256": "05e3358beeaaee4d808a415162037823e13654b665ae118e3a0c275cef2f5f00"
     },
     {
       "path": "tools/collective_learning/s3_sync.py",
-      "sha256": "fb72d5d5dd658b63bdfc003669d75f178178894d549a8860200c75d2601f3224"
+      "sha256": "9141d61a939e2381b6a42f8cf75cec55c2ba8d62389fa507688b15c1b7d1b62a"
     },
     {
       "path": "tools/collective_learning/selection.py",
@@ -3737,7 +3741,7 @@
     },
     {
       "path": "tools/collective_learning/sync_client.py",
-      "sha256": "8cd6e37b0130bdf4e2c34b10a1f65a7498b7169d3cd694806956d9546185b89b"
+      "sha256": "28af443386ea05ab612f3271dafa933307595a7cd4e90ae4b7a3cb39c15edb9d"
     },
     {
       "path": "tools/collective_learning_demo.py",
@@ -3945,7 +3949,7 @@
     },
     {
       "path": "tools/deployment_code_integrity.py",
-      "sha256": "0a5e35a75577089900e5fdbb0b3e34b5016f7b7575673b90d7c6b8dcf12b919b"
+      "sha256": "8b4390be8e4e97862319e364b3790ec19349172313be4fce1f9b209094debcc1"
     },
     {
       "path": "tools/derive_e16_speech_windows.py",
@@ -5201,7 +5205,7 @@
     },
     {
       "path": "tools/knowledge_event_log.py",
-      "sha256": "13f0574fe6630c5bd9e21081b81ac0cfc9f43b44807fc2156e844f61264cb0ec"
+      "sha256": "1fc921b02c64fb2575c4ea42f451e06838b87f1482f74fc67363605ffe83d48a"
     },
     {
       "path": "tools/knowledge_registry.py",
@@ -7085,7 +7089,7 @@
     },
     {
       "path": "tools/tests/test_collective_s3_sync.py",
-      "sha256": "ec1bdfaab93855e691faf9c1a64c50a7041407b3d233237b1b41731a47d22704"
+      "sha256": "c2a1de9609624807005dbe8c1931669e500c27409369ae4d0b0be5cf5026fdd4"
     },
     {
       "path": "tools/tests/test_collective_selection_adoption.py",

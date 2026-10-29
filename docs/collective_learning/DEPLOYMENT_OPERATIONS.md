@@ -95,6 +95,21 @@ launchctl kickstart -k gui/$(id -u)/com.nalu.collective-collector  # 立刻跑�
 launchctl bootout   gui/$(id -u)/com.nalu.collective-collector     # 卸载
 ```
 
+**身份与隔离边界（Codex 验收 A，2026-10-29）**：S3 模式所有设备共用同一把桶写凭证，**没有逐设备认证**。收集器只接受「inbox 路径里的 `<line>/<device>` = 批次正文里的 line_id/device_id」且「该 device 已由管理员登记为该 line 的 device_writer」的批次：路径与正文不一致 → 隔离（`IDENTITY_PATH_MISMATCH`，并在路径身份下写 REJECTED 回执）；一致但未登记 → 留在 inbox 不入库（`DEVICE_NOT_REGISTERED`，状态里 `held_unregistered`），管理员 `register-device` 后下一周期入库。这是允许名单与一致性检查，**不是身份证明**：拿到桶凭证的人仍可冒用已登记的身份写入；HTTP 模式下「逐设备 token、写不了别人线」的隔离结论**不适用于** S3 模式。桶公开读：上传内容全部可被任何人下载。
+
+```bash
+# 每台设备先登记（device_id 见该设备 COLLECTIVE_DEVICE_STORE.sqlite / device-sync 输出）
+$S3SYNC register-device --runtime-root ~/nalu_runtime --tenant nalu --device <device_id> --line <line_id>
+# 设备端后台（install-agent 只装收集器；设备同步要单独装）：
+$S3SYNC install-device-agent --config <reports>/COLLECTIVE_LEARNING_CONFIG.json --env-file <凭证文件> --interval 300 --python ~/nalu/.qingshan-venv/bin/python --load
+```
+
+**投递语义（Codex 验收 B）**：上传 ≠ 送达。设备把批次写进 inbox 后条目保持 PENDING（回执状态 `IN_FLIGHT`），每次 device-sync 先看 `acks/<line>/<device>/<batch>.json`：有收集器回执才按其逐条判定 DELIVERED / 本地隔离；没有就幂等地确认对象在（同样条目 → 同一个 batch 键，不重复 PUT）。收集器把读取超时、连接错误、网关 5xx/限流 视为暂时失败：对象留在 inbox，`deferred_batches` 计数，下一周期重试；只有确定性坏数据（非 JSON、schema、身份不符、未知 kind、服务拒绝）才隔离。重启后积压继续，事件去重照旧。
+
+**撤销传播（Codex 验收 C）**：`run-cycle` 的对账除了补发指针，还把关系库里已不在频道表的包从签名指针里移除并重签（空指针也是合法指针），并按 `revocations` 表发布签名撤销列表 `collective/<tenant>/revocations.json`；设备 `device-sync`/`S3Channel.resolve` 先校验撤销列表再解析，已撤销摘要永不被选中。**已存在的运行锁不变**（锁记录该运行用过什么），只有新运行重新解析。
+
+**run-cycle 的范围**只有两件事：入库 inbox 批次、对账签名指针与撤销列表。归因、候选整理、评审、构包、发布仍是发布者的显式动作（`publish-channel` 等），不会自动发生。
+
 **运行边界**：本机关机时，候选处理与新包发布暂停；已发布的包与频道指针留在公开读的桶里，设备照常下载与锁定；本机重启后 launchd 拉起代理，收集器按顺序处理 inbox 积压（幂等，重复批次记 DUPLICATE）。不需要另一台服务器。
 
 S1 仍只读本地缓存（`line_upgrade_gate.collective_preflight` 回执多一项 `sync_mode`），付费任务前没有任何云端等待；桶不通只意味着事件留在 outbox、设备继续用已锁定的本地包。桶公开读：上传前每个条目过 `sensitive_findings`，命中即 REJECTED 不上传；收集器隔离说明里的异常文本若含敏感片段会被脱敏。

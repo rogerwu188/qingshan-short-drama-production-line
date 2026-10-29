@@ -54,6 +54,23 @@ BATCH_SCHEMA = "collective.s3_batch.v1"
 ACK_SCHEMA = "collective.s3_ack.v1"
 POINTER_SCHEMA = "collective.channel_pointer.v1"
 POINTER_SIGNING_DOMAIN = b"collective-channel-pointer:"
+#: Device-side verdict for a batch that sits in the inbox and has not been collected yet.
+#: ``sync_client`` keeps such items PENDING (retry later); only the collector's ack delivers them.
+IN_FLIGHT_STATUS = sc.IN_FLIGHT_STATUS
+#: Collector: these errors mean "the bucket or the database was unavailable right now"; the
+#: object stays in the inbox and is retried next cycle.  Everything deterministic (bad JSON,
+#: schema, identity, unknown kind, a service refusal) is quarantined instead.
+TRANSIENT_CLIENT_ERROR_CODES = frozenset({"RequestTimeout", "SlowDown", "Throttling", "ThrottlingException",
+                                          "InternalError", "ServiceUnavailable", "503", "500", "502", "504"})
+DETERMINISTIC_ERRORS = (ValueError, KeyError, TypeError, UnicodeDecodeError, svc_mod.ServiceError)
+IDENTITY_PATH_MISMATCH = "IDENTITY_PATH_MISMATCH"
+DEVICE_NOT_REGISTERED = "DEVICE_NOT_REGISTERED"
+
+
+class HeldUnregistered(Exception):
+    """A consistent batch from a device the admin has not (yet) registered: kept in the inbox, never
+    ingested, re-checked every cycle (registration is an admin action that may come later)."""
+DEVICE_AGENT_LABEL_PREFIX = "com.nalu.collective-device-sync"
 KIND_BY_PATH = {path: (kind, key) for kind, (path, key) in sc.ROUTE_BY_KIND.items()}
 INGEST_BY_KIND = {"EVENT": "ingest_events", "REVIEW": "ingest_reviews",
                   "ADOPTION": "ingest_adoptions", "EVALUATION": "ingest_evaluations"}
@@ -158,17 +175,29 @@ class S3Transport:
         if clean:
             batch_id = c.digest([self.tenant_id, self.line_id, self.device_id, kind, [i.get(id_field) for i in clean],
                                  [c.digest(i) for i in clean]])
-            doc = {"schema": BATCH_SCHEMA, "tenant_id": self.tenant_id, "line_id": self.line_id,
-                   "device_id": self.device_id, "kind": kind, "items_key": key_name, "batch_id": batch_id,
-                   "item_count": len(clean), "items": clean, "uploaded_at": c.now_iso()}
             key = self._key(f"inbox/{_seg(self.line_id)}/{_seg(self.device_id)}/{_seg(kind)}/{batch_id}.json")
-            self.store.put_artifact(self.tenant_id, key.split("/", 2)[2], _json_bytes(doc),
-                                    content_type="application/json",
-                                    metadata={"kind": kind, "batch_id": batch_id})
+            # At-least-once with idempotent dedup (Codex acceptance B, 2026-10-29): the collector's ack
+            # is the only thing that delivers an item.  Same items -> same batch id -> same key, so a
+            # re-upload after a lost ack is one object, and the service dedups by item id anyway.
+            ack = self._read_json(self._ack_key(batch_id))
+            if isinstance(ack, dict) and ack.get("schema") == ACK_SCHEMA and isinstance(ack.get("results"), list):
+                results.extend(r for r in ack["results"] if isinstance(r, dict))
+                return 200, {"results": results, "inbox_key": ack.get("source_key") or key, "batch_id": batch_id,
+                             "source": "COLLECTOR_ACK"}, {}
+            if self.store.head(key) is None:
+                doc = {"schema": BATCH_SCHEMA, "tenant_id": self.tenant_id, "line_id": self.line_id,
+                       "device_id": self.device_id, "kind": kind, "items_key": key_name, "batch_id": batch_id,
+                       "item_count": len(clean), "items": clean, "uploaded_at": c.now_iso()}
+                self.store.put_artifact(self.tenant_id, key.split("/", 2)[2], _json_bytes(doc),
+                                        content_type="application/json",
+                                        metadata={"kind": kind, "batch_id": batch_id})
             for item in clean:
-                results.append({"id": item.get(id_field), "status": "CREATED", "stage": "ACCEPTED_TO_INBOX",
-                                "key": key, "batch_id": batch_id})
-        return 200, {"results": results, "inbox_key": key}, {}
+                results.append({"id": item.get(id_field), "status": IN_FLIGHT_STATUS,
+                                "stage": "ACCEPTED_TO_INBOX_AWAITING_COLLECT", "key": key, "batch_id": batch_id})
+        return 200, {"results": results, "inbox_key": key, "source": "INBOX"}, {}
+
+    def _ack_key(self, batch_id: str) -> str:
+        return self._key(f"acks/{_seg(self.line_id)}/{_seg(self.device_id)}/{batch_id}.json")
 
     # -- bundles (same shapes as the HTTP service, so SyncClient.pull_bundles works) ---
     def _resolve(self, body: dict[str, Any]) -> tuple[int, Any, dict[str, str]]:
@@ -256,9 +285,18 @@ class S3Channel:
         if channel not in b.CHANNELS:
             raise b.BundleError([f"CHANNEL_INVALID:{channel}"])
         current = self.get_json(f"channels/{_seg(channel)}.json") or {}
-        body_prev = current.get("body") or {}
-        entries = dict(body_prev.get("bundles") or {})
+        entries = dict(((current.get("body") or {}).get("bundles") or {}))
         entries[bundle_id] = {"version": str(version), "digest": bundle_digest, "payload_sha256": payload_sha256}
+        return self.publish_entries(channel, entries, key_id=key_id, private_raw=private_raw)
+
+    def publish_entries(self, channel: str, entries: dict[str, dict[str, Any]], *, key_id: str,
+                        private_raw: bytes) -> dict[str, Any]:
+        """Sign and write the channel pointer with exactly ``entries`` (an empty map is a valid pointer:
+        it is how a revoked-only bundle leaves the channel on every device)."""
+        if channel not in b.CHANNELS:
+            raise b.BundleError([f"CHANNEL_INVALID:{channel}"])
+        current = self.get_json(f"channels/{_seg(channel)}.json") or {}
+        body_prev = current.get("body") or {}
         body = {"schema": POINTER_SCHEMA, "tenant_id": self.tenant_id, "channel": channel,
                 "sequence": int(body_prev.get("sequence") or 0) + 1, "published_at": c.now_iso(),
                 "bundles": entries}
@@ -352,30 +390,88 @@ class Collector:
     def _put(self, artifact: str, doc: Any) -> str:
         return self.store.put_artifact(self.tenant_id, artifact, _json_bytes(doc), content_type="application/json")["key"]
 
+    def _registered_device(self, device_id: str, line_id: str) -> None:
+        """A batch is collected only for a device the admin registered for that line (allow-list; with one
+        shared S3 write credential this is consistency checking, not authentication -- see docs)."""
+        rows = self.service._read("SELECT role, line_ids, status FROM principals WHERE principal_id=? AND tenant_id=?",
+                                  (device_id, self.tenant_id))
+        if not rows:
+            raise HeldUnregistered(f"{DEVICE_NOT_REGISTERED}:{device_id}")
+        role, line_ids, status = rows[0]
+        try:
+            lines = json.loads(line_ids or "[]")
+        except ValueError:
+            lines = []
+        if role != "device_writer" or status != "ACTIVE" or line_id not in lines:
+            raise HeldUnregistered(f"{DEVICE_NOT_REGISTERED}:{device_id}:role={role}:status={status}:line={line_id}")
+
+    def _quarantine(self, key: str, exc: BaseException, doc: Any, path_parts: tuple[str, str, str] | None,
+                    summary: dict[str, Any]) -> None:
+        dst = self._move(key, "quarantine")
+        note = {"schema": ACK_SCHEMA, "status": "QUARANTINED", "source_key": key,
+                "error": f"{type(exc).__name__}:{str(exc)[:300]}", "at": c.now_iso()}
+        if c.sensitive_findings(note):  # never echo a sensitive fragment into the public bucket
+            note["error"] = f"{type(exc).__name__}:<redacted>"
+        self._put(dst.split("/", 2)[2] + ".error.json", note)
+        # a deterministic refusal is final: tell the uploading device so it quarantines locally instead
+        # of re-uploading the same batch every cycle (the ack lives under the PATH identity)
+        if path_parts and isinstance(doc, dict) and doc.get("batch_id"):
+            id_field = "event_id" if path_parts[2] == "event" else None
+            results = [{"id": (i.get("event_id") or i.get("receipt_id") or i.get("review_id") or i.get("evaluation_id"))
+                        if isinstance(i, dict) else None, "status": "REJECTED", "codes": [note["error"].split(":")[0],
+                        str(exc)[:120]]} for i in (doc.get("items") or [])]
+            self._put(f"acks/{path_parts[0]}/{path_parts[1]}/{doc['batch_id']}.json",
+                      {"schema": ACK_SCHEMA, "status": "QUARANTINED", "batch_id": doc["batch_id"],
+                       "kind": path_parts[2].upper(), "line_id": path_parts[0], "device_id": path_parts[1],
+                       "results": results, "source_key": key, "error": note["error"], "at": c.now_iso()})
+        summary["quarantined_batches"] += 1
+
     def run_once(self, *, limit: int = 500) -> dict[str, Any]:
         summary = {"ingested_batches": 0, "items": 0, "created": 0, "duplicate": 0, "conflict": 0, "rejected": 0,
-                   "quarantined_batches": 0, "acks": []}
-        for row in self.store.list(inbox_prefix(self.tenant_id), limit=limit):
+                   "quarantined_batches": 0, "deferred_batches": 0, "deferred": [],
+                   "held_unregistered_batches": 0, "held": [], "acks": []}
+        prefix = inbox_prefix(self.tenant_id)
+        for row in self.store.list(prefix, limit=limit):
             key = row["key"]
+            path_parts = _inbox_path_parts(key, prefix)
             try:
-                doc = json.loads(self.store.get_bytes(key).decode("utf-8"))
+                raw = self.store.get_bytes(key)
+            except Exception as exc:  # noqa: BLE001
+                if osm.is_not_found(exc):
+                    continue  # a concurrent cycle moved it
+                # a read failure says nothing about the data: keep the object, retry next cycle (Codex B)
+                summary["deferred_batches"] += 1
+                summary["deferred"].append({"key": key, "error": f"{type(exc).__name__}:{str(exc)[:120]}",
+                                            "transient": _is_transient(exc)})
+                continue
+            doc: Any = None
+            try:
+                doc = json.loads(raw.decode("utf-8"))
                 if not isinstance(doc, dict) or doc.get("schema") != BATCH_SCHEMA or doc.get("tenant_id") != self.tenant_id:
                     raise ValueError("BATCH_SCHEMA_INVALID")
                 kind = str(doc.get("kind"))
                 method = INGEST_BY_KIND.get(kind)
                 if method is None:
                     raise ValueError(f"KIND_UNKNOWN:{kind}")
-                principal = svc_mod.Principal(principal_id=str(doc["device_id"]), tenant_id=self.tenant_id,
-                                              role="device_writer", line_ids=(str(doc["line_id"]),))
+                line_id, device_id = str(doc.get("line_id") or ""), str(doc.get("device_id") or "")
+                if (path_parts is None or _seg(line_id) != path_parts[0] or _seg(device_id) != path_parts[1]
+                        or _seg(kind) != path_parts[2]):
+                    raise ValueError(f"{IDENTITY_PATH_MISMATCH}:path={path_parts}:body={line_id}/{device_id}/{kind}")
+                self._registered_device(device_id, line_id)
+                principal = svc_mod.Principal(principal_id=device_id, tenant_id=self.tenant_id,
+                                              role="device_writer", line_ids=(line_id,))
                 results = getattr(self.service, method)(principal, doc.get("items") or [])
-            except Exception as exc:  # noqa: BLE001 -- one bad object never stops the queue
-                dst = self._move(key, "quarantine")
-                note = {"schema": ACK_SCHEMA, "status": "QUARANTINED", "source_key": key,
-                        "error": f"{type(exc).__name__}:{str(exc)[:300]}", "at": c.now_iso()}
-                if c.sensitive_findings(note):  # never echo a sensitive fragment into the public bucket
-                    note["error"] = f"{type(exc).__name__}:<redacted>"
-                self._put(dst.split("/", 2)[2] + ".error.json", note)
-                summary["quarantined_batches"] += 1
+            except HeldUnregistered as exc:
+                summary["held_unregistered_batches"] += 1
+                summary["held"].append({"key": key, "reason": str(exc)[:160]})
+                continue
+            except DETERMINISTIC_ERRORS as exc:
+                self._quarantine(key, exc, doc, path_parts, summary)
+                continue
+            except Exception as exc:  # noqa: BLE001 -- database/bucket trouble: retry next cycle, never discard
+                summary["deferred_batches"] += 1
+                summary["deferred"].append({"key": key, "error": f"{type(exc).__name__}:{str(exc)[:120]}",
+                                            "transient": _is_transient(exc)})
                 continue
             counts = {"created": 0, "duplicate": 0, "conflict": 0, "rejected": 0}
             for r in results:
@@ -391,6 +487,27 @@ class Collector:
                 summary[k] += counts.get(k, 0)
             summary["acks"].append(ack_key)
         return summary
+
+
+def _inbox_path_parts(key: str, prefix: str) -> tuple[str, str, str] | None:
+    """``<prefix><line>/<device>/<kind>/<batch>.json`` -> (line, device, kind) or None."""
+    rest = key[len(prefix):] if key.startswith(prefix) else ""
+    parts = rest.split("/")
+    if len(parts) != 4 or not all(parts):
+        return None
+    return parts[0], parts[1], parts[2]
+
+
+def _is_transient(exc: BaseException) -> bool:
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return True
+    code = osm._error_code(exc)
+    if code in TRANSIENT_CLIENT_ERROR_CODES:
+        return True
+    status = ((getattr(exc, "response", None) or {}).get("ResponseMetadata") or {}).get("HTTPStatusCode")
+    if isinstance(status, int) and status >= 500:
+        return True
+    return isinstance(exc, OSError)
 
 
 # --------------------------------------------------------------------------- runtime root layout
@@ -517,8 +634,60 @@ def sync_channels(service: svc_mod.Service, store: osm.ObjectStore, root: Collec
                               payload_sha256=c.sha256_bytes(raw), key_id=key_id, private_raw=private)
         pointers[ch] = out["bundles"]
         published.append({"channel": ch, "bundle_id": bundle_id, "version": str(version), "sequence": out["sequence"]})
+    # Codex acceptance C (2026-10-29): a bundle that left the service's channel table (revoked with no
+    # fallback, or deleted) must leave the signed pointer too, and the signed revocation list must reach
+    # the bucket -- otherwise a clean device keeps selecting the stale pointer.  Existing run locks are
+    # untouched by design: a lock pins what a run used; only NEW runs resolve again.
+    db_by_channel: dict[str, dict[str, str]] = {}
+    for bundle_id, ch, version in rows:
+        db_by_channel.setdefault(ch, {})[bundle_id] = str(version)
+    removed: list[dict[str, Any]] = []
+    for ch in b.CHANNELS:
+        pointer = channel.get_json(f"channels/{_seg(ch)}.json")
+        if not pointer:
+            continue
+        entries = dict(((pointer.get("body") or {}).get("bundles") or {}))
+        stale = sorted(bid for bid in entries if bid not in db_by_channel.get(ch, {}))
+        if not stale:
+            pointers.setdefault(ch, entries)
+            continue
+        for bid in stale:
+            removed.append({"channel": ch, "bundle_id": bid, "version": str((entries.pop(bid) or {}).get("version"))})
+        key_id, private = root.publisher_key()
+        out = channel.publish_entries(ch, entries, key_id=key_id, private_raw=private)
+        pointers[ch] = out["bundles"]
+    revocations = sync_revocations(service, store, root, tenant_id)
     latest = {ch: {bid: ref.get("version") for bid, ref in entries.items()} for ch, entries in pointers.items()}
-    return {"published": published, "unchanged": unchanged, "latest_by_channel": latest}
+    return {"published": published, "unchanged": unchanged, "removed": removed, "revocations": revocations,
+            "latest_by_channel": latest}
+
+
+def sync_revocations(service: svc_mod.Service, store: osm.ObjectStore, root: CollectiveRoot,
+                     tenant_id: str) -> dict[str, Any]:
+    """Publish the signed revocation list (bundle envelope digests) whenever the service's revocation
+    table differs from what the bucket holds.  Devices verify it and never select a listed digest."""
+    channel = S3Channel(store, tenant_id=tenant_id)
+    rows = service._read("SELECT bundle_id, version, reason, at FROM revocations WHERE tenant_id=? ORDER BY at",
+                         (tenant_id,))
+    pub = principal(tenant_id, "collector", "publisher")
+    entries: list[dict[str, Any]] = []
+    for bundle_id, version, reason, at in rows:
+        record = service.get_bundle(pub, bundle_id, str(version))
+        envelope = json.loads(base64.b64decode(record["payload_b64"]).decode("utf-8"))
+        entries.append({"bundle_id": bundle_id, "version": str(version), "digest": envelope.get("digest"),
+                        "payload_sha256": record["digest"], "reason": reason, "at": at})
+    current = channel.get_json("revocations.json") or {}
+    current_digests = {str(r.get("digest")) for r in ((current.get("body") or {}).get("revoked") or [])}
+    wanted = {str(e["digest"]) for e in entries}
+    if not entries and not current:
+        return {"status": "NONE", "revoked": 0, "published": False}
+    if wanted == current_digests:
+        return {"status": "UNCHANGED", "revoked": len(entries), "published": False}
+    key_id, private = root.publisher_key()
+    sequence = int((current.get("body") or {}).get("sequence") or 0) + 1
+    signed = b.sign_revocations(entries, key_id=key_id, private_raw=private, sequence=sequence)
+    put = channel.publish_revocations(signed)
+    return {"status": "PUBLISHED", "revoked": len(entries), "published": True, "sequence": sequence, "key": put["key"]}
 
 
 def run_cycle(runtime_root: Path | str, tenant_id: str, *, interval_s: int = DEFAULT_INTERVAL_S,
@@ -563,9 +732,14 @@ def run_cycle(runtime_root: Path | str, tenant_id: str, *, interval_s: int = DEF
             status = {**base, "status": "OK", "finished_at": c.now_iso(), "duration_s": round(time.time() - started, 2),
                       "last_ok_run_at": c.now_iso(), "backlog_inbox_batches": backlog,
                       "collected": {k: collected[k] for k in ("ingested_batches", "items", "created", "duplicate",
-                                                             "conflict", "rejected", "quarantined_batches")},
+                                                             "conflict", "rejected", "quarantined_batches",
+                                                             "deferred_batches", "held_unregistered_batches")},
+                      "held_unregistered": collected["held"][:20],
                       "channels": channels, "latest_bundle_versions": channels["latest_by_channel"],
                       "event_counts": service.event_counts(tenant_id),
+                      "scope": "ingest inbox batches + reconcile signed channel pointers and the signed revocation "
+                               "list; attribution, candidates, review, bundling and releasing stay explicit "
+                               "publisher actions (never automatic here)",
                       "boundary": "collector runs only while this machine is on; published bundles stay "
                                   "downloadable from the public bucket meanwhile; the backlog is processed on restart"}
             _log(root, f"OK collected={status['collected']} published={len(channels['published'])} backlog={backlog}")
@@ -648,7 +822,34 @@ def cmd_bootstrap(args, env, factory) -> dict[str, Any]:
     return {"status": "OK", "runtime_root": str(root.root), "collective_dir": str(root.dir), "tenant": args.tenant,
             "tenant_status": tenant_status, "publisher_key_id": key_id, "publisher_key_created": created_key,
             "publisher_public_key_b64": pub_b64, "trust_uploaded": put["key"], "trust_public_url": put.get("public_url"),
-            "db": str(root.db), "secrets_mode": "0600 (publisher.key.json, admin.token)"}
+            "db": str(root.db), "secrets_mode": "0600 (publisher.key.json, admin.token)",
+            "next": ("register every device before its batches are collected: s3_sync.py register-device "
+                     "--runtime-root <root> --tenant <tenant> --device <device_id> --line <line_id>; "
+                     "unregistered or path/body-mismatched batches are quarantined")}
+
+
+def cmd_register_device(args, env, factory) -> dict[str, Any]:
+    """Allow-list a device for a line (S3 mode uses no device token: the collector checks registration +
+    path/body consistency, which is NOT authentication with one shared S3 write credential)."""
+    root = CollectiveRoot(args.runtime_root)
+    service = open_service(root, None)
+    admin = principal(args.tenant, f"admin-{_seg(args.tenant)}", "admin")
+    rows = service._read("SELECT role, line_ids, status FROM principals WHERE principal_id=? AND tenant_id=?",
+                         (args.device, args.tenant))
+    if rows:
+        role, line_ids, status = rows[0]
+        lines = sorted(set(json.loads(line_ids or "[]")) | {args.line})
+        if role != "device_writer":
+            return {"status": "ERROR", "code": "PRINCIPAL_ROLE_MISMATCH", "device": args.device, "role": role}
+        with service._tx() as db:
+            db.execute("UPDATE principals SET line_ids=?, status='ACTIVE' WHERE principal_id=? AND tenant_id=?",
+                       (json.dumps(lines), args.device, args.tenant))
+            service._audit(db, admin, "register_device", args.device, "OK", {"line_ids": lines, "mode": "s3"})
+        return {"status": "OK", "device": args.device, "line_ids": lines, "registration": "UPDATED",
+                "note": "no token in S3 mode; registration is an allow-list, not authentication"}
+    out = service.register_principal(admin, principal_id=args.device, role="device_writer", line_ids=[args.line])
+    return {"status": "OK", "device": args.device, "line_ids": out["line_ids"], "registration": "CREATED",
+            "note": "no token in S3 mode; registration is an allow-list, not authentication"}
 
 
 def cmd_collect(args, env, factory) -> dict[str, Any]:
@@ -688,13 +889,22 @@ def load_device_config(path: Path) -> tuple[dict[str, Any], Path]:
 
 
 def device_sync(config_path: Path, *, env: Mapping[str, str] | None = None, client_factory=None,
-                channel: str | None = None) -> dict[str, Any]:
-    """Push the outbox to the bucket and pull the channel bundles into the local cache."""
+                channel: str | None = None, env_file: Path | str | None = None) -> dict[str, Any]:
+    """Push the outbox to the bucket and pull the channel bundles into the local cache.
+
+    ``env_file`` (or config ``env_file``) holds the S3 credentials outside the repo; the launchd device
+    agent passes it.  Items stay PENDING until the collector's ack is seen on a later sync."""
     config, base = load_device_config(config_path)
 
     def _path(value: str) -> Path:
         p = Path(value).expanduser()
         return p if p.is_absolute() else base / p
+
+    env_path = Path(env_file).expanduser() if env_file else (_path(config["env_file"]) if config.get("env_file") else None)
+    if env_path is not None:
+        if not env_path.is_file():
+            raise osm.CredentialsMissing(f"env file missing: {env_path}")
+        env = {**(os.environ if env is None else env), **load_env_file(env_path)}
 
     tenant, line = str(config["tenant_id"]), str(config["line_id"])
     receipt = _path(config.get("object_store", {}).get("preflight_receipt") or f"S3_PREFLIGHT_{_seg(line)}.json")
@@ -720,7 +930,57 @@ def device_sync(config_path: Path, *, env: Mapping[str, str] | None = None, clie
 
 
 def cmd_device_sync(args, env, factory) -> dict[str, Any]:
-    return device_sync(Path(args.config), env=env, client_factory=factory, channel=args.channel)
+    return device_sync(Path(args.config), env=env, client_factory=factory, channel=args.channel,
+                       env_file=args.env_file)
+
+
+def device_agent_plist(config_path: Path, *, interval_s: int, python: str, script: str,
+                       env_file: Path | None, log_dir: Path) -> dict[str, Any]:
+    config, _ = load_device_config(config_path)
+    label = f"{DEVICE_AGENT_LABEL_PREFIX}.{_seg(str(config['line_id']))}"
+    argv = [python, script, "device-sync", "--config", str(Path(config_path).resolve())]
+    if env_file:
+        argv += ["--env-file", str(Path(env_file).expanduser().resolve())]
+    return {"Label": label, "ProgramArguments": argv, "StartInterval": int(interval_s), "RunAtLoad": True,
+            "ProcessType": "Background", "StandardOutPath": str(log_dir / "device-sync.out.log"),
+            "StandardErrorPath": str(log_dir / "device-sync.err.log"),
+            "WorkingDirectory": str(Path(script).resolve().parents[2])}
+
+
+def install_device_agent(config_path: Path | str, *, interval_s: int = DEFAULT_INTERVAL_S, python: str | None = None,
+                         env_file: Path | str | None = None, agents_dir: Path | None = None,
+                         load: bool = False) -> dict[str, Any]:
+    """launchd user agent for one line's ``device-sync`` (install-agent installs only the collector)."""
+    config_path = Path(config_path).resolve()
+    log_dir = config_path.parent / "collective_logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    python = python or sys.executable
+    script = str(Path(__file__).resolve())
+    agents_dir = Path(agents_dir) if agents_dir else Path.home() / "Library" / "LaunchAgents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    doc = device_agent_plist(config_path, interval_s=interval_s, python=python, script=script,
+                             env_file=Path(env_file) if env_file else None, log_dir=log_dir)
+    plist_path = agents_dir / f"{doc['Label']}.plist"
+    plist_path.write_bytes(plistlib.dumps(doc))
+    out = {"status": "OK", "plist": str(plist_path), "label": doc["Label"], "interval_s": interval_s,
+           "env_file": str(env_file) if env_file else None,
+           "env_file_present": bool(env_file) and Path(env_file).expanduser().is_file(),
+           "load_command": f"launchctl bootstrap gui/{os.getuid()} {plist_path}",
+           "unload_command": f"launchctl bootout gui/{os.getuid()}/{doc['Label']}", "loaded": None}
+    if load:
+        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{doc['Label']}"], capture_output=True, text=True)
+        proc = subprocess.run(["launchctl", "bootstrap", f"gui/{os.getuid()}", str(plist_path)],
+                              capture_output=True, text=True)
+        out["loaded"] = proc.returncode == 0
+        out["launchctl"] = (proc.stdout + proc.stderr).strip()[:300]
+        if proc.returncode != 0:
+            out["status"] = "PLIST_WRITTEN_NOT_LOADED"
+    return out
+
+
+def cmd_install_device_agent(args, env, factory) -> dict[str, Any]:
+    return install_device_agent(args.config, interval_s=args.interval, python=args.python, env_file=args.env_file,
+                                agents_dir=Path(args.agents_dir) if args.agents_dir else None, load=args.load)
 
 
 def cmd_status(args, env, factory) -> dict[str, Any]:
@@ -770,6 +1030,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--bundle-id", required=True), p.add_argument("--version", required=True)
     p = sub.add_parser("device-sync", help="push the device outbox to the bucket and pull channel bundles")
     p.add_argument("--config", required=True), p.add_argument("--channel", choices=list(b.CHANNELS))
+    p.add_argument("--env-file", help="credentials file outside the repo (AWS_*/S3CTL_* lines)")
+    p = sub.add_parser("register-device", help="allow-list a device id for a line before its batches are collected")
+    p.add_argument("--runtime-root", required=True), p.add_argument("--tenant", required=True)
+    p.add_argument("--device", required=True), p.add_argument("--line", required=True)
+    p = sub.add_parser("install-device-agent", help="write the launchd agent plist for one line's device-sync")
+    p.add_argument("--config", required=True), p.add_argument("--interval", type=int, default=DEFAULT_INTERVAL_S)
+    p.add_argument("--python"), p.add_argument("--env-file"), p.add_argument("--agents-dir")
+    p.add_argument("--load", action="store_true")
     p = sub.add_parser("status", help="collector status file, object counts per area and local event counts")
     p.add_argument("--runtime-root", required=True), p.add_argument("--tenant", required=True)
     p = sub.add_parser("run-cycle", help="one background cycle: env file -> lock -> collect -> publish channels -> status")
@@ -784,7 +1052,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 COMMANDS = {"bootstrap": cmd_bootstrap, "collect": cmd_collect, "publish-channel": cmd_publish_channel,
             "device-sync": cmd_device_sync, "status": cmd_status, "run-cycle": cmd_run_cycle,
-            "install-agent": cmd_install_agent}
+            "install-agent": cmd_install_agent, "register-device": cmd_register_device,
+            "install-device-agent": cmd_install_device_agent}
 
 
 def main(argv: list[str] | None = None, *, env: Mapping[str, str] | None = None, client_factory=None, out=None) -> int:
