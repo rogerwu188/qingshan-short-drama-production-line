@@ -260,5 +260,97 @@ class CliTest(unittest.TestCase):
         self.assertTrue(st["trust_in_bucket"])
 
 
+class BackgroundCollectorTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.fake = FakeS3()
+        self.factory = lambda cfg, creds: self.fake  # noqa: E731
+        buf = io.StringIO()
+        assert s3.main(["bootstrap", "--runtime-root", str(self.tmp / "rt"), "--tenant", "t1"], env=ENV,
+                       client_factory=self.factory, out=buf) == 0, buf.getvalue()
+        self.root = s3.CollectiveRoot(self.tmp / "rt")
+
+    def test_fails_closed_without_env_file_and_with_incomplete_env_file(self):
+        status = s3.run_cycle(self.tmp / "rt", "t1", client_factory=self.factory)
+        self.assertEqual(status["status"], "CREDENTIALS_MISSING")
+        self.assertEqual(len(status["required_lines"]), 5)
+        self.assertTrue(self.root.status_path.is_file())
+        self.root.env_path.write_text("AWS_ACCESS_KEY_ID=k\nS3CTL_BUCKET=drama01\n")
+        status = s3.run_cycle(self.tmp / "rt", "t1", client_factory=self.factory)
+        self.assertEqual(status["status"], "CREDENTIALS_MISSING")
+        self.assertIn("AWS_SECRET_ACCESS_KEY", status["reason"])
+        log = (self.root.log_dir / "collector.log").read_text()
+        self.assertIn("CREDENTIALS_MISSING", log)
+        self.assertNotIn("drama01-user1", log)
+
+    def test_cycle_collects_publishes_released_channels_and_writes_status(self):
+        fx_env = {**ENV}
+        self.root.env_path.write_text("\n".join(f"{k}={v}" for k, v in {
+            "AWS_ACCESS_KEY_ID": "k", "AWS_SECRET_ACCESS_KEY": "s", "S3CTL_ENDPOINT_URL": "https://s3.test",
+            "S3CTL_BUCKET": "drama01", "S3CTL_PUBLIC_BASE_URL": "https://cdn.test/drama01"}.items()) + "\n")
+        # a bundle released in the service but whose pointer never reached the bucket (e.g. machine was off)
+        store = s3.open_object_store(None, line_id=s3.SERVICE_LINE, receipt_path=self.root.preflight_path, env=fx_env,
+                                     client_factory=self.factory)
+        svc = s3.open_service(self.root, store)
+        pub = s3.principal("t1", "pub-cli", "publisher")
+        key_id, private = self.root.publisher_key()
+        bundle = {"schema": c.BUNDLE_SCHEMA, "bundle_id": "directing-dialogue", "version": 3, "created_at": c.now_iso(),
+                  "release_channel": "RELEASED", "compat": {"engine_api_versions": [API], "models": [SD2]},
+                  "rules": [demo_rule()]}
+        env_ = b.sign_bundle(bundle, key_id=key_id, private_raw=private)
+        raw = json.dumps(env_).encode()
+        svc.upload_bundle(pub, {"bundle_id": "directing-dialogue", "version": "3", "digest": c.sha256_bytes(raw),
+                                "payload_b64": base64.b64encode(raw).decode(), "signature_b64": env_["signature"]["value_b64"],
+                                "key_id": key_id, "manifest": {"scope": {"models": [SD2], "stages": ["VIDEO_COMPILE"]}}})
+        svc.release(pub, bundle_id="directing-dialogue", version="3", channel="RELEASED")
+        # a device batch waiting in the inbox
+        transport = s3.S3Transport(store, tenant_id="t1", line_id="line-z", device_id="dev-z")
+        transport.request("POST", "/v1/events:batch", {"events": [{
+            "event_id": c.new_uuid(), "schema": c.OBSERVATION_SCHEMA if hasattr(c, "OBSERVATION_SCHEMA") else "x",
+            "tenant_id": "t1", "line_id": "line-z", "device_id": "dev-z", "run_id": "line-z.EP01.B1", "episode_id": "EP01",
+            "stage": "S7", "event_kind": "FAILURE_OBSERVATION", "symptom": "synthetic symptom text for the cycle test",
+            "evidence": {"gate": "x", "level": 1}, "opportunity": {"applicable_units": 1, "observed_units": 1},
+            "visibility": "LINE", "detected_by": "reviewer", "occurred_at": c.now_iso(), "unit_ids": ["EP01-VU-001"],
+            "engine_version": "t", "provider_model_version": SD2, "knowledge_bundle_digest": "NONE"}]})
+        status = s3.run_cycle(self.tmp / "rt", "t1", interval_s=300, client_factory=self.factory)
+        self.assertEqual(status["status"], "OK", status)
+        self.assertEqual(status["collected"]["ingested_batches"], 1)
+        self.assertEqual(status["latest_bundle_versions"], {"RELEASED": {"directing-dialogue": "3"}})
+        self.assertEqual(status["channels"]["published"][0]["sequence"], 1)
+        self.assertEqual(status["backlog_inbox_batches"], 0)
+        self.assertEqual(status["interval_s"], 300)
+        self.assertEqual(json.loads(self.root.status_path.read_text())["status"], "OK")
+        # second cycle: nothing to publish, pointer unchanged, still OK
+        again = s3.run_cycle(self.tmp / "rt", "t1", client_factory=self.factory)
+        self.assertEqual((again["status"], again["channels"]["published"], len(again["channels"]["unchanged"])), ("OK", [], 1))
+        # a clean device resolves the released pointer
+        trust = json.loads(store.get_bytes("collective/t1/trust.json"))
+        cache = b.BundleCache(self.tmp / "clean-cache", trust)
+        resolved = s3.S3Channel(store, tenant_id="t1").resolve({"model": SD2, "stage": "VIDEO_COMPILE", "engine_api_version": API},
+                                                                cache, trust, channel="RELEASED")
+        self.assertEqual(resolved["selected"][0]["version"], 3)
+
+    def test_lock_prevents_overlapping_cycles(self):
+        self.root.env_path.write_text("\n".join(f"{k}=v" for k in s3.REQUIRED_ENV) + "\n")
+        import fcntl
+        self.root.lock_path.touch()
+        with self.root.lock_path.open("r+") as held:
+            fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            status = s3.run_cycle(self.tmp / "rt", "t1", client_factory=self.factory)
+        self.assertEqual(status["status"], "SKIPPED_OVERLAP")
+
+    def test_install_agent_writes_plist_without_loading(self):
+        out = s3.install_agent(self.tmp / "rt", "t1", interval_s=300, python="/usr/bin/python3",
+                               agents_dir=self.tmp / "agents", load=False)
+        import plistlib
+        doc = plistlib.loads(Path(out["plist"]).read_bytes())
+        self.assertEqual(doc["Label"], s3.AGENT_LABEL)
+        self.assertEqual(doc["StartInterval"], 300)
+        self.assertEqual(doc["ProgramArguments"][2:4], ["run-cycle", "--runtime-root"])
+        self.assertTrue(doc["RunAtLoad"])
+        self.assertIsNone(out["loaded"])
+        self.assertIn("launchctl bootstrap gui/", out["load_command"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -72,6 +72,31 @@ $S3SYNC status  --runtime-root ~/nalu_runtime --tenant nalu
 $S3SYNC publish-channel --runtime-root ~/nalu_runtime --tenant nalu --channel CANARY --bundle-id <id> --version <n>
 ```
 
+### 后台收集器（本机即发布者；launchd 用户代理，轮询 300 s）
+
+收事件、校验、入库、把已发布版本的频道指针写回桶——都由本机后台任务做，不依赖任何聊天会话。`s3_sync.py run-cycle` 一个周期 = 读 env 文件 → 文件锁（`collector.lock`，`flock` 非阻塞，重叠即 `SKIPPED_OVERLAP`）→ `collect` → 对账频道指针（关系库 `channels` 表里有、桶里指针缺或旧的，补发签名指针）→ 写 `status.json`（`status`、`last_ok_run_at`、`backlog_inbox_batches`、`latest_bundle_versions`、`collected` 计数、`interval_s`）；日志追加到 `<runtime>/runtime/collective/logs/collector.log`，launchd 的 stdout/err 在同目录。
+
+凭证从 **仓库外** 的 `~/nalu_runtime/runtime/collective/env`（chmod 600）读取，文件缺失或缺任一行 → `status.json` 记 `CREDENTIALS_MISSING` 并退出 2，不做任何网络访问（失败关闭）。线主需放入这 5 行（值从密钥管理取）：
+
+```
+AWS_ACCESS_KEY_ID=<drama01 access key>
+AWS_SECRET_ACCESS_KEY=<drama01 secret key>
+S3CTL_ENDPOINT_URL=https://s3api.arkfs.co
+S3CTL_BUCKET=drama01
+S3CTL_PUBLIC_BASE_URL=https://v.arkfs.co/drama01
+```
+
+```bash
+# 写 plist（~/Library/LaunchAgents/com.nalu.collective-collector.plist，StartInterval 300，RunAtLoad）并加载
+$S3SYNC install-agent --runtime-root ~/nalu_runtime --tenant nalu --interval 300 --python ~/nalu/.qingshan-venv/bin/python --load
+launchctl print gui/$(id -u)/com.nalu.collective-collector | grep -E "state|last exit"
+$S3SYNC status --runtime-root ~/nalu_runtime --tenant nalu        # collector 段 = status.json
+launchctl kickstart -k gui/$(id -u)/com.nalu.collective-collector  # 立刻跑一轮
+launchctl bootout   gui/$(id -u)/com.nalu.collective-collector     # 卸载
+```
+
+**运行边界**：本机关机时，候选处理与新包发布暂停；已发布的包与频道指针留在公开读的桶里，设备照常下载与锁定；本机重启后 launchd 拉起代理，收集器按顺序处理 inbox 积压（幂等，重复批次记 DUPLICATE）。不需要另一台服务器。
+
 S1 仍只读本地缓存（`line_upgrade_gate.collective_preflight` 回执多一项 `sync_mode`），付费任务前没有任何云端等待；桶不通只意味着事件留在 outbox、设备继续用已锁定的本地包。桶公开读：上传前每个条目过 `sensitive_findings`，命中即 REJECTED 不上传；收集器隔离说明里的异常文本若含敏感片段会被脱敏。
 
 ## 3a. 对象存储（已定：自建 S3，MinIO / JuiceFS Gateway）

@@ -27,10 +27,14 @@ from __future__ import annotations
 
 import argparse
 import base64
+import fcntl
 import json
 import os
+import plistlib
 import stat
+import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -59,6 +63,14 @@ TRUST_FILE = "trust.json"
 DB_FILE = "collective.sqlite"
 ADMIN_TOKEN_FILE = "admin.token"
 PREFLIGHT_FILE = "S3_PREFLIGHT_collective.json"
+ENV_FILE = "env"
+STATUS_FILE = "status.json"
+LOCK_FILE = "collector.lock"
+LOG_DIR = "logs"
+AGENT_LABEL = "com.nalu.collective-collector"
+DEFAULT_INTERVAL_S = 300
+REQUIRED_ENV = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "S3CTL_ENDPOINT_URL", "S3CTL_BUCKET",
+                "S3CTL_PUBLIC_BASE_URL")
 
 
 # --------------------------------------------------------------------------- keys
@@ -393,6 +405,10 @@ class CollectiveRoot:
         self.trust_path = self.dir / TRUST_FILE
         self.admin_token_path = self.dir / ADMIN_TOKEN_FILE
         self.preflight_path = self.dir / PREFLIGHT_FILE
+        self.env_path = self.dir / ENV_FILE
+        self.status_path = self.dir / STATUS_FILE
+        self.lock_path = self.dir / LOCK_FILE
+        self.log_dir = self.dir / LOG_DIR
 
     def trust(self) -> dict[str, Any]:
         return b.load_trust_store(self.trust_path)
@@ -435,6 +451,171 @@ def open_service(root: CollectiveRoot, store: osm.ObjectStore | None) -> svc_mod
 
 def principal(tenant_id: str, principal_id: str, role: str, line_ids: tuple[str, ...] = ()) -> svc_mod.Principal:
     return svc_mod.Principal(principal_id=principal_id, tenant_id=tenant_id, role=role, line_ids=line_ids)
+
+
+# --------------------------------------------------------------------------- background collector
+def load_env_file(path: Path) -> dict[str, str]:
+    """``KEY=VALUE`` lines (0600, outside the repo).  Values are never logged."""
+    env: dict[str, str] = {}
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key, value = key.strip(), value.strip().strip('"').strip("'")
+        if key.startswith("export "):
+            key = key[7:].strip()
+        env[key] = value
+    return env
+
+
+def _log(root: CollectiveRoot, message: str) -> None:
+    root.log_dir.mkdir(parents=True, exist_ok=True)
+    with (root.log_dir / "collector.log").open("a", encoding="utf-8") as fh:
+        fh.write(f"[{c.now_iso()}] {message}\n")
+
+
+def _write_status(root: CollectiveRoot, status: dict[str, Any]) -> dict[str, Any]:
+    root.dir.mkdir(parents=True, exist_ok=True)
+    root.status_path.write_text(json.dumps(status, ensure_ascii=False, indent=1, default=str) + "\n", encoding="utf-8")
+    return status
+
+
+def read_status(root: CollectiveRoot) -> dict[str, Any] | None:
+    if not root.status_path.is_file():
+        return None
+    try:
+        return json.loads(root.status_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def sync_channels(service: svc_mod.Service, store: osm.ObjectStore, root: CollectiveRoot, tenant_id: str) -> dict[str, Any]:
+    """Make the bucket's signed channel pointers match the service's channel table (idempotent)."""
+    channel = S3Channel(store, tenant_id=tenant_id)
+    rows = service._read("SELECT bundle_id, channel, version FROM channels WHERE tenant_id=? ORDER BY channel, bundle_id",
+                         (tenant_id,))
+    published, unchanged = [], []
+    pointers: dict[str, dict[str, Any]] = {}
+    for bundle_id, ch, version in rows:
+        if ch not in pointers:
+            pointers[ch] = ((channel.get_json(f"channels/{_seg(ch)}.json") or {}).get("body") or {}).get("bundles") or {}
+        current = pointers[ch].get(bundle_id) or {}
+        if str(current.get("version")) == str(version):
+            unchanged.append({"channel": ch, "bundle_id": bundle_id, "version": str(version)})
+            continue
+        pub = principal(tenant_id, "collector", "publisher")
+        record = service.get_bundle(pub, bundle_id, str(version))
+        raw = base64.b64decode(record["payload_b64"])
+        envelope = json.loads(raw.decode("utf-8"))
+        b.verify_bundle(envelope, root.trust())
+        artifact = f"bundles/{_seg(bundle_id)}/{_seg(str(version))}.json"
+        if store.head(tenant_key(tenant_id, artifact)) is None:
+            store.put_artifact(tenant_id, artifact, raw, content_type="application/json")
+        key_id, private = root.publisher_key()
+        out = channel.publish(ch, bundle_id=bundle_id, version=str(version), bundle_digest=envelope["digest"],
+                              payload_sha256=c.sha256_bytes(raw), key_id=key_id, private_raw=private)
+        pointers[ch] = out["bundles"]
+        published.append({"channel": ch, "bundle_id": bundle_id, "version": str(version), "sequence": out["sequence"]})
+    latest = {ch: {bid: ref.get("version") for bid, ref in entries.items()} for ch, entries in pointers.items()}
+    return {"published": published, "unchanged": unchanged, "latest_by_channel": latest}
+
+
+def run_cycle(runtime_root: Path | str, tenant_id: str, *, interval_s: int = DEFAULT_INTERVAL_S,
+              env: Mapping[str, str] | None = None, client_factory=None) -> dict[str, Any]:
+    """One collector cycle: env file → lock → collect → publish channels → status.  Fails closed:
+    a missing env file or a held lock produces a status entry and a non-OK status, never a crash."""
+    root = CollectiveRoot(runtime_root)
+    root.dir.mkdir(parents=True, exist_ok=True)
+    started = time.time()
+    base = {"schema": "collective.collector_status.v1", "tenant": tenant_id, "interval_s": interval_s,
+            "runtime_root": str(root.root), "started_at": c.now_iso(), "agent_label": AGENT_LABEL}
+    previous = read_status(root) or {}
+    if env is None:
+        if not root.env_path.is_file():
+            status = {**base, "status": "CREDENTIALS_MISSING", "reason": f"env file missing: {root.env_path}",
+                      "required_lines": [f"{k}=<value>" for k in REQUIRED_ENV],
+                      "last_ok_run_at": previous.get("last_ok_run_at")}
+            _log(root, "CREDENTIALS_MISSING: " + str(root.env_path))
+            return _write_status(root, status)
+        env = {**os.environ, **load_env_file(root.env_path)}
+    missing = [k for k in REQUIRED_ENV if not env.get(k)]
+    if missing:
+        status = {**base, "status": "CREDENTIALS_MISSING", "reason": f"missing in env file: {missing}",
+                  "required_lines": [f"{k}=<value>" for k in REQUIRED_ENV], "last_ok_run_at": previous.get("last_ok_run_at")}
+        _log(root, f"CREDENTIALS_MISSING: {missing}")
+        return _write_status(root, status)
+    root.lock_path.touch()
+    with root.lock_path.open("r+") as lock_fh:
+        try:
+            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            status = {**previous, **base, "status": "SKIPPED_OVERLAP", "reason": "previous cycle still running"}
+            _log(root, "SKIPPED_OVERLAP")
+            return _write_status(root, status)
+        try:
+            store = open_object_store(None, line_id=SERVICE_LINE, receipt_path=root.preflight_path, env=env,
+                                      client_factory=client_factory)
+            service = open_service(root, store)
+            collected = Collector(service, store, tenant_id=tenant_id).run_once()
+            channels = sync_channels(service, store, root, tenant_id)
+            backlog = len(store.list(inbox_prefix(tenant_id)))
+            status = {**base, "status": "OK", "finished_at": c.now_iso(), "duration_s": round(time.time() - started, 2),
+                      "last_ok_run_at": c.now_iso(), "backlog_inbox_batches": backlog,
+                      "collected": {k: collected[k] for k in ("ingested_batches", "items", "created", "duplicate",
+                                                             "conflict", "rejected", "quarantined_batches")},
+                      "channels": channels, "latest_bundle_versions": channels["latest_by_channel"],
+                      "event_counts": service.event_counts(tenant_id),
+                      "boundary": "collector runs only while this machine is on; published bundles stay "
+                                  "downloadable from the public bucket meanwhile; the backlog is processed on restart"}
+            _log(root, f"OK collected={status['collected']} published={len(channels['published'])} backlog={backlog}")
+        except Exception as exc:  # noqa: BLE001 -- the agent must never die on a transient bucket error
+            status = {**base, "status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:300]}",
+                      "last_ok_run_at": previous.get("last_ok_run_at")}
+            _log(root, f"ERROR {type(exc).__name__}: {str(exc)[:300]}")
+        finally:
+            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
+    return _write_status(root, status)
+
+
+def agent_plist(runtime_root: Path, tenant_id: str, *, interval_s: int, python: str, script: str) -> dict[str, Any]:
+    root = CollectiveRoot(runtime_root)
+    return {
+        "Label": AGENT_LABEL,
+        "ProgramArguments": [python, script, "run-cycle", "--runtime-root", str(root.root), "--tenant", tenant_id,
+                             "--interval", str(interval_s)],
+        "StartInterval": int(interval_s), "RunAtLoad": True, "ProcessType": "Background",
+        "StandardOutPath": str(root.log_dir / "launchd.out.log"), "StandardErrorPath": str(root.log_dir / "launchd.err.log"),
+        "WorkingDirectory": str(Path(script).resolve().parents[2]),
+    }
+
+
+def install_agent(runtime_root: Path | str, tenant_id: str, *, interval_s: int = DEFAULT_INTERVAL_S,
+                  python: str | None = None, agents_dir: Path | None = None, load: bool = False) -> dict[str, Any]:
+    root = CollectiveRoot(runtime_root)
+    root.log_dir.mkdir(parents=True, exist_ok=True)
+    python = python or sys.executable
+    script = str(Path(__file__).resolve())
+    agents_dir = Path(agents_dir) if agents_dir else Path.home() / "Library" / "LaunchAgents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    plist_path = agents_dir / f"{AGENT_LABEL}.plist"
+    doc = agent_plist(root.root, tenant_id, interval_s=interval_s, python=python, script=script)
+    plist_path.write_bytes(plistlib.dumps(doc))
+    out = {"status": "OK", "plist": str(plist_path), "label": AGENT_LABEL, "interval_s": interval_s,
+           "env_file": str(root.env_path), "env_file_present": root.env_path.is_file(),
+           "required_env_lines": [f"{k}=<value>" for k in REQUIRED_ENV],
+           "load_command": f"launchctl bootstrap gui/{os.getuid()} {plist_path}",
+           "unload_command": f"launchctl bootout gui/{os.getuid()}/{AGENT_LABEL}",
+           "kick_command": f"launchctl kickstart -k gui/{os.getuid()}/{AGENT_LABEL}", "loaded": None}
+    if load:
+        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{AGENT_LABEL}"], capture_output=True, text=True)
+        proc = subprocess.run(["launchctl", "bootstrap", f"gui/{os.getuid()}", str(plist_path)],
+                              capture_output=True, text=True)
+        out["loaded"] = proc.returncode == 0
+        out["launchctl"] = (proc.stdout + proc.stderr).strip()[:300]
+        if proc.returncode != 0:
+            out["status"] = "PLIST_WRITTEN_NOT_LOADED"
+    return out
 
 
 # --------------------------------------------------------------------------- CLI
@@ -544,17 +725,34 @@ def cmd_device_sync(args, env, factory) -> dict[str, Any]:
 
 def cmd_status(args, env, factory) -> dict[str, Any]:
     root = CollectiveRoot(args.runtime_root)
-    store = open_object_store(None, line_id=SERVICE_LINE, receipt_path=root.preflight_path, env=env,
-                              client_factory=factory, ensure_preflight=False)
-    counts = {}
-    for name in ("inbox", "processed", "quarantine", "acks", "bundles", "channels"):
-        counts[name] = len(store.list(tenant_key(args.tenant, name) + "/"))
-    out = {"status": "OK", "tenant": args.tenant, "objects": counts, "trust_in_bucket": store.head(tenant_key(args.tenant, "trust.json")) is not None,
-           "preflight": store.preflight_status()}
+    out: dict[str, Any] = {"status": "OK", "tenant": args.tenant, "collector": read_status(root),
+                           "env_file_present": root.env_path.is_file(),
+                           "agent_plist_present": (Path.home() / "Library" / "LaunchAgents" / f"{AGENT_LABEL}.plist").is_file()}
+    if root.env_path.is_file() and env is os.environ:
+        env = {**os.environ, **load_env_file(root.env_path)}
+    try:
+        store = open_object_store(None, line_id=SERVICE_LINE, receipt_path=root.preflight_path, env=env,
+                                  client_factory=factory, ensure_preflight=False)
+        counts = {name: len(store.list(tenant_key(args.tenant, name) + "/"))
+                  for name in ("inbox", "processed", "quarantine", "acks", "bundles", "channels")}
+        out.update({"objects": counts, "trust_in_bucket": store.head(tenant_key(args.tenant, "trust.json")) is not None,
+                    "preflight": store.preflight_status()})
+    except osm.ObjectStoreError as exc:
+        out["bucket"] = f"UNAVAILABLE:{exc.code}"
     if root.db.is_file():
-        service = open_service(root, None)
-        out["event_counts"] = service.event_counts(args.tenant)
+        out["event_counts"] = open_service(root, None).event_counts(args.tenant)
     return out
+
+
+def cmd_run_cycle(args, env, factory) -> dict[str, Any]:
+    status = run_cycle(args.runtime_root, args.tenant, interval_s=args.interval,
+                       env=None if env is os.environ else env, client_factory=factory)
+    return status if status.get("status") == "OK" else {**status, "status": status["status"]}
+
+
+def cmd_install_agent(args, env, factory) -> dict[str, Any]:
+    return install_agent(args.runtime_root, args.tenant, interval_s=args.interval, python=args.python,
+                         agents_dir=Path(args.agents_dir) if args.agents_dir else None, load=args.load)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -572,13 +770,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--bundle-id", required=True), p.add_argument("--version", required=True)
     p = sub.add_parser("device-sync", help="push the device outbox to the bucket and pull channel bundles")
     p.add_argument("--config", required=True), p.add_argument("--channel", choices=list(b.CHANNELS))
-    p = sub.add_parser("status", help="object counts per area and local event counts")
+    p = sub.add_parser("status", help="collector status file, object counts per area and local event counts")
     p.add_argument("--runtime-root", required=True), p.add_argument("--tenant", required=True)
+    p = sub.add_parser("run-cycle", help="one background cycle: env file -> lock -> collect -> publish channels -> status")
+    p.add_argument("--runtime-root", required=True), p.add_argument("--tenant", required=True)
+    p.add_argument("--interval", type=int, default=DEFAULT_INTERVAL_S)
+    p = sub.add_parser("install-agent", help="write the launchd user agent plist (and load it with --load)")
+    p.add_argument("--runtime-root", required=True), p.add_argument("--tenant", required=True)
+    p.add_argument("--interval", type=int, default=DEFAULT_INTERVAL_S), p.add_argument("--python")
+    p.add_argument("--agents-dir"), p.add_argument("--load", action="store_true")
     return parser
 
 
 COMMANDS = {"bootstrap": cmd_bootstrap, "collect": cmd_collect, "publish-channel": cmd_publish_channel,
-            "device-sync": cmd_device_sync, "status": cmd_status}
+            "device-sync": cmd_device_sync, "status": cmd_status, "run-cycle": cmd_run_cycle,
+            "install-agent": cmd_install_agent}
 
 
 def main(argv: list[str] | None = None, *, env: Mapping[str, str] | None = None, client_factory=None, out=None) -> int:

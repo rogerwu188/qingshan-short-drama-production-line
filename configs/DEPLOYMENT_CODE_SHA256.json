@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2268,
+  "file_count": 2270,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -269,7 +269,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "2121b8dad0e0244c37c547d2ddb1cae14e7bbd7e5f69a25a4297e200d81b00f1"
+      "sha256": "f4f592643725c1eac12c6754559e87e6d2a087a3d60e9509e8ea2f9d6909c974"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -3724,6 +3724,10 @@
       "sha256": "05b3d66ed62dd04132e3110f08c4ed40bf27179a88d7368427d6ea7c48f489aa"
     },
     {
+      "path": "tools/collective_learning/s3_sync.py",
+      "sha256": "fb72d5d5dd658b63bdfc003669d75f178178894d549a8860200c75d2601f3224"
+    },
+    {
       "path": "tools/collective_learning/selection.py",
       "sha256": "dffff5868f03b13505ce5e26b5ca298438a11fc3c2a40ca47d66a18965fe030a"
     },
@@ -5221,7 +5225,7 @@
     },
     {
       "path": "tools/line_upgrade_gate.py",
-      "sha256": "3af69a46e55166969fe6f09eb814038c21f2a89b64ffa3fb1fdfbe3d9f323bbd"
+      "sha256": "25b0b9b33639a0f55c20a0be2013909ac77ed05d6f3355a191a108865e87dfdb"
     },
     {
       "path": "tools/local_lora_memory_sync.py",
@@ -7078,6 +7082,10 @@
     {
       "path": "tools/tests/test_collective_real_entry_wiring.py",
       "sha256": "3b42b692e96011836c619de95e2a96dca108cae1c9f509664a22d2351569f292"
+    },
+    {
+      "path": "tools/tests/test_collective_s3_sync.py",
+      "sha256": "ec1bdfaab93855e691faf9c1a64c50a7041407b3d233237b1b41731a47d22704"
     },
     {
       "path": "tools/tests/test_collective_selection_adoption.py",
