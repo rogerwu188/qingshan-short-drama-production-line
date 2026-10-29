@@ -6371,12 +6371,19 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
                    for t in tx_now.get("tasks") or [])]
     res.details["prompt_finalization"] = {"digest": str(fin_digest), "summary": fin_report.get("summary"),
                                           "changed_without_receipt": unbound}
-    if unbound and _camera_grammar_on(ctx):
-        # CAMERA_GRAMMAR_V1: only units that will be (re)submitted need finalization receipts.
+    if unbound:
+        # Only units that will be (re)submitted need finalization receipts.  Introduced with
+        # CAMERA_GRAMMAR_V1 (lab Holmes E06); applied to every episode since 2026-10-29: a legacy
+        # episode's final pass recompiles a rerolled unit with its predecessor tail re-attached
+        # (no start_frame_as_submitted withholding without the policy) and would otherwise ask a
+        # reviewer to approve a prompt that can never be POSTed -- the bound transaction is the
+        # authority for the clip on disk, recorded in harvested_bound_takes_exempt for audit.
         unbound, harvested = exempt_harvested_bound_takes(ctx, unbound, fin_report, as_submitted)
         if harvested:
             res.details["prompt_finalization"]["changed_without_receipt"] = unbound
             res.details["prompt_finalization"]["harvested_bound_takes_exempt"] = harvested
+            res.details["prompt_finalization"]["exemption_policy"] = (
+                "CAMERA_GRAMMAR_V1" if _camera_grammar_on(ctx) else "BOUND_TAKE_AUTHORITY_LEGACY")
             ctx.say(f"   prompt finalization: {len(harvested)} recompiled prompt(s) belong to clips already "
                     f"produced by bound transactions (never re-submitted, no review needed): {sorted(harvested)}")
     if fin["exit_code"] != 0 or (fin_report.get("summary") or {}).get("missing"):

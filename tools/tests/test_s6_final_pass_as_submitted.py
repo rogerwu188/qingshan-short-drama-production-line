@@ -155,6 +155,21 @@ class FinalizationExemptsHarvestedBoundTakes(unittest.TestCase):
             self.assertFalse(row["recompiled_matches_submitted"])
             self.assertEqual(row["submitted_prompt_review"], "NO_MATCHING_RECEIPT_ON_DISK")
 
+    def test_legacy_episode_clip_from_bound_take_is_exempt_too(self):
+        # 2026-10-29: a legacy (unstamped) final pass re-attaches the predecessor tail on recompile, so the
+        # recompiled prompt never matches the submitted one; it is still never POSTed, so no receipt is asked.
+        with tempfile.TemporaryDirectory() as d, PipelineFixture(Path(d), LEGACY) as fx:
+            (fx.ctx.p.video_media / "E03-VU-002.mp4").write_bytes(b"clip")
+            live = lambda _ctx, uid, **_k: self.TAKE if uid == "E03-VU-002" else []  # noqa: E731
+            with mock.patch.object(npl, "s6_live_bindings", live):
+                self.assertEqual(npl.record_start_frames_as_submitted(fx.ctx), {})
+                left, exempt = npl.exempt_harvested_bound_takes(fx.ctx, ["E03-VU-001", "E03-VU-002"], self.REPORT, {})
+            self.assertEqual(left, ["E03-VU-001"])
+            self.assertEqual(exempt["E03-VU-002"]["submitted_prompt_sha256"], "sub")
+            self.assertIsNone(exempt["E03-VU-002"]["start_frame_as_submitted"])
+            src = (ROOT / "lines" / "nalu" / "runtime" / "tools" / "nalu_pipeline.py").read_text(encoding="utf-8")
+            self.assertNotIn("if unbound and _camera_grammar_on(ctx):", src)
+
     def test_parked_clip_is_resubmitted_so_it_still_needs_a_receipt(self):
         with tempfile.TemporaryDirectory() as d, PipelineFixture(Path(d), STAMPED) as fx:
             with mock.patch.object(npl, "s6_live_bindings", return_value=self.TAKE):
