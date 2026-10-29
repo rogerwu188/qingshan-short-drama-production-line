@@ -2721,6 +2721,54 @@
       "failure_code": "S6_FINAL_PASS_REVIEW_OF_RECOMPILED_BOUND_TAKE",
       "do_not_repeat": "不要让 S6 终态全量重编译去审核「成片已由已绑定事务产出」的单元的重编译提示词；不要把这类豁免绑在某个运镜策略开关上；不要用填 PASS 回执让门通过来掩盖重编译与已提交文本的差异；审核依据只能是已绑定事务里的提示词与引用 sha",
       "sync_slug": "E12-s6-final-pass-bound-take-exempt"
+    },
+    {
+      "id": "K129",
+      "key": "post-generation-qa-measures-only-new-or-changed-clips",
+      "stage": "S6",
+      "category": "SCHEDULING",
+      "scope": "generalizable",
+      "episode": "E12",
+      "rule": "生成后技术 QA（解码/时长/黑帧/冻结/ASR 对白/语速/声线/缩略总表）只依赖切片字节、测量代码版本、QA 策略、该单元的期望值与声线表。记录里写入这些输入的指纹（measurement_fingerprint）；下次运行时指纹相同就原样复用已存记录（PASS 与 FAIL 都复用，绝不升级），只对新切片或变更切片重测；剧情审核结论每次按最新评审答案重算。评审提交（vlm_review_protocol submit）与终态全量编译都走同一入口，所以都不再全量重跑；`--remeasure` 用于测量代码或策略变更后强制重测。",
+      "lesson": "E12 终态评审提交时，53 个切片里只有 1 个是新的，runner 仍对 52 个未变切片重跑 ASR/声线/帧测，耗时十几分钟，线主指出这是浪费。",
+      "recovery": "post_generation_qa_runner.measure() 先算切片 sha 与指纹，命中则复用；记录新增 measurement_fingerprint 与 measurement_reuse，汇总新增 measured_unit_count / reused_measurement_count。",
+      "implementation": [
+        "lines/nalu/runtime/tools/post_generation_qa_runner.py"
+      ],
+      "regression": "tools/tests/test_postgen_incremental_measurement.py",
+      "evidence": "E12 2026-10-29 提交 post_gen_plot 评审：52/53 切片 sha 未变仍全量重测（含 ASR），约 14 分钟",
+      "authority": "Roger 2026-10-29「技术 QA 改增量：按切片 sha256 复用已通过的结果，只对新/变更切片重跑」",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "runtime_gate_added": false,
+      "failure_code": "POSTGEN_QA_FULL_RERUN_ON_UNCHANGED_CLIPS",
+      "do_not_repeat": "不要在评审提交或终态编译时对字节未变的切片重跑技术 QA；复用判定只看输入指纹，不看文件名或时间戳；复用的 FAIL 不得变成 PASS",
+      "sync_slug": "E12-postgen-incremental-measurement"
+    },
+    {
+      "id": "K130",
+      "key": "never-reroll-the-same-prompt-when-the-model-ignored-a-constraint",
+      "stage": "S6",
+      "category": "RETRY",
+      "scope": "generalizable",
+      "episode": "E12",
+      "rule": "当被拒原因是模型无视了提示词里已经存在的约束（烧录字幕、画内文字、多余人物/第二张脸等），用同一提示词重投是在赌随机性，不是补救，禁止；「重投一次再现就接受」同样禁止。补救按顺序评估，每步给证据，任何一步都不先付费：a) 后处理（裁切/遮蔽/数字推拉）能否在不违背镜头语言的前提下保住该镜；b) 不行则重新设计——换构图（避免对白特写、下三分之一留白）或该单元换模型；c) 以上都不行才把证据交线主决定是否接受。重投请求必须标出 identical_prompt_reroll_allowed=false 与所需改动。",
+      "lesson": "E12-VU-006 的提示词已含 TEXT-FREE FRAME 否定约束，MiniMax-H3 仍在画面下方渲染了对白字幕；评审把它记为 P1 并进入重投流程，线主纠正：同一提示词再跑一次只是微调重试，违反规则。",
+      "recovery": "post_generation_qa_runner.required_prompt_change_for() 对这类失败码写 PROMPT_OR_DESIGN_CHANGE_REQUIRED；评估顺序 a→b→c 的证据（OCR 命中、人脸计数、锐度、身份余弦、相邻边界差）放 /tmp，不写 workflow/。",
+      "implementation": [
+        "lines/nalu/runtime/tools/post_generation_qa_runner.py"
+      ],
+      "regression": "tools/tests/test_postgen_incremental_measurement.py",
+      "evidence": "E12-VU-006 事务 e54aa33：提示词第 21 行 negative_constraints 含 TEXT-FREE FRAME；OCR 在 3.4–4.2 s 命中「许叔去过吗」(x 0.32–0.68, y 0.68–0.73)；E10/E11（seedance-2.0-pro，96 次提交）0 例画内字幕，E12（MiniMax-H3）已 2 例",
+      "authority": "Roger 2026-10-29「VU-006 不许用同一提示词 reroll……按顺序评估并给结论……不要直接付费」",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "runtime_gate_added": false,
+      "failure_code": "IDENTICAL_PROMPT_REROLL_AFTER_MODEL_IGNORED_CONSTRAINT",
+      "do_not_repeat": "不要用同一提示词重投模型无视约束的单元；不要以「再现则接受」代替评估；不要在评估后处理/重新设计之前付费；不要把评估证据写进 workflow/",
+      "sync_slug": "E12-no-identical-prompt-reroll"
     }
   ]
 }

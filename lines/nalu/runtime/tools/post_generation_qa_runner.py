@@ -77,6 +77,66 @@ from nalu_qa_common import (  # noqa: E402
 )
 
 TOOL_ID = "post_generation_qa_runner.v1"
+#: Incremental measurement (Roger 2026-10-29, K129): the three free measurers of a unit depend only on
+#: the clip bytes, this tool's measurement code, the post-gen policy, the unit's expectations and the
+#: voice cast.  A stored record whose fingerprint equals the current one is reused as-is; only new or
+#: changed clips are measured.  The plot verdict (reviewer answers) is always recomputed from the review.
+MEASUREMENT_VERSION = "postgen_measure.v1"
+
+
+def _digest(value: Any) -> str:
+    import hashlib as _hl
+    return _hl.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
+
+
+def measurement_fingerprint(media_sha256: str, expectations: dict[str, Any], *, language: str,
+                            policy: dict[str, Any], pacing: dict[str, Any] | None,
+                            voice_cast: dict[str, Any] | None) -> str:
+    """Everything the free measurers read.  Any change here means re-measure."""
+    subset = {k: expectations.get(k) for k in ("expected_dialogue", "duration_seconds", "editorial_shot_ids")}
+    return _digest({"media_sha256": media_sha256, "tool": TOOL_ID, "measurement": MEASUREMENT_VERSION,
+                    "language": language, "policy": policy, "pacing": pacing, "expectations": subset,
+                    "voice_cast": voice_cast or None})
+
+
+def reuse_measurement(record_path: Path, fingerprint: str) -> dict[str, Any] | None:
+    """The measured dict a previous run stored for this exact fingerprint, or None (measure again)."""
+    record = read_json(record_path, None) if record_path.is_file() else None
+    if not isinstance(record, dict) or record.get("measurement_fingerprint") != fingerprint:
+        return None
+    sheet = (record.get("basic_plot_qa") or {}).get("contact_sheet") or {}
+    if not sheet.get("path") or not Path(str(sheet["path"])).is_file():
+        return None
+    technical = record.get("technical_qa") or {}
+    if not technical or "dialogue_qa" not in record:
+        return None
+    return {
+        "media": Path(str(record["media_path"])), "media_sha256": record["media_sha256"],
+        "technical": {"status": "PASS" if technical.get("status") == "TECHNICAL_PASS_CONTENT_UNREVIEWED" else "FAIL",
+                      "checks": technical.get("checks") or {}, "supporting": technical.get("supporting_measurements") or {},
+                      "failures": list(technical.get("failures") or [])},
+        "dialogue": record["dialogue_qa"], "sheet": sheet, "speech_rate": record.get("speech_rate_qa") or {},
+        "voice": record.get("voice_consistency_qa"),
+        "reused_from": {"recorded_at": record.get("recorded_at"), "record": str(record_path)},
+    }
+
+
+#: Rejections where the model ignored a constraint that is already in the prompt.  Re-running the same
+#: prompt is a fine-tune retry and never a remedy (Roger 2026-10-29): the request names the change the
+#: reroll must carry, and the order of remedies before any paid action.
+CONSTRAINT_IGNORED_CODES = ("BURNED_IN_SUBTITLE_TEXT", "ONSCREEN_TEXT", "EXTRA_VISIBLE_FIGURE",
+                            "FACE_COUNT", "SECOND_FACE")
+
+
+def required_prompt_change_for(reason: str) -> str | None:
+    text = str(reason or "")
+    if "SPEECH_RATE_UNDER_TARGET" in text:
+        return "PERFORMANCE_INSTRUCTION_CHANGE (seq=29 规则 6：换表演指令，不许只改字/秒)"
+    if any(code in text for code in CONSTRAINT_IGNORED_CODES):
+        return ("PROMPT_OR_DESIGN_CHANGE_REQUIRED (Roger 2026-10-29：约束已在提示词里、模型无视，同一提示词不得重投；"
+                "先评估裁切/遮蔽后处理，再改构图或换模型，都不行才交线主决定)")
+    return None
+
 POSTGEN_PROFILES = ("WEAK", "STRICT")
 PLOT_REVIEW_MODES = ("REQUIRED", "OPTIONAL")
 DELIVERY_SAMPLE_RATE_HZ = 48000
@@ -912,8 +972,8 @@ def build_reroll_requests(episode: str, rejected: list[dict[str, Any]],
             "reroll_number": reroll_number,
             "failure_tier": "BLOCK",
             "failure_reason": reason,
-            "required_prompt_change": ("PERFORMANCE_INSTRUCTION_CHANGE (seq=29 规则 6：换表演指令，不许只改字/秒)"
-                                       if "SPEECH_RATE_UNDER_TARGET" in str(reason) else None),
+            "required_prompt_change": required_prompt_change_for(reason),
+            "identical_prompt_reroll_allowed": required_prompt_change_for(reason) is None,
             "failure_class": failure_class,
             "total_paid_tasks": total_paid_tasks,
             "all_reasons": row.get("reasons") or [],
@@ -983,7 +1043,7 @@ def unit_media(episode: str, unit_id: str) -> Path:
 
 
 def run(episode: str, *, review_path: Path | None = None,
-        units: list[str] | None = None, language: str = "zh") -> dict[str, Any]:
+        units: list[str] | None = None, language: str = "zh", remeasure: bool = False) -> dict[str, Any]:
     if POSTGEN_POLICY_ERROR:
         raise ValueError(POSTGEN_POLICY_ERROR)
     p = QaPaths(episode)
@@ -1015,6 +1075,15 @@ def run(episode: str, *, review_path: Path | None = None,
         media = unit_media(episode, unit_id)
         out_dir = p.postgen_dir / unit_id
         out_dir.mkdir(parents=True, exist_ok=True)
+        media_sha = sha256_file(media)
+        fingerprint = measurement_fingerprint(media_sha, expectations, language=language, policy=POSTGEN_POLICY,
+                                             pacing=pacing_policy(episode),
+                                             voice_cast=voice_cast if voice_check_active else None)
+        if not remeasure:
+            reused = reuse_measurement(out_dir / f"{unit_id}_POST_GENERATION_QA.json", fingerprint)
+            if reused is not None:
+                reused["measurement_fingerprint"] = fingerprint
+                return reused
         # nalu D-28: dialogue first — its speech segments make the static-hold measurement
         # speech-aware (a held frame under a spoken line is not an unmotivated static hold).
         dialogue = dialogue_check(unit_id, media,
@@ -1041,9 +1110,9 @@ def run(episode: str, *, review_path: Path | None = None,
                                     expectations.get("expected_dialogue") or [], voice_cast, name_to_id,
                                     language=language)
             write_json(out_dir / f"{unit_id}_voice_consistency.json", voice)
-        return {"media": media, "media_sha256": sha256_file(media),
+        return {"media": media, "media_sha256": media_sha, "measurement_fingerprint": fingerprint,
                 "technical": technical, "dialogue": dialogue, "sheet": sheet, "speech_rate": speech_rate,
-                "voice": voice}
+                "voice": voice, "reused_from": None}
 
     try:
         engine_module("run_regression_ci")   # import once, before the pool
@@ -1160,6 +1229,9 @@ def run(episode: str, *, review_path: Path | None = None,
                 "observation": (plot or {}).get("observation"),
                 "defects": (plot or {}).get("defects") or [],
             },
+            "measurement_fingerprint": measured[unit_id].get("measurement_fingerprint"),
+            "measurement_reuse": ({"reused": True, **measured[unit_id]["reused_from"]}
+                                  if measured[unit_id].get("reused_from") else {"reused": False}),
             "recorded_at": now(), "recorded_by": TOOL_ID,
         }
         write_json(out_dir / f"{unit_id}_POST_GENERATION_QA.json", record)
@@ -1201,6 +1273,9 @@ def run(episode: str, *, review_path: Path | None = None,
         },
         "media_boundary_acceptance": boundary,
         "unit_count": len(rows),
+        "measured_unit_count": sum(1 for row in rows if not row["measurement_reuse"]["reused"]),
+        "reused_measurement_count": sum(1 for row in rows if row["measurement_reuse"]["reused"]),
+        "measurement_policy": "INCREMENTAL_BY_CLIP_SHA256 (K129); --remeasure forces a full re-measure",
         "admitted_count": len(admitted),
         "rejected_count": len(rejected),
         "status": ("ADMIT_ALL" if rows and not rejected
@@ -1397,6 +1472,8 @@ def main() -> int:
     rn = sub.add_parser("run")
     rn.add_argument("--episode", required=True)
     rn.add_argument("--review", type=Path)
+    rn.add_argument("--remeasure", action="store_true",
+                    help="measure every unit again even when its clip and inputs are unchanged")
     rn.add_argument("--unit", action="append", default=[])
     rn.add_argument("--language", choices=("zh", "en"), default="zh",
                     help="dialogue language resolved by nalu_pipeline (default zh)")
@@ -1441,7 +1518,7 @@ def main() -> int:
                          ensure_ascii=False, indent=2)[:4000])
         return 0
 
-    summary = run(args.episode, review_path=args.review, units=args.unit or None,
+    summary = run(args.episode, review_path=args.review, units=args.unit or None, remeasure=args.remeasure,
                   language=args.language)
     print(json.dumps({"status": summary["status"], "units": summary["unit_count"],
                       "admitted": summary["admitted_count"],

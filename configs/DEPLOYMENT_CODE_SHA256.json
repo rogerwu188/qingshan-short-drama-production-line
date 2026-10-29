@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2266,
+  "file_count": 2267,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -233,7 +233,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "a9217a93649b4930d0e213dc4b673e464d909e997df6929c3fa9ad5eca191850"
+      "sha256": "2d7095ddee24a33aaead07724b65bec2331dabd445d130c67ec270069337c302"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -269,7 +269,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "20639f1caf2afcc81a189c38a8b20ecaef5f07ea969a2f8c1a3f90cb0002eeeb"
+      "sha256": "81e4ac42965e7687581b2defb8c0ebb6e4444e07fd4db58a231415f915122ed3"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -357,7 +357,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "5a6557fe066f6a255b929723649759aa4c82a9e1c5e8fd56a3c9e915694d5268"
+      "sha256": "984ddc7b2a0e661f29dbe2a04e105e0d2288cbca1e8e3dd346ca40f77263b7ba"
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
@@ -717,7 +717,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/post_generation_qa_runner.py",
-      "sha256": "6e128fa6ed5f6f92ddc8df92c32578a93a33d0058a07a914c7ae0ba1893d0133"
+      "sha256": "2491903f38919e881d0a1b54a765f31f0e3c8e8dccdcb33f3e6f486bff962309"
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_finalize.py",
@@ -8006,6 +8006,10 @@
     {
       "path": "tools/tests/test_post_generation_qa_scope_gate.py",
       "sha256": "3d4a2dfa1ee45cca7f99dde618406b43c291b761eaa86656b4b7cf23a397c08f"
+    },
+    {
+      "path": "tools/tests/test_postgen_incremental_measurement.py",
+      "sha256": "f90035ec8cbd74719eb059e902e3432fc7e9889282c5862d6f422ae3c394ee8b"
     },
     {
       "path": "tools/tests/test_pregen_consistency_retry_closure.py",

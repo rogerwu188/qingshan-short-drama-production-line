@@ -404,6 +404,7 @@
     "tools.tests.test_line_upgrade_gate",
     "tools.tests.test_collective_e2e_demo",
     "tools.tests.test_collective_object_store",
-    "tools.tests.test_s3ctl"
+    "tools.tests.test_s3ctl",
+    "tools.tests.test_postgen_incremental_measurement"
   ]
 }
