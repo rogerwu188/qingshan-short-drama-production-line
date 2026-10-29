@@ -230,7 +230,27 @@
     "workflow/dashboard/build_status.py",
     "workflow/production_line/PORTABLE_CONCURRENCY_POLICY_TEMPLATE.json",
     "workflow/s3_relay/S3_RELAY_UPLOAD_SAFETY_CHECKLIST.json",
-    "workflow/time_ledger/PORTABLE_TIME_LEDGER_TEMPLATE.json"
+    "workflow/time_ledger/PORTABLE_TIME_LEDGER_TEMPLATE.json",
+    "configs/DIRECTOR_SCORE_V1.json",
+    "configs/schemas/collective_learning/adoption_receipt.schema.json",
+    "configs/schemas/collective_learning/attribution_review.schema.json",
+    "configs/schemas/collective_learning/knowledge_candidate.schema.json",
+    "configs/schemas/collective_learning/observation_event.schema.json",
+    "configs/schemas/collective_learning/release_state.schema.json",
+    "tools/collective_learning/__init__.py",
+    "tools/collective_learning/adoption.py",
+    "tools/collective_learning/bundles.py",
+    "tools/collective_learning/contracts.py",
+    "tools/collective_learning/device_store.py",
+    "tools/collective_learning/director_score.py",
+    "tools/collective_learning/http_api.py",
+    "tools/collective_learning/impact.py",
+    "tools/collective_learning/migrations/0001_init.sql",
+    "tools/collective_learning/runtime_wiring.py",
+    "tools/collective_learning/selection.py",
+    "tools/collective_learning/service.py",
+    "tools/collective_learning/sync_client.py",
+    "tools/collective_learning_loadtest.py"
   ],
   "portable_test_modules": [
     "agent_factory.claude_writer_v2.tests.test_smoke",
@@ -370,6 +390,14 @@
     "tools.tests.test_voice_cast_gate",
     "tools.tests.test_voice_over_narration",
     "tools.tests.test_write_off_charged_losses",
-    "tools.tests.test_writer_production_field_gate"
+    "tools.tests.test_writer_production_field_gate",
+    "tools.tests.test_collective_device_store",
+    "tools.tests.test_collective_director_score",
+    "tools.tests.test_collective_service",
+    "tools.tests.test_collective_sync_client",
+    "tools.tests.test_collective_bundles",
+    "tools.tests.test_collective_selection_adoption",
+    "tools.tests.test_collective_real_entry_wiring",
+    "tools.tests.test_line_upgrade_gate"
   ]
 }
