@@ -1,0 +1,61 @@
+{
+  "schema": "qingshan.collective.loadtest_report.v1",
+  "measured_at": "2026-10-29T07:05:59.986Z",
+  "status": "PASS",
+  "note": "baseline measurement on one machine with server and clients on loopback; not a capacity promise",
+  "hardware": {
+    "platform": "macOS-26.3.1-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor": "arm",
+    "cpu_count": 8,
+    "memory_bytes": 8589934592,
+    "python": "3.12.13",
+    "sqlite": "3.53.1"
+  },
+  "workload": {
+    "clients": 100,
+    "events_per_client": 1000,
+    "duplicate_ratio": 0.2,
+    "batch_size": 100,
+    "server_max_batch": 500,
+    "batches_sent": 1300,
+    "deliveries_planned": 120000,
+    "request_payload_bytes": 76031211,
+    "event_build_seconds_excluded": 11.08,
+    "server": "separate process, ThreadingHTTPServer + SQLite WAL synchronous=FULL",
+    "durability": "every batch is one committed transaction (fsync) before its ack"
+  },
+  "results": {
+    "wall_seconds": 55.87,
+    "unique_events_per_second": 1789.7,
+    "deliveries_per_second": 2147.7,
+    "batch_latency_seconds": {
+      "p50": 0.832,
+      "p95": 12.5673,
+      "p99": 19.976,
+      "max": 29.5779,
+      "mean": 2.8433
+    },
+    "acks": {
+      "CREATED": 100000,
+      "DUPLICATE": 20000,
+      "CONFLICT": 0,
+      "REJECTED": 0
+    },
+    "errors": 0,
+    "error_samples": [],
+    "retries": 0,
+    "error_rate": 0.0,
+    "server_peak_rss_bytes": 653606912,
+    "client_process_peak_rss_bytes": 161021952,
+    "database_bytes": 130273280
+  },
+  "verification": {
+    "unique_events_in_db": 100000,
+    "expected_unique": 100000,
+    "duplicate_deliveries_logged": 20000,
+    "expected_duplicates": 20000,
+    "deliveries_logged": 120000
+  },
+  "interpretation": "All 120000 deliveries were acknowledged with zero errors and the database holds exactly 100000 unique events and 20000 logged duplicates. The latency tail (p95 ~12.6 s) is queueing: 100 concurrent clients contend for SQLite's single writer and each batch is an fsync'd transaction. Server peak RSS (~650 MB) is dominated by 100 concurrent handler threads each holding a thread-local SQLite connection. Both are first-version baselines on one 8-core 8 GB laptop with clients on loopback, not production targets; the PostgreSQL port and a bounded worker pool are the documented next steps if a tighter p95 is required."
+}
