@@ -1917,8 +1917,26 @@ def derived_opener_shot_ids(inputs: "Inputs", *, camera_grammar: bool | None = N
         # edge / extra face) or a controlled redo switched it: the unit starts from its own keyframe.
         if camera_grammar and uid in own_start_frame_units(inputs):
             continue
+        # Line-owner decision (2026-10-29): an explicit, authority-stamped own-keyframe decision in the S6
+        # wave state applies on every episode, policy or not (nalu_pipeline start-frame-decision).
+        if uid in line_owner_start_frame_units(inputs):
+            continue
         out.add(first[uid])
     return out
+
+
+def line_owner_start_frame_units(inputs: "Inputs") -> set[str]:
+    """Units whose S6 wave-state start_frame_source row carries ``decided_by: LINE_OWNER``."""
+    if getattr(inputs, "dir", None) is None:
+        return set()
+    path = Path(inputs.dir) / "reports" / f"{inputs.episode}_S6_WAVE_STATE.json"
+    try:
+        rows = (load_json(path).get("start_frame_source") or {}) if path.is_file() else {}
+    except Exception:  # noqa: BLE001
+        return set()
+    return {str(uid) for uid, row in rows.items()
+            if isinstance(row, dict) and row.get("start_frame_source") == "OWN_KEYFRAME_TAIL_REJECTED"
+            and row.get("decided_by") == "LINE_OWNER"}
 
 
 def own_start_frame_units(inputs: "Inputs") -> set[str]:

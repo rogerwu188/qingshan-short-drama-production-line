@@ -21,7 +21,10 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Topic :: Multimedia :: Video",
 ]
-dependencies = []
+# boto3 + cryptography are base dependencies since 2026-10-29: the collective-learning sync (S3 mode,
+# Ed25519 bundle signatures) is part of the portable core and its tests, so a clean clone must not
+# depend on a pre-provisioned machine.  `pip install -e .` is enough for the portable CI.
+dependencies = ["boto3>=1.34,<2", "cryptography>=42,<46"]
 
 [project.optional-dependencies]
 media = [

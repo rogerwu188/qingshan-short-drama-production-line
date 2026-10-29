@@ -1,0 +1,503 @@
+"""Collective learning with the bucket as the cloud: device batch → inbox object → collector
+ingest → ack; duplicate re-upload not double counted; signed channel pointer publish/resolve;
+tampered pointer rejected; collector re-run idempotent; unparsable inbox object quarantined."""
+from __future__ import annotations
+
+import base64
+import io
+import json
+import tempfile
+import unittest
+from unittest import mock
+from pathlib import Path
+
+from tools.collective_learning import bundles as b
+from tools.collective_learning import contracts as c
+from tools.collective_learning import device_store as ds
+from tools.collective_learning import object_store as osm
+from tools.collective_learning import s3_sync as s3
+from tools.collective_learning import service as svc_mod
+from tools.collective_learning import sync_client as sc
+from tools.collective_learning_demo import demo_rule
+from tools.tests.fake_s3 import FakeS3, S3Error
+
+TENANT = "tenant-t"
+API = "engine-api-1"
+SD2 = "seedance-2.0-pro"
+ENV = {osm.ENV_ACCESS_KEY: "k", osm.ENV_SECRET_KEY: "s", "S3CTL_ENDPOINT_URL": "https://s3.test",
+       "S3CTL_BUCKET": "drama01", "S3CTL_PUBLIC_BASE_URL": "https://cdn.test/drama01"}
+
+
+class Fixture:
+    def __init__(self, tmp: Path):
+        self.tmp = tmp
+        self.fake = FakeS3()
+        self.cfg = osm.ObjectStoreConfig.from_mapping({"endpoint_url": "https://s3.test", "bucket": "drama01",
+                                                       "public_base_url": "https://cdn.test/drama01"}, env=ENV)
+        self.store = osm.ObjectStore(self.cfg, self.fake, line_id=s3.SERVICE_LINE, receipt_path=tmp / "pre.json")
+        self.store.preflight()
+        self.private, public = b.generate_keypair()
+        self.trust = b.make_trust_store({"pub-1": {"public_key_b64": public, "status": "ACTIVE",
+                                                   "roles": [b.KNOWLEDGE_PUBLISHER]}})
+        self.svc = svc_mod.Service(tmp / "svc.sqlite", trust_store=self.trust, object_store=self.store)
+        self.svc.bootstrap_tenant(TENANT)
+        # S3 mode: the collector only accepts batches of a registered device (allow-list, Codex acceptance A)
+        self.admin = s3.principal(TENANT, "admin-t", "admin")
+        self.svc.register_principal(self.admin, principal_id="dev-1", role="device_writer", line_ids=["line-x"])
+        # a publisher runtime root (key + trust) so sync_channels / revocations can sign pointers
+        self.root = s3.CollectiveRoot(tmp / "runtime")
+        self.root.dir.mkdir(parents=True, exist_ok=True)
+        self.root._write_secret(self.root.key_path, json.dumps({
+            "key_id": "pub-1", "algorithm": "Ed25519", "private_key_b64": base64.b64encode(self.private).decode("ascii"),
+            "public_key_b64": public, "created_at": c.now_iso()}))
+        self.root.trust_path.write_text(json.dumps(self.trust) + "\n", encoding="utf-8")
+        self.collector = s3.Collector(self.svc, self.store, tenant_id=TENANT)
+        self.dstore = ds.DeviceStore(tmp / "dev" / "store.sqlite", tenant_id=TENANT, line_id="line-x", device_id="dev-1")
+        self.transport = s3.S3Transport(self.store, tenant_id=TENANT, line_id="line-x", device_id="dev-1")
+        self.client = sc.SyncClient(self.dstore, self.transport)
+
+    def event(self, **over):
+        return self.dstore.record_observation(
+            run_id="line-x.EP01.R1", episode_id="EP01", stage="S7", event_kind="FAILURE_OBSERVATION",
+            unit_ids=["EP01-VU-001"], visibility="LINE", detected_by="reviewer",
+            symptom=over.pop("symptom", "speaker eyeline drifts toward the lens during a line"),
+            evidence={"gate": "DIRECTOR_SCORE_V1.performance_interaction", "level": 2,
+                      "timecodes": [{"video_sha256": "a" * 64, "timeline": "FINAL_CUT", "start_ms": 100, "end_ms": 900}]},
+            opportunity={"applicable_units": 3, "observed_units": 1}, provider_model_version=SD2, **over)
+
+    def keys(self, prefix: str) -> list[str]:
+        return sorted(k for (_, k) in self.fake.objects if k.startswith(prefix))
+
+
+class TransportCollectorTest(unittest.TestCase):
+    def setUp(self):
+        self.fx = Fixture(Path(tempfile.mkdtemp()))
+
+    def test_batch_lands_in_inbox_then_collector_ingests_and_acks(self):
+        fx = self.fx
+        ev = fx.event()
+        push = fx.client.run_once()
+        # upload is NOT delivery: the item stays pending until the collector's ack is seen (Codex B)
+        self.assertEqual((push["delivered"], push["quarantined"], push["in_flight"]), (0, 0, 1), push)
+        inbox = fx.keys("collective/tenant-t/inbox/")
+        self.assertEqual(len(inbox), 1)
+        self.assertTrue(inbox[0].startswith("collective/tenant-t/inbox/line-x/dev-1/event/"))
+        self.assertEqual(fx.dstore.outbox_status()["counts"].get("PENDING"), 1)
+
+        out = fx.collector.run_once()
+        self.assertEqual((out["ingested_batches"], out["created"], out["quarantined_batches"]), (1, 1, 0), out)
+        push2 = fx.client.run_once(now=sc.far_future())
+        self.assertEqual((push2["delivered"], push2["in_flight"]), (1, 0), push2)
+        self.assertEqual(fx.dstore.outbox_status()["counts"].get("DELIVERED"), 1)
+        self.assertEqual(fx.svc.event_counts(TENANT)["unique_events"], 1)
+        self.assertEqual(fx.keys("collective/tenant-t/inbox/"), [])
+        self.assertEqual(len(fx.keys("collective/tenant-t/processed/line-x/dev-1/event/")), 1)
+        acks = fx.keys("collective/tenant-t/acks/line-x/dev-1/")
+        self.assertEqual(len(acks), 1)
+        ack = json.loads(fx.store.get_bytes(acks[0]))
+        self.assertEqual((ack["results"][0]["id"], ack["results"][0]["status"]), (ev["event_id"], "CREATED"))
+        status = fx.transport.sync_status()
+        self.assertEqual((status["accepted"], status["rejected"], status["inbox_pending_batches"]), (1, 0, 0))
+
+    def test_duplicate_reupload_is_not_double_counted_and_rerun_is_idempotent(self):
+        fx = self.fx
+        fx.event()
+        fx.client.run_once()
+        inbox_key = fx.keys("collective/tenant-t/inbox/")[0]
+        doc = json.loads(fx.store.get_bytes(inbox_key))
+        fx.collector.run_once()
+        self.assertEqual(fx.svc.event_counts(TENANT)["unique_events"], 1)
+        # the same batch bytes arrive again (lost ack on the device): same key, ingested as DUPLICATE
+        fx.store.put_bytes(inbox_key, (json.dumps(doc, sort_keys=True) + "\n").encode(), "application/json")
+        out = fx.collector.run_once()
+        self.assertEqual((out["ingested_batches"], out["created"], out["duplicate"]), (1, 0, 1), out)
+        self.assertEqual(fx.svc.event_counts(TENANT)["unique_events"], 1)
+        # a plain re-run finds nothing: processed objects are never re-ingested
+        again = fx.collector.run_once()
+        self.assertEqual((again["ingested_batches"], again["items"]), (0, 0))
+        # transport-level: posting the identical batch twice produces one key
+        status, body, _ = fx.transport.request("POST", "/v1/events:batch", {"events": doc["items"]})
+        status2, body2, _ = fx.transport.request("POST", "/v1/events:batch", {"events": doc["items"]})
+        self.assertEqual((status, status2, body["inbox_key"], body2["inbox_key"]), (200, 200, inbox_key, inbox_key))
+
+    def test_sensitive_item_refused_before_upload_and_bad_object_quarantined(self):
+        fx = self.fx
+        status, body, _ = fx.transport.request("POST", "/v1/events:batch", {"events": [
+            {"event_id": "e-bad", "symptom": "path /Us" + "ers/x/private"}]})
+        self.assertEqual(status, 200)
+        self.assertEqual(body["results"][0]["status"], "REJECTED")
+        self.assertIn("ABSOLUTE_HOME_PATH", ";".join(body["results"][0]["codes"]))
+        self.assertEqual(fx.keys("collective/tenant-t/inbox/"), [])
+        # garbage in the inbox never stops the collector
+        fx.store.put_bytes("collective/tenant-t/inbox/line-x/dev-1/event/garbage.json", b"{not json", "application/json")
+        fx.event()
+        fx.client.run_once()
+        out = fx.collector.run_once()
+        self.assertEqual((out["ingested_batches"], out["quarantined_batches"]), (1, 1), out)
+        self.assertEqual(fx.keys("collective/tenant-t/inbox/"), [])
+        q = fx.keys("collective/tenant-t/quarantine/line-x/dev-1/event/")
+        self.assertEqual(len(q), 2)  # the object and its error note
+        note = json.loads(fx.store.get_bytes([k for k in q if k.endswith(".error.json")][0]))
+        self.assertEqual(note["status"], "QUARANTINED")
+        self.assertEqual(fx.transport.failures()["quarantined_batches"], q)
+
+    def test_bucket_outage_means_retry_never_crash(self):
+        fx = self.fx
+        fx.event()
+        fx.fake.fail_put = RuntimeError("endpoint down")
+        push = fx.client.run_once()
+        self.assertEqual((push["delivered"], push["retry"]), (0, 1), push)
+        self.assertTrue(push["errors"][0].startswith("TRANSPORT:"))
+        fx.fake.fail_put = None
+        push = fx.client.run_once(now=sc.far_future())
+        self.assertEqual((push["delivered"], push["in_flight"]), (0, 1), push)
+        fx.collector.run_once()
+        self.assertEqual(sc.drain(fx.client, now=sc.far_future())["outbox"].get("DELIVERED"), 1)
+
+    def test_forged_or_unregistered_identity_is_quarantined_not_ingested(self):
+        fx = self.fx
+        event = fx.event()
+        forged = dict(event, event_id=c.new_uuid(), line_id="victim-line", device_id="victim-device")
+        document = {"schema": s3.BATCH_SCHEMA, "tenant_id": TENANT, "line_id": "victim-line",
+                    "device_id": "victim-device", "kind": "EVENT", "batch_id": "forged-batch", "items": [forged]}
+        # (1) body identity differs from the inbox path it was written under
+        fx.store.put_bytes(s3.tenant_key(TENANT, "inbox/attacker-line/attacker-device/event/forged-batch.json"),
+                           json.dumps(document).encode(), "application/json")
+        # (2) path and body agree but the device was never registered
+        fx.store.put_bytes(s3.tenant_key(TENANT, "inbox/victim-line/victim-device/event/forged-batch.json"),
+                           json.dumps(document).encode(), "application/json")
+        out = fx.collector.run_once()
+        self.assertEqual((out["created"], out["ingested_batches"], out["quarantined_batches"],
+                          out["held_unregistered_batches"]), (0, 0, 1, 1), out)
+        notes = [json.loads(fx.store.get_bytes(k)) for k in fx.keys("collective/tenant-t/quarantine/")
+                 if k.endswith(".error.json")]
+        self.assertEqual([n["error"].split(":")[1] for n in notes], [s3.IDENTITY_PATH_MISMATCH])
+        self.assertEqual(fx.svc.event_counts(TENANT)["unique_events"], 0)
+        # the forgery is acked as REJECTED under the PATH identity (never under the victim's)
+        acked = json.loads(fx.store.get_bytes(s3.tenant_key(TENANT, "acks/attacker-line/attacker-device/forged-batch.json")))
+        self.assertEqual((acked["status"], acked["results"][0]["status"]), ("QUARANTINED", "REJECTED"))
+        self.assertEqual(fx.keys("collective/tenant-t/acks/victim-line/"), [])
+        # the consistent-but-unregistered batch stays in the inbox until an admin registers the device
+        self.assertEqual(len(fx.keys("collective/tenant-t/inbox/victim-line/")), 1)
+        self.assertEqual(out["held"][0]["reason"].split(":")[0], s3.DEVICE_NOT_REGISTERED)
+        # the registered device on its own path is still fine
+        fx.client.run_once()
+        self.assertEqual(fx.collector.run_once()["created"], 1)
+        fx.svc.register_principal(fx.admin, principal_id="victim-device", role="device_writer", line_ids=["victim-line"])
+        self.assertEqual(fx.collector.run_once()["created"], 1, "registration releases the held batch")
+
+    def test_transient_read_is_deferred_and_ingested_after_restart(self):
+        fx = self.fx
+        fx.event()
+        first_push = fx.client.run_once()
+        self.assertEqual(first_push["in_flight"], 1)
+        key = fx.store.list(s3.inbox_prefix(TENANT))[0]["key"]
+        original_get = fx.fake.get_object
+        state = {"failed": False}
+
+        def fail_one_read(*, Bucket, Key):
+            if Key == key and not state["failed"]:
+                state["failed"] = True
+                raise TimeoutError("single transient object read timeout")
+            return original_get(Bucket=Bucket, Key=Key)
+
+        with mock.patch.object(fx.fake, "get_object", side_effect=fail_one_read):
+            first = fx.collector.run_once()
+        self.assertEqual((first["quarantined_batches"], first["deferred_batches"], first["ingested_batches"]), (0, 1, 0), first)
+        self.assertTrue(first["deferred"][0]["transient"])
+        self.assertEqual(len(fx.keys("collective/tenant-t/inbox/")), 1, "the object stays in the inbox")
+        restarted = svc_mod.Service(fx.tmp / "svc.sqlite", trust_store=fx.trust, object_store=fx.store)
+        second = s3.Collector(restarted, fx.store, tenant_id=TENANT).run_once()
+        self.assertEqual((second["ingested_batches"], second["created"]), (1, 1), second)
+        self.assertEqual(restarted.event_counts(TENANT)["unique_events"], 1)
+        self.assertEqual(fx.client.run_once(now=sc.far_future())["delivered"], 1)
+        # a 5xx from the gateway is transient too; a schema error is not
+        self.assertTrue(s3._is_transient(S3Error("ServiceUnavailable")))
+        self.assertTrue(s3._is_transient(ConnectionError("reset")))
+        self.assertFalse(s3._is_transient(ValueError("BATCH_SCHEMA_INVALID")))
+
+
+class ChannelTest(unittest.TestCase):
+    def setUp(self):
+        self.fx = Fixture(Path(tempfile.mkdtemp()))
+        fx = self.fx
+        pub = s3.principal(TENANT, "pub-1", "publisher")
+        rule = demo_rule()
+        bundle = {"schema": c.BUNDLE_SCHEMA, "bundle_id": "directing-dialogue", "version": 2,
+                  "created_at": c.now_iso(), "release_channel": "CANARY",
+                  "compat": {"engine_api_versions": [API], "models": [SD2]}, "rules": [rule]}
+        self.envelope = b.sign_bundle(bundle, key_id="pub-1", private_raw=fx.private)
+        self.raw = json.dumps(self.envelope, ensure_ascii=False).encode("utf-8")
+        up = fx.svc.upload_bundle(pub, {
+            "bundle_id": "directing-dialogue", "version": "2", "digest": c.sha256_bytes(self.raw),
+            "payload_b64": base64.b64encode(self.raw).decode("ascii"),
+            "signature_b64": self.envelope["signature"]["value_b64"], "key_id": "pub-1",
+            "manifest": {"scope": {"models": [SD2], "stages": ["VIDEO_COMPILE"]}}})
+        self.assertEqual(up["object_mirror"]["status"], "MIRRORED", up)
+        self.mirror_key = up["object_mirror"]["key"]
+        self.channel = s3.S3Channel(fx.store, tenant_id=TENANT)
+        self.channel.publish_trust(fx.trust)
+        self.caps = {"model": SD2, "stage": "VIDEO_COMPILE", "engine_api_version": API}
+
+    def test_publish_then_clean_device_resolves_verified_bundle(self):
+        fx = self.fx
+        pointer = self.channel.publish("CANARY", bundle_id="directing-dialogue", version="2",
+                                       bundle_digest=self.envelope["digest"], payload_sha256=c.sha256_bytes(self.raw),
+                                       key_id="pub-1", private_raw=fx.private)
+        self.assertEqual(pointer["sequence"], 1)
+        self.assertEqual(self.mirror_key, "collective/tenant-t/bundles/directing-dialogue/2.json")
+        clean = Path(tempfile.mkdtemp())
+        trust = json.loads(fx.store.get_bytes("collective/tenant-t/trust.json"))
+        cache = b.BundleCache(clean / "cache", trust)
+        resolved = self.channel.resolve(self.caps, cache, trust, channel="CANARY")
+        self.assertEqual([e["bundle_id"] for e in resolved["selected"]], ["directing-dialogue"])
+        self.assertEqual(resolved["selected"][0]["digest"], self.envelope["digest"])
+        self.assertEqual([p["status"] for p in resolved["s3_pull"]], ["OK", "NO_POINTER"])
+        self.assertEqual(cache.entries()[0]["release_channel"], "CANARY")
+        # SyncClient.pull_bundles works over the same transport (HTTP-shaped resolve + get)
+        transport = s3.S3Transport(fx.store, tenant_id=TENANT, line_id="line-x", device_id="dev-2")
+        cache2 = b.BundleCache(clean / "cache2", trust)
+        client = sc.SyncClient(ds.DeviceStore(clean / "s.sqlite", tenant_id=TENANT, line_id="line-x"), transport)
+        pulled = client.pull_bundles(self.caps, channels=["CANARY"],
+                                     accept=lambda rec: cache2.admit(base64.b64decode(rec["payload_b64"]), source="s3"))
+        self.assertEqual(pulled["fetched"][0]["status"], "FETCHED")
+        self.assertEqual(cache2.entries()[0]["digest"], self.envelope["digest"])
+        # a RELEASED-only device does not take the canary
+        released = self.channel.resolve(self.caps, b.BundleCache(clean / "cache3", trust), trust, channel="RELEASED")
+        self.assertEqual(released["selected"], [])
+
+    def test_tampered_pointer_and_unknown_signer_rejected(self):
+        fx = self.fx
+        self.channel.publish("CANARY", bundle_id="directing-dialogue", version="2",
+                             bundle_digest=self.envelope["digest"], payload_sha256=c.sha256_bytes(self.raw),
+                             key_id="pub-1", private_raw=fx.private)
+        key = "collective/tenant-t/channels/canary.json"
+        pointer = json.loads(fx.store.get_bytes(key))
+        pointer["body"]["bundles"]["directing-dialogue"]["version"] = "3"
+        fx.store.put_bytes(key, json.dumps(pointer).encode(), "application/json")
+        with self.assertRaises(b.BundleError) as ctx:
+            self.channel.fetch_into_cache(b.BundleCache(Path(tempfile.mkdtemp()), fx.trust), fx.trust, channel="CANARY")
+        self.assertTrue(any(code.startswith("CHANNEL_POINTER_DIGEST_MISMATCH") for code in ctx.exception.codes))
+        # re-signed by a key the device does not trust
+        other_private, other_public = b.generate_keypair()
+        bad = self.channel.publish("CANARY", bundle_id="directing-dialogue", version="2",
+                                   bundle_digest=self.envelope["digest"], payload_sha256=c.sha256_bytes(self.raw),
+                                   key_id="pub-evil", private_raw=other_private)
+        with self.assertRaises(b.BundleError) as ctx:
+            self.channel.fetch_into_cache(b.BundleCache(Path(tempfile.mkdtemp()), fx.trust), fx.trust, channel="CANARY")
+        self.assertIn("SIGNER_UNKNOWN:pub-evil", ctx.exception.codes)
+        # swapping the bundle object under a valid pointer is caught by the payload sha
+        fx.store.put_bytes(self.mirror_key, b'{"schema":"x"}', "application/json")
+        self.channel.publish("CANARY", bundle_id="directing-dialogue", version="2",
+                             bundle_digest=self.envelope["digest"], payload_sha256=c.sha256_bytes(self.raw),
+                             key_id="pub-1", private_raw=fx.private)
+        pull = self.channel.fetch_into_cache(b.BundleCache(Path(tempfile.mkdtemp()), fx.trust), fx.trust, channel="CANARY")
+        self.assertEqual(pull["fetched"][0]["status"], "PAYLOAD_SHA_MISMATCH")
+
+
+class CliTest(unittest.TestCase):
+    def test_bootstrap_device_sync_collect_status_with_fake_bucket(self):
+        tmp = Path(tempfile.mkdtemp())
+        fake = FakeS3()
+        factory = lambda cfg, creds: fake  # noqa: E731
+
+        def run(*argv):
+            buf = io.StringIO()
+            code = s3.main(list(argv), env=ENV, client_factory=factory, out=buf)
+            return code, json.loads(buf.getvalue())
+
+        code, boot = run("bootstrap", "--runtime-root", str(tmp / "rt"), "--tenant", "t1")
+        self.assertEqual((code, boot["tenant_status"]), (0, "CREATED"), boot)
+        root = s3.CollectiveRoot(tmp / "rt")
+        self.assertTrue(root.key_path.is_file() and root.trust_path.is_file() and root.db.is_file())
+        self.assertEqual(oct(root.key_path.stat().st_mode & 0o777), "0o600")
+        self.assertIn(("drama01", "collective/t1/trust.json"), fake.objects)
+        self.assertNotIn("private_key_b64", json.dumps(boot))
+        code, again = run("bootstrap", "--runtime-root", str(tmp / "rt"), "--tenant", "t1")
+        self.assertEqual((again["tenant_status"], again["publisher_key_created"]), ("EXISTS", False))
+
+        # a device line directory with the config the line upgrade gate reads
+        dev = tmp / "line-reports"
+        dev.mkdir()
+        (dev / "trust.json").write_bytes(root.trust_path.read_bytes())
+        (dev / "COLLECTIVE_LEARNING_CONFIG.json").write_text(json.dumps({
+            "tenant_id": "t1", "line_id": "line-y", "device_store": True, "trust_store": "trust.json",
+            "cache_dir": "bundle_cache", "channel": "RELEASED", "engine_api_version": API,
+            "capabilities": {"model": SD2}, "batch_id": "B1", "sync": {"mode": "s3"},
+            "object_store": {"endpoint_url": "https://s3.test", "bucket": "drama01"}}))
+        store = ds.DeviceStore(dev / "COLLECTIVE_DEVICE_STORE.sqlite", tenant_id="t1", line_id="line-y")
+        store.record_observation(run_id="line-y.EP01.B1", episode_id="EP01", stage="S7", event_kind="FAILURE_OBSERVATION",
+                                 unit_ids=["EP01-VU-001"], visibility="LINE", detected_by="reviewer",
+                                 symptom="synthetic symptom for the cli test",
+                                 evidence={"gate": "x", "level": 1}, opportunity={"applicable_units": 1, "observed_units": 1})
+        code, sync = run("device-sync", "--config", str(dev / "COLLECTIVE_LEARNING_CONFIG.json"))
+        self.assertEqual((code, sync["push"]["delivered"], sync["push"]["in_flight"]), (0, 0, 1), sync)
+        self.assertEqual(sync["sync_status"]["inbox_pending_batches"], 1)
+        # an unregistered device is held, never ingested (Codex A); register it, then collect
+        code, col = run("collect", "--runtime-root", str(tmp / "rt"), "--tenant", "t1")
+        self.assertEqual((code, col["created"], col["held_unregistered_batches"]), (0, 0, 1), col)
+        code, reg = run("register-device", "--runtime-root", str(tmp / "rt"), "--tenant", "t1",
+                        "--device", store.device_id, "--line", "line-y")
+        self.assertEqual((code, reg["registration"], reg["line_ids"]), (0, "CREATED", ["line-y"]), reg)
+        self.assertNotIn("token", json.dumps(reg).lower().replace("no token", ""))
+        code, reg2 = run("register-device", "--runtime-root", str(tmp / "rt"), "--tenant", "t1",
+                         "--device", store.device_id, "--line", "line-y2")
+        self.assertEqual((reg2["registration"], reg2["line_ids"]), ("UPDATED", ["line-y", "line-y2"]))
+        store.record_observation(run_id="line-y.EP01.B1", episode_id="EP01", stage="S7", event_kind="FAILURE_OBSERVATION",
+                                 unit_ids=["EP01-VU-002"], visibility="LINE", detected_by="reviewer",
+                                 symptom="second synthetic symptom for the cli test",
+                                 evidence={"gate": "x", "level": 1}, opportunity={"applicable_units": 1, "observed_units": 1})
+        code, sync = run("device-sync", "--config", str(dev / "COLLECTIVE_LEARNING_CONFIG.json"))
+        self.assertEqual(sync["push"]["in_flight"], 2, sync)  # both pending items re-sent in one new batch
+        code, col = run("collect", "--runtime-root", str(tmp / "rt"), "--tenant", "t1")
+        self.assertEqual((code, col["created"], col["event_counts"]["unique_events"]), (0, 2, 2), col)
+        code, sync = run("device-sync", "--config", str(dev / "COLLECTIVE_LEARNING_CONFIG.json"))
+        self.assertEqual(sync["push"]["delivered"], 2, sync)
+        code, agent = run("install-device-agent", "--config", str(dev / "COLLECTIVE_LEARNING_CONFIG.json"),
+                          "--interval", "600", "--agents-dir", str(tmp / "agents"), "--env-file", str(tmp / "dev.env"))
+        self.assertEqual((code, agent["label"], agent["interval_s"]), (0, "com.nalu.collective-device-sync.line-y", 600), agent)
+        import plistlib
+        plist = plistlib.loads(Path(agent["plist"]).read_bytes())
+        self.assertIn("device-sync", plist["ProgramArguments"]); self.assertIn("--env-file", plist["ProgramArguments"])
+        code, st = run("status", "--runtime-root", str(tmp / "rt"), "--tenant", "t1")
+        self.assertEqual((st["objects"]["inbox"], st["objects"]["processed"], st["objects"]["quarantine"]), (0, 2, 0))
+        self.assertTrue(st["trust_in_bucket"])
+
+
+class BackgroundCollectorTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.fake = FakeS3()
+        self.factory = lambda cfg, creds: self.fake  # noqa: E731
+        buf = io.StringIO()
+        assert s3.main(["bootstrap", "--runtime-root", str(self.tmp / "rt"), "--tenant", "t1"], env=ENV,
+                       client_factory=self.factory, out=buf) == 0, buf.getvalue()
+        self.root = s3.CollectiveRoot(self.tmp / "rt")
+
+    def test_fails_closed_without_env_file_and_with_incomplete_env_file(self):
+        status = s3.run_cycle(self.tmp / "rt", "t1", client_factory=self.factory)
+        self.assertEqual(status["status"], "CREDENTIALS_MISSING")
+        self.assertEqual(len(status["required_lines"]), 5)
+        self.assertTrue(self.root.status_path.is_file())
+        self.root.env_path.write_text("AWS_ACCESS_KEY_ID=k\nS3CTL_BUCKET=drama01\n")
+        status = s3.run_cycle(self.tmp / "rt", "t1", client_factory=self.factory)
+        self.assertEqual(status["status"], "CREDENTIALS_MISSING")
+        self.assertIn("AWS_SECRET_ACCESS_KEY", status["reason"])
+        log = (self.root.log_dir / "collector.log").read_text()
+        self.assertIn("CREDENTIALS_MISSING", log)
+        self.assertNotIn("drama01-user1", log)
+
+    def test_cycle_collects_publishes_released_channels_and_writes_status(self):
+        fx_env = {**ENV}
+        self.root.env_path.write_text("\n".join(f"{k}={v}" for k, v in {
+            "AWS_ACCESS_KEY_ID": "k", "AWS_SECRET_ACCESS_KEY": "s", "S3CTL_ENDPOINT_URL": "https://s3.test",
+            "S3CTL_BUCKET": "drama01", "S3CTL_PUBLIC_BASE_URL": "https://cdn.test/drama01"}.items()) + "\n")
+        # a bundle released in the service but whose pointer never reached the bucket (e.g. machine was off)
+        store = s3.open_object_store(None, line_id=s3.SERVICE_LINE, receipt_path=self.root.preflight_path, env=fx_env,
+                                     client_factory=self.factory)
+        svc = s3.open_service(self.root, store)
+        pub = s3.principal("t1", "pub-cli", "publisher")
+        key_id, private = self.root.publisher_key()
+        bundle = {"schema": c.BUNDLE_SCHEMA, "bundle_id": "directing-dialogue", "version": 3, "created_at": c.now_iso(),
+                  "release_channel": "RELEASED", "compat": {"engine_api_versions": [API], "models": [SD2]},
+                  "rules": [demo_rule()]}
+        env_ = b.sign_bundle(bundle, key_id=key_id, private_raw=private)
+        raw = json.dumps(env_).encode()
+        svc.upload_bundle(pub, {"bundle_id": "directing-dialogue", "version": "3", "digest": c.sha256_bytes(raw),
+                                "payload_b64": base64.b64encode(raw).decode(), "signature_b64": env_["signature"]["value_b64"],
+                                "key_id": key_id, "manifest": {"scope": {"models": [SD2], "stages": ["VIDEO_COMPILE"]}}})
+        svc.release(pub, bundle_id="directing-dialogue", version="3", channel="RELEASED")
+        # a registered device's batch waiting in the inbox
+        svc.register_principal(s3.principal("t1", "admin-t1", "admin"), principal_id="dev-z", role="device_writer",
+                               line_ids=["line-z"])
+        transport = s3.S3Transport(store, tenant_id="t1", line_id="line-z", device_id="dev-z")
+        transport.request("POST", "/v1/events:batch", {"events": [{
+            "event_id": c.new_uuid(), "schema": c.OBSERVATION_SCHEMA if hasattr(c, "OBSERVATION_SCHEMA") else "x",
+            "tenant_id": "t1", "line_id": "line-z", "device_id": "dev-z", "run_id": "line-z.EP01.B1", "episode_id": "EP01",
+            "stage": "S7", "event_kind": "FAILURE_OBSERVATION", "symptom": "synthetic symptom text for the cycle test",
+            "evidence": {"gate": "x", "level": 1}, "opportunity": {"applicable_units": 1, "observed_units": 1},
+            "visibility": "LINE", "detected_by": "reviewer", "occurred_at": c.now_iso(), "unit_ids": ["EP01-VU-001"],
+            "engine_version": "t", "provider_model_version": SD2, "knowledge_bundle_digest": "NONE"}]})
+        status = s3.run_cycle(self.tmp / "rt", "t1", interval_s=300, client_factory=self.factory)
+        self.assertEqual(status["status"], "OK", status)
+        self.assertEqual(status["collected"]["ingested_batches"], 1)
+        self.assertEqual(status["latest_bundle_versions"], {"RELEASED": {"directing-dialogue": "3"}})
+        self.assertEqual(status["channels"]["published"][0]["sequence"], 1)
+        self.assertEqual(status["backlog_inbox_batches"], 0)
+        self.assertEqual(status["interval_s"], 300)
+        self.assertEqual(json.loads(self.root.status_path.read_text())["status"], "OK")
+        # second cycle: nothing to publish, pointer unchanged, still OK
+        again = s3.run_cycle(self.tmp / "rt", "t1", client_factory=self.factory)
+        self.assertEqual((again["status"], again["channels"]["published"], len(again["channels"]["unchanged"])), ("OK", [], 1))
+        # a clean device resolves the released pointer
+        trust = json.loads(store.get_bytes("collective/t1/trust.json"))
+        cache = b.BundleCache(self.tmp / "clean-cache", trust)
+        resolved = s3.S3Channel(store, tenant_id="t1").resolve({"model": SD2, "stage": "VIDEO_COMPILE", "engine_api_version": API},
+                                                                cache, trust, channel="RELEASED")
+        self.assertEqual(resolved["selected"][0]["version"], 3)
+
+    def test_lock_prevents_overlapping_cycles(self):
+        self.root.env_path.write_text("\n".join(f"{k}=v" for k in s3.REQUIRED_ENV) + "\n")
+        import fcntl
+        self.root.lock_path.touch()
+        with self.root.lock_path.open("r+") as held:
+            fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            status = s3.run_cycle(self.tmp / "rt", "t1", client_factory=self.factory)
+        self.assertEqual(status["status"], "SKIPPED_OVERLAP")
+
+    def test_install_agent_writes_plist_without_loading(self):
+        out = s3.install_agent(self.tmp / "rt", "t1", interval_s=300, python="/usr/bin/python3",
+                               agents_dir=self.tmp / "agents", load=False)
+        import plistlib
+        doc = plistlib.loads(Path(out["plist"]).read_bytes())
+        self.assertEqual(doc["Label"], s3.AGENT_LABEL)
+        self.assertEqual(doc["StartInterval"], 300)
+        self.assertEqual(doc["ProgramArguments"][2:4], ["run-cycle", "--runtime-root"])
+        self.assertTrue(doc["RunAtLoad"])
+        self.assertIsNone(out["loaded"])
+        self.assertIn("launchctl bootstrap gui/", out["load_command"])
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class ProductionEventMirrorTest(unittest.TestCase):
+    """knowledge_event_log.record_event (the real entry points' writer) dual-writes into the DeviceStore
+    outbox when the runtime opted in; otherwise nothing is created (Codex correction 2)."""
+
+    def _record(self, root: Path, **over):
+        from tools import knowledge_event_log as kel
+        kwargs = dict(episode="EP01", line="line-m", stage="S6", symptom="speaker eyeline drifts toward the lens",
+                      evidence={"gate": "DIRECTOR_SCORE_V1.performance_interaction", "level": 2},
+                      detected_by="reviewer", unit_ids=["EP01-VU-003"])
+        kwargs.update(over)
+        return kel.record_event(root, **kwargs)
+
+    def test_inert_without_config_and_mirrored_with_it(self):
+        import sqlite3
+        root = Path(tempfile.mkdtemp())
+        (root / "runtime" / "reports").mkdir(parents=True)
+        row = self._record(root)
+        self.assertEqual(row["collective_mirror"]["status"], "INACTIVE")
+        self.assertFalse((root / "runtime" / "reports" / "COLLECTIVE_DEVICE_STORE.sqlite").exists())
+        (root / "runtime" / "reports" / "COLLECTIVE_LEARNING_CONFIG.json").write_text(json.dumps({
+            "tenant_id": "t-m", "line_id": "line-m", "device_store": True, "batch_id": "B2",
+            "trust_store": "trust.json", "cache_dir": "bundle_cache", "engine_api_version": API}))
+        row = self._record(root, symptom="second symptom, now mirrored")
+        self.assertEqual(row["collective_mirror"]["status"], "MIRRORED", row["collective_mirror"])
+        self.assertEqual(row["collective_mirror"]["run_id"], "line-m.EP01.B2")
+        store = ds.DeviceStore(root / "runtime" / "reports" / "COLLECTIVE_DEVICE_STORE.sqlite", tenant_id="t-m", line_id="line-m")
+        self.assertEqual(store.outbox_status()["counts"].get("PENDING"), 1)
+        with sqlite3.connect(store.path) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM events").fetchone()[0], 1)
+        # the legacy JSONL still has both rows: the mirror never replaces the production record
+        from tools import knowledge_event_log as kel
+        self.assertEqual(len(kel._read_all(kel.events_path(root, kel.DEFAULT_RELPATH))), 2)
+        # sensitive content is refused by the mirror but recorded locally as before
+        row = self._record(root, symptom="path leaked /Us" + "ers/someone/x")
+        self.assertEqual(row["collective_mirror"]["status"], "REFUSED")
+        self.assertEqual(store.outbox_status()["counts"].get("PENDING"), 1)
+        # the outbox item is exactly what device-sync would upload
+        self.assertEqual(sc.SyncClient(store, Fixture(Path(tempfile.mkdtemp())).transport).run_once()["in_flight"], 1)
+

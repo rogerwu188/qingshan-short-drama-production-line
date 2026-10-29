@@ -1467,17 +1467,19 @@ def build_transition(engine: Engine, previous_group: dict[str, Any], group: dict
 # start frame semantic contracts (E-7)
 # --------------------------------------------------------------------------- #
 def tail_rejected_start_frame_units(out_dir: Path, episode: str, contract: dict[str, Any]) -> set[str]:
-    """CAMERA_GRAMMAR_V1 units recorded by S6 as start_frame_source OWN_KEYFRAME_TAIL_REJECTED."""
+    """Units that open on their own keyframe: CAMERA_GRAMMAR_V1 units recorded by S6 as start_frame_source
+    OWN_KEYFRAME_TAIL_REJECTED (measured), plus explicit line-owner decisions (``decided_by: LINE_OWNER``,
+    honoured on every episode -- 2026-10-29)."""
     import camera_grammar_policy as _cg
-    if not _cg.active(contract, episode=episode):
-        return set()
+    measured_allowed = _cg.active(contract, episode=episode)
     path = out_dir / "reports" / f"{episode}_S6_WAVE_STATE.json"
     try:
         rows = json.loads(path.read_text(encoding="utf-8")).get("start_frame_source") or {} if path.is_file() else {}
     except (OSError, ValueError):
         return set()
     return {str(uid) for uid, row in rows.items()
-            if isinstance(row, dict) and row.get("start_frame_source") == "OWN_KEYFRAME_TAIL_REJECTED"}
+            if isinstance(row, dict) and row.get("start_frame_source") == "OWN_KEYFRAME_TAIL_REJECTED"
+            and (measured_allowed or row.get("decided_by") == "LINE_OWNER")}
 
 
 def submitted_without_tail_units(out_dir: Path, episode: str, contract: dict[str, Any]) -> set[str]:
@@ -2604,6 +2606,13 @@ def render_h3_final_prompts(transaction: dict[str, Any], *, out_dir: Path, root:
                 pending.append(row)
                 continue
             task["h3_provider_english_contract"] = unit["h3_provider_english_contract"]
+            if os.environ.get("QINGSHAN_KNOWLEDGE_RUN_LOCK"):
+                # Collective learning (opt-in): amend the bound English contract the paid boundary
+                # re-renders from, so the written prompt and the boundary's expectation stay equal.
+                from tools.collective_learning import runtime_wiring
+                runtime_wiring.apply_to_h3_task(
+                    task, lambda t: compile_model_prompt(provider_prompt_unit(t)),
+                    capability_unit=provider_prompt_unit(task))
             text = compile_model_prompt(provider_prompt_unit(task))
         except Exception as exc:  # noqa: BLE001 - reported as a blocker, never a silent PASS
             failed.append(f"{uid}:{type(exc).__name__}:{str(exc)[:300]}")
@@ -3089,6 +3098,12 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
         # Omitting these silently restores unit-wide camera/timeline defaults.
         _copy_compiled_transport_policies(machine, cu)
         task["machine_contract"] = machine
+        if isinstance(cu.get("knowledge_lock"), dict):
+            # Collective learning (opt-in): the run lock and compile-time adoption evidence travel
+            # with the task so the paid boundary re-verifies the lock and binds the sent request.
+            task["knowledge_lock"] = cu["knowledge_lock"]
+            task["knowledge_adoption"] = {k: v for k, v in (cu.get("knowledge_adoption") or {}).items()
+                                          if not k.startswith("pristine_")}
         task["input_template_id"] = compute_input_template_id(task)
     transaction["provider"] = "giggle"
     transaction["video_unit_count"] = len(transaction["tasks"])

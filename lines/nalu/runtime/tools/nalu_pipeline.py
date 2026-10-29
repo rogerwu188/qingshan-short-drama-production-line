@@ -1116,6 +1116,12 @@ class Ctx:
         env["QINGSHAN_VOICE_REGISTRY"] = str(self.p.scope["voice_registry"])
         env["QINGSHAN_ENTITY_REGISTRY"] = str(self.p.scope["entity_registry"])
         env["QINGSHAN_AGENTCUT_VOICE_POLICY"] = str(self.p.scope["agentcut_voice_policy"])
+        # Collective learning (opt-in): only an episode whose S1 preflight locked a knowledge
+        # snapshot exports it; every other episode's children see no QINGSHAN_KNOWLEDGE_* at all.
+        collective = ((getattr(self, "state", None) or {}).get("line_upgrade_preflight") or {}).get("collective") or {}
+        if collective.get("status") == "LOCKED":
+            env.update({k: str(v) for k, v in (collective.get("child_env") or {}).items()
+                        if k.startswith(("QINGSHAN_KNOWLEDGE_", "QINGSHAN_COLLECTIVE_", "QINGSHAN_ENGINE_API"))})
         if not _policy.uses_legacy_first_episode_exception(self.episode):
             # engine patch e16 (seq=7 PACING_E02_PLUS): grouped video units prefer 4-6 s, never above 7 s
             policy = self.p.scope.get("unit_duration_policy") or {}
@@ -1572,7 +1578,7 @@ def _line_upgrade_gate_summary(ctx: Ctx, step: str) -> dict[str, Any]:
         payload = json.loads(proc.stdout or "{}")
     except ValueError:
         payload = {"status": "UNPARSEABLE", "stdout_tail": (proc.stdout or "")[-400:]}
-    keep = ("status", "findings", "notes", "receipt", "knowledge", "knowledge_read", "error")
+    keep = ("status", "findings", "notes", "receipt", "knowledge", "knowledge_read", "collective", "error")
     summary = {key: payload[key] for key in keep if key in payload}
     if isinstance(payload.get("engine"), dict):
         summary["engine"] = {key: payload["engine"].get(key)
@@ -5038,6 +5044,48 @@ def continuity_derived_units(ctx: Ctx) -> dict[str, dict[str, Any]]:
 #: keyframe path when none exists — one image, ~11 credits).
 START_FRAME_TAIL = "TAIL_FRAME"
 START_FRAME_OWN = "OWN_KEYFRAME_TAIL_REJECTED"
+#: An explicit line-owner start-frame decision (2026-10-29, E12 VU-006: the predecessor tail carried a second
+#: face at the frame edge and the redesign needs the unit's own keyframe).  Honoured on every episode, policy
+#: or not: it is a recorded decision with an authority string, never an automatic measurement.
+LINE_OWNER_DECISION = "LINE_OWNER"
+
+
+def line_owner_start_frame_decisions(ctx: Ctx) -> dict[str, dict[str, Any]]:
+    return {uid: row for uid, row in start_frame_source_decisions(ctx).items()
+            if isinstance(row, dict) and row.get("decided_by") == LINE_OWNER_DECISION}
+
+
+def record_line_owner_start_frame_decision(ctx: Ctx, unit_id: str, *, authority: str, reason: str,
+                                           park_derived: bool = True) -> dict[str, Any]:
+    """Record that ``unit_id`` opens on its own keyframe by line-owner decision and park the derived tail
+    copy so the next S5 regenerates the keyframe from the (rewritten) shot text.  Free; never POSTs."""
+    info = continuity_derived_units(ctx).get(unit_id)
+    if not info:
+        raise SystemExit(f"{unit_id} is not a continuity-derived unit of {ctx.episode}; nothing to decide")
+    if (ctx.p.video_media / f"{unit_id}.mp4").is_file():
+        raise SystemExit(f"{unit_id} has a clip on disk; park or reject it through the QA route first")
+    if not str(authority or "").strip():
+        raise SystemExit("--authority is required (who decided, when)")
+    tail = ctx.p.preprod / "real_final_frames" / f"{info['previous_unit_id']}.png"
+    row: dict[str, Any] = {
+        "start_frame_source": START_FRAME_OWN, "decided_by": LINE_OWNER_DECISION, "reason": reason,
+        "authority": authority, "previous_unit_id": info["previous_unit_id"], "first_shot_id": info["first_shot_id"],
+        "tail": str(tail) if tail.is_file() else None, "tail_sha256": sha256_file(tail) if tail.is_file() else None,
+        "next": "S2 rebuild writes the own keyframe prompt; S5 keyframe path (~11 credits) renders it; Q1 reviews it",
+    }
+    dst: Path = info["keyframe_path"]
+    if park_derived and dst.is_file():
+        park_dir = dst.parent / f"_superseded_{ctx.run_id}"
+        park_dir.mkdir(parents=True, exist_ok=True)
+        parked = park_dir / dst.name
+        os.replace(dst, parked)
+        row["parked_derived_keyframe"] = str(parked)
+        sidecar = dst.with_name(dst.name.replace(".png", ".derived.json"))
+        if sidecar.is_file():
+            os.replace(sidecar, park_dir / sidecar.name)
+            row["parked_derived_sidecar"] = str(park_dir / sidecar.name)
+    record_start_frame_source(ctx, unit_id, row)
+    return row
 #: Q2 objective failures whose controlled redo must not re-shoot from the same start frame.
 REDO_START_FRAME_FAILURES = ("speaker_framing", "face_count")
 
@@ -5155,12 +5203,16 @@ def materialise_derived_keyframes(ctx: Ctx) -> list[dict[str, Any]]:
     rows = []
     tails = ctx.p.preprod / "real_final_frames"
     stamped = _camera_grammar_on(ctx)
-    decisions = start_frame_source_decisions(ctx) if stamped else {}
+    decisions = start_frame_source_decisions(ctx) if stamped else line_owner_start_frame_decisions(ctx)
     for uid, info in continuity_derived_units(ctx).items():
         dst: Path = info["keyframe_path"]; prev = info["previous_unit_id"]
         src = tails / f"{prev}.png" if prev else None
         if dst.is_file():
             rows.append({"unit_id": uid, "status": "ALREADY_PRESENT", "path": str(dst)}); continue
+        owner = decisions.get(uid) or {}
+        if owner.get("decided_by") == LINE_OWNER_DECISION and owner.get("start_frame_source") == START_FRAME_OWN:
+            rows.append({"unit_id": uid, "status": "OWN_KEYFRAME_REQUIRED", "start_frame_source": START_FRAME_OWN,
+                         "reason": owner.get("reason"), "decided_by": LINE_OWNER_DECISION, "path": str(dst)}); continue
         if not src or not src.is_file():
             rows.append({"unit_id": uid, "status": "TAIL_NOT_YET_EXTRACTED", "previous_unit_id": prev}); continue
         check: dict[str, Any] | None = None
@@ -6400,12 +6452,19 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
                    for t in tx_now.get("tasks") or [])]
     res.details["prompt_finalization"] = {"digest": str(fin_digest), "summary": fin_report.get("summary"),
                                           "changed_without_receipt": unbound}
-    if unbound and _camera_grammar_on(ctx):
-        # CAMERA_GRAMMAR_V1: only units that will be (re)submitted need finalization receipts.
+    if unbound:
+        # Only units that will be (re)submitted need finalization receipts.  Introduced with
+        # CAMERA_GRAMMAR_V1 (lab Holmes E06); applied to every episode since 2026-10-29: a legacy
+        # episode's final pass recompiles a rerolled unit with its predecessor tail re-attached
+        # (no start_frame_as_submitted withholding without the policy) and would otherwise ask a
+        # reviewer to approve a prompt that can never be POSTed -- the bound transaction is the
+        # authority for the clip on disk, recorded in harvested_bound_takes_exempt for audit.
         unbound, harvested = exempt_harvested_bound_takes(ctx, unbound, fin_report, as_submitted)
         if harvested:
             res.details["prompt_finalization"]["changed_without_receipt"] = unbound
             res.details["prompt_finalization"]["harvested_bound_takes_exempt"] = harvested
+            res.details["prompt_finalization"]["exemption_policy"] = (
+                "CAMERA_GRAMMAR_V1" if _camera_grammar_on(ctx) else "BOUND_TAKE_AUTHORITY_LEGACY")
             ctx.say(f"   prompt finalization: {len(harvested)} recompiled prompt(s) belong to clips already "
                     f"produced by bound transactions (never re-submitted, no review needed): {sorted(harvested)}")
     if fin["exit_code"] != 0 or (fin_report.get("summary") or {}).get("missing"):
@@ -7256,6 +7315,11 @@ def s7_final_audience_review(ctx: Ctx, res: StageResult) -> dict[str, Any]:
         for key in ("report", "event_ledger"):
             if detail.get(key):
                 res.receipts.append(str(detail[key]))
+        if detail.get("report"):  # advisory DIRECTOR_SCORE_V1 outputs, only when the reviewer wrote them
+            for suffix in ("DIRECTOR_EVALUATION.json", "DIRECTOR_EVALUATION.md", "NEXT_EPISODE_PLAN.json"):
+                extra = Path(str(detail["report"])).parent / f"{ctx.episode}_{suffix}"
+                if extra.is_file():
+                    res.receipts.append(str(extra))
         return {**detail, "status": PASS, "blockers": []}
 
     if code == 10:
@@ -8608,6 +8672,17 @@ def write_checkpoint(ctx: Ctx) -> Path:
     elif ks_status == "NO_NEW_KNOWLEDGE":
         add("* nothing new was abstracted this episode. If it hit a failure that cost money, that cause "
             "is not in the registry yet — see AGENTS.md §7 step 0.")
+    recheck = ks.get("free_recheck") or []
+    recheck_hit = [r["rule_id"] for r in recheck if r.get("free_matches")]
+    recheck_miss = [r["rule_id"] for r in recheck if r.get("found") and not r.get("free_matches")]
+    if recheck_hit:
+        add(f"* **new rule(s) matched a free step already run this episode** — "
+            f"{json.dumps(recheck_hit, ensure_ascii=False)}: re-run that free step before trusting its "
+            f"cached PASS under the new rule (never resubmit a paid one for this). See `knowledge_sync.free_recheck` "
+            f"in CHECKPOINT state for which step.")
+    if recheck_miss:
+        add(f"* new rule(s) {json.dumps(recheck_miss, ensure_ascii=False)} matched no free step this episode "
+            f"ran; only verified via their own `regression` test under `tools/run_portable_ci.py`.")
     lu_pre = state.get("line_upgrade_preflight") or {}
     lu_close = state.get("line_upgrade_close") or {}
     add(f"* read before writing (S1 preflight): **{lu_pre.get('status') or 'NOT_RUN'}** "
@@ -9228,6 +9303,15 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_start_frame_decision(args: argparse.Namespace) -> int:
+    ctx = Ctx(args.episode, args)
+    row = record_line_owner_start_frame_decision(ctx, args.unit, authority=args.authority, reason=args.reason,
+                                                 park_derived=not args.keep_derived)
+    print(json.dumps({"episode": args.episode, "unit_id": args.unit, **row,
+                      "wave_state": str(_wave_state_path(ctx))}, ensure_ascii=False, indent=1))
+    return 0
+
+
 def cmd_qa_status(args: argparse.Namespace) -> int:
     """One place to see every QA route's readiness and any outstanding review."""
     ctx = Ctx(args.episode, args)
@@ -9395,6 +9479,16 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--json", action="store_true")
     status.set_defaults(func=cmd_status, dry_run=False, paid=False, force=False,
                         from_stage=None, until=None)
+
+    sfd = subs.add_parser("start-frame-decision",
+                          help="line owner: a continuity-derived unit opens on its own keyframe (parks the derived tail copy)")
+    sfd.add_argument("--episode", required=True)
+    sfd.add_argument("--unit", required=True)
+    sfd.add_argument("--authority", required=True, help="who decided and when, verbatim")
+    sfd.add_argument("--reason", default="LINE_OWNER_REDESIGN")
+    sfd.add_argument("--keep-derived", action="store_true", help="do not park the derived keyframe copy")
+    sfd.set_defaults(func=cmd_start_frame_decision, dry_run=False, paid=False, force=False,
+                     from_stage=None, until=None)
 
     qa = subs.add_parser("qa-status",
                          help="show every QA route's readiness and any outstanding review")

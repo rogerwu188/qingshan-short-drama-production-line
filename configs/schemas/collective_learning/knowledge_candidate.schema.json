@@ -1,0 +1,214 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qingshan.collective.knowledge_candidate.v1",
+  "title": "KnowledgeCandidate",
+  "type": "object",
+  "required": [
+    "candidate_id",
+    "revision",
+    "category",
+    "scope",
+    "trigger",
+    "recommendation",
+    "verification",
+    "cost_class",
+    "evidence_level"
+  ],
+  "properties": {
+    "candidate_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-]{0,127}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "CANDIDATE",
+        "NEEDS_EVIDENCE"
+      ]
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "DIRECTING_HEURISTIC",
+        "ENGINEERING_INVARIANT",
+        "MODEL_CONSTRAINT",
+        "EXECUTION_POLICY"
+      ]
+    },
+    "cost_class": {
+      "type": "string",
+      "enum": [
+        "FREE_LOCAL",
+        "FREE_COMPILE_REPLAY",
+        "PAID_REVIEW",
+        "PAID_GENERATION"
+      ]
+    },
+    "evidence_level": {
+      "type": "string",
+      "enum": [
+        "NEEDS_EVIDENCE",
+        "SINGLE_CASE",
+        "REPRODUCED",
+        "MULTI_CASE",
+        "CROSS_LINE"
+      ]
+    },
+    "scope": {
+      "type": "object",
+      "required": [
+        "models",
+        "stages"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "model_modes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "engine_compat": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "stages": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "scene_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "aspect_ratios": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "languages": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "shot_intents": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "requires": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "privacy": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "trigger": {
+      "type": "string"
+    },
+    "recommendation": {
+      "type": "string"
+    },
+    "verification": {
+      "type": "string"
+    },
+    "exceptions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "known_counterexamples": {
+      "type": "array"
+    },
+    "event_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      }
+    },
+    "implementation_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "paid_retry_authorized": {
+      "const": false
+    },
+    "publication_authorized": {
+      "const": false
+    },
+    "budget_change_authorized": {
+      "const": false
+    },
+    "execution_authorized": {
+      "const": false
+    }
+  },
+  "not": {
+    "anyOf": [
+      {
+        "required": [
+          "code"
+        ]
+      },
+      {
+        "required": [
+          "python"
+        ]
+      },
+      {
+        "required": [
+          "shell"
+        ]
+      },
+      {
+        "required": [
+          "script"
+        ]
+      },
+      {
+        "required": [
+          "exec"
+        ]
+      }
+    ]
+  }
+}

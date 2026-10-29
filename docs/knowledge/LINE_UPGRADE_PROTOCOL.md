@@ -84,3 +84,44 @@ python3 <engine>/tools/line_upgrade_gate.py preflight --line <line> --episode <E
 ```
 
 It then hands `<runtime>/reports/<EP>_KNOWLEDGE_BRIEFING.md` to the agent that writes the episode.
+
+## Proving a rule was actually applied, not just read (gap closed 2026-10-28)
+
+Codex knowledge-loop audit 2026-10-27 found that `preflight`'s `knowledge.status = "READ"` means only that the briefing *file* was written — `verify_briefing` checks file existence (and, separately, a sha match that nothing currently gates on), never whether a single rule in it was consulted while the episode was written. "Exported" (in the briefing), "applied" (a rule's clause actually fired on a real shot) and "verified" (that firing's effect was checked against real compiled/submitted content) are three different claims. `preflight`/`close` still own EXPORTED; the other two are `tools/knowledge_consumption_ledger.py`'s job, fed from the one real place a prompt-stage rule can fire: `nalu_prompt_rules.apply(shot, ctx)`.
+
+Every `nalu` episode builder already calls `apply` once per shot and collects the result (`build_e12_layers.py:1497-1498`, unchanged since E02): `clauses, applied, blocks = NPR.apply(shot, ctx)` then `NPR_APPLIED[shot_id] = applied`. Until now `NPR_APPLIED` was discarded after the builder printed its length. The one-line adoption, added once at the end of the shot loop (after `NPR_BLOCKS` is confirmed empty, so a restaged shot is never recorded as applied):
+
+```python
+import knowledge_consumption_ledger as _kcl
+_kcl.record_application(RUNTIME_ROOT, episode=EP, line="nalu", stage="S1", npr_applied=NPR_APPLIED)
+```
+
+`record_application` reshapes `NPR_APPLIED` through `nalu_prompt_rules.applied_summary` (reverse-indexed by rule tag) and keeps only `KNOWLEDGE:<id>` tags as registry-rule evidence — `apply`'s own hardcoded guards (`SOLO_FACE`, `NO_BLACK`, ...) are not auto-claimed as a registry rule's evidence unless the caller passes `tag_to_rule_id={"SOLO_FACE": "K009", ...}` explicitly. It never reads episode text and never touches a paid task, transaction or budget ledger.
+
+A regression test that has actually asserted a rule's effect on real compiled/submitted content (not merely that a test file exists) calls the companion `record_verification(runtime_root, rule_id=..., test_name=..., assertion=..., checked_output=...)`.
+
+`tools/knowledge_consumption_ledger.status_for_rule(engine_root, runtime_root, episode, rule_id)` composes all three claims from their real sources (the briefing file for exported, this ledger for applied/verified) into one report — `{"exported": bool, "applied": bool, "applied_evidence": [...], "verified": bool, "verified_evidence": [...]}` — so nothing downstream has to re-derive "applied" from "exported" the way `KNOWLEDGE_NOT_READ` used to stand in for both.
+
+This was deliberately NOT retrofitted into any already-running episode's builder: `build_eNN_layers.py` is a private, gitignored, per-episode file (`.gitignore:144`, never a git-tracked path), and an in-production episode's generation contract is not something this change touches. The one-line call above is for the next episode's builder to adopt when it is written.
+
+## Pointing new knowledge at what to recheck, never at what to resubmit (gap closed 2026-10-28)
+
+Constraint 4 of the same audit: a newly-synced rule may trigger a recheck of the FREE checks it affects, but must never auto-resubmit a paid task and must never add a paid-redo condition. `close`/`sync` already load `pipeline_state/<episode>.json` into a local `state` variable (`tools/knowledge_sync_core.sync`) and, until now, never used it — the docstring explains why nothing derives a *candidate row* from it (a status table names no cause), which is a different question from this one: given a row a human/agent already authored, which of this episode's already-recorded steps does it affect.
+
+`tools/knowledge_sync_core.free_recheck_targets(state, rows, rule_ids)` answers that by a direct, textual match: a rule's `implementation` file against the exact `argv` `nalu_pipeline.py` already recorded for every step it ran. Every matched step carries the run's own `paid` flag, so the function partitions matches into `free_matches` (safe to point at) and `paid_matches_excluded` (named for transparency, never recommended). A rule whose implementation is a library imported by other code rather than a step's own script correctly reports no direct match — its `fallback_verification` is that rule's own `regression` field, already re-run by every `tools/run_portable_ci.py` pass, rather than a guessed import chain.
+
+`sync()` calls this once, only on its `SYNCED` branch, for the ids it just appended, and adds the result under the returned `free_recheck` key — `DRY_RUN` and `NO_NEW_KNOWLEDGE` are untouched. Because every line's real sync entry point already returns through this function (`tools/line_upgrade_gate.py close`, or nalu's own `lines/nalu/runtime/tools/knowledge_sync.py` called from `nalu_pipeline.stage_s8`), nothing new had to be wired to reach it — `nalu_pipeline.py`'s existing CHECKPOINT.md writer now also renders which new rule ids matched a free step this episode already ran (re-run that step before trusting its cached PASS) versus which matched none (trust only the regression suite). No file is written that was not already being written, and no provider is ever called from this path.
+
+## Behavioral regression for named historical defects (gap closed 2026-10-28)
+
+Constraint 6 of the same audit: use historical problems such as half-face, repeated panning and talking to camera for behavioral regression, verifying the rule's effect carries through to the final submitted content — not merely that a test file exists and passes.
+
+`tools/tests/test_knowledge_loop_behavioral_regression.py` does this for three real, previously under-verified mechanisms, each calling the real production function and checking the exact text or gate a paid submission would see, never a reimplementation:
+
+- **Half-face** (`nalu_prompt_rules.py`'s `SOLO_FACE` guard, live since seq=10/2026-09-14): asserts the clause survives verbatim into `sd2_provider_prompt_renderer._beat_line()`'s return value — the exact building block `render_sd2_prompt` concatenates into the submitted prompt — and is absent for the same shot in a solo scene. This guard had never once been exercised against a shot matching its own trigger condition before this test; every prior "SOLO_FACE" reference in the suite was example data for an unrelated function.
+- **Repeated panning** (K119, `grouped_camera_contract.validate_camera_sequence`'s five-unit-window cap): asserts a non-adjacent 3-pans-in-5-units legacy sequence raises — the same function `submit_giggle_video_manifest_v2.py` calls before every S6 POST — and that the identical sequence stamped `camera_grammar=CAMERA_GRAMMAR_V1` does not raise, matching K119's documented by-design exemption. The adjacent-repeat branch already had coverage; the window-cap branch, the one that catches a pan recurring without being strictly back-to-back, had none.
+- **Talking to camera** (K107 / `camera_grammar_policy.speaker_gaze_sentence`): re-runs `test_h3_director_prompt_v2`'s own real fixture and `render_h3_prompt`, confirming the off-lens eyeline clause reaches the final H3 text for a minimal speaker+listener declaration (no explicit screen side) — reproducing the exact under-specified input that let a speaker stare into the lens pre-fix (lab Holmes E05) — and is absent from the legacy render of the same unit.
+
+Each test calls `knowledge_consumption_ledger.record_verification(...)` only after its real assertion passes, against a fresh temp runtime root (test isolation, like every other test in this suite) — so the *mechanism* proven here is "this assertion, once true, becomes queryable VERIFIED evidence," not a one-time fact about today's run. The one-time fact itself — that these three checks were actually run against real compiled output on 2026-10-28 — is recorded separately, once, directly into nalu's real runtime root via `knowledge_consumption_ledger.py record-verification` (added alongside `record-application` for CLI parity with `knowledge_event_log.py`), so a future session's `status_for_rule()` call finds it without re-running this test file.
+
+

@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qingshan.collective.adoption_receipt.v1",
+  "title": "AdoptionReceipt",
+  "type": "object",
+  "required": [
+    "receipt_id",
+    "tenant_id",
+    "line_id",
+    "device_id",
+    "run_id",
+    "rule_id",
+    "rule_version",
+    "bundle_digest",
+    "stage",
+    "state",
+    "entrypoint"
+  ],
+  "properties": {
+    "receipt_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-]{0,127}$"
+    },
+    "line_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-]{0,127}$"
+    },
+    "device_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-]{0,127}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-]{0,127}$"
+    },
+    "rule_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-]{0,127}$"
+    },
+    "rule_version": {
+      "type": "integer"
+    },
+    "bundle_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "stage": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-]{0,127}$"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "AVAILABLE",
+        "SELECTED",
+        "APPLIED",
+        "VERIFIED",
+        "OUTCOME_OBSERVED",
+        "NOT_APPLICABLE",
+        "DEFERRED",
+        "FAILED"
+      ]
+    },
+    "entrypoint": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "unit_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-]{0,127}$"
+      }
+    },
+    "source_contract_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "compiled_output_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "provider_request_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "change_evidence": {},
+    "evidence_scope": {
+      "type": "string",
+      "enum": [
+        "SOURCE_CONTRACT",
+        "COMPILED_REQUEST",
+        "PROVIDER_REQUEST",
+        "GENERATED_MEDIA",
+        "FINAL_FILM"
+      ]
+    },
+    "verification": {
+      "type": "object",
+      "properties": {
+        "test_name": {
+          "type": "string"
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL"
+          ]
+        },
+        "assertion": {
+          "type": "string"
+        }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "DEFECT_ABSENT",
+            "DEFECT_RECURRED",
+            "ACCEPTED_IMPERFECTION",
+            "NO_CHANGE_OBSERVED"
+          ]
+        },
+        "media_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}
