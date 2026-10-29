@@ -1120,6 +1120,50 @@ def live_bound_elsewhere(task: dict[str, Any], transaction_dir: Path) -> dict[st
     }
 
 
+class KnowledgeLockGateBlocked(RuntimeError):
+    """The task's locked knowledge no longer verifies; refused before intent, not charged."""
+
+
+def knowledge_lock_check(task: dict[str, Any], transaction_dir: Path) -> dict[str, Any] | None:
+    """None for a task without ``knowledge_lock`` (every task that never opted in)."""
+    if not isinstance(task.get("knowledge_lock"), dict):
+        return None
+    try:
+        from tools.collective_learning import runtime_wiring
+    except ModuleNotFoundError:
+        from collective_learning import runtime_wiring
+    try:
+        return runtime_wiring.check_before_send(task)
+    except runtime_wiring.KnowledgeLockRefused as exc:
+        # Same convention as the prompt-scope gate: evidence kept, no transaction file, no POST.
+        atomic_json(pre_intent_block_path(transaction_dir, task), {
+            "schema": "qingshan.giggle_video_submit_pre_intent_block.v1",
+            "task_key": task["task_key"], "state": "BLOCKED_BEFORE_INTENT_KNOWLEDGE_LOCK_INVALID",
+            "status": "submit_failed_before_intent", "credit": 0,
+            "credit_status": "NOT_CHARGED_NO_INTENT_RECORDED", "blocked_at": utc_now(),
+            "knowledge_lock": task.get("knowledge_lock"), "failures": str(exc),
+        })
+        raise KnowledgeLockGateBlocked(
+            f"{task['task_key']} KNOWLEDGE_LOCK_GATE_FAILED (not charged, no intent recorded): {exc}") from exc
+
+
+def record_knowledge_provider_request(task: dict[str, Any], payload: dict[str, Any], transaction: Path,
+                                      intent: dict[str, Any]) -> None:
+    """PROVIDER_REQUEST adoption receipts for the exact payload just sent.  Never raises: the
+    provider binding above is already durable and must not be lost to a receipt write."""
+    try:
+        try:
+            from tools.collective_learning import runtime_wiring
+        except ModuleNotFoundError:
+            from collective_learning import runtime_wiring
+        rows = runtime_wiring.record_provider_request(task, payload)
+        intent["knowledge_provider_request_receipts"] = [
+            {"receipt_id": r["receipt_id"], "rule_id": r["rule_id"], "state": r["state"]} for r in rows]
+    except Exception as exc:  # noqa: BLE001
+        intent["knowledge_provider_request_receipts_error"] = f"{type(exc).__name__}:{exc}"[:500]
+    atomic_json(transaction, intent)
+
+
 def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -> dict[str, Any]:
     prior = prior_bound(task, transaction_dir)
     if prior:
@@ -1187,6 +1231,10 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         duration=payload["duration"], audio=sent_audio_references(task),
     )["request_sha256"])
     require_no_silent_resubmission(task, transaction_dir, fingerprint)
+    # Collective learning (opt-in, only a task bound to a run knowledge lock): re-verify the
+    # locked knowledge immediately before this NEW post.  Resume paths returned above and never
+    # reach here, so a remote task already bound keeps its original binding.
+    knowledge_check = knowledge_lock_check(task, transaction_dir)
     intent = {
         "schema": "qingshan.giggle_video_submit_transaction.v1",
         "task_key": task["task_key"], "attempt_id": str(uuid.uuid4()),
@@ -1208,6 +1256,8 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         intent["loaded_modules"] = scope_evidence["loaded_modules"]
     intent["request_binding"] = request_binding
     intent["sent_reference_sha256"] = sent_image_sha256(images_payload)
+    if knowledge_check is not None:
+        intent["knowledge_lock_check"] = knowledge_check
     atomic_json(transaction, intent)
     try:
         with paid_video_submission_context():
@@ -1239,6 +1289,8 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
     intent.update({"state": "SUBMITTED_TASK_ID_BOUND", "task_id": str(task_id), "receipt": portable(receipt), "provider_response": response, "response_recorded_at": utc_now()})
     atomic_json(transaction, intent)
     atomic_json(receipt, response)
+    if knowledge_check is not None:
+        record_knowledge_provider_request(task, payload, transaction, intent)
     return {
         **task, "task_id": str(task_id), "state": "remote_running", "submitted_at": utc_now(),
         "receipt": portable(receipt), "transaction": portable(transaction), "recovered_from_transaction": False,

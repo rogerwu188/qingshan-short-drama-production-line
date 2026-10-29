@@ -621,6 +621,52 @@ def prompt_text(unit: dict[str, Any], memory_rules: list[dict[str, Any]] | None 
     return text
 
 
+def _collective_apply(unit: dict[str, Any], compile_fn: Any) -> dict[str, Any] | None:
+    """tools/collective_learning/runtime_wiring.apply_to_grouped_unit, or None when not opted in."""
+    if not os.environ.get("QINGSHAN_KNOWLEDGE_RUN_LOCK"):
+        return None
+    try:
+        from tools.collective_learning import runtime_wiring
+    except ModuleNotFoundError:
+        from collective_learning import runtime_wiring
+    return runtime_wiring.apply_to_grouped_unit(unit, compile_fn)
+
+
+def compile_final_prompts(units: list[dict[str, Any]], final_prompt_dir: Path) -> list[dict[str, Any]]:
+    """Strict final provider prompts (the v4 runtime path, ``--final-prompt-dir``).
+
+    Collective learning (opt-in; inert unless this run carries a knowledge lock): selected
+    advisories are written into each SD2 unit's source contract fields BEFORE the strict
+    compile, so the prompt written here, the grouped manifest unit the finalizer turns into a
+    task, and the paid boundary's re-compile all carry the same text.  H3 units are applied at
+    their final render (build_nalu_preproduction.render_h3_final_prompts).
+    """
+    try:
+        from tools.video_prompt_compiler import compile_model_prompt, validate_model_prompt_for_model, compile_receipt
+    except ModuleNotFoundError:
+        from video_prompt_compiler import compile_model_prompt, validate_model_prompt_for_model, compile_receipt
+    final_prompt_dir.mkdir(parents=True, exist_ok=True)
+    final_rows = []
+    for unit in units:
+        unit["action_timeline"] = action_timeline(unit)
+        density = validate_action_timeline(unit["action_timeline"], unit["duration_seconds"], source_id=unit["unit_id"])
+        if density["status"] != "PASS":
+            raise ValueError(";".join(density["failures"]))
+        knowledge = _collective_apply(unit, lambda amended: compile_model_prompt(amended, []))
+        text = compile_model_prompt(unit, [])
+        prompt_path = final_prompt_dir / f"{unit['unit_id']}.txt"
+        prompt_path.write_text(text, encoding="utf-8")
+        contract = validate_model_prompt_for_model(text, model=unit["model"], source_id=unit["unit_id"], unit=unit)
+        if contract.get("status") != "PASS":
+            raise ValueError(f"{unit['unit_id']} final prompt contract: " + ";".join(contract.get("failures") or []))
+        row = {"unit_id": unit["unit_id"], "path": str(prompt_path), "sha256": digest(prompt_path),
+               "runes": len(text), "model_prompt_contract": contract, "compile_receipt": compile_receipt(unit["unit_id"])}
+        if knowledge:
+            row["knowledge_adoption"] = {k: v for k, v in knowledge.items() if not k.startswith("pristine_")}
+        final_rows.append(row)
+    return final_rows
+
+
 def write_preflight_artifacts(
     manifest: dict[str, Any], grouping_path: Path, prompt_dir: Path,
     scene_authority_path: Path, complete_path: Path, density_path: Path,
@@ -1368,25 +1414,7 @@ def main() -> int:
                 f"H3_ENGLISH_CONTRACT_REQUIRED:{len(pending)}_units:"
                 f"{answers_path.with_name(answers_path.stem + '.REQUEST.json')}")
     if not args.planning_only and args.final_prompt_dir:
-        try:
-            from tools.video_prompt_compiler import compile_model_prompt, validate_model_prompt_for_model, compile_receipt
-        except ModuleNotFoundError:
-            from video_prompt_compiler import compile_model_prompt, validate_model_prompt_for_model, compile_receipt
-        args.final_prompt_dir.mkdir(parents=True, exist_ok=True)
-        final_rows = []
-        for unit in result["units"]:
-            unit["action_timeline"] = action_timeline(unit)
-            density = validate_action_timeline(unit["action_timeline"], unit["duration_seconds"], source_id=unit["unit_id"])
-            if density["status"] != "PASS":
-                raise ValueError(";".join(density["failures"]))
-            text = compile_model_prompt(unit, [])
-            prompt_path = args.final_prompt_dir / f"{unit['unit_id']}.txt"
-            prompt_path.write_text(text, encoding="utf-8")
-            contract = validate_model_prompt_for_model(text, model=unit["model"], source_id=unit["unit_id"], unit=unit)
-            if contract.get("status") != "PASS":
-                raise ValueError(f"{unit['unit_id']} final prompt contract: " + ";".join(contract.get("failures") or []))
-            final_rows.append({"unit_id": unit["unit_id"], "path": str(prompt_path), "sha256": digest(prompt_path),
-                               "runes": len(text), "model_prompt_contract": contract, "compile_receipt": compile_receipt(unit["unit_id"])})
+        final_rows = compile_final_prompts(result["units"], args.final_prompt_dir)
         index_path = args.out.with_name(args.out.stem + ".final_prompts.json")
         index_path.write_text(json.dumps({"schema": "nalu.final_video_prompts.v1", "strict": True, "rows": final_rows},
                                          ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

@@ -44,6 +44,10 @@ CLOSE_SCHEMA = "qingshan.line_upgrade_close.v1"
 # Engine sub-trees an overlay file may shadow (overlay/<rel> or overlay/<tree>/<rel>).
 ENGINE_TREES = ("", "tools", "qingshan_engine")
 BLOCKING = ("STALE_ENGINE", "UNDECLARED_OVERLAY", "KNOWLEDGE_NOT_READ")
+# READ is a compatibility status: the briefing file was written.  It is never evidence that a rule
+# was applied -- that needs an adoption receipt (tools/collective_learning/adoption.py).
+READ_SEMANTICS = "READ=BRIEFING_WRITTEN_NOT_APPLIED"
+COLLECTIVE_CONFIG = "COLLECTIVE_LEARNING_CONFIG.json"
 
 
 # --------------------------------------------------------------------------- helpers
@@ -293,7 +297,8 @@ def preflight(line: str, episode: str, runtime_root: Path, engine: Path = ROOT, 
         brief["engine_head"] = fresh.get("head")
         _write_json(briefing_json, brief)
         briefing_md.write_text(briefing_markdown(brief), encoding="utf-8")
-        knowledge = {"status": "READ", "briefing": str(briefing_json), "briefing_md": str(briefing_md),
+        knowledge = {"status": "READ", "knowledge_status_semantics": READ_SEMANTICS,
+                     "briefing": str(briefing_json), "briefing_md": str(briefing_md),
                      "briefing_sha256": _sha_file(briefing_json),
                      "registry_sha256": brief["registry_sha256"], "rule_count": brief["rule_count"],
                      "failure_memory_rows": len(brief["failure_memory"]),
@@ -313,9 +318,102 @@ def preflight(line: str, episode: str, runtime_root: Path, engine: Path = ROOT, 
         "engine": fresh, "overlays": overlays, "knowledge": knowledge,
         "production_authorization": False,
     }
+    if (reports / COLLECTIVE_CONFIG).is_file():
+        # Opt-in collective learning: lock this run's verified knowledge snapshot.  Advisory like
+        # every other part of preflight -- a failure here leaves the run without collective
+        # knowledge (recorded), it never blocks production or reaches the network.
+        try:
+            receipt["collective"] = collective_preflight(line, episode, runtime_root, engine, reports, fresh)
+        except Exception as exc:  # noqa: BLE001
+            receipt["collective"] = {"status": "ERROR", "error": f"{type(exc).__name__}:{exc}"[:600]}
+            notes.append("COLLECTIVE_KNOWLEDGE_NOT_LOCKED")
     _write_json(reports / f"{episode}_LINE_UPGRADE_PREFLIGHT.json", receipt)
     receipt["receipt"] = str(reports / f"{episode}_LINE_UPGRADE_PREFLIGHT.json")
     return receipt
+
+
+def collective_preflight(line: str, episode: str, runtime_root: Path, engine: Path, reports: Path,
+                         fresh: dict[str, Any]) -> dict[str, Any]:
+    """Resolve from the local verified cache, write the run knowledge lock once, record SELECTED.
+
+    Config ``<reports>/COLLECTIVE_LEARNING_CONFIG.json`` (paths may be relative to it):
+      {tenant_id, line_id, trust_store, cache_dir, channel, engine_api_version,
+       capabilities: {model, aspect_ratio, language, ...}, batch_id, device_store: bool,
+       revocations?: signed list path, baseline?: {path, digest},
+       provider_model_version?, rubric_version?, evaluation_model_version?}
+    The run id is ``<line>.<episode>.<batch_id>``: a new episode or an explicit new batch is
+    what picks up a newer release; an existing lock is kept as-is.
+    """
+    if str(engine) not in sys.path:
+        sys.path.insert(0, str(engine))
+    from tools.collective_learning import adoption, bundles, device_store, runtime_wiring
+
+    config_path = reports / COLLECTIVE_CONFIG
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    base = config_path.parent
+
+    def _path(value: str) -> Path:
+        candidate = Path(value).expanduser()
+        return candidate if candidate.is_absolute() else base / candidate
+
+    trust_path = _path(config["trust_store"])
+    cache_dir = _path(config["cache_dir"])
+    trust = bundles.load_trust_store(trust_path)
+    cache = bundles.BundleCache(cache_dir, trust)
+    revoked: set[str] = set()
+    if config.get("revocations") and _path(config["revocations"]).is_file():
+        revoked = bundles.verify_revocations(json.loads(_path(config["revocations"]).read_text(encoding="utf-8")),
+                                             trust)
+    baseline = None
+    if config.get("baseline"):
+        baseline = bundles.builtin_baseline(_path(config["baseline"]["path"]), config["baseline"]["digest"])
+    capabilities = {**(config.get("capabilities") or {}), "engine_api_version": config["engine_api_version"]}
+    resolved = bundles.resolve_local(capabilities, cache, channel=config.get("channel", "RELEASED"),
+                                     revoked=revoked, baseline=baseline)
+    plan_ref = None
+    try:
+        from tools.collective_learning import director_score  # owned by the evaluation work; optional here
+        plan_ref = director_score.latest_improvement_plan(runtime_root, before_episode=episode)
+    except Exception as exc:  # noqa: BLE001 -- the plan is an input, never a precondition
+        plan_ref = {"status": "UNAVAILABLE", "reason": f"{type(exc).__name__}:{exc}"[:300]}
+    run_id = f"{line}.{episode}.{config.get('batch_id', 'B1')}"
+    lock = bundles.lock_run(reports / "knowledge_locks", run_id, resolved=resolved,
+                            engine_commit=fresh.get("head") or "UNKNOWN",
+                            provider_model_version=config.get("provider_model_version", "UNKNOWN"),
+                            rubric_version=config.get("rubric_version", "UNKNOWN"),
+                            evaluation_model_version=config.get("evaluation_model_version", "UNKNOWN"),
+                            improvement_plan_ref=plan_ref)
+    store_path = None
+    selected_receipts: list[str] = []
+    if config.get("device_store"):
+        store = device_store.DeviceStore(reports / "COLLECTIVE_DEVICE_STORE.sqlite",
+                                         tenant_id=config["tenant_id"], line_id=config["line_id"])
+        store_path = store.path
+        if lock["lock_status"] == "CREATED":
+            identity = {"tenant_id": config["tenant_id"], "line_id": config["line_id"],
+                        "device_id": store.device_id, "run_id": run_id}
+            for entry in lock["knowledge_bundles"]:
+                for rule in entry["rules"]:
+                    row = adoption.selected(identity=identity, rule=rule, stage="RUN_START", unit_ids=[],
+                                            entrypoint="line_upgrade_gate.preflight", bundle_digest=entry["digest"])
+                    store.record_receipt("ADOPTION", row)
+                    selected_receipts.append(row["receipt_id"])
+    env = runtime_wiring.child_env(lock, cache_dir=cache_dir, trust_path=trust_path,
+                                   engine_api_version=config["engine_api_version"], store_path=store_path,
+                                   tenant_id=config.get("tenant_id"), line_id=config.get("line_id"))
+    return {
+        "status": "LOCKED", "lock_status": lock["lock_status"], "run_id": run_id,
+        "lock_path": lock["lock_path"], "lock_sha256": lock["lock_sha256"],
+        "knowledge_bundle_digest": lock["knowledge_bundle_digest"],
+        "bundles": [{k: e.get(k) for k in ("bundle_id", "version", "digest", "release_channel", "label")}
+                    for e in lock["knowledge_bundles"]],
+        "rejected": [{k: r.get(k) for k in ("bundle_id", "version", "digest", "reason")}
+                     for r in resolved["rejected"]],
+        "selected_receipt_ids": selected_receipts,
+        "improvement_plan_ref": plan_ref,
+        "knowledge_status_semantics": READ_SEMANTICS,
+        "child_env": env,
+    }
 
 
 def verify_briefing(runtime_root: Path, episode: str) -> dict[str, Any]:
@@ -333,7 +431,8 @@ def verify_briefing(runtime_root: Path, episode: str) -> dict[str, Any]:
         pass
     sha = _sha_file(briefing)
     expected = (receipt.get("knowledge") or {}).get("briefing_sha256")
-    return {"status": "READ", "briefing": str(briefing), "briefing_sha256": sha,
+    return {"status": "READ", "knowledge_status_semantics": READ_SEMANTICS,
+            "briefing": str(briefing), "briefing_sha256": sha,
             "receipt": str(receipt_path) if receipt else None,
             "receipt_matches": bool(expected) and expected == sha,
             "preflight_status": receipt.get("status")}

@@ -196,7 +196,7 @@ def free_recheck_targets(state: dict[str, Any], rows: list[dict[str, Any]],
                     free_matches.append(entry)
                 else:
                     paid_matches_excluded.append(entry)
-        out.append({
+        entry_out = {
             "rule_id": rule_id,
             "found": True,
             "implementation": sorted(row.get("implementation") or []),
@@ -204,8 +204,26 @@ def free_recheck_targets(state: dict[str, Any], rows: list[dict[str, Any]],
             "free_matches": free_matches,
             "paid_matches_excluded": paid_matches_excluded,
             "fallback_verification": None if free_matches else row.get("regression"),
-        })
+        }
+        if isinstance(row.get("impact_scope"), dict):
+            # Explicit impact scope (collective learning, T18): a library rule names the free
+            # checks / modules it affects instead of relying on the argv match above.  Report
+            # only -- nothing is re-run, and paid steps are listed, never resubmitted.
+            explicit = _impact().stale_checks(state, rule_id, row["impact_scope"])
+            entry_out["explicit_impact"] = explicit
+            if explicit["stale_free_checks"]:
+                entry_out["fallback_verification"] = None
+        out.append(entry_out)
     return out
+
+
+def _impact():
+    import importlib.util
+    path = Path(__file__).resolve().parent / "collective_learning" / "impact.py"
+    spec = importlib.util.spec_from_file_location("_collective_learning_impact", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def sync(root: Path, runtime_root: Path, episode: str, extra: list[dict[str, Any]] | None = None,

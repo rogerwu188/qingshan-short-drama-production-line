@@ -1091,6 +1091,12 @@ class Ctx:
         env["QINGSHAN_VOICE_REGISTRY"] = str(self.p.scope["voice_registry"])
         env["QINGSHAN_ENTITY_REGISTRY"] = str(self.p.scope["entity_registry"])
         env["QINGSHAN_AGENTCUT_VOICE_POLICY"] = str(self.p.scope["agentcut_voice_policy"])
+        # Collective learning (opt-in): only an episode whose S1 preflight locked a knowledge
+        # snapshot exports it; every other episode's children see no QINGSHAN_KNOWLEDGE_* at all.
+        collective = ((getattr(self, "state", None) or {}).get("line_upgrade_preflight") or {}).get("collective") or {}
+        if collective.get("status") == "LOCKED":
+            env.update({k: str(v) for k, v in (collective.get("child_env") or {}).items()
+                        if k.startswith(("QINGSHAN_KNOWLEDGE_", "QINGSHAN_COLLECTIVE_", "QINGSHAN_ENGINE_API"))})
         if not _policy.uses_legacy_first_episode_exception(self.episode):
             # engine patch e16 (seq=7 PACING_E02_PLUS): grouped video units prefer 4-6 s, never above 7 s
             policy = self.p.scope.get("unit_duration_policy") or {}
@@ -1542,7 +1548,7 @@ def _line_upgrade_gate_summary(ctx: Ctx, step: str) -> dict[str, Any]:
         payload = json.loads(proc.stdout or "{}")
     except ValueError:
         payload = {"status": "UNPARSEABLE", "stdout_tail": (proc.stdout or "")[-400:]}
-    keep = ("status", "findings", "notes", "receipt", "knowledge", "knowledge_read", "error")
+    keep = ("status", "findings", "notes", "receipt", "knowledge", "knowledge_read", "collective", "error")
     summary = {key: payload[key] for key in keep if key in payload}
     if isinstance(payload.get("engine"), dict):
         summary["engine"] = {key: payload["engine"].get(key)

@@ -254,6 +254,16 @@ def status_for_rule(
         {"test_name": row["test_name"], "assertion": row["assertion"], "recorded_at": row["recorded_at"]}
         for row in verifications(runtime_root, rule_id=rule_id, relpath=relpath)
     ]
+    adoption = _adoption_receipts(Path(runtime_root), rule_id)
+    adoption_applied = [r for r in adoption if r.get("state") in ("APPLIED", "VERIFIED", "OUTCOME_OBSERVED")]
+    adoption_verified = [r for r in adoption if r.get("state") in ("VERIFIED", "OUTCOME_OBSERVED")]
+    applied_evidence += [{"source": "adoption_receipt", "receipt_id": r["receipt_id"], "run_id": r.get("run_id"),
+                          "evidence_scope": r.get("evidence_scope"), "unit_ids": r.get("unit_ids")}
+                         for r in adoption_applied]
+    verified_evidence += [{"source": "adoption_receipt", "receipt_id": r["receipt_id"],
+                           "test_name": (r.get("verification") or {}).get("test_name"),
+                           "assertion": (r.get("verification") or {}).get("assertion")}
+                          for r in adoption_verified]
     return {
         "rule_id": rule_id,
         "episode": episode,
@@ -262,7 +272,45 @@ def status_for_rule(
         "applied_evidence": applied_evidence,
         "verified": bool(verified_evidence),
         "verified_evidence": verified_evidence,
+        # READ / EXPORTED only say a briefing was written; they never make "applied" true.
+        "knowledge_status_semantics": "READ=BRIEFING_WRITTEN_NOT_APPLIED",
+        "adoption_states": sorted({r.get("state") for r in adoption}),
     }
+
+
+def _adoption_receipts(runtime_root: Path, rule_id: str) -> list[dict[str, Any]]:
+    """Adoption receipts for ``rule_id`` from the line's collective device store, if it opted in.
+
+    Read-only (sqlite ``mode=ro``): this never creates a store.  Only receipts that pass
+    ``contracts.validate_adoption`` count -- a row without its evidence is not evidence.
+    """
+    import importlib.util
+    import sqlite3
+    import sys as _sys
+
+    store = Path(runtime_root) / "reports" / "COLLECTIVE_DEVICE_STORE.sqlite"
+    if not store.is_file():
+        return []
+    root = Path(__file__).resolve().parents[1]
+    if str(root) not in _sys.path:
+        _sys.path.insert(0, str(root))
+    from tools.collective_learning import contracts as _c  # noqa: E402
+    db = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
+    try:
+        rows = db.execute("SELECT payload FROM receipts WHERE kind='ADOPTION'").fetchall()
+    finally:
+        db.close()
+    out = []
+    for (payload,) in rows:
+        row = json.loads(payload)
+        if row.get("rule_id") != rule_id:
+            continue
+        try:
+            _c.validate_adoption(row)
+        except _c.ContractError:
+            continue
+        out.append(row)
+    return out
 
 
 def main() -> int:  # pragma: no cover -- thin CLI for manual/agent use
