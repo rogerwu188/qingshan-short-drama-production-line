@@ -424,8 +424,11 @@ class ReadbackSegmentFilterTests(unittest.TestCase):
     def test_boilerplate_prompt_echo_and_noise_segments_are_dropped_whole(self):
         self.assertFalse(fcd.readback_segment_is_speech({"text": "请不吝点赞 订阅 转发 打赏支持明镜与点点栏目", "no_speech_prob": 0.1, "avg_logprob": -0.3}))
         self.assertFalse(fcd.readback_segment_is_speech({"text": "是普通话对白，简体中文。", "no_speech_prob": 0.1, "avg_logprob": -0.3}))
-        self.assertFalse(fcd.readback_segment_is_speech({"text": "冯兄客气了", "no_speech_prob": 0.9, "avg_logprob": -0.3}))
-        self.assertFalse(fcd.readback_segment_is_speech({"text": "冯兄客气了", "no_speech_prob": 0.1, "avg_logprob": -1.4}))
+        # confidently decoded speech under an ambient bed: no_speech alone is high, the line is kept
+        self.assertTrue(fcd.readback_segment_is_speech({"text": "冯兄客气了", "no_speech_prob": 0.68, "avg_logprob": -0.22}))
+        self.assertTrue(fcd.readback_segment_is_speech({"text": "冯兄客气了", "no_speech_prob": 0.1, "avg_logprob": -1.4}))
+        self.assertFalse(fcd.readback_segment_is_speech({"text": "冯兄客气了", "no_speech_prob": 0.9, "avg_logprob": -1.4}))
+        self.assertFalse(fcd.readback_segment_is_speech({"text": "冯兄客气了", "no_speech_prob": 0.97, "avg_logprob": -0.3}))
         self.assertTrue(fcd.readback_segment_is_speech({"text": "冯兄客气了", "no_speech_prob": 0.1, "avg_logprob": -0.3}))
 
     def test_dropped_segments_do_not_count_as_babble(self):

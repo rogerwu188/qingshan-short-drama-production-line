@@ -292,7 +292,8 @@ def decide_mascot(scores: Sequence[dict[str, Any]] | None, *, threshold: float, 
     return detector("PASS", measured=measured, threshold={"score": threshold}, evidence={"top": sorted(scores, key=lambda s: -float(s.get("score", 0.0)))[:5]})
 
 
-_SUBTITLE_NORMALISE = re.compile(r"[\s\u3000,.;:!?，。！？；：、…「」『』“”\"'()（）\[\]【】<>《》—\-~·]+")
+_SUBTITLE_NORMALISE = re.compile(r"[\s\u3000,.;:!?，。！？；：、…「」『』“”\"'()（）\[\]【】<>《》—\-~·"
+                                 r"\u2000-\u206f\u3001-\u303f\ufe10-\ufe1f\ufe30-\ufe6b\uff00-\uff0f\uff1a-\uff20\uff3b-\uff40\uff5b-\uff65]+")
 
 
 _T2S = None
@@ -391,22 +392,44 @@ def readback_segment_is_speech(seg: dict[str, Any]) -> bool:
     if not text.strip() or is_asr_hallucination(text):
         return False
     try:
-        if float(seg.get("no_speech_prob") or 0.0) > READBACK_NO_SPEECH_PROB_MAX:
-            return False
-        if float(seg.get("avg_logprob") if seg.get("avg_logprob") is not None else 0.0) < READBACK_AVG_LOGPROB_MIN:
-            return False
+        no_speech = float(seg.get("no_speech_prob") or 0.0)
+        logprob = float(seg.get("avg_logprob") if seg.get("avg_logprob") is not None else 0.0)
     except (TypeError, ValueError):
-        pass
+        return True
+    # whisper's own rule: a segment is silence/noise only when BOTH say so.  Under an ambient bed the
+    # no-speech estimate alone sits at 0.6–0.7 on perfectly clear, confidently decoded lines (E12: whole
+    # 25 s stretches of dialogue were dropped with no_speech 0.68 / logprob -0.22).
+    if no_speech > READBACK_NO_SPEECH_PROB_MAX and logprob < READBACK_AVG_LOGPROB_MIN:
+        return False
+    if no_speech > 0.95:
+        return False
     return True
 
 
 def _seq_similarity(expected: Sequence[Any], heard: Sequence[Any]) -> float:
+    """max(whole ratio, longest-common-block coverage, partial ratio).
+
+    The partial ratio is the best difflib ratio of the cue against any heard sub-sequence of the cue's own
+    length (rapidfuzz's partial_ratio idea): a read-back window legitimately holds the neighbouring lines'
+    words too, and a dropped particle (被/是) must not zero a whole line the way one long block does."""
     import difflib
     matcher = difflib.SequenceMatcher(None, expected, heard)
     ratio = matcher.ratio()
     block = matcher.find_longest_match(0, len(expected), 0, len(heard))
     coverage = block.size / len(expected)
-    return max(ratio, coverage)
+    best_partial = 0.0
+    n = len(expected)
+    if n and len(heard) > n:
+        for start in range(0, len(heard) - n + 1):
+            window = heard[start:start + n]
+            r = difflib.SequenceMatcher(None, expected, window).ratio()
+            if r > best_partial:
+                best_partial = r
+                if best_partial >= 0.999:
+                    break
+    else:
+        best_partial = ratio
+    return max(ratio, coverage, best_partial)
 
 
 def cue_similarity(expected: str, heard: str) -> float:
