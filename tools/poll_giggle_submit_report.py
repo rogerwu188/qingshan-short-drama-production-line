@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 from datetime import datetime
 import json
 import os
@@ -49,6 +50,22 @@ def download_atomic(url: str, destination: Path) -> None:
 def output_path(out_dir: Path, label: str, index: int, total: int) -> Path:
     suffix = "" if total == 1 else f"_{index:02d}"
     return out_dir / f"{safe_stem(label)}{suffix}.mp4"
+
+
+def collapse_identical_downloads(files: list[str], single: Path) -> list[str]:
+    """Distinct URLs that serve byte-identical clips (E12 VU-003 2026-10-30: two signed URLs, one
+    video) are one take: keep it at the single-take name and drop the indexed copies."""
+    if len(files) < 2:
+        return files
+    digests = {hashlib.sha256(Path(f).read_bytes()).hexdigest() for f in files}
+    if len(digests) != 1:
+        return files
+    if not single.exists():
+        Path(files[0]).replace(single)
+    for f in files:
+        if Path(f).exists() and Path(f) != single:
+            Path(f).unlink()
+    return [str(single)]
 
 
 def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
@@ -139,6 +156,10 @@ def poll_one(
     data = response.get("data") or {}
     remote_status = str(data.get("status") or "UNKNOWN")
     urls = data.get("urls") or []
+    # E12 2026-10-30: the provider listed the same URL twice for three H3 tasks; downloading it as
+    # <unit>_01.mp4 + <unit>_02.mp4 (identical bytes) hid the unit from every <unit>.mp4 consumer.
+    # One URL = one file; distinct URLs keep the indexed names.
+    urls = list(dict.fromkeys(str(u) for u in urls if u))
     files: list[str] = []
     if download and remote_status == "completed":
         for url_index, url in enumerate(urls, 1):
@@ -147,6 +168,7 @@ def poll_one(
             if not destination.exists():
                 download_atomic(str(url), destination)
             files.append(str(destination))
+        files = collapse_identical_downloads(files, out_dir / named if named else output_path(out_dir, label, 1, 1))
     elif remote_status == "completed" and named:
         files = [str(out_dir / named)] if (out_dir / named).is_file() else []
     elif remote_status == "completed":
