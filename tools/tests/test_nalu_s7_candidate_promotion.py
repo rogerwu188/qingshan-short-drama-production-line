@@ -97,7 +97,8 @@ class StageS7UsesCandidatePathsTests(unittest.TestCase):
         body = src[start:end]
         for needle in ('"--output-video", p.final_candidate',
                        '"--output", p.final_levelled',          # the leveller's immutable output
-                       's7_post_level_audio_chain(ctx, res, steps, asr_windows_pre)',
+                       's7_post_level_audio_chain(ctx, res, steps, line_windows_for_level)',
+                       's7_voice_pitch_unify(ctx, res, steps, _pre_level_source)',
                        '"--media", p.final_candidate',
                        '"--final", p.final_candidate',
                        '"--video", p.final_candidate',

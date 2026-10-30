@@ -7445,6 +7445,10 @@ def s7_camera_motion_gate(ctx: Ctx, res: StageResult) -> dict[str, Any] | None:
     argv: list[Any] = [VENV, RT_TOOLS / "camera_motion_metrics.py", "--grouping", grouping, "--contract", p.contract,
                        "--out", metrics_after, "--md", metrics_after.with_suffix(".md"),
                        "--workers", _camera_workers(ctx), "--label", "final_candidate_clips"]
+    recut_report = p.assembly / f"{ctx.episode}_UNIT_RECUT.json"
+    if recut_report.is_file():
+        # authored picture cuts inside re-cut units are shot changes, not camera reversals
+        argv += ["--internal-cuts", recut_report]
     for _uid, source in clips:
         argv += ["--clip", source]
     step = ctx.run(argv, name="s7_camera_motion_metrics")
@@ -7566,9 +7570,57 @@ def _chain_stage_reusable(report_path: Path, output: Path, input_sha: str | None
                 and _report_sha(report, out_key) == sha256_file(output))
 
 
+def s7_voice_pitch_unify(ctx: Ctx, res: StageResult, steps: list[dict[str, Any]], source: Path) -> tuple[Path | None, list[str]]:
+    """WORLD per-line voice pitch unify on the mixed-but-unlevelled picture, BEFORE release levelling.
+
+    Roger 2026-10-30 E12 成片审看 1c.  Runs before the leveller (F4: resynthesis moved I −14.0 → −14.5 LUFS and
+    TP −1.2 → −1.0; downstream the bed tool then had to give loudness away to hold true peak), so the leveller's
+    oversampled limiter and line levelling see the corrected voices and the rebuilt line windows.  Picture
+    bit-exact.  Reused when the report binds the same input/output shas; stale outputs parked by sha.
+    Returns (pitch output or None when the stage does not apply, blockers)."""
+    p = ctx.p
+    pitch_tool = RT_TOOLS / "final_cut_voice_pitch_unify.py"
+    if not (pitch_tool.is_file() and Path(str(ctx.p.scope.get("voice_cast") or "")).is_file()) \
+            or str(os.environ.get("NALU_S7_SKIP_PITCH_UNIFY") or "").strip():
+        return None, []
+    pitch_out = p.assembly / f"{ctx.episode}_picture_pitch_unified.mp4"
+    pitch_report = p.assembly / f"{ctx.episode}_VOICE_PITCH_UNIFY.json"
+    pitch_windows = p.assembly / f"{ctx.episode}_FINAL_CUT_ASR_WINDOWS_final.json"
+    pitch_asr = p.assembly / f"{ctx.episode}_PREMIX_ASR_{s7_asr_model()}.json"
+    source_sha = sha256_file(source)
+    skip_cfg = read_json(p.assembly / f"{ctx.episode}_VOICE_PITCH_UNIFY_SKIP.json", {}) or {}
+    skip_units = [str(u) for u in (skip_cfg.get("skip_units") or [])]
+    if _chain_stage_reusable(pitch_report, pitch_out, source_sha):
+        steps.append({"name": "s7_voice_pitch_unify", "exit_code": 0, "reused": True})
+    else:
+        _park_superseded(pitch_out, pitch_report, pitch_windows)
+        argv: list[Any] = [VENV, pitch_tool, "--episode", ctx.episode, "--input", source, "--output", pitch_out,
+                           "--report", pitch_report, "--windows-out", pitch_windows,
+                           "--release-timeline", p.assembly / f"{ctx.episode}_release_timeline.json",
+                           "--grouping-plan", p.grouping_plan, "--contract", p.contract,
+                           "--voice-cast", ctx.p.scope["voice_cast"], "--asr-out", pitch_asr,
+                           "--asr-model", s7_asr_model(), "--f0-estimator", "dio",
+                           "--work", p.assembly / "_pitch_unify_work"]
+        if skip_units:
+            # operator-authored skip list (F4 2026-10-30): voices H3 produced an octave off the band — a <= 6 st
+            # shift cannot repair them; they are redo candidates for the line owner
+            argv += ["--skip-units", ",".join(skip_units)]
+        res.details["commands"]["voice_pitch_unify"] = q(argv)
+        steps.append(ctx.run(argv, name="s7_voice_pitch_unify"))
+        if steps[-1]["exit_code"] != 0 or not pitch_out.is_file():
+            return None, ["VOICE_PITCH_UNIFY_FAILED"]
+    rep = read_json(pitch_report, {}) or {}
+    res.details["voice_pitch_unify"] = {
+        "input": str(source), "input_sha256": source_sha, "output": str(pitch_out), "output_sha256": sha256_file(pitch_out),
+        "report": str(pitch_report), "windows": str(pitch_windows) if pitch_windows.is_file() else None,
+        "skip_units": skip_units, "summary": {k: v for k, v in rep.items() if not isinstance(v, (list, dict))}}
+    res.receipts.append(str(pitch_report))
+    return pitch_out, []
+
+
 def s7_post_level_audio_chain(ctx: Ctx, res: StageResult, steps: list[dict[str, Any]],
                               line_windows: Path) -> list[str]:
-    """levelled release -> (voice pitch unify) -> ambient bed + under-score -> final candidate.
+    """levelled release -> ambient bed + under-score -> final candidate (voice pitch unify ran BEFORE levelling).
 
     Roger 2026-10-30 E12 成片审看 1b (whole-film ambient bed + music, no silence < -50 dBFS, no cut in dead
     silence) and 1c (co-present voices >= 40 Hz apart).  Each stage reads the previous stage's file and is
@@ -7580,47 +7632,11 @@ def s7_post_level_audio_chain(ctx: Ctx, res: StageResult, steps: list[dict[str, 
     current = p.final_levelled
     stage_in_sha = sha256_file(current)
 
-    # stage: voice pitch unify (F4 tool) — only when the tool and the voice cast are present
-    pitch_tool = RT_TOOLS / "final_cut_voice_pitch_unify.py"
-    pitch_out = p.assembly / f"{ctx.episode}_final_candidate_9x16_pitch.mp4"
-    pitch_report = p.assembly / f"{ctx.episode}_VOICE_PITCH_UNIFY.json"
-    pitch_windows = p.assembly / f"{ctx.episode}_FINAL_CUT_ASR_WINDOWS_final.json"
-    if pitch_tool.is_file() and Path(str(ctx.p.scope.get("voice_cast") or "")).is_file() \
-            and not str(os.environ.get("NALU_S7_SKIP_PITCH_UNIFY") or "").strip():
-        if _chain_stage_reusable(pitch_report, pitch_out, stage_in_sha):
-            steps.append({"name": "s7_voice_pitch_unify", "exit_code": 0, "reused": True})
-        else:
-            _park_superseded(pitch_out, pitch_report, pitch_windows)
-            pitch_asr = p.assembly / f"{ctx.episode}_FINAL_CUT_READBACK_ASR_levelled.json"
-            argv: list[Any] = [VENV, pitch_tool, "--episode", ctx.episode, "--input", current, "--output", pitch_out,
-                               "--report", pitch_report, "--windows-out", pitch_windows,
-                               "--release-timeline", p.assembly / f"{ctx.episode}_release_timeline.json",
-                               "--grouping-plan", p.grouping_plan, "--contract", p.contract,
-                               "--voice-cast", ctx.p.scope["voice_cast"], "--asr-out", pitch_asr,
-                               "--asr-model", s7_asr_model(), "--f0-estimator", "dio",
-                               "--work", p.assembly / "_pitch_unify_work"]
-            # operator-authored skip list (F4 2026-10-30): units whose voice H3 produced an octave off the band —
-            # a <= 6 st shift cannot repair them, they are redo candidates for the line owner
-            skip_cfg = read_json(p.assembly / f"{ctx.episode}_VOICE_PITCH_UNIFY_SKIP.json", {}) or {}
-            skip_units = [str(u) for u in (skip_cfg.get("skip_units") or [])]
-            if skip_units:
-                argv += ["--skip-units", ",".join(skip_units)]
-            if pitch_asr.is_file() and (read_json(pitch_asr, {}) or {}).get("media_sha256") == stage_in_sha:
-                argv += ["--asr-json", pitch_asr]
-            res.details["commands"]["voice_pitch_unify"] = q(argv)
-            steps.append(ctx.run(argv, name="s7_voice_pitch_unify"))
-            if steps[-1]["exit_code"] != 0 or not pitch_out.is_file():
-                return ["VOICE_PITCH_UNIFY_FAILED"]
-        rep = read_json(pitch_report, {}) or {}
-        chain.append({"stage": "voice_pitch_unify", "input": str(current), "output": str(pitch_out),
-                      "report": str(pitch_report), "windows": str(pitch_windows) if pitch_windows.is_file() else None,
-                      "skip_units": (read_json(p.assembly / f"{ctx.episode}_VOICE_PITCH_UNIFY_SKIP.json", {}) or {}).get("skip_units"),
-                      "placement_note": "runs after release levelling (F4 measured I -14.0 -> -14.5 LUFS after resynthesis); "
-                                        "the bed stage re-applies the static release gain and the detectors re-measure loudness",
-                      "summary": {k: v for k, v in rep.items() if not isinstance(v, (list, dict))}})
-        current, stage_in_sha = pitch_out, sha256_file(pitch_out)
-        if pitch_windows.is_file():
-            line_windows = pitch_windows
+    pitch = res.details.get("voice_pitch_unify") or {}
+    if pitch.get("output"):
+        chain.append({"stage": "voice_pitch_unify", "position": "BEFORE_RELEASE_LEVELLING", **pitch})
+        if pitch.get("windows") and Path(str(pitch["windows"])).is_file():
+            line_windows = Path(str(pitch["windows"]))
 
     # stage: ambient bed + under-score (F3 tool)
     bed_tool = RT_TOOLS / "final_cut_audio_bed.py"
@@ -7718,6 +7734,11 @@ def _reusable_release_level(p: Any, source: Any) -> dict[str, Any] | None:
     if not (p.final_levelled.is_file() and source.is_file()
             and str(report.get("status") or "").startswith("PASS")
             and report.get("source_video_stream_sha256")):
+        return None
+    # the picture stream alone is not enough: the pitch-unify stage rewrites the AUDIO under a bit-exact
+    # picture, so a levelled file made from the un-corrected mix must not be reused for the corrected one
+    recorded_source = (report.get("source_release") or {}).get("sha256")
+    if recorded_source and recorded_source != sha256_file(source):
         return None
     try:
         sys.path.insert(0, str(ENGINE / "tools"))
@@ -8622,8 +8643,22 @@ def stage_s7(ctx: Ctx) -> StageResult:
          "--unit-asr", p.assembly / f"{ctx.episode}_unit_asr.json", "--asr-windows-out", asr_windows_pre,
          *vo_argv],
         name="s7_build_final_cut_speaker_map"))
-    if asr_windows_pre.is_file():
-        level_argv = level_argv[:-2] + ["--line-windows", asr_windows_pre] + level_argv[-2:]
+    # 5e'. voice pitch unify on the mixed, unlevelled picture (Roger 2026-10-30 1c; F4: before the leveller)
+    _pre_level_source = Path(str(level_argv[level_argv.index("--source") + 1])) if "--source" in level_argv else p.picture_native
+    pitch_out, pitch_blockers = s7_voice_pitch_unify(ctx, res, steps, _pre_level_source)
+    if pitch_blockers:
+        res.steps.extend(steps)
+        res.blockers = pitch_blockers
+        return res
+    line_windows_for_level = asr_windows_pre
+    if pitch_out is not None:
+        level_argv[level_argv.index("--source") + 1] = pitch_out
+        level_argv[-1] = sha256_file(pitch_out)
+        _pw = (res.details.get("voice_pitch_unify") or {}).get("windows")
+        if _pw and Path(str(_pw)).is_file():
+            line_windows_for_level = Path(str(_pw))     # windows rebuilt on the cut, unit-bounded (F4)
+    if Path(str(line_windows_for_level)).is_file():
+        level_argv = level_argv[:-2] + ["--line-windows", line_windows_for_level] + level_argv[-2:]
     if vo_argv:
         level_argv = level_argv[:-2] + vo_argv + level_argv[-2:]
     res.details["commands"]["level_native_release_audio"] = q(level_argv)
@@ -8688,7 +8723,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
     # levelled release -> [voice pitch unify] -> ambient bed + under-score -> <EP>_final_candidate_9x16.mp4.
     # Picture stays bit-exact through the chain; every stage is idempotent by input/output sha; a stage
     # failure blocks (the chain is the repair Roger asked for, not a nicety).
-    chain_blockers = s7_post_level_audio_chain(ctx, res, steps, asr_windows_pre)
+    chain_blockers = s7_post_level_audio_chain(ctx, res, steps, line_windows_for_level)
     if chain_blockers:
         res.steps.extend(steps)
         res.blockers = chain_blockers

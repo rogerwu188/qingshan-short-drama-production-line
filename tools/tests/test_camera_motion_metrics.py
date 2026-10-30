@@ -85,3 +85,16 @@ class CameraClass(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InternalCutMaskTests(unittest.TestCase):
+    def test_authored_cuts_inside_a_derived_clip_are_not_camera_moves(self):
+        import camera_motion_metrics as cmm
+        deltas = [{"dx": 0.0, "dy": 0.0, "dlogscale": 0.0, "dtheta": 0.0, "inliers": 50, "fallback": False} for _ in range(48)]
+        deltas[23] = {**deltas[23], "dx": 300.0, "dy": -120.0}      # the cut at 1.0 s (frame 24) reads as a huge jump
+        tf = {"fps": 24.0, "width": 768, "height": 1344, "frames": 49, "work_width": 384, "fallback_frames": 0, "deltas": deltas}
+        masked = cmm.mask_internal_cuts(tf, [1.0])
+        self.assertEqual(masked["internal_cuts_masked"]["frames_masked"], 1)
+        self.assertEqual(masked["deltas"][23]["dx"], 0.0)
+        self.assertTrue(masked["deltas"][23]["masked_cut"])
+        self.assertIs(cmm.mask_internal_cuts(tf, None), tf)

@@ -60,7 +60,7 @@ import statistics
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import cv2
 import numpy as np
@@ -196,6 +196,28 @@ def count_reversals(path: list[float], prominence: float) -> int:
     return reversals
 
 
+def mask_internal_cuts(tf: dict[str, Any], cuts_s: Sequence[float] | None, pad_frames: int = 1) -> dict[str, Any]:
+    """Zero the frame deltas at authored picture cuts inside a derived clip (unit re-cut, Roger 2026-10-30 item 3).
+
+    A cut between two shots is not a camera move: the tracker reports it as a one-frame jump that the
+    reversal counter then reads as the camera changing direction.  The deltas within ``pad_frames`` of each
+    cut are set to zero (the path continues from where the previous shot left it); the rest is untouched."""
+    if not cuts_s:
+        return tf
+    fps = float(tf.get("fps") or 24.0)
+    deltas = tf.get("deltas") or []
+    masked = 0
+    for cut in cuts_s:
+        centre = int(round(float(cut) * fps)) - 1          # delta i is frame i -> i+1
+        for i in range(max(0, centre - pad_frames), min(len(deltas), centre + pad_frames + 1)):
+            if any(abs(float(deltas[i].get(k) or 0.0)) > 0 for k in ("dx", "dy", "dlogscale", "dtheta")):
+                masked += 1
+            deltas[i] = {**deltas[i], "dx": 0.0, "dy": 0.0, "dlogscale": 0.0, "dtheta": 0.0, "masked_cut": True}
+    out = dict(tf, deltas=deltas)
+    out["internal_cuts_masked"] = {"cuts_s": [float(c) for c in cuts_s], "frames_masked": masked}
+    return out
+
+
 def summarise(path: Path, tf: dict[str, Any], *, smooth_frames: int = 5, prominence_pct: float = 1.5,
               prominence_zoom_pct: float = 1.5) -> dict[str, Any]:
     fps = tf["fps"]
@@ -257,8 +279,12 @@ def _measure_one(path: str, kw: dict[str, Any]) -> dict[str, Any]:
 
 
 def measure_clip(path: Path, **kw: Any) -> dict[str, Any]:
+    internal_cuts = kw.pop("internal_cuts", None)
     tf = frame_transforms(path, work_width=kw.pop("work_width", 384), min_inliers=kw.pop("min_inliers", 12))
+    tf = mask_internal_cuts(tf, internal_cuts)
     row = summarise(path, tf, **kw)
+    if tf.get("internal_cuts_masked"):
+        row["internal_cuts_masked"] = tf["internal_cuts_masked"]
     row["sha256"] = sha256_file(path)
     return row
 
@@ -318,6 +344,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--prominence-zoom-pct", type=float, default=1.5, help="zoom reversal prominence, %% of scale")
     ap.add_argument("--contract", type=Path, help="GENERATION_CONTRACT: marks dialogue units from shots[].prompt_spec.dialogue")
     ap.add_argument("--label", default="")
+    ap.add_argument("--internal-cuts", type=Path,
+                    help="JSON {unit_id: [cut_s, ...]} (or a nalu.unit_recut_report.v1): authored picture cuts inside "
+                         "derived clips are masked so a shot change is not counted as a camera reversal")
     ap.add_argument("--workers", type=int, default=1,
                     help="measure clips in N processes (clips are independent; 53 E12 units ≈ 33 s with 8)")
     args = ap.parse_args(argv)
@@ -354,12 +383,25 @@ def main(argv: list[str] | None = None) -> int:
 
     kw = dict(work_width=args.work_width, min_inliers=args.min_inliers, smooth_frames=args.smooth_frames,
               prominence_pct=args.prominence_pct, prominence_zoom_pct=args.prominence_zoom_pct)
+    cuts_by_unit: dict[str, list[float]] = {}
+    if args.internal_cuts and args.internal_cuts.is_file():
+        payload = json.loads(args.internal_cuts.read_text(encoding="utf-8"))
+        if isinstance(payload, dict) and isinstance(payload.get("units"), dict):      # unit re-cut report
+            for uid, row in payload["units"].items():
+                if isinstance(row, dict) and row.get("status") == "APPLIED":
+                    cuts_by_unit[str(uid)] = [float(c) for c in (row.get("internal_cuts_s") or [])]
+        elif isinstance(payload, dict):
+            cuts_by_unit = {str(k): [float(c) for c in v] for k, v in payload.items() if isinstance(v, list)}
+
+    def _kw_for(uid: str) -> dict[str, Any]:
+        return dict(kw, internal_cuts=cuts_by_unit.get(uid) or None)
+
     measured: dict[str, dict[str, Any]] = {}
     todo = [(uid, path) for uid, path in clips if path.is_file()]
     if args.workers > 1 and len(todo) > 1:
         from concurrent.futures import ProcessPoolExecutor
         with ProcessPoolExecutor(max_workers=args.workers) as pool:
-            futures = {pool.submit(_measure_one, str(path), kw): uid for uid, path in todo}
+            futures = {pool.submit(_measure_one, str(path), _kw_for(uid)): uid for uid, path in todo}
             for fut, uid in futures.items():
                 measured[uid] = fut.result()
     rows = []
@@ -367,7 +409,7 @@ def main(argv: list[str] | None = None) -> int:
         if not path.is_file():
             rows.append({"unit_id": uid, "clip": str(path), "error": "CLIP_MISSING"})
             continue
-        row = measured.get(uid) or measure_clip(path, **kw)
+        row = measured.get(uid) or measure_clip(path, **_kw_for(uid))
         row["unit_id"] = uid
         if uid in shots_of:
             row["editorial_shot_ids"] = shots_of[uid]
