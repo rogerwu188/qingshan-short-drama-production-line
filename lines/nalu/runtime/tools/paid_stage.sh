@@ -157,4 +157,4 @@ FORCE_ARGS=()
 if [ "${NALU_PAID_FORCE:-0}" = "1" ]; then FORCE_ARGS=(--force); fi
 echo "paid_stage: $EPISODE $FROM_STAGE..$UNTIL_STAGE --paid ${FORCE_ARGS[*]:-} (order seq=$NALU_PAID_ORDER_SEQ, owner=$NALU_LINE_OWNER_ID)"
 "$VENV" "$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_pipeline.py" run \
-  --episode "$EPISODE" --from "$FROM_STAGE" --until "$UNTIL_STAGE" --paid "${FORCE_ARGS[@]}"
+  --episode "$EPISODE" --from "$FROM_STAGE" --until "$UNTIL_STAGE" --paid ${FORCE_ARGS[@]+"${FORCE_ARGS[@]}"}
