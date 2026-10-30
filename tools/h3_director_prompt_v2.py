@@ -404,6 +404,7 @@ def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: se
     scope = unit.get("provider_scope_projection") or {}
     scope_bindings = {int(row["reference_index"]): row for row in scope.get("reference_identity_bindings") or []
                       if row.get("reference_index") is not None}
+    face_only = {str(p) for p in unit.get("face_only_identity_references") or []}  # PIXEL_CROP transports
     lines = []
     for index, raw in enumerate(refs, 1):
         ref = raw if isinstance(raw, dict) else {"path": str(raw)}
@@ -421,7 +422,10 @@ def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: se
             entity = ""  # the start frame, never an identity line (identity lines only for identity/sheet roles)
         if entity and identity:
             body = "face and body" if entity_id.startswith("CHAR-") or not entity_id else "look"
+            face_crop = index > 1 and str(ref.get("path") or "") in face_only
             line = (f"@Image{index} is {v1.reference_sheet_clause(entity)}." if v1.is_reference_sheet(ref)
+                    else f"@Image{index} is {entity}'s face only: a face crop; clothing and headwear come from "
+                         "@Image1 and the wardrobe text, never from this crop." if face_crop
                     else f"@Image{index} is {entity}'s {body}.")
             if entity_id and onscreen and entity_id not in onscreen:
                 line += f" It is for identity only: {entity} stays out of frame in this clip."

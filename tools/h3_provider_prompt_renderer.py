@@ -165,6 +165,11 @@ _WARDROBE_FIELDS = ("silhouette", "outer_layer", "inner_layer", "primary_color",
 REFERENCE_SHEET_MARK = "__MULTIVIEW_REFERENCE_SHEET"
 
 
+#: Identity line for a face-crop transport: face only, costume from the opening frame and wardrobe text.
+FACE_ONLY_LOCK = ("lock this entity's face, age and hair only; this is a face crop, so take body, wardrobe "
+                  "and headwear from {first} and the wardrobe text, never from this crop")
+
+
 def is_reference_sheet(ref: dict[str, Any]) -> bool:
     """A CAMERA_GRAMMAR_V1 multi-view character sheet (lines/nalu/runtime/tools/character_reference_sheet.py)."""
     return REFERENCE_SHEET_MARK in str(ref.get("path") or "").rsplit("/", 1)[-1]
@@ -1097,8 +1102,14 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     # Director units: a reference without its own provider label (e.g. the continuity-derived opening
     # frame) takes the same English name the unit's other bindings use, never the raw CHAR-* id.
     director_labels = _entity_labels(unit, plan) if director_active(unit, plan) else {}
+    face_only = {str(p) for p in unit.get("face_only_identity_references") or []}
     for index, raw_ref in enumerate(refs, 1):
         ref = raw_ref if isinstance(raw_ref, dict) else {"path": str(raw_ref)}
+        # E12 2026-10-30: a pixel-crop identity transport is a face crop of a costumed source card;
+        # locking wardrobe from it put the card's robe and crown on every clip.
+        face_crop = str(ref.get("path") or "") in face_only and index != 1
+        locks = (FACE_ONLY_LOCK.format(first="@Image1") if face_crop
+                 else "lock this entity's face, age, hair, body and wardrobe")
         # Index binding is authoritative.  Path lookup is compatibility-only:
         # different role references may legitimately share one source image.
         bound = scope_bindings.get(index) or sequence_by_path.get(str(ref.get("path") or ""), {})
@@ -1129,14 +1140,15 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             )
             if positive_single_subject:
                 reference_lines.append(
-                    f"@Image{index}: {entity} is SUBJECT_1; preserve this face, age, hair, body, wardrobe, "
+                    f"@Image{index}: {entity} is SUBJECT_1; {locks}; role={role}." if face_crop
+                    else f"@Image{index}: {entity} is SUBJECT_1; preserve this face, age, hair, body, wardrobe, "
                     f"opening pose and architectural background; role={role}."
                 )
             elif scoped:
                 reference_lines.append(
                     f"@Image{index}: exclusive identity of {entity}; "
                     + (reference_sheet_clause(entity) + "; " if is_reference_sheet(ref) else "")
-                    + "lock this entity's face, age, hair, body and wardrobe; "
+                    + locks + "; "
                     + instance_cardinality_clauses(entity, declared_count)[-1]
                     + f"; this reference alone does not put {entity} "
                     "in frame, presence and visible range follow each timed beat; "
@@ -1144,7 +1156,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
                 )
             else:
                 reference_lines.append(
-                    f"@Image{index}: exclusive identity of {entity}; lock this entity's face, age, hair, body and wardrobe; "
+                    f"@Image{index}: exclusive identity of {entity}; {locks}; "
                     + instance_cardinality_clauses(entity, declared_count)[0]
                     + f"; never duplicate or assign it to another entity; "
                     f"role={role}."
