@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2274,
+  "file_count": 2275,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -673,7 +673,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "d05be7db6707807d6317c43ea5c373f94cf0bda2d2040698c528e9dc1dc7db42"
+      "sha256": "1bf6b5a8d7b79ac5157ba50e7b8cfb4d095fa2494c0e21990264e5cf3c4cf90b"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -797,7 +797,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/video_q2_builder.py",
-      "sha256": "52b31c6f16bb805c660ae7a94d84b9a7a9b9eac5fbdf4fed7b8835d1a9dd8018"
+      "sha256": "bb76ccf57ffe940c740b8ee4265642cd4d3cd61b730d127fd8e61e3145eb7986"
     },
     {
       "path": "lines/nalu/runtime/tools/visual_review_policy.py",
@@ -8138,6 +8138,10 @@
     {
       "path": "tools/tests/test_q1_no_character_insert_detector.py",
       "sha256": "2e0367218aefac9a6b7e5fc627d8c4f6bc65860a7b8a56a5be3e09a7d8ac3690"
+    },
+    {
+      "path": "tools/tests/test_q2_push_in_redo.py",
+      "sha256": "9446b78010500544a54df7c31616fe031fb95c49a5b5ac7125cea043293e332a"
     },
     {
       "path": "tools/tests/test_qa_multimodal_dialogue_batch.py",

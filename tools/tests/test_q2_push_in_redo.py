@@ -93,9 +93,104 @@ class PushInVerdictTest(unittest.TestCase):
 
     def test_prepare_measures_only_under_the_policy(self):
         source = Path(vq.__file__).read_text()
-        hook = source.index('row["push_in"] = measure_push_in(grouping_units.get(unit_id), detections)')
+        hook = source.index('row["push_in"] = measure_push_in(unit_plan, detections, media=media if locked else None, '
+                            'window=window)')
         self.assertLess(source.index("        if face_count_on:\n"), hook)
         self.assertIn("apply_push_in(push_in, scene_checks, scene_failed)", source)
+
+
+def _words(start, text, step=0.3):
+    out = []
+    for i, word in enumerate(text.split()):
+        out.append({"start": round(start + step * i, 3), "end": round(start + step * i + 0.25, 3), "word": " " + word})
+    return {"start": out[0]["start"], "end": out[-1]["end"], "text": text, "words": out}
+
+
+LINE = "I told you the door was locked from inside."
+KEPT_CONTRACT = {"episode": "E99", "dialogue_language": "en", "shots": [{"shot_id": "S1", "target_seconds": 6.0}],
+                 "audio_contract": {"dialogue_units": [{"shot_id": "S1", "speaker_id": "holmes", "text": LINE}]}}
+KEPT_UNIT = {"unit_id": "U1", "editorial_shot_ids": ["S1"], "camera_plan": {"motion_family": "LOCKED"}}
+#: filler "Well um so then" (0.0-1.15), the line (1.5-4.15), babble from 4.4
+KEPT_ASR = [_words(0.0, "Well um so then"), _words(1.5, LINE), _words(4.4, "and the other one was")]
+
+
+ENGINE_NPL = vq.engine_module("nalu_pipeline")  # the module Q2 itself calls
+
+
+class PushInKeptWindowTest(unittest.TestCase):
+    """Owner 2026-10-29 (lab E08 VU-006/009/015): measure only what S7's dialogue head/tail trims keep."""
+
+    def window(self, asr=KEPT_ASR, unit=KEPT_UNIT, contract=KEPT_CONTRACT, **kw):
+        with mock.patch.object(vq, "_untrimmed_unit_asr", return_value=(asr, "Q2_CACHE"), **kw) as asr_mock, \
+                mock.patch.object(ENGINE_NPL, "_unit_energy_db", return_value=None), \
+                mock.patch.object(vq, "sha256_file", return_value="sha"):
+            return vq.push_in_window("E99", unit, Path("/nonexistent.mp4"), 6.0, contract, Path("/x.json")), asr_mock
+
+    def test_window_is_s7_head_and_tail_trim(self):
+        win, _ = self.window()
+        self.assertEqual(win["source"], "S7_DIALOGUE_TRIMS")
+        self.assertEqual((win["start_seconds"], win["end_seconds"]), (1.35, 4.4))
+        self.assertTrue(win["head_trimmed"] and win["tail_trimmed"])
+        self.assertEqual(win["clip_seconds"], 6.0)
+
+    def test_silent_unit_is_the_whole_clip_without_asr(self):
+        silent = {**KEPT_CONTRACT, "audio_contract": {"dialogue_units": []}}
+        win, asr_mock = self.window(contract=silent)
+        self.assertEqual((win["source"], win["start_seconds"], win["end_seconds"]), ("WHOLE_CLIP_SILENT", 0.0, 6.0))
+        asr_mock.assert_not_called()
+
+    def test_asr_failure_falls_back_to_the_whole_clip(self):
+        win, _ = self.window(side_effect=RuntimeError("no whisper"))
+        self.assertEqual((win["source"], win["start_seconds"], win["end_seconds"]), ("WHOLE_CLIP_FALLBACK", 0.0, 6.0))
+        self.assertIn("WINDOW_ERROR:RuntimeError", win["reason"])
+        win, _ = self.window(asr=[])  # nothing heard: S7 trims nothing -> whole clip, still the S7 rule
+        self.assertEqual((win["start_seconds"], win["end_seconds"]), (0.0, 6.0))
+
+    def test_measures_nine_frames_inside_the_window_only(self):
+        pic = vq.engine_module("push_in_compensation")
+        window = {"start_seconds": 1.35, "end_seconds": 4.4, "source": "S7_DIALOGUE_TRIMS"}
+        # the face grows only before 1.35 s (in the filler): inside the kept window it is steady
+        width_at = lambda t: 0.40 if t < 1.35 else 0.80  # noqa: E731
+        dets = {"status": "OK", "backend": SimpleNamespace(_app=object()), "frames": []}
+        with mock.patch.object(pic, "frame_at", side_effect=lambda _m, t, _f: t), \
+                mock.patch.object(pic, "largest_face", side_effect=lambda _a, t: {"width": width_at(t), "cx": 0.5,
+                                                                                  "cy": 0.4}), \
+                mock.patch.object(vq, "require_ffmpeg", return_value="ffmpeg"):
+            result = vq.measure_push_in(LOCKED, dets, media=Path("/u.mp4"), window=window)
+            whole = vq.measure_push_in(LOCKED, dets, media=Path("/u.mp4"),
+                                       window={"start_seconds": 0.0, "end_seconds": 4.4})
+        times = [row["at_seconds"] for row in result["per_frame"]]
+        self.assertEqual(len(times), 9)
+        self.assertTrue(all(1.35 <= t <= 4.4 for t in times))
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["window"], window)
+        self.assertNotEqual(whole["status"], "PASS")  # the whole clip would have seen the filler-time jump
+
+    def test_asr_source_order(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            media = d / "E99-VU-001.mp4"
+            media.write_bytes(b"x")
+            cache = d / "cache.json"
+            s7 = d / "assembly" / "E99_unit_asr_untrimmed.json"
+            s7.parent.mkdir()
+            s7.write_text(json.dumps({"E99-VU-001": KEPT_ASR}))
+            paths = SimpleNamespace(assembly=s7.parent)
+            with mock.patch.object(vq, "QaPaths", return_value=paths), \
+                    mock.patch.object(vq.engine_module("nalu_pipeline"), "transcribe_clip",
+                                      return_value=[{"start": 0, "end": 1, "text": "x", "words": []}]) as whisper, \
+                    mock.patch.object(vq, "_whisper_model", return_value="model"):
+                segs, src = vq._untrimmed_unit_asr("E99", "E99-VU-001", media, "sha1", "en", cache)
+                self.assertEqual((src, segs), ("S7_UNTRIMMED_ASR", KEPT_ASR))
+                self.assertEqual(vq._untrimmed_unit_asr("E99", "E99-VU-001", media, "sha1", "en", cache)[1],
+                                 "Q2_CACHE")
+                # a redone clip (new sha, newer than S7's ASR) -> S7's whisper pass on the clip
+                import os
+                os.utime(s7, (1, 1))
+                segs, src = vq._untrimmed_unit_asr("E99", "E99-VU-001", media, "sha2", "en", cache)
+                self.assertEqual(src, "S7_WHISPER_PASS")
+                whisper.assert_called_once_with("model", media, "en", words=True)
+                self.assertEqual(json.loads(cache.read_text())["media_sha256"], "sha2")
 
 
 class AutoRedoTest(unittest.TestCase):

@@ -7411,6 +7411,22 @@ def _reusable_release_level(p: Any, source: Any) -> dict[str, Any] | None:
             "source_video_stream_sha256": current, "final_sha256": sha256_file(p.final_mp4)}
 
 
+def transcribe_clip(model: Any, mp4: Path, language: str, *, words: bool = False) -> list[dict[str, Any]]:
+    """One unit clip through the S7 whisper pass (``model`` = faster-whisper ``WhisperModel("small", cpu, int8)``).
+    Shared with video Q2's push-in kept window (CAMERA_GRAMMAR_V1, line owner 2026-10-29), which predicts the
+    S7 dialogue head/tail trims from the same ASR."""
+    if words:
+        segs, _ = model.transcribe(str(mp4), language=language, beam_size=5, vad_filter=True,
+                                   word_timestamps=True)
+        return [{"start": round(x.start, 3), "end": round(x.end, 3), "text": x.text.strip(),
+                 "words": [{"start": round(w.start, 3), "end": round(w.end, 3), "word": w.word}
+                           for w in (getattr(x, "words", None) or [])]}
+                for x in segs]
+    segs, _ = model.transcribe(str(mp4), language=language, beam_size=5, vad_filter=True)
+    return [{"start": round(x.start, 3), "end": round(x.end, 3), "text": x.text.strip()}
+            for x in segs]
+
+
 def transcribe_units(ctx: Ctx, media_dir: Path, episode: str, *,
                      words: bool = False) -> dict[str, list[dict[str, Any]]]:
     """Transcribe every unit clip for caption timing, concurrently.
@@ -7434,16 +7450,7 @@ def transcribe_units(ctx: Ctx, media_dir: Path, episode: str, *,
     model = WhisperModel("small", device="cpu", compute_type="int8")
 
     def _one(mp4: Path) -> list[dict[str, Any]]:
-        if words:
-            segs, _ = model.transcribe(str(mp4), language=ctx_language(ctx), beam_size=5, vad_filter=True,
-                                       word_timestamps=True)
-            return [{"start": round(x.start, 3), "end": round(x.end, 3), "text": x.text.strip(),
-                     "words": [{"start": round(w.start, 3), "end": round(w.end, 3), "word": w.word}
-                               for w in (getattr(x, "words", None) or [])]}
-                    for x in segs]
-        segs, _ = model.transcribe(str(mp4), language=ctx_language(ctx), beam_size=5, vad_filter=True)
-        return [{"start": round(x.start, 3), "end": round(x.end, 3), "text": x.text.strip()}
-                for x in segs]
+        return transcribe_clip(model, mp4, ctx_language(ctx), words=words)
 
     try:
         workers = max(1, int(os.environ.get("NALU_S7_ASR_WORKERS") or 2))
