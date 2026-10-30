@@ -93,9 +93,12 @@
       },
       "default_resolution": "1K",
       "pricing": {
-        "credits": null,
-        "hard_upper": 11,
-        "evidence": "UNVERIFIED: no statement row for gpt-image-2-fast yet (neither 1K nor 2K); hard_upper kept at the pro 2K price (11) until the first SingleGenerateImage row at 1K is observed, then lowered to the observed charge"
+        "credits": 2,
+        "hard_upper": 2,
+        "evidence": "2026-10-30 15:06Z first paid statement row: SingleGenerateImage model=gpt-image-2-fast 1K 9:16 (E12-S18-02-KEYFRAME-V1, output 941x1672) credit -2; reconciliation PASS_BOUNDED expected 1 / matched 1 (E12_KEYFRAME_SUBMIT_REPORT_20261030T150553…_credit_statement.json). 2K price not observed on this SKU.",
+        "by_resolution": {
+          "1K": 2
+        }
       },
       "route_evidence": "2026-10-30 probe: POST /api/v1/generation/text-to-image model=gpt-image-2-fast with invalid params -> 400 'aspect ratio does not support resolution' (model exists; price record present); bare gpt-image-2 -> 500 'failed to get model price: record not found'",
       "legacy_resolutions": [
