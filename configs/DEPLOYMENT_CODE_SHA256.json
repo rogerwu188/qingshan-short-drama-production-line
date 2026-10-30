@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2275,
+  "file_count": 2276,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -657,7 +657,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_budget_ledger.py",
-      "sha256": "77ad14ce06787f793ce62c22ba304e9c9c2c8209741a989343ce58e682075a66"
+      "sha256": "f56c166cb518cd621a4e5d4f33b61736fc1ed3b7eb9197d0dd09875a6efba254"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_media_tools.py",
@@ -8738,6 +8738,10 @@
     {
       "path": "tools/tests/test_writer_production_field_gate.py",
       "sha256": "44708d65ec796e14fc56a11f52fc5ac47b3d7cca09839313648d5c0018f2fc47"
+    },
+    {
+      "path": "tools/tests/test_writer_selfcheck_provider_floor.py",
+      "sha256": "84512a4513bd2432e168dbe053770b503f7e875e6581949132e8b81b10b18669"
     },
     {
       "path": "tools/tests/test_writer_staged_facts_job.py",
