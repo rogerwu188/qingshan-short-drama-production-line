@@ -75,7 +75,7 @@ DEFAULTS: dict[str, Any] = {
     "ocr_min_confidence": 0.5,
     "speaker_map_tolerance_s": 0.6,
     "subtitle_match_similarity": 0.8,     # character-level similarity (difflib ratio) per cue
-    "subtitle_match_window_s": 1.5,       # ASR words counted for a cue within [start-w, end+w]
+    "subtitle_match_window_s": 0.75,      # ASR words counted for a cue within [start-w, end+w] (word timestamps)
     "subtitle_agreement_min": 0.95,       # share of cues that must match
     "readback_asr_model": "small",            # large-v3 whole-file read-back took 2 h on an 8 GB machine (F2, 2026-10-30)
     "outside_cue_speech_max_s": 1.0,         # total seconds of speech heard OUTSIDE every subtitle cue window (babble)
@@ -295,9 +295,33 @@ def decide_mascot(scores: Sequence[dict[str, Any]] | None, *, threshold: float, 
 _SUBTITLE_NORMALISE = re.compile(r"[\s\u3000,.;:!?，。！？；：、…「」『』“”\"'()（）\[\]【】<>《》—\-~·]+")
 
 
+_T2S = None
+
+
+def _to_simplified(text: str) -> str:
+    """Traditional -> simplified (whisper emits 繁體 on some windows); identity when OpenCC is absent."""
+    global _T2S
+    if _T2S is None:
+        try:
+            from opencc import OpenCC  # optional
+            _T2S = OpenCC("t2s")
+        except Exception:  # noqa: BLE001
+            _T2S = False
+    return _T2S.convert(text) if _T2S else text
+
+
 def normalise_subtitle_text(text: str) -> str:
-    """Punctuation/whitespace-free, lower-cased text for character-level comparison."""
-    return _SUBTITLE_NORMALISE.sub("", str(text or "")).lower()
+    """Punctuation/whitespace-free, lower-cased, simplified-script text for character-level comparison."""
+    return _to_simplified(_SUBTITLE_NORMALISE.sub("", str(text or ""))).lower()
+
+
+def _pinyin(text: str) -> list[str]:
+    """Toneless pinyin syllables (ASR confusions are homophones: 微甜/威田, 赤霞城/赤峡城); [] without pypinyin."""
+    try:
+        from pypinyin import lazy_pinyin  # optional
+    except Exception:  # noqa: BLE001
+        return []
+    return [str(x) for x in lazy_pinyin(text)]
 
 
 def _ass_time(value: str) -> float:
@@ -353,22 +377,32 @@ def is_asr_hallucination(text: str) -> bool:
     return any(p.lower() in low for p in ASR_HALLUCINATION_PATTERNS)
 
 
-def cue_similarity(expected: str, heard: str) -> float:
-    """Character similarity of a subtitle cue to what was heard around it.
-
-    max(difflib ratio, longest-common-substring coverage of the cue): the second term keeps a cue that is
-    one of two lines inside the same read-back window (the window then legitimately contains more text
-    than the cue) from scoring low for a reason that is not a speech defect."""
+def _seq_similarity(expected: Sequence[Any], heard: Sequence[Any]) -> float:
     import difflib
-    if not expected:
-        return 1.0
-    if not heard:
-        return 0.0
     matcher = difflib.SequenceMatcher(None, expected, heard)
     ratio = matcher.ratio()
     block = matcher.find_longest_match(0, len(expected), 0, len(heard))
     coverage = block.size / len(expected)
-    return round(max(ratio, coverage), 3)
+    return max(ratio, coverage)
+
+
+def cue_similarity(expected: str, heard: str) -> float:
+    """Similarity of a subtitle cue to what was heard around it, 0..1.
+
+    Characters and toneless pinyin are both compared and the better one counts: whisper's confusions on
+    this material are homophones (微甜→威田, 赤霞城→赤峡城), which a listener hears as the right line, while
+    gibberish or English (Roger's complaint) matches on neither.  Each comparison is max(difflib ratio,
+    longest-common-substring coverage of the cue): the coverage term keeps a cue that is one of two lines
+    inside the same read-back window from scoring low for a reason that is not a speech defect."""
+    if not expected:
+        return 1.0
+    if not heard:
+        return 0.0
+    score = _seq_similarity(expected, heard)
+    pe, ph = _pinyin(expected), _pinyin(heard)
+    if pe and ph:
+        score = max(score, _seq_similarity(pe, ph))
+    return round(score, 3)
 
 
 def decide_subtitle_agreement(cues: Sequence[dict[str, Any]] | None, readback: Sequence[dict[str, Any]] | None, *,
@@ -478,8 +512,11 @@ def readback_transcribe(media: Path, *, model: str, language: str = "zh",
     from faster_whisper import WhisperModel  # lazy: optional dependency
 
     engine = WhisperModel(model, device="cpu", compute_type="int8")
+    # bias the decoder to simplified-script Mandarin dialogue (whisper otherwise drifts into 繁體 per window)
+    prompt = "以下是普通话对白，简体中文。" if language == "zh" else None
     if not windows:
-        segments, _info = engine.transcribe(str(media), language=language, word_timestamps=True, vad_filter=False, beam_size=5)
+        segments, _info = engine.transcribe(str(media), language=language, word_timestamps=True, vad_filter=False, beam_size=5,
+                                            initial_prompt=prompt)
         return _segment_rows(segments, 0.0)
     audio = _decode_mono16k(media)
     rows: list[dict[str, Any]] = []
@@ -487,7 +524,8 @@ def readback_transcribe(media: Path, *, model: str, language: str = "zh",
         lo, hi = max(0, int(float(start) * READBACK_SR)), min(len(audio), int(float(end) * READBACK_SR))
         if hi - lo < READBACK_SR // 10:
             continue
-        segments, _info = engine.transcribe(audio[lo:hi], language=language, word_timestamps=True, vad_filter=False, beam_size=5)
+        segments, _info = engine.transcribe(audio[lo:hi], language=language, word_timestamps=True, vad_filter=False, beam_size=5,
+                                            initial_prompt=prompt)
         rows.extend(_segment_rows(segments, float(start)))
         if on_window_done is not None:
             on_window_done(index, rows)

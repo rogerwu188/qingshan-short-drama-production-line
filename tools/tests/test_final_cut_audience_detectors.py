@@ -407,3 +407,13 @@ class SubtitleReadbackTests(unittest.TestCase):
             self.assertIn("resumed_from_window_2", source)
             self.assertEqual(calls, [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0), (3.0, 4.0)])
             self.assertFalse(json.loads(cache.read_text())["partial"])
+
+
+class CueSimilarityScriptTests(unittest.TestCase):
+    def test_homophone_and_traditional_script_read_as_the_line(self):
+        # whisper-small on E12: 微甜→威田, 赶到后→趕到後 — a listener hears the right line
+        self.assertGreaterEqual(fcd.cue_similarity(fcd.normalise_subtitle_text("微甜。"), fcd.normalise_subtitle_text("威田")), 0.8)
+        self.assertGreaterEqual(fcd.cue_similarity(fcd.normalise_subtitle_text("等我们赶到后，那里也光秃秃了"),
+                                                   fcd.normalise_subtitle_text("等我們趕到後,那裡也光突突了")), 0.8)
+        # English / gibberish still fails on both scripts
+        self.assertLess(fcd.cue_similarity(fcd.normalise_subtitle_text("冯兄客气了"), fcd.normalise_subtitle_text("like a tester trained")), 0.5)
