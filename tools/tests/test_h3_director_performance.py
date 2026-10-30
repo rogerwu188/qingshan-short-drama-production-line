@@ -70,7 +70,7 @@ class DirectorPerformanceTest(unittest.TestCase):
         self.assertEqual(hashlib.sha256(text.encode()).hexdigest(), PINNED)
 
 
-PINNED = "f47e9a3ac20a3eb5d039b775859a5d3d6a3c1f2fde370e4aee2afebd59e9bae1"
+PINNED = "a50f6df329cbfcaae1bd79f276879941ff7010a51db3a88029374e892b3f3efe"
 
 if __name__ == "__main__":
     unittest.main()

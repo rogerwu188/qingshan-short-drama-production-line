@@ -115,8 +115,8 @@ class DirectorPromptTest(unittest.TestCase):
         # H3 renderer's "Force origin: X" clause stopped repeating an X identical to the
         # preceding "Start from X." (tools/h3_provider_prompt_renderer.py _beat,
         # 10,000-rune budget fix, E12-VU-003); the only text change is that one dropped clause.
-        pinned = {vu011: "2adc4e39d28155e7775856b0e7021a74429c2f4e8ebbe47ad0ed48285f1061c3",
-                  vu012: "c53e07d6d487c895a998d95f594343b810a748b28d33785de416ed7c7b5d98e2"}
+        pinned = {vu011: "4ba536b1b9000a2e1f278f6a35830a62dd73d6c1257a43e124482f83b7ea065d",
+                  vu012: "58e507cf970ea11a4d688138288135654821f7656165f175c436ca65e20e08a2"}
         for fixture, digest in pinned.items():
             text, _ = render_h3_prompt(*fixture(stamped=False))
             self.assertEqual(hashlib.sha256(text.encode()).hexdigest(), digest, fixture.__name__)

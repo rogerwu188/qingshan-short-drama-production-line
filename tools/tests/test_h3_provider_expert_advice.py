@@ -45,12 +45,14 @@ ZH_CAMERA = H3_CONSTRAINT_ZH["one_take"] + "；" + H3_CONSTRAINT_ZH["fixed_camer
 #: no longer repeats X when force_origin equals entry_state; v2_unstamped's beat has a distinct force_origin
 #: so it is untouched (confirmed: still matches the b2ba893 bytes).  Every other pin here moved by exactly that
 #: one dropped clause, confirmed by diffing old vs new rendered text.
+#: Re-pinned 2026-10-30 (E12 burned subtitles, K253): TEXT-FREE FRAME moved from negative_constraints to the first
+#: line; diffing old vs new rendered text shows that move only.
 UNSTAMPED_PINS = {
     "v2_unstamped": "8604f0b83bd9f1ea20b7f3127ea5d58fda388166968d537613521ab813fc19b2",
-    "v1_unstamped_two": "7eadbca084a3cc0ef5e3ca01f518c492664ee6d7fe8b1964ef54863c85769c7c",
-    "v1_unstamped_dialogue": "f47e9a3ac20a3eb5d039b775859a5d3d6a3c1f2fde370e4aee2afebd59e9bae1",
-    "v1_unstamped_vu011": "2adc4e39d28155e7775856b0e7021a74429c2f4e8ebbe47ad0ed48285f1061c3",
-    "v1_unstamped_vu012": "c53e07d6d487c895a998d95f594343b810a748b28d33785de416ed7c7b5d98e2",
+    "v1_unstamped_two": "467301a885a5df1a8ed5ae5e2cc3d282564e624c2a936c90d622c1380ce44f2f",
+    "v1_unstamped_dialogue": "a50f6df329cbfcaae1bd79f276879941ff7010a51db3a88029374e892b3f3efe",
+    "v1_unstamped_vu011": "4ba536b1b9000a2e1f278f6a35830a62dd73d6c1257a43e124482f83b7ea065d",
+    "v1_unstamped_vu012": "58e507cf970ea11a4d688138288135654821f7656165f175c436ca65e20e08a2",
 }
 UNSTAMPED = {
     "v2_unstamped": lambda: fixture(style=True, director=False),

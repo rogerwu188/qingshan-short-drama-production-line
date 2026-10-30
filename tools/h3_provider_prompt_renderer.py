@@ -1411,7 +1411,6 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         else list(contract.get("negative_constraints") or [])
     )
     negatives.extend([
-        ANTI_TEXT,
         "No identity, wardrobe, prop ownership, map, weather, lighting-direction, or voice drift",
         "No freeze, loop, pose interpolation, unmotivated orbit, or discontinuous spatial jump",
     ])
@@ -1463,6 +1462,9 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             vocal_text += " " + voice_hygiene
             negative_rows.append(_NO_NATIVE_MUSIC)
         return "\n".join([
+        # E12 2026-10-30 (K253): H3 burned dialogue subtitles into 7 of 25 clips while the anti-text rule sat
+        # in negative_constraints at the end; stated first, ahead of every action line.
+        ANTI_TEXT + ".",
         "subject_definitions:", *reference_lines,
         "population_scope: " + population_scope + ".",
         *([roster] if roster else []),
