@@ -330,3 +330,80 @@ class E04LiveCliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SubtitleReadbackTests(unittest.TestCase):
+    """subtitle_asr_agreement (Roger 2026-10-30 item 1a; F2: H3 babble lives OUTSIDE the cues)."""
+
+    def _readback(self, words):
+        return [{"start": words[0][1], "end": words[-1][2], "text": "".join(w[0] for w in words),
+                 "words": [{"w": w, "s": s, "e": e} for w, s, e in words]}]
+
+    def test_cue_similarity_keeps_a_cue_that_is_one_of_two_lines_in_the_window(self):
+        self.assertGreaterEqual(fcd.cue_similarity("冯兄客气了", "冯兄客气了知道你巡山辛苦"), 0.8)
+        self.assertLess(fcd.cue_similarity("冯兄客气了", "troeperandhorwes"), 0.3)
+        self.assertEqual(fcd.cue_similarity("", "anything"), 1.0)
+        self.assertEqual(fcd.cue_similarity("x", ""), 0.0)
+
+    def test_babble_outside_every_cue_fails_even_when_cues_match(self):
+        cues = [{"start": 3.0, "end": 5.0, "text": "冯兄客气了"}]
+        words = [("特", 0.2, 0.5), ("罗", 0.5, 0.8), ("佩", 0.8, 1.1), ("尔", 1.1, 1.4),   # 1.2 s babble before the line
+                 ("冯", 3.1, 3.4), ("兄", 3.4, 3.7), ("客", 3.7, 4.0), ("气", 4.0, 4.3), ("了", 4.3, 4.6)]
+        row = fcd.decide_subtitle_agreement(cues, self._readback(words), similarity=0.8, window_s=1.5,
+                                            min_agreement=0.95, outside_max_s=1.0)
+        self.assertEqual(row["status"], "FAIL")
+        self.assertEqual(row["measured"]["agreement"], 1.0)
+        self.assertEqual(row["measured"]["speech_outside_cues_seconds"], 1.2)
+        self.assertTrue(any(f.startswith("SPEECH_OUTSIDE_SUBTITLES:") for f in row["failures"]))
+        self.assertEqual(row["evidence"]["speech_outside_cues"][0]["start"], 0.2)
+
+    def test_whisper_boilerplate_is_not_speech(self):
+        cues = [{"start": 3.0, "end": 5.0, "text": "冯兄客气了"}]
+        words = [("字幕by索兰娅", 0.2, 1.4), ("冯兄客气了", 3.1, 4.6)]
+        row = fcd.decide_subtitle_agreement(cues, self._readback(words), similarity=0.8, window_s=1.5,
+                                            min_agreement=0.95, outside_max_s=1.0)
+        self.assertEqual(row["status"], "PASS")
+        self.assertEqual(row["measured"]["speech_outside_cues_seconds"], 0.0)
+
+    def test_unheard_line_counts_as_a_non_match(self):
+        cues = [{"start": 3.0, "end": 5.0, "text": "冯兄客气了"}, {"start": 8.0, "end": 9.0, "text": "许叔"}]
+        words = [("冯兄客气了", 3.1, 4.6)]
+        row = fcd.decide_subtitle_agreement(cues, self._readback(words), similarity=0.8, window_s=1.5,
+                                            min_agreement=0.95, outside_max_s=1.0)
+        self.assertEqual(row["status"], "FAIL")
+        self.assertEqual(row["measured"]["agreement"], 0.5)
+
+    def test_incremental_cache_resumes_from_the_last_finished_window(self):
+        import tempfile
+        from unittest import mock
+        calls = []
+
+        def fake_transcribe(media, *, model, language="zh", windows=None, on_window_done=None):
+            rows = []
+            for i, (s, e) in enumerate(windows or []):
+                calls.append((s, e))
+                rows.append({"start": s, "end": e, "text": f"w{s}", "words": [{"w": f"w{s}", "s": s, "e": e}]})
+                if on_window_done:
+                    on_window_done(i, rows)
+                if len(calls) == 2 and not getattr(fake_transcribe, "resumed", False):
+                    fake_transcribe.resumed = True
+                    raise KeyboardInterrupt   # killed after two windows
+            return rows
+
+        with tempfile.TemporaryDirectory() as tmp:
+            media = Path(tmp) / "m.mp4"
+            media.write_bytes(b"media")
+            cache = Path(tmp) / "rb.json"
+            windows = [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0), (3.0, 4.0)]
+            with mock.patch.object(fcd, "readback_transcribe", fake_transcribe), \
+                    mock.patch.object(fcd.dvm, "media_sha256", lambda p: "sha-m"):
+                with self.assertRaises(KeyboardInterrupt):
+                    fcd.load_or_run_readback(media, cache, model="small", windows=windows)
+                partial = json.loads(cache.read_text())
+                self.assertTrue(partial["partial"])
+                self.assertEqual(partial["windows_done"], 2)
+                segments, source = fcd.load_or_run_readback(media, cache, model="small", windows=windows)
+            self.assertEqual([s["start"] for s in segments], [0.0, 1.0, 2.0, 3.0])
+            self.assertIn("resumed_from_window_2", source)
+            self.assertEqual(calls, [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0), (3.0, 4.0)])
+            self.assertFalse(json.loads(cache.read_text())["partial"])

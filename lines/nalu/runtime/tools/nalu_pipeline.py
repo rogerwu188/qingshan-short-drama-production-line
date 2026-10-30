@@ -7346,6 +7346,13 @@ def s7_final_audience_review(ctx: Ctx, res: StageResult) -> dict[str, Any]:
     }
 
 
+def s7_asr_model() -> str:
+    """faster-whisper model for S7's own transcriptions (pitch-unify line windows, subtitle read-back).
+    Default ``small``: on the 8 GB production machine large-v3 over a 226 s mix ran 2 h under memory thrash
+    (F2 2026-10-30); override with NALU_S7_ASR_MODEL when a bigger machine is available."""
+    return str(os.environ.get("NALU_S7_ASR_MODEL") or "small")
+
+
 def _camera_workers(ctx: Ctx) -> int:
     import os as _os
     return max(1, min(8, (_os.cpu_count() or 2) - 1, max(int(getattr(ctx, "max_parallel", 1) or 1), 4)))
@@ -7590,7 +7597,7 @@ def s7_post_level_audio_chain(ctx: Ctx, res: StageResult, steps: list[dict[str, 
                                "--release-timeline", p.assembly / f"{ctx.episode}_release_timeline.json",
                                "--grouping-plan", p.grouping_plan, "--contract", p.contract,
                                "--voice-cast", ctx.p.scope["voice_cast"], "--asr-out", pitch_asr,
-                               "--work", p.assembly / "_pitch_unify_work"]
+                               "--asr-model", s7_asr_model(), "--work", p.assembly / "_pitch_unify_work"]
             if pitch_asr.is_file() and (read_json(pitch_asr, {}) or {}).get("media_sha256") == stage_in_sha:
                 argv += ["--asr-json", pitch_asr]
             res.details["commands"]["voice_pitch_unify"] = q(argv)
@@ -8724,9 +8731,11 @@ def stage_s7(ctx: Ctx) -> StageResult:
                                 "--lexicon", ctx.p.scope["lexicon"],
                                 "--speaker-map", speaker_map, "--story-segments", release_timeline,
                                 "--voice-cast", ctx.p.scope["voice_cast"],
-                                # Roger 2026-10-30 item 1a: whole-mix ASR read-back vs burned subtitles
-                                # (subtitle_asr_agreement >= 95 %); the read-back is cached by media sha
-                                "--readback-asr-json", p.readback_asr]
+                                # Roger 2026-10-30 item 1a: ASR read-back of the mix vs burned subtitles
+                                # (subtitle_asr_agreement >= 95 %, babble outside cues <= 1 s); read per
+                                # release segment, cached incrementally by media sha (F2: large-v3 whole-file
+                                # took 2 h on this 8 GB machine)
+                                "--readback-asr-json", p.readback_asr, "--readback-model", s7_asr_model()]
     chain_windows = (res.details.get("final_candidate_chain") or {}).get("line_windows_for_detectors")
     if chain_windows and Path(str(chain_windows)).is_file():
         # line windows rebuilt on the finished candidate by the post-level chain (unit-bounded, Roger 2026-10-30):
