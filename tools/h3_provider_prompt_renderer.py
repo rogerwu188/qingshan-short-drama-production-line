@@ -253,12 +253,31 @@ def _director_roster(people: list[tuple[str, str]], beings: list[tuple[str, str]
     return "cast_roster: " + ". ".join(parts) + "."
 
 
+LOCKED_DIALOGUE_POLICY_ID = "LOCKED_DIALOGUE_CAMERA_V1"
+SINGLE_DIRECTION_CLAUSE = ("execute the declared move once, in one direction only, then hold; the camera never "
+                           "reverses, oscillates or drifts back")
+TRIPOD_CLAUSE = "The camera is on a tripod for the whole take"
+NO_SPEECH_BEAT_CLAUSE = "No speech in this beat: {who} keeps the mouth closed, no voice, no murmur, no breath words."
+SHORT_LINE_CLAUSE = "Deliver this short line unhurried, over at least one full second, with a natural pause before and after it."
+SHORT_LINE_MAX_CHARS = 4
+
+
+def _locked_dialogue_plan(plan: dict[str, Any] | None) -> bool:
+    return str((plan or {}).get("camera_policy") or "").strip().upper() == LOCKED_DIALOGUE_POLICY_ID
+
+
 def _camera(plan: dict[str, Any]) -> str:
-    """Legacy unit camera line (gate off).  Kept byte-identical."""
+    """Legacy unit camera line (gate off).  Kept byte-identical for plans outside LOCKED_DIALOGUE_CAMERA_V1."""
     family = str(plan.get("motion_family") or "STATIC").upper()
     direction = str(plan.get("motion_direction") or "NONE").upper()
     scale = str(plan.get("shot_scale") or "MEDIUM").upper()
     suffix = _optical(plan) + _camera_grammar_clause(plan)
+    if _locked_dialogue_plan(plan):
+        # Roger 2026-10-30 (E12 item 2): a locked plan is a tripod, never "execute the move once"; a moving
+        # plan moves once in one direction (E12: 20/53 units carried a built-in reversal)
+        if family in {"STATIC", "LOCKED"}:
+            return f"shot scale={scale}; {FIXED_CAMERA_POSITION} {TRIPOD_CLAUSE}{suffix}"
+        return f"shot scale={scale}; {_MOTION_MAPPING.get(family, family)}; direction={direction}; {SINGLE_DIRECTION_CLAUSE}{suffix}"
     return f"shot scale={scale}; {_MOTION_MAPPING.get(family, family)}; direction={direction}; execute the declared move once{suffix}"
 
 # ---------------------------------------------------------------------------
@@ -490,6 +509,8 @@ def _camera_scoped(camera_plan: dict[str, Any], english: dict[str, str]) -> str:
             parts.append(f"end framing: {end}")
     else:
         parts.append(f"{_MOTION_MAPPING.get(family, family)}; direction={direction}")
+        if _locked_dialogue_plan(camera_plan):
+            parts.append(SINGLE_DIRECTION_CLAUSE)
         if english.get("follow_subject"):
             parts.append(f"the camera follows {english['follow_subject']}")
         if english.get("subject_to_keep"):
@@ -864,7 +885,8 @@ def _collapse_shared_unit_policy(rows: list[str]) -> list[str]:
 def _beat(
     source: dict[str, Any], translated: dict[str, Any], *, dialogue_binding: dict[str, Any] | None,
     positive_single_subject: bool = False, language: str = "zh", performance: Any = None,
-    shared_clauses: set[str] | None = None,
+    shared_clauses: set[str] | None = None, locked_dialogue_policy: bool = False,
+    unit_has_dialogue: bool = False, speaker_label: str | None = None,
 ) -> tuple[str, dict[str, str]]:
     index = int(source["source_index"])
     prefix = f"BEAT.{index}"
@@ -958,6 +980,17 @@ def _beat(
         evidence[f"{prefix}.CROSSMODAL_BINDING"] = (
             f"{subject}={image_slot}={speaker_slot}={audio_slot}"
         )
+        if locked_dialogue_policy and len(_CJK.findall(words)) <= SHORT_LINE_MAX_CHARS:
+            # F4/F8 2026-10-30: H3 squeezed 2–4 character lines into 0.4–0.8 s; give them breathing room
+            line += " " + SHORT_LINE_CLAUSE
+            evidence[f"{prefix}.SHORT_LINE_DELIVERY"] = SHORT_LINE_CLAUSE
+    elif locked_dialogue_policy and unit_has_dialogue:
+        # K138 (Roger 2026-10-30 item 1a): H3 vocalises a beat that carries no dialogue literal — babble,
+        # English or homophone gibberish — unless told, beat by beat, that nobody speaks here
+        who = speaker_label or "every visible person"
+        clause = NO_SPEECH_BEAT_CLAUSE.format(who=who)
+        line += " " + clause
+        evidence[f"{prefix}.NO_SPEECH"] = clause
     if source.get("microexpression_cue"):
         line += f" Microexpression: {translated['microexpression_cue']}."
         evidence[f"{prefix}.MICROEXPRESSION"] = translated["microexpression_cue"]
@@ -1209,6 +1242,10 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             language=language,
             performance=_spec_performance(director_specs, source.get("source_index")),
             shared_clauses=shared_clauses,
+            locked_dialogue_policy=_locked_dialogue_plan(plan.get("camera_plan") or {}),
+            unit_has_dialogue=any(b.get("dialogue") for b in action_beats),
+            speaker_label=(next((r["provider_entity_label"] for r in crossmodal_rows), None)
+                           if len(crossmodal_rows) == 1 else None),
         )
         if scoped:
             scope_text, scope_evidence = _beat_scope_clauses(

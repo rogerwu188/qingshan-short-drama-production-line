@@ -107,6 +107,17 @@ def spoken_part(line: str) -> str:
     return line
 
 
+def _locked_dialogue_policy_active(contract: dict) -> bool:
+    try:
+        import locked_dialogue_camera_policy as _ldc
+    except ModuleNotFoundError:
+        try:
+            from tools import locked_dialogue_camera_policy as _ldc  # type: ignore
+        except ModuleNotFoundError:
+            return False
+    return _ldc.active(contract)
+
+
 def foreign_dialogue(text: str, dialogue_by_shot: dict, unit_shots: list) -> list[str]:
     """A transition never exempts out-of-scope dialogue from pre-submit QA."""
     local = {spoken_part(line) for sid in unit_shots
@@ -403,6 +414,18 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
         chk("vp_required_sections", all(h in vp_text for h in (H3_V2_REQUIRED if vp_is_v2 else h3_sections if vp_is_h3 else (
             "【任务】", "【锚点】", "【时间轴】", "【摄影】", "【声音】", "【限制】"))), "")
         chk("vp_rune_limit", len(vp_text) <= 10000, str(len(vp_text)))
+        # LOCKED_DIALOGUE_CAMERA_V1 (Roger 2026-10-30, E12 item 2 + K138): camera and silent-beat lints, only
+        # for episodes under the policy (never retroactive)
+        if _locked_dialogue_policy_active(contract):
+            import camera_move_lint as _cml
+            has_dlg = any(dialogue_by_shot.get(sid) for sid in unit_shots)
+            cam_text = " / ".join(str(shots[sid].get("camera") or "") for sid in unit_shots)
+            r = _cml.dialogue_unit_locked_camera(vp_text, has_dialogue=has_dlg, authored_camera_text=cam_text)
+            chk(r["id"], r["status"] == "PASS", r["detail"][:160])
+            r = _cml.single_direction([shots[sid]["prompt_spec"]["camera_plan"] for sid in unit_shots])
+            chk(r["id"], r["status"] == "PASS", r["detail"][:160])
+            r = _cml.silent_beats_declared(vp_text, has_dialogue=has_dlg)
+            chk(r["id"], r["status"] == "PASS", r["detail"][:160])
         if not vp_is_h3:
             boiler_vp["限制"].add(section(vp_text, "限制"))
         age_note = ("十六七岁" in vp_text) or ("十六七岁" in kf_text)

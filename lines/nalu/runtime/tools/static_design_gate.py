@@ -37,6 +37,31 @@ POLICY = {"locked_share_max": 0.35, "locked_dialogue_seconds_max": 5.0, "same_ax
 REPORT_ONLY_EPISODES = {"E01"}
 #: CAMERA_GRAMMAR_V1: a LOCKED / slow push-in shot is a valid choice; these rules only advise.
 ADVISORY_UNDER_GRAMMAR = {"R1", "R2", "R3", "R4", "R6", "R7"}
+#: LOCKED_DIALOGUE_CAMERA_V1 (Roger 2026-10-30, E12 item 2): dialogue shots default to a locked camera, so the
+#: forced-motion rules only advise; R9 (a dialogue shot moving without an authored move) and R10 (opposite
+#: directions of one family inside a scene) BLOCK.  tools/locked_dialogue_camera_policy decides activation.
+ADVISORY_UNDER_LOCKED_DIALOGUE = {"R1", "R2", "R3", "R4", "R6"}
+_OPPOSITE_DIRECTIONS = ({"PUSH_IN", "PULL_OUT"}, {"LEFT_TO_RIGHT", "RIGHT_TO_LEFT"}, {"RISE", "FALL"},
+                        {"CLOCKWISE", "COUNTERCLOCKWISE"})
+
+
+def _locked_dialogue_active(contract: dict) -> bool:
+    try:
+        import locked_dialogue_camera_policy as _ldc
+    except ModuleNotFoundError:
+        try:
+            from tools import locked_dialogue_camera_policy as _ldc  # type: ignore
+        except ModuleNotFoundError:
+            return False
+    return _ldc.active(contract)
+
+
+def _authored_move(text: str | None) -> bool:
+    try:
+        from camera_move_lint import authored_move
+    except ModuleNotFoundError:
+        return True
+    return authored_move(text)
 R7R8_REPORT_ONLY_EPISODES = {"E01", "E02"}   # seq=10 rules; BLOCK from E03
 
 
@@ -82,10 +107,12 @@ def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> d
             for sh in shots
         ]
     grammar = _cg.active(contract)  # CAMERA_GRAMMAR_V1: forced-motion rules only advise
+    locked_dialogue = _locked_dialogue_active(contract)  # LOCKED_DIALOGUE_CAMERA_V1: same, plus R9/R10
     language = _vo.contract_language(contract) if grammar else "zh"
     rows, failures, advisories = [], [], []
     prev_locked = False
     axis_run, prev_key, prev_scene = 0, None, None
+    scene_family_direction: dict[tuple, str] = {}
     for i, sh in enumerate(shots):
         cp = _cp(sh)
         fam = str(cp.get("motion_family") or "").upper()
@@ -128,6 +155,15 @@ def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> d
                 row["flags"].append("R3_NO_DIALOGUE_SHOT_WITHOUT_CAMERA_MOTION")
         if locked and dlg and secs > policy["locked_dialogue_seconds_max"]:
             row["flags"].append(f"R4_LOCKED_DIALOGUE_SHOT_OVER_{policy['locked_dialogue_seconds_max']:g}S")
+        if locked_dialogue:
+            if dlg and not locked and not _authored_move(sh.get("camera") or cp.get("lens_intent")):
+                row["flags"].append("R9_DIALOGUE_SHOT_MOVING_CAMERA_UNAUTHORED")
+            direction = str(cp.get("motion_direction") or "").upper()
+            if not locked and direction and direction != "NONE":
+                seen = scene_family_direction.get((sh.get("scene_id"), fam))
+                if seen and seen != direction and any({seen, direction} == pair for pair in _OPPOSITE_DIRECTIONS):
+                    row["flags"].append(f"R10_CAMERA_DIRECTION_REVERSAL_IN_SCENE:{seen}->{direction}")
+                scene_family_direction.setdefault((sh.get("scene_id"), fam), direction)
         # seq=10 root-cause rules (nalu_prompt_rules): R7 body motion for no-dialogue holds, R8 dialogue length
         try:
             import nalu_prompt_rules as npr
@@ -167,16 +203,20 @@ def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> d
         for f in row["flags"]:
             if report_only and (f.startswith("R7_") or f.startswith("R8_")):
                 continue
-            (advisories if grammar and f.split("_", 1)[0] in ADVISORY_UNDER_GRAMMAR else failures).append(f"{sid}:{f}")
+            code = f.split("_", 1)[0]
+            soft = (grammar and code in ADVISORY_UNDER_GRAMMAR) or (locked_dialogue and code in ADVISORY_UNDER_LOCKED_DIALOGUE)
+            (advisories if soft else failures).append(f"{sid}:{f}")
     locked_n = sum(1 for r in rows if r["motion_family"] in ("LOCKED", "STATIC", "MISSING"))
     share = round(locked_n / len(rows), 3) if rows else 0.0
     if rows and share > policy["locked_share_max"]:
         # P1.3 TODO (codex §2.5): when motion-purpose is active, R1 should count
         # locked shots WITHOUT valid motivation + body action, not all locked shots.
-        (advisories if grammar else failures).insert(0, f"R1_LOCKED_SHARE_{share}_OVER_{policy['locked_share_max']}")
+        (advisories if (grammar or locked_dialogue) else failures).insert(0, f"R1_LOCKED_SHARE_{share}_OVER_{policy['locked_share_max']}")
     result = {"shot_count": len(rows), "locked_count": locked_n, "locked_share": share, "rows": rows, "failures": failures}
     if grammar:
         result.update({"camera_grammar_policy": _cg.POLICY_ID, "advisories": advisories})
+    if locked_dialogue:
+        result.update({"locked_dialogue_camera_policy": "LOCKED_DIALOGUE_CAMERA_V1", "advisories": advisories})
     return result
 
 

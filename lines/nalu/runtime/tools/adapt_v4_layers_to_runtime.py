@@ -71,7 +71,13 @@ RUNTIME = Path(f"{_np.RUNTIME_ROOT}")
 SHOT_SCALE_ALIASES = {"FULL": "WIDE", "LONG": "WIDE", "LONG_SHOT": "WIDE"}
 SCALE_CN = {"WIDE": "远景", "MEDIUM_WIDE": "中全景", "FULL": "全景", "MEDIUM": "中景", "MEDIUM_CLOSE_UP": "中近景", "CLOSE_UP": "特写", "EXTREME_CLOSE_UP": "大特写"}
 MOVING_FAMILIES = ["TRACK", "CRANE", "ARC", "PAN"]            # grouped_camera_contract legal families
-DIALOGUE_FAMILIES = ["DOLLY", "PAN", "ARC"]                     # never LOCKED → R1–R4/R6 hold by construction
+DIALOGUE_FAMILIES = ["DOLLY", "PAN", "ARC"]                     # legacy: never LOCKED → R1–R4/R6 hold by construction
+# LOCKED_DIALOGUE_CAMERA_V1 (Roger 2026-10-30, E12 item 2): under the policy a dialogue shot is LOCKED
+# unless the directing script's own camera text asks for a move (camera_move_lint.authored_move), and a
+# moving family keeps ONE direction per scene — the old odd/even alternation put a reversal inside 20/53
+# E12 units once the grouper cut two shots into one clip.  Episodes outside the policy keep the legacy table.
+DIALOGUE_DEFAULT_LOCKED = ("LOCKED", "NONE")
+LOCKED_DIALOGUE_POLICY_ACTIVE = False   # set per episode by adapt() from tools/locked_dialogue_camera_policy
 DIRECTION = {"TRACK": ["LEFT_TO_RIGHT", "RIGHT_TO_LEFT"],
              "PAN": ["LEFT_TO_RIGHT", "RIGHT_TO_LEFT"],
              "CRANE": ["RISE", "FALL"], "ARC": ["CLOCKWISE", "COUNTERCLOCKWISE"],
@@ -199,17 +205,32 @@ class Overlay:
 
 
 # --------------------------------------------------------------------------- camera plan
+def _authored_move(slug: str | None) -> bool:
+    try:
+        from camera_move_lint import authored_move
+    except ModuleNotFoundError:  # pragma: no cover - the lint lives next to this adapter
+        return True
+    return authored_move(slug)
+
+
 def default_camera_plan(index_in_scene: int, has_dialogue: bool, slug: str, motivation: str,
                         prev_family: str | None, prev_direction: str | None, seconds: float,
-                        source_ref: str) -> dict[str, Any]:
+                        source_ref: str, *, locked_policy: bool | None = None) -> dict[str, Any]:
+    locked_policy = LOCKED_DIALOGUE_POLICY_ACTIVE if locked_policy is None else locked_policy
     fams = DIALOGUE_FAMILIES if has_dialogue else MOVING_FAMILIES
     scales = SCALES_DIALOGUE if has_dialogue else SCALES_NO_DIALOGUE
-    family = fams[index_in_scene % len(fams)]
-    if family == prev_family:   # v4 camera contract: no two adjacent shots with the same dynamic move
-        family = fams[(index_in_scene + 1) % len(fams)]
-    direction = DIRECTION[family][index_in_scene % 2]
-    if direction == prev_direction and prev_family == family:
-        direction = DIRECTION[family][(index_in_scene + 1) % 2]
+    if locked_policy and has_dialogue and not _authored_move(slug):
+        family, direction = DIALOGUE_DEFAULT_LOCKED
+    else:
+        family = fams[index_in_scene % len(fams)]
+        if family == prev_family:   # v4 camera contract: no two adjacent shots with the same dynamic move
+            family = fams[(index_in_scene + 1) % len(fams)]
+        if locked_policy:
+            direction = DIRECTION[family][0]        # one direction per family per scene: never alternate
+        else:
+            direction = DIRECTION[family][index_in_scene % 2]
+            if direction == prev_direction and prev_family == family:
+                direction = DIRECTION[family][(index_in_scene + 1) % 2]
     scale = scales[index_in_scene % len(scales)]
     side = "AXIS_A" if index_in_scene % 2 == 0 else "AXIS_B"   # R5: never > 2 on one axis+scale
     return {
@@ -230,7 +251,23 @@ def default_camera_plan(index_in_scene: int, has_dialogue: bool, slug: str, moti
 
 
 # --------------------------------------------------------------------------- build
+def _set_locked_dialogue_policy(episode: str) -> bool:
+    """LOCKED_DIALOGUE_CAMERA_V1 for this episode (tools/locked_dialogue_camera_policy); never retroactive."""
+    global LOCKED_DIALOGUE_POLICY_ACTIVE
+    try:
+        import locked_dialogue_camera_policy as _ldc
+    except ModuleNotFoundError:
+        try:
+            from tools import locked_dialogue_camera_policy as _ldc  # type: ignore
+        except ModuleNotFoundError:
+            LOCKED_DIALOGUE_POLICY_ACTIVE = False
+            return False
+    LOCKED_DIALOGUE_POLICY_ACTIVE = bool(_ldc.active(None, episode=episode))
+    return LOCKED_DIALOGUE_POLICY_ACTIVE
+
+
 def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
+    _set_locked_dialogue_policy(str(getattr(args, "episode", "") or ""))
     ep = args.episode
     v4 = Path(args.v4_dir).resolve()
     narrative_v4 = v4 / f"{ep}_NARRATIVE_CANONICAL_v4.md"
@@ -432,7 +469,8 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
         # Keep the authored shot semantics but avoid carrying the prior
         # scene's anchor movement into the next grouped unit, which the
         # portable grouped-camera gate treats as a repeated move.
-        if not o.get("camera_plan") and idx_in_scene == 0 and previous_scene_anchor_family and cp.get("motion_family") == previous_scene_anchor_family:
+        if not o.get("camera_plan") and idx_in_scene == 0 and previous_scene_anchor_family and cp.get("motion_family") == previous_scene_anchor_family \
+                and cp.get("motion_family") != "LOCKED":
             candidates = DIALOGUE_FAMILIES if line else MOVING_FAMILIES
             replacement = next((fam for fam in candidates if fam != previous_scene_anchor_family), None)
             if replacement:
