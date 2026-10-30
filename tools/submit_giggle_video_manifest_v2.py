@@ -452,6 +452,21 @@ def validate_grouped_creative_task(task: dict[str, Any], prompt_text: str) -> No
         raise ValueError(";".join(scope_report.get("failures") or []))
 
 
+def _face_crop_references(task: dict[str, Any]) -> list[str]:
+    episode = str(task.get("episode") or "")
+    if not episode or str(task.get("model") or "") != "MiniMax-H3":
+        return []
+    try:
+        from tools.original_identity_authority import episode_pixel_crop_transport_paths
+    except ModuleNotFoundError:
+        from original_identity_authority import episode_pixel_crop_transport_paths
+    try:
+        crops = episode_pixel_crop_transport_paths(episode)
+    except ModuleNotFoundError:  # no nalu series scope on this line
+        return []
+    return [str(p) for p in task.get("reference_images") or [] if str(p) in crops]
+
+
 def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
     """The compiler input the paid boundary re-renders a grouped task's prompt from.
 
@@ -490,6 +505,11 @@ def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
     # in the compiler input so the paid-boundary byte comparison validates the
     # same prompt that was registered for this new fingerprint.
     prompt_unit["reroll_performance_directive"] = task.get("reroll_performance_directive")
+    # E12 2026-10-30: a verified PIXEL_CROP identity transport is a face crop; the H3 renderers lock only
+    # face/age/hair from it.  Absent unless the task actually sends one, so other prompts are unchanged.
+    face_only = _face_crop_references(task)
+    if face_only:
+        prompt_unit["face_only_identity_references"] = face_only
     sequence_by_path = {
         str(row.get("path") or ""): row
         for row in task.get("reference_image_sequence") or []

@@ -166,8 +166,12 @@ REFERENCE_SHEET_MARK = "__MULTIVIEW_REFERENCE_SHEET"
 
 
 #: Identity line for a face-crop transport: face only, costume from the opening frame and wardrobe text.
-FACE_ONLY_LOCK = ("lock this entity's face, age and hair only; this is a face crop, so take body, wardrobe "
-                  "and headwear from {first} and the wardrobe text, never from this crop")
+FACE_ONLY_LOCK = "face crop: lock face, age and hair only; wardrobe and headwear from {first}, never from this crop"
+
+
+def face_only_identity_paths(unit: dict[str, Any]) -> set[str]:
+    """Reference paths the compiler input declares as face crops (verified PIXEL_CROP transports)."""
+    return {str(p) for p in unit.get("face_only_identity_references") or []}
 
 
 def is_reference_sheet(ref: dict[str, Any]) -> bool:
@@ -1102,7 +1106,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     # Director units: a reference without its own provider label (e.g. the continuity-derived opening
     # frame) takes the same English name the unit's other bindings use, never the raw CHAR-* id.
     director_labels = _entity_labels(unit, plan) if director_active(unit, plan) else {}
-    face_only = {str(p) for p in unit.get("face_only_identity_references") or []}
+    face_only = face_only_identity_paths(unit)
     for index, raw_ref in enumerate(refs, 1):
         ref = raw_ref if isinstance(raw_ref, dict) else {"path": str(raw_ref)}
         # E12 2026-10-30: a pixel-crop identity transport is a face crop of a costumed source card;

@@ -404,7 +404,7 @@ def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: se
     scope = unit.get("provider_scope_projection") or {}
     scope_bindings = {int(row["reference_index"]): row for row in scope.get("reference_identity_bindings") or []
                       if row.get("reference_index") is not None}
-    face_only = {str(p) for p in unit.get("face_only_identity_references") or []}  # PIXEL_CROP transports
+    face_only = v1.face_only_identity_paths(unit)  # PIXEL_CROP transports
     lines = []
     for index, raw in enumerate(refs, 1):
         ref = raw if isinstance(raw, dict) else {"path": str(raw)}

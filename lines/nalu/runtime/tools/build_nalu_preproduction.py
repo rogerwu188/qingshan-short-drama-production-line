@@ -2399,23 +2399,6 @@ def _h3_reference_plate(character_id: str, *, episode: str, state: str | None = 
     return _locked_identity_plate(character_id, episode=episode)
 
 
-def _pixel_crop_transport_paths(episode: str) -> set[str]:
-    """Paths of every character's verified PIXEL_CROP identity transport in the scoped library."""
-    library_path = _scoped_asset_library_path(episode)
-    library = _ASSET_LIBRARY_CACHE.get(str(library_path.resolve()))
-    if library is None:
-        library = json.loads(library_path.read_text(encoding="utf-8")) if library_path.is_file() else {}
-    from tools.original_identity_authority import original_reference
-    paths = set()
-    for row in ((library.get("assets") or {}).get("characters") or {}).values():
-        if not (row or {}).get("original_identity_authority"):
-            continue
-        original = original_reference(row)
-        if original and original.get("asset_type") == "PIXEL_CROP":
-            paths.add(str(original["path"]))
-    return paths
-
-
 def _has_original_authority(library: dict[str, Any], character_id: str) -> bool:
     row = (((library.get("assets") or {}).get("characters") or {}).get(character_id)) or {}
     from tools.original_identity_authority import original_reference
@@ -2939,10 +2922,6 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
                 bound.add(row["character_id"])
                 task.setdefault("identity_reference_auto", []).append(row)
         task["unbound_canonical_entities"] = sorted(set(chars + props) - bound)
-        # E12 2026-10-30: a PIXEL_CROP identity transport carries the face only; the H3 renderer
-        # must not lock wardrobe from it (the crop's collar pulled the source card's robe and crown in).
-        crops = _pixel_crop_transport_paths(episode)
-        task["face_only_identity_references"] = [p for p in task["reference_images"] if str(p) in crops]
         task["reference_image_sequence"] = bindings
         task["reference_bindings"] = space_map_bindings + bindings
         task["space_map_reference_bindings"] = space_map_bindings
