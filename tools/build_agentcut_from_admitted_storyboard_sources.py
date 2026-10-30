@@ -47,6 +47,7 @@ def build(
     dialogue_sound_bridge=None,
     dialogue_head_trim=None,
     push_in_compensation=None,
+    unit_recut=None,
     unit_audio_levelling=None,
     audio_cut_crossfade_seconds=None,
 ):
@@ -128,6 +129,23 @@ def build(
             from push_in_compensation import applied_sources as _push_in_applied  # type: ignore
         push_in = _push_in_applied(json.loads(_abs(push_in_compensation).read_text(encoding="utf-8")))
 
+    # Editorial unit re-cut (S7 report, lines/nalu/runtime/tools/unit_recut.py; Roger 2026-10-30 E12 item 3): unit ->
+    # derived clip rendered from an authored segment list (dropped babble, reaction cutaways, picture swaps with the
+    # unit's own voice kept).  Picture AND sound come from the derived file with in=0 and the report's duration; the
+    # editor's cut list overrides the measured-edit / head / tail trims for that unit.  A row whose source or output
+    # sha no longer matches is ignored (the original clip and its measured interval are used).
+    recut = {}
+    if unit_recut:
+        try:
+            from unit_recut import applied_sources as _recut_applied  # lines/nalu/runtime/tools on sys.path
+        except ModuleNotFoundError:
+            import importlib.util as _ilu
+            _spec = _ilu.spec_from_file_location(
+                "unit_recut", Path(__file__).resolve().parents[1] / "lines/nalu/runtime/tools/unit_recut.py")
+            _mod = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
+            _recut_applied = _mod.applied_sources
+        recut = _recut_applied(json.loads(_abs(unit_recut).read_text(encoding="utf-8")))
+
     # CAMERA_GRAMMAR_V1 per-unit audio levelling (S7 report, tools/s7_audio_smoothing.py): unit -> remux of the unit's
     # picture (video stream copied) with its own native audio levelled (static gain + limiter, same in/out).
     levelled = {}
@@ -155,7 +173,21 @@ def build(
         audio_source = _abs(audio_task["output_path"])
         source_in = 0.0
         measured_edit = None
-        if source_id in edit_constraints:
+        recut_row = recut.get(source_id)
+        recut_meta = None
+        if recut_row is not None and audio_source.resolve() == source.resolve() \
+                and str(Path(str(recut_row.get("source"))).resolve()) == str(source.resolve()) \
+                and recut_row.get("source_sha256") == sha256(source):
+            derived = _abs(recut_row["output"])
+            recut_meta = {"original_source": str(source), "original_sha256": recut_row["source_sha256"],
+                          "derived_source": str(derived), "derived_sha256": recut_row["output_sha256"],
+                          "segments": recut_row.get("segments"), "internal_cuts_s": recut_row.get("internal_cuts_s"),
+                          "frames_borrowed_from": recut_row.get("frames_borrowed_from"),
+                          "overrides": ["measured_edit", "dialogue_head_trim", "dialogue_tail_trim", "editorial_keep"],
+                          "report": str(_abs(unit_recut))}
+            duration = float(recut_row["duration"])
+            source_in = 0.0
+        if source_id in edit_constraints and recut_meta is None:
             if audio_source.resolve() != source.resolve():
                 raise ValueError("MEASURED_EDIT_REQUIRES_SAME_NATIVE_AV_SOURCE")
             source_in, duration, measured_edit = resolve_source_interval(
@@ -166,6 +198,8 @@ def build(
         # A dialogue-bearing task may shorten only with a verified speech end;
         # a duration target alone is never evidence of where speech ends.
         editorial_keep = float(metadata.get("editorial_keep_seconds") or 0) or None
+        if recut_meta is not None:
+            editorial_keep = None
         if editorial_keep is not None:
             verified_end = metadata.get("verified_speech_end_seconds")
             kept = editorial_duration(
@@ -187,19 +221,19 @@ def build(
         else:
             clip_metadata_editorial = None
         tail_trim = None
-        if source_id in tail_keep and 0 < tail_keep[source_id] - source_in < duration:
+        if recut_meta is None and source_id in tail_keep and 0 < tail_keep[source_id] - source_in < duration:
             tail_trim = {"provider_slot_seconds": duration,
                          "kept_seconds": round(tail_keep[source_id] - source_in, 6),
                          "report": str(_abs(dialogue_tail_trim))}
             duration = tail_trim["kept_seconds"]
         head_trim = None
-        if source_id in head_cut and source_in == 0.0 and 0 < head_cut[source_id] < duration:
+        if recut_meta is None and source_id in head_cut and source_in == 0.0 and 0 < head_cut[source_id] < duration:
             head_trim = {"head_cut_seconds": round(head_cut[source_id], 6),
                          "kept_seconds": round(duration - head_cut[source_id], 6),
                          "report": str(_abs(dialogue_head_trim))}
             source_in = head_trim["head_cut_seconds"]
             duration = head_trim["kept_seconds"]
-        push_row = push_in.get(source_id)
+        push_row = push_in.get(source_id) if recut_meta is None else None   # a recut unit is already a derived clip
         push_in_meta = None
         if push_row is not None and str(Path(str(push_row.get("source"))).resolve()) == str(source.resolve()) \
                 and push_row.get("source_sha256") == sha256(source):
@@ -241,10 +275,13 @@ def build(
             clip_metadata["dialogue_head_trim"] = head_trim
         if push_in_meta is not None:
             clip_metadata["push_in_compensation"] = push_in_meta
-        picture_source = push_in_meta["compensated_source"] if push_in_meta else str(source)
+        if recut_meta is not None:
+            clip_metadata["unit_recut"] = recut_meta
+        picture_source = (recut_meta["derived_source"] if recut_meta
+                          else push_in_meta["compensated_source"] if push_in_meta else str(source))
         # CAMERA_GRAMMAR_V1 unit audio levelling: a remux of this unit's picture (video stream copied bit-exact) with
         # its own native audio levelled; picture and sound keep one source (speaking-unit audio contract)
-        level_row = levelled.get(source_id)
+        level_row = levelled.get(source_id) if recut_meta is None else None
         level_meta = None
         if level_row is not None and audio_source.resolve() == source.resolve() \
                 and str(Path(str(level_row.get("source"))).resolve()) == str(source.resolve()) \
@@ -265,7 +302,8 @@ def build(
             "duration": duration,
             "metadata": clip_metadata,
         })
-        audio_clip_source = (push_in_meta["compensated_source"]
+        audio_clip_source = (recut_meta["derived_source"] if recut_meta
+                             else push_in_meta["compensated_source"]
                              if push_in_meta and audio_source.resolve() == source.resolve() else str(audio_source))
         if level_meta is not None:
             audio_clip_source = level_meta["levelled_source"]
@@ -299,6 +337,7 @@ def build(
             "status": "PASS",
             **({"measured_edit": measured_edit} if measured_edit is not None else {}),
             **({"push_in_compensation": push_in_meta} if push_in_meta is not None else {}),
+            **({"unit_recut": recut_meta} if recut_meta is not None else {}),
         })
         cursor += duration
 
@@ -310,8 +349,14 @@ def build(
             from tools import dialogue_sound_bridge as _bridge
         except ModuleNotFoundError:
             import dialogue_sound_bridge as _bridge  # type: ignore
-        bridges = _bridge.apply(video_clips, audio_clips,
-                                json.loads(_abs(dialogue_sound_bridge).read_text(encoding="utf-8")))
+        bridge_report = json.loads(_abs(dialogue_sound_bridge).read_text(encoding="utf-8"))
+        if recut:
+            # a re-cut unit is a derived clip with its own internal timing: bridges measured on the original
+            # clip (speech end / reaction start) no longer apply to it, on either side of the join
+            bridge_report = dict(bridge_report, rows=[
+                row for row in (bridge_report.get("rows") or [])
+                if str(row.get("from_unit_id")) not in recut and str(row.get("to_unit_id")) not in recut])
+        bridges = _bridge.apply(video_clips, audio_clips, bridge_report)
         cursor = sum(float(clip["duration"]) for clip in video_clips)
 
     project_path = _abs(out_project)
@@ -418,6 +463,7 @@ def main():
     parser.add_argument("--unit-audio-levelling", help="Optional S7 per-unit audio levelling report (CAMERA_GRAMMAR_V1): use each unit's levelled remux (video stream copied, native audio levelled) for its picture and sound")
     parser.add_argument("--audio-cut-crossfade-seconds", type=float, help="Optional (CAMERA_GRAMMAR_V1): equal-power native-audio crossfade at every cut, rendered by render_portable_timeline")
     parser.add_argument("--push-in-compensation", help="Optional S7 push-in compensation report (CAMERA_GRAMMAR_V1): use each compensated locked-camera clip (picture + its copied native audio)")
+    parser.add_argument("--unit-recut", help="Optional S7 unit re-cut report (nalu.unit_recut_report.v1, Roger 2026-10-30 E12 item 3): use each APPLIED derived clip for the unit's picture and sound (in=0, report duration), overriding measured-edit / head / tail trims")
     args = parser.parse_args()
     print(json.dumps(build(
         args.episode,
@@ -434,6 +480,7 @@ def main():
         args.dialogue_sound_bridge,
         dialogue_head_trim=args.dialogue_head_trim,
         push_in_compensation=args.push_in_compensation,
+        unit_recut=args.unit_recut,
         unit_audio_levelling=args.unit_audio_levelling,
         audio_cut_crossfade_seconds=args.audio_cut_crossfade_seconds,
     ), ensure_ascii=False))

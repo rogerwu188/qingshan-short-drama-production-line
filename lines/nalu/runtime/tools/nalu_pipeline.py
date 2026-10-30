@@ -7345,6 +7345,39 @@ def s7_final_audience_review(ctx: Ctx, res: StageResult) -> dict[str, Any]:
     }
 
 
+def s7_unit_recut(ctx: Ctx, res: StageResult) -> tuple[Path | None, list[str]]:
+    """Render the authored unit re-cut plan (assembly/<EP>_UNIT_RECUT_PLAN.json) into derived clips.
+
+    Roger 2026-10-30 (E12 成片审看 item 3): faster conflict block, visible 起手—动作—反应, hallucinated
+    inserts removed — edits the AgentCut builder cannot express per unit (dropped middles, reaction
+    cutaways, picture swaps that keep the voice).  Free; sources are the admitted unit clips (or the
+    lock-off-stabilised derived clips in video/_stabilized when present, so the re-cut reads stabilised
+    frames).  Returns (report path, blockers); no plan file -> (None, []) and S7 runs as before."""
+    p = ctx.p
+    plan = p.assembly / f"{ctx.episode}_UNIT_RECUT_PLAN.json"
+    if not plan.is_file():
+        return None, []
+    report = p.assembly / f"{ctx.episode}_UNIT_RECUT.json"
+    out_dir = p.video_media / "_recut"
+    overlay = p.video_media / "_stabilized"
+    argv: list[Any] = [VENV, RT_TOOLS / "unit_recut.py", "--plan", plan, "--source-dir", p.video_media,
+                       "--out-dir", out_dir, "--report", report]
+    if overlay.is_dir():
+        argv += ["--overlay-dir", overlay]
+    step = ctx.run(argv, name="s7_unit_recut")
+    res.steps.append(step)
+    payload = read_json(report, {}) or {}
+    res.details["unit_recut"] = {"plan": str(plan), "plan_sha256": sha256_file(plan), "report": str(report),
+                                 "status": payload.get("status"), "applied": payload.get("applied") or [],
+                                 "problems": payload.get("problems") or [], "out_dir": str(out_dir),
+                                 "overlay_dir": str(overlay) if overlay.is_dir() else None}
+    res.details["commands"]["unit_recut"] = q(argv)
+    if step["exit_code"] != 0 or payload.get("status") != "PASS":
+        return None, ["UNIT_RECUT_FAILED:" + ";".join(str(x) for x in (payload.get("problems") or [])[:5])]
+    res.receipts.append(str(report))
+    return report, []
+
+
 def promote_final_candidate(p: Any) -> dict[str, Any]:
     """Copy the S7-approved candidate (and its tail-ad variant) into deliverables/, sha-verified.
 
@@ -8045,6 +8078,15 @@ def stage_s7(ctx: Ctx) -> StageResult:
     if unit_levelling is not None:
         build_argv += ["--unit-audio-levelling", unit_levelling]
         level_argv = level_argv[:-2] + ["--pre-levelled-units", unit_levelling] + level_argv[-2:]
+    # 3e. editorial unit re-cut (Roger 2026-10-30 E12 item 3; authored plan, free, derived clips).  A plan
+    # that fails to render BLOCKS: an authored cut list that cannot be honoured is not something to skip.
+    recut_report, recut_blockers = s7_unit_recut(ctx, res)
+    if recut_blockers:
+        res.blockers = recut_blockers
+        return res
+    if recut_report is not None:
+        build_argv += ["--unit-recut", recut_report]
+        res.details["commands"]["build_agentcut"] = q(build_argv)
     import camera_grammar_policy as _cgp_xf
     if _cgp_xf.active(read_json(p.contract, {}) or {}, episode=ctx.episode):
         import s7_audio_smoothing as _smooth_xf
@@ -8077,6 +8119,15 @@ def stage_s7(ctx: Ctx) -> StageResult:
     asr_json = p.assembly / f"{ctx.episode}_unit_asr.json"
     try:
         asr = trimmed_asr if trimmed_asr is not None else transcribe_units(ctx, p.video_media, ctx.episode)
+        if recut_report is not None:
+            # re-cut units are derived clips (in=0): their lines are timed on the derived clip, not the source
+            applied = (res.details.get("unit_recut") or {}).get("applied") or []
+            derived_asr = transcribe_units(ctx, p.video_media / "_recut", ctx.episode)
+            asr = dict(asr)
+            for uid in applied:
+                if uid in derived_asr:
+                    asr[uid] = derived_asr[uid]
+            res.details["unit_recut"]["derived_asr_units"] = [u for u in applied if u in derived_asr]
         write_json(asr_json, asr)
     except Exception as exc:  # noqa: BLE001
         res.steps.extend(steps)
@@ -8112,7 +8163,8 @@ def stage_s7(ctx: Ctx) -> StageResult:
                         "--grouping", p.grouping_plan, "--source", captioned_source,
                         "--out-ass", subtitles_ass_path(ctx), "--out-video", subbed,
                         "--out-report", p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json",
-                        "--language", ctx_language(ctx), *vo_argv, *split_argv],
+                        "--language", ctx_language(ctx), *vo_argv, *split_argv,
+                        *(["--unit-recut", recut_report] if recut_report is not None else [])],
                        name="s7_burnin_subtitles")
     steps.append(sub_step)
     if sub_step["exit_code"] != 0 or not subbed.is_file():

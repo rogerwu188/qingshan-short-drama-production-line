@@ -291,6 +291,10 @@ def main() -> int:
                     help="<EP>_voice_over_placement.json: V.O. narration lines are timed from it, never ASR-assigned")
     ap.add_argument("--split-long-captions", action="store_true",
                     help="CAMERA_GRAMMAR_V1: a line too long for 2 normal-size rows becomes sequential cues")
+    ap.add_argument("--unit-recut", type=Path,
+                    help="<EP>_UNIT_RECUT.json (Roger 2026-10-30 E12 item 3): per re-cut unit, contract lines whose audio "
+                         "the re-cut dropped are not burned in, truncated lines take the override text; the unit's ASR "
+                         "must be the derived clip's (the pipeline transcribes it, in=0)")
     a = ap.parse_args()
     english = a.language == "en"
     style, font_size = ("EN", EN_FONT_SIZE) if english else ("ZH", 42)
@@ -311,6 +315,12 @@ def main() -> int:
             continue  # V.O. narration: not in the unit's native audio, timed from the S7 placement below
         lines_by_unit.setdefault(shot2unit[d["shot_id"]], []).append(
             {"shot_id": d["shot_id"], "speaker": id2name[d["speaker_id"]], "text": d["text"]})
+    recut_subs: dict[str, dict] = {}
+    if a.unit_recut and a.unit_recut.is_file():
+        for ruid, row in ((json.loads(a.unit_recut.read_text(encoding="utf-8")) or {}).get("units") or {}).items():
+            if row.get("status") == "APPLIED":
+                recut_subs[str(ruid)] = dict(row.get("subtitles") or {})
+    recut_dropped: list[dict] = []
     clips = []
     for track in (project.get("timeline") or {}).get("videoTracks") or []:
         clips.extend(track.get("clips") or [])
@@ -327,6 +337,18 @@ def main() -> int:
     for clip in sorted(clips, key=lambda c: float(c["start"])):
         uid = str((clip.get("metadata") or {}).get("source_id") or "")
         lines = lines_by_unit.get(uid) or []
+        if uid in recut_subs and (clip.get("metadata") or {}).get("unit_recut"):
+            drop = set(recut_subs[uid].get("drop") or [])
+            override = dict(recut_subs[uid].get("override") or {})
+            kept = []
+            for ln in lines:
+                if ln["shot_id"] in drop:
+                    recut_dropped.append({"unit_id": uid, "shot_id": ln["shot_id"], "text": ln["text"],
+                                          "reason": "UNIT_RECUT_DROPPED_AUDIO"})
+                    continue
+                kept.append(dict(ln, text=str(override.get(ln["shot_id"], ln["text"])),
+                                 **({"line_text_contract": ln["text"]} if ln["shot_id"] in override else {})))
+            lines = kept
         if not lines:
             continue
         cstart, cdur = float(clip["start"]), float(clip["duration"])
@@ -349,7 +371,9 @@ def main() -> int:
                 report.append({"unit_id": uid, "shot_id": ln["shot_id"], "speaker": ln["speaker"], "text": ln["text"],
                                "start": round(s, 3), "end": round(e, 3),
                                "source_start": ls, "source_end": le, "source_in": source_in,
-                               "timing_basis": timing_basis, "timing_verification": "NOT_VERIFIED"})
+                               "timing_basis": timing_basis, "timing_verification": "NOT_VERIFIED",
+                               **({"unit_recut": True, "line_text_contract": ln.get("line_text_contract")}
+                                  if uid in recut_subs else {})})
                 continue
             # long line: sequential cues inside the line's caption window, split at the speech boundaries
             bounds = cue_boundaries(cues, ls, le, valid_segs, a.language)
@@ -422,6 +446,7 @@ def main() -> int:
     out = {"schema": "nalu.burnin_subtitles.v1", "episode": a.episode, "captions": len(events), "ass": str(a.out_ass),
            "video": str(a.out_video), "ffmpeg_exit": proc.returncode, "stderr": proc.stderr[-800:], "rows": report,
            "text_source": "generation contract dialogue_units (verbatim)", "timing_source": str(a.asr),
+           "unit_recut": str(a.unit_recut) if a.unit_recut else None, "unit_recut_dropped_lines": recut_dropped,
            "font": font_name, "font_file": font_file, "font_source": font_source}
     if english:
         out["language"] = a.language

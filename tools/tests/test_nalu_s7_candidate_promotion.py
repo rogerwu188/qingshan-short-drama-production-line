@@ -119,3 +119,26 @@ class StageS7UsesCandidatePathsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StageS7UnitRecutWiringTests(unittest.TestCase):
+    """Static guard: the authored unit re-cut (Roger 2026-10-30 item 3) reaches the builder, the unit ASR and the subtitles."""
+
+    def test_recut_plan_flows_into_builder_asr_and_subtitles(self) -> None:
+        src = (ROOT / "lines/nalu/runtime/tools/nalu_pipeline.py").read_text(encoding="utf-8")
+        body = src[src.index("def stage_s7("):src.index("def s7_qa(")]
+        self.assertIn("s7_unit_recut(ctx, res)", body)
+        self.assertIn('build_argv += ["--unit-recut", recut_report]', body)
+        self.assertIn('transcribe_units(ctx, p.video_media / "_recut", ctx.episode)', body)
+        self.assertIn('["--unit-recut", recut_report] if recut_report is not None', body)
+        helper = src[src.index("def s7_unit_recut("):src.index("def promote_final_candidate(")]
+        self.assertIn('_UNIT_RECUT_PLAN.json', helper)
+        self.assertIn('"UNIT_RECUT_FAILED:', helper)        # a broken authored plan blocks, never skips
+
+    def test_builder_recut_rows_override_measured_edit_and_trims(self) -> None:
+        src = (ROOT / "tools/build_agentcut_from_admitted_storyboard_sources.py").read_text(encoding="utf-8")
+        self.assertIn("if source_id in edit_constraints and recut_meta is None:", src)
+        self.assertIn("if recut_meta is None and source_id in tail_keep", src)
+        self.assertIn("if recut_meta is None and source_id in head_cut", src)
+        self.assertIn('picture_source = (recut_meta["derived_source"] if recut_meta', src)
+        self.assertIn('audio_clip_source = (recut_meta["derived_source"] if recut_meta', src)
