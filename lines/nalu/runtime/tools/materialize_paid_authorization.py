@@ -351,6 +351,10 @@ def read_order(orders_path: Path, seq: int, episode: str, cap: int, *,
         "video_model": video_model,
         "paid_stages": list(paid_stages),
         "authorized_stage": paid_stage,
+        # 2026-10-30 (提速闭环 3a): optional per-batch pre-authorisation block, evaluated by
+        # batch_preauthorization.evaluate in process(); absent -> NOT_CONFIGURED, behaviour unchanged.
+        "batch_preauthorization": (decision.get("batch_preauthorization")
+                                   if isinstance(decision.get("batch_preauthorization"), dict) else None),
     }
 
 
@@ -719,6 +723,27 @@ def process(source: Path, *, kind: str, args: argparse.Namespace,
                                ensure_ascii=False)
         )
 
+    # 2026-10-30 (提速闭环 3a): batch pre-authorisation is an ADDITIONAL refusal path.  When the
+    # order carries decision.batch_preauthorization, a batch over its credit/unit limit, a re-render
+    # of a task key already bound in the durable store, or a single task above the unit-cost P95 is
+    # refused here (exit 5) so the orchestrator escalates to the line owner instead of spending.
+    # Every check above (cap, ledger, model, K041, transaction store) still runs unchanged.
+    preauth_verdict: dict[str, Any] = {"status": "NOT_CONFIGURED", "reasons": []}
+    if kind != "plan":
+        try:
+            import batch_preauthorization as _bp
+            tx_dir = engine_root / "workflow/tasks" / \
+                ("giggle_video_submit_transactions" if video else "giggle_submit_transactions") / args.episode
+            preauth_verdict = _bp.evaluate(
+                {"batch_preauthorization": order.get("batch_preauthorization")}, tasks,
+                planned_credits=int(pricing["planned_credits"]), tx_dir=tx_dir if tx_dir.is_dir() else None,
+                credits_of=lambda t: int(t.get("estimated_credits") or t.get("planned_credits")
+                                         or pricing.get("per_task_credits") or 0))
+        except ImportError:
+            preauth_verdict = {"status": "NOT_CONFIGURED", "reasons": ["batch_preauthorization module unavailable"]}
+        if preauth_verdict.get("status") == "ESCALATE":
+            raise Refused("BATCH_PREAUTHORIZATION_ESCALATE:" + ";".join(preauth_verdict.get("reasons") or []))
+
     if kind == "plan":
         document = materialise_plan(document, order=order,
                                     guard_report_path=guard_report_path,
@@ -761,6 +786,7 @@ def process(source: Path, *, kind: str, args: argparse.Namespace,
         "materialised": str(destination), "materialised_sha256": manifest_sha,
         "is_video": video, "models": model_report, "cost_envelope": pricing,
         "budget_ledger_check": budget,
+        "batch_preauthorization": preauth_verdict,
         "guard_gate_report": str(guard_report_path),
         "guard_gate_status": report["status"],
         "guard_raw_status": (guard.get("raw_result") or {}).get("status"),

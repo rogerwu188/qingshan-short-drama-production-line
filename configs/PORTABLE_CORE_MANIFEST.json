@@ -254,7 +254,12 @@
     "tools/collective_learning/sync_client.py",
     "tools/s3ctl.py",
     "tools/collective_learning_loadtest.py",
-    "tools/collective_learning_demo.py"
+    "tools/collective_learning_demo.py",
+    "configs/THROUGHPUT_BASELINE_V1.json",
+    "tools/throughput_baseline_gate.py",
+    "tools/english_contract_forbidden_terms_lint.py",
+    "lines/nalu/runtime/tools/batch_preauthorization.py",
+    "lines/nalu/runtime/tools/review_dispatch.py"
   ],
   "portable_test_modules": [
     "agent_factory.claude_writer_v2.tests.test_smoke",
@@ -408,6 +413,10 @@
     "tools.tests.test_s3ctl",
     "tools.tests.test_postgen_incremental_measurement",
     "tools.tests.test_line_owner_start_frame_decision",
-    "tools.tests.test_collective_s3_sync"
+    "tools.tests.test_collective_s3_sync",
+    "tools.tests.test_throughput_baseline_gate",
+    "tools.tests.test_batch_preauthorization",
+    "tools.tests.test_review_dispatch",
+    "tools.tests.test_english_contract_forbidden_terms_lint"
   ]
 }
