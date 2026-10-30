@@ -9,8 +9,12 @@ Detectors (report §三 D, PLAN §D):
                       --max-silent-run-action)
   voice_distinctness  per-line F0 vs voice cast band + per-scene speaker collision (needs
                       --voice-cast and a speaker map; else UNVERIFIED)
-  emotion_dynamics    plead|fear|threat lines >= 6 dB above the same speaker's calm baseline
-                      (needs emotions in the speaker map; else UNVERIFIED)
+  emotion_dynamics    delivery, not loudness (Roger 2026-10-30 seq=57 item 3): a plead|fear|threat line is
+                      "delivered" when, against the same speaker's calm lines in this cut, it is >= +2 dB RMS, or
+                      its F0 interquartile range is >= 1.25x, or its speech rate is >= 1.2x / <= 0.8x, or its
+                      spectral centroid is >= 1.15x; PASS iff every speaker with >= 2 measurable emotive lines
+                      (>= 0.8 s) has >= 70 % delivered.  The old +6 dB RMS rule stays as evidence
+                      (legacy_rms_delta_db); it is unsatisfiable next to the (-18, -12) LUFS window rule.
   lexicon_violation   forbidden terms / non-canonical name spellings in ASR text, .ass subtitles
                       and RapidOCR of frames sampled every 2.5 s (needs --lexicon; else UNVERIFIED)
   mascot_in_story     OpenCV template match of --brand-dir first frames against story-segment
@@ -203,16 +207,142 @@ def decide_voice_distinctness(cast: dict[str, Any] | None, segments: Sequence[di
     return row
 
 
+# ---- emotion delivery (Roger 2026-10-30 seq=57 item 3: rule delegated to the operator) -------------------------
+EMOTIVE_EMOTIONS = frozenset({"threat", "plead", "fear"})
+EMOTION_MIN_LINE_S = 0.8            # shorter windows give < 3 voiced frames of F0 and a meaningless rate
+EMOTION_MIN_EMOTIVE_LINES = 2       # one line is an anecdote; a speaker is judged from two or more
+EMOTION_RMS_DELTA_DB = 2.0          # 2 dB: clearly audible step (JND ~1 dB) that still fits inside the 6 LU
+                                    # per-line window band, unlike the old +6 dB which cannot
+EMOTION_F0_IQR_RATIO = 1.25         # aroused speech widens pitch movement by 20-30 % (Scherer-style arousal
+                                    # findings); 25 % is above the 10-15 % run-to-run jitter of the estimator
+EMOTION_RATE_FAST_RATIO = 1.2       # tempo JND is 10-15 %; 20 % faster (pressing) or 20 % slower
+EMOTION_RATE_SLOW_RATIO = 0.8       # (menacing, clipped) is a change a listener registers as intent
+EMOTION_CENTROID_RATIO = 1.15       # pressed/tense phonation lifts spectral energy; 15 % (~1.2 dB tilt) is
+                                    # above the per-line centroid scatter of one speaker reading calmly
+EMOTION_DELIVERED_SHARE_MIN = 0.70  # 7 of 10 emotive lines must read as emotive; allows a few flat deliveries
+                                    # without letting a flat scene pass
+_CJK_OR_WORD = re.compile(r"[\u3400-\u9fff]|[A-Za-z0-9]+")
+
+
+def speech_rate_cps(text: str | None, duration_s: float | None) -> float | None:
+    """Characters (CJK ideographs; a latin word counts as one) per second of the window."""
+    if not text or not duration_s or float(duration_s) <= 0:
+        return None
+    n = len(_CJK_OR_WORD.findall(str(text)))
+    return round(n / float(duration_s), 3) if n else None
+
+
+def _median(values: list[float]) -> float | None:
+    vals = [float(v) for v in values if v is not None]
+    if not vals:
+        return None
+    vals.sort()
+    mid = len(vals) // 2
+    return round(vals[mid] if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2.0, 3)
+
+
 def decide_emotion_dynamics(segments: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """Emotive lines must be *delivered* differently from the speaker's calm lines in the same cut.
+
+    Why not loudness alone: the previous rule (plead|fear|threat >= +6 dB RMS over calm) collided with the
+    release rule that every line window sits in (-18, -12) LUFS with <= 6 LU between neighbours; F4 (2026-10-30)
+    showed no mix can satisfy both.  Delivery is multi-cue: a threat can be louder, or pitch-mobile, or pressed
+    (faster) / clipped (slower), or brighter.  Per speaker the calm median of each cue is the baseline; an
+    emotive line is DELIVERED when any one cue clears its ratio (constants above, each with its reason).
+    Judgement: speakers with >= EMOTION_MIN_EMOTIVE_LINES measurable emotive lines (>= EMOTION_MIN_LINE_S and a
+    calm baseline for at least one cue) must have >= EMOTION_DELIVERED_SHARE_MIN delivered; shorter lines are
+    reported as unmeasurable and excluded from the denominator.  PASS iff every judged speaker passes;
+    UNVERIFIED when nobody can be judged.  The legacy +6 dB delta is reported per line as evidence."""
     if not any(seg.get("emotion") for seg in segments):
-        return detector("UNVERIFIED", reason="no emotion annotation (supply --speaker-map with emotion)")
-    result = vcg.emotion_dynamics(segments)
-    row = detector(result["status"], measured=result.get("measurements"),
-                   threshold={"delta_db": vcg.EMOTION_DELTA_DB, "emotive": sorted(vcg.EMOTIVE)},
-                   evidence={"unverified": result.get("unverified", [])}, failures=result.get("failures"))
-    if result["status"] == "UNVERIFIED":
-        row["reason"] = ";".join(result.get("unverified", []))
-    return row
+        return detector("UNVERIFIED", reason="no emotion annotation (supply --speaker-map / windows with emotion)")
+    threshold = {"rms_delta_db_min": EMOTION_RMS_DELTA_DB, "f0_iqr_ratio_min": EMOTION_F0_IQR_RATIO,
+                 "rate_fast_ratio_min": EMOTION_RATE_FAST_RATIO, "rate_slow_ratio_max": EMOTION_RATE_SLOW_RATIO,
+                 "centroid_ratio_min": EMOTION_CENTROID_RATIO, "delivered_share_min": EMOTION_DELIVERED_SHARE_MIN,
+                 "min_line_s": EMOTION_MIN_LINE_S, "min_emotive_lines": EMOTION_MIN_EMOTIVE_LINES,
+                 "emotive": sorted(EMOTIVE_EMOTIONS), "legacy_rms_delta_db": vcg.EMOTION_DELTA_DB}
+    by_speaker: dict[str, list[dict[str, Any]]] = {}
+    for seg in segments:
+        if seg.get("speaker") and seg.get("emotion"):
+            by_speaker.setdefault(str(seg["speaker"]), []).append(seg)
+    speakers: dict[str, Any] = {}
+    lines: list[dict[str, Any]] = []
+    failures: list[str] = []
+    unmeasurable: list[dict[str, Any]] = []
+    judged = 0
+    for speaker, rows in sorted(by_speaker.items()):
+        def dur(r: dict[str, Any]) -> float:
+            d = r.get("duration_s")
+            return float(d) if d is not None else float(r.get("end", 0)) - float(r.get("start", 0))
+        calm_all = [r for r in rows if str(r["emotion"]).lower() == "calm"]
+        calm = [r for r in calm_all if dur(r) >= EMOTION_MIN_LINE_S]      # pitch/rate/brightness need length
+        base = {"rms_dbfs": _median([r.get("rms_dbfs") for r in calm_all]),  # level is valid on any length
+                "f0_iqr_hz": _median([r.get("f0_iqr_hz") for r in calm]),
+                "rate_cps": _median([r.get("speech_rate_cps") if r.get("speech_rate_cps") is not None
+                                     else speech_rate_cps(r.get("text"), dur(r)) for r in calm]),
+                "centroid_hz": _median([r.get("spectral_centroid_hz") for r in calm])}
+        emotive = [r for r in rows if str(r["emotion"]).lower() in EMOTIVE_EMOTIONS]
+        measurable: list[dict[str, Any]] = []
+        for r in emotive:
+            if dur(r) < EMOTION_MIN_LINE_S:
+                unmeasurable.append({"speaker": speaker, "start": r.get("start"), "duration_s": round(dur(r), 3),
+                                     "reason": "SHORTER_THAN_MIN_LINE"})
+                continue
+            measurable.append(r)
+        delivered = 0
+        for r in measurable:
+            rate = r.get("speech_rate_cps") if r.get("speech_rate_cps") is not None else speech_rate_cps(r.get("text"), dur(r))
+            cues: dict[str, Any] = {}
+            if r.get("rms_dbfs") is not None and base["rms_dbfs"] is not None:
+                cues["rms_delta_db"] = round(float(r["rms_dbfs"]) - base["rms_dbfs"], 2)
+            if r.get("f0_iqr_hz") is not None and base["f0_iqr_hz"]:
+                cues["f0_iqr_ratio"] = round(float(r["f0_iqr_hz"]) / base["f0_iqr_hz"], 3)
+            if rate is not None and base["rate_cps"]:
+                cues["rate_ratio"] = round(float(rate) / base["rate_cps"], 3)
+            if r.get("spectral_centroid_hz") is not None and base["centroid_hz"]:
+                cues["centroid_ratio"] = round(float(r["spectral_centroid_hz"]) / base["centroid_hz"], 3)
+            carried = [name for name, ok in (
+                ("rms", cues.get("rms_delta_db") is not None and cues["rms_delta_db"] >= EMOTION_RMS_DELTA_DB),
+                ("f0_iqr", cues.get("f0_iqr_ratio") is not None and cues["f0_iqr_ratio"] >= EMOTION_F0_IQR_RATIO),
+                ("rate", cues.get("rate_ratio") is not None and (cues["rate_ratio"] >= EMOTION_RATE_FAST_RATIO
+                                                                 or cues["rate_ratio"] <= EMOTION_RATE_SLOW_RATIO)),
+                ("centroid", cues.get("centroid_ratio") is not None and cues["centroid_ratio"] >= EMOTION_CENTROID_RATIO),
+            ) if ok]
+            if not cues:
+                unmeasurable.append({"speaker": speaker, "start": r.get("start"), "reason": "NO_CALM_BASELINE_OR_NO_CUES"})
+                continue
+            ok = bool(carried)
+            delivered += 1 if ok else 0
+            lines.append({"speaker": speaker, "start": r.get("start"), "emotion": str(r["emotion"]).lower(),
+                          "duration_s": round(dur(r), 3), "delivered": ok, "carried_by": carried, **cues,
+                          "legacy_rms_delta_db": cues.get("rms_delta_db")})
+            if not ok:
+                failures.append(f"FLAT_LINE:{speaker}:{round(float(r.get('start') or 0), 1)}")
+        counted = [l for l in lines if l["speaker"] == speaker]
+        row = {"calm_lines": len(calm_all), "calm_lines_measurable": len(calm), "calm_baseline": base, "emotive_lines": len(emotive),
+               "measurable": len(counted), "delivered": delivered,
+               "delivered_share": round(delivered / len(counted), 3) if counted else None}
+        if len(counted) >= EMOTION_MIN_EMOTIVE_LINES:
+            judged += 1
+            row["judged"] = True
+            row["pass"] = row["delivered_share"] >= EMOTION_DELIVERED_SHARE_MIN
+            if not row["pass"]:
+                failures.insert(0, f"FLAT_DELIVERY:{speaker}:{row['delivered_share']}")
+        else:
+            row["judged"] = False
+        speakers[speaker] = row
+    measured = {"speakers": speakers, "judged_speakers": judged,
+                "emotive_lines_measurable": len(lines), "emotive_lines_delivered": sum(1 for l in lines if l["delivered"]),
+                "unmeasurable_lines": len(unmeasurable),
+                "calm_baseline_dbfs": {sp: row["calm_baseline"]["rms_dbfs"] for sp, row in speakers.items()}}
+    evidence = {"lines": lines, "unmeasurable": unmeasurable,
+                "legacy_rule": "plead|fear|threat >= +6 dB RMS over calm (reported per line as legacy_rms_delta_db)"}
+    if judged == 0:
+        return detector("UNVERIFIED", measured=measured, threshold=threshold, evidence=evidence,
+                        reason="no speaker with >= 2 measurable emotive lines and a calm baseline")
+    speaker_fails = [f for f in failures if f.startswith("FLAT_DELIVERY:")]
+    if speaker_fails:
+        return detector("FAIL", measured=measured, threshold=threshold, evidence=evidence, failures=failures)
+    return detector("PASS", measured=measured, threshold=threshold, evidence=evidence)
 
 
 _KEEP = {"Lo", "Ll", "Lu", "Nd", "Nl", "No"}
@@ -1015,6 +1145,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     for row, text in zip(measured, texts):
         if text is not None:
             row["text"] = text
+            row["speech_rate_cps"] = speech_rate_cps(text, row.get("duration_s"))
 
     speaker_payload = _load_json(args.speaker_map)
     speaker_map = (speaker_payload.get("lines") if isinstance(speaker_payload, dict) else speaker_payload) or []

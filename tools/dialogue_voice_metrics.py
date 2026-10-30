@@ -111,6 +111,41 @@ def _frame_f0(frame, sr: int, lag_min: int, lag_max: int) -> tuple[float | None,
     return float(sr) / float(lag), best
 
 
+def voiced_f0_track(
+    samples: Sequence[float],
+    sr: int,
+    *,
+    frame_ms: float = FRAME_MS,
+    hop_ms: float = HOP_MS,
+    fmin: float = F0_MIN_HZ,
+    fmax: float = F0_MAX_HZ,
+) -> list[float]:
+    """F0 (Hz) of every voiced frame of ``samples`` (energetic frame with a clear autocorrelation peak)."""
+    np = _np()
+    x = np.asarray(samples, dtype=np.float64)
+    frame_len = int(round(sr * frame_ms / 1000.0))
+    hop = max(1, int(round(sr * hop_ms / 1000.0)))
+    if x.size < frame_len or frame_len < 8:
+        return []
+    lag_min = max(2, int(math.floor(sr / fmax)))
+    lag_max = int(math.ceil(sr / fmin))
+    starts = range(0, x.size - frame_len + 1, hop)
+    frames = [x[s:s + frame_len] for s in starts]
+    energies = np.array([float(np.sqrt(np.mean(f * f))) for f in frames])
+    if energies.size == 0 or float(energies.max()) <= VOICED_ABS_FLOOR:
+        return []
+    threshold = max(VOICED_ABS_FLOOR, VOICED_ENERGY_RATIO * float(energies.max()))
+    voiced: list[float] = []
+    for frame, energy in zip(frames, energies):
+        if energy < threshold:
+            continue
+        f0, _peak = _frame_f0(frame, sr, lag_min, lag_max)
+        if f0 is None or not (fmin <= f0 <= fmax):
+            continue
+        voiced.append(f0)
+    return voiced
+
+
 def estimate_f0_median(
     samples: Sequence[float],
     sr: int,
@@ -124,30 +159,54 @@ def estimate_f0_median(
     """Median F0 (Hz) over voiced frames of ``samples``; ``None`` when fewer than
     ``min_voiced_frames`` frames are voiced."""
     np = _np()
+    voiced = voiced_f0_track(samples, sr, frame_ms=frame_ms, hop_ms=hop_ms, fmin=fmin, fmax=fmax)
+    if len(voiced) < min_voiced_frames:
+        return None
+    return round(float(np.median(np.array(voiced))), 2)
+
+
+def f0_iqr_hz(samples: Sequence[float], sr: int, *, min_voiced_frames: int = MIN_VOICED_FRAMES) -> float | None:
+    """Interquartile range (Hz) of the voiced F0 track: the pitch *movement* inside a line, independent of
+    the speaker's register.  ``None`` when fewer than ``min_voiced_frames`` frames are voiced."""
+    np = _np()
+    voiced = voiced_f0_track(samples, sr)
+    if len(voiced) < min_voiced_frames:
+        return None
+    arr = np.array(voiced)
+    return round(float(np.percentile(arr, 75) - np.percentile(arr, 25)), 2)
+
+
+def spectral_centroid_hz(samples: Sequence[float], sr: int, *, frame_ms: float = FRAME_MS, hop_ms: float = HOP_MS,
+                         band: tuple[float, float] = (80.0, 8000.0)) -> float | None:
+    """Median spectral centroid (Hz) over the energetic frames of a line, 80–8000 Hz band: tense, pressed
+    voice shifts energy up (brightness); a calm delivery of the same speaker sits lower."""
+    np = _np()
     x = np.asarray(samples, dtype=np.float64)
     frame_len = int(round(sr * frame_ms / 1000.0))
     hop = max(1, int(round(sr * hop_ms / 1000.0)))
     if x.size < frame_len or frame_len < 8:
         return None
-    lag_min = max(2, int(math.floor(sr / fmax)))
-    lag_max = int(math.ceil(sr / fmin))
     starts = range(0, x.size - frame_len + 1, hop)
     frames = [x[s:s + frame_len] for s in starts]
     energies = np.array([float(np.sqrt(np.mean(f * f))) for f in frames])
     if energies.size == 0 or float(energies.max()) <= VOICED_ABS_FLOOR:
         return None
     threshold = max(VOICED_ABS_FLOOR, VOICED_ENERGY_RATIO * float(energies.max()))
-    voiced: list[float] = []
+    window = np.hanning(frame_len)
+    freqs = np.fft.rfftfreq(frame_len, 1.0 / sr)
+    mask = (freqs >= band[0]) & (freqs <= band[1])
+    centroids: list[float] = []
     for frame, energy in zip(frames, energies):
         if energy < threshold:
             continue
-        f0, _peak = _frame_f0(frame, sr, lag_min, lag_max)
-        if f0 is None or not (fmin <= f0 <= fmax):
+        mag = np.abs(np.fft.rfft((frame - float(np.mean(frame))) * window))[mask]
+        total = float(mag.sum())
+        if total <= 0.0:
             continue
-        voiced.append(f0)
-    if len(voiced) < min_voiced_frames:
+        centroids.append(float((freqs[mask] * mag).sum() / total))
+    if not centroids:
         return None
-    return round(float(np.median(np.array(voiced))), 2)
+    return round(float(np.median(np.array(centroids))), 1)
 
 
 def measure_segments(samples: Sequence[float], sr: int, segments: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -167,6 +226,8 @@ def measure_segments(samples: Sequence[float], sr: int, segments: Sequence[dict[
             "end": round(end, 3),
             "duration_s": round(max(0.0, end - start), 3),
             "f0_median_hz": estimate_f0_median(window, sr) if window.size else None,
+            "f0_iqr_hz": f0_iqr_hz(window, sr) if window.size else None,
+            "spectral_centroid_hz": spectral_centroid_hz(window, sr) if window.size else None,
             "rms_dbfs": rms_dbfs(window),
         }
         for key in ("speaker", "emotion", "scene", "index"):

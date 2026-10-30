@@ -255,17 +255,20 @@ class E04NegativeSampleRegressionTests(unittest.TestCase):
         self.assertIn("VOICE_COLLISION:CHAR-LUWENRUI:CHAR-MAYANG", collisions)     # 救命啊 / 松子真香 same voice
         self.assertTrue(any(f.startswith("VOICE_OUT_OF_BAND:CHAR-HUYONG:") for f in row["failures"]))
 
-    def test_emotion_dynamics_fails_flat_plead_against_calm_baseline(self):
+    def test_emotion_dynamics_single_plead_line_is_measured_but_not_judged(self):
+        # new rule (Roger 2026-10-30 seq=57 item 3): a speaker is judged from >= 2 measurable emotive lines;
+        # the E04 fixture has one plead line for CHAR-MAYANG -> reported, legacy delta kept, status UNVERIFIED
         row = self.report["detectors"]["emotion_dynamics"]
-        self.assertEqual(row["status"], "FAIL")
-        flat = [f for f in row["failures"] if f.startswith("FLAT_EMOTION:CHAR-MAYANG:151.")]
-        self.assertEqual(len(flat), 1, row["failures"])
+        self.assertEqual(row["status"], "UNVERIFIED")
+        speakers = row["measured"]["speakers"]
+        self.assertFalse(speakers["CHAR-MAYANG"]["judged"])
         baseline = row["measured"]["calm_baseline_dbfs"]["CHAR-MAYANG"]
         calm_line = next(s for s in self.fixture["segments"] if abs(s["start"] - 60.7) < 0.3)
         self.assertEqual(baseline, calm_line["rms_dbfs"])
-        plead = next(l for l in row["measured"]["emotive_lines"] if abs(l["start"] - 151.7) < 0.3)
-        self.assertLess(plead["delta_db"], 6.0)
-        self.assertIn("NO_CALM_BASELINE:CHAR-HUYONG", row["evidence"]["unverified"])
+        # the fixture's plead line is 0.6 s: unmeasurable (pitch movement / rate need >= 0.8 s), reported, not counted
+        plead = next(l for l in row["evidence"]["unmeasurable"] if abs(l["start"] - 151.7) < 0.3)
+        self.assertEqual(plead["reason"], "SHORTER_THAN_MIN_LINE")
+        self.assertEqual(row["threshold"]["legacy_rms_delta_db"], 6.0)
 
     def test_loudness_fails_against_minus_14(self):
         row = self.report["detectors"]["loudness"]
@@ -276,9 +279,10 @@ class E04NegativeSampleRegressionTests(unittest.TestCase):
 
     def test_overall_fail_and_unverified_list(self):
         self.assertEqual(self.report["status"], "FAIL")
-        # subtitle_asr_agreement is UNVERIFIED here: the fixture carries no subtitle cues / read-back (K136)
+        # subtitle_asr_agreement is UNVERIFIED here: the fixture carries no subtitle cues / read-back (K136);
+        # emotion_dynamics is UNVERIFIED: no speaker has >= 2 measurable emotive lines (seq=57 rule)
         self.assertEqual(set(self.report["unverified"]), {"lexicon_violation", "mascot_in_story", "subtitle_asr_agreement",
-                                                          *fcd.HUMAN_REVIEW_DETECTORS})
+                                                          "emotion_dynamics", *fcd.HUMAN_REVIEW_DETECTORS})
         for name in fcd.HUMAN_REVIEW_DETECTORS:
             self.assertEqual(self.report["detectors"][name]["status"], "NOT_IMPLEMENTED")
 
@@ -454,3 +458,66 @@ class ReadbackChunkingTests(unittest.TestCase):
     def test_a_gap_between_windows_starts_a_new_chunk(self):
         chunks = fcd.group_readback_windows([(0.0, 5.0), (8.0, 12.0)], min_s=25.0)
         self.assertEqual(chunks, [[0.0, 5.0], [8.0, 12.0]])
+
+
+class EmotionDeliveryTests(unittest.TestCase):
+    """emotion_dynamics measures delivery (Roger 2026-10-30 seq=57 item 3), not loudness."""
+
+    def _calm(self, speaker, start, rms=-15.0, iqr=12.0, rate=4.0, centroid=1500.0, dur=2.0):
+        return {"start": start, "end": start + dur, "duration_s": dur, "speaker": speaker, "emotion": "calm",
+                "rms_dbfs": rms, "f0_iqr_hz": iqr, "speech_rate_cps": rate, "spectral_centroid_hz": centroid}
+
+    def _emo(self, speaker, start, emotion="threat", dur=2.0, **kw):
+        row = self._calm(speaker, start, dur=dur, **kw)
+        row["emotion"] = emotion
+        return row
+
+    def test_each_cue_alone_carries_a_line_and_the_speaker_passes_at_70_percent(self):
+        segs = [self._calm("A", 0.0), self._calm("A", 3.0), self._calm("A", 6.0),
+                self._emo("A", 10.0, rms=-13.0),                 # +2 dB
+                self._emo("A", 13.0, iqr=15.0),                  # 1.25x pitch movement
+                self._emo("A", 16.0, rate=4.8),                  # 1.2x faster
+                self._emo("A", 19.0, centroid=1725.0),           # 1.15x brighter
+                self._emo("A", 22.0)]                            # flat: nothing moved
+        row = fcd.decide_emotion_dynamics(segs)
+        self.assertEqual(row["status"], "PASS")
+        sp = row["measured"]["speakers"]["A"]
+        self.assertTrue(sp["judged"])
+        self.assertEqual((sp["measurable"], sp["delivered"]), (5, 4))
+        carried = {l["start"]: l["carried_by"] for l in row["evidence"]["lines"]}
+        self.assertEqual(carried[10.0], ["rms"])
+        self.assertEqual(carried[13.0], ["f0_iqr"])
+        self.assertEqual(carried[16.0], ["rate"])
+        self.assertEqual(carried[19.0], ["centroid"])
+        self.assertEqual(carried[22.0], [])
+        self.assertEqual([f for f in row.get("failures", []) if f.startswith("FLAT_DELIVERY")], [])
+
+    def test_flat_scene_fails_and_a_slow_clipped_threat_counts(self):
+        segs = [self._calm("B", 0.0), self._calm("B", 3.0),
+                self._emo("B", 10.0), self._emo("B", 13.0), self._emo("B", 16.0, rate=3.0)]   # 0.75x = clipped
+        row = fcd.decide_emotion_dynamics(segs)
+        self.assertEqual(row["status"], "FAIL")
+        self.assertIn("FLAT_DELIVERY:B:0.333", row["failures"])
+        self.assertEqual(row["measured"]["speakers"]["B"]["delivered"], 1)
+        self.assertIn("FLAT_LINE:B:10.0", row["failures"])
+
+    def test_short_lines_are_unmeasurable_and_excluded_from_the_denominator(self):
+        segs = [self._calm("C", 0.0), self._calm("C", 3.0),
+                self._emo("C", 10.0, dur=0.5), self._emo("C", 12.0, rms=-12.0), self._emo("C", 15.0, iqr=20.0)]
+        row = fcd.decide_emotion_dynamics(segs)
+        self.assertEqual(row["status"], "PASS")
+        self.assertEqual(row["measured"]["unmeasurable_lines"], 1)
+        self.assertEqual(row["evidence"]["unmeasurable"][0]["reason"], "SHORTER_THAN_MIN_LINE")
+        self.assertEqual(row["measured"]["speakers"]["C"]["measurable"], 2)
+
+    def test_speaker_without_two_measurable_emotive_lines_is_not_judged(self):
+        segs = [self._calm("D", 0.0), self._emo("D", 10.0)]
+        row = fcd.decide_emotion_dynamics(segs)
+        self.assertEqual(row["status"], "UNVERIFIED")
+        self.assertFalse(row["measured"]["speakers"]["D"]["judged"])
+
+    def test_speech_rate_counts_cjk_characters_and_latin_words(self):
+        self.assertEqual(fcd.speech_rate_cps("冯兄客气了，知道你巡山辛苦", 2.0), 6.0)
+        self.assertEqual(fcd.speech_rate_cps("hello world 你好", 2.0), 2.0)
+        self.assertIsNone(fcd.speech_rate_cps("", 2.0))
+        self.assertIsNone(fcd.speech_rate_cps("你好", 0.0))
