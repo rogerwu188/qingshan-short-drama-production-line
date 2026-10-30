@@ -3808,6 +3808,14 @@ def stage_s5(ctx: Ctx) -> StageResult:
     # rejected keyframe and reruns S5, which must then render the missing image instead of reusing the
     # stale ALL_ADMITTED index (urban lab E02 2026-10-23: a parked keyframe was never regenerated).
     keyframe_missing = s5_keyframes_missing(ctx)
+    # The anchor plan is the authority on which shots need a keyframe: a planned anchor whose image is
+    # absent (E12 S18-02, 2026-10-30: VU-051's own start frame authored in the builder, prompt never
+    # written because S5 kept short-circuiting on a stale ALL_ADMITTED index) must send S5 through the
+    # manifest build, where D-46 then POSTs only that image.
+    anchor_missing = [str(x) for x in ((read_json(p.anchor_plan, {}) or {}).get("missing_anchor_shot_ids") or [])]
+    if anchor_missing:
+        keyframe_missing = list(keyframe_missing) + [f"{sid}-KEYFRAME-V1.txt" for sid in anchor_missing
+                                                      if f"{sid}-KEYFRAME-V1.txt" not in keyframe_missing]
     if (q1.get("status") == "ALL_ADMITTED" and p.anchor_plan.is_file()
             and int(q1.get("unit_count") or 0) > 0 and not keyframe_missing
             and not redo_keyframes_unadmitted(ctx)):
