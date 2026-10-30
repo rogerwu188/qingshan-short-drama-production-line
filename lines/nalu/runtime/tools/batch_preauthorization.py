@@ -9,8 +9,8 @@ Model.  The line owner's PAID_PRODUCTION_AUTHORIZATION order (private inbox, D-1
 extra decision block::
 
     "batch_preauthorization": {
-        "max_credits_per_batch": 2000,      # one wave / one paid stage invocation
-        "max_units_per_batch": 20,
+        "max_credits_per_batch": 2000,      # one wave / one paid stage invocation; JSON null = no batch limit
+        "max_units_per_batch": 20,          # JSON null = no batch limit (Roger 2026-10-30 「不设上限」)
         "escalate_on": {"reroll": true, "unit_cost_over_p95": true},
         "unit_cost_p95_credits": 104        # optional fixed P95; else measured from the episode's bound tasks
     }
@@ -76,14 +76,29 @@ def evaluate(order_decision: dict[str, Any], tasks: list[dict[str, Any]], *, pla
         return {"schema": SCHEMA, "status": NOT_CONFIGURED, "reasons": [], "policy": None}
     credits_of = credits_of or (lambda t: int(t.get("estimated_credits") or 0))
     reasons: list[str] = []
-    max_credits = int(policy.get("max_credits_per_batch") or 0)
-    max_units = int(policy.get("max_units_per_batch") or 0)
+    # Roger 2026-10-30 「自动预授权，不设上限」: a limit written as JSON null means "no batch limit"
+    # (the per-episode cap in the same order and the budget ledger still guard every POST).  The key
+    # must still be PRESENT: an absent key or a non-positive number is a malformed policy and
+    # escalates, so "unlimited" is always an explicit choice in the owner's order.
+    def _limit(key: str) -> tuple[int | None, bool]:
+        if key not in policy:
+            return None, False
+        value = policy.get(key)
+        if value is None:
+            return None, True            # explicit null = unlimited
+        try:
+            n = int(value)
+        except (TypeError, ValueError):
+            return None, False
+        return (n, True) if n > 0 else (None, False)
+    max_credits, credits_ok = _limit("max_credits_per_batch")
+    max_units, units_ok = _limit("max_units_per_batch")
     esc = policy.get("escalate_on") or {}
-    if max_credits <= 0 or max_units <= 0:
-        reasons.append("POLICY_LIMITS_MUST_BE_POSITIVE")
-    if planned_credits > max_credits > 0:
+    if not credits_ok or not units_ok:
+        reasons.append("POLICY_LIMITS_MUST_BE_POSITIVE_OR_NULL")
+    if max_credits is not None and planned_credits > max_credits:
         reasons.append(f"BATCH_CREDITS_OVER_LIMIT:{planned_credits}>{max_credits}")
-    if len(tasks) > max_units > 0:
+    if max_units is not None and len(tasks) > max_units:
         reasons.append(f"BATCH_UNITS_OVER_LIMIT:{len(tasks)}>{max_units}")
     history = bound_task_history(tx_dir) if tx_dir else {}
     if esc.get("reroll", True):

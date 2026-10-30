@@ -61,6 +61,20 @@ class BatchPreauthorizationTest(unittest.TestCase):
             v = bp.evaluate(policy, tasks(1), planned_credits=62, tx_dir=Path(tmp))
             self.assertEqual(v["status"], bp.ALLOW)
 
+    def test_null_limits_mean_unlimited_but_keys_must_exist(self):
+        policy = {"batch_preauthorization": {"max_credits_per_batch": None, "max_units_per_batch": None,
+                                             "escalate_on": {"reroll": True, "unit_cost_over_p95": True},
+                                             "unit_cost_p95_credits": 104}}
+        v = bp.evaluate(policy, tasks(60), planned_credits=3720, tx_dir=None)
+        self.assertEqual(v["status"], bp.ALLOW, v)
+        self.assertIsNone(v["policy"]["max_credits_per_batch"])
+        missing = {"batch_preauthorization": {"escalate_on": {"reroll": True}}}
+        v2 = bp.evaluate(missing, tasks(1), planned_credits=62, tx_dir=None)
+        self.assertEqual(v2["status"], bp.ESCALATE)
+        self.assertIn("POLICY_LIMITS_MUST_BE_POSITIVE_OR_NULL", v2["reasons"])
+        zero = {"batch_preauthorization": {"max_credits_per_batch": 0, "max_units_per_batch": 5}}
+        self.assertEqual(bp.evaluate(zero, tasks(1), planned_credits=62, tx_dir=None)["status"], bp.ESCALATE)
+
 
 if __name__ == "__main__":
     unittest.main()

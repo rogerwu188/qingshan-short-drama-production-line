@@ -417,6 +417,7 @@
     "tools.tests.test_throughput_baseline_gate",
     "tools.tests.test_batch_preauthorization",
     "tools.tests.test_review_dispatch",
-    "tools.tests.test_english_contract_forbidden_terms_lint"
+    "tools.tests.test_english_contract_forbidden_terms_lint",
+    "tools.tests.test_record_paid_production_order_preauth"
   ]
 }
