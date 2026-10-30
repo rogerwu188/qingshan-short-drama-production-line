@@ -33,14 +33,20 @@ OPPOSITES = {("PUSH_IN", "PULL_OUT"), ("LEFT_TO_RIGHT", "RIGHT_TO_LEFT"), ("RISE
 #: a move verb that is being FORBIDDEN is not a move ("no push in, no pull out, no pan, no tilt, no tracking";
 #: "never reverses"; 「不得推拉」) — the renderer's own lock wording must not trip the lint
 NEGATED_MOVE = re.compile(
-    r"\b(?:no|never|without|not)\s+(?:any\s+)?(?:push(?:es|ed|ing)?\s+in|pull(?:s|ed|ing)?\s+out|pan(?:s|ning)?|tilt(?:s|ing)?|"
+    r"\b(?:no|never|without|not|unmotivated)\s+(?:any\s+)?(?:push(?:es|ed|ing)?\s+in|pull(?:s|ed|ing)?\s+out|pan(?:s|ning)?|tilt(?:s|ing)?|"
     r"track(?:s|ing)?(?:\s+shot|\s+move)?|dolly(?:\s+move)?|zoom(?:s|ing)?(?:\s+(?:in|out))?|orbit(?:s|ing)?|crane|handheld|"
     r"reverses?|oscillates?|drifts?\s+back)\b", re.IGNORECASE)
 ZH_NEGATED_MOVE = re.compile(r"(不得|不要|不|禁止|无)(推近|推进|推拉|拉远|拉出|拉镜|横摇|竖摇|摇镜|跟拍|跟随|横移|环绕|升降|手持|变焦|运镜|机位移动)")
 
 
+NEG_SECTION = re.compile(r"^negative_constraints:.*$", re.MULTILINE)
+
+
 def strip_negated_moves(text: str) -> str:
-    return ZH_NEGATED_MOVE.sub("", NEGATED_MOVE.sub("", text or ""))
+    """Drop the prompt's negative-constraints line (it NAMES moves to forbid: "unmotivated orbit") and every
+    negated move phrase, so only moves the prompt asks for remain."""
+    text = NEG_SECTION.sub("", text or "")
+    return ZH_NEGATED_MOVE.sub("", NEGATED_MOVE.sub("", text))
 
 
 def move_tokens(text: str) -> list[str]:

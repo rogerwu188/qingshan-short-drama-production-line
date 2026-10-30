@@ -41,6 +41,11 @@ class LintTests(unittest.TestCase):
         r = lint.dialogue_unit_locked_camera("camera: one short dolly move; direction=PUSH_IN", has_dialogue=True,
                                              authored_camera_text="特写固定机位秦铭")
         self.assertEqual(r["status"], "FAIL")
+        # the negative-constraints line names moves to forbid; it is not a move request
+        r = lint.dialogue_unit_locked_camera("camera: shot scale=CLOSE_UP; Fixed camera position: no pan.\n"
+                                             "negative_constraints: No freeze, loop, pose interpolation, unmotivated orbit, or jump.",
+                                             has_dialogue=True, authored_camera_text="特写固定机位秦铭")
+        self.assertEqual(r["status"], "PASS", r)
 
     def test_single_direction_and_silent_beats(self):
         self.assertEqual(lint.single_direction([{"motion_family": "DOLLY", "motion_direction": "PUSH_IN"},
