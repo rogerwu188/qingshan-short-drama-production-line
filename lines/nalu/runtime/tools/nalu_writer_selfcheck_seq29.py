@@ -52,7 +52,7 @@ def load_lexicon(path: Path | None = None) -> dict[str, Any]:
 
 def _spoken(dialogue: str) -> str:
     text = str(dialogue or "").strip()
-    return text.split("：", 1)[1] if "：" in text[:8] else text
+    return text.split("：", 1)[1] if "：" in text[:24] else text  # long English speaker names too (lab E09)
 
 
 def derived_dialogue_seconds(dialogue: str, cps: float | None) -> float:
@@ -203,6 +203,19 @@ def in_video_contract(contract: dict[str, Any]) -> dict[str, Any]:
     return {**contract, "shots": shots}
 
 
+def provider_floor_seconds(contract: dict[str, Any]) -> float:
+    """CAMERA_GRAMMAR_V1 contracts: the H3 request floor (HopsAPI: 4 s).  A dialogue shot may be that long even
+    when its line is shorter — the writer rule then requires a performed action (R11 warns).  Others: 0."""
+    tools_dir = _pathlib.Path(__file__).resolve().parents[4] / "tools"
+    if str(tools_dir) not in _sys.path:
+        _sys.path.append(str(tools_dir))
+    import camera_grammar_policy as _cg
+    if not _cg.active(contract, episode=str(contract.get("episode") or "")):
+        return 0.0
+    import speaking_unit_duration as _sud
+    return float(_sud.MIN_SECONDS)
+
+
 def short_speaking_line_warnings(contract: dict[str, Any]) -> list[dict[str, Any]]:
     """CAMERA_GRAMMAR_V1 contracts: dialogue shots whose in-video line is estimated under
     speaking_unit_duration.SHORT_LINE_WARN_SECONDS (same estimate the compiler uses).  Other contracts: []."""
@@ -227,6 +240,7 @@ def short_speaking_line_warnings(contract: dict[str, Any]) -> list[dict[str, Any
 
 
 def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) -> dict[str, Any]:
+    floor_s = provider_floor_seconds(contract)
     contract = in_video_contract(contract)
     lex = lexicon or load_lexicon()
     emotions = set(lex.get("emotions") or [])
@@ -269,7 +283,7 @@ def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) ->
         derived = derived_dialogue_seconds(dialogue, cps)
         m["derived_seconds_by_shot"][sid] = derived
         # 5a — the shot length follows the line
-        if target > derived + TEMPLATE_TOLERANCE_S + 1e-9:
+        if target > max(derived + TEMPLATE_TOLERANCE_S, floor_s) + 1e-9:
             failures.append(f"R5A_DIALOGUE_SHOT_TEMPLATE_DURATION:{sid}:{target:g}>{derived:g}")
         elif target + 1e-9 < derived:
             failures.append(f"R5A_DIALOGUE_SHOT_TOO_SHORT:{sid}:{target:g}<{derived:g}")
