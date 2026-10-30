@@ -48,6 +48,7 @@ def build(
     dialogue_head_trim=None,
     push_in_compensation=None,
     unit_recut=None,
+    stabilized_clips=None,
     unit_audio_levelling=None,
     audio_cut_crossfade_seconds=None,
 ):
@@ -128,6 +129,22 @@ def build(
         except ModuleNotFoundError:
             from push_in_compensation import applied_sources as _push_in_applied  # type: ignore
         push_in = _push_in_applied(json.loads(_abs(push_in_compensation).read_text(encoding="utf-8")))
+
+    # Lock-off / smoothing stabilisation (S7 summary, lines/nalu/runtime/tools/clip_lockoff_stabilize.py; Roger
+    # 2026-10-30 E12 item 2): unit -> derived clip whose camera path was locked or smoothed, audio copied bit-exact.
+    # Same contract as push-in compensation (one derived file for picture and sound); a re-cut unit wins over it
+    # because the re-cut already read the stabilised frames through its overlay dir.
+    stabilized = {}
+    if stabilized_clips:
+        try:
+            from clip_lockoff_stabilize import applied_sources as _stab_applied  # lines/nalu/runtime/tools on sys.path
+        except ModuleNotFoundError:
+            import importlib.util as _ilu
+            _spec = _ilu.spec_from_file_location(
+                "clip_lockoff_stabilize", Path(__file__).resolve().parents[1] / "lines/nalu/runtime/tools/clip_lockoff_stabilize.py")
+            _mod = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
+            _stab_applied = _mod.applied_sources
+        stabilized = _stab_applied(json.loads(_abs(stabilized_clips).read_text(encoding="utf-8")))
 
     # Editorial unit re-cut (S7 report, lines/nalu/runtime/tools/unit_recut.py; Roger 2026-10-30 E12 item 3): unit ->
     # derived clip rendered from an authored segment list (dropped babble, reaction cutaways, picture swaps with the
@@ -233,7 +250,18 @@ def build(
                          "report": str(_abs(dialogue_head_trim))}
             source_in = head_trim["head_cut_seconds"]
             duration = head_trim["kept_seconds"]
-        push_row = push_in.get(source_id) if recut_meta is None else None   # a recut unit is already a derived clip
+        stab_row = stabilized.get(source_id) if recut_meta is None else None
+        stab_meta = None
+        if stab_row is not None and audio_source.resolve() == source.resolve() \
+                and str(Path(str(stab_row.get("source"))).resolve()) == str(source.resolve()) \
+                and stab_row.get("source_sha256") == sha256(source):
+            stab_meta = {"original_source": str(source), "original_sha256": stab_row["source_sha256"],
+                         "stabilized_source": str(_abs(stab_row["output"])), "stabilized_sha256": stab_row["output_sha256"],
+                         "mode": stab_row.get("mode"), "crop_applied": stab_row.get("crop_applied"),
+                         "before": {k: (stab_row.get("before") or {}).get(k) for k in ("camera_class", "reversals_per_s")},
+                         "after": {k: (stab_row.get("after") or {}).get(k) for k in ("camera_class", "reversals_per_s")},
+                         "report": str(_abs(stabilized_clips))}
+        push_row = push_in.get(source_id) if (recut_meta is None and stab_meta is None) else None   # one derived clip per unit
         push_in_meta = None
         if push_row is not None and str(Path(str(push_row.get("source"))).resolve()) == str(source.resolve()) \
                 and push_row.get("source_sha256") == sha256(source):
@@ -277,11 +305,14 @@ def build(
             clip_metadata["push_in_compensation"] = push_in_meta
         if recut_meta is not None:
             clip_metadata["unit_recut"] = recut_meta
+        if stab_meta is not None:
+            clip_metadata["clip_stabilization"] = stab_meta
         picture_source = (recut_meta["derived_source"] if recut_meta
+                          else stab_meta["stabilized_source"] if stab_meta
                           else push_in_meta["compensated_source"] if push_in_meta else str(source))
         # CAMERA_GRAMMAR_V1 unit audio levelling: a remux of this unit's picture (video stream copied bit-exact) with
         # its own native audio levelled; picture and sound keep one source (speaking-unit audio contract)
-        level_row = levelled.get(source_id) if recut_meta is None else None
+        level_row = levelled.get(source_id) if (recut_meta is None and stab_meta is None) else None
         level_meta = None
         if level_row is not None and audio_source.resolve() == source.resolve() \
                 and str(Path(str(level_row.get("source"))).resolve()) == str(source.resolve()) \
@@ -303,6 +334,7 @@ def build(
             "metadata": clip_metadata,
         })
         audio_clip_source = (recut_meta["derived_source"] if recut_meta
+                             else stab_meta["stabilized_source"] if stab_meta
                              else push_in_meta["compensated_source"]
                              if push_in_meta and audio_source.resolve() == source.resolve() else str(audio_source))
         if level_meta is not None:
@@ -338,6 +370,7 @@ def build(
             **({"measured_edit": measured_edit} if measured_edit is not None else {}),
             **({"push_in_compensation": push_in_meta} if push_in_meta is not None else {}),
             **({"unit_recut": recut_meta} if recut_meta is not None else {}),
+            **({"clip_stabilization": stab_meta} if stab_meta is not None else {}),
         })
         cursor += duration
 
@@ -463,6 +496,7 @@ def main():
     parser.add_argument("--unit-audio-levelling", help="Optional S7 per-unit audio levelling report (CAMERA_GRAMMAR_V1): use each unit's levelled remux (video stream copied, native audio levelled) for its picture and sound")
     parser.add_argument("--audio-cut-crossfade-seconds", type=float, help="Optional (CAMERA_GRAMMAR_V1): equal-power native-audio crossfade at every cut, rendered by render_portable_timeline")
     parser.add_argument("--push-in-compensation", help="Optional S7 push-in compensation report (CAMERA_GRAMMAR_V1): use each compensated locked-camera clip (picture + its copied native audio)")
+    parser.add_argument("--stabilized-clips", help="Optional S7 lock-off/smoothing summary (clip_lockoff_stabilize.py --summary, Roger 2026-10-30 E12 item 2): use each LOCK_OFF/SMOOTH derived clip for the unit's picture and its bit-exact copied sound")
     parser.add_argument("--unit-recut", help="Optional S7 unit re-cut report (nalu.unit_recut_report.v1, Roger 2026-10-30 E12 item 3): use each APPLIED derived clip for the unit's picture and sound (in=0, report duration), overriding measured-edit / head / tail trims")
     args = parser.parse_args()
     print(json.dumps(build(
@@ -481,6 +515,7 @@ def main():
         dialogue_head_trim=args.dialogue_head_trim,
         push_in_compensation=args.push_in_compensation,
         unit_recut=args.unit_recut,
+        stabilized_clips=args.stabilized_clips,
         unit_audio_levelling=args.unit_audio_levelling,
         audio_cut_crossfade_seconds=args.audio_cut_crossfade_seconds,
     ), ensure_ascii=False))

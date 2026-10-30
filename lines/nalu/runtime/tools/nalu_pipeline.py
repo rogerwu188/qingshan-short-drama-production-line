@@ -7345,6 +7345,151 @@ def s7_final_audience_review(ctx: Ctx, res: StageResult) -> dict[str, Any]:
     }
 
 
+def _camera_workers(ctx: Ctx) -> int:
+    import os as _os
+    return max(1, min(8, (_os.cpu_count() or 2) - 1, max(int(getattr(ctx, "max_parallel", 1) or 1), 4)))
+
+
+def s7_camera_stabilize(ctx: Ctx, res: StageResult) -> Path | None:
+    """Measure camera motion on every admitted unit clip and stabilise the dialogue units that are not locked off.
+
+    Roger 2026-10-30 (E12 成片审看 item 2): dialogue units default to a static camera.  Clips already paid for get a
+    free lock-off / smoothing pass (clip_lockoff_stabilize.py: LOCK_OFF when the crop stays <= 20 %, else SMOOTH;
+    audio copied bit-exact) instead of a reroll (K130).  Outputs go to video/_stabilized/, the summary to
+    assembly/<EP>_CLIP_STABILIZE.json; the builder uses them through --stabilized-clips.  Never blocks: a tool
+    failure is recorded and the original clips are used.  Returns the summary path when any unit was changed."""
+    p = ctx.p
+    metrics_before = p.assembly / f"{ctx.episode}_CAMERA_MOTION_METRICS_BEFORE.json"
+    summary = p.assembly / f"{ctx.episode}_CLIP_STABILIZE.json"
+    out_dir = p.video_media / "_stabilized"
+    workers = _camera_workers(ctx)
+    release_timeline = p.assembly / f"{ctx.episode}_release_timeline.json"
+    grouping = p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json"
+    metrics_argv: list[Any] = [VENV, RT_TOOLS / "camera_motion_metrics.py", "--clips-dir", p.video_media,
+                               "--grouping", grouping, "--contract", p.contract, "--out", metrics_before,
+                               "--md", metrics_before.with_suffix(".md"), "--workers", workers, "--label", "before_stabilize"]
+    if release_timeline.is_file():
+        metrics_argv += ["--timeline", release_timeline]
+    step = ctx.run(metrics_argv, name="s7_camera_motion_metrics_before")
+    res.steps.append(step)
+    before = read_json(metrics_before, {}) or {}
+    detail: dict[str, Any] = {"metrics_before": str(metrics_before), "summary_before": before.get("summary"),
+                              "workers": workers, "status": "MEASURED" if step["exit_code"] == 0 else "METRICS_FAILED"}
+    res.details["camera_motion"] = detail
+    res.details["commands"]["camera_motion_metrics_before"] = q(metrics_argv)
+    if step["exit_code"] != 0 or not before.get("rows"):
+        return None
+    # stabilise: dialogue units that are not locked off (action units keep their authored moves)
+    targets = [str(r["unit_id"]) for r in before["rows"]
+               if "error" not in r and r.get("dialogue_unit") and not r.get("locked_off")]
+    detail["stabilize_targets"] = targets
+    if not targets:
+        detail["status"] = "NOTHING_TO_STABILIZE"
+        return None
+    probe = next((r for r in before["rows"] if r.get("width") and r.get("height")), {})
+    out_size = f"{probe.get('width')}x{probe.get('height')}" if probe else None
+    stab_argv: list[Any] = [VENV, RT_TOOLS / "clip_lockoff_stabilize.py", "--clips-dir", p.video_media,
+                            "--out-dir", out_dir, "--max-crop", 0.20, "--summary", summary, "--workers", workers]
+    if out_size:
+        stab_argv += ["--out-size", out_size]
+    for uid in targets:
+        stab_argv += ["--only", uid]
+    res.details["commands"]["clip_lockoff_stabilize"] = q(stab_argv)
+    stab_step = ctx.run(stab_argv, name="s7_clip_lockoff_stabilize")
+    res.steps.append(stab_step)
+    payload = read_json(summary, {}) or {}
+    detail.update({"summary": str(summary), "out_dir": str(out_dir), "modes": payload.get("modes"),
+                   "locked_off_before": payload.get("locked_off_before"), "locked_off_after": payload.get("locked_off_after"),
+                   "unstable_before": payload.get("unstable_before"), "unstable_after": payload.get("unstable_after"),
+                   "failed": payload.get("failed")})
+    changed = [r for r in (payload.get("results") or []) if r.get("mode") in ("LOCK_OFF", "SMOOTH")]
+    if not changed:
+        detail["status"] = "NO_CLIP_CHANGED"
+        return None
+    detail["status"] = "STABILIZED"
+    detail["changed_units"] = [Path(str(r.get("source"))).stem for r in changed]
+    res.receipts.append(str(summary))
+    return summary
+
+
+def s7_camera_motion_gate(ctx: Ctx, res: StageResult) -> dict[str, Any] | None:
+    """FINAL-CUT-CAMERA-MOTION: measure the clips that actually made the candidate and apply Roger's targets.
+
+    Measured on the AgentCut project's clip sources (originals, stabilised or re-cut derived files), so the
+    numbers describe the cut the viewer sees.  PASS iff locked_off_share >= 0.70 and no unit has >= 1 camera
+    reversal per second.  A FAIL is honest and blocks; it may be carried only by a line-owner order bound to
+    the candidate's sha (same mechanism as FINAL-CUT-AUDIENCE-DETECTORS).  Returns a step dict (or None when
+    the project cannot be read)."""
+    p = ctx.p
+    project = read_json(p.agentcut_project, {}) or {}
+    clips: list[tuple[str, str]] = []
+    for track in (project.get("timeline") or {}).get("videoTracks") or []:
+        for clip in track.get("clips") or []:
+            uid = str((clip.get("metadata") or {}).get("source_id") or "")
+            if uid and clip.get("source"):
+                clips.append((uid, str(clip["source"])))
+    if not clips:
+        return None
+    metrics_after = p.assembly / f"{ctx.episode}_CAMERA_MOTION_METRICS.json"
+    gate_json = p.assembly / f"{ctx.episode}_FINAL_CUT_CAMERA_MOTION_GATE.json"
+    grouping = p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json"
+    # one --clip per project clip: derived files keep the unit stem, so rows stay keyed by unit id
+    argv: list[Any] = [VENV, RT_TOOLS / "camera_motion_metrics.py", "--grouping", grouping, "--contract", p.contract,
+                       "--out", metrics_after, "--md", metrics_after.with_suffix(".md"),
+                       "--workers", _camera_workers(ctx), "--label", "final_candidate_clips"]
+    for _uid, source in clips:
+        argv += ["--clip", source]
+    step = ctx.run(argv, name="s7_camera_motion_metrics")
+    res.details["commands"]["camera_motion_metrics"] = q(argv)
+    payload = read_json(metrics_after, {}) or {}
+    summary = payload.get("summary") or {}
+    failing: list[str] = []
+    share = summary.get("locked_off_share")
+    if share is None or float(share) < 0.70:
+        failing.append(f"CAMERA_LOCKED_OFF_SHARE_BELOW_70PCT:{share}")
+    if int(summary.get("unstable_reversal_ge_1_per_s") or 0) > 0:
+        failing.append(f"CAMERA_UNSTABLE_UNITS:{summary.get('unstable_reversal_ge_1_per_s')}")
+    if step["exit_code"] != 0 or not summary:
+        failing.append("CAMERA_METRICS_UNAVAILABLE")
+    status = "PASS" if not failing else "FAIL"
+    final_sha = sha256_file(p.final_candidate) if p.final_candidate.is_file() else None
+    gate = {"schema": "nalu.final_cut_camera_motion_gate.v1", "gate_id": "FINAL-CUT-CAMERA-MOTION", "episode": ctx.episode,
+            "status": status, "failures": failing, "media_sha256": final_sha, "metrics": str(metrics_after),
+            "measured": {k: summary.get(k) for k in ("clips", "measured", "locked_off", "locked_off_share",
+                                                      "unstable_reversal_ge_1_per_s", "classes", "dialogue_units",
+                                                      "dialogue_units_locked_off")},
+            "thresholds": summary.get("targets") or {"locked_off_share_min": 0.70, "unstable_max": 0},
+            "authority": "Roger 2026-10-30 E12 成片审看 item 2 (对白单元默认固定机位；锁定 ≥70 %；每秒换向 ≥1 的镜头 = 0)",
+            "recorded_at": now()}
+    write_json(gate_json, gate)
+    res.receipts.extend([str(metrics_after), str(gate_json)])
+    res.details["final_cut_camera_motion"] = {"gate": str(gate_json), "status": status, "failures": failing,
+                                              "measured": gate["measured"]}
+    step = dict(step, name="s7_camera_motion_gate", exit_code=0 if status == "PASS" else 1, failing=failing,
+                gate=str(gate_json))
+    if status == "PASS" or not final_sha:
+        return step
+    orders_path = ctx.authority.get("orders_path")
+    orders = (_rga._orders(orders_path, expected_latest_seq=ctx.authority.get("latest_order_seq") or 0, engine_root=ENGINE)
+              if orders_path and not ctx.authority_blockers else [])
+    order = _rga.find_acceptance(orders, episode=ctx.episode, gate_id="FINAL-CUT-CAMERA-MOTION", failing=failing,
+                                 media_sha256=final_sha, media_item_id="camera_motion",
+                                 expected_issuer=ctx.authority.get("line_owner_id") or "", engine_root=ENGINE)
+    if order is None:
+        return step
+    record = _rga.acceptance_record(order, episode=ctx.episode, gate_id="FINAL-CUT-CAMERA-MOTION", failing=failing,
+                                    media_sha256=final_sha, media_item_id="camera_motion", gate_result_path=str(gate_json))
+    acceptance_path = p.assembly / "final_qa" / f"{ctx.episode}_CAMERA_MOTION_GATE_ACCEPTANCE.json"
+    acceptance_path.parent.mkdir(parents=True, exist_ok=True)
+    acceptance_path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+    step["accepted_by_line_owner_order"] = order.get("seq")
+    res.details["final_cut_camera_motion"]["line_owner_acceptance"] = {**record, "record_path": str(acceptance_path)}
+    res.receipts.append(str(acceptance_path))
+    ctx.say(f"   !! FINAL-CUT-CAMERA-MOTION stays FAIL ({', '.join(failing)}); continuing on line-owner order "
+            f"seq={order.get('seq')} {order.get('order')!s:.40} -> {acceptance_path.name}")
+    return step
+
+
 def s7_unit_recut(ctx: Ctx, res: StageResult) -> tuple[Path | None, list[str]]:
     """Render the authored unit re-cut plan (assembly/<EP>_UNIT_RECUT_PLAN.json) into derived clips.
 
@@ -8078,6 +8223,13 @@ def stage_s7(ctx: Ctx) -> StageResult:
     if unit_levelling is not None:
         build_argv += ["--unit-audio-levelling", unit_levelling]
         level_argv = level_argv[:-2] + ["--pre-levelled-units", unit_levelling] + level_argv[-2:]
+    # 3d'. camera motion: measure every unit clip, lock-off / smooth the dialogue units that are not locked
+    # (Roger 2026-10-30 E12 item 2; free, derived clips with bit-exact audio).  The gate itself runs on the
+    # finished candidate (6c) so a FAIL binds to the candidate sha like every other S7 gate.
+    stabilized_summary = s7_camera_stabilize(ctx, res)
+    if stabilized_summary is not None:
+        build_argv += ["--stabilized-clips", stabilized_summary]
+        res.details["commands"]["build_agentcut"] = q(build_argv)
     # 3e. editorial unit re-cut (Roger 2026-10-30 E12 item 3; authored plan, free, derived clips).  A plan
     # that fails to render BLOCKS: an authored cut list that cannot be honoured is not something to skip.
     recut_report, recut_blockers = s7_unit_recut(ctx, res)
@@ -8405,6 +8557,16 @@ def stage_s7(ctx: Ctx) -> StageResult:
                                            "findings": [f.get("code") for f in ((read_json(parity_json, {}) or {}).get("findings") or [])],
                                            "authority": "ENGINE_FINAL_CUT_SHOT_PLAN_PARITY_DIAGNOSTIC_POLICY"}
         res.receipts.append(str(parity_json))
+
+    # 6c. camera motion gate on the clips that made the candidate (Roger 2026-10-30 item 2: locked-off share
+    # >= 70 % of units, 0 units with >= 1 reversal/s).  FAIL blocks unless a sha-bound line-owner order carries it.
+    camera_step = s7_camera_motion_gate(ctx, res)
+    if camera_step is not None:
+        steps.append(camera_step)
+        if camera_step["exit_code"] != 0 and not camera_step.get("accepted_by_line_owner_order"):
+            res.steps.extend(steps)
+            res.blockers = ["FINAL_CUT_CAMERA_MOTION_FAIL:" + ",".join(camera_step.get("failing") or [])]
+            return res
 
     detector_argv: list[Any] = [VENV, ENGINE / "tools/final_cut_audience_detectors.py",
                                 "--media", p.final_candidate, "--out", detector_report,

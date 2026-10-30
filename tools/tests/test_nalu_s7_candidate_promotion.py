@@ -142,3 +142,28 @@ class StageS7UnitRecutWiringTests(unittest.TestCase):
         self.assertIn("if recut_meta is None and source_id in head_cut", src)
         self.assertIn('picture_source = (recut_meta["derived_source"] if recut_meta', src)
         self.assertIn('audio_clip_source = (recut_meta["derived_source"] if recut_meta', src)
+
+
+class StageS7CameraMotionWiringTests(unittest.TestCase):
+    """Static guard: camera metrics + stabilisation feed the builder; the gate runs on the candidate's clips (item 2)."""
+
+    def test_stabilised_clips_reach_the_builder_and_the_gate_binds_the_candidate(self) -> None:
+        src = (ROOT / "lines/nalu/runtime/tools/nalu_pipeline.py").read_text(encoding="utf-8")
+        body = src[src.index("def stage_s7("):src.index("def s7_qa(")]
+        self.assertIn("s7_camera_stabilize(ctx, res)", body)
+        self.assertIn('build_argv += ["--stabilized-clips", stabilized_summary]', body)
+        self.assertIn("s7_camera_motion_gate(ctx, res)", body)
+        self.assertIn('"FINAL_CUT_CAMERA_MOTION_FAIL:"', body)
+        # stabilisation happens before the re-cut (the re-cut reads stabilised frames through its overlay dir)
+        self.assertLess(body.index("s7_camera_stabilize(ctx, res)"), body.index("s7_unit_recut(ctx, res)"))
+        gate = src[src.index("def s7_camera_motion_gate("):src.index("def s7_unit_recut(")]
+        self.assertIn('gate_id="FINAL-CUT-CAMERA-MOTION"', gate)
+        self.assertIn("locked_off_share", gate)
+        self.assertIn("CAMERA_UNSTABLE_UNITS", gate)
+        self.assertIn("sha256_file(p.final_candidate)", gate)
+
+    def test_builder_prefers_recut_then_stabilised_then_push_in(self) -> None:
+        src = (ROOT / "tools/build_agentcut_from_admitted_storyboard_sources.py").read_text(encoding="utf-8")
+        self.assertIn('picture_source = (recut_meta["derived_source"] if recut_meta\n'
+                      '                          else stab_meta["stabilized_source"] if stab_meta', src)
+        self.assertIn("stab_row = stabilized.get(source_id) if recut_meta is None else None", src)
