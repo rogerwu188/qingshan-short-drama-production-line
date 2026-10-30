@@ -39,6 +39,27 @@ from tools.dialogue_voice_metrics import load_audio, measure_segments  # noqa: E
 from tools.voice_cast_gate import build_f0_band, precheck  # noqa: E402
 
 SCHEMA = "qingshan.voice_cast.v1"
+# Roger 2026-10-30 (E12 成片审看 1c): 同场对手戏的两个角色，参考基频中位数差必须 ≥ 40 Hz，
+# 否则 S4 FAIL，不得进 S6。Absolute Hz, not the 15 % ratio: two low male voices 98/132 Hz
+# pass the ratio rule and are still one voice to the ear.
+MIN_COPRESENT_F0_DIFF_HZ = 40.0
+
+
+def copresent_f0_matrix(characters: dict[str, Any], copresence: list[list[str]]) -> dict[str, Any]:
+    """Pairwise reference-F0 separation of every co-present speaking pair (Hz)."""
+    from itertools import combinations
+    pairs: dict[tuple[str, str], dict[str, Any]] = {}
+    for scene_index, scene in enumerate(copresence):
+        present = sorted(c for c in scene if c in characters and characters[c].get("reference_f0_hz"))
+        for a, b in combinations(present, 2):
+            fa, fb = float(characters[a]["reference_f0_hz"]), float(characters[b]["reference_f0_hz"])
+            row = pairs.setdefault((a, b), {"a": a, "b": b, "f0_a": fa, "f0_b": fb,
+                                             "diff_hz": round(abs(fa - fb), 2),
+                                             "pass": abs(fa - fb) >= MIN_COPRESENT_F0_DIFF_HZ, "scenes": []})
+            row["scenes"].append(scene_index)
+    rows = sorted(pairs.values(), key=lambda r: r["diff_hz"])
+    return {"min_diff_hz": MIN_COPRESENT_F0_DIFF_HZ, "pairs": rows,
+            "failures": [f"COPRESENT_F0_DIFF_BELOW_40HZ:{r['a']}:{r['b']}:{r['diff_hz']}" for r in rows if not r["pass"]]}
 
 
 def now() -> str:
@@ -179,6 +200,13 @@ def build(episode: str, contract_path: Path, registry_path: Path, out_path: Path
         # reason to immediately re-promote the report to REQUIRES_HUMAN.
         if report.get("status") == "PASS" and report.get("requires_human") and not report.get("human_acceptance"):
             report["status"] = "REQUIRES_HUMAN"
+    # Roger 2026-10-30: absolute ≥40 Hz separation per co-present pair is a hard FAIL, whatever the
+    # ratio/overlap verdicts above said (no advisory, no line-owner default acceptance here).
+    matrix = copresent_f0_matrix(characters, scene_copresence(contract))
+    report["copresent_f0_matrix"] = matrix
+    if matrix["failures"]:
+        report["failures"] = list(report.get("failures") or []) + matrix["failures"]
+        report["status"] = "FAIL"
     report["generated_at"] = now()
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

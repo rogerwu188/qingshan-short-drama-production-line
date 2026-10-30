@@ -46,13 +46,34 @@ class PrecheckTests(unittest.TestCase):
         self.assertEqual(result["status"], "PASS")
 
     def test_band_overlap_over_half_requires_human_not_fail(self):
-        result = vcg.precheck(cast(**{"CHAR-B": {"voice_id": "V2", "f0_band_hz": [160, 210]}}), [["CHAR-A", "CHAR-B"]])
+        # 300 Hz vs 345 Hz: bands overlap 58 % of the narrower band, medians 45 Hz apart (>= 40 Hz rule holds)
+        high = cast(**{"CHAR-A": {"voice_id": "V1", "f0_band_hz": [255, 345]},
+                       "CHAR-B": {"voice_id": "V2", "f0_band_hz": [293.25, 396.75]}})
+        result = vcg.precheck(high, [["CHAR-A", "CHAR-B"]])
         self.assertEqual(result["status"], "REQUIRES_HUMAN")
         self.assertEqual(result["failures"], [])
         self.assertIn("F0_BAND_OVERLAP_REQUIRES_HUMAN:CHAR-A:CHAR-B", result["requires_human"])
 
+    def test_co_present_medians_under_40hz_apart_fail(self):
+        # Roger 2026-10-30: 同场对手戏基频中位数差 >= 40 Hz; 175 vs 185 Hz is 10 Hz
+        result = vcg.precheck(cast(**{"CHAR-B": {"voice_id": "V2", "f0_band_hz": [160, 210]}}), [["CHAR-A", "CHAR-B"]])
+        self.assertEqual(result["status"], "FAIL")
+        self.assertIn("F0_MEDIAN_SEPARATION_LT_40HZ:CHAR-A:CHAR-B:10.0", result["failures"])
+        self.assertEqual(result["pairs"][0]["f0_median_separation_hz"], 10.0)
+
+    def test_measured_reference_f0_overrides_band_centre(self):
+        cast_rows = cast(**{"CHAR-B": {"voice_id": "V2", "f0_band_hz": [120, 160], "reference_f0_hz": 131.6}})
+        result = vcg.precheck(cast_rows, [["CHAR-A", "CHAR-B"]])          # 175 vs 131.6 = 43.4 Hz
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(result["pairs"][0]["f0_median_separation_hz"], 43.4)
+
+    def test_separation_rule_only_binds_co_present_speakers(self):
+        result = vcg.precheck(cast(**{"CHAR-B": {"voice_id": "V2", "f0_band_hz": [160, 210]}}), [["CHAR-A"], ["CHAR-B"]])
+        self.assertEqual(result["status"], "PASS")
+
     def test_small_overlap_passes(self):
-        result = vcg.precheck(cast(**{"CHAR-B": {"voice_id": "V2", "f0_band_hz": [120, 160]}}), [["CHAR-A", "CHAR-B"]])
+        # 175 vs 130 Hz: no band overlap, 45 Hz apart
+        result = vcg.precheck(cast(**{"CHAR-B": {"voice_id": "V2", "f0_band_hz": [110, 150]}}), [["CHAR-A", "CHAR-B"]])
         self.assertEqual(result["status"], "PASS")
 
     def test_unknown_character_is_unverified(self):
@@ -197,7 +218,8 @@ class NewVoiceDistinctnessTest(unittest.TestCase):
         cast = self._cast(**{"CHAR-OLD": 163.0, "CHAR-NEW": 190.0})   # 16.6 % apart, same scene
         report = vcg.precheck(cast, [["CHAR-OLD", "CHAR-NEW"]], new_characters=["CHAR-NEW"])
         self.assertEqual(report["status"], "FAIL")
-        self.assertTrue(report["failures"][0].startswith("NEW_VOICE_TOO_CLOSE_IN_SCENE:CHAR-NEW:CHAR-OLD"))
+        self.assertTrue(any(f.startswith("NEW_VOICE_TOO_CLOSE_IN_SCENE:CHAR-NEW:CHAR-OLD") for f in report["failures"]))
+        self.assertIn("F0_MEDIAN_SEPARATION_LT_40HZ:CHAR-NEW:CHAR-OLD:27.0", report["failures"])   # 163 vs 190
 
     def test_new_voice_close_to_a_speaker_in_other_scenes_is_advisory(self):
         cast = self._cast(**{"CHAR-OLD": 163.0, "CHAR-NEW": 179.0})   # 9.8 % apart, never together
@@ -210,11 +232,19 @@ class NewVoiceDistinctnessTest(unittest.TestCase):
         report = vcg.precheck(cast, [["CHAR-OLD", "CHAR-NEW"]], new_characters=["CHAR-NEW"])
         self.assertEqual(report["status"], "PASS")
 
-    def test_close_recurring_voices_are_advisory_only(self):
+    def test_close_recurring_voices_in_one_scene_fail_the_40hz_rule(self):
+        # before 2026-10-30 this pair was advisory only; Roger's E12 ruling makes a 13 Hz co-present gap a FAIL
         cast = self._cast(**{"CHAR-A": 150.0, "CHAR-B": 163.0})
         report = vcg.precheck(cast, [["CHAR-A", "CHAR-B"]])
-        self.assertEqual(report["failures"], [])          # the older band-overlap rule may still ask a human
+        self.assertEqual(report["status"], "FAIL")
+        self.assertEqual(report["failures"], ["F0_MEDIAN_SEPARATION_LT_40HZ:CHAR-A:CHAR-B:13.0"])
         self.assertEqual(report["advisories"], ["ESTABLISHED_VOICES_CLOSE:CHAR-A:CHAR-B:0.0867"])
+
+    def test_close_recurring_voices_never_sharing_a_scene_stay_clear(self):
+        cast = self._cast(**{"CHAR-A": 150.0, "CHAR-B": 163.0})
+        report = vcg.precheck(cast, [["CHAR-A"], ["CHAR-B"]])
+        self.assertEqual(report["status"], "PASS")
+        self.assertEqual(report["failures"], [])
 
 if __name__ == "__main__":
     unittest.main()

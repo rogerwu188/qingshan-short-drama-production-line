@@ -7,7 +7,7 @@
     "allowed_paid_profile_ids": [
       "GPT_IMAGE_2_FAST_GIGGLE"
     ],
-    "authorising_order": "SUPERVISOR_ORDERS seq=54 (Roger 2026-10-30: 所有图片生成都改为giggle api的gptimage2 接口，这样图片成本可以大幅度降低) + seq=55 (默认采用最便宜的gptimage2模型版本)",
+    "authorising_order": "SUPERVISOR_ORDERS seq=54 (Roger 2026-10-30: 所有图片生成都改为giggle api的gptimage2 接口，这样图片成本可以大幅度降低) + seq=55 (默认采用最便宜的gptimage2模型版本) + seq=56 (Roger 2026-10-30: 生产线引擎默认只使用gptimage 1k 版本，这样成本最低)",
     "reason": "Cost: switch every paid image route from gpt-image-2-pro to the cheaper GPT Image 2 SKU gpt-image-2-fast. Giggle has no bare gpt-image-2 model id (probe 2026-10-30). Compatibility profiles do not grant paid authority.",
     "previous": {
       "allowed_paid_profile_ids": [
@@ -15,7 +15,12 @@
       ],
       "effective_from_episode": "E40",
       "retired_utc": "2026-10-30T03:00:00Z"
-    }
+    },
+    "default_resolution": "1K",
+    "legacy_resolutions": [
+      "2K"
+    ],
+    "resolution_reason": "Cost (seq=56): every new paid image task is submitted at 1K. Plates and keyframes already bound at 2K stay bound (transaction recovery matches both resolutions); H3 renders at 768x1366 so a 1K start frame is not upscaled by the video model."
   },
   "portable_required_fields": [
     "prompt",
@@ -86,13 +91,17 @@
           "2K"
         ]
       },
-      "default_resolution": "2K",
+      "default_resolution": "1K",
       "pricing": {
         "credits": null,
         "hard_upper": 11,
-        "evidence": "UNVERIFIED: no statement row for gpt-image-2-fast yet; hard_upper kept at the pro price (11) until the first SingleGenerateImage row is observed, then lowered to the observed charge"
+        "evidence": "UNVERIFIED: no statement row for gpt-image-2-fast yet (neither 1K nor 2K); hard_upper kept at the pro 2K price (11) until the first SingleGenerateImage row at 1K is observed, then lowered to the observed charge"
       },
-      "route_evidence": "2026-10-30 probe: POST /api/v1/generation/text-to-image model=gpt-image-2-fast with invalid params -> 400 'aspect ratio does not support resolution' (model exists; price record present); bare gpt-image-2 -> 500 'failed to get model price: record not found'"
+      "route_evidence": "2026-10-30 probe: POST /api/v1/generation/text-to-image model=gpt-image-2-fast with invalid params -> 400 'aspect ratio does not support resolution' (model exists; price record present); bare gpt-image-2 -> 500 'failed to get model price: record not found'",
+      "legacy_resolutions": [
+        "2K"
+      ],
+      "resolution_policy_note": "Roger 2026-10-30 seq=56: default 1K (cheapest). 2K is retained in provider_limits for explicit per-task override only; nothing on the nalu line requests it by default."
     },
     {
       "profile_id": "SD2_PORTABLE",

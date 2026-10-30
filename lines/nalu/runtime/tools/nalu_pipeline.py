@@ -48,7 +48,7 @@ import roger_gate_acceptance as _rga
 import nalu_tail_ad_opt_in as _tail_ad_optin
 if str(_np.ENGINE_ROOT / "tools") not in _sys.path:
     _sys.path.insert(0, str(_np.ENGINE_ROOT / "tools"))
-from image_model_policy import ACTIVE_IMAGE_MODEL, ACTIVE_IMAGE_RESOLUTION, known_image_models  # noqa: E402  (Roger 2026-10-30 seq=54)
+from image_model_policy import ACTIVE_IMAGE_MODEL, ACTIVE_IMAGE_RESOLUTION, known_image_models, known_image_resolutions  # noqa: E402  (Roger 2026-10-30 seq=54/56)
 import stage_time_ledger as _time_ledger
 import episode_previs as _previs  # plan §4: zero-credit previs, run before every paid stage
 import unit_timing_map as _timing  # plan §6: beat/shot/request/returned/cut durations, recorded separately
@@ -651,6 +651,12 @@ class Paths:
         self.agentcut_admission = self.assembly / f"{prefix}agentcut_admission.json"
         self.leveled_audio_report = self.assembly / f"{prefix}NATIVE_AUDIO_LOUDNESS.json"
         self.render_dry = self.assembly / f"{prefix}RENDER_DRYRUN.json"
+        # Roger 2026-10-30 (E12 成片审看 item 0): a cut that has not passed every S7 gate is never a
+        # deliverable.  S7 levels, measures, detects and QA-checks the CANDIDATE here; only a full
+        # S7 PASS promotes it (byte-copy, sha-verified) to deliverables/<EP>/<EP>_final_9x16.mp4.
+        self.final_candidate = self.assembly / f"{prefix}final_candidate_9x16.mp4"
+        self.ad_tail_candidate = self.assembly / f"{prefix}final_candidate_9x16_AD.mp4"
+        self.readback_asr = self.assembly / f"{prefix}FINAL_CUT_READBACK_ASR.json"
 
         # deliverables
         self.deliver = DELIVERABLES / episode
@@ -2378,14 +2384,17 @@ def s3_transaction_bound(ctx: Ctx, row: dict[str, Any]) -> bool:
     """True when the durable store already holds a SUBMITTED_TASK_ID_BOUND
     transaction for this exact row (same fingerprint the submitter computes), so a
     re-submit is recovered for free and must not be counted as planned spend."""
-    # A row bound under a retired image SKU (gpt-image-2-pro before seq=54) is still bound:
-    # the plate exists and was paid for, so the model switch must not re-plan its spend.
-    for model in sorted(known_image_models(), key=lambda m: m != S3_IMAGE_MODEL):
+    # A row bound under a retired image SKU (gpt-image-2-pro before seq=54) or a retired
+    # resolution (2K before seq=56) is still bound: the plate exists and was paid for, so neither
+    # switch may re-plan its spend.
+    from itertools import product as _product
+    for model, resolution in _product(sorted(known_image_models(), key=lambda m: m != S3_IMAGE_MODEL),
+                                      known_image_resolutions()):
         contract = {
             "character_id": row.get("id"),
             "prompt_sha256": row.get("prompt_sha256"),
             "reference_image_sha256s": list(row.get("reference_image_sha256s") or []),
-            "model": model, "aspect_ratio": "9:16", "resolution": S3_IMAGE_RESOLUTION,
+            "model": model, "aspect_ratio": "9:16", "resolution": resolution,
         }
         fingerprint = hashlib.sha256(json.dumps(contract, sort_keys=True).encode("utf-8")).hexdigest()
         path = (ENGINE / "workflow/tasks/giggle_submit_transactions" / ctx.episode
@@ -3826,7 +3835,7 @@ def stage_s5(ctx: Ctx) -> StageResult:
         "--keyframe-dir", p.keyframes,
         "--engine-root", ENGINE,
         "--python", VENV,
-        "--image-resolution", "2K",
+        "--image-resolution", ACTIVE_IMAGE_RESOLUTION,   # registry policy (seq=56: 1K)
         "--precheck-only",
     ]
     build = ctx.run(build_argv, name="s5_build_keyframe_manifest")
@@ -7109,8 +7118,9 @@ def s7_tail_ad(ctx: Ctx, res: StageResult, *, endcard_seconds: float) -> dict[st
     MUST NEVER raise past this function and MUST NEVER touch res.status/
     res.blockers — a failed or skipped ad only means no AD_TAIL_* evidence
     gets produced; the episode's own final_mp4 is completely unaffected.
-    Runs strictly after p.final_mp4 is confirmed on disk (called from
-    stage_s7 right after that gate) and never writes to that path.
+    Runs strictly after p.final_candidate is confirmed on disk (called from
+    stage_s7 right after that gate) and never writes to that path; the AD
+    variant is a candidate too and is promoted with the final (item 0).
     ``endcard_seconds`` is stage_s7's own already-computed outro_seconds
     (0.0 or 3.0) — never recomputed or hardcoded here.
     """
@@ -7212,26 +7222,49 @@ def _s7_tail_ad_body(ctx: Ctx, res: StageResult, *, endcard_seconds: float) -> d
     if packaged_qa_payload.get("status") != "PASS":
         return {"status": "SKIPPED", "reason": "PACKAGE_QA_FAIL", "sku": sku, "qa_report": str(packaged_qa)}
 
-    insert_argv = [VENV, AD_TAIL_INSERT_TOOL, "insert", "--content", p.final_mp4,
+    # Re-entry on a NEW candidate (S7 re-run after a repair): ad_tail_insert refuses to overwrite its
+    # --out/--out-qa, so an AD candidate built from different content bytes is parked (sha in the name,
+    # never deleted) and rebuilt; one built from the current candidate is reused as is.
+    content_sha = sha256_file(p.final_candidate)
+    prior_qa = read_json(p.ad_tail_qa_report, {}) or {}
+    if p.ad_tail_candidate.is_file() or p.ad_tail_qa_report.is_file():
+        if (p.ad_tail_candidate.is_file() and prior_qa.get("status") == "PASS"
+                and prior_qa.get("content_source_sha256") == content_sha
+                and prior_qa.get("output_sha256") == sha256_file(p.ad_tail_candidate)):
+            ctx.state["tail_ad"] = {
+                "sku": sku, "provenance": provenance, "ad_tail_video": str(p.ad_tail_candidate),
+                "ad_tail_video_sha256": prior_qa.get("output_sha256"), "qa_report": str(p.ad_tail_qa_report),
+                "produced_at": prior_qa.get("recorded_at"), "candidate": True, "reused": True,
+            }
+            ctx.save_state()
+            res.receipts.append(str(p.ad_tail_qa_report))
+            return {"status": "PASS", "sku": sku, "provenance": provenance,
+                    "ad_tail_video": str(p.ad_tail_candidate), "candidate": True, "reused": True}
+        stale_tag = (str(prior_qa.get("content_source_sha256") or sha256_file(p.ad_tail_candidate) or "nosha"))[:12]
+        for stale in (p.ad_tail_candidate, p.ad_tail_qa_report):
+            if stale.is_file():
+                stale.replace(stale.with_name(f"{stale.stem}__stale_{stale_tag}{stale.suffix}"))
+    insert_argv = [VENV, AD_TAIL_INSERT_TOOL, "insert", "--content", p.final_candidate,
                    "--endcard-seconds", endcard_seconds,
                    "--packaged-ad", packaged, "--packaged-ad-qa", packaged_qa,
                    "--expected-packaged-sha256", packaged_qa_payload.get("packaged_sha256") or "",
                    "--sku", sku, "--provenance", provenance, "--episode", ctx.episode,
-                   "--slot-contract", AD_SLOT_CONTRACT, "--out", p.ad_tail_video,
+                   "--slot-contract", AD_SLOT_CONTRACT, "--out", p.ad_tail_candidate,
                    "--out-qa", p.ad_tail_qa_report]
     insert_step = ctx.run(insert_argv, name="s7_ad_tail_insert")
     res.steps.append(insert_step)
-    if insert_step["exit_code"] != 0 or not p.ad_tail_video.is_file():
+    if insert_step["exit_code"] != 0 or not p.ad_tail_candidate.is_file():
         return {"status": "SKIPPED", "reason": "INSERT_FAIL", "sku": sku}
 
     ctx.state["tail_ad"] = {
-        "sku": sku, "provenance": provenance, "ad_tail_video": str(p.ad_tail_video),
-        "ad_tail_video_sha256": sha256_file(p.ad_tail_video), "qa_report": str(p.ad_tail_qa_report),
-        "produced_at": now(),
+        "sku": sku, "provenance": provenance, "ad_tail_video": str(p.ad_tail_candidate),
+        "ad_tail_video_sha256": sha256_file(p.ad_tail_candidate), "qa_report": str(p.ad_tail_qa_report),
+        "produced_at": now(), "candidate": True,
     }
     ctx.save_state()
     res.receipts.append(str(p.ad_tail_qa_report))
-    return {"status": "PASS", "sku": sku, "provenance": provenance, "ad_tail_video": str(p.ad_tail_video)}
+    return {"status": "PASS", "sku": sku, "provenance": provenance, "ad_tail_video": str(p.ad_tail_candidate),
+            "candidate": True}
 
 
 def s7_final_audience_review(ctx: Ctx, res: StageResult) -> dict[str, Any]:
@@ -7312,11 +7345,46 @@ def s7_final_audience_review(ctx: Ctx, res: StageResult) -> dict[str, Any]:
     }
 
 
+def promote_final_candidate(p: Any) -> dict[str, Any]:
+    """Copy the S7-approved candidate (and its tail-ad variant) into deliverables/, sha-verified.
+
+    Roger 2026-10-30 (E12 成片审看 item 0): detectors FAIL ⇒ no deliverable render.  Called only
+    from stage_s7 after every gate is PASS or order-carried.  Idempotent: an identical deliverable
+    already in place is left alone; a different one is replaced (the candidate is the authority)
+    and the replaced bytes are parked next to it with their sha in the name, never deleted."""
+    import shutil
+    out: dict[str, Any] = {"promoted_at": now(), "final_candidate": str(p.final_candidate),
+                           "final_candidate_sha256": sha256_file(p.final_candidate)}
+    p.deliver.mkdir(parents=True, exist_ok=True)
+    for src, dst, key in ((p.final_candidate, p.final_mp4, "final_video"),
+                          (p.ad_tail_candidate, p.ad_tail_video, "ad_tail_video")):
+        if not src.is_file():
+            if key == "final_video":
+                raise FileNotFoundError(str(src))
+            continue
+        src_sha = sha256_file(src)
+        if dst.is_file():
+            if sha256_file(dst) == src_sha:
+                out[key] = str(dst); out[f"{key}_sha256"] = src_sha; out[f"{key}_action"] = "ALREADY_IN_PLACE"
+                continue
+            parked = dst.with_name(f"{dst.stem}__superseded_{(sha256_file(dst) or 'nosha')[:12]}{dst.suffix}")
+            shutil.move(str(dst), str(parked))
+            out[f"{key}_superseded_parked"] = str(parked)
+        tmp = dst.with_name(dst.name + ".promoting")
+        shutil.copy2(str(src), str(tmp))
+        if sha256_file(tmp) != src_sha:
+            tmp.unlink(missing_ok=True)
+            raise RuntimeError(f"PROMOTION_SHA_MISMATCH:{src.name}")
+        tmp.replace(dst)
+        out[key] = str(dst); out[f"{key}_sha256"] = src_sha; out[f"{key}_action"] = "COPIED"
+    return out
+
+
 def _reusable_release_level(p: Any, source: Any) -> dict[str, Any] | None:
-    """The existing levelled release, if it is a PASS made from the current source picture."""
+    """The existing levelled release candidate, if it is a PASS made from the current source picture."""
     report = read_json(p.leveled_audio_report, {}) or {}
     source = Path(str(source))
-    if not (p.final_mp4.is_file() and source.is_file()
+    if not (p.final_candidate.is_file() and source.is_file()
             and str(report.get("status") or "").startswith("PASS")
             and report.get("source_video_stream_sha256")):
         return None
@@ -7324,13 +7392,13 @@ def _reusable_release_level(p: Any, source: Any) -> dict[str, Any] | None:
         sys.path.insert(0, str(ENGINE / "tools"))
         import level_native_release_audio as _lvl
         current = _lvl.stream_hash(source, "0:v:0")
-        final = _lvl.stream_hash(p.final_mp4, "0:v:0")
+        final = _lvl.stream_hash(p.final_candidate, "0:v:0")
     except Exception:  # noqa: BLE001 -- if we cannot prove it is the same, run the leveller
         return None
     if current != report["source_video_stream_sha256"] or final != report.get("output_video_stream_sha256"):
         return None
     return {"report": str(p.leveled_audio_report), "status": report["status"],
-            "source_video_stream_sha256": current, "final_sha256": sha256_file(p.final_mp4)}
+            "source_video_stream_sha256": current, "final_sha256": sha256_file(p.final_candidate)}
 
 
 def transcribe_units(ctx: Ctx, media_dir: Path, episode: str, *,
@@ -7845,7 +7913,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
     build_argv += [
         "--out-project", p.agentcut_project,
         "--out-admission", p.agentcut_admission,
-        "--output-video", p.final_mp4,
+        "--output-video", p.final_candidate,
         "--expected-slots", expected_slots,
         # required: audio_profile_binding classifies audio_contract.bgm and stamps
         # the contract's sha into the project (NONE -> NATIVE_MULTIMODAL_NO_EXTERNAL_BGM).  BGM default ON:
@@ -7864,7 +7932,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
                              "--source", p.picture_native,
                              "--timeline", release_timeline,
                              "--grouped", p.grouped_seedance,
-                             "--output", p.final_mp4,
+                             "--output", p.final_candidate,
                              "--qa", p.leveled_audio_report,
                              "--episode", ctx.episode,
                              "--version", "v1",
@@ -7876,7 +7944,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
     evidence_bundle = p.assembly / f"{ctx.episode}_MANDATORY_GATE_EVIDENCE.json"
     run_episode_qa_argv = [
         ENGINE / "tools/run_episode_qa.sh",
-        "--video", p.final_mp4,
+        "--video", p.final_candidate,
         "--config", p.assembly / f"{ctx.episode}_continuity_config.json",
         "--manifest", p.assembly / f"{ctx.episode}_asset_binding_manifest.json",
         "--blocker-manifest", p.assembly / f"{ctx.episode}_FINAL_PACKAGE_BLOCKERS.json",
@@ -7897,6 +7965,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
                   "level_native_release_audio.py",
                   "final_audience_review.py status/prepare (independent submit required)",
                   "final_qa_evidence_bundle.py run --gate-subset applicable",
+                  f"promote {p.final_candidate.name} -> {p.final_mp4} only on full S7 PASS (Roger 2026-10-30 item 0)",
                   f"{p.final_mp4} + {p.checkpoint}"],
         "commands": {
             "q2_admission": q([VENV, VIDEO_Q2, "build", "--episode", ctx.episode,
@@ -7928,6 +7997,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
             "deployment venv. CURRENT_PORTABLE requests every final/release gate; missing "
             "evidence and REVIEW_REQUIRED_BLOCKING remain blockers."),
         "deliverable": str(p.final_mp4),
+        "final_candidate": str(p.final_candidate),
         "qa_report": str(p.qa_report),
     }
 
@@ -8212,14 +8282,14 @@ def stage_s7(ctx: Ctx) -> StageResult:
     else:
         steps.append(ctx.run(level_argv, name="s7_level_native_release_audio"))
     res.receipts.append(str(p.leveled_audio_report))
-    if steps[-1]["exit_code"] != 0 or not p.final_mp4.is_file():
+    if steps[-1]["exit_code"] != 0 or not p.final_candidate.is_file():
         # The measurement stays honest (leveled_audio_report keeps its real FAIL and
         # failures list); the stage may continue only on an explicit, source-receipted
         # line-owner order bound to this exact final-cut SHA — same shape as the
         # FINAL-CUT-AUDIENCE-DETECTORS acceptance a few steps below.
         level_report = read_json(p.leveled_audio_report, {}) or {}
         failing = list(level_report.get("failures") or [])
-        final_sha = sha256_file(p.final_mp4) if p.final_mp4.is_file() else None
+        final_sha = sha256_file(p.final_candidate) if p.final_candidate.is_file() else None
         order = None
         if failing and final_sha:
             orders_path = ctx.authority.get("orders_path")
@@ -8234,7 +8304,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
         if order is None:
             res.steps.extend(steps)
             res.blockers = ["RELEASE_AUDIO_LEVELLING_FAILED"]
-            res.details["missing_input"] = str(p.final_mp4)
+            res.details["missing_input"] = str(p.final_candidate)
             res.details["hint"] = ("level_native_release_audio.py refuses to overwrite an existing "
                                  "--output/--qa — bump --version if this episode was levelled once "
                                  "already.")
@@ -8267,11 +8337,11 @@ def stage_s7(ctx: Ctx) -> StageResult:
     # ------------------------------------------- 6b. seq=27 §六: final cut vs shot table (diagnostic, never blocks)
     # Roger 2026-09-17 memo: scdet cut count vs planned shots, stretched segments, static holds, blank screens.
     # Written to assembly/<EP>_FINAL_CUT_SHOT_PLAN_PARITY.json (+ .md block copied into CHECKPOINT.md at S8).
-    if p.final_mp4.is_file():
+    if p.final_candidate.is_file():
         parity_json = p.assembly / f"{ctx.episode}_FINAL_CUT_SHOT_PLAN_PARITY.json"
         parity_md = p.assembly / f"{ctx.episode}_FINAL_CUT_SHOT_PLAN_PARITY.md"
         parity_step = ctx.run([VENV, RT_TOOLS / "final_cut_shot_plan_parity.py", "--episode", ctx.episode,
-                               "--final", p.final_mp4, "--contract", p.contract,
+                               "--final", p.final_candidate, "--contract", p.contract,
                                "--grouping-plan", p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json",
                                "--out", parity_json, "--checkpoint-block-out", parity_md],
                               name="s7_final_cut_shot_plan_parity")
@@ -8285,10 +8355,13 @@ def stage_s7(ctx: Ctx) -> StageResult:
         res.receipts.append(str(parity_json))
 
     detector_argv: list[Any] = [VENV, ENGINE / "tools/final_cut_audience_detectors.py",
-                                "--media", p.final_mp4, "--out", detector_report,
+                                "--media", p.final_candidate, "--out", detector_report,
                                 "--lexicon", ctx.p.scope["lexicon"],
                                 "--speaker-map", speaker_map, "--story-segments", release_timeline,
-                                "--voice-cast", ctx.p.scope["voice_cast"]]
+                                "--voice-cast", ctx.p.scope["voice_cast"],
+                                # Roger 2026-10-30 item 1a: whole-mix ASR read-back vs burned subtitles
+                                # (subtitle_asr_agreement >= 95 %); the read-back is cached by media sha
+                                "--readback-asr-json", p.readback_asr]
     if asr_windows.is_file():
         # per-unit ASR windows (timing) with contract attribution; whole-file ASR of the levelled final
         # merges speech with wind/music into 10-20 s windows and mismeasures every line (E04 v2, 23:30Z)
@@ -8304,7 +8377,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
     steps.append(ctx.run(detector_argv, name="s7_final_cut_audience_detectors"))
     res.receipts.append(str(detector_report))
     gate_step = ctx.run([VENV, ENGINE / "tools/final_cut_audience_gate.py", "--report", detector_report,
-                         "--video", p.final_mp4, "--out", p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_GATE.json"],
+                         "--video", p.final_candidate, "--out", p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_GATE.json"],
                         name="s7_final_cut_audience_gate")
     steps.append(gate_step)
     res.details["final_cut_audience"] = {"report": str(detector_report),
@@ -8315,7 +8388,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
         # source-receipted line-owner order bound to this exact final-cut SHA.
         gate_result = read_json(p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_GATE.json", {}) or {}
         failing = _rga.failing_detectors(gate_result)
-        final_sha = sha256_file(p.final_mp4) if p.final_mp4.is_file() else None
+        final_sha = sha256_file(p.final_candidate) if p.final_candidate.is_file() else None
         orders_path = ctx.authority.get("orders_path")
         orders = (_rga._orders(orders_path,
                                expected_latest_seq=ctx.authority.get("latest_order_seq") or 0,
@@ -8358,19 +8431,35 @@ def stage_s7(ctx: Ctx) -> StageResult:
     # ------------------------------------------- 8. final-package QA (D-9/D-12)
     final_qa = s7_qa(ctx, res)
     res.details["final_qa"] = final_qa
-    res.status = PASS if (p.final_mp4.is_file()
+    res.status = PASS if (p.final_candidate.is_file()
                           and all(step["exit_code"] == 0 or step.get("accepted_by_line_owner_order") for step in steps)
                           and final_qa["status"] == PASS) else BLOCKED
     if res.status != PASS:
         res.blockers = [value for value in (final_qa.get("blockers") or [])] or \
             ["FINAL_PACKAGE_QA_NOT_PASS"]
         return res
+    # ------------------------------------------- 9. promotion: candidate -> deliverable (item 0)
+    # Every S7 gate is PASS or carried by a sha-bound line-owner order; only now does the cut
+    # become a deliverable.  Byte copy, sha verified, tail-ad variant alongside when it exists.
+    try:
+        promotion = promote_final_candidate(p)
+    except Exception as exc:  # noqa: BLE001
+        res.status = BLOCKED
+        res.blockers = [f"FINAL_CANDIDATE_PROMOTION_FAILED:{type(exc).__name__}:{exc}"]
+        return res
+    res.details["release_promotion"] = promotion
+    if ctx.state.get("tail_ad") and promotion.get("ad_tail_video"):
+        ctx.state["tail_ad"]["ad_tail_video"] = promotion["ad_tail_video"]
+        ctx.state["tail_ad"]["ad_tail_video_sha256"] = promotion["ad_tail_video_sha256"]
+        ctx.save_state()
     res.blockers = []
     write_json(p.qa_report, {
         "schema": "nalu.episode_final_qa_report.v1", "episode": ctx.episode,
         "recorded_at": now(), "recorded_by": TOOL_ID,
         "final_video": str(p.final_mp4),
         "final_video_sha256": sha256_file(p.final_mp4),
+        "final_candidate": str(p.final_candidate),
+        "release_promotion": promotion,
         "picture_native": str(p.picture_native),
         "picture_native_sha256": sha256_file(p.picture_native),
         "agentcut_project": str(p.agentcut_project),
@@ -8575,7 +8664,21 @@ def write_checkpoint(ctx: Ctx) -> Path:
     if p.final_mp4.is_file():
         add(f"1. `{p.final_mp4}` — full episode, 9:16.")
         add(f"   sha256 `{sha256_file(p.final_mp4)}`")
-        add(f"2. QA report `{p.qa_report}`")
+        if p.qa_report.is_file():
+            add(f"2. QA report `{p.qa_report}`")
+        else:
+            add("2. QA report: **not written** — S7 did not reach its final PASS for this file")
+    elif p.final_candidate.is_file():
+        add("**No deliverable yet.**  S7 stopped on a gate, so the cut below is a CANDIDATE in the")
+        add("assembly directory — it is not released and must not be treated as the episode (Roger 2026-10-30 item 0).")
+        add(f"1. candidate `{p.final_candidate}`")
+        add(f"   sha256 `{sha256_file(p.final_candidate)}`")
+        _det = p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_DETECTORS.json"
+        if _det.is_file():
+            _detd = read_json(_det, {}) or {}
+            _rows = ", ".join(f"{k}={v.get('status')}" for k, v in (_detd.get("detectors") or {}).items()
+                              if isinstance(v, dict))
+            add(f"2. audience detectors `{_det}` — overall **{_detd.get('status')}**: {_rows}")
     else:
         add("**There is no cut to watch yet.**  The pipeline stopped before S7 produced")
         add(f"`{p.final_mp4}`.  What exists to review instead:")

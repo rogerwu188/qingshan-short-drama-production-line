@@ -11,7 +11,7 @@ import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (e
 import argparse, json, os, sys, time, pathlib, hashlib, datetime, urllib.request
 sys.path.insert(0, f"{_np.ENGINE_ROOT}"); sys.path.insert(0, f"{_np.ENGINE_ROOT}/tools")
 from tools import giggle_api_client as g  # noqa: E402
-from tools.image_model_policy import ACTIVE_IMAGE_MODEL  # noqa: E402
+from tools.image_model_policy import ACTIVE_IMAGE_MODEL, ACTIVE_IMAGE_RESOLUTION  # noqa: E402
 
 HOLD = pathlib.Path(f"{_np.RUNTIME_ROOT}/runtime/character_sources_hold")
 SRC = pathlib.Path(f"{_np.RUNTIME_ROOT}/runtime/character_sources")
@@ -43,12 +43,12 @@ def run(cids, dry, note=""):
         d = OUT / cid; d.mkdir(parents=True, exist_ok=True)
         prompt = PROMPT.format(look=look) + (("\n" + note) if note else "")
         intent = {"schema": "nalu.period_look_generation.v1", "character_id": cid, "canonical_name": name, "model": ACTIVE_IMAGE_MODEL,
-                  "aspect_ratio": "9:16", "resolution": "2K", "reference": str(crop), "reference_sha256": sha(crop), "prompt": prompt,
+                  "aspect_ratio": "9:16", "resolution": ACTIVE_IMAGE_RESOLUTION, "reference": str(crop), "reference_sha256": sha(crop), "prompt": prompt,
                   "authority": "SUPERVISOR_ORDERS seq=8", "requested_at_utc": now}
         (d / f"intent_{now}.json").write_text(json.dumps(intent, ensure_ascii=False, indent=2), encoding="utf-8")
         if dry:
             print("DRY", cid); continue
-        args = argparse.Namespace(prompt=prompt, reference_image=[str(crop)], model=ACTIVE_IMAGE_MODEL, aspect_ratio="9:16", resolution="2K", count=1)
+        args = argparse.Namespace(prompt=prompt, reference_image=[str(crop)], model=ACTIVE_IMAGE_MODEL, aspect_ratio="9:16", resolution=ACTIVE_IMAGE_RESOLUTION, count=1)
         with g.durable_generation_context():
             resp = g.generate_image(args)
         (d / f"submit_response_{now}.json").write_text(json.dumps(resp, ensure_ascii=False, indent=2), encoding="utf-8")

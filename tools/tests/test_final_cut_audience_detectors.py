@@ -149,7 +149,8 @@ class ReportAssemblyTests(unittest.TestCase):
         self.assertEqual(det["dialogue_coverage"]["status"], "PASS")
         self.assertEqual(det["silence_gap_max"]["status"], "PASS")
         self.assertEqual(det["loudness"]["status"], "PASS")
-        for name in ("voice_distinctness", "emotion_dynamics", "lexicon_violation", "mascot_in_story"):
+        for name in ("voice_distinctness", "emotion_dynamics", "lexicon_violation", "mascot_in_story",
+                     "subtitle_asr_agreement"):
             self.assertEqual(det[name]["status"], "UNVERIFIED", name)
             self.assertTrue(det[name]["reason"])
         for name in fcd.HUMAN_REVIEW_DETECTORS:
@@ -157,7 +158,8 @@ class ReportAssemblyTests(unittest.TestCase):
                                          "evidence": {}, "reason": "human review question"})
         self.assertEqual(report["status"], "UNVERIFIED")
         self.assertEqual(set(report["unverified"]), {"voice_distinctness", "emotion_dynamics", "lexicon_violation",
-                                                     "mascot_in_story", *fcd.HUMAN_REVIEW_DETECTORS})
+                                                     "mascot_in_story", "subtitle_asr_agreement",
+                                                     *fcd.HUMAN_REVIEW_DETECTORS})
         self.assertEqual(list(report["detectors"]), list(fcd.DETECTOR_ORDER))
         self.assertEqual(report["schema"], fcd.SCHEMA)
 
@@ -274,16 +276,22 @@ class E04NegativeSampleRegressionTests(unittest.TestCase):
 
     def test_overall_fail_and_unverified_list(self):
         self.assertEqual(self.report["status"], "FAIL")
-        self.assertEqual(set(self.report["unverified"]), {"lexicon_violation", "mascot_in_story", *fcd.HUMAN_REVIEW_DETECTORS})
+        # subtitle_asr_agreement is UNVERIFIED here: the fixture carries no subtitle cues / read-back (K136)
+        self.assertEqual(set(self.report["unverified"]), {"lexicon_violation", "mascot_in_story", "subtitle_asr_agreement",
+                                                          *fcd.HUMAN_REVIEW_DETECTORS})
         for name in fcd.HUMAN_REVIEW_DETECTORS:
             self.assertEqual(self.report["detectors"][name]["status"], "NOT_IMPLEMENTED")
 
-    def test_precheck_on_fixture_cast_flags_the_two_elders_for_human_review(self):
+    def test_precheck_on_fixture_cast_fails_the_two_elders_under_the_40hz_rule(self):
         from tools import voice_cast_gate as vcg
 
         result = vcg.precheck(self.fixture["voice_cast"], self.fixture["scene_copresence"])
-        self.assertEqual(result["status"], "REQUIRES_HUMAN")
+        # before 2026-10-30 the overlapping elders were only REQUIRES_HUMAN; Roger's E12 ruling (K135) makes
+        # a co-present pair under 40 Hz apart a hard FAIL, while the overlap note is still recorded
+        self.assertEqual(result["status"], "FAIL")
         self.assertIn("F0_BAND_OVERLAP_REQUIRES_HUMAN:CHAR-LUZE:CHAR-MAYANG", result["requires_human"])
+        self.assertTrue(any(f.startswith("F0_MEDIAN_SEPARATION_LT_40HZ:CHAR-LUZE:CHAR-MAYANG:") for f in result["failures"]),
+                        result["failures"])
 
 
 @unittest.skipUnless(os.environ.get("NALU_E04_NEGATIVE_SAMPLE") and Path(os.environ["NALU_E04_NEGATIVE_SAMPLE"]).is_file(),

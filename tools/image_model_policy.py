@@ -9,6 +9,9 @@ priced images with a constant that no longer matched the SKU.  This module reads
 active profile from ``configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json`` so a switch is
 one registry edit plus the order that authorised it.
 
+Roger 2026-10-30 (seq=56): 「生产线引擎默认只使用gptimage 1k 版本，这样成本最低」 — the
+registry's ``default_resolution`` is 1K; ``LEGACY_IMAGE_RESOLUTIONS`` keeps 2K recognisable.
+
 Giggle GPT Image 2 SKUs observed 2026-10-30 (probe by invalid params: 400 = model exists,
 500 "failed to get model price: record not found" = unknown):
   gpt-image-2-pro   exists  (11 credits / 2K image, 394 statement rows)
@@ -30,6 +33,10 @@ REGISTRY_PATH = ROOT / "configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json"
 # recovery (fingerprint match) must keep recognising rows written under a retired
 # SKU, otherwise a re-run would re-POST and re-charge an already bound unit.
 LEGACY_IMAGE_MODELS: tuple[str, ...] = ("gpt-image-2-pro",)
+# Resolutions this engine has ever submitted paid image tasks at.  Roger 2026-10-30 (seq=56):
+# 「生产线引擎默认只使用gptimage 1k 版本，这样成本最低」 — new tasks go out at 1K; plates and
+# keyframes bound at 2K must still be recognised as bound (same recovery rule as the model switch).
+LEGACY_IMAGE_RESOLUTIONS: tuple[str, ...] = ("2K",)
 PROVIDER = "giggle"
 
 
@@ -60,7 +67,14 @@ def active_image_model() -> str:
 
 
 def active_image_resolution() -> str:
-    return str(active_profile().get("default_resolution") or "2K")
+    """Resolution every NEW paid image task must carry (seq=56: the cheapest, 1K)."""
+    return str(active_profile().get("default_resolution") or "1K")
+
+
+def known_image_resolutions() -> tuple[str, ...]:
+    """Active resolution first, then every retired one — for recognising historical transactions."""
+    active = active_image_resolution()
+    return (active, *[r for r in LEGACY_IMAGE_RESOLUTIONS if r != active])
 
 
 def image_model_pricing(model: str | None = None) -> dict[str, Any]:

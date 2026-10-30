@@ -1292,10 +1292,65 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 ### K132 — PROVIDERS
 
 - **规则**：不得用「故意非法的生成参数」向付费生成端点探测模型 id 是否存在：供应商不保证在计费前校验参数。查模型 id 只允许走只读来源（账单历史的 model 字段、官方文档/SDK 常量、供应商客服），或走正规付费前门做一张最小样张并记事务。
-- **教训**：2026-10-30 为区分 gpt-image-2 / gpt-image-2-fast / gpt-image-2-pro，操作员用 aspect_ratio=99:1、resolution=0K 向 text-to-image 投了 50 个候选 id。GPT Image 2 家族按预期返回 400/500 未计费，但 nano-banana-2 (16)、nano-banana-2-fast (5)、nano-banana (5)、nano-banana-pro (16)、seedream45 (5)、midjourney (12) 直接受理并计费，共 59 分，且未捕获 task_id、无事务记录。
+- **教训**：2026-10-30 为区分 gpt-image-2 / gpt-image-2-fast / gpt-image-2-pro，操作员用 aspect_ratio=99:1、resolution=0K 向 text-to-image 投了 50 个候选 id。GPT Image 2 家族按预期返回 400/500 未计费，但 nano-banana-2 (16)、nano-banana-2-fast (5)、nano-banana (5)、nano-banana-pro (16)、seedream45 (5)、midjourney (12) 直接受理并计费，共 59 分，且未捕获任务 id、无事务记录。
 - **恢复**：事故记录在会话 scratchpad INCIDENT_20261030_model_probe_charges.md 并向线主披露；59 分不属于任何集次预算；产出丢弃。
 - **实现**：`tools/image_model_policy.py`
 - **回归**：`tools/tests/test_image_model_policy.py`
 - **证据**：账单 2026-10-30 02:59:10–02:59:28 六行 SingleGenerateImage，project_id 为空；同次探测中 gpt-image-2-pro/-fast 返回 400 未计费，gpt-image-2 等 34 个 id 返回 500 未计费
 - **授权**：操作员自查；AGENTS §付费前门禁（不得绕过 durable submitter / D-11）
 - **状态**：GUIDANCE_ONLY
+
+### K133 — S7
+
+- **规则**：成片在通过 S7 全部门禁（响度、观众检测器、独立观众审、终包 QA）之前只是 assembly/ 下的候选片（<EP>_final_candidate_9x16.mp4）；只有全部 PASS（或经 sha 绑定的线主订单承载）后才按字节复制并校验 sha 升格到 deliverables/。检查点必须把候选片标为「非交付物」并列出检测器状态。
+- **教训**：E12 2026-10-30：响度器直接把输出写进 deliverables/<EP>_final_9x16.mp4，检测器 FAIL 后交付目录里仍躺着一支「成片」，CHECKPOINT 还引用了一个从未写出的 E12_QA_REPORT.json；线主拿到的是一个不该存在的交付物。
+- **恢复**：nalu_pipeline Paths.final_candidate/ad_tail_candidate；S7 全链（响度、平行度、检测器、门、尾广告、终审、终包 QA）都对候选片操作；promote_final_candidate() 只在 S7 PASS 后复制（旧交付物按 sha 停放，不删除）；尾广告候选按 content_source_sha256 复用或停放后重建。
+- **实现**：`lines/nalu/runtime/tools/nalu_pipeline.py`、`lines/nalu/runtime/tools/final_audience_review.py`、`lines/nalu/runtime/tools/final_qa_evidence_bundle.py`
+- **回归**：`tools/tests/test_nalu_s7_candidate_promotion.py`
+- **证据**：E12 CHECKPOINT 2026-10-30T01:33Z 列出 deliverables/E12/E12_final_9x16.mp4 (sha 66879f94…) 与不存在的 E12_QA_REPORT.json，而 S7 状态为 BLOCKED FINAL_CUT_AUDIENCE_DETECTORS_FAIL
+- **授权**：Roger 2026-10-30 E12 成片审看结论（FAIL，不批准）+ 优先级清单；SUPERVISOR_ORDERS seq=56（1K）
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K134 — S7
+
+- **规则**：BLANK_SCREEN 只能在「均值亮度极端 且 画面色调均匀（signalstats 10–90% 亮度跨度 YHIGH−YLOW < 8/255）」同时成立时判定；只看 YAVG 会把有纹理的夜戏判成黑场。冻结帧单独用 YDIF≈0 判（FROZEN_FRAME ≥1 s）。没有跨度数据的采样一律不判黑场（不可验证≠成立）。
+- **教训**：E12 2026-10-30：YAVG 单一准则在夜戏上报了 14 段/80 s 黑场，实测这些段 10–90% 跨度 24–74 级、YMAX≥135，真实黑场 0、冻结 0；线主明确要求按准则重校或退役该检测器，而不是调阈值让它过。
+- **恢复**：final_cut_shot_plan_parity.py luma_samples 采 YAVG/YLOW/YHIGH/YDIF；is_blank_frame() 双准则；新增 FROZEN_FRAME；method 块记录 dark_textured_samples_not_blank。
+- **实现**：`lines/nalu/runtime/tools/final_cut_shot_plan_parity.py`
+- **回归**：`tools/tests/test_nalu_e05_sync.py`
+- **证据**：E12_FINAL_CUT_SHOT_PLAN_PARITY.json (2026-10-30T01:31Z) BLANK_SCREEN 14 段 vs 人工复核 0 黑场/0 冻结
+- **授权**：Roger 2026-10-30 E12 成片审看结论（FAIL，不批准）+ 优先级清单；SUPERVISOR_ORDERS seq=56（1K）
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K135 — S4
+
+- **规则**：同场对手戏的两个角色，参考基频中位数差必须 ≥ 40 Hz（绝对值，不是 15% 比例），否则 S4 voice cast FAIL，不得进 S6；成片 voice_distinctness 必须 PASS 才能进 S8。
+- **教训**：E12 2026-10-30：比例规则放行了 98/132 Hz 这类两把低男声，成片里秦铭/许岳平/冯易安/酒保四对声线撞车（VOICE_COLLISION ×4，出带 24 句），观众分不清谁在说话。H3 原生发声且忽略 2 s 参考音，参考基频与实测会漂移，所以选角阶段就要留足间距。
+- **恢复**：voice_cast_gate.precheck F0_MEDIAN_SEPARATION_LT_40HZ:<a>:<b>:<hz> → FAIL；build_voice_cast 写 copresent_f0_matrix 并硬 FAIL；已生成的成片用 WORLD 共振峰保持的逐句移调（final_cut_voice_pitch_unify.py）免费修，不重投。
+- **实现**：`tools/voice_cast_gate.py`、`lines/nalu/runtime/tools/build_voice_cast.py`、`lines/nalu/runtime/tools/final_cut_voice_pitch_unify.py`
+- **回归**：`tools/tests/test_voice_cast_gate.py`
+- **证据**：E12_FINAL_CUT_AUDIENCE_DETECTORS.json voice_distinctness FAIL：秦铭各场中位数 127–215 Hz，许岳平 101–186 Hz，4 对碰撞
+- **授权**：Roger 2026-10-30 E12 成片审看结论（FAIL，不批准）+ 优先级清单；SUPERVISOR_ORDERS seq=56（1K）
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K136 — S7
+
+- **规则**：成片终混必须整片 ASR 回读并逐句与烧录字幕比对（字符相似度 ≥0.8 算匹配），匹配率 ≥95% 才算语音可懂；回读按媒体 sha 缓存，不跳过静音（VAD 关）。
+- **教训**：E12 2026-10-30：线主听出 8 段乱语/非中文（4.4–6.4 s 等），而 S7 的 ASR 门只用逐单元 ASR 窗做计时与词表检查，从未把「观众听到的」和「字幕写的」对上；本线无 TTS，H3 原生发声出错时只有回读能抓到。
+- **恢复**：final_cut_audience_detectors 新增 subtitle_asr_agreement（faster-whisper large-v3 回读，--readback-asr-json 缓存）；S7 把 <EP>_FINAL_CUT_READBACK_ASR.json 传给检测器。
+- **实现**：`tools/final_cut_audience_detectors.py`、`lines/nalu/runtime/tools/nalu_pipeline.py`
+- **回归**：`tools/tests/test_final_cut_audience_detectors.py`
+- **证据**：Roger 2026-10-30 审看清单 1a：8 个时间窗；E12 S7 检测器此前对该问题全部 PASS
+- **授权**：Roger 2026-10-30 E12 成片审看结论（FAIL，不批准）+ 优先级清单；SUPERVISOR_ORDERS seq=56（1K）
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K137 — PROVIDERS
+
+- **规则**：付费图片任务默认用注册表 active profile 的最低档分辨率（Giggle GPT Image 2：1K）；分辨率与模型 id 一样只能来自 tools/image_model_policy.py，不得在调用点写字面量；退役的分辨率留在 legacy 列表里，事务恢复必须按 模型×分辨率 全组合匹配，已付费的 2K 底板/关键帧不得因切档重投。
+- **教训**：2026-10-30 线主先后下令换 gpt-image-2-fast（seq=54/55）再降到 1K（seq=56）；S3 的 submission_fingerprint 含 resolution，若只改默认值，所有已绑定的 2K 角色底板都会被视为未绑定而重新 POST 计费。
+- **恢复**：IMAGE_MODEL_CAPABILITY_REGISTRY_v1 default_resolution=1K + legacy_resolutions；image_model_policy.known_image_resolutions()；nalu_pipeline.s3_transaction_bound 遍历 model×resolution；build_keyframe_manifest --image-resolution 默认读策略。fast@1K 单价未验证前 ledger 预留 hard_upper=11。
+- **实现**：`tools/image_model_policy.py`、`configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json`、`lines/nalu/runtime/tools/nalu_pipeline.py`、`lines/nalu/runtime/tools/build_keyframe_manifest.py`
+- **回归**：`tools/tests/test_image_model_policy.py`
+- **证据**：SUPERVISOR_ORDERS seq=56 ROGER-20261030-E12-IMAGE-MODEL-POLICY-SEQ056；S3 fingerprint 合同字段 model/aspect_ratio/resolution（tools/submit_giggle_character_asset_plan.py submission_fingerprint）
+- **授权**：Roger 2026-10-30 E12 成片审看结论（FAIL，不批准）+ 优先级清单；SUPERVISOR_ORDERS seq=56（1K）
+- **状态**：REFERENCE_IMPLEMENTATION

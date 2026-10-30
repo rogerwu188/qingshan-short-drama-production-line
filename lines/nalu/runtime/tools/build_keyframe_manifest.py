@@ -2025,10 +2025,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--engine-root", type=Path, default=DEFAULT_ENGINE_ROOT)
     parser.add_argument("--python", type=Path, default=Path(sys.executable))
     parser.add_argument("--model", default=ACTIVE_IMAGE_MODEL)
-    parser.add_argument("--image-resolution", default="2K", choices=["1K", "2K"])
+    parser.add_argument("--image-resolution", default=None, choices=["1K", "2K"],
+                        help="default: the registry policy's active resolution (tools/image_model_policy.py; "
+                             "Roger 2026-10-30 seq=56 = 1K)")
     parser.add_argument("--task-version", default="V1",
                         help="Portable task/output version such as V1 or V2; use a new value after a rejected attempt")
     args = parser.parse_args(argv)
+    if args.image_resolution is None:
+        from tools.image_model_policy import active_image_resolution
+        args.image_resolution = active_image_resolution()
 
     task_version = str(args.task_version).strip().upper()
     if not re.fullmatch(r"V[1-9][0-9]*", task_version):

@@ -15,6 +15,10 @@ Detectors (report §三 D, PLAN §D):
                       and RapidOCR of frames sampled every 2.5 s (needs --lexicon; else UNVERIFIED)
   mascot_in_story     OpenCV template match of --brand-dir first frames against story-segment
                       frames sampled every 1 s (needs --brand-dir and --story-segments; else UNVERIFIED)
+  subtitle_asr_agreement  whole-file ASR read-back of the final mix vs the burned subtitle cues; a cue
+                      matches when the ASR text inside [cue_start-1.5 s, cue_end+1.5 s] reaches character
+                      similarity >= 0.8 after punctuation/whitespace normalisation; PASS iff >= 95 % of cues
+                      match (Roger 2026-10-30, E12 screening: 8 garbled windows in the mix)
   loudness            ebur128 integrated within --release-lufs +-1, true peak <= --release-tp,
                       per-line window LUFS inside (-18, -12) and adjacent-line delta <= 6 LU
   state_machine / count_consistency / creature_locomotion  NOT_IMPLEMENTED (human review questions)
@@ -48,7 +52,8 @@ GATE_ID = "FINAL-CUT-AUDIENCE-DETECTORS"
 
 DETECTOR_ORDER = (
     "hook_present", "dialogue_coverage", "silence_gap_max", "voice_distinctness", "emotion_dynamics",
-    "lexicon_violation", "mascot_in_story", "loudness", "state_machine", "count_consistency", "creature_locomotion",
+    "lexicon_violation", "mascot_in_story", "loudness", "subtitle_asr_agreement",
+    "state_machine", "count_consistency", "creature_locomotion",
 )
 HUMAN_REVIEW_DETECTORS = ("state_machine", "count_consistency", "creature_locomotion")
 
@@ -68,6 +73,10 @@ DEFAULTS: dict[str, Any] = {
     "mascot_every_seconds": 1.0,
     "ocr_min_confidence": 0.5,
     "speaker_map_tolerance_s": 0.6,
+    "subtitle_match_similarity": 0.8,     # character-level similarity (difflib ratio) per cue
+    "subtitle_match_window_s": 1.5,       # ASR words counted for a cue within [start-w, end+w]
+    "subtitle_agreement_min": 0.95,       # share of cues that must match
+    "readback_asr_model": "large-v3",
 }
 
 STATUS_RANK = {"PASS": 0, "NOT_IMPLEMENTED": 1, "UNVERIFIED": 1, "FAIL": 2}
@@ -281,6 +290,130 @@ def decide_mascot(scores: Sequence[dict[str, Any]] | None, *, threshold: float, 
     return detector("PASS", measured=measured, threshold={"score": threshold}, evidence={"top": sorted(scores, key=lambda s: -float(s.get("score", 0.0)))[:5]})
 
 
+_SUBTITLE_NORMALISE = re.compile(r"[\s\u3000,.;:!?，。！？；：、…「」『』“”\"'()（）\[\]【】<>《》—\-~·]+")
+
+
+def normalise_subtitle_text(text: str) -> str:
+    """Punctuation/whitespace-free, lower-cased text for character-level comparison."""
+    return _SUBTITLE_NORMALISE.sub("", str(text or "")).lower()
+
+
+def _ass_time(value: str) -> float:
+    h, m, s = value.strip().split(":")
+    return int(h) * 3600 + int(m) * 60 + float(s)
+
+
+def parse_ass_cues(path: Path) -> list[dict[str, Any]]:
+    """[{start, end, text}] for every Dialogue line of an .ass file (tags removed, \\N -> space)."""
+    cues: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.startswith("Dialogue:"):
+            continue
+        parts = line.split(",", 9)
+        if len(parts) < 10:
+            continue
+        text = _ASS_TAG.sub("", parts[9]).replace("\\N", " ").replace("\\n", " ").strip()
+        if not text:
+            continue
+        try:
+            cues.append({"start": _ass_time(parts[1]), "end": _ass_time(parts[2]), "text": text})
+        except ValueError:
+            continue
+    return cues
+
+
+def _readback_words(segments: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Flatten ASR segments into timed tokens; a segment without word timestamps becomes one token."""
+    words: list[dict[str, Any]] = []
+    for seg in segments:
+        rows = seg.get("words") or []
+        if rows:
+            for w in rows:
+                text = str(w.get("w") if "w" in w else w.get("word") or "")
+                start = w.get("s", w.get("start"))
+                end = w.get("e", w.get("end"))
+                if text and start is not None and end is not None:
+                    words.append({"text": text, "start": float(start), "end": float(end)})
+        elif seg.get("text") and seg.get("start") is not None and seg.get("end") is not None:
+            words.append({"text": str(seg["text"]), "start": float(seg["start"]), "end": float(seg["end"])})
+    return sorted(words, key=lambda w: w["start"])
+
+
+def decide_subtitle_agreement(cues: Sequence[dict[str, Any]] | None, readback: Sequence[dict[str, Any]] | None, *,
+                              similarity: float, window_s: float, min_agreement: float) -> dict[str, Any]:
+    """Sentence-by-sentence agreement between the burned subtitles and an ASR read-back of the final mix.
+
+    Metric: for each subtitle cue, the read-back tokens whose midpoint lies in [start-window, end+window]
+    are concatenated; the cue matches when difflib.SequenceMatcher(None, norm(cue), norm(readback)).ratio()
+    >= ``similarity`` (0.8).  Agreement = matched / cues; PASS iff agreement >= ``min_agreement`` (0.95).
+    An empty read-back window is a non-match (the line was not heard), never excluded from the count."""
+    threshold = {"similarity_min": similarity, "window_s": window_s, "agreement_min": min_agreement,
+                 "metric": "difflib.SequenceMatcher ratio on punctuation/whitespace-free text, tokens within ±window of the cue"}
+    if not cues:
+        return detector("UNVERIFIED", threshold=threshold, reason="no subtitle cues")
+    if readback is None:
+        return detector("UNVERIFIED", threshold=threshold, reason="no ASR read-back of the final mix")
+    import difflib
+    words = _readback_words(readback)
+    rows: list[dict[str, Any]] = []
+    matched = 0
+    for cue in cues:
+        lo, hi = float(cue["start"]) - window_s, float(cue["end"]) + window_s
+        heard = "".join(w["text"] for w in words if lo <= (w["start"] + w["end"]) / 2 <= hi)
+        expected = normalise_subtitle_text(cue["text"])
+        got = normalise_subtitle_text(heard)
+        ratio = round(difflib.SequenceMatcher(None, expected, got).ratio(), 3) if expected else 1.0
+        ok = ratio >= similarity
+        matched += 1 if ok else 0
+        rows.append({"start": round(float(cue["start"]), 2), "end": round(float(cue["end"]), 2), "similarity": ratio,
+                     "match": ok, "subtitle": cue["text"], "heard": heard})
+    agreement = round(matched / len(cues), 4)
+    failing = [r for r in rows if not r["match"]]
+    measured = {"cues": len(cues), "matched": matched, "agreement": agreement, "readback_tokens": len(words)}
+    failures = [f"SUBTITLE_ASR_MISMATCH:{r['start']}:{r['similarity']}" for r in failing]
+    evidence = {"failing_lines": failing, "lines": rows}
+    if agreement >= min_agreement:
+        return detector("PASS", measured=measured, threshold=threshold, evidence=evidence)
+    return detector("FAIL", measured=measured, threshold=threshold, evidence=evidence,
+                    failures=[f"SUBTITLE_ASR_AGREEMENT:{agreement}"] + failures)
+
+
+def readback_transcribe(media: Path, *, model: str, language: str = "zh") -> list[dict[str, Any]]:
+    """faster-whisper read-back of the whole final mix with word timestamps (no VAD: silence is measured, not skipped)."""
+    from faster_whisper import WhisperModel  # lazy: optional dependency
+
+    engine = WhisperModel(model, device="cpu", compute_type="int8")
+    segments, _info = engine.transcribe(str(media), language=language, word_timestamps=True, vad_filter=False, beam_size=5)
+    rows: list[dict[str, Any]] = []
+    for seg in segments:
+        rows.append({"start": round(float(seg.start), 3), "end": round(float(seg.end), 3), "text": str(seg.text or "").strip(),
+                     "avg_logprob": round(float(getattr(seg, "avg_logprob", 0.0) or 0.0), 3),
+                     "no_speech_prob": round(float(getattr(seg, "no_speech_prob", 0.0) or 0.0), 3),
+                     "words": [{"w": str(w.word), "s": round(float(w.start), 3), "e": round(float(w.end), 3),
+                                "p": round(float(w.probability), 3)} for w in (seg.words or [])]})
+    return rows
+
+
+def load_or_run_readback(media: Path, cache: Path | None, *, model: str) -> tuple[list[dict[str, Any]], str]:
+    """Reuse a cached read-back bound to this media's sha256; otherwise transcribe and write the cache."""
+    sha = dvm.media_sha256(media)
+    if cache and cache.is_file():
+        try:
+            payload = json.loads(cache.read_text(encoding="utf-8"))
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict) and payload.get("media_sha256") == sha and isinstance(payload.get("segments"), list):
+            return payload["segments"], f"readback_cache:{cache.name}"
+        if isinstance(payload, list):   # a bare segment list is accepted only when the caller vouches for it
+            return payload, f"readback_json:{cache.name}"
+    segments = readback_transcribe(media, model=model)
+    if cache:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"schema": "qingshan.final_cut_readback_asr.v1", "media": media.name, "media_sha256": sha,
+                                     "model": model, "segments": segments}, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    return segments, f"faster_whisper:{model}"
+
+
 def decide_loudness(integrated_lufs: float | None, true_peak_dbtp: float | None, window_lufs: Sequence[dict[str, Any]], *,
                     release_lufs: float, tolerance: float, release_tp: float, window_range: Sequence[float],
                     adjacent_delta_max: float) -> dict[str, Any]:
@@ -386,6 +519,10 @@ def evaluate_from_measurements(m: dict[str, Any], options: dict[str, Any] | None
         "mascot_in_story": decide_mascot(m.get("mascot_scores"), threshold=opts["mascot_score_threshold"],
                                          brand_available=bool(m.get("brand_available")),
                                          story_available=bool(m.get("story_available"))),
+        "subtitle_asr_agreement": decide_subtitle_agreement(
+            m.get("subtitle_cues"), m.get("readback_segments"),
+            similarity=opts["subtitle_match_similarity"], window_s=opts["subtitle_match_window_s"],
+            min_agreement=opts["subtitle_agreement_min"]),
         "loudness": decide_loudness(m.get("integrated_lufs"), m.get("true_peak_dbtp"), segments,
                                     release_lufs=opts["release_lufs"], tolerance=opts["release_lufs_tolerance"],
                                     release_tp=opts["release_tp"], window_range=opts["window_lufs_range"],
@@ -622,6 +759,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--mascot-score", type=float, default=DEFAULTS["mascot_score_threshold"])
     parser.add_argument("--no-window-lufs", action="store_true", help="skip per-line ebur128 windows")
     parser.add_argument("--keep-asr-text", action="store_true", help="write ASR text into --out (off by default)")
+    parser.add_argument("--readback-asr-json", type=Path,
+                        help="cache for the whole-mix ASR read-back (subtitle_asr_agreement); reused when its media_sha256 "
+                             "matches --media, written after a fresh transcription")
+    parser.add_argument("--readback-model", default=DEFAULTS["readback_asr_model"])
+    parser.add_argument("--no-readback", action="store_true",
+                        help="skip the read-back transcription (subtitle_asr_agreement reports UNVERIFIED)")
     args = parser.parse_args(argv)
 
     media = args.media
@@ -645,6 +788,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     cut = first_window_cut_spike(media, args.hook_seconds)
     lexicon = _load_json(args.lexicon)
     subtitle_texts = parse_ass_texts(args.subtitles) if args.subtitles else None
+    subtitle_cues = parse_ass_cues(args.subtitles) if args.subtitles else None
+    readback_segments: list[dict[str, Any]] | None = None
+    readback_source = None
+    if subtitle_cues and not args.no_readback:
+        readback_segments, readback_source = load_or_run_readback(media, args.readback_asr_json, model=args.readback_model)
     ocr_texts = ocr_frames(media, duration or 0.0, every=DEFAULTS["ocr_every_seconds"],
                            min_confidence=DEFAULTS["ocr_min_confidence"]) if (lexicon and duration) else None
     story_windows, action_windows = load_story_windows(args.story_segments) if args.story_segments else ([], [])
@@ -665,6 +813,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "voice_cast": _load_json(args.voice_cast),
         "lexicon": lexicon,
         "subtitle_texts": subtitle_texts,
+        "subtitle_cues": subtitle_cues,
+        "readback_segments": readback_segments,
         "ocr_texts": ocr_texts,
         "mascot_scores": scores,
         "brand_available": bool(args.brand_dir),
@@ -686,6 +836,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "subtitles": args.subtitles.name if args.subtitles else None, "lexicon": args.lexicon.name if args.lexicon else None,
         "brand_dir": str(args.brand_dir.name) if args.brand_dir else None, "story_windows": len(story_windows),
         "loudness_range_lu": loud.get("loudness_range_lu"),
+        "readback_asr_source": readback_source, "subtitle_cues": len(subtitle_cues or []),
     }
     # Keep the media binding at the report root as well as in the detailed
     # inputs block.  Downstream review preparation consumes the root binding

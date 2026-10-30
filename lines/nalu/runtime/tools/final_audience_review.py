@@ -116,7 +116,10 @@ def _default_paths(episode: str) -> dict[str, Path]:
     p = QaPaths(episode)
     final_qa = p.final_qa_dir
     return {
-        "video": RUNTIME / "deliverables" / episode / f"{episode}_final_9x16.mp4",
+        # released final when it exists, else S7's staged candidate (Roger 2026-10-30: no deliverable before PASS)
+        "video": (RUNTIME / "deliverables" / episode / f"{episode}_final_9x16.mp4"
+                  if (RUNTIME / "deliverables" / episode / f"{episode}_final_9x16.mp4").is_file()
+                  else p.assembly / f"{episode}_final_candidate_9x16.mp4"),
         "metrics": final_qa / f"{episode}_FINAL_CUT_OBJECTIVE_METRICS.json",
         "contact_sheet": final_qa / f"{episode}_FINAL_AUDIENCE_CONTACT_SHEET.jpg",
         "request": p.reviews / "final_audience_request.json",

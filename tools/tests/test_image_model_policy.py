@@ -16,7 +16,24 @@ class ImageModelPolicyTest(unittest.TestCase):
     def test_active_model_is_the_cheaper_gpt_image_2_sku(self) -> None:
         self.assertEqual(policy.active_image_model(), "gpt-image-2-fast")
         self.assertEqual(policy.ACTIVE_IMAGE_MODEL, "gpt-image-2-fast")
-        self.assertEqual(policy.active_image_resolution(), "2K")
+        # Roger 2026-10-30 seq=56: 「生产线引擎默认只使用gptimage 1k 版本，这样成本最低」
+        self.assertEqual(policy.active_image_resolution(), "1K")
+        self.assertEqual(policy.ACTIVE_IMAGE_RESOLUTION, "1K")
+
+    def test_retired_2k_resolution_stays_recognised_for_bound_transactions(self) -> None:
+        self.assertEqual(policy.known_image_resolutions(), ("1K", "2K"))
+        self.assertIn("1K", policy.active_profile()["provider_limits"]["resolution_values"])
+
+    def test_nalu_call_sites_do_not_pin_an_image_resolution_literal(self) -> None:
+        pinned = []
+        for rel in ("lines/nalu/runtime/tools/nalu_pipeline.py", "lines/nalu/runtime/tools/build_keyframe_manifest.py",
+                    "lines/nalu/runtime/tools/bootstrap_identity_cards.py", "lines/nalu/runtime/tools/generate_period_look.py"):
+            for number, line in enumerate((ROOT / rel).read_text("utf-8").splitlines(), 1):
+                stripped = line.strip()
+                if ('"--image-resolution", "2K"' in stripped or '"resolution": "2K"' in stripped
+                        or 'resolution="2K"' in stripped) and not stripped.startswith("#"):
+                    pinned.append(f"{rel}:{number}")
+        self.assertEqual(pinned, [], f"call sites still pin 2K: {pinned}")
 
     def test_registry_policy_names_exactly_the_active_deployed_profile(self) -> None:
         registry = json.loads((ROOT / "configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json").read_text("utf-8"))
