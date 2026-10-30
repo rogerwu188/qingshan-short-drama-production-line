@@ -150,6 +150,11 @@ if [ -n "$AB_VARIANT" ]; then
   exit $?
 fi
 
-echo "paid_stage: $EPISODE $FROM_STAGE..$UNTIL_STAGE --paid (order seq=$NALU_PAID_ORDER_SEQ, owner=$NALU_LINE_OWNER_ID)"
+# NALU_PAID_FORCE=1 re-runs a stage whose input fingerprint says PASS (e.g. S5 after a free S2 rebuild added a
+# keyframe task: the stage must rebuild its manifest so D-46 can POST only the missing image).  Paid POSTs stay
+# bound by the durable transactions and D-46 either way; --force never re-POSTs a bound task.
+FORCE_ARGS=()
+if [ "${NALU_PAID_FORCE:-0}" = "1" ]; then FORCE_ARGS=(--force); fi
+echo "paid_stage: $EPISODE $FROM_STAGE..$UNTIL_STAGE --paid ${FORCE_ARGS[*]:-} (order seq=$NALU_PAID_ORDER_SEQ, owner=$NALU_LINE_OWNER_ID)"
 "$VENV" "$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_pipeline.py" run \
-  --episode "$EPISODE" --from "$FROM_STAGE" --until "$UNTIL_STAGE" --paid
+  --episode "$EPISODE" --from "$FROM_STAGE" --until "$UNTIL_STAGE" --paid "${FORCE_ARGS[@]}"
