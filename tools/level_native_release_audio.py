@@ -229,7 +229,11 @@ def level_release(
             f"measured_TP={float(stats['input_tp']):.3f}:measured_thresh={float(stats['input_thresh']):.3f}:"
             f"offset={float(stats.get('target_offset') or 0.0):.3f}"
         )
-        limiter = f"alimiter=limit={FINAL_LIMITER_LINEAR}:attack=5:release=50:level=false,"
+        # True-peak limiting needs oversampling: at 48 kHz alimiter only sees sample peaks, and inter-sample
+        # peaks after the AAC encode landed E12's re-cut release at -0.8 dBTP against a -1.0 ceiling
+        # (2026-10-30).  Run the limiter 4x oversampled exactly as the static branch does.
+        linear = linear + ",aresample=192000"
+        limiter = f"alimiter=limit={FINAL_LIMITER_LINEAR}:attack=5:release=50:level=false:latency=1,"
         if static_units:
             # static program gain; the limiter runs 4x oversampled (true peak) with headroom for the AAC encode
             linear = f"volume={program_gain + program_trim:.3f}dB,aresample=192000"
