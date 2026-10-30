@@ -654,7 +654,8 @@ class Paths:
         # Roger 2026-10-30 (E12 成片审看 item 0): a cut that has not passed every S7 gate is never a
         # deliverable.  S7 levels, measures, detects and QA-checks the CANDIDATE here; only a full
         # S7 PASS promotes it (byte-copy, sha-verified) to deliverables/<EP>/<EP>_final_9x16.mp4.
-        self.final_candidate = self.assembly / f"{prefix}final_candidate_9x16.mp4"
+        self.final_levelled = self.assembly / f"{prefix}final_levelled_9x16.mp4"      # leveller output (immutable)
+        self.final_candidate = self.assembly / f"{prefix}final_candidate_9x16.mp4"     # after the post-level audio chain
         self.ad_tail_candidate = self.assembly / f"{prefix}final_candidate_9x16_AD.mp4"
         self.readback_asr = self.assembly / f"{prefix}FINAL_CUT_READBACK_ASR.json"
 
@@ -7523,6 +7524,137 @@ def s7_unit_recut(ctx: Ctx, res: StageResult) -> tuple[Path | None, list[str]]:
     return report, []
 
 
+def _park_superseded(*paths: Path) -> list[str]:
+    """Move existing files aside as <stem>__superseded_<sha12><suffix> (evidence is never deleted)."""
+    parked: list[str] = []
+    for path in paths:
+        path = Path(str(path))
+        if path.is_file():
+            target = path.with_name(f"{path.stem}__superseded_{(sha256_file(path) or 'nosha')[:12]}{path.suffix}")
+            if not target.exists():
+                path.replace(target)
+            else:
+                path.unlink()      # identical bytes already parked under this sha
+            parked.append(str(target))
+    return parked
+
+
+def _report_sha(report: dict[str, Any], role: str) -> str | None:
+    """A stage report's input/output sha under any of the shapes the audio tools write."""
+    for key in (f"{role}_sha256", f"{role}_sha"):
+        if isinstance(report.get(key), str):
+            return report[key]
+    nested = report.get(role)
+    if isinstance(nested, dict):
+        for key in ("sha256", "sha"):
+            if isinstance(nested.get(key), str):
+                return nested[key]
+    return None
+
+
+def _chain_stage_reusable(report_path: Path, output: Path, input_sha: str | None,
+                          in_key: str = "input", out_key: str = "output") -> bool:
+    report = read_json(report_path, {}) or {}
+    return bool(input_sha and output.is_file() and _report_sha(report, in_key) == input_sha
+                and _report_sha(report, out_key) == sha256_file(output))
+
+
+def s7_post_level_audio_chain(ctx: Ctx, res: StageResult, steps: list[dict[str, Any]],
+                              line_windows: Path) -> list[str]:
+    """levelled release -> (voice pitch unify) -> ambient bed + under-score -> final candidate.
+
+    Roger 2026-10-30 E12 成片审看 1b (whole-film ambient bed + music, no silence < -50 dBFS, no cut in dead
+    silence) and 1c (co-present voices >= 40 Hz apart).  Each stage reads the previous stage's file and is
+    reused when its report binds the same input and output shas; stale outputs are parked by sha.  The
+    last stage's file becomes <EP>_final_candidate_9x16.mp4 (byte copy, sha verified); nothing here
+    touches deliverables/.  Returns blockers (empty on success)."""
+    p = ctx.p
+    chain: list[dict[str, Any]] = []
+    current = p.final_levelled
+    stage_in_sha = sha256_file(current)
+
+    # stage: voice pitch unify (F4 tool) — only when the tool and the voice cast are present
+    pitch_tool = RT_TOOLS / "final_cut_voice_pitch_unify.py"
+    pitch_out = p.assembly / f"{ctx.episode}_final_candidate_9x16_pitch.mp4"
+    pitch_report = p.assembly / f"{ctx.episode}_VOICE_PITCH_UNIFY.json"
+    pitch_windows = p.assembly / f"{ctx.episode}_FINAL_CUT_ASR_WINDOWS_final.json"
+    if pitch_tool.is_file() and Path(str(ctx.p.scope.get("voice_cast") or "")).is_file() \
+            and not str(os.environ.get("NALU_S7_SKIP_PITCH_UNIFY") or "").strip():
+        if _chain_stage_reusable(pitch_report, pitch_out, stage_in_sha):
+            steps.append({"name": "s7_voice_pitch_unify", "exit_code": 0, "reused": True})
+        else:
+            _park_superseded(pitch_out, pitch_report, pitch_windows)
+            argv: list[Any] = [VENV, pitch_tool, "--input", current, "--out", pitch_out, "--report", pitch_report,
+                               "--windows-out", pitch_windows, "--timeline", p.assembly / f"{ctx.episode}_release_timeline.json",
+                               "--grouping", p.grouping_plan, "--contract", p.contract,
+                               "--voice-cast", ctx.p.scope["voice_cast"]]
+            res.details["commands"]["voice_pitch_unify"] = q(argv)
+            steps.append(ctx.run(argv, name="s7_voice_pitch_unify"))
+            if steps[-1]["exit_code"] != 0 or not pitch_out.is_file():
+                return ["VOICE_PITCH_UNIFY_FAILED"]
+        rep = read_json(pitch_report, {}) or {}
+        chain.append({"stage": "voice_pitch_unify", "input": str(current), "output": str(pitch_out),
+                      "report": str(pitch_report), "windows": str(pitch_windows) if pitch_windows.is_file() else None,
+                      "summary": {k: rep.get(k) for k in ("lines_shifted", "min_copresent_pair_diff_hz_before",
+                                                         "min_copresent_pair_diff_hz_after", "status")}})
+        current, stage_in_sha = pitch_out, sha256_file(pitch_out)
+        if pitch_windows.is_file():
+            line_windows = pitch_windows
+
+    # stage: ambient bed + under-score (F3 tool)
+    bed_tool = RT_TOOLS / "final_cut_audio_bed.py"
+    bed_out = p.assembly / f"{ctx.episode}_final_candidate_9x16_bed.mp4"
+    bed_report = p.assembly / f"{ctx.episode}_AUDIO_BED.json"
+    bed_windows = p.assembly / f"{ctx.episode}_FINAL_CUT_ASR_WINDOWS_unitclipped.json"
+    music_mode = str(os.environ.get("NALU_S7_BED_MUSIC_MODE") or "wall_to_wall")
+    if bed_tool.is_file():
+        if _chain_stage_reusable(bed_report, bed_out, stage_in_sha) \
+                and (read_json(bed_report, {}) or {}).get("music_mode", music_mode) == music_mode:
+            steps.append({"name": "s7_final_cut_audio_bed", "exit_code": 0, "reused": True})
+        else:
+            _park_superseded(bed_out, bed_report, bed_windows)
+            argv = [VENV, bed_tool, "--input", current, "--timeline", p.assembly / f"{ctx.episode}_release_timeline.json",
+                    "--grouping", p.grouping_plan, "--contract", p.contract,
+                    "--out", bed_out, "--report", bed_report, "--music-mode", music_mode]
+            for flag, path in (("--bgm-plan", p.assembly / f"{ctx.episode}_BGM_PLAN.json"),
+                               ("--bgm-selection", p.assembly / f"{ctx.episode}_BGM_SELECTION.json"),
+                               ("--line-windows", line_windows)):
+                if Path(str(path)).is_file():
+                    argv += [flag, path]
+            if line_windows and Path(str(line_windows)).is_file():
+                argv += ["--windows-out", bed_windows]
+            res.details["commands"]["final_cut_audio_bed"] = q(argv)
+            steps.append(ctx.run(argv, name="s7_final_cut_audio_bed"))
+            if steps[-1]["exit_code"] != 0 or not bed_out.is_file():
+                return ["FINAL_CUT_AUDIO_BED_FAILED"]
+        rep = read_json(bed_report, {}) or {}
+        chain.append({"stage": "audio_bed", "input": str(current), "output": str(bed_out), "report": str(bed_report),
+                      "music_mode": music_mode,
+                      "summary": {k: rep.get(k) for k in ("status", "before", "after") if k in rep}})
+        current = bed_out
+
+    # the candidate = last stage output (byte copy; the stage files stay as evidence)
+    final_sha = sha256_file(current)
+    if not (p.final_candidate.is_file() and sha256_file(p.final_candidate) == final_sha):
+        _park_superseded(p.final_candidate)
+        import shutil
+        tmp = p.final_candidate.with_name(p.final_candidate.name + ".staging")
+        shutil.copy2(str(current), str(tmp))
+        if sha256_file(tmp) != final_sha:
+            tmp.unlink(missing_ok=True)
+            return ["FINAL_CANDIDATE_STAGING_SHA_MISMATCH"]
+        tmp.replace(p.final_candidate)
+    manifest = {"schema": "nalu.final_candidate_chain.v1", "episode": ctx.episode, "recorded_at": now(),
+                "levelled": str(p.final_levelled), "levelled_sha256": sha256_file(p.final_levelled),
+                "chain": chain, "final_candidate": str(p.final_candidate), "final_candidate_sha256": final_sha,
+                "line_windows_for_detectors": str(line_windows) if line_windows else None,
+                "authority": "Roger 2026-10-30 E12 成片审看 1b/1c"}
+    write_json(p.assembly / f"{ctx.episode}_FINAL_CANDIDATE_CHAIN.json", manifest)
+    res.details["final_candidate_chain"] = manifest
+    res.receipts.append(str(p.assembly / f"{ctx.episode}_FINAL_CANDIDATE_CHAIN.json"))
+    return []
+
+
 def promote_final_candidate(p: Any) -> dict[str, Any]:
     """Copy the S7-approved candidate (and its tail-ad variant) into deliverables/, sha-verified.
 
@@ -7562,7 +7694,7 @@ def _reusable_release_level(p: Any, source: Any) -> dict[str, Any] | None:
     """The existing levelled release candidate, if it is a PASS made from the current source picture."""
     report = read_json(p.leveled_audio_report, {}) or {}
     source = Path(str(source))
-    if not (p.final_candidate.is_file() and source.is_file()
+    if not (p.final_levelled.is_file() and source.is_file()
             and str(report.get("status") or "").startswith("PASS")
             and report.get("source_video_stream_sha256")):
         return None
@@ -7570,13 +7702,13 @@ def _reusable_release_level(p: Any, source: Any) -> dict[str, Any] | None:
         sys.path.insert(0, str(ENGINE / "tools"))
         import level_native_release_audio as _lvl
         current = _lvl.stream_hash(source, "0:v:0")
-        final = _lvl.stream_hash(p.final_candidate, "0:v:0")
+        final = _lvl.stream_hash(p.final_levelled, "0:v:0")
     except Exception:  # noqa: BLE001 -- if we cannot prove it is the same, run the leveller
         return None
     if current != report["source_video_stream_sha256"] or final != report.get("output_video_stream_sha256"):
         return None
     return {"report": str(p.leveled_audio_report), "status": report["status"],
-            "source_video_stream_sha256": current, "final_sha256": sha256_file(p.final_candidate)}
+            "source_video_stream_sha256": current, "final_sha256": sha256_file(p.final_levelled)}
 
 
 def transcribe_units(ctx: Ctx, media_dir: Path, episode: str, *,
@@ -8110,7 +8242,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
                              "--source", p.picture_native,
                              "--timeline", release_timeline,
                              "--grouped", p.grouped_seedance,
-                             "--output", p.final_candidate,
+                             "--output", p.final_levelled,
                              "--qa", p.leveled_audio_report,
                              "--episode", ctx.episode,
                              "--version", "v1",
@@ -8484,16 +8616,22 @@ def stage_s7(ctx: Ctx) -> StageResult:
         res.details["release_audio_level_reused"] = reused_level
         steps.append({"name": "s7_level_native_release_audio", "exit_code": 0, "reused": reused_level})
     else:
+        # The picture changed (re-cut / stabilised / re-rendered): the previous levelled file and its QA
+        # are evidence of a cut that no longer exists.  Park them under their sha (never deleted) so the
+        # leveller can write the new evidence at the same, state-tracked paths (Roger 2026-10-30 repair).
+        parked = _park_superseded(p.final_levelled, p.leveled_audio_report)
+        if parked:
+            res.details["release_audio_level_superseded"] = parked
         steps.append(ctx.run(level_argv, name="s7_level_native_release_audio"))
     res.receipts.append(str(p.leveled_audio_report))
-    if steps[-1]["exit_code"] != 0 or not p.final_candidate.is_file():
+    if steps[-1]["exit_code"] != 0 or not p.final_levelled.is_file():
         # The measurement stays honest (leveled_audio_report keeps its real FAIL and
         # failures list); the stage may continue only on an explicit, source-receipted
         # line-owner order bound to this exact final-cut SHA — same shape as the
         # FINAL-CUT-AUDIENCE-DETECTORS acceptance a few steps below.
         level_report = read_json(p.leveled_audio_report, {}) or {}
         failing = list(level_report.get("failures") or [])
-        final_sha = sha256_file(p.final_candidate) if p.final_candidate.is_file() else None
+        final_sha = sha256_file(p.final_levelled) if p.final_levelled.is_file() else None
         order = None
         if failing and final_sha:
             orders_path = ctx.authority.get("orders_path")
@@ -8508,7 +8646,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
         if order is None:
             res.steps.extend(steps)
             res.blockers = ["RELEASE_AUDIO_LEVELLING_FAILED"]
-            res.details["missing_input"] = str(p.final_candidate)
+            res.details["missing_input"] = str(p.final_levelled)
             res.details["hint"] = ("level_native_release_audio.py refuses to overwrite an existing "
                                  "--output/--qa — bump --version if this episode was levelled once "
                                  "already.")
@@ -8525,6 +8663,15 @@ def stage_s7(ctx: Ctx) -> StageResult:
         ctx.say(f"   !! RELEASE_AUDIO_LEVELLING stays FAIL ({', '.join(failing)}); continuing on line-owner order "
                 f"seq={order.get('seq')} {order.get('order')!s:.40} -> {acceptance_path.name}")
 
+    # ------------------------------------- 5c. post-level audio chain -> the candidate (Roger 2026-10-30 1b/1c)
+    # levelled release -> [voice pitch unify] -> ambient bed + under-score -> <EP>_final_candidate_9x16.mp4.
+    # Picture stays bit-exact through the chain; every stage is idempotent by input/output sha; a stage
+    # failure blocks (the chain is the repair Roger asked for, not a nicety).
+    chain_blockers = s7_post_level_audio_chain(ctx, res, steps, asr_windows_pre)
+    if chain_blockers:
+        res.steps.extend(steps)
+        res.blockers = chain_blockers
+        return res
     # ------------------------------------- 6a. optional tail ad (never blocks the episode)
     tail_ad = s7_tail_ad(ctx, res, endcard_seconds=outro_seconds)
     res.details["tail_ad"] = tail_ad
@@ -8576,7 +8723,12 @@ def stage_s7(ctx: Ctx) -> StageResult:
                                 # Roger 2026-10-30 item 1a: whole-mix ASR read-back vs burned subtitles
                                 # (subtitle_asr_agreement >= 95 %); the read-back is cached by media sha
                                 "--readback-asr-json", p.readback_asr]
-    if asr_windows.is_file():
+    chain_windows = (res.details.get("final_candidate_chain") or {}).get("line_windows_for_detectors")
+    if chain_windows and Path(str(chain_windows)).is_file():
+        # line windows rebuilt on the finished candidate by the post-level chain (unit-bounded, Roger 2026-10-30):
+        # the pre-levelling windows sat on pre-trim offsets (E12: 13 wholly outside their unit)
+        detector_argv += ["--asr-json", chain_windows]
+    elif asr_windows.is_file():
         # per-unit ASR windows (timing) with contract attribution; whole-file ASR of the levelled final
         # merges speech with wind/music into 10-20 s windows and mismeasures every line (E04 v2, 23:30Z)
         detector_argv += ["--asr-json", asr_windows]

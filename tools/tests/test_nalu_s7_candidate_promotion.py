@@ -96,7 +96,8 @@ class StageS7UsesCandidatePathsTests(unittest.TestCase):
         end = src.index("def s7_qa(")
         body = src[start:end]
         for needle in ('"--output-video", p.final_candidate',
-                       '"--output", p.final_candidate',
+                       '"--output", p.final_levelled',          # the leveller's immutable output
+                       's7_post_level_audio_chain(ctx, res, steps, asr_windows_pre)',
                        '"--media", p.final_candidate',
                        '"--final", p.final_candidate',
                        '"--video", p.final_candidate',
@@ -104,6 +105,7 @@ class StageS7UsesCandidatePathsTests(unittest.TestCase):
             self.assertIn(needle, body, needle)
         # the deliverable path appears in S7 only as the promotion target / report label
         for forbidden in ('"--output-video", p.final_mp4', '"--output", p.final_mp4', '"--media", p.final_mp4',
+                          '"--output", p.final_candidate',
                           '"--final", p.final_mp4', '"--video", p.final_mp4'):
             self.assertNotIn(forbidden, body, forbidden)
 

@@ -202,6 +202,17 @@ def stabilize_clip(src: Path, out_dir: Path, *, max_crop: float = 0.20, smooth_s
     out_dir.mkdir(parents=True, exist_ok=True)
     dst = out_dir / src.name
     prov_path = out_dir / f"{src.stem}.stabilize.json"
+    params = {"max_crop": max_crop, "smooth_seconds": smooth_seconds, "out_size": list(out_size), "crf": crf,
+              "face_guard": face_guard}
+    if prov_path.is_file() and dst.is_file():
+        # idempotent re-entry (S7 re-run after a repair): same source bytes, same parameters, output intact -> reuse
+        try:
+            prior = json.loads(prov_path.read_text(encoding="utf-8"))
+        except ValueError:
+            prior = {}
+        if (prior.get("source_sha256") == sha256_file(src) and prior.get("params") == params
+                and prior.get("output_sha256") == sha256_file(dst)):
+            return dict(prior, reused=True)
     tf = cmm.frame_transforms(src, work_width=work_width)
     before = cmm.summarise(src, tf)
     fps, width, height, frames = tf["fps"], tf["width"], tf["height"], tf["frames"]
