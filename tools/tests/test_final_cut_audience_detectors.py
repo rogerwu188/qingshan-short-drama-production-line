@@ -395,7 +395,7 @@ class SubtitleReadbackTests(unittest.TestCase):
             media = Path(tmp) / "m.mp4"
             media.write_bytes(b"media")
             cache = Path(tmp) / "rb.json"
-            windows = [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0), (3.0, 4.0)]
+            windows = [(0.0, 30.0), (30.0, 60.0), (60.0, 90.0), (90.0, 120.0)]     # >= chunk size: no merging
             with mock.patch.object(fcd, "readback_transcribe", fake_transcribe), \
                     mock.patch.object(fcd.dvm, "media_sha256", lambda p: "sha-m"):
                 with self.assertRaises(KeyboardInterrupt):
@@ -404,9 +404,9 @@ class SubtitleReadbackTests(unittest.TestCase):
                 self.assertTrue(partial["partial"])
                 self.assertEqual(partial["windows_done"], 2)
                 segments, source = fcd.load_or_run_readback(media, cache, model="small", windows=windows)
-            self.assertEqual([s["start"] for s in segments], [0.0, 1.0, 2.0, 3.0])
+            self.assertEqual([s["start"] for s in segments], [0.0, 30.0, 60.0, 90.0])
             self.assertIn("resumed_from_window_2", source)
-            self.assertEqual(calls, [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0), (3.0, 4.0)])
+            self.assertEqual(calls, [(0.0, 30.0), (30.0, 60.0), (60.0, 90.0), (90.0, 120.0)])
             self.assertFalse(json.loads(cache.read_text())["partial"])
 
 
@@ -437,3 +437,17 @@ class ReadbackSegmentFilterTests(unittest.TestCase):
         row = fcd.decide_subtitle_agreement(cues, readback, similarity=0.8, window_s=1.0, min_agreement=0.95, outside_max_s=1.0)
         self.assertEqual(row["status"], "PASS")
         self.assertEqual(row["measured"]["readback_segments_dropped_as_noise"], 1)
+
+
+class ReadbackChunkingTests(unittest.TestCase):
+    def test_consecutive_unit_windows_merge_into_context_sized_chunks(self):
+        windows = [(0.0, 4.3), (4.3, 9.0), (9.0, 15.5), (15.5, 22.0), (22.0, 27.0), (27.0, 31.0), (31.0, 60.0), (60.0, 63.0)]
+        chunks = fcd.group_readback_windows(windows, min_s=25.0)
+        self.assertEqual(chunks[0], [0.0, 27.0])          # grew until >= 25 s, never split a unit
+        self.assertEqual(chunks[1], [27.0, 60.0])
+        self.assertEqual(chunks[2], [60.0, 63.0])         # the tail stays its own chunk
+        self.assertEqual(fcd.group_readback_windows(None), [])
+
+    def test_a_gap_between_windows_starts_a_new_chunk(self):
+        chunks = fcd.group_readback_windows([(0.0, 5.0), (8.0, 12.0)], min_s=25.0)
+        self.assertEqual(chunks, [[0.0, 5.0], [8.0, 12.0]])

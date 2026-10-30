@@ -561,10 +561,32 @@ def readback_transcribe(media: Path, *, model: str, language: str = "zh",
     return rows
 
 
+READBACK_CHUNK_MIN_S = 25.0
+
+
+def group_readback_windows(windows: Sequence[Sequence[float]] | None, min_s: float = READBACK_CHUNK_MIN_S) -> list[list[float]]:
+    """Merge consecutive release segments into chunks of >= ``min_s`` seconds.
+
+    Whisper decodes a 4–7 s unit window badly (no context: it echoed the previous unit's tail and dropped the
+    second line of E12 VU-036), while the same 12 s read as one piece came out in order and complete.  Chunks
+    of ~25–35 s keep context, stay small enough for the incremental cache, and never split a unit."""
+    if not windows:
+        return []
+    rows = sorted([float(a), float(b)] for a, b in windows if float(b) > float(a))
+    chunks: list[list[float]] = []
+    for a, b in rows:
+        if chunks and (chunks[-1][1] - chunks[-1][0]) < min_s and a <= chunks[-1][1] + 0.5:
+            chunks[-1][1] = max(chunks[-1][1], b)
+        else:
+            chunks.append([a, b])
+    return chunks
+
+
 def load_or_run_readback(media: Path, cache: Path | None, *, model: str,
                          windows: Sequence[Sequence[float]] | None = None) -> tuple[list[dict[str, Any]], str]:
-    """Reuse a cached read-back bound to this media's sha256; otherwise transcribe (per window when given) and
-    write the cache incrementally, so a killed run resumes from the last finished window."""
+    """Reuse a cached read-back bound to this media's sha256; otherwise transcribe (per chunk of release
+    segments when given) and write the cache incrementally, so a killed run resumes from the last finished chunk."""
+    windows = group_readback_windows(windows) if windows else None
     sha = dvm.media_sha256(media)
     payload: Any = None
     if cache and cache.is_file():
