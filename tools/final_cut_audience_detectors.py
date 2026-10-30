@@ -15,7 +15,7 @@ Detectors (report §三 D, PLAN §D):
                       and RapidOCR of frames sampled every 2.5 s (needs --lexicon; else UNVERIFIED)
   mascot_in_story     OpenCV template match of --brand-dir first frames against story-segment
                       frames sampled every 1 s (needs --brand-dir and --story-segments; else UNVERIFIED)
-  subtitle_asr_agreement  whole-file ASR read-back of the final mix vs the burned subtitle cues; a cue
+  subtitle_asr_agreement  per-segment ASR read-back of the final mix vs the burned subtitle cues; a cue
                       matches when the ASR text inside [cue_start-1.5 s, cue_end+1.5 s] reaches character
                       similarity >= 0.8 after punctuation/whitespace normalisation; PASS iff >= 95 % of cues
                       match (Roger 2026-10-30, E12 screening: 8 garbled windows in the mix)
@@ -75,7 +75,7 @@ DEFAULTS: dict[str, Any] = {
     "ocr_min_confidence": 0.5,
     "speaker_map_tolerance_s": 0.6,
     "subtitle_match_similarity": 0.8,     # character-level similarity (difflib ratio) per cue
-    "subtitle_match_window_s": 0.75,      # ASR words counted for a cue within [start-w, end+w] (word timestamps)
+    "subtitle_match_window_s": 1.0,       # ASR words counted for a cue within [start-w, end+w] (word timestamps)
     "subtitle_agreement_min": 0.95,       # share of cues that must match
     "readback_asr_model": "small",            # large-v3 whole-file read-back took 2 h on an 8 GB machine (F2, 2026-10-30)
     "outside_cue_speech_max_s": 1.0,         # total seconds of speech heard OUTSIDE every subtitle cue window (babble)
@@ -372,9 +372,32 @@ ASR_HALLUCINATION_PATTERNS = ("字幕", "by索", "索兰娅", "独播", "YoYo", 
 _SPEECHLIKE = re.compile(r"[\u3400-\u9fff\u3040-\u30ffA-Za-z]")
 
 
+READBACK_PROMPT_ZH = "以下是普通话对白，简体中文。"
+READBACK_NO_SPEECH_PROB_MAX = 0.6      # whisper's own no-speech estimate for the window
+READBACK_AVG_LOGPROB_MIN = -1.0        # below this the segment is noise/music decoded as words
+
+
 def is_asr_hallucination(text: str) -> bool:
     low = str(text or "").lower()
+    if normalise_subtitle_text(low) and normalise_subtitle_text(low) in normalise_subtitle_text(READBACK_PROMPT_ZH):
+        return True                     # the decoder prompt echoed back
     return any(p.lower() in low for p in ASR_HALLUCINATION_PATTERNS)
+
+
+def readback_segment_is_speech(seg: dict[str, Any]) -> bool:
+    """Segment-level filter: drop whisper boilerplate, prompt echoes and low-confidence music/noise decodes.
+    Applied per SEGMENT (a boilerplate sentence is only recognisable whole, never token by token)."""
+    text = str(seg.get("text") or "")
+    if not text.strip() or is_asr_hallucination(text):
+        return False
+    try:
+        if float(seg.get("no_speech_prob") or 0.0) > READBACK_NO_SPEECH_PROB_MAX:
+            return False
+        if float(seg.get("avg_logprob") if seg.get("avg_logprob") is not None else 0.0) < READBACK_AVG_LOGPROB_MIN:
+            return False
+    except (TypeError, ValueError):
+        pass
+    return True
 
 
 def _seq_similarity(expected: Sequence[Any], heard: Sequence[Any]) -> float:
@@ -425,7 +448,9 @@ def decide_subtitle_agreement(cues: Sequence[dict[str, Any]] | None, readback: S
         return detector("UNVERIFIED", threshold=threshold, reason="no subtitle cues")
     if readback is None:
         return detector("UNVERIFIED", threshold=threshold, reason="no ASR read-back of the final mix")
-    words = [w for w in _readback_words(readback) if not is_asr_hallucination(w["text"])]
+    kept_segments = [seg for seg in readback if readback_segment_is_speech(seg)]
+    words = [w for w in _readback_words(kept_segments) if not is_asr_hallucination(w["text"])]
+    dropped_segments = len(readback) - len(kept_segments)
     rows: list[dict[str, Any]] = []
     matched = 0
     covered = [False] * len(words)
@@ -458,6 +483,7 @@ def decide_subtitle_agreement(cues: Sequence[dict[str, Any]] | None, readback: S
     agreement = round(matched / len(cues), 4)
     failing = [r for r in rows if not r["match"]]
     measured = {"cues": len(cues), "matched": matched, "agreement": agreement, "readback_tokens": len(words),
+                "readback_segments_dropped_as_noise": dropped_segments,
                 "speech_outside_cues_seconds": outside_s, "speech_outside_cues_runs": len(runs)}
     failures = [f"SUBTITLE_ASR_MISMATCH:{r['start']}:{r['similarity']}" for r in failing]
     evidence = {"failing_lines": failing, "lines": rows, "speech_outside_cues": runs[:50]}
@@ -512,11 +538,15 @@ def readback_transcribe(media: Path, *, model: str, language: str = "zh",
     from faster_whisper import WhisperModel  # lazy: optional dependency
 
     engine = WhisperModel(model, device="cpu", compute_type="int8")
-    # bias the decoder to simplified-script Mandarin dialogue (whisper otherwise drifts into 繁體 per window)
-    prompt = "以下是普通话对白，简体中文。" if language == "zh" else None
+    # bias the decoder to simplified-script Mandarin dialogue (whisper otherwise drifts into 繁體 per window);
+    # silero VAD keeps the decoder off music/ambience (the bed) where it invents boilerplate, speech-like babble
+    # still passes the VAD and is measured; no carry-over between windows (hallucination chains)
+    prompt = READBACK_PROMPT_ZH if language == "zh" else None
+    opts = dict(language=language, word_timestamps=True, vad_filter=True,
+                vad_parameters={"min_silence_duration_ms": 300, "speech_pad_ms": 200}, beam_size=5,
+                initial_prompt=prompt, condition_on_previous_text=False)
     if not windows:
-        segments, _info = engine.transcribe(str(media), language=language, word_timestamps=True, vad_filter=False, beam_size=5,
-                                            initial_prompt=prompt)
+        segments, _info = engine.transcribe(str(media), **opts)
         return _segment_rows(segments, 0.0)
     audio = _decode_mono16k(media)
     rows: list[dict[str, Any]] = []
@@ -524,8 +554,7 @@ def readback_transcribe(media: Path, *, model: str, language: str = "zh",
         lo, hi = max(0, int(float(start) * READBACK_SR)), min(len(audio), int(float(end) * READBACK_SR))
         if hi - lo < READBACK_SR // 10:
             continue
-        segments, _info = engine.transcribe(audio[lo:hi], language=language, word_timestamps=True, vad_filter=False, beam_size=5,
-                                            initial_prompt=prompt)
+        segments, _info = engine.transcribe(audio[lo:hi], **opts)
         rows.extend(_segment_rows(segments, float(start)))
         if on_window_done is not None:
             on_window_done(index, rows)

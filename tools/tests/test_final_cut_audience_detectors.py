@@ -359,8 +359,9 @@ class SubtitleReadbackTests(unittest.TestCase):
 
     def test_whisper_boilerplate_is_not_speech(self):
         cues = [{"start": 3.0, "end": 5.0, "text": "冯兄客气了"}]
-        words = [("字幕by索兰娅", 0.2, 1.4), ("冯兄客气了", 3.1, 4.6)]
-        row = fcd.decide_subtitle_agreement(cues, self._readback(words), similarity=0.8, window_s=1.5,
+        # boilerplate comes as its own segment (a whole decoded sentence), the line as another
+        readback = self._readback([("字幕by索兰娅", 0.2, 1.4)]) + self._readback([("冯兄客气了", 3.1, 4.6)])
+        row = fcd.decide_subtitle_agreement(cues, readback, similarity=0.8, window_s=1.5,
                                             min_agreement=0.95, outside_max_s=1.0)
         self.assertEqual(row["status"], "PASS")
         self.assertEqual(row["measured"]["speech_outside_cues_seconds"], 0.0)
@@ -417,3 +418,22 @@ class CueSimilarityScriptTests(unittest.TestCase):
                                                    fcd.normalise_subtitle_text("等我們趕到後,那裡也光突突了")), 0.8)
         # English / gibberish still fails on both scripts
         self.assertLess(fcd.cue_similarity(fcd.normalise_subtitle_text("冯兄客气了"), fcd.normalise_subtitle_text("like a tester trained")), 0.5)
+
+
+class ReadbackSegmentFilterTests(unittest.TestCase):
+    def test_boilerplate_prompt_echo_and_noise_segments_are_dropped_whole(self):
+        self.assertFalse(fcd.readback_segment_is_speech({"text": "请不吝点赞 订阅 转发 打赏支持明镜与点点栏目", "no_speech_prob": 0.1, "avg_logprob": -0.3}))
+        self.assertFalse(fcd.readback_segment_is_speech({"text": "是普通话对白，简体中文。", "no_speech_prob": 0.1, "avg_logprob": -0.3}))
+        self.assertFalse(fcd.readback_segment_is_speech({"text": "冯兄客气了", "no_speech_prob": 0.9, "avg_logprob": -0.3}))
+        self.assertFalse(fcd.readback_segment_is_speech({"text": "冯兄客气了", "no_speech_prob": 0.1, "avg_logprob": -1.4}))
+        self.assertTrue(fcd.readback_segment_is_speech({"text": "冯兄客气了", "no_speech_prob": 0.1, "avg_logprob": -0.3}))
+
+    def test_dropped_segments_do_not_count_as_babble(self):
+        cues = [{"start": 3.0, "end": 5.0, "text": "冯兄客气了"}]
+        readback = [{"start": 0.0, "end": 2.0, "text": "优优独播剧场 YoYo Series Exclusive", "no_speech_prob": 0.2, "avg_logprob": -0.5,
+                     "words": [{"w": "优优", "s": 0.0, "e": 0.5}, {"w": "独播剧场", "s": 0.5, "e": 1.2}, {"w": "YoYo", "s": 1.2, "e": 2.0}]},
+                    {"start": 3.1, "end": 4.6, "text": "冯兄客气了", "no_speech_prob": 0.05, "avg_logprob": -0.2,
+                     "words": [{"w": "冯兄客气了", "s": 3.1, "e": 4.6}]}]
+        row = fcd.decide_subtitle_agreement(cues, readback, similarity=0.8, window_s=1.0, min_agreement=0.95, outside_max_s=1.0)
+        self.assertEqual(row["status"], "PASS")
+        self.assertEqual(row["measured"]["readback_segments_dropped_as_noise"], 1)
