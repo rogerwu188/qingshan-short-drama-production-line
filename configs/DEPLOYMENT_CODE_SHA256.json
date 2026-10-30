@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2276,
+  "file_count": 2277,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -833,7 +833,7 @@
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "2113369f145e51ce26870a7331da3140753565f0efd88e74d627bb6e1fc444df"
+      "sha256": "93f41b8a78b4aef295ea21487ae880903404e7b62d7637e7fe4cd506402b9b8c"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
@@ -845,7 +845,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "b541304da9a3b070b432822cf8c33e58e4ef42ef78e4882c60939f1cc010ffe5"
+      "sha256": "5b316e572f1a016ca1aec486b95acd4948e249c5406e81b96469ea031151e86d"
     },
     {
       "path": "skills/nalu-claude-code/scripts/configure_claude_code.py",
@@ -853,7 +853,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/configure_codex.py",
-      "sha256": "c0a937ecc65fc3626a99b83693ee3e1436f2419167085b93c1936595f22754df"
+      "sha256": "8500ce76bf40c036cae0f255a4211235c8b4fc1afdb4bd478dfc49e0b3b1929c"
     },
     {
       "path": "skills/nalu-claude-code/scripts/list_voices.sh",
@@ -885,7 +885,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/setup_host.sh",
-      "sha256": "294d7fe99dd66435934f53137b84cf9045644225847882d11117812eebb028c5"
+      "sha256": "cd1c1cc0c5d1b39bc46d1223bcec7d507fadc957574fe9bc89820127c62a0065"
     },
     {
       "path": "skills/qingshan-nalu/SKILL.md",
@@ -7816,6 +7816,10 @@
       "sha256": "233dbe0767c8b5e8059f1d51a3900939cde5df4b6a5b88d0322130ecc378f3f8"
     },
     {
+      "path": "tools/tests/test_nalu_budget_audio_spend.py",
+      "sha256": "eb585d9bfb1161a47d83fdb3b54394fd8de4dc746ac4d6bef0b20e3484fa8152"
+    },
+    {
       "path": "tools/tests/test_nalu_budget_reservation.py",
       "sha256": "2876dd9ad85e6d9710539f3c4547b15d7446cdcb39493860c6b09367e4e88c73"
     },
@@ -7837,7 +7841,7 @@
     },
     {
       "path": "tools/tests/test_nalu_codex_executor.py",
-      "sha256": "21721cac218551694546d838edde51f6014a05d8f042722f12b184aa0f76ea3b"
+      "sha256": "fce3333ad47e35302e7f73da45c493524182b16b2f40ff600870cce000e91e4e"
     },
     {
       "path": "tools/tests/test_nalu_current_policy_profile.py",
