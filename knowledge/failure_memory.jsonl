@@ -85,3 +85,7 @@
 {"failure_code": "COPRESENT_VOICES_UNDER_40HZ_APART", "do_not_repeat": "不要用相对比例替代绝对 Hz 间距；不要把 REQUIRES_HUMAN 当作放行；不要在 voice_distinctness FAIL 时提交 S8", "stage": "S4", "scope": "generalizable", "knowledge_id": "K135"}
 {"failure_code": "GARBLED_SPEECH_PASSED_S7_WITHOUT_READBACK", "do_not_repeat": "不要只用逐单元 ASR 窗当作可懂度证据；不要把回读的静音段剔除再算匹配率；不要调低相似度阈值让乱语过门", "stage": "S7", "scope": "generalizable", "knowledge_id": "K136"}
 {"failure_code": "RESOLUTION_SWITCH_WITHOUT_LEGACY_FINGERPRINT_MATCH", "do_not_repeat": "不要在提交器/流水线/账本写分辨率字面量；切换模型或分辨率时先确认事务恢复仍能识别旧指纹；单价未从账单核实前不要降低预留上限", "stage": "PROVIDERS", "scope": "generalizable", "knowledge_id": "K137"}
+{"failure_code": "H3_BABBLE_ON_SILENT_BEATS", "do_not_repeat": "不要留下没有语音指令的拍子；不要只用逐单元 ASR 召回率当作可懂度证据；不要让实测剪辑约束把未匹配到契约的语音当对白保护", "stage": "S6", "scope": "generalizable", "knowledge_id": "K138"}
+{"failure_code": "DIALOGUE_UNITS_AUTHORED_WITH_CAMERA_MOVES", "do_not_repeat": "不要靠稳定化补救写进提示词的运镜；不要让适配层为了过静态设计门而给对白单元强加运镜；度量重剪派生片时要屏蔽内部切点", "stage": "S2", "scope": "generalizable", "knowledge_id": "K139"}
+{"failure_code": "TRUE_PEAK_OVERSHOOT_AFTER_AAC_ENCODE", "do_not_repeat": "不要在 48 kHz 直接限真峰值；不要把限幅值设在交付上限上；不要在响度器之后再改音轨", "stage": "S7", "scope": "generalizable", "knowledge_id": "K140"}
+{"failure_code": "READBACK_GATE_UNUSABLE_ON_PRODUCTION_MACHINE", "do_not_repeat": "不要在 8 GB 机器上整片跑 large-v3；不要逐单元解码；不要只凭 no_speech_prob 丢段；不要把同音/繁简差异算作语音缺陷", "stage": "S7", "scope": "generalizable", "knowledge_id": "K141"}

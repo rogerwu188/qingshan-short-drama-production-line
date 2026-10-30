@@ -2952,6 +2952,107 @@
       "failure_code": "RESOLUTION_SWITCH_WITHOUT_LEGACY_FINGERPRINT_MATCH",
       "do_not_repeat": "不要在提交器/流水线/账本写分辨率字面量；切换模型或分辨率时先确认事务恢复仍能识别旧指纹；单价未从账单核实前不要降低预留上限",
       "sync_slug": "E12-image-1k-default"
+    },
+    {
+      "scope": "generalizable",
+      "episode": "E12",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "Roger 2026-10-30 E12 成片审看结论（FAIL）+ F2/F4/F5 分支实测",
+      "runtime_gate_added": false,
+      "id": "K138",
+      "key": "h3-vocalises-beats-without-a-dialogue-literal",
+      "stage": "S6",
+      "category": "PROMPT",
+      "rule": "H3 会给没有台词字面的拍子（开口前的空拍、两句之间的停顿、无台词单元）自己配音——胡话、英文或同音乱词。每个无台词拍子必须显式写「此拍无语音、嘴闭合」，一个 4 s 单元里不要在 2.5 s 静拍后接 ≤3 字短句；成片门必须整片回读比对字幕，而不是只靠逐单元召回率。",
+      "lesson": "E12 2026-10-30：线主听出 8 段乱语，根因全部是 a 类（H3 填满静拍），提示词里的中文字面都正确；小模型 ASR 查到 19/53 单元有脱稿语音。对白门只查召回率，D-28 的 VAD 复核把 VU-050 救回，实测剪辑约束又把 VU-041 的胡话当对白保护了。",
+      "recovery": "免费：重剪（unit_recut，丢胡话段 + 反应插入 / 只换胡话段音轨为底噪）；付费：改提示词重投（不得同提示词）。成片门 subtitle_asr_agreement 同时测「字幕之外的语音秒数」。",
+      "implementation": [
+        "lines/nalu/runtime/tools/unit_recut.py",
+        "tools/final_cut_audience_detectors.py"
+      ],
+      "regression": "tools/tests/test_final_cut_audience_detectors.py",
+      "evidence": "F2_report.md（E12_repair_20261030）：8 窗口逐一归因；VU-033/037 同模式；F6 v2 重剪后 whisper 听到全部契约台词",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "failure_code": "H3_BABBLE_ON_SILENT_BEATS",
+      "do_not_repeat": "不要留下没有语音指令的拍子；不要只用逐单元 ASR 召回率当作可懂度证据；不要让实测剪辑约束把未匹配到契约的语音当对白保护",
+      "sync_slug": "E12-h3-babble-silent-beats"
+    },
+    {
+      "scope": "generalizable",
+      "episode": "E12",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "Roger 2026-10-30 E12 成片审看结论（FAIL）+ F2/F4/F5 分支实测",
+      "runtime_gate_added": false,
+      "id": "K139",
+      "key": "dialogue-camera-default-locked-is-a-writer-layer-rule",
+      "stage": "S2",
+      "category": "DIRECTOR",
+      "rule": "对白单元默认固定机位；运镜必须由剧本/导演层明写，且单元内不得换向。这条规则必须落在写作/导演适配层，后处理稳定化只能去抖动，救不回被写进提示词的整幅位移。",
+      "lesson": "E12 2026-10-30：adapt_v4_layers_to_runtime 的对白家族「永不 LOCKED」且交替换向，52/53 个对白单元都带运镜，20/53 自带换向；H3 把它们做成近一个画幅宽的位移，锁定需裁 ≥99%。稳定化后锁定 0→1/53、不稳定 12→7，离 ≥70% 目标无望；重投 ~52 单元 ≈3,200 cr。",
+      "recovery": "S7 新增 camera_motion_metrics + clip_lockoff_stabilize（SMOOTH 去抖、裁切上限 20%、人脸保护）与 FINAL-CUT-CAMERA-MOTION 门（如实 FAIL，订单承载）；提示词规则补丁与 camera_move_lint 已起草待落写作层。",
+      "implementation": [
+        "lines/nalu/runtime/tools/camera_motion_metrics.py",
+        "lines/nalu/runtime/tools/clip_lockoff_stabilize.py",
+        "lines/nalu/runtime/tools/nalu_pipeline.py"
+      ],
+      "regression": "tools/tests/test_camera_motion_metrics.py",
+      "evidence": "F5_report.md：53 单元 before/after 表；E12_CAMERA_MOTION_METRICS_BEFORE.json 0/53 锁定",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "failure_code": "DIALOGUE_UNITS_AUTHORED_WITH_CAMERA_MOVES",
+      "do_not_repeat": "不要靠稳定化补救写进提示词的运镜；不要让适配层为了过静态设计门而给对白单元强加运镜；度量重剪派生片时要屏蔽内部切点",
+      "sync_slug": "E12-dialogue-camera-locked-rule"
+    },
+    {
+      "scope": "generalizable",
+      "episode": "E12",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "Roger 2026-10-30 E12 成片审看结论（FAIL）+ F2/F4/F5 分支实测",
+      "runtime_gate_added": false,
+      "id": "K140",
+      "key": "true-peak-limit-needs-oversampling-and-aac-headroom",
+      "stage": "S7",
+      "category": "AUDIO",
+      "rule": "成片响度链的真峰值限幅必须 4 倍过采样，并给 AAC 编码留 ≥2.5 dB 余量（限幅 −2.5 dBFS 才能稳定 ≤ −1.0 dBTP）；移调等改音轨的阶段放在响度器之前，铺底/垫乐只做静态增益。",
+      "lesson": "E12 2026-10-30：两遍线性 loudnorm 分支的 alimiter 在 48 kHz 跑，重剪接缝让成片到 −0.8 dBTP；加过采样后仍 −0.8，实测 AAC 编码会把已限幅峰值再抬 0.3–1.0 dB（−1.5 限幅 → −0.8，−2.5 → −2.0）。移调放在响度器之后时真峰值升到 −1.0，铺底为守峰值把综合响度让到 −15.3。",
+      "recovery": "level_native_release_audio 线性分支 aresample=192000 + alimiter −2.5 dB；S7 顺序：移调 → 响度器 → 铺底 → 候选片；响度器输出不可变，画面变了就按 sha 停放旧证据。",
+      "implementation": [
+        "tools/level_native_release_audio.py",
+        "lines/nalu/runtime/tools/nalu_pipeline.py",
+        "lines/nalu/runtime/tools/final_cut_audio_bed.py"
+      ],
+      "regression": "tools/tests/test_native_audio_loudness_contract.py",
+      "evidence": "E12_NATIVE_AUDIO_LOUDNESS 2026-10-30 两次 FAIL RELEASE_TRUE_PEAK_EXCEEDS_CEILING:-0.8；限幅余量实验 tp_test_*.m4a",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "failure_code": "TRUE_PEAK_OVERSHOOT_AFTER_AAC_ENCODE",
+      "do_not_repeat": "不要在 48 kHz 直接限真峰值；不要把限幅值设在交付上限上；不要在响度器之后再改音轨",
+      "sync_slug": "E12-true-peak-aac-headroom"
+    },
+    {
+      "scope": "generalizable",
+      "episode": "E12",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "Roger 2026-10-30 E12 成片审看结论（FAIL）+ F2/F4/F5 分支实测",
+      "runtime_gate_added": false,
+      "id": "K141",
+      "key": "final-mix-readback-method-on-an-8gb-machine",
+      "stage": "S7",
+      "category": "QA",
+      "rule": "整片回读用 faster-whisper small/medium、按 ≥25 s 连续段整块解码（不要逐单元）、silero VAD、简体提示词、不带上下文续接、断点续传缓存；噪声段只在 no_speech>0.6 且 logprob<−1.0 同时成立时丢弃；字幕比对用 字符与拼音的 partial ratio，并统计字幕之外的语音秒数。",
+      "lesson": "E12 2026-10-30：large-v3 整片回读 2 小时被杀；逐单元窗口丢上下文（回声上一单元尾、漏第二句）；铺底让 no_speech 升到 0.6–0.7 把整段清晰对白当噪声丢掉；小形标点和同音错字把匹配率压到 35%。修正后同一缓存 23→54/65。",
+      "recovery": "tools/final_cut_audience_detectors.py subtitle_asr_agreement + load_or_run_readback；S7 用 NALU_S7_ASR_MODEL 控制模型。",
+      "implementation": [
+        "tools/final_cut_audience_detectors.py"
+      ],
+      "regression": "tools/tests/test_final_cut_audience_detectors.py",
+      "evidence": "scratchpad e12_repair/final/E12_DETECTORS_candidate_v2*.json 五次迭代；medium 逐单元 781 s",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "failure_code": "READBACK_GATE_UNUSABLE_ON_PRODUCTION_MACHINE",
+      "do_not_repeat": "不要在 8 GB 机器上整片跑 large-v3；不要逐单元解码；不要只凭 no_speech_prob 丢段；不要把同音/繁简差异算作语音缺陷",
+      "sync_slug": "E12-readback-method"
     }
   ]
 }
