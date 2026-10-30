@@ -28,7 +28,7 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
   上游缺陷、改了能跑通。遇到代码缺口：把复现命令、日志、文件与行号写进
   `workflow/nalu/<EP>/preproduction/reports/<EP>_CODE_BLOCKER_<日期>.md`，本轮以 `BLOCKED` 结束（note 写报告路径），
   由维护者修上游后发新版。心跳会检查引擎是否被改，改动会被存档并上报，下次换引擎时会被清掉——本机补丁不会留下来。
-- 必须停下的只有：追加一次预算后仍不够（§3）、订单范围外的新付费类别（例如换装 i2i；背景音乐不算，见 §3）、Giggle key 缺失或失效、S6 视频所需的 HopsAPI key（`HOPSAPI_API_KEY`）缺失或失效。
+- 必须停下的只有：追加一次预算后仍不够（§3）、订单范围外的新付费类别（例如换装 i2i；背景音乐不算，见 §3）、Giggle key 缺失或失效、S3/S5 图片与 S6 视频所需的 HopsAPI key（`HOPSAPI_API_KEY`）缺失或失效。
 
 ## 2.0 编剧：叙事正典与生产简报（你写，免费；线主 2026-10-22）
 编排代理只选原著、派单和汇报，**所有剧本层都由你写**（代理的聊天上下文装不下长稿）。本线是 LEGACY_EPISODE_COMPAT，直接写到下面的
@@ -169,12 +169,20 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
   会自动复用旧译文；源文改了（重写剧本、改镜头）才会重新出现在请求里，重译即可。S6 定稿后（加上身份图、配音 URL）还会按定稿任务再核一次，
   可能再请求一次同样格式的翻译。
   H3 每个单元最多 9 张参考图、带对白的单元最长 10 秒且最多 2 句、一个单元只有一个说话人；配音参考走公网 URL（S4 已上传）。
+- **图片走 HopsAPI gpt-image-2**（线主 2026-10-30）：S3 身份牌/头像/半身/多视图表、道具/场景卡，S5 关键帧/起始帧和关键帧重做，
+  一律经 HopsAPI（`POST /v1/router/task/create`，无参考图 `Txt2Img`、有参考图 `Img2Img`，模型 `gpt-image-2`，9:16 → `1152x2048`，
+  quality 默认 `high`，可用 `HOPSAPI_IMAGE_QUALITY` / `generation.hopsapi_image_quality` 调）。需要 `HOPSAPI_API_KEY`（`paid_stage.sh` 跑到 S3/S5 时检查）；
+  计划价 1.2 积分/张（整批向上取整，`HOPSAPI_IMAGE_CREDITS_PER_IMAGE` 可调），实际扣费是每个任务的 `cost`（实测高质量关键帧 0.97），收割时写进事务、记入账本。
+  **参考图预处理规则**：长边 > 4096 px、或长宽比 > 3:1、或文件 > 20 MB 的参考图，上传前 Lanczos 缩到长边 2048（保持比例）、重编码 PNG
+  （仍 > 20 MB 则 JPEG）；盘上原文件不动，事务里记原图/发送图的 sha 和尺寸（集空间全景图 16000×2200 原样上传会让提供方每次 424 失败）。
+  参考图最多 16 张，超出按引擎优先顺序丢最后的并记录。HopsAPI 任务失败（status 3/4）不扣费，下次运行会自动换新尝试；响应丢失（超时/5xx）不重发，先查 HopsAPI 控制台。
+  回滚：`NALU_IMAGE_PROVIDER=giggle` 或 `generation.image_provider: "giggle"`（gpt-image-2-pro，约 11 积分/张）。下文「约 11 积分」的关键帧价在 HopsAPI 下按 1.2 计。
 - **S5 关键帧**：先过整批提示词门：`$S/prompt_batch_prepare.sh <EP>` → 通读 `workflow/nalu/<EP>/preproduction/planned_video_prompts/*.txt`、`prompts/keyframes/*.txt`、`reports/<EP>_PROMPT_BATCH_DIGEST.json` →
   写 `reports/<EP>_PROMPT_BATCH_ANSWERS.json`（`{"schema":"nalu.prompt_batch_answers.v1","reviewer":"claude-code","review_method":"CLAUDE_STRUCTURED_PROMPT_REVIEW","reviewed_at":…,"units":{"<UNIT>":{"verdict":"PASS","cross_unit_continuity_checked":true,"observation":"…"}}}`）→ `$S/prompt_batch_finish.sh <EP>`（必须 register PASS）→ `paid_stage.sh <EP> S5 S5`。
   之后有 keyframe Q1、start_frame 审核。改了剧本：重跑构建器 → `run --until S2` → prepare/finish → S5。被拒关键帧：把 `keyframes/<shot>-keyframe-v1.png` 和 `keyframe_harvest/_raw/<shot>*` 移走再跑。
 - **S6 视频**（`paid_stage.sh <EP> S6 S6`）：先 action_role 审核，再波次提交。MiniMax-H3 视频走 **HopsAPI**（线主 2026-10-29，`POST /v1/router/task/create`，OmniVideo，768p），
   需要环境变量 `HOPSAPI_API_KEY`（与 Codex 同一个 key；可选 `HOPSAPI_BASE_URL`、`HOPSAPI_CONSOLE_URL`），**S6 没有它就停在 `VIDEO_PROVIDER_KEY_MISSING`**；
-  图片（S3/S5）、配音（S4）、配乐（S6 BGM）仍走 Giggle，`GIGGLE_API_KEY` 照旧必需。计划价约 1.56 积分/秒（向上取整，可用 `HOPSAPI_H3_CREDITS_PER_SECOND` 调），
+  配音（S4）、配乐（S6 BGM）仍走 Giggle，`GIGGLE_API_KEY` 照旧必需（图片已改走 HopsAPI，见上）。计划价约 1.56 积分/秒（向上取整，可用 `HOPSAPI_H3_CREDITS_PER_SECOND` 调），
   实际扣费是每个任务完成时 HopsAPI 返回的 `cost`（与 Giggle 积分同单位），收割时写进事务、记入本集预算账本。回滚到 Giggle：`NALU_VIDEO_PROVIDER=giggle`
   或运行时 `qingshan.json` 的 `generation.video_provider: "giggle"`（Giggle 价：每任务约 14 积分/秒 + 6 积分）。HopsAPI 只接受 4–15 s 整数秒，3 s 单元会在提交前被拒（不扣费），重编到 4 s 再提交。`VIDEO_NOT_ALL_COMPLETED` 是正常等待：`sleep 240` 后再跑同一命令，最多连续等 30 分钟；仍未完成就结束本轮报 `WAITING_REMOTE`。
 - S6 预检报 `MISSING_ANCHOR_FOR_CANONICAL_ENTITY`（多人单元，常见于 E01）：多人关键帧只给一个角色当人物参考，其余角色需要自己的身份牌，而 E01 的身份牌不在锁定资产库里。用引擎支持的覆盖文件补：`$NALU_RUNTIME_ROOT/preproduction/<EP>/identity_reference_overrides.json` 写 `{"units": {"<unit_id>": [{"character_id": "CHAR-…", "path": "<该角色 S3 已过审的正脸身份牌绝对路径>", "role": "CHARACTER_IDENTITY_REFERENCE"}]}}`（只补缺锚的角色），再重跑 S6 编译与预检。这不是绕门，不写 CODE_BLOCKER。

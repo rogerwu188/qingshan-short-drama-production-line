@@ -265,6 +265,31 @@ def video_provider_for(model: str) -> str:
 def video_key_env(model: str) -> str:
     return _hopsapi().required_key_env(video_provider_for(model))
 
+
+def _image_client():
+    """tools/hopsapi_image_client.py (engine, no network at import)."""
+    if str(ENGINE) not in sys.path:
+        sys.path.insert(0, str(ENGINE))
+    from tools import hopsapi_image_client  # noqa: PLC0415
+    return hopsapi_image_client
+
+
+def image_provider_info() -> dict[str, str]:
+    """The image transport (owner 2026-10-30): env NALU_IMAGE_PROVIDER > qingshan.json
+    generation.image_provider > hopsapi when HOPSAPI_API_KEY is set, else giggle.  Resolved here (the
+    process holding the keys) and handed to every child as NALU_IMAGE_PROVIDER."""
+    return _image_client().resolve_image_provider(config_path=CONFIG_PATH)
+
+
+def image_batch_credits(ctx: "Ctx", images: int) -> int:
+    """Planned credits for ``images`` image tasks: HopsAPI gpt-image-2 at the configurable per-image
+    rate, batch rounded up (default 1.2); Giggle at the cost plan's image_credits_per_task (11)."""
+    if image_provider_info()["provider"] == "hopsapi":
+        return _image_client().estimated_batch_credits(images, config_path=CONFIG_PATH)
+    cost_plan = getattr(ctx, "cost_plan", None) or {}
+    per = int(((cost_plan.get("price_basis") or {}).get("image_credits_per_task")) or 11)
+    return max(0, int(images or 0)) * per
+
 TERMINAL_OK = {PASS, SKIPPED}
 
 
@@ -1133,6 +1158,10 @@ class Ctx:
             env["QINGSHAN_CHARACTER_REGISTRY"] = str(self.p.scope["character_registry"])
         try:
             env["NALU_VIDEO_PROVIDER"] = video_provider_info()["provider"]
+        except ValueError:
+            pass  # an invalid explicit value stays as given; the submitter refuses it
+        try:
+            env["NALU_IMAGE_PROVIDER"] = image_provider_info()["provider"]
         except ValueError:
             pass  # an invalid explicit value stays as given; the submitter refuses it
         if paid:
@@ -2418,6 +2447,8 @@ def s3_transaction_bound(ctx: Ctx, row: dict[str, Any]) -> bool:
             / f"{row['id']}__{fingerprint[:16]}.json")
     if path.is_file():
         transaction = read_json(path, {}) or {}
+        if _image_client().terminal_failed_binding(transaction):
+            return False  # HopsAPI task failed uncharged: the submitter retires it and POSTs again
         return (transaction.get("submission_fingerprint") == fingerprint
                 and transaction.get("state") == "SUBMITTED_TASK_ID_BOUND"
                 and bool(transaction.get("task_id")))
@@ -2503,6 +2534,7 @@ def stage_s3(ctx: Ctx) -> StageResult:
     library = load_cross_episode_library(ctx.p.scope)
     already = locked_subjects(library)
     image_credits = int(((ctx.cost_plan.get("price_basis") or {}).get("image_credits_per_task")) or 11)
+    image_provider = image_provider_info()
 
     res = StageResult(PASS)
     res.steps = []
@@ -2512,6 +2544,7 @@ def stage_s3(ctx: Ctx) -> StageResult:
         "plan": str(p.identity_plan),
         "rounds": [],
         "image_credits_per_task": image_credits,
+        "image_provider": image_provider,
     }
     res.receipts = [str(p.identity_report), str(p.identity_match),
                     str(p.identity_library_gate), str(p.identity_plan)]
@@ -2640,9 +2673,9 @@ def stage_s3(ctx: Ctx) -> StageResult:
             "--watch", "--interval", 15,
         ]
         if new_rows:
-            planned = len(new_rows) * image_credits
+            planned = image_batch_credits(ctx, len(new_rows))
             total_planned += planned
-            ctx.say(f"   round {round_no}: {len(new_rows)} new rows × {image_credits} cr = {planned} cr "
+            ctx.say(f"   round {round_no}: {len(new_rows)} new rows via {image_provider['provider']} = {planned} cr "
                     f"({len(deferred)} view rows deferred to the next round)")
             auth_status, auth_plan, auth = materialize_paid_authorization(
                 ctx, res, sid="S3", target=subset_plan, is_plan=True,
@@ -2677,7 +2710,8 @@ def stage_s3(ctx: Ctx) -> StageResult:
                       f"seq={ctx.authority.get('paid_order_seq')} "
                       "order id, provider_post_allowed true).  Rows with reference_images go to "
                       "/api/v1/generation/image-to-image (own base plate or line-owner-supplied source photo), "
-                      "rows without go to text-to-image.  Durable transaction store: "
+                      "rows without go to text-to-image (image_provider=hopsapi: HopsAPI gpt-image-2 "
+                      "Img2Img / Txt2Img, references preprocessed + uploaded).  Durable transaction store: "
                       f"{ENGINE}/workflow/tasks/giggle_submit_transactions/{ctx.episode}/ — "
                       "re-running never re-charges an already-fingerprinted row."))
             res.steps.append(submit)
@@ -2688,13 +2722,14 @@ def stage_s3(ctx: Ctx) -> StageResult:
                 return res
             if status == DRY:
                 res.status = DRY
-                ctx.say("   next (free, needs GIGGLE_API_KEY, no new POST):")
+                ctx.say("   next (free, needs the image provider's key, no new POST):")
                 ctx.say(f"     {q(harvest_argv)}")
                 ctx.planned_commands.append({
                     "stage": "S3", "step": f"s3_harvest_giggle_image_batch_r{round_no}",
                     "planned_credits": 0, "paid_argv": [str(x) for x in harvest_argv],
                     "paid_command": q(harvest_argv),
-                    "note": "download only, needs GIGGLE_API_KEY, issues no generation POST"})
+                    "note": "download only, needs the image provider's key (GIGGLE_API_KEY / HOPSAPI_API_KEY), "
+                            "issues no generation POST"})
                 if deferred:
                     ctx.say(f"   (dry) {len(deferred)} view rows would be planned in round {round_no + 1} "
                             "once these base plates are harvested")
@@ -3929,10 +3964,14 @@ def stage_s5(ctx: Ctx) -> StageResult:
     res.details["d46_needs_post"] = needs_post
     res.details["d46_already_admitted"] = keyframes_done
     planned = ctx.planned_credits("S5")
-    if keyframes_done and needs_post:
+    res.details["image_provider"] = image_provider_info()
+    if res.details["image_provider"]["provider"] == "hopsapi":
+        # HopsAPI gpt-image-2 (owner 2026-10-30): exactly the images this run will POST, at the
+        # configurable per-image planning rate, rounded up.  The cost plan's figure is Giggle-priced.
+        planned = image_batch_credits(ctx, len(needs_post))
+    elif keyframes_done and needs_post:
         # a partial redo plans only the images it will POST, not the whole-episode default estimate
-        image_credits = int(((ctx.cost_plan.get("price_basis") or {}).get("image_credits_per_task")) or 11)
-        planned = min(planned, len(needs_post) * image_credits)
+        planned = min(planned, image_batch_credits(ctx, len(needs_post)))
     if not needs_post:
         # Nothing to generate.  Do not materialise authority, do not POST, do not harvest — go
         # straight to the Q1 admission tail, which is what decides whether S5 is done.
@@ -4001,7 +4040,7 @@ def stage_s5(ctx: Ctx) -> StageResult:
             # rejected today — say so instead of implying it is ready to submit
             lines = [row for row in (precheck.get("stderr_tail") or "").splitlines() if row.strip()]
             res.blockers.append("KEYFRAME_MANIFEST_PRECHECK_FAILS:" + (lines[-1] if lines else "?"))
-        ctx.say("   then (needs GIGGLE_API_KEY, no new POST, no dry mode exists):")
+        ctx.say("   then (needs the image provider's key, no new POST, no dry mode exists):")
         ctx.say(f"     {q(harvest_argv)}")
         ctx.planned_commands.append({
             "stage": "S5", "step": "s5_harvest_giggle_image_batch", "planned_credits": 0,
@@ -6768,7 +6807,8 @@ def s6_q2_auto_redo(ctx: Ctx) -> dict[str, Any]:
     def unit_cost(uid: str) -> int:
         # video at the planning price (HopsAPI per-second estimate on the router) + an own keyframe only when the
         # failure needs a new start frame (a push-in redo keeps its start frame; owner 2026-10-29)
-        keyframe = _redo.OWN_KEYFRAME_CREDITS if _redo.needs_own_keyframe(_redo.objective_failures(rows.get(uid) or {})) else 0
+        keyframe = (image_batch_credits(ctx, 1) if _redo.needs_own_keyframe(_redo.objective_failures(rows.get(uid) or {}))
+                    else 0)
         return video_task_credits(model, seconds.get(uid, 6.0), 1) + keyframe
 
     headroom = None

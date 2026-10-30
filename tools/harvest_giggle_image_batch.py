@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Poll and download a submitted Giggle image batch without resubmission."""
+"""Poll and download a submitted image batch without resubmission (Giggle or HopsAPI task ids).
+
+HopsAPI rows (``provider: hopsapi`` / ``tsk_`` ids, owner 2026-10-30) are queried through
+tools/hopsapi_image_client.py, downloaded + verified to the SAME file name the Giggle harvest uses
+(``<EP>_<task key>_<task id>.png``), and their settled ``cost`` is written onto the durable
+transaction (``provider_cost_credits``) for nalu_budget_ledger.py."""
 
 from __future__ import annotations
 
@@ -17,13 +22,15 @@ from urllib.request import Request, urlopen
 try:
     from giggle_api_client import query_task
     from submit_giggle_task_manifest import ensure_giggle_api_key
+    import hopsapi_image_client as image_client
 except ModuleNotFoundError:  # Imported as tools.harvest_giggle_image_batch.
     from tools.giggle_api_client import query_task
     from tools.submit_giggle_task_manifest import ensure_giggle_api_key
+    from tools import hopsapi_image_client as image_client
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TERMINAL = {"completed", "failed", "error", "cancelled", "timeout"}
+TERMINAL = {"completed", "failed", "error", "cancelled", "timeout", "completed_without_url"}
 CREDIT_KEYS = {
     "credit", "credits", "credit_cost", "credits_cost", "consumed_credit",
     "consumed_credits", "credit_used", "credits_used", "used_credit",
@@ -120,6 +127,45 @@ def harvest_workers(default: int = 6) -> int:
         return default
 
 
+def row_provider(row: dict[str, Any]) -> str:
+    recorded = str(row.get("provider") or "").lower()
+    if recorded in image_client.PROVIDERS:
+        return recorded
+    return (image_client.PROVIDER_HOPSAPI if image_client.is_hopsapi_task_id(row.get("task_id"))
+            else image_client.PROVIDER_GIGGLE)
+
+
+def harvest_one_hopsapi(row: dict[str, Any], episode: str, output_dir: Path, raw_dir: Path) -> dict[str, Any]:
+    """GET the HopsAPI task (free), download + verify a completed image, record the settlement."""
+    task_id = str(row["task_id"])
+    status = image_client.query_task(task_id)
+    raw_path = raw_dir / f"{safe(row['task_key'])}_{task_id}.json"
+    atomic_json(raw_path, {"provider": image_client.PROVIDER_HOPSAPI, **status})
+    remote = str(status.get("remote_status") or "unknown")
+    item: dict[str, Any] = {**row, "provider": image_client.PROVIDER_HOPSAPI, "remote_status": remote,
+                            "raw_response": str(raw_path)}
+    if remote == "completed" and status.get("urls"):
+        output = output_dir / f"{episode}_{safe(row['task_key'])}_{task_id}.png"
+        if not output.is_file():
+            image_client.download_image(str(status["urls"][0]), output)
+        item.update({"output_path": str(output), "sha256": sha256(output), "bytes": output.stat().st_size})
+    elif remote == "completed":
+        item["remote_status"] = remote = "completed_without_url"
+    cost = status.get("cost")
+    if remote in image_client.hops.TERMINAL_FAILED:
+        item.update({"credit": 0, "credit_status": "FAILED_ZERO", "provider_error": status.get("error")})
+    elif remote == "completed" and isinstance(cost, (int, float)):
+        item.update({"credit": cost, "credit_status": "EXPLICIT_HOPSAPI_COST"})
+    else:
+        item.update({"credit": None, "credit_status": "UNKNOWN_API_FIELD_MISSING" if remote.startswith("completed")
+                     else "PENDING"})
+    if row.get("transaction") and (remote in image_client.hops.TERMINAL_FAILED or "output_path" in item):
+        settled = image_client.record_settlement(resolve(row["transaction"]), task_id, status,
+                                                 now=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+        item["settlement_recorded"] = bool(settled)
+    return item
+
+
 def harvest_one(
     row: dict[str, Any],
     episode: str,
@@ -133,6 +179,8 @@ def harvest_one(
     episode + task key + id), so rows are independent.  ``batch_credit`` is read
     once by the caller and passed in unchanged.
     """
+    if row_provider(row) == image_client.PROVIDER_HOPSAPI:
+        return harvest_one_hopsapi(row, episode, output_dir, raw_dir)
     task_id = row["task_id"]
     response = query_task(SimpleNamespace(task_id=task_id))
     raw_path = raw_dir / f"{safe(row['task_key'])}_{task_id}.json"
@@ -207,8 +255,13 @@ def main() -> int:
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("--interval", type=int, default=15)
     args = parser.parse_args()
-    ensure_giggle_api_key()
     submit_report = resolve(args.submit_report)
+    rows = json.loads(submit_report.read_text(encoding="utf-8")).get("results") or []
+    providers = {row_provider(row) for row in rows if isinstance(row, dict)}
+    if image_client.PROVIDER_GIGGLE in providers or not providers:
+        ensure_giggle_api_key()
+    if image_client.PROVIDER_HOPSAPI in providers and not os.environ.get(image_client.API_KEY_ENV, "").strip():
+        raise SystemExit(f"{image_client.API_KEY_ENV} is not set")
     output_dir = resolve(args.output_dir)
     raw_dir = resolve(args.raw_dir)
     status_report = resolve(args.status_report)

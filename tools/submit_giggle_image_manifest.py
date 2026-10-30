@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Submit a batch of Giggle image tasks concurrently with gate evidence."""
+"""Submit a batch of image tasks concurrently with gate evidence (HopsAPI gpt-image-2, or Giggle).
+
+Image provider (owner 2026-10-30): tools/hopsapi_image_client.py resolves ``image_provider`` (env
+NALU_IMAGE_PROVIDER > qingshan.json generation.image_provider > hopsapi when HOPSAPI_API_KEY is
+set).  Every gate, the reviewed-request digest and the fingerprint store are provider-independent;
+only the transport after them changes, and a bound task is recovered whichever provider is active."""
 
 from __future__ import annotations
 
@@ -33,6 +38,7 @@ try:
         require_no_silent_resubmission, require_reviewed_request,
         sent_image_sha256, task_request_digest,
     )
+    import hopsapi_image_client as image_client
     from keyframe_entry_state_gate import (
         evaluate_task as evaluate_keyframe_entry_task,
         keyframe_entry_contract_required,
@@ -57,6 +63,7 @@ except ModuleNotFoundError:  # Imported as tools.submit_giggle_image_manifest.
         require_no_silent_resubmission, require_reviewed_request,
         sent_image_sha256, task_request_digest,
     )
+    from tools import hopsapi_image_client as image_client
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -139,6 +146,10 @@ def prior_submission_result(task: dict[str, Any], transaction_dir: Path) -> dict
         raise DuplicateSubmissionBlocked(
             f"{task_key} has a transaction with a different submission fingerprint"
         )
+    if image_client.retire_terminal_failed(path, transaction) is not None:
+        # a HopsAPI task that settled failed/cancelled (status 3/4, not charged, no image): the
+        # record is kept beside it for the ledger and this fingerprint may POST a new attempt
+        return None
     state = transaction.get("state")
     if state == "SUBMITTED_TASK_ID_BOUND" and transaction.get("task_id"):
         if transaction.get("receipt") and transaction.get("provider_response"):
@@ -153,6 +164,7 @@ def prior_submission_result(task: dict[str, Any], transaction_dir: Path) -> dict
             "receipt": transaction.get("receipt"),
             "transaction": portable_path(path),
             "recovered_from_transaction": True,
+            **({"provider": transaction["provider"]} if transaction.get("provider") else {}),
         }
     if state != "NOT_CHARGED_RETRYABLE":
         raise DuplicateSubmissionBlocked(
@@ -433,10 +445,12 @@ def validate_task(task: dict[str, Any]) -> None:
         )
 
 
-def _submit_one_locked(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -> dict[str, Any]:
+def _submit_one_locked(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path,
+                       provider: str | None = None) -> dict[str, Any]:
     recovered = prior_submission_result(task, transaction_dir)
     if recovered:
         return recovered
+    provider = provider or image_client.image_provider()
     try:
         from tools.episode_prompt_batch_gate import require_generation_batch
     except ModuleNotFoundError:
@@ -464,6 +478,8 @@ def _submit_one_locked(task: dict[str, Any], receipt_dir: Path, transaction_dir:
         )
     validate_reference_count(task)
     references = [str(resolve(path)) for path in task["reference_images"]]
+    if provider == image_client.PROVIDER_HOPSAPI:
+        return _submit_one_hopsapi(task, receipt_dir, transaction_dir, prompt, references)
     # Notes are returned per call: the module-global notes list was shared by
     # up to six POST threads, so one task could record another task's encoding.
     encoded_references, encoding_notes = encode_reference_images(references)
@@ -550,22 +566,87 @@ def _submit_one_locked(task: dict[str, Any], receipt_dir: Path, transaction_dir:
     }
 
 
-def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -> dict[str, Any]:
+def _submit_one_hopsapi(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path, prompt: str,
+                        references: list[str]) -> dict[str, Any]:
+    """HopsAPI gpt-image-2 Img2Img: the reviewed-request digest and the silent-resubmission guard run
+    exactly as on the Giggle path (they bind the request the engine reviewed: prompt, logical model,
+    aspect, resolution, reference shas in order); then preprocess + upload (free, pre-intent) ->
+    intent -> ONE create POST -> bind.  Failures are classified per attempt (no Giggle statement)."""
+    request_binding = require_reviewed_request(task, task_request_digest(
+        task, prompt_text=prompt, reference_paths=[Path(p) for p in references],
+    )["request_sha256"])
+    require_no_silent_resubmission(task, transaction_dir, submission_fingerprint(task))
+    prepared = image_client.prepare_request(
+        prompt=prompt, reference_paths=references, aspect_ratio=task.get("aspect_ratio", "9:16"),
+        resolution=task.get("resolution", "1K"), task_key=task["task_key"])
+    transaction = transaction_path(transaction_dir, task)
+    intent = {
+        "schema": "qingshan.giggle_submit_transaction.v1",
+        "request_binding": request_binding,
+        "task_key": task["task_key"],
+        "attempt_id": str(uuid.uuid4()),
+        "submission_fingerprint": submission_fingerprint(task),
+        "state": "INTENT_RECORDED",
+        "intent_recorded_at": utc_now(),
+        "model": task.get("model", "gpt-image-2-pro"),
+        "prompt_sha256": task.get("prompt_sha256"),
+        "reference_sha256": [row.get("sha256") for row in task.get("reference_bindings") or []],
+        "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
+        **image_client.intent_fields(prepared),
+    }
+    atomic_json(transaction, intent)
+    try:
+        with durable_generation_context():
+            response = image_client.create_image_task(prepared["payload"])
+    except image_client.hops.HopsapiNotCharged as exc:
+        intent.update({
+            "state": "NOT_CHARGED_RETRYABLE", "credit_status": "NOT_CHARGED_RETRYABLE",
+            "response_received_at": utc_now(), "error": str(exc), "provider_response": exc.response,
+            "provider_http_status": exc.http_status, "retry_guard": "RETRY_ALLOWED_NEW_ATTEMPT",
+            "reconciliation": {"rule": "HopsAPI create provably created no task (not sent, or an explicit "
+                                       "4xx / code!=200 refusal without task_id)", "credit": 0},
+        })
+        atomic_json(transaction, intent)
+        raise RuntimeError(f"{task['task_key']} HopsAPI create declined (not charged): {exc}") from None
+    except (Exception, SystemExit) as exc:
+        intent.update({"state": "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION", "response_lost_at": utc_now(),
+                       "error": str(exc),
+                       "operator_note": "HopsAPI has no idempotency key: check the HopsAPI console for a task "
+                                        "created at intent_recorded_at before any new POST"})
+        atomic_json(transaction, intent)
+        raise
+    task_id = str(response["task_id"])
+    receipt = receipt_dir / f"{task['task_key']}_submit_receipt.json"
+    intent.update({"state": "SUBMITTED_TASK_ID_BOUND", "response_recorded_at": utc_now(), "task_id": task_id,
+                   "receipt": portable_path(receipt), "provider_response": response})
+    atomic_json(transaction, intent)
+    atomic_json(receipt, response)
+    return {"task_key": task["task_key"], "beat_id": task.get("beat_id"), "task_id": task_id,
+            "status": "submitted", "provider": image_client.PROVIDER_HOPSAPI,
+            "receipt": portable_path(receipt), "transaction": portable_path(transaction),
+            "recovered_from_transaction": False}
+
+
+def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path,
+               provider: str | None = None) -> dict[str, Any]:
     transaction = transaction_path(transaction_dir, task)
     transaction.parent.mkdir(parents=True, exist_ok=True)
     with transaction.with_suffix(".lock").open("a") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        return _submit_one_locked(task, receipt_dir, transaction_dir)
+        return _submit_one_locked(task, receipt_dir, transaction_dir, provider)
 
 
 def submit_all(
-    tasks: list[dict[str, Any]], receipt_dir: Path, transaction_dir: Path, concurrency: int
+    tasks: list[dict[str, Any]], receipt_dir: Path, transaction_dir: Path, concurrency: int,
+    provider: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Submit every item and preserve isolated client exits as item failures."""
     results: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
-        futures = {pool.submit(submit_one, task, receipt_dir, transaction_dir): task for task in tasks}
+        extra = {"provider": provider} if provider else {}
+        futures = {pool.submit(submit_one, task, receipt_dir, transaction_dir, **extra): task
+                   for task in tasks}
         for future in as_completed(futures):
             task = futures[future]
             try:
@@ -677,6 +758,46 @@ def classify_ambiguous_failures(
     return summary
 
 
+def hopsapi_credit_summary(results: list[dict[str, Any]], failures: list[dict[str, Any]],
+                           transaction_dir: Path) -> tuple[dict[str, Any], str]:
+    """HopsAPI images are billed per task (``cost`` at status 2, written onto the transaction by the
+    harvester, counted by nalu_budget_ledger.py), never through Giggle's credit statements.  Each
+    failure was classified at its own attempt; read that state back without rewriting it."""
+    for failure in failures:
+        failure["provider"] = image_client.PROVIDER_HOPSAPI
+        path = transaction_dir / Path(failure["transaction"]).name
+        if not path.is_file():
+            failure.update({"status": "submit_failed_before_intent", "credit": 0,
+                            "credit_status": "NOT_CHARGED_NO_INTENT_RECORDED"})
+            continue
+        state = str(json.loads(path.read_text(encoding="utf-8")).get("state") or "UNKNOWN")
+        failure["credit_status"] = state
+        if state == "NOT_CHARGED_RETRYABLE":
+            failure.update({"status": "submit_failed", "credit": 0})
+        elif state != "SUBMITTED_TASK_ID_BOUND":
+            failure["status"] = "submit_quarantined"
+    fresh = [row for row in results if row.get("status") == "submitted" and not row.get("recovered_from_transaction")]
+    summary = {
+        "status": "PASS_BOUNDED", "provider": image_client.PROVIDER_HOPSAPI,
+        "method": "HOPSAPI_PER_TASK_COST_RECORDED_AT_SETTLEMENT", "charged_credits": None,
+        "known_task_id_count": len(fresh),
+        "recovered_task_id_count": sum(bool(row.get("recovered_from_transaction")) for row in results),
+        "newly_bound_task_ids": sorted(str(row["task_id"]) for row in fresh),
+        "estimated_credits": image_client.estimated_batch_credits(len(fresh)),
+        "ambiguous_response_count": sum(f.get("credit_status") == "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION"
+                                        for f in failures),
+        "note": "cost is known at status 2: harvest_giggle_image_batch.py writes provider_cost_credits onto "
+                "each transaction and nalu_budget_ledger.py counts it; until then the estimate is exposure",
+    }
+    if not failures:
+        ambiguity = "NO_AMBIGUOUS_SUBMISSIONS"
+    elif summary["ambiguous_response_count"]:
+        ambiguity = "HOPSAPI_RESPONSE_LOST_QUARANTINED_CHECK_CONSOLE"
+    else:
+        ambiguity = "HOPSAPI_PER_ATTEMPT_CLASSIFIED"
+    return summary, ambiguity
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True)
@@ -775,8 +896,11 @@ def main() -> int:
         validate_submission_authority(manifest, tasks, gates, manifest_path)
     for task in tasks:
         validate_task(task)
-    if not args.precheck_only and not os.environ.get("GIGGLE_API_KEY", "").strip():
-        raise SystemExit("GIGGLE_API_KEY is not set")
+    provider = image_client.image_provider()
+    if not args.precheck_only:
+        key_env = image_client.required_key_env(provider)
+        if not os.environ.get(key_env, "").strip():
+            raise SystemExit(f"{key_env} is not set")
 
     out = resolve(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -791,14 +915,17 @@ def main() -> int:
     if args.precheck_only:
         results = [{"task_key": task["task_key"], "beat_id": task.get("beat_id"), "status": "precheck_pass"} for task in tasks]
     else:
-        results, failures = submit_all(tasks, receipt_dir, transaction_dir, args.concurrency)
+        results, failures = submit_all(tasks, receipt_dir, transaction_dir, args.concurrency, provider)
     submit_finished_at = datetime.now(timezone.utc)
 
     results.sort(key=lambda row: row["task_key"])
     failures.sort(key=lambda row: row["task_key"])
     credit_reconciliation = None
     ambiguity_resolution = "NOT_APPLICABLE"
-    if not args.precheck_only:
+    if not args.precheck_only and provider == image_client.PROVIDER_HOPSAPI:
+        credit_reconciliation, ambiguity_resolution = hopsapi_credit_summary(results, failures, transaction_dir)
+        atomic_json(out.parent / f"{out.stem}_credit_statement.json", credit_reconciliation)
+    elif not args.precheck_only:
         newly_submitted = sum(
             row["status"] == "submitted" and not row.get("recovered_from_transaction")
             for row in results
@@ -872,6 +999,7 @@ def main() -> int:
         "ambiguity_resolution": ambiguity_resolution,
         "transaction_dir": portable_path(transaction_dir),
         "duplicate_submit_policy": "TASK_FINGERPRINT_TRANSACTION_GUARD",
+        "image_provider": provider,
     }
     atomic_json(out, report)
     print(json.dumps({key: report[key] for key in ("status", "submitted", "precheck_pass", "failed")}, ensure_ascii=False))

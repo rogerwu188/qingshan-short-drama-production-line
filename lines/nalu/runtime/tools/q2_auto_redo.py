@@ -28,7 +28,7 @@ from typing import Any, Callable
 FAILURE_PRIORITY = ("face_count", "speaker_framing", "push_in")  # duplicates > speaker framing > push-in
 #: failures whose redo parks the start frame and generates the unit's own keyframe (nalu_pipeline.redo_switch_start_frames)
 NEW_START_FRAME_FAILURES = ("speaker_framing", "face_count")
-OWN_KEYFRAME_CREDITS = 11
+OWN_KEYFRAME_CREDITS = 11  # Giggle price; nalu_pipeline costs it per image provider (image_batch_credits)
 STATE_KEY = "q2_auto_redo"
 #: failure -> the task/unit field value the redo's H3 prompt carries (``h3_redo_findings``); the renderer states
 #: the measured problem in plain words (h3_provider_english_contract.REDO_FINDING_SENTENCES)

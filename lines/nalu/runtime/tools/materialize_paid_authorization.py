@@ -401,6 +401,13 @@ def _hopsapi_client():
     return hopsapi_video_client
 
 
+def _hopsapi_image_client():
+    if str(DEFAULT_ENGINE_ROOT) not in sys.path:
+        sys.path.insert(0, str(DEFAULT_ENGINE_ROOT))
+    from tools import hopsapi_image_client  # noqa: PLC0415 - engine module, no network
+    return hopsapi_image_client
+
+
 def price(tasks: list[dict[str, Any]], *, video: bool, image_credits: int,
           video_credits_per_second: int, video_model: str = SD2) -> dict[str, Any]:
     if video and video_model == H3 and _hopsapi_client().video_provider(
@@ -433,6 +440,16 @@ def price(tasks: list[dict[str, Any]], *, video: bool, image_credits: int,
             "credits_per_second": video_credits_per_second,
             "planned_credits": int(round(seconds * video_credits_per_second)),
             "task_count": len(tasks),
+        }
+    image_client = _hopsapi_image_client()
+    if image_client.image_provider(config_path=RUNTIME_ROOT / "qingshan.json") == "hopsapi":
+        # HopsAPI gpt-image-2 (owner 2026-10-30): per-image planning rate (default 1.2), batch rounded
+        # up; the actual charge is each task's settled ``cost``.
+        return {
+            "basis": "HOPSAPI_IMAGE_TASKS_ROUNDED_UP", "task_count": len(tasks), "image_provider": "hopsapi",
+            "credits_per_task": str(image_client.credits_per_image(config_path=RUNTIME_ROOT / "qingshan.json")),
+            "planned_credits": image_client.estimated_batch_credits(
+                len(tasks), config_path=RUNTIME_ROOT / "qingshan.json"),
         }
     return {
         "basis": "IMAGE_TASKS", "task_count": len(tasks),

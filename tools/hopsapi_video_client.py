@@ -2,8 +2,10 @@
 """HopsAPI router transport for MiniMax-H3 video (owner decision 2026-10-29).
 
 MiniMax-H3 video generation moves from Giggle's omni-video endpoint to the HopsAPI router
-(https://github.com/giggle-official/skills/tree/main/skills/hopsapi-minimax-h3).  Images, TTS and
-BGM stay on Giggle.  This module is the only place that talks to HopsAPI; the durable submitter
+(https://github.com/giggle-official/skills/tree/main/skills/hopsapi-minimax-h3).  Images moved to
+HopsAPI gpt-image-2 on 2026-10-30 (tools/hopsapi_image_client.py, which reuses this module's HTTP,
+upload and query helpers); TTS and BGM stay on Giggle.  This module holds the only HTTP code that
+talks to HopsAPI; the durable submitter
 (``submit_giggle_video_manifest_v2.py``) keeps every guard (intent-before-POST, fingerprint store,
 live-binding idempotency, prompt-scope gate, whole-batch QA, reservation) and only swaps the
 transport, and the poller (``poll_giggle_submit_report.py``) dispatches HopsAPI task ids here.
@@ -438,6 +440,12 @@ def create_task(payload: dict[str, Any]) -> dict[str, Any]:
                          "submitter; a direct POST cannot bypass the transaction and prompt-lineage gates")
     if not is_h3(payload.get("model")) or payload.get("task") != OMNI_TASK:
         raise SystemExit("paid HopsAPI submission blocked: only OmniVideo / MiniMax-H3 is authorised")
+    return post_create(payload)
+
+
+def post_create(payload: dict[str, Any]) -> dict[str, Any]:
+    """The single create POST shared by the video and image transports (callers authorise first).
+    Never retried; raises HopsapiNotCharged (provably no task) or HopsapiResponseLost (maybe charged)."""
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     url = f"{base_url()}/router/task/create"
     try:
@@ -573,7 +581,7 @@ def download_video(url: str, destination: Path, fetch: Callable[[str], bytes] | 
 
 def record_settlement(transaction: Path, task_id: str, status: dict[str, Any], *, now: str) -> dict[str, Any] | None:
     """Write the provider's settlement onto the durable transaction (under its flock).  The budget
-    ledger reads ``provider_cost_credits`` from here (nalu_budget_ledger.scan_hopsapi_video_spend).
+    ledger reads ``provider_cost_credits`` from here (nalu_budget_ledger.scan_hopsapi_spend).
     Only the transaction bound to this exact task id is touched; a terminal failure records 0 credits
     and ``remote_terminal_state`` (tools/video_live_binding treats it as not live)."""
     import fcntl  # noqa: PLC0415

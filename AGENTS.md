@@ -27,8 +27,12 @@
 环境与凭据：
 - `$ENGINE_ROOT/.env`：`GIGGLE_API_KEY`（只在付费步骤注入：`set -a; source .env; set +a`；离线构建器**必须** `unset GIGGLE_API_KEY`）、`GIGGLE_API_BASE`。
 - `HOPSAPI_API_KEY`（线主 2026-10-29）：MiniMax-H3 **视频**改走 HopsAPI 路由（`tools/hopsapi_video_client.py`；`HOPSAPI_BASE_URL` 默认 `https://hopsapi.com/v1`，上传 `HOPSAPI_CONSOLE_URL` 默认 `https://hopsapi.com`）。
-  图片、配音、配乐仍走 Giggle。开关 `video_provider` = `hopsapi` | `giggle`：环境变量 `NALU_VIDEO_PROVIDER` > 运行时 `qingshan.json` 的 `generation.video_provider` > 有 `HOPSAPI_API_KEY` 时默认 hopsapi、否则 giggle（回滚只需设成 giggle）。
-  **S6 视频需要 `HOPSAPI_API_KEY`**（`paid_stage.sh` 到 S6 时会检查）；HopsAPI 的每任务 `cost` 与 Giggle 积分同单位，收割时写入事务并计入本集预算账本，Giggle 账单只再对 Giggle 的任务对账。
+  开关 `video_provider` = `hopsapi` | `giggle`：环境变量 `NALU_VIDEO_PROVIDER` > 运行时 `qingshan.json` 的 `generation.video_provider` > 有 `HOPSAPI_API_KEY` 时默认 hopsapi、否则 giggle（回滚只需设成 giggle）。
+  **全部图片**（线主 2026-10-30：身份牌/头像/多视图表、道具/场景卡、关键帧/起始帧、关键帧重做）改走 HopsAPI **`gpt-image-2`**（`tools/hopsapi_image_client.py`；无参考 `Txt2Img`、有参考 `Img2Img`，9:16 → `1152x2048`，quality 默认 high），
+  开关 `image_provider`：`NALU_IMAGE_PROVIDER` > `generation.image_provider` > 有 `HOPSAPI_API_KEY` 时 hopsapi、否则 giggle（gpt-image-2-pro 回滚路径保留）。
+  **参考图预处理**：长边 > 4096 px、长宽比 > 3:1 或文件 > 20 MB 的参考图在上传前 Lanczos 缩到长边 2048（保持比例）、重编码 PNG（仍 > 20 MB 则 JPEG），盘上文件不动，事务记原图/发送图 sha 与尺寸（E09 全景空间图 16000×2200 原样上传会稳定触发 424）。参考图 ≤16 张，多出的按优先级丢最后的并记录。
+  配音、配乐仍走 Giggle（`GIGGLE_API_KEY` 照旧必需）。
+  **S3/S5/S6 需要 `HOPSAPI_API_KEY`**（`paid_stage.sh` 按阶段检查）；HopsAPI 的每任务 `cost` 与 Giggle 积分同单位，收割时写入事务并计入本集预算账本的 HopsAPI 段（视频+图片），Giggle 账单只再对 Giggle 的任务对账。图片计划价 1.2 积分/张（整批向上取整，`HOPSAPI_IMAGE_CREDITS_PER_IMAGE` 可调）。
 - `QINGSHAN_VOICE_REGISTRY=$RUNTIME_ROOT/runtime/voice_registry.json`（引擎分组编译读它；漏设 → `SPEAKER_CANONICAL_VOICE_NOT_REGISTERED`）。
 - `QINGSHAN_UNIT_PREFERRED_SECONDS=4,6`、`QINGSHAN_UNIT_MIN_SECONDS=4`、`QINGSHAN_UNIT_MAX_SECONDS=8`（补丁 e16；每场镜长必须能切成 4–8 s 单元）。
 - 系统依赖：ffmpeg/ffprobe；Python 3.12 venv `pip install -e '.[media,asr,cloud]'` **之外**还要装 `insightface onnxruntime rapidocr-onnxruntime faster-whisper opencc`（身份余弦、OCR、ASR、繁简转换）。
@@ -73,10 +77,10 @@ python3 lines/nalu/runtime/tools/bootstrap_runtime_root.py --runtime-root "$RUNT
 | 写手 | 源章 zh-CN、上一集合同末镜 `completion_state`、SUPERVISOR_ORDERS | `scripts/<EP>_NARRATIVE_CANONICAL_v1.md`（手写）；`build_e0N_layers.py` → `DIRECTING_SCRIPT`、`GENERATION_CONTRACT`、`manifest` | 构建器自检：单镜 3–7 s、无对白 ≤5 s（旧合同机位必动；CAMERA_GRAMMAR_V1 合同不再强制运镜，运镜按动机、景别语法写进导演脚本，见 `configs/CAMERA_GRAMMAR_V1.json`）、R7/R8 台词时长、单场 ≤22 s、道具名出现在 action 就必须在 entry/exit、远景之后露脸镜声明 `identity_reanchor`、key_quote 逐字在源章、每场能切成 4–8 s 单元 | 写 narrative 与镜头表 | 0 | 需改剧本**文字**（非排版）时停 |
 | S1 | 四层文件 | gate10、实体合同、静态设计门报告 | `writer_scene_source_declaration_gate --warn-is-fail`；`character_entity_contract`（非人物主体 id 留空、别名跨角色唯一）；`static_design_gate` R1–R8（E03 起阻断；CAMERA_GRAMMAR_V1 合同的 R1–R4/R6/R7 只提示不阻断） | 无 | 0 | — |
 | S2 | 合同+manifest+`preproduction/<EP>/{asset_requirements_overlay,new_location_place_spec,view_reference_policy}.json` | D-10：空间图扩展 + 需求文件 + 提示词；引擎编辑清单/分组/锚点计划/关键帧清单 | 布局门、分组门、锚点计数门 | 新地点的作者命名（place spec）、覆盖文件里的服装/年龄/音色简述 | 0 | — |
-| S3 | 需求文件、角色源照、`runtime/asset_library.json`（跨集复用：LOCKED + sha 匹配即跳过） | 身份牌三视图 + 道具/构筑物卡 | precheck、预算守卫、身份审（缩略总表 + InsightFace 余弦）、非板类锁、`initial_asset_library gate` | **MANUAL_REQUIRED 身份审**：代理实际看图，`review_fill/e0N_fill_identity_answers.py` 填答 | 11/张 | 余弦 <0.30 的主角、源照与剧本年龄冲突 → 问线主 |
+| S3 | 需求文件、角色源照、`runtime/asset_library.json`（跨集复用：LOCKED + sha 匹配即跳过） | 身份牌三视图 + 道具/构筑物卡 | precheck、预算守卫、身份审（缩略总表 + InsightFace 余弦）、非板类锁、`initial_asset_library gate` | **MANUAL_REQUIRED 身份审**：代理实际看图，`review_fill/e0N_fill_identity_answers.py` 填答 | HopsAPI gpt-image-2 计划 1.2/张（Giggle 回滚 11/张） | 余弦 <0.30 的主角、源照与剧本年龄冲突 → 问线主 |
 | S4 | `voice/speech_task_payloads.json`（由 voice_catalog 生成） | 参考音 + registry 行 | ffprobe 48k mono、上传回执 | 挑音色 | 2/角色 | — |
 | 整批提示词门 | 关键帧提示词 + 规划编译（`compile_grouped_seedance_manifest.py --planning-only --planned-prompt-dir`） | `EPISODE_PROMPT_BATCH_POLICY.json` 登记 + 每行回执 | `prompt_batch_register` sha 绑定 + `prompt_batch_qa digest` 确定性检查 | **MANUAL_REQUIRED**：通读摘要写逐行答案 → `receipts` → 再 `register` | 0 | 确定性检查 FAIL 且非误报时改合同 |
-| S5 | 关键帧清单 | `preproduction/keyframes/<shot>-keyframe-v1.png` | entry_state 门、预算守卫、Q1（RapidOCR + 身份余弦 + 人工）、起始帧证据 | **MANUAL_REQUIRED Q1**：缩略总表看图填答；REJECT → 改镜头文字 → 重建 → 停放旧提示词/旧图 → S5 干跑 → 规划编译 → 重登记 → S5 付费 | 11/张 | 同镜第 2 次创意重做失败 |
+| S5 | 关键帧清单 | `preproduction/keyframes/<shot>-keyframe-v1.png` | entry_state 门、预算守卫、Q1（RapidOCR + 身份余弦 + 人工）、起始帧证据 | **MANUAL_REQUIRED Q1**：缩略总表看图填答；REJECT → 改镜头文字 → 重建 → 停放旧提示词/旧图 → S5 干跑 → 规划编译 → 重登记 → S5 付费 | HopsAPI 计划 1.2/张（Giggle 回滚 11/张） | 同镜第 2 次创意重做失败 |
 | S6 | 关键帧 + 上一单元真实尾帧（波次）；H3 视频走 HopsAPI（需 `HOPSAPI_API_KEY`） | 单元 mp4 | 波次循环脚本、reroll 守卫、post-gen QA（技术 12 项 + ASR + 剧情 5 项）、Q2（5 帧 OCR/身份 + 人工）、缺陷容忍门 | **MANUAL_REQUIRED**：post-gen 剧情审、Q2 审 | SD2 20/s；H3 经 HopsAPI ≈1.56/s（按任务实际 `cost` 记账） | 重做超守卫上限、集级缺陷预算超限 |
 | S7 | 全部单元 ADMITTED_FOR_ASSEMBLY | `deliverables/<EP>/<EP>_final_9x16.mp4`（烧录字幕、3 s 片尾、-16 LUFS；选择性配乐：plan → generate → reconcile → qa → mix，solo stem 归档） | `final_qa_evidence_bundle`（两键无生产者 → N/A）；配乐账单按提交窗隔离（K032） | 无 | 配乐 8/段 | 配乐已属默认条款（2026-10-22，计入本集预算）；配乐窗口标签是否被发布门接受（线主决定） |
 | S8 | 成片 | `CHECKPOINT.md` + 审批标志 | — | **线主看片** | 0 | 总是停 |
