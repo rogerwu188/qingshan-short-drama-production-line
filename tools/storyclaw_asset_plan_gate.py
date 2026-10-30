@@ -29,6 +29,11 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Collection, Mapping, Sequence
 
+try:
+    from tools.image_model_policy import allowed_image_models
+except ModuleNotFoundError:
+    from image_model_policy import allowed_image_models
+
 
 PLAN_SCHEMA = "storyclaw.asset_match_plan.v2"
 SCRIPT_EVIDENCE_SCHEMA = "storyclaw.script_evidence.v2"
@@ -46,7 +51,8 @@ MATCH_LISTS = {
     "scene": "scene_matches",
     "prop": "prop_matches",
 }
-DEFAULT_ALLOWED_GENERATION_MODELS = frozenset({"gpt-image-2-pro"})
+# Roger 2026-10-30 (seq=54): the active paid image SKU comes from the registry policy.
+DEFAULT_ALLOWED_GENERATION_MODELS = frozenset(allowed_image_models())
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
 _PHOTO_KINDS = {"photo", "portrait", "reference_photo", "still_photo"}
 _USER_UPLOAD_KINDS = {"user_upload", "uploaded_by_user"}

@@ -1277,3 +1277,25 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：E12-VU-006 事务 e54aa33：提示词第 21 行 negative_constraints 含 TEXT-FREE FRAME；OCR 在 3.4–4.2 s 命中「许叔去过吗」(x 0.32–0.68, y 0.68–0.73)；E10/E11（seedance-2.0-pro，96 次提交）0 例画内字幕，E12（MiniMax-H3）已 2 例
 - **授权**：Roger 2026-10-29「VU-006 不许用同一提示词 reroll……按顺序评估并给结论……不要直接付费」
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K131 — PROVIDERS
+
+- **规则**：付费图片模型只在 configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json 的 active_execution_policy 指定一次，所有调用点（S3 身份牌、S5 关键帧、资产工厂、账单对账、D-11 模型校验、预算台账单价）经 tools/image_model_policy.py 读取；换模型 = 改注册表 + 记一条线主订单，不再逐文件改字面量。退役 SKU 留在 known_image_models() 里，让已绑定事务与历史账单仍被识别，但 allowed_image_models() 只含当前 SKU。单价 hard_upper 在首批账单出现前沿用上一 SKU 的观测值，不凭空填低价。
+- **教训**：2026-10-30 线主要求所有图片生成改用 Giggle 的 gptimage2 便宜档以降成本；仓库里 gpt-image-2-pro 以字面量散落在 20 多个文件（引擎提交器、nalu 流水线、台账、文档、测试），且 Giggle 实际 SKU 是 gpt-image-2-pro / gpt-image-2-fast，不存在裸 gpt-image-2（text-to-image 返回 500「failed to get model price: record not found」）。
+- **恢复**：新建 tools/image_model_policy.py（active_image_model / known_image_models / allowed_image_models / image_hard_upper_credits），注册表新增 GPT_IMAGE_2_FAST_GIGGLE 并置为唯一 allowed_paid_profile；nalu_pipeline.s3_transaction_bound 对 known_image_models 逐一算指纹，避免换模型后把已付费身份牌重新计入计划开销；S5 的 D-46 按 Q1 已准入 sha 判定，不受模型切换影响。
+- **实现**：`tools/image_model_policy.py`、`configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json`、`lines/nalu/runtime/tools/nalu_pipeline.py`、`lines/nalu/runtime/tools/materialize_paid_authorization.py`、`lines/nalu/runtime/tools/nalu_budget_ledger.py`、`tools/submit_giggle_character_asset_plan.py`、`tools/submit_giggle_image_manifest.py`、`tools/storyclaw_asset_plan_gate.py`
+- **回归**：`tools/tests/test_image_model_policy.py`
+- **证据**：账单 394 行 model=gpt-image-2-pro / model_name「GPT Image 2 Official」每张 -11（2K 9:16）；2026-10-30 探测：model=gpt-image-2-fast + 非法参数 → 400「The 99:1 aspect ratio does not support 0K resolution」（模型存在），model=gpt-image-2 → 500 price record not found
+- **授权**：Roger 2026-10-30「所有图片生成都改为giggle api的gptimage2 接口，这样图片成本可以大幅度降低。」→ SUPERVISOR_ORDERS seq=54 ROGER-20261030-E12-IMAGE-MODEL-POLICY-SEQ054
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K132 — PROVIDERS
+
+- **规则**：不得用「故意非法的生成参数」向付费生成端点探测模型 id 是否存在：供应商不保证在计费前校验参数。查模型 id 只允许走只读来源（账单历史的 model 字段、官方文档/SDK 常量、供应商客服），或走正规付费前门做一张最小样张并记事务。
+- **教训**：2026-10-30 为区分 gpt-image-2 / gpt-image-2-fast / gpt-image-2-pro，操作员用 aspect_ratio=99:1、resolution=0K 向 text-to-image 投了 50 个候选 id。GPT Image 2 家族按预期返回 400/500 未计费，但 nano-banana-2 (16)、nano-banana-2-fast (5)、nano-banana (5)、nano-banana-pro (16)、seedream45 (5)、midjourney (12) 直接受理并计费，共 59 分，且未捕获 task_id、无事务记录。
+- **恢复**：事故记录在会话 scratchpad INCIDENT_20261030_model_probe_charges.md 并向线主披露；59 分不属于任何集次预算；产出丢弃。
+- **实现**：`tools/image_model_policy.py`
+- **回归**：`tools/tests/test_image_model_policy.py`
+- **证据**：账单 2026-10-30 02:59:10–02:59:28 六行 SingleGenerateImage，project_id 为空；同次探测中 gpt-image-2-pro/-fast 返回 400 未计费，gpt-image-2 等 34 个 id 返回 500 未计费
+- **授权**：操作员自查；AGENTS §付费前门禁（不得绕过 durable submitter / D-11）
+- **状态**：GUIDANCE_ONLY

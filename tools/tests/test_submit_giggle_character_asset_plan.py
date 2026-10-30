@@ -32,7 +32,7 @@ class CharacterAssetSubmitterTests(unittest.TestCase):
             prior = os.environ.pop("QINGSHAN_DURABLE_SUBMITTER_CONTEXT", None)
             try:
                 with patch.object(submitter, "_request", side_effect=fake_request):
-                    result = submitter.submit(row, root / "receipts", root / "transactions", "gpt-image-2-pro", "2K")
+                    result = submitter.submit(row, root / "receipts", root / "transactions", "gpt-image-2-fast", "2K")
                 transaction = json.loads(Path(submitter.ROOT / result["transaction"]).read_text(encoding="utf-8"))
                 self.assertTrue(observed["context"])
                 self.assertIsNone(os.environ.get("QINGSHAN_DURABLE_SUBMITTER_CONTEXT"))
@@ -58,9 +58,9 @@ class CharacterAssetSubmitterTests(unittest.TestCase):
             body = {"code": 500, "msg": "payment failed", "uuid": "u-1", "data": None}
             with patch.object(submitter, "_request", return_value=body):
                 with self.assertRaises(RuntimeError) as raised:
-                    submitter.submit(row, root / "receipts", root / "transactions", "gpt-image-2-pro", "2K")
+                    submitter.submit(row, root / "receipts", root / "transactions", "gpt-image-2-fast", "2K")
             self.assertIn("code=500", str(raised.exception))
-            path = submitter.transaction_path(root / "transactions", row, "gpt-image-2-pro", "2K")
+            path = submitter.transaction_path(root / "transactions", row, "gpt-image-2-fast", "2K")
             transaction = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(transaction["state"], "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION")
             self.assertEqual(transaction["provider_response"], body)
@@ -78,11 +78,11 @@ class CharacterAssetSubmitterTests(unittest.TestCase):
                              "Temporary failure in name resolution>")
             with patch.object(submitter, "_request", side_effect=err):
                 with self.assertRaises(SystemExit):
-                    submitter.submit(row, root / "receipts", root / "transactions", "gpt-image-2-pro", "2K")
-            path = submitter.transaction_path(root / "transactions", row, "gpt-image-2-pro", "2K")
+                    submitter.submit(row, root / "receipts", root / "transactions", "gpt-image-2-fast", "2K")
+            path = submitter.transaction_path(root / "transactions", row, "gpt-image-2-fast", "2K")
             transaction = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(transaction["state"], "NOT_CHARGED_RETRYABLE")
-            self.assertIsNone(submitter.prior_submission(row, root / "transactions", "gpt-image-2-pro", "2K"))
+            self.assertIsNone(submitter.prior_submission(row, root / "transactions", "gpt-image-2-fast", "2K"))
 
 
 if __name__ == "__main__":

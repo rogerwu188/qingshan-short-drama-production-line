@@ -22,6 +22,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+try:
+    from tools.image_model_policy import ACTIVE_IMAGE_MODEL
+except ModuleNotFoundError:
+    from image_model_policy import ACTIVE_IMAGE_MODEL
+
 
 BASE_URL = "https://giggle.pro/api/v1/generation"
 
@@ -204,7 +209,7 @@ def main() -> int:
     image.add_argument("--prompt")
     image.add_argument("--prompt-file")
     image.add_argument("--reference-image", action="append")
-    image.add_argument("--model", default="gpt-image-2-pro")
+    image.add_argument("--model", default=ACTIVE_IMAGE_MODEL)
     image.add_argument("--aspect-ratio", default="9:16")
     image.add_argument("--resolution", default="1K")
     image.add_argument("--count", type=int, default=1)

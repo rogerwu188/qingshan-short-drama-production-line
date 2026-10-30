@@ -34,7 +34,7 @@ class GiggleRetryTest(unittest.TestCase):
             prompt="identity plate",
             reference_image=None,
             count=1,
-            model="gpt-image-2-pro",
+            model="gpt-image-2-fast",
             aspect_ratio="9:16",
             resolution="1K",
         )
@@ -53,7 +53,7 @@ class GiggleRetryTest(unittest.TestCase):
             prompt="keyframe",
             reference_image=["character.png"],
             count=1,
-            model="gpt-image-2-pro",
+            model="gpt-image-2-fast",
             aspect_ratio="9:16",
             resolution="1K",
         )

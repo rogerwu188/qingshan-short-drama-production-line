@@ -20,7 +20,7 @@ class CreditStatementTests(unittest.TestCase):
                 "event_description": "SingleGenerateImage",
                 "credit": "-11",
                 "created_at": f"2026-07-21 21:03:{second:02d}",
-                "model": "gpt-image-2-pro",
+                "model": "gpt-image-2-fast",
             }
             for second in (27, 31, 39)
         ]
@@ -30,7 +30,7 @@ class CreditStatementTests(unittest.TestCase):
             end=datetime(2026, 7, 21, 21, 3, 45, tzinfo=timezone.utc),
             expected_count=3,
             event_description="SingleGenerateImage",
-            model="gpt-image-2-pro",
+            model="gpt-image-2-fast",
         )
         self.assertEqual(result["status"], "PASS")
         self.assertEqual(result["charged_credits"], 33)
@@ -42,7 +42,7 @@ class CreditStatementTests(unittest.TestCase):
             end=datetime(2026, 7, 22, tzinfo=timezone.utc),
             expected_count=1,
             event_description="SingleGenerateImage",
-            model="gpt-image-2-pro",
+            model="gpt-image-2-fast",
         )
         self.assertEqual(result["status"], "FAIL")
 

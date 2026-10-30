@@ -48,6 +48,7 @@ import roger_gate_acceptance as _rga
 import nalu_tail_ad_opt_in as _tail_ad_optin
 if str(_np.ENGINE_ROOT / "tools") not in _sys.path:
     _sys.path.insert(0, str(_np.ENGINE_ROOT / "tools"))
+from image_model_policy import ACTIVE_IMAGE_MODEL, ACTIVE_IMAGE_RESOLUTION, known_image_models  # noqa: E402  (Roger 2026-10-30 seq=54)
 import stage_time_ledger as _time_ledger
 import episode_previs as _previs  # plan §4: zero-credit previs, run before every paid stage
 import unit_timing_map as _timing  # plan §6: beat/shot/request/returned/cut durations, recorded separately
@@ -2370,28 +2371,33 @@ def s3_bootstrap_argv(ctx: Ctx, *, accept_qa: bool, rights_basis: str | None,
 
 
 S3_MAX_ROUNDS = 4
-S3_IMAGE_MODEL, S3_IMAGE_RESOLUTION = "gpt-image-2-pro", "2K"   # submit_giggle_character_asset_plan.py call site
+S3_IMAGE_MODEL, S3_IMAGE_RESOLUTION = ACTIVE_IMAGE_MODEL, ACTIVE_IMAGE_RESOLUTION   # registry policy; submit_giggle_character_asset_plan.py reads the same
 
 
 def s3_transaction_bound(ctx: Ctx, row: dict[str, Any]) -> bool:
     """True when the durable store already holds a SUBMITTED_TASK_ID_BOUND
     transaction for this exact row (same fingerprint the submitter computes), so a
     re-submit is recovered for free and must not be counted as planned spend."""
-    contract = {
-        "character_id": row.get("id"),
-        "prompt_sha256": row.get("prompt_sha256"),
-        "reference_image_sha256s": list(row.get("reference_image_sha256s") or []),
-        "model": S3_IMAGE_MODEL, "aspect_ratio": "9:16", "resolution": S3_IMAGE_RESOLUTION,
-    }
-    fingerprint = hashlib.sha256(json.dumps(contract, sort_keys=True).encode("utf-8")).hexdigest()
-    path = (ENGINE / "workflow/tasks/giggle_submit_transactions" / ctx.episode
-            / f"{row['id']}__{fingerprint[:16]}.json")
-    if not path.is_file():
-        return False
-    transaction = read_json(path, {}) or {}
-    return (transaction.get("submission_fingerprint") == fingerprint
-            and transaction.get("state") == "SUBMITTED_TASK_ID_BOUND"
-            and bool(transaction.get("task_id")))
+    # A row bound under a retired image SKU (gpt-image-2-pro before seq=54) is still bound:
+    # the plate exists and was paid for, so the model switch must not re-plan its spend.
+    for model in sorted(known_image_models(), key=lambda m: m != S3_IMAGE_MODEL):
+        contract = {
+            "character_id": row.get("id"),
+            "prompt_sha256": row.get("prompt_sha256"),
+            "reference_image_sha256s": list(row.get("reference_image_sha256s") or []),
+            "model": model, "aspect_ratio": "9:16", "resolution": S3_IMAGE_RESOLUTION,
+        }
+        fingerprint = hashlib.sha256(json.dumps(contract, sort_keys=True).encode("utf-8")).hexdigest()
+        path = (ENGINE / "workflow/tasks/giggle_submit_transactions" / ctx.episode
+                / f"{row['id']}__{fingerprint[:16]}.json")
+        if not path.is_file():
+            continue
+        transaction = read_json(path, {}) or {}
+        if (transaction.get("submission_fingerprint") == fingerprint
+                and transaction.get("state") == "SUBMITTED_TASK_ID_BOUND"
+                and bool(transaction.get("task_id"))):
+            return True
+    return False
 
 
 def s3_plate_on_disk(ctx: Ctx, row_id: str) -> bool:

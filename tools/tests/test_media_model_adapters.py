@@ -77,17 +77,17 @@ class MediaModelAdapterTests(unittest.TestCase):
                 self.assertEqual(validate_model_contract(video_task(model), mode="PAID_SUBMIT")["status"], "FAIL")
 
     def test_current_image_model_is_deployed_and_paid_authorized(self):
-        self.assertEqual(validate_image_model_contract(image_task("gpt-image-2-pro"), mode="PAID_SUBMIT")["status"], "PASS")
+        self.assertEqual(validate_image_model_contract(image_task("gpt-image-2-fast"), mode="PAID_SUBMIT")["status"], "PASS")
 
     def test_e56_keyframe_requires_provider_scope_projection(self):
-        task = image_task("gpt-image-2-pro")
+        task = image_task("gpt-image-2-fast")
         task["episode"] = "E56"
         report = validate_image_model_contract(task, mode="PAID_SUBMIT")
         self.assertEqual(report["status"], "FAIL")
         self.assertIn("PROVIDER_SCOPE_PROJECTION_MISSING", report["failures"])
 
     def test_visible_character_cannot_silently_use_flat_reference_list(self):
-        task = image_task("gpt-image-2-pro")
+        task = image_task("gpt-image-2-fast")
         task.pop("identity_reference_transport")
         report = validate_image_model_contract(task, mode="PAID_SUBMIT")
         self.assertEqual(report["status"], "FAIL")
@@ -97,7 +97,7 @@ class MediaModelAdapterTests(unittest.TestCase):
         )
 
     def test_current_provider_cannot_claim_native_identity_lock(self):
-        task = image_task("gpt-image-2-pro")
+        task = image_task("gpt-image-2-fast")
         task["identity_reference_transport"] = {
             "schema": "qingshan.identity_reference_transport.v1",
             "mode": "PROVIDER_NATIVE_IDENTITY_LOCK",
@@ -109,7 +109,7 @@ class MediaModelAdapterTests(unittest.TestCase):
         )
 
     def test_labeled_flat_mode_requires_exact_output_gate_and_prompt_block(self):
-        task = image_task("gpt-image-2-pro")
+        task = image_task("gpt-image-2-fast")
         task["generation_stage"] = "SCENE_KEYFRAME"
         task["reference_image_sequence"] = [{
             "entity_id": "A", "role": "character", "path": "a.png",

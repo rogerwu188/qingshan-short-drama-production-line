@@ -18,6 +18,11 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from tools.image_model_policy import ACTIVE_IMAGE_MODEL, ACTIVE_IMAGE_RESOLUTION
+except ModuleNotFoundError:
+    from image_model_policy import ACTIVE_IMAGE_MODEL, ACTIVE_IMAGE_RESOLUTION
+
+try:
     from giggle_api_client import (_image_list, _request, durable_generation_context,
                                    reference_encoding_notes, REFERENCE_COMPRESS_THRESHOLD_BYTES)
     from giggle_credit_statements import fetch_pay_statements, reconcile_rows
@@ -97,7 +102,7 @@ def submission_fingerprint(task: dict[str, Any]) -> str:
         "task_key": task.get("task_key"),
         "prompt_sha256": task.get("prompt_sha256"),
         "references": [row.get("sha256") for row in task.get("reference_bindings") or []],
-        "model": task.get("model", "gpt-image-2-pro"),
+        "model": task.get("model", ACTIVE_IMAGE_MODEL),
         "aspect_ratio": task.get("aspect_ratio", "9:16"),
         "resolution": task.get("resolution", "1K"),
     }
@@ -478,7 +483,7 @@ def _submit_one_locked(task: dict[str, Any], receipt_dir: Path, transaction_dir:
         "prompt": prompt,
         "reference_images": encoded_references,
         "generate_count": 1,
-        "model": task.get("model", "gpt-image-2-pro"),
+        "model": task.get("model", ACTIVE_IMAGE_MODEL),
         "aspect_ratio": task.get("aspect_ratio", "9:16"),
         "resolution": task.get("resolution", "1K"),
         "watermark": False,
@@ -708,7 +713,7 @@ def main() -> int:
         window = report.get("credit_reconciliation") or {}
         start = window.get("window_start_utc") or report.get("recorded_at")
         end = window.get("window_end_utc") or report.get("recorded_at")
-        model = str((report.get("results") or [{}])[0].get("model") or "gpt-image-2-pro")
+        model = str((report.get("results") or [{}])[0].get("model") or ACTIVE_IMAGE_MODEL)
         fresh = reconcile_rows(
             fetch_pay_statements(),
             start=datetime.fromisoformat(str(start).replace("Z", "+00:00")) - timedelta(seconds=10),
@@ -822,7 +827,7 @@ def main() -> int:
                     end=datetime.now(timezone.utc) + timedelta(seconds=10),
                     expected_count=maximum_possible_charges,
                     event_description="SingleGenerateImage",
-                    model=str(tasks[0].get("model", "gpt-image-2-pro")),
+                    model=str(tasks[0].get("model", ACTIVE_IMAGE_MODEL)),
                 )
                 matched = int(credit_reconciliation.get("matched_count", 0))
                 if matched >= newly_submitted or attempt == 6:

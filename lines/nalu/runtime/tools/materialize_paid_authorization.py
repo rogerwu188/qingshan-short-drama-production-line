@@ -39,7 +39,8 @@ What this tool does
    order's ``video_model`` on every task — ``seedance-2.0-pro`` (condition
    VIDEO_MODEL_SD2_ONLY; any other seedance variant or MiniMax-H3 is refused) or, since
    2026-10-13, ``MiniMax-H3`` (condition VIDEO_MODEL_H3_ONLY; any seedance model is refused).  Image batches keep
-   ``gpt-image-2-pro`` — the engine's only image route — which condition 1 does not
+   the registry's active image model (``tools/image_model_policy.py``; ``gpt-image-2-fast`` since
+   2026-10-30 seq=54, ``gpt-image-2-pro`` before) — which condition 1 does not
    govern; any other image model is refused unless ``--allow-image-model`` is given.
 4. Prices the batch (images ``--image-credits`` each; SD2 video
    ``--video-credits-per-second`` × total ``duration_seconds``; H3 video
@@ -94,6 +95,9 @@ from __future__ import annotations
 import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
+if str(_np.ENGINE_ROOT) not in _sys.path:
+    _sys.path.insert(0, str(_np.ENGINE_ROOT))
+from tools.image_model_policy import ACTIVE_IMAGE_MODEL, image_hard_upper_credits  # noqa: E402  (Roger 2026-10-30 seq=54)
 import argparse
 import hashlib
 import importlib.util
@@ -123,7 +127,7 @@ BUDGET_TOOL = Path(f"{_np.TOOLS_DIR}") / "nalu_budget_ledger.py"  # port fix 202
 GUARD_GATE_ID = "GIGGLE-REROLL-COST-GUARD"
 SD2 = "seedance-2.0-pro"
 H3 = "MiniMax-H3"
-IMAGE_MODEL = "gpt-image-2-pro"
+IMAGE_MODEL = ACTIVE_IMAGE_MODEL  # registry policy (configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json)
 FORBIDDEN_MODEL = re.compile(
     r"(seedance-2\.0-(?!pro\b)[a-z0-9.]+|seedance-2\.0\b(?!-pro)|minimax-h3|\bh3\b)",
     re.IGNORECASE,
@@ -687,8 +691,8 @@ def process(source: Path, *, kind: str, args: argparse.Namespace,
                         video_credits_per_second=args.video_credits_per_second)
         pricing["basis"] = "IDENTITY_PLAN_ROWS"
         model_report = {"models_named": [IMAGE_MODEL], "video": False,
-                        "note": "submit_giggle_character_asset_plan.py hardcodes "
-                                "gpt-image-2-pro / 2K at its call site (:219,:225)."}
+                        "note": "submit_giggle_character_asset_plan.py submits every row with the "
+                                f"registry's active image model {IMAGE_MODEL} / 2K."}
         video = False
     else:
         all_tasks = document.get("tasks") or []
@@ -816,7 +820,7 @@ def main() -> int:
     parser.add_argument("--in-place", action="store_true")
     parser.add_argument("--task-key", action="append", default=[])
     parser.add_argument("--cap", type=int, default=8000)
-    parser.add_argument("--image-credits", type=int, default=11)
+    parser.add_argument("--image-credits", type=int, default=image_hard_upper_credits())
     parser.add_argument("--video-credits-per-second", type=int, default=20)
     parser.add_argument("--orders", required=True,
                         help="deployment-private SUPERVISOR_ORDERS.json (outside engine checkout)")

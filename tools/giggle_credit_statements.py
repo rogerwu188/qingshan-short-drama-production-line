@@ -13,8 +13,10 @@ from typing import Any, Iterable
 
 try:
     from giggle_api_client import _get
+    from image_model_policy import ACTIVE_IMAGE_MODEL
 except ModuleNotFoundError:  # Imported as tools.giggle_credit_statements.
     from tools.giggle_api_client import _get
+    from tools.image_model_policy import ACTIVE_IMAGE_MODEL
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -270,7 +272,7 @@ def main() -> int:
     parser.add_argument("--end", required=True, help="Inclusive UTC ISO timestamp")
     parser.add_argument("--expected-count", type=int, required=True)
     parser.add_argument("--event-description", default="SingleGenerateImage")
-    parser.add_argument("--model", default="gpt-image-2-pro")
+    parser.add_argument("--model", default=ACTIVE_IMAGE_MODEL)
     parser.add_argument("--page-size", type=int, default=100)
     parser.add_argument("--out", required=True)
     parser.add_argument("--harvest-report")

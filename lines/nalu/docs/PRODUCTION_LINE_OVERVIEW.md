@@ -12,9 +12,9 @@ E01 已按现规则交付并记录 approve；本文件确认后作为 E02 起的
 | **S0 剧本** | 一集一章：叙事权威 → 导演稿 → 生成合约 → manifest（四层） | 写手 + `build_eXX_layers.py` | `workflow/claude_writer_agent/scripts/E0X_*` | 免费 | 第 10 门（场源申报）、四层一致性、key_quote 逐字命中 |
 | **S1 剧本就绪** | 校验四层 + 角色实体合约 | 引擎 gate | 门禁日志 | 免费 | 全 PASS 才进 S2 |
 | **S2 前期编译** | 空间图扩展 → 资产需求 → 编辑/分组/单元/锚点计划 → 首帧合约 → 分组 SD2 manifest → 视频预检 | `build_nalu_preproduction.py` | `workflow/nalu/E0X/preproduction/` | 免费 | 3 个机器门 PASS；纯编译，可反复跑 |
-| **S3 身份牌** | 每角色 3 视图（全身 / 正面头像 / 四分之三半身）；有源照片的角色以源照片为脸 | `bootstrap_identity_cards.py` → Giggle gpt-image-2-pro | `identity/plates/` + 资产库 | **付费** 约 11 分/张 | InsightFace 余弦 + 审片问卷，LOCKED 才可用；跨集复用（已锁角色不再付费） |
+| **S3 身份牌** | 每角色 3 视图（全身 / 正面头像 / 四分之三半身）；有源照片的角色以源照片为脸 | `bootstrap_identity_cards.py` → Giggle gpt-image-2-fast（注册表 active profile；2026-10-30 前为 gpt-image-2-pro） | `identity/plates/` + 资产库 | **付费** 约 11 分/张 | InsightFace 余弦 + 审片问卷，LOCKED 才可用；跨集复用（已锁角色不再付费） |
 | **S4 语音** | 每个说话角色一条参考音，上传注册 | AgentCut → `voice_registry.json` | `voice_refs/` | **付费** 2 分/角色（一次性） | 注册行 LOCKED_PRODUCTION_READY |
-| **S5 关键帧** | 每镜一张起始帧（2K，9:16） | `build_keyframe_manifest.py` → Giggle gpt-image-2-pro | `preproduction/keyframes/` | **付费** 11 分/张 | Q1 准入：身份量测（姿态可测才量）+ 审片问卷 + 首帧语义证据 |
+| **S5 关键帧** | 每镜一张起始帧（2K，9:16） | `build_keyframe_manifest.py` → Giggle gpt-image-2-fast（注册表 active profile） | `preproduction/keyframes/` | **付费** 11 分/张 | Q1 准入：身份量测（姿态可测才量）+ 审片问卷 + 首帧语义证据 |
 | **S6 视频** | 分波次滚动提交 SD2；每单元生成后 QA；Q2 组装准入；不合格单元受预算守卫的重生成 | `submit_giggle_video_manifest_v2` → seedance-2.0-pro | `video/E0X-VU-*.mp4` | **付费** 20 分/秒（约 180 s ≈ 3600 分首过） | 生成后 QA（技术 + 对白 ASR + 剧情问卷）→ Q2（身份/姿态/道具/连贯/缺陷分级） |
 | **S7 组装** | Q2 复核 → 时间线 → 渲染 → **字幕烧录** → **片尾拼接（3 s）** → 响度整平 → 最终 QA | 引擎链 + `build_burnin_subtitles.py` | `deliverables/E0X/E0X_final_9x16.mp4` | 免费 | 响度 −17…−15 LUFS；画面位精确 |
 | **S8 检查点** | 写 CHECKPOINT.md，停下等 Roger | `nalu_pipeline.py approve` | `CHECKPOINT.md` | 免费 | Roger 确认后自动开下一集 |
@@ -27,7 +27,7 @@ E01 实绩：27 单元 / 184 s / 32 镜；花费 5753 分（身份 352、关键�
 
 1. **双锁**：付费步骤只在 `--paid` 且 `qingshan.json generation.paid_requests_enabled=true` 同时成立时执行；免费子进程剥离 `GIGGLE_API_KEY`，物理上到不了付费端点。
 2. **每集上限 8000 积分**（seq=3 条件 2，HARD_STOP）；每次付费前跑离线账本守卫，不通过即停。
-3. **只用 seedance-2.0-pro**，禁止 fast/mini 等替代模型；图片用 Giggle **gpt-image-2-pro**（Roger 意见 7 已满足）。
+3. **只用 seedance-2.0-pro**，禁止 fast/mini 等替代模型；图片用 Giggle **gpt-image-2-fast**（Roger 2026-10-30 seq=54：所有图片生成改为 gptimage2 便宜档；Giggle 无裸 `gpt-image-2` id；2026-10-30 前为 gpt-image-2-pro，11 分/张）。
 4. **重生成**：必须先过 `reroll_cost_guard` 返回 PASS + 账本守卫 PASS，再提交；每次重生成写入 `E0X_REROLL_LEDGER.json`。
 5. **不重复付费**：同指纹任务由持久化事务存储恢复，不再 POST；丢失响应的任务先对账再决定，不盲目重发。
 6. **每步付费后归档积分凭证**（`*_credit_statement.json` 唯一命名），账本按凭证求和；凭证暂未出现的记 PENDING。
@@ -57,7 +57,7 @@ E01 实绩：27 单元 / 184 s / 32 镜；花费 5753 分（身份 352、关键�
 | 4 | 片尾 | 已加：NALU MOTION 3 s 片尾（带声音）自动拼接 | S7 |
 | 5 | 不要西式暗黑 | 合约禁用哥特/冷灰暗黑调色词；永夜世界改用**暖火光、雪地反光、月色青蓝**的中式夜景表达；负面提示词固定 | S0、S5、S6 |
 | 6 | 节奏偏慢 | 单元时长上限从 9 s 降到 **6–7 s**，单镜 ≥3 s（原 ≥4 s）；每场必须有转折；无对白静止镜头 ≤2.5 s；生成后 QA 静止判定从"提示"改为**拒收** | S0、S2、S6 QA |
-| 7 | 图片用 gptimg2 | 已在用 gpt-image-2-pro | — |
+| 7 | 图片用 gptimg2 | 2026-10-30 起 gpt-image-2-fast（seq=54）；之前 gpt-image-2-pro | 单价待首批账单回执确认 |
 
 需要确认的两个数字：单镜下限 3 s、单元上限 7 s（更短会增加单元数量，视频费不变但关键帧费上升，E02 估算 +60 分）。
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate Tang/Song period-look source photos for Roger's female leads (SUPERVISOR_ORDERS seq=8).
 
-Paid: gpt-image-2-pro image-to-image, one 9:16 2K image per character, face crop as the reference.
+Paid: registry active image model (gpt-image-2-fast since 2026-10-30 seq=54) image-to-image, one 9:16 2K image per character, face crop as the reference.
 Writes runtime/casting/<CID>/{intent,submit_response,task_response}.json + <CID>__SOURCE_V2_TANG.png,
 measures InsightFace cosine vs the face crop, and appends a credit statement stub.
 """
@@ -11,6 +11,7 @@ import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (e
 import argparse, json, os, sys, time, pathlib, hashlib, datetime, urllib.request
 sys.path.insert(0, f"{_np.ENGINE_ROOT}"); sys.path.insert(0, f"{_np.ENGINE_ROOT}/tools")
 from tools import giggle_api_client as g  # noqa: E402
+from tools.image_model_policy import ACTIVE_IMAGE_MODEL  # noqa: E402
 
 HOLD = pathlib.Path(f"{_np.RUNTIME_ROOT}/runtime/character_sources_hold")
 SRC = pathlib.Path(f"{_np.RUNTIME_ROOT}/runtime/character_sources")
@@ -41,13 +42,13 @@ def run(cids, dry, note=""):
         crop = HOLD / f"{cid}__FACE_CROP.png"
         d = OUT / cid; d.mkdir(parents=True, exist_ok=True)
         prompt = PROMPT.format(look=look) + (("\n" + note) if note else "")
-        intent = {"schema": "nalu.period_look_generation.v1", "character_id": cid, "canonical_name": name, "model": "gpt-image-2-pro",
+        intent = {"schema": "nalu.period_look_generation.v1", "character_id": cid, "canonical_name": name, "model": ACTIVE_IMAGE_MODEL,
                   "aspect_ratio": "9:16", "resolution": "2K", "reference": str(crop), "reference_sha256": sha(crop), "prompt": prompt,
                   "authority": "SUPERVISOR_ORDERS seq=8", "requested_at_utc": now}
         (d / f"intent_{now}.json").write_text(json.dumps(intent, ensure_ascii=False, indent=2), encoding="utf-8")
         if dry:
             print("DRY", cid); continue
-        args = argparse.Namespace(prompt=prompt, reference_image=[str(crop)], model="gpt-image-2-pro", aspect_ratio="9:16", resolution="2K", count=1)
+        args = argparse.Namespace(prompt=prompt, reference_image=[str(crop)], model=ACTIVE_IMAGE_MODEL, aspect_ratio="9:16", resolution="2K", count=1)
         with g.durable_generation_context():
             resp = g.generate_image(args)
         (d / f"submit_response_{now}.json").write_text(json.dumps(resp, ensure_ascii=False, indent=2), encoding="utf-8")

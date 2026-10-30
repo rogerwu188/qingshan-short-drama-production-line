@@ -36,6 +36,7 @@ import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
 _sys.path.insert(0, str(_np.ENGINE_ROOT))  # for tools.* imports
+from tools.image_model_policy import ACTIVE_IMAGE_MODEL  # noqa: E402  (Roger 2026-10-30 seq=54)
 import argparse
 import hashlib
 import json
@@ -2023,7 +2024,7 @@ def main(argv: list[str] | None = None) -> int:
                              "defaults to <asset-library parent>/asset_library")
     parser.add_argument("--engine-root", type=Path, default=DEFAULT_ENGINE_ROOT)
     parser.add_argument("--python", type=Path, default=Path(sys.executable))
-    parser.add_argument("--model", default="gpt-image-2-pro")
+    parser.add_argument("--model", default=ACTIVE_IMAGE_MODEL)
     parser.add_argument("--image-resolution", default="2K", choices=["1K", "2K"])
     parser.add_argument("--task-version", default="V1",
                         help="Portable task/output version such as V1 or V2; use a new value after a rejected attempt")

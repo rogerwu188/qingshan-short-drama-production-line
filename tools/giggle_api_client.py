@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import base64
 from tools.tool_output_sanitizer import sanitize_tool_output
+from tools.image_model_policy import ACTIVE_IMAGE_MODEL
 import contextlib
 from contextvars import ContextVar
 import json
@@ -351,7 +352,7 @@ def main() -> int:
     img = sub.add_parser("image")
     img.add_argument("--prompt", required=True)
     img.add_argument("--reference-image", action="append")
-    img.add_argument("--model", default="gpt-image-2-pro")
+    img.add_argument("--model", default=ACTIVE_IMAGE_MODEL)
     img.add_argument("--aspect-ratio", default="9:16")
     img.add_argument("--resolution", default="1K")
     img.add_argument("--count", type=int, default=1)

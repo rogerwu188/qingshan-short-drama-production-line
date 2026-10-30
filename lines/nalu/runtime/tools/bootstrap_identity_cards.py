@@ -63,6 +63,7 @@ ENGINE_ROOT = Path(os.environ.get("QINGSHAN_ENGINE_ROOT", f"{_np.ENGINE_ROOT}"))
 if str(ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_ROOT))
 
+from tools.image_model_policy import ACTIVE_IMAGE_MODEL, ACTIVE_IMAGE_RESOLUTION  # noqa: E402  (Roger 2026-10-30 seq=54)
 from tools.initial_asset_library import (  # noqa: E402
     CATEGORIES,
     canonical_sha256,
@@ -832,7 +833,7 @@ def build_plan(
         "machine_gate_reports": [str(gate_report_path)],
         "maximum_new_submissions": len(rows),
         "provider_route": "text-to-image for rows with no reference_images; image-to-image for rows with references",
-        "provider_route_evidence": "tools/submit_giggle_character_asset_plan.py:139-141 selects the endpoint per row from reference_images; model gpt-image-2-pro and resolution 2K are hardcoded at the call site, aspect_ratio 9:16 in the payload.",
+        "provider_route_evidence": "tools/submit_giggle_character_asset_plan.py:139-141 selects the endpoint per row from reference_images; model and resolution come from tools/image_model_policy.py (registry active profile), aspect_ratio 9:16 in the payload.",
         "view_policy": {
             "base_view": BASE_VIEW,
             "base_row_id_is_subject_id": True,
@@ -1110,8 +1111,8 @@ def main() -> int:
             "endpoint": "/api/v1/generation/text-to-image",
             "submitter": "tools/submit_giggle_character_asset_plan.py",
             "selected_because": "reference_images == [] (submit_giggle_character_asset_plan.py:126-132)",
-            "model": "gpt-image-2-pro",
-            "resolution": "2K",
+            "model": ACTIVE_IMAGE_MODEL,
+            "resolution": ACTIVE_IMAGE_RESOLUTION,
             "aspect_ratio": "9:16",
             "hardcoded_at": "tools/submit_giggle_character_asset_plan.py:122,219,225",
         },

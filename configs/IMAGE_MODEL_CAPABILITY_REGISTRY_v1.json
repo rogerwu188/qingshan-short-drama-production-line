@@ -2,21 +2,72 @@
   "schema": "qingshan.image_model_capability_registry.v1",
   "portable_contract_version": "1.0.0",
   "active_execution_policy": {
-    "effective_from_episode": "E40",
-    "allowed_paid_profile_ids": ["GPT_IMAGE_2_PRO_GIGGLE"],
-    "reason": "Current keyframe execution remains gpt-image-2-pro; compatibility profiles do not grant paid authority."
+    "effective_from_episode": "E12",
+    "effective_from_utc": "2026-10-30T03:00:00Z",
+    "allowed_paid_profile_ids": [
+      "GPT_IMAGE_2_FAST_GIGGLE"
+    ],
+    "authorising_order": "SUPERVISOR_ORDERS seq=54 (Roger 2026-10-30: 所有图片生成都改为giggle api的gptimage2 接口，这样图片成本可以大幅度降低) + seq=55 (默认采用最便宜的gptimage2模型版本)",
+    "reason": "Cost: switch every paid image route from gpt-image-2-pro to the cheaper GPT Image 2 SKU gpt-image-2-fast. Giggle has no bare gpt-image-2 model id (probe 2026-10-30). Compatibility profiles do not grant paid authority.",
+    "previous": {
+      "allowed_paid_profile_ids": [
+        "GPT_IMAGE_2_PRO_GIGGLE"
+      ],
+      "effective_from_episode": "E40",
+      "retired_utc": "2026-10-30T03:00:00Z"
+    }
   },
   "portable_required_fields": [
-    "prompt", "aspect_ratio", "reference_bindings", "space_chain_id",
+    "prompt",
+    "aspect_ratio",
+    "reference_bindings",
+    "space_chain_id",
     "canonical_entity_declaration"
   ],
   "profiles": [
     {
       "profile_id": "GPT_IMAGE_2_PRO_GIGGLE",
       "family": "gpt-image",
-      "aliases": ["gpt-image-2-pro"],
+      "aliases": [
+        "gpt-image-2-pro"
+      ],
       "provider": "giggle",
       "provider_model_id": "gpt-image-2-pro",
+      "adapter_status": "DEPLOYED_RETIRED_FOR_NEW_PAID_SUBMITS",
+      "supports": {
+        "text_to_image": true,
+        "image_references": true,
+        "exact_reference_byte_transport": true,
+        "flat_reference_images": true,
+        "semantic_role_transport": false,
+        "provider_native_identity_lock": false
+      },
+      "provider_limits": {
+        "aspect_ratio_values": [
+          "9:16"
+        ],
+        "resolution_values": [
+          "1K",
+          "2K"
+        ]
+      },
+      "pricing": {
+        "credits": 11,
+        "hard_upper": 11,
+        "evidence": "394 SingleGenerateImage statement rows model=gpt-image-2-pro at -11 (2K, 9:16); tools/e40_u12_v3_image_paid_preflight.py EXPECTED_UPPER=11"
+      },
+      "default_resolution": "2K"
+    },
+    {
+      "profile_id": "GPT_IMAGE_2_FAST_GIGGLE",
+      "family": "gpt-image",
+      "aliases": [
+        "gpt-image-2-fast",
+        "gptimage2",
+        "gptimg2"
+      ],
+      "provider": "giggle",
+      "provider_model_id": "gpt-image-2-fast",
       "adapter_status": "DEPLOYED",
       "supports": {
         "text_to_image": true,
@@ -26,40 +77,83 @@
         "semantic_role_transport": false,
         "provider_native_identity_lock": false
       },
-      "provider_limits": {"aspect_ratio_values": ["9:16"], "resolution_values": ["1K", "2K"]}
+      "provider_limits": {
+        "aspect_ratio_values": [
+          "9:16"
+        ],
+        "resolution_values": [
+          "1K",
+          "2K"
+        ]
+      },
+      "default_resolution": "2K",
+      "pricing": {
+        "credits": null,
+        "hard_upper": 11,
+        "evidence": "UNVERIFIED: no statement row for gpt-image-2-fast yet; hard_upper kept at the pro price (11) until the first SingleGenerateImage row is observed, then lowered to the observed charge"
+      },
+      "route_evidence": "2026-10-30 probe: POST /api/v1/generation/text-to-image model=gpt-image-2-fast with invalid params -> 400 'aspect ratio does not support resolution' (model exists; price record present); bare gpt-image-2 -> 500 'failed to get model price: record not found'"
     },
     {
       "profile_id": "SD2_PORTABLE",
       "family": "sd2",
-      "aliases": ["sd2", "stable-diffusion-2"],
+      "aliases": [
+        "sd2",
+        "stable-diffusion-2"
+      ],
       "provider": null,
       "provider_model_id": null,
       "adapter_status": "CONTRACT_READY_PROVIDER_CONFIG_REQUIRED",
       "supports": {},
       "provider_limits": {},
-      "deployment_requirements": ["provider_identity", "provider_model_id", "reference_transport_probe", "credentials", "cost_authority"]
+      "deployment_requirements": [
+        "provider_identity",
+        "provider_model_id",
+        "reference_transport_probe",
+        "credentials",
+        "cost_authority"
+      ]
     },
     {
       "profile_id": "SEED_IMAGE_PORTABLE",
       "family": "seed-image",
-      "aliases": ["seed", "seed-image"],
+      "aliases": [
+        "seed",
+        "seed-image"
+      ],
       "provider": null,
       "provider_model_id": null,
       "adapter_status": "CONTRACT_READY_PROVIDER_CONFIG_REQUIRED",
       "supports": {},
       "provider_limits": {},
-      "deployment_requirements": ["provider_identity", "provider_model_id", "reference_transport_probe", "credentials", "cost_authority"]
+      "deployment_requirements": [
+        "provider_identity",
+        "provider_model_id",
+        "reference_transport_probe",
+        "credentials",
+        "cost_authority"
+      ]
     },
     {
       "profile_id": "GOOGLE_NANO_BANANA_PORTABLE",
       "family": "google-nano-banana",
-      "aliases": ["nano-banana", "nanobanana", "nanubanner", "google-nano-banana"],
+      "aliases": [
+        "nano-banana",
+        "nanobanana",
+        "nanubanner",
+        "google-nano-banana"
+      ],
       "provider": "google",
       "provider_model_id": null,
       "adapter_status": "CONTRACT_READY_PROVIDER_CONFIG_REQUIRED",
       "supports": {},
       "provider_limits": {},
-      "deployment_requirements": ["provider_model_id", "reference_transport_probe", "credentials", "cost_authority"]
+      "deployment_requirements": [
+        "provider_model_id",
+        "reference_transport_probe",
+        "credentials",
+        "cost_authority"
+      ]
     }
   ]
 }

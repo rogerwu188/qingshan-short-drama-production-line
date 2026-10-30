@@ -16,6 +16,11 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from tools.image_model_policy import ACTIVE_IMAGE_MODEL, ACTIVE_IMAGE_RESOLUTION
+except ModuleNotFoundError:
+    from image_model_policy import ACTIVE_IMAGE_MODEL, ACTIVE_IMAGE_RESOLUTION
+
+try:
     from tools.giggle_api_client import _request, dns_failed_before_connect, durable_generation_context
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
     from tools.visual_culture_contract import validate_visual_culture_contract
@@ -277,13 +282,13 @@ def main() -> int:
         results = [{"character_id": row["id"], "status": "PRECHECK_PASS"} for row in rows]
     else:
         with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as pool:
-            futures = {pool.submit(submit, row, receipt_dir, transaction_dir, "gpt-image-2-pro", "2K"): row for row in rows}
+            futures = {pool.submit(submit, row, receipt_dir, transaction_dir, ACTIVE_IMAGE_MODEL, ACTIVE_IMAGE_RESOLUTION): row for row in rows}
             for future in as_completed(futures):
                 try:
                     results.append(future.result())
                 except (Exception, SystemExit) as exc:
                     row = futures[future]
-                    failures.append({"character_id": row["id"], "status": "SUBMIT_FAILED", "error": str(exc), "transaction": portable_path(transaction_path(transaction_dir, row, "gpt-image-2-pro", "2K"))})
+                    failures.append({"character_id": row["id"], "status": "SUBMIT_FAILED", "error": str(exc), "transaction": portable_path(transaction_path(transaction_dir, row, ACTIVE_IMAGE_MODEL, ACTIVE_IMAGE_RESOLUTION))})
     credit_reconciliation = None
     ambiguity_resolution = "NOT_APPLICABLE"
     if not args.precheck_only:
@@ -295,7 +300,7 @@ def main() -> int:
             matched = 0
         else:
             for attempt in range(7):
-                credit_reconciliation = reconcile_rows(fetch_pay_statements(), start=submit_started_at - timedelta(seconds=10), end=datetime.now(timezone.utc) + timedelta(seconds=10), expected_count=maximum_possible, event_description="SingleGenerateImage", model="gpt-image-2-pro")
+                credit_reconciliation = reconcile_rows(fetch_pay_statements(), start=submit_started_at - timedelta(seconds=10), end=datetime.now(timezone.utc) + timedelta(seconds=10), expected_count=maximum_possible, event_description="SingleGenerateImage", model=ACTIVE_IMAGE_MODEL)
                 matched = int(credit_reconciliation.get("matched_count", 0))
                 if matched >= newly_submitted or attempt == 6:
                     break
@@ -325,8 +330,8 @@ def main() -> int:
         "episode": plan.get("episode"),
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "plan": portable_path(plan_path),
-        "model": "gpt-image-2-pro",
-        "resolution": "2K",
+        "model": ACTIVE_IMAGE_MODEL,
+        "resolution": ACTIVE_IMAGE_RESOLUTION,
         "concurrency": max(1, args.concurrency),
         "precheck_only": args.precheck_only,
         "status": "PASS" if generation_pass and cost_pass else "FAIL",

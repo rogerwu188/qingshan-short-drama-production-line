@@ -53,6 +53,7 @@ from typing import Any
 ENGINE_ROOT = Path(os.environ.get("QINGSHAN_ENGINE_ROOT", f"{_np.ENGINE_ROOT}"))
 if str(ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_ROOT))
+from tools.image_model_policy import ACTIVE_IMAGE_MODEL, image_hard_upper_credits  # noqa: E402  (Roger 2026-10-30 seq=54)
 
 SCHEMA = "nalu.episode_credit_budget_ledger.v1"
 DEFAULT_CAP = 8000
@@ -88,7 +89,15 @@ UNIT_PRICES = {
     "image_gpt_image_2_pro": {
         "credits": 5,
         "hard_upper": 11,
-        "evidence": "tools/e40_u12_v3_image_paid_preflight.py:35-36 EXPECTED_IMAGE_PRICE=5 / EXPECTED_UPPER=11",
+        "evidence": "tools/e40_u12_v3_image_paid_preflight.py:35-36 EXPECTED_IMAGE_PRICE=5 / EXPECTED_UPPER=11; "
+                    "retired for new paid submits 2026-10-30 (seq=54)",
+    },
+    # The active image SKU and its reserve price come from configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json
+    # via tools/image_model_policy.image_hard_upper_credits(); bound image tasks are reserved at that figure.
+    "image_active": {
+        "model": ACTIVE_IMAGE_MODEL,
+        "hard_upper": image_hard_upper_credits(),
+        "evidence": "registry profile pricing.hard_upper (Roger 2026-10-30 seq=54: 所有图片生成都改为 gptimage2 便宜档)",
     },
     "audio_minmax_speech_2_8_hd": {
         "credits": 2,
@@ -514,7 +523,7 @@ def scan_non_video_spend(
             })
 
     bound_image_upper = Decimal(len(bound_image_task_ids)) * Decimal(str(
-        UNIT_PRICES["image_gpt_image_2_pro"]["hard_upper"]
+        image_hard_upper_credits()
     ))
     return {
         "per_task_credits": number(per_task),
@@ -647,7 +656,7 @@ def _spend_evidence(episode: str, bgm_transactions_dir: Path | None = None) -> l
                     credits = BGM_PROVISIONAL_CREDITS_PER_TASK
             elif state == "SUBMITTED_TASK_ID_BOUND" and payload.get("task_id"):
                 if directory.parent.name == IMAGE_TRANSACTION_DIRNAME:
-                    credits = Decimal(str(UNIT_PRICES["image_gpt_image_2_pro"]["hard_upper"]))
+                    credits = Decimal(str(image_hard_upper_credits()))
                 else:
                     estimated = payload.get("estimated_credits")
                     credits = (Decimal(str(estimated)) if isinstance(estimated, (int, float)) and estimated > 0
