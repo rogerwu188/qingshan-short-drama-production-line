@@ -7597,7 +7597,14 @@ def s7_post_level_audio_chain(ctx: Ctx, res: StageResult, steps: list[dict[str, 
                                "--release-timeline", p.assembly / f"{ctx.episode}_release_timeline.json",
                                "--grouping-plan", p.grouping_plan, "--contract", p.contract,
                                "--voice-cast", ctx.p.scope["voice_cast"], "--asr-out", pitch_asr,
-                               "--asr-model", s7_asr_model(), "--work", p.assembly / "_pitch_unify_work"]
+                               "--asr-model", s7_asr_model(), "--f0-estimator", "dio",
+                               "--work", p.assembly / "_pitch_unify_work"]
+            # operator-authored skip list (F4 2026-10-30): units whose voice H3 produced an octave off the band —
+            # a <= 6 st shift cannot repair them, they are redo candidates for the line owner
+            skip_cfg = read_json(p.assembly / f"{ctx.episode}_VOICE_PITCH_UNIFY_SKIP.json", {}) or {}
+            skip_units = [str(u) for u in (skip_cfg.get("skip_units") or [])]
+            if skip_units:
+                argv += ["--skip-units", ",".join(skip_units)]
             if pitch_asr.is_file() and (read_json(pitch_asr, {}) or {}).get("media_sha256") == stage_in_sha:
                 argv += ["--asr-json", pitch_asr]
             res.details["commands"]["voice_pitch_unify"] = q(argv)
@@ -7607,6 +7614,9 @@ def s7_post_level_audio_chain(ctx: Ctx, res: StageResult, steps: list[dict[str, 
         rep = read_json(pitch_report, {}) or {}
         chain.append({"stage": "voice_pitch_unify", "input": str(current), "output": str(pitch_out),
                       "report": str(pitch_report), "windows": str(pitch_windows) if pitch_windows.is_file() else None,
+                      "skip_units": (read_json(p.assembly / f"{ctx.episode}_VOICE_PITCH_UNIFY_SKIP.json", {}) or {}).get("skip_units"),
+                      "placement_note": "runs after release levelling (F4 measured I -14.0 -> -14.5 LUFS after resynthesis); "
+                                        "the bed stage re-applies the static release gain and the detectors re-measure loudness",
                       "summary": {k: v for k, v in rep.items() if not isinstance(v, (list, dict))}})
         current, stage_in_sha = pitch_out, sha256_file(pitch_out)
         if pitch_windows.is_file():
@@ -8726,18 +8736,22 @@ def stage_s7(ctx: Ctx) -> StageResult:
             res.blockers = ["FINAL_CUT_CAMERA_MOTION_FAIL:" + ",".join(camera_step.get("failing") or [])]
             return res
 
+    chain_windows = (res.details.get("final_candidate_chain") or {}).get("line_windows_for_detectors")
+    chain_windows_ok = bool(chain_windows and Path(str(chain_windows)).is_file())
     detector_argv: list[Any] = [VENV, ENGINE / "tools/final_cut_audience_detectors.py",
                                 "--media", p.final_candidate, "--out", detector_report,
                                 "--lexicon", ctx.p.scope["lexicon"],
-                                "--speaker-map", speaker_map, "--story-segments", release_timeline,
+                                # the pre-levelling speaker map must not be laid over windows rebuilt on the
+                                # candidate (F4: it re-attributed speakers within ±0.6 s and corrupted the measure)
+                                *([] if chain_windows_ok else ["--speaker-map", speaker_map]),
+                                "--story-segments", release_timeline,
                                 "--voice-cast", ctx.p.scope["voice_cast"],
                                 # Roger 2026-10-30 item 1a: ASR read-back of the mix vs burned subtitles
                                 # (subtitle_asr_agreement >= 95 %, babble outside cues <= 1 s); read per
                                 # release segment, cached incrementally by media sha (F2: large-v3 whole-file
                                 # took 2 h on this 8 GB machine)
                                 "--readback-asr-json", p.readback_asr, "--readback-model", s7_asr_model()]
-    chain_windows = (res.details.get("final_candidate_chain") or {}).get("line_windows_for_detectors")
-    if chain_windows and Path(str(chain_windows)).is_file():
+    if chain_windows_ok:
         # line windows rebuilt on the finished candidate by the post-level chain (unit-bounded, Roger 2026-10-30):
         # the pre-levelling windows sat on pre-trim offsets (E12: 13 wholly outside their unit)
         detector_argv += ["--asr-json", chain_windows]
