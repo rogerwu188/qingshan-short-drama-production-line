@@ -7584,10 +7584,15 @@ def s7_post_level_audio_chain(ctx: Ctx, res: StageResult, steps: list[dict[str, 
             steps.append({"name": "s7_voice_pitch_unify", "exit_code": 0, "reused": True})
         else:
             _park_superseded(pitch_out, pitch_report, pitch_windows)
-            argv: list[Any] = [VENV, pitch_tool, "--input", current, "--out", pitch_out, "--report", pitch_report,
-                               "--windows-out", pitch_windows, "--timeline", p.assembly / f"{ctx.episode}_release_timeline.json",
-                               "--grouping", p.grouping_plan, "--contract", p.contract,
-                               "--voice-cast", ctx.p.scope["voice_cast"]]
+            pitch_asr = p.assembly / f"{ctx.episode}_FINAL_CUT_READBACK_ASR_levelled.json"
+            argv: list[Any] = [VENV, pitch_tool, "--episode", ctx.episode, "--input", current, "--output", pitch_out,
+                               "--report", pitch_report, "--windows-out", pitch_windows,
+                               "--release-timeline", p.assembly / f"{ctx.episode}_release_timeline.json",
+                               "--grouping-plan", p.grouping_plan, "--contract", p.contract,
+                               "--voice-cast", ctx.p.scope["voice_cast"], "--asr-out", pitch_asr,
+                               "--work", p.assembly / "_pitch_unify_work"]
+            if pitch_asr.is_file() and (read_json(pitch_asr, {}) or {}).get("media_sha256") == stage_in_sha:
+                argv += ["--asr-json", pitch_asr]
             res.details["commands"]["voice_pitch_unify"] = q(argv)
             steps.append(ctx.run(argv, name="s7_voice_pitch_unify"))
             if steps[-1]["exit_code"] != 0 or not pitch_out.is_file():
@@ -7595,8 +7600,7 @@ def s7_post_level_audio_chain(ctx: Ctx, res: StageResult, steps: list[dict[str, 
         rep = read_json(pitch_report, {}) or {}
         chain.append({"stage": "voice_pitch_unify", "input": str(current), "output": str(pitch_out),
                       "report": str(pitch_report), "windows": str(pitch_windows) if pitch_windows.is_file() else None,
-                      "summary": {k: rep.get(k) for k in ("lines_shifted", "min_copresent_pair_diff_hz_before",
-                                                         "min_copresent_pair_diff_hz_after", "status")}})
+                      "summary": {k: v for k, v in rep.items() if not isinstance(v, (list, dict))}})
         current, stage_in_sha = pitch_out, sha256_file(pitch_out)
         if pitch_windows.is_file():
             line_windows = pitch_windows
