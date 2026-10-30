@@ -34,6 +34,7 @@ try:
     from tools.h3_provider_english_contract import (
         H3_CONSTRAINT_ZH,
         CAMERA_LOCK_FROZEN_CLAUSE,
+        redo_finding_sentences,
         strict_camera_lock_applies,
         h3_constraint_language,
         require_h3_provider_english_contract,
@@ -48,6 +49,7 @@ except ModuleNotFoundError:
     from h3_provider_english_contract import (
         H3_CONSTRAINT_ZH,
         CAMERA_LOCK_FROZEN_CLAUSE,
+        redo_finding_sentences,
         strict_camera_lock_applies,
         h3_constraint_language,
         require_h3_provider_english_contract,
@@ -583,8 +585,12 @@ def _strict_lock_clause(unit: dict[str, Any], plan: dict[str, Any], camera_plans
     unit's camera line also freezes the frame size; h3_camera_lock "standard" opts out; else ""."""
     locked = one_take and bool(camera_plans) and all(
         str((p or {}).get("motion_family") or "STATIC").upper() in {"STATIC", "LOCKED"} for p in camera_plans)
-    applies = strict_camera_lock_applies(unit, stamped=director_active(unit, plan), locked_single_take=locked)
-    return "; " + CAMERA_LOCK_FROZEN_CLAUSE if applies and locked else ""
+    stamped = director_active(unit, plan)
+    applies = strict_camera_lock_applies(unit, stamped=stamped, locked_single_take=locked)
+    clause = "; " + CAMERA_LOCK_FROZEN_CLAUSE if applies and locked else ""
+    if stamped and locked:  # engine redo after an objective Q2 push-in FAIL (q2_auto_redo, owner 2026-10-29)
+        clause += "".join("; " + v[0].lower() + v[1:].rstrip(".") for v in redo_finding_sentences(unit))
+    return clause
 
 
 _ONE_TAKE_CLAUSE = "; " + ONE_TAKE[0].lower() + ONE_TAKE[1:].rstrip(".")

@@ -5,8 +5,10 @@ Lab Holmes E04: a 6-8 s H3 unit around a short line made H3 fill the spare secon
 speech and pan away; 3-5 s units were clean.  A shot with an on-screen spoken line therefore runs the
 estimated line + 0.5 s, at least 4 s and at most 5 s, rounded up to the whole seconds H3 accepts.
 HopsAPI (owner 2026-10-29) accepts integer 4-15 s only, so the floor moved from 3 s to 4 s: the writer
-fills a speaking shot with ~3 s of speech and merges a very short line with the speaker's next line or
-gives it a performed action (H3_SCRIPT_ADAPTATION_GUIDE §5); S7 head/tail trims remain the safety net.
+fills a speaking shot with ~3.5 s of speech (lab E08: shorter lines made H3 invent speech that S7 then trimmed,
+96 s final instead of ~110 s) and merges a short line with the speaker's next line or gives it a performed
+action (H3_SCRIPT_ADAPTATION_GUIDE §5); S7 head/tail trims remain the safety net.  A line estimated under
+``SHORT_LINE_WARN_SECONDS`` gets a non-blocking ``warning`` on its report row.
 
 * fits (line + 0.5 <= 5 s): duration = max(4, ceil(line + 0.5)) — shorter or longer than authored;
 * does not fit: the writer must split the line into two shots (H3_SCRIPT_ADAPTATION_GUIDE §5).  The compiler
@@ -41,6 +43,9 @@ LINE_PAD_SECONDS = 0.5
 MIN_SECONDS = 4  # HopsAPI H3 request floor (owner 2026-10-29; was 3 on Giggle)
 MAX_SECONDS = 5
 SHORTEN_ABOVE_LINE_PLUS = 1.5
+#: owner 2026-10-29 (lab E08): a spoken line is written to take ~3.5 s; under it H3 pads the shot with invented speech
+SHORT_LINE_WARN_SECONDS = 2.8
+SHORT_LINE_WARNING = "SHORT_LINE_ADD_ACTION_OR_MERGE"
 
 
 def estimated_line_seconds(lines: list[str] | str, language: str = "zh",
@@ -69,5 +74,8 @@ def speaking_duration(authored: float, lines: list[str] | str, language: str = "
     else:
         new = float(math.ceil(need - 1e-9)) if authored > line + SHORTEN_ABOVE_LINE_PLUS else authored
         action = "WRITER_SPLIT_REQUIRED" + ("_SHORTENED" if new < authored else "_KEPT")
-    return {"authored_seconds": authored, "estimated_line_seconds": line, "target_seconds": round(need, 3),
-            "duration_seconds": new, "action": action}
+    row = {"authored_seconds": authored, "estimated_line_seconds": line, "target_seconds": round(need, 3),
+           "duration_seconds": new, "action": action}
+    if line < SHORT_LINE_WARN_SECONDS:  # non-blocking: give the speaker a performed action or merge the line
+        row["warning"] = SHORT_LINE_WARNING
+    return row

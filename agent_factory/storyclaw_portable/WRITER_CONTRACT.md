@@ -150,6 +150,12 @@ blocking check; direct the episode the way people watch films:
   Never write the speaker turning to look at a window / door / off-screen object, or "eyes fixed on X", inside a
   speaking shot: H3 pans to reveal what they look at and loses the speaker (line owner 2026-10-24, lab Holmes E03).
   A look at something gets its own silent shot, or an insert of the thing.
+- Every on-screen spoken line is written to take about 3.5 s to say (English ~9–11 words, Chinese ~14–16
+  characters; line owner 2026-10-29, lab E08: with the 4 s HopsAPI minimum, shorter lines made H3 invent speech that
+  S7 trimmed away, 96 s final instead of ~110 s). A shorter line gets a performed action in the same shot or is
+  merged with the same speaker's next line. Speaking shots stay 4–5 s. Author ~115–120 s of shots so the episode
+  lands at ~110 s after the trims. A line estimated under 2.8 s only warns (`SHORT_LINE_ADD_ACTION_OR_MERGE`,
+  writer self-check `R11_SHORT_SPEAKING_LINE`).
 - Write the cuts the script implies: `internal_transition_authoring.transition_mode` `MOTIVATED_CUT` /
   `REACTION_CUT` / `MATCH_CUT` / `HARD_CUT` (or a scene change) makes the next video unit open on its own
   keyframe, a clean cut; continuous modes keep the previous unit's real tail as the start frame.

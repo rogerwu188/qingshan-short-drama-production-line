@@ -891,7 +891,7 @@ def _speaking_shot_duration(shot: dict[str, Any], separated_row: tuple[str, list
     if not speaker or speaker in offscreen:
         return authored
     row = _sud.speaking_duration(authored, lines, language, shot.get("dialogue_delivery"))
-    if row["action"] != "UNCHANGED":
+    if row["action"] != "UNCHANGED" or row.get("warning"):  # a short-line warning is reported too (non-blocking)
         report.append({"shot_id": str(shot.get("shot_id")), **row})
     return float(row["duration_seconds"])
 
@@ -1352,7 +1352,8 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
         **({"camera_grammar_policy": "CAMERA_GRAMMAR_V1"} if camera_grammar else {}),
         **({"speaking_unit_duration_report": {
             "schema": "qingshan.speaking_unit_duration.v1", "source": "tools/speaking_unit_duration.py",
-            "rule": "speaking shot = estimated line + 0.5 s, 3-5 s, whole seconds; longer lines: writer splits",
+            "rule": "speaking shot = estimated line + 0.5 s, 4-5 s, whole seconds; longer lines: writer splits; "
+                    "lines under 2.8 s warn SHORT_LINE_ADD_ACTION_OR_MERGE (non-blocking)",
             "rows": duration_report}} if duration_report else {}),
         "shots": shots,
     }
@@ -1497,6 +1498,27 @@ def submitted_without_tail_units(out_dir: Path, episode: str, contract: dict[str
         return set()
     return {str(uid) for uid, row in rows.items()
             if isinstance(row, dict) and row.get("predecessor_tail_submitted") is False}
+
+
+def q2_redo_prompt_findings(out_dir: Path, episode: str, contract: dict[str, Any]) -> dict[str, list[str]]:
+    """CAMERA_GRAMMAR_V1: unit -> ``h3_redo_findings`` of units the engine redid after an objective Q2 FAIL whose
+    redo prompt states the measured problem (push-in; lab E08, owner 2026-10-29).  Read from the S6 wave state
+    ``q2_auto_redo`` record, which is never removed, so a recompile after the redo keeps the submitted prompt."""
+    import camera_grammar_policy as _cg
+    if not _cg.active(contract, episode=episode):
+        return {}
+    import q2_auto_redo as _redo
+    path = out_dir / "reports" / f"{episode}_S6_WAVE_STATE.json"
+    try:
+        state = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for uid in (state.get(_redo.STATE_KEY) or {}):
+        findings = _redo.redo_findings(state, str(uid))
+        if findings:
+            out[str(uid)] = findings
+    return out
 
 
 def build_start_frame_contracts(anchor_plan: dict[str, Any], editorial: dict[str, Any],
@@ -2686,6 +2708,7 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
     q1_dir = out_dir / "reports" / "qa" / "q1"
     action_role_dir = (action_role_evidence_dir if action_role_evidence_dir is not None
                        else root / "reports" / "action_role_evidence")
+    redo_findings = q2_redo_prompt_findings(out_dir, episode, contract)
     for task in transaction["tasks"]:
         uid = task["unit_id"]
         row = final_rows.get(uid)
@@ -3016,6 +3039,8 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             task["h3_constraint_language"] = cu["h3_constraint_language"]
         if cu.get("h3_camera_lock"):  # declared camera lock (strict|standard); absent == renderer default
             task["h3_camera_lock"] = cu["h3_camera_lock"]
+        if redo_findings.get(uid):  # CAMERA_GRAMMAR_V1 engine redo: the prompt states the measured problem
+            task["h3_redo_findings"] = list(redo_findings[uid])
         task["dialogue_lines"] = lines
         task["native_dialogue_required"] = bool(lines)
         task["dialogue_transport"] = "MODEL_NATIVE_TEXT_DIALOGUE" if lines else "SAME_TASK_NATIVE_AMBIENCE_FOLEY_ACTION_SOUND"

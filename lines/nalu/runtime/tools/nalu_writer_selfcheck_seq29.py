@@ -15,6 +15,8 @@ Roger 2026-09-18《E05/E06 生产线补正 —— 追加：语速 / 镜长 / 表
     8a  pressure_source 在前 30 s；8b episode_payoff 二选一；8c action_chain 想要→受阻→出手
   规则 10 对白镜的动作文字不得要求换嗓子（压着嗓子/扯着嗓子/声音发颤…，词表 configs/VOICE_TIMBRE_LOCK_V1.json）；
           默认只警告，配置 selfcheck.blocking 或合同 voice_timbre_policy.enforced 时阻断
+  规则 11 （仅 CAMERA_GRAMMAR_V1，线主 2026-10-29，实验集 E08）每句画内台词估算说话时长 < 2.8 s 只警告
+          R11_SHORT_SPEAKING_LINE：按约 3.5 s 写满，或给说话人一个有表演的动作，或并到同一说话人的下一句
 
 The check is a WRITER-LAYER self-check: it carries no gate_id.  It is enforced (S1 refuses to enter
 S2) only when the contract declares ``writer_selfcheck_seq29.enforced: true`` (E06+ builders);
@@ -201,6 +203,29 @@ def in_video_contract(contract: dict[str, Any]) -> dict[str, Any]:
     return {**contract, "shots": shots}
 
 
+def short_speaking_line_warnings(contract: dict[str, Any]) -> list[dict[str, Any]]:
+    """CAMERA_GRAMMAR_V1 contracts: dialogue shots whose in-video line is estimated under
+    speaking_unit_duration.SHORT_LINE_WARN_SECONDS (same estimate the compiler uses).  Other contracts: []."""
+    tools_dir = _pathlib.Path(__file__).resolve().parents[4] / "tools"
+    if str(tools_dir) not in _sys.path:
+        _sys.path.append(str(tools_dir))
+    import camera_grammar_policy as _cg
+    if not _cg.active(contract, episode=str(contract.get("episode") or "")):
+        return []
+    import speaking_unit_duration as _sud
+    import voice_over_narration as _vo
+    language = _vo.contract_language(contract)
+    rows = []
+    for shot in contract.get("shots") or []:
+        lines = [line for line in str(((shot.get("prompt_spec") or {}).get("dialogue")) or "").splitlines() if line.strip()]
+        if not lines:
+            continue
+        seconds = _sud.estimated_line_seconds(lines, language, shot.get("dialogue_delivery"))
+        if 0 < seconds < _sud.SHORT_LINE_WARN_SECONDS:
+            rows.append({"shot_id": str(shot.get("shot_id") or "?"), "estimated_seconds": seconds})
+    return rows
+
+
 def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) -> dict[str, Any]:
     contract = in_video_contract(contract)
     lex = lexicon or load_lexicon()
@@ -317,6 +342,13 @@ def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) ->
     r10 = voice_timbre_findings(contract)
     m["voice_timbre_terms_by_shot"] = r10["by_shot"]
     (failures if r10["blocking"] else warnings).extend(r10["codes"])
+
+    # R11 (line owner 2026-10-29, lab E08; CAMERA_GRAMMAR_V1 only, never blocks) — a spoken line written for a
+    # 4 s HopsAPI shot should take ~3.5 s to say; a line estimated under 2.8 s makes H3 pad it with invented speech.
+    r11 = short_speaking_line_warnings(contract)
+    if r11:
+        m["short_speaking_lines"] = r11
+        warnings.extend(f"R11_SHORT_SPEAKING_LINE:{row['shot_id']}:{row['estimated_seconds']:g}" for row in r11)
 
     status = "PASS" if not failures else "FAIL"
     return {"schema": SCHEMA, "episode": contract.get("episode"), "authority": "SUPERVISOR_ORDERS seq=29 (Roger 2026-09-18 memo 九–十四)",

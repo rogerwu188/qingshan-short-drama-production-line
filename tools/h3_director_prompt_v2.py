@@ -37,6 +37,7 @@ try:
         CAMERA_LOCK_NEVER,
         CAMERA_LOCK_STRICT,
         h3_camera_lock,
+        redo_finding_sentences,
         strict_camera_lock_applies,
         validate_h3_provider_text_boundary,
     )
@@ -59,6 +60,7 @@ except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
         CAMERA_LOCK_NEVER,
         CAMERA_LOCK_STRICT,
         h3_camera_lock,
+        redo_finding_sentences,
         strict_camera_lock_applies,
         validate_h3_provider_text_boundary,
     )
@@ -658,6 +660,10 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                                              locked_single_take=all_locked and v1.ONE_TAKE in camera)
     if camera_lock:
         camera += "\n" + CAMERA_LOCK_FROZEN_FRAME
+    # engine redo after an objective Q2 push-in FAIL (q2_auto_redo, owner 2026-10-29): state the measured problem
+    if stamped and all_locked:
+        for sentence in redo_finding_sentences(unit):
+            camera += "\n" + sentence
     evidence["CAMERA.PLAN"] = camera
 
     # --- action + dialogue -----------------------------------------------------------------------------

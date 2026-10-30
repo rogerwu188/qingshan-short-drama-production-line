@@ -5,14 +5,16 @@ Lab Holmes E04: the dispatch asked Codex for the §5 redo of units whose objecti
 Codex skipped it.  The pipeline now decides it itself, right after ``video_q2_builder prepare`` measured the
 clips and before the video_q2 review is requested:
 
-* candidates: units whose ``prepare.json`` records ``face_count`` (duplicates / extra people) or
-  ``speaker_framing`` FAIL — duplicates first, then speaker framing, then the §5 viewer order (earlier
-  units first);
+* candidates: units whose ``prepare.json`` records ``face_count`` (duplicates / extra people),
+  ``speaker_framing`` or ``push_in`` (locked camera, face width +50 %; line owner 2026-10-29, lab E08) FAIL —
+  duplicates first, then speaker framing, then push-in, then the §5 viewer order (earlier units first);
 * each unit at most once (``<EP>_S6_WAVE_STATE.json`` ``q2_auto_redo``, keyed by unit, with the failed clip
   sha); a unit already redone, or one the budget headroom cannot cover, goes to the review and the §5
   default accept exactly as before;
-* cost per unit = the unit's video price + one own keyframe (~11 credits); units are taken while the
-  cumulative cost stays within the episode headroom (stop at the first unit that does not fit);
+* cost per unit = the unit's video price (HopsAPI per-second estimate on the router) + one own keyframe
+  (~11 credits) when the failure needs a new start frame (face count / speaker framing; a push-in redo keeps
+  its start frame and only states the measured problem in the prompt, ``PROMPT_NOTES``); units are taken while
+  the cumulative cost stays within the episode headroom (stop at the first unit that does not fit);
 * the redo itself is the existing machinery: the clip is parked to ``video/_superseded_<run>_q2_auto_redo``;
   the S6 wave loop then parks the start frame (``redo_switch_start_frames``), generates the unit's own
   keyframe through S5 and submits the single unit in its own wave.  Reviews that this produces (keyframe Q1,
@@ -23,9 +25,26 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-FAILURE_PRIORITY = ("face_count", "speaker_framing")  # duplicates > speaker framing
+FAILURE_PRIORITY = ("face_count", "speaker_framing", "push_in")  # duplicates > speaker framing > push-in
+#: failures whose redo parks the start frame and generates the unit's own keyframe (nalu_pipeline.redo_switch_start_frames)
+NEW_START_FRAME_FAILURES = ("speaker_framing", "face_count")
 OWN_KEYFRAME_CREDITS = 11
 STATE_KEY = "q2_auto_redo"
+#: failure -> the task/unit field value the redo's H3 prompt carries (``h3_redo_findings``); the renderer states
+#: the measured problem in plain words (h3_provider_english_contract.REDO_FINDING_SENTENCES)
+REDO_FINDINGS_FIELD = "h3_redo_findings"
+PROMPT_NOTES = {"push_in": "push_in"}
+
+
+def needs_own_keyframe(failures: list[str]) -> bool:
+    return any(f in NEW_START_FRAME_FAILURES for f in failures)
+
+
+def redo_findings(state: dict[str, Any] | None, unit_id: str) -> list[str]:
+    """The prompt findings of a unit the engine redid (wave-state ``q2_auto_redo`` record), [] otherwise.  Kept
+    for good once recorded, so a later recompile keeps the prompt the redo was submitted with."""
+    row = ((state or {}).get(STATE_KEY) or {}).get(unit_id) or {}
+    return [PROMPT_NOTES[f] for f in row.get("failures") or [] if f in PROMPT_NOTES]
 
 
 def objective_failures(prepare_row: dict[str, Any]) -> list[str]:

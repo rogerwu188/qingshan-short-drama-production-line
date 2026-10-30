@@ -6747,7 +6747,8 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
 def s6_q2_auto_redo(ctx: Ctx) -> dict[str, Any]:
     """CAMERA_GRAMMAR_V1: the engine's own one controlled redo after an objective Q2 FAIL (q2_auto_redo.py;
     CLAUDE_CODE_PRODUCTION §5).  Runs after ``prepare`` and before the video_q2 review: units it selects get
-    their clip parked and the S6 wave loop redoes them (own keyframe + single-unit wave).  Never blocks."""
+    their clip parked and the S6 wave loop redoes them (own keyframe for face count / speaker framing, the same
+    start frame + the measured problem in the prompt for a push-in; single-unit wave).  Never blocks."""
     if not _camera_grammar_on(ctx):
         return {"status": "NOT_APPLICABLE"}
     import q2_auto_redo as _redo
@@ -6765,7 +6766,10 @@ def s6_q2_auto_redo(ctx: Ctx) -> dict[str, Any]:
     model = episode_video_model(ctx.episode)
 
     def unit_cost(uid: str) -> int:
-        return video_task_credits(model, seconds.get(uid, 6.0), 1) + _redo.OWN_KEYFRAME_CREDITS
+        # video at the planning price (HopsAPI per-second estimate on the router) + an own keyframe only when the
+        # failure needs a new start frame (a push-in redo keeps its start frame; owner 2026-10-29)
+        keyframe = _redo.OWN_KEYFRAME_CREDITS if _redo.needs_own_keyframe(_redo.objective_failures(rows.get(uid) or {})) else 0
+        return video_task_credits(model, seconds.get(uid, 6.0), 1) + keyframe
 
     headroom = None
     if not ctx.dry:

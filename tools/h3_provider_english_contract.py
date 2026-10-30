@@ -64,6 +64,23 @@ CAMERA_LOCK_FROZEN_CLAUSE = ("frame size is frozen: the subject stays exactly th
                              "frame to the last, never closer, no zoom-in, no crop change")
 CAMERA_LOCK_MODES = ("strict", "standard")
 
+#: Engine redo after an objective Q2 FAIL (q2_auto_redo ``h3_redo_findings``; line owner 2026-10-29, lab E08 VU-017
+#: pushed in +90%): the redo prompt states the measured problem in plain words, on top of the strict camera lock.
+#: CAMERA_GRAMMAR_V1 locked-camera units only; absent field = no sentence.
+H3_REDO_FINDINGS_FIELD = "h3_redo_findings"
+REDO_FINDING_SENTENCES = {
+    "push_in": ("The previous take pushed in on the face; this take must keep exactly the @Image1 shot size "
+                "for the whole clip."),
+}
+
+
+def redo_finding_sentences(payload: dict[str, Any] | None) -> list[str]:
+    """The plain-words sentences of a unit's declared redo findings (unknown findings are ignored)."""
+    raw = (payload or {}).get(H3_REDO_FINDINGS_FIELD) or []
+    raw = [raw] if isinstance(raw, str) else list(raw)
+    return [REDO_FINDING_SENTENCES[f] for f in dict.fromkeys(str(v).strip().lower() for v in raw)
+            if f in REDO_FINDING_SENTENCES]
+
 
 def h3_camera_lock(payload: dict[str, Any] | None) -> str:
     """The declared camera-lock mode of a unit/contract: "strict", "standard" (opt-out) or "" (not declared)."""

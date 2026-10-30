@@ -37,7 +37,7 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
    （来源与 manifest 规则）、H3 改编指南 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md`（有就读）、派单里的 `SOURCE_SELECTION.md`
    和本集章节（`sources/<作品>/<SOURCE_INDEX.json 的 canonical_reading_script>/chNNNN.md`）。只按原文改编，原文缺的不凭记忆补写。
 2. `workflow/claude_writer_agent/scripts/<EP>_NARRATIVE_CANONICAL_v1.md`：只写事实、可表演的动作和**逐字台词**，按
-   `## <EP>-S01｜<LOC-ID>｜<时间>｜线A` 分场；不写机位、灯光、资产。一集 4–6 场、约 26–32 个镜头、镜头合计约 105 秒（成片约 1 分 50 秒，含片头片尾；线主 2026-10-27：每集约 2 分钟、留广告位，不超过 1 分 55 秒）——靠多写镜头和剧情拉长，不靠拉长单个镜头（对白镜仍 ≤5 秒）；台词决定时长（中文每 4 个汉字约 1 秒；
+   `## <EP>-S01｜<LOC-ID>｜<时间>｜线A` 分场；不写机位、灯光、资产。一集 4–6 场、约 26–32 个镜头、镜头合计约 115–120 秒（S7 剪掉 H3 头尾多出的话后成片约 110 秒、约 1 分 50 秒，含片头片尾；线主 2026-10-27：每集约 2 分钟、留广告位，不超过 1 分 55 秒；2026-10-29 实验集 E08 剪裁吃掉 27 s）——靠多写镜头和剧情拉长，不靠拉长单个镜头（对白镜仍 4–5 秒）；台词决定时长（中文每 4 个汉字约 1 秒；
    英文约每秒 2.5 个词）。英文剧台词与旁白直接写英文；只有声音没有形象的旁白角色写成「旁白角色名：台词」，简报里照常列出、
    `appearance` 写「voice only」，登记为 `VOICE_ONLY_NO_PLATE`。没有人脸又不说话的可见存在（怪物、雕像、无五官人形）登记为
    `non_character_entities`（`kind: CREATURE`，`creature_card`，`note` 用英文一句话写清长相），不列成人物、也不当道具（H3 改编指南 §3）。E02 起开头承接上一集结尾状态，不重演上一集。
@@ -74,11 +74,11 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
   `"strict"` 强制（移动机位拒绝）。进行中的集重编译会让已提交单元的提示词变化：已由绑定交易产出成片的单元按提交时的提示词认定，不要求重新定稿回执；
   尚未提交的单元照常走定稿 diff/回执。旧的 `--variant camera_lock_strict` A/B 仍可用（现与默认相同）。
 - S7 推近补偿（线主 2026-10-26，免费，CAMERA_GRAMMAR_V1）：锁机位单元按剪辑实际使用的片段（头尾裁剪之后）取 9 帧量最大人脸宽度（InsightFace）；
-  从首帧到末帧单调变大超过 25% 的单元（相邻两帧跳变 >40% 视为内部硬切、有脸帧 <6 都跳过）把前段画面以人脸为中心逐帧放大到末帧的大小
-  （最多 1.6 倍，超出只部分补偿，Lanczos 放大回原分辨率，音频原样复制、时长不变），装配用 `assembly/push_in_compensation/<单元>.mp4` 代替原片。
+  从首帧到末帧单调变大超过 50% 的单元（相邻两帧跳变 >40% 视为内部硬切、有脸帧 <6 都跳过）把前段画面以人脸为中心逐帧放大到末帧的大小
+  （最多 1.3 倍，超出只部分补偿，Lanczos 放大回原分辨率，音频原样复制、时长不变；线主 2026-10-27 定 50% / 1.3 倍），装配用 `assembly/push_in_compensation/<单元>.mp4` 代替原片。
   报告 `assembly/<EP>_PUSH_IN_COMPENSATION.json`（每单元宽度、裁剪曲线、是否触顶 `cap_hit`）；任何失败只跳过，不阻断 S7。实现 `tools/push_in_compensation.py`。
 - 对白镜 4–5 s，一句一镜（线主 2026-10-26，CAMERA_GRAMMAR_V1；2026-10-29 视频改走 HopsAPI 后下限 4 s）：编译器把画内对白镜定为「估算说话时长 + 0.5 s」取整秒（4–5 s，`tools/speaking_unit_duration.py`，报告在编辑清单 `speaking_unit_duration_report`）。
-  写台词时每句写满约 3 s 的话（英文约 8–9 词、中文约 12–13 字）；很短的台词（≤ 约 5 个词）并到同一说话人的下一句，或在同一镜给说话人一个有表演的动作，不要让 H3 自己用乱码填时间（S7 头尾剪裁只是兜底）。无台词插入镜最短 4 s。细则见 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` §5。
+  写台词时每句写成说出来约 3.5 s（线主 2026-10-29，实验集 E08：英文约 9–11 词、中文约 14–16 字）；更短的台词在同一镜给说话人一个有表演的动作，或并到同一说话人的下一句，不要让 H3 自己用乱码填时间（S7 头尾剪裁只是兜底）。估算 < 2.8 s 的台词编译器只警告（`speaking_unit_duration_report` 行 `warning: SHORT_LINE_ADD_ACTION_OR_MERGE`；写手自查 `R11_SHORT_SPEAKING_LINE`），不拦。无台词插入镜最短 4 s。细则见 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` §5。
   一句估算超过 4.5 s（含标点停顿，英文约 12 词、中文约 17 字以上）放不进 5 s：**写手必须拆成两镜**（台词一字不改，在自然停顿处断开）；编译器不拦，只记 `WRITER_SPLIT_REQUIRED_*`，写手时长超出台词 1.5 s 以上会被自动缩短。
   无台词的动作（推门、走位、取物）单独写一镜，不和台词放在同一镜。
 - 每镜 `prompt_spec.camera_plan` 全字段（shot_scale/camera_height/camera_side/motion_family/motion_direction/lens_intent/axis_relation/start_framing/end_framing/motivation）；
@@ -216,10 +216,16 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
   多个单元要重做时按观众影响排序：开场前 10 秒 > 有台词/主角正脸 > 结尾 > 其余；预算用到上限为止。其余 Q2 失败项（构图、道具数量、动作细节）照旧直接接受。
   CAMERA_GRAMMAR_V1 剧集的 Q2 会客观数脸（InsightFace，`objective_face_count`）：≥2 帧人脸数多于声明人数时 `cast_exactly_as_declared` 自动判 FAIL（审核答 PASS 也不能改回），同样走这条重做一次。
   同样客观量说话人构图（`objective_speaker_framing`）：有台词且说话人声明在画面内的单元，≥1/3 帧里说话人脸不在画面、被画框切掉、贴左右边（≤2%）或脸中心落在外侧 12% 时 `cast_exactly_as_declared` 自动判 FAIL，同样走这条重做一次（镜头文字写明说话人居中、完整入画）。
-  **引擎自动重做（线主 2026-10-26，实验集 E04 派单里的 Q2 重做被跳过）**：CAMERA_GRAMMAR_V1 集的这两类客观 FAIL 不再等你决定——
+  同样客观量推近（`objective_push_in`，线主 2026-10-29，实验集 E08 VU-017 锁机位推近 +90%，H3 把它做成两个景别之间的叠化、约 1 s 人物半透明重影，S7 1.3 倍补偿后又发虚）：
+  锁机位单元用 Q2 的 9 帧、同一次 InsightFace，按 S7 推近补偿的同一规则（最大人脸宽度首→末增长 >50%、单调、相邻跳变 >40% 视为硬切、有脸帧 ≥6）量整段片子，
+  超过就 `camera_axis_stable_and_declared` 自动判 FAIL（审核答 PASS 也不能改回）。
+  **引擎自动重做（线主 2026-10-26，实验集 E04 派单里的 Q2 重做被跳过）**：CAMERA_GRAMMAR_V1 集的这三类客观 FAIL 不再等你决定——
   S6.q2 在 `video_q2_builder prepare` 量完、发 video_q2 审核请求**之前**，由引擎（`lines/nalu/runtime/tools/q2_auto_redo.py`，`nalu_pipeline.s6_q2_auto_redo`）
-  挑出 `prepare.json` 里 `face_count`（多人/重复人物）或 `speaker_framing` FAIL 的单元，按「重复人物 > 说话人构图 > 单元顺序」排序，
-  每单元只重做一次（记在 `reports/<EP>_S6_WAVE_STATE.json` 的 `q2_auto_redo`），费用 = 该单元视频价 + 1 张自有关键帧（~11 积分），
+  挑出 `prepare.json` 里 `face_count`（多人/重复人物）、`speaker_framing` 或 `push_in` FAIL 的单元，按「重复人物 > 说话人构图 > 推近 > 单元顺序」排序，
+  每单元只重做一次（记在 `reports/<EP>_S6_WAVE_STATE.json` 的 `q2_auto_redo`），费用 = 该单元视频价（HopsAPI 按秒估价向上取整，4–5 s 计划约 8–9 积分）+ 1 张自有关键帧（~11 积分，只有重复人物/说话人构图才换起始帧；
+  只因推近重做的单元沿用原起始帧，提示词保留强机位锁，并在 Camera 段末多一句 `The previous take pushed in on the face; this take must keep exactly the @Image1 shot size for the whole clip.`
+  ——任务字段 `h3_redo_findings: ["push_in"]`，由引擎按 `q2_auto_redo` 记录写进交易清单，提示词变了会照常要求定稿回执），
+  重做后仍推近的照旧由 S7 推近补偿兜底（>50%、最多 1.3 倍）。
   先查本集余量（`budget_check`），累计放不下就停，剩下的单元照旧走审核 + 默认接受（`--context` 写「预算不足未重做」或「已重做一次」）。
   选中的单元成片移到 `video/_superseded_<run>_q2_auto_redo/`，同一次 `paid_stage.sh <EP> S6 S7`（或正常 `run`）里 S6 立刻重进波次循环：
   下面 ③ 的自动换起始帧 → S5 出自有关键帧 → 单单元波次提交。你只需照常回答它产生的审核请求（关键帧 Q1、start_frame、新的 video_q2）；

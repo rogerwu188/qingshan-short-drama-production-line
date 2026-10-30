@@ -478,6 +478,9 @@ def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
     # declared camera lock (h3_camera_lock "strict" | "standard"; absent = renderer default)
     if task.get("h3_camera_lock") or machine.get("h3_camera_lock"):
         prompt_unit["h3_camera_lock"] = task.get("h3_camera_lock") or machine.get("h3_camera_lock")
+    # CAMERA_GRAMMAR_V1 engine redo after an objective Q2 FAIL (q2_auto_redo): the measured problem, e.g. ["push_in"]
+    if task.get("h3_redo_findings") or machine.get("h3_redo_findings"):
+        prompt_unit["h3_redo_findings"] = list(task.get("h3_redo_findings") or machine.get("h3_redo_findings"))
     prompt_unit["duration_seconds"] = task.get("duration_seconds")
     prompt_unit["resolution"] = task.get("resolution")
     prompt_unit["aspect_ratio"] = task.get("aspect_ratio")
