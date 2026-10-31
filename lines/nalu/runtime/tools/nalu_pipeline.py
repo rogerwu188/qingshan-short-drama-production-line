@@ -4302,7 +4302,10 @@ def apply_line_owner_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: 
         # ``all(g in f ...)`` is false and the row never reaches the standing rule.
         row_gate = next((g for g in Q1_ACCEPTABLE_GATES if failures and all(g in f for f in failures)), None)
         multi_gates = failing_registered_gates(failures)
-        if row_gate is None and len(multi_gates) > 1:
+        # E12 2026-10-31: a still failing ONE gate that only the per-gate path knows (the action/state
+        # handoff, the scene lock) was rejected forever even with its own sha-bound order, while the same
+        # gate failing beside another one was acceptable.  One failing gate goes the same per-gate way.
+        if row_gate is None and multi_gates:
             record = q1_multi_gate_acceptance(ctx, orders, row, failures, multi_gates, decisions, issuer)
             if record is None:
                 still_rejected.append(uid)

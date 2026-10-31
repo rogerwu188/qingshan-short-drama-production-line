@@ -705,7 +705,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "b0eb4c7d47dbdb470bf36c957e3859e3fba1b7c567784b67e95c0fb62cb6fcc9"
+      "sha256": "2d328e03daf1a1504e8aa961ac2977423aef1ff8d06ad48351cbb8472e028c30"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -7969,7 +7969,7 @@
     },
     {
       "path": "tools/tests/test_nalu_q1_roger_acceptance.py",
-      "sha256": "20921c3ffd870af9e9479df8a4b334198a651b7b261e913ae763c93192f5418a"
+      "sha256": "d2f491d2080ef73e7e52498ecc7d07fe53376ff886633873a4955ca7073416a3"
     },
     {
       "path": "tools/tests/test_nalu_release_unposted_waves.py",

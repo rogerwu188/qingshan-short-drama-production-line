@@ -209,6 +209,41 @@ class MultiGateQ1AcceptanceTests(unittest.TestCase):
         out, _ = self.run_multi(["CHARACTER-IDENTITY-ADMISSION", self.HANDOFF], extra_failure="KEYFRAME_MISSING")
         self.assertEqual(out["accepted_unit_ids"], [])
 
+    def test_single_handoff_gate_admits_only_with_its_own_order(self):
+        """E12 2026-10-31 (S04-03): the action/state handoff failing alone was never acceptable."""
+        def run(with_order):
+            with tempfile.TemporaryDirectory() as d:
+                tmp = Path(d); index, ip, ar = _fixture(tmp)
+                row = index["results"][1]
+                row["failures"] = [f"evidence_3:{self.HANDOFF}:registered_gate_not_pass:FAIL_NOT_ADMITTED:P0",
+                                   f"required_registered_gate_not_pass:{self.HANDOFF}"]
+                ip.write_text(json.dumps(index))
+                orders = []
+                if with_order:
+                    order = _order(tmp, detectors=(f"E06-S02-01:{self.HANDOFF}",), source_receipt=False)
+                    order["seq"], order["id"] = 31, "ACCEPT-31"
+                    order["decision"]["gate_id"] = self.HANDOFF
+                    receipt = {"schema": rga.RECEIPT_SCHEMA, "status": "CONFIRMED", "issued_by": "owner-1",
+                               "order_seq": 31, "order_id": "ACCEPT-31", "verbatim": order["order"],
+                               "recorded_at_utc": "2026-10-31T00:00:00Z"}
+                    path = tmp / "accept-source-31.json"; path.write_text(json.dumps(receipt))
+                    order["source_receipt"] = {"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+                    orders.append(order)
+                saved = rga._orders
+                rga._orders = lambda *args, **kwargs: orders
+                try:
+                    out = npl.apply_line_owner_q1_acceptance(_ctx(tmp), index, ip)
+                finally:
+                    rga._orders = saved
+                return out, json.loads(ar.read_text())
+        out, ar = run(True)
+        self.assertEqual(out["accepted_unit_ids"], ["E06-VU-004"])
+        self.assertEqual(ar["downstream_status"], "ADMITTED_FOR_VIDEO_SUBMIT")
+        self.assertEqual(ar["engine_status"], "FAIL")
+        out, ar = run(False)
+        self.assertEqual(out["accepted_unit_ids"], [])
+        self.assertEqual(ar["downstream_status"], "FAIL_NOT_ADMITTED")
+
     def test_scene_lock_and_evidence_payload_shape_admit_with_their_orders(self):
         """2026-10-16 (400030 / 400926 S6): a derived still also failing SCENE-AUTHORITY-LOCK, and a gate
         reported as evidence_payload_not_pass, are admitted only when each gate has its own order."""
