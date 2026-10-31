@@ -232,8 +232,19 @@ def extract_frames(unit_id: str, media: Path, out_dir: Path, count: int) -> dict
         if completed.returncode == 0 and frame.is_file():
             frames.append({"path": str(frame), "sha256": sha256_file(frame),
                            "at_seconds": stamp})
+    # Frame names carry the timestamp, so a new take of a slightly different length writes new files beside
+    # the old take's; vlm_review_protocol lists every *.png here and the reviewer was handed frames of clips
+    # that no longer exist (E12 2026-10-31).  Older frames of this unit move to _superseded/, never deleted.
+    current = {Path(row["path"]).name for row in frames}
+    stale = [old for old in out_dir.glob(f"{unit_id}_f*.png") if old.name not in current]
+    if stale:
+        parked = out_dir / "_superseded"
+        parked.mkdir(exist_ok=True)
+        for old in stale:
+            old.replace(parked / old.name)
     return {
         "status": "OK" if len(frames) == count else f"PARTIAL_{len(frames)}_OF_{count}",
+        "stale_frames_parked": sorted(old.name for old in stale),
         "media": str(media), "media_sha256": sha256_file(media),
         "duration_seconds": round(duration, 3),
         "frame_count": len(frames), "frames": frames, "argv": argvs,

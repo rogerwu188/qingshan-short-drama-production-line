@@ -427,6 +427,7 @@
     "tools.tests.test_image_model_policy",
     "tools.tests.test_keyframe_appearance_lock",
     "tools.tests.test_unit_recut",
+    "tools.tests.test_video_q2_stale_frames",
     "tools.tests.test_nalu_h3_video_model",
     "tools.tests.test_burned_text_cover",
     "tools.tests.test_h3_director_prompt_v2",

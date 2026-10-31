@@ -277,7 +277,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "af724b7a208f69e5979b7540b5529d7aa142f68947753afc3a5e576abdfc85bb"
+      "sha256": "dfe551c1833d9d5572c3c62f4bdf414ba434f5f449dfb9975f09ad92943a5da3"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -841,7 +841,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/video_q2_builder.py",
-      "sha256": "315fd8a0c783e94bbdf960adfbd6cfb1c8d0eb105950fd01f4d052e6617b3755"
+      "sha256": "e9abda548245e7d3254d7c069b0e2d67d933c480544f191cf24e8a7582043970"
     },
     {
       "path": "lines/nalu/runtime/tools/visual_review_policy.py",
