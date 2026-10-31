@@ -13,6 +13,16 @@ raises :class:`VideoModelSelectionError`; it is never treated as absent.  A new 
 named explicitly in qingshan.json — a missing / unreadable config, a missing, empty, non-string or unknown
 ``generation.video_model`` raises too.  There is no default model: a silent default used to be written
 into the episode lock by the first S2 and then followed by every paid stage.
+
+Episode attribution (K145 binding).  A lock, an editorial manifest or a task row that DECLARES an
+``episode`` other than the one being resolved raises ``VIDEO_MODEL_*_EPISODE_MISMATCH`` before any model is
+returned; the record is left exactly as it is (never deleted, overwritten or replaced by the config).
+A record WITHOUT an ``episode`` field (key absent or ``null``) is a different case: legacy records predate
+the field and are accepted only for the episode whose own path holds them
+(``preproduction/<EP>/video_model.json``, ``<EP>/preproduction/<EP>_EDITORIAL_SEEDANCE_MANIFEST_V1.json``);
+the selection reports ``episode_attribution`` = ``path_legacy`` for them, ``declared`` otherwise, so the
+two cases are never conflated.  Any other declared value (another id, empty string, non-string) declares
+a different episode and is refused.
 """
 from __future__ import annotations
 
@@ -75,17 +85,36 @@ def _supported(model: Any, *, code: str, episode: str | None, source: str, path:
     return model
 
 
+def _attribution(record: dict[str, Any], *, code: str, episode: str, source: str, path: Path) -> str:
+    """``declared`` when the record names this episode, ``path_legacy`` when it names none; raise otherwise."""
+    if record.get("episode") is None:
+        return "path_legacy"
+    if record.get("episode") != episode:
+        raise VideoModelSelectionError(code, episode=episode, expected=episode, actual=record.get("episode"),
+                                       source=source, files=[path],
+                                       detail="the record declares another episode; it is not this episode's "
+                                              "authority and is left untouched")
+    return "declared"
+
+
 def recorded_selection(episode: str) -> dict[str, Any] | None:
-    """{video_model, source, files} from the episode lock and/or editorial manifest; None for a new episode."""
+    """{video_model, source, files, episode_attribution} from the episode lock and/or editorial manifest;
+    None for a new episode."""
     found: list[tuple[str, str, Path]] = []
+    attribution: dict[str, str] = {}
     lock = record_path(episode)
     data = _load(lock, code="VIDEO_MODEL_LOCK_UNREADABLE", episode=episode, source="episode_lock")
     if data is not None:
+        attribution["episode_lock"] = _attribution(data, code="VIDEO_MODEL_LOCK_EPISODE_MISMATCH", episode=episode,
+                                                   source="episode_lock", path=lock)
         found.append((_supported(data.get("video_model"), code="VIDEO_MODEL_LOCK_INVALID", episode=episode,
                                  source="episode_lock", path=lock), "episode_lock", lock))
     editorial = editorial_path(episode)
     manifest = _load(editorial, code="VIDEO_MODEL_MANIFEST_UNREADABLE", episode=episode, source="editorial_manifest")
     if manifest is not None:
+        attribution["editorial_manifest"] = _attribution(manifest, code="VIDEO_MODEL_MANIFEST_EPISODE_MISMATCH",
+                                                         episode=episode, source="editorial_manifest",
+                                                         path=editorial)
         named = [value for value in ((manifest.get("model_contract") or {}).get("model"), manifest.get("model"))
                  if value is not None]
         if len(set(map(str, named))) > 1:
@@ -100,7 +129,8 @@ def recorded_selection(episode: str) -> dict[str, Any] | None:
         raise VideoModelSelectionError("VIDEO_MODEL_RECORDS_CONFLICT", episode=episode, expected=found[0][0],
                                        actual=found[1][0], source="+".join(s for _, s, _ in found),
                                        files=[p for _, _, p in found])
-    return {"video_model": found[0][0], "source": found[0][1], "files": [str(p) for _, _, p in found]}
+    return {"video_model": found[0][0], "source": found[0][1], "files": [str(p) for _, _, p in found],
+            "episode_attribution": attribution}
 
 
 def recorded_video_model(episode: str) -> str | None:
@@ -159,9 +189,18 @@ def claim_video_model(episode: str, model: str) -> str:
 
 def check_task_models(episode: str, *, tasks: list[dict[str, Any]], format_contract: dict[str, Any] | None = None,
                       allowed_video_models: list[Any] | None = None, manifest_path: Any = None) -> str:
-    """Every model a video manifest names must equal the episode's recorded model.  Returns that model."""
-    selection = recorded_selection(episode)
+    """Every model a video manifest names must equal the episode's recorded model.  Returns that model.
+
+    A task row that declares another episode is refused first (VIDEO_MODEL_TASK_EPISODE_MISMATCH): it is
+    neither judged against this episode's record nor re-attributed.  A row without ``episode`` belongs to
+    the episode the caller resolved."""
     files = [manifest_path] if manifest_path else []
+    foreign = [f"task:{task.get('task_key')}.episode={task.get('episode')}" for task in tasks
+               if task.get("episode") is not None and task.get("episode") != episode]
+    if foreign:
+        raise VideoModelSelectionError("VIDEO_MODEL_TASK_EPISODE_MISMATCH", episode=episode, expected=episode,
+                                       actual=foreign, source="video manifest tasks", files=files)
+    selection = recorded_selection(episode)
     if selection is None:
         raise VideoModelSelectionError("VIDEO_MODEL_NOT_SELECTED", episode=episode, source="no episode lock or "
                                        "editorial manifest", files=[record_path(episode), editorial_path(episode),

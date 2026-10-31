@@ -340,10 +340,11 @@ def nalu_manifest(episode: str, model: str, *, task_models=None, prompt: Path | 
     }
 
 
-def run_submit_main(manifest: dict, tmp: Path, *, precheck: bool = False):
+def run_submit_main(manifest: dict, tmp: Path, *, precheck: bool = False, path: Path | None = None):
     """Drive the real submit entry (submit_giggle_video_manifest_v2.main) with the provider POST mocked."""
     from tools import submit_giggle_video_manifest_v2 as video
-    path = tmp / "manifest.json"
+    path = path or tmp / "manifest.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(manifest), encoding="utf-8")
     argv = ["submit_giggle_video_manifest_v2.py", "--manifest", str(path), "--out", str(tmp / "out.json"),
             "--project-root", str(tmp)] + (["--precheck-only"] if precheck else [])
@@ -578,3 +579,211 @@ class ExplicitVideoModelSelectionTests(unittest.TestCase):
             self.assertEqual(len(winners), 1, winners)
             self.assertEqual(json.loads(vm.record_path("E97").read_text())["video_model"], winners.pop())
             self.assertEqual([p.name for p in vm.record_path("E97").parent.iterdir()], ["video_model.json"])
+
+
+# --------------------------------------------------------------------------- #
+# K145 binding: a record is authority only for the episode it declares, and a manifest is judged only
+# against the production scope (runtime/work roots + episode) it is bound to -- never by episode id alone.
+# --------------------------------------------------------------------------- #
+def bind_roots(runtime: Path, work: Path) -> None:
+    """Point nalu_paths (and so nalu_video_model, which reads it at call time) at another line's roots.
+    The surrounding nalu_roots() restores the environment and reloads nalu_paths on exit."""
+    import importlib
+    import nalu_paths
+    runtime.mkdir(parents=True, exist_ok=True)
+    work.mkdir(parents=True, exist_ok=True)
+    os.environ.update(NALU_RUNTIME_ROOT=str(runtime), NALU_WORK_ROOT=str(work), NALU_IGNORE_DEPLOYMENT_PIN="1")
+    importlib.reload(nalu_paths)
+
+
+def scope_of(runtime: Path, work: Path, episode: str) -> dict:
+    """What build_nalu_preproduction records as the manifest's production_scope."""
+    return {"line": "nalu", "episode": episode, "runtime_root": str(runtime.resolve()),
+            "work_root": str(work.resolve())}
+
+
+class EpisodeAndScopeBindingTests(unittest.TestCase):
+    # 8. a lock / editorial manifest / task row that declares ANOTHER episode is refused before any POST
+    def test_wrong_episode_records_are_refused_and_left_untouched(self):
+        def foreign_lock(rt, wk):
+            path = rt / "preproduction" / "E67" / "video_model.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"episode": "E66", "video_model": SD2_ID}), encoding="utf-8")
+            return path
+
+        def foreign_editorial(rt, wk):
+            path = write_editorial(wk, "E67", SD2_ID)
+            path.write_text(json.dumps({"episode": "E66", "model_contract": {"model": SD2_ID}}), encoding="utf-8")
+            return path
+
+        def empty_episode_lock(rt, wk):
+            path = foreign_lock(rt, wk)
+            path.write_text(json.dumps({"episode": "", "video_model": SD2_ID}), encoding="utf-8")
+            return path
+
+        cases = {"lock": (foreign_lock, "VIDEO_MODEL_LOCK_EPISODE_MISMATCH"),
+                 "lock_empty_episode": (empty_episode_lock, "VIDEO_MODEL_LOCK_EPISODE_MISMATCH"),
+                 "editorial": (foreign_editorial, "VIDEO_MODEL_MANIFEST_EPISODE_MISMATCH")}
+        for name, (setup, code) in cases.items():
+            with self.subTest(name), nalu_roots(qingshan={"generation": {"video_model": H3_ID}}) as (
+                    tmp, runtime, work, vm, bnp):
+                record = setup(runtime, work)
+                before = record.read_bytes()
+                with self.assertRaises(vm.VideoModelSelectionError) as caught:
+                    vm.episode_video_model("E67")          # not SD2 from E66's record, not H3 from the config
+                self.assertEqual(caught.exception.code, code)
+                self.assertEqual(caught.exception.details["expected"], "E67")
+                with self.assertRaises(SystemExit) as stopped:
+                    bnp.select_video_model("E67")
+                self.assertIn(code, str(stopped.exception))
+                for precheck in (False, True):
+                    error, post = run_submit_main(nalu_manifest("E67", SD2_ID), tmp, precheck=precheck)
+                    self.assertIsInstance(error, vm.VideoModelSelectionError)
+                    self.assertEqual(error.code, code)
+                    self.assertEqual(post.call_count, 0)
+                self.assertEqual(record.read_bytes(), before, "the foreign record is neither deleted nor rewritten")
+                if name != "editorial":
+                    self.assertEqual(sorted(p.name for p in record.parent.iterdir()), ["video_model.json"])
+        # a task row declaring another episode is not regrouped under (and judged by) that episode's lock
+        with nalu_roots(qingshan={"generation": {"video_model": H3_ID}}) as (tmp, runtime, work, vm, bnp):
+            lock67, lock66 = write_lock(runtime, "E67", H3_ID), write_lock(runtime, "E66", SD2_ID)
+            manifest = nalu_manifest("E67", H3_ID)
+            manifest["tasks"].append({**deepcopy(manifest["tasks"][0]), "task_key": "E66-VU-009",
+                                      "episode": "E66", "model": SD2_ID})
+            error, post = run_submit_main(manifest, tmp)
+            self.assertIsInstance(error, vm.VideoModelSelectionError)
+            self.assertEqual(error.code, "VIDEO_MODEL_TASK_EPISODE_MISMATCH")
+            self.assertEqual(error.details["actual"], ["task:E66-VU-009.episode=E66"])
+            self.assertEqual(post.call_count, 0)
+            with self.assertRaises(vm.VideoModelSelectionError):
+                vm.check_task_models("E67", tasks=manifest["tasks"])
+            self.assertEqual(json.loads(lock67.read_text())["video_model"], H3_ID)
+            self.assertEqual(json.loads(lock66.read_text())["video_model"], SD2_ID)
+
+    # 9. legacy records WITHOUT an episode field: accepted for the episode whose own path holds them
+    def test_legacy_records_without_episode_field_are_path_attributed(self):
+        with nalu_roots(qingshan={"generation": {"video_model": H3_ID}}) as (tmp, runtime, work, vm, bnp):
+            for ep, lock_doc in (("E05", {"video_model": SD2_ID}), ("E06", {"episode": None, "video_model": SD2_ID})):
+                path = vm.record_path(ep)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(lock_doc), encoding="utf-8")
+            write_editorial(work, "E05", SD2_ID)                      # editorial without an episode field
+            sel = vm.recorded_selection("E05")
+            self.assertEqual(sel["video_model"], SD2_ID)
+            self.assertEqual(sel["episode_attribution"],
+                             {"episode_lock": "path_legacy", "editorial_manifest": "path_legacy"})
+            self.assertEqual(vm.recorded_selection("E06")["episode_attribution"], {"episode_lock": "path_legacy"})
+            write_lock(runtime, "E08", H3_ID)
+            self.assertEqual(vm.recorded_selection("E08")["episode_attribution"], {"episode_lock": "declared"})
+            # a legacy record is authority for its OWN path only: E05's lock says nothing about E09
+            self.assertIsNone(vm.recorded_selection("E09"))
+            from tools import submit_giggle_video_manifest_v2 as video
+            self.assertEqual(video.require_episode_video_model(nalu_manifest("E05", SD2_ID), tmp / "m"),
+                             {"E05": SD2_ID})
+            legacy_task = nalu_manifest("E05", SD2_ID)
+            del legacy_task["tasks"][0]["episode"]                    # a row without episode = the manifest's
+            self.assertEqual(video.require_episode_video_model(legacy_task, tmp / "m"), {"E05": SD2_ID})
+
+    # 10. two independent lines, same episode id: each judged against its own records
+    def test_two_lines_same_episode_id_correct_attribution_passes(self):
+        from tools import submit_giggle_video_manifest_v2 as video
+        with nalu_roots(qingshan={"generation": {"video_model": H3_ID}}) as (tmp, runtime_a, work_a, vm, bnp):
+            write_lock(runtime_a, "E12", H3_ID)
+            write_editorial(work_a, "E12", H3_ID, H3_ID)
+            runtime_b, work_b = tmp / "line_b" / "runtime", tmp / "line_b" / "work"
+            lock_b = write_lock(runtime_b, "E12", SD2_ID)
+            write_editorial(work_b, "E12", SD2_ID, SD2_ID)
+            # line A: its own nalu manifest, in A's work root, declaring A's scope
+            manifest_a = {**nalu_manifest("E12", H3_ID), "production_scope": scope_of(runtime_a, work_a, "E12")}
+            path_a = work_a / "E12" / "preproduction" / "E12_VIDEO_TRANSACTION_MANIFEST_V1.json"
+            self.assertEqual(video.require_episode_video_model(manifest_a, path_a), {"E12": H3_ID})
+            # an independent project (non-nalu builder) with its own E12 on SD2: not judged by A's H3 lock
+            other = {**nalu_manifest("E12", SD2_ID), "generated_by": "other_line_builder.v1",
+                     "project_id": "INDEPENDENT_OTHER_SERIES"}
+            other_path = tmp / "line_b_project" / "manifest.json"
+            self.assertIsNone(video.require_episode_video_model(other, other_path))
+            error, post = run_submit_main(other, tmp / "line_b_project", precheck=True, path=other_path)
+            self.assertNotIsInstance(error, vm.VideoModelSelectionError)   # stops later, at its own gates
+            self.assertEqual(post.call_count, 0)
+            # a second nalu runtime B: judged against B's records when B's roots are the ones in effect
+            manifest_b = {**nalu_manifest("E12", SD2_ID), "production_scope": scope_of(runtime_b, work_b, "E12")}
+            path_b = work_b / "E12" / "preproduction" / "E12_VIDEO_TRANSACTION_MANIFEST_V1.json"
+            bind_roots(runtime_b, work_b)
+            self.assertEqual(video.require_episode_video_model(manifest_b, path_b), {"E12": SD2_ID})
+            self.assertEqual(vm.recorded_selection("E12")["files"][0], str(lock_b))
+            # the legacy E12-style manifest (nalu builder, no production_scope, in its work root) still passes
+            bind_roots(runtime_a, work_a)
+            legacy = nalu_manifest("E12", H3_ID)
+            self.assertEqual(video.require_episode_video_model(legacy, path_a), {"E12": H3_ID})
+
+    # 11. wrong attribution / lock-vs-manifest conflicts across scopes: refused in the real main(), POST=0
+    def test_wrong_attribution_and_cross_scope_conflicts_fail_in_main(self):
+        with nalu_roots(qingshan={"generation": {"video_model": H3_ID}}) as (tmp, runtime_a, work_a, vm, bnp):
+            lock_a = write_lock(runtime_a, "E12", H3_ID)
+            write_editorial(work_a, "E12", H3_ID, H3_ID)
+            runtime_b, work_b = tmp / "line_b" / "runtime", tmp / "line_b" / "work"
+            lock_b = write_lock(runtime_b, "E12", SD2_ID)
+            locks_before = (lock_a.read_bytes(), lock_b.read_bytes())
+            in_a = work_a / "E12" / "preproduction" / "E12_VIDEO_TRANSACTION_MANIFEST_V1.json"
+            b_project = tmp / "line_b_project" / "manifest.json"
+            prompt_e13 = work_a / "E13" / "preproduction" / "video_prompts" / "E13-VU-001.txt"
+            prompt_e13.parent.mkdir(parents=True)
+            prompt_e13.write_text("x", encoding="utf-8")
+            cases = {
+                # built against runtime B (its SD2 lock), submitted with A's roots in effect
+                "nalu_manifest_of_runtime_b_under_roots_a": (
+                    {**nalu_manifest("E12", SD2_ID), "production_scope": scope_of(runtime_b, work_b, "E12")},
+                    b_project, "VIDEO_MODEL_SCOPE_MISMATCH"),
+                # same, but the scope names A's runtime with B's work root: any mismatching root refuses
+                "half_rebound_scope": (
+                    {**nalu_manifest("E12", H3_ID), "production_scope": {**scope_of(runtime_a, work_a, "E12"),
+                                                                          "work_root": str(work_b)}},
+                    in_a, "VIDEO_MODEL_SCOPE_MISMATCH"),
+                "scope_episode_differs": (
+                    {**nalu_manifest("E12", H3_ID), "production_scope": scope_of(runtime_a, work_a, "E13")},
+                    in_a, "VIDEO_MODEL_SCOPE_MISMATCH"),
+                # renaming generated_by does not move a manifest in A's work root out of A's check
+                "generated_by_renamed_inside_a": (
+                    {**nalu_manifest("E12", SD2_ID), "generated_by": "other_line_builder.v1"},
+                    in_a, "VIDEO_MODEL_MISMATCH"),
+                # nor does relabelling its scope as another line
+                "relabelled_other_line_inside_a": (
+                    {**nalu_manifest("E12", SD2_ID), "generated_by": "other_line_builder.v1",
+                     "production_scope": {"line": "other"}}, in_a, "VIDEO_MODEL_SCOPE_CONFLICT"),
+                "nalu_builder_claims_other_line": (
+                    {**nalu_manifest("E12", SD2_ID), "production_scope": {"line": "other"}},
+                    b_project, "VIDEO_MODEL_SCOPE_CONFLICT"),
+                # lock-vs-manifest across scopes: B's SD2 manifest relabelled with A's scope meets A's H3 lock
+                "b_manifest_relabelled_to_scope_a": (
+                    {**nalu_manifest("E12", SD2_ID), "production_scope": scope_of(runtime_a, work_a, "E12")},
+                    b_project, "VIDEO_MODEL_MISMATCH"),
+                # an E12 manifest whose prompts live in A's E13 directory
+                "prompt_in_other_episode_dir": (
+                    {**nalu_manifest("E12", H3_ID, prompt=prompt_e13), "generated_by": "other_line_builder.v1"},
+                    b_project, "VIDEO_MODEL_SCOPE_EPISODE_MISMATCH"),
+                "scope_not_object": (
+                    {**nalu_manifest("E12", H3_ID), "production_scope": "nalu"}, in_a, "VIDEO_MODEL_SCOPE_INVALID"),
+            }
+            for name, (manifest, path, code) in cases.items():
+                for precheck in (False, True):
+                    with self.subTest(name, precheck=precheck):
+                        error, post = run_submit_main(manifest, path.parent, precheck=precheck, path=path)
+                        self.assertIsInstance(error, vm.VideoModelSelectionError)
+                        self.assertEqual(error.code, code, error)
+                        self.assertEqual(post.call_count, 0)
+                        self.assertFalse((path.parent / "workflow/tasks/giggle_video_submit_transactions").exists())
+                        if code == "VIDEO_MODEL_MISMATCH":
+                            self.assertEqual(error.details["expected"], H3_ID)
+                            self.assertIn(str(lock_a), error.details["files"])
+            self.assertEqual((lock_a.read_bytes(), lock_b.read_bytes()), locks_before)
+
+    # 12. the builder records the scope it was built against, and that is what the submitter accepts
+    def test_builder_records_production_scope(self):
+        source = (NALU_TOOLS / "build_nalu_preproduction.py").read_text(encoding="utf-8")
+        self.assertIn('"production_scope": {"line": "nalu", "episode": episode,', source)
+        with nalu_roots(qingshan={"generation": {"video_model": H3_ID}}) as (tmp, runtime, work, vm, bnp):
+            import nalu_paths
+            recorded = {"line": "nalu", "episode": "E12",
+                        "runtime_root": str(Path(nalu_paths.RUNTIME_ROOT).expanduser().resolve()),
+                        "work_root": str(Path(nalu_paths.WORK_ROOT).expanduser().resolve())}
+            self.assertEqual(recorded, scope_of(runtime, work, "E12"))

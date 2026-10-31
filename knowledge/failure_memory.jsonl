@@ -92,4 +92,4 @@
 {"failure_code": "H3_IDENTITY_CROP_RENDERED_AS_WARDROBE_LOCK", "do_not_repeat": "不要对脸部裁切参考写锁服装/身体；不要只在 S2 构建器加标记而不核对 S6 最终提示词", "stage": "S6", "scope": "generalizable", "knowledge_id": "K142"}
 {"failure_code": "H3_BURNED_DIALOGUE_SUBTITLES", "do_not_repeat": "不要把禁文字条款只放在提示词末尾；不要同提示词重投烧字幕的单元（K130）", "stage": "S6", "scope": "generalizable", "knowledge_id": "K143"}
 {"failure_code": "H3_BURNED_TEXT_VISIBLE_IN_FINAL", "do_not_repeat": "不要指望提示词消除 H3 烧录字幕；不要逐片同提示词重投；成片必须 OCR 复核横条外无字", "stage": "S7", "scope": "generalizable", "knowledge_id": "K144"}
-{"failure_code": "VIDEO_MODEL_SILENT_DEFAULT_LOCKED", "do_not_repeat": "不要给视频模型设默认值或把读不出的锁/manifest 当作没有记录；不要只在草稿里写模型而不落正式配置；不要删锁让引擎重选", "stage": "S2", "scope": "generalizable", "knowledge_id": "K145"}
+{"failure_code": "VIDEO_MODEL_SILENT_DEFAULT_LOCKED", "do_not_repeat": "不要给视频模型设默认值或把读不出的锁/manifest 当作没有记录；不要只在草稿里写模型而不落正式配置；不要删锁让引擎重选；不要只凭集号判断记录或 manifest 的归属，不要把缺 episode 字段与声明别的集混为一谈，不要借用 --project-root 作为运行时归属", "stage": "S2", "scope": "generalizable", "knowledge_id": "K145"}

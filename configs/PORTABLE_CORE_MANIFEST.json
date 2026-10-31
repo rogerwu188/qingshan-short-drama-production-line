@@ -260,7 +260,10 @@
     "tools/english_contract_forbidden_terms_lint.py",
     "lines/nalu/runtime/tools/batch_preauthorization.py",
     "lines/nalu/runtime/tools/review_dispatch.py",
-    "tools/image_model_policy.py"
+    "tools/image_model_policy.py",
+    "lines/nalu/runtime/tools/nalu_video_model.py",
+    "tools/h3_constraint_ab_variant.py",
+    "tools/tests/test_h3_director_performance.py"
   ],
   "portable_test_modules": [
     "agent_factory.claude_writer_v2.tests.test_smoke",
@@ -420,6 +423,11 @@
     "tools.tests.test_review_dispatch",
     "tools.tests.test_english_contract_forbidden_terms_lint",
     "tools.tests.test_record_paid_production_order_preauth",
-    "tools.tests.test_image_model_policy"
+    "tools.tests.test_image_model_policy",
+    "tools.tests.test_nalu_h3_video_model",
+    "tools.tests.test_burned_text_cover",
+    "tools.tests.test_h3_director_prompt_v2",
+    "tools.tests.test_h3_face_crop_identity_lock",
+    "tools.tests.test_h3_provider_expert_advice"
   ]
 }

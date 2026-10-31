@@ -2122,6 +2122,11 @@ def main() -> int:
     transaction = {
         "schema": "qingshan.giggle_video_transaction_manifest.v1",
         "episode": episode, "generated_by": TOOL_ID, "recorded_at": now(),
+        # K145 binding: the roots whose video_model lock / editorial manifest this manifest was built
+        # against; submit_giggle_video_manifest_v2.nalu_production_scope cross-checks them before any POST.
+        "production_scope": {"line": "nalu", "episode": episode,
+                             "runtime_root": str(Path(_np.RUNTIME_ROOT).expanduser().resolve()),
+                             "work_root": str(Path(_np.WORK_ROOT).expanduser().resolve())},
         "episode_global_space_map_ref": portable(authority_path, root),
         "global_space_map_gate_required": True,
         "allowed_video_models": [MODEL_CONTRACT["model"]],

@@ -233,7 +233,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "9dbaf90bae69464388b777405cc2f84ee3e1640adea9e5d30b96aaf8dea64f60"
+      "sha256": "75b78219c21c49976e58f3f823d491b6f7bdbc9ba692ddfeb0774b917035b11c"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -277,7 +277,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "0827af3eb659a77c57bfd012194c65b6d4296734f3887550ad5bec36baeae16b"
+      "sha256": "2693616954e7c33f5c07add959be9fd194d1ffdadd2a801024d2118602aef826"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -369,7 +369,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "4f73cbeedbf1123183022b5fb9e3228fbdff3b2ccd709c0de66b5ef4cc5172c7"
+      "sha256": "b6dd7416f9d0a8eb60e0f8d7bcf05c8b1ee5e38b85fae28b357fd46dd3a6bb6c"
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
@@ -605,7 +605,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "ef967be70733d5242a0c75b3bd4e3f1c2f3bfa0932de7bfb3e4852db4765a71d"
+      "sha256": "106e766e49b7bac87f840e1101b9b8a0e81057cbe0edbce26b57a5dd807fff63"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -737,7 +737,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_video_model.py",
-      "sha256": "b5102095a634a5c973dab5bd07ff88c1c266c4c0778461adce8549efd01e2f15"
+      "sha256": "beaf08b7143cb93c82e7cf3441326a5944b648041981e0e9d7b54730147e2f59"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_writer_selfcheck_seq29.py",
@@ -6633,7 +6633,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "3159354619d85afdcffd56966fad207f462021c185c3f610d4652d067871e8f2"
+      "sha256": "5a93cf64b6fd5b286dedd9d19b61a01b0dca913a37dffaa3db1cd2b4d29c689c"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -7937,7 +7937,7 @@
     },
     {
       "path": "tools/tests/test_nalu_h3_video_model.py",
-      "sha256": "d5a74ab33fd9969cdcdcd202cb2ce7c9102a2fb40203f0329b2ef47a1a25d895"
+      "sha256": "bf5b4977d0bfa9f6500ab12a5c5daa7db5ab32f728f352ad2480c427b5ffc6b7"
     },
     {
       "path": "tools/tests/test_nalu_identity_chain_fixes.py",

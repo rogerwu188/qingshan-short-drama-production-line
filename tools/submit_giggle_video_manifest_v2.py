@@ -193,6 +193,79 @@ def run_authoritative_submission_gate(manifest: dict[str, Any], manifest_path: P
 
 
 NALU_BUILDER_ID_PREFIX = "build_nalu_preproduction"
+NALU_SCOPE_LINE = "nalu"
+
+
+def nalu_production_scope(manifest: dict[str, Any], manifest_path: Path, vm: Any,
+                          nalu_built: bool) -> dict[str, Any] | None:
+    """K145 binding: is this manifest production of the nalu roots in effect (``vm._np``)?
+
+    The scope is the verified (runtime_root, work_root, episode) the model records are read from -- never
+    the episode name alone, and never ``--project-root`` (that stays the prompt/tool resolution root).
+    Evidence that the manifest belongs to these roots, any one of which puts it in scope:
+      * ``generated_by`` is the nalu builder;
+      * the manifest file, or a task's ``prompt_file`` (resolved like the gates resolve it), lies under
+        ``WORK_ROOT``; it must then lie in that root's own ``<episode>/`` directory;
+      * ``production_scope`` (written by build_nalu_preproduction) declares line ``nalu`` -- its
+        runtime_root, work_root and episode must equal the roots/episode in effect, else the manifest
+        was built for another runtime and is refused (it cannot be judged with these records).
+    A ``production_scope`` naming another line together with nalu evidence is a conflict and refused,
+    so renaming ``generated_by`` or relabelling the scope cannot move a nalu manifest out of the check.
+    Without any evidence the manifest is another line's (same episode id or not) and None is returned:
+    it is judged by its own line's gates, not against this runtime's lock.
+    """
+    runtime = Path(vm._np.RUNTIME_ROOT).expanduser().resolve()
+    work = Path(vm._np.WORK_ROOT).expanduser().resolve()
+    episode = manifest.get("episode")
+    effective = {"line": NALU_SCOPE_LINE, "runtime_root": str(runtime), "work_root": str(work), "episode": episode}
+    evidence: list[str] = ["generated_by"] if nalu_built else []
+    located: list[tuple[str, Path, Any]] = [("manifest_path", Path(manifest_path), episode)]
+    for task in manifest.get("tasks") or []:
+        if task.get("prompt_file"):
+            located.append((f"task:{task.get('task_key')}.prompt_file", resolve(str(task["prompt_file"])),
+                            episode or task.get("episode")))
+    wrong_dir: list[str] = []
+    for label, path, owner in located:
+        try:
+            relative = path.expanduser().resolve().relative_to(work)
+        except ValueError:
+            continue
+        evidence.append(f"{label}_under_work_root")
+        if not relative.parts or relative.parts[0] != owner:
+            wrong_dir.append(f"{label}={path}")
+    if wrong_dir:
+        raise vm.VideoModelSelectionError(
+            "VIDEO_MODEL_SCOPE_EPISODE_MISMATCH", episode=episode, expected=str(work / str(episode)),
+            actual=wrong_dir, source="nalu work root", files=[manifest_path],
+            detail="a file under the nalu work root lies outside this episode's own directory")
+    declared = manifest.get("production_scope")
+    if declared is not None:
+        if not isinstance(declared, dict):
+            raise vm.VideoModelSelectionError("VIDEO_MODEL_SCOPE_INVALID", episode=episode, expected=effective,
+                                              actual=declared, source="manifest.production_scope",
+                                              files=[manifest_path])
+        if declared.get("line") != NALU_SCOPE_LINE:
+            if evidence:
+                raise vm.VideoModelSelectionError(
+                    "VIDEO_MODEL_SCOPE_CONFLICT", episode=episode, expected=effective, actual=declared,
+                    source="manifest.production_scope", files=[manifest_path],
+                    detail="declares another production line but belongs to the nalu roots by " + ",".join(evidence))
+            return None
+
+        def same_root(value: Any, root: Path) -> bool:
+            return isinstance(value, str) and bool(value) and Path(value).expanduser().resolve() == root
+        wrong = [key for key, ok in (("runtime_root", same_root(declared.get("runtime_root"), runtime)),
+                                     ("work_root", same_root(declared.get("work_root"), work)),
+                                     ("episode", declared.get("episode") == episode)) if not ok]
+        if wrong:
+            raise vm.VideoModelSelectionError(
+                "VIDEO_MODEL_SCOPE_MISMATCH", episode=episode, expected=effective, actual=declared,
+                source="manifest.production_scope vs nalu_paths", files=[manifest_path],
+                detail="mismatched: " + ",".join(wrong) + "; this manifest's model records live elsewhere")
+        evidence.append("declared_production_scope")
+    if not evidence:
+        return None
+    return {**effective, "evidence": evidence}
 
 
 def require_episode_video_model(manifest: dict[str, Any], manifest_path: Path) -> dict[str, Any] | None:
@@ -200,9 +273,11 @@ def require_episode_video_model(manifest: dict[str, Any], manifest_path: Path) -
 
     The episode lock / editorial manifest (lines/nalu/runtime/tools/nalu_video_model.py, roots from
     nalu_paths) is the selection; the manifest's format_contract, allowed_video_models and each task's
-    ``model`` -- the value POSTed as the request's ``model`` -- must all equal it.  A nalu-built
-    manifest whose episode has no record, or whose record is unreadable or conflicting, is refused.
-    Manifests of episodes the nalu roots know nothing about (other lines) are left to their own gates.
+    ``model`` -- the value POSTed as the request's ``model`` -- must all equal it.  Only a manifest bound
+    to these roots (nalu_production_scope) is judged against them; inside that scope an episode without a
+    record, or with an unreadable, conflicting or foreign-episode record, is refused, and so is a task row
+    declaring another episode than the manifest's.  Manifests of other lines -- even with the same episode
+    id -- are left to their own gates.
     """
     nalu_built = str(manifest.get("generated_by") or "").startswith(NALU_BUILDER_ID_PREFIX)
     tools_dir = str(ENGINE_ROOT / "lines/nalu/runtime/tools")
@@ -218,14 +293,18 @@ def require_episode_video_model(manifest: dict[str, Any], manifest_path: Path) -
     finally:
         if added and tools_dir in sys.path:
             sys.path.remove(tools_dir)
+    if nalu_production_scope(manifest, manifest_path, _vm, nalu_built) is None:
+        return None
     tasks = manifest.get("tasks") or []
     by_episode: dict[str, list[dict[str, Any]]] = {}
-    for task in tasks:
-        by_episode.setdefault(str(task.get("episode") or manifest.get("episode") or ""), []).append(task)
+    if manifest.get("episode") and tasks:
+        # the manifest's episode is the one being resolved; a row naming another is refused, not regrouped
+        by_episode[str(manifest["episode"])] = list(tasks)
+    else:
+        for task in tasks:
+            by_episode.setdefault(str(task.get("episode") or ""), []).append(task)
     checked = {}
     for episode, rows in by_episode.items():
-        if not nalu_built and _vm.recorded_selection(episode) is None:
-            continue
         checked[episode] = _vm.check_task_models(
             episode, tasks=rows, format_contract=manifest.get("format_contract"),
             allowed_video_models=manifest.get("allowed_video_models"), manifest_path=manifest_path)
