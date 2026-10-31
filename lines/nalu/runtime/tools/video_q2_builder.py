@@ -232,24 +232,28 @@ def extract_frames(unit_id: str, media: Path, out_dir: Path, count: int) -> dict
         if completed.returncode == 0 and frame.is_file():
             frames.append({"path": str(frame), "sha256": sha256_file(frame),
                            "at_seconds": stamp})
-    # Frame names carry the timestamp, so a new take of a slightly different length writes new files beside
-    # the old take's; vlm_review_protocol lists every *.png here and the reviewer was handed frames of clips
-    # that no longer exist (E12 2026-10-31).  Older frames of this unit move to _superseded/, never deleted.
-    current = {Path(row["path"]).name for row in frames}
-    stale = [old for old in out_dir.glob(f"{unit_id}_f*.png") if old.name not in current]
-    if stale:
-        parked = out_dir / "_superseded"
-        parked.mkdir(exist_ok=True)
-        for old in stale:
-            old.replace(parked / old.name)
     return {
         "status": "OK" if len(frames) == count else f"PARTIAL_{len(frames)}_OF_{count}",
-        "stale_frames_parked": sorted(old.name for old in stale),
         "media": str(media), "media_sha256": sha256_file(media),
         "duration_seconds": round(duration, 3),
         "frame_count": len(frames), "frames": frames, "argv": argvs,
         "note": "extracted at original resolution — no scale filter",
     }
+
+
+def park_stale_frames(unit_id: str, frame_dir: Path, frames: list[dict[str, Any]]) -> list[str]:
+    """Move this unit's frames that are not part of the current measurement to frame_dir/_superseded/.
+
+    vlm_review_protocol hands the reviewer every *.png in the folder, so a frame of an earlier take left
+    beside the current ones is reviewed as if it were this clip.  Never deleted."""
+    current = {Path(str(row.get("path"))).name for row in frames}
+    stale = sorted(old for old in frame_dir.glob(f"{unit_id}_f*.png") if old.name not in current)
+    if stale:
+        parked = frame_dir / "_superseded"
+        parked.mkdir(exist_ok=True)
+        for old in stale:
+            old.replace(parked / old.name)
+    return [old.name for old in stale]
 
 
 def run_ocr(image: Path, forbidden_terms: list[str], out: Path) -> dict[str, Any]:
@@ -1102,8 +1106,14 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
         if frames > DEFAULT_FRAMES:
             pass  # this run is the denser one; nothing to merge
         elif extraction.get("frames"):
-            previous = [row for row in (read_json(out_dir / "prepare.json", {}) or {})
-                        .get("frames", {}).get("frames", []) if isinstance(row, dict)]
+            # Only frames of THIS take (E12 2026-10-31: a new take inherited the previous take's frames
+            # through this merge, and both the identity measurement and the reviewer saw clips that no
+            # longer existed).
+            prior = read_json(out_dir / "prepare.json", {}) or {}
+            same_take = (prior.get("media_sha256") or (prior.get("frames") or {}).get("media_sha256")) \
+                == extraction.get("media_sha256")
+            previous = [row for row in (prior.get("frames", {}).get("frames", []) if same_take else [])
+                        if isinstance(row, dict) and Path(str(row.get("path"))).is_file()]
             have = {round(float(row.get("at_seconds") or 0), 3): row for row in previous}
             have.update({round(float(row.get("at_seconds") or 0), 3): row
                          for row in extraction["frames"]})
@@ -1116,6 +1126,8 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
                                       " | includes frames from an earlier denser sampling of this "
                                       "same clip (identity sample count only; every frame is a "
                                       "real ffmpeg extraction of this asset)"}
+        extraction = {**extraction, "stale_frames_parked": park_stale_frames(
+            unit_id, out_dir / "frames", extraction.get("frames") or [])}
         ocr_rows = [run_ocr(Path(frame["path"]), forbidden,
                             out_dir / "ocr" / f"{Path(frame['path']).stem}_ocr.json")
                     for frame in extraction.get("frames") or []]
