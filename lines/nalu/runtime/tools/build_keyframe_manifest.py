@@ -226,6 +226,33 @@ def camera_note_scoped(episode: str, policy: dict[str, Any] | None = None) -> bo
     return bool(policy) and start is not None and number is not None and number >= int(start)
 
 
+# E12 2026-10-31: the image model drew Qinming bearded (S02-02), Xuyueping young and clean-shaven (S04-01)
+# and Fengyian slim (S14-02) from headshots alone -- the keyframe prompt never stated age / beard / build,
+# and H3 then copied those faces.  A contract character's ``appearance_anchor_en`` (the same fixed look the
+# H3 prompt states) becomes an 【外貌锁】 line.  Episodes already in production keep byte-identical keyframe
+# prompts (K070 precedent); E12 opts in only the shots of its controlled keyframe redo.
+APPEARANCE_LOCK_FROM_EPISODE = 13
+APPEARANCE_LOCK_SHOTS = {"E12": {"E12-S02-02", "E12-S04-01", "E12-S14-02"}}
+
+
+def appearance_lock_active(episode: str, shot_id: str) -> bool:
+    number = episode_ordinal(episode)
+    return ((number is not None and number >= APPEARANCE_LOCK_FROM_EPISODE)
+            or shot_id in APPEARANCE_LOCK_SHOTS.get(episode, set()))
+
+
+def appearance_lock_lines(contract: dict[str, Any], character_ids: list[str]) -> list[str]:
+    rows = {str(r.get("character_id") or r.get("entity_id") or ""): r
+            for r in contract.get("character_entities") or [] if isinstance(r, dict)}
+    lines = []
+    for cid in character_ids:
+        row = rows.get(cid) or {}
+        anchor = str(row.get("appearance_anchor_en") or "").strip().rstrip(".")
+        if anchor:
+            lines.append(f"- {row.get('canonical_name') or cid}（{cid}）：{anchor}")
+    return lines
+
+
 _WARDROBE_POLICY_CACHE: dict[str, dict[str, Any]] = {}
 
 
@@ -1209,6 +1236,9 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
                 parts.append(f"{prefix}{value}")
         wardrobe_lines.append(f"- {row.get('character')}（{asset_id}）：" + "；".join(parts))
 
+    appearance_lines = (appearance_lock_lines(inputs.contract, character_ids)
+                        if appearance_lock_active(inputs.episode, shot_id) else [])
+
     forbidden = list(inputs.visual_culture.get("forbidden_influences") or [])
     # The shot's negative list already re-states the culture contract's
     # forbidden_influences; emit each constraint exactly once.
@@ -1336,6 +1366,9 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
         ("blank5", "", True),
         ("wardrobe_head", "【服装锁】" if wardrobe_lines else "【服装锁】无人物，无需服装锁。", True),
         *[(f"wardrobe_{index}", line, True) for index, line in enumerate(wardrobe_lines)],
+        *([("appearance_head", "【外貌锁】脸型、年龄、胡须与体型以此为准，与正面头像一致；服装以【服装锁】为准。", True)]
+          + [(f"appearance_{index}", line, True) for index, line in enumerate(appearance_lines)]
+          if appearance_lines else []),
         ("blank6", "", True),
         ("state_head", "【场景状态】", True),
         ("time_weather", f"时间：{scene_state.get('time')}｜天气：{scene_state.get('weather')}", True),
@@ -1428,7 +1461,7 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
     )
     # Wardrobe contracts may legitimately say “保持自然比例/颜色”等静态
     # 保持约束；exclude those lines from the motion-extension scan as well.
-    for wardrobe_line in wardrobe_lines:
+    for wardrobe_line in wardrobe_lines + appearance_lines:
         prompt_without_entry = prompt_without_entry.replace(wardrobe_line, "")
     for word in FORBIDDEN_EXTEND_WORDS:
         if word in prompt_without_entry:

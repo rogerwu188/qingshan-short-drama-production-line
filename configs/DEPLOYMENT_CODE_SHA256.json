@@ -277,7 +277,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "2693616954e7c33f5c07add959be9fd194d1ffdadd2a801024d2118602aef826"
+      "sha256": "af724b7a208f69e5979b7540b5529d7aa142f68947753afc3a5e576abdfc85bb"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -597,7 +597,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_keyframe_manifest.py",
-      "sha256": "ee95663446ce59d814c52f1b0423f557180464e405f3f6ec4614214a739ca4ff"
+      "sha256": "de7cd9f790a4fd2686d27d554040efff63c5f90a18f8a6fa26db65e83f7405c2"
     },
     {
       "path": "lines/nalu/runtime/tools/build_measured_edit_constraints.py",
@@ -833,7 +833,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/unit_recut.py",
-      "sha256": "69457ab035a7bff5a9fec13a17cd8ce98cbe1fdf52b0331d18a0b4f057752e3a"
+      "sha256": "facd99628896d0bbe6c208ca05fd01f0c03de00d46f2147184488daec303d342"
     },
     {
       "path": "lines/nalu/runtime/tools/unit_voice_consistency.py",
@@ -8689,7 +8689,7 @@
     },
     {
       "path": "tools/tests/test_unit_recut.py",
-      "sha256": "2046b9f30f8763e6e826d2623c79697305c5e8835184d95744d39b844cc41edd"
+      "sha256": "f2bc502df7458425950a56a2d45f264cf0da12e1c9ea356aba3b9fa037d557c9"
     },
     {
       "path": "tools/tests/test_us_drama_event_density_gate.py",

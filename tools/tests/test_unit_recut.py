@@ -45,6 +45,20 @@ class InternalCutTests(unittest.TestCase):
         self.assertEqual(ur.plan_digest(a), ur.plan_digest(json.loads(json.dumps(a))))
 
 
+class ReframeTests(unittest.TestCase):
+    def test_reframe_must_be_fractions_inside_the_frame(self):
+        good = dict(seg("U", 2.375, 5.167), reframe=[0.0, 0.14, 0.56, 0.56])
+        self.assertEqual(ur.validate_segments("U", [good]), [])
+        for bad in ([0.5, 0.0, 0.6, 0.5], [0.0, 0.0, 0.0, 0.5], [0.1, 0.1, 0.5], "left"):
+            problems = ur.validate_segments("U", [dict(seg("U", 0.0, 1.0), reframe=bad)])
+            self.assertEqual(len(problems), 1, bad)
+            self.assertIn("reframe", problems[0])
+
+    def test_a_punch_in_on_contiguous_frames_is_a_cut(self):
+        segs = [seg("U", 0.0, 2.375), dict(seg("U", 2.375, 5.167), reframe=[0.0, 0.14, 0.56, 0.56])]
+        self.assertEqual(ur.internal_cuts(segs), [2.375])
+
+
 class AppliedSourcesTests(unittest.TestCase):
     def test_only_applied_rows_with_matching_output_sha_are_usable(self):
         with tempfile.TemporaryDirectory() as tmp:

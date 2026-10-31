@@ -95,6 +95,14 @@ def validate_segments(uid: str, segs: list[dict[str, Any]]) -> list[str]:
             problems.append(f"{uid}[{i}]: in/out must satisfy 0 <= in < out")
         if abs((float(vo) - float(vi)) - (float(ao) - float(ai))) > TOLERANCE_S:
             problems.append(f"{uid}[{i}]: picture and sound segments differ in length")
+        if seg.get("reframe") is not None:
+            try:
+                x, y, w, h = (float(v) for v in seg["reframe"])
+                ok = 0 <= x and 0 <= y and 0 < w <= 1 and 0 < h <= 1 and x + w <= 1 + 1e-9 and y + h <= 1 + 1e-9
+            except (TypeError, ValueError):
+                ok = False
+            if not ok:
+                problems.append(f"{uid}[{i}]: reframe must be [x, y, w, h] fractions of the frame inside 0..1")
     return problems
 
 
@@ -109,10 +117,11 @@ def internal_cuts(segs: list[dict[str, Any]]) -> list[float]:
     prev = None
     for seg in segs:
         vu, vi, vo = seg["video"]
-        if prev is not None and (vu != prev[0] or abs(float(vi) - prev[1]) > TOLERANCE_S):
+        frame = seg.get("reframe")
+        if prev is not None and (vu != prev[0] or abs(float(vi) - prev[1]) > TOLERANCE_S or frame != prev[2]):
             cuts.append(round(t, 3))
         t += float(vo) - float(vi)
-        prev = (vu, float(vo))
+        prev = (vu, float(vo), frame)
     return cuts
 
 
@@ -121,6 +130,14 @@ def clip_path(unit: str, source_dir: Path, overlay_dir: Path | None = None) -> P
     if overlay_dir is not None and (overlay_dir / f"{unit}.mp4").is_file():
         return overlay_dir / f"{unit}.mp4"
     return source_dir / f"{unit}.mp4"
+
+
+def frame_size(path: Path, ffmpeg: str = FFMPEG) -> tuple[int, int]:
+    probe = str(Path(ffmpeg).with_name("ffprobe")) if os.sep in ffmpeg else "ffprobe"
+    out = subprocess.run([probe, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+                          "-of", "csv=p=0", str(path)], check=True, capture_output=True, text=True).stdout
+    width, height = out.strip().splitlines()[0].split(",")[:2]
+    return int(width), int(height)
 
 
 def render(uid: str, segs: list[dict[str, Any]], source_dir: Path, out: Path, ffmpeg: str = FFMPEG,
@@ -144,7 +161,15 @@ def render(uid: str, segs: list[dict[str, Any]], source_dir: Path, out: Path, ff
         vu, vi, vo = seg["video"]
         au, ai, ao = seg["audio"]
         vi, vo, ai, ao = float(vi), float(vo), float(ai), float(ao)
-        fc.append(f"[{src(vu)}:v]trim=start={vi}:end={vo},setpts=PTS-STARTPTS,fps={FPS},format=yuv420p[v{i}]")
+        # reframe [x, y, w, h] (fractions): punch in on part of the picture, scaled back to the frame size --
+        # E12 VU-040 keeps Feng's line on screen while the drifted face beside him is cropped out.
+        reframe = ""
+        if seg.get("reframe") is not None:
+            x, y, w, h = (float(v) for v in seg["reframe"])
+            width, height = frame_size(inputs[src(vu)], ffmpeg)
+            reframe = (f"crop=iw*{w}:ih*{h}:iw*{x}:ih*{y},scale={width}:{height}:flags=lanczos,setsar=1,")
+        fc.append(f"[{src(vu)}:v]trim=start={vi}:end={vo},setpts=PTS-STARTPTS,{reframe}fps={FPS},"
+                  f"format=yuv420p[v{i}]")
         fc.append(f"[{src(au)}:a]atrim=start={ai}:end={ao},asetpts=PTS-STARTPTS,aresample=48000,"
                   f"afade=t=in:d=0.01,afade=t=out:st={max(0.0, ao - ai - 0.01):.3f}:d=0.01[a{i}]")
         vlab.append(f"[v{i}]")
