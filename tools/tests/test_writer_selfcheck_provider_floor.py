@@ -30,3 +30,17 @@ class ProviderFloorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReviewRequestIdUniquenessTests(unittest.TestCase):
+    def test_same_second_requests_do_not_overwrite(self) -> None:
+        import tempfile
+        from unittest import mock
+        import vlm_review_protocol as v
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            with mock.patch.object(v, "REVIEWS_ROOT", root), mock.patch.object(v, "run_id", lambda: "20261031T084236Z"):
+                (root / "E99").mkdir()
+                (root / "E99" / "E99-action_role-20261031T084236Z_request.json").write_text("{}")
+                src = Path(v.__file__).read_text(encoding="utf-8")
+                self.assertIn('request_id, n = f"{base}-{n}", n + 1', src)
