@@ -741,6 +741,25 @@ class Expectations:
         return rows
 
     # ------------------------------------------------------- Q2 video unit
+    def submitted_video_field(self, unit_id: str, field: str, default: Any) -> Any:
+        """A field (model / resolution) of the video task actually submitted for this unit, read from the
+        episode's video transaction manifest; ``default`` when the manifest or the task is absent."""
+        cache = getattr(self, "_video_tasks_by_unit", None)
+        if cache is None:
+            cache = {}
+            path = self.p.preprod / f"{self.p.episode}_VIDEO_TRANSACTION_MANIFEST_V1.json"
+            try:
+                doc = json.loads(Path(path).read_text(encoding="utf-8")) if path and Path(path).is_file() else {}
+            except (OSError, ValueError):
+                doc = {}
+            for task in doc.get("tasks") or []:
+                key = str(task.get("unit_id") or task.get("task_key") or "")
+                if key:
+                    cache[key] = task
+            self._video_tasks_by_unit = cache
+        value = (cache.get(unit_id) or {}).get(field)
+        return value if value not in (None, "") else default
+
     def video_unit_items(self) -> list[dict[str, Any]]:
         """One row per video unit, for the Q2 VIDEO_ASSEMBLY content review.
 
@@ -819,8 +838,10 @@ class Expectations:
                 "start_frame_reference": (anchor.get("start_frame")
                                           or {}).get("reference_path"),
                 "aspect_ratio": "9:16",
-                "resolution": "720p",
-                "model": "seedance-2.0-pro",
+                # the model/resolution actually submitted for this unit (lab E10: MiniMax-H3 via HopsAPI),
+                # never a hardcoded legacy default
+                "resolution": self.submitted_video_field(unit_id, "resolution", unit.get("resolution") or "720p"),
+                "model": self.submitted_video_field(unit_id, "model", unit.get("model") or "seedance-2.0-pro"),
             })
             rows.append({"item_id": unit_id, "unit_id": unit_id,
                          "chronological_index": plot["chronological_index"],
