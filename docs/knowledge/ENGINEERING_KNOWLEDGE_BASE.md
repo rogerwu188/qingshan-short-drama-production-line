@@ -1398,3 +1398,25 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：scratchpad e12_repair/final/E12_DETECTORS_candidate_v2*.json 五次迭代；medium 逐单元 781 s
 - **授权**：Roger 2026-10-30 E12 成片审看结论（FAIL）+ F2/F4/F5 分支实测
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K142 — S6
+
+- **规则**：H3 身份参考若是源照的像素裁切（PIXEL_CROP 身份传输），提示词只能锁「脸、年龄、发型」，服装与头饰取自 @Image1 起始帧和服装文字；不得对裁切图写「lock face, age, hair, body and wardrobe」。标记在 `provider_prompt_unit()` 里加（S6 波次编译与付费边界都走它），不是 S2 任务构建器。
+- **教训**：E12 2026-10-30：秦铭用带刺绣袍与金属冠的源照当身份参考，H3 把袍冠贴到每个镜头；换成脸部裁切后仍因身份行写着「锁服装」、裁切里露出的领口又把袍冠带回来（5/5 单元）。改成只锁脸后服装 5/5 正确。第一次只在 S2 构建器加标记，S6 编译根本不读，提示词纹丝未动——改动后必须核对最终提示词文本（K 系列老教训）。
+- **恢复**：在资产库登记 `original_identity_authority.transport_pixel_crop`（像素级校验）；`tools/original_identity_authority.episode_pixel_crop_transport_paths` → `face_only_identity_references` → 两个 H3 渲染器的只锁脸行。
+- **实现**：`tools/h3_provider_prompt_renderer.py`、`tools/h3_director_prompt_v2.py`、`tools/submit_giggle_video_manifest_v2.py`、`tools/original_identity_authority.py`
+- **回归**：`tools/tests/test_h3_face_crop_identity_lock.py`
+- **证据**：commits 85a76cb、8aaf7e0；E12 assembly/E12_FACE_CROP_REDO2.json
+- **授权**：Roger 2026-10-30「同意」（第二次受控重做）
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K143 — S6
+
+- **规则**：H3 提示词的禁文字条款（TEXT-FREE FRAME）放在提示词第一行、所有动作文字之前，negative_constraints 里不再重复。成片前对每个单元片按 2 fps 下半幅 OCR，含 ≥2 个汉字的命中即烧录字幕（不可仲裁）。
+- **教训**：E12 2026-10-30：条款只在提示词末尾的 negative_constraints 时，H3 在 25 个单元片中 7 个烧录了对白字幕（全是对白镜）；K253 的旧经验（前置条款后干净）此前只写进知识库、没进渲染器。后处理不可行：本线字幕在 y≈0.82–0.87，烧录字在 0.68–0.73，叠盖会出现两行字幕，裁切需 1.5× 推近。
+- **恢复**：渲染器第一行输出 ANTI_TEXT；受影响单元按 K130 走改提示词重做（线主批准）。
+- **实现**：`tools/h3_provider_prompt_renderer.py`
+- **回归**：`tools/tests/test_h3_director_prompt_v2.py`（V1ByteIdentity 断言首行）及重钉的字节钉
+- **证据**：commit 1a84461；E12 assembly/E12_BURNED_SUBTITLE_REDO.json；OCR 扫描结果（rapidocr，2 fps，下 45% 画面）
+- **授权**：Roger 2026-10-30「是的」
+- **状态**：REFERENCE_IMPLEMENTATION
