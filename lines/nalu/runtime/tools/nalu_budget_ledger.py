@@ -867,7 +867,7 @@ def scan_unevidenced_exposure(episode: str, non_video: dict[str, Any]) -> Decima
     """
     tasks_root = ENGINE_ROOT / "workflow" / "tasks"
     directory = tasks_root / VIDEO_TRANSACTION_DIRNAME / episode
-    estimates: list[Decimal] = []
+    estimate_rows: list[tuple[str, Decimal]] = []
     for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
         try:
             payload = load_json(path)
@@ -875,8 +875,10 @@ def scan_unevidenced_exposure(episode: str, non_video: dict[str, Any]) -> Decima
             continue
         if str(payload.get("state") or "") == "SUBMITTED_TASK_ID_BOUND" and payload.get("task_id"):
             estimated = payload.get("estimated_credits")
-            estimates.append(Decimal(str(estimated)) if isinstance(estimated, (int, float)) and estimated > 0
-                             else Decimal("160"))
+            estimate_rows.append((str(payload["task_id"]),
+                                  Decimal(str(estimated)) if isinstance(estimated, (int, float)) and estimated > 0
+                                  else Decimal("160")))
+    estimates = [est for _, est in estimate_rows]
     batch_used = (Decimal(str(non_video.get("batch_reconciled_credits") or 0))
                   >= max(Decimal(str(non_video.get("per_task_credits") or 0)),
                          Decimal(str(non_video.get("bound_image_transaction_upper_credits") or 0))))
@@ -887,8 +889,31 @@ def scan_unevidenced_exposure(episode: str, non_video: dict[str, Any]) -> Decima
                     and str(row.get("status") or "").startswith("PASS")
                     and isinstance(row.get("matched_count"), int)):
                 matched += row["matched_count"]
+    # E12 2026-10-30: statement rows carry the video task id as project_id.  A bound task whose own id is
+    # on an archived statement row is evidenced exactly; only the rest compete for the id-less batch matches
+    # (counting by batch matches alone left 36 charged tasks as exposure: 4506 false credits, cap refused).
+    if batch_used:
+        charged_ids = _statement_video_task_ids()
+        uncovered_rows = [(tid, est) for tid, est in estimate_rows if tid not in charged_ids]
+        matched = max(0, matched - (len(estimate_rows) - len(uncovered_rows)))
+        estimates = [est for _, est in uncovered_rows]
     uncovered = sorted(estimates, reverse=True)[:max(0, len(estimates) - matched)]
     return sum(uncovered, Decimal("0"))
+
+
+def _statement_video_task_ids() -> set[str]:
+    """Video task ids (project_id) on every archived SingleGenerateVideo statement row of this engine."""
+    ids: set[str] = set()
+    for path in ENGINE_ROOT.rglob("*_credit_statement.json"):
+        try:
+            payload = load_json(path)
+        except (OSError, json.JSONDecodeError):
+            continue
+        for row in (payload.get("statement_rows") or []) if isinstance(payload, dict) else []:
+            if (isinstance(row, dict) and row.get("project_id")
+                    and str(row.get("event_description") or "SingleGenerateVideo") == "SingleGenerateVideo"):
+                ids.add(str(row["project_id"]))
+    return ids
 
 
 def reserve_credits(episode: str, planned: Decimal, reservation_id: str,
