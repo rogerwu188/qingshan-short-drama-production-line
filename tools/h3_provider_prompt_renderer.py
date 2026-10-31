@@ -1516,7 +1516,9 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     constraint_language = h3_constraint_language(unit) if director_audio else "en"
     # the full appearance line first; when a long unit would exceed the rune limit, the compact line (two traits
     # per character) is tried before the roster is trimmed
-    appearance_variants = [appearance_line, appearance_anchor_line(unit, plan, compact=True)] if appearance_line else [""]
+    # and, only if even that cannot fit, the prompt without it (the identity references still bind the faces)
+    appearance_variants = ([appearance_line, appearance_anchor_line(unit, plan, compact=True), ""]
+                           if appearance_line else [""])
     for appearance_line in appearance_variants:
         for roster, extras in variants:
             text = localize_constraints(assemble(roster, extras), constraint_language)

@@ -5049,7 +5049,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "2d33140cab145357edc0a5529e471a896ca4ff5567529323bbd45df0944039cb"
+      "sha256": "9111bd1b187d5468e2681654f274dd28b447482af6b007bb82c1afae4219f600"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
