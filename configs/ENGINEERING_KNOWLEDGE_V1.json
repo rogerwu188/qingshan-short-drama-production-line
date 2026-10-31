@@ -3104,6 +3104,32 @@
       "failure_code": "H3_BURNED_DIALOGUE_SUBTITLES",
       "do_not_repeat": "不要把禁文字条款只放在提示词末尾；不要同提示词重投烧字幕的单元（K130）",
       "sync_slug": "E12-text-free-first-line"
+    },
+    {
+      "scope": "generalizable",
+      "episode": "E12",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "Roger 2026-10-31「同意」",
+      "runtime_gate_added": false,
+      "id": "K144",
+      "key": "h3-burned-text-cover-bar",
+      "stage": "S7",
+      "category": "QA",
+      "rule": "MiniMax-H3 会把正在说的台词烧录进画面（居中，y≈0.67–0.80）；提示词首行禁文字（K143）只能降低、不能消除。启用 H3_BURNED_TEXT_COVER_V1 的集：S7 先 OCR 烧录时段，字幕整集挪到该区段深色横条上，横条同时覆盖每个烧录时段；烧字幕后再 OCR 复核——横条外不得有汉字，横条内的字必须是当时屏上字幕，否则阻断。",
+      "lesson": "E12 2026-10-31：TEXT-FREE 首行后 49 个单元片仍有 12 个烧录对白（约 1/4）；改全身构图只救回 1 个；同提示词重投是赌概率（K130）。线主选择整集统一的遮盖横条。",
+      "recovery": "configs/H3_BURNED_TEXT_COVER_V1.json 列集或合同声明 h3_burned_text_cover_policy；tools/burned_text_cover.py scan/verify；build_burnin_subtitles.py --cover-band --cover-intervals。",
+      "implementation": [
+        "tools/burned_text_cover.py",
+        "lines/nalu/runtime/tools/build_burnin_subtitles.py",
+        "lines/nalu/runtime/tools/nalu_pipeline.py"
+      ],
+      "regression": "tools/tests/test_burned_text_cover.py",
+      "evidence": "E12 OCR 49 片 12 片烧录；位置 y 0.67–0.80、x 0.09–0.91",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "failure_code": "H3_BURNED_TEXT_VISIBLE_IN_FINAL",
+      "do_not_repeat": "不要指望提示词消除 H3 烧录字幕；不要逐片同提示词重投；成片必须 OCR 复核横条外无字",
+      "sync_slug": "E12-burned-text-cover"
     }
   ]
 }

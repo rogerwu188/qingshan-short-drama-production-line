@@ -1,0 +1,12 @@
+{
+  "schema": "qingshan.h3_burned_text_cover_policy.v1",
+  "policy_id": "H3_BURNED_TEXT_COVER_V1",
+  "authority": "Line owner 2026-10-31「同意」 (E12): MiniMax-H3 burns the spoken line into the picture (OCR: 12 of 49 E12 clips, always the line being spoken, centred at y 0.67-0.80) even with the TEXT-FREE FRAME rule first (K143). Every caption of the episode moves onto that band over a dark bar; the bar is also shown wherever OCR finds burned text, so the burned line is never readable.",
+  "enabled_episodes": ["E12"],
+  "activation_note": "Never retroactive. Active only when the generation contract declares h3_burned_text_cover_policy=H3_BURNED_TEXT_COVER_V1 or the episode is listed here.",
+  "band": {"y0": 0.66, "y1": 0.81, "x0": 0.06, "x1": 0.94},
+  "bar_rgba": [12, 12, 12, 235],
+  "scan": {"fps": 4, "min_cjk_chars": 2, "min_confidence": 0.6, "merge_gap_s": 0.5, "pad_s": 0.25,
+           "search_y0": 0.55, "search_y1": 0.90},
+  "verify": {"fps": 2, "min_cjk_chars": 2, "min_confidence": 0.7, "inside_bar_min_similarity": 0.5}
+}

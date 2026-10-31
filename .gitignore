@@ -35,6 +35,7 @@
 !/configs/ENGINEERING_KNOWLEDGE_V1.json
 !/configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json
 !/configs/AD_SLOT_CONTRACT_V1.json
+!/configs/H3_BURNED_TEXT_COVER_V1.json
 !/configs/ads/
 /configs/ads/*
 !/configs/ads/AD_POLICY_DEFAULT.json

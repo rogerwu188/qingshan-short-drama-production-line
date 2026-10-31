@@ -8495,12 +8495,26 @@ def stage_s7(ctx: Ctx) -> StageResult:
     import camera_grammar_policy as _cgp
     split_argv: list[Any] = (["--split-long-captions"]
                              if _cgp.active(read_json(p.contract, {}) or {}, episode=ctx.episode) else [])
+    # H3_BURNED_TEXT_COVER_V1 (line owner 2026-10-31, E12): H3 burns the spoken line into the picture; OCR the
+    # band, then the captions sit on a bar over it and the bar also covers every burned-text run.
+    import burned_text_cover as _btc
+    cover_argv: list[Any] = []
+    if _btc.active(read_json(p.contract, {}) or {}, episode=ctx.episode):
+        cover_json = p.assembly / f"{ctx.episode}_H3_BURNED_TEXT_INTERVALS.json"
+        scan_step = ctx.run([VENV, ENGINE / "tools/burned_text_cover.py", "scan", captioned_source,
+                             "--out", cover_json], name="s7_burned_text_scan")
+        steps.append(scan_step)
+        if scan_step["exit_code"] != 0 or not cover_json.is_file():
+            res.steps.extend(steps)
+            res.blockers = ["H3_BURNED_TEXT_SCAN_FAILED"]
+            return res
+        cover_argv = ["--cover-band", "--cover-intervals", cover_json]
     sub_step = ctx.run([VENV, RT_TOOLS / "build_burnin_subtitles.py", "--episode", ctx.episode,
                         "--project", p.agentcut_project, "--asr", asr_json, "--contract", p.contract,
                         "--grouping", p.grouping_plan, "--source", captioned_source,
                         "--out-ass", subtitles_ass_path(ctx), "--out-video", subbed,
                         "--out-report", p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json",
-                        "--language", ctx_language(ctx), *vo_argv, *split_argv,
+                        "--language", ctx_language(ctx), *vo_argv, *split_argv, *cover_argv,
                         *(["--unit-recut", recut_report] if recut_report is not None else [])],
                        name="s7_burnin_subtitles")
     steps.append(sub_step)
@@ -8508,6 +8522,17 @@ def stage_s7(ctx: Ctx) -> StageResult:
         res.steps.extend(steps)
         res.blockers = ["SUBTITLE_BURNIN_FAILED"]
         return res
+    if cover_argv:
+        cover_check = p.assembly / f"{ctx.episode}_H3_BURNED_TEXT_COVER_CHECK.json"
+        verify_step = ctx.run([VENV, ENGINE / "tools/burned_text_cover.py", "verify", subbed,
+                               "--captions", p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json",
+                               "--out", cover_check], name="s7_burned_text_verify")
+        steps.append(verify_step)
+        res.details["burned_text_cover"] = read_json(cover_check, {}) or {}
+        if verify_step["exit_code"] != 0:
+            res.steps.extend(steps)
+            res.blockers = ["H3_BURNED_TEXT_STILL_VISIBLE"]
+            return res
     res.details["subtitles"] = {"picture": str(subbed), "report": str(p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json")}
     # 5b'. opening title (line owner 2026-10-22: every episode needs a proper opening).  Free overlay of
     # the brief's series title + episode line on the first 2.5 s; no added duration, audio stream copy.

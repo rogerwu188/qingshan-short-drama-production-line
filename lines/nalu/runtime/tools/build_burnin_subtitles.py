@@ -291,6 +291,10 @@ def main() -> int:
                     help="<EP>_voice_over_placement.json: V.O. narration lines are timed from it, never ASR-assigned")
     ap.add_argument("--split-long-captions", action="store_true",
                     help="CAMERA_GRAMMAR_V1: a line too long for 2 normal-size rows becomes sequential cues")
+    ap.add_argument("--cover-band", action="store_true",
+                    help="H3_BURNED_TEXT_COVER_V1: captions sit on a dark bar over the band H3 burns its text into")
+    ap.add_argument("--cover-intervals", type=Path,
+                    help="burned_text_cover.py scan output: the bar is also shown over these [start, end] runs")
     ap.add_argument("--unit-recut", type=Path,
                     help="<EP>_UNIT_RECUT.json (Roger 2026-10-30 E12 item 3): per re-cut unit, contract lines whose audio "
                          "the re-cut dropped are not burned in, truncated lines take the override text; the unit's ASR "
@@ -419,9 +423,34 @@ def main() -> int:
     png_dir = a.out_ass.parent / "subtitle_png"; png_dir.mkdir(parents=True, exist_ok=True)
     inputs, chain = [], []
     W, H, MARGIN_BOTTOM, LINE_H = 720, 1280, 170, 54
+    cover = None
+    if a.cover_band:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
+        import burned_text_cover as _btc
+        _pol = _btc.policy()
+        band, rgba = _pol["band"], tuple(_pol["bar_rgba"])
+        cover = {"y": int(round(band["y0"] * H)), "h": int(round((band["y1"] - band["y0"]) * H)),
+                 "x0": int(round(band["x0"] * W)), "x1": int(round(band["x1"] * W)), "rgba": rgba,
+                 "intervals": (json.loads(a.cover_intervals.read_text(encoding="utf-8")).get("intervals") or []
+                               if a.cover_intervals else [])}
+        # the bar alone over every burned-text run (captions are drawn on the same bar on top of it)
+        bar = Image.new("RGBA", (W, cover["h"]), (0, 0, 0, 0))
+        ImageDraw.Draw(bar).rectangle((cover["x0"], 0, cover["x1"], cover["h"] - 1), fill=rgba)
+        bar_png = png_dir / "cover_bar.png"; bar.save(bar_png)
+        for j, (b_s, b_e) in enumerate(cover["intervals"]):
+            inputs += ["-i", str(bar_png)]
+            src = "[0:v]" if not chain else f"[b{j}]"
+            chain.append(f"{src}[{len(inputs) // 2}:v]overlay=x=0:y={cover['y']}:enable='between(t,{float(b_s):.3f},{float(b_e):.3f})'[b{j + 1}]")
+    first_src = f"[b{len(chain)}]" if chain else "[0:v]"
     for i, (s_t, e_t, ln) in enumerate(events):
         rows = wrap_text(ln["text"]).split("\\N")
-        img = Image.new("RGBA", (W, LINE_H * len(rows) + 24), (0, 0, 0, 0)); d = ImageDraw.Draw(img)
+        if cover:
+            img = Image.new("RGBA", (W, cover["h"]), (0, 0, 0, 0)); d = ImageDraw.Draw(img)
+            d.rectangle((cover["x0"], 0, cover["x1"], cover["h"] - 1), fill=cover["rgba"])
+            top = max(0, (cover["h"] - LINE_H * len(rows)) // 2 - 4)
+        else:
+            img = Image.new("RGBA", (W, LINE_H * len(rows) + 24), (0, 0, 0, 0)); d = ImageDraw.Draw(img)
+            top = 8
         cap_font = font
         if english:
             # Latin rows run wider than 15-char CJK rows: shrink this caption to fit the frame
@@ -430,14 +459,14 @@ def main() -> int:
                 cap_font = ImageFont.truetype(font_file, max(22, int(font_size * (W - 40) / widest)))
         for r, row in enumerate(rows):
             tw = d.textlength(row, font=cap_font)
-            d.text(((W - tw) / 2, 8 + r * LINE_H), row, font=cap_font, fill=(255, 255, 255, 255),
+            d.text(((W - tw) / 2, top + r * LINE_H), row, font=cap_font, fill=(255, 255, 255, 255),
                    stroke_width=3, stroke_fill=(0, 0, 0, 255))
         png = png_dir / f"cap_{i + 1:03d}.png"; img.save(png)
         inputs += ["-i", str(png)]
-        y = H - MARGIN_BOTTOM - img.height
-        src = "[0:v]" if i == 0 else f"[v{i}]"
-        chain.append(f"{src}[{i + 1}:v]overlay=x=0:y={y}:enable='between(t,{s_t:.3f},{e_t:.3f})'[v{i + 1}]")
-    last = f"[v{len(events)}]" if events else "[0:v]"
+        y = cover["y"] if cover else H - MARGIN_BOTTOM - img.height
+        src = first_src if i == 0 else f"[v{i}]"
+        chain.append(f"{src}[{len(inputs) // 2}:v]overlay=x=0:y={y}:enable='between(t,{s_t:.3f},{e_t:.3f})'[v{i + 1}]")
+    last = f"[v{len(events)}]" if events else first_src
     cmd = [_media.require_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-i", str(a.source), *inputs,
            "-filter_complex", ";".join(chain) if chain else "null", "-map", last, "-map", "0:a",
            "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "copy",
@@ -447,7 +476,9 @@ def main() -> int:
            "video": str(a.out_video), "ffmpeg_exit": proc.returncode, "stderr": proc.stderr[-800:], "rows": report,
            "text_source": "generation contract dialogue_units (verbatim)", "timing_source": str(a.asr),
            "unit_recut": str(a.unit_recut) if a.unit_recut else None, "unit_recut_dropped_lines": recut_dropped,
-           "font": font_name, "font_file": font_file, "font_source": font_source}
+           "font": font_name, "font_file": font_file, "font_source": font_source,
+           **({"cover_band": {k: cover[k] for k in ("y", "h", "x0", "x1")}, "cover_intervals": cover["intervals"],
+               "policy_id": "H3_BURNED_TEXT_COVER_V1"} if cover else {})}
     if english:
         out["language"] = a.language
     if a.out_report:

@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2298,
+  "file_count": 2301,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -233,7 +233,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "f18ad04cc3c23f4a2f87e1282df79943d81baeb27ea37b0bc752b66ddcb32a6e"
+      "sha256": "96f3f37ccae2f93b51c9ed6d3e73157b74a21f473911a40aee710fabc3f15da5"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -246,6 +246,10 @@
     {
       "path": "configs/GATE_REGISTRY_v3_20260716.json",
       "sha256": "b1bafb93dc1276598c6d54340160a657ca4d9e899c8c802ce577e551e6ebd960"
+    },
+    {
+      "path": "configs/H3_BURNED_TEXT_COVER_V1.json",
+      "sha256": "b0e6224275d4f7a96878b91177f832f2436bc113fd32c656feadeb139b4b5eba"
     },
     {
       "path": "configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json",
@@ -365,7 +369,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "8ceabcb88966bdc4a1d4eeca5ec7e11480b2ed31c4a0b7997599bdd42acd0e47"
+      "sha256": "8d7b4c197e95b7762ef4a1df0fbda1999899572cc8461fb93fd3e1d1497771da"
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
@@ -581,7 +585,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_burnin_subtitles.py",
-      "sha256": "33f774674643620cceb82bf35964b0d8502f84c53348f7277f72ad8e08810c4c"
+      "sha256": "02d9948bb57fa70fd84f5d0f00726801d7b013e6f01d5e76173c20281ec4f645"
     },
     {
       "path": "lines/nalu/runtime/tools/build_episode_asset_requirements.py",
@@ -705,7 +709,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "2d328e03daf1a1504e8aa961ac2977423aef1ff8d06ad48351cbb8472e028c30"
+      "sha256": "ac2f81463106665e119f4c5ef25fb5297a37836b49026e71e1f7c89a22659cf9"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -3666,6 +3670,10 @@
     {
       "path": "tools/burn_e40_v16_canonical_subtitles.py",
       "sha256": "9e192e86d1cb45fc87e7c52702922017588067ebe991b4bb6bdbd441100c5a58"
+    },
+    {
+      "path": "tools/burned_text_cover.py",
+      "sha256": "2d1f14b81b4ae4cdc9b236645a343b7545eed995ce0641c5ff31641426e18151"
     },
     {
       "path": "tools/camera_grammar_policy.py",
@@ -7070,6 +7078,10 @@
     {
       "path": "tools/tests/test_build_writer_agent_image_batch.py",
       "sha256": "7bd92a041d863dbfae3f545fd20a024b0cbf20deb69c3841c7c15c554683ef34"
+    },
+    {
+      "path": "tools/tests/test_burned_text_cover.py",
+      "sha256": "d099f6373ed18419feb689af0b10a5da1d62ce2bbda9c10bd5235a7b050144c9"
     },
     {
       "path": "tools/tests/test_burnin_subtitle_time_mapping.py",

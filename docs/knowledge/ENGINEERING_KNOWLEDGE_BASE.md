@@ -1420,3 +1420,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：commit 1a84461；E12 assembly/E12_BURNED_SUBTITLE_REDO.json；OCR 扫描结果（rapidocr，2 fps，下 45% 画面）
 - **授权**：Roger 2026-10-30「是的」
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K144 — S7
+
+- **规则**：MiniMax-H3 会把正在说的台词烧录进画面（居中，y≈0.67–0.80）；提示词首行禁文字（K143）只能降低、不能消除。启用 H3_BURNED_TEXT_COVER_V1 的集：S7 先 OCR 成片画面该区段得到烧录时段，字幕整集挪到该区段的深色横条上，横条同时覆盖每个烧录时段；烧字幕后再 OCR 复核——横条外不得有汉字，横条内的字必须是当时屏上字幕，否则阻断。
+- **教训**：E12 2026-10-31：TEXT-FREE 首行后 49 个单元片仍有 12 个烧录对白（约 1/4）；改全身构图只救回 1 个；同提示词重投是赌概率（K130）。线主选择整集统一的遮盖横条而不是逐片重投。
+- **恢复**：configs/H3_BURNED_TEXT_COVER_V1.json 列集或合同声明 h3_burned_text_cover_policy；tools/burned_text_cover.py scan/verify；build_burnin_subtitles.py --cover-band --cover-intervals。
+- **实现**：`tools/burned_text_cover.py`、`lines/nalu/runtime/tools/build_burnin_subtitles.py`、`lines/nalu/runtime/tools/nalu_pipeline.py`
+- **回归**：`tools/tests/test_burned_text_cover.py`
+- **证据**：E12 OCR 49 片 12 片烧录（006 015 020 030 031 032 034 037 042 047 051 053），位置 y 0.67–0.80、x 0.09–0.91
+- **授权**：Roger 2026-10-31「同意」
+- **状态**：REFERENCE_IMPLEMENTATION
