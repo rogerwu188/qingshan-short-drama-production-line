@@ -63,6 +63,16 @@ class VerifyTests(unittest.TestCase):
         self.assertEqual(out["status"], "FAIL")
         self.assertEqual(out["text_inside_bar_not_the_caption"][0]["caption_on_screen"], "")
 
+    def test_caption_changing_within_half_a_sampling_step_passes(self):
+        caps = [{"text": "算了，等我们赶到后", "start": 4.86, "end": 9.54},
+                {"text": "不要说深山大泽，", "start": 9.54, "end": 11.06}]
+        self.assertEqual(btc.verify([hit(9.5, "不要说深山大泽")], caps, CFG)["status"], "PASS")
+        self.assertEqual(btc.verify([hit(9.0, "不要说深山大泽")], caps, CFG)["status"], "FAIL")
+
+    def test_second_line_of_a_two_line_caption_passes(self):
+        caps = [{"text": "去过那里，被震撼了，逐渐认清现实，", "start": 19.18, "end": 23.08}]
+        self.assertEqual(btc.verify([hit(19.0, "逐渐认清现实")], caps, CFG)["status"], "PASS")
+
     def test_cli_writes_receipts_with_injected_ocr(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)

@@ -3673,7 +3673,7 @@
     },
     {
       "path": "tools/burned_text_cover.py",
-      "sha256": "2d1f14b81b4ae4cdc9b236645a343b7545eed995ce0641c5ff31641426e18151"
+      "sha256": "7af7864230d2a66932fd7130801008feb26603f8b470bf2d7c2da8131dc0fe9c"
     },
     {
       "path": "tools/camera_grammar_policy.py",
@@ -7081,7 +7081,7 @@
     },
     {
       "path": "tools/tests/test_burned_text_cover.py",
-      "sha256": "d099f6373ed18419feb689af0b10a5da1d62ce2bbda9c10bd5235a7b050144c9"
+      "sha256": "958e0a47d3f5aac58f35399cea3a356b419903604300ac4fc626c777d105f25a"
     },
     {
       "path": "tools/tests/test_burnin_subtitle_time_mapping.py",

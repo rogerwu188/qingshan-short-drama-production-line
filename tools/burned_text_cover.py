@@ -104,9 +104,16 @@ def verify(hits: list[Hit], captions: list[dict[str, Any]], cfg: dict[str, Any])
         if not inside:
             outside.append(row)
             continue
+        # A sample at fps F is placed within half a step of t, so a frame read at t may show the caption that
+        # starts or ends within that half step (E12 first real run: 38 of our own captions read 0.01-0.2 s
+        # before their listed start).  Any caption on screen inside +/- half a step counts; a burned line with
+        # no caption anywhere near it still fails.
+        half = 0.5 / float(v["fps"])
         expected = caption_at(captions, t)
-        ratio = difflib.SequenceMatcher(None, "".join(CJK.findall(expected)), "".join(CJK.findall(text))).ratio()
-        if ratio < v["inside_bar_min_similarity"] and not "".join(CJK.findall(text)) in expected:
+        candidates = [c for c in dict.fromkeys(caption_at(captions, t + d) for d in (-half, 0.0, half)) if c] or [""]
+        read = "".join(CJK.findall(text))
+        ratio = max(difflib.SequenceMatcher(None, "".join(CJK.findall(c)), read).ratio() for c in candidates)
+        if ratio < v["inside_bar_min_similarity"] and not any(read in "".join(CJK.findall(c)) for c in candidates):
             mismatched.append({**row, "caption_on_screen": expected, "similarity": round(ratio, 2)})
     status = "PASS" if not outside and not mismatched else "FAIL"
     return {"schema": "qingshan.h3_burned_text_cover_verification.v1", "policy_id": POLICY_ID, "status": status,
