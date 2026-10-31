@@ -3905,6 +3905,13 @@ def keyframe_needs_post(ctx: Ctx, index: dict[str, Any]) -> tuple[list[str], lis
     return need, done
 
 
+def s5_q1_not_all_admitted(ctx: Ctx) -> bool:
+    """A later Q1 review that rejected keyframes must re-open a passed S5 (lab E11: an honest re-review
+    rejected 16/27 keyframes but S5 still reported SKIPPED_ALREADY_PASS from the earlier stale review)."""
+    q1 = read_json(ctx.p.preprod / "reports/qa/q1" / f"{ctx.episode}_KEYFRAME_Q1_INDEX.json", {}) or {}
+    return bool(q1) and q1.get("status") not in (None, "ALL_ADMITTED")
+
+
 def s5_keyframes_missing(ctx: Ctx) -> list[str]:
     """Planned keyframe prompts whose image is not on disk (a §4 controlled redo parks the rejected one).
 
@@ -9238,7 +9245,7 @@ def run_episode(ctx: Ctx) -> int:
         fingerprint = FINGERPRINTS.get(sid, lambda _c: None)(ctx)
         if (not ctx.force and row.get("status") in TERMINAL_OK
                 and (fingerprint is None or fingerprint == row.get("input_fingerprint"))
-                and not (sid == "S5" and s5_keyframes_missing(ctx))):
+                and not (sid == "S5" and (s5_keyframes_missing(ctx) or s5_q1_not_all_admitted(ctx)))):
             ctx.say(f"\n-- {sid} {STAGE_TITLES[sid]}: SKIPPED (already PASS, inputs unchanged)")
             row["status"] = SKIPPED
             ctx.save_state()
