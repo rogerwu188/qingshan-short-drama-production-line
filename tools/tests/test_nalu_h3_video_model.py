@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_nalu_paid_authority as pa  # noqa: E402  (fixture + loaded module)
 import test_video_prompt_compiler as vpc  # noqa: E402
 from tools import h3_english_contract_io as io  # noqa: E402
+from tools.h3_provider_prompt_renderer import ANTI_TEXT  # noqa: E402
 from tools.video_prompt_compiler import compile_model_prompt  # noqa: E402
 
 mod = pa.mod
@@ -101,7 +102,8 @@ class H3EnglishContractTests(unittest.TestCase):
             self.assertEqual(io.bind_or_request([unit], answers_path), [])
             self.assertFalse(answers_path.with_name("E01_H3_ENGLISH_CONTRACTS.REQUEST.json").exists())
             text = compile_model_prompt(unit)
-            self.assertTrue(text.startswith("subject_definitions:"))
+            # K143 (2026-10-30): the TEXT-FREE FRAME rule is the first line, subject_definitions follows it
+            self.assertTrue(text.startswith(ANTI_TEXT + ".\nsubject_definitions:"))
             self.assertNotRegex(text.split("<d>")[0], r"[㐀-鿿]")
 
             changed = self.unit()
