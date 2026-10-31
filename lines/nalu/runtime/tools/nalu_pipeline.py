@@ -4278,6 +4278,9 @@ Q1_ACCEPTABLE_GATES = ("CHARACTER-IDENTITY-ADMISSION", "PERIOD-ANACHRONISM-LOCK"
 #: start frame cannot meet the next shot's framing, and keyframe_q1_builder files framing/axis under
 #: SCENE-AUTHORITY-LOCK, so that gate fails alongside the others and the default acceptance had no route.
 #: It still needs its own sha-bound order like every gate here.
+#: 2026-10-31: the same per-gate route also takes a still failing ONE gate of this set that is not in
+#: Q1_ACCEPTABLE_GATES (the single action/state-handoff failure).  These are the four registered keyframe
+#: Q1 gates; an unregistered gate id or an unattributed failure string is never waived.
 Q1_MULTI_GATE_ACCEPTABLE = ("CHARACTER-IDENTITY-ADMISSION", "PERIOD-ANACHRONISM-LOCK",
                             "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF", "SCENE-AUTHORITY-LOCK")
 
@@ -4458,7 +4461,13 @@ def apply_line_owner_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: 
         # ``all(g in f ...)`` is false and the row never reaches the standing rule.
         row_gate = next((g for g in Q1_ACCEPTABLE_GATES if failures and all(g in f for f in failures)), None)
         multi_gates = failing_registered_gates(failures)
-        if row_gate is None and len(multi_gates) > 1:
+        # 2026-10-31 (lab E11, 16 stills): a still whose ONLY failing gate is a registered gate outside
+        # Q1_ACCEPTABLE_GATES (e.g. ACTION-SHOT-DESIGN-AND-STATE-HANDOFF after the one controlled redraw)
+        # reached neither branch -- the multi-gate route required >1 gate -- so its sha-bound default
+        # acceptance (CLAUDE_CODE_PRODUCTION §5) had no route.  Any row the single-gate path does not
+        # take goes through the per-gate route, which still requires every failing gate to be in
+        # Q1_MULTI_GATE_ACCEPTABLE, every failure string to be attributable, and its own sha-bound order.
+        if row_gate is None and multi_gates:
             record = q1_multi_gate_acceptance(ctx, orders, row, failures, multi_gates, decisions, issuer)
             if record is None:
                 still_rejected.append(uid)
