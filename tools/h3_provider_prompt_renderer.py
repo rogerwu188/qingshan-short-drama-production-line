@@ -169,6 +169,24 @@ REFERENCE_SHEET_MARK = "__MULTIVIEW_REFERENCE_SHEET"
 FACE_ONLY_LOCK = "face crop: lock face, age and hair only; wardrobe and headwear from {first}, never from this crop"
 
 
+def appearance_anchor_line(unit: dict[str, Any], plan: dict[str, Any], *, compact: bool = False) -> str:
+    """E12 2026-10-31 (Roger「1」): H3 drifted older characters' faces and costumes mid-clip even with identity
+    references bound.  A contract character carrying ``appearance_anchor_en`` gets its fixed look stated once,
+    right after the TEXT-FREE rule, for every character bound in this unit; absent anchors render nothing."""
+    labels = _entity_labels(unit, plan)
+    rows = []
+    for entity in unit.get("character_entities") or []:
+        cid = str(entity.get("character_id") or "")
+        anchor = str(entity.get("appearance_anchor_en") or "").strip().rstrip(".")
+        if compact:
+            anchor = ", ".join(part.strip() for part in anchor.split(",")[1:3]) or anchor
+        if cid in labels and anchor:
+            rows.append(f"{labels[cid]} = {anchor}")
+    if not rows:
+        return ""
+    return "Same look in every frame: " + "; ".join(rows) + "."
+
+
 def face_only_identity_paths(unit: dict[str, Any]) -> set[str]:
     """Reference paths the compiler input declares as face crops (verified PIXEL_CROP transports)."""
     return {str(p) for p in unit.get("face_only_identity_references") or []}
@@ -1319,8 +1337,10 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         if len(provider_rows) != len(source_rows):
             raise ValueError(f"H3_ENGLISH_CONTRACT_SOUND_COUNT:{uid}:{key}:{len(provider_rows)}!={len(source_rows)}")
         values = [str(value).strip() for value in provider_rows]
-        if key == "action_sound":
+        if key in ("action_sound", "foley"):
+            # E12 2026-10-31: foley rows quote the beat action verbatim too (~500 duplicate runes on VU-003/011)
             values = _condense_sound_quotes(values, contract.get("beats") or [])
+        if key == "action_sound":
             values = _collapse_shared_unit_policy(values)
         for index, value in enumerate(values, 1):
             sound_rows.append(value)
@@ -1452,6 +1472,8 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     # provider-expert voice wording replaces the older after-line sentence (CAMERA_GRAMMAR_V1 only)
     voice_hygiene = (ONLY_THIS_LINE if spoken_lines == 1 else ONLY_THESE_LINES) if has_dialogue else NO_VOICE_SILENT
 
+    appearance_line = appearance_anchor_line(unit, plan)
+
     def assemble(roster: str, extras: bool = False) -> str:
         voice_text = "; ".join(voice_rows) or "No dialogue voice reference is required"
         vocal_text = vocal_rule
@@ -1465,6 +1487,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         # E12 2026-10-30 (K031, K143): H3 burned dialogue subtitles into 7 of 25 clips while the anti-text rule sat
         # in negative_constraints at the end; stated first, ahead of every action line.
         ANTI_TEXT + ".",
+        *([appearance_line] if appearance_line else []),
         "subject_definitions:", *reference_lines,
         "population_scope: " + population_scope + ".",
         *([roster] if roster else []),
@@ -1491,8 +1514,14 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     # rather than ever failing the limit
     variants = ([(roster_variants[0], True)] if director_audio else []) + [(r, False) for r in roster_variants]
     constraint_language = h3_constraint_language(unit) if director_audio else "en"
-    for roster, extras in variants:
-        text = localize_constraints(assemble(roster, extras), constraint_language)
+    # the full appearance line first; when a long unit would exceed the rune limit, the compact line (two traits
+    # per character) is tried before the roster is trimmed
+    appearance_variants = [appearance_line, appearance_anchor_line(unit, plan, compact=True)] if appearance_line else [""]
+    for appearance_line in appearance_variants:
+        for roster, extras in variants:
+            text = localize_constraints(assemble(roster, extras), constraint_language)
+            if len(text) <= _PROVIDER_RUNE_LIMIT:
+                break
         if len(text) <= _PROVIDER_RUNE_LIMIT:
             break
     if constraint_language == "zh":

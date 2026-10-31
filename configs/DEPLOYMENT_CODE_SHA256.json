@@ -5049,7 +5049,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "8f88fa6c26c941b0675736be674f4aae18363df30cd8262c965e8b4e0b50fae4"
+      "sha256": "2d33140cab145357edc0a5529e471a896ca4ff5567529323bbd45df0944039cb"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -7693,11 +7693,11 @@
     },
     {
       "path": "tools/tests/test_h3_director_prompt_v2.py",
-      "sha256": "393350291cc8fed0f98089bba9112b191e700d0caec82d4bb8a97fb76de3a254"
+      "sha256": "1efb415859ad0be03e254ab73b45579c064f5a3c031b53be3facb8977757c0bd"
     },
     {
       "path": "tools/tests/test_h3_face_crop_identity_lock.py",
-      "sha256": "87e830d6f69f5145606771c9828b1f6fcb4080ff39e7f0b8dbbb53db94142525"
+      "sha256": "10c416850a0e18f053bffc9f4b1d76656ba6964774702f51691d2149ce015e2a"
     },
     {
       "path": "tools/tests/test_h3_native_audio_whitelist_gate.py",
@@ -7709,7 +7709,7 @@
     },
     {
       "path": "tools/tests/test_h3_provider_expert_advice.py",
-      "sha256": "955a582b45795841fd52e115cf7fa38bf673d872fc33ae7838fbcdcb2e2b2cfe"
+      "sha256": "25094d68a5da89dff6eeffb8fe762b5cf5dd58a21358ddd7f556dcaf3e433aaa"
     },
     {
       "path": "tools/tests/test_h3_quoted_cjk_inside_dialogue.py",

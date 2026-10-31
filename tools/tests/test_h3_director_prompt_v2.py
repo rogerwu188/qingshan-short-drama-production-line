@@ -50,12 +50,14 @@ INTERNAL = re.compile(r"\b(?:CHAR|SUBSPACE|LOC|SET|PROP|AXIS|ANGLE)-[A-Z0-9-]+|\
 #: single beat loses is that one redundant clause, confirmed by diffing the rendered text old vs new.  This pin
 #: is renderer-wide, not V2-specific, so "unstamped never changes" is no longer true.  Re-pinned 2026-10-30 (E12 burned
 #: subtitles, K143): the TEXT-FREE FRAME sentence moved from negative_constraints to the prompt's first line; that move
-#: is the only text change, confirmed by diffing the rendered text old vs new.
+#: is the only text change, confirmed by diffing the rendered text old vs new.  Re-pinned 2026-10-31 (E12 rune budget):
+#: a foley row quoting a beat action verbatim now points at "the action stated for that shot"; that is the
+#: only text change, confirmed by diffing old vs new.
 V1_SHA = {
     # stamped V1 director: default strict camera lock (owner 2026-10-26); "standard" keeps the previous bytes
-    True: "0f191a4327d0ef2d7605680adc5d3a4d296ba9ee734a18e1572aacb869f73214",
-    "standard": "9624996b8c69f7759810770ab7486bc9e205046110393ea7bacd656bedb12ca3",
-    False: "467301a885a5df1a8ed5ae5e2cc3d282564e624c2a936c90d622c1380ce44f2f",
+    True: "ca17256a0720fb406aed710a81f56a0679bbd4772e4cc4af6545beb46fc275db",
+    "standard": "27d6342dac48a9215ed16946468dc542be6a0601c5339e7c87537e06456a94b4",
+    False: "838e3f8960139ef5810a783a67462bfac6cf944b0b6546c9966f6524a07d8323",
 }
 
 

@@ -52,3 +52,30 @@ class FaceCropIdentityLockTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AppearanceAnchorLineTest(unittest.TestCase):
+    """E12 2026-10-31: a bound character's appearance_anchor_en is stated right after the TEXT-FREE rule."""
+
+    def test_anchor_line_follows_text_free_rule_only_when_declared(self):
+        unit, plan = fixture(style=False, director=False)
+        plain = h3.render_h3_prompt(unit, plan)[0]
+        self.assertNotIn("Same look in every frame", plain)
+        labels = h3._entity_labels(unit, plan)
+        cid = next(iter(labels))
+        unit["character_entities"] = [{"character_id": cid, "appearance_anchor_en": "thick full black beard, leather armour"},
+                                      {"character_id": "CHAR-NOT-BOUND", "appearance_anchor_en": "should not appear"}]
+        lines = h3.render_h3_prompt(unit, plan)[0].splitlines()
+        self.assertTrue(lines[0].startswith(h3.ANTI_TEXT))
+        self.assertEqual(lines[1], f"Same look in every frame: {labels[cid]} = "
+                                   "thick full black beard, leather armour.")
+        self.assertNotIn("should not appear", "\n".join(lines))
+
+
+    def test_compact_anchor_keeps_the_two_distinguishing_traits(self):
+        unit, plan = fixture(style=False, director=False)
+        cid = next(iter(h3._entity_labels(unit, plan)))
+        unit["character_entities"] = [{"character_id": cid, "appearance_anchor_en":
+                                       "burly middle-aged man, thick full black beard, brown leather armour, cloak"}]
+        line = h3.appearance_anchor_line(unit, plan, compact=True)
+        self.assertTrue(line.endswith("= thick full black beard, brown leather armour."))
