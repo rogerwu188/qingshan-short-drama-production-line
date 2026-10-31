@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2279,
+  "file_count": 2280,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -673,7 +673,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "be295d89cd5afa89e4968fb5a7bd860252599bdd3f9480d46f1ef77feccbddf5"
+      "sha256": "fe5ebe2488b6303ece4f6b087c7fcedba9a1b8cc898edeb509158364f9f73744"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -829,7 +829,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "4728410cdde095402d249a15c8cded06d83b4e76ace6e81304085b5e050a28e4"
+      "sha256": "af77df102b3cbf887db8d33f4560b3398d3657b6321568b5a9f96dc79ef79dab"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -845,7 +845,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "5b316e572f1a016ca1aec486b95acd4948e249c5406e81b96469ea031151e86d"
+      "sha256": "138c0b892eed0ed3b4e0310834265c11569e15e18815c500e6dcd44fcbd7a306"
     },
     {
       "path": "skills/nalu-claude-code/scripts/configure_claude_code.py",
@@ -853,7 +853,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/configure_codex.py",
-      "sha256": "8500ce76bf40c036cae0f255a4211235c8b4fc1afdb4bd478dfc49e0b3b1929c"
+      "sha256": "5238a4ef068eb431d15492cd776c846c9f5affe7c83488de670f3920737c46e5"
     },
     {
       "path": "skills/nalu-claude-code/scripts/list_voices.sh",
@@ -5077,7 +5077,7 @@
     },
     {
       "path": "tools/harvest_giggle_image_batch.py",
-      "sha256": "a58774c3bec90c31a9a231237c87f3464877b6ad72fc88faf8bee5ca8917ae76"
+      "sha256": "f41a03222e150a630da36eb77bb810db3db81a861610977f61e337de7ebbde76"
     },
     {
       "path": "tools/harvest_giggle_image_submit.py",
@@ -5085,11 +5085,11 @@
     },
     {
       "path": "tools/hopsapi_image_client.py",
-      "sha256": "8fd954ee2c077d01e4d6727b1fb78c2168a69dfcf4235b93f97f8292e2f7178b"
+      "sha256": "c4a1bee7832203e3d5980719c3ac6d6e836b3e0e907e2742c48ee7ffdd0852bc"
     },
     {
       "path": "tools/hopsapi_video_client.py",
-      "sha256": "0aa67b42808bfdabcc7b5f300b17ca5b380e89eeb6ee73c241475778a6325ab3"
+      "sha256": "a841a751931bf6616f7319c9e22329015f653e41e61856a587b09592f0ef8993"
     },
     {
       "path": "tools/hotfix_e16_expression_arcs.py",
@@ -6569,11 +6569,11 @@
     },
     {
       "path": "tools/submit_giggle_character_asset_plan.py",
-      "sha256": "fe212bbef76d372779a76c1542087cff4ca3340e4e41107f96da63670e553081"
+      "sha256": "320e15567c4870fe5f10869f493d826442d21485d9a3e706b18e1e54dd8769cd"
     },
     {
       "path": "tools/submit_giggle_image_manifest.py",
-      "sha256": "0dbcc8728200876283faf72ff22feefa6acac9154ff9913da6d3a7bd4c43b1df"
+      "sha256": "9b6d456e65a515edcebfce78b43effe16baff559837b362aed5b727c7a65f175"
     },
     {
       "path": "tools/submit_giggle_task_manifest.py",
@@ -7653,7 +7653,7 @@
     },
     {
       "path": "tools/tests/test_hopsapi_image_transport.py",
-      "sha256": "ee4f66d8d55ff0c46bc5b59b9f890685882703ae08102d2bf154c39f2561302c"
+      "sha256": "7aa1c3a5c77f7b8fb98a2cd7fcfe0aa6c91c0fb9672106486aa2079dbd2f7cf0"
     },
     {
       "path": "tools/tests/test_hopsapi_video_transport.py",
@@ -7874,6 +7874,10 @@
     {
       "path": "tools/tests/test_nalu_identity_chain_fixes.py",
       "sha256": "f1d7adf8eb99605c89e1d848ef604af7df14dbdb6bca35a2f4a647698fb1db37"
+    },
+    {
+      "path": "tools/tests/test_nalu_key_exposure_guard.py",
+      "sha256": "1fa637e0e731a7becf88f7fc536bd962bb8ca4c1181a601449e9128e90380246"
     },
     {
       "path": "tools/tests/test_nalu_keyframe_regeneration_replace.py",

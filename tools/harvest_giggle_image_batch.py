@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -154,6 +155,9 @@ def harvest_one_hopsapi(row: dict[str, Any], episode: str, output_dir: Path, raw
     cost = status.get("cost")
     if remote in image_client.hops.TERMINAL_FAILED:
         item.update({"credit": 0, "credit_status": "FAILED_ZERO", "provider_error": status.get("error")})
+        if image_client.is_provider_error_failure(status):
+            # upstream gpt-image-2 refusal (424, uncharged), not a defect of this request
+            item["failure_class"] = "HOPSAPI_PROVIDER_ERROR_424"
     elif remote == "completed" and isinstance(cost, (int, float)):
         item.update({"credit": cost, "credit_status": "EXPLICIT_HOPSAPI_COST"})
     else:
@@ -242,6 +246,7 @@ def poll_once(submit_report: Path, output_dir: Path, raw_dir: Path) -> dict[str,
         "credit_known_total": sum(item["credit"] for item in results if isinstance(item.get("credit"), (int, float))),
         "credit_unknown_success_count": sum(item["credit_status"] == "UNKNOWN_API_FIELD_MISSING" for item in results),
         "credit_reconciliation": credit_reconciliation,
+        "provider_error_424_count": sum(item.get("failure_class") == "HOPSAPI_PROVIDER_ERROR_424" for item in results),
         "results": results,
     }
 
@@ -269,6 +274,11 @@ def main() -> int:
         payload = poll_once(submit_report, output_dir, raw_dir)
         atomic_json(status_report, payload)
         print(json.dumps({"status_counts": payload["status_counts"], "all_terminal": payload["all_terminal"]}, ensure_ascii=False), flush=True)
+        if payload["all_terminal"] and payload["provider_error_424_count"]:
+            print(f"HOPSAPI_IMAGE_PROVIDER_OUTAGE: {payload['provider_error_424_count']} task(s) settled as the "
+                  "uncharged upstream 424 'Provider error' (0 credits) — provider-side, not a reference/prompt "
+                  "defect; rerun the same stage after the cooldown (the submitter retires them and re-POSTs)",
+                  file=sys.stderr, flush=True)
         if not args.watch or payload["all_terminal"]:
             return 0 if payload["all_completed"] else 2 if payload["all_terminal"] else 0
         time.sleep(max(2, args.interval))

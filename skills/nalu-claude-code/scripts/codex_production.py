@@ -85,6 +85,10 @@ def alive(pid: int | None) -> bool:
     return True
 
 
+#: provider keys never handed to Codex (its own key goes in as KEY_ENV, which config.toml excludes from shells)
+SECRET_ENV_NAMES = ("GIGGLE_API_KEY", "HOPSAPI_API_KEY", "X2C_API_KEY", "OPENAI_API_KEY")
+
+
 CODEX_ADAPTER = """
 ## 执行者适配（编排代理附加，优先于合同里的工具名）
 你是 OpenAI Codex CLI，不是 Claude Code；合同正文按 Claude Code 写成，按下面对应：
@@ -96,7 +100,7 @@ CODEX_ADAPTER = """
 - 审核协议 `vlm_review_protocol.py` 在代码里强制 `reviewer` 必须是 `claude-code-nalu-vlm`、`review_method` 必须是
   `CLAUDE_VLM_STRUCTURED_REVIEW`：这是本线「机器审核者」的协议常量，照填；每条审核答案的 observation 末尾加「（执行者：Codex）」以便溯源。
 - 记订单时 `--recorded-by codex`（不要写 claude-code）。
-- 不要打印、cat、echo 任何 key（.env、credentials/、环境变量）。
+- **密钥硬规则**：绝不读取或打印 `.env`/`.env.*`、`credentials/` 下文件、`*.key`/`*.pem`、`~/.codex`、`~/.claude`、`~/.ssh`；不跑 `env`/`printenv`/`set`/`export -p`/`echo $..._API_KEY`，不把 key 写进日志、报告或 NALU_STATUS。要确认 key 在不在只用 `./lines/nalu/runtime/tools/paid_stage.sh --check <EP>`（只报有/无）。付费只走 `paid_stage.sh`（它自己读 `.env`）。
 - 必须在 `$NALU_ENGINE_ROOT` 下执行。
 - 本轮最后一条消息的最后一行必须是合同 §6 的 `NALU_STATUS: {...}`（单行 JSON）。
 """
@@ -121,7 +125,9 @@ def codex_env() -> dict[str, str] | None:
         return None
     engine, runtime = roots()
     env = dict(os.environ)
-    env.pop("GIGGLE_API_KEY", None)
+    # provider keys stay out of Codex's process; paid_stage.sh loads them from .env for the paid child
+    for name in SECRET_ENV_NAMES:
+        env.pop(name, None)
     env[KEY_ENV] = p["api_key"]
     env.setdefault("NALU_ENGINE_ROOT", str(engine))
     env.setdefault("NALU_RUNTIME_ROOT", str(runtime))

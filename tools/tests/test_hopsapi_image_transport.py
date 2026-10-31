@@ -506,5 +506,134 @@ class BudgetLedgerTests(unittest.TestCase):
             self.assertEqual(pending, 11)  # the Giggle row only; HopsAPI rows never double in
 
 
+class ProviderOutageTests(EnvCase):
+    """Lab E10/E11: uncharged 424 "Provider error" settlements are upstream refusals (identical requests
+    failed and later completed; a reference-free Txt2Img failed the same way).  Canary first, cooldown."""
+
+    def settled(self, store, episode, name, *, minute, ok, task_id=None):
+        folder = store / episode
+        folder.mkdir(parents=True, exist_ok=True)
+        stamp = f"2026-10-31T06:{minute:02d}:00Z"
+        row = {"provider": "hopsapi", "provider_model": "gpt-image-2", "state": "SUBMITTED_TASK_ID_BOUND",
+               "task_id": task_id or f"tsk_{name}", "intent_recorded_at": stamp,
+               "provider_status_observed_at": stamp}
+        if ok:
+            row.update({"provider_remote_status": "completed", "provider_cost_credits": 1.16})
+        else:
+            row.update({"provider_remote_status": "failed", "remote_terminal_state": "failed",
+                        "remote_terminal_observed_at": stamp, "provider_cost_credits": 0.0,
+                        "provider_failure": "Provider error (request id: aitk-x)"})
+        (folder / f"{name}.json").write_text(json.dumps(row), encoding="utf-8")
+
+    @staticmethod
+    def at(minute):
+        from datetime import datetime, timezone
+        return datetime(2026, 10, 31, 6, minute, tzinfo=timezone.utc).timestamp()
+
+    def test_provider_error_classification(self):
+        self.assertTrue(images.is_provider_error_failure(
+            {"remote_status": "failed", "provider_code": 424, "cost": 0.0, "error": "Provider error (request id: a)"}))
+        self.assertTrue(images.is_provider_error_failure(
+            {"provider_remote_status": "failed", "provider_cost_credits": 0.0,
+             "provider_failure": "Provider error (request id: a)"}))
+        self.assertFalse(images.is_provider_error_failure({"remote_status": "completed", "cost": 1.0}))
+        self.assertFalse(images.is_provider_error_failure(
+            {"remote_status": "failed", "provider_code": 500, "cost": 0.0, "error": "content policy"}))
+
+    def test_a_trailing_run_of_424s_is_an_outage_until_the_cooldown_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp)
+            self.settled(store, "E10", "ok", minute=1, ok=True)
+            for index in range(3):
+                self.settled(store, "E11", f"f{index}", minute=10 + index, ok=False)
+            outage = images.recent_provider_outage(store, now=self.at(20))
+            self.assertEqual(outage["blocker"], "HOPSAPI_IMAGE_PROVIDER_OUTAGE")
+            self.assertEqual(outage["consecutive_provider_errors"], 3)
+            self.assertEqual(outage["retry_after_utc"], "2026-10-31T06:27:00Z")
+            self.assertIsNone(images.recent_provider_outage(store, now=self.at(28)))
+            with patch.dict(os.environ, {"HOPSAPI_IMAGE_OUTAGE_COOLDOWN_SECONDS": "0"}):
+                self.assertIsNone(images.recent_provider_outage(store, now=self.at(20)))
+
+    def test_a_success_after_the_failures_or_too_few_failures_is_no_outage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp)
+            for index in range(3):
+                self.settled(store, "E11", f"f{index}", minute=10 + index, ok=False)
+            self.settled(store, "E11", "later.terminal-x", minute=14, ok=True)
+            self.assertIsNone(images.recent_provider_outage(store, now=self.at(16)))
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp)
+            for index in range(2):
+                self.settled(store, "E11", f"f{index}", minute=10 + index, ok=False)
+            self.assertIsNone(images.recent_provider_outage(store, now=self.at(13)))
+
+    def test_canary_424_is_settled_on_its_transaction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transaction = Path(tmp) / "tx.json"
+            transaction.write_text(json.dumps({"provider": "hopsapi", "state": "SUBMITTED_TASK_ID_BOUND",
+                                               "task_id": "tsk_c"}), encoding="utf-8")
+            fake = FakeHops(queries=[(200, {"task_id": "tsk_c", "status": 1}),
+                                     (200, {"code": 424, "message": "Provider error (request id: aitk-1)",
+                                            "task_id": "tsk_c", "status": 3})])
+            with patch.object(hops, "_http", side_effect=fake):
+                result = images.canary_check("tsk_c", transaction, wait_seconds=60, sleep=lambda _s: None)
+            self.assertEqual(result["outcome"], "PROVIDER_ERROR")
+            row = json.loads(transaction.read_text(encoding="utf-8"))
+            self.assertEqual(row["remote_terminal_state"], "failed")
+            self.assertEqual(row["provider_failure_code"], 424)
+            self.assertEqual(row["provider_cost_credits"], 0.0)
+            self.assertTrue(images.terminal_failed_binding(row))
+
+    def test_canary_still_processing_after_the_wait_is_healthy(self):
+        ticks = iter(range(0, 1000, 30))
+        fake = FakeHops(queries=[(200, {"task_id": "tsk_p", "status": 1})] * 10)
+        with patch.object(hops, "_http", side_effect=fake):
+            result = images.canary_check("tsk_p", None, wait_seconds=60, sleep=lambda _s: None,
+                                         clock=lambda: next(ticks))
+        self.assertEqual(result["outcome"], "HEALTHY")
+
+    def batch(self, outcome):
+        tasks = [{"task_key": f"E11-S0{i}-KEYFRAME-V1"} for i in range(1, 5)]
+        submitted = []
+
+        def fake_submit(task, receipt_dir, transaction_dir, provider=None):
+            submitted.append(task["task_key"])
+            return {"task_key": task["task_key"], "task_id": f"tsk_{len(submitted)}", "status": "submitted",
+                    "transaction": "workflow/tasks/x.json", "recovered_from_transaction": False}
+
+        deferred = []
+        with patch.object(manifest_submitter, "submit_one", side_effect=fake_submit), \
+                patch.object(manifest_submitter.image_client, "canary_check",
+                             return_value={"outcome": outcome, "task_id": "tsk_1"}) as canary:
+            results, failures = manifest_submitter.submit_all(
+                tasks, Path("."), Path("."), 6, "hopsapi", deferred=deferred)
+        return submitted, results, failures, deferred, canary
+
+    def test_batch_stops_after_a_424_canary_and_posts_nothing_else(self):
+        submitted, results, failures, deferred, canary = self.batch("PROVIDER_ERROR")
+        self.assertEqual(submitted, ["E11-S01-KEYFRAME-V1"])
+        self.assertEqual(canary.call_count, 1)
+        self.assertEqual(failures, [])
+        not_posted = [row for row in deferred if "canary" not in row]
+        self.assertEqual([row["status"] for row in not_posted], ["NOT_POSTED_PROVIDER_OUTAGE"] * 3)
+        self.assertTrue(all(row["credit"] == 0 for row in not_posted))
+
+    def test_batch_continues_after_a_healthy_canary(self):
+        submitted, results, failures, deferred, _ = self.batch("HEALTHY")
+        self.assertEqual(len(submitted), 4)
+        self.assertEqual(len(results), 4)
+        self.assertEqual([row for row in deferred if "canary" not in row], [])
+
+    def test_harvest_tags_the_upstream_424(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fake = FakeHops(queries=[(200, {"code": 424, "message": "Provider error (request id: a)",
+                                            "task_id": "tsk_f", "status": 3})])
+            row = {"task_key": "K", "task_id": "tsk_f", "status": "submitted"}
+            with patch.object(hops, "_http", side_effect=fake):
+                item = harvester.harvest_one(row, "E11", root / "out", root / "raw", None)
+            self.assertEqual(item["failure_class"], "HOPSAPI_PROVIDER_ERROR_424")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -608,6 +608,8 @@ def record_settlement(transaction: Path, task_id: str, status: dict[str, Any], *
             row.setdefault("remote_terminal_observed_at", now)
             if status.get("error"):
                 row["provider_failure"] = str(status["error"])[:500]
+            if status.get("provider_code") is not None:
+                row["provider_failure_code"] = status["provider_code"]
         else:
             return row
         temporary = transaction.with_suffix(transaction.suffix + ".part")

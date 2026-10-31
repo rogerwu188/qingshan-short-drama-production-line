@@ -1186,8 +1186,9 @@ class Ctx:
         log_path = self.p.logs / f"{self.run_id}_{name}.log"
         self.log(f"$ {q(argv)}")
         if extra_env:
-            self.log("  env " + " ".join(f"{key}={value}" for key, value in
-                                         sorted(extra_env.items())))
+            self.log("  env " + " ".join(
+                f"{key}=***" if SECRET_ENV_NAME.search(str(key)) else f"{key}={value}"
+                for key, value in sorted(extra_env.items())))
         started = now()
         try:
             completed = subprocess.run(
@@ -1198,6 +1199,9 @@ class Ctx:
             rc, out, err = 124, exc.stdout or "", f"TIMEOUT after {timeout}s"
         except OSError as exc:
             rc, out, err = 127, "", f"{type(exc).__name__}: {exc}"
+        # a child may echo a key (debug print, traceback with a header): never keep it
+        secret_env = {**os.environ, **{str(k): str(v) for k, v in (extra_env or {}).items()}}
+        out, err = redact_secrets(out, secret_env), redact_secrets(err, secret_env)
         log_path.write_text(
             f"# {started}\n# cwd={cwd}\n# paid={paid}\n# argv={q(argv)}\n"
             f"# exit={rc}\n--- stdout ---\n{out}\n--- stderr ---\n{err}\n", encoding="utf-8")
@@ -1502,6 +1506,28 @@ def materialize_paid_authorization(ctx: Ctx, res: StageResult, *, sid: str,
 def tail(text: str | None, limit: int = 4000) -> str:
     text = text or ""
     return text if len(text) <= limit else "…" + text[-limit:]
+
+
+#: env var names whose VALUES are secrets (provider keys, tokens).  A child that echoes one (a debug
+#: print, a traceback showing a request header) must not land it in a step log, a receipt or the
+#: stage state that Codex / the orchestrator read back.
+SECRET_ENV_NAME = re.compile(r"(API_KEY|_KEY$|TOKEN|SECRET|PASSWORD)", re.IGNORECASE)
+SECRET_MIN_LENGTH = 8
+
+
+def redact_secrets(text: str | None, env: dict[str, str] | None = None) -> str:
+    """``text`` with every secret env value (see SECRET_ENV_NAME, >= 8 chars) replaced by
+    ``***<NAME>***`` and bearer tokens masked.  Values come from ``env`` (default os.environ)."""
+    text = text or ""
+    if not text:
+        return text
+    source = os.environ if env is None else env
+    secrets = sorted({(name, str(value)) for name, value in source.items()
+                      if SECRET_ENV_NAME.search(str(name)) and len(str(value or "").strip()) >= SECRET_MIN_LENGTH},
+                     key=lambda item: -len(item[1]))
+    for name, value in secrets:
+        text = text.replace(value, f"***{name}***")
+    return re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{12,}", r"\1***", text)
 
 
 def blank_stage(sid: str) -> dict[str, Any]:
@@ -4057,6 +4083,9 @@ def stage_s5(ctx: Ctx) -> StageResult:
         if harvest["exit_code"] != 0:
             res.status = BLOCKED
             res.blockers.append("KEYFRAME_HARVEST_FAILED")
+            if (read_json(p.keyframe_harvest_status, {}) or {}).get("provider_error_424_count"):
+                # uncharged upstream 424s: provider-side, rerun the same stage after the cooldown
+                res.blockers.append("HOPSAPI_IMAGE_PROVIDER_OUTAGE")
             return res
         rename = apply_keyframe_renames(ctx, manifest)
         res.details["deterministic_rename"] = rename
@@ -4075,6 +4104,10 @@ def stage_s5(ctx: Ctx) -> StageResult:
             ctx, ctx.p.keyframe_submit, ctx.run_id)
         res.status = BLOCKED
         res.blockers.append("KEYFRAME_SUBMIT_FAILED")
+        outage = (read_json(p.keyframe_submit, {}) or {}).get("provider_outage")
+        if outage:
+            res.blockers.append("HOPSAPI_IMAGE_PROVIDER_OUTAGE")
+            res.details["provider_outage"] = outage
         return res
 
     # 4) S5.q1 — keyframe Q1 admission (D-4)

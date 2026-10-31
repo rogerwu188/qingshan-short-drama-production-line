@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import time
 import tempfile
 import uuid
@@ -638,15 +639,47 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path,
 
 def submit_all(
     tasks: list[dict[str, Any]], receipt_dir: Path, transaction_dir: Path, concurrency: int,
-    provider: str | None = None,
+    provider: str | None = None, deferred: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Submit every item and preserve isolated client exits as item failures."""
+    """Submit every item and preserve isolated client exits as item failures.
+
+    HopsAPI with more than one task: tasks are POSTed one at a time until the first NEW binding (a
+    recovered binding is not a probe), which is the canary (image_client.canary_check, free GETs).
+    When it settles as the uncharged 424 "Provider error" the remaining tasks are NOT POSTed; they
+    come back in ``deferred`` (credit 0, never a failure: no intent was recorded for them)."""
     results: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
+    extra = {"provider": provider} if provider else {}
+    remaining = list(tasks)
+    if provider == image_client.PROVIDER_HOPSAPI and len(remaining) > 1 and deferred is not None:
+        while remaining:
+            task = remaining.pop(0)
+            try:
+                row = submit_one(task, receipt_dir, transaction_dir, **extra)
+            except (Exception, SystemExit) as exc:
+                failures.append({
+                    "task_key": task["task_key"], "status": "submit_response_lost", "credit": None,
+                    "credit_status": "PENDING_LEDGER_RECONCILIATION", "error": str(exc),
+                    "transaction": portable_path(transaction_path(transaction_dir, task)),
+                })
+                continue
+            results.append(row)
+            if row.get("recovered_from_transaction"):
+                continue
+            canary = image_client.canary_check(row["task_id"], resolve(row["transaction"]))
+            canary["task_key"] = task["task_key"]
+            deferred.append({"canary": canary})
+            if canary["outcome"] == "PROVIDER_ERROR":
+                deferred.extend({"task_key": other["task_key"], "status": "NOT_POSTED_PROVIDER_OUTAGE",
+                                 "credit": 0, "credit_status": "NOT_CHARGED_NO_INTENT_RECORDED"}
+                                for other in remaining)
+                remaining = []
+            break
+    if not remaining:
+        return results, failures
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
-        extra = {"provider": provider} if provider else {}
         futures = {pool.submit(submit_one, task, receipt_dir, transaction_dir, **extra): task
-                   for task in tasks}
+                   for task in remaining}
         for future in as_completed(futures):
             task = futures[future]
             try:
@@ -912,10 +945,30 @@ def main() -> int:
     results: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
     submit_started_at = datetime.now(timezone.utc)
+    deferred: list[dict[str, Any]] = []
+    provider_outage = None
+    if not args.precheck_only and provider == image_client.PROVIDER_HOPSAPI:
+        # free, pre-intent: an unbroken run of upstream 424s in the store = no POST until it cools down
+        provider_outage = image_client.recent_provider_outage(transaction_dir.parent)
     if args.precheck_only:
         results = [{"task_key": task["task_key"], "beat_id": task.get("beat_id"), "status": "precheck_pass"} for task in tasks]
+    elif provider_outage:
+        deferred = [{"task_key": task["task_key"], "status": "NOT_POSTED_PROVIDER_OUTAGE", "credit": 0,
+                     "credit_status": "NOT_CHARGED_NO_INTENT_RECORDED"} for task in tasks]
     else:
-        results, failures = submit_all(tasks, receipt_dir, transaction_dir, args.concurrency, provider)
+        results, failures = submit_all(tasks, receipt_dir, transaction_dir, args.concurrency, provider,
+                                       deferred=deferred if provider == image_client.PROVIDER_HOPSAPI else None)
+    canary = next((row["canary"] for row in deferred if "canary" in row), None)
+    deferred = [row for row in deferred if "canary" not in row]
+    if deferred and not provider_outage:
+        provider_outage = {"blocker": "HOPSAPI_IMAGE_PROVIDER_OUTAGE", "canary": canary,
+                           "rule": "the batch's canary task settled as the uncharged 424 'Provider error'; "
+                                   "the other tasks were not POSTed"}
+    if provider_outage:
+        print(f"HOPSAPI_IMAGE_PROVIDER_OUTAGE: {len(deferred)} task(s) not POSTed (0 credits); upstream "
+              f"gpt-image-2 is returning 424 'Provider error' — not a reference/prompt defect. Wait until "
+              f"{provider_outage.get('retry_after_utc') or 'the cooldown passes'} and rerun the same stage.",
+              file=sys.stderr)
     submit_finished_at = datetime.now(timezone.utc)
 
     results.sort(key=lambda row: row["task_key"])
@@ -970,7 +1023,7 @@ def main() -> int:
         credit_out = out.parent / f"{out.stem}_credit_statement.json"
         atomic_json(credit_out, credit_reconciliation)
 
-    generation_pass = len(results) == len(tasks) and not failures
+    generation_pass = len(results) == len(tasks) and not failures and not deferred
     cost_pass = args.precheck_only or (credit_reconciliation or {}).get("status") in {
         "PASS", "PASS_BOUNDED", "PASS_REUSED_TRANSACTIONS"
     }
@@ -995,6 +1048,9 @@ def main() -> int:
         "failed": len(failures),
         "results": results,
         "failures": failures,
+        "not_posted": deferred,
+        "provider_outage": provider_outage,
+        "canary": canary,
         "credit_reconciliation": credit_reconciliation,
         "ambiguity_resolution": ambiguity_resolution,
         "transaction_dir": portable_path(transaction_dir),

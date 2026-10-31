@@ -468,6 +468,12 @@ def main() -> int:
     episode_key = str(plan.get("episode") or "UNKNOWN").replace("/", "-")
     transaction_dir = ROOT / "workflow" / "tasks" / "giggle_submit_transactions" / episode_key
     transaction_dir.mkdir(parents=True, exist_ok=True)
+    if not args.precheck_only and provider == image_client.PROVIDER_HOPSAPI:
+        outage = image_client.recent_provider_outage(transaction_dir.parent)
+        if outage:  # free, pre-intent: nothing is POSTed into an upstream 424 run
+            raise SystemExit(f"HOPSAPI_IMAGE_PROVIDER_OUTAGE: 0 POSTed, 0 credits; upstream gpt-image-2 is "
+                             f"returning 424 'Provider error' (not a reference/prompt defect); retry after "
+                             f"{outage['retry_after_utc']}: {json.dumps(outage, ensure_ascii=False)}")
     results, failures = [], []
     submit_started_at = datetime.now(timezone.utc)
     if args.precheck_only:

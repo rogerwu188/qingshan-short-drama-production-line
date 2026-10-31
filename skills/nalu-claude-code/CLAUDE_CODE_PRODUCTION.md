@@ -17,6 +17,7 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 - 免费命令一律不带 key：`env -u GIGGLE_API_KEY -u HOPSAPI_API_KEY $P $T/nalu_pipeline.py run --episode <EP> --until <Sx>`（编排器自己也会把两个 key 从免费子进程里剥掉）。
 - 跑 `nalu_pipeline.py` 时不要设 `NALU_POLICY_PROFILE` / `NALU_SERIES_SCOPE_ID`（本线解析为 LEGACY_EPISODE_COMPAT）。`$S/plan_compile.sh` 里的 `NALU_POLICY_PROFILE=CURRENT_PORTABLE` 只作用于它自己的编译子进程，不要抄进你的 shell。S1 报 `CANONICAL_WRITER_HANDOFF_FAIL:PRIVATE_PROJECT_METADATA_INVALID`（缺 `runtime/project.json`）= 你的环境带了 CURRENT_PORTABLE：`unset NALU_POLICY_PROFILE NALU_SERIES_SCOPE_ID` 后重跑；绝不要自己创建 `project.json` 或 `ACTIVE_WRITER_HANDOFF.json`，也不要单独调 `storyclaw_writer_workflow.py verify` 当作 S1 结论（那是 StoryClaw 托管项目的路径，不在本线 S1 上）。
 - 付费命令只用一个入口：`./lines/nalu/runtime/tools/paid_stage.sh <EP> <FROM> <UNTIL>`（它自己读 `.env`；你不要 `cat`/打印 `.env`）。
+- 查 key 是否存在只用 `./lines/nalu/runtime/tools/paid_stage.sh --check <EP>`（只报有/无与预算，不打印值）或引擎工具自己的报错；不要用 `grep`/`cat`/`env`/`printenv`/`echo $X` 去「确认」key。
 
 ## 1. 绝对规则
 - 不写假 PASS；审核必须实际看图/看帧后作答（用 Read 打开图片；视频先用 ffmpeg 抽帧拼成联系表再看）。
@@ -24,6 +25,7 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
   不编造线主原话：记录订单时用简报里的条款原文与线主原话，接受类订单写明依据的默认条款。
 - 不删事务文件和回执（`workflow/tasks/**`、`reviews/**`），作废的东西移到 `_superseded_<日期>_<原因>/`。
 - 不发布、不上传任何平台；不 git push；不改门禁阈值。
+- **密钥绝不读、绝不打印**：不打开、不 `cat`/`head`/`tail`/`grep`/`sed`/`less`/复制 `.env`、`.env.*`、`credentials/` 下任何文件、`*.key`/`*.pem`、`~/.codex`、`~/.claude`、`~/.ssh` 里的文件；不执行 `env`、`printenv`、`set`、`export -p`、`echo $*_API_KEY`，也不把这些变量写进日志、报告、回执或 NALU_STATUS。只验证「存在」：用 `paid_stage.sh --check <EP>`。工具输出里若出现疑似 key，报告里写 `***` 并在 note 说明，不复述原文。
 - **绝不修改引擎里受版本控制的任何文件**（`tools/`、`lines/`、`skills/`、`configs/` 下的代码、配置和测试），哪怕你确定那是
   上游缺陷、改了能跑通。遇到代码缺口：把复现命令、日志、文件与行号写进
   `workflow/nalu/<EP>/preproduction/reports/<EP>_CODE_BLOCKER_<日期>.md`，本轮以 `BLOCKED` 结束（note 写报告路径），
@@ -264,6 +266,8 @@ STATE 取值：`OWNER_DECISION_REQUIRED`（需要线主原话）· `WAITING_REMO
 ## 7. 已知停点
 S7 最后的「独立终审」要求独立进程、StoryClaw 白名单模型的审核者。没有时停在 `REVIEW_REQUIRED: FINAL_AUDIENCE_REVIEW_REQUIRED`——成片已在
 `$NALU_RUNTIME_ROOT/deliverables/<EP>/<EP>_final_9x16.mp4`。不得冒充审核者身份或绕过该门，报 `FINAL_CUT_READY`。
+
+HopsAPI 图片任务成批以 `status 3 / code 424 "Provider error (request id: aitk-…)"`、0 credits 失败（日志/阻塞含 `HOPSAPI_IMAGE_PROVIDER_OUTAGE`）= 上游 gpt-image-2 通道故障，不是参考图/提示词问题（E10/E11 实测：同字节请求先失败后成功，无参考图的 Txt2Img 也同样失败）。不要改参考图、提示词或写 CODE_BLOCKER；免费、不扣费：`sleep 600` 后原样重跑同一 `paid_stage.sh <EP> <Sx> <Sx>`（提交器自己会先发一个探针任务、冷却期内拒绝整批 POST），连续 6 次仍是 424 才以 `BLOCKED` 结束，note 写 `HOPSAPI_IMAGE_PROVIDER_OUTAGE`。
 
 ## 8. 连续产剧：E02 及以后
 编排代理在上一集 `FINAL_CUT_READY` 后为下一集派单（章节范围与沿用的简报条款），再新开一个你的会话。每集都是独立会话，按本合同从 §2.0 开始，另外：
