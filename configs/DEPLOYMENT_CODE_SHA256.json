@@ -557,7 +557,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/bootstrap_identity_cards.py",
-      "sha256": "279671a38bc60a16b7bde4824ec9a1c84b132a398624f4fb559c701aa86c691d"
+      "sha256": "34a2133d50fe08dfb0b89e379061c9fdf6d4681085d04fbb2754337e5df7738d"
     },
     {
       "path": "lines/nalu/runtime/tools/bootstrap_runtime_root.py",
@@ -4997,7 +4997,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "85ccba3313792f123dbbf51aa13d4e18011b9a2d95b1cddfb34d53cdc8faebb9"
+      "sha256": "b1ad515b5199863ae6435e1f5349d8a3726b1f3065907974b0fbb7c6b592748b"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -6341,7 +6341,7 @@
     },
     {
       "path": "tools/sd2_provider_prompt_renderer.py",
-      "sha256": "b23e60124f94ee480168cbe69927e511f76fe18c12db6573e3fc1b3bf2a2ec2f"
+      "sha256": "c34a380d4cdaf29f5d236e4d0e4313dd1470d453d36ac9279ee4709abf4801d5"
     },
     {
       "path": "tools/sd2_required_prompt_field_gate.py",
@@ -7665,7 +7665,7 @@
     },
     {
       "path": "tools/tests/test_identity_cards_period_lock.py",
-      "sha256": "39ac6458fb8dc0d75bf29feab884c1d24c8061d0b29750efc64ba05a5c8f0db6"
+      "sha256": "46c4b3e51b729e7a4c5439f4d1a42a44d1685887c9018b4f8d356ea51ce85ee4"
     },
     {
       "path": "tools/tests/test_identity_original_preservation.py",
@@ -7869,7 +7869,7 @@
     },
     {
       "path": "tools/tests/test_nalu_h3_video_model.py",
-      "sha256": "d17ddff0061f7ef5921aa5a9c302aab7e7896680bbe6ff0c3d9a65d3b2a825ba"
+      "sha256": "a354dc1f4f6028aa8137012a3450e2d1d72be774e2d5a5f88fd290f36ea06cd3"
     },
     {
       "path": "tools/tests/test_nalu_identity_chain_fixes.py",
@@ -9057,7 +9057,7 @@
     },
     {
       "path": "tools/visual_culture_contract.py",
-      "sha256": "39830af0fe270953894f7bb3f286baa1e760974311c664d7edee79d97d81836b"
+      "sha256": "acef7c46e3a325da62d22c71c44deeae80193203af686bc1217cc46a58e144d3"
     },
     {
       "path": "tools/visual_text_prompt_guard.py",
