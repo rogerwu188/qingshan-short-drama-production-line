@@ -49,7 +49,7 @@ INTERNAL = re.compile(r"\b(?:CHAR|SUBSPACE|LOC|SET|PROP|AXIS|ANGLE)-[A-Z0-9-]+|\
 #: force_origin equals entry_state (tools/h3_provider_prompt_renderer.py _beat) -- the only text this fixture's
 #: single beat loses is that one redundant clause, confirmed by diffing the rendered text old vs new.  This pin
 #: is renderer-wide, not V2-specific, so "unstamped never changes" is no longer true.  Re-pinned 2026-10-30 (E12 burned
-#: subtitles, K253): the TEXT-FREE FRAME sentence moved from negative_constraints to the prompt's first line; that move
+#: subtitles, K143): the TEXT-FREE FRAME sentence moved from negative_constraints to the prompt's first line; that move
 #: is the only text change, confirmed by diffing the rendered text old vs new.
 V1_SHA = {
     # stamped V1 director: default strict camera lock (owner 2026-10-26); "standard" keeps the previous bytes

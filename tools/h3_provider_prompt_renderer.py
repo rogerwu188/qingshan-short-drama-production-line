@@ -1462,7 +1462,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             vocal_text += " " + voice_hygiene
             negative_rows.append(_NO_NATIVE_MUSIC)
         return "\n".join([
-        # E12 2026-10-30 (K253): H3 burned dialogue subtitles into 7 of 25 clips while the anti-text rule sat
+        # E12 2026-10-30 (K031, K143): H3 burned dialogue subtitles into 7 of 25 clips while the anti-text rule sat
         # in negative_constraints at the end; stated first, ahead of every action line.
         ANTI_TEXT + ".",
         "subject_definitions:", *reference_lines,

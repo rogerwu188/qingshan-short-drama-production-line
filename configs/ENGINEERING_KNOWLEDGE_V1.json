@@ -3053,6 +3053,57 @@
       "failure_code": "READBACK_GATE_UNUSABLE_ON_PRODUCTION_MACHINE",
       "do_not_repeat": "不要在 8 GB 机器上整片跑 large-v3；不要逐单元解码；不要只凭 no_speech_prob 丢段；不要把同音/繁简差异算作语音缺陷",
       "sync_slug": "E12-readback-method"
+    },
+    {
+      "scope": "generalizable",
+      "episode": "E12",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "runtime_gate_added": false,
+      "status": "REFERENCE_IMPLEMENTATION",
+      "authority": "Roger 2026-10-30「同意」（第二次受控重做）",
+      "id": "K142",
+      "key": "h3-face-crop-identity-locks-face-only",
+      "stage": "S6",
+      "category": "PROMPT",
+      "rule": "H3 身份参考若是源照的像素裁切（PIXEL_CROP 身份传输），提示词只能锁「脸、年龄、发型」，服装与头饰取自 @Image1 起始帧和服装文字；不得对裁切图写「lock face, age, hair, body and wardrobe」。标记在 provider_prompt_unit() 里加（S6 波次编译与付费边界都走它），不是 S2 任务构建器。",
+      "lesson": "E12 2026-10-30：秦铭用带刺绣袍与金属冠的源照当身份参考，H3 把袍冠贴到每个镜头；换成脸部裁切后仍因身份行写着「锁服装」、裁切里露出的领口又把袍冠带回来（5/5 单元）。改成只锁脸后服装 5/5 正确。第一次只在 S2 构建器加标记，S6 编译不读，提示词未变——改动后必须核对最终提示词文本。",
+      "recovery": "资产库登记 original_identity_authority.transport_pixel_crop（像素级校验）；tools/original_identity_authority.episode_pixel_crop_transport_paths → face_only_identity_references → 两个 H3 渲染器的只锁脸行。",
+      "implementation": [
+        "tools/h3_provider_prompt_renderer.py",
+        "tools/h3_director_prompt_v2.py",
+        "tools/submit_giggle_video_manifest_v2.py",
+        "tools/original_identity_authority.py"
+      ],
+      "regression": "tools/tests/test_h3_face_crop_identity_lock.py",
+      "evidence": "commits 85a76cb、8aaf7e0；E12 assembly/E12_FACE_CROP_REDO2.json",
+      "failure_code": "H3_IDENTITY_CROP_RENDERED_AS_WARDROBE_LOCK",
+      "do_not_repeat": "不要对脸部裁切参考写锁服装/身体；不要只在 S2 构建器加标记而不核对 S6 最终提示词",
+      "sync_slug": "E12-face-crop-identity"
+    },
+    {
+      "scope": "generalizable",
+      "episode": "E12",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "runtime_gate_added": false,
+      "status": "REFERENCE_IMPLEMENTATION",
+      "authority": "Roger 2026-10-30「是的」",
+      "id": "K143",
+      "key": "h3-text-free-rule-first-line",
+      "stage": "S6",
+      "category": "PROMPT",
+      "rule": "H3 提示词的禁文字条款（TEXT-FREE FRAME）放在提示词第一行、所有动作文字之前，negative_constraints 里不再重复。成片前对每个单元片按 2 fps 下半幅 OCR，含 ≥2 个汉字的命中即烧录字幕（不可仲裁）。",
+      "lesson": "E12 2026-10-30：条款只在提示词末尾的 negative_constraints 时，H3 在 25 个单元片中 7 个烧录了对白字幕（全是对白镜）；K031 的旧经验（前置条款后干净）此前只写进知识库、没进渲染器。前置后 7 个重做 4 个干净，其余 3 个按线主选择改构图。后处理不可行：本线字幕在 y≈0.82–0.87，烧录字在 0.68–0.73。",
+      "recovery": "渲染器第一行输出 ANTI_TEXT；受影响单元按 K130 走改提示词重做（线主批准）；仍复发的按线主选择改构图（全身中全景）。",
+      "implementation": [
+        "tools/h3_provider_prompt_renderer.py"
+      ],
+      "regression": "tools/tests/test_h3_director_prompt_v2.py",
+      "evidence": "commit 1a84461；E12 assembly/E12_BURNED_SUBTITLE_REDO.json；OCR rapidocr 2 fps 下 45% 画面",
+      "failure_code": "H3_BURNED_DIALOGUE_SUBTITLES",
+      "do_not_repeat": "不要把禁文字条款只放在提示词末尾；不要同提示词重投烧字幕的单元（K130）",
+      "sync_slug": "E12-text-free-first-line"
     }
   ]
 }

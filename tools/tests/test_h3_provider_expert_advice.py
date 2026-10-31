@@ -45,7 +45,7 @@ ZH_CAMERA = H3_CONSTRAINT_ZH["one_take"] + "；" + H3_CONSTRAINT_ZH["fixed_camer
 #: no longer repeats X when force_origin equals entry_state; v2_unstamped's beat has a distinct force_origin
 #: so it is untouched (confirmed: still matches the b2ba893 bytes).  Every other pin here moved by exactly that
 #: one dropped clause, confirmed by diffing old vs new rendered text.
-#: Re-pinned 2026-10-30 (E12 burned subtitles, K253): TEXT-FREE FRAME moved from negative_constraints to the first
+#: Re-pinned 2026-10-30 (E12 burned subtitles, K143): TEXT-FREE FRAME moved from negative_constraints to the first
 #: line; diffing old vs new rendered text shows that move only.
 UNSTAMPED_PINS = {
     "v2_unstamped": "8604f0b83bd9f1ea20b7f3127ea5d58fda388166968d537613521ab813fc19b2",

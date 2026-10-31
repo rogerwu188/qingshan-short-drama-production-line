@@ -89,3 +89,5 @@
 {"failure_code": "DIALOGUE_UNITS_AUTHORED_WITH_CAMERA_MOVES", "do_not_repeat": "不要靠稳定化补救写进提示词的运镜；不要让适配层为了过静态设计门而给对白单元强加运镜；度量重剪派生片时要屏蔽内部切点", "stage": "S2", "scope": "generalizable", "knowledge_id": "K139"}
 {"failure_code": "TRUE_PEAK_OVERSHOOT_AFTER_AAC_ENCODE", "do_not_repeat": "不要在 48 kHz 直接限真峰值；不要把限幅值设在交付上限上；不要在响度器之后再改音轨", "stage": "S7", "scope": "generalizable", "knowledge_id": "K140"}
 {"failure_code": "READBACK_GATE_UNUSABLE_ON_PRODUCTION_MACHINE", "do_not_repeat": "不要在 8 GB 机器上整片跑 large-v3；不要逐单元解码；不要只凭 no_speech_prob 丢段；不要把同音/繁简差异算作语音缺陷", "stage": "S7", "scope": "generalizable", "knowledge_id": "K141"}
+{"failure_code": "H3_IDENTITY_CROP_RENDERED_AS_WARDROBE_LOCK", "do_not_repeat": "不要对脸部裁切参考写锁服装/身体；不要只在 S2 构建器加标记而不核对 S6 最终提示词", "stage": "S6", "scope": "generalizable", "knowledge_id": "K142"}
+{"failure_code": "H3_BURNED_DIALOGUE_SUBTITLES", "do_not_repeat": "不要把禁文字条款只放在提示词末尾；不要同提示词重投烧字幕的单元（K130）", "stage": "S6", "scope": "generalizable", "knowledge_id": "K143"}
