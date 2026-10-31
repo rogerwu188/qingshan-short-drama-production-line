@@ -1453,3 +1453,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：E12 S02-02/S04-01/S14-02 旧关键帧对比新关键帧（49dbd76）：秦铭无须、许岳平四十多岁短须、冯易安魁梧浓黑络腮胡；重建 73 个关键帧提示词，只有这 3 个变化，其余字节不变。
 - **授权**：Roger 2026-10-31 选「1」（E12 后生成审 5 个严重单元：003/009/039 重做）
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K147 — S6
+
+- **规则**：Q2 的证据与索引都按本集、按当前成片 take 绑定：(1) prepare 只合并同一 take（媒体 sha 相同）的旧帧，换 take 后旧帧移入 frames/_superseded/，不得让审核员看到上一条视频的帧；(2) 只审一个或几个单元的 Q2 build 不得把全集 VIDEO_Q2_INDEX 缩成这几个单元——未覆盖单元的旧行在媒体 sha 未变时沿用，sha 变了或文件缺失则丢弃并阻断；计划中从未入索引的单元也不得让状态显示 ALL_ADMITTED。
+- **教训**：E12 2026-10-31：003/009/039 重做后按单元重审 Q2，build 写出的 E12_VIDEO_Q2_INDEX.json 只剩 2 个单元且状态 ALL_ADMITTED，S6 随之放行，S7 报 AGENTCUT_PROJECT_NOT_BUILT（只装配了 2/53）。同一轮还发现 149 张旧 take 的帧残留在 frames/ 里被一并送审，015/017/020 需重新 prepare。
+- **恢复**：用全集审核文件重跑 build（或依靠沿用逻辑），核对索引 unit_count 等于计划单元数、carried_forward/dropped_stale/unindexed 三个列表；有旧帧的单元 prepare --unit X 重抽。
+- **实现**：`lines/nalu/runtime/tools/video_q2_builder.py`
+- **回归**：`tools/tests/test_video_q2_partial_index.py`
+- **证据**：E12 当前索引以新逻辑空审核重算：53 行全部沿用、0 丢弃；旧帧修复见 956685e（test_video_q2_stale_frames）。
+- **授权**：Roger 2026-10-30 E12 成片不批准，修复优先级 0 流程
+- **状态**：REFERENCE_IMPLEMENTATION

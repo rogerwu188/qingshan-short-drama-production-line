@@ -1717,6 +1717,27 @@ def _line_owner_q2_acceptance(episode: str, unit_id: str, asset_sha: str,
     return record
 
 
+def carry_forward_rows(episode: str, rows: list[dict[str, Any]], exp: "Expectations",
+                       p: "QaPaths") -> tuple[list[dict[str, Any]], list[str]]:
+    """Rows of the previous index for planned units this review did not cover, media sha unchanged."""
+    reviewed = {row.get("unit_id") for row in rows}
+    planned = [row["unit_id"] for row in exp.video_unit_items()]
+    previous = read_json(p.q2_dir / f"{episode}_VIDEO_Q2_INDEX.json", {}) or {}
+    by_unit = {row.get("unit_id"): row for row in previous.get("results") or []}
+    carried: list[dict[str, Any]] = []
+    dropped: list[str] = []
+    for unit_id in planned:
+        if unit_id in reviewed or unit_id not in by_unit:
+            continue
+        row = by_unit[unit_id]
+        asset = unit_media(episode, unit_id)
+        if row.get("asset_sha256") and asset.is_file() and sha256_file(asset) == row["asset_sha256"]:
+            carried.append(row)
+        else:
+            dropped.append(unit_id)
+    return carried, dropped
+
+
 def materialise(episode: str, submitted: dict[str, Any],
                 submitted_path: Path) -> dict[str, Any]:
     """Build one VIDEO_ASSEMBLY admission request per unit and run the ENGINE gate."""
@@ -2040,6 +2061,10 @@ def materialise(episode: str, submitted: dict[str, Any],
             "p2_defects": p2,
         })
 
+    carried, dropped = carry_forward_rows(episode, rows, exp, p)
+    rows = rows + carried
+    indexed = {row.get("unit_id") for row in rows}
+    unindexed = [row["unit_id"] for row in exp.video_unit_items() if row["unit_id"] not in indexed]
     admitted = [row for row in rows if row.get("downstream_status") == TERMINAL_DOWNSTREAM]
     index = {
         "schema": "nalu.video_q2_admission_index.v1",
@@ -2053,8 +2078,8 @@ def materialise(episode: str, submitted: dict[str, Any],
         "required_registered_gates": list(REQUIRED_GATES),
         "terminal_state_required": f"status ADMITTED|ADMITTED_WITH_P2 + "
                                   f"downstream_status {TERMINAL_DOWNSTREAM}",
-        "status": ("ALL_ADMITTED" if rows and len(admitted) == len(rows)
-                   else f"PARTIAL_{len(admitted)}_OF_{len(rows)}_ADMITTED" if rows
+        "status": ("ALL_ADMITTED" if rows and len(admitted) == len(rows) and not unindexed
+                   else f"PARTIAL_{len(admitted)}_OF_{len(rows) + len(unindexed)}_ADMITTED" if rows
                    else "NO_ITEMS"),
         "unit_count": len(rows),
         "admitted_count": len(admitted),
@@ -2064,6 +2089,12 @@ def materialise(episode: str, submitted: dict[str, Any],
         "admission_results": [row["admission_result"] for row in rows if row.get("admission_result")],
         "review_results": [row["ai_review_result"] for row in rows if row.get("ai_review_result")],
         "results": rows,
+        # an item-restricted review (one or a few units) must not shrink the episode-wide index:
+        # rows for the units it did not cover are kept from the previous index while their media
+        # sha still matches; a changed or missing take is dropped and so blocks assembly.
+        "carried_forward_unit_ids": [row["unit_id"] for row in carried],
+        "dropped_stale_unit_ids": dropped,
+        "unindexed_unit_ids": unindexed,
     }
     out = write_json(p.q2_dir / f"{episode}_VIDEO_Q2_INDEX.json", index)
     index["_written_to"] = str(out)
