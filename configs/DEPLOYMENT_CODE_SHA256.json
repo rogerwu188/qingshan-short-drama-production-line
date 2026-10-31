@@ -233,7 +233,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "96f3f37ccae2f93b51c9ed6d3e73157b74a21f473911a40aee710fabc3f15da5"
+      "sha256": "9dbaf90bae69464388b777405cc2f84ee3e1640adea9e5d30b96aaf8dea64f60"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -369,7 +369,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "8d7b4c197e95b7762ef4a1df0fbda1999899572cc8461fb93fd3e1d1497771da"
+      "sha256": "4f73cbeedbf1123183022b5fb9e3228fbdff3b2ccd709c0de66b5ef4cc5172c7"
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
@@ -405,7 +405,7 @@
     },
     {
       "path": "lines/nalu/docs/DEPLOY_NEW_MACHINE.md",
-      "sha256": "d34f697e0d50d04c025e73cb81fc57647195afbf4af92c9d13efce7ce5800834"
+      "sha256": "c96da6eb5a8a99190fff0db712b1f320f26cf66d9160935db4a3474e83c19dfb"
     },
     {
       "path": "lines/nalu/docs/PIPELINE_RUNBOOK.md",
@@ -605,7 +605,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "0acb4d72c272e8cf0591da3a6d488fe5ff37ec53803e0ff04902f64a619c0d2c"
+      "sha256": "ef967be70733d5242a0c75b3bd4e3f1c2f3bfa0932de7bfb3e4852db4765a71d"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -737,7 +737,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_video_model.py",
-      "sha256": "ccf72e663a9e71c5dc593960f87f5bc6aa5119e2b65150471fd45ea9d71930c6"
+      "sha256": "b5102095a634a5c973dab5bd07ff88c1c266c4c0778461adce8549efd01e2f15"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_writer_selfcheck_seq29.py",
@@ -777,7 +777,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/record_paid_production_order.py",
-      "sha256": "093ac957210922c8f5ba854e92611c3250c870613920a615f343acb032548be2"
+      "sha256": "58ddd065bd457347947be87838bdac06a346e671a99cc7d515ef9ceaa89edcdb"
     },
     {
       "path": "lines/nalu/runtime/tools/record_supervisor_order.py",
@@ -6633,7 +6633,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "6b800751f77488b8b1e4a84b1ec48a4469c8518db0eaea6ab29c7ea6589d4cf4"
+      "sha256": "3159354619d85afdcffd56966fad207f462021c185c3f610d4652d067871e8f2"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -7937,7 +7937,7 @@
     },
     {
       "path": "tools/tests/test_nalu_h3_video_model.py",
-      "sha256": "d17ddff0061f7ef5921aa5a9c302aab7e7896680bbe6ff0c3d9a65d3b2a825ba"
+      "sha256": "fe404da0b7fc932926f49bbea82737d39ff0c8eaf5a02fe119880fa0ebf4ab5a"
     },
     {
       "path": "tools/tests/test_nalu_identity_chain_fixes.py",

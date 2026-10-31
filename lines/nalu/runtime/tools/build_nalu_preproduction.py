@@ -82,16 +82,21 @@ def select_video_model(episode: str) -> dict[str, Any]:
     ``preproduction/<EP>/video_model.json``; an episode already built before that file existed keeps the
     model of its existing editorial manifest.  Changing the config never re-models an episode whose
     units, prompts or paid tasks already exist.
+
+    K145: no default model.  A new episode without an explicit, supported ``generation.video_model``, or an
+    episode whose lock / manifest is unreadable, invalid or conflicting, stops here before anything is
+    compiled or locked (nalu_video_model.VideoModelSelectionError).
     """
     import nalu_video_model as _vm
-    record = _vm.record_path(episode)
-    chosen = _vm.recorded_video_model(episode) or _vm.configured_video_model()
-    if chosen not in VIDEO_MODEL_CONTRACTS:
-        raise SystemExit(f"video_model={chosen!r} for {episode} is not one of {sorted(VIDEO_MODEL_CONTRACTS)}")
-    if not record.is_file():
-        record.parent.mkdir(parents=True, exist_ok=True)
-        record.write_text(json.dumps({"episode": episode, "video_model": chosen, "chosen_at": now()},
-                                     ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    try:
+        chosen = _vm.recorded_video_model(episode) or _vm.configured_video_model()
+        if chosen not in VIDEO_MODEL_CONTRACTS:
+            raise SystemExit(f"video_model={chosen!r} for {episode} is not one of {sorted(VIDEO_MODEL_CONTRACTS)}")
+        # Always claim: the first write is atomic and exclusive, and an existing lock (also one another
+        # build wrote after the read above) wins and is re-checked against the editorial manifest.
+        chosen = _vm.claim_video_model(episode, chosen)
+    except _vm.VideoModelSelectionError as exc:
+        raise SystemExit(f"VIDEO_MODEL_SELECTION_BLOCKED {exc}") from exc
     MODEL_CONTRACT.clear()
     MODEL_CONTRACT.update(VIDEO_MODEL_CONTRACTS[chosen])
     return MODEL_CONTRACT

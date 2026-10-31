@@ -192,6 +192,46 @@ def run_authoritative_submission_gate(manifest: dict[str, Any], manifest_path: P
     return report
 
 
+NALU_BUILDER_ID_PREFIX = "build_nalu_preproduction"
+
+
+def require_episode_video_model(manifest: dict[str, Any], manifest_path: Path) -> dict[str, Any] | None:
+    """K145: every model this manifest would send must be the episode's recorded nalu model.
+
+    The episode lock / editorial manifest (lines/nalu/runtime/tools/nalu_video_model.py, roots from
+    nalu_paths) is the selection; the manifest's format_contract, allowed_video_models and each task's
+    ``model`` -- the value POSTed as the request's ``model`` -- must all equal it.  A nalu-built
+    manifest whose episode has no record, or whose record is unreadable or conflicting, is refused.
+    Manifests of episodes the nalu roots know nothing about (other lines) are left to their own gates.
+    """
+    nalu_built = str(manifest.get("generated_by") or "").startswith(NALU_BUILDER_ID_PREFIX)
+    tools_dir = str(ENGINE_ROOT / "lines/nalu/runtime/tools")
+    added = tools_dir not in sys.path
+    if added:
+        sys.path.append(tools_dir)
+    try:
+        import nalu_video_model as _vm
+    except ImportError:
+        if nalu_built:
+            raise
+        return None
+    finally:
+        if added and tools_dir in sys.path:
+            sys.path.remove(tools_dir)
+    tasks = manifest.get("tasks") or []
+    by_episode: dict[str, list[dict[str, Any]]] = {}
+    for task in tasks:
+        by_episode.setdefault(str(task.get("episode") or manifest.get("episode") or ""), []).append(task)
+    checked = {}
+    for episode, rows in by_episode.items():
+        if not nalu_built and _vm.recorded_selection(episode) is None:
+            continue
+        checked[episode] = _vm.check_task_models(
+            episode, tasks=rows, format_contract=manifest.get("format_contract"),
+            allowed_video_models=manifest.get("allowed_video_models"), manifest_path=manifest_path)
+    return checked or None
+
+
 def normalized_han(value: str) -> str:
     return re.sub(r"[^\u3400-\u9fffA-Za-z0-9]", "", value or "")
 
@@ -1477,6 +1517,7 @@ def main() -> int:
         return 0
     manifest_path = resolve(args.manifest)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    require_episode_video_model(manifest, manifest_path)  # K145: before any gate, intent or POST
     efficiency_gate = require_e47_efficiency_contract(manifest)
     authoritative_gate = run_authoritative_submission_gate(manifest, manifest_path)
     gates = [validate_gate(value) for value in manifest.get("machine_gate_reports") or []]

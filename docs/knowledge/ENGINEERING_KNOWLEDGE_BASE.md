@@ -1431,3 +1431,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：E12 OCR 49 片 12 片烧录（006 015 020 030 031 032 034 037 042 047 051 053），位置 y 0.67–0.80、x 0.09–0.91
 - **授权**：Roger 2026-10-31「同意」
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K145 — S2
+
+- **规则**：新集的视频模型只能来自正式运行配置 qingshan.json 的显式 generation.video_model（受支持值 seedance-2.0-pro / MiniMax-H3）；缺文件、缺字段、空值、非字符串、未知模型一律报错（VideoModelSelectionError），S2 不得编译、不得写本集模型锁，没有默认模型。已有本集锁或 editorial manifest 时以记录为准；记录存在但不可读、未写模型、模型不受支持，或锁与 manifest 互相矛盾，一律阻断，不得当作“没有记录”重新选择或覆盖。首次写锁用临时文件 + 硬链接独占创建，竞争失败方沿用已写入的模型。真实视频提交入口 submit_giggle_video_manifest_v2.main() 在任何门禁、意图记录与 POST 之前核对 format_contract、allowed_video_models 和每个任务的 model（即请求体的 model）都等于本集记录模型，否则以期望值/实际值/来源/文件拒绝（含 --precheck-only）。
+- **教训**：2026-10-30 E67 预备：用户选定 MiniMax-H3 只写在私有导演草稿里，E67 的 qingshan.json、本集锁、editorial manifest 均不存在，episode_video_model("E67") 却返回 seedance-2.0-pro——configured_video_model() 在缺配置/缺字段/读失败时静默回退 SD2，recorded_video_model() 把损坏的锁或 manifest 当作不存在，首次 S2 的 select_video_model() 会把这个默认值写成本集锁，之后每个付费阶段都照锁执行。没有发生错模型扣费，但这是确定性失败模式：缺配置会把错误模型固化进锁。记入知识库本身不防错，防错的是代码里的报错与提交前核对。
+- **恢复**：在运行时根 qingshan.json 写 generation.video_model（如 "MiniMax-H3"），重跑免费 S2；核对 preproduction/<EP>/video_model.json、editorial manifest model_contract、事务清单 format_contract/任务 model 一致。锁或 manifest 损坏/冲突时按报错列出的文件人工裁决，不要删锁让引擎重选。
+- **实现**：`lines/nalu/runtime/tools/nalu_video_model.py`、`lines/nalu/runtime/tools/build_nalu_preproduction.py`、`lines/nalu/runtime/tools/record_paid_production_order.py`、`tools/submit_giggle_video_manifest_v2.py`
+- **回归**：`tools/tests/test_nalu_h3_video_model.py`（ExplicitVideoModelSelectionTests）
+- **证据**：E67 只读复现：三个正式文件均缺失时 episode_video_model 返回 seedance-2.0-pro；临时运行时离线回归 ExplicitVideoModelSelectionTests 7 例
+- **授权**：Roger 2026-10-30 视频模型静默回退修复通知（给CC_视频模型静默回退修复通知_20261030）
+- **状态**：REFERENCE_IMPLEMENTATION

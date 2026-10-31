@@ -47,10 +47,14 @@ STAGES = ("S3", "S4", "S5", "S6")
 def default_video_model(episodes: list[str]) -> str:
     """The episodes' video model (nalu_video_model: recorded / existing build / qingshan.json)."""
     import nalu_video_model as _vm
-    seen = {_vm.recorded_video_model(ep) for ep in episodes} - {None}
-    if len(seen) > 1:
-        raise SystemExit(json.dumps({"status": "FAIL", "error": f"EPISODES_USE_DIFFERENT_VIDEO_MODELS:{sorted(seen)}"}))
-    return seen.pop() if seen else _vm.configured_video_model()
+    try:  # K145: an unreadable / conflicting record or a missing config is a refusal, never a default
+        seen = {_vm.recorded_video_model(ep) for ep in episodes} - {None}
+        if len(seen) > 1:
+            raise SystemExit(json.dumps({"status": "FAIL", "error": f"EPISODES_USE_DIFFERENT_VIDEO_MODELS:{sorted(seen)}"}))
+        return seen.pop() if seen else _vm.configured_video_model()
+    except _vm.VideoModelSelectionError as exc:
+        raise SystemExit(json.dumps({"status": "FAIL", "error": exc.code, "details": exc.details},
+                                    ensure_ascii=False)) from exc
 
 
 def utc_now() -> str:
