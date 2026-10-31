@@ -18,6 +18,8 @@ Effects (each site documents its own branch):
     carries an explicit no-speech instruction; a short line gets breathing room
   * prompt_batch_qa: vp_dialogue_unit_locked_camera / vp_camera_move_single_direction /
     vp_silent_beats_declared lints
+  * a contract stamped ``locked_dialogue_writer_motive: true`` (nalu adapter from E13) additionally gets
+    static_design_gate R11: a dialogue move in the writer's camera text without 「动机：…」 BLOCKs
 """
 from __future__ import annotations
 
@@ -29,6 +31,9 @@ from typing import Any
 POLICY_ID = "LOCKED_DIALOGUE_CAMERA_V1"
 FIELD = "locked_dialogue_camera_policy"
 PLAN_FIELD = "camera_policy"
+#: contract flag stamped by a line's own adapter (nalu: E13 onward) — the writing layer owns the default, so a
+#: dialogue move written in the camera text must carry its motive 「动机：…」 (static_design_gate R11)
+WRITER_MOTIVE_FIELD = "locked_dialogue_writer_motive"
 POLICY_PATH = Path(__file__).resolve().parents[1] / "configs" / "LOCKED_DIALOGUE_CAMERA_V1.json"
 
 
@@ -42,6 +47,10 @@ def active(contract: dict[str, Any] | None, *, episode: str | None = None) -> bo
     except (OSError, ValueError):
         listed = []
     return bool(match and match.group(0) in {str(v).upper() for v in listed})
+
+
+def writer_motive_required(contract: dict[str, Any] | None) -> bool:
+    return bool((contract or {}).get(WRITER_MOTIVE_FIELD) is True) and active(contract)
 
 
 def plan_under_policy(plan: dict[str, Any] | None) -> bool:

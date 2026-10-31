@@ -39,7 +39,8 @@ REPORT_ONLY_EPISODES = {"E01"}
 ADVISORY_UNDER_GRAMMAR = {"R1", "R2", "R3", "R4", "R6", "R7"}
 #: LOCKED_DIALOGUE_CAMERA_V1 (Roger 2026-10-30, E12 item 2): dialogue shots default to a locked camera, so the
 #: forced-motion rules only advise; R9 (a dialogue shot moving without an authored move) and R10 (opposite
-#: directions of one family inside a scene) BLOCK.  tools/locked_dialogue_camera_policy decides activation.
+#: directions of one family inside a scene) BLOCK; from E13 R11 (a dialogue move authored without 「动机：…」)
+#: BLOCKs too.  tools/locked_dialogue_camera_policy decides activation.
 ADVISORY_UNDER_LOCKED_DIALOGUE = {"R1", "R2", "R3", "R4", "R6"}
 _OPPOSITE_DIRECTIONS = ({"PUSH_IN", "PULL_OUT"}, {"LEFT_TO_RIGHT", "RIGHT_TO_LEFT"}, {"RISE", "FALL"},
                         {"CLOCKWISE", "COUNTERCLOCKWISE"})
@@ -54,6 +55,25 @@ def _locked_dialogue_active(contract: dict) -> bool:
         except ModuleNotFoundError:
             return False
     return _ldc.active(contract)
+
+
+def _writer_motive_required(contract: dict) -> bool:
+    try:
+        import locked_dialogue_camera_policy as _ldc
+    except ModuleNotFoundError:
+        try:
+            from tools import locked_dialogue_camera_policy as _ldc  # type: ignore
+        except ModuleNotFoundError:
+            return False
+    return _ldc.writer_motive_required(contract)
+
+
+def _move_without_motive(text: str | None) -> bool:
+    try:
+        from camera_move_lint import move_without_motive
+    except ModuleNotFoundError:
+        return False
+    return move_without_motive(text)
 
 
 def _authored_move(text: str | None) -> bool:
@@ -108,6 +128,7 @@ def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> d
         ]
     grammar = _cg.active(contract)  # CAMERA_GRAMMAR_V1: forced-motion rules only advise
     locked_dialogue = _locked_dialogue_active(contract)  # LOCKED_DIALOGUE_CAMERA_V1: same, plus R9/R10
+    writer_motive = locked_dialogue and _writer_motive_required(contract)  # E13+: R11
     language = _vo.contract_language(contract) if grammar else "zh"
     rows, failures, advisories = [], [], []
     prev_locked = False
@@ -158,6 +179,9 @@ def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> d
         if locked_dialogue:
             if dlg and not locked and not _authored_move(sh.get("camera") or cp.get("lens_intent")):
                 row["flags"].append("R9_DIALOGUE_SHOT_MOVING_CAMERA_UNAUTHORED")
+            # E13+: the writer owns the default — a dialogue move in the camera text needs its motive there too
+            if writer_motive and dlg and _move_without_motive(sh.get("camera") or cp.get("lens_intent")):
+                row["flags"].append("R11_DIALOGUE_MOVE_WITHOUT_WRITER_MOTIVE")
             direction = str(cp.get("motion_direction") or "").upper()
             if not locked and direction and direction != "NONE":
                 seen = scene_family_direction.get((sh.get("scene_id"), fam))

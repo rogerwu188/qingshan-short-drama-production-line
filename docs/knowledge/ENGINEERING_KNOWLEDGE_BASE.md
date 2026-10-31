@@ -1464,3 +1464,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：E12 当前索引以新逻辑空审核重算：53 行全部沿用、0 丢弃；旧帧修复见 956685e（test_video_q2_stale_frames）。
 - **授权**：Roger 2026-10-30 E12 成片不批准，修复优先级 0 流程
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K148 — S1
+
+- **规则**：对白镜默认固定机位必须落在写作层：导演稿对白镜的机位文字默认写「固定机位」，只有有叙事动机（揭示、逼近威胁、跟随走位）时才写运镜，并在同一机位文字里写明「动机：…」；一个单元内只允许一个方向。nalu 线自 E13 起由适配器在合同上盖 locked_dialogue_camera_policy + locked_dialogue_writer_motive，static_design_gate R11 在 S1 阻断无动机的对白运镜。只在本线适配器里开，不改共享 configs/LOCKED_DIALOGUE_CAMERA_V1.json（会把别的线 E13+ 的集一并打开）。
+- **教训**：E12 LOCKED_DIALOGUE_CAMERA_V1 下游补丁（适配器/R9/R10/渲染器/提示词 lint）全部生效后，成片锁定机位仍只有 17 %（目标 70 %）：导演稿 52/53 个单元自己写了「特写推近」「横移」，authored_move() 把这些当作写作者授权，运动照样进了提示词。下游门只能守住『没写就别动』，写了就放行——根因在写作层的默认。
+- **恢复**：E13 写导演稿时对白镜写「固定机位」；需要运镜的写「推近（动机：…）」。S1 报 R11 时改导演稿机位文字，不改门。
+- **实现**：`lines/nalu/runtime/tools/adapt_v4_layers_to_runtime.py`、`lines/nalu/runtime/tools/static_design_gate.py`、`lines/nalu/runtime/tools/camera_move_lint.py`、`tools/locked_dialogue_camera_policy.py`
+- **回归**：`tools/tests/test_locked_dialogue_camera_policy.py`
+- **证据**：E12 FINAL-CUT-CAMERA-MOTION：锁定 9/53（0.1698），不稳 5 单元；seq=70 接受。导演稿 52/53 单元写有运镜（prompt_rule_locked_dialogue_camera.patch.md 补丁 5）。
+- **授权**：Roger 2026-10-30 E12 成片审看 item 2：对白单元默认固定机位；seq=70 「接受，继续出片（推荐）」
+- **状态**：REFERENCE_IMPLEMENTATION

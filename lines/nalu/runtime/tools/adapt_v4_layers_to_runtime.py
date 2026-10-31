@@ -78,6 +78,10 @@ DIALOGUE_FAMILIES = ["DOLLY", "PAN", "ARC"]                     # legacy: never 
 # E12 units once the grouper cut two shots into one clip.  Episodes outside the policy keep the legacy table.
 DIALOGUE_DEFAULT_LOCKED = ("LOCKED", "NONE")
 LOCKED_DIALOGUE_POLICY_ACTIVE = False   # set per episode by adapt() from tools/locked_dialogue_camera_policy
+#: nalu line (Roger 2026-10-30 E12 item 2): from E13 every episode is under LOCKED_DIALOGUE_CAMERA_V1 and the
+#: writer owns the default — the contract is stamped so static_design_gate R11 asks for 「动机：…」 on a dialogue move.
+#: Line-local on purpose: the shared configs/LOCKED_DIALOGUE_CAMERA_V1.json would also switch other lines' episodes.
+NALU_LOCKED_DIALOGUE_FROM_EPISODE = 13
 DIRECTION = {"TRACK": ["LEFT_TO_RIGHT", "RIGHT_TO_LEFT"],
              "PAN": ["LEFT_TO_RIGHT", "RIGHT_TO_LEFT"],
              "CRANE": ["RISE", "FALL"], "ARC": ["CLOCKWISE", "COUNTERCLOCKWISE"],
@@ -262,8 +266,13 @@ def _set_locked_dialogue_policy(episode: str) -> bool:
         except ModuleNotFoundError:
             LOCKED_DIALOGUE_POLICY_ACTIVE = False
             return False
-    LOCKED_DIALOGUE_POLICY_ACTIVE = bool(_ldc.active(None, episode=episode))
+    LOCKED_DIALOGUE_POLICY_ACTIVE = bool(_ldc.active(None, episode=episode)) or _nalu_writer_motive(episode)
     return LOCKED_DIALOGUE_POLICY_ACTIVE
+
+
+def _nalu_writer_motive(episode: str) -> bool:
+    match = re.match(r"E(\d+)$", str(episode or "").strip().upper())
+    return bool(match) and int(match.group(1)) >= NALU_LOCKED_DIALOGUE_FROM_EPISODE
 
 
 def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
@@ -694,6 +703,8 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Path], dict[str, Any]]:
     }
     contract_out = {
         "schema": CONTRACT_SCHEMA, "episode": ep, "version": "v1", "project_id": args.project_id,
+        **({"locked_dialogue_camera_policy": "LOCKED_DIALOGUE_CAMERA_V1", "locked_dialogue_writer_motive": True}
+           if _nalu_writer_motive(ep) else {}),
         "runtime_contract_adapter": adapter_header,
         "adapted_from": {"tool": TOOL_ID, "at": now(), "v4_contract": str(contract_v4_path), "v4_contract_sha256": sha256_bytes(contract_v4_path.read_bytes()),
                           "v4_manifest_sha256": sha256_bytes(manifest_v4_path.read_bytes()), "v4_version": contract_v4.get("version"),

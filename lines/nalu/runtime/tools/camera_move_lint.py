@@ -66,6 +66,15 @@ def authored_move(camera_text: str | None) -> bool:
     return bool(camera_text) and bool(AUTHORED_MOVE.search(str(camera_text)))
 
 
+MOTIVE = re.compile(r"(动机[:：]|motive:)", re.IGNORECASE)
+
+
+def move_without_motive(camera_text: str | None) -> bool:
+    """The writer's camera text asks for a move (negations aside) without its motive (「动机：…」) — R11."""
+    text = strip_negated_moves(str(camera_text or ""))
+    return authored_move(text) and not MOTIVE.search(text)
+
+
 def dialogue_unit_locked_camera(prompt_text: str, *, has_dialogue: bool, authored_camera_text: str | None) -> dict:
     """Check one rendered prompt.  PASS when the unit has no dialogue, or the move was authored, or no move
     verb appears; FAIL lists the tokens.  A locked plan with the lock words present never fails."""

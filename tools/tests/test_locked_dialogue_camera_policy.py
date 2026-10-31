@@ -117,6 +117,30 @@ class GateTests(unittest.TestCase):
         self.assertNotIn("R1_LOCKED_SHARE", failures)
         self.assertEqual(ev["locked_dialogue_camera_policy"], "LOCKED_DIALOGUE_CAMERA_V1")
 
+    def test_r11_writer_motive_only_on_stamped_contracts(self):
+        import static_design_gate as g
+        shots = [self._shot("S1-01", "S1", "DOLLY", "PUSH_IN", "甲：你好", "特写推近甲"),
+                 self._shot("S1-02", "S1", "DOLLY", "PUSH_IN", "乙：你好", "特写推近乙（动机：逼近威胁）"),
+                 self._shot("S1-03", "S1", "LOCKED", "NONE", "甲：再见", "特写固定机位，不推近")]
+        stamped = {**self._contract(shots, episode="E13"), "locked_dialogue_writer_motive": True}
+        failures = g.evaluate(stamped, dict(g.POLICY))["failures"]
+        r11 = [f for f in failures if "R11_" in f]
+        self.assertEqual(r11, ["S1-01:R11_DIALOGUE_MOVE_WITHOUT_WRITER_MOTIVE"])
+        # E12 (no stamp): the same shots never raise R11 — not retroactive
+        self.assertFalse(any("R11_" in f for f in g.evaluate(self._contract(shots), dict(g.POLICY))["failures"]))
+
+    def test_nalu_adapter_stamps_from_e13_only(self):
+        import adapt_v4_layers_to_runtime as a
+        self.assertFalse(a._nalu_writer_motive("E12"))
+        self.assertTrue(a._nalu_writer_motive("E13"))
+        self.assertTrue(a._nalu_writer_motive("E40"))
+        source = (ROOT / "lines/nalu/runtime/tools/adapt_v4_layers_to_runtime.py").read_text(encoding="utf-8")
+        self.assertIn('"locked_dialogue_writer_motive": True}', source)
+        # the shared policy file stays per-episode: other lines' E13+ are not switched on
+        import json
+        policy = json.loads((ROOT / "configs/LOCKED_DIALOGUE_CAMERA_V1.json").read_text(encoding="utf-8"))
+        self.assertNotIn("enabled_from_episode", policy)
+
     def test_outside_the_policy_nothing_changes(self):
         import static_design_gate as g
         shots = [self._shot("S1-01", "S1", "LOCKED", "NONE", "甲：你好", "特写固定机位甲"),

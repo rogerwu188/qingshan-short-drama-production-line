@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2303,
+  "file_count": 2304,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -233,7 +233,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "f024b886bc3ce83f1ba5d6ab5c753a22d00cfa59b68213eb6b22a65c4248ee43"
+      "sha256": "bfda0d1c5456132ba157c5ee0975bef3eaae0d0d7e23229acf11d49d0a165cb5"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -369,7 +369,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "b92e8a74bd65d55cc72cb784774fb7ec1ce3a7c0df2e73639b2c74a83572c380"
+      "sha256": "976be55338c0afc62a39a83116a4d2ffa78aaac7d8f4787f54a04e192be4e83c"
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
@@ -561,7 +561,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/adapt_v4_layers_to_runtime.py",
-      "sha256": "790358d95b97fe923e6c330cd7e30b41fb9fbcff9162beb0282a49e8b631eebe"
+      "sha256": "085f50abb35527ed7852a9b8876b7a76b2ea183d2b6f37a4ed60bc59646d9a3c"
     },
     {
       "path": "lines/nalu/runtime/tools/automation_profile.py",
@@ -617,7 +617,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/camera_move_lint.py",
-      "sha256": "3e49f349f001062c6769070f752f9a737eb122ced1c1f3b2e3be0171b800f121"
+      "sha256": "f3f0616851f6ce2f94a4931b77816d8d422e52fa07e4ee7af2912be4b81295f7"
     },
     {
       "path": "lines/nalu/runtime/tools/character_reference_sheet.py",
@@ -821,7 +821,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/static_design_gate.py",
-      "sha256": "3988593fc04ae80d6a0760c9cce9467b09ba270e8bd65d62258ab027962cb47a"
+      "sha256": "81da4fce8bfc563b2fbd1f8cd9e8673e3990cd5b422a1b7b2bfa18a351bfb701"
     },
     {
       "path": "lines/nalu/runtime/tools/tests/test_standing_rule_auto_acceptance.py",
@@ -5293,7 +5293,7 @@
     },
     {
       "path": "tools/locked_dialogue_camera_policy.py",
-      "sha256": "0da86c4e6c9dd9d754aca979c8c88651d0a573fd9e6679369266ac2d1e920f67"
+      "sha256": "74ccf2c8f07a01e7ccf9e153aaab6625d4257f5e7a0348b5bfb65380ad460116"
     },
     {
       "path": "tools/long_take_score_gate.py",
@@ -7849,7 +7849,7 @@
     },
     {
       "path": "tools/tests/test_locked_dialogue_camera_policy.py",
-      "sha256": "146e8f9126f970dcb3126d473e1cbf2792b856452d2a99b11677496b76eaa195"
+      "sha256": "e90328f33cc7694fbcae8b17ef456e94f31c11ff09ba9f914c69dd23e7ad9cda"
     },
     {
       "path": "tools/tests/test_long_take_score_gate.py",
@@ -8746,6 +8746,10 @@
     {
       "path": "tools/tests/test_video_q2_line_owner_acceptance.py",
       "sha256": "70d361b2475b76847227fb8546049ac0a7e2d9b8564503739f842e94bd086873"
+    },
+    {
+      "path": "tools/tests/test_video_q2_partial_index.py",
+      "sha256": "d1b03e61c2650e0666b1878bd147806f29b108257dad6715a7375ce7d118a86a"
     },
     {
       "path": "tools/tests/test_video_q2_pose_exemption_and_texture_noise.py",
