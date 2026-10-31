@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2301,
+  "file_count": 2302,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -233,7 +233,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "75b78219c21c49976e58f3f823d491b6f7bdbc9ba692ddfeb0774b917035b11c"
+      "sha256": "245adf5b3350235e29bcb3bb5f47195bf704b386ce347d02a89b909cdc86e5d0"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -369,7 +369,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "b6dd7416f9d0a8eb60e0f8d7bcf05c8b1ee5e38b85fae28b357fd46dd3a6bb6c"
+      "sha256": "f4f2fb69979c9c2094dbefa1a96effca3dc92da3d14f2f67e1c2a1ed0ed291a3"
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
@@ -7762,6 +7762,10 @@
     {
       "path": "tools/tests/test_initial_asset_library.py",
       "sha256": "bfcfe125b2806293425f374c91b5bd91dea1b715e8f391ae8c4f9ae667927a66"
+    },
+    {
+      "path": "tools/tests/test_keyframe_appearance_lock.py",
+      "sha256": "58e82d42e535fd3414cff07bbfbef356786a36d5483319ff602209a644f7fa9f"
     },
     {
       "path": "tools/tests/test_keyframe_camera_note_scope.py",
