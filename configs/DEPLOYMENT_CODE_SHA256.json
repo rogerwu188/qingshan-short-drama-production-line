@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2280,
+  "file_count": 2282,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -657,7 +657,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_budget_ledger.py",
-      "sha256": "c65cffec3f26e674919ff9182efa428c787281e85d420f79ffdb33a68b32a7dd"
+      "sha256": "d5aa4805d41d3521aa562114e53603f519f2d9d671090b01977a6209037ee760"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_media_tools.py",
@@ -673,7 +673,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "fe5ebe2488b6303ece4f6b087c7fcedba9a1b8cc898edeb509158364f9f73744"
+      "sha256": "645cf631d63df0b89c0afac0fca052a64b89398932549d390a808c3617cd5b35"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -5085,11 +5085,15 @@
     },
     {
       "path": "tools/hopsapi_image_client.py",
-      "sha256": "c4a1bee7832203e3d5980719c3ac6d6e836b3e0e907e2742c48ee7ffdd0852bc"
+      "sha256": "82c1d6e129c6841d58dfe32d3bba5df074cc75cfd919c342914840097de21ca5"
+    },
+    {
+      "path": "tools/hopsapi_usage.py",
+      "sha256": "ed893524a2c9ad48981ed44d0061336034ba9eb21453996cba64d9decc0860b6"
     },
     {
       "path": "tools/hopsapi_video_client.py",
-      "sha256": "a841a751931bf6616f7319c9e22329015f653e41e61856a587b09592f0ef8993"
+      "sha256": "cdc7d2ee90d60aaac1ef3797ff41274c4c4e1e75027a2702f37b16c513f30369"
     },
     {
       "path": "tools/hotfix_e16_expression_arcs.py",
@@ -5489,7 +5493,7 @@
     },
     {
       "path": "tools/poll_giggle_submit_report.py",
-      "sha256": "171a40156f0117dbdecf5886c82fbb5f4bf2ffa3f4c3dacafa8e98242c5f9053"
+      "sha256": "026c5574776e6cb1f9b3c33205bbd636484ac659a93d2d96a8e2e10acd9807b9"
     },
     {
       "path": "tools/portable_runtime.py",
@@ -6569,11 +6573,11 @@
     },
     {
       "path": "tools/submit_giggle_character_asset_plan.py",
-      "sha256": "320e15567c4870fe5f10869f493d826442d21485d9a3e706b18e1e54dd8769cd"
+      "sha256": "587704cb60b38c5a28c8c938233afae5ae2b282ede4010c5d4adcea7a527dba0"
     },
     {
       "path": "tools/submit_giggle_image_manifest.py",
-      "sha256": "9b6d456e65a515edcebfce78b43effe16baff559837b362aed5b727c7a65f175"
+      "sha256": "d8d3c1a82a565aadf087a4438f9e96d32b1d85239d35edd43578d15e0d0c6bfd"
     },
     {
       "path": "tools/submit_giggle_task_manifest.py",
@@ -6581,7 +6585,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "adbfcf5ed9ceb64fd014c3a1c06da5c92ffeb2933d9c3dfd7aee868a69f34bfc"
+      "sha256": "bd1b06035526830820a463afc093bd3f038f507e7d71c8f647971e236e240c2c"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -7654,6 +7658,10 @@
     {
       "path": "tools/tests/test_hopsapi_image_transport.py",
       "sha256": "7aa1c3a5c77f7b8fb98a2cd7fcfe0aa6c91c0fb9672106486aa2079dbd2f7cf0"
+    },
+    {
+      "path": "tools/tests/test_hopsapi_usage_reconcile.py",
+      "sha256": "e7b1232e2cb1388c947bb5e6c6c511e5006b7f9cbd652162873d08fae1fbe076"
     },
     {
       "path": "tools/tests/test_hopsapi_video_transport.py",

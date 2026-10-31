@@ -1024,7 +1024,9 @@ def prior_bound(task: dict[str, Any], transaction_dir: Path) -> dict[str, Any] |
         if row.get("provider"):
             recovered["provider"] = row["provider"]
         return recovered
-    if row.get("state") not in {"VERIFIED_ZERO_RETRYABLE"}:
+    # VERIFIED_ZERO_NO_REMOTE_TASK: a lost HopsAPI response the billing usage API proved created no
+    # billed task (tools/hopsapi_usage.py reconcile); a new attempt may POST.
+    if row.get("state") not in {"VERIFIED_ZERO_RETRYABLE", "VERIFIED_ZERO_NO_REMOTE_TASK"}:
         raise RuntimeError(f"{task['task_key']} blocked by transaction state {row.get('state')}")
     return None
 
@@ -1412,6 +1414,7 @@ def _submit_one_hopsapi(task: dict[str, Any], receipt_dir: Path, transaction_dir
     intent = {
         "schema": "qingshan.giggle_video_submit_transaction.v1",
         "provider": hopsapi.PROVIDER_HOPSAPI, "provider_endpoint": "POST /router/task/create",
+        "hopsapi_key_fingerprint": hopsapi.key_fingerprint(),
         "task_key": task["task_key"], "attempt_id": str(uuid.uuid4()),
         "submission_fingerprint": fingerprint, "state": "INTENT_RECORDED",
         "intent_recorded_at": utc_now(), "prompt_sha256": task["prompt_sha256"],
@@ -1812,7 +1815,7 @@ def main() -> int:
             if row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id"):
                 failure["task_id"] = row["task_id"]
                 failure["credit_status"] = "BOUND_TASK_RECEIPT_RECOVERY_REQUIRED"
-            elif row.get("state") == "VERIFIED_ZERO_RETRYABLE":
+            elif row.get("state") in {"VERIFIED_ZERO_RETRYABLE", "VERIFIED_ZERO_NO_REMOTE_TASK"}:
                 failure["credit"] = 0
                 failure["credit_status"] = "NOT_CHARGED_RETRYABLE"
             else:

@@ -388,6 +388,7 @@ def intent_fields(prepared: dict[str, Any], *, estimated_credits: float | None =
     uploads = prepared["uploads"]
     return {
         "provider": PROVIDER_HOPSAPI, "provider_endpoint": "POST /router/task/create",
+        "hopsapi_key_fingerprint": hops.key_fingerprint(),
         "provider_task": payload["task"], "provider_model": MODEL,
         "provider_resolution": prepared["resolution"], "provider_quality": prepared["quality"],
         "estimated_credits": estimated_task_credits() if estimated_credits is None else estimated_credits,

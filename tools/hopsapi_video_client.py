@@ -267,6 +267,14 @@ def _api_key() -> str:
     return key
 
 
+def key_fingerprint() -> str | None:
+    """A non-secret fingerprint of the current key (sha256 prefix), recorded on every create intent
+    so a lost response can later be reconciled against ``scope=key`` usage with proof that the
+    POST used this key (tools/hopsapi_usage.py).  None when no key is set."""
+    key = str(os.environ.get(API_KEY_ENV) or "").strip()
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16] if key else None
+
+
 def _auth_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
     headers = {"Authorization": f"Bearer {_api_key()}", "Accept": "application/json", "User-Agent": USER_AGENT}
     headers.update(extra or {})

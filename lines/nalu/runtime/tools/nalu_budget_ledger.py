@@ -122,14 +122,19 @@ UNRESOLVED_TRANSACTION_STATES = {
     "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION",
     "CHARGE_STATE_UNRESOLVED_BATCH",
     "CHARGED_TASK_ID_MISSING",
+    # tools/hopsapi_usage.py: a lost HopsAPI create whose window holds billed tasks no transaction
+    # owns; one of them may be ours, so the spend stays unknowable until an operator attributes it
+    "NEEDS_MANUAL_ATTRIBUTION",
 }
 # States that are settled: either bound to a task whose charge is recorded
 # elsewhere, or verified as never charged.  CHARGED_WRITTEN_OFF_BY_ORDER is a
 # CHARGED_TASK_ID_MISSING row the line owner wrote off (order seq=21, Roger
 # 2026-10-01): the charge itself stays counted through the archived
 # *_credit_statement.json that proved it, so settling the row never hides spend.
+# VERIFIED_ZERO_NO_REMOTE_TASK: a lost HopsAPI create the billing usage API proved created no billed
+# task (tools/hopsapi_usage.py reconcile) -- 0 credits.  An ADOPTED one is SUBMITTED_TASK_ID_BOUND.
 SETTLED_TRANSACTION_STATES = {"SUBMITTED_TASK_ID_BOUND", "VERIFIED_ZERO_RETRYABLE", "NOT_CHARGED_RETRYABLE",
-                              "CHARGED_WRITTEN_OFF_BY_ORDER"}
+                              "CHARGED_WRITTEN_OFF_BY_ORDER", "VERIFIED_ZERO_NO_REMOTE_TASK"}
 
 VIDEO_TRANSACTION_DIRNAME = "giggle_video_submit_transactions"
 IMAGE_TRANSACTION_DIRNAME = "giggle_submit_transactions"

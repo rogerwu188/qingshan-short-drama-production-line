@@ -1218,13 +1218,50 @@ class Ctx:
         return step
 
     # ---------------------------------------------------------------- budget
+    def reconcile_hopsapi_lost(self, *, label: str) -> dict[str, Any] | None:
+        """Settle lost HopsAPI create responses against the billing usage API before a budget check.
+
+        Lab E11 S6 (2026-10-31): four create POSTs timed out, the submitter recorded the two that
+        reached the intent as RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION, and every re-entry's budget
+        check refused (correct: no idempotency key) with no way out.  tools/hopsapi_usage.py lists
+        the billed media rows of the window (GET only): none unattributed -> VERIFIED_ZERO_NO_REMOTE_TASK
+        (0, retry allowed); one lost POST + one unattributed row -> adopted and polled; anything else
+        -> NEEDS_MANUAL_ATTRIBUTION.  In-process (the key never reaches a child argv/env record),
+        only on a real paid run with HOPSAPI_API_KEY set, at most once a minute; a failed usage read
+        changes nothing, so the ledger keeps failing closed."""
+        if getattr(self, "dry", True) or not getattr(self, "paid_enabled", False) \
+                or not os.environ.get("HOPSAPI_API_KEY", "").strip():
+            return None
+        last = getattr(self, "_hopsapi_reconciled_at", 0.0)
+        if time.time() - last < 60:
+            return None
+        if str(ENGINE / "tools") not in sys.path:
+            sys.path.insert(0, str(ENGINE / "tools"))
+        import hopsapi_usage  # noqa: PLC0415 - engine tool, GET-only
+        tasks_root = ENGINE / "workflow" / "tasks"
+        if not hopsapi_usage.pending_lost(self.episode, tasks_root):
+            return None
+        self._hopsapi_reconciled_at = time.time()
+        report = hopsapi_usage.reconcile_episode(self.episode, tasks_root=tasks_root)
+        out = self.p.logs / f"{self.run_id}_hopsapi_usage_reconcile_{label}.json"
+        out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        summary = {kind: row.get("status") for kind, row in (report.get("kinds") or {}).items()}
+        self.say(f"   HopsAPI usage reconciliation of lost creates: {summary} ({out.name})")
+        return report
+
     def budget_check(self, planned_credits: int, *, label: str,
                      reserve: bool = False) -> dict[str, Any]:
         """MANDATORY before every paid step.  Non-zero exit == HARD_STOP.
 
         ``reserve=True`` makes the ledger take an atomic reservation when the check
         passes (K111): two racing processes cannot both admit the same headroom.
+        Lost HopsAPI creates are first reconciled against the billing usage API
+        (``reconcile_hopsapi_lost``) so the ledger sees VERIFIED_ZERO / adopted states.
         """
+        try:
+            self.reconcile_hopsapi_lost(label=label)
+        except Exception as exc:  # noqa: BLE001 - never fatal: the ledger still fails closed
+            self.say(f"   HopsAPI usage reconciliation skipped: {type(exc).__name__}: {str(exc)[:200]}")
         bgm_transactions = selective_bgm_transaction_dir(self)
         argv = [VENV, BUDGET_LEDGER, "--check", "--episode", self.episode,
                 "--planned-credits", int(planned_credits),
@@ -6641,6 +6678,10 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
         # A re-entry whose remaining tasks are all already bound to remote task ids (charged, waiting for
         # download) must only poll: authorising them again priced the whole wave as new spend and the
         # budget guard refused a poll that costs nothing (lab E01 2026-10-22: 360 already charged).
+        try:  # a lost create the usage API adopts is bound (poll it), a verified-zero one is re-POSTable
+            ctx.reconcile_hopsapi_lost(label="s6_reentry")
+        except Exception as exc:  # noqa: BLE001 - never fatal: the budget check still fails closed
+            ctx.say(f"   HopsAPI usage reconciliation skipped: {type(exc).__name__}: {str(exc)[:200]}")
         unbound_keys = set(s6_unbound_task_keys(ctx))
         post_keys = [k for k in needs_post if k in unbound_keys]
         if on_disk and post_keys:

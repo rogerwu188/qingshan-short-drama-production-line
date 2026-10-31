@@ -167,7 +167,9 @@ def prior_submission_result(task: dict[str, Any], transaction_dir: Path) -> dict
             "recovered_from_transaction": True,
             **({"provider": transaction["provider"]} if transaction.get("provider") else {}),
         }
-    if state != "NOT_CHARGED_RETRYABLE":
+    # VERIFIED_ZERO_NO_REMOTE_TASK: a lost HopsAPI response the billing usage API proved created no
+    # billed task (tools/hopsapi_usage.py reconcile); a new attempt may POST.
+    if state not in {"NOT_CHARGED_RETRYABLE", "VERIFIED_ZERO_NO_REMOTE_TASK"}:
         raise DuplicateSubmissionBlocked(
             f"{task_key} duplicate submit blocked by transaction state {state}"
         )

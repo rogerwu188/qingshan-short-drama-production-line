@@ -204,6 +204,7 @@ def prior_submission(row: dict, transaction_dir: Path, model: str, resolution: s
     if transaction.get("state") in {
         "INTENT_RECORDED", "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION",
         "CHARGED_TASK_ID_MISSING", "CHARGE_STATE_UNRESOLVED_BATCH",
+        "NEEDS_MANUAL_ATTRIBUTION",  # tools/hopsapi_usage.py: an unattributed billed task may be ours
     }:
         raise DuplicateSubmissionBlocked(
             f"{char_id} duplicate submit blocked by {transaction.get('state')}"

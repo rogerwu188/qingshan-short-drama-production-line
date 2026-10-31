@@ -37,6 +37,33 @@ def result_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def adopted_failure_rows(payload: dict[str, Any], known_task_ids: set[str]) -> list[dict[str, Any]]:
+    """Failure rows whose durable transaction was bound AFTER the report was written -- a lost HopsAPI
+    response whose task id the billing usage reconciliation adopted (tools/hopsapi_usage.py).  They
+    are polled and harvested under that id like any bound task (never re-POSTed); a poll-only
+    re-entry reads this same report, so without this the adopted clip would never be downloaded."""
+    rows = []
+    for failure in payload.get("failures") or []:
+        if not isinstance(failure, dict) or failure.get("task_id"):
+            continue
+        path = _transaction_file(failure)
+        if path is None:
+            continue
+        try:
+            transaction = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        task_id = str(transaction.get("task_id") or "")
+        if transaction.get("state") != "SUBMITTED_TASK_ID_BOUND" or not task_id or task_id in known_task_ids \
+                or not str(transaction.get("task_id_source") or "").startswith("HOPSAPI_USAGE_"):
+            continue
+        known_task_ids.add(task_id)
+        rows.append({"task_key": failure.get("task_key") or transaction.get("task_key"), "task_id": task_id,
+                     "transaction": failure.get("transaction"), "provider": transaction.get("provider"),
+                     "recovered_via": str(transaction["task_id_source"])})
+    return rows
+
+
 def download_atomic(url: str, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(destination.suffix + ".part")
@@ -242,7 +269,10 @@ def poll(
     line_id: str | None = None,
 ) -> dict[str, Any]:
     source = read_json(submit_report)
-    rows = list(enumerate(result_rows(source), 1))
+    base_rows = result_rows(source)
+    base_rows = base_rows + adopted_failure_rows(
+        source, {str(row.get("task_id")) for row in base_rows if row.get("task_id")})
+    rows = list(enumerate(base_rows, 1))
     providers = {row_provider(row) for _index, row in rows if row.get("task_id")}
     giggle_key_environment = "NOT_NEEDED_NO_GIGGLE_TASKS"
     if hopsapi.PROVIDER_GIGGLE in providers or not providers:
