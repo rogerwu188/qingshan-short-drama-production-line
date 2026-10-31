@@ -793,7 +793,8 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
                             "sentinel": AUTHORING + "ACCENT_PROFILE"})
 
     # ------------------------------------------------------------------ music
-    bgm_contract = contract["audio_contract"]["bgm"]
+    # an omitted bgm declaration is allowed (the line default bed is derived later, nalu_bgm_default; lab E11)
+    bgm_contract = (contract.get("audio_contract") or {}).get("bgm")
     bgm_mode = str(
         (bgm_contract or {}).get("mode")
         or (bgm_contract or {}).get("usage_mode")
