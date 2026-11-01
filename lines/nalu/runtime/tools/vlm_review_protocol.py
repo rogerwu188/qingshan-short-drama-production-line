@@ -67,10 +67,12 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from nalu_qa_common import (  # noqa: E402
-    KINDS, MIN_OBSERVATION_CHARS, REVIEWER_ID, REVIEW_METHOD, REVIEWS_ROOT,
-    SCHEMA_ANSWERS, SCHEMA_REQUEST, SCHEMA_SUBMITTED, TEMPLATE_MARKER,
-    Expectations, QaPaths, canonical_sha256, find_scoped_operator_source, now,
-    read_json, run_id, sha256_file, write_json,
+    GENERATED_TARGET, KINDS, MIN_OBSERVATION_CHARS, REVIEWER_ID, REVIEW_METHOD,
+    REVIEWS_ROOT, REVIEW_REFERENCE_ROLES, SCHEMA_ANSWERS, SCHEMA_REQUEST,
+    SCHEMA_SUBMITTED, TEMPLATE_MARKER,
+    Expectations, QaPaths, canonical_sha256, engine_module, find_scoped_operator_source,
+    manifest_reference_index, manifest_references_for, now, read_json, review_role,
+    run_id, sha256_file, write_json,
 )
 
 TOOL_ID = "vlm_review_protocol.v1"
@@ -523,6 +525,133 @@ def _media_row(path: Any, role: str) -> dict[str, Any]:
 RUNTIME_PREPRODUCTION = Path(f"{_np.RUNTIME_ROOT}/preproduction")
 
 
+#: Kinds whose item is a GENERATED asset judged against references the provider
+#: was also given.  A reviewer that cannot see those references cannot honestly
+#: claim "this is the locked person / the mapped place" — it can only see whether
+#: the frame is plausible.  Line owner 2026-11-01 item 4.
+REFERENCE_AWARE_KINDS = ("keyframe", "start_frame", "video_q2", "action_role")
+
+
+def review_reference_rows(references: list[dict[str, Any]] | None,
+                          *, sha_cache: dict[str, str | None] | None = None) -> list[dict[str, Any]]:
+    """The identity / wardrobe / space / prop references, labelled for the reviewer.
+
+    Each row carries its role, its authored sub-label (the view or kind, which is
+    its VERSION: a FRONT_NEUTRAL_HEADSHOT plate is not the same reference as a
+    THREE_QUARTER_BUST plate), the source sha256 (the file the review reads) and
+    the transport sha256 (what the submitter will encode — unknown at review
+    time, so it is present and null, never absent).
+
+    A reference the manifest names but the file system no longer has is listed as
+    MISSING.  It is never dropped: omitting it would let the reviewer answer an
+    identity question without ever being told the identity reference is gone.
+    """
+    out: list[dict[str, Any]] = []
+    for index, row in enumerate(references or [], 1):
+        if not isinstance(row, dict):
+            continue
+        role = review_role(row.get("role"))
+        if role in {GENERATED_TARGET} or role not in REVIEW_REFERENCE_ROLES:
+            continue
+        path = row.get("path")
+        exists = bool(path) and Path(str(path)).is_file()
+        # One plate is routinely shared by a batch of frames; hash each file once
+        # per request (item 5: cheap per task, no repeated work).
+        cache = sha_cache if sha_cache is not None else {}
+        key = str(path) if path else ""
+        if exists:
+            if key not in cache:
+                cache[key] = sha256_file(Path(str(path)))
+            on_disk = cache[key]
+        else:
+            on_disk = None
+        declared = str(row.get("sha256") or "").strip().lower() or None
+        if exists and declared and on_disk and declared != on_disk:
+            status, reason = "CHANGED_SINCE_AUTHORED", "ON_DISK_SHA_DIFFERS_FROM_MANIFEST"
+            source = declared
+        elif exists:
+            status, reason, source = "PRESENT", None, declared or on_disk
+        else:
+            status = "MISSING"
+            reason = "REFERENCE_FILE_NOT_ON_DISK" if path else "NO_REFERENCE_PATH_DECLARED"
+            source = declared
+        out.append({
+            "index": index,
+            "role": role,
+            "declared_role": row.get("role"),
+            "entity_id": row.get("entity_id") or row.get("character_id") or row.get("prop_id"),
+            "entity_name": row.get("entity_name"),
+            "version": (str(row.get("view") or row.get("kind") or row.get("state") or "")
+                        or (f"sha256:{(source or '')[:12]}" if source else None)),
+            "path": str(path) if path else None,
+            "status": status,
+            "missing_reason": reason,
+            "source_sha256": source,
+            "transport_sha256": row.get("transport_sha256") or None,
+            "transport_sha256_note": None if row.get("transport_sha256")
+                                     else "NOT_ENCODED_YET__SOURCE_SHA_IS_WHAT_WAS_REVIEWED",
+        })
+    return out
+
+
+def reference_status(rows: list[dict[str, Any]]) -> str:
+    """PRESENT / MISSING / PARTIAL / NOT_DECLARED, from the reviewer's own rows."""
+    if not rows:
+        return "NOT_DECLARED"
+    present = [row for row in rows if row["status"] == "PRESENT"]
+    if not present:
+        return "MISSING"
+    return "PRESENT" if len(present) == len(rows) else "PARTIAL"
+
+
+def reference_section(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """The whole reference block a reference-aware request carries."""
+    return {
+        "references": rows,
+        "status": reference_status(rows),
+        "roles": list(REVIEW_REFERENCE_ROLES),
+        "missing": [{"index": row["index"], "role": row["role"],
+                     "entity_id": row.get("entity_id"), "path": row.get("path"),
+                     "reason": row.get("missing_reason")}
+                    for row in rows if row["status"] != "PRESENT"],
+        "shown_to_reviewer": True,
+        "not_a_reference": {"role": GENERATED_TARGET,
+                            "note": "the reviewed asset itself is the TARGET, never a reference"},
+    }
+
+
+def identity_claim_rule(rows: list[dict[str, Any]]) -> str:
+    """The answer rule that forbids claiming identity agreement from pixels alone.
+
+    It is stated in the request itself (``answer_rules``), not only enforced in a
+    materialiser, so a reviewer reads it before answering.  The materialisers
+    enforce the same rule, and the request carries the status they will check.
+    """
+    status = reference_status(rows)
+    missing_identity = [row for row in rows
+                        if row["role"] == "IDENTITY" and row["status"] != "PRESENT"]
+    if status == "NOT_DECLARED":
+        return ("No identity / wardrobe / space / prop reference was declared for this task, so no "
+                "reference was shown.  You may judge whether the generated asset is PLAUSIBLE, and "
+                "you must NOT claim it agrees with a locked identity plate, an authored wardrobe, a "
+                "mapped place or a named prop: nothing in this request can support that claim.")
+    if status == "MISSING" or missing_identity:
+        names = ", ".join(f"references[{row['index']}] ({row['role']}, "
+                          f"{row.get('entity_id') or 'unknown entity'})"
+                          for row in rows if row["status"] != "PRESENT") or "an identity reference"
+        return (f"{names} is MISSING from this request (see reference_media.missing).  You may NOT "
+                "answer that a character matches the locked identity, or that wardrobe / place / "
+                "prop agree with their reference, when the reference was not shown to you: answer "
+                "UNCERTAIN and record a P1 defect MISSING_REVIEW_REFERENCE.  A frame that merely "
+                "looks plausible is not agreement.")
+    if status == "PARTIAL":
+        return ("Some references are MISSING (see reference_media.missing).  A question about a "
+                "role whose reference is MISSING may not be answered from the generated asset alone: "
+                "answer UNCERTAIN and record a P1 defect MISSING_REVIEW_REFERENCE for that role.")
+    return ("The references above are the ones this task was given.  Compare the asset against "
+            "them; do not claim agreement with any reference that is not listed here.")
+
+
 #: CAMERA_GRAMMAR_V1 keyframes (line owner 2026-10-24, lab Holmes E03): the fixed-element requirement follows
 #: the shot size, exactly as the keyframe prompt states it (expectations.fixed_element_rule).  Only requests
 #: whose items carry that rule (stamped contracts) use this wording; every other request is unchanged.
@@ -567,6 +696,15 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
         raise SystemExit(f"--kind must be one of {list(KINDS)}")
     exp = Expectations(episode)
     p = QaPaths(episode)
+    # Which references each paid task will actually carry, read from the two
+    # authoring manifests.  A missing manifest yields no index: the request then
+    # says NOT_DECLARED rather than inventing an empty reference set.
+    def _manifest_index(attribute: str) -> dict[str, list[dict[str, Any]]]:
+        path = getattr(p, attribute, None)
+        return manifest_reference_index(read_json(path, {}) or {}) if path else {}
+
+    keyframe_refs = _manifest_index("keyframe_manifest")
+    video_refs = _manifest_index("grouped_seedance")
     questionnaire = QUESTIONNAIRES[kind]
     vocabulary = {
         "characters": exp.character_ids() + sorted(exp.character_name_to_id()),
@@ -723,6 +861,37 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
         if kind in {"keyframe", "video_q2"}:
             row["closed_vocabulary"]["forbidden_terms"] = vocabulary["forbidden_terms"]
 
+    # Reference media (line owner 2026-11-01 item 4): the exact identity /
+    # wardrobe / space / prop images this task's paid request will carry, each
+    # labelled with role + version + source sha.  Only for the media kinds whose
+    # item IS a generated asset; an identity review's plates are its subject.
+    reference_media = None
+    if kind in REFERENCE_AWARE_KINDS and rows:
+        sha_cache: dict[str, str | None] = {}
+        for row in rows:
+            if kind == "keyframe":
+                declared = manifest_references_for(
+                    keyframe_refs, row["item_id"], row.get("shot_id"), row.get("unit_id"))
+            else:
+                declared = manifest_references_for(
+                    video_refs, row.get("unit_id"), row.get("item_id"), row.get("shot_id"))
+            reference_rows = review_reference_rows(declared, sha_cache=sha_cache)
+            row["reference_media"] = reference_section(reference_rows)
+        every = [item for row in rows for item in (row.get("reference_media") or {}).get("references") or []]
+        reference_media = {
+            "per_item": True,
+            "status": reference_status(every),
+            "identity_rule": identity_claim_rule(every),
+            "roles": list(REVIEW_REFERENCE_ROLES),
+            "source": {"keyframe_manifest": str(getattr(p, "keyframe_manifest", "") or "") or None,
+                       "keyframe_manifest_sha256": sha256_file(getattr(p, "keyframe_manifest", None))
+                       if getattr(p, "keyframe_manifest", None) else None,
+                       "grouped_seedance_manifest": str(getattr(p, "grouped_seedance", "") or "") or None,
+                       "grouped_seedance_manifest_sha256": sha256_file(getattr(p, "grouped_seedance", None))
+                       if getattr(p, "grouped_seedance", None) else None},
+            "missing_count": sum(1 for row in every if row["status"] != "PRESENT"),
+        }
+
     request_id = f"{episode}-{kind}-{run_id()}"
     out = Path(out) if out else REVIEWS_ROOT / episode / f"{request_id}_request.json"
     visual_qa_profile = selected_profile() if kind == 'keyframe' else 'STRICT'
@@ -778,9 +947,13 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
             "min_observation_chars": MIN_OBSERVATION_CHARS,
             "item_verdict_rule": "PASS iff no FAIL answer, no UNCERTAIN answer and no P0/P1 "
                                  "defect.  Otherwise REJECT.",
+            **({"identity_claim_requires_reference": reference_media["identity_rule"],
+                "identity_claim_reference_status": reference_media["status"]}
+               if reference_media else {}),
         },
         "item_count": len(rows),
         "items": rows,
+        **({"reference_media": reference_media} if reference_media else {}),
         "answers_schema": SCHEMA_ANSWERS,
         "next_commands": {
             "template": f"{TOOL_ID} example-answers --request <this file>",
@@ -824,6 +997,77 @@ def example_answers(request: dict[str, Any]) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # submit — validation
 # --------------------------------------------------------------------------- #
+#: Which answer each reference role is the only evidence for.  A PASS on one of
+#: these while that role's reference is MISSING is a claim the request cannot
+#: support, so it is refused (item 4).  Questions not listed here are unaffected.
+REFERENCE_CLAIM_QUESTIONS: dict[str, dict[str, tuple[str, ...]]] = {
+    "keyframe": {
+        "IDENTITY": ("each_visible_character_identity_recognisable",),
+        "WARDROBE": ("wardrobe_matches_bible",),
+        "SPACE": ("space_anchors_match",),
+        "PROP": ("props_exactly_as_declared",),
+    },
+    "video_q2": {
+        "IDENTITY": ("each_visible_character_identity_recognisable",),
+        "WARDROBE": ("wardrobe_matches_bible",),
+        "SPACE": ("space_anchors_match",),
+        "PROP": ("props_present_and_end_state_as_declared",),
+    },
+    "start_frame": {
+        "IDENTITY": ("all_required_characters_visible",),
+        "SPACE": ("space_match",),
+        "PROP": ("all_required_props_visible",),
+    },
+    "action_role": {
+        "PROP": ("prop_ownership_as_expected",),
+    },
+}
+
+
+def review_media_policy() -> dict[str, Any]:
+    """The review-side switches, read from the ONE binding policy config.
+
+    ``tools/provider_request_digest.py`` owns that file; this asks it rather than
+    carrying a second copy of the defaults.  If it cannot be imported (an
+    out-of-repo installation), the strict defaults apply — the same values the
+    config ships with, so a missing module cannot loosen a rule.
+    """
+    try:
+        digest = engine_module("provider_request_digest")
+        return dict(digest.review_media_policy())
+    except Exception:  # noqa: BLE001 — a missing tool must not weaken the rule
+        return {"identity_claim_requires_reference": True}
+
+
+def reference_claim_failures(kind: str, request_item: dict[str, Any],
+                             answers: dict[str, Any]) -> list[str]:
+    """Failures for a claim about a reference the reviewer was never shown.
+
+    Silent on every request that carries no ``reference_media`` block, so a
+    request written before this rule existed is judged exactly as before.
+    """
+    media = request_item.get("reference_media")
+    if not isinstance(media, dict) or not media.get("per_item"):
+        return []
+    policy = review_media_policy()
+    if not policy["identity_claim_requires_reference"]:
+        return []
+    questions = REFERENCE_CLAIM_QUESTIONS.get(kind) or {}
+    missing: dict[str, list[str]] = {}
+    for row in media.get("references") or []:
+        if row.get("status") != "PRESENT":
+            missing.setdefault(str(row.get("role")), []).append(
+                f"references[{row.get('index')}]")
+    out: list[str] = []
+    for role, keys in missing.items():
+        for key in questions.get(role, ()):
+            value = str(answers.get(key) or "")
+            if value in PASS_ANSWERS:
+                out.append(f"reference_claim_without_reference:{key}:{role}_MISSING"
+                           f"({','.join(keys)})")
+    return out
+
+
 def validate_answers(request: dict[str, Any], request_sha: str,
                      answers: dict[str, Any]) -> tuple[list[str], list[dict[str, Any]]]:
     """Return (failures, per-item verdict rows).  Empty failures == valid."""
@@ -944,6 +1188,11 @@ def validate_answers(request: dict[str, Any], request_sha: str,
             item_failures.append("fail_or_uncertain_answer_without_a_defect_entry")
 
         advisory = advisory_questions({'answers': given, 'defects': defects}, visual_qa_profile)
+        # A claim about a reference the reviewer was NOT shown cannot be earned
+        # from the generated asset alone (item 4).  Enforced only when this item
+        # carries the reference block, so a request written before it existed is
+        # unaffected; the per-role status is what the request itself stated.
+        item_failures.extend(reference_claim_failures(kind, by_id[item_id], given))
         verdict = "PASS"
         if set(failed_answers) - advisory or uncertain or blocking_defects:
             verdict = "REJECT"

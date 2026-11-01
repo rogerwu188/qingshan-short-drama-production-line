@@ -63,7 +63,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from nalu_qa_common import (  # noqa: E402
     ENGINE, GATE_REGISTRY, RT_CONFIGS, REVIEWER_ID, REVIEWER_TYPE,
     REVIEW_METHOD, VENV, Expectations, QaPaths, engine_module, gate_parameters,
-    now, portable, read_json, sha256_file, write_json,
+    manifest_references, now, portable, read_json, sha256_file, write_json,
 )
 
 TOOL_ID = "keyframe_q1_builder.v1"
@@ -893,7 +893,8 @@ def build_identity_verification(item: dict[str, Any], questionnaire: dict[str, A
 def _evidence_file(out: Path, *, gate_id: str, episode: str, item_id: str,
                    asset: Path, asset_sha: str, finding: str,
                    verification: dict[str, Any] | None,
-                   reviewed_at: str | None, failed: bool = False) -> dict[str, Any]:
+                   reviewed_at: str | None, failed: bool = False,
+                   binding: dict[str, Any] | None = None) -> dict[str, Any]:
     payload = {
         "schema": EVIDENCE_SCHEMA,
         "gate_id": gate_id,
@@ -913,10 +914,134 @@ def _evidence_file(out: Path, *, gate_id: str, episode: str, item_id: str,
         "recorded_by": TOOL_ID,
         "finding": finding,
     }
+    # Item 1: which provider request this gate PASS belongs to.  Present on every
+    # row, with task_id / payload sha null + a reason until a receipt exists.
+    if binding is not None:
+        payload["provider_request_binding"] = binding
     if verification is not None:
         payload["objective_verification"] = verification
     write_json(out, payload)
     return payload
+
+
+#: The binding lives in one place (tools/provider_request_digest.py binds the
+#: review, the Q1 gate PASS and the provider receipt to one request sha), so this
+#: builder records what that module reports rather than re-deriving a join.
+def _digest_module():
+    return engine_module("provider_request_digest")
+
+
+def manifest_task_for(episode: str, *, shot_id: Any = None, unit_id: Any = None,
+                      task_key: Any = None,
+                      index: dict[str, dict[str, Any]] | None = None) -> dict[str, Any] | None:
+    """The keyframe manifest row this review item is about, if the manifest declares it.
+
+    The manifest is the authority for which references the paid request carries
+    and which prompt it sends; a review item the manifest does not name gets no
+    invented row (``None``), which the binding block records explicitly.
+    ``index`` lets a caller that binds many items read the manifest once
+    (``manifest_task_index``) instead of once per item.
+    """
+    lookup = index if index is not None else manifest_task_index(episode)
+    for value in (task_key, shot_id, unit_id):
+        key = str(value or "")
+        if key and key in lookup:
+            return lookup[key]
+    return None
+
+
+def manifest_task_index(episode: str) -> dict[str, dict[str, Any]]:
+    """The keyframe manifest's rows by every id a review item can carry.
+
+    One read for a whole batch: the Q1 materialiser binds N items and must not
+    re-read the same manifest N times (item 5 — per-task and cheap, no barrier).
+    """
+    p = QaPaths(episode)
+    manifest = read_json(getattr(p, "keyframe_manifest", None) or "", {}) or {}
+    index: dict[str, dict[str, Any]] = {}
+    for row in manifest.get("tasks") or []:
+        if not isinstance(row, dict):
+            continue
+        for key in ("task_key", "shot_id", "video_unit_id"):
+            value = str(row.get(key) or "")
+            if value and value not in index:
+                index[value] = row
+    return index
+
+
+def provider_request_binding(episode: str, submitted: dict[str, Any], *,
+                             submitted_path: Path, shot_id: Any = None,
+                             unit_id: Any = None, task_key: Any = None,
+                             index: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+    """The record block every Q1 evidence row and the index carries (items 1-2).
+
+    Task id and payload sha do not exist before a POST, so they are ``null`` with
+    their reason in ``nulls``.  ``tools/provider_request_digest.py bind-receipt``
+    fills them from the transaction file; nothing here back-fills them from
+    another task.
+    """
+    task = manifest_task_for(episode, shot_id=shot_id, unit_id=unit_id, task_key=task_key,
+                             index=index)
+    request_ref = None
+    if task is not None:
+        request_ref = {
+            "manifest_task_key": task.get("task_key"),
+            "model": task.get("model"),
+            "prompt_file": task.get("prompt_file"),
+            "prompt_sha256": task.get("prompt_sha256"),
+            "reviewed_request_sha256": task.get("reviewed_request_sha256"),
+            # the references the paid request carries, in transmission order
+            "references": manifest_references(task),
+        }
+    binding = _digest_module().binding_block(
+        request_ref, episode=episode, task_key=str(task_key or shot_id or unit_id or ""),
+        kind=KIND,
+        review_request_path=submitted.get("request_path"),
+        review_request_sha256=submitted.get("request_sha256"),
+    )
+    if request_ref is None:
+        binding["nulls"]["provider_request"] = "MANIFEST_DECLARES_NO_ROW_FOR_THIS_REVIEW_ITEM"
+    return binding
+
+
+def binding_summary(episode: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Per-episode roll-up of the provider-request binding, across every row.
+
+    Called once, after all items are built: the lookup is O(rows) file reads and
+    adds no per-row barrier.  ``status`` is ENFORCED or UNENFORCED for the
+    POLICY; ``bound`` counts the rows whose provider task id is actually known.
+    """
+    bindings = [row["provider_request_binding"] for row in rows
+                if isinstance(row.get("provider_request_binding"), dict)]
+    required = bool(bindings) and all(
+        (block.get("policy") or {}).get("binding_required") for block in bindings)
+    missing_references = sum(
+        len((block.get("review_reference_media") or {}).get("missing") or []) for block in bindings)
+    return {
+        "policy_id": "PROVIDER_REQUEST_REVIEW_BINDING_V1",
+        "status": "ENFORCED" if required else "UNENFORCED",
+        "note": ("the binding policy covers this episode" if required else
+                 "no review is bound to these requests and the policy does not require one;"
+                 " these admissions are UNENFORCED, not verified"),
+        "row_count": len(rows),
+        "rows_with_binding": len(bindings),
+        "rows_with_task_id": sum(1 for block in bindings if block.get("task_id")),
+        "rows_with_reviewed_request_sha": sum(
+            1 for block in bindings
+            if (block.get("provider_request") or {}).get("request_sha256")),
+        # Two different gaps, counted apart: the manifest could not point at an
+        # identity reference at all, or the request the reviewer answered was not
+        # shown one.  Both make an identity PASS unsupported in a different way.
+        "identity_reference_missing": sum(
+            1 for block in bindings if block.get("identity_reference_status") == "MISSING"),
+        "review_identity_reference_missing": sum(
+            1 for block in bindings
+            if any((row or {}).get("role") == "IDENTITY"
+                   for row in (block.get("review_reference_media") or {}).get("missing") or [])),
+        "reference_occurrences_missing": missing_references,
+        "bind_command": "tools/provider_request_digest.py bind-receipt "
+                        "--record <admission_request.json> --transaction <transaction.json>",
+    }
 
 
 def materialise(episode: str, submitted: dict[str, Any],
@@ -951,6 +1076,9 @@ def materialise(episode: str, submitted: dict[str, Any],
     ocr_by_item = ocr_keyframes(submitted.get("items") or [], keyframes, forbidden_terms, p.q1_dir)
 
     rows: list[dict[str, Any]] = []
+    # One manifest read for the whole batch (item 5): every item below binds
+    # against this index, so the pass adds no per-item file read and no barrier.
+    manifest_index = manifest_task_index(episode)
     for item in submitted.get("items") or []:
         item_id = item["item_id"]
         request_item = item.get("request_item") or {}
@@ -964,6 +1092,26 @@ def materialise(episode: str, submitted: dict[str, Any],
                          "failures": [f"KEYFRAME_MISSING:{asset}"]})
             continue
         asset_sha = sha256_file(asset)
+
+        # Item 1: bind every gate PASS below to the exact provider request this
+        # review item is about.  Built once per item; the fields that cannot
+        # exist before a POST stay null with a reason, never invented.
+        binding = provider_request_binding(episode, submitted, submitted_path=submitted_path,
+                                           shot_id=request_item.get("shot_id") or item_id,
+                                           unit_id=request_item.get("unit_id") or item_id,
+                                           task_key=item_id, index=manifest_index)
+        reference_media = request_item.get("reference_media") or {}
+        if reference_media:
+            # What the reviewer could see (item 4), carried next to the verdict so
+            # a PASS on identity can be read against the reference it was judged on.
+            binding["review_reference_media"] = {
+                "status": reference_media.get("status"),
+                "missing": reference_media.get("missing") or [],
+                "source_shas": [{"index": row.get("index"), "role": row.get("role"),
+                                 "source_sha256": row.get("source_sha256"),
+                                 "version": row.get("version")}
+                                for row in reference_media.get("references") or []],
+            }
 
         ocr = ocr_by_item[item_id]
         period_v, period_f = build_period_verification(item, questionnaire, ocr, forbidden_terms)
@@ -1055,7 +1203,8 @@ def materialise(episode: str, submitted: dict[str, Any],
                            asset=asset, asset_sha=asset_sha,
                            finding=prefix + finding + (
                                ("  failures=" + ",".join(map(str, failures))) if failed else ""),
-                           verification=verification, reviewed_at=reviewed_at, failed=failed)
+                           verification=verification, reviewed_at=reviewed_at, failed=failed,
+                           binding=binding)
             defect_tier = None
             if failed:
                 defect_tier = ("P2" if cosmetic_only else
@@ -1155,6 +1304,9 @@ def materialise(episode: str, submitted: dict[str, Any],
             "identity_method": identity_method,
             "blocking_defects": blocking,
             "p2_defects": p2,
+            # Items 1-2: the provider request this row admitted (task id null until
+            # a receipt is bound), and the references the reviewer was shown.
+            "provider_request_binding": binding,
         })
 
     admitted = [row for row in rows
@@ -1189,6 +1341,9 @@ def materialise(episode: str, submitted: dict[str, Any],
         "video_submission_allowed_unit_ids": [row["unit_id"] for row in admitted],
         "rejected_unit_ids": [row["unit_id"] for row in rows if row not in admitted],
         "results": rows,
+        # The index states, once, how binding was judged for this episode:
+        # UNENFORCED is reported as UNENFORCED, never folded into a PASS count.
+        "provider_request_binding_summary": binding_summary(episode, rows),
     }
     out = write_json(p.q1_dir / f"{episode}_KEYFRAME_Q1_INDEX.json", index)
     index["_written_to"] = str(out)

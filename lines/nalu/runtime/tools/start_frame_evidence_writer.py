@@ -140,6 +140,48 @@ def _bool(value: Any) -> bool | None:
     return None
 
 
+def provider_request_binding(episode: str, submitted: dict[str, Any], *,
+                             unit_id: str, submitted_path: Path) -> dict[str, Any]:
+    """The provider-request block this start-frame receipt carries.
+
+    One binder, not a second one: ``keyframe_q1_builder.provider_request_binding``
+    already reads the authoring manifest and stamps the review request sha, and
+    the record shape must be identical for ``provider_request_digest.py
+    bind-receipt`` to find ``provider_request.request_sha256`` in both.  A start
+    frame is a DERIVED asset, so its provider row is the video unit's; when the
+    grouped manifest is absent the block says so rather than guessing a keyframe.
+    """
+    import keyframe_q1_builder as _q1
+    binding = _q1.provider_request_binding(
+        episode, submitted, submitted_path=submitted_path, unit_id=unit_id, task_key=unit_id)
+    request = binding.get("provider_request") or {}
+    if not request.get("manifest_task_key"):
+        p = QaPaths(episode)
+        grouped = read_json(getattr(p, "grouped_seedance", None) or "", {}) or {}
+        for row in grouped.get("units") or []:
+            if isinstance(row, dict) and str(row.get("unit_id") or "") == str(unit_id):
+                binding["provider_request"].update({
+                    "manifest_task_key": row.get("unit_id"),
+                    # a grouped unit's prompt is compiled at S6; the manifest names
+                    # the file, not its sha, and a sha is never invented here
+                    "model": row.get("model"),
+                    "prompt_file": None,
+                    "prompt_sha256": None,
+                    "reviewed_request_sha256": row.get("reviewed_request_sha256"),
+                })
+                binding["nulls"].pop("provider_request", None)
+                binding["nulls"]["provider_request.prompt_sha256"] = (
+                    "VIDEO_PROMPT_COMPILED_AT_S6_NOT_AT_START_FRAME_REVIEW")
+                break
+    return binding
+
+
+def _q1_binding_summary(episode: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """The same roll-up the Q1 index uses, so the two records read alike."""
+    import keyframe_q1_builder as _q1
+    return _q1.binding_summary(episode, rows)
+
+
 def materialise(episode: str, submitted: dict[str, Any],
                 submitted_path: Path) -> dict[str, Any]:
     p = QaPaths(episode)
@@ -214,6 +256,22 @@ def materialise(episode: str, submitted: dict[str, Any],
         acceptance = (start_frame_acceptance(episode, unit_id, blockers, reference_sha, orders, issuer)
                       if blockers else None)
         status = "PASS" if not blockers else ("ACCEPTED_BY_LINE_OWNER_ORDER" if acceptance else "FAIL")
+        # Items 1-2: which provider request this receipt belongs to.  The derived
+        # start frame is materialised from the previous unit's real tail, so the
+        # provider row this receipt describes is the VIDEO unit's, not a keyframe's;
+        # task_id stays null with its reason until a receipt is bound.
+        binding = provider_request_binding(episode, submitted, unit_id=unit_id,
+                                           submitted_path=submitted_path)
+        reference_media = request_item.get("reference_media") or {}
+        if reference_media:
+            binding["review_reference_media"] = {
+                "status": reference_media.get("status"),
+                "missing": reference_media.get("missing") or [],
+                "source_shas": [{"index": row.get("index"), "role": row.get("role"),
+                                 "source_sha256": row.get("source_sha256"),
+                                 "version": row.get("version")}
+                                for row in reference_media.get("references") or []],
+            }
         payload = {
             "schema": EVIDENCE_SCHEMA,
             "episode": episode,
@@ -246,6 +304,7 @@ def materialise(episode: str, submitted: dict[str, Any],
             "defects": item.get("defects") or [],
             "blockers": blockers,
             **({"line_owner_acceptance": acceptance} if acceptance else {}),
+            "provider_request_binding": binding,
             "recorded_at": now(),
             "recorded_by": TOOL_ID,
             "consumed_by": "tools/grouped_anchor_semantic_contract.py"
@@ -264,6 +323,7 @@ def materialise(episode: str, submitted: dict[str, Any],
             "reference_path": payload["reference_path"],
             "reference_sha256": reference_sha,
             "blockers": blockers,
+            "provider_request_binding": binding,
         })
 
     passing = [row for row in rows if row["status"] in ("PASS", "ACCEPTED_BY_LINE_OWNER_ORDER")]
@@ -285,6 +345,9 @@ def materialise(episode: str, submitted: dict[str, Any],
         "unit_count": len(rows),
         "pass_count": len(passing),
         "units": rows,
+        # One roll-up, computed after every unit: ENFORCED / UNENFORCED for the
+        # policy, and how many receipts actually know their provider task id.
+        "provider_request_binding_summary": _q1_binding_summary(episode, rows),
         "next": "re-run build_nalu_preproduction.py (S6 rebuild): build_start_frame_contracts "
                 "picks the receipt up from expected_evidence_ref and 4.4 "
                 "compile_grouped_seedance_manifest re-verifies every field.",

@@ -3257,6 +3257,37 @@
       "failure_code": "COVER_CHECK_FLAGS_SCENE_SIGNAGE_AS_BURNED_DIALOGUE",
       "do_not_repeat": "不要把字幕遮盖门当成『画面里不得有汉字』的总门；不要把场景招牌上的无意义字在遮盖门里豁免掉而不给 Q2 记 P2；不要为了放行而放宽 near-band / reads-like-caption 这两条真失败判据",
       "sync_slug": "E13-cover-check-dialogue-line-scope"
+    },
+    {
+      "scope": "generalizable",
+      "episode": "E14",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "Line owner 2026-11-01 item 3: make it impossible for 'the data actually sent' to differ from 'the data that was reviewed'",
+      "runtime_gate_added": false,
+      "id": "K150",
+      "key": "evidence-binds-the-sent-request-not-just-the-review-file",
+      "stage": "S5",
+      "category": "QA",
+      "rule": "Three checks, all per task and off by default. (1) A Q1/SFE evidence record carries provider_request_binding: stage, the reviewed request sha, the manifest's prompt sha / model / reference list (role + version + source sha + transport sha), and task_id + payload_sha256 as null WITH a reason from nulls until a receipt exists — never invented, never back-filled from another task. (2) tools/provider_request_digest.py bind-receipt joins a provider transaction to that record by the request sha on BOTH sides and refuses RECEIPT_NOT_REQUEST_BOUND / RECEIPT_FOR_ANOTHER_REQUEST / REQUEST_SHA_CHANGED_SINCE_REVIEW / TASK_ID_NOT_BOUND. (3) A send outside the policy reports UNENFORCED, never NOT_REQUIRED/PASS; binding_still_valid answers INVALID + re_review_required when the prompt text, a reference file, the model, the whole-request digest or the payload sha moved. Switches: configs/PROVIDER_REQUEST_REVIEW_BINDING_V1.json (enabled_episodes / enabled_from_episode, receipt_binding.enabled, review_media.*).",
+      "lesson": "The review bound the review-request sha and the asset sha, and nothing else. Every receipt before it bound a FILE, so the H3 re-render, reference reordering and send-time compression could change the request after review while every record still read complete. And an unenforced episode reported status NOT_REQUIRED, which a receipt reader takes for a pass. Separately, a keyframe/video_q2 request listed only the GENERATED asset, so a reviewer answered 'this is the locked identity person' without ever being shown the plate.",
+      "recovery": "After a receipt: tools/provider_request_digest.py bind-receipt --record <evidence.json> --transaction <workflow/tasks/giggle_submit_transactions/EP/*.json>. Before sending: validate with binding_still_valid (or the verify subcommand) and re-review on INVALID. When a request says reference_media.missing is non-empty, the identity/wardrobe/space/prop question for that role is answered UNCERTAIN with a MISSING_REVIEW_REFERENCE defect — a PASS there is refused as reference_claim_without_reference.",
+      "implementation": [
+        "tools/provider_request_digest.py",
+        "lines/nalu/runtime/tools/vlm_review_protocol.py",
+        "lines/nalu/runtime/tools/nalu_qa_common.py",
+        "lines/nalu/runtime/tools/keyframe_q1_builder.py",
+        "lines/nalu/runtime/tools/start_frame_evidence_writer.py",
+        "configs/PROVIDER_REQUEST_REVIEW_BINDING_V1.json",
+        "tools/tests/test_review_reference_media.py",
+        "tools/tests/test_q1_evidence_provider_binding.py"
+      ],
+      "regression": "tools/tests/test_provider_request_binding_chain.py",
+      "evidence": "Offline: every path a temp dir, no paid stage. 60 tests across the three files; the 222 tests that import these modules all pass.",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "failure_code": "REVIEW_BOUND_TO_A_FILE_NOT_TO_THE_SENT_REQUEST",
+      "do_not_repeat": "Do not record a task id or a payload sha before a POST exists; do not back-fill one from another task. Do not report an unenforced check as PASS or NOT_REQUIRED. Do not let a reviewer answer an identity/wardrobe/space/prop question when that role's reference was not in the request.",
+      "sync_slug": "E14-evidence-binds-sent-request"
     }
   ]
 }

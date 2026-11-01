@@ -1,8 +1,48 @@
 {
   "schema": "qingshan.provider_request_review_binding_policy.v1",
   "policy_id": "PROVIDER_REQUEST_REVIEW_BINDING_V1",
-  "authority": "Line owner 2026-10-16 production-line optimisation plan §7: the review must bind the request that is actually sent.  Receipts bound prompt and reference FILES; the H3 re-render, reference reordering, voice attachment and send-time compression all happen after them.",
+  "authority": "Line owner 2026-10-16 production-line optimisation plan §7: the review must bind the request that is actually sent.  Receipts bound prompt and reference FILES; the H3 re-render, reference reordering, voice attachment and send-time compression all happen after them.  Line owner 2026-11-01 item 3: make it impossible for 'the data actually sent' to differ from 'the data that was reviewed'.",
   "enabled_episodes": [],
   "enabled_from_episode": null,
-  "activation_note": "Empty by default; in-production episodes are unaffected.  When an episode is enabled, every task must carry reviewed_request_sha256 (stamp with tools/provider_request_digest.py --manifest after the review, before paid authorization), and a task_key already bound under another fingerprint must declare supersedes_submission_fingerprints before it can POST again.  A task that carries reviewed_request_sha256 is checked even when its episode is not enabled."
+  "activation_note": "Empty by default; in-production episodes are unaffected.  When an episode is enabled, every task must carry reviewed_request_sha256 (stamp with tools/provider_request_digest.py stamp --manifest after the review, before paid authorization), and a task_key already bound under another fingerprint must declare supersedes_submission_fingerprints before it can POST again.  A task that carries reviewed_request_sha256 is checked even when its episode is not enabled.  A task outside the policy is recorded as UNENFORCED, never as PASS.",
+  "blocking": {
+    "send_time_refusal_when_enabled": true,
+    "global_barrier": false,
+    "note": "The refusal at the paid boundary is per task and already exists; it applies only to an episode named above.  Nothing here adds a batch step, a lock or an extra provider call: the digest is computed from values the submitter already holds, and the receipt binder reads a transaction file that is already on disk.  Every other rule in this file ships off and is reported, not enforced."
+  },
+  "receipt_binding": {
+    "enabled": false,
+    "join": "request sha on both sides: the transaction's request_binding.request_sha256 must equal the record's provider_request.request_sha256",
+    "refuses": [
+      "RECEIPT_NOT_REQUEST_BOUND: the transaction carries no request_binding.request_sha256",
+      "RECEIPT_FOR_ANOTHER_REQUEST: the transaction POSTed a different request than the one reviewed",
+      "REQUEST_SHA_CHANGED_SINCE_REVIEW: the review request file on disk no longer hashes to what the record says was reviewed",
+      "REVIEW_REQUEST_MISSING: the review request file is gone",
+      "TASK_ID_NOT_BOUND: the transaction carries no provider task id yet"
+    ],
+    "writes": "the evidence record the tool is pointed at (--record); the tool never writes into workflow/ and takes every path as an argument",
+    "activation_note": "Off by default: binding a receipt is a report.  Turn on only when a stage must refuse to proceed on an unbound record."
+  },
+  "review_media": {
+    "identity_claim_requires_reference": true,
+    "note": "Item 4.  For keyframe / start_frame / video_q2 requests the reviewer is shown the identity / wardrobe / space / prop reference images that the task itself was given, each labelled with its role and version (source + transport sha).  A reference the authoring manifest names but the file system no longer has is ALWAYS listed as MISSING — that half has no switch, because omitting it silently is the failure this rule exists to stop.  The request also states, as an answer rule, that identity agreement may not be claimed from the generated image alone when identity_reference_status is MISSING; that half is gated by identity_claim_requires_reference.",
+    "roles": [
+      "IDENTITY",
+      "WARDROBE",
+      "SPACE",
+      "PROP"
+    ],
+    "missing_reference_always_declared": true
+  },
+  "legacy_behaviour": {
+    "sealed_episodes": "byte-identical: no field is required, no stage refuses, and every record says UNENFORCED for the policy it is outside of",
+    "status_vocabulary": {
+      "UNENFORCED": "the policy does not cover this episode; nothing was checked — this is not a pass",
+      "MATCH": "a review is bound and the request about to be sent is that request",
+      "MISMATCH": "a review is bound and the request about to be sent differs — refused before any POST",
+      "MISSING": "the policy covers this episode and no review is bound — refused",
+      "VALID": "a stored binding still describes the request in hand",
+      "INVALID": "prompt text, a reference file, the model or the payload changed — re-review required"
+    }
+  }
 }
