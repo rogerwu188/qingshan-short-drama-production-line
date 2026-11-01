@@ -1188,6 +1188,15 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
                 f"@Image{index}: opening composition, location, camera axis, pose and state; "
                 "named identity references override uncertain faces; never copy a static pose."
             )
+        elif role == "PREVIOUS_REAL_TAIL_STATE_AUTHORITY" and _locked_dialogue_plan(plan.get("camera_plan") or {}):
+            # nalu E13 prompt review: the previous unit's final frame can show people who are not in this clip
+            # (a speaker change inside one scene); say what it carries.  Only LOCKED_DIALOGUE_CAMERA_V1 plans,
+            # so other lines' prompt bytes are unchanged.
+            reference_lines.append(
+                f"@Image{index}: previous shot's final frame from the same scene; use it only for location, "
+                "lighting, weather and prop state; a person shown in it appears in this clip only if this clip "
+                "names them, and never overwrite a named identity."
+            )
         else:
             reference_lines.append(
                 f"@Image{index}: exclusive {role} reference; bind only that declared role and never overwrite a named identity."

@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2304,
+  "file_count": 2305,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -277,7 +277,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "8cddf9f6d3ec96dd99b24035a2b4cf47c3dba11594183724e67cd578070cc49c"
+      "sha256": "a1e0505b895e9a6c3c03f3d3f282cfbe312cfcb92ab1e87ff8029b37a0b5097b"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -5049,7 +5049,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "9111bd1b187d5468e2681654f274dd28b447482af6b007bb82c1afae4219f600"
+      "sha256": "1f38b05e0b2d51550459c5ce9ebf8199db2546dbe4902cc03539477cf6f3faa8"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -7798,6 +7798,10 @@
     {
       "path": "tools/tests/test_keyframe_reference_transport_count.py",
       "sha256": "508de80f03d6c9f230c37a4ed3de8d6b38c971452ac097f4e9dccf5a8a120ac3"
+    },
+    {
+      "path": "tools/tests/test_keyframe_visible_creature.py",
+      "sha256": "25f0e9f2f9d76c78d8ea936469dc3911d13e333d89f6af47546cdb2960ac5ea1"
     },
     {
       "path": "tools/tests/test_keyframe_wardrobe_reference_policy.py",
