@@ -170,3 +170,23 @@ class StageS7CameraMotionWiringTests(unittest.TestCase):
         self.assertIn('picture_source = (recut_meta["derived_source"] if recut_meta\n'
                       '                          else stab_meta["stabilized_source"] if stab_meta', src)
         self.assertIn("stab_row = stabilized.get(source_id) if recut_meta is None else None", src)
+
+
+def _pitch_tool():
+    import importlib.util, pathlib
+    path = pathlib.Path(__file__).resolve().parents[2] / 'lines/nalu/runtime/tools/final_cut_voice_pitch_unify.py'
+    spec = importlib.util.spec_from_file_location('final_cut_voice_pitch_unify_t', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_octave_reading_is_folded_into_the_band_octave():
+    """E13 6.6 s XUYUEPING read 257.85 Hz against band 111.83-151.29; the shift must not follow the octave."""
+    fold = _pitch_tool().fold_octave
+    band = [111.83, 151.29]
+    assert round(fold(257.85, band), 2) == 128.93
+    assert fold(130.0, band) == 130.0
+    assert round(fold(160.0, band), 2) == 160.0
+    assert fold(52.0, band) == 52.0  # more than an octave below the centre: left alone, never guessed
+    assert fold(None, band) is None

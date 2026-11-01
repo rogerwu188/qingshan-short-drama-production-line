@@ -314,6 +314,27 @@ def pair_table(medians: dict[str, dict[str, float]]) -> list[dict[str, Any]]:
 
 # ------------------------------------------------------------------ main
 
+def fold_octave(hz, band, *, max_folds=4):
+    """Fold an estimator octave error onto the band's own octave (E13 6.6 s read 257.85 Hz, band 111.83-151.29).
+
+    The reading is re-expressed as ``hz * 2**k`` and the candidate nearest the band centre (in log2 distance,
+    k in [-max_folds, 0]) is used when it lies within one octave of that centre; otherwise the reading is kept.
+    The applied shift then stays inside one octave and the measured result can land inside the band."""
+    if not hz or not band:
+        return hz
+    value = float(hz)
+    centre = (float(band[0]) + float(band[1])) / 2
+    best, best_cost = value, abs(math.log2(value / centre)) if value > 0 else float("inf")
+    for k in range(-int(max_folds), 1):
+        candidate = value * (2.0 ** k)
+        if candidate <= 0 or not (band[0] / 2 <= candidate <= band[1] * 2):
+            continue
+        cost = abs(math.log2(candidate / centre))
+        if cost < best_cost:
+            best, best_cost = candidate, cost
+    return best
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--episode", required=True)
@@ -392,6 +413,14 @@ def main(argv: list[str] | None = None) -> int:
                "step_semitones": 0.0, "clamped": False, "f0_after": before, "applied": False, "skipped": None}
         multi = len((units.get(w["unit_id"]) or {}).get("speakers") or []) > 1
         if band and before and target:
+            # An octave error in the estimator (E13 6.6 s XUYUEPING read 257.85 Hz, target 131.56) must not drive
+            # the shift: fold the value into the band's octave first, then aim at the target from there, so the
+            # applied step stays inside one octave and the measured result can land in the band.
+            folded = fold_octave(before, band)
+            if folded != before:
+                row["octave_corrected_from_hz"] = before
+                before = folded
+                row["f0_before"] = before
             step = 12 * math.log2(target / before)
             in_band = band[0] <= before <= band[1]
             if w["unit_id"] in skip_units:
