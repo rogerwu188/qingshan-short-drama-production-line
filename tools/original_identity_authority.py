@@ -121,6 +121,21 @@ def classify_reference_asset(entry):
     return resolved['asset_type'] if resolved else 'GENERATED_DERIVATIVE'
 
 
+def measurement_reference(source):
+    """The file identity is measured against for an original_reference() result.
+
+    A pixel crop is a transport artifact (a tight face crop sent to the video model); it can be too tight for the
+    face detector (nalu E13 Q1/Q2: FACE_COUNT_ZERO on the Qinming crop failed every keyframe and clip with him in
+    it). Measure against the verified source photo it was cut from; original_reference() already checked that the
+    crop's pixels equal that photo's box, so the source sha is the authority.
+    """
+    if source and source.get('asset_type') == 'PIXEL_CROP' and source.get('source_path'):
+        return {'path': source['source_path'], 'sha256': source['source_sha256']}
+    if source:
+        return {'path': source['path'], 'sha256': source['sha256']}
+    return None
+
+
 def measurement_paths(record):
     """Every identity anchor the record can be measured against, original first.
 
@@ -131,7 +146,7 @@ def measurement_paths(record):
     then reads as "identity unavailable" although four usable anchors exist
     (E12, 2026-10-27).
     """
-    source = original_reference(record)
+    source = measurement_reference(original_reference(record))
     paths = [source['path']] if source else []
     for value in record.get('canonical_reference_paths') or []:
         if value and value not in paths:
