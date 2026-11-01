@@ -277,6 +277,20 @@ class RealCase001Test(unittest.TestCase):
         with self.assertRaises(klc.CaseError):
             klc.check_spec(spec, self.roots)
 
+    def test_the_without_rule_arm_must_reproduce_the_recorded_failing_rows(self) -> None:
+        """The control is not "it failed somehow": it must fail on those exact rows.
+
+        (An earlier draft read the wrong key here and skipped the check entirely, so this test
+        exists to keep the row comparison load-bearing.)
+        """
+        without = klc.run_gate(self.spec, self.roots, with_rule=False)
+        klc.assert_restores_earlier_output(self.spec, self.roots, without)
+        wrong = copy.deepcopy(self.spec)
+        wrong["provenance"]["verification"]["before"]["expected_failing_rows"] = ["猿明"]
+        with self.assertRaises(klc.CaseError) as caught:
+            klc.assert_restores_earlier_output(wrong, self.roots, without)
+        self.assertIn("CASE_WITHOUT_RULE_ROWS_MISMATCH", str(caught.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

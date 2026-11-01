@@ -139,19 +139,24 @@ def load_gate(spec: dict[str, Any], roots: dict[str, Path], *, with_rule: bool) 
     gate = spec["replay"]["gate"]
     module_path = gate["module"]
     if with_rule:
-        return _import_from_source(module_path, module_path, (Path(roots["ENGINE"]) / module_path).read_text("utf-8"))
+        return _import_module(module_path, (Path(roots["ENGINE"]) / module_path).read_text("utf-8"), "rule_on")
     variant = gate.get("disabled_variant") or {}
     if variant.get("kind") != "git_revision":
         raise CaseError(f"CASE_DISABLED_VARIANT_UNSUPPORTED:{variant.get('kind')}")
     source = _git_show(Path(roots["ENGINE"]), f"{variant['commit']}:{module_path}")
-    return _import_from_source(module_path, module_path, source)
+    return _import_module(module_path, source, f"rev_{variant['commit']}")
 
 
-def _import_from_source(module_path: str, label: str, source: str) -> ModuleType:
-    """Compile ``source`` under the module's real filename so its own ``__file__`` relative paths
-    (``POLICY_PATH`` -> the shipped config) resolve exactly as production's do."""
-    filename = str((ROOT / module_path).resolve()) if label == module_path else f"{ROOT / module_path}#{label}"
-    spec = importlib.util.spec_from_loader(f"case_gate_{Path(module_path).stem}_{abs(hash(label))}", loader=None)
+def _import_module(module_path: str, source: str, label: str) -> ModuleType:
+    """Compile ``source`` with the module's REAL ``__file__``.
+
+    A module that resolves a shipped config relative to ``__file__`` (``POLICY_PATH`` ->
+    ``configs/``) must see the same path in both arms, or the comparison would be between two
+    different configurations instead of between two revisions of one rule.
+    """
+    filename = str((ROOT / module_path).resolve())
+    name = f"case_gate_{Path(module_path).stem}_{label}"
+    spec = importlib.util.spec_from_loader(name, loader=None)
     if spec is None:
         raise CaseError(f"CASE_GATE_IMPORT_FAILED:{module_path}")
     module = importlib.util.module_from_spec(spec)
@@ -193,7 +198,7 @@ def assert_restores_earlier_output(spec: dict[str, Any], roots: dict[str, Path],
     expected = spec["provenance"]["verification"]["before"]
     if without.get("status") != expected["value"]:
         raise CaseError(f"CASE_WITHOUT_RULE_STATUS_MISMATCH:{without.get('status')}!={expected['value']}")
-    wanted = expected.get("failing_rows")
+    wanted = expected.get("expected_failing_rows")
     if wanted is not None:
         got = sorted(row["text"] for row in without.get("text_outside_bar") or [])
         if got != sorted(wanted):
