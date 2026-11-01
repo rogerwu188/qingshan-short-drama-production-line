@@ -1475,3 +1475,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：E12 FINAL-CUT-CAMERA-MOTION：锁定 9/53（0.1698），不稳 5 单元；seq=70 接受。导演稿 52/53 单元写有运镜（prompt_rule_locked_dialogue_camera.patch.md 补丁 5）。；E13 合同（构建器盖章）S1 static_design_gate PASS，对白镜机位文字全部为固定机位、0 处 R11。
 - **授权**：Roger 2026-10-30 E12 成片审看 item 2：对白单元默认固定机位；seq=70 「接受，继续出片（推荐）」
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K149 — S7
+
+- **规则**：H3_BURNED_TEXT_COVER_V1 的复核只管 H3 烧进画面里的那句对白，不管画面里的一切汉字：横条外命中只在两种情况下算失败——命中点离烧录带不超过 dialogue_band_pad（默认 0.10），或该文本读起来就是当时屏上的字幕；其余命中记入 ignored_non_dialogue_text 放行。场景招牌/门联/匾额上的字归 PERIOD-ANACHRONISM-LOCK（Q2）管，不归字幕遮盖门管。
+- **教训**：E13 2026-11-01：S7 的 s7_burned_text_verify 以 exit=2 阻断（H3_BURNED_TEXT_STILL_VISIBLE），命中 8 处横条外汉字，y 0.005–0.141，全部来自 VU-014 门匾与门联上模型画出的无意义古体字；这些字 Q2 已按场景招牌记 P2（PERIOD-ANACHRONISM-LOCK），从不是字幕。遮盖门把它们当『横条外有字』= 失败，于是为不属于它管的缺陷挡住 S7。收窄到对白文本后同一批 OCR 命中 PASS，6 处真实烧录对白仍被横条盖住。
+- **恢复**：`tools/burned_text_cover.py` verify() 按 verify.dialogue_band_pad 判横条外命中；`configs/H3_BURNED_TEXT_COVER_V1.json` 的 verify.dialogue_band_pad 调带宽（默认 0.10）。场景招牌类无意义文字走 Q2 的 PERIOD-ANACHRONISM-LOCK 申报（NOISE: 或 P2），不要在遮盖门里豁免。判据案例见 `docs/knowledge/KNOWLEDGE_LOOP_CASE_001.md`。
+- **实现**：`tools/burned_text_cover.py`、`configs/H3_BURNED_TEXT_COVER_V1.json`
+- **回归**：`tools/tests/test_knowledge_loop_case.py`
+- **证据**：E13 CASE_001_BURNED_TEXT_SCOPE：run_20261101T090410 的 exit=2 + H3_BURNED_TEXT_STILL_VISIBLE；同一批 8 处命中在 PASS 报告的 ignored_non_dialogue_text 里；改前代码（git 7ed3399）在同一输入上复现 FAIL 且失败行完全相同；契约阻止未消费的规则读成已消费（NOT_YET_CONSUMED_BY_REAL_RUN）。
+- **授权**：Roger 2026-11-01「同意你的处理意见」（Q2 烧录字幕遮盖提案）+ 2026-11-01 item 5 知识回路案例 001
+- **状态**：REFERENCE_IMPLEMENTATION
