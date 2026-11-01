@@ -28,6 +28,31 @@ CAMERA_STATE_FIELDS = (
     "shot_scale", "camera_position_id", "axis_id", "lens_intent", "motion_family"
 )
 
+# --------------------------------------------------------------------------- perception state
+#
+# The per-entity ledger above tracks a character across a cut (presence, posture, injury,
+# wardrobe, position).  It cannot say who HOLDS a prop, what the audience is looking at,
+# or whether the pair of shots crossed a place or a time — the three things a viewer reads
+# as a continuity error even when every character state matches.  These fields extend the
+# SAME ledger (``perception_state`` beside ``persistent_state_contract`` on an authored
+# shot record), so there is one mechanism, not a second one.
+
+#: who holds a prop in this shot.  Any other value is a character id (or an entity id);
+#: a value that is neither a sentinel nor a known character is UNKNOWN, never a pass.
+PERCEPTION_PROP_HOLDER_SENTINELS = {"ON_GROUND", "OFF_SCREEN", "NOT_PRESENT"}
+#: HELD is the steady state; the two _IN_SHOT values say the audience watches the change
+#: happen; INHERITED confirms a hand-off already declared by the previous shot.
+PROP_PICKUP_STATES = {"HELD", "PICKED_UP_IN_SHOT", "PUT_DOWN_IN_SHOT", "INHERITED"}
+#: an action may legitimately repeat when the shot says so, with a reason.
+ACTION_REPEAT_VALUES = {"NEW", "REPEAT"}
+#: the only three legal relations between a pair of shots' time and space.
+PERCEPTION_TIME_SPACE_VALUES = {
+    "SAME_CONTINUOUS", "DECLARED_TIME_JUMP", "DECLARED_SCENE_CHANGE",
+}
+PERCEPTION_CHARACTER_FIELDS = ("screen_slot", "eyeline_target")
+PERCEPTION_PROP_FIELDS = ("holder", "pickup_state")
+PERCEPTION_FIELDS = ("on_screen", "characters", "props", "action_repeat", "time_space")
+
 
 def episode_number(value: Any) -> int | None:
     match = re.search(r"(?:^|[^A-Z])E(\d+)", str(value or "").upper())
@@ -207,6 +232,62 @@ def compare_persistent_states(previous: dict[str, Any], current: dict[str, Any])
         uid=str(current.get("unit_id") or "UNKNOWN"),
         allowed=_authorized_changes(current),
     )
+
+
+def _perception(record: dict[str, Any]) -> dict[str, Any]:
+    block = record.get("perception_state")
+    return block if isinstance(block, dict) else {}
+
+
+def _declared_values(block: dict[str, Any], key: str, field: str) -> list[str]:
+    """Declared values of one perception field, upper-cased.  Unreadable rows contribute nothing."""
+    raw = block.get(key)
+    rows: list[Any] = []
+    if isinstance(raw, list):
+        rows = raw
+    elif isinstance(raw, dict):
+        rows = [value for value in raw.values() if isinstance(value, dict)]
+    values: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        value = str(row.get(field) or "").strip().upper()
+        if value:
+            values.append(value)
+    return values
+
+
+def validate_perception_state(record: dict[str, Any], *, uid: str) -> list[str]:
+    """Vocabulary check on one shot's perception block — never a coverage requirement.
+
+    An episode that declares no ``perception_state`` gets nothing here: the cross-shot
+    checks report UNKNOWN for it, which is neither a failure nor a pass.  A record that
+    DOES declare one must use the declared vocabulary, so a typo cannot quietly read as
+    a different state.
+    """
+    block = _perception(record)
+    if not block:
+        return []
+    failures: list[str] = []
+    declared_space = str(block.get("time_space") or "").strip().upper()
+    if not declared_space:
+        failures.append(f"PERCEPTION_TIME_SPACE_MISSING:{uid}")
+    elif declared_space not in PERCEPTION_TIME_SPACE_VALUES:
+        failures.append(f"PERCEPTION_TIME_SPACE_INVALID:{uid}:{declared_space}")
+    for value in _declared_values(block, "props", "pickup_state"):
+        if value not in PROP_PICKUP_STATES:
+            failures.append(f"PERCEPTION_PICKUP_STATE_INVALID:{uid}:{value}")
+    repeat = block.get("action_repeat")
+    if isinstance(repeat, dict):
+        status = str(repeat.get("status") or "").strip().upper()
+        if status and status not in ACTION_REPEAT_VALUES:
+            failures.append(f"PERCEPTION_ACTION_REPEAT_INVALID:{uid}:{status}")
+        if status == "REPEAT" and not str(repeat.get("reason") or "").strip():
+            failures.append(f"PERCEPTION_ACTION_REPEAT_REASON_MISSING:{uid}")
+    on_screen = block.get("on_screen")
+    if on_screen is not None and not isinstance(on_screen, list):
+        failures.append(f"PERCEPTION_ON_SCREEN_NOT_A_LIST:{uid}")
+    return failures
 
 
 def compile_internal_shot_boundaries(unit: dict[str, Any]) -> dict[str, Any]:

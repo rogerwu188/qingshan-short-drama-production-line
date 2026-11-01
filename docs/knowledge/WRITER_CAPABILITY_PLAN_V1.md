@@ -120,21 +120,85 @@ sets the old status; the receipt gate row no longer contains the old inline expr
 A test asserts the first two readings so a future edit cannot quietly start comparing the gate
 map to `PASS`.
 
-## 6. What needs the line owner before it is wired harder
+## 6. Cross-shot state and perceived state (item 4, 2026-11-01)
 
-1. **Turn a blocking switch on.** Which of the four, if any, should stop S1 rather than record.
-2. **Where `writer_capability/` lives.** This draft reads `<NALU_WORK_ROOT>/<EP>/writer_capability/`;
+The line owner asked that cross-shot checks cover character/prop state AND what the viewer
+perceives, built on the state mechanism that already exists. Three pieces already existed and
+none of them compared a shot pair on these dimensions:
+
+| Existing piece | What it already did | What it could not say |
+| --- | --- | --- |
+| `tools/event_boundary_continuity_contract.py` | per-entity ledger; exit vs entry snapshots | who holds a prop, what a gaze addresses, whether the pair crossed a place or a time |
+| `build_nalu_preproduction.build_transition` | writes a prose bridge between shots | nothing ever compared that prose |
+| `tools/continuity_state_contract_gate.py` | life state, head count, creature form, costume | per entity across the episode, never per shot pair; nothing about props or screen position |
+| `tools/prompt_scope_conflict_gate.py` / `prompt_batch_qa.py` | speaker/face/camera scope at send time; verbatim presence | cross-shot state at all |
+
+**What was built** — one extension of the existing ledger, not a parallel system:
+
+- `tools/event_boundary_continuity_contract.py` gains the vocabulary for five new declared
+  dimensions (`PERCEPTION_PROP_HOLDER_SENTINELS`, `PROP_PICKUP_STATES`, `ACTION_REPEAT_VALUES`,
+  `PERCEPTION_TIME_SPACE_VALUES`, `PERCEPTION_CHARACTER_FIELDS`) and
+  `validate_perception_state()`, which checks a declared block's vocabulary and never demands
+  that a block exist.
+- `tools/cross_shot_state_perception.py` reads that ledger (the same
+  `shot_state_authoring.json` / `qingshan.authored_shot_state_attachment.v1` S2 already
+  consumes) and emits one row **per shot pair**: `prop_holder`, `prop_pickup_state`,
+  `action_repeat`, `character_position` (screen slot + eye-line target) and `time_space`.
+  A prop declared only through the legacy `persistent_state_contract.props` map is still read.
+- `lines/nalu/runtime/tools/prompt_batch_qa.py` calls it per unit inside the existing digest
+  (before submission), attaching `cross_shot_state` to each row and one batch-level summary.
+  It is computed from the contract plus the ledger, so a unit's slice needs no other unit to
+  have run: no global pass, no serialisation of generation.
+
+**The six rules** (severity in brackets):
+
+| Rule | Meaning |
+| --- | --- |
+| `PROP_HELD_WITHOUT_PICKUP` [P1, blocking candidate] | held in N+1, the previous shot places it elsewhere, nothing picks it up, not INHERITED — both shots cited in the writer item |
+| `PROP_RETAKE_UNDECLARED` [P2] | `PUT_DOWN_IN_SHOT`, held again with no declared re-take |
+| `ACTION_REPEAT_WITHOUT_STATE_CHANGE` [MERGE] | identical action text and identical state across the pair — a merge proposal, never a failure |
+| `EYELINE_ADDRESSEE_NOT_IN_FRAME` [P2] | a gaze addressed at a character while the shot declares nobody in frame |
+| `SCREEN_SLOT_CHANGED_WITHOUT_CUT` [P2] | a person changes slot with no cut, jump cut or declared time/space change |
+| `TIME_SPACE_CHANGE_UNDECLARED` [P2] | the pair crosses a location or a time while declaring `SAME_CONTINUOUS` |
+
+**Three states per row, never two** — `PASS`, `FINDING`, `UNKNOWN`. An episode with no ledger
+is `UNKNOWN` on every pair: never a failure, never a silent pass. Every report row carries
+`planned` (ledger/contract) and `observed` (a real QA measurement, if one exists) separately;
+no producer writes an observation file today, so `observed` is `UNKNOWN` and an inconclusive
+measurement stays `UNKNOWN` too.
+
+**Legal by construction** (each proven by a test): off-screen addressee with nobody in frame,
+over-the-shoulder occlusion, declared jump cut, declared cut device, declared time jump,
+declared scene change, a pickup staged on screen (`PICKED_UP_IN_SHOT`), a prop only mentioned
+in the action text, an inherited holder, a declared repeat with a reason.
+
+**Nothing blocks a paid run by default** — `configs/CROSS_SHOT_STATE_PERCEPTION_V1.json`
+ships `blocking: false`; a missing config is report-only as well. The report and the writer
+item list are written either way; turning the switch on only changes `would_block`.
+
+## 7. What needs the line owner before it is wired harder
+
+1. **Turn a blocking switch on.** Which of the four writer-capability switches, or the
+   cross-shot `blocking` switch, if any, should stop S1/the batch rather than record.
+2. **Who authors `perception_state`.** The five new dimensions are declared per shot; until an
+   episode's writer/adaptor fills them the checks report `UNKNOWN`. E11–E13 have no ledger at
+   all and E59 has 30/30 — whether backfilling E14+ is a writer task or an adapter task is a
+   line-owner call.
+3. **An observation producer.** No tool writes a per-shot observation file, so `observed` is
+   `UNKNOWN` everywhere. Which existing measurement (Q1 frame identity, Q2 face crops) should
+   be promoted into `observed` is a line-owner decision — this package does not guess one.
+4. **Where `writer_capability/` lives.** This draft reads `<NALU_WORK_ROOT>/<EP>/writer_capability/`;
    the runtime root is the alternative, and the choice changes what the receipt can point at.
-3. **Script-review reviewer identity.** The review reuses `NALU_QA_REVIEWER_ID` /
+5. **Script-review reviewer identity.** The review reuses `NALU_QA_REVIEWER_ID` /
    `NALU_QA_REVIEW_METHOD`; whether a synopsis reader should be a distinct identity from the
    frame reviewer is a line-owner call.
-4. **The `adapted_new` scope is already decided** (allowed with a source trace, no per-episode
+6. **The `adapted_new` scope is already decided** (allowed with a source trace, no per-episode
    cap, MAJOR_CHANGE escalated separately). What is not decided is who signs a MAJOR_CHANGE
    escalation and where the signed order lives.
-5. **Real audience read.** Everything here is AI_REVIEW. A human blind read is still the only
+7. **Real audience read.** Everything here is AI_REVIEW. A human blind read is still the only
    thing that answers "would an audience watch this", and this package does not produce one.
 
-## 7. Rollback
+## 8. Rollback
 
 | To undo… | Do | Result |
 | --- | --- | --- |
@@ -146,7 +210,7 @@ map to `PASS`.
 Nothing here mutates a sealed episode, a paid receipt or a transaction, so a rollback never
 requires touching production evidence.
 
-## 8. Tests
+## 9. Tests
 
 ```
 /Users/rogerwu/nalu/.qingshan-venv/bin/python -m pytest \
@@ -154,14 +218,24 @@ requires touching production evidence.
   tools/tests/test_adaptation_policy.py \
   tools/tests/test_script_review.py \
   tools/tests/test_writer_rule8_response.py \
-  tools/tests/test_writer_capability.py
+  tools/tests/test_writer_capability.py \
+  tools/tests/test_cross_shot_state_perception.py \
+  tools/tests/test_cross_shot_prompt_batch_wiring.py
 ```
+
+`test_cross_shot_state_perception.py` proves each of the six rules fires on an invented pair
+and each legal case (off-screen addressee with nobody in frame, over-the-shoulder occlusion,
+declared jump cut, declared cut device, declared time jump, declared scene change, on-screen
+pickup, prop only mentioned, inherited holder, declared repeat with a reason) stays silent.
+`test_cross_shot_prompt_batch_wiring.py` drives the real per-unit slice: a missing ledger is
+`UNKNOWN` and the digest still completes, a P1 is listed and refuses nothing, and two units
+give identical results whichever order they run in.
 
 No test reads `workflow/`, no test reaches the network, and every fixture chapter and every
 narrative fragment used in a test is invented for the test. The repo continues to hold no
 script text from the novel or from any episode.
 
-## 9. Not built, on purpose
+## 10. Not built, on purpose
 
 - No fixed counts anywhere: no hooks per episode, no fights per N episodes, no "hook within N
   seconds". The arc ledger's 3–6 episode window is how far ahead the sheet must look, not what

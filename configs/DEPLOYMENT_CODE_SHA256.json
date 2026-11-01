@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2321,
+  "file_count": 2325,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -52,7 +52,7 @@
       "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
     },
     {
-      "path": "agent_factory/claude_writer/runtime_templates/\u89c2\u4f17\u5df2\u77e5\u6e05\u5355.md",
+      "path": "agent_factory/claude_writer/runtime_templates/观众已知清单.md",
       "sha256": "20aeda7beb8aaf9aa591df6a1aee5254d48bb5c0868fec2fd0fc05f81a9b9830"
     },
     {
@@ -226,6 +226,10 @@
     {
       "path": "configs/COMBAT_ACTION_LIBRARY_V1.json",
       "sha256": "23af3e4be699f125e925fa90af3f470cc671b15b0528d9fbe9b6531ad25c9c96"
+    },
+    {
+      "path": "configs/CROSS_SHOT_STATE_PERCEPTION_V1.json",
+      "sha256": "07f91b33ae05a11515ee2ae6c8c6e7a46ad23081a81290934acfce234a5f6ad2"
     },
     {
       "path": "configs/DIRECTION_POLICY_V1.json",
@@ -785,7 +789,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_qa.py",
-      "sha256": "15e7e0dd7799a842f4e290f5a1e02e5b119c5ae47523cd1ab26a3fa45b2a5949"
+      "sha256": "9e9ee4f35b8ad88dd6a0877d88d9ac57ee5c337b4f5ce2671ac9591ba485a158"
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_register.py",
@@ -4008,6 +4012,10 @@
       "sha256": "b1a86baff5fb400d3eba1f86df0a8d76f342ba1ea9e58ed26eed15ad2ad3fcfc"
     },
     {
+      "path": "tools/cross_shot_state_perception.py",
+      "sha256": "7f519fc9662359ca26cd3b7de9df8dc96a12d8b8d78c51de25934755ad05575c"
+    },
+    {
       "path": "tools/cut_motivation_gate.py",
       "sha256": "4266c618cff7fa796fe3e9f4bcac531ec431b19c2a5bfda80f1b4f0caaced6b8"
     },
@@ -4457,7 +4465,7 @@
     },
     {
       "path": "tools/event_boundary_continuity_contract.py",
-      "sha256": "46cc0f641f65541f3d2ca42cbebe81541471b20d01d423c487e45af00843a0d7"
+      "sha256": "e24baa20690a6dcca3f6aefb9251fef749e7cd7542fedd32e1057ae287b10ad0"
     },
     {
       "path": "tools/evidence_gate_watch.py",
@@ -7290,6 +7298,14 @@
     {
       "path": "tools/tests/test_cross_shot_ahash_gate.py",
       "sha256": "b6899e671153a263d81b5679e919564c239303c5c4fe095474aeb27ca24c081b"
+    },
+    {
+      "path": "tools/tests/test_cross_shot_prompt_batch_wiring.py",
+      "sha256": "4520f200c430ed3abf9724618fc9e08ac6fbfae9f131a438a28dbd8f096c546e"
+    },
+    {
+      "path": "tools/tests/test_cross_shot_state_perception.py",
+      "sha256": "4a6e07042e71336720b3ac8c6b4bbb6f6a0b4355758b7ddf3d14c9ceaa48e631"
     },
     {
       "path": "tools/tests/test_customer_producer_workbench.py",

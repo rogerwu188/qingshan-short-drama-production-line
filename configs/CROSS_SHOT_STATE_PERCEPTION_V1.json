@@ -1,0 +1,61 @@
+{
+  "schema": "qingshan.cross_shot_state_perception_config.v1",
+  "policy": "WRITER_CAPABILITY_V1",
+  "status": "DRAFT",
+  "blocking": false,
+  "blocking_note": "Line owner 2026-11-01 item 4: cross-shot checks cover state AND what the viewer perceives.  Whether a PROP_HELD_WITHOUT_PICKUP (P1) STOPS a paid prompt batch is the line owner's switch.  It is off here; the checks write a report and a writer-facing item list either way.",
+  "state_file": {
+    "authoring_filename": "shot_state_authoring.json",
+    "schema": "qingshan.authored_shot_state_attachment.v1",
+    "resolved_from": "preproduction/<EP>/ (the file build_nalu_preproduction.py --state-authoring already consumes)",
+    "absent_behaviour": "UNKNOWN for every check — never a failure, never a silent pass"
+  },
+  "observations": {
+    "producer": null,
+    "note": "No producer writes a per-shot observation file today.  When one does, its rows sit beside the planned state in every report row as OBSERVED; an inconclusive measurement is UNKNOWN."
+  },
+  "rules": {
+    "PROP_HELD_WITHOUT_PICKUP": {
+      "severity": "P1",
+      "kind": "BLOCKING_CANDIDATE",
+      "meaning": "prop held in shot N+1, the previous shot has it elsewhere, nothing between them picks it up and it is not INHERITED"
+    },
+    "PROP_RETAKE_UNDECLARED": {
+      "severity": "P2",
+      "kind": "FLAG",
+      "meaning": "prop PUT_DOWN_IN_SHOT, held again with no declared re-take"
+    },
+    "ACTION_REPEAT_WITHOUT_STATE_CHANGE": {
+      "severity": "MERGE",
+      "kind": "MERGE_PROPOSAL",
+      "meaning": "identical action text and identical state across a pair — propose merging, do not fail"
+    },
+    "EYELINE_ADDRESSEE_NOT_IN_FRAME": {
+      "severity": "P2",
+      "kind": "CONTRADICTION",
+      "meaning": "a gaze addressed at a character while the shot declares nobody in frame"
+    },
+    "SCREEN_SLOT_CHANGED_WITHOUT_CUT": {
+      "severity": "P2",
+      "kind": "CONTRADICTION",
+      "meaning": "a person changes screen slot with no cut, jump cut or declared time/space change to carry the move"
+    },
+    "TIME_SPACE_CHANGE_UNDECLARED": {
+      "severity": "P2",
+      "kind": "FLAG",
+      "meaning": "the pair crosses a location or a time while declaring SAME_CONTINUOUS"
+    }
+  },
+  "legal_by_construction": {
+    "off_screen_addressee_with_nobody_in_frame": "an eye-line target that is a sentinel or OFF_SCREEN:/OBJECT:/NOBODY is not an addressee",
+    "over_the_shoulder_occlusion": "the target is on screen and occluded_by is declared — occlusion is not absence",
+    "declared_jump_cut": "perception_state.jump_cut carries the slot move",
+    "declared_time_jump": "perception_state.time_space = DECLARED_TIME_JUMP",
+    "pickup_on_screen": "perception_state.props[].pickup_state = PICKED_UP_IN_SHOT",
+    "prop_only_mentioned": "a prop named in action text but absent from the props block is not held"
+  },
+  "wiring": {
+    "entry_point": "lines/nalu/runtime/tools/prompt_batch_qa.py digest — per shot pair, before submission",
+    "granularity": "per pair, pure functions, no global pass, no serialisation of unit generation"
+  }
+}
