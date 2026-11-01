@@ -257,7 +257,7 @@
     },
     {
       "path": "configs/H3_BURNED_TEXT_COVER_V1.json",
-      "sha256": "b0e6224275d4f7a96878b91177f832f2436bc113fd32c656feadeb139b4b5eba"
+      "sha256": "ecc748ecd0d27f7cb94cbc16c0ff618473c0206b307265db140e2025220d4a3b"
     },
     {
       "path": "configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json",
@@ -393,7 +393,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "2602768699d5da571cf047b37733778f1947d86bc1a620962dfdab8ca5e5c6d2"
+      "sha256": "a92c3d8d8b889d8e510a2dc87f8e11f6317566736460b0a01d0af433fac1f01a"
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
@@ -3713,7 +3713,7 @@
     },
     {
       "path": "tools/burned_text_cover.py",
-      "sha256": "7af7864230d2a66932fd7130801008feb26603f8b470bf2d7c2da8131dc0fe9c"
+      "sha256": "3d281ab6f7715377e3a5858d519b961976c82dd0107e719f271a5fd4fdb5468c"
     },
     {
       "path": "tools/camera_grammar_policy.py",
@@ -7133,7 +7133,7 @@
     },
     {
       "path": "tools/tests/test_burned_text_cover.py",
-      "sha256": "958e0a47d3f5aac58f35399cea3a356b419903604300ac4fc626c777d105f25a"
+      "sha256": "8624382e16e43aa704f9a28b83c23759109e0836cff7067878a4dcc7b7b59bca"
     },
     {
       "path": "tools/tests/test_burnin_subtitle_time_mapping.py",
