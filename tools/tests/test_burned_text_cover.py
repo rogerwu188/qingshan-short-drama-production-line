@@ -54,10 +54,13 @@ class VerifyTests(unittest.TestCase):
         out = btc.verify([hit(1.5, "许叔去过吗")], self.CAPTIONS, CFG)
         self.assertEqual(out["status"], "PASS")
 
-    def test_text_outside_the_bar_fails(self):
-        out = btc.verify([hit(1.5, "许叔去过吗", y=(0.40, 0.44))], self.CAPTIONS, CFG)
-        self.assertEqual(out["status"], "FAIL")
-        self.assertEqual(len(out["text_outside_bar"]), 1)
+    def test_text_away_from_the_band_is_recorded_and_ignored(self):
+        # line owner 2026-11-01: the bar hides the burned dialogue line; scene text far from the band is the
+        # period/anachronism gate's business and must not fail the cover check
+        # "许叔去过吗" is the caption this test's CAPTIONS carries at t=1.5, so use words that are NOT on screen
+        out = btc.verify([hit(1.5, "冰老", y=(0.40, 0.44))], self.CAPTIONS, CFG)
+        self.assertEqual(out["status"], "PASS")
+        self.assertEqual(out["ignored_non_dialogue_text"][0]["reason"], "AWAY_FROM_BURN_BAND")
 
     def test_burned_line_bleeding_through_where_no_caption_is_shown_fails(self):
         out = btc.verify([hit(3.0, "我们找冯易安")], self.CAPTIONS, CFG)
@@ -104,14 +107,16 @@ class VerifyScopeTests(unittest.TestCase):
         self.assertEqual(out["ignored_non_dialogue_text"][0]["text"], "猿明")
 
     def test_text_near_the_band_outside_the_bar_still_fails(self):
-        hits = [(1.2, "多谢邵兄好意", 0.9, 0.20, 0.84, 0.80, 0.90)]
+        # near the band and NOT the caption on screen: a burned line the bar did not cover
+        hits = [(1.2, "我们找冯易安", 0.9, 0.20, 0.84, 0.80, 0.90)]
         self.assertEqual(btc.verify(hits, self.CAPTIONS, CFG)["status"], "FAIL")
 
-    def test_uncovered_caption_anywhere_fails(self):
+    def test_a_second_copy_of_the_caption_far_from_the_band_is_ignored(self):
+        # same words as the caption on screen, so it is our caption (a duplicate overlay), not a burned line
         hits = [(1.2, "多谢邵兄好意", 0.9, 0.20, 0.02, 0.80, 0.10)]
         out = btc.verify(hits, self.CAPTIONS, CFG)
-        self.assertEqual(out["status"], "FAIL")
-        self.assertEqual(out["text_outside_bar"][0]["text"], "多谢邵兄好意")
+        self.assertEqual(out["status"], "PASS")
+        self.assertEqual(out["ignored_non_dialogue_text"][0]["reason"], "CAPTION_ON_SCREEN")
 
 
 class CaptionPlateTests(unittest.TestCase):
@@ -130,3 +135,20 @@ class CaptionPlateTests(unittest.TestCase):
                                source.index('last = f"[v{len(events)}]"')]
         self.assertNotIn('cover["rgba"]', caption_block)
         self.assertNotIn('cover["y"]', caption_block)
+
+
+class CaptionOutsideBandTests(unittest.TestCase):
+    """Our own transparent-plate caption sits just outside the band; it is not a burned line (E13 2026-11-01)."""
+
+    CAPTIONS = [{"text": "或者年轻二十岁，", "start": 2.46, "end": 6.54}]
+
+    def test_our_caption_just_below_the_band_is_ignored(self):
+        hits = [(2.5, "或者年轻二十岁，", 0.98, 0.265, 0.813, 0.714, 0.848)]
+        out = btc.verify(hits, self.CAPTIONS, CFG)
+        self.assertEqual(out["status"], "PASS")
+        self.assertEqual(out["ignored_non_dialogue_text"][0]["reason"], "CAPTION_ON_SCREEN")
+
+    def test_a_burned_line_the_caption_does_not_match_still_fails(self):
+        hits = [(2.5, "钱伯没撑过去", 0.98, 0.265, 0.813, 0.714, 0.848)]
+        out = btc.verify(hits, self.CAPTIONS, CFG)
+        self.assertEqual(out["status"], "FAIL")
