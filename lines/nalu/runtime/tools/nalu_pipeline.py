@@ -121,6 +121,10 @@ ADS_TRANSACTIONS = ADS_ROOT / "transactions"
 AD_SLOT_CONTRACT = ENGINE / "configs/AD_SLOT_CONTRACT_V1.json"
 AD_TAIL_PACKAGE_TOOL = ENGINE / "tools/ad_tail_package.py"
 AD_TAIL_INSERT_TOOL = ENGINE / "tools/ad_tail_insert.py"
+#: Writer-capability inputs (arc plan, adaptation disposition, script review, Rule 8
+#: response).  Line owner 2026-11-01.  The profile switch lives in the tool so S1, the
+#: writer finalize path and any CLI all read ONE decision.
+WRITER_CAPABILITY_TOOL = ENGINE / "tools/writer_capability.py"
 ADFORGE_ADAPTER_TOOL = ENGINE / "tools/adforge_adapter.py"
 
 SCHEMA = "nalu.pipeline_state.v1"
@@ -1588,6 +1592,35 @@ def _line_upgrade_gate_summary(ctx: Ctx, step: str) -> dict[str, Any]:
     return summary
 
 
+# Writer-capability input locations, relative to the episode's own directories.  A
+# writer puts them where the tools' defaults already look; S1 only reads.
+WRITER_CAPABILITY_INPUT_DIR = "writer_capability"
+
+
+def writer_capability_record(ctx: "Ctx", p: "Paths") -> dict[str, Any]:
+    """Read the four writer-capability inputs for this episode; never raise.
+
+    Under LEGACY this returns ``NOT_APPLICABLE_LEGACY_PROFILE`` and nothing is read.
+    Under WRITER_CAPABILITY_V1 it reports what exists, what its validator said and
+    what is still owed.  It cannot block: the switches are in the config and all of
+    them ship off.
+    """
+    try:
+        import writer_capability as _wc
+    except Exception as exc:  # noqa: BLE001 — a missing tool is a record, not a stage error
+        return {"schema": "qingshan.writer_capability_stage.v1",
+                "status": "TOOL_UNAVAILABLE", "reason": f"{type(exc).__name__}: {exc}"}
+    root = Path(str(getattr(p, "work", "")) or "") / WRITER_CAPABILITY_INPUT_DIR
+    return _wc.stage_summary(
+        ctx.episode,
+        arc_ledger=root / "ARC_LEDGER.json",
+        adaptation_disposition=root / f"{ctx.episode}_ADAPTATION_DISPOSITION.json",
+        script_review_report=root / f"{ctx.episode}_SCRIPT_REVIEW_REPORT.json",
+        rule8_report=root / f"{ctx.episode}_RULE8_RESPONSE.json",
+        narrative=getattr(p, "narrative", None),
+    )
+
+
 def stage_s1(ctx: Ctx) -> StageResult:
     p = ctx.p
     _record_line_upgrade(ctx, "line_upgrade_preflight", "preflight")  # advisory read side
@@ -1597,6 +1630,13 @@ def stage_s1(ctx: Ctx) -> StageResult:
         res.blockers = [f"SCRIPT_LAYER_MISSING:{path}" for path in missing]
         return res
     layer_shas = {name: sha256_file(path) for name, path in p.layers().items()}
+
+    # Writer-capability record (line owner 2026-11-01): under WRITER_CAPABILITY_V1 an
+    # episode must show an arc ledger, its own adaptation disposition, an answered
+    # pre-lock script review and its Rule 8 responses; under LEGACY none of it is
+    # looked at.  Recorded, never raised: every blocking switch ships off, so this
+    # cannot change what S1 decides today.  See docs/knowledge/WRITER_CAPABILITY_PLAN_V1.md.
+    writer_capability = writer_capability_record(ctx, p)
 
     writer_handoff_report = p.logs / f"{ctx.run_id}_writer_handoff_verification.json"
     if _policy.selected() == _policy.CURRENT:
@@ -1723,6 +1763,7 @@ def stage_s1(ctx: Ctx) -> StageResult:
             f"CANONICAL_WRITER_HANDOFF_FAIL:{code}"
             for code in (writer_handoff_verdict.get("failures") or ["VERIFY_FAILED"])[:8]
         ]
+    res.details["writer_capability"] = writer_capability
     res.details["project_scope_check"] = scope_check
     res.details["writer_selfcheck_seq29"] = {"status": selfcheck.get("status"), "enforced": selfcheck.get("enforced"),
                                              "failures": (selfcheck.get("failures") or [])[:12], "failure_count": len(selfcheck.get("failures") or []),
@@ -1775,6 +1816,15 @@ def stage_s1(ctx: Ctx) -> StageResult:
             "exit_code": selfcheck_step["exit_code"],
             "report": str(selfcheck_out),
             "report_sha256": sha256_file(selfcheck_out),
+        },
+        # Recorded so a later reader can tell which writer-capability profile produced
+        # this receipt without re-deriving it from the episode number.
+        "writer_capability": {
+            "profile": writer_capability.get("profile"),
+            "status": writer_capability.get("status"),
+            "reason": writer_capability.get("reason"),
+            "owed": writer_capability.get("owed") or [],
+            "sealed_binding": (writer_capability.get("sealed_binding") or {}).get("status"),
         },
         "gates": {
             "canonical_writer_handoff": writer_handoff_gate_status(writer_handoff_ok, writer_handoff_verdict),

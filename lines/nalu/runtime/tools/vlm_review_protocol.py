@@ -412,6 +412,54 @@ QUESTIONNAIRES: dict[str, dict[str, dict[str, Any]]] = {
     },
 }
 
+#: SCRIPT-STAGE independent read (line owner 2026-11-01).  Before the script is
+#: locked and before any paid prep, a reviewer that did not write it reads an
+#: ANONYMISED synopsis and answers these from the text alone.  Nothing here asks
+#: for a score, and a FAIL answer is not a rejection: it is a confusion point the
+#: writer must answer (script_review.py).  The questions describe what a reader
+#: needs from a script, not a quota of hooks, fights or turns.
+QUESTIONNAIRES["script_review"] = {
+    "can_state_each_goal": {
+        "enum": PF, "maps_to": ["script_review.reader_goal"],
+        "question": "From the text alone, can you state what each principal character wants "
+                    "in this episode, and are those wants different from each other?"},
+    "cause_and_effect_followable": {
+        "enum": PF, "maps_to": ["script_review.causal_chain"],
+        "question": "Does every event follow from the one before it, so you can say why a "
+                    "character did what they did without being told by narration?"},
+    "conflict_arrives_in_time": {
+        "enum": PF, "maps_to": ["script_review.conflict_timing"],
+        "question": "Does the episode's central conflict or pressure begin early enough that "
+                    "the text holds your attention, rather than after a long stretch of "
+                    "introduction?  Answer in terms of scenes, not seconds."},
+    "payoff_is_felt": {
+        "enum": PFN, "maps_to": ["script_review.delivery"],
+        "question": "Does the episode deliver something the reader can feel (a choice, a "
+                    "reveal, a loss, a turn in a relationship)?  NOT_APPLICABLE only when this "
+                    "episode is deliberately quiet — say so and why in the observation."},
+    "end_leaves_a_live_question": {
+        "enum": PFN, "maps_to": ["script_review.continuation"],
+        "question": "Does the end leave a question you actually want answered next episode — "
+                    "one the text earned, not one raised and answered inside the same scene?  "
+                    "NOT_APPLICABLE when the episode deliberately closes."},
+    "no_hidden_knowledge_trick": {
+        "enum": PF, "maps_to": ["qingshan.adaptation_policy_v1.forbidden"],
+        "question": "Is every character who appears already knowable to the audience — no "
+                    "tension created by withholding a name or fact the viewpoint character "
+                    "already knows?"},
+    "names_and_places_clear": {
+        "enum": PFN, "maps_to": ["script_review.clarity"],
+        "question": "Can you tell the people and places apart as the text introduces them, "
+                    "without a cast list?  NOT_APPLICABLE when the episode is a single "
+                    "character in a single place."},
+    "no_p0_p1_confusion": {
+        "enum": PF, "maps_to": ["script_review.confusion"],
+        "question": "Is the text free of a blocking confusion — a scene you cannot follow at "
+                    "all, a contradiction with an earlier scene in the same episode, or a "
+                    "character doing something the text has not made possible?  Answer FAIL and "
+                    "list every point in confusion_points with its scene label."},
+}
+
 #: structured observed lists the reviewer must fill, per kind.  Values are
 #: checked against the request's own closed vocabulary; anything genuinely
 #: unexpected is reported with the ``UNDECLARED:`` prefix, never silently.
@@ -447,6 +495,11 @@ OBSERVED_FIELDS: dict[str, dict[str, str]] = {
         "observed_space_anchors": "space_anchors",
         "observed_text_strings": "free",
     },
+    "script_review": {
+        # the synopsis is anonymised, so the ONLY thing expected here is what the
+        # reader actually read, in their own words.
+        "observed_read_scenes": "free",
+    },
 }
 
 UNDECLARED_PREFIX = "UNDECLARED:"
@@ -481,9 +534,35 @@ SCALE_AWARE_SPACE_ANCHORS_QUESTION = (
     "elements in their mapped relationship.  A shown element must not contradict its mapped position.")
 
 
+def _script_reviewer_contract() -> dict[str, Any]:
+    """The reviewer contract for a SCRIPT read.  Same identity and sha binding as
+    every other review; the rules differ because a synopsis has no pixels and a
+    script review never admits anything — it raises questions for the writer."""
+    return {
+        "reviewer": REVIEWER_ID,
+        "review_method": "AI_REVIEW",
+        "who_reviews": "A reviewer that did not write this script reads the anonymised synopsis "
+                       "and answers from the text alone.",
+        "rules": [
+            "Read the synopsis end to end before answering anything.",
+            "FAIL means the text did not give you what the question asks for; it is a finding "
+            "for the writer to answer, never a rejection of the script.",
+            "List every point that confused you in confusion_points, with its scene label, the "
+            "question in your own words and why the text left it open.",
+            "Do not score the script and do not count questions the text raises and then "
+            "answers inside the same scene.",
+        ],
+    }
+
+
 def build_request(kind: str, episode: str, *, items_filter: list[str] | None = None,
                   media_override: dict[str, list[dict[str, Any]]] | None = None,
-                  out: Path | None = None) -> dict[str, Any]:
+                  out: Path | None = None, **kwargs: Any) -> dict[str, Any]:
+    """Build a review request.
+
+    ``**kwargs`` carries kind-specific inputs that are not media (currently only
+    ``narrative=`` for ``script_review``); every other kind ignores them.
+    """
     if kind not in KINDS:
         raise SystemExit(f"--kind must be one of {list(KINDS)}")
     exp = Expectations(episode)
@@ -596,6 +675,29 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
             row["media"] = [_media_row(clip, "UNIT_VIDEO")]
             row["media"] += [_media_row(item, "ORIGINAL_RESOLUTION_FRAME") for item in frames]
             row["media"].append(_media_row(sheet, "CONTACT_SHEET_2FPS"))
+    elif kind == "script_review":
+        # SCRIPT-STAGE read (line owner 2026-11-01): one item, the anonymised
+        # synopsis.  Anonymisation lives in script_review.py so this module keeps
+        # knowing nothing about narratives; only the binding is here.
+        import script_review as _script_review
+        synopsis_path, anon, narrative_path = _script_review.synopsis_for(
+            episode, kwargs.get("narrative"))
+        rows = [{
+            "item_id": "SYNOPSIS",
+            "media": [_media_row(synopsis_path, "ANONYMISED_SYNOPSIS")],
+            "scene_labels": anon["scene_labels"],
+            "anonymisation": {
+                "narrative_path": narrative_path,
+                "narrative_sha256": sha256_file(Path(narrative_path)),
+                "synopsis_path": str(synopsis_path),
+                "synopsis_sha256": sha256_file(synopsis_path),
+                "dropped_preamble_lines": anon["dropped_preamble_lines"],
+                "what_was_replaced": ["episode number", "version", "chapter number",
+                                      "season position", "thread label", "location/time ids"],
+            },
+        }]
+        for row in rows:
+            row["closed_vocabulary"] = {}
     else:  # post_gen_plot
         rows = exp.unit_plot_items()
         for row in rows:
@@ -633,7 +735,7 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
         "created_by": TOOL_ID,
         "visual_post_qa_profile": visual_qa_profile,
         "visual_post_qa_policy": policy_snapshot(visual_qa_profile),
-        "reviewer_contract": {
+        "reviewer_contract": _script_reviewer_contract() if kind == "script_review" else {
             "reviewer": REVIEWER_ID,
             "review_method": REVIEW_METHOD,
             "who_reviews": "The named reviewer actually opens every media path "
@@ -880,7 +982,13 @@ def submit(request_path: Path, answers_path: Path, *, out: Path | None = None,
     if not isinstance(answers, dict):
         raise SystemExit(f"unreadable answers: {answers_path}")
 
-    failures, verdicts = validate_answers(request, request_sha, answers)
+    if request.get("kind") == "script_review":
+        # a script review is validated by the script rules (no PASS/REJECT), but
+        # everything else — the sha binding, the identity, the record — is here.
+        import script_review as _script_review
+        failures, verdicts = _script_review.validate(request, request_sha, answers)
+    else:
+        failures, verdicts = validate_answers(request, request_sha, answers)
     episode, kind = request["episode"], request["kind"]
     out = Path(out) if out else (
         Path(request_path).with_name(Path(request_path).name.replace("_request.json",
@@ -966,6 +1074,9 @@ def materialise_kind(kind: str, episode: str, submitted: dict[str, Any],
     if kind == "video_q2":
         import video_q2_builder
         return video_q2_builder.materialise(episode, submitted, submitted_path)
+    if kind == "script_review":
+        import script_review
+        return script_review.materialise(episode, submitted, submitted_path)
     raise ValueError(f"unknown kind {kind}")
 
 

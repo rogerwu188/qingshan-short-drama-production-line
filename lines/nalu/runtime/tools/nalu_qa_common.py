@@ -117,7 +117,18 @@ TEMPLATE_MARKER = "__NOT_A_REVIEW_FILL_EVERY_NULL__"
 #: START frame that shot_media_admission_gate.precheck_submission_inputs demands
 #: (``_requires_exact_action_role_evidence``: interaction_topology_contract.required)
 #: before any paid VIDEO submit: who initiates, who receives, who owns each prop.
-KINDS = ("identity", "keyframe", "start_frame", "post_gen_plot", "video_q2", "action_role")
+#: ``script_review`` is the SCRIPT-STAGE independent read (line owner 2026-11-01):
+#: before the script is locked and before any paid prep, a reviewer that did not
+#: write it reads an anonymised synopsis and answers a closed questionnaire from
+#: the text alone.  It is a kind of THIS protocol so it is bound, validated and
+#: audited exactly like every other nalu review — but its item verdict is never
+#: PASS: a script review raises confusion points the writer must answer, and it is
+#: non-blocking unless the line owner turns the switch on.  See script_review.py.
+KINDS = ("identity", "keyframe", "start_frame", "post_gen_plot", "video_q2", "action_role",
+         "script_review")
+#: kinds whose item verdict can admit an asset.  script_review is deliberately not
+#: one: nothing about a synopsis is admitted or rejected.
+MEDIA_KINDS = ("identity", "keyframe", "start_frame", "post_gen_plot", "video_q2", "action_role")
 #: engine-root receipt dir for qingshan.exact_output_action_role_verification.v1
 ACTION_ROLE_EVIDENCE_RELDIR = "reports/action_role_evidence"
 
