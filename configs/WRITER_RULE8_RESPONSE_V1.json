@@ -1,0 +1,33 @@
+{
+  "schema": "qingshan.writer_rule8_response_config.v1",
+  "policy": "WRITER_CAPABILITY_V1",
+  "status": "DRAFT",
+  "blocking": false,
+  "blocking_note": "Line owner 2026-11-01: Rule 8 becomes MUST-RESPOND (the writer states where it happens and cites script evidence), but whether an unanswered response STOPS S1 is the line owner's switch.  It is off here.",
+  "authorization": {
+    "line_owner": "Roger",
+    "decided_on": "2026-11-01",
+    "quote": "Rule 8 becomes MUST-RESPOND: for conflict, pressure, action, turn, payoff the writer states where it happens and cites script evidence (scene/shot id or line); NOT_APPLICABLE allowed with a reason. Do not merely check non-empty fields: validate that cited evidence ids exist in the episode's narrative/contract. Never suggest adding fights/reversals to pass."
+  },
+  "items": {
+    "R8A": {
+      "contract_field": "pressure_source",
+      "required": "where the external pressure enters, cited to a shot or scene id",
+      "selfcheck_codes": ["R8A_PRESSURE_SOURCE_MISSING", "R8A_PRESSURE_SOURCE_LATE",
+                          "R8A_PRESSURE_SOURCE_NOT_CONCRETE"]
+    },
+    "R8B": {
+      "contract_field": "episode_payoff",
+      "required": "what this episode itself pays off, cited to a shot or scene id",
+      "selfcheck_codes": ["R8B_EPISODE_PAYOFF_MISSING"]
+    },
+    "R8C": {
+      "contract_field": "action_chain",
+      "required": "the want → blocked → act chain, each cited to a shot or scene id",
+      "selfcheck_codes": ["R8C_ACTION_CHAIN_MISSING"]
+    }
+  },
+  "answer_kinds": ["CITED", "NOT_APPLICABLE"],
+  "minimum_reason_chars": 12,
+  "not_a_quota": "An unanswered item is a defect; a quiet episode is not.  NOT_APPLICABLE with a reason is a complete answer."
+}
