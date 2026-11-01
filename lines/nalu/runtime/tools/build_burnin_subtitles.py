@@ -428,7 +428,11 @@ def main() -> int:
         sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
         import burned_text_cover as _btc
         _pol = _btc.policy()
-        band, rgba = _pol["band"], tuple(_pol["bar_rgba"])
+        band = _pol["band"]
+        # Line owner 2026-11-01 (E13 viewing notes: 字幕黑底): the bar exists only to hide the line H3 burned into
+        # the picture, so it is drawn only over the burned-text runs and can be weakened per episode; captions
+        # themselves keep their transparent style with a black outline.
+        rgba = tuple(((_pol.get("bar_rgba_by_episode") or {}).get(a.episode) or _pol["bar_rgba"]))
         cover = {"y": int(round(band["y0"] * H)), "h": int(round((band["y1"] - band["y0"]) * H)),
                  "x0": int(round(band["x0"] * W)), "x1": int(round(band["x1"] * W)), "rgba": rgba,
                  "intervals": (json.loads(a.cover_intervals.read_text(encoding="utf-8")).get("intervals") or []
@@ -444,13 +448,10 @@ def main() -> int:
     first_src = f"[b{len(chain)}]" if chain else "[0:v]"
     for i, (s_t, e_t, ln) in enumerate(events):
         rows = wrap_text(ln["text"]).split("\\N")
-        if cover:
-            img = Image.new("RGBA", (W, cover["h"]), (0, 0, 0, 0)); d = ImageDraw.Draw(img)
-            d.rectangle((cover["x0"], 0, cover["x1"], cover["h"] - 1), fill=cover["rgba"])
-            top = max(0, (cover["h"] - LINE_H * len(rows)) // 2 - 4)
-        else:
-            img = Image.new("RGBA", (W, LINE_H * len(rows) + 24), (0, 0, 0, 0)); d = ImageDraw.Draw(img)
-            top = 8
+        # transparent caption plate, white glyphs, black outline — the burned-text bar (where it is shown at all)
+        # sits behind the caption, never inside it
+        img = Image.new("RGBA", (W, LINE_H * len(rows) + 24), (0, 0, 0, 0)); d = ImageDraw.Draw(img)
+        top = 8
         cap_font = font
         if english:
             # Latin rows run wider than 15-char CJK rows: shrink this caption to fit the frame
@@ -463,7 +464,7 @@ def main() -> int:
                    stroke_width=3, stroke_fill=(0, 0, 0, 255))
         png = png_dir / f"cap_{i + 1:03d}.png"; img.save(png)
         inputs += ["-i", str(png)]
-        y = cover["y"] if cover else H - MARGIN_BOTTOM - img.height
+        y = H - MARGIN_BOTTOM - img.height
         src = first_src if i == 0 else f"[v{i}]"
         chain.append(f"{src}[{len(inputs) // 2}:v]overlay=x=0:y={y}:enable='between(t,{s_t:.3f},{e_t:.3f})'[v{i + 1}]")
     last = f"[v{len(events)}]" if events else first_src

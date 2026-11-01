@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import pathlib
 import sys
 import tempfile
 import unittest
@@ -111,3 +112,21 @@ class VerifyScopeTests(unittest.TestCase):
         out = btc.verify(hits, self.CAPTIONS, CFG)
         self.assertEqual(out["status"], "FAIL")
         self.assertEqual(out["text_outside_bar"][0]["text"], "多谢邵兄好意")
+
+
+class CaptionPlateTests(unittest.TestCase):
+    """E13 2026-11-01 viewing note: subtitles keep a transparent plate; only the burned-text bar is dark."""
+
+    def test_bar_alpha_can_be_set_per_episode(self):
+        policy = json.loads((pathlib.Path(__file__).resolve().parents[2]
+                             / 'configs/H3_BURNED_TEXT_COVER_V1.json').read_text(encoding='utf-8'))
+        self.assertIn('E13', policy['bar_rgba_by_episode'])
+        self.assertLess(policy['bar_rgba_by_episode']['E13'][3], policy['bar_rgba'][3])
+
+    def test_captions_are_never_drawn_on_the_bar(self):
+        source = (pathlib.Path(__file__).resolve().parents[2]
+                  / 'lines/nalu/runtime/tools/build_burnin_subtitles.py').read_text(encoding='utf-8')
+        caption_block = source[source.index('for i, (s_t, e_t, ln) in enumerate(events):'):
+                               source.index('last = f"[v{len(events)}]"')]
+        self.assertNotIn('cover["rgba"]', caption_block)
+        self.assertNotIn('cover["y"]', caption_block)
