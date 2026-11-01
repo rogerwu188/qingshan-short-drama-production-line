@@ -94,7 +94,13 @@ def caption_at(captions: list[dict[str, Any]], t: float) -> str:
 def verify(hits: list[Hit], captions: list[dict[str, Any]], cfg: dict[str, Any]) -> dict[str, Any]:
     """Every CJK hit must sit inside the bar and read as the caption on screen at that moment."""
     v, band = cfg["verify"], cfg["band"]
-    outside, mismatched = [], []
+    # The rule is about the spoken line H3 burns into the picture (K143), not about every character in frame:
+    # E13 S7 stopped on 8 hits that were the meaningless characters painted on VU-014's gate plaque and door
+    # couplet at y≈0.00-0.14 (reported as P2 at Q2, where the period/anachronism OCR gate owns scene signage).
+    # So a hit outside the bar counts only when it sits within ``dialogue_band_pad`` of the burn band, or when it
+    # reads like the caption on screen at that moment (a burned caption the bar failed to cover).
+    pad = float(v.get("dialogue_band_pad", 0.10))
+    outside_candidates, mismatched = [], []
     for t, text, conf, x0, y0, x1, y1 in hits:
         if conf < v["min_confidence"] or cjk_count(text) < v["min_cjk_chars"]:
             continue
@@ -102,7 +108,7 @@ def verify(hits: list[Hit], captions: list[dict[str, Any]], cfg: dict[str, Any])
         inside = band["y0"] <= cy <= band["y1"] and band["x0"] <= cx <= band["x1"]
         row = {"t": round(t, 2), "text": text, "box": [round(x0, 3), round(y0, 3), round(x1, 3), round(y1, 3)]}
         if not inside:
-            outside.append(row)
+            outside_candidates.append(row)
             continue
         # A sample at fps F is placed within half a step of t, so a frame read at t may show the caption that
         # starts or ends within that half step (E12 first real run: 38 of our own captions read 0.01-0.2 s
@@ -115,10 +121,22 @@ def verify(hits: list[Hit], captions: list[dict[str, Any]], cfg: dict[str, Any])
         ratio = max(difflib.SequenceMatcher(None, "".join(CJK.findall(c)), read).ratio() for c in candidates)
         if ratio < v["inside_bar_min_similarity"] and not any(read in "".join(CJK.findall(c)) for c in candidates):
             mismatched.append({**row, "caption_on_screen": expected, "similarity": round(ratio, 2)})
+    outside, ignored = [], []
+    half = 0.5 / float(v["fps"])
+    for row in outside_candidates:
+        t = row["t"]
+        near_band = (band["y0"] - pad) <= (row["box"][1] + row["box"][3]) / 2 <= (band["y1"] + pad)
+        candidates = [c for c in dict.fromkeys(caption_at(captions, t + d) for d in (-half, 0.0, half)) if c] or [""]
+        read = "".join(CJK.findall(row["text"]))
+        looks_like_caption = any(difflib.SequenceMatcher(None, "".join(CJK.findall(c)), read).ratio()
+                                 >= v["inside_bar_min_similarity"] for c in candidates)
+        (outside if near_band or looks_like_caption else ignored).append(row)
     status = "PASS" if not outside and not mismatched else "FAIL"
     return {"schema": "qingshan.h3_burned_text_cover_verification.v1", "policy_id": POLICY_ID, "status": status,
             "text_outside_bar": outside, "text_inside_bar_not_the_caption": mismatched,
-            "rule": "no CJK text outside the caption bar; text inside the bar must be the caption on screen"}
+            "ignored_non_dialogue_text": ignored,
+            "rule": "no CJK dialogue text outside the caption bar; text inside the bar must be the caption on "
+                    "screen; scene signage away from the burn band is the period/anachronism gate's business"}
 
 
 def main(argv: list[str] | None = None, *, ocr: Callable[[Path, float], list[Hit]] = ocr_frames) -> int:

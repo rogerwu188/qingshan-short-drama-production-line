@@ -89,3 +89,25 @@ class VerifyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VerifyScopeTests(unittest.TestCase):
+    """E13 S7: a gate plaque away from the burn band is not the burned dialogue line the policy is about."""
+
+    CAPTIONS = [{"text": "多谢邵兄好意", "start": 1.0, "end": 2.0}]
+
+    def test_plaque_away_from_band_is_recorded_and_ignored(self):
+        hits = [(1.2, "猿明", 0.9, 0.15, 0.01, 0.82, 0.14)]
+        out = btc.verify(hits, self.CAPTIONS, CFG)
+        self.assertEqual(out["status"], "PASS")
+        self.assertEqual(out["ignored_non_dialogue_text"][0]["text"], "猿明")
+
+    def test_text_near_the_band_outside_the_bar_still_fails(self):
+        hits = [(1.2, "多谢邵兄好意", 0.9, 0.20, 0.84, 0.80, 0.90)]
+        self.assertEqual(btc.verify(hits, self.CAPTIONS, CFG)["status"], "FAIL")
+
+    def test_uncovered_caption_anywhere_fails(self):
+        hits = [(1.2, "多谢邵兄好意", 0.9, 0.20, 0.02, 0.80, 0.10)]
+        out = btc.verify(hits, self.CAPTIONS, CFG)
+        self.assertEqual(out["status"], "FAIL")
+        self.assertEqual(out["text_outside_bar"][0]["text"], "多谢邵兄好意")
