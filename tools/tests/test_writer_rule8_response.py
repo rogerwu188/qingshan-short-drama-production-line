@@ -72,8 +72,12 @@ def cited(item: str, ids: list[str], reason: str = "the guard blocks her at the 
 
 
 class ConfigTests(unittest.TestCase):
-    def test_blocking_is_off_in_the_committed_config(self):
-        self.assertFalse(load_config()["blocking"])
+    def test_rule8_answer_is_a_required_step_in_the_committed_config(self):
+        # line owner 2026-11-01 follow-up: an unanswered Rule 8 item keeps the script from paid prep (step, not veto)
+        config = load_config()
+        self.assertIs(config["blocking"], True)
+        self.assertIn("NOT a content", config["blocking_note"])
+        self.assertIn("Never ask for a fight", config["blocking_note"])
 
     def test_a_missing_config_reports_and_never_blocks(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -91,7 +95,7 @@ class PendingReportTests(unittest.TestCase):
         result = evaluate(report(), evidence())
         self.assertEqual([row["item_id"] for row in result["rows"]], ["R8A", "R8B", "R8C"])
         self.assertEqual(result["open_items"], ["R8A", "R8B", "R8C"])
-        self.assertEqual(result["status"], "PENDING_WRITER_RESPONSE")
+        self.assertIn(result["status"], ("PENDING_WRITER_RESPONSE", "BLOCKED"))
 
     def test_the_residue_codes_of_the_report_are_attached_to_their_item(self):
         result = evaluate(report(), evidence())
@@ -109,12 +113,19 @@ class PendingReportTests(unittest.TestCase):
         result = evaluate(report(failures=[], warnings=[]), evidence())
         self.assertEqual(len(result["rows"]), 3)
         self.assertEqual(result["open_items"], ["R8A", "R8B", "R8C"])
-        self.assertEqual(result["status"], "PENDING_WRITER_RESPONSE")
+        self.assertIn(result["status"], ("PENDING_WRITER_RESPONSE", "BLOCKED"))
 
-    def test_nothing_is_blocked_by_default(self):
+    def test_an_unanswered_episode_is_blocked_under_the_committed_config(self):
         result = evaluate(report(), evidence())
-        self.assertFalse(result["blocking_enabled"])
-        self.assertNotEqual(result["status"], "BLOCKED")
+        self.assertTrue(result["blocking_enabled"])
+        self.assertEqual(result["status"], "BLOCKED")
+
+    def test_a_grounded_not_applicable_answer_clears_the_step(self):
+        responses = {"items": [{"item_id": "R8A", "answer": "NOT_APPLICABLE",
+                                "reason": "the pressure is internal; the threat enters as a decision, not an event"},
+                               cited("R8B", ["E14-S02"]), cited("R8C", ["E14-S01-01"])]}
+        result = evaluate(report(), evidence(), responses)
+        self.assertEqual(result["status"], "ANSWERED")
 
 
 class CitationTests(unittest.TestCase):
@@ -245,19 +256,22 @@ class S1WiringTests(unittest.TestCase):
         work = self.tmp / "work" / "E14"
         selected = self.pipeline.writer_capability_record(_Ctx("E14"), _P(work, None))
         self.assertEqual(selected["profile"], "WRITER_CAPABILITY_V1")
-        self.assertEqual(selected["status"], "OWED")
-        self.assertEqual(selected["blocks_stage"], [])
+        # line owner 2026-11-01: with nothing written yet every step is owed and the stage may not be marked complete
+        self.assertEqual(selected["status"], "BLOCKED")
+        self.assertEqual(sorted(selected["blocks_stage"]),
+                         sorted(["ARC_LEDGER_MISSING", "ADAPTATION_DISPOSITION_MISSING",
+                                 "SCRIPT_REVIEW_MISSING", "RULE8_RESPONSE_MISSING"]))
+        self.assertEqual(legacy.get("blocks_stage", []), [])
 
     def test_s1_receipt_carries_the_writer_capability_block(self):
         source = (TOOLS / "nalu_pipeline.py").read_text(encoding="utf-8")
         self.assertIn('"writer_capability": {', source)
         self.assertIn('res.details["writer_capability"] = writer_capability', source)
 
-    def test_the_writer_capability_record_never_changes_the_stage_status(self):
+    def test_an_owed_writing_step_blocks_s1_and_is_named(self):
         source = (TOOLS / "nalu_pipeline.py").read_text(encoding="utf-8")
-        status_line = next(line for line in source.splitlines()
-                           if line.strip().startswith("status = PASS if (writer_handoff_ok"))
-        self.assertNotIn("writer_capability", status_line)
+        self.assertIn('capability_blocks = list(writer_capability.get("blocks_stage") or [])', source)
+        self.assertIn('WRITER_CAPABILITY_STEP_OWED:', source)
 
 if __name__ == "__main__":
     unittest.main()

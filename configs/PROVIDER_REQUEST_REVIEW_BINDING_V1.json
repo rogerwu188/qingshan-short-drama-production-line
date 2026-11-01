@@ -1,17 +1,34 @@
 {
   "schema": "qingshan.provider_request_review_binding_policy.v1",
   "policy_id": "PROVIDER_REQUEST_REVIEW_BINDING_V1",
-  "authority": "Line owner 2026-10-16 production-line optimisation plan §7: the review must bind the request that is actually sent.  Receipts bound prompt and reference FILES; the H3 re-render, reference reordering, voice attachment and send-time compression all happen after them.  Line owner 2026-11-01 item 3: make it impossible for 'the data actually sent' to differ from 'the data that was reviewed'.",
+  "authority": "Line owner 2026-10-16 production-line optimisation plan §7: the review must bind the request that is actually sent.  Receipts bound prompt and reference FILES; the H3 re-render, reference reordering, voice attachment and send-time compression all happen after them.  Line owner 2026-11-01 item 3: make it impossible for 'the data actually sent' to differ from 'the data that was reviewed'. Line owner 2026-11-01 follow-up: (1) from E14 the send-time review binding is ENFORCED — the reviewed request, model, prompts, references and payload are checked before the final request goes out, a mismatch means re-review, and an unreviewed task may not be paid-submitted; (2) a receipt binding is enforced too, with a bounded refusal.",
   "enabled_episodes": [],
-  "enabled_from_episode": null,
-  "activation_note": "Empty by default; in-production episodes are unaffected.  When an episode is enabled, every task must carry reviewed_request_sha256 (stamp with tools/provider_request_digest.py stamp --manifest after the review, before paid authorization), and a task_key already bound under another fingerprint must declare supersedes_submission_fingerprints before it can POST again.  A task that carries reviewed_request_sha256 is checked even when its episode is not enabled.  A task outside the policy is recorded as UNENFORCED, never as PASS.",
+  "enabled_from_episode": "E14",
+  "activation_note": "From E14 on, every task must carry reviewed_request_sha256 (stamp with tools/provider_request_digest.py stamp --manifest after the review, before paid authorization).  E01-E13 are sealed and unaffected.  Bounded refusal: only the task whose binding is missing, wrong or in conflict is held; its media may not enter later production or the final cut, while every other independent task keeps running in parallel.  A task the provider may already have accepted but whose receipt is lost or whose local binding failed goes to PENDING_RECONCILIATION: query, download and binding completion stay allowed, the budget reservation or unresolved charge risk is kept, and the task is NEVER POSTed again to repair a binding.  The episode as a whole is not blocked by an unrelated task's binding.",
   "blocking": {
     "send_time_refusal_when_enabled": true,
     "global_barrier": false,
-    "note": "The refusal at the paid boundary is per task and already exists; it applies only to an episode named above.  Nothing here adds a batch step, a lock or an extra provider call: the digest is computed from values the submitter already holds, and the receipt binder reads a transaction file that is already on disk.  Every other rule in this file ships off and is reported, not enforced."
+    "note": "The refusal at the paid boundary is per task and already exists; it applies only to an episode named above.  Nothing here adds a batch step, a lock or an extra provider call: the digest is computed from values the submitter already holds, and the receipt binder reads a transaction file that is already on disk.  Every other rule in this file ships off and is reported, not enforced.",
+    "bounded_refusal": {
+      "scope": "PER_TASK",
+      "held_task_media_cannot_enter_production_or_final_cut": true,
+      "other_independent_tasks_continue": true,
+      "never_repost_to_repair_a_binding": true,
+      "pending_reconciliation_states": [
+        "PENDING_RECONCILIATION",
+        "RECEIPT_LOST",
+        "LOCAL_BINDING_FAILED"
+      ],
+      "pending_reconciliation_still_allows": [
+        "query",
+        "download",
+        "complete_binding"
+      ],
+      "keeps_budget_reservation": true
+    }
   },
   "receipt_binding": {
-    "enabled": false,
+    "enabled": true,
     "join": "request sha on both sides: the transaction's request_binding.request_sha256 must equal the record's provider_request.request_sha256",
     "refuses": [
       "RECEIPT_NOT_REQUEST_BOUND: the transaction carries no request_binding.request_sha256",
@@ -21,7 +38,7 @@
       "TASK_ID_NOT_BOUND: the transaction carries no provider task id yet"
     ],
     "writes": "the evidence record the tool is pointed at (--record); the tool never writes into workflow/ and takes every path as an argument",
-    "activation_note": "Off by default: binding a receipt is a report.  Turn on only when a stage must refuse to proceed on an unbound record."
+    "activation_note": "Enforced from E14.  A task whose receipt carries no request binding, a different request, a changed request sha, or no provider task identifier is held as PENDING_RECONCILIATION with the bounds above: its media does not reach the cut, nothing is re-POSTed to repair it, and the rest of the batch continues."
   },
   "review_media": {
     "identity_claim_requires_reference": true,
@@ -44,5 +61,6 @@
       "VALID": "a stored binding still describes the request in hand",
       "INVALID": "prompt text, a reference file, the model or the payload changed — re-review required"
     }
-  }
+  },
+  "authorization_followup_2026_11_01": "Line owner 2026-11-01 follow-up: required as a STEP (the script cannot be marked complete for paid prep without a completed review and the writer's answers to every question; Rule 8 must carry a grounded answer or a NOT_APPLICABLE reason). Creative judgement stays REPORT-ONLY: an AI opinion that a hook is weak, the pace slow or the emotion thin is a revision note in E14, never an automatic veto by score or a single judgement. Cross-shot detections are OBSERVE-ONLY in E14: record evidence, confidence and disposition to learn the false-positive rate; they do not block, and a clearly confirmed serious problem is still handled while an uncertain one is never recorded as a pass."
 }

@@ -131,9 +131,12 @@ class Q1EvidenceBindingTest(unittest.TestCase):
         self.assertIsNone(binding["provider_request"]["request_sha256"])
 
     def test_the_roll_up_says_unenforced_when_the_policy_does_not_cover_the_episode(self):
-        binding = self.q1.provider_request_binding(
-            "E99", {}, submitted_path=self.tmp / "submitted.json", shot_id="E99-S01-01")
-        summary = self.q1.binding_summary("E99", [{"provider_request_binding": binding}])
+        # an episode the policy does not name and whose number is below enabled_from_episode (E14)
+        with mock.patch.object(self.q1._digest_module(), "policy",
+                               lambda: {"enabled_episodes": [], "enabled_from_episode": None}):
+            binding = self.q1.provider_request_binding(
+                "E99", {}, submitted_path=self.tmp / "submitted.json", shot_id="E99-S01-01")
+            summary = self.q1.binding_summary("E99", [{"provider_request_binding": binding}])
         self.assertEqual(summary["status"], "UNENFORCED")
         self.assertIn("UNENFORCED", summary["note"])
         self.assertEqual(summary["rows_with_task_id"], 0)
@@ -245,7 +248,9 @@ class Q1MaterialiseCarriesBindingTest(unittest.TestCase):
                 mock.patch.object(self.q1, "sha256_file", lambda path: _sha(
                     Path(path).read_bytes()) if Path(path).is_file() else None), \
                 mock.patch.object(self.q1, "portable", lambda path, root=None: str(path)), \
-                mock.patch.object(self.q1, "now", lambda: "2026-11-01T00:00:00Z"):
+                mock.patch.object(self.q1, "now", lambda: "2026-11-01T00:00:00Z"), \
+                mock.patch.object(self.q1._digest_module(), "policy",
+                                  lambda: {"enabled_episodes": [], "enabled_from_episode": None}):
             proc.run.return_value = types.SimpleNamespace(returncode=0, stdout="", stderr="")
             record = self.q1.materialise("E99", submitted, self.request_path)
 

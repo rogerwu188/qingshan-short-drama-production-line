@@ -1739,6 +1739,12 @@ def stage_s1(ctx: Ctx) -> StageResult:
         selfcheck, int(selfcheck_step["exit_code"])
     )
     status = PASS if (writer_handoff_ok and gate10_ok and entity_ok and static_ok and structure_ok and continuity_ok and scope_ok and selfcheck_ok) else BLOCKED
+    # Line owner 2026-11-01: under WRITER_CAPABILITY_V1 the writing PROCEDURE is required — a missing or unanswered
+    # script review / Rule 8 answer / arc ledger / adaptation disposition keeps the script from being marked complete
+    # for paid preparation.  LEGACY episodes return no blocks, so E01-E13 are untouched; opinion never blocks.
+    capability_blocks = list(writer_capability.get("blocks_stage") or [])
+    if capability_blocks and status == PASS:
+        status = BLOCKED
     res = StageResult(
         status,
         layer_sha256=layer_shas,
@@ -1770,6 +1776,8 @@ def stage_s1(ctx: Ctx) -> StageResult:
                                              "report": str(selfcheck_out), "exit_code": selfcheck_step["exit_code"]}
     if not selfcheck_ok:
         res.blockers = list(getattr(res, "blockers", []) or []) + [f"WRITER_SELFCHECK_SEQ29_FAIL:{code}" for code in (selfcheck.get("failures") or [])[:8]]
+    if capability_blocks:
+        res.blockers = list(getattr(res, "blockers", []) or []) + [f"WRITER_CAPABILITY_STEP_OWED:{code}" for code in capability_blocks]
     res.details["layers"] = {"source": ctx.p.layers_source, "paths": {k: str(v) for k, v in p.layers().items()}}
     if not scope_ok:
         res.blockers = list(getattr(res, "blockers", []) or []) + [f"PROJECT_SCOPE_FAIL:{code}" for code in scope_check["failures"]]

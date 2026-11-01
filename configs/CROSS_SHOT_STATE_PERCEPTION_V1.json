@@ -1,9 +1,9 @@
 {
   "schema": "qingshan.cross_shot_state_perception_config.v1",
   "policy": "WRITER_CAPABILITY_V1",
-  "status": "DRAFT",
+  "status": "OBSERVE_ONLY_E14",
   "blocking": false,
-  "blocking_note": "Line owner 2026-11-01 item 4: cross-shot checks cover state AND what the viewer perceives.  Whether a PROP_HELD_WITHOUT_PICKUP (P1) STOPS a paid prompt batch is the line owner's switch.  It is off here; the checks write a report and a writer-facing item list either way.",
+  "blocking_note": "Line owner 2026-11-01 follow-up: E14 records evidence, confidence and disposition for every detection to establish the false-positive rate; it does not block.  The existing acceptance requirements (wrong person, missing plot event, etc.) stay in force unchanged — this trial does not cancel them.  A clearly confirmed serious defect is still handled; an uncertain one is never recorded as a pass.",
   "state_file": {
     "authoring_filename": "shot_state_authoring.json",
     "schema": "qingshan.authored_shot_state_attachment.v1",
@@ -57,5 +57,10 @@
   "wiring": {
     "entry_point": "lines/nalu/runtime/tools/prompt_batch_qa.py digest — per shot pair, before submission",
     "granularity": "per pair, pure functions, no global pass, no serialisation of unit generation"
+  },
+  "authorization": {
+    "line_owner": "Roger",
+    "decided_on": "2026-11-01",
+    "quote_followup": "Line owner 2026-11-01 follow-up: required as a STEP (the script cannot be marked complete for paid prep without a completed review and the writer's answers to every question; Rule 8 must carry a grounded answer or a NOT_APPLICABLE reason). Creative judgement stays REPORT-ONLY: an AI opinion that a hook is weak, the pace slow or the emotion thin is a revision note in E14, never an automatic veto by score or a single judgement. Cross-shot detections are OBSERVE-ONLY in E14: record evidence, confidence and disposition to learn the false-positive rate; they do not block, and a clearly confirmed serious problem is still handled while an uncertain one is never recorded as a pass."
   }
 }

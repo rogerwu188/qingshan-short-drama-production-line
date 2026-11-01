@@ -97,3 +97,4 @@
 {"failure_code": "Q2_PARTIAL_REVIEW_SHRANK_EPISODE_INDEX", "do_not_repeat": "不要以为按单元重审只影响那几个单元；不要用单元数等于审核行数判断全集通过；不要让新 take 的审核帧里混进旧 take 的帧", "stage": "S6", "scope": "generalizable", "knowledge_id": "K147"}
 {"failure_code": "WRITER_AUTHORED_DIALOGUE_MOVES_DEFEAT_LOCKED_DEFAULT", "do_not_repeat": "不要以为下游门能替写作层做默认；不要在对白镜机位文字里随手写推近/横移；不要为本线改共享策略文件的启用范围", "stage": "S1", "scope": "generalizable", "knowledge_id": "K148"}
 {"failure_code": "COVER_CHECK_FLAGS_SCENE_SIGNAGE_AS_BURNED_DIALOGUE", "do_not_repeat": "不要把字幕遮盖门当成『画面里不得有汉字』的总门；不要把场景招牌上的无意义字在遮盖门里豁免掉而不给 Q2 记 P2；不要为了放行而放宽 near-band / reads-like-caption 这两条真失败判据", "stage": "S7", "scope": "generalizable", "knowledge_id": "K149"}
+{"failure_code": "REVIEW_BOUND_TO_A_FILE_NOT_TO_THE_SENT_REQUEST", "do_not_repeat": "不要在 POST 之前记供应商任务标识或 payload sha，也不要从别的任务挪用；未强制的检查不能报成 PASS 或 NOT_REQUIRED；请求里没有某一用途的参考图时，不让评审者回答该用途（身份/服装/空间/道具）的问题", "stage": "S5", "scope": "generalizable", "knowledge_id": "K150"}

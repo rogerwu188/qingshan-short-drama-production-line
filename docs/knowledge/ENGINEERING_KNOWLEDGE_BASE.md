@@ -1486,3 +1486,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：E13 CASE_001_BURNED_TEXT_SCOPE：run_20261101T090410 的 exit=2 + H3_BURNED_TEXT_STILL_VISIBLE；同一批 8 处命中在 PASS 报告的 ignored_non_dialogue_text 里；改前代码（git 7ed3399）在同一输入上复现 FAIL 且失败行完全相同；契约阻止未消费的规则读成已消费（NOT_YET_CONSUMED_BY_REAL_RUN）。
 - **授权**：Roger 2026-11-01「同意你的处理意见」（Q2 烧录字幕遮盖提案）+ 2026-11-01 item 5 知识回路案例 001
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K150 — S5
+
+- **规则**：证据绑定的是实际发出的请求，不只是审核文件。三项检查，均逐任务、默认关闭：(1) Q1/SFE 证据记录带 provider_request_binding——阶段、已审核的请求 sha、清单里的提示词 sha / 模型 / 参考列表（用途 + 版本 + 原图 sha + 发出副本 sha）；供应商任务标识与 payload sha 在回执到来前记为空值并写明原因，不编造、不从别的任务挪用。(2) `tools/provider_request_digest.py bind-receipt` 以两侧的请求 sha 把供应商事务接到这条记录上，拒绝 RECEIPT_NOT_REQUEST_BOUND / RECEIPT_FOR_ANOTHER_REQUEST / REQUEST_SHA_CHANGED_SINCE_REVIEW / TASK_ID_NOT_BOUND。(3) 策略外的发送报 UNENFORCED，不报 NOT_REQUIRED/PASS；提示词文本、任一参考文件、模型、整请求摘要或 payload sha 变动时，binding_still_valid 答 INVALID 并要求重审。
+- **教训**：审核只绑定了审核请求 sha 和资产 sha。之前每条回执都绑的是文件，所以 H3 重渲染、参考图重排、发送时压缩都能在审核之后改变请求，而记录仍显示完整；未强制的集报 NOT_REQUIRED，读回执的人会当成通过。另外 keyframe/video_q2 请求只列生成出来的资产，评审者从未看到身份参考牌就回答了"这是锁定身份的那个人"。
+- **恢复**：回执到后：`tools/provider_request_digest.py bind-receipt --record <evidence.json> --transaction <事务文件>`。发送前：用 binding_still_valid（或 verify 子命令）校验，INVALID 就重审。请求的 reference_media.missing 非空时，该用途的问题答 UNCERTAIN 并记 MISSING_REVIEW_REFERENCE 缺陷——在那里答 PASS 会被以 reference_claim_without_reference 拒绝。开关：`configs/PROVIDER_REQUEST_REVIEW_BINDING_V1.json`（enabled_episodes / enabled_from_episode、receipt_binding.enabled、review_media.*）。
+- **实现**：`tools/provider_request_digest.py`、`lines/nalu/runtime/tools/vlm_review_protocol.py`、`lines/nalu/runtime/tools/nalu_qa_common.py`、`lines/nalu/runtime/tools/keyframe_q1_builder.py`、`lines/nalu/runtime/tools/start_frame_evidence_writer.py`、`configs/PROVIDER_REQUEST_REVIEW_BINDING_V1.json`
+- **回归**：`tools/tests/test_provider_request_binding_chain.py`
+- **证据**：离线：所有路径为临时目录，无付费阶段。三个文件共 60 项测试；导入这些模块的 222 项测试全部通过。尚未在真实发送上运行（E14 起才可能启用）。
+- **授权**：线主 2026-11-01 第 3 条：「实际提交的数据」与「审核通过的数据」不得不同
+- **状态**：REFERENCE_IMPLEMENTATION

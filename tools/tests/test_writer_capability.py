@@ -72,18 +72,22 @@ class ProfileTests(unittest.TestCase):
             profile_for("episode-14", load_config(), {})
 
 
-class NothingBlocksByDefaultTests(unittest.TestCase):
-    def test_every_blocking_switch_is_off(self):
-        blocking = load_config()["blocking"]
-        for name, value in blocking.items():
-            if name == "note":
-                continue
-            self.assertIs(value, False, name)
+class CommittedPolicyTests(unittest.TestCase):
+    """Line owner 2026-11-01 follow-up: the writing PROCEDURE is required; creative judgement never vetoes."""
 
-    def test_a_missing_input_does_not_block(self):
+    def test_procedure_switches_are_on_and_opinion_switches_are_off(self):
+        blocking = load_config()["blocking"]
+        self.assertIs(blocking["missing_inputs"], True)
+        self.assertIs(blocking["unanswered_script_review"], True)
+        self.assertIs(blocking["open_rule8_items"], True)
+        self.assertIs(blocking["ledger_failures"], False)
+        self.assertIs(blocking["creative_judgement_blocking"], False)
+
+    def test_a_missing_input_blocks_and_is_named(self):
         summary = stage_summary("E14", config=load_config(), environ={})
-        self.assertEqual(summary["status"], "OWED")
-        self.assertEqual(summary["blocks_stage"], [])
+        self.assertEqual(summary["status"], "BLOCKED")
+        self.assertIn("ARC_LEDGER_MISSING", summary["blocks_stage"])
+        self.assertIn("SCRIPT_REVIEW_MISSING", summary["blocks_stage"])
         self.assertIn("arc_ledger", summary["owed"])
 
     def test_legacy_summary_is_not_applicable(self):
@@ -112,7 +116,9 @@ class InputTests(unittest.TestCase):
         recorded = inputs("E14", arc_ledger=ledger, config=load_config())
         self.assertEqual(recorded["inputs"]["arc_ledger"]["status"], "FAIL")
         self.assertTrue(recorded["inputs"]["arc_ledger"]["failures"])
-        self.assertEqual(recorded["blocks_stage"], [])
+        # a present-but-failing ledger is a revision note (ledger_failures is off); it is not an owed step
+        self.assertNotIn("ARC_LEDGER", recorded["blocks_stage"])
+        self.assertNotIn("ARC_LEDGER_MISSING", recorded["blocks_stage"])
 
     def test_a_disposition_for_another_episode_is_flagged(self):
         disposition = self._write("disp.json", {
@@ -147,11 +153,15 @@ class BlockingSwitchTests(unittest.TestCase):
                                                 "ledger_failures": False}}
         summary = stage_summary("E14", config=config, environ={})
         self.assertEqual(summary["status"], "BLOCKED")
-        self.assertIn("ARC_LEDGER", summary["blocks_stage"])
+        self.assertIn("ARC_LEDGER_MISSING", summary["blocks_stage"])
+        self.assertNotIn("RULE8_OPEN", summary["blocks_stage"])
 
-    def test_the_committed_config_never_blocks(self):
-        summary = stage_summary("E14", config=load_config(), environ={})
-        self.assertNotEqual(summary["status"], "BLOCKED")
+    def test_every_switch_off_blocks_nothing(self):
+        config = {**load_config(), "blocking": {"missing_inputs": False, "open_rule8_items": False,
+                                                "unanswered_script_review": False, "ledger_failures": False}}
+        summary = stage_summary("E14", config=config, environ={})
+        self.assertEqual(summary["blocks_stage"], [])
+        self.assertEqual(summary["status"], "OWED")
 
 
 class SealedBindingTests(unittest.TestCase):

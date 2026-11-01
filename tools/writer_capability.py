@@ -214,11 +214,29 @@ def inputs(episode: str, *, arc_ledger: Path | str | None = None,
 
 
 def blocking_policy(rows: dict[str, Any], blocking: dict[str, Any]) -> list[str]:
-    """Only a switch that is explicitly true turns a recorded state into a block."""
+    """Only a switch that is explicitly true turns a recorded state into a block.
+
+    Line owner 2026-11-01 follow-up: the PROCEDURE is required — a script cannot be marked complete for paid
+    preparation without an arc ledger, its adaptation disposition, a completed script review the writer has
+    answered, and a grounded Rule 8 answer (or a NOT_APPLICABLE reason).  A MISSING input is therefore as much a
+    block as an incomplete one.  Creative judgement never blocks here: a review's opinion that a hook is weak or
+    the pace slow is a revision note the writer answers; only an unanswered or missing step stops the stage.
+    """
     blocks: list[str] = []
-    if rows["arc_ledger"]["status"] != "PASS" and blocking.get("missing_inputs") is True:
+    if blocking.get("missing_inputs") is True:
+        if not rows["arc_ledger"].get("present"):
+            blocks.append("ARC_LEDGER_MISSING")
+        if not rows["adaptation_disposition"].get("present"):
+            blocks.append("ADAPTATION_DISPOSITION_MISSING")
+        if not rows["script_review"].get("present"):
+            blocks.append("SCRIPT_REVIEW_MISSING")
+        if not rows["rule8_response"].get("present"):
+            blocks.append("RULE8_RESPONSE_MISSING")
+    if rows["arc_ledger"].get("present") and rows["arc_ledger"]["status"] != "PASS" \
+            and blocking.get("ledger_failures") is True:
         blocks.append("ARC_LEDGER")
-    if rows["adaptation_disposition"]["status"] != "PASS" and blocking.get("ledger_failures") is True:
+    if rows["adaptation_disposition"].get("present") and rows["adaptation_disposition"]["status"] != "PASS" \
+            and blocking.get("ledger_failures") is True:
         blocks.append("ADAPTATION_DISPOSITION")
     if rows["script_review"].get("present") and (
             rows["script_review"].get("status") == "INCOMPLETE"

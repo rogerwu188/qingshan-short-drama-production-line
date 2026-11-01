@@ -1,17 +1,31 @@
 {
   "schema": "qingshan.writer_capability.v1",
   "policy_id": "WRITER_CAPABILITY_V1",
-  "status": "DRAFT",
+  "status": "ACTIVE_FROM_E14",
   "authorization": {
     "line_owner": "Roger",
     "decided_on": "2026-11-01",
-    "quote": "Arc plan + adaptation decisions must be inputs before the per-episode layers are built, review revisions must be reflected in the final sealed narrative and downstream contract (sha binding). Reuse existing ledgers/knowledge/previs. Wire behind a policy profile/flag so already-sealed episodes (E01-E13, LEGACY) are unaffected and E14+ use it."
+    "quote": "Arc plan + adaptation decisions must be inputs before the per-episode layers are built, review revisions must be reflected in the final sealed narrative and downstream contract (sha binding). Reuse existing ledgers/knowledge/previs. Wire behind a policy profile/flag so already-sealed episodes (E01-E13, LEGACY) are unaffected and E14+ use it.",
+    "quote_followup_2026_11_01": "Line owner 2026-11-01 follow-up: required as a STEP (the script cannot be marked complete for paid prep without a completed review and the writer's answers to every question; Rule 8 must carry a grounded answer or a NOT_APPLICABLE reason). Creative judgement stays REPORT-ONLY: an AI opinion that a hook is weak, the pace slow or the emotion thin is a revision note in E14, never an automatic veto by score or a single judgement. Cross-shot detections are OBSERVE-ONLY in E14: record evidence, confidence and disposition to learn the false-positive rate; they do not block, and a clearly confirmed serious problem is still handled while an uncertain one is never recorded as a pass."
   },
   "profiles": {
     "LEGACY": {
       "applies_to": "every episode sealed before this capability existed",
-      "sealed_episodes": ["E01", "E02", "E03", "E04", "E05", "E06", "E07", "E08", "E09",
-                          "E10", "E11", "E12", "E13"],
+      "sealed_episodes": [
+        "E01",
+        "E02",
+        "E03",
+        "E04",
+        "E05",
+        "E06",
+        "E07",
+        "E08",
+        "E09",
+        "E10",
+        "E11",
+        "E12",
+        "E13"
+      ],
       "behaviour": "byte-identical to before; nothing new is required, nothing new is checked",
       "note": "the sealed list is a record, not a gate: an episode named here is never re-judged"
     },
@@ -23,21 +37,42 @@
   "enabled": true,
   "enabled_from_episode": "E14",
   "env_override": "NALU_WRITER_CAPABILITY",
-  "env_values_allowed": ["on", "off"],
+  "env_values_allowed": [
+    "on",
+    "off"
+  ],
   "inputs": {
-    "arc_ledger": {"required": true, "validator": "tools/writer_arc_ledger.py"},
-    "adaptation_disposition": {"required": true, "validator": "tools/adaptation_policy.py",
-                               "per_episode": true},
-    "script_review": {"required": true, "validator": "lines/nalu/runtime/tools/script_review.py",
-                      "must_be_answered_before_lock": true},
-    "rule8_response": {"required": true, "validator": "tools/writer_rule8_response.py"}
+    "arc_ledger": {
+      "required": true,
+      "validator": "tools/writer_arc_ledger.py"
+    },
+    "adaptation_disposition": {
+      "required": true,
+      "validator": "tools/adaptation_policy.py",
+      "per_episode": true
+    },
+    "script_review": {
+      "required": true,
+      "validator": "lines/nalu/runtime/tools/script_review.py",
+      "must_be_answered_before_lock": true
+    },
+    "rule8_response": {
+      "required": true,
+      "validator": "tools/writer_rule8_response.py"
+    }
   },
   "blocking": {
-    "missing_inputs": false,
-    "unanswered_script_review": false,
-    "open_rule8_items": false,
+    "missing_inputs": true,
+    "unanswered_script_review": true,
+    "open_rule8_items": true,
     "ledger_failures": false,
-    "note": "Nothing here stops a stage until the line owner turns it on.  The defaults record, they do not refuse."
+    "creative_judgement_blocking": false,
+    "step_scope": [
+      "S1"
+    ],
+    "step_effect": "a missing arc ledger / adaptation disposition / Rule 8 grounded answer, or a script review the writer has not answered, prevents the script being marked complete and entering paid preparation; it never refuses on opinion",
+    "creative_judgement_policy": "REPORT_ONLY_IN_E14: hook strength, pace and emotion are revision notes (a finding the writer may accept or answer), never a score gate and never an automatic veto",
+    "note": "The step requirement is per episode and per input; it adds no batch step and no serialisation of unit work."
   },
   "sealed_binding": {
     "rule": "the narrative the review read must be the narrative that is sealed; the receipt carries the narrative sha256 the review was bound to, and S1 compares",
