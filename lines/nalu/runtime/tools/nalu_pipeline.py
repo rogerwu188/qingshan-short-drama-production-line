@@ -145,6 +145,11 @@ DEFAULT_PLANNED_CREDITS = {"S3": 198, "S4": 12, "S5": 330, "S6": 3500}
 # statuses
 PASS = "PASS"
 SKIPPED = "SKIPPED_ALREADY_PASS"
+#: A step that did not run is never reported as PASS (AGENTS.md §0: 没跑标 NOT_RUN).
+#: Under LEGACY_EPISODE_COMPAT the canonical writer handoff has no verifier, so its
+#: receipt says this instead of borrowing the PASS the current-portable profile earns.
+NOT_RUN = "NOT_RUN"
+WRITER_HANDOFF_LEGACY_STATUS = "NOT_RUN_LEGACY_PROFILE"
 DRY = "DRY_PLANNED"
 BLOCKED = "BLOCKED"
 ROUTE_MISSING = "ROUTE_MISSING"
@@ -509,6 +514,22 @@ def writer_selfcheck_admitted(report: dict[str, Any], exit_code: int) -> bool:
             and report.get("status") == PASS
         )
     return not (report.get("enforced") and report.get("status") == "FAIL")
+
+
+def writer_handoff_gate_status(ok: bool, verdict: dict[str, Any]) -> str:
+    """The gate row for the canonical writer handoff, honestly labelled.
+
+    ``PASS`` only when a verifier actually answered PASS.  A profile with no
+    verifier reports ``NOT_RUN_LEGACY_PROFILE`` instead of a PASS it never earned
+    (line owner 2026-11-01).  It is an accepted step — ``ok`` is True — because
+    E01-E13 were sealed under that profile and the stage outcome must not change.
+    """
+    if not ok:
+        return "FAIL"
+    status = str((verdict or {}).get("status") or "")
+    if status == PASS:
+        return PASS
+    return status or NOT_RUN
 
 
 def episode_index(episode: str) -> int:
@@ -1598,13 +1619,20 @@ def stage_s1(ctx: Ctx) -> StageResult:
             and writer_handoff_verdict.get("status") == PASS
         )
     else:
+        # HONESTY (line owner 2026-11-01): under LEGACY the canonical writer handoff
+        # was never verified.  ``storyclaw_writer_workflow.py verify`` is the StoryClaw
+        # private-project path and is a stub for this line (CLAUDE_CODE_PRODUCTION.md
+        # §0 tells the writer never to run it as an S1 conclusion), so nothing checked
+        # that the four layers came out of one sealed writer run.  The stage outcome is
+        # unchanged — E01-E13 stay sealed — but the receipt now says NOT_RUN instead of
+        # borrowing a PASS it did not earn.
         writer_handoff = {
             "exit_code": 0,
             "log": None,
-            "stdout_tail": "LEGACY_REPLAY_PROFILE",
+            "stdout_tail": WRITER_HANDOFF_LEGACY_STATUS,
         }
         writer_handoff_verdict = {
-            "status": "NOT_APPLICABLE_LEGACY_REPLAY",
+            "status": WRITER_HANDOFF_LEGACY_STATUS,
             "failures": [],
         }
         writer_handoff_ok = True
@@ -1749,7 +1777,7 @@ def stage_s1(ctx: Ctx) -> StageResult:
             "report_sha256": sha256_file(selfcheck_out),
         },
         "gates": {
-            "canonical_writer_handoff": PASS if writer_handoff_ok else "FAIL",
+            "canonical_writer_handoff": writer_handoff_gate_status(writer_handoff_ok, writer_handoff_verdict),
             "gate10": PASS if gate10_ok else "FAIL",
             "character_entity_contract": PASS if entity_ok else "FAIL",
             "static_design_gate": PASS if static_ok else "FAIL",
