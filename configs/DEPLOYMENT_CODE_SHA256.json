@@ -277,7 +277,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "b79b59c513496aa39b9847ff0774b19589b8c80f6088b65159c0fd3184004980"
+      "sha256": "8cddf9f6d3ec96dd99b24035a2b4cf47c3dba11594183724e67cd578070cc49c"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -597,7 +597,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_keyframe_manifest.py",
-      "sha256": "de7cd9f790a4fd2686d27d554040efff63c5f90a18f8a6fa26db65e83f7405c2"
+      "sha256": "93f2575717a8e8b826a16739b4e023cfd640ed502f91de57b09851690a6953c5"
     },
     {
       "path": "lines/nalu/runtime/tools/build_measured_edit_constraints.py",
@@ -605,7 +605,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "106e766e49b7bac87f840e1101b9b8a0e81057cbe0edbce26b57a5dd807fff63"
+      "sha256": "43ceffb78d2f95f11c31070c4882437785088ebaa6213263022bb4e3b391847e"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -765,7 +765,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_qa.py",
-      "sha256": "68edf68aae5bee978106e7cee9a2059b977c4128aa513d29ae32818c3fa74fb0"
+      "sha256": "15e7e0dd7799a842f4e290f5a1e02e5b119c5ae47523cd1ab26a3fa45b2a5949"
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_register.py",

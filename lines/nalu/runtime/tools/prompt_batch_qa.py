@@ -310,7 +310,7 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
         cast_names = [c["character"] for c in shot["prompt_spec"]["cast"]
                       if c.get("first_frame_visible", True) is not False]
         cast_names = list(dict.fromkeys(cast_names))
-        allowed = re.search(r"本帧允许入画的人物[^\n]*：([^\n]*)", kf_text)
+        allowed = re.search(r"本帧允许入画的人物[^\n：]*：([^\n；]*)", kf_text)   # 「；另有本帧可见的生物…」不是人物名单
         allowed_names = [x.lstrip("、，, ") for x in re.findall(r"([^（）]+)（[^）]+）", allowed.group(1))] if allowed else []
         chk("kf_visible_cast_equals_contract", sorted(allowed_names) == sorted(cast_names), f"{allowed_names} vs {cast_names}")
         for name in cast_names:

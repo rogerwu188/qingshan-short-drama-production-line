@@ -1079,6 +1079,12 @@ def normalize_keyframe_role_semantics(
     states = dict(role.get("entity_states") or {})
     presence = dict(role.get("entity_presence") or {})
     visible = set(map(str, visible_contract_ids))
+    # A carded creature (PROP-… id) the contract itself marks VISIBLE_AND_IDENTITY_LOCKED is on screen in
+    # this frame: without this it was labelled 「本首帧不入画」 while the entry sentence described it
+    # (nalu E13 S03-01 leopard / S05-01 snow ape).  Only an explicit contract mark counts, so contracts
+    # that never set presence for a non-character keep their prompt bytes.
+    visible |= {str(k) for k, v in presence.items()
+                if str(k).startswith("PROP-") and str(v) == "VISIBLE_AND_IDENTITY_LOCKED"}
     # The renderer prints the entry_state sentence verbatim and then binds the people
     # on screen to it under one hard lock.  When the contract declares a character as
     # this shot's actor but leaves them out of the visible cast, the code further down
@@ -1098,7 +1104,10 @@ def normalize_keyframe_role_semantics(
         ("dialogue_listener_id", "dialogue_listener"),
         ("action_patient_id", "action_patient"),
     ):
-        value = str(role.get(id_key) or role.get(name_key) or "").strip()
+        # a non-character actor/patient (creature card) has an empty *_id and its id in *_entity_id; falling
+        # back to the display name added a second, name-keyed ABSENT entry for the same visible creature
+        entity_key = id_key.replace("_id", "_entity_id")
+        value = str(role.get(id_key) or role.get(entity_key) or role.get(name_key) or "").strip()
         if value:
             participant_keys.append(value)
     body_part_owner = str(role.get("body_part_owner") or "").strip()
@@ -1183,6 +1192,8 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
             "character_wardrobe": "全身像：仅锁定该人物的服装形制、体型比例与配饰；脸不以此图为准",
             "prop": "仅锁定该道具的形制、材质与尺度",
         }[binding_role]
+        if binding_role == "prop" and str((role.get("entity_presence") or {}).get(row["entity_id"]) or "") == "VISIBLE_AND_IDENTITY_LOCKED":
+            purpose = "生物：锁定该生物的形貌、体型、毛色与特征（本帧可见）"
         # Binding bookkeeping stays out of the provider text so the prompt SHA is
         # stable across the stage-3(a) plate upgrade.
         reference_lines.append(
@@ -1200,8 +1211,14 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
     # E05 (2026-09-17): a character-free frame whose props include a creature card (the talking crow)
     # is not an empty frame — the old "无动物；空镜" clause contradicted the prop line and risked an empty
     # thornbush.  Name the prop subjects instead; the pure empty-frame wording stays for prop-less frames.
+    visible_creatures = [
+        f"{row.get('entity_name')}（{row['entity_id']}）"
+        for row in bindings if row["role"] == "prop"
+        and str((role.get("entity_presence") or {}).get(row["entity_id"]) or "") == "VISIBLE_AND_IDENTITY_LOCKED"
+    ]
     cast_clause = (
         f"本帧允许入画的人物（仅这些，且各只出现一次）：{join(cast_names, '、')}"
+        + (f"；另有本帧可见的生物（仅这些，各只出现一次）：{join(visible_creatures, '、')}" if visible_creatures else "")
         if cast_names else (
             f"画面内无人物；主体只有上列道具/生物（{join(prop_names, '、')}），各只出现一次，不加任何人物"
             if prop_names else "画面内无人物、无动物；空镜。")

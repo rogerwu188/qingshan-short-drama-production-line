@@ -1049,14 +1049,18 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                 "entity_presence": (role.get("entity_presence") or {}).get(str(member.get("character_id") or "")),
             })
         dialogue, cast = bind_dialogue_cast(dialogue, cast, entities, language)
+        declared_beings = {str(p.get("prop_id") or "") for p in spec.get("props") or []
+                           if isinstance(p, dict) and str(p.get("kind") or "").upper() in {"CREATURE", "ANIMAL"}}
         props = [{
             "prop": str(props_by_id[prop_id].get("name") or prop_id),
             "prop_id": prop_id,
             "anchor": "PRIMARY_ACTION_PLANE",
             "continuity_scope": "SCENE_OR_RECURRING_PROP",
             "note": str(props_by_id[prop_id].get("note") or ""),
-            # CAMERA_GRAMMAR_V1 director prompt: a creature/animal card is a visible subject, not a prop
-            **(_being_fields(props_by_id[prop_id]) if camera_grammar else {}),
+            # CAMERA_GRAMMAR_V1 director prompt: a creature/animal card is a visible subject, not a prop.
+            # A contract shot that itself marks the prop row kind CREATURE/ANIMAL gets the same treatment
+            # (nalu E13: the spiked leopard was counted as a prop and the unit said "exactly 1 living entity").
+            **(_being_fields(props_by_id[prop_id]) if camera_grammar or prop_id in declared_beings else {}),
         } for prop_id in row["prop_ids"] if prop_id in props_by_id]
 
         subject = str(role.get("primary_actor") or "")
