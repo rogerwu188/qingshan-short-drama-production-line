@@ -1,11 +1,11 @@
 ---
 name: nalu-claude-code
-description: Install the Qingshan/NALU short-drama line on an OpenClaw host, wire the Codex CLI (gpt-6-luna) to the LLM provider the line owner gives, pick and ingest the source novel, dispatch each episode (script writing + S1-S7) to an unattended Codex run, publish to X2C and keep producing episode after episode.
+description: Install the Qingshan/NALU short-drama line on an OpenClaw host, wire the Codex CLI (gpt-6.1-sol) to the LLM provider the line owner gives, pick and ingest the source novel, dispatch each episode (script writing + S1-S7) to an unattended Codex run, publish to X2C and keep producing episode after episode.
 ---
 
 # NALU 生产线 · OpenClaw 编排 + Codex 执行
 
-分工（线主 2026-10-09/10 定；2026-10-13 起执行者由 Claude Code 换成 Codex + gpt-5.6；2026-10-16 起默认模型 gpt-6.1-sol；2026-10-30 起默认模型 gpt-6-luna）：OpenClaw 代理负责安装、配置 Codex、
+分工（线主 2026-10-09/10 定；2026-10-13 起执行者由 Claude Code 换成 Codex + gpt-5.6；2026-10-16 起默认模型 gpt-6.1-sol）：OpenClaw 代理负责安装、配置 Codex、
 选原著并入库、逐集派单、监控进度、接着启动下一集；Codex 负责每一集的全部剧本（叙事正典、生产简报、四层剧本；
 线主 2026-10-22 定：代理不再自己写剧本，长稿会撑爆代理的聊天上下文）与 S1→S7 全部生产；
 发行到 X2C 由心跳脚本自动完成。（目录名 `nalu-claude-code` 与合同文件名 `CLAUDE_CODE_PRODUCTION.md` 为兼容保留；
@@ -58,15 +58,15 @@ cp configs/pipeline.example.json $NALU_RUNTIME_ROOT/qingshan.json
 把上面的 export 写进 `~/.bashrc`。不要设 `NALU_POLICY_PROFILE`。不需要 AgentCut、不需要角色照片（无照片走文生图）。
 
 ## 2. LLM provider 与 Codex（首次配置时向线主要一次）
-miniPC 只用 Codex（模型 gpt-6-luna），不装 Claude Code，也**不沿用** StoryClaw/OpenClaw 自己的模型配置。首次配置时（`setup_host.sh`
+miniPC 只用 Codex（模型 gpt-6.1-sol），不装 Claude Code，也**不沿用** StoryClaw/OpenClaw 自己的模型配置。首次配置时（`setup_host.sh`
 返回 `NEEDS_PROVIDER`）向线主要一次：provider 的 **base URL**（OpenAI Responses 兼容，形如 `https://…/v1`）和 **API key**，
-模型不说就用 `gpt-6-luna`（文件里留着旧默认 `gpt-5.6` / `gpt-6.1-sol` 的会在下次 setup 重配时自动改成新默认；要按集对比模型时加 `"model_locked": true` 保持原样）。收到后写：
+模型不说就用 `gpt-6.1-sol`（文件里留着旧默认 `gpt-5.6` 的会在下次 setup 重配时自动改成新默认；要按集对比模型时加 `"model_locked": true` 保持原样）。收到后写：
 ```bash
 umask 077; python3 - <<'PY'
 import json, os, pathlib
 p = pathlib.Path(os.path.expanduser("~/nalu_runtime/credentials/llm_provider.json"))
 p.parent.mkdir(parents=True, exist_ok=True)
-p.write_text(json.dumps({"base_url": "<URL>", "api_key": "<KEY>", "model": "gpt-6-luna"}))
+p.write_text(json.dumps({"base_url": "<URL>", "api_key": "<KEY>", "model": "gpt-6.1-sol"}))
 os.chmod(p, 0o600)
 PY
 bash $S/setup_host.sh --pin <PIN>          # 自动安装 Codex（npm）、写 ~/.codex/config.toml、发一条测试请求

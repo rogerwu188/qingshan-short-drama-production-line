@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2282,
+  "file_count": 2283,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -833,7 +833,7 @@
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "93f41b8a78b4aef295ea21487ae880903404e7b62d7637e7fe4cd506402b9b8c"
+      "sha256": "2113369f145e51ce26870a7331da3140753565f0efd88e74d627bb6e1fc444df"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
@@ -845,7 +845,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "138c0b892eed0ed3b4e0310834265c11569e15e18815c500e6dcd44fcbd7a306"
+      "sha256": "0433ffd1ff09cdd10526b421be2532573a7aaa63087c9aff1b392950066fbb8e"
     },
     {
       "path": "skills/nalu-claude-code/scripts/configure_claude_code.py",
@@ -853,7 +853,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/configure_codex.py",
-      "sha256": "5238a4ef068eb431d15492cd776c846c9f5affe7c83488de670f3920737c46e5"
+      "sha256": "58172fc10badb0fe518bbbce5fbe77e252459c464de94ac96237ba8203e439f1"
     },
     {
       "path": "skills/nalu-claude-code/scripts/list_voices.sh",
@@ -885,7 +885,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/setup_host.sh",
-      "sha256": "cd1c1cc0c5d1b39bc46d1223bcec7d507fadc957574fe9bc89820127c62a0065"
+      "sha256": "294d7fe99dd66435934f53137b84cf9045644225847882d11117812eebb028c5"
     },
     {
       "path": "skills/qingshan-nalu/SKILL.md",
@@ -7857,7 +7857,7 @@
     },
     {
       "path": "tools/tests/test_nalu_codex_executor.py",
-      "sha256": "fce3333ad47e35302e7f73da45c493524182b16b2f40ff600870cce000e91e4e"
+      "sha256": "21721cac218551694546d838edde51f6014a05d8f042722f12b184aa0f76ea3b"
     },
     {
       "path": "tools/tests/test_nalu_current_policy_profile.py",
@@ -7926,6 +7926,10 @@
     {
       "path": "tools/tests/test_nalu_q1_roger_acceptance.py",
       "sha256": "20921c3ffd870af9e9479df8a4b334198a651b7b261e913ae763c93192f5418a"
+    },
+    {
+      "path": "tools/tests/test_nalu_q1_single_action_gate_acceptance.py",
+      "sha256": "87847922ecf74298bf7f806e8b98f6dbe4c04407c08d759eb5c509289fe3dbf6"
     },
     {
       "path": "tools/tests/test_nalu_release_unposted_waves.py",
