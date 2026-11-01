@@ -22,8 +22,8 @@ def hit(t, text, *, conf=0.9, y=(0.70, 0.74), x=(0.3, 0.7)):
 class PolicyTests(unittest.TestCase):
     def test_e12_listed_and_contract_declaration_wins(self):
         self.assertTrue(btc.active({}, episode="E12"))
-        self.assertFalse(btc.active({}, episode="E13"))
-        self.assertTrue(btc.active({btc.FIELD: btc.POLICY_ID}, episode="E13"))
+        self.assertFalse(btc.active({}, episode="E14"))
+        self.assertTrue(btc.active({btc.FIELD: btc.POLICY_ID}, episode="E14"))
         self.assertFalse(btc.active({btc.FIELD: "NONE"}, episode="E12"))
 
     def test_band_covers_every_measured_e12_burn(self):

@@ -1,8 +1,8 @@
 {
   "schema": "qingshan.h3_burned_text_cover_policy.v1",
   "policy_id": "H3_BURNED_TEXT_COVER_V1",
-  "authority": "Line owner 2026-10-31「同意」 (E12): MiniMax-H3 burns the spoken line into the picture (OCR: 12 of 49 E12 clips, always the line being spoken, centred at y 0.67-0.80) even with the TEXT-FREE FRAME rule first (K143). Every caption of the episode moves onto that band over a dark bar; the bar is also shown wherever OCR finds burned text, so the burned line is never readable.",
-  "enabled_episodes": ["E12"],
+  "authority": "Line owner 2026-10-31「同意」 (E12): MiniMax-H3 burns the spoken line into the picture (OCR: 12 of 49 E12 clips, always the line being spoken, centred at y 0.67-0.80) even with the TEXT-FREE FRAME rule first (K143). Every caption of the episode moves onto that band over a dark bar; the bar is also shown wherever OCR finds burned text, so the burned line is never readable. E13 added: line owner 2026-11-01「同意你的处理意见」 (Q2: 6 of 23 clips with OCR-confirmed burned dialogue; proposal E13_Q2_BURNED_SUBTITLE_COVER_20261101).",
+  "enabled_episodes": ["E12", "E13"],
   "activation_note": "Never retroactive. Active only when the generation contract declares h3_burned_text_cover_policy=H3_BURNED_TEXT_COVER_V1 or the episode is listed here.",
   "band": {"y0": 0.66, "y1": 0.81, "x0": 0.06, "x1": 0.94},
   "bar_rgba": [12, 12, 12, 235],
