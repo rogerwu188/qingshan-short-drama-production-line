@@ -127,8 +127,14 @@ def verify(hits: list[Hit], captions: list[dict[str, Any]], cfg: dict[str, Any])
         t = row["t"]
         candidates = [c for c in dict.fromkeys(caption_at(captions, t + d) for d in (-half, 0.0, half)) if c] or [""]
         read = "".join(CJK.findall(row["text"]))
-        looks_like_caption = any(difflib.SequenceMatcher(None, "".join(CJK.findall(c)), read).ratio()
-                                 >= v["inside_bar_min_similarity"] for c in candidates)
+        # OCR frequently reads only part of our own caption (E13 96.5-100.5 s: "灭了，" out of "血竹林那里的火泉要熄灭了，"),
+        # so a read that is a contiguous piece of the caption on screen counts the same as a whole match.
+        looks_like_caption = any(
+            difflib.SequenceMatcher(None, "".join(CJK.findall(c)), read).ratio() >= v["inside_bar_min_similarity"]
+            or (read and read in "".join(CJK.findall(c)))
+            or (read and any(read[i:j] in "".join(CJK.findall(c))
+                             for i in range(len(read)) for j in range(len(read), i + 1, -1)))
+            for c in candidates)
         # Our own caption, drawn by this pipeline above the bar, also sits outside the band (E13 2026-11-01: the
         # transparent-plate caption reads at y 0.81-0.85, 0.01 below the band edge).  That is not a burned line:
         # the bar's job is to hide what H3 burned in, and the caption on screen is the line we put there ourselves.
