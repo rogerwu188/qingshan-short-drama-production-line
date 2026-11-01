@@ -136,6 +136,106 @@
           "pattern": "^[0-9a-f]{64}$"
         }
       }
+    },
+    "provenance": {
+      "description": "The four real inputs behind the receipt (contracts.validate_case_provenance): fact, cause, rule_source, verification. Optional; validated strictly when present.",
+      "type": "object",
+      "required": ["fact", "cause", "rule_source", "verification"],
+      "properties": {
+        "fact": {
+          "type": "object",
+          "required": ["statement", "artefact", "artefact_sha256", "measured"],
+          "properties": {
+            "statement": {"type": "string", "minLength": 1},
+            "artefact": {"$ref": "#/$defs/locator"},
+            "artefact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "measured": {}
+          }
+        },
+        "cause": {
+          "type": "object",
+          "required": ["statement", "evidence"],
+          "properties": {
+            "statement": {"type": "string", "minLength": 1},
+            "evidence": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["statement", "artefact", "artefact_sha256"],
+                "properties": {
+                  "statement": {"type": "string", "minLength": 1},
+                  "artefact": {"$ref": "#/$defs/locator"},
+                  "artefact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+                }
+              }
+            }
+          }
+        },
+        "rule_source": {
+          "type": "object",
+          "required": ["clause", "file", "line"],
+          "properties": {
+            "clause": {"type": "string", "minLength": 1},
+            "file": {"type": "string", "minLength": 1},
+            "line": {"type": "integer", "minimum": 1}
+          }
+        },
+        "verification": {
+          "type": "object",
+          "required": ["measurement", "before", "after"],
+          "properties": {
+            "measurement": {"type": "string", "minLength": 1},
+            "before": {"$ref": "#/$defs/measured_side"},
+            "after": {"$ref": "#/$defs/measured_side"},
+            "restores_earlier_output": {"type": "boolean"}
+          }
+        }
+      }
+    },
+    "real_run_consumption": {
+      "description": "Whether a REAL later build consumed the rule. Stated, never inferred.",
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["CONSUMED_BY_REAL_RUN", "CONSUMED_BY_REPLAY_ONLY", "NOT_YET_CONSUMED_BY_REAL_RUN"]
+        },
+        "reason": {"type": "string"},
+        "consumer_runs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["run_id", "output_sha256", "clause_present", "after_rule_recorded"],
+            "properties": {
+              "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:\\-]{0,127}$"},
+              "output_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "clause_present": {"const": true},
+              "after_rule_recorded": {"const": true}
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "locator": {
+      "type": "object",
+      "required": ["root", "path"],
+      "properties": {
+        "root": {"type": "string", "enum": ["ENGINE", "WORKFLOW", "RUNTIME"]},
+        "path": {"type": "string", "minLength": 1, "not": {"pattern": "^/"}}
+      }
+    },
+    "measured_side": {
+      "type": "object",
+      "required": ["value", "artefact", "artefact_sha256"],
+      "properties": {
+        "value": {},
+        "artefact": {"$ref": "#/$defs/locator"},
+        "artefact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
     }
   }
 }

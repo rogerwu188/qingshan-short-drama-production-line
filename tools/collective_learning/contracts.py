@@ -25,6 +25,7 @@ import json
 import re
 import uuid
 from datetime import datetime, timezone
+from pathlib import PurePosixPath
 from typing import Any, Iterable
 
 SCHEMA_VERSION = "1.0"
@@ -100,6 +101,22 @@ ADOPTION_STATES = ("AVAILABLE", "SELECTED", "APPLIED", "VERIFIED", "OUTCOME_OBSE
 ADOPTION_NEEDS_REASON = ("NOT_APPLICABLE", "DEFERRED", "FAILED")
 EVIDENCE_SCOPES = ("SOURCE_CONTRACT", "COMPILED_REQUEST", "PROVIDER_REQUEST", "GENERATED_MEDIA", "FINAL_FILM")
 OUTCOME_KINDS = ("DEFECT_ABSENT", "DEFECT_RECURRED", "ACCEPTED_IMPERFECTION", "NO_CHANGE_OBSERVED")
+
+#: Where a receipt's four real inputs are pinned (knowledge-loop case 2026-11-01, item 5).
+#:
+#: The adoption states above say HOW FAR a rule got; they never said WHAT it was derived from.
+#: A receipt that reaches APPLIED from a real production problem has to be reconstructable from
+#: records a third party can re-open: the FACT (an artefact + its sha256), the CAUSE attribution
+#: (evidence), the rule's own clause text at a file:line, and the VERIFICATION's before/after
+#: measurement.  These are optional blocks on the receipt, not new states or a second machine;
+#: when a receipt carries ``provenance`` it is validated strictly, so a case record can never be
+#: half-filled.  Artefacts are named by a logical locator (``ROOT`` + relative path) so the record
+#: stays portable and never carries an absolute path.
+PROVENANCE_PARTS = ("fact", "cause", "rule_source", "verification")
+PROVENANCE_ROOTS = ("ENGINE", "WORKFLOW", "RUNTIME")
+#: A case record is a claim about a real run.  It is either tied to a later real build or it says
+#: in so many words that no later real build consumed the rule yet.
+CONSUMPTION_STATUSES = ("CONSUMED_BY_REAL_RUN", "CONSUMED_BY_REPLAY_ONLY", "NOT_YET_CONSUMED_BY_REAL_RUN")
 
 # Keys an observation must never carry.  Rejected with an explicit error so a
 # caller cannot believe the key took effect.
@@ -418,6 +435,127 @@ def validate_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- adoption
+def validate_case_provenance(block: Any) -> dict[str, Any]:
+    """The four real inputs behind a receipt, checked part by part.
+
+    ``fact``         -- a named artefact and its sha256, plus what was measured.
+    ``cause``        -- a causal claim with the evidence that supports it; the claim never
+                        travels further than the evidence (``causal_claim`` stays a word here,
+                        not a licence to assert causality in an outcome).
+    ``rule_source``  -- the exact clause text and the ``path:line`` it lives at.
+    ``verification`` -- a before/after pair of measured values from recorded artefacts, each
+                        with its own artefact locator; ``restores_earlier_output`` says whether
+                        removing the rule reproduced the earlier failure.
+    """
+    if not isinstance(block, dict):
+        raise ContractError(["CASE_PROVENANCE_NOT_OBJECT"])
+    failures: list[str] = []
+    missing = [k for k in PROVENANCE_PARTS if not isinstance(block.get(k), dict)]
+    failures.extend(f"CASE_PROVENANCE_PART_MISSING:{key}" for key in missing)
+    if missing:
+        raise ContractError(failures)
+
+    fact = block["fact"]
+    _require(fact, ("statement", "artefact", "artefact_sha256", "measured"), failures)
+    failures.extend(_locator_failures("fact.artefact", fact.get("artefact")))
+    if fact.get("artefact_sha256") and not is_sha256(fact["artefact_sha256"]):
+        failures.append("CASE_PROVENANCE_FACT_SHA_INVALID")
+
+    cause = block["cause"]
+    _require(cause, ("statement", "evidence"), failures)
+    if not isinstance(cause.get("evidence"), list) or not cause.get("evidence"):
+        failures.append("CASE_PROVENANCE_CAUSE_NEEDS_EVIDENCE")
+    for index, row in enumerate(cause.get("evidence") or []):
+        if not isinstance(row, dict) or not str(row.get("statement") or "").strip():
+            failures.append(f"CASE_PROVENANCE_CAUSE_EVIDENCE_NOT_STATED:{index}")
+            continue
+        failures.extend(_locator_failures(f"cause.evidence[{index}]", row.get("artefact")))
+        if row.get("artefact") and not is_sha256(row.get("artefact_sha256")):
+            failures.append(f"CASE_PROVENANCE_CAUSE_EVIDENCE_SHA_MISSING_OR_INVALID:{index}")
+
+    rule_source = block["rule_source"]
+    _require(rule_source, ("clause", "file", "line"), failures)
+    if rule_source.get("line") is not None and (not isinstance(rule_source.get("line"), int)
+                                                or isinstance(rule_source.get("line"), bool)
+                                                or rule_source["line"] < 1):
+        failures.append("CASE_PROVENANCE_RULE_LINE_MUST_BE_POSITIVE_INT")
+    rule_file = PurePosixPath(str(rule_source.get("file") or ""))
+    if rule_source.get("file") and (rule_file.is_absolute() or ".." in rule_file.parts):
+        failures.append("CASE_PROVENANCE_RULE_FILE_MUST_BE_REPO_RELATIVE")
+
+    verification = block["verification"]
+    _require(verification, ("measurement", "before", "after"), failures)
+    for side in ("before", "after"):
+        row = verification.get(side)
+        if not isinstance(row, dict):
+            failures.append(f"CASE_PROVENANCE_VERIFICATION_SIDE_NOT_OBJECT:{side}")
+            continue
+        if "value" not in row:
+            failures.append(f"CASE_PROVENANCE_VERIFICATION_VALUE_MISSING:{side}")
+        failures.extend(_locator_failures(f"verification.{side}", row.get("artefact")))
+        if row.get("artefact") and not is_sha256(row.get("artefact_sha256")):
+            failures.append(f"CASE_PROVENANCE_VERIFICATION_SHA_MISSING_OR_INVALID:{side}")
+    if verification.get("restores_earlier_output") not in (None, True, False):
+        failures.append("CASE_PROVENANCE_RESTORES_FLAG_MUST_BE_BOOL")
+    failures.extend(sensitive_findings(block))
+    if failures:
+        raise ContractError(failures)
+    return block
+
+
+def _locator_failures(path: str, locator: Any) -> list[str]:
+    """A locator is ``{root: ENGINE|WORKFLOW|RUNTIME, path: <relative>}``: never an absolute path."""
+    if locator is None:
+        return [f"CASE_PROVENANCE_LOCATOR_MISSING:{path}"]
+    if not isinstance(locator, dict):
+        return [f"CASE_PROVENANCE_LOCATOR_NOT_OBJECT:{path}"]
+    failures: list[str] = []
+    root = locator.get("root")
+    if root not in PROVENANCE_ROOTS:
+        failures.append(f"CASE_PROVENANCE_LOCATOR_ROOT_INVALID:{path}:{root}")
+    rel = PurePosixPath(str(locator.get("path") or ""))
+    if not rel.parts or rel.is_absolute() or ".." in rel.parts or "\\" in str(locator.get("path") or ""):
+        failures.append(f"CASE_PROVENANCE_LOCATOR_PATH_INVALID:{path}")
+    return failures
+
+
+def _consumption_failures(block: Any) -> list[str]:
+    """Whether a REAL later build consumed the rule -- stated, never inferred.
+
+    * ``CONSUMED_BY_REAL_RUN`` needs at least one run with an id, the sha256 of the output that run
+      produced, ``clause_present: true`` in that output, and ``after_rule_recorded: true`` (a run
+      that predates the rule record cannot be its consumer).
+    * ``CONSUMED_BY_REPLAY_ONLY`` / ``NOT_YET_CONSUMED_BY_REAL_RUN`` need a ``reason`` so the gap is
+      on the record; they never list a run as a consumer.
+    """
+    if not isinstance(block, dict):
+        return ["CONSUMPTION_NOT_OBJECT"]
+    status = block.get("status")
+    if status not in CONSUMPTION_STATUSES:
+        return [f"CONSUMPTION_STATUS_INVALID:{status}"]
+    failures: list[str] = []
+    runs = block.get("consumer_runs") or []
+    if status == "CONSUMED_BY_REAL_RUN":
+        if not isinstance(runs, list) or not runs:
+            failures.append("CONSUMED_BY_REAL_RUN_NEEDS_CONSUMER_RUNS")
+        for index, run in enumerate(runs if isinstance(runs, list) else []):
+            if not isinstance(run, dict) or not is_identifier(run.get("run_id")):
+                failures.append(f"CONSUMER_RUN_ID_INVALID:{index}")
+                continue
+            if not is_sha256(run.get("output_sha256")):
+                failures.append(f"CONSUMER_RUN_OUTPUT_SHA_INVALID:{index}")
+            if run.get("clause_present") is not True:
+                failures.append(f"CONSUMER_RUN_CLAUSE_NOT_PRESENT:{index}")
+            if run.get("after_rule_recorded") is not True:
+                failures.append(f"CONSUMER_RUN_PREDATES_RULE_RECORD:{index}")
+    else:
+        if runs:
+            failures.append(f"CONSUMER_RUNS_LISTED_UNDER:{status}")
+        if not str(block.get("reason") or "").strip():
+            failures.append(f"CONSUMPTION_REASON_REQUIRED:{status}")
+    return failures
+
+
 def validate_adoption(receipt: dict[str, Any]) -> dict[str, Any]:
     failures: list[str] = []
     _require(receipt, ("receipt_id", "tenant_id", "line_id", "device_id", "run_id", "rule_id",
@@ -452,6 +590,13 @@ def validate_adoption(receipt: dict[str, Any]) -> dict[str, Any]:
     if receipt.get("evidence_scope") == "FINAL_FILM" and not is_sha256(
             (receipt.get("outcome") or {}).get("media_sha256")):
         failures.append("FINAL_FILM_SCOPE_NEEDS_FILM_SHA256")
+    if "provenance" in receipt:
+        try:
+            validate_case_provenance(receipt["provenance"])
+        except ContractError as exc:
+            failures.extend(exc.codes)
+    if "real_run_consumption" in receipt:
+        failures.extend(_consumption_failures(receipt["real_run_consumption"]))
     if failures:
         raise ContractError(failures)
     return receipt

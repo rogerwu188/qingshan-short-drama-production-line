@@ -54,6 +54,11 @@
 # see the defaults, and "blocking: false" has to be reviewable in the diff that ships it.
 !/configs/WRITER_CAPABILITY_V1.json
 !/configs/ADAPTATION_POLICY_V1.json
+# Knowledge-loop cases (line owner 2026-11-01, item 5): a case record pins its evidence by
+# sha256 and never carries an absolute path, so it is reviewable deployment code, not runtime
+# state.  The artefacts it names stay in the runtime/workflow roots.
+!/configs/knowledge_loop_cases/
+!/configs/knowledge_loop_cases/*.json
 !/configs/WRITER_RULE8_RESPONSE_V1.json
 !/codex_docs/
 /codex_docs/*
