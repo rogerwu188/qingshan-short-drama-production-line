@@ -557,7 +557,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/bootstrap_identity_cards.py",
-      "sha256": "34a2133d50fe08dfb0b89e379061c9fdf6d4681085d04fbb2754337e5df7738d"
+      "sha256": "1e0cc6559a4a9b2b99ce85a3ed0297094e363f375c6617888065ab16d6d3ea7b"
     },
     {
       "path": "lines/nalu/runtime/tools/bootstrap_runtime_root.py",
@@ -597,7 +597,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/character_reference_sheet.py",
-      "sha256": "b4164a06a544304e321801083e5e0066ade8faf47b720674935d26f44bf9ae1c"
+      "sha256": "662e5e91eaf41eaaa48e4ab3aa1c18507e5c1101c6f2868d6ca073f689b2df9a"
     },
     {
       "path": "lines/nalu/runtime/tools/extend_global_space_map.py",
@@ -673,7 +673,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "0ac00dae229c93457d52e7e5abba33cba5802c83ec894ebfcffa5c000142aadf"
+      "sha256": "8b8850243016bc538bd54c92d19c4273d513769d50d5582aa128adbda5153160"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",

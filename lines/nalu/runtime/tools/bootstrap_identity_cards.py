@@ -741,7 +741,7 @@ def base_plate_for(subject_id: str, plates_dir: Path | None, episode: str) -> Pa
     """
     if plates_dir is None or not plates_dir.is_dir():
         return None
-    pattern = re.compile(rf"^{re.escape(episode)}_{re.escape(subject_id)}_[0-9a-fA-F-]{{8,}}\.png$")
+    pattern = re.compile(rf"^{re.escape(episode)}_{re.escape(subject_id)}_(?:[0-9a-fA-F-]{{8,}}|tsk_[0-9A-Za-z_]{{8,}})\.png$")
     matches = sorted(p for p in plates_dir.iterdir() if pattern.match(p.name))
     return matches[-1] if matches else None
 

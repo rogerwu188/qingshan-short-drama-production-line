@@ -2547,7 +2547,7 @@ def s3_plate_on_disk(ctx: Ctx, row_id: str) -> bool:
     plates = ctx.p.identity_harvest_dir
     if not plates.is_dir():
         return False
-    pattern = re.compile(rf"^{re.escape(ctx.episode)}_{re.escape(row_id)}_[0-9a-fA-F-]{{8,}}\.png$")
+    pattern = re.compile(rf"^{re.escape(ctx.episode)}_{re.escape(row_id)}_(?:[0-9a-fA-F-]{{8,}}|tsk_[0-9A-Za-z_]{{8,}})\.png$")
     return any(pattern.match(item.name) for item in plates.iterdir())
 
 

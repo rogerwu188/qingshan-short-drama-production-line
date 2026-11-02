@@ -136,7 +136,7 @@ def _locked_view(row: dict[str, Any], view: str) -> Path | None:
 def _harvested(plates_dir: Path | None, episode: str, row_id: str) -> Path | None:
     if plates_dir is None or not plates_dir.is_dir():
         return None
-    pattern = re.compile(rf"^{re.escape(episode)}_{re.escape(row_id)}_[0-9a-fA-F-]{{8,}}\.png$")
+    pattern = re.compile(rf"^{re.escape(episode)}_{re.escape(row_id)}_(?:[0-9a-fA-F-]{{8,}}|tsk_[0-9A-Za-z_]{{8,}})\.png$")
     matches = sorted(p for p in plates_dir.iterdir() if pattern.match(p.name))
     return matches[-1] if matches else None
 
@@ -206,7 +206,7 @@ def plan_rows(contract: dict[str, Any], library: dict[str, Any], *, episode: str
 
 def harvested_sheets(plates_dir: Path, episode: str) -> list[tuple[str, str, Path]]:
     """(character_id, state key, path) of every sheet harvested in this episode."""
-    pattern = re.compile(rf"^{re.escape(episode)}_(CHAR-[^_]+(?:_[^_]+)*?)__{SHEET_VIEW}(?:__([A-Z0-9_]+?))?_[0-9a-fA-F-]{{8,}}\.png$")
+    pattern = re.compile(rf"^{re.escape(episode)}_(CHAR-[^_]+(?:_[^_]+)*?)__{SHEET_VIEW}(?:__([A-Z0-9_]+?))?_(?:[0-9a-fA-F-]{{8,}}|tsk_[0-9A-Za-z_]{{8,}})\.png$")
     found: dict[tuple[str, str], Path] = {}
     if plates_dir.is_dir():
         for path in sorted(plates_dir.iterdir()):
