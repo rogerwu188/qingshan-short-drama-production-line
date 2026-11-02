@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.h3_burned_text_cover_policy.v1",
   "policy_id": "H3_BURNED_TEXT_COVER_V1",
-  "authority": "Line owner 2026-10-31「同意」 (E12): MiniMax-H3 burns the spoken line into the picture (OCR: 12 of 49 E12 clips, always the line being spoken, centred at y 0.67-0.80) even with the TEXT-FREE FRAME rule first (K143). Every caption of the episode moves onto that band over a dark bar; the bar is also shown wherever OCR finds burned text, so the burned line is never readable. E13 added: line owner 2026-11-01「同意你的处理意见」 (Q2: 6 of 23 clips with OCR-confirmed burned dialogue; proposal E13_Q2_BURNED_SUBTITLE_COVER_20261101). E13 bar lightened to alpha 150 at the line owner's 2026-11-01 viewing note (字幕黑底), and captions keep their transparent plate.",
+  "authority": "Line owner 2026-10-31「同意」 (E12): MiniMax-H3 burns the spoken line into the picture (OCR: 12 of 49 E12 clips, always the line being spoken, centred at y 0.67-0.80) even with the TEXT-FREE FRAME rule first (K143). Every caption of the episode moves onto that band over a dark bar; the bar is also shown wherever OCR finds burned text, so the burned line is never readable. E13 added: line owner 2026-11-01「同意你的处理意见」 (Q2: 6 of 23 clips with OCR-confirmed burned dialogue; proposal E13_Q2_BURNED_SUBTITLE_COVER_20261101). E13 bar lightened to alpha 150 at the line owner's 2026-11-01 viewing note (字幕黑底), and captions keep their transparent plate. E13 2026-11-01 viewing note (两排字幕): the lightened bar let the burned line show through under our caption; E13 switches to BLUR over the burned runs with the caption drawn in the band.",
   "enabled_episodes": [
     "E12",
     "E13"
@@ -42,5 +42,9 @@
       12,
       150
     ]
-  }
+  },
+  "cover_style_by_episode": {
+    "E13": "BLUR"
+  },
+  "blur_radius": 22
 }

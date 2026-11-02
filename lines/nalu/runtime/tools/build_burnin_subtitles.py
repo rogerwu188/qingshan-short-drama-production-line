@@ -437,14 +437,27 @@ def main() -> int:
                  "x0": int(round(band["x0"] * W)), "x1": int(round(band["x1"] * W)), "rgba": rgba,
                  "intervals": (json.loads(a.cover_intervals.read_text(encoding="utf-8")).get("intervals") or []
                                if a.cover_intervals else [])}
-        # the bar alone over every burned-text run (captions are drawn on the same bar on top of it)
-        bar = Image.new("RGBA", (W, cover["h"]), (0, 0, 0, 0))
-        ImageDraw.Draw(bar).rectangle((cover["x0"], 0, cover["x1"], cover["h"] - 1), fill=rgba)
-        bar_png = png_dir / "cover_bar.png"; bar.save(bar_png)
-        for j, (b_s, b_e) in enumerate(cover["intervals"]):
-            inputs += ["-i", str(bar_png)]
-            src = "[0:v]" if not chain else f"[b{j}]"
-            chain.append(f"{src}[{len(inputs) // 2}:v]overlay=x=0:y={cover['y']}:enable='between(t,{float(b_s):.3f},{float(b_e):.3f})'[b{j + 1}]")
+        style = str(((_pol.get("cover_style_by_episode") or {}).get(a.episode) or _pol.get("cover_style") or "BAR")).upper()
+        cover["style"] = style
+        if style == "BLUR" and cover["intervals"]:
+            # Line owner 2026-11-01 (E13: 字幕黑底 / 两排字幕): hide the burned line by blurring the burn band during the
+            # burned-text runs instead of painting a dark bar; our caption is drawn over the same band, so one line
+            # of text shows and the plate stays see-through.
+            when = "+".join(f"between(t,{float(b_s):.3f},{float(b_e):.3f})" for b_s, b_e in cover["intervals"])
+            bw = cover["x1"] - cover["x0"]
+            radius = int(_pol.get("blur_radius") or 22)
+            chain.append(f"[0:v]split=2[base][cut];[cut]crop={bw}:{cover['h']}:{cover['x0']}:{cover['y']},"
+                         f"boxblur={radius}:3[blur];[base][blur]overlay=x={cover['x0']}:y={cover['y']}:"
+                         f"enable='{when}'[b1]")
+        else:
+            # the bar alone over every burned-text run (captions are drawn on the same bar on top of it)
+            bar = Image.new("RGBA", (W, cover["h"]), (0, 0, 0, 0))
+            ImageDraw.Draw(bar).rectangle((cover["x0"], 0, cover["x1"], cover["h"] - 1), fill=rgba)
+            bar_png = png_dir / "cover_bar.png"; bar.save(bar_png)
+            for j, (b_s, b_e) in enumerate(cover["intervals"]):
+                inputs += ["-i", str(bar_png)]
+                src = "[0:v]" if not chain else f"[b{j}]"
+                chain.append(f"{src}[{len(inputs) // 2}:v]overlay=x=0:y={cover['y']}:enable='between(t,{float(b_s):.3f},{float(b_e):.3f})'[b{j + 1}]")
     first_src = f"[b{len(chain)}]" if chain else "[0:v]"
     for i, (s_t, e_t, ln) in enumerate(events):
         rows = wrap_text(ln["text"]).split("\\N")
@@ -464,7 +477,9 @@ def main() -> int:
                    stroke_width=3, stroke_fill=(0, 0, 0, 255))
         png = png_dir / f"cap_{i + 1:03d}.png"; img.save(png)
         inputs += ["-i", str(png)]
-        y = H - MARGIN_BOTTOM - img.height
+        # with a cover policy the caption always sits in the burn band (one consistent line position), so during a
+        # burned-text run it lands on top of the hidden line instead of a second row below it
+        y = (cover["y"] + (cover["h"] - img.height) // 2) if cover else H - MARGIN_BOTTOM - img.height
         src = first_src if i == 0 else f"[v{i}]"
         chain.append(f"{src}[{len(inputs) // 2}:v]overlay=x=0:y={y}:enable='between(t,{s_t:.3f},{e_t:.3f})'[v{i + 1}]")
     last = f"[v{len(events)}]" if events else first_src
@@ -479,6 +494,7 @@ def main() -> int:
            "unit_recut": str(a.unit_recut) if a.unit_recut else None, "unit_recut_dropped_lines": recut_dropped,
            "font": font_name, "font_file": font_file, "font_source": font_source,
            **({"cover_band": {k: cover[k] for k in ("y", "h", "x0", "x1")}, "cover_intervals": cover["intervals"],
+               "cover_style": cover.get("style"),
                "policy_id": "H3_BURNED_TEXT_COVER_V1"} if cover else {})}
     if english:
         out["language"] = a.language
