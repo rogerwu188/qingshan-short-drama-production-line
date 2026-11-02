@@ -72,9 +72,11 @@ class LeadingBurstPlanTests(unittest.TestCase):
 
     def test_no_burst_when_quiet_start_or_no_silence(self):
         self.assertIsNone(burst.detect(envelope(burst_db=-45.0)))
-        self.assertIsNone(burst.detect(envelope(silence_db=-50.0)))      # pause not near-silent
+        self.assertIsNone(burst.detect(envelope(silence_db=-45.0)))      # pause not near-silent
         self.assertIsNone(burst.detect(envelope(silence_windows=20)))    # silence shorter than 0.25 s
-        self.assertIsNone(burst.detect(envelope(burst_windows=30)))      # loud for 0.3 s = a real word
+        self.assertIsNone(burst.detect(envelope(burst_windows=60)))      # loud for 0.6 s = a real word
+        # a 0.37 s burst then ~0.9 s of -55 dB room tone (lab E12 long-take Take B) is caught
+        self.assertIsNotNone(burst.detect(envelope(burst_windows=37, silence_db=-55.0, silence_windows=90)))
 
     def test_line_starting_at_frame_zero_is_untouched(self):
         found = burst.detect(envelope())

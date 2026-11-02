@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2283,
+  "file_count": 2284,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -3969,7 +3969,7 @@
     },
     {
       "path": "tools/dialogue_leading_burst.py",
-      "sha256": "1fbf3c4866414d34cfcb2e78b4d1bcd991802244cfc3990bca6a6b52e739617b"
+      "sha256": "ea149062ffa18769746027ddf9bfe5525e638e6123ce63ba7c5ab3eb9537948a"
     },
     {
       "path": "tools/dialogue_sound_bridge.py",
@@ -7761,7 +7761,7 @@
     },
     {
       "path": "tools/tests/test_leading_burst_face_count_endcard.py",
-      "sha256": "66cedee6f0a763771d07d3d7fbc8d9f25227ee828d8ccff9eadcd94aa9a36eb7"
+      "sha256": "6bfeb69ef0f3e4a1765bf3c2290cb38b80d1a2d216dc6c35241ff1f02db283de"
     },
     {
       "path": "tools/tests/test_legacy_voice_migration.py",
@@ -7822,6 +7822,10 @@
     {
       "path": "tools/tests/test_minimax_h3_ref2va_prompt_compiler.py",
       "sha256": "59aea340c4275413299106bb3961206658b5ae81c5682c78da45aa869dd0de27"
+    },
+    {
+      "path": "tools/tests/test_monologue_speaking_groups.py",
+      "sha256": "9e3d04791cc1024dcb192778d847e508cba7ba521e394944b9b4d0c3d069ca8a"
     },
     {
       "path": "tools/tests/test_multimodal_character_binding_guard.py",
