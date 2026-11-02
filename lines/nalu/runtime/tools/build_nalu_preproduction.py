@@ -361,7 +361,8 @@ def build_subspace_tasks(contract: dict[str, Any], index: SpaceIndex,
     used: dict[str, int] = {}
     scenes = {str(row["scene_id"]): row for row in contract.get("scene_states") or []}
     props = [row for row in contract.get("non_character_entities") or []
-             if str(row.get("entity_id") or "").startswith(("PROP-", "SET-"))]  # SET-*: fixed-set plates (火泉) bind like props
+             if str(row.get("entity_id") or "").startswith(("PROP-", "SET-", "CREATURE-", "ANIMAL-"))  # SET-*: fixed-set plates (火泉) bind like props
+             or str(row.get("kind") or "").strip().upper() in {"CREATURE", "ANIMAL"}]  # registered beings (lab 化神 E01 白鹤)
     tasks: list[dict[str, Any]] = []
     rows: list[dict[str, Any]] = []
     for shot in contract.get("shots") or []:
