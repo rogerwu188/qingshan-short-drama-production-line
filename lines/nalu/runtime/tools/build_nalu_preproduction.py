@@ -2037,11 +2037,22 @@ def main() -> int:
         # canonical (un-suffixed) anchor plan + start-frame contracts always describe the FULL
         # grouping — the wave scheduler, the review requests (Expectations) and every later
         # wave read them; the wave's own subset goes to the _WAVE files used for this compile.
-        build_anchor_outputs(full_plan_path, "")
+        _full_anchor = build_anchor_outputs(full_plan_path, "")
         anchor_plan, anchor_path, start_frames, start_frame_path = build_anchor_outputs(plan_path, "_WAVE")
     else:
+        _full_anchor = None
         anchor_plan, anchor_path, start_frames, start_frame_path = build_anchor_outputs(plan_path, "")
     anchor_report = engine.anchor_gate(json.loads(anchor_path.read_text(encoding="utf-8")))
+    if _full_anchor is not None and anchor_report.get("failures"):
+        # the uniform-count audit judges the whole episode's anchor design; an automatically scheduled wave is an
+        # arbitrary subset whose class mix is accidental (lab 化神 E01: 4 silent prop units in one wave).  Keep
+        # every per-unit failure; take the uniformity verdict from the FULL plan.
+        full_report = engine.anchor_gate(json.loads(_full_anchor[1].read_text(encoding="utf-8")))
+        full_uniform = [f for f in full_report.get("failures") or [] if str(f.get("code", "")).startswith("UNIFORM_COUNT_")]
+        kept = [f for f in anchor_report["failures"] if not str(f.get("code", "")).startswith("UNIFORM_COUNT_")]
+        anchor_report["failures"] = kept + full_uniform
+        anchor_report["status"] = "FAIL" if anchor_report["failures"] else "PASS"
+        anchor_report["uniform_count_judged_on"] = "FULL_EPISODE_PLAN"
     anchor_report["gate_id"] = "VIDEO-UNIT-ANCHOR-COUNT"
     anchor_report_path = write_json(reports_dir / f"{prefix}ANCHOR_COUNT_GATE_V1.json", anchor_report)
     stage("4.3_video_unit_anchor_plan",
