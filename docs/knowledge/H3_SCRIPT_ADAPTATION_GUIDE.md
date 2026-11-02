@@ -65,7 +65,7 @@
   而 H3 在「两人同框、一人说话」的镜头里会把镜头转向/推向说话人、把听者摇出画，同一人既在起始帧又有正脸参考时还会出重影或第二个人——
   提示词写清、去矛盾、改过肩构图、写明「同一人」都只能减轻，消除不了。所以按下面写，不靠多抽、不靠后期补救：
   ① **说话镜只拍说话的人**：单人中近景/近景，或带对方一点肩膀/后脑的过肩近景，说话人居中、是唯一正脸；
-  听者不给正脸、不要求整个人在画内。同一个人连着说的几句留在同一个镜头里。
+  听者不给正脸、不要求整个人在画内。同一个人连着说的几句留在同一个镜头里（独白组，≤12 s，见下文「同一个人连着说的几句」）。
   ② **双人镜只用在没人说话的时刻**：开场交代关系、沉默对视、动作反应——没人开口，H3 就没有「对准谁」的冲动。
   ③ **景别节奏**：开场一个无对白双人镜交代空间；对白用单人镜一来一回；情绪转折才切更紧的景别；最狠的那句给最紧的镜头；
   听者的无声反应只在「反应本身就是戏」时才切过去。
@@ -91,7 +91,10 @@
 5. `MEDIUM_CLOSE_UP` B 无对白反应（`REACTION_CUT`，`sound_bridge_from_previous_seconds: 0.8`）。
 - 竖屏双人镜（无对白时）优先前后叠放的过肩构图，不要两人左右分列画面两侧边缘。
 - **锁机位就是锁死**（线主 2026-10-26，实验集 Holmes E06：写了 LOCKED 的单元 H3 仍推近，人脸宽度 0.41→0.81）：CAMERA_GRAMMAR_V1 的集里，
-  锁机位一镜到底的单元提示词默认带强机位锁（最前面一段 `CAMERA LOCK — ABSOLUTE RULE`、`Frame size is frozen`、Never 里禁推近），A/B 实测推近从 65–98% 降到 15–39%；
+  锁机位一镜到底的单元提示词默认带强机位锁（Camera 段末一句普通的话「The camera stays on a tripod for the whole clip: no zoom, no push-in, no dolly,
+  no crop change; the subject keeps the same size in frame as in @Image1 from the first frame to the last.」、Never 里禁推近），A/B 实测推近从 65–98% 降到 15–39%。
+  原来放在最前面的全大写段 `CAMERA LOCK — ABSOLUTE RULE: …` 已删除（线主 2026-11-01，实验集 E12 长镜头：H3 把这段当台词念了出来，ASR 听到「a rule. The camera is in bonus…」）；
+  CAMERA_GRAMMAR_V1 的提示词里不再出现任何「全大写标签 + 冒号」（渲染器自查 `ALL_CAPS_LABEL_IN_PROMPT`）；
   剩下的推近由 S7 免费补偿（把前段画面以人脸为中心放大到末帧大小，最多 1.6 倍，`<EP>_PUSH_IN_COMPENSATION.json`）。
   所以要推近就把 `motion_family` 写成 DOLLY PUSH_IN（移动机位不受影响）；写 LOCKED 就是要画面大小不变。个别单元确实不要强锁时，合同/单元写
   `"h3_camera_lock": "standard"`。
@@ -105,7 +108,21 @@
   （"framed from mid-chest up"、"head and shoulders"、"seated behind the desk, waist up"）和人在做什么、看向谁；
   不写成正面站立直视镜头。同一场连续几镜的构图要有变化（角度、高低、前景）。
 - **对白镜不留空**（线主 2026-10-23：H3 会用乱码般的「像英文但不是英文」的话填满台词说完后的时间）：对白镜 `target_seconds` = 台词说话时长 + 0.5–1.0 s（中文约 4 字/秒，英文约 2.5 词/秒）；不要给对白镜加长，需要停顿、反应就另写一个无对白的反应镜。S7 也会把每个对白单元剪在最后一句说完后约 0.5 s，多给的时长只会被剪掉。
-- **对白镜 4–5 s，一句一镜，台词写满约 3 s**（线主 2026-10-26 定 3–5 s；2026-10-29 H3 视频改走 HopsAPI，只接受 4–15 s 整数秒，下限改为 4 s）：
+- **同一个人连着说的几句 = 一个镜头（独白组），最长 12 s**（线主 2026-11-01，实验集 E12 长镜头对比：Holmes 开场独白按「同一人的连续台词
+  一个 12–14 s 的连续镜头、组与组之间插一个无台词的插入镜」重拍，比一句一镜好看得多；推近只有 +1%/+15%）：
+  ① 同一说话人的连续画内台词**不要在句与句之间写切**：每句仍各写一镜（每句约 3.5 s，镜头 4 s），但这几镜的 `camera_plan` 写成**同一个锁定机位**
+  （`shot_scale`、`camera_height`、`camera_side`、`motion_family: LOCKED`、`motion_direction`、`start_framing` 一字不差），后一镜
+  `internal_transition_authoring.transition_mode` 写 `CONTINUOUS_ACTION`（顶层 `internal_transition_authoring` 同步）。分组器把它们并成一个单元，
+  提示词只有一个 Camera 段、一个「一镜到底」，台词用「Only these lines are spoken, in this order, each once…」按序列出。
+  也可以把同一人的几句写进同一镜（`dialogue` 每行一句 `名字：台词`），时长按几句合计 + 0.5 s，最长 12 s。
+  ② **一组最长 12 s（约 3 句；H3 上限 15 s）**；更长的独白拆成几组，**组与组之间写一个 4 s 无台词的插入镜**（听者反应或道具特写，
+  `MOTIVATED_CUT` / `REACTION_CUT`），下一组**回到同一机位**（`camera_plan` 与上一组相同，进入用 `MOTIVATED_CUT`）：引擎直接复用上一组的关键帧
+  （`MONOLOGUE_SAME_SETUP_KEYFRAME_REUSE`，不再生图）。没写插入镜时分组器在 12 s 处硬拆，并在分组清单记 `writer_warning: MONOLOGUE_CUTAWAY_REQUIRED`。
+  ③ 换说话人、换机位（景别/角度变了）或写了切，就是新的一组；要「转折才切近」就在转折处写切 + 新机位，不要每句换景别。
+  写手自查规则 12 只警告：`R12_MONOLOGUE_CUT_BETWEEN_LINES`（同一人两句之间写了切或换了机位）、`R12_MONOLOGUE_OVER_12S_ADD_CUTAWAY`（同机位连续台词超过 12 s）。
+  实现：`tools/build_video_unit_grouping_spec.monologue_continues`、`tools/speaking_unit_duration`（`GROUP_MAX_SECONDS`）。S7 头部剪裁只剪第一句之前、尾部剪裁只剪最后一句之后。
+- **对白镜 4–5 s，一句一镜，台词写满约 3 s**（线主 2026-10-26 定 3–5 s；2026-10-29 H3 视频改走 HopsAPI，只接受 4–15 s 整数秒，下限改为 4 s；
+  2026-11-01 起同一人的连续几句并成一个 ≤12 s 的单元，见上一条）：
   实验集 E04：6–8 s 的对白单元里 H3 编出乱码台词、机位摇走；HopsAPI 探针（2026-10-29）：为 3 s 写的一句台词放进 4 s 片段，H3 在台词前补了约 2 s 乱码话。
   所以**写台词时按 4 s 镜头写，每句台词写成说出来约 3.5 s**（线主 2026-10-29，实验集 E08 第一集 HopsAPI：台词偏短，H3 在台词前后补编的话被 S7 剪掉——
   头部剪掉 9.3 s、尾部剪掉 17.9 s，成片只剩 96 s 而不是约 110 s）：**英文约 9–11 个词、中文约 14–16 个字**。**更短的台词不要单独成镜**：
@@ -182,6 +199,7 @@ H3 当真人短剧拍，凭空加了好几双真人的手。
 - [ ] 全集镜头合计约 115–120 秒，S7 剪掉头尾多出的话后成片约 110 秒（约 1 分 50 秒；线主 2026-10-27 定成片长度，2026-10-29 实验集 E08：剪裁会吃掉几秒到十几秒）：
       短了就多写剧情和镜头，不拉长单镜；对白镜仍 4–5 秒。
 - [ ] 每句画内台词说出来约 3.5 s（英文约 9–11 词、中文约 14–16 字）；更短的给说话人一个有表演的动作，或并到同一人的下一句（§5）。
+- [ ] 同一人的连续台词用同一个锁定机位、句间 `CONTINUOUS_ACTION`，不在句与句之间切；每组 ≤12 s，组间一个 4 s 无台词插入镜，再回同一机位（§5）。
 
 - [ ] 每一拍都分了桶；②③没有直接塞给 H3。
 - [ ] 每个单元 ≤ 2 个可见主体；无脸存在登记为 CREATURE，`note` 写了长相。

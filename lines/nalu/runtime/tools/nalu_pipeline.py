@@ -4158,12 +4158,46 @@ def stage_s5(ctx: Ctx) -> StageResult:
     return s5_finish_q1(ctx, res)
 
 
+def materialise_monologue_reuse_keyframes(ctx: Ctx) -> list[dict[str, Any]]:
+    """CAMERA_GRAMMAR_V1 monologue groups (owner 2026-11-01, lab E12 long take): a speaker's take that continues
+    after a cutaway reuses the earlier take's keyframe (build_keyframe_manifest MONOLOGUE_SAME_SETUP_KEYFRAME_REUSE,
+    no paid image).  Copy the source keyframe's bytes to ``<first shot>-keyframe-v1.png`` -- again whenever the
+    source image changed (a Q1 redo) -- with a sidecar naming the source.  Nothing to do on other episodes."""
+    report = read_json(ctx.p.keyframe_manifest_report, {}) or {}
+    rows = []
+    for row in report.get("decision_table") or []:
+        if row.get("reuse_mode") != "MONOLOGUE_SAME_SETUP_KEYFRAME_REUSE":
+            continue
+        shot, source = str(row.get("shot_id") or ""), str(row.get("reuse_source") or "")
+        src = ctx.p.keyframes / f"{source}-keyframe-v1.png"
+        dst = ctx.p.keyframes / f"{shot}-keyframe-v1.png"
+        side_path = dst.with_suffix(".monologue_reuse.json")
+        if not src.is_file():
+            rows.append({"shot_id": shot, "status": "SOURCE_NOT_YET_ON_DISK", "source_shot_id": source}); continue
+        src_sha = sha256_file(src)
+        side = read_json(side_path, {}) or {}
+        if dst.is_file() and side.get("source_sha256") == src_sha and sha256_file(dst) == src_sha:
+            rows.append({"shot_id": shot, "status": "ALREADY_PRESENT", "path": str(dst)}); continue
+        shutil.copyfile(src, dst)
+        write_json(side_path, {"schema": "nalu.monologue_keyframe_reuse.v1", "shot_id": shot,
+                               "unit_id": row.get("video_unit_id"), "source_shot_id": source,
+                               "source_unit_id": row.get("reuse_source_unit_id"), "source_path": str(src),
+                               "source_sha256": src_sha, "sha256": sha256_file(dst), "materialised_at": now(),
+                               "recorded_by": TOOL_ID,
+                               "note": "same speaker, same locked camera setup after a cutaway: exact keyframe reuse"})
+        rows.append({"shot_id": shot, "status": "MATERIALISED", "path": str(dst), "sha256": src_sha})
+    return rows
+
+
 def s5_finish_q1(ctx: Ctx, res: StageResult) -> StageResult:
     """S5's tail: Q1 admission, then the start-frame receipts.
 
     Split out of stage_s5 so the D-46 no-POST path reaches it without passing through the paid
-    submit and its harvest.
+    submit and its harvest.  First the monologue keyframe reuse copies (CAMERA_GRAMMAR_V1, free).
     """
+    reused = materialise_monologue_reuse_keyframes(ctx)
+    if reused:
+        res.details["monologue_keyframe_reuse"] = reused
     # 4) S5.q1 — keyframe Q1 admission (D-4)
     q1 = s5_q1(ctx, res)
     res.details["q1_admission"] = q1

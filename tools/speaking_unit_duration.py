@@ -11,6 +11,10 @@ action (H3_SCRIPT_ADAPTATION_GUIDE §5); S7 head/tail trims remain the safety ne
 ``SHORT_LINE_WARN_SECONDS`` gets a non-blocking ``warning`` on its report row.
 
 * fits (line + 0.5 <= 5 s): duration = max(4, ceil(line + 0.5)) — shorter or longer than authored;
+* a shot with several lines of ONE speaker (owner 2026-11-01, lab E12 long-take test: one continuous 12-14 s take
+  of a speaker's consecutive lines played far better than one shot per line) is one speaking group: the same rule
+  with the lines' summed estimate, up to ``GROUP_MAX_SECONDS`` (12 s; the H3 request window is
+  ``GROUP_HARD_MAX_SECONDS`` = 15 s); longer, the writer splits it with a silent cutaway (§5);
 * does not fit: the writer must split the line into two shots (H3_SCRIPT_ADAPTATION_GUIDE §5).  The compiler
   never blocks: it keeps the authored duration, or shortens it to ceil(line + 0.5) when the authored shot runs
   more than line + 1.5 s, and reports ``WRITER_SPLIT_REQUIRED``.
@@ -42,6 +46,12 @@ SCHEMA = "qingshan.speaking_unit_duration.v1"
 LINE_PAD_SECONDS = 0.5
 MIN_SECONDS = 4  # HopsAPI H3 request floor (owner 2026-10-29; was 3 on Giggle)
 MAX_SECONDS = 5
+#: one speaker's consecutive lines in one take (owner 2026-11-01): preferred cap / H3 request maximum
+GROUP_MAX_SECONDS = 12
+GROUP_HARD_MAX_SECONDS = 15
+#: the camera-setup fields two consecutive speaking shots must share to be one take (grouping + V2 camera section)
+SETUP_FIELDS = ("shot_scale", "camera_height", "camera_side", "motion_family", "motion_direction", "start_framing")
+LOCKED_FAMILIES = {"STATIC", "LOCKED"}
 SHORTEN_ABOVE_LINE_PLUS = 1.5
 #: owner 2026-10-29 (lab E08): a spoken line is written to take ~3.5 s; under it H3 pads the shot with invented speech
 SHORT_LINE_WARN_SECONDS = 2.8
@@ -59,16 +69,60 @@ def estimated_line_seconds(lines: list[str] | str, language: str = "zh",
                      for row in rows if str(row).strip()), 3)
 
 
+def _speaker(line: str) -> str:
+    head = str(line).strip()[:32]
+    for sep in ("：", ":"):
+        if sep in head:
+            return head.split(sep, 1)[0].strip()
+    return ""
+
+
+def one_speaker_lines(lines: list[str] | str) -> bool:
+    """Two or more non-empty lines, all spoken by the same named speaker (``Speaker：line``)."""
+    rows = [row for row in (lines.splitlines() if isinstance(lines, str) else list(lines)) if str(row).strip()]
+    speakers = {_speaker(row) for row in rows}
+    return len(rows) > 1 and len(speakers) == 1 and "" not in speakers
+
+
+def max_seconds_for(lines: list[str] | str) -> int:
+    """MAX_SECONDS for one line, GROUP_MAX_SECONDS for several lines of one speaker."""
+    return GROUP_MAX_SECONDS if one_speaker_lines(lines) else MAX_SECONDS
+
+
+def setup_key(camera_plan: dict[str, Any] | None) -> tuple[str, ...]:
+    """The camera setup of a shot: two speaking shots with the same key are one locked take."""
+    plan = camera_plan if isinstance(camera_plan, dict) else {}
+    return tuple(str(plan.get(field) or "").strip().upper() if field != "start_framing"
+                 else str(plan.get(field) or "").strip() for field in SETUP_FIELDS)
+
+
+def locked_setup(camera_plan: dict[str, Any] | None) -> bool:
+    return str((camera_plan or {}).get("motion_family") or "STATIC").strip().upper() in LOCKED_FAMILIES
+
+
+def group_duration(line_lists: list[list[str] | str], language: str = "zh",
+                   delivery: dict[str, Any] | None = None) -> dict[str, Any]:
+    """A speaking group (one speaker's consecutive lines in one take): the summed estimate + pad, at least
+    MIN_SECONDS, against GROUP_MAX_SECONDS (fits) / GROUP_HARD_MAX_SECONDS (over the preferred cap) / beyond
+    (the writer must split it with a cutaway)."""
+    line = round(sum(estimated_line_seconds(lines, language, delivery) for lines in line_lists), 3)
+    need = float(max(MIN_SECONDS, math.ceil(line + LINE_PAD_SECONDS - 1e-9))) if line > 0 else 0.0
+    verdict = ("FITS" if need <= GROUP_MAX_SECONDS else
+               "OVER_PREFERRED_CAP" if need <= GROUP_HARD_MAX_SECONDS else "WRITER_SPLIT_REQUIRED")
+    return {"estimated_line_seconds": line, "duration_seconds": need, "verdict": verdict,
+            "group_max_seconds": GROUP_MAX_SECONDS, "hard_max_seconds": GROUP_HARD_MAX_SECONDS}
+
+
 def speaking_duration(authored: float, lines: list[str] | str, language: str = "zh",
                       delivery: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Report row with the new ``duration_seconds`` for one speaking shot."""
+    """Report row with the new ``duration_seconds`` for one speaking shot (one line, or one speaker's lines)."""
     authored = float(authored)
     line = estimated_line_seconds(lines, language, delivery)
     need = line + LINE_PAD_SECONDS
     if line <= 0:
         return {"authored_seconds": authored, "estimated_line_seconds": line, "duration_seconds": authored,
                 "action": "NO_SPOKEN_LINE"}
-    if need <= MAX_SECONDS + 1e-9:
+    if need <= max_seconds_for(lines) + 1e-9:
         new = float(max(MIN_SECONDS, math.ceil(need - 1e-9)))
         action = "UNCHANGED" if abs(new - authored) < 1e-9 else ("SHORTENED" if new < authored else "LENGTHENED")
     else:

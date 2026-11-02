@@ -42,21 +42,31 @@ def h3_constraint_language(payload: dict[str, Any] | None) -> str:
 
 
 #: Strict camera lock (owner A/B, lab Holmes E06 2026-10-26: locked units still pushed in, face width
-#: 0.41 -> 0.81; with this wording VU-008 push-in 65% -> 15%, VU-001 98% -> 39%).  DEFAULT for every
-#: CAMERA_GRAMMAR_V1 single-take locked-camera unit (owner 2026-10-26): this English block is the prompt's very
-#: first paragraph (DIRECTOR_PROMPT_V2), plus a frozen-frame-size camera sentence and extra Never items
-#: (the V1 director renders CAMERA_LOCK_FROZEN_CLAUSE in its camera line).  ``h3_camera_lock: "standard"``
-#: opts a unit/contract out; ``"strict"`` forces it (refused on a moving camera).  Unstamped units never get it.
+#: 0.41 -> 0.81; with the lock wording VU-008 push-in 65% -> 15%, VU-001 98% -> 39%).  DEFAULT for every
+#: CAMERA_GRAMMAR_V1 single-take locked-camera unit (owner 2026-10-26).  Since 2026-11-01 (owner, lab E12 long-take
+#: test: H3 read the old all-caps "CAMERA LOCK — ABSOLUTE RULE:" top block aloud as invented speech) the rule is an
+#: ordinary sentence at the end of the Camera section (CAMERA_LOCK_TRIPOD) plus extra Never items; no all-caps
+#: label anywhere.  The V1 director renders CAMERA_LOCK_FROZEN_CLAUSE in its camera line.
+#: ``h3_camera_lock: "standard"`` opts a unit/contract out; ``"strict"`` forces it (refused on a moving camera).
+#: Unstamped units never get it.
 H3_CAMERA_LOCK_FIELD = "h3_camera_lock"
+#: LEGACY (2026-10-26 .. 2026-11-01): the old top block, kept only so prompts submitted with it are still
+#: recognized as DIRECTOR_PROMPT_V2 text (DIRECTOR_V2_TEXT_START); never rendered any more.
 CAMERA_LOCK_STRICT = (
     "CAMERA LOCK \u2014 ABSOLUTE RULE: the camera is bolted to a tripod for the whole clip. No zoom, no push-in, "
     "no dolly, no crop change. The subject's size in the frame stays exactly the same from the first frame to the "
     "last; the face never gets bigger or smaller. Any move closer is a failed shot."
 )
+#: LEGACY camera sentence of the same period (replaced by CAMERA_LOCK_TRIPOD)
 CAMERA_LOCK_FROZEN_FRAME = "Frame size is frozen: same shot size as @Image1 at every moment."
+#: the strict camera lock as one plain Camera-section sentence (owner 2026-11-01)
+CAMERA_LOCK_TRIPOD = ("The camera stays on a tripod for the whole clip: no zoom, no push-in, no dolly, no crop change; "
+                      "the subject keeps the same size in frame as in @Image1 from the first frame to the last.")
 CAMERA_LOCK_NEVER = "zooming in, pushing in, dollying in, moving closer to the face, tightening the frame"
-#: where a DIRECTOR_PROMPT_V2 text starts: "References:", optionally after the strict camera-lock block
+#: where a DIRECTOR_PROMPT_V2 text starts: "References:", optionally after the legacy camera-lock block
 DIRECTOR_V2_TEXT_START = re.compile(r"(?:" + re.escape(CAMERA_LOCK_STRICT) + r"\n\n)?References:\n")
+#: an all-caps label H3 could read aloud ("CAMERA LOCK — ABSOLUTE RULE:"); DIRECTOR_PROMPT_V2 never renders one
+ALL_CAPS_LABEL = re.compile(r"\b[A-Z]{2,}(?:[ \t]+[A-Z]{2,})*[ \t]*(?:[\u2014\u2013-][^:\n]{0,40})?:")
 
 
 #: V1 director (key: value) camera-line clause of the same rule

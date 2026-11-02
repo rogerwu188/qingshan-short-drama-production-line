@@ -7,8 +7,8 @@ from it (``submit_giggle_video_manifest_v2.provider_prompt_unit``).  Every other
 ``subject_definitions:`` prompt byte-identically (tools/h3_provider_prompt_renderer.py).
 
 Sections, in order: References / Who is in frame / Setting / Camera / Action / Dialogue / Sound / Never.
-CAMERA_GRAMMAR_V1 single-take locked-camera units get the strict camera lock by default (owner 2026-10-26): a
-CAMERA LOCK block before References, a frozen-frame-size camera sentence and push-in Never items;
+CAMERA_GRAMMAR_V1 single-take locked-camera units get the strict camera lock by default (owner 2026-10-26): one
+plain tripod sentence at the end of Camera (no all-caps block: H3 read it aloud, owner 2026-11-01) and push-in Never items;
 ``h3_camera_lock: "standard"`` opts out, moving cameras keep their wording, unstamped units render byte-identically.
 Every fact comes from the same execution plan and bound English contract V1 uses; the optional
 ``director_v2`` block of that contract (appearance, wardrobe, setting in English) is requested by
@@ -33,9 +33,9 @@ try:
     )
     from tools.provider_contract_boundary import is_being_prop, validate_provider_prompt_boundary
     from tools.h3_provider_english_contract import (
-        CAMERA_LOCK_FROZEN_FRAME,
+        ALL_CAPS_LABEL,
         CAMERA_LOCK_NEVER,
-        CAMERA_LOCK_STRICT,
+        CAMERA_LOCK_TRIPOD,
         h3_camera_lock,
         redo_finding_sentences,
         strict_camera_lock_applies,
@@ -56,9 +56,9 @@ except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
     )
     from provider_contract_boundary import is_being_prop, validate_provider_prompt_boundary  # type: ignore
     from h3_provider_english_contract import (  # type: ignore
-        CAMERA_LOCK_FROZEN_FRAME,
+        ALL_CAPS_LABEL,
         CAMERA_LOCK_NEVER,
-        CAMERA_LOCK_STRICT,
+        CAMERA_LOCK_TRIPOD,
         h3_camera_lock,
         redo_finding_sentences,
         strict_camera_lock_applies,
@@ -71,8 +71,10 @@ except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
 
 try:
     from tools import h3_provider_prompt_renderer as v1
+    from tools import speaking_unit_duration as _sud
 except ModuleNotFoundError:  # pragma: no cover
     import h3_provider_prompt_renderer as v1  # type: ignore
+    import speaking_unit_duration as _sud  # type: ignore
 
 SCHEMA = "qingshan.minimax_h3_director_prompt.v2"
 CJK = re.compile(r"[㐀-鿿]")
@@ -360,6 +362,15 @@ def camera_section(unit: dict[str, Any], plan: dict[str, Any], contract: dict[st
         return _camera_entry(camera_plan, english, one_take=True), [
             {"shot_id": "UNIT", "fields": sorted(english), "untranslated_fields": failures}]
     translated = contract.get("camera_plans") or contract.get("per_shot_camera_plans") or []
+    if one_setup_take(unit, rows, uid):
+        # one speaker's consecutive lines in one unchanged locked setup (owner 2026-11-01, monologue groups):
+        # ONE camera entry for the whole clip, never a per-line shot list H3 could read as cuts
+        english = v1._camera_english(uid, rows[0]["shot_id"] or "SHOT_1", rows[0]["camera_plan"],
+                                     translated[0] if translated and isinstance(translated[0], dict) else {}, [])
+        return _camera_entry(rows[0]["camera_plan"], english, one_take=True), [
+            {"shot_id": row["shot_id"] or f"SHOT_{i + 1}",
+             "boundary": "opening shot" if i == 0 else "same take, unchanged camera setup",
+             "fields": sorted(english), "untranslated_fields": []} for i, row in enumerate(rows)]
     lines, receipt = [], []
     for index, row in enumerate(rows):
         source = translated[index] if index < len(translated) and isinstance(translated[index], dict) else {}
@@ -380,6 +391,23 @@ def camera_section(unit: dict[str, Any], plan: dict[str, Any], contract: dict[st
     elif v1.one_take_applies([row["camera_plan"] for row in rows], [row["boundary"] for row in receipt]):
         lines.insert(0, v1.ONE_TAKE)
     return "\n".join(lines), receipt
+
+
+def one_setup_take(unit: dict[str, Any], rows: list[dict[str, Any]], uid: str) -> bool:
+    """CAMERA_GRAMMAR_V1: several shots joined without a cut that all keep one locked camera setup
+    (speaking_unit_duration.setup_key) -- a speaker's monologue group -- are one camera entry."""
+    if len(rows) < 2:
+        return False
+    plans = [row.get("camera_plan") or {} for row in rows]
+    if not all(p.get("camera_grammar") == "CAMERA_GRAMMAR_V1" and _sud.locked_setup(p) for p in plans):
+        return False
+    if len({_sud.setup_key(p) for p in plans}) != 1:
+        return False
+    try:
+        boundaries = [v1._shot_boundary(unit, i - 1, rows[i - 1], rows[i], uid) for i in range(1, len(rows))]
+    except ValueError:
+        return False
+    return all(b.startswith("no cut") for b in boundaries)
 
 
 def locked_camera_conflicts(text: str) -> list[str]:
@@ -636,6 +664,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     if env_rows:
         setting_lines.append(" ".join(_sentence(v) for v in env_rows))
     look = v1.h3_visual_culture_block(unit)
+    if stamped and look == v1.H3_NEUTRAL_PERIOD_LOCK:  # no all-caps label H3 could voice (owner 2026-11-01)
+        look = _cap(ALL_CAPS_LABEL.sub("", look, count=1).strip())
     if look != v1.H3_AUTHORED_WORLD_LOCK:  # period locks carry real constraints; the authored-world one is filler
         setting_lines.append(_sentence("Look: " + look.rstrip(".")))
     # the identity/prop anchor names the cast (stated in "Who is in frame"), the key props (a setting fact) and
@@ -658,8 +688,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         raise ValueError(f"{uid}:H3_CAMERA_LOCK_STRICT_ON_MOVING_CAMERA")
     camera_lock = strict_camera_lock_applies(unit, stamped=stamped,
                                              locked_single_take=all_locked and v1.ONE_TAKE in camera)
-    if camera_lock:
-        camera += "\n" + CAMERA_LOCK_FROZEN_FRAME
+    if camera_lock:  # an ordinary sentence, never an all-caps label H3 could voice (owner 2026-11-01, lab E12)
+        camera += "\n" + CAMERA_LOCK_TRIPOD
     # engine redo after an objective Q2 push-in FAIL (q2_auto_redo, owner 2026-10-29): state the measured problem
     if stamped and all_locked:
         for sentence in redo_finding_sentences(unit):
@@ -869,7 +899,6 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         if adult_line and subjects:
             who.append(adult_line)
         blocks = [
-            *([CAMERA_LOCK_STRICT] if camera_lock else []),
             "References:\n" + "\n".join(reference_lines),
             "\n".join(who),
             "Setting:\n" + "\n".join(setting_lines),
@@ -888,7 +917,7 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     if constraint_language == "zh":
         evidence = {key: v1.localize_constraints(value, "zh") for key, value in evidence.items()}
     if not evidence["ANCHOR.IDENTITY_PROP"]:  # no key props: the cast fact is the "Who is in frame" header
-        evidence["ANCHOR.IDENTITY_PROP"] = text.split("\n\n")[2 if camera_lock else 1].split("\n")[0]
+        evidence["ANCHOR.IDENTITY_PROP"] = text.split("\n\n")[1].split("\n")[0]
 
     boundary = validate_provider_prompt_boundary(text, source_id=uid, model_family="MINIMAX_H3")
     h3_boundary = validate_h3_provider_text_boundary(text, source_id=uid)
@@ -900,7 +929,7 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                                                prompt_style=DIRECTOR_PROMPT_V2)
     if coverage["status"] != "PASS":
         raise ValueError(";".join(coverage["failures"]))
-    self_check = director_v2_self_check(text, unit, plan)
+    self_check = director_v2_self_check(text, unit, plan, stamped=stamped)
     if self_check:
         raise ValueError(f"{uid}:H3_DIRECTOR_V2_SELF_CHECK:" + ";".join(self_check))
     return text, {
@@ -931,7 +960,13 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     }
 
 
-def director_v2_self_check(text: str, unit: dict[str, Any], plan: dict[str, Any]) -> list[str]:
+#: the one all-caps label a stamped prompt may still carry: the E54+ qingshan period block, whose token the
+#: visual-culture validator requires verbatim (visual_culture_contract.validate_visual_culture_contract)
+_REQUIRED_CAPS_LABELS = ("EAST-ASIAN PERIOD VISUAL LOCK:",)
+
+
+def director_v2_self_check(text: str, unit: dict[str, Any], plan: dict[str, Any], *,
+                           stamped: bool = False) -> list[str]:
     """The V2 counterpart of the V1 shot-scope self check (partial clauses, locked camera) plus the
     V2 shape promises: no machine ids, no V1 templates, no CJK outside the dialogue tags."""
     findings: list[str] = []
@@ -953,4 +988,9 @@ def director_v2_self_check(text: str, unit: dict[str, Any], plan: dict[str, Any]
     for phrase in _FORBIDDEN_V2_PHRASES:
         if phrase.lower() in outside.lower():
             findings.append(f"V1_TEMPLATE_IN_PROMPT:{phrase}")
+    # owner 2026-11-01 (lab E12 long take): H3 voiced the all-caps "CAMERA LOCK — ABSOLUTE RULE:" label;
+    # stamped (CAMERA_GRAMMAR_V1) prompts carry no all-caps label H3 could read aloud
+    if stamped:
+        findings.extend(f"ALL_CAPS_LABEL_IN_PROMPT:{m.group(0)[:40]}" for m in ALL_CAPS_LABEL.finditer(outside)
+                        if m.group(0) not in _REQUIRED_CAPS_LABELS)
     return list(dict.fromkeys(findings))

@@ -156,6 +156,18 @@ blocking check; direct the episode the way people watch films:
   merged with the same speaker's next line. Speaking shots stay 4–5 s. Author ~115–120 s of shots so the episode
   lands at ~110 s after the trims. A line estimated under 2.8 s only warns (`SHORT_LINE_ADD_ACTION_OR_MERGE`,
   writer self-check `R11_SHORT_SPEAKING_LINE`).
+- One speaker's consecutive lines are ONE take (line owner 2026-11-01, lab Holmes E12 long-take test: a continuous
+  12–14 s take of a monologue with a silent insert between groups played far better than one shot per line). Keep
+  writing one ~3.5 s line per shot, but give those shots the SAME locked `camera_plan` (`shot_scale`,
+  `camera_height`, `camera_side`, `motion_family: LOCKED`, `motion_direction`, `start_framing` identical) and
+  `CONTINUOUS_ACTION` between them — never author a cut between two consecutive lines of one speaker. (Several lines
+  of one speaker in one shot, one `Name：line` per row, are also fine; timed by their sum.) The grouper makes them one
+  video unit of at most 12 s (H3 maximum 15 s). A longer monologue is split into groups of at most 12 s: between
+  groups write a silent 4 s cutaway (listener reaction or prop insert, `MOTIVATED_CUT` / `REACTION_CUT`), then
+  return to the SAME setup (same `camera_plan`, `MOTIVATED_CUT` in); the engine reuses the earlier group's keyframe
+  (no new image). A change of speaker, of camera setup or an authored cut starts a new unit. Warnings only:
+  grouping `writer_warning: MONOLOGUE_CUTAWAY_REQUIRED`, self-check `R12_MONOLOGUE_CUT_BETWEEN_LINES`,
+  `R12_MONOLOGUE_OVER_12S_ADD_CUTAWAY`.
 - Write the cuts the script implies: `internal_transition_authoring.transition_mode` `MOTIVATED_CUT` /
   `REACTION_CUT` / `MATCH_CUT` / `HARD_CUT` (or a scene change) makes the next video unit open on its own
   keyframe, a clean cut; continuous modes keep the previous unit's real tail as the start frame.

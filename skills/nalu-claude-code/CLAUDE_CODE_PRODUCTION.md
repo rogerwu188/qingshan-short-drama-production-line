@@ -71,7 +71,9 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
   成片落 `workflow/nalu/<EP>/video_ab/<EP>-VU-00X-ZH.mp4`（报告 `video_ab/<TASK>_AB_RUN.json`），不覆盖原单元，不进装配；未完成就重跑同一命令（只轮询，不再 POST）。
   免费预演（不花钱，不留授权副本和预留）：`$P lines/nalu/runtime/tools/nalu_pipeline.py ab-variant --episode <EP> --variant <清单>`（不加 `--paid`）。
 - 强机位锁默认开启（线主 2026-10-26，lab E06 A/B：VU-008 推近 65%→15%、VU-001 98%→39%）：CAMERA_GRAMMAR_V1 的锁机位一镜到底单元默认加
-  `CAMERA LOCK — ABSOLUTE RULE` 一段（DIRECTOR_PROMPT_V2 放在最前面）、Camera 末尾 `Frame size is frozen…`、Never 末尾推近类禁项；V1 提示词在 camera 行末加
+  Camera 段末一句普通的话「The camera stays on a tripod for the whole clip: no zoom, no push-in, no dolly, no crop change; the subject keeps the same size
+  in frame as in @Image1 from the first frame to the last.」、Never 末尾推近类禁项（线主 2026-11-01：原来放在最前面的全大写 `CAMERA LOCK — ABSOLUTE RULE:` 一段已删除——
+  实验集 E12 长镜头里 H3 把它当台词念了出来；V2 提示词不再有任何全大写标签，渲染自查 `ALL_CAPS_LABEL_IN_PROMPT`）；V1 提示词在 camera 行末加
   `frame size is frozen…` 一句。移动机位、内部硬切的单元和未盖 CAMERA_GRAMMAR_V1 的集照旧（未盖章逐字节不变）。单元/合同字段 `"h3_camera_lock": "standard"` 关闭，
   `"strict"` 强制（移动机位拒绝）。进行中的集重编译会让已提交单元的提示词变化：已由绑定交易产出成片的单元按提交时的提示词认定，不要求重新定稿回执；
   尚未提交的单元照常走定稿 diff/回执。旧的 `--variant camera_lock_strict` A/B 仍可用（现与默认相同）。
@@ -79,7 +81,14 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
   从首帧到末帧单调变大超过 50% 的单元（相邻两帧跳变 >40% 视为内部硬切、有脸帧 <6 都跳过）把前段画面以人脸为中心逐帧放大到末帧的大小
   （最多 1.3 倍，超出只部分补偿，Lanczos 放大回原分辨率，音频原样复制、时长不变；线主 2026-10-27 定 50% / 1.3 倍），装配用 `assembly/push_in_compensation/<单元>.mp4` 代替原片。
   报告 `assembly/<EP>_PUSH_IN_COMPENSATION.json`（每单元宽度、裁剪曲线、是否触顶 `cap_hit`）；任何失败只跳过，不阻断 S7。实现 `tools/push_in_compensation.py`。
-- 对白镜 4–5 s，一句一镜（线主 2026-10-26，CAMERA_GRAMMAR_V1；2026-10-29 视频改走 HopsAPI 后下限 4 s）：编译器把画内对白镜定为「估算说话时长 + 0.5 s」取整秒（4–5 s，`tools/speaking_unit_duration.py`，报告在编辑清单 `speaking_unit_duration_report`）。
+- 独白组（线主 2026-11-01，CAMERA_GRAMMAR_V1，实验集 E12 长镜头）：同一说话人的连续画内台词并成一个单元（一个连续镜头），最长 12 s（H3 上限 15 s）。
+  写法：每句仍各写一镜（约 3.5 s/句），这几镜 `camera_plan` 写成同一个锁定机位（`shot_scale`/`camera_height`/`camera_side`/`motion_family: LOCKED`/
+  `motion_direction`/`start_framing` 完全相同），句间 `internal_transition_authoring` 写 `CONTINUOUS_ACTION`——**同一人的两句之间不写切**；也可把几句写进同一镜
+  （`dialogue` 每行一句），时长按合计。超过 12 s 的独白拆组：组间写一个 4 s 无台词插入镜（听者反应或道具特写），下一组回到同一机位（`MOTIVATED_CUT` 进入），
+  引擎复用上一组关键帧（`MONOLOGUE_SAME_SETUP_KEYFRAME_REUSE`，不生图）。换说话人、换机位、写切 = 新单元。分组清单：`speaking_group`、`same_setup_as_unit`、
+  缺插入镜时 `writer_warning: MONOLOGUE_CUTAWAY_REQUIRED`；写手自查规则 12 只警告（`R12_MONOLOGUE_CUT_BETWEEN_LINES`、`R12_MONOLOGUE_OVER_12S_ADD_CUTAWAY`）。
+  S7 头部剪裁只剪第一句之前、尾部只剪最后一句之后。细则 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` §5。
+- 对白镜 4–5 s，一句一镜（线主 2026-10-26，CAMERA_GRAMMAR_V1；2026-10-29 视频改走 HopsAPI 后下限 4 s；同一人的连续几句按上一条并成 ≤12 s 的独白组）：编译器把画内对白镜定为「估算说话时长 + 0.5 s」取整秒（4–5 s，`tools/speaking_unit_duration.py`，报告在编辑清单 `speaking_unit_duration_report`）。
   写台词时每句写成说出来约 3.5 s（线主 2026-10-29，实验集 E08：英文约 9–11 词、中文约 14–16 字）；更短的台词在同一镜给说话人一个有表演的动作，或并到同一说话人的下一句，不要让 H3 自己用乱码填时间（S7 头尾剪裁只是兜底）。估算 < 2.8 s 的台词编译器只警告（`speaking_unit_duration_report` 行 `warning: SHORT_LINE_ADD_ACTION_OR_MERGE`；写手自查 `R11_SHORT_SPEAKING_LINE`），不拦。无台词插入镜最短 4 s。细则见 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` §5。
   一句估算超过 4.5 s（含标点停顿，英文约 12 词、中文约 17 字以上）放不进 5 s：**写手必须拆成两镜**（台词一字不改，在自然停顿处断开）；编译器不拦，只记 `WRITER_SPLIT_REQUIRED_*`，写手时长超出台词 1.5 s 以上会被自动缩短。
   无台词的动作（推门、走位、取物）单独写一镜，不和台词放在同一镜。

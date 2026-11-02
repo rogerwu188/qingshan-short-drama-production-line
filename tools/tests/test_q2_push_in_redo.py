@@ -31,7 +31,7 @@ import q2_auto_redo  # noqa: E402
 import video_q2_builder as vq  # noqa: E402
 from tools import h3_provider_prompt_renderer as h3  # noqa: E402
 from tools.h3_provider_english_contract import (  # noqa: E402
-    CAMERA_LOCK_FROZEN_FRAME, REDO_FINDING_SENTENCES, redo_finding_sentences,
+    CAMERA_LOCK_TRIPOD, REDO_FINDING_SENTENCES, redo_finding_sentences,
     validate_h3_provider_text_boundary)
 from tools.speaking_unit_duration import SHORT_LINE_WARNING, speaking_duration  # noqa: E402
 from tools.tests.test_h3_director_performance import unit_plan  # noqa: E402
@@ -254,7 +254,7 @@ class RedoPromptTest(unittest.TestCase):
         unit["h3_redo_findings"] = ["push_in"]
         text, _ = render(unit, plan)
         camera = text.split("Camera:\n", 1)[1].split("\n\n", 1)[0]
-        self.assertTrue(camera.endswith(CAMERA_LOCK_FROZEN_FRAME + "\n" + PUSH_SENTENCE), camera)
+        self.assertTrue(camera.endswith(CAMERA_LOCK_TRIPOD + "\n" + PUSH_SENTENCE), camera)
         self.assertEqual(text.count(PUSH_SENTENCE), 1)
         self.assertEqual(text.replace("\n" + PUSH_SENTENCE, "", 1), base)
         self.assertEqual(validate_h3_provider_text_boundary(text, source_id="T")["status"], "PASS")

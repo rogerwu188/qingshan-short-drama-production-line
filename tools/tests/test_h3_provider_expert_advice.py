@@ -181,9 +181,11 @@ class CameraLockStrictTest(unittest.TestCase):
         unit["h3_camera_lock"] = value
         return unit, plan
 
-    def test_v2_default_adds_exactly_three_things(self):
+    def test_v2_default_adds_exactly_two_things(self):
+        # owner 2026-11-01 (lab E12 long take: H3 voiced the all-caps "CAMERA LOCK — ABSOLUTE RULE:" top block):
+        # the lock is one plain sentence at the end of Camera plus the Never items, no block before References
         from tools.h3_provider_english_contract import (
-            CAMERA_LOCK_FROZEN_FRAME, CAMERA_LOCK_NEVER, CAMERA_LOCK_STRICT, is_director_v2_text,
+            ALL_CAPS_LABEL, CAMERA_LOCK_NEVER, CAMERA_LOCK_STRICT, CAMERA_LOCK_TRIPOD, is_director_v2_text,
             validate_h3_provider_text_boundary as boundary)
         base, base_receipt = render(*self.mode(v2(), "standard"))
         text, receipt = render(*v2())
@@ -191,18 +193,22 @@ class CameraLockStrictTest(unittest.TestCase):
         self.assertNotIn("h3_camera_lock", base_receipt)
         self.assertEqual(render(*self.mode(v2(), "strict"))[0], text)  # explicit strict == the default
         self.assertEqual(render(*self.mode(v2(), "loose"))[0], text)  # unknown value == the default
-        self.assertTrue(text.startswith(CAMERA_LOCK_STRICT + "\n\nReferences:\n"))
+        self.assertTrue(text.startswith("References:\n"))
+        self.assertNotIn(CAMERA_LOCK_STRICT, text)
+        self.assertNotIn("Frame size is frozen", text)
         camera = text.split("Camera:\n", 1)[1].split("\n\n", 1)[0]
-        self.assertTrue(camera.endswith("\n" + CAMERA_LOCK_FROZEN_FRAME))
+        self.assertTrue(camera.endswith("\n" + CAMERA_LOCK_TRIPOD))
+        caps = [m.group(0) for m in ALL_CAPS_LABEL.finditer(text)]
+        self.assertTrue(all(c == "EAST-ASIAN PERIOD VISUAL LOCK:" for c in caps), caps)  # validator-required token
         self.assertIn(h3.FIXED_CAMERA_POSITION, camera)  # the expert wording stays
         never = next(line for line in text.splitlines() if line.startswith("Never: "))
         self.assertTrue(never.endswith("; music; " + CAMERA_LOCK_NEVER + "."))
         self.assertEqual(text.rstrip("\n").splitlines()[-1], h3.NO_DUPLICATE_PEOPLE)
-        undone = (text.replace(CAMERA_LOCK_STRICT + "\n\n", "", 1)
-                  .replace("\n" + CAMERA_LOCK_FROZEN_FRAME, "", 1).replace("; " + CAMERA_LOCK_NEVER, "", 1))
+        undone = text.replace("\n" + CAMERA_LOCK_TRIPOD, "", 1).replace("; " + CAMERA_LOCK_NEVER, "", 1)
         self.assertEqual(undone, base)
         self.assertEqual(boundary(text, source_id="T")["status"], "PASS")
         self.assertTrue(is_director_v2_text(text) and is_director_v2_text(base))
+        self.assertTrue(is_director_v2_text(CAMERA_LOCK_STRICT + "\n\n" + text))  # legacy submitted prompts
         import prompt_batch_qa
         self.assertTrue(prompt_batch_qa.is_h3_director_v2(text))
         self.assertTrue(prompt_batch_qa.section(text, "锚点").startswith("@Image1"))
