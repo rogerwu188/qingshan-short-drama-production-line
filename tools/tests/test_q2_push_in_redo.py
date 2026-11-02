@@ -292,11 +292,11 @@ class RedoPromptTest(unittest.TestCase):
 class ShortLineWarningTest(unittest.TestCase):
     def test_speaking_duration_warns_under_2_8_s(self):
         short = speaking_duration(4, ["A: Which of you is Holmes?"], "en")  # ~2.0 s
-        self.assertEqual((short["action"], short["warning"]), ("UNCHANGED", SHORT_LINE_WARNING))
+        self.assertEqual((short["action"], short["advisory"]), ("UNCHANGED", SHORT_LINE_WARNING))
         full = speaking_duration(4, ["A: I have been watching this house since the early morning."], "en")
-        self.assertNotIn("warning", full)
-        self.assertNotIn("warning", speaking_duration(4, ["甲：我从今天清早起就一直守在这座房子外面。"], "zh"))
-        self.assertEqual(speaking_duration(4, ["甲：你好。"], "zh")["warning"], SHORT_LINE_WARNING)
+        self.assertNotIn("advisory", full)
+        self.assertNotIn("advisory", speaking_duration(4, ["甲：我从今天清早起就一直守在这座房子外面。"], "zh"))
+        self.assertEqual(speaking_duration(4, ["甲：你好。"], "zh")["advisory"], SHORT_LINE_WARNING)
 
     def test_bnp_reports_an_unchanged_short_line(self):
         import build_nalu_preproduction as bnp
@@ -306,7 +306,7 @@ class ShortLineWarningTest(unittest.TestCase):
             "cast": [{"character_id": "CHAR-H"}]}}
         report: list = []
         self.assertEqual(bnp._speaking_shot_duration(shot, None, "en", 4.0, report), 4.0)
-        self.assertEqual((report[0]["action"], report[0]["warning"]), ("UNCHANGED", SHORT_LINE_WARNING))
+        self.assertEqual((report[0]["action"], report[0]["advisory"]), ("UNCHANGED", SHORT_LINE_WARNING))
 
     def test_writer_selfcheck_r11_warns_on_stamped_only(self):
         import nalu_writer_selfcheck_seq29 as wsc
@@ -316,7 +316,9 @@ class ShortLineWarningTest(unittest.TestCase):
                                   "dialogue": "A: I have been watching this house since the early morning."}}]}
         self.assertEqual([r["shot_id"] for r in wsc.short_speaking_line_warnings(contract)], ["S1"])
         report = wsc.evaluate(contract)
-        self.assertTrue(any(w.startswith("R11_SHORT_SPEAKING_LINE:S1:") for w in report["warnings"]))
+        # owner 2026-11-02: advisory only (keep the short line; S7 cuts to the performance)
+        self.assertTrue(any(w.startswith("R11_SHORT_LINE_OK_S7_CUTS:S1:") for w in report["advisories"]))
+        self.assertFalse(any(w.startswith("R11") for w in report["warnings"]))
         self.assertFalse(any(f.startswith("R11") for f in report["failures"]))
         legacy = {**contract, "camera_grammar_policy": "LEGACY_FORCED_MOTION"}
         self.assertEqual(wsc.short_speaking_line_warnings(legacy), [])

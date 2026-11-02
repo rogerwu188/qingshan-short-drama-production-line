@@ -892,9 +892,60 @@ def _speaking_shot_duration(shot: dict[str, Any], separated_row: tuple[str, list
     if not speaker or speaker in offscreen:
         return authored
     row = _sud.speaking_duration(authored, lines, language, shot.get("dialogue_delivery"))
-    if row["action"] != "UNCHANGED" or row.get("warning"):  # a short-line warning is reported too (non-blocking)
+    if row["action"] != "UNCHANGED" or row.get("advisory"):  # a short-line advisory is reported too
         report.append({"shot_id": str(shot.get("shot_id")), **row})
     return float(row["duration_seconds"])
+
+
+def monologue_group_durations(contract: dict[str, Any], separated: dict[str, tuple[str, list[dict[str, Any]]]],
+                              language: str) -> dict[str, dict[str, Any]]:
+    """CAMERA_GRAMMAR_V1 (owner 2026-11-02, lab 化神 E01-VU-002): one speaker's consecutive on-screen lines joined by
+    an authored CONTINUOUS_ACTION in one unchanged locked setup are one take.  The 4 s HopsAPI floor is the unit's,
+    not each line's: the group's shots run the line estimates back to back (speaking_unit_duration.
+    monologue_group_durations), so the prompt's per-line windows carry no multi-second slack.
+    Returns shot_id -> report row (with ``duration_seconds``) for every shot of a group of two or more."""
+    import speaking_unit_duration as _sud
+    modes = {(str(r.get("from_shot_id")), str(r.get("to_shot_id"))): str(r.get("transition_mode") or "").upper()
+             for r in contract.get("internal_transition_authoring") or [] if isinstance(r, dict)}
+
+    def speaking(shot: dict[str, Any]) -> tuple[str, list[str]] | None:
+        spec = shot.get("prompt_spec") or {}
+        in_video = (separated.get(str(shot.get("shot_id"))) or (str(spec.get("dialogue") or ""), []))[0]
+        lines = [line for line in str(in_video or "").splitlines() if line.strip()]
+        role = spec.get("role_semantic_disambiguation") or {}
+        who = str(role.get("lip_owner_id") or role.get("dialogue_speaker_id") or "")
+        offscreen = {str(m.get("character_id") or "") for m in spec.get("cast") or []
+                     if str(m.get("face_visibility") or "") == "OFFSCREEN_VOICE_ONLY"}
+        return (who, lines) if lines and who and who not in offscreen else None
+
+    groups: list[list[dict[str, Any]]] = []
+    previous = None
+    for shot in contract.get("shots") or []:
+        current = speaking(shot)
+        plan = (shot.get("prompt_spec") or {}).get("camera_plan") or {}
+        joins = (previous is not None and current is not None and groups
+                 and current[0] == previous[0][0]
+                 and modes.get((str(previous[1].get("shot_id")), str(shot.get("shot_id")))) == "CONTINUOUS_ACTION"
+                 and _sud.locked_setup(plan)
+                 and _sud.setup_key(plan) == _sud.setup_key((previous[1].get("prompt_spec") or {}).get("camera_plan")))
+        if joins:
+            groups[-1].append(shot)
+        elif current is not None:
+            groups.append([shot])
+        previous = (current, shot) if current is not None else None
+    out: dict[str, dict[str, Any]] = {}
+    for group in groups:
+        if len(group) < 2:
+            continue
+        estimates = [_sud.estimated_line_seconds(speaking(s)[1], language, s.get("dialogue_delivery")) for s in group]
+        durations = _sud.monologue_group_durations(estimates)
+        for shot, estimate, seconds in zip(group, estimates, durations):
+            out[str(shot["shot_id"])] = {
+                "authored_seconds": float(shot["target_seconds"]), "estimated_line_seconds": estimate,
+                "duration_seconds": seconds, "action": "MONOLOGUE_GROUP_BACK_TO_BACK",
+                "group_shot_ids": [str(s["shot_id"]) for s in group],
+                "group_seconds": round(sum(durations), 3)}
+    return out
 
 
 def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
@@ -961,13 +1012,17 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
     authored_modes = {(str(r.get("from_shot_id")), str(r.get("to_shot_id"))): str(r.get("transition_mode") or "")
                       for r in contract.get("internal_transition_authoring") or [] if isinstance(r, dict)}
     previous_shot_id = ""
+    group_rows = monologue_group_durations(contract, separated, language) if camera_grammar else {}
     for shot in contract.get("shots") or []:
         shot_id = str(shot["shot_id"])
         scene_id = str(shot["scene_id"])
         scene = scenes.get(scene_id) or {}
         row = by_shot[shot_id]
         duration = float(shot["target_seconds"])
-        if camera_grammar:  # CAMERA_GRAMMAR_V1: a speaking shot runs line + 0.5 s (3-5 s), reported, never blocked
+        if shot_id in group_rows:  # monologue group: lines back to back, the 4 s floor is the unit's
+            duration = float(group_rows[shot_id]["duration_seconds"])
+            duration_report.append({"shot_id": shot_id, **group_rows[shot_id]})
+        elif camera_grammar:  # CAMERA_GRAMMAR_V1: a speaking shot runs line + 0.5 s (3-5 s), reported, never blocked
             duration = _speaking_shot_duration(shot, separated.get(shot_id), language, duration, duration_report)
         start_seconds = round(cursor, 3)
         cursor = round(cursor + duration, 3)
@@ -1354,7 +1409,8 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
         **({"speaking_unit_duration_report": {
             "schema": "qingshan.speaking_unit_duration.v1", "source": "tools/speaking_unit_duration.py",
             "rule": "speaking shot = estimated line + 0.5 s, 4-5 s, whole seconds; longer lines: writer splits; "
-                    "lines under 2.8 s warn SHORT_LINE_ADD_ACTION_OR_MERGE (non-blocking)",
+                    "lines under 2.8 s carry the advisory SHORT_LINE_OK_S7_CUTS_TO_PERFORMANCE; a monologue group's "
+                    "lines run back to back (lead 0.2 s, gaps 0.3 s, tail 0.5 s; the 4 s floor is the unit's)",
             "rows": duration_report}} if duration_report else {}),
         "shots": shots,
     }

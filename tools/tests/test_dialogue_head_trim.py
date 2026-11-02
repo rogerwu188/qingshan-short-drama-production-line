@@ -120,7 +120,7 @@ class PipelineTests(unittest.TestCase):
             g = root / "grouping.json"
             g.write_text(json.dumps(grouping([("E99-VU-001", ["S1"])])))
             ctx = mock.Mock(episode="E99")
-            ctx.p = mock.Mock(video_media=root / "video", assembly=root / "assembly", grouping_plan=g)
+            ctx.p = mock.Mock(video_media=root / "video", assembly=root / "assembly", grouping_plan=g, voice=root / "voice")
             res = nalu_pipeline.StageResult(nalu_pipeline.BLOCKED)
             c = contract([("S1", "CHAR-A", "No, it is not even attached to a wire.")])
             with mock.patch.object(nalu_pipeline, "transcribe_units", return_value={"E99-VU-001": VU007}) as asr, \
@@ -132,7 +132,11 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(json.loads(report.read_text())["trimmed_units"], 1)
             self.assertEqual([s["text"] for s in trimmed["E99-VU-001"]], ["No, it is not even attached to a wire."])
             self.assertNotIn("words", trimmed["E99-VU-001"][0])
-            self.assertAlmostEqual(trimmed["E99-VU-001"][0]["start"], 0.15)
+            # source seconds (owner 2026-11-02): captions / V.O. / sound bridge subtract the clip in-point themselves,
+            # so a head-trimmed unit's ASR is no longer pre-shifted (it was subtracted twice before)
+            self.assertAlmostEqual(trimmed["E99-VU-001"][0]["start"], 1.62)
+            cut = json.loads(report.read_text())["units"][0]["head_cut_seconds"]
+            self.assertAlmostEqual(cut, 1.62 - 0.15)
 
 
 if __name__ == "__main__":

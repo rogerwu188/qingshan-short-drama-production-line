@@ -7807,11 +7807,42 @@ def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
                                          "removed_seconds": report["removed_seconds"]}
     head = _head.plan(contract, read_json(p.grouping_plan, {}) or {}, asr, clip_seconds, report)
     head_path = p.assembly / f"{ctx.episode}_DIALOGUE_HEAD_TRIM.json"
+    # Cut to the performance (owner 2026-11-02, lab 化神 E01; tools/performance_cut.py): every unit is cut at its
+    # head/tail to the scripted performance (unscripted speech, a repeated take, talking in a silent unit removed);
+    # the decided in/out points are written into the tail/head reports the build and later S7 steps follow.
+    import performance_cut as _perf
+    grouping = read_json(p.grouping_plan, {}) or {}
+    shot_unit = {str(s): str(u.get("unit_id")) for u in grouping.get("units") or []
+                 for s in u.get("editorial_shot_ids") or []}
+    vo_seconds: dict[str, list[float]] = {}
+    for row in (read_json(voice_over_manifest_path(ctx), {}) or {}).get("rows") or []:
+        uid = shot_unit.get(str(row.get("shot_id")))
+        if uid and row.get("duration_seconds"):
+            vo_seconds.setdefault(uid, []).append(float(row["duration_seconds"]))
+    perf = _perf.plan(contract, grouping, asr, clip_seconds, {k: v for k, v in energy.items() if v},
+                      report, head, vo_seconds)
+    perf_path = p.assembly / f"{ctx.episode}_PERFORMANCE_CUT.json"
+    write_json(perf_path, perf)
+    report, head = _perf.merge(report, head, perf)
+    write_json(report_path, report)
     write_json(head_path, head)
+    res.receipts.append(str(perf_path))
+    res.details["performance_cut"] = {
+        "report": str(perf_path), "changed_units": perf["changed_units"],
+        "before_total_seconds": perf["before_total_seconds"], "after_total_seconds": perf["after_total_seconds"],
+        "units": [{k: r.get(k) for k in ("unit_id", "before_in", "before_out", "after_in", "after_out", "reasons")}
+                  for r in perf["units"] if r.get("reasons")],
+        "warnings": perf["warnings"]}
+    if perf["warnings"]:
+        res.details.setdefault("warnings", []).extend(perf["warnings"])
+    res.details["dialogue_tail_trim"] = {"report": str(report_path), "trimmed_units": report["trimmed_units"],
+                                         "removed_seconds": report["removed_seconds"]}
     res.details["dialogue_head_trim"] = {"report": str(head_path), "trimmed_units": head["trimmed_units"],
                                          "removed_seconds": head["removed_seconds"],
                                          "apply": str(head_path) if head["trimmed_units"] else None}
-    trimmed = _head.strip_words(_head.shift_unit_asr(_trim.trim_unit_asr(asr, report), head))
+    # source seconds (captions / V.O. / sound bridge / burst mute map them through the clip in-point)
+    cut = _perf.windows(report, head, clip_seconds)
+    trimmed = _head.strip_words(_perf.cut_unit_asr(asr, cut, perf))
     return trimmed, (report_path if report["trimmed_units"] else None)
 
 
@@ -7884,8 +7915,10 @@ def s7_unit_audio_levelling(ctx: Ctx, res: StageResult, contract: dict[str, Any]
         pictures = {uid: Path(str(row["output"])) for uid, row in _pic.applied_sources(
             read_json(p.assembly / f"{ctx.episode}_PUSH_IN_COMPENSATION.json", {}) or {}).items()}
         ffmpeg = _media.require_ffmpeg()
+        import performance_cut as _perf  # unit ASR is in source seconds; levelling reads seconds from the in-point
         report = _smooth.build_levelling_report(
-            ctx.episode, clips, windows, roles, unit_asr, dict(_targets), p.assembly / "unit_audio_levelling",
+            ctx.episode, clips, windows, roles, _perf.shift_to_cut(unit_asr or {}, windows), dict(_targets),
+            p.assembly / "unit_audio_levelling",
             measure_fn=lambda clip, spans: _smooth.measure_spans(clip, spans, ffmpeg=ffmpeg),
             render_fn=lambda clip, picture, out, gain: _smooth.render_levelled(clip, picture, out, gain, ffmpeg=ffmpeg),
             pictures=pictures)

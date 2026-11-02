@@ -89,7 +89,7 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
   缺插入镜时 `writer_warning: MONOLOGUE_CUTAWAY_REQUIRED`；写手自查规则 12 只警告（`R12_MONOLOGUE_CUT_BETWEEN_LINES`、`R12_MONOLOGUE_OVER_12S_ADD_CUTAWAY`）。
   S7 头部剪裁只剪第一句之前、尾部只剪最后一句之后。细则 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` §5。
 - 对白镜 4–5 s，一句一镜（线主 2026-10-26，CAMERA_GRAMMAR_V1；2026-10-29 视频改走 HopsAPI 后下限 4 s；同一人的连续几句按上一条并成 ≤12 s 的独白组）：编译器把画内对白镜定为「估算说话时长 + 0.5 s」取整秒（4–5 s，`tools/speaking_unit_duration.py`，报告在编辑清单 `speaking_unit_duration_report`）。
-  写台词时每句写成说出来约 3.5 s（线主 2026-10-29，实验集 E08：英文约 9–11 词、中文约 14–16 字）；更短的台词在同一镜给说话人一个有表演的动作，或并到同一说话人的下一句，不要让 H3 自己用乱码填时间（S7 头尾剪裁只是兜底）。估算 < 2.8 s 的台词编译器只警告（`speaking_unit_duration_report` 行 `warning: SHORT_LINE_ADD_ACTION_OR_MERGE`；写手自查 `R11_SHORT_SPEAKING_LINE`），不拦。无台词插入镜最短 4 s。细则见 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` §5。
+  写台词时每句写成说出来约 3.5 s（线主 2026-10-29，实验集 E08：英文约 9–11 词、中文约 14–16 字）；更短的台词在同一镜给说话人一个有表演的动作，或并到同一说话人的下一句，不要让 H3 自己用乱码填时间（S7 头尾剪裁只是兜底）。**线主 2026-11-02 改定（实验集化神 E01）：保留原著的短句，不要为凑 4 s 加词**——生成仍请求 4 s，S7 剪到表演（`tools/performance_cut.py`：留第一个台词字前 0.15 s 到最后一个台词字后 0.4 s，H3 补的话、重说的台词、无台词单元里的说话声在头尾剪掉，最短 1.2 s，报告 `assembly/<EP>_PERFORMANCE_CUT.json`），成片短镜头约 2–3 s；同一人同机位连续台词首尾相接排时间，不再每句 4 s。估算 < 2.8 s 的台词只是提示（`advisory: SHORT_LINE_OK_S7_CUTS_TO_PERFORMANCE`；写手自查 advisories `R11_SHORT_LINE_OK_S7_CUTS`）。无台词插入镜最短 4 s。细则见 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` §5。
   一句估算超过 4.5 s（含标点停顿，英文约 12 词、中文约 17 字以上）放不进 5 s：**写手必须拆成两镜**（台词一字不改，在自然停顿处断开）；编译器不拦，只记 `WRITER_SPLIT_REQUIRED_*`，写手时长超出台词 1.5 s 以上会被自动缩短。
   无台词的动作（推门、走位、取物）单独写一镜，不和台词放在同一镜。
 - 每镜 `prompt_spec.camera_plan` 全字段（shot_scale/camera_height/camera_side/motion_family/motion_direction/lens_intent/axis_relation/start_framing/end_framing/motivation）；

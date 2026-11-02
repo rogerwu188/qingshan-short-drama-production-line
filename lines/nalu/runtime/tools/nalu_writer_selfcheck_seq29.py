@@ -15,8 +15,10 @@ Roger 2026-09-18《E05/E06 生产线补正 —— 追加：语速 / 镜长 / 表
     8a  pressure_source 在前 30 s；8b episode_payoff 二选一；8c action_chain 想要→受阻→出手
   规则 10 对白镜的动作文字不得要求换嗓子（压着嗓子/扯着嗓子/声音发颤…，词表 configs/VOICE_TIMBRE_LOCK_V1.json）；
           默认只警告，配置 selfcheck.blocking 或合同 voice_timbre_policy.enforced 时阻断
-  规则 11 （仅 CAMERA_GRAMMAR_V1，线主 2026-10-29，实验集 E08）每句画内台词估算说话时长 < 2.8 s 只警告
-          R11_SHORT_SPEAKING_LINE：按约 3.5 s 写满，或给说话人一个有表演的动作，或并到同一说话人的下一句
+  规则 11 （仅 CAMERA_GRAMMAR_V1；线主 2026-11-02 实验集化神 E01 起降为提示）画内台词估算 < 2.8 s 只进 advisories
+          R11_SHORT_LINE_OK_S7_CUTS：保留原著的短句，不要为凑 4 s 加词；生成仍按 4 s 下限请求，S7 剪到表演
+          （tools/performance_cut.py）。同一说话人 CONTINUOUS_ACTION 同机位的连续台词（独白组）每句不受 4 s 下限，
+          编译器按台词估算首尾相接排时间（speaking_unit_duration.monologue_group_durations）
   规则 12 （仅 CAMERA_GRAMMAR_V1，线主 2026-11-01，实验集 E12 长镜头）同一说话人的连续台词是一个镜头（同一锁定机位，
           CONTINUOUS_ACTION，≤12 s），只警告：R12_MONOLOGUE_CUT_BETWEEN_LINES（两句之间写了切镜或换了机位）、
           R12_MONOLOGUE_OVER_12S_ADD_CUTAWAY（同机位连续台词超过 12 s：在两组之间插一个无台词的反应/道具插入镜头，
@@ -421,12 +423,13 @@ def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) ->
     m["voice_timbre_terms_by_shot"] = r10["by_shot"]
     (failures if r10["blocking"] else warnings).extend(r10["codes"])
 
-    # R11 (line owner 2026-10-29, lab E08; CAMERA_GRAMMAR_V1 only, never blocks) — a spoken line written for a
-    # 4 s HopsAPI shot should take ~3.5 s to say; a line estimated under 2.8 s makes H3 pad it with invented speech.
+    # R11 (CAMERA_GRAMMAR_V1 only, never blocks).  Owner 2026-11-02 (lab 化神 E01): a short line is fine -- the
+    # writer keeps the source's line and never pads it to the 4 s floor; S7 cuts to the performance.  Advisory only.
+    advisories: list[str] = []
     r11 = short_speaking_line_warnings(contract)
     if r11:
         m["short_speaking_lines"] = r11
-        warnings.extend(f"R11_SHORT_SPEAKING_LINE:{row['shot_id']}:{row['estimated_seconds']:g}" for row in r11)
+        advisories.extend(f"R11_SHORT_LINE_OK_S7_CUTS:{row['shot_id']}:{row['estimated_seconds']:g}" for row in r11)
 
     # R12 (owner 2026-11-01, lab E12 long take; CAMERA_GRAMMAR_V1 only, never blocks) — one speaker's consecutive
     # lines are one take (same locked setup, no cut, <= 12 s); a longer monologue gets a silent cutaway
@@ -438,7 +441,8 @@ def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) ->
     status = "PASS" if not failures else "FAIL"
     return {"schema": SCHEMA, "episode": contract.get("episode"), "authority": "SUPERVISOR_ORDERS seq=29 (Roger 2026-09-18 memo 九–十四)",
             "declared": bool(decl), "enforced": enforced, "rule8_authorized": rule8,
-            "status": status, "failures": failures, "warnings": warnings, "measurements": m,
+            "status": status, "failures": failures, "warnings": warnings,
+            **({"advisories": advisories} if advisories else {}), "measurements": m,
             "note": "writer-layer self-check, no gate_id; enforced only when the contract declares writer_selfcheck_seq29.enforced"}
 
 

@@ -154,8 +154,13 @@ blocking check; direct the episode the way people watch films:
   characters; line owner 2026-10-29, lab E08: with the 4 s HopsAPI minimum, shorter lines made H3 invent speech that
   S7 trimmed away, 96 s final instead of ~110 s). A shorter line gets a performed action in the same shot or is
   merged with the same speaker's next line. Speaking shots stay 4–5 s. Author ~115–120 s of shots so the episode
-  lands at ~110 s after the trims. A line estimated under 2.8 s only warns (`SHORT_LINE_ADD_ACTION_OR_MERGE`,
-  writer self-check `R11_SHORT_SPEAKING_LINE`).
+  lands at ~110 s after the trims.
+  **Superseded 2026-11-02 (line owner, lab 化神 E01): keep the source's short lines; never pad a line to the 4 s floor.**
+  Generation still requests 4 s; S7 cuts to the performance (`tools/performance_cut.py`: first scripted word − 0.15 s
+  to last scripted word + 0.4 s, invented speech / a repeated line / talking in a silent unit cut away at the head or
+  tail, min 1.2 s). Aim ~2–3 s per short shot in the edit. One speaker's CONTINUOUS_ACTION same-setup lines run back
+  to back (no per-line 4 s slot). A line under 2.8 s is only an advisory (`SHORT_LINE_OK_S7_CUTS_TO_PERFORMANCE`,
+  writer self-check advisory `R11_SHORT_LINE_OK_S7_CUTS`).
 - One speaker's consecutive lines are ONE take (line owner 2026-11-01, lab Holmes E12 long-take test: a continuous
   12–14 s take of a monologue with a silent insert between groups played far better than one shot per line). Keep
   writing one ~3.5 s line per shot, but give those shots the SAME locked `camera_plan` (`shot_scale`,

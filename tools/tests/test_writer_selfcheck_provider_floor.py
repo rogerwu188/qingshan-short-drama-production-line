@@ -1,4 +1,4 @@
-"""S1 R5A accepts the HopsAPI 4 s floor for a short CAMERA_GRAMMAR_V1 line (lab E09); R11 still warns."""
+"""S1 R5A accepts the HopsAPI 4 s floor for a short CAMERA_GRAMMAR_V1 line (lab E09); R11 is an advisory (owner 2026-11-02)."""
 from __future__ import annotations
 
 import json
@@ -22,7 +22,7 @@ class ProviderFloorTests(unittest.TestCase):
         report = sc.evaluate(json.loads(FIXTURE.read_text(encoding="utf-8")))
         failures = report.get("failures") or []
         self.assertFalse([f for f in failures if str(f).startswith("R5A_DIALOGUE_SHOT_TEMPLATE_DURATION")], failures)
-        self.assertTrue(any(str(w).startswith("R11_SHORT_SPEAKING_LINE") for w in report.get("warnings") or []))
+        self.assertTrue(any(str(w).startswith("R11_SHORT_LINE_OK_S7_CUTS") for w in report.get("advisories") or []))
 
     def test_unstamped_contract_has_no_floor(self) -> None:
         self.assertEqual(sc.provider_floor_seconds({"episode": "E99", "shots": []}), 0.0)

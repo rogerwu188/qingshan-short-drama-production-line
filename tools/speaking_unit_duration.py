@@ -7,8 +7,10 @@ estimated line + 0.5 s, at least 4 s and at most 5 s, rounded up to the whole se
 HopsAPI (owner 2026-10-29) accepts integer 4-15 s only, so the floor moved from 3 s to 4 s: the writer
 fills a speaking shot with ~3.5 s of speech (lab E08: shorter lines made H3 invent speech that S7 then trimmed,
 96 s final instead of ~110 s) and merges a short line with the speaker's next line or gives it a performed
-action (H3_SCRIPT_ADAPTATION_GUIDE §5); S7 head/tail trims remain the safety net.  A line estimated under
-``SHORT_LINE_WARN_SECONDS`` gets a non-blocking ``warning`` on its report row.
+action (H3_SCRIPT_ADAPTATION_GUIDE §5); S7 head/tail trims remain the safety net.  Owner 2026-11-02 (lab 化神 E01):
+a short line is fine -- S7 cuts to the performance (tools/performance_cut.py); a line estimated under
+``SHORT_LINE_WARN_SECONDS`` only carries an ``advisory`` on its report row.  A monologue group's continuation shots
+have no per-shot floor (``monologue_group_durations``).
 
 * fits (line + 0.5 <= 5 s): duration = max(4, ceil(line + 0.5)) — shorter or longer than authored;
 * a shot with several lines of ONE speaker (owner 2026-11-01, lab E12 long-take test: one continuous 12-14 s take
@@ -55,7 +57,15 @@ LOCKED_FAMILIES = {"STATIC", "LOCKED"}
 SHORTEN_ABOVE_LINE_PLUS = 1.5
 #: owner 2026-10-29 (lab E08): a spoken line is written to take ~3.5 s; under it H3 pads the shot with invented speech
 SHORT_LINE_WARN_SECONDS = 2.8
-SHORT_LINE_WARNING = "SHORT_LINE_ADD_ACTION_OR_MERGE"
+#: owner 2026-11-02 (lab 化神 E01): a short line is fine -- generation still requests the 4 s floor and S7 cuts to
+#: the performance (tools/performance_cut.py).  The row only carries this advisory; nothing asks for padding.
+SHORT_LINE_ADVISORY = "SHORT_LINE_OK_S7_CUTS_TO_PERFORMANCE"
+SHORT_LINE_WARNING = SHORT_LINE_ADVISORY  # legacy name
+#: a monologue group (one speaker's CONTINUOUS_ACTION same-setup lines, owner 2026-11-02, lab 化神 E01-VU-002):
+#: the 4 s floor applies to the generated unit, not to each line -- lines run back to back
+GROUP_LEAD_SECONDS = 0.2
+GROUP_LINE_GAP_SECONDS = 0.3
+GROUP_TAIL_SECONDS = 0.5
 
 
 def estimated_line_seconds(lines: list[str] | str, language: str = "zh",
@@ -130,6 +140,24 @@ def speaking_duration(authored: float, lines: list[str] | str, language: str = "
         action = "WRITER_SPLIT_REQUIRED" + ("_SHORTENED" if new < authored else "_KEPT")
     row = {"authored_seconds": authored, "estimated_line_seconds": line, "target_seconds": round(need, 3),
            "duration_seconds": new, "action": action}
-    if line < SHORT_LINE_WARN_SECONDS:  # non-blocking: give the speaker a performed action or merge the line
-        row["warning"] = SHORT_LINE_WARNING
+    if line < SHORT_LINE_WARN_SECONDS:  # advisory only: keep the source's short line, S7 cuts to the performance
+        row["advisory"] = SHORT_LINE_ADVISORY
     return row
+
+
+def monologue_group_durations(estimates: list[float]) -> list[float]:
+    """Shot durations of a monologue group (one speaker's consecutive same-setup lines in one take): line 1 starts
+    after GROUP_LEAD_SECONDS, the lines follow back to back GROUP_LINE_GAP_SECONDS apart, GROUP_TAIL_SECONDS after the
+    last; the unit total is rounded up to the whole seconds H3 accepts (>= MIN_SECONDS, <= GROUP_HARD_MAX_SECONDS) and
+    the rounding goes to the last shot.  No per-line 4 s floor (the floor is the generated unit's)."""
+    n = len(estimates)
+    raw = [(GROUP_LEAD_SECONDS if i == 0 else 0.0) + float(e)
+           + (GROUP_LINE_GAP_SECONDS if i < n - 1 else GROUP_TAIL_SECONDS) for i, e in enumerate(estimates)]
+    if not raw:
+        return []
+    total = sum(raw)
+    target = float(max(MIN_SECONDS, math.ceil(total - 1e-9)))
+    if target > GROUP_HARD_MAX_SECONDS:  # over the request window: the writer splits it (R12), keep the estimates
+        return [round(x, 3) for x in raw]
+    out = [round(x, 1) for x in raw[:-1]]  # tenths: readable per-line windows in the prompt
+    return out + [round(target - sum(out), 3)]

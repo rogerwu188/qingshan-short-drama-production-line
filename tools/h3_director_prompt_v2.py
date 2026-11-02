@@ -148,6 +148,36 @@ def scrub(value: Any) -> str:
     return text.strip().rstrip(".;, ")
 
 
+#: stamped prompts (owner 2026-11-02, lab 化神 E01-VU-002): a quoted sentence outside the dialogue tags is a known
+#: trigger for H3 to voice the text; a "Only for shot <id> :" scope prefix may arrive with a space or an empty id
+_SCOPE_PREFIX_ANY = re.compile(r"^\s*Only for shot\s*[A-Za-z0-9_-]*\s*:\s*", re.IGNORECASE)
+_QUOTED = re.compile(r"[\"“]([^\"”]*)[\"”]")
+QUOTED_WORDS_MAX = 6
+_BRIDGE_RESTATEMENT = re.compile(r"Previous beat end state\b.*\bNext beat entry state\b", re.IGNORECASE | re.S)
+
+
+def _unquote_long(text: str) -> str:
+    """Drop the quote marks around any quoted span longer than QUOTED_WORDS_MAX words (the words stay)."""
+    return _QUOTED.sub(lambda m: m.group(0) if len(m.group(1).split()) <= QUOTED_WORDS_MAX
+                       else m.group(1).strip().rstrip(".;, "), text)
+
+
+def sound_row_v2(value: Any) -> str:
+    """A stamped Sound row in plain words: no shot-scope prefix, no quoted action / dialogue / meta-instruction
+    ('contact sounds from "<the action>" through clothing ...' -> 'contact sounds of clothing ...')."""
+    text = _SCOPE_PREFIX_ANY.sub("", " ".join(str(value or "").split()))
+    text = re.sub(r"\s*\bfrom\s+[\"“][^\"”]*[\"”]\s*(?:through\s+)?", " of ", text)
+    text = re.sub(r"\bEmphasi([sz])e only\s+[\"“][^\"”]*[\"”]\s*", r"Emphasi\1e only ", text)
+    text = _QUOTED.sub(lambda m: m.group(0) if len(m.group(1).split()) <= QUOTED_WORDS_MAX else "the action", text)
+    return " ".join(text.split())
+
+
+def long_quoted_spans(text: str) -> list[str]:
+    """Double-quoted spans longer than QUOTED_WORDS_MAX words outside the <d> dialogue tags."""
+    outside = re.sub(r"<d>\[[A-Za-z]+\].*?</d>", "", text, flags=re.S)
+    return [m.group(1) for m in _QUOTED.finditer(outside) if len(m.group(1).split()) > QUOTED_WORDS_MAX]
+
+
 def _sentence(value: str) -> str:
     value = value.strip()
     if not value:
@@ -616,7 +646,7 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         if len(provider_rows) != len(source_rows):
             raise ValueError(f"H3_ENGLISH_CONTRACT_SOUND_COUNT:{uid}:{key}:{len(provider_rows)}!={len(source_rows)}")
         for index, value in enumerate(provider_rows, 1):
-            value = scrub(value)
+            value = scrub(sound_row_v2(value) if stamped else value)
             for echo in action_echoes:  # "... sounds from this action: <the action restated>" -> "... from this action"
                 if echo and len(echo) > 12:
                     value = re.sub(r"\s*:\s*" + re.escape(echo) + r"\.?\s*", ". ", value).strip()
@@ -725,12 +755,18 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     dialogue_rows: list[dict[str, Any]] = []
     last_exit = ""
     multi_beat = len(beats) > 1
+    said_once: set[str] = set()
     for number, (source, translated) in enumerate(zip(beats, english_beats), 1):
         prefix = f"BEAT.{number}"
         spec = _spec_for(unit, source)
         role = spec.get("role_semantic_disambiguation") or {}
         entry = scrub(translated["entry_state"])
         action = _cap(scrub(translated["primary_action"]))
+        if stamped:  # a sentence repeated in every beat (an engine redo instruction) is said once per prompt
+            sentences = re.split(r"(?<=[.!?])\s+", action)
+            kept = [x for x in sentences if not (len(x.split()) >= 6 and x.strip() in said_once)]
+            said_once.update(x.strip() for x in sentences if len(x.split()) >= 6)
+            action = _cap(" ".join(kept).strip()) or action
         exit_state = scrub(translated["exit_state"])
         force = scrub(translated.get("force_origin") or "") or entry
         parts = [_sentence(("Start, inherited from the previous shot with no reset or replay: " if inherited_start
@@ -799,6 +835,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         last_exit = exit_state
         if source.get("internal_transition_after"):
             bridge = scrub(translated.get("internal_transition_after") or "")
+            if stamped and _BRIDGE_RESTATEMENT.search(bridge):  # the next beat's Start states the entry already
+                bridge = "continue the action without resetting"
             parts.append(_sentence(f"Then bridge into the next beat: {bridge}"))
             evidence[f"{prefix}.INTERNAL_TRANSITION_AFTER"] = bridge
         if number <= len(shot_states) and shot_states[number - 1]:
@@ -916,6 +954,10 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         text = v1.localize_constraints(assemble(True), constraint_language)
     if constraint_language == "zh":
         evidence = {key: v1.localize_constraints(value, "zh") for key, value in evidence.items()}
+    if stamped:  # no long quoted span outside the dialogue tags (owner 2026-11-02, lab 化神 E01-VU-002)
+        text = "".join(part if part.startswith("<d>") else _unquote_long(part)
+                       for part in re.split(r"(<d>\[[A-Za-z]+\].*?</d>)", text, flags=re.S))
+        evidence = {key: _unquote_long(value) for key, value in evidence.items()}
     if not evidence["ANCHOR.IDENTITY_PROP"]:  # no key props: the cast fact is the "Who is in frame" header
         evidence["ANCHOR.IDENTITY_PROP"] = text.split("\n\n")[1].split("\n")[0]
 
@@ -993,4 +1035,6 @@ def director_v2_self_check(text: str, unit: dict[str, Any], plan: dict[str, Any]
     if stamped:
         findings.extend(f"ALL_CAPS_LABEL_IN_PROMPT:{m.group(0)[:40]}" for m in ALL_CAPS_LABEL.finditer(outside)
                         if m.group(0) not in _REQUIRED_CAPS_LABELS)
+        # owner 2026-11-02 (lab 化神 E01-VU-002): a quoted sentence outside <d> is a trigger for H3 to voice it
+        findings.extend(f"QUOTED_SENTENCE_IN_PROMPT:{q[:40]}" for q in long_quoted_spans(text))
     return list(dict.fromkeys(findings))

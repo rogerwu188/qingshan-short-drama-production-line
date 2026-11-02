@@ -228,7 +228,7 @@ class PipelineTests(unittest.TestCase):
             g = root / "grouping.json"
             g.write_text(json.dumps(grouping([("E99-VU-001", ["S1"])])))
             ctx = mock.Mock(episode="E99")
-            ctx.p = mock.Mock(video_media=root / "video", assembly=root / "assembly", grouping_plan=g)
+            ctx.p = mock.Mock(video_media=root / "video", assembly=root / "assembly", grouping_plan=g, voice=root / "voice")
             res = nalu_pipeline.StageResult(nalu_pipeline.BLOCKED)
             c = contract([("S1", "CHAR-A", "I have heard of you, Mr. Holmes; I have heard of you from Mrs. Farintosh,")])
             with mock.patch.object(nalu_pipeline, "transcribe_units", return_value={"E99-VU-001": HOLMES_009}), \
