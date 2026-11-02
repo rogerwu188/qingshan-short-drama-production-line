@@ -36,7 +36,7 @@ class PolicyTests(unittest.TestCase):
 class ScanTests(unittest.TestCase):
     def test_runs_are_merged_padded_and_filtered(self):
         hits = [hit(1.0, "许叔去过吗"), hit(1.25, "许叔去过吗"), hit(1.5, "许叔去过吗"),
-                hit(3.0, "我们找冯易安"),
+                hit(3.0, "烧录残留文字"),
                 hit(5.0, "000", conf=0.9),                      # numeric texture noise
                 hit(6.0, "许叔", conf=0.4),                     # low confidence
                 hit(7.0, "灯笼", y=(0.05, 0.10))]              # outside the search band
@@ -63,7 +63,7 @@ class VerifyTests(unittest.TestCase):
         self.assertEqual(out["ignored_non_dialogue_text"][0]["reason"], "AWAY_FROM_BURN_BAND")
 
     def test_burned_line_bleeding_through_where_no_caption_is_shown_fails(self):
-        out = btc.verify([hit(3.0, "我们找冯易安")], self.CAPTIONS, CFG)
+        out = btc.verify([hit(3.0, "烧录残留文字")], self.CAPTIONS, CFG)
         self.assertEqual(out["status"], "FAIL")
         self.assertEqual(out["text_inside_bar_not_the_caption"][0]["caption_on_screen"], "")
 
@@ -98,7 +98,7 @@ if __name__ == "__main__":
 class VerifyScopeTests(unittest.TestCase):
     """E13 S7: a gate plaque away from the burn band is not the burned dialogue line the policy is about."""
 
-    CAPTIONS = [{"text": "多谢邵兄好意", "start": 1.0, "end": 2.0}]
+    CAPTIONS = [{"text": "测试字幕甲句", "start": 1.0, "end": 2.0}]
 
     def test_plaque_away_from_band_is_recorded_and_ignored(self):
         hits = [(1.2, "猿明", 0.9, 0.15, 0.01, 0.82, 0.14)]
@@ -108,18 +108,18 @@ class VerifyScopeTests(unittest.TestCase):
 
     def test_text_near_the_band_outside_the_bar_still_fails(self):
         # near the band and NOT the caption on screen: a burned line the bar did not cover
-        hits = [(1.2, "我们找冯易安", 0.9, 0.20, 0.84, 0.80, 0.90)]
+        hits = [(1.2, "烧录残留文字", 0.9, 0.20, 0.84, 0.80, 0.90)]
         self.assertEqual(btc.verify(hits, self.CAPTIONS, CFG)["status"], "FAIL")
 
     def test_the_same_words_high_in_the_frame_are_a_burned_copy_not_our_caption(self):
         # The caption we draw sits on or at the band edge, never at y 0.02-0.10.  The same words up there are
         # the line H3 burned into the picture (knowledge-loop CASE_001 control: the rule must not hide it), so
         # they stay outside the bar and FAIL -- recorded as a hit, not silently ignored.
-        hits = [(1.2, "多谢邵兄好意", 0.9, 0.20, 0.02, 0.80, 0.10)]
+        hits = [(1.2, "测试字幕甲句", 0.9, 0.20, 0.02, 0.80, 0.10)]
         out = btc.verify(hits, self.CAPTIONS, CFG)
         self.assertEqual(out["ignored_non_dialogue_text"][0]["reason"], "AWAY_FROM_BURN_BAND")
         # the same words within the band pad still count as a burned line and FAIL
-        moved = [(1.2, "多谢邵兄好意", 0.9, 0.20, 0.58, 0.80, 0.64)]
+        moved = [(1.2, "测试字幕甲句", 0.9, 0.20, 0.58, 0.80, 0.64)]
         self.assertEqual(btc.verify(moved, self.CAPTIONS, CFG)["status"], "FAIL")
 
 
@@ -148,15 +148,15 @@ class CaptionPlateTests(unittest.TestCase):
 class CaptionOutsideBandTests(unittest.TestCase):
     """Our own transparent-plate caption sits just outside the band; it is not a burned line (E13 2026-11-01)."""
 
-    CAPTIONS = [{"text": "或者年轻二十岁，", "start": 2.46, "end": 6.54}]
+    CAPTIONS = [{"text": "测试字幕丙句，", "start": 2.46, "end": 6.54}]
 
     def test_our_caption_just_below_the_band_is_ignored(self):
-        hits = [(2.5, "或者年轻二十岁，", 0.98, 0.265, 0.813, 0.714, 0.848)]
+        hits = [(2.5, "测试字幕丙句，", 0.98, 0.265, 0.813, 0.714, 0.848)]
         out = btc.verify(hits, self.CAPTIONS, CFG)
         self.assertEqual(out["status"], "PASS")
         self.assertEqual(out["ignored_non_dialogue_text"][0]["reason"], "CAPTION_ON_SCREEN")
 
     def test_a_burned_line_the_caption_does_not_match_still_fails(self):
-        hits = [(2.5, "钱伯没撑过去", 0.98, 0.265, 0.813, 0.714, 0.848)]
+        hits = [(2.5, "画面残留旧行", 0.98, 0.265, 0.813, 0.714, 0.848)]
         out = btc.verify(hits, self.CAPTIONS, CFG)
         self.assertEqual(out["status"], "FAIL")

@@ -128,7 +128,7 @@ def verify(hits: list[Hit], captions: list[dict[str, Any]], cfg: dict[str, Any])
         t = row["t"]
         candidates = [c for c in dict.fromkeys(caption_at(captions, t + d) for d in (-half, 0.0, half)) if c] or [""]
         read = "".join(CJK.findall(row["text"]))
-        # OCR frequently reads only part of our own caption (E13 96.5-100.5 s: "灭了，" out of "血竹林那里的火泉要熄灭了，"),
+        # OCR frequently reads only part of our own caption (E13 96.5-100.5 s: the last three characters of a 12-character caption),
         # so a read that is a contiguous piece of the caption on screen counts the same as a whole match.
         looks_like_caption = any(
             difflib.SequenceMatcher(None, "".join(CJK.findall(c)), read).ratio() >= v["inside_bar_min_similarity"]

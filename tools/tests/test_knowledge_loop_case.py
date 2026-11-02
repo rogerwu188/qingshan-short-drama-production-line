@@ -59,7 +59,7 @@ class FixtureGateTests(unittest.TestCase):
     CFG = {"band": {"y0": 0.66, "y1": 0.81, "x0": 0.06, "x1": 0.94},
            "verify": {"fps": 2, "min_cjk_chars": 2, "min_confidence": 0.7,
                       "inside_bar_min_similarity": 0.5, "dialogue_band_pad": 0.10}}
-    CAPTIONS = [{"text": "多谢邵兄好意", "start": 1.0, "end": 2.0}]
+    CAPTIONS = [{"text": "测试字幕甲句", "start": 1.0, "end": 2.0}]
 
     def test_scene_signage_away_from_the_band_passes_only_under_the_rule(self) -> None:
         """A plaque hit is ignored by the current module and fails under the pre-rule revision."""
@@ -84,9 +84,9 @@ class FixtureGateTests(unittest.TestCase):
         the caption carries, so it is scene signage or a duplicate overlay — the case where position, not text,
         is the only discriminator (tools/burned_text_cover.py, CAPTION_ON_SCREEN).
         """
-        burned_in_band = [(1.2, "你竟敢骗我们", 0.9, 0.20, 0.70, 0.80, 0.78)]
+        burned_in_band = [(1.2, "模型附带对白", 0.9, 0.20, 0.70, 0.80, 0.78)]
         self.assertEqual(btc.verify(burned_in_band, self.CAPTIONS, self.CFG)["status"], "FAIL")
-        near_band = [(1.2, "你竟敢骗我们", 0.9, 0.20, 0.84, 0.80, 0.90)]
+        near_band = [(1.2, "模型附带对白", 0.9, 0.20, 0.84, 0.80, 0.90)]
         self.assertEqual(btc.verify(near_band, self.CAPTIONS, self.CFG)["status"], "FAIL")
 
 

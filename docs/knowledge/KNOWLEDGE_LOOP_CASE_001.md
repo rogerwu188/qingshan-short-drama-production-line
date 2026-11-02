@@ -141,8 +141,8 @@ None of the following is evidence for case 001. They are synthetic, live only in
 | fixture | what it demonstrates | not |
 |---|---|---|
 | `[(1.2, "猿明", …)]` single plaque hit | the mechanism: current module PASSes, pre-rule FAILs | E13 evidence |
-| `"多谢邵兄好意"` at y 0.84 | a burned line near the band still FAILs | a real OCR sample |
-| `"多谢邵兄好意"` at y 0.02 | an uncovered caption anywhere still FAILs | a real OCR sample |
+| `"模型附带对白"` (not the caption) in the band and at y 0.84 | a burned line in or near the band still FAILs | a real OCR sample |
+| `"测试字幕甲句"` (the caption's own words) at y 0.02 | recorded as `AWAY_FROM_BURN_BAND`, never as our caption: the caption exemption holds only at the band (95d3d1b) | a real OCR sample |
 | forged APPLIED receipt (state flipped by hand) | a receipt without evidence is not evidence | a real receipt |
 | `CONSUMED_BY_REPLAY_ONLY` with a consumer run listed | the contract rejects self-promotion | a real consumption |
 
