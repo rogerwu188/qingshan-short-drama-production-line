@@ -1,0 +1,69 @@
+{
+  "schema": "qingshan.adaptation_policy.v1",
+  "policy_id": "ADAPTATION_POLICY_V1",
+  "status": "ACTIVE",
+  "authorization": {
+    "line_owner": "Roger",
+    "decided_on": "2026-11-01",
+    "quote": "necessary adapted and bridging dialogue is ALLOWED by default, no per-episode line cap; compression, reordering, paraphrase, and turning inner monologue into filmable action/dialogue are writer-owned; changes to a major relationship, motive, key fact or plot outcome must be listed separately as MAJOR_CHANGE",
+    "supersedes": "ADAPTATION_POLICY_DRAFT.md v0 (2026-11-01), whose adapted_new=REQUIRES_LINE_OWNER default this replaces"
+  },
+  "scope": {
+    "applies_from_episode": "E14",
+    "legacy_episodes": "E01-E13 keep whatever they were produced under; this policy never re-judges a sealed episode"
+  },
+  "categories": {
+    "verbatim": {
+      "default": "ALLOWED",
+      "requires": ["source_ref", "quote"],
+      "check": "the quote must occur in the cited source chapter (whitespace-insensitive fallback is reported, never silent)"
+    },
+    "condensed": {
+      "default": "ALLOWED",
+      "requires": ["source_ref", "reason"],
+      "check": "the reason must state what was compressed and that no causal step was dropped"
+    },
+    "reorganized": {
+      "default": "ALLOWED",
+      "requires": ["source_ref", "reason"],
+      "check": "the reason must state the causal order that is preserved"
+    },
+    "adapted_new": {
+      "default": "ALLOWED_WITH_SOURCE_TRACE",
+      "requires": ["source_ref", "reason", "trace"],
+      "check": "source_ref names the source beat the new line/action bridges from; trace says what it bridges between. No per-episode cap on lines."
+    },
+    "omitted": {
+      "default": "ALLOWED",
+      "requires": ["source_ref", "reason"],
+      "check": "a beat any later episode's source_ref depends on may not be omitted; it must be deferred"
+    },
+    "deferred": {
+      "default": "ALLOWED",
+      "requires": ["source_ref", "reason", "planned_payoff_episode"],
+      "check": "the episode that will carry it must be named, and it must agree with the arc ledger's hook row when one exists"
+    }
+  },
+  "major_change": {
+    "description": "Not a category: a flag any beat can carry. A beat flagged major_change describes a change to a major relationship, a character motive, a key established fact, or a plot outcome.",
+    "escalation": "LINE_OWNER",
+    "requires": ["change_kind", "description", "source_ref", "escalation.authorization_order"],
+    "change_kinds": ["relationship", "motive", "key_fact", "plot_outcome"],
+    "not_major": [
+      "bridging dialogue that carries an existing causal link",
+      "paraphrase and compression of an existing beat",
+      "turning narration or inner monologue into a filmable action",
+      "reordering or merging scenes that keep the same causal chain",
+      "naming something the audience already saw"
+    ]
+  },
+  "forbidden": [
+    "using a name the audience has not been given to manufacture tension",
+    "hiding from the audience a fact the viewpoint character already knows",
+    "changing who lives or dies, or a character's established major fate, without a MAJOR_CHANGE escalation"
+  ],
+  "no_quotas": [
+    "no fixed number of new lines, scenes or characters per episode",
+    "no fixed number of fights, reversals or twists"
+  ]
+}

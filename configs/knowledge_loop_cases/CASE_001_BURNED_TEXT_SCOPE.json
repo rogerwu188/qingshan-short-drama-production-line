@@ -1,0 +1,140 @@
+{
+  "schema": "qingshan.knowledge_loop_case.v1",
+  "case_id": "CASE_001_BURNED_TEXT_SCOPE",
+  "kind": "REAL_PRODUCTION_CASE",
+  "rule": {
+    "rule_id": "H3_BURNED_TEXT_COVER_V1.out_of_band_scope",
+    "rule_version": 2,
+    "key": "cover-check-scope-is-the-burned-dialogue-line",
+    "clause_file": "tools/burned_text_cover.py"
+  },
+  "bundle_digest": "b98140a82184dab2b3486e770a582ab8c3e5920a71291446373a044e78899ee2",
+  "stage": "S7",
+  "identity": {
+    "tenant_id": "nalu",
+    "line_id": "nalu",
+    "device_id": "dev-nalu-e13",
+    "run_id": "nalu.E13.S7.cover-scope"
+  },
+  "unit_ids": [
+    "E13-VU-014"
+  ],
+  "provenance": {
+    "fact": {
+      "statement": "E13 S7 stopped at s7_burned_text_verify: the H3 burned-text cover check failed with blocker H3_BURNED_TEXT_STILL_VISIBLE, exit 2, after 8 CJK OCR hits outside the caption bar.",
+      "artefact": {
+        "root": "RUNTIME",
+        "path": "pipeline_logs/E13/run_20261101T090410.343644Z_32124_551f2def.log"
+      },
+      "artefact_sha256": "9ae3108b3a46c382d227e34c2aa9c705322073e6444d3d52512012c19d60095f",
+      "measured": {
+        "blocker": "H3_BURNED_TEXT_STILL_VISIBLE",
+        "verify_exit": 2,
+        "hits": 8,
+        "hit_y_band": [
+          0.005,
+          0.141
+        ],
+        "unit": "E13-VU-014"
+      }
+    },
+    "cause": {
+      "statement": "The check was scoped to every CJK character in the frame rather than to the dialogue line H3 burns into the burn band: the 8 hits were the meaningless characters generated on VU-014's gate plaque and door couplet (y 0.00-0.14), already reported as P2 scene signage at Q2, where the period/anachronism OCR gate owns scene signage.",
+      "evidence": [
+        {
+          "statement": "Q2's submitted review records the plaque/couplet characters on VU-014 as non-subtitle set text and rates the scene P2, not a dialogue-subtitle failure.",
+          "artefact": {
+            "root": "RUNTIME",
+            "path": "reviews/E13/E13-video_q2-20261101T073845Z_submitted.json"
+          },
+          "artefact_sha256": "eb5f960fd350a0f9a917bf919366191d964fb3d74331473fe0397e2f20339dad"
+        },
+        {
+          "statement": "The Q2 proposal line owner Roger answered on 2026-11-01 states the cover policy's purpose: hide the burned spoken line, and QC it by OCR outside the bar.",
+          "artefact": {
+            "root": "RUNTIME",
+            "path": "proposals/E13_Q2_BURNED_SUBTITLE_COVER_20261101.md"
+          },
+          "artefact_sha256": "bc3ac93106b9769db8a897b4b0af69a92e1de1a048f7cb9a23377619f16072a4"
+        },
+        {
+          "statement": "The PASS artefact records exactly those 8 hits as ignored_non_dialogue_text while text_outside_bar and text_inside_bar_not_the_caption are both empty.",
+          "artefact": {
+            "root": "WORKFLOW",
+            "path": "nalu/E13/assembly/E13_H3_BURNED_TEXT_COVER_CHECK.json"
+          },
+          "artefact_sha256": "a27369784071f9d5fd7b5090805cdf951e0484f03bfc037452b12a016d4320e2"
+        }
+      ]
+    },
+    "rule_source": {
+      "file": "tools/burned_text_cover.py",
+      "line": 139,
+      "clause": "scene signage away from the burn band is the period/anachronism gate's business",
+      "note": "carried in the verification report's rule string; the same narrowing is configured as verify.dialogue_band_pad=0.10 in configs/H3_BURNED_TEXT_COVER_V1.json:11"
+    },
+    "verification": {
+      "measurement": "H3 burned-text cover verdict over the same recorded OCR hits and captions: the dialogue-line scope PASSes, the pre-rule code FAILs on the 8 plaque hits",
+      "before": {
+        "value": "FAIL",
+        "artefact": {
+          "root": "RUNTIME",
+          "path": "pipeline_logs/E13/20261101T090410.343644Z_32124_551f2def_s7_burned_text_verify.log"
+        },
+        "artefact_sha256": "1df8b304b11ac05301101923b37b838b089c68a128905debbaec0b76bc3f0042",
+        "expected_failing_rows": [
+          "猿明",
+          "猿明",
+          "猿明",
+          "猿明",
+          "核志明",
+          "猿明",
+          "猿明",
+          "裱走明游"
+        ],
+        "report_preserved": false,
+        "note": "the FAIL report was overwritten at the same path by the later PASS; the preserved evidence is this log's exit=2 plus the replay of the pre-rule code over the same recorded hits"
+      },
+      "after": {
+        "value": "PASS",
+        "artefact": {
+          "root": "WORKFLOW",
+          "path": "nalu/E13/assembly/E13_H3_BURNED_TEXT_COVER_CHECK.json"
+        },
+        "artefact_sha256": "a27369784071f9d5fd7b5090805cdf951e0484f03bfc037452b12a016d4320e2"
+      },
+      "restores_earlier_output": true
+    }
+  },
+  "replay": {
+    "gate": {
+      "module": "tools/burned_text_cover.py",
+      "function": "verify",
+      "config_from_policy": true,
+      "disabled_variant": {
+        "kind": "git_revision",
+        "commit": "7ed3399700c4f5d7fc25a31d064eef10300abcd7",
+        "note": "the commit the rule landed on is 20dcd9d; 7ed3399 is its parent, the last revision without the dialogue-line scope"
+      }
+    },
+    "hit_source": {
+      "root": "WORKFLOW",
+      "path": "nalu/E13/assembly/E13_H3_BURNED_TEXT_COVER_CHECK.json"
+    },
+    "hit_key": "ignored_non_dialogue_text",
+    "captions": {
+      "root": "WORKFLOW",
+      "path": "nalu/E13/assembly/E13_BURNIN_SUBTITLES.json"
+    },
+    "confidence": 0.9
+  },
+  "verification": {
+    "test_name": "tools/tests/test_knowledge_loop_case.py::RealCase001Test::test_recorded_artifacts_replay_with_and_without_the_rule",
+    "assertion": "tools/burned_text_cover.verify() over E13's recorded OCR hits and burn-in captions returns PASS with the dialogue-line scope and the 8 plaque hits in ignored_non_dialogue_text, and returns FAIL on those same 8 rows when the module is loaded from the last revision before the rule (7ed3399); the clause text is present only in the with-rule output."
+  },
+  "real_run_consumption": {
+    "status": "NOT_YET_CONSUMED_BY_REAL_RUN",
+    "reason": "the rule was written after E13's S7 runs that exercised it; no later real build has run since, so only a free replay proves the clause is consumed. Set to CONSUMED_BY_REAL_RUN only when a later run's own output carries the clause.",
+    "consumer_runs": []
+  }
+}

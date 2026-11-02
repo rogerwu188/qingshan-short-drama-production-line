@@ -56,8 +56,13 @@ class ReviewBindingTest(unittest.TestCase):
         self.assertEqual(report["status"], "MATCH")
 
     def test_unbound_task_on_an_unenabled_episode_is_unaffected(self):
+        # The send is not stopped, but the record says UNENFORCED.  "NOT_REQUIRED"
+        # read as a pass in a receipt; line owner 2026-11-01 item 3 asks for a
+        # status that cannot be mistaken for one.
         report = require_reviewed_request({"task_key": "T", "episode": "E12"}, "y" * 64)
-        self.assertEqual(report["status"], "NOT_REQUIRED")
+        self.assertEqual(report["status"], "UNENFORCED")
+        self.assertFalse(report["binding_required"])
+        self.assertIn("UNENFORCED", report["note"])
 
     def test_enabled_episode_requires_a_binding(self):
         with tempfile.TemporaryDirectory() as tmp:

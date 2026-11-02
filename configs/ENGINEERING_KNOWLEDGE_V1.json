@@ -3232,6 +3232,62 @@
       "failure_code": "WRITER_AUTHORED_DIALOGUE_MOVES_DEFEAT_LOCKED_DEFAULT",
       "do_not_repeat": "不要以为下游门能替写作层做默认；不要在对白镜机位文字里随手写推近/横移；不要为本线改共享策略文件的启用范围",
       "sync_slug": "E13-writer-locked-dialogue-camera"
+    },
+    {
+      "scope": "generalizable",
+      "episode": "E13",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "Roger 2026-11-01「同意你的处理意见」(Q2 burned-subtitle cover proposal) + 2026-11-01 item 5 knowledge-loop case 001",
+      "runtime_gate_added": false,
+      "id": "K149",
+      "key": "cover-check-scope-is-the-burned-dialogue-line",
+      "stage": "S7",
+      "category": "QA",
+      "rule": "H3_BURNED_TEXT_COVER_V1 的复核只管 H3 烧进画面里的那句对白，不管画面里的一切汉字：横条外命中只在两种情况下算失败——命中点离烧录带不超过 dialogue_band_pad（默认 0.10），或该文本读起来就是当时屏上的字幕；其余命中记入 ignored_non_dialogue_text 放行。场景招牌/门联/匾额上的字归 PERIOD-ANACHRONISM-LOCK（Q2）管，不归字幕遮盖门管。",
+      "lesson": "E13 2026-11-01：S7 的 s7_burned_text_verify 以 exit=2 阻断（H3_BURNED_TEXT_STILL_VISIBLE），命中 8 处横条外汉字，y 0.005–0.141，全部来自 VU-014 门匾与门联上模型画出的无意义古体字；这些字 Q2 已按场景招牌记 P2（PERIOD-ANACHRONISM-LOCK），从不是字幕。遮盖门把它们当『横条外有字』= 失败，于是为不属于它管的缺陷挡住 S7。收窄到对白文本后同一批 OCR 命中 PASS，6 处真实烧录对白仍被横条盖住。",
+      "recovery": "tools/burned_text_cover.py verify() 按 verify.dialogue_band_pad 判横条外命中；configs/H3_BURNED_TEXT_COVER_V1.json 的 verify.dialogue_band_pad 调带宽（默认 0.10）。场景招牌类无意义文字走 Q2 的 PERIOD-ANACHRONISM-LOCK 申报（NOISE: 或 P2），不要在遮盖门里豁免。判据案例见 docs/knowledge/KNOWLEDGE_LOOP_CASE_001.md。",
+      "implementation": [
+        "tools/burned_text_cover.py",
+        "configs/H3_BURNED_TEXT_COVER_V1.json"
+      ],
+      "regression": "tools/tests/test_knowledge_loop_case.py",
+      "evidence": "E13 CASE_001_BURNED_TEXT_SCOPE：run_20261101T090410 的 exit=2 + H3_BURNED_TEXT_STILL_VISIBLE；同一批 8 处命中在 PASS 报告的 ignored_non_dialogue_text 里；改前代码（git 7ed3399）在同一输入上复现 FAIL 且失败行完全相同；契约阻止未消费的规则读成已消费（NOT_YET_CONSUMED_BY_REAL_RUN）。",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "failure_code": "COVER_CHECK_FLAGS_SCENE_SIGNAGE_AS_BURNED_DIALOGUE",
+      "do_not_repeat": "不要把字幕遮盖门当成『画面里不得有汉字』的总门；不要把场景招牌上的无意义字在遮盖门里豁免掉而不给 Q2 记 P2；不要为了放行而放宽 near-band / reads-like-caption 这两条真失败判据",
+      "sync_slug": "E13-cover-check-dialogue-line-scope"
+    },
+    {
+      "scope": "generalizable",
+      "episode": "E14",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "Line owner 2026-11-01 item 3: make it impossible for 'the data actually sent' to differ from 'the data that was reviewed'",
+      "runtime_gate_added": false,
+      "id": "K150",
+      "key": "evidence-binds-the-sent-request-not-just-the-review-file",
+      "stage": "S5",
+      "category": "QA",
+      "rule": "Three checks, all per task and off by default. (1) A Q1/SFE evidence record carries provider_request_binding: stage, the reviewed request sha, the manifest's prompt sha / model / reference list (role + version + source sha + transport sha), and the provider task identifier + payload sha as null WITH a reason from nulls until a receipt exists — never invented, never back-filled from another task. (2) tools/provider_request_digest.py bind-receipt joins a provider transaction to that record by the request sha on BOTH sides and refuses RECEIPT_NOT_REQUEST_BOUND / RECEIPT_FOR_ANOTHER_REQUEST / REQUEST_SHA_CHANGED_SINCE_REVIEW / TASK_ID_NOT_BOUND. (3) A send outside the policy reports UNENFORCED, never NOT_REQUIRED/PASS; binding_still_valid answers INVALID + re_review_required when the prompt text, a reference file, the model, the whole-request digest or the payload sha moved. Switches: configs/PROVIDER_REQUEST_REVIEW_BINDING_V1.json (enabled_episodes / enabled_from_episode, receipt_binding.enabled, review_media.*).",
+      "lesson": "The review bound the review-request sha and the asset sha, and nothing else. Every receipt before it bound a FILE, so the H3 re-render, reference reordering and send-time compression could change the request after review while every record still read complete. And an unenforced episode reported status NOT_REQUIRED, which a receipt reader takes for a pass. Separately, a keyframe/video_q2 request listed only the GENERATED asset, so a reviewer answered 'this is the locked identity person' without ever being shown the plate.",
+      "recovery": "After a receipt: tools/provider_request_digest.py bind-receipt --record <evidence.json> --transaction <workflow/tasks/giggle_submit_transactions/EP/*.json>. Before sending: validate with binding_still_valid (or the verify subcommand) and re-review on INVALID. When a request says reference_media.missing is non-empty, the identity/wardrobe/space/prop question for that role is answered UNCERTAIN with a MISSING_REVIEW_REFERENCE defect — a PASS there is refused as reference_claim_without_reference.",
+      "implementation": [
+        "tools/provider_request_digest.py",
+        "lines/nalu/runtime/tools/vlm_review_protocol.py",
+        "lines/nalu/runtime/tools/nalu_qa_common.py",
+        "lines/nalu/runtime/tools/keyframe_q1_builder.py",
+        "lines/nalu/runtime/tools/start_frame_evidence_writer.py",
+        "configs/PROVIDER_REQUEST_REVIEW_BINDING_V1.json",
+        "tools/tests/test_review_reference_media.py",
+        "tools/tests/test_q1_evidence_provider_binding.py"
+      ],
+      "regression": "tools/tests/test_provider_request_binding_chain.py",
+      "evidence": "Offline: every path a temp dir, no paid stage. 60 tests across the three files; the 222 tests that import these modules all pass.",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "sync_slug": "E14-evidence-binds-sent-request",
+      "failure_code": "REVIEW_BOUND_TO_A_FILE_NOT_TO_THE_SENT_REQUEST",
+      "do_not_repeat": "不要在 POST 之前记供应商任务标识或 payload sha，也不要从别的任务挪用；未强制的检查不能报成 PASS 或 NOT_REQUIRED；请求里没有某一用途的参考图时，不让评审者回答该用途（身份/服装/空间/道具）的问题"
     }
   ]
 }

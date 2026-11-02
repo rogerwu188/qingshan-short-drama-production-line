@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qingshan.writer_arc_ledger.v1",
+  "title": "Writer arc plan + hook/payoff ledger",
+  "description": "The cross-episode writing sheet: which episodes form one arc, what source each episode really uses, what it delivers and what question it leaves open, and every hook with its status. Validated by tools/writer_arc_ledger.py. No quotas: nothing here states how many hooks, fights or turns an episode must have.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema", "arc_id", "episode_window", "episodes", "hooks"],
+  "properties": {
+    "schema": {"const": "qingshan.writer_arc_ledger.v1"},
+    "policy": {"type": "string", "description": "WRITER_CAPABILITY_V1 when this sheet is produced under the writer-capability policy"},
+    "arc_id": {"type": "string", "minLength": 1},
+    "authorization": {"type": ["string", "null"], "description": "the line-owner order that authorises this arc's adaptation scope"},
+    "episode_window": {
+      "type": "array", "minItems": 3, "maxItems": 6,
+      "description": "Line owner 2026-11-01: plan 3-6 episodes before writing any of them.",
+      "items": {"type": "string", "pattern": "^E[0-9]{2,3}$"}
+    },
+    "episodes": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["episode", "source_ref", "chosen_events", "delivered_experience", "end_question", "payoff_plan", "scene_cards"],
+        "properties": {
+          "episode": {"type": "string", "pattern": "^E[0-9]{2,3}$"},
+          "source_ref": {
+            "type": ["array", "null"],
+            "description": "chapter/paragraph traceability only (chNNNN[:paragraph]); null = not yet read, which is recorded, not guessed",
+            "items": {"type": "string", "minLength": 1}
+          },
+          "chosen_events": {
+            "type": ["array", "null"],
+            "items": {
+              "oneOf": [
+                {"type": "string", "minLength": 1},
+                {"type": "object", "required": ["event_id"], "additionalProperties": true,
+                 "properties": {"event_id": {"type": "string", "minLength": 1}}}
+              ]
+            }
+          },
+          "delivered_experience": {"type": ["string", "null"], "description": "what the viewer gets, in one sentence; null = not yet decided"},
+          "end_question": {"type": ["string", "null"], "description": "the question the episode leaves open; null = deliberately none"},
+          "payoff_plan": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "object", "additionalProperties": true,
+              "required": ["payoff_id"],
+              "properties": {
+                "payoff_id": {"type": "string", "minLength": 1},
+                "settles": {"type": ["string", "null"], "description": "HOOK-* id this payoff answers, or a free description"},
+                "what": {"type": ["string", "null"]},
+                "delivered_in": {"type": ["string", "null"], "description": "episode in which this payoff actually lands; empty means it does not land in this arc"}
+              }
+            }
+          },
+          "no_payoff_answer": {"type": ["string", "null"], "description": "the writer's answer when diagnostics flag this episode; a quiet emotional episode is a valid answer"},
+          "scene_cards": {
+            "type": ["array", "null"],
+            "description": "one card per scene before the scene is written: want / obstacle / action / change / why keep",
+            "items": {
+              "type": "object", "additionalProperties": true,
+              "required": ["scene_id", "want", "obstacle", "action", "change", "why_keep"],
+              "properties": {
+                "scene_id": {"type": "string", "minLength": 1},
+                "want": {"type": "string", "minLength": 1},
+                "obstacle": {"type": "string", "minLength": 1},
+                "action": {"type": "string", "minLength": 1},
+                "change": {"type": "string", "minLength": 1},
+                "why_keep": {"type": "string", "minLength": 1}
+              }
+            }
+          },
+          "function_duplicates": {
+            "type": ["array", "null"],
+            "description": "characters / scenes / lines that do the same job, with a merge/cut proposal; no headcount target",
+            "items": {
+              "type": "object", "additionalProperties": true,
+              "required": ["kind", "items", "proposal", "reason"],
+              "properties": {
+                "kind": {"enum": ["character", "scene", "line"]},
+                "items": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                "proposal": {"enum": ["MERGE", "CUT", "KEEP"]},
+                "reason": {"type": "string", "minLength": 1},
+                "merged_into": {"type": ["string", "null"]}
+              }
+            }
+          }
+        }
+      }
+    },
+    "hooks": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": true,
+        "required": ["id", "status", "kind", "progress", "payoff"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "status": {"enum": ["OPEN", "ADVANCED", "PAID_OFF", "DEFERRED"]},
+          "kind": {"type": ["string", "null"], "description": "danger | choice | relationship_change | discovery | open_question"},
+          "question": {"type": ["string", "null"]},
+          "opened_in": {"type": ["string", "null"]},
+          "progress": {"type": ["string", "null"], "description": "what moved since the previous episode; required non-empty by the validator"},
+          "payoff": {"type": ["string", "null"], "description": "how it pays off; required non-empty for ADVANCED and PAID_OFF"},
+          "paid_off_in": {"type": ["string", "null"]},
+          "deferred_reason": {"type": ["string", "null"]},
+          "planned_payoff_episode": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "open_hooks_at_arc_end": {
+      "type": ["array", "null"],
+      "description": "every hook still OPEN when this arc ends; an OPEN hook missing from this list fails the ledger",
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}

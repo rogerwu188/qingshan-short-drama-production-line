@@ -136,6 +136,10 @@ class SubmitterCrossProcessDuplicatePostRepro(unittest.TestCase):
             "reference_images": [str(probe / "ref.png")],
             # sha256(b"mock-reference"), the bytes written below
             "reference_sha256": ["6a278161eb0cf3c35d6377ef2fad2370db6a687cec7f1ae10f6cacc727c530ca"],
+            # PROVIDER_REQUEST_REVIEW_BINDING_V1 covers E14+ (this fixture is E99): the submitter
+            # now refuses to POST a request no review is bound to, so the fixture carries the
+            # digest of exactly what it sends (prompt + model + duration + 9:16 + 720p + this ref).
+            "reviewed_request_sha256": "c930baa821674d82b54792f4d8e41fa8ab324e07eb40ed29f621579bfc2fd39a",
         }
         (probe / "task.json").write_text(json.dumps(task), encoding="utf-8")
         (probe / "prompt.txt").write_text("mock prompt", encoding="utf-8")

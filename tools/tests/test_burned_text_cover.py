@@ -111,12 +111,16 @@ class VerifyScopeTests(unittest.TestCase):
         hits = [(1.2, "我们找冯易安", 0.9, 0.20, 0.84, 0.80, 0.90)]
         self.assertEqual(btc.verify(hits, self.CAPTIONS, CFG)["status"], "FAIL")
 
-    def test_a_second_copy_of_the_caption_far_from_the_band_is_ignored(self):
-        # same words as the caption on screen, so it is our caption (a duplicate overlay), not a burned line
+    def test_the_same_words_high_in_the_frame_are_a_burned_copy_not_our_caption(self):
+        # The caption we draw sits on or at the band edge, never at y 0.02-0.10.  The same words up there are
+        # the line H3 burned into the picture (knowledge-loop CASE_001 control: the rule must not hide it), so
+        # they stay outside the bar and FAIL -- recorded as a hit, not silently ignored.
         hits = [(1.2, "多谢邵兄好意", 0.9, 0.20, 0.02, 0.80, 0.10)]
         out = btc.verify(hits, self.CAPTIONS, CFG)
-        self.assertEqual(out["status"], "PASS")
-        self.assertEqual(out["ignored_non_dialogue_text"][0]["reason"], "CAPTION_ON_SCREEN")
+        self.assertEqual(out["ignored_non_dialogue_text"][0]["reason"], "AWAY_FROM_BURN_BAND")
+        # the same words within the band pad still count as a burned line and FAIL
+        moved = [(1.2, "多谢邵兄好意", 0.9, 0.20, 0.58, 0.80, 0.64)]
+        self.assertEqual(btc.verify(moved, self.CAPTIONS, CFG)["status"], "FAIL")
 
 
 class CaptionPlateTests(unittest.TestCase):
@@ -128,13 +132,17 @@ class CaptionPlateTests(unittest.TestCase):
         self.assertIn('E13', policy['bar_rgba_by_episode'])
         self.assertLess(policy['bar_rgba_by_episode']['E13'][3], policy['bar_rgba'][3])
 
-    def test_captions_are_never_drawn_on_the_bar(self):
+    def test_the_caption_plate_is_never_painted_dark(self):
+        # The caption keeps its transparent plate (E13 note 「字幕底以前都是透明的」): nothing in the caption
+        # block may paint a background.  It does sit INSIDE the cover band once a cover exists, so the burned
+        # line is hidden under our one caption row instead of showing as a second row (E13「有两排字幕了」).
         source = (pathlib.Path(__file__).resolve().parents[2]
                   / 'lines/nalu/runtime/tools/build_burnin_subtitles.py').read_text(encoding='utf-8')
         caption_block = source[source.index('for i, (s_t, e_t, ln) in enumerate(events):'):
                                source.index('last = f"[v{len(events)}]"')]
         self.assertNotIn('cover["rgba"]', caption_block)
-        self.assertNotIn('cover["y"]', caption_block)
+        self.assertIn('Image.new("RGBA", (W, LINE_H * len(rows) + 24), (0, 0, 0, 0))', caption_block)
+        self.assertIn('if cover else H - MARGIN_BOTTOM - img.height', caption_block)
 
 
 class CaptionOutsideBandTests(unittest.TestCase):

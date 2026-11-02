@@ -53,6 +53,7 @@ from tools.storyclaw_project_intake import (  # noqa: E402
     load_private_project,
 )
 from tools.writer_production_field_gate import validate_generation_contract  # noqa: E402
+from tools import writer_capability as _writer_capability  # noqa: E402
 
 INPUT_SCHEMA = "storyclaw.nalu.writer_input_bundle.v1"
 LEXICON_DRAFT_SCHEMA = "storyclaw.nalu.project_lexicon_draft.v1"
@@ -957,8 +958,23 @@ def verify_writer_handoff(
         }
         if lexicon.get("canonical_names") != expected_names:
             failures.append("PROJECT_LEXICON_CANONICAL_NAMES_MISMATCH")
+        # Writer-capability (line owner 2026-11-01): a sealed narrative must be the one
+        # the pre-lock script review was given, and the episode must show its arc,
+        # adaptation and Rule 8 inputs.  RECORDED, never added to ``failures``: whether
+        # any of it blocks is the config's switch and every switch ships off.
+        capability = _writer_capability.stage_summary(
+            episode,
+            arc_ledger=layer_root / "writer_capability" / "ARC_LEDGER.json",
+            adaptation_disposition=(layer_root / "writer_capability"
+                                    / f"{episode}_ADAPTATION_DISPOSITION.json"),
+            script_review_report=(layer_root / "writer_capability"
+                                  / f"{episode}_SCRIPT_REVIEW_REPORT.json"),
+            rule8_report=(layer_root / "writer_capability" / f"{episode}_RULE8_RESPONSE.json"),
+            narrative=layer_paths["narrative_canonical"],
+        )
         observed = {
             "active_handoff": str(active_path),
+            "writer_capability": capability,
             "writer_run_id": active.get("writer_run_id"),
             "model_id": active.get("model_id"),
             "layers": {key: str(value) for key, value in layer_paths.items()},
