@@ -3964,6 +3964,18 @@ def stage_s5(ctx: Ctx) -> StageResult:
     res.receipts.append(str(p.keyframe_entry_gate))
     res.details["keyframe_entry_state_gate"] = (read_json(p.keyframe_entry_gate, {}) or {}).get("status")
 
+    # 1c) review binding (PROVIDER_REQUEST_REVIEW_BINDING_V1, enforced from E14): stamp reviewed_request_sha256
+    # on every task whose keyframe prompt the registered whole-batch gate reviewed; the rest stay unstamped
+    # and the submitter refuses them (per task, before any intent record).
+    _batch_manifest = p.preprod / f"{ctx.episode}_PROMPT_BATCH_V1.json"
+    _batch_report = p.preprod / "reports" / f"{ctx.episode}_PROMPT_BATCH_REGISTER.json"
+    if _batch_manifest.is_file() and _batch_report.is_file():
+        stamp_step = ctx.run([VENV, RT_TOOLS / "stamp_reviewed_keyframe_requests.py",
+                              "--episode", ctx.episode, "--manifest", p.keyframe_manifest,
+                              "--batch-manifest", _batch_manifest, "--register-report", _batch_report],
+                             name="s5_stamp_reviewed_keyframe_requests")
+        res.steps.append(stamp_step)
+
     # 2) D-11 paid authorisation, then the paid submit of the MATERIALISED manifest.
     # D-46 for S5: authorise a POST only for shots with no admitted keyframe of the CURRENT image.
     # S6 excludes tasks whose clip is on disk; S5 had no such rule, so every prompt byte that moved

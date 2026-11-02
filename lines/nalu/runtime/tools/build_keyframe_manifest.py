@@ -907,6 +907,16 @@ def wardrobe_plate_excluded(spec: dict[str, Any], asset_id: str) -> bool:
     return True
 
 
+def shot_keeps_face_hidden(spec: dict[str, Any], character_id: str) -> bool:
+    """True when the shot's cast row marks this character's face as not shown (NOT_MEASURABLE /
+    FACE_OUT_OF_FRAME)."""
+    for row in spec.get("cast") or []:
+        if str(row.get("character_id") or "") == str(character_id):
+            value = str(row.get("face_visibility") or "").upper()
+            return value.endswith("NOT_MEASURABLE") or value.endswith("FACE_OUT_OF_FRAME")
+    return False
+
+
 def build_bindings(inputs: Inputs, shot_id: str, gate_ref: str) -> tuple[list[dict[str, Any]], list[str], list[str]]:
     shot = inputs.shots[shot_id]
     sp_task = inputs.subspace_tasks[shot_id]
@@ -927,8 +937,11 @@ def build_bindings(inputs: Inputs, shot_id: str, gate_ref: str) -> tuple[list[di
         name = str(entry.get("character") or asset_id)
         # Roger 2026-09-18 ②: the front neutral headshot is the face reference and leads the
         # sequence; the full-body plate is demoted to a wardrobe reference.
-        face_rows.append(entity_binding(inputs, "character", "characters", asset_id, name,
-                                        "CHARACTER_IDENTITY_PLATE", view=CHARACTER_FACE_VIEW))
+        # K075 (nalu E14 巡山者乙): a person this shot keeps faceless (back, hands, feet) gets no face
+        # plate -- a headshot tells the image model to show that face.  The wardrobe plate stays.
+        if not shot_keeps_face_hidden(shot.get("prompt_spec") or {}, asset_id):
+            face_rows.append(entity_binding(inputs, "character", "characters", asset_id, name,
+                                            "CHARACTER_IDENTITY_PLATE", view=CHARACTER_FACE_VIEW))
         if not wardrobe_plate_excluded(shot.get("prompt_spec") or {}, asset_id):
             wardrobe_rows.append(entity_binding(inputs, "character_wardrobe", "characters", asset_id, name,
                                                 "CHARACTER_WARDROBE_PLATE", view=CHARACTER_WARDROBE_VIEW))
@@ -1214,6 +1227,14 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
         f"{row.get('entity_name')}（{row['entity_id']}）"
         for row in bindings if row["role"] == "character"
     ]
+    # K075: a person whose face this shot hides has no face plate (build_bindings) but is still allowed
+    # in frame, so the clause must name him or the image model is told he may not appear.
+    _named = {row["entity_id"] for row in bindings if row["role"] == "character"}
+    for _member in spec.get("cast") or []:
+        _cid = str(_member.get("character_id") or "")
+        if _cid and _cid not in _named and shot_keeps_face_hidden(spec, _cid):
+            cast_names.append(f"{_member.get('character') or _cid}（{_cid}）")
+            _named.add(_cid)
     prop_names = [
         f"{row.get('entity_name')}（{row['entity_id']}）"
         for row in bindings if row["role"] == "prop"
