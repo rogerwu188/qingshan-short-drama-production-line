@@ -829,7 +829,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "4f2d2e957a0b315b9ae75b2a1b412cdd1978216ed6dad527e0313203708e2013"
+      "sha256": "98529e88ed3c4060689048633ae6067881f6301eb224481df0e6c2d50fdc1062"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -4993,7 +4993,7 @@
     },
     {
       "path": "tools/h3_provider_english_contract.py",
-      "sha256": "5ac08f4c9041b78d177280ca3b2ac76e14001a148ba6f0b7448e70c17776ff5d"
+      "sha256": "84ffe88ef968b8b07b445f7b55e5e176d7d18601c54cddc7452c4a94660f0b4d"
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
@@ -7641,7 +7641,7 @@
     },
     {
       "path": "tools/tests/test_h3_provider_expert_advice.py",
-      "sha256": "735bda8506147bc283211fc27e5a385d0100de54810b356a4fa8e43a24805f2d"
+      "sha256": "865ef9f9a20c8bbf1dd6bab882e9e4481f6231251daee13ba55702e32912e712"
     },
     {
       "path": "tools/tests/test_h3_quoted_cjk_inside_dialogue.py",

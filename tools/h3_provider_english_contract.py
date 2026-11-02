@@ -37,7 +37,13 @@ H3_CONSTRAINT_LANGUAGE_FIELD = "h3_constraint_language"
 
 def h3_constraint_language(payload: dict[str, Any] | None) -> str:
     """"zh" when a unit/contract opts into Chinese constraint sentences, else "en" (the default)."""
-    value = str((payload or {}).get(H3_CONSTRAINT_LANGUAGE_FIELD) or "").strip().lower()
+    # Retired for production (owner, lab 武松 E01 2026-11-02): with Chinese dialogue H3 reads these Chinese
+    # constraint sentences aloud as speech ("只说这一句台词，只说一次…" in 9 of 17 speaking units).  A contract-level
+    # "zh" is ignored; only an explicit A/B variant task (tools/h3_constraint_ab_variant.py) may still render them.
+    payload = payload or {}
+    value = str(payload.get(H3_CONSTRAINT_LANGUAGE_FIELD) or "").strip().lower()
+    if not payload.get("ab_variant_schema"):
+        return "en"
     return "zh" if value in {"zh", "zh-cn", "chinese"} else "en"
 
 

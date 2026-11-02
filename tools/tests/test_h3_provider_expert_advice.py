@@ -69,6 +69,7 @@ def v2(**kwargs):
 def zh(pair):
     unit, plan = pair
     unit["h3_constraint_language"] = "zh"
+    unit["ab_variant_schema"] = "qingshan.h3_constraint_language_ab_variant.v1"  # only A/B variants may render zh
     return unit, plan
 
 
@@ -126,6 +127,14 @@ class AntiDuplicateTest(unittest.TestCase):
 
 
 class ConstraintLanguageTest(unittest.TestCase):
+    def test_contract_level_zh_is_ignored_in_production(self):
+        # lab 武松 E01: H3 read the Chinese constraint sentences aloud; production prompts stay English
+        unit, plan = v2()
+        unit["h3_constraint_language"] = "zh"
+        text, receipt = render(unit, plan)
+        self.assertNotEqual(receipt.get("h3_constraint_language"), "zh")
+        self.assertNotIn(H3_CONSTRAINT_ZH["only_this_line"], text)
+
     def test_zh_swaps_only_the_constraint_sentences(self):
         en, _ = render(*v2())
         text, receipt = render(*zh(v2()))

@@ -59,7 +59,7 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 然后 `run --until S3`，直到 S1 PASS、S2 PASS、S3 DRY_PLANNED。必须满足（门禁源码在 `$T` 与 `tools/`，报错就读源码改剧本，不改门禁）：
 - 对白镜时长 = 汉字数/4 + 0.5，向上取整到 0.5，不再额外加长；无对白镜 ≤ 5 s；单元（同场连续镜头）4–8 s 可切分。
 - 对白镜只比台词长 0.5–1.0 s（线主 2026-10-23）：`target_seconds` = 说话时长（中文约 4 字/秒，英文约 2.5 词/秒）+ 0.5–1.0 s，不给对白镜加长——H3 会用乱码般的假语言填满多出来的时间（CAMERA_GRAMMAR_V1 的集 S7 会剪在最后一句后约 0.5 s）；要停顿或反应就另写一个无对白的反应镜。
-- H3 约束语言 A/B（线主 2026-10-26）：合同顶层 `"h3_constraint_language": "zh"`（缺省 `en`）只把服务方专家的几句约束（一镜到底/机位固定、无其他人声、
+- H3 约束语言：**生产一律英文**（线主 2026-11-02，武松 E01：中文对白时 H3 会把中文约束句当台词念出来）；合同里写 `"h3_constraint_language": "zh"` 会被忽略，不要写。以下仅供 A/B 工具：原 A/B（线主 2026-10-26）只把服务方专家的几句约束（一镜到底/机位固定、无其他人声、
   只说这一句、防重复人物）换成专家原文中文，其余描述、台词标签、表演说明不变，仅 CAMERA_GRAMMAR_V1 单元生效。对比测试单个单元不必改合同：
   `$P tools/h3_constraint_ab_variant.py --manifest <preproduction>/<EP>_VIDEO_TRANSACTION_MANIFEST_V1.json --unit <EP>-VU-00X --prompt-dir <preproduction>/video_prompts --out <preproduction>/<EP>-VU-00X-ZH_AB.json`
   生成任务键 `<EP>-VU-00X-ZH` 的单任务清单（同参考图、同时长，`provider_post_allowed:false`，打印 `estimated_credits`）。
