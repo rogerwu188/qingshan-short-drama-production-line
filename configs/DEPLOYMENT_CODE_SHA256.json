@@ -781,7 +781,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/static_design_gate.py",
-      "sha256": "655bfef1a8028821b2febd4fb0a5a3a2e50a80bcae41c35e3c3c0edb72374ce3"
+      "sha256": "097c7e36955d1695085612187a8168ddbf584b685e5484644e327fdd469bbe23"
     },
     {
       "path": "lines/nalu/runtime/tools/tests/test_standing_rule_auto_acceptance.py",
@@ -7033,7 +7033,7 @@
     },
     {
       "path": "tools/tests/test_camera_grammar_policy.py",
-      "sha256": "38c95afe120879949655ff602bcb42a7ad6887e5c1224afdcc02dcd2cd4d9a4e"
+      "sha256": "7485724c56755d4f2f18626807b597bc7aad7b7308f398671059b9cde9c88ce7"
     },
     {
       "path": "tools/tests/test_camera_grammar_start_frames.py",
