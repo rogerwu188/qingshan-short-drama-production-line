@@ -159,6 +159,14 @@ print(("OK " if ok else "NO ") + why)' "$NALU_SUPERVISOR_ORDERS_PATH" "$NALU_LAT
   esac
 fi
 
+# GET-only HopsAPI reconciliation of RESPONSE_LOST creates BEFORE the budget preflight refuses them (lab E12):
+# the executor shell carries no provider key, so this entry is the only place it can run.  Never POSTs.
+RECON="$ENGINE_ROOT/tools/hopsapi_usage.py"
+if [ -f "$RECON" ] && [ -n "${HOPSAPI_API_KEY:-}" ]; then
+  echo "paid_stage: HopsAPI GET-only reconciliation of lost creates for $EPISODE"
+  "$VENV" "$RECON" reconcile "$EPISODE" >/dev/null 2>&1 || echo "paid_stage: reconciliation skipped/failed (non-fatal); budget check decides" >&2
+fi
+
 LEDGER="$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_budget_ledger.py"
 if [ -f "$LEDGER" ]; then
   echo "paid_stage: budget position for $EPISODE"

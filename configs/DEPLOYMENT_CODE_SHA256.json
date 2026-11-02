@@ -713,7 +713,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/paid_stage.sh",
-      "sha256": "444110c9b749e73a89a4243b3bf410d7b664d5521c52f1a37eaec5178ca95472"
+      "sha256": "771fe6a5a1cb1b88eb21f0270c24dfb4ba57f6ad78412860794da12ed10afbbf"
     },
     {
       "path": "lines/nalu/runtime/tools/post_generation_qa_runner.py",
