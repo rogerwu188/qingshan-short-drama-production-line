@@ -1497,3 +1497,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：离线：所有路径为临时目录，无付费阶段。三个文件共 60 项测试；导入这些模块的 222 项测试全部通过。尚未在真实发送上运行（E14 起才可能启用）。
 - **授权**：线主 2026-11-01 第 3 条：「实际提交的数据」与「审核通过的数据」不得不同
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K151 — S3
+
+- **规则**：生成出来的参考原图按内容保管，不按集目录路径保管。(1) 真实 S3 收割处把下载的原件复制（不是链接、不重新编码）进公司素材库 `objects/sha256/<前两位>/<sha>.<扩展名>`，登记为 UNREVIEWED；(2) 身份锁把真实审核结论（审核文件 sha256）关联到不可变的资产版本：PASS 为 APPROVED 并绑定到本作品角色，其余为 REJECTED 且不绑定；(3) 所有消费已登记参考图的位置（S2 复用校验、跨集复用锁、S5 关键帧绑定、S6 视频身份牌查找）经同一个解析器取图：旧路径字节仍匹配 sha 就用旧路径，否则用公司库同 sha 原件的副本，否则无；(4) 只按字节去重，版本号不得复用于不同内容，绑定固定版本而不跟随推荐版本，跨项目使用是明确的绑定、创建独立角色（project_fields 从空开始）、不去掉 project_id 检查；(5) 母版损坏或缺失只阻塞依赖它的阶段（STUDIO_ASSET_RESTORE_PENDING）并写恢复请求，不退化成付费重做；(6) 备份是单独配置的私有目标，未配置如实报 UNCONFIGURED，与知识库或成片中转共用的桶被拒绝。
+- **教训**：资产登记表登记了路径和 sha，但字节只在单集工作目录里（2026-11-02 快照 228 个 PNG 路径中 205 个在单集目录）。S2 复用校验与关键帧/视频参考绑定都要求旧路径存在，所以集目录被移走或清理后，免费复用会悄悄变成“素材缺失”，进而规划付费重做；只记路径的登记表无法回答图片是否仍然拿得到。这与「门存了状态却没有在使用点增量检查」是同一形状：记录在，它指向的东西不在，没有消费者在自己的使用点检查。
+- **恢复**：用 `QINGSHAN_STUDIO_ASSET_ROOT` 启用（见 `configs/STUDIO_ASSET_LIBRARY_V1.json`）。历史一次性、幂等导入：`tools/studio_asset_library.py migrate --library <asset_library.json> [--source-map ...] [--harvest-status ...]`（先预览，再加 `--apply`）。旧引用消失：`legacy-resolve --path <旧路径> --sha256 <sha>`。损坏：`verify`，然后 `repair --sha256 <sha> --from <候选文件>`（只接受 sha 匹配）或 `backup restore --sha256 <sha>`。清理是另一回事：`cleanup-plan` 只列字节已在库内验证的集内文件，`release-plan` 没有已核验备份回执就什么都不列，模块内没有任何命令会删除公司库原件。
+- **实现**：`tools/studio_asset_library.py`、`tools/studio_asset_backup.py`、`tools/studio_asset_migrate.py`、`configs/STUDIO_ASSET_LIBRARY_V1.json`、`lines/nalu/runtime/tools/studio_asset_resolve.py`、`tools/harvest_giggle_image_batch.py`、`lines/nalu/runtime/tools/identity_qa_lock.py`、`lines/nalu/runtime/tools/library_lock_non_plate.py`、`lines/nalu/runtime/tools/bootstrap_identity_cards.py`、`lines/nalu/runtime/tools/build_keyframe_manifest.py`、`lines/nalu/runtime/tools/build_nalu_preproduction.py`、`tools/initial_asset_library.py`
+- **回归**：`tools/tests/test_studio_asset_library.py`、`tools/tests/test_studio_asset_library_wiring.py`
+- **证据**：离线：临时目录、内存假 S3、被桩替换的供应商查询；核心（含跨进程并发、备份恢复、迁移）与接线（真实收割轮询、`identity_qa_lock.materialise`、S2 `verified_requirement_reuse` 与 `run_lock`、S5 `entity_binding`、S6 `_locked_identity_plate`、`provider_request_digest`）两个测试文件。云端备份与跨设备恢复未对真实存储桶验证。
+- **授权**：2026-11-02 公司级人物道具原图库实施方案（交给工程维护者）
+- **状态**：REFERENCE_IMPLEMENTATION

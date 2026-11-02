@@ -311,7 +311,13 @@ def artifact_errors(asset: dict[str, Any]) -> list[str]:
             continue
         if not artifact.get("role") or not artifact.get("media_type"):
             errors.append(f"artifact_{index}_identity_missing")
-        if not artifact.get("path") and not artifact.get("provider_asset_id"):
+        # A studio asset library reference (asset_id + version + content sha256) is a valid location for an
+        # artifact; it does not relax the project_id isolation of this library (compile_library still refuses
+        # a library whose project_id differs), it only names where the bytes can be fetched.
+        studio_ref = artifact.get("studio_ref")
+        studio_ok = (isinstance(studio_ref, dict) and studio_ref.get("asset_id")
+                     and isinstance(studio_ref.get("version"), int) and is_sha256(studio_ref.get("content_sha256")))
+        if not artifact.get("path") and not artifact.get("provider_asset_id") and not studio_ok:
             errors.append(f"artifact_{index}_location_missing")
         if not is_sha256(artifact.get("sha256")):
             errors.append(f"artifact_{index}_sha256_invalid")

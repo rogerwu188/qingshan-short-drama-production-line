@@ -266,7 +266,15 @@
     "tools/h3_constraint_ab_variant.py",
     "tools/tests/test_h3_director_performance.py",
     "tools/knowledge_loop_case.py",
-    "configs/knowledge_loop_cases/CASE_001_BURNED_TEXT_SCOPE.json"
+    "configs/knowledge_loop_cases/CASE_001_BURNED_TEXT_SCOPE.json",
+    "tools/studio_asset_library.py",
+    "tools/studio_asset_backup.py",
+    "tools/studio_asset_migrate.py",
+    "configs/STUDIO_ASSET_LIBRARY_V1.json",
+    "lines/nalu/runtime/tools/studio_asset_resolve.py",
+    "tools/tests/studio_asset_fixtures.py",
+    "tools/tests/test_studio_asset_library.py",
+    "tools/tests/test_studio_asset_library_wiring.py"
   ],
   "portable_test_modules": [
     "agent_factory.claude_writer_v2.tests.test_smoke",
@@ -438,6 +446,8 @@
     "tools.tests.test_h3_director_prompt_v2",
     "tools.tests.test_h3_face_crop_identity_lock",
     "tools.tests.test_h3_provider_expert_advice",
-    "tools.tests.test_knowledge_loop_case"
+    "tools.tests.test_knowledge_loop_case",
+    "tools.tests.test_studio_asset_library",
+    "tools.tests.test_studio_asset_library_wiring"
   ]
 }

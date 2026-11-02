@@ -23,6 +23,7 @@ from __future__ import annotations
 import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
+import studio_asset_resolve as _studio  # studio asset library: recorded sha256 -> local original (S6 video refs)
 import nalu_policy_profile as _policy_profile
 import nalu_series_scope as _series_scope
 import nalu_prompt_rules as _npr
@@ -2338,6 +2339,15 @@ def _spec_dialogue_rows(specs: list[dict[str, Any]], shot_ids: list[str]) -> lis
 _ASSET_LIBRARY_CACHE: dict[str, dict[str, Any]] = {}
 
 
+def _studio_view(path: Path, sha: Any) -> Path:
+    """The recorded identity view when it is still on disk; else a copy of the studio library original with the
+    same sha256; else the recorded path unchanged (the caller's own is_file check then drops it, as before)."""
+    if path.is_file() or not sha:
+        return path
+    found = _studio.resolve(path, sha)
+    return found if found is not None else path
+
+
 def _scoped_asset_library_path(episode: str) -> Path:
     scope = _series_scope.resolve_scope(episode)
     library = Path(scope["asset_library"])
@@ -2373,6 +2383,8 @@ def _locked_identity_plate(character_id: str, *, episode: str) -> Path | None:
         return None
     identity_lock = (row.get("lock") or {}).get("identity_lock") or {}
     views = [Path(v) for v in identity_lock.get("canonical_view_paths") or []] if isinstance(identity_lock, dict) else []
+    view_shas = (identity_lock.get("canonical_view_sha256") or {}) if isinstance(identity_lock, dict) else {}
+    views = [_studio_view(v, view_shas.get(str(v))) for v in views]   # studio asset library (S6 video references)
     views = [v for v in views if v.is_file()]
     if not views:
         return locked_artifact_headshot(row)
@@ -2433,6 +2445,8 @@ def locked_artifact_headshot(row):
         path = Path(str(artifact.get("path") or ""))
         if "FRONT_NEUTRAL_HEADSHOT" not in str(artifact.get("role") or "") and "FRONT_NEUTRAL_HEADSHOT" not in path.name:
             continue
+        if not path.is_file() and artifact.get("sha256"):
+            path = _studio_view(path, artifact.get("sha256"))   # studio asset library: same bytes, same sha256
         if not path.is_file() or sha256_file(path) != artifact.get("sha256"):
             raise ValueError(f"IDENTITY_ARTIFACT_SHA_MISMATCH:{path}")
         if path not in heads:

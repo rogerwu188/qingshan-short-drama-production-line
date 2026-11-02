@@ -3288,6 +3288,41 @@
       "sync_slug": "E14-evidence-binds-sent-request",
       "failure_code": "REVIEW_BOUND_TO_A_FILE_NOT_TO_THE_SENT_REQUEST",
       "do_not_repeat": "不要在 POST 之前记供应商任务标识或 payload sha，也不要从别的任务挪用；未强制的检查不能报成 PASS 或 NOT_REQUIRED；请求里没有某一用途的参考图时，不让评审者回答该用途（身份/服装/空间/道具）的问题"
+    },
+    {
+      "scope": "generalizable",
+      "episode": "E14",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "authority": "Requirement document 2026-11-02 (company-level original-image asset library) handed to the engine maintainer",
+      "runtime_gate_added": false,
+      "id": "K151",
+      "key": "reference-originals-outlive-the-episode-folder",
+      "stage": "S3",
+      "category": "ASSETS",
+      "rule": "Generated reference originals are kept by content, not by episode path. (1) At the real S3 harvest the downloaded original is copied (never linked, never re-encoded) into a studio library as objects/sha256/<2>/<sha>.<ext> and recorded UNREVIEWED; (2) the identity lock links the real review verdict (review file sha256) to an immutable asset version: PASS -> APPROVED and bound to THIS project's role, anything else -> REJECTED and never bound; (3) every consumer of a recorded reference (S2 reuse verification, the cross-episode reuse lock, the S5 keyframe binding, the S6 video identity-plate lookup) takes recorded path + recorded sha256 through ONE resolver: the old path if its bytes still hash to the sha, else a copy of the library original with the same sha, else nothing; (4) dedupe is by bytes only, a version number is never reused for different content, a binding pins a version and never follows the recommended one, cross-project use is an explicit bind that creates an independent role (project_fields start empty) and never drops the project_id check; (5) a damaged or missing master stops only the dependent stage with STUDIO_ASSET_RESTORE_PENDING and writes a restore request - it never falls through to a paid regeneration; (6) backup is a separately configured private target; unconfigured is reported UNCONFIGURED and nothing is claimed as backed up, and a bucket shared with the knowledge store or the finals relay is refused.",
+      "lesson": "The asset library registered path + sha, but the bytes lived in single-episode work folders (205 of 228 recorded PNG paths at the 2026-11-02 snapshot). S2 reuse verification (bootstrap_identity_cards.verified_requirement_reuse) and the keyframe/video reference binders all require the old path to exist, so moving or cleaning an episode folder silently turned a free reuse into 'asset missing', which plans a paid regeneration; and a registration table that records only a path says nothing about whether the picture is still obtainable. The same failure shape as a gate that stores state: the record existed, the thing it pointed at did not, and no consumer checked incrementally at its own point of use.",
+      "recovery": "Enable with QINGSHAN_STUDIO_ASSET_ROOT (documented in configs/STUDIO_ASSET_LIBRARY_V1.json). Import history once and idempotently: tools/studio_asset_library.py migrate --library <asset_library.json> [--source-map ...] [--harvest-status ...] (preview first; add --apply). Resolve a vanished reference: legacy-resolve --path <old> --sha256 <sha>. Damage: verify, then repair --sha256 <sha> --from <candidate> (only a sha match is accepted) or backup restore --sha256 <sha>. Cleanup is separate: cleanup-plan lists only episode files whose bytes are verified in the library; release-plan lists nothing without a verified backup receipt, and no command in the module deletes a library original.",
+      "implementation": [
+        "tools/studio_asset_library.py",
+        "tools/studio_asset_backup.py",
+        "tools/studio_asset_migrate.py",
+        "configs/STUDIO_ASSET_LIBRARY_V1.json",
+        "lines/nalu/runtime/tools/studio_asset_resolve.py",
+        "tools/harvest_giggle_image_batch.py",
+        "lines/nalu/runtime/tools/identity_qa_lock.py",
+        "lines/nalu/runtime/tools/library_lock_non_plate.py",
+        "lines/nalu/runtime/tools/bootstrap_identity_cards.py",
+        "lines/nalu/runtime/tools/build_keyframe_manifest.py",
+        "lines/nalu/runtime/tools/build_nalu_preproduction.py",
+        "tools/initial_asset_library.py"
+      ],
+      "regression": "tools/tests/test_studio_asset_library.py",
+      "evidence": "Offline: temp dirs, an in-memory fake S3 and stubbed provider queries; tools/tests/test_studio_asset_library.py (core, concurrency across processes, backup/restore, migration) and tools/tests/test_studio_asset_library_wiring.py (the real harvester poll tick, identity_qa_lock.materialise, S2 verified_requirement_reuse and run_lock, S5 entity_binding, S6 _locked_identity_plate, provider_request_digest). Cloud backup and cross-device restore are NOT verified against a real bucket.",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "sync_slug": "E14-reference-originals-outlive-the-episode-folder",
+      "failure_code": "REFERENCE_ORIGINAL_LIVED_ONLY_IN_THE_EPISODE_FOLDER",
+      "do_not_repeat": "不要把参考原图只登记路径而不保管字节；复用校验缺文件时不得退化成付费重做，应先按 sha 解析公司库、再请求恢复；跨项目引用只共享原件并另建本项目绑定，不得继承原作品姓名/关系/服装/声线，也不得去掉 project_id 检查；未配置备份目标就如实报 UNCONFIGURED，不得把公共知识库桶当作资产库"
     }
   ]
 }

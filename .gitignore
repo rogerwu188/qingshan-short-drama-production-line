@@ -49,6 +49,8 @@
 !/configs/EPISODE_PREVIS_V1.json
 !/configs/CAMERA_GRAMMAR_V1.json
 !/configs/ASSEMBLY_AUDIO_CONTINUITY_V1.json
+# Studio asset library: the config template is deployment code (no secrets, no user paths).
+!/configs/STUDIO_ASSET_LIBRARY_V1.json
 # Writer capability (line owner 2026-11-01): the policy switches and the two configs the
 # validators read are deployment code, not runtime state — an operator has to be able to
 # see the defaults, and "blocking: false" has to be reviewable in the diff that ships it.

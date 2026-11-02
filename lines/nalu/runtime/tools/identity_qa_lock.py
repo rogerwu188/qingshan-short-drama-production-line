@@ -330,6 +330,34 @@ def _qa_checks(item: dict[str, Any], questionnaire: dict[str, Any],
     return checks
 
 
+def _studio_link(project_id: str, category: str, asset_id: str, libraries: dict, plates: list[Path],
+                 deliverables: list[str], qa_status: str, review_sha: str, submitted_path: Path,
+                 submitted: dict[str, Any], episode: str) -> dict[str, Any]:
+    """Studio asset library: archive the locked plates' ORIGINALS as an asset version, link this real
+    review verdict to it, and bind it to THIS project's role.  Inert unless the library is enabled;
+    never raises into the lock (the lock has already been written when this runs)."""
+    try:
+        engine = str(Path(f"{_np.ENGINE_ROOT}"))
+        if engine not in sys.path:
+            sys.path.insert(0, engine)
+        from tools import studio_asset_library as studio
+        label = asset_id
+        for library in libraries.values():
+            row = ((library.get("assets") or {}).get(category) or {}).get(asset_id)
+            if isinstance(row, dict) and row.get("label"):
+                label = str(row["label"])
+                break
+        return studio.on_identity_lock(
+            project_id=project_id, category=category, asset_id=asset_id, label=label,
+            plates=[{"path": row["path"], "usage": row["role"], "sha256": row["sha256"]}
+                    for row in _artifacts(plates, deliverables)],
+            qa_status=qa_status, episode=episode,
+            review={"kind": "IDENTITY_QA_MACHINE_REVIEW", "sha256": review_sha,
+                    "label": submitted_path.name, "reviewer": submitted.get("reviewer") or REVIEWER_ID})
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "STUDIO_LINK_NOT_RUN", "error": f"{type(exc).__name__}:{exc}"}
+
+
 def materialise(episode: str, submitted: dict[str, Any],
                 submitted_path: Path, *, rights_basis: str | None = None) -> dict[str, Any]:
     """Write qa.status + status LOCKED into both library copies, then the registry."""
@@ -477,6 +505,9 @@ def materialise(episode: str, submitted: dict[str, Any],
             "verdict": item["verdict"], "plate_count": len(plates),
             "objective_decision": measurement.get("decision"),
             "blockers": blockers, "libraries_updated": applied,
+            "studio_asset_library": _studio_link(
+                p.series_id, category, asset_id, libraries, plates, deliverables, qa_status,
+                review_sha, submitted_path, submitted, episode),
         })
 
     for path, library in libraries.items():

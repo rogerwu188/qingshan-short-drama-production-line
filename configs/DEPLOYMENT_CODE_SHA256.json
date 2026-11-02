@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2332,
+  "file_count": 2343,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -229,7 +229,7 @@
     },
     {
       "path": "configs/CROSS_SHOT_STATE_PERCEPTION_V1.json",
-      "sha256": "07f91b33ae05a11515ee2ae6c8c6e7a46ad23081a81290934acfce234a5f6ad2"
+      "sha256": "773045bb840e92d34c2a6ec197a318ae6e91744caaa46c15d97e8206ff8fe6b6"
     },
     {
       "path": "configs/DIRECTION_POLICY_V1.json",
@@ -241,7 +241,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "a47ab7b8d1f839075926dc6395772a4ef4634318827d9e2fe36fd9cdf5aed86d"
+      "sha256": "20b02bc95d6254ff8300ff72139b8cb97a60c1cfae848e7729c8b0ce102adfbd"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -257,7 +257,7 @@
     },
     {
       "path": "configs/H3_BURNED_TEXT_COVER_V1.json",
-      "sha256": "ecc748ecd0d27f7cb94cbc16c0ff618473c0206b307265db140e2025220d4a3b"
+      "sha256": "261638d3820fe81ea248d04fdca7e529967a738d3295d5439f1b41dafbec4ffa"
     },
     {
       "path": "configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json",
@@ -285,7 +285,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "2305463b4d9337a8beadbe0eb274ac3bcca679f7fd3ec3a9f717e81b3c533fbf"
+      "sha256": "093bbead5e5e10c79b40bd6d4eab26b11e0a4cd5b3589a2f7df9e110dddd93f4"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -293,11 +293,15 @@
     },
     {
       "path": "configs/PROVIDER_REQUEST_REVIEW_BINDING_V1.json",
-      "sha256": "67fcd755c95e3c04676ae550ad3e04fc0e6273500f121cb710ecc68bb99cdf1e"
+      "sha256": "31ecb7a0ce04399a2d7ee4d517e360a44c58d01afb88483e733159ab37d75a22"
     },
     {
       "path": "configs/STATE_DELTA_SEMANTICS_V1.json",
       "sha256": "398199278c058abed20d9763647658dae881ff0801fc08193e34bb16070ab1e5"
+    },
+    {
+      "path": "configs/STUDIO_ASSET_LIBRARY_V1.json",
+      "sha256": "236a0e67b327db128a645e36d8361bd96282f9e92db85968a46c0ed1c6db6c42"
     },
     {
       "path": "configs/THROUGHPUT_BASELINE_V1.json",
@@ -317,11 +321,11 @@
     },
     {
       "path": "configs/WRITER_CAPABILITY_V1.json",
-      "sha256": "803f9c5b0276a3738f41c692699f7b461df2a893b9df084c8ed8fe7e4e3bf969"
+      "sha256": "b2a9759ecaafffa0fe4a3fe68bd4cc08e6f02b27c4256950a035373c86e62da2"
     },
     {
       "path": "configs/WRITER_RULE8_RESPONSE_V1.json",
-      "sha256": "b107fdadb663cc5164f68e90ee745de65bd7af9b01d8c6c4f90f68e8f9dc6b79"
+      "sha256": "1772f7153300b87024908e1226192be64158a416c5e596246ec895ed6fdc6f50"
     },
     {
       "path": "configs/WUXIA_COMBAT_PROMPT_PROFILES_V1.json",
@@ -393,7 +397,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "a92c3d8d8b889d8e510a2dc87f8e11f6317566736460b0a01d0af433fac1f01a"
+      "sha256": "894147508ed5ab5242915801bceb62bc2ef7174ad4e483d79bd05ac9059ec4d3"
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
@@ -409,7 +413,7 @@
     },
     {
       "path": "docs/knowledge/KNOWLEDGE_LOOP_CASE_001.md",
-      "sha256": "5d2340842c4a7781c344d2466323ed0b7aa43e0e0c68c08afa7e853754f0946b"
+      "sha256": "6f2468fde90d9119a7e0b0a37dbecbad63f0902c3b4d0a6ac4f875d9c6c35fde"
     },
     {
       "path": "docs/knowledge/LINE_UPGRADE_PROTOCOL.md",
@@ -428,8 +432,12 @@
       "sha256": "10c765cd4af969d91c9562c7eda9ea79007fa9942213a99c1335fc279c94d920"
     },
     {
+      "path": "docs/knowledge/WRITER_CAPABILITY_FOLLOWUP_20261101.md",
+      "sha256": "d826c1170aa4a71dda32a2b3a340f019826b7b2df60567eafeae585229f2b000"
+    },
+    {
       "path": "docs/knowledge/WRITER_CAPABILITY_PLAN_V1.md",
-      "sha256": "0c6f7995e50f73f32f946b776be0a6db7cdcc55b639d7272e3f811e44e060fff"
+      "sha256": "5a8d7ebe942d9fe51c523906024552fa17ce83e98f0d5709f649a7b7cdaa6011"
     },
     {
       "path": "examples/handoff/HANDOFF_TEMPLATE.md",
@@ -605,7 +613,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/bootstrap_identity_cards.py",
-      "sha256": "d05bb51a0b33f045d025bd2c92022da698ac03287d7f99beb754e2b11ac3f152"
+      "sha256": "45d6224b969420e854276b9509156ac19fbb63294bca70c95130ad00a3eb47bb"
     },
     {
       "path": "lines/nalu/runtime/tools/bootstrap_runtime_root.py",
@@ -617,7 +625,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_burnin_subtitles.py",
-      "sha256": "02d9948bb57fa70fd84f5d0f00726801d7b013e6f01d5e76173c20281ec4f645"
+      "sha256": "3b48ab1b1e7c6066f1c75d32a3e1ec869868b0d409a695a6fa03a6154fb89081"
     },
     {
       "path": "lines/nalu/runtime/tools/build_episode_asset_requirements.py",
@@ -629,7 +637,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_keyframe_manifest.py",
-      "sha256": "93f2575717a8e8b826a16739b4e023cfd640ed502f91de57b09851690a6953c5"
+      "sha256": "ebf289d9498579d1a3e5735706bd80bc1442f6459d052e5fbfe6b73324faecca"
     },
     {
       "path": "lines/nalu/runtime/tools/build_measured_edit_constraints.py",
@@ -637,7 +645,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "43ceffb78d2f95f11c31070c4882437785088ebaa6213263022bb4e3b391847e"
+      "sha256": "bbe499bd5e2fbde9182c0cd908514423772b2f5420a219db2325c4988b9f52c9"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -677,7 +685,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/final_cut_voice_pitch_unify.py",
-      "sha256": "b98c96880d384ec72e1a1a2ec1778547e317e1b37d0c6034176d4f302f0b92e9"
+      "sha256": "1cc33afb41dce5677686c2e81359c9e4a501184ad4ee996fd3dc84b0c60830e6"
     },
     {
       "path": "lines/nalu/runtime/tools/final_cut_voice_unify.py",
@@ -693,7 +701,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/identity_qa_lock.py",
-      "sha256": "70a1be5abcd9a654e6e9cb42338162ca57790f3e550ca5b55dc785a585a9f349"
+      "sha256": "86398e19a1e6f59cb178f5b4f73e155746d54bd4d9664d9857fc16bc3fab8b8c"
     },
     {
       "path": "lines/nalu/runtime/tools/ingest_yewujiang_source.py",
@@ -709,7 +717,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/library_lock_non_plate.py",
-      "sha256": "3144dfdfdef6d1ef97809b560f3774fc7144af251de6b6838e7f5f113fa8c6cc"
+      "sha256": "af4f5faaf51c083f803301c5db436bec2525f0af80f470acaf469463257517e2"
     },
     {
       "path": "lines/nalu/runtime/tools/materialize_paid_authorization.py",
@@ -741,7 +749,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "7571d6f462929dc544d474650b087bdf7ae57e56b6cffc9335dd7b18d57c6be8"
+      "sha256": "3837d398f80eb52a41c7624bb28a993d73c45b4fa7dd5908c7f0d92ec17873fb"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -858,6 +866,10 @@
     {
       "path": "lines/nalu/runtime/tools/static_design_gate.py",
       "sha256": "81da4fce8bfc563b2fbd1f8cd9e8673e3990cd5b422a1b7b2bfa18a351bfb701"
+    },
+    {
+      "path": "lines/nalu/runtime/tools/studio_asset_resolve.py",
+      "sha256": "b372c652f6412378472be3536445ee65e2fe7afa3a9222b310d7f313a8232eb1"
     },
     {
       "path": "lines/nalu/runtime/tools/tests/test_standing_rule_auto_acceptance.py",
@@ -3713,7 +3725,7 @@
     },
     {
       "path": "tools/burned_text_cover.py",
-      "sha256": "3d281ab6f7715377e3a5858d519b961976c82dd0107e719f271a5fd4fdb5468c"
+      "sha256": "1d7e5f754b07b2832205bd5034523406d5f874e3b771016bd0e8e1182a716701"
     },
     {
       "path": "tools/camera_grammar_policy.py",
@@ -3753,7 +3765,7 @@
     },
     {
       "path": "tools/character_identity_admission_gate.py",
-      "sha256": "3553a6aae29492b01fa3b047153029a851d6bbb123c1cab68bf763fe59163cd6"
+      "sha256": "b9c39227858d87ffcb57b7124edca75fcaa1d5c8502158c6c2756bb72976e725"
     },
     {
       "path": "tools/check_e36_roger_disposition_delta.py",
@@ -5173,7 +5185,7 @@
     },
     {
       "path": "tools/harvest_giggle_image_batch.py",
-      "sha256": "158d9180950ed30a5495b69943220f8dd7c5c0a5b64f191ad9a3b6fe8082c4b2"
+      "sha256": "bdb3d8f735153d6565eb02ce2b45dccafbf33a1882098a739e8d08cae231dcf3"
     },
     {
       "path": "tools/harvest_giggle_image_submit.py",
@@ -5213,7 +5225,7 @@
     },
     {
       "path": "tools/initial_asset_library.py",
-      "sha256": "a5f7e9f8a82daf042ef622800771e254b1bc0b955726977e94587fae772c5532"
+      "sha256": "b35a104b1d937b9c8fccd7353a226cedafc533b28c48e9c0d8de04028987ae73"
     },
     {
       "path": "tools/insert_agentcut_short_cuts.py",
@@ -5429,7 +5441,7 @@
     },
     {
       "path": "tools/original_identity_authority.py",
-      "sha256": "6a33f0cf4fb6ace5c4eb5fcb2dc5196bb3671b58473e00cccee92a2dbd7b0a07"
+      "sha256": "67fd917ef09644e4a829f05af3e25320a07eadeb75c4c563f13305de6f696159"
     },
     {
       "path": "tools/pacing_style_gate.py",
@@ -5697,7 +5709,7 @@
     },
     {
       "path": "tools/qa_bgm_candidates.py",
-      "sha256": "6a048bb6fd586fa3e87cc2e087ef5536c3d9145025446372a350eedde35254ee"
+      "sha256": "35c82473823f40783d0c8bcd04d72a90fb47feb95a46763a116200ea273c3f9b"
     },
     {
       "path": "tools/qa_e19r_multimodal_binding_batch.py",
@@ -6604,6 +6616,18 @@
       "sha256": "099fdeafeb38086fe43d9f0718ccef50b3cc4faba21dc10911d3909c8bffac9a"
     },
     {
+      "path": "tools/studio_asset_backup.py",
+      "sha256": "7d9f53678bc833122e00d64d7426ba79315c94c8a77d340fbd8c1b726f2e4216"
+    },
+    {
+      "path": "tools/studio_asset_library.py",
+      "sha256": "53fbbc3b381bdc758f513b8d22cfafd83b60bc75579ea1ab4eecbaa7e1b95521"
+    },
+    {
+      "path": "tools/studio_asset_migrate.py",
+      "sha256": "8d3d1d1292c47e9766be82eae3316437834742b1aa16da21f414bd0c4557c8a1"
+    },
+    {
       "path": "tools/submit_e18_e19_omni_multimodal_batch.py",
       "sha256": "f1116b9578eb8144e5fd27aa330a444f9314517397747010983e2c5fcbdd6328"
     },
@@ -6850,6 +6874,10 @@
     {
       "path": "tools/tests/fake_s3.py",
       "sha256": "505434d3970a64d096030e39d686fe335e5be3b4e037b2aba0cd188d47691e18"
+    },
+    {
+      "path": "tools/tests/studio_asset_fixtures.py",
+      "sha256": "832b0565ca3b49b0fdd22d450dea6fedd91bae2b6ad1ce3edc02bf078f7032fc"
     },
     {
       "path": "tools/tests/test_action_causal_chain_compiler.py",
@@ -7133,7 +7161,7 @@
     },
     {
       "path": "tools/tests/test_burned_text_cover.py",
-      "sha256": "8624382e16e43aa704f9a28b83c23759109e0836cff7067878a4dcc7b7b59bca"
+      "sha256": "fb3e31334b0dbfcb39ba0df0ae6e39c3438b188df0c86ae8d18effa1a86bdf02"
     },
     {
       "path": "tools/tests/test_burnin_subtitle_time_mapping.py",
@@ -7289,7 +7317,7 @@
     },
     {
       "path": "tools/tests/test_concurrent_dispatch_crossprocess_repro.py",
-      "sha256": "8e7aad865d45c289e78fb75f525772fca3b9eadf1d901f5b0ecdeb7620a77349"
+      "sha256": "c0655a7dc9e65e941fc9ae28d088057adb01244ae71f72abf7e924fcba8afbf2"
     },
     {
       "path": "tools/tests/test_container_duration_consistency_gate.py",
@@ -7780,6 +7808,10 @@
       "sha256": "5a1f1f2741b9af2cfbaa54626256b6902b1eb4fa0dec5df10cd4125d3a531554"
     },
     {
+      "path": "tools/tests/test_h3_tail_reference_scope.py",
+      "sha256": "b60d6844871292139adc905732a3699a008be2a57679f84a12245eab311a89cb"
+    },
+    {
       "path": "tools/tests/test_harvest_giggle_image_batch.py",
       "sha256": "eb48819230d787feb91e2c0ed7cfcc0f6a368379d5a87e9297856e1ffa0f2dc4"
     },
@@ -7881,7 +7913,7 @@
     },
     {
       "path": "tools/tests/test_knowledge_loop_case.py",
-      "sha256": "0e8c8a6b3ff247087bdc1bb0b22b6e2eec15762d5db7d51007a6bbdae56f48ad"
+      "sha256": "1df943c9f80e3150f8960cdf09afe3f02021cbb9d781340b9b36047e38e21dcd"
     },
     {
       "path": "tools/tests/test_knowledge_registry.py",
@@ -8085,7 +8117,7 @@
     },
     {
       "path": "tools/tests/test_nalu_s7_candidate_promotion.py",
-      "sha256": "9f0cec1edf8474baa4dbeee5d7a65026acdff9f827e0fe40ef06cbe7427f2034"
+      "sha256": "d08e1dc27014c33e8d6e1156a698de8137852430c64d7ace3dc546b5ca0856dc"
     },
     {
       "path": "tools/tests/test_nalu_scoped_qa_paths.py",
@@ -8137,7 +8169,7 @@
     },
     {
       "path": "tools/tests/test_original_identity_asset_types.py",
-      "sha256": "f52d30cebeb8e99a15e1e1cba3f46c18af33cfcef16aa71dfd213009bf169090"
+      "sha256": "9e51263d7b96b7cac6cdd89a4f64c962ed731c10fbd0212baa2662d65fcac839"
     },
     {
       "path": "tools/tests/test_original_identity_pixel_crop.py",
@@ -8301,11 +8333,15 @@
     },
     {
       "path": "tools/tests/test_q1_evidence_provider_binding.py",
-      "sha256": "8916147287d1ac1f7936ab7f67e74b2d7d8d827ef829728f979773a65c3ebee8"
+      "sha256": "7349ab8054cf3905a83c7c0bad545860a9031a319c28734c3b9ba406766cb6a2"
     },
     {
       "path": "tools/tests/test_q1_no_character_insert_detector.py",
       "sha256": "2e0367218aefac9a6b7e5fc627d8c4f6bc65860a7b8a56a5be3e09a7d8ac3690"
+    },
+    {
+      "path": "tools/tests/test_qa_bgm_vocal_confidence.py",
+      "sha256": "74b3a275a447c2930fb45f837a67d33f132a4d0e4d6aa29232bb579b802a04fb"
     },
     {
       "path": "tools/tests/test_qa_multimodal_dialogue_batch.py",
@@ -8688,6 +8724,14 @@
       "sha256": "b1e84725fac62f80835f0d677db460c1c2993ae0cf48e9667069724276daede0"
     },
     {
+      "path": "tools/tests/test_studio_asset_library.py",
+      "sha256": "db8ccf2f083c5417e2f6e9e1a7d229a29879ab4e8979567959bc0d04fafbb5a2"
+    },
+    {
+      "path": "tools/tests/test_studio_asset_library_wiring.py",
+      "sha256": "88a5ae6ceb61eae7d701792e87f1008524c9d407cb9593143518bd092923ab04"
+    },
+    {
       "path": "tools/tests/test_submit_boundary_dialogue_language.py",
       "sha256": "1d3ac27e87d99b4c29ccebc27c448f4438fbe91150ab170c887d470807d87c1d"
     },
@@ -8937,7 +8981,7 @@
     },
     {
       "path": "tools/tests/test_writer_capability.py",
-      "sha256": "423170e0c8ec9cac527b5022f781bfd4efed431eae26b87f75ca345a0d903141"
+      "sha256": "813f7f12ed6da5a085f57a13a606d9758f5a95a2f3809a076d49ffda756f7c72"
     },
     {
       "path": "tools/tests/test_writer_checkpoint_guard.py",
@@ -8949,7 +8993,7 @@
     },
     {
       "path": "tools/tests/test_writer_rule8_response.py",
-      "sha256": "0e643b31bf228bee654a82e0cfbed8b5e219837258c13660e2473b04cd90b208"
+      "sha256": "66aaaf56dd5232014b94f9052f2a1c697c95ed2ae41f713d8aa439e52547f6f8"
     },
     {
       "path": "tools/tests/test_writer_staged_facts_job.py",
@@ -9297,7 +9341,7 @@
     },
     {
       "path": "tools/writer_capability.py",
-      "sha256": "dcac2a77fd7efb4a934b6782ca446e4bea68ef74ccd5054df3f75a7aec446b31"
+      "sha256": "c56db5c188f688f395a35314bbf2fbde9461a4b8e3015b09d6e255478d4f5f55"
     },
     {
       "path": "tools/writer_checkpoint_guard.py",

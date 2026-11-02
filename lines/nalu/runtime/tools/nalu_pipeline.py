@@ -2684,6 +2684,8 @@ def stage_s3(ctx: Ctx) -> StageResult:
             "--output-dir", p.identity_harvest_dir,
             "--status-report", p.identity_harvest_status,
             "--raw-dir", p.identity_harvest_dir / "_raw",
+            # studio asset library: archive each downloaded original (inert unless the library is enabled)
+            "--studio-archive-project", ctx.p.scope["series_id"],
             "--watch", "--interval", 15,
         ]
         if new_rows:

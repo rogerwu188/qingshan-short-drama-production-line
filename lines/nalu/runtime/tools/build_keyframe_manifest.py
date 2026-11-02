@@ -37,6 +37,7 @@ _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_p
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
 _sys.path.insert(0, str(_np.ENGINE_ROOT))  # for tools.* imports
 from tools.image_model_policy import ACTIVE_IMAGE_MODEL  # noqa: E402  (Roger 2026-10-30 seq=54)
+import studio_asset_resolve as _studio  # noqa: E402  studio asset library: recorded sha256 -> local original
 import argparse
 import hashlib
 import json
@@ -816,6 +817,14 @@ def entity_binding(
         resolved = Path(path_value)
         resolved = resolved if resolved.is_absolute() else inputs.engine_root / resolved
         declared = str(artifact.get("sha256") or "")
+        studio_from = None
+        if path_value and declared and not (resolved.is_file() and sha256_file(resolved) == declared):
+            # studio asset library (S5): the recorded path no longer verifies; use a copy of the library original
+            # with the SAME sha256 (the binding, the digest and the review all keep binding the recorded sha)
+            studio_path = _studio.resolve(resolved, declared)
+            if studio_path is not None:
+                studio_from = {"recorded_path_name": resolved.name, "sha256": declared}
+                path_value, resolved = str(studio_path), Path(studio_path)
         if path_value and resolved.is_file() and declared and sha256_file(resolved) == declared:
             return {
                 "role": role,
@@ -831,6 +840,7 @@ def entity_binding(
                 "asset_origin": "EPISODE_NEW_ASSET",
                 "binding_status": "BOUND_EXACT_SHA",
                 "asset_library_status": str((asset or {}).get("status") or ""),
+                **({"studio_asset_resolved_from": studio_from} if studio_from else {}),
             }
     return {
         "role": role,

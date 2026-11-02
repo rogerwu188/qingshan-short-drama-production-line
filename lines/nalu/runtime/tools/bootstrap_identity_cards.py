@@ -48,6 +48,7 @@ from __future__ import annotations
 import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
+import studio_asset_resolve as _studio  # studio asset library: recorded sha256 -> local original (S2 reuse)
 import argparse
 import hashlib
 import json
@@ -582,7 +583,9 @@ def verified_requirement_reuse(requirements: dict[str, Any]) -> set[str]:
                 asset = assets.get(row['asset_id'], {}) if isinstance(assets, dict) else {}
                 artifacts = asset.get('artifacts') or []
                 if (asset.get('status') == 'LOCKED' and asset.get('qa', {}).get('status') == 'PASS'
-                        and artifacts and all(Path(a['path']).is_file() and sha256_file(Path(a['path'])) == a.get('sha256') for a in artifacts)):
+                        and artifacts and all(_studio.present(a) for a in artifacts)):
+                    # present(): the recorded path still verifies by sha256, else the studio library holds the same
+                    # bytes (an episode folder that was moved or cleaned no longer turns a reuse into a paid redo)
                     reused.add(row['asset_id'])
     return reused
 

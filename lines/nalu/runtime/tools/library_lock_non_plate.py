@@ -42,6 +42,7 @@ from __future__ import annotations
 import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
+import studio_asset_resolve as _studio  # studio asset library: recorded sha256 -> local original (S2 reuse)
 import nalu_series_scope as _series_scope
 import nalu_media_tools as _media
 
@@ -584,12 +585,21 @@ def run_lock(ctx: Ctx, report_path: Path, force: bool) -> dict[str, Any]:
             src = (rt_assets.get(category) or {}).get(asset_id) or {}
             arts = src.get("artifacts") or []
             ok = (src.get("status") == "LOCKED" and (src.get("qa") or {}).get("status") == "PASS" and arts
-                  and all(Path(str(a.get("path"))).is_file() and sha256_file(Path(str(a.get("path")))) == a.get("sha256") for a in arts))
+                  and all(_studio.present(a) for a in arts))
             if not ok:
                 failures.append({"category": category, "asset_id": asset_id,
                                  "errors": ["cross_episode_reuse_source_not_locked_or_artifact_sha_mismatch"]})
                 continue
             new_row = deepcopy(src)
+            for art in new_row.get("artifacts") or []:
+                # studio asset library: a recorded path that no longer verifies is replaced, in THIS episode's working
+                # row only, by a copy of the library original with the same sha256 (the old record is not edited)
+                old = Path(str(art.get("path")))
+                if not (old.is_file() and sha256_file(old) == art.get("sha256")):
+                    resolved = _studio.resolve(art.get("path"), art.get("sha256"))
+                    if resolved is not None:
+                        art["studio_resolved_from"] = {"recorded_path_name": old.name, "sha256": art.get("sha256")}
+                        art["path"] = str(resolved)
             try:
                 from tools.initial_asset_library import canonical_sha256  # engine, read-only
                 new_row["requirement_sha256"] = canonical_sha256(requirement)   # this episode's requirement row
