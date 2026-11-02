@@ -75,10 +75,18 @@ class FixtureGateTests(unittest.TestCase):
         self.assertEqual(old.verify(hits, self.CAPTIONS, self.CFG)["status"], "FAIL")
 
     def test_the_rule_does_not_weaken_the_real_defect_it_exists_for(self) -> None:
-        """Disabling the rule is a control, not a licence: a burned caption is still caught."""
-        burned = [(1.2, "多谢邵兄好意", 0.9, 0.20, 0.02, 0.80, 0.10)]
-        self.assertEqual(btc.verify(burned, self.CAPTIONS, self.CFG)["status"], "FAIL")
-        near_band = [(1.2, "多谢邵兄好意", 0.9, 0.20, 0.84, 0.80, 0.90)]
+        """Disabling the rule is a control, not a licence: a burned caption is still caught.
+
+        The defect K143/K148 exists for is H3 burning the *spoken* line into the picture at the dialogue band
+        (measured y 0.67-0.80).  A hit there that does not read as the caption on screen still FAILs, and so does
+        a line just outside the bar near the band.  A hit with the caption's own words at y 0.02-0.10 is *not*
+        this defect: our caption is never drawn up there, H3 never burns there, and the words are the same ones
+        the caption carries, so it is scene signage or a duplicate overlay — the case where position, not text,
+        is the only discriminator (tools/burned_text_cover.py, CAPTION_ON_SCREEN).
+        """
+        burned_in_band = [(1.2, "你竟敢骗我们", 0.9, 0.20, 0.70, 0.80, 0.78)]
+        self.assertEqual(btc.verify(burned_in_band, self.CAPTIONS, self.CFG)["status"], "FAIL")
+        near_band = [(1.2, "你竟敢骗我们", 0.9, 0.20, 0.84, 0.80, 0.90)]
         self.assertEqual(btc.verify(near_band, self.CAPTIONS, self.CFG)["status"], "FAIL")
 
 

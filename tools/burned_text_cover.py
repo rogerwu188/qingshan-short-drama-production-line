@@ -100,6 +100,7 @@ def verify(hits: list[Hit], captions: list[dict[str, Any]], cfg: dict[str, Any])
     # So a hit outside the bar counts only when it sits within ``dialogue_band_pad`` of the burn band, or when it
     # reads like the caption on screen at that moment (a burned caption the bar failed to cover).
     pad = float(v.get("dialogue_band_pad", 0.10))
+    caption_slack = float(v.get("caption_on_screen_slack", 0.04))
     outside_candidates, mismatched = [], []
     for t, text, conf, x0, y0, x1, y1 in hits:
         if conf < v["min_confidence"] or cjk_count(text) < v["min_cjk_chars"]:
@@ -138,7 +139,11 @@ def verify(hits: list[Hit], captions: list[dict[str, Any]], cfg: dict[str, Any])
         # Our own caption, drawn by this pipeline above the bar, also sits outside the band (E13 2026-11-01: the
         # transparent-plate caption reads at y 0.81-0.85, 0.01 below the band edge).  That is not a burned line:
         # the bar's job is to hide what H3 burned in, and the caption on screen is the line we put there ourselves.
-        if looks_like_caption:
+        # Only where our caption can actually be: on or right at the band edge.  The same words higher up the
+        # frame are a burned copy of the line (knowledge-loop CASE_001 control), not the caption we drew.
+        centre = (row["box"][1] + row["box"][3]) / 2
+        at_caption_place = (band["y0"] - caption_slack) <= centre <= (band["y1"] + caption_slack)
+        if looks_like_caption and at_caption_place:
             ignored.append({**row, "reason": "CAPTION_ON_SCREEN"})
             continue
         near_band = (band["y0"] - pad) <= (row["box"][1] + row["box"][3]) / 2 <= (band["y1"] + pad)
