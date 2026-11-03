@@ -813,7 +813,7 @@
     },
     {
       "path": "pyproject.toml",
-      "sha256": "7c45bef260031ee568012463f67738e168ce7347733a5f11eeb6a62a11310fdc"
+      "sha256": "fb661230500e5f253ec17d47486f967408b12721879cc63d068001f0a0af03e2"
     },
     {
       "path": "qingshan_engine/__init__.py",

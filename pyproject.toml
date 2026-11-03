@@ -34,7 +34,7 @@ media = [
   "opencv-python-headless>=4.8,<5",
   "soundfile>=0.12,<1",
 ]
-asr = ["faster-whisper>=1,<2"]
+asr = ["faster-whisper>=1,<2", "pypinyin>=0.50,<1"]  # pypinyin: Chinese homophone matching (S7 performance cut, post-gen QA)
 cloud = ["boto3>=1.34,<2", "cryptography>=42,<46", "requests>=2.31,<3"]
 dev = ["jsonschema>=4.21,<5", "pytest>=8,<9"]
 all = [
@@ -49,6 +49,7 @@ all = [
   "requests>=2.31,<3",
   "jsonschema>=4.21,<5",
   "pytest>=8,<9",
+  "pypinyin>=0.50,<1",
 ]
 
 [project.scripts]
