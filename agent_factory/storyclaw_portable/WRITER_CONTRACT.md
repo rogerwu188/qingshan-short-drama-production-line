@@ -120,12 +120,11 @@ writer run; sealed older bytes remain unchanged.
 
 ## Adapt for viewers, not word for word (owner 2026-11-02)
 
-Readers imagine; viewers only see shots and hear lines. Turn narration, summaries, inner states and time spans into
-dramatized scenes (characters, dialogue, reactions, one clear gag) or a single V.O./caption line; never a literal
-string of everyday actions or unmotivated inserts (animals, scenery) that a viewer cannot read. Every shot needs a
-purpose a viewer gets without the novel. Montage ≤3 shots with a payoff. Skip actions H3 renders badly (sword play,
-fights, spell effects); show the result or a reaction. Keep the source's plot, lines and jokes. Details:
-`docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` §0.
+Readers imagine; viewers only see shots and hear lines. Test: with the novel closed, a viewer can say what happened in
+each scene and why each shot is there. Dramatize narration, summaries, inner states and time spans (characters,
+dialogue, reactions) or carry them with one V.O./caption line; give every shot and insert a readable purpose; montage
+needs progression and a payoff; actions H3 renders badly (sword play, fights, spell effects) become results or
+reactions. Keep the source's plot, lines and jokes. Principles and examples: `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` §0.
 
 ## Camera grammar (CAMERA_GRAMMAR_V1)
 

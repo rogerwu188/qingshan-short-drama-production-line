@@ -197,7 +197,7 @@
     },
     {
       "path": "agent_factory/storyclaw_portable/WRITER_CONTRACT.md",
-      "sha256": "38f22807bc0c7f2896091a9bac8e6233ee19eb56399c93a4110763cc82e49965"
+      "sha256": "6ce90caf853da8b93a9cefb8c4e9bfa0a6434684cc13145f709dd6cf49a44fca"
     },
     {
       "path": "configs/ACTION_PROMPT_FAILURE_CODE_MAP_V1.json",
@@ -361,7 +361,7 @@
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
-      "sha256": "1d406deb5dc151cc16caa14efc449aa91dbd5ed56c7ef27d015982850cb20b2b"
+      "sha256": "bdfee9fff1a395bc215866e514e45b15b5d33efdc59dda6cf30f18970c35d6c4"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -829,7 +829,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "7566712753f473487a15ce9043034e17ce9be873e25ad3ebf4fee8096c7ce869"
+      "sha256": "1231d9f3ba6f5192b10ca6a1a96100a8ce3825c13e7961bd6923836004eeb10c"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
