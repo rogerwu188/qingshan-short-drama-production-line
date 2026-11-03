@@ -32,6 +32,7 @@ gives the ASR (source seconds, words outside the kept window dropped) for captio
 from __future__ import annotations
 
 import difflib
+import functools
 import re
 from typing import Any
 
@@ -134,12 +135,24 @@ def _fold_en(script: list[str], heard: list[str]) -> list[str]:
     return out
 
 
+@functools.lru_cache(maxsize=8192)
+def _py(tok: str) -> str:
+    """Tone-less pinyin of one CJK token, so ASR homophones (殷九燃/因久然, 帖/铁, 後/后) compare equal (lab 化神 E02)."""
+    try:
+        from pypinyin import Style, lazy_pinyin
+    except ModuleNotFoundError:  # pragma: no cover - pypinyin ships with the engine venv
+        return tok
+    return "".join(lazy_pinyin(tok, style=Style.NORMAL, errors="default")) or tok
+
+
 def align(script: list[str], heard: list[dict[str, Any]], cjk_mode: bool, lo: int = 0
           ) -> dict[str, Any] | None:
     """Best span of ``heard[lo:]`` that performs ``script``: {first, last, coverage} (heard indices) or None."""
     tail = heard[lo:]
     toks = [h["tok"] for h in tail]
-    if not cjk_mode:
+    if cjk_mode:
+        script, toks = [_py(t) for t in script], [_py(t) for t in toks]
+    else:
         toks = _fold_en(script, toks)
     if not script or not toks:
         return None
@@ -174,7 +187,7 @@ def _resembles_script(removed: list[str], script: list[str]) -> bool:
     """Removed head/tail speech that repeats the scripted text (a second take of the line), not new words."""
     if not removed:
         return False
-    sm = difflib.SequenceMatcher(None, script, removed, autojunk=False)
+    sm = difflib.SequenceMatcher(None, [_py(t) for t in script], [_py(t) for t in removed], autojunk=False)
     return sum(b.size for b in sm.get_matching_blocks()) >= max(2, 0.4 * len(removed))
 
 

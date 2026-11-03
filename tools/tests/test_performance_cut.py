@@ -158,6 +158,18 @@ class SpeakingUnitTests(unittest.TestCase):
         self.assertEqual((r["status"], r["reasons"], r["after_in"], r["after_out"]), ("NOT_MATCHED", [], 0.0, 4.0))
 
 
+class HomophoneTests(unittest.TestCase):
+    def test_homophone_name_at_line_start_is_kept(self):
+        # lab 化神 E02-VU-002: ASR heard 殷九燃 as 因久然 with a pause before 化; it must not be cut as unscripted
+        script = list("殷九燃化神后期")
+        heard = [{"tok": t, "start": a, "end": b} for t, a, b in
+                 [("因", 0.40, 0.70), ("久", 0.75, 1.10), ("然", 1.15, 1.46),
+                  ("化", 1.84, 2.0), ("神", 2.0, 2.2), ("後", 2.2, 2.4), ("期", 2.4, 2.6)]]
+        hit = pc.align(script, heard, cjk_mode=True)
+        self.assertEqual(hit["first"], 0)
+        self.assertEqual(hit["coverage"], 1.0)
+
+
 class SilentUnitTests(unittest.TestCase):
     def test_speech_in_silent_unit_keeps_longest_clean_window(self):
         asr = {"VU-011": [seg(*chars(2.0, "只献献虚一次")), seg(*chars(3.7, "魂见天"))]}

@@ -5461,7 +5461,7 @@
     },
     {
       "path": "tools/performance_cut.py",
-      "sha256": "a9d366a9cc997be01e4752ea56e7cdbaf2ddfecd0bb919572321eab343bc1b79"
+      "sha256": "775ddc944e4b35052379411ab9b8e59d54f4c4cf608ab02bab129795b07c6fb9"
     },
     {
       "path": "tools/performance_tempo_gate.py",
@@ -8037,7 +8037,7 @@
     },
     {
       "path": "tools/tests/test_performance_cut.py",
-      "sha256": "61cf62d0aa677203b861ea537e5e0138a703c9aae29b0b15f29f60e205fbcad5"
+      "sha256": "7435b28041409fe26349ef575c8fae949c1723ae1d60056653af3a8fc4e151af"
     },
     {
       "path": "tools/tests/test_performance_tempo_gate_combat_contract.py",
