@@ -1,0 +1,13 @@
+source_config.env
+source_host.pub
+*.pub
+*.key
+*.pem
+.env
+.env.*
+!source_config.example.env
+private/
+logs/
+*.log
+.DS_Store
+Production-Migration-Receive/
