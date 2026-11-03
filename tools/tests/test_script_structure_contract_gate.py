@@ -408,3 +408,16 @@ class CliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AntagonistCarryInTest(unittest.TestCase):
+    def test_recap_of_earlier_episode_may_anchor_on_the_carry_in_first_shot(self):
+        import tools.script_structure_contract_gate as g
+        tl = [{"shot_id": "S1", "start": 0.0, "end": 4.0, "prose": "x"}, {"shot_id": "S2", "start": 4.0, "end": 8.0, "prose": "y"}]
+        group = {"group_id": "G", "first_action_shot_id": "S1",
+                 "motive_setup": {"kind": "recap", "ref": {"episode": "E02", "shot_id": "E02-S06-04", "recap_shot_id": "S1"}}}
+        ok = g.check_antagonist_motive({"episode": "E03", "antagonist_groups": [group]}, tl)
+        self.assertEqual(ok["failures"], [])
+        same_ep = dict(group, motive_setup={"kind": "recap", "ref": {"episode": "E03", "shot_id": "S0", "recap_shot_id": "S1"}})
+        bad = g.check_antagonist_motive({"episode": "E03", "antagonist_groups": [same_ep]}, tl)
+        self.assertEqual(bad["failures"], ["ANTAGONIST_MOTIVE_AFTER_ACTION:G"])

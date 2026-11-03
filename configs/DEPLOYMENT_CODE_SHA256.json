@@ -6457,7 +6457,7 @@
     },
     {
       "path": "tools/script_structure_contract_gate.py",
-      "sha256": "b93ac85e868e47f3fee08429a0cd7b6fc8275899b1e6970fb130535c15b6d61a"
+      "sha256": "2503d84859df3f05bf22d62891b263fc944edfff7ccd64fab00949da1643ee99"
     },
     {
       "path": "tools/sd2_background_ecology_contract.py",
@@ -8601,7 +8601,7 @@
     },
     {
       "path": "tools/tests/test_script_structure_contract_gate.py",
-      "sha256": "1e318ab84391f187bfe2d3597cb2d48e08004150fdc971d457ca1e2be1e8ad82"
+      "sha256": "9cd8673261d0a056e7898be572df3b060ef9ca2f3bca1588f3e335df31a96e78"
     },
     {
       "path": "tools/tests/test_sd2_background_ecology_contract.py",
