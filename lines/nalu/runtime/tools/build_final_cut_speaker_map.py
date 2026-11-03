@@ -127,7 +127,8 @@ def build_map(contract: dict[str, Any], grouping: dict[str, Any], timeline: dict
 
 
 def align_with_unit_asr(result: dict[str, Any], unit_asr: dict[str, Any], contract: dict[str, Any],
-                        grouping: dict[str, Any], timeline: dict[str, Any], *, slack_s: float = 0.25) -> dict[str, Any]:
+                        grouping: dict[str, Any], timeline: dict[str, Any], *, slack_s: float = 0.25,
+                        clip_in: dict[str, float] | None = None) -> dict[str, Any]:
     """Timing from the per-unit ASR, attribution from the contract (seq=19 C1/C2, 2026-09-16 23:30Z).
 
     Whole-file ASR of a levelled final cut merges speech, wind and music into windows of 10-20 s, so
@@ -142,6 +143,12 @@ def align_with_unit_asr(result: dict[str, Any], unit_asr: dict[str, Any], contra
     shots = {str(s.get("shot_id")): s for s in contract.get("shots") or []}
     unit_start = {str(seg.get("unit_id")): float(seg.get("output_start") or 0.0)
                   for seg in timeline.get("segments") or []}
+    # unit ASR is in SOURCE-clip seconds; the S7 performance cut keeps [after_in, after_out] of each clip, so a
+    # window maps to output_start + (t - after_in) and must stay inside the unit's output span (lab 化神 E02:
+    # uncorrected windows landed 2.5 s late, in the next unit, and measured the wrong speaker)
+    unit_end = {str(seg.get("unit_id")): float(seg["output_end"]) for seg in timeline.get("segments") or []
+                if seg.get("output_end") is not None}
+    clip_in = clip_in or {}
     by_unit: dict[str, list[dict[str, Any]]] = {}
     voice_over_lines = [line for line in result.get("lines") or [] if line.get("presence") == "VOICE_OVER"]
     for line in result.get("lines") or []:
@@ -165,9 +172,14 @@ def align_with_unit_asr(result: dict[str, Any], unit_asr: dict[str, Any], contra
         first_hit: dict[int, float] = {}
         segs = sorted((s for s in (unit_asr.get(uid) or []) if s.get("start") is not None),
                       key=lambda s: float(s["start"]))
+        shift = offset - float(clip_in.get(uid, 0.0))
+        hi = unit_end.get(uid)
         for seg in segs:
-            start = offset + float(seg["start"])
-            end = offset + float(seg.get("end") or seg["start"])
+            start = shift + float(seg["start"])
+            end = shift + float(seg.get("end") or seg["start"])
+            if end <= offset or (hi is not None and start >= hi):
+                continue  # speech the performance cut removed
+            start, end = max(start, offset), (min(end, hi) if hi is not None else end)
             line = None
             if len(ulines) == 1:
                 line = ulines[0]
@@ -220,6 +232,8 @@ def main() -> int:
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--action-windows-out", type=Path)
     ap.add_argument("--unit-asr", type=Path, help="<EP>_unit_asr.json: per-unit ASR windows (timing source)")
+    ap.add_argument("--performance-cut", type=Path,
+                    help="<EP>_PERFORMANCE_CUT.json: per-unit source in-points (after_in) of the S7 performance cut")
     ap.add_argument("--asr-windows-out", type=Path, help="write the attributed release-timeline ASR windows for the detectors")
     ap.add_argument("--voice-over-placement", type=Path,
                     help="<EP>_voice_over_placement.json (S7): V.O. rows take these times, presence VOICE_OVER")
@@ -231,7 +245,11 @@ def main() -> int:
     result = build_map(contract, grouping, timeline, read_json(args.manifest, {}) if args.manifest else None,
                        voice_over_placement=placement)
     if args.unit_asr and args.unit_asr.is_file():
-        result = align_with_unit_asr(result, read_json(args.unit_asr, {}) or {}, contract, grouping, timeline)
+        cut = read_json(args.performance_cut, {}) if args.performance_cut else {}
+        clip_in = {str(r.get("unit_id")): float(r.get("after_in") or 0.0)
+                   for r in (cut or {}).get("units") or [] if isinstance(r, dict) and r.get("unit_id")}
+        result = align_with_unit_asr(result, read_json(args.unit_asr, {}) or {}, contract, grouping, timeline,
+                                     clip_in=clip_in)
         if args.asr_windows_out:
             args.asr_windows_out.parent.mkdir(parents=True, exist_ok=True)
             args.asr_windows_out.write_text(json.dumps(result["asr_windows"], ensure_ascii=False, indent=1), encoding="utf-8")

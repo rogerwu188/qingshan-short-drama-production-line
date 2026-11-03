@@ -577,7 +577,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_final_cut_speaker_map.py",
-      "sha256": "2c1446960bf8c8c5193c93c4a29ad7440debd3284bd35d003e7d67d0408ce991"
+      "sha256": "ab80c39d2ee4191b6ea7308ace1f561a1463cc483268f66fc459b5e646d18415"
     },
     {
       "path": "lines/nalu/runtime/tools/build_keyframe_manifest.py",
@@ -673,7 +673,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "fe764bd8afff6c8384e15f4f994f110b35c6150adf6c8d59b26d4eefe12ee761"
+      "sha256": "bbae180ab698253619f964f8c3d402d6d0d99027cd6f49008a84b65d27dfa45c"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",

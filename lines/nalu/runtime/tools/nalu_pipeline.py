@@ -8475,6 +8475,8 @@ def stage_s7(ctx: Ctx) -> StageResult:
          "--grouping", p.grouping_plan, "--timeline", release_timeline, "--manifest", p.writer_manifest,
          "--out", speaker_map_pre, "--action-windows-out", p.assembly / f"{ctx.episode}_FINAL_CUT_ACTION_WINDOWS.json",
          "--unit-asr", p.assembly / f"{ctx.episode}_unit_asr.json", "--asr-windows-out", asr_windows_pre,
+         *(["--performance-cut", p.assembly / f"{ctx.episode}_PERFORMANCE_CUT.json"]
+           if (p.assembly / f"{ctx.episode}_PERFORMANCE_CUT.json").is_file() else []),
          *vo_argv],
         name="s7_build_final_cut_speaker_map"))
     if asr_windows_pre.is_file():
