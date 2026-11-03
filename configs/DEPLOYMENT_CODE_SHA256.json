@@ -321,7 +321,7 @@
     },
     {
       "path": "configs/WRITER_CAPABILITY_V1.json",
-      "sha256": "b2a9759ecaafffa0fe4a3fe68bd4cc08e6f02b27c4256950a035373c86e62da2"
+      "sha256": "a5c9cf0fd0672859a065110fbd84c74581f0d3b324195fc9aef2b637a2f7a224"
     },
     {
       "path": "configs/WRITER_RULE8_RESPONSE_V1.json",
@@ -9057,7 +9057,7 @@
     },
     {
       "path": "tools/tests/test_writer_capability.py",
-      "sha256": "813f7f12ed6da5a085f57a13a606d9758f5a95a2f3809a076d49ffda756f7c72"
+      "sha256": "8854097f4dd6a8c6db6078577ca1fbe202870cab4c554a7efa4dfff5988c7f38"
     },
     {
       "path": "tools/tests/test_writer_checkpoint_guard.py",
@@ -9421,7 +9421,7 @@
     },
     {
       "path": "tools/writer_capability.py",
-      "sha256": "c56db5c188f688f395a35314bbf2fbde9461a4b8e3015b09d6e255478d4f5f55"
+      "sha256": "424f48259cb7016f35dbc6d4c6b85716e198ec36fee2b2e38860dad457ec21f5"
     },
     {
       "path": "tools/writer_checkpoint_guard.py",
