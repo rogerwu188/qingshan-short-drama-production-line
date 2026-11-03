@@ -79,6 +79,33 @@ def original_reference(record):
             'view': 'APPROVED_SOURCE_CARD', 'asset_type': 'APPROVED_ORIGINAL'}
 
 
+def pixel_crop_transport_paths(library):
+    """Paths of every verified PIXEL_CROP identity transport in an asset library dict.  Such a crop
+    carries a face only (E12 2026-10-30), so H3 must not lock body or wardrobe from it."""
+    paths = set()
+    for row in ((library or {}).get('assets') or {}).get('characters', {}).values():
+        if not (row or {}).get('original_identity_authority'):
+            continue
+        resolved = original_reference(row)
+        if resolved and resolved['asset_type'] == 'PIXEL_CROP':
+            paths.add(resolved['path'])
+    return paths
+
+
+def episode_pixel_crop_transport_paths(episode):
+    """pixel_crop_transport_paths() for the episode's series asset library (nalu line scope)."""
+    import json
+    import sys
+    line_tools = Path(__file__).resolve().parents[1] / 'lines' / 'nalu' / 'runtime' / 'tools'
+    if (line_tools / 'nalu_series_scope.py').is_file() and str(line_tools) not in sys.path:
+        sys.path.append(str(line_tools))
+    import nalu_series_scope
+    scope = nalu_series_scope.resolve_scope(episode)
+    library = Path(scope['asset_library'])
+    library = library if library.is_file() else Path(scope['asset_library_seed'])
+    return pixel_crop_transport_paths(json.loads(library.read_text(encoding='utf-8')) if library.is_file() else {})
+
+
 def classify_reference_asset(entry):
     """Classify a flat reference-transport entry into the four asset types.
 
@@ -94,6 +121,21 @@ def classify_reference_asset(entry):
     return resolved['asset_type'] if resolved else 'GENERATED_DERIVATIVE'
 
 
+def measurement_reference(source):
+    """The file identity is measured against for an original_reference() result.
+
+    A pixel crop is a transport artifact (a tight face crop sent to the video model); it can be too tight for the
+    face detector (nalu E13 Q1/Q2: FACE_COUNT_ZERO on the Qinming crop failed every keyframe and clip with him in
+    it). Measure against the verified source photo it was cut from; original_reference() already checked that the
+    crop's pixels equal that photo's box, so the source sha is the authority.
+    """
+    if source and source.get('asset_type') == 'PIXEL_CROP' and source.get('source_path'):
+        return {'path': source['source_path'], 'sha256': source['source_sha256']}
+    if source:
+        return {'path': source['path'], 'sha256': source['sha256']}
+    return None
+
+
 def measurement_paths(record):
     """Every identity anchor the record can be measured against, original first.
 
@@ -104,7 +146,7 @@ def measurement_paths(record):
     then reads as "identity unavailable" although four usable anchors exist
     (E12, 2026-10-27).
     """
-    source = original_reference(record)
+    source = measurement_reference(original_reference(record))
     paths = [source['path']] if source else []
     for value in record.get('canonical_reference_paths') or []:
         if value and value not in paths:

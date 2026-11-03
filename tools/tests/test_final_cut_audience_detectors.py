@@ -149,7 +149,8 @@ class ReportAssemblyTests(unittest.TestCase):
         self.assertEqual(det["dialogue_coverage"]["status"], "PASS")
         self.assertEqual(det["silence_gap_max"]["status"], "PASS")
         self.assertEqual(det["loudness"]["status"], "PASS")
-        for name in ("voice_distinctness", "emotion_dynamics", "lexicon_violation", "mascot_in_story"):
+        for name in ("voice_distinctness", "emotion_dynamics", "lexicon_violation", "mascot_in_story",
+                     "subtitle_asr_agreement"):
             self.assertEqual(det[name]["status"], "UNVERIFIED", name)
             self.assertTrue(det[name]["reason"])
         for name in fcd.HUMAN_REVIEW_DETECTORS:
@@ -157,7 +158,8 @@ class ReportAssemblyTests(unittest.TestCase):
                                          "evidence": {}, "reason": "human review question"})
         self.assertEqual(report["status"], "UNVERIFIED")
         self.assertEqual(set(report["unverified"]), {"voice_distinctness", "emotion_dynamics", "lexicon_violation",
-                                                     "mascot_in_story", *fcd.HUMAN_REVIEW_DETECTORS})
+                                                     "mascot_in_story", "subtitle_asr_agreement",
+                                                     *fcd.HUMAN_REVIEW_DETECTORS})
         self.assertEqual(list(report["detectors"]), list(fcd.DETECTOR_ORDER))
         self.assertEqual(report["schema"], fcd.SCHEMA)
 
@@ -253,17 +255,20 @@ class E04NegativeSampleRegressionTests(unittest.TestCase):
         self.assertIn("VOICE_COLLISION:CHAR-LUWENRUI:CHAR-MAYANG", collisions)     # 救命啊 / 松子真香 same voice
         self.assertTrue(any(f.startswith("VOICE_OUT_OF_BAND:CHAR-HUYONG:") for f in row["failures"]))
 
-    def test_emotion_dynamics_fails_flat_plead_against_calm_baseline(self):
+    def test_emotion_dynamics_single_plead_line_is_measured_but_not_judged(self):
+        # new rule (Roger 2026-10-30 seq=57 item 3): a speaker is judged from >= 2 measurable emotive lines;
+        # the E04 fixture has one plead line for CHAR-MAYANG -> reported, legacy delta kept, status UNVERIFIED
         row = self.report["detectors"]["emotion_dynamics"]
-        self.assertEqual(row["status"], "FAIL")
-        flat = [f for f in row["failures"] if f.startswith("FLAT_EMOTION:CHAR-MAYANG:151.")]
-        self.assertEqual(len(flat), 1, row["failures"])
+        self.assertEqual(row["status"], "UNVERIFIED")
+        speakers = row["measured"]["speakers"]
+        self.assertFalse(speakers["CHAR-MAYANG"]["judged"])
         baseline = row["measured"]["calm_baseline_dbfs"]["CHAR-MAYANG"]
         calm_line = next(s for s in self.fixture["segments"] if abs(s["start"] - 60.7) < 0.3)
         self.assertEqual(baseline, calm_line["rms_dbfs"])
-        plead = next(l for l in row["measured"]["emotive_lines"] if abs(l["start"] - 151.7) < 0.3)
-        self.assertLess(plead["delta_db"], 6.0)
-        self.assertIn("NO_CALM_BASELINE:CHAR-HUYONG", row["evidence"]["unverified"])
+        # the fixture's plead line is 0.6 s: unmeasurable (pitch movement / rate need >= 0.8 s), reported, not counted
+        plead = next(l for l in row["evidence"]["unmeasurable"] if abs(l["start"] - 151.7) < 0.3)
+        self.assertEqual(plead["reason"], "SHORTER_THAN_MIN_LINE")
+        self.assertEqual(row["threshold"]["legacy_rms_delta_db"], 6.0)
 
     def test_loudness_fails_against_minus_14(self):
         row = self.report["detectors"]["loudness"]
@@ -274,16 +279,23 @@ class E04NegativeSampleRegressionTests(unittest.TestCase):
 
     def test_overall_fail_and_unverified_list(self):
         self.assertEqual(self.report["status"], "FAIL")
-        self.assertEqual(set(self.report["unverified"]), {"lexicon_violation", "mascot_in_story", *fcd.HUMAN_REVIEW_DETECTORS})
+        # subtitle_asr_agreement is UNVERIFIED here: the fixture carries no subtitle cues / read-back (K136);
+        # emotion_dynamics is UNVERIFIED: no speaker has >= 2 measurable emotive lines (seq=57 rule)
+        self.assertEqual(set(self.report["unverified"]), {"lexicon_violation", "mascot_in_story", "subtitle_asr_agreement",
+                                                          "emotion_dynamics", *fcd.HUMAN_REVIEW_DETECTORS})
         for name in fcd.HUMAN_REVIEW_DETECTORS:
             self.assertEqual(self.report["detectors"][name]["status"], "NOT_IMPLEMENTED")
 
-    def test_precheck_on_fixture_cast_flags_the_two_elders_for_human_review(self):
+    def test_precheck_on_fixture_cast_fails_the_two_elders_under_the_40hz_rule(self):
         from tools import voice_cast_gate as vcg
 
         result = vcg.precheck(self.fixture["voice_cast"], self.fixture["scene_copresence"])
-        self.assertEqual(result["status"], "REQUIRES_HUMAN")
+        # before 2026-10-30 the overlapping elders were only REQUIRES_HUMAN; Roger's E12 ruling (K135) makes
+        # a co-present pair under 40 Hz apart a hard FAIL, while the overlap note is still recorded
+        self.assertEqual(result["status"], "FAIL")
         self.assertIn("F0_BAND_OVERLAP_REQUIRES_HUMAN:CHAR-LUZE:CHAR-MAYANG", result["requires_human"])
+        self.assertTrue(any(f.startswith("F0_MEDIAN_SEPARATION_LT_40HZ:CHAR-LUZE:CHAR-MAYANG:") for f in result["failures"]),
+                        result["failures"])
 
 
 @unittest.skipUnless(os.environ.get("NALU_E04_NEGATIVE_SAMPLE") and Path(os.environ["NALU_E04_NEGATIVE_SAMPLE"]).is_file(),
@@ -322,3 +334,190 @@ class E04LiveCliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SubtitleReadbackTests(unittest.TestCase):
+    """subtitle_asr_agreement (Roger 2026-10-30 item 1a; F2: H3 babble lives OUTSIDE the cues)."""
+
+    def _readback(self, words):
+        return [{"start": words[0][1], "end": words[-1][2], "text": "".join(w[0] for w in words),
+                 "words": [{"w": w, "s": s, "e": e} for w, s, e in words]}]
+
+    def test_cue_similarity_keeps_a_cue_that_is_one_of_two_lines_in_the_window(self):
+        self.assertGreaterEqual(fcd.cue_similarity("冯兄客气了", "冯兄客气了知道你巡山辛苦"), 0.8)
+        self.assertLess(fcd.cue_similarity("冯兄客气了", "troeperandhorwes"), 0.3)
+        self.assertEqual(fcd.cue_similarity("", "anything"), 1.0)
+        self.assertEqual(fcd.cue_similarity("x", ""), 0.0)
+
+    def test_babble_outside_every_cue_fails_even_when_cues_match(self):
+        cues = [{"start": 3.0, "end": 5.0, "text": "冯兄客气了"}]
+        words = [("特", 0.2, 0.5), ("罗", 0.5, 0.8), ("佩", 0.8, 1.1), ("尔", 1.1, 1.4),   # 1.2 s babble before the line
+                 ("冯", 3.1, 3.4), ("兄", 3.4, 3.7), ("客", 3.7, 4.0), ("气", 4.0, 4.3), ("了", 4.3, 4.6)]
+        row = fcd.decide_subtitle_agreement(cues, self._readback(words), similarity=0.8, window_s=1.5,
+                                            min_agreement=0.95, outside_max_s=1.0)
+        self.assertEqual(row["status"], "FAIL")
+        self.assertEqual(row["measured"]["agreement"], 1.0)
+        self.assertEqual(row["measured"]["speech_outside_cues_seconds"], 1.2)
+        self.assertTrue(any(f.startswith("SPEECH_OUTSIDE_SUBTITLES:") for f in row["failures"]))
+        self.assertEqual(row["evidence"]["speech_outside_cues"][0]["start"], 0.2)
+
+    def test_whisper_boilerplate_is_not_speech(self):
+        cues = [{"start": 3.0, "end": 5.0, "text": "冯兄客气了"}]
+        # boilerplate comes as its own segment (a whole decoded sentence), the line as another
+        readback = self._readback([("字幕by索兰娅", 0.2, 1.4)]) + self._readback([("冯兄客气了", 3.1, 4.6)])
+        row = fcd.decide_subtitle_agreement(cues, readback, similarity=0.8, window_s=1.5,
+                                            min_agreement=0.95, outside_max_s=1.0)
+        self.assertEqual(row["status"], "PASS")
+        self.assertEqual(row["measured"]["speech_outside_cues_seconds"], 0.0)
+
+    def test_unheard_line_counts_as_a_non_match(self):
+        cues = [{"start": 3.0, "end": 5.0, "text": "冯兄客气了"}, {"start": 8.0, "end": 9.0, "text": "许叔"}]
+        words = [("冯兄客气了", 3.1, 4.6)]
+        row = fcd.decide_subtitle_agreement(cues, self._readback(words), similarity=0.8, window_s=1.5,
+                                            min_agreement=0.95, outside_max_s=1.0)
+        self.assertEqual(row["status"], "FAIL")
+        self.assertEqual(row["measured"]["agreement"], 0.5)
+
+    def test_incremental_cache_resumes_from_the_last_finished_window(self):
+        import tempfile
+        from unittest import mock
+        calls = []
+
+        def fake_transcribe(media, *, model, language="zh", windows=None, on_window_done=None):
+            rows = []
+            for i, (s, e) in enumerate(windows or []):
+                calls.append((s, e))
+                rows.append({"start": s, "end": e, "text": f"w{s}", "words": [{"w": f"w{s}", "s": s, "e": e}]})
+                if on_window_done:
+                    on_window_done(i, rows)
+                if len(calls) == 2 and not getattr(fake_transcribe, "resumed", False):
+                    fake_transcribe.resumed = True
+                    raise KeyboardInterrupt   # killed after two windows
+            return rows
+
+        with tempfile.TemporaryDirectory() as tmp:
+            media = Path(tmp) / "m.mp4"
+            media.write_bytes(b"media")
+            cache = Path(tmp) / "rb.json"
+            windows = [(0.0, 30.0), (30.0, 60.0), (60.0, 90.0), (90.0, 120.0)]     # >= chunk size: no merging
+            with mock.patch.object(fcd, "readback_transcribe", fake_transcribe), \
+                    mock.patch.object(fcd.dvm, "media_sha256", lambda p: "sha-m"):
+                with self.assertRaises(KeyboardInterrupt):
+                    fcd.load_or_run_readback(media, cache, model="small", windows=windows)
+                partial = json.loads(cache.read_text())
+                self.assertTrue(partial["partial"])
+                self.assertEqual(partial["windows_done"], 2)
+                segments, source = fcd.load_or_run_readback(media, cache, model="small", windows=windows)
+            self.assertEqual([s["start"] for s in segments], [0.0, 30.0, 60.0, 90.0])
+            self.assertIn("resumed_from_window_2", source)
+            self.assertEqual(calls, [(0.0, 30.0), (30.0, 60.0), (60.0, 90.0), (90.0, 120.0)])
+            self.assertFalse(json.loads(cache.read_text())["partial"])
+
+
+class CueSimilarityScriptTests(unittest.TestCase):
+    def test_homophone_and_traditional_script_read_as_the_line(self):
+        # whisper-small on E12: 微甜→威田, 赶到后→趕到後 — a listener hears the right line
+        self.assertGreaterEqual(fcd.cue_similarity(fcd.normalise_subtitle_text("微甜。"), fcd.normalise_subtitle_text("威田")), 0.8)
+        self.assertGreaterEqual(fcd.cue_similarity(fcd.normalise_subtitle_text("等我们赶到后，那里也光秃秃了"),
+                                                   fcd.normalise_subtitle_text("等我們趕到後,那裡也光突突了")), 0.8)
+        # English / gibberish still fails on both scripts
+        self.assertLess(fcd.cue_similarity(fcd.normalise_subtitle_text("冯兄客气了"), fcd.normalise_subtitle_text("like a tester trained")), 0.5)
+
+
+class ReadbackSegmentFilterTests(unittest.TestCase):
+    def test_boilerplate_prompt_echo_and_noise_segments_are_dropped_whole(self):
+        self.assertFalse(fcd.readback_segment_is_speech({"text": "请不吝点赞 订阅 转发 打赏支持明镜与点点栏目", "no_speech_prob": 0.1, "avg_logprob": -0.3}))
+        self.assertFalse(fcd.readback_segment_is_speech({"text": "是普通话对白，简体中文。", "no_speech_prob": 0.1, "avg_logprob": -0.3}))
+        # confidently decoded speech under an ambient bed: no_speech alone is high, the line is kept
+        self.assertTrue(fcd.readback_segment_is_speech({"text": "冯兄客气了", "no_speech_prob": 0.68, "avg_logprob": -0.22}))
+        self.assertTrue(fcd.readback_segment_is_speech({"text": "冯兄客气了", "no_speech_prob": 0.1, "avg_logprob": -1.4}))
+        self.assertFalse(fcd.readback_segment_is_speech({"text": "冯兄客气了", "no_speech_prob": 0.9, "avg_logprob": -1.4}))
+        self.assertFalse(fcd.readback_segment_is_speech({"text": "冯兄客气了", "no_speech_prob": 0.97, "avg_logprob": -0.3}))
+        self.assertTrue(fcd.readback_segment_is_speech({"text": "冯兄客气了", "no_speech_prob": 0.1, "avg_logprob": -0.3}))
+
+    def test_dropped_segments_do_not_count_as_babble(self):
+        cues = [{"start": 3.0, "end": 5.0, "text": "冯兄客气了"}]
+        readback = [{"start": 0.0, "end": 2.0, "text": "优优独播剧场 YoYo Series Exclusive", "no_speech_prob": 0.2, "avg_logprob": -0.5,
+                     "words": [{"w": "优优", "s": 0.0, "e": 0.5}, {"w": "独播剧场", "s": 0.5, "e": 1.2}, {"w": "YoYo", "s": 1.2, "e": 2.0}]},
+                    {"start": 3.1, "end": 4.6, "text": "冯兄客气了", "no_speech_prob": 0.05, "avg_logprob": -0.2,
+                     "words": [{"w": "冯兄客气了", "s": 3.1, "e": 4.6}]}]
+        row = fcd.decide_subtitle_agreement(cues, readback, similarity=0.8, window_s=1.0, min_agreement=0.95, outside_max_s=1.0)
+        self.assertEqual(row["status"], "PASS")
+        self.assertEqual(row["measured"]["readback_segments_dropped_as_noise"], 1)
+
+
+class ReadbackChunkingTests(unittest.TestCase):
+    def test_consecutive_unit_windows_merge_into_context_sized_chunks(self):
+        windows = [(0.0, 4.3), (4.3, 9.0), (9.0, 15.5), (15.5, 22.0), (22.0, 27.0), (27.0, 31.0), (31.0, 60.0), (60.0, 63.0)]
+        chunks = fcd.group_readback_windows(windows, min_s=25.0)
+        self.assertEqual(chunks[0], [0.0, 27.0])          # grew until >= 25 s, never split a unit
+        self.assertEqual(chunks[1], [27.0, 60.0])
+        self.assertEqual(chunks[2], [60.0, 63.0])         # the tail stays its own chunk
+        self.assertEqual(fcd.group_readback_windows(None), [])
+
+    def test_a_gap_between_windows_starts_a_new_chunk(self):
+        chunks = fcd.group_readback_windows([(0.0, 5.0), (8.0, 12.0)], min_s=25.0)
+        self.assertEqual(chunks, [[0.0, 5.0], [8.0, 12.0]])
+
+
+class EmotionDeliveryTests(unittest.TestCase):
+    """emotion_dynamics measures delivery (Roger 2026-10-30 seq=57 item 3), not loudness."""
+
+    def _calm(self, speaker, start, rms=-15.0, iqr=12.0, rate=4.0, centroid=1500.0, dur=2.0):
+        return {"start": start, "end": start + dur, "duration_s": dur, "speaker": speaker, "emotion": "calm",
+                "rms_dbfs": rms, "f0_iqr_hz": iqr, "speech_rate_cps": rate, "spectral_centroid_hz": centroid}
+
+    def _emo(self, speaker, start, emotion="threat", dur=2.0, **kw):
+        row = self._calm(speaker, start, dur=dur, **kw)
+        row["emotion"] = emotion
+        return row
+
+    def test_each_cue_alone_carries_a_line_and_the_speaker_passes_at_70_percent(self):
+        segs = [self._calm("A", 0.0), self._calm("A", 3.0), self._calm("A", 6.0),
+                self._emo("A", 10.0, rms=-13.0),                 # +2 dB
+                self._emo("A", 13.0, iqr=15.0),                  # 1.25x pitch movement
+                self._emo("A", 16.0, rate=4.8),                  # 1.2x faster
+                self._emo("A", 19.0, centroid=1725.0),           # 1.15x brighter
+                self._emo("A", 22.0)]                            # flat: nothing moved
+        row = fcd.decide_emotion_dynamics(segs)
+        self.assertEqual(row["status"], "PASS")
+        sp = row["measured"]["speakers"]["A"]
+        self.assertTrue(sp["judged"])
+        self.assertEqual((sp["measurable"], sp["delivered"]), (5, 4))
+        carried = {l["start"]: l["carried_by"] for l in row["evidence"]["lines"]}
+        self.assertEqual(carried[10.0], ["rms"])
+        self.assertEqual(carried[13.0], ["f0_iqr"])
+        self.assertEqual(carried[16.0], ["rate"])
+        self.assertEqual(carried[19.0], ["centroid"])
+        self.assertEqual(carried[22.0], [])
+        self.assertEqual([f for f in row.get("failures", []) if f.startswith("FLAT_DELIVERY")], [])
+
+    def test_flat_scene_fails_and_a_slow_clipped_threat_counts(self):
+        segs = [self._calm("B", 0.0), self._calm("B", 3.0),
+                self._emo("B", 10.0), self._emo("B", 13.0), self._emo("B", 16.0, rate=3.0)]   # 0.75x = clipped
+        row = fcd.decide_emotion_dynamics(segs)
+        self.assertEqual(row["status"], "FAIL")
+        self.assertIn("FLAT_DELIVERY:B:0.333", row["failures"])
+        self.assertEqual(row["measured"]["speakers"]["B"]["delivered"], 1)
+        self.assertIn("FLAT_LINE:B:10.0", row["failures"])
+
+    def test_short_lines_are_unmeasurable_and_excluded_from_the_denominator(self):
+        segs = [self._calm("C", 0.0), self._calm("C", 3.0),
+                self._emo("C", 10.0, dur=0.5), self._emo("C", 12.0, rms=-12.0), self._emo("C", 15.0, iqr=20.0)]
+        row = fcd.decide_emotion_dynamics(segs)
+        self.assertEqual(row["status"], "PASS")
+        self.assertEqual(row["measured"]["unmeasurable_lines"], 1)
+        self.assertEqual(row["evidence"]["unmeasurable"][0]["reason"], "SHORTER_THAN_MIN_LINE")
+        self.assertEqual(row["measured"]["speakers"]["C"]["measurable"], 2)
+
+    def test_speaker_without_two_measurable_emotive_lines_is_not_judged(self):
+        segs = [self._calm("D", 0.0), self._emo("D", 10.0)]
+        row = fcd.decide_emotion_dynamics(segs)
+        self.assertEqual(row["status"], "UNVERIFIED")
+        self.assertFalse(row["measured"]["speakers"]["D"]["judged"])
+
+    def test_speech_rate_counts_cjk_characters_and_latin_words(self):
+        self.assertEqual(fcd.speech_rate_cps("冯兄客气了，知道你巡山辛苦", 2.0), 6.0)
+        self.assertEqual(fcd.speech_rate_cps("hello world 你好", 2.0), 2.0)
+        self.assertIsNone(fcd.speech_rate_cps("", 2.0))
+        self.assertIsNone(fcd.speech_rate_cps("你好", 0.0))

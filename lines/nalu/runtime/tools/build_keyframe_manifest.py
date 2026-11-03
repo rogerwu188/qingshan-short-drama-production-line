@@ -36,6 +36,8 @@ import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
 _sys.path.insert(0, str(_np.ENGINE_ROOT))  # for tools.* imports
+from tools.image_model_policy import ACTIVE_IMAGE_MODEL  # noqa: E402  (Roger 2026-10-30 seq=54)
+import studio_asset_resolve as _studio  # noqa: E402  studio asset library: recorded sha256 -> local original
 import argparse
 import hashlib
 import json
@@ -223,6 +225,33 @@ def camera_note_scoped(episode: str, policy: dict[str, Any] | None = None) -> bo
     start = policy.get("active_from_episode")
     number = episode_ordinal(episode)
     return bool(policy) and start is not None and number is not None and number >= int(start)
+
+
+# E12 2026-10-31: the image model drew Qinming bearded (S02-02), Xuyueping young and clean-shaven (S04-01)
+# and Fengyian slim (S14-02) from headshots alone -- the keyframe prompt never stated age / beard / build,
+# and H3 then copied those faces.  A contract character's ``appearance_anchor_en`` (the same fixed look the
+# H3 prompt states) becomes an 【外貌锁】 line.  Episodes already in production keep byte-identical keyframe
+# prompts (K070 precedent); E12 opts in only the shots of its controlled keyframe redo.
+APPEARANCE_LOCK_FROM_EPISODE = 13
+APPEARANCE_LOCK_SHOTS = {"E12": {"E12-S02-02", "E12-S04-01", "E12-S14-02"}}
+
+
+def appearance_lock_active(episode: str, shot_id: str) -> bool:
+    number = episode_ordinal(episode)
+    return ((number is not None and number >= APPEARANCE_LOCK_FROM_EPISODE)
+            or shot_id in APPEARANCE_LOCK_SHOTS.get(episode, set()))
+
+
+def appearance_lock_lines(contract: dict[str, Any], character_ids: list[str]) -> list[str]:
+    rows = {str(r.get("character_id") or r.get("entity_id") or ""): r
+            for r in contract.get("character_entities") or [] if isinstance(r, dict)}
+    lines = []
+    for cid in character_ids:
+        row = rows.get(cid) or {}
+        anchor = str(row.get("appearance_anchor_en") or "").strip().rstrip(".")
+        if anchor:
+            lines.append(f"- {row.get('canonical_name') or cid}（{cid}）：{anchor}")
+    return lines
 
 
 _WARDROBE_POLICY_CACHE: dict[str, dict[str, Any]] = {}
@@ -788,6 +817,14 @@ def entity_binding(
         resolved = Path(path_value)
         resolved = resolved if resolved.is_absolute() else inputs.engine_root / resolved
         declared = str(artifact.get("sha256") or "")
+        studio_from = None
+        if path_value and declared and not (resolved.is_file() and sha256_file(resolved) == declared):
+            # studio asset library (S5): the recorded path no longer verifies; use a copy of the library original
+            # with the SAME sha256 (the binding, the digest and the review all keep binding the recorded sha)
+            studio_path = _studio.resolve(resolved, declared)
+            if studio_path is not None:
+                studio_from = {"recorded_path_name": resolved.name, "sha256": declared}
+                path_value, resolved = str(studio_path), Path(studio_path)
         if path_value and resolved.is_file() and declared and sha256_file(resolved) == declared:
             return {
                 "role": role,
@@ -803,6 +840,7 @@ def entity_binding(
                 "asset_origin": "EPISODE_NEW_ASSET",
                 "binding_status": "BOUND_EXACT_SHA",
                 "asset_library_status": str((asset or {}).get("status") or ""),
+                **({"studio_asset_resolved_from": studio_from} if studio_from else {}),
             }
     return {
         "role": role,
@@ -869,6 +907,16 @@ def wardrobe_plate_excluded(spec: dict[str, Any], asset_id: str) -> bool:
     return True
 
 
+def shot_keeps_face_hidden(spec: dict[str, Any], character_id: str) -> bool:
+    """True when the shot's cast row marks this character's face as not shown (NOT_MEASURABLE /
+    FACE_OUT_OF_FRAME)."""
+    for row in spec.get("cast") or []:
+        if str(row.get("character_id") or "") == str(character_id):
+            value = str(row.get("face_visibility") or "").upper()
+            return value.endswith("NOT_MEASURABLE") or value.endswith("FACE_OUT_OF_FRAME")
+    return False
+
+
 def build_bindings(inputs: Inputs, shot_id: str, gate_ref: str) -> tuple[list[dict[str, Any]], list[str], list[str]]:
     shot = inputs.shots[shot_id]
     sp_task = inputs.subspace_tasks[shot_id]
@@ -889,8 +937,11 @@ def build_bindings(inputs: Inputs, shot_id: str, gate_ref: str) -> tuple[list[di
         name = str(entry.get("character") or asset_id)
         # Roger 2026-09-18 ②: the front neutral headshot is the face reference and leads the
         # sequence; the full-body plate is demoted to a wardrobe reference.
-        face_rows.append(entity_binding(inputs, "character", "characters", asset_id, name,
-                                        "CHARACTER_IDENTITY_PLATE", view=CHARACTER_FACE_VIEW))
+        # K075 (nalu E14 巡山者乙): a person this shot keeps faceless (back, hands, feet) gets no face
+        # plate -- a headshot tells the image model to show that face.  The wardrobe plate stays.
+        if not shot_keeps_face_hidden(shot.get("prompt_spec") or {}, asset_id):
+            face_rows.append(entity_binding(inputs, "character", "characters", asset_id, name,
+                                            "CHARACTER_IDENTITY_PLATE", view=CHARACTER_FACE_VIEW))
         if not wardrobe_plate_excluded(shot.get("prompt_spec") or {}, asset_id):
             wardrobe_rows.append(entity_binding(inputs, "character_wardrobe", "characters", asset_id, name,
                                                 "CHARACTER_WARDROBE_PLATE", view=CHARACTER_WARDROBE_VIEW))
@@ -1051,6 +1102,12 @@ def normalize_keyframe_role_semantics(
     states = dict(role.get("entity_states") or {})
     presence = dict(role.get("entity_presence") or {})
     visible = set(map(str, visible_contract_ids))
+    # A carded creature (PROP-… id) the contract itself marks VISIBLE_AND_IDENTITY_LOCKED is on screen in
+    # this frame: without this it was labelled 「本首帧不入画」 while the entry sentence described it
+    # (nalu E13 S03-01 leopard / S05-01 snow ape).  Only an explicit contract mark counts, so contracts
+    # that never set presence for a non-character keep their prompt bytes.
+    visible |= {str(k) for k, v in presence.items()
+                if str(k).startswith("PROP-") and str(v) == "VISIBLE_AND_IDENTITY_LOCKED"}
     # The renderer prints the entry_state sentence verbatim and then binds the people
     # on screen to it under one hard lock.  When the contract declares a character as
     # this shot's actor but leaves them out of the visible cast, the code further down
@@ -1070,7 +1127,10 @@ def normalize_keyframe_role_semantics(
         ("dialogue_listener_id", "dialogue_listener"),
         ("action_patient_id", "action_patient"),
     ):
-        value = str(role.get(id_key) or role.get(name_key) or "").strip()
+        # a non-character actor/patient (creature card) has an empty *_id and its id in *_entity_id; falling
+        # back to the display name added a second, name-keyed ABSENT entry for the same visible creature
+        entity_key = id_key.replace("_id", "_entity_id")
+        value = str(role.get(id_key) or role.get(entity_key) or role.get(name_key) or "").strip()
         if value:
             participant_keys.append(value)
     body_part_owner = str(role.get("body_part_owner") or "").strip()
@@ -1155,6 +1215,8 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
             "character_wardrobe": "全身像：仅锁定该人物的服装形制、体型比例与配饰；脸不以此图为准",
             "prop": "仅锁定该道具的形制、材质与尺度",
         }[binding_role]
+        if binding_role == "prop" and str((role.get("entity_presence") or {}).get(row["entity_id"]) or "") == "VISIBLE_AND_IDENTITY_LOCKED":
+            purpose = "生物：锁定该生物的形貌、体型、毛色与特征（本帧可见）"
         # Binding bookkeeping stays out of the provider text so the prompt SHA is
         # stable across the stage-3(a) plate upgrade.
         reference_lines.append(
@@ -1165,6 +1227,14 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
         f"{row.get('entity_name')}（{row['entity_id']}）"
         for row in bindings if row["role"] == "character"
     ]
+    # K075: a person whose face this shot hides has no face plate (build_bindings) but is still allowed
+    # in frame, so the clause must name him or the image model is told he may not appear.
+    _named = {row["entity_id"] for row in bindings if row["role"] == "character"}
+    for _member in spec.get("cast") or []:
+        _cid = str(_member.get("character_id") or "")
+        if _cid and _cid not in _named and shot_keeps_face_hidden(spec, _cid):
+            cast_names.append(f"{_member.get('character') or _cid}（{_cid}）")
+            _named.add(_cid)
     prop_names = [
         f"{row.get('entity_name')}（{row['entity_id']}）"
         for row in bindings if row["role"] == "prop"
@@ -1172,8 +1242,14 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
     # E05 (2026-09-17): a character-free frame whose props include a creature card (the talking crow)
     # is not an empty frame — the old "无动物；空镜" clause contradicted the prop line and risked an empty
     # thornbush.  Name the prop subjects instead; the pure empty-frame wording stays for prop-less frames.
+    visible_creatures = [
+        f"{row.get('entity_name')}（{row['entity_id']}）"
+        for row in bindings if row["role"] == "prop"
+        and str((role.get("entity_presence") or {}).get(row["entity_id"]) or "") == "VISIBLE_AND_IDENTITY_LOCKED"
+    ]
     cast_clause = (
         f"本帧允许入画的人物（仅这些，且各只出现一次）：{join(cast_names, '、')}"
+        + (f"；另有本帧可见的生物（仅这些，各只出现一次）：{join(visible_creatures, '、')}" if visible_creatures else "")
         if cast_names else (
             f"画面内无人物；主体只有上列道具/生物（{join(prop_names, '、')}），各只出现一次，不加任何人物"
             if prop_names else "画面内无人物、无动物；空镜。")
@@ -1207,6 +1283,9 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
             if value:
                 parts.append(f"{prefix}{value}")
         wardrobe_lines.append(f"- {row.get('character')}（{asset_id}）：" + "；".join(parts))
+
+    appearance_lines = (appearance_lock_lines(inputs.contract, character_ids)
+                        if appearance_lock_active(inputs.episode, shot_id) else [])
 
     forbidden = list(inputs.visual_culture.get("forbidden_influences") or [])
     # The shot's negative list already re-states the culture contract's
@@ -1335,6 +1414,9 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
         ("blank5", "", True),
         ("wardrobe_head", "【服装锁】" if wardrobe_lines else "【服装锁】无人物，无需服装锁。", True),
         *[(f"wardrobe_{index}", line, True) for index, line in enumerate(wardrobe_lines)],
+        *([("appearance_head", "【外貌锁】脸型、年龄、胡须与体型以此为准，与正面头像一致；服装以【服装锁】为准。", True)]
+          + [(f"appearance_{index}", line, True) for index, line in enumerate(appearance_lines)]
+          if appearance_lines else []),
         ("blank6", "", True),
         ("state_head", "【场景状态】", True),
         ("time_weather", f"时间：{scene_state.get('time')}｜天气：{scene_state.get('weather')}", True),
@@ -1427,7 +1509,7 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
     )
     # Wardrobe contracts may legitimately say “保持自然比例/颜色”等静态
     # 保持约束；exclude those lines from the motion-extension scan as well.
-    for wardrobe_line in wardrobe_lines:
+    for wardrobe_line in wardrobe_lines + appearance_lines:
         prompt_without_entry = prompt_without_entry.replace(wardrobe_line, "")
     for word in FORBIDDEN_EXTEND_WORDS:
         if word in prompt_without_entry:
@@ -2076,11 +2158,16 @@ def main(argv: list[str] | None = None) -> int:
                              "defaults to <asset-library parent>/asset_library")
     parser.add_argument("--engine-root", type=Path, default=DEFAULT_ENGINE_ROOT)
     parser.add_argument("--python", type=Path, default=Path(sys.executable))
-    parser.add_argument("--model", default="gpt-image-2-pro")
-    parser.add_argument("--image-resolution", default="2K", choices=["1K", "2K"])
+    parser.add_argument("--model", default=ACTIVE_IMAGE_MODEL)
+    parser.add_argument("--image-resolution", default=None, choices=["1K", "2K"],
+                        help="default: the registry policy's active resolution (tools/image_model_policy.py; "
+                             "Roger 2026-10-30 seq=56 = 1K)")
     parser.add_argument("--task-version", default="V1",
                         help="Portable task/output version such as V1 or V2; use a new value after a rejected attempt")
     args = parser.parse_args(argv)
+    if args.image_resolution is None:
+        from tools.image_model_policy import active_image_resolution
+        args.image_resolution = active_image_resolution()
 
     task_version = str(args.task_version).strip().upper()
     if not re.fullmatch(r"V[1-9][0-9]*", task_version):

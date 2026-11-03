@@ -241,6 +241,21 @@ def extract_frames(unit_id: str, media: Path, out_dir: Path, count: int) -> dict
     }
 
 
+def park_stale_frames(unit_id: str, frame_dir: Path, frames: list[dict[str, Any]]) -> list[str]:
+    """Move this unit's frames that are not part of the current measurement to frame_dir/_superseded/.
+
+    vlm_review_protocol hands the reviewer every *.png in the folder, so a frame of an earlier take left
+    beside the current ones is reviewed as if it were this clip.  Never deleted."""
+    current = {Path(str(row.get("path"))).name for row in frames}
+    stale = sorted(old for old in frame_dir.glob(f"{unit_id}_f*.png") if old.name not in current)
+    if stale:
+        parked = frame_dir / "_superseded"
+        parked.mkdir(exist_ok=True)
+        for old in stale:
+            old.replace(parked / old.name)
+    return [old.name for old in stale]
+
+
 def run_ocr(image: Path, forbidden_terms: list[str], out: Path) -> dict[str, Any]:
     """Execute the ENGINE's still-image OCR audit for real on one frame."""
     argv = [str(VENV), str(ENGINE / "tools/still_image_ocr_audit.py"),
@@ -1263,8 +1278,14 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
         if frames > DEFAULT_FRAMES:
             pass  # this run is the denser one; nothing to merge
         elif extraction.get("frames"):
-            previous = [row for row in (read_json(out_dir / "prepare.json", {}) or {})
-                        .get("frames", {}).get("frames", []) if isinstance(row, dict)]
+            # Only frames of THIS take (E12 2026-10-31: a new take inherited the previous take's frames
+            # through this merge, and both the identity measurement and the reviewer saw clips that no
+            # longer existed).
+            prior = read_json(out_dir / "prepare.json", {}) or {}
+            same_take = (prior.get("media_sha256") or (prior.get("frames") or {}).get("media_sha256")) \
+                == extraction.get("media_sha256")
+            previous = [row for row in (prior.get("frames", {}).get("frames", []) if same_take else [])
+                        if isinstance(row, dict) and Path(str(row.get("path"))).is_file()]
             have = {round(float(row.get("at_seconds") or 0), 3): row for row in previous}
             have.update({round(float(row.get("at_seconds") or 0), 3): row
                          for row in extraction["frames"]})
@@ -1277,6 +1298,8 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
                                       " | includes frames from an earlier denser sampling of this "
                                       "same clip (identity sample count only; every frame is a "
                                       "real ffmpeg extraction of this asset)"}
+        extraction = {**extraction, "stale_frames_parked": park_stale_frames(
+            unit_id, out_dir / "frames", extraction.get("frames") or [])}
         ocr_rows = [run_ocr(Path(frame["path"]), forbidden,
                             out_dir / "ocr" / f"{Path(frame['path']).stem}_ocr.json")
                     for frame in extraction.get("frames") or []]
@@ -1871,6 +1894,27 @@ def _line_owner_q2_acceptance(episode: str, unit_id: str, asset_sha: str,
     return record
 
 
+def carry_forward_rows(episode: str, rows: list[dict[str, Any]], exp: "Expectations",
+                       p: "QaPaths") -> tuple[list[dict[str, Any]], list[str]]:
+    """Rows of the previous index for planned units this review did not cover, media sha unchanged."""
+    reviewed = {row.get("unit_id") for row in rows}
+    planned = [row["unit_id"] for row in exp.video_unit_items()]
+    previous = read_json(p.q2_dir / f"{episode}_VIDEO_Q2_INDEX.json", {}) or {}
+    by_unit = {row.get("unit_id"): row for row in previous.get("results") or []}
+    carried: list[dict[str, Any]] = []
+    dropped: list[str] = []
+    for unit_id in planned:
+        if unit_id in reviewed or unit_id not in by_unit:
+            continue
+        row = by_unit[unit_id]
+        asset = unit_media(episode, unit_id)
+        if row.get("asset_sha256") and asset.is_file() and sha256_file(asset) == row["asset_sha256"]:
+            carried.append(row)
+        else:
+            dropped.append(unit_id)
+    return carried, dropped
+
+
 def materialise(episode: str, submitted: dict[str, Any],
                 submitted_path: Path) -> dict[str, Any]:
     """Build one VIDEO_ASSEMBLY admission request per unit and run the ENGINE gate."""
@@ -2203,6 +2247,10 @@ def materialise(episode: str, submitted: dict[str, Any],
             "p2_defects": p2,
         })
 
+    carried, dropped = carry_forward_rows(episode, rows, exp, p)
+    rows = rows + carried
+    indexed = {row.get("unit_id") for row in rows}
+    unindexed = [row["unit_id"] for row in exp.video_unit_items() if row["unit_id"] not in indexed]
     admitted = [row for row in rows if row.get("downstream_status") == TERMINAL_DOWNSTREAM]
     index = {
         "schema": "nalu.video_q2_admission_index.v1",
@@ -2216,8 +2264,8 @@ def materialise(episode: str, submitted: dict[str, Any],
         "required_registered_gates": list(REQUIRED_GATES),
         "terminal_state_required": f"status ADMITTED|ADMITTED_WITH_P2 + "
                                   f"downstream_status {TERMINAL_DOWNSTREAM}",
-        "status": ("ALL_ADMITTED" if rows and len(admitted) == len(rows)
-                   else f"PARTIAL_{len(admitted)}_OF_{len(rows)}_ADMITTED" if rows
+        "status": ("ALL_ADMITTED" if rows and len(admitted) == len(rows) and not unindexed
+                   else f"PARTIAL_{len(admitted)}_OF_{len(rows) + len(unindexed)}_ADMITTED" if rows
                    else "NO_ITEMS"),
         "unit_count": len(rows),
         "admitted_count": len(admitted),
@@ -2227,6 +2275,12 @@ def materialise(episode: str, submitted: dict[str, Any],
         "admission_results": [row["admission_result"] for row in rows if row.get("admission_result")],
         "review_results": [row["ai_review_result"] for row in rows if row.get("ai_review_result")],
         "results": rows,
+        # an item-restricted review (one or a few units) must not shrink the episode-wide index:
+        # rows for the units it did not cover are kept from the previous index while their media
+        # sha still matches; a changed or missing take is dropped and so blocks assembly.
+        "carried_forward_unit_ids": [row["unit_id"] for row in carried],
+        "dropped_stale_unit_ids": dropped,
+        "unindexed_unit_ids": unindexed,
     }
     out = write_json(p.q2_dir / f"{episode}_VIDEO_Q2_INDEX.json", index)
     index["_written_to"] = str(out)

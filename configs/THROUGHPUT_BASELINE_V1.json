@@ -1,0 +1,64 @@
+{
+  "schema": "qingshan.throughput_baseline.v1",
+  "version": "2026-10-30",
+  "purpose": "Per-episode wall-clock budget. tools/throughput_baseline_gate.py measures an episode from its orchestrator run logs (+ TIME_LEDGER) and FAILS when a budget is exceeded. Waiting time is never excluded: every second between the first run start and the last run end lands in exactly one bucket.",
+  "measurement": {
+    "window": "first orchestrator run start -> last orchestrator run end (pipeline_logs/<EP>/run_*.log)",
+    "buckets": {
+      "HUMAN_AUTH_WAIT": "gap after a run that ended needing the line owner (DRY_PLANNED / PAID_STEPS_DISABLED / paid authority / cap / AWAITING_ROGER)",
+      "PROVIDER_RENDER_WAIT": "gap after a run that ended BLOCKED on *_NOT_ALL_COMPLETED (provider still rendering)",
+      "PROVIDER_SUBMIT": "in-run time inside submit_* / paid bgm generate commands",
+      "PROVIDER_POLL": "in-run time inside poll_giggle_submit_report",
+      "CC_REVIEW_WAIT": "gap after a run that ended REVIEW_REQUIRED (machine review answered by the agent)",
+      "CC_FIX_WAIT": "gap after a run that ended BLOCKED on anything else (agent fixing contracts / gates / tools)",
+      "PIPELINE_COMPUTE": "in-run time inside every other child command",
+      "RUN_OVERHEAD": "in-run time not covered by a child command",
+      "UNATTRIBUTED_IDLE": "gap after a run that ended PASS or with no recorded blocker"
+    },
+    "classes": {
+      "human": ["HUMAN_AUTH_WAIT"],
+      "provider": ["PROVIDER_RENDER_WAIT", "PROVIDER_SUBMIT", "PROVIDER_POLL"],
+      "cc_llm": ["CC_REVIEW_WAIT", "CC_FIX_WAIT", "PIPELINE_COMPUTE", "RUN_OVERHEAD"],
+      "idle": ["UNATTRIBUTED_IDLE"]
+    }
+  },
+  "baseline_measured": {
+    "episode": "E12",
+    "units": 53,
+    "video_model": "MiniMax-H3",
+    "window_hours": 375.82,
+    "orchestrator_runs": 239,
+    "class_hours": {"human": 34.45, "provider": 28.52, "cc_llm": 296.89, "idle": 15.96},
+    "bucket_hours": {
+      "CC_REVIEW_WAIT": 164.23, "CC_FIX_WAIT": 127.20, "HUMAN_AUTH_WAIT": 34.45,
+      "PROVIDER_RENDER_WAIT": 27.33, "UNATTRIBUTED_IDLE": 15.96, "PIPELINE_COMPUTE": 5.40,
+      "PROVIDER_SUBMIT": 1.15, "RUN_OVERHEAD": 0.06, "PROVIDER_POLL": 0.04
+    },
+    "review_items_answered": 1033,
+    "review_latency_hours_request_to_submit": 104.07,
+    "paid_video_takes": 68,
+    "units_needing_more_than_one_take": 11,
+    "comparison_E11": {"window_hours": 269.10, "class_hours": {"human": 26.50, "provider": 2.54, "cc_llm": 199.44, "idle": 40.62}},
+    "source": "scratchpad throughput/timing_decompose.py over pipeline_logs/E12 (2026-10-14T08:38Z -> 2026-10-30T00:27Z)"
+  },
+  "target": {
+    "episode_window_hours_max": 24.0,
+    "per_unit_hours_max": 0.5,
+    "class_hours_max": {"human": 2.0, "provider": 8.0, "cc_llm": 12.0, "idle": 2.0},
+    "stage_span_hours_max": {
+      "S1": 0.5, "S2": 0.5, "S3": 2.0, "S4": 0.5, "S5": 4.0, "S6": 14.0, "S7": 1.5, "S8": 1.0
+    },
+    "stage_span_definition": "first run in which the stage reported a result -> the run in which it first reported PASS (or the last run if never PASS); overlapping spans are allowed, so the per-stage sum may exceed the window",
+    "rationale": {
+      "human": "one pre-authorised batch order per episode (3a) + S8 viewing; E12 spent 34.45 h on 15 separate paid launches / DRY_PLANNED stops",
+      "provider": "E12 render waits summed 27.3 h over 18 posted waves because waves were serialised on the orchestrator re-entry; overlapping rolling waves with max_remote_inflight bound them to the longest chain, not the sum",
+      "cc_llm": "1033 review items at the measured median of 80 s/item = 23 h serial; 4 parallel unit-scoped review workers (3b) -> 5.7 h, plus 5.4 h measured pipeline compute; E12 also lost 127 h to CC_FIX_WAIT, which is removed by pre-paid proxy checks (3c), not by budget",
+      "idle": "the unattended runner (run_unattended.sh) re-enters every 20 min, so no PASS/idle gap exceeds that cadence"
+    }
+  },
+  "enforcement": {
+    "where": "tools/throughput_baseline_gate.py --episode <EP> --logs-dir <pipeline_logs/EP> [--ledger <TIME_LEDGER.jsonl>] --baseline configs/THROUGHPUT_BASELINE_V1.json --enforce",
+    "when": "S7-SYNC / line_upgrade_gate close for the episode; exit 1 = over budget",
+    "ci": "tools/tests/test_throughput_baseline_gate.py (synthetic logs) is in PORTABLE_CORE_MANIFEST portable_test_modules; the real-episode measurement needs runtime evidence and is not a clean-clone test"
+  }
+}

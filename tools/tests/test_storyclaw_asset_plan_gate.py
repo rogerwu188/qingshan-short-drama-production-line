@@ -110,9 +110,9 @@ class StoryClawAssetPlanGateTests(unittest.TestCase):
 
     def _valid_plan(self):
         proposals = [
-            {"entity_type": "character", "entity_id": "CHAR-ALLY", "model": "gpt-image-2-pro", "prompt": "ally portrait", "estimated_credits": 11, "rights_and_identity_note": "Synthetic character proposal; confirm identity and use rights."},
-            {"entity_type": "scene", "entity_id": "SCENE-B", "model": "gpt-image-2-pro", "prompt": "scene B", "estimated_credits": 12.5, "rights_and_identity_note": "Synthetic scene proposal for this private project."},
-            {"entity_type": "prop", "entity_id": "PROP-BOOK", "model": "gpt-image-2-pro", "prompt": "book reference", "estimated_credits": "3.5", "rights_and_identity_note": "Synthetic prop proposal for this private project."},
+            {"entity_type": "character", "entity_id": "CHAR-ALLY", "model": "gpt-image-2-fast", "prompt": "ally portrait", "estimated_credits": 11, "rights_and_identity_note": "Synthetic character proposal; confirm identity and use rights."},
+            {"entity_type": "scene", "entity_id": "SCENE-B", "model": "gpt-image-2-fast", "prompt": "scene B", "estimated_credits": 12.5, "rights_and_identity_note": "Synthetic scene proposal for this private project."},
+            {"entity_type": "prop", "entity_id": "PROP-BOOK", "model": "gpt-image-2-fast", "prompt": "book reference", "estimated_credits": "3.5", "rights_and_identity_note": "Synthetic prop proposal for this private project."},
         ]
         return {
             "schema": gate.PLAN_SCHEMA,
@@ -150,7 +150,7 @@ class StoryClawAssetPlanGateTests(unittest.TestCase):
             "s2_gate_evidence_path": self.s2,
             "seq29_report_path": self.seq29,
             "private_roots": [self.private],
-            "allowed_models": {"gpt-image-2-pro"},
+            "allowed_models": {"gpt-image-2-fast"},
         }
 
     def test_complete_plan_passes_and_extracts_all_script_entities(self):
@@ -211,7 +211,7 @@ class StoryClawAssetPlanGateTests(unittest.TestCase):
         self.plan["character_matches"] = []
         self.plan["ai_generation_proposals"].append({
             "entity_type": "character", "entity_id": "CHAR-LEAD",
-            "model": "gpt-image-2-pro", "prompt": "create lead portrait",
+            "model": "gpt-image-2-fast", "prompt": "create lead portrait",
             "estimated_credits": 11,
             "rights_and_identity_note": "Synthetic protagonist; user must approve identity and use rights.",
         })
@@ -231,7 +231,7 @@ class StoryClawAssetPlanGateTests(unittest.TestCase):
     def test_duplicate_match_and_ai_proposal_is_ambiguous(self):
         self.plan["ai_generation_proposals"].append({
             "entity_type": "scene", "entity_id": "SCENE-A",
-            "model": "gpt-image-2-pro", "prompt": "duplicate", "estimated_credits": 1,
+            "model": "gpt-image-2-fast", "prompt": "duplicate", "estimated_credits": 1,
             "rights_and_identity_note": "Synthetic scene proposal.",
         })
         self.plan["total_estimated_credits"] = 28

@@ -53,6 +53,7 @@ from typing import Any
 ENGINE_ROOT = Path(os.environ.get("QINGSHAN_ENGINE_ROOT", f"{_np.ENGINE_ROOT}"))
 if str(ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_ROOT))
+from tools.image_model_policy import ACTIVE_IMAGE_MODEL, image_hard_upper_credits  # noqa: E402  (Roger 2026-10-30 seq=54)
 
 SCHEMA = "nalu.episode_credit_budget_ledger.v1"
 DEFAULT_CAP = 8000
@@ -102,7 +103,15 @@ UNIT_PRICES = {
     "image_gpt_image_2_pro": {
         "credits": 5,
         "hard_upper": 11,
-        "evidence": "tools/e40_u12_v3_image_paid_preflight.py:35-36 EXPECTED_IMAGE_PRICE=5 / EXPECTED_UPPER=11",
+        "evidence": "tools/e40_u12_v3_image_paid_preflight.py:35-36 EXPECTED_IMAGE_PRICE=5 / EXPECTED_UPPER=11; "
+                    "retired for new paid submits 2026-10-30 (seq=54)",
+    },
+    # The active image SKU and its reserve price come from configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json
+    # via tools/image_model_policy.image_hard_upper_credits(); bound image tasks are reserved at that figure.
+    "image_active": {
+        "model": ACTIVE_IMAGE_MODEL,
+        "hard_upper": image_hard_upper_credits(),
+        "evidence": "registry profile pricing.hard_upper (Roger 2026-10-30 seq=54: 所有图片生成都改为 gptimage2 便宜档)",
     },
     "audio_minmax_speech_2_8_hd": {
         "credits": 2,
@@ -758,7 +767,7 @@ def scan_non_video_spend(
     audio_total = Decimal(str(audio["charged_credits"])) + Decimal(str(audio["estimated_credits"]))
 
     bound_image_upper = Decimal(len(bound_image_task_ids)) * Decimal(str(
-        UNIT_PRICES["image_gpt_image_2_pro"]["hard_upper"]
+        image_hard_upper_credits()
     ))
     return {
         "per_task_credits": number(per_task),
@@ -974,7 +983,7 @@ def _spend_evidence(episode: str, bgm_transactions_dir: Path | None = None) -> l
                     credits = BGM_PROVISIONAL_CREDITS_PER_TASK
             elif state == "SUBMITTED_TASK_ID_BOUND" and payload.get("task_id"):
                 if directory.parent.name == IMAGE_TRANSACTION_DIRNAME and not is_hopsapi_transaction(payload):
-                    credits = Decimal(str(UNIT_PRICES["image_gpt_image_2_pro"]["hard_upper"]))
+                    credits = Decimal(str(image_hard_upper_credits()))
                 elif is_hopsapi_transaction(payload) and isinstance(payload.get("provider_cost_credits"), (int, float)):
                     credits = Decimal(str(payload["provider_cost_credits"]))
                 else:
@@ -1200,7 +1209,7 @@ def scan_unevidenced_exposure(episode: str, non_video: dict[str, Any]) -> Decima
     """
     tasks_root = ENGINE_ROOT / "workflow" / "tasks"
     directory = tasks_root / VIDEO_TRANSACTION_DIRNAME / episode
-    estimates: list[Decimal] = []
+    estimate_rows: list[tuple[str, Decimal]] = []
     for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
         try:
             payload = load_json(path)
@@ -1210,8 +1219,10 @@ def scan_unevidenced_exposure(episode: str, non_video: dict[str, Any]) -> Decima
             continue  # never matched by a SingleGenerateVideo statement; counted by scan_hopsapi_spend
         if str(payload.get("state") or "") == "SUBMITTED_TASK_ID_BOUND" and payload.get("task_id"):
             estimated = payload.get("estimated_credits")
-            estimates.append(Decimal(str(estimated)) if isinstance(estimated, (int, float)) and estimated > 0
-                             else Decimal("160"))
+            estimate_rows.append((str(payload["task_id"]),
+                                  Decimal(str(estimated)) if isinstance(estimated, (int, float)) and estimated > 0
+                                  else Decimal("160")))
+    estimates = [est for _, est in estimate_rows]
     batch_used = (Decimal(str(non_video.get("batch_reconciled_credits") or 0))
                   >= max(Decimal(str(non_video.get("per_task_credits") or 0)),
                          Decimal(str(non_video.get("bound_image_transaction_upper_credits") or 0))))
@@ -1222,8 +1233,31 @@ def scan_unevidenced_exposure(episode: str, non_video: dict[str, Any]) -> Decima
                     and str(row.get("status") or "").startswith("PASS")
                     and isinstance(row.get("matched_count"), int)):
                 matched += row["matched_count"]
+    # E12 2026-10-30: statement rows carry the video task id as project_id.  A bound task whose own id is
+    # on an archived statement row is evidenced exactly; only the rest compete for the id-less batch matches
+    # (counting by batch matches alone left 36 charged tasks as exposure: 4506 false credits, cap refused).
+    if batch_used:
+        charged_ids = _statement_video_task_ids()
+        uncovered_rows = [(tid, est) for tid, est in estimate_rows if tid not in charged_ids]
+        matched = max(0, matched - (len(estimate_rows) - len(uncovered_rows)))
+        estimates = [est for _, est in uncovered_rows]
     uncovered = sorted(estimates, reverse=True)[:max(0, len(estimates) - matched)]
     return sum(uncovered, Decimal("0"))
+
+
+def _statement_video_task_ids() -> set[str]:
+    """Video task ids (project_id) on every archived SingleGenerateVideo statement row of this engine."""
+    ids: set[str] = set()
+    for path in ENGINE_ROOT.rglob("*_credit_statement.json"):
+        try:
+            payload = load_json(path)
+        except (OSError, json.JSONDecodeError):
+            continue
+        for row in (payload.get("statement_rows") or []) if isinstance(payload, dict) else []:
+            if (isinstance(row, dict) and row.get("project_id")
+                    and str(row.get("event_description") or "SingleGenerateVideo") == "SingleGenerateVideo"):
+                ids.add(str(row["project_id"]))
+    return ids
 
 
 def reserve_credits(episode: str, planned: Decimal, reservation_id: str,

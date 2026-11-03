@@ -146,9 +146,9 @@ def evaluate(
             references = _paths(row, "canonical_reference_paths")
             samples = _paths(row, "sample_frame_paths")
             local_failures: list[str] = []
-            from tools.original_identity_authority import original_reference
+            from tools.original_identity_authority import measurement_reference, original_reference
             try:
-                original = original_reference(registry['characters'][character_id])
+                original = measurement_reference(original_reference(registry['characters'][character_id]))
             except (ValueError, KeyError, OSError) as exc:
                 failures.append(f'original_identity_authority_invalid:{prefix}:{exc}')
                 continue

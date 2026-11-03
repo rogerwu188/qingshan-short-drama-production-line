@@ -502,8 +502,11 @@ class BudgetLedgerTests(unittest.TestCase):
             self.assertEqual(spend["by_kind"]["image"]["pending_exposure_credits"], 1.2)
             self.assertEqual(spend["unsettled_task_count"], 1)
             self.assertEqual(non_video["bound_image_transaction_count"], 1)  # only the Giggle row
-            self.assertEqual(non_video["bound_image_transaction_upper_credits"], 11)
-            self.assertEqual(pending, 11)  # the Giggle row only; HopsAPI rows never double in
+            # the Giggle row is reserved at the registry's active-SKU upper (tools/image_model_policy)
+            upper = ledger.image_hard_upper_credits()
+            self.assertEqual(non_video["bound_image_transaction_upper_credits"], upper)
+            # the Giggle row only (its no-estimate fallback stays the conservative 11); HopsAPI rows never double in
+            self.assertEqual(pending, 11)
 
 
 class ProviderOutageTests(EnvCase):

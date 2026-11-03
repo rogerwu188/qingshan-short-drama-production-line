@@ -1,0 +1,25 @@
+{
+  "schema": "qingshan.studio_asset_library_config.v1",
+  "purpose": "Company-level original-image asset library (objects by sha256, versioned catalog, per-project bindings). Template only: no secrets, no user paths.",
+  "enabled": false,
+  "root_env": "QINGSHAN_STUDIO_ASSET_ROOT",
+  "default_root_relative_to_home": ".qingshan/studio_asset_library",
+  "activation": "The production hooks (harvest / identity lock / reuse / keyframe / video reference) act only when QINGSHAN_STUDIO_ASSET_ROOT is set, or when this file says enabled=true (then the default root under $HOME is used). Every project on the machine points at the same root. The root must NOT be inside an engine clone, an episode folder or a temp folder.",
+  "auto_archive": {
+    "harvest": true,
+    "identity_lock": true,
+    "resolve_missing_reference": true
+  },
+  "backup": {
+    "configured_by": "environment only; nothing is configured here",
+    "endpoint_env": "STUDIO_ASSET_BACKUP_ENDPOINT",
+    "bucket_env": "STUDIO_ASSET_BACKUP_BUCKET",
+    "prefix_env": "STUDIO_ASSET_BACKUP_PREFIX",
+    "prefix_default": "studio-assets",
+    "access_env": "STUDIO_ASSET_BACKUP_ACCESS",
+    "access_required_value": "private",
+    "refused_buckets_equal_to_env": ["COLLECTIVE_OBJECT_BUCKET", "S3CTL_BUCKET", "S3_RELAY_BUCKET"],
+    "credentials": "AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, or STUDIO_ASSET_BACKUP_ACCESS_KEY_ID / STUDIO_ASSET_BACKUP_SECRET_ACCESS_KEY, or STUDIO_ASSET_BACKUP_PROFILE (never in a file)",
+    "unconfigured_behaviour": "state UNCONFIGURED; local archive, resolve, bind, export, import, verify all work; no cloud claim is made"
+  }
+}

@@ -68,6 +68,13 @@ def text_char_count(value: str) -> int:
     return len(re.findall(r"[\u4e00-\u9fffA-Za-z]", value or ""))
 
 
+def split_confident_speech(rows, max_no_speech_prob=0.5, min_avg_logprob=-1.0):
+    """(speech, ignored): a row is possible vocals only when Whisper is confident it is speech."""
+    speech = [row for row in rows
+              if row["no_speech_prob"] < max_no_speech_prob and row["avg_logprob"] >= min_avg_logprob]
+    return speech, [row for row in rows if row not in speech]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--episode", required=True)
@@ -75,6 +82,10 @@ def main() -> int:
     parser.add_argument("--content-seconds", type=float, required=True)
     parser.add_argument("--bgm-start-seconds", type=float, default=4.0)
     parser.add_argument("--model")
+    parser.add_argument("--max-no-speech-prob", type=float, default=0.5,
+                        help="a transcribed segment counts as possible vocals only below this no_speech_prob")
+    parser.add_argument("--min-avg-logprob", type=float, default=-1.0,
+                        help="...and only at or above this avg_logprob")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
 
@@ -89,11 +100,17 @@ def main() -> int:
         media = probe(path)
         metrics = loudness(path)
         segments, _ = model.transcribe(str(path), vad_filter=True, beam_size=5)
-        asr_segments = [
-            {"start": round(item.start, 3), "end": round(item.end, 3), "text": item.text.strip()}
-            for item in segments
-            if item.text.strip()
+        # Whisper invents short phrases over pure instrumental music (E13 2026-11-01: both candidates of one cue
+        # produced "You" / YouTube boilerplate, no_speech_prob 0.66-0.91, avg_logprob about -0.85).  The model's
+        # own uncertainty is the evidence that separates that from real singing, so a segment counts as speech
+        # only when it is both confident and reported as speech; the ignored rows stay in the report.
+        asr_all = [
+            {"start": round(item.start, 3), "end": round(item.end, 3), "text": item.text.strip(),
+             "avg_logprob": round(float(item.avg_logprob), 4),
+             "no_speech_prob": round(float(item.no_speech_prob), 4)}
+            for item in segments if item.text.strip()
         ]
+        asr_segments, ignored_asr = split_confident_speech(asr_all, args.max_no_speech_prob, args.min_avg_logprob)
         transcript = "".join(item["text"] for item in asr_segments)
         speech_chars = text_char_count(transcript)
         required_coverage_seconds = max(0.0, args.content_seconds - args.bgm_start_seconds)
@@ -117,6 +134,7 @@ def main() -> int:
                 "asr_character_count": speech_chars,
                 "transcript": transcript,
                 "segments": asr_segments,
+                "ignored_uncertain_segments": ignored_asr,
             },
             "timeline_fit": {
                 "start_seconds": args.bgm_start_seconds,

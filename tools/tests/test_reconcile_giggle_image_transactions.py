@@ -26,7 +26,7 @@ def _statement(*, known: int, matched: int, unmapped: int, expected: int, ambigu
                charged: int) -> dict:
     rows = [
         {"event_description": "SingleGenerateImage", "event_type": "Pay", "credit": "-11",
-         "created_at": f"2026-10-18 07:5{i}:00", "model": "gpt-image-2-pro"}
+         "created_at": f"2026-10-18 07:5{i}:00", "model": "gpt-image-2-fast"}
         for i in range(matched)
     ]
     return {
@@ -48,7 +48,7 @@ def _transaction(task_key: str, *, known: int, pay_rows: int, unmapped: int) -> 
         "schema": "qingshan.giggle_submit_transaction.v1",
         "task_key": task_key,
         "state": "CHARGE_STATE_UNRESOLVED_BATCH",
-        "model": "gpt-image-2-pro",
+        "model": "gpt-image-2-fast",
         "intent_recorded_at": "2026-10-18T07:53:14Z",
         "response_lost_at": "2026-10-18T07:54:26Z",
         "error": "Submit response missing data.task_id",

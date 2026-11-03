@@ -1277,3 +1277,234 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：E12-VU-006 事务 e54aa33：提示词第 21 行 negative_constraints 含 TEXT-FREE FRAME；OCR 在 3.4–4.2 s 命中「许叔去过吗」(x 0.32–0.68, y 0.68–0.73)；E10/E11（seedance-2.0-pro，96 次提交）0 例画内字幕，E12（MiniMax-H3）已 2 例
 - **授权**：Roger 2026-10-29「VU-006 不许用同一提示词 reroll……按顺序评估并给结论……不要直接付费」
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K131 — PROVIDERS
+
+- **规则**：付费图片模型只在 configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json 的 active_execution_policy 指定一次，所有调用点（S3 身份牌、S5 关键帧、资产工厂、账单对账、D-11 模型校验、预算台账单价）经 tools/image_model_policy.py 读取；换模型 = 改注册表 + 记一条线主订单，不再逐文件改字面量。退役 SKU 留在 known_image_models() 里，让已绑定事务与历史账单仍被识别，但 allowed_image_models() 只含当前 SKU。单价 hard_upper 在首批账单出现前沿用上一 SKU 的观测值，不凭空填低价。
+- **教训**：2026-10-30 线主要求所有图片生成改用 Giggle 的 gptimage2 便宜档以降成本；仓库里 gpt-image-2-pro 以字面量散落在 20 多个文件（引擎提交器、nalu 流水线、台账、文档、测试），且 Giggle 实际 SKU 是 gpt-image-2-pro / gpt-image-2-fast，不存在裸 gpt-image-2（text-to-image 返回 500「failed to get model price: record not found」）。
+- **恢复**：新建 tools/image_model_policy.py（active_image_model / known_image_models / allowed_image_models / image_hard_upper_credits），注册表新增 GPT_IMAGE_2_FAST_GIGGLE 并置为唯一 allowed_paid_profile；nalu_pipeline.s3_transaction_bound 对 known_image_models 逐一算指纹，避免换模型后把已付费身份牌重新计入计划开销；S5 的 D-46 按 Q1 已准入 sha 判定，不受模型切换影响。
+- **实现**：`tools/image_model_policy.py`、`configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json`、`lines/nalu/runtime/tools/nalu_pipeline.py`、`lines/nalu/runtime/tools/materialize_paid_authorization.py`、`lines/nalu/runtime/tools/nalu_budget_ledger.py`、`tools/submit_giggle_character_asset_plan.py`、`tools/submit_giggle_image_manifest.py`、`tools/storyclaw_asset_plan_gate.py`
+- **回归**：`tools/tests/test_image_model_policy.py`
+- **证据**：账单 394 行 model=gpt-image-2-pro / model_name「GPT Image 2 Official」每张 -11（2K 9:16）；2026-10-30 探测：model=gpt-image-2-fast + 非法参数 → 400「The 99:1 aspect ratio does not support 0K resolution」（模型存在），model=gpt-image-2 → 500 price record not found
+- **授权**：Roger 2026-10-30「所有图片生成都改为giggle api的gptimage2 接口，这样图片成本可以大幅度降低。」→ SUPERVISOR_ORDERS seq=54 ROGER-20261030-E12-IMAGE-MODEL-POLICY-SEQ054
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K132 — PROVIDERS
+
+- **规则**：不得用「故意非法的生成参数」向付费生成端点探测模型 id 是否存在：供应商不保证在计费前校验参数。查模型 id 只允许走只读来源（账单历史的 model 字段、官方文档/SDK 常量、供应商客服），或走正规付费前门做一张最小样张并记事务。
+- **教训**：2026-10-30 为区分 gpt-image-2 / gpt-image-2-fast / gpt-image-2-pro，操作员用 aspect_ratio=99:1、resolution=0K 向 text-to-image 投了 50 个候选 id。GPT Image 2 家族按预期返回 400/500 未计费，但 nano-banana-2 (16)、nano-banana-2-fast (5)、nano-banana (5)、nano-banana-pro (16)、seedream45 (5)、midjourney (12) 直接受理并计费，共 59 分，且未捕获任务 id、无事务记录。
+- **恢复**：事故记录在会话 scratchpad INCIDENT_20261030_model_probe_charges.md 并向线主披露；59 分不属于任何集次预算；产出丢弃。
+- **实现**：`tools/image_model_policy.py`
+- **回归**：`tools/tests/test_image_model_policy.py`
+- **证据**：账单 2026-10-30 02:59:10–02:59:28 六行 SingleGenerateImage，project_id 为空；同次探测中 gpt-image-2-pro/-fast 返回 400 未计费，gpt-image-2 等 34 个 id 返回 500 未计费
+- **授权**：操作员自查；AGENTS §付费前门禁（不得绕过 durable submitter / D-11）
+- **状态**：GUIDANCE_ONLY
+
+### K133 — S7
+
+- **规则**：成片在通过 S7 全部门禁（响度、观众检测器、独立观众审、终包 QA）之前只是 assembly/ 下的候选片（<EP>_final_candidate_9x16.mp4）；只有全部 PASS（或经 sha 绑定的线主订单承载）后才按字节复制并校验 sha 升格到 deliverables/。检查点必须把候选片标为「非交付物」并列出检测器状态。
+- **教训**：E12 2026-10-30：响度器直接把输出写进 deliverables/<EP>_final_9x16.mp4，检测器 FAIL 后交付目录里仍躺着一支「成片」，CHECKPOINT 还引用了一个从未写出的 E12_QA_REPORT.json；线主拿到的是一个不该存在的交付物。
+- **恢复**：nalu_pipeline Paths.final_candidate/ad_tail_candidate；S7 全链（响度、平行度、检测器、门、尾广告、终审、终包 QA）都对候选片操作；promote_final_candidate() 只在 S7 PASS 后复制（旧交付物按 sha 停放，不删除）；尾广告候选按 content_source_sha256 复用或停放后重建。
+- **实现**：`lines/nalu/runtime/tools/nalu_pipeline.py`、`lines/nalu/runtime/tools/final_audience_review.py`、`lines/nalu/runtime/tools/final_qa_evidence_bundle.py`
+- **回归**：`tools/tests/test_nalu_s7_candidate_promotion.py`
+- **证据**：E12 CHECKPOINT 2026-10-30T01:33Z 列出 deliverables/E12/E12_final_9x16.mp4 (sha 66879f94…) 与不存在的 E12_QA_REPORT.json，而 S7 状态为 BLOCKED FINAL_CUT_AUDIENCE_DETECTORS_FAIL
+- **授权**：Roger 2026-10-30 E12 成片审看结论（FAIL，不批准）+ 优先级清单；SUPERVISOR_ORDERS seq=56（1K）
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K134 — S7
+
+- **规则**：BLANK_SCREEN 只能在「均值亮度极端 且 画面色调均匀（signalstats 10–90% 亮度跨度 YHIGH−YLOW < 8/255）」同时成立时判定；只看 YAVG 会把有纹理的夜戏判成黑场。冻结帧单独用 YDIF≈0 判（FROZEN_FRAME ≥1 s）。没有跨度数据的采样一律不判黑场（不可验证≠成立）。
+- **教训**：E12 2026-10-30：YAVG 单一准则在夜戏上报了 14 段/80 s 黑场，实测这些段 10–90% 跨度 24–74 级、YMAX≥135，真实黑场 0、冻结 0；线主明确要求按准则重校或退役该检测器，而不是调阈值让它过。
+- **恢复**：final_cut_shot_plan_parity.py luma_samples 采 YAVG/YLOW/YHIGH/YDIF；is_blank_frame() 双准则；新增 FROZEN_FRAME；method 块记录 dark_textured_samples_not_blank。
+- **实现**：`lines/nalu/runtime/tools/final_cut_shot_plan_parity.py`
+- **回归**：`tools/tests/test_nalu_e05_sync.py`
+- **证据**：E12_FINAL_CUT_SHOT_PLAN_PARITY.json (2026-10-30T01:31Z) BLANK_SCREEN 14 段 vs 人工复核 0 黑场/0 冻结
+- **授权**：Roger 2026-10-30 E12 成片审看结论（FAIL，不批准）+ 优先级清单；SUPERVISOR_ORDERS seq=56（1K）
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K135 — S4
+
+- **规则**：同场对手戏的两个角色，参考基频中位数差必须 ≥ 40 Hz（绝对值，不是 15% 比例），否则 S4 voice cast FAIL，不得进 S6；成片 voice_distinctness 必须 PASS 才能进 S8。
+- **教训**：E12 2026-10-30：比例规则放行了 98/132 Hz 这类两把低男声，成片里秦铭/许岳平/冯易安/酒保四对声线撞车（VOICE_COLLISION ×4，出带 24 句），观众分不清谁在说话。H3 原生发声且忽略 2 s 参考音，参考基频与实测会漂移，所以选角阶段就要留足间距。
+- **恢复**：voice_cast_gate.precheck F0_MEDIAN_SEPARATION_LT_40HZ:<a>:<b>:<hz> → FAIL；build_voice_cast 写 copresent_f0_matrix 并硬 FAIL；已生成的成片用 WORLD 共振峰保持的逐句移调（final_cut_voice_pitch_unify.py）免费修，不重投。
+- **实现**：`tools/voice_cast_gate.py`、`lines/nalu/runtime/tools/build_voice_cast.py`、`lines/nalu/runtime/tools/final_cut_voice_pitch_unify.py`
+- **回归**：`tools/tests/test_voice_cast_gate.py`
+- **证据**：E12_FINAL_CUT_AUDIENCE_DETECTORS.json voice_distinctness FAIL：秦铭各场中位数 127–215 Hz，许岳平 101–186 Hz，4 对碰撞
+- **授权**：Roger 2026-10-30 E12 成片审看结论（FAIL，不批准）+ 优先级清单；SUPERVISOR_ORDERS seq=56（1K）
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K136 — S7
+
+- **规则**：成片终混必须整片 ASR 回读并逐句与烧录字幕比对（字符相似度 ≥0.8 算匹配），匹配率 ≥95% 才算语音可懂；回读按媒体 sha 缓存，不跳过静音（VAD 关）。
+- **教训**：E12 2026-10-30：线主听出 8 段乱语/非中文（4.4–6.4 s 等），而 S7 的 ASR 门只用逐单元 ASR 窗做计时与词表检查，从未把「观众听到的」和「字幕写的」对上；本线无 TTS，H3 原生发声出错时只有回读能抓到。
+- **恢复**：final_cut_audience_detectors 新增 subtitle_asr_agreement（faster-whisper large-v3 回读，--readback-asr-json 缓存）；S7 把 <EP>_FINAL_CUT_READBACK_ASR.json 传给检测器。
+- **实现**：`tools/final_cut_audience_detectors.py`、`lines/nalu/runtime/tools/nalu_pipeline.py`
+- **回归**：`tools/tests/test_final_cut_audience_detectors.py`
+- **证据**：Roger 2026-10-30 审看清单 1a：8 个时间窗；E12 S7 检测器此前对该问题全部 PASS
+- **授权**：Roger 2026-10-30 E12 成片审看结论（FAIL，不批准）+ 优先级清单；SUPERVISOR_ORDERS seq=56（1K）
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K137 — PROVIDERS
+
+- **规则**：付费图片任务默认用注册表 active profile 的最低档分辨率（Giggle GPT Image 2：1K）；分辨率与模型 id 一样只能来自 tools/image_model_policy.py，不得在调用点写字面量；退役的分辨率留在 legacy 列表里，事务恢复必须按 模型×分辨率 全组合匹配，已付费的 2K 底板/关键帧不得因切档重投。
+- **教训**：2026-10-30 线主先后下令换 gpt-image-2-fast（seq=54/55）再降到 1K（seq=56）；S3 的 submission_fingerprint 含 resolution，若只改默认值，所有已绑定的 2K 角色底板都会被视为未绑定而重新 POST 计费。
+- **恢复**：IMAGE_MODEL_CAPABILITY_REGISTRY_v1 default_resolution=1K + legacy_resolutions；image_model_policy.known_image_resolutions()；nalu_pipeline.s3_transaction_bound 遍历 model×resolution；build_keyframe_manifest --image-resolution 默认读策略。fast@1K 单价未验证前 ledger 预留 hard_upper=11。
+- **实现**：`tools/image_model_policy.py`、`configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json`、`lines/nalu/runtime/tools/nalu_pipeline.py`、`lines/nalu/runtime/tools/build_keyframe_manifest.py`
+- **回归**：`tools/tests/test_image_model_policy.py`
+- **证据**：SUPERVISOR_ORDERS seq=56 ROGER-20261030-E12-IMAGE-MODEL-POLICY-SEQ056；S3 fingerprint 合同字段 model/aspect_ratio/resolution（tools/submit_giggle_character_asset_plan.py submission_fingerprint）
+- **授权**：Roger 2026-10-30 E12 成片审看结论（FAIL，不批准）+ 优先级清单；SUPERVISOR_ORDERS seq=56（1K）
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K138 — S6
+
+- **规则**：H3 会给没有台词字面的拍子（开口前的空拍、两句之间的停顿、无台词单元）自己配音——胡话、英文或同音乱词。每个无台词拍子必须显式写「此拍无语音、嘴闭合」，一个 4 s 单元里不要在 2.5 s 静拍后接 ≤3 字短句；成片门必须整片回读比对字幕，而不是只靠逐单元召回率。
+- **教训**：E12 2026-10-30：线主听出 8 段乱语，根因全部是 a 类（H3 填满静拍），提示词里的中文字面都正确；小模型 ASR 查到 19/53 单元有脱稿语音。对白门只查召回率，D-28 的 VAD 复核把 VU-050 救回，实测剪辑约束又把 VU-041 的胡话当对白保护了。
+- **恢复**：免费：重剪（unit_recut，丢胡话段 + 反应插入 / 只换胡话段音轨为底噪）；付费：改提示词重投（不得同提示词）。成片门 subtitle_asr_agreement 同时测「字幕之外的语音秒数」。
+- **实现**：`lines/nalu/runtime/tools/unit_recut.py`、`tools/final_cut_audience_detectors.py`
+- **回归**：`tools/tests/test_final_cut_audience_detectors.py`
+- **证据**：F2_report.md（E12_repair_20261030）：8 窗口逐一归因；VU-033/037 同模式；F6 v2 重剪后 whisper 听到全部契约台词
+- **授权**：Roger 2026-10-30 E12 成片审看结论（FAIL）+ F2/F4/F5 分支实测
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K139 — S2
+
+- **规则**：对白单元默认固定机位；运镜必须由剧本/导演层明写，且单元内不得换向。这条规则必须落在写作/导演适配层，后处理稳定化只能去抖动，救不回被写进提示词的整幅位移。
+- **教训**：E12 2026-10-30：adapt_v4_layers_to_runtime 的对白家族「永不 LOCKED」且交替换向，52/53 个对白单元都带运镜，20/53 自带换向；H3 把它们做成近一个画幅宽的位移，锁定需裁 ≥99%。稳定化后锁定 0→1/53、不稳定 12→7，离 ≥70% 目标无望；重投 ~52 单元 ≈3,200 cr。
+- **恢复**：S7 新增 camera_motion_metrics + clip_lockoff_stabilize（SMOOTH 去抖、裁切上限 20%、人脸保护）与 FINAL-CUT-CAMERA-MOTION 门（如实 FAIL，订单承载）；提示词规则补丁与 camera_move_lint 已起草待落写作层。
+- **实现**：`lines/nalu/runtime/tools/camera_motion_metrics.py`、`lines/nalu/runtime/tools/clip_lockoff_stabilize.py`、`lines/nalu/runtime/tools/nalu_pipeline.py`
+- **回归**：`tools/tests/test_camera_motion_metrics.py`
+- **证据**：F5_report.md：53 单元 before/after 表；E12_CAMERA_MOTION_METRICS_BEFORE.json 0/53 锁定
+- **授权**：Roger 2026-10-30 E12 成片审看结论（FAIL）+ F2/F4/F5 分支实测
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K140 — S7
+
+- **规则**：成片响度链的真峰值限幅必须 4 倍过采样，并给 AAC 编码留 ≥2.5 dB 余量（限幅 −2.5 dBFS 才能稳定 ≤ −1.0 dBTP）；移调等改音轨的阶段放在响度器之前，铺底/垫乐只做静态增益。
+- **教训**：E12 2026-10-30：两遍线性 loudnorm 分支的 alimiter 在 48 kHz 跑，重剪接缝让成片到 −0.8 dBTP；加过采样后仍 −0.8，实测 AAC 编码会把已限幅峰值再抬 0.3–1.0 dB（−1.5 限幅 → −0.8，−2.5 → −2.0）。移调放在响度器之后时真峰值升到 −1.0，铺底为守峰值把综合响度让到 −15.3。
+- **恢复**：level_native_release_audio 线性分支 aresample=192000 + alimiter −2.5 dB；S7 顺序：移调 → 响度器 → 铺底 → 候选片；响度器输出不可变，画面变了就按 sha 停放旧证据。
+- **实现**：`tools/level_native_release_audio.py`、`lines/nalu/runtime/tools/nalu_pipeline.py`、`lines/nalu/runtime/tools/final_cut_audio_bed.py`
+- **回归**：`tools/tests/test_native_audio_loudness_contract.py`
+- **证据**：E12_NATIVE_AUDIO_LOUDNESS 2026-10-30 两次 FAIL RELEASE_TRUE_PEAK_EXCEEDS_CEILING:-0.8；限幅余量实验 tp_test_*.m4a
+- **授权**：Roger 2026-10-30 E12 成片审看结论（FAIL）+ F2/F4/F5 分支实测
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K141 — S7
+
+- **规则**：整片回读用 faster-whisper small/medium、按 ≥25 s 连续段整块解码（不要逐单元）、silero VAD、简体提示词、不带上下文续接、断点续传缓存；噪声段只在 no_speech>0.6 且 logprob<−1.0 同时成立时丢弃；字幕比对用 字符与拼音的 partial ratio，并统计字幕之外的语音秒数。
+- **教训**：E12 2026-10-30：large-v3 整片回读 2 小时被杀；逐单元窗口丢上下文（回声上一单元尾、漏第二句）；铺底让 no_speech 升到 0.6–0.7 把整段清晰对白当噪声丢掉；小形标点和同音错字把匹配率压到 35%。修正后同一缓存 23→54/65。
+- **恢复**：tools/final_cut_audience_detectors.py subtitle_asr_agreement + load_or_run_readback；S7 用 NALU_S7_ASR_MODEL 控制模型。
+- **实现**：`tools/final_cut_audience_detectors.py`
+- **回归**：`tools/tests/test_final_cut_audience_detectors.py`
+- **证据**：scratchpad e12_repair/final/E12_DETECTORS_candidate_v2*.json 五次迭代；medium 逐单元 781 s
+- **授权**：Roger 2026-10-30 E12 成片审看结论（FAIL）+ F2/F4/F5 分支实测
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K142 — S6
+
+- **规则**：H3 身份参考若是源照的像素裁切（PIXEL_CROP 身份传输），提示词只能锁「脸、年龄、发型」，服装与头饰取自 @Image1 起始帧和服装文字；不得对裁切图写「lock face, age, hair, body and wardrobe」。标记在 `provider_prompt_unit()` 里加（S6 波次编译与付费边界都走它），不是 S2 任务构建器。
+- **教训**：E12 2026-10-30：秦铭用带刺绣袍与金属冠的源照当身份参考，H3 把袍冠贴到每个镜头；换成脸部裁切后仍因身份行写着「锁服装」、裁切里露出的领口又把袍冠带回来（5/5 单元）。改成只锁脸后服装 5/5 正确。第一次只在 S2 构建器加标记，S6 编译根本不读，提示词纹丝未动——改动后必须核对最终提示词文本（K 系列老教训）。
+- **恢复**：在资产库登记 `original_identity_authority.transport_pixel_crop`（像素级校验）；`tools/original_identity_authority.episode_pixel_crop_transport_paths` → `face_only_identity_references` → 两个 H3 渲染器的只锁脸行。
+- **实现**：`tools/h3_provider_prompt_renderer.py`、`tools/h3_director_prompt_v2.py`、`tools/submit_giggle_video_manifest_v2.py`、`tools/original_identity_authority.py`
+- **回归**：`tools/tests/test_h3_face_crop_identity_lock.py`
+- **证据**：commits 85a76cb、8aaf7e0；E12 assembly/E12_FACE_CROP_REDO2.json
+- **授权**：Roger 2026-10-30「同意」（第二次受控重做）
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K143 — S6
+
+- **规则**：H3 提示词的禁文字条款（TEXT-FREE FRAME）放在提示词第一行、所有动作文字之前，negative_constraints 里不再重复。成片前对每个单元片按 2 fps 下半幅 OCR，含 ≥2 个汉字的命中即烧录字幕（不可仲裁）。
+- **教训**：E12 2026-10-30：条款只在提示词末尾的 negative_constraints 时，H3 在 25 个单元片中 7 个烧录了对白字幕（全是对白镜）；K031 的旧经验（前置条款后干净）此前只写进知识库、没进渲染器。后处理不可行：本线字幕在 y≈0.82–0.87，烧录字在 0.68–0.73，叠盖会出现两行字幕，裁切需 1.5× 推近。
+- **恢复**：渲染器第一行输出 ANTI_TEXT；受影响单元按 K130 走改提示词重做（线主批准）。
+- **实现**：`tools/h3_provider_prompt_renderer.py`
+- **回归**：`tools/tests/test_h3_director_prompt_v2.py`（V1ByteIdentity 断言首行）及重钉的字节钉
+- **证据**：commit 1a84461；E12 assembly/E12_BURNED_SUBTITLE_REDO.json；OCR 扫描结果（rapidocr，2 fps，下 45% 画面）
+- **授权**：Roger 2026-10-30「是的」
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K144 — S7
+
+- **规则**：MiniMax-H3 会把正在说的台词烧录进画面（居中，y≈0.67–0.80）；提示词首行禁文字（K143）只能降低、不能消除。启用 H3_BURNED_TEXT_COVER_V1 的集：S7 先 OCR 成片画面该区段得到烧录时段，字幕整集挪到该区段的深色横条上，横条同时覆盖每个烧录时段；烧字幕后再 OCR 复核——横条外不得有汉字，横条内的字必须是当时屏上字幕，否则阻断。
+- **教训**：E12 2026-10-31：TEXT-FREE 首行后 49 个单元片仍有 12 个烧录对白（约 1/4）；改全身构图只救回 1 个；同提示词重投是赌概率（K130）。线主选择整集统一的遮盖横条而不是逐片重投。
+- **恢复**：configs/H3_BURNED_TEXT_COVER_V1.json 列集或合同声明 h3_burned_text_cover_policy；tools/burned_text_cover.py scan/verify；build_burnin_subtitles.py --cover-band --cover-intervals。
+- **实现**：`tools/burned_text_cover.py`、`lines/nalu/runtime/tools/build_burnin_subtitles.py`、`lines/nalu/runtime/tools/nalu_pipeline.py`
+- **回归**：`tools/tests/test_burned_text_cover.py`
+- **证据**：E12 OCR 49 片 12 片烧录（006 015 020 030 031 032 034 037 042 047 051 053），位置 y 0.67–0.80、x 0.09–0.91
+- **授权**：Roger 2026-10-31「同意」
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K145 — S2
+
+- **规则**：新集的视频模型只能来自正式运行配置 qingshan.json 的显式 generation.video_model（受支持值 seedance-2.0-pro / MiniMax-H3）；缺文件、缺字段、空值、非字符串、未知模型一律报错（VideoModelSelectionError），S2 不得编译、不得写本集模型锁，没有默认模型。已有本集锁或 editorial manifest 时以记录为准；记录存在但不可读、未写模型、模型不受支持，或锁与 manifest 互相矛盾，一律阻断，不得当作“没有记录”重新选择或覆盖。首次写锁用临时文件 + 硬链接独占创建，竞争失败方沿用已写入的模型。真实视频提交入口 submit_giggle_video_manifest_v2.main() 在任何门禁、意图记录与 POST 之前核对 format_contract、allowed_video_models 和每个任务的 model（即请求体的 model）都等于本集记录模型，否则以期望值/实际值/来源/文件拒绝（含 --precheck-only）。记录归属（3d20cae 复验补修）：锁、editorial manifest 或任务行显式声明的 episode 与当前解析的集不一致时，在任何 POST 前报 VIDEO_MODEL_LOCK/MANIFEST/TASK_EPISODE_MISMATCH，原记录不删、不覆盖、不改用配置；没有 episode 字段（缺键或 null）的历史记录是另一种情况：只对存放它的本集路径有效（episode_attribution=path_legacy），空串或非字符串视为声明了别的集。提交入口只用经过验证的生产 scope 判断：manifest 由 nalu 构建器生成、或 manifest/任务 prompt_file 位于 nalu_paths 的 WORK_ROOT 下（且必须在本集目录内）、或 production_scope 声明 line=nalu （构建器写入 runtime_root/work_root/episode，必须与当前生效的 nalu_paths 根和集号逐项一致，否则 VIDEO_MODEL_SCOPE_MISMATCH）；声明别的生产线却有 nalu 归属证据报 VIDEO_MODEL_SCOPE_CONFLICT。没有任何证据的 manifest 属于别的生产线，即使集号相同也不按本线锁判断。--project-root 仍只负责提示词/工具相对路径，不参与归属。
+- **教训**：2026-10-30 E67 预备：用户选定 MiniMax-H3 只写在私有导演草稿里，E67 的 qingshan.json、本集锁、editorial manifest 均不存在，episode_video_model("E67") 却返回 seedance-2.0-pro——configured_video_model() 在缺配置/缺字段/读失败时静默回退 SD2，recorded_video_model() 把损坏的锁或 manifest 当作不存在，首次 S2 的 select_video_model() 会把这个默认值写成本集锁，之后每个付费阶段都照锁执行。没有发生错模型扣费，但这是确定性失败模式：缺配置会把错误模型固化进锁。记入知识库本身不防错，防错的是代码里的报错与提交前核对。2026-10-31 Codex 复验 3d20cae：临时 E67/video_model.json 写 {"episode":"E66","video_model":"seedance-2.0-pro"} 时 episode_video_model("E67") 与提交前检查仍接受 SD2；另一条独立生产线（other_line_builder、E12 SD2）因与全局 nalu_paths 所指线 A 同用 E12，在 main --precheck-only 中被按 A 的 H3 锁误拒。集号只是名字，不是归属：记录要核对自身声明的集，manifest 要绑定实际生产根。
+- **恢复**：在运行时根 qingshan.json 写 generation.video_model（如 "MiniMax-H3"），重跑免费 S2；核对 preproduction/<EP>/video_model.json、editorial manifest model_contract、事务清单 format_contract/任务 model 一致。锁或 manifest 损坏/冲突时按报错列出的文件人工裁决，不要删锁让引擎重选。EPISODE_MISMATCH：按报错文件人工确认该记录属于哪一集，不要删除或改写来让检查通过；SCOPE_MISMATCH：用 manifest production_scope 记录的那套 NALU_RUNTIME_ROOT/NALU_WORK_ROOT 运行提交，或在正确的运行时重跑免费 S2 重建 manifest。
+- **实现**：`lines/nalu/runtime/tools/nalu_video_model.py`、`lines/nalu/runtime/tools/build_nalu_preproduction.py`、`lines/nalu/runtime/tools/record_paid_production_order.py`、`tools/submit_giggle_video_manifest_v2.py`
+- **回归**：`tools/tests/test_nalu_h3_video_model.py`（ExplicitVideoModelSelectionTests、EpisodeAndScopeBindingTests）
+- **证据**：E67 只读复现：三个正式文件均缺失时 episode_video_model 返回 seedance-2.0-pro；临时运行时离线回归 ExplicitVideoModelSelectionTests 7 例；3d20cae 复验补修：Codex 离线复现脚本 reproduce_k145_binding_gaps.py 两项缺口修复前均复现、修复后均不再复现（POST=0）；EpisodeAndScopeBindingTests 5 例（错集锁/manifest/任务、无 episode 字段历史记录、两条线同集号正确归属、错归属与跨 scope 锁/manifest 冲突经真实 main() POST=0、构建器写入 scope）；E12 实付 manifest（无 production_scope 的历史格式）以真实根只读核对 PASS
+- **授权**：Roger 2026-10-30 视频模型静默回退修复通知（给CC_视频模型静默回退修复通知_20261030）
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K146 — S5
+
+- **规则**：关键帧（起始帧/重锚帧）提示词必须写明在场角色的固定外貌——年龄、胡须、体型（合同 character_entities[].appearance_anchor_en，与 H3 提示词第二行同一来源），作为【外貌锁】块放在【服装锁】之后；只靠正面头像参考不够，图像模型会按姿态和服装自行补脸。H3 以关键帧为开场构图/重锚参考时会照抄关键帧里的脸，视频层的外貌行和身份参考压不住它。所以身份 P0（换人、年龄/胡须不对）的视频重做，先查该单元的 @Image1/重锚关键帧画的是谁，错在关键帧就重出关键帧（改关键帧提示词，K130 满足），不要只重投视频。已经生产的集保持关键帧提示词字节不变（K070 先例），只对受控重做的镜头打开；E13 起默认生效。重出后照常过 Q1：脸对了但站位/景别不对同样是 REJECT，补写站位后再出。
+- **教训**：E12 2026-10-31 后生成剧情审：VU-003 秦铭长出八字胡山羊须、VU-009 许岳平变成无须青年、VU-039 冯易安被演成偏瘦细须男子（P0 换人）。三个单元的身份参考都在（秦铭脸部裁切、许岳平/冯易安正面头像），视频提示词第二行也写了外貌；根因在关键帧：S02-02（重锚）、S04-01（开场构图）、S14-02（重锚）三张图本身就画错了脸，而关键帧提示词里没有一个字写年龄、胡须或体型。加【外貌锁】后三张一次画对；S04-01 第一次重出脸对但站位左右反、景别推近，补写「许岳平整个人在画面右半边、秦铭左半边落后半步、中景」后第二次通过。
+- **恢复**：停放画错脸的关键帧与该单元的 Q1 目录、成片、尾帧（开场关键帧变了的单元连同起始帧证据与 action_role 证据），重建关键帧清单确认只有目标镜头的提示词变化，走整批提示词门后付费 S5，Q1/起始帧/action_role 重审，再 S6 重投视频。
+- **实现**：`lines/nalu/runtime/tools/build_keyframe_manifest.py`
+- **回归**：`tools/tests/test_keyframe_appearance_lock.py`
+- **证据**：E12 S02-02/S04-01/S14-02 旧关键帧对比新关键帧（49dbd76）：秦铭无须、许岳平四十多岁短须、冯易安魁梧浓黑络腮胡；重建 73 个关键帧提示词，只有这 3 个变化，其余字节不变。
+- **授权**：Roger 2026-10-31 选「1」（E12 后生成审 5 个严重单元：003/009/039 重做）
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K147 — S6
+
+- **规则**：Q2 的证据与索引都按本集、按当前成片 take 绑定：(1) prepare 只合并同一 take（媒体 sha 相同）的旧帧，换 take 后旧帧移入 frames/_superseded/，不得让审核员看到上一条视频的帧；(2) 只审一个或几个单元的 Q2 build 不得把全集 VIDEO_Q2_INDEX 缩成这几个单元——未覆盖单元的旧行在媒体 sha 未变时沿用，sha 变了或文件缺失则丢弃并阻断；计划中从未入索引的单元也不得让状态显示 ALL_ADMITTED。
+- **教训**：E12 2026-10-31：003/009/039 重做后按单元重审 Q2，build 写出的 E12_VIDEO_Q2_INDEX.json 只剩 2 个单元且状态 ALL_ADMITTED，S6 随之放行，S7 报 AGENTCUT_PROJECT_NOT_BUILT（只装配了 2/53）。同一轮还发现 149 张旧 take 的帧残留在 frames/ 里被一并送审，015/017/020 需重新 prepare。
+- **恢复**：用全集审核文件重跑 build（或依靠沿用逻辑），核对索引 unit_count 等于计划单元数、carried_forward/dropped_stale/unindexed 三个列表；有旧帧的单元 prepare --unit X 重抽。
+- **实现**：`lines/nalu/runtime/tools/video_q2_builder.py`
+- **回归**：`tools/tests/test_video_q2_partial_index.py`
+- **证据**：E12 当前索引以新逻辑空审核重算：53 行全部沿用、0 丢弃；旧帧修复见 956685e（test_video_q2_stale_frames）。
+- **授权**：Roger 2026-10-30 E12 成片不批准，修复优先级 0 流程
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K148 — S1
+
+- **规则**：对白镜默认固定机位必须落在写作层：导演稿对白镜的机位文字默认写「固定机位」，只有有叙事动机（揭示、逼近威胁、跟随走位）时才写运镜，并在同一机位文字里写明「动机：…」；一个单元内只允许一个方向。自 E13 起合同须带 locked_dialogue_camera_policy + locked_dialogue_writer_motive：nalu 线由逐集构建器（build_e13_layers.py 起，直接写合同）盖章，经 adapt_v4_layers_to_runtime 出合同的线由适配器按集号盖章；static_design_gate R11 在 S1 阻断无动机的对白运镜。只在本线适配器里开，不改共享 configs/LOCKED_DIALOGUE_CAMERA_V1.json（会把别的线 E13+ 的集一并打开）。
+- **教训**：E12 LOCKED_DIALOGUE_CAMERA_V1 下游补丁（适配器/R9/R10/渲染器/提示词 lint）全部生效后，成片锁定机位仍只有 17 %（目标 70 %）：导演稿 52/53 个单元自己写了「特写推近」「横移」，authored_move() 把这些当作写作者授权，运动照样进了提示词。下游门只能守住『没写就别动』，写了就放行——根因在写作层的默认。
+- **恢复**：E13 写导演稿时对白镜写「固定机位」；需要运镜的写「推近（动机：…）」。S1 报 R11 时改导演稿机位文字，不改门。
+- **实现**：`lines/nalu/runtime/tools/adapt_v4_layers_to_runtime.py`、`lines/nalu/runtime/tools/static_design_gate.py`、`lines/nalu/runtime/tools/camera_move_lint.py`、`tools/locked_dialogue_camera_policy.py`
+- **回归**：`tools/tests/test_locked_dialogue_camera_policy.py`
+- **证据**：E12 FINAL-CUT-CAMERA-MOTION：锁定 9/53（0.1698），不稳 5 单元；seq=70 接受。导演稿 52/53 单元写有运镜（prompt_rule_locked_dialogue_camera.patch.md 补丁 5）。；E13 合同（构建器盖章）S1 static_design_gate PASS，对白镜机位文字全部为固定机位、0 处 R11。
+- **授权**：Roger 2026-10-30 E12 成片审看 item 2：对白单元默认固定机位；seq=70 「接受，继续出片（推荐）」
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K149 — S7
+
+- **规则**：H3_BURNED_TEXT_COVER_V1 的复核只管 H3 烧进画面里的那句对白，不管画面里的一切汉字：横条外命中只在两种情况下算失败——命中点离烧录带不超过 dialogue_band_pad（默认 0.10），或该文本读起来就是当时屏上的字幕；其余命中记入 ignored_non_dialogue_text 放行。场景招牌/门联/匾额上的字归 PERIOD-ANACHRONISM-LOCK（Q2）管，不归字幕遮盖门管。
+- **教训**：E13 2026-11-01：S7 的 s7_burned_text_verify 以 exit=2 阻断（H3_BURNED_TEXT_STILL_VISIBLE），命中 8 处横条外汉字，y 0.005–0.141，全部来自 VU-014 门匾与门联上模型画出的无意义古体字；这些字 Q2 已按场景招牌记 P2（PERIOD-ANACHRONISM-LOCK），从不是字幕。遮盖门把它们当『横条外有字』= 失败，于是为不属于它管的缺陷挡住 S7。收窄到对白文本后同一批 OCR 命中 PASS，6 处真实烧录对白仍被横条盖住。
+- **恢复**：`tools/burned_text_cover.py` verify() 按 verify.dialogue_band_pad 判横条外命中；`configs/H3_BURNED_TEXT_COVER_V1.json` 的 verify.dialogue_band_pad 调带宽（默认 0.10）。场景招牌类无意义文字走 Q2 的 PERIOD-ANACHRONISM-LOCK 申报（NOISE: 或 P2），不要在遮盖门里豁免。判据案例见 `docs/knowledge/KNOWLEDGE_LOOP_CASE_001.md`。
+- **实现**：`tools/burned_text_cover.py`、`configs/H3_BURNED_TEXT_COVER_V1.json`
+- **回归**：`tools/tests/test_knowledge_loop_case.py`
+- **证据**：E13 CASE_001_BURNED_TEXT_SCOPE：run_20261101T090410 的 exit=2 + H3_BURNED_TEXT_STILL_VISIBLE；同一批 8 处命中在 PASS 报告的 ignored_non_dialogue_text 里；改前代码（git 7ed3399）在同一输入上复现 FAIL 且失败行完全相同；契约阻止未消费的规则读成已消费（NOT_YET_CONSUMED_BY_REAL_RUN）。
+- **授权**：Roger 2026-11-01「同意你的处理意见」（Q2 烧录字幕遮盖提案）+ 2026-11-01 item 5 知识回路案例 001
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K150 — S5
+
+- **规则**：证据绑定的是实际发出的请求，不只是审核文件。三项检查，均逐任务、默认关闭：(1) Q1/SFE 证据记录带 provider_request_binding——阶段、已审核的请求 sha、清单里的提示词 sha / 模型 / 参考列表（用途 + 版本 + 原图 sha + 发出副本 sha）；供应商任务标识与 payload sha 在回执到来前记为空值并写明原因，不编造、不从别的任务挪用。(2) `tools/provider_request_digest.py bind-receipt` 以两侧的请求 sha 把供应商事务接到这条记录上，拒绝 RECEIPT_NOT_REQUEST_BOUND / RECEIPT_FOR_ANOTHER_REQUEST / REQUEST_SHA_CHANGED_SINCE_REVIEW / TASK_ID_NOT_BOUND。(3) 策略外的发送报 UNENFORCED，不报 NOT_REQUIRED/PASS；提示词文本、任一参考文件、模型、整请求摘要或 payload sha 变动时，binding_still_valid 答 INVALID 并要求重审。
+- **教训**：审核只绑定了审核请求 sha 和资产 sha。之前每条回执都绑的是文件，所以 H3 重渲染、参考图重排、发送时压缩都能在审核之后改变请求，而记录仍显示完整；未强制的集报 NOT_REQUIRED，读回执的人会当成通过。另外 keyframe/video_q2 请求只列生成出来的资产，评审者从未看到身份参考牌就回答了"这是锁定身份的那个人"。
+- **恢复**：回执到后：`tools/provider_request_digest.py bind-receipt --record <evidence.json> --transaction <事务文件>`。发送前：用 binding_still_valid（或 verify 子命令）校验，INVALID 就重审。请求的 reference_media.missing 非空时，该用途的问题答 UNCERTAIN 并记 MISSING_REVIEW_REFERENCE 缺陷——在那里答 PASS 会被以 reference_claim_without_reference 拒绝。开关：`configs/PROVIDER_REQUEST_REVIEW_BINDING_V1.json`（enabled_episodes / enabled_from_episode、receipt_binding.enabled、review_media.*）。
+- **实现**：`tools/provider_request_digest.py`、`lines/nalu/runtime/tools/vlm_review_protocol.py`、`lines/nalu/runtime/tools/nalu_qa_common.py`、`lines/nalu/runtime/tools/keyframe_q1_builder.py`、`lines/nalu/runtime/tools/start_frame_evidence_writer.py`、`configs/PROVIDER_REQUEST_REVIEW_BINDING_V1.json`
+- **回归**：`tools/tests/test_provider_request_binding_chain.py`
+- **证据**：离线：所有路径为临时目录，无付费阶段。三个文件共 60 项测试；导入这些模块的 222 项测试全部通过。尚未在真实发送上运行（E14 起才可能启用）。
+- **授权**：线主 2026-11-01 第 3 条：「实际提交的数据」与「审核通过的数据」不得不同
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K151 — S3
+
+- **规则**：生成出来的参考原图按内容保管，不按集目录路径保管。(1) 真实 S3 收割处把下载的原件复制（不是链接、不重新编码）进公司素材库 `objects/sha256/<前两位>/<sha>.<扩展名>`，登记为 UNREVIEWED；(2) 身份锁把真实审核结论（审核文件 sha256）关联到不可变的资产版本：PASS 为 APPROVED 并绑定到本作品角色，其余为 REJECTED 且不绑定；(3) 所有消费已登记参考图的位置（S2 复用校验、跨集复用锁、S5 关键帧绑定、S6 视频身份牌查找）经同一个解析器取图：旧路径字节仍匹配 sha 就用旧路径，否则用公司库同 sha 原件的副本，否则无；(4) 只按字节去重，版本号不得复用于不同内容，绑定固定版本而不跟随推荐版本，跨项目使用是明确的绑定、创建独立角色（project_fields 从空开始）、不去掉 project_id 检查；(5) 母版损坏或缺失只阻塞依赖它的阶段（STUDIO_ASSET_RESTORE_PENDING）并写恢复请求，不退化成付费重做；(6) 备份是单独配置的私有目标，未配置如实报 UNCONFIGURED，与知识库或成片中转共用的桶被拒绝。
+- **教训**：资产登记表登记了路径和 sha，但字节只在单集工作目录里（2026-11-02 快照 228 个 PNG 路径中 205 个在单集目录）。S2 复用校验与关键帧/视频参考绑定都要求旧路径存在，所以集目录被移走或清理后，免费复用会悄悄变成“素材缺失”，进而规划付费重做；只记路径的登记表无法回答图片是否仍然拿得到。这与「门存了状态却没有在使用点增量检查」是同一形状：记录在，它指向的东西不在，没有消费者在自己的使用点检查。
+- **恢复**：用 `QINGSHAN_STUDIO_ASSET_ROOT` 启用（见 `configs/STUDIO_ASSET_LIBRARY_V1.json`）。历史一次性、幂等导入：`tools/studio_asset_library.py migrate --library <asset_library.json> [--source-map ...] [--harvest-status ...]`（先预览，再加 `--apply`）。旧引用消失：`legacy-resolve --path <旧路径> --sha256 <sha>`。损坏：`verify`，然后 `repair --sha256 <sha> --from <候选文件>`（只接受 sha 匹配）或 `backup restore --sha256 <sha>`。清理是另一回事：`cleanup-plan` 只列字节已在库内验证的集内文件，`release-plan` 没有已核验备份回执就什么都不列，模块内没有任何命令会删除公司库原件。
+- **实现**：`tools/studio_asset_library.py`、`tools/studio_asset_backup.py`、`tools/studio_asset_migrate.py`、`configs/STUDIO_ASSET_LIBRARY_V1.json`、`lines/nalu/runtime/tools/studio_asset_resolve.py`、`tools/harvest_giggle_image_batch.py`、`lines/nalu/runtime/tools/identity_qa_lock.py`、`lines/nalu/runtime/tools/library_lock_non_plate.py`、`lines/nalu/runtime/tools/bootstrap_identity_cards.py`、`lines/nalu/runtime/tools/build_keyframe_manifest.py`、`lines/nalu/runtime/tools/build_nalu_preproduction.py`、`tools/initial_asset_library.py`
+- **回归**：`tools/tests/test_studio_asset_library.py`、`tools/tests/test_studio_asset_library_wiring.py`
+- **证据**：离线：临时目录、内存假 S3、被桩替换的供应商查询；核心（含跨进程并发、备份恢复、迁移）与接线（真实收割轮询、`identity_qa_lock.materialise`、S2 `verified_requirement_reuse` 与 `run_lock`、S5 `entity_binding`、S6 `_locked_identity_plate`、`provider_request_digest`）两个测试文件。云端备份与跨设备恢复未对真实存储桶验证。
+- **授权**：2026-11-02 公司级人物道具原图库实施方案（交给工程维护者）
+- **状态**：REFERENCE_IMPLEMENTATION

@@ -86,7 +86,7 @@ S1 失败时只能修改剧本/合同层，不能带着 `AUTHORING_REQUIRED` 或
 - 身份 QA、人工审阅和 `LOCKED_PRODUCTION_READY` 入库；
 - 资产库按系列作用域隔离，已锁定且 SHA 一致的资产不重复 POST。
 
-默认身份图模型/规格由当前配置决定（当前生产合同通常为 `gpt-image-2-pro`、2K）；供应商任务单价以预算计划和实际回执为准，不能在文档中硬编码为实际账单。
+默认身份图模型/规格由 `configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json` 的 active profile 决定（2026-10-30 起 `gpt-image-2-fast`、2K；之前 `gpt-image-2-pro`）；供应商任务单价以预算计划和实际回执为准，不能在文档中硬编码为实际账单。
 
 ### S4：声音参考（付费）
 

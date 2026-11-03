@@ -210,13 +210,13 @@ class StoryClawGuidedOnboardingTests(unittest.TestCase):
             "ai_generation_proposals": [
                 {
                     "entity_type": "character", "entity_id": "LEAD",
-                    "model": "gpt-image-2-pro", "prompt": "lead portrait",
+                    "model": "gpt-image-2-fast", "prompt": "lead portrait",
                     "estimated_credits": 12,
                     "rights_and_identity_note": "Synthetic protagonist proposal for private review.",
                 },
                 {
                     "entity_type": "scene", "entity_id": "ROOM",
-                    "model": "gpt-image-2-pro", "prompt": "room reference",
+                    "model": "gpt-image-2-fast", "prompt": "room reference",
                     "estimated_credits": 8,
                     "rights_and_identity_note": "Synthetic scene proposal for private review.",
                 },

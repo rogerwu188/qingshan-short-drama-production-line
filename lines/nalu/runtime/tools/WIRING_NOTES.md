@@ -322,8 +322,8 @@ this batch. It is not a claim that a reroll happened.
 | `EPISODE_OUT_OF_ORDER_SCOPE` | `--episode` is not in the order's explicit episode list |
 | `MODEL_FORBIDDEN_BY_ORDER_CONDITION_1` | any `seedance-2.0-fast/mini/bare` or `MiniMax-H3` anywhere in the manifest |
 | `VIDEO_MODEL_IS_NOT_seedance-2.0-pro` | a video task's model is not SD2 |
-| `IMAGE_MODEL_IS_NOT_gpt-image-2-pro` | an image task uses another model (override only with `--allow-image-model` **and** a named authorisation) |
-| `PLANNED_CREDITS_EXCEED_CAP` | images `n×11`, video `seconds×20` over the cap |
+| `IMAGE_MODEL_IS_NOT_<active model>` | an image task uses a model other than the registry's active paid image profile (`configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json`; `gpt-image-2-fast` since 2026-10-30 seq=54, previously `gpt-image-2-pro`); override only with `--allow-image-model` **and** a named authorisation |
+| `PLANNED_CREDITS_EXCEED_CAP` | images `n×<registry hard_upper>` (11 until the first gpt-image-2-fast statement row is observed), video `seconds×20` over the cap |
 | `NALU_BUDGET_LEDGER_CHECK_NOT_PASS` | `nalu_budget_ledger.py --check` did not return PASS |
 | `MANIFEST_HAS_ZERO_TASKS` / `UNKNOWN_TASK_KEYS` | bad selection |
 

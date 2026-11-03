@@ -251,14 +251,22 @@ def applicability(episode: str) -> dict[str, Any]:
     }
 
 
+def _final_or_candidate(episode: str, p: "QaPaths") -> Path:
+    """The released final when it exists, else S7's staged candidate (Roger 2026-10-30: a cut that has not
+    passed every S7 gate is never written to deliverables/, so final QA measures the candidate)."""
+    released = RUNTIME / "deliverables" / episode / f"{episode}_final_9x16.mp4"
+    if released.is_file():
+        return released
+    return p.assembly / f"{episode}_final_candidate_9x16.mp4"
+
+
 def build_bundle(episode: str, *, out: Path | None = None) -> dict[str, Any]:
     p = QaPaths(episode)
     deliver = RUNTIME / "deliverables" / episode
     # Versioned reruns (for example after a corrective audio pass) must not
     # overwrite immutable v1 evidence.  The normal path remains unchanged;
     # callers may explicitly select a verified final artifact for this QA run.
-    final_video = Path(os.environ.get("NALU_FINAL_VIDEO_PATH") or
-                       (deliver / f"{episode}_final_9x16.mp4"))
+    final_video = Path(os.environ.get("NALU_FINAL_VIDEO_PATH") or _final_or_candidate(episode, p))
     ad_tail_qa_report = Path(os.environ.get("NALU_AD_TAIL_QA_PATH") or
                              (p.assembly / f"{episode}_AD_TAIL_QA.json"))
     canonical = p.narrative
@@ -400,8 +408,7 @@ def run_stage_gates(episode: str, *, gates: tuple[str, ...] | None = None,
 def route_status(episode: str) -> dict[str, Any]:
     p = QaPaths(episode)
     deliver = RUNTIME / "deliverables" / episode
-    final_video = Path(os.environ.get("NALU_FINAL_VIDEO_PATH") or
-                       (deliver / f"{episode}_final_9x16.mp4"))
+    final_video = Path(os.environ.get("NALU_FINAL_VIDEO_PATH") or _final_or_candidate(episode, p))
     qa_sh = [str(ENGINE / "tools/run_episode_qa.sh"),
              "--video", str(final_video),
              "--config", str(p.assembly / f"{episode}_continuity_config.json"),

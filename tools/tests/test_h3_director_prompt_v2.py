@@ -13,6 +13,7 @@ import unittest
 from pathlib import Path
 
 from tools import h3_director_prompt_v2 as v2
+from tools import h3_provider_prompt_renderer as h3v1
 from tools.h3_english_contract_io import request_row
 from tools.h3_provider_english_contract import validate_h3_provider_text_boundary
 from tools.h3_provider_prompt_renderer import render_h3_prompt
@@ -47,12 +48,16 @@ INTERNAL = re.compile(r"\b(?:CHAR|SUBSPACE|LOC|SET|PROP|AXIS|ANGLE)-[A-Z0-9-]+|\
 #: (10,000-rune budget fix, E12-VU-003): "Start from X. Force origin: X." no longer repeats X a second time when
 #: force_origin equals entry_state (tools/h3_provider_prompt_renderer.py _beat) -- the only text this fixture's
 #: single beat loses is that one redundant clause, confirmed by diffing the rendered text old vs new.  This pin
-#: is renderer-wide, not V2-specific, so "unstamped never changes" is no longer true.
+#: is renderer-wide, not V2-specific, so "unstamped never changes" is no longer true.  Re-pinned 2026-10-30 (E12 burned
+#: subtitles, K143): the TEXT-FREE FRAME sentence moved from negative_constraints to the prompt's first line; that move
+#: is the only text change, confirmed by diffing the rendered text old vs new.  Re-pinned 2026-10-31 (E12 rune budget):
+#: a foley row quoting a beat action verbatim now points at "the action stated for that shot"; that is the
+#: only text change, confirmed by diffing old vs new.
 V1_SHA = {
     # stamped V1 director: default strict camera lock (owner 2026-10-26); "standard" keeps the previous bytes
-    True: "a6a7e9cd609111ed5535cb753bf7926762e4128feac58e44a383b09fb47238d1",
-    "standard": "39d7b983615f3466c66b5229eda43d53038cf92d991b0328e0a2c6da42e5ad1b",
-    False: "7eadbca084a3cc0ef5e3ca01f518c492664ee6d7fe8b1964ef54863c85769c7c",
+    True: "ca17256a0720fb406aed710a81f56a0679bbd4772e4cc4af6545beb46fc275db",
+    "standard": "27d6342dac48a9215ed16946468dc542be6a0601c5339e7c87537e06456a94b4",
+    False: "838e3f8960139ef5810a783a67462bfac6cf944b0b6546c9966f6524a07d8323",
 }
 
 
@@ -244,7 +249,7 @@ class V1ByteIdentity(unittest.TestCase):
     def test_units_without_the_opt_in_render_v1_byte_identically(self):
         for director in (True, False):
             text, receipt = render(style=False, director=director)
-            self.assertTrue(text.startswith("subject_definitions:\n"))
+            self.assertTrue(text.startswith(h3v1.ANTI_TEXT + ".\nsubject_definitions:\n"))
             self.assertNotIn("prompt_style", receipt["provider_semantic_coverage_receipt"])
             self.assertEqual(hashlib.sha256(text.encode("utf-8")).hexdigest(), V1_SHA[director])
         unit, plan = fixture(style=False, director=True)

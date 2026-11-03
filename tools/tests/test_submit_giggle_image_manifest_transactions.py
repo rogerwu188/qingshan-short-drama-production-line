@@ -18,7 +18,7 @@ def task() -> dict:
         "task_key": "E99-U01-A1-STILL-V1",
         "prompt_sha256": "a" * 64,
         "reference_bindings": [{"sha256": "b" * 64}],
-        "model": "gpt-image-2-pro",
+        "model": "gpt-image-2-fast",
         "aspect_ratio": "9:16",
         "resolution": "2K",
     }

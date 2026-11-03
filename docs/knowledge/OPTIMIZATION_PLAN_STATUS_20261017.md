@@ -41,6 +41,8 @@
 | §7.1 | 绑定真正有效版本（源合同、模型、时长、最终提示词、有序素材列表 SHA） | **已实现**（`provider_request_digest.py` 生成语义 SHA） |
 | §7.2 | 最终检查在序列化后、付费 POST 前 | **图片/视频已实现**（`submit_giggle_image_manifest.py:470` / `submit_giggle_video_manifest_v2.py` POST 前调）；**S3 身份牌本轮补齐** |
 | §7.3 | 不破坏事务恢复 | **已实现**（指纹相同即恢复、新规则不触发历史重 POST） |
+| §7.4 | 证据记录绑定「真正发出去的请求」（2026-11-01 线主 item 3，K150） | **已实现，默认关闭**。Q1 / SFE 证据带 `provider_request_binding`（task_id、prompt sha、参考图 role+version+source/transport sha、model、payload sha；未产生的字段为 null 并写明原因）；`provider_request_digest.py bind-receipt` 按请求 SHA 双侧绑定供应商回执；策略外的发送报 `UNENFORCED`（不再报 `NOT_REQUIRED`/PASS），任一绑定输入改变即 `INVALID` + 需重审。逐任务、无全局屏障，开关在 `configs/PROVIDER_REQUEST_REVIEW_BINDING_V1.json`，`enabled_episodes` 仍为空 |
+| §7.5 | 审阅请求带本任务实际使用的参考图（item 4，K150） | **已实现**。`reference_media` 逐条列 IDENTITY / WARDROBE / SPACE / PROP（含 version 与两种 SHA），缺图写 `MISSING` 而不省略；请求内写明「不得仅凭生成图断言身份一致」，`reference_claim_failures` 拒绝无参考图的身份/服装/空间/道具 PASS |
 
 ### 1.6 方案第 8 章（参考素材）
 

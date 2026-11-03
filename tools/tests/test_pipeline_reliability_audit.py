@@ -89,7 +89,7 @@ class SubmissionAuditTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             task = self.fixture(root)
-            task["model"] = "gpt-image-2-pro"
+            task["model"] = "gpt-image-2-fast"
             with patch.object(image_submit, "precheck_submission_inputs", return_value={"status": "PASS"}), patch.object(image_submit, "_image_list", return_value=[]), patch.object(image_submit, "_request", return_value={"data": {"task_id": "image-1"}}) as post:
                 with ThreadPoolExecutor(max_workers=3) as pool:
                     results = list(pool.map(lambda _: image_submit.submit_one(task, root / "receipts", root / "tx"), range(3)))

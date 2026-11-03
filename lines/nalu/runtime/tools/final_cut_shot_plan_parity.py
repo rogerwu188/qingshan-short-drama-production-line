@@ -7,9 +7,17 @@ screening, writes ``assembly/<EP>_FINAL_CUT_SHOT_PLAN_PARITY.json`` and a short 
   * scdet cut count vs shot-table shot count            → SHOT_COUNT_DRIFT      (|drift| > 20 %)
   * any real segment > 8 s whose planned shot is ≤ 7 s   → SHOT_STRETCHED        (lists shot ids by timeline position)
   * two consecutive cuts with near-static luma and > 5 s → STATIC_HOLD_IN_DIALOGUE
-  * luma YAVG > 85 % or < 15 % of range for > 2 s        → BLANK_SCREEN
+  * blank frame run > 2 s                                → BLANK_SCREEN
+      a frame is blank only when it is BOTH extreme in mean luma (YAVG > 85 % or < 15 % of range) AND
+      tonally uniform (signalstats 10th–90th percentile spread YHIGH−YLOW < --blank-max-spread, default 8
+      of 255).  Roger 2026-10-30 (E12 screening): the YAVG-only rule flagged 14 runs / 80 s of night
+      scenes whose 10–90 % spread measured 24–74 levels and YMAX ≥ 135 — dark, textured, not blank.
+  * frozen frame run ≥ 1 s                               → FROZEN_FRAME
+      consecutive 5 fps samples whose temporal difference YDIF < --frozen-ydif (default 0.5) — a held
+      still, not a dark scene.
 
-Measurements come from ffmpeg (``scdet`` scene-change detection and ``signalstats`` YAVG sampled at 5 fps).
+Measurements come from ffmpeg (``scdet`` scene-change detection and ``signalstats`` YAVG/YLOW/YHIGH/YDIF
+sampled at 5 fps).
 The planned timeline is the generation contract's shot order and target_seconds; the end card (if any) is
 trimmed by ``--end-card-seconds``.
 """
@@ -50,21 +58,51 @@ def scene_cuts(path: Path, threshold: float, until: float) -> list[float]:
     return sorted(set(round(c, 3) for c in cuts if c < until))
 
 
-def luma_samples(path: Path, until: float, fps: int = 5) -> list[tuple[float, float]]:
+def luma_samples(path: Path, until: float, fps: int = 5) -> list[dict[str, float]]:
+    """Per-sample luma statistics: {t, yavg, ylow, yhigh, ydif} (signalstats, 8-bit range)."""
+    keys = ("YAVG", "YLOW", "YHIGH", "YDIF")
+    meta = ",".join(f"metadata=print:key=lavfi.signalstats.{k}" for k in keys)
     out = run([_media.require_ffmpeg(), "-hide_banner", "-nostats", "-i", str(path), "-t", f"{until:.3f}",
-               "-vf", f"fps={fps},signalstats,metadata=print:key=lavfi.signalstats.YAVG", "-an", "-f", "null", "-"])
-    rows: list[tuple[float, float]] = []
-    t = None
+               "-vf", f"fps={fps},signalstats,{meta}", "-an", "-f", "null", "-"])
+    by_t: dict[float, dict[str, float]] = {}
+    t: float | None = None
     for line in out.splitlines():
         m = re.search(r"pts_time:([0-9.]+)", line)
         if m:
-            t = float(m.group(1))
+            t = round(float(m.group(1)), 3)
+            by_t.setdefault(t, {"t": t})
             continue
-        m = re.search(r"lavfi\.signalstats\.YAVG=([0-9.]+)", line)
+        m = re.search(r"lavfi\.signalstats\.(YAVG|YLOW|YHIGH|YDIF)=([0-9.]+)", line)
         if m and t is not None:
-            rows.append((t, float(m.group(1))))
-    return rows
+            by_t[t][m.group(1).lower()] = float(m.group(2))
+    return [row for _, row in sorted(by_t.items()) if "yavg" in row]
 
+
+def _luma_row(sample: Any) -> dict[str, Any]:
+    """Accept the dict rows of luma_samples() and the legacy (t, yavg) tuples (spread/ydif unknown)."""
+    if isinstance(sample, dict):
+        return sample
+    t, y = sample
+    return {"t": float(t), "yavg": float(y), "ylow": None, "yhigh": None, "ydif": None}
+
+
+def is_blank_frame(row: dict[str, Any], *, blank_high: float, blank_low: float, max_spread: float) -> str | None:
+    """"HIGH" / "LOW" when the frame is extreme in mean luma AND tonally uniform; else None.
+
+    Uniformity is the criterion that separates a card/fade from a dark scene: a textured night frame keeps a
+    10–90 % spread of tens of levels however dark its mean is.  A sample without spread data is never blank
+    (unverifiable, not assumed)."""
+    y = row.get("yavg")
+    lo, hi = row.get("ylow"), row.get("yhigh")
+    if y is None or lo is None or hi is None:
+        return None
+    if (float(hi) - float(lo)) >= max_spread:
+        return None
+    if float(y) > blank_high:
+        return "HIGH"
+    if float(y) < blank_low:
+        return "LOW"
+    return None
 
 def segments_from_cuts(cuts: list[float], total: float) -> list[tuple[float, float]]:
     bounds = [0.0] + [c for c in cuts if 0.0 < c < total] + [total]
@@ -107,13 +145,14 @@ def same_subject_boundaries(contract: dict[str, Any], grouping_plan: dict[str, A
 
 def evaluate(final: Path, contract: dict[str, Any], *, end_card_seconds: float, scene_threshold: float,
              static_yavg_delta: float, blank_high: float, blank_low: float,
-             grouping_plan: dict[str, Any] | None = None) -> dict[str, Any]:
+             grouping_plan: dict[str, Any] | None = None, blank_max_spread: float = 8.0,
+             frozen_ydif: float = 0.5, frozen_min_seconds: float = 1.0) -> dict[str, Any]:
     total = probe_duration(final)
     body = max(0.0, total - end_card_seconds)
     plan = planned_timeline(contract)
     cuts = scene_cuts(final, scene_threshold, body)
     segs = segments_from_cuts(cuts, body)
-    lumas = luma_samples(final, body)
+    lumas = [_luma_row(r) for r in luma_samples(final, body)]
     findings: list[dict[str, Any]] = []
 
     planned_count = len(plan)
@@ -136,7 +175,7 @@ def evaluate(final: Path, contract: dict[str, Any], *, end_card_seconds: float, 
     for a, b in segs:
         if b - a <= 5.0:
             continue
-        ys = [y for t, y in lumas if a <= t < b]
+        ys = [r["yavg"] for r in lumas if a <= r["t"] < b]
         if len(ys) >= 3 and (max(ys) - min(ys)) < static_yavg_delta:
             static.append({"segment": [round(a, 2), round(b, 2)], "seconds": round(b - a, 2), "yavg_range": round(max(ys) - min(ys), 2),
                            "planned_shot_ids": [row["shot_id"] for row in shots_overlapping(plan, a, b)]})
@@ -147,8 +186,10 @@ def evaluate(final: Path, contract: dict[str, Any], *, end_card_seconds: float, 
     run_start = None
     run_kind = None
     prev_t = None
-    for t, y in lumas + [(body, None)]:
-        kind = None if y is None else ("HIGH" if y > blank_high else ("LOW" if y < blank_low else None))
+    for row in lumas + [{"t": body, "yavg": None}]:
+        t = row["t"]
+        kind = None if row.get("yavg") is None else is_blank_frame(
+            row, blank_high=blank_high, blank_low=blank_low, max_spread=blank_max_spread)
         if kind and kind == run_kind:
             prev_t = t
             continue
@@ -158,6 +199,26 @@ def evaluate(final: Path, contract: dict[str, Any], *, end_card_seconds: float, 
         run_kind, run_start, prev_t = kind, (t if kind else None), t
     if blank:
         findings.append({"code": "BLANK_SCREEN", "segments": blank})
+
+    # frozen frames: consecutive samples with (near) zero temporal difference for >= frozen_min_seconds
+    frozen = []
+    f_start = None
+    f_prev = None
+    step = 1.0 / 5
+    for row in lumas + [{"t": body, "ydif": None}]:
+        ydif = row.get("ydif")
+        if ydif is not None and float(ydif) < frozen_ydif:
+            f_start = row["t"] if f_start is None else f_start
+            f_prev = row["t"]
+            continue
+        if f_start is not None and f_prev is not None and (f_prev - f_start) + step >= frozen_min_seconds:
+            frozen.append({"segment": [round(f_start, 2), round(f_prev + step, 2)], "seconds": round(f_prev + step - f_start, 2),
+                           "planned_shot_ids": [r["shot_id"] for r in shots_overlapping(plan, f_start, f_prev + step)]})
+        f_start, f_prev = None, None
+    if frozen:
+        findings.append({"code": "FROZEN_FRAME", "segments": frozen})
+    dark_textured = sum(1 for r in lumas if r.get("yavg") is not None and r["yavg"] < blank_low
+                        and r.get("ylow") is not None and (r["yhigh"] - r["ylow"]) >= blank_max_spread)
 
     # D-68 (Roger seq=36): same-scene unit boundaries whose two sides share shot size AND cast read as
     # jump cuts to a viewer (E06: 7.0 s, 15.2 s, 21.2 s, 35.4 s, 151.7 s).  Diagnostic only.
@@ -171,8 +232,11 @@ def evaluate(final: Path, contract: dict[str, Any], *, end_card_seconds: float, 
         "episode": contract.get("episode"),
         "final": str(final), "final_duration_seconds": round(total, 3), "body_seconds": round(body, 3),
         "end_card_seconds": end_card_seconds,
-        "method": {"cuts": f"ffmpeg scdet threshold={scene_threshold}", "luma": "ffmpeg signalstats YAVG @5fps",
-                   "static_yavg_delta": static_yavg_delta, "blank_high": blank_high, "blank_low": blank_low},
+        "method": {"cuts": f"ffmpeg scdet threshold={scene_threshold}", "luma": "ffmpeg signalstats YAVG/YLOW/YHIGH/YDIF @5fps",
+                   "static_yavg_delta": static_yavg_delta, "blank_high": blank_high, "blank_low": blank_low,
+                   "blank_criterion": "extreme YAVG AND (YHIGH-YLOW) < blank_max_spread (Roger 2026-10-30)",
+                   "blank_max_spread": blank_max_spread, "frozen_ydif": frozen_ydif, "frozen_min_seconds": frozen_min_seconds,
+                   "dark_textured_samples_not_blank": dark_textured, "luma_samples": len(lumas)},
         "planned_shots": planned_count, "detected_cuts": len(cuts), "detected_segments": len(segs),
         "average_segment_seconds": round(body / len(segs), 2) if segs else None,
         "average_planned_shot_seconds": round(sum(r["seconds"] for r in plan) / planned_count, 2) if planned_count else None,
@@ -212,6 +276,10 @@ def main() -> int:
     ap.add_argument("--static-yavg-delta", type=float, default=2.0)
     ap.add_argument("--blank-high", type=float, default=85.0 * 2.55)
     ap.add_argument("--blank-low", type=float, default=15.0 * 2.55)
+    ap.add_argument("--blank-max-spread", type=float, default=8.0,
+                    help="a frame is blank only if its 10-90 %% luma spread (YHIGH-YLOW) is below this (uniformity)")
+    ap.add_argument("--frozen-ydif", type=float, default=0.5, help="signalstats YDIF below this = no motion between 5 fps samples")
+    ap.add_argument("--frozen-min-seconds", type=float, default=1.0)
     a = ap.parse_args()
     contract = json.loads(Path(a.contract).read_text(encoding="utf-8"))
     grouping = json.loads(Path(a.grouping_plan).read_text(encoding="utf-8")) if a.grouping_plan and Path(a.grouping_plan).is_file() else None

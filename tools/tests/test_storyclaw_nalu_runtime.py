@@ -535,9 +535,9 @@ class StoryClawRuntimeTests(unittest.TestCase):
             "scene_matches": [],
             "prop_matches": [],
             "ai_generation_proposals": [
-                {"entity_type": "character", "entity_id": "CHAR-LEAD", "model": "gpt-image-2-pro", "prompt": "lead portrait", "estimated_credits": 10, "rights_and_identity_note": "Synthetic protagonist proposal for private review."},
-                {"entity_type": "scene", "entity_id": "SCENE-A", "model": "gpt-image-2-pro", "prompt": "scene reference", "estimated_credits": 11, "rights_and_identity_note": "Synthetic scene proposal for private review."},
-                {"entity_type": "prop", "entity_id": "PROP-A", "model": "gpt-image-2-pro", "prompt": "prop reference", "estimated_credits": 2, "rights_and_identity_note": "Synthetic prop proposal for private review."},
+                {"entity_type": "character", "entity_id": "CHAR-LEAD", "model": "gpt-image-2-fast", "prompt": "lead portrait", "estimated_credits": 10, "rights_and_identity_note": "Synthetic protagonist proposal for private review."},
+                {"entity_type": "scene", "entity_id": "SCENE-A", "model": "gpt-image-2-fast", "prompt": "scene reference", "estimated_credits": 11, "rights_and_identity_note": "Synthetic scene proposal for private review."},
+                {"entity_type": "prop", "entity_id": "PROP-A", "model": "gpt-image-2-fast", "prompt": "prop reference", "estimated_credits": 2, "rights_and_identity_note": "Synthetic prop proposal for private review."},
             ],
             "script_summary": "The protagonist enters the first scene with the required prop.",
             "assumptions": [],

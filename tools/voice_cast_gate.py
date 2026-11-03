@@ -10,6 +10,9 @@ Inputs
 
 Checks
   precheck   VOICE_ID_SHARED_IN_SCENE:<a>:<b>           -> FAIL
+             F0_MEDIAN_SEPARATION_LT_40HZ:<a>:<b>:<hz>  -> FAIL (two speakers who share a scene whose reference
+                                                           F0 medians differ by < 40 Hz; Roger 2026-10-30 E12
+                                                           screening: 同场对手戏基频中位数差 ≥40 Hz 才能进 S6)
              F0_BAND_OVERLAP_REQUIRES_HUMAN:<a>:<b>     -> REQUIRES_HUMAN (overlap > 50 % of the narrower band)
              NEW_VOICE_TOO_CLOSE_IN_SCENE:<new>:<b>:<r> -> FAIL (a character first locked this episode whose
                                                            reference F0 is within 25 % of a co-present speaker)
@@ -47,6 +50,7 @@ COLLISION_RATIO = 0.15          # postcheck: two speakers whose median F0 differ
 NEW_VOICE_SCENE_SEPARATION = 0.25   # vs every co-present speaker
 NEW_VOICE_CAST_SEPARATION = 0.15    # vs speakers never in the same scene: advisory only — with nine
                                     # speakers E10 had no pitch that kept every pair 15 % apart
+MIN_SCENE_F0_SEPARATION_HZ = 40.0   # Roger 2026-10-30: co-present speakers' reference F0 medians ≥ 40 Hz apart
 EMOTION_DELTA_DB = 6.0          # plead|fear|threat must sit >= 6 dB above the calm baseline
 EMOTIVE = frozenset({"plead", "fear", "threat"})
 EMOTIONS = frozenset({"calm", "plead", "threat", "mock", "joy", "fear"})
@@ -115,6 +119,17 @@ def _band_centre(row: dict[str, Any]) -> float:
     return (float(lo) + float(hi)) / 2
 
 
+def f0_median_hz(row: dict[str, Any]) -> float:
+    """The character's reference F0 median: the measured value when recorded, else the band centre."""
+    value = row.get("reference_f0_hz")
+    try:
+        if value is not None and float(value) > 0:
+            return float(value)
+    except (TypeError, ValueError):
+        pass
+    return _band_centre(row)
+
+
 def f0_separation(a: dict[str, Any], b: dict[str, Any]) -> float:
     """Relative distance of two reference F0 medians, measured against the lower one."""
     fa, fb = _band_centre(a), _band_centre(b)
@@ -174,6 +189,10 @@ def precheck(cast: dict[str, Any], scene_copresence: Sequence[Sequence[str]],
             seen.add(key)
             if same_voice:
                 failures.append(f"VOICE_ID_SHARED_IN_SCENE:{a}:{b}")
+            separation_hz = round(abs(f0_median_hz(ra) - f0_median_hz(rb)), 2)
+            pairs[-1]["f0_median_separation_hz"] = separation_hz
+            if separation_hz < MIN_SCENE_F0_SEPARATION_HZ:
+                failures.append(f"F0_MEDIAN_SEPARATION_LT_40HZ:{a}:{b}:{separation_hz}")
             if overlap > OVERLAP_HUMAN_RATIO:
                 requires_human.append(f"F0_BAND_OVERLAP_REQUIRES_HUMAN:{a}:{b}")
     distinct_failures, advisories = distinctness(characters, scene_copresence, new_characters)

@@ -47,10 +47,14 @@ STAGES = ("S3", "S4", "S5", "S6")
 def default_video_model(episodes: list[str]) -> str:
     """The episodes' video model (nalu_video_model: recorded / existing build / qingshan.json)."""
     import nalu_video_model as _vm
-    seen = {_vm.recorded_video_model(ep) for ep in episodes} - {None}
-    if len(seen) > 1:
-        raise SystemExit(json.dumps({"status": "FAIL", "error": f"EPISODES_USE_DIFFERENT_VIDEO_MODELS:{sorted(seen)}"}))
-    return seen.pop() if seen else _vm.configured_video_model()
+    try:  # K145: an unreadable / conflicting record or a missing config is a refusal, never a default
+        seen = {_vm.recorded_video_model(ep) for ep in episodes} - {None}
+        if len(seen) > 1:
+            raise SystemExit(json.dumps({"status": "FAIL", "error": f"EPISODES_USE_DIFFERENT_VIDEO_MODELS:{sorted(seen)}"}))
+        return seen.pop() if seen else _vm.configured_video_model()
+    except _vm.VideoModelSelectionError as exc:
+        raise SystemExit(json.dumps({"status": "FAIL", "error": exc.code, "details": exc.details},
+                                    ensure_ascii=False)) from exc
 
 
 def utc_now() -> str:
@@ -82,6 +86,11 @@ def main() -> int:
     ap.add_argument("--work", default="")
     ap.add_argument("--video-model", default="", choices=["", SD2, H3],
                     help="default: the episodes' recorded model (preproduction/<EP>/video_model.json)")
+    ap.add_argument("--batch-preauthorization-json", default="",
+                    help="optional decision.batch_preauthorization block as JSON (提速闭环 3a, Roger 2026-10-30): "
+                         "{max_credits_per_batch, max_units_per_batch (null = no batch limit), escalate_on{reroll,"
+                         "unit_cost_over_p95}, unit_cost_p95_credits?}. Evaluated by batch_preauthorization.py "
+                         "inside D-11 as an ADDITIONAL refusal path; the per-episode cap still applies.")
     ap.add_argument("--receipt-dir", default="", help="default: <orders dir>/order_receipts")
     ap.add_argument("--recorded-by", default="",
                     help="who typed this in.  Default: the line owner.  An operator materialising the "
@@ -120,6 +129,16 @@ def main() -> int:
     seq = (max(seqs) if seqs else 0) + 1
     episodes = sorted(dict.fromkeys(a.episode))
     video_model = a.video_model or default_video_model(episodes)
+    preauth = None
+    if a.batch_preauthorization_json.strip():
+        try:
+            preauth = json.loads(a.batch_preauthorization_json)
+        except json.JSONDecodeError as exc:
+            print(json.dumps({"status": "FAIL", "error": f"BATCH_PREAUTHORIZATION_JSON_INVALID:{exc}"})); return 2
+        required = {"max_credits_per_batch", "max_units_per_batch", "escalate_on"}
+        if not isinstance(preauth, dict) or not required.issubset(preauth):
+            print(json.dumps({"status": "FAIL", "error": "BATCH_PREAUTHORIZATION_KEYS_MISSING:"
+                                                          + ",".join(sorted(required))})); return 2
     if video_model not in VIDEO_MODEL_CONDITIONS:
         print(json.dumps({"status": "FAIL", "error": f"VIDEO_MODEL_NOT_SUPPORTED:{video_model}"})); return 2
     now = utc_now()
@@ -147,6 +166,7 @@ def main() -> int:
             "episode_scope": episodes, "budget_cap_credits_per_episode": a.cap,
             "video_model": video_model, "rights_basis": a.rights_basis, "rights_declared_by": a.owner_id,
             "rights_scope": a.rights_scope, "publication_allowed": bool(a.publication_allowed),
+            **({"batch_preauthorization": preauth} if preauth is not None else {}),
         },
         "conditions": [
             {"id": "PAID_REQUESTS_EXPLICITLY_AUTHORIZED", "severity": "AUTHORIZATION",
@@ -160,6 +180,11 @@ def main() -> int:
              "text": "Rights basis declared by the line owner (verbatim in decision.rights_basis); the engine records it and does not verify it."},
             {"id": "NO_PLATFORM_PUBLICATION", "severity": "HARD_STOP",
              "text": "No platform publication." if not a.publication_allowed else "Publication allowed by the owner."},
+            *([{"id": "BATCH_PREAUTHORIZATION", "severity": "AUTHORIZATION",
+                "text": ("Paid batches inside the per-episode cap run without a per-wave owner start; "
+                         f"batch limits credits={preauth.get('max_credits_per_batch')} units={preauth.get('max_units_per_batch')} "
+                         f"(null = unlimited); escalate_on={json.dumps(preauth.get('escalate_on'), ensure_ascii=False)}; "
+                         "D-11, the ledger cap, K041 and the transaction store are unchanged.")}] if preauth is not None else []),
         ],
     }
     rows.append(row)

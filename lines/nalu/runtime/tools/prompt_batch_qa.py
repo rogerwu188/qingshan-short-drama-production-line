@@ -107,6 +107,17 @@ def spoken_part(line: str) -> str:
     return line
 
 
+def _locked_dialogue_policy_active(contract: dict) -> bool:
+    try:
+        import locked_dialogue_camera_policy as _ldc
+    except ModuleNotFoundError:
+        try:
+            from tools import locked_dialogue_camera_policy as _ldc  # type: ignore
+        except ModuleNotFoundError:
+            return False
+    return _ldc.active(contract)
+
+
 def foreign_dialogue(text: str, dialogue_by_shot: dict, unit_shots: list) -> list[str]:
     """A transition never exempts out-of-scope dialogue from pre-submit QA."""
     local = {spoken_part(line) for sid in unit_shots
@@ -233,8 +244,67 @@ def dialogue_expectations(contract: dict, id2name: dict) -> tuple[dict[str, list
     return dialogue_by_shot, voice_over_by_shot
 
 
+def cross_shot_state_slice(contract: dict, unit, *, state_path: Path,
+                           config_path: Path | None = None) -> dict:
+    """The cross-shot state/perception report for ONE unit's shot pairs (line owner 2026-11-01, item 4).
+
+    Per pair, pure, and computed from the contract plus the episode's authored ledger — the same
+    ``shot_state_authoring.json`` the preproduction stage already consumes.  A unit's slice covers
+    the pairs entering its own shots (the previous unit's last shot included), so no unit's check
+    depends on another unit having run: nothing here serialises generation.
+
+    The ledger being absent is UNKNOWN for every pair — never a failure, never a silent pass.  The
+    config's blocking switch ships off; this records and lists writer items, it does not refuse.
+    """
+    try:
+        import cross_shot_state_perception as _xs
+    except ModuleNotFoundError:  # engine root not on sys.path (isolated repair inputs)
+        from tools import cross_shot_state_perception as _xs
+    shots = _xs.shots_from_contract(contract)
+    ids = list(unit.get("editorial_shot_ids") or [])
+    focus = {shot["shot_id"] for shot in shots if shot["shot_id"] in set(ids)}
+    report = _xs.evaluate(shots, state=_xs.load_state(state_path), config=_xs.load_config(config_path),
+                          focus=focus, state_source=rel(state_path) if Path(state_path).is_file() else "UNKNOWN")
+    return {
+        "unit_id": unit.get("unit_id"),
+        "status": report["status"],
+        "state_source": report["state_source"],
+        "state_declared": report["state_declared"],
+        "blocking_enabled": report["blocking_enabled"],
+        "would_block": report["would_block"],
+        "unknown_pairs": report["unknown_pairs"],
+        "rows": report["rows"],
+        "writer_items": report["writer_items"],
+        "tally": report["tally"],
+    }
+
+
+def cross_shot_summary(state_path: Path, items: list[dict]) -> dict:
+    """Batch-level summary of the per-pair cross-shot report; the report is never a verdict."""
+    try:
+        import cross_shot_state_perception as _xs
+    except ModuleNotFoundError:  # engine root not on sys.path (isolated repair inputs)
+        from tools import cross_shot_state_perception as _xs
+    config = _xs.load_config()
+    tally: dict[str, int] = {}
+    for item in items:
+        tally[item["code"]] = tally.get(item["code"], 0) + 1
+    return {
+        "state_source": rel(state_path) if Path(state_path).is_file() else "UNKNOWN",
+        "state_declared": Path(state_path).is_file(),
+        "writer_items": items,
+        "tally": dict(sorted(tally.items())),
+        "blocking_enabled": bool(config.get("blocking") is True),
+        "note": ("Report only.  The blocking switch ships off: a P1 is listed for the writer and "
+                 "does not refuse the batch.  A missing ledger reports UNKNOWN, not PASS."),
+    }
+
+
 def digest(ep: str, out: Path, **input_paths) -> dict:
     pre, contract, grouping, batch, gsm = load(ep, **input_paths)
+    # the authored state ledger S2 already consumes; absent = UNKNOWN, never a failure
+    state_authoring_path = pre / "shot_state_authoring.json"
+    cross_shot_items: list[dict] = []
     shots = {s["shot_id"]: s for s in contract["shots"]}
     scenes = {s["scene_id"]: s for s in contract["scene_states"]}
     units = {u["unit_id"]: u for u in grouping["units"]}
@@ -299,7 +369,7 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
         cast_names = [c["character"] for c in shot["prompt_spec"]["cast"]
                       if c.get("first_frame_visible", True) is not False]
         cast_names = list(dict.fromkeys(cast_names))
-        allowed = re.search(r"本帧允许入画的人物[^\n]*：([^\n]*)", kf_text)
+        allowed = re.search(r"本帧允许入画的人物[^\n：]*：([^\n；]*)", kf_text)   # 「；另有本帧可见的生物…」不是人物名单
         allowed_names = [x.lstrip("、，, ") for x in re.findall(r"([^（）]+)（[^）]+）", allowed.group(1))] if allowed else []
         chk("kf_visible_cast_equals_contract", sorted(allowed_names) == sorted(cast_names), f"{allowed_names} vs {cast_names}")
         for name in cast_names:
@@ -411,13 +481,29 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
         chk("vp_required_sections", all(h in vp_text for h in (H3_V2_REQUIRED if vp_is_v2 else h3_sections if vp_is_h3 else (
             "【任务】", "【锚点】", "【时间轴】", "【摄影】", "【声音】", "【限制】"))), "")
         chk("vp_rune_limit", len(vp_text) <= 10000, str(len(vp_text)))
+        # LOCKED_DIALOGUE_CAMERA_V1 (Roger 2026-10-30, E12 item 2 + K138): camera and silent-beat lints, only
+        # for episodes under the policy (never retroactive)
+        if _locked_dialogue_policy_active(contract):
+            import camera_move_lint as _cml
+            has_dlg = any(dialogue_by_shot.get(sid) for sid in unit_shots)
+            cam_text = " / ".join(str(shots[sid].get("camera") or "") for sid in unit_shots)
+            r = _cml.dialogue_unit_locked_camera(vp_text, has_dialogue=has_dlg, authored_camera_text=cam_text)
+            chk(r["id"], r["status"] == "PASS", r["detail"][:160])
+            r = _cml.single_direction([shots[sid]["prompt_spec"]["camera_plan"] for sid in unit_shots])
+            chk(r["id"], r["status"] == "PASS", r["detail"][:160])
+            r = _cml.silent_beats_declared(vp_text, has_dialogue=has_dlg)
+            chk(r["id"], r["status"] == "PASS", r["detail"][:160])
         if not vp_is_h3:
             boiler_vp["限制"].add(section(vp_text, "限制"))
         age_note = ("十六七岁" in vp_text) or ("十六七岁" in kf_text)
+        # cross-shot state + perceived state, per pair (line owner 2026-11-01, item 4)
+        cross_shot = cross_shot_state_slice(contract, unit, state_path=state_authoring_path)
+        cross_shot_items.extend(cross_shot["writer_items"])
         rows.append({
             "unit_id": uid, "shot_id": shot_id, "editorial_shot_ids": unit_shots,
             "scene_id": shot["scene_id"], "duration_seconds": unit["duration_seconds"],
             "checks": checks, "deterministic_status": "PASS" if all(c["status"] == "PASS" for c in checks) else "FAIL",
+            "cross_shot_state": cross_shot,
             "notes": (["AGE_TEXT_16_17_PRESENT (casting is 20-26 per seq=5; identity comes from the locked plate reference)"] if age_note else []),
             "digest": {
                 "entry_state": shot["entry_state"], "completion_state": shot["completion_state"],
@@ -439,6 +525,7 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
     report = {"schema": "nalu.prompt_batch_digest.v1", "episode": ep, "execution_id": batch["execution_id"],
               "generated_at": datetime.now(timezone.utc).isoformat(), "rows": rows,
               "boilerplate_variants": boiler,
+              "cross_shot_state": cross_shot_summary(state_authoring_path, cross_shot_items),
               "deterministic_summary": {"rows": len(rows), "fail": sum(1 for r in rows if r["deterministic_status"] != "PASS")}}
     out.write_text(json.dumps(report, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     return report

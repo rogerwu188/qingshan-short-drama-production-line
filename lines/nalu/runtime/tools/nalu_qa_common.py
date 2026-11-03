@@ -117,7 +117,18 @@ TEMPLATE_MARKER = "__NOT_A_REVIEW_FILL_EVERY_NULL__"
 #: START frame that shot_media_admission_gate.precheck_submission_inputs demands
 #: (``_requires_exact_action_role_evidence``: interaction_topology_contract.required)
 #: before any paid VIDEO submit: who initiates, who receives, who owns each prop.
-KINDS = ("identity", "keyframe", "start_frame", "post_gen_plot", "video_q2", "action_role")
+#: ``script_review`` is the SCRIPT-STAGE independent read (line owner 2026-11-01):
+#: before the script is locked and before any paid prep, a reviewer that did not
+#: write it reads an anonymised synopsis and answers a closed questionnaire from
+#: the text alone.  It is a kind of THIS protocol so it is bound, validated and
+#: audited exactly like every other nalu review — but its item verdict is never
+#: PASS: a script review raises confusion points the writer must answer, and it is
+#: non-blocking unless the line owner turns the switch on.  See script_review.py.
+KINDS = ("identity", "keyframe", "start_frame", "post_gen_plot", "video_q2", "action_role",
+         "script_review")
+#: kinds whose item verdict can admit an asset.  script_review is deliberately not
+#: one: nothing about a synopsis is admitted or rejected.
+MEDIA_KINDS = ("identity", "keyframe", "start_frame", "post_gen_plot", "video_q2", "action_role")
 #: engine-root receipt dir for qingshan.exact_output_action_role_verification.v1
 ACTION_ROLE_EVIDENCE_RELDIR = "reports/action_role_evidence"
 
@@ -281,6 +292,12 @@ class QaPaths:
         self.grouping_plan = self.preprod / f"{prefix}VIDEO_UNIT_GROUPING_PLAN_V1.json"
         self.anchor_plan = self.preprod / f"{prefix}VIDEO_UNIT_ANCHOR_PLAN_V1.json"
         self.start_frames = self.preprod / f"{prefix}START_FRAME_SEMANTIC_CONTRACTS_V1.json"
+        #: the two authoring manifests that declare WHICH reference images a paid
+        #: task will carry.  A review request names them (role + version + sha) so
+        #: the reviewer sees the references the provider will actually be given;
+        #: line owner 2026-11-01 item 4.  Same paths as nalu_pipeline.Paths.
+        self.keyframe_manifest = self.preprod / f"{prefix}KEYFRAME_IMAGE_MANIFEST_V1.json"
+        self.grouped_seedance = self.preprod / f"{prefix}GROUPED_SEEDANCE_MANIFEST_V1.json"
         # A repaired anchor selection and its semantic contracts form one
         # snapshot. Never mix a newly reviewed still with default old contracts.
         if context is not None:
@@ -357,6 +374,125 @@ class QaPaths:
 
 
 SOURCE_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
+
+#: Reference roles a reviewer must be able to see and label (line owner 2026-11-01
+#: item 4).  Every authored role folds onto one of these; a generated frame is a
+#: TARGET, not a reference, and is never listed as one.
+REVIEW_REFERENCE_ROLES = ("IDENTITY", "WARDROBE", "SPACE", "PROP")
+GENERATED_TARGET = "GENERATED_TARGET"
+OTHER_REFERENCE_ROLE = "OTHER"
+_NO_REFERENCE = object()
+
+
+def _role_table() -> dict[str, str]:
+    """Exact authored-role -> review-role labels; the long tail folds by needle."""
+    return {
+        "character": "IDENTITY", "character_reference": "IDENTITY",
+        "character_identity_reference": "IDENTITY", "identity": "IDENTITY",
+        "identity_plate": "IDENTITY", "identity_reference": "IDENTITY",
+        "face_reference": "IDENTITY", "operator_source_reference": "IDENTITY",
+        "own_base_plate_same_identity": "IDENTITY",
+        "own_locked_plates_same_identity": "IDENTITY",
+        "h3_face_and_body_reference_not_identity_authority": "IDENTITY",
+        "character_wardrobe": "WARDROBE", "wardrobe": "WARDROBE",
+        "wardrobe_plate": "WARDROBE", "wardrobe_state": "WARDROBE",
+        "wardrobe_state_on_identity_plate": "WARDROBE",
+        "episode_global_space_map": "SPACE", "global_space_map": "SPACE",
+        "subspace_layout": "SPACE", "space": "SPACE", "space_map": "SPACE",
+        "scene": "SPACE", "place": "SPACE", "environment": "SPACE",
+        "prop": "PROP", "prop_reference": "PROP", "prop_identity": "PROP",
+        "object_reference": "PROP",
+        "keyframe": GENERATED_TARGET, "start_frame_keyframe": GENERATED_TARGET,
+        "unit_video": GENERATED_TARGET, "original_resolution_frame": GENERATED_TARGET,
+        "contact_sheet_2fps": GENERATED_TARGET,
+        "admitted_new_event_entry_state": GENERATED_TARGET,
+        "previous_tail_frame": GENERATED_TARGET,
+        "derived_start_frame": GENERATED_TARGET,
+    }
+
+
+def review_role(raw: Any) -> str:
+    """Fold any authored reference role onto IDENTITY / WARDROBE / SPACE / PROP."""
+    token = re.sub(r"[^a-z0-9]+", "_", str(raw or "").strip().lower()).strip("_")
+    if not token:
+        return OTHER_REFERENCE_ROLE
+    table = _role_table()
+    if token in table:
+        return table[token]
+    for needle, role in (("wardrobe", "WARDROBE"), ("identity", "IDENTITY"),
+                         ("character", "IDENTITY"), ("space", "SPACE"),
+                         ("prop", "PROP"), ("scene", "SPACE")):
+        if needle in token:
+            return role
+    return OTHER_REFERENCE_ROLE
+
+
+def manifest_references(task: dict[str, Any]) -> list[dict[str, Any]]:
+    """One manifest task's references in transmission order.
+
+    ``reference_image_sequence`` is the authored order (richest: it carries the
+    entity and the view); ``reference_images`` + ``reference_roles`` is the same
+    array in older manifests.  Neither is re-sorted here: position is the
+    provider's ``@Image1..N``, so position is what the reviewer is shown.
+    """
+    if not isinstance(task, dict):
+        return []
+    sequence = task.get("reference_image_sequence") or []
+    if sequence:
+        return [row for row in sequence if isinstance(row, dict)]
+    paths = task.get("reference_images") or []
+    roles = task.get("reference_roles") or []
+    rows = []
+    for index, value in enumerate(paths):
+        role = roles[index] if index < len(roles) else None
+        if isinstance(value, dict):
+            rows.append(dict(value))
+        else:
+            rows.append({"path": str(value), "role": role})
+    return rows
+
+
+def _ordered_references(task: dict[str, Any]) -> list[dict[str, Any]]:
+    return manifest_references(task)
+
+
+def manifest_reference_index(manifest: Any, *, containers: tuple[str, ...] = ("tasks", "units")
+                             ) -> dict[str, list[dict[str, Any]]]:
+    """Every reference an authoring manifest declares, by every id a review may use.
+
+    ``keyframe_json`` keys its tasks by ``task_key`` / ``shot_id`` /
+    ``video_unit_id``; a grouped-video manifest keys its units by ``unit_id``.
+    A review item is identified by whichever of those it carries, so the index
+    answers all of them and no caller has to know which manifest it came from.
+    """
+    index: dict[str, list[dict[str, Any]]] = {}
+    if not isinstance(manifest, dict):
+        return index
+    for container in containers:
+        for row in manifest.get(container) or []:
+            if not isinstance(row, dict):
+                continue
+            references = _ordered_references(row)
+            if not references:
+                continue
+            for key in ("task_key", "shot_id", "video_unit_id", "unit_id"):
+                value = str(row.get(key) or "")
+                if value and value not in index:
+                    index[value] = references
+    return index
+
+
+def manifest_references_for(index: dict[str, list[dict[str, Any]]], *ids: Any) -> list[dict[str, Any]] | None:
+    """The first declared reference list for any of these ids, else None.
+
+    None means "this manifest says nothing about this item" — different from an
+    empty list, and never turned into an empty list by the caller.
+    """
+    for value in ids:
+        key = str(value or "")
+        if key and key in index:
+            return index[key]
+    return None
 
 
 def find_scoped_operator_source(asset_id: str, folder: Path | str) -> Path | None:

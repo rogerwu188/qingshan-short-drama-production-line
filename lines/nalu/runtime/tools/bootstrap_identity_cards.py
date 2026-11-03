@@ -48,6 +48,7 @@ from __future__ import annotations
 import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
+import studio_asset_resolve as _studio  # studio asset library: recorded sha256 -> local original (S2 reuse)
 import argparse
 import hashlib
 import json
@@ -63,6 +64,7 @@ ENGINE_ROOT = Path(os.environ.get("QINGSHAN_ENGINE_ROOT", f"{_np.ENGINE_ROOT}"))
 if str(ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_ROOT))
 
+from tools.image_model_policy import ACTIVE_IMAGE_MODEL, ACTIVE_IMAGE_RESOLUTION  # noqa: E402  (Roger 2026-10-30 seq=54)
 from tools.initial_asset_library import (  # noqa: E402
     CATEGORIES,
     canonical_sha256,
@@ -657,7 +659,9 @@ def verified_requirement_reuse(requirements: dict[str, Any]) -> set[str]:
                 asset = assets.get(row['asset_id'], {}) if isinstance(assets, dict) else {}
                 artifacts = asset.get('artifacts') or []
                 if (asset.get('status') == 'LOCKED' and asset.get('qa', {}).get('status') == 'PASS'
-                        and artifacts and all(Path(a['path']).is_file() and sha256_file(Path(a['path'])) == a.get('sha256') for a in artifacts)):
+                        and artifacts and all(_studio.present(a) for a in artifacts)):
+                    # present(): the recorded path still verifies by sha256, else the studio library holds the same
+                    # bytes (an episode folder that was moved or cleaned no longer turns a reuse into a paid redo)
                     reused.add(row['asset_id'])
     return reused
 
@@ -909,7 +913,7 @@ def build_plan(
         "machine_gate_reports": [str(gate_report_path)],
         "maximum_new_submissions": len(rows),
         "provider_route": "text-to-image for rows with no reference_images; image-to-image for rows with references",
-        "provider_route_evidence": "tools/submit_giggle_character_asset_plan.py:139-141 selects the endpoint per row from reference_images; model gpt-image-2-pro and resolution 2K are hardcoded at the call site, aspect_ratio 9:16 in the payload.",
+        "provider_route_evidence": "tools/submit_giggle_character_asset_plan.py:139-141 selects the endpoint per row from reference_images; model and resolution come from tools/image_model_policy.py (registry active profile), aspect_ratio 9:16 in the payload.",
         "view_policy": {
             "base_view": BASE_VIEW,
             "base_row_id_is_subject_id": True,
@@ -1179,8 +1183,8 @@ def main() -> int:
             "endpoint": "/api/v1/generation/text-to-image",
             "submitter": "tools/submit_giggle_character_asset_plan.py",
             "selected_because": "reference_images == [] (submit_giggle_character_asset_plan.py:126-132)",
-            "model": "gpt-image-2-pro",
-            "resolution": "2K",
+            "model": ACTIVE_IMAGE_MODEL,
+            "resolution": ACTIVE_IMAGE_RESOLUTION,
             "aspect_ratio": "9:16",
             "hardcoded_at": "tools/submit_giggle_character_asset_plan.py:122,219,225",
         },

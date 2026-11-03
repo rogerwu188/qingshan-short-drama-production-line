@@ -61,15 +61,20 @@ class Parity(unittest.TestCase):
         finally:
             parity.probe_duration, parity.scene_cuts, parity.luma_samples = saved
 
+    @staticmethod
+    def _row(t, yavg, spread=40.0, ydif=10.0):
+        return {"t": t, "yavg": yavg, "ylow": max(0.0, yavg - spread / 2), "yhigh": min(255.0, yavg + spread / 2), "ydif": ydif}
+
     def test_clean_cut_matches_plan(self):
-        lumas = [(t / 5, 100.0 + (t % 7)) for t in range(100)]
+        lumas = [self._row(t / 5, 100.0 + (t % 7)) for t in range(100)]
         rep = self._evaluate([5.0, 10.0, 15.0], lumas)
         self.assertEqual(rep["status"], "CLEAN")
         self.assertEqual(rep["detected_segments"], 4)
         self.assertEqual(rep["body_seconds"], 20.0)
 
     def test_stretched_static_and_blank_are_diagnosed_not_blocked(self):
-        lumas = [(t / 5, 100.0) for t in range(50)] + [(t / 5, 250.0) for t in range(50, 100)]
+        # second half: a white card (YAVG 250, 10-90 % spread 2) — blank by mean AND uniformity
+        lumas = [self._row(t / 5, 100.0) for t in range(50)] + [self._row(t / 5, 250.0, spread=2.0) for t in range(50, 100)]
         rep = self._evaluate([10.0], lumas)
         codes = [f["code"] for f in rep["findings"]]
         self.assertIn("SHOT_COUNT_DRIFT", codes)
@@ -81,6 +86,31 @@ class Parity(unittest.TestCase):
         block = parity.checkpoint_block(rep)
         self.assertIn("不阻断", block)
         self.assertIn("BLANK_SCREEN", block)
+
+    def test_dark_textured_scene_is_not_blank(self):
+        # Roger 2026-10-30 (E12): night scenes with YAVG 20-38 but a 10-90 % spread of 24-74 levels are not blank
+        lumas = [self._row(t / 5, 28.0, spread=30.0) for t in range(100)]
+        rep = self._evaluate([5.0, 10.0, 15.0], lumas)
+        self.assertNotIn("BLANK_SCREEN", [f["code"] for f in rep["findings"]])
+        self.assertEqual(rep["method"]["dark_textured_samples_not_blank"], 100)
+
+    def test_true_black_run_is_blank_and_frozen_run_is_reported(self):
+        lumas = ([self._row(t / 5, 100.0) for t in range(50)]
+                 + [self._row(t / 5, 2.0, spread=1.0) for t in range(50, 65)]        # 3 s black
+                 + [self._row(t / 5, 100.0, ydif=0.0) for t in range(65, 75)]        # 2 s held still
+                 + [self._row(t / 5, 100.0) for t in range(75, 100)])
+        rep = self._evaluate([5.0, 10.0, 15.0], lumas)
+        findings = {f["code"]: f for f in rep["findings"]}
+        self.assertIn("BLANK_SCREEN", findings)
+        self.assertEqual(findings["BLANK_SCREEN"]["segments"][0]["kind"], "LOW")
+        self.assertIn("FROZEN_FRAME", findings)
+        self.assertAlmostEqual(findings["FROZEN_FRAME"]["segments"][0]["seconds"], 2.0, places=1)
+
+    def test_legacy_tuple_samples_cannot_assert_blank(self):
+        # (t, yavg) tuples carry no uniformity data: never blank, never frozen (unverifiable, not assumed)
+        lumas = [(t / 5, 2.0) for t in range(100)]
+        rep = self._evaluate([5.0, 10.0, 15.0], lumas)
+        self.assertNotIn("BLANK_SCREEN", [f["code"] for f in rep["findings"]])
 
 
 if __name__ == "__main__":

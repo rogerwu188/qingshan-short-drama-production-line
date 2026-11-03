@@ -46,6 +46,8 @@ cp configs/pipeline.example.json "$NALU_RUNTIME_ROOT/qingshan.json"   # 锁文�
 `$NALU_RUNTIME_ROOT/qingshan.json` 里 `generation.paid_requests_enabled` 默认 `false`。付费阶段必须同时满足：
 命令行 `--paid` **且** 该字段为 `true`；免费子进程会被剥掉 API key，物理上碰不到付费端点。
 
+同一文件必须显式写 `generation.video_model`（`"MiniMax-H3"` 或 `"seedance-2.0-pro"`）。没有默认值（K145）：缺失、空值或未知模型时新集的 S2 直接报错、不写本集模型锁；首次 S2 后模型锁在 `preproduction/<EP>/video_model.json`，之后改配置不会改已开工的集。设置模型不等于开启付费。
+
 ## 3. 运行时根目录（状态与素材，放在仓库之外）
 
 ```bash

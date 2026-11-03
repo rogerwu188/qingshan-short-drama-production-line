@@ -53,6 +53,17 @@ def test_statements_only_cover_when_the_batch_layer_is_what_recorded_uses(tmp_pa
     assert _exposure(tmp_path, [90, 76], _non_video(150, 2, bound_upper=330)) == Decimal("166")
 
 
+def test_a_bound_video_whose_task_id_is_on_a_statement_row_is_evidenced(tmp_path):
+    # E12 2026-10-30: t0/t1 are on an archived statement by project_id while the batch layer matched
+    # only one row; neither id-evidenced task is exposure, and t2 (no row) still counts
+    stmt = tmp_path / "reports" / "w_credit_statement.json"
+    stmt.parent.mkdir(parents=True)
+    stmt.write_text(json.dumps({"statement_rows": [
+        {"project_id": "t0", "event_description": "SingleGenerateVideo", "credit": -9},
+        {"project_id": "t1", "event_description": "SingleGenerateVideo", "credit": -9}]}))
+    assert _exposure(tmp_path, [118, 118, 600], _non_video(822, 1)) == Decimal("600")
+
+
 def test_missing_tails_of_on_disk_clips_are_extracted_before_readiness():
     src = (TOOLS / "nalu_pipeline.py").read_text(encoding="utf-8")
     block = src[src.index("derived = continuity_derived_units(ctx)"):]

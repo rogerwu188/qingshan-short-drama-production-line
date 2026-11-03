@@ -23,6 +23,7 @@ from __future__ import annotations
 import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
+import studio_asset_resolve as _studio  # studio asset library: recorded sha256 -> local original (S6 video refs)
 import nalu_policy_profile as _policy_profile
 import nalu_series_scope as _series_scope
 import nalu_prompt_rules as _npr
@@ -82,16 +83,21 @@ def select_video_model(episode: str) -> dict[str, Any]:
     ``preproduction/<EP>/video_model.json``; an episode already built before that file existed keeps the
     model of its existing editorial manifest.  Changing the config never re-models an episode whose
     units, prompts or paid tasks already exist.
+
+    K145: no default model.  A new episode without an explicit, supported ``generation.video_model``, or an
+    episode whose lock / manifest is unreadable, invalid or conflicting, stops here before anything is
+    compiled or locked (nalu_video_model.VideoModelSelectionError).
     """
     import nalu_video_model as _vm
-    record = _vm.record_path(episode)
-    chosen = _vm.recorded_video_model(episode) or _vm.configured_video_model()
-    if chosen not in VIDEO_MODEL_CONTRACTS:
-        raise SystemExit(f"video_model={chosen!r} for {episode} is not one of {sorted(VIDEO_MODEL_CONTRACTS)}")
-    if not record.is_file():
-        record.parent.mkdir(parents=True, exist_ok=True)
-        record.write_text(json.dumps({"episode": episode, "video_model": chosen, "chosen_at": now()},
-                                     ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    try:
+        chosen = _vm.recorded_video_model(episode) or _vm.configured_video_model()
+        if chosen not in VIDEO_MODEL_CONTRACTS:
+            raise SystemExit(f"video_model={chosen!r} for {episode} is not one of {sorted(VIDEO_MODEL_CONTRACTS)}")
+        # Always claim: the first write is atomic and exclusive, and an existing lock (also one another
+        # build wrote after the read above) wins and is re-checked against the editorial manifest.
+        chosen = _vm.claim_video_model(episode, chosen)
+    except _vm.VideoModelSelectionError as exc:
+        raise SystemExit(f"VIDEO_MODEL_SELECTION_BLOCKED {exc}") from exc
     MODEL_CONTRACT.clear()
     MODEL_CONTRACT.update(VIDEO_MODEL_CONTRACTS[chosen])
     return MODEL_CONTRACT
@@ -1100,14 +1106,18 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                 "entity_presence": (role.get("entity_presence") or {}).get(str(member.get("character_id") or "")),
             })
         dialogue, cast = bind_dialogue_cast(dialogue, cast, entities, language)
+        declared_beings = {str(p.get("prop_id") or "") for p in spec.get("props") or []
+                           if isinstance(p, dict) and str(p.get("kind") or "").upper() in {"CREATURE", "ANIMAL"}}
         props = [{
             "prop": str(props_by_id[prop_id].get("name") or prop_id),
             "prop_id": prop_id,
             "anchor": "PRIMARY_ACTION_PLANE",
             "continuity_scope": "SCENE_OR_RECURRING_PROP",
             "note": str(props_by_id[prop_id].get("note") or ""),
-            # CAMERA_GRAMMAR_V1 director prompt: a creature/animal card is a visible subject, not a prop
-            **(_being_fields(props_by_id[prop_id]) if camera_grammar else {}),
+            # CAMERA_GRAMMAR_V1 director prompt: a creature/animal card is a visible subject, not a prop.
+            # A contract shot that itself marks the prop row kind CREATURE/ANIMAL gets the same treatment
+            # (nalu E13: the spiked leopard was counted as a prop and the unit said "exactly 1 living entity").
+            **(_being_fields(props_by_id[prop_id]) if camera_grammar or prop_id in declared_beings else {}),
         } for prop_id in row["prop_ids"] if prop_id in props_by_id]
 
         subject = str(role.get("primary_actor") or "")
@@ -2207,6 +2217,11 @@ def main() -> int:
     transaction = {
         "schema": "qingshan.giggle_video_transaction_manifest.v1",
         "episode": episode, "generated_by": TOOL_ID, "recorded_at": now(),
+        # K145 binding: the roots whose video_model lock / editorial manifest this manifest was built
+        # against; submit_giggle_video_manifest_v2.nalu_production_scope cross-checks them before any POST.
+        "production_scope": {"line": "nalu", "episode": episode,
+                             "runtime_root": str(Path(_np.RUNTIME_ROOT).expanduser().resolve()),
+                             "work_root": str(Path(_np.WORK_ROOT).expanduser().resolve())},
         "episode_global_space_map_ref": portable(authority_path, root),
         "global_space_map_gate_required": True,
         "allowed_video_models": [MODEL_CONTRACT["model"]],
@@ -2414,6 +2429,15 @@ def _spec_dialogue_rows(specs: list[dict[str, Any]], shot_ids: list[str]) -> lis
 _ASSET_LIBRARY_CACHE: dict[str, dict[str, Any]] = {}
 
 
+def _studio_view(path: Path, sha: Any) -> Path:
+    """The recorded identity view when it is still on disk; else a copy of the studio library original with the
+    same sha256; else the recorded path unchanged (the caller's own is_file check then drops it, as before)."""
+    if path.is_file() or not sha:
+        return path
+    found = _studio.resolve(path, sha)
+    return found if found is not None else path
+
+
 def _scoped_asset_library_path(episode: str) -> Path:
     scope = _series_scope.resolve_scope(episode)
     library = Path(scope["asset_library"])
@@ -2449,6 +2473,8 @@ def _locked_identity_plate(character_id: str, *, episode: str) -> Path | None:
         return None
     identity_lock = (row.get("lock") or {}).get("identity_lock") or {}
     views = [Path(v) for v in identity_lock.get("canonical_view_paths") or []] if isinstance(identity_lock, dict) else []
+    view_shas = (identity_lock.get("canonical_view_sha256") or {}) if isinstance(identity_lock, dict) else {}
+    views = [_studio_view(v, view_shas.get(str(v))) for v in views]   # studio asset library (S6 video references)
     views = [v for v in views if v.is_file()]
     if not views:
         return locked_artifact_headshot(row)
@@ -2509,6 +2535,8 @@ def locked_artifact_headshot(row):
         path = Path(str(artifact.get("path") or ""))
         if "FRONT_NEUTRAL_HEADSHOT" not in str(artifact.get("role") or "") and "FRONT_NEUTRAL_HEADSHOT" not in path.name:
             continue
+        if not path.is_file() and artifact.get("sha256"):
+            path = _studio_view(path, artifact.get("sha256"))   # studio asset library: same bytes, same sha256
         if not path.is_file() or sha256_file(path) != artifact.get("sha256"):
             raise ValueError(f"IDENTITY_ARTIFACT_SHA_MISMATCH:{path}")
         if path not in heads:
@@ -2566,6 +2594,20 @@ def h3_identity_label(character_id: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", " ", str(character_id).replace("CHAR-", "", 1)).strip().title() or "Character"
 
 
+def faceless_character_ids(editorial: dict[str, Any]) -> set[str]:
+    """Characters that appear in shots but whose face is NOT_MEASURABLE (back, hands, feet) in every one."""
+    seen: dict[str, bool] = {}
+    for row in editorial.get("shots") or []:
+        for member in ((row.get("prompt_spec") or {}).get("cast") or []):
+            cid = str(member.get("character_id") or "")
+            if not cid:
+                continue
+            faceless = str(member.get("face_visibility") or "").upper().endswith("NOT_MEASURABLE") or \
+                str(member.get("face_visibility") or "").upper().endswith("FACE_OUT_OF_FRAME")
+            seen[cid] = seen.get(cid, True) and faceless
+    return {cid for cid, faceless in seen.items() if faceless}
+
+
 def append_h3_identity_plates(anchor_plan: dict[str, Any], plan: dict[str, Any], editorial: dict[str, Any],
                               *, episode: str) -> list[str]:
     """MiniMax-H3 renders identity, speaker and voice bindings from the unit's own references, so the
@@ -2576,6 +2618,11 @@ def append_h3_identity_plates(anchor_plan: dict[str, Any], plan: dict[str, Any],
     shot_ids_by_unit = {str(u.get("unit_id")): list(u.get("editorial_shot_ids") or []) for u in plan.get("units") or []}
     # a V.O. narrator (VOICE_ONLY_NO_PLATE) has no plate and never appears in the video
     voice_over_ids = {str(cid) for cid in editorial.get("voice_over_character_ids") or []}
+    # K075: a person whose face is never shown gets no face plate.  A plate tells H3 "lock this entity's
+    # face", which invites the model to turn him to camera (nalu E14 巡山者乙, back/side only in every
+    # shot).  Only a character marked NOT_MEASURABLE in EVERY shot of the episode is skipped; anyone whose
+    # face is shown once (E14 巡山者甲 in S10-02) keeps the plate everywhere.
+    never_face = faceless_character_ids(editorial)
     missing: list[str] = []
     for unit in anchor_plan.get("units") or []:
         speakers: list[str] = []
@@ -2592,7 +2639,7 @@ def append_h3_identity_plates(anchor_plan: dict[str, Any], plan: dict[str, Any],
                 if cid and str(member.get("face_visibility") or "") != "OFFSCREEN_VOICE_ONLY" and cid not in visible:
                     visible.append(cid)
         order = [cid for cid in speakers + [cid for cid in visible if cid not in speakers]
-                 if cid not in voice_over_ids]
+                 if cid not in voice_over_ids and cid not in never_face]
         states = unit_reference_states([(shots.get(sid) or {}).get("prompt_spec") or {}
                                         for sid in shot_ids_by_unit.get(str(unit.get("unit_id")), [])])
         paths = list(unit.get("reference_image_paths") or [])

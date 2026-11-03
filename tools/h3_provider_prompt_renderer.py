@@ -167,6 +167,33 @@ _WARDROBE_FIELDS = ("silhouette", "outer_layer", "inner_layer", "primary_color",
 REFERENCE_SHEET_MARK = "__MULTIVIEW_REFERENCE_SHEET"
 
 
+#: Identity line for a face-crop transport: face only, costume from the opening frame and wardrobe text.
+FACE_ONLY_LOCK = "face crop: lock face, age and hair only; wardrobe and headwear from {first}, never from this crop"
+
+
+def appearance_anchor_line(unit: dict[str, Any], plan: dict[str, Any], *, compact: bool = False) -> str:
+    """E12 2026-10-31 (Roger「1」): H3 drifted older characters' faces and costumes mid-clip even with identity
+    references bound.  A contract character carrying ``appearance_anchor_en`` gets its fixed look stated once,
+    right after the TEXT-FREE rule, for every character bound in this unit; absent anchors render nothing."""
+    labels = _entity_labels(unit, plan)
+    rows = []
+    for entity in unit.get("character_entities") or []:
+        cid = str(entity.get("character_id") or "")
+        anchor = str(entity.get("appearance_anchor_en") or "").strip().rstrip(".")
+        if compact:
+            anchor = ", ".join(part.strip() for part in anchor.split(",")[1:3]) or anchor
+        if cid in labels and anchor:
+            rows.append(f"{labels[cid]} = {anchor}")
+    if not rows:
+        return ""
+    return "Same look in every frame: " + "; ".join(rows) + "."
+
+
+def face_only_identity_paths(unit: dict[str, Any]) -> set[str]:
+    """Reference paths the compiler input declares as face crops (verified PIXEL_CROP transports)."""
+    return {str(p) for p in unit.get("face_only_identity_references") or []}
+
+
 def is_reference_sheet(ref: dict[str, Any]) -> bool:
     """A CAMERA_GRAMMAR_V1 multi-view character sheet (lines/nalu/runtime/tools/character_reference_sheet.py)."""
     return REFERENCE_SHEET_MARK in str(ref.get("path") or "").rsplit("/", 1)[-1]
@@ -255,12 +282,31 @@ def _director_roster(people: list[tuple[str, str]], beings: list[tuple[str, str]
     return "cast_roster: " + ". ".join(parts) + "."
 
 
+LOCKED_DIALOGUE_POLICY_ID = "LOCKED_DIALOGUE_CAMERA_V1"
+SINGLE_DIRECTION_CLAUSE = ("execute the declared move once, in one direction only, then hold; the camera never "
+                           "reverses, oscillates or drifts back")
+TRIPOD_CLAUSE = "The camera is on a tripod for the whole take"
+NO_SPEECH_BEAT_CLAUSE = "No speech in this beat: {who} keeps the mouth closed, no voice, no murmur, no breath words."
+SHORT_LINE_CLAUSE = "Deliver this short line unhurried, over at least one full second, with a natural pause before and after it."
+SHORT_LINE_MAX_CHARS = 4
+
+
+def _locked_dialogue_plan(plan: dict[str, Any] | None) -> bool:
+    return str((plan or {}).get("camera_policy") or "").strip().upper() == LOCKED_DIALOGUE_POLICY_ID
+
+
 def _camera(plan: dict[str, Any]) -> str:
-    """Legacy unit camera line (gate off).  Kept byte-identical."""
+    """Legacy unit camera line (gate off).  Kept byte-identical for plans outside LOCKED_DIALOGUE_CAMERA_V1."""
     family = str(plan.get("motion_family") or "STATIC").upper()
     direction = str(plan.get("motion_direction") or "NONE").upper()
     scale = str(plan.get("shot_scale") or "MEDIUM").upper()
     suffix = _optical(plan) + _camera_grammar_clause(plan)
+    if _locked_dialogue_plan(plan):
+        # Roger 2026-10-30 (E12 item 2): a locked plan is a tripod, never "execute the move once"; a moving
+        # plan moves once in one direction (E12: 20/53 units carried a built-in reversal)
+        if family in {"STATIC", "LOCKED"}:
+            return f"shot scale={scale}; {FIXED_CAMERA_POSITION} {TRIPOD_CLAUSE}{suffix}"
+        return f"shot scale={scale}; {_MOTION_MAPPING.get(family, family)}; direction={direction}; {SINGLE_DIRECTION_CLAUSE}{suffix}"
     return f"shot scale={scale}; {_MOTION_MAPPING.get(family, family)}; direction={direction}; execute the declared move once{suffix}"
 
 # ---------------------------------------------------------------------------
@@ -492,6 +538,8 @@ def _camera_scoped(camera_plan: dict[str, Any], english: dict[str, str]) -> str:
             parts.append(f"end framing: {end}")
     else:
         parts.append(f"{_MOTION_MAPPING.get(family, family)}; direction={direction}")
+        if _locked_dialogue_plan(camera_plan):
+            parts.append(SINGLE_DIRECTION_CLAUSE)
         if english.get("follow_subject"):
             parts.append(f"the camera follows {english['follow_subject']}")
         if english.get("subject_to_keep"):
@@ -870,7 +918,8 @@ def _collapse_shared_unit_policy(rows: list[str]) -> list[str]:
 def _beat(
     source: dict[str, Any], translated: dict[str, Any], *, dialogue_binding: dict[str, Any] | None,
     positive_single_subject: bool = False, language: str = "zh", performance: Any = None,
-    shared_clauses: set[str] | None = None,
+    shared_clauses: set[str] | None = None, locked_dialogue_policy: bool = False,
+    unit_has_dialogue: bool = False, speaker_label: str | None = None,
 ) -> tuple[str, dict[str, str]]:
     index = int(source["source_index"])
     prefix = f"BEAT.{index}"
@@ -964,6 +1013,17 @@ def _beat(
         evidence[f"{prefix}.CROSSMODAL_BINDING"] = (
             f"{subject}={image_slot}={speaker_slot}={audio_slot}"
         )
+        if locked_dialogue_policy and len(_CJK.findall(words)) <= SHORT_LINE_MAX_CHARS:
+            # F4/F8 2026-10-30: H3 squeezed 2–4 character lines into 0.4–0.8 s; give them breathing room
+            line += " " + SHORT_LINE_CLAUSE
+            evidence[f"{prefix}.SHORT_LINE_DELIVERY"] = SHORT_LINE_CLAUSE
+    elif locked_dialogue_policy and unit_has_dialogue:
+        # K138 (Roger 2026-10-30 item 1a): H3 vocalises a beat that carries no dialogue literal — babble,
+        # English or homophone gibberish — unless told, beat by beat, that nobody speaks here
+        who = speaker_label or "every visible person"
+        clause = NO_SPEECH_BEAT_CLAUSE.format(who=who)
+        line += " " + clause
+        evidence[f"{prefix}.NO_SPEECH"] = clause
     if source.get("microexpression_cue"):
         line += f" Microexpression: {translated['microexpression_cue']}."
         evidence[f"{prefix}.MICROEXPRESSION"] = translated["microexpression_cue"]
@@ -1077,8 +1137,14 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     # Director units: a reference without its own provider label (e.g. the continuity-derived opening
     # frame) takes the same English name the unit's other bindings use, never the raw CHAR-* id.
     director_labels = _entity_labels(unit, plan) if director_active(unit, plan) else {}
+    face_only = face_only_identity_paths(unit)
     for index, raw_ref in enumerate(refs, 1):
         ref = raw_ref if isinstance(raw_ref, dict) else {"path": str(raw_ref)}
+        # E12 2026-10-30: a pixel-crop identity transport is a face crop of a costumed source card;
+        # locking wardrobe from it put the card's robe and crown on every clip.
+        face_crop = str(ref.get("path") or "") in face_only and index != 1
+        locks = (FACE_ONLY_LOCK.format(first="@Image1") if face_crop
+                 else "lock this entity's face, age, hair, body and wardrobe")
         # Index binding is authoritative.  Path lookup is compatibility-only:
         # different role references may legitimately share one source image.
         bound = scope_bindings.get(index) or sequence_by_path.get(str(ref.get("path") or ""), {})
@@ -1109,14 +1175,15 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             )
             if positive_single_subject:
                 reference_lines.append(
-                    f"@Image{index}: {entity} is SUBJECT_1; preserve this face, age, hair, body, wardrobe, "
+                    f"@Image{index}: {entity} is SUBJECT_1; {locks}; role={role}." if face_crop
+                    else f"@Image{index}: {entity} is SUBJECT_1; preserve this face, age, hair, body, wardrobe, "
                     f"opening pose and architectural background; role={role}."
                 )
             elif scoped:
                 reference_lines.append(
                     f"@Image{index}: exclusive identity of {entity}; "
                     + (reference_sheet_clause(entity) + "; " if is_reference_sheet(ref) else "")
-                    + "lock this entity's face, age, hair, body and wardrobe; "
+                    + locks + "; "
                     + instance_cardinality_clauses(entity, declared_count)[-1]
                     + f"; this reference alone does not put {entity} "
                     "in frame, presence and visible range follow each timed beat; "
@@ -1124,7 +1191,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
                 )
             else:
                 reference_lines.append(
-                    f"@Image{index}: exclusive identity of {entity}; lock this entity's face, age, hair, body and wardrobe; "
+                    f"@Image{index}: exclusive identity of {entity}; {locks}; "
                     + instance_cardinality_clauses(entity, declared_count)[0]
                     + f"; never duplicate or assign it to another entity; "
                     f"role={role}."
@@ -1133,6 +1200,15 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             reference_lines.append(
                 f"@Image{index}: opening composition, location, camera axis, pose and state; "
                 "named identity references override uncertain faces; never copy a static pose."
+            )
+        elif role == "PREVIOUS_REAL_TAIL_STATE_AUTHORITY" and _locked_dialogue_plan(plan.get("camera_plan") or {}):
+            # nalu E13 prompt review: the previous unit's final frame can show people who are not in this clip
+            # (a speaker change inside one scene); say what it carries.  Only LOCKED_DIALOGUE_CAMERA_V1 plans,
+            # so other lines' prompt bytes are unchanged.
+            reference_lines.append(
+                f"@Image{index}: previous shot's final frame from the same scene; use it only for location, "
+                "lighting, weather and prop state; a person shown in it appears in this clip only if this clip "
+                "names them, and never overwrite a named identity."
             )
         else:
             reference_lines.append(
@@ -1222,6 +1298,10 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             language=language,
             performance=_spec_performance(director_specs, source.get("source_index")),
             shared_clauses=shared_clauses,
+            locked_dialogue_policy=_locked_dialogue_plan(plan.get("camera_plan") or {}),
+            unit_has_dialogue=any(b.get("dialogue") for b in action_beats),
+            speaker_label=(next((r["provider_entity_label"] for r in crossmodal_rows), None)
+                           if len(crossmodal_rows) == 1 else None),
         )
         if scoped:
             scope_text, scope_evidence = _beat_scope_clauses(
@@ -1279,8 +1359,10 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         if len(provider_rows) != len(source_rows):
             raise ValueError(f"H3_ENGLISH_CONTRACT_SOUND_COUNT:{uid}:{key}:{len(provider_rows)}!={len(source_rows)}")
         values = [str(value).strip() for value in provider_rows]
-        if key == "action_sound":
+        if key in ("action_sound", "foley"):
+            # E12 2026-10-31: foley rows quote the beat action verbatim too (~500 duplicate runes on VU-003/011)
             values = _condense_sound_quotes(values, contract.get("beats") or [])
+        if key == "action_sound":
             values = _collapse_shared_unit_policy(values)
         for index, value in enumerate(values, 1):
             sound_rows.append(value)
@@ -1371,7 +1453,6 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         else list(contract.get("negative_constraints") or [])
     )
     negatives.extend([
-        ANTI_TEXT,
         "No identity, wardrobe, prop ownership, map, weather, lighting-direction, or voice drift",
         "No freeze, loop, pose interpolation, unmotivated orbit, or discontinuous spatial jump",
     ])
@@ -1413,6 +1494,8 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     # provider-expert voice wording replaces the older after-line sentence (CAMERA_GRAMMAR_V1 only)
     voice_hygiene = (ONLY_THIS_LINE if spoken_lines == 1 else ONLY_THESE_LINES) if has_dialogue else NO_VOICE_SILENT
 
+    appearance_line = appearance_anchor_line(unit, plan)
+
     def assemble(roster: str, extras: bool = False) -> str:
         voice_text = "; ".join(voice_rows) or "No dialogue voice reference is required"
         vocal_text = vocal_rule
@@ -1423,6 +1506,10 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             vocal_text += " " + voice_hygiene
             negative_rows.append(_NO_NATIVE_MUSIC)
         return "\n".join([
+        # E12 2026-10-30 (K031, K143): H3 burned dialogue subtitles into 7 of 25 clips while the anti-text rule sat
+        # in negative_constraints at the end; stated first, ahead of every action line.
+        ANTI_TEXT + ".",
+        *([appearance_line] if appearance_line else []),
         "subject_definitions:", *reference_lines,
         "population_scope: " + population_scope + ".",
         *([roster] if roster else []),
@@ -1449,8 +1536,16 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     # rather than ever failing the limit
     variants = ([(roster_variants[0], True)] if director_audio else []) + [(r, False) for r in roster_variants]
     constraint_language = h3_constraint_language(unit) if director_audio else "en"
-    for roster, extras in variants:
-        text = localize_constraints(assemble(roster, extras), constraint_language)
+    # the full appearance line first; when a long unit would exceed the rune limit, the compact line (two traits
+    # per character) is tried before the roster is trimmed
+    # and, only if even that cannot fit, the prompt without it (the identity references still bind the faces)
+    appearance_variants = ([appearance_line, appearance_anchor_line(unit, plan, compact=True), ""]
+                           if appearance_line else [""])
+    for appearance_line in appearance_variants:
+        for roster, extras in variants:
+            text = localize_constraints(assemble(roster, extras), constraint_language)
+            if len(text) <= _PROVIDER_RUNE_LIMIT:
+                break
         if len(text) <= _PROVIDER_RUNE_LIMIT:
             break
     if constraint_language == "zh":

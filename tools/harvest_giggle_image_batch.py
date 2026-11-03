@@ -136,7 +136,8 @@ def row_provider(row: dict[str, Any]) -> str:
             else image_client.PROVIDER_GIGGLE)
 
 
-def harvest_one_hopsapi(row: dict[str, Any], episode: str, output_dir: Path, raw_dir: Path) -> dict[str, Any]:
+def harvest_one_hopsapi(row: dict[str, Any], episode: str, output_dir: Path, raw_dir: Path,
+                        studio_project_id: str | None = None) -> dict[str, Any]:
     """GET the HopsAPI task (free), download + verify a completed image, record the settlement."""
     task_id = str(row["task_id"])
     status = image_client.query_task(task_id)
@@ -149,7 +150,11 @@ def harvest_one_hopsapi(row: dict[str, Any], episode: str, output_dir: Path, raw
         output = output_dir / f"{episode}_{safe(row['task_key'])}_{task_id}.png"
         if not output.is_file():
             image_client.download_image(str(status["urls"][0]), output)
-        item.update({"output_path": str(output), "sha256": sha256(output), "bytes": output.stat().st_size})
+        digest = sha256(output)
+        item.update({"output_path": str(output), "sha256": digest, "bytes": output.stat().st_size})
+        archived = studio_archive(output, episode, row, raw_path, studio_project_id, digest)
+        if archived is not None:
+            item["studio_archive"] = archived
     elif remote == "completed":
         item["remote_status"] = remote = "completed_without_url"
     cost = status.get("cost")
@@ -170,12 +175,34 @@ def harvest_one_hopsapi(row: dict[str, Any], episode: str, output_dir: Path, raw
     return item
 
 
+def studio_archive(output: Path, episode: str, row: dict[str, Any], raw_path: Path,
+                   project_id: str | None, digest: str) -> dict[str, Any] | None:
+    """Archive the downloaded ORIGINAL into the studio asset library (UNREVIEWED until a lock).
+
+    Only for reference-image harvests that name their project (S3 passes --studio-archive-project);
+    keyframe harvests do not, so they are not studio assets.  Never raises: the image is already on
+    disk and ``studio_asset_library.py migrate --harvest-status`` sweeps anything missed.
+    """
+    if not project_id:
+        return None
+    try:
+        try:
+            from tools import studio_asset_library as studio  # noqa: PLC0415
+        except ModuleNotFoundError:  # pragma: no cover - flat tools/ on sys.path
+            import studio_asset_library as studio  # type: ignore[no-redef]
+        return studio.archive_harvested_image(output, episode=episode, row={**row, "sha256": digest},
+                                              project_id=project_id, raw_response=raw_path)
+    except Exception as exc:  # noqa: BLE001 - archiving must never break a harvest that already has the image
+        return {"status": "ARCHIVE_NOT_RUN", "error": f"{type(exc).__name__}:{exc}"}
+
+
 def harvest_one(
     row: dict[str, Any],
     episode: str,
     output_dir: Path,
     raw_dir: Path,
     batch_credit: int | float | None,
+    studio_project_id: str | None = None,
 ) -> dict[str, Any]:
     """Query one submitted image task and download its plate when complete.
 
@@ -184,7 +211,7 @@ def harvest_one(
     once by the caller and passed in unchanged.
     """
     if row_provider(row) == image_client.PROVIDER_HOPSAPI:
-        return harvest_one_hopsapi(row, episode, output_dir, raw_dir)
+        return harvest_one_hopsapi(row, episode, output_dir, raw_dir, studio_project_id)
     task_id = row["task_id"]
     response = query_task(SimpleNamespace(task_id=task_id))
     raw_path = raw_dir / f"{safe(row['task_key'])}_{task_id}.json"
@@ -211,18 +238,23 @@ def harvest_one(
         output = output_dir / f"{episode}_{safe(row['task_key'])}_{task_id}.png"
         if not output.is_file():
             download(str(urls[0]), output)
-        item.update({"output_path": str(output), "sha256": sha256(output), "bytes": output.stat().st_size})
+        digest = sha256(output)
+        item.update({"output_path": str(output), "sha256": digest, "bytes": output.stat().st_size})
+        archived = studio_archive(output, episode, row, raw_path, studio_project_id, digest)
+        if archived is not None:
+            item["studio_archive"] = archived
     return item
 
 
-def poll_once(submit_report: Path, output_dir: Path, raw_dir: Path) -> dict[str, Any]:
+def poll_once(submit_report: Path, output_dir: Path, raw_dir: Path,
+              studio_project_id: str | None = None) -> dict[str, Any]:
     source = json.loads(submit_report.read_text(encoding="utf-8"))
     episode = safe(str(source.get("episode") or "EPISODE"))
     rows = source.get("results") or []
     batch_credit, credit_reconciliation = batch_credit_assignment(source, len(rows))
     workers = harvest_workers()
     if workers <= 1 or len(rows) <= 1:
-        results = [harvest_one(row, episode, output_dir, raw_dir, batch_credit) for row in rows]
+        results = [harvest_one(row, episode, output_dir, raw_dir, batch_credit, studio_project_id) for row in rows]
     else:
         # Query the whole batch concurrently; results stay in submit-report order so
         # the status file and its counts are stable.  Any row's exception fails the
@@ -230,7 +262,7 @@ def poll_once(submit_report: Path, output_dir: Path, raw_dir: Path) -> dict[str,
         from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
 
         with ThreadPoolExecutor(max_workers=min(workers, len(rows))) as pool:
-            futures = [pool.submit(harvest_one, row, episode, output_dir, raw_dir, batch_credit)
+            futures = [pool.submit(harvest_one, row, episode, output_dir, raw_dir, batch_credit, studio_project_id)
                        for row in rows]
             results = [future.result() for future in futures]
     counts: dict[str, int] = {}
@@ -259,6 +291,9 @@ def main() -> int:
     parser.add_argument("--raw-dir", required=True)
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("--interval", type=int, default=15)
+    parser.add_argument("--studio-archive-project",
+                        help="project id: archive each downloaded original into the studio asset library "
+                             "(acts only when the library is enabled; see configs/STUDIO_ASSET_LIBRARY_V1.json)")
     args = parser.parse_args()
     submit_report = resolve(args.submit_report)
     rows = json.loads(submit_report.read_text(encoding="utf-8")).get("results") or []
@@ -271,7 +306,7 @@ def main() -> int:
     raw_dir = resolve(args.raw_dir)
     status_report = resolve(args.status_report)
     while True:
-        payload = poll_once(submit_report, output_dir, raw_dir)
+        payload = poll_once(submit_report, output_dir, raw_dir, args.studio_archive_project)
         atomic_json(status_report, payload)
         print(json.dumps({"status_counts": payload["status_counts"], "all_terminal": payload["all_terminal"]}, ensure_ascii=False), flush=True)
         if payload["all_terminal"] and payload["provider_error_424_count"]:

@@ -70,8 +70,13 @@ PROVIDER_ENV = "NALU_IMAGE_PROVIDER"
 API_KEY_ENV = hops.API_KEY_ENV
 GIGGLE_KEY_ENV = hops.GIGGLE_KEY_ENV
 MODEL = "gpt-image-2"
-#: the engine's logical image model (manifests, fingerprints, digests keep naming it)
-LOGICAL_MODEL = "gpt-image-2-pro"
+#: the engine's logical image model (manifests, fingerprints, digests keep naming it): the image
+#: registry's active SKU (tools/image_model_policy.py; gpt-image-2-fast @1K since seq=54/56).  Both
+#: 1K and 2K tiers map to the probe-verified HopsAPI pixel size below.
+try:
+    from tools.image_model_policy import ACTIVE_IMAGE_MODEL as LOGICAL_MODEL
+except ModuleNotFoundError:  # pragma: no cover - flat tools/ on sys.path
+    from image_model_policy import ACTIVE_IMAGE_MODEL as LOGICAL_MODEL  # type: ignore[no-redef]
 TXT2IMG = "Txt2Img"
 IMG2IMG = "Img2Img"
 MAX_IMAGES = 16

@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 from tools.tool_output_sanitizer import sanitize_tool_output
+from tools.image_model_policy import ACTIVE_IMAGE_MODEL
 import sys
 import time
 import threading
@@ -1880,7 +1881,7 @@ def submit_one(task: dict, receipt: dict) -> dict:
             command.extend(["--audio-asset-id", str(asset_id)])
         for asset_id in [*task.get("reference_video_asset_ids", []), *task.get("resolved_reference_video_asset_ids", [])]:
             command.extend(["--video-asset-id", str(asset_id)])
-    command.extend(["--model", task.get("model", "gpt-image-2-pro" if tool_type == "image_generation" else "seedance-2.0-fast")])
+    command.extend(["--model", task.get("model", ACTIVE_IMAGE_MODEL if tool_type == "image_generation" else "seedance-2.0-fast")])
     if tool_type == "video_generation":
         try:
             duration = cli_int_duration(task.get("duration", 4))
@@ -2355,7 +2356,7 @@ def reconcile_completed_image_credits(receipt: dict) -> None:
     ]
     by_model: dict[str, list[dict]] = {}
     for task in submitted:
-        by_model.setdefault(str(task.get("model") or "gpt-image-2-pro"), []).append(task)
+        by_model.setdefault(str(task.get("model") or ACTIVE_IMAGE_MODEL), []).append(task)
     try:
         rows = fetch_pay_statements(max(100, len(completed) * 4))
     except BaseException as exc:
