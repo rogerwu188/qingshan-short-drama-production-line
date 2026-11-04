@@ -241,7 +241,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "20b02bc95d6254ff8300ff72139b8cb97a60c1cfae848e7729c8b0ce102adfbd"
+      "sha256": "a0235afcb6a61395bbe5b2e837f048f645b96e9e8f54bdb303f4689f3e50513e"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -397,7 +397,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "894147508ed5ab5242915801bceb62bc2ef7174ad4e483d79bd05ac9059ec4d3"
+      "sha256": "2377713362e60347544f4aee218ab44d12ee589fd8e0c0d76702a7c0bc0b7af3"
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
