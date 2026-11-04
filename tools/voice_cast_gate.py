@@ -160,6 +160,13 @@ def distinctness(characters: dict[str, dict[str, Any]], scene_copresence: Sequen
     return failures, advisories
 
 
+def copresent_rule() -> str:
+    """TIMBRE_DISTINCT (default since 2026-11-04) or F0_40HZ (NALU_VOICE_COPRESENT_RULE)."""
+    import os
+    value = str(os.environ.get("NALU_VOICE_COPRESENT_RULE") or "TIMBRE_DISTINCT").strip().upper()
+    return "F0_40HZ" if value == "F0_40HZ" else "TIMBRE_DISTINCT"
+
+
 def precheck(cast: dict[str, Any], scene_copresence: Sequence[Sequence[str]],
              new_characters: Iterable[str] = ()) -> dict[str, Any]:
     errors = validate_cast(cast)
@@ -197,6 +204,13 @@ def precheck(cast: dict[str, Any], scene_copresence: Sequence[Sequence[str]],
                 requires_human.append(f"F0_BAND_OVERLAP_REQUIRES_HUMAN:{a}:{b}")
     distinct_failures, advisories = distinctness(characters, scene_copresence, new_characters)
     failures.extend(distinct_failures)
+    if copresent_rule() == "TIMBRE_DISTINCT":
+        # owner 2026-11-04 (lab 化神 E03/E04): co-present voices must be distinct provider voices; pitch
+        # separation, F0-band overlap and the new-voice ratio are measured and kept as advisories only
+        pitch = ("F0_MEDIAN_SEPARATION_LT_40HZ:", "NEW_VOICE_TOO_CLOSE_IN_SCENE:")
+        advisories = list(advisories) + [f for f in failures if f.startswith(pitch)] + requires_human
+        failures = [f for f in failures if not f.startswith(pitch)]
+        requires_human = []
     status = "FAIL" if failures else ("REQUIRES_HUMAN" if requires_human else ("UNVERIFIED" if unverified else "PASS"))
     return {"status": status, "failures": failures, "requires_human": requires_human,
             "unverified": unverified, "advisories": advisories,
