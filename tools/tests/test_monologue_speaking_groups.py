@@ -172,6 +172,20 @@ class KeyframeReuseTest(unittest.TestCase):
             side = json.loads((keyframes / "S4-keyframe-v1.monologue_reuse.json").read_text())
             self.assertEqual(side["source_shot_id"], "S1")
 
+    def test_exact_sha_reuse_is_materialised_too(self):
+        # lab 化神 E04 VU-028: REUSE_NO_NEW_KEYFRAME / EXACT_SHA_REUSE_OF_EARLIER_KEYFRAME was never copied
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            keyframes = tmp / "kf"; keyframes.mkdir()
+            report = tmp / "report.json"
+            report.write_text(json.dumps({"decision_table": [
+                {"shot_id": "S12", "video_unit_id": "VU-028", "decision": "REUSE_NO_NEW_KEYFRAME",
+                 "reuse_mode": "EXACT_SHA_REUSE_OF_EARLIER_KEYFRAME", "reuse_source": "S02"}]}))
+            (keyframes / "S02-keyframe-v1.png").write_bytes(b"src")
+            ctx = SimpleNamespace(p=SimpleNamespace(keyframe_manifest_report=report, keyframes=keyframes))
+            self.assertEqual(npl.materialise_monologue_reuse_keyframes(ctx)[0]["status"], "MATERIALISED")
+            self.assertEqual((keyframes / "S12-keyframe-v1.png").read_bytes(), b"src")
+
 
 class CompiledPlanTest(unittest.TestCase):
     def test_plan_carries_the_group_fields(self):

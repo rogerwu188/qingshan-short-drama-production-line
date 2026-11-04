@@ -4293,7 +4293,10 @@ def materialise_monologue_reuse_keyframes(ctx: Ctx) -> list[dict[str, Any]]:
     report = read_json(ctx.p.keyframe_manifest_report, {}) or {}
     rows = []
     for row in report.get("decision_table") or []:
-        if row.get("reuse_mode") != "MONOLOGUE_SAME_SETUP_KEYFRAME_REUSE":
+        # EXACT_SHA_REUSE_OF_EARLIER_KEYFRAME (same setup, same cast/wardrobe/entry state) was declared with a
+        # COPY_EXACT_SHA_BYTES materialisation but never copied; a unit whose tail start frame S6 rejects then
+        # needed its own keyframe and found none (lab 化神 E04 VU-028).  Copy those too, from the SOURCE keyframe.
+        if row.get("reuse_mode") not in ("MONOLOGUE_SAME_SETUP_KEYFRAME_REUSE", "EXACT_SHA_REUSE_OF_EARLIER_KEYFRAME"):
             continue
         shot, source = str(row.get("shot_id") or ""), str(row.get("reuse_source") or "")
         src = ctx.p.keyframes / f"{source}-keyframe-v1.png"
@@ -4311,7 +4314,9 @@ def materialise_monologue_reuse_keyframes(ctx: Ctx) -> list[dict[str, Any]]:
                                "source_unit_id": row.get("reuse_source_unit_id"), "source_path": str(src),
                                "source_sha256": src_sha, "sha256": sha256_file(dst), "materialised_at": now(),
                                "recorded_by": TOOL_ID,
-                               "note": "same speaker, same locked camera setup after a cutaway: exact keyframe reuse"})
+                               "reuse_mode": row.get("reuse_mode"),
+                               "note": "exact keyframe reuse from the same camera setup (monologue continuation or "
+                                       "production_efficiency exact-SHA reuse)"})
         rows.append({"shot_id": shot, "status": "MATERIALISED", "path": str(dst), "sha256": src_sha})
     return rows
 
