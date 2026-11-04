@@ -401,7 +401,7 @@
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
-      "sha256": "bdfee9fff1a395bc215866e514e45b15b5d33efdc59dda6cf30f18970c35d6c4"
+      "sha256": "48f1e0926d9245e78e9ebf08550416ce9b00b22a57783d6ffa53958f8c3a8d43"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -649,7 +649,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
-      "sha256": "daec5185d4af31cfd32168cb0c2270f59de059857496a991421243d60a202afc"
+      "sha256": "0104491bc369747c267bd2630f9c1b3e210dede43c1fb8a48ac3af0bceff97fa"
     },
     {
       "path": "lines/nalu/runtime/tools/camera_motion_metrics.py",
