@@ -286,6 +286,68 @@ def setting_source(unit: dict[str, Any]) -> str:
     return "；".join(seen)
 
 
+#: CAMERA_GRAMMAR_V1 dialogue Delivery (owner 2026-11-04, lab 化神 E04 "语音声调起伏不够大，没有感情"): the
+#: writer's delivery_en filled up with anti-error meta ("say it once / start immediately / do not echo the
+#: reference / keep the same timbre", redo notes) and the renderer appended the same generic tail to every line,
+#: so the emotion and the contour were a minority of the words H3 read.  Delivery now leads with the emotion and
+#: the authored contour only; once/no-extra-words is said by the Dialogue header and ONLY_THIS_LINE, timbre by the
+#: @Audio1 reference line, and a redo note ("The previous take ...") is said once per prompt after the dialogue.
+_EMOTION_EXTRA = (("倦", "weary"), ("懒", "lazy"), ("坚", "resolute"), ("慌", "panicked"), ("狠", "fierce"),
+                  ("傲", "haughty"), ("得意", "smug"), ("乐", "amused"), ("委屈", "aggrieved"))
+_DELIVERY_META = re.compile(
+    r"reference|timbre|\becho|\bquote|\bsample\b|same voice|\bonce\b|immediately|right away|at the (?:very )?start"
+    r"|introductory|invented|extra (?:words|syllables|speech)|unwanted|no other words|authored line"
+    r"|natural breathing|never a flat read|clear rises and falls|this take|lips? (?:in )?sync",
+    re.IGNORECASE)
+_REDO_NOTE = re.compile(r"\b(?:previous|last|earlier) take\b", re.IGNORECASE)
+DELIVERY_EN_LIMIT = 240
+
+
+def _emotion_words(emotion: Any) -> list[str]:
+    text, found = str(emotion or ""), []
+    for key, word in sorted(v1._EMOTION_EN + _EMOTION_EXTRA, key=lambda kv: -len(kv[0])):
+        at = text.find(key)
+        if at >= 0 and word not in [w for _, w in found]:
+            found.append((at, word))
+            text = text.replace(key, " " * len(key))
+    return [word for _, word in sorted(found)]
+
+
+def stamped_delivery(performance: Any) -> tuple[str, list[str]]:
+    """(``Delivery: <emotion>: <contour>.``, redo notes) for a CAMERA_GRAMMAR_V1 dialogue beat; ("", []) when
+    the writer gave neither an English contour nor a mappable emotion (the caller keeps the canned clause)."""
+    if not isinstance(performance, dict):
+        return "", []
+    raw = re.sub(r"[<>\[\]]", "", str(performance.get("delivery_en") or ""))
+    raw = "" if CJK.search(raw) else " ".join(raw.split())
+    kept, redo = [], []
+    for sentence in re.split(r"(?<=[.!?])\s+", raw):
+        if _REDO_NOTE.search(sentence):
+            note = re.split(r";|,? this take\b", sentence, maxsplit=1, flags=re.IGNORECASE)[0].strip(" ,;.")
+            if note:
+                redo.append(note[0].upper() + note[1:] + ".")
+            continue
+        clauses = [c.strip() for c in re.split(r"[;,]\s*|\s+-+\s+|\.\s*$", sentence) if c.strip(" .")]
+        clauses = [c.strip(" .") for c in clauses if not _DELIVERY_META.search(c)]
+        clauses = [re.sub(r"^(?:and|then|but)\s+(?=\S)", "", c) if i == 0 else c for i, c in enumerate(clauses)]
+        if clauses:
+            kept.append(", ".join(clauses))
+    contour = "; ".join(kept)
+    if len(contour) > DELIVERY_EN_LIMIT:
+        contour = contour[:DELIVERY_EN_LIMIT].rsplit(",", 1)[0].rsplit(";", 1)[0].strip(" ,;")
+    emotions = [w for w in _emotion_words(performance.get("emotion")) if w not in contour.lower()]
+    lead = " and ".join(emotions[:2])
+    if contour and lead:
+        body = f"{lead} — " + (contour if re.match(r"I\b|[A-Z]{2}", contour) else contour[:1].lower() + contour[1:])
+    elif contour:
+        body = contour
+    elif lead:
+        body = f"{lead}, the pitch and volume rising and falling with the meaning, the key word stressed"
+    else:
+        return "", redo
+    return _sentence("Delivery: " + body[0].upper() + body[1:]), redo
+
+
 def _beats(plan: dict[str, Any]) -> list[dict[str, Any]]:
     return (plan.get("action_ir") or {}).get("causal_chains") or plan.get("beats") or []
 
@@ -757,6 +819,7 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         action_lines.append(_sentence(f"Throughout: {persistent}"))
     shot_states = [scrub(v) for v in contract.get("shot_state_locks") or []]
     dialogue_rows: list[dict[str, Any]] = []
+    redo_notes: list[str] = []
     last_exit = ""
     multi_beat = len(beats) > 1
     said_once: set[str] = set()
@@ -819,8 +882,12 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
             literal = f"<d>[{v1.DIALOGUE_LANGUAGE_TAGS[language]}] {words.strip()}</d>"
             evidence[f"{prefix}.DIALOGUE"] = literal
             performance = ((spec.get("action") or {}).get("performance"))
-            direction = v1._performance_direction(performance)
-            if direction:
+            direction = "" if stamped else v1._performance_direction(performance)
+            delivery, redo = stamped_delivery(performance) if stamped else ("", [])
+            redo_notes.extend(n for n in redo if n not in redo_notes)
+            if stamped:
+                delivery = delivery or delivery_clause(source, "EN")
+            elif direction:
                 body = re.sub(r"^Performance: ", "", direction).split(" Natural human speech")[0].rstrip(".")
                 delivery = f"Delivery: {body}. Natural breathing, clear rises and falls, never a flat read."
             else:
@@ -918,6 +985,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                                   + (f" {row['gaze']}" if row.get("gaze") else ""))
         dialogue_lines.append(v1.ONLY_THESE_LINES if stamped else
                               "After the last line nobody speaks; the remaining time is room tone.")
+    if redo_notes and dialogue_rows:  # a redo note is said once per prompt, never inside each Delivery
+        dialogue_lines.append(" ".join(redo_notes))
 
     # --- never -----------------------------------------------------------------------------------------
     negatives = [NEVER_V2, "any person, hand or body part" if not subjects else

@@ -401,7 +401,7 @@
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
-      "sha256": "48f1e0926d9245e78e9ebf08550416ce9b00b22a57783d6ffa53958f8c3a8d43"
+      "sha256": "36b23342983f5562efeef9dabaaeb1cb7f0256b3ac2aa406212dc0bf23f57bd6"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -925,7 +925,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "1231d9f3ba6f5192b10ca6a1a96100a8ce3825c13e7961bd6923836004eeb10c"
+      "sha256": "09cd746b82cce337f6f5b596daf920d96d226f9f5e9409e70b7f4fa823242b1b"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -5093,7 +5093,7 @@
     },
     {
       "path": "tools/h3_director_prompt_v2.py",
-      "sha256": "d56e9e6c29e79c8599c06d0523a8dae0a864478e79003c75925fec9b099edf79"
+      "sha256": "02c61393788399b364124885ffb4c1fc103914c2ed89fd02b8d88251c93aa154"
     },
     {
       "path": "tools/h3_english_contract_io.py",
@@ -9025,7 +9025,7 @@
     },
     {
       "path": "tools/tests/test_voice_reference_calibration.py",
-      "sha256": "aa471c0bc066e2e47a2504f7d19d446fb96fdcefce84fd1038db462730c3e742"
+      "sha256": "477cafb06a28b7c0e3808f743c77c62cc1e41ffdf97c2bf51edc96b4bb39da00"
     },
     {
       "path": "tools/tests/test_voice_reference_sample.py",
@@ -9401,7 +9401,7 @@
     },
     {
       "path": "tools/voice_reference_sample.py",
-      "sha256": "b9738dfa17c7498a13a08229d60b6356fef2fdfdcf47b62c821f834f17ef2b65"
+      "sha256": "5d94f32a14de11ec631afd5a86bb9fb0d37280a7b4a85b7842b0a293801e9634"
     },
     {
       "path": "tools/voice_timbre_lock.py",

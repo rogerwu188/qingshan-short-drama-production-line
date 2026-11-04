@@ -69,6 +69,17 @@
   `"cold and contemptuous, low and clipped, a beat of silence before the second sentence"`。H3 不收中文，中文的 `delivery`
   到不了模型；不写时只有常见 `emotion` 单字（厌/怒/冷/疑/急/惊…）会被译成形容词，否则只剩通用的「清晰、偏快」一句，听着像念稿。
   要写出声音的走向：重读哪个词、哪里扬起、哪里压低到近乎耳语、哪里突然大声、哪里停顿；只写「冷淡」「生气」起伏不够。
+  **写成导演给演员的一句话：情绪 + 音调走向 + 力度**（线主 2026-11-04，化神 E04「声调起伏不够大，没有感情」），如
+  `"outraged, the voice climbing through 'clean house' and slamming the last word, a beat of silence before"`。
+  - **每一句单独写，绝不按说话人套模板**：E04 全集只有两句 delivery_en 轮流贴（太玄一律「Begin urgently, lift pitch on the
+    warning…」，沈棠一律「Start dry and level…」），每句台词的演法一样，整集语调就是平的。
+  - **不写防错元指令**：「只说一次 / 立刻开口 / 不要复述参考音 / 保持音色 / 不加多余的词」由引擎负责（对白标题、
+    「Only this one line is spoken」和 @Audio1 那一行），写进 delivery_en 只会挤掉情绪词；CAMERA_GRAMMAR_V1 渲染器会把这类
+    子句删掉，「The previous take …」这种重做说明从 Delivery 里拿出来、整条提示词只说一次。
+  - 引用台词里的词用英文意译或位置（"on 'clean house'"、"the last two words"），不要写中文——H3 提示词在 `<d>` 外不收中文，
+    含中文的 delivery_en 整句作废、只剩 emotion 单字。
+  - **喜剧点要夸张反差**：一个人炸、另一个人死平（"deadpan, flat and slow, the last word dropped like a yawn" 对
+    "explodes on the last word, almost a shout"）；同场两人的力度、音高、语速要明显拉开，不要两边都「自然」。
 - **残缺与显眼的身体特征要写硬**（实验集：设定缺右臂的老师，大部分镜头被画回了两只手）：在人物外观、服装和每一镜动作里
   都写同一句——缺什么、空袖/伤疤怎么呈现（"right arm missing from the shoulder, empty right sleeve folded flat and tucked
   into the belt"）；该人物的动作只用剩下的那只手，避免「双手」「拍手」「抱臂」这类会让模型补出肢体的词；

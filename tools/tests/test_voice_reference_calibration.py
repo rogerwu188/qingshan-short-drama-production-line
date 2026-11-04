@@ -42,6 +42,17 @@ class CalibrationSampleTests(unittest.TestCase):
         self.assertEqual(out["sample_text"], CALIBRATION_SENTENCES["en"][0])
         self.assertEqual(out["reference_sample_replaced"]["reason"], "AUTHORED_REFERENCE_SAMPLE_TEXT_IS_A_SCRIPT_LINE")
 
+    def test_flat_calibration_sentence_copied_from_the_docs_is_replaced(self):
+        # lab 化神 E04: every authored sample was the calm "天快黑了..." and 太玄's reference read 3.1 semitones
+        flat = {**authored("天快黑了，我们还是趁早回去吧，路上小心一点。", 1.1), "emotion": "angry"}
+        out = calibration_sample(flat, ["别的台词。"], "zh")
+        self.assertEqual(out["sample_text"], CALIBRATION_SENTENCES["zh"][0])
+        self.assertEqual(out["emotion"], "angry")
+        self.assertEqual(out["reference_sample_replaced"]["reason"],
+                         "AUTHORED_REFERENCE_SAMPLE_IS_A_FLAT_CALIBRATION_SENTENCE")
+        for text in CALIBRATION_SENTENCES["zh"] + CALIBRATION_SENTENCES["en"]:
+            self.assertRegex(text, r"[？?].*[！!]")  # the sentence itself rises (question) and lands (exclamation)
+
     def test_falls_back_when_the_episode_speaks_the_calibration_sentence(self):
         out = calibration_sample({"sample_text": "x", "speed": 1.0}, [CALIBRATION_SENTENCES["zh"][0]], "zh")
         self.assertEqual(out["sample_text"], CALIBRATION_SENTENCES["zh"][1])
