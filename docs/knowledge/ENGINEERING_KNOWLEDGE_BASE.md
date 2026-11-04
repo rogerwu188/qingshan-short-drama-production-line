@@ -1508,3 +1508,43 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：离线：临时目录、内存假 S3、被桩替换的供应商查询；核心（含跨进程并发、备份恢复、迁移）与接线（真实收割轮询、`identity_qa_lock.materialise`、S2 `verified_requirement_reuse` 与 `run_lock`、S5 `entity_binding`、S6 `_locked_identity_plate`、`provider_request_digest`）两个测试文件。云端备份与跨设备恢复未对真实存储桶验证。
 - **授权**：2026-11-02 公司级人物道具原图库实施方案（交给工程维护者）
 - **状态**：REFERENCE_IMPLEMENTATION
+### K152 — S5
+
+- **规则**：When a review rejects an item, enumerate EVERY constraint the item must satisfy before editing it once: the reviewer's answers, every contract or prompt field that quotes the same sentence, and a one-line physical check of the requested frame. Do not fix one reported defect per round and resubmit. Batch the edits, rebuild once, review once.
+- **教训**：E14 S5 spent 6 whole-batch prompt rounds and 3 Q1 rounds on the same three keyframes because each round fixed only the defect just reported, and the next round surfaced a second constraint already sitting in the same sentence (framing vs prop placement; a scene-conditional wardrobe clause vs the shot; face wording vs the identity reference). Every extra round re-costs the whole-batch gate for all rows because that gate binds the batch by sha.
+- **恢复**：Before editing a rejected row, write out its full constraint set (reviewer answers + every field quoting the same text + a physical check of the frame), edit once, rebuild S1-S2 and the prompt batch in one pass, review once.
+- **实现**：`lines/nalu/runtime/tools/build_keyframe_manifest.py`、`lines/nalu/runtime/tools/keyframe_q1_builder.py`
+- **回归**：`tools/tests/test_knowledge_registry.py`
+- **证据**：E14 S5 2026-11-02/03: six prepare/finish cycles, three Q1 rounds; two of the rounds were self-introduced contradictions (an invented face description, a prop clause impossible in the declared crop), not model failures.
+- **授权**：Roger 2026-11-03 in-session: 「这类太慢的错误不要重犯，怎么通过git通知其他生产线」
+- **状态**：REFERENCE_IMPLEMENTATION
+### K153 — S5
+
+- **规则**：Face and body wording in a shot's camera text may only quote what the identity reference and the contract's character row actually show. Never write age, jaw shape, brow weight or build from a reviewer's paraphrase or from another episode's look. If more facial detail is needed, change the framing so the face is large enough to carry it, or point at the reference image by name.
+- **教训**：E14 S11-01: an independent reviewer described the identity reference as an adult with a broad face and heavy brows and rejected the still as younger and narrower. That paraphrase was wrong: the reference is a slim, clean-shaven young man and the contract row says so. Taking the paraphrase as truth, the writer put 'in his thirties, square broad face, thick black brows' into the prompt, creating a P0 contradiction with the reference and with the unchanged video prompt in the same unit.
+- **恢复**：Open the identity reference and the contract's character row before writing any appearance clause and quote only those. When a reviewer's paraphrase disagrees with them, the reference wins; record the paraphrase as a paraphrase, not as ground truth.
+- **实现**：`lines/nalu/runtime/tools/build_keyframe_manifest.py`
+- **回归**：`tools/tests/test_knowledge_registry.py`
+- **证据**：E14 S5 2026-11-03: the round-3 reviewer asked for 'the adult broad-faced heavy-browed identity reference'; the crop and the contract row ('young man, clean-shaven', lean silhouette) contradicted it; the invented clause produced a P0 prompt defect in round 4 and was withdrawn in round 5.
+- **授权**：Roger 2026-11-03 in-session.
+- **状态**：REFERENCE_IMPLEMENTATION
+### K154 — S5
+
+- **规则**：A head at body scale one third of frame height occupies about 4-5% of frame height; likeness and prop detail cannot be rendered or measured there. Do not put an identity commitment on a wide two-shot: carry identity on the close shot of the same video unit and say so in the shot text, or tighten the framing, or turn the face toward camera and raise its share of the frame before generating.
+- **教训**：E14 S11-01 is a 30mm far two-shot with both figures at about one third frame height. Two paid generations of the same framing both failed likeness review, and the machine cosine of the comparable medium shot S11-03 with a three-quarter face was 0.347, below the 0.375 boundary, while the same scale with the face toward camera (S10-04) measured 0.548. Rerolling the same wide framing is a fine-tune retry, not a remedy.
+- **恢复**：Before committing a keyframe to identity, check the face size the declared framing gives. Under about 8-10% of frame height, plan the identity anchor on a closer shot of the same unit and record that in the shot text; at 8-15% with the face turned away, turn it toward camera first.
+- **实现**：`tools/character_identity_admission_gate.py`、`lines/nalu/runtime/tools/keyframe_q1_builder.py`
+- **回归**：`tools/tests/test_knowledge_registry.py`
+- **证据**：E14 S5 2026-11-03: S11-01 rejected twice for likeness at one-third frame height; S11-03 machine cosine 0.347 (boundary 0.375) with a three-quarter face; S10-04 same scale 0.548 face-on.
+- **授权**：Roger 2026-11-03 in-session; operator judgement confirmed with 「你自己定」.
+- **状态**：REFERENCE_IMPLEMENTATION
+### K155 — S5
+
+- **规则**：The whole-batch prompt gate binds every row by sha. Editing one shot voids the batch register and forces digest, receipts and register to be rebuilt for all rows, and the prepare script deletes the per-unit QA receipts. Archive those receipts and the answers file before running prepare, diff each row's prompt shas afterwards, and re-review only the rows that changed; carry the rest with their recorded cross-unit continuity check.
+- **教训**：E14 S5 2026-11-02/03: every rebuild after a one-line edit cost a full 30-row digest plus register, and each prepare run wiped reports/prompt_batch_qa, so the unchanged 27-29 rows had to be carried forward by hand from a backup before the register could pass again.
+- **恢复**：Copy reports/prompt_batch_qa and the answers file aside before prompt_batch_prepare.sh; after it, diff keyframe and video prompt shas per row and re-review only changed rows.
+- **实现**：`lines/nalu/runtime/tools/prompt_batch_qa.py`
+- **回归**：`tools/tests/test_knowledge_registry.py`
+- **证据**：E14 S5 2026-11-02/03, six prepare/finish cycles.
+- **授权**：Roger 2026-11-03 in-session.
+- **状态**：REFERENCE_IMPLEMENTATION

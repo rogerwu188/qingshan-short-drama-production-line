@@ -3323,6 +3323,104 @@
       "sync_slug": "E14-reference-originals-outlive-the-episode-folder",
       "failure_code": "REFERENCE_ORIGINAL_LIVED_ONLY_IN_THE_EPISODE_FOLDER",
       "do_not_repeat": "不要把参考原图只登记路径而不保管字节；复用校验缺文件时不得退化成付费重做，应先按 sha 解析公司库、再请求恢复；跨项目引用只共享原件并另建本项目绑定，不得继承原作品姓名/关系/服装/声线，也不得去掉 project_id 检查；未配置备份目标就如实报 UNCONFIGURED，不得把公共知识库桶当作资产库"
+    },
+    {
+      "key": "diagnose-the-whole-contract-in-one-pass-before-any-rework",
+      "stage": "S5",
+      "category": "PROCESS",
+      "scope": "generalizable",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "implementation": [
+        "lines/nalu/runtime/tools/build_keyframe_manifest.py",
+        "lines/nalu/runtime/tools/keyframe_q1_builder.py"
+      ],
+      "failure_code": "ITERATIVE_SINGLE_DEFECT_REWORK",
+      "rule": "When a review rejects an item, enumerate EVERY constraint the item must satisfy before editing it once: the reviewer's answers, every contract or prompt field that quotes the same sentence, and a one-line physical check of the requested frame. Do not fix one reported defect per round and resubmit. Batch the edits, rebuild once, review once.",
+      "lesson": "E14 S5 spent 6 whole-batch prompt rounds and 3 Q1 rounds on the same three keyframes because each round fixed only the defect just reported, and the next round surfaced a second constraint already sitting in the same sentence (framing vs prop placement; a scene-conditional wardrobe clause vs the shot; face wording vs the identity reference). Every extra round re-costs the whole-batch gate for all rows because that gate binds the batch by sha.",
+      "recovery": "Before editing a rejected row, write out its full constraint set (reviewer answers + every field quoting the same text + a physical check of the frame), edit once, rebuild S1-S2 and the prompt batch in one pass, review once.",
+      "evidence": "E14 S5 2026-11-02/03: six prepare/finish cycles, three Q1 rounds; two of the rounds were self-introduced contradictions (an invented face description, a prop clause impossible in the declared crop), not model failures.",
+      "do_not_repeat": "Fixing one reported defect per round and resubmitting instead of enumerating all constraints first.",
+      "authority": "Roger 2026-11-03 in-session: 「这类太慢的错误不要重犯，怎么通过git通知其他生产线」",
+      "runtime_gate_added": false,
+      "episode": "E14",
+      "id": "K152",
+      "sync_slug": "E14-iterative-single-defect-rework",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md"
+    },
+    {
+      "key": "never-author-face-features-the-identity-reference-does-not-show",
+      "stage": "S5",
+      "category": "IDENTITY",
+      "scope": "generalizable",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "implementation": [
+        "lines/nalu/runtime/tools/build_keyframe_manifest.py"
+      ],
+      "failure_code": "APPEARANCE_TEXT_INVENTED_FROM_A_REVIEWER_PARAPHRASE",
+      "rule": "Face and body wording in a shot's camera text may only quote what the identity reference and the contract's character row actually show. Never write age, jaw shape, brow weight or build from a reviewer's paraphrase or from another episode's look. If more facial detail is needed, change the framing so the face is large enough to carry it, or point at the reference image by name.",
+      "lesson": "E14 S11-01: an independent reviewer described the identity reference as an adult with a broad face and heavy brows and rejected the still as younger and narrower. That paraphrase was wrong: the reference is a slim, clean-shaven young man and the contract row says so. Taking the paraphrase as truth, the writer put 'in his thirties, square broad face, thick black brows' into the prompt, creating a P0 contradiction with the reference and with the unchanged video prompt in the same unit.",
+      "recovery": "Open the identity reference and the contract's character row before writing any appearance clause and quote only those. When a reviewer's paraphrase disagrees with them, the reference wins; record the paraphrase as a paraphrase, not as ground truth.",
+      "evidence": "E14 S5 2026-11-03: the round-3 reviewer asked for 'the adult broad-faced heavy-browed identity reference'; the crop and the contract row ('young man, clean-shaven', lean silhouette) contradicted it; the invented clause produced a P0 prompt defect in round 4 and was withdrawn in round 5.",
+      "do_not_repeat": "Writing face or body features the identity reference does not show, especially by adopting a reviewer's paraphrase of the reference.",
+      "authority": "Roger 2026-11-03 in-session.",
+      "runtime_gate_added": false,
+      "episode": "E14",
+      "id": "K153",
+      "sync_slug": "E14-invented-appearance-description",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md"
+    },
+    {
+      "key": "identity-is-measured-where-the-face-is-large-enough",
+      "stage": "S5",
+      "category": "IDENTITY",
+      "scope": "generalizable",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "implementation": [
+        "tools/character_identity_admission_gate.py",
+        "lines/nalu/runtime/tools/keyframe_q1_builder.py"
+      ],
+      "failure_code": "IDENTITY_MEASURED_ON_A_FACE_TOO_SMALL_TO_CARRY_IT",
+      "rule": "A head at body scale one third of frame height occupies about 4-5% of frame height; likeness and prop detail cannot be rendered or measured there. Do not put an identity commitment on a wide two-shot: carry identity on the close shot of the same video unit and say so in the shot text, or tighten the framing, or turn the face toward camera and raise its share of the frame before generating.",
+      "lesson": "E14 S11-01 is a 30mm far two-shot with both figures at about one third frame height. Two paid generations of the same framing both failed likeness review, and the machine cosine of the comparable medium shot S11-03 with a three-quarter face was 0.347, below the 0.375 boundary, while the same scale with the face toward camera (S10-04) measured 0.548. Rerolling the same wide framing is a fine-tune retry, not a remedy.",
+      "recovery": "Before committing a keyframe to identity, check the face size the declared framing gives. Under about 8-10% of frame height, plan the identity anchor on a closer shot of the same unit and record that in the shot text; at 8-15% with the face turned away, turn it toward camera first.",
+      "evidence": "E14 S5 2026-11-03: S11-01 rejected twice for likeness at one-third frame height; S11-03 machine cosine 0.347 (boundary 0.375) with a three-quarter face; S10-04 same scale 0.548 face-on.",
+      "do_not_repeat": "Treating a wide two-shot's small face as an identity anchor, or rerolling the same wide framing to fix likeness.",
+      "authority": "Roger 2026-11-03 in-session; operator judgement confirmed with 「你自己定」.",
+      "runtime_gate_added": false,
+      "episode": "E14",
+      "id": "K154",
+      "sync_slug": "E14-wide-shot-identity-measurement",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md"
+    },
+    {
+      "key": "one-changed-row-still-recosts-the-whole-batch-gate",
+      "stage": "S5",
+      "category": "PROCESS",
+      "scope": "generalizable",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "implementation": [
+        "lines/nalu/runtime/tools/prompt_batch_qa.py"
+      ],
+      "failure_code": "EVERY_PROMPT_EDIT_RECOSTS_THE_WHOLE_BATCH_GATE",
+      "rule": "The whole-batch prompt gate binds every row by sha. Editing one shot voids the batch register and forces digest, receipts and register to be rebuilt for all rows, and the prepare script deletes the per-unit QA receipts. Archive those receipts and the answers file before running prepare, diff each row's prompt shas afterwards, and re-review only the rows that changed; carry the rest with their recorded cross-unit continuity check.",
+      "lesson": "E14 S5 2026-11-02/03: every rebuild after a one-line edit cost a full 30-row digest plus register, and each prepare run wiped reports/prompt_batch_qa, so the unchanged 27-29 rows had to be carried forward by hand from a backup before the register could pass again.",
+      "recovery": "Copy reports/prompt_batch_qa and the answers file aside before prompt_batch_prepare.sh; after it, diff keyframe and video prompt shas per row and re-review only changed rows.",
+      "evidence": "E14 S5 2026-11-02/03, six prepare/finish cycles.",
+      "do_not_repeat": "Running prompt_batch_prepare.sh without archiving the previous per-unit receipts and answers.",
+      "authority": "Roger 2026-11-03 in-session.",
+      "runtime_gate_added": false,
+      "episode": "E14",
+      "id": "K155",
+      "sync_slug": "E14-batch-gate-rework-cost",
+      "regression": "tools/tests/test_knowledge_registry.py",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md"
     }
   ]
 }
