@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2363,
+  "file_count": 2364,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -853,7 +853,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/script_review.py",
-      "sha256": "631911c76fc1e6413ddf1054309f20f048af8b287f2ff3a3093f3b343ed34995"
+      "sha256": "a852faf57f832032cc5c7bc517fdb3556967edf00b0bfa588415a5c2d4463ef8"
     },
     {
       "path": "lines/nalu/runtime/tools/speech_rate_check.py",
@@ -8593,7 +8593,7 @@
     },
     {
       "path": "tools/tests/test_script_review.py",
-      "sha256": "e3320e38cbe56ae7afd3b73a57dd8854f0b05fead8736472756e66c3938045d0"
+      "sha256": "8d672f8cc322354219204f2273b6e2b3c013230afbfac1bbe94a53d6012b8003"
     },
     {
       "path": "tools/tests/test_script_scene_diversity_gate.py",
@@ -9010,6 +9010,10 @@
     {
       "path": "tools/tests/test_voice_cast_gate.py",
       "sha256": "e6368669ad0b26607c3f5cfab91c7637e0a83b56a0dd5b9ce804393c9867e64f"
+    },
+    {
+      "path": "tools/tests/test_voice_cast_timbre_lab.py",
+      "sha256": "9494229337ad4ed891fd7655ed4a27f8aa232bbd9221b9957cad717eefed371e"
     },
     {
       "path": "tools/tests/test_voice_duration_skips_superseded.py",
