@@ -7943,8 +7943,11 @@ def s7_voice_pitch_unify(ctx: Ctx, res: StageResult, steps: list[dict[str, Any]]
     Returns (pitch output or None when the stage does not apply, blockers)."""
     p = ctx.p
     pitch_tool = RT_TOOLS / "final_cut_voice_pitch_unify.py"
+    # owner 2026-11-04 (lab 化神 E03): WORLD pitch shifts up to 6 st crackled audibly; off by default,
+    # NALU_S7_PITCH_UNIFY=1 turns it back on (NALU_S7_SKIP_PITCH_UNIFY still skips)
     if not (pitch_tool.is_file() and Path(str(ctx.p.scope.get("voice_cast") or "")).is_file()) \
-            or str(os.environ.get("NALU_S7_SKIP_PITCH_UNIFY") or "").strip():
+            or str(os.environ.get("NALU_S7_SKIP_PITCH_UNIFY") or "").strip() \
+            or str(os.environ.get("NALU_S7_PITCH_UNIFY") or "").strip() not in ("1", "on", "true"):
         return None, []
     pitch_out = p.assembly / f"{ctx.episode}_picture_pitch_unified.mp4"
     pitch_report = p.assembly / f"{ctx.episode}_VOICE_PITCH_UNIFY.json"

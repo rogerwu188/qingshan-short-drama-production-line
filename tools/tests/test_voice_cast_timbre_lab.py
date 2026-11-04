@@ -1,4 +1,4 @@
-"""Lab-only NALU_VOICE_COPRESENT_RULE=TIMBRE_DISTINCT: the 40 Hz rule stays the default (owner 2026-11-03)."""
+"""copresent_f0_matrix still measures the 40 Hz gap; build_voice_cast now judges TIMBRE_DISTINCT by default (owner 2026-11-04)."""
 from __future__ import annotations
 
 import os
