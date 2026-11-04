@@ -1548,3 +1548,73 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：E14 S5 2026-11-02/03, six prepare/finish cycles.
 - **授权**：Roger 2026-11-03 in-session.
 - **状态**：REFERENCE_IMPLEMENTATION
+### K156 — S6
+
+- **规则**：A continuity-derived start frame (D-68) IS the previous unit's real final frame. Judge it on the tail standard: entry state, cast, space, and world facts. Never raise shot-size or axis defects against the unit's own camera text, because the camera text cannot change an inherited frame.
+- **教训**：E14 S6: the reviewer was told to compare derived frames with each unit's camera text and rejected five correct frames for shot size. Re-reviewed on the tail standard, those five passed; only two had real world defects.
+- **恢复**：Before any derived-frame review, read the derived start-frame standard; brief the reviewer with entry_state and inherited tail only.
+- **实现**：`lines/nalu/runtime/tools/vlm_review_protocol.py`
+- **回归**：`tools/tests/test_knowledge_registry.py`
+- **证据**：E14 S6 2026-11-03: 7 derived frames, 5 wrongly rejected then passed on re-review; S04-04 and S09-03 kept as real rejects.
+- **授权**：Roger 2026-11-03/04 in-session: 「你自己定」「不要总问我」
+- **状态**：REFERENCE_IMPLEMENTATION
+### K157 — S6
+
+- **规则**：qingshan.json paid_order_seq points at one episode's paid order. Running another episode without NALU_PAID_ORDER_SEQ set to that episode's order sets authority_blockers, and every acceptance path then reads zero orders and refuses with NO_LINE_OWNER_ORDERS. Check line_owner_authority.status in the pipeline state before recording or re-recording any acceptance order.
+- **教训**：E14 S6: three correct, receipted acceptance orders did nothing for several rounds because qingshan.json still named the E12 paid order (seq 36). The state file said EPISODE_OUT_OF_ORDER_SCOPE:E14; the stage blocker only said NOT_ADMITTED.
+- **恢复**：Read pipeline_state/<EP>.json line_owner_authority first; set NALU_PAID_ORDER_SEQ to the episode's paid order and NALU_LATEST_ORDER_SEQ to the inbox max.
+- **实现**：`lines/nalu/runtime/tools/nalu_pipeline.py`
+- **回归**：`tools/tests/test_knowledge_registry.py`
+- **证据**：E14 S6 2026-11-04: derived_start_frame_acceptance reason NO_LINE_OWNER_ORDERS until NALU_PAID_ORDER_SEQ=98 was set.
+- **授权**：Roger 2026-11-03/04 in-session: 「你自己定」「不要总问我」
+- **状态**：REFERENCE_IMPLEMENTATION
+### K158 — S6
+
+- **规则**：FACE_COUNT_ZERO:<item> means no face pixels anywhere in the still. It excuses no character by itself, but it must never be counted as a face that was measured wrong. When the excused no-face characters are the whole cast, the 'every other declared character passed' clause is vacuously true.
+- **教训**：E14 S12-03 shows Qinming walking away from camera, alone. The NO_FACE_PIXELS_IN_STILL standing rule refused it twice: FACE_COUNT_ZERO was counted as a measured failure, and the rule demanded another measured PASS face that cannot exist in a solo back view.
+- **恢复**：Fixed in roger_gate_acceptance.standing_rule_condition with regression tests; measured low-cosine codes still refuse.
+- **实现**：`lines/nalu/runtime/tools/roger_gate_acceptance.py`、`tools/tests/test_nalu_standing_rule_and_still_registry.py`
+- **回归**：`tools/tests/test_knowledge_registry.py`
+- **证据**：E14 S6 2026-11-04: VU-025 refusal reason MEASURED_IDENTITY_FAILURE_PRESENT [FACE_COUNT_ZERO:E14-S12-03] under order seq 107.
+- **授权**：Roger 2026-11-03/04 in-session: 「你自己定」「不要总问我」
+- **状态**：REFERENCE_IMPLEMENTATION
+### K159 — S6
+
+- **规则**：An admission record is read by the engine gate as well as by the line. When the two disagree on a field name, the line admits and the engine refuses later, at the video preflight, with a message about the still not being admitted. Write the field the engine reads.
+- **教训**：E14 S6: standing_rule_acceptance wrote media_sha256_admitted; shot_media_admission_gate reads line_owner_acceptance.media_sha256. Q1 admitted VU-025 and the video preflight refused it with Q1_START_FRAME_NOT_ADMITTED on the same sha.
+- **恢复**：Both keys are written now. Grep the engine gate for every field it reads before adding a new record schema.
+- **实现**：`lines/nalu/runtime/tools/roger_gate_acceptance.py`
+- **回归**：`tools/tests/test_knowledge_registry.py`
+- **证据**：E14 S6 2026-11-04: E14_VIDEO_PREFLIGHT_V1 status BLOCKED, E14-VU-025 INPUT_COMPLETENESS_FAILED:SEMANTIC_ANCHOR_EVIDENCE_INVALID.
+- **授权**：Roger 2026-11-04 in-session
+- **状态**：REFERENCE_IMPLEMENTATION
+### K160 — S6
+
+- **规则**：The derived start-frame admission path must accept a receipt whose status is PASS and whose sha matches the still. Only a FAILING receipt needs a line-owner order to turn into an accepted one.
+- **教训**：E14 VU-025: the reviewer passed the start frame outright, yet the path demanded ACCEPTED_BY_LINE_OWNER_ORDER and refused a correct frame with NO_ACCEPTED_START_FRAME_RECEIPT_FOR_THIS_SHA.
+- **恢复**：handle both: PASS admits, ACCEPTED_BY_LINE_OWNER_ORDER admits on its re-found order, everything else refuses.
+- **实现**：`lines/nalu/runtime/tools/nalu_pipeline.py`
+- **回归**：`tools/tests/test_knowledge_registry.py`
+- **证据**：E14 S6 2026-11-04: derived_start_frame_acceptance refused VU-025 while its receipt read status PASS.
+- **授权**：Roger 2026-11-04 in-session
+- **状态**：REFERENCE_IMPLEMENTATION
+### K161 — S7
+
+- **规则**：The height at which H3 burns the spoken line varies by episode and even by shot size. Before enabling the cover, OCR the native picture and set band_by_episode to cover every measured burn position; never copy the previous episode's band.
+- **教训**：E14 burned at y 0.69-0.82 in most units and 0.84-0.93 in close-ups; the E13 band 0.66-0.81 left a full line readable at 89 s and the S7 verify refused the cut.
+- **恢复**：band_for(episode) reads band_by_episode; E14 uses 0.66-0.95.
+- **实现**：`tools/burned_text_cover.py`、`lines/nalu/runtime/tools/build_burnin_subtitles.py`、`configs/H3_BURNED_TEXT_COVER_V1.json`
+- **回归**：`tools/tests/test_knowledge_registry.py`
+- **证据**：E14 S7 2026-11-04: 75 OCR hits, centres 0.71-0.79 and 0.88-0.89.
+- **授权**：Roger 2026-11-04 in-session
+- **状态**：REFERENCE_IMPLEMENTATION
+### K162 — S7
+
+- **规则**：The dialogue gate passes at recall 0.55, so a PASS can miss a whole line. A trim measured from those segments must not be applied unless recall is at least 0.95; otherwise keep the unit at full length.
+- **教训**：E14-VU-001 passed at recall 0.765 with one segment for two lines; the trim kept 2.62-4.82 s and silently removed the second line, which was only caught by the final-cut subtitle read-back (caption over silence).
+- **恢复**：build_measured_edit_constraints skips units with recall < 0.95 (ASR_RECALL_TOO_LOW_TO_BOUND_DIALOGUE).
+- **实现**：`lines/nalu/runtime/tools/build_measured_edit_constraints.py`、`tools/tests/test_measured_edit_recall_guard.py`
+- **回归**：`tools/tests/test_knowledge_registry.py`
+- **证据**：E14 S7 2026-11-04: per-second levels -10 to -15 dB at 3-8 s versus kept window ending 4.82 s.
+- **授权**：Roger 2026-11-04 in-session
+- **状态**：REFERENCE_IMPLEMENTATION

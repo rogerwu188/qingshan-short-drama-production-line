@@ -36,6 +36,20 @@ def policy() -> dict[str, Any]:
     return json.loads(POLICY_PATH.read_text(encoding="utf-8"))
 
 
+def band_for(episode: str | None, cfg: dict[str, Any] | None = None) -> dict[str, float]:
+    """The burn band of ONE episode: ``band_by_episode`` when the episode measured its own, else ``band``.
+
+    Where H3 burns the spoken line is a property of the model build and the prompt, not a constant:
+    E12/E13 put it at y 0.66-0.81, E14 at y 0.82-0.95 (measured 2026-11-04 on E14_picture_native;
+    the E13 band left 9 hits visible at 89.0-90.5 s under the caption bar, and the S7 verify refused
+    the episode).  The scan search window stays the policy's own, so a wider band never hides a hit.
+    """
+    cfg = cfg or policy()
+    per = cfg.get("band_by_episode") or {}
+    match = re.match(r"E\d+", str(episode or "").strip().upper())
+    return dict((per.get(match.group(0)) if match else None) or cfg["band"])
+
+
 def active(contract: dict[str, Any] | None, *, episode: str | None = None) -> bool:
     declared = str((contract or {}).get(FIELD) or "").strip().upper()
     if declared:
@@ -91,9 +105,10 @@ def caption_at(captions: list[dict[str, Any]], t: float) -> str:
                  if float(c.get("start", 0)) <= t <= float(c.get("end", 0))), "")
 
 
-def verify(hits: list[Hit], captions: list[dict[str, Any]], cfg: dict[str, Any]) -> dict[str, Any]:
+def verify(hits: list[Hit], captions: list[dict[str, Any]], cfg: dict[str, Any],
+           *, episode: str | None = None) -> dict[str, Any]:
     """Every CJK hit must sit inside the bar and read as the caption on screen at that moment."""
-    v, band = cfg["verify"], cfg["band"]
+    v, band = cfg["verify"], band_for(episode, cfg)
     # The rule is about the spoken line H3 burns into the picture (K143), not about every character in frame:
     # E13 S7 stopped on 8 hits that were the meaningless characters painted on VU-014's gate plaque and door
     # couplet at y≈0.00-0.14 (reported as P2 at Q2, where the period/anachronism OCR gate owns scene signage).
@@ -164,6 +179,8 @@ def main(argv: list[str] | None = None, *, ocr: Callable[[Path, float], list[Hit
     vp = sub.add_parser("verify"); vp.add_argument("video", type=Path)
     vp.add_argument("--captions", type=Path, required=True, help="build_burnin_subtitles report (rows: text/start/end)")
     vp.add_argument("--out", type=Path, required=True)
+    vp.add_argument("--episode", default=None,
+                    help="episode whose own band applies (band_by_episode), e.g. E14")
     a = ap.parse_args(argv)
     cfg = policy()
     if a.cmd == "scan":
@@ -172,7 +189,9 @@ def main(argv: list[str] | None = None, *, ocr: Callable[[Path, float], list[Hit
                "intervals": intervals, "seconds": round(sum(e - s for s, e in intervals), 3)}
     else:
         rows = json.loads(a.captions.read_text(encoding="utf-8")).get("rows") or []
-        out = {**verify(ocr(a.video, cfg["verify"]["fps"]), rows, cfg), "video": str(a.video)}
+        out = {**verify(ocr(a.video, cfg["verify"]["fps"]), rows, cfg, episode=a.episode),
+               "video": str(a.video), "episode": getattr(a, "episode", None),
+               "band": band_for(getattr(a, "episode", None), cfg)}
     a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_text(json.dumps(out, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({k: out[k] for k in out if k in ("status", "intervals", "seconds")}, ensure_ascii=False)[:400])

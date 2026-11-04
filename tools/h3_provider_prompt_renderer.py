@@ -1145,7 +1145,14 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             not binding_role
             and str(bound.get("entity_id") or ref.get("entity_id") or "").startswith("CHAR-")
         )
-        if role in {"ADMITTED_NEW_EVENT_ENTRY_STATE", "PREVIOUS_UNIT_FINAL_FRAME", "IDENTITY_OR_PROP_REANCHOR"}:
+        # An OPENING-COMPOSITION slot carries no identity: it is the frame the clip opens on, and
+        # its own label is written further down ("@Image1: opening composition, location, camera
+        # axis, pose and state").  CONTINUITY_DERIVED_ENTRY_STATE was missing from this set, so a
+        # motivated-cut unit (E14 wave 6, VU-004/020/023, since the predecessor fix) labelled its
+        # opening keyframe "exclusive identity of CHAR-QINMING" and lost the opening-composition
+        # clause E13 still emits.
+        if role in {"ADMITTED_NEW_EVENT_ENTRY_STATE", "PREVIOUS_UNIT_FINAL_FRAME", "IDENTITY_OR_PROP_REANCHOR",
+                    "CONTINUITY_DERIVED_ENTRY_STATE"}:
             entity = ""
         if entity and not role_is_identity:
             # A geometry / location / prop plate: it carries no face, so it must

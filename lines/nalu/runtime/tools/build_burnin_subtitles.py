@@ -428,7 +428,7 @@ def main() -> int:
         sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
         import burned_text_cover as _btc
         _pol = _btc.policy()
-        band = _pol["band"]
+        band = _btc.band_for(a.episode, _pol)
         # Line owner 2026-11-01 (E13 viewing notes: 字幕黑底): the bar exists only to hide the line H3 burned into
         # the picture, so it is drawn only over the burned-text runs and can be weakened per episode; captions
         # themselves keep their transparent style with a black outline.

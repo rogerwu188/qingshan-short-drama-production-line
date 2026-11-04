@@ -4558,10 +4558,31 @@ def apply_derived_start_frame_acceptance(ctx: Ctx, index: dict[str, Any], index_
         receipt_path = ENGINE / "reports/start_frame_evidence" / f"{uid}_start_frame_evidence.json"
         receipt = read_json(receipt_path, {}) or {}
         owner = receipt.get("line_owner_acceptance") or {}
-        if why is None and (receipt.get("status") != "ACCEPTED_BY_LINE_OWNER_ORDER"
-                            or str(receipt.get("reference_sha256") or "") != sha
-                            or str(owner.get("media_sha256") or "") != sha):
+        # A receipt the reviewer PASSED needs no order: there is nothing to accept.  Before this,
+        # only ACCEPTED_BY_LINE_OWNER_ORDER was admitted here, so a derived frame whose start frame
+        # really was the inherited tail still stopped the line forever waiting for an order that
+        # had no defect to accept (E14 VU-025, 2026-11-04).
+        receipt_sha = str(receipt.get("reference_sha256") or "")
+        passed_outright = receipt.get("status") == "PASS" and receipt_sha == sha
+        if why is None and not passed_outright and (
+                receipt.get("status") != "ACCEPTED_BY_LINE_OWNER_ORDER"
+                or receipt_sha != sha
+                or str(owner.get("media_sha256") or "") != sha):
             why = "NO_ACCEPTED_START_FRAME_RECEIPT_FOR_THIS_SHA"
+        if passed_outright:
+            record = {"acceptance_status": "ADMITTED_START_FRAME_RECEIPT_PASS",
+                      "accepted_under": "START_FRAME_SEMANTIC_EVIDENCE_REVIEW_PASS",
+                      "start_frame_receipt": str(receipt_path),
+                      "start_frame_receipt_sha256": receipt.get("review_file_sha256"),
+                      "reviewer": receipt.get("reviewer"), "review_method": receipt.get("review_method"),
+                      "item_id": row.get("item_id"), "unit_id": uid,
+                      "media_sha256": sha, "q1_gate_ids_kept_fail": gates,
+                      "engine_status": row.get("status"), "engine_failures": failures}
+            accept_q1_row(row, record, failures)
+            if uid not in allowed:
+                allowed.append(uid)
+            accepted.append(record)
+            continue
         detectors = [str(d) for d in owner.get("accepted_detectors") or [] if str(d)]
         order = (_rga.find_acceptance(orders, episode=ctx.episode, gate_id=START_FRAME_GATE_ID,
                                       failing=detectors, media_sha256=sha, media_item_id=uid,
@@ -6572,6 +6593,29 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
             f"{VENV} {RT_TOOLS / 'prompt_batch_finalize.py'} receipts --episode {ctx.episode} --execution-id {ctx.episode}-PROMPT-BATCH-V1 --digest {fin_digest} --answers <answers.json> --out-dir {p.preprod / 'prompt_batch_finalization'}",
             f"{VENV} {RT_TOOLS / 'nalu_pipeline.py'} run --episode {ctx.episode} --from S6 --paid",
         ]
+        return res
+
+    # 6.2d send-time review binding (PROVIDER_REQUEST_REVIEW_BINDING_V1, enforced from E14).
+    # The rebuild above recomputes every video task, so a stamp written outside this stage is
+    # already gone by the time the paid submit reads the manifest: E14's first S6 wave was
+    # refused twelve times with REVIEWED_REQUEST_NOT_BOUND, before any charge, for exactly that
+    # reason.  Stamp here, after the compile and after the finalization receipts are attached;
+    # the stamper seals only a task whose prompt bytes a review actually covered and leaves the
+    # rest unstamped so the submitter still refuses them.
+    stamp = ctx.run([VENV, RT_TOOLS / "stamp_reviewed_video_requests.py",
+                     "--episode", ctx.episode, "--manifest", p.video_transaction,
+                     "--finalization-digest", fin_digest],
+                    name="s6_stamp_reviewed_video_requests")
+    res.steps.append(stamp)
+    stamped = json.loads(stamp.get("stdout") or "{}") if stamp.get("stdout") else {}
+    res.details["reviewed_request_binding"] = {
+        "status": stamped.get("status"),
+        "stamped": len(stamped.get("stamped") or []),
+        "left_unstamped": stamped.get("left_unstamped") or [],
+    }
+    if stamp["exit_code"] != 0:
+        res.status = BLOCKED
+        res.blockers.append("VIDEO_REVIEW_BINDING_STAMP_FAILED")
         return res
 
     if final_pass:
@@ -8625,6 +8669,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
     if cover_argv:
         cover_check = p.assembly / f"{ctx.episode}_H3_BURNED_TEXT_COVER_CHECK.json"
         verify_step = ctx.run([VENV, ENGINE / "tools/burned_text_cover.py", "verify", subbed,
+                               "--episode", ctx.episode,
                                "--captions", p.assembly / f"{ctx.episode}_BURNIN_SUBTITLES.json",
                                "--out", cover_check], name="s7_burned_text_verify")
         steps.append(verify_step)

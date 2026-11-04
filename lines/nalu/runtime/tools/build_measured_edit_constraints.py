@@ -77,6 +77,18 @@ def build_measured_edit_constraints(
         if status != "PASS" or not segments:
             skipped.append({"unit_id": uid, "reason": "NO_DIALOGUE_OR_NOT_PASS", "status": status, "segments": len(segments)})
             continue
+        # A trim is only as good as the speech it was measured from.  The dialogue gate PASSes at
+        # recall >= its minimum (0.55), so a PASS can still be missing a whole scripted line: E14-VU-001
+        # passed at recall 0.765 with ONE 2.7-4.7 s segment for two lines, the trim kept 2.62-4.82 s, and
+        # the second line (spoken 4.7-7.7 s, -10 dB) vanished from the cut — the final-cut read-back then
+        # found its caption over silence.  Below RECALL_FOR_TRIM the segments do not hold every scripted
+        # line, so they cannot bound the dialogue: keep the unit at full length instead of guessing.
+        RECALL_FOR_TRIM = 0.95
+        recall = dq.get("recall_score")
+        if recall is not None and float(recall) < RECALL_FOR_TRIM:
+            skipped.append({"unit_id": uid, "reason": "ASR_RECALL_TOO_LOW_TO_BOUND_DIALOGUE",
+                            "recall": recall, "recall_for_trim": RECALL_FOR_TRIM, "segments": len(segments)})
+            continue
 
         # Compute recommended interval
         duration = unit_duration.get(uid, 0)
