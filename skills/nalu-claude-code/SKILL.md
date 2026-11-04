@@ -165,6 +165,14 @@ $P $S/publish_x2creel.py status                           # 本地记录 + X2C �
 - 分类必须从 X2C 自己的列表里选，且语言要对：X2C 的分类按语言分组（`target_language` zh / en）。先跑 `publish_x2creel.py categories --lang <剧集语言>`，把选中项的显示名 `name` 逐字写进简报 `genre`，`genre_lang` 写剧集语言（英文剧 = en）。不要用 `name_key`（X2C 英文列表的 name_key 与行错位）。脚本只做精确匹配，**没有兜底分类**：不在该语言列表里返回 `CATEGORY_NOT_IN_X2C_LIST`（附可选列表），分类语言与剧集语言不符返回 `CATEGORY_LANGUAGE_MISMATCH`；心跳都记成【需要处理】，不会发行。
 - 返回 `BLOCKED: X2C_API_KEY_MISSING` 时请线主发 X2C key（§3），收到后重跑；其余 `ERROR` 记进 `series/STATUS.md`，下一次心跳重试，不阻塞下一集生产。
 - 只用 X2C 分发 API 的 1、2、3、4、5、6 步（分类、上传 URL、发布、追加、查询、列出），不用 3.5（Developer JWT 代发布）。
+- **设备矩阵模式（X2C「StoryClaw 设备矩阵 API」，2026-11）**：机器配了 `NALU_DEVICE_SN`（X2C 后台「设备矩阵映射」登记的设备 SN）
+  或 `X2C_API_MODE=matrix` 时，上面的命令（及心跳发行）改走 `publish_x2c_matrix.py`：同一个 X2C key，无分类、无 action；
+  发**纯成片** `<EP>_final_9x16.mp4`（广告由 X2C 加），封面默认取帧，时长 ffprobe 实测；`series_key` 取简报 `series_key`，否则
+  「剧名 slug-语言」，记在 `$NALU_RUNTIME_ROOT/distribution/x2c_matrix.json` 后每集沿用；集号 = 简报 `episode_display_number`。
+  第一集 `publish`、之后 `add-episodes`；`status` 看每集 review_status / matrix_jobs，`list` 列本机系列，全部集发完
+  `close --series <series_key>`（一台设备同时只能有一部未完结系列）。X2C 幂等键 = 设备+series_key+集号：同一集重跑本地返回
+  `ALREADY_PUBLISHED`，`--resend` 原样重发（X2C 回 200 `idempotent:true`）；同集换了成片返回 `EPISODE_ALREADY_SENT_WITH_OTHER_VIDEO`，
+  **不许改 series_key 或集号绕过**，记【需要处理】。`X2C_MATRIX_API_URL` 未设时用 X2C **测试环境**；`X2C_API_MODE=open` 强制旧接口。
 
 ## 7. 连续产剧
 一集 `FINAL_CUT_READY` 并发行后，立刻做下一集，直到原著改编完（或达到用户指定的集数）：

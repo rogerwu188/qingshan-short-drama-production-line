@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2365,
+  "file_count": 2367,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -925,11 +925,11 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "09cd746b82cce337f6f5b596daf920d96d226f9f5e9409e70b7f4fa823242b1b"
+      "sha256": "1befa69d6113d7d0bc275cae2f942a12dd6fda07e65b7dc8a81478f862e92bd5"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "2113369f145e51ce26870a7331da3140753565f0efd88e74d627bb6e1fc444df"
+      "sha256": "228c86e0d722cbe721e7b063983903b52c5ea8da6a7c3300e2888ce51eb0ab2a"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
@@ -941,7 +941,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "0433ffd1ff09cdd10526b421be2532573a7aaa63087c9aff1b392950066fbb8e"
+      "sha256": "7842b62b4abd1d79c5fddb9230259181219148045d7e4c896632244667ee641f"
     },
     {
       "path": "skills/nalu-claude-code/scripts/configure_claude_code.py",
@@ -972,8 +972,12 @@
       "sha256": "fd09f2f481116407a267213687b6b57cc7c4f0c6f3c3ad22326d11aa0d582205"
     },
     {
+      "path": "skills/nalu-claude-code/scripts/publish_x2c_matrix.py",
+      "sha256": "337f78cd0f6b9591dd60de286807f485dc34864956c75f910a9cdf9329e50515"
+    },
+    {
       "path": "skills/nalu-claude-code/scripts/publish_x2creel.py",
-      "sha256": "afe60d4aed269a33abe95f88dc9cd28e2e48284a52f0deb18c9113c55a64d9dc"
+      "sha256": "77daa1fb07cac4a56cd8d1cab8c408ffac24d12bd6826c79424eb340e9e4d0db"
     },
     {
       "path": "skills/nalu-claude-code/scripts/self_update.sh",
@@ -8138,6 +8142,10 @@
     {
       "path": "tools/tests/test_nalu_prompt_rules_seq19.py",
       "sha256": "743e51a2d7e28b5b95d1178e9d5b26975f868628e90d04ee5c9c3f1aed45e402"
+    },
+    {
+      "path": "tools/tests/test_nalu_publish_x2c_matrix.py",
+      "sha256": "c5a938e5224e8b171b53f88fc9f9149349b4ac52bd74eacd53987aa8057d1d6b"
     },
     {
       "path": "tools/tests/test_nalu_publish_x2creel.py",

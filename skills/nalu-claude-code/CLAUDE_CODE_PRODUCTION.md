@@ -289,4 +289,6 @@ HopsAPI 图片任务成批以 `status 3 / code 424 "Provider error (request id: 
   音色要与已有角色区分（同场 F0 差 ≥ 25%）。
 - 构建器写成 `build_<ep小写>_layers.py`，可以复制上一集的构建器改数据块，但每集的镜头、台词必须来自本集叙事正典。
 - 预算按 §3 每集单独记订单；默认接受按 §5。本集完成后报 `FINAL_CUT_READY`，编排代理负责发行和启动下一集。
+- 发行（编排代理做，Codex 不做）：旧 X2C open-api 或设备矩阵 API（配了 `NALU_DEVICE_SN` 时，见 SKILL.md §6）。矩阵模式按简报
+  `episode_display_number` 发号、`series_key`（缺省剧名 slug-语言）归系列，所以这两项在整部剧里必须稳定、逐集连续。
 

@@ -346,7 +346,9 @@ def publish_next() -> dict[str, Any] | None:
     _, runtime = roots()
     sys.path.insert(0, str(HERE))
     import publish_x2creel as px  # noqa: E402
-    sent = px.load_state().get("episodes") or {}
+    import publish_x2c_matrix as mx  # noqa: E402
+    matrix = mx.matrix_mode()  # X2C 设备矩阵 API: clean final, series_key + episode_number from the brief
+    sent = mx.sent_episodes() if matrix else (px.load_state().get("episodes") or {})
     ready = []
     for sess in (runtime / "claude_code").glob("*/session.json"):
         ep = sess.parent.name
@@ -365,7 +367,7 @@ def publish_next() -> dict[str, Any] | None:
     buf = io.StringIO()
     try:
         with contextlib.redirect_stdout(buf):
-            out = px.cmd_publish(args)
+            out = mx.cmd_publish(args) if matrix else px.cmd_publish(args)
     except SystemExit as exc:  # the publisher reports API failures as SystemExit(<json>)
         try:
             out = json.loads(str(exc.code))
@@ -512,8 +514,22 @@ def report() -> dict[str, Any]:
     out["local_spent_credits"] = spent
     sys.path.insert(0, str(HERE))
     import publish_x2creel as px  # noqa: E402
-    x2c = px.load_state()
-    out["x2c_local"] = {e: {"number": r.get("episode_number"), "status": r.get("status")}
+    import publish_x2c_matrix as mx  # noqa: E402
+    if mx.matrix_mode():
+        out["x2c_local"] = {e: {"number": r.get("episode_number"), "status": (r.get("receipt") or {}).get("review_status")}
+                            for e, r in mx.sent_episodes().items()}
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                st = mx.cmd_status(argparse.Namespace(series=None))
+            out["x2c_remote"] = {"routing": st.get("routing_status"), "blocked": st.get("blocked_reason"),
+                                 "episodes": [(e.get("episode_number"), e.get("review_status"),
+                                               (e.get("matrix_jobs") or {}).get("status")) for e in st.get("episodes") or []]}
+        except SystemExit as exc:
+            out["x2c_remote"] = {"error": str(exc.code)[:200]}
+        x2c: dict[str, Any] = {}
+    else:
+        x2c = px.load_state()
+        out["x2c_local"] = {e: {"number": r.get("episode_number"), "status": r.get("status")}
                         for e, r in (x2c.get("episodes") or {}).items()}
     try:
         with contextlib.redirect_stdout(io.StringIO()):
