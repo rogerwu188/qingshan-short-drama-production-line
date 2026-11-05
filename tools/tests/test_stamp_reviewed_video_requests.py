@@ -76,6 +76,22 @@ class VideoStampTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertNotIn("reviewed_request_sha256", out["VU-001"])
 
+    def test_signed_redo_of_a_bound_unit_declares_the_earlier_take(self):
+        """E14 wave 33 (2026-11-05): the reviewed fight redesign was refused BOUND_UNDER_OTHER_FINGERPRINT."""
+        store = self.tmp / "workflow/tasks/giggle_video_submit_transactions/E99"
+        store.mkdir(parents=True)
+        for unit in ("VU-002", "VU-001"):
+            (store / f"{unit}-VIDEO-V1__old.json").write_text(json.dumps(
+                {"submission_fingerprint": f"old-{unit}", "state": "SUBMITTED_TASK_ID_BOUND", "task_id": "t"}),
+                encoding="utf-8")
+        tasks = [self._task("VU-001", "reviewed"), self._task("VU-002", "redo, signed", receipt=True)]
+        rows = [{"unit_id": "VU-001", "status": "UNCHANGED", "sha256": _sha("reviewed")},
+                {"unit_id": "VU-002", "status": "CHANGED", "final_sha256": _sha("redo, signed")}]
+        rc, out = self._run(tasks, rows)
+        self.assertEqual(rc, 0)
+        self.assertEqual(out["VU-002"].get("supersedes_submission_fingerprints"), ["old-VU-002"])
+        self.assertNotIn("supersedes_submission_fingerprints", out["VU-001"])
+
 
 if __name__ == "__main__":
     unittest.main()
