@@ -126,6 +126,9 @@ class MatrixPublishTests(unittest.TestCase):
         os.environ["X2C_API_MODE"] = "matrix"
         self.assertTrue(mx.matrix_mode())
         self.assertEqual(mx.environment(), "TEST")
+        os.environ["X2C_MATRIX_API_URL"] = mx.PROD_API
+        self.assertEqual(mx.environment(), "PRODUCTION")
+        os.environ.pop("X2C_MATRIX_API_URL")
         with self.assertRaises(SystemExit) as raised:
             mx.device_sn()
         self.assertIn("NALU_DEVICE_SN_MISSING", str(raised.exception.code))

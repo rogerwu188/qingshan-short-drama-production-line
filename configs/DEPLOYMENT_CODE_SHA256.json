@@ -933,7 +933,7 @@
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "228c86e0d722cbe721e7b063983903b52c5ea8da6a7c3300e2888ce51eb0ab2a"
+      "sha256": "e0116134ff8c929967270fd85356c0f309d21c95a86aeaa25a08b9f197e548db"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
@@ -977,7 +977,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/publish_x2c_matrix.py",
-      "sha256": "337f78cd0f6b9591dd60de286807f485dc34864956c75f910a9cdf9329e50515"
+      "sha256": "e90bc81f6c29bab375f9ce4a3bb7f3dff94f7f355920dd0c5ba1366d4f2e1506"
     },
     {
       "path": "skills/nalu-claude-code/scripts/publish_x2creel.py",
@@ -8153,7 +8153,7 @@
     },
     {
       "path": "tools/tests/test_nalu_publish_x2c_matrix.py",
-      "sha256": "c5a938e5224e8b171b53f88fc9f9149349b4ac52bd74eacd53987aa8057d1d6b"
+      "sha256": "f7c8270f3bf1ceddf6c4917c074023d7152ac75df3c8e72e08b24b0b0d292f5a"
     },
     {
       "path": "tools/tests/test_nalu_publish_x2creel.py",

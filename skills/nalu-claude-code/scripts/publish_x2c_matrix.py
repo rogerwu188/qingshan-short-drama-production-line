@@ -14,7 +14,8 @@ endpoints, header ``X-API-Key`` (the user's existing X2C key) and ``device_sn`` 
   publish_x2creel.py close --series <series_key>   (/distribution/close; then a new series can start)
 
 Env: NALU_DEVICE_SN (required), NALU_DEVICE_NAME (optional), X2C_MATRIX_API_URL (default = X2C's TEST
-environment below).  Key: $X2C_API_KEY or $NALU_RUNTIME_ROOT/credentials/x2c_api_key, never printed.
+environment https://pdypbtafttzriqdnpmta.supabase.co/functions/v1/matrix-api/v1; production, where the device
+mappings live, is https://ukbyfmmerxhlghlhbxtz.supabase.co/functions/v1/matrix-api/v1).  Key: $X2C_API_KEY or $NALU_RUNTIME_ROOT/credentials/x2c_api_key, never printed.
 
 publish: upload-url + PUT for the video (default the clean final <EP>_final_9x16.mp4 — X2C adds ads
 itself) and the cover (default a frame grab), then /distribution/publish for the series' first episode
@@ -49,8 +50,11 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import publish_x2creel as px  # noqa: E402
 
-# X2C's matrix API TEST environment ("outbound dispatch paused").  Set X2C_MATRIX_API_URL for production.
+# X2C's matrix API environments.  The default stays TEST ("outbound dispatch paused") until the line
+# owner says otherwise; production (where the device mappings live, owner 2026-11-05) is opted into
+# with X2C_MATRIX_API_URL=<PROD_API>.
 TEST_API = "https://pdypbtafttzriqdnpmta.supabase.co/functions/v1/matrix-api/v1"
+PROD_API = "https://ukbyfmmerxhlghlhbxtz.supabase.co/functions/v1/matrix-api/v1"
 MAX_VIDEO = 1 << 30
 MAX_COVER = 20 << 20
 RETRY_HTTP = (429, 500, 502, 503, 504)
@@ -71,7 +75,7 @@ def base_url() -> str:
 
 
 def environment() -> str:
-    return "TEST" if base_url() == TEST_API else "CONFIGURED"
+    return {TEST_API: "TEST", PROD_API: "PRODUCTION"}.get(base_url(), "CONFIGURED")
 
 
 def device_sn() -> str:
