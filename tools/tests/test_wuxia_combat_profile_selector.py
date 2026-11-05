@@ -35,8 +35,8 @@ class WuxiaCombatProfileSelectorTest(unittest.TestCase):
 
     def test_library_contains_original_and_authored_polearm_profiles(self) -> None:
         library = load_library()
-        self.assertEqual(len(library["profiles"]), 39)
-        self.assertEqual(library["profile_count"], 39)
+        self.assertEqual(len(library["profiles"]), 40)
+        self.assertEqual(library["profile_count"], 40)
         self.assertIn("WXC-POLEARM-04", library["by_id"])
         self.assertEqual(
             library["reference_lineage"]["status"],
@@ -124,3 +124,27 @@ class WuxiaCombatProfileSelectorTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PairedWeaponProfileTest(unittest.TestCase):
+    """nalu E14 VU-023 (2026-11-04): one chopping knife (刀) inferred SABER and auto-picked the
+    saber-vs-spear profile, putting a spear brace and a 35mm medium-wide into a locked knife fight."""
+
+    def _knife_unit(self, text: str) -> dict:
+        return {"unit_id": "E99-VU-023", "ordered_prompt_specs": [{
+            "action": {"primary_action": text},
+            "cast": [{"character": "甲"}, {"character": "乙"}]}]}
+
+    def test_single_knife_does_not_inherit_a_spear_profile(self) -> None:
+        unit = self._knife_unit("甲一刀斩在乙颈侧，乙扑进雪堆")
+        result = select_wuxia_combat_profiles(
+            unit, action_ir={"causal_chains": [{"interaction_mode": "CONTACT"}]}, unit_class="COMBAT_IMPULSE")
+        self.assertNotIn("WXC-WEAPON-01", result["selected_profile_ids"])
+        self.assertIn({"profile_id": "WXC-WEAPON-01", "reasons": ["PAIRED_WEAPON_PROFILE_NEEDS_BOTH_WEAPONS"]},
+                      result["rejected_candidates"])
+
+    def test_saber_against_spear_still_selects_it(self) -> None:
+        unit = self._knife_unit("甲举刀下劈，乙斜举枪杆架挡")
+        result = select_wuxia_combat_profiles(
+            unit, action_ir={"causal_chains": [{"interaction_mode": "CONTACT"}]}, unit_class="COMBAT_IMPULSE")
+        self.assertEqual(result["selected_profile_ids"][:1], ["WXC-WEAPON-01"])

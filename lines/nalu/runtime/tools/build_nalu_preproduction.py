@@ -2771,6 +2771,11 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
     q1_dir = out_dir / "reports" / "qa" / "q1"
     action_role_dir = (action_role_evidence_dir if action_role_evidence_dir is not None
                        else root / "reports" / "action_role_evidence")
+    # K075 is an episode-wide judgement (a face shown once keeps the plate everywhere), so it reads the
+    # full editorial manifest, never the wave subset.
+    editorial_path = out_dir / f"{prefix}EDITORIAL_SEEDANCE_MANIFEST_V1.json"
+    episode_never_face = (faceless_character_ids(json.loads(editorial_path.read_text(encoding="utf-8")))
+                          if editorial_path.is_file() else set())
     for task in transaction["tasks"]:
         uid = task["unit_id"]
         row = final_rows.get(uid)
@@ -2881,6 +2886,15 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
                 return (2, character_ids.index(cid))
             return sorted(character_ids, key=key)
         plate_order = _speaker_first(list(chars))
+        # K075: append_h3_identity_plates already leaves out the plate of a character whose face is
+        # never shown in the episode, but the seq=7 C4 pass below re-added it, so H3 got
+        # "lock this entity's face" for a man filmed only from behind (nalu E14 VU-023 巡山者乙,
+        # 2026-11-04).  Such a character stays in the cast and blocking; it is declared exempt
+        # from identity authority (the admission gate's existing field) instead of bound to a face.
+        never_face_ids = sorted(cid for cid in plate_order if cid in episode_never_face)
+        plate_order = [cid for cid in plate_order if cid not in episode_never_face]
+        if never_face_ids:
+            task["identity_authority_exempt_character_ids"] = never_face_ids
         unit_states = unit_reference_states(specs)
         props = sorted({str(p.get("prop_id") or name2prop.get(str(p.get("prop")), ""))
                         for spec in specs for p in spec.get("props") or []} - {""})
