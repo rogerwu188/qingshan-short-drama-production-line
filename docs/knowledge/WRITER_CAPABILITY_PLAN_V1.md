@@ -210,6 +210,35 @@ item list are written either way; turning the switch on only changes `would_bloc
 Nothing here mutates a sealed episode, a paid receipt or a transaction, so a rollback never
 requires touching production evidence.
 
+## 8b. Building one episode: cut the work by file, not by step
+
+Line owner, 2026-11-05: 「并行是必须的，这个功能必须要整合入生产线，成为标配」. Serial
+construction — run the builder, read the first failing assertion, fix, run again — is the
+reason an episode took dozens of rounds. It is also self-inflicted: an episode's layers are
+nearly disjoint files, so almost all of that work can run at once.
+
+The split that works, and the rule that makes it safe:
+
+| Worker | Owns | Must not touch |
+| --- | --- | --- |
+| narrative canon | `<EP>_NARRATIVE_CANONICAL_v1.md`; dialogue lines verbatim, in shot order, with the cast's names as the line prefix | the shot table, the builder, any `.part` |
+| tail / contract / manifest | the part file that assembles `contract`, `manifest`, `ADAPTATION_DISPOSITION`, character and prop tables | the shot table, the narrative, the parts another worker owns |
+| main path | shot table, the `.part` slices, assembly, the assertion chain | the files the other two own |
+
+Three rules keep it from turning into crossed writes:
+
+1. **A file has one owner for the duration.** Each worker's brief names the files it may write
+   and the files it must leave alone. Overlapping writes are the only way this gets slower.
+2. **Every worker self-checks with the builder's own regexes** before reporting — the line
+   extractor for dialogue order and speaker, the verbatim-in-chapter check, the header quote —
+   and returns the result, not "done".
+3. **The main path accumulates failures instead of stopping at the first.** Writer-layer
+   assertions feed one `_FAILS` list and report together (K079). Parallelism without this just
+   moves the bottleneck from waiting on a fix to waiting on the next round.
+
+A worker reporting a defect in someone else's file is a finding, not an edit: it comes back to
+the main path, which decides and applies it.
+
 ## 9. Tests
 
 ```
