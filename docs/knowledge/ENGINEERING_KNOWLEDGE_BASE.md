@@ -1673,3 +1673,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：E14 2026-11-05: VU-014/020/023 re-rendered and still read as single strikes; external references agree the unit of choreography is attack-defence-impact-recovery strung into several exchanges (Seedance 2.5 prompt formula: 15 s = one exchange, 30 s = two connected exchanges).
 - **授权**：Roger 2026-11-05「打斗至少要有几个回合才有感觉，没有你来我往的打斗场面」
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K168 — S2
+
+- **规则**：A gate is not installed until it has been shown to judge a plan that the real compiler produced. And a per-episode parallelism split is standard for episode construction: cut the work by file boundary, give each concurrent worker an explicit "do not touch these files" list, and have it self-check with the builder's own regexes before reporting.
+- **教训**：COMBAT_EXCHANGE_V1 (K167) was declared at E15 and had never judged anything. The compiler entered the gate on `unit.combat_exchange_policy`, the gate scoped itself on `plan.combat_exchange_policy`, and the plan did not carry the field — so every unit took the NOT_APPLICABLE branch. Seventeen tests passed because they hand-built plans and stuffed the fields in themselves; the first real compile took the silent path. Separately, serial construction (run, read the first failing assertion, fix, re-run) turned one episode into dozens of rounds and Roger's read was 「为什么这么慢」.
+- **恢复**：(1) Carry every declaration a gate reads into the artifact the gate reads it from, and test through the compiler, not around it. (2) Assertions that belong to the writer layer accumulate into one `_FAILS` list and report together (K079), so a pass costs one run, not one run per defect. (3) Episode construction is cut by file boundary across concurrent workers — narrative canon, per-episode tail/contract/manifest, and the shot-table main path do not overlap — with each worker self-checking against the builder's own regexes.
+- **实现**：`tools/video_execution_plan_compiler.py`、`tools/combat_exchange_gate.py`、`tools/compile_grouped_seedance_manifest.py`、`tools/tests/test_shared_video_execution_compiler.py`
+- **回归**：`tools/tests/test_shared_video_execution_compiler.py`（`test_exchange_policy_reaches_the_plan_the_gate_reads`）、`tools/tests/test_combat_exchange_gate.py`
+- **证据**：E15 2026-11-05: 12 combat units all reported NOT_APPLICABLE before the fix; after it, E15-FIGHT-FET judged 4 exchanges with initiative going both ways and E15-FIGHT-CAMP 0 rounds / 2 sequences. The E15 builder went from one-assertion-per-run to a full failure list per run.
+- **授权**：Roger 2026-11-05「并行是必须的，这个功能必须要整合入生产线，成为标配」
+- **状态**：REFERENCE_IMPLEMENTATION
