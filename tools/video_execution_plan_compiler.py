@@ -64,6 +64,12 @@ MODEL_FAMILY_BY_NAME = {
 }
 
 
+def _episode_from_unit_id(unit_id: Any) -> str:
+    """Episode of a unit id like ``E15-VU-007`` (the nalu line's shape). Empty when unparseable."""
+    match = re.match(r"^\s*(E\d+)", str(unit_id or "").upper())
+    return match.group(1) if match else ""
+
+
 def _e51_rectification_required(unit: dict[str, Any]) -> bool:
     if unit.get("pipeline_rectification_version") == "E51_V1":
         return True
@@ -351,9 +357,19 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
             # Absent for a non-combat beat; the exchange gate reads only these three keys.
             **({"action_subject": str((spec.get("combat_choreography") or {}).get("exchange", {}).get("initiator") or "").strip(),
                 "defender_answer": str((spec.get("combat_choreography") or {}).get("exchange", {}).get("defender_answer") or "").strip(),
+                # COMBAT_EXCHANGE_V1: a declared IMPULSE is one authored blow (ch15's spear through
+                # the mastiff) and is not counted as a round; SINGLE_EXCHANGE is one attack and one
+                # answer with no bout following. fight_id ties the rounds of one bout together when
+                # it spans scenes (engage → break → re-engage).
+                "exchange_role": str((spec.get("combat_choreography") or {}).get("exchange", {}).get("role") or "").strip().upper(),
+                "fight_id": str((spec.get("combat_choreography") or {}).get("exchange", {}).get("fight_id") or "").strip(),
                 "attack_kind": str((spec.get("combat_choreography") or {}).get("exchange", {}).get("attack_kind") or
                                    (spec.get("combat_choreography") or {}).get("exchange", {}).get("attack") or "").strip()}
-               if (spec.get("combat_choreography") or {}).get("exchange") else {}),
+               if (spec.get("combat_choreography") or {}).get("exchange") else
+               ({"exchange_role": str((spec.get("combat_choreography") or {}).get("exchange_role") or "").strip().upper(),
+                 "fight_id": str((spec.get("combat_choreography") or {}).get("fight_id") or "").strip()}
+                if str((spec.get("combat_choreography") or {}).get("exchange_role") or "").strip().upper()
+                in {"IMPULSE", "SINGLE_EXCHANGE", "SEQUENCE"} else {})),
             "start_seconds": start,
             "end_seconds": end,
             "entry_state": str(action.get("start_state") or "").strip(),
@@ -521,6 +537,16 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
     plan = {
         "schema": SCHEMA,
         "unit_id": str(unit.get("unit_id") or "UNKNOWN"),
+        # Episode and scene are identity, not timing: the combat-exchange gate scopes itself by
+        # episode and adds up a fight's exchanges per scene, and a plan that omits both made it
+        # NOT_APPLICABLE on every real compile (only hand-built test plans carried them).
+        "episode": str(unit.get("episode") or _episode_from_unit_id(unit.get("unit_id")) or ""),
+        "scene_id": str(unit.get("scene_id") or ""),
+        # The gate below is entered on `unit.combat_exchange_policy`, but it scopes itself on
+        # `plan.combat_exchange_policy`: without carrying the declaration across, every unit took
+        # the gate's NOT_APPLICABLE branch and the whole policy never judged anything.
+        **({"combat_exchange_policy": str(unit["combat_exchange_policy"])}
+           if unit.get("combat_exchange_policy") else {}),
         "model_family": family,
         "duration_seconds": duration,
         "duration_authority": {
@@ -629,7 +655,9 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
         raise ValueError(";".join(report["failures"]))
     # COMBAT_EXCHANGE_V1 (Roger 2026-11-05): a fight is exchanges with initiative going both
     # ways, not one swing. Same position as the motion-density gate: judged on the authored
-    # plan before any submission, never after a paid generation.
+    # plan before any submission, never after a paid generation. A COMBAT_IMPULSE unit is a
+    # single authored blow and reports NOT_APPLICABLE; the scene-level total (evaluate_fight)
+    # is where an episode is proven to hold enough exchanges.
     if is_combat_unit(unit) or unit.get("combat_exchange_policy"):
         from tools.combat_exchange_gate import evaluate as _exchange_gate
         exchange = _exchange_gate(plan)

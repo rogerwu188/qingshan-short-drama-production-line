@@ -180,8 +180,13 @@ def validate_grouped_beat_contract(spec: Any, *, source_id: str) -> dict[str, An
             _text(combat, field, f"{source_id} combat_choreography.{field}")
         # COMBAT_EXCHANGE_V1 (Roger 2026-11-05「打斗至少要有几个回合才有感觉」): a fight beat is one
         # exchange with both sides acting, so the beat must name who answers and what the answer is.
-        if str(spec.get("combat_exchange_policy") or "").strip().upper() == "COMBAT_EXCHANGE_V1" or (
-                combat.get("exchange") or {}):
+        # An impulse (one authored blow, one outcome — ch15's spear through the mastiff) declares
+        # exchange_role=IMPULSE instead and owes no answer.
+        # IMPULSE (one authored blow, no answer) and SEQUENCE (fight design that is not a round:
+        # closing distance, taking cover) owe no answer; every EXCHANGE and SINGLE_EXCHANGE does.
+        impulse = str(combat.get("exchange_role") or "").strip().upper() in {"IMPULSE", "SEQUENCE"}
+        if not impulse and (str(spec.get("combat_exchange_policy") or "").strip().upper() == "COMBAT_EXCHANGE_V1"
+                            or (combat.get("exchange") or {})):
             exchange = combat.get("exchange")
             if not isinstance(exchange, dict):
                 raise ValueError(f"{source_id} combat_choreography.exchange is required for a combat exchange")

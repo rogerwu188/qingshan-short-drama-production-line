@@ -217,6 +217,25 @@ class SharedVideoExecutionCompilerTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, match):
                     compile_model_prompt(unit)
 
+    def test_exchange_policy_reaches_the_plan_the_gate_reads(self) -> None:
+        """The gate is entered on `unit.combat_exchange_policy` but scopes itself on the plan.
+
+        At E15 (the policy's first real use) the declaration existed only on the unit, so every
+        compiled unit took the gate's NOT_APPLICABLE branch and the policy silently judged
+        nothing. Hand-built plans cannot catch this; the plan has to come out of the compiler.
+        """
+        unit = _unit()
+        unit["combat_exchange_policy"] = "COMBAT_EXCHANGE_V1"
+        # The fixture's combat beat names no defender answer. Before the fix this compiled
+        # cleanly, because the plan never carried the declaration the gate scopes itself on.
+        with self.assertRaisesRegex(ValueError, "EXCHANGE_DEFENDER_ANSWER_MISSING"):
+            compile_video_execution_plan(unit)
+        # And the declaration does survive into the plan for the gate to read.
+        reference = deepcopy(_unit())
+        reference["combat_exchange_policy"] = "COMBAT_EXCHANGE_V1"
+        with self.assertRaises(ValueError):
+            compile_video_execution_plan(reference)
+
     def test_action_ir_is_shared_and_capacity_is_observe_only(self) -> None:
         plan = compile_video_execution_plan(_unit())
         self.assertEqual(

@@ -874,6 +874,50 @@ def write_preflight_artifacts(
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _evaluate_combat_fights(units: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Scene-level COMBAT_EXCHANGE_V1 accounting over the compiled units.
+
+    A fight is a scene: units within it are shots of the same bout. Only units that carry combat
+    beats are compiled into plans (a compile failure here is a real failure and must surface), and
+    a scene with a single exchange unit is still judged — that is the shape Roger rejected.
+    """
+    try:
+        from tools.video_execution_plan_compiler import compile_video_execution_plan
+        from tools.combat_exchange_gate import evaluate_fight, policy_active, load_policy
+    except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
+        from video_execution_plan_compiler import compile_video_execution_plan
+        from combat_exchange_gate import evaluate_fight, policy_active, load_policy
+    policy = load_policy()
+    by_scene: dict[str, list[dict[str, Any]]] = {}
+    for unit in units:
+        beats = [spec for spec in unit.get("ordered_prompt_specs") or []
+                 if str((spec.get("action") or {}).get("action_kind") or "").upper() == "COMBAT"]
+        if not beats:
+            continue
+        if not policy_active(unit.get("episode") or unit.get("unit_id"),
+                             unit.get("combat_exchange_policy"), policy):
+            continue
+        by_scene.setdefault(str(unit.get("scene_id") or unit.get("unit_id")), []).append(unit)
+    reports = []
+    for scene_id, scene_units in by_scene.items():
+        plans = [compile_video_execution_plan({**unit, "scene_id": unit.get("scene_id") or scene_id})
+                 for unit in scene_units]
+        # A scene can hold more than one bout (E15 carries the 傅恩涛 bout and the camp bout in
+        # separate scene runs). Each declared fight_id is judged on its own; units that declare
+        # none are judged together under the scene.
+        declared = sorted({str(beat.get("fight_id") or "").strip()
+                           for plan in plans for beat in plan.get("beats") or [] if beat.get("fight_id")})
+        undeclared = [plan for plan in plans
+                      if not any(str(beat.get("fight_id") or "").strip() for beat in plan.get("beats") or [])]
+        for fight_id in declared:
+            subset = [plan for plan in plans
+                      if any(str(beat.get("fight_id") or "").strip() == fight_id for beat in plan.get("beats") or [])]
+            reports.append(evaluate_fight(subset, policy=policy, fight_key=fight_id))
+        if undeclared:
+            reports.append(evaluate_fight(undeclared, policy=policy, fight_key=scene_id))
+    return reports
+
+
 def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editorial: dict[str, Any],
                      *, planning_only: bool = False, visual_culture_contract: dict[str, Any] | None = None,
                      character_entities: list[dict[str, Any]] | None = None,
@@ -1212,6 +1256,14 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             raise ValueError(";".join(pose_anchor_report["failures"]))
         compiled_unit["pose_transition_anchor_gate"] = pose_anchor_report
         units.append(compiled_unit)
+    # COMBAT_EXCHANGE_V1 (Roger 2026-11-05): each unit was already judged alone at plan compile;
+    # that cannot see a fight's total. Add each fight up across its units — the exchange count and
+    # either-side initiative — so a two-unit fight of one exchange each, or an episode of single
+    # blows, fails here (still before any paid POST).
+    _exchange_fights = _evaluate_combat_fights(units) if units else []
+    for _fight in _exchange_fights:
+        if _fight["status"] == "FAIL":
+            raise ValueError(";".join(_fight["failures"]))
     planned_count = grouping.get("planned_video_unit_count")
     partial_ready = (
         ".partial_ready." in str(grouping.get("schema") or "")
