@@ -347,6 +347,13 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
             "action_patient": str(
                 (spec.get("role_semantic_disambiguation") or {}).get("action_patient") or ""
             ).strip(),
+            # COMBAT_EXCHANGE_V1: who initiates this exchange and what the other side answers.
+            # Absent for a non-combat beat; the exchange gate reads only these three keys.
+            **({"action_subject": str((spec.get("combat_choreography") or {}).get("exchange", {}).get("initiator") or "").strip(),
+                "defender_answer": str((spec.get("combat_choreography") or {}).get("exchange", {}).get("defender_answer") or "").strip(),
+                "attack_kind": str((spec.get("combat_choreography") or {}).get("exchange", {}).get("attack_kind") or
+                                   (spec.get("combat_choreography") or {}).get("exchange", {}).get("attack") or "").strip()}
+               if (spec.get("combat_choreography") or {}).get("exchange") else {}),
             "start_seconds": start,
             "end_seconds": end,
             "entry_state": str(action.get("start_state") or "").strip(),
@@ -620,4 +627,13 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
     plan["motion_density_gate"] = report
     if report["status"] != "PASS":
         raise ValueError(";".join(report["failures"]))
+    # COMBAT_EXCHANGE_V1 (Roger 2026-11-05): a fight is exchanges with initiative going both
+    # ways, not one swing. Same position as the motion-density gate: judged on the authored
+    # plan before any submission, never after a paid generation.
+    if is_combat_unit(unit) or unit.get("combat_exchange_policy"):
+        from tools.combat_exchange_gate import evaluate as _exchange_gate
+        exchange = _exchange_gate(plan)
+        plan["combat_exchange_gate"] = exchange
+        if exchange["status"] == "FAIL":
+            raise ValueError(";".join(exchange["failures"]))
     return plan

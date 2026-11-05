@@ -1,0 +1,70 @@
+{
+  "schema": "qingshan.combat_exchange_policy.v1",
+  "policy_id": "COMBAT_EXCHANGE_V1",
+  "status": "ACTIVE",
+  "authority": "Roger 2026-11-04 打斗要真打；2026-11-05 打斗至少要有几个回合、要有你来我往",
+  "purpose": "A fight is a dialogue of force, not a single strike. This policy makes the exchange the unit of authoring: every combat beat is one exchange in which both sides act, the initiative changes hands at least once across the unit, and each exchange ends in a new position that the next one starts from.",
+    "enabled_from_episode": 15,
+  "activation_note": "Applies to every episode at or after enabled_from_episode, or any episode whose contract declares combat_exchange_policy=COMBAT_EXCHANGE_V1. Earlier episodes keep the locked single-impulse behaviour.",
+
+  "exchange": {
+    "definition": "One exchange = attacker acts -> defender answers (block, parry, evade, or counters) -> visible force evidence on both bodies -> both settle into a new position.",
+    "required_phases": [
+      "ATTACKER_ACTION: the attacker's committed motion, with its force origin named (foot, hip, shoulder, wrist)",
+      "DEFENDER_ANSWER: the defender's response, a named block, parry, slip, catch, or counter, never passive absorbing",
+      "FORCE_EVIDENCE: what the force did to cloth, snow, footing, stance or breath, on both bodies where both were touched",
+      "NEW_POSITION: each side's settled position after the exchange; the next exchange starts from exactly this"
+    ],
+    "initiative_must_alternate": true,
+    "initiative_note": "Across a unit, the side that initiates must change at least once: if the first exchange is A attacking B, at least one later exchange must be B attacking A, or an explicit counter that turns the exchange around.",
+    "no_repeated_motion": "Two consecutive exchanges may not repeat the same attack and the same defence; the second must answer the first's outcome (a difference in line, height, distance, or timing)."
+  },
+
+  "unit_shape": {
+    "minimum_exchanges_per_fight": 3,
+    "recommended_exchanges": [3, 5],
+    "seconds_per_exchange_min": 1.5,
+    "seconds_per_exchange_max": 4.0,
+    "turns_note": "A fight spread over several units counts its exchanges across the whole fight scene, not per unit; each unit must still contain at least one complete exchange with both sides acting.",
+    "opening": "The first exchange never starts from a static pose: it inherits the previous unit's exit state and the first motion in the clip is an attack or a closing step.",
+    "ending": "The last exchange of a fight ends in an irreversible outcome (one side down, disarmed, unable to continue) and a held new position; a fight that ends where it started is not a fight."
+  },
+
+  "structural_arc": {
+    "required": true,
+    "movements": [
+      "PROBE: distance closed, both sides testing; the viewer learns each fighter's style",
+      "ESCALATION: one side lands something real and the other's answer gets harder or coarser",
+      "TURN: the disadvantaged side changes the terms (a counter, a weapon change, a terrain use, a sacrifice)",
+      "RESOLUTION: one exchange decides it; the outcome is visible on the body, not announced"
+    ],
+    "note": "The arc may span the scene; a single-unit fight compresses it to probe-escalation-turn on one deciding exchange."
+  },
+
+  "camera": {
+    "one_dominant_path": true,
+    "path_options": ["LATERAL_TRACK", "ORBIT", "BACKWARD_TRACK", "LOCKED_WIDE"],
+    "forbid_stacking": "Never stack zoom, whip pan, orbit, drone dive and shake in one unit.",
+    "keep_full_bodies": "Every readable exchange keeps both fighters' full bodies or at least both sets of hands and weapon in frame; no exchange resolved off-screen.",
+    "preserve_screen_direction": "After any axis crossing the screen direction is preserved or explicitly re-established by a motivated move."
+  },
+
+  "wording": {
+    "describe_visible_geometry_not_adjectives": "Name distance, line, height, contact point and footwork. 'He punches' is incomplete; 'his right shoulder drives from three steps to arm's length and his palm lands on the guard's left forearm' is the shape.",
+    "repeat_nouns_not_pronouns": "Repeat the clothing/fighter anchor instead of a pronoun when both are in frame.",
+    "forbidden_text": ["持续", "保持", "连续"],
+    "forbidden_text_note": "These words turn an exchange into a pose held over time; the existing extend-word gate already rejects them in combat beats.",
+    "no_announced_outcome": "Never write who wins, who is stronger or what it means; only the visible result."
+  },
+
+  "provider_budget": {
+    "max_exchanges_per_unit": 2,
+    "note": "MiniMax-H3 renders 4-8 s per unit and loses choreography beyond two clean exchanges in one take; a three-exchange fight is therefore authored across at least two units, each ending on a settled position the next one inherits."
+  },
+
+  "relationship_to_existing_gates": {
+    "performance_tempo_gate": "COMBAT_IMPULSE's single-contact rule stays for a one-beat hit; an exchange unit is a COMBAT_EXCHANGE and each of its beats is one exchange, not one contact.",
+    "sd2_motion_density_gate": "The previous COMBAT_EXCHANGE ceiling (at most 2 contacts) becomes a per-unit exchange ceiling of 2; contacts per exchange are not capped because a block and a hit are both contacts.",
+    "direction_policy": "DP3 already exempts combat shots from the no-dialogue cap; this policy does not change DP3."
+  }
+}

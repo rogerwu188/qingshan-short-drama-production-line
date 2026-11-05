@@ -1662,3 +1662,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：E14 2026-11-05 post_gen_plot and video_q2 rounds: 25 items each, 8 and 15 questions per item, of which the technical checks were already gate outputs.
 - **授权**：Roger 2026-11-05 in-session
 - **状态**：GUIDANCE_ONLY
+
+### K167 — S2
+
+- **规则**：Every combat beat is one complete exchange: the initiator's committed action, the other side's named answer (block, parry, slip, catch or counter), visible force on both bodies, and a new position the next exchange starts from. Across a unit the initiative must change hands at least once, no two consecutive exchanges may repeat the same attack against the same answer, and a fight scene carries at least three exchanges spread over its units (at most two per unit for the provider's 4-8 s window).
+- **教训**：E14's three fight clips were each one swing by the protagonist with the opponent only sliding or falling. Every engine check passed because every check asked about ONE contact (force origin, contact point, feedback, exit state). Nothing required the other side to act, and COMBAT_EXCHANGE capped a unit at two contacts, so a block plus a hit could not even coexist: the cheapest passing shape was a single strike. Roger, on watching: 「还是太简单，没有你来我往的打斗场面」 — the whole episode had to be re-cut around a design the engine had made impossible to express.
+- **恢复**：tools/combat_exchange_gate.py runs inside compile_video_execution_plan next to the motion-density gate and refuses a combat plan that lacks a defender answer, a new position, or alternating initiative; the performance contract now requires combat_choreography.exchange{initiator,attack,defender_answer,new_position}; the COMBAT_EXCHANGE contact ceiling became an exchange ceiling.
+- **实现**：`tools/combat_exchange_gate.py`、`configs/COMBAT_EXCHANGE_V1.json`、`tools/grouped_performance_contract.py`、`tools/video_execution_plan_compiler.py`、`tools/sd2_motion_density_gate.py`、`tools/tests/test_combat_exchange_gate.py`
+- **回归**：`tools/tests/test_combat_exchange_gate.py`
+- **证据**：E14 2026-11-05: VU-014/020/023 re-rendered and still read as single strikes; external references agree the unit of choreography is attack-defence-impact-recovery strung into several exchanges (Seedance 2.5 prompt formula: 15 s = one exchange, 30 s = two connected exchanges).
+- **授权**：Roger 2026-11-05「打斗至少要有几个回合才有感觉，没有你来我往的打斗场面」
+- **状态**：REFERENCE_IMPLEMENTATION
