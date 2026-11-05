@@ -34,7 +34,16 @@
       "silence_reason_seconds_max_each": 6.0,
       "dialogue_time_ratio_min": 0.75,
       "dialogue_time_ratio_basis": "measured from the shot table's own planned dialogue-shot seconds / total planned episode seconds — never from the rendered final cut",
-      "previous_thresholds_superseded": {"continuous_no_dialogue_seconds_max": 5.0, "dialogue_time_ratio_min": 0.35}
+      "previous_thresholds_superseded": {"continuous_no_dialogue_seconds_max": 5.0, "dialogue_time_ratio_min": 0.35},
+      "combat_exemption": {
+        "authority": "Roger 2026-11-04: 「如果是打斗镜头设计，不受此限制，修改规则」",
+        "status": "ACTIVE",
+        "scope": "A combat shot is authored action design, not a silent gap left by missing dialogue. Neither the continuous-no-dialogue run cap (with its silence_reason exception budget) nor the episode dialogue-time ratio applies to it.",
+        "detection": "shot declares action_classification/action_kind COMBAT/FIGHT/ACTION_COMBAT, fight_or_chase/combat_or_chase true, a combat_choreography contract, or a combat_choreography_contract; the shared classifier is tools/video_physical_continuity_contract.is_combat_unit, so this gate and the compiler agree.",
+        "run_semantics": "A combat shot both ends the current no-dialogue run (it consumes no exception) and is excluded from the dialogue-time ratio denominator; a run made only of combat shots is never a silence gap.",
+        "ratio_semantics": "dialogue_time_ratio = dialogue seconds / (total seconds − combat seconds), so a fight neither dilutes nor is measured by the dialogue-density target.",
+        "still_applies": "Every non-combat shot keeps the 3 s cap, the 2×6 s exception budget and the 0.75 dialogue ratio exactly as before."
+      }
     },
     "DP4_performance_instruction": {
       "enabled": true,
