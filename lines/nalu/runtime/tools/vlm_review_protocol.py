@@ -532,6 +532,53 @@ RUNTIME_PREPRODUCTION = Path(f"{_np.RUNTIME_ROOT}/preproduction")
 REFERENCE_AWARE_KINDS = ("keyframe", "start_frame", "video_q2", "action_role")
 
 
+def derived_start_frame_references(row: dict[str, Any], *, episode: str) -> list[dict[str, Any]] | None:
+    """Identity/prop references for a continuity-derived start frame.
+
+    A derived start frame is the previous unit's real tail, so it has no task in the
+    keyframe manifest.  Its reference set is rebuilt from the episode's start-frame
+    semantic contract plus the character identity plates the asset library locks for
+    every character the contract declares visible.  Returns None when the contract says
+    nothing about the unit, so the caller still reports NOT_DECLARED rather than
+    inventing references.
+    """
+    unit_id = str(row.get("unit_id") or row.get("item_id") or "")
+    if not unit_id:
+        return None
+    try:
+        contracts = read_json(QaPaths(str(episode)).start_frames, {}) or {}
+    except Exception:  # noqa: BLE001 - a missing contract is NOT_DECLARED, not a crash
+        return None
+    contract = next((u for u in contracts.get("units") or [] if str(u.get("unit_id")) == unit_id), None)
+    if not contract:
+        return None
+    refs: list[dict[str, Any]] = []
+    # A derived unit's contract declares the required cast by NAME (the id list is the
+    # keyframe-task shape); resolve names through the contract's own character table.
+    wanted_ids = [str(v) for v in contract.get("required_visible_character_ids") or []]
+    if not wanted_ids:
+        name_to_id = {str(e.get("canonical_name") or ""): str(e.get("character_id") or "")
+                      for e in (Expectations(str(episode)).contract.get("character_entities") or [])}
+        wanted_ids = [name_to_id[n] for n in (contract.get("required_visible_characters") or [])
+                      if name_to_id.get(n)]
+    for character_id in wanted_ids:
+        plate = _locked_plate_path(str(character_id), episode=str(episode))
+        if plate:
+            refs.append({"role": "IDENTITY", "path": str(plate), "entity_id": str(character_id),
+                         "sub_label": "FRONT_NEUTRAL_HEADSHOT",
+                         "declared_by": "START_FRAME_SEMANTIC_CONTRACT+LOCKED_PLATE"})
+    return refs or None
+
+
+def _locked_plate_path(character_id: str, *, episode: str) -> Path | None:
+    """The locked identity plate the paid request would carry for this character."""
+    try:
+        import build_nalu_preproduction as _bp  # the same resolver the video task uses
+        return _bp._locked_identity_plate(character_id, episode=episode)
+    except Exception:  # noqa: BLE001 - no plate resolvable means the review says so
+        return None
+
+
 def review_reference_rows(references: list[dict[str, Any]] | None,
                           *, sha_cache: dict[str, str | None] | None = None) -> list[dict[str, Any]]:
     """The identity / wardrobe / space / prop references, labelled for the reviewer.
@@ -872,6 +919,13 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
             if kind == "keyframe":
                 declared = manifest_references_for(
                     keyframe_refs, row["item_id"], row.get("shot_id"), row.get("unit_id"))
+                if declared is None:
+                    # A continuity-derived start frame is the previous unit's real tail, so it is
+                    # NOT a task in the keyframe manifest and has no reference list there.  Reading
+                    # only that manifest left the six derived-frame reviews of E14 with
+                    # reference_media NOT_DECLARED, and the reviewer could not answer the identity
+                    # question at all (UNCERTAIN -> reject) even though the plate exists on disk.
+                    declared = derived_start_frame_references(row, episode=episode)
             else:
                 declared = manifest_references_for(
                     video_refs, row.get("unit_id"), row.get("item_id"), row.get("shot_id"))

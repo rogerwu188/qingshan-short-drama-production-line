@@ -1054,14 +1054,54 @@ def describe_blocking(rows: list[dict[str, Any]], id_field: str, name_field: str
     return "；".join(parts) if parts else "无"
 
 
-def visual_culture_block(contract: dict[str, Any]) -> str:
+#: Built-interior clauses that must not reach a shot whose location declares no buildings.
+_EXTERIOR_DROP = ("木构穿斗/抬梁屋架、瓦顶或压雪茅顶带出檐、直棂格窗、夯土院墙与木板门；", "屋内以铜盆太阳石为唯一光源，肤色暖；",
+                  "屋内铜盆太阳石为唯一光源；", "院中石盆光与雪面反光；")
+
+
+def _is_exterior(inputs: "Inputs", shot: dict[str, Any]) -> bool:
+    """True when the shot's scene declares an outdoor location (…-EXT).
+
+    Read from the contract's own scene_states by the shot's scene_id.  Deliberately
+    NOT stored on the shot's scene_state dict: adding a field there changes every
+    compiled prompt in the episode and makes a one-scene fix churn the whole batch.
+    A scene with no declared location keeps the old unscoped behaviour.
+    """
+    scene_id = str(shot.get("scene_id") or "")
+    for row in inputs.contract.get("scene_states") or []:
+        if str(row.get("scene_id") or "") == scene_id:
+            return str(row.get("location_id") or "").strip().upper().endswith("-EXT")
+    return False
+
+
+def _exterior_design(text: str) -> str:
+    for clause in _EXTERIOR_DROP:
+        text = text.replace(clause, "")
+    return text.strip("；") or "山林外景：落叶松、云杉、白桦与积雪，无任何人造物"
+
+
+def _exterior_lighting(text: str) -> str:
+    for clause in _EXTERIOR_DROP:
+        text = text.replace(clause, "")
+    return text.strip("；")
+
+
+def visual_culture_block(contract: dict[str, Any], *, exterior: bool = False) -> str:
+    """World/美术/色彩/光线/质感 for one shot.
+
+    ``exterior`` scopes the two lines that describe built interiors: on a forest,
+    mountain or snowfield shot the 美术 and 光线 lines used to carry 木构屋架、瓦顶、
+    夯土院墙 and 屋内铜盆光 verbatim, and the image model drew a hut in a place the
+    space map declares has no buildings at all (E14 S11-03, twice).  Only the
+    built-interior clauses are dropped; the world, palette and texture stay.
+    """
     palette = contract.get("palette_system") or {}
     return "\n".join([
         f"【视觉文化档案】{contract.get('profile_id')}",
         f"世界：{contract.get('story_world')}",
-        f"美术：{contract.get('production_design')}",
+        f"美术：{_exterior_design(str(contract.get('production_design') or '')) if exterior else contract.get('production_design')}",
         f"色彩：底色{palette.get('base')}；点色{palette.get('accent')}；肤色{palette.get('skin')}",
-        f"光线：{contract.get('lighting_language')}",
+        f"光线：{_exterior_lighting(str(contract.get('lighting_language') or '')) if exterior else contract.get('lighting_language')}",
         f"质感：{contract.get('image_texture')}",
         "画幅：9:16 竖构图。画面内不得出现任何文字、字幕、水印、logo。"
         # the period ban belongs to the East-Asian period lock; an AUTHORED_WORLD contract (Victorian London,
@@ -1440,7 +1480,7 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
          "承担空间与 scene 位的都是本地渲染的俯视拓扑图，只作空间几何依据；"
          "不得把图中的线条、标注、网格、图例或任何文字画进正片。", True),
         ("blank8", "", True),
-        ("visual_culture", visual_culture_block(inputs.visual_culture), True),
+        ("visual_culture", visual_culture_block(inputs.visual_culture, exterior=_is_exterior(inputs, shot)), True),
         ("blank9", "", True),
         ("hard_head", "【本帧硬约束】", True),
         ("hard_entry", f"画面只表现上面的 entry_state：{entry_state}", True),

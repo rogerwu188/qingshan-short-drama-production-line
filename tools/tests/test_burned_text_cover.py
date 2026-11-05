@@ -23,7 +23,8 @@ def hit(t, text, *, conf=0.9, y=(0.70, 0.74), x=(0.3, 0.7)):
 class PolicyTests(unittest.TestCase):
     def test_e12_listed_and_contract_declaration_wins(self):
         self.assertTrue(btc.active({}, episode="E12"))
-        self.assertFalse(btc.active({}, episode="E14"))
+        # E14 enabled by the line owner 2026-11-04 (7 clips burned the spoken line; K144 cover)
+        self.assertTrue(btc.active({}, episode="E14"))
         self.assertTrue(btc.active({btc.FIELD: btc.POLICY_ID}, episode="E14"))
         self.assertFalse(btc.active({btc.FIELD: "NONE"}, episode="E12"))
 
@@ -160,3 +161,25 @@ class CaptionOutsideBandTests(unittest.TestCase):
         hits = [(2.5, "画面残留旧行", 0.98, 0.265, 0.813, 0.714, 0.848)]
         out = btc.verify(hits, self.CAPTIONS, CFG)
         self.assertEqual(out["status"], "FAIL")
+
+
+class EpisodeBandTests(unittest.TestCase):
+    """Where H3 burns the line is measured per episode, not assumed constant."""
+
+    def test_episode_band_overrides_the_default(self):
+        cfg = {"band": {"y0": 0.66, "y1": 0.81, "x0": 0.06, "x1": 0.94},
+               "band_by_episode": {"E14": {"y0": 0.82, "y1": 0.95, "x0": 0.01, "x1": 0.99}}}
+        self.assertEqual(btc.band_for("E14", cfg)["y0"], 0.82)
+        self.assertEqual(btc.band_for("E13", cfg)["y0"], 0.66)
+        self.assertEqual(btc.band_for(None, cfg)["y0"], 0.66)
+
+    def test_a_hit_below_the_old_band_is_caught_with_the_episode_band(self):
+        # E14 89.0 s: the burned line centre sits at y 0.885, under E13's 0.66-0.81 bar
+        cfg = {"band": {"y0": 0.66, "y1": 0.81, "x0": 0.06, "x1": 0.94},
+               "band_by_episode": {"E14": {"y0": 0.82, "y1": 0.95, "x0": 0.01, "x1": 0.99}},
+               "verify": {"fps": 2, "min_cjk_chars": 2, "min_confidence": 0.7, "inside_bar_min_similarity": 0.5,
+                          "dialogue_band_pad": 0.1}}
+        hits = [(89.0, "山中的凶禽猛兽危害", 0.99, 0.014, 0.844, 0.997, 0.927)]
+        captions = [{"start": 88.5, "end": 91.1, "text": "比山中的凶禽猛兽危害还大，"}]
+        self.assertEqual(btc.verify(hits, captions, cfg, episode="E13")["status"], "FAIL")
+        self.assertEqual(btc.verify(hits, captions, cfg, episode="E14")["status"], "PASS")

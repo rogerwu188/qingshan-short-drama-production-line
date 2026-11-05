@@ -63,6 +63,56 @@ class StandingRuleConditionTest(unittest.TestCase):
         self.assertFalse(got["covered"])
         self.assertEqual(got["reason"], "OTHER_DECLARED_CHARACTER_NOT_MEASURED_PASS")
 
+    def test_by_design_solo_faceless_subject_is_covered(self):
+        # E14 S12-03: the only declared character IS the one with no face pixels, and the still-level
+        # FACE_COUNT_ZERO rides along.  Nobody else is in frame, so there is no "other" face to
+        # measure; requiring one refused the rule its own case.
+        got = self._cond(["NO_EMBEDDING_SAMPLE_FOR_DECLARED_CHARACTER:CHAR-QINMING",
+                          "FACE_COUNT_ZERO:E14-S12-03"],
+                         {}, ["CHAR-QINMING"])
+        self.assertTrue(got["covered"])
+        self.assertEqual(got["excused_characters"], ["CHAR-QINMING"])
+        self.assertEqual(got["still_no_face_failures"], ["FACE_COUNT_ZERO:E14-S12-03"])
+
+    def test_still_face_count_zero_alone_is_not_a_measured_failure(self):
+        # a still no-face code must never be read as "a face was found and measured wrong"
+        got = self._cond(["NO_EMBEDDING_SAMPLE_FOR_DECLARED_CHARACTER:CHAR-QINMING",
+                          "FACE_COUNT_ZERO:E14-S12-03"],
+                         {"CHAR-QINMING": "FAIL"}, ["CHAR-QINMING"])
+        self.assertTrue(got["covered"])
+        self.assertNotIn("measured_failures", got)
+
+    def test_sample_and_view_count_minimums_are_consequences_not_measured(self):
+        # with zero faces there are zero samples and zero comparable canonical views; those two
+        # minimums restate the no-face state and must not read as "measured and wrong"
+        got = self._cond(["CANONICAL_VIEWS_BELOW_POLICY_MINIMUM:0",
+                          "FACE_COUNT_ZERO:E14-S12-03",
+                          "NO_EMBEDDING_SAMPLE_FOR_DECLARED_CHARACTER:CHAR-QINMING",
+                          "SAMPLE_FRAMES_BELOW_STILL_MINIMUM:0<1"],
+                         {}, ["CHAR-QINMING"])
+        self.assertTrue(got["covered"])
+        self.assertEqual(got["no_face_count_consequences"],
+                         ["CANONICAL_VIEWS_BELOW_POLICY_MINIMUM:0",
+                          "SAMPLE_FRAMES_BELOW_STILL_MINIMUM:0<1"])
+        self.assertNotIn("measured_failures", got)
+
+    def test_a_low_cosine_beside_a_count_minimum_still_stops_the_line(self):
+        got = self._cond(["SAMPLE_FRAMES_BELOW_STILL_MINIMUM:0<1",
+                          "NO_EMBEDDING_SAMPLE_FOR_DECLARED_CHARACTER:CHAR-QINMING",
+                          "IDENTITY_COSINE_BELOW_PASS:CHAR-QINMING:0.22"],
+                         {"CHAR-QINMING": "FAIL"}, ["CHAR-QINMING"])
+        self.assertFalse(got["covered"])
+        self.assertEqual(got["reason"], "MEASURED_IDENTITY_FAILURE_PRESENT")
+
+    def test_face_count_zero_does_not_excuse_a_measured_second_character(self):        # the still no-face code excuses nobody: a second declared character that measured low
+        # still stops the line
+        got = self._cond(["NO_EMBEDDING_SAMPLE_FOR_DECLARED_CHARACTER:CHAR-QINMING",
+                          "FACE_COUNT_ZERO:E14-S12-03",
+                          "IDENTITY_COSINE_BELOW_PASS:CHAR-FENGYIAN:0.21"],
+                         {"CHAR-FENGYIAN": "FAIL"}, ["CHAR-QINMING", "CHAR-FENGYIAN"])
+        self.assertFalse(got["covered"])
+        self.assertEqual(got["reason"], "MEASURED_IDENTITY_FAILURE_PRESENT")
+
     def test_only_the_no_face_pixels_codes_are_readable(self):
         self.assertEqual(rga.no_face_pixels_character(
             "DECLARED_CHARACTER_FACE_NOT_FOUND:E11-S17-03:CHAR-XUYUEPING"), "CHAR-XUYUEPING")

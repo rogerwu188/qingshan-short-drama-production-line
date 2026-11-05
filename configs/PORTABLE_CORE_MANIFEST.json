@@ -96,6 +96,7 @@
     "lines/nalu/runtime/tools/roger_gate_acceptance.py",
     "lines/nalu/runtime/tools/speech_rate_check.py",
     "lines/nalu/runtime/tools/stamp_reviewed_keyframe_requests.py",
+    "lines/nalu/runtime/tools/stamp_reviewed_video_requests.py",
     "lines/nalu/runtime/tools/static_design_gate.py",
     "lines/nalu/runtime/tools/studio_asset_resolve.py",
     "lines/nalu/runtime/tools/unit_recut.py",
@@ -223,6 +224,7 @@
     "tools/tests/test_monologue_speaking_groups.py",
     "tools/tests/test_monologue_timing_and_v2_sound.py",
     "tools/tests/test_nalu_budget_audio_spend.py",
+    "tools/tests/test_measured_edit_recall_guard.py",
     "tools/tests/test_nalu_budget_reservation.py",
     "tools/tests/test_nalu_current_policy_profile.py",
     "tools/tests/test_nalu_derived_q1_answer_merge.py",
@@ -257,6 +259,7 @@
     "tools/tests/test_spatial_dialogue_contract.py",
     "tools/tests/test_speaker_map_clip_in.py",
     "tools/tests/test_stamp_reviewed_keyframe_requests.py",
+    "tools/tests/test_stamp_reviewed_video_requests.py",
     "tools/tests/test_start_frame_line_owner_acceptance.py",
     "tools/tests/test_storyclaw_asset_plan_gate.py",
     "tools/tests/test_storyclaw_audio_provider.py",
@@ -483,6 +486,8 @@
     "tools.tests.test_nalu_q1_single_action_gate_acceptance",
     "tools.tests.test_performance_cut",
     "tools.tests.test_speaker_map_clip_in",
-    "tools.tests.test_writer_selfcheck_provider_floor"
+    "tools.tests.test_writer_selfcheck_provider_floor",
+    "tools.tests.test_stamp_reviewed_video_requests",
+    "tools.tests.test_measured_edit_recall_guard"
   ]
 }

@@ -257,9 +257,42 @@ NO_FACE_PIXELS_FAILURE_CODES = (
     "DECLARED_CHARACTER_FACE_NOT_FOUND",
 )
 
+#: ``FACE_COUNT_ZERO:<item_id>`` (keyframe_q1_builder, when InsightFace finds no face anywhere in the
+#: still) is the same no-face state as the two codes above but names the ITEM, not a character, so it
+#: cannot go in the character-keyed tuple: the regex would read the item id as a character id and the
+#: unresolvable "character" would then count as a measured failure, which is exactly backwards.
+#: Order 107 (E14, 2026-11-04) names FACE_COUNT_ZERO explicitly as a covered no-face-pixels code;
+#: it excuses nobody by itself — the per-character excuse still has to come from a character-keyed
+#: code — it only stops this still from being read as "a face was found and measured wrong".
+STILL_NO_FACE_CODES = ("FACE_COUNT_ZERO",)
+
+#: Codes that only COUNT what no-face already implies: with zero faces there are zero samples and
+#: zero comparable canonical views, so a minimum over those counts is not independent evidence that
+#: "a face was found and measured wrong".  They are not proof either way — they are consequences.
+#: Counting them as measured failures made the rule read a by-design solo back view as an identity
+#: drift (E14 VU-025, 2026-11-04).  A real low cosine is still a measured failure.
+NO_FACE_COUNT_CONSEQUENCE_CODES = (
+    "SAMPLE_FRAMES_BELOW_STILL_MINIMUM",
+    "CANONICAL_VIEWS_BELOW_POLICY_MINIMUM",
+)
+NO_FACE_COUNT_CONSEQUENCE_RE = re.compile(
+    r"(?:" + "|".join(NO_FACE_COUNT_CONSEQUENCE_CODES) + r"):")
+
+
+def is_no_face_count_consequence(failure: str) -> bool:
+    """A sample/view-count minimum that only restates the absence of any face."""
+    return bool(NO_FACE_COUNT_CONSEQUENCE_RE.match(str(failure or "")))
+
 
 NO_FACE_PIXELS_RE = re.compile(
     r"(?:" + "|".join(NO_FACE_PIXELS_FAILURE_CODES) + r"):(?:[A-Z0-9-]+:)?([A-Za-z0-9][A-Za-z0-9-]*)")
+
+STILL_NO_FACE_RE = re.compile(r"(?:" + "|".join(STILL_NO_FACE_CODES) + r"):")
+
+
+def still_has_no_face(failure: str) -> bool:
+    """A failure asserting the still contains no face at all (``FACE_COUNT_ZERO:<item_id>``)."""
+    return bool(STILL_NO_FACE_RE.match(str(failure or "")))
 
 
 def no_face_pixels_character(failure: str) -> str | None:
@@ -311,7 +344,14 @@ def standing_rule_condition(*, failed_gates: list[str], identity_failures: list[
     decision rested on, so the acceptance stays auditable without re-reading the media.
     """
     no_face = [str(f) for f in identity_failures if no_face_pixels_character(f)]
-    measured = [str(f) for f in identity_failures if not no_face_pixels_character(f)]
+    # A still-level FACE_COUNT_ZERO asserts no face pixels anywhere: it excuses no character by
+    # itself (the character excuse comes from the character-keyed code above), but it must not be
+    # read as "a face was found and measured wrong".
+    still_no_face = [str(f) for f in identity_failures if still_has_no_face(f)]
+    count_consequences = [str(f) for f in identity_failures if is_no_face_count_consequence(f)]
+    measured = [str(f) for f in identity_failures
+                if not no_face_pixels_character(f) and not still_has_no_face(f)
+                and not is_no_face_count_consequence(f)]
     excused = sorted({no_face_pixels_character(f) for f in no_face} - {None})
     decided = {str(d.get("character_id")): str(d.get("decision")) for d in decisions if d.get("character_id")}
     others = {cid: decided.get(cid, "NO_DECISION") for cid in declared_characters if cid not in excused}
@@ -320,6 +360,8 @@ def standing_rule_condition(*, failed_gates: list[str], identity_failures: list[
         "rule": NO_FACE_PIXELS_SCOPE,
         "identity_gate_failures": sorted(str(f) for f in identity_failures),
         "no_face_pixels_failures": no_face,
+        "still_no_face_failures": still_no_face,
+        "no_face_count_consequences": count_consequences,
         "excused_characters": excused,
         "other_declared_character_decisions": others,
         "other_failing_gates": other_gates,
@@ -333,9 +375,12 @@ def standing_rule_condition(*, failed_gates: list[str], identity_failures: list[
                 "measured_failures": sorted(set(measured))}
     if other_gates:
         return {**condition, "covered": False, "reason": "OTHER_REGISTERED_GATE_ALSO_FAILED"}
-    if not others or sorted(set(others.values())) != ["PASS"]:
-        # every other declared character must have been measured and passed.  A missing
-        # decision is NOT a pass: it is an unmeasured declared face.
+    # Every OTHER declared character must have been measured and passed.  "Other" is read literally:
+    # when the excused characters are the whole cast of the still (E14 S12-03, Qinming walking away
+    # from camera, nobody else in frame) there is no other face to measure, and demanding one made
+    # the rule unusable for exactly the case it exists for.  A missing decision on a character who
+    # is NOT excused is still not a pass.
+    if sorted(set(others.values())) not in ([], ["PASS"]):
         return {**condition, "covered": False, "reason": "OTHER_DECLARED_CHARACTER_NOT_MEASURED_PASS"}
     return {**condition, "covered": True,
             "reason": "NO_FACE_PIXELS_AND_ALL_OTHER_DECLARED_CHARACTERS_PASSED"}
@@ -367,6 +412,13 @@ def standing_rule_acceptance(order: dict[str, Any], *, episode: str, gate_id: st
         "condition_source": "the still's own gate measurements, re-derived at evaluation time",
         "media_item_id": media_item_id,
         "media_sha256_admitted": str(media_sha256 or ""),
+        # The engine's VIDEO start-frame gate (tools/shot_media_admission_gate.py:493-497) reads
+        # line_owner_acceptance.media_sha256 and nothing else, and refuses every admission whose
+        # record does not carry it.  A standing-rule record that only wrote media_sha256_admitted
+        # therefore admitted the still for Q1 and then failed the video preflight with
+        # Q1_START_FRAME_NOT_ADMITTED (E14 VU-025, 2026-11-04).  Same value, second key: it says
+        # which still this record was written for, not that the rule is bound to it.
+        "media_sha256": str(media_sha256 or ""),
         "media_sha256_binding": ("NOT_A_SHA_BINDING: the rule covers a condition, so a regenerated still "
                                  "is re-checked rather than inherited"),
         "gate_result": gate_result_path,

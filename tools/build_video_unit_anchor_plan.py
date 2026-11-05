@@ -85,13 +85,36 @@ def _anchor_shots(rows: list[dict[str, Any]], *, include_opening: bool = True) -
     return selected, identity_reanchor, prop_reanchor
 
 
-def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Path) -> dict[str, Any]:
+def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Path,
+          full_grouping: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Build the anchor plan for a grouping (a full plan, or one rolling wave of it).
+
+    ``full_grouping`` is the COMPLETE grouping this wave was cut from, when the caller passed
+    only a wave.  A wave holds a handful of units in an arbitrary subset, so walking its own
+    list makes the first unit's predecessor ``None`` and every later unit's predecessor the
+    previous WAVE member: E14 wave 6 (VU-004/020/023) therefore classified all three as
+    NEW_EVENT_ANCHOR (no predecessor), dropped the predecessor tail state reference that
+    build_nalu_preproduction had just attached as ``previous_unit_final_frame``, and the
+    compiled video prompts opened each unit from its own keyframe — a silent loss of the
+    same-event continuity the full plan classifies as MOTIVATED_CUT.  The predecessor is a
+    property of the episode, not of the wave, so it is resolved against the full order.  Only
+    the predecessor's identity is used here; it never enters the wave's own unit list.
+    """
     shots = {str(row["shot_id"]): row for row in editorial.get("shots") or []}
     units: list[dict[str, Any]] = []
     missing: list[str] = []
     classes: set[str] = set()
     previous_unit: dict[str, Any] | None = None
+    predecessor_of: dict[str, str | None] = {}
+    if full_grouping:
+        order = [str(row["unit_id"]) for row in full_grouping.get("units") or []]
+        by_id = {str(row["unit_id"]): row for row in full_grouping.get("units") or []}
+        for index, unit_id in enumerate(order):
+            predecessor_of[unit_id] = order[index - 1] if index > 0 else None
     for unit in grouping.get("units") or []:
+        if full_grouping:
+            prev_id = predecessor_of.get(str(unit.get("unit_id") or ""))
+            previous_unit = by_id.get(prev_id) if prev_id else None
         shot_ids = unit["editorial_shot_ids"]
         rows = [shots[shot_id] for shot_id in shot_ids]
         scene_id_value = (

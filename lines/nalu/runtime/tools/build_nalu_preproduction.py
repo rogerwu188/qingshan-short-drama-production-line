@@ -1175,8 +1175,16 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
         ]
         if len(element_names) > 1:
             depth_layers.append(f"纵深补充：{element_names[1]}")
-        materials = [value.strip() for value in re.split(r"[、，；]", str(vcc.get("production_design") or ""))
-                     if value.strip()][:4] or ["夯土与粗布材质"]
+        # 材质细节 used to take the first four clauses of production_design verbatim, which on a
+        # forest-edge scene handed the image model 木构屋架、瓦顶、夯土院墙 and drew a hut where the
+        # space map declares no man-made object at all (E14 S11-03, twice).  An exterior location
+        # gets the outdoor materials, never the built-interior ones.
+        _loc = str(row.get("location_id") or row.get("location") or "").upper()
+        if _loc.endswith("-EXT"):
+            materials = ["积雪", "树皮与松针", "雪面反光", "粗布与皮革"]
+        else:
+            materials = [value.strip() for value in re.split(r"[、，；]", str(vcc.get("production_design") or ""))
+                         if value.strip()][:4] or ["夯土与粗布材质"]
         env_motion = [
             f"天候：{scene.get('weather')}（只做连续微动，不做特效）",
             f"光源微动：{scene.get('lighting')}",
@@ -2072,7 +2080,13 @@ def main() -> int:
         for unit in grouping_x.get("units") or []:
             if unit.get("unit_id") in own_start_units:
                 unit["start_frame_source"] = "OWN_KEYFRAME_TAIL_REJECTED"
-        anchor_plan = engine.anchor_build(grouping_x, editorial, keyframe_dir)
+        # A rolling wave is a SUBSET of the episode's units: pass the full plan so the
+        # predecessor of its first (and of every non-adjacent) unit is the true predecessor,
+        # not "none"/"the previous wave member".  Without this the wave classified every unit
+        # as NEW_EVENT_ANCHOR and silently dropped the predecessor tail state reference that
+        # was just attached above (E14 wave 6).
+        _full = json.loads(full_plan_path.read_text(encoding="utf-8")) if args.ready_units else None
+        anchor_plan = engine.anchor_build(grouping_x, editorial, keyframe_dir, full_grouping=_full)
         anchor_plan["video_unit_grouping_plan_sha256"] = sha256_file(plan_path_x)
         anchor_plan["keyframe_dir"] = str(keyframe_dir)
         anchor_plan["keyframe_dir_exists"] = keyframe_dir.is_dir()
