@@ -192,6 +192,9 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
 - **S5 关键帧**：先过整批提示词门：`$S/prompt_batch_prepare.sh <EP>` → 通读 `workflow/nalu/<EP>/preproduction/planned_video_prompts/*.txt`、`prompts/keyframes/*.txt`、`reports/<EP>_PROMPT_BATCH_DIGEST.json` →
   写 `reports/<EP>_PROMPT_BATCH_ANSWERS.json`（`{"schema":"nalu.prompt_batch_answers.v1","reviewer":"claude-code","review_method":"CLAUDE_STRUCTURED_PROMPT_REVIEW","reviewed_at":…,"units":{"<UNIT>":{"verdict":"PASS","cross_unit_continuity_checked":true,"observation":"…"}}}`）→ `$S/prompt_batch_finish.sh <EP>`（必须 register PASS）→ `paid_stage.sh <EP> S5 S5`。
   之后有 keyframe Q1、start_frame 审核。改了剧本：重跑构建器 → `run --until S2` → prepare/finish → S5。被拒关键帧：把 `keyframes/<shot>-keyframe-v1.png` 和 `keyframe_harvest/_raw/<shot>*` 移走再跑。
+- **S6 生成后 QA 的放行看 REJECT，不看边界门**（线主 2026-11-05；实验集化神 E02–E05）：`post_generation_qa_runner` 摘要里 `media_boundary_acceptance` 常为 FAIL（相邻镜头视觉决策缺失、`TRIMMED_TAIL_CONTAINS_ACTIVE_AUDIO`、对白窗口），
+  它只记录，不决定放行；残留音频与对白窗口由 S7 `performance_cut` 处理。`PARTIAL_N_OF_M` 的原因是逐单元 REJECT：身份错/多人/明显定格等观众可见问题各受控重做一次（§5），
+  无台词单元有人声、句前胡话/重复台词交给 S7 剪裁、走默认接受，不重拍。不要因边界门 FAIL 写 CODE_BLOCKER。
 - **S6 视频**（`paid_stage.sh <EP> S6 S6`）：先 action_role 审核，再波次提交。MiniMax-H3 视频走 **HopsAPI**（线主 2026-10-29，`POST /v1/router/task/create`，OmniVideo，768p），
   需要环境变量 `HOPSAPI_API_KEY`（与 Codex 同一个 key；可选 `HOPSAPI_BASE_URL`、`HOPSAPI_CONSOLE_URL`），**S6 没有它就停在 `VIDEO_PROVIDER_KEY_MISSING`**；
   配音（S4）、配乐（S6 BGM）仍走 Giggle，`GIGGLE_API_KEY` 照旧必需（图片已改走 HopsAPI，见上）。计划价约 1.56 积分/秒（向上取整，可用 `HOPSAPI_H3_CREDITS_PER_SECOND` 调），
