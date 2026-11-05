@@ -1076,6 +1076,12 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
                 opening_contract = deepcopy(opening_contract)
                 opening_contract["previous_unit_id"] = None
                 opening_contract["normalization"] = "V4_NEW_EVENT_PREDECESSOR_PROVENANCE_NOT_PROVIDER_SOURCE"
+        # A policy declared on an authored prompt spec is a declaration for the unit that carries
+        # it. The combat-exchange gate and the fight accounting both read the policy off the unit,
+        # so a declaration that stops at the spec reaches neither (K168).
+        exchange_policy = next((str(spec.get("combat_exchange_policy") or "").strip()
+                                for spec in prompt_specs
+                                if str(spec.get("combat_exchange_policy") or "").strip()), "")
         compiled_unit = {
             "unit_id": unit_id,
             "scene_id": unit["scene_id"],
@@ -1109,6 +1115,7 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             "camera_plan": {} if per_shot_camera else camera_plan,
             **({'camera_scope_policy': 'PER_SHOT_EXPLICIT', 'camera_time_coordinate': 'EPISODE'}
                if per_shot_camera else {}),
+            **({"combat_exchange_policy": exchange_policy} if exchange_policy else {}),
             "transition_contract": transition_contract,
             "internal_transition_contracts": unit.get("internal_transition_contracts") or [],
             # Keep the authoritative continuity ledgers in the compiled unit.

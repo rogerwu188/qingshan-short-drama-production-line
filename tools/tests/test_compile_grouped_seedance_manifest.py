@@ -454,6 +454,59 @@ class CompileGroupedSeedanceManifestTest(unittest.TestCase):
             )
             self.assertEqual(unit["semantic_reference_coverage_gate"]["status"], "PASS")
 
+    def test_policy_declared_on_a_prompt_spec_reaches_the_unit(self):
+        """A declaration stops being a declaration if it stops at the spec.
+
+        COMBAT_EXCHANGE_V1 is declared on the authored prompt specs, but the combat-exchange
+        gate and the fight accounting both read `unit["combat_exchange_policy"]`. At E15 the
+        declaration never reached the unit, so the fight gate saw an undeclared episode and
+        judged nothing (K168).
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            first = Path(tmp) / "first.png"
+            first.write_bytes(b"first")
+            grouping = {
+                "episode": "E15",
+                "video_unit_count": 1,
+                "runtime_seconds": 6,
+                "wardrobe_bible": {"bible_id": "E15-WARDROBE-V1", "characters": [
+                    wardrobe_row("梁狗儿", "LOW_RANK_ENFORCER", "暗赭", "旧金", "短阔肩外衫", "旧铜酒牌"),
+                ]},
+                "units": [{
+                    "unit_id": "VU-1", "scene_id": "S1", "duration_seconds": 6,
+                    "editorial_shot_ids": ["S1-1"], "narrative_beat": "beat",
+                    "camera_plan": locked_camera(), "internal_transition_contracts": [],
+                }],
+            }
+            anchors = {"units": [{
+                "unit_id": "VU-1", "planned_reference_image_count": 1,
+                "reference_image_paths": [str(first)],
+                "reference_transport_strategy": "STANDARD_MULTI_REFERENCE",
+                "anchor_count_decision": {"anchor_roles": ["ADMITTED_SCENE_START_STATE"]},
+                "semantic_reference_coverage_gate": {"status": "PASS"},
+                "start_frame_semantic_contract": {"status": "PASS", "planning_only": True},
+            }]}
+            spec = {
+                "space": {"global": "G", "location": "L", "subspace": "S"},
+                "scene_state": {"time": "夜", "weather": "雪", "palette": "灰青",
+                                "weather_provenance": {"source_type": "TEST_SOURCE", "source_ref": "S1",
+                                                       "visibility_mode": "VISIBLE_EXTERIOR"}},
+                "action": {"action_kind": "PHYSICAL_ACTION",
+                           "start_state": "手在桌边", "primary_action": "抬起杯子", "completion_state": "杯到唇边",
+                           "contact_point": "手指与杯壁", "motion_direction": "由桌面向唇边上移",
+                           "physical_causality": "手指收紧后杯子才离开桌面",
+                           "microexpression_design": "目光先落杯沿再抬起",
+                           "physical_action_design": "手指收紧、提杯、抵达唇边连续完成"},
+                "dialogue": "",
+                "cast": [{"character": "梁狗儿"}],
+                "combat_exchange_policy": "COMBAT_EXCHANGE_V1",
+                **creative_contract(),
+            }
+            editorial = {"shots": [{"shot_id": "S1-1", "model": "seedance-2.0-pro",
+                                    "resolution": "720p", "prompt_spec": spec}]}
+            unit = compile_manifest(grouping, anchors, editorial, planning_only=True)["units"][0]
+            self.assertEqual(unit["combat_exchange_policy"], "COMBAT_EXCHANGE_V1")
+
     def test_compile_rejects_non_native_1080p_sd2_contract(self):
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as tmp:
             anchor = Path(tmp) / "anchor.png"
