@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import urllib.error
 from pathlib import Path
 
@@ -129,7 +130,9 @@ class MatrixPublishTests(unittest.TestCase):
         os.environ["X2C_MATRIX_API_URL"] = mx.PROD_API
         self.assertEqual(mx.environment(), "PRODUCTION")
         os.environ.pop("X2C_MATRIX_API_URL")
-        with self.assertRaises(SystemExit) as raised:
+        import device_sn as dsn
+        with mock.patch.object(dsn, "resolve", return_value=("", "")), \
+                self.assertRaises(SystemExit) as raised:  # no env, no cache, no readable hardware serial
             mx.device_sn()
         self.assertIn("NALU_DEVICE_SN_MISSING", str(raised.exception.code))
 
