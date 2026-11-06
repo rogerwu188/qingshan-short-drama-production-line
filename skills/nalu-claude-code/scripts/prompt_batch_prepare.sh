@@ -7,6 +7,6 @@ $E/.qingshan-venv/bin/python lines/nalu/runtime/tools/nalu_pipeline.py run --epi
 "$(cd "$(dirname "$0")" && pwd)/plan_compile.sh" $EP | tail -1
 REP=$E/workflow/nalu/$EP/preproduction/reports; mkdir -p $REP/prompt_batch_qa
 rm -f $REP/prompt_batch_qa/*.json
-env -u GIGGLE_API_KEY $E/.qingshan-venv/bin/python lines/nalu/runtime/tools/prompt_batch_register.py --episode $EP --execution-id $EP-PROMPT-BATCH-V1 --qa-dir $REP/prompt_batch_qa --report $REP/${EP}_PROMPT_BATCH_REGISTER.json | tail -1
+env -u GIGGLE_API_KEY $E/.qingshan-venv/bin/python lines/nalu/runtime/tools/prompt_batch_register.py --episode $EP --execution-id $EP-PROMPT-BATCH-V1 --qa-dir $REP/prompt_batch_qa --report $REP/${EP}_PROMPT_BATCH_REGISTER.json | tail -1 || true   # HOLD (exit!=0) is the expected state here; the digest below must still run
 env -u GIGGLE_API_KEY $E/.qingshan-venv/bin/python lines/nalu/runtime/tools/prompt_batch_qa.py digest --episode $EP --out $REP/${EP}_PROMPT_BATCH_DIGEST.json | tail -1
 echo "next: reviewer writes $REP/${EP}_PROMPT_BATCH_ANSWERS.json, then prompt_batch_finish.sh $EP"

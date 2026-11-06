@@ -1694,3 +1694,14 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：E15 2026-11-06 Q1: S01-02, S06-01, S06-03, S09-01, S10-01, S12-05, S13-04, S13-07, S14-04 rejected; axes rewritten, then re-prompt batch review.
 - **授权**：Roger 2026-11-06「你自己定，不要问我」 (E15 S5 Q1 rework)
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K170 — S5
+
+- **规则**：Before asking the owner to record a gate acceptance, read the consumer: (1) a pipeline run only sees orders when the authority coordinates in .env are loaded (paid_stage.sh sources .env; a bare nalu_pipeline.py run does not, so every order is silently ignored); (2) NALU_LATEST_ORDER_SEQ must equal the inbox's latest seq; (3) the Q1 detector is <item>:<CHAR-ID> only for CHARACTER-IDENTITY-ADMISSION and <item>:<GATE-ID> for every other gate (q1_gate_detectors). Rework loops carry a fixed window: 3 fast keyframe attempts, 1 pro, then the best of the generated stills is accepted.
+- **教训**：E15 S5: keyframes were reworked 5+ rounds (S01-02, S12-01 five fast attempts each); then 8 acceptance orders were recorded with guessed detector names and a free S5 recompute was run without .env, so the Q1 overlay read no orders and reported PARTIAL_22_OF_26 three times with no refusal reason. The owner ran every one of those commands.
+- **恢复**：Record acceptances with gate-correct detectors; run recomputes through paid_stage.sh (or source .env first); apply the retry window instead of another rewrite round. prompt_batch_prepare.sh now continues past the expected register HOLD so the digest is never stale.
+- **实现**：`skills/nalu-claude-code/scripts/prompt_batch_prepare.sh`、`docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md`
+- **证据**：E15 2026-11-06: orders seq 124–136; Q1 PARTIAL_22_OF_26_ADMITTED with accepted_unit_ids=[] on every bare recompute.
+- **授权**：Roger 2026-11-06「以后严禁这种反复重做，没有窗口期的做法」「3遍fast不过，就用pro做一遍，如果还是不过，取4个中最好的一个通过」
+- **状态**：REFERENCE_IMPLEMENTATION
+
