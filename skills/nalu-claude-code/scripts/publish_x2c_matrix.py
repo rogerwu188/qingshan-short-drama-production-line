@@ -67,7 +67,16 @@ def matrix_mode() -> bool:
         return False
     if mode == "matrix":
         return True
-    return bool(os.environ.get("NALU_DEVICE_SN", "").strip() or os.environ.get("X2C_MATRIX_API_URL", "").strip())
+    # Default MATRIX (owner 2026-11-06).  A series that already went out through the old open-api keeps that
+    # project until it ends: a legacy state with a project and episodes and no matrix state stays on open-api.
+    try:
+        legacy = json.loads(px.state_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        legacy = {}
+    matrix_state = px.runtime() / "distribution" / "x2c_matrix.json"
+    if legacy.get("project_id") and legacy.get("episodes") and not matrix_state.is_file():
+        return False
+    return True
 
 
 def base_url() -> str:

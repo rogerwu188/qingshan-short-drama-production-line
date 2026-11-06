@@ -123,7 +123,12 @@ class MatrixPublishTests(unittest.TestCase):
         self.assertFalse(mx.matrix_mode())
         os.environ.pop("X2C_API_MODE")
         os.environ.pop("NALU_DEVICE_SN")
-        self.assertFalse(mx.matrix_mode())
+        self.assertTrue(mx.matrix_mode())  # default since 2026-11-06
+        legacy = mx.px.state_path()
+        legacy.parent.mkdir(parents=True, exist_ok=True)
+        legacy.write_text(json.dumps({"project_id": "old", "episodes": {"E01": {}}}))
+        self.assertFalse(mx.matrix_mode())  # a series already on the old open-api keeps it
+        legacy.unlink()
         os.environ["X2C_API_MODE"] = "matrix"
         self.assertTrue(mx.matrix_mode())
         self.assertEqual(mx.environment(), "PRODUCTION")

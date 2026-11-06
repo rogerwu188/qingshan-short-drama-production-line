@@ -173,8 +173,8 @@ $P $S/publish_x2creel.py status                           # 本地记录 + X2C �
 - 分类必须从 X2C 自己的列表里选，且语言要对：X2C 的分类按语言分组（`target_language` zh / en）。先跑 `publish_x2creel.py categories --lang <剧集语言>`，把选中项的显示名 `name` 逐字写进简报 `genre`，`genre_lang` 写剧集语言（英文剧 = en）。不要用 `name_key`（X2C 英文列表的 name_key 与行错位）。脚本只做精确匹配，**没有兜底分类**：不在该语言列表里返回 `CATEGORY_NOT_IN_X2C_LIST`（附可选列表），分类语言与剧集语言不符返回 `CATEGORY_LANGUAGE_MISMATCH`；心跳都记成【需要处理】，不会发行。
 - 返回 `BLOCKED: X2C_API_KEY_MISSING` 时请线主发 X2C key（§3），收到后重跑；其余 `ERROR` 记进 `series/STATUS.md`，下一次心跳重试，不阻塞下一集生产。
 - 只用 X2C 分发 API 的 1、2、3、4、5、6 步（分类、上传 URL、发布、追加、查询、列出），不用 3.5（Developer JWT 代发布）。
-- **设备矩阵模式（X2C「StoryClaw 设备矩阵 API」，2026-11）**：机器配了 `NALU_DEVICE_SN`（X2C 后台「设备矩阵映射」登记的设备 SN）
-  或 `X2C_API_MODE=matrix` 时，上面的命令（及心跳发行）改走 `publish_x2c_matrix.py`。设备 SN 没配环境变量时自动读本机硬件序列号
+- **设备矩阵模式（X2C「StoryClaw 设备矩阵 API」，线主 2026-11-06 起默认）**：上面的命令（及心跳发行）默认走 `publish_x2c_matrix.py`；
+  已经用旧 open-api 发过集的那部剧继续用旧接口直到做完，`X2C_API_MODE=open` 强制旧接口。本机须在 X2C 后台「设备矩阵映射」登记，否则返回 404 `DEVICE_NOT_FOUND`（记进 STATUS，不阻塞生产）。设备 SN 没配环境变量时自动读本机硬件序列号
   （`$S/device_sn.py`：缓存 → `/sys/class/dmi/id/product_serial` → `dmidecode -s system-serial-number` → `sudo -n dmidecode`，读到后缓存到
   `$NALU_RUNTIME_ROOT/credentials/device_sn`；首次配置时跑一次 `python3 $S/device_sn.py` 把 SN 报给线主登记到 X2C）：同一个 X2C key，无分类、无 action；
   发**纯成片** `<EP>_final_9x16.mp4`（广告由 X2C 加），封面默认取帧，时长 ffprobe 实测；`series_key` 取简报 `series_key`，否则

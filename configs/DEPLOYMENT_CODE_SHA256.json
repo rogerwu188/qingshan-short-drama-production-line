@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2376,
+  "file_count": 2377,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -941,7 +941,7 @@
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "e8d2e9f6c134b8422db4f30c14773b70ad3031ac61512ebca386494f86fa9d45"
+      "sha256": "ceb1f440539cff86d13bfdf48f1491833df6c300b4ea69cbad02681cc8cf6e31"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
@@ -989,11 +989,11 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/publish_x2c_matrix.py",
-      "sha256": "bd67c386539840dca263144ecf3e30c3fa8c6a87f0a9b554358d245a1f6a538d"
+      "sha256": "b2994a0a6718ef62388c5ced1fdc7782d635d9880f196adab22f3cb8025dbb84"
     },
     {
       "path": "skills/nalu-claude-code/scripts/publish_x2creel.py",
-      "sha256": "77daa1fb07cac4a56cd8d1cab8c408ffac24d12bd6826c79424eb340e9e4d0db"
+      "sha256": "8b2563f85b44b0104d5f20066633e70ec51cc82ea1599cec79411f9cb1482667"
     },
     {
       "path": "skills/nalu-claude-code/scripts/self_update.sh",
@@ -7932,6 +7932,10 @@
       "sha256": "bfcfe125b2806293425f374c91b5bd91dea1b715e8f391ae8c4f9ae667927a66"
     },
     {
+      "path": "tools/tests/test_intake_source_formats.py",
+      "sha256": "bb8b4bccaccb188e9bbdd3debb989bea7ef21b190190835e03d2bc1673a0030c"
+    },
+    {
       "path": "tools/tests/test_keyframe_appearance_lock.py",
       "sha256": "58e82d42e535fd3414cff07bbfbef356786a36d5483319ff602209a644f7fa9f"
     },
@@ -8177,7 +8181,7 @@
     },
     {
       "path": "tools/tests/test_nalu_publish_x2c_matrix.py",
-      "sha256": "397ac718bf648d9934f4e93732874a63e162b37adbdc366463ae7ab63ddb701c"
+      "sha256": "207bc413c948910d9c6314a54d3cb16e0fd001ff76a63ecb8d037ae59a1ae930"
     },
     {
       "path": "tools/tests/test_nalu_publish_x2creel.py",
