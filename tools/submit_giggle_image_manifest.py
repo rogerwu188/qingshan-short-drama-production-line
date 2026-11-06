@@ -692,6 +692,86 @@ def _next_probe(remaining: list[dict[str, Any]], avoid_refs: set[str]) -> dict[s
     return min(enumerate(remaining), key=overlap)[1]
 
 
+def run_health_probe(transaction_dir: Path) -> dict[str, Any]:
+    """ONE neutral reference-free Txt2Img (image_client.health_probe_request, ~0.1-0.2 credits) through the
+    same guarded transport and durable ledger as a keyframe: intent -> ONE create POST -> bind -> canary
+    poll (free GETs) -> settlement.  Serialised by a store-wide lock and served from the store's cached
+    verdict (image_client.cached_health_probe) while it is fresh, so repeated runs never spam it.  The
+    probe transaction lives in this episode's store (the budget ledger counts it) and is flagged
+    ``hopsapi_health_probe``; a lost response is never re-POSTed and reads as not healthy."""
+    store_root = Path(transaction_dir).parent
+    store_root.mkdir(parents=True, exist_ok=True)
+    with (store_root / ".hopsapi_image_health_probe.lock").open("a") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        cached = image_client.cached_health_probe(store_root)
+        if cached is not None:
+            return cached
+        prepared = image_client.health_probe_request()
+        attempt_id = str(uuid.uuid4())
+        key = image_client.HEALTH_PROBE_TASK_KEY
+        transaction = Path(transaction_dir) / f"{key}__{attempt_id.replace('-', '')[:16]}.json"
+        row: dict[str, Any] = {
+            "schema": "qingshan.giggle_submit_transaction.v1", "task_key": key, "hopsapi_health_probe": True,
+            "health_probe_prompt": image_client.HEALTH_PROBE_PROMPT, "attempt_id": attempt_id,
+            "state": "INTENT_RECORDED", "intent_recorded_at": utc_now(), "model": ACTIVE_IMAGE_MODEL,
+            "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
+            **image_client.intent_fields(prepared, estimated_credits=image_client.HEALTH_PROBE_ESTIMATED_CREDITS),
+        }
+        atomic_json(transaction, row)
+
+        def decided(outcome: str, **extra: Any) -> dict[str, Any]:
+            current = json.loads(transaction.read_text(encoding="utf-8"))
+            current.update({"health_probe_outcome": outcome, "health_probe_decided_at": utc_now(), **extra})
+            atomic_json(transaction, current)
+            return {"outcome": outcome, "healthy": outcome == "HEALTHY", "task_id": current.get("task_id"),
+                    "transaction": portable_path(transaction), "decided_at": current["health_probe_decided_at"],
+                    "provider_request_id": image_client.provider_request_id(current.get("provider_failure")),
+                    "cached": False}
+
+        try:
+            with durable_generation_context():
+                response = image_client.create_image_task(prepared["payload"])
+        except image_client.hops.HopsapiNotCharged as exc:
+            return decided("NOT_SENT", state="NOT_CHARGED_RETRYABLE", credit_status="NOT_CHARGED_RETRYABLE",
+                           response_received_at=utc_now(), error=str(exc)[:500],
+                           retry_guard="RETRY_ALLOWED_NEW_ATTEMPT")
+        except (Exception, SystemExit) as exc:
+            return decided("RESPONSE_LOST", state="RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION",
+                           response_lost_at=utc_now(), error=str(exc)[:500],
+                           operator_note="HopsAPI has no idempotency key: check the console before any new POST")
+        task_id = str(response["task_id"])
+        row.update({"state": "SUBMITTED_TASK_ID_BOUND", "response_recorded_at": utc_now(), "task_id": task_id,
+                    "provider_response": response})
+        atomic_json(transaction, row)
+        last: dict[str, Any] = {}
+
+        def query(probe_task_id: str) -> dict[str, Any]:
+            status = image_client.query_task(probe_task_id)
+            last.clear()
+            last.update(status)
+            return status
+
+        canary = image_client.canary_check(task_id, transaction, query=query)
+        if last.get("remote_status") == "completed":
+            image_client.record_settlement(transaction, task_id, last, now=utc_now())
+        return decided(canary["outcome"])
+
+
+def channel_health(transaction_dir: Path) -> dict[str, Any]:
+    """Is the HopsAPI image channel working NOW?  Healthy on evidence: a HopsAPI image task in the store
+    (any task, any episode) completed within the window -- no probe; else the (cached) neutral health
+    probe passed.  Called at most once per batch decision."""
+    store_root = Path(transaction_dir).parent
+    success = image_client.recent_successful_task(store_root)
+    if success is not None:
+        return {"healthy": True, "evidence": "RECENT_SUCCESSFUL_TASK", "recent_success": success}
+    probe = run_health_probe(transaction_dir)
+    return {"healthy": bool(probe.get("healthy")),
+            "evidence": ("HEALTH_PROBE_" + ("CACHED_" if probe.get("cached") else "")
+                         + ("PASS" if probe.get("healthy") else "FAIL")),
+            "recent_success": None, "health_probe": probe}
+
+
 def submit_all(
     tasks: list[dict[str, Any]], receipt_dir: Path, transaction_dir: Path, concurrency: int,
     provider: str | None = None, deferred: list[dict[str, Any]] | None = None,
@@ -705,9 +785,14 @@ def submit_all(
     with the rejected ones (device …1324 E01 S5, 2026-11-06: the provider's content filter rejected one
     task with a 424 every time and the batch waited on it forever).  A different task passing = no
     outage: the batch is released and each rejected probe becomes a PROVIDER_REJECTED_TASK failure
-    (credit 0, request id).  Only ``OUTAGE_MIN_DISTINCT_TASKS`` different tasks failing with 424 holds
-    the rest as the outage: they come back in ``deferred`` (credit 0, never a failure: no intent was
-    recorded for them).  ``deferred`` also carries ``{"canary": ...}`` per probe and one
+    (credit 0, request id).  Once ``OUTAGE_MIN_DISTINCT_TASKS`` different tasks failed with 424 the
+    channel is checked ONCE (channel_health): a HopsAPI image task completed in the store within the
+    window, else the cached neutral health probe.  Only a broken channel holds the rest as the outage:
+    they come back in ``deferred`` (credit 0, never a failure: no intent was recorded for them).  A
+    healthy channel keeps rotating (every 424 is that task's rejection) up to ``MAX_REJECTED_PROBES``
+    rejected probes, then POSTs the rest anyway (a rejection costs 0), so every pending task is POSTed
+    once per run unless the channel is down (device …1324 E01 S5 rerun: two content-rejected probes
+    held 19 untried tasks as an outage).  ``deferred`` also carries ``{"canary": ...}`` per probe and one
     ``{"canary_rotation": ...}`` summary."""
     results: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
@@ -723,6 +808,9 @@ def submit_all(
         outcome = "NO_NEW_BINDING"
         needed = max(1, image_client._int_setting("HOPSAPI_IMAGE_OUTAGE_MIN_DISTINCT_TASKS",
                                                   image_client.OUTAGE_MIN_DISTINCT_TASKS))
+        probe_cap = max(1, image_client._int_setting("HOPSAPI_IMAGE_MAX_REJECTED_PROBES",
+                                                     image_client.MAX_REJECTED_PROBES))
+        channel: dict[str, Any] | None = None
         while remaining:
             task = _next_probe(remaining, avoid_refs)
             remaining.remove(task)
@@ -749,15 +837,24 @@ def submit_all(
                 break
             rejected.append((task, row, canary))
             avoid_refs |= _task_reference_shas(task)
-            if len({item[0]["task_key"] for item in rejected}) >= needed:
-                outcome = "PROVIDER_OUTAGE"
-                results.extend(item[1] for item in rejected)
-                deferred.extend({"task_key": other["task_key"], "status": "NOT_POSTED_PROVIDER_OUTAGE",
-                                 "credit": 0, "credit_status": "NOT_CHARGED_NO_INTENT_RECORDED"}
-                                for other in remaining)
-                remaining = []
+            if channel is None and len({item[0]["task_key"] for item in rejected}) >= needed:
+                channel = channel_health(transaction_dir)
+                if not channel["healthy"]:
+                    outcome = "PROVIDER_OUTAGE"
+                    results.extend(item[1] for item in rejected)
+                    deferred.extend({"task_key": other["task_key"], "status": "NOT_POSTED_PROVIDER_OUTAGE",
+                                     "credit": 0, "credit_status": "NOT_CHARGED_NO_INTENT_RECORDED"}
+                                    for other in remaining)
+                    remaining = []
+                    break
+            if channel is not None and len(rejected) >= probe_cap:
+                # the channel works and each rejection is free: stop probing, POST the rest in one go
+                outcome = "RELEASED_AFTER_PROBE_CAP"
                 break
-        if outcome.startswith("RELEASED"):
+        if not remaining and rejected and channel is not None and channel["healthy"] \
+                and not outcome.startswith("RELEASED"):
+            outcome = "REJECTED_CHANNEL_HEALTHY"  # every pending task was probed; the channel works
+        if outcome.startswith("RELEASED") or outcome == "REJECTED_CHANNEL_HEALTHY":
             for task, row, canary in rejected:
                 failures.append({
                     "task_key": task["task_key"], "beat_id": task.get("beat_id"),
@@ -768,9 +865,9 @@ def submit_all(
                     "provider_request_id": canary.get("provider_request_id"),
                     "error": canary.get("error"), "transaction": row["transaction"],
                     "prior_provider_rejections": prior[task["task_key"]],
-                    "next_action": ("a different task passed in the same window: this task's prompt/references "
-                                    "were rejected (content filter or parameters), not an outage -- rewrite "
-                                    "this task's prompt neutrally and rerun the stage"),
+                    "next_action": ("a different task passed or the channel is proven healthy: this task's "
+                                    "prompt/references were rejected (content filter or parameters), not an "
+                                    "outage -- rewrite this task's prompt neutrally and rerun the stage"),
                 })
         elif rejected and outcome != "PROVIDER_OUTAGE":
             # no other new task could be probed (the rest were recovered bindings or lost responses):
@@ -785,6 +882,8 @@ def submit_all(
             "rejected_task_keys": [item[0]["task_key"] for item in rejected],
             "deprioritized_task_keys": sorted(key for key, ids in prior.items() if ids),
             "outage_min_distinct_tasks": needed,
+            "max_rejected_probes": probe_cap,
+            "channel_health": channel,
         }})
     if not remaining:
         return results, failures
@@ -1060,9 +1159,19 @@ def main() -> int:
     submit_started_at = datetime.now(timezone.utc)
     deferred: list[dict[str, Any]] = []
     provider_outage = None
+    store_outage_overridden = None
     if not args.precheck_only and provider == image_client.PROVIDER_HOPSAPI:
         # free, pre-intent: an unbroken run of upstream 424s in the store = no POST until it cools down
         provider_outage = image_client.recent_provider_outage(transaction_dir.parent)
+        if provider_outage:
+            # a trailing 424 run across different tasks is an outage only when the channel is broken NOW
+            # (device …1324 E01: content rejections of a sensitive story looked like an outage)
+            health = channel_health(transaction_dir)
+            if health["healthy"]:
+                store_outage_overridden = {**provider_outage, "channel_health": health}
+                provider_outage = None
+            else:
+                provider_outage["channel_health"] = health
     if args.precheck_only:
         results = [{"task_key": task["task_key"], "beat_id": task.get("beat_id"), "status": "precheck_pass"} for task in tasks]
     elif provider_outage:
@@ -1077,12 +1186,16 @@ def main() -> int:
     if deferred and not provider_outage:
         provider_outage = {"blocker": "HOPSAPI_IMAGE_PROVIDER_OUTAGE", "canary": canary,
                            "canary_rotation": canary_rotation,
+                           "channel_health": (canary_rotation or {}).get("channel_health"),
                            "rule": "canary tasks of different requests all settled as the uncharged 424 "
-                                   "'Provider error'; the other tasks were not POSTed"}
+                                   "'Provider error', no HopsAPI image task completed within the window and "
+                                   "the neutral health probe failed: the channel is down; the other tasks "
+                                   "were not POSTed"}
     rejected_tasks = [row for row in failures if row.get("status") == "PROVIDER_REJECTED_TASK"]
     if rejected_tasks:
         print(f"HOPSAPI_IMAGE_TASK_REJECTED: {', '.join(row['task_key'] for row in rejected_tasks)} settled as the "
-              "uncharged 424 while a different task passed -- that task's prompt/references were rejected (content "
+              "uncharged 424 while a different task passed or the channel was proven healthy (recent success / "
+              "health probe) -- that task's prompt/references were rejected (content "
               "filter or parameters), NOT an outage; the rest of the batch was submitted. Rewrite the rejected "
               "task prompt(s) neutrally and rerun the same stage.", file=sys.stderr)
     if provider_outage:
@@ -1171,6 +1284,7 @@ def main() -> int:
         "failures": failures,
         "not_posted": deferred,
         "provider_outage": provider_outage,
+        "store_outage_overridden": store_outage_overridden,
         "canary": canary,
         "canary_rotation": canary_rotation,
         "provider_rejected_tasks": [

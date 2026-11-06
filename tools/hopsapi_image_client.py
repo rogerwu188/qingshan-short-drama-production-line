@@ -637,6 +637,99 @@ def recent_provider_outage(store_root: Path, *, now: float | None = None,
                      "request): no POST until retry_after_utc, then the next batch starts with one canary task")}
 
 
+#: Device …1324 E01 S5 (2026-11-06, engine 842d4dd): a story about a 6-year-old girl in a poor mining
+#: family had many keyframes content-rejected (each a zero-cost 424) while 14/35 keyframes of the same
+#: batch and another machine's 9-reference requests succeeded in the same hour.  After a neutral rewrite
+#: the two first probes (S01-01, S01-02) were rejected again and "two different tasks 424" held the other
+#: 19 tasks as an outage they never were.  So two different 424 probes are only an outage when the
+#: CHANNEL is broken: no HopsAPI image task in the store completed within ``HEALTH_WINDOW_SECONDS`` AND a
+#: neutral reference-free Txt2Img health probe also fails (one per batch decision, its verdict cached
+#: ``HEALTH_PROBE_CACHE_SECONDS`` in the store).  Healthy channel = every 424 is that task's rejection;
+#: the canary keeps rotating (at most ``MAX_REJECTED_PROBES`` rejected probes, then the rest is POSTed).
+HEALTH_WINDOW_SECONDS = 3600
+HEALTH_PROBE_CACHE_SECONDS = 900
+MAX_REJECTED_PROBES = 5
+HEALTH_PROBE_TASK_KEY = "HOPSAPI-IMAGE-HEALTH-PROBE"
+HEALTH_PROBE_PROMPT = "A plain grey river stone on a white table, soft daylight, photo."
+HEALTH_PROBE_RESOLUTION = "1024x1024"
+HEALTH_PROBE_QUALITY = "low"
+HEALTH_PROBE_ESTIMATED_CREDITS = 0.2
+
+
+def _store_rows(store_root: Path):
+    for path in Path(store_root).glob("*/*.json"):
+        try:
+            row = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if (isinstance(row, dict) and str(row.get("provider") or "").lower() == PROVIDER_HOPSAPI
+                and row.get("provider_model") == MODEL):
+            yield path, row
+
+
+def recent_successful_task(store_root: Path, *, now: float | None = None,
+                           environ: dict[str, str] | None = None) -> dict[str, Any] | None:
+    """The newest HopsAPI gpt-image-2 task in the store (any episode, any task, probes included) that
+    COMPLETED within ``HEALTH_WINDOW_SECONDS`` (env HOPSAPI_IMAGE_HEALTH_WINDOW_SECONDS), or None.
+    Evidence that the channel works now.  Free (no network)."""
+    import time as _time  # noqa: PLC0415
+    window = _int_setting("HOPSAPI_IMAGE_HEALTH_WINDOW_SECONDS", HEALTH_WINDOW_SECONDS, environ)
+    now = _time.time() if now is None else now
+    best: tuple[float, Path, dict[str, Any]] | None = None
+    for path, row in _store_rows(store_root):
+        if str(row.get("provider_remote_status") or "").lower() != "completed":
+            continue
+        observed = _parse_utc(row.get("provider_status_observed_at") or row.get("provider_cost_recorded_at")
+                              or row.get("response_recorded_at") or row.get("intent_recorded_at"))
+        if observed is None or now - observed > window or observed - now > 300:
+            continue
+        if best is None or observed > best[0]:
+            best = (observed, path, row)
+    if best is None:
+        return None
+    return {"task_key": best[2].get("task_key"), "task_id": best[2].get("task_id"),
+            "transaction": str(best[1]), "completed_observed_at": best[2].get("provider_status_observed_at"),
+            "age_seconds": int(now - best[0]), "window_seconds": window}
+
+
+def cached_health_probe(store_root: Path, *, now: float | None = None,
+                        environ: dict[str, str] | None = None) -> dict[str, Any] | None:
+    """The newest health-probe verdict in the store decided less than ``HEALTH_PROBE_CACHE_SECONDS`` ago
+    (env HOPSAPI_IMAGE_HEALTH_PROBE_CACHE_SECONDS, 0 = never cached), or None.  A probe that was POSTed
+    but never decided (response lost, interrupted) also counts while it is fresh: it is not re-POSTed
+    and proves nothing, so it reads as not healthy."""
+    import time as _time  # noqa: PLC0415
+    ttl = _int_setting("HOPSAPI_IMAGE_HEALTH_PROBE_CACHE_SECONDS", HEALTH_PROBE_CACHE_SECONDS, environ)
+    if not ttl:
+        return None
+    now = _time.time() if now is None else now
+    best: tuple[float, Path, dict[str, Any]] | None = None
+    for path, row in _store_rows(store_root):
+        if not row.get("hopsapi_health_probe"):
+            continue
+        decided = _parse_utc(row.get("health_probe_decided_at") or row.get("intent_recorded_at"))
+        if decided is None or now - decided >= ttl:
+            continue
+        if best is None or decided > best[0]:
+            best = (decided, path, row)
+    if best is None:
+        return None
+    row = best[2]
+    outcome = str(row.get("health_probe_outcome") or "UNDECIDED")
+    return {"outcome": outcome, "healthy": outcome == "HEALTHY", "task_id": row.get("task_id"),
+            "transaction": str(best[1]), "decided_at": row.get("health_probe_decided_at"),
+            "provider_request_id": provider_request_id(row.get("provider_failure")),
+            "age_seconds": int(now - best[0]), "cache_seconds": ttl, "cached": True}
+
+
+def health_probe_request() -> dict[str, Any]:
+    """The fixed neutral Txt2Img (no references, 1024x1024, quality low) in prepare_request's shape."""
+    return {"payload": build_image_request(prompt=HEALTH_PROBE_PROMPT, image_urls=[],
+                                           resolution=HEALTH_PROBE_RESOLUTION, quality=HEALTH_PROBE_QUALITY),
+            "uploads": [], "reference_notes": [], "dropped_references": [],
+            "resolution": HEALTH_PROBE_RESOLUTION, "quality": HEALTH_PROBE_QUALITY}
+
+
 def canary_check(task_id: str, transaction: Path | None = None, *,
                  query: Callable[[str], dict[str, Any]] | None = None,
                  wait_seconds: int | None = None, poll_seconds: int = CANARY_POLL_SECONDS,

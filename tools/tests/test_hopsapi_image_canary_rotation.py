@@ -40,7 +40,15 @@ class FakeTransport:
     the 424 for ``rejected`` task keys (or every key when ``rejected`` is None) and ``completed`` otherwise."""
 
     def __init__(self, store: Path, rejected: set[str] | None):
-        self.store, self.rejected, self.posts = store, rejected, []
+        self.store, self.rejected, self.posts, self.health_posts = store, rejected, [], []
+
+    def create(self, payload):
+        """The guarded create POST (only the health probe reaches it here: keyframes go via submit_one)."""
+        assert payload["task"] == images.TXT2IMG and "images" not in payload["input"], payload
+        assert payload["input"]["resolution"] == "1024x1024" and payload["input"]["quality"] == "low"
+        assert submitter.image_client._paid_context_active()
+        self.health_posts.append(payload)
+        return {"task_id": f"tsk_HEALTH_{len(self.health_posts)}", "code": 200}
 
     def path(self, task):
         return self.store / f"{task['task_key']}__{'0' * 16}.json"
@@ -84,6 +92,7 @@ class CanaryRotationTests(unittest.TestCase):
         deferred: list[dict] = []
         with patch.object(submitter, "submit_one", side_effect=fake.submit_one), \
                 patch.object(submitter.image_client, "query_task", side_effect=fake.query), \
+                patch.object(submitter.image_client, "create_image_task", side_effect=fake.create), \
                 patch.dict("os.environ", {"HOPSAPI_IMAGE_CANARY_WAIT_SECONDS": "0"}):
             results, failures = submitter.submit_all(list(tasks), store, store, 4, "hopsapi", deferred=deferred)
         rotation = next(row["canary_rotation"] for row in deferred if "canary_rotation" in row)
@@ -152,12 +161,113 @@ class CanaryRotationTests(unittest.TestCase):
             fake = FakeTransport(store, None)
             results, failures, not_posted, rotation = self.run_batch(store, fake)
             self.assertEqual(rotation["outcome"], "PROVIDER_OUTAGE")
+            self.assertEqual(rotation["channel_health"]["evidence"], "HEALTH_PROBE_FAIL")
+            self.assertEqual(len(fake.health_posts), 1)  # nothing completed recently: one neutral probe
             self.assertEqual(len(fake.posts), 2)
             self.assertEqual(len(set(fake.posts)), 2)  # two DIFFERENT tasks probed
             self.assertEqual(failures, [])
             self.assertEqual([row["status"] for row in not_posted], ["NOT_POSTED_PROVIDER_OUTAGE"] * 2)
             self.assertTrue(all(row["credit"] == 0 for row in not_posted))
             self.assertEqual(len(results), 2)  # bound probes stay bound; the harvest settles them
+
+    def test_two_content_rejections_on_a_healthy_channel_post_the_rest(self):
+        # device …1324 E01 S5 rerun: S01-01 and S01-02 were rejected again after a neutral rewrite and
+        # "two different tasks 424" held 19 untried tasks as an outage while the channel worked
+        tasks = [task("E01-S01-01", "girl", "mine"), task("E01-S01-02", "hut"),
+                 task("E01-S02-01", "girl", "street"), task("E01-S02-02", "girl", "cart"),
+                 task("E01-S03-01", "girl", "lamp")]
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "E01"
+            store.mkdir()
+            fake = FakeTransport(store, {"E01-S01-01", "E01-S01-02"})
+            results, failures, not_posted, rotation = self.run_batch(store, fake, tasks)
+            self.assertEqual(not_posted, [])
+            self.assertEqual(rotation["outcome"], "RELEASED_AFTER_ROTATION")
+            self.assertEqual([p["task_key"] for p in rotation["probes"]],
+                             ["E01-S01-01", "E01-S01-02", "E01-S02-01"])
+            self.assertEqual(rotation["channel_health"]["evidence"], "HEALTH_PROBE_PASS")
+            self.assertEqual(len(fake.health_posts), 1)
+            self.assertEqual(sorted(fake.posts), sorted(t["task_key"] for t in tasks))  # each POSTed once
+            self.assertEqual(sorted((row["task_key"], row["status"], row["credit"]) for row in failures),
+                             [("E01-S01-01", "PROVIDER_REJECTED_TASK", 0),
+                              ("E01-S01-02", "PROVIDER_REJECTED_TASK", 0)])
+            self.assertEqual({row["provider_request_id"] for row in failures},
+                             {"aitk-tsk_E01-S01-01_1", "aitk-tsk_E01-S01-02_2"})
+            self.assertEqual(sorted(row["task_key"] for row in results),
+                             ["E01-S02-01", "E01-S02-02", "E01-S03-01"])
+            # the probe is a durable, ledger-visible transaction of this episode
+            probe_rows = [json.loads(p.read_text(encoding="utf-8"))
+                          for p in store.glob(f"{images.HEALTH_PROBE_TASK_KEY}__*.json")]
+            self.assertEqual(len(probe_rows), 1)
+            probe = probe_rows[0]
+            self.assertEqual((probe["state"], probe["health_probe_outcome"], probe["provider_task"]),
+                             ("SUBMITTED_TASK_ID_BOUND", "HEALTHY", images.TXT2IMG))
+            self.assertEqual((probe["provider_remote_status"], probe["provider_cost_credits"]), ("completed", 1.16))
+            self.assertEqual(probe["estimated_credits"], images.HEALTH_PROBE_ESTIMATED_CREDITS)
+            self.assertEqual(probe["sent_reference_sha256"], [])
+            # the passing probe is itself recent evidence: the store-wide cooldown does not fire
+            self.assertIsNone(images.recent_provider_outage(store.parent))
+
+    def test_recent_success_in_the_store_needs_no_health_probe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "E01"
+            other = Path(tmp) / "E00"
+            store.mkdir()
+            other.mkdir()
+            (other / f"E00-S09-01__{'0' * 16}.json").write_text(json.dumps({
+                "provider": "hopsapi", "provider_model": images.MODEL, "task_key": "E00-S09-01",
+                "state": "SUBMITTED_TASK_ID_BOUND", "task_id": "tsk_done", "intent_recorded_at": utc(-1300),
+                "provider_remote_status": "completed", "provider_status_observed_at": utc(-1200),
+                "provider_cost_credits": 1.16}), encoding="utf-8")
+            fake = FakeTransport(store, {key for key in (t["task_key"] for t in TASKS)})  # every task filtered
+            results, failures, not_posted, rotation = self.run_batch(store, fake)
+            self.assertEqual(fake.health_posts, [])
+            self.assertEqual(rotation["channel_health"]["evidence"], "RECENT_SUCCESSFUL_TASK")
+            self.assertEqual(rotation["channel_health"]["recent_success"]["task_id"], "tsk_done")
+            self.assertEqual(rotation["outcome"], "REJECTED_CHANNEL_HEALTHY")
+            self.assertEqual(not_posted, [])
+            self.assertEqual(sorted(fake.posts), sorted(t["task_key"] for t in TASKS))
+            self.assertEqual(sorted(row["status"] for row in failures), ["PROVIDER_REJECTED_TASK"] * 4)
+            # a success older than the window is no evidence: the neutral probe decides
+            old = json.loads((other / f"E00-S09-01__{'0' * 16}.json").read_text(encoding="utf-8"))
+            old["provider_status_observed_at"] = utc(-2 * images.HEALTH_WINDOW_SECONDS)
+            (other / f"E00-S09-01__{'0' * 16}.json").write_text(json.dumps(old), encoding="utf-8")
+            self.assertIsNone(images.recent_successful_task(store.parent))
+
+    def test_health_probe_verdict_is_cached(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "E01"
+            store.mkdir()
+            fake = FakeTransport(store, None)
+            self.run_batch(store, fake)
+            self.assertEqual(len(fake.health_posts), 1)
+            # a rerun inside the cache window reuses the failed verdict: no second probe POST
+            _, _, not_posted, rotation = self.run_batch(store, fake)
+            self.assertEqual(len(fake.health_posts), 1)
+            self.assertEqual(rotation["outcome"], "PROVIDER_OUTAGE")
+            self.assertEqual(rotation["channel_health"]["evidence"], "HEALTH_PROBE_CACHED_FAIL")
+            self.assertTrue(rotation["channel_health"]["health_probe"]["provider_request_id"].startswith("aitk-"))
+            self.assertEqual(len(not_posted), 2)
+            cached = images.cached_health_probe(store.parent)
+            self.assertEqual((cached["outcome"], cached["healthy"]), ("PROVIDER_ERROR", False))
+            # expired cache = one fresh probe
+            self.assertIsNone(images.cached_health_probe(store.parent, now=time.time() + images.HEALTH_PROBE_CACHE_SECONDS))
+            with patch.dict("os.environ", {"HOPSAPI_IMAGE_HEALTH_PROBE_CACHE_SECONDS": "0"}):
+                self.run_batch(store, fake)
+            self.assertEqual(len(fake.health_posts), 2)
+
+    def test_probe_chain_is_capped_then_the_rest_is_posted(self):
+        tasks = [task(f"E01-S0{index}-01", f"r{index}") for index in range(1, 9)]
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "E01"
+            store.mkdir()
+            fake = FakeTransport(store, {t["task_key"] for t in tasks[:7]})
+            results, failures, not_posted, rotation = self.run_batch(store, fake, tasks)
+            self.assertEqual(rotation["outcome"], "RELEASED_AFTER_PROBE_CAP")
+            self.assertEqual(rotation["probes_tried"], images.MAX_REJECTED_PROBES)
+            self.assertEqual(len(failures), images.MAX_REJECTED_PROBES)
+            self.assertEqual(not_posted, [])
+            self.assertEqual(sorted(fake.posts), sorted(t["task_key"] for t in tasks))  # every task POSTed once
 
     def test_store_outage_needs_two_different_tasks(self):
         with tempfile.TemporaryDirectory() as tmp:
