@@ -3140,10 +3140,24 @@ def voice_over_asr(wav: Path, text: str, language: str) -> dict[str, Any]:
     import source_video_dialogue_gate as _svdg  # noqa: PLC0415 - engine tools/ is on sys.path
     from faster_whisper import WhisperModel  # type: ignore  # noqa: PLC0415
     model = WhisperModel("small", device="cpu", compute_type="int8")
-    segments, _ = model.transcribe(str(wav), language=language, vad_filter=True, beam_size=5,
-                                   initial_prompt=_svdg.transcription_prompt(text, language))
-    transcript = (" " if language == "en" else "").join(seg.text.strip() for seg in segments)
-    return {"transcript": transcript, "recall": round(_svdg.recall(text, transcript, language), 3)}
+    joiner = " " if language == "en" else ""
+
+    def _pass(prompt: str | None) -> tuple[str, float]:
+        segments, _ = model.transcribe(str(wav), language=language, vad_filter=True, beam_size=5,
+                                       initial_prompt=prompt)
+        transcript = joiner.join(seg.text.strip() for seg in segments)
+        return transcript, round(_svdg.recall(text, transcript, language), 3)
+
+    transcript, recall = _pass(_svdg.transcription_prompt(text, language))
+    result = {"transcript": transcript, "recall": recall, "asr_pass": "PROMPTED"}
+    if recall < voice_over_minimum_recall():
+        # a prompted pass can hallucinate a stock caption ("优优独播剧场——YoYo Television Series Exclusive") over a
+        # clean read; one unprompted re-check decides (field fleet 2026-11-06, device …1324 E01 S4)
+        plain, plain_recall = _pass(None)
+        result["prompted"] = {"transcript": transcript, "recall": recall}
+        if plain_recall > recall:
+            result.update(transcript=plain, recall=plain_recall, asr_pass="UNPROMPTED_RECHECK")
+    return result
 
 
 def media_seconds(path: Path) -> float | None:
