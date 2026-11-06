@@ -947,6 +947,11 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
         }
 
     request_id = f"{episode}-{kind}-{run_id()}"
+    if not out:
+        # two requests of one kind built in the same second must not overwrite each other (lab E11)
+        base, n = request_id, 2
+        while (REVIEWS_ROOT / episode / f"{request_id}_request.json").exists():
+            request_id, n = f"{base}-{n}", n + 1
     out = Path(out) if out else REVIEWS_ROOT / episode / f"{request_id}_request.json"
     visual_qa_profile = selected_profile() if kind == 'keyframe' else 'STRICT'
     payload = {

@@ -278,7 +278,23 @@ def _registered_asset(path: str) -> Dict[str, str]:
     return {"asset_id": str(asset_id)}
 
 
+def _image_client():
+    try:
+        import hopsapi_image_client as client  # noqa: PLC0415
+    except ModuleNotFoundError:
+        from tools import hopsapi_image_client as client  # noqa: PLC0415
+    return client
+
+
 def generate_image(args: argparse.Namespace) -> Dict[str, Any]:
+    # Owner 2026-10-30: images go to HopsAPI gpt-image-2 unless image_provider=giggle.  The response
+    # keeps Giggle's {data:{task_id}} shape; query_task() below dispatches the tsk_ id back to HopsAPI.
+    client = _image_client()
+    if client.image_provider() == client.PROVIDER_HOPSAPI:
+        return sanitize_tool_output(client.generate_image_compat(
+            prompt=args.prompt, reference_paths=[str(Path(p).expanduser()) for p in args.reference_image or []],
+            aspect_ratio=args.aspect_ratio, resolution=args.resolution,
+            task_key=str(getattr(args, "task_key", None) or "image")))
     reference_images = _image_list(args.reference_image or [])
     payload: Dict[str, Any] = {
         "prompt": args.prompt,
@@ -342,6 +358,10 @@ def generate_omni_video(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def query_task(args: argparse.Namespace) -> Dict[str, Any]:
+    client = _image_client()
+    if client.is_hopsapi_task_id(args.task_id):
+        # a HopsAPI task id (tsk_...): answer in Giggle's {data:{status, urls}} shape
+        return client.giggle_shaped_status(client.query_task(str(args.task_id)))
     return _get("/api/v1/generation/task/query", {"task_id": args.task_id})
 
 

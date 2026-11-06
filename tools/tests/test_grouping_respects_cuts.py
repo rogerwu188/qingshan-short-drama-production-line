@@ -68,7 +68,7 @@ class CutRespectingGroupingTest(unittest.TestCase):
         self.assertEqual(units, [["S01-01"], ["S01-02"], ["S01-03"],
                                  ["S02-01"], ["S02-02", "S02-03"], ["S02-04"], ["S02-05"]])
         self.assertEqual(spec["grouping_policy"], "CAMERA_GRAMMAR_V1")
-        self.assertEqual(spec["duration_policy_seconds"]["minimum"], 3.0)
+        self.assertEqual(spec["duration_policy_seconds"]["minimum"], 4.0)  # HopsAPI H3 floor (owner 2026-10-29)
         self.assertEqual(spec["duration_policy_seconds"]["maximum"], 15.0)
 
     def test_authored_cut_is_a_boundary_even_with_unchanged_cast(self):
@@ -82,14 +82,15 @@ class CutRespectingGroupingTest(unittest.TestCase):
         units, _ = _units(_manifest(_scene(rows, "S01")))
         self.assertEqual(units, [["S01-01", "S01-02", "S01-03"]])
 
-    def test_spoken_line_stands_alone_and_one_line_per_unit(self):
+    def test_spoken_line_never_shares_a_unit_with_a_silent_shot(self):
         rows = [("01", 2, ["H"]), ("02", 3, ["H"], "CONTINUOUS_ACTION", "S01", "Holmes：Why, it is a dummy."),
                 ("03", 2, ["H"], "CONTINUOUS_ACTION"),
                 ("04", 3, ["H"], "CONTINUOUS_ACTION", "S01", "Holmes：and we shall investigate"),
                 ("05", 3, ["H"], "CONTINUOUS_ACTION", "S01", "Holmes：which has disturbed you.")]
         shots = [_shot(r[0], r[1], r[2], *r[3:]) for r in rows]
         units, spec = _units(_manifest(shots))
-        self.assertEqual(units, [["S01-01"], ["S01-02"], ["S01-03"], ["S01-04"], ["S01-05"]])
+        # owner 2026-11-01: the same speaker's consecutive lines in the same locked setup are one take (04+05)
+        self.assertEqual(units, [["S01-01"], ["S01-02"], ["S01-03"], ["S01-04", "S01-05"]])
         self.assertEqual(spec["groups"][0]["duration_exception_reason"], "PROVIDER_MINIMUM_PADDED")
         # an offscreen (voice-only) line does not isolate the shot, but still counts as the unit's one line
         shots = [_shot("01", 2, ["H"]), _shot("02", 2, ["H"], "CONTINUOUS_ACTION", dialogue="Helen：Won't it ring?"),
@@ -141,7 +142,7 @@ class CutRespectingGroupingTest(unittest.TestCase):
         except Exception as exc:  # noqa: BLE001 - the engine module needs the full engine tree
             self.skipTest(f"build_nalu_preproduction not importable here: {exc}")
         projected = bnp.project_provider_slots(copy.deepcopy(plan))
-        self.assertEqual([u["duration_seconds"] for u in projected["units"]], [5, 3, 5])
+        self.assertEqual([u["duration_seconds"] for u in projected["units"]], [5, 4, 5])  # padded to the 4 s floor
 
     def test_old_one_to_one_and_short_unit_rules_do_not_block_stamped_plans(self):
         rows = [(f"{i:02d}", 3.5, ["A"] if i % 2 else ["B"]) for i in range(1, 15)]
@@ -155,6 +156,65 @@ class CutRespectingGroupingTest(unittest.TestCase):
         failures = evaluate(unstamped)["failures"]
         self.assertIn("editorial_shot_to_video_unit_one_to_one_forbidden", failures)
         self.assertIn("excessive_short_video_units", failures)
+
+
+def _line(sid, text, mode="CONTINUOUS_ACTION", speaker="H", seconds=4, scale="MEDIUM", scene="S01"):
+    shot = _shot(sid, seconds, [speaker], mode, scene=scene, dialogue=f"{speaker}：{text}")
+    shot["prompt_spec"]["camera_plan"]["shot_scale"] = scale
+    shot["prompt_spec"]["role_semantic_disambiguation"] = {"lip_owner_id": f"CHAR-{speaker}"}
+    return shot
+
+
+class MonologueGroupingTest(unittest.TestCase):
+    """Owner 2026-11-01 (lab E12 long-take test): one speaker's consecutive lines in one unchanged locked setup
+    are ONE take up to 12 s; a longer monologue splits into groups <= 12 s with a silent cutaway between them and
+    the next group continues the same setup (same_setup_as_unit -> keyframe reuse)."""
+
+    def test_consecutive_lines_group_up_to_12s(self):
+        shots = [_line(f"0{i}", f"line {i} of the deduction here") for i in range(1, 4)]
+        units, spec = _units(_manifest(shots))
+        self.assertEqual(units, [["S01-01", "S01-02", "S01-03"]])
+        group = spec["groups"][0]
+        self.assertEqual(group["duration_seconds"], 12)
+        self.assertEqual(group["duration_exception_reason"], "MONOLOGUE_SPEAKING_GROUP")
+        self.assertEqual(group["speaking_group"], {"speaker_id": "CHAR-H", "line_count": 3})
+        production, spec = grouping.build(_manifest(shots), "sha")
+        with patch.object(cvp, "validate_transition_sequence", lambda units: None):
+            plan = cvp.compile_grouping_spec(production, spec)
+            cvp.validate_compiled_plan(production, plan)
+        self.assertEqual(evaluate(plan)["status"], "PASS")
+
+    def test_monologue_over_12s_splits_and_flags_the_missing_cutaway(self):
+        shots = [_line(f"0{i}", f"line {i} of the deduction here") for i in range(1, 6)]
+        units, spec = _units(_manifest(shots))
+        self.assertEqual([len(u) for u in units], [2, 3] if len(units[0]) == 2 else [3, 2])
+        self.assertTrue(all(g["duration_seconds"] <= 12 for g in spec["groups"]))
+        self.assertEqual(spec["groups"][1]["same_setup_as_unit"], "E09-VU-001")
+        self.assertEqual(spec["groups"][1]["writer_warning"], "MONOLOGUE_CUTAWAY_REQUIRED")
+
+    def test_cutaway_between_groups_and_return_to_the_same_setup(self):
+        shots = [_line("01", "I beg that you will look upon it"), _line("02", "not as a battered billycock"),
+                 _shot("03", 4, ["H"], "MOTIVATED_CUT"),  # silent prop insert
+                 _line("04", "That the man was highly intellectual", "MOTIVATED_CUT"),
+                 _line("05", "he was fairly well-to-do")]
+        units, spec = _units(_manifest(shots))
+        self.assertEqual(units, [["S01-01", "S01-02"], ["S01-03"], ["S01-04", "S01-05"]])
+        self.assertEqual(spec["groups"][2]["same_setup_as_unit"], "E09-VU-001")
+        self.assertNotIn("writer_warning", spec["groups"][2])
+
+    def test_speaker_setup_or_authored_cut_change_is_a_boundary(self):
+        cases = {
+            "speaker": [_line("01", "a line by H"), _line("02", "a line by P", speaker="P")],
+            "setup": [_line("01", "a line by H"), _line("02", "another line by H", scale="CLOSE_UP")],
+            "cut": [_line("01", "a line by H"), _line("02", "another line by H", "MOTIVATED_CUT")],
+        }
+        for name, shots in cases.items():
+            units, spec = _units(_manifest(shots))
+            self.assertEqual(units, [["S01-01"], ["S01-02"]], name)
+        # a cut with the same setup and speaker: still two units, and the writer owes a cutaway between them
+        self.assertEqual(_units(_manifest(cases["cut"]))[1]["groups"][1]["writer_warning"],
+                         "MONOLOGUE_CUTAWAY_REQUIRED")
+        self.assertNotIn("same_setup_as_unit", _units(_manifest(cases["setup"]))[1]["groups"][1])
 
 
 class UnstampedUnchangedTest(unittest.TestCase):

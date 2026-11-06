@@ -21,6 +21,9 @@ RMS dBFS frames of ``ENERGY_HOP`` s) a cut that is not at a following ASR segmen
 checked: speech-level energy in the ``ENERGY_GUARD_SECONDS`` after it moves the cut to where the
 energy falls (at most ``ENERGY_EXTEND_MAX`` later), else the unit stays untrimmed.
 
+A monologue unit (one speaker's consecutive lines in one take, owner 2026-11-01) is matched on its LAST
+line only and cut after it; the lines before it and the pauses between them are never touched.
+
 Pure functions only: the S7 caller supplies the contract, grouping plan, unit ASR and the
 measured clip durations, passes the plan to the AgentCut build (``--dialogue-tail-trim``) and
 drops the ASR segments that the cut removed, so captions, V.O. placement, BGM and the

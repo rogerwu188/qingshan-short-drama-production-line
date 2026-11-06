@@ -82,6 +82,11 @@ if [ -z "${GIGGLE_API_KEY:-}" ] || [ -z "${NALU_PAID_ORDER_SEQ:-}" ]; then
   # shellcheck disable=SC1090
   . "$ENV_FILE"
   set +a
+elif [ -z "${HOPSAPI_API_KEY:-}" ] && [ -f "$ENV_FILE" ] && grep -q '^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}HOPSAPI_API_KEY=' "$ENV_FILE"; then
+  # The HopsAPI video key may sit in .env next to injected Giggle credentials.  Load only that one
+  # name (never echoed), so an injected deployment keeps its own values for everything else.
+  HOPSAPI_API_KEY="$(set -a; . "$ENV_FILE" >/dev/null 2>&1; printf '%s' "${HOPSAPI_API_KEY:-}")"
+  export HOPSAPI_API_KEY
 fi
 [ -x "$VENV" ] || die "no interpreter at $VENV (set NALU_VENV_PYTHON)"
 
@@ -89,7 +94,42 @@ for var in NALU_RUNTIME_ROOT NALU_ENGINE_ROOT NALU_SUPERVISOR_ORDERS_PATH NALU_P
            NALU_LATEST_ORDER_SEQ NALU_LINE_OWNER_ID; do
   [ -n "${!var:-}" ] || die "$var is unset after sourcing $ENV_FILE; refusing to spend without it"
 done
+# Giggle still serves TTS (S4), BGM (S6) and the credit statements, so its key is always required.
+# MiniMax-H3 VIDEO goes through HopsAPI (owner 2026-10-29) and every IMAGE (S3 plates/sheets/cards,
+# S5 keyframes and redos) through HopsAPI gpt-image-2 (owner 2026-10-30) whenever the resolved
+# provider is hopsapi: a run that reaches S3, S5 or S6 then also needs HOPSAPI_API_KEY.
 [ -n "${GIGGLE_API_KEY:-}" ] || die "GIGGLE_API_KEY is unset; the paid submitter would fail after the gate passed"
+IMAGE_PROVIDER="$("$VENV" "$ENGINE_ROOT/tools/hopsapi_image_client.py" resolve-provider 2>/dev/null)" \
+  || die "could not resolve the image provider (NALU_IMAGE_PROVIDER / qingshan.json generation.image_provider)"
+export NALU_IMAGE_PROVIDER="$IMAGE_PROVIDER"
+VIDEO_PROVIDER="$("$VENV" "$ENGINE_ROOT/tools/hopsapi_video_client.py" resolve-provider 2>/dev/null)" \
+  || die "could not resolve the video provider (NALU_VIDEO_PROVIDER / qingshan.json generation.video_provider)"
+export NALU_VIDEO_PROVIDER="$VIDEO_PROVIDER"
+REACHES_S6=0
+if [ "${AB_VARIANT}" != "" ]; then REACHES_S6=1
+elif [ "$CHECK_ONLY" = 0 ]; then
+  case "$FROM_STAGE:$UNTIL_STAGE" in
+    S[1-6]:S[6-8]|S6:*|*:S6) REACHES_S6=1 ;;
+  esac
+fi
+if [ "$VIDEO_PROVIDER" = "hopsapi" ] && [ "$REACHES_S6" = 1 ]; then
+  [ -n "${HOPSAPI_API_KEY:-}" ] || die "HOPSAPI_API_KEY is unset but the video provider is hopsapi; S6 would fail after the gate passed"
+fi
+# S3 (identity plates / sheets / cards) or S5 (keyframes, start frames, redos) inside FROM..UNTIL?
+# S6 also counts: its Q2 controlled redo can generate a unit's own keyframe.
+REACHES_IMAGES=0
+if [ "$CHECK_ONLY" = 0 ] && [ "${AB_VARIANT}" = "" ]; then
+  from_n="${FROM_STAGE#S}"; until_n="${UNTIL_STAGE#S}"
+  case "$from_n$until_n" in *[!0-9]*|"") ;; *)
+    for n in 3 5 6; do
+      if [ "$from_n" -le "$n" ] && [ "$until_n" -ge "$n" ]; then REACHES_IMAGES=1; fi
+    done ;;
+  esac
+fi
+if [ "$IMAGE_PROVIDER" = "hopsapi" ] && [ "$REACHES_IMAGES" = 1 ]; then
+  [ -n "${HOPSAPI_API_KEY:-}" ] || die "HOPSAPI_API_KEY is unset but the image provider is hopsapi; S3/S5 would fail after the gate passed"
+fi
+echo "paid_stage: video provider $VIDEO_PROVIDER, image provider $IMAGE_PROVIDER"
 
 export PYTHONPATH="$ENGINE_ROOT:$ENGINE_ROOT/lines/nalu/runtime/tools${PYTHONPATH:+:$PYTHONPATH}"
 export QINGSHAN_VOICE_REGISTRY="${QINGSHAN_VOICE_REGISTRY:-$NALU_RUNTIME_ROOT/runtime/voice_registry.json}"
@@ -117,6 +157,14 @@ print(("OK " if ok else "NO ") + why)' "$NALU_SUPERVISOR_ORDERS_PATH" "$NALU_LAT
   where the deployment keeps it ($ENV_FILE or the service environment).
   No POST was attempted." ;;
   esac
+fi
+
+# GET-only HopsAPI reconciliation of RESPONSE_LOST creates BEFORE the budget preflight refuses them (lab E12):
+# the executor shell carries no provider key, so this entry is the only place it can run.  Never POSTs.
+RECON="$ENGINE_ROOT/tools/hopsapi_usage.py"
+if [ -f "$RECON" ] && [ -n "${HOPSAPI_API_KEY:-}" ]; then
+  echo "paid_stage: HopsAPI GET-only reconciliation of lost creates for $EPISODE"
+  "$VENV" "$RECON" reconcile "$EPISODE" >/dev/null 2>&1 || echo "paid_stage: reconciliation skipped/failed (non-fatal); budget check decides" >&2
 fi
 
 LEDGER="$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_budget_ledger.py"

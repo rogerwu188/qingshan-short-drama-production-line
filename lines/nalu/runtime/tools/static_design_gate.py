@@ -211,7 +211,13 @@ def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> d
         except Exception as exc:  # noqa: BLE001 - the rule module is optional for old contracts
             row["flags"].append(f"R7R8_UNAVAILABLE:{type(exc).__name__}")
         key = (sh.get("scene_id"), cp.get("camera_side"), cp.get("shot_scale"))
-        if sh.get("scene_id") == prev_scene and key == prev_key:
+        # CAMERA_GRAMMAR_V1 monologue group: a same-take continuation (CONTINUOUS_ACTION, same setup) is one
+        # fixed-camera take with the previous shot, not another cut on the same axis (lab 化神 E01 2026-11-02)
+        same_take = (grammar and sh.get("scene_id") == prev_scene and key == prev_key
+                     and str(sh.get("incoming_transition_mode") or "").strip().upper() == "CONTINUOUS_ACTION")
+        if same_take:
+            pass
+        elif sh.get("scene_id") == prev_scene and key == prev_key:
             axis_run += 1
         else:
             axis_run = 1

@@ -367,7 +367,8 @@ def build_subspace_tasks(contract: dict[str, Any], index: SpaceIndex,
     used: dict[str, int] = {}
     scenes = {str(row["scene_id"]): row for row in contract.get("scene_states") or []}
     props = [row for row in contract.get("non_character_entities") or []
-             if str(row.get("entity_id") or "").startswith(("PROP-", "SET-"))]  # SET-*: fixed-set plates (火泉) bind like props
+             if str(row.get("entity_id") or "").startswith(("PROP-", "SET-", "CREATURE-", "ANIMAL-"))  # SET-*: fixed-set plates (火泉) bind like props
+             or str(row.get("kind") or "").strip().upper() in {"CREATURE", "ANIMAL"}]  # registered beings (lab 化神 E01 白鹤)
     tasks: list[dict[str, Any]] = []
     rows: list[dict[str, Any]] = []
     for shot in contract.get("shots") or []:
@@ -897,9 +898,60 @@ def _speaking_shot_duration(shot: dict[str, Any], separated_row: tuple[str, list
     if not speaker or speaker in offscreen:
         return authored
     row = _sud.speaking_duration(authored, lines, language, shot.get("dialogue_delivery"))
-    if row["action"] != "UNCHANGED":
+    if row["action"] != "UNCHANGED" or row.get("advisory"):  # a short-line advisory is reported too
         report.append({"shot_id": str(shot.get("shot_id")), **row})
     return float(row["duration_seconds"])
+
+
+def monologue_group_durations(contract: dict[str, Any], separated: dict[str, tuple[str, list[dict[str, Any]]]],
+                              language: str) -> dict[str, dict[str, Any]]:
+    """CAMERA_GRAMMAR_V1 (owner 2026-11-02, lab 化神 E01-VU-002): one speaker's consecutive on-screen lines joined by
+    an authored CONTINUOUS_ACTION in one unchanged locked setup are one take.  The 4 s HopsAPI floor is the unit's,
+    not each line's: the group's shots run the line estimates back to back (speaking_unit_duration.
+    monologue_group_durations), so the prompt's per-line windows carry no multi-second slack.
+    Returns shot_id -> report row (with ``duration_seconds``) for every shot of a group of two or more."""
+    import speaking_unit_duration as _sud
+    modes = {(str(r.get("from_shot_id")), str(r.get("to_shot_id"))): str(r.get("transition_mode") or "").upper()
+             for r in contract.get("internal_transition_authoring") or [] if isinstance(r, dict)}
+
+    def speaking(shot: dict[str, Any]) -> tuple[str, list[str]] | None:
+        spec = shot.get("prompt_spec") or {}
+        in_video = (separated.get(str(shot.get("shot_id"))) or (str(spec.get("dialogue") or ""), []))[0]
+        lines = [line for line in str(in_video or "").splitlines() if line.strip()]
+        role = spec.get("role_semantic_disambiguation") or {}
+        who = str(role.get("lip_owner_id") or role.get("dialogue_speaker_id") or "")
+        offscreen = {str(m.get("character_id") or "") for m in spec.get("cast") or []
+                     if str(m.get("face_visibility") or "") == "OFFSCREEN_VOICE_ONLY"}
+        return (who, lines) if lines and who and who not in offscreen else None
+
+    groups: list[list[dict[str, Any]]] = []
+    previous = None
+    for shot in contract.get("shots") or []:
+        current = speaking(shot)
+        plan = (shot.get("prompt_spec") or {}).get("camera_plan") or {}
+        joins = (previous is not None and current is not None and groups
+                 and current[0] == previous[0][0]
+                 and modes.get((str(previous[1].get("shot_id")), str(shot.get("shot_id")))) == "CONTINUOUS_ACTION"
+                 and _sud.locked_setup(plan)
+                 and _sud.setup_key(plan) == _sud.setup_key((previous[1].get("prompt_spec") or {}).get("camera_plan")))
+        if joins:
+            groups[-1].append(shot)
+        elif current is not None:
+            groups.append([shot])
+        previous = (current, shot) if current is not None else None
+    out: dict[str, dict[str, Any]] = {}
+    for group in groups:
+        if len(group) < 2:
+            continue
+        estimates = [_sud.estimated_line_seconds(speaking(s)[1], language, s.get("dialogue_delivery")) for s in group]
+        durations = _sud.monologue_group_durations(estimates)
+        for shot, estimate, seconds in zip(group, estimates, durations):
+            out[str(shot["shot_id"])] = {
+                "authored_seconds": float(shot["target_seconds"]), "estimated_line_seconds": estimate,
+                "duration_seconds": seconds, "action": "MONOLOGUE_GROUP_BACK_TO_BACK",
+                "group_shot_ids": [str(s["shot_id"]) for s in group],
+                "group_seconds": round(sum(durations), 3)}
+    return out
 
 
 def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
@@ -966,13 +1018,17 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
     authored_modes = {(str(r.get("from_shot_id")), str(r.get("to_shot_id"))): str(r.get("transition_mode") or "")
                       for r in contract.get("internal_transition_authoring") or [] if isinstance(r, dict)}
     previous_shot_id = ""
+    group_rows = monologue_group_durations(contract, separated, language) if camera_grammar else {}
     for shot in contract.get("shots") or []:
         shot_id = str(shot["shot_id"])
         scene_id = str(shot["scene_id"])
         scene = scenes.get(scene_id) or {}
         row = by_shot[shot_id]
         duration = float(shot["target_seconds"])
-        if camera_grammar:  # CAMERA_GRAMMAR_V1: a speaking shot runs line + 0.5 s (3-5 s), reported, never blocked
+        if shot_id in group_rows:  # monologue group: lines back to back, the 4 s floor is the unit's
+            duration = float(group_rows[shot_id]["duration_seconds"])
+            duration_report.append({"shot_id": shot_id, **group_rows[shot_id]})
+        elif camera_grammar:  # CAMERA_GRAMMAR_V1: a speaking shot runs line + 0.5 s (3-5 s), reported, never blocked
             duration = _speaking_shot_duration(shot, separated.get(shot_id), language, duration, duration_report)
         start_seconds = round(cursor, 3)
         cursor = round(cursor + duration, 3)
@@ -1394,7 +1450,9 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
         **({"camera_grammar_policy": "CAMERA_GRAMMAR_V1"} if camera_grammar else {}),
         **({"speaking_unit_duration_report": {
             "schema": "qingshan.speaking_unit_duration.v1", "source": "tools/speaking_unit_duration.py",
-            "rule": "speaking shot = estimated line + 0.5 s, 3-5 s, whole seconds; longer lines: writer splits",
+            "rule": "speaking shot = estimated line + 0.5 s, 4-5 s, whole seconds; longer lines: writer splits; "
+                    "lines under 2.8 s carry the advisory SHORT_LINE_OK_S7_CUTS_TO_PERFORMANCE; a monologue group's "
+                    "lines run back to back (lead 0.2 s, gaps 0.3 s, tail 0.5 s; the 4 s floor is the unit's)",
             "rows": duration_report}} if duration_report else {}),
         "shots": shots,
     }
@@ -1539,6 +1597,27 @@ def submitted_without_tail_units(out_dir: Path, episode: str, contract: dict[str
         return set()
     return {str(uid) for uid, row in rows.items()
             if isinstance(row, dict) and row.get("predecessor_tail_submitted") is False}
+
+
+def q2_redo_prompt_findings(out_dir: Path, episode: str, contract: dict[str, Any]) -> dict[str, list[str]]:
+    """CAMERA_GRAMMAR_V1: unit -> ``h3_redo_findings`` of units the engine redid after an objective Q2 FAIL whose
+    redo prompt states the measured problem (push-in; lab E08, owner 2026-10-29).  Read from the S6 wave state
+    ``q2_auto_redo`` record, which is never removed, so a recompile after the redo keeps the submitted prompt."""
+    import camera_grammar_policy as _cg
+    if not _cg.active(contract, episode=episode):
+        return {}
+    import q2_auto_redo as _redo
+    path = out_dir / "reports" / f"{episode}_S6_WAVE_STATE.json"
+    try:
+        state = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for uid in (state.get(_redo.STATE_KEY) or {}):
+        findings = _redo.redo_findings(state, str(uid))
+        if findings:
+            out[str(uid)] = findings
+    return out
 
 
 def build_start_frame_contracts(anchor_plan: dict[str, Any], editorial: dict[str, Any],
@@ -2062,11 +2141,22 @@ def main() -> int:
         # canonical (un-suffixed) anchor plan + start-frame contracts always describe the FULL
         # grouping — the wave scheduler, the review requests (Expectations) and every later
         # wave read them; the wave's own subset goes to the _WAVE files used for this compile.
-        build_anchor_outputs(full_plan_path, "")
+        _full_anchor = build_anchor_outputs(full_plan_path, "")
         anchor_plan, anchor_path, start_frames, start_frame_path = build_anchor_outputs(plan_path, "_WAVE")
     else:
+        _full_anchor = None
         anchor_plan, anchor_path, start_frames, start_frame_path = build_anchor_outputs(plan_path, "")
     anchor_report = engine.anchor_gate(json.loads(anchor_path.read_text(encoding="utf-8")))
+    if _full_anchor is not None and anchor_report.get("failures"):
+        # the uniform-count audit judges the whole episode's anchor design; an automatically scheduled wave is an
+        # arbitrary subset whose class mix is accidental (lab 化神 E01: 4 silent prop units in one wave).  Keep
+        # every per-unit failure; take the uniformity verdict from the FULL plan.
+        full_report = engine.anchor_gate(json.loads(_full_anchor[1].read_text(encoding="utf-8")))
+        full_uniform = [f for f in full_report.get("failures") or [] if str(f.get("code", "")).startswith("UNIFORM_COUNT_")]
+        kept = [f for f in anchor_report["failures"] if not str(f.get("code", "")).startswith("UNIFORM_COUNT_")]
+        anchor_report["failures"] = kept + full_uniform
+        anchor_report["status"] = "FAIL" if anchor_report["failures"] else "PASS"
+        anchor_report["uniform_count_judged_on"] = "FULL_EPISODE_PLAN"
     anchor_report["gate_id"] = "VIDEO-UNIT-ANCHOR-COUNT"
     anchor_report_path = write_json(reports_dir / f"{prefix}ANCHOR_COUNT_GATE_V1.json", anchor_report)
     stage("4.3_video_unit_anchor_plan",
@@ -2771,6 +2861,7 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
     q1_dir = out_dir / "reports" / "qa" / "q1"
     action_role_dir = (action_role_evidence_dir if action_role_evidence_dir is not None
                        else root / "reports" / "action_role_evidence")
+    redo_findings = q2_redo_prompt_findings(out_dir, episode, contract)
     # K075 is an episode-wide judgement (a face shown once keeps the plate everywhere), so it reads the
     # full editorial manifest, never the wave subset.
     editorial_path = out_dir / f"{prefix}EDITORIAL_SEEDANCE_MANIFEST_V1.json"
@@ -3115,6 +3206,8 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             task["h3_constraint_language"] = cu["h3_constraint_language"]
         if cu.get("h3_camera_lock"):  # declared camera lock (strict|standard); absent == renderer default
             task["h3_camera_lock"] = cu["h3_camera_lock"]
+        if redo_findings.get(uid):  # CAMERA_GRAMMAR_V1 engine redo: the prompt states the measured problem
+            task["h3_redo_findings"] = list(redo_findings[uid])
         task["dialogue_lines"] = lines
         task["native_dialogue_required"] = bool(lines)
         task["dialogue_transport"] = "MODEL_NATIVE_TEXT_DIALOGUE" if lines else "SAME_TASK_NATIVE_AMBIENCE_FOLEY_ACTION_SOUND"

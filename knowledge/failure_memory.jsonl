@@ -110,3 +110,8 @@
 {"failure_code": "START_FRAME_RECEIPT_PASS_TREATED_AS_MISSING", "do_not_repeat": "Requiring an order for a review that found nothing to accept.", "stage": "S6", "scope": "generalizable", "knowledge_id": "K160"}
 {"failure_code": "BURN_BAND_ASSUMED_CONSTANT", "do_not_repeat": "Reusing another episode's burn band without measuring.", "stage": "S7", "scope": "generalizable", "knowledge_id": "K161"}
 {"failure_code": "MEASURED_TRIM_CUT_A_SPOKEN_LINE", "do_not_repeat": "Trimming dialogue units from partial ASR evidence.", "stage": "S7", "scope": "generalizable", "knowledge_id": "K162"}
+{"failure_code": "FULL_BATCH_REVIEW_FOR_ONE_CHANGED_CLIP", "do_not_repeat": "Re-reading clips whose media sha has not changed since a submitted review.", "stage": "S6", "scope": "generalizable", "knowledge_id": "K163"}
+{"failure_code": "CONSTRAINT_ALREADY_IN_PROMPT_AND_STILLVIOLATED", "do_not_repeat": "Rerolling a clip for a constraint that was already in its prompt.", "stage": "S1", "scope": "generalizable", "knowledge_id": "K164"}
+{"failure_code": "CHAINED_REBUILDS_FOR_ONE_TEXT_INTENT", "do_not_repeat": "Incremental one-line fixes that each trigger a full rebuild.", "stage": "S2", "scope": "generalizable", "knowledge_id": "K165"}
+{"failure_code": "HUMAN_REVIEW_SPENT_ON_MACHINE_MEASURABLE_FIELDS", "do_not_repeat": "Asking a reviewer to re-derive what a registered gate already measured.", "stage": "S6", "scope": "generalizable", "knowledge_id": "K166"}
+{"failure_code": "COMBAT_HAS_NO_EXCHANGE", "do_not_repeat": "Authoring a fight as one strike per unit, or accepting a plan where only one side ever acts.", "stage": "S2", "scope": "generalizable", "knowledge_id": "K167"}

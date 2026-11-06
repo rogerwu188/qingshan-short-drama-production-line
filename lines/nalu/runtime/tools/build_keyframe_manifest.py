@@ -1998,6 +1998,59 @@ def _authored_cut(contract: dict[str, Any], prev_last: str, first: str) -> bool:
                for r in contract.get("internal_transition_authoring") or [])
 
 
+MONOLOGUE_REUSE_MODE = "MONOLOGUE_SAME_SETUP_KEYFRAME_REUSE"
+
+
+def monologue_keyframe_reuse(inputs: "Inputs", decisions: list[dict[str, Any]], *,
+                             camera_grammar: bool | None = None) -> list[dict[str, Any]]:
+    """CAMERA_GRAMMAR_V1 (owner 2026-11-01, lab E12 long take): a speaking unit that continues the same speaker's
+    earlier take after a cutaway (grouping ``same_setup_as_unit``) starts from that take's keyframe -- the SAME
+    camera setup, no new paid image.  Its opener row becomes a reuse of the earlier unit's opener keyframe
+    (nalu_pipeline.materialise_monologue_reuse_keyframes copies the bytes at S5).  Only when that opener gets a
+    keyframe of its own (NEW, or itself such a reuse); a tail-derived (D-68) opener stays as it is.  Rows are
+    updated in place; returns the changed rows."""
+    if camera_grammar is None:
+        try:
+            from tools.camera_grammar_policy import active
+            camera_grammar = active(inputs.contract, episode=inputs.episode)
+        except ImportError:
+            camera_grammar = False
+    if not camera_grammar:
+        return []
+    units = {str(u.get("unit_id")): u for u in (inputs.grouping_plan.get("units") or [])}
+    by_shot = {str(row.get("shot_id")): row for row in decisions}
+    changed: list[dict[str, Any]] = []
+    for unit in inputs.grouping_plan.get("units") or []:
+        earlier = units.get(str(unit.get("same_setup_as_unit") or ""))
+        shots = [str(s) for s in unit.get("editorial_shot_ids") or []]
+        if not earlier or not shots:
+            continue
+        row = by_shot.get(shots[0])
+        source_row = by_shot.get(str((earlier.get("editorial_shot_ids") or [""])[0]))
+        if not row or not source_row or row.get("decision") != "NEW_KEYFRAME":
+            continue
+        if source_row.get("decision") == "NEW_KEYFRAME":
+            source = str(source_row["shot_id"])
+        elif source_row.get("reuse_mode") == MONOLOGUE_REUSE_MODE:
+            source = str(source_row.get("reuse_source") or "")
+        else:
+            continue
+        if not source:
+            continue
+        row.update({
+            "decision": "REUSE_NO_NEW_KEYFRAME",
+            "reuse_mode": MONOLOGUE_REUSE_MODE,
+            "reuse_source": source,
+            "reuse_source_unit_id": str(earlier.get("unit_id")),
+            "superseded_novelty_classes": row.get("novelty_classes") or [],
+            "novelty_classes": [],
+            "policy_basis": "CAMERA_GRAMMAR_V1 monologue group: same speaker, same locked setup after a cutaway",
+            "reuse_materialization": f"COPY_EXACT_SHA_BYTES_FROM_SOURCE_KEYFRAME_INTO_{shots[0]}-keyframe-v1.png",
+        })
+        changed.append(row)
+    return changed
+
+
 def derived_opener_shot_ids(inputs: "Inputs", *, camera_grammar: bool | None = None) -> set[str]:
     """First shots of units whose opening_anchor_contract.source is CONTINUITY_DERIVED_KEYFRAME (D-68).
 
@@ -2184,6 +2237,9 @@ def main(argv: list[str] | None = None) -> int:
     for row in deferred:
         row["decision"] = "DEFERRED_TO_PREVIOUS_UNIT_REAL_FINAL_FRAME"
         row["decision_basis"] = "D-68 continuity-derived opener: start frame = previous unit real tail"
+    # CAMERA_GRAMMAR_V1 monologue groups (owner 2026-11-01): the continuation of a speaker's take after a cutaway
+    # reuses that take's keyframe (same setup, no new image)
+    monologue_keyframe_reuse(inputs, decisions)
     new_shots = [row for row in decisions if row["decision"] == "NEW_KEYFRAME"]
     reuse_shots = [row for row in decisions if row["decision"] != "NEW_KEYFRAME"]
 

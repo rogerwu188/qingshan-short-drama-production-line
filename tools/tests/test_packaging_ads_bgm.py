@@ -218,8 +218,21 @@ class PipelineOpeningTitleTests(unittest.TestCase):
 
 
 # ------------------------------------------------------------------------------------------ C. tail ad
+_BY_LANGUAGE_POLICY = Path(tempfile.mkdtemp()) / "AD_POLICY_BY_LANGUAGE.json"
+_BY_LANGUAGE_POLICY.write_text(json.dumps({"ask": False, "default_by_language": {
+    "zh": "INBOX:giggle_tail5s", "en": "INBOX:giggle_tail5s_en"}}), encoding="utf-8")
+
+
 class TailAdPolicyTests(unittest.TestCase):
-    DEFAULT = REPO / "configs/ads/AD_POLICY_DEFAULT.json"
+    # A machine that opts in with a by-language policy (the repo default is NONE since 2026-10-29: X2C adds ads).
+    DEFAULT = _BY_LANGUAGE_POLICY
+
+    def test_repo_default_ships_without_tail_ad(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            policy = opt_in._load_policy(Path(td) / "policy.json", REPO / "configs/ads/AD_POLICY_DEFAULT.json")
+        self.assertIs(policy["ask"], False)
+        self.assertEqual(opt_in.policy_default(policy, "zh"), "NONE")
+        self.assertEqual(opt_in.policy_default(policy, "en"), "NONE")
 
     def test_repo_default_policy_by_language(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -277,6 +290,7 @@ class TailAdPipelineTests(unittest.TestCase):
             mock.patch.object(self.pipeline, "ADS_PACKAGED", ads / "packaged"),
             mock.patch.object(self.pipeline, "ADS_TRANSACTIONS", ads / "transactions"),
             mock.patch.object(self.pipeline, "ADS_REPO_ASSETS", self.repo_assets),
+            mock.patch.object(self.pipeline, "ADS_DEFAULT_POLICY", _BY_LANGUAGE_POLICY),  # an opted-in machine
         ]
         for patch in self.patches:
             patch.start()

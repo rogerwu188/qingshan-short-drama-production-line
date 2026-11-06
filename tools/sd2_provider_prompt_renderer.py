@@ -180,8 +180,15 @@ def _vc_prompt_block_for_unit(unit: dict[str, Any]) -> str:
         from tools.visual_culture_contract import ACTIVE_FROM_EPISODE
     except ImportError:  # pragma: no cover - direct-script import path
         from visual_culture_contract import ACTIVE_FROM_EPISODE
+    try:
+        from tools.visual_culture_contract import declared_era_lock
+    except ImportError:  # pragma: no cover - direct-script import path
+        from visual_culture_contract import declared_era_lock
     match = re.search(r"(?:^|[^A-Z])E(\d+)", str(unit.get("episode") or unit.get("unit_id") or "").upper())
     if not match or int(match.group(1)) < ACTIVE_FROM_EPISODE:
+        return ""
+    # an AUTHORED_WORLD contract carries its own world; the qingshan Northern-Song block never applies to it
+    if declared_era_lock(unit.get("visual_culture_contract")) == "AUTHORED_WORLD":
         return ""
     return visual_culture_prompt_block(unit.get("visual_culture_contract"))
 

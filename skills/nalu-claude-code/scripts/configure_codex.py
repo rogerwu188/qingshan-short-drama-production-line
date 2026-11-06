@@ -118,8 +118,8 @@ stream_idle_timeout_ms = 600000
 
 [shell_environment_policy]
 inherit = "all"
-# never hand Codex's own key or the Giggle key to the commands it runs
-exclude = ["{KEY_ENV}", "GIGGLE_API_KEY", "OPENAI_API_KEY"]
+# never hand Codex's own key or any provider key/token to the commands it runs (paid_stage.sh reads .env)
+exclude = ["{KEY_ENV}", "GIGGLE_API_KEY", "OPENAI_API_KEY", "HOPSAPI_API_KEY", "X2C_API_KEY", "*_API_KEY", "*_TOKEN", "*SECRET*"]
 
 [projects."{engine}"]
 trust_level = "trusted"

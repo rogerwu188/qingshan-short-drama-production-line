@@ -75,6 +75,17 @@ class StaticDesignGateTest(unittest.TestCase):
         for code in ("R1_", "R2_", "R3_", "R4_", "R6_", "R7_"):
             self.assertIn(code, codes)
 
+    def test_monologue_group_continuation_is_not_an_axis_run(self):
+        # lab 化神 E01: one speaker, same locked setup, CONTINUOUS_ACTION = one take, not three same-axis cuts
+        shots = json.loads(json.dumps(self.SHOTS))
+        for sh in shots[1:]:
+            sh["incoming_transition_mode"] = "CONTINUOUS_ACTION"
+        marked = sdg.evaluate({"episode": "E07", "shots": shots, "camera_grammar_policy": "CAMERA_GRAMMAR_V1"},
+                              sdg.POLICY)
+        self.assertNotIn("S3:R5_SAME_AXIS_SCALE_RUN", marked["failures"])
+        legacy = sdg.evaluate({"episode": "E07", "shots": shots}, sdg.POLICY)
+        self.assertTrue(any("R5_" in f for f in legacy["failures"]))  # unstamped unchanged
+
     def test_english_dialogue_is_timed_in_words(self):
         shots = [{**_shot("S1", seconds=4.0, dialogue="Mara: The bell rang twelve times and nobody came.")}]
         marked = sdg.evaluate({"episode": "E07", "shots": shots, "dialogue_language": "en",

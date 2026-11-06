@@ -214,3 +214,13 @@ class ConfigContentTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewSeriesOverrideTest(unittest.TestCase):
+    def test_new_series_selects_capability_for_bare_sealed_ids(self):
+        import tools.writer_capability as wc_mod
+        cfg = wc_mod.load_config()
+        got = wc_mod.profile_for("E03", cfg, {"NALU_WRITER_CAPABILITY": "new_series"})
+        self.assertEqual(got["reason"], "ENV_OVERRIDE_NEW_SERIES")
+        self.assertNotEqual(got["profile"], wc_mod.LEGACY)
+        self.assertEqual(wc_mod.profile_for("E03", cfg, {})["profile"], wc_mod.LEGACY)

@@ -41,6 +41,56 @@ DEFAULT_CONTRACT: dict[str, Any] = {
 }
 
 
+#: ``visual_culture_contract.era_lock`` values a writer may declare.
+ERA_LOCK_AUTHORED_WORLD = "AUTHORED_WORLD"
+ERA_LOCK_EAST_ASIAN_PERIOD = "EAST_ASIAN_PERIOD"
+
+
+def declared_era_lock(contract: dict[str, Any] | None) -> str:
+    """The writer's explicit era_lock ("AUTHORED_WORLD" / "EAST_ASIAN_PERIOD"), or "" when undeclared."""
+    if not isinstance(contract, dict):
+        return ""
+    mode = str(contract.get("era_lock") or "").strip().upper()
+    return mode if mode in {ERA_LOCK_AUTHORED_WORLD, ERA_LOCK_EAST_ASIAN_PERIOD} else ""
+
+
+def is_authored_world(contract: dict[str, Any] | None, *, dialogue_language: Any = None,
+                      episode_number: int | None = None) -> bool:
+    """True when the writer's own world (not the East-Asian period lock) governs the visual culture.
+
+    2026-10-31 (holmes lab E11): S3 chose the culture lock by episode number and so locked a Victorian
+    London contract to 自然东方肤色 + 【东方时代视觉锁】.  The contract decides: an explicit era_lock wins
+    for every episode; with none declared, an English-dialogue line below ACTIVE_FROM_EPISODE is an authored
+    world, and everything else keeps the legacy East-Asian / qingshan lock.
+    """
+    mode = declared_era_lock(contract)
+    if mode:
+        return mode == ERA_LOCK_AUTHORED_WORLD
+    if episode_number is not None and episode_number >= ACTIVE_FROM_EPISODE:
+        return False
+    return str(dialogue_language or "zh").strip().lower().startswith("en")
+
+
+def authored_world_prompt_block(contract: dict[str, Any] | None, *, language: Any = "en") -> str:
+    """Image-prompt world lock derived from an authored contract: no culture defaults, no East-Asian bans."""
+    c = contract if isinstance(contract, dict) else {}
+    profile = str(c.get("profile_id") or "AUTHORED_WORLD").strip()
+    world = str(c.get("story_world") or "").strip().rstrip(".。")
+    skin = str((c.get("palette_system") or {}).get("skin") or "").strip().rstrip(".。")
+    if str(language or "").strip().lower().startswith("zh"):
+        return (
+            f"【世界视觉锁】ID={profile}；世界、时代、地域、建筑、服装、器物与人物肤色严格按本提示词前文与剧本设定"
+            + (f"（{world}" + (f"；肤色：{skin}" if skin else "") + "）" if world else "")
+            + "；不漂移到其他时代、地域或文化；不用游戏海报光，不用蓝橙调色。"
+        )
+    return (
+        f"WORLD VISUAL LOCK ({profile}): keep the world, era, region, architecture, wardrobe, props and complexions "
+        "exactly as described above"
+        + (f" ({world}" + (f"; complexion: {skin}" if skin else "") + ")" if world else "")
+        + "; never drift into another era, region or culture; no game-poster light, no teal-orange grade."
+    )
+
+
 def bind_visual_culture_contract(payload: dict[str, Any]) -> dict[str, Any]:
     """Preserve Writer-owned culture decisions; never invent them downstream."""
     result = deepcopy(payload)
@@ -83,8 +133,10 @@ def validate_visual_culture_contract(
     payload: dict[str, Any], *, prompt_text: str | None = None,
 ) -> dict[str, Any]:
     episode = _episode_number(payload)
-    required = episode is not None and episode >= ACTIVE_FROM_EPISODE
     contract = payload.get("visual_culture_contract")
+    # an explicitly AUTHORED_WORLD contract is never governed by the qingshan profile (holmes lab E11)
+    required = (episode is not None and episode >= ACTIVE_FROM_EPISODE
+                and declared_era_lock(contract) != ERA_LOCK_AUTHORED_WORLD)
     failures: list[str] = []
     if not isinstance(contract, dict):
         # 2026-09-22: S2 (build_episode_asset_requirements.style_block) dereferences every structural

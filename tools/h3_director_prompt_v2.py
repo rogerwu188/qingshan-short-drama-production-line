@@ -7,8 +7,8 @@ from it (``submit_giggle_video_manifest_v2.provider_prompt_unit``).  Every other
 ``subject_definitions:`` prompt byte-identically (tools/h3_provider_prompt_renderer.py).
 
 Sections, in order: References / Who is in frame / Setting / Camera / Action / Dialogue / Sound / Never.
-CAMERA_GRAMMAR_V1 single-take locked-camera units get the strict camera lock by default (owner 2026-10-26): a
-CAMERA LOCK block before References, a frozen-frame-size camera sentence and push-in Never items;
+CAMERA_GRAMMAR_V1 single-take locked-camera units get the strict camera lock by default (owner 2026-10-26): one
+plain tripod sentence at the end of Camera (no all-caps block: H3 read it aloud, owner 2026-11-01) and push-in Never items;
 ``h3_camera_lock: "standard"`` opts out, moving cameras keep their wording, unstamped units render byte-identically.
 Every fact comes from the same execution plan and bound English contract V1 uses; the optional
 ``director_v2`` block of that contract (appearance, wardrobe, setting in English) is requested by
@@ -33,10 +33,11 @@ try:
     )
     from tools.provider_contract_boundary import is_being_prop, validate_provider_prompt_boundary
     from tools.h3_provider_english_contract import (
-        CAMERA_LOCK_FROZEN_FRAME,
+        ALL_CAPS_LABEL,
         CAMERA_LOCK_NEVER,
-        CAMERA_LOCK_STRICT,
+        CAMERA_LOCK_TRIPOD,
         h3_camera_lock,
+        redo_finding_sentences,
         strict_camera_lock_applies,
         validate_h3_provider_text_boundary,
     )
@@ -55,10 +56,11 @@ except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
     )
     from provider_contract_boundary import is_being_prop, validate_provider_prompt_boundary  # type: ignore
     from h3_provider_english_contract import (  # type: ignore
-        CAMERA_LOCK_FROZEN_FRAME,
+        ALL_CAPS_LABEL,
         CAMERA_LOCK_NEVER,
-        CAMERA_LOCK_STRICT,
+        CAMERA_LOCK_TRIPOD,
         h3_camera_lock,
+        redo_finding_sentences,
         strict_camera_lock_applies,
         validate_h3_provider_text_boundary,
     )
@@ -69,8 +71,10 @@ except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
 
 try:
     from tools import h3_provider_prompt_renderer as v1
+    from tools import speaking_unit_duration as _sud
 except ModuleNotFoundError:  # pragma: no cover
     import h3_provider_prompt_renderer as v1  # type: ignore
+    import speaking_unit_duration as _sud  # type: ignore
 
 SCHEMA = "qingshan.minimax_h3_director_prompt.v2"
 CJK = re.compile(r"[㐀-鿿]")
@@ -142,6 +146,36 @@ def scrub(value: Any) -> str:
         text = "; ".join(kept)
     text = re.sub(r"\btime: ([A-Z][A-Z_]+)\b", lambda m: "time: " + m.group(1).lower().replace("_", " "), text)
     return text.strip().rstrip(".;, ")
+
+
+#: stamped prompts (owner 2026-11-02, lab 化神 E01-VU-002): a quoted sentence outside the dialogue tags is a known
+#: trigger for H3 to voice the text; a "Only for shot <id> :" scope prefix may arrive with a space or an empty id
+_SCOPE_PREFIX_ANY = re.compile(r"^\s*Only for shot\s*[A-Za-z0-9_-]*\s*:\s*", re.IGNORECASE)
+_QUOTED = re.compile(r"[\"“]([^\"”]*)[\"”]")
+QUOTED_WORDS_MAX = 6
+_BRIDGE_RESTATEMENT = re.compile(r"Previous beat end state\b.*\bNext beat entry state\b", re.IGNORECASE | re.S)
+
+
+def _unquote_long(text: str) -> str:
+    """Drop the quote marks around any quoted span longer than QUOTED_WORDS_MAX words (the words stay)."""
+    return _QUOTED.sub(lambda m: m.group(0) if len(m.group(1).split()) <= QUOTED_WORDS_MAX
+                       else m.group(1).strip().rstrip(".;, "), text)
+
+
+def sound_row_v2(value: Any) -> str:
+    """A stamped Sound row in plain words: no shot-scope prefix, no quoted action / dialogue / meta-instruction
+    ('contact sounds from "<the action>" through clothing ...' -> 'contact sounds of clothing ...')."""
+    text = _SCOPE_PREFIX_ANY.sub("", " ".join(str(value or "").split()))
+    text = re.sub(r"\s*\bfrom\s+[\"“][^\"”]*[\"”]\s*(?:through\s+)?", " of ", text)
+    text = re.sub(r"\bEmphasi([sz])e only\s+[\"“][^\"”]*[\"”]\s*", r"Emphasi\1e only ", text)
+    text = _QUOTED.sub(lambda m: m.group(0) if len(m.group(1).split()) <= QUOTED_WORDS_MAX else "the action", text)
+    return " ".join(text.split())
+
+
+def long_quoted_spans(text: str) -> list[str]:
+    """Double-quoted spans longer than QUOTED_WORDS_MAX words outside the <d> dialogue tags."""
+    outside = re.sub(r"<d>\[[A-Za-z]+\].*?</d>", "", text, flags=re.S)
+    return [m.group(1) for m in _QUOTED.finditer(outside) if len(m.group(1).split()) > QUOTED_WORDS_MAX]
 
 
 def _sentence(value: str) -> str:
@@ -252,6 +286,68 @@ def setting_source(unit: dict[str, Any]) -> str:
     return "；".join(seen)
 
 
+#: CAMERA_GRAMMAR_V1 dialogue Delivery (owner 2026-11-04, lab 化神 E04 "语音声调起伏不够大，没有感情"): the
+#: writer's delivery_en filled up with anti-error meta ("say it once / start immediately / do not echo the
+#: reference / keep the same timbre", redo notes) and the renderer appended the same generic tail to every line,
+#: so the emotion and the contour were a minority of the words H3 read.  Delivery now leads with the emotion and
+#: the authored contour only; once/no-extra-words is said by the Dialogue header and ONLY_THIS_LINE, timbre by the
+#: @Audio1 reference line, and a redo note ("The previous take ...") is said once per prompt after the dialogue.
+_EMOTION_EXTRA = (("倦", "weary"), ("懒", "lazy"), ("坚", "resolute"), ("慌", "panicked"), ("狠", "fierce"),
+                  ("傲", "haughty"), ("得意", "smug"), ("乐", "amused"), ("委屈", "aggrieved"))
+_DELIVERY_META = re.compile(
+    r"reference|timbre|\becho|\bquote|\bsample\b|same voice|\bonce\b|immediately|right away|at the (?:very )?start"
+    r"|introductory|invented|extra (?:words|syllables|speech)|unwanted|no other words|authored line"
+    r"|natural breathing|never a flat read|clear rises and falls|this take|lips? (?:in )?sync",
+    re.IGNORECASE)
+_REDO_NOTE = re.compile(r"\b(?:previous|last|earlier) take\b", re.IGNORECASE)
+DELIVERY_EN_LIMIT = 240
+
+
+def _emotion_words(emotion: Any) -> list[str]:
+    text, found = str(emotion or ""), []
+    for key, word in sorted(v1._EMOTION_EN + _EMOTION_EXTRA, key=lambda kv: -len(kv[0])):
+        at = text.find(key)
+        if at >= 0 and word not in [w for _, w in found]:
+            found.append((at, word))
+            text = text.replace(key, " " * len(key))
+    return [word for _, word in sorted(found)]
+
+
+def stamped_delivery(performance: Any) -> tuple[str, list[str]]:
+    """(``Delivery: <emotion>: <contour>.``, redo notes) for a CAMERA_GRAMMAR_V1 dialogue beat; ("", []) when
+    the writer gave neither an English contour nor a mappable emotion (the caller keeps the canned clause)."""
+    if not isinstance(performance, dict):
+        return "", []
+    raw = re.sub(r"[<>\[\]]", "", str(performance.get("delivery_en") or ""))
+    raw = "" if CJK.search(raw) else " ".join(raw.split())
+    kept, redo = [], []
+    for sentence in re.split(r"(?<=[.!?])\s+", raw):
+        if _REDO_NOTE.search(sentence):
+            note = re.split(r";|,? this take\b", sentence, maxsplit=1, flags=re.IGNORECASE)[0].strip(" ,;.")
+            if note:
+                redo.append(note[0].upper() + note[1:] + ".")
+            continue
+        clauses = [c.strip() for c in re.split(r"[;,]\s*|\s+-+\s+|\.\s*$", sentence) if c.strip(" .")]
+        clauses = [c.strip(" .") for c in clauses if not _DELIVERY_META.search(c)]
+        clauses = [re.sub(r"^(?:and|then|but)\s+(?=\S)", "", c) if i == 0 else c for i, c in enumerate(clauses)]
+        if clauses:
+            kept.append(", ".join(clauses))
+    contour = "; ".join(kept)
+    if len(contour) > DELIVERY_EN_LIMIT:
+        contour = contour[:DELIVERY_EN_LIMIT].rsplit(",", 1)[0].rsplit(";", 1)[0].strip(" ,;")
+    emotions = [w for w in _emotion_words(performance.get("emotion")) if w not in contour.lower()]
+    lead = " and ".join(emotions[:2])
+    if contour and lead:
+        body = f"{lead} — " + (contour if re.match(r"I\b|[A-Z]{2}", contour) else contour[:1].lower() + contour[1:])
+    elif contour:
+        body = contour
+    elif lead:
+        body = f"{lead}, the pitch and volume rising and falling with the meaning, the key word stressed"
+    else:
+        return "", redo
+    return _sentence("Delivery: " + body[0].upper() + body[1:]), redo
+
+
 def _beats(plan: dict[str, Any]) -> list[dict[str, Any]]:
     return (plan.get("action_ir") or {}).get("causal_chains") or plan.get("beats") or []
 
@@ -358,6 +454,15 @@ def camera_section(unit: dict[str, Any], plan: dict[str, Any], contract: dict[st
         return _camera_entry(camera_plan, english, one_take=True), [
             {"shot_id": "UNIT", "fields": sorted(english), "untranslated_fields": failures}]
     translated = contract.get("camera_plans") or contract.get("per_shot_camera_plans") or []
+    if one_setup_take(unit, rows, uid):
+        # one speaker's consecutive lines in one unchanged locked setup (owner 2026-11-01, monologue groups):
+        # ONE camera entry for the whole clip, never a per-line shot list H3 could read as cuts
+        english = v1._camera_english(uid, rows[0]["shot_id"] or "SHOT_1", rows[0]["camera_plan"],
+                                     translated[0] if translated and isinstance(translated[0], dict) else {}, [])
+        return _camera_entry(rows[0]["camera_plan"], english, one_take=True), [
+            {"shot_id": row["shot_id"] or f"SHOT_{i + 1}",
+             "boundary": "opening shot" if i == 0 else "same take, unchanged camera setup",
+             "fields": sorted(english), "untranslated_fields": []} for i, row in enumerate(rows)]
     lines, receipt = [], []
     for index, row in enumerate(rows):
         source = translated[index] if index < len(translated) and isinstance(translated[index], dict) else {}
@@ -378,6 +483,23 @@ def camera_section(unit: dict[str, Any], plan: dict[str, Any], contract: dict[st
     elif v1.one_take_applies([row["camera_plan"] for row in rows], [row["boundary"] for row in receipt]):
         lines.insert(0, v1.ONE_TAKE)
     return "\n".join(lines), receipt
+
+
+def one_setup_take(unit: dict[str, Any], rows: list[dict[str, Any]], uid: str) -> bool:
+    """CAMERA_GRAMMAR_V1: several shots joined without a cut that all keep one locked camera setup
+    (speaking_unit_duration.setup_key) -- a speaker's monologue group -- are one camera entry."""
+    if len(rows) < 2:
+        return False
+    plans = [row.get("camera_plan") or {} for row in rows]
+    if not all(p.get("camera_grammar") == "CAMERA_GRAMMAR_V1" and _sud.locked_setup(p) for p in plans):
+        return False
+    if len({_sud.setup_key(p) for p in plans}) != 1:
+        return False
+    try:
+        boundaries = [v1._shot_boundary(unit, i - 1, rows[i - 1], rows[i], uid) for i in range(1, len(rows))]
+    except ValueError:
+        return False
+    return all(b.startswith("no cut") for b in boundaries)
 
 
 def locked_camera_conflicts(text: str) -> list[str]:
@@ -590,7 +712,7 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         if len(provider_rows) != len(source_rows):
             raise ValueError(f"H3_ENGLISH_CONTRACT_SOUND_COUNT:{uid}:{key}:{len(provider_rows)}!={len(source_rows)}")
         for index, value in enumerate(provider_rows, 1):
-            value = scrub(value)
+            value = scrub(sound_row_v2(value) if stamped else value)
             for echo in action_echoes:  # "... sounds from this action: <the action restated>" -> "... from this action"
                 if echo and len(echo) > 12:
                     value = re.sub(r"\s*:\s*" + re.escape(echo) + r"\.?\s*", ". ", value).strip()
@@ -638,6 +760,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     if env_rows:
         setting_lines.append(" ".join(_sentence(v) for v in env_rows))
     look = v1.h3_visual_culture_block(unit)
+    if stamped and look == v1.H3_NEUTRAL_PERIOD_LOCK:  # no all-caps label H3 could voice (owner 2026-11-01)
+        look = _cap(ALL_CAPS_LABEL.sub("", look, count=1).strip())
     if look != v1.H3_AUTHORED_WORLD_LOCK:  # period locks carry real constraints; the authored-world one is filler
         setting_lines.append(_sentence("Look: " + look.rstrip(".")))
     # the identity/prop anchor names the cast (stated in "Who is in frame"), the key props (a setting fact) and
@@ -660,8 +784,12 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         raise ValueError(f"{uid}:H3_CAMERA_LOCK_STRICT_ON_MOVING_CAMERA")
     camera_lock = strict_camera_lock_applies(unit, stamped=stamped,
                                              locked_single_take=all_locked and v1.ONE_TAKE in camera)
-    if camera_lock:
-        camera += "\n" + CAMERA_LOCK_FROZEN_FRAME
+    if camera_lock:  # an ordinary sentence, never an all-caps label H3 could voice (owner 2026-11-01, lab E12)
+        camera += "\n" + CAMERA_LOCK_TRIPOD
+    # engine redo after an objective Q2 push-in FAIL (q2_auto_redo, owner 2026-10-29): state the measured problem
+    if stamped and all_locked:
+        for sentence in redo_finding_sentences(unit):
+            camera += "\n" + sentence
     evidence["CAMERA.PLAN"] = camera
 
     # --- action + dialogue -----------------------------------------------------------------------------
@@ -691,14 +819,21 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         action_lines.append(_sentence(f"Throughout: {persistent}"))
     shot_states = [scrub(v) for v in contract.get("shot_state_locks") or []]
     dialogue_rows: list[dict[str, Any]] = []
+    redo_notes: list[str] = []
     last_exit = ""
     multi_beat = len(beats) > 1
+    said_once: set[str] = set()
     for number, (source, translated) in enumerate(zip(beats, english_beats), 1):
         prefix = f"BEAT.{number}"
         spec = _spec_for(unit, source)
         role = spec.get("role_semantic_disambiguation") or {}
         entry = scrub(translated["entry_state"])
         action = _cap(scrub(translated["primary_action"]))
+        if stamped:  # a sentence repeated in every beat (an engine redo instruction) is said once per prompt
+            sentences = re.split(r"(?<=[.!?])\s+", action)
+            kept = [x for x in sentences if not (len(x.split()) >= 6 and x.strip() in said_once)]
+            said_once.update(x.strip() for x in sentences if len(x.split()) >= 6)
+            action = _cap(" ".join(kept).strip()) or action
         exit_state = scrub(translated["exit_state"])
         force = scrub(translated.get("force_origin") or "") or entry
         parts = [_sentence(("Start, inherited from the previous shot with no reset or replay: " if inherited_start
@@ -747,8 +882,12 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
             literal = f"<d>[{v1.DIALOGUE_LANGUAGE_TAGS[language]}] {words.strip()}</d>"
             evidence[f"{prefix}.DIALOGUE"] = literal
             performance = ((spec.get("action") or {}).get("performance"))
-            direction = v1._performance_direction(performance)
-            if direction:
+            direction = "" if stamped else v1._performance_direction(performance)
+            delivery, redo = stamped_delivery(performance) if stamped else ("", [])
+            redo_notes.extend(n for n in redo if n not in redo_notes)
+            if stamped:
+                delivery = delivery or delivery_clause(source, "EN")
+            elif direction:
                 body = re.sub(r"^Performance: ", "", direction).split(" Natural human speech")[0].rstrip(".")
                 delivery = f"Delivery: {body}. Natural breathing, clear rises and falls, never a flat read."
             else:
@@ -767,6 +906,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         last_exit = exit_state
         if source.get("internal_transition_after"):
             bridge = scrub(translated.get("internal_transition_after") or "")
+            if stamped and _BRIDGE_RESTATEMENT.search(bridge):  # the next beat's Start states the entry already
+                bridge = "continue the action without resetting"
             parts.append(_sentence(f"Then bridge into the next beat: {bridge}"))
             evidence[f"{prefix}.INTERNAL_TRANSITION_AFTER"] = bridge
         if number <= len(shot_states) and shot_states[number - 1]:
@@ -844,6 +985,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                                   + (f" {row['gaze']}" if row.get("gaze") else ""))
         dialogue_lines.append(v1.ONLY_THESE_LINES if stamped else
                               "After the last line nobody speaks; the remaining time is room tone.")
+    if redo_notes and dialogue_rows:  # a redo note is said once per prompt, never inside each Delivery
+        dialogue_lines.append(" ".join(redo_notes))
 
     # --- never -----------------------------------------------------------------------------------------
     negatives = [NEVER_V2, "any person, hand or body part" if not subjects else
@@ -867,7 +1010,6 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         if adult_line and subjects:
             who.append(adult_line)
         blocks = [
-            *([CAMERA_LOCK_STRICT] if camera_lock else []),
             "References:\n" + "\n".join(reference_lines),
             "\n".join(who),
             "Setting:\n" + "\n".join(setting_lines),
@@ -885,8 +1027,12 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
         text = v1.localize_constraints(assemble(True), constraint_language)
     if constraint_language == "zh":
         evidence = {key: v1.localize_constraints(value, "zh") for key, value in evidence.items()}
+    if stamped:  # no long quoted span outside the dialogue tags (owner 2026-11-02, lab 化神 E01-VU-002)
+        text = "".join(part if part.startswith("<d>") else _unquote_long(part)
+                       for part in re.split(r"(<d>\[[A-Za-z]+\].*?</d>)", text, flags=re.S))
+        evidence = {key: _unquote_long(value) for key, value in evidence.items()}
     if not evidence["ANCHOR.IDENTITY_PROP"]:  # no key props: the cast fact is the "Who is in frame" header
-        evidence["ANCHOR.IDENTITY_PROP"] = text.split("\n\n")[2 if camera_lock else 1].split("\n")[0]
+        evidence["ANCHOR.IDENTITY_PROP"] = text.split("\n\n")[1].split("\n")[0]
 
     boundary = validate_provider_prompt_boundary(text, source_id=uid, model_family="MINIMAX_H3")
     h3_boundary = validate_h3_provider_text_boundary(text, source_id=uid)
@@ -898,7 +1044,7 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                                                prompt_style=DIRECTOR_PROMPT_V2)
     if coverage["status"] != "PASS":
         raise ValueError(";".join(coverage["failures"]))
-    self_check = director_v2_self_check(text, unit, plan)
+    self_check = director_v2_self_check(text, unit, plan, stamped=stamped)
     if self_check:
         raise ValueError(f"{uid}:H3_DIRECTOR_V2_SELF_CHECK:" + ";".join(self_check))
     return text, {
@@ -929,7 +1075,13 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     }
 
 
-def director_v2_self_check(text: str, unit: dict[str, Any], plan: dict[str, Any]) -> list[str]:
+#: the one all-caps label a stamped prompt may still carry: the E54+ qingshan period block, whose token the
+#: visual-culture validator requires verbatim (visual_culture_contract.validate_visual_culture_contract)
+_REQUIRED_CAPS_LABELS = ("EAST-ASIAN PERIOD VISUAL LOCK:",)
+
+
+def director_v2_self_check(text: str, unit: dict[str, Any], plan: dict[str, Any], *,
+                           stamped: bool = False) -> list[str]:
     """The V2 counterpart of the V1 shot-scope self check (partial clauses, locked camera) plus the
     V2 shape promises: no machine ids, no V1 templates, no CJK outside the dialogue tags."""
     findings: list[str] = []
@@ -951,4 +1103,11 @@ def director_v2_self_check(text: str, unit: dict[str, Any], plan: dict[str, Any]
     for phrase in _FORBIDDEN_V2_PHRASES:
         if phrase.lower() in outside.lower():
             findings.append(f"V1_TEMPLATE_IN_PROMPT:{phrase}")
+    # owner 2026-11-01 (lab E12 long take): H3 voiced the all-caps "CAMERA LOCK — ABSOLUTE RULE:" label;
+    # stamped (CAMERA_GRAMMAR_V1) prompts carry no all-caps label H3 could read aloud
+    if stamped:
+        findings.extend(f"ALL_CAPS_LABEL_IN_PROMPT:{m.group(0)[:40]}" for m in ALL_CAPS_LABEL.finditer(outside)
+                        if m.group(0) not in _REQUIRED_CAPS_LABELS)
+        # owner 2026-11-02 (lab 化神 E01-VU-002): a quoted sentence outside <d> is a trigger for H3 to voice it
+        findings.extend(f"QUOTED_SENTENCE_IN_PROMPT:{q[:40]}" for q in long_quoted_spans(text))
     return list(dict.fromkeys(findings))
