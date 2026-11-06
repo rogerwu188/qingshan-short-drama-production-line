@@ -298,7 +298,8 @@
     "workflow/production_line/PORTABLE_CONCURRENCY_POLICY_TEMPLATE.json",
     "workflow/s3_relay/S3_RELAY_UPLOAD_SAFETY_CHECKLIST.json",
     "workflow/time_ledger/PORTABLE_TIME_LEDGER_TEMPLATE.json",
-    "tools/tests/test_device_sn.py"
+    "tools/tests/test_device_sn.py",
+    "tools/tests/test_intake_source_formats.py"
   ],
   "portable_test_modules": [
     "agent_factory.claude_writer_v2.tests.test_smoke",
@@ -490,6 +491,7 @@
     "tools.tests.test_writer_selfcheck_provider_floor",
     "tools.tests.test_stamp_reviewed_video_requests",
     "tools.tests.test_measured_edit_recall_guard",
-    "tools.tests.test_device_sn"
+    "tools.tests.test_device_sn",
+    "tools.tests.test_intake_source_formats"
   ]
 }

@@ -289,7 +289,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "56a5c1151bbbc50664dd144af2ae049b8eab95a8752f264e7aad989ed735ab97"
+      "sha256": "d573a21a27c1cf1d0dd451b626d40126e379e822f823964734203592ac58ef4a"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -941,7 +941,7 @@
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "f30b8527b7d0c7976fbb0845c65c15c768e04c64080a908c6591809b136cdd63"
+      "sha256": "e8d2e9f6c134b8422db4f30c14773b70ad3031ac61512ebca386494f86fa9d45"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
@@ -5281,7 +5281,7 @@
     },
     {
       "path": "tools/intake_source_text.py",
-      "sha256": "b7401ef4be2b8cdd08e421f431412f7799c618064733b8e36086d032873a8e07"
+      "sha256": "c4a4c6511ff38612a7eda38ab5a35509824b148ff15424d4bd17ebc305c9f5ba"
     },
     {
       "path": "tools/integrate_e40_parallel_preproduction_checkpoint.py",
