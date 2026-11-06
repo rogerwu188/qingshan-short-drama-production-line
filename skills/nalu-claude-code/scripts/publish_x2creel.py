@@ -25,7 +25,7 @@ video is the tail-ad version $NALU_RUNTIME_ROOT/deliverables/<EP>/<EP>_final_9x1
 one (and it is not older than the final), else <EP>_final_9x16.mp4; the result and the state record which
 file was sent (``published_variant`` AD|FINAL).  The default cover is a frame taken from it with ffmpeg.
 
-Matrix mode: with X2C_API_MODE=matrix (or, X2C_API_MODE unset, NALU_DEVICE_SN / X2C_MATRIX_API_URL set) every
+Matrix mode (DEFAULT since 2026-11-06; a series already sent through the old open-api keeps it until it ends) every
 command is handled by publish_x2c_matrix.py (X2C "StoryClaw 设备矩阵 API"; see that file); X2C_API_MODE=open
 keeps this legacy open-api flow.
 
