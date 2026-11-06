@@ -1048,6 +1048,8 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
             role["lip_owner_id"] = first_id if first_id in visible_ids else ""
             role["voice_over_speaker_ids"] = sorted({line["character_id"] for line in voice_over})
         source_action = spec.get("action") or {}
+        combat = source_action.get("combat_choreography") if isinstance(
+            source_action.get("combat_choreography"), dict) else None
         entry = str(shot.get("entry_state") or "")
         completion = str(shot.get("completion_state") or "")
         primary = str(source_action.get("primary_action") or "")
@@ -1275,6 +1277,25 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                     f"接触先发生，眼神与下颌随后，肩颈与重心最后完成" if target else
                     f"{subject}完成本镜动作「{primary or entry}」，到达「{completion}」；不增加接触对象"),
                 "freeze_or_speed_ramp_forbidden": True,
+                # A combat beat owes the engine three more facts than an ordinary beat: where the
+                # force comes from, what the single contact does to the receiving body, and the
+                # authored attack/defence chain itself.  tools/grouped_performance_contract rejects
+                # a COMBAT beat without them, and tools/performance_tempo_gate then prices the
+                # action windows as real-time fighting instead of a silent pose slideshow.
+                **({"force_origin": combat["attack_defense_chain"]}
+                   if combat else {}),
+                **({"primary_feedback": combat["contact_and_force"],
+                    "contact_point": combat["contact_and_force"]}
+                   if combat else {}),
+                # When in the beat the single contact lands.  Authored as an offset from the beat's
+                # own start; the gate reads it against the beat's absolute start inside the unit and
+                # requires it inside 25%–75% of the beat and within 1.2 s of the beat start.
+                # The writer authors an offset inside the beat; the contract records it in episode
+                # seconds plus the basis, and the exec-plan compiler rebases it onto the unit
+                # (the gate's contact window is unit-relative).
+                **({"contact_time_seconds": round(start_seconds + float(source_action["contact_time_seconds"]), 3),
+                    "contact_time_basis": "EPISODE_ABSOLUTE"}
+                   if isinstance(source_action.get("contact_time_seconds"), (int, float)) else {}),
                 # CAMERA_GRAMMAR_V1: carry the writer's performance (emotion / delivery_en) through so the
                 # H3 renderer can direct the line; other contracts keep their action mapping byte-identical.
                 **({"performance": source_action["performance"]}
@@ -1338,6 +1359,9 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
             **({"dialogue_delivery": shot["dialogue_delivery"]}
                if dialogue and isinstance(shot.get("dialogue_delivery"), dict) else {}),
             "visual_design": visual,
+            # The authored combat chain travels at spec level too: the compiler requires it on any
+            # beat declared COMBAT (tools/grouped_performance_contract).
+            **({"combat_choreography": combat} if combat else {}),
             "sound_design": sound,
             "audio_contract": "SAME_VIDEO_TASK_NATIVE_AUDIO" if dialogue else "DIEGETIC_OR_SILENT_NO_TTS",
             "negative_prompts": negatives,
@@ -2838,6 +2862,11 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
     action_role_dir = (action_role_evidence_dir if action_role_evidence_dir is not None
                        else root / "reports" / "action_role_evidence")
     redo_findings = q2_redo_prompt_findings(out_dir, episode, contract)
+    # K075 is an episode-wide judgement (a face shown once keeps the plate everywhere), so it reads the
+    # full editorial manifest, never the wave subset.
+    editorial_path = out_dir / f"{prefix}EDITORIAL_SEEDANCE_MANIFEST_V1.json"
+    episode_never_face = (faceless_character_ids(json.loads(editorial_path.read_text(encoding="utf-8")))
+                          if editorial_path.is_file() else set())
     for task in transaction["tasks"]:
         uid = task["unit_id"]
         row = final_rows.get(uid)
@@ -2948,6 +2977,15 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
                 return (2, character_ids.index(cid))
             return sorted(character_ids, key=key)
         plate_order = _speaker_first(list(chars))
+        # K075: append_h3_identity_plates already leaves out the plate of a character whose face is
+        # never shown in the episode, but the seq=7 C4 pass below re-added it, so H3 got
+        # "lock this entity's face" for a man filmed only from behind (nalu E14 VU-023 巡山者乙,
+        # 2026-11-04).  Such a character stays in the cast and blocking; it is declared exempt
+        # from identity authority (the admission gate's existing field) instead of bound to a face.
+        never_face_ids = sorted(cid for cid in plate_order if cid in episode_never_face)
+        plate_order = [cid for cid in plate_order if cid not in episode_never_face]
+        if never_face_ids:
+            task["identity_authority_exempt_character_ids"] = never_face_ids
         unit_states = unit_reference_states(specs)
         props = sorted({str(p.get("prop_id") or name2prop.get(str(p.get("prop")), ""))
                         for spec in specs for p in spec.get("props") or []} - {""})

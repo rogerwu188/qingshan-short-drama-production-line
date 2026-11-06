@@ -172,9 +172,8 @@ $P $S/publish_x2creel.py status                           # 本地记录 + X2C �
   第一集 `publish`、之后 `add-episodes`；`status` 看每集 review_status / matrix_jobs，`list` 列本机系列，全部集发完
   `close --series <series_key>`（一台设备同时只能有一部未完结系列）。X2C 幂等键 = 设备+series_key+集号：同一集重跑本地返回
   `ALREADY_PUBLISHED`，`--resend` 原样重发（X2C 回 200 `idempotent:true`）；同集换了成片返回 `EPISODE_ALREADY_SENT_WITH_OTHER_VIDEO`，
-  **不许改 series_key 或集号绕过**，记【需要处理】。`X2C_MATRIX_API_URL` 未设时用 X2C **测试环境**（`https://pdypbtafttzriqdnpmta.supabase.co/functions/v1/matrix-api/v1`）；
-  **生产环境**（设备映射在这里）设 `X2C_MATRIX_API_URL=https://ukbyfmmerxhlghlhbxtz.supabase.co/functions/v1/matrix-api/v1`。
-  测试环境查不到生产登记的设备（返回 404 `DEVICE_NOT_FOUND`）。`X2C_API_MODE=open` 强制旧接口。
+  **不许改 series_key 或集号绕过**，记【需要处理】。`X2C_MATRIX_API_URL` 未设时用 X2C **生产环境**（`https://ukbyfmmerxhlghlhbxtz.supabase.co/functions/v1/matrix-api/v1`，设备映射在这里；线主 2026-11-05）；
+  测试环境 `https://pdypbtafttzriqdnpmta.supabase.co/functions/v1/matrix-api/v1` 只在显式设置时使用，它查不到生产登记的设备（返回 404 `DEVICE_NOT_FOUND`）。`X2C_API_MODE=open` 强制旧接口。
 
 ## 7. 连续产剧
 一集 `FINAL_CUT_READY` 并发行后，立刻做下一集，直到原著改编完（或达到用户指定的集数）：

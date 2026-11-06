@@ -29,6 +29,7 @@ from pathlib import Path
 ENGINE = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ENGINE))
 from tools import provider_request_digest as prd  # noqa: E402
+from tools.submit_giggle_video_manifest_v2 import task_fingerprint  # noqa: E402
 
 
 def sha(path: Path) -> str:
@@ -52,7 +53,8 @@ def main(argv=None) -> int:
     digest = json.loads(args.finalization_digest.read_text(encoding="utf-8"))
     rows = {str(row.get("unit_id")): row for row in digest.get("rows") or []}
 
-    out = {"episode": args.episode, "status": None, "stamped": [], "left_unstamped": []}
+    out = {"episode": args.episode, "status": None, "stamped": [], "left_unstamped": [], "supersedes_declared": {}}
+    transaction_dir = ENGINE / "workflow/tasks/giggle_video_submit_transactions" / args.episode
     for task in manifest.get("tasks") or []:
         key = str(task.get("task_key") or task.get("unit_id") or "")
         if not prd.binding_required(task):
@@ -85,10 +87,21 @@ def main(argv=None) -> int:
             duration=int(task["duration_seconds"]) if task.get("duration_seconds") is not None else None,
             audio=audio)["request_sha256"]
         out["stamped"].append(key)
+        # Same rule as stamp_reviewed_keyframe_requests: a signed incremental review of a CHANGED
+        # prompt for a unit already bound to a provider take is a deliberate redo, so the earlier
+        # fingerprints are declared and the duplicate-submission guard lets exactly this task
+        # through.  Without it the E14 fight redesign (wave 33) was refused BOUND_UNDER_OTHER_FINGERPRINT
+        # on every unit.  An unchanged or unreviewed task never declares a supersede.
+        if signed_change:
+            others = prd.bound_under_other_fingerprint(transaction_dir, key, task_fingerprint(task))
+            if others:
+                task["supersedes_submission_fingerprints"] = others
+                out["supersedes_declared"][key] = others
 
     args.manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     out["status"] = "PASS" if not out["left_unstamped"] else "PARTIAL"
-    print(json.dumps({**out, "stamped": len(out["stamped"])}, ensure_ascii=False))
+    print(json.dumps({**out, "stamped": len(out["stamped"]),
+                      "supersedes_declared": sorted(out["supersedes_declared"])}, ensure_ascii=False))
     return 0
 
 

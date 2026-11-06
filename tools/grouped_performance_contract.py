@@ -178,6 +178,15 @@ def validate_grouped_beat_contract(spec: Any, *, source_id: str) -> dict[str, An
             raise ValueError(f"{source_id} combat_choreography is required for combat action")
         for field in ("attack_defense_chain", "contact_and_force", "outcome_state", "identity_coverage"):
             _text(combat, field, f"{source_id} combat_choreography.{field}")
+        # COMBAT_EXCHANGE_V1 (Roger 2026-11-05「打斗至少要有几个回合才有感觉」): a fight beat is one
+        # exchange with both sides acting, so the beat must name who answers and what the answer is.
+        if str(spec.get("combat_exchange_policy") or "").strip().upper() == "COMBAT_EXCHANGE_V1" or (
+                combat.get("exchange") or {}):
+            exchange = combat.get("exchange")
+            if not isinstance(exchange, dict):
+                raise ValueError(f"{source_id} combat_choreography.exchange is required for a combat exchange")
+            for field in ("initiator", "attack", "defender_answer", "new_position"):
+                _text(exchange, field, f"{source_id} combat_choreography.exchange.{field}")
     return spec
 
 

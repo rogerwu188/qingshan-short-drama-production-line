@@ -88,6 +88,33 @@ def _has_dialogue(shot: dict[str, Any]) -> bool:
     return bool(str(d or "").strip())
 
 
+def _is_combat_shot(shot: dict[str, Any], exempt: dict[str, Any] | None = None) -> bool:
+    """A shot whose silence is authored action design rather than a missing line.
+
+    Roger 2026-11-04: 打斗镜头设计不受 DP3 的 3 s / 6 s 与对白占比限制.  The classifier is the
+    one the video compiler already uses (`is_combat_unit`), applied to the shot's own
+    prompt_spec, so the gate and the compiler can never disagree about which shot is a fight.
+    """
+    if not exempt or str(exempt.get("status") or "").upper() != "ACTIVE":
+        return False
+    try:
+        from tools.video_physical_continuity_contract import is_combat_unit
+    except ModuleNotFoundError:  # pragma: no cover - direct module import path
+        from video_physical_continuity_contract import is_combat_unit
+    spec = dict(shot.get("prompt_spec") or {})
+    # The classifier reads unit-level fields; a shot carries the same facts inside prompt_spec.
+    for key in ("action_classification", "action_kind", "fight_or_chase", "combat_or_chase",
+                "combat_choreography", "combat_choreography_contract"):
+        if key in shot and key not in spec:
+            spec[key] = shot[key]
+    action = spec.get("action") or {}
+    kind = str(action.get("action_kind") or "").upper()
+    if kind in {"COMBAT", "FIGHT", "ACTION_COMBAT", "SETPIECE_COMBAT"}:
+        return True
+    spec.setdefault("action_classification", kind)
+    return is_combat_unit(spec)
+
+
 def _dp1_shot_scale_distribution(shots: list[dict[str, Any]], rule: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
     failures: list[str] = []
     scale_counts: dict[str, int] = {}
@@ -165,9 +192,19 @@ def _dp3_dialogue_continuity(shots: list[dict[str, Any]], rule: dict[str, Any]) 
         run_seconds, run_shots = 0.0, []
 
     dialogue_seconds, total_seconds = 0.0, 0.0
+    combat_seconds = 0.0
+    combat_shots: list[str] = []
+    exempt = rule.get("combat_exemption") if isinstance(rule.get("combat_exemption"), dict) else None
     for sh in shots:
         secs = float(sh.get("target_seconds") or 0)
         total_seconds += secs
+        if _is_combat_shot(sh, exempt):
+            # Authored action, not a silent gap: it ends the current run without spending an
+            # exception, and it leaves the dialogue-density denominator.
+            combat_seconds += secs
+            combat_shots.append(str(sh.get("shot_id")))
+            _close_run()
+            continue
         if _has_dialogue(sh):
             dialogue_seconds += secs
             _close_run()
@@ -177,10 +214,15 @@ def _dp3_dialogue_continuity(shots: list[dict[str, Any]], rule: dict[str, Any]) 
     _close_run()
     if exceptions_used > max_exceptions:
         failures.append(f"DP3_SILENCE_REASON_EXCEPTIONS_{exceptions_used}_OVER_{max_exceptions}")
-    dialogue_ratio = round(dialogue_seconds / total_seconds, 4) if total_seconds else 0.0
-    if total_seconds and dialogue_ratio < dialogue_ratio_min:
+    # A fight is measured by its action, not by dialogue density: it leaves the denominator.
+    spoken_denominator = max(0.0, total_seconds - combat_seconds)
+    dialogue_ratio = round(dialogue_seconds / spoken_denominator, 4) if spoken_denominator else 1.0
+    if spoken_denominator and dialogue_ratio < dialogue_ratio_min:
         failures.append(f"DP3_DIALOGUE_TIME_RATIO_{dialogue_ratio}_BELOW_{dialogue_ratio_min}")
-    return failures, {"dialogue_time_ratio": dialogue_ratio, "silence_runs": silence_runs, "silence_reason_exceptions_used": exceptions_used}
+    return failures, {"dialogue_time_ratio": dialogue_ratio, "silence_runs": silence_runs,
+                      "silence_reason_exceptions_used": exceptions_used,
+                      "combat_seconds_exempt": round(combat_seconds, 3), "combat_shots_exempt": combat_shots,
+                      "dialogue_ratio_denominator_seconds": round(spoken_denominator, 3)}
 
 
 def _still_wired(contract: dict[str, Any]) -> dict[str, Any]:

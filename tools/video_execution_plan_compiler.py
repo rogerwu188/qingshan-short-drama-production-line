@@ -72,6 +72,30 @@ def _e51_rectification_required(unit: dict[str, Any]) -> bool:
     return bool(match and int(match.group(1)) >= 51)
 
 
+def _beat_contact_seconds(action: dict[str, Any], beat_start: float, episode_origin: float | None = None) -> Any:
+    """Rebase an authored contact time onto the unit the beat is compiled into.
+
+    A writer contract may state the contact in episode seconds (``contact_time_basis =
+    EPISODE_ABSOLUTE``, which is what the nalu line's shot contracts carry); the motion-density
+    gate measures it against the beat's start inside this unit.  A contract without the basis is
+    already unit-relative and passes through unchanged.
+    """
+    value = action.get("contact_time_seconds")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return value
+    if str(action.get("contact_time_basis") or "").upper() == "EPISODE_ABSOLUTE":
+        # Episode seconds minus the unit's own episode start == unit-relative seconds.  The
+        # episode start is the first beat's t0; subtracting a beat's own t0 as well would count
+        # the beat's offset twice.
+        if episode_origin:
+            return round(float(value) - float(episode_origin), 3)
+        origin = action.get("t0_seconds")
+        if isinstance(origin, (int, float)) and not isinstance(origin, bool):
+            return round(float(value) - float(origin), 3)
+        return round(float(value) - float(beat_start), 3)
+    return value
+
+
 def _timeline(specs: list[dict[str, Any]], duration_seconds: float) -> list[tuple[float, float]]:
     spans = []
     for spec in specs:
@@ -300,6 +324,15 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
     beats = []
     internal_transitions = unit.get("internal_transition_contracts") or []
     content_timeline_duration = _content_timeline_duration(unit, duration)
+    # Episode seconds of this unit's first beat: the origin an EPISODE_ABSOLUTE contact time is
+    # rebased against (the gate then sees unit-relative seconds, like every other timing here).
+    episode_origin = next(
+        (float((spec.get("action") or {})["t0_seconds"])
+         for spec in specs
+         if isinstance((spec.get("action") or {}).get("t0_seconds"), (int, float))
+         and not isinstance((spec.get("action") or {}).get("t0_seconds"), bool)),
+        None,
+    )
     for index, (spec, (start, end)) in enumerate(zip(specs, _timeline(specs, content_timeline_duration)), 1):
         action = spec.get("action") or {}
         prop_states, prop_state_failures = compile_prop_states(
@@ -314,12 +347,19 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
             "action_patient": str(
                 (spec.get("role_semantic_disambiguation") or {}).get("action_patient") or ""
             ).strip(),
+            # COMBAT_EXCHANGE_V1: who initiates this exchange and what the other side answers.
+            # Absent for a non-combat beat; the exchange gate reads only these three keys.
+            **({"action_subject": str((spec.get("combat_choreography") or {}).get("exchange", {}).get("initiator") or "").strip(),
+                "defender_answer": str((spec.get("combat_choreography") or {}).get("exchange", {}).get("defender_answer") or "").strip(),
+                "attack_kind": str((spec.get("combat_choreography") or {}).get("exchange", {}).get("attack_kind") or
+                                   (spec.get("combat_choreography") or {}).get("exchange", {}).get("attack") or "").strip()}
+               if (spec.get("combat_choreography") or {}).get("exchange") else {}),
             "start_seconds": start,
             "end_seconds": end,
             "entry_state": str(action.get("start_state") or "").strip(),
             "entry_state_ownership": deepcopy(action.get("entry_state_ownership") or {}),
             "primary_action": str(action.get("primary_action") or "").strip(),
-            "contact_time_seconds": action.get("contact_time_seconds"),
+            "contact_time_seconds": _beat_contact_seconds(action, start, episode_origin),
             "contact_point": str(action.get("contact_point") or "").strip(),
             "force_feedback": str(
                 action.get("force_feedback") or action.get("physical_causality") or ""
@@ -587,4 +627,13 @@ def compile_video_execution_plan(unit: dict[str, Any], *, preproduction_only: bo
     plan["motion_density_gate"] = report
     if report["status"] != "PASS":
         raise ValueError(";".join(report["failures"]))
+    # COMBAT_EXCHANGE_V1 (Roger 2026-11-05): a fight is exchanges with initiative going both
+    # ways, not one swing. Same position as the motion-density gate: judged on the authored
+    # plan before any submission, never after a paid generation.
+    if is_combat_unit(unit) or unit.get("combat_exchange_policy"):
+        from tools.combat_exchange_gate import evaluate as _exchange_gate
+        exchange = _exchange_gate(plan)
+        plan["combat_exchange_gate"] = exchange
+        if exchange["status"] == "FAIL":
+            raise ValueError(";".join(exchange["failures"]))
     return plan

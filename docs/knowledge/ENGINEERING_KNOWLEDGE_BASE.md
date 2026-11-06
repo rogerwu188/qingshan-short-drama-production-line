@@ -1618,3 +1618,58 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：E14 S7 2026-11-04: per-second levels -10 to -15 dB at 3-8 s versus kept window ending 4.82 s.
 - **授权**：Roger 2026-11-04 in-session
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K163 — S6
+
+- **规则**：A re-issued review request covers every unit, but the reviewer's work is per clip: an item whose UNIT_VIDEO sha256 equals the sha in the previous submitted review of the same kind carries that review's answers, observation and defects verbatim; only the changed items are looked at and written fresh.
+- **教训**：E14 re-issued post_gen_plot (25 items) and video_q2 (25 items) after three fight clips were re-rendered; re-reading 22 unchanged clips adds hours of human_wait and adds no information, because the bytes being judged are identical.
+- **恢复**：Match by media sha against the last submitted review of that kind, carry the unchanged rows, review only the changed ones, then submit once.
+- **实现**：`lines/nalu/runtime/tools/vlm_review_protocol.py`、`tools/prompt_batch_finalize.py`
+- **回归**：`tools/tests/test_knowledge_registry.py`
+- **证据**：E14 2026-11-05: two re-issued 25-item reviews answered in minutes by carrying 22 rows keyed on clip sha, versus 41 keyframe items reviewed from scratch earlier in the episode.
+- **授权**：Roger 2026-11-05 in-session「这些教训都需要提交到git发布」
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K164 — S1
+
+- **规则**：MiniMax-H3 ignores several constraints even when they lead the prompt (no burned-in text, locked camera, one held prop, registered pitch band). Those are post-generation cost, not prompt failures: put the remedy in the pipeline up front (cover policy, camera lock check, prop single-owner wording, per-line pitch unify) and never spend a reroll on the same text.
+- **教训**：E14: 7-8 of 25 clips burned the spoken line into the picture with TEXT-FREE FRAME as the first prompt line (K143); dialogue units measured 0.28 locked share against a 0.70 target; 秦铭 pitched 110-171 Hz against a 172-233 Hz band; in two of the three re-rendered fight clips the chopping knife read as a slim guarded weapon after the strike.
+- **恢复**：Post-processing remedies already wired: H3_BURNED_TEXT_COVER_V1 (BLUR over burned runs, OCR verify fails closed), S7 camera-motion detectors, VOICE_TIMBRE_LOCK_V1 plus S7 per-line pitch unify (K069, K144). Identical-prompt reroll stays forbidden (K130).
+- **实现**：`configs/H3_BURNED_TEXT_COVER_V1.json`、`configs/CAMERA_GRAMMAR_V1.json`、`configs/VOICE_TIMBRE_LOCK_V1.json`
+- **回归**：`tools/tests/test_knowledge_registry.py`
+- **证据**：E14 S6/S7 2026-11-04/05 reviews and final-cut detector reports.
+- **授权**：Roger 2026-11-05 in-session
+- **状态**：GUIDANCE_ONLY
+
+### K165 — S2
+
+- **规则**：A change to authored shot text cascades: the prompt hash moves, the English contract has to be re-keyed, the whole-batch prompt gate re-runs, and every anchor fingerprint downstream changes. Decide the full intent (script text, camera, timing, structured combat fields) in one edit and rebuild once; never fix one sentence and re-run the chain.
+- **教训**：E14 fight redesign: the first pass wrote the fight into one prose line per shot and changed nothing downstream, so the clips still read as posing; the second pass added the combat classification and the structured fields, which then hit the 10000-rune prompt limit and needed a further trim. Three rebuild cycles for one intent.
+- **恢复**：Before editing, write down every field the intent touches (primary_action, combat_choreography, contact_time_seconds, camera plan, sound), edit them together, and validate the rune budget with --planning-only before the paid run.
+- **实现**：（未链接到代码；状态见下）
+- **回归**：`tools/tests/test_knowledge_registry.py`
+- **证据**：E14 2026-11-04, wave 33 recompiled four times.
+- **授权**：Roger 2026-11-05 in-session
+- **状态**：GUIDANCE_ONLY
+
+### K166 — S6
+
+- **规则**：Every review question whose answer is a measurement (duration, resolution, frame rate, burned-text presence, black frame, freeze, dialogue recall) must be computed by a gate and cited as evidence; the human/VLM reviewer answers only the fields a machine cannot settle (plot correspondence, identity plausibility, staging intent) and spends attention on P0/P1.
+- **教训**：E14 reviews carried 25 items x 8-15 questions per round, most of them already computed by the scope gate, the defect-tolerance gate and the OCR pass; the reviewer's time went to re-checking measurements instead of judging the three clips that had actually changed.
+- **恢复**：Keep the registered gates authoritative for measurements, add a deterministic pre-answer for those fields, and write observations only where judgement is needed.
+- **实现**：`lines/nalu/runtime/tools/post_generation_qa_runner.py`、`lines/nalu/runtime/tools/video_q2_builder.py`、`tools/direction_policy_gate.py`
+- **回归**：`tools/tests/test_knowledge_registry.py`
+- **证据**：E14 2026-11-05 post_gen_plot and video_q2 rounds: 25 items each, 8 and 15 questions per item, of which the technical checks were already gate outputs.
+- **授权**：Roger 2026-11-05 in-session
+- **状态**：GUIDANCE_ONLY
+
+### K167 — S2
+
+- **规则**：Every combat beat is one complete exchange: the initiator's committed action, the other side's named answer (block, parry, slip, catch or counter), visible force on both bodies, and a new position the next exchange starts from. Across a unit the initiative must change hands at least once, no two consecutive exchanges may repeat the same attack against the same answer, and a fight scene carries at least three exchanges spread over its units (at most two per unit for the provider's 4-8 s window).
+- **教训**：E14's three fight clips were each one swing by the protagonist with the opponent only sliding or falling. Every engine check passed because every check asked about ONE contact (force origin, contact point, feedback, exit state). Nothing required the other side to act, and COMBAT_EXCHANGE capped a unit at two contacts, so a block plus a hit could not even coexist: the cheapest passing shape was a single strike. Roger, on watching: 「还是太简单，没有你来我往的打斗场面」 — the whole episode had to be re-cut around a design the engine had made impossible to express.
+- **恢复**：tools/combat_exchange_gate.py runs inside compile_video_execution_plan next to the motion-density gate and refuses a combat plan that lacks a defender answer, a new position, or alternating initiative; the performance contract now requires combat_choreography.exchange{initiator,attack,defender_answer,new_position}; the COMBAT_EXCHANGE contact ceiling became an exchange ceiling.
+- **实现**：`tools/combat_exchange_gate.py`、`configs/COMBAT_EXCHANGE_V1.json`、`tools/grouped_performance_contract.py`、`tools/video_execution_plan_compiler.py`、`tools/sd2_motion_density_gate.py`、`tools/tests/test_combat_exchange_gate.py`
+- **回归**：`tools/tests/test_combat_exchange_gate.py`
+- **证据**：E14 2026-11-05: VU-014/020/023 re-rendered and still read as single strikes; external references agree the unit of choreography is attack-defence-impact-recovery strung into several exchanges (Seedance 2.5 prompt formula: 15 s = one exchange, 30 s = two connected exchanges).
+- **授权**：Roger 2026-11-05「打斗至少要有几个回合才有感觉，没有你来我往的打斗场面」
+- **状态**：REFERENCE_IMPLEMENTATION

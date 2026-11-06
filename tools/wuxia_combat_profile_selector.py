@@ -94,7 +94,16 @@ def _cast_count(unit: dict[str, Any]) -> int:
     return len(names)
 
 
+#: A profile whose weapon_types names a two-weapon pairing describes BOTH weapons in its cue
+#: (WXC-WEAPON-01: "the saber descends ... the spear braces").  Matching it on one component let a
+#: single-knife fight inherit a spear that does not exist (nalu E14 VU-023, 2026-11-04), so an
+#: inferred match must carry the pair itself; an explicit profile_ids binding is unaffected.
+PAIRED_WEAPON_TYPES = {"SABER_SPEAR": ("SABER", "SPEAR")}
+
+
 def _infer_weapon(text: str) -> str:
+    if "刀" in text and any(token in text for token in ("长枪", "枪杆", "持枪")):
+        return "SABER_SPEAR"
     pairs = (
         ("绳镖", "ROPE_DART"), ("双刀", "DUAL_SABER"), ("戟", "POLEARM"), ("长枪", "SPEAR"),
         ("枪杆", "SPEAR"), ("长棍", "STAFF"), ("棍", "STAFF"),
@@ -132,7 +141,7 @@ def _matches(value: str, accepted: list[str]) -> bool:
 
 def _candidate_score(
     row: dict[str, Any], *, unit_class: str, weapon: str, interactions: set[str],
-    cast_count: int, environment: set[str], text: str,
+    cast_count: int, environment: set[str], text: str, explicit: bool = False,
 ) -> tuple[int, list[str], list[str]]:
     reasons: list[str] = []
     rejected: list[str] = []
@@ -145,6 +154,8 @@ def _candidate_score(
         rejected.append("WEAPON_SIGNAL_UNRESOLVED")
     elif weapon != "UNKNOWN" and not _matches(weapon, weapons):
         rejected.append("WEAPON_MISMATCH")
+    elif not explicit and weapon not in PAIRED_WEAPON_TYPES and any(w in PAIRED_WEAPON_TYPES for w in weapons):
+        rejected.append("PAIRED_WEAPON_PROFILE_NEEDS_BOTH_WEAPONS")
     row_interactions = set(row.get("interaction_modes") or [])
     if "ANY" not in row_interactions and not interactions.intersection(row_interactions):
         rejected.append("INTERACTION_MISMATCH")
@@ -211,7 +222,7 @@ def select_wuxia_combat_profiles(
                 raise ValueError(f"WUXIA_PROFILE_STYLE_NOT_AUTHORIZED:{unit.get('unit_id')}:{pid}")
             score, why, rejected = _candidate_score(
                 row, unit_class=unit_class, weapon=weapon, interactions=interactions,
-                cast_count=cast_count, environment=environment, text=text,
+                cast_count=cast_count, environment=environment, text=text, explicit=True,
             )
             if rejected:
                 raise ValueError(f"WUXIA_PROFILE_EXPLICIT_CONFLICT:{unit.get('unit_id')}:{pid}:{'+'.join(rejected)}")

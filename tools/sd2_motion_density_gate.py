@@ -334,8 +334,13 @@ def validate_execution_plan(plan: dict[str, Any]) -> dict[str, Any]:
     failures.extend(classification.get("failures") or [])
     failures.extend((plan.get("camera_authority_gate") or {}).get("failures") or [])
     if unit_class == "COMBAT_EXCHANGE" and classification.get("required") is True:
+        # COMBAT_EXCHANGE_V1 (Roger 2026-11-05): an exchange contains BOTH an answer (block,
+        # parry, evade) and a hit, so two contacts is one exchange, not two. The unit ceiling
+        # is therefore exchanges, checked by tools/combat_exchange_gate.py, and this gate only
+        # keeps the duration window that the provider can render in one take.
+        exchange_policy = str(plan.get("combat_exchange_policy") or "").strip().upper() == "COMBAT_EXCHANGE_V1"
         contact_count = int(classification.get("combat_contact_count") or 0)
-        if duration < 7.0 or duration > 12.0 or contact_count > 2:
+        if duration < 7.0 or duration > 12.0 or (contact_count > 2 and not exchange_policy):
             failures.append(
                 f"UNIT_CLASS_LAUNDERING:{unit_id}:COMBAT_EXCHANGE_REQUIRES_7_TO_12_SECONDS_AND_AT_MOST_2_CONTACTS"
             )

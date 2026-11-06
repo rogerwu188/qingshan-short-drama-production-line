@@ -145,6 +145,50 @@ class DP3DialogueContinuityTests(unittest.TestCase):
         self.assertFalse(any(f.startswith("DP3_DIALOGUE_TIME_RATIO_") for f in report["failures"]))
 
 
+class DP3CombatExemptionTests(unittest.TestCase):
+    """Roger 2026-11-04: 打斗镜头设计不受 3 s / 6 s / 对白占比限制。"""
+
+    POLICY = {**POLICY, "rules": {**POLICY["rules"], "DP3_dialogue_continuity": {
+        **POLICY["rules"]["DP3_dialogue_continuity"],
+        "combat_exemption": {"status": "ACTIVE", "authority": "Roger 2026-11-04"}}}}
+
+    def _combat(self, shot_id, scene_id, seconds):
+        sh = _shot(shot_id, scene_id, seconds)
+        sh["prompt_spec"]["action"] = {"action_kind": "COMBAT", "interaction_mode": "CONTACT"}
+        return sh
+
+    def test_a_long_fight_is_not_a_silence_gap(self) -> None:
+        shots = [_shot("S1", "SC1", 2.0, dialogue="台词"),
+                 self._combat("F1", "SC1", 5.0),
+                 self._combat("F2", "SC1", 5.0)]
+        report = dpg.evaluate({"episode": "E09", "shots": shots}, self.POLICY)
+        self.assertFalse([f for f in report["failures"] if f.startswith("DP3_SILENCE_RUN")])
+        self.assertEqual(report["measurements"]["DP3"]["combat_shots_exempt"], ["F1", "F2"])
+
+    def test_a_fight_does_not_spend_a_silence_exception(self) -> None:
+        shots = ([_shot(f"D{i}", "SC1", 2.0, dialogue="台词") for i in range(3)]
+                 + [_shot("S1", "SC1", 4.0, silence_reason="蓄势"), self._combat("F1", "SC1", 5.0),
+                    _shot("S2", "SC1", 4.0, silence_reason="余波")])
+        report = dpg.evaluate({"episode": "E09", "shots": shots}, self.POLICY)
+        self.assertFalse([f for f in report["failures"] if f.startswith("DP3_SILENCE_REASON_EXCEPTIONS")])
+
+    def test_a_fight_leaves_the_dialogue_ratio_denominator(self) -> None:
+        shots = [_shot("S1", "SC1", 6.0, dialogue="台词"), self._combat("F1", "SC1", 10.0)]
+        report = dpg.evaluate({"episode": "E09", "shots": shots}, self.POLICY)
+        self.assertFalse([f for f in report["failures"] if f.startswith("DP3_DIALOGUE_TIME_RATIO")])
+        self.assertEqual(report["measurements"]["DP3"]["dialogue_ratio_denominator_seconds"], 6.0)
+
+    def test_without_the_exemption_a_fight_is_judged_as_silence(self) -> None:
+        shots = [_shot("S1", "SC1", 2.0, dialogue="台词"), self._combat("F1", "SC1", 5.0)]
+        report = dpg.evaluate({"episode": "E09", "shots": shots}, POLICY)
+        self.assertTrue([f for f in report["failures"] if f.startswith("DP3_SILENCE_RUN_OVER")])
+
+    def test_non_combat_shots_keep_every_threshold(self) -> None:
+        shots = [_shot("S1", "SC1", 2.0, dialogue="台词"), _shot("S2", "SC1", 5.0)]
+        report = dpg.evaluate({"episode": "E09", "shots": shots}, self.POLICY)
+        self.assertTrue([f for f in report["failures"] if f.startswith("DP3_SILENCE_RUN_OVER_3S_NO_REASON")])
+
+
 class EnforcementGateTests(unittest.TestCase):
     def test_missing_policy_file_means_every_rule_is_a_no_op(self) -> None:
         empty_policy = dpg.load_policy(Path("/nonexistent/DIRECTION_POLICY_V1.json"))

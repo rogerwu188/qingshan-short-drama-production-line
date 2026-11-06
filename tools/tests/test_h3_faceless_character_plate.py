@@ -55,3 +55,14 @@ class KeyframeFaceHiddenTest(unittest.TestCase):
         self.assertTrue(bkm.shot_keeps_face_hidden(spec, "CHAR-B"))
         self.assertTrue(bkm.shot_keeps_face_hidden(spec, "CHAR-C"))
         self.assertFalse(bkm.shot_keeps_face_hidden(spec, "CHAR-Z"))
+
+
+class FinalizeKeepsFacelessPlateOutTest(unittest.TestCase):
+    """nalu E14 VU-023 (2026-11-04): finalize_video_tasks re-added the never-face plate."""
+
+    def test_finalize_filters_episode_faceless_and_declares_exemption(self):
+        src = (TOOLS / "build_nalu_preproduction.py").read_text(encoding="utf-8")
+        body = src.split("def finalize_video_tasks(", 1)[1].split("\ndef ", 1)[0]
+        self.assertIn("episode_never_face = (faceless_character_ids(", body)
+        self.assertIn("plate_order = [cid for cid in plate_order if cid not in episode_never_face]", body)
+        self.assertIn('task["identity_authority_exempt_character_ids"] = never_face_ids', body)
