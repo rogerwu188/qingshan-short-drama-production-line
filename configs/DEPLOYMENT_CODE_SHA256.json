@@ -757,7 +757,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "c1a081760763bdd7eaa6fe3569e139abce3c826aea53972940c0f15c78b23092"
+      "sha256": "1f5f65c4eb1d81ce16fb028c72c9e49c4734b86be0e4897c248d6f78ffd00172"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -9073,7 +9073,7 @@
     },
     {
       "path": "tools/tests/test_voice_over_narration.py",
-      "sha256": "1c4b4e7c72c4f420267300f03c0566398af758a27ffb3175d13fee695057f766"
+      "sha256": "53670af174e65389e442c8d3093c4c3d3836c5ffad9be42015782d903606eb80"
     },
     {
       "path": "tools/tests/test_voice_reference_calibration.py",

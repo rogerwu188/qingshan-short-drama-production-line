@@ -684,3 +684,34 @@ class PromptBatchAndTimingTests(unittest.TestCase):
         self.assertEqual(sorted(str(r.get("sound_source") or r["sound_source_unit_id"]) for r in rows),
                          ["E01-VU-002", "VOICE_OVER_S4", "VOICE_OVER_S4"])
 
+
+
+class VoiceOverAsrRecheckTest(unittest.TestCase):
+    """Field fleet 2026-11-06: the prompted pass hallucinated a stock caption over a clean V.O. read."""
+
+    def test_unprompted_recheck_rescues_a_prompted_hallucination(self):
+        import importlib
+        import types
+        npl = importlib.import_module("nalu_pipeline")
+        calls = []
+
+        class Seg:
+            def __init__(self, text):
+                self.text = text
+
+        class FakeModel:
+            def __init__(self, *a, **k):
+                pass
+
+            def transcribe(self, wav, **kw):
+                calls.append(kw.get("initial_prompt"))
+                return ([Seg("优优独播剧场——YoYo Television Series Exclusive")] if kw.get("initial_prompt")
+                        else [Seg("他们家世世代代都以挖矿为生")]), None
+
+        fake_fw = types.SimpleNamespace(WhisperModel=FakeModel)
+        with unittest.mock.patch.dict(sys.modules, {"faster_whisper": fake_fw}):
+            res = npl.voice_over_asr(Path("/x.wav"), "他们家世世代代都以挖矿为生", "zh")
+        self.assertEqual(res["asr_pass"], "UNPROMPTED_RECHECK")
+        self.assertGreaterEqual(res["recall"], 0.9)
+        self.assertEqual(len(calls), 2)
+        self.assertIsNone(calls[1])
