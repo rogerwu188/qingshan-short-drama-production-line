@@ -8281,7 +8281,7 @@
     },
     {
       "path": "tools/tests/test_performance_cut.py",
-      "sha256": "7435b28041409fe26349ef575c8fae949c1723ae1d60056653af3a8fc4e151af"
+      "sha256": "bdf8e0dc3c3a7f7865a9aec38d6bac09ee743b27bdce2d4e619951cfb2840225"
     },
     {
       "path": "tools/tests/test_performance_tempo_gate_combat_contract.py",
@@ -8441,7 +8441,7 @@
     },
     {
       "path": "tools/tests/test_q2_push_in_redo.py",
-      "sha256": "475e3b07caba562c00c0ed627e4c667dfbcd84cbc10857362ec174922ede2605"
+      "sha256": "ea736036c196394ac453808388d030e934702b8f6b52148afc51f2f2fbbeff0f"
     },
     {
       "path": "tools/tests/test_qa_bgm_vocal_confidence.py",

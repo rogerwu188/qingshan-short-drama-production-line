@@ -126,6 +126,7 @@ class PushInKeptWindowTest(unittest.TestCase):
                 mock.patch.object(vq, "sha256_file", return_value="sha"):
             return vq.push_in_window("E99", unit, Path("/nonexistent.mp4"), 6.0, contract, Path("/x.json")), asr_mock
 
+    @unittest.skipUnless(__import__("importlib").util.find_spec("numpy"), "S7 trim planning needs numpy (media extra)")
     def test_window_is_s7_head_and_tail_trim(self):
         win, _ = self.window()
         self.assertEqual(win["source"], "S7_DIALOGUE_TRIMS")

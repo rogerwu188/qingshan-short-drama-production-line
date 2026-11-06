@@ -159,6 +159,7 @@ class SpeakingUnitTests(unittest.TestCase):
 
 
 class HomophoneTests(unittest.TestCase):
+    @unittest.skipUnless(__import__("importlib").util.find_spec("pypinyin"), "homophone matching needs pypinyin (asr extra)")
     def test_homophone_name_at_line_start_is_kept(self):
         # lab 化神 E02-VU-002: ASR heard 殷九燃 as 因久然 with a pause before 化; it must not be cut as unscripted
         script = list("殷九燃化神后期")
