@@ -4268,9 +4268,19 @@ def stage_s5(ctx: Ctx) -> StageResult:
         if harvest["exit_code"] != 0:
             res.status = BLOCKED
             res.blockers.append("KEYFRAME_HARVEST_FAILED")
-            if (read_json(p.keyframe_harvest_status, {}) or {}).get("provider_error_424_count"):
-                # uncharged upstream 424s: provider-side, rerun the same stage after the cooldown
-                res.blockers.append("HOPSAPI_IMAGE_PROVIDER_OUTAGE")
+            harvest_status = read_json(p.keyframe_harvest_status, {}) or {}
+            if harvest_status.get("provider_error_424_count"):
+                rows = harvest_status.get("results") or []
+                rejected = [str(row.get("task_key")) for row in rows
+                            if row.get("failure_class") == "HOPSAPI_PROVIDER_ERROR_424"]
+                if any(row.get("remote_status") == "completed" for row in rows):
+                    # other tasks completed in the same batch: the 424s are those tasks' content /
+                    # parameter rejections (device …1324 E01), rewrite their prompts -- no cooldown
+                    res.blockers.append("HOPSAPI_IMAGE_TASK_REJECTED:" + ",".join(rejected))
+                    res.details["provider_rejected_tasks"] = rejected
+                else:
+                    # uncharged upstream 424s: provider-side, rerun the same stage after the cooldown
+                    res.blockers.append("HOPSAPI_IMAGE_PROVIDER_OUTAGE")
             return res
         rename = apply_keyframe_renames(ctx, manifest)
         res.details["deterministic_rename"] = rename
@@ -4289,10 +4299,17 @@ def stage_s5(ctx: Ctx) -> StageResult:
             ctx, ctx.p.keyframe_submit, ctx.run_id)
         res.status = BLOCKED
         res.blockers.append("KEYFRAME_SUBMIT_FAILED")
-        outage = (read_json(p.keyframe_submit, {}) or {}).get("provider_outage")
+        submit_report = read_json(p.keyframe_submit, {}) or {}
+        outage = submit_report.get("provider_outage")
         if outage:
             res.blockers.append("HOPSAPI_IMAGE_PROVIDER_OUTAGE")
             res.details["provider_outage"] = outage
+        rejected = submit_report.get("provider_rejected_tasks") or []
+        if rejected:
+            # a canary 424 while a different task passed: per-task rejection, rewrite that prompt
+            res.blockers.append("HOPSAPI_IMAGE_TASK_REJECTED:" + ",".join(str(row.get("task_key")) for row in rejected))
+            res.details["provider_rejected_tasks"] = rejected
+            res.details["canary_rotation"] = submit_report.get("canary_rotation")
         return res
 
     # 4) S5.q1 — keyframe Q1 admission (D-4)

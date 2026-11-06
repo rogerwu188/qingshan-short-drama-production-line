@@ -281,6 +281,7 @@ S7 最后的「独立终审」要求独立进程、StoryClaw 白名单模型的�
 `$NALU_RUNTIME_ROOT/deliverables/<EP>/<EP>_final_9x16.mp4`。不得冒充审核者身份或绕过该门，报 `FINAL_CUT_READY`。
 
 HopsAPI 图片任务成批以 `status 3 / code 424 "Provider error (request id: aitk-…)"`、0 credits 失败（日志/阻塞含 `HOPSAPI_IMAGE_PROVIDER_OUTAGE`）= 上游 gpt-image-2 通道故障，不是参考图/提示词问题（E10/E11 实测：同字节请求先失败后成功，无参考图的 Txt2Img 也同样失败）。不要改参考图、提示词或写 CODE_BLOCKER；免费、不扣费：`sleep 600` 后原样重跑同一 `paid_stage.sh <EP> <Sx> <Sx>`（提交器自己会先发一个探针任务、冷却期内拒绝整批 POST），连续 6 次仍是 424 才以 `BLOCKED` 结束，note 写 `HOPSAPI_IMAGE_PROVIDER_OUTAGE`。
+例外：**只有某一个任务** 424、其它任务同期能过（阻塞/日志含 `HOPSAPI_IMAGE_TASK_REJECTED:<task_key>`，提交报告 `provider_rejected_tasks` / failures 里 `PROVIDER_REJECTED_TASK`）= 该任务的提示词/参数被内容过滤拒绝，不是故障（设备 …1324 E01 实测：偷馒头的孩子 + 破棉絮参考图）。提交器探针 424 后会换一个参考图最不同的任务再探，过了就放行整批、只把该任务记为拒绝；至少 2 个不同任务都 424 才算故障冷却。不要等冷却：把该任务的提示词中性改写（未成年 + 贫困/暴力措辞是已知触发），重跑同一阶段。
 
 ## 8. 连续产剧：E02 及以后
 编排代理在上一集 `FINAL_CUT_READY` 后为下一集派单（章节范围与沿用的简报条款），再新开一个你的会话。每集都是独立会话，按本合同从 §2.0 开始，另外：

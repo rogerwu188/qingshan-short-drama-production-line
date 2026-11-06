@@ -612,20 +612,23 @@ class ProviderOutageTests(EnvCase):
                 tasks, Path("."), Path("."), 6, "hopsapi", deferred=deferred)
         return submitted, results, failures, deferred, canary
 
-    def test_batch_stops_after_a_424_canary_and_posts_nothing_else(self):
+    def test_batch_stops_after_two_different_424_canaries_and_posts_nothing_else(self):
+        # device …1324 E01: one 424 rotates the canary to a different task; two different tasks = outage
         submitted, results, failures, deferred, canary = self.batch("PROVIDER_ERROR")
-        self.assertEqual(submitted, ["E11-S01-KEYFRAME-V1"])
-        self.assertEqual(canary.call_count, 1)
+        self.assertEqual(submitted, ["E11-S01-KEYFRAME-V1", "E11-S02-KEYFRAME-V1"])
+        self.assertEqual(canary.call_count, 2)
         self.assertEqual(failures, [])
-        not_posted = [row for row in deferred if "canary" not in row]
-        self.assertEqual([row["status"] for row in not_posted], ["NOT_POSTED_PROVIDER_OUTAGE"] * 3)
+        not_posted = [row for row in deferred if "canary" not in row and "canary_rotation" not in row]
+        self.assertEqual([row["status"] for row in not_posted], ["NOT_POSTED_PROVIDER_OUTAGE"] * 2)
         self.assertTrue(all(row["credit"] == 0 for row in not_posted))
+        rotation = next(row["canary_rotation"] for row in deferred if "canary_rotation" in row)
+        self.assertEqual(rotation["outcome"], "PROVIDER_OUTAGE")
 
     def test_batch_continues_after_a_healthy_canary(self):
         submitted, results, failures, deferred, _ = self.batch("HEALTHY")
         self.assertEqual(len(submitted), 4)
         self.assertEqual(len(results), 4)
-        self.assertEqual([row for row in deferred if "canary" not in row], [])
+        self.assertEqual([row for row in deferred if "canary" not in row and "canary_rotation" not in row], [])
 
     def test_harvest_tags_the_upstream_424(self):
         with tempfile.TemporaryDirectory() as tmp:
