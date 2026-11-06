@@ -118,6 +118,14 @@ writer run; sealed older bytes remain unchanged.
   performance, sound, and start/end state evidence required by the registered
   gates. Missing fields remain a failure; do not lower thresholds.
 
+## Adapt for viewers, not word for word (owner 2026-11-02)
+
+Readers imagine; viewers only see shots and hear lines. Test: with the novel closed, a viewer can say what happened in
+each scene and why each shot is there. Dramatize narration, summaries, inner states and time spans (characters,
+dialogue, reactions) or carry them with one V.O./caption line; give every shot and insert a readable purpose; montage
+needs progression and a payoff; actions H3 renders badly (sword play, fights, spell effects) become results or
+reactions. Keep the source's plot, lines and jokes. Principles and examples: `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md` §0.
+
 ## Camera grammar (CAMERA_GRAMMAR_V1)
 
 `finalize` stamps `"camera_grammar_policy": "CAMERA_GRAMMAR_V1"` on every newly sealed contract. It adds no
@@ -150,6 +158,29 @@ blocking check; direct the episode the way people watch films:
   Never write the speaker turning to look at a window / door / off-screen object, or "eyes fixed on X", inside a
   speaking shot: H3 pans to reveal what they look at and loses the speaker (line owner 2026-10-24, lab Holmes E03).
   A look at something gets its own silent shot, or an insert of the thing.
+- Every on-screen spoken line is written to take about 3.5 s to say (English ~9–11 words, Chinese ~14–16
+  characters; line owner 2026-10-29, lab E08: with the 4 s HopsAPI minimum, shorter lines made H3 invent speech that
+  S7 trimmed away, 96 s final instead of ~110 s). A shorter line gets a performed action in the same shot or is
+  merged with the same speaker's next line. Speaking shots stay 4–5 s. Author ~115–120 s of shots so the episode
+  lands at ~110 s after the trims.
+  **Superseded 2026-11-02 (line owner, lab 化神 E01): keep the source's short lines; never pad a line to the 4 s floor.**
+  Generation still requests 4 s; S7 cuts to the performance (`tools/performance_cut.py`: first scripted word − 0.15 s
+  to last scripted word + 0.4 s, invented speech / a repeated line / talking in a silent unit cut away at the head or
+  tail, min 1.2 s). Aim ~2–3 s per short shot in the edit. One speaker's CONTINUOUS_ACTION same-setup lines run back
+  to back (no per-line 4 s slot). A line under 2.8 s is only an advisory (`SHORT_LINE_OK_S7_CUTS_TO_PERFORMANCE`,
+  writer self-check advisory `R11_SHORT_LINE_OK_S7_CUTS`).
+- One speaker's consecutive lines are ONE take (line owner 2026-11-01, lab Holmes E12 long-take test: a continuous
+  12–14 s take of a monologue with a silent insert between groups played far better than one shot per line). Keep
+  writing one ~3.5 s line per shot, but give those shots the SAME locked `camera_plan` (`shot_scale`,
+  `camera_height`, `camera_side`, `motion_family: LOCKED`, `motion_direction`, `start_framing` identical) and
+  `CONTINUOUS_ACTION` between them — never author a cut between two consecutive lines of one speaker. (Several lines
+  of one speaker in one shot, one `Name：line` per row, are also fine; timed by their sum.) The grouper makes them one
+  video unit of at most 12 s (H3 maximum 15 s). A longer monologue is split into groups of at most 12 s: between
+  groups write a silent 4 s cutaway (listener reaction or prop insert, `MOTIVATED_CUT` / `REACTION_CUT`), then
+  return to the SAME setup (same `camera_plan`, `MOTIVATED_CUT` in); the engine reuses the earlier group's keyframe
+  (no new image). A change of speaker, of camera setup or an authored cut starts a new unit. Warnings only:
+  grouping `writer_warning: MONOLOGUE_CUTAWAY_REQUIRED`, self-check `R12_MONOLOGUE_CUT_BETWEEN_LINES`,
+  `R12_MONOLOGUE_OVER_12S_ADD_CUTAWAY`.
 - Write the cuts the script implies: `internal_transition_authoring.transition_mode` `MOTIVATED_CUT` /
   `REACTION_CUT` / `MATCH_CUT` / `HARD_CUT` (or a scene change) makes the next video unit open on its own
   keyframe, a clean cut; continuous modes keep the previous unit's real tail as the start frame.

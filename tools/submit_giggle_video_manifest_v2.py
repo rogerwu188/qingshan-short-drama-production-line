@@ -77,6 +77,7 @@ try:
     from shot_media_admission_gate import compute_input_template_id, precheck_submission_inputs
     from video_live_binding import attributed_task_ids, live_bindings
     from h3_provider_english_contract import is_director_v2_text
+    import hopsapi_video_client as hopsapi
 except ModuleNotFoundError:
     from tools.giggle_api_client import _image_list, _registered_asset, _request, paid_video_submission_context
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
@@ -109,6 +110,7 @@ except ModuleNotFoundError:
     from tools.shot_media_admission_gate import compute_input_template_id, precheck_submission_inputs
     from tools.video_live_binding import attributed_task_ids, live_bindings
     from tools.h3_provider_english_contract import is_director_v2_text
+    from tools import hopsapi_video_client as hopsapi
 
 # Shot-scope upgrade (configs/PROMPT_SHOT_SCOPE_POLICY_V1.json): submit-boundary conflict gate
 # and loaded-module audit.  Inactive episodes/models never call either, so their request,
@@ -610,6 +612,9 @@ def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
     # declared camera lock (h3_camera_lock "strict" | "standard"; absent = renderer default)
     if task.get("h3_camera_lock") or machine.get("h3_camera_lock"):
         prompt_unit["h3_camera_lock"] = task.get("h3_camera_lock") or machine.get("h3_camera_lock")
+    # CAMERA_GRAMMAR_V1 engine redo after an objective Q2 FAIL (q2_auto_redo): the measured problem, e.g. ["push_in"]
+    if task.get("h3_redo_findings") or machine.get("h3_redo_findings"):
+        prompt_unit["h3_redo_findings"] = list(task.get("h3_redo_findings") or machine.get("h3_redo_findings"))
     prompt_unit["duration_seconds"] = task.get("duration_seconds")
     prompt_unit["resolution"] = task.get("resolution")
     prompt_unit["aspect_ratio"] = task.get("aspect_ratio")
@@ -1151,11 +1156,16 @@ def prior_bound(task: dict[str, Any], transaction_dir: Path) -> dict[str, Any] |
             receipt = resolve(row["receipt"])
             if not receipt.is_file():
                 atomic_json(receipt, row["provider_response"])
-        return {
+        recovered = {
             "task_key": task["task_key"], "task_id": row["task_id"], "state": "remote_running",
             "receipt": row.get("receipt"), "transaction": portable(path), "recovered_from_transaction": True,
         }
-    if row.get("state") not in {"VERIFIED_ZERO_RETRYABLE"}:
+        if row.get("provider"):
+            recovered["provider"] = row["provider"]
+        return recovered
+    # VERIFIED_ZERO_NO_REMOTE_TASK: a lost HopsAPI response the billing usage API proved created no
+    # billed task (tools/hopsapi_usage.py reconcile); a new attempt may POST.
+    if row.get("state") not in {"VERIFIED_ZERO_RETRYABLE", "VERIFIED_ZERO_NO_REMOTE_TASK"}:
         raise RuntimeError(f"{task['task_key']} blocked by transaction state {row.get('state')}")
     return None
 
@@ -1228,6 +1238,9 @@ def estimated_video_credits(task: dict[str, Any]) -> int:
     here would stop a healthy H3 episode early; under-estimating would hide exposure.
     """
     seconds = int(task.get("duration_seconds", 6))
+    if hopsapi.task_uses_hopsapi(task):
+        # HopsAPI router (owner 2026-10-29): configurable per-second planning price, rounded up.
+        return hopsapi.estimated_task_credits(seconds, len(task.get("reference_images") or []))
     if str(task.get("model") or "") == "MiniMax-H3":
         return int(round(seconds * 14)) + 6
     return int(seconds * 20)
@@ -1328,6 +1341,10 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         # Gate the exact string that is POSTed below; the PASS is bound to its SHA + reference SHAs.
         prompt_text = resolve(task["prompt_file"]).read_text(encoding="utf-8")
         scope_evidence = run_prompt_scope_gate(task, prompt_text, transaction_dir)
+    if hopsapi.task_uses_hopsapi(task):
+        # Same guards above (prior binding, live binding, whole-batch QA, prompt/reference SHAs,
+        # prompt-scope gate); only the transport differs.
+        return _submit_one_hopsapi(task, receipt_dir, transaction_dir, prompt_text, scope_evidence)
     transaction = transaction_path(transaction_dir, task)
     # Bind the fingerprint before any upload: task_fingerprint() reads reference_transport (the
     # transport mode) but never the registered ids, so it is stable across a registration retry.
@@ -1434,6 +1451,167 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         **task, "task_id": str(task_id), "state": "remote_running", "submitted_at": utc_now(),
         "receipt": portable(receipt), "transaction": portable(transaction), "recovered_from_transaction": False,
         "credit_attempts": [{"attempt": 1, "task_id": str(task_id), "success": None, "charge_status": "PENDING_REMOTE_RESULT", "actual_charged_credits": None}],
+    }
+
+
+def hopsapi_request_window_failures(task: dict[str, Any]) -> list[str]:
+    """Offline HopsAPI H3 request-window checks run for the whole batch before any upload or POST
+    (also in --precheck-only): integer 4-15 s, 480p/768p, <=9 images, <=3 audios, URL audio only."""
+    failures: list[str] = []
+    duration = task.get("duration_seconds")
+    if not isinstance(duration, (int, float)) or int(duration) != float(duration) \
+            or not hopsapi.MIN_DURATION_SECONDS <= int(duration) <= hopsapi.MAX_DURATION_SECONDS:
+        failures.append(f"HOPSAPI_H3_DURATION_OUT_OF_RANGE:{duration}")
+    if str(task.get("resolution") or "").lower() not in hopsapi.RESOLUTIONS:
+        failures.append(f"HOPSAPI_H3_RESOLUTION_UNSUPPORTED:{task.get('resolution')}")
+    if len(task.get("reference_images") or []) > hopsapi.MAX_IMAGES:
+        failures.append("HOPSAPI_OMNI_TOO_MANY_IMAGES")
+    audios = [*(task.get("exact_dialogue_audio_urls") or []), *(task.get("reference_audio_urls") or [])]
+    if len(audios) > hopsapi.MAX_AUDIOS:
+        failures.append("HOPSAPI_OMNI_TOO_MANY_AUDIOS")
+    if task.get("exact_dialogue_audio_asset_ids") or task.get("reference_audio_asset_ids"):
+        failures.append("HOPSAPI_AUDIO_ASSET_IDS_NOT_SUPPORTED")
+    return failures
+
+
+def _hopsapi_reference_uploads(task: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Upload every reference image and audio for one task (free, before the intent record).
+
+    Images go through the same send-time re-encode as the Giggle base64 path
+    (giggle_api_client._compressed_reference_bytes), so ``sent_reference_sha256`` means the same thing
+    on both providers.  Audio references are public URLs on Giggle's asset host; they are fetched and
+    re-hosted with an explicit MIME type (HOPSAPI_AUDIO_TRANSPORT=passthrough sends the URL as is)."""
+    try:
+        from tools.giggle_api_client import _compressed_reference_bytes
+    except ModuleNotFoundError:
+        from giggle_api_client import _compressed_reference_bytes
+    key = re.sub(r"[^A-Za-z0-9._-]+", "-", str(task["task_key"]))
+    images: list[dict[str, Any]] = []
+    notes: list[dict[str, Any]] = []
+    for index, value in enumerate(task.get("reference_images") or [], 1):
+        data, note = _compressed_reference_bytes(resolve(value))
+        mime = hopsapi.sniff_mime(data, str(value))
+        notes.append(note)
+        images.append(hopsapi.upload_bytes(data, file_name=f"{key}-image{index}.{hopsapi.EXT_BY_MIME[mime]}",
+                                           upload_path="images", mime=mime))
+    audios: list[dict[str, Any]] = []
+    urls = [*(task.get("exact_dialogue_audio_urls") or []), *(task.get("reference_audio_urls") or [])]
+    passthrough = os.environ.get("HOPSAPI_AUDIO_TRANSPORT", "rehost").strip().lower() == "passthrough"
+    for index, url in enumerate(urls, 1):
+        if passthrough:
+            audios.append({"url": str(url), "source_url": str(url), "transport": "PASSTHROUGH_URL"})
+            continue
+        local = resolve(url) if not str(url).startswith(("http://", "https://")) else None
+        data = local.read_bytes() if local is not None else hopsapi._download_bytes(str(url))
+        mime = hopsapi.sniff_mime(data, str(url))
+        row = hopsapi.upload_bytes(data, file_name=f"{key}-audio{index}.{hopsapi.EXT_BY_MIME[mime]}",
+                                   upload_path="audios", mime=mime)
+        audios.append({**row, "source_url": str(url), "transport": "REHOSTED_UPLOAD"})
+    return images, audios, notes
+
+
+def _submit_one_hopsapi(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path,
+                        prompt_text: str | None, scope_evidence: dict[str, Any] | None) -> dict[str, Any]:
+    """MiniMax-H3 through the HopsAPI router: upload -> intent -> ONE create POST -> bind.
+
+    The transaction is the same record as the Giggle path (INTENT_RECORDED, then
+    SUBMITTED_TASK_ID_BOUND with task_id, request sha, prompt/reference shas) plus ``provider:
+    hopsapi``.  Failure classification is per attempt, because there is no statement window to
+    reconcile against: a request that never left the host or that HopsAPI explicitly refused
+    without a task id is VERIFIED_ZERO_RETRYABLE (the next run may POST again); a timeout, reset or
+    5xx after sending is RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION and is never resent."""
+    transaction = transaction_path(transaction_dir, task)
+    fingerprint = task_fingerprint(task)
+    prompt = prompt_text if prompt_text is not None else resolve(task["prompt_file"]).read_text(encoding="utf-8")
+    duration = task.get("duration_seconds")
+    if not isinstance(duration, (int, float)) or int(duration) != float(duration) \
+            or not hopsapi.MIN_DURATION_SECONDS <= int(duration) <= hopsapi.MAX_DURATION_SECONDS:
+        # Pre-intent: never silently stretch a unit written for a shorter clip (probe 2026-10-29:
+        # a 3 s line in a 4 s H3 clip got ~2 s of invented speech).  Recompile the unit at >= 4 s.
+        raise ValueError(f"{task['task_key']} HOPSAPI_H3_DURATION_OUT_OF_RANGE:{duration} (integer "
+                         f"{hopsapi.MIN_DURATION_SECONDS}-{hopsapi.MAX_DURATION_SECONDS} s; not charged, "
+                         "no intent recorded)")
+    if task.get("exact_dialogue_audio_asset_ids") or task.get("reference_audio_asset_ids"):
+        raise ValueError("MiniMax-H3 requires URL audio references; asset IDs are not valid transport")
+    audio_count = len([*(task.get("exact_dialogue_audio_urls") or []), *(task.get("reference_audio_urls") or [])])
+    if audio_count > hopsapi.MAX_AUDIOS:
+        raise ValueError(f"{task['task_key']} HOPSAPI_OMNI_TOO_MANY_AUDIOS:{audio_count}>{hopsapi.MAX_AUDIOS}")
+    if len(task.get("reference_images") or []) > hopsapi.MAX_IMAGES:
+        raise ValueError(f"{task['task_key']} HOPSAPI_OMNI_TOO_MANY_IMAGES")
+    request_binding = require_reviewed_request(task, task_request_digest(
+        task, prompt_text=prompt,
+        reference_paths=[resolve(value) for value in task["reference_images"]],
+        duration=int(duration), audio=sent_audio_references(task),
+    )["request_sha256"])
+    require_no_silent_resubmission(task, transaction_dir, fingerprint)
+    images, audios, encoding_notes = _hopsapi_reference_uploads(task)
+    payload = hopsapi.build_omni_request(
+        prompt=prompt, image_urls=[row["url"] for row in images], audio_urls=[row["url"] for row in audios],
+        duration=int(duration), resolution=str(task["resolution"]),
+        aspect_ratio=str(task.get("aspect_ratio") or "9:16"), model=str(task["model"]),
+    )
+    intent = {
+        "schema": "qingshan.giggle_video_submit_transaction.v1",
+        "provider": hopsapi.PROVIDER_HOPSAPI, "provider_endpoint": "POST /router/task/create",
+        "hopsapi_key_fingerprint": hopsapi.key_fingerprint(),
+        "task_key": task["task_key"], "attempt_id": str(uuid.uuid4()),
+        "submission_fingerprint": fingerprint, "state": "INTENT_RECORDED",
+        "intent_recorded_at": utc_now(), "prompt_sha256": task["prompt_sha256"],
+        "reference_sha256": task["reference_sha256"], "model": task["model"],
+        "estimated_credits": estimated_video_credits(task),
+        "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
+        "request_binding": request_binding,
+        "sent_reference_sha256": [row["sha256"] for row in images],
+        "sent_reference_mime_types": [row["mime_type"] for row in images],
+        "uploaded_reference_urls": [row["url"] for row in images],
+        "sent_audio_sha256": [row.get("sha256") for row in audios],
+        "uploaded_audio_urls": [row["url"] for row in audios],
+        "audio_source_urls": [row["source_url"] for row in audios],
+        "upload_expires_at": [row.get("expires_at") for row in [*images, *audios]],
+        "reference_encoding_notes": encoding_notes,
+        "provider_request_sha256": hashlib.sha256(json.dumps(
+            payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest(),
+        "provider_request_input": {k: v for k, v in payload["input"].items() if k != "prompt"},
+    }
+    if scope_evidence is not None:
+        intent["prompt_scope_conflict_gate"] = scope_evidence["gate"]
+        intent["loaded_modules"] = scope_evidence["loaded_modules"]
+    atomic_json(transaction, intent)
+    try:
+        with paid_video_submission_context():
+            response = hopsapi.create_task(payload)
+    except hopsapi.HopsapiNotCharged as exc:
+        intent.update({
+            "state": "VERIFIED_ZERO_RETRYABLE", "credit_status": "NOT_CHARGED_RETRYABLE",
+            "response_received_at": utc_now(), "error": str(exc), "provider_response": exc.response,
+            "provider_http_status": exc.http_status, "retry_guard": "RETRY_ALLOWED_NEW_ATTEMPT",
+            "reconciliation": {"rule": "HopsAPI create provably created no task (not sent, or an explicit "
+                                       "4xx / code!=200 refusal without task_id); failed tasks are never billed",
+                               "credit": 0},
+        })
+        atomic_json(transaction, intent)
+        if exc.insufficient_credits:
+            raise ProviderInsufficientCreditsError(f"provider insufficient credits: {exc}") from None
+        raise RuntimeError(f"HopsAPI create declined (not charged): {exc}") from None
+    except (Exception, SystemExit) as exc:
+        intent.update({"state": "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION", "response_lost_at": utc_now(),
+                       "error": str(exc),
+                       "operator_note": "HopsAPI has no idempotency key: check the HopsAPI console for a task "
+                                        "created at intent_recorded_at before any new POST"})
+        atomic_json(transaction, intent)
+        raise
+    task_id = str(response["task_id"])
+    receipt = receipt_dir / f"{task['task_key']}_submit_receipt.json"
+    intent.update({"state": "SUBMITTED_TASK_ID_BOUND", "task_id": task_id, "receipt": portable(receipt),
+                   "provider_response": response, "response_recorded_at": utc_now()})
+    atomic_json(transaction, intent)
+    atomic_json(receipt, response)
+    return {
+        **task, "task_id": task_id, "state": "remote_running", "submitted_at": utc_now(),
+        "provider": hopsapi.PROVIDER_HOPSAPI,
+        "receipt": portable(receipt), "transaction": portable(transaction), "recovered_from_transaction": False,
+        "credit_attempts": [{"attempt": 1, "task_id": task_id, "success": None,
+                             "charge_status": "PENDING_REMOTE_RESULT", "actual_charged_credits": None}],
     }
 
 
@@ -1636,6 +1814,10 @@ def main() -> int:
             raise RuntimeError(
                 f"{task.get('task_key')} submission gate failed: " + ",".join(gate_failures)
             )
+        if hopsapi.task_uses_hopsapi(task):
+            window = hopsapi_request_window_failures(task)
+            if window:
+                raise RuntimeError(f"{task.get('task_key')} HopsAPI request window: " + ",".join(window))
         if task.get("semantic_video_unit"):
             grouped_camera_units.append(grouped_sequence_unit(task))
     scoped = bool(manifest.get("partial_repair_scope") or manifest.get("staged_generation_scope"))
@@ -1667,8 +1849,14 @@ def main() -> int:
         rhythm = validate_combat_sequence_rhythm(grouped_camera_units)
         if rhythm["status"] != "PASS":
             raise ValueError("Combat sequence rhythm gate failed: " + ",".join(rhythm["failures"]))
-    if not args.precheck_only and not os.environ.get("GIGGLE_API_KEY", "").strip():
-        raise SystemExit("GIGGLE_API_KEY is not set")
+    # Provider switch (owner 2026-10-29): MiniMax-H3 tasks go to HopsAPI unless video_provider=giggle.
+    # Each transport needs its own key, checked before any upload, intent or POST.
+    task_providers = {str(task.get("task_key")): hopsapi.provider_for_model(task.get("model")) for task in tasks}
+    if not args.precheck_only:
+        for needed in sorted(set(task_providers.values())):
+            key_env = hopsapi.required_key_env(needed)
+            if not os.environ.get(key_env, "").strip():
+                raise SystemExit(f"{key_env} is not set")
     out = resolve(args.out)
     receipts = out.parent / f"{out.stem}_receipts"
     transactions = ROOT / "workflow/tasks/giggle_video_submit_transactions" / str(manifest.get("episode") or "UNKNOWN")
@@ -1722,6 +1910,9 @@ def main() -> int:
                         failures.append({"task_key": task["task_key"], "state": "submit_failed_before_intent", "error": str(exc), "transaction": portable(transaction_path(transactions, task)), "pre_intent_block": portable(pre_intent_block_path(transactions, task)), "credit": 0, "credit_status": "NOT_CHARGED_NO_INTENT_RECORDED"})
                     except (Exception, SystemExit) as exc:
                         failures.append({"task_key": task["task_key"], "state": "submit_failed", "error": str(exc), "transaction": portable(transaction_path(transactions, task))})
+                    if task_providers.get(str(task["task_key"])) == hopsapi.PROVIDER_HOPSAPI and failures \
+                            and failures[-1]["task_key"] == task["task_key"]:
+                        failures[-1]["provider"] = hopsapi.PROVIDER_HOPSAPI
                     if credit_fuse_tripped:
                         break
                     # a submit slot just freed: start the next READY task now instead of waiting for
@@ -1745,7 +1936,54 @@ def main() -> int:
                 })
     credit = None
     ambiguity = "NOT_APPLICABLE"
-    if not args.precheck_only:
+    hopsapi_summary = None
+    if not args.precheck_only and hopsapi.PROVIDER_HOPSAPI in set(task_providers.values()):
+        # HopsAPI tasks are billed per task (``cost`` on the settled query, recorded on the transaction
+        # by the poller and counted by the budget ledger), never through Giggle's credit statements.
+        # Their failures were classified per attempt in _submit_one_hopsapi; read that state back.
+        hop_keys = {key for key, value in task_providers.items() if value == hopsapi.PROVIDER_HOPSAPI}
+        hop_results = [row for row in results if str(row.get("task_key")) in hop_keys]
+        hop_failures = [row for row in failures if str(row.get("task_key")) in hop_keys]
+        for failure in hop_failures:
+            path = resolve(failure["transaction"])
+            if not path.is_file():
+                failure["status"] = "submit_failed_before_intent"
+                failure["credit"] = 0
+                failure["credit_status"] = "NOT_CHARGED_NO_INTENT_RECORDED"
+                continue
+            row = json.loads(path.read_text(encoding="utf-8"))
+            if row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id"):
+                failure["task_id"] = row["task_id"]
+                failure["credit_status"] = "BOUND_TASK_RECEIPT_RECOVERY_REQUIRED"
+            elif row.get("state") in {"VERIFIED_ZERO_RETRYABLE", "VERIFIED_ZERO_NO_REMOTE_TASK"}:
+                failure["credit"] = 0
+                failure["credit_status"] = "NOT_CHARGED_RETRYABLE"
+            else:
+                failure["credit_status"] = str(row.get("state") or "UNKNOWN")
+        hopsapi_summary = {
+            "status": "PASS_BOUNDED", "provider": hopsapi.PROVIDER_HOPSAPI,
+            "method": "HOPSAPI_PER_TASK_COST_RECORDED_AT_SETTLEMENT",
+            "newly_bound_task_ids": sorted(str(row["task_id"]) for row in hop_results
+                                           if row.get("task_id") and not row.get("recovered_from_transaction")),
+            "estimated_credits": sum(estimated_video_credits(task) for task in tasks
+                                     if str(task.get("task_key")) in {str(r.get("task_key")) for r in hop_results
+                                                                      if not r.get("recovered_from_transaction")}),
+            "charged_credits": None,
+            "note": "cost is known only at status 2; poll_giggle_submit_report.py writes provider_cost_credits "
+                    "onto each transaction and nalu_budget_ledger.py counts it; until then the estimate is exposure",
+            "failure_states": {str(f.get("task_key")): f.get("credit_status") for f in hop_failures},
+        }
+        results_for_giggle = [row for row in results if str(row.get("task_key")) not in hop_keys]
+        failures_for_giggle = [row for row in failures if str(row.get("task_key")) not in hop_keys]
+        if not results_for_giggle and not failures_for_giggle and len(hop_keys) == len(tasks):
+            credit = hopsapi_summary
+            ambiguity = ("NO_AMBIGUOUS_SUBMISSIONS" if not hop_failures else
+                         "HOPSAPI_PER_ATTEMPT_CLASSIFIED")
+    else:
+        results_for_giggle, failures_for_giggle = results, failures
+    if not args.precheck_only and credit is None:
+        all_results, failures_all = results, failures
+        results, failures = results_for_giggle, failures_for_giggle
         newly_bound = sum(not row.get("recovered_from_transaction") for row in results)
         # A scope-gate block happens before any intent or POST, so it can never own a pay row.
         maximum = newly_bound + sum(row.get("state") != "submit_failed_before_intent" for row in failures)
@@ -1779,6 +2017,9 @@ def main() -> int:
             credit["unmapped_pay_row_count"] = matched - newly_bound
         ambiguity = classify_failures(failures, newly_bound, matched, transactions)
         atomic_json(out.parent / f"{out.stem}_credit_statement.json", credit)
+        results, failures = all_results, failures_all
+        if hopsapi_summary is not None:
+            credit = {**credit, "hopsapi": hopsapi_summary}
     report = {
         "schema": "qingshan.giggle_video_batch_submit.v2", "episode": manifest.get("episode"),
         "manifest": portable(manifest_path), "manifest_sha256": sha256(manifest_path), "recorded_at": utc_now(),
@@ -1792,6 +2033,8 @@ def main() -> int:
         "failures": sorted(failures, key=lambda row: row["task_key"]), "credit_reconciliation": credit,
         "ambiguity_resolution": ambiguity, "duplicate_submit_policy": "TASK_FINGERPRINT_DURABLE_TRANSACTION_GUARD",
     }
+    if hopsapi.PROVIDER_HOPSAPI in set(task_providers.values()):
+        report["video_providers"] = task_providers
     atomic_json(out, report)
     print(json.dumps({key: report[key] for key in ("status", "submitted", "precheck_pass", "failed")}, ensure_ascii=False))
     return 0 if report["status"] == "PASS" else 2

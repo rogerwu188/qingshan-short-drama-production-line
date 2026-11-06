@@ -39,8 +39,10 @@
   "env_override": "NALU_WRITER_CAPABILITY",
   "env_values_allowed": [
     "on",
-    "off"
+    "off",
+    "new_series"
   ],
+  "env_new_series_note": "new_series: a series started after this capability existed (its E01-E13 are not the sealed ones); selects WRITER_CAPABILITY_V1 for every episode of that runtime",
   "inputs": {
     "arc_ledger": {
       "required": true,

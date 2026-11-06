@@ -31,6 +31,13 @@
 #
 #   paid_stage.sh --check <EPISODE>            print the budget position, spend nothing
 #
+#   paid_stage.sh <EPISODE> --isolate-reference <TASK_KEY>
+#       Single-reference HopsAPI probes (low quality) for ONE S5 task whose request settled as the
+#       zero-cost 424, through the S5 paid step (order, budget reservation, durable store); a reference
+#       refused deterministically while others pass is declared in
+#       $NALU_RUNTIME_ROOT/preproduction/<EP>/provider_reference_exclusions.json.
+#       Free plan: nalu_pipeline.py isolate-reference --episode <EP> --task-key <KEY>   (no --paid)
+#
 #   paid_stage.sh <EPISODE> --ab-variant <variant_manifest.json>
 #       ONE owner-approved A/B task written by tools/h3_constraint_ab_variant.py (--variant zh, the
 #       default, or camera_lock_strict), through the same
@@ -53,13 +60,19 @@ usage() {
   printf 'usage: paid_stage.sh <EPISODE> <FROM_STAGE> <UNTIL_STAGE>\n' >&2
   printf '       paid_stage.sh --check <EPISODE>\n' >&2
   printf '       paid_stage.sh <EPISODE> --ab-variant <variant_manifest.json>\n' >&2
+  printf '       paid_stage.sh <EPISODE> --isolate-reference <TASK_KEY>\n' >&2
   exit 2
 }
 
 [ $# -ge 2 ] || usage
 CHECK_ONLY=0
 AB_VARIANT=""
+ISOLATE_TASK=""
 if [ "$1" = "--check" ]; then CHECK_ONLY=1; EPISODE="$2"
+elif [ "$2" = "--isolate-reference" ]; then
+  [ $# -eq 3 ] && [ -n "$3" ] || usage
+  case "$3" in *[!A-Za-z0-9_.-]*|-*) usage ;; esac
+  EPISODE="$1"; ISOLATE_TASK="$3"
 elif [ "$2" = "--ab-variant" ]; then
   [ $# -eq 3 ] && [ -n "$3" ] || usage
   EPISODE="$1"; AB_VARIANT="$3"
@@ -82,14 +95,75 @@ if [ -z "${GIGGLE_API_KEY:-}" ] || [ -z "${NALU_PAID_ORDER_SEQ:-}" ]; then
   # shellcheck disable=SC1090
   . "$ENV_FILE"
   set +a
+elif [ -z "${HOPSAPI_API_KEY:-}" ] && [ -f "$ENV_FILE" ] && grep -q '^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}HOPSAPI_API_KEY=' "$ENV_FILE"; then
+  # The HopsAPI video key may sit in .env next to injected Giggle credentials.  Load only that one
+  # name (never echoed), so an injected deployment keeps its own values for everything else.
+  HOPSAPI_API_KEY="$(set -a; . "$ENV_FILE" >/dev/null 2>&1; printf '%s' "${HOPSAPI_API_KEY:-}")"
+  export HOPSAPI_API_KEY
 fi
 [ -x "$VENV" ] || die "no interpreter at $VENV (set NALU_VENV_PYTHON)"
+if [ -z "${HOPSAPI_API_KEY:-}" ]; then
+  # HopsAPI serves Codex AND the H3 video / gpt-image-2 calls with one key (owner 2026-11-05): when the engine
+  # .env does not carry HOPSAPI_API_KEY, reuse the Codex provider key if that provider is HopsAPI.  Never echoed.
+  HOPSAPI_API_KEY="$("$VENV" - <<'PY' 2>/dev/null
+import json, os, pathlib
+for root in (os.environ.get("NALU_RUNTIME_ROOT"), "~/nalu_runtime"):
+    if not root:
+        continue
+    p = pathlib.Path(root).expanduser() / "credentials" / "llm_provider.json"
+    try:
+        d = json.loads(p.read_text())
+    except (OSError, ValueError):
+        continue
+    if "hopsapi" in str(d.get("base_url") or "").lower() and d.get("api_key"):
+        print(d["api_key"], end="")
+        break
+PY
+)"
+  [ -n "$HOPSAPI_API_KEY" ] && export HOPSAPI_API_KEY || unset HOPSAPI_API_KEY
+fi
 
 for var in NALU_RUNTIME_ROOT NALU_ENGINE_ROOT NALU_SUPERVISOR_ORDERS_PATH NALU_PAID_ORDER_SEQ \
            NALU_LATEST_ORDER_SEQ NALU_LINE_OWNER_ID; do
   [ -n "${!var:-}" ] || die "$var is unset after sourcing $ENV_FILE; refusing to spend without it"
 done
+# Giggle still serves TTS (S4), BGM (S6) and the credit statements, so its key is always required.
+# MiniMax-H3 VIDEO goes through HopsAPI (owner 2026-10-29) and every IMAGE (S3 plates/sheets/cards,
+# S5 keyframes and redos) through HopsAPI gpt-image-2 (owner 2026-10-30) whenever the resolved
+# provider is hopsapi: a run that reaches S3, S5 or S6 then also needs HOPSAPI_API_KEY.
 [ -n "${GIGGLE_API_KEY:-}" ] || die "GIGGLE_API_KEY is unset; the paid submitter would fail after the gate passed"
+IMAGE_PROVIDER="$("$VENV" "$ENGINE_ROOT/tools/hopsapi_image_client.py" resolve-provider 2>/dev/null)" \
+  || die "could not resolve the image provider (NALU_IMAGE_PROVIDER / qingshan.json generation.image_provider)"
+export NALU_IMAGE_PROVIDER="$IMAGE_PROVIDER"
+VIDEO_PROVIDER="$("$VENV" "$ENGINE_ROOT/tools/hopsapi_video_client.py" resolve-provider 2>/dev/null)" \
+  || die "could not resolve the video provider (NALU_VIDEO_PROVIDER / qingshan.json generation.video_provider)"
+export NALU_VIDEO_PROVIDER="$VIDEO_PROVIDER"
+REACHES_S6=0
+if [ "${AB_VARIANT}" != "" ]; then REACHES_S6=1
+elif [ "$CHECK_ONLY" = 0 ] && [ -z "$ISOLATE_TASK" ]; then
+  case "$FROM_STAGE:$UNTIL_STAGE" in
+    S[1-6]:S[6-8]|S6:*|*:S6) REACHES_S6=1 ;;
+  esac
+fi
+if [ "$VIDEO_PROVIDER" = "hopsapi" ] && [ "$REACHES_S6" = 1 ]; then
+  [ -n "${HOPSAPI_API_KEY:-}" ] || die "HOPSAPI_API_KEY is unset but the video provider is hopsapi; S6 would fail after the gate passed"
+fi
+# S3 (identity plates / sheets / cards) or S5 (keyframes, start frames, redos) inside FROM..UNTIL?
+# S6 also counts: its Q2 controlled redo can generate a unit's own keyframe.
+REACHES_IMAGES=0
+if [ -n "$ISOLATE_TASK" ]; then REACHES_IMAGES=1
+elif [ "$CHECK_ONLY" = 0 ] && [ "${AB_VARIANT}" = "" ]; then
+  from_n="${FROM_STAGE#S}"; until_n="${UNTIL_STAGE#S}"
+  case "$from_n$until_n" in *[!0-9]*|"") ;; *)
+    for n in 3 5 6; do
+      if [ "$from_n" -le "$n" ] && [ "$until_n" -ge "$n" ]; then REACHES_IMAGES=1; fi
+    done ;;
+  esac
+fi
+if [ "$IMAGE_PROVIDER" = "hopsapi" ] && [ "$REACHES_IMAGES" = 1 ]; then
+  [ -n "${HOPSAPI_API_KEY:-}" ] || die "HOPSAPI_API_KEY is unset but the image provider is hopsapi; S3/S5 would fail after the gate passed"
+fi
+echo "paid_stage: video provider $VIDEO_PROVIDER, image provider $IMAGE_PROVIDER"
 
 export PYTHONPATH="$ENGINE_ROOT:$ENGINE_ROOT/lines/nalu/runtime/tools${PYTHONPATH:+:$PYTHONPATH}"
 export QINGSHAN_VOICE_REGISTRY="${QINGSHAN_VOICE_REGISTRY:-$NALU_RUNTIME_ROOT/runtime/voice_registry.json}"
@@ -117,6 +191,14 @@ print(("OK " if ok else "NO ") + why)' "$NALU_SUPERVISOR_ORDERS_PATH" "$NALU_LAT
   where the deployment keeps it ($ENV_FILE or the service environment).
   No POST was attempted." ;;
   esac
+fi
+
+# GET-only HopsAPI reconciliation of RESPONSE_LOST creates BEFORE the budget preflight refuses them (lab E12):
+# the executor shell carries no provider key, so this entry is the only place it can run.  Never POSTs.
+RECON="$ENGINE_ROOT/tools/hopsapi_usage.py"
+if [ -f "$RECON" ] && [ -n "${HOPSAPI_API_KEY:-}" ]; then
+  echo "paid_stage: HopsAPI GET-only reconciliation of lost creates for $EPISODE"
+  "$VENV" "$RECON" reconcile "$EPISODE" >/dev/null 2>&1 || echo "paid_stage: reconciliation skipped/failed (non-fatal); budget check decides" >&2
 fi
 
 LEDGER="$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_budget_ledger.py"
@@ -147,6 +229,13 @@ if [ -n "$AB_VARIANT" ]; then
   echo "paid_stage: $EPISODE A/B variant $AB_VARIANT --paid (order seq=$NALU_PAID_ORDER_SEQ, owner=$NALU_LINE_OWNER_ID)"
   "$VENV" "$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_pipeline.py" ab-variant \
     --episode "$EPISODE" --variant "$AB_VARIANT" --paid
+  exit $?
+fi
+
+if [ -n "$ISOLATE_TASK" ]; then
+  echo "paid_stage: $EPISODE isolate-reference $ISOLATE_TASK --paid (order seq=$NALU_PAID_ORDER_SEQ, owner=$NALU_LINE_OWNER_ID)"
+  "$VENV" "$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_pipeline.py" isolate-reference \
+    --episode "$EPISODE" --task-key "$ISOLATE_TASK" --paid
   exit $?
 fi
 

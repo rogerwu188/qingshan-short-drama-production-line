@@ -74,6 +74,7 @@ from tools.initial_asset_library import (  # noqa: E402
 )
 from tools.visual_culture_contract import DEFAULT_CONTRACT as QINGSHAN_VISUAL_CULTURE_CONTRACT, prompt_block_zh as qingshan_visual_prompt_block  # noqa: E402
 from tools.visual_culture_contract import ACTIVE_FROM_EPISODE as QINGSHAN_ACTIVE_FROM_EPISODE  # noqa: E402
+from tools.visual_culture_contract import authored_world_prompt_block, is_authored_world  # noqa: E402
 
 #: 2026-10-16 (miniPC 《画皮》 E01 CODE_BLOCKER): every identity plate got the qingshan Northern-Song
 #: wuxia block, so a late-Ming/Qing story was asked for Song dress and lamellar armour.  The qingshan
@@ -95,11 +96,86 @@ NEUTRAL_PERIOD_PROMPT_BLOCK_ZH = (
 )
 
 
-def culture_lock_for(episode: str) -> tuple[dict[str, Any], str]:
+#: Fields an authored contract falls back to when the writer left one empty: structurally complete for the
+#: submitter's validator, and naming no culture (an authored world brings its own; holmes lab E11 2026-10-31).
+AUTHORED_WORLD_FALLBACK_CONTRACT: dict[str, Any] = {
+    "schema": QINGSHAN_VISUAL_CULTURE_CONTRACT["schema"],
+    "status": "LOCKED",
+    "profile_id": "NALU_AUTHORED_WORLD_FROM_CONTRACT",
+    "decision_owner": "WRITER_DIRECTOR",
+    "decision_basis": "the episode script and generation contract's own world",
+    "source_ref": "WRITER_GENERATION_CONTRACT",
+    "era_lock": "AUTHORED_WORLD",
+    "story_world": "the world, era and region the episode script states",
+    "production_design": "architecture, wardrobe and props of the world the episode script states",
+    "armor_tradition": "only when the script states it, in the script's own world",
+    "palette_system": {
+        "base": "natural, muted palette of the stated world",
+        "accent": "small narrative accents only",
+        "skin": "natural complexions as each character is described",
+    },
+    "lighting_language": "natural motivated light, soft highlight roll-off, shadow detail kept",
+    "image_texture": "live-action photographic realism, real materials",
+    "forbidden_influences": [
+        "drift into another era or culture", "game CG or concept-poster look", "black-gold fantasy poster light",
+        "teal-orange blockbuster grade", "unmotivated rim light", "visible text and watermarks",
+    ],
+}
+
+#: Legacy locks S3 appended before the authored world was honoured; stripped from an authored prompt.
+_LEGACY_LOCK_PREFIXES = ("【东方时代视觉锁】", "【东方视觉文化硬合同】")
+
+
+def _episode_number(episode: str) -> int | None:
     match = re.match(r"E(\d+)", str(episode or "").upper())
-    if match and int(match.group(1)) >= QINGSHAN_ACTIVE_FROM_EPISODE:
+    return int(match.group(1)) if match else None
+
+
+def culture_lock_for(episode: str, generation_contract: dict[str, Any] | None = None) -> tuple[dict[str, Any], str]:
+    """(row culture contract, prompt lock block) for an episode's identity plates.
+
+    The generation contract decides first: a declared authored world (era_lock AUTHORED_WORLD, or an English line
+    with no era_lock below ACTIVE_FROM_EPISODE) uses the writer's own visual_culture_contract and a lock derived
+    from it.  Otherwise the legacy choice by episode number stands (qingshan from ACTIVE_FROM_EPISODE on, the
+    East-Asian neutral period lock below it).
+    """
+    number = _episode_number(episode)
+    gc = generation_contract if isinstance(generation_contract, dict) else {}
+    vcc = gc.get("visual_culture_contract") if isinstance(gc.get("visual_culture_contract"), dict) else None
+    language = gc.get("dialogue_language")
+    if is_authored_world(vcc, dialogue_language=language, episode_number=number):
+        authored = {key: value for key, value in (vcc or {}).items() if value not in (None, "", [], {})}
+        palette = {**AUTHORED_WORLD_FALLBACK_CONTRACT["palette_system"],
+                   **{k: v for k, v in (authored.get("palette_system") or {}).items() if str(v or "").strip()}}
+        contract = {**AUTHORED_WORLD_FALLBACK_CONTRACT, **authored, "palette_system": palette,
+                    "era_lock": "AUTHORED_WORLD"}
+        if len(contract.get("forbidden_influences") or []) < 6:
+            contract["forbidden_influences"] = list(dict.fromkeys(
+                list(contract.get("forbidden_influences") or [])
+                + AUTHORED_WORLD_FALLBACK_CONTRACT["forbidden_influences"]))
+        lang = "en" if str(language or "").strip().lower().startswith("en") else "zh"
+        return contract, authored_world_prompt_block(contract, language=lang)
+    if number is not None and number >= QINGSHAN_ACTIVE_FROM_EPISODE:
         return QINGSHAN_VISUAL_CULTURE_CONTRACT, qingshan_visual_prompt_block(QINGSHAN_VISUAL_CULTURE_CONTRACT)
     return NEUTRAL_PERIOD_CONTRACT, NEUTRAL_PERIOD_PROMPT_BLOCK_ZH
+
+
+def apply_culture_lock(row: dict[str, Any], block: str) -> None:
+    """Append the lock to the row's prompt once; an authored lock also drops a stale legacy East-Asian lock."""
+    prompt_path = Path(row.get("prompt_file") or "")
+    if not prompt_path.is_file():
+        return
+    text = prompt_path.read_text(encoding="utf-8")
+    updated = text
+    if not block.startswith(_LEGACY_LOCK_PREFIXES):
+        lines = [line for line in updated.splitlines() if not line.startswith(_LEGACY_LOCK_PREFIXES)]
+        updated = "\n".join(lines) + ("\n" if updated.endswith("\n") else "")
+    if block not in updated:
+        updated = updated.rstrip() + "\n" + block + "\n"
+    if updated != text:
+        prompt_path.write_text(updated, encoding="utf-8")
+        row["prompt_sha256"] = sha256_file(prompt_path)
+
 
 SCHEMA = "nalu.identity_card_bootstrap.v1"
 PLAN_SCHEMA = "qingshan.character_asset_plan.v1"
@@ -669,7 +745,7 @@ def base_plate_for(subject_id: str, plates_dir: Path | None, episode: str) -> Pa
     """
     if plates_dir is None or not plates_dir.is_dir():
         return None
-    pattern = re.compile(rf"^{re.escape(episode)}_{re.escape(subject_id)}_[0-9a-fA-F-]{{8,}}\.png$")
+    pattern = re.compile(rf"^{re.escape(episode)}_{re.escape(subject_id)}_(?:[0-9a-fA-F-]{{8,}}|tsk_[0-9A-Za-z_]{{8,}})\.png$")
     matches = sorted(p for p in plates_dir.iterdir() if pattern.match(p.name))
     return matches[-1] if matches else None
 
@@ -683,6 +759,7 @@ def build_plan(
     gate_report_path: Path,
     authorization_ref: str,
     plates_dir: Path | None = None,
+    generation_contract: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     """Rows for the character-asset submitter.
 
@@ -846,19 +923,14 @@ def build_plan(
         "deferred_view_rows": deferred,
         "new_asset_groups": rows,
     }
-    contract, block = culture_lock_for(episode)
+    contract, block = culture_lock_for(episode, generation_contract)
     for row in plan["new_asset_groups"]:
         # The submitter validates the culture contract on each transport row,
         # not only inside the asset-requirements specification.  Carry the
-        # episode's culture lock (qingshan from ACTIVE_FROM_EPISODE on, else the
-        # neutral period lock) onto migrated prop/character rows.
+        # episode's culture lock (the writer's authored world when declared, else
+        # qingshan from ACTIVE_FROM_EPISODE on, else the neutral period lock).
         row.setdefault("visual_culture_contract", dict(contract))
-        prompt_path = Path(row.get("prompt_file") or "")
-        if prompt_path.is_file():
-            text = prompt_path.read_text(encoding="utf-8")
-            if block not in text:
-                prompt_path.write_text(text.rstrip() + "\n" + block + "\n", encoding="utf-8")
-                row["prompt_sha256"] = sha256_file(prompt_path)
+        apply_culture_lock(row, block)
     return plan, unbuildable, deferred
 
 
@@ -1033,6 +1105,7 @@ def main() -> int:
         gate_report_path=gate_report_path,
         authorization_ref=args.authorization_ref.strip(),
         plates_dir=Path(args.plates_dir) if args.plates_dir else None,
+        generation_contract=contract,
     )
     # CAMERA_GRAMMAR_V1: one multi-view reference sheet per character (+ one per declared state variant), once
     # per series; nothing for any other contract (character_reference_sheet.active).
@@ -1043,14 +1116,10 @@ def main() -> int:
         episode=episode, prompt_dir=prompt_dir, plates_dir=Path(args.plates_dir) if args.plates_dir else None,
         new_subject_ids={s["subject_id"] for s in subjects if s["subject_id"] not in reused_subjects})
     if sheet_rows or sheet_deferred or sheet_skipped:
-        culture, block = culture_lock_for(episode)
+        culture, block = culture_lock_for(episode, contract)
         for row in sheet_rows:
             row["visual_culture_contract"] = dict(culture)
-            prompt_path = Path(row["prompt_file"])
-            text = prompt_path.read_text(encoding="utf-8")
-            if block not in text:
-                prompt_path.write_text(text.rstrip() + "\n" + block + "\n", encoding="utf-8")
-                row["prompt_sha256"] = sha256_file(prompt_path)
+            apply_culture_lock(row, block)
         plan["new_asset_groups"].extend(sheet_rows)
         plan["maximum_new_submissions"] = len(plan["new_asset_groups"])
         plan["deferred_view_rows"] = list(plan.get("deferred_view_rows") or []) + sheet_deferred

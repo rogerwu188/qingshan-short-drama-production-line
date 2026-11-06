@@ -30,7 +30,22 @@ class BandTests(unittest.TestCase):
         self.assertEqual(vcg.band_overlap_ratio([100, 140], [140, 200]), 0.0)
 
 
-class PrecheckTests(unittest.TestCase):
+class _OldF0Rule:
+    """These tests pin the line owner's original 40 Hz rule (NALU_VOICE_COPRESENT_RULE=F0_40HZ); the default
+    since 2026-11-04 is TIMBRE_DISTINCT."""
+
+    def setUp(self):
+        import os
+        from unittest import mock
+        self._env = mock.patch.dict(os.environ, {"NALU_VOICE_COPRESENT_RULE": "F0_40HZ"})
+        self._env.start()
+        self.addCleanup(self._env.stop)
+        super_setup = getattr(super(), "setUp", None)
+        if super_setup:
+            super_setup()
+
+
+class PrecheckTests(_OldF0Rule, unittest.TestCase):
     def test_pass_when_bands_distinct_and_voices_unique(self):
         result = vcg.precheck(cast(), [["CHAR-A", "CHAR-B", "CHAR-C"]])
         self.assertEqual(result["status"], "PASS")
@@ -206,7 +221,7 @@ class CliTests(unittest.TestCase):
             self.assertIn("postcheck", report["measurements"])
 
 
-class NewVoiceDistinctnessTest(unittest.TestCase):
+class NewVoiceDistinctnessTest(_OldF0Rule, unittest.TestCase):
     """Roger 2026-09-28: a newly cast voice must stand clearly apart from the show's voices."""
 
     @staticmethod
@@ -248,3 +263,19 @@ class NewVoiceDistinctnessTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TimbreDistinctDefaultTest(unittest.TestCase):
+    def test_default_keeps_pitch_findings_as_advisories_but_fails_a_shared_voice(self):
+        import os
+        from unittest import mock
+        cast = {"schema": vcg.CAST_SCHEMA, "characters": {
+            "A": {"voice_id": "v1", "f0_band_hz": [200, 300], "rate_cps_baseline": 4.0},
+            "B": {"voice_id": "v2", "f0_band_hz": [205, 305], "rate_cps_baseline": 4.0}}}
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("NALU_VOICE_COPRESENT_RULE", None)
+            res = vcg.precheck(cast, [["A", "B"]], new_characters=["B"])
+            self.assertEqual(res["failures"], [])
+            self.assertTrue(any(a.startswith("F0_MEDIAN_SEPARATION_LT_40HZ") for a in res["advisories"]))
+            cast["characters"]["B"]["voice_id"] = "v1"
+            self.assertIn("VOICE_ID_SHARED_IN_SCENE:A:B", vcg.precheck(cast, [["A", "B"]])["failures"])

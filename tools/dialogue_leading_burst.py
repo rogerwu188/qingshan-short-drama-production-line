@@ -29,9 +29,9 @@ from typing import Any
 SCHEMA = "nalu.dialogue_leading_burst.v1"
 SAMPLE_RATE = 16000
 WINDOW_SECONDS = 0.01
-BURST_MAX_SECONDS = 0.25
+BURST_MAX_SECONDS = 0.5  # H3 bursts up to ~0.4 s seen (lab E12 long-take Take B)
 BURST_DBFS = -30.0
-SILENCE_DBFS = -55.0
+SILENCE_DBFS = -48.0  # H3 room tone after a burst can sit at -55..-60 dBFS (lab E12 long-take)
 SILENCE_MIN_SECONDS = 0.25
 ONSET_DBFS = -40.0
 FADE_OUT_SECONDS = 0.02

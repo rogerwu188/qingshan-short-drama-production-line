@@ -258,6 +258,20 @@ class H3VisualCultureScopeTests(unittest.TestCase):
                                                   "visual_culture_contract": {**world, "era_lock": "EAST_ASIAN_PERIOD"}}),
                          H3_NEUTRAL_PERIOD_LOCK)
 
+    def test_declared_authored_world_wins_over_high_episode_number(self):
+        # an AUTHORED_WORLD contract at E54+ rendered "Look: EAST-ASIAN PERIOD VISUAL LOCK: Northern Song ..."
+        from tools.h3_provider_prompt_renderer import H3_AUTHORED_WORLD_LOCK, h3_visual_culture_block
+        from tools.sd2_provider_prompt_renderer import _vc_prompt_block_for_unit
+        from tools.visual_culture_contract import DEFAULT_CONTRACT, prompt_block_en
+        world = {**DEFAULT_CONTRACT, "profile_id": "VICTORIAN-LONDON-1888", "era_lock": "AUTHORED_WORLD"}
+        unit = {"unit_id": "E64-VU-001", "dialogue_language": "en", "visual_culture_contract": world}
+        self.assertEqual(h3_visual_culture_block(unit), H3_AUTHORED_WORLD_LOCK)
+        self.assertEqual(_vc_prompt_block_for_unit(unit), "")
+        # undeclared E54+ lines (Chinese or English) keep the qingshan block
+        for lang in ("zh", "en"):
+            legacy = {"unit_id": "E64-VU-001", "dialogue_language": lang, "visual_culture_contract": DEFAULT_CONTRACT}
+            self.assertEqual(h3_visual_culture_block(legacy), prompt_block_en(DEFAULT_CONTRACT))
+
 
 # --------------------------------------------------------------------------- #
 # K145: explicit video-model selection, no silent default, refused before POST.

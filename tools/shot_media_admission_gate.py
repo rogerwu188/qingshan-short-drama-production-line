@@ -446,6 +446,14 @@ def precheck_submission_inputs(
             reference_semantics_failures.append(
                 "REFERENCE_IDENTITY_PLATE_SHARED_BY:" + ",".join(sorted(entities))
             )
+    # Provider reference exclusion (tools/provider_reference_exclusions.py): a prop plate the provider
+    # refuses may be declared transmitted=false with a reason; its binding still names the prop, so it is
+    # bound by declaration, not missing.  Identity plates can never be excluded.
+    for row in task.get("reference_bindings") or []:
+        if (isinstance(row, dict) and row.get("transmitted") is False
+                and str(row.get("transport_excluded_reason") or "").strip()
+                and (str(row.get("role") or "").upper() in PROP_ROLES or str(row.get("entity_id") or "").startswith("PROP-"))):
+            bound_props.add(str(row.get("entity_id") or ""))
     missing_characters = sorted(characters - bound_characters)
     missing_props = sorted(props - bound_props)
     catalog = asset_catalog or task.get("anchor_asset_catalog") or {}

@@ -34,6 +34,7 @@ try:
     from tools.h3_provider_english_contract import (
         H3_CONSTRAINT_ZH,
         CAMERA_LOCK_FROZEN_CLAUSE,
+        redo_finding_sentences,
         strict_camera_lock_applies,
         h3_constraint_language,
         require_h3_provider_english_contract,
@@ -48,6 +49,7 @@ except ModuleNotFoundError:
     from h3_provider_english_contract import (
         H3_CONSTRAINT_ZH,
         CAMERA_LOCK_FROZEN_CLAUSE,
+        redo_finding_sentences,
         strict_camera_lock_applies,
         h3_constraint_language,
         require_h3_provider_english_contract,
@@ -667,8 +669,12 @@ def _strict_lock_clause(unit: dict[str, Any], plan: dict[str, Any], camera_plans
     unit's camera line also freezes the frame size; h3_camera_lock "standard" opts out; else ""."""
     locked = one_take and bool(camera_plans) and all(
         str((p or {}).get("motion_family") or "STATIC").upper() in {"STATIC", "LOCKED"} for p in camera_plans)
-    applies = strict_camera_lock_applies(unit, stamped=director_active(unit, plan), locked_single_take=locked)
-    return "; " + CAMERA_LOCK_FROZEN_CLAUSE if applies and locked else ""
+    stamped = director_active(unit, plan)
+    applies = strict_camera_lock_applies(unit, stamped=stamped, locked_single_take=locked)
+    clause = "; " + CAMERA_LOCK_FROZEN_CLAUSE if applies and locked else ""
+    if stamped and locked:  # engine redo after an objective Q2 push-in FAIL (q2_auto_redo, owner 2026-10-29)
+        clause += "".join("; " + v[0].lower() + v[1:].rstrip(".") for v in redo_finding_sentences(unit))
+    return clause
 
 
 _ONE_TAKE_CLAUSE = "; " + ONE_TAKE[0].lower() + ONE_TAKE[1:].rstrip(".")
@@ -1099,14 +1105,17 @@ H3_AUTHORED_WORLD_LOCK = (
 def authored_world(unit: dict[str, Any]) -> bool:
     """True when the H3 lock must follow the writer's own world instead of the East-Asian period lock.
 
-    ``visual_culture_contract.era_lock`` decides when authored ("AUTHORED_WORLD" / "EAST_ASIAN_PERIOD");
-    otherwise an English-dialogue line is an authored world and every Chinese line keeps the period lock.
+    ``visual_culture_contract.era_lock`` decides when authored ("AUTHORED_WORLD" / "EAST_ASIAN_PERIOD"), at
+    any episode; otherwise an English-dialogue line below ACTIVE_FROM_EPISODE is an authored world and every
+    other line keeps its legacy lock (visual_culture_contract.is_authored_world).
     """
-    vcc = unit.get("visual_culture_contract") if isinstance(unit.get("visual_culture_contract"), dict) else {}
-    mode = str(vcc.get("era_lock") or "").strip().upper()
-    if mode in {"AUTHORED_WORLD", "EAST_ASIAN_PERIOD"}:
-        return mode == "AUTHORED_WORLD"
-    return str(unit.get("dialogue_language") or "zh").strip().lower().startswith("en")
+    try:
+        from tools.visual_culture_contract import is_authored_world
+    except ImportError:  # pragma: no cover - direct-script import path
+        from visual_culture_contract import is_authored_world
+    match = re.search(r"(?:^|[^A-Z])E(\d+)", str(unit.get("episode") or unit.get("unit_id") or "").upper())
+    return is_authored_world(unit.get("visual_culture_contract"), dialogue_language=unit.get("dialogue_language"),
+                             episode_number=int(match.group(1)) if match else None)
 
 
 def h3_visual_culture_block(unit: dict[str, Any]) -> str:
@@ -1114,10 +1123,14 @@ def h3_visual_culture_block(unit: dict[str, Any]) -> str:
         from tools.visual_culture_contract import ACTIVE_FROM_EPISODE
     except ImportError:  # pragma: no cover - direct-script import path
         from visual_culture_contract import ACTIVE_FROM_EPISODE
+    # the declared world wins over the episode number: an AUTHORED_WORLD contract at E54+ used to get
+    # "Look: EAST-ASIAN PERIOD VISUAL LOCK: Northern Song ..." in a stamped English prompt
+    if authored_world(unit):
+        return H3_AUTHORED_WORLD_LOCK
     match = re.search(r"(?:^|[^A-Z])E(\d+)", str(unit.get("episode") or unit.get("unit_id") or "").upper())
     if match and int(match.group(1)) >= ACTIVE_FROM_EPISODE:
         return visual_culture_prompt_block(unit.get("visual_culture_contract"))
-    return H3_AUTHORED_WORLD_LOCK if authored_world(unit) else H3_NEUTRAL_PERIOD_LOCK
+    return H3_NEUTRAL_PERIOD_LOCK
 
 
 def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, dict[str, Any]]:

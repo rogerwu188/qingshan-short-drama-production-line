@@ -5,6 +5,8 @@ Generalised from the one-off ingest script a production line used for its first 
 exactly what that line did by hand, nothing more:
 
 * detect the encoding (UTF-8 / UTF-8-BOM / GB18030 / GBK), decode once, never touch the original file;
+  a delivered .docx / .epub / .html / .htm / .md file is read as text first (standard library only; owner
+  2026-11-05: the line owner may send the source file through the StoryClaw agent);
 * split by chapter heading (default regex ``^第[0-9一二三四五六七八九十百千零〇两]+章``); when the same
   chapter number appears more than once (e-book dumps repeat headings and emit stubs) the LONGEST body wins;
 * drop advertisement / site-header lines matching ``--drop-regex``;
@@ -45,6 +47,42 @@ def decode(raw: bytes) -> tuple[str, str]:
         except UnicodeDecodeError:
             continue
     raise SystemExit("cannot decode input as UTF-8 / GB18030 / GBK; convert it first")
+
+
+def _xml_text(xml: str, block_tags: str) -> str:
+    """Plain text of an XML/HTML document: a newline after every block element, entities unescaped."""
+    import html as _html
+    xml = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", "", xml)
+    xml = re.sub(rf"(?i)</({block_tags})>|<br\s*/?>", "\n", xml)
+    text = _html.unescape(re.sub(r"<[^>]+>", "", xml))
+    return re.sub(r"\n[ \t]*\n+", "\n", text)
+
+
+def read_delivered(src: Path) -> tuple[str, str]:
+    """(text, how) for a delivered .txt/.md, .docx, .epub or .html file."""
+    import zipfile
+    suffix = src.suffix.lower()
+    if suffix == ".docx":
+        with zipfile.ZipFile(src) as z:
+            xml = z.read("word/document.xml").decode("utf-8")
+        return _xml_text(xml.replace("<w:tab/>", "\t"), "w:p"), "docx"
+    if suffix == ".epub":
+        with zipfile.ZipFile(src) as z:
+            opf_path = re.search(r'full-path="([^"]+)"', z.read("META-INF/container.xml").decode("utf-8")).group(1)
+            opf = z.read(opf_path).decode("utf-8")
+            base = opf_path.rsplit("/", 1)[0] + "/" if "/" in opf_path else ""
+            items = dict(re.findall(r'<item[^>]*?id="([^"]+)"[^>]*?href="([^"]+)"', opf))
+            items.update({i: h for h, i in re.findall(r'<item[^>]*?href="([^"]+)"[^>]*?id="([^"]+)"', opf)})
+            order = re.findall(r'<itemref[^>]*?idref="([^"]+)"', opf)
+            parts = [_xml_text(z.read(base + items[i]).decode("utf-8", "ignore"), "p|div|h[1-6]|li")
+                     for i in order if i in items]
+        return "\n".join(parts), "epub"
+    if suffix in (".html", ".htm"):
+        text, enc = decode(src.read_bytes())
+        return _xml_text(text, "p|div|h[1-6]|li"), f"html:{enc}"
+    if suffix == ".pdf":
+        raise SystemExit("PDF is not read directly: convert it to .txt first (e.g. pdftotext -layout), then intake the .txt")
+    return decode(src.read_bytes())
 
 
 def cn_to_int(token: str) -> int | None:
@@ -112,7 +150,7 @@ def split_chapters(text: str, heading_re: re.Pattern[str], drop_re: re.Pattern[s
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--input", required=True, help="delivered text file (never modified)")
+    ap.add_argument("--input", required=True, help="delivered .txt/.md/.docx/.epub/.html file (never modified)")
     ap.add_argument("--work", required=True, help="work title, used as the source folder name")
     ap.add_argument("--out", required=True, help="runtime sources root, e.g. $RUNTIME_ROOT/sources")
     ap.add_argument("--author", default="")
@@ -127,7 +165,7 @@ def main() -> int:
     if not src.is_file():
         raise SystemExit(f"input not found: {src}")
     raw = src.read_bytes()
-    text, encoding = decode(raw)
+    text, encoding = read_delivered(src)
     heading_re = re.compile(args.heading_regex, re.M)
     drop_re = re.compile(args.drop_regex) if args.drop_regex else None
     chapters = split_chapters(text, heading_re, drop_re)

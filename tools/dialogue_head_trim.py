@@ -16,6 +16,9 @@ words are a false start of the line, not extra speech).  The cut is never inside
 unit shorter than ``MIN_UNIT_SECONDS`` and never runs into a later shot; when the line start cannot be
 matched confidently the unit stays untrimmed and the reason is recorded.
 
+A monologue unit (one speaker's consecutive lines in one take, owner 2026-11-01) is matched on its FIRST
+line only: the cut is before that line, never between its lines.
+
 Pure functions only: the S7 caller supplies the contract, grouping plan, unit ASR (with words), clip
 durations and the tail-trim report, passes the plan to the AgentCut build (``--dialogue-head-trim``)
 and shifts the unit ASR (``shift_unit_asr``) so captions, V.O., BGM and the release timeline follow.

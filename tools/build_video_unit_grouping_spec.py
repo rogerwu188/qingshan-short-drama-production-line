@@ -11,6 +11,11 @@ import re
 from pathlib import Path
 from typing import Any
 
+try:
+    from tools import speaking_unit_duration as _sud
+except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
+    import speaking_unit_duration as _sud  # type: ignore
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_BEATS_PER_UNIT: int | None = 3
@@ -55,10 +60,11 @@ def duration_cost(duration: float) -> float:
     return 1000.0
 
 
-# CAMERA_GRAMMAR_V1 (line owner 2026-10-22, tightened 2026-10-26): every authored cut is a unit boundary
-# (authored_cut), a spoken line stands alone in its unit, and no unit shows more than two distinct visible
-# subjects, so the provider never performs a scripted cut on its own.  Only an authored continuous take (or
-# an unauthored boundary with unchanged cast) shares a unit.
+# CAMERA_GRAMMAR_V1 (line owner 2026-10-22, tightened 2026-10-26, monologue groups 2026-11-01): every authored
+# cut is a unit boundary (authored_cut), a speaking unit holds only on-screen lines of ONE speaker -- a single line,
+# or that speaker's consecutive lines in one unchanged locked setup grouped up to 12 s (monologue_continues) -- and
+# no unit shows more than two distinct visible subjects, so the provider never performs a scripted cut on its own.
+# Only an authored continuous take (or an unauthored boundary with unchanged cast) shares a unit.
 CUT_MODES = {"MOTIVATED_CUT", "REACTION_CUT", "MATCH_CUT", "HARD_CUT"}
 MAX_VISIBLE_SUBJECTS = 2
 PROVIDER_MAX_SECONDS = 15.0  # MiniMax-H3 / SD2 request window (video_execution_plan_compiler)
@@ -74,7 +80,11 @@ def cut_grammar_active(manifest: dict[str, Any]) -> bool:
 
 
 def provider_min_seconds(model: str | None) -> float:
-    return 3.0 if str(model or "").strip().lower() in {"minimax-h3", "h3"} else 4.0
+    """Shortest provider request.  Only CAMERA_GRAMMAR_V1 plans call this.  MiniMax-H3 was 3 s on Giggle;
+    the HopsAPI router (owner 2026-10-29) accepts integer 4-15 s, so every stamped unit -- speaking units
+    4-5 s, silent inserts -- is at least 4 s (a shorter authored shot is PROVIDER_MINIMUM_PADDED to 4 s and
+    the S7 head/tail trim removes the handle)."""
+    return 4.0
 
 
 def visible_subjects(shot: dict[str, Any]) -> set[str]:
@@ -109,7 +119,36 @@ def on_screen_speaking(shot: dict[str, Any]) -> bool:
 
 
 #: a speaking unit runs one short line, at most this long (tools/speaking_unit_duration.MAX_SECONDS)
-SPEAKING_UNIT_MAX_SECONDS = 5.0
+SPEAKING_UNIT_MAX_SECONDS = float(_sud.MAX_SECONDS)
+#: one speaker's consecutive lines group into one take up to this long (owner 2026-11-01, lab E12 long take)
+MONOLOGUE_GROUP_MAX_SECONDS = float(_sud.GROUP_MAX_SECONDS)
+
+
+def speaker_id(shot: dict[str, Any]) -> str:
+    """The on-screen speaker of a shot's line (lip owner, else dialogue speaker id, else the ``Name：`` prefix)."""
+    spec = shot.get("prompt_spec") or {}
+    role = spec.get("role_semantic_disambiguation") or {}
+    value = str(role.get("lip_owner_id") or role.get("dialogue_speaker_id") or "").strip()
+    if value:
+        return value
+    raw = str(spec.get("dialogue") or shot.get("dialogue") or "").strip()
+    return raw.partition("：")[0].strip() if "：" in raw else ""
+
+
+def monologue_continues(previous: dict[str, Any], shot: dict[str, Any]) -> bool:
+    """CAMERA_GRAMMAR_V1 (owner 2026-11-01, lab E12: one continuous 12-14 s take of a speaker's consecutive lines
+    played far better than one shot per line): ``shot`` continues ``previous``'s take when both carry an on-screen
+    line of the same speaker, the cast is unchanged, no cut is authored between them and both keep the same
+    locked camera setup (tools/speaking_unit_duration.setup_key).  Anything else is a unit boundary."""
+    if not (on_screen_speaking(previous) and on_screen_speaking(shot)):
+        return False
+    if authored_cut(shot) or visible_subjects(previous) != visible_subjects(shot):
+        return False
+    who = speaker_id(previous)
+    if not who or who != speaker_id(shot):
+        return False
+    plans = [(s.get("prompt_spec") or {}).get("camera_plan") or {} for s in (previous, shot)]
+    return all(_sud.locked_setup(p) for p in plans) and _sud.setup_key(plans[0]) == _sud.setup_key(plans[1])
 
 
 def cast_changing_cut(previous: dict[str, Any], shot: dict[str, Any]) -> bool:
@@ -128,8 +167,11 @@ def cut_grammar_target(model: str | None) -> tuple[float, float, float]:
     return target_min, target_max, max(target_max, min(hmax, MULTI_SHOT_MAX_SECONDS))
 
 
-def _cut_grammar_cost(duration: float, shot_count: int, internal_cuts: int, model: str | None) -> float:
+def _cut_grammar_cost(duration: float, shot_count: int, internal_cuts: int, model: str | None,
+                      monologue: bool = False) -> float:
     provider_min = provider_min_seconds(model)
+    if monologue:  # one speaker's lines in one take (<= MONOLOGUE_GROUP_MAX_SECONDS): one unit is the goal
+        return 1.0
     target_min, target_max, multi_max = cut_grammar_target(model)
     cost = 20.0 * internal_cuts
     if shot_count > 1 and duration > multi_max:
@@ -228,6 +270,7 @@ def _partition_scene(
         subjects: set[str] = set()
         internal_cuts = 0
         speaking = False
+        monologue = False
         for start in range(end - 1, -1, -1):
             duration = round(duration + float(shots[start]["duration_seconds"]), 6)
             prompt_spec = shots[start].get("prompt_spec") or {}
@@ -236,9 +279,17 @@ def _partition_scene(
                 subjects |= visible_subjects(shots[start])
                 speaking = speaking or on_screen_speaking(shots[start])
                 if start < end - 1:
-                    # one unit = one take: never across an authored cut; a spoken line stands alone (no
-                    # silent shot, no second line in its unit).  Every condition only grows with the group.
-                    if authored_cut(shots[start + 1]) or dialogue_count > 1 or speaking:
+                    # one unit = one take: never across an authored cut; a spoken line shares its unit only
+                    # with the same speaker's next lines in the same locked setup, up to 12 s (owner
+                    # 2026-11-01), never with a silent shot.  Every condition only grows with the group.
+                    if authored_cut(shots[start + 1]):
+                        break
+                    if speaking:
+                        if (not monologue_continues(shots[start], shots[start + 1])
+                                or duration > MONOLOGUE_GROUP_MAX_SECONDS + 1e-9):
+                            break
+                        monologue = True
+                    elif dialogue_count > 1:
                         break
                     internal_cuts += cast_changing_cut(shots[start], shots[start + 1])
                     if len(subjects) > MAX_VISIBLE_SUBJECTS:
@@ -256,14 +307,14 @@ def _partition_scene(
             # to the exact compiled-length gate and must be split if they still
             # exceed the provider ceiling.
             if (
-                (MAX_BEATS_PER_UNIT is not None and end - start > MAX_BEATS_PER_UNIT)
-                or dialogue_count > 2
+                (MAX_BEATS_PER_UNIT is not None and end - start > MAX_BEATS_PER_UNIT and not monologue)
+                or (dialogue_count > 2 and not monologue)
                 or (h3 and len(dialogue_speakers) > 1)
             ):
                 continue
             if best[start] is None:
                 continue
-            cost = (_cut_grammar_cost(duration, end - start, internal_cuts, model)
+            cost = (_cut_grammar_cost(duration, end - start, internal_cuts, model, monologue)
                     if cut_grammar else duration_cost(duration))
             whole_scene = start == 0 and end == count
             if cost >= 1000 and not whole_scene:
@@ -475,10 +526,37 @@ def build(manifest: dict[str, Any], source_sha: str) -> tuple[dict[str, Any], di
                     "PROVIDER_MINIMUM_PADDED" if duration < provider_min_seconds(manifest.get("model"))
                     else "AUTHORED_CUT_BOUNDARY" if duration < _pmin
                     else "AUTHORED_SINGLE_SHOT" if len(group) == 1 else "CONTINUOUS_CAUSAL_ACTION")
-        if (cut_grammar and duration > SPEAKING_UNIT_MAX_SECONDS + 1e-9
-                and any(on_screen_speaking(shot) for shot in group)):
-            # the line does not fit 5 s (tools/speaking_unit_duration WRITER_SPLIT_REQUIRED): never blocks
-            row["duration_exception_reason"] = "SPEAKING_LINE_WRITER_SPLIT_REQUIRED"
+        speaking_shots = [shot for shot in group if on_screen_speaking(shot)] if cut_grammar else []
+        if len(group) > 1 and speaking_shots:
+            # one speaker's consecutive lines in one take (owner 2026-11-01): never blocks
+            row["speaking_group"] = {"speaker_id": speaker_id(group[0]), "line_count": len(group)}
+            if not _pmin <= duration <= _pmax:
+                row["duration_exception_reason"] = "MONOLOGUE_SPEAKING_GROUP"
+        elif speaking_shots:
+            lines = str(((speaking_shots[0].get("prompt_spec") or {}).get("dialogue")
+                         or speaking_shots[0].get("dialogue") or "")).splitlines()
+            if duration > float(_sud.max_seconds_for(lines)) + 1e-9:
+                # the line(s) do not fit 5 s / 12 s (speaking_unit_duration WRITER_SPLIT_REQUIRED): never blocks
+                row["duration_exception_reason"] = "SPEAKING_LINE_WRITER_SPLIT_REQUIRED"
+        if speaking_shots:
+            # the same speaker's previous speaking unit in this scene with the same locked setup: this unit
+            # continues that take after a cutaway and reuses its keyframe (build_keyframe_manifest); with no
+            # unit between them the writer still owes the cutaway (non-blocking)
+            setup = _sud.setup_key((group[0].get("prompt_spec") or {}).get("camera_plan"))
+            for earlier_index in range(len(spec_groups) - 1, -1, -1):
+                earlier = groups[earlier_index]
+                if scene_key(earlier[0]) != scene_key(group[0]):
+                    break
+                if not on_screen_speaking(earlier[0]):
+                    continue
+                if (speaker_id(earlier[0]) == speaker_id(group[0])
+                        and visible_subjects(earlier[0]) == visible_subjects(group[0])
+                        and _sud.locked_setup((group[0].get("prompt_spec") or {}).get("camera_plan"))
+                        and _sud.setup_key((earlier[0].get("prompt_spec") or {}).get("camera_plan")) == setup):
+                    row["same_setup_as_unit"] = spec_groups[earlier_index]["unit_id"]
+                    if earlier_index == len(spec_groups) - 1:
+                        row["writer_warning"] = "MONOLOGUE_CUTAWAY_REQUIRED"
+                break
         spec_groups.append(row)
     spec = {
         "episode": episode,

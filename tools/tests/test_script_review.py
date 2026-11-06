@@ -278,6 +278,20 @@ class SubmitAndRespondTests(unittest.TestCase):
         self.assertEqual(report["confusion_points"][0]["confusion_id"], "CP-01-S01")
         self.assertEqual(report["reviewer"], COMMON.REVIEWER_ID)
 
+    def test_an_upper_case_request_name_is_never_overwritten(self):
+        # lab 化神 E04: *_REQUEST.json was not rewritten and submit replaced the request with the record
+        upper = self.request_path.with_name("E14_SCRIPT_REVIEW_REQUEST.json")
+        upper.write_bytes(self.request_path.read_bytes())
+        before = upper.read_bytes()
+        path = self._write_answers(answers(self.request, COMMON.sha256_file(upper)))
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = SR.main(["submit", "--request", str(upper), "--answers", str(path)])
+        self.assertEqual(code, 0)
+        self.assertEqual(upper.read_bytes(), before)
+        self.assertTrue(upper.with_name("E14_SCRIPT_REVIEW_submitted.json").is_file())
+
     def test_a_review_with_no_confusion_is_complete_on_arrival(self):
         path = self._write_answers(answers(self.request, self.sha))
         result = _submit(self.request_path, path)

@@ -408,6 +408,11 @@ def check_action_outcome(
     return _result(failures, measurements={"beat_count": len(rows), "action_beats": action_beats})
 
 
+def _episode_no(value: Any) -> Optional[int]:
+    m = re.search(r"(\d+)", str(value or ""))
+    return int(m.group(1)) if m else None
+
+
 # --------------------------------------------------------------------------- A3 antagonist motive
 
 
@@ -453,9 +458,14 @@ def check_antagonist_motive(
             anchor = shots.get(_clean(ref.get("recap_shot_id")))
         else:
             anchor = shots.get(_clean(ref))
+        # a recap of an EARLIER episode was set up before this episode began: the carry-in shot that opens on the
+        # previous episode's end state may itself be the recap anchor (lab 化神 E03: E02's antagonist opens E03)
+        carried_in = (kind == "recap" and _episode_no(ref.get("episode")) is not None
+                      and _episode_no(contract.get("episode") or contract.get("episode_id")) is not None
+                      and _episode_no(ref.get("episode")) < _episode_no(contract.get("episode") or contract.get("episode_id")))
         if anchor is None:
             failures.append(f"ANTAGONIST_NO_MOTIVE:{gid}")
-        elif anchor["start"] >= first["start"]:
+        elif anchor["start"] > first["start"] or (anchor["start"] == first["start"] and not carried_in):
             failures.append(f"ANTAGONIST_MOTIVE_AFTER_ACTION:{gid}")
     return _result(failures, measurements=measurements)
 

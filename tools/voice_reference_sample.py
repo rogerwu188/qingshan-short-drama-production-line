@@ -39,11 +39,19 @@ def apply_reference_sample(brief, voice):
 # CAMERA_GRAMMAR_V1 (lab Holmes E01 unit ASR): a reference sample that is a line of the script leaks into
 # other units ("Sir, I took Wadig..." before the real line), so the sample text is a neutral calibration
 # sentence that appears nowhere in the episode, still read with the character's emotion and speed.
+# H3 copies the reference's prosody, not only its timbre (owner 2026-11-04, lab 化神 E04: per character the F0
+# range of the generated lines tracked the reference -- 太玄 reference 3.1 semitones -> his lines 1-5.5 st; 赵敢
+# 10.6 -> ~9.3), so the calibration sentence itself rises and falls: a question, an exclamation, a contrast.
 CALIBRATION_SENTENCES = {
-    'zh': ('天快黑了，我们还是趁早回去吧，路上小心一点。', '今天的风有点大，记得多穿一件衣服，早点休息。'),
-    'en': ('The evening is drawing in; we ought to head home before the weather turns.',
-           'It looks like rain again tomorrow, so keep a coat by the door tonight.'),
+    'zh': ('真的吗？你再说一遍！我等了整整三天，原来就为了这一句？', '怎么会这样？刚才还好好的，现在全都变了！'),
+    'en': ('What? Say that again! Three whole days I waited, and this is all you bring me?',
+           'How could this happen? A minute ago it was fine, and now everything has changed!'),
 }
+#: the earlier flat calibration sentences (a calm reminder read with any emotion stays flat): an authored sample
+#: that copied one of them from the writer docs is replaced like a script line
+FLAT_CALIBRATION_SENTENCES = ('天快黑了，我们还是趁早回去吧，路上小心一点。', '今天的风有点大，记得多穿一件衣服，早点休息。',
+                              'The evening is drawing in; we ought to head home before the weather turns.',
+                              'It looks like rain again tomorrow, so keep a coat by the door tonight.')
 
 
 def _norm(text):
@@ -62,7 +70,8 @@ def _in_dialogue(text, dialogue_lines):
 def calibration_sample(brief, dialogue_lines, language='zh'):
     """Replace a script-line sample with a calibration sentence; an authored non-script sample stays."""
     authored = brief.get('sample_text_rule') == 'AUTHORED_REFERENCE_ONLY_CALIBRATION'
-    if authored and not _in_dialogue(brief.get('sample_text'), dialogue_lines):
+    flat = _norm(brief.get('sample_text')) in {_norm(t) for t in FLAT_CALIBRATION_SENTENCES}
+    if authored and not flat and not _in_dialogue(brief.get('sample_text'), dialogue_lines):
         return brief
     text = next((t for t in CALIBRATION_SENTENCES[language] if not _in_dialogue(t, dialogue_lines)), None)
     if text is None:
@@ -79,7 +88,8 @@ def calibration_sample(brief, dialogue_lines, language='zh'):
                   sample_text_is_verbatim_script=False, sample_text_spoken_length=chars,
                   speed=speed, estimated_duration_seconds=round(chars / (rate * speed), 2),
                   reference_sample_replaced={
-                      'reason': ('AUTHORED_REFERENCE_SAMPLE_TEXT_IS_A_SCRIPT_LINE' if authored
+                      'reason': ('AUTHORED_REFERENCE_SAMPLE_IS_A_FLAT_CALIBRATION_SENTENCE' if authored and flat
+                                 else 'AUTHORED_REFERENCE_SAMPLE_TEXT_IS_A_SCRIPT_LINE' if authored
                                  else 'SCRIPT_LINE_SAMPLE_LEAKS_INTO_OTHER_UNITS'),
                       'policy': 'CAMERA_GRAMMAR_V1', 'previous_sample_text': brief.get('sample_text')})
     result['risk_flags'] = [f for f in result.get('risk_flags', [])

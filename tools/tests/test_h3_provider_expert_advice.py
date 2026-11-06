@@ -71,6 +71,7 @@ def v2(**kwargs):
 def zh(pair):
     unit, plan = pair
     unit["h3_constraint_language"] = "zh"
+    unit["ab_variant_schema"] = "qingshan.h3_constraint_language_ab_variant.v1"  # only A/B variants may render zh
     return unit, plan
 
 
@@ -128,6 +129,14 @@ class AntiDuplicateTest(unittest.TestCase):
 
 
 class ConstraintLanguageTest(unittest.TestCase):
+    def test_contract_level_zh_is_ignored_in_production(self):
+        # lab 武松 E01: H3 read the Chinese constraint sentences aloud; production prompts stay English
+        unit, plan = v2()
+        unit["h3_constraint_language"] = "zh"
+        text, receipt = render(unit, plan)
+        self.assertNotEqual(receipt.get("h3_constraint_language"), "zh")
+        self.assertNotIn(H3_CONSTRAINT_ZH["only_this_line"], text)
+
     def test_zh_swaps_only_the_constraint_sentences(self):
         en, _ = render(*v2())
         text, receipt = render(*zh(v2()))
@@ -183,9 +192,11 @@ class CameraLockStrictTest(unittest.TestCase):
         unit["h3_camera_lock"] = value
         return unit, plan
 
-    def test_v2_default_adds_exactly_three_things(self):
+    def test_v2_default_adds_exactly_two_things(self):
+        # owner 2026-11-01 (lab E12 long take: H3 voiced the all-caps "CAMERA LOCK — ABSOLUTE RULE:" top block):
+        # the lock is one plain sentence at the end of Camera plus the Never items, no block before References
         from tools.h3_provider_english_contract import (
-            CAMERA_LOCK_FROZEN_FRAME, CAMERA_LOCK_NEVER, CAMERA_LOCK_STRICT, is_director_v2_text,
+            ALL_CAPS_LABEL, CAMERA_LOCK_NEVER, CAMERA_LOCK_STRICT, CAMERA_LOCK_TRIPOD, is_director_v2_text,
             validate_h3_provider_text_boundary as boundary)
         base, base_receipt = render(*self.mode(v2(), "standard"))
         text, receipt = render(*v2())
@@ -193,18 +204,22 @@ class CameraLockStrictTest(unittest.TestCase):
         self.assertNotIn("h3_camera_lock", base_receipt)
         self.assertEqual(render(*self.mode(v2(), "strict"))[0], text)  # explicit strict == the default
         self.assertEqual(render(*self.mode(v2(), "loose"))[0], text)  # unknown value == the default
-        self.assertTrue(text.startswith(CAMERA_LOCK_STRICT + "\n\nReferences:\n"))
+        self.assertTrue(text.startswith("References:\n"))
+        self.assertNotIn(CAMERA_LOCK_STRICT, text)
+        self.assertNotIn("Frame size is frozen", text)
         camera = text.split("Camera:\n", 1)[1].split("\n\n", 1)[0]
-        self.assertTrue(camera.endswith("\n" + CAMERA_LOCK_FROZEN_FRAME))
+        self.assertTrue(camera.endswith("\n" + CAMERA_LOCK_TRIPOD))
+        caps = [m.group(0) for m in ALL_CAPS_LABEL.finditer(text)]
+        self.assertTrue(all(c == "EAST-ASIAN PERIOD VISUAL LOCK:" for c in caps), caps)  # validator-required token
         self.assertIn(h3.FIXED_CAMERA_POSITION, camera)  # the expert wording stays
         never = next(line for line in text.splitlines() if line.startswith("Never: "))
         self.assertTrue(never.endswith("; music; " + CAMERA_LOCK_NEVER + "."))
         self.assertEqual(text.rstrip("\n").splitlines()[-1], h3.NO_DUPLICATE_PEOPLE)
-        undone = (text.replace(CAMERA_LOCK_STRICT + "\n\n", "", 1)
-                  .replace("\n" + CAMERA_LOCK_FROZEN_FRAME, "", 1).replace("; " + CAMERA_LOCK_NEVER, "", 1))
+        undone = text.replace("\n" + CAMERA_LOCK_TRIPOD, "", 1).replace("; " + CAMERA_LOCK_NEVER, "", 1)
         self.assertEqual(undone, base)
         self.assertEqual(boundary(text, source_id="T")["status"], "PASS")
         self.assertTrue(is_director_v2_text(text) and is_director_v2_text(base))
+        self.assertTrue(is_director_v2_text(CAMERA_LOCK_STRICT + "\n\n" + text))  # legacy submitted prompts
         import prompt_batch_qa
         self.assertTrue(prompt_batch_qa.is_h3_director_v2(text))
         self.assertTrue(prompt_batch_qa.section(text, "锚点").startswith("@Image1"))
@@ -389,15 +404,17 @@ class ReferenceSheetTest(unittest.TestCase):
 class SpeakingDurationTest(unittest.TestCase):
     def test_rule(self):
         short = speaking_duration(8, ["Holmes: Which of you is Holmes?"], "en")  # 2.01 s line
-        self.assertEqual((short["duration_seconds"], short["action"]), (3.0, "SHORTENED"))
-        self.assertEqual(speaking_duration(3, ["A: Which of you is Holmes?"], "en")["action"], "UNCHANGED")
+        # HopsAPI floor (owner 2026-10-29): speaking units run 4-5 s
+        self.assertEqual((short["duration_seconds"], short["action"]), (4.0, "SHORTENED"))
+        self.assertEqual(speaking_duration(4, ["A: Which of you is Holmes?"], "en")["action"], "UNCHANGED")
+        self.assertEqual(speaking_duration(3, ["A: Which of you is Holmes?"], "en")["action"], "LENGTHENED")
         mid = speaking_duration(3, ["A: one two three four five six seven eight nine ten"], "en")  # 3.70 s
         self.assertEqual((mid["duration_seconds"], mid["action"]), (5.0, "LENGTHENED"))
         long = speaking_duration(6, ["A: He will be away all day. There would be nothing to disturb you."], "en")
         self.assertEqual((long["duration_seconds"], long["action"]), (6.0, "WRITER_SPLIT_REQUIRED_KEPT"))
         longer = speaking_duration(7.5, ["A: He will be away all day. There would be nothing to disturb you."], "en")
         self.assertEqual((longer["duration_seconds"], longer["action"]), (6.0, "WRITER_SPLIT_REQUIRED_SHORTENED"))
-        self.assertEqual(speaking_duration(4, ["甲：你好。"], "zh")["duration_seconds"], 3.0)
+        self.assertEqual(speaking_duration(4, ["甲：你好。"], "zh")["duration_seconds"], 4.0)
 
     def test_bnp_applies_it_to_on_screen_lines_only(self):
         import build_nalu_preproduction as bnp
@@ -406,7 +423,7 @@ class SpeakingDurationTest(unittest.TestCase):
             "role_semantic_disambiguation": {"lip_owner_id": "CHAR-H", "dialogue_speaker_id": "CHAR-H"},
             "cast": [{"character_id": "CHAR-H"}]}}
         report: list = []
-        self.assertEqual(bnp._speaking_shot_duration(shot, None, "en", 8.0, report), 3.0)
+        self.assertEqual(bnp._speaking_shot_duration(shot, None, "en", 8.0, report), 4.0)
         self.assertEqual(report[0]["action"], "SHORTENED")
         offscreen = json.loads(json.dumps(shot))
         offscreen["prompt_spec"]["cast"][0]["face_visibility"] = "OFFSCREEN_VOICE_ONLY"

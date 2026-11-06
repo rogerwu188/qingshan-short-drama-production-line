@@ -458,6 +458,14 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
             vp_cast.update(c["character"] for c in shots[sid]["prompt_spec"]["cast"])
         if vp_is_h3:
             outside = re.sub(r"<d>\[Chinese\].*?</d>", "", vp_text, flags=re.S)
+            # the provider-expert Chinese constraint sentences are allowed outside dialogue (same whitelist the
+            # provider boundary validator uses; lab 武松 E01 with h3_constraint_language=zh)
+            try:
+                from tools.h3_provider_english_contract import H3_CONSTRAINT_ZH as _zh_ok
+            except ModuleNotFoundError:  # flat sys.path deployments
+                from h3_provider_english_contract import H3_CONSTRAINT_ZH as _zh_ok  # type: ignore
+            for _phrase in sorted(_zh_ok.values(), key=len, reverse=True):
+                outside = outside.replace(_phrase, "")
             cjk = re.findall(r"[\u3400-\u9fff]", outside)
             chk("vp_h3_no_cjk_outside_dialogue", not cjk, "".join(cjk[:10]))
             chk("vp_h3_identity_references", "@Image1" in vp_text, "")

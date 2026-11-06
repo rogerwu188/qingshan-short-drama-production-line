@@ -932,6 +932,156 @@ def measure_speaker_framing(episode: str, expectations: dict[str, Any], frames: 
     return result
 
 
+#: CAMERA_GRAMMAR_V1 objective push-in (line owner 2026-10-29, lab E08: VU-017 locked camera pushed in +90% and H3
+#: rendered it as a cross-dissolve between two framings — a translucent duplicate for ~1 s — which the S7 1.3x
+#: compensation cap then left soft).  The measurement is S7's own (tools/push_in_compensation.analyze: largest face
+#: width per frame, >50% start->end growth, monotonic fit, a >40% step between samples is a cut, >= 6 face samples),
+#: run with the same InsightFace instance as the face count on 9 frames of the KEPT window (push_in_window).
+#: Locked-camera units only.  Not a new gate: a FAIL only makes ``camera_axis_stable_and_declared`` fail, and the engine's one
+#: controlled redo (q2_auto_redo, after duplicates and speaker framing) re-shoots it with the measured problem
+#: stated in the prompt.  S7 compensation stays the fallback.
+PUSH_IN_METHOD = "INSIGHTFACE_PUSH_IN_V1"
+
+
+def push_in_verdict(unit: dict[str, Any] | None, per_frame: list[dict[str, Any]]) -> dict[str, Any]:
+    """Pure verdict over per-frame largest faces [{frame_index, at_seconds, width, cx, cy}] (fractions of the frame;
+    width None = no face).  ``unit`` is the grouping-plan unit (its camera plans decide locked or not)."""
+    pic = engine_module("push_in_compensation")
+    result: dict[str, Any] = {"method": PUSH_IN_METHOD, "growth_min": pic.GROWTH_MIN, "cut_jump": pic.CUT_JUMP,
+                              "min_face_samples": pic.MIN_FACE_SAMPLES}
+    if not unit or not pic.locked_camera_unit(unit):
+        return {**result, "status": "NOT_APPLICABLE", "reason": "MOVING_CAMERA" if unit else "UNIT_NOT_IN_GROUPING_PLAN"}
+    samples = [{"t": row.get("at_seconds"), "width": row.get("width"), "cx": row.get("cx"), "cy": row.get("cy")}
+               for row in per_frame]
+    analysis = pic.analyze(samples)
+    result.update({key: analysis.get(key) for key in ("widths", "face_samples", "start_width", "end_width", "growth",
+                                                      "max_step_change", "monotone_residual") if key in analysis},
+                  analysis_status=analysis["status"],
+                  per_frame=[{k: row.get(k) for k in ("frame_index", "at_seconds", "width")} for row in per_frame])
+    if analysis["status"] == "COMPENSATE":
+        result["status"] = "FAIL"
+        result["failure"] = f"OBJECTIVE_PUSH_IN:face_width_growth={analysis['growth']:.2f}>{pic.GROWTH_MIN:.2f}"
+    elif analysis["status"] == "NO_PUSH_IN":
+        result["status"] = "PASS"
+    else:  # SKIPPED_FEW_FACES / SKIPPED_INTERNAL_CUT / SKIPPED_NOT_MONOTONIC: not a measurable push-in
+        result.update(status="NOT_APPLICABLE", reason=analysis["status"])
+    return result
+
+
+#: Kept window (line owner 2026-10-29, lab E08: VU-006/009/015 pushed in only during the filler speech that the S7
+#: dialogue head/tail trims remove).  The push-in is measured only on the part of the clip that will be in the cut:
+#: S7's own trims (tools/dialogue_tail_trim.plan, tools/dialogue_head_trim.plan, push_in_compensation.cut_windows)
+#: run here on the unit's untrimmed word-timestamped ASR (S7's whisper pass, nalu_pipeline.transcribe_clip — local,
+#: free; cached per clip sha256) and the same audio energy.  A unit with no line in its first or last shot is the
+#: whole clip; any ASR / analysis failure falls back to the whole clip (recorded).
+PUSH_IN_WINDOW_ASR = "push_in_window_asr.json"
+_WHISPER_LOCK = threading.Lock()
+_WHISPER: Any = None
+
+
+def _whisper_model() -> Any:
+    global _WHISPER
+    with _WHISPER_LOCK:
+        if _WHISPER is None:
+            from faster_whisper import WhisperModel  # type: ignore  # same model as S7 transcribe_units
+            _WHISPER = WhisperModel("small", device="cpu", compute_type="int8")
+        return _WHISPER
+
+
+def _untrimmed_unit_asr(episode: str, unit_id: str, media: Path, media_sha: str, language: str,
+                        cache: Path) -> tuple[list[dict[str, Any]], str]:
+    """(word-timestamped ASR segments of the untrimmed clip, source).  Q2 cache of this exact clip -> S7's
+    ``<EP>_unit_asr_untrimmed.json`` when written after the clip -> S7's whisper pass on the clip."""
+    cached = read_json(cache, {}) or {}
+    if cached.get("media_sha256") == media_sha and isinstance(cached.get("segments"), list):
+        return cached["segments"], "Q2_CACHE"
+    s7 = QaPaths(episode).assembly / f"{episode}_unit_asr_untrimmed.json"
+    if s7.is_file() and s7.stat().st_mtime >= media.stat().st_mtime:
+        segs = (read_json(s7, {}) or {}).get(unit_id)
+        if isinstance(segs, list) and all("words" in seg for seg in segs):
+            write_json(cache, {"media_sha256": media_sha, "source": "S7_UNTRIMMED_ASR", "segments": segs})
+            return segs, "S7_UNTRIMMED_ASR"
+    npl = engine_module("nalu_pipeline")
+    model = _whisper_model()
+    segs = npl.transcribe_clip(model, media, language, words=True)
+    write_json(cache, {"media_sha256": media_sha, "source": "S7_WHISPER_PASS", "language": language,
+                       "segments": segs})
+    return segs, "S7_WHISPER_PASS"
+
+
+def push_in_window(episode: str, unit: dict[str, Any], media: Path, duration: float | None,
+                   contract: dict[str, Any], cache: Path) -> dict[str, Any]:
+    """[start, end] of the clip that S7 will keep (its dialogue head/tail trims), with how it was found."""
+    whole = {"start_seconds": 0.0, "end_seconds": round(float(duration or 0.0), 3),
+             "clip_seconds": round(float(duration or 0.0), 3)}
+    if not duration or duration <= 0:
+        return {**whole, "source": "WHOLE_CLIP_FALLBACK", "reason": "CLIP_DURATION_UNKNOWN"}
+    uid = str(unit.get("unit_id"))
+    shot_ids = [str(sid) for sid in unit.get("editorial_shot_ids") or []]
+    spoken = {str(row.get("shot_id") or "") for row in (contract.get("audio_contract") or {}).get("dialogue_units")
+              or []}
+    if not shot_ids or (shot_ids[0] not in spoken and shot_ids[-1] not in spoken):
+        return {**whole, "source": "WHOLE_CLIP_SILENT", "reason": "NO_LINE_IN_FIRST_OR_LAST_SHOT"}
+    try:
+        head_mod = engine_module("dialogue_head_trim")
+        tail_mod = engine_module("dialogue_tail_trim")
+        pic = engine_module("push_in_compensation")
+        npl = engine_module("nalu_pipeline")
+        language = npl.resolve_dialogue_language(contract, None)
+        segs, asr_source = _untrimmed_unit_asr(episode, uid, media, sha256_file(media), language, cache)
+        asr, clips, grouping = {uid: segs}, {uid: float(duration)}, {"units": [unit]}
+        energy = npl._unit_energy_db(media, tail_mod.ENERGY_HOP)  # noqa: SLF001 -- S7's own energy pass
+        tail = tail_mod.plan(contract, grouping, asr, clips, unit_energy={uid: energy} if energy else None)
+        head = head_mod.plan(contract, grouping, asr, clips, tail)
+        start, end = pic.cut_windows([uid], clips, tail, head)[uid]
+    except Exception as exc:  # noqa: BLE001 -- the window only narrows the measurement; never blocks Q2
+        return {**whole, "source": "WHOLE_CLIP_FALLBACK", "reason": f"WINDOW_ERROR:{type(exc).__name__}:{exc}"[:300]}
+    if not end or end <= start:
+        return {**whole, "source": "WHOLE_CLIP_FALLBACK", "reason": "EMPTY_WINDOW"}
+    tail_row, head_row = tail["units"][0], head["units"][0]
+    return {**whole, "start_seconds": round(start, 3), "end_seconds": round(end, 3), "source": "S7_DIALOGUE_TRIMS",
+            "asr_source": asr_source, "head_trimmed": bool(head_row.get("trimmed")), "head_reason": head_row.get("reason"),
+            "tail_trimmed": bool(tail_row.get("trimmed")), "tail_reason": tail_row.get("reason")}
+
+
+def measure_push_in(unit: dict[str, Any] | None, detections: dict[str, Any], *, media: Path | None = None,
+                    window: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Largest kept face per frame (same filters as push_in_compensation).  With ``media`` + ``window`` the 9
+    frames are S7's own sample_times inside the kept window (the engine's InsightFace instance of the face-count
+    pass); without them, the Q2 frames of the face-count detections."""
+    if detections.get("status") != "OK":
+        return {"method": PUSH_IN_METHOD, "status": "NOT_MEASURED", "reason": detections.get("reason")}
+    per_frame = []
+    if media is not None and window is not None:
+        pic = engine_module("push_in_compensation")
+        app, ffmpeg = detections["backend"]._app, require_ffmpeg()  # noqa: SLF001 -- engine's own FaceAnalysis
+        for index, t in enumerate(pic.sample_times(float(window["start_seconds"]), float(window["end_seconds"])), 1):
+            image = pic.frame_at(media, t, ffmpeg)
+            with _INSIGHT_LOCK:
+                face = pic.largest_face(app, image) if image is not None else None
+            row = {"frame_index": index, "at_seconds": t, "width": None}
+            if face is not None:
+                row.update({k: round(face[k], 5) for k in ("width", "cx", "cy")})
+            per_frame.append(row)
+    else:
+        for det in detections["frames"]:
+            width, height = float(det["width"]), float(det["height"])
+            best = max(det["faces"], key=lambda f: float(f.bbox[2] - f.bbox[0]), default=None)
+            row = {"frame_index": det["frame_index"], "at_seconds": det["row"].get("at_seconds"), "width": None}
+            if best is not None:
+                x1, y1, x2, y2 = (float(v) for v in best.bbox[:4])
+                row.update(width=round((x2 - x1) / width, 5), cx=round((x1 + x2) / 2 / width, 5),
+                           cy=round((y1 + y2) / 2 / height, 5))
+            per_frame.append(row)
+    if not per_frame:
+        return {"method": PUSH_IN_METHOD, "status": "NOT_MEASURED", "reason": "NO_READABLE_FRAME",
+                **({"window": window} if window else {})}
+    result = push_in_verdict(unit, per_frame)
+    if window is not None:
+        result["window"] = window
+    return result
+
+
 #: CAMERA_GRAMMAR_V1 derived (tail-frame) start frames (line owner 2026-10-24, lab Holmes E03 VU-002: the
 #: previous unit's last frame had Helen out of frame, and VU-002 opened on the empty room).  The same
 #: objective speaker-framing measurement, on ONE candidate still: a unit whose first shot has a declared
@@ -1060,6 +1210,27 @@ def apply_speaker_framing(framing: dict[str, Any] | None, checks: list[dict[str,
     return True
 
 
+def apply_push_in(push_in: dict[str, Any] | None, checks: list[dict[str, Any]], failures: list[Any]) -> bool:
+    """An objective push-in FAIL forces ``camera_axis_stable_and_declared`` to FAIL (a locked camera that pushed
+    in); the reviewer's answer is kept as ``reviewer_answer``.  True when applied."""
+    if not push_in or push_in.get("status") != "FAIL":
+        return False
+    row = next((r for r in checks if r.get("question_id") == "camera_axis_stable_and_declared"), None)
+    if row is None:
+        row = {"question_id": "camera_axis_stable_and_declared", "reviewer_answer": None, "contract_derived": True}
+        checks.append(row)
+    overrides = row.get("objective_overrides") or ([row["objective_override"]] if row.get("objective_override") else [])
+    row.update({"answer": "FAIL", "objective_overrides": overrides + [
+        {"method": PUSH_IN_METHOD, "failure": push_in.get("failure")}]})
+    checks.append({"question_id": "objective_push_in", "method": PUSH_IN_METHOD, "answer": "FAIL",
+                   "growth": push_in.get("growth"), "start_width": push_in.get("start_width"),
+                   "end_width": push_in.get("end_width"), "window": push_in.get("window"), "contract_derived": True})
+    if "camera_axis_stable_and_declared" not in failures:
+        failures.append("camera_axis_stable_and_declared")
+    failures.append(str(push_in.get("failure")))
+    return True
+
+
 def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
             units: list[str] | None = None) -> dict[str, Any]:
     """Extract frames, run OCR over every one, and measure identity per unit.
@@ -1080,6 +1251,7 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
              if not units or item["unit_id"] in set(units)]
     # CAMERA_GRAMMAR_V1 only: objective face count (see FACE_COUNT_METHOD); other episodes unchanged.
     face_count_on = engine_module("camera_grammar_policy").active(exp.contract, episode=episode)
+    grouping_units = {str(u.get("unit_id")): u for u in (exp.grouping.get("units") or []) if isinstance(u, dict)}
 
     def prepare_unit(index: int) -> dict[str, Any]:
         """Frames + OCR + identity of ONE unit — independent of every other unit."""
@@ -1158,6 +1330,11 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
             row["face_count"] = measure_face_count(item["expectations"], unit_frames, detections)
             row["speaker_framing"] = measure_speaker_framing(episode, item["expectations"], unit_frames,
                                                              detections)
+            unit_plan = grouping_units.get(unit_id)
+            locked = bool(unit_plan) and engine_module("push_in_compensation").locked_camera_unit(unit_plan)
+            window = push_in_window(episode, unit_plan, media, extraction.get("duration_seconds"), exp.contract,
+                                    out_dir / PUSH_IN_WINDOW_ASR) if locked else None
+            row["push_in"] = measure_push_in(unit_plan, detections, media=media if locked else None, window=window)
         return row
 
     prepared = parallel_map(prepare_unit, range(len(items)))
@@ -1815,6 +1992,10 @@ def materialise(episode: str, submitted: dict[str, Any],
             identity_v["failures"] = identity_f
             identity_v["decision"] = "FAIL"
             identity_v["speaker_framing"] = speaker_framing
+        # CAMERA_GRAMMAR_V1 objective push-in (absent otherwise): a locked camera whose face grew > 50 % fails the
+        # camera-axis question in both gates that ask it (the scene gate below), whatever the reviewer answered.
+        push_in = prepared.get("push_in")
+        apply_push_in(push_in, action_checks, action_failed)
         action_v = {
             "method": "VLM_STRUCTURED_STATE_QA_V1",
             "decision": "PASS" if not action_failed else "FAIL",
@@ -1841,9 +2022,11 @@ def materialise(episode: str, submitted: dict[str, Any],
             "failures": action_failed,
             **({"objective_face_count": face_count} if face_count else {}),
             **({"objective_speaker_framing": speaker_framing} if speaker_framing else {}),
+            **({"objective_push_in": push_in} if push_in else {}),
         }
         scene_checks = _checks(item, questionnaire, GATE_QUESTIONS[SCENE_GATE])
         scene_failed = [row["question_id"] for row in scene_checks if row["answer"] != "PASS"]
+        apply_push_in(push_in, scene_checks, scene_failed)
         defect_block, defect_failed = build_defect_tolerance(
             episode, item, expectations, prepared, unit_dir)
         defect_answers = _checks(item, questionnaire, GATE_QUESTIONS[DEFECT_GATE])
@@ -2054,6 +2237,9 @@ def materialise(episode: str, submitted: dict[str, Any],
                    if k in speaker_framing},
                 "per_frame": [{k: v for k, v in r.items() if k != "speaker_similarity"}
                               for r in speaker_framing.get("per_frame") or []]}} if speaker_framing else {}),
+            **({"objective_push_in": {k: push_in.get(k) for k in
+                                      ("status", "analysis_status", "growth", "start_width", "end_width", "failure",
+                                       "reason", "window") if k in push_in}} if push_in else {}),
             "defect_tolerance_status": (defect_block.get("defect_tolerance_report") or {}
                                         ).get("status"),
             "frames_reviewed": len(review_frames),

@@ -80,11 +80,25 @@ STATEMENT_PATH = "/api/v1/payment/credit-statements"
 # Observed authoritative unit prices, each with its in-repo evidence. Used for
 # planning only; the actual charge always comes from the statement ledger.
 UNIT_PRICES = {
+    "video_minimax_h3_768p_hopsapi": {
+        "credits_per_second": 1.56,
+        "credits_per_task": 0,
+        "evidence": "HopsAPI probe 2026-10-29 (E07-VU-005, 4 s, cost 6.23 = list 8.9/s x 0.175); planning "
+                    "rate configurable via HOPSAPI_H3_CREDITS_PER_SECOND / generation.hopsapi_h3_credits_per_second "
+                    "(tools/hopsapi_video_client.py); actual charge = per-task cost on the settled query",
+    },
     "video_minimax_h3_768p": {
         "credits_per_second": 14,
         "credits_per_task": 6,
         "evidence": "tools/authorize_e48_v5_h3_a4_remaining4.py (E48 observed 14 x seconds + 6 per task); "
                     "lines/nalu/runtime/tools/materialize_paid_authorization.py H3_CREDITS_*",
+    },
+    "image_gpt_image_2_hopsapi": {
+        "credits": 1.2,
+        "evidence": "HopsAPI probe 2026-10-30 (E09-S02-04 keyframe, high, 6 refs: cost 0.97; Txt2Img low 0.13); "
+                    "planning rate configurable via HOPSAPI_IMAGE_CREDITS_PER_IMAGE / "
+                    "generation.hopsapi_image_credits_per_image (tools/hopsapi_image_client.py), batch rounded up; "
+                    "actual charge = per-task cost on the settled query",
     },
     "image_gpt_image_2_pro": {
         "credits": 5,
@@ -117,14 +131,19 @@ UNRESOLVED_TRANSACTION_STATES = {
     "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION",
     "CHARGE_STATE_UNRESOLVED_BATCH",
     "CHARGED_TASK_ID_MISSING",
+    # tools/hopsapi_usage.py: a lost HopsAPI create whose window holds billed tasks no transaction
+    # owns; one of them may be ours, so the spend stays unknowable until an operator attributes it
+    "NEEDS_MANUAL_ATTRIBUTION",
 }
 # States that are settled: either bound to a task whose charge is recorded
 # elsewhere, or verified as never charged.  CHARGED_WRITTEN_OFF_BY_ORDER is a
 # CHARGED_TASK_ID_MISSING row the line owner wrote off (order seq=21, Roger
 # 2026-10-01): the charge itself stays counted through the archived
 # *_credit_statement.json that proved it, so settling the row never hides spend.
+# VERIFIED_ZERO_NO_REMOTE_TASK: a lost HopsAPI create the billing usage API proved created no billed
+# task (tools/hopsapi_usage.py reconcile) -- 0 credits.  An ADOPTED one is SUBMITTED_TASK_ID_BOUND.
 SETTLED_TRANSACTION_STATES = {"SUBMITTED_TASK_ID_BOUND", "VERIFIED_ZERO_RETRYABLE", "NOT_CHARGED_RETRYABLE",
-                              "CHARGED_WRITTEN_OFF_BY_ORDER"}
+                              "CHARGED_WRITTEN_OFF_BY_ORDER", "VERIFIED_ZERO_NO_REMOTE_TASK"}
 
 VIDEO_TRANSACTION_DIRNAME = "giggle_video_submit_transactions"
 IMAGE_TRANSACTION_DIRNAME = "giggle_submit_transactions"
@@ -140,6 +159,18 @@ BGM_UNRESOLVED_STATES = {
     "TERMINAL_FAILED",
     "PROVIDER_FAILED",
 }
+#: S4 voice / voice-over TTS (Giggle text-to-audio) durable store:
+#: ``<tasks>/giggle_audio_transactions/<scope>/<EP>/{speech,voice_over}/**.json`` (legacy:
+#: ``<tasks>/giggle_audio_transactions/<EP>/``).  Lab E09 2026-10-30: 13 completed S4 speech tasks
+#: were invisible to the ledger, so the cap check reported 881.47 / 900 with accounting_complete=true.
+AUDIO_TRANSACTION_DIRNAME = "giggle_audio_transactions"
+BGM_TRANSACTION_DIRNAME = "giggle_bgm_transactions"
+AUDIO_STATEMENT_EVENT = "SingleGenerateAudio"
+AUDIO_CHARGED_STATES = {"TERMINAL_COMPLETED", "COMPLETED", "TASK_ID_BOUND_QUERY_PENDING",
+                        "TASK_ID_BOUND_COMPLETED_DOWNLOAD_PENDING", "SUBMITTED_TASK_ID_BOUND"}
+#: a POST may have happened with no task id bound: spend unknowable, the check fails closed
+AUDIO_UNRESOLVED_STATES = {"INTENT_RECORDED", "RESPONSE_LOST", "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION"}
+AUDIO_TERMINAL_FAILED_STATES = {"TERMINAL_FAILED", "PROVIDER_FAILED"}
 
 
 def utc_now() -> str:
@@ -355,8 +386,193 @@ def _iter_task_json(root: Path):
             continue
 
 
+def _series_scope_id(episode: str, bgm_transactions_dir: Path | None) -> str | None:
+    """The series scope whose per-scope stores belong to this episode (None: unknown).
+
+    The pipeline passes ``<giggle_bgm_transactions>/<scope>/<EP>``; a bare ``--check`` (paid_stage.sh)
+    passes nothing, so the scope comes from ``runtime/series_scopes.json`` like the pipeline's own."""
+    if bgm_transactions_dir is not None:
+        directory = Path(bgm_transactions_dir)
+        if directory.name == episode and directory.parent.parent.name == BGM_TRANSACTION_DIRNAME:
+            return directory.parent.name
+    try:
+        import nalu_series_scope  # noqa: PLC0415
+        return str(nalu_series_scope.scope_id_for(episode))
+    except (SystemExit, Exception):  # noqa: BLE001 -- unknown scope: legacy layout only
+        return None
+
+
+def _store_dirs(dirname: str, episode: str, scope_id: str | None) -> list[Path]:
+    """Existing scoped (``<store>/<scope>/<EP>``) and legacy (``<store>/<EP>``) store directories."""
+    base = ENGINE_ROOT / "workflow" / "tasks" / dirname
+    candidates = []
+    if scope_id and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", scope_id) and scope_id != episode:
+        candidates.append(base / scope_id / episode)
+    candidates.append(base / episode)
+    return [path for path in candidates if path.is_dir()]
+
+
+def audio_transaction_dirs(episode: str, *, audio_transactions_dir: Path | None = None,
+                           bgm_transactions_dir: Path | None = None) -> list[Path]:
+    if audio_transactions_dir is not None:
+        return [Path(audio_transactions_dir)]
+    return _store_dirs(AUDIO_TRANSACTION_DIRNAME, episode, _series_scope_id(episode, bgm_transactions_dir))
+
+
+def bgm_transaction_dirs(episode: str, bgm_transactions_dir: Path | None = None) -> list[Path]:
+    if bgm_transactions_dir is not None:
+        return [Path(bgm_transactions_dir)]
+    return _store_dirs(BGM_TRANSACTION_DIRNAME, episode, _series_scope_id(episode, None))
+
+
+def _iter_store_transactions(directories: list[Path]):
+    """Every transaction file under the store directories, parked attempts included.
+
+    A ``_superseded_*`` transaction is a real, separate paid task (a recast reference, a redo), not
+    a copy of a live one: the money was spent.  Copies are folded by task id by the callers."""
+    for directory in directories:
+        for path in sorted(directory.rglob("*.json")) if directory.is_dir() else []:
+            try:
+                payload = load_json(path)
+            except (OSError, json.JSONDecodeError):
+                continue
+            if isinstance(payload, dict):
+                yield path, payload
+
+
+def _transaction_charge(payload: dict[str, Any]) -> Decimal | None:
+    """The actual charge a reconciler wrote onto the transaction itself, if any."""
+    credit = payload.get("credit") if isinstance(payload.get("credit"), dict) else {}
+    for value in (credit.get("net_charged_credits"), payload.get("actual_charged_credits"),
+                  payload.get("provider_cost_credits")):
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return Decimal(str(value))
+    return None
+
+
+def audio_task_ids(directories: list[Path]) -> set[str]:
+    return {str(payload["task_id"]).strip() for _, payload in _iter_store_transactions(directories)
+            if str(payload.get("task_id") or "").strip()}
+
+
+AUDIO_RECEIPT_NAME = re.compile(r"CREDIT|LEDGER", re.I)
+
+
+def scan_audio_receipts(episode: str, task_ids: set[str]) -> dict[str, dict[str, Any]]:
+    """Per-task exact credit receipts already written for TTS tasks (match by task id).
+
+    S4 reconcilers write ``{task_id, ledger|credit: {net_charged_credits, status}}`` (e.g.
+    ``runtime/reports/E01_S4_EXACT_TASK_CREDITS.json``, method EXACT_PROJECT_ID_PAY_MINUS_REFUND).
+    Only ``*CREDIT*`` / ``*LEDGER*`` json files of this episode are read; first receipt per task wins."""
+    found: dict[str, dict[str, Any]] = {}
+    if not task_ids:
+        return found
+    roots = [ENGINE_ROOT / "workflow" / "nalu" / episode, Path(f"{_np.RUNTIME_ROOT}") / "runtime" / "reports"]
+    paths: list[Path] = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for path in sorted(root.rglob("*.json")):
+            if not AUDIO_RECEIPT_NAME.search(path.name):
+                continue
+            if root.name == "reports" and episode not in path.name:
+                continue
+            paths.append(path)
+
+    def walk(node: Any, source: Path, depth: int = 0) -> None:
+        if depth > 6:
+            return
+        if isinstance(node, list):
+            for item in node:
+                walk(item, source, depth + 1)
+            return
+        if not isinstance(node, dict):
+            return
+        task_id = str(node.get("task_id") or "").strip()
+        if task_id in task_ids and task_id not in found:
+            for holder in (node, node.get("ledger"), node.get("credit")):
+                if not isinstance(holder, dict):
+                    continue
+                net = holder.get("net_charged_credits")
+                status = str(holder.get("status") or holder.get("statement_status") or "")
+                if (isinstance(net, (int, float)) and not isinstance(net, bool)
+                        and (not status or status.startswith("PASS"))):
+                    found[task_id] = {"credits": Decimal(str(net)), "source": str(source), "status": status}
+                    break
+        for value in node.values():
+            if isinstance(value, (dict, list)):
+                walk(value, source, depth + 1)
+
+    for path in paths:
+        try:
+            walk(load_json(path), path)
+        except (OSError, json.JSONDecodeError):
+            continue
+    return found
+
+
+def scan_audio_spend(directories: list[Path], *, statement_net: dict[str, Decimal],
+                     attempt_credits: dict[str, Decimal],
+                     receipts: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+    """S4 TTS leg (Giggle text-to-audio), one row per provider task id.
+
+    Charge evidence, best first: the transaction's own reconciled credit; an exact per-task credit
+    receipt (``scan_audio_receipts``); the archived Giggle
+    statement rows matched by task id (Pay - Refund, ``SingleGenerateAudio``); a ``credit_attempts``
+    row carrying the task id; else the observed per-task price, flagged ``ESTIMATED_UNIT_PRICE``
+    (spend is counted, but accounting is not complete until a statement replaces the estimate).
+    Statement rows / attempts matched here are excluded from the image layers, never counted twice."""
+    unit = Decimal(str(UNIT_PRICES["audio_minmax_speech_2_8_hd"]["hard_upper"]))
+    exact = Decimal("0")
+    estimated = Decimal("0")
+    rows: list[dict[str, Any]] = []
+    unresolved: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for path, payload in _iter_store_transactions(directories):
+        state = str(payload.get("state") or "UNKNOWN")
+        task_id = str(payload.get("task_id") or "").strip()
+        if task_id and task_id in seen:
+            continue
+        if not task_id:
+            if state in AUDIO_UNRESOLVED_STATES or state not in AUDIO_TERMINAL_FAILED_STATES:
+                unresolved.append({"source": str(path), "state": state, "task_id": None})
+            continue
+        seen.add(task_id)
+        charge = _transaction_charge(payload)
+        method = "TRANSACTION_RECONCILED_CREDIT"
+        if charge is None and task_id in (receipts or {}):
+            charge, method = receipts[task_id]["credits"], "EXACT_TASK_CREDIT_RECEIPT"
+        if charge is None and task_id in statement_net:
+            charge, method = statement_net[task_id], "GIGGLE_STATEMENT_TASK_ID_MATCH"
+        if charge is None and task_id in attempt_credits:
+            charge, method = attempt_credits[task_id], "CREDIT_ATTEMPT_TASK_ID_MATCH"
+        if charge is None and state in AUDIO_UNRESOLVED_STATES:
+            unresolved.append({"source": str(path), "state": state, "task_id": task_id})
+            continue
+        if charge is None:
+            # completed / bound / provider-failed without a statement yet: a failed task is normally
+            # refunded, but until a statement shows the refund the per-task price stays reserved.
+            charge, method = unit, "ESTIMATED_UNIT_PRICE"
+            estimated += charge
+        else:
+            exact += charge
+        rows.append({"source": str(path), "task_id": task_id, "state": state,
+                     "capability": payload.get("capability"), "credits": number(charge), "method": method})
+    return {
+        "transaction_dirs": [str(d) for d in directories],
+        "task_count": len(rows),
+        "charged_credits": number(exact),
+        "estimated_credits": number(estimated),
+        "estimated_task_count": sum(1 for row in rows if row["method"] == "ESTIMATED_UNIT_PRICE"),
+        "estimate_unit_price_credits": number(unit),
+        "rows": rows,
+        "unresolved_transactions": unresolved,
+    }
+
+
 def scan_non_video_spend(
-    episode: str, *, bgm_transactions_dir: Path | None = None
+    episode: str, *, bgm_transactions_dir: Path | None = None,
+    audio_transactions_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Image and audio spend from the durable transaction / receipt stores.
 
@@ -372,6 +588,12 @@ def scan_non_video_spend(
     batch_rows: list[dict[str, Any]] = []
     bound_image_task_ids: set[str] = set()
     bound_image_rows: list[dict[str, Any]] = []
+    # Audio (TTS) task ids: their statement rows / credit attempts belong to the audio leg only.
+    audio_dirs = audio_transaction_dirs(episode, audio_transactions_dir=audio_transactions_dir,
+                                        bgm_transactions_dir=bgm_transactions_dir)
+    audio_ids = audio_task_ids(audio_dirs)
+    audio_statement_net: dict[str, Decimal] = {}
+    audio_attempt_credits: dict[str, Decimal] = {}
 
     for path, payload in _iter_task_json(tasks_root):
         if not isinstance(payload, dict):
@@ -390,6 +612,11 @@ def scan_non_video_spend(
                 if not isinstance(attempt, dict):
                     continue
                 credits = attempt.get("actual_charged_credits")
+                attempt_task = str(attempt.get("task_id") or "").strip()
+                if attempt_task and attempt_task in audio_ids:
+                    if isinstance(credits, (int, float)):
+                        audio_attempt_credits.setdefault(attempt_task, Decimal(str(credits)))
+                    continue  # counted once, by scan_audio_spend
                 if isinstance(credits, (int, float)):
                     per_task += Decimal(str(credits))
                     per_task_rows.append({
@@ -418,6 +645,8 @@ def scan_non_video_spend(
             continue
         if not isinstance(payload, dict) or payload.get("state") != "SUBMITTED_TASK_ID_BOUND":
             continue
+        if is_hopsapi_transaction(payload):
+            continue  # HopsAPI image (owner 2026-10-30): per-task cost, counted by scan_hopsapi_spend
         task_id = str(payload.get("task_id") or "").strip()
         if not task_id or task_id in bound_image_task_ids:
             continue
@@ -454,6 +683,14 @@ def scan_non_video_spend(
             if all(key is not None for key in keys):
                 fresh = [(key, row) for key, row in zip(keys, rows) if key not in seen_statement_rows]
                 seen_statement_rows.update(key for key, _ in fresh)
+                # A Pay/Refund row for a TTS task id is audio evidence, not image spend.
+                audio_fresh = [row for _, row in fresh if str(row.get("project_id") or "") in audio_ids]
+                for row in audio_fresh:
+                    amount = abs(Decimal(str(row["credit"])))
+                    signed = -amount if str(row.get("event_type") or "") == "Refund" else amount
+                    pid = str(row["project_id"])
+                    audio_statement_net[pid] = audio_statement_net.get(pid, Decimal("0")) + signed
+                fresh = [(key, row) for key, row in fresh if str(row.get("project_id") or "") not in audio_ids]
                 counted = sum((abs(Decimal(str(row["credit"]))) for _, row in fresh), Decimal("0"))
                 duplicate_rows = len(rows) - len(fresh)
                 if duplicate_rows:
@@ -479,14 +716,16 @@ def scan_non_video_spend(
     bgm_provisional_total = Decimal("0")
     bgm_provisional_rows: list[dict[str, Any]] = []
     bgm_unresolved_rows: list[dict[str, Any]] = []
-    bgm_dir = bgm_transactions_dir or (tasks_root / "giggle_bgm_transactions" / episode)
-    for path in sorted(bgm_dir.glob("*.json")):
-        try:
-            payload = load_json(path)
-        except (OSError, json.JSONDecodeError):
-            continue
-        if not isinstance(payload, dict):
-            continue
+    bgm_dir = bgm_transactions_dir or (tasks_root / BGM_TRANSACTION_DIRNAME / episode)
+    # A bare --check (no explicit dir) also finds the current per-scope store, not only the legacy one.
+    bgm_dirs = bgm_transaction_dirs(episode, bgm_transactions_dir)
+    bgm_seen: set[str] = set()
+    for path, payload in _iter_store_transactions(bgm_dirs):
+        bgm_task = str(payload.get("task_id") or "").strip()
+        if bgm_task:
+            if bgm_task in bgm_seen:
+                continue  # a parked copy of a task already counted
+            bgm_seen.add(bgm_task)
         state = str(payload.get("state") or "UNKNOWN")
         if state in BGM_PROVISIONAL_STATES:
             bgm_provisional_total += BGM_PROVISIONAL_CREDITS_PER_TASK
@@ -522,6 +761,11 @@ def scan_non_video_spend(
                 "status": "PROVISIONAL_COMPLETED_AWAITING_S7_RECONCILIATION",
             })
 
+    audio = scan_audio_spend(audio_dirs, statement_net=audio_statement_net,
+                             attempt_credits=audio_attempt_credits,
+                             receipts=scan_audio_receipts(episode, audio_ids))
+    audio_total = Decimal(str(audio["charged_credits"])) + Decimal(str(audio["estimated_credits"]))
+
     bound_image_upper = Decimal(len(bound_image_task_ids)) * Decimal(str(
         image_hard_upper_credits()
     ))
@@ -541,14 +785,96 @@ def scan_non_video_spend(
         "bgm_provisional_rows": bgm_provisional_rows,
         "bgm_unresolved_transactions": bgm_unresolved_rows,
         "bgm_transactions_dir": str(bgm_dir),
+        "bgm_transactions_dirs": [str(d) for d in bgm_dirs],
+        "audio": audio,
+        "audio_credits": number(audio_total),
         "double_count_policy": (
             "per_task, batch-reconciliation, and accepted image-transaction layers are reported "
             "separately and the largest is used as the non-video subtotal. The transaction layer "
             "uses the observed image hard upper, so it cannot undercount receipts stored outside "
-            "the engine clone; summing the layers would double count."
+            "the engine clone; summing the layers would double count. The BGM and audio (TTS) "
+            "legs are separate stores keyed by provider task id and are additive; statement rows and "
+            "credit attempts carrying a TTS task id are moved out of the image layers into the audio leg."
         ),
-        "subtotal_credits": number(max(per_task, batch_total, bound_image_upper) + bgm_total + bgm_provisional_total),
+        "subtotal_credits": number(max(per_task, batch_total, bound_image_upper) + bgm_total
+                                   + bgm_provisional_total + audio_total),
     }
+
+
+HOPSAPI_PROVIDER = "hopsapi"
+HOPSAPI_TERMINAL_FAILED = {"failed", "cancelled"}
+
+
+def is_hopsapi_transaction(payload: dict[str, Any]) -> bool:
+    """A video transaction submitted through the HopsAPI router (owner 2026-10-29)."""
+    return str(payload.get("provider") or "").lower() == HOPSAPI_PROVIDER \
+        or str(payload.get("task_id") or "").startswith("tsk_")
+
+
+#: fallback exposure of a bound HopsAPI task with no recorded estimate (video 8 s x 20; image 1.2 -> 2)
+HOPSAPI_FALLBACK_EXPOSURE = {"video": 160, "image": 2}
+
+
+def scan_hopsapi_video_spend(episode: str) -> dict[str, Any]:
+    """The HopsAPI VIDEO transactions only (kept for callers that ask for that leg alone)."""
+    return scan_hopsapi_spend(episode, kinds=("video",))
+
+
+def scan_hopsapi_spend(episode: str, kinds: tuple[str, ...] = ("video", "image")) -> dict[str, Any]:
+    """HopsAPI leg: per-task ``cost`` (credits, same unit as Giggle) from the durable stores, video
+    (owner 2026-10-29) and images (gpt-image-2, owner 2026-10-30).
+
+    HopsAPI bills each task at settlement and never appears in Giggle's credit statements, so this leg
+    is additive to every Giggle layer.  A bound task with a recorded ``provider_cost_credits`` is
+    settled spend; a terminal failure (status 3/4) is 0; any other bound task counts its
+    ``estimated_credits`` as exposure until the poller / harvester records the settlement."""
+    settled = Decimal("0")
+    exposure = Decimal("0")
+    by_kind = {kind: {"settled_credits": Decimal("0"), "pending_exposure_credits": Decimal("0")} for kind in kinds}
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    sources: list[tuple[str, Path]] = []
+    for kind in kinds:
+        dirname = VIDEO_TRANSACTION_DIRNAME if kind == "video" else IMAGE_TRANSACTION_DIRNAME
+        directory = ENGINE_ROOT / "workflow" / "tasks" / dirname / episode
+        sources.extend((kind, path) for path in (sorted(directory.glob("*.json")) if directory.is_dir() else []))
+    for kind, path in sources:
+        try:
+            payload = load_json(path)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict) or not is_hopsapi_transaction(payload):
+            continue
+        if str(payload.get("state") or "") != "SUBMITTED_TASK_ID_BOUND" or not payload.get("task_id"):
+            continue
+        task_id = str(payload["task_id"])
+        if task_id in seen:
+            continue
+        seen.add(task_id)
+        cost = payload.get("provider_cost_credits")
+        terminal = str(payload.get("remote_terminal_state") or payload.get("provider_remote_status") or "").lower()
+        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+            settled += Decimal(str(cost))
+            by_kind[kind]["settled_credits"] += Decimal(str(cost))
+            status = "SETTLED_PROVIDER_COST"
+        elif terminal in HOPSAPI_TERMINAL_FAILED:
+            cost = 0
+            status = "TERMINAL_NOT_CHARGED"
+        else:
+            estimated = payload.get("estimated_credits")
+            cost = (estimated if isinstance(estimated, (int, float)) and estimated > 0
+                    else HOPSAPI_FALLBACK_EXPOSURE[kind])
+            exposure += Decimal(str(cost))
+            by_kind[kind]["pending_exposure_credits"] += Decimal(str(cost))
+            status = "BOUND_AWAITING_SETTLEMENT"
+        rows.append({"source": str(path), "kind": kind, "task_key": payload.get("task_key"), "task_id": task_id,
+                     "credits": cost, "status": status})
+    return {"settled_credits": number(settled), "pending_exposure_credits": number(exposure),
+            "unsettled_task_count": sum(1 for row in rows if row["status"] == "BOUND_AWAITING_SETTLEMENT"),
+            "by_kind": {kind: {key: number(value) for key, value in totals.items()} for kind, totals in by_kind.items()},
+            "rows": rows,
+            "method": "HOPSAPI_PER_TASK_COST (transaction.provider_cost_credits, written by the video poller "
+                      "and the image harvester)"}
 
 
 def scan_transaction_states(episode: str) -> dict[str, Any]:
@@ -632,7 +958,8 @@ def _spend_evidence(episode: str, bgm_transactions_dir: Path | None = None) -> l
     """Every durable paid-transaction row of the episode with its intent time and the credits
     the recorded / pending-exposure legs already count for it (``None`` = counts nothing)."""
     tasks_root = ENGINE_ROOT / "workflow" / "tasks"
-    directories: list[Path] = sorted(p for p in tasks_root.glob(f"*/{episode}") if p.is_dir())
+    directories: list[Path] = sorted(p for p in tasks_root.glob(f"*/{episode}")
+                                     if p.is_dir() and p.parent.name != AUDIO_TRANSACTION_DIRNAME)
     if bgm_transactions_dir is not None and bgm_transactions_dir.is_dir() \
             and bgm_transactions_dir not in directories:
         directories.append(bgm_transactions_dir)
@@ -655,8 +982,10 @@ def _spend_evidence(episode: str, bgm_transactions_dir: Path | None = None) -> l
                 elif state in BGM_PROVISIONAL_STATES or state in {"COMPLETED", "TERMINAL_COMPLETED"}:
                     credits = BGM_PROVISIONAL_CREDITS_PER_TASK
             elif state == "SUBMITTED_TASK_ID_BOUND" and payload.get("task_id"):
-                if directory.parent.name == IMAGE_TRANSACTION_DIRNAME:
+                if directory.parent.name == IMAGE_TRANSACTION_DIRNAME and not is_hopsapi_transaction(payload):
                     credits = Decimal(str(image_hard_upper_credits()))
+                elif is_hopsapi_transaction(payload) and isinstance(payload.get("provider_cost_credits"), (int, float)):
+                    credits = Decimal(str(payload["provider_cost_credits"]))
                 else:
                     estimated = payload.get("estimated_credits")
                     credits = (Decimal(str(estimated)) if isinstance(estimated, (int, float)) and estimated > 0
@@ -666,6 +995,17 @@ def _spend_evidence(episode: str, bgm_transactions_dir: Path | None = None) -> l
                 "at": _parse_utc(payload.get("intent_recorded_at")),
                 "in_flight": state in IN_FLIGHT_TRANSACTION_STATES,
             })
+    # S4 TTS store (scoped layout, nested speech/ voice_over/ dirs): counted by scan_audio_spend.
+    audio_unit = Decimal(str(UNIT_PRICES["audio_minmax_speech_2_8_hd"]["hard_upper"]))
+    for path, payload in _iter_store_transactions(
+            audio_transaction_dirs(episode, bgm_transactions_dir=bgm_transactions_dir)):
+        state = str(payload.get("state") or "UNKNOWN")
+        charge = _transaction_charge(payload)
+        credits = (charge if charge is not None
+                   else audio_unit if state in AUDIO_CHARGED_STATES and payload.get("task_id") else None)
+        rows.append({"source": str(path), "state": state, "credits": credits,
+                     "at": _parse_utc(payload.get("intent_recorded_at")),
+                     "in_flight": state in AUDIO_UNRESOLVED_STATES})
     return rows
 
 
@@ -835,6 +1175,8 @@ def scan_pending_exposure(episode: str) -> Decimal:
             except (OSError, json.JSONDecodeError):
                 continue
             state = str(payload.get("state") or "")
+            if isinstance(payload, dict) and is_hopsapi_transaction(payload):
+                continue  # HopsAPI leg (video and images): scan_hopsapi_spend (no Giggle statement covers it)
             if state == "SUBMITTED_TASK_ID_BOUND" and payload.get("task_id"):
                 if newest is not None and _transaction_bound_at(path, payload) <= newest:
                     continue  # already inside an archived statement that recorded_total_credits counts
@@ -873,6 +1215,8 @@ def scan_unevidenced_exposure(episode: str, non_video: dict[str, Any]) -> Decima
             payload = load_json(path)
         except (OSError, json.JSONDecodeError):
             continue
+        if isinstance(payload, dict) and is_hopsapi_transaction(payload):
+            continue  # never matched by a SingleGenerateVideo statement; counted by scan_hopsapi_spend
         if str(payload.get("state") or "") == "SUBMITTED_TASK_ID_BOUND" and payload.get("task_id"):
             estimated = payload.get("estimated_credits")
             estimate_rows.append((str(payload["task_id"]),
@@ -934,8 +1278,10 @@ def reserve_credits(episode: str, planned: Decimal, reservation_id: str,
         video_credits = Decimal(str(video.get("actual_charged_credits_known_total") or 0))
         non_video = scan_non_video_spend(episode, bgm_transactions_dir=None)
         non_video_credits = Decimal(str(non_video["subtotal_credits"]))
-        recorded = video_credits + non_video_credits
-        pending_exposure = scan_unevidenced_exposure(episode, non_video)
+        hopsapi = scan_hopsapi_spend(episode)
+        recorded = video_credits + non_video_credits + Decimal(str(hopsapi["settled_credits"]))
+        pending_exposure = (scan_unevidenced_exposure(episode, non_video)
+                            + Decimal(str(hopsapi["pending_exposure_credits"])))
         projected = recorded + active_reserved + pending_exposure + planned
         if projected > cap:
             return {
@@ -1024,13 +1370,15 @@ def build_report(
     bgm_transactions_dir: Path | None = None,
     reserve_if_pass: bool = False,
     reservation_id: str | None = None,
+    audio_transactions_dir: Path | None = None,
 ) -> dict[str, Any]:
     from tools.episode_video_generation_guard import evaluate_episode_credit_gate  # noqa: PLC0415
 
     video = evaluate_episode_credit_gate(episode)
     video_credits = Decimal(str(video.get("actual_charged_credits_known_total") or 0))
     non_video = scan_non_video_spend(
-        episode, bgm_transactions_dir=bgm_transactions_dir
+        episode, bgm_transactions_dir=bgm_transactions_dir,
+        audio_transactions_dir=audio_transactions_dir,
     )
     non_video_credits = Decimal(str(non_video["subtotal_credits"]))
     voices = scan_voice_registry_spend(voice_registry)
@@ -1044,10 +1392,13 @@ def build_report(
                                       if k in settled})
 
     # Pending exposure: SUBMITTED_TASK_ID_BOUND tasks whose charge recorded does not already count
-    bound_exposure = scan_pending_exposure(episode)
-    pending_exposure = scan_unevidenced_exposure(episode, non_video)
+    hopsapi = scan_hopsapi_spend(episode)
+    hopsapi_settled = Decimal(str(hopsapi["settled_credits"]))
+    hopsapi_pending = Decimal(str(hopsapi["pending_exposure_credits"]))
+    bound_exposure = scan_pending_exposure(episode) + hopsapi_pending
+    pending_exposure = scan_unevidenced_exposure(episode, non_video) + hopsapi_pending
 
-    recorded = video_credits + non_video_credits
+    recorded = video_credits + non_video_credits + hopsapi_settled
     projected = recorded + active_reserved + pending_exposure + (planned or Decimal("0"))
     headroom = Decimal(cap) - recorded - active_reserved - pending_exposure
 
@@ -1063,6 +1414,10 @@ def build_report(
     if non_video["successful_attempts_with_unknown_cost"]:
         failures.append(
             f"NON_VIDEO_SUCCESSFUL_SPEND_WITH_UNKNOWN_COST:{non_video['successful_attempts_with_unknown_cost']}"
+        )
+    if non_video["audio"]["unresolved_transactions"]:
+        failures.append(
+            f"AUDIO_UNRESOLVED_TRANSACTIONS:{len(non_video['audio']['unresolved_transactions'])}"
         )
     if non_video["bgm_unresolved_transactions"]:
         failures.append(
@@ -1098,7 +1453,14 @@ def build_report(
         "failures": failures,
         "spend": {
             "video_credits": number(video_credits),
+            "hopsapi_video_credits": hopsapi["by_kind"]["video"]["settled_credits"],
+            "hopsapi_image_credits": hopsapi["by_kind"]["image"]["settled_credits"],
+            "hopsapi_credits": number(hopsapi_settled),
             "non_video_credits": number(non_video_credits),
+            "audio_credits": non_video["audio_credits"],
+            "audio_estimated_credits": non_video["audio"]["estimated_credits"],
+            "bgm_credits": number(Decimal(str(non_video["bgm_credits"]))
+                                  + Decimal(str(non_video["bgm_provisional_credits"]))),
             "recorded_total_credits": number(recorded),
             "active_reserved_credits": number(active_reserved),
             "pending_exposure_credits": number(pending_exposure),
@@ -1111,9 +1473,14 @@ def build_report(
                 and not non_video["successful_attempts_with_unknown_cost"]
                 and not non_video["bgm_provisional_rows"]
                 and not non_video["bgm_unresolved_transactions"]
+                and not non_video["audio"]["estimated_task_count"]
+                and not non_video["audio"]["unresolved_transactions"]
                 and not transactions["unresolved_transactions"]
+                and not hopsapi["unsettled_task_count"]
             ),
         },
+        "hopsapi_spend": hopsapi,
+        "hopsapi_video_spend": scan_hopsapi_video_spend(episode),
         "engine_video_gate": {
             "tool": "tools/episode_video_generation_guard.evaluate_episode_credit_gate",
             "status": video.get("status"),
@@ -1166,6 +1533,12 @@ def main() -> int:
         help=("absolute private BGM transaction directory. Current portable runs pass "
               "<workflow/tasks/giggle_bgm_transactions>/<scope>/<episode>; omission is legacy replay only."),
     )
+    parser.add_argument(
+        "--audio-transactions-dir",
+        type=Path,
+        help=("absolute S4 TTS transaction directory (<workflow/tasks/giggle_audio_transactions>/<scope>/<episode>). "
+              "Default: the episode's series-scope store plus the legacy <episode> store."),
+    )
     parser.add_argument("--out", help="Also write this run's report here (the ledger always gets an entry).")
     parser.add_argument("--strict-balance", action="store_true", help="Treat a failed balance request as a blocking failure.")
     parser.add_argument(
@@ -1187,6 +1560,8 @@ def main() -> int:
     episode = episode_key(args.episode)
     if args.bgm_transactions_dir is not None and not args.bgm_transactions_dir.is_absolute():
         raise SystemExit("--bgm-transactions-dir must be an absolute private path")
+    if args.audio_transactions_dir is not None and not args.audio_transactions_dir.is_absolute():
+        raise SystemExit("--audio-transactions-dir must be an absolute path")
     if args.release_reservation:
         release_reservation(episode, args.release_reservation)
         print(json.dumps({"status": "RELEASED", "episode": episode,
@@ -1215,6 +1590,7 @@ def main() -> int:
         strict=args.strict_balance,
         bgm_transactions_dir=args.bgm_transactions_dir,
         reserve_if_pass=bool(args.reserve),
+        audio_transactions_dir=args.audio_transactions_dir,
     )
     report["mode"] = "CHECK" if args.check else "RECORD"
     report["network_calls_made"] = 1 if args.refresh_balance else 0
@@ -1257,6 +1633,9 @@ def main() -> int:
         "episode": episode,
         "cap_credits": args.cap,
         "recorded_total_credits": report["spend"]["recorded_total_credits"],
+        "audio_credits": report["spend"].get("audio_credits"),
+        "audio_estimated_credits": report["spend"].get("audio_estimated_credits"),
+        "bgm_credits": report["spend"].get("bgm_credits"),
         "planned_credits": report["spend"]["planned_credits"],
         "projected_total_credits": report["spend"]["projected_total_credits"],
         "headroom_credits": report["spend"]["headroom_credits"],

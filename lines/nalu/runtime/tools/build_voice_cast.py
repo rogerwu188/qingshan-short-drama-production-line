@@ -204,6 +204,15 @@ def build(episode: str, contract_path: Path, registry_path: Path, out_path: Path
     # ratio/overlap verdicts above said (no advisory, no line-owner default acceptance here).
     matrix = copresent_f0_matrix(characters, scene_copresence(contract))
     report["copresent_f0_matrix"] = matrix
+    # Owner 2026-11-04 (lab 化神 E03/E04): the 40 Hz hard rule forced recasting locked voices and WORLD pitch shifts
+    # that crackled; E04 without them sounded better.  Default: co-present voices must be DISTINCT provider voices;
+    # the F0 gap is still measured and reported as advisory.  NALU_VOICE_COPRESENT_RULE=F0_40HZ restores the old rule.
+    if str(os.environ.get("NALU_VOICE_COPRESENT_RULE") or "TIMBRE_DISTINCT").strip().upper() != "F0_40HZ":
+        same = [f"COPRESENT_SAME_VOICE_ID:{r['a']}:{r['b']}" for r in matrix["pairs"]
+                if characters.get(r["a"], {}).get("voice_id")
+                and characters[r["a"]].get("voice_id") == characters.get(r["b"], {}).get("voice_id")]
+        matrix["rule"] = "TIMBRE_DISTINCT"
+        matrix["advisories"], matrix["failures"] = matrix["failures"], same
     if matrix["failures"]:
         report["failures"] = list(report.get("failures") or []) + matrix["failures"]
         report["status"] = "FAIL"

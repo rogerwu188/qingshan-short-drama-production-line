@@ -25,6 +25,10 @@ video is the tail-ad version $NALU_RUNTIME_ROOT/deliverables/<EP>/<EP>_final_9x1
 one (and it is not older than the final), else <EP>_final_9x16.mp4; the result and the state record which
 file was sent (``published_variant`` AD|FINAL).  The default cover is a frame taken from it with ffmpeg.
 
+Matrix mode (DEFAULT since 2026-11-06; a series already sent through the old open-api keeps it until it ends) every
+command is handled by publish_x2c_matrix.py (X2C "StoryClaw 设备矩阵 API"; see that file); X2C_API_MODE=open
+keeps this legacy open-api flow.
+
 The API key is read from $X2C_API_KEY, else $NALU_RUNTIME_ROOT/credentials/x2c_api_key (mode 600).
 It is never printed.
 """
@@ -269,6 +273,9 @@ def cmd_forget(a: argparse.Namespace) -> dict[str, Any]:
 
 
 def main() -> int:
+    import publish_x2c_matrix as mx  # noqa: E402  (same folder; matrix mode replaces every command)
+    if mx.matrix_mode():
+        return mx.main()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("categories"); c.add_argument("--lang", default="zh")

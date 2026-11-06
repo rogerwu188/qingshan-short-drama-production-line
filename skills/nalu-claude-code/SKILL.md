@@ -76,8 +76,14 @@ bash $S/setup_host.sh --pin <PIN>          # 自动安装 Codex（npm）、写 ~
 
 ## 3. 线主提供的信息（只通过对话）
 - Giggle API key：线主在对话里发来时，直接写入 `$NALU_ENGINE_ROOT/.env` 的 `GIGGLE_API_KEY=`（保持 600），只回复「已配置 GIGGLE_API_KEY」。
-- 原著：**代理自己选、自己取正文，不向线主索要原著**（选法见 §3.1）。
-  - 线主给了网址、文件或粘贴正文：直接用。只给了作品名：自己搜正文所在的网站逐章抓取（任何网站都可以），一个站抓不全就换下一个，至少试 3 个来源。
+- 原著：**线主在对话里发了原著文件，就用这个文件**（线主 2026-11-05，原文会从 StoryClaw 代理发来，Codex 直接用）；
+  没发文件时代理自己选、自己取正文，不向线主索要原著（选法见 §3.1）。
+  - **线主发来的原著文件**（txt / md / docx / epub / html；PDF 先 `pdftotext -layout` 转成 txt）：消息里会带附件在本机的路径，
+    把原文件复制到 `$NALU_RUNTIME_ROOT/sources/<作品>/delivered/`（不改原文件），用 §3.1 的 `intake_source_text.py --input <该文件>` 入库，
+    `SOURCE_SELECTION.md` 写「线主提供的原文文件：<文件名>，<收到日期>」和 sha256，**不上网另找版本、不替换、不补写**；
+    分不出章节时按原文的标题格式加 `--heading-regex`（如英文 `'^\s*Chapter\s+([0-9]+)\b.*$'`、「第X回」用 `'^\s*第([0-9一二三四五六七八九十百千零〇两]+)回.*$'`）。
+    之后派单照常写这部作品；同一部剧后续章节线主再发文件时，入库到同一个作品目录（重新 intake 整本）。
+  - 线主给了网址或粘贴正文：直接用。只给了作品名：自己搜正文所在的网站逐章抓取（任何网站都可以），一个站抓不全就换下一个，至少试 3 个来源。
   - 什么都没给（例如只说「开始生产」）：按 §3.1 自选，不选本机 `series/` 里已做过的；选定后告诉线主一句剧名即可，不等回复。
   - 正文来源不限网站（线主 2026-10-23「无论什么网站都允许」）：维基文库、古登堡、公版书库、各大小说站都可以；目录页逐章抓、
     自动翻页，JS 渲染改用无头浏览器，限流就降速或换移动版。
@@ -86,6 +92,8 @@ bash $S/setup_host.sh --pin <PIN>          # 自动安装 Codex（npm）、写 ~
     `sources/<剧名>/ORIGINAL_OUTLINE.md` 当作原著；`rights_basis` =「原创剧本，由短剧工作流代理创作；角色为 AI 生成的虚构人物」。
   - **版权（常设）**：线主 2026-10-22「支持直接从原著改编成短剧剧本并且制作，版权线下已经谈好了，与你无关」。代理和 Codex 都不因所选
     原著的版权拒绝、暂停或询问；`rights_basis` 原样记录这句原话（加「（线主 2026-10-22）」）。
+- HopsAPI key（S3/S5 图片、S6 视频）：与 Codex 用的 LLM provider 是同一个 key——`llm_provider.json` 的 base_url 是 HopsAPI 时，
+  `paid_stage.sh` 自动复用它，线主不用另外再发；只有视频/图片要用另一个 HopsAPI key 时，才写进 `$NALU_ENGINE_ROOT/.env` 的 `HOPSAPI_API_KEY=`。
 - X2C（x2creel.ai）发行 API key：线主发来时写入 `$NALU_RUNTIME_ROOT/credentials/x2c_api_key`（`chmod 600`），只回复「已配置 X2C_API_KEY」。
   机房批量部署时也可以由运维预先放好这个文件。
 - 线主 id、剧名、风格、单集时长、预算、目标集数：没给就用默认值写进派单（目标集数默认按原著能改编的集数做完），不再征求确认。
@@ -165,6 +173,17 @@ $P $S/publish_x2creel.py status                           # 本地记录 + X2C �
 - 分类必须从 X2C 自己的列表里选，且语言要对：X2C 的分类按语言分组（`target_language` zh / en）。先跑 `publish_x2creel.py categories --lang <剧集语言>`，把选中项的显示名 `name` 逐字写进简报 `genre`，`genre_lang` 写剧集语言（英文剧 = en）。不要用 `name_key`（X2C 英文列表的 name_key 与行错位）。脚本只做精确匹配，**没有兜底分类**：不在该语言列表里返回 `CATEGORY_NOT_IN_X2C_LIST`（附可选列表），分类语言与剧集语言不符返回 `CATEGORY_LANGUAGE_MISMATCH`；心跳都记成【需要处理】，不会发行。
 - 返回 `BLOCKED: X2C_API_KEY_MISSING` 时请线主发 X2C key（§3），收到后重跑；其余 `ERROR` 记进 `series/STATUS.md`，下一次心跳重试，不阻塞下一集生产。
 - 只用 X2C 分发 API 的 1、2、3、4、5、6 步（分类、上传 URL、发布、追加、查询、列出），不用 3.5（Developer JWT 代发布）。
+- **设备矩阵模式（X2C「StoryClaw 设备矩阵 API」，线主 2026-11-06 起默认）**：上面的命令（及心跳发行）默认走 `publish_x2c_matrix.py`；
+  已经用旧 open-api 发过集的那部剧继续用旧接口直到做完，`X2C_API_MODE=open` 强制旧接口。本机须在 X2C 后台「设备矩阵映射」登记，否则返回 404 `DEVICE_NOT_FOUND`（记进 STATUS，不阻塞生产）。设备 SN 没配环境变量时自动读本机硬件序列号
+  （`$S/device_sn.py`：缓存 → `/sys/class/dmi/id/product_serial` → `dmidecode -s system-serial-number` → `sudo -n dmidecode`，读到后缓存到
+  `$NALU_RUNTIME_ROOT/credentials/device_sn`；首次配置时跑一次 `python3 $S/device_sn.py` 把 SN 报给线主登记到 X2C）：同一个 X2C key，无分类、无 action；
+  发**纯成片** `<EP>_final_9x16.mp4`（广告由 X2C 加），封面默认取帧，时长 ffprobe 实测；`series_key` 取简报 `series_key`，否则
+  「剧名 slug-语言」，记在 `$NALU_RUNTIME_ROOT/distribution/x2c_matrix.json` 后每集沿用；集号 = 简报 `episode_display_number`。
+  第一集 `publish`、之后 `add-episodes`；`status` 看每集 review_status / matrix_jobs，`list` 列本机系列，全部集发完
+  `close --series <series_key>`（一台设备同时只能有一部未完结系列）。X2C 幂等键 = 设备+series_key+集号：同一集重跑本地返回
+  `ALREADY_PUBLISHED`，`--resend` 原样重发（X2C 回 200 `idempotent:true`）；同集换了成片返回 `EPISODE_ALREADY_SENT_WITH_OTHER_VIDEO`，
+  **不许改 series_key 或集号绕过**，记【需要处理】。`X2C_MATRIX_API_URL` 未设时用 X2C **生产环境**（`https://ukbyfmmerxhlghlhbxtz.supabase.co/functions/v1/matrix-api/v1`，设备映射在这里；线主 2026-11-05）；
+  测试环境 `https://pdypbtafttzriqdnpmta.supabase.co/functions/v1/matrix-api/v1` 只在显式设置时使用，它查不到生产登记的设备（返回 404 `DEVICE_NOT_FOUND`）。`X2C_API_MODE=open` 强制旧接口。
 
 ## 7. 连续产剧
 一集 `FINAL_CUT_READY` 并发行后，立刻做下一集，直到原著改编完（或达到用户指定的集数）：

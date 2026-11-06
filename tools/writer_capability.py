@@ -98,6 +98,10 @@ def profile_for(episode: str, config: dict[str, Any] | None = None,
     enabled = config.get("enabled") is True
     start = str(config.get("enabled_from_episode") or "").strip()
     base = {"enabled_from_episode": start or None}
+    # the sealed list records the production line's own E01-E13 by bare id; a NEW series reuses those ids for
+    # episodes that were never sealed, so "new_series" opts that series in (lab 化神 E03, 2026-11-03)
+    if switch == "new_series":
+        return {**base, "profile": SELECTED, "reason": "ENV_OVERRIDE_NEW_SERIES"}
     if str(episode).upper() in sealed_episodes(config):
         return {**base, "profile": LEGACY, "reason": "SEALED_BEFORE_THIS_CAPABILITY"}
     if switch == "off":

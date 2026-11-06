@@ -15,6 +15,14 @@ Roger 2026-09-18《E05/E06 生产线补正 —— 追加：语速 / 镜长 / 表
     8a  pressure_source 在前 30 s；8b episode_payoff 二选一；8c action_chain 想要→受阻→出手
   规则 10 对白镜的动作文字不得要求换嗓子（压着嗓子/扯着嗓子/声音发颤…，词表 configs/VOICE_TIMBRE_LOCK_V1.json）；
           默认只警告，配置 selfcheck.blocking 或合同 voice_timbre_policy.enforced 时阻断
+  规则 11 （仅 CAMERA_GRAMMAR_V1；线主 2026-11-02 实验集化神 E01 起降为提示）画内台词估算 < 2.8 s 只进 advisories
+          R11_SHORT_LINE_OK_S7_CUTS：保留原著的短句，不要为凑 4 s 加词；生成仍按 4 s 下限请求，S7 剪到表演
+          （tools/performance_cut.py）。同一说话人 CONTINUOUS_ACTION 同机位的连续台词（独白组）每句不受 4 s 下限，
+          编译器按台词估算首尾相接排时间（speaking_unit_duration.monologue_group_durations）
+  规则 12 （仅 CAMERA_GRAMMAR_V1，线主 2026-11-01，实验集 E12 长镜头）同一说话人的连续台词是一个镜头（同一锁定机位，
+          CONTINUOUS_ACTION，≤12 s），只警告：R12_MONOLOGUE_CUT_BETWEEN_LINES（两句之间写了切镜或换了机位）、
+          R12_MONOLOGUE_OVER_12S_ADD_CUTAWAY（同机位连续台词超过 12 s：在两组之间插一个无台词的反应/道具插入镜头，
+          再回到同一机位）。一个镜头里写同一人的多句台词也可以（5a 按多句总时长计，≤12 s）
 
 The check is a WRITER-LAYER self-check: it carries no gate_id.  It is enforced (S1 refuses to enter
 S2) only when the contract declares ``writer_selfcheck_seq29.enforced: true`` (E06+ builders);
@@ -50,15 +58,19 @@ def load_lexicon(path: Path | None = None) -> dict[str, Any]:
 
 def _spoken(dialogue: str) -> str:
     text = str(dialogue or "").strip()
-    return text.split("：", 1)[1] if "：" in text[:8] else text
+    return text.split("：", 1)[1] if "：" in text[:24] else text  # long English speaker names too (lab E09)
 
 
 def derived_dialogue_seconds(dialogue: str, cps: float | None) -> float:
     """Rule 5a: line seconds + 0.5, rounded UP to 0.5 s (10 chars @ 5.0 → 2.5 s).
 
+    A shot with several lines (one speaker's lines in one take, owner 2026-11-01) is timed by all its lines
+    together, each without its ``Speaker：`` prefix; a single line is timed exactly as before.
+
     A line with no CJK character at all is English: timed by words (same as static_design_gate R8),
     never letter by letter; Chinese lines always contain CJK and are unchanged."""
-    spoken = _spoken(dialogue)
+    rows = [row for row in str(dialogue or "").splitlines() if row.strip()]
+    spoken = _spoken(dialogue) if len(rows) < 2 else " ".join(_spoken(row) for row in rows)
     if not re.search(r"[\u3400-\u9fff]", spoken) and re.search(r"[A-Za-z]", spoken):
         spoken = spoken.split(":", 1)[1] if ":" in spoken[:24] else spoken
         return npr.min_dialogue_seconds(spoken, None, "en")
@@ -201,7 +213,100 @@ def in_video_contract(contract: dict[str, Any]) -> dict[str, Any]:
     return {**contract, "shots": shots}
 
 
+def provider_floor_seconds(contract: dict[str, Any]) -> float:
+    """CAMERA_GRAMMAR_V1 contracts: the H3 request floor (HopsAPI: 4 s).  A dialogue shot may be that long even
+    when its line is shorter — the writer rule then requires a performed action (R11 warns).  Others: 0."""
+    tools_dir = _pathlib.Path(__file__).resolve().parents[4] / "tools"
+    if str(tools_dir) not in _sys.path:
+        _sys.path.append(str(tools_dir))
+    import camera_grammar_policy as _cg
+    if not _cg.active(contract, episode=str(contract.get("episode") or "")):
+        return 0.0
+    import speaking_unit_duration as _sud
+    return float(_sud.MIN_SECONDS)
+
+
+def short_speaking_line_warnings(contract: dict[str, Any]) -> list[dict[str, Any]]:
+    """CAMERA_GRAMMAR_V1 contracts: dialogue shots whose in-video line is estimated under
+    speaking_unit_duration.SHORT_LINE_WARN_SECONDS (same estimate the compiler uses).  Other contracts: []."""
+    tools_dir = _pathlib.Path(__file__).resolve().parents[4] / "tools"
+    if str(tools_dir) not in _sys.path:
+        _sys.path.append(str(tools_dir))
+    import camera_grammar_policy as _cg
+    if not _cg.active(contract, episode=str(contract.get("episode") or "")):
+        return []
+    import speaking_unit_duration as _sud
+    import voice_over_narration as _vo
+    language = _vo.contract_language(contract)
+    rows = []
+    for shot in contract.get("shots") or []:
+        lines = [line for line in str(((shot.get("prompt_spec") or {}).get("dialogue")) or "").splitlines() if line.strip()]
+        if not lines:
+            continue
+        seconds = _sud.estimated_line_seconds(lines, language, shot.get("dialogue_delivery"))
+        if 0 < seconds < _sud.SHORT_LINE_WARN_SECONDS:
+            rows.append({"shot_id": str(shot.get("shot_id") or "?"), "estimated_seconds": seconds})
+    return rows
+
+
+def monologue_warnings(contract: dict[str, Any]) -> list[str]:
+    """R12 (CAMERA_GRAMMAR_V1 only, never blocks; owner 2026-11-01, lab E12 long-take test): one speaker's
+    consecutive on-screen lines are one take -- same locked camera setup, no authored cut between them -- of at
+    most speaking_unit_duration.GROUP_MAX_SECONDS; a longer monologue is split by a silent cutaway insert, then
+    returns to the same setup.  Other contracts: []."""
+    tools_dir = _pathlib.Path(__file__).resolve().parents[4] / "tools"
+    if str(tools_dir) not in _sys.path:
+        _sys.path.append(str(tools_dir))
+    import camera_grammar_policy as _cg
+    if not _cg.active(contract, episode=str(contract.get("episode") or "")):
+        return []
+    import speaking_unit_duration as _sud
+    authored = {str(r.get("to_shot_id")): str(r.get("transition_mode") or "").upper()
+                for r in contract.get("internal_transition_authoring") or [] if isinstance(r, dict)}
+
+    def speaker(shot: dict[str, Any]) -> str:
+        spec = shot.get("prompt_spec") or {}
+        if not str(spec.get("dialogue") or "").strip():
+            return ""
+        role = spec.get("role_semantic_disambiguation") or {}
+        who = str(role.get("lip_owner_id") or role.get("dialogue_speaker_id") or "")
+        offscreen = {str(m.get("character_id") or "") for m in spec.get("cast") or []
+                     if str(m.get("face_visibility") or "") == "OFFSCREEN_VOICE_ONLY"}
+        return "" if who in offscreen else who
+
+    def cut_into(shot: dict[str, Any]) -> bool:
+        mode = authored.get(str(shot.get("shot_id"))) or str(
+            (shot.get("internal_transition_authoring") or {}).get("transition_mode") or "").upper()
+        return mode.endswith("_CUT")
+
+    out: list[str] = []
+    run_start, run_seconds = None, 0.0
+    prev: dict[str, Any] | None = None
+    for shot in contract.get("shots") or []:
+        sid = str(shot.get("shot_id") or "?")
+        who = speaker(shot)
+        setup = _sud.setup_key((shot.get("prompt_spec") or {}).get("camera_plan"))
+        same_take = False
+        if prev is not None and who and who == speaker(prev) and shot.get("scene_id") == prev.get("scene_id"):
+            prev_setup = _sud.setup_key((prev.get("prompt_spec") or {}).get("camera_plan"))
+            if cut_into(shot) or setup != prev_setup:
+                out.append(f"R12_MONOLOGUE_CUT_BETWEEN_LINES:{sid}")
+            else:
+                same_take = True
+        if same_take:
+            run_seconds += float(shot.get("target_seconds") or 0)
+        else:
+            if run_start and run_seconds > _sud.GROUP_MAX_SECONDS + 1e-9:
+                out.append(f"R12_MONOLOGUE_OVER_12S_ADD_CUTAWAY:{run_start}:{run_seconds:g}")
+            run_start, run_seconds = (sid, float(shot.get("target_seconds") or 0)) if who else (None, 0.0)
+        prev = shot
+    if run_start and run_seconds > _sud.GROUP_MAX_SECONDS + 1e-9:
+        out.append(f"R12_MONOLOGUE_OVER_12S_ADD_CUTAWAY:{run_start}:{run_seconds:g}")
+    return out
+
+
 def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) -> dict[str, Any]:
+    floor_s = provider_floor_seconds(contract)
     contract = in_video_contract(contract)
     lex = lexicon or load_lexicon()
     emotions = set(lex.get("emotions") or [])
@@ -244,7 +349,7 @@ def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) ->
         derived = derived_dialogue_seconds(dialogue, cps)
         m["derived_seconds_by_shot"][sid] = derived
         # 5a — the shot length follows the line
-        if target > derived + TEMPLATE_TOLERANCE_S + 1e-9:
+        if target > max(derived + TEMPLATE_TOLERANCE_S, floor_s) + 1e-9:
             failures.append(f"R5A_DIALOGUE_SHOT_TEMPLATE_DURATION:{sid}:{target:g}>{derived:g}")
         elif target + 1e-9 < derived:
             failures.append(f"R5A_DIALOGUE_SHOT_TOO_SHORT:{sid}:{target:g}<{derived:g}")
@@ -318,10 +423,26 @@ def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) ->
     m["voice_timbre_terms_by_shot"] = r10["by_shot"]
     (failures if r10["blocking"] else warnings).extend(r10["codes"])
 
+    # R11 (CAMERA_GRAMMAR_V1 only, never blocks).  Owner 2026-11-02 (lab 化神 E01): a short line is fine -- the
+    # writer keeps the source's line and never pads it to the 4 s floor; S7 cuts to the performance.  Advisory only.
+    advisories: list[str] = []
+    r11 = short_speaking_line_warnings(contract)
+    if r11:
+        m["short_speaking_lines"] = r11
+        advisories.extend(f"R11_SHORT_LINE_OK_S7_CUTS:{row['shot_id']}:{row['estimated_seconds']:g}" for row in r11)
+
+    # R12 (owner 2026-11-01, lab E12 long take; CAMERA_GRAMMAR_V1 only, never blocks) — one speaker's consecutive
+    # lines are one take (same locked setup, no cut, <= 12 s); a longer monologue gets a silent cutaway
+    r12 = monologue_warnings(contract)
+    if r12:
+        m["monologue_warnings"] = r12
+        warnings.extend(r12)
+
     status = "PASS" if not failures else "FAIL"
     return {"schema": SCHEMA, "episode": contract.get("episode"), "authority": "SUPERVISOR_ORDERS seq=29 (Roger 2026-09-18 memo 九–十四)",
             "declared": bool(decl), "enforced": enforced, "rule8_authorized": rule8,
-            "status": status, "failures": failures, "warnings": warnings, "measurements": m,
+            "status": status, "failures": failures, "warnings": warnings,
+            **({"advisories": advisories} if advisories else {}), "measurements": m,
             "note": "writer-layer self-check, no gate_id; enforced only when the contract declares writer_selfcheck_seq29.enforced"}
 
 

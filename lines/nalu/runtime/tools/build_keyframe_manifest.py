@@ -56,11 +56,13 @@ try:
     from image_model_adapter import compile_labeled_flat_identity_transport
     from provider_scope_projection import build_provider_scope_projection
     from lighting_participant_scope import scoped_lighting_line
+    import provider_reference_exclusions as _pre
 except ModuleNotFoundError:  # Imported as a package in tests
     from tools.role_semantic_prompt_gate import role_semantic_prompt_block
     from tools.image_model_adapter import compile_labeled_flat_identity_transport
     from tools.provider_scope_projection import build_provider_scope_projection
     from tools.lighting_participant_scope import scoped_lighting_line
+    from tools import provider_reference_exclusions as _pre
 
 SCHEMA_MANIFEST = "qingshan.giggle_image_batch_manifest.v2"
 SCHEMA_REPORT = "nalu.keyframe_manifest_build_report.v1"
@@ -1216,6 +1218,33 @@ def normalize_keyframe_role_semantics(
     return role
 
 
+def reference_use_lines(bindings: list[dict[str, Any]], role: dict[str, Any]) -> list[str]:
+    """The prompt's 参考图N purpose block, numbered over the TRANSMITTED bindings only."""
+    reference_lines: list[str] = []
+    # Provider reference exclusion: the block numbers and describes only the images actually sent; an
+    # excluded binding keeps its spatial authority (ids/coordinates in the text) but is never "参考图N".
+    for index, row in enumerate(_pre.transmitted_bindings(bindings), 1):
+        binding_role = str(row["role"])
+        purpose = {
+            "episode_global_space_map": "仅提供全集空间拓扑与地点相对位置",
+            "global_space_map": "仅提供本地点的房间/区域拓扑与坐标",
+            "subspace_layout": "仅提供本镜机位、轴线、可见固定元素与站位几何",
+            "scene": "唯一场景参考位",
+            "character": "正面头像：锁定该人物的脸型、五官、发型与年龄（脸以此图为准）",
+            "character_reference": "补充视角：配合主参考理解面部几何（同一人）",
+            "character_wardrobe": "全身像：仅锁定该人物的服装形制、体型比例与配饰；脸不以此图为准",
+            "prop": "仅锁定该道具的形制、材质与尺度",
+        }[binding_role]
+        if binding_role == "prop" and str((role.get("entity_presence") or {}).get(row["entity_id"]) or "") == "VISIBLE_AND_IDENTITY_LOCKED":
+            purpose = "生物：锁定该生物的形貌、体型、毛色与特征（本帧可见）"
+        # Binding bookkeeping stays out of the provider text so the prompt SHA is
+        # stable across the stage-3(a) plate upgrade.
+        reference_lines.append(
+            f"- 参考图{index} {row['role']} / {row['entity_id']}：{purpose}。"
+        )
+    return reference_lines
+
+
 def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
                  character_ids: list[str], decision: dict[str, Any],
                  dropped: list[dict[str, str]]) -> str:
@@ -1242,26 +1271,7 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
         completion_state=str(shot.get("completion_state") or "").strip(),
     )
 
-    reference_lines = []
-    for index, row in enumerate(bindings, 1):
-        binding_role = str(row["role"])
-        purpose = {
-            "episode_global_space_map": "仅提供全集空间拓扑与地点相对位置",
-            "global_space_map": "仅提供本地点的房间/区域拓扑与坐标",
-            "subspace_layout": "仅提供本镜机位、轴线、可见固定元素与站位几何",
-            "scene": "唯一场景参考位",
-            "character": "正面头像：锁定该人物的脸型、五官、发型与年龄（脸以此图为准）",
-            "character_reference": "补充视角：配合主参考理解面部几何（同一人）",
-            "character_wardrobe": "全身像：仅锁定该人物的服装形制、体型比例与配饰；脸不以此图为准",
-            "prop": "仅锁定该道具的形制、材质与尺度",
-        }[binding_role]
-        if binding_role == "prop" and str((role.get("entity_presence") or {}).get(row["entity_id"]) or "") == "VISIBLE_AND_IDENTITY_LOCKED":
-            purpose = "生物：锁定该生物的形貌、体型、毛色与特征（本帧可见）"
-        # Binding bookkeeping stays out of the provider text so the prompt SHA is
-        # stable across the stage-3(a) plate upgrade.
-        reference_lines.append(
-            f"- 参考图{index} {row['role']} / {row['entity_id']}：{purpose}。"
-        )
+    reference_lines = reference_use_lines(bindings, role)
 
     cast_names = [
         f"{row.get('entity_name')}（{row['entity_id']}）"
@@ -1597,9 +1607,14 @@ def compile_task(inputs: Inputs, decision: dict[str, Any], prompt_dir: Path,
         visible_contract_ids=character_ids,
         completion_state=str(shot.get("completion_state") or "").strip(),
     )
+    # Provider reference exclusion (device …1324 E01 S5, 2026-11-06): a declared non-identity file the
+    # provider deterministically refuses stays in reference_bindings as authority (transmitted: false)
+    # and is left out of the provider array, the @图片N labels and the reference-use block.
+    bindings, reference_exclusions = _pre.apply_exclusions(
+        bindings, getattr(inputs, "provider_reference_exclusions", None), task_key=task_key)
     prompt = build_prompt(inputs, shot_id, bindings, character_ids, decision, dropped)
     identity_sequence, identity_transport, prompt = compile_labeled_flat_identity_transport(
-        task_key, bindings, prompt
+        task_key, _pre.transmitted_bindings(bindings), prompt
     )
     # Protected identity/spatial bindings may prevent cap_non_character_bindings
     # from reaching its target. Never serialize an unsupported provider request.
@@ -1679,6 +1694,8 @@ def compile_task(inputs: Inputs, decision: dict[str, Any], prompt_dir: Path,
         "spatial_continuity": spatial_continuity,
         "failures": [],
     }
+    if reference_exclusions:
+        prompt_contract["provider_reference_exclusions"] = reference_exclusions
 
     source_shot_contract = {
         key: value
@@ -1761,6 +1778,8 @@ def compile_task(inputs: Inputs, decision: dict[str, Any], prompt_dir: Path,
         "provider_post_allowed": False,
         "maximum_new_submissions": 1,
     }
+    if reference_exclusions:
+        task["provider_reference_exclusions"] = reference_exclusions
 
     def describe(row: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -1868,7 +1887,30 @@ def build_manifest(inputs: Inputs, tasks: list[dict[str, Any]], keyframe_dir: Pa
         "wardrobe_policy_report": getattr(inputs, "wardrobe_policy_report", {}) or {},
         "generated_by": "runtime/tools/build_keyframe_manifest.py",
         "generated_at": utc_now(),
+        **provider_reference_exclusion_summary(inputs, tasks),
     }
+
+
+def provider_reference_exclusion_summary(inputs: Inputs, tasks: list[dict[str, Any]]) -> dict[str, Any]:
+    """Manifest/report block for a declared provider reference exclusion; {} (byte-identical) without one."""
+    declaration = getattr(inputs, "provider_reference_exclusions", None)
+    if not declaration:
+        return {}
+    by_task = {str(task["task_key"]): [
+        {"role": row.get("role"), "entity_id": row.get("entity_id"), "sha256": row.get("sha256"),
+         "reason": row.get("reason")} for row in task.get("provider_reference_exclusions") or []]
+        for task in tasks if task.get("provider_reference_exclusions")}
+    return {"provider_reference_exclusions": {
+        "schema": _pre.SCHEMA,
+        "declaration_ref": declaration.get("_source_path"),
+        "declaration_sha256": declaration.get("_source_sha256"),
+        "declared": [{k: entry.get(k) for k in ("asset_id", "sha256", "path", "role", "reason", "declared_by", "declared_at")}
+                     for entry in declaration.get("exclusions") or []],
+        "tasks_affected": len(by_task),
+        "by_task": by_task,
+        "rule": "excluded files keep their spatial authority in reference_bindings (transmitted: false); "
+                "the provider array, @图片N labels and the reference-use block cover transmitted files only",
+    }}
 
 
 # --------------------------------------------------------------------------- #
@@ -1996,6 +2038,59 @@ def _authored_cut(contract: dict[str, Any], prev_last: str, first: str) -> bool:
     return any(str(r.get("from_shot_id")) == prev_last and str(r.get("to_shot_id")) == first
                and str(r.get("transition_mode") or "").upper() in CUT_TRANSITION_MODES
                for r in contract.get("internal_transition_authoring") or [])
+
+
+MONOLOGUE_REUSE_MODE = "MONOLOGUE_SAME_SETUP_KEYFRAME_REUSE"
+
+
+def monologue_keyframe_reuse(inputs: "Inputs", decisions: list[dict[str, Any]], *,
+                             camera_grammar: bool | None = None) -> list[dict[str, Any]]:
+    """CAMERA_GRAMMAR_V1 (owner 2026-11-01, lab E12 long take): a speaking unit that continues the same speaker's
+    earlier take after a cutaway (grouping ``same_setup_as_unit``) starts from that take's keyframe -- the SAME
+    camera setup, no new paid image.  Its opener row becomes a reuse of the earlier unit's opener keyframe
+    (nalu_pipeline.materialise_monologue_reuse_keyframes copies the bytes at S5).  Only when that opener gets a
+    keyframe of its own (NEW, or itself such a reuse); a tail-derived (D-68) opener stays as it is.  Rows are
+    updated in place; returns the changed rows."""
+    if camera_grammar is None:
+        try:
+            from tools.camera_grammar_policy import active
+            camera_grammar = active(inputs.contract, episode=inputs.episode)
+        except ImportError:
+            camera_grammar = False
+    if not camera_grammar:
+        return []
+    units = {str(u.get("unit_id")): u for u in (inputs.grouping_plan.get("units") or [])}
+    by_shot = {str(row.get("shot_id")): row for row in decisions}
+    changed: list[dict[str, Any]] = []
+    for unit in inputs.grouping_plan.get("units") or []:
+        earlier = units.get(str(unit.get("same_setup_as_unit") or ""))
+        shots = [str(s) for s in unit.get("editorial_shot_ids") or []]
+        if not earlier or not shots:
+            continue
+        row = by_shot.get(shots[0])
+        source_row = by_shot.get(str((earlier.get("editorial_shot_ids") or [""])[0]))
+        if not row or not source_row or row.get("decision") != "NEW_KEYFRAME":
+            continue
+        if source_row.get("decision") == "NEW_KEYFRAME":
+            source = str(source_row["shot_id"])
+        elif source_row.get("reuse_mode") == MONOLOGUE_REUSE_MODE:
+            source = str(source_row.get("reuse_source") or "")
+        else:
+            continue
+        if not source:
+            continue
+        row.update({
+            "decision": "REUSE_NO_NEW_KEYFRAME",
+            "reuse_mode": MONOLOGUE_REUSE_MODE,
+            "reuse_source": source,
+            "reuse_source_unit_id": str(earlier.get("unit_id")),
+            "superseded_novelty_classes": row.get("novelty_classes") or [],
+            "novelty_classes": [],
+            "policy_basis": "CAMERA_GRAMMAR_V1 monologue group: same speaker, same locked setup after a cutaway",
+            "reuse_materialization": f"COPY_EXACT_SHA_BYTES_FROM_SOURCE_KEYFRAME_INTO_{shots[0]}-keyframe-v1.png",
+        })
+        changed.append(row)
+    return changed
 
 
 def derived_opener_shot_ids(inputs: "Inputs", *, camera_grammar: bool | None = None) -> set[str]:
@@ -2149,6 +2244,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--image-resolution", default=None, choices=["1K", "2K"],
                         help="default: the registry policy's active resolution (tools/image_model_policy.py; "
                              "Roger 2026-10-30 seq=56 = 1K)")
+    parser.add_argument("--provider-reference-exclusions", type=Path, default=None,
+                        help="nalu.provider_reference_exclusions.v1 declaration (normally "
+                             "$NALU_RUNTIME_ROOT/preproduction/<EP>/provider_reference_exclusions.json); "
+                             "absent file = nothing excluded")
     parser.add_argument("--task-version", default="V1",
                         help="Portable task/output version such as V1 or V2; use a new value after a rejected attempt")
     args = parser.parse_args(argv)
@@ -2173,6 +2272,11 @@ def main(argv: list[str] | None = None) -> int:
         args.awaited_asset_dir.resolve() if args.awaited_asset_dir else None,
     )
     gate_ref = inputs.scene_authority_gate_ref()
+    try:
+        inputs.provider_reference_exclusions = _pre.load_declaration(
+            args.provider_reference_exclusions, episode=episode)
+    except _pre.ExclusionError as exc:
+        raise SystemExit(str(exc)) from None
 
     decisions = decide_keyframes(inputs)
     # D-68 (Roger seq=36, 2026-09-18): a unit whose opening anchor is CONTINUITY_DERIVED_KEYFRAME starts
@@ -2184,13 +2288,19 @@ def main(argv: list[str] | None = None) -> int:
     for row in deferred:
         row["decision"] = "DEFERRED_TO_PREVIOUS_UNIT_REAL_FINAL_FRAME"
         row["decision_basis"] = "D-68 continuity-derived opener: start frame = previous unit real tail"
+    # CAMERA_GRAMMAR_V1 monologue groups (owner 2026-11-01): the continuation of a speaker's take after a cutaway
+    # reuses that take's keyframe (same setup, no new image)
+    monologue_keyframe_reuse(inputs, decisions)
     new_shots = [row for row in decisions if row["decision"] == "NEW_KEYFRAME"]
     reuse_shots = [row for row in decisions if row["decision"] != "NEW_KEYFRAME"]
 
     dropped_prompt_segments: list[dict[str, str]] = []
-    all_tasks = compile_tasks(inputs, new_shots, prompt_dir, keyframe_dir, gate_ref,
-                              args.model, args.image_resolution, dropped_prompt_segments,
-                              task_version)
+    try:
+        all_tasks = compile_tasks(inputs, new_shots, prompt_dir, keyframe_dir, gate_ref,
+                                  args.model, args.image_resolution, dropped_prompt_segments,
+                                  task_version)
+    except _pre.ExclusionError as exc:
+        raise SystemExit(str(exc)) from None
     selected = [task for task in all_tasks if task_is_fully_bound(task)] if args.locations_only else all_tasks
     if not selected:
         raise SystemExit("no tasks selected; nothing to write")
@@ -2284,6 +2394,7 @@ def main(argv: list[str] | None = None) -> int:
         ),
         "credits": credit_estimate(engine_root, len(selected)),
     }
+    report.update(provider_reference_exclusion_summary(inputs, selected))
     # CAMERA_GRAMMAR_V1: openers that now get their own keyframe instead of the previous tail
     cut_openers = sorted(derived_opener_shot_ids(inputs, camera_grammar=False) - derived_openers)
     if cut_openers:

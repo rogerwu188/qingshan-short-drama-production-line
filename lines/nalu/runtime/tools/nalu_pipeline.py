@@ -250,6 +250,56 @@ def _authority_config(config: dict[str, Any]) -> tuple[dict[str, Any], list[str]
 #: poll tool get the engine's tools dir explicitly.
 VIDEO_SUBMIT_ENV = {"BACKLOT_PIPELINE_TOOLS_DIR": str(ENGINE / "tools")}
 
+
+def _hopsapi():
+    """tools/hopsapi_video_client.py (engine, no network at import)."""
+    if str(ENGINE) not in sys.path:
+        sys.path.insert(0, str(ENGINE))
+    from tools import hopsapi_video_client  # noqa: PLC0415
+    return hopsapi_video_client
+
+
+def video_provider_info() -> dict[str, str]:
+    """The H3 video transport (owner 2026-10-29): env NALU_VIDEO_PROVIDER > qingshan.json
+    generation.video_provider > hopsapi when HOPSAPI_API_KEY is set, else giggle.  Resolved in this
+    process (which holds the keys) and handed to every child as NALU_VIDEO_PROVIDER, so a free child
+    whose keys were stripped plans the same transport the paid child will use."""
+    return _hopsapi().resolve_video_provider(config_path=CONFIG_PATH)
+
+
+def video_provider_for(model: str) -> str:
+    """hopsapi only for MiniMax-H3 under video_provider=hopsapi; giggle otherwise."""
+    return _hopsapi().provider_for_model(model, video_provider_info()["provider"])
+
+
+def video_key_env(model: str) -> str:
+    return _hopsapi().required_key_env(video_provider_for(model))
+
+
+def _image_client():
+    """tools/hopsapi_image_client.py (engine, no network at import)."""
+    if str(ENGINE) not in sys.path:
+        sys.path.insert(0, str(ENGINE))
+    from tools import hopsapi_image_client  # noqa: PLC0415
+    return hopsapi_image_client
+
+
+def image_provider_info() -> dict[str, str]:
+    """The image transport (owner 2026-10-30): env NALU_IMAGE_PROVIDER > qingshan.json
+    generation.image_provider > hopsapi when HOPSAPI_API_KEY is set, else giggle.  Resolved here (the
+    process holding the keys) and handed to every child as NALU_IMAGE_PROVIDER."""
+    return _image_client().resolve_image_provider(config_path=CONFIG_PATH)
+
+
+def image_batch_credits(ctx: "Ctx", images: int) -> int:
+    """Planned credits for ``images`` image tasks: HopsAPI gpt-image-2 at the configurable per-image
+    rate, batch rounded up (default 1.2); Giggle at the cost plan's image_credits_per_task (11)."""
+    if image_provider_info()["provider"] == "hopsapi":
+        return _image_client().estimated_batch_credits(images, config_path=CONFIG_PATH)
+    cost_plan = getattr(ctx, "cost_plan", None) or {}
+    per = int(((cost_plan.get("price_basis") or {}).get("image_credits_per_task")) or 11)
+    return max(0, int(images or 0)) * per
+
 TERMINAL_OK = {PASS, SKIPPED}
 
 
@@ -1139,6 +1189,14 @@ class Ctx:
             env["QINGSHAN_UNIT_MIN_SECONDS"] = str(policy.get("min_seconds") or 4)
         if self.p.scope["character_registry"].is_file():
             env["QINGSHAN_CHARACTER_REGISTRY"] = str(self.p.scope["character_registry"])
+        try:
+            env["NALU_VIDEO_PROVIDER"] = video_provider_info()["provider"]
+        except ValueError:
+            pass  # an invalid explicit value stays as given; the submitter refuses it
+        try:
+            env["NALU_IMAGE_PROVIDER"] = image_provider_info()["provider"]
+        except ValueError:
+            pass  # an invalid explicit value stays as given; the submitter refuses it
         if paid:
             # giggle_api_client.py:117-130 refuses every /api/v1/generation/ POST
             # unless a durable-submitter context is declared.  Set only for a
@@ -1146,6 +1204,7 @@ class Ctx:
             env["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = "1"
         else:
             env.pop("GIGGLE_API_KEY", None)
+            env.pop("HOPSAPI_API_KEY", None)
             env.pop("QINGSHAN_DURABLE_SUBMITTER_CONTEXT", None)
         for key, value in (extra or {}).items():
             env[str(key)] = str(value)
@@ -1160,8 +1219,9 @@ class Ctx:
         log_path = self.p.logs / f"{self.run_id}_{name}.log"
         self.log(f"$ {q(argv)}")
         if extra_env:
-            self.log("  env " + " ".join(f"{key}={value}" for key, value in
-                                         sorted(extra_env.items())))
+            self.log("  env " + " ".join(
+                f"{key}=***" if SECRET_ENV_NAME.search(str(key)) else f"{key}={value}"
+                for key, value in sorted(extra_env.items())))
         started = now()
         try:
             completed = subprocess.run(
@@ -1172,6 +1232,9 @@ class Ctx:
             rc, out, err = 124, exc.stdout or "", f"TIMEOUT after {timeout}s"
         except OSError as exc:
             rc, out, err = 127, "", f"{type(exc).__name__}: {exc}"
+        # a child may echo a key (debug print, traceback with a header): never keep it
+        secret_env = {**os.environ, **{str(k): str(v) for k, v in (extra_env or {}).items()}}
+        out, err = redact_secrets(out, secret_env), redact_secrets(err, secret_env)
         log_path.write_text(
             f"# {started}\n# cwd={cwd}\n# paid={paid}\n# argv={q(argv)}\n"
             f"# exit={rc}\n--- stdout ---\n{out}\n--- stderr ---\n{err}\n", encoding="utf-8")
@@ -1188,13 +1251,50 @@ class Ctx:
         return step
 
     # ---------------------------------------------------------------- budget
+    def reconcile_hopsapi_lost(self, *, label: str) -> dict[str, Any] | None:
+        """Settle lost HopsAPI create responses against the billing usage API before a budget check.
+
+        Lab E11 S6 (2026-10-31): four create POSTs timed out, the submitter recorded the two that
+        reached the intent as RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION, and every re-entry's budget
+        check refused (correct: no idempotency key) with no way out.  tools/hopsapi_usage.py lists
+        the billed media rows of the window (GET only): none unattributed -> VERIFIED_ZERO_NO_REMOTE_TASK
+        (0, retry allowed); one lost POST + one unattributed row -> adopted and polled; anything else
+        -> NEEDS_MANUAL_ATTRIBUTION.  In-process (the key never reaches a child argv/env record),
+        only on a real paid run with HOPSAPI_API_KEY set, at most once a minute; a failed usage read
+        changes nothing, so the ledger keeps failing closed."""
+        if getattr(self, "dry", True) or not getattr(self, "paid_enabled", False) \
+                or not os.environ.get("HOPSAPI_API_KEY", "").strip():
+            return None
+        last = getattr(self, "_hopsapi_reconciled_at", 0.0)
+        if time.time() - last < 60:
+            return None
+        if str(ENGINE / "tools") not in sys.path:
+            sys.path.insert(0, str(ENGINE / "tools"))
+        import hopsapi_usage  # noqa: PLC0415 - engine tool, GET-only
+        tasks_root = ENGINE / "workflow" / "tasks"
+        if not hopsapi_usage.pending_lost(self.episode, tasks_root):
+            return None
+        self._hopsapi_reconciled_at = time.time()
+        report = hopsapi_usage.reconcile_episode(self.episode, tasks_root=tasks_root)
+        out = self.p.logs / f"{self.run_id}_hopsapi_usage_reconcile_{label}.json"
+        out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        summary = {kind: row.get("status") for kind, row in (report.get("kinds") or {}).items()}
+        self.say(f"   HopsAPI usage reconciliation of lost creates: {summary} ({out.name})")
+        return report
+
     def budget_check(self, planned_credits: int, *, label: str,
                      reserve: bool = False) -> dict[str, Any]:
         """MANDATORY before every paid step.  Non-zero exit == HARD_STOP.
 
         ``reserve=True`` makes the ledger take an atomic reservation when the check
         passes (K111): two racing processes cannot both admit the same headroom.
+        Lost HopsAPI creates are first reconciled against the billing usage API
+        (``reconcile_hopsapi_lost``) so the ledger sees VERIFIED_ZERO / adopted states.
         """
+        try:
+            self.reconcile_hopsapi_lost(label=label)
+        except Exception as exc:  # noqa: BLE001 - never fatal: the ledger still fails closed
+            self.say(f"   HopsAPI usage reconciliation skipped: {type(exc).__name__}: {str(exc)[:200]}")
         bgm_transactions = selective_bgm_transaction_dir(self)
         argv = [VENV, BUDGET_LEDGER, "--check", "--episode", self.episode,
                 "--planned-credits", int(planned_credits),
@@ -1476,6 +1576,28 @@ def materialize_paid_authorization(ctx: Ctx, res: StageResult, *, sid: str,
 def tail(text: str | None, limit: int = 4000) -> str:
     text = text or ""
     return text if len(text) <= limit else "…" + text[-limit:]
+
+
+#: env var names whose VALUES are secrets (provider keys, tokens).  A child that echoes one (a debug
+#: print, a traceback showing a request header) must not land it in a step log, a receipt or the
+#: stage state that Codex / the orchestrator read back.
+SECRET_ENV_NAME = re.compile(r"(API_KEY|_KEY$|TOKEN|SECRET|PASSWORD)", re.IGNORECASE)
+SECRET_MIN_LENGTH = 8
+
+
+def redact_secrets(text: str | None, env: dict[str, str] | None = None) -> str:
+    """``text`` with every secret env value (see SECRET_ENV_NAME, >= 8 chars) replaced by
+    ``***<NAME>***`` and bearer tokens masked.  Values come from ``env`` (default os.environ)."""
+    text = text or ""
+    if not text:
+        return text
+    source = os.environ if env is None else env
+    secrets = sorted({(name, str(value)) for name, value in source.items()
+                      if SECRET_ENV_NAME.search(str(name)) and len(str(value or "").strip()) >= SECRET_MIN_LENGTH},
+                     key=lambda item: -len(item[1]))
+    for name, value in secrets:
+        text = text.replace(value, f"***{name}***")
+    return re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{12,}", r"\1***", text)
 
 
 def blank_stage(sid: str) -> dict[str, Any]:
@@ -2473,8 +2595,9 @@ def s3_transaction_bound(ctx: Ctx, row: dict[str, Any]) -> bool:
     re-submit is recovered for free and must not be counted as planned spend."""
     # A row bound under a retired image SKU (gpt-image-2-pro before seq=54) or a retired
     # resolution (2K before seq=56) is still bound: the plate exists and was paid for, so neither
-    # switch may re-plan its spend.
+    # switch may re-plan its spend.  The fingerprint is provider-independent (HopsAPI or Giggle).
     from itertools import product as _product
+    active_fingerprint = ""
     for model, resolution in _product(sorted(known_image_models(), key=lambda m: m != S3_IMAGE_MODEL),
                                       known_image_resolutions()):
         contract = {
@@ -2484,23 +2607,52 @@ def s3_transaction_bound(ctx: Ctx, row: dict[str, Any]) -> bool:
             "model": model, "aspect_ratio": "9:16", "resolution": resolution,
         }
         fingerprint = hashlib.sha256(json.dumps(contract, sort_keys=True).encode("utf-8")).hexdigest()
+        if model == S3_IMAGE_MODEL and resolution == S3_IMAGE_RESOLUTION:
+            active_fingerprint = fingerprint
         path = (ENGINE / "workflow/tasks/giggle_submit_transactions" / ctx.episode
                 / f"{row['id']}__{fingerprint[:16]}.json")
         if not path.is_file():
             continue
         transaction = read_json(path, {}) or {}
+        if _image_client().terminal_failed_binding(transaction):
+            return False  # HopsAPI task failed uncharged: the submitter retires it and POSTs again
         if (transaction.get("submission_fingerprint") == fingerprint
                 and transaction.get("state") == "SUBMITTED_TASK_ID_BOUND"
                 and bool(transaction.get("task_id"))):
             return True
-    return False
+    # Lab E08 2026-10-29: the multi-view sheet's reference list grew once the headshot was
+    # harvested, the fingerprint drifted, and re-entry planned 11 credits for a sheet that was
+    # bound and on disk.  The submitter reuses a bound + harvested take of the same row whatever
+    # its recomputed fingerprint (tools/submit_giggle_character_asset_plan.harvested_binding,
+    # mirrors tools/video_live_binding.py), so the planner must cost it at zero too.
+    return s3_harvested_binding(ctx, row, active_fingerprint) is not None
+
+
+def s3_harvested_binding(ctx: Ctx, row: dict[str, Any], fingerprint: str) -> dict[str, Any] | None:
+    if str(ENGINE) not in sys.path:
+        sys.path.insert(0, str(ENGINE))
+    from tools.submit_giggle_character_asset_plan import harvested_binding  # engine, read-only
+    row = dict(row)
+    row.setdefault("episode", ctx.episode)
+    return harvested_binding(row, ENGINE / "workflow/tasks/giggle_submit_transactions" / ctx.episode,
+                             ctx.p.identity_harvest_dir, current_fingerprint=fingerprint)
+
+
+def s3_fresh_submit_report(path: Path, started: float) -> dict[str, Any]:
+    """The submit report only when the child under judgement wrote it ({} for a stale one)."""
+    try:
+        if path.stat().st_mtime < started:
+            return {}
+    except OSError:
+        return {}
+    return read_json(path, {}) or {}
 
 
 def s3_plate_on_disk(ctx: Ctx, row_id: str) -> bool:
     plates = ctx.p.identity_harvest_dir
     if not plates.is_dir():
         return False
-    pattern = re.compile(rf"^{re.escape(ctx.episode)}_{re.escape(row_id)}_[0-9a-fA-F-]{{8,}}\.png$")
+    pattern = re.compile(rf"^{re.escape(ctx.episode)}_{re.escape(row_id)}_(?:[0-9a-fA-F-]{{8,}}|tsk_[0-9A-Za-z_]{{8,}})\.png$")
     return any(pattern.match(item.name) for item in plates.iterdir())
 
 
@@ -2550,6 +2702,7 @@ def stage_s3(ctx: Ctx) -> StageResult:
     library = load_cross_episode_library(ctx.p.scope)
     already = locked_subjects(library)
     image_credits = int(((ctx.cost_plan.get("price_basis") or {}).get("image_credits_per_task")) or 11)
+    image_provider = image_provider_info()
 
     res = StageResult(PASS)
     res.steps = []
@@ -2559,6 +2712,7 @@ def stage_s3(ctx: Ctx) -> StageResult:
         "plan": str(p.identity_plan),
         "rounds": [],
         "image_credits_per_task": image_credits,
+        "image_provider": image_provider,
     }
     res.receipts = [str(p.identity_report), str(p.identity_match),
                     str(p.identity_library_gate), str(p.identity_plan)]
@@ -2689,9 +2843,9 @@ def stage_s3(ctx: Ctx) -> StageResult:
             "--watch", "--interval", 15,
         ]
         if new_rows:
-            planned = len(new_rows) * image_credits
+            planned = image_batch_credits(ctx, len(new_rows))
             total_planned += planned
-            ctx.say(f"   round {round_no}: {len(new_rows)} new rows × {image_credits} cr = {planned} cr "
+            ctx.say(f"   round {round_no}: {len(new_rows)} new rows via {image_provider['provider']} = {planned} cr "
                     f"({len(deferred)} view rows deferred to the next round)")
             auth_status, auth_plan, auth = materialize_paid_authorization(
                 ctx, res, sid="S3", target=subset_plan, is_plan=True,
@@ -2708,6 +2862,8 @@ def stage_s3(ctx: Ctx) -> StageResult:
                 "--plan", auth_plan,
                 "--out", p.identity_submit,
                 "--concurrency", min(ctx.max_parallel, 6),
+                # a bound take whose image is already harvested here is reused, never re-POSTed
+                "--plates-dir", p.identity_harvest_dir,
             ]
             dry_argv = [
                 VENV, ENGINE / "tools/submit_giggle_character_asset_plan.py",
@@ -2715,6 +2871,7 @@ def stage_s3(ctx: Ctx) -> StageResult:
                 "--out", p.identity / f"{ctx.episode}_IDENTITY_PRECHECK.json",
                 "--precheck-only",
             ]
+            submit_started = time.time()
             status, submit = ctx.paid_step(
                 paid_argv, name=f"s3_submit_giggle_character_asset_plan_r{round_no}", sid="S3",
                 planned_credits=planned, dry_argv=dry_argv,
@@ -2723,7 +2880,8 @@ def stage_s3(ctx: Ctx) -> StageResult:
                       f"seq={ctx.authority.get('paid_order_seq')} "
                       "order id, provider_post_allowed true).  Rows with reference_images go to "
                       "/api/v1/generation/image-to-image (own base plate or line-owner-supplied source photo), "
-                      "rows without go to text-to-image.  Durable transaction store: "
+                      "rows without go to text-to-image (image_provider=hopsapi: HopsAPI gpt-image-2 "
+                      "Img2Img / Txt2Img, references preprocessed + uploaded).  Durable transaction store: "
                       f"{ENGINE}/workflow/tasks/giggle_submit_transactions/{ctx.episode}/ — "
                       "re-running never re-charges an already-fingerprinted row."))
             res.steps.append(submit)
@@ -2734,13 +2892,14 @@ def stage_s3(ctx: Ctx) -> StageResult:
                 return res
             if status == DRY:
                 res.status = DRY
-                ctx.say("   next (free, needs GIGGLE_API_KEY, no new POST):")
+                ctx.say("   next (free, needs the image provider's key, no new POST):")
                 ctx.say(f"     {q(harvest_argv)}")
                 ctx.planned_commands.append({
                     "stage": "S3", "step": f"s3_harvest_giggle_image_batch_r{round_no}",
                     "planned_credits": 0, "paid_argv": [str(x) for x in harvest_argv],
                     "paid_command": q(harvest_argv),
-                    "note": "download only, needs GIGGLE_API_KEY, issues no generation POST"})
+                    "note": "download only, needs the image provider's key (GIGGLE_API_KEY / HOPSAPI_API_KEY), "
+                            "issues no generation POST"})
                 if deferred:
                     ctx.say(f"   (dry) {len(deferred)} view rows would be planned in round {round_no + 1} "
                             "once these base plates are harvested")
@@ -2750,11 +2909,17 @@ def stage_s3(ctx: Ctx) -> StageResult:
                 # not bound the charge even though every row was accepted.  Every row
                 # SUBMITTED and zero failures = the images exist and the ledger refresh
                 # will settle the charge; record it, do not lose the batch.
-                submit_report = read_json(p.identity_submit, {}) or {}
+                # Lab E08 2026-10-29: the child crashed (exit 1, no report written) and the
+                # PREVIOUS run's PASS report was harvested as if it were this run's.  Only a report
+                # this child wrote, with exit 2 (the submitter's "reconciliation unbounded" exit),
+                # zero failures and every submitted row accounted for, is a warning.
+                submit_report = s3_fresh_submit_report(p.identity_submit, submit_started)
                 results = submit_report.get("results") or []
-                if (results and not submit_report.get("failures")
-                        and len(results) == len(rows)
-                        and all(r.get("status") == "SUBMITTED" for r in results)):
+                submitted_ids = {str(r.get("id")) for r in (read_json(auth_plan, {}) or {}).get(
+                    "new_asset_groups") or [] if isinstance(r, dict)}
+                accounted = {str(r.get("character_id")) for r in results if r.get("status") == "SUBMITTED"}
+                if (submit.get("exit_code") == 2 and results and not submit_report.get("failures")
+                        and submitted_ids and submitted_ids <= accounted):
                     round_rec["submit_warning"] = (
                         "CREDIT_RECONCILIATION_UNBOUNDED:"
                         + str((submit_report.get("credit_reconciliation") or {}).get("status")))
@@ -2975,10 +3140,24 @@ def voice_over_asr(wav: Path, text: str, language: str) -> dict[str, Any]:
     import source_video_dialogue_gate as _svdg  # noqa: PLC0415 - engine tools/ is on sys.path
     from faster_whisper import WhisperModel  # type: ignore  # noqa: PLC0415
     model = WhisperModel("small", device="cpu", compute_type="int8")
-    segments, _ = model.transcribe(str(wav), language=language, vad_filter=True, beam_size=5,
-                                   initial_prompt=_svdg.transcription_prompt(text, language))
-    transcript = (" " if language == "en" else "").join(seg.text.strip() for seg in segments)
-    return {"transcript": transcript, "recall": round(_svdg.recall(text, transcript, language), 3)}
+    joiner = " " if language == "en" else ""
+
+    def _pass(prompt: str | None) -> tuple[str, float]:
+        segments, _ = model.transcribe(str(wav), language=language, vad_filter=True, beam_size=5,
+                                       initial_prompt=prompt)
+        transcript = joiner.join(seg.text.strip() for seg in segments)
+        return transcript, round(_svdg.recall(text, transcript, language), 3)
+
+    transcript, recall = _pass(_svdg.transcription_prompt(text, language))
+    result = {"transcript": transcript, "recall": recall, "asr_pass": "PROMPTED"}
+    if recall < voice_over_minimum_recall():
+        # a prompted pass can hallucinate a stock caption ("优优独播剧场——YoYo Television Series Exclusive") over a
+        # clean read; one unprompted re-check decides (field fleet 2026-11-06, device …1324 E01 S4)
+        plain, plain_recall = _pass(None)
+        result["prompted"] = {"transcript": transcript, "recall": recall}
+        if plain_recall > recall:
+            result.update(transcript=plain, recall=plain_recall, asr_pass="UNPROMPTED_RECHECK")
+    return result
 
 
 def media_seconds(path: Path) -> float | None:
@@ -3847,6 +4026,13 @@ def keyframe_needs_post(ctx: Ctx, index: dict[str, Any]) -> tuple[list[str], lis
     return need, done
 
 
+def s5_q1_not_all_admitted(ctx: Ctx) -> bool:
+    """A later Q1 review that rejected keyframes must re-open a passed S5 (lab E11: an honest re-review
+    rejected 16/27 keyframes but S5 still reported SKIPPED_ALREADY_PASS from the earlier stale review)."""
+    q1 = read_json(ctx.p.preprod / "reports/qa/q1" / f"{ctx.episode}_KEYFRAME_Q1_INDEX.json", {}) or {}
+    return bool(q1) and q1.get("status") not in (None, "ALL_ADMITTED")
+
+
 def s5_keyframes_missing(ctx: Ctx) -> list[str]:
     """Planned keyframe prompts whose image is not on disk (a §4 controlled redo parks the rejected one).
 
@@ -3935,6 +4121,11 @@ def stage_s5(ctx: Ctx) -> StageResult:
         "--image-resolution", ACTIVE_IMAGE_RESOLUTION,   # registry policy (seq=56: 1K)
         "--precheck-only",
     ]
+    # Provider reference exclusion (device …1324 E01, 2026-11-06): a declared non-identity reference the
+    # provider deterministically refuses is kept as authority but not transmitted.  Absent = unchanged argv.
+    exclusions = provider_reference_exclusions_path(ctx)
+    if exclusions.is_file():
+        build_argv += ["--provider-reference-exclusions", exclusions]
     build = ctx.run(build_argv, name="s5_build_keyframe_manifest")
     manifest = read_json(p.keyframe_manifest, {}) or {}
     tasks = manifest.get("tasks") or []
@@ -3989,10 +4180,14 @@ def stage_s5(ctx: Ctx) -> StageResult:
     res.details["d46_needs_post"] = needs_post
     res.details["d46_already_admitted"] = keyframes_done
     planned = ctx.planned_credits("S5")
-    if keyframes_done and needs_post:
+    res.details["image_provider"] = image_provider_info()
+    if res.details["image_provider"]["provider"] == "hopsapi":
+        # HopsAPI gpt-image-2 (owner 2026-10-30): exactly the images this run will POST, at the
+        # configurable per-image planning rate, rounded up.  The cost plan's figure is Giggle-priced.
+        planned = image_batch_credits(ctx, len(needs_post))
+    elif keyframes_done and needs_post:
         # a partial redo plans only the images it will POST, not the whole-episode default estimate
-        image_credits = int(((ctx.cost_plan.get("price_basis") or {}).get("image_credits_per_task")) or 11)
-        planned = min(planned, len(needs_post) * image_credits)
+        planned = min(planned, image_batch_credits(ctx, len(needs_post)))
     if not needs_post:
         # Nothing to generate.  Do not materialise authority, do not POST, do not harvest — go
         # straight to the Q1 admission tail, which is what decides whether S5 is done.
@@ -4061,7 +4256,7 @@ def stage_s5(ctx: Ctx) -> StageResult:
             # rejected today — say so instead of implying it is ready to submit
             lines = [row for row in (precheck.get("stderr_tail") or "").splitlines() if row.strip()]
             res.blockers.append("KEYFRAME_MANIFEST_PRECHECK_FAILS:" + (lines[-1] if lines else "?"))
-        ctx.say("   then (needs GIGGLE_API_KEY, no new POST, no dry mode exists):")
+        ctx.say("   then (needs the image provider's key, no new POST, no dry mode exists):")
         ctx.say(f"     {q(harvest_argv)}")
         ctx.planned_commands.append({
             "stage": "S5", "step": "s5_harvest_giggle_image_batch", "planned_credits": 0,
@@ -4078,6 +4273,19 @@ def stage_s5(ctx: Ctx) -> StageResult:
         if harvest["exit_code"] != 0:
             res.status = BLOCKED
             res.blockers.append("KEYFRAME_HARVEST_FAILED")
+            harvest_status = read_json(p.keyframe_harvest_status, {}) or {}
+            if harvest_status.get("provider_error_424_count"):
+                rows = harvest_status.get("results") or []
+                rejected = [str(row.get("task_key")) for row in rows
+                            if row.get("failure_class") == "HOPSAPI_PROVIDER_ERROR_424"]
+                if any(row.get("remote_status") == "completed" for row in rows):
+                    # other tasks completed in the same batch: the 424s are those tasks' content /
+                    # parameter rejections (device …1324 E01), rewrite their prompts -- no cooldown
+                    res.blockers.append("HOPSAPI_IMAGE_TASK_REJECTED:" + ",".join(rejected))
+                    res.details["provider_rejected_tasks"] = rejected
+                else:
+                    # uncharged upstream 424s: provider-side, rerun the same stage after the cooldown
+                    res.blockers.append("HOPSAPI_IMAGE_PROVIDER_OUTAGE")
             return res
         rename = apply_keyframe_renames(ctx, manifest)
         res.details["deterministic_rename"] = rename
@@ -4096,18 +4304,68 @@ def stage_s5(ctx: Ctx) -> StageResult:
             ctx, ctx.p.keyframe_submit, ctx.run_id)
         res.status = BLOCKED
         res.blockers.append("KEYFRAME_SUBMIT_FAILED")
+        submit_report = read_json(p.keyframe_submit, {}) or {}
+        outage = submit_report.get("provider_outage")
+        if outage:
+            res.blockers.append("HOPSAPI_IMAGE_PROVIDER_OUTAGE")
+            res.details["provider_outage"] = outage
+        rejected = submit_report.get("provider_rejected_tasks") or []
+        if rejected:
+            # a canary 424 while a different task passed: per-task rejection, rewrite that prompt
+            res.blockers.append("HOPSAPI_IMAGE_TASK_REJECTED:" + ",".join(str(row.get("task_key")) for row in rejected))
+            res.details["provider_rejected_tasks"] = rejected
+            res.details["canary_rotation"] = submit_report.get("canary_rotation")
         return res
 
     # 4) S5.q1 — keyframe Q1 admission (D-4)
     return s5_finish_q1(ctx, res)
 
 
+def materialise_monologue_reuse_keyframes(ctx: Ctx) -> list[dict[str, Any]]:
+    """CAMERA_GRAMMAR_V1 monologue groups (owner 2026-11-01, lab E12 long take): a speaker's take that continues
+    after a cutaway reuses the earlier take's keyframe (build_keyframe_manifest MONOLOGUE_SAME_SETUP_KEYFRAME_REUSE,
+    no paid image).  Copy the source keyframe's bytes to ``<first shot>-keyframe-v1.png`` -- again whenever the
+    source image changed (a Q1 redo) -- with a sidecar naming the source.  Nothing to do on other episodes."""
+    report = read_json(ctx.p.keyframe_manifest_report, {}) or {}
+    rows = []
+    for row in report.get("decision_table") or []:
+        # EXACT_SHA_REUSE_OF_EARLIER_KEYFRAME (same setup, same cast/wardrobe/entry state) was declared with a
+        # COPY_EXACT_SHA_BYTES materialisation but never copied; a unit whose tail start frame S6 rejects then
+        # needed its own keyframe and found none (lab 化神 E04 VU-028).  Copy those too, from the SOURCE keyframe.
+        if row.get("reuse_mode") not in ("MONOLOGUE_SAME_SETUP_KEYFRAME_REUSE", "EXACT_SHA_REUSE_OF_EARLIER_KEYFRAME"):
+            continue
+        shot, source = str(row.get("shot_id") or ""), str(row.get("reuse_source") or "")
+        src = ctx.p.keyframes / f"{source}-keyframe-v1.png"
+        dst = ctx.p.keyframes / f"{shot}-keyframe-v1.png"
+        side_path = dst.with_suffix(".monologue_reuse.json")
+        if not src.is_file():
+            rows.append({"shot_id": shot, "status": "SOURCE_NOT_YET_ON_DISK", "source_shot_id": source}); continue
+        src_sha = sha256_file(src)
+        side = read_json(side_path, {}) or {}
+        if dst.is_file() and side.get("source_sha256") == src_sha and sha256_file(dst) == src_sha:
+            rows.append({"shot_id": shot, "status": "ALREADY_PRESENT", "path": str(dst)}); continue
+        shutil.copyfile(src, dst)
+        write_json(side_path, {"schema": "nalu.monologue_keyframe_reuse.v1", "shot_id": shot,
+                               "unit_id": row.get("video_unit_id"), "source_shot_id": source,
+                               "source_unit_id": row.get("reuse_source_unit_id"), "source_path": str(src),
+                               "source_sha256": src_sha, "sha256": sha256_file(dst), "materialised_at": now(),
+                               "recorded_by": TOOL_ID,
+                               "reuse_mode": row.get("reuse_mode"),
+                               "note": "exact keyframe reuse from the same camera setup (monologue continuation or "
+                                       "production_efficiency exact-SHA reuse)"})
+        rows.append({"shot_id": shot, "status": "MATERIALISED", "path": str(dst), "sha256": src_sha})
+    return rows
+
+
 def s5_finish_q1(ctx: Ctx, res: StageResult) -> StageResult:
     """S5's tail: Q1 admission, then the start-frame receipts.
 
     Split out of stage_s5 so the D-46 no-POST path reaches it without passing through the paid
-    submit and its harvest.
+    submit and its harvest.  First the monologue keyframe reuse copies (CAMERA_GRAMMAR_V1, free).
     """
+    reused = materialise_monologue_reuse_keyframes(ctx)
+    if reused:
+        res.details["monologue_keyframe_reuse"] = reused
     # 4) S5.q1 — keyframe Q1 admission (D-4)
     q1 = s5_q1(ctx, res)
     res.details["q1_admission"] = q1
@@ -4222,6 +4480,9 @@ Q1_ACCEPTABLE_GATES = ("CHARACTER-IDENTITY-ADMISSION", "PERIOD-ANACHRONISM-LOCK"
 #: start frame cannot meet the next shot's framing, and keyframe_q1_builder files framing/axis under
 #: SCENE-AUTHORITY-LOCK, so that gate fails alongside the others and the default acceptance had no route.
 #: It still needs its own sha-bound order like every gate here.
+#: 2026-10-31: the same per-gate route also takes a still failing ONE gate of this set that is not in
+#: Q1_ACCEPTABLE_GATES (the single action/state-handoff failure).  These are the four registered keyframe
+#: Q1 gates; an unregistered gate id or an unattributed failure string is never waived.
 Q1_MULTI_GATE_ACCEPTABLE = ("CHARACTER-IDENTITY-ADMISSION", "PERIOD-ANACHRONISM-LOCK",
                             "ACTION-SHOT-DESIGN-AND-STATE-HANDOFF", "SCENE-AUTHORITY-LOCK")
 
@@ -4402,9 +4663,11 @@ def apply_line_owner_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: 
         # ``all(g in f ...)`` is false and the row never reaches the standing rule.
         row_gate = next((g for g in Q1_ACCEPTABLE_GATES if failures and all(g in f for f in failures)), None)
         multi_gates = failing_registered_gates(failures)
-        # E12 2026-10-31: a still failing ONE gate that only the per-gate path knows (the action/state
-        # handoff, the scene lock) was rejected forever even with its own sha-bound order, while the same
-        # gate failing beside another one was acceptable.  One failing gate goes the same per-gate way.
+        # E12 2026-10-31 / lab E11: a still failing ONE gate that only the per-gate path knows (the
+        # action/state handoff, the scene lock) was rejected forever even with its own sha-bound order,
+        # while the same gate failing beside another one was acceptable.  One failing gate goes the same
+        # per-gate way, which still requires every failing gate to be in Q1_MULTI_GATE_ACCEPTABLE, every
+        # failure string to be attributable, and its own sha-bound order (CLAUDE_CODE_PRODUCTION §5).
         if row_gate is None and multi_gates:
             record = q1_multi_gate_acceptance(ctx, orders, row, failures, multi_gates, decisions, issuer)
             if record is None:
@@ -5930,7 +6193,11 @@ def episode_video_model(episode: str) -> str:
 
 def video_task_credits(model: str, seconds: float, tasks: int) -> int:
     """Planning price: SD2 720p 20 credits/s; MiniMax-H3 768p 14 credits/s + 6 per task
-    (materialize_paid_authorization.H3_CREDITS_PER_SECOND / H3_CREDITS_PER_TASK)."""
+    (materialize_paid_authorization.H3_CREDITS_PER_SECOND / H3_CREDITS_PER_TASK) on Giggle; on the
+    HopsAPI router (owner 2026-10-29) the configurable per-second price (default 1.56 credits/s,
+    tools/hopsapi_video_client.estimated_batch_credits), rounded up."""
+    if model == "MiniMax-H3" and video_provider_for(model) == "hopsapi":
+        return _hopsapi().estimated_batch_credits(seconds, tasks)
     if model == "MiniMax-H3":
         return int(round(seconds * _paid_order.H3_CREDITS_PER_SECOND)) + _paid_order.H3_CREDITS_PER_TASK * tasks
     return int(round(seconds * 20))
@@ -6066,7 +6333,7 @@ def _s6_poll_live_bound_wave(ctx: Ctx, wave: dict[str, Any], plan: dict[str, Any
     if not ctx.paid_enabled:
         res.status = DRY
         res.blockers.append("PAID_STEPS_DISABLED_WAVE_NOT_POLLED")
-        ctx.say("   then (needs GIGGLE_API_KEY, GET only, no POST, free):")
+        ctx.say(f"   then (needs {video_key_env(episode_video_model(ctx.episode))}, GET only, no POST, free):")
         ctx.say(f"     {q(poll_argv)}")
         ctx.planned_commands.append({
             "stage": "S6", "step": f"s6_poll_live_bound_wave{wave_no}", "planned_credits": 0,
@@ -6309,11 +6576,12 @@ def run_ab_variant(ctx: Ctx, variant: Path) -> int:
                                                 or ("UNKNOWN",))[0] if isinstance(doc, dict) else "UNKNOWN"),
                               "variant_sha256": sha256_file(path) if path.is_file() else None,
                               "run_id": ctx.run_id, "started_at": now(), "paid_enabled": ctx.paid_enabled}
-    if ctx.paid_enabled and not os.environ.get("GIGGLE_API_KEY", "").strip():
+    ab_key = video_key_env(episode_video_model(ctx.episode))
+    if ctx.paid_enabled and not os.environ.get(ab_key, "").strip():
         # Never reserve credits or materialise authority for a submit that cannot start: the
-        # submitter would exit "GIGGLE_API_KEY is not set" after both, leaving a held reservation.
+        # submitter would exit "<KEY> is not set" after both, leaving a held reservation.
         ctx.paid_enabled = False
-        ctx.paid_disabled_reason = "GIGGLE_API_KEY is not set"
+        ctx.paid_disabled_reason = f"{ab_key} is not set"
     ctx.say(f"-- A/B variant {path} ({'PAID' if ctx.paid_enabled else 'NO SPEND'})")
 
     def finish(status: str, blockers: list[str] | None = None, code: int | None = None) -> int:
@@ -6671,6 +6939,10 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
         # A re-entry whose remaining tasks are all already bound to remote task ids (charged, waiting for
         # download) must only poll: authorising them again priced the whole wave as new spend and the
         # budget guard refused a poll that costs nothing (lab E01 2026-10-22: 360 already charged).
+        try:  # a lost create the usage API adopts is bound (poll it), a verified-zero one is re-POSTable
+            ctx.reconcile_hopsapi_lost(label="s6_reentry")
+        except Exception as exc:  # noqa: BLE001 - never fatal: the budget check still fails closed
+            ctx.say(f"   HopsAPI usage reconciliation skipped: {type(exc).__name__}: {str(exc)[:200]}")
         unbound_keys = set(s6_unbound_task_keys(ctx))
         post_keys = [k for k in needs_post if k in unbound_keys]
         if on_disk and post_keys:
@@ -6679,6 +6951,15 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
             planned = min(planned, video_task_credits(
                 episode_video_model(ctx.episode),
                 sum(float(t.get("duration_seconds") or 0) for t in post_rows), len(post_rows)))
+        provider = video_provider_for(episode_video_model(ctx.episode))
+        key_env = video_key_env(episode_video_model(ctx.episode))
+        res.details["video_provider"] = {**video_provider_info(), "effective": provider, "key_env": key_env}
+        if post_keys and ctx.paid_enabled and not os.environ.get(key_env, "").strip():
+            # Refuse before authorisation and reservation: the submitter would exit on the missing key
+            # after both and leave a held reservation (same rule as the A/B path).
+            res.status = BLOCKED
+            res.blockers.append(f"VIDEO_PROVIDER_KEY_MISSING:{provider}:{key_env}")
+            return res
         if not post_keys:
             ctx.say("   every task without a clip is already bound to a remote task: poll only, no authorisation")
             status = PASS
@@ -6700,7 +6981,9 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
                 paid_argv, name="s6_submit_giggle_video_manifest_v2", sid="S6",
                 planned_credits=planned, dry_argv=dry_argv, extra_env=VIDEO_SUBMIT_ENV,
                 note=(f"Submitted file is the D-11 materialised copy {auth_manifest.name}.  "
-                      f"POST /api/v1/generation/omni-video, concurrency {concurrency} "
+                      + ("HopsAPI POST /v1/router/task/create (OmniVideo, MiniMax-H3; key HOPSAPI_API_KEY), "
+                         if provider == "hopsapi" else "POST /api/v1/generation/omni-video, ")
+                      + f"concurrency {concurrency} "
                       "(<=6 per production_efficiency_contract rolling waves).  Durable store "
                       f"{ENGINE}/workflow/tasks/giggle_video_submit_transactions/{ctx.episode}/, "
                       "per-task flock, intent-before-POST.  A lost HTTP response becomes "
@@ -6724,7 +7007,7 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
                 ctx, p.video_submit, f"{ctx.run_id}_wave{len(ready_units or [])}u")
         if status == DRY:
             res.status = DRY
-            ctx.say("   then (needs GIGGLE_API_KEY, no new POST, free):")
+            ctx.say(f"   then (needs {key_env}, no new POST, free):")
             ctx.say(f"     {q(poll_argv)}")
             ctx.planned_commands.append({
                 "stage": "S6", "step": "s6_poll_giggle_submit_report", "planned_credits": 0,
@@ -6838,7 +7121,8 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
 def s6_q2_auto_redo(ctx: Ctx) -> dict[str, Any]:
     """CAMERA_GRAMMAR_V1: the engine's own one controlled redo after an objective Q2 FAIL (q2_auto_redo.py;
     CLAUDE_CODE_PRODUCTION §5).  Runs after ``prepare`` and before the video_q2 review: units it selects get
-    their clip parked and the S6 wave loop redoes them (own keyframe + single-unit wave).  Never blocks."""
+    their clip parked and the S6 wave loop redoes them (own keyframe for face count / speaker framing, the same
+    start frame + the measured problem in the prompt for a push-in; single-unit wave).  Never blocks."""
     if not _camera_grammar_on(ctx):
         return {"status": "NOT_APPLICABLE"}
     import q2_auto_redo as _redo
@@ -6856,7 +7140,11 @@ def s6_q2_auto_redo(ctx: Ctx) -> dict[str, Any]:
     model = episode_video_model(ctx.episode)
 
     def unit_cost(uid: str) -> int:
-        return video_task_credits(model, seconds.get(uid, 6.0), 1) + _redo.OWN_KEYFRAME_CREDITS
+        # video at the planning price (HopsAPI per-second estimate on the router) + an own keyframe only when the
+        # failure needs a new start frame (a push-in redo keeps its start frame; owner 2026-10-29)
+        keyframe = (image_batch_credits(ctx, 1) if _redo.needs_own_keyframe(_redo.objective_failures(rows.get(uid) or {}))
+                    else 0)
+        return video_task_credits(model, seconds.get(uid, 6.0), 1) + keyframe
 
     headroom = None
     if not ctx.dry:
@@ -7735,8 +8023,11 @@ def s7_voice_pitch_unify(ctx: Ctx, res: StageResult, steps: list[dict[str, Any]]
     Returns (pitch output or None when the stage does not apply, blockers)."""
     p = ctx.p
     pitch_tool = RT_TOOLS / "final_cut_voice_pitch_unify.py"
+    # owner 2026-11-04 (lab 化神 E03): WORLD pitch shifts up to 6 st crackled audibly; off by default,
+    # NALU_S7_PITCH_UNIFY=1 turns it back on (NALU_S7_SKIP_PITCH_UNIFY still skips)
     if not (pitch_tool.is_file() and Path(str(ctx.p.scope.get("voice_cast") or "")).is_file()) \
-            or str(os.environ.get("NALU_S7_SKIP_PITCH_UNIFY") or "").strip():
+            or str(os.environ.get("NALU_S7_SKIP_PITCH_UNIFY") or "").strip() \
+            or str(os.environ.get("NALU_S7_PITCH_UNIFY") or "").strip() not in ("1", "on", "true"):
         return None, []
     pitch_out = p.assembly / f"{ctx.episode}_picture_pitch_unified.mp4"
     pitch_report = p.assembly / f"{ctx.episode}_VOICE_PITCH_UNIFY.json"
@@ -7908,6 +8199,22 @@ def _reusable_release_level(p: Any, source: Any) -> dict[str, Any] | None:
             "source_video_stream_sha256": current, "final_sha256": sha256_file(p.final_levelled)}
 
 
+def transcribe_clip(model: Any, mp4: Path, language: str, *, words: bool = False) -> list[dict[str, Any]]:
+    """One unit clip through the S7 whisper pass (``model`` = faster-whisper ``WhisperModel("small", cpu, int8)``).
+    Shared with video Q2's push-in kept window (CAMERA_GRAMMAR_V1, line owner 2026-10-29), which predicts the
+    S7 dialogue head/tail trims from the same ASR."""
+    if words:
+        segs, _ = model.transcribe(str(mp4), language=language, beam_size=5, vad_filter=True,
+                                   word_timestamps=True)
+        return [{"start": round(x.start, 3), "end": round(x.end, 3), "text": x.text.strip(),
+                 "words": [{"start": round(w.start, 3), "end": round(w.end, 3), "word": w.word}
+                           for w in (getattr(x, "words", None) or [])]}
+                for x in segs]
+    segs, _ = model.transcribe(str(mp4), language=language, beam_size=5, vad_filter=True)
+    return [{"start": round(x.start, 3), "end": round(x.end, 3), "text": x.text.strip()}
+            for x in segs]
+
+
 def transcribe_units(ctx: Ctx, media_dir: Path, episode: str, *,
                      words: bool = False) -> dict[str, list[dict[str, Any]]]:
     """Transcribe every unit clip for caption timing, concurrently.
@@ -7931,16 +8238,7 @@ def transcribe_units(ctx: Ctx, media_dir: Path, episode: str, *,
     model = WhisperModel("small", device="cpu", compute_type="int8")
 
     def _one(mp4: Path) -> list[dict[str, Any]]:
-        if words:
-            segs, _ = model.transcribe(str(mp4), language=ctx_language(ctx), beam_size=5, vad_filter=True,
-                                       word_timestamps=True)
-            return [{"start": round(x.start, 3), "end": round(x.end, 3), "text": x.text.strip(),
-                     "words": [{"start": round(w.start, 3), "end": round(w.end, 3), "word": w.word}
-                               for w in (getattr(x, "words", None) or [])]}
-                    for x in segs]
-        segs, _ = model.transcribe(str(mp4), language=ctx_language(ctx), beam_size=5, vad_filter=True)
-        return [{"start": round(x.start, 3), "end": round(x.end, 3), "text": x.text.strip()}
-                for x in segs]
+        return transcribe_clip(model, mp4, ctx_language(ctx), words=words)
 
     try:
         workers = max(1, int(os.environ.get("NALU_S7_ASR_WORKERS") or 2))
@@ -8133,11 +8431,42 @@ def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
                                          "removed_seconds": report["removed_seconds"]}
     head = _head.plan(contract, read_json(p.grouping_plan, {}) or {}, asr, clip_seconds, report)
     head_path = p.assembly / f"{ctx.episode}_DIALOGUE_HEAD_TRIM.json"
+    # Cut to the performance (owner 2026-11-02, lab 化神 E01; tools/performance_cut.py): every unit is cut at its
+    # head/tail to the scripted performance (unscripted speech, a repeated take, talking in a silent unit removed);
+    # the decided in/out points are written into the tail/head reports the build and later S7 steps follow.
+    import performance_cut as _perf
+    grouping = read_json(p.grouping_plan, {}) or {}
+    shot_unit = {str(s): str(u.get("unit_id")) for u in grouping.get("units") or []
+                 for s in u.get("editorial_shot_ids") or []}
+    vo_seconds: dict[str, list[float]] = {}
+    for row in (read_json(voice_over_manifest_path(ctx), {}) or {}).get("rows") or []:
+        uid = shot_unit.get(str(row.get("shot_id")))
+        if uid and row.get("duration_seconds"):
+            vo_seconds.setdefault(uid, []).append(float(row["duration_seconds"]))
+    perf = _perf.plan(contract, grouping, asr, clip_seconds, {k: v for k, v in energy.items() if v},
+                      report, head, vo_seconds)
+    perf_path = p.assembly / f"{ctx.episode}_PERFORMANCE_CUT.json"
+    write_json(perf_path, perf)
+    report, head = _perf.merge(report, head, perf)
+    write_json(report_path, report)
     write_json(head_path, head)
+    res.receipts.append(str(perf_path))
+    res.details["performance_cut"] = {
+        "report": str(perf_path), "changed_units": perf["changed_units"],
+        "before_total_seconds": perf["before_total_seconds"], "after_total_seconds": perf["after_total_seconds"],
+        "units": [{k: r.get(k) for k in ("unit_id", "before_in", "before_out", "after_in", "after_out", "reasons")}
+                  for r in perf["units"] if r.get("reasons")],
+        "warnings": perf["warnings"]}
+    if perf["warnings"]:
+        res.details.setdefault("warnings", []).extend(perf["warnings"])
+    res.details["dialogue_tail_trim"] = {"report": str(report_path), "trimmed_units": report["trimmed_units"],
+                                         "removed_seconds": report["removed_seconds"]}
     res.details["dialogue_head_trim"] = {"report": str(head_path), "trimmed_units": head["trimmed_units"],
                                          "removed_seconds": head["removed_seconds"],
                                          "apply": str(head_path) if head["trimmed_units"] else None}
-    trimmed = _head.strip_words(_head.shift_unit_asr(_trim.trim_unit_asr(asr, report), head))
+    # source seconds (captions / V.O. / sound bridge / burst mute map them through the clip in-point)
+    cut = _perf.windows(report, head, clip_seconds)
+    trimmed = _head.strip_words(_perf.cut_unit_asr(asr, cut, perf))
     return trimmed, (report_path if report["trimmed_units"] else None)
 
 
@@ -8210,8 +8539,10 @@ def s7_unit_audio_levelling(ctx: Ctx, res: StageResult, contract: dict[str, Any]
         pictures = {uid: Path(str(row["output"])) for uid, row in _pic.applied_sources(
             read_json(p.assembly / f"{ctx.episode}_PUSH_IN_COMPENSATION.json", {}) or {}).items()}
         ffmpeg = _media.require_ffmpeg()
+        import performance_cut as _perf  # unit ASR is in source seconds; levelling reads seconds from the in-point
         report = _smooth.build_levelling_report(
-            ctx.episode, clips, windows, roles, unit_asr, dict(_targets), p.assembly / "unit_audio_levelling",
+            ctx.episode, clips, windows, roles, _perf.shift_to_cut(unit_asr or {}, windows), dict(_targets),
+            p.assembly / "unit_audio_levelling",
             measure_fn=lambda clip, spans: _smooth.measure_spans(clip, spans, ffmpeg=ffmpeg),
             render_fn=lambda clip, picture, out, gain: _smooth.render_levelled(clip, picture, out, gain, ffmpeg=ffmpeg),
             pictures=pictures)
@@ -8822,6 +9153,8 @@ def stage_s7(ctx: Ctx) -> StageResult:
          "--grouping", p.grouping_plan, "--timeline", release_timeline, "--manifest", p.writer_manifest,
          "--out", speaker_map_pre, "--action-windows-out", p.assembly / f"{ctx.episode}_FINAL_CUT_ACTION_WINDOWS.json",
          "--unit-asr", p.assembly / f"{ctx.episode}_unit_asr.json", "--asr-windows-out", asr_windows_pre,
+         *(["--performance-cut", p.assembly / f"{ctx.episode}_PERFORMANCE_CUT.json"]
+           if (p.assembly / f"{ctx.episode}_PERFORMANCE_CUT.json").is_file() else []),
          *vo_argv],
         name="s7_build_final_cut_speaker_map"))
     # 5e'. voice pitch unify on the mixed, unlevelled picture (Roger 2026-10-30 1c; F4: before the leveller)
@@ -9751,7 +10084,7 @@ def run_episode(ctx: Ctx) -> int:
         fingerprint = FINGERPRINTS.get(sid, lambda _c: None)(ctx)
         if (not ctx.force and row.get("status") in TERMINAL_OK
                 and (fingerprint is None or fingerprint == row.get("input_fingerprint"))
-                and not (sid == "S5" and s5_keyframes_missing(ctx))):
+                and not (sid == "S5" and (s5_keyframes_missing(ctx) or s5_q1_not_all_admitted(ctx)))):
             ctx.say(f"\n-- {sid} {STAGE_TITLES[sid]}: SKIPPED (already PASS, inputs unchanged)")
             row["status"] = SKIPPED
             ctx.save_state()
@@ -10108,6 +10441,45 @@ def cmd_ab_variant(args: argparse.Namespace) -> int:
     return run_ab_variant(Ctx(args.episode, args), Path(args.variant))
 
 
+def provider_reference_exclusions_path(ctx: Ctx) -> Path:
+    """tools/provider_reference_exclusions.py declaration for this episode (runtime preproduction)."""
+    return ctx.p.rt_pre / "provider_reference_exclusions.json"
+
+
+ISOLATE_REFERENCE_TOOL = ENGINE / "tools/isolate_rejected_reference.py"
+
+
+def run_isolate_reference(ctx: Ctx, task_key: str, tries: int = 2) -> int:
+    """``paid_stage.sh <EP> --isolate-reference <TASK_KEY>``: single-reference HopsAPI probes for ONE S5 task
+    whose request settled as the zero-cost 424, through ``Ctx.paid_step`` (order must authorise S5, budget
+    reservation against the episode cap, release on exit 0).  Without --paid it prints the plan only.
+    A deterministic rejection is declared in provider_reference_exclusions.json; recompile S5 afterwards."""
+    declaration = provider_reference_exclusions_path(ctx)
+    base = [VENV, ISOLATE_REFERENCE_TOOL, "--episode", ctx.episode, "--task-key", task_key,
+            "--manifest", ctx.p.keyframe_manifest, "--declaration", declaration, "--tries", tries]
+    plan_step = ctx.run(base, name="isolate_reference_plan")
+    if plan_step["exit_code"] != 0:
+        ctx.say("   reference isolation refused before any POST: " + (plan_step.get("stdout_tail") or "")[-400:])
+        return 2
+    try:
+        plan = json.loads((plan_step.get("stdout_tail") or "").strip().splitlines()[-1])
+        planned = int(plan.get("planned_credits") or 0)
+    except (ValueError, IndexError, AttributeError):
+        planned = image_batch_credits(ctx, 12)  # isolate_rejected_reference.MAX_PROBES
+    status, step = ctx.paid_step(base + ["--paid"], name="isolate_rejected_reference", sid="S5",
+                                 planned_credits=planned, dry_argv=None,
+                                 note=f"single-reference probes for {task_key}; declaration -> {declaration}")
+    ctx.say(f"   isolate-reference {task_key} => {status}")
+    if status == PASS:
+        ctx.say(f"   next (free): recompile S5 so the declaration applies, re-review the prompt batch, then "
+                f"{RT_TOOLS / 'paid_stage.sh'} {ctx.episode} S5 S5")
+    return {PASS: 0, DRY: 0, HARD_STOP: 3}.get(status, 2)
+
+
+def cmd_isolate_reference(args: argparse.Namespace) -> int:
+    return run_isolate_reference(Ctx(args.episode, args), args.task_key, args.tries)
+
+
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
@@ -10184,6 +10556,16 @@ def build_parser() -> argparse.ArgumentParser:
     ab.add_argument("--paid", action="store_true")
     ab.add_argument("--dry-run", action="store_true")
     ab.set_defaults(func=cmd_ab_variant, force=False, from_stage=None, until=None)
+
+    iso = subs.add_parser(
+        "isolate-reference", help="single-reference HopsAPI probes for ONE S5 task rejected with a zero-cost 424; "
+                                  "declares the refused non-identity reference.  Paid only via paid_stage.sh")
+    iso.add_argument("--episode", required=True)
+    iso.add_argument("--task-key", required=True)
+    iso.add_argument("--tries", type=int, default=2)
+    iso.add_argument("--paid", action="store_true")
+    iso.add_argument("--dry-run", action="store_true")
+    iso.set_defaults(func=cmd_isolate_reference, force=False, from_stage=None, until=None)
 
     loop = subs.add_parser("loop", help="run episodes in sequence, blocking at each checkpoint")
     loop.add_argument("--start", required=True)

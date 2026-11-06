@@ -212,6 +212,12 @@ def fixture_measurements(fixture: dict) -> dict:
 
 
 class E04NegativeSampleRegressionTests(unittest.TestCase):
+    def setUp(self):
+        from unittest import mock
+        env = mock.patch.dict(os.environ, {"NALU_VOICE_COPRESENT_RULE": "F0_40HZ"})  # pins the 40 Hz rule
+        env.start()
+        self.addCleanup(env.stop)
+
     """The E04 final cut must fail exactly the way the audit report describes (report §一 #1, #8, #9, #10)."""
 
     @classmethod

@@ -499,7 +499,11 @@ def main(argv: list[str] | None = None) -> int:
         request_sha = sha256_file(args.request)
         failures, verdicts = validate(request, request_sha, answers)
         out = Path(args.out) if args.out else Path(args.request).with_name(
-            Path(args.request).name.replace("_request.json", "_submitted.json"))
+            re.sub(r"_request\.json$", "_submitted.json", Path(args.request).name, flags=re.IGNORECASE))
+        if out.resolve() == Path(args.request).resolve():
+            # never overwrite the request the review was bound to (lab 化神 E04: an upper-case
+            # *_REQUEST.json name was not rewritten and the submission replaced the request)
+            out = Path(args.request).with_name(Path(args.request).stem + "_submitted.json")
         record = {
             "schema": SCHEMA_SUBMITTED,
             "request_id": request.get("request_id"),
