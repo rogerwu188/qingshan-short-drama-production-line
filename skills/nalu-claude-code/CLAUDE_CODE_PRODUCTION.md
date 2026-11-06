@@ -282,6 +282,11 @@ S7 最后的「独立终审」要求独立进程、StoryClaw 白名单模型的�
 
 HopsAPI 图片任务成批以 `status 3 / code 424 "Provider error (request id: aitk-…)"`、0 credits 失败（日志/阻塞含 `HOPSAPI_IMAGE_PROVIDER_OUTAGE`）= 上游 gpt-image-2 通道故障，不是参考图/提示词问题（E10/E11 实测：同字节请求先失败后成功，无参考图的 Txt2Img 也同样失败）。不要改参考图、提示词或写 CODE_BLOCKER；免费、不扣费：`sleep 600` 后原样重跑同一 `paid_stage.sh <EP> <Sx> <Sx>`（提交器自己会先发一个探针任务、冷却期内拒绝整批 POST），连续 6 次仍是 424 才以 `BLOCKED` 结束，note 写 `HOPSAPI_IMAGE_PROVIDER_OUTAGE`。
 例外：**只有某一个任务** 424、其它任务同期能过（阻塞/日志含 `HOPSAPI_IMAGE_TASK_REJECTED:<task_key>`，提交报告 `provider_rejected_tasks` / failures 里 `PROVIDER_REJECTED_TASK`）= 该任务的提示词/参数被内容过滤拒绝，不是故障（设备 …1324 E01 实测：偷馒头的孩子 + 破棉絮参考图）。提交器探针 424 后会换一个参考图最不同的任务再探，过了就放行整批、只把该任务记为拒绝；至少 2 个不同任务都 424 才算故障冷却。不要等冷却：把该任务的提示词中性改写（未成年 + 贫困/暴力措辞是已知触发），重跑同一阶段。
+某一个参考图被拒（设备 …1324 E01 S5 实测：地点俯视图 `GSM-NALU-HUT_V1.png` 单图 Img2Img 每次 424，头像/集全景图单图都能过；每个 S5 任务都绑它，整集 0/35）：中性改写提示词后仍是同一类 0 成本 424、且多个任务都绑同一张非身份参考图时，按下面走，不写 CODE_BLOCKER：
+1. 定位（付费、低质量单图探针，走付费入口）：`lines/nalu/runtime/tools/paid_stage.sh <EP> --isolate-reference <TASK_KEY>`（免费看计划：`nalu_pipeline.py isolate-reference --episode <EP> --task-key <TASK_KEY>`）。每张非身份参考图单独探 2 次；只有它 2 次都 424、其它参考图能过，才写声明。全部失败 = 故障（按上面冷却），全部能过 = 提示词问题（改写）。
+2. 声明（工具自动写，或按已有证据手写）：`$NALU_RUNTIME_ROOT/preproduction/<EP>/provider_reference_exclusions.json`，schema `nalu.provider_reference_exclusions.v1`，每条 `sha256`（或 `asset_id`/`path`）+ `reason` + `evidence{provider, provider_code:424, request_ids:[aitk-…], single_reference_probe:true}` + `declared_by` + `declared_at`。只能排除地图/场景/服装/道具图；人物身份头像一律拒绝。
+3. 免费重编 S5（`NALU_PAID_FORCE=1 paid_stage.sh <EP> S5 S5` 会先重建清单；或免费 `nalu_pipeline.py run --episode <EP> --from S5 --until S5`）：被排除的图仍作为空间权威留在 `reference_bindings`（`transmitted:false`），不再发送，`@图片N` 和参考图用途块重新编号；空间闸门记 `PLACE_MAP_TRANSPORT_EXCLUDED` 提示（集全景图和本镜子空间图必须仍在发送）。
+4. 提示词变了 → 整批提示词重新审（prompt batch 回执），再按正常 S5 走（探针任务 → 整批）。旧的已绑定失败事务不动，新请求是新指纹，不会重复 POST。
 
 ## 8. 连续产剧：E02 及以后
 编排代理在上一集 `FINAL_CUT_READY` 后为下一集派单（章节范围与沿用的简报条款），再新开一个你的会话。每集都是独立会话，按本合同从 §2.0 开始，另外：
