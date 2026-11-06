@@ -3791,6 +3791,29 @@
       "regression": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
       "evidence": "E15 2026-11-06: orders seq 124–136; Q1 PARTIAL_22_OF_26_ADMITTED with accepted_unit_ids=[] on every bare recompute.",
       "decision_record": "docs/decisions/DECISION_RECORDS.md"
+    },
+    {
+      "id": "K171",
+      "scope": "generalizable",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "authority": "Roger 2026-11-06 「你自己定，不要问我」 / 「生产线的时间是定死的」",
+      "runtime_gate_added": true,
+      "key": "a-cross-reference-clause-must-name-an-image-that-contains-the-entity",
+      "stage": "S6",
+      "category": "PROMPT",
+      "implementation": [
+        "tools/h3_provider_prompt_renderer.py",
+        "tools/tests/test_h3_face_crop_identity_lock.py"
+      ],
+      "failure_code": "WARDROBE_DELEGATED_TO_A_FRAME_WITHOUT_THE_CHARACTER",
+      "rule": "When one reference clause delegates a fact (wardrobe, headwear, props) to another image, the renderer must prove that image contains that entity: use the opening frame only when the unit's start-frame contract lists the character, else another non-crop reference bound to the same entity, else fall back to the written description — never a fixed slot number.",
+      "lesson": "E15 S6 finalization: the face-crop identity line hardcoded 'wardrobe and headwear from @Image1'. In VU-004/016/024 the opening keyframe shows Fuentao alone and Qinming exists only as a face crop, so the line told the model to dress Qinming in imagery that contains none of his clothes — a costume-crossing risk one review caught out of 15 units.",
+      "recovery": "Resolve the source image per entity through face_crop_wardrobe_source(); keep FACE_ONLY_LOCK_TEXT_ONLY as the no-image fallback; regression tests cover opening-frame-without-character, opening-frame-with-character and same-entity alternative.",
+      "do_not_repeat": "Delegating any per-entity fact to a fixed reference slot without checking the slot's content; trusting a plan-time sha comparison when the final renderer reorders references.",
+      "regression": "tools/tests/test_h3_face_crop_identity_lock.py",
+      "evidence": "E15 2026-11-06 S6.prompt_finalization: 12 changed units, 1 P1 (VU-004), fixed and tested (7 tests).",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md"
     }
   ]
 }

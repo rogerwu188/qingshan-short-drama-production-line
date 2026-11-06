@@ -1705,3 +1705,13 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **授权**：Roger 2026-11-06「以后严禁这种反复重做，没有窗口期的做法」「3遍fast不过，就用pro做一遍，如果还是不过，取4个中最好的一个通过」
 - **状态**：REFERENCE_IMPLEMENTATION
 
+### K171 — S6
+
+- **规则**：When one reference clause delegates a fact (wardrobe, headwear, props) to another image, the renderer must prove that image contains that entity: use the opening frame only when the unit's start-frame contract lists the character, else another non-crop reference bound to the same entity, else fall back to the written description — never a fixed slot number.
+- **教训**：E15 S6 finalization: the face-crop identity line hardcoded 'wardrobe and headwear from @Image1'. In VU-004/016/024 the opening keyframe shows Fuentao alone and Qinming exists only as a face crop, so the line told the model to dress Qinming in imagery that contains none of his clothes — a costume-crossing risk one review caught out of 15 units.
+- **恢复**：Resolve the source image per entity through face_crop_wardrobe_source(); keep FACE_ONLY_LOCK_TEXT_ONLY as the no-image fallback; regression tests cover opening-frame-without-character, opening-frame-with-character and same-entity alternative.
+- **实现**：`tools/h3_provider_prompt_renderer.py`、`tools/tests/test_h3_face_crop_identity_lock.py`
+- **证据**：E15 2026-11-06 S6.prompt_finalization: 12 changed units, 1 P1 (VU-004), fixed and tested (7 tests).
+- **授权**：Roger 2026-11-06 「你自己定，不要问我」 / 「生产线的时间是定死的」
+- **状态**：REFERENCE_IMPLEMENTATION
+
