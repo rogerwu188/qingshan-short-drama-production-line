@@ -289,7 +289,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "9d6b431e384dc67bdb616f280597002bb9fa7d16743fa9c8cb07c4d8c51f862e"
+      "sha256": "56a5c1151bbbc50664dd144af2ae049b8eab95a8752f264e7aad989ed735ab97"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -797,7 +797,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/paid_stage.sh",
-      "sha256": "c1e0b2d539a7a4be705220141ef152b807d56e8c5c755358958953790ff10f4e"
+      "sha256": "295ac96cb05eebcf6a3643498648b7853472e5fcba2c63aa80ce5ea0aeae409d"
     },
     {
       "path": "lines/nalu/runtime/tools/post_generation_qa_runner.py",
@@ -941,7 +941,7 @@
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "478fdce7f2ef8883bc4000cdb3dbd5d4f2afddb9d9792d090cbcbbded1204af5"
+      "sha256": "f30b8527b7d0c7976fbb0845c65c15c768e04c64080a908c6591809b136cdd63"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
@@ -985,7 +985,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/publish_x2c_matrix.py",
-      "sha256": "601d28e0f8ff54e4e741e6849580ae6177b3eeefc847dc2e22af4e2b6073ba54"
+      "sha256": "bd67c386539840dca263144ecf3e30c3fa8c6a87f0a9b554358d245a1f6a538d"
     },
     {
       "path": "skills/nalu-claude-code/scripts/publish_x2creel.py",
@@ -8169,7 +8169,7 @@
     },
     {
       "path": "tools/tests/test_nalu_publish_x2c_matrix.py",
-      "sha256": "808e10706913506ae3ae9475c9b6d1799ca807e5f54bb9e94ec049989ab23a43"
+      "sha256": "397ac718bf648d9934f4e93732874a63e162b37adbdc366463ae7ab63ddb701c"
     },
     {
       "path": "tools/tests/test_nalu_publish_x2creel.py",

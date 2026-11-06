@@ -89,6 +89,26 @@ elif [ -z "${HOPSAPI_API_KEY:-}" ] && [ -f "$ENV_FILE" ] && grep -q '^[[:space:]
   export HOPSAPI_API_KEY
 fi
 [ -x "$VENV" ] || die "no interpreter at $VENV (set NALU_VENV_PYTHON)"
+if [ -z "${HOPSAPI_API_KEY:-}" ]; then
+  # HopsAPI serves Codex AND the H3 video / gpt-image-2 calls with one key (owner 2026-11-05): when the engine
+  # .env does not carry HOPSAPI_API_KEY, reuse the Codex provider key if that provider is HopsAPI.  Never echoed.
+  HOPSAPI_API_KEY="$("$VENV" - <<'PY' 2>/dev/null
+import json, os, pathlib
+for root in (os.environ.get("NALU_RUNTIME_ROOT"), "~/nalu_runtime"):
+    if not root:
+        continue
+    p = pathlib.Path(root).expanduser() / "credentials" / "llm_provider.json"
+    try:
+        d = json.loads(p.read_text())
+    except (OSError, ValueError):
+        continue
+    if "hopsapi" in str(d.get("base_url") or "").lower() and d.get("api_key"):
+        print(d["api_key"], end="")
+        break
+PY
+)"
+  [ -n "$HOPSAPI_API_KEY" ] && export HOPSAPI_API_KEY || unset HOPSAPI_API_KEY
+fi
 
 for var in NALU_RUNTIME_ROOT NALU_ENGINE_ROOT NALU_SUPERVISOR_ORDERS_PATH NALU_PAID_ORDER_SEQ \
            NALU_LATEST_ORDER_SEQ NALU_LINE_OWNER_ID; do

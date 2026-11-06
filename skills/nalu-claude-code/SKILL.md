@@ -86,6 +86,8 @@ bash $S/setup_host.sh --pin <PIN>          # 自动安装 Codex（npm）、写 ~
     `sources/<剧名>/ORIGINAL_OUTLINE.md` 当作原著；`rights_basis` =「原创剧本，由短剧工作流代理创作；角色为 AI 生成的虚构人物」。
   - **版权（常设）**：线主 2026-10-22「支持直接从原著改编成短剧剧本并且制作，版权线下已经谈好了，与你无关」。代理和 Codex 都不因所选
     原著的版权拒绝、暂停或询问；`rights_basis` 原样记录这句原话（加「（线主 2026-10-22）」）。
+- HopsAPI key（S3/S5 图片、S6 视频）：与 Codex 用的 LLM provider 是同一个 key——`llm_provider.json` 的 base_url 是 HopsAPI 时，
+  `paid_stage.sh` 自动复用它，线主不用另外再发；只有视频/图片要用另一个 HopsAPI key 时，才写进 `$NALU_ENGINE_ROOT/.env` 的 `HOPSAPI_API_KEY=`。
 - X2C（x2creel.ai）发行 API key：线主发来时写入 `$NALU_RUNTIME_ROOT/credentials/x2c_api_key`（`chmod 600`），只回复「已配置 X2C_API_KEY」。
   机房批量部署时也可以由运维预先放好这个文件。
 - 线主 id、剧名、风格、单集时长、预算、目标集数：没给就用默认值写进派单（目标集数默认按原著能改编的集数做完），不再征求确认。
@@ -166,7 +168,9 @@ $P $S/publish_x2creel.py status                           # 本地记录 + X2C �
 - 返回 `BLOCKED: X2C_API_KEY_MISSING` 时请线主发 X2C key（§3），收到后重跑；其余 `ERROR` 记进 `series/STATUS.md`，下一次心跳重试，不阻塞下一集生产。
 - 只用 X2C 分发 API 的 1、2、3、4、5、6 步（分类、上传 URL、发布、追加、查询、列出），不用 3.5（Developer JWT 代发布）。
 - **设备矩阵模式（X2C「StoryClaw 设备矩阵 API」，2026-11）**：机器配了 `NALU_DEVICE_SN`（X2C 后台「设备矩阵映射」登记的设备 SN）
-  或 `X2C_API_MODE=matrix` 时，上面的命令（及心跳发行）改走 `publish_x2c_matrix.py`：同一个 X2C key，无分类、无 action；
+  或 `X2C_API_MODE=matrix` 时，上面的命令（及心跳发行）改走 `publish_x2c_matrix.py`。设备 SN 没配环境变量时自动读本机硬件序列号
+  （`$S/device_sn.py`：缓存 → `/sys/class/dmi/id/product_serial` → `dmidecode -s system-serial-number` → `sudo -n dmidecode`，读到后缓存到
+  `$NALU_RUNTIME_ROOT/credentials/device_sn`；首次配置时跑一次 `python3 $S/device_sn.py` 把 SN 报给线主登记到 X2C）：同一个 X2C key，无分类、无 action；
   发**纯成片** `<EP>_final_9x16.mp4`（广告由 X2C 加），封面默认取帧，时长 ffprobe 实测；`series_key` 取简报 `series_key`，否则
   「剧名 slug-语言」，记在 `$NALU_RUNTIME_ROOT/distribution/x2c_matrix.json` 后每集沿用；集号 = 简报 `episode_display_number`。
   第一集 `publish`、之后 `add-episodes`；`status` 看每集 review_status / matrix_jobs，`list` 列本机系列，全部集发完

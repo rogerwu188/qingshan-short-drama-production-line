@@ -79,11 +79,14 @@ def environment() -> str:
 
 
 def device_sn() -> str:
-    sn = os.environ.get("NALU_DEVICE_SN", "").strip()
+    """$NALU_DEVICE_SN, else this machine's hardware serial (device_sn.py: cache, sysfs, dmidecode, sudo -n)."""
+    import device_sn as dsn  # same directory
+    sn, _source = dsn.resolve()
     if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,100}", sn):
         raise SystemExit(json.dumps({"status": "BLOCKED", "reason": "NALU_DEVICE_SN_MISSING" if not sn else
                                      "NALU_DEVICE_SN_INVALID",
-                                     "hint": "set NALU_DEVICE_SN to this device's SN registered in X2C 设备矩阵映射"}))
+                                     "hint": "no hardware serial readable: set NALU_DEVICE_SN to this device's SN "
+                                             "registered in X2C 设备矩阵映射"}))
     return sn
 
 
