@@ -602,6 +602,10 @@ def recent_provider_outage(store_root: Path, *, now: float | None = None,
             continue
         if row.get("provider_model") != MODEL:
             continue
+        if row.get("reference_isolation_probe"):
+            # tools/isolate_rejected_reference.py single-reference probes are a diagnosis of ONE task's
+            # references (some fail by design); they say nothing about the provider's health.
+            continue
         remote = str(row.get("provider_remote_status") or row.get("remote_terminal_state") or "").lower()
         if remote != "completed" and remote not in hops.TERMINAL_FAILED:
             continue

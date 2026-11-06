@@ -31,6 +31,13 @@
 #
 #   paid_stage.sh --check <EPISODE>            print the budget position, spend nothing
 #
+#   paid_stage.sh <EPISODE> --isolate-reference <TASK_KEY>
+#       Single-reference HopsAPI probes (low quality) for ONE S5 task whose request settled as the
+#       zero-cost 424, through the S5 paid step (order, budget reservation, durable store); a reference
+#       refused deterministically while others pass is declared in
+#       $NALU_RUNTIME_ROOT/preproduction/<EP>/provider_reference_exclusions.json.
+#       Free plan: nalu_pipeline.py isolate-reference --episode <EP> --task-key <KEY>   (no --paid)
+#
 #   paid_stage.sh <EPISODE> --ab-variant <variant_manifest.json>
 #       ONE owner-approved A/B task written by tools/h3_constraint_ab_variant.py (--variant zh, the
 #       default, or camera_lock_strict), through the same
@@ -53,13 +60,19 @@ usage() {
   printf 'usage: paid_stage.sh <EPISODE> <FROM_STAGE> <UNTIL_STAGE>\n' >&2
   printf '       paid_stage.sh --check <EPISODE>\n' >&2
   printf '       paid_stage.sh <EPISODE> --ab-variant <variant_manifest.json>\n' >&2
+  printf '       paid_stage.sh <EPISODE> --isolate-reference <TASK_KEY>\n' >&2
   exit 2
 }
 
 [ $# -ge 2 ] || usage
 CHECK_ONLY=0
 AB_VARIANT=""
+ISOLATE_TASK=""
 if [ "$1" = "--check" ]; then CHECK_ONLY=1; EPISODE="$2"
+elif [ "$2" = "--isolate-reference" ]; then
+  [ $# -eq 3 ] && [ -n "$3" ] || usage
+  case "$3" in *[!A-Za-z0-9_.-]*|-*) usage ;; esac
+  EPISODE="$1"; ISOLATE_TASK="$3"
 elif [ "$2" = "--ab-variant" ]; then
   [ $# -eq 3 ] && [ -n "$3" ] || usage
   EPISODE="$1"; AB_VARIANT="$3"
@@ -127,7 +140,7 @@ VIDEO_PROVIDER="$("$VENV" "$ENGINE_ROOT/tools/hopsapi_video_client.py" resolve-p
 export NALU_VIDEO_PROVIDER="$VIDEO_PROVIDER"
 REACHES_S6=0
 if [ "${AB_VARIANT}" != "" ]; then REACHES_S6=1
-elif [ "$CHECK_ONLY" = 0 ]; then
+elif [ "$CHECK_ONLY" = 0 ] && [ -z "$ISOLATE_TASK" ]; then
   case "$FROM_STAGE:$UNTIL_STAGE" in
     S[1-6]:S[6-8]|S6:*|*:S6) REACHES_S6=1 ;;
   esac
@@ -138,7 +151,8 @@ fi
 # S3 (identity plates / sheets / cards) or S5 (keyframes, start frames, redos) inside FROM..UNTIL?
 # S6 also counts: its Q2 controlled redo can generate a unit's own keyframe.
 REACHES_IMAGES=0
-if [ "$CHECK_ONLY" = 0 ] && [ "${AB_VARIANT}" = "" ]; then
+if [ -n "$ISOLATE_TASK" ]; then REACHES_IMAGES=1
+elif [ "$CHECK_ONLY" = 0 ] && [ "${AB_VARIANT}" = "" ]; then
   from_n="${FROM_STAGE#S}"; until_n="${UNTIL_STAGE#S}"
   case "$from_n$until_n" in *[!0-9]*|"") ;; *)
     for n in 3 5 6; do
@@ -215,6 +229,13 @@ if [ -n "$AB_VARIANT" ]; then
   echo "paid_stage: $EPISODE A/B variant $AB_VARIANT --paid (order seq=$NALU_PAID_ORDER_SEQ, owner=$NALU_LINE_OWNER_ID)"
   "$VENV" "$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_pipeline.py" ab-variant \
     --episode "$EPISODE" --variant "$AB_VARIANT" --paid
+  exit $?
+fi
+
+if [ -n "$ISOLATE_TASK" ]; then
+  echo "paid_stage: $EPISODE isolate-reference $ISOLATE_TASK --paid (order seq=$NALU_PAID_ORDER_SEQ, owner=$NALU_LINE_OWNER_ID)"
+  "$VENV" "$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_pipeline.py" isolate-reference \
+    --episode "$EPISODE" --task-key "$ISOLATE_TASK" --paid
   exit $?
 fi
 

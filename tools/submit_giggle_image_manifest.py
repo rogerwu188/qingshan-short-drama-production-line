@@ -70,6 +70,10 @@ except ModuleNotFoundError:  # Imported as tools.submit_giggle_image_manifest.
         sent_image_sha256, task_request_digest,
     )
     from tools import hopsapi_image_client as image_client
+try:
+    from provider_reference_exclusions import transmitted_bindings
+except ModuleNotFoundError:
+    from tools.provider_reference_exclusions import transmitted_bindings
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,7 +113,7 @@ def submission_fingerprint(task: dict[str, Any]) -> str:
     contract = {
         "task_key": task.get("task_key"),
         "prompt_sha256": task.get("prompt_sha256"),
-        "references": [row.get("sha256") for row in task.get("reference_bindings") or []],
+        "references": [row.get("sha256") for row in transmitted_bindings(task.get("reference_bindings"))],
         "model": task.get("model", ACTIVE_IMAGE_MODEL),
         "aspect_ratio": task.get("aspect_ratio", "9:16"),
         "resolution": task.get("resolution", "1K"),
@@ -440,10 +444,24 @@ def validate_task(task: dict[str, Any]) -> None:
         path = resolve(binding["path"])
         if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != binding.get("sha256"):
             raise ValueError(f"{task['task_key']} reference binding SHA mismatch: {binding.get('path')}")
-    transport_rows = task.get("reference_image_sequence") or bindings
+    # Provider reference exclusion: a binding marked transmitted=false stays as spatial authority but is
+    # never sent; it must carry its declared reason, and the transported array must be exactly the
+    # transmitted bindings' files (legacy bindings carry no flag: unchanged).
+    transmitted = transmitted_bindings(bindings)
+    excluded = [row for row in bindings if row not in transmitted]
+    if any(not str(row.get("transport_excluded_reason") or "").strip() for row in excluded):
+        raise ValueError(f"{task['task_key']} reference excluded from transport without a declared reason")
+    if any(str(row.get("role") or "").lower() in {"character", "character_reference", "identity"}
+           for row in excluded):
+        raise ValueError(f"{task['task_key']} a character identity plate cannot be excluded from transport")
+    transport_rows = task.get("reference_image_sequence") or transmitted
+    if excluded and any(row.get("transmitted") is False for row in transport_rows):
+        raise ValueError(f"{task['task_key']} reference_image_sequence carries an excluded reference")
     bound_transport_paths = list(dict.fromkeys(row["path"] for row in transport_rows))
     if task.get("reference_images") != bound_transport_paths:
         raise ValueError(f"{task['task_key']} reference image order differs from bound contract")
+    if excluded and set(bound_transport_paths) != {row["path"] for row in transmitted}:
+        raise ValueError(f"{task['task_key']} transported references differ from the transmitted bindings")
     input_precheck = precheck_submission_inputs(task)
     if input_precheck["status"] != "PASS":
         missing = input_precheck["missing_characters"] + input_precheck["missing_props"]
@@ -526,7 +544,7 @@ def _submit_one_locked(task: dict[str, Any], receipt_dir: Path, transaction_dir:
         "intent_recorded_at": utc_now(),
         "model": payload["model"],
         "prompt_sha256": task.get("prompt_sha256"),
-        "reference_sha256": [row.get("sha256") for row in task.get("reference_bindings") or []],
+        "reference_sha256": [row.get("sha256") for row in transmitted_bindings(task.get("reference_bindings"))],
         "reference_encoding": reference_encoding,
         "estimated_credits": 11,
         "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
@@ -598,7 +616,7 @@ def _submit_one_hopsapi(task: dict[str, Any], receipt_dir: Path, transaction_dir
         "intent_recorded_at": utc_now(),
         "model": task.get("model", ACTIVE_IMAGE_MODEL),
         "prompt_sha256": task.get("prompt_sha256"),
-        "reference_sha256": [row.get("sha256") for row in task.get("reference_bindings") or []],
+        "reference_sha256": [row.get("sha256") for row in transmitted_bindings(task.get("reference_bindings"))],
         "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
         **image_client.intent_fields(prepared),
     }
@@ -645,7 +663,7 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path,
 
 
 def _task_reference_shas(task: dict[str, Any]) -> set[str]:
-    shas = {str(row.get("sha256")) for row in task.get("reference_bindings") or [] if row.get("sha256")}
+    shas = {str(row.get("sha256")) for row in transmitted_bindings(task.get("reference_bindings")) if row.get("sha256")}
     return shas or {str(path) for path in task.get("reference_images") or []}
 
 

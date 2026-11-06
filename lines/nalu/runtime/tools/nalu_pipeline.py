@@ -4121,6 +4121,11 @@ def stage_s5(ctx: Ctx) -> StageResult:
         "--image-resolution", ACTIVE_IMAGE_RESOLUTION,   # registry policy (seq=56: 1K)
         "--precheck-only",
     ]
+    # Provider reference exclusion (device …1324 E01, 2026-11-06): a declared non-identity reference the
+    # provider deterministically refuses is kept as authority but not transmitted.  Absent = unchanged argv.
+    exclusions = provider_reference_exclusions_path(ctx)
+    if exclusions.is_file():
+        build_argv += ["--provider-reference-exclusions", exclusions]
     build = ctx.run(build_argv, name="s5_build_keyframe_manifest")
     manifest = read_json(p.keyframe_manifest, {}) or {}
     tasks = manifest.get("tasks") or []
@@ -10436,6 +10441,45 @@ def cmd_ab_variant(args: argparse.Namespace) -> int:
     return run_ab_variant(Ctx(args.episode, args), Path(args.variant))
 
 
+def provider_reference_exclusions_path(ctx: Ctx) -> Path:
+    """tools/provider_reference_exclusions.py declaration for this episode (runtime preproduction)."""
+    return ctx.p.rt_pre / "provider_reference_exclusions.json"
+
+
+ISOLATE_REFERENCE_TOOL = ENGINE / "tools/isolate_rejected_reference.py"
+
+
+def run_isolate_reference(ctx: Ctx, task_key: str, tries: int = 2) -> int:
+    """``paid_stage.sh <EP> --isolate-reference <TASK_KEY>``: single-reference HopsAPI probes for ONE S5 task
+    whose request settled as the zero-cost 424, through ``Ctx.paid_step`` (order must authorise S5, budget
+    reservation against the episode cap, release on exit 0).  Without --paid it prints the plan only.
+    A deterministic rejection is declared in provider_reference_exclusions.json; recompile S5 afterwards."""
+    declaration = provider_reference_exclusions_path(ctx)
+    base = [VENV, ISOLATE_REFERENCE_TOOL, "--episode", ctx.episode, "--task-key", task_key,
+            "--manifest", ctx.p.keyframe_manifest, "--declaration", declaration, "--tries", tries]
+    plan_step = ctx.run(base, name="isolate_reference_plan")
+    if plan_step["exit_code"] != 0:
+        ctx.say("   reference isolation refused before any POST: " + (plan_step.get("stdout_tail") or "")[-400:])
+        return 2
+    try:
+        plan = json.loads((plan_step.get("stdout_tail") or "").strip().splitlines()[-1])
+        planned = int(plan.get("planned_credits") or 0)
+    except (ValueError, IndexError, AttributeError):
+        planned = image_batch_credits(ctx, 12)  # isolate_rejected_reference.MAX_PROBES
+    status, step = ctx.paid_step(base + ["--paid"], name="isolate_rejected_reference", sid="S5",
+                                 planned_credits=planned, dry_argv=None,
+                                 note=f"single-reference probes for {task_key}; declaration -> {declaration}")
+    ctx.say(f"   isolate-reference {task_key} => {status}")
+    if status == PASS:
+        ctx.say(f"   next (free): recompile S5 so the declaration applies, re-review the prompt batch, then "
+                f"{RT_TOOLS / 'paid_stage.sh'} {ctx.episode} S5 S5")
+    return {PASS: 0, DRY: 0, HARD_STOP: 3}.get(status, 2)
+
+
+def cmd_isolate_reference(args: argparse.Namespace) -> int:
+    return run_isolate_reference(Ctx(args.episode, args), args.task_key, args.tries)
+
+
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
@@ -10512,6 +10556,16 @@ def build_parser() -> argparse.ArgumentParser:
     ab.add_argument("--paid", action="store_true")
     ab.add_argument("--dry-run", action="store_true")
     ab.set_defaults(func=cmd_ab_variant, force=False, from_stage=None, until=None)
+
+    iso = subs.add_parser(
+        "isolate-reference", help="single-reference HopsAPI probes for ONE S5 task rejected with a zero-cost 424; "
+                                  "declares the refused non-identity reference.  Paid only via paid_stage.sh")
+    iso.add_argument("--episode", required=True)
+    iso.add_argument("--task-key", required=True)
+    iso.add_argument("--tries", type=int, default=2)
+    iso.add_argument("--paid", action="store_true")
+    iso.add_argument("--dry-run", action="store_true")
+    iso.set_defaults(func=cmd_isolate_reference, force=False, from_stage=None, until=None)
 
     loop = subs.add_parser("loop", help="run episodes in sequence, blocking at each checkpoint")
     loop.add_argument("--start", required=True)

@@ -405,11 +405,28 @@ def evaluate_task(task: dict[str, Any], authority_report: dict[str, Any]) -> dic
         ([row for row in bindings if row.get("role") == "global_space_map"], place_map.get("layout_image") or {}, "global_space_map"),
         ([row for row in bindings if row.get("role") == "subspace_layout"], subspace_ref or {}, "subspace_layout"),
     )
+    advisories: list[dict[str, Any]] = []
     for rows, expected, role in expected_bindings:
         if len(rows) != 1:
             failures.append({"check": "reference_bindings", "reason": f"exactly_one_{role}_required"})
         elif rows[0].get("path") != expected.get("path") or rows[0].get("sha256") != expected.get("sha256"):
             failures.append({"check": "reference_bindings", "reason": f"{role}_binding_mismatch"})
+        elif rows[0].get("transmitted") is False:
+            # Provider reference exclusion (tools/provider_reference_exclusions.py): only the PLACE map may
+            # be withheld from the provider, and only when the episode map and the shot's subspace map
+            # (which carries the place geometry) are still sent.  The binding stays as spatial authority.
+            if role != "global_space_map":
+                failures.append({"check": "reference_bindings", "reason": f"{role}_transport_excluded_not_allowed"})
+            elif not str(rows[0].get("transport_excluded_reason") or "").strip():
+                failures.append({"check": "reference_bindings", "reason": "place_map_transport_excluded_without_declared_reason"})
+            else:
+                advisories.append({"code": "PLACE_MAP_TRANSPORT_EXCLUDED",
+                                   "global_space_map_id": task.get("global_space_map_id"),
+                                   "sha256": rows[0].get("sha256"),
+                                   "reason": rows[0].get("transport_excluded_reason"),
+                                   "declaration_ref": rows[0].get("transport_exclusion_ref"),
+                                   "note": "place map kept as spatial authority; geometry reaches the provider "
+                                           "through the transmitted episode map and shot subspace map"})
     role_order = [row.get("role") for row in bindings]
     try:
         episode_index = role_order.index("episode_global_space_map")
@@ -426,6 +443,7 @@ def evaluate_task(task: dict[str, Any], authority_report: dict[str, Any]) -> dic
         "global_space_map_id": task.get("global_space_map_id"),
         "subspace_id": subspace.get("subspace_id"),
         "status": "PASS" if not failures else "FAIL", "failures": failures,
+        **({"advisories": advisories} if advisories else {}),
     }
 
 
@@ -446,6 +464,10 @@ def evaluate_batch(
         {"task_key": result.get("task_key"), **failure}
         for result in results for failure in result.get("failures") or []
     )
+    advisories = [
+        {"task_key": result.get("task_key"), **advisory}
+        for result in results for advisory in result.get("advisories") or []
+    ]
     return {
         "schema": "qingshan.global_space_layout_batch_gate.v1",
         "gate_id": GATE_ID, "component": COMPONENT,
@@ -454,6 +476,7 @@ def evaluate_batch(
         "status": "PASS" if not failures else "FAIL",
         "authority_status": authority_report.get("status"),
         "results": results, "failures": failures,
+        **({"advisories": advisories} if advisories else {}),
         "rollback": "Lock the complete episode map and place map, derive and QA each shot subspace, then resolve character/prop blocking before shot keyframe or video submission.",
         "recorded_at": now(),
     }

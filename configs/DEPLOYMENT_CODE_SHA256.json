@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2378,
+  "file_count": 2381,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -289,7 +289,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "e4d4feb1a9e3670ba8cdef9516428bb66fbd8a7ed1efef5c5a7a9ea980265073"
+      "sha256": "8dfdfbe824174e0e732f10109ef28a9689e2f034fff5bfdcd667607c19bc074a"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -645,7 +645,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_keyframe_manifest.py",
-      "sha256": "6a71a30ec25983ea2fde064eb909233040146ac4656dead071258212fe2215e8"
+      "sha256": "66eaf9996c28b43473f689733b892950875bf34bcdaeebcb517426784327990f"
     },
     {
       "path": "lines/nalu/runtime/tools/build_measured_edit_constraints.py",
@@ -757,7 +757,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "5f3073c7e03e997c3d45f5ce17405e6b4134037e4d84041da4b7d1b8c2aa8206"
+      "sha256": "b1b8d4ae1a5bf11f20684921a4bc59afc81c99bc4cda9494699b8113915a43a2"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -797,7 +797,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/paid_stage.sh",
-      "sha256": "295ac96cb05eebcf6a3643498648b7853472e5fcba2c63aa80ce5ea0aeae409d"
+      "sha256": "37a641017c8c6938054f134a9e7d9aca282a66137fa37f9d161b5ebe47a230b0"
     },
     {
       "path": "lines/nalu/runtime/tools/post_generation_qa_runner.py",
@@ -937,7 +937,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "2c72308a78224dc2299a997f9acc77aeed6669db85e6bb91ba9146606d105e18"
+      "sha256": "90239ae6f4a3ac67efd17acc66d7d2e0cca41403536224f6b40171bf4dad8cf2"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -5073,7 +5073,7 @@
     },
     {
       "path": "tools/global_space_layout_gate.py",
-      "sha256": "ad92508349cae50198b497d7d22b87f1f63e3af667a24c95381a2e89c22a9f51"
+      "sha256": "2f78798573d07ed20854a461d0eac3d3c598f20c19c6e974d1956a650549030a"
     },
     {
       "path": "tools/grand_cinematic_prompt_compiler.py",
@@ -5221,7 +5221,7 @@
     },
     {
       "path": "tools/hopsapi_image_client.py",
-      "sha256": "2298979cdec217ec7c3e4a3cb7ba78baae64c366dca5e01ba5a6bed1b49cce9a"
+      "sha256": "ed4de64f8e20ca4246c3f10ac4db6b0a336c8adba5f468e7eda60fd1d3155490"
     },
     {
       "path": "tools/hopsapi_usage.py",
@@ -5338,6 +5338,10 @@
     {
       "path": "tools/inventory_episode_task_ids.py",
       "sha256": "d58a75bd0db643c5dc5a575720b058bad6fb7685e634209ed2271e1a6a670fba"
+    },
+    {
+      "path": "tools/isolate_rejected_reference.py",
+      "sha256": "677c648e50533357d734b10dd71590e3f7a854758026cd1c9c3b2e09505c2717"
     },
     {
       "path": "tools/keyframe_entry_scene_projection.py",
@@ -5734,6 +5738,10 @@
     {
       "path": "tools/provider_contract_boundary.py",
       "sha256": "4f6301bdabd01bbb205b84409ec29460b91c1addefba8c059b178c3c9843b5a0"
+    },
+    {
+      "path": "tools/provider_reference_exclusions.py",
+      "sha256": "4f3c891b4377a843f283e07ff210881a0ce43fbe20a55aec6bb0e887ab7c6a63"
     },
     {
       "path": "tools/provider_request_digest.py",
@@ -6517,7 +6525,7 @@
     },
     {
       "path": "tools/shot_media_admission_gate.py",
-      "sha256": "a3688615228c4c495e477b1344924bdf657daad91ceb8dca2f79b99b61d09ac2"
+      "sha256": "9af8f94d5d9d51c75fd52cb34fc1265c3a54b3ed8175aa11f7bd172b29fc5b0c"
     },
     {
       "path": "tools/shot_prompt_professionalism_gate.py",
@@ -6741,7 +6749,7 @@
     },
     {
       "path": "tools/submit_giggle_image_manifest.py",
-      "sha256": "6e1cd2d0bd27ce3def9036039905822c9063f25cbd8128382b35b74409897f84"
+      "sha256": "555210e50867a801131be75f053ead7a124011afa8a820b5d7d1e3970291e661"
     },
     {
       "path": "tools/submit_giggle_task_manifest.py",
@@ -8430,6 +8438,10 @@
     {
       "path": "tools/tests/test_prompt_test_migration_map.py",
       "sha256": "f7436f54254bebcfd05df48ac82f4a80a648aee797f384b14b89933da0e73feb"
+    },
+    {
+      "path": "tools/tests/test_provider_reference_exclusion.py",
+      "sha256": "eac7d950a525f15551f867c148f053360088d4c9361b3b22667de4e24dfed7d8"
     },
     {
       "path": "tools/tests/test_provider_request_binding.py",
