@@ -102,11 +102,14 @@ PAIRED_WEAPON_TYPES = {"SABER_SPEAR": ("SABER", "SPEAR")}
 
 
 def _infer_weapon(text: str) -> str:
-    if "刀" in text and any(token in text for token in ("长枪", "枪杆", "持枪")):
+    # 矛 is the same weapon as 枪 in these scripts (ch15 writes 铁矛 and 铁枪 for one object); a fight
+    # written with 矛 only used to fall through to SABER and inherit the dual-saber profile.
+    spear_tokens = ("长枪", "枪杆", "持枪", "铁矛", "矛杆", "持矛", "长矛")
+    if "刀" in text and any(token in text for token in spear_tokens):
         return "SABER_SPEAR"
     pairs = (
         ("绳镖", "ROPE_DART"), ("双刀", "DUAL_SABER"), ("戟", "POLEARM"), ("长枪", "SPEAR"),
-        ("枪杆", "SPEAR"), ("长棍", "STAFF"), ("棍", "STAFF"),
+        ("枪杆", "SPEAR"), ("铁矛", "SPEAR"), ("矛杆", "SPEAR"), ("长矛", "SPEAR"), ("长棍", "STAFF"), ("棍", "STAFF"),
         ("短刀", "BLADE"), ("匕首", "BLADE"), ("剑", "SWORD"), ("刀", "SABER"),
     )
     for token, value in pairs:

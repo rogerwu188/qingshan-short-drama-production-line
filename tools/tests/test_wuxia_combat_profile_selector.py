@@ -148,3 +148,14 @@ class PairedWeaponProfileTest(unittest.TestCase):
         result = select_wuxia_combat_profiles(
             unit, action_ir={"causal_chains": [{"interaction_mode": "CONTACT"}]}, unit_class="COMBAT_IMPULSE")
         self.assertEqual(result["selected_profile_ids"][:1], ["WXC-WEAPON-01"])
+
+    def test_a_spear_written_as_矛_is_still_a_spear(self) -> None:
+        """ch15 writes the same weapon 铁矛 and 铁枪. Only 枪 was recognised, so a saber-vs-铁矛
+        fight read as a lone saber and inherited the dual-saber profile (nalu E15 VU-027: a
+        right-saber probe turning into a left-saber upcut, in a fight with one saber and one spear).
+        """
+        unit = self._knife_unit("甲举刀下劈，乙斜举矛杆架挡")
+        result = select_wuxia_combat_profiles(
+            unit, action_ir={"causal_chains": [{"interaction_mode": "CONTACT"}]}, unit_class="COMBAT_IMPULSE")
+        self.assertEqual(result["selected_profile_ids"][:1], ["WXC-WEAPON-01"])
+        self.assertNotIn("WXC-WEAPON-04", result["selected_profile_ids"])
