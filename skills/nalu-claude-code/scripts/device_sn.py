@@ -49,8 +49,12 @@ def hardware_serial() -> tuple[str, str]:
             return sn, "sysfs:product_serial"
     except OSError:
         pass
+    # StoryClaw miniPC (verified 2026-11-05 on TwelveGazes-EN): user `storyclaw` cannot read sysfs and has no
+    # dmidecode on PATH (it is /usr/sbin/dmidecode), but `sudo -n dmidecode` works (passwordless sudo group).
     for argv, source in ((["dmidecode", "-s", "system-serial-number"], "dmidecode"),
-                         (["sudo", "-n", "dmidecode", "-s", "system-serial-number"], "sudo-n-dmidecode")):
+                         (["/usr/sbin/dmidecode", "-s", "system-serial-number"], "usr-sbin-dmidecode"),
+                         (["sudo", "-n", "dmidecode", "-s", "system-serial-number"], "sudo-n-dmidecode"),
+                         (["sudo", "-n", "/usr/sbin/dmidecode", "-s", "system-serial-number"], "sudo-n-usr-sbin-dmidecode")):
         sn = clean(_run(argv))
         if sn:
             return sn, source

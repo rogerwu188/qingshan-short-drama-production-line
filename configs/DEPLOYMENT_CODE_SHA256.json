@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2374,
+  "file_count": 2376,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -962,6 +962,10 @@
     {
       "path": "skills/nalu-claude-code/scripts/configure_codex.py",
       "sha256": "58172fc10badb0fe518bbbce5fbe77e252459c464de94ac96237ba8203e439f1"
+    },
+    {
+      "path": "skills/nalu-claude-code/scripts/device_sn.py",
+      "sha256": "964c7b7e3005111bde258023635ed1ce7fcd75d7ac3d21abc5cbdcee8fe67582"
     },
     {
       "path": "skills/nalu-claude-code/scripts/list_voices.sh",
@@ -7426,6 +7430,10 @@
     {
       "path": "tools/tests/test_deployment_code_integrity.py",
       "sha256": "c562a015243c3171bb8881b761f2b6f77d5dba451c8b1228b46c78a81b887b01"
+    },
+    {
+      "path": "tools/tests/test_device_sn.py",
+      "sha256": "0817eaafcda721fb0b9be536c6c6d3ca067134bb914fd976d2ea772c1a1cc401"
     },
     {
       "path": "tools/tests/test_dialogue_audio_release_gate.py",
