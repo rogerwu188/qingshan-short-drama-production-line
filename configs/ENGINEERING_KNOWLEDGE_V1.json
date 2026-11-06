@@ -3746,6 +3746,28 @@
       "regression": "tools/tests/test_shared_video_execution_compiler.py",
       "evidence": "E15 2026-11-05: 12 combat units all reported NOT_APPLICABLE before the fix; after it E15-FIGHT-FET judged 4 exchanges with initiative both ways.",
       "decision_record": "docs/decisions/DECISION_RECORDS.md"
+    },
+    {
+      "id": "K169",
+      "scope": "generalizable",
+      "owner": "DEPLOYMENT_MAINTAINER",
+      "status": "REFERENCE_IMPLEMENTATION",
+      "authority": "Roger 2026-11-06「你自己定，不要问我」 (E15 S5 Q1 rework)",
+      "runtime_gate_added": false,
+      "key": "keyframe-axis-must-state-the-start-moment-and-slot-words-need-a-multi-subject-frame",
+      "stage": "S5",
+      "category": "PROMPT",
+      "implementation": [
+        "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md"
+      ],
+      "failure_code": "KEYFRAME_MODEL_IGNORES_DECLARED_FRAMING_OR_DRAWS_OUTCOME",
+      "rule": "A keyframe prompt copies the shot axis verbatim, so the axis must describe only the START moment, must not name a screen side for a single-subject frame (the model centres it and Q1 fails the slot), must put a hands-only or face-out framing in words the image model can honour (state where the frame is cut, e.g. top edge at the chest, face not in frame), and must state which forearm carries an asymmetric prop such as a bracer.",
+      "lesson": "E15 Q1: 9 of 26 first-frame stills were rejected. An axis that said the tree 'falls' drew a fallen tree; 'right of frame' for a lone subject drew him centred; a close-up spec of hands drew a waist-up shot with the face; a bracer described only by name appeared on the wrong arm; a medium-wide spec came back as medium close-up. Q1 reads the pixels, not the intent.",
+      "recovery": "Rewrite at the source, never re-POST the same text: start-state axis, centre-slot wording for lone subjects, explicit frame cut for hands-only shots, left/right forearm stated, and declare the shot size the model actually produces when it keeps overriding the spec.",
+      "do_not_repeat": "Writing the outcome or a screen side into a single-subject keyframe axis; relying on shot-size words alone for hands-only framing; re-POSTing an identical keyframe prompt.",
+      "regression": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
+      "evidence": "E15 2026-11-06 Q1: S01-02, S06-01, S06-03, S09-01, S10-01, S12-05, S13-04, S13-07, S14-04 rejected; axes rewritten, then re-prompt batch review.",
+      "decision_record": "docs/decisions/DECISION_RECORDS.md"
     }
   ]
 }

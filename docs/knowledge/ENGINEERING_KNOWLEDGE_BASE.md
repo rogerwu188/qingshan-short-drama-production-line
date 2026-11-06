@@ -1684,3 +1684,13 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：E15 2026-11-05: 12 combat units all reported NOT_APPLICABLE before the fix; after it, E15-FIGHT-FET judged 4 exchanges with initiative going both ways and E15-FIGHT-CAMP 0 rounds / 2 sequences. The E15 builder went from one-assertion-per-run to a full failure list per run.
 - **授权**：Roger 2026-11-05「并行是必须的，这个功能必须要整合入生产线，成为标配」
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K169 — S5
+
+- **规则**：A keyframe prompt copies the shot axis verbatim, so the axis must describe only the START moment, must not name a screen side for a single-subject frame (the model centres it and Q1 fails the slot), must put a hands-only or face-out framing in words the image model can honour (state where the frame is cut, e.g. top edge at the chest, face not in frame), and must state which forearm carries an asymmetric prop such as a bracer.
+- **教训**：E15 Q1: 9 of 26 first-frame stills were rejected. An axis that said the tree 'falls' drew a fallen tree; 'right of frame' for a lone subject drew him centred; a close-up spec of hands drew a waist-up shot with the face; a bracer described only by name appeared on the wrong arm; a medium-wide spec came back as medium close-up. Q1 reads the pixels, not the intent.
+- **恢复**：Rewrite at the source, never re-POST the same text: start-state axis, centre-slot wording for lone subjects, explicit frame cut for hands-only shots, left/right forearm stated, and declare the shot size the model actually produces when it keeps overriding the spec.
+- **实现**：`docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md`
+- **证据**：E15 2026-11-06 Q1: S01-02, S06-01, S06-03, S09-01, S10-01, S12-05, S13-04, S13-07, S14-04 rejected; axes rewritten, then re-prompt batch review.
+- **授权**：Roger 2026-11-06「你自己定，不要问我」 (E15 S5 Q1 rework)
+- **状态**：REFERENCE_IMPLEMENTATION
