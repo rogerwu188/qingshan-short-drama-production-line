@@ -79,3 +79,61 @@ class AppearanceAnchorLineTest(unittest.TestCase):
                                        "burly middle-aged man, thick full black beard, brown leather armour, cloak"}]
         line = h3.appearance_anchor_line(unit, plan, compact=True)
         self.assertTrue(line.endswith("= thick full black beard, brown leather armour."))
+
+
+class FaceCropWardrobeSourceTest(unittest.TestCase):
+    """E15 2026-11-06 (VU-004/016/024): the face-crop line named "@Image1" for wardrobe even when the
+    unit's start frame showed only the OTHER character, so the model could dress this one in his costume."""
+
+    @staticmethod
+    def _unit(start_characters, refs, face_crop_index):
+        return {
+            "unit_id": "E15-VU-TEST",
+            "dialogue_language": "zh",
+            "reference_images": refs,
+            "face_only_identity_references": [refs[face_crop_index - 1]["path"]],
+            "start_frame_semantic_contract": {"required_visible_characters": start_characters},
+            "provider_scope_projection": {
+                "schema": "qingshan.provider_scope_projection.v1", "status": "LOCKED",
+                "visible_character_ids": ["CHAR-A", "CHAR-B"],
+                "visible_entity_instance_counts": {"CHAR-A": 1, "CHAR-B": 1},
+                "exclusive_visible_living_entity_set": True,
+                "visible_living_entity_instance_total": 2, "background_population_count": 0,
+                "unbound_visible_living_entity_count": 0, "anonymous_role_descriptors": [],
+                "reference_identity_bindings": [
+                    {"reference_index": 2, "entity_id": "CHAR-A", "provider_entity_label": "Aaa",
+                     "role": "CHARACTER_IDENTITY_REFERENCE", "binding_role": "IDENTITY",
+                     "exclusive_identity_owner": True, "may_define_identity": True},
+                    {"reference_index": 3, "entity_id": "CHAR-B", "provider_entity_label": "Bbb",
+                     "role": "CHARACTER_IDENTITY_REFERENCE", "binding_role": "IDENTITY",
+                     "exclusive_identity_owner": True, "may_define_identity": True},
+                ],
+            },
+        }
+
+    def test_opening_frame_without_the_character_falls_back_to_the_written_wardrobe(self):
+        refs = [{"path": "open.png", "role": "ADMITTED_NEW_EVENT_ENTRY_STATE"},
+                {"path": "a_head.png", "role": "CHARACTER_IDENTITY_REFERENCE", "entity_id": "CHAR-A"},
+                {"path": "b_crop.png", "role": "CHARACTER_IDENTITY_REFERENCE", "entity_id": "CHAR-B"}]
+        unit = self._unit(["Aaa"], refs, face_crop_index=3)
+        line = h3.face_crop_wardrobe_source(unit, refs, 3, "CHAR-B", "Bbb",
+                                            set(unit["face_only_identity_references"]))
+        self.assertEqual(line, "", "an opening frame without B must never be named as B's wardrobe")
+
+    def test_opening_frame_with_the_character_is_named(self):
+        refs = [{"path": "open.png", "role": "ADMITTED_NEW_EVENT_ENTRY_STATE"},
+                {"path": "a_head.png", "role": "CHARACTER_IDENTITY_REFERENCE", "entity_id": "CHAR-A"},
+                {"path": "b_crop.png", "role": "CHARACTER_IDENTITY_REFERENCE", "entity_id": "CHAR-B"}]
+        unit = self._unit(["Aaa", "Bbb"], refs, face_crop_index=3)
+        line = h3.face_crop_wardrobe_source(unit, refs, 3, "CHAR-B", "Bbb",
+                                            set(unit["face_only_identity_references"]))
+        self.assertEqual(line, "@Image1")
+
+    def test_another_non_crop_reference_of_the_same_character_is_named(self):
+        refs = [{"path": "open.png", "role": "ADMITTED_NEW_EVENT_ENTRY_STATE"},
+                {"path": "b_full.png", "role": "IDENTITY_OR_PROP_REANCHOR", "entity_id": "CHAR-B"},
+                {"path": "b_crop.png", "role": "CHARACTER_IDENTITY_REFERENCE", "entity_id": "CHAR-B"}]
+        unit = self._unit(["Aaa"], refs, face_crop_index=3)
+        line = h3.face_crop_wardrobe_source(unit, refs, 3, "CHAR-B", "Bbb",
+                                            set(unit["face_only_identity_references"]))
+        self.assertEqual(line, "@Image2")

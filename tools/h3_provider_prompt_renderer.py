@@ -167,6 +167,11 @@ REFERENCE_SHEET_MARK = "__MULTIVIEW_REFERENCE_SHEET"
 
 #: Identity line for a face-crop transport: face only, costume from the opening frame and wardrobe text.
 FACE_ONLY_LOCK = "face crop: lock face, age and hair only; wardrobe and headwear from {first}, never from this crop"
+#: The same lock when no reference image in this unit shows the character in wardrobe (E15 2026-11-06:
+#: VU-004/016/024 carry Qinming only as a face crop while @Image1 is the start keyframe of a unit whose
+#: opening frame shows Fuentao alone; "wardrobe from @Image1" pointed at the wrong man's clothes).
+FACE_ONLY_LOCK_TEXT_ONLY = ("face crop: lock face, age and hair only; wardrobe and headwear follow the written "
+                            "wardrobe description for this character, never this crop")
 
 
 def appearance_anchor_line(unit: dict[str, Any], plan: dict[str, Any], *, compact: bool = False) -> str:
@@ -185,6 +190,37 @@ def appearance_anchor_line(unit: dict[str, Any], plan: dict[str, Any], *, compac
     if not rows:
         return ""
     return "Same look in every frame: " + "; ".join(rows) + "."
+
+
+def face_crop_wardrobe_source(unit: dict[str, Any], refs: list[Any], index: int,
+                              entity_id: str, entity_label: str, face_only: set[str]) -> str:
+    """The image a face-crop identity line may point at for wardrobe, or "" when none shows the character.
+
+    E15 2026-11-06 (S6 prompt finalization, VU-004/016/024): the face-crop clause hardcoded "@Image1",
+    but a unit whose opening frame shows only the OTHER declared character names an image with no
+    garment of this character in it, so the model could dress him in the other man's costume.  The
+    opening frame counts only when the unit's start-frame contract says this character is in it.
+    """
+    start = unit.get("start_frame_semantic_contract")
+    if isinstance(start, dict):
+        shown = {str(name).strip() for name in start.get("required_visible_characters") or []}
+        names = {str(name).strip() for name in (entity_label, entity_id) if str(name or "").strip()}
+        canonical = str((unit.get("character_names") or {}).get(entity_id) or "").strip()
+        if canonical:
+            names.add(canonical)
+        if shown & names or str(entity_id) in shown:
+            return "@Image1"
+    elif not entity_id:
+        return "@Image1"
+    for other_index, raw in enumerate(refs, 1):
+        if other_index == index or other_index == 1:
+            continue
+        other = raw if isinstance(raw, dict) else {"path": str(raw)}
+        if str(other.get("path") or "") in face_only:
+            continue
+        if str(other.get("entity_id") or "").strip() == entity_id:
+            return f"@Image{other_index}"
+    return ""
 
 
 def face_only_identity_paths(unit: dict[str, Any]) -> set[str]:
@@ -1130,8 +1166,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         # E12 2026-10-30: a pixel-crop identity transport is a face crop of a costumed source card;
         # locking wardrobe from it put the card's robe and crown on every clip.
         face_crop = str(ref.get("path") or "") in face_only and index != 1
-        locks = (FACE_ONLY_LOCK.format(first="@Image1") if face_crop
-                 else "lock this entity's face, age, hair, body and wardrobe")
+        locks = ("lock this entity's face, age, hair, body and wardrobe")
         # Index binding is authoritative.  Path lookup is compatibility-only:
         # different role references may legitimately share one source image.
         bound = scope_bindings.get(index) or sequence_by_path.get(str(ref.get("path") or ""), {})
@@ -1139,6 +1174,14 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         entity = str(ref.get("provider_entity_label")
                      or director_labels.get(str(ref.get("entity_id") or "").strip())
                      or ref.get("entity_id") or "").strip()
+        if face_crop:
+            # Where the costume comes from must be an image that actually contains this character:
+            # the opening frame only when it shows him, else another non-crop reference bound to the
+            # same entity, else the written wardrobe text (never another person's costume).
+            wardrobe_from = face_crop_wardrobe_source(
+                unit, refs, index, str(ref.get("entity_id") or "").strip(), entity, face_only)
+            locks = (FACE_ONLY_LOCK.format(first=wardrobe_from) if wardrobe_from
+                     else FACE_ONLY_LOCK_TEXT_ONLY)
         role = str(ref.get("role") or "REFERENCE").strip()
         binding_role = str(bound.get("binding_role") or "")
         role_is_identity = binding_role == "IDENTITY" or (
