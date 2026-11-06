@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2377,
+  "file_count": 2378,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -289,7 +289,7 @@
     },
     {
       "path": "configs/PORTABLE_CORE_MANIFEST.json",
-      "sha256": "d573a21a27c1cf1d0dd451b626d40126e379e822f823964734203592ac58ef4a"
+      "sha256": "e4d4feb1a9e3670ba8cdef9516428bb66fbd8a7ed1efef5c5a7a9ea980265073"
     },
     {
       "path": "configs/PROMPT_SHOT_SCOPE_POLICY_V1.json",
@@ -757,7 +757,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "1f5f65c4eb1d81ce16fb028c72c9e49c4734b86be0e4897c248d6f78ffd00172"
+      "sha256": "5f3073c7e03e997c3d45f5ce17405e6b4134037e4d84041da4b7d1b8c2aa8206"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -937,7 +937,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "be0d73f301daf34b6e0c1fa68e9c23a2b3f348a6af655837f67b47d4bb66c846"
+      "sha256": "2c72308a78224dc2299a997f9acc77aeed6669db85e6bb91ba9146606d105e18"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -5221,7 +5221,7 @@
     },
     {
       "path": "tools/hopsapi_image_client.py",
-      "sha256": "6c22de4af5e9342cd6df23e8ee5585bac78f8bc226b10ec2f70bc58c5d18749a"
+      "sha256": "2298979cdec217ec7c3e4a3cb7ba78baae64c366dca5e01ba5a6bed1b49cce9a"
     },
     {
       "path": "tools/hopsapi_usage.py",
@@ -6741,7 +6741,7 @@
     },
     {
       "path": "tools/submit_giggle_image_manifest.py",
-      "sha256": "b98ca14a11c7038a81693de0e38765e96b427e482ae54988ae6dbf08a435675c"
+      "sha256": "6e1cd2d0bd27ce3def9036039905822c9063f25cbd8128382b35b74409897f84"
     },
     {
       "path": "tools/submit_giggle_task_manifest.py",
@@ -7880,8 +7880,12 @@
       "sha256": "eb48819230d787feb91e2c0ed7cfcc0f6a368379d5a87e9297856e1ffa0f2dc4"
     },
     {
+      "path": "tools/tests/test_hopsapi_image_canary_rotation.py",
+      "sha256": "575271c0ce841d9f187443a869bbb27806e3e173320b392a1016ce46540c0b97"
+    },
+    {
       "path": "tools/tests/test_hopsapi_image_transport.py",
-      "sha256": "b2254a6758b7431272ddf7f85984b1521c51a89a4d1de0e4283b827987099871"
+      "sha256": "7aaacaf3b069a377581ee006058bdb688c70ff41e199847e274db6607eb01096"
     },
     {
       "path": "tools/tests/test_hopsapi_usage_reconcile.py",

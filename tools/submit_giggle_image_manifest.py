@@ -644,23 +644,70 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path,
         return _submit_one_locked(task, receipt_dir, transaction_dir, provider)
 
 
+def _task_reference_shas(task: dict[str, Any]) -> set[str]:
+    shas = {str(row.get("sha256")) for row in task.get("reference_bindings") or [] if row.get("sha256")}
+    return shas or {str(path) for path in task.get("reference_images") or []}
+
+
+def prior_provider_rejections(task: dict[str, Any], transaction_dir: Path) -> list[str]:
+    """Task ids of this task_key's earlier attempts (any fingerprint, retired ``.terminal-*`` records
+    included) that settled as the uncharged 424.  Free: reads the local transaction store only."""
+    task_ids = []
+    for path in sorted(Path(transaction_dir).glob(f"{task['task_key']}__*.json")):
+        try:
+            row = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(row, dict) and image_client.is_provider_error_failure(row):
+            task_ids.append(str(row.get("task_id") or path.stem))
+    return task_ids
+
+
+def _next_probe(remaining: list[dict[str, Any]], avoid_refs: set[str]) -> dict[str, Any]:
+    """The pending task least like the rejected ones: fewest shared references (e.g. without the failed
+    task's character headshot), manifest order breaking ties."""
+    if not avoid_refs:
+        return remaining[0]
+    def overlap(item: tuple[int, dict[str, Any]]) -> tuple[float, int]:
+        refs = _task_reference_shas(item[1])
+        return (len(refs & avoid_refs) / max(1, len(refs)), item[0])
+    return min(enumerate(remaining), key=overlap)[1]
+
+
 def submit_all(
     tasks: list[dict[str, Any]], receipt_dir: Path, transaction_dir: Path, concurrency: int,
     provider: str | None = None, deferred: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Submit every item and preserve isolated client exits as item failures.
 
-    HopsAPI with more than one task: tasks are POSTed one at a time until the first NEW binding (a
-    recovered binding is not a probe), which is the canary (image_client.canary_check, free GETs).
-    When it settles as the uncharged 424 "Provider error" the remaining tasks are NOT POSTed; they
-    come back in ``deferred`` (credit 0, never a failure: no intent was recorded for them)."""
+    HopsAPI with more than one task: tasks are POSTed one at a time until a NEW binding (a recovered
+    binding is not a probe), which is the canary (image_client.canary_check, free GETs).  Tasks with
+    an earlier uncharged 424 in the store are probed last.  When a canary settles as the uncharged 424
+    "Provider error" the NEXT probe is a DIFFERENT pending task, the one sharing the fewest references
+    with the rejected ones (device …1324 E01 S5, 2026-11-06: the provider's content filter rejected one
+    task with a 424 every time and the batch waited on it forever).  A different task passing = no
+    outage: the batch is released and each rejected probe becomes a PROVIDER_REJECTED_TASK failure
+    (credit 0, request id).  Only ``OUTAGE_MIN_DISTINCT_TASKS`` different tasks failing with 424 holds
+    the rest as the outage: they come back in ``deferred`` (credit 0, never a failure: no intent was
+    recorded for them).  ``deferred`` also carries ``{"canary": ...}`` per probe and one
+    ``{"canary_rotation": ...}`` summary."""
     results: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
     extra = {"provider": provider} if provider else {}
     remaining = list(tasks)
     if provider == image_client.PROVIDER_HOPSAPI and len(remaining) > 1 and deferred is not None:
+        prior = {task["task_key"]: prior_provider_rejections(task, transaction_dir) for task in remaining}
+        remaining.sort(key=lambda task: bool(prior[task["task_key"]]))  # stable: manifest order otherwise
+        avoid_refs: set[str] = set().union(*(_task_reference_shas(task) for task in remaining
+                                            if prior[task["task_key"]]))
+        rejected: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]] = []
+        probes: list[dict[str, Any]] = []
+        outcome = "NO_NEW_BINDING"
+        needed = max(1, image_client._int_setting("HOPSAPI_IMAGE_OUTAGE_MIN_DISTINCT_TASKS",
+                                                  image_client.OUTAGE_MIN_DISTINCT_TASKS))
         while remaining:
-            task = remaining.pop(0)
+            task = _next_probe(remaining, avoid_refs)
+            remaining.remove(task)
             try:
                 row = submit_one(task, receipt_dir, transaction_dir, **extra)
             except (Exception, SystemExit) as exc:
@@ -670,18 +717,57 @@ def submit_all(
                     "transaction": portable_path(transaction_path(transaction_dir, task)),
                 })
                 continue
-            results.append(row)
             if row.get("recovered_from_transaction"):
+                results.append(row)
                 continue
             canary = image_client.canary_check(row["task_id"], resolve(row["transaction"]))
             canary["task_key"] = task["task_key"]
+            canary["prior_provider_rejections"] = len(prior[task["task_key"]])
+            probes.append(canary)
             deferred.append({"canary": canary})
-            if canary["outcome"] == "PROVIDER_ERROR":
+            if canary["outcome"] != "PROVIDER_ERROR":
+                results.append(row)
+                outcome = "RELEASED_AFTER_ROTATION" if rejected else "RELEASED"
+                break
+            rejected.append((task, row, canary))
+            avoid_refs |= _task_reference_shas(task)
+            if len({item[0]["task_key"] for item in rejected}) >= needed:
+                outcome = "PROVIDER_OUTAGE"
+                results.extend(item[1] for item in rejected)
                 deferred.extend({"task_key": other["task_key"], "status": "NOT_POSTED_PROVIDER_OUTAGE",
                                  "credit": 0, "credit_status": "NOT_CHARGED_NO_INTENT_RECORDED"}
                                 for other in remaining)
                 remaining = []
-            break
+                break
+        if outcome.startswith("RELEASED"):
+            for task, row, canary in rejected:
+                failures.append({
+                    "task_key": task["task_key"], "beat_id": task.get("beat_id"),
+                    "status": "PROVIDER_REJECTED_TASK", "credit": 0,
+                    "credit_status": "NOT_CHARGED_PROVIDER_REJECTED_424",
+                    "provider": image_client.PROVIDER_HOPSAPI, "task_id": row["task_id"],
+                    "provider_code": canary.get("provider_code"),
+                    "provider_request_id": canary.get("provider_request_id"),
+                    "error": canary.get("error"), "transaction": row["transaction"],
+                    "prior_provider_rejections": prior[task["task_key"]],
+                    "next_action": ("a different task passed in the same window: this task's prompt/references "
+                                    "were rejected (content filter or parameters), not an outage -- rewrite "
+                                    "this task's prompt neutrally and rerun the stage"),
+                })
+        elif rejected and outcome != "PROVIDER_OUTAGE":
+            # no other new task could be probed (the rest were recovered bindings or lost responses):
+            # unproven either way -- keep the rows as bound tasks, the harvest settles them
+            results.extend(item[1] for item in rejected)
+            outcome = "UNDECIDED_SINGLE_TASK_424"
+        deferred.append({"canary_rotation": {
+            "outcome": outcome, "probes_tried": len(probes),
+            "probes": [{key: probe.get(key) for key in ("task_key", "task_id", "outcome", "provider_code",
+                                                        "provider_request_id", "prior_provider_rejections")}
+                       for probe in probes],
+            "rejected_task_keys": [item[0]["task_key"] for item in rejected],
+            "deprioritized_task_keys": sorted(key for key, ids in prior.items() if ids),
+            "outage_min_distinct_tasks": needed,
+        }})
     if not remaining:
         return results, failures
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
@@ -805,6 +891,8 @@ def hopsapi_credit_summary(results: list[dict[str, Any]], failures: list[dict[st
     failure was classified at its own attempt; read that state back without rewriting it."""
     for failure in failures:
         failure["provider"] = image_client.PROVIDER_HOPSAPI
+        if failure.get("status") == "PROVIDER_REJECTED_TASK":
+            continue  # settled by its canary: the uncharged 424, classified in submit_all
         path = transaction_dir / Path(failure["transaction"]).name
         if not path.is_file():
             failure.update({"status": "submit_failed_before_intent", "credit": 0,
@@ -966,11 +1054,19 @@ def main() -> int:
         results, failures = submit_all(tasks, receipt_dir, transaction_dir, args.concurrency, provider,
                                        deferred=deferred if provider == image_client.PROVIDER_HOPSAPI else None)
     canary = next((row["canary"] for row in deferred if "canary" in row), None)
-    deferred = [row for row in deferred if "canary" not in row]
+    canary_rotation = next((row["canary_rotation"] for row in deferred if "canary_rotation" in row), None)
+    deferred = [row for row in deferred if "canary" not in row and "canary_rotation" not in row]
     if deferred and not provider_outage:
         provider_outage = {"blocker": "HOPSAPI_IMAGE_PROVIDER_OUTAGE", "canary": canary,
-                           "rule": "the batch's canary task settled as the uncharged 424 'Provider error'; "
-                                   "the other tasks were not POSTed"}
+                           "canary_rotation": canary_rotation,
+                           "rule": "canary tasks of different requests all settled as the uncharged 424 "
+                                   "'Provider error'; the other tasks were not POSTed"}
+    rejected_tasks = [row for row in failures if row.get("status") == "PROVIDER_REJECTED_TASK"]
+    if rejected_tasks:
+        print(f"HOPSAPI_IMAGE_TASK_REJECTED: {', '.join(row['task_key'] for row in rejected_tasks)} settled as the "
+              "uncharged 424 while a different task passed -- that task's prompt/references were rejected (content "
+              "filter or parameters), NOT an outage; the rest of the batch was submitted. Rewrite the rejected "
+              "task prompt(s) neutrally and rerun the same stage.", file=sys.stderr)
     if provider_outage:
         print(f"HOPSAPI_IMAGE_PROVIDER_OUTAGE: {len(deferred)} task(s) not POSTed (0 credits); upstream "
               f"gpt-image-2 is returning 424 'Provider error' — not a reference/prompt defect. Wait until "
@@ -1058,6 +1154,10 @@ def main() -> int:
         "not_posted": deferred,
         "provider_outage": provider_outage,
         "canary": canary,
+        "canary_rotation": canary_rotation,
+        "provider_rejected_tasks": [
+            {key: row.get(key) for key in ("task_key", "task_id", "provider_request_id", "provider_code")}
+            for row in rejected_tasks],
         "credit_reconciliation": credit_reconciliation,
         "ambiguity_resolution": ambiguity_resolution,
         "transaction_dir": portable_path(transaction_dir),

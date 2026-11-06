@@ -513,8 +513,15 @@ def terminal_failed_binding(transaction: dict[str, Any]) -> bool:
 #: failed the same way.  Such failures settle within seconds; a healthy task stays processing for
 #: ~60 s.  So: never fire a whole batch into an outage (canary first), and refuse a new batch while
 #: the store's most recent attempts are an unbroken run of these failures (cooldown).
+#: Device …1324 E01 S5 (2026-11-06): ONE task (a child stealing a steamed bun, child headshot + rotten
+#: quilt refs) was rejected deterministically by the provider's content filter -- also wrapped as a
+#: zero-cost 424 "Provider error" -- while the same-scale request from another machine succeeded.  Every
+#: retry probed that same task, so the cooldown never ended and 35 keyframes waited forever.  A 424
+#: run is an outage only when it spans at least ``OUTAGE_MIN_DISTINCT_TASKS`` different tasks; the
+#: batch canary rotates to a different pending task after a 424 (submit_giggle_image_manifest).
 PROVIDER_ERROR_CODE = 424
 OUTAGE_MIN_FAILURES = 3
+OUTAGE_MIN_DISTINCT_TASKS = 2
 OUTAGE_COOLDOWN_SECONDS = 900
 CANARY_WAIT_SECONDS = 75
 CANARY_POLL_SECONDS = 5
@@ -542,6 +549,21 @@ def is_provider_error_failure(status: dict[str, Any]) -> bool:
     return code == PROVIDER_ERROR_CODE or str(code) == str(PROVIDER_ERROR_CODE) or text.startswith("Provider error")
 
 
+_REQUEST_ID = re.compile(r"request id:\s*([A-Za-z0-9._:-]+)", re.IGNORECASE)
+
+
+def provider_request_id(text: Any) -> str | None:
+    """The upstream request id inside a 424 message ("Provider error (request id: aitk-…)")."""
+    match = _REQUEST_ID.search(str(text or ""))
+    return match.group(1).rstrip(").") if match else None
+
+
+def task_identity(path: Path, row: dict[str, Any]) -> str:
+    """Which task a stored transaction belongs to (retired ``.terminal-*`` attempts included)."""
+    key = str(row.get("task_key") or "").strip() or Path(path).stem.split(".terminal-")[0].split("__")[0]
+    return f"{Path(path).parent.name}/{key}"
+
+
 def _parse_utc(value: Any) -> float | None:
     from datetime import datetime  # noqa: PLC0415
     text = str(value or "").strip()
@@ -558,15 +580,19 @@ def recent_provider_outage(store_root: Path, *, now: float | None = None,
     """The outage in force, or None.  Reads every HopsAPI image transaction under ``store_root``
     (all episodes, retired ``.terminal-*`` records included), orders the SETTLED attempts by intent
     time and looks at the trailing run after the last completed one: ``OUTAGE_MIN_FAILURES`` or more
-    uncharged 424s whose newest settled less than the cooldown ago = outage.  Free (no network).
-    Env: HOPSAPI_IMAGE_OUTAGE_COOLDOWN_SECONDS (0 disables), HOPSAPI_IMAGE_OUTAGE_MIN_FAILURES."""
+    uncharged 424s, from at least ``OUTAGE_MIN_DISTINCT_TASKS`` different tasks, whose newest settled
+    less than the cooldown ago = outage.  The same task failing again and again is that task's
+    content/parameter rejection, not an outage.  Free (no network).
+    Env: HOPSAPI_IMAGE_OUTAGE_COOLDOWN_SECONDS (0 disables), HOPSAPI_IMAGE_OUTAGE_MIN_FAILURES,
+    HOPSAPI_IMAGE_OUTAGE_MIN_DISTINCT_TASKS."""
     import time as _time  # noqa: PLC0415
     cooldown = _int_setting("HOPSAPI_IMAGE_OUTAGE_COOLDOWN_SECONDS", OUTAGE_COOLDOWN_SECONDS, environ)
     minimum = max(1, _int_setting("HOPSAPI_IMAGE_OUTAGE_MIN_FAILURES", OUTAGE_MIN_FAILURES, environ))
+    distinct = max(1, _int_setting("HOPSAPI_IMAGE_OUTAGE_MIN_DISTINCT_TASKS", OUTAGE_MIN_DISTINCT_TASKS, environ))
     if not cooldown:
         return None
     now = _time.time() if now is None else now
-    settled: list[tuple[float, bool, float, str]] = []
+    settled: list[tuple[float, bool, float, str, str]] = []
     for path in Path(store_root).glob("*/*.json"):
         try:
             row = json.loads(path.read_text(encoding="utf-8"))
@@ -583,14 +609,15 @@ def recent_provider_outage(store_root: Path, *, now: float | None = None,
         observed = _parse_utc(row.get("remote_terminal_observed_at") or row.get("provider_status_observed_at"))
         if started is None:
             continue
-        settled.append((started, is_provider_error_failure(row), observed or started, str(row.get("task_id") or "")))
+        settled.append((started, is_provider_error_failure(row), observed or started,
+                        str(row.get("task_id") or ""), task_identity(path, row)))
     settled.sort()
-    run: list[tuple[float, bool, float, str]] = []
+    run: list[tuple[float, bool, float, str, str]] = []
     for item in reversed(settled):
         if not item[1]:
             break
         run.append(item)
-    if len(run) < minimum:
+    if len(run) < minimum or len({item[4] for item in run}) < distinct:
         return None
     last = max(item[2] for item in run)
     if now - last >= cooldown:
@@ -598,11 +625,12 @@ def recent_provider_outage(store_root: Path, *, now: float | None = None,
     from datetime import datetime, timezone  # noqa: PLC0415
     iso = lambda t: datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
     return {"blocker": "HOPSAPI_IMAGE_PROVIDER_OUTAGE", "consecutive_provider_errors": len(run),
+            "distinct_failed_tasks": sorted({item[4] for item in run})[:10],
             "last_failure_observed_at": iso(last), "retry_after_utc": iso(last + cooldown),
             "cooldown_seconds": cooldown, "latest_task_ids": [item[3] for item in run[:5]],
             "rule": ("the most recent HopsAPI gpt-image-2 attempts are an unbroken run of uncharged 424 "
-                     "'Provider error' settlements (upstream refusal, not the request): no POST until "
-                     "retry_after_utc, then the next batch starts with one canary task")}
+                     "'Provider error' settlements across different tasks (upstream refusal, not the "
+                     "request): no POST until retry_after_utc, then the next batch starts with one canary task")}
 
 
 def canary_check(task_id: str, transaction: Path | None = None, *,
@@ -637,7 +665,8 @@ def canary_check(task_id: str, transaction: Path | None = None, *,
                                   now=_time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()))
             outcome = "PROVIDER_ERROR" if is_provider_error_failure(status) else "OTHER"
             return {"outcome": outcome, "task_id": task_id, "remote_status": remote,
-                    "provider_code": status.get("provider_code"), "error": status.get("error")}
+                    "provider_code": status.get("provider_code"), "error": status.get("error"),
+                    "provider_request_id": provider_request_id(status.get("error"))}
         if clock() >= deadline:
             return {"outcome": "HEALTHY", "task_id": task_id, "remote_status": remote,
                     "note": f"still {remote} after {wait}s (a 424 settles within seconds)"}
