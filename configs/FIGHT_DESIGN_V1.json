@@ -1,0 +1,16 @@
+{
+  "schema": "qingshan.fight_design_policy.v1",
+  "policy_id": "FIGHT_DESIGN_V1",
+  "authority": "Roger 2026-11-07「我希望以后的打斗片段，生产线都能学会怎么生产，不要再犯同类错误」",
+  "enabled_from_episode": "E16",
+  "activation_note": "Writing-time (S1) gate on the generation contract. Active from E16 on every line, or when a contract declares fight_design_policy=FIGHT_DESIGN_V1. E15 was reworked under COMBAT_UNIT_DIRECTION_V1 and is not re-blocked retroactively.",
+  "playbook": "docs/knowledge/FIGHT_DIRECTION_PLAYBOOK.md",
+  "rules": {
+    "FD1": "COMBAT_SHOT_CAMERA_LOCKED",
+    "FD2": "COMBAT_SHOT_WITH_DIALOGUE",
+    "FD3": "FIGHT_SCENE_NARRATED (combat < 50% of scene seconds)",
+    "FD4": "COMBAT_RUN_SHORTER_THAN_UNIT (silent run containing combat < 4 s)",
+    "FD5": "FIGHTERS_FACE_CAMERA",
+    "FD6": "COMBAT_WEAPON_WITHOUT_CARD"
+  }
+}

@@ -1051,12 +1051,20 @@ class Expectations:
             for shot_id in shot_ids:
                 spec = (self.shots.get(shot_id) or {}).get("prompt_spec") or {}
                 action = spec.get("action") or {}
-                beats.append({
+                beat = {
                     "shot_id": shot_id,
                     "entry_state": action.get("start_state"),
                     "primary_action": action.get("primary_action"),
                     "completion_state": action.get("completion_state"),
-                })
+                }
+                # FIGHT_DESIGN_V1 (Roger 2026-11-07): a COMBAT beat tells the reviewer what the contact is,
+                # so major_event_presence can fail a fight that collapses into a pose after one spark (E15 VU-020)
+                if str(action.get("action_kind") or "").strip().upper() == "COMBAT":
+                    choreo = action.get("combat_choreography") or {}
+                    beat["action_kind"] = "COMBAT"
+                    beat["contact_and_force"] = choreo.get("contact_and_force")
+                    beat["outcome_state"] = choreo.get("outcome_state")
+                beats.append(beat)
                 for row in spec.get("cast") or []:
                     if row.get("character"):
                         cast.add(str(row["character"]))

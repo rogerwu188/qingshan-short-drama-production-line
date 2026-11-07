@@ -290,7 +290,12 @@ QUESTIONNAIRES: dict[str, dict[str, dict[str, Any]]] = {
         "major_event_presence": {
             "enum": PF, "maps_to": ["post_generation_qa.basic_plot.major_event_presence"],
             "question": "Does every ordered_beats primary_action actually happen, ending in its "
-                        "completion_state?"},
+                        "completion_state?  A beat with action_kind COMBAT happens only if (1) its "
+                        "contact_and_force (or the declared evasion) is visible on screen, (2) after the "
+                        "contact the bodies keep moving into outcome_state instead of holding a pose for "
+                        "more than about one second, (3) the fighters are blocked as opponents, never "
+                        "standing side by side with both faces to the lens, and (4) every weapon keeps one "
+                        "shape for the whole clip; otherwise answer FAIL and name which of the four broke."},
         "major_dialogue_presence": {
             "enum": PFN, "maps_to": ["post_generation_qa.basic_plot.major_dialogue_presence"],
             "question": "Is every line in expectations.expected_dialogue spoken by the right "

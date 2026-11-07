@@ -438,6 +438,22 @@ def evaluate(contract: dict[str, Any], lexicon: dict[str, Any] | None = None) ->
         m["monologue_warnings"] = r12
         warnings.extend(r12)
 
+    # R13 FIGHT_DESIGN_V1 (Roger 2026-11-07「以后的打斗片段，生产线都能学会怎么生产，不要再犯同类错误」):
+    # the writer sees the fight rules while writing (docs/knowledge/FIGHT_DIRECTION_PLAYBOOK.md); S1
+    # static_design_gate enforces the same rules whether or not this self-check is enforced.
+    try:
+        _repo_tools = str(Path(__file__).resolve().parents[4] / "tools")
+        if _repo_tools not in _sys.path:
+            _sys.path.append(_repo_tools)
+        import fight_design_gate as _fdg
+        fight = _fdg.evaluate(contract)
+    except Exception as exc:  # noqa: BLE001 - the gate module is optional for old checkouts
+        fight = {"status": f"UNAVAILABLE:{type(exc).__name__}", "failures": []}
+    if fight.get("status") == "BLOCK":
+        m["fight_design"] = fight
+        failures.extend(f"R13_{row['code']}:{row.get('shot_id') or row.get('scene_id') or ','.join(row.get('shot_ids') or [])}"
+                        for row in fight["failures"])
+
     status = "PASS" if not failures else "FAIL"
     return {"schema": SCHEMA, "episode": contract.get("episode"), "authority": "SUPERVISOR_ORDERS seq=29 (Roger 2026-09-18 memo 九–十四)",
             "declared": bool(decl), "enforced": enforced, "rule8_authorized": rule8,
