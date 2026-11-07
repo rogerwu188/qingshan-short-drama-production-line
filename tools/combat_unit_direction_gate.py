@@ -15,6 +15,10 @@ Rules (BLOCK, per video unit in a transaction manifest):
                                          scene's seconds: the fight is told in lines instead of shown
   CU5 FIGHT_TWO_SHOT_FACING_CAMERA       a fight-scene unit composes the fighters with their faces turned to
                                          the lens (they read as posing side by side, not as opponents)
+  CU0 COMBAT_CLASSIFICATION_MISSING      a manifest that may post to a provider carries a task with no combat
+                                         classification at all; the gate fails closed instead of passing a
+                                         fight it cannot see (E15 2026-11-07 staged manifest: 8 tasks without
+                                         combat_or_chase / camera_plan / dialogue_lines passed vacuously)
 
 Never retroactive: active for episodes >= configs/COMBAT_UNIT_DIRECTION_V1.json enabled_from_episode, or
 when the manifest declares combat_unit_direction_policy=COMBAT_UNIT_DIRECTION_V1.
@@ -111,6 +115,13 @@ def _camera_text(task: dict[str, Any]) -> str:
     return " ".join(str(plan.get(k) or "") for k in ("axis_relation", "start_framing", "end_framing", "lens_intent"))
 
 
+CLASSIFICATION_FIELDS = ("combat_or_chase", "fight_or_chase", "action_classification")
+
+
+def _classified(task: dict[str, Any]) -> bool:
+    return any(task.get(name) is not None for name in CLASSIFICATION_FIELDS)
+
+
 def evaluate_manifest(manifest: dict[str, Any], *, root: str | Path | None = None) -> dict[str, Any]:
     root_path = Path(root).resolve() if root is not None else None
     tasks = [t for t in manifest.get("tasks") or [] if isinstance(t, dict)]
@@ -126,6 +137,12 @@ def evaluate_manifest(manifest: dict[str, Any], *, root: str | Path | None = Non
         if is_combat_task(task):
             bucket["combat_seconds"] += _seconds(task)
     fight_scenes = {scene for scene, b in scenes.items() if b["combat_seconds"] > 0}
+    if manifest.get("provider_post_allowed") is True:
+        for task in tasks:
+            if not _classified(task):
+                failures.append({"code": "COMBAT_CLASSIFICATION_MISSING",
+                                 "task_key": str(task.get("task_key") or task.get("unit_id") or "UNKNOWN"),
+                                 "scene_id": str(task.get("scene_id") or "")})
     for task in tasks:
         key = str(task.get("task_key") or task.get("unit_id") or "UNKNOWN")
         combat = is_combat_task(task)
