@@ -128,6 +128,17 @@ class CodexExecutorTests(unittest.TestCase):
         self.assertEqual((again["action"], again["reason"]), ("AGENT", "BLOCKED_RECHECK_UPDATE"))
         self.assertEqual(self.cp.tick()["action"], "NONE")
 
+    def test_final_review_is_handed_back_hourly(self):
+        self.write_provider()
+        self.run_episode('等终审\nNALU_STATUS: {"episode":"E06","state":"FINAL_REVIEW_REQUIRED"}', "E06")
+        self.assertEqual(self.cp.tick()["reason"], "FINAL_REVIEW_REQUIRED")
+        self.assertEqual(self.cp.tick()["action"], "NONE")
+        session_path = self.runtime / "claude_code/E06/session.json"
+        session = json.loads(session_path.read_text())
+        session["tick_notified_at"] = "2020-01-01T00:00:00Z"
+        session_path.write_text(json.dumps(session))
+        self.assertEqual(self.cp.tick()["reason"], "FINAL_REVIEW_REQUIRED")
+
     def test_tick_resumes_without_status_then_escalates(self):
         self.write_provider()
         self.run_episode("没有状态行", "E04")

@@ -420,6 +420,8 @@ def engine_modification() -> dict[str, Any] | None:
 
 
 BLOCKED_RECHECK_HOURS = 1.0
+#: idle states handed back to the agent every BLOCKED_RECHECK_HOURS (state -> reason the agent receives)
+RECHECK_STATES = {"BLOCKED": "BLOCKED_RECHECK_UPDATE", "FINAL_REVIEW_REQUIRED": "FINAL_REVIEW_REQUIRED"}
 
 
 def _hours_since(stamp: Any) -> float:
@@ -505,10 +507,12 @@ def tick() -> dict[str, Any]:
         # BLOCKED waits on a maintainer fix that arrives as a new agent version.  An idle heartbeat never runs
         # self_update, so a blocked machine would never pick the fix up (field device …1324 E02, 2026-11-07):
         # hand BLOCKED back once an hour; the agent checks for an update and resumes when the engine changed.
-        if not (state == "BLOCKED" and _hours_since(session.get("tick_notified_at")) >= BLOCKED_RECHECK_HOURS):
+        # FINAL_REVIEW_REQUIRED the same way: the review is the agent's job and a missed hand-off left E02 idle for
+        # hours (field device …1324, 2026-11-07).
+        if not (state in RECHECK_STATES and _hours_since(session.get("tick_notified_at")) >= BLOCKED_RECHECK_HOURS):
             res["reason"] = f"WAITING_ON_AGENT_OR_OWNER:{reason}"
             return res
-        reason = "BLOCKED_RECHECK_UPDATE"
+        reason = RECHECK_STATES[state]
     session["tick_notified"] = notify_key
     session["tick_notified_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     write_json(d / "session.json", session)

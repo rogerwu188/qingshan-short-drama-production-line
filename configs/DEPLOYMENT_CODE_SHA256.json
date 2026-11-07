@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2387,
+  "file_count": 2394,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -233,7 +233,7 @@
     },
     {
       "path": "configs/COMBAT_UNIT_DIRECTION_V1.json",
-      "sha256": "e0a4fbc3b76abd54f234589c8c83bc5ce30728d319bc8323cc5fd4aa55d2aa22"
+      "sha256": "df0283d207395be858e0dcb073b1f925175d47537cc177331d638a78f5b9a85f"
     },
     {
       "path": "configs/CROSS_SHOT_STATE_PERCEPTION_V1.json",
@@ -249,7 +249,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "27e66c2a87a13342c75b28259e2dd42f9bc9fb9116e824c60d965a5de4401a15"
+      "sha256": "0d9ee7d5fcd3177eff670a7c7072e69479c884894a1879165d583a5008196daa"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -258,6 +258,10 @@
     {
       "path": "configs/EPISODE_PROMPT_BATCH_POLICY.json",
       "sha256": "9ee040c0a00caf9a61e4fd9995ff84c2f22abcaa1a3a2ac60bd01035e929fb0e"
+    },
+    {
+      "path": "configs/FIGHT_DESIGN_V1.json",
+      "sha256": "f3af066af4139bc40caf7f9bb82f92ad750c4995baa7c59ed1b95edd06a797b0"
     },
     {
       "path": "configs/GATE_REGISTRY_v3_20260716.json",
@@ -409,7 +413,11 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "0abf584e708bb5d880cb2b4119746ddc2a6a72a5cb1fb5eacb082f1831cb3ab8"
+      "sha256": "a2832527d5f28ed3023a82b470f5fee4b924a6c2e783668793ac288a10e31d33"
+    },
+    {
+      "path": "docs/knowledge/FIGHT_DIRECTION_PLAYBOOK.md",
+      "sha256": "f3812005f6b1d698f22abb55c1d3b002975550dc1a1fe8a95eef6f72f1225567"
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
@@ -657,7 +665,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "d428fe560912548711eb6381c6935aa9c79c95301bb8bc5a68275633155446a3"
+      "sha256": "9af6ab64935fae0cc43c2fbce9424559116a47a9d0dfc2281e1641dbe75e2581"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -773,7 +781,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_qa_common.py",
-      "sha256": "5f5c3d1581003e824afbed0376374f7ddfa448b89b3d4e5948189def31df6628"
+      "sha256": "136e9fd06d3a5a288751ca079450691e96463a4e38912e53177b68879153c92c"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_selective_bgm.py",
@@ -793,7 +801,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_writer_selfcheck_seq29.py",
-      "sha256": "c8ed4b5af2b23e1bf4e6f04a796e6777887dc91e9006020429fcfc2496fa099e"
+      "sha256": "9fa72bc459ebdf8d526e00f8c6b600efe660abebdc782166110b5f682913898f"
     },
     {
       "path": "lines/nalu/runtime/tools/owner_decision_queue.py",
@@ -805,7 +813,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/post_generation_qa_runner.py",
-      "sha256": "2491903f38919e881d0a1b54a765f31f0e3c8e8dccdcb33f3e6f486bff962309"
+      "sha256": "8dc94d9542b2fcae57ab48d2bfd6d776627c65a0c4399cd5e65165a2d797eef2"
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_finalize.py",
@@ -877,7 +885,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/stamp_reviewed_video_requests.py",
-      "sha256": "5e575ad8214e041c44436808023d7372e3388e0605c1a17401f4b42caa34156b"
+      "sha256": "bd807f4439c9a1382a62b03e7c9473a681fae35d917e869efbee7e82d8b033f0"
     },
     {
       "path": "lines/nalu/runtime/tools/start_frame_evidence_writer.py",
@@ -885,7 +893,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/static_design_gate.py",
-      "sha256": "a55dd6616c20145cd05750c966952e71644013d6355485272e69a09f0ca36e9c"
+      "sha256": "42a2f4c66252de6df4df1294d5fc724069da125634bf2a13b00a9a4ec3081efa"
     },
     {
       "path": "lines/nalu/runtime/tools/studio_asset_resolve.py",
@@ -917,7 +925,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/vlm_review_protocol.py",
-      "sha256": "20bcc3df04e01e67d8937f180fd75d4bacff6d463a60795873aed61c1467c284"
+      "sha256": "626ae4410e87af0d61395ccdc9855b5c08e0dd37c7607702de597ebc0f90ff6d"
     },
     {
       "path": "lines/nalu/runtime/tools/with_line_env.sh",
@@ -925,7 +933,7 @@
     },
     {
       "path": "pyproject.toml",
-      "sha256": "fb661230500e5f253ec17d47486f967408b12721879cc63d068001f0a0af03e2"
+      "sha256": "d464cf85df424224d4070855ee625054e4c0b2bff6d1b74b0e2e7472b2cb3012"
     },
     {
       "path": "qingshan_engine/__init__.py",
@@ -957,7 +965,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "beb6cae66200bf630b62b4a64ea3c53b329d05b5b1ed82136a0a627ce299833b"
+      "sha256": "50361227bfcc285041aa692a1b5c109604a76980ede796a51eea7f01dce6e785"
     },
     {
       "path": "skills/nalu-claude-code/scripts/configure_claude_code.py",
@@ -3888,8 +3896,12 @@
       "sha256": "7eece2e31aeadf549b9bdb27c745247aa1e5a096e414915a7c1295f0f86bd1f8"
     },
     {
+      "path": "tools/combat_execution_check.py",
+      "sha256": "1b126462fcd21001324868367b87adba09b6be33ddacf9808eda35fe471aa64e"
+    },
+    {
       "path": "tools/combat_unit_direction_gate.py",
-      "sha256": "d8ea605e8ca287f09ff04ec36ede614801bffeb4505bc67ace8ec4f60ccd9083"
+      "sha256": "3da3f5f4b3d00ff670e7713005042d13dbccd55388011ad763c82547fae741f2"
     },
     {
       "path": "tools/common_sense_causality_gate.py",
@@ -4005,7 +4017,7 @@
     },
     {
       "path": "tools/compile_grouped_seedance_manifest.py",
-      "sha256": "0285abe81df1679c30eb8c52209fc123f845a4504f8dac655d18fa0a472944d3"
+      "sha256": "3d4efe747e6cc3b3d85919bc4b5c2206b78d75b23285bcf2522c7484153be3db"
     },
     {
       "path": "tools/compile_grouped_seedance_transaction_manifest.py",
@@ -4576,6 +4588,10 @@
       "sha256": "29c30ed9bd914e3a7d24a69db6e0649122830a0a6743c9d58b6019504697d8af"
     },
     {
+      "path": "tools/fight_design_gate.py",
+      "sha256": "225b68b7f448f54cc188044447c1603cd4e4ea972d25ee6906f062457d3bb629"
+    },
+    {
       "path": "tools/final_audio_provenance_gate.py",
       "sha256": "2492b8309ef295e3a87536d82d6063c76e83c82946ec8d6458ba1fef0cc0b29e"
     },
@@ -5141,7 +5157,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "fbf2e61fa75b35d846e4b74dd46420914b0c9e9d8bf09b2b48c1f0300d0e2fa1"
+      "sha256": "fd6e7175f597b1f807b724b314c40e06bfbca511eec89934286266c5a7a23db4"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -5669,7 +5685,7 @@
     },
     {
       "path": "tools/post_generation_qa_scope_gate.py",
-      "sha256": "57babb8a0017c96a4fb00e29f2b36fc1c0903d06dd2cd0dd1e85bbb62f2b58d1"
+      "sha256": "4d0a27291afd55f3d7138d5ba70a093eff019bd023b70db44378f64e09999398"
     },
     {
       "path": "tools/pre_send_negative_claim_recheck.py",
@@ -6765,7 +6781,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "032e0c1f5b198bf68116d62cc3a085d7ade356b44e001f3bd956498694f4ec79"
+      "sha256": "781dce64f8450f4f928e8ba670bbb9b8b276ec9ed9e8e1ff22823f663966188a"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -7328,8 +7344,12 @@
       "sha256": "b84a329280e63c5d1b342f8b377f1c3d719280d2bc2356a202f53f83ad85fb6b"
     },
     {
+      "path": "tools/tests/test_combat_execution_check.py",
+      "sha256": "ea036d4f1d2225dc3d7aec66c49ac08d052b756da884d73ccffbf44d4a044008"
+    },
+    {
       "path": "tools/tests/test_combat_unit_direction_gate.py",
-      "sha256": "d80935bdaa685fa9219626fa20237cd6ae7636524839ab3e2116519ba12948c6"
+      "sha256": "43e8184c5274891aedf594864d0a18a1a7566fbc12e7a10bb1cee2e8c2e5cdb9"
     },
     {
       "path": "tools/tests/test_common_sense_causality_gate.py",
@@ -7688,6 +7708,10 @@
       "sha256": "29a2a8529619cc0a8b322b331b3553e9fc4e51da5721e42918f876aea07de592"
     },
     {
+      "path": "tools/tests/test_fight_design_gate.py",
+      "sha256": "24a1b806bef76f84ec5617968fcf02e7395a5a2f09c72a391ac3abf55499d68f"
+    },
+    {
       "path": "tools/tests/test_final_audio_provenance_gate.py",
       "sha256": "72f76338441fec7947808dc2a72fffceeeee03c2efacdca50572a4b357d985b9"
     },
@@ -7878,6 +7902,10 @@
     {
       "path": "tools/tests/test_h3_prompt_rune_elisions.py",
       "sha256": "9f4969bccb3af1e8defcbb0d70a36aa34eeea9a225edcfbd26ebc59a2d16415e"
+    },
+    {
+      "path": "tools/tests/test_h3_prop_reference_cards.py",
+      "sha256": "5dfa619e1b90e719b952f84fa3f225d5a7bc8a70f3f368029ea1d1ba26714c96"
     },
     {
       "path": "tools/tests/test_h3_provider_expert_advice.py",
@@ -8145,7 +8173,7 @@
     },
     {
       "path": "tools/tests/test_nalu_codex_executor.py",
-      "sha256": "68d80327350f26e3b78709c5f207d547193884733ce608e3cb7c4d8552454cf1"
+      "sha256": "d86828a6bae90b9e78d95544b254e882d0861c6b285a8cd884b53f6131b2fa89"
     },
     {
       "path": "tools/tests/test_nalu_current_policy_profile.py",
@@ -8801,7 +8829,7 @@
     },
     {
       "path": "tools/tests/test_stamp_reviewed_video_requests.py",
-      "sha256": "ac8b2d53869e38b3df0f791e5badca486c9889d93c0c1d994c83e18dea0cf1e2"
+      "sha256": "27eb4bea307303c255b43545c176e5f8a56dcd42e17314b36e012ad6d8b8991c"
     },
     {
       "path": "tools/tests/test_start_frame_line_owner_acceptance.py",
@@ -9425,7 +9453,7 @@
     },
     {
       "path": "tools/video_execution_plan_compiler.py",
-      "sha256": "75521aa510035061d9a3f8b5215520a3bbe785fb570b4097c8101e0749eb3601"
+      "sha256": "3d7a40c9d2e50907d3a306846049f1590f723cdf2b9c814b3aeec038f366f110"
     },
     {
       "path": "tools/video_generation_failure_policy.py",
