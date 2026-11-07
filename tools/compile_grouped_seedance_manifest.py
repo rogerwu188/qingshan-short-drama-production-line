@@ -899,22 +899,27 @@ def _evaluate_combat_fights(units: list[dict[str, Any]]) -> list[dict[str, Any]]
             continue
         by_scene.setdefault(str(unit.get("scene_id") or unit.get("unit_id")), []).append(unit)
     reports = []
+    # A declared fight_id is ONE bout wherever its rounds are cut (E15 2026-11-07: the 傅恩涛 bout runs
+    # R1 in S11, R2-R3 in S12 and R4-R5 in S14; judged per scene, every slice had < 3 exchanges and the
+    # gate failed a fight that has five).  Declared bouts are judged across scenes; units that declare
+    # no fight_id are still judged together under their scene.
+    declared_plans: dict[str, list[dict[str, Any]]] = {}
     for scene_id, scene_units in by_scene.items():
         plans = [compile_video_execution_plan({**unit, "scene_id": unit.get("scene_id") or scene_id})
                  for unit in scene_units]
-        # A scene can hold more than one bout (E15 carries the 傅恩涛 bout and the camp bout in
-        # separate scene runs). Each declared fight_id is judged on its own; units that declare
-        # none are judged together under the scene.
-        declared = sorted({str(beat.get("fight_id") or "").strip()
-                           for plan in plans for beat in plan.get("beats") or [] if beat.get("fight_id")})
-        undeclared = [plan for plan in plans
-                      if not any(str(beat.get("fight_id") or "").strip() for beat in plan.get("beats") or [])]
-        for fight_id in declared:
-            subset = [plan for plan in plans
-                      if any(str(beat.get("fight_id") or "").strip() == fight_id for beat in plan.get("beats") or [])]
-            reports.append(evaluate_fight(subset, policy=policy, fight_key=fight_id))
+        undeclared = []
+        for plan in plans:
+            fight_ids = sorted({str(beat.get("fight_id") or "").strip()
+                                for beat in plan.get("beats") or [] if beat.get("fight_id")})
+            if fight_ids:
+                for fight_id in fight_ids:
+                    declared_plans.setdefault(fight_id, []).append(plan)
+            else:
+                undeclared.append(plan)
         if undeclared:
             reports.append(evaluate_fight(undeclared, policy=policy, fight_key=scene_id))
+    for fight_id, subset in declared_plans.items():
+        reports.append(evaluate_fight(subset, policy=policy, fight_key=fight_id))
     return reports
 
 
