@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2384,
+  "file_count": 2386,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -413,7 +413,7 @@
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
-      "sha256": "baba119f69286e6376244de2a4c6d00520975bed55f405525df41b4bb7b835c8"
+      "sha256": "b7b4398d1afc741e244792a0a97bb6fd4d74e114b66d7f735fba986920c0de9a"
     },
     {
       "path": "docs/knowledge/IDENTITY_REFERENCE_POSE_AND_ACCEPTANCE.md",
@@ -8252,6 +8252,10 @@
       "sha256": "d08e1dc27014c33e8d6e1156a698de8137852430c64d7ace3dc546b5ca0856dc"
     },
     {
+      "path": "tools/tests/test_nalu_s7_default_release_acceptance.py",
+      "sha256": "1b1e630d2b243859cb449b833443b5ccfa04ba9adc1a7d871638b84402b5ea86"
+    },
+    {
       "path": "tools/tests/test_nalu_scoped_qa_paths.py",
       "sha256": "e72c2c8c9dba8a3d1227fcbe4151ab200b54ac40bb20f960ca734b784f9fdc4a"
     },
@@ -8478,6 +8482,10 @@
     {
       "path": "tools/tests/test_q1_no_character_insert_detector.py",
       "sha256": "2e0367218aefac9a6b7e5fc627d8c4f6bc65860a7b8a56a5be3e09a7d8ac3690"
+    },
+    {
+      "path": "tools/tests/test_q2_auto_redo_owner_accepted.py",
+      "sha256": "0d2d18d4f78cc5af0b7779d49f1838f63221c4f531a21f52e5d6b9a3d5ca0e4c"
     },
     {
       "path": "tools/tests/test_q2_push_in_redo.py",
