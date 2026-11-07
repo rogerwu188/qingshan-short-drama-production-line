@@ -156,3 +156,10 @@ def test_renderer_weapon_lock_joins_the_look_line():
                     "with a curved back.")
     compact = renderer.appearance_anchor_line(unit, {}, compact=True)
     assert "weapon: a long-handled broad sabre with a curved back" in compact
+def test_postable_manifest_without_combat_classification_fails_closed(tmp_path):
+    task = {"task_key": "VU-010", "scene_id": "S06", "prompt_file": str(tmp_path / "x.txt")}
+    staged = {"episode": "E15", "provider_post_allowed": False, "tasks": [dict(task)]}
+    assert gate.evaluate_manifest(staged, root=tmp_path)["status"] == "PASS"
+    postable = {"episode": "E15", "provider_post_allowed": True, "tasks": [dict(task)]}
+    codes = [f["code"] for f in gate.evaluate_manifest(postable, root=tmp_path)["failures"]]
+    assert codes == ["COMBAT_CLASSIFICATION_MISSING"]

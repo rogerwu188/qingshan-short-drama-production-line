@@ -132,6 +132,9 @@ def required_prompt_change_for(reason: str) -> str | None:
     text = str(reason or "")
     if "SPEECH_RATE_UNDER_TARGET" in text:
         return "PERFORMANCE_INSTRUCTION_CHANGE (seq=29 规则 6：换表演指令，不许只改字/秒)"
+    if "combat_execution:" in text:
+        return ("UNIT_REDESIGN_REQUIRED (Roger 2026-11-07：打斗单元接触后两人静止超过 1 秒；按 "
+                "docs/knowledge/FIGHT_DIRECTION_PLAYBOOK.md 重设计该单元的节拍与首帧，同一提示词不得重投)")
     if any(code in text for code in CONSTRAINT_IGNORED_CODES):
         return ("PROMPT_OR_DESIGN_CHANGE_REQUIRED (Roger 2026-10-29：约束已在提示词里、模型无视，同一提示词不得重投；"
                 "先评估裁切/遮蔽后处理，再改构图或换模型，都不行才交线主决定)")
@@ -195,6 +198,27 @@ ALLOWED_BASIC_PLOT = ("episode_scene_correspondence", "principal_character_prese
                       # seq=19 (E04 review): contract-holds questions answered by the reviewer
                       "action_outcome_visible", "antagonist_motive_readable",
                       "new_entity_purpose_readable")
+#: Roger 2026-11-07: the one measured fight check (COMBAT units only; FAIL -> writer redesign, never auto reroll)
+ALLOWED_COMBAT = ("combat_execution",)
+COMBAT_KINDS = {"COMBAT", "ACTION_COMBAT", "FIGHT", "COMBAT_IMPULSE", "COMBAT_EXCHANGE"}
+
+
+def is_combat_unit(shot_ids: Iterable[str], shots: dict[str, Any]) -> bool:
+    return any(str(((((shots.get(sid) or {}).get("prompt_spec") or {}).get("action") or {}).get("action_kind"))
+                   or "").strip().upper() in COMBAT_KINDS for sid in shot_ids)
+
+
+def combat_execution(media: Path, out_dir: Path, unit_id: str) -> dict[str, Any]:
+    try:
+        check = engine_module("combat_execution_check")
+        result = check.measure(media)
+    except Exception as exc:  # noqa: BLE001 - never a PASS when the measurer cannot run
+        result = {"check": "combat_execution", "status": "NOT_MEASURED",
+                  "reason": f"MEASURER_ERROR:{type(exc).__name__}", "on_fail": "PLOT_REVIEW_DECIDES"}
+    write_json(out_dir / f"{unit_id}_combat_execution.json", result)
+    return result
+
+
 TARGET = {"width": 720, "height": 1280, "aspect_ratio": "9:16",
           "video_codec": {"h264", "hevc"}, "audio_sample_rate": DELIVERY_SAMPLE_RATE_HZ}
 ACCEPTED_UNIT_SAMPLE_RATES = set((POSTGEN_POLICY or {}).get("accepted_unit_sample_rates_hz")
@@ -1024,7 +1048,7 @@ def build_reroll_requests(episode: str, rejected: list[dict[str, Any]],
 def run_scope_gate(episode: str, out: Path) -> dict[str, Any]:
     argv = [VENV, ENGINE / "tools/post_generation_qa_scope_gate.py",
             "--episode", episode, "--out", out]
-    for check in (*ALLOWED_TECHNICAL, *ALLOWED_BASIC_PLOT):
+    for check in (*ALLOWED_TECHNICAL, *ALLOWED_BASIC_PLOT, *ALLOWED_COMBAT):
         argv += ["--check", check]
     completed = _run(argv, timeout=300)
     return {"exit_code": completed.returncode, "report": str(out),
@@ -1083,6 +1107,9 @@ def run(episode: str, *, review_path: Path | None = None,
             reused = reuse_measurement(out_dir / f"{unit_id}_POST_GENERATION_QA.json", fingerprint)
             if reused is not None:
                 reused["measurement_fingerprint"] = fingerprint
+                reused["combat"] = (combat_execution(media, out_dir, unit_id)
+                                    if is_combat_unit(expectations.get("editorial_shot_ids") or [], exp.shots)
+                                    else None)
                 return reused
         # nalu D-28: dialogue first — its speech segments make the static-hold measurement
         # speech-aware (a held frame under a spoken line is not an unmotivated static hold).
@@ -1110,9 +1137,11 @@ def run(episode: str, *, review_path: Path | None = None,
                                     expectations.get("expected_dialogue") or [], voice_cast, name_to_id,
                                     language=language)
             write_json(out_dir / f"{unit_id}_voice_consistency.json", voice)
+        combat = (combat_execution(media, out_dir, unit_id)
+                  if is_combat_unit(expectations.get("editorial_shot_ids") or [], exp.shots) else None)
         return {"media": media, "media_sha256": media_sha, "measurement_fingerprint": fingerprint,
                 "technical": technical, "dialogue": dialogue, "sheet": sheet, "speech_rate": speech_rate,
-                "voice": voice, "reused_from": None}
+                "voice": voice, "combat": combat, "reused_from": None}
 
     try:
         engine_module("run_regression_ci")   # import once, before the pool
@@ -1181,6 +1210,10 @@ def run(episode: str, *, review_path: Path | None = None,
                                    original_tier="BLOCKER",
                                    policy="WEAK_POSTGEN_SPEECH_RATE_ADVISORY")
         reasons.extend(plot_failures)
+        combat = measured[unit_id].get("combat")
+        if combat and combat.get("status") == "FAIL":
+            reasons.extend(f"combat_execution:{code}:{combat.get('longest_still_seconds')}s"
+                           for code in combat.get("reasons") or ["COMBAT_TABLEAU_STILL"])
         voice = measured[unit_id].get("voice")
         if voice and voice.get("status") == "FAIL":
             reasons.extend(f"voice:{value}" for value in voice.get("failures") or [])
@@ -1213,9 +1246,13 @@ def run(episode: str, *, review_path: Path | None = None,
             # None = check not active for this episode (VOICE_TIMBRE_LOCK active_from_episode);
             # UNVERIFIED is recorded as an advisory, never as a pass.
             "voice_consistency_qa": voice,
+            # Roger 2026-11-07: None = not a COMBAT unit; NOT_MEASURED = pose backend missing (plot review decides)
+            "combat_execution_qa": combat,
             "advisories": ([f"{speech_rate['code']}:{speech_rate.get('ratio')}" ] if speech_rate.get("tier") in {"MINOR", "ADVISORY"} else [])
                           + ([f"voice:UNVERIFIED:{value}" for value in voice.get("unverified") or []]
-                             if voice and voice.get("status") == "UNVERIFIED" else []),
+                             if voice and voice.get("status") == "UNVERIFIED" else [])
+                          + ([f"combat_execution:NOT_MEASURED:{combat.get('reason')}"]
+                             if combat and combat.get("status") == "NOT_MEASURED" else []),
             "postgen_profile": POSTGEN_PROFILE,
             "postgen_policy": POSTGEN_POLICY,
             "basic_plot_qa": {

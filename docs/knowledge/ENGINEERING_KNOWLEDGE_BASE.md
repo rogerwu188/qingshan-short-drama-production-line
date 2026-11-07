@@ -1724,3 +1724,13 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：E15 2026-11-06 final candidate: transaction manifest blocks on 33 items (CU1 x7, CU2 x7, CU3 x9, CU4 x4 scenes S06/S11/S12/S15, CU5 x2 VU-020/VU-027).
 - **授权**：Roger 2026-11-06 E15 成片审看「检查下这集的问题，特别是打斗的问题」/「查清楚原因，解决这个问题」/「防止本机或者其他生产线以后再犯同样问题」
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K173 — S1/S6
+
+- **规则**：A fight is designed right at writing time and judged on execution after generation. S1 (static_design_gate FD rules) and the writer self-check R13 block: a COMBAT shot on a locked camera (FD1), an in-video line inside a COMBAT shot (FD2), a fight scene under 50 % combat seconds (FD3), a silent combat run under 4 s (FD4), fighters facing the lens (FD5), a weapon in a COMBAT shot without a prop reference card (FD6). After S6, major_event_presence passes a COMBAT beat only when the contact is visible, the bodies keep moving after it, the fighters are opponents not a side-by-side pose, and every weapon keeps one shape.
+- **教训**：COMBAT_UNIT_DIRECTION_V1 (K172) only fires at the paid boundary, after keyframes are paid and the writer has moved on, and it cannot see what the model draws. Run on real contracts, FIGHT_DESIGN_V1 blocks E14 (3 locked COMBAT shots, S10 combat share 0.11, S11 0.31, two exchanges under 4 s): E14 had the same narrated fight as E15, and nothing caught it. The E15 rework passes FD1-FD5 but still blocks on FD6: the long sabre, iron spear and hard bow have no reference card, which is why VU-019's sabre turned into a straight sword mid-unit. E15 VU-020 passed every prompt gate and still collapsed into a 4.5 s side-by-side pose after one spark; only the post-generation review can see that.
+- **恢复**：On an FD block, rewrite the fight per docs/knowledge/FIGHT_DIRECTION_PLAYBOOK.md before S2. Do not lower the thresholds. On a COMBAT major_event_presence FAIL, redesign that unit's beats (every beat must make contact or evade; no no-contact positioning beat on its own) rather than rerolling the same prompt.
+- **实现**：`tools/fight_design_gate.py`、`configs/FIGHT_DESIGN_V1.json`、`lines/nalu/runtime/tools/static_design_gate.py`、`lines/nalu/runtime/tools/nalu_writer_selfcheck_seq29.py`、`lines/nalu/runtime/tools/nalu_qa_common.py`、`lines/nalu/runtime/tools/vlm_review_protocol.py`、`docs/knowledge/FIGHT_DIRECTION_PLAYBOOK.md`、`tools/tests/test_fight_design_gate.py`
+- **证据**：Real contracts: E13 PASS; E14 BLOCK (FD1 x3, FD3 x2, FD4 x2); E15 rework BLOCK only on FD6 (长刀 x11, 铁矛 x20, 硬弓 x2). E15 S6 reroll frames: VU-021/027 pass the four combat conditions; VU-020 fails (2), (3); VU-019 fails (4).
+- **授权**：Roger 2026-11-07「我希望以后的打斗片段，生产线都能学会怎么生产，不要再犯同类错误」
+- **状态**：REFERENCE_IMPLEMENTATION

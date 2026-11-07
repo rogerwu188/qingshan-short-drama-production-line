@@ -7118,6 +7118,34 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
 # --------------------------------------------------------------------------- #
 # S6.q2 — Q2 VIDEO_ASSEMBLY content admission (D-7)
 # --------------------------------------------------------------------------- #
+def _owner_accepted_clips(ctx: Ctx, rows: dict[str, dict[str, Any]]) -> dict[str, int]:
+    """unit -> seq of an active line-owner GATE_FAIL_ACCEPTANCE order for this episode bound (media_sha256_by_item
+    or media_sha256) to the unit's CURRENT clip sha.  The owner kept that exact clip, so the engine's auto redo
+    must not spend credits replacing it (field device …1324 E01, 2026-11-06).  Any gate: the binding is the clip."""
+    authority = getattr(ctx, "authority", None) or {}
+    orders_path = authority.get("orders_path")
+    issuer = authority.get("line_owner_id") or ""
+    if not orders_path or getattr(ctx, "authority_blockers", None) or not issuer:
+        return {}
+    orders = _rga._orders(orders_path, expected_latest_seq=authority.get("latest_order_seq") or 0,
+                          engine_root=ENGINE)
+    out: dict[str, int] = {}
+    for uid in rows:
+        clip_sha = sha256_file(ctx.p.video_media / f"{uid}.mp4")
+        if not clip_sha:
+            continue
+        for row in orders:
+            dec = row.get("decision") or {}
+            if (str(row.get("issued_by") or "") != issuer or str(row.get("status") or "") != "active"
+                    or dec.get("kind") != _rga.KIND or str(dec.get("episode") or "") != ctx.episode
+                    or not _rga._receipt_valid(row, expected_issuer=issuer, engine_root=ENGINE)):
+                continue
+            by_item = dec.get("media_sha256_by_item") if isinstance(dec.get("media_sha256_by_item"), dict) else {}
+            if clip_sha in (str(by_item.get(uid) or ""), str(dec.get("media_sha256") or "")):
+                out[uid] = max(out.get(uid, 0), int(row.get("seq") or 0))
+    return out
+
+
 def s6_q2_auto_redo(ctx: Ctx) -> dict[str, Any]:
     """CAMERA_GRAMMAR_V1: the engine's own one controlled redo after an objective Q2 FAIL (q2_auto_redo.py;
     CLAUDE_CODE_PRODUCTION §5).  Runs after ``prepare`` and before the video_q2 review: units it selects get
@@ -7151,7 +7179,7 @@ def s6_q2_auto_redo(ctx: Ctx) -> dict[str, Any]:
         verdict = ctx.budget_check(0, label="s6_q2_auto_redo_headroom").get("budget_verdict") or {}
         headroom = verdict.get("headroom_credits")
     decision = _redo.plan(rows, attempted, headroom=None if headroom is None else int(headroom),
-                          unit_cost=unit_cost, unit_order=order)
+                          unit_cost=unit_cost, unit_order=order, owner_accepted=_owner_accepted_clips(ctx, rows))
     if ctx.dry:
         decision["status"] = DRY
         decision["note"] = "dry run: would redo the failing units when the paid run has headroom"
@@ -8136,6 +8164,85 @@ def s7_post_level_audio_chain(ctx: Ctx, res: StageResult, steps: list[dict[str, 
     res.details["final_candidate_chain"] = manifest
     res.receipts.append(str(p.assembly / f"{ctx.episode}_FINAL_CANDIDATE_CHAIN.json"))
     return []
+
+
+FINAL_RELEASE_GATE_ID = "FINAL-RELEASE-DEFAULT-ACCEPTANCE"
+FINAL_RELEASE_MEDIA_ITEM = "final"
+#: final-bundle evidence the portable orchestrator never writes on this line (run_episode_qa.sh is recorded but not
+#: run; watch_report is the S8 approval, which cannot exist before S7).  A gate FAILing only because one of these is
+#: absent is a structural gap of the line, not missing proof of this cut (field device …1324 E01, 2026-11-07).
+LINE_UNPRODUCED_EVIDENCE = frozenset({"final_package_manifest", "ci_report", "render_plan",
+                                      "audio_provenance_manifest", "watch_report"})
+
+
+def _evidence_missing_keys(failures: list[Any]) -> list[str] | None:
+    """The evidence keys a gate row reports as missing, or None when any failure is something else."""
+    keys = []
+    for failure in failures or []:
+        text = str(failure)
+        if not text.startswith("required_evidence_missing:"):
+            return None
+        keys.append(text.split(":", 2)[1])
+    return keys
+
+
+def s7_default_release_acceptance(ctx: Ctx, final_qa: dict[str, Any], review_rejected: bool) -> dict[str, Any]:
+    """Release a finished cut whose final review or final-package gates did not PASS, on one line-owner order.
+
+    Line owner 2026-11-07 (field device …1324 E01): with ~100 unattended machines a rejected final review must not
+    stop the line; the §5 default terms carry it like every other quality FAIL.  The order is recorded under those
+    terms (record_supervisor_order.py, gate FINAL-RELEASE-DEFAULT-ACCEPTANCE, one ``final:<what failed>``
+    detector per failure, ``--media final=<candidate>``) and binds the candidate's sha, so a re-cut needs a new
+    order.  The reviewer's verdict, the score report and every FAIL row stay as recorded; nothing becomes PASS.
+    Missing or invalid evidence is not a quality FAIL and is never accepted here."""
+    if not ctx.p.final_candidate.is_file():
+        return {"status": BLOCKED, "blockers": ["FINAL_CANDIDATE_MISSING"]}
+    failing = ["final:FINAL_AUDIENCE_REVIEW_REJECTED"] if review_rejected else []
+    summary = read_json(Path(str(final_qa.get("stage_gate_summary") or "")), {}) or {} \
+        if final_qa.get("stage_gate_summary") else {}
+    full_rows = {str(r.get("gate_id")): r for r in summary.get("results") or summary.get("gates") or []}
+    evidence_gaps: list[str] = []
+    gates: set[str] = set()
+    for row in final_qa.get("stage_gate_rows") or []:
+        gid = str(row.get("gate_id") or "")
+        if not gid or row.get("status") == PASS:
+            continue
+        missing = _evidence_missing_keys((full_rows.get(gid) or {}).get("failures") or [row.get("first_failure")])
+        if missing is not None:
+            unproduced = [k for k in missing if k.split(":", 1)[0] in LINE_UNPRODUCED_EVIDENCE]
+            if len(unproduced) != len(missing):  # real proof of this cut is missing: never released on an order
+                evidence_gaps.append(gid)
+                continue
+        gates.add(f"final:{gid}")
+    if evidence_gaps:
+        return {"status": BLOCKED, "blockers": [f"FINAL_EVIDENCE_MISSING:{','.join(sorted(evidence_gaps))}"]}
+    failing += sorted(gates)
+    if not failing:  # the gates never produced rows: an evidence problem, not a quality verdict
+        return {"status": BLOCKED, "blockers": list(final_qa.get("blockers") or ["FINAL_PACKAGE_QA_NOT_PASS"])}
+    sha = sha256_file(ctx.p.final_candidate)
+    authority = getattr(ctx, "authority", None) or {}
+    orders_path, issuer = authority.get("orders_path"), authority.get("line_owner_id") or ""
+    orders = (_rga._orders(orders_path, expected_latest_seq=authority.get("latest_order_seq") or 0, engine_root=ENGINE)
+              if orders_path and not getattr(ctx, "authority_blockers", None) else [])
+    order = _rga.find_acceptance(orders, episode=ctx.episode, gate_id=FINAL_RELEASE_GATE_ID, failing=failing,
+                                 media_sha256=sha, media_item_id=FINAL_RELEASE_MEDIA_ITEM,
+                                 expected_issuer=issuer, engine_root=ENGINE) if issuer else None
+    if order is None:
+        return {"status": BLOCKED, "failing": failing, "final_candidate_sha256": sha,
+                "blockers": ["FINAL_RELEASE_DEFAULT_ACCEPTANCE_ORDER_REQUIRED:" + ",".join(failing)],
+                "how": ("record one §5 default-terms order: record_supervisor_order.py --kind GATE_FAIL_ACCEPTANCE "
+                        f"--gate-id {FINAL_RELEASE_GATE_ID} --episode {ctx.episode} "
+                        + " ".join(f"--detector {f}" for f in failing)
+                        + f" --media {FINAL_RELEASE_MEDIA_ITEM}={ctx.p.final_candidate} --orders <private inbox> ...")}
+    record = _rga.acceptance_record(order, episode=ctx.episode, gate_id=FINAL_RELEASE_GATE_ID, failing=failing,
+                                    media_sha256=sha, media_item_id=FINAL_RELEASE_MEDIA_ITEM,
+                                    gate_result_path=str(final_qa.get("stage_gate_summary") or ""))
+    record.update({"final_audience_review_rejected": review_rejected,
+                   "release_basis": "LINE_OWNER_DEFAULT_ACCEPTANCE"})
+    path = ctx.p.assembly / "final_qa" / f"{ctx.episode}_FINAL_RELEASE_ACCEPTANCE.json"
+    write_json(path, record)
+    ctx.say(f"   !! final release on line-owner default order seq={order.get('seq')}: {', '.join(failing)} kept FAIL")
+    return {"status": PASS, "record_path": str(path), "order_seq": order.get("seq"), "failing": failing}
 
 
 def promote_final_candidate(p: Any) -> dict[str, Any]:
@@ -9364,7 +9471,8 @@ def stage_s7(ctx: Ctx) -> StageResult:
     res.steps.extend(steps)
     final_audience = s7_final_audience_review(ctx, res)
     res.details["final_audience_review"] = final_audience
-    if final_audience["status"] != PASS:
+    review_rejected = "FINAL_AUDIENCE_REVIEW_REJECTED" in (final_audience.get("blockers") or [])
+    if final_audience["status"] != PASS and not review_rejected:
         res.status = (REVIEW_REQUIRED
                       if final_audience["status"] == REVIEW_REQUIRED else BLOCKED)
         res.blockers = list(final_audience.get("blockers") or [])
@@ -9375,11 +9483,16 @@ def stage_s7(ctx: Ctx) -> StageResult:
     res.details["final_qa"] = final_qa
     res.status = PASS if (p.final_candidate.is_file()
                           and all(step["exit_code"] == 0 or step.get("accepted_by_line_owner_order") for step in steps)
-                          and final_qa["status"] == PASS) else BLOCKED
+                          and final_qa["status"] == PASS and not review_rejected) else BLOCKED
     if res.status != PASS:
-        res.blockers = [value for value in (final_qa.get("blockers") or [])] or \
-            ["FINAL_PACKAGE_QA_NOT_PASS"]
-        return res
+        release = s7_default_release_acceptance(ctx, final_qa, review_rejected)
+        res.details["final_release_acceptance"] = release
+        if release.get("status") != PASS:
+            res.blockers = release.get("blockers") or [value for value in (final_qa.get("blockers") or [])] or \
+                ["FINAL_PACKAGE_QA_NOT_PASS"]
+            return res
+        res.status = PASS
+        res.receipts.append(str(release["record_path"]))
     # ------------------------------------------- 9. promotion: candidate -> deliverable (item 0)
     # Every S7 gate is PASS or carried by a sha-bound line-owner order; only now does the cut
     # become a deliverable.  Byte copy, sha verified, tail-ad variant alongside when it exists.

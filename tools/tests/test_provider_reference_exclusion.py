@@ -340,9 +340,17 @@ class IsolationHelper(Fixture):
         self.assertEqual([a["role"] for a in applied], ["global_space_map"])
 
     def test_outage_declares_nothing(self):
-        report, declaration_path, _ = self.run_isolate(FakeTransport(outage=True))
+        transport = FakeTransport(outage=True)
+        report, declaration_path, _ = self.run_isolate(transport)
         self.assertTrue(report["verdict"].startswith("ALL_REFERENCES_REJECTED"))
         self.assertFalse(declaration_path.exists())
+        self.assertEqual(len(transport.posts), 5)  # one round only: nothing passed, retries prove nothing
+
+    def test_cap_fits_seven_references(self):
+        # device …1324 E02: 7 non-identity references were refused up front at 7 x 2 > 12
+        self.assertTrue(iso.fits_cap(7))
+        self.assertFalse(iso.fits_cap(iso.MAX_PROBES))
+        self.assertFalse(iso.fits_cap(0))
 
     def test_prompt_rejection_declares_nothing(self):
         report, declaration_path, _ = self.run_isolate(FakeTransport())

@@ -60,6 +60,7 @@ import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (e
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -289,7 +290,12 @@ QUESTIONNAIRES: dict[str, dict[str, dict[str, Any]]] = {
         "major_event_presence": {
             "enum": PF, "maps_to": ["post_generation_qa.basic_plot.major_event_presence"],
             "question": "Does every ordered_beats primary_action actually happen, ending in its "
-                        "completion_state?"},
+                        "completion_state?  A beat with action_kind COMBAT happens only if (1) its "
+                        "contact_and_force (or the declared evasion) is visible on screen, (2) after the "
+                        "contact the bodies keep moving into outcome_state instead of holding a pose for "
+                        "more than about one second, (3) the fighters are blocked as opponents, never "
+                        "standing side by side with both faces to the lens, and (4) every weapon keeps one "
+                        "shape for the whole clip; otherwise answer FAIL and name which of the four broke."},
         "major_dialogue_presence": {
             "enum": PFN, "maps_to": ["post_generation_qa.basic_plot.major_dialogue_presence"],
             "question": "Is every line in expectations.expected_dialogue spoken by the right "
@@ -510,6 +516,17 @@ UNDECLARED_PREFIX = "UNDECLARED:"
 # --------------------------------------------------------------------------- #
 # request
 # --------------------------------------------------------------------------- #
+
+def plates_for_asset(folder: Path, asset_id: str) -> list[Path]:
+    """Plates whose file name carries exactly this asset id.  A bare substring glob let PROP-BAMBOO pick up
+    PROP-BAMBOO-SPLIT's plate (field device …1324 E02, 2026-11-07: the identity review got two different props
+    under one id and stopped).  Ids are upper-case with hyphens, so a match must not continue with an id
+    character or a ``-<UPPER/DIGIT>`` segment; ``-plate-v1`` / ``_tsk_…`` / ``__VIEW`` still match."""
+    if not folder.is_dir():
+        return []
+    pattern = re.compile(rf"(?<![A-Za-z0-9-]){re.escape(asset_id)}(?![A-Za-z0-9]|-[A-Z0-9])")
+    return sorted(item for item in folder.glob(f"*{asset_id}*") if pattern.search(item.name))
+
 def _media_row(path: Any, role: str) -> dict[str, Any]:
     path = Path(str(path)) if path else None
     return {
@@ -811,7 +828,7 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
         if plan:
             rows = [row for row in rows if row["asset_id"] in planned]
         for row in rows:
-            plates = sorted(p.plates.glob(f"*{row['asset_id']}*")) if p.plates.is_dir() else []
+            plates = plates_for_asset(p.plates, row["asset_id"])
             # an H3 multi-view reference sheet (character_reference_sheet.py) shows several faces of one person: it
             # is not an identity plate and never enters the identity lock / InsightFace single-face measurement
             plates = [item for item in plates if "__MULTIVIEW_REFERENCE_SHEET" not in item.name]

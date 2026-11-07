@@ -273,17 +273,24 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
 本轮最后一行必须是：
 `NALU_STATUS: {"episode":"<EP>","state":"<STATE>","stage":"<S?>","question":"<给线主的中文问题，没有则空>","credits_ledger":<账本数>,"final_mp4":"<路径或空>","note":"<一句话>"}`
 STATE 取值：`OWNER_DECISION_REQUIRED`（需要线主原话）· `WAITING_REMOTE`（等云端渲染，编排代理稍后用「继续」恢复）·
-`BLOCKED`（需要人修复的环境/代码问题，note 写清）· `FINAL_CUT_READY`（成片已在 deliverables，S7 停在独立终审或 S8）· `ERROR`。
+`BLOCKED`（需要人修复的环境/代码问题，note 写清）· `FINAL_REVIEW_REQUIRED`（S7 停在独立终审，见 §7）·
+`FINAL_CUT_READY`（成片已在 deliverables，S7 PASS，S8 或发行待做）· `ERROR`。
 被恢复时如果收到「继续」，就从 `runtime/pipeline_state/<EP>.json` 的当前阶段接着做。
 
 ## 7. 已知停点
-S7 最后的「独立终审」要求独立进程、StoryClaw 白名单模型的审核者。没有时停在 `REVIEW_REQUIRED: FINAL_AUDIENCE_REVIEW_REQUIRED`——成片已在
-`$NALU_RUNTIME_ROOT/deliverables/<EP>/<EP>_final_9x16.mp4`。不得冒充审核者身份或绕过该门，报 `FINAL_CUT_READY`。
+S7 最后的「独立终审」要求独立进程、StoryClaw 白名单模型的审核者。S7 停在 `REVIEW_REQUIRED: FINAL_AUDIENCE_REVIEW_REQUIRED` 时，
+候选片在 `workflow/nalu/<EP>/assembly/<EP>_final_candidate_9x16.mp4`，请求在 `runtime/reviews/<EP>/final_audience_request.json`；
+终审通过前成片**不会**进 deliverables（Roger 2026-10-29）。你不得冒充审核者、不得写答案或绕过该门：报 `FINAL_REVIEW_REQUIRED`，
+note 写请求路径；编排代理安排审核者（SKILL.md §5），提交后用「继续」恢复你，你接着做终包 QA、放入 deliverables，报 `FINAL_CUT_READY`。
+终审判拒（`REJECT_RECUT`）或终包门有 FAIL 时不停线（线主 2026-11-07）：S7 报 `FINAL_RELEASE_DEFAULT_ACCEPTANCE_ORDER_REQUIRED:<清单>`，
+你按 §5 默认条款记**一张**订单——`record_supervisor_order.py --gate-id FINAL-RELEASE-DEFAULT-ACCEPTANCE`，清单里每项一个
+`--detector final:<项>`，`--media final=<候选片>`，`--order` 写「默认条款自动接受：质量问题不阻塞连续生产（短剧工作流）」——再继续；
+审核者的判词、评分报告和所有 FAIL 原样保留，`note` 写判词要点。本线从不产出的 5 项终包证据（`final_package_manifest`、`ci_report`、`render_plan`、`audio_provenance_manifest`、`watch_report`）缺失引起的门 FAIL 由引擎列进同一张清单，照常记单，不要去补造这些文件；其余证据缺失（引擎报 `FINAL_EVIDENCE_MISSING:<门>`）不是质量 FAIL，不能这样放行，报 `BLOCKED`。
 
 HopsAPI 图片任务成批以 `status 3 / code 424 "Provider error (request id: aitk-…)"`、0 credits 失败（日志/阻塞含 `HOPSAPI_IMAGE_PROVIDER_OUTAGE`）= 上游 gpt-image-2 通道故障（提交器只在通道确实坏了时才报：≥2 个不同任务 424，且 60 分钟内库里没有任何 HopsAPI 图片任务成功，且中性无参考图健康探针也 424；探针约 0.1–0.2 credits、结论缓存 15 分钟），不是参考图/提示词问题（E10/E11 实测：同字节请求先失败后成功，无参考图的 Txt2Img 也同样失败）。不要改参考图、提示词或写 CODE_BLOCKER；免费、不扣费：`sleep 600` 后原样重跑同一 `paid_stage.sh <EP> <Sx> <Sx>`（提交器自己会先发一个探针任务、冷却期内拒绝整批 POST），连续 6 次仍是 424 才以 `BLOCKED` 结束，note 写 `HOPSAPI_IMAGE_PROVIDER_OUTAGE`。
 例外：**通道正常**（有任务同期能过 / 近期有成功 / 健康探针通过）时，任何 424 都只是该任务被拒（阻塞/日志含 `HOPSAPI_IMAGE_TASK_REJECTED:<task_key>`，提交报告 `provider_rejected_tasks` / failures 里 `PROVIDER_REJECTED_TASK`）= 该任务的提示词/参数被内容过滤拒绝，不是故障（设备 …1324 E01 实测：偷馒头的孩子 + 破棉絮参考图）。提交器探针 424 后会换一个参考图最不同的任务再探，过了就放行整批、只把被拒的任务记为拒绝（连续 5 个被拒后也照样提交其余任务，每个任务每轮都会 POST 一次）；通道正常时多个任务被拒也不是故障（设备 …1324 E01：6 岁矿工家庭女孩的故事多镜头被拒）。不要等冷却：把该任务的提示词中性改写（未成年 + 贫困/暴力措辞是已知触发），重跑同一阶段。
 某一个参考图被拒（设备 …1324 E01 S5 实测：地点俯视图 `GSM-NALU-HUT_V1.png` 单图 Img2Img 每次 424，头像/集全景图单图都能过；每个 S5 任务都绑它，整集 0/35）：中性改写提示词后仍是同一类 0 成本 424、且多个任务都绑同一张非身份参考图时，按下面走，不写 CODE_BLOCKER：
-1. 定位（付费、低质量单图探针，走付费入口）：`lines/nalu/runtime/tools/paid_stage.sh <EP> --isolate-reference <TASK_KEY>`（免费看计划：`nalu_pipeline.py isolate-reference --episode <EP> --task-key <TASK_KEY>`）。每张非身份参考图单独探 2 次；只有它 2 次都 424、其它参考图能过，才写声明。全部失败 = 故障（按上面冷却），全部能过 = 提示词问题（改写）。
+1. 定位（付费、低质量单图探针，走付费入口）：`lines/nalu/runtime/tools/paid_stage.sh <EP> --isolate-reference <TASK_KEY>`（免费看计划：`nalu_pipeline.py isolate-reference --episode <EP> --task-key <TASK_KEY>`）。每张非身份参考图先各探 1 次，只对 424 的再探第 2 次（第一轮全部 424 就不再探）；只有它 2 次都 424、其它参考图能过，才写声明。全部失败 = 故障（按上面冷却），全部能过 = 提示词/画面内容被拒：按 H3_SCRIPT_ADAPTATION_GUIDE §1b 改构图（不是只改措辞）再提交，改构图后仍被拒就换成空镜或物件特写，按 §5 默认条款记录继续。
 2. 声明（工具自动写，或按已有证据手写）：`$NALU_RUNTIME_ROOT/preproduction/<EP>/provider_reference_exclusions.json`，schema `nalu.provider_reference_exclusions.v1`，每条 `sha256`（或 `asset_id`/`path`）+ `reason` + `evidence{provider, provider_code:424, request_ids:[aitk-…], single_reference_probe:true}` + `declared_by` + `declared_at`。只能排除地图/场景/服装/道具图；人物身份头像一律拒绝。
 3. 免费重编 S5（`NALU_PAID_FORCE=1 paid_stage.sh <EP> S5 S5` 会先重建清单；或免费 `nalu_pipeline.py run --episode <EP> --from S5 --until S5`）：被排除的图仍作为空间权威留在 `reference_bindings`（`transmitted:false`），不再发送，`@图片N` 和参考图用途块重新编号；空间闸门记 `PLACE_MAP_TRANSPORT_EXCLUDED` 提示（集全景图和本镜子空间图必须仍在发送）。
 4. 提示词变了 → 整批提示词重新审（prompt batch 回执），再按正常 S5 走（探针任务 → 整批）。旧的已绑定失败事务不动，新请求是新指纹，不会重复 POST。

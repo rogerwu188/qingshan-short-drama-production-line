@@ -114,6 +114,20 @@ class CodexExecutorTests(unittest.TestCase):
         (self.runtime / "series/PAUSED").write_text("")
         self.assertEqual(self.cp.tick()["reason"], "PAUSED")
 
+    def test_blocked_is_handed_back_hourly_for_an_update_check(self):
+        # field device …1324 E02: a blocked machine never ran self_update, so a maintainer fix never reached it
+        self.write_provider()
+        self.run_episode('卡住\nNALU_STATUS: {"episode":"E05","state":"BLOCKED","note":"CODE_BLOCKER"}', "E05")
+        self.assertEqual(self.cp.tick()["reason"], "BLOCKED")
+        self.assertEqual(self.cp.tick()["action"], "NONE")  # within the hour: quiet
+        session_path = self.runtime / "claude_code/E05/session.json"
+        session = json.loads(session_path.read_text())
+        session["tick_notified_at"] = "2020-01-01T00:00:00Z"
+        session_path.write_text(json.dumps(session))
+        again = self.cp.tick()
+        self.assertEqual((again["action"], again["reason"]), ("AGENT", "BLOCKED_RECHECK_UPDATE"))
+        self.assertEqual(self.cp.tick()["action"], "NONE")
+
     def test_tick_resumes_without_status_then_escalates(self):
         self.write_provider()
         self.run_episode("没有状态行", "E04")
