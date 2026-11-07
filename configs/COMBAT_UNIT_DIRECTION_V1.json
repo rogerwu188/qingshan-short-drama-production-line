@@ -1,0 +1,14 @@
+{
+  "schema": "qingshan.combat_unit_direction_policy.v1",
+  "policy_id": "COMBAT_UNIT_DIRECTION_V1",
+  "authority": "Roger 2026-11-06 E15 成片审看：打斗像静态 PPT，打斗问题要从生产线层面解决",
+  "enabled_from_episode": "E15",
+  "activation_note": "Never retroactive for delivered episodes: active from E15 (being reworked) onward, or when a manifest declares combat_unit_direction_policy=COMBAT_UNIT_DIRECTION_V1.",
+  "rules": {
+    "CU1": "COMBAT_UNIT_CAMERA_LOCKED: a combat unit is not rendered on a locked/tripod camera; the writer's authored move stays",
+    "CU2": "COMBAT_UNIT_CARRIES_DIALOGUE: a combat unit carries no on-screen spoken line",
+    "CU3": "COMBAT_UNIT_PROMPT_HOLD_LANGUAGE: a combat unit's prompt carries no hold/settle/tripod wording",
+    "CU4": "FIGHT_SCENE_NARRATED: in a scene with combat, combat units are >= 50% of the scene's seconds",
+    "CU5": "FIGHT_TWO_SHOT_FACING_CAMERA: fighters are never composed with both faces turned to the lens"
+  }
+}

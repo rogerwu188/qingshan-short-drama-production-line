@@ -877,7 +877,19 @@ def _spec_performance(specs: list[Any], source_index: Any) -> Any:
     return ((spec.get("action") or {}) if isinstance(spec, dict) else {}).get("performance")
 
 
-def _condense_feedback(value: Any, translated: dict[str, Any]) -> str:
+#: COMBAT_UNIT_DIRECTION_V1 (Roger 2026-11-06, E15 打斗像静态 PPT): a combat beat's condensed feedback must
+#: not tell the model to settle — the exchange keeps moving through the contact into the new position.
+COMBAT_CONDENSED_FEEDBACK = (
+    "the initiated action stated above lands in real time and carries straight through to the end state stated "
+    "above; contact first, then both bodies keep moving with the force, no pause, no pose"
+)
+
+
+def _combat_beat(source: dict[str, Any]) -> bool:
+    return str(source.get("action_kind") or "").strip().upper() == "COMBAT" or bool(source.get("force_origin"))
+
+
+def _condense_feedback(value: Any, translated: dict[str, Any], *, combat: bool = False) -> str:
     """Collapse a feedback string that verbatim restates this beat's own action and exit state.
 
     The provider already renders the action and the end state earlier in the same
@@ -894,6 +906,8 @@ def _condense_feedback(value: Any, translated: dict[str, Any]) -> str:
         return text
     if action[:40] not in text or exit_state[:20] not in text:
         return text
+    if combat:
+        return COMBAT_CONDENSED_FEEDBACK
     return (
         "the initiated action stated above plays through and settles at the end state stated above; "
         "contact first, then gaze and jaw, shoulders, neck and weight settle last"
@@ -1002,7 +1016,7 @@ def _beat(
         evidence[f"{prefix}.CONTACT_POINT"] = translated["contact_point"]
     if source.get("primary_feedback"):
         primary_feedback = translated.get("primary_feedback") or translated.get("force_feedback")
-        primary_feedback = _condense_feedback(primary_feedback, translated)
+        primary_feedback = _condense_feedback(primary_feedback, translated, combat=_combat_beat(source))
         if shared_clauses is not None and primary_feedback in shared_clauses:
             primary_feedback = "the shared result stated on the first beat of this unit"
         elif shared_clauses is not None:

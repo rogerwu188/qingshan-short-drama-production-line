@@ -15,10 +15,12 @@ from typing import Any
 
 try:
     from tools.action_video_prompt_compiler import validate_action_contract
+    from tools.combat_unit_direction_gate import evaluate_manifest as evaluate_combat_direction
     from tools.performance_tempo_gate import evaluate_batch as evaluate_performance_tempo
     from tools.video_model_adapter import validate_model_contract
 except ModuleNotFoundError:
     from action_video_prompt_compiler import validate_action_contract
+    from combat_unit_direction_gate import evaluate_manifest as evaluate_combat_direction
     from performance_tempo_gate import evaluate_batch as evaluate_performance_tempo
     from video_model_adapter import validate_model_contract
 
@@ -66,6 +68,9 @@ def evaluate_manifest(
             })
     tempo = evaluate_performance_tempo(tasks)
     failures.extend(tempo.get("failures") or [])
+    # COMBAT_UNIT_DIRECTION_V1 (Roger 2026-11-06, E15): a fight told in tripod dialogue shots never reaches a provider
+    combat_direction = evaluate_combat_direction(manifest, root=root_path)
+    failures.extend(combat_direction.get("failures") or [])
     manifest_sha = None
     if manifest_path is not None:
         path = _resolve(root_path, manifest_path)
@@ -81,6 +86,7 @@ def evaluate_manifest(
         "manifest_sha256": manifest_sha,
         "task_keys": [str(task.get("task_key") or "UNKNOWN") for task in tasks],
         "performance_tempo": tempo,
+        "combat_unit_direction": {k: v for k, v in combat_direction.items() if k != "units"},
         "failures": failures,
         "runtime_binding": {
             "gate_path": str(gate_path),
