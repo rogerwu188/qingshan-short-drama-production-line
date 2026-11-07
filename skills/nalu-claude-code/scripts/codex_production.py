@@ -419,6 +419,17 @@ def engine_modification() -> dict[str, Any] | None:
     return {"files": files, "patch": str(out), "sha": sha}
 
 
+BLOCKED_RECHECK_HOURS = 1.0
+
+
+def _hours_since(stamp: Any) -> float:
+    try:
+        then = datetime.strptime(str(stamp), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return float("inf")
+    return (datetime.now(timezone.utc) - then).total_seconds() / 3600
+
+
 def tick() -> dict[str, Any]:
     _, runtime = roots()
     did: list[str] = []
@@ -491,9 +502,15 @@ def tick() -> dict[str, Any]:
     else:
         reason = state
     if session.get("tick_notified") == notify_key:  # already handed to the agent once; wait
-        res["reason"] = f"WAITING_ON_AGENT_OR_OWNER:{reason}"
-        return res
+        # BLOCKED waits on a maintainer fix that arrives as a new agent version.  An idle heartbeat never runs
+        # self_update, so a blocked machine would never pick the fix up (field device …1324 E02, 2026-11-07):
+        # hand BLOCKED back once an hour; the agent checks for an update and resumes when the engine changed.
+        if not (state == "BLOCKED" and _hours_since(session.get("tick_notified_at")) >= BLOCKED_RECHECK_HOURS):
+            res["reason"] = f"WAITING_ON_AGENT_OR_OWNER:{reason}"
+            return res
+        reason = "BLOCKED_RECHECK_UPDATE"
     session["tick_notified"] = notify_key
+    session["tick_notified_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     write_json(d / "session.json", session)
     res.update(action="AGENT", reason=reason)
     return res
