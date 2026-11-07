@@ -684,6 +684,21 @@ def provider_prompt_unit(task: dict[str, Any]) -> dict[str, Any]:
     task["camera_plan"] = camera_plan
 
 
+def _wuxia_profile_signal_lift(specs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Unit-level ``wuxia_combat_profile_signals`` for the paid-boundary projection.
+
+    tools/wuxia_combat_profile_selector reads the signals off the UNIT; the grouped compile lifts
+    them from the first prompt spec that declares them (K168 pattern), but a transaction task only
+    carries the specs.  Without this lift the final H3 render inferred a PRIMARY_ACTION profile from
+    weapon words that the writer had explicitly opted out of (E15 VU-017: a thrown spear and a dodge
+    rendered with a "spear thrust" cue), while the reviewed planning prompt carried none."""
+    for spec in specs or []:
+        signals = spec.get("wuxia_combat_profile_signals") if isinstance(spec, dict) else None
+        if isinstance(signals, dict) and signals:
+            return {"wuxia_combat_profile_signals": copy.deepcopy(signals)}
+    return {}
+
+
 def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
     machine = task.get("machine_contract") or {}
     for field in ("camera_scope_policy", "camera_time_coordinate", "timeline_policy"):
@@ -752,6 +767,7 @@ def grouped_sequence_unit(task: dict[str, Any]) -> dict[str, Any]:
         "timeline_policy": machine.get("timeline_policy")
         if "timeline_policy" in machine else task.get("timeline_policy"),
         "ordered_prompt_specs": machine.get("ordered_prompt_specs") or task.get("ordered_prompt_specs") or [],
+        **_wuxia_profile_signal_lift(machine.get("ordered_prompt_specs") or task.get("ordered_prompt_specs") or []),
         "editorial_shot_ids": machine.get("editorial_shot_ids") or task.get("editorial_shot_ids") or [],
         "internal_transition_contracts": machine.get("internal_transition_contracts")
         or task.get("internal_transition_contracts")

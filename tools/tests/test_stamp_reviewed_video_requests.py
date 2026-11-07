@@ -93,5 +93,27 @@ class VideoStampTests(unittest.TestCase):
         self.assertNotIn("supersedes_submission_fingerprints", out["VU-001"])
 
 
+    def test_reviewed_unchanged_prompt_that_differs_from_every_bound_take_declares_it(self):
+        """E15 fight redo (2026-11-07): the reviewed batch prompt changed after the take was bound, the
+        finalization digest says UNCHANGED (final == planned), and the submit was refused
+        BOUND_UNDER_OTHER_FINGERPRINT on VU-014/015/017/018.  A bound take with a recorded, different
+        prompt_sha256 is superseded; a take bound to the same prompt, or with no recorded prompt, is not."""
+        store = self.tmp / "workflow/tasks/giggle_video_submit_transactions/E99"
+        store.mkdir(parents=True)
+        (store / "VU-001-VIDEO-V1__old.json").write_text(json.dumps(
+            {"submission_fingerprint": "old-VU-001", "state": "SUBMITTED_TASK_ID_BOUND", "task_id": "t",
+             "prompt_sha256": _sha("the old take")}), encoding="utf-8")
+        (store / "VU-002-VIDEO-V1__old.json").write_text(json.dumps(
+            {"submission_fingerprint": "old-VU-002", "state": "SUBMITTED_TASK_ID_BOUND", "task_id": "t",
+             "prompt_sha256": _sha("reviewed")}), encoding="utf-8")
+        tasks = [self._task("VU-001", "reviewed"), self._task("VU-002", "reviewed")]
+        rows = [{"unit_id": "VU-001", "status": "UNCHANGED", "sha256": _sha("reviewed")},
+                {"unit_id": "VU-002", "status": "UNCHANGED", "sha256": _sha("reviewed")}]
+        rc, out = self._run(tasks, rows)
+        self.assertEqual(rc, 0)
+        self.assertEqual(out["VU-001"].get("supersedes_submission_fingerprints"), ["old-VU-001"])
+        self.assertNotIn("supersedes_submission_fingerprints", out["VU-002"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -156,7 +156,10 @@ def _interaction_mode(action: dict[str, Any]) -> str:
     if declared:
         return declared
     contact = str(action.get("contact_point") or "").strip()
-    if any(token in contact for token in ("一掌距离", "尚未接触", "没有接触", "未碰到", "尚未碰到", "接触前")):
+    if any(token in contact for token in ("一掌距离", "尚未接触", "没有接触", "未碰到", "尚未碰到", "接触前",
+                                          "本拍无接触", "无接触", "不接触", "No contact in this beat")):
+        # E15 2026-11-07 (Roger): a setup/approach beat whose contact_point says 本拍无接触 was classified
+        # CONTACT and rendered "Interaction mode: physical contact at No contact in this beat".
         return "THREAT_THRESHOLD"
     if contact:
         return "CONTACT"

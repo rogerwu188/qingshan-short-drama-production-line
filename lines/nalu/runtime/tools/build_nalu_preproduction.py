@@ -1114,12 +1114,17 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
         dialogue, cast = bind_dialogue_cast(dialogue, cast, entities, language)
         declared_beings = {str(p.get("prop_id") or "") for p in spec.get("props") or []
                            if isinstance(p, dict) and str(p.get("kind") or "").upper() in {"CREATURE", "ANIMAL"}}
+        # Roger 2026-11-07 (E15 fight redesign ①): a contract prop row flagged video_reference_card asks for
+        # the prop's LOCKED card as an @Image reference of the video unit (append_h3_prop_plates).
+        card_props = {str(p.get("prop_id") or "") for p in spec.get("props") or []
+                      if isinstance(p, dict) and p.get("video_reference_card")}
         props = [{
             "prop": str(props_by_id[prop_id].get("name") or prop_id),
             "prop_id": prop_id,
             "anchor": "PRIMARY_ACTION_PLANE",
             "continuity_scope": "SCENE_OR_RECURRING_PROP",
             "note": str(props_by_id[prop_id].get("note") or ""),
+            **({"video_reference_card": True} if prop_id in card_props else {}),
             # CAMERA_GRAMMAR_V1 director prompt: a creature/animal card is a visible subject, not a prop.
             # A contract shot that itself marks the prop row kind CREATURE/ANIMAL gets the same treatment
             # (nalu E13: the spiked leopard was counted as a prop and the unit said "exactly 1 living entity").
@@ -1383,6 +1388,14 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
             # The authored combat chain travels at spec level too: the compiler requires it on any
             # beat declared COMBAT (tools/grouped_performance_contract).
             **({"combat_choreography": combat} if combat else {}),
+            # Writer-declared wuxia profile signals (tools/wuxia_combat_profile_selector): the compiler
+            # lifts them onto the unit, so a unit can opt out of an inferred PRIMARY_ACTION profile.
+            **({"wuxia_combat_profile_signals": spec["wuxia_combat_profile_signals"]}
+               if isinstance(spec.get("wuxia_combat_profile_signals"), dict) else {}),
+            # COMBAT_EXCHANGE_V1 is opt-in by declaration on the prompt spec (configs/COMBAT_EXCHANGE_V1.json);
+            # the projection dropped it, so the exchange gate silently stayed NOT_ACTIVE on E15 (2026-11-07).
+            **({"combat_exchange_policy": str(spec["combat_exchange_policy"])}
+               if str(spec.get("combat_exchange_policy") or "").strip() else {}),
             "sound_design": sound,
             "audio_contract": "SAME_VIDEO_TASK_NATIVE_AUDIO" if dialogue else "DIEGETIC_OR_SILENT_NO_TTS",
             "negative_prompts": negatives,
@@ -2201,13 +2214,17 @@ def main() -> int:
         missing_plates = append_h3_identity_plates(
             compile_anchor, json.loads(plan_path.read_text(encoding="utf-8")), editorial, episode=episode)
         compile_anchor["h3_identity_plates_missing"] = missing_plates
+        missing_cards = append_h3_prop_plates(
+            compile_anchor, json.loads(plan_path.read_text(encoding="utf-8")), editorial, episode=episode)
+        compile_anchor["h3_prop_reference_cards_missing"] = missing_cards
         compile_anchor["source_gated_anchor_plan_sha256"] = sha256_file(anchor_path)
         compile_anchor["planned_reference_image_count"] = sum(
             int(u.get("planned_reference_image_count") or 0) for u in compile_anchor.get("units") or [])
         compile_anchor_path = write_json(anchor_path.with_name(anchor_path.name.replace(
             "ANCHOR_PLAN", "ANCHOR_PLAN_H3_COMPILE")), compile_anchor)
-        stage("4.3h_h3_identity_references", "PASS" if not missing_plates else "BLOCKED",
-              blocking_check=(f"H3_LOCKED_IDENTITY_PLATE_MISSING:{','.join(missing_plates)}" if missing_plates else None),
+        stage("4.3h_h3_identity_references", "PASS" if not (missing_plates or missing_cards) else "BLOCKED",
+              blocking_check=(f"H3_LOCKED_IDENTITY_PLATE_MISSING:{','.join(missing_plates)}" if missing_plates
+                              else f"H3_LOCKED_PROP_CARD_MISSING:{','.join(missing_cards)}" if missing_cards else None),
               path=portable(compile_anchor_path, root))
     stage("4.3c_start_frame_semantic_contracts",
           "PASS" if all(row["status"] in ("PASS", "ACCEPTED_BY_LINE_OWNER_ORDER") for row in start_frames)
@@ -2723,6 +2740,91 @@ def append_h3_identity_plates(anchor_plan: dict[str, Any], plan: dict[str, Any],
         decision["planned_reference_image_count"] = len(paths)
         unit["reference_entity_bindings"] = entities
     return sorted(set(missing))
+
+
+#: H3 reference role of a prop card: provider_scope_projection classifies it PROP (geometry, material and
+#: scale only, may_define_identity False) and the renderer prints it as a declared-role reference.
+H3_PROP_PLATE_ROLE = "PROP_REFERENCE"
+
+
+def h3_prop_label(prop_id: str) -> str:
+    """ASCII provider label for an H3 prop reference (PROP-FUENTAO-SABRE -> "Fuentao Sabre")."""
+    return (re.sub(r"[^A-Za-z0-9]+", " ", re.sub(r"^(PROP|OBJ|SET|CREATURE|ANIMAL)-", "", str(prop_id)))
+            .strip().title() or "Prop")
+
+
+def _locked_prop_plate(prop_id: str, *, episode: str) -> Path | None:
+    """The LOCKED (qa PASS) card of a prop from this episode's scoped asset library, sha-verified; None
+    when the prop has no such card.  Nothing is fabricated: an unverifiable artifact is a missing card."""
+    library_path = _scoped_asset_library_path(episode)
+    cache_key = str(library_path.resolve())
+    if cache_key not in _ASSET_LIBRARY_CACHE:
+        _ASSET_LIBRARY_CACHE[cache_key] = (
+            json.loads(library_path.read_text(encoding="utf-8")) if library_path.is_file() else {})
+    row = (((_ASSET_LIBRARY_CACHE[cache_key].get("assets") or {}).get("props") or {}).get(prop_id)) or {}
+    if str(row.get("status") or "") != "LOCKED" or str((row.get("qa") or {}).get("status") or "") != "PASS":
+        return None
+    for artifact in row.get("artifacts") or []:
+        if not isinstance(artifact, dict):
+            continue
+        path = Path(str(artifact.get("path") or ""))
+        declared = str(artifact.get("sha256") or "")
+        if path.is_file() and declared and sha256_file(path) == declared:
+            return path
+    return None
+
+
+def append_h3_prop_plates(anchor_plan: dict[str, Any], plan: dict[str, Any], editorial: dict[str, Any],
+                          *, episode: str) -> list[str]:
+    """Roger 2026-11-07 (E15 fight redesign ①, seq=7 c6 "关键道具出参考卡…挂进视频参考列表"): a prop whose
+    contract row carries ``video_reference_card`` joins its unit's H3 references as the LOCKED prop card,
+    after the identity plates, with an aligned entity binding (binding_role PROP: geometry, material and
+    scale only, never a face).  Opt-in per shot, so units the writer leaves unflagged keep their reference
+    set and prompt sha.  Returns ``"<unit>:<prop>"`` for every flagged prop without a LOCKED card."""
+    shots = {str(row.get("shot_id")): row for row in editorial.get("shots") or []}
+    shot_ids_by_unit = {str(u.get("unit_id")): list(u.get("editorial_shot_ids") or []) for u in plan.get("units") or []}
+    missing: list[str] = []
+    for unit in anchor_plan.get("units") or []:
+        unit_id = str(unit.get("unit_id"))
+        wanted: list[str] = []
+        for sid in shot_ids_by_unit.get(unit_id, []):
+            spec = (shots.get(sid) or {}).get("prompt_spec") or {}
+            for prop in spec.get("props") or []:
+                prop_id = str(prop.get("prop_id") or "")
+                if prop_id and prop.get("video_reference_card") and prop_id not in wanted:
+                    wanted.append(prop_id)
+        if not wanted:
+            continue
+        paths = list(unit.get("reference_image_paths") or [])
+        decision = unit.setdefault("anchor_count_decision", {})
+        roles = list(decision.get("anchor_roles") or [])
+        keys = list(unit.get("reference_image_task_keys") or [])
+        entities: list[Any] = list(unit.get("reference_entity_bindings") or [])
+        entities += [None] * (len(paths) - len(entities))
+        bound: list[str] = []
+        for prop_id in wanted:
+            plate = _locked_prop_plate(prop_id, episode=episode)
+            if plate is None:
+                missing.append(f"{unit_id}:{prop_id}")
+                continue
+            if str(plate) in paths:
+                continue
+            if len(paths) >= VIDEO_REFERENCE_MAX:
+                unit.setdefault("prop_reference_dropped_over_cap", []).append(prop_id)
+                continue
+            paths.append(str(plate)); roles.append(H3_PROP_PLATE_ROLE)
+            keys.append(f"PROP_PLATE:{prop_id}")
+            entities.append({"entity_id": prop_id, "provider_entity_label": h3_prop_label(prop_id)})
+            bound.append(prop_id)
+        unit["reference_image_paths"] = paths
+        unit["reference_image_task_keys"] = keys
+        unit["planned_reference_image_count"] = len(paths)
+        decision["anchor_roles"] = roles
+        decision["planned_reference_image_count"] = len(paths)
+        unit["reference_entity_bindings"] = entities
+        if bound:
+            unit["h3_prop_reference_cards"] = bound
+    return missing
 
 
 def identity_plate_reference_rows(character_ids: list[str], plate_lookup, *, existing_paths: list[str],

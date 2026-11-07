@@ -187,8 +187,12 @@ def appearance_anchor_line(unit: dict[str, Any], plan: dict[str, Any], *, compac
         anchor = str(entity.get("appearance_anchor_en") or "").strip().rstrip(".")
         if compact:
             anchor = ", ".join(part.strip() for part in anchor.split(",")[1:3]) or anchor
+        # Weapon lock (K172 recovery, Roger 2026-11-07): the same weapon description for a character in
+        # every unit, appended after the appearance anchor and kept even in compact mode (E15 VU-019: the
+        # curved-back sabre became a straight sword mid-clip).
+        weapon = str(entity.get("weapon_lock_en") or "").strip().rstrip(".")
         if cid in labels and anchor:
-            rows.append(f"{labels[cid]} = {anchor}")
+            rows.append(f"{labels[cid]} = {anchor}" + (f", weapon: {weapon}" if weapon else ""))
     if not rows:
         return ""
     return "Same look in every frame: " + "; ".join(rows) + "."
@@ -321,6 +325,14 @@ def _director_roster(people: list[tuple[str, str]], beings: list[tuple[str, str]
 LOCKED_DIALOGUE_POLICY_ID = "LOCKED_DIALOGUE_CAMERA_V1"
 SINGLE_DIRECTION_CLAUSE = ("execute the declared move once, in one direction only, then hold; the camera never "
                            "reverses, oscillates or drifts back")
+#: Combat units (COMBAT_UNIT_DIRECTION_V1, Roger 2026-11-07 E15 重投复审): the same single-direction rule
+#: without "then hold" — a fight unit must never be told to stop; the move simply ends on its end framing.
+SINGLE_DIRECTION_CLAUSE_COMBAT = ("execute the declared move once, in one direction only; the camera never "
+                                  "reverses, oscillates or drifts back")
+
+
+def _combat_plan(plan: dict[str, Any] | None) -> bool:
+    return bool((plan or {}).get("combat_execution_required"))
 TRIPOD_CLAUSE = "The camera is on a tripod for the whole take"
 NO_SPEECH_BEAT_CLAUSE = "No speech in this beat: {who} keeps the mouth closed, no voice, no murmur, no breath words."
 SHORT_LINE_CLAUSE = "Deliver this short line unhurried, over at least one full second, with a natural pause before and after it."
@@ -331,7 +343,7 @@ def _locked_dialogue_plan(plan: dict[str, Any] | None) -> bool:
     return str((plan or {}).get("camera_policy") or "").strip().upper() == LOCKED_DIALOGUE_POLICY_ID
 
 
-def _camera(plan: dict[str, Any]) -> str:
+def _camera(plan: dict[str, Any], *, combat: bool = False) -> str:
     """Legacy unit camera line (gate off).  Kept byte-identical for plans outside LOCKED_DIALOGUE_CAMERA_V1."""
     family = str(plan.get("motion_family") or "STATIC").upper()
     direction = str(plan.get("motion_direction") or "NONE").upper()
@@ -342,7 +354,8 @@ def _camera(plan: dict[str, Any]) -> str:
         # plan moves once in one direction (E12: 20/53 units carried a built-in reversal)
         if family in {"STATIC", "LOCKED"}:
             return f"shot scale={scale}; {FIXED_CAMERA_POSITION} {TRIPOD_CLAUSE}{suffix}"
-        return f"shot scale={scale}; {_MOTION_MAPPING.get(family, family)}; direction={direction}; {SINGLE_DIRECTION_CLAUSE}{suffix}"
+        clause = SINGLE_DIRECTION_CLAUSE_COMBAT if combat else SINGLE_DIRECTION_CLAUSE
+        return f"shot scale={scale}; {_MOTION_MAPPING.get(family, family)}; direction={direction}; {clause}{suffix}"
     return f"shot scale={scale}; {_MOTION_MAPPING.get(family, family)}; direction={direction}; execute the declared move once{suffix}"
 
 # ---------------------------------------------------------------------------
@@ -551,7 +564,7 @@ def _camera_english(
     return values
 
 
-def _camera_scoped(camera_plan: dict[str, Any], english: dict[str, str]) -> str:
+def _camera_scoped(camera_plan: dict[str, Any], english: dict[str, str], *, combat: bool = False) -> str:
     family = str(camera_plan.get("motion_family") or "STATIC").upper()
     direction = str(camera_plan.get("motion_direction") or "NONE").upper()
     scale = str(camera_plan.get("shot_scale") or "MEDIUM").upper()
@@ -575,7 +588,7 @@ def _camera_scoped(camera_plan: dict[str, Any], english: dict[str, str]) -> str:
     else:
         parts.append(f"{_MOTION_MAPPING.get(family, family)}; direction={direction}")
         if _locked_dialogue_plan(camera_plan):
-            parts.append(SINGLE_DIRECTION_CLAUSE)
+            parts.append(SINGLE_DIRECTION_CLAUSE_COMBAT if combat else SINGLE_DIRECTION_CLAUSE)
         if english.get("follow_subject"):
             parts.append(f"the camera follows {english['follow_subject']}")
         if english.get("subject_to_keep"):
@@ -583,7 +596,8 @@ def _camera_scoped(camera_plan: dict[str, Any], english: dict[str, str]) -> str:
         if start:
             parts.append(f"start framing: {start}")
         if end:
-            parts.append(f"the move lands on and holds the end framing: {end}")
+            parts.append(f"the move lands on the end framing: {end}" if combat
+                         else f"the move lands on and holds the end framing: {end}")
     return "; ".join(parts) + _optical(camera_plan) + _camera_grammar_clause(camera_plan)
 
 
@@ -629,7 +643,8 @@ def _shot_boundary(unit: dict[str, Any], index: int, previous: dict[str, Any], c
 
 
 def _camera_section(
-    unit: dict[str, Any], plan: dict[str, Any], contract: dict[str, Any], action_beats: list[dict[str, Any]],
+    unit: dict[str, Any], plan: dict[str, Any], contract: dict[str, Any], action_beats: list[dict[str, Any]], *,
+    combat: bool = False,
 ) -> tuple[str, list[dict[str, Any]]]:
     uid = str(plan["unit_id"])
     rows = _shot_rows(unit, plan, action_beats)
@@ -638,7 +653,7 @@ def _camera_section(
         failures: list[str] = []
         english = _camera_english(uid, "UNIT", camera_plan, contract.get("camera_plan") or {}, failures)
         one_take = _ONE_TAKE_CLAUSE if camera_plan.get("camera_grammar") == "CAMERA_GRAMMAR_V1" else ""
-        return _camera_scoped(camera_plan, english) + one_take + _strict_lock_clause(
+        return _camera_scoped(camera_plan, english, combat=combat) + one_take + _strict_lock_clause(
             unit, plan, [camera_plan], bool(one_take)), [{
             "shot_id": "UNIT", "fields": sorted(english), "untranslated_fields": failures,
         }]
@@ -653,7 +668,7 @@ def _camera_section(
         boundary = "opening shot" if index == 0 else _shot_boundary(unit, index - 1, rows[index - 1], row, uid)
         lines.append(
             f"SHOT {index + 1} [{float(row['start']):g}s-{float(row['end']):g}s] ({boundary}): "
-            + _camera_scoped(row["camera_plan"], english)
+            + _camera_scoped(row["camera_plan"], english, combat=combat)
         )
         receipt.append({
             "shot_id": label, "boundary": boundary, "fields": sorted(english), "untranslated_fields": missing,
@@ -1003,7 +1018,14 @@ def _beat(
         f"{prefix}.INTERACTION_MODE": interaction_label,
         f"{prefix}.EXIT": translated["exit_state"],
     }
-    if source.get("contact_time_seconds") is not None:
+    # A beat whose contact_point says there is no contact (本拍无接触 / "No contact in this beat") is a
+    # setup or approach beat: never label it "physical contact" (E15 VU-020 2026-11-07, Roger).
+    no_contact_beat = (str(source.get("contact_point") or "").strip().startswith(("本拍无接触", "无接触"))
+                       or str(translated.get("contact_point") or "").strip().lower().startswith("no contact"))
+    if no_contact_beat and interaction_mode == "CONTACT":
+        interaction_label = "no contact in this beat"
+        evidence[f"{prefix}.INTERACTION_MODE"] = interaction_label
+    if source.get("contact_time_seconds") is not None and not no_contact_beat:
         contact_time = f"{float(source['contact_time_seconds']):g}s"
         line += f" Interaction mode: {interaction_label}; the interaction point is reached at {contact_time}"
         evidence[f"{prefix}.CONTACT_TIME"] = contact_time
@@ -1412,7 +1434,10 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         outgoing = str(translated_transition.get("outgoing") or "").strip()
         if not outgoing:
             raise ValueError(f"H3_ENGLISH_CONTRACT_FIELD_MISSING:{uid}:transition.outgoing")
-        description.append(f"End by completing this handoff: {outgoing}. Keep natural micro-motion and the sound tail.")
+        # Combat units never end on a "keep micro-motion" instruction (COMBAT_UNIT_DIRECTION_V1 CU3,
+        # Roger 2026-11-07): the handoff is the last action, the sound tail is all that lingers.
+        description.append(f"End by completing this handoff: {outgoing}. Keep the sound tail." if _combat_plan(plan)
+                           else f"End by completing this handoff: {outgoing}. Keep natural micro-motion and the sound tail.")
         clause_evidence["TRANSITION.OUTGOING"] = outgoing
 
     translated_sounds = contract.get("sounds") or {}
@@ -1468,9 +1493,9 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
 
     camera_receipt: list[dict[str, Any]] = []
     if scoped:
-        camera, camera_receipt = _camera_section(unit, plan, contract, action_beats)
+        camera, camera_receipt = _camera_section(unit, plan, contract, action_beats, combat=_combat_plan(plan))
     else:
-        camera = _camera(plan.get("camera_plan") or {})
+        camera = _camera(plan.get("camera_plan") or {}, combat=_combat_plan(plan))
     clause_evidence["CAMERA.PLAN"] = camera
     physical_rules = []
     if plan.get("interaction_topology_required"):
