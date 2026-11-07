@@ -8168,6 +8168,22 @@ def s7_post_level_audio_chain(ctx: Ctx, res: StageResult, steps: list[dict[str, 
 
 FINAL_RELEASE_GATE_ID = "FINAL-RELEASE-DEFAULT-ACCEPTANCE"
 FINAL_RELEASE_MEDIA_ITEM = "final"
+#: final-bundle evidence the portable orchestrator never writes on this line (run_episode_qa.sh is recorded but not
+#: run; watch_report is the S8 approval, which cannot exist before S7).  A gate FAILing only because one of these is
+#: absent is a structural gap of the line, not missing proof of this cut (field device …1324 E01, 2026-11-07).
+LINE_UNPRODUCED_EVIDENCE = frozenset({"final_package_manifest", "ci_report", "render_plan",
+                                      "audio_provenance_manifest", "watch_report"})
+
+
+def _evidence_missing_keys(failures: list[Any]) -> list[str] | None:
+    """The evidence keys a gate row reports as missing, or None when any failure is something else."""
+    keys = []
+    for failure in failures or []:
+        text = str(failure)
+        if not text.startswith("required_evidence_missing:"):
+            return None
+        keys.append(text.split(":", 2)[1])
+    return keys
 
 
 def s7_default_release_acceptance(ctx: Ctx, final_qa: dict[str, Any], review_rejected: bool) -> dict[str, Any]:
@@ -8182,8 +8198,25 @@ def s7_default_release_acceptance(ctx: Ctx, final_qa: dict[str, Any], review_rej
     if not ctx.p.final_candidate.is_file():
         return {"status": BLOCKED, "blockers": ["FINAL_CANDIDATE_MISSING"]}
     failing = ["final:FINAL_AUDIENCE_REVIEW_REJECTED"] if review_rejected else []
-    failing += sorted({f"final:{row.get('gate_id')}" for row in final_qa.get("stage_gate_rows") or []
-                       if row.get("status") != PASS and row.get("gate_id")})
+    summary = read_json(Path(str(final_qa.get("stage_gate_summary") or "")), {}) or {} \
+        if final_qa.get("stage_gate_summary") else {}
+    full_rows = {str(r.get("gate_id")): r for r in summary.get("results") or summary.get("gates") or []}
+    evidence_gaps: list[str] = []
+    gates: set[str] = set()
+    for row in final_qa.get("stage_gate_rows") or []:
+        gid = str(row.get("gate_id") or "")
+        if not gid or row.get("status") == PASS:
+            continue
+        missing = _evidence_missing_keys((full_rows.get(gid) or {}).get("failures") or [row.get("first_failure")])
+        if missing is not None:
+            unproduced = [k for k in missing if k.split(":", 1)[0] in LINE_UNPRODUCED_EVIDENCE]
+            if len(unproduced) != len(missing):  # real proof of this cut is missing: never released on an order
+                evidence_gaps.append(gid)
+                continue
+        gates.add(f"final:{gid}")
+    if evidence_gaps:
+        return {"status": BLOCKED, "blockers": [f"FINAL_EVIDENCE_MISSING:{','.join(sorted(evidence_gaps))}"]}
+    failing += sorted(gates)
     if not failing:  # the gates never produced rows: an evidence problem, not a quality verdict
         return {"status": BLOCKED, "blockers": list(final_qa.get("blockers") or ["FINAL_PACKAGE_QA_NOT_PASS"])}
     sha = sha256_file(ctx.p.final_candidate)
