@@ -1050,6 +1050,10 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
         source_action = spec.get("action") or {}
         combat = source_action.get("combat_choreography") if isinstance(
             source_action.get("combat_choreography"), dict) else None
+        # COMBAT_UNIT_DIRECTION_V1 (Roger 2026-11-06, E15 成片审看：打斗像静态 PPT): every fallback below
+        # used to end a COMBAT beat on 「…并保持 / 随后保持 / 停在」, so a 1.5–2.5 s exchange was told three
+        # times to settle and hold.  A COMBAT beat gets real-time wording instead; authored text still wins.
+        combat_beat = normalize_action_kind(source_action.get("action_kind")) == "COMBAT"
         entry = str(shot.get("entry_state") or "")
         completion = str(shot.get("completion_state") or "")
         primary = str(source_action.get("primary_action") or "")
@@ -1143,8 +1147,13 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                 "continuous_micro_action": (
                     f"呼吸连续；{member['character']}的眼神先于头部改变一次，"
                     f"眼睑与下颌只在因果点响应"),
-                "event_reaction": f"只对「{primary or entry}」发生一次可见反应，随后保持「{state}」",
+                "event_reaction": (
+                    f"接触瞬间被「{primary or entry}」的力道带动一次，身体继续移动到「{state}」，不摆姿势"
+                    if combat_beat else
+                    f"只对「{primary or entry}」发生一次可见反应，随后保持「{state}」"),
                 "body_sync": (
+                    f"重心先动，手臂与兵器随后，接触后肩背吸收冲击并继续移动到「{state}」，不定格不复位"
+                    if combat_beat else
                     f"视线先动，下颌与肩颈随后，重心最后完成并停在「{state}」，不复位不重演"),
                 "state_authority": state,
             }
@@ -1206,6 +1215,8 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
             "still_prompt_contract": (
                 f"首帧只表现 entry_state「{entry}」；严禁出现 completion_state「{completion}」"),
             "video_motion_contract": (
+                f"从「{entry}」经「{primary or delta_text}」到「{completion}」实时完成，接触后继续位移，不定格不慢放"
+                if combat_beat else
                 f"从「{entry}」经「{primary or delta_text}」到「{completion}」一次完成并保持结果态"),
             "palette": {
                 "dominant": str(palette.get("base") or "靛黑夜色"),
@@ -1304,6 +1315,8 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                 **({"listener_reaction_en": source_action["listener_reaction_en"]}
                    if source_action.get("listener_reaction_en") else {}),
                 "microexpression_design": source_action.get('microexpression_design') or (
+                    "眼神盯住对手的兵器，接触瞬间咬牙发力，受力后呼吸加重；表情随动作连续变化，不停顿摆姿势"
+                    if cast_rows and combat_beat else
                     f"眼神先于头部改变一次，呼吸与下颌在因果点响应，随后保持「{arc_exit}」"
                     if cast_rows else
                     # 2026-10-16 (miniPC 《画皮》 E01 S5): the no-cast fallback spelled 夜无疆's snow, so a
@@ -1314,6 +1327,9 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                 # Authored design wins; the template is only a fallback.  Before
                 # this, an authored physical_action_design was silently replaced.
                 "physical_action_design": source_action.get('physical_action_design') or (
+                    f"「{primary or entry}」实时完成：起势→接触或闪避→受力反馈→移到新位置「{completion}」；"
+                    f"接触后身体继续移动，禁止定格、摆姿势或慢动作"
+                    if combat_beat else
                     f"「{primary or entry}」一次完成并停在「{completion}」；"
                     f"尾帧保留呼吸、衣料与道具惯性微动，禁止循环、复位或另起动作"),
                 # Was hard-coded NON_COMBAT.  is_combat_unit trusts declared kinds
@@ -1344,8 +1360,13 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                 "continuous_micro_action": (
                     "呼吸连续，眼神先动，眼睑与下颌只在因果点变化一次"
                     if cast_rows else "本镜已登记主体与场景光影保持连续微动，不新增天气或物件"),
-                "event_reaction": (spec.get('performance') or {}).get('event_reaction') or f"对「{primary or entry}」只发生一次可见反应，随后保持「{completion}」",
+                "event_reaction": (spec.get('performance') or {}).get('event_reaction') or (
+                    f"接触瞬间被「{primary or entry}」的力道带动，继续移动到「{completion}」，不摆姿势"
+                    if combat_beat else
+                    f"对「{primary or entry}」只发生一次可见反应，随后保持「{completion}」"),
                 "body_sync": (spec.get('performance') or {}).get('body_sync') or (
+                    "重心先动，手臂与兵器随后，接触后肩背吸收冲击并继续移动，不定格"
+                    if cast_rows and combat_beat else
                     "视线先行，下颌与肩颈随后，手部或重心最后完成并保持"
                     if cast_rows else "环境力学按同一方向完成一次变化并保持"),
                 "actor_performance": actor_performance,
