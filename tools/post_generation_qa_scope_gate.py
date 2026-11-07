@@ -24,6 +24,11 @@ ALLOWED_BASIC_PLOT_CHECKS = {
     "major_event_presence", "major_dialogue_presence", "chronological_unit_order",
     "action_outcome_visible", "antagonist_motive_readable", "new_entity_purpose_readable",
 }
+#: Roger 2026-11-07 (authorised, narrow): the ONE measured exception to "no dynamic media analysis".
+#: Runs only on COMBAT units, measures only the longest window in which every fighter's body keypoints stand
+#: still, and a FAIL sends the unit back to the writer for redesign — never an automatic reroll.
+#: tools/combat_execution_check.py; calibration in tools/tests/test_combat_execution_check.py.
+ALLOWED_COMBAT_CHECKS = {"combat_execution"}
 FORBIDDEN_POST_GENERATION_CHECKS = {
     "action_reasonableness", "gesture_precision", "hand_contact_precision",
     "microexpression_precision", "task_detail_compliance", "camera_action_detail",
@@ -35,7 +40,7 @@ FORBIDDEN_POST_GENERATION_CHECKS = {
 
 def evaluate(requested_checks: list[str]) -> dict[str, Any]:
     requested = {str(value).strip() for value in requested_checks if str(value).strip()}
-    allowed = ALLOWED_TECHNICAL_CHECKS | ALLOWED_BASIC_PLOT_CHECKS
+    allowed = ALLOWED_TECHNICAL_CHECKS | ALLOWED_BASIC_PLOT_CHECKS | ALLOWED_COMBAT_CHECKS
     forbidden = sorted(requested & FORBIDDEN_POST_GENERATION_CHECKS)
     unknown = sorted(requested - allowed - FORBIDDEN_POST_GENERATION_CHECKS)
     failures = [*(f"FORBIDDEN_POST_GENERATION_QA:{value}" for value in forbidden), *(f"UNKNOWN_POST_GENERATION_QA:{value}" for value in unknown)]
@@ -47,6 +52,8 @@ def evaluate(requested_checks: list[str]) -> dict[str, Any]:
         "dynamic_media_analysis": "NOT_RUN_BY_OWNER_POLICY",
         "allowed_technical_checks": sorted(ALLOWED_TECHNICAL_CHECKS),
         "allowed_basic_plot_checks": sorted(ALLOWED_BASIC_PLOT_CHECKS),
+        "allowed_combat_checks": sorted(ALLOWED_COMBAT_CHECKS),
+        "combat_check_scope": "COMBAT units only; longest all-fighters-still window; FAIL -> writer redesign, never auto reroll",
         "explicitly_forbidden_post_generation_checks": sorted(FORBIDDEN_POST_GENERATION_CHECKS),
         "requested_checks": sorted(requested),
         "failures": failures,
