@@ -2313,6 +2313,17 @@ def main() -> int:
     }
     transaction_path = write_json(out_dir / f"{prefix}VIDEO_TRANSACTION_MANIFEST_V1.json", transaction)
 
+    def _fight_scope_args(plan_x: dict[str, Any], out_dir_x: Path, prefix_x: str) -> list[str]:
+        if not plan_x.get("wave"):
+            return []
+        full_plan = out_dir_x / f"{prefix_x}VIDEO_UNIT_GROUPING_PLAN_V1.json"
+        full_anchor = out_dir_x / f"{prefix_x}VIDEO_UNIT_ANCHOR_PLAN_H3_COMPILE_V1.json"
+        if not full_anchor.is_file():
+            full_anchor = out_dir_x / f"{prefix_x}VIDEO_UNIT_ANCHOR_PLAN_V1.json"
+        if not (full_plan.is_file() and full_anchor.is_file()):
+            return []
+        return ["--fight-scope-grouping-plan", str(full_plan), "--fight-scope-anchor-plan", str(full_anchor)]
+
     compile_attempt = run_cli(engine, [
         str(root / "tools" / "compile_grouped_seedance_manifest.py"),
         "--grouping-plan", str(plan_path), "--anchor-plan", str(compile_anchor_path),
@@ -2324,6 +2335,9 @@ def main() -> int:
         "--out", str(out_dir / f"{prefix}GROUPED_SEEDANCE_MANIFEST_V1.json"),
         "--final-prompt-dir", str(prompt_dir),  # nalu e13b: strict final prompts + index
         *(["--dialogue-language", args.language] if args.language != "zh" else []),
+        # A rolling wave is a slice of the episode: COMBAT_EXCHANGE_V1 adds a declared fight up over the
+        # full grouping plan (planning-only compile), not over the few units in the wave (E15 2026-11-07).
+        *_fight_scope_args(plan, out_dir, prefix),
     ], root)
     stage("4.4_compile_grouped_seedance_manifest",
           "PASS" if compile_attempt["returncode"] == 0 else "BLOCKED",

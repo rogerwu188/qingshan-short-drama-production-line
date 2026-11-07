@@ -926,7 +926,8 @@ def _evaluate_combat_fights(units: list[dict[str, Any]]) -> list[dict[str, Any]]
 def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editorial: dict[str, Any],
                      *, planning_only: bool = False, visual_culture_contract: dict[str, Any] | None = None,
                      character_entities: list[dict[str, Any]] | None = None,
-                     dialogue_language: str = "zh") -> dict[str, Any]:
+                     dialogue_language: str = "zh",
+                     fight_scope: tuple[dict[str, Any], dict[str, Any]] | None = None) -> dict[str, Any]:
     """``planning_only`` (nalu engine patch e13, 2026-09-12): compile the structured unit
     contracts BEFORE any keyframe exists, for the whole-batch prompt QA that
     tools/episode_prompt_batch_gate.py demands ahead of the first paid image POST
@@ -1279,7 +1280,21 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
     # that cannot see a fight's total. Add each fight up across its units — the exchange count and
     # either-side initiative — so a two-unit fight of one exchange each, or an episode of single
     # blows, fails here (still before any paid POST).
-    _exchange_fights = _evaluate_combat_fights(units) if units else []
+    # A rolling-wave compile holds only the units that are ready to post (E15 2026-11-07: the four re-render
+    # units carried 2 of the 傅恩涛 bout's 5 exchanges and the gate failed a fight the full plan passes).
+    # ``fight_scope`` = (full grouping plan, full anchor plan): the bout is added up over a planning-only
+    # compile of the whole episode, so a wave is judged against the fight it belongs to, never its slice.
+    _fight_units = units
+    _fight_scope_note = None
+    if fight_scope is not None and units:
+        _scope_grouping, _scope_anchors = fight_scope
+        _scope = compile_manifest(_scope_grouping, _scope_anchors, editorial, planning_only=True,
+                                  visual_culture_contract=visual_culture_contract,
+                                  character_entities=character_entities, dialogue_language=dialogue_language)
+        _fight_units = list(_scope.get("units") or [])
+        _fight_scope_note = {"scope": "FULL_GROUPING_PLAN_PLANNING_COMPILE",
+                             "scope_unit_count": len(_fight_units), "compiled_unit_count": len(units)}
+    _exchange_fights = _evaluate_combat_fights(_fight_units) if _fight_units else []
     for _fight in _exchange_fights:
         if _fight["status"] == "FAIL":
             raise ValueError(";".join(_fight["failures"]))
@@ -1363,6 +1378,7 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
         "anchor_plan_sha256": None,
         "editorial_seedance_manifest_sha256": None,
         "units": units,
+        **({"combat_exchange_fight_scope": _fight_scope_note} if _fight_scope_note else {}),
     }
 
 
@@ -1387,6 +1403,11 @@ def main() -> int:
     parser.add_argument("--directing-script", type=Path)
     parser.add_argument("--generation-contract", type=Path)
     parser.add_argument("--supervisor-report", type=Path)
+    parser.add_argument("--fight-scope-grouping-plan", type=Path,
+                        help="full grouping plan the COMBAT_EXCHANGE_V1 fight accounting is judged over when "
+                             "--grouping-plan is a rolling wave (a slice of a fight is not the fight)")
+    parser.add_argument("--fight-scope-anchor-plan", type=Path,
+                        help="anchor plan matching --fight-scope-grouping-plan (planning-only compile)")
     parser.add_argument("--planning-only", action="store_true",
                         help="nalu e13: compile unit contracts and PLANNED provider prompts before keyframes exist "
                              "(compile_model_prompt preproduction_only=True); never an admission")
@@ -1420,10 +1441,14 @@ def main() -> int:
               "decision_owner": vc.get("decision_owner") or "WRITER_DIRECTOR",
               "source_ref": vc.get("source_ref") or "E59_GENERATION_CONTRACT_v1.json#visual_culture_contract",
               "forbidden_influences": list(dict.fromkeys(list(vc.get("forbidden_influences") or []) + ["欧洲中世纪骑士", "西式板甲", "黑金奇幻"]))}
+    if bool(args.fight_scope_grouping_plan) != bool(args.fight_scope_anchor_plan):
+        raise SystemExit("--fight-scope-grouping-plan and --fight-scope-anchor-plan must be given together")
+    fight_scope = ((load(args.fight_scope_grouping_plan), load(args.fight_scope_anchor_plan))
+                   if args.fight_scope_grouping_plan else None)
     result = compile_manifest(load(args.grouping_plan), load(args.anchor_plan), load(args.editorial_seedance_manifest),
                               planning_only=bool(args.planning_only), visual_culture_contract=vc,
                               character_entities=character_entities,
-                              dialogue_language=args.dialogue_language)
+                              dialogue_language=args.dialogue_language, fight_scope=fight_scope)
     # Opt-in DIRECTOR_PROMPT_V2 H3 prompt style (generation contract top-level h3_prompt_style): stamp only
     # the H3 units of a contract that declares it; every other unit stays byte-identical (no field).
     if args.generation_contract and args.generation_contract.is_file():
