@@ -112,7 +112,11 @@ if [ -n "$SUDO" ] && command -v apt-get >/dev/null; then
   run $SUDO apt-get install -y -qq git ffmpeg fonts-noto-cjk build-essential python3-dev curl xz-utils
 fi
 mkdir -p "$HOME/.local/bin" "$HOME/.local/share/fonts"
-if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+# the loudness/levelling tools need ffmpeg >= 6; Ubuntu 22.04's apt ffmpeg is 4.4 and fails them (field device
+# …1324 E01 2026-11-06: Codex fetched a static 7.x itself mid-S7).  An older ffmpeg gets the user-space static
+# build in ~/.local/bin, which is ahead of /usr/bin on PATH.
+ff_major="$(ffmpeg -version 2>/dev/null | sed -n '1s/^ffmpeg version n\{0,1\}\([0-9]*\).*/\1/p')"
+if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null || [ "${ff_major:-0}" -lt 6 ] 2>/dev/null; then
   tmp="$(mktemp -d)"
   if run curl -fsSL -o "$tmp/ff.tar.xz" https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz \
      && run tar -xJf "$tmp/ff.tar.xz" -C "$tmp"; then

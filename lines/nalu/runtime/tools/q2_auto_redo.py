@@ -8,6 +8,9 @@ clips and before the video_q2 review is requested:
 * candidates: units whose ``prepare.json`` records ``face_count`` (duplicates / extra people),
   ``speaker_framing`` or ``push_in`` (locked camera, face width +50 %; line owner 2026-10-29, lab E08) FAIL —
   duplicates first, then speaker framing, then push-in, then the §5 viewer order (earlier units first);
+* a unit whose current clip the line owner already accepted (an active GATE_FAIL_ACCEPTANCE order bound to
+  that clip's sha) is not redone: the owner kept it, a redo would spend credits against the order (field
+  device …1324 E01, 2026-11-06: 6 of 8 auto-redos were units the owner had just accepted);
 * each unit at most once (``<EP>_S6_WAVE_STATE.json`` ``q2_auto_redo``, keyed by unit, with the failed clip
   sha); a unit already redone, or one the budget headroom cannot cover, goes to the review and the §5
   default accept exactly as before;
@@ -52,11 +55,13 @@ def objective_failures(prepare_row: dict[str, Any]) -> list[str]:
 
 
 def plan(prepare_rows: dict[str, dict[str, Any]], attempted: dict[str, Any], *, headroom: int | None,
-         unit_cost: Callable[[str], int], unit_order: list[str] | None = None) -> dict[str, Any]:
+         unit_cost: Callable[[str], int], unit_order: list[str] | None = None,
+         owner_accepted: dict[str, Any] | None = None) -> dict[str, Any]:
     """Which units the engine redoes now.  Pure: no I/O.
 
     ``prepare_rows`` unit -> prepare.json row; ``attempted`` the wave-state ``q2_auto_redo`` map;
-    ``headroom`` credits left under the episode cap (None = unknown -> nothing is redone)."""
+    ``headroom`` credits left under the episode cap (None = unknown -> nothing is redone);
+    ``owner_accepted`` unit -> order seq of a line-owner acceptance bound to the unit's current clip sha."""
     order = {uid: index for index, uid in enumerate(unit_order or sorted(prepare_rows))}
     candidates = []
     for uid, row in prepare_rows.items():
@@ -71,6 +76,10 @@ def plan(prepare_rows: dict[str, dict[str, Any]], attempted: dict[str, Any], *, 
     for _, _, uid, failed in candidates:
         if uid in (attempted or {}):
             skipped.append({"unit_id": uid, "failures": failed, "reason": "ALREADY_REDONE_ONCE"})
+            continue
+        if uid in (owner_accepted or {}):
+            skipped.append({"unit_id": uid, "failures": failed, "reason": "LINE_OWNER_ACCEPTED_THIS_CLIP",
+                            "order_seq": (owner_accepted or {})[uid]})
             continue
         cost = int(unit_cost(uid))
         if headroom is None:
