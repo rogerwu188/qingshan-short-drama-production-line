@@ -85,6 +85,17 @@ def _authored_move(text: str | None) -> bool:
 R7R8_REPORT_ONLY_EPISODES = {"E01", "E02"}   # seq=10 rules; BLOCK from E03
 
 
+def _fight_design(contract: dict) -> dict:
+    try:
+        import fight_design_gate as _fdg
+    except ModuleNotFoundError:
+        try:
+            from tools import fight_design_gate as _fdg  # type: ignore
+        except ModuleNotFoundError:
+            return {"status": "UNAVAILABLE", "failures": []}
+    return _fdg.evaluate(contract)
+
+
 def _cp(shot: dict) -> dict:
     return ((shot.get("prompt_spec") or {}).get("camera_plan") or {})
 
@@ -242,7 +253,15 @@ def evaluate(contract: dict, policy: dict, *, current_policy: bool = False) -> d
         # P1.3 TODO (codex §2.5): when motion-purpose is active, R1 should count
         # locked shots WITHOUT valid motivation + body action, not all locked shots.
         (advisories if (grammar or locked_dialogue) else failures).insert(0, f"R1_LOCKED_SHARE_{share}_OVER_{policy['locked_share_max']}")
-    result = {"shot_count": len(rows), "locked_count": locked_n, "locked_share": share, "rows": rows, "failures": failures}
+    # FIGHT_DESIGN_V1 (Roger 2026-11-07「以后的打斗片段，生产线都能学会怎么生产」): the E14/E15 fight shapes —
+    # locked COMBAT shots, tactical lines inside the exchange, narrated fight scenes, exchanges too short to be
+    # their own unit, fighters facing the lens, uncarded weapons — BLOCK here, before any keyframe is paid.
+    fight = _fight_design(contract)
+    if fight.get("status") == "BLOCK":
+        failures.extend(f"FD_{row['code']}:{row.get('shot_id') or row.get('scene_id') or ','.join(row.get('shot_ids') or [])}"
+                        for row in fight["failures"])
+    result = {"shot_count": len(rows), "locked_count": locked_n, "locked_share": share, "rows": rows, "failures": failures,
+              "fight_design": fight}
     if grammar:
         result.update({"camera_grammar_policy": _cg.POLICY_ID, "advisories": advisories})
     if locked_dialogue:
