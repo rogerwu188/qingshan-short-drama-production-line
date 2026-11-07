@@ -74,3 +74,12 @@ def test_renderer_condensed_feedback_never_settles_a_combat_beat():
     assert renderer._condense_feedback(feedback, translated, combat=True) == renderer.COMBAT_CONDENSED_FEEDBACK
     assert "settles" in renderer._condense_feedback(feedback, translated)
     assert renderer._combat_beat({"force_origin": "x"}) and not renderer._combat_beat({})
+
+
+def test_postable_manifest_without_combat_classification_fails_closed(tmp_path):
+    task = {"task_key": "VU-010", "scene_id": "S06", "prompt_file": str(tmp_path / "x.txt")}
+    staged = {"episode": "E15", "provider_post_allowed": False, "tasks": [dict(task)]}
+    assert gate.evaluate_manifest(staged, root=tmp_path)["status"] == "PASS"
+    postable = {"episode": "E15", "provider_post_allowed": True, "tasks": [dict(task)]}
+    codes = [f["code"] for f in gate.evaluate_manifest(postable, root=tmp_path)["failures"]]
+    assert codes == ["COMBAT_CLASSIFICATION_MISSING"]
