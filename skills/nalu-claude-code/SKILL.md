@@ -148,6 +148,14 @@ python3 $S/codex_production.py report                                # 给线主
 - `IDLE` + `WAITING_REMOTE`：5 分钟后 `resume --message "继续"`。
 - `IDLE` + `BLOCKED` / `ERROR`：属于安装/环境问题的由代理修好后 `resume --message "继续"`；修不了的把 note 和日志末尾记进
   `$NALU_RUNTIME_ROOT/series/STATUS.md` 并告诉线主，本项目暂停。
+- `IDLE` + `FINAL_REVIEW_REQUIRED`（S7 独立终审；本机没有专门的审核 agent，由你安排）：用子智能体开一个**独立**审核者，
+  模型从请求的白名单里选（优先 `storyclaw/claude-opus-5`，不可用用 `storyclaw/gpt-5.6-sol`），如实填模型和它自己的会话 id。
+  交给它：读 `runtime/reviews/<EP>/final_audience_request.json`，对候选片按请求完整看三遍（有声：抽帧/联系表对照字幕和 ASR；
+  静音：只看画面；只听：ASR 和音频指标），逐镜写自己的观察、八项打分、带时间戳的事件，写 `final_audience_answers.json`
+  （`agent_id: storyclaw-final-audience-reviewer`，`role: independent_final_audience_reviewer`），再由它自己跑请求里的 `submit` 命令。
+  你和 Codex 都不写答案、不改结论。提交后（通过或判拒都一样）：`resume --message "继续"`。判拒不停线（线主 2026-11-07：
+  上百台机器无人值守，不能逐台裁决）：Codex 按 §5 默认条款记一张终审放行订单后发行；整体判词和硬伤原样记进
+  `series/STATUS.md`，不用等线主回复。
 - `IDLE` + `FINAL_CUT_READY`：不要停，按 §6 发行，再按 §7 启动下一集。`note` 里的默认接受记录汇总进 `series/STATUS.md`。
 - `IDLE` 但没有 NALU_STATUS 行（会话异常结束）：`resume --message "继续，并在最后输出 NALU_STATUS 行"`。
 - `reason` 以 `PROVIDER_ERROR` 开头：LLM provider 的 key、额度或地址出问题，告诉线主，本项目暂停。
