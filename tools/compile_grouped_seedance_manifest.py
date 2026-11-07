@@ -1082,6 +1082,12 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
         exchange_policy = next((str(spec.get("combat_exchange_policy") or "").strip()
                                 for spec in prompt_specs
                                 if str(spec.get("combat_exchange_policy") or "").strip()), "")
+        # Same rule for the wuxia profile signals (tools/wuxia_combat_profile_selector reads them off
+        # the unit): a writer who declares weapon_type=UNKNOWN on a unit's prompt spec is opting that
+        # unit out of the inferred PRIMARY_ACTION profile (E15 VU-017: a thrown spear and a dodge got
+        # a "spear thrust parried by a short blade" cue that nothing in the unit performs).
+        wuxia_signals = next((spec.get("wuxia_combat_profile_signals") for spec in prompt_specs
+                              if isinstance(spec.get("wuxia_combat_profile_signals"), dict)), None)
         compiled_unit = {
             "unit_id": unit_id,
             "scene_id": unit["scene_id"],
@@ -1116,6 +1122,7 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             **({'camera_scope_policy': 'PER_SHOT_EXPLICIT', 'camera_time_coordinate': 'EPISODE'}
                if per_shot_camera else {}),
             **({"combat_exchange_policy": exchange_policy} if exchange_policy else {}),
+            **({"wuxia_combat_profile_signals": wuxia_signals} if wuxia_signals else {}),
             "transition_contract": transition_contract,
             "internal_transition_contracts": unit.get("internal_transition_contracts") or [],
             # Keep the authoritative continuity ledgers in the compiled unit.

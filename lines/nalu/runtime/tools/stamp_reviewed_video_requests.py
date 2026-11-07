@@ -41,6 +41,19 @@ def resolve(value: str) -> Path:
     return path if path.is_absolute() else ENGINE / path
 
 
+
+def _any_bound_take_has_prompt(transaction_dir: Path, task_key: str, prompt_sha256: str) -> bool:
+    """True when a provider-bound transaction of this task already carries this exact prompt."""
+    for path in sorted(Path(transaction_dir).glob(f"{task_key}__*.json")):
+        try:
+            row = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if (row.get("state") == "SUBMITTED_TASK_ID_BOUND" or row.get("task_id")) \
+                and str(row.get("prompt_sha256") or "") == prompt_sha256:
+            return True
+    return False
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--episode", required=True)
@@ -95,6 +108,17 @@ def main(argv=None) -> int:
         if signed_change:
             others = prd.bound_under_other_fingerprint(transaction_dir, key, task_fingerprint(task))
             if others:
+                task["supersedes_submission_fingerprints"] = others
+                out["supersedes_declared"][key] = others
+        elif unchanged_since_review:
+            # Stamper gap (E15 fight redesign, 2026-11-07): a unit whose REVIEWED batch prompt changed
+            # after its take was bound renders UNCHANGED at finalization (final == planned), so it had
+            # no signed receipt and never declared a supersede -> BOUND_UNDER_OTHER_FINGERPRINT on
+            # VU-014/015/017/018.  The redo is deliberate exactly when the current prompt differs from
+            # EVERY bound take's prompt_sha256; a take bound to this same prompt keeps the refusal
+            # (no identical-prompt reroll, K130).
+            others = prd.bound_under_other_fingerprint(transaction_dir, key, task_fingerprint(task))
+            if others and not _any_bound_take_has_prompt(transaction_dir, key, task_sha):
                 task["supersedes_submission_fingerprints"] = others
                 out["supersedes_declared"][key] = others
 

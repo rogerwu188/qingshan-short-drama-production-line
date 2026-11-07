@@ -1383,6 +1383,10 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
             # The authored combat chain travels at spec level too: the compiler requires it on any
             # beat declared COMBAT (tools/grouped_performance_contract).
             **({"combat_choreography": combat} if combat else {}),
+            # Writer-declared wuxia profile signals (tools/wuxia_combat_profile_selector): the compiler
+            # lifts them onto the unit, so a unit can opt out of an inferred PRIMARY_ACTION profile.
+            **({"wuxia_combat_profile_signals": spec["wuxia_combat_profile_signals"]}
+               if isinstance(spec.get("wuxia_combat_profile_signals"), dict) else {}),
             "sound_design": sound,
             "audio_contract": "SAME_VIDEO_TASK_NATIVE_AUDIO" if dialogue else "DIEGETIC_OR_SILENT_NO_TTS",
             "negative_prompts": negatives,
