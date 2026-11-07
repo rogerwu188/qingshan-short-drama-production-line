@@ -1387,6 +1387,10 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
             # lifts them onto the unit, so a unit can opt out of an inferred PRIMARY_ACTION profile.
             **({"wuxia_combat_profile_signals": spec["wuxia_combat_profile_signals"]}
                if isinstance(spec.get("wuxia_combat_profile_signals"), dict) else {}),
+            # COMBAT_EXCHANGE_V1 is opt-in by declaration on the prompt spec (configs/COMBAT_EXCHANGE_V1.json);
+            # the projection dropped it, so the exchange gate silently stayed NOT_ACTIVE on E15 (2026-11-07).
+            **({"combat_exchange_policy": str(spec["combat_exchange_policy"])}
+               if str(spec.get("combat_exchange_policy") or "").strip() else {}),
             "sound_design": sound,
             "audio_contract": "SAME_VIDEO_TASK_NATIVE_AUDIO" if dialogue else "DIEGETIC_OR_SILENT_NO_TTS",
             "negative_prompts": negatives,
