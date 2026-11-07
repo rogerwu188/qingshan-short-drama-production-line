@@ -564,7 +564,7 @@ def _camera_english(
     return values
 
 
-def _camera_scoped(camera_plan: dict[str, Any], english: dict[str, str]) -> str:
+def _camera_scoped(camera_plan: dict[str, Any], english: dict[str, str], *, combat: bool = False) -> str:
     family = str(camera_plan.get("motion_family") or "STATIC").upper()
     direction = str(camera_plan.get("motion_direction") or "NONE").upper()
     scale = str(camera_plan.get("shot_scale") or "MEDIUM").upper()
@@ -653,7 +653,7 @@ def _camera_section(
         failures: list[str] = []
         english = _camera_english(uid, "UNIT", camera_plan, contract.get("camera_plan") or {}, failures)
         one_take = _ONE_TAKE_CLAUSE if camera_plan.get("camera_grammar") == "CAMERA_GRAMMAR_V1" else ""
-        return _camera_scoped(camera_plan, english) + one_take + _strict_lock_clause(
+        return _camera_scoped(camera_plan, english, combat=combat) + one_take + _strict_lock_clause(
             unit, plan, [camera_plan], bool(one_take)), [{
             "shot_id": "UNIT", "fields": sorted(english), "untranslated_fields": failures,
         }]
@@ -668,7 +668,7 @@ def _camera_section(
         boundary = "opening shot" if index == 0 else _shot_boundary(unit, index - 1, rows[index - 1], row, uid)
         lines.append(
             f"SHOT {index + 1} [{float(row['start']):g}s-{float(row['end']):g}s] ({boundary}): "
-            + _camera_scoped(row["camera_plan"], english)
+            + _camera_scoped(row["camera_plan"], english, combat=combat)
         )
         receipt.append({
             "shot_id": label, "boundary": boundary, "fields": sorted(english), "untranslated_fields": missing,
