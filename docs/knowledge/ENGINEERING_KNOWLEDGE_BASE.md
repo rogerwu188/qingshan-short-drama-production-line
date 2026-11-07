@@ -1715,3 +1715,12 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **授权**：Roger 2026-11-06 「你自己定，不要问我」 / 「生产线的时间是定死的」
 - **状态**：REFERENCE_IMPLEMENTATION
 
+### K172 — S1-S5
+
+- **规则**：A fight is written and grouped as silent combat runs of at least 4 s per video unit (lines go before/after the exchange or to V.O.), each combat unit keeps the writer's motivated camera move, fighters are blocked as opponents (side-on or over-the-shoulder), never both faces to the lens, and no combat beat is told to hold or settle. In a scene that contains combat, combat units are at least 50 % of the scene's seconds. COMBAT_UNIT_DIRECTION_V1 blocks the paid submission otherwise (CU1-CU5).
+- **教训**：E15 shipped a 70 s fight with zero visible weapon contact. The writer contract authored 9 COMBAT beats with full attack/defence chains, but each exchange sat between tactical lines, so unit grouping merged every combat shot into a dialogue unit; K148 then locked all 30 units to a tripod (authored moves survived only in motivation); builder fallbacks and the H3 renderer told every 1.5-2.5 s exchange to 'settle and hold'; S12-01/S14-01 composed both fighters facing the lens. Every existing gate passed, and the camera gate rewarded the locked shots.
+- **恢复**：Run tools/combat_unit_direction_gate.py on the transaction manifest (it also runs inside production_video_submission_gate). On BLOCK, return the fight scenes to the writer for redesign: silent combat runs >= 4 s, lines moved out, opponent blocking; never patch the old prompts and retry.
+- **实现**：`tools/combat_unit_direction_gate.py`、`configs/COMBAT_UNIT_DIRECTION_V1.json`、`tools/production_video_submission_gate.py`、`lines/nalu/runtime/tools/build_nalu_preproduction.py`、`tools/h3_provider_prompt_renderer.py`、`tools/tests/test_combat_unit_direction_gate.py`
+- **证据**：E15 2026-11-06 final candidate: transaction manifest blocks on 33 items (CU1 x7, CU2 x7, CU3 x9, CU4 x4 scenes S06/S11/S12/S15, CU5 x2 VU-020/VU-027).
+- **授权**：Roger 2026-11-06 E15 成片审看「检查下这集的问题，特别是打斗的问题」/「查清楚原因，解决这个问题」/「防止本机或者其他生产线以后再犯同样问题」
+- **状态**：REFERENCE_IMPLEMENTATION
