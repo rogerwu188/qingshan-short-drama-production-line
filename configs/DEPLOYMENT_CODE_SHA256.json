@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2386,
+  "file_count": 2387,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -941,7 +941,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "a307cd234716ccf655336b3e97af6f79986dc04663af0a4f3a91061110e96d90"
+      "sha256": "9826cd2ec05138abcd0f5ee79cc5f69655a873ac666fb341d94acb0fc0be6b98"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -5349,7 +5349,7 @@
     },
     {
       "path": "tools/isolate_rejected_reference.py",
-      "sha256": "677c648e50533357d734b10dd71590e3f7a854758026cd1c9c3b2e09505c2717"
+      "sha256": "dbaeed2d29ccaf06680fc66fed4044596826505dd377420150d95d749dead3b4"
     },
     {
       "path": "tools/keyframe_entry_scene_projection.py",
@@ -7928,6 +7928,10 @@
       "sha256": "20f1551eb59005c2fe13a3859829d6eda7d61fa797766751089d62bf0fd49da1"
     },
     {
+      "path": "tools/tests/test_identity_plate_id_boundary.py",
+      "sha256": "b669146cd83da8cbd093388771bd7e5a52533811c20a89aa2c361ff58780fc5c"
+    },
+    {
       "path": "tools/tests/test_identity_pose_reference.py",
       "sha256": "7fa2f30f890277fad31078271ac32471e2972d52b8fecdc57c7525a4780ec785"
     },
@@ -8457,7 +8461,7 @@
     },
     {
       "path": "tools/tests/test_provider_reference_exclusion.py",
-      "sha256": "eac7d950a525f15551f867c148f053360088d4c9361b3b22667de4e24dfed7d8"
+      "sha256": "fe23e76f4f5f406b85629edc1e09f9a693d3bb87b959d4071b2f05e8287a7c6e"
     },
     {
       "path": "tools/tests/test_provider_request_binding.py",

@@ -12,7 +12,10 @@ prompt, quality low, 1024x1536) through the guarded HopsAPI transport:
 * every probe is a durable transaction in the episode's image store BEFORE the POST (the budget ledger
   counts it; a bound probe is recovered, never re-POSTed); probes are flagged
   ``reference_isolation_probe`` so they never feed the outage detector;
-* at most ``MAX_PROBES`` probes per run; the API key is never printed.
+* probes run in rounds: every reference once, then a second try only for the references that 424'd and
+  only when at least one other reference passed (all failing = provider down / prompt refusal: no more
+  probes).  At most ``MAX_PROBES`` probes per run; the API key is never printed.  (Device …1324 E02,
+  2026-11-07: 7 references x 2 tries refused up front at a cap of 12, so the opening shot stayed stuck.)
 
 A reference whose every try (``--tries``, default 2) settles as the uncharged 424 while at least one OTHER
 reference passes is written to ``$NALU_RUNTIME_ROOT/preproduction/<EP>/provider_reference_exclusions.json``
@@ -48,7 +51,7 @@ NEUTRAL_PROMPT = ("Neutral test render. Reproduce the general layout and colours
 PROBE_RESOLUTION = "1024x1536"
 PROBE_QUALITY = "low"
 DEFAULT_TRIES = 2
-MAX_PROBES = 12
+MAX_PROBES = 16
 POLL_SECONDS = 5
 SETTLE_WAIT_SECONDS = 240
 PAID_ENV = ("NALU_PAID_ORDER_SEQ", "NALU_PAID_AUTHORIZATION_REF")
@@ -217,11 +220,19 @@ def decide(results: dict[str, list[dict[str, Any]]], tries: int) -> dict[str, An
     rejected = [path for path, rows in results.items()
                 if len(rows) >= tries and all(row["outcome"] == "PROVIDER_424" for row in rows)]
     passed = [path for path, rows in results.items() if any(row["outcome"] == "PASS" for row in rows)]
-    if rejected and not passed:
+    all_424 = bool(results) and all(rows and all(row["outcome"] == "PROVIDER_424" for row in rows)
+                                    for rows in results.values())
+    if (rejected or all_424) and not passed:  # round two is skipped when nothing passed in round one
         return {"verdict": "ALL_REFERENCES_REJECTED_PROVIDER_DOWN_OR_PROMPTLESS_REFUSAL", "declare": []}
     if not rejected:
         return {"verdict": "NO_REFERENCE_DETERMINISTICALLY_REJECTED" if passed else "INCONCLUSIVE", "declare": []}
     return {"verdict": "REFERENCE_ISOLATED", "declare": rejected}
+
+
+def fits_cap(references: int) -> bool:
+    """Round one probes every reference once; a declared reference needs its own retry and at least one other
+    reference passing, so a run of ``MAX_PROBES`` can always conclude when ``references < MAX_PROBES``."""
+    return 0 < references < MAX_PROBES
 
 
 def isolate(*, episode: str, task: dict[str, Any], transaction_dir: Path, declaration_path: Path,
@@ -229,17 +240,22 @@ def isolate(*, episode: str, task: dict[str, Any], transaction_dir: Path, declar
             probe_kwargs: dict[str, Any] | None = None) -> dict[str, Any]:
     task_key = str(task["task_key"])
     refs = candidate_references(task)
-    if len(refs) * tries > MAX_PROBES:
-        raise SystemExit(f"PROBE_CAP:{len(refs)}x{tries}>{MAX_PROBES}")
-    results: dict[str, list[dict[str, Any]]] = {}
-    for index, ref in enumerate(refs, 1):
-        rows = results.setdefault(ref["path"], [])
-        for attempt in range(1, tries + 1):
-            row = run_probe(transport, task_key=task_key, episode=episode, ref=ref, index=index, attempt=attempt,
-                            transaction_dir=transaction_dir, **(probe_kwargs or {}))
-            rows.append(row)
-            if row["outcome"] != "PROVIDER_424":
-                break  # passed (or not a 424): not deterministic, no second try
+    if not fits_cap(len(refs)):
+        raise SystemExit(f"PROBE_CAP:{len(refs)}>{MAX_PROBES}")
+    results: dict[str, list[dict[str, Any]]] = {ref["path"]: [] for ref in refs}
+    used = 0
+    for attempt in range(1, tries + 1):
+        if attempt > 1 and not any(row["outcome"] == "PASS" for rows in results.values() for row in rows):
+            break  # nothing passed: provider down or the prompt is refused -- more probes prove nothing
+        for index, ref in enumerate(refs, 1):
+            rows = results[ref["path"]]
+            if attempt > 1 and (not rows or rows[-1]["outcome"] != "PROVIDER_424"):
+                continue  # passed (or not a 424): not deterministic, no further try
+            if used >= MAX_PROBES:
+                break
+            rows.append(run_probe(transport, task_key=task_key, episode=episode, ref=ref, index=index,
+                                  attempt=attempt, transaction_dir=transaction_dir, **(probe_kwargs or {})))
+            used += 1
     decision = decide(results, tries)
     entries = []
     by_path = {ref["path"]: ref for ref in refs}
@@ -295,14 +311,14 @@ def main(argv: list[str] | None = None) -> int:
     refs = candidate_references(task)
     plan = {"schema": SCHEMA_REPORT, "mode": "PLAN", "episode": episode, "task_key": args.task_key,
             "zero_cost_424_attempts": rejections, "references": refs,
-            "max_probes": len(refs) * args.tries, "probe_resolution": PROBE_RESOLUTION, "probe_quality": PROBE_QUALITY,
-            "planned_credits": _client().estimated_batch_credits(len(refs) * args.tries),
+            "max_probes": min(MAX_PROBES, len(refs) * args.tries), "probe_resolution": PROBE_RESOLUTION, "probe_quality": PROBE_QUALITY,
+            "planned_credits": _client().estimated_batch_credits(min(MAX_PROBES, len(refs) * args.tries)),
             "declaration": str(declaration)}
     if not rejections:
         plan["refused"] = "TASK_HAS_NO_ZERO_COST_424_ATTEMPT"
         print(json.dumps(plan, ensure_ascii=False))
         return 3
-    if not refs or len(refs) * args.tries > MAX_PROBES:
+    if not refs or not fits_cap(len(refs)):
         plan["refused"] = "NO_NON_IDENTITY_REFERENCE" if not refs else f"PROBE_CAP_{MAX_PROBES}"
         print(json.dumps(plan, ensure_ascii=False))
         return 3
