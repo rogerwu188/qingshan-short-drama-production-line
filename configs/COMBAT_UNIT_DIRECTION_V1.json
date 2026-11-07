@@ -7,8 +7,14 @@
   "rules": {
     "CU1": "COMBAT_UNIT_CAMERA_LOCKED: a combat unit is not rendered on a locked/tripod camera; the writer's authored move stays",
     "CU2": "COMBAT_UNIT_CARRIES_DIALOGUE: a combat unit carries no on-screen spoken line",
-    "CU3": "COMBAT_UNIT_PROMPT_HOLD_LANGUAGE: a combat unit's prompt carries no hold/settle/tripod wording",
+    "CU3": "COMBAT_UNIT_PROMPT_HOLD_LANGUAGE: a combat unit's prompt carries no hold/settle/tripod wording in its combat beats, its camera line or its closing handoff line (no 'then hold', no 'keep natural micro-motion')",
     "CU4": "FIGHT_SCENE_NARRATED: in a scene with combat, combat units are >= 50% of the scene's seconds",
-    "CU5": "FIGHT_TWO_SHOT_FACING_CAMERA: fighters are never composed with both faces turned to the lens"
+    "CU5": "FIGHT_TWO_SHOT_FACING_CAMERA: fighters are never composed with both faces turned to the lens",
+    "CU6": "COMBAT_UNIT_NO_CONTACT_BEATS: a combat unit carries at most one 'no contact in this beat' beat and such beats are at most one third of its beats; approach/walk-in goes into the wind-up of a contact beat"
+  },
+  "weapon_lock": {
+    "field": "character_entities[].weapon_lock_en",
+    "rendered": "appended to the 'Same look in every frame' line of every unit the character is bound in (h3_provider_prompt_renderer.appearance_anchor_line)",
+    "authority": "Roger 2026-11-07 E15 重投复审: VU-019 曲背大刀在 4.7 s 变成直身长剑"
   }
 }

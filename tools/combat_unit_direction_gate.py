@@ -10,11 +10,16 @@ Rules (BLOCK, per video unit in a transaction manifest):
   CU1 COMBAT_UNIT_CAMERA_LOCKED          a combat unit is rendered on a locked / tripod camera
   CU2 COMBAT_UNIT_CARRIES_DIALOGUE       a combat unit carries an on-screen spoken line (lines go to their
                                          own units, before/after the exchange, or to V.O.)
-  CU3 COMBAT_UNIT_PROMPT_HOLD_LANGUAGE   a combat beat in the rendered prompt tells the model to hold/settle
+  CU3 COMBAT_UNIT_PROMPT_HOLD_LANGUAGE   a combat beat, the camera line or the closing handoff line of the
+                                         rendered prompt tells the model to hold/settle/keep micro-motion
   CU4 FIGHT_SCENE_NARRATED               in a scene that contains combat, combat units are < 50 % of the
                                          scene's seconds: the fight is told in lines instead of shown
   CU5 FIGHT_TWO_SHOT_FACING_CAMERA       a fight-scene unit composes the fighters with their faces turned to
                                          the lens (they read as posing side by side, not as opponents)
+  CU6 COMBAT_UNIT_NO_CONTACT_BEATS       a combat unit carries more than one "no contact in this beat" beat,
+                                         or such beats are more than a third of its beats: the approach is
+                                         staged as beats of its own and the model collapses into posing
+                                         (E15 VU-020 2026-11-07: 1 contact beat between 2 walk-in beats)
 
 Never retroactive: active for episodes >= configs/COMBAT_UNIT_DIRECTION_V1.json enabled_from_episode, or
 when the manifest declares combat_unit_direction_policy=COMBAT_UNIT_DIRECTION_V1.
@@ -40,6 +45,17 @@ HOLD_LANGUAGE = re.compile(
 #: attack/defence chain ("Force origin:") or a timed contact ("interaction point is reached at")
 BEAT_LINE = re.compile(r"^\[\d+(?:\.\d+)?s-\d+(?:\.\d+)?s\].*$", re.MULTILINE)
 COMBAT_BEAT_MARKERS = ("Force origin:", "interaction point is reached at")
+#: the rendered camera line and the closing handoff line of a unit prompt (CU3 scope, Roger 2026-11-07)
+CAMERA_LINE = re.compile(r"^camera:.*$", re.MULTILINE)
+HANDOFF_LINE = re.compile(r"^End by completing this handoff:.*$", re.MULTILINE)
+#: hold/stop wording that only the camera and handoff lines carry ("then hold" is already in HOLD_LANGUAGE)
+FRAME_HOLD_LANGUAGE = re.compile(
+    r"(?:lands on and holds the end framing|hold the framing|keep natural micro-motion|hold the end framing)",
+    re.IGNORECASE)
+#: a rendered beat that declares no person-to-person contact (renderer label or translated contact point)
+NO_CONTACT_BEAT = re.compile(r"no contact in this beat", re.IGNORECASE)
+MAX_NO_CONTACT_BEATS = 1
+MAX_NO_CONTACT_BEAT_SHARE = 1.0 / 3.0
 
 
 def combat_beat_hold_phrases(prompt: str) -> list[str]:
@@ -48,6 +64,23 @@ def combat_beat_hold_phrases(prompt: str) -> list[str]:
         if any(marker in beat for marker in COMBAT_BEAT_MARKERS):
             hits.update(m.group(0) for m in HOLD_LANGUAGE.finditer(beat))
     return sorted(hits)
+
+
+def combat_unit_hold_phrases(prompt: str) -> list[str]:
+    """CU3 over the whole combat-unit prompt: combat beats plus the camera line and the closing handoff line
+    (E15 VU-020 2026-11-07: the beats were clean but the camera line said "then hold" and the handoff line
+    said "Keep natural micro-motion", and the clip ended with both men standing still)."""
+    hits = set(combat_beat_hold_phrases(prompt))
+    for line in CAMERA_LINE.findall(prompt) + HANDOFF_LINE.findall(prompt):
+        hits.update(m.group(0) for m in HOLD_LANGUAGE.finditer(line))
+        hits.update(m.group(0) for m in FRAME_HOLD_LANGUAGE.finditer(line))
+    return sorted(hits)
+
+
+def no_contact_beat_counts(prompt: str) -> tuple[int, int]:
+    """(no-contact beats, total beats) of a rendered unit prompt."""
+    beats = BEAT_LINE.findall(prompt)
+    return sum(1 for beat in beats if NO_CONTACT_BEAT.search(beat)), len(beats)
 FACES_TO_CAMERA = re.compile(r"(都转向镜头|脸都转向镜头|都朝向镜头|脸都朝镜头|都面向镜头|都面朝镜头)")
 
 
@@ -137,9 +170,14 @@ def evaluate_manifest(manifest: dict[str, Any], *, root: str | Path | None = Non
                 codes.append("COMBAT_UNIT_CAMERA_LOCKED")
             if _dialogue_lines(task):
                 codes.append("COMBAT_UNIT_CARRIES_DIALOGUE")
-            hits = combat_beat_hold_phrases(_prompt(task, root_path))
+            prompt_text = _prompt(task, root_path)
+            hits = combat_unit_hold_phrases(prompt_text)
             if hits:
                 codes.append("COMBAT_UNIT_PROMPT_HOLD_LANGUAGE")
+            no_contact, beats_total = no_contact_beat_counts(prompt_text)
+            if beats_total and (no_contact > MAX_NO_CONTACT_BEATS
+                                or no_contact / beats_total > MAX_NO_CONTACT_BEAT_SHARE):
+                codes.append("COMBAT_UNIT_NO_CONTACT_BEATS")
         if scene in fight_scenes and FACES_TO_CAMERA.search(_camera_text(task)):
             codes.append("FIGHT_TWO_SHOT_FACING_CAMERA")
         for code in codes:
@@ -148,6 +186,9 @@ def evaluate_manifest(manifest: dict[str, Any], *, root: str | Path | None = Non
                 failure["phrases"] = hits
             if code == "COMBAT_UNIT_CARRIES_DIALOGUE":
                 failure["lines"] = _dialogue_lines(task)
+            if code == "COMBAT_UNIT_NO_CONTACT_BEATS":
+                failure["no_contact_beats"] = no_contact
+                failure["beats"] = beats_total
             failures.append(failure)
         rows.append({"task_key": key, "scene_id": scene, "combat": combat, "failures": codes})
     for scene in sorted(fight_scenes):
