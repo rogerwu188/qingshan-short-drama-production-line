@@ -9525,7 +9525,10 @@ def stage_s7(ctx: Ctx) -> StageResult:
         "final_gate_summary": final_qa.get("stage_gate_summary"),
         "final_gate_status": final_qa.get("stage_gate_status"),
         "evidence_bundle": final_qa.get("bundle"),
-        "steps": [{"name": step["name"], "exit_code": step["exit_code"], "log": step["log"]}
+        # reused stages ({"reused": ...}) and order-carried gate rows have no log: the report must not crash on them
+        # (field device …1324 E01 + E02, 2026-11-07: KeyError 'log' after promotion left S7 CRASHED)
+        "steps": [{"name": step.get("name"), "exit_code": step.get("exit_code"), "log": step.get("log"),
+                   **({"reused": True} if step.get("reused") else {})}
                   for step in steps]})
     res.receipts.append(str(p.qa_report))
     # Plan §6: timing map updated after editing completes.
