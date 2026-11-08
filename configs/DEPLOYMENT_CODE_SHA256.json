@@ -993,11 +993,11 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/prompt_batch_finish.sh",
-      "sha256": "cdb5661cdc61974c5b287fe9ea86d68e2c0c979249822d731ab371a41af2e9d2"
+      "sha256": "f89b99267d21ee58f78fd6268c1692ffc9774eff72afbb080509fc45bc3c673c"
     },
     {
       "path": "skills/nalu-claude-code/scripts/prompt_batch_prepare.sh",
-      "sha256": "0b9675bdf64c71b0689979288e0958a190d095a9598a3303d8b20b67d94447a0"
+      "sha256": "af35d8cfb5fe7eb276defe33348f1077de094b384426c1b4619f2d608660ee00"
     },
     {
       "path": "skills/nalu-claude-code/scripts/publish_x2c_matrix.py",

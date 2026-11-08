@@ -3,10 +3,14 @@
 set -eo pipefail
 EP=${1:-E01}; E=${NALU_ENGINE_ROOT:?}; R=${NALU_RUNTIME_ROOT:?}
 cd $E; export NALU_WORK_ROOT=$E/workflow/nalu
+# The prompt QA tools judge voice-over by the CURRENT_PORTABLE policy (voice_over_narration.enabled()); without it a
+# narration-only shot is checked as on-screen dialogue and fails vp_dialogue_verbatim (field device …1324 E03,
+# 2026-11-08).  Set it per QA call only -- never in this shell, where nalu_pipeline S1 would demand a private project.json.
+QA_ENV="env -u GIGGLE_API_KEY NALU_POLICY_PROFILE=CURRENT_PORTABLE"
 $E/.qingshan-venv/bin/python lines/nalu/runtime/tools/nalu_pipeline.py run --episode $EP --from S5 --until S5 2>&1 | grep "=> " || true
 "$(cd "$(dirname "$0")" && pwd)/plan_compile.sh" $EP | tail -1
 REP=$E/workflow/nalu/$EP/preproduction/reports; mkdir -p $REP/prompt_batch_qa
 rm -f $REP/prompt_batch_qa/*.json
-env -u GIGGLE_API_KEY $E/.qingshan-venv/bin/python lines/nalu/runtime/tools/prompt_batch_register.py --episode $EP --execution-id $EP-PROMPT-BATCH-V1 --qa-dir $REP/prompt_batch_qa --report $REP/${EP}_PROMPT_BATCH_REGISTER.json | tail -1 || true   # HOLD (exit!=0) is the expected state here; the digest below must still run
-env -u GIGGLE_API_KEY $E/.qingshan-venv/bin/python lines/nalu/runtime/tools/prompt_batch_qa.py digest --episode $EP --out $REP/${EP}_PROMPT_BATCH_DIGEST.json | tail -1
+$QA_ENV $E/.qingshan-venv/bin/python lines/nalu/runtime/tools/prompt_batch_register.py --episode $EP --execution-id $EP-PROMPT-BATCH-V1 --qa-dir $REP/prompt_batch_qa --report $REP/${EP}_PROMPT_BATCH_REGISTER.json | tail -1 || true   # HOLD (exit!=0) is the expected state here; the digest below must still run
+$QA_ENV $E/.qingshan-venv/bin/python lines/nalu/runtime/tools/prompt_batch_qa.py digest --episode $EP --out $REP/${EP}_PROMPT_BATCH_DIGEST.json | tail -1
 echo "next: reviewer writes $REP/${EP}_PROMPT_BATCH_ANSWERS.json, then prompt_batch_finish.sh $EP"
