@@ -146,9 +146,13 @@ python3 $S/codex_production.py report                                # 给线主
 - `IDLE` + `OWNER_DECISION_REQUIRED`：只剩少数情况会出现（Giggle key 缺失/失效、追加一次后预算仍不够、新的付费类别）。
   把 `question` 原样转给线主，**本项目暂停**等回复；线主回复后用 `resume --message "线主原话：<逐字>"`。不得替线主回答。
 - `IDLE` + `WAITING_REMOTE`：5 分钟后 `resume --message "继续"`。
-- `BLOCKED_RECHECK_UPDATE`（BLOCKED 后每小时交给你一次）：跑 `self_update.sh --agent-id <本代理 id>`。`UPDATED`：按新版 AGENTS.md
-  的 pin 跑 `setup_host.sh`，引擎 HEAD 变了就 `resume --message "引擎已更新（维护者修复），按新版合同从当前阶段继续"`；
-  `UP_TO_DATE` 或引擎没变：什么都不做，回复 NO_REPLY，不再通知线主。
+- `BLOCKED_RECHECK_UPDATE`（BLOCKED 后每小时交给你一次），按这个顺序，**不要带 `--restart`**（重启网关会打断本轮，
+  引擎就停在旧版；实地设备 …1324 E02，2026-11-07）：
+  1. `self_update.sh --agent-id <本代理 id>`（不论返回 UPDATED 还是 UP_TO_DATE 都继续下一步）；
+  2. 读磁盘上本代理 AGENTS.md 里的 pin，跑 `setup_host.sh --pin <pin>`（同版本时很快结束）；
+  3. 引擎 HEAD 和 BLOCKED 时不同：`resume --message "引擎已更新（维护者修复），按新版合同从当前阶段继续"`；
+     相同：什么都不做，回复 NO_REPLY，不再通知线主。
+  新版说明文件在下次会话生效，不需要为此重启网关。
 - `IDLE` + `BLOCKED` / `ERROR`：属于安装/环境问题的由代理修好后 `resume --message "继续"`；修不了的把 note 和日志末尾记进
   `$NALU_RUNTIME_ROOT/series/STATUS.md` 并告诉线主，本项目暂停。
 - `IDLE` + `FINAL_REVIEW_REQUIRED`（S7 独立终审；本机没有专门的审核 agent，由你安排）：用子智能体开一个**独立**审核者，
