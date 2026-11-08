@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2394,
+  "file_count": 2395,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -417,7 +417,7 @@
     },
     {
       "path": "docs/knowledge/FIGHT_DIRECTION_PLAYBOOK.md",
-      "sha256": "f3812005f6b1d698f22abb55c1d3b002975550dc1a1fe8a95eef6f72f1225567"
+      "sha256": "42c35deb1a147e24de4bdd56fdd01a91f416fab1c7ef8b79485933e447f84c95"
     },
     {
       "path": "docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md",
@@ -665,7 +665,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "9af6ab64935fae0cc43c2fbce9424559116a47a9d0dfc2281e1641dbe75e2581"
+      "sha256": "7475834e0285d89e37a5e8f2f855238f036f960b41b6c23fabd513fbdd52665b"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -949,7 +949,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "9826cd2ec05138abcd0f5ee79cc5f69655a873ac666fb341d94acb0fc0be6b98"
+      "sha256": "041676a870037d470ee844d2be83f6c715abf4f02795924a95de8c475ecb6ee3"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -4017,7 +4017,7 @@
     },
     {
       "path": "tools/compile_grouped_seedance_manifest.py",
-      "sha256": "3d4efe747e6cc3b3d85919bc4b5c2206b78d75b23285bcf2522c7484153be3db"
+      "sha256": "4682627f3fdb97188cdee6f26c138d2c29b3e32beca28fd0b8f636eb44040a93"
     },
     {
       "path": "tools/compile_grouped_seedance_transaction_manifest.py",
@@ -7374,6 +7374,10 @@
     {
       "path": "tools/tests/test_compile_episode_parallel_prompt_batch.py",
       "sha256": "6a33fdcb72eca593a680881281225ce0e5df41ab1db6fb61bdfd52794cb9d4e8"
+    },
+    {
+      "path": "tools/tests/test_compile_fight_scope.py",
+      "sha256": "23a928ff46fdc5e6c50759a87adc0495bcbff1ee54c30aa9f8466864939760a1"
     },
     {
       "path": "tools/tests/test_compile_grouped_seedance_manifest.py",
