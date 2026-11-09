@@ -366,6 +366,35 @@ def cmd_verify(a: argparse.Namespace) -> int:
     return 0 if good else 2
 
 
+MIN_CUE_SECONDS = 8.0
+
+
+def fit_cues_to_cut(windows: dict[str, tuple[float, float]], content: float) -> dict[str, float]:
+    """Delay cue entries (in place) so the placed music meets the coverage/ambience policy on the RELEASE cut.
+
+    nalu_bgm_default sizes the episode bed on the authored shot seconds (<=80 %, >=9 s ambience), but S7 cuts to the
+    performance and the un-scored opening shrinks most: field device …1324 E03 placed 97.8 % coverage / 5.2 s
+    ambience and S7 stopped at SELECTIVE_BGM_PLAN_FAILED.  The music now enters later -- longest cue first, never
+    below MIN_CUE_SECONDS -- which is what an editor would do.  Returns cue_id -> seconds delayed."""
+    covered = sum(t1 - t0 for t0, t1 in windows.values())
+    need = max(covered - MAX_COVERAGE_RATIO * content, MIN_AMBIENCE_ONLY_SECONDS - (content - covered))
+    delays: dict[str, float] = {}
+    if need <= 0:
+        return delays
+    need += 0.05  # strictly inside the limits after rounding
+    for cid in sorted(windows, key=lambda c: windows[c][1] - windows[c][0], reverse=True):
+        t0, t1 = windows[cid]
+        take = min(need, max(0.0, (t1 - t0) - MIN_CUE_SECONDS))
+        if take <= 0:
+            continue
+        windows[cid] = (round(t0 + take, 3), t1)
+        delays[cid] = round(take, 3)
+        need -= take
+        if need <= 0:
+            break
+    return delays
+
+
 def cmd_plan(a: argparse.Namespace) -> int:
     p = Paths(a.episode, contract=a.contract, assembly=a.assembly, grouping=a.grouping,
               project=a.project, work=a.work, transactions=a.bgm_transactions_dir)
@@ -400,13 +429,15 @@ def cmd_plan(a: argparse.Namespace) -> int:
             starts.append(s0); ends.append(s1)
         return round(min(starts), 3), round(max(ends), 3)
 
+    windows = {cue["cue_id"]: window_for_shots(list(cue["shots"])) for cue in source_plan["cues"]}
+    windows = {cid: (t0, min(t1, content)) for cid, (t0, t1) in windows.items()}
+    entry_delays = fit_cues_to_cut(windows, content)
     cues_out = []
     for cue in source_plan["cues"]:
         cue_id = cue["cue_id"]
         func = cue["narrative_function"]
         shots = list(cue["shots"])
-        t0, t1 = window_for_shots(shots)
-        t1 = min(t1, content)
+        t0, t1 = windows[cue_id]
         duck = float(cue["dialogue_duck_db"])
         volume = float(cue["volume"])
         # dialogue windows inside the cue, from the per-unit ASR (assembly), on the release timeline
@@ -436,6 +467,7 @@ def cmd_plan(a: argparse.Namespace) -> int:
                          "shots": shots, "timeline_start": t0, "duration": round(t1 - t0, 3),
                          "volume": volume, "dialogue_duck_db": duck, "dialogue_windows": dialogue,
                          "dialogue_present": bool(dialogue),
+                         **({"entry_delayed_seconds": entry_delays[cue_id]} if cue_id in entry_delays else {}),
                          **{k: cue[k] for k in ("fade_in_s", "fade_out_s") if k in cue}, **shape})
     cues_out.sort(key=lambda c: c["timeline_start"])
     covered = sum(c["duration"] for c in cues_out)
