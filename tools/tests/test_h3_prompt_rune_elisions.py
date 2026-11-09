@@ -140,6 +140,14 @@ class SharedTailElisionTest(unittest.TestCase):
     def test_single_row_untouched(self):
         self.assertEqual(_collapse_shared_unit_policy(["only row"]), ["only row"])
 
+    def test_shared_tail_never_cuts_a_word(self):
+        policy = "; SELECTIVE_NARRATIVE_CUES: two instrumental cues only, everything else is native live sound"
+        rows = ["Shot 1 only: the dull thud of the spear in the bark" + policy,
+                "Shot 2 only: the spear running through him into the tree trunk" + policy]
+        out = _collapse_shared_unit_policy(rows)
+        self.assertIn("into the tree trunk (unit-wide music policy as above)", out[1])
+        self.assertNotIn("trun (", out[1])
+
 
 if __name__ == "__main__":
     unittest.main()

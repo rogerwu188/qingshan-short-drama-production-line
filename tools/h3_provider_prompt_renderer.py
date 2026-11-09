@@ -1040,6 +1040,15 @@ def _collapse_shared_unit_policy(rows: list[str]) -> list[str]:
         while n < min(len(tail), len(row)) and tail[-1 - n] == row[-1 - n]:
             n += 1
         tail = tail[len(tail) - n:]
+    # The common suffix is found character by character, so it can start mid-word ("…into the tree trun" +
+    # "k; SELECTIVE…", E15 VU-017 2026-11-09).  Snap it forward to the next word boundary so no row is left
+    # ending in half a word.
+    def _mid_word(row: str, suffix: str) -> bool:
+        head = row[: len(row) - len(suffix)]
+        return bool(head) and bool(suffix) and head[-1].isalnum() and suffix[0].isalnum()
+    while tail and any(_mid_word(row, tail) for row in rows):
+        cut = tail.find(" ")
+        tail = tail[cut + 1:] if cut >= 0 else ""
     if len(tail) < 60:
         return rows
     collapsed = [rows[0]]
