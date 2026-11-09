@@ -490,6 +490,19 @@ class Q2AutoRedoTest(unittest.TestCase):
                 self.assertEqual(second["skipped"][0]["reason"], "ALREADY_REDONE_ONCE")
             self.assertEqual(checks, ["s6_q2_auto_redo_headroom"] * 2)
 
+    def test_clip_already_replaced_by_a_controlled_redo_is_not_redone(self):
+        # field device …1324 E03: Codex's controlled redo parked VU-015, then the engine redid it again
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            ctx, _checks = self._ctx(tmp, {"episode": "E04", "camera_grammar_policy": "CAMERA_GRAMMAR_V1"})
+            parked = tmp / "video" / "_superseded_20261109T064312Z_visible_plot_redo"
+            parked.mkdir(parents=True)
+            (parked / "E04-VU-001.mp4").write_bytes(b"old")
+            with mock.patch.object(npl, "episode_video_model", lambda _e: "MiniMax-H3"):
+                out = npl.s6_q2_auto_redo(ctx)
+            self.assertEqual(out["status"], "NONE_SELECTED")
+            self.assertEqual(out["skipped"][0]["reason"], "ALREADY_REDONE_ONCE")
+
     def test_unstamped_never_redoes(self):
         with tempfile.TemporaryDirectory() as d:
             ctx, checks = self._ctx(Path(d), {"episode": "E04", "camera_grammar_policy": "LEGACY_FORCED_MOTION"})

@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2405,
+  "file_count": 2406,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -777,7 +777,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "cdf8457016ce56c1e220c5d9887992e19dd50bcca9c748c0cea789b09d6fa64a"
+      "sha256": "e3d928e4a58e8e40953a562268f34bd782b236911b80fade2964658b1162da89"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -957,7 +957,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "5e2159d93adc26af2e725fe18d7784e4df558bd995656de527f25e5132d341a1"
+      "sha256": "9dcaaca09a3a81ad9f5952bf2575c3c92da452b57f116105de341f85080c5939"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -973,7 +973,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "50361227bfcc285041aa692a1b5c109604a76980ede796a51eea7f01dce6e785"
+      "sha256": "b08e20a03ed40e66b373dec385f27d550a7d42e8076b364dbd3228e703c2669c"
     },
     {
       "path": "skills/nalu-claude-code/scripts/configure_claude_code.py",
@@ -7949,7 +7949,7 @@
     },
     {
       "path": "tools/tests/test_h3_provider_expert_advice.py",
-      "sha256": "724c85272227eb27bb7856a38fad5f5434cb6fe1b76187c0136c4f5de01d6849"
+      "sha256": "6c35daab52ae99d1971cd4e904a85772ee74643e52d96973a99501d612382e23"
     },
     {
       "path": "tools/tests/test_h3_quoted_cjk_inside_dialogue.py",
@@ -8730,6 +8730,10 @@
     {
       "path": "tools/tests/test_s7_audio_smoothing.py",
       "sha256": "b3f9ea140142eecf068ef0f757806744d35d355de5c155abf7eacddaa8f25888"
+    },
+    {
+      "path": "tools/tests/test_s7_reuse_accepted_levelled_audio.py",
+      "sha256": "d08383d64b9c3f75f92631b20c2899b28b27b2f2c79ee7a5c1e1ff8bb25111e0"
     },
     {
       "path": "tools/tests/test_scene_authority_lock.py",
