@@ -65,6 +65,25 @@ class ActionVideoPromptCompilerTest(unittest.TestCase):
         self.assertIn('ACTION_STORYBOARD_ENTITY_MISSING:S2:action_end_blocking:CHAR-B', failures)
         self.assertIn('CANONICAL_ENTITY_ABSENT_FROM_ACTION_STATE:CHAR-B', failures)
 
+    def test_storyboard_empty_environment_unit_space_entity(self):
+        # field device …1324 E03-VU-008: an all-environment unit carries only the synthesized SPACE-<scene>
+        task = self.fixture()
+        task['semantic_video_unit'] = True
+        task['canonical_characters'] = []
+        task['canonical_props'] = ['SPACE-E03-S02']
+        task['blocking'] = {'characters': [], 'props': [], 'state': 'OPEN'}
+        task['action_end_blocking'] = {'characters': [], 'props': [
+            {'prop_id': 'SPACE-E03-S02', 'screen_slot': 'LATER_ORDERED_APPEARANCE'}], 'state': 'DONE'}
+        task['trajectory_overlays'] = [{'entity_id': 'SPACE-E03-S02', 'from': 'a', 'to': 'b',
+                                        'action': 'wind', 'visible_consequence': 'dust settles'}]
+        empty = {'characters': [], 'props': []}
+        task['ordered_prompt_specs'] = [{'shot_id': 'S1', 'cast': [], 'props': [],
+                                         'space': {'blocking': dict(empty), 'action_end_blocking': dict(empty)}}]
+        self.assertNotIn('CANONICAL_ENTITY_ABSENT_FROM_ACTION_STATE:SPACE-E03-S02', validate_action_contract(task))
+        # a real prop is still held to the shot-local states
+        task['canonical_props'].append('PROP-X')
+        self.assertIn('CANONICAL_ENTITY_ABSENT_FROM_ACTION_STATE:PROP-X', validate_action_contract(task))
+
     def test_storyboard_cannot_use_another_shot_to_hide_missing_actor(self):
         from copy import deepcopy
         task = self.fixture()

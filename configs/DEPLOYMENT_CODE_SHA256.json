@@ -1041,7 +1041,7 @@
     },
     {
       "path": "tools/action_video_prompt_compiler.py",
-      "sha256": "743973002e25c924046538d9db0348e9c969e748d0c4d095a6c0441aec292efc"
+      "sha256": "7ce82619d91925cf36cf79d06216731234d197d2a8ba7e912b3044518d71d8d5"
     },
     {
       "path": "tools/action_visualization_readability_gate.py",
@@ -6969,7 +6969,7 @@
     },
     {
       "path": "tools/tests/test_action_video_prompt_compiler.py",
-      "sha256": "12a31ec0440d82e43f6333c684b789e90462bd25865ddde78ee14908bb83b0cb"
+      "sha256": "dff57c6e6b517a99d805ab863065148ee7105d3b1c731254517964470d758aa2"
     },
     {
       "path": "tools/tests/test_action_visualization_readability_gate.py",
