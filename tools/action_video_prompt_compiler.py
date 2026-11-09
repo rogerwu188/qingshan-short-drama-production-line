@@ -176,6 +176,11 @@ def validate_action_contract(task: dict[str, Any]) -> list[str]:
                 if absent:
                     failures.append(f"ACTION_STORYBOARD_ENTITY_MISSING:{sid}:{phase}:" + ",".join(sorted(absent)))
             represented.update(_ids(space.get("blocking") or {}) & _ids(space.get("action_end_blocking") or {}))
+        # An all-environment unit (no cast, no props) carries the builder's synthesized SPACE-<scene> entity
+        # (build_nalu_preproduction empty_unit).  No shot spec can block a space as a character or prop, so it is
+        # represented by the unit's own start/end state (field device …1324 E03-VU-008, 2026-11-08: every such
+        # storyboard failed CANONICAL_ENTITY_ABSENT_FROM_ACTION_STATE:SPACE-E03-S02 before any video POST).
+        represented.update(i for i in (_ids(start) | _ids(end)) if i.startswith("SPACE-"))
     missing = sorted(canonical - represented)
     if missing:
         failures.append("CANONICAL_ENTITY_ABSENT_FROM_ACTION_STATE:" + ",".join(missing))
