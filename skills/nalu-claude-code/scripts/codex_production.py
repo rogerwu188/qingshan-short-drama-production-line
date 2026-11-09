@@ -419,7 +419,9 @@ def engine_modification() -> dict[str, Any] | None:
     return {"files": files, "patch": str(out), "sha": sha}
 
 
-BLOCKED_RECHECK_HOURS = 1.0
+# 0.9, not 1.0: the heartbeat fires every 15 min, so a strict hour slipped a whole extra cycle when the previous hand-off
+# was a few seconds late (field device …1324, 2026-11-08: a fix took ~2 h to land)
+BLOCKED_RECHECK_HOURS = 0.9
 #: idle states handed back to the agent every BLOCKED_RECHECK_HOURS (state -> reason the agent receives)
 RECHECK_STATES = {"BLOCKED": "BLOCKED_RECHECK_UPDATE", "FINAL_REVIEW_REQUIRED": "FINAL_REVIEW_REQUIRED"}
 
