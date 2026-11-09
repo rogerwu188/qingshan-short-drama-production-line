@@ -59,6 +59,9 @@ ALLOWED_REVIEW_MODELS = {
     "storyclaw/gpt-6-astra",
     "storyclaw/claude-opus-5",
     "storyclaw/gpt-5.6-sol",
+    # line owner 2026-11-09: the engine-launched Codex reviewer (codex_production.launch_reviewer) on the line's
+    # HopsAPI provider; declared as what it is, never as a storyclaw/* model
+    "hopsapi/gpt-6.1-sol",
 }
 
 DIMENSIONS = (
