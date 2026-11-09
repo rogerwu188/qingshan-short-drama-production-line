@@ -94,7 +94,10 @@ def binding_role_for(entity_id: str, role: Any = None) -> str:
         return "IDENTITY"
     # SET- is a set piece (build_episode_asset_requirements is_set_piece): bound as a prop plate at S5, so it
     # must not fall through to IDENTITY (urban lab E01 2026-10-23: SET-DESK failed every keyframe precheck)
-    if entity.startswith(("PROP-", "OBJ-", "SET-", "CREATURE-", "ANIMAL-")):  # beings bind as prop plates (PROP-TIGER worked; lab 化神 CREATURE-CRANE)
+    # SPACE-<scene> is the acting entity of an all-environment unit (build_nalu_preproduction empty_unit): it sits in
+    # canonical_props and is bound as OBJECT_REFERENCE, so it must not fall through to IDENTITY (field device …1324
+    # E03-VU-008, 2026-11-08: REFERENCE_ROLE_NAMESPACE_CONFLICT:SPACE-E03-S02 at every S6 precheck)
+    if entity.startswith(("PROP-", "OBJ-", "SET-", "CREATURE-", "ANIMAL-", "SPACE-")):  # beings bind as prop plates (PROP-TIGER worked; lab 化神 CREATURE-CRANE)
         return "PROP"
     # EGSM- is the per-episode global space map (nalu, e.g. EGSM-AQ-E04); it was falling through to
     # IDENTITY and failed every keyframe of 401286 《阿Q正传》 E04 (2026-10-16)
