@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2406,
+  "file_count": 2407,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -5177,7 +5177,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "900c67ee4bc9658164ff7c6669bf7f258b1b0abc7f4f213b7db2c73b15d6127d"
+      "sha256": "bc0d538d4bb13615cae21ab0c1d12dc4dfbf7d97cf672fefa1b7dd99316bf61e"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -8746,6 +8746,10 @@
     {
       "path": "tools/tests/test_script_density_gate_preflight.py",
       "sha256": "e6e62bbb8e9060dd5e40e8fdacae44edfdb4ee54d6b74ffd16422ac70fa7918f"
+    },
+    {
+      "path": "tools/tests/test_script_length_check.py",
+      "sha256": "55144d2a3c56e37e23bf1109d79a1d4dfbda1eb28fa347c6201a9444bf80587b"
     },
     {
       "path": "tools/tests/test_script_readiness_gate.py",
