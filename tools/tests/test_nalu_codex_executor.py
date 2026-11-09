@@ -161,6 +161,21 @@ class CodexExecutorTests(unittest.TestCase):
         t = self.cp.tick()
         self.assertEqual((t["action"], t["reason"]), ("AGENT", "FINAL_REVIEW_REQUIRED:EXHAUSTED"))
 
+    def test_review_status_query_gets_the_runtime_roots(self):
+        # field device …1324 E03: the cron ran tick without NALU_RUNTIME_ROOT and the query read another runtime
+        seen = {}
+        real = self.cp.subprocess.run
+        def fake(argv, **kw):
+            seen.update(kw.get("env") or {})
+            return subprocess.CompletedProcess(argv, 10)
+        self.cp.subprocess.run = fake
+        try:
+            self.assertEqual(self._review_status_code("E06"), 10)
+        finally:
+            self.cp.subprocess.run = real
+        self.assertEqual(seen.get("NALU_RUNTIME_ROOT"), str(self.runtime))
+        self.assertEqual(seen.get("NALU_ENGINE_ROOT"), str(self.engine))
+
     def test_submitted_review_resumes_the_producer_at_most_twice(self):
         self.final_review_episode()
         self.cp.review_status_code = lambda _ep: 3   # rejected review on record

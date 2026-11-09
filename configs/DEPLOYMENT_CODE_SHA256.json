@@ -973,7 +973,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "50a29cbc1f5431f025cc954a031db29d62410da2d8cfaad230fbb2547bc7aadb"
+      "sha256": "8bd23c1866f5e051c3badc9957f05c24b277fd9ba7581c548832c7673c05b5cf"
     },
     {
       "path": "skills/nalu-claude-code/scripts/configure_claude_code.py",
@@ -8213,7 +8213,7 @@
     },
     {
       "path": "tools/tests/test_nalu_codex_executor.py",
-      "sha256": "1be44361542e43c917b7e4e86f93788e5bde9f4ed63066e754108364de43f73f"
+      "sha256": "400e03a019610c76ead76bdedd0591404072dc2a42d64fe5b8919d92ded79a7d"
     },
     {
       "path": "tools/tests/test_nalu_current_policy_profile.py",

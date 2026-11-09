@@ -147,12 +147,17 @@ def _review_paths(episode: str) -> tuple[Path, Path]:
 
 
 def review_status_code(episode: str) -> int:
-    engine, _ = roots()
+    engine, runtime = roots()
     venv = engine / ".qingshan-venv" / "bin" / "python"
     tool = engine / "lines" / "nalu" / "runtime" / "tools" / "final_audience_review.py"
+    # pass the roots explicitly: the heartbeat cron runs tick without NALU_RUNTIME_ROOT, and a machine without
+    # .nalu_deployment.json then resolved another runtime and read 4 (PREPARE_REQUIRED) instead of 10
+    # (field device …1324 E03, 2026-11-09: the producer was woken instead of the reviewer being launched)
+    env = {**os.environ, "NALU_ENGINE_ROOT": str(engine), "NALU_RUNTIME_ROOT": str(runtime),
+           "NALU_WORK_ROOT": os.environ.get("NALU_WORK_ROOT") or str(engine / "workflow" / "nalu")}
     try:
         return subprocess.run([str(venv if venv.is_file() else sys.executable), str(tool), "status", "--episode", episode],
-                              cwd=engine, capture_output=True, text=True, timeout=600).returncode
+                              cwd=engine, capture_output=True, text=True, timeout=600, env=env).returncode
     except (OSError, subprocess.SubprocessError):
         return -1
 
