@@ -36,5 +36,22 @@ class FitCuesToCutTest(unittest.TestCase):
         self.assertGreaterEqual(windows["A"][1] - windows["A"][0], bgm.MIN_CUE_SECONDS)
 
 
+class FitCuesToSourcesTest(unittest.TestCase):
+    def test_cue_shortened_to_longest_source(self):
+        # field device …1324 E03: 167.9 s sources for a 196.7 s cue
+        windows, delays = {"BED": (34.8, 231.5)}, {"BED": 29.581}
+        bgm.fit_cues_to_sources(windows, {"BED": 167.928}, delays)
+        t0, t1 = windows["BED"]
+        self.assertLessEqual(t1 - t0, 167.928)
+        self.assertEqual(t1, 231.5)
+        self.assertGreater(delays["BED"], 29.581)
+
+    def test_unknown_or_long_enough_source_unchanged(self):
+        windows, delays = {"A": (10.0, 60.0)}, {}
+        bgm.fit_cues_to_sources(windows, {"A": 0.0}, delays)
+        bgm.fit_cues_to_sources(windows, {"A": 90.0}, delays)
+        self.assertEqual((windows["A"], delays), ((10.0, 60.0), {}))
+
+
 if __name__ == "__main__":
     unittest.main()

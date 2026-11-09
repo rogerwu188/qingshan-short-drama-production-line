@@ -367,6 +367,28 @@ def cmd_verify(a: argparse.Namespace) -> int:
 
 
 MIN_CUE_SECONDS = 8.0
+SOURCE_TAIL_MARGIN_S = 0.5
+
+
+def fit_cues_to_sources(windows: dict[str, tuple[float, float]], source_seconds: dict[str, float],
+                        delays: dict[str, float]) -> None:
+    """Delay a cue's entry (in place) so it never needs more than its longest source holds (no loop, no stretch)."""
+    for cid, length in source_seconds.items():
+        held = float(length or 0.0) - SOURCE_TAIL_MARGIN_S
+        t0, t1 = windows[cid]
+        if held <= 0 or (t1 - t0) <= held:
+            continue
+        new_t0 = round(t1 - max(held, MIN_CUE_SECONDS), 3)
+        if new_t0 > t0:
+            windows[cid] = (new_t0, t1)
+            delays[cid] = round(delays.get(cid, 0.0) + (new_t0 - t0), 3)
+
+
+def longest_source_seconds(p: "Paths", source_key: str) -> float:
+    """Duration of the longest completed candidate for one source (0.0 when none is on disk yet)."""
+    tx = read_json(p.tx / f"{source_key}.json", {}) or {}
+    files = [Path(f["path"]) for f in _transaction_candidates(tx) if Path(f.get("path", "")).is_file()]
+    return max((probe_duration(f) for f in files), default=0.0)
 
 
 def fit_cues_to_cut(windows: dict[str, tuple[float, float]], content: float) -> dict[str, float]:
@@ -432,6 +454,11 @@ def cmd_plan(a: argparse.Namespace) -> int:
     windows = {cue["cue_id"]: window_for_shots(list(cue["shots"])) for cue in source_plan["cues"]}
     windows = {cid: (t0, min(t1, content)) for cid, (t0, t1) in windows.items()}
     entry_delays = fit_cues_to_cut(windows, content)
+    # The generated sources are already on disk (S6): a cue never asks for more than its longest candidate holds,
+    # because the gate forbids loops and stretching (field device …1324 E03: 167 s sources, 196.7 s cue ->
+    # SOURCE_TOO_SHORT_FOR_NO_LOOP_COVERAGE on both candidates).  The music enters later instead.
+    fit_cues_to_sources(windows, {cue["cue_id"]: longest_source_seconds(p, cue["source_key"])
+                                  for cue in source_plan["cues"]}, entry_delays)
     cues_out = []
     for cue in source_plan["cues"]:
         cue_id = cue["cue_id"]
