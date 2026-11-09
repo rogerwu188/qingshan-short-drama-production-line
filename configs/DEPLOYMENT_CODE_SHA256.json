@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2404,
+  "file_count": 2405,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -793,7 +793,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_selective_bgm.py",
-      "sha256": "f77f15960fde865b086f679d5da9b2aa573059bc2ec40ef05672ad0aab5a2012"
+      "sha256": "f5c6eb02356b25a76b21ea95284f69d516473145464e7327dd5ee9da15024a2f"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_series_scope.py",
@@ -7130,6 +7130,10 @@
     {
       "path": "tools/tests/test_bgm_authenticity_gate.py",
       "sha256": "728bdbfb14a712faffaf182b8bedf1a4c42117479306e62eeeb0842e92abc0f4"
+    },
+    {
+      "path": "tools/tests/test_bgm_fit_cues_to_cut.py",
+      "sha256": "055cf09b46be68dfa25fb48ea3b51c2087dd41690d7e59470eaff53a933aa632"
     },
     {
       "path": "tools/tests/test_bind_e17_published_mix_audio.py",
