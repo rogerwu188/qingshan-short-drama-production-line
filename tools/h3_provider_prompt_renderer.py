@@ -909,6 +909,36 @@ def _combat_beat(source: dict[str, Any]) -> bool:
     return str(source.get("action_kind") or "").strip().upper() == "COMBAT" or bool(source.get("force_origin"))
 
 
+def _ladder_beat(source: dict[str, Any]) -> bool:
+    """A beat whose move is authored as a COMBAT ladder.
+
+    NOT ``_combat_beat``: every beat carries a ``force_origin``, so that predicate is true for dialogue
+    and approach beats too (E15 VU-003/VU-030 2026-11-08 got shot lists and blew the rune limit).  The
+    ladder belongs to beats the script actually fights in, or to a beat that carries authored shots.
+    """
+    if source.get("combat_shots"):
+        return True
+    kind = source.get("source_action_kind") or source.get("action_kind")
+    return str(kind or "").strip().upper() == "COMBAT"
+
+
+def _similar(a: object, b: object, *, minimum: float = 0.88) -> bool:
+    """True when two clauses state the same thing (D-68 chains make neighbours near-identical)."""
+    from difflib import SequenceMatcher
+
+    left, right = _condense_ws(a).lower(), _condense_ws(b).lower()
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    return SequenceMatcher(None, left, right).ratio() >= minimum
+
+
+def _condense_ws(value: object) -> str:
+    """Whitespace/punctuation-insensitive key, for "are these two clauses the same sentence?"."""
+    return re.sub(r"[\s，,。.;；:：!！?？]+", "", str(value or ""))
+
+
 def _condense_feedback(value: Any, translated: dict[str, Any], *, combat: bool = False) -> str:
     """Collapse a feedback string that verbatim restates this beat's own action and exit state.
 
@@ -949,7 +979,16 @@ def _condense_sound_quotes(rows: list[str], beats: list[dict[str, Any]]) -> list
     gap without weakening the match.
     """
     actions = [str(beat.get("primary_action") or "").strip() for beat in beats]
+    # A COMBAT beat's English action is split into shot moves before it ever reaches the sound rows, so the
+    # quoted text in a foley row is the *shots* joined, not primary_action (E15 VU-020 paid ~450 runes for
+    # this) — collect those too, longest first, so the widest match wins.
+    for beat in beats:
+        for shot in beat.get("combat_shots") or []:
+            move = str((shot or {}).get("move") or "").strip()
+            if len(move) >= 40:
+                actions.append(move)
     actions = [action for action in actions if len(action) >= 40]
+    actions.sort(key=len, reverse=True)
     if not actions:
         return rows
     condensed: list[str] = []
@@ -962,6 +1001,29 @@ def _condense_sound_quotes(rows: list[str], beats: list[dict[str, Any]]) -> list
                 text = text.replace(action[:1].lower() + action[1:], "the action stated for that shot")
         condensed.append(text)
     return condensed
+
+
+def _merge_shot_scoped_rows(rows: list[str]) -> list[str]:
+    """Keep one row per shot, but state the shared instruction once.
+
+    A combat unit's foley is authored per shot ("Shot E15-S12-01 only: close-range real contact sound, from
+    the cloth, footsteps and the firewood knife …"): three shots of the same unit produced three rows that
+    differ only in the shot id, ~510 runes of E15 VU-020's 10 000 budget.  Each row keeps its own scope and
+    its own place in the receipt (the coverage gate checks SOUND.FOLEY.N row by row), while the repeated body
+    is written once and referred to afterwards.
+    """
+    if len(rows) < 2:
+        return rows
+    import re as _re
+
+    stripped = [_re.sub(r"\s*Shot [A-Z0-9-]+ only:\s*", "", row).strip() for row in rows]
+    if not all(_similar(stripped[0], row, minimum=0.80) for row in stripped[1:]):
+        return rows
+    merged = [rows[0]]
+    for row in rows[1:]:
+        shot = _re.search(r"Shot ([A-Z0-9-]+) only:", row)
+        merged.append(f"{'Shot ' + shot.group(1) + ' only: ' if shot else ''}same sound")
+    return merged
 
 
 def _collapse_shared_unit_policy(rows: list[str]) -> list[str]:
@@ -979,9 +1041,7 @@ def _collapse_shared_unit_policy(rows: list[str]) -> list[str]:
     collapsed = [rows[0]]
     for row in rows[1:]:
         trimmed = row[: len(row) - len(tail)].rstrip(" ;,，；")
-        collapsed.append(
-            trimmed + " (unit-wide music policy as stated on the first shot row)" if trimmed else rows[0]
-        )
+        collapsed.append(trimmed + " (unit-wide music policy as above)" if trimmed else rows[0])
     return collapsed
 
 
@@ -990,6 +1050,7 @@ def _beat(
     positive_single_subject: bool = False, language: str = "zh", performance: Any = None,
     shared_clauses: set[str] | None = None, locked_dialogue_policy: bool = False,
     unit_has_dialogue: bool = False, speaker_label: str | None = None,
+    ladder_first: bool = True,
 ) -> tuple[str, dict[str, str]]:
     index = int(source["source_index"])
     prefix = f"BEAT.{index}"
@@ -1057,28 +1118,48 @@ def _beat(
     # COMBAT_MOTION_V1 (Roger 2026-11-08 seq=219): a fight beat that carries an authored action ladder
     # is rendered as [Shot N] lines, not as the state template.  Inactive policy / no ladder keeps the
     # legacy line byte-for-byte, so delivered episodes recompile identically.
-    ladder_text, ladder_facts = _combat_shot_lines(source, translated) if _combat_beat(source) else (None, {})
+    ladder_text, ladder_facts = _combat_shot_lines(source, translated) if _ladder_beat(source) else (None, {})
     if ladder_text:
         # The shot list carries the action; the facts the coverage gate looks for (interaction mode, contact
         # time, contact point, feedback, exit) are stated once around it so nothing is dropped, and the
         # sentences a fight must not be written as (Start from / Force origin / End at) are gone.
-        # entry and force origin are stated once as the inherited state the move starts from; the shot
-        # list then replaces the per-beat "Start from … Force origin … End at" grammar.
-        origin = entry_state if force_origin == entry_state else f"{entry_state} — {force_origin}"
+        #
+        # force_origin is NOT restated: for a fight beat it is the authored arrow-chain of the very moves the
+        # ladder lists ("手握长柄劈下→刃落矛杆一下→滚杆推开一臂"), so writing it above the list said the same
+        # move three times and cost E15 VU-020 ~900 runes.  The ladder's first shot IS the force origin; the
+        # evidence points at it.
+        if shared_clauses is not None and entry_state in shared_clauses:
+            # D-68 chains every beat onto the previous one's exit; that exit is the line above.
+            head_state = "the state this beat inherits from the line above"
+        else:
+            head_state = entry_state
         head = (f"[{source['start_seconds']:g}s-{source['end_seconds']:g}s] "
-                f"From {origin}; the move runs without stopping.")
+                f"From {head_state}; the move runs without stopping.")
         facts: list[str] = []
         if interaction_mode != "NONE":
             facts.append(f"Interaction mode: {interaction_label}")
         if source.get("contact_time_seconds") is not None and not no_contact_beat:
             facts.append(f"the interaction point is reached at {float(source['contact_time_seconds']):g}s")
-        if source.get("contact_point"):
-            facts.append(f"Contact point: {translated['contact_point']}")
-        if source.get("primary_feedback"):
-            facts.append(f"primary feedback: {evidence.get(f'{prefix}.PRIMARY_FEEDBACK', '')}")
+        # contact_point and primary_feedback are often the same authored sentence ("唯一接触：…"); stating
+        # it twice costs runes and teaches the model nothing.  One statement covers both facts.
+        contact_point = str(translated.get("contact_point") or "").strip()
+        feedback = str(evidence.get(f"{prefix}.PRIMARY_FEEDBACK") or "").strip()
+        if contact_point:
+            facts.append(f"Contact point: {contact_point}")
+        if source.get("primary_feedback") and feedback and _condense_ws(feedback) != _condense_ws(contact_point):
+            facts.append(f"primary feedback: {feedback}")
         facts.append(f"It ends at {translated['exit_state']}")
+        # The beat's ACTION is stated by the shot list itself, move by move — that is what COMBAT_MOTION_V1
+        # replaces.  Repeating the run-on sentence above the list would say it twice, blow the 10 000-rune
+        # prompt limit, and hand the model the very phrasing that made it hold the contact and slide.
         line = f"{head} {'; '.join(f for f in facts if f)}.\n{ladder_text}"
+        evidence[f"{prefix}.ACTION"] = ladder_text
         evidence[f"{prefix}.SHOT_LIST"] = ladder_text
+        first_shot = (ladder_facts.get("COMBAT_SHOTS") or [{}])[0]
+        evidence[f"{prefix}.FORCE_ORIGIN"] = str(first_shot.get("move") or force_origin)
+        if shared_clauses is not None:
+            shared_clauses.add(entry_state)
+            shared_clauses.add(str(translated["exit_state"]))
     else:
         line += f". End at {translated['exit_state']}."
     raw = str(source.get("dialogue") or "").strip()
@@ -1127,20 +1208,46 @@ def _beat(
         clause = NO_SPEECH_BEAT_CLAUSE.format(who=who)
         line += " " + clause
         evidence[f"{prefix}.NO_SPEECH"] = clause
+    # A ladder beat's per-shot syntax already carries the movement; repeating the unit-wide microexpression,
+    # body-sync and continuity bridge under the last shot of every beat cost E15 VU-020 ~750 runes of the
+    # 10 000 budget for no new instruction.  They are stated once, on the unit's first ladder beat.  The
+    # coverage evidence always carries the authored text: that text IS in the prompt (on that first beat),
+    # and the gate matches it against the whole prompt, not against this beat's own line.
     if source.get("microexpression_cue"):
-        line += f" Microexpression: {translated['microexpression_cue']}."
-        evidence[f"{prefix}.MICROEXPRESSION"] = translated["microexpression_cue"]
+        micro = translated["microexpression_cue"]
+        # Identical text is stated once and referred to afterwards; different text is always written out.
+        evidence[f"{prefix}.MICROEXPRESSION"] = micro
+        if shared_clauses is not None and micro in shared_clauses:
+            pass  # already written out on an earlier beat; the gate matches over the whole prompt
+        else:
+            if shared_clauses is not None and len(micro) >= 40:
+                shared_clauses.add(micro)
+            line += f" Microexpression: {micro}."
     if source.get("body_sync_cue"):
         body_sync = translated["body_sync_cue"]
-        if shared_clauses is not None and body_sync in shared_clauses:
-            body_sync = "the shared body synchronization stated on the first beat of this unit"
-        elif shared_clauses is not None and len(body_sync) >= 40:
-            shared_clauses.add(body_sync)
-        line += f" Body synchronization: {body_sync}."
         evidence[f"{prefix}.BODY_SYNC"] = body_sync
+        if shared_clauses is not None and body_sync in shared_clauses:
+            pass
+        else:
+            if shared_clauses is not None and len(body_sync) >= 40:
+                shared_clauses.add(body_sync)
+            line += f" Body synchronization: {body_sync}."
     if source.get("internal_transition_after"):
-        line += f" Then bridge into the next beat: {translated['internal_transition_after']}."
-        evidence[f"{prefix}.INTERNAL_TRANSITION_AFTER"] = translated["internal_transition_after"]
+        bridge = translated["internal_transition_after"]
+        if ladder_text:
+            # The authored bridge quotes the previous beat's final state and this beat's opening state — both
+            # of which are already on the page ("It ends at …" here, "From …" on the next line).  Restating
+            # them cost E15 VU-020 ~5 400 of its 10 000 runes and pushed three fight units over the limit.
+            bridge = ("then it continues into the next beat without resetting, starting exactly from the state "
+                      "this one ends in (D-68)")
+        evidence[f"{prefix}.INTERNAL_TRANSITION_AFTER"] = bridge
+        # The compacted ladder bridge is now one stock sentence, so writing it under every beat's last shot
+        # repeated it verbatim (E15 VU-020: 3 × 118 runes, its last ~380 over the limit).  Once is enough —
+        # the gate matches the evidence against the whole prompt.
+        if shared_clauses is None or bridge not in shared_clauses:
+            line += f" Then bridge into the next beat: {bridge}."
+            if shared_clauses is not None:
+                shared_clauses.add(bridge)
     return line, evidence
 
 
@@ -1393,13 +1500,24 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         incoming = str(translated_transition.get("incoming") or "").strip()
         if not incoming:
             raise ValueError(f"H3_ENGLISH_CONTRACT_FIELD_MISSING:{uid}:transition.incoming")
-        description.append(f"Open directly from the inherited state: {incoming}. Do not reset or replay it.")
+        first_entry = str((contract.get("beats") or [{}])[0].get("entry_state") or "")
+        if first_entry and _condense_ws(incoming) == _condense_ws(first_entry):
+            # The incoming state and the first beat's entry state are the same authored sentence, so the
+            # opening order restated the very next line verbatim (E15 VU-020: ~230 of its 10 000 runes).
+            description.append("Open directly from the inherited state this unit's first beat starts in, below. "
+                               "Do not reset or replay it.")
+        else:
+            description.append(f"Open directly from the inherited state: {incoming}. Do not reset or replay it.")
         clause_evidence["TRANSITION.INCOMING"] = incoming
     action_beats = (plan.get("action_ir") or {}).get("causal_chains") or plan["beats"]
     visibility_scopes = beat_visibility_scopes(unit, plan) if scoped else []
     visible_speakers = _visible_speaker_ids(plan) if scoped else []
     director_specs = (unit.get("ordered_prompt_specs") or []) if director_active(unit, plan) else []
     shared_clauses: set[str] = set()
+    # Which beats render as an action ladder, and which of those is the first: the unit-wide microexpression /
+    # body-sync / continuity clauses are stated on that one and referred to from the rest (E15 VU-020 budget).
+    ladder_flags = [_ladder_beat(beat) for beat in action_beats]
+    first_ladder = ladder_flags.index(True) if any(ladder_flags) else -1
     for beat_number, (source, translated) in enumerate(zip(action_beats, contract["beats"]), 1):
         dialogue_binding = None
         if source.get("dialogue"):
@@ -1419,6 +1537,7 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             unit_has_dialogue=any(b.get("dialogue") for b in action_beats),
             speaker_label=(next((r["provider_entity_label"] for r in crossmodal_rows), None)
                            if len(crossmodal_rows) == 1 else None),
+            ladder_first=(beat_number - 1 == first_ladder),
         )
         if scoped:
             scope_text, scope_evidence = _beat_scope_clauses(
@@ -1467,8 +1586,18 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             raise ValueError(f"H3_ENGLISH_CONTRACT_FIELD_MISSING:{uid}:transition.outgoing")
         # Combat units never end on a "keep micro-motion" instruction (COMBAT_UNIT_DIRECTION_V1 CU3,
         # Roger 2026-11-07): the handoff is the last action, the sound tail is all that lingers.
-        description.append(f"End by completing this handoff: {outgoing}. Keep the sound tail." if _combat_plan(plan)
-                           else f"End by completing this handoff: {outgoing}. Keep natural micro-motion and the sound tail.")
+        last_exit = ""
+        if action_beats and contract.get("beats"):
+            last_exit = str((contract["beats"][-1] or {}).get("exit_state") or "")
+        if last_exit and _condense_ws(outgoing) == _condense_ws(last_exit):
+            # The unit's last beat already ends at this exact state ("It ends at <exit>."), so the handoff
+            # restates it word for word: E15 VU-020 spent ~230 runes of its budget doing that.  The
+            # TRANSITION.OUTGOING fact is still covered — that text is on the page, one line above.
+            description.append("End by completing this handoff: the state the last beat ends in above. "
+                               "Keep the sound tail.")
+        else:
+            description.append(f"End by completing this handoff: {outgoing}. Keep the sound tail." if _combat_plan(plan)
+                               else f"End by completing this handoff: {outgoing}. Keep natural micro-motion and the sound tail.")
         clause_evidence["TRANSITION.OUTGOING"] = outgoing
 
     translated_sounds = contract.get("sounds") or {}
@@ -1482,6 +1611,8 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         if key in ("action_sound", "foley"):
             # E12 2026-10-31: foley rows quote the beat action verbatim too (~500 duplicate runes on VU-003/011)
             values = _condense_sound_quotes(values, contract.get("beats") or [])
+        if key == "foley":
+            values = _merge_shot_scoped_rows(values)
         if key == "action_sound":
             values = _collapse_shared_unit_policy(values)
         for index, value in enumerate(values, 1):
@@ -1496,6 +1627,16 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
             f"{len(translated_environment)}!={len(source_environment)}"
         )
     environment_rows = [str(value).strip() for value in translated_environment]
+    # environment_motion's last clause is "Visible micro-motion matching the on-set sound: <ambience>", which is
+    # the ambience row again, word for word (E15 VU-020: 118 runes of its 10 000 budget).  Point at it instead.
+    ambience = str(translated_sounds.get("ambience", [""])[0] if translated_sounds.get("ambience") else "").strip()
+    if ambience:
+        environment_rows = [
+            re.sub(r"[^;]*" + re.escape(ambience) + r"[^;]*",
+                    " the visible micro-motion matches the ambience stated in overall_soundscape", row)
+            if ambience in row else row
+            for row in environment_rows
+        ]
     for index, value in enumerate(environment_rows, 1):
         clause_evidence[f"ENVIRONMENT_MOTION.{index}"] = value
 

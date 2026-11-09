@@ -159,16 +159,29 @@ def compile_combat_unit(beat: dict[str, Any], translated: dict[str, Any] | None 
         for index, text in enumerate(texts):
             stated = bool(CONTACT_VERBS.search(text)) or (bool(contact_marker) and index == len(texts) // 2)
             moves.append({"text": text, "seconds": 0.0, "scale": "", "camera": "", "contact": stated})
-    total = sum(m["seconds"] for m in moves) or window
-    factor = window / total if total else 1.0
+    # Durations always fill the beat window exactly: the ladder is a cut list inside [start, end], never
+    # past it.  (E15 VU-020 2026-11-09: clamping every shot up to min_shot pushed beat 3's five shots to
+    # 6.9 s inside a 6.5 s window and beat 2's six shots into beat 3.)  Contact shots are capped first; the
+    # remaining time is shared by the other shots in proportion to their authored (or equal) weights.
+    bodies = [analyse_shot_text(m["text"], contact=m["contact"]) for m in moves]
+    weights = [m["seconds"] or 1.0 for m in moves]
+    durations = [0.0] * len(moves)
+    contact_ix = [i for i, b in enumerate(bodies) if b["contact"]]
+    free_ix = [i for i in range(len(moves)) if i not in contact_ix]
+    even = window / len(moves)
+    for i in contact_ix:
+        durations[i] = min(max_contact, even if not free_ix else max_contact)
+    rest = window - sum(durations[i] for i in contact_ix)
+    free_weight = sum(weights[i] for i in free_ix)
+    for i in free_ix:
+        durations[i] = rest * weights[i] / free_weight
+    if not free_ix and contact_ix:
+        durations[contact_ix[-1]] += window - sum(durations)
     shots: list[dict[str, Any]] = []
     cursor = start
-    for index, move in enumerate(moves, 1):
-        seconds = move["seconds"] * factor if move["seconds"] else window / len(moves)
-        seconds = min(max(seconds, min_shot), max_shot)
-        body = analyse_shot_text(move["text"], contact=move["contact"])
-        if body["contact"]:
-            seconds = min(seconds, max_contact)
+    for index, (move, body, seconds) in enumerate(zip(moves, bodies, durations), 1):
+        if index == len(moves):
+            seconds = end - cursor if end > cursor else seconds  # absorb rounding so the ladder ends on `end`
         shots.append({
             "index": index, "start": round(cursor, 3), "end": round(cursor + seconds, 3), "seconds": round(seconds, 3),
             "scale": move["scale"] or (str(beat.get("shot_scale") or "") if index == 1 else ""),
@@ -177,14 +190,18 @@ def compile_combat_unit(beat: dict[str, Any], translated: dict[str, Any] | None 
             "distance": body["distance"], "contact": body["contact"], "settles": body["settles"],
         })
         cursor += seconds
-    return {"shots": shots, "start": start, "end": end, "window": round(window, 3),
+    # CM1 is about one move per shot; a window too short for every shot to reach min_shot is reported,
+    # not silently stretched past the beat.
+    short = [s["index"] for s in shots if s["seconds"] + 1e-6 < min(min_shot, max_contact) and not s["contact"]]
+    return {"shots": shots, "start": start, "end": end, "window": round(window, 3), "short_shots": short,
             "text": render_shot_lines(shots)}
 
 
 def render_shot_lines(shots: list[dict[str, Any]]) -> str:
     lines = []
     for shot in shots:
-        head = f"[Shot {shot['index']} · {shot['start']:g}–{shot['end']:g} s"
+        # One decimal is what an editor cuts on; three decimals cost runes and imply false precision.
+        head = f"[Shot {shot['index']} · {round(shot['start'], 1):g}–{round(shot['end'], 1):g} s"
         if shot.get("scale"):
             head += f" · {shot['scale']}"
         if shot.get("camera"):
