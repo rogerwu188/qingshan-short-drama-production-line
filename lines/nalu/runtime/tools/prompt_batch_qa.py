@@ -391,6 +391,9 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
                 hide_in_line = mentions_hide_coat(line)
                 chk(f"kf_wardrobe_hide_coat_consistent:{name}", hide_expected == hide_in_line, f"expected={hide_expected} line={hide_in_line}")
         sc = scenes[shot["scene_id"]]
+        # a cross-cut shot (contract.shot_scene_overrides) expects its own space, not the scene row's
+        sc = {**sc, **{k: v for k, v in ((contract.get("shot_scene_overrides") or {}).get(shot["shot_id"]) or {}).items()
+                       if k in {"location_id", "weather", "lighting"} and v}}
         chk("kf_time_id", f"时间：{sc['time_id']}" in kf_text, sc["time_id"])
         scene_expected = sc
         projection_ref = row['keyframe_prompt'].get('scene_state_projection_ref')

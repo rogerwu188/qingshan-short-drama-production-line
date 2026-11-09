@@ -1016,6 +1016,10 @@ def _merge_shot_scoped_rows(rows: list[str]) -> list[str]:
         return rows
     import re as _re
 
+    # only rows that all carry their own "Shot <id> only:" scope can be merged; otherwise the merged row would
+    # lose the scope it refers to and read as a dangling "same sound"
+    if not all(_re.search(r"Shot [A-Z0-9-]+ only:", row) for row in rows):
+        return rows
     stripped = [_re.sub(r"\s*Shot [A-Z0-9-]+ only:\s*", "", row).strip() for row in rows]
     if not all(_similar(stripped[0], row, minimum=0.80) for row in stripped[1:]):
         return rows
@@ -1105,12 +1109,15 @@ def _beat(
     if source.get("primary_feedback"):
         primary_feedback = translated.get("primary_feedback") or translated.get("force_feedback")
         primary_feedback = _condense_feedback(primary_feedback, translated, combat=_combat_beat(source))
-        if shared_clauses is not None and primary_feedback in shared_clauses:
-            primary_feedback = "the shared result stated on the first beat of this unit"
-        elif shared_clauses is not None:
-            shared_clauses.add(primary_feedback)
-        line += f"; primary feedback: {primary_feedback}"
         evidence[f"{prefix}.PRIMARY_FEEDBACK"] = primary_feedback
+        if shared_clauses is not None and primary_feedback in shared_clauses:
+            # identical to an earlier beat's feedback, already written out in this prompt: say nothing rather
+            # than point at "the first beat's result", which is a different result (E15 VU-002 blind review)
+            pass
+        else:
+            if shared_clauses is not None:
+                shared_clauses.add(primary_feedback)
+            line += f"; primary feedback: {primary_feedback}"
     translated_secondary = translated.get("secondary_feedback") or []
     for secondary_index, value in enumerate(translated_secondary, 1):
         line += f"; secondary feedback: {value}"

@@ -45,6 +45,8 @@ POLICY_PATH = Path(__file__).resolve().parents[1] / "configs" / f"{POLICY_ID}.js
 DEFAULT_MAX_CONTACT_SECONDS = 0.4
 DEFAULT_MIN_SHOT_SECONDS = 0.5
 DEFAULT_MAX_SHOT_SECONDS = 1.5
+#: below this a "shot" is a flicker the model cannot render as a move; moves are merged to stay above it
+FLOOR_SHOT_SECONDS = 0.3
 
 #: wording that means "hold still" — never allowed as a shot result
 SETTLE_WORDS = ("保持不变", "停住", "定住", "僵持", "顶住", "咬住", "相持", "撑住",
@@ -59,7 +61,9 @@ DISTANCE = ("半尺", "一尺", "半臂", "一臂", "半步", "一步", "两步"
             "half a foot", "a foot", "half an arm", "an arm", "half a step", "a step", "two steps", "three steps")
 
 #: wording that states the weapons actually met in this move
-CONTACT_VERBS = re.compile(r"(?:砍在|劈在|砍上|撞在|撞上|砸在|砸上|架住|格开|击中|strikes|lands on|clashes)")
+CONTACT_VERBS = re.compile(r"(?i)(?:砍在|劈在|砍上|撞在|撞上|砸在|砸上|架住|格开|击中|刺入|"
+                           r"strikes|lands on|clashes|bites into|slams into|sweeps? (?:across )?(?:onto|into)|"
+                           r"swings? .{0,40}into|tip enters|drives into .{0,30}(?:chest|armou?r))")
 
 CJK = re.compile(r"[\u4e00-\u9fff]")
 
@@ -92,10 +96,30 @@ def policy_active(contract: dict[str, Any] | None, *, episode: str | None, polic
 # authored ladder → shots
 # --------------------------------------------------------------------------- #
 
+#: a clause that only describes the camera or the staging continuity, not a body moving (E15 VU-019 2026-11-09:
+#: "the camera position is exactly the same as the previous beat" / "no change of shot size or angle" became
+#: 0.1–0.2 s action shots).  Such clauses are folded into the shot before them.
+CAMERA_NOTE = re.compile(r"(?i)^(?:same camera|the camera|camera|no change of shot|no cut|without a cut|机位|镜头|景别|不切)"
+                         r"|(?:camera position|shot size|angle)\b.*(?:same|unchanged|no change)")
+
+
 def _split_moves(text: str) -> list[str]:
-    """Split authored action text into moves at sentence and semicolon boundaries."""
-    parts = re.split(r"[。；;]\s*|\n+", str(text or ""))
-    return [p.strip(" ，,、") for p in parts if p.strip(" ，,、")]
+    """Split authored action text into moves at sentence and semicolon boundaries.
+
+    Camera / staging notes are attached to the previous move rather than becoming a shot of their own."""
+    parts = [p.strip(" ，,、") for p in re.split(r"[。；;]\s*|\n+", str(text or "")) if p.strip(" ，,、")]
+    moves: list[str] = []
+    for part in parts:
+        if CAMERA_NOTE.search(part) and moves:
+            moves[-1] = f"{moves[-1]} ({part})"
+        elif CAMERA_NOTE.search(part):
+            moves.append(part)  # leading note: kept, merged forward below
+        else:
+            if moves and CAMERA_NOTE.search(moves[-1]) and len(moves) == 1:
+                moves[-1] = f"{part} ({moves[-1]})"
+            else:
+                moves.append(part)
+    return moves
 
 
 def _scale_of(shot: dict[str, Any], default: str = "MEDIUM") -> str:
@@ -155,14 +179,36 @@ def compile_combat_unit(beat: dict[str, Any], translated: dict[str, Any] | None 
         if not texts:
             texts = [str((translated or {}).get("primary_action") or "").strip() or "the strike continues"]
         contact_marker = str(beat.get("contact_point") or "")
-        moves = []
-        for index, text in enumerate(texts):
-            stated = bool(CONTACT_VERBS.search(text)) or (bool(contact_marker) and index == len(texts) // 2)
-            moves.append({"text": text, "seconds": 0.0, "scale": "", "camera": "", "contact": stated})
+        no_contact = contact_marker.strip().lower().startswith(("no contact", "本拍无接触", "无接触", "before contact", "接触前"))
+        flags = [bool(CONTACT_VERBS.search(text)) for text in texts]
+        if not any(flags) and contact_marker and not no_contact:
+            flags[len(texts) // 2] = True
+        # CM3: one contact per beat.  When the authored text names several contact verbs, keep the FIRST:
+        # the meeting of the weapons is the contact, what follows is its result (E15 VU-010/017: two
+        # contact shots in one beat).
+        if sum(flags) > 1:
+            first = flags.index(True)
+            flags = [i == first for i in range(len(flags))]
+        if no_contact:
+            flags = [False] * len(flags)
+        moves = [{"text": text, "seconds": 0.0, "scale": "", "camera": "", "contact": flag}
+                 for text, flag in zip(texts, flags)]
     # Durations always fill the beat window exactly: the ladder is a cut list inside [start, end], never
     # past it.  (E15 VU-020 2026-11-09: clamping every shot up to min_shot pushed beat 3's five shots to
     # 6.9 s inside a 6.5 s window and beat 2's six shots into beat 3.)  Contact shots are capped first; the
     # remaining time is shared by the other shots in proportion to their authored (or equal) weights.
+    # Never more shots than the window holds at FLOOR_SHOT_SECONDS each: neighbouring moves merge instead of
+    # producing 0.1 s flickers (E15 VU-019 had 0.1 s and 0.2 s shots).
+    floor = FLOOR_SHOT_SECONDS
+    max_shots = max(2, int(window / floor + 1e-6))
+    while len(moves) > max_shots:
+        # merge the shortest-text non-contact neighbour pair
+        best = min(range(len(moves) - 1),
+                   key=lambda i: (moves[i]["contact"] or moves[i + 1]["contact"], len(moves[i]["text"]) + len(moves[i + 1]["text"])))
+        a, b = moves[best], moves[best + 1]
+        moves[best:best + 2] = [{"text": f"{a['text']}, {b['text']}", "seconds": a["seconds"] + b["seconds"],
+                                 "scale": a["scale"] or b["scale"], "camera": a["camera"] or b["camera"],
+                                 "contact": a["contact"] or b["contact"]}]
     bodies = [analyse_shot_text(m["text"], contact=m["contact"]) for m in moves]
     weights = [m["seconds"] or 1.0 for m in moves]
     durations = [0.0] * len(moves)
@@ -177,6 +223,27 @@ def compile_combat_unit(beat: dict[str, Any], translated: dict[str, Any] | None 
         durations[i] = rest * weights[i] / free_weight
     if not free_ix and contact_ix:
         durations[contact_ix[-1]] += window - sum(durations)
+    # The contract's contact time is where the contact shot STARTS (E15 VU-021/027/029: the stated
+    # "interaction point is reached at 0.9s" fell outside the 1.4–1.8 s contact shot).  Re-share the time
+    # before the contact shot so the contact lands on the authored instant, keeping every pre-contact shot
+    # at least FLOOR_SHOT_SECONDS; the time after it is shared by the rest.
+    contact_time = beat.get("contact_time_local", beat.get("contact_time_seconds"))
+    if contact_time is not None and not (start - 1e-6 <= float(contact_time) <= end + 1e-6):
+        contact_time = None  # an absolute / foreign timestamp: never let it place the shot
+    if contact_time is not None and len(contact_ix) == 1:
+        k = contact_ix[0]
+        want = min(max(float(contact_time), start + k * floor), end - durations[k] - (len(moves) - k - 1) * floor)
+        before = list(range(k)); after = list(range(k + 1, len(moves)))
+        if before:
+            span = want - start
+            w = sum(weights[i] for i in before)
+            for i in before:
+                durations[i] = span * weights[i] / w
+        if after:
+            span = end - want - durations[k]
+            w = sum(weights[i] for i in after)
+            for i in after:
+                durations[i] = span * weights[i] / w
     shots: list[dict[str, Any]] = []
     cursor = start
     for index, (move, body, seconds) in enumerate(zip(moves, bodies, durations), 1):

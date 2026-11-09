@@ -343,7 +343,8 @@ def evaluate_task(task: dict[str, Any], authority_report: dict[str, Any]) -> dic
     ):
         if task.get(field) not in values:
             failures.append({"check": field, "reason": "missing_or_not_declared", "actual": task.get(field)})
-    mapping = index["scene_to_map"].get(task.get("scene_id"))
+    # a cross-cut shot (contract.shot_scene_overrides[].space_scene_id) is placed in another scene's space
+    mapping = index["scene_to_map"].get(task.get("space_scene_id") or task.get("scene_id"))
     if not mapping:
         failures.append({"check": "scene_id", "reason": "not_mapped", "actual": task.get("scene_id")})
     else:

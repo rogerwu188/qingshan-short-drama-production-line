@@ -374,9 +374,11 @@ def build_subspace_tasks(contract: dict[str, Any], index: SpaceIndex,
     for shot in contract.get("shots") or []:
         shot_id = str(shot["shot_id"])
         scene_id = str(shot["scene_id"])
-        mapping = index.scene_map.get(scene_id)
+        # a cross-cut shot borrows another scene's space mapping (contract.shot_scene_overrides[shot].space_scene_id)
+        _ov_scene = str(((contract.get("shot_scene_overrides") or {}).get(shot_id) or {}).get("space_scene_id") or "")
+        mapping = index.scene_map.get(_ov_scene or scene_id)
         if not mapping:
-            raise SystemExit(f"{shot_id}: scene {scene_id} is not mapped by the global space map")
+            raise SystemExit(f"{shot_id}: scene {_ov_scene or scene_id} is not mapped by the global space map")
         place_id = str(mapping["global_space_map_id"])
         room_id = str(mapping["room_id"])
         declared_zones = [str(value) for value in mapping.get("zone_ids") or []]
@@ -492,6 +494,7 @@ def build_subspace_tasks(contract: dict[str, Any], index: SpaceIndex,
             "tool_type": "image_generation",
             "spatial_layout_stage": "SHOT_KEYFRAME",
             "scene_id": scene_id,
+            **({"space_scene_id": _ov_scene} if _ov_scene else {}),
             "episode": episode,
             "episode_global_space_map_id": index.episode_map_id,
             "global_space_map_id": place_id,
@@ -1023,6 +1026,13 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
         shot_id = str(shot["shot_id"])
         scene_id = str(shot["scene_id"])
         scene = scenes.get(scene_id) or {}
+        # A cross-cut scene (E15 S03 2026-11-09: inside the hut ↔ Qinming behind a rock ↔ the mastiff by the
+        # lean-to) has shots in another space.  ``shot_scene_overrides[shot_id]`` replaces that shot's
+        # location / weather / lighting / palette only; every other shot keeps its scene row unchanged.
+        override = (contract.get("shot_scene_overrides") or {}).get(shot_id) or {}
+        if override:
+            scene = {**scene, **{k: v for k, v in override.items()
+                                 if k in {"location_id", "weather", "lighting", "palette", "weather_provenance"} and v}}
         row = by_shot[shot_id]
         duration = float(shot["target_seconds"])
         if shot_id in group_rows:  # monologue group: lines back to back, the 4 s floor is the unit's
@@ -1373,7 +1383,11 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                     "重心先动，手臂与兵器随后，接触后肩背吸收冲击并继续移动，不定格"
                     if cast_rows and combat_beat else
                     "视线先行，下颌与肩颈随后，手部或重心最后完成并保持"
-                    if cast_rows else "环境力学按同一方向完成一次变化并保持"),
+                    if cast_rows else
+                    # A no-cast COMBAT beat (a tree crashing down mid-fight) is still a fight beat: it must not
+                    # end on 「并保持」 (E15 VU-028 2026-11-09, blind prompt review: "complete one change … and hold").
+                    "环境力学按同一方向完成一次变化，余势继续，不定格"
+                    if combat_beat else "环境力学按同一方向完成一次变化并保持"),
                 "actor_performance": actor_performance,
             },
             "dialogue": dialogue,
