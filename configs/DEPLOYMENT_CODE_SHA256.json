@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2403,
+  "file_count": 2404,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -793,7 +793,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_selective_bgm.py",
-      "sha256": "83155382a5140a9d5b7e99ab4c254b49476b120843fe66f61d3c7e2cb2334431"
+      "sha256": "f77f15960fde865b086f679d5da9b2aa573059bc2ec40ef05672ad0aab5a2012"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_series_scope.py",
@@ -8826,6 +8826,10 @@
     {
       "path": "tools/tests/test_source_video_dialogue_gate.py",
       "sha256": "9ea82e7058e99da77c42161b4c2027ddc924520a6db511846619a6b45552a553"
+    },
+    {
+      "path": "tools/tests/test_space_entity_binding_role.py",
+      "sha256": "5e4804a2691c1fa8320bcc99c296bb2ad609331e18dae5d38950df51d576c292"
     },
     {
       "path": "tools/tests/test_spatial_dialogue_contract.py",
