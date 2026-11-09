@@ -73,7 +73,7 @@ if [ $FORCE = 0 ] && [ -f "$STATE" ] && grep -q "\"status\":\"READY\"" "$STATE" 
   finish READY ""
 fi
 
-# an episode in flight (the executor running, or its last NALU_STATUS is anything but FINAL_CUT_READY / BLOCKED)
+# an episode in flight (the executor running, or its last NALU_STATUS is anything but FINAL_CUT_READY / BLOCKED / FINAL_REVIEW_REQUIRED)
 # keeps the engine + venv it started with; a new pin is applied on the first wake after it finishes.
 IN_FLIGHT="$(python3 - "$RUNTIME" "$S" <<'PY' 2>/dev/null
 import json, sys
@@ -89,7 +89,13 @@ for session in sorted((runtime / "claude_code").glob("*/session.json")):
     # run whose executor is gone without ever printing NALU_STATUS (killed or crashed): nothing is
     # running on the old engine, and deferring would keep that episode on it forever
     # (Twelve Gazes E01 2026-10-22: Codex stopped by pid to wait for an engine fix -> fix never applied)
-    if cp.alive(s.get("pid")) or (state is not None and state not in ("FINAL_CUT_READY", "BLOCKED")):
+    # FINAL_REVIEW_REQUIRED is idle too (nothing produces; the reviewer runs outside the producer), and an engine
+    # fix is often what that review needs (field device …1324 E03, 2026-11-09: the engine-launched reviewer
+    # could never install while its episode sat in FINAL_REVIEW_REQUIRED); a live reviewer process still defers
+    reviewer = json.loads((session.parent / "final_reviewer" / "reviewer.json").read_text(encoding="utf-8")) \
+        if (session.parent / "final_reviewer" / "reviewer.json").is_file() else {}
+    if cp.alive(s.get("pid")) or cp.alive(reviewer.get("pid")) or \
+            (state is not None and state not in ("FINAL_CUT_READY", "BLOCKED", "FINAL_REVIEW_REQUIRED")):
         busy.append(f"{session.parent.name}:{'RUNNING' if cp.alive(s.get('pid')) else state}")
 print(",".join(busy))
 PY
