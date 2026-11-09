@@ -3,7 +3,7 @@
 #
 # Run by the agent on every wake-up, after setup_host.sh returned READY:
 #   self_update.sh --agent-id qingshan-ai-drama-factory-minipc [--restart]
-# * an episode in flight (the executor running, or its last NALU_STATUS is neither FINAL_CUT_READY nor BLOCKED) -> no change;
+# * an episode in flight (the executor running, or its last NALU_STATUS is none of FINAL_CUT_READY / BLOCKED / FINAL_REVIEW_REQUIRED) -> no change;
 # * otherwise `talenthub agent list` (registry catalog, cached by talenthub for up to 1 h); when this agent
 #   shows "Update available", `talenthub agent update <id>` rewrites its instruction files and refreshes
 #   its skills.  The new instructions apply from the next session; with --restart the OpenClaw gateway is
@@ -38,7 +38,13 @@ for session in sorted((runtime / "claude_code").glob("*/session.json")):
     # a stopped BLOCKED episode is waiting for a fix (often this very update), not in flight; neither is
     # a run whose executor is gone without ever printing NALU_STATUS (killed or crashed) -- same rule as
     # setup_host.sh (#110), else the update that fixes the episode can never install
-    if cp.alive(s.get("pid")) or (state is not None and state not in ("FINAL_CUT_READY", "BLOCKED")):
+    # FINAL_REVIEW_REQUIRED is idle too (nothing produces; the reviewer runs outside the producer), and an engine
+    # fix is often what that review needs (field device …1324 E03, 2026-11-09: the engine-launched reviewer
+    # could never install while its episode sat in FINAL_REVIEW_REQUIRED); a live reviewer process still defers
+    reviewer = json.loads((session.parent / "final_reviewer" / "reviewer.json").read_text(encoding="utf-8")) \
+        if (session.parent / "final_reviewer" / "reviewer.json").is_file() else {}
+    if cp.alive(s.get("pid")) or cp.alive(reviewer.get("pid")) or \
+            (state is not None and state not in ("FINAL_CUT_READY", "BLOCKED", "FINAL_REVIEW_REQUIRED")):
         out.append(session.parent.name)
 print(",".join(out))
 PY

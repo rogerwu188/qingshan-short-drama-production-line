@@ -1017,11 +1017,11 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/self_update.sh",
-      "sha256": "2f38698c901af743499734627d6bdcd210faf481f3db46616227635d6b211965"
+      "sha256": "91b026f8f3ba08c862d8b8f5a4e430ea7d6e30fb34d6dbf2329e221fce840f43"
     },
     {
       "path": "skills/nalu-claude-code/scripts/setup_host.sh",
-      "sha256": "af5d9e8e0e4ad9571a6d4870a7b9aef662fee7e9cc99c6a5dedd4b783ebfdfa3"
+      "sha256": "67fb695419a6a1a258005c37c93eadd45b9072b33089028ab10b638a312f19aa"
     },
     {
       "path": "skills/qingshan-nalu/SKILL.md",
