@@ -163,3 +163,10 @@ def test_postable_manifest_without_combat_classification_fails_closed(tmp_path):
     postable = {"episode": "E15", "provider_post_allowed": True, "tasks": [dict(task)]}
     codes = [f["code"] for f in gate.evaluate_manifest(postable, root=tmp_path)["failures"]]
     assert codes == ["COMBAT_CLASSIFICATION_MISSING"]
+
+
+def test_scene_share_acceptance_binds_to_measured_seconds():
+        g = gate
+        assert g._scene_share_acceptance("E15", "E15-S06", {"seconds": 10.5, "combat_seconds": 5.0}) is not None
+        assert g._scene_share_acceptance("E15", "E15-S06", {"seconds": 11.0, "combat_seconds": 5.0}) is None
+        assert g._scene_share_acceptance("E16", "E15-S06", {"seconds": 10.5, "combat_seconds": 5.0}) is None
