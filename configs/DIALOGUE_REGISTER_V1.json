@@ -1,0 +1,27 @@
+{
+  "schema": "qingshan.dialogue_register_policy.v1",
+  "policy_id": "DIALOGUE_REGISTER_V1",
+  "authority": "Roger 2026-11-08 E15 看片（SUPERVISOR_ORDERS seq=219）：台词照搬小说原著、两个主角一个腔、AI 味太重，后续不再犯",
+  "enabled_from_episode": "E15",
+  "activation_note": "Offline S1 gate, no provider call. Active from E15 (being reworked) onward, or when the writing contract declares dialogue_register_policy=DIALOGUE_REGISTER_V1. Never retroactive for delivered episodes.",
+  "verbatim_min_run": 8,
+  "rules": {
+    "DR1": "DIALOGUE_SOURCE_VERBATIM: a spoken line shares a run of >= verbatim_min_run characters with the episode's source chapter — the novel's sentence was moved into the script instead of adapted",
+    "DR2": "DIALOGUE_WRITTEN_REGISTER: a spoken line carries written/classical register markers (为何/之/乃/特制/灵性 …) or narrates a judged comparison about the speaker ('我的力气比他大，速度比他慢') — that is prose or inner monologue, not speech",
+    "DR3": "DIALOGUE_ONE_VOICE: two speakers with >= 3 lines each have near-identical sentence length (mean gap <= 1.5 chars) and character-bigram vocabulary (Jaccard >= 0.35) — they share one voice",
+    "DR4": "DIALOGUE_FINGERPRINT_DRIFT: a line breaks the speaker's declared speech_fingerprint (max_chars / banned_words)"
+  },
+  "fingerprint_fields": {
+    "where": "generation contract (or LINE child entity blocks): speech_fingerprints.<speaker>.{max_chars, banned_words, note}",
+    "note": "the note is for the writer and the reviewer; only max_chars and banned_words are enforced"
+  },
+  "evidence": {
+    "e15": {
+      "lines": 27,
+      "verbatim": ["E15-S13-07 (22/22 chars, whole sentence)", "E15-S13-06 (12/12)", "E15-S03-01 (12/12)", "E15-S03-03 (13/22)", "E15-S13-01 (11/11)"],
+      "source_overlap_ratio": 0.492,
+      "one_voice": "秦铭 (18 lines) and 傅恩涛 (8 lines) both clipped, both judging, both technical",
+      "written_register": ["我的力气比他大，速度比他慢", "正是对付那种灵性之物的好时机", "他甲是特制的"]
+    }
+  }
+}

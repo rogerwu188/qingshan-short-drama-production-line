@@ -1860,7 +1860,27 @@ def stage_s1(ctx: Ctx) -> StageResult:
     selfcheck_ok = writer_selfcheck_admitted(
         selfcheck, int(selfcheck_step["exit_code"])
     )
-    status = PASS if (writer_handoff_ok and gate10_ok and entity_ok and static_ok and structure_ok and continuity_ok and scope_ok and selfcheck_ok) else BLOCKED
+    # DIALOGUE_REGISTER_V1 (Roger 2026-11-08 seq=219 「台词照搬小说原著，AI 味太重」): every spoken line is
+    # checked against the episode's source chapter (verbatim runs), for written-register wording and for
+    # two characters sharing one voice.  Offline and free.  Inactive policy / no source file = NOT_ACTIVE,
+    # so delivered episodes and episodes without a source text are untouched.
+    dialogue_register: dict[str, Any] = {"status": "NOT_ACTIVE"}
+    dialogue_register_path = p.logs / f"{ctx.run_id}_dialogue_register_gate.json"
+    # the source chapter follows the episode number (E15 -> ch0015.md); a contract may name its own file
+    episode_index = re.sub(r"\D", "", str(ctx.episode)) or "0"
+    declared_source = str(((read_json(p.contract, {}) or {}).get("source_text")) or "")
+    source_candidates = [Path(declared_source) if declared_source else None,
+                         RUNTIME / "sources" / "夜无疆" / "zh-CN" / f"ch{int(episode_index):04d}.md"]
+    source_path = next((c for c in source_candidates if c and c.is_file()), None)
+    if source_path is not None:
+        register_step = ctx.run(
+            [VENV, ENGINE / "tools/dialogue_register_gate.py", "--contract", str(p.contract),
+             "--source", str(source_path), "--out", str(dialogue_register_path)],
+            name="s1_dialogue_register_gate")
+        dialogue_register = read_json(dialogue_register_path, {}) or {"status": "NOT_ACTIVE"}
+        dialogue_register["exit_code"] = register_step["exit_code"]
+    dialogue_register_ok = str(dialogue_register.get("status") or "") in {"PASS", "NOT_ACTIVE"}
+    status = PASS if (writer_handoff_ok and gate10_ok and entity_ok and static_ok and structure_ok and continuity_ok and scope_ok and selfcheck_ok and dialogue_register_ok) else BLOCKED
     # Line owner 2026-11-01: under WRITER_CAPABILITY_V1 the writing PROCEDURE is required — a missing or unanswered
     # script review / Rule 8 answer / arc ledger / adaptation disposition keeps the script from being marked complete
     # for paid preparation.  LEGACY episodes return no blocks, so E01-E13 are untouched; opinion never blocks.

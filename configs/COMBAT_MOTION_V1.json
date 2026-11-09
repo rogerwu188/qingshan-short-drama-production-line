@@ -1,0 +1,26 @@
+{
+  "schema": "qingshan.combat_motion_policy.v1",
+  "policy_id": "COMBAT_MOTION_V1",
+  "authority": "Roger 2026-11-08 E15 看片（SUPERVISOR_ORDERS seq=219）：打斗不像专业武侠；E15 VU-020 三次重投都在兵器相接后定格 1.75–2.0 s",
+  "enabled_from_episode": "E16",
+  "activation_note": "Offline compile-time policy (no provider call). Active from E16 onward, or when the writing contract declares combat_motion_policy=COMBAT_MOTION_V1 (set for E15's rework once its beats are authored as ladders). Old episodes keep the legacy state template byte-for-byte.",
+  "renderer": {
+    "module": "tools/combat_unit_compiler.py",
+    "hook": "h3_provider_prompt_renderer.combat_shot_lines",
+    "replaces": "the state template (Start from / Force origin / primary action / Interaction mode / primary feedback / End at) for a COMBAT beat that carries a ladder",
+    "keeps": "the beat's timing bracket, the entry state as a one-line 'Open from', and the coverage facts (entry/exit/contact) so the semantic coverage gate still finds them"
+  },
+  "rules": {
+    "CM1": "one move per shot: the strike, its reception and its displacement are separate shots, each 0.5–1.5 s",
+    "CM2": "every shot names the body part met and the direction and distance moved (刀面/矛杆/护臂/肩 + 画左/画右/前/后 + 半尺/一臂/半步)",
+    "CM3": "a segment really makes contact once: at most one contact shot in the ladder",
+    "CM4": "a contact shot is at most 0.4 s — longer than that the model holds the two weapons together",
+    "CM5": "the last shot's result is an ongoing move, never a settled pose; the words 顶住/咬住/僵持/撑住/停住/hold/lock are blocked in a shot result",
+    "CM6": "consecutive shots never share scale and camera side: the cut, not the camera move, carries the change"
+  },
+  "limits": {"max_contact_seconds": 0.4, "min_shot_seconds": 0.5, "max_shot_seconds": 1.5},
+  "evidence": {
+    "e15_vu020": "three takes, three freezes: 2.0 s, 1.75 s, 2.0 s of blade resting on shaft after the first contact; every take had to be trimmed in S7 to pass combat_execution_check",
+    "e15_weapon_shape": "the same sabre renders as a thin straight sword, a curved sabre, a broad blade and a short cleaver across VU-018..021"
+  }
+}
