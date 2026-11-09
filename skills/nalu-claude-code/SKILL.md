@@ -137,7 +137,7 @@ python3 $S/codex_production.py report                                # 给线主
 ```
 **心跳（每 15 分钟）只跑 `tick`**，只读最后一行 `NALU_TICK: {...}` 的 `action`：
 - `NONE`：脚本已处理完（在跑、已续跑、已发行或发行暂缓、在等线主），**立即结束本轮**，不要再读别的文件。
-- `WRITE_NEXT_EPISODE`：本集已出片——按 §7 给下一集派单并 `start`（发行脚本会自己按顺序做）。
+- `WRITE_NEXT_EPISODE`：本集已出片——**先升级再开新集**：`self_update.sh`（不带 --restart）→ 按磁盘 AGENTS.md 的 pin 跑 `setup_host.sh`（集与集之间是唯一不在生产中的时刻，心跳不跑 setup 就永远换不了引擎；实地设备 …1324 E04 2026-11-09 用旧引擎开工），再按 §7 给下一集派单并 `start`（发行脚本会自己按顺序做）。
 - `AGENT`：看 `reason` 和 `nalu_status`，按下面处理；同一个情况脚本只交给你一次，之后的心跳返回 `NONE`。
 `tick` 自己做的事：按集号顺序发行已出片未发行的集（一次一集，有待审集时暂缓，见 §6）；Codex 会话结束但没给 `NALU_STATUS` 时
 续跑最多 3 次；`WAITING_REMOTE` 续跑；以前用 Claude Code 起的、已停下的集改用 Codex 接着跑；`series/PAUSED` 存在时什么都不做。
