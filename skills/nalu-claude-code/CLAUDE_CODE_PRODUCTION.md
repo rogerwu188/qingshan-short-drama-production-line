@@ -211,7 +211,7 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
 
 ## 5. 质量不阻塞：默认接受（不问）
 默认条款：**质量问题不阻塞连续生产。** 门禁 FAIL 时先按 §4 正常修复/受控重做；同一镜第 2 次创意重做仍失败，或失败无法靠重做解决
-（例如派生起始帧、成片观众检测器、模型反复画出的穿帮），就直接记录接受订单并继续，不停下问：
+（例如派生起始帧、成片观众检测器、响度门 `RELEASE_AUDIO_LEVELLING_FAILED`（gate `RELEASE-AUDIO-LOUDNESS`）、机位门、模型反复画出的穿帮），就直接记录接受订单并继续，不停下问。这些是质量 FAIL，不是代码缺口，不要写 CODE_BLOCKER（实地设备 …1324 E03，2026-11-09：响度门被报成代码缺口停了一轮）；只有引擎自相矛盾、崩溃或缺证据才是 CODE_BLOCKER：
 ```bash
 $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下一个 seq> \
   --order "默认条款自动接受：质量问题不阻塞连续生产（短剧工作流）" --episode <EP> \
