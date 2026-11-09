@@ -55,8 +55,9 @@ INTERNAL = re.compile(r"\b(?:CHAR|SUBSPACE|LOC|SET|PROP|AXIS|ANGLE)-[A-Z0-9-]+|\
 #: only text change, confirmed by diffing old vs new.
 V1_SHA = {
     # stamped V1 director: default strict camera lock (owner 2026-10-26); "standard" keeps the previous bytes
-    True: "ca17256a0720fb406aed710a81f56a0679bbd4772e4cc4af6545beb46fc275db",
-    "standard": "27d6342dac48a9215ed16946468dc542be6a0601c5339e7c87537e06456a94b4",
+    # 2026-11-09: stamped units add the time-of-day hold line (field device …1324 E02 day/night flips)
+    True: "521d117d6ddc1c4822a628a5496f9eb0cebce33d4888056d513fdd314efd04eb",
+    "standard": "a460ad6915eb2c0384a60e59e6c673470931aaf9643ac3c0e34c355f91b323b2",
     False: "838e3f8960139ef5810a783a67462bfac6cf944b0b6546c9966f6524a07d8323",
 }
 

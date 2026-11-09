@@ -1576,6 +1576,10 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         "No identity, wardrobe, prop ownership, map, weather, lighting-direction, or voice drift",
         "No freeze, loop, pose interpolation, unmotivated orbit, or discontinuous spatial jump",
     ])
+    if director_active(unit, plan):
+        # time of day held for the whole clip (field device …1324 E02 final review: P0 day/night flips inside one
+        # shot at 60.8 s / 70.7 s / 88.96 s; the scene's time= is already in the setting line).  Stamped units only.
+        negatives.append("No time-of-day change: the light level stays the same from the first frame to the last")
     if wuxia_profile.get("status") == "SELECTED":
         negatives.extend(wuxia_profile.get("negative_constraints_en") or [])
     profile_constraints = {
