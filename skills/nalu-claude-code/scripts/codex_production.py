@@ -106,6 +106,125 @@ CODEX_ADAPTER = """
 """
 
 
+# ---------------------------------------------------------------------------------- independent final review
+# Line owner 2026-11-09: the S7 final-audience review is run by an engine-launched, separate `codex exec`
+# process (fresh thread, fixed reviewer instructions, gpt-6.1-sol via the line's HopsAPI provider) instead of a
+# StoryClaw sub-agent the heartbeat had to remember to spawn (field device …1324 E02/E03: the review sat for
+# hours twice).  The producer never sees or writes the answers; the reviewer submits them itself.
+REVIEWER_MODEL = "gpt-6.1-sol"
+REVIEWER_MODEL_ID = f"hopsapi/{REVIEWER_MODEL}"   # declared in the answers; allow-listed in final_audience_review
+MAX_REVIEWER_ATTEMPTS = 2
+REVIEW_REQUIRED_CODE = 10   # final_audience_review.py status: request prepared, no submitted review yet
+
+
+def reviewer_prompt(episode: str, request: Path, answers: Path, process_id: str, submit_cmd: str) -> str:
+    return f"""你是 NALU 短剧 {episode} 的**独立终审审核者**（观众视角），不是生产者。你只看成片和审核请求，不看、不信任何生产记录里的结论。
+
+1. 读审核请求：`{request}`。里面的 `reviewer_contract`、`viewing_passes_required`、`shots`、`dimension_questions`、
+   `subjective_checks_required`、`answer_contract` 就是你要做的全部；`media.path` 是成片（sha 已绑定）。
+2. 真看成片（不准凭文件名、日志或解码器退出码推断）：
+   - 有声 1x：用 ffmpeg 每 1 秒抽一帧（缩到长边 ≤1280、JPEG `-q:v 4`，放在 `$TMPDIR` 下你自己的目录），按时间顺序用 view_image 看完，
+     同时对照 `evidence.asr` 的台词和时间；`evidence.contact_sheet` 也要看。
+   - 静音：只凭画面判断动作是否看得懂、连贯、有没有穿帮（人数、手、身份、昼夜、跳变）。
+   - 只听：读 ASR，用 `ffmpeg -af ebur128` 等测音频，判断对白清晰度、混音、节奏。
+3. 逐镜（`shots` 里每一个 shot_index）写你自己看到的内容；八项打 1–5 分并写依据；整体分单独给（不是平均）；
+   每个 `subjective_checks_required` 给布尔值和依据；把观众看得见的剧情事件按时间写进 events；问题按 P0–P3 写进 problems。
+   如实判断：有穿帮就判低分，判拒（REJECT_RECUT）也是正常结论，不要为了通过而改判。
+4. 按 `answer_contract` 写答案 JSON 到 `{answers}`，其中：
+   `reviewer.agent_id` = `storyclaw-final-audience-reviewer`，`reviewer.role` = `independent_final_audience_reviewer`，
+   `reviewer.model` = `{REVIEWER_MODEL_ID}`，`reviewer.process_id` = `{process_id}`，`reviewer.reviewed_at` = 当前 UTC ISO 时间；
+   `request_sha256` 用 `sha256sum` 算请求文件。
+5. 自己提交：`{submit_cmd}`。退出码 0（通过）或 3（判拒）都算完成；其它退出码就读输出、修正答案格式后再提交一次。
+6. 只允许写 `{answers}` 和你在 `$TMPDIR` 下的临时目录；不改引擎、剧本、订单、成片或任何其它文件；不读任何密钥文件。
+最后一行输出：`REVIEW_SUBMITTED: {{"exit_code": <submit 退出码>, "verdict": "<PASS|REJECT_RECUT|...>"}}`
+"""
+
+
+def _review_paths(episode: str) -> tuple[Path, Path]:
+    _, runtime = roots()
+    base = runtime / "runtime" / "reviews" / episode
+    return base / "final_audience_request.json", base / "final_audience_answers.json"
+
+
+def review_status_code(episode: str) -> int:
+    engine, _ = roots()
+    venv = engine / ".qingshan-venv" / "bin" / "python"
+    tool = engine / "lines" / "nalu" / "runtime" / "tools" / "final_audience_review.py"
+    try:
+        return subprocess.run([str(venv if venv.is_file() else sys.executable), str(tool), "status", "--episode", episode],
+                              cwd=engine, capture_output=True, text=True, timeout=600).returncode
+    except (OSError, subprocess.SubprocessError):
+        return -1
+
+
+def launch_reviewer(episode: str) -> dict[str, Any]:
+    """Start (at most MAX_REVIEWER_ATTEMPTS times) the independent final-audience reviewer for one episode."""
+    env = codex_env()
+    exe = shutil.which("codex", path=(env or os.environ).get("PATH"))
+    if not exe or env is None:
+        return {"status": "BLOCKED", "reason": "CODEX_OR_PROVIDER_MISSING"}
+    engine, _ = roots()
+    d = run_dir(episode) / "final_reviewer"
+    d.mkdir(parents=True, exist_ok=True)
+    state = read_json(d / "reviewer.json")
+    if alive(state.get("pid")):
+        return {"status": "RUNNING", "pid": state.get("pid"), "log": state.get("log")}
+    request, answers = _review_paths(episode)
+    if not request.is_file():
+        return {"status": "BLOCKED", "reason": f"REVIEW_REQUEST_MISSING:{request}"}
+    request_sha = _file_sha(request)
+    if state.get("request_sha256") != request_sha:  # a new cut / new request: a fresh set of attempts
+        state = {"request_sha256": request_sha}
+    attempts = int(state.get("attempts") or 0)
+    if attempts >= MAX_REVIEWER_ATTEMPTS:
+        return {"status": "EXHAUSTED", "attempts": attempts, "log": state.get("log")}
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    process_id = f"codex-final-reviewer-{episode}-{ts}"
+    venv = engine / ".qingshan-venv" / "bin" / "python"
+    submit_cmd = (f"{venv} {engine}/lines/nalu/runtime/tools/final_audience_review.py submit --episode {episode} "
+                  f"--request {request} --answers {answers}")
+    pfile, log, last = d / f"review_{ts}.prompt.md", d / f"review_{ts}.jsonl", d / f"review_{ts}.last.txt"
+    pfile.write_text(reviewer_prompt(episode, request, answers, process_id, submit_cmd), encoding="utf-8")
+    argv = [exe, "exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check",
+            "-m", REVIEWER_MODEL, "-o", str(last), "-"]
+    with open(log, "w", encoding="utf-8") as out, open(pfile, encoding="utf-8") as stdin:
+        proc = subprocess.Popen(argv, cwd=engine, stdout=out, stderr=subprocess.DEVNULL, stdin=stdin, env=env,
+                                start_new_session=True)
+    state.update({"pid": proc.pid, "attempts": attempts + 1, "log": str(log), "process_id": process_id,
+                  "model": REVIEWER_MODEL_ID, "started_at": datetime.now(timezone.utc).isoformat()})
+    write_json(d / "reviewer.json", state)
+    note(f"{episode} 独立终审：引擎启动审核者（{REVIEWER_MODEL_ID}，第 {attempts + 1} 次，pid {proc.pid}）")
+    return {"status": "STARTED", "pid": proc.pid, "attempt": attempts + 1, "log": str(log)}
+
+
+MAX_RESUMES_AFTER_REVIEW = 2
+
+
+def _file_sha(path: Path) -> str:
+    import hashlib
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
+
+
+def final_review_step(episode: str) -> dict[str, Any]:
+    """FINAL_REVIEW_REQUIRED: launch / wait for the reviewer; RESUME once a review is on record (twice at most
+    per request, so a producer that keeps stopping here goes to the agent instead of looping)."""
+    path = run_dir(episode) / "final_reviewer" / "reviewer.json"
+    state = read_json(path)
+    if alive(state.get("pid")):
+        return {"status": "RUNNING"}
+    code = review_status_code(episode)
+    if code != REVIEW_REQUIRED_CODE:
+        request_sha = _file_sha(_review_paths(episode)[0])
+        resumes = state.get("resumes") or {}
+        if int(resumes.get(request_sha) or 0) >= MAX_RESUMES_AFTER_REVIEW:
+            return {"status": "PRODUCER_STILL_STOPPED", "review_status_code": code}
+        resumes[request_sha] = int(resumes.get(request_sha) or 0) + 1
+        path.parent.mkdir(parents=True, exist_ok=True)
+        write_json(path, {**state, "resumes": resumes})
+        return {"status": "RESUME_PRODUCER", "review_status_code": code}
+    return launch_reviewer(episode)
+
+
 def provider() -> dict[str, str] | None:
     _, runtime = roots()
     cred = runtime / "credentials"
@@ -497,6 +616,18 @@ def tick() -> dict[str, Any]:
         out = resume(ep, "继续")
         did.append(f"resume_waiting_remote:{out.get('status')}")
         return res
+    elif state == "FINAL_REVIEW_REQUIRED":
+        step = final_review_step(ep)
+        res["final_review"] = step
+        if step["status"] in ("STARTED", "RUNNING"):
+            did.append(f"final_reviewer:{step['status']}")
+            return res
+        if step["status"] == "RESUME_PRODUCER":
+            out = resume(ep, "独立终审已由引擎启动的审核者提交（runtime/reviews/<EP>/final_audience_answers.json，"
+                             "你没有写、也不要改）。按合同继续 S7：通过就放行；判拒按 §7 记 FINAL-RELEASE-DEFAULT-ACCEPTANCE 订单后放行。")
+            did.append(f"resume_after_final_review:{out.get('status')}")
+            return res
+        reason = f"FINAL_REVIEW_REQUIRED:{step['status']}"  # reviewer exhausted / blocked: the agent takes over
     elif state == "FINAL_CUT_READY":
         if (runtime / "series" / "SERIES_DONE").exists():
             res["reason"] = "SERIES_DONE"

@@ -41,8 +41,10 @@ class CodexExecutorTests(unittest.TestCase):
                           PATH=f"{bindir}:{os.environ['PATH']}")
         import codex_production
         self.cp = codex_production
+        self._review_status_code = codex_production.review_status_code
 
     def tearDown(self):
+        self.cp.review_status_code = self._review_status_code
         os.environ.clear()
         os.environ.update(self.saved)
         self.tmp.cleanup()
@@ -128,16 +130,49 @@ class CodexExecutorTests(unittest.TestCase):
         self.assertEqual((again["action"], again["reason"]), ("AGENT", "BLOCKED_RECHECK_UPDATE"))
         self.assertEqual(self.cp.tick()["action"], "NONE")
 
-    def test_final_review_is_handed_back_hourly(self):
+    def final_review_episode(self):
         self.write_provider()
         self.run_episode('等终审\nNALU_STATUS: {"episode":"E06","state":"FINAL_REVIEW_REQUIRED"}', "E06")
-        self.assertEqual(self.cp.tick()["reason"], "FINAL_REVIEW_REQUIRED")
-        self.assertEqual(self.cp.tick()["action"], "NONE")
-        session_path = self.runtime / "claude_code/E06/session.json"
-        session = json.loads(session_path.read_text())
-        session["tick_notified_at"] = "2020-01-01T00:00:00Z"
-        session_path.write_text(json.dumps(session))
-        self.assertEqual(self.cp.tick()["reason"], "FINAL_REVIEW_REQUIRED")
+        req = self.runtime / "runtime/reviews/E06/final_audience_request.json"
+        req.parent.mkdir(parents=True)
+        req.write_text('{"schema": "x"}')
+        return req
+
+    def reviewer_state(self):
+        return json.loads((self.runtime / "claude_code/E06/final_reviewer/reviewer.json").read_text())
+
+    def test_final_review_launches_an_independent_codex_reviewer(self):
+        # line owner 2026-11-09: the engine starts the reviewer (gpt-6.1-sol), no agent hand-off needed
+        self.final_review_episode()
+        self.cp.review_status_code = lambda _ep: self.cp.REVIEW_REQUIRED_CODE
+        t = self.cp.tick()
+        self.assertEqual(t["action"], "NONE")
+        self.assertEqual(t["final_review"]["status"], "STARTED")
+        state = self.reviewer_state()
+        self.reap(state["pid"])
+        self.assertEqual(state["model"], "hopsapi/gpt-6.1-sol")
+        prompt = next(Path(state["log"]).parent.glob("review_*.prompt.md")).read_text(encoding="utf-8")
+        self.assertIn(state["process_id"], prompt)
+        self.assertIn("hopsapi/gpt-6.1-sol", prompt)
+        self.assertIn("final_audience_review.py submit --episode E06", prompt)
+        # second attempt, then the agent takes over
+        self.assertEqual(self.cp.tick()["final_review"]["status"], "STARTED")
+        self.reap(self.reviewer_state()["pid"])
+        t = self.cp.tick()
+        self.assertEqual((t["action"], t["reason"]), ("AGENT", "FINAL_REVIEW_REQUIRED:EXHAUSTED"))
+
+    def test_submitted_review_resumes_the_producer_at_most_twice(self):
+        self.final_review_episode()
+        self.cp.review_status_code = lambda _ep: 3   # rejected review on record
+        t = self.cp.tick()
+        self.assertTrue(any(d.startswith("resume_after_final_review") for d in t["did"]))
+        self.reap(json.loads((self.runtime / "claude_code/E06/session.json").read_text())["pid"])
+        self.run_episode('还在等\nNALU_STATUS: {"episode":"E06","state":"FINAL_REVIEW_REQUIRED"}', "E06")
+        self.assertTrue(any(d.startswith("resume_after_final_review") for d in self.cp.tick()["did"]))
+        self.reap(json.loads((self.runtime / "claude_code/E06/session.json").read_text())["pid"])
+        self.run_episode('还在等\nNALU_STATUS: {"episode":"E06","state":"FINAL_REVIEW_REQUIRED"}', "E06")
+        t = self.cp.tick()
+        self.assertEqual((t["action"], t["reason"]), ("AGENT", "FINAL_REVIEW_REQUIRED:PRODUCER_STILL_STOPPED"))
 
     def test_tick_resumes_without_status_then_escalates(self):
         self.write_provider()
