@@ -28,7 +28,12 @@ ALLOWED_BASIC_PLOT_CHECKS = {
 #: Runs only on COMBAT units, measures only the longest window in which every fighter's body keypoints stand
 #: still, and a FAIL sends the unit back to the writer for redesign — never an automatic reroll.
 #: tools/combat_execution_check.py; calibration in tools/tests/test_combat_execution_check.py.
-ALLOWED_COMBAT_CHECKS = {"combat_execution"}
+#: Roger 2026-11-08 seq=219 adds two more measurements of the SAME narrow kind: the cut density inside a fight
+#: unit (a single unbroken camera move smears two authored beats together) and whether each bound prop keeps
+#: one silhouette across the units that bind it.  Both are still "did a fight actually get cut / did the weapon
+#: stay the same object", not choreography preferences, and both send the unit back to the writer.
+#: tools/combat_density_check.py.
+ALLOWED_COMBAT_CHECKS = {"combat_execution", "combat_density"}
 FORBIDDEN_POST_GENERATION_CHECKS = {
     "action_reasonableness", "gesture_precision", "hand_contact_precision",
     "microexpression_precision", "task_detail_compliance", "camera_action_detail",
@@ -53,7 +58,7 @@ def evaluate(requested_checks: list[str]) -> dict[str, Any]:
         "allowed_technical_checks": sorted(ALLOWED_TECHNICAL_CHECKS),
         "allowed_basic_plot_checks": sorted(ALLOWED_BASIC_PLOT_CHECKS),
         "allowed_combat_checks": sorted(ALLOWED_COMBAT_CHECKS),
-        "combat_check_scope": "COMBAT units only; longest all-fighters-still window; FAIL -> writer redesign, never auto reroll",
+        "combat_check_scope": "COMBAT units only; longest all-fighters-still window, cut density, weapon-shape lock; FAIL -> writer redesign, never auto reroll",
         "explicitly_forbidden_post_generation_checks": sorted(FORBIDDEN_POST_GENERATION_CHECKS),
         "requested_checks": sorted(requested),
         "failures": failures,

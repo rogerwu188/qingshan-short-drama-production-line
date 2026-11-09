@@ -12,6 +12,11 @@ import re
 from typing import Any
 
 try:
+    from tools.combat_unit_compiler import combat_shot_lines as _combat_shot_lines
+except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
+    from combat_unit_compiler import combat_shot_lines as _combat_shot_lines
+
+try:
     from tools.provider_scope_projection import (
         instance_cardinality_clauses,
         is_director_prompt_v2,
@@ -1049,7 +1054,33 @@ def _beat(
     for secondary_index, value in enumerate(translated_secondary, 1):
         line += f"; secondary feedback: {value}"
         evidence[f"{prefix}.SECONDARY_FEEDBACK.{secondary_index}"] = value
-    line += f". End at {translated['exit_state']}."
+    # COMBAT_MOTION_V1 (Roger 2026-11-08 seq=219): a fight beat that carries an authored action ladder
+    # is rendered as [Shot N] lines, not as the state template.  Inactive policy / no ladder keeps the
+    # legacy line byte-for-byte, so delivered episodes recompile identically.
+    ladder_text, ladder_facts = _combat_shot_lines(source, translated) if _combat_beat(source) else (None, {})
+    if ladder_text:
+        # The shot list carries the action; the facts the coverage gate looks for (interaction mode, contact
+        # time, contact point, feedback, exit) are stated once around it so nothing is dropped, and the
+        # sentences a fight must not be written as (Start from / Force origin / End at) are gone.
+        # entry and force origin are stated once as the inherited state the move starts from; the shot
+        # list then replaces the per-beat "Start from … Force origin … End at" grammar.
+        origin = entry_state if force_origin == entry_state else f"{entry_state} — {force_origin}"
+        head = (f"[{source['start_seconds']:g}s-{source['end_seconds']:g}s] "
+                f"From {origin}; the move runs without stopping.")
+        facts: list[str] = []
+        if interaction_mode != "NONE":
+            facts.append(f"Interaction mode: {interaction_label}")
+        if source.get("contact_time_seconds") is not None and not no_contact_beat:
+            facts.append(f"the interaction point is reached at {float(source['contact_time_seconds']):g}s")
+        if source.get("contact_point"):
+            facts.append(f"Contact point: {translated['contact_point']}")
+        if source.get("primary_feedback"):
+            facts.append(f"primary feedback: {evidence.get(f'{prefix}.PRIMARY_FEEDBACK', '')}")
+        facts.append(f"It ends at {translated['exit_state']}")
+        line = f"{head} {'; '.join(f for f in facts if f)}.\n{ladder_text}"
+        evidence[f"{prefix}.SHOT_LIST"] = ladder_text
+    else:
+        line += f". End at {translated['exit_state']}."
     raw = str(source.get("dialogue") or "").strip()
     if raw:
         speaker, separator, words = _dialogue_partition(raw, language)
