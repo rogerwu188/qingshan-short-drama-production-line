@@ -137,7 +137,7 @@ python3 $S/codex_production.py report                                # 给线主
 ```
 **心跳（每 15 分钟）只跑 `tick`**，只读最后一行 `NALU_TICK: {...}` 的 `action`：
 - `NONE`：脚本已处理完（在跑、已续跑、已发行或发行暂缓、在等线主），**立即结束本轮**，不要再读别的文件。
-- `WRITE_NEXT_EPISODE`：本集已出片——按 §7 给下一集派单并 `start`（发行脚本会自己按顺序做）。
+- `WRITE_NEXT_EPISODE`：本集已出片——**先升级再开新集**：`self_update.sh`（不带 --restart）→ 按磁盘 AGENTS.md 的 pin 跑 `setup_host.sh`（集与集之间是唯一不在生产中的时刻，心跳不跑 setup 就永远换不了引擎；实地设备 …1324 E04 2026-11-09 用旧引擎开工），再按 §7 给下一集派单并 `start`（发行脚本会自己按顺序做）。
 - `AGENT`：看 `reason` 和 `nalu_status`，按下面处理；同一个情况脚本只交给你一次，之后的心跳返回 `NONE`。
 `tick` 自己做的事：按集号顺序发行已出片未发行的集（一次一集，有待审集时暂缓，见 §6）；Codex 会话结束但没给 `NALU_STATUS` 时
 续跑最多 3 次；`WAITING_REMOTE` 续跑；以前用 Claude Code 起的、已停下的集改用 Codex 接着跑；`series/PAUSED` 存在时什么都不做。
@@ -155,14 +155,8 @@ python3 $S/codex_production.py report                                # 给线主
   新版说明文件在下次会话生效，不需要为此重启网关。
 - `IDLE` + `BLOCKED` / `ERROR`：属于安装/环境问题的由代理修好后 `resume --message "继续"`；修不了的把 note 和日志末尾记进
   `$NALU_RUNTIME_ROOT/series/STATUS.md` 并告诉线主，本项目暂停。
-- `IDLE` + `FINAL_REVIEW_REQUIRED`（S7 独立终审；本机没有专门的审核 agent，由你安排）：用子智能体开一个**独立**审核者，
-  模型从请求的白名单里选（优先 `storyclaw/claude-opus-5`，不可用用 `storyclaw/gpt-5.6-sol`），如实填模型和它自己的会话 id。
-  交给它：读 `runtime/reviews/<EP>/final_audience_request.json`，对候选片按请求完整看三遍（有声：抽帧/联系表对照字幕和 ASR；
-  静音：只看画面；只听：ASR 和音频指标），逐镜写自己的观察、八项打分、带时间戳的事件，写 `final_audience_answers.json`
-  （`agent_id: storyclaw-final-audience-reviewer`，`role: independent_final_audience_reviewer`），再由它自己跑请求里的 `submit` 命令。
-  你和 Codex 都不写答案、不改结论。提交后（通过或判拒都一样）：`resume --message "继续"`。判拒不停线（线主 2026-11-07：
-  上百台机器无人值守，不能逐台裁决）：Codex 按 §5 默认条款记一张终审放行订单后发行；整体判词和硬伤原样记进
-  `series/STATUS.md`，不用等线主回复。
+- `FINAL_REVIEW_REQUIRED`：**心跳 `tick` 自己处理**——引擎启动独立的 `codex exec` 审核者（`gpt-6.1-sol`，申报为 `hopsapi/gpt-6.1-sol`，全新会话、固定的审核说明，自己写答案并 submit），提交后自动 resume 生产者；你不用做任何事（线主 2026-11-09）。
+  只有收到 `FINAL_REVIEW_REQUIRED:EXHAUSTED`（审核者试了 2 次都没提交）或 `FINAL_REVIEW_REQUIRED:PRODUCER_STILL_STOPPED`（审核已提交但生产者仍停在终审）时才轮到你：看 `$NALU_RUNTIME_ROOT/claude_code/<EP>/final_reviewer/` 下的日志找原因；能修就修好后用子智能体（模型 `storyclaw/claude-opus-5`）按请求做一次独立终审并让它自己 submit，然后 `resume --message "继续"`；判拒不停线（按 §7 默认放行）。修不了的记进 `series/STATUS.md`。
 - `IDLE` + `FINAL_CUT_READY`：不要停，按 §6 发行，再按 §7 启动下一集。`note` 里的默认接受记录汇总进 `series/STATUS.md`。
 - `IDLE` 但没有 NALU_STATUS 行（会话异常结束）：`resume --message "继续，并在最后输出 NALU_STATUS 行"`。
 - `reason` 以 `PROVIDER_ERROR` 开头：LLM provider 的 key、额度或地址出问题，告诉线主，本项目暂停。

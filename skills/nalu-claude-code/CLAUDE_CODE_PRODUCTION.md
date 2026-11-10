@@ -210,8 +210,8 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
   S7 报 `SELECTIVE_BGM_CREDIT_RECONCILIATION_NEEDS_KEY`（S6 时配乐账单还没出）：改用 `./lines/nalu/runtime/tools/paid_stage.sh <EP> S7 S7` 重跑 S7（S7 没有任何提交路径，key 只用于只读账单查询），不是新付费。
 
 ## 5. 质量不阻塞：默认接受（不问）
-默认条款：**质量问题不阻塞连续生产。** 门禁 FAIL 时先按 §4 正常修复/受控重做；同一镜第 2 次创意重做仍失败，或失败无法靠重做解决
-（例如派生起始帧、成片观众检测器、模型反复画出的穿帮），就直接记录接受订单并继续，不停下问：
+默认条款：**质量问题不阻塞连续生产。** 门禁 FAIL 时先按 §4 正常修复/受控重做；**视频单元的付费重做每个单元最多一次，不管是你受控重做还是引擎自动重做（q2_auto_redo）**：`video/_superseded_*/` 里已有该单元旧片就不再重做，直接按本节记单接受（实地设备 …1324 E03：两边各重做一次，VU-015 生成了 3 次）；同一镜第 2 次创意重做仍失败，或失败无法靠重做解决
+（例如派生起始帧、成片观众检测器、响度门 `RELEASE_AUDIO_LEVELLING_FAILED`（gate `RELEASE-AUDIO-LOUDNESS`）、机位门、模型反复画出的穿帮），就直接记录接受订单并继续，不停下问。这些是质量 FAIL，不是代码缺口，不要写 CODE_BLOCKER（实地设备 …1324 E03，2026-11-09：响度门被报成代码缺口停了一轮）；只有引擎自相矛盾、崩溃或缺证据才是 CODE_BLOCKER：
 ```bash
 $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下一个 seq> \
   --order "默认条款自动接受：质量问题不阻塞连续生产（短剧工作流）" --episode <EP> \
@@ -268,6 +268,8 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
   记好后把 `deliverables/<EP>/<EP>_final_9x16.mp4` 和 `workflow/nalu/<EP>/assembly/<EP>_NATIVE_AUDIO_LOUDNESS.json` 移到 `_superseded_*` 再跑 S7（成片编码确定，sha 不变）。
 - 每条接受都要在 `NALU_STATUS.note` 里列一句（门禁 + 单元），编排代理会汇总给用户。记完同步更新 `.env` 与 `qingshan.json` 的 latest_order_seq。
 - 审核答案仍必须如实（看到穿帮就判 FAIL）；默认接受只改变「失败后停不停」，不改变「怎么判」。
+
+**剧本超长（S1 报 `SCRIPT_TOO_LONG:<写的秒数>s><上限>s`）**：不是代码缺口，也不记单——在任何付费阶段之前改写四层剧本：合并或删掉镜头（插入镜、重复反应镜、逐句拆开的旁白镜优先），保住剧情与关键台词，直到镜头 target_seconds 合计不超过上限（简报 target_seconds × 1.3；默认 110 → 143 s），再重跑 S1。改写免费；超长一集的视频、重做、配乐都按单元数翻倍（实地设备 …1324 E03：61 单元、231 s、860 积分）。
 
 ## 6. 每轮结束的固定格式（编排代理只读这一行）
 本轮最后一行必须是：

@@ -1743,6 +1743,32 @@ def writer_capability_record(ctx: "Ctx", p: "Paths") -> dict[str, Any]:
     )
 
 
+SCRIPT_LENGTH_RATIO = 1.3  # authored seconds may exceed the brief by 30 % (S7 cuts to the performance)
+SCRIPT_DEFAULT_TARGET_SECONDS = 110.0  # line owner 2026-10-27: an episode is ~1 min 50 s
+
+
+def script_length_check(ctx: Ctx) -> dict[str, Any]:
+    """Stop an over-long script at S1, while a rewrite is still free (line owner 2026-11-09).
+
+    Field device …1324 E03: 61 units, a 231 s cut against a 110 s brief and 860 credits (E01: 375).  Only
+    CAMERA_GRAMMAR_V1 contracts are checked; the limit is the brief's target_seconds x SCRIPT_LENGTH_RATIO over
+    the sum of the shots' target_seconds.  NALU_SCRIPT_LENGTH_CHECK=off skips it."""
+    if str(os.environ.get("NALU_SCRIPT_LENGTH_CHECK") or "").lower() == "off" or not _camera_grammar_on(ctx):
+        return {"status": "NOT_APPLICABLE"}
+    contract = read_json(ctx.p.contract, {}) or {}
+    authored = round(sum(float(s.get("target_seconds") or 0) for s in contract.get("shots") or []), 1)
+    brief = read_json(RUNTIME / "briefs" / f"{ctx.episode}_PRODUCTION_BRIEF.json", {}) or {}
+    target = float(brief.get("target_seconds") or SCRIPT_DEFAULT_TARGET_SECONDS)
+    limit = round(target * SCRIPT_LENGTH_RATIO, 1)
+    out = {"authored_seconds": authored, "target_seconds": target, "limit_seconds": limit,
+           "shots": len(contract.get("shots") or [])}
+    if authored <= limit:
+        return {**out, "status": PASS}
+    return {**out, "status": BLOCKED,
+            "blocker": f"SCRIPT_TOO_LONG:{authored}s>{limit}s (target {target}s): rewrite the script layers shorter "
+                       "before any paid stage -- merge or cut shots, keep the plot (free)"}
+
+
 def stage_s1(ctx: Ctx) -> StageResult:
     p = ctx.p
     _record_line_upgrade(ctx, "line_upgrade_preflight", "preflight")  # advisory read side
@@ -1752,6 +1778,12 @@ def stage_s1(ctx: Ctx) -> StageResult:
         res.blockers = [f"SCRIPT_LAYER_MISSING:{path}" for path in missing]
         return res
     layer_shas = {name: sha256_file(path) for name, path in p.layers().items()}
+
+    length = script_length_check(ctx)
+    if length.get("status") == BLOCKED:
+        res = StageResult(BLOCKED, missing_layers=[], layer_sha256=layer_shas, script_length=length)
+        res.blockers = [length["blocker"]]
+        return res
 
     # Writer-capability record (line owner 2026-11-01): under WRITER_CAPABILITY_V1 an
     # episode must show an arc ledger, its own adaptation disposition, an answered
@@ -7182,7 +7214,13 @@ def s6_q2_auto_redo(ctx: Ctx) -> dict[str, Any]:
         return {"status": "NONE"}
     state_path = _wave_state_path(ctx)
     state = read_json(state_path, {}) or {"schema": "nalu.s6_wave_state.v1", "waves": []}
-    attempted = state.get(_redo.STATE_KEY) or {}
+    attempted = dict(state.get(_redo.STATE_KEY) or {})
+    # One redo per unit, whoever did it: a clip Codex already replaced under a controlled redo (parked in any
+    # video/_superseded_*/) is not redone again by the engine (field device …1324 E03: VU-015 generated 3 times,
+    # 30 redos = 230 credits).
+    for uid in order:
+        if uid not in attempted and any(ctx.p.video_media.glob(f"_superseded_*/{uid}.mp4")):
+            attempted[uid] = {"source": "SUPERSEDED_CLIP_ON_DISK"}
     seconds = {str(t.get("unit_id") or t.get("task_key")): float(t.get("duration_seconds") or 0)
                for t in (read_json(ctx.p.video_transaction, {}) or {}).get("tasks") or []}
     model = episode_video_model(ctx.episode)
@@ -8301,11 +8339,16 @@ def promote_final_candidate(p: Any) -> dict[str, Any]:
 
 
 def _reusable_release_level(p: Any, source: Any) -> dict[str, Any] | None:
-    """The existing levelled release candidate, if it is a PASS made from the current source picture."""
+    """The existing levelled release candidate made from the current source picture (PASS, or a recorded FAIL).
+
+    A FAIL is reused too (field device …1324 E03, 2026-11-09): re-levelling a FAIL parked the output and wrote a
+    new one, so a RELEASE-AUDIO-LOUDNESS order bound to the measured file's sha could never be honoured on
+    re-entry.  The caller still routes a reused FAIL through the same order check (exit_code 1)."""
     report = read_json(p.leveled_audio_report, {}) or {}
     source = Path(str(source))
+    status = str(report.get("status") or "")
     if not (p.final_levelled.is_file() and source.is_file()
-            and str(report.get("status") or "").startswith("PASS")
+            and (status.startswith("PASS") or status.startswith("FAIL"))
             and report.get("source_video_stream_sha256")):
         return None
     # the picture stream alone is not enough: the pitch-unify stage rewrites the AUDIO under a bit-exact
@@ -9311,7 +9354,8 @@ def stage_s7(ctx: Ctx) -> StageResult:
         # the release is unchanged.  Reuse only when the recorded report PASSed and the current
         # source picture stream is byte-for-byte the one it was levelled from (E10, 2026-10-02).
         res.details["release_audio_level_reused"] = reused_level
-        steps.append({"name": "s7_level_native_release_audio", "exit_code": 0, "reused": reused_level})
+        steps.append({"name": "s7_level_native_release_audio", "reused": reused_level,
+                      "exit_code": 0 if str(reused_level.get("status") or "").startswith("PASS") else 1})
     else:
         # The picture changed (re-cut / stabilised / re-rendered): the previous levelled file and its QA
         # are evidence of a cut that no longer exists.  Park them under their sha (never deleted) so the
@@ -9355,6 +9399,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
         acceptance_path = p.assembly / "final_qa" / f"{ctx.episode}_RELEASE_AUDIO_LOUDNESS_ACCEPTANCE.json"
         acceptance_path.parent.mkdir(parents=True, exist_ok=True)
         acceptance_path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+        steps[-1]["accepted_by_line_owner_order"] = order.get("seq")
         res.details["release_audio_loudness_acceptance"] = {**record, "record_path": str(acceptance_path)}
         res.receipts.append(str(acceptance_path))
         ctx.say(f"   !! RELEASE_AUDIO_LEVELLING stays FAIL ({', '.join(failing)}); continuing on line-owner order "
