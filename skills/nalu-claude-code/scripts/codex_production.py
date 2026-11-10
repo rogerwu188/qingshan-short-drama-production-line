@@ -284,7 +284,38 @@ def tool_dirs() -> list[str]:
     except OSError:
         pass
     dirs += sorted((str(p) for p in home.glob(".nvm/versions/node/*/bin")), reverse=True)
+    dirs += gateway_path_dirs()
     return list(dict.fromkeys(dirs))
+
+
+def gateway_path_dirs() -> list[str]:
+    """PATH entries of this user's running OpenClaw gateway (Linux /proc).  The gateway runs the agent with the
+    node that codex needs; under the system cron /usr/bin/node was an old one and codex.js died at line 2
+    (…0899 / …1037 / …1101 2026-11-10: every cron resume "STARTED" and exited at once)."""
+    out: list[str] = []
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return out
+    uid = os.getuid()
+    for pid_dir in proc.iterdir():
+        if not pid_dir.name.isdigit():
+            continue
+        try:
+            if pid_dir.stat().st_uid != uid:
+                continue
+            cmd = (pid_dir / "cmdline").read_bytes().replace(b"\0", b" ").decode(errors="ignore")
+            if "openclaw" not in cmd:
+                continue
+            env = (pid_dir / "environ").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        for item in env:
+            if item.startswith(b"PATH="):
+                out += [d for d in item[5:].decode(errors="ignore").split(":")
+                        if d and (Path(d) / "node").exists()]
+        if out:
+            break
+    return out
 
 
 def runner(episode: str, log: str, last: str, argv_json: str) -> int:
@@ -707,7 +738,11 @@ def tick(system: bool = False) -> dict[str, Any]:
     elif state == "WAITING_REMOTE":
         out = resume(ep, "继续")
         did.append(f"resume_waiting_remote:{out.get('status')}")
-        return res
+        if out.get("status") == "STARTED":
+            return res
+        # the resume itself failed (e.g. CODEX_NOT_INSTALLED under the cron): surface it instead of silently
+        # retrying every 3 min (…1101 sat at WAITING_REMOTE for hours)
+        reason = f"RESUME_FAILED:{out.get('reason') or out.get('status')}"
     elif state == "FINAL_REVIEW_REQUIRED":
         step = final_review_step(ep)
         res["final_review"] = step
