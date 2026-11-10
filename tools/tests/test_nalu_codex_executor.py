@@ -162,6 +162,21 @@ class CodexExecutorTests(unittest.TestCase):
         self.assertIn(recorded.split(":")[0], self.cp.codex_env()["PATH"].split(":"))
         self.assertIsNotNone(shutil.which("codex", path=self.cp.codex_env()["PATH"]))
 
+    def test_failed_waiting_remote_resume_is_surfaced(self):
+        # …1101: under the cron every WAITING_REMOTE resume failed silently for hours
+        self.write_provider()
+        self.run_episode('等云端\nNALU_STATUS: {"episode":"E08","state":"WAITING_REMOTE"}', "E08")
+        saved = self.cp.resume
+        self.cp.resume = lambda ep, msg: {"status": "BLOCKED", "reason": "CODEX_NOT_INSTALLED"}
+        try:
+            t = self.cp.tick()
+        finally:
+            self.cp.resume = saved
+        self.assertEqual((t["action"], t["reason"]), ("AGENT", "RESUME_FAILED:CODEX_NOT_INSTALLED"))
+
+    def test_gateway_path_dirs_never_raises(self):
+        self.assertIsInstance(self.cp.gateway_path_dirs(), list)
+
     def test_series_done_is_quiet(self):
         self.write_provider()
         self.run_episode('完\nNALU_STATUS: {"episode":"E09","state":"SERIES_DONE"}', "E09")
