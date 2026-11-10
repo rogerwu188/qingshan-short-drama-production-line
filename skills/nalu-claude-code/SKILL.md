@@ -135,11 +135,11 @@ python3 $S/codex_production.py resume --episode <EP> --message "<文本>"
 python3 $S/codex_production.py tick                                  # 心跳：例行动作脚本自己做，见下
 python3 $S/codex_production.py report                                # 给线主的进度摘要（一次 X2C 查询）
 ```
-**系统 cron**（`setup_host.sh` 安装，crontab 标记 `# nalu-system-tick`）每 3 分钟跑 `tick --system`：推进生产、fleet 上报与指令，不用模型；它不消耗交给代理的 AGENT 情况（报 `AGENT_PENDING`），也不写下一集。两者共用一把锁，不会同时跑。
+**系统 cron**（`setup_host.sh` 安装，crontab 标记 `# nalu-system-tick`）每 3 分钟跑 `tick --system`：推进生产（含接续下一集，§7）、fleet 上报与指令，不用模型；它不消耗交给代理的 AGENT 情况（报 `AGENT_PENDING`）。两者共用一把锁，不会同时跑。装好系统 cron 的机器心跳降到每 6 小时（兜底），见 AGENTS.md §6。
 
-**心跳（每 15 分钟）只跑 `tick`**，只读最后一行 `NALU_TICK: {...}` 的 `action`：
+**心跳（有系统 cron 时每 6 小时，没有时每 15 分钟）只跑 `tick`**，只读最后一行 `NALU_TICK: {...}` 的 `action`：
 - `NONE`：脚本已处理完（在跑、已续跑、已发行或发行暂缓、在等线主），**立即结束本轮**，不要再读别的文件。
-- `WRITE_NEXT_EPISODE`：本集已出片——**先升级再开新集**：`self_update.sh`（不带 --restart）→ 按磁盘 AGENTS.md 的 pin 跑 `setup_host.sh`（集与集之间是唯一不在生产中的时刻，心跳不跑 setup 就永远换不了引擎；实地设备 …1324 E04 2026-11-09 用旧引擎开工），再按 §7 给下一集派单并 `start`（发行脚本会自己按顺序做）。
+- 上一集出片后的下一集由 `tick` 自己接续（§7），不再交给你；只有失败时才以 `NEXT_EPISODE_<原因>` 交给你一次。
 - `AGENT`：看 `reason` 和 `nalu_status`，按下面处理；同一个情况脚本只交给你一次，之后的心跳返回 `NONE`。
 `tick` 自己做的事：按集号顺序发行已出片未发行的集（一次一集，有待审集时暂缓，见 §6）；Codex 会话结束但没给 `NALU_STATUS` 时
 续跑最多 3 次；`WAITING_REMOTE` 续跑；以前用 Claude Code 起的、已停下的集改用 Codex 接着跑；`series/PAUSED` 存在时什么都不做。
@@ -198,12 +198,14 @@ $P $S/publish_x2creel.py status                           # 本地记录 + X2C �
   测试环境 `https://pdypbtafttzriqdnpmta.supabase.co/functions/v1/matrix-api/v1` 只在显式设置时使用，它查不到生产登记的设备（返回 404 `DEVICE_NOT_FOUND`）。`X2C_API_MODE=open` 强制旧接口。
 
 ## 7. 连续产剧
-一集 `FINAL_CUT_READY` 并发行后，立刻做下一集，直到原著改编完（或达到用户指定的集数）：
-1. 写 `<EP+1>_DISPATCH.md`：沿用上一集派单的简报条款（`order_text` 里的集号与上限改成本集），章节范围接上一集结束处。
-   不读、不写剧本正文——承接上一集结尾、角色/地点沿用由 Codex 按合同 §8 做。
-2. `codex_production.py start --episode <EP+1> --brief $NALU_RUNTIME_ROOT/briefs/<EP+1>_DISPATCH.md`（每集一个新的 Codex 会话）。
-3. 每集结束更新 `$NALU_RUNTIME_ROOT/series/STATUS.md`：集号、时长、本机已花费的 Giggle 积分（不是余额）、X2C 集号/状态、默认接受了哪些质量问题、Codex 会话 token 用量（`status` / `report` 里的 usage；不报美元）。
-全部集完成后在 `series/STATUS.md` 写「SERIES_DONE」并告诉线主。
+一集 `FINAL_CUT_READY` 后，`tick` 自己接续下一集（线主 + 老板 2026-11-10），直到原著改编完或达到线主指定的集数：
+1. 集间升级：`fleet_sync.scripted_update`（self_update → 磁盘 pin 跑 `setup_host.sh`）。
+2. 新开一个 Codex 会话（`start --episode <EP+1>`），附加说明让它先读上一集 `briefs/<EP>_DISPATCH.md`、按同样条款写
+   `briefs/<EP+1>_DISPATCH.md`（集号与上限改成本集，章节接上一集结束处），再按 §4 写叙事正典与简报并生产；原著做完或到了指定
+   集数就写 `series/SERIES_DONE` 并以 `SERIES_DONE` 结束。
+3. 失败（例如上一集没有派单文件）每小时最多重试一次，并以 `AGENT` / `NEXT_EPISODE_<原因>` 交给代理一次：代理按上面第 2 步的
+   条款手动写派单后 `codex_production.py start --episode <EP+1> --brief $NALU_RUNTIME_ROOT/briefs/<EP+1>_DISPATCH.md`。
+每集结束 `series/STATUS.md` 由 tick / Codex 记录：集号、时长、本机已花费的 Giggle 积分（不是余额）、X2C 集号/状态、默认接受了哪些质量问题。
 
 ## 8. 不做的事
 除 §6 的 X2C 发行外不上传、不发布到任何平台；不 git push；不把 key、Cookie 写进聊天、日志或仓库；不伪造线主原话；不删事务文件。

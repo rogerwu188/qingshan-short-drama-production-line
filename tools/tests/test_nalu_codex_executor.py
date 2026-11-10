@@ -104,8 +104,8 @@ class CodexExecutorTests(unittest.TestCase):
 
         self.run_episode('完成。\nNALU_STATUS: {"episode":"E02","state":"FINAL_CUT_READY"}')
         self.assertEqual(self.cp.status("E02")["codex"]["nalu_status"]["state"], "FINAL_CUT_READY")
-        t = self.cp.tick()
-        self.assertEqual(t["action"], "WRITE_NEXT_EPISODE")  # no mp4 here, so nothing to publish
+        t = self.cp.tick()  # no mp4 here, so nothing to publish; no E02 dispatch, so the agent takes over once
+        self.assertEqual((t["action"], t["reason"]), ("AGENT", "NEXT_EPISODE_PREVIOUS_DISPATCH_MISSING"))
 
         self.run_episode('需要线主\nNALU_STATUS: {"episode":"E03","state":"OWNER_DECISION_REQUIRED","question":"q"}', "E03")
         self.assertEqual(self.cp.tick()["action"], "AGENT")
@@ -115,6 +115,37 @@ class CodexExecutorTests(unittest.TestCase):
 
         (self.runtime / "series/PAUSED").write_text("")
         self.assertEqual(self.cp.tick()["reason"], "PAUSED")
+
+    def test_finished_episode_starts_the_next_one_without_the_agent(self):
+        # line owner + boss 2026-11-10: update between episodes, then Codex writes the next dispatch and produces
+        self.write_provider()
+        (self.runtime / "briefs").mkdir()
+        (self.runtime / "briefs/E04_DISPATCH.md").write_text("order_text: E04 上限 1500", encoding="utf-8")
+        self.run_episode('完成。\nNALU_STATUS: {"episode":"E04","state":"FINAL_CUT_READY"}', "E04")
+        import fleet_sync
+        calls = []
+        saved = fleet_sync.scripted_update
+        fleet_sync.scripted_update = lambda cp, pin: calls.append(pin) or (True, {"before": "a", "after": "b"}, {})
+        os.environ["FAKE_REPLY"] = '写派单\nNALU_STATUS: {"episode":"E05","state":"RUNNING"}'
+        try:
+            t = self.cp.tick()
+        finally:
+            fleet_sync.scripted_update = saved
+        self.assertEqual((t["action"], t["reason"]), ("NONE", "NEXT_EPISODE_STARTED"))
+        self.assertEqual(calls, [""])  # the engine update ran first
+        self.reap(t["next_episode"]["pid"])
+        self.assertEqual(self.cp.current_episode(), "E05")
+        prompt = Path(json.loads((self.runtime / "claude_code/E05/session.json").read_text())["log"]).parent
+        text = "".join(x.read_text(encoding="utf-8") for x in prompt.glob("*prompt*"))
+        self.assertIn("E04_DISPATCH.md", text)
+        self.assertIn("E05_DISPATCH.md", text)
+        self.assertEqual(self.cp.next_episode_id("E09"), "E10")
+
+    def test_series_done_is_quiet(self):
+        self.write_provider()
+        self.run_episode('完\nNALU_STATUS: {"episode":"E09","state":"SERIES_DONE"}', "E09")
+        t = self.cp.tick()
+        self.assertEqual((t["action"], t["reason"]), ("NONE", "SERIES_DONE"))
 
     def test_blocked_is_handed_back_hourly_for_an_update_check(self):
         # field device …1324 E02: a blocked machine never ran self_update, so a maintainer fix never reached it
