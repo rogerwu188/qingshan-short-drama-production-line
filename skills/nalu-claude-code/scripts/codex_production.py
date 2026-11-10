@@ -558,7 +558,7 @@ def _hours_since(stamp: Any) -> float:
     return (datetime.now(timezone.utc) - then).total_seconds() / 3600
 
 
-def tick() -> dict[str, Any]:
+def tick(system: bool = False) -> dict[str, Any]:
     _, runtime = roots()
     did: list[str] = []
     res: dict[str, Any] = {"action": "NONE", "did": did}
@@ -651,6 +651,9 @@ def tick() -> dict[str, Any]:
             res["reason"] = f"WAITING_ON_AGENT_OR_OWNER:{reason}"
             return res
         reason = RECHECK_STATES[state]
+    if system:  # the system cron never consumes a hand-off meant for the agent heartbeat
+        res.update(action="AGENT_PENDING", reason=reason)
+        return res
     session["tick_notified"] = notify_key
     session["tick_notified_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     write_json(d / "session.json", session)
@@ -713,7 +716,10 @@ def main() -> int:
     s = sub.add_parser("start"); s.add_argument("--episode", required=True); s.add_argument("--brief", default="")
     r = sub.add_parser("resume"); r.add_argument("--episode", required=True); r.add_argument("--message", required=True)
     t = sub.add_parser("status"); t.add_argument("--episode", required=True)
-    sub.add_parser("tick")
+    k = sub.add_parser("tick")
+    k.add_argument("--system", action="store_true",
+                   help="run by the system cron (setup_host.sh): advance production, fleet report/commands; "
+                        "AGENT hand-offs are left for the agent heartbeat")
     sub.add_parser("report")
     x = sub.add_parser("_run")
     for k in ("--episode", "--log", "--last", "--argv"):
@@ -723,7 +729,19 @@ def main() -> int:
     if a.cmd == "_run":
         return runner(a.episode, a.log, a.last, a.argv)
     if a.cmd == "tick":
-        res = tick()
+        # one tick at a time: the system cron (every 3 min) and the agent heartbeat share this lock
+        import fcntl  # noqa: PLC0415
+        lock_dir = roots()[1] / "claude_code"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        lock = open(lock_dir / ".tick.lock", "w")  # noqa: SIM115
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            print("NALU_TICK: " + json.dumps({"action": "NONE", "reason": "TICK_ALREADY_RUNNING"}))
+            return 0
+        res = tick(system=a.system)
+        if a.system and res.get("action") == "WRITE_NEXT_EPISODE":
+            res["action"] = "AGENT_PENDING"  # writing the next episode stays with the agent (step 2 moves it)
         # fleet channel (line owner 2026-11-09): report this machine and run the superadmin's whitelisted commands
         sys.path.insert(0, str(HERE))
         import fleet_sync  # noqa: PLC0415
