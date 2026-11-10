@@ -77,3 +77,14 @@ def test_policy_inactive_keeps_callers_on_legacy_path():
 def test_longest_run_helper_shared_with_dialogue_gate():
     from tools import dialogue_register_gate as gate
     assert gate.longest_common_run("你是谁，为何针对我等？", "你是谁，为何针对我等？来者何人") == "你是谁为何针对我等"
+
+
+def test_ladder_never_overruns_the_beat_window():
+    # E15 VU-020 beat 3: five moves in a 2.0 s window used to run to 6.9 s inside a 4.5–6.5 s beat
+    out = compiler.compile_combat_unit({"start_seconds": 4.5, "end_seconds": 6.5, "primary_action":
+        "傅恩涛把刀收回来；矛杆拨在刀面上，刀往画右偏开半尺；秦铭前脚抢进半步；矛杆拦在刀面外侧；砍柴刀提上来"},
+        policy=POLICY)
+    shots = out["shots"]
+    assert shots[0]["start"] == 4.5
+    assert abs(shots[-1]["end"] - 6.5) < 1e-6
+    assert abs(sum(s["seconds"] for s in shots) - 2.0) < 1e-3

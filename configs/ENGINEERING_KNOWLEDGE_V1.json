@@ -3798,7 +3798,7 @@
       "owner": "DEPLOYMENT_MAINTAINER",
       "status": "REFERENCE_IMPLEMENTATION",
       "authority": "Roger 2026-11-06 「你自己定，不要问我」 / 「生产线的时间是定死的」",
-      "runtime_gate_added": true,
+      "runtime_gate_added": false,
       "key": "a-cross-reference-clause-must-name-an-image-that-contains-the-entity",
       "stage": "S6",
       "category": "PROMPT",
@@ -3888,6 +3888,7 @@
         "tools/h3_provider_prompt_renderer.py",
         "tools/tests/test_combat_unit_compiler.py"
       ],
+      "do_not_repeat": "Rendering a fight beat as a state change (Start from \u2026 End at \u2026) or telling it to hold after contact; one long camera move over several contacts.",
       "failure_code": "FIGHT_BEAT_RENDERED_AS_STATE_CHANGE",
       "decision_record": "configs/COMBAT_MOTION_V1.json",
       "regression": "tools/tests/test_combat_unit_compiler.py",
@@ -3911,6 +3912,7 @@
         "lines/nalu/runtime/tools/nalu_pipeline.py",
         "tools/tests/test_dialogue_register_gate.py"
       ],
+      "do_not_repeat": "Lifting a line from the source chapter or writing it in narration register; giving two characters one voice; padding lines with stage directions read aloud.",
       "failure_code": "DIALOGUE_COPIED_FROM_SOURCE_OR_WRITTEN_REGISTER",
       "decision_record": "configs/DIALOGUE_REGISTER_V1.json",
       "regression": "tools/tests/test_dialogue_register_gate.py",
@@ -3933,6 +3935,7 @@
         "tools/post_generation_qa_scope_gate.py",
         "tools/tests/test_combat_density_check.py"
       ],
+      "do_not_repeat": "Shipping a fight unit with no cuts or a weapon that changes shape across units; rerolling the same prompt instead of sending the unit back to the writer.",
       "failure_code": "FIGHT_NOT_CUT_OR_WEAPON_CHANGED_SHAPE",
       "decision_record": "configs/COMBAT_MOTION_V1.json",
       "regression": "tools/tests/test_combat_density_check.py",

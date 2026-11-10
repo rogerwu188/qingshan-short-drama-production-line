@@ -105,6 +105,23 @@ def active(manifest: dict[str, Any]) -> bool:
     return start is not None and episode is not None and episode >= start
 
 
+def _scene_share_acceptance(episode: Any, scene: str, bucket: dict[str, float]) -> dict[str, Any] | None:
+    """CU4 line-owner acceptance (E15 2026-11-09, Roger seq 222): a scene whose measured seconds match an entry in
+    the policy's ``scene_share_acceptances`` exactly.  Bound to the measured scene and combat seconds, so any
+    change in the scene's units voids it; never a blanket waiver."""
+    try:
+        config = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    for row in config.get("scene_share_acceptances") or []:
+        if (str(row.get("episode")) == str(episode) and str(row.get("scene_id")) == scene
+                and abs(float(row.get("scene_seconds", -1)) - bucket["seconds"]) < 1e-6
+                and abs(float(row.get("combat_seconds", -1)) - bucket["combat_seconds"]) < 1e-6
+                and row.get("order_seq")):
+            return {"order_seq": row["order_seq"], "reason": row.get("reason")}
+    return None
+
+
 def is_combat_task(task: dict[str, Any]) -> bool:
     if task.get("combat_or_chase") is True or task.get("fight_or_chase") is True:
         return True
@@ -208,18 +225,25 @@ def evaluate_manifest(manifest: dict[str, Any], *, root: str | Path | None = Non
                 failure["beats"] = beats_total
             failures.append(failure)
         rows.append({"task_key": key, "scene_id": scene, "combat": combat, "failures": codes})
+    accepted: list[dict[str, Any]] = []
     for scene in sorted(fight_scenes):
         b = scenes[scene]
         share = b["combat_seconds"] / b["seconds"] if b["seconds"] else 0.0
         if share < MIN_FIGHT_SCENE_COMBAT_SHARE:
-            failures.append({"code": "FIGHT_SCENE_NARRATED", "scene_id": scene,
-                             "combat_share": round(share, 3), "minimum": MIN_FIGHT_SCENE_COMBAT_SHARE})
+            row = {"code": "FIGHT_SCENE_NARRATED", "scene_id": scene,
+                   "combat_share": round(share, 3), "minimum": MIN_FIGHT_SCENE_COMBAT_SHARE}
+            acceptance = _scene_share_acceptance(manifest.get("episode"), scene, b)
+            if acceptance:
+                accepted.append({**row, "accepted_by": acceptance})
+            else:
+                failures.append(row)
     return {
         "gate_id": POLICY_ID,
         "status": "PASS" if not failures else "BLOCK",
         "authority": "Roger 2026-11-06 E15 成片审看：打斗像静态 PPT",
         "fight_scenes": {s: {k: round(v, 3) for k, v in scenes[s].items()} for s in sorted(fight_scenes)},
         "failures": failures,
+        "accepted": accepted,
         "units": rows,
     }
 

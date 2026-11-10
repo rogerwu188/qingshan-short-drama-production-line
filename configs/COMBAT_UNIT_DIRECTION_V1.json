@@ -16,5 +16,23 @@
     "field": "character_entities[].weapon_lock_en",
     "rendered": "appended to the 'Same look in every frame' line of every unit the character is bound in (h3_provider_prompt_renderer.appearance_anchor_line)",
     "authority": "Roger 2026-11-07 E15 重投复审: VU-019 曲背大刀在 4.7 s 变成直身长剑"
-  }
+  },
+  "scene_share_acceptances": [
+    {
+      "episode": "E15",
+      "scene_id": "E15-S06",
+      "scene_seconds": 10.5,
+      "combat_seconds": 5.0,
+      "order_seq": 222,
+      "reason": "Roger 2026-11-09 option A: S06 accepted as is (VU-009 is the arrow-rain approach, not dialogue)"
+    },
+    {
+      "episode": "E15",
+      "scene_id": "E15-S12",
+      "scene_seconds": 22.5,
+      "combat_seconds": 10.5,
+      "order_seq": 222,
+      "reason": "Roger 2026-11-09 option A: VU-022/023 were not re-submitted and are cut in the S7 recut; the full-list QA pass still lists their existing clips"
+    }
+  ]
 }
