@@ -59,7 +59,8 @@ install_system_tick() {
 }
 finish() {  # status failed_step
   local steps="" k
-  [ "$1" = READY ] && [ -d "$ENGINE/skills/nalu-claude-code/scripts" ] && install_system_tick
+  # also when a later step is BLOCKED: the system tick carries the fleet channel that delivers the fix
+  [ "$(id -u)" != 0 ] && [ -d "$ENGINE/skills/nalu-claude-code/scripts" ] && [ -d "$RUNTIME" ] && install_system_tick
   for k in deps engine runtime python codex_install codex_config system_tick; do
     v="STEP_$k"; steps="$steps\"$k\":\"${!v:-NOT_RUN}\","
   done

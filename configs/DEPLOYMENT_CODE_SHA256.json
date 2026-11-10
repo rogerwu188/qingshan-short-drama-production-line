@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2410,
+  "file_count": 2411,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -989,7 +989,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/fleet_sync.py",
-      "sha256": "b876c615e74a8f13573375381ca5c13abd0e900f8f42c518a1b7ee860fc6b6e5"
+      "sha256": "ac96014e454d5d9681e12d04a71deac660a71cee542e8da5599284b214a0cb1b"
     },
     {
       "path": "skills/nalu-claude-code/scripts/list_voices.sh",
@@ -1025,7 +1025,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/setup_host.sh",
-      "sha256": "ecd73e36805e6f36d61a27bf83046ebd6d06351db85f4d6fcd15d5afbd20f180"
+      "sha256": "54dc54a8c1f75681978ef46abb51451628d1259936ba75c21a4ea60bb35cf416"
     },
     {
       "path": "skills/qingshan-nalu/SKILL.md",
@@ -7805,7 +7805,7 @@
     },
     {
       "path": "tools/tests/test_fleet_sync.py",
-      "sha256": "9911b7f43c5ad04aa170cdb0165d1e828f1f1b63df12472c200ef46b0c9e494a"
+      "sha256": "388bfe36beb5d66cee1b2e43215575cfa09f0b3e3eb9a96d897f312bd09cc7cd"
     },
     {
       "path": "tools/tests/test_frame_cadence_audit.py",
@@ -7974,6 +7974,10 @@
     {
       "path": "tools/tests/test_h3_tail_reference_scope.py",
       "sha256": "b60d6844871292139adc905732a3699a008be2a57679f84a12245eab311a89cb"
+    },
+    {
+      "path": "tools/tests/test_h3_wardrobe_state_override.py",
+      "sha256": "773c87207ae26bccbc78e1d833d31176ffa1cbee6d81fd3ecf6d9a58993c107c"
     },
     {
       "path": "tools/tests/test_harvest_giggle_image_batch.py",

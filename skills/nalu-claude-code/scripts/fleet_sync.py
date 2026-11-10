@@ -162,6 +162,27 @@ def _run(argv: list[str], timeout: int) -> tuple[int, str]:
         return -1, f"{type(exc).__name__}: {exc}"
 
 
+def _setup_diagnostics(out: str) -> dict:
+    """status / failed_step / notes from the NALU_SETUP line plus the setup log lines about the failed step, so a
+    BLOCKED setup is diagnosable from the fleet dashboard (…1324 2026-11-10: codex_config BLOCKED, cause unseen)."""
+    line = next((x for x in reversed(out.splitlines()) if x.startswith("NALU_SETUP: ")), "")
+    try:
+        state = json.loads(line[len("NALU_SETUP: "):]) if line else {}
+    except ValueError:
+        state = {}
+    diag = {"setup_status": state.get("status"), "setup_failed_step": state.get("failed_step"),
+            "setup_steps": state.get("steps"), "setup_notes": (state.get("notes") or [])[:6]}
+    if state.get("status") not in (None, "READY") and state.get("log"):
+        try:
+            lines = Path(str(state["log"])).read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            lines = []
+        step = str(state.get("failed_step") or "").split("_")[0]
+        hits = [x for x in lines if step and step in x.lower()] or lines
+        diag["setup_log_tail"] = [x[:300] for x in hits[-8:]]
+    return diag
+
+
 def scripted_update(cp: Any, pin: str) -> tuple[bool, dict, dict]:
     """self_update (no restart) -> setup_host --pin -> resume a stopped episode when the engine moved.
 
@@ -182,8 +203,8 @@ def scripted_update(cp: Any, pin: str) -> tuple[bool, dict, dict]:
     st_rc, st_out = _run(["bash", str(setup), "--pin", pin], 1800)
     shutil.rmtree(tmp, ignore_errors=True)
     after = _engine_sha(engine)
-    result = {"pin": pin, "before": before[:12], "after": after[:12], "self_update_rc": su_rc,
-              "setup_rc": st_rc, "setup_tail": st_out.strip().splitlines()[-1][:400] if st_out.strip() else ""}
+    result = {"pin": pin, "before": before[:12], "after": after[:12], "self_update_rc": su_rc, "setup_rc": st_rc}
+    result.update(_setup_diagnostics(st_out))
     ep = cp.current_episode()
     if ep and after and after != before:
         st = cp.status(ep)
