@@ -148,7 +148,7 @@ python3 $S/codex_production.py report                                # 给线主
 - `IDLE` + `OWNER_DECISION_REQUIRED`：只剩少数情况会出现（Giggle key 缺失/失效、追加一次后预算仍不够、新的付费类别）。
   把 `question` 原样转给线主，**本项目暂停**等回复；线主回复后用 `resume --message "线主原话：<逐字>"`。不得替线主回答。
 - `IDLE` + `WAITING_REMOTE`：5 分钟后 `resume --message "继续"`。
-- fleet 指令（`resume` / `update` / `pause` / `unpause` / `query`）全部由脚本执行，你不用处理：`update` = `self_update.sh` 不带 --restart → 读**更新后**磁盘 AGENTS.md 的 pin 跑 `setup_host.sh` → 引擎 HEAD 变了且本集是 BLOCKED / FINAL_REVIEW_REQUIRED 就 resume（`fleet_sync.scripted_update`）。旧版本交回的 `FLEET_UPDATE` 按同样顺序处理一次。
+- fleet 指令（`resume` / `update` / `pause` / `unpause` / `query` / `diagnose`）全部由脚本执行，你不用处理；只有 `agent_task`（维护者给代理的环境 / 凭据修复指令）会在心跳以 `AGENT` / `FLEET_AGENT_TASK` 交给你一次，原文在 `fleet_agent_task` 字段，照做即可。其余：`update` = `self_update.sh` 不带 --restart → 读**更新后**磁盘 AGENTS.md 的 pin 跑 `setup_host.sh` → 引擎 HEAD 变了且本集是 BLOCKED / FINAL_REVIEW_REQUIRED 就 resume（`fleet_sync.scripted_update`）。旧版本交回的 `FLEET_UPDATE` 按同样顺序处理一次。
 - `BLOCKED_RECHECK_UPDATE`（BLOCKED 后每小时交给你一次），按这个顺序，**不要带 `--restart`**（重启网关会打断本轮，
   引擎就停在旧版；实地设备 …1324 E02，2026-11-07）：
   1. `self_update.sh --agent-id <本代理 id>`（不论返回 UPDATED 还是 UP_TO_DATE 都继续下一步）；

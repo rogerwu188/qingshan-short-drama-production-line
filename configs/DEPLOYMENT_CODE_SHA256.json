@@ -961,7 +961,7 @@
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "3dbd0d2e2ffd63d07d88773f1fe909e6b2cfb4bcdd922172246c451e0604ad4b"
+      "sha256": "5390ada5fb5e77e147a61435d8a9a5c39097d78cc20829823446c1d10a8a115d"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
@@ -973,7 +973,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "638484e90c1e42fe6331548f9c9b08ad18fdc53613b9a2b1bfdff0b098402cec"
+      "sha256": "2551a07810dfbaa802ed9a61c25b36494cb8846a2e40c09b4d66e97272811f72"
     },
     {
       "path": "skills/nalu-claude-code/scripts/configure_claude_code.py",
@@ -989,7 +989,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/fleet_sync.py",
-      "sha256": "08c95fe7671ee31147905a205e8c861d1b5f1e7c42ae4fac4ed5c0662d7cb21a"
+      "sha256": "3ae64b022900637aa85d94090cbacb23728083dbc36ae3572fb3ff26f620f33d"
     },
     {
       "path": "skills/nalu-claude-code/scripts/list_voices.sh",
@@ -1025,7 +1025,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/setup_host.sh",
-      "sha256": "54dc54a8c1f75681978ef46abb51451628d1259936ba75c21a4ea60bb35cf416"
+      "sha256": "483cfb6ed92c45a0b8b9a2d6eccc90e61ae8c74a023504ee81cb0da5b57bb0da"
     },
     {
       "path": "skills/qingshan-nalu/SKILL.md",
@@ -7809,7 +7809,7 @@
     },
     {
       "path": "tools/tests/test_fleet_sync.py",
-      "sha256": "912cca8fb06969391485f759313d3f419750bc0259cd3fa595a510c037c0dd43"
+      "sha256": "d8225a78c50cc313033638829b9ed0bdab9c02888fa6f5aac0aa8c794f07de95"
     },
     {
       "path": "tools/tests/test_frame_cadence_audit.py",
@@ -8233,7 +8233,7 @@
     },
     {
       "path": "tools/tests/test_nalu_codex_executor.py",
-      "sha256": "8f321fbe30a6f9b7a333d521bea55240d96ee42763fa5ee94f83c49f412d6de2"
+      "sha256": "e80f5a307f007aed4e9aa764d9f9789051a59d2c3deeed38a28611199ca31127"
     },
     {
       "path": "tools/tests/test_nalu_current_policy_profile.py",

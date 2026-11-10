@@ -9,7 +9,8 @@ the tick for long (short timeouts); a machine without network or without the ser
   $NALU_RUNTIME_ROOT/credentials/fleet_token (mode 600) and is never printed.
 * report: episode / stage / state / note, the newest CODE_BLOCKER report text when blocked, local credits,
   X2C local counts, engine commit, STATUS.md tail.  No keys, no media.
-* commands: resume (hand the message to Codex) / update (scripted: self_update, set up the pin from the updated
+* commands: diagnose (model-free health check) / agent_task (instruction for the StoryClaw agent) /
+  resume (hand the message to Codex) / update (scripted: self_update, set up the pin from the updated
   AGENTS.md, resume a stopped episode when the engine moved) / pause / unpause / query.  Nothing else is executed.
 
   NALU_FLEET_URL overrides the service URL; NALU_FLEET_URL=off disables the channel.
@@ -153,8 +154,13 @@ def disk_pin() -> str:
     return max(found)[1] if found else ""
 
 
-def _run(argv: list[str], timeout: int) -> tuple[int, str]:
-    env = {**os.environ, "PATH": f"{Path.home()}/.local/bin:{Path.home()}/.npm-global/bin:" + os.environ.get("PATH", "")}
+def _run(argv: list[str], timeout: int, extra_env: dict | None = None) -> tuple[int, str]:
+    try:
+        import codex_production  # noqa: PLC0415 -- the same tool directories the executor uses
+        dirs = codex_production.tool_dirs()
+    except Exception:  # noqa: BLE001
+        dirs = [f"{Path.home()}/.local/bin", f"{Path.home()}/.npm-global/bin"]
+    env = {**os.environ, **(extra_env or {}), "PATH": ":".join([*dirs, os.environ.get("PATH", "")])}
     try:
         done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=env)
         return done.returncode, (done.stdout or "")[-2000:]
@@ -212,10 +218,85 @@ def scripted_update(cp: Any, pin: str) -> tuple[bool, dict, dict]:
     if ep and after and after != before:
         st = cp.status(ep)
         state = str((st["codex"].get("nalu_status") or {}).get("state") or "")
+        result["resume_check"] = {"episode": ep, "run": st.get("status"), "state": state}
         if st.get("status") != "RUNNING" and state in RESUMABLE_STATES:
             out = cp.resume(ep, f"引擎已更新到 {after[:7]}（维护者经 fleet 修复），按新版合同从当前阶段继续。")
             result["resumed"] = out.get("status")
     return st_rc == 0, result, {}
+
+
+AGENT_TASK_FILE = "FLEET_AGENT_TASK.json"
+
+
+def _short(rc_out: tuple[int, str], lines: int = 3) -> dict:
+    rc, out = rc_out
+    return {"rc": rc, "tail": [x[:240] for x in out.strip().splitlines()[-lines:]]}
+
+
+def _cron_jobs() -> list[dict]:
+    """name / enabled / model / last status of the OpenClaw scheduled tasks (no prompts, no keys), or []."""
+    rc, out = _run(["openclaw", "cron", "list", "--json"], 30)
+    if rc != 0:
+        return [{"error": f"openclaw cron list rc={rc}", "tail": out.strip()[-200:]}]
+    try:
+        data = json.loads(out)
+    except ValueError:
+        return [{"error": "openclaw cron list: not JSON"}]
+    jobs = data.get("jobs") if isinstance(data, dict) else data
+    rows = []
+    for job in jobs if isinstance(jobs, list) else []:
+        if not isinstance(job, dict):
+            continue
+        payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+        state = job.get("state") if isinstance(job.get("state"), dict) else {}
+        rows.append({"id": str(job.get("id") or job.get("jobId") or "")[:40], "name": str(job.get("name") or "")[:60],
+                     "enabled": job.get("enabled"), "model": payload.get("model") or job.get("model"),
+                     "schedule": job.get("schedule") if isinstance(job.get("schedule"), (str, dict)) else None,
+                     "last_status": state.get("lastStatus") or state.get("lastRunStatus"),
+                     "last_error": str(state.get("lastError") or "")[:200]})
+    return rows
+
+
+def diagnose(cp: Any) -> dict:
+    """Scripted, model-free health check for environment / credential blockers (no key is ever read out)."""
+    import tempfile  # noqa: PLC0415
+    engine, runtime = cp.roots()
+    scripts = Path(__file__).resolve().parent
+    out: dict[str, Any] = {"engine_sha": _engine_sha(engine)[:12]}
+    try:
+        out["setup_state"] = {k: v for k, v in json.loads((Path.home() / ".nalu_setup_state.json").read_text())
+                              .items() if k in ("status", "failed_step", "pin", "steps", "at")}
+    except (OSError, ValueError):
+        out["setup_state"] = None
+    out["codex_version"] = _short(_run(["codex", "--version"], 20), 1)
+    rc, tab = _run(["crontab", "-l"], 10)
+    out["system_tick_installed"] = rc == 0 and "nalu-system-tick" in tab
+    with tempfile.TemporaryDirectory() as tmp:
+        catalog = Path(tmp) / "voices.json"
+        out["giggle_voice_catalog"] = _short(_run(["bash", str(scripts / "list_voices.sh"), str(catalog)], 120))
+        out["giggle_voice_catalog"]["ok"] = catalog.is_file() and catalog.stat().st_size > 2
+    env = {"NALU_ENGINE_ROOT": str(engine), "NALU_RUNTIME_ROOT": str(runtime)}
+    out["codex_provider"] = _short(_run(["python3", str(scripts / "configure_codex.py"), "--verify"], 180, env), 1)
+    out["cron_jobs"] = _cron_jobs()
+    return out
+
+
+def agent_task(cp: Any, message: str) -> tuple[bool, dict, dict]:
+    """Queue a maintainer instruction for the StoryClaw agent (key / config / cron fixes Codex may not do).
+    The next agent heartbeat tick hands it over as AGENT / FLEET_AGENT_TASK; the heartbeat is also kicked."""
+    from datetime import datetime, timezone  # noqa: PLC0415
+    _, runtime = cp.roots()
+    path = runtime / "series" / AGENT_TASK_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"message": message, "queued_at": datetime.now(timezone.utc).isoformat(),
+                                "delivered": False}, ensure_ascii=False), encoding="utf-8")
+    kicked = None
+    for job in _cron_jobs():
+        name = str(job.get("name") or "")
+        if job.get("id") and ("心跳" in name or "heartbeat" in name.lower()):
+            kicked = _short(_run(["openclaw", "cron", "run", str(job["id"])], 60), 1) | {"job": name}
+            break
+    return True, {"status": "QUEUED_FOR_AGENT", "heartbeat_kick": kicked}, {}
 
 
 def run_command(cp: Any, cmd: dict) -> tuple[bool, dict, dict]:
@@ -240,6 +321,13 @@ def run_command(cp: Any, cmd: dict) -> tuple[bool, dict, dict]:
         return True, {"status": "UNPAUSED"}, {}
     if ctype == "query":
         return True, {"status": "REPORTED"}, {}
+    if ctype == "diagnose":
+        return True, diagnose(cp), {}
+    if ctype == "agent_task":
+        message = str(payload.get("message") or "").strip()
+        if not message:
+            return False, {"error": "AGENT_TASK_NEEDS_MESSAGE"}, {}
+        return agent_task(cp, "（维护者经 fleet 下发）" + message)
     return False, {"error": f"COMMAND_NOT_ALLOWED:{ctype}"}, {}
 
 

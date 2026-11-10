@@ -269,8 +269,22 @@ def codex_env() -> dict[str, str] | None:
     env.setdefault("NALU_WORK_ROOT", str(engine / "workflow" / "nalu"))
     env.setdefault("NALU_QA_WORKERS", "1")
     env.setdefault("NALU_Q2_WORKERS", "1")
-    env["PATH"] = f"{Path.home()}/.local/bin:{Path.home()}/.npm-global/bin:" + env.get("PATH", "")
+    env["PATH"] = ":".join([*tool_dirs(), env.get("PATH", "")])
     return env
+
+
+def tool_dirs() -> list[str]:
+    """Where codex / node live on this host: the user bins, the directories setup_host.sh recorded in
+    ~/.nalu_tool_path while the agent's full PATH was visible, and any nvm node bin (the system cron runs with a
+    bare PATH; …1037 / …0899 2026-11-10 fleet resume failed CODEX_NOT_INSTALLED)."""
+    home = Path.home()
+    dirs = [str(home / ".local/bin"), str(home / ".npm-global/bin")]
+    try:
+        dirs += [d for d in (home / ".nalu_tool_path").read_text(encoding="utf-8").strip().split(":") if d]
+    except OSError:
+        pass
+    dirs += sorted((str(p) for p in home.glob(".nvm/versions/node/*/bin")), reverse=True)
+    return list(dict.fromkeys(dirs))
 
 
 def runner(episode: str, log: str, last: str, argv_json: str) -> int:
@@ -620,6 +634,21 @@ def tick(system: bool = False) -> dict[str, Any]:
     _, runtime = roots()
     did: list[str] = []
     res: dict[str, Any] = {"action": "NONE", "did": did}
+    if not system:  # the agent heartbeat sees the full PATH: remember where codex / node live for the cron
+        found = [str(Path(w).parent) for w in (shutil.which("codex"), shutil.which("node")) if w]
+        if found:
+            try:
+                (Path.home() / ".nalu_tool_path").write_text(":".join(dict.fromkeys(found)) + "\n", encoding="utf-8")
+            except OSError:
+                pass
+    task_path = runtime / "series" / "FLEET_AGENT_TASK.json"
+    if not system and task_path.is_file():  # a maintainer instruction for the agent (fleet agent_task)
+        task = read_json(task_path)
+        if task.get("message") and not task.get("delivered"):
+            task.update(delivered=True, delivered_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+            write_json(task_path, task)
+            res.update(action="AGENT", reason="FLEET_AGENT_TASK", fleet_agent_task=task["message"])
+            return res
     if (runtime / "series" / "PAUSED").exists():
         res["reason"] = "PAUSED"
         return res
