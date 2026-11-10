@@ -2524,10 +2524,30 @@ def _spec_dialogue_rows(specs: list[dict[str, Any]], shot_ids: list[str]) -> lis
                 speaker, sep, spoken = text.partition("：")
                 if not sep:
                     speaker, spoken = "", text
-                text = spoken
+                text = _join_continuation_lines(speaker.strip(), spoken)
             if text.strip():
                 rows.append({"shot_id": shot_id, "speaker": speaker.strip(), "spoken_text": text.strip()})
     return rows
+
+
+def _join_continuation_lines(speaker: str, spoken: str) -> str:
+    """One utterance from same-speaker continuation lines: drop the repeated ``speaker：`` labels and join the
+    fragments exactly as the H3 renderer does (tools/h3_provider_prompt_renderer._dialogue_partition; no
+    separator in Chinese, a space otherwise).  Field device …1324 E04-VU-010: the renderer stripped the label
+    but the transaction kept it, and the S6 submitter's native-dialogue check failed on the mismatch."""
+    if "\n" not in spoken:
+        return spoken
+    fragments = []
+    for line in spoken.splitlines():
+        line = line.strip()
+        for sep in ("：", ":"):
+            if speaker and line.startswith(speaker + sep):
+                line = line[len(speaker) + len(sep):].strip()
+                break
+        if line:
+            fragments.append(line)
+    han = any("\u4e00" <= ch <= "\u9fff" for ch in "".join(fragments))
+    return ("" if han else " ").join(fragments)
 
 
 _ASSET_LIBRARY_CACHE: dict[str, dict[str, Any]] = {}
