@@ -1734,3 +1734,30 @@ K023 起的条目另带 `evidence`：伴生运行时 runbook 的决策号（如 
 - **证据**：Real contracts: E13 PASS; E14 BLOCK (FD1 x3, FD3 x2, FD4 x2); E15 rework BLOCK only on FD6 (长刀 x11, 铁矛 x20, 硬弓 x2). E15 S6 reroll frames: VU-021/027 pass the four combat conditions; VU-020 fails (2), (3); VU-019 fails (4).
 - **授权**：Roger 2026-11-07「我希望以后的打斗片段，生产线都能学会怎么生产，不要再犯同类错误」
 - **状态**：REFERENCE_IMPLEMENTATION
+
+### K174 — S1-S5
+
+- **规则**：A COMBAT beat that carries an authored ladder renders as [Shot N] lines: each shot states who moves, the body met, the direction and the distance, exactly one contact shot per segment at most 0.4 s, and the last shot's result is an ongoing move. The dialogue-scene grammar (Start from … Force origin … primary feedback … End at) is not emitted for a fight beat. The beat's entry/force-origin/interaction/contact-point/feedback/exit facts are still stated once around the shot list, so the provider semantic coverage gate keeps finding them.
+- **教训**：E15 VU-020 rendered the same freeze in three takes (2.0 s, 1.75 s, 2.0 s of blade resting on shaft) because every beat was written as a state change ('Start from X … End at Y') and the model completed the state instead of fighting. Rewriting the words three times changed nothing; the grammar had to change.
+- **恢复**：Contract declares combat_motion_policy=COMBAT_MOTION_V1 (or episode >= enabled_from_episode). Beats without an authored ladder keep the legacy template, so delivered episodes recompile byte-identically.
+- **实现**：`tools/combat_unit_compiler.py`、`configs/COMBAT_MOTION_V1.json`、`tools/h3_provider_prompt_renderer.py`、`tools/tests/test_combat_unit_compiler.py`
+- **授权**：Roger 2026-11-08 E15 看片（SUPERVISOR_ORDERS seq=219）：打斗镜头根本不像是专业的武侠打斗，这些错误后续不再犯
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K175 — S1
+
+- **规则**：Before a line can be spoken: it shares no run of >= 8 characters with the source chapter (DIALOGUE_SOURCE_VERBATIM), it carries no classical/instructional register marker and no judged comparison about the speaker (DIALOGUE_WRITTEN_REGISTER), two characters with 3+ lines each do not share one sentence-length and bigram profile (DIALOGUE_ONE_VOICE), and it stays inside the speaker's declared speech_fingerprint.
+- **教训**：E15 shipped 5 of 27 lines copied from ch0015 (one whole 22-character sentence), a 49 % weighted overlap with the chapter, and two leads of very different station sharing one clipped judging voice — that is what the line owner heard as 'AI'. Nothing compared a line to its source before; every line passed every gate.
+- **恢复**：Policy active from E15 or when the contract declares dialogue_register_policy. Without a source text file the gate reports NOT_ACTIVE, so episodes with no source are untouched.
+- **实现**：`tools/dialogue_register_gate.py`、`configs/DIALOGUE_REGISTER_V1.json`、`lines/nalu/runtime/tools/nalu_pipeline.py`、`tools/tests/test_dialogue_register_gate.py`
+- **授权**：Roger 2026-11-08 E15 看片（SUPERVISOR_ORDERS seq=219）：对话台词不像剧中人说的，更像照搬小说原著，AI 味太重
+- **状态**：REFERENCE_IMPLEMENTATION
+
+### K176 — S6
+
+- **规则**：In a fight unit, one detected cut per 4 s (CUT_DENSITY_LOW otherwise), and every unit that binds a prop card keeps that prop's silhouette above 0.62 similarity (SHAPE_LOCK_LOW otherwise). Both are diagnostics: a FAIL sends the unit back to the writer, never an automatic reroll.
+- **教训**：E15 VU-020 carried zero cuts over 7.3 s — a single unbroken camera move smeared three authored beats together — while VU-027 carried seven. The same sabre rendered as a straight sword, a curved sabre, a broad blade and a short cleaver across VU-018..021, and no check compared the weapon across units.
+- **恢复**：Run tools/combat_density_check.py on COMBAT units with --card for each bound prop reference. It is an allowed post-generation combat check (post_generation_qa_scope_gate).
+- **实现**：`tools/combat_density_check.py`、`tools/post_generation_qa_scope_gate.py`、`tools/tests/test_combat_density_check.py`
+- **授权**：Roger 2026-11-08 E15 看片（SUPERVISOR_ORDERS seq=219）：打斗没有专业感；同一把刀在不同单元形状不同
+- **状态**：REFERENCE_IMPLEMENTATION
