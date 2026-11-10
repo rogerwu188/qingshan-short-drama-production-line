@@ -5165,7 +5165,7 @@
     },
     {
       "path": "tools/h3_director_prompt_v2.py",
-      "sha256": "02c61393788399b364124885ffb4c1fc103914c2ed89fd02b8d88251c93aa154"
+      "sha256": "686f9a81e7a88633bfe73cdf6d5badf40966366536c27da424edd944d145c1e9"
     },
     {
       "path": "tools/h3_english_contract_io.py",
