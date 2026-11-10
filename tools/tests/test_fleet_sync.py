@@ -58,6 +58,17 @@ class FleetSyncTest(unittest.TestCase):
         self.assertEqual(res["after"], new_pin[:12])
         self.assertIn(new_pin[:7], resumed[0][1])
 
+    def test_setup_diagnostics_surface_the_failed_step(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d) / "setup.log"
+            log.write_text("start\nconfigure_codex: {\"status\": \"FAILED\", \"error\": \"x\"}\nend\n")
+            out = "noise\nNALU_SETUP: " + json.dumps({"status": "BLOCKED", "failed_step": "codex_config",
+                                                      "log": str(log), "steps": {"codex_config": "FAILED"}})
+            diag = fleet_sync._setup_diagnostics(out)
+        self.assertEqual((diag["setup_status"], diag["setup_failed_step"]), ("BLOCKED", "codex_config"))
+        self.assertIn("configure_codex", diag["setup_log_tail"][0])
+
     def test_disk_pin_reads_the_installed_agents_md(self):
         import os
         with tempfile.TemporaryDirectory() as d:
