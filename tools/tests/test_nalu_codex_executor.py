@@ -130,6 +130,15 @@ class CodexExecutorTests(unittest.TestCase):
         self.assertEqual((again["action"], again["reason"]), ("AGENT", "BLOCKED_RECHECK_UPDATE"))
         self.assertEqual(self.cp.tick()["action"], "NONE")
 
+    def test_system_tick_leaves_the_hand_off_for_the_agent(self):
+        # line owner + boss 2026-11-10: the system cron advances production; AGENT hand-offs stay with the agent
+        self.write_provider()
+        self.run_episode('需要线主\nNALU_STATUS: {"episode":"E07","state":"OWNER_DECISION_REQUIRED","question":"q"}', "E07")
+        self.assertEqual(self.cp.tick(system=True)["action"], "AGENT_PENDING")
+        self.assertEqual(self.cp.tick(system=True)["action"], "AGENT_PENDING")
+        self.assertEqual(self.cp.tick()["action"], "AGENT")  # the heartbeat still gets it once
+        self.assertEqual(self.cp.tick(system=True)["action"], "NONE")
+
     def final_review_episode(self):
         self.write_provider()
         self.run_episode('等终审\nNALU_STATUS: {"episode":"E06","state":"FINAL_REVIEW_REQUIRED"}', "E06")

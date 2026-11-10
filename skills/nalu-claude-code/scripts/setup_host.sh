@@ -44,9 +44,23 @@ NOTES=()
 
 log() { printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$*" >>"$LOG"; }
 run() { log "\$ $*"; "$@" >>"$LOG" 2>&1; }
+install_system_tick() {
+  # line owner + boss 2026-11-10: the system cron, not the agent heartbeat, advances production every 3 min and
+  # carries the fleet channel (report + whitelisted commands); no model is involved.  Idempotent (tagged line).
+  command -v crontab >/dev/null || { STEP_system_tick=NO_CRONTAB; return; }
+  local log="$RUNTIME/runtime/system_tick.log"
+  local line="*/3 * * * * [ \$(stat -c\%s $log 2>/dev/null || echo 0) -gt 5000000 ] && : > $log; cd $ENGINE && NALU_ENGINE_ROOT=$ENGINE NALU_RUNTIME_ROOT=$RUNTIME NALU_WORK_ROOT=$ENGINE/workflow/nalu PATH=$HOME/.local/bin:$HOME/.npm-global/bin:/usr/local/bin:/usr/bin:/bin python3 skills/nalu-claude-code/scripts/codex_production.py tick --system >> $log 2>&1 # nalu-system-tick"
+  mkdir -p "$RUNTIME/runtime"
+  if (crontab -l 2>/dev/null | grep -v 'nalu-system-tick'; printf '%s\n' "$line") | crontab - 2>/dev/null; then
+    STEP_system_tick=OK
+  else
+    STEP_system_tick=CRONTAB_WRITE_FAILED
+  fi
+}
 finish() {  # status failed_step
   local steps="" k
-  for k in deps engine runtime python codex_install codex_config; do
+  [ "$1" = READY ] && [ -d "$ENGINE/skills/nalu-claude-code/scripts" ] && install_system_tick
+  for k in deps engine runtime python codex_install codex_config system_tick; do
     v="STEP_$k"; steps="$steps\"$k\":\"${!v:-NOT_RUN}\","
   done
   local notes="" n

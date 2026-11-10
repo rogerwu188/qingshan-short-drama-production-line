@@ -135,6 +135,8 @@ python3 $S/codex_production.py resume --episode <EP> --message "<文本>"
 python3 $S/codex_production.py tick                                  # 心跳：例行动作脚本自己做，见下
 python3 $S/codex_production.py report                                # 给线主的进度摘要（一次 X2C 查询）
 ```
+**系统 cron**（`setup_host.sh` 安装，crontab 标记 `# nalu-system-tick`）每 3 分钟跑 `tick --system`：推进生产、fleet 上报与指令，不用模型；它不消耗交给代理的 AGENT 情况（报 `AGENT_PENDING`），也不写下一集。两者共用一把锁，不会同时跑。
+
 **心跳（每 15 分钟）只跑 `tick`**，只读最后一行 `NALU_TICK: {...}` 的 `action`：
 - `NONE`：脚本已处理完（在跑、已续跑、已发行或发行暂缓、在等线主），**立即结束本轮**，不要再读别的文件。
 - `WRITE_NEXT_EPISODE`：本集已出片——**先升级再开新集**：`self_update.sh`（不带 --restart）→ 按磁盘 AGENTS.md 的 pin 跑 `setup_host.sh`（集与集之间是唯一不在生产中的时刻，心跳不跑 setup 就永远换不了引擎；实地设备 …1324 E04 2026-11-09 用旧引擎开工），再按 §7 给下一集派单并 `start`（发行脚本会自己按顺序做）。
@@ -146,7 +148,7 @@ python3 $S/codex_production.py report                                # 给线主
 - `IDLE` + `OWNER_DECISION_REQUIRED`：只剩少数情况会出现（Giggle key 缺失/失效、追加一次后预算仍不够、新的付费类别）。
   把 `question` 原样转给线主，**本项目暂停**等回复；线主回复后用 `resume --message "线主原话：<逐字>"`。不得替线主回答。
 - `IDLE` + `WAITING_REMOTE`：5 分钟后 `resume --message "继续"`。
-- `FLEET_UPDATE`（维护者经 fleet 服务下发的升级指令）：和 `BLOCKED_RECHECK_UPDATE` 同样的顺序——`self_update.sh` 不带 --restart、按磁盘 pin 跑 `setup_host.sh`；引擎 HEAD 变了且本集是 BLOCKED / FINAL_REVIEW_REQUIRED 就 `resume --message "引擎已更新，继续"`。fleet 下发的 `resume` 消息由 tick 直接交给 Codex，你不用处理。
+- fleet 指令（`resume` / `update` / `pause` / `unpause` / `query`）全部由脚本执行，你不用处理：`update` = `self_update.sh` 不带 --restart → 读**更新后**磁盘 AGENTS.md 的 pin 跑 `setup_host.sh` → 引擎 HEAD 变了且本集是 BLOCKED / FINAL_REVIEW_REQUIRED 就 resume（`fleet_sync.scripted_update`）。旧版本交回的 `FLEET_UPDATE` 按同样顺序处理一次。
 - `BLOCKED_RECHECK_UPDATE`（BLOCKED 后每小时交给你一次），按这个顺序，**不要带 `--restart`**（重启网关会打断本轮，
   引擎就停在旧版；实地设备 …1324 E02，2026-11-07）：
   1. `self_update.sh --agent-id <本代理 id>`（不论返回 UPDATED 还是 UP_TO_DATE 都继续下一步）；

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fleet status + command channel for one device (line owner 2026-11-09, nalu-fleet service).
 
-Called at the end of every heartbeat tick (codex_production.py tick): it reports this machine's state to the
+Called at the end of every tick (the system cron's `tick --system` every 3 min, and the agent heartbeat): it reports this machine's state to the
 fleet service and runs the whitelisted commands the superadmin queued for it.  Never raises and never blocks
 the tick for long (short timeouts); a machine without network or without the service just skips it.
 
@@ -9,8 +9,8 @@ the tick for long (short timeouts); a machine without network or without the ser
   $NALU_RUNTIME_ROOT/credentials/fleet_token (mode 600) and is never printed.
 * report: episode / stage / state / note, the newest CODE_BLOCKER report text when blocked, local credits,
   X2C local counts, engine commit, STATUS.md tail.  No keys, no media.
-* commands: resume (hand the message to Codex) / update (hand to the agent: self_update + set up the pinned
-  engine) / pause / unpause / query.  Nothing else is executed.
+* commands: resume (hand the message to Codex) / update (scripted: self_update, set up the pin from the updated
+  AGENTS.md, resume a stopped episode when the engine moved) / pause / unpause / query.  Nothing else is executed.
 
   NALU_FLEET_URL overrides the service URL; NALU_FLEET_URL=off disables the channel.
 """
@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import urllib.error
 import urllib.request
@@ -129,6 +130,70 @@ def build_status(cp: Any, tick_result: dict) -> tuple[dict, str, str]:
     return status, blocker_text, tail
 
 
+AGENT_ID = os.environ.get("NALU_AGENT_ID") or "qingshan-ai-drama-factory-minipc"
+PIN_RE = re.compile(r'setup_host\.sh"?\s+--pin\s+([0-9a-f]{40})')
+RESUMABLE_STATES = ("BLOCKED", "FINAL_REVIEW_REQUIRED")
+
+
+def disk_pin() -> str:
+    """The pin in the newest installed copy of this agent's AGENTS.md (after self_update), or ""."""
+    home = Path.home()
+    found: list[tuple[float, str]] = []
+    for root in (home / ".openclaw", home / ".storyclaw", home):
+        if not root.is_dir():
+            continue
+        for path in list(root.glob("*/AGENTS.md")) + list(root.glob("*/*/AGENTS.md")) + list(root.glob("*/*/*/AGENTS.md")):
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            m = PIN_RE.search(text)
+            if m and "nalu" in text.lower():
+                found.append((path.stat().st_mtime, m.group(1)))
+    return max(found)[1] if found else ""
+
+
+def _run(argv: list[str], timeout: int) -> tuple[int, str]:
+    env = {**os.environ, "PATH": f"{Path.home()}/.local/bin:{Path.home()}/.npm-global/bin:" + os.environ.get("PATH", "")}
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=env)
+        return done.returncode, (done.stdout or "")[-2000:]
+    except (OSError, subprocess.SubprocessError) as exc:
+        return -1, f"{type(exc).__name__}: {exc}"
+
+
+def scripted_update(cp: Any, pin: str) -> tuple[bool, dict, dict]:
+    """self_update (no restart) -> setup_host --pin -> resume a stopped episode when the engine moved.
+
+    Deterministic, no model (line owner + boss 2026-11-10): the agent-run FLEET_UPDATE once set up the stale pin
+    because it read AGENTS.md before self_update had replaced it (field device …1324 E04)."""
+    import shutil  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+    engine, _ = cp.roots()
+    scripts = Path(__file__).resolve().parent
+    su_rc, su_out = _run(["bash", str(scripts / "self_update.sh"), "--agent-id", AGENT_ID], 600)
+    pin = pin or disk_pin()
+    if not re.fullmatch(r"[0-9a-f]{40}", pin or ""):
+        return False, {"error": "NO_PIN", "self_update": su_out[-300:]}, {}
+    before = _engine_sha(engine)
+    tmp = Path(tempfile.mkdtemp(prefix="nalu_setup_"))
+    setup = tmp / "setup_host.sh"
+    shutil.copy2(scripts / "setup_host.sh", setup)  # the checkout below may replace the running file
+    st_rc, st_out = _run(["bash", str(setup), "--pin", pin], 1800)
+    shutil.rmtree(tmp, ignore_errors=True)
+    after = _engine_sha(engine)
+    result = {"pin": pin, "before": before[:12], "after": after[:12], "self_update_rc": su_rc,
+              "setup_rc": st_rc, "setup_tail": st_out.strip().splitlines()[-1][:400] if st_out.strip() else ""}
+    ep = cp.current_episode()
+    if ep and after and after != before:
+        st = cp.status(ep)
+        state = str((st["codex"].get("nalu_status") or {}).get("state") or "")
+        if st.get("status") != "RUNNING" and state in RESUMABLE_STATES:
+            out = cp.resume(ep, f"引擎已更新到 {after[:7]}（维护者经 fleet 修复），按新版合同从当前阶段继续。")
+            result["resumed"] = out.get("status")
+    return st_rc == 0, result, {}
+
+
 def run_command(cp: Any, cmd: dict) -> tuple[bool, dict, dict]:
     """(ok, result, extra tick fields) for one whitelisted command."""
     _, runtime = cp.roots()
@@ -140,8 +205,8 @@ def run_command(cp: Any, cmd: dict) -> tuple[bool, dict, dict]:
             return False, {"error": "NO_EPISODE"}, {}
         out = cp.resume(ep, "（维护者经 fleet 下发）" + str(payload.get("message") or "继续"))
         return out.get("status") == "STARTED", out, {}
-    if ctype == "update":  # self_update + pinned setup is the agent's procedure (SKILL §5 BLOCKED_RECHECK_UPDATE)
-        return True, {"status": "HANDED_TO_AGENT"}, {"action": "AGENT", "reason": "FLEET_UPDATE"}
+    if ctype == "update":
+        return scripted_update(cp, str(payload.get("pin") or ""))
     if ctype == "pause":
         paused.parent.mkdir(parents=True, exist_ok=True)
         paused.write_text("paused by fleet superadmin\n", encoding="utf-8")
