@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2411,
+  "file_count": 2412,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -989,7 +989,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/fleet_sync.py",
-      "sha256": "ac96014e454d5d9681e12d04a71deac660a71cee542e8da5599284b214a0cb1b"
+      "sha256": "08c95fe7671ee31147905a205e8c861d1b5f1e7c42ae4fac4ed5c0662d7cb21a"
     },
     {
       "path": "skills/nalu-claude-code/scripts/list_voices.sh",
@@ -7108,6 +7108,10 @@
       "sha256": "e17df10664ea15676f2acf3b670f6414d1e87555c8620d3be68a2855f78ed706"
     },
     {
+      "path": "tools/tests/test_authored_world_forbidden_terms.py",
+      "sha256": "1a6c39b094a524952069ea981400c095f742997a8129c654ba092f767136db43"
+    },
+    {
       "path": "tools/tests/test_authorize_e40_full_coverage_keyframe_wave.py",
       "sha256": "36bf09fd8f2dac8ea15bc70327f98a232151ab814c7c2c049b245661e31930b9"
     },
@@ -7805,7 +7809,7 @@
     },
     {
       "path": "tools/tests/test_fleet_sync.py",
-      "sha256": "388bfe36beb5d66cee1b2e43215575cfa09f0b3e3eb9a96d897f312bd09cc7cd"
+      "sha256": "912cca8fb06969391485f759313d3f419750bc0259cd3fa595a510c037c0dd43"
     },
     {
       "path": "tools/tests/test_frame_cadence_audit.py",
