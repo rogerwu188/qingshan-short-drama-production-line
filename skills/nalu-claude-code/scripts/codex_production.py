@@ -420,6 +420,53 @@ def start(episode: str, brief: str = "") -> dict[str, Any]:
     return out
 
 
+def next_episode_id(episode: str) -> str:
+    m = re.fullmatch(r"([A-Za-z]*)(\d+)", episode.strip())
+    if not m:
+        return ""
+    return f"{m.group(1)}{int(m.group(2)) + 1:0{len(m.group(2))}d}"
+
+
+NEXT_EPISODE_BRIEF = """本集由引擎在上一集出片后自动接续（线主 + 老板 2026-11-10：下一集的派单与叙事正典交给你写，不再由编排代理写）。先写派单，再生产：
+1. 读上一集派单 `{prev}`，以及上一集 {ep} 的叙事正典与剧本层的结尾、`{status}` 最近几条。
+2. 按上一集派单的条款写 `{brief}`：`order_text` 里的集号与上限改成 {nxt}，章节范围从上一集结束处接上；剧名、风格、单集时长
+   （`target_seconds`）、X2C 分类与简介、语言、预算上限等其它条款逐字沿用，不自行改动。
+3. 原著已经改编完，或已达到线主在派单里指定的总集数：不生产，写 `{done}`（一行说明），在 `{status}` 记一行「SERIES_DONE」，
+   最后一行输出 `NALU_STATUS: {{"episode":"{nxt}","state":"SERIES_DONE"}}`。
+4. 否则按 `{skill}` §4 写本集叙事正典与生产简报（承接上一集结尾，角色、地点沿用，按合同 §8），然后按合同生产 {nxt}。
+"""
+
+
+def start_next_episode(episode: str) -> dict[str, Any]:
+    """FINAL_CUT_READY -> scripted engine update (between episodes is the only safe moment), then a new Codex
+    session that writes the next dispatch from the previous one and produces it.  No model on the routine path."""
+    engine, runtime = roots()
+    nxt = next_episode_id(episode)
+    briefs = runtime / "briefs"
+    prev = briefs / f"{episode}_DISPATCH.md"
+    if not nxt:
+        return {"status": "BLOCKED", "reason": "EPISODE_ID_UNPARSEABLE", "episode": episode}
+    if read_json(run_dir(nxt) / "session.json"):
+        return {"status": "BLOCKED", "reason": "NEXT_EPISODE_ALREADY_HAS_A_SESSION", "episode": nxt}
+    if not prev.is_file():
+        return {"status": "BLOCKED", "reason": "PREVIOUS_DISPATCH_MISSING", "episode": nxt, "expected": str(prev)}
+    update: dict = {}
+    try:
+        import fleet_sync  # noqa: PLC0415
+        ok, update, _ = fleet_sync.scripted_update(sys.modules[__name__], "")
+        note(f"{episode}→{nxt} 集间升级：{'OK' if ok else 'SETUP_NOT_READY'} 引擎 {update.get('before')}→{update.get('after')}")
+    except Exception as exc:  # noqa: BLE001 -- an update failure must not stop the line; the old engine keeps working
+        update = {"error": f"{type(exc).__name__}: {exc}"}
+    briefs.mkdir(parents=True, exist_ok=True)
+    brief = NEXT_EPISODE_BRIEF.format(
+        prev=prev, ep=episode, nxt=nxt, brief=briefs / f"{nxt}_DISPATCH.md", done=runtime / "series" / "SERIES_DONE",
+        status=runtime / "series" / "STATUS.md", skill=engine / "skills" / "nalu-claude-code" / "SKILL.md")
+    out = start(nxt, brief)
+    if out.get("status") == "STARTED":
+        note(f"{nxt} 由引擎自动启动（Codex 写派单与叙事正典后生产），上一集 {episode}")
+    return {**out, "episode": nxt, "update": {k: update.get(k) for k in ("before", "after", "setup_status", "error")}}
+
+
 def resume(episode: str, message: str) -> dict[str, Any]:
     d = run_dir(episode)
     session = read_json(d / "session.json")
@@ -644,12 +691,23 @@ def tick(system: bool = False) -> dict[str, Any]:
             did.append(f"resume_after_final_review:{out.get('status')}")
             return res
         reason = f"FINAL_REVIEW_REQUIRED:{step['status']}"  # reviewer exhausted / blocked: the agent takes over
-    elif state == "FINAL_CUT_READY":
-        if (runtime / "series" / "SERIES_DONE").exists():
+    elif state == "FINAL_CUT_READY" or state == "SERIES_DONE":
+        if state == "SERIES_DONE" or (runtime / "series" / "SERIES_DONE").exists():
             res["reason"] = "SERIES_DONE"
             return res
-        res.update(action="WRITE_NEXT_EPISODE", reason="FINAL_CUT_READY")
-        return res
+        last = session.get("next_episode_attempt_at")
+        if last and _hours_since(last) < 1:
+            res["reason"] = "NEXT_EPISODE_RETRY_WAIT"
+            return res
+        session["next_episode_attempt_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        write_json(d / "session.json", session)
+        out = start_next_episode(ep)
+        res["next_episode"] = out
+        did.append(f"next_episode:{out.get('episode')}:{out.get('status')}")
+        if out.get("status") == "STARTED":
+            res["reason"] = "NEXT_EPISODE_STARTED"
+            return res
+        reason = f"NEXT_EPISODE_{out.get('reason') or out.get('status')}"  # the agent takes over once
     else:
         reason = state
     if session.get("tick_notified") == notify_key:  # already handed to the agent once; wait
@@ -751,8 +809,6 @@ def main() -> int:
             print("NALU_TICK: " + json.dumps({"action": "NONE", "reason": "TICK_ALREADY_RUNNING"}))
             return 0
         res = tick(system=a.system)
-        if a.system and res.get("action") == "WRITE_NEXT_EPISODE":
-            res["action"] = "AGENT_PENDING"  # writing the next episode stays with the agent (step 2 moves it)
         # fleet channel (line owner 2026-11-09): report this machine and run the superadmin's whitelisted commands
         sys.path.insert(0, str(HERE))
         import fleet_sync  # noqa: PLC0415
