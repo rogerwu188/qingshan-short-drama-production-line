@@ -814,10 +814,27 @@ DIALOGUE_LANGUAGE_TAGS = {"zh": "Chinese", "en": "English"}
 
 
 def _dialogue_partition(raw: str, language: str = "zh") -> tuple[str, str, str]:
-    """``speaker：words``; English dialogue may also use an ASCII colon."""
+    """``speaker：words``; English dialogue may also use an ASCII colon.
+
+    A long line split into same-speaker continuation lines (build_nalu_preproduction repeats the prefix on each
+    fragment) is one utterance: the continuation labels are metadata, never spoken words, and the fragments are
+    joined (no separator in Chinese, a space in English).  Field device …1324 E04-VU-010 rendered
+    ``<d>[Chinese] …灵石，\n金公子：我搜集了…</d>`` and H3 would have read the label aloud."""
     speaker, separator, words = raw.partition("：")
     if not separator and language == "en":
         speaker, separator, words = raw.partition(":")
+    if separator and "\n" in words:
+        label = speaker.strip()
+        fragments = []
+        for line in words.splitlines():
+            line = line.strip()
+            for sep in ("：", ":"):
+                if label and line.startswith(label + sep):
+                    line = line[len(label) + len(sep):].strip()
+                    break
+            if line:
+                fragments.append(line)
+        words = (" " if language == "en" else "").join(fragments)
     return speaker, separator, words
 
 
