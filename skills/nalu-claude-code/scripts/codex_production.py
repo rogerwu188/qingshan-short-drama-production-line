@@ -126,7 +126,11 @@ def reviewer_prompt(episode: str, request: Path, answers: Path, process_id: str,
    - 有声 1x：用 ffmpeg 每 1 秒抽一帧（缩到长边 ≤1280、JPEG `-q:v 4`，放在 `$TMPDIR` 下你自己的目录），按时间顺序用 view_image 看完，
      同时对照 `evidence.asr` 的台词和时间；`evidence.contact_sheet` 也要看。
    - 静音：只凭画面判断动作是否看得懂、连贯、有没有穿帮（人数、手、身份、昼夜、跳变）。
-   - 只听：读 ASR，用 `ffmpeg -af ebur128` 等测音频，判断对白清晰度、混音、节奏。
+   - 只听：读 ASR，用 `ffmpeg -af ebur128`、`silencedetect`、`volumedetect`、`astats` 等测音频，判断对白清晰度、混音、节奏。
+   - 你没有耳朵：上面这套「ASR 文本 + 音频测量 + 逐帧画面」**就是**本审核规定的有声 1x 与只听方式。照做了就把
+     `viewing_passes` 的 `full_1x` / `muted` / `sound` 都写 `completed: true`，`observation` 写清你实际看了哪些帧、
+     测了哪些量、读到了什么（三项各写各的，不要抄同一段）。不要因为「无法真正听见」而写 false——那只会让提交无效、
+     这一集卡死（…1324 E04 2026-11-10 两次提交都因此 INVALID）。拿不准的听感问题写进 problems，并据此打分。
 3. 逐镜（`shots` 里每一个 shot_index）写你自己看到的内容；八项打 1–5 分并写依据；整体分单独给（不是平均）；
    每个 `subjective_checks_required` 给布尔值和依据；把观众看得见的剧情事件按时间写进 events；问题按 P0–P3 写进 problems。
    如实判断：有穿帮就判低分，判拒（REJECT_RECUT）也是正常结论，不要为了通过而改判。
@@ -162,6 +166,11 @@ def review_status_code(episode: str) -> int:
         return -1
 
 
+#: bump when reviewer_prompt changes in a way that can turn an EXHAUSTED review into a valid one; an updated
+#: engine then gets a fresh set of reviewer attempts for the same request (…1324 E04: the sound pass rule)
+REVIEWER_PROMPT_VERSION = "2"
+
+
 def launch_reviewer(episode: str) -> dict[str, Any]:
     """Start (at most MAX_REVIEWER_ATTEMPTS times) the independent final-audience reviewer for one episode."""
     env = codex_env()
@@ -178,8 +187,10 @@ def launch_reviewer(episode: str) -> dict[str, Any]:
     if not request.is_file():
         return {"status": "BLOCKED", "reason": f"REVIEW_REQUEST_MISSING:{request}"}
     request_sha = _file_sha(request)
-    if state.get("request_sha256") != request_sha:  # a new cut / new request: a fresh set of attempts
-        state = {"request_sha256": request_sha}
+    if state.get("request_sha256") != request_sha or state.get("prompt_version") != REVIEWER_PROMPT_VERSION:
+        # a new cut / new request, or a fixed reviewer prompt from an engine update: a fresh set of attempts
+        state = {"request_sha256": request_sha, "prompt_version": REVIEWER_PROMPT_VERSION,
+                 "resumes": state.get("resumes") or {}}
     attempts = int(state.get("attempts") or 0)
     if attempts >= MAX_REVIEWER_ATTEMPTS:
         return {"status": "EXHAUSTED", "attempts": attempts, "log": state.get("log")}

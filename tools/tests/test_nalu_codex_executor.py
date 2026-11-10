@@ -170,6 +170,22 @@ class CodexExecutorTests(unittest.TestCase):
         t = self.cp.tick()
         self.assertEqual((t["action"], t["reason"]), ("AGENT", "FINAL_REVIEW_REQUIRED:EXHAUSTED"))
 
+    def test_exhausted_review_gets_fresh_attempts_after_a_reviewer_prompt_fix(self):
+        # …1324 E04 2026-11-10: both attempts wrote sound pass completed=false ("cannot hear"); the fixed prompt
+        # defines ASR + audio measurement as the sound pass, and an updated engine retries the same request
+        self.final_review_episode()
+        self.cp.review_status_code = lambda _ep: self.cp.REVIEW_REQUIRED_CODE
+        path = self.runtime / "claude_code/E06/final_reviewer/reviewer.json"
+        path.parent.mkdir(parents=True)
+        req_sha = self.cp._file_sha(self.runtime / "runtime/reviews/E06/final_audience_request.json")
+        path.write_text(json.dumps({"request_sha256": req_sha, "attempts": 2}))  # written by the older engine
+        out = self.cp.final_review_step("E06")
+        self.assertEqual(out["status"], "STARTED")
+        self.reap(self.reviewer_state()["pid"])
+        prompt = next(path.parent.glob("review_*.prompt.md")).read_text(encoding="utf-8")
+        self.assertIn("completed: true", prompt)
+        self.assertEqual(self.reviewer_state()["prompt_version"], self.cp.REVIEWER_PROMPT_VERSION)
+
     def test_review_status_query_gets_the_runtime_roots(self):
         # field device …1324 E03: the cron ran tick without NALU_RUNTIME_ROOT and the query read another runtime
         seen = {}
