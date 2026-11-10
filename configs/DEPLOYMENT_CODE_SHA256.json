@@ -237,7 +237,7 @@
     },
     {
       "path": "configs/COMBAT_UNIT_DIRECTION_V1.json",
-      "sha256": "df0283d207395be858e0dcb073b1f925175d47537cc177331d638a78f5b9a85f"
+      "sha256": "71347449497ae8b1339682c6491d75f3ce2baf9b86ac7bcb374d81827cec2410"
     },
     {
       "path": "configs/CROSS_SHOT_STATE_PERCEPTION_V1.json",
@@ -257,7 +257,7 @@
     },
     {
       "path": "configs/ENGINEERING_KNOWLEDGE_V1.json",
-      "sha256": "561a05b5203beaa4ec0adc8c0899bff5975633342561e326230a35a178fb4d32"
+      "sha256": "c4fae154cc454fa8612dfddb74846fec36e45be94a944b5918b57cd6224792dd"
     },
     {
       "path": "configs/EPISODE_PREVIS_V1.json",
@@ -421,7 +421,7 @@
     },
     {
       "path": "docs/knowledge/ENGINEERING_KNOWLEDGE_BASE.md",
-      "sha256": "a2832527d5f28ed3023a82b470f5fee4b924a6c2e783668793ac288a10e31d33"
+      "sha256": "7f295170ba00889a97e481da734675f87af99d3d3468741728a6cf438d1f0294"
     },
     {
       "path": "docs/knowledge/FIGHT_DIRECTION_PLAYBOOK.md",
@@ -673,7 +673,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "7475834e0285d89e37a5e8f2f855238f036f960b41b6c23fabd513fbdd52665b"
+      "sha256": "283ddda11ea4ce68498908bc462a863b0f848a1e69eb0fc6ec68698bc35c4787"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -833,7 +833,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_qa.py",
-      "sha256": "1419c196d52dad15bcf4d8e98e325e8d68f5d1435f3dc64c76e8fb82aa47c217"
+      "sha256": "cfea8bf48b161ed1771e5664b985257b2c313e4262acb5191ebcdeba7f550252"
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_register.py",
@@ -3913,11 +3913,11 @@
     },
     {
       "path": "tools/combat_unit_compiler.py",
-      "sha256": "b799247e7d84acd9865d38bba58773d9c112b2f3e47c9bd9fb4976c605cd209d"
+      "sha256": "305d2631b51e507c5e56bd59aaf239f17618993985c4481bc81b4a093a60a5b7"
     },
     {
       "path": "tools/combat_unit_direction_gate.py",
-      "sha256": "3da3f5f4b3d00ff670e7713005042d13dbccd55388011ad763c82547fae741f2"
+      "sha256": "06aded4b6f11d1bf69b52b28046a7af2aa924399b73a5953d0e0f548a281b4f3"
     },
     {
       "path": "tools/common_sense_causality_gate.py",
@@ -5117,7 +5117,7 @@
     },
     {
       "path": "tools/global_space_layout_gate.py",
-      "sha256": "2f78798573d07ed20854a461d0eac3d3c598f20c19c6e974d1956a650549030a"
+      "sha256": "b02cbd01d7d143b603c3a0d204a18bc5e9e6ce9043e5ad1371617840b2bda499"
     },
     {
       "path": "tools/grand_cinematic_prompt_compiler.py",
@@ -5177,7 +5177,7 @@
     },
     {
       "path": "tools/h3_provider_prompt_renderer.py",
-      "sha256": "bc0d538d4bb13615cae21ab0c1d12dc4dfbf7d97cf672fefa1b7dd99316bf61e"
+      "sha256": "d1e99ad13336871cf9e9734eba5d531b8e8f4ff89eee22cf03702946bad122ee"
     },
     {
       "path": "tools/harvest_e28_video_batch_v3.py",
@@ -7377,11 +7377,11 @@
     },
     {
       "path": "tools/tests/test_combat_unit_compiler.py",
-      "sha256": "111c6018bfecefb8caf5c9b5754eba2938e8c19bb358cab5e4a8cc799ec05818"
+      "sha256": "24ba96d8a7bce658b0b2e0d6bab57486aa0cf6544e87bdce0b602163a1c1f94e"
     },
     {
       "path": "tools/tests/test_combat_unit_direction_gate.py",
-      "sha256": "43e8184c5274891aedf594864d0a18a1a7566fbc12e7a10bb1cee2e8c2e5cdb9"
+      "sha256": "b0bb72d8f0dd081065b31ffbe39a36b74812679dbaac4a8fc3981546dc859abd"
     },
     {
       "path": "tools/tests/test_common_sense_causality_gate.py",
@@ -7941,7 +7941,7 @@
     },
     {
       "path": "tools/tests/test_h3_prompt_rune_elisions.py",
-      "sha256": "9f4969bccb3af1e8defcbb0d70a36aa34eeea9a225edcfbd26ebc59a2d16415e"
+      "sha256": "c97278247592d3f18ee0e049289af4e371cf1b5000fcfdd17ae4a1d7bd106518"
     },
     {
       "path": "tools/tests/test_h3_prop_reference_cards.py",
