@@ -198,8 +198,11 @@ def scripted_update(cp: Any, pin: str) -> tuple[bool, dict, dict]:
         return False, {"error": "NO_PIN", "self_update": su_out[-300:]}, {}
     before = _engine_sha(engine)
     tmp = Path(tempfile.mkdtemp(prefix="nalu_setup_"))
-    setup = tmp / "setup_host.sh"
-    shutil.copy2(scripts / "setup_host.sh", setup)  # the checkout below may replace the running file
+    # the checkout below may replace the running file, so setup runs from a copy -- of the whole scripts
+    # directory: setup_host.sh finds configure_codex.py & co. next to itself, and a lone copy failed every
+    # fleet update at codex_install / codex_config (…1324, …1037, …0899 2026-11-10)
+    shutil.copytree(scripts, tmp / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
+    setup = tmp / "scripts" / "setup_host.sh"
     st_rc, st_out = _run(["bash", str(setup), "--pin", pin], 1800)
     shutil.rmtree(tmp, ignore_errors=True)
     after = _engine_sha(engine)

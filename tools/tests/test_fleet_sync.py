@@ -40,6 +40,7 @@ class FleetSyncTest(unittest.TestCase):
         def fake_run(argv, timeout):
             calls.append(Path(argv[1]).name)
             if Path(argv[1]).name == "setup_host.sh":
+                self.assertTrue((Path(argv[1]).parent / "configure_codex.py").is_file())  # siblings copied too
                 self.assertEqual(argv[-1], new_pin)
                 sha[0] = new_pin
             return 0, "NALU_SETUP: {}"
