@@ -989,7 +989,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/fleet_sync.py",
-      "sha256": "3ae64b022900637aa85d94090cbacb23728083dbc36ae3572fb3ff26f620f33d"
+      "sha256": "2b6a06d1028dc02de40767c1b63c0070828e721a8a4c689baf5aacc7611ed952"
     },
     {
       "path": "skills/nalu-claude-code/scripts/list_voices.sh",
@@ -7809,7 +7809,7 @@
     },
     {
       "path": "tools/tests/test_fleet_sync.py",
-      "sha256": "d8225a78c50cc313033638829b9ed0bdab9c02888fa6f5aac0aa8c794f07de95"
+      "sha256": "733e7805b670e21458d27b7ad643d3cc5506f902ebe7061ac40e843616e5bc09"
     },
     {
       "path": "tools/tests/test_frame_cadence_audit.py",

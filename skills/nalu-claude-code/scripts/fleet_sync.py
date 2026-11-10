@@ -151,6 +151,14 @@ def disk_pin() -> str:
             m = PIN_RE.search(text)
             if m and "nalu" in text.lower():
                 found.append((path.stat().st_mtime, m.group(1)))
+    try:  # the latest pin the maintainer pushed through the fleet (agents not talenthub-installed never get a
+        # newer AGENTS.md, so the next episode's update would set up the old engine again)
+        fleet_pin = home / ".nalu_fleet_pin"
+        value = fleet_pin.read_text(encoding="utf-8").strip()
+        if re.fullmatch(r"[0-9a-f]{40}", value):
+            found.append((fleet_pin.stat().st_mtime, value))
+    except OSError:
+        pass
     return max(found)[1] if found else ""
 
 
@@ -199,6 +207,11 @@ def scripted_update(cp: Any, pin: str) -> tuple[bool, dict, dict]:
     engine, _ = cp.roots()
     scripts = Path(__file__).resolve().parent
     su_rc, su_out = _run(["bash", str(scripts / "self_update.sh"), "--agent-id", AGENT_ID], 600)
+    if re.fullmatch(r"[0-9a-f]{40}", pin or ""):
+        try:
+            (Path.home() / ".nalu_fleet_pin").write_text(pin + "\n", encoding="utf-8")
+        except OSError:
+            pass
     pin = pin or disk_pin()
     if not re.fullmatch(r"[0-9a-f]{40}", pin or ""):
         return False, {"error": "NO_PIN", "self_update": su_out[-300:]}, {}
