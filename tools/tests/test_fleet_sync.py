@@ -92,6 +92,24 @@ class FleetSyncTest(unittest.TestCase):
         finally:
             fleet_sync._run = saved
 
+    def test_fleet_pin_is_remembered_for_the_next_episode(self):
+        import os
+        with tempfile.TemporaryDirectory() as d:
+            saved_home, saved = os.environ.get("HOME"), (fleet_sync._run, fleet_sync._engine_sha)
+            os.environ["HOME"] = d
+            fleet_sync._run, fleet_sync._engine_sha = (lambda argv, timeout, extra_env=None: (0, "")), (lambda e: "a" * 40)
+            try:
+                ws = Path(d) / ".openclaw" / "w"
+                ws.mkdir(parents=True)
+                (ws / "AGENTS.md").write_text('nalu bash "$S/setup_host.sh" --pin ' + "c" * 40 + "\n")
+                cp = self.cp(Path(d), [])
+                cp.status = lambda ep: {"status": "RUNNING", "codex": {}}
+                fleet_sync.run_command(cp, {"type": "update", "payload": {"pin": "e" * 40}})
+                self.assertEqual(fleet_sync.disk_pin(), "e" * 40)  # newer than the stale AGENTS.md pin
+            finally:
+                os.environ["HOME"] = saved_home
+                fleet_sync._run, fleet_sync._engine_sha = saved
+
     def test_disk_pin_reads_the_installed_agents_md(self):
         import os
         with tempfile.TemporaryDirectory() as d:
