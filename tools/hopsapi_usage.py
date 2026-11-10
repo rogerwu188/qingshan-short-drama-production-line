@@ -323,7 +323,14 @@ def reconcile_kind(episode: str, kind: str, *, tasks_root: Path, now: datetime |
     rows = [r for r in listing["rows"] if str(r.get("kind") or "media") == "media"
             and str(r.get("model") or model) == model and str(r.get("request_id") or "")]
     bound = bound_task_ids(tasks_root)
-    unattributed = sorted((r for r in rows if str(r["request_id"]) not in bound),
+    # a row billed before the earliest lost POST's intent cannot be any of them (adopt() refuses it too); with
+    # one key shared by the whole fleet it is another device's task.  Field device …0899 E01: one foreign row
+    # 33 s before the lost intent held the episode at NEEDS_MANUAL_ATTRIBUTION with nothing to attribute.
+    earliest_intent = min(intents)
+    candidates = [r for r in rows if str(r["request_id"]) not in bound]
+    pre_intent_foreign = [r for r in candidates
+                          if (parse_utc(r.get("created_at")) or earliest_intent) < earliest_intent]
+    unattributed = sorted((r for r in candidates if r not in pre_intent_foreign),
                           key=lambda r: str(r.get("created_at") or ""))
     own_attempts = {row.get("attempt_id") for row in group}
     overlapping_other_lost = [
@@ -348,9 +355,11 @@ def reconcile_kind(episode: str, kind: str, *, tasks_root: Path, now: datetime |
         "unattributed_task_ids": [str(r["request_id"]) for r in unattributed],
         "unattributed_rows": [{k: r.get(k) for k in ("request_id", "model", "charge", "status", "created_at")}
                               | {"key_id": (r.get("key") or {}).get("id")} for r in unattributed],
+        "pre_intent_foreign_task_ids": [str(r["request_id"]) for r in pre_intent_foreign],
         "bound_task_id_count": len(bound), "lost_transaction_count": len(group),
         "overlapping_other_lost": overlapping_other_lost, "dry_run": dry_run,
-        "rule": ("no unattributed billed row -> VERIFIED_ZERO_NO_REMOTE_TASK; exactly one lost POST and one "
+        "rule": ("rows billed before the earliest lost intent are foreign and ignored; "
+                 "no unattributed billed row -> VERIFIED_ZERO_NO_REMOTE_TASK; exactly one lost POST and one "
                  "unattributed row billed after its intent -> adopt; otherwise NEEDS_MANUAL_ATTRIBUTION"),
     }
     results = []
