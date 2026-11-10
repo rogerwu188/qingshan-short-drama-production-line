@@ -165,11 +165,21 @@ class ReconcileTest(unittest.TestCase):
         self.assertEqual(report_rows[0]["task_id"], OTHER)
         self.assertEqual(report_rows[0]["provider"], "hopsapi")
 
-    def test_row_billed_before_intent_is_not_adopted(self):
+    def test_row_billed_before_intent_is_foreign_not_adopted_and_does_not_block(self):
+        # …0899 E01 (one HopsAPI key shared by the fleet): a row billed before the lost intent is another
+        # device's task -- never adopted, and it no longer holds the episode at NEEDS_MANUAL_ATTRIBUTION
         path = self.lost("E11-VU-008", 30)
         report = self.run_reconcile(FakeUsage(rows=[row(OTHER, 40)]))
-        self.assertEqual(report["kinds"]["video"]["status"], usage.MANUAL_STATE)
-        self.assertEqual(self.load(path)["unattributed_task_ids"], [OTHER])
+        self.assertEqual(report["kinds"]["video"]["status"], usage.VERIFIED_ZERO_STATE)
+        data = self.load(path)
+        self.assertEqual(data["state"], usage.VERIFIED_ZERO_STATE)
+        self.assertNotIn("task_id", data)
+
+    def test_post_intent_row_still_decides_next_to_a_pre_intent_foreign_row(self):
+        path = self.lost("E11-VU-008", 30)
+        report = self.run_reconcile(FakeUsage(rows=[row(OTHER, 40), row(SIB, 20)]))
+        self.assertEqual(report["kinds"]["video"]["status"], usage.BOUND_STATE)
+        self.assertEqual(self.load(path)["task_id"], SIB)
 
     def test_ambiguous_rows_need_manual_attribution_and_stay_unresolved(self):
         a = self.lost("E11-VU-008", 44)

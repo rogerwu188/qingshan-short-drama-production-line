@@ -592,11 +592,21 @@ class Expectations:
         requires (``p0_questions_must_be_closed_and_contract_derived``).
         """
         terms: list[str] = []
-        try:
-            gate = engine_module("anachronism_lock_gate")
-            terms.extend(str(value) for value in getattr(gate, "FORBIDDEN_VISIBLE_TERMS", ()))
-        except Exception:  # noqa: BLE001 — a missing engine module is reported, not fatal
-            pass
+        vcc = (self.contract or {}).get("visual_culture_contract")
+        authored_world = isinstance(vcc, dict) and str(vcc.get("era_lock") or "").strip().upper() == "AUTHORED_WORLD"
+        if authored_world:
+            # an AUTHORED_WORLD contract carries its own world (modern city, Victorian London, ...): the engine's
+            # period set (phones, cars, zippers ...) belongs to the qingshan Northern-Song profile and never applies,
+            # exactly as for the prompt renderers.  Field device …1037 E01 (modern urban drama): the source's phone
+            # call and car ride failed Q1 as "forbidden_visible_element:手机".  The contract's own
+            # forbidden_influences replace it.
+            terms.extend(str(value) for value in vcc.get("forbidden_influences") or [] if str(value).strip())
+        else:
+            try:
+                gate = engine_module("anachronism_lock_gate")
+                terms.extend(str(value) for value in getattr(gate, "FORBIDDEN_VISIBLE_TERMS", ()))
+            except Exception:  # noqa: BLE001 — a missing engine module is reported, not fatal
+                pass
         for shot in self.shots.values():
             for value in (shot.get("prompt_spec") or {}).get("negative_prompts") or []:
                 if str(value) not in terms:

@@ -789,7 +789,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_qa_common.py",
-      "sha256": "136e9fd06d3a5a288751ca079450691e96463a4e38912e53177b68879153c92c"
+      "sha256": "89d585d30a4c1e283be6878427a082823f7a0d4286c26da59486f2ab52c14eb3"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_selective_bgm.py",
@@ -5273,7 +5273,7 @@
     },
     {
       "path": "tools/hopsapi_usage.py",
-      "sha256": "ed893524a2c9ad48981ed44d0061336034ba9eb21453996cba64d9decc0860b6"
+      "sha256": "7a9b6bb12299ba5767c87b5e718784ce7cb305e727420440c075b96769d1c772"
     },
     {
       "path": "tools/hopsapi_video_client.py",
@@ -7993,7 +7993,7 @@
     },
     {
       "path": "tools/tests/test_hopsapi_usage_reconcile.py",
-      "sha256": "e7b1232e2cb1388c947bb5e6c6c511e5006b7f9cbd652162873d08fae1fbe076"
+      "sha256": "091dee641c0da9d8c2bbbb9b4e4e94c533a7c3b0bb0bb10e2da79af97c904946"
     },
     {
       "path": "tools/tests/test_hopsapi_video_transport.py",
