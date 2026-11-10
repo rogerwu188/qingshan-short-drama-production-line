@@ -253,10 +253,15 @@ def subject_sources(unit: dict[str, Any]) -> list[dict[str, Any]]:
             dress = wardrobe.get(cid) or wardrobe.get(str(member.get("character") or "")) or {}
             appearance = (entity.get("appearance_en") or entity.get("english_appearance")
                           or entity.get("appearance") or entity.get("appearance_ch1") or dress.get("appearance_ch1") or "")
+            # a per-shot wardrobe STATE (prompt_spec.wardrobe_state_overrides) replaces the base wardrobe, as the
+            # keyframe compiler already does (build_keyframe_manifest); …1324 E05-S04-26: the keyframe showed the
+            # clean change of clothes while the video prompt still asked for the patched tunic
+            overrides = spec.get("wardrobe_state_overrides") if isinstance(spec.get("wardrobe_state_overrides"), dict) else {}
+            override = overrides.get(cid) or overrides.get(str(member.get("character") or ""))
             rows[cid] = {"entity_id": cid, "kind": "PERSON",
                          "name": str(member.get("character") or entity.get("canonical_name") or ""),
                          "appearance": str(appearance or ""),
-                         "wardrobe": str(dress.get("authored_description") or "")}
+                         "wardrobe": str(override or dress.get("authored_description") or "").strip()}
         for prop in spec.get("props") or []:
             pid = str(prop.get("prop_id") or prop.get("prop") or "")
             if not pid or pid in rows or not is_being_prop(prop):
