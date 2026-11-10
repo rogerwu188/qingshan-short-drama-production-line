@@ -49,7 +49,19 @@ install_system_tick() {
   # carries the fleet channel (report + whitelisted commands); no model is involved.  Idempotent (tagged line).
   command -v crontab >/dev/null || { STEP_system_tick=NO_CRONTAB; return; }
   local log="$RUNTIME/runtime/system_tick.log"
-  local line="*/3 * * * * [ \$(stat -c\%s $log 2>/dev/null || echo 0) -gt 5000000 ] && : > $log; cd $ENGINE && NALU_ENGINE_ROOT=$ENGINE NALU_RUNTIME_ROOT=$RUNTIME NALU_WORK_ROOT=$ENGINE/workflow/nalu PATH=$HOME/.local/bin:$HOME/.npm-global/bin:/usr/local/bin:/usr/bin:/bin python3 skills/nalu-claude-code/scripts/codex_production.py tick --system >> $log 2>&1 # nalu-system-tick"
+  # codex is a node script installed wherever this host's npm lives (nvm, ~/.npm-global, /usr/local ...): remember
+  # the directories of codex + node while the agent's full PATH is visible, so the cron (bare PATH) finds them too.
+  # Field devices …1037 / …0899 2026-11-10: fleet resume from the cron failed CODEX_NOT_INSTALLED.
+  local tool_dirs="" exe
+  for exe in codex node; do
+    command -v "$exe" >/dev/null 2>&1 && tool_dirs="$tool_dirs:$(dirname "$(command -v "$exe")")"
+  done
+  if [ -n "$tool_dirs" ]; then
+    printf '%s\n' "${tool_dirs#:}" > "$HOME/.nalu_tool_path"
+  elif [ -f "$HOME/.nalu_tool_path" ]; then
+    tool_dirs=":$(head -1 "$HOME/.nalu_tool_path")"
+  fi
+  local line="*/3 * * * * [ \$(stat -c\%s $log 2>/dev/null || echo 0) -gt 5000000 ] && : > $log; cd $ENGINE && NALU_ENGINE_ROOT=$ENGINE NALU_RUNTIME_ROOT=$RUNTIME NALU_WORK_ROOT=$ENGINE/workflow/nalu PATH=$HOME/.local/bin:$HOME/.npm-global/bin${tool_dirs}:/usr/local/bin:/usr/bin:/bin python3 skills/nalu-claude-code/scripts/codex_production.py tick --system >> $log 2>&1 # nalu-system-tick"
   mkdir -p "$RUNTIME/runtime"
   if (crontab -l 2>/dev/null | grep -v 'nalu-system-tick'; printf '%s\n' "$line") | crontab - 2>/dev/null; then
     STEP_system_tick=OK

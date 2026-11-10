@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import os
 import subprocess
 import sys
@@ -140,6 +141,26 @@ class CodexExecutorTests(unittest.TestCase):
         self.assertIn("E04_DISPATCH.md", text)
         self.assertIn("E05_DISPATCH.md", text)
         self.assertEqual(self.cp.next_episode_id("E09"), "E10")
+
+    def test_fleet_agent_task_goes_to_the_agent_heartbeat_once(self):
+        self.write_provider()
+        task = self.runtime / "series/FLEET_AGENT_TASK.json"
+        task.parent.mkdir(parents=True, exist_ok=True)
+        task.write_text(json.dumps({"message": "检查心跳模型", "delivered": False}), encoding="utf-8")
+        self.assertNotEqual(self.cp.tick(system=True).get("reason"), "FLEET_AGENT_TASK")  # cron never consumes it
+        t = self.cp.tick()
+        self.assertEqual((t["action"], t["reason"], t["fleet_agent_task"]), ("AGENT", "FLEET_AGENT_TASK", "检查心跳模型"))
+        self.assertNotEqual(self.cp.tick().get("reason"), "FLEET_AGENT_TASK")
+
+    def test_cron_finds_codex_through_recorded_tool_dirs(self):
+        # …1037 / …0899: the system cron's bare PATH could not find codex (CODEX_NOT_INSTALLED)
+        self.write_provider()
+        self.cp.tick()  # the heartbeat (full PATH, fake codex on it) records where codex lives
+        recorded = (self.home / ".nalu_tool_path").read_text(encoding="utf-8").strip()
+        self.assertTrue(recorded)
+        os.environ["PATH"] = "/usr/bin:/bin"
+        self.assertIn(recorded.split(":")[0], self.cp.codex_env()["PATH"].split(":"))
+        self.assertIsNotNone(shutil.which("codex", path=self.cp.codex_env()["PATH"]))
 
     def test_series_done_is_quiet(self):
         self.write_provider()

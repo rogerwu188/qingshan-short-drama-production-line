@@ -70,6 +70,28 @@ class FleetSyncTest(unittest.TestCase):
         self.assertEqual((diag["setup_status"], diag["setup_failed_step"]), ("BLOCKED", "codex_config"))
         self.assertIn("configure_codex", diag["setup_log_tail"][0])
 
+    def test_diagnose_and_agent_task_are_scripted(self):
+        import json
+        saved = fleet_sync._run
+        fleet_sync._run = lambda argv, timeout, extra_env=None: (0, json.dumps({"jobs": [
+            {"id": "hb1", "name": "NALU 生产心跳", "enabled": True, "payload": {"model": "storyclaw/claude-haiku-5-5"},
+             "state": {"lastStatus": "ok"}}]}) if argv[:2] == ["openclaw", "cron"] and "list" in argv else "ok")
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                cp = self.cp(Path(d), [])
+                ok, res, _ = fleet_sync.run_command(cp, {"type": "diagnose"})
+                self.assertTrue(ok)
+                self.assertEqual(res["cron_jobs"][0]["model"], "storyclaw/claude-haiku-5-5")
+                self.assertIn("giggle_voice_catalog", res)
+                ok, res, _ = fleet_sync.run_command(cp, {"type": "agent_task", "payload": {"message": "重写 Giggle key"}})
+                self.assertTrue(ok)
+                self.assertEqual(res["heartbeat_kick"]["job"], "NALU 生产心跳")
+                task = json.loads((Path(d) / "series" / "FLEET_AGENT_TASK.json").read_text(encoding="utf-8"))
+                self.assertIn("重写 Giggle key", task["message"])
+                self.assertFalse(fleet_sync.run_command(cp, {"type": "agent_task", "payload": {}})[0])
+        finally:
+            fleet_sync._run = saved
+
     def test_disk_pin_reads_the_installed_agents_md(self):
         import os
         with tempfile.TemporaryDirectory() as d:
