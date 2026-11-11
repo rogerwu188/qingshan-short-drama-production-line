@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2413,
+  "file_count": 2414,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -673,7 +673,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "20cb0f42077733812677d15a65002528c3a37493168d68c044c6f003e8affdc1"
+      "sha256": "d440ef69dbf8897e0863c08a136ee7061180340bd8c176ff0b86e5b231be4850"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -7062,6 +7062,10 @@
     {
       "path": "tools/tests/test_apply_runtime_fixups_language.py",
       "sha256": "bebdfdb22518b0d97839ef01eaf75243b1cfb236cbd2f8bae09faa6d17d83dda"
+    },
+    {
+      "path": "tools/tests/test_are_hard_continuation_media.py",
+      "sha256": "9657905fc14dc391ad2f3e8860e414fa915f96e1999bc757f585eb2d65eb214b"
     },
     {
       "path": "tools/tests/test_assembly_audio_continuity.py",

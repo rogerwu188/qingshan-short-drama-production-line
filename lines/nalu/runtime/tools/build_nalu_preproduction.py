@@ -1668,8 +1668,26 @@ def q2_redo_prompt_findings(out_dir: Path, episode: str, contract: dict[str, Any
     return out
 
 
+def _tail_start_frame(unit: dict[str, Any], tails_dir: Path | None) -> Path | None:
+    """A hard-continuation unit's start frame: the previous unit's real final frame, when it exists on disk
+    (the wave unit's previous_unit_final_frame, else <tails_dir>/<prev>.png from a "<prev>:REAL_FINAL_FRAME"
+    reference key).  Fleet device …1101 E04 S6: the full plan carried no path for VU-012/020/023, so the
+    action-role review read null media although the tails were already extracted."""
+    row = unit.get("previous_unit_final_frame") or {}
+    if row.get("path") and Path(str(row["path"])).is_file():
+        return Path(str(row["path"]))
+    if tails_dir is None:
+        return None
+    for key in unit.get("reference_image_task_keys") or []:
+        prev, _, kind = str(key).partition(":")
+        if kind == "REAL_FINAL_FRAME" and (tails_dir / f"{prev}.png").is_file():
+            return tails_dir / f"{prev}.png"
+    return None
+
+
 def build_start_frame_contracts(anchor_plan: dict[str, Any], editorial: dict[str, Any],
-                                root: Path, grouping: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+                                root: Path, grouping: dict[str, Any] | None = None,
+                                tails_dir: Path | None = None) -> list[dict[str, Any]]:
     by_shot = {str(row["shot_id"]): row for row in editorial["shots"]}
     grouping_first = {str(u.get("unit_id")): str((u.get("editorial_shot_ids") or [""])[0])
                       for u in (grouping or {}).get("units") or []}
@@ -1689,6 +1707,10 @@ def build_start_frame_contracts(anchor_plan: dict[str, Any], editorial: dict[str
         reference_value = str((unit.get("reference_image_paths") or [""])[0])
         reference_path = Path(reference_value) if reference_value else None
         exists = bool(reference_path and reference_path.is_file())
+        if not exists:
+            tail = _tail_start_frame(unit, tails_dir)
+            if tail is not None:
+                reference_path, reference_value, exists = tail, str(tail), True
         required_characters = sorted({row["character"] for row in spec.get("cast") or []
                                       if row.get("face_visibility") != "OFFSCREEN_VOICE_ONLY"})
         required_props = sorted({row["prop"] for row in spec.get("props") or []})
@@ -2176,7 +2198,9 @@ def main() -> int:
             f"{Path(value).name}" for unit in anchor_plan["units"]
             for value in unit["reference_image_paths"] if value and value.endswith(".png")})
 
-        start_frames = build_start_frame_contracts(anchor_plan, editorial, root, grouping_x)
+        start_frames = build_start_frame_contracts(
+            anchor_plan, editorial, root, grouping_x,
+            Path(args.real_final_frames).expanduser().resolve() if args.real_final_frames else None)
         by_unit = {row["unit_id"]: row for row in start_frames}
         for unit in anchor_plan["units"]:
             unit["start_frame_semantic_contract"] = by_unit[unit["unit_id"]]
