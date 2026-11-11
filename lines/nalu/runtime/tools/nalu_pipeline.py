@@ -6174,6 +6174,19 @@ def stage_s6(ctx: Ctx) -> StageResult:
 ACTION_ROLE_EVIDENCE = RT_TOOLS / "action_role_evidence_writer.py"
 
 
+def are_units_without_start_frame_media(ctx: Ctx, units: list[str]) -> list[str]:
+    """Units (of ``units``) whose start-frame semantic contract binds no image that exists on disk."""
+    anchors = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_ANCHOR_PLAN_V1.json", {}) or {}
+    contracts = {str(row.get("unit_id")): (row.get("start_frame_semantic_contract") or {})
+                 for row in anchors.get("units") or []}
+    out = []
+    for uid in units:
+        ref = (contracts.get(uid) or {}).get("reference_path")
+        if uid in contracts and not (ref and Path(str(ref)).is_file()):
+            out.append(uid)
+    return sorted(set(out))
+
+
 def s6_action_role_evidence(ctx: Ctx, res: StageResult, units: list[str] | None) -> dict[str, Any]:
     """S6.are — exact-output action-role verification of every start frame in scope.
 
@@ -6210,6 +6223,17 @@ def s6_action_role_evidence(ctx: Ctx, res: StageResult, units: list[str] | None)
         detail["reason"] = ("no start-frame keyframe exists yet (S5 has not produced them), "
                             "so the action-role review has no media to look at.  No review is "
                             "requested for media that does not exist.")
+        return detail
+    # A tail-sourced unit (CONTINUITY_DERIVED_KEYFRAME / PREVIOUS_UNIT_REAL_FINAL_FRAME) only has a start
+    # frame once its predecessor's real tail is extracted AND the S6 rebuild bound that path into the start-
+    # frame contract; until then a request would carry media null (E04 VU-012/020/023, fleet device 1101).
+    no_media = are_units_without_start_frame_media(ctx, needing)
+    if no_media:
+        detail["status"] = BLOCKED
+        detail["blockers"] = ["ARE_START_FRAME_MEDIA_NOT_BOUND:" + ",".join(no_media)]
+        detail["units_without_media"] = no_media
+        detail["reason"] = ("the start-frame contract binds no existing image for these units yet; "
+                            "no review is requested for media that does not exist")
         return detail
     review_path, review = latest_submitted_review(ctx, "action_role")
     covered = {row.get("item_id") for row in (review.get("items") or [])} if review_path else set()
@@ -6804,6 +6828,15 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
     # 6.0 action-role evidence for every start frame in scope (fail closed, reviewer-only)
     res = StageResult(PASS)
     are = s6_action_role_evidence(ctx, res, ready_units)
+    if any(str(b).startswith("ARE_START_FRAME_MEDIA_NOT_BOUND:") for b in are.get("blockers") or []):
+        # the anchor plan predates the predecessor's tail: rebuild (offline, free) so the start-frame
+        # contract binds the real tail, then ask again; still unbound -> fail closed, no null-media request
+        ctx.say("-- S6.are: start frame not bound yet for " + ",".join(are.get("units_without_media") or [])
+                + "; rebuilding the start-frame contracts first")
+        pre = stage_s2(ctx, with_keyframes=True, ready_units=ready_units)
+        res.steps.extend(pre.steps)
+        are = s6_action_role_evidence(ctx, res, ready_units)
+        are["rebuilt_before_review"] = pre.status
     res.details = {"action_role_evidence": are}
     if are.get("status") != PASS:
         # request_review sets res.status itself; a non-review refusal (e.g. the start

@@ -1669,11 +1669,19 @@ def q2_redo_prompt_findings(out_dir: Path, episode: str, contract: dict[str, Any
 
 
 def build_start_frame_contracts(anchor_plan: dict[str, Any], editorial: dict[str, Any],
-                                root: Path) -> list[dict[str, Any]]:
+                                root: Path, grouping: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     by_shot = {str(row["shot_id"]): row for row in editorial["shots"]}
+    grouping_first = {str(u.get("unit_id")): str((u.get("editorial_shot_ids") or [""])[0])
+                      for u in (grouping or {}).get("units") or []}
     rows: list[dict[str, Any]] = []
     for unit in anchor_plan.get("units") or []:
-        shot_id = str(unit["reference_image_task_keys"][0]).split(":")[0]
+        # a hard-continuation unit's first key names the PREVIOUS unit's real tail
+        # ("E04-VU-011:REAL_FINAL_FRAME"), not a shot: the first shot is the first key that is an
+        # editorial shot, else the grouping plan's first shot; never the episode's first shot
+        # (E04 VU-012/020/023 bound to S01-01's entry state, fleet device 1101, 2026-11-11)
+        keys = [str(k).split(":")[0] for k in unit.get("reference_image_task_keys") or []]
+        shot_id = next((k for k in keys if k in by_shot), "") or grouping_first.get(str(unit.get("unit_id")), "") \
+            or (keys[0] if keys else "")
         first_shot = by_shot.get(str((unit.get("editorial_shot_ids") or [shot_id])[0])) or by_shot.get(shot_id)
         if first_shot is None:
             first_shot = by_shot[sorted(by_shot)[0]]
@@ -2168,7 +2176,7 @@ def main() -> int:
             f"{Path(value).name}" for unit in anchor_plan["units"]
             for value in unit["reference_image_paths"] if value and value.endswith(".png")})
 
-        start_frames = build_start_frame_contracts(anchor_plan, editorial, root)
+        start_frames = build_start_frame_contracts(anchor_plan, editorial, root, grouping_x)
         by_unit = {row["unit_id"]: row for row in start_frames}
         for unit in anchor_plan["units"]:
             unit["start_frame_semantic_contract"] = by_unit[unit["unit_id"]]

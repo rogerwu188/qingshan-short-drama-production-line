@@ -779,7 +779,14 @@ class Expectations:
         role_semantic_disambiguation of that shot; nothing is read from the image."""
         rows: list[dict[str, Any]] = []
         name_to_id = self.character_name_to_id()
+        # a tail-sourced start frame has no image until the previous unit's real tail is extracted and
+        # the S6 rebuild binds it; no reviewer is asked about media that does not exist (E04 1101)
+        self.action_role_items_skipped_media_missing = []
         for unit_id, contract in sorted(self.start_frame_units.items()):
+            ref = contract.get("reference_path")
+            if not (ref and Path(str(ref)).is_file()):
+                self.action_role_items_skipped_media_missing.append(unit_id)
+                continue
             derived = contract.get("derived_from") or {}
             shot_id = str(derived.get("shot_id") or self._unit_first_shot_id(self.units.get(unit_id) or {}))
             shot = self.shots.get(shot_id) or {}
