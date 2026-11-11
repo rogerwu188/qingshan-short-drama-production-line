@@ -518,7 +518,8 @@ def next_episode_id(episode: str) -> str:
 
 NEXT_EPISODE_BRIEF = """本集由引擎在上一集出片后自动接续（线主 + 老板 2026-11-10：下一集的派单与叙事正典交给你写，不再由编排代理写）。先写派单，再生产：
 1. 读上一集派单 `{prev}`，以及上一集 {ep} 的叙事正典与剧本层的结尾、`{status}` 最近几条。
-2. 按上一集派单的条款写 `{brief}`：`order_text` 里的集号与上限改成 {nxt}，章节范围从上一集结束处接上；剧名、风格、单集时长
+2. 按上一集派单的条款写 `{brief}`：`order_text` 里的集号与上限改成 {nxt}，章节范围从上一集结束处接上；生产简报里的
+   `episode_display_number`（片头片尾与 X2C 发行用的「本剧第几集」）必须是 **{display}**，不得沿用上一集的值；剧名、风格、单集时长
    （`target_seconds`）、X2C 分类与简介、语言、预算上限等其它条款逐字沿用，不自行改动。
 3. 原著已经改编完，或已达到线主在派单里指定的总集数：不生产，写 `{done}`（一行说明），在 `{status}` 记一行「SERIES_DONE」，
    最后一行输出 `NALU_STATUS: {{"episode":"{nxt}","state":"SERIES_DONE"}}`。
@@ -547,7 +548,14 @@ def start_next_episode(episode: str) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 -- an update failure must not stop the line; the old engine keeps working
         update = {"error": f"{type(exc).__name__}: {exc}"}
     briefs.mkdir(parents=True, exist_ok=True)
-    brief = NEXT_EPISODE_BRIEF.format(
+    # 本剧第几集: the previous brief's display number + 1 (…1284 E04 copied E03's 3 and X2C refused the release as
+    # EPISODE_NUMBER_TAKEN); without a previous number, the EP number
+    prev_brief = read_json(briefs / f"{episode}_PRODUCTION_BRIEF.json")
+    try:
+        display = int(prev_brief.get("episode_display_number")) + 1
+    except (TypeError, ValueError):
+        display = int(re.sub(r"\D", "", nxt) or 0)
+    brief = NEXT_EPISODE_BRIEF.format(display=display,
         prev=prev, ep=episode, nxt=nxt, brief=briefs / f"{nxt}_DISPATCH.md", done=runtime / "series" / "SERIES_DONE",
         status=runtime / "series" / "STATUS.md", skill=engine / "skills" / "nalu-claude-code" / "SKILL.md")
     out = start(nxt, brief)

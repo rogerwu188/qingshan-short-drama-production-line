@@ -122,6 +122,7 @@ class CodexExecutorTests(unittest.TestCase):
         self.write_provider()
         (self.runtime / "briefs").mkdir()
         (self.runtime / "briefs/E04_DISPATCH.md").write_text("order_text: E04 上限 1500", encoding="utf-8")
+        (self.runtime / "briefs/E04_PRODUCTION_BRIEF.json").write_text('{"episode_display_number": 3}', encoding="utf-8")
         self.run_episode('完成。\nNALU_STATUS: {"episode":"E04","state":"FINAL_CUT_READY"}', "E04")
         import fleet_sync
         calls = []
@@ -140,6 +141,7 @@ class CodexExecutorTests(unittest.TestCase):
         text = "".join(x.read_text(encoding="utf-8") for x in prompt.glob("*prompt*"))
         self.assertIn("E04_DISPATCH.md", text)
         self.assertIn("E05_DISPATCH.md", text)
+        self.assertIn("必须是 **4**", text)  # previous display number + 1, never copied
         self.assertEqual(self.cp.next_episode_id("E09"), "E10")
 
     def test_fleet_agent_task_goes_to_the_agent_heartbeat_once(self):
