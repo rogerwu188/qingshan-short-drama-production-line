@@ -174,6 +174,20 @@ class CodexExecutorTests(unittest.TestCase):
             self.cp.resume = saved
         self.assertEqual((t["action"], t["reason"]), ("AGENT", "RESUME_FAILED:CODEX_NOT_INSTALLED"))
 
+    def test_newest_node_goes_first(self):
+        # …1101: /usr/bin (node v12) ahead of nvm's v22 -> codex.js:2 SyntaxError under the cron
+        self.write_provider()
+        old, new = Path(self.tmp.name) / "old", Path(self.tmp.name) / "new"
+        for d, v in ((old, "v12.22.9"), (new, "v99.0.0")):
+            d.mkdir()
+            (d / "node").write_text(f"#!/bin/sh\necho {v}\n")
+            (d / "node").chmod(0o755)
+        (self.home / ".nalu_tool_path").write_text(f"{old}:{new}\n", encoding="utf-8")
+        self.assertEqual(self.cp.newest_node_dir([str(old), str(new)]), str(new))
+        os.environ["PATH"] = f"{old}:{os.environ['PATH']}"
+        self.assertEqual(self.cp.codex_env()["PATH"].split(":")[0], str(new))
+        self.assertTrue(self.cp.codex_exe(self.cp.codex_env()).endswith("codex"))
+
     def test_gateway_path_dirs_never_raises(self):
         self.assertIsInstance(self.cp.gateway_path_dirs(), list)
 

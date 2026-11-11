@@ -174,7 +174,7 @@ REVIEWER_PROMPT_VERSION = "2"
 def launch_reviewer(episode: str) -> dict[str, Any]:
     """Start (at most MAX_REVIEWER_ATTEMPTS times) the independent final-audience reviewer for one episode."""
     env = codex_env()
-    exe = shutil.which("codex", path=(env or os.environ).get("PATH"))
+    exe = codex_exe(env)
     if not exe or env is None:
         return {"status": "BLOCKED", "reason": "CODEX_OR_PROVIDER_MISSING"}
     engine, _ = roots()
@@ -269,8 +269,22 @@ def codex_env() -> dict[str, str] | None:
     env.setdefault("NALU_WORK_ROOT", str(engine / "workflow" / "nalu"))
     env.setdefault("NALU_QA_WORKERS", "1")
     env.setdefault("NALU_Q2_WORKERS", "1")
-    env["PATH"] = ":".join([*tool_dirs(), env.get("PATH", "")])
+    lookup = ":".join([*tool_dirs(), env.get("PATH", "")])
+    # codex is `#!/usr/bin/env node`: the first node on PATH runs it, so the newest node's directory goes first.
+    # …1101: a recorded /usr/bin (node v12) sat ahead of nvm's v22 and every cron resume died at codex.js:2.
+    # The codex executable itself is still resolved in the original order (CODEX_LOOKUP_PATH).
+    best = newest_node_dir(lookup.split(":"))
+    env["PATH"] = ":".join([best, lookup]) if best else lookup
+    env[CODEX_LOOKUP_ENV] = lookup
     return env
+
+
+CODEX_LOOKUP_ENV = "NALU_CODEX_LOOKUP_PATH"
+
+
+def codex_exe(env: dict[str, str] | None) -> str | None:
+    env = env or dict(os.environ)
+    return shutil.which("codex", path=env.get(CODEX_LOOKUP_ENV) or env.get("PATH"))
 
 
 def tool_dirs() -> list[str]:
@@ -286,6 +300,24 @@ def tool_dirs() -> list[str]:
     dirs += sorted((str(p) for p in home.glob(".nvm/versions/node/*/bin")), reverse=True)
     dirs += gateway_path_dirs()
     return list(dict.fromkeys(dirs))
+
+
+def newest_node_dir(candidates: list[str]) -> str:
+    """The directory holding the highest-version `node` among the candidates ("" if none answers)."""
+    best, best_version = "", (0,)
+    for d in dict.fromkeys(c for c in candidates if c):
+        node = Path(d) / "node"
+        if not node.exists():
+            continue
+        try:
+            out = subprocess.run([str(node), "-v"], capture_output=True, text=True, timeout=5).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            continue
+        m = re.match(r"v(\d+)\.(\d+)\.(\d+)", out)
+        version = tuple(int(x) for x in m.groups()) if m else (0,)
+        if version > best_version:
+            best, best_version = d, version
+    return best
 
 
 def gateway_path_dirs() -> list[str]:
@@ -363,7 +395,7 @@ def runner(episode: str, log: str, last: str, argv_json: str) -> int:
 
 def launch(episode: str, prompt: str, resume_id: str | None) -> dict[str, Any]:
     env = codex_env()
-    exe = shutil.which("codex", path=(env or os.environ).get("PATH"))
+    exe = codex_exe(env)
     if not exe:
         return {"status": "BLOCKED", "reason": "CODEX_NOT_INSTALLED"}
     if env is None:

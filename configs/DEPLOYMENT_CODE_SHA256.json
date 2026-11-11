@@ -973,7 +973,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "bb9cb938b676b92e316d27be64896059d5824e34176c732f8047a01e169634a2"
+      "sha256": "0539d10c2475f08718ec63f5a1a81a200196863dc4a16a0a52081adf5f29954a"
     },
     {
       "path": "skills/nalu-claude-code/scripts/configure_claude_code.py",
@@ -989,7 +989,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/fleet_sync.py",
-      "sha256": "2b6a06d1028dc02de40767c1b63c0070828e721a8a4c689baf5aacc7611ed952"
+      "sha256": "6bb3cccb9575d284b93c7ebe10948e6cd9e68d6d049248cbf0e8659e3c4a205b"
     },
     {
       "path": "skills/nalu-claude-code/scripts/list_voices.sh",
@@ -8233,7 +8233,7 @@
     },
     {
       "path": "tools/tests/test_nalu_codex_executor.py",
-      "sha256": "59eef9a60539d1cad0e207734a690bd839133d88edea9621a08871f028fc0dc6"
+      "sha256": "3457434a48e0f87c92ef541794db5dafb188dbded449b304c2f9763791c4ce87"
     },
     {
       "path": "tools/tests/test_nalu_current_policy_profile.py",
