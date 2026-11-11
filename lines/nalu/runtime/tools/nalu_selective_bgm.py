@@ -844,17 +844,38 @@ def _window_isolated_ledger(tx: dict, all_tx: list, statements: list) -> dict:
     stamped = [r for r in statements if r.get("created_at")]
     if not stamped or min(_ts(r) for r in stamped) > start:
         return {"status": "FAIL_STATEMENT_PAGE_TOO_SHORT", "net_charged_credits": None}
-    inside = [r for r in stamped if start <= _ts(r) < end]
-    music = [r for r in inside if r.get("event_description") == "GenerateMusic" and r.get("event_type") in ("Pay", "Refund")]
+    def _music_in(lo, hi):
+        inside = [r for r in stamped if lo <= _ts(r) < hi]
+        music = [r for r in inside if r.get("event_description") == "GenerateMusic" and r.get("event_type") in ("Pay", "Refund")]
+        return inside, music, [r for r in music if r["event_type"] == "Pay"]
+
+    # The fleet shares one Giggle account, so another device's GenerateMusic can be booked while this task
+    # is still generating (E04 2026-11-11: own Pay 12:34:37, foreign Pay 12:35:12, finished 12:36:25).
+    # The Pay row is booked at submit, before the response that binds the task id, so the submit->response
+    # window [intent, task_id_bound_at + 3 s) is tried first; the wider generation window is the fallback.
+    # Both still demand exactly one Pay row (fail closed).
+    isolation = "SUBMIT_WINDOW"
+    inside, music, pays = None, None, None
+    if tx.get("task_id_bound_at"):
+        try:
+            narrow_end = min(end, _iso(tx["task_id_bound_at"]) + _dt.timedelta(seconds=3))
+        except Exception:  # noqa: BLE001
+            narrow_end = None
+        if narrow_end is not None:
+            n_inside, n_music, n_pays = _music_in(start, narrow_end)
+            if len(n_pays) == 1:
+                inside, music, pays, end = n_inside, n_music, n_pays, narrow_end
+                isolation = "SUBMIT_RESPONSE_WINDOW"
+    if pays is None:
+        inside, music, pays = _music_in(start, end)
     other_events = sorted({str(r.get("event_description")) for r in inside if r not in music})
-    pays = [r for r in music if r["event_type"] == "Pay"]
     if len(pays) != 1:
         return {"status": f"FAIL_WINDOW_PAY_ROW_COUNT_{len(pays)}", "statement_rows": music, "net_charged_credits": None}
     paid = sum(abs(float(r["credit"])) for r in pays)
     refunded = sum(abs(float(r["credit"])) for r in music if r["event_type"] == "Refund")
     net = paid - refunded
     status = "PASS_ZERO_REFUNDED" if net == 0 else ("PASS_CHARGED" if net > 0 else "INVALID_NEGATIVE_NET")
-    return {"status": status, "isolation": "SUBMIT_WINDOW", "endpoint": "/api/v1/payment/credit-statements",
+    return {"status": status, "isolation": isolation, "endpoint": "/api/v1/payment/credit-statements",
             "method": "WINDOW_ISOLATED_GENERATE_MUSIC_PAY_MINUS_REFUND", "task_id": tx.get("task_id"),
             "window_utc": [start.strftime("%Y-%m-%dT%H:%M:%SZ"), end.strftime("%Y-%m-%dT%H:%M:%SZ")],
             "paid_credits": paid, "refunded_credits": refunded, "net_charged_credits": net,

@@ -793,7 +793,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_selective_bgm.py",
-      "sha256": "f5c6eb02356b25a76b21ea95284f69d516473145464e7327dd5ee9da15024a2f"
+      "sha256": "4a4e64983c187bc44e1dcb2a881bb1671abf50a24c6e0a08ee3b3a1c17578fcc"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_series_scope.py",
@@ -8353,7 +8353,7 @@
     },
     {
       "path": "tools/tests/test_nalu_selective_bgm_s6.py",
-      "sha256": "3225049a04552f52231c010c97ca7caabf8401e445271751ef5616f89d43b195"
+      "sha256": "d7ec72641724322530831c645986942ca002fb76ff610b8342fa83dbd4ea0008"
     },
     {
       "path": "tools/tests/test_nalu_self_acknowledging_orders.py",
