@@ -3040,6 +3040,24 @@ def render_h3_final_prompts(transaction: dict[str, Any], *, out_dir: Path, root:
             "blocking_check": ";".join(blocking) or None}
 
 
+def semantic_refs_by_shot(refs: list[dict[str, Any]], shot_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """The semantic reference image of each shot: its own keyframe, and for a hard-continuation unit
+    the previous unit's real final frame stands in for the first shot, whose keyframe S5 deferred to
+    that tail.  Fleet device …1101 E04 VU-012/020/023 (2026-11-11): only "<shot>-keyframe" names were
+    matched, so the tail bound nothing and the submitter precheck raised
+    MISSING_ANCHOR_FOR_CANONICAL_ENTITY for the opening shot's character and props."""
+    ref_by_shot: dict[str, dict[str, Any]] = {}
+    for r in refs:
+        m = re.match(r"(E\d+-S\d+-\d+)-keyframe", Path(str(r["path"])).name)
+        if m:
+            ref_by_shot.setdefault(m.group(1), r)
+    if shot_ids and shot_ids[0] not in ref_by_shot:
+        tail = next((r for r in refs if str(r.get("role") or "") == "PREVIOUS_UNIT_REAL_FINAL_FRAME"), None)
+        if tail is not None:
+            ref_by_shot[shot_ids[0]] = tail
+    return ref_by_shot
+
+
 def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, dict[str, Any]],
                          final_rows: dict[str, dict[str, Any]], *, rendered: dict[str, Any],
                          contract: dict[str, Any], out_dir: Path, prefix: str, root: Path,
@@ -3196,12 +3214,7 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
         if empty_unit:
             props = [f"SPACE-{cu.get('scene_id')}"]
         # ---- semantic reference bindings: entity -> the keyframe of the shot it appears in
-        ref_by_shot = {}
-        for r in refs:
-            name = Path(str(r["path"])).name
-            m = re.match(r"(E\d+-S\d+-\d+)-keyframe", name)
-            if m:
-                ref_by_shot.setdefault(m.group(1), r)
+        ref_by_shot = semantic_refs_by_shot(refs, shot_ids)
         bindings, bound = [], set()
         # 2026-10-16 (miniPC 400926 《雨伞缘》 E01 S6): a two-shot keyframe was bound as the
         # CHARACTER_REFERENCE of every face in it, and shot_media_admission_gate rejects one image as
@@ -3285,10 +3298,13 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             # ``bound`` and shot_media_admission_gate raised MISSING_ANCHOR_FOR_CANONICAL_ENTITY.
             # A plate that is already in the array still needs its binding row (binding only, the
             # image is not appended twice).
+            # The anchor plan may already carry the plate as an entity-bound reference (a reference
+            # sheet, not the locked headshot path), so bind the reference that names the character first.
+            present_plates = {str(r.get("entity_id")): Path(str(r["path"])) for r in refs if r.get("entity_id")}
             for cid in plate_order:
                 if cid in bound:
                     continue
-                plate = _locked_identity_plate(cid, episode=episode)
+                plate = present_plates.get(cid) or _locked_identity_plate(cid, episode=episode)
                 if not plate or str(plate) not in task["reference_images"]:
                     continue
                 bindings.append({"entity_id": cid, "role": "CHARACTER_REFERENCE", "path": str(plate),
