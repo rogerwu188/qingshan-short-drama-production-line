@@ -188,6 +188,16 @@ class CodexExecutorTests(unittest.TestCase):
         self.assertEqual(self.cp.codex_env()["PATH"].split(":")[0], str(new))
         self.assertTrue(self.cp.codex_exe(self.cp.codex_env()).endswith("codex"))
 
+    def test_broken_codex_ahead_on_path_is_skipped(self):
+        self.write_provider()
+        broken = Path(self.tmp.name) / "broken"
+        broken.mkdir()
+        (broken / "codex").write_text("#!/bin/sh\necho 'Missing optional dependency' >&2\nexit 1\n")
+        (broken / "codex").chmod(0o755)
+        os.environ["PATH"] = f"{broken}:{os.environ['PATH']}"
+        exe = self.cp.codex_exe(self.cp.codex_env())
+        self.assertNotEqual(Path(exe).parent, broken)
+
     def test_gateway_path_dirs_never_raises(self):
         self.assertIsInstance(self.cp.gateway_path_dirs(), list)
 

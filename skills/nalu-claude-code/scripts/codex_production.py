@@ -283,8 +283,20 @@ CODEX_LOOKUP_ENV = "NALU_CODEX_LOOKUP_PATH"
 
 
 def codex_exe(env: dict[str, str] | None) -> str | None:
+    """The first codex on the lookup path that actually starts (`codex --version` exits 0).  Field device …1101
+    2026-11-11: ~/.npm-global/bin/codex was a broken install ("Missing optional dependency
+    @openai/codex-linux-x64") ahead of the working nvm one, so every cron resume died at once."""
     env = env or dict(os.environ)
-    return shutil.which("codex", path=env.get(CODEX_LOOKUP_ENV) or env.get("PATH"))
+    lookup = env.get(CODEX_LOOKUP_ENV) or env.get("PATH") or ""
+    candidates = [str(Path(d) / "codex") for d in dict.fromkeys(lookup.split(":"))
+                  if d and os.access(Path(d) / "codex", os.X_OK) and not (Path(d) / "codex").is_dir()]
+    for exe in candidates:
+        try:
+            if subprocess.run([exe, "--version"], env=env, capture_output=True, timeout=30).returncode == 0:
+                return exe
+        except (OSError, subprocess.SubprocessError):
+            continue
+    return candidates[0] if candidates else None
 
 
 def tool_dirs() -> list[str]:
