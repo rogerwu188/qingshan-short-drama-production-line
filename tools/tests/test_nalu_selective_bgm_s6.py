@@ -229,6 +229,32 @@ class SelectiveBgmS6Test(unittest.TestCase):
         finally:
             sys.path.remove(str(NALU_TOOLS))
 
+    def test_submit_window_ignores_shared_account_music_booked_after_response(self) -> None:
+        sys.path.insert(0, str(NALU_TOOLS))
+        try:
+            bgm = importlib.import_module("nalu_selective_bgm")
+            tx = {"source_key": "one", "task_id": "task-one",
+                  "intent_recorded_at": "2026-11-11T12:34:34.586442Z",
+                  "task_id_bound_at": "2026-11-11T12:34:37.774344Z",
+                  "finished_at": "2026-11-11T12:36:25.052066Z"}
+            rows = [{"created_at": "2026-11-11 12:30:00", "event_description": "Balance", "event_type": "Info",
+                     "credit": 0},
+                    {"created_at": "2026-11-11 12:34:37", "event_description": "GenerateMusic",
+                     "event_type": "Pay", "credit": -8},
+                    {"created_at": "2026-11-11 12:35:12", "event_description": "GenerateMusic",
+                     "event_type": "Pay", "credit": -8}]
+            report = bgm._window_isolated_ledger(tx, [tx], rows)
+            self.assertEqual(report["status"], "PASS_CHARGED")
+            self.assertEqual(report["net_charged_credits"], 8)
+            self.assertEqual(report["isolation"], "SUBMIT_RESPONSE_WINDOW")
+            # two Pay rows inside the submit->response window still fail closed
+            rows.append({"created_at": "2026-11-11 12:34:36", "event_description": "GenerateMusic",
+                         "event_type": "Pay", "credit": -8})
+            report = bgm._window_isolated_ledger(tx, [tx], rows)
+            self.assertTrue(report["status"].startswith("FAIL_WINDOW_PAY_ROW_COUNT_"))
+        finally:
+            sys.path.remove(str(NALU_TOOLS))
+
     def test_paid_batch_stops_before_second_prompt_after_uncertain_first_result(self) -> None:
         contract = json.loads(self.contract.read_text(encoding="utf-8"))
         contract["audio_contract"]["bgm"]["cues"].append({
