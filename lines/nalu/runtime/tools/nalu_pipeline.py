@@ -4848,7 +4848,7 @@ def apply_derived_start_frame_acceptance(ctx: Ctx, index: dict[str, Any], index_
                            engine_root=ENGINE)
               if orders_path and not ctx.authority_blockers else [])
     issuer = ctx.authority.get("line_owner_id") or ""
-    derived = continuity_derived_units(ctx)
+    derived = tail_sourced_units(ctx)
     accepted: list[dict[str, Any]] = []
     refused: list[dict[str, Any]] = []
     if not orders or not issuer:
@@ -5471,6 +5471,35 @@ def continuity_derived_units(ctx: Ctx) -> dict[str, dict[str, Any]]:
     return out
 
 
+def hard_continuation_units(ctx: Ctx) -> dict[str, dict[str, Any]]:
+    """Units whose opening anchor is PREVIOUS_UNIT_REAL_FINAL_FRAME (hard continuation: same take, the
+    start frame must be the previous unit's real tail).  Same shape as continuity_derived_units."""
+    anchors = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_ANCHOR_PLAN_V1.json", {}) or {}
+    plan = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json", {}) or {}
+    first_shot = {u["unit_id"]: (u.get("editorial_shot_ids") or [None])[0] for u in plan.get("units") or []}
+    out: dict[str, dict[str, Any]] = {}
+    for row in anchors.get("units") or []:
+        oac = row.get("opening_anchor_contract") or {}
+        if str(oac.get("source") or "") != "PREVIOUS_UNIT_REAL_FINAL_FRAME":
+            continue
+        uid = row["unit_id"]; shot = first_shot.get(uid)
+        if not shot:
+            continue
+        out[uid] = {"previous_unit_id": oac.get("previous_unit_id"), "first_shot_id": shot,
+                    "keyframe_path": ctx.p.preprod / "keyframes" / f"{shot}-keyframe-v1.png",
+                    "hard_continuation": True}
+    return out
+
+
+def tail_sourced_units(ctx: Ctx) -> dict[str, dict[str, Any]]:
+    """Every unit whose start frame is the previous unit's real tail (continuity-derived + hard continuation).
+    Both need the tail materialised as the first shot's keyframe and a Q1 admission of that exact image before
+    the unit may join a wave: the video admission gate requires an exact-SHA Q1 admission for the start frame
+    (E04 VU-012/020/023 on device 1101, E06 VU-006 on 1284, 2026-11-11: hard-continuation tails never got a
+    Q1 request, so preflight failed SEMANTIC_ANCHOR_EVIDENCE_INVALID forever)."""
+    return {**hard_continuation_units(ctx), **continuity_derived_units(ctx)}
+
+
 #: CAMERA_GRAMMAR_V1 start-frame source per unit (line owner 2026-10-24, lab Holmes E03), recorded in the
 #: S6 wave state under ``start_frame_source``: TAIL_FRAME (the previous unit's real tail, measured), or
 #: OWN_KEYFRAME_TAIL_REJECTED (the unit starts from its own keyframe, generated through the normal S5
@@ -5637,19 +5666,20 @@ def materialise_derived_keyframes(ctx: Ctx) -> list[dict[str, Any]]:
     tails = ctx.p.preprod / "real_final_frames"
     stamped = _camera_grammar_on(ctx)
     decisions = start_frame_source_decisions(ctx) if stamped else line_owner_start_frame_decisions(ctx)
-    for uid, info in continuity_derived_units(ctx).items():
+    for uid, info in tail_sourced_units(ctx).items():
         dst: Path = info["keyframe_path"]; prev = info["previous_unit_id"]
         src = tails / f"{prev}.png" if prev else None
+        hard = bool(info.get("hard_continuation"))
         if dst.is_file():
             rows.append({"unit_id": uid, "status": "ALREADY_PRESENT", "path": str(dst)}); continue
-        owner = decisions.get(uid) or {}
+        owner = {} if hard else (decisions.get(uid) or {})
         if owner.get("decided_by") == LINE_OWNER_DECISION and owner.get("start_frame_source") == START_FRAME_OWN:
             rows.append({"unit_id": uid, "status": "OWN_KEYFRAME_REQUIRED", "start_frame_source": START_FRAME_OWN,
                          "reason": owner.get("reason"), "decided_by": LINE_OWNER_DECISION, "path": str(dst)}); continue
         if not src or not src.is_file():
             rows.append({"unit_id": uid, "status": "TAIL_NOT_YET_EXTRACTED", "previous_unit_id": prev}); continue
         check: dict[str, Any] | None = None
-        if stamped:
+        if stamped and not hard:
             tail_sha = sha256_file(src)
             prior = decisions.get(uid) or {}
             if prior.get("start_frame_source") == START_FRAME_OWN and (
@@ -5676,7 +5706,8 @@ def materialise_derived_keyframes(ctx: Ctx) -> list[dict[str, Any]]:
         side = {"schema": "nalu.continuity_derived_keyframe.v1", "unit_id": uid, "shot_id": info["first_shot_id"],
                 "source_real_final_frame": str(src), "source_sha256": sha256_file(src), "sha256": sha256_file(dst),
                 "previous_unit_id": prev, "materialised_at": now(), "recorded_by": TOOL_ID,
-                "note": "anchor policy v4 CONTINUITY_DERIVED_KEYFRAME: the start frame IS the previous unit's real tail; reviewed by the keyframe (Q1) questionnaire before the unit becomes wave-ready"}
+                "note": ("PREVIOUS_UNIT_REAL_FINAL_FRAME (hard continuation)" if hard else "anchor policy v4 CONTINUITY_DERIVED_KEYFRAME")
+                        + ": the start frame IS the previous unit's real tail; reviewed by the keyframe (Q1) questionnaire before the unit becomes wave-ready"}
         if check is not None:
             side["start_frame_source"] = START_FRAME_TAIL
             side["start_frame_check"] = {k: check.get(k) for k in ("verdict", "status", "reasons", "reason")
@@ -5695,11 +5726,12 @@ def redo_switch_start_frames(ctx: Ctx) -> list[dict[str, Any]]:
         return []
     plan = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json", {}) or {}
     derived = continuity_derived_units(ctx)
+    hard = hard_continuation_units(ctx)
     out: list[dict[str, Any]] = []
     for unit in plan.get("units") or []:
         uid = str(unit.get("unit_id") or "")
         shots = unit.get("editorial_shot_ids") or []
-        if not uid or not shots or (ctx.p.video_media / f"{uid}.mp4").is_file():
+        if not uid or not shots or uid in hard or (ctx.p.video_media / f"{uid}.mp4").is_file():
             continue
         prepare = ctx.p.q2_dir / uid / "prepare.json"
         q2 = read_json(prepare, {}) or {}
@@ -5792,7 +5824,7 @@ def own_keyframes_needed(ctx: Ctx) -> list[str]:
 def derived_units_pending_q1(ctx: Ctx) -> list[tuple[str, str]]:
     """(unit_id, first_shot_id) of derived units whose keyframe exists but has no ADMITTED Q1 result."""
     out = []
-    for uid, info in continuity_derived_units(ctx).items():
+    for uid, info in tail_sourced_units(ctx).items():
         if not info["keyframe_path"].is_file():
             continue
         q1 = read_json(ctx.p.preprod_reports / "qa" / "q1" / uid / "admission_result.json", {}) or {}
@@ -5868,7 +5900,7 @@ def stage_s6(ctx: Ctx) -> StageResult:
         # (E10-VU-022) froze ten admitted, tail-ready units for two days.  Units run concurrently
         # unless they need a predecessor's tail (Roger: 能并发一定并发).
         pending_ids = {uid for uid, _ in pending_q1}
-        _derived_now = continuity_derived_units(ctx)
+        _derived_now = tail_sourced_units(ctx)
         others_ready = [uid for uid, prev, needs in deps
                         if uid not in done and uid not in pending_ids
                         and (not needs or prev is None or (tails_dir / f"{prev}.png").is_file())
@@ -5880,7 +5912,7 @@ def stage_s6(ctx: Ctx) -> StageResult:
             pending_q1_deferred = []
         # D-5 receipts for derived frames that are already Q1-admitted (the review protocol's submit
         # may have materialised the admissions itself, so this must not depend on pending_q1)
-        need_sfe_now = [uid for uid, info in continuity_derived_units(ctx).items()
+        need_sfe_now = [uid for uid, info in tail_sourced_units(ctx).items()
                         if uid not in done and info["keyframe_path"].is_file()
                         and uid not in pending_ids
                         and not (ENGINE / "reports/start_frame_evidence" / f"{uid}_start_frame_evidence.json").is_file()]
@@ -5999,7 +6031,7 @@ def stage_s6(ctx: Ctx) -> StageResult:
         open_waves = [w for w in waves if not w.get("completed_at")
                       and any(uid not in done for uid in w.get("units") or [])]
         in_open = {u for w in open_waves for u in (w.get("units") or [])}
-        derived = continuity_derived_units(ctx)
+        derived = tail_sourced_units(ctx)
         # A clip harvested by a run that was killed before its tail frame was extracted (extraction
         # only runs inside the wave loop below) would keep its tail-chained successor "not ready"
         # forever: no open wave, no ready unit -> ROLLING_WAVE_NO_READY_UNITS on every tick

@@ -70,15 +70,16 @@ class DerivedStartFrameAcceptanceTests(unittest.TestCase):
                                         authority_blockers=[],
                                         authority={"orders_path": tmp / "ORDERS.json", "latest_order_seq": 69,
                                                    "line_owner_id": "owner"})
-            saved = (rga._orders, npl.ENGINE, npl.continuity_derived_units)
+            saved = (rga._orders, npl.ENGINE, npl.continuity_derived_units, npl.hard_continuation_units)
             rga._orders = lambda *a, **k: orders
             npl.ENGINE = tmp / "engine"  # order source receipts live outside the engine
             npl.continuity_derived_units = lambda _ctx: (
                 {UID: {"first_shot_id": ITEM, "keyframe_path": kf}} if derived else {})
+            npl.hard_continuation_units = lambda _ctx: {}
             try:
                 out = npl.apply_derived_start_frame_acceptance(ctx, index, ip)
             finally:
-                rga._orders, npl.ENGINE, npl.continuity_derived_units = saved
+                rga._orders, npl.ENGINE, npl.continuity_derived_units, npl.hard_continuation_units = saved
             return out, json.loads(ip.read_text()), json.loads(ar.read_text())
 
     def test_sha_bound_start_frame_default_acceptance_admits(self):
