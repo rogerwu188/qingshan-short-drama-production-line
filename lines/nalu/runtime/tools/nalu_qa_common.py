@@ -213,6 +213,13 @@ def gate_parameters(gate_id: str) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # per-episode paths (the subset the QA route needs; mirrors nalu_pipeline.Paths)
 # --------------------------------------------------------------------------- #
+
+#: Opening-anchor sources whose start frame is the previous unit's real tail (no own S5 keyframe task):
+#: CONTINUITY_DERIVED_KEYFRAME (anchor policy v4) and PREVIOUS_UNIT_REAL_FINAL_FRAME (hard continuation).
+#: Until such a unit's image exists it is not a Q1 / start-frame item (reviewed with the S6 video).
+TAIL_SOURCED_OPENINGS = frozenset({"CONTINUITY_DERIVED_KEYFRAME", "PREVIOUS_UNIT_REAL_FINAL_FRAME"})
+
+
 class QaPaths:
     def __init__(self, episode: str) -> None:
         self.episode = episode
@@ -681,7 +688,7 @@ class Expectations:
             anchors = json.loads(self.p.anchor_plan.read_text(encoding="utf-8")).get("units") or []
             for a in anchors:
                 oac = a.get("opening_anchor_contract") or {}
-                if str(oac.get("source") or "") == "CONTINUITY_DERIVED_KEYFRAME":
+                if str(oac.get("source") or "") in TAIL_SOURCED_OPENINGS:
                     derived[a["unit_id"]] = oac
         except Exception:  # noqa: BLE001
             derived = {}
@@ -757,7 +764,9 @@ class Expectations:
 
     def _unit_first_shot_id(self, unit: dict[str, Any]) -> str:
         keys = unit.get("reference_image_task_keys") or []
-        if keys:
+        # a hard-continuation unit's first key names the PREVIOUS unit (its real tail), not a shot
+        # of this unit; only a key that is an editorial shot decides the first shot
+        if keys and (not self.shots or str(keys[0]).split(":")[0] in self.shots):
             return str(keys[0]).split(":")[0]
         shots = unit.get("editorial_shot_ids") or []
         return str(shots[0]) if shots else ""
@@ -855,7 +864,7 @@ class Expectations:
         cd: set[str] = set()
         try:
             for a in json.loads(self.p.anchor_plan.read_text(encoding="utf-8")).get("units") or []:
-                if str(((a.get("opening_anchor_contract") or {}).get("source")) or "") == "CONTINUITY_DERIVED_KEYFRAME":
+                if str(((a.get("opening_anchor_contract") or {}).get("source")) or "") in TAIL_SOURCED_OPENINGS:
                     cd.add(a["unit_id"])
         except Exception:  # noqa: BLE001
             cd = set()
