@@ -164,10 +164,14 @@ def disk_pin() -> str:
 
 def _run(argv: list[str], timeout: int, extra_env: dict | None = None) -> tuple[int, str]:
     try:
-        import codex_production  # noqa: PLC0415 -- the same tool directories the executor uses
+        import codex_production  # noqa: PLC0415 -- the same tool directories (and newest node) the executor uses
         dirs = codex_production.tool_dirs()
-    except Exception:  # noqa: BLE001
-        dirs = [f"{Path.home()}/.local/bin", f"{Path.home()}/.npm-global/bin"]
+        best = codex_production.newest_node_dir([*dirs, *os.environ.get("PATH", "").split(":")])
+        dirs = [best, *dirs] if best else dirs
+    except Exception:  # noqa: BLE001 -- keep the essentials: user bins + any nvm node (system node may be v12)
+        home = Path.home()
+        dirs = [str(home / ".local/bin"), str(home / ".npm-global/bin"),
+                *sorted((str(p) for p in home.glob(".nvm/versions/node/*/bin")), reverse=True)]
     env = {**os.environ, **(extra_env or {}), "PATH": ":".join([*dirs, os.environ.get("PATH", "")])}
     try:
         done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=env)
