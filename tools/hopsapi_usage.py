@@ -23,8 +23,10 @@ completion: video >= 20 min, image >= 10 min after the newest lost intent of the
    lost transaction (any episode) of that kind overlapping the window -> the row's task id is
    ADOPTED: the transaction becomes ``SUBMITTED_TASK_ID_BOUND`` and is polled / harvested like any
    bound task, never re-POSTed;
-5. anything else -> ``NEEDS_MANUAL_ATTRIBUTION`` carrying the unattributed ids (still unresolved for
-   the ledger).  Several lost POSTs vs several unattributed rows are never paired by guesswork: a
+5. anything else -> ``WRITTEN_OFF_UNATTRIBUTABLE_RETRYABLE`` (line owner 2026-11-11: one key is shared by the
+   fleet, so other devices' rows make these windows unattributable by hand): the lost POST is assumed
+   charged at its planned price (``written_off_credits``, counted as spend by the ledger) and a new attempt
+   may POST.  ``NEEDS_MANUAL_ATTRIBUTION`` rows written by older engines are reconciled again into it.  Several lost POSTs vs several unattributed rows are never paired by guesswork: a
    wrong pairing would harvest one unit's paid clip under another unit.  ``adopt`` binds one by hand.
 
 Key scope: ``scope=key`` sees only the current key.  It is used when every lost intent carries the
@@ -65,6 +67,11 @@ LOST_STATE = "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION"
 VERIFIED_ZERO_STATE = "VERIFIED_ZERO_NO_REMOTE_TASK"
 MANUAL_STATE = "NEEDS_MANUAL_ATTRIBUTION"
 BOUND_STATE = "SUBMITTED_TASK_ID_BOUND"
+#: line owner 2026-11-11 (option B): one HopsAPI key is shared by the whole fleet, so an ambiguous window (other
+#: devices' billed rows) can never be attributed by hand at scale.  The lost POST is assumed charged at its
+#: planned price -- counted in the ledger as spend -- and a new attempt may POST.
+AUTO_WRITEOFF_STATE = "WRITTEN_OFF_UNATTRIBUTABLE_RETRYABLE"
+WRITEOFF_FALLBACK_CREDITS = {"video": 15.0, "image": 2.0}
 RECONCILABLE_STATES = {LOST_STATE, MANUAL_STATE}
 STORES = {"video": "giggle_video_submit_transactions", "image": "giggle_submit_transactions"}
 USAGE_MODELS = {"video": hops.H3_MODEL, "image": "gpt-image-2"}
@@ -346,7 +353,7 @@ def reconcile_kind(episode: str, kind: str, *, tasks_root: Path, now: datetime |
         decision = BOUND_STATE
         adopt = unattributed[0]
     else:
-        decision = MANUAL_STATE
+        decision = AUTO_WRITEOFF_STATE
     evidence_base = {
         "schema": SCHEMA, "episode": episode, "kind": kind, "reconciled_at": iso(now),
         "decision": decision, "grace_seconds": grace, "query": listing["query"], "scope": scope,
@@ -403,12 +410,17 @@ def reconcile_kind(episode: str, kind: str, *, tasks_root: Path, now: datetime |
                 except Exception:  # noqa: BLE001 - no charge: the poller records the settled cost
                     pass
             else:
+                planned = current.get("estimated_credits")
+                credits = (float(planned) if isinstance(planned, (int, float)) and not isinstance(planned, bool)
+                           and planned > 0 else WRITEOFF_FALLBACK_CREDITS.get(kind, 15.0))
                 current.update({
-                    "state": MANUAL_STATE, "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
+                    "state": AUTO_WRITEOFF_STATE, "retry_guard": "RETRY_ALLOWED_NEW_ATTEMPT",
+                    "credit_status": "ASSUMED_CHARGED_UNATTRIBUTABLE_SHARED_KEY",
+                    "written_off_credits": credits, "written_off_at": record["reconciled_at"],
                     "unattributed_task_ids": record["unattributed_task_ids"],
-                    "operator_note": ("billed HopsAPI task(s) in the window are bound to no transaction; "
-                                      "attribute by hand: tools/hopsapi_usage.py adopt <transaction> "
-                                      "--task-id <tsk_...> (or write off by order)")})
+                    "operator_note": ("billed HopsAPI rows in the window cannot be told apart from other devices' "
+                                      "tasks on the shared key: assumed charged at the planned price (counted as "
+                                      "spend), a new attempt may POST (line owner 2026-11-11)")})
 
         written = False if dry_run else _write_transaction(path, row, update)
         record["written"] = written
@@ -438,7 +450,8 @@ def reconcile_episode(episode: str, *, kinds: Iterable[str] = ("video", "image")
             report["kinds"][kind] = {"kind": kind, "status": "USAGE_READ_FAILED_NOTHING_CHANGED",
                                      "error": str(exc)[:300]}
     statuses = {row.get("status") for row in report["kinds"].values()}
-    report["unresolved_remaining"] = bool(statuses - {"NOTHING_TO_RECONCILE", VERIFIED_ZERO_STATE, BOUND_STATE})
+    report["unresolved_remaining"] = bool(statuses - {"NOTHING_TO_RECONCILE", VERIFIED_ZERO_STATE, BOUND_STATE,
+                                                      AUTO_WRITEOFF_STATE})
     return report
 
 

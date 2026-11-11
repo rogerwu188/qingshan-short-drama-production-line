@@ -181,28 +181,30 @@ class ReconcileTest(unittest.TestCase):
         self.assertEqual(report["kinds"]["video"]["status"], usage.BOUND_STATE)
         self.assertEqual(self.load(path)["task_id"], SIB)
 
-    def test_ambiguous_rows_need_manual_attribution_and_stay_unresolved(self):
-        a = self.lost("E11-VU-008", 44)
-        self.lost("E11-VU-018", 44)
+    def test_ambiguous_rows_are_written_off_at_the_planned_price_and_retryable(self):
+        # line owner 2026-11-11 (option B): the shared fleet key makes these windows unattributable by hand
+        a = self.lost("E11-VU-008", 44, estimated_credits=7)
+        b = self.lost("E11-VU-018", 44)
         self.tx("E11-VU-013", state="SUBMITTED_TASK_ID_BOUND", task_id=SIB, intent_recorded_at=at(44))
         fake = FakeUsage(rows=[row(SIB, 42), row(OTHER, 40)])
         report = self.run_reconcile(fake)
-        self.assertEqual(report["kinds"]["video"]["status"], usage.MANUAL_STATE)
-        self.assertEqual(report["kinds"]["video"]["unattributed_task_ids"], [OTHER])
-        self.assertEqual(self.load(a)["state"], usage.MANUAL_STATE)
+        self.assertEqual(report["kinds"]["video"]["status"], usage.AUTO_WRITEOFF_STATE)
+        self.assertFalse(report["unresolved_remaining"])
+        data = self.load(a)
+        self.assertEqual((data["state"], data["written_off_credits"], data["retry_guard"]),
+                         (usage.AUTO_WRITEOFF_STATE, 7.0, "RETRY_ALLOWED_NEW_ATTEMPT"))
+        self.assertEqual(self.load(b)["written_off_credits"], usage.WRITEOFF_FALLBACK_CREDITS["video"])
         with patch.object(ledger, "ENGINE_ROOT", self.root.parent.parent):
-            unresolved = ledger.scan_transaction_states("E11")["unresolved_transactions"]
-        self.assertEqual(len(unresolved), 2)
-        # re-run: the ids written as unattributed_task_ids never count as bound
-        again = self.run_reconcile(fake)
-        self.assertEqual(again["kinds"]["video"]["status"], usage.MANUAL_STATE)
-        self.assertEqual(len(self.load(a)["usage_reconciliation_history"]), 2)
+            self.assertEqual(ledger.scan_transaction_states("E11")["unresolved_transactions"], [])
+            spend = ledger.scan_hopsapi_spend("E11")
+        written = [r for r in spend["rows"] if r["status"] == "WRITTEN_OFF_UNATTRIBUTABLE"]
+        self.assertEqual(sorted(r["credits"] for r in written), [7.0, usage.WRITEOFF_FALLBACK_CREDITS["video"]])
 
     def test_other_episode_lost_post_blocks_adoption(self):
         self.lost("E11-VU-008", 44)
         self.tx("E12-VU-001", episode="E12", state=usage.LOST_STATE, intent_recorded_at=at(50))
         report = self.run_reconcile(FakeUsage(rows=[row(OTHER, 40)]))
-        self.assertEqual(report["kinds"]["video"]["status"], usage.MANUAL_STATE)
+        self.assertEqual(report["kinds"]["video"]["status"], usage.AUTO_WRITEOFF_STATE)
 
     def test_unproven_key_widens_to_account_scope(self):
         path = self.lost("E11-VU-008", 44, hopsapi_key_fingerprint="0000000000000000")
