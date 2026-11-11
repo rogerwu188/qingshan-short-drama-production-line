@@ -143,7 +143,10 @@ UNRESOLVED_TRANSACTION_STATES = {
 # VERIFIED_ZERO_NO_REMOTE_TASK: a lost HopsAPI create the billing usage API proved created no billed
 # task (tools/hopsapi_usage.py reconcile) -- 0 credits.  An ADOPTED one is SUBMITTED_TASK_ID_BOUND.
 SETTLED_TRANSACTION_STATES = {"SUBMITTED_TASK_ID_BOUND", "VERIFIED_ZERO_RETRYABLE", "NOT_CHARGED_RETRYABLE",
-                              "CHARGED_WRITTEN_OFF_BY_ORDER", "VERIFIED_ZERO_NO_REMOTE_TASK"}
+                              "CHARGED_WRITTEN_OFF_BY_ORDER", "VERIFIED_ZERO_NO_REMOTE_TASK",
+                              # tools/hopsapi_usage.py: an unattributable lost POST on the shared fleet key, counted
+                              # at its written_off_credits by scan_hopsapi_spend (line owner 2026-11-11)
+                              "WRITTEN_OFF_UNATTRIBUTABLE_RETRYABLE"}
 
 VIDEO_TRANSACTION_DIRNAME = "giggle_video_submit_transactions"
 IMAGE_TRANSACTION_DIRNAME = "giggle_submit_transactions"
@@ -844,6 +847,14 @@ def scan_hopsapi_spend(episode: str, kinds: tuple[str, ...] = ("video", "image")
         except (OSError, json.JSONDecodeError):
             continue
         if not isinstance(payload, dict) or not is_hopsapi_transaction(payload):
+            continue
+        if str(payload.get("state") or "") == "WRITTEN_OFF_UNATTRIBUTABLE_RETRYABLE":
+            written = payload.get("written_off_credits")
+            if isinstance(written, (int, float)) and not isinstance(written, bool) and written > 0:
+                settled += Decimal(str(written))
+                by_kind[kind]["settled_credits"] += Decimal(str(written))
+                rows.append({"source": str(path), "kind": kind, "task_key": payload.get("task_key"), "task_id": None,
+                             "credits": written, "status": "WRITTEN_OFF_UNATTRIBUTABLE"})
             continue
         if str(payload.get("state") or "") != "SUBMITTED_TASK_ID_BOUND" or not payload.get("task_id"):
             continue

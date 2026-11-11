@@ -761,7 +761,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_budget_ledger.py",
-      "sha256": "55afce6c6b6d7a40fcf5f5dee9c00416ab78a3bcd32b4e607dc380c3a3c96f68"
+      "sha256": "c984b57e930dede4d3fe63678cb6ceac246cc87b98e7453eed1627f568bffd52"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_media_tools.py",
@@ -5273,7 +5273,7 @@
     },
     {
       "path": "tools/hopsapi_usage.py",
-      "sha256": "7a9b6bb12299ba5767c87b5e718784ce7cb305e727420440c075b96769d1c772"
+      "sha256": "42fdbd10a4a4fd57261c694b0b2eb53d6a20ab533611eb3f2efe60fe9b4ff6ed"
     },
     {
       "path": "tools/hopsapi_video_client.py",
@@ -6797,7 +6797,7 @@
     },
     {
       "path": "tools/submit_giggle_image_manifest.py",
-      "sha256": "0ae7dc4a7764eef7c6f396fe9d2823d8065fc99e7a5869a1036b7de33c824e7d"
+      "sha256": "379f6fe252894bd9a9ef7fd7b6edb63d1749b8bbaa6878d152f2f8ea30e7cb78"
     },
     {
       "path": "tools/submit_giggle_task_manifest.py",
@@ -6805,7 +6805,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "781dce64f8450f4f928e8ba670bbb9b8b276ec9ed9e8e1ff22823f663966188a"
+      "sha256": "9e75b611e378f20036b6e6616fe0cda676bc1a19afd13e42db7d92500a3e656c"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -7997,7 +7997,7 @@
     },
     {
       "path": "tools/tests/test_hopsapi_usage_reconcile.py",
-      "sha256": "091dee641c0da9d8c2bbbb9b4e4e94c533a7c3b0bb0bb10e2da79af97c904946"
+      "sha256": "649df8567971e42f95c32a30152897a32536ec5b99cfc3366f231c050c2a7d81"
     },
     {
       "path": "tools/tests/test_hopsapi_video_transport.py",

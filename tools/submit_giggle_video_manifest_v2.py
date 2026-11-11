@@ -1181,7 +1181,7 @@ def prior_bound(task: dict[str, Any], transaction_dir: Path) -> dict[str, Any] |
         return recovered
     # VERIFIED_ZERO_NO_REMOTE_TASK: a lost HopsAPI response the billing usage API proved created no
     # billed task (tools/hopsapi_usage.py reconcile); a new attempt may POST.
-    if row.get("state") not in {"VERIFIED_ZERO_RETRYABLE", "VERIFIED_ZERO_NO_REMOTE_TASK"}:
+    if row.get("state") not in {"VERIFIED_ZERO_RETRYABLE", "VERIFIED_ZERO_NO_REMOTE_TASK", "WRITTEN_OFF_UNATTRIBUTABLE_RETRYABLE"}:
         raise RuntimeError(f"{task['task_key']} blocked by transaction state {row.get('state')}")
     return None
 
@@ -1971,7 +1971,7 @@ def main() -> int:
             if row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id"):
                 failure["task_id"] = row["task_id"]
                 failure["credit_status"] = "BOUND_TASK_RECEIPT_RECOVERY_REQUIRED"
-            elif row.get("state") in {"VERIFIED_ZERO_RETRYABLE", "VERIFIED_ZERO_NO_REMOTE_TASK"}:
+            elif row.get("state") in {"VERIFIED_ZERO_RETRYABLE", "VERIFIED_ZERO_NO_REMOTE_TASK", "WRITTEN_OFF_UNATTRIBUTABLE_RETRYABLE"}:
                 failure["credit"] = 0
                 failure["credit_status"] = "NOT_CHARGED_RETRYABLE"
             else:
