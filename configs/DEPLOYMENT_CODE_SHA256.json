@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2430,
+  "file_count": 2432,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
