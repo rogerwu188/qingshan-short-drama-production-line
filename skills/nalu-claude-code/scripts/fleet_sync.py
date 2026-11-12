@@ -364,6 +364,8 @@ def diagnose(cp: Any) -> dict:
     out["cron_jobs"] = _cron_jobs()
     # which account production bills (line owner 2026-11-12: never StoryClaw); provenance only, no values
     out["billing_keys"] = _short(_run(["python3", str(scripts / "billing_key_guard.py"), "report"], 30, env), 1)
+    # cloud shared knowledge base (collective learning): configured / synced / applied? booleans + counts only
+    out["knowledge"] = _short(_run(["python3", str(scripts / "knowledge_status.py")], 60, env), 1)
     return out
 
 
