@@ -149,6 +149,79 @@ def live_bindings(
     return rows
 
 
+#: Fleet 2026-11-12: every S6 wave on 20 devices failed remotely at once (``Provider error``, cost 0 -- the
+#: account behind the video key ran dry).  The bound rows kept ``SUBMITTED_TASK_ID_BOUND``, so the planner and
+#: the submitter both saw "already bound, poll only" and no device could ever POST that unit again.  A take the
+#: provider terminally failed AND settled at zero cost owes us nothing and cost us nothing: it is released to a
+#: new attempt, at most this many times per transaction (a provider that keeps refusing the same request is a
+#: content problem the executor handles by recomposing, which is a new fingerprint).
+ZERO_COST_TERMINAL_RETRY_LIMIT = 2
+ZERO_COST_ARCHIVE_INFIX = ".zero_cost_failed."
+RELEASED_STATE = "VERIFIED_ZERO_RETRYABLE"
+
+
+def zero_cost_terminal_failure(row: dict[str, Any]) -> bool:
+    """A bound take the provider terminally failed and settled at exactly zero credits."""
+    if not isinstance(row, dict) or row.get("state") != BOUND_STATE or not row.get("task_id"):
+        return False
+    terminal = str(row.get("remote_terminal_state") or "").lower()
+    if terminal not in TERMINAL_REMOTE_STATUSES and terminal != "cancelled":
+        return False
+    cost = row.get("provider_cost_credits")
+    return isinstance(cost, (int, float)) and not isinstance(cost, bool) and float(cost) == 0.0
+
+
+def zero_cost_retries_used(transaction: Path) -> int:
+    transaction = Path(transaction)
+    return sum(1 for p in transaction.parent.glob("*")
+               if p.name.startswith(transaction.name + ZERO_COST_ARCHIVE_INFIX))
+
+
+def zero_cost_retryable(transaction: Path, row: dict[str, Any]) -> bool:
+    """True when this bound row may be released to a new attempt (see ZERO_COST_TERMINAL_RETRY_LIMIT)."""
+    return zero_cost_terminal_failure(row) and zero_cost_retries_used(transaction) < ZERO_COST_TERMINAL_RETRY_LIMIT
+
+
+def release_zero_cost_terminal(transaction: Path, *, now: str | None = None) -> dict[str, Any] | None:
+    """Release a zero-cost terminal failure for a new attempt, under the transaction's flock.
+
+    The failed take is kept verbatim beside the transaction (``<name>.zero_cost_failed.<task_id>``, not
+    ``*.json``, so no store scan mistakes it for a live row) and the transaction itself becomes
+    ``VERIFIED_ZERO_RETRYABLE`` -- the settled, zero-credit state every reader already lets a new POST through.
+    Returns the released row, or None when the row is not (or no longer) releasable."""
+    import fcntl  # noqa: PLC0415
+    transaction = Path(transaction)
+    if not transaction.is_file():
+        return None
+    stamp = now or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    with transaction.with_suffix(".lock").open("a") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            row = json.loads(transaction.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not zero_cost_retryable(transaction, row):
+            return None
+        task_id = str(row["task_id"])
+        archive = transaction.with_name(transaction.name + ZERO_COST_ARCHIVE_INFIX + task_id)
+        archive.write_text(json.dumps(row, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        released = {key: row[key] for key in ("schema", "task_key", "submission_fingerprint", "provider",
+                                               "prompt_sha256", "reference_sha256", "receipt") if key in row}
+        released.update({
+            "state": RELEASED_STATE, "credit_status": "NOT_CHARGED_RETRYABLE",
+            "retry_reason": "REMOTE_TERMINAL_FAILURE_ZERO_COST",
+            "released_task_id": task_id, "released_at": stamp,
+            "released_remote_terminal_state": row.get("remote_terminal_state"),
+            "released_provider_failure": row.get("provider_failure"),
+            "released_take_archive": archive.name,
+            "zero_cost_retries_used": zero_cost_retries_used(transaction),
+        })
+        temporary = transaction.with_suffix(transaction.suffix + ".part")
+        temporary.write_text(json.dumps(released, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(transaction)
+        return released
+
+
 def attributed_task_ids(transaction_root: Path) -> set[str]:
     """Every provider task id any durable video transaction is bound to (all episodes)."""
     ids: set[str] = set()

@@ -6368,10 +6368,15 @@ def s6_bound_task_keys(ctx: Ctx, tasks: list[dict[str, Any]], task_fingerprint) 
     the fingerprint (lab E05 2026-10-26, episode-wide generation_contract_sha256) -- by a live
     binding of the same task key.  The submitter applies the same rule before any POST."""
     store_dir = video_store_dir(ctx.episode)
+    if str(ENGINE) not in sys.path:
+        sys.path.insert(0, str(ENGINE))
+    from tools.video_live_binding import zero_cost_retryable  # engine, read-only
     bound = set()
     for path in (store_dir.glob("*.json") if store_dir.is_dir() else []):
         row = read_json(path, {}) or {}
         if row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id"):
+            if zero_cost_retryable(path, row):
+                continue  # terminally failed at zero cost: the submitter releases it to a new attempt
             bound.add(str(row.get("submission_fingerprint")))
     keys = set()
     for t in tasks:
