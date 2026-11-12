@@ -5802,7 +5802,10 @@ def own_keyframes_needed(ctx: Ctx) -> list[str]:
     if not _camera_grammar_on(ctx):
         return []
     plan = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json", {}) or {}
-    derived = continuity_derived_units(ctx)
+    # Hard continuations start from the previous unit's real tail, which only exists after that video is
+    # downloaded; S5 deliberately skips their image, so an unused prompt file must not demand one
+    # (device 1101 E05 VU-005/009/012/014/023, 2026-11-12: OWN_KEYFRAME_NOT_GENERATED before wave 1).
+    derived = tail_sourced_units(ctx)
     decisions = start_frame_source_decisions(ctx)
     prompts = ctx.p.preprod / "prompts" / "keyframes"
     need = []

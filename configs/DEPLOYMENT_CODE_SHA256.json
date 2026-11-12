@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2420,
+  "file_count": 2421,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -777,7 +777,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "d2e486be64a69ca6d78b7736861d23f26c1b8c7a7b0bc267feed33198a7a72bb"
+      "sha256": "8a342a1d71b5aa9ad2da4eb66ba8c69b603e42363282911d4f1ba2381424062c"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -8001,7 +8001,7 @@
     },
     {
       "path": "tools/tests/test_hard_continuation_tail_q1.py",
-      "sha256": "ffceddf3800d41fdf005f12d395824d23f739e12855e5fc13ce1bdbcad57a336"
+      "sha256": "d85066acd29502b116316c228aaf3a4c540ddebec3d3a9c221f8fd2f0988cb41"
     },
     {
       "path": "tools/tests/test_harvest_giggle_image_batch.py",
@@ -8918,6 +8918,10 @@
     {
       "path": "tools/tests/test_staged_scope_neighbour_context.py",
       "sha256": "1f0585c4e9d4cd019441cf19e60bce9b170da5f3d5851d928e1dbbfbe9a52e0f"
+    },
+    {
+      "path": "tools/tests/test_stale_authoring_sentinel_prompt.py",
+      "sha256": "ec3f48c3650780fb333e65e65ce561f1dbcb879495f7e9f8f18c17211cc5a20e"
     },
     {
       "path": "tools/tests/test_stamp_reviewed_keyframe_requests.py",

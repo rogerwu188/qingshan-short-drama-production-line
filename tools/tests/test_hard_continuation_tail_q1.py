@@ -73,6 +73,15 @@ class HardContinuationTailQ1Test(unittest.TestCase):
             self.assertEqual(npl.derived_units_pending_q1(ctx), [])
             self.assertEqual(npl.own_keyframes_needed(ctx), [])
 
+    def test_hard_continuation_waiting_on_tail_needs_no_own_keyframe(self):
+        # 1101 E05 2026-11-12: the predecessor video is not submitted yet and S5 left an unused prompt.
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(npl, "ENGINE", Path(d) / "engine"):
+            ctx, kf = _fixture(Path(d))
+            (ctx.p.preprod / "real_final_frames" / "E04-VU-011.png").unlink()
+            (ctx.p.preprod / "prompts" / "keyframes" / "E04-S03-04-KEYFRAME-V1.txt").write_text("unused")
+            self.assertFalse(kf.is_file())
+            self.assertEqual(npl.own_keyframes_needed(ctx), [])
+
 
 if __name__ == "__main__":
     unittest.main()
