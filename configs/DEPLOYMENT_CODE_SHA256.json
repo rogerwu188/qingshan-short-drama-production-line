@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2422,
+  "file_count": 2423,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -817,7 +817,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/paid_stage.sh",
-      "sha256": "37a641017c8c6938054f134a9e7d9aca282a66137fa37f9d161b5ebe47a230b0"
+      "sha256": "a4d9f6767fde0547099d82385050acea675057f86d8f9a691eb2c97636ec77e9"
     },
     {
       "path": "lines/nalu/runtime/tools/post_generation_qa_runner.py",
@@ -973,7 +973,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "b615e935ee891720051df650b29df1e19c1700c007d8509da8d2ba3623d60678"
+      "sha256": "abd3a4942de78bfc7b5da52c5cd857a4d0580dd93546f649efeda9166d344471"
     },
     {
       "path": "skills/nalu-claude-code/scripts/configure_claude_code.py",
@@ -989,7 +989,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/fleet_sync.py",
-      "sha256": "6bb3cccb9575d284b93c7ebe10948e6cd9e68d6d049248cbf0e8659e3c4a205b"
+      "sha256": "a07d171dc8670d44bd804837d03587569ab0cda29abae10522f1bca0ace5b2c6"
     },
     {
       "path": "skills/nalu-claude-code/scripts/list_voices.sh",
@@ -9226,6 +9226,10 @@
     {
       "path": "tools/tests/test_video_unit_state_plan_gate.py",
       "sha256": "17791b727b38511a9229158afb93e0bad0c72f8dea4f60ef73f521468a9d06d9"
+    },
+    {
+      "path": "tools/tests/test_video_zero_cost_terminal_retry.py",
+      "sha256": "85ba9ff1cb3cc5f0021f40d31b2424138e7ea05dc4f2dcee7730ec23edbcb68c"
     },
     {
       "path": "tools/tests/test_visual_culture_contract.py",
