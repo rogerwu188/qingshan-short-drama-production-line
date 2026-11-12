@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import fcntl
 import json
+import os
+import time
 import sys
 import threading
 import tempfile
@@ -106,6 +108,21 @@ class ZeroCostTerminalRetryTest(unittest.TestCase):
         self.assertFalse(worker.is_alive(), "prior_bound deadlocked on the lock its caller holds")
         self.assertIsNone(out["prior"])
         self.assertEqual(self._row()["state"], "VERIFIED_ZERO_RETRYABLE")
+
+    def test_retry_limit_reopens_after_the_window(self):
+        # fleet 2026-11-12: an outage used both releases in minutes; the hourly retry must be able to POST again
+        for n in range(ZERO_COST_TERMINAL_RETRY_LIMIT):
+            self._failed(f"tsk_dead_{n}")
+            submitter.prior_bound(self.task, self.store)
+        self._failed("tsk_dead_after")
+        self.assertFalse(zero_cost_retryable(self.path, self._row()))
+        old = time.time() - 2 * 3600
+        for p in self.store.iterdir():
+            if ".zero_cost_failed." in p.name:
+                os.utime(p, (old, old))
+        self.assertTrue(zero_cost_retryable(self.path, self._row()))
+        self.assertIsNone(submitter.prior_bound(self.task, self.store))
+        self.assertEqual(self._row()["zero_cost_retries_total"], ZERO_COST_TERMINAL_RETRY_LIMIT + 1)
 
     def test_released_row_is_not_a_live_binding(self):
         self._failed()

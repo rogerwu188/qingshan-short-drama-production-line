@@ -9241,7 +9241,7 @@
     },
     {
       "path": "tools/tests/test_video_zero_cost_terminal_retry.py",
-      "sha256": "9ea92ca9ec8081766187485ed0136ffd6dc2498bb5a1462ca0eea33dae34425d"
+      "sha256": "894c09efff8b086ac42ba6c6250463e20c4d3716df7ed8caa91b397444cc8827"
     },
     {
       "path": "tools/tests/test_visual_culture_contract.py",
@@ -9589,7 +9589,7 @@
     },
     {
       "path": "tools/video_live_binding.py",
-      "sha256": "2ae01cc87b57eb227f2a22e8494c83aac13412e9bdb00dfe3bae94509b1adc93"
+      "sha256": "a51efbd4864dcc501470f0de70b95d6d43cb6b07619bba7c1d27cad8b01f5d59"
     },
     {
       "path": "tools/video_model_adapter.py",
