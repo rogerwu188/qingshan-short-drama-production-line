@@ -99,6 +99,15 @@ class EventConflict(c.ContractError):
     """Same event_id, different content.  The original is kept; the attempt is audited."""
 
 
+def open_configured(path: Path, *, tenant_id: str, line_id: str, device_id: str | None = None) -> "DeviceStore":
+    """The line's store as the collective config names it.  ``device_id`` (fleet provisioning: ``sn-<serial>``)
+    applies only when the store is created; an existing store keeps the id it was minted with, so a config
+    change can never make the production event writer fail on DEVICE_ID_MISMATCH."""
+    path = Path(path)
+    return DeviceStore(path, tenant_id=tenant_id, line_id=line_id,
+                       device_id=(device_id or None) if not path.exists() else None)
+
+
 class DeviceStore:
     def __init__(self, path: Path, *, tenant_id: str, line_id: str, device_id: str | None = None):
         self.path = Path(path)

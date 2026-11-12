@@ -251,12 +251,75 @@ class S3Transport:
         return {"quarantined_batches": [r["key"] for r in rows]}
 
 
+class ServiceReleaseGate:
+    """The release policy check every signed channel pointer passes (audit 2026-11-12 §5.2 gap 2).
+
+    ``S3Channel.publish`` / ``publish_entries`` refuse to sign without one: the pointer is what devices
+    act on, so the rule-state check sits at the pointer writer itself, not only in ``Service.release``.
+    It reads the SIGNED bundle bytes the pointer will name (from the bucket) and asks the service whether
+    every rule in them holds a state at least as strong as the channel."""
+
+    def __init__(self, service: svc_mod.Service, tenant_id: str):
+        self.service, self.tenant_id = service, tenant_id
+
+    def blockers(self, channel: str, bundle: dict[str, Any], *, bundle_id: str, version: str) -> list[str]:
+        return self.service.release_blockers(self.tenant_id, bundle_id=bundle_id, version=str(version),
+                                             channel=channel, rules=list(bundle.get("rules") or []))
+
+
 class S3Channel:
     """Signed channel pointers in the bucket; publish on the collector side, resolve on devices."""
 
     def __init__(self, store: osm.ObjectStore, *, tenant_id: str):
         self.store = store
         self.tenant_id = tenant_id
+
+    def _gate(self, channel: str, entries: dict[str, dict[str, Any]], current: dict[str, Any],
+              release_gate: Any) -> None:
+        """Refuse (BundleError) unless every entry the new pointer adds or changes passes ``release_gate``.
+
+        Entries already in the current pointer at the same version/digest were gated when they were added
+        (removing entries -- revocation fallback -- never needs a new admission).  For each new entry the
+        bucket object is re-read and checked against the pointer's payload sha and digest, the signed
+        label must be acceptable on this channel, and the gate must report no blockers."""
+        if release_gate is None or not callable(getattr(release_gate, "blockers", None)):
+            raise b.BundleError(["RELEASE_GATE_REQUIRED"])
+        previous = ((current.get("body") or {}).get("bundles") or {}) if isinstance(current, dict) else {}
+        failures: list[str] = []
+        for bundle_id, ref in sorted(entries.items()):
+            old = previous.get(bundle_id) or {}
+            if (str(old.get("version")) == str(ref.get("version")) and old.get("digest") == ref.get("digest")
+                    and old.get("payload_sha256") == ref.get("payload_sha256")):
+                continue
+            key = self._key(f"bundles/{_seg(bundle_id)}/{_seg(str(ref['version']))}.json")
+            try:
+                raw = self.store.get_bytes(key)
+            except Exception as exc:  # noqa: BLE001
+                failures.append(f"BUNDLE_OBJECT_UNREADABLE:{bundle_id}@{ref['version']}:{type(exc).__name__}")
+                continue
+            if c.sha256_bytes(raw) != ref.get("payload_sha256"):
+                failures.append(f"BUNDLE_OBJECT_SHA_MISMATCH:{bundle_id}@{ref['version']}")
+                continue
+            try:
+                envelope = json.loads(raw.decode("utf-8"))
+                bundle = envelope.get("bundle") or {}
+            except (ValueError, UnicodeDecodeError, AttributeError):
+                failures.append(f"BUNDLE_OBJECT_NOT_JSON:{bundle_id}@{ref['version']}")
+                continue
+            if envelope.get("digest") != ref.get("digest") or c.digest(bundle) != ref.get("digest"):
+                failures.append(f"BUNDLE_DIGEST_MISMATCH:{bundle_id}@{ref['version']}")
+                continue
+            if bundle.get("bundle_id") != bundle_id or str(bundle.get("version")) != str(ref["version"]):
+                failures.append(f"BUNDLE_IDENTITY_MISMATCH:{bundle_id}@{ref['version']}")
+                continue
+            if bundle.get("release_channel") not in b.CHANNEL_ACCEPTS[channel]:
+                # a RELEASED pointer to a CANARY-labelled bundle would be refused by every device anyway
+                failures.append(f"BUNDLE_LABEL_NOT_ACCEPTED_ON_CHANNEL:{bundle_id}@{ref['version']}:"
+                                f"{bundle.get('release_channel')}->{channel}")
+                continue
+            failures.extend(release_gate.blockers(channel, bundle, bundle_id=bundle_id, version=str(ref["version"])))
+        if failures:
+            raise b.BundleError(["RELEASE_GATE_REFUSED", *failures])
 
     def _key(self, artifact: str) -> str:
         return tenant_key(self.tenant_id, artifact)
@@ -280,22 +343,26 @@ class S3Channel:
         return self.put_json("revocations.json", signed)
 
     def publish(self, channel: str, *, bundle_id: str, version: str, bundle_digest: str, payload_sha256: str,
-                key_id: str, private_raw: bytes) -> dict[str, Any]:
-        """Move the channel pointer for ``bundle_id`` to ``version`` (other bundle ids untouched)."""
+                key_id: str, private_raw: bytes, release_gate: Any = None) -> dict[str, Any]:
+        """Move the channel pointer for ``bundle_id`` to ``version`` (other bundle ids untouched).
+        ``release_gate`` (e.g. :class:`ServiceReleaseGate`) is required; see :meth:`_gate`."""
         if channel not in b.CHANNELS:
             raise b.BundleError([f"CHANNEL_INVALID:{channel}"])
         current = self.get_json(f"channels/{_seg(channel)}.json") or {}
         entries = dict(((current.get("body") or {}).get("bundles") or {}))
         entries[bundle_id] = {"version": str(version), "digest": bundle_digest, "payload_sha256": payload_sha256}
-        return self.publish_entries(channel, entries, key_id=key_id, private_raw=private_raw)
+        return self.publish_entries(channel, entries, key_id=key_id, private_raw=private_raw,
+                                    release_gate=release_gate)
 
     def publish_entries(self, channel: str, entries: dict[str, dict[str, Any]], *, key_id: str,
-                        private_raw: bytes) -> dict[str, Any]:
+                        private_raw: bytes, release_gate: Any = None) -> dict[str, Any]:
         """Sign and write the channel pointer with exactly ``entries`` (an empty map is a valid pointer:
-        it is how a revoked-only bundle leaves the channel on every device)."""
+        it is how a revoked-only bundle leaves the channel on every device).  Refuses without a
+        ``release_gate`` and when any added/changed entry fails it (audit 2026-11-12 §5.2)."""
         if channel not in b.CHANNELS:
             raise b.BundleError([f"CHANNEL_INVALID:{channel}"])
         current = self.get_json(f"channels/{_seg(channel)}.json") or {}
+        self._gate(channel, entries, current, release_gate)
         body_prev = current.get("body") or {}
         body = {"schema": POINTER_SCHEMA, "tenant_id": self.tenant_id, "channel": channel,
                 "sequence": int(body_prev.get("sequence") or 0) + 1, "published_at": c.now_iso(),
@@ -610,6 +677,7 @@ def read_status(root: CollectiveRoot) -> dict[str, Any] | None:
 def sync_channels(service: svc_mod.Service, store: osm.ObjectStore, root: CollectiveRoot, tenant_id: str) -> dict[str, Any]:
     """Make the bucket's signed channel pointers match the service's channel table (idempotent)."""
     channel = S3Channel(store, tenant_id=tenant_id)
+    gate = ServiceReleaseGate(service, tenant_id)
     rows = service._read("SELECT bundle_id, channel, version FROM channels WHERE tenant_id=? ORDER BY channel, bundle_id",
                          (tenant_id,))
     published, unchanged = [], []
@@ -631,7 +699,8 @@ def sync_channels(service: svc_mod.Service, store: osm.ObjectStore, root: Collec
             store.put_artifact(tenant_id, artifact, raw, content_type="application/json")
         key_id, private = root.publisher_key()
         out = channel.publish(ch, bundle_id=bundle_id, version=str(version), bundle_digest=envelope["digest"],
-                              payload_sha256=c.sha256_bytes(raw), key_id=key_id, private_raw=private)
+                              payload_sha256=c.sha256_bytes(raw), key_id=key_id, private_raw=private,
+                              release_gate=gate)
         pointers[ch] = out["bundles"]
         published.append({"channel": ch, "bundle_id": bundle_id, "version": str(version), "sequence": out["sequence"]})
     # Codex acceptance C (2026-10-29): a bundle that left the service's channel table (revoked with no
@@ -654,7 +723,7 @@ def sync_channels(service: svc_mod.Service, store: osm.ObjectStore, root: Collec
         for bid in stale:
             removed.append({"channel": ch, "bundle_id": bid, "version": str((entries.pop(bid) or {}).get("version"))})
         key_id, private = root.publisher_key()
-        out = channel.publish_entries(ch, entries, key_id=key_id, private_raw=private)
+        out = channel.publish_entries(ch, entries, key_id=key_id, private_raw=private, release_gate=gate)
         pointers[ch] = out["bundles"]
     revocations = sync_revocations(service, store, root, tenant_id)
     latest = {ch: {bid: ref.get("version") for bid, ref in entries.items()} for ch, entries in pointers.items()}
@@ -832,23 +901,31 @@ def cmd_register_device(args, env, factory) -> dict[str, Any]:
     """Allow-list a device for a line (S3 mode uses no device token: the collector checks registration +
     path/body consistency, which is NOT authentication with one shared S3 write credential)."""
     root = CollectiveRoot(args.runtime_root)
-    service = open_service(root, None)
-    admin = principal(args.tenant, f"admin-{_seg(args.tenant)}", "admin")
+    return register_device(open_service(root, None), args.tenant, args.device, args.line)
+
+
+def register_device(service: svc_mod.Service, tenant: str, device: str, line: str) -> dict[str, Any]:
+    """Allow-list ``device`` for ``line`` (idempotent; also used for the fleet cohort, release_train)."""
+    admin = principal(tenant, f"admin-{_seg(tenant)}", "admin")
     rows = service._read("SELECT role, line_ids, status FROM principals WHERE principal_id=? AND tenant_id=?",
-                         (args.device, args.tenant))
+                         (device, tenant))
     if rows:
         role, line_ids, status = rows[0]
-        lines = sorted(set(json.loads(line_ids or "[]")) | {args.line})
+        current = set(json.loads(line_ids or "[]"))
+        lines = sorted(current | {line})
         if role != "device_writer":
-            return {"status": "ERROR", "code": "PRINCIPAL_ROLE_MISMATCH", "device": args.device, "role": role}
+            return {"status": "ERROR", "code": "PRINCIPAL_ROLE_MISMATCH", "device": device, "role": role}
+        if line in current and status == "ACTIVE":
+            return {"status": "OK", "device": device, "line_ids": lines, "registration": "UNCHANGED",
+                    "note": "no token in S3 mode; registration is an allow-list, not authentication"}
         with service._tx() as db:
             db.execute("UPDATE principals SET line_ids=?, status='ACTIVE' WHERE principal_id=? AND tenant_id=?",
-                       (json.dumps(lines), args.device, args.tenant))
-            service._audit(db, admin, "register_device", args.device, "OK", {"line_ids": lines, "mode": "s3"})
-        return {"status": "OK", "device": args.device, "line_ids": lines, "registration": "UPDATED",
+                       (json.dumps(lines), device, tenant))
+            service._audit(db, admin, "register_device", device, "OK", {"line_ids": lines, "mode": "s3"})
+        return {"status": "OK", "device": device, "line_ids": lines, "registration": "UPDATED",
                 "note": "no token in S3 mode; registration is an allow-list, not authentication"}
-    out = service.register_principal(admin, principal_id=args.device, role="device_writer", line_ids=[args.line])
-    return {"status": "OK", "device": args.device, "line_ids": out["line_ids"], "registration": "CREATED",
+    out = service.register_principal(admin, principal_id=device, role="device_writer", line_ids=[line])
+    return {"status": "OK", "device": device, "line_ids": out["line_ids"], "registration": "CREATED",
             "note": "no token in S3 mode; registration is an allow-list, not authentication"}
 
 
@@ -879,8 +956,20 @@ def cmd_publish_channel(args, env, factory) -> dict[str, Any]:
     key_id, private = root.publisher_key()
     out = channel.publish(args.channel, bundle_id=args.bundle_id, version=str(args.version),
                           bundle_digest=envelope["digest"], payload_sha256=c.sha256_bytes(raw),
-                          key_id=key_id, private_raw=private)
+                          key_id=key_id, private_raw=private, release_gate=ServiceReleaseGate(service, args.tenant))
     return {"status": "OK", **out}
+
+
+def cmd_import_baseline(args, env, factory) -> dict[str, Any]:
+    """The tenant's ONE explicit baseline import (audit 2026-11-12 §5.2 gap 1): the stored bundle version
+    must carry ``baseline: true``; afterwards ``publish-channel`` may release it without candidate records.
+    A second import for the same tenant is refused."""
+    root = CollectiveRoot(args.runtime_root)
+    service = open_service(root, None)
+    admin = principal(args.tenant, f"admin-{_seg(args.tenant)}", "admin")
+    out = service.import_baseline(admin, bundle_id=args.bundle_id, version=str(args.version), note=args.note)
+    return {"status": "OK", **out,
+            "next": f"publish-channel --channel <CANARY|RELEASED> --bundle-id {args.bundle_id} --version {args.version}"}
 
 
 def load_device_config(path: Path) -> tuple[dict[str, Any], Path]:
@@ -910,7 +999,10 @@ def device_sync(config_path: Path, *, env: Mapping[str, str] | None = None, clie
     receipt = _path(config.get("object_store", {}).get("preflight_receipt") or f"S3_PREFLIGHT_{_seg(line)}.json")
     store = open_object_store(config.get("object_store"), line_id=SERVICE_LINE, receipt_path=receipt, env=env,
                               client_factory=client_factory)
-    dstore = ds.DeviceStore(base / "COLLECTIVE_DEVICE_STORE.sqlite", tenant_id=tenant, line_id=line)
+    # fleet provisioning names the device (sn-<serial>) so the collector's allow-list can be filled from the
+    # fleet cohort; a store created earlier keeps the id it was minted with
+    dstore = ds.open_configured(base / "COLLECTIVE_DEVICE_STORE.sqlite", tenant_id=tenant, line_id=line,
+                                device_id=config.get("device_id"))
     transport = S3Transport(store, tenant_id=tenant, line_id=line, device_id=dstore.device_id)
     push = sc.SyncClient(dstore, transport).run_once()
     trust = b.load_trust_store(_path(config["trust_store"]))
@@ -1031,6 +1123,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("device-sync", help="push the device outbox to the bucket and pull channel bundles")
     p.add_argument("--config", required=True), p.add_argument("--channel", choices=list(b.CHANNELS))
     p.add_argument("--env-file", help="credentials file outside the repo (AWS_*/S3CTL_* lines)")
+    p = sub.add_parser("import-baseline", help="the tenant's one-time explicit baseline import (manifest baseline: true)")
+    p.add_argument("--runtime-root", required=True), p.add_argument("--tenant", required=True)
+    p.add_argument("--bundle-id", required=True), p.add_argument("--version", required=True)
+    p.add_argument("--note", required=True, help="who approved the baseline and why")
     p = sub.add_parser("register-device", help="allow-list a device id for a line before its batches are collected")
     p.add_argument("--runtime-root", required=True), p.add_argument("--tenant", required=True)
     p.add_argument("--device", required=True), p.add_argument("--line", required=True)
@@ -1053,7 +1149,7 @@ def build_parser() -> argparse.ArgumentParser:
 COMMANDS = {"bootstrap": cmd_bootstrap, "collect": cmd_collect, "publish-channel": cmd_publish_channel,
             "device-sync": cmd_device_sync, "status": cmd_status, "run-cycle": cmd_run_cycle,
             "install-agent": cmd_install_agent, "register-device": cmd_register_device,
-            "install-device-agent": cmd_install_device_agent}
+            "install-device-agent": cmd_install_device_agent, "import-baseline": cmd_import_baseline}
 
 
 def main(argv: list[str] | None = None, *, env: Mapping[str, str] | None = None, client_factory=None, out=None) -> int:
