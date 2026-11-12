@@ -1,20 +1,13 @@
 #!/usr/bin/env python3
-"""Refuse to bill production to the StoryClaw platform account (line owner 2026-11-12).
+"""Which account production bills: fingerprints only, never key values (fleet diagnose).
 
-Video, image and Codex calls bill the separate HopsAPI key the line owner gives at setup
-(``credentials/llm_provider.json`` for Codex, ``HOPSAPI_API_KEY`` for the paid stages).  StoryClaw
-credits only pay for the agent's own setup turns.  On 2026-11-12 the fleet's S6 video was billed to
-the StoryClaw account instead: a 5000-credit grant ran dry in ~7 h and every device's video failed at
-once.  A key that equals any key in the OpenClaw/StoryClaw configuration (``~/.openclaw/**/*.json``)
-is therefore a hard blocker, never a fallback.
+Line owner 2026-11-12 (after checking with the boss): StoryClaw agent turns, Codex, gpt-image and H3 video
+all bill ONE HopsAPI credit pool -- the StoryClaw account; a separate setup key is only an edge case.  So
+nothing here blocks: ``report`` tells a maintainer whether the Codex / video key is the StoryClaw platform
+key or a separate one, so a billing question is answered from facts (2026-11-12 took hours without them).
 
-Keys are compared by SHA-256 only; no value is ever printed.
-
-usage: billing_key_guard.py check-env NAME   exit 0 = own key, 3 = StoryClaw platform key, 2 = unset
-       billing_key_guard.py own-hopsapi-key  prints (for capture only) the setup HopsAPI key to use instead of
-                                             a platform HOPSAPI_API_KEY: the Codex provider key when it is a
-                                             HopsAPI key and not the platform's; exit 3 when there is none
-       billing_key_guard.py report           JSON for fleet diagnose (provenance, never values)
+usage: billing_key_guard.py report           JSON for fleet diagnose (provenance, never values)
+       billing_key_guard.py check-env NAME   exit 0 = separate key, 3 = StoryClaw platform key, 2 = unset
 """
 from __future__ import annotations
 
@@ -29,7 +22,7 @@ from typing import Any, Iterable
 KEY_FIELD = re.compile(r"^(api_?key|apikey|key|token|access_?token|secret)$", re.I)
 MAX_FILE_BYTES = 2_000_000
 SKIP_DIRS = {"shared", "workspace", "workspaces", "sessions", "logs", "media", "node_modules", "cache"}
-BLOCKER = "HOPSAPI_KEY_IS_STORYCLAW_BILLING"
+BLOCKER = "STORYCLAW_PLATFORM_KEY"  # check-env status for a platform key (informational)
 
 
 def digest(value: str) -> str:
@@ -118,17 +111,6 @@ def main(argv: list[str]) -> int:
             return 3
         print(json.dumps({"status": "OWN_KEY", "name": argv[1]}))
         return 0
-    if argv == ["own-hopsapi-key"]:
-        runtime = Path(os.environ.get("NALU_RUNTIME_ROOT") or Path.home() / "nalu_runtime").expanduser()
-        try:
-            p = json.loads((runtime / "credentials" / "llm_provider.json").read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return 3
-        key = str(p.get("api_key") or "").strip()
-        if key and "hopsapi" in str(p.get("base_url") or "").lower() and not is_platform_key(key):
-            sys.stdout.write(key)
-            return 0
-        return 3
     if argv == ["report"]:
         print(json.dumps(report(), ensure_ascii=False))
         return 0
