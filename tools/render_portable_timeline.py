@@ -66,6 +66,40 @@ def _audio_seconds(path: Path) -> float:
     return 0.0
 
 
+#: Fill-and-crop instead of letterbox when a clip is this close to the output's aspect (line owner 2026-11-12:
+#: MiniMax-H3 768p is 768x1344, so fit+pad left a 10 px black band top and bottom of every published episode).
+#: Clips further off (landscape title cards, stills) keep fit+pad so nothing important is cropped away.
+FILL_CROP_ASPECT_TOLERANCE = 0.05
+
+
+def _video_aspect(path: Path) -> float | None:
+    """width / height of the first video stream (display aspect, rotation ignored), or None if unknown."""
+    ffprobe = os.environ.get("FFPROBE_BIN") or shutil.which("ffprobe") or "ffprobe"
+    try:
+        run = subprocess.run([ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries",
+                              "stream=width,height", "-of", "json", str(path)],
+                             capture_output=True, text=True, timeout=30)
+        stream = (json.loads(run.stdout or "{}").get("streams") or [{}])[0]
+        width, height = int(stream.get("width") or 0), int(stream.get("height") or 0)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    return width / height if width > 0 and height > 0 else None
+
+
+def _fit_filter(path: Path, width: int, height: int, cache: dict[str, float | None]) -> str:
+    """Scale step for one clip: fill+centre-crop when its aspect is within FILL_CROP_ASPECT_TOLERANCE of the
+    output, else fit+black pad (also when the aspect cannot be read)."""
+    key = str(path)
+    if key not in cache:
+        cache[key] = _video_aspect(path)
+    aspect, target = cache[key], width / height
+    if aspect is not None and abs(aspect - target) / target <= FILL_CROP_ASPECT_TOLERANCE:
+        return (f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+                f"crop={width}:{height}:(iw-ow)/2:(ih-oh)/2")
+    return (f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black")
+
+
 def _crossfade_audio_filters(audio_rows: list[dict], audios: list[dict], seconds: float, sample_rate: int
                              ) -> list[str]:
     """CAMERA_GRAMMAR_V1 (metadata.audio_cut_crossfade): equal-power crossfade at every cut from the clips' own
@@ -149,6 +183,7 @@ def build_ffmpeg_command(project_path: Path, output_override: Path | None = None
     crossfade = (project.get("metadata") or {}).get("audio_cut_crossfade") or {}
     crossfade_seconds = _number(crossfade.get("seconds", 0), "metadata.audio_cut_crossfade.seconds") if crossfade else 0.0
     audio_rows: list[dict] = []
+    aspect_cache: dict[str, float | None] = {}
     if output_path == project_path:
         raise ValueError("output must not overwrite the timeline project")
 
@@ -190,8 +225,8 @@ def build_ffmpeg_command(project_path: Path, output_override: Path | None = None
                  if crossfade_seconds > 0 else "")
         filters.append(
             f"[{v_index}:v:0]trim=start={v_in:.6f}:duration={duration:.6f},"
-            f"setpts=PTS-STARTPTS,scale={width}:{height}:force_original_aspect_ratio=decrease,"
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,fps={fps:g},format=yuv420p{exact}[v{index}]"
+            f"setpts=PTS-STARTPTS,{_fit_filter(video_path, width, height, aspect_cache)},"
+            f"fps={fps:g},format=yuv420p{exact}[v{index}]"
         )
         if crossfade_seconds > 0:
             audio_rows.append({"input": a_index, "path": audio_path, "in": a_in, "volume": volume,

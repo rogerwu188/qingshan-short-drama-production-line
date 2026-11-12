@@ -6165,7 +6165,7 @@
     },
     {
       "path": "tools/render_portable_timeline.py",
-      "sha256": "b8de9c8bf68e4bd9276a0d4ed798f169d8ce04c72fbfab1f07f95b8ebdd042a1"
+      "sha256": "4804d15ae7a2741a78dfdf2cad12b03d2a950c8f28d09f06f4b5e4d3e7e44866"
     },
     {
       "path": "tools/render_qa_e40_u05_v4_local_authority.py",
