@@ -161,6 +161,11 @@ def build(grouping: dict[str, Any], editorial: dict[str, Any], keyframe_dir: Pat
         withheld = unit.get("withheld_previous_unit_final_frame") or {}
         if withheld and not previous_final and (boundary_class == "HARD_CONTINUATION" or tail_rejected):
             previous_final = withheld
+            # a hard continuation whose bound take opened on an older predecessor tail (the predecessor was redone
+            # afterwards) keeps opening on the image it was actually submitted with (fleet 1101 E04 VU-020)
+            submitted = withheld.get("as_submitted_start_frame") or {}
+            if boundary_class == "HARD_CONTINUATION" and submitted.get("path") and submitted.get("sha256"):
+                previous_final = {**withheld, "path": submitted["path"], "sha256": submitted["sha256"]}
         if boundary_class == "NEW_EVENT_ANCHOR":
             opening_key = anchor_shots[0]
             opening_path = str(paths[0])
