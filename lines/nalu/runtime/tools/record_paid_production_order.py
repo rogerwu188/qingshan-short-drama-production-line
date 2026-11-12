@@ -175,7 +175,8 @@ def main() -> int:
              "text": f"Budget cap {a.cap} credits per episode; the offline ledger guard stops any paid step that would exceed {a.cap}."},
             {"id": VIDEO_MODEL_CONDITIONS[video_model], "severity": "HARD_STOP",
              "text": (f"Video generation uses {SD2} only; no fast/mini substitutes." if video_model == SD2
-                      else f"Video generation uses {H3} only (768p); no seedance substitutes.")},
+                      else f"Video generation uses {H3} only (provider-native 480p/768p, fixed per episode); "
+                         "no seedance substitutes.")},
             {"id": "RIGHTS_BASIS_DECLARED", "severity": "AUTHORIZATION",
              "text": "Rights basis declared by the line owner (verbatim in decision.rights_basis); the engine records it and does not verify it."},
             {"id": "NO_PLATFORM_PUBLICATION", "severity": "HARD_STOP",

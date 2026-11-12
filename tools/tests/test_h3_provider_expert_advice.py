@@ -475,7 +475,8 @@ class Q2AutoRedoTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             tmp = Path(d)
             ctx, checks = self._ctx(tmp, {"episode": "E04", "camera_grammar_policy": "CAMERA_GRAMMAR_V1"})
-            with mock.patch.object(npl, "episode_video_model", lambda _e: "MiniMax-H3"):
+            with mock.patch.object(npl, "episode_video_model", lambda _e: "MiniMax-H3"), \
+                    mock.patch.object(npl, "episode_video_resolution", lambda _e: "768p"):
                 first = npl.s6_q2_auto_redo(ctx)
                 self.assertEqual(first["status"], "PARKED_FOR_REDO")
                 self.assertEqual(first["selected"][0]["cost"], 5 * 14 + 6 + 11)
@@ -498,7 +499,8 @@ class Q2AutoRedoTest(unittest.TestCase):
             parked = tmp / "video" / "_superseded_20261109T064312Z_visible_plot_redo"
             parked.mkdir(parents=True)
             (parked / "E04-VU-001.mp4").write_bytes(b"old")
-            with mock.patch.object(npl, "episode_video_model", lambda _e: "MiniMax-H3"):
+            with mock.patch.object(npl, "episode_video_model", lambda _e: "MiniMax-H3"), \
+                    mock.patch.object(npl, "episode_video_resolution", lambda _e: "768p"):
                 out = npl.s6_q2_auto_redo(ctx)
             self.assertEqual(out["status"], "NONE_SELECTED")
             self.assertEqual(out["skipped"][0]["reason"], "ALREADY_REDONE_ONCE")

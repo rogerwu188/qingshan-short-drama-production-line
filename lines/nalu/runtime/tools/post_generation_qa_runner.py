@@ -250,6 +250,36 @@ DURATION_TOLERANCE_SECONDS = 0.35
 #: came back 4.459 s, all FAIL at +-0.35 s, and the failed-unit redesign has no paid route).  For an H3 raster
 #: (768-wide portrait) an overrun up to this much is accepted; an underrun keeps the normal tolerance.
 H3_DURATION_OVERRUN_SECONDS = 0.6
+#: MiniMax-H3 native rasters per resolution (owner 2026-11-12: 480p from each device's next episode).
+#: 768p was delivered as 768x1344 (E02, 2026-10-14); older builders assumed 768x1366.  No source states the
+#: exact 480p raster, so 480p is accepted as a portrait frame whose short edge is 480 +- this tolerance and
+#: whose height/width is 9:16-ish (the 768p deliveries span 1.75..1.78); the observed raster is recorded.
+H3_SHORT_EDGE_TOLERANCE_PX = 16
+H3_PORTRAIT_RATIO_RANGE = (1.70, 1.80)
+
+
+def h3_native_raster(width: int, height: int, resolution: str | None = None) -> bool:
+    """True for MiniMax-H3's native output at ``resolution`` (``None``: either 480p or 768p)."""
+    if resolution not in (None, "480p", "768p"):
+        return False
+    if resolution in (None, "768p") and width == 768 and 1336 <= height <= 1374:
+        return True
+    if resolution in (None, "480p") and width > 0 and abs(width - 480) <= H3_SHORT_EDGE_TOLERANCE_PX:
+        low, high = H3_PORTRAIT_RATIO_RANGE
+        return low <= height / width <= high
+    return False
+
+
+def episode_h3_resolution(episode: str) -> str | None:
+    """The episode's fixed H3 resolution (nalu_video_model); None for SD2 or when it cannot be resolved
+    (the lock/selection gates own that failure -- QA then accepts either H3 raster as before)."""
+    try:
+        import nalu_video_model as _vm
+        if _vm.episode_video_model(episode) != _vm.H3:
+            return None
+        return _vm.episode_video_resolution(episode)
+    except Exception:  # noqa: BLE001 - measuring never depends on the selection being healthy
+        return None
 AV_SYNC_TOLERANCE_SECONDS = 0.25
 #: bounded per-unit parallelism for the FREE measurers (ffmpeg/ffprobe subprocesses, the
 #: faster-whisper gate subprocess, the contact sheet).  Every unit's work is independent and
@@ -353,7 +383,8 @@ def pacing_policy(episode: str) -> dict[str, Any]:
 def technical_checks(unit_id: str, media: Path, planned_duration: float | None,
                      out_dir: Path, designed_shot_count: int = 1,
                      pacing: dict[str, Any] | None = None,
-                     asr_segments: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+                     asr_segments: list[dict[str, Any]] | None = None,
+                     h3_resolution: str | None = None) -> dict[str, Any]:
     """The 12 allowed technical checks, each from a real measurement.
 
     asr_segments — the unit's measured speech segments (dialogue_check runs FIRST in measure()
@@ -395,7 +426,8 @@ def technical_checks(unit_id: str, media: Path, planned_duration: float | None,
                planned_seconds=None, note="no planned duration declared for this unit")
     else:
         delta = abs(duration - float(planned_duration))
-        h3_raster = bool(video) and int(video.get("width") or 0) == 768 and 1336 <= int(video.get("height") or 0) <= 1374
+        h3_raster = bool(video) and h3_native_raster(int(video.get("width") or 0), int(video.get("height") or 0),
+                                                     h3_resolution)
         over = duration - float(planned_duration)
         ok = delta <= DURATION_TOLERANCE_SECONDS or (h3_raster and 0 < over <= H3_DURATION_OVERRUN_SECONDS)
         record("duration", "PASS" if ok else "FAIL",
@@ -408,11 +440,18 @@ def technical_checks(unit_id: str, media: Path, planned_duration: float | None,
     height = int(video.get("height") or 0) if video else 0
     # native unit rasters: seedance-2.0-pro 720p = 720x1280; MiniMax-H3 768p was delivered as 768x1344 on
     # the first H3 episode (E02, 2026-10-14) — the engine's earlier H3 builders assumed 768x1366, so any
-    # 768-wide portrait frame between the two is accepted.  The final cut is rescaled to TARGET either way.
-    h3_native = width == 768 and 1336 <= height <= 1374
+    # 768-wide portrait frame between the two is accepted; MiniMax-H3 480p (owner 2026-11-12, new episodes)
+    # is a 9:16 portrait with a 480 short edge (h3_native_raster).  Only the episode's own H3 resolution is
+    # accepted when it is known.  The final cut is rescaled to TARGET either way.
+    h3_native = h3_native_raster(width, height, h3_resolution)
     native_ok = (width, height) == (TARGET["width"], TARGET["height"]) or h3_native
+    h3_expected = {"768p": "768x1344..1366", "480p": "480(+-16)x(1.70..1.80 x width)"}
     record("resolution", "PASS" if native_ok else "FAIL", measured=f"{width}x{height}",
-           expected=f"{TARGET['width']}x{TARGET['height']} (SD2) or 768x1344..1366 (MiniMax-H3)")
+           expected=(f"{TARGET['width']}x{TARGET['height']} (SD2) or "
+                     + (f"{h3_expected[h3_resolution]} (MiniMax-H3 {h3_resolution})" if h3_resolution in h3_expected
+                        else "768x1344..1366 / 480p 9:16 (MiniMax-H3)")),
+           **({"h3_resolution": h3_resolution} if h3_resolution else {}),
+           **({"observed_native_raster": f"{width}x{height}"} if h3_native else {}))
     ratio = (width / height) if height else 0.0
     expected_ratio = TARGET["width"] / TARGET["height"]
     record("aspect_ratio", "PASS" if abs(ratio - expected_ratio) < 0.01 or h3_native else "FAIL",
@@ -1076,6 +1115,7 @@ def run(episode: str, *, review_path: Path | None = None,
     wanted = [uid for uid in sorted(plot_items) if not units or uid in set(units)]
 
     scope = run_scope_gate(episode, p.postgen_dir / f"{episode}_POST_GENERATION_QA_SCOPE.json")
+    h3_resolution = episode_h3_resolution(episode)
 
     import unit_voice_consistency as _uvc
     voice_check_active = _uvc.active_for(episode)
@@ -1119,7 +1159,8 @@ def run(episode: str, *, review_path: Path | None = None,
                                      expectations.get("duration_seconds"), out_dir,
                                      designed_shot_count=len(expectations.get("editorial_shot_ids") or []) or 1,
                                      pacing=pacing_policy(episode),
-                                     asr_segments=dialogue.get("segments") or None)
+                                     asr_segments=dialogue.get("segments") or None,
+                                     h3_resolution=h3_resolution)
         sheet = contact_sheet(unit_id, media, out_dir)
         # SUPERVISOR_ORDERS seq=29 规则 6: realised cps from the SAME ASR segments vs the director's
         # per-shot target — MINOR is recorded, BLOCKER joins the reroll flow (no new capture, no new gate).
@@ -1545,10 +1586,11 @@ def main() -> int:
             engine_module("run_regression_ci")   # import once, before the pool
         except Exception:  # noqa: BLE001
             pass
+        h3_resolution = episode_h3_resolution(args.episode)
         measured = parallel_map(lambda unit_id: technical_checks(
             unit_id, unit_media(args.episode, unit_id),
             units[unit_id]["expectations"].get("duration_seconds"),
-            p.postgen_dir / unit_id), wanted)
+            p.postgen_dir / unit_id, h3_resolution=h3_resolution), wanted)
         out = [{"unit_id": unit_id, **measured[unit_id]} for unit_id in wanted]
         print(json.dumps({"units": [{"unit_id": row["unit_id"], "status": row["status"],
                                      "failures": row["failures"][:6]} for row in out]},

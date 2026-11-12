@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2432,
+  "file_count": 2433,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -473,7 +473,7 @@
     },
     {
       "path": "lines/nalu/docs/DEPLOY_NEW_MACHINE.md",
-      "sha256": "c96da6eb5a8a99190fff0db712b1f320f26cf66d9160935db4a3474e83c19dfb"
+      "sha256": "00ba837a2048031567282d90f78924a868754761527647942f7e498227582019"
     },
     {
       "path": "lines/nalu/docs/PIPELINE_RUNBOOK.md",
@@ -673,7 +673,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "08649a1095fc61bf2177ecd58e22500eb88c14e915d1479ffb46229d284b4383"
+      "sha256": "4a0bf6fcd2ed38fe51edf46b2ed91f905ee3508191a1255f371f31c99885f1e1"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -749,7 +749,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/materialize_paid_authorization.py",
-      "sha256": "38694009e34bb95fa78c0628df07003035df03b27cc6de2b7f525721e9a54050"
+      "sha256": "c3d3b929c7bea3f3298f1d5915c1393414ce15586bbe7ef036878e97f9a1de81"
     },
     {
       "path": "lines/nalu/runtime/tools/migrate_legacy_voice_registry.py",
@@ -761,7 +761,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_budget_ledger.py",
-      "sha256": "03d1a2e943def4e386773a207de573a95fc903100097a027c58c4803a13d4bc5"
+      "sha256": "b4842893c6ace778dd9366a02c2e6266f09d33d4b700045ee467559b8e67d5bd"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_media_tools.py",
@@ -777,7 +777,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "fc1daafc59dcda99b8d3b49ec92ffaf7d4e879b7666626eff0cba9d73d6b9c8e"
+      "sha256": "c6028e888b1f4ca906eb54ffda8b6a7b39075d60c13daf54b00857aa3e63e6bb"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -805,7 +805,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_video_model.py",
-      "sha256": "beaf08b7143cb93c82e7cf3441326a5944b648041981e0e9d7b54730147e2f59"
+      "sha256": "c5f839c37f230cf315a7fd62cd2d71081870d6ba8c62d72ada9818a33996d81d"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_writer_selfcheck_seq29.py",
@@ -821,7 +821,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/post_generation_qa_runner.py",
-      "sha256": "8dc94d9542b2fcae57ab48d2bfd6d776627c65a0c4399cd5e65165a2d797eef2"
+      "sha256": "778c73984c0d66de4441ff7aee7aa686c8d957b31ce78de263992026d2ac0e9a"
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_finalize.py",
@@ -845,7 +845,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/record_paid_production_order.py",
-      "sha256": "58ddd065bd457347947be87838bdac06a346e671a99cc7d515ef9ceaa89edcdb"
+      "sha256": "594b26f249a6fd64fc990597b18c5403649961b36e1a96987d62d8c14d277162"
     },
     {
       "path": "lines/nalu/runtime/tools/record_supervisor_order.py",
@@ -4045,7 +4045,7 @@
     },
     {
       "path": "tools/compile_grouped_seedance_manifest.py",
-      "sha256": "4682627f3fdb97188cdee6f26c138d2c29b3e32beca28fd0b8f636eb44040a93"
+      "sha256": "e0e1a139c16ff8fbd18d2711ee7e576ca01b5e84618e13c5fcb1e1396c0d9c7c"
     },
     {
       "path": "tools/compile_grouped_seedance_transaction_manifest.py",
@@ -5289,7 +5289,7 @@
     },
     {
       "path": "tools/hopsapi_video_client.py",
-      "sha256": "c4e48c666d8c9c4d54db28fd04e4b57e6f298c4b95461cab29ec04f03c362155"
+      "sha256": "ed539d7ca49b372ae74d698adf46693605951b31c26fa0312bba669a8c3e7edc"
     },
     {
       "path": "tools/hotfix_e16_expression_arcs.py",
@@ -6817,7 +6817,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "506314dcbfcd752961d68dc8c3931288fb4fffaf25d5b714f9d25213694119c9"
+      "sha256": "f1d283ad08d9138533b6331d0c8fee829f1253fbd514123c9b83da638a4ba566"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -8001,7 +8001,7 @@
     },
     {
       "path": "tools/tests/test_h3_provider_expert_advice.py",
-      "sha256": "6c35daab52ae99d1971cd4e904a85772ee74643e52d96973a99501d612382e23"
+      "sha256": "a385364e8b042da6b138bc893c2cb98ccef24dfa1da549ed7bc093f61981cf9d"
     },
     {
       "path": "tools/tests/test_h3_quoted_cjk_inside_dialogue.py",
@@ -8304,8 +8304,12 @@
       "sha256": "01c60d2150c6555f95e4d9606762b02721d66b9e9f54cc59f564e35924bc29cf"
     },
     {
+      "path": "tools/tests/test_nalu_h3_resolution.py",
+      "sha256": "a2cf9e605d919daaed50ccb6ece3029748254b6147f9fc210bc35c8f3d168a95"
+    },
+    {
       "path": "tools/tests/test_nalu_h3_video_model.py",
-      "sha256": "dca22f41d7b2f7d05683385b082f08b645626cf0a096ad01648f7ccf74c4a01a"
+      "sha256": "2cb222a72dc8adb8ccd353b1cba9dbf1d5ccb6dd1cee11a3a87da78b7d1a9ed2"
     },
     {
       "path": "tools/tests/test_nalu_identity_chain_fixes.py",
@@ -8593,7 +8597,7 @@
     },
     {
       "path": "tools/tests/test_prompt_scope_conflict_gate.py",
-      "sha256": "3915eb2214d9394b192117065a43a65c50a7d246a9ee68bb0770d640965e9b91"
+      "sha256": "e3bebbd8f7c47029ee04f7374f1de5020ac03000387347eed7cca5a2dc1816c6"
     },
     {
       "path": "tools/tests/test_prompt_test_migration_map.py",
@@ -8637,7 +8641,7 @@
     },
     {
       "path": "tools/tests/test_q2_push_in_redo.py",
-      "sha256": "ea736036c196394ac453808388d030e934702b8f6b52148afc51f2f2fbbeff0f"
+      "sha256": "3a507fb387cee452be60a2e0e1789280c0f4f5c6c7b9b02b9d04d1558ead971d"
     },
     {
       "path": "tools/tests/test_qa_bgm_vocal_confidence.py",

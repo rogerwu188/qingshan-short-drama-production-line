@@ -48,6 +48,8 @@ cp configs/pipeline.example.json "$NALU_RUNTIME_ROOT/qingshan.json"   # 锁文�
 
 同一文件必须显式写 `generation.video_model`（`"MiniMax-H3"` 或 `"seedance-2.0-pro"`）。没有默认值（K145）：缺失、空值或未知模型时新集的 S2 直接报错、不写本集模型锁；首次 S2 后模型锁在 `preproduction/<EP>/video_model.json`，之后改配置不会改已开工的集。设置模型不等于开启付费。
 
+可选 `generation.h3_resolution`（`"480p"` 或 `"768p"`，缺省 = 引擎默认 `"480p"`，线主 2026-11-12）：MiniMax-H3 的出片分辨率，和模型一起在首次 S2 写进本集锁（`resolution` 字段），之后不再变；已开工、锁里没有分辨率的集保持 `768p`。写了却非法（空串、未知值）时新集 S2 直接报错。
+
 ## 3. 运行时根目录（状态与素材，放在仓库之外）
 
 ```bash

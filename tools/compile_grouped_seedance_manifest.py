@@ -150,7 +150,8 @@ NATIVE_VIDEO_MODEL_RESOLUTIONS = {
     # (480p is intentionally not a production target).  Higher delivery
     # rasters must be produced by the release upscaler, never mislabeled here.
     "seedance-2.0-pro": {"720p"},
-    "MiniMax-H3": {"768p"},
+    # H3: 480p or 768p, fixed per episode by lines/nalu/runtime/tools/nalu_video_model.py (owner 2026-11-12)
+    "MiniMax-H3": {"480p", "768p"},
 }
 
 
