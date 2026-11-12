@@ -164,22 +164,6 @@ if [ "$IMAGE_PROVIDER" = "hopsapi" ] && [ "$REACHES_IMAGES" = 1 ]; then
   [ -n "${HOPSAPI_API_KEY:-}" ] || die "HOPSAPI_API_KEY is unset but the image provider is hopsapi; S3/S5 would fail after the gate passed"
 fi
 echo "paid_stage: video provider $VIDEO_PROVIDER, image provider $IMAGE_PROVIDER"
-# Line owner 2026-11-12: video / image bill the separate HopsAPI key given at setup, never the StoryClaw
-# platform account (whose key sits in ~/.openclaw).  Compared by SHA-256 only; never echoed.
-if [ -n "${HOPSAPI_API_KEY:-}" ] && { [ "$VIDEO_PROVIDER" = "hopsapi" ] || [ "$IMAGE_PROVIDER" = "hopsapi" ]; }; then
-  GUARD="$ENGINE_ROOT/skills/nalu-claude-code/scripts/billing_key_guard.py"
-  if [ -f "$GUARD" ] && ! "$VENV" "$GUARD" check-env HOPSAPI_API_KEY >/dev/null; then
-    # The setup HopsAPI key is also Codex's provider key (owner 2026-11-05): use it when it is not the platform's.
-    OWN_KEY="$("$VENV" "$GUARD" own-hopsapi-key 2>/dev/null)" || OWN_KEY=""
-    if [ -n "$OWN_KEY" ]; then
-      HOPSAPI_API_KEY="$OWN_KEY"; export HOPSAPI_API_KEY; unset OWN_KEY
-      echo "paid_stage: HOPSAPI_API_KEY in $ENV_FILE is the StoryClaw platform key; using the setup HopsAPI key (Codex provider) instead" >&2
-    fi
-  fi
-  if [ -f "$GUARD" ] && ! "$VENV" "$GUARD" check-env HOPSAPI_API_KEY >/dev/null; then
-    die "HOPSAPI_KEY_IS_STORYCLAW_BILLING: HOPSAPI_API_KEY is the StoryClaw platform key; video/image must bill the separate HopsAPI key from setup (write it to $ENV_FILE as HOPSAPI_API_KEY). Maintainer action, do not work around"
-  fi
-fi
 
 export PYTHONPATH="$ENGINE_ROOT:$ENGINE_ROOT/lines/nalu/runtime/tools${PYTHONPATH:+:$PYTHONPATH}"
 export QINGSHAN_VOICE_REGISTRY="${QINGSHAN_VOICE_REGISTRY:-$NALU_RUNTIME_ROOT/runtime/voice_registry.json}"

@@ -1,8 +1,7 @@
-"""Line owner 2026-11-12: production never bills the StoryClaw platform account.
+"""billing_key_guard: which account production bills, by fingerprint (never values); informational only.
 
-The fleet's S6 video was billed to the StoryClaw account (5000 credits in ~7 h) until it ran dry and
-every device's video failed at once.  A HopsAPI / Codex key equal to any key in ~/.openclaw is a hard
-blocker (compared by SHA-256, never printed)."""
+Line owner 2026-11-12: StoryClaw, Codex, image and video all bill one HopsAPI pool (the StoryClaw account),
+so a platform key is allowed -- paid stages and Codex launches must NOT refuse it."""
 from __future__ import annotations
 
 import json
@@ -80,35 +79,10 @@ class BillingKeyGuardTest(unittest.TestCase):
         self.assertEqual(self._check_env(OWN).returncode, 0)
         self.assertEqual(self._check_env("").returncode, 2)
 
-    def _own(self, provider: dict) -> subprocess.CompletedProcess:
-        (self.runtime / "credentials/llm_provider.json").write_text(json.dumps(provider))
-        env = {**os.environ, "HOME": str(self.home), "NALU_RUNTIME_ROOT": str(self.runtime)}
-        return subprocess.run([sys.executable, str(SCRIPTS / "billing_key_guard.py"), "own-hopsapi-key"],
-                              capture_output=True, text=True, env=env)
-
-    def test_own_hopsapi_key_falls_back_to_the_setup_codex_key(self):
-        ok = self._own({"base_url": "https://hopsapi.com/v1", "api_key": OWN})
-        self.assertEqual((ok.returncode, ok.stdout), (0, OWN))
-        self.assertEqual(self._own({"base_url": "https://hopsapi.com/v1", "api_key": PLATFORM}).returncode, 3)
-        self.assertEqual(self._own({"base_url": "https://relay.example/v1", "api_key": OWN}).returncode, 3,
-                         "a non-HopsAPI Codex relay key is no video key")
-
-    def test_paid_stage_refuses_the_platform_key(self):
-        text = (ROOT / "lines/nalu/runtime/tools/paid_stage.sh").read_text(encoding="utf-8")
-        self.assertIn("billing_key_guard.py", text)
-        self.assertIn("HOPSAPI_KEY_IS_STORYCLAW_BILLING", text)
-
-    def test_codex_launch_refuses_the_platform_key(self):
+    def test_platform_key_is_never_a_blocker(self):
+        self.assertNotIn("billing_key_guard", (ROOT / "lines/nalu/runtime/tools/paid_stage.sh").read_text(encoding="utf-8"))
         import codex_production as cp
-        with mock.patch.object(cp, "provider", return_value={"api_key": PLATFORM}), \
-             mock.patch.object(Path, "home", return_value=self.home):
-            self.assertTrue(cp.provider_is_storyclaw_billing())
-            out = cp.launch("E01", "prompt", None)
-        self.assertEqual(out, {"status": "BLOCKED", "reason": "CODEX_KEY_IS_STORYCLAW_BILLING"})
-        with mock.patch.object(cp, "provider", return_value={"api_key": OWN}), \
-             mock.patch.object(Path, "home", return_value=self.home):
-            self.assertFalse(cp.provider_is_storyclaw_billing())
-
+        self.assertFalse(hasattr(cp, "provider_is_storyclaw_billing"))
 
 if __name__ == "__main__":
     unittest.main()

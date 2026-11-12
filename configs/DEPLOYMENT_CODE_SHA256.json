@@ -817,7 +817,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/paid_stage.sh",
-      "sha256": "a4d9f6767fde0547099d82385050acea675057f86d8f9a691eb2c97636ec77e9"
+      "sha256": "37a641017c8c6938054f134a9e7d9aca282a66137fa37f9d161b5ebe47a230b0"
     },
     {
       "path": "lines/nalu/runtime/tools/post_generation_qa_runner.py",
@@ -969,7 +969,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/billing_key_guard.py",
-      "sha256": "b17b458fccd4f450212d956a67e843dbd2f733846b0434db1508b08e60b78276"
+      "sha256": "9b1a9339bb7617477cd304876bd4ba7a56b0fb2c1ff044eb0086a6f575d07164"
     },
     {
       "path": "skills/nalu-claude-code/scripts/claude_production.py",
@@ -977,7 +977,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "abd3a4942de78bfc7b5da52c5cd857a4d0580dd93546f649efeda9166d344471"
+      "sha256": "b615e935ee891720051df650b29df1e19c1700c007d8509da8d2ba3623d60678"
     },
     {
       "path": "skills/nalu-claude-code/scripts/configure_claude_code.py",
@@ -7153,7 +7153,7 @@
     },
     {
       "path": "tools/tests/test_billing_key_guard.py",
-      "sha256": "87f08aa864648602e87d2a44567702a27b00101d39734e02c03d285fa4a92614"
+      "sha256": "84f6a157c3659ed19b3c1f8e9a0eaf1e07f32b692464ff8fd697cb0d9516cfa6"
     },
     {
       "path": "tools/tests/test_bind_e17_published_mix_audio.py",
