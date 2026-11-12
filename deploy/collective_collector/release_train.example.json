@@ -1,0 +1,14 @@
+{
+ "bundle_id": "nalu-kb",
+ "line_id": "nalu",
+ "engine_api_versions": ["nalu-engine-api-1"],
+ "models": ["MiniMax-H3"],
+ "min_devices": 3,
+ "min_episodes": 5,
+ "batch_max": 5,
+ "max_active_rules": 40,
+ "canary_hours": 24,
+ "max_canary_hours": 72,
+ "rate_margin": 0.10,
+ "retire_min_applied": 20
+}

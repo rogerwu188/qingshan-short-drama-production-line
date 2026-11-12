@@ -1,0 +1,9 @@
+[Unit]
+Description=NALU collective learning release train, daily 18:00 UTC (10:00 Pacific)
+
+[Timer]
+OnCalendar=*-*-* 18:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -4,6 +4,8 @@
 Answers "is the cloud shared knowledge base (collective learning) actually doing anything on this
 device?" from files alone (see docs/collective_learning/DEPLOYMENT_OPERATIONS.md for the design):
 
+  provisioning  fleet-provisioned config + the fleet tick's detached device-sync (collective_provision.py):
+                provisioning state, last device-sync time/result, channel (CANARY/RELEASED), cached pack.
   local KB      configs/ENGINEERING_KNOWLEDGE_V1.json (static, shipped with the engine) and the
                 per-episode <EP>_KNOWLEDGE_BRIEFING.json written by S1 (line_upgrade_gate preflight).
   collective    opt-in per line by <reports>/COLLECTIVE_LEARNING_CONFIG.json; without it every hook in
@@ -191,9 +193,51 @@ def _mentions_device_sync(path: Path) -> bool:
         return False
 
 
+def provisioning(runtime: Path) -> dict[str, Any]:
+    """Fleet provisioning state (collective_provision.py, series/.collective_provision.json): no secrets in it."""
+    state = _read_json(runtime / "series" / ".collective_provision.json")
+    if not isinstance(state, dict):
+        return {"state_present": False, "provisioned": False}
+    return {"state_present": True, "provisioned": bool(state.get("enabled")),
+            "server_enabled": state.get("server_enabled"), "last_result": state.get("last_result"),
+            "last_fetch_at": state.get("last_fetch_at"), "last_change_at": state.get("last_change_at"),
+            "channel": state.get("channel"), "device_id_set": bool(state.get("device_id")),
+            "sync_last_started_at": state.get("sync_last_started_at"), "sync_last_ok_at": state.get("sync_last_ok_at")}
+
+
+def last_device_sync(reports: Path) -> dict[str, Any]:
+    """The fleet tick's detached device-sync result (collective_logs/device-sync.last.json)."""
+    last = _read_json(reports / "collective_logs" / "device-sync.last.json")
+    if not isinstance(last, dict):
+        return {"present": False}
+    return {"present": True, "status": last.get("status"), "at": last.get("finished_at"), "rc": last.get("rc"),
+            "duration_s": last.get("duration_s"), "push": last.get("push"),
+            "error_code": last.get("error_code") or None,
+            "pulled": [{k: p.get(k) for k in ("channel", "status", "sequence", "fetched")}
+                       for p in last.get("pull") or [] if isinstance(p, dict)],
+            "cache_entries": last.get("cache_entries") or []}
+
+
+def cached_pack(cache: dict[str, Any]) -> str | None:
+    """Newest ``bundle@version`` in the verified cache."""
+    best: tuple[int, str] | None = None
+    for name in cache.get("bundles") or []:
+        bundle, _, version = str(name).rpartition("@")
+        try:
+            key = (int(version), name)
+        except ValueError:
+            continue
+        if best is None or key > best:
+            best = key
+    return best[1] if best else None
+
+
 def sync_agent(reports: Path) -> dict[str, Any]:
-    """Is anything scheduled to run ``s3_sync.py device-sync``?  (Nothing in setup_host installs it.)"""
-    out: dict[str, Any] = {"launchd_plist": False, "crontab": False}
+    """Is anything scheduled to run ``s3_sync.py device-sync``?  The fleet tick (collective_provision.py) on
+    the Linux fleet, or a launchd agent / crontab line on hand-built machines."""
+    out: dict[str, Any] = {"launchd_plist": False, "crontab": False,
+                           "fleet_tick": (reports / "collective_logs" / "device-sync.last.json").is_file()
+                           or (reports / "collective_logs" / "device-sync.runner.log").is_file()}
     agents = Path.home() / "Library" / "LaunchAgents"
     if agents.is_dir():
         out["launchd_plist"] = any(_mentions_device_sync(p) for p in agents.glob("*.plist"))
@@ -333,6 +377,9 @@ def report(engine: Path, runtime: Path, *, episode: str | None = None, network: 
         collective["credentials"] = credentials(config, base, engine)
     collective["store"] = store_stats(reports / STORE_NAME)
     collective["sync_agent"] = sync_agent(reports)
+    collective["provisioning"] = provisioning(runtime)
+    collective["device_sync"] = last_device_sync(reports)
+    collective["cached_pack"] = cached_pack(collective.get("cache") or {})
 
     out: dict[str, Any] = {"schema": SCHEMA, "at": _now(), "episode": episode,
                            "local_kb": local_kb(engine, reports, episode), "collective": collective,
@@ -361,8 +408,10 @@ def verdict(r: dict[str, Any]) -> tuple[str, list[str]]:
             gaps.append("S3_CREDENTIALS_NOT_RESOLVABLE")
         if not c.get("endpoint_host"):
             gaps.append("ENDPOINT_NOT_SET")
-        if not (c["sync_agent"]["launchd_plist"] or c["sync_agent"]["crontab"]):
+        if not (c["sync_agent"]["launchd_plist"] or c["sync_agent"]["crontab"] or c["sync_agent"].get("fleet_tick")):
             gaps.append("NO_DEVICE_SYNC_AGENT")
+        if (c.get("device_sync") or {}).get("present") and c["device_sync"].get("status") != "OK":
+            gaps.append(f"DEVICE_SYNC_{c['device_sync'].get('status')}")
         if not (c.get("cache") or {}).get("entries"):
             gaps.append("BUNDLE_CACHE_EMPTY")
         if not c["device_store_enabled"]:
@@ -390,14 +439,22 @@ def summary(r: dict[str, Any]) -> dict[str, Any]:
     chan = next((v for k, v in rem.items() if k.startswith("channel_")), "-")
     s = {"v": r["verdict"], "ep": r.get("episode"), "cfg": int(c["config_present"]),
          "cred": int(bool((c.get("credentials") or {}).get("resolvable"))),
-         "agent": int(c["sync_agent"]["launchd_plist"] or c["sync_agent"]["crontab"]),
+         "agent": int(c["sync_agent"]["launchd_plist"] or c["sync_agent"]["crontab"]
+                      or bool(c["sync_agent"].get("fleet_tick"))),
+         "prov": (c.get("provisioning") or {}).get("last_result") or "-",
+         "sync": (c.get("device_sync") or {}).get("status") or "-",
+         "ch": c.get("channel") or "-", "pack": c.get("cached_pack") or "-",
          "cache": (c.get("cache") or {}).get("entries", 0), "ev": store.get("events", 0),
          "ob": f"{outbox.get('PENDING', 0)}p/{outbox.get('DELIVERED', 0)}d",
          "lock": run.get("collective_status") or "-", "appl": (run.get("adoption") or {}).get("APPLIED", 0),
          "brief": int(bool((r["local_kb"].get("briefing") or {}).get("present"))),
          "rules": r["local_kb"].get("registry_rules"), "chan": chan}
     text = json.dumps(s, ensure_ascii=False, separators=(",", ":"))
-    return s if len(text) <= 240 else {"v": r["verdict"], "cfg": s["cfg"], "lock": s["lock"], "appl": s["appl"]}
+    if len(text) <= 240:
+        return s
+    short = {k: s[k] for k in ("v", "cfg", "prov", "sync", "ch", "pack", "lock", "appl")}
+    return short if len(json.dumps(short, ensure_ascii=False, separators=(",", ":"))) <= 240 else \
+        {"v": r["verdict"], "cfg": s["cfg"], "lock": s["lock"], "appl": s["appl"]}
 
 
 def main(argv: list[str] | None = None) -> int:

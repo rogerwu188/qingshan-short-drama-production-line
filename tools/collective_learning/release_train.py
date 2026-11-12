@@ -756,10 +756,13 @@ def load_cohort(path: str | None) -> dict[str, str]:
 
 
 def open_train(args: argparse.Namespace) -> Train:
-    from .s3_sync import CollectiveRoot, open_service  # noqa: PLC0415
+    from .s3_sync import CollectiveRoot  # noqa: PLC0415
     root = CollectiveRoot(args.runtime_root)
+    root.dir.mkdir(parents=True, exist_ok=True)
     config = json.loads(Path(args.config).read_text(encoding="utf-8")) if args.config else {}
-    return Train(open_service(root, None), args.tenant, root.dir / "release_train",
+    # before the publisher is bootstrapped there is no trust store: status/clusters still work, shipping refuses
+    service = svc_mod.Service(root.db, trust_store=root.trust() if root.trust_path.is_file() else None)
+    return Train(service, args.tenant, root.dir / "release_train",
                  publisher_key=root.publisher_key if root.key_path.is_file() else None,
                  config=config, cohort=load_cohort(args.cohort))
 
@@ -813,7 +816,7 @@ def main(argv: list[str] | None = None, *, out=None) -> int:
         else:
             result = {"status": "OK", **train.status()}
         _write_status_out(train, args.status_out)
-    except (TrainError, svc_mod.ServiceError, b.BundleError, c.ContractError) as exc:
+    except (TrainError, svc_mod.ServiceError, b.BundleError, c.ContractError, OSError, ValueError) as exc:
         result = {"status": "ERROR", "code": getattr(exc, "code", type(exc).__name__),
                   "detail": getattr(exc, "detail", None) or getattr(exc, "details", None), "error": str(exc)[:300]}
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str), file=out)

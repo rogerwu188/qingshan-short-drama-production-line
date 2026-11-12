@@ -1,0 +1,17 @@
+[Unit]
+Description=NALU collective learning: daily release train (evaluate canary, retire, build pack, review request)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=nalucollect
+Group=nalucollect
+SupplementaryGroups=nalufleet
+UMask=0007
+ExecStart=/opt/nalu-collector/collector_daily.sh
+TimeoutStartSec=1800
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/nalu-collector /var/lib/nalu-fleet/collective
