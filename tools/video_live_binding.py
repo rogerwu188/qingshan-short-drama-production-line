@@ -182,20 +182,27 @@ def zero_cost_retryable(transaction: Path, row: dict[str, Any]) -> bool:
     return zero_cost_terminal_failure(row) and zero_cost_retries_used(transaction) < ZERO_COST_TERMINAL_RETRY_LIMIT
 
 
-def release_zero_cost_terminal(transaction: Path, *, now: str | None = None) -> dict[str, Any] | None:
+def release_zero_cost_terminal(transaction: Path, *, now: str | None = None,
+                               lock_held: bool = False) -> dict[str, Any] | None:
     """Release a zero-cost terminal failure for a new attempt, under the transaction's flock.
 
     The failed take is kept verbatim beside the transaction (``<name>.zero_cost_failed.<task_id>``, not
     ``*.json``, so no store scan mistakes it for a live row) and the transaction itself becomes
     ``VERIFIED_ZERO_RETRYABLE`` -- the settled, zero-credit state every reader already lets a new POST through.
-    Returns the released row, or None when the row is not (or no longer) releasable."""
+    Returns the released row, or None when the row is not (or no longer) releasable.
+
+    ``lock_held``: the caller already holds the transaction's ``.lock`` flock (the submitter's
+    ``submit_one`` does).  flock is per open file, so taking it again here would block on ourselves --
+    fleet 2026-11-12 (296675c): every S6 worker thread deadlocked on its own lock."""
+    import contextlib  # noqa: PLC0415
     import fcntl  # noqa: PLC0415
     transaction = Path(transaction)
     if not transaction.is_file():
         return None
     stamp = now or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    with transaction.with_suffix(".lock").open("a") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    with (contextlib.nullcontext() if lock_held else transaction.with_suffix(".lock").open("a")) as handle:
+        if handle is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
             row = json.loads(transaction.read_text(encoding="utf-8"))
         except (OSError, ValueError):

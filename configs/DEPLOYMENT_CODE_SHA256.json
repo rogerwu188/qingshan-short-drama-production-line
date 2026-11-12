@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2423,
+  "file_count": 2425,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -966,6 +966,10 @@
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
       "sha256": "9ccd602eedc23d1b9c997c2c76c4e0a82812d51fa0af287d3fd12fd5618f1aaa"
+    },
+    {
+      "path": "skills/nalu-claude-code/scripts/billing_key_guard.py",
+      "sha256": "b17b458fccd4f450212d956a67e843dbd2f733846b0434db1508b08e60b78276"
     },
     {
       "path": "skills/nalu-claude-code/scripts/claude_production.py",
@@ -6805,7 +6809,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "0c5f1225fe7c37a713037a1cae585919f29162572840c81ca6358318e9b15fdf"
+      "sha256": "f681eeddbf5bd954e088f155a2c743dca64dd285630eea2c8a9406f885f6e0f9"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -7146,6 +7150,10 @@
     {
       "path": "tools/tests/test_bgm_fit_cues_to_cut.py",
       "sha256": "055cf09b46be68dfa25fb48ea3b51c2087dd41690d7e59470eaff53a933aa632"
+    },
+    {
+      "path": "tools/tests/test_billing_key_guard.py",
+      "sha256": "87f08aa864648602e87d2a44567702a27b00101d39734e02c03d285fa4a92614"
     },
     {
       "path": "tools/tests/test_bind_e17_published_mix_audio.py",
@@ -9229,7 +9237,7 @@
     },
     {
       "path": "tools/tests/test_video_zero_cost_terminal_retry.py",
-      "sha256": "85ba9ff1cb3cc5f0021f40d31b2424138e7ea05dc4f2dcee7730ec23edbcb68c"
+      "sha256": "9ea92ca9ec8081766187485ed0136ffd6dc2498bb5a1462ca0eea33dae34425d"
     },
     {
       "path": "tools/tests/test_visual_culture_contract.py",
@@ -9577,7 +9585,7 @@
     },
     {
       "path": "tools/video_live_binding.py",
-      "sha256": "ce8af1e4a7058c549c024f7f6f594b3722ee670e0a6c9de006b498f269660887"
+      "sha256": "2ae01cc87b57eb227f2a22e8494c83aac13412e9bdb00dfe3bae94509b1adc93"
     },
     {
       "path": "tools/video_model_adapter.py",

@@ -7,8 +7,10 @@ attempt (at most ZERO_COST_TERMINAL_RETRY_LIMIT times), the failed take archived
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import sys
+import threading
 import tempfile
 import unittest
 from pathlib import Path
@@ -89,6 +91,21 @@ class ZeroCostTerminalRetryTest(unittest.TestCase):
         self.assertFalse(zero_cost_retryable(self.path, self._row()))
         self.assertEqual((submitter.prior_bound(self.task, self.store) or {}).get("state"), "remote_running")
         self.assertEqual(self._row()["task_id"], "tsk_dead_last", "past the limit nothing is rewritten")
+
+    def test_release_under_the_submitters_lock_does_not_self_deadlock(self):
+        # fleet 2026-11-12 (296675c): submit_one holds the transaction flock while prior_bound runs
+        self._failed()
+        out = {}
+        def run():
+            with self.path.with_suffix(".lock").open("a") as handle:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                out["prior"] = submitter.prior_bound(self.task, self.store)
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+        worker.join(5)
+        self.assertFalse(worker.is_alive(), "prior_bound deadlocked on the lock its caller holds")
+        self.assertIsNone(out["prior"])
+        self.assertEqual(self._row()["state"], "VERIFIED_ZERO_RETRYABLE")
 
     def test_released_row_is_not_a_live_binding(self):
         self._failed()
