@@ -8,7 +8,8 @@ the tick for long (short timeouts); a machine without network or without the ser
 * identity: the hardware SN (device_sn.py); the device token from first contact lives in
   $NALU_RUNTIME_ROOT/credentials/fleet_token (mode 600) and is never printed.
 * report: episode / stage / state / note, the newest CODE_BLOCKER report text when blocked, local credits,
-  X2C local counts, engine commit, STATUS.md tail.  No keys, no media.
+  X2C local counts, engine commit, STATUS.md tail, and the HopsAPI account balance (GET /v1/account/credits,
+  free, at most every 10 min).  No keys, no media.
 * commands: diagnose (model-free health check) / agent_task (instruction for the StoryClaw agent) /
   resume (hand the message to Codex) / update (scripted: self_update, set up the pin from the updated
   AGENTS.md, resume a stopped episode when the engine moved) / pause / unpause / query.  Nothing else is executed.
@@ -88,6 +89,68 @@ def _newest_blocker(engine: Path, episode: str) -> str:
         return ""
 
 
+CREDITS_CACHE_S = 600
+CREDITS_DEFAULT_BASE = "https://hopsapi.com/v1"
+
+
+def _env_value(path: Path, name: str) -> str:
+    try:
+        m = re.search(rf"^\s*(?:export\s+)?{re.escape(name)}=(.*)$", path.read_text(encoding="utf-8"), re.M)
+    except OSError:
+        return ""
+    return m.group(1).strip().strip("'\"") if m else ""
+
+
+def hopsapi_credits(engine: Path, runtime: Path, *, now: float | None = None) -> dict | None:
+    """The HopsAPI account balance this device bills (line owner 2026-11-12: one credit pool for the whole
+    fleet; when it hits 0 every S6 video fails at zero cost).  ``GET /v1/account/credits`` is free and needs no
+    model; cached for CREDITS_CACHE_S so the 3-minute tick asks at most every 10 minutes.  The key is the one
+    paid_stage.sh uses (engine .env HOPSAPI_API_KEY, else the Codex provider key when it is HopsAPI); it is
+    never printed or reported.  Returns {"credits", "outstanding", "key_remaining", "at"} or {"error", "at"}."""
+    import time  # noqa: PLC0415
+    from datetime import datetime, timezone  # noqa: PLC0415
+    if os.environ.get("NALU_FLEET_URL", "").strip().lower() == "off":
+        return None  # fleet channel disabled: no outbound probe either
+    now = time.time() if now is None else now
+    cache = runtime / "series" / ".hopsapi_credits.json"
+    try:
+        cached = json.loads(cache.read_text(encoding="utf-8"))
+        if now - float(cached.get("_epoch") or 0) < CREDITS_CACHE_S:
+            return {k: v for k, v in cached.items() if not k.startswith("_")}
+    except (OSError, ValueError):
+        pass
+    key = _env_value(engine / ".env", "HOPSAPI_API_KEY")
+    base = _env_value(engine / ".env", "HOPSAPI_BASE_URL") or CREDITS_DEFAULT_BASE
+    if not key:
+        try:
+            p = json.loads((runtime / "credentials" / "llm_provider.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            p = {}
+        if "hopsapi" in str(p.get("base_url") or "").lower():
+            key = str(p.get("api_key") or "").strip()
+    if not key:
+        return None
+    stamp = datetime.fromtimestamp(now, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    req = urllib.request.Request(base.rstrip("/") + "/account/credits",
+                                 headers={"Authorization": "Bearer " + key, "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
+            data = (json.loads(resp.read().decode("utf-8") or "{}") or {}).get("data") or {}
+        limit = data.get("key_limit") or {}
+        out = {"credits": data.get("credits"), "outstanding": data.get("outstanding"),
+               "key_remaining": limit.get("remaining") if isinstance(limit, dict) else None, "at": stamp}
+    except urllib.error.HTTPError as exc:
+        out = {"error": f"HTTP {exc.code}", "at": stamp}
+    except (OSError, ValueError) as exc:
+        out = {"error": type(exc).__name__, "at": stamp}
+    try:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({**out, "_epoch": now}), encoding="utf-8")
+    except OSError:
+        pass
+    return out
+
+
 def build_status(cp: Any, tick_result: dict) -> tuple[dict, str, str]:
     engine, runtime = cp.roots()
     ep = cp.current_episode() or ""
@@ -128,6 +191,10 @@ def build_status(cp: Any, tick_result: dict) -> tuple[dict, str, str]:
         "pipeline": pipeline, "x2c": x2c, "engine_sha": _engine_sha(engine),
         "final_review": (tick_result.get("final_review") or {}).get("status"),
     }
+    try:
+        status["hopsapi_credits"] = hopsapi_credits(engine, runtime)
+    except Exception:  # noqa: BLE001 -- the report never fails on the balance probe
+        status["hopsapi_credits"] = None
     return status, blocker_text, tail
 
 
