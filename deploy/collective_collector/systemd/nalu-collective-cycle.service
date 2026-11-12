@@ -1,0 +1,17 @@
+[Unit]
+Description=NALU collective learning: collector cycle (ingest inbox, reconcile signed pointers)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=nalucollect
+Group=nalucollect
+SupplementaryGroups=nalufleet
+UMask=0007
+ExecStart=/opt/nalu-collector/collector_cycle.sh
+TimeoutStartSec=900
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/nalu-collector /var/lib/nalu-fleet/collective

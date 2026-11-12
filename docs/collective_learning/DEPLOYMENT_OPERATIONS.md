@@ -114,6 +114,29 @@ $S3SYNC install-device-agent --config <reports>/COLLECTIVE_LEARNING_CONFIG.json 
 
 S1 仍只读本地缓存（`line_upgrade_gate.collective_preflight` 回执多一项 `sync_mode`），付费任务前没有任何云端等待；桶不通只意味着事件留在 outbox、设备继续用已锁定的本地包。桶公开读：上传前每个条目过 `sensitive_findings`，命中即 REJECTED 不上传；收集器隔离说明里的异常文本若含敏感片段会被脱敏。
 
+## 3c. 机队开通：fleet 服务器是唯一 collector + publisher（2026-11-12 审计后的批准方案）
+
+**谁发布**：只有 fleet 服务器（Hetzner）上的 collector，用它自己新生成的发布者私钥签指针；设备**永不发布**，只上传事件到 inbox、下载签名包。
+
+**设备端（自动，无人值守）**——`skills/nalu-claude-code/scripts/collective_provision.py`，由 3 分钟系统 tick 经 `fleet_sync.sync` 调用：
+
+- 每 30 分钟 `GET /v1/collective/provision`（设备 token）。服务器开通时写入 `<runtime>/runtime/reports/COLLECTIVE_LEARNING_CONFIG.json`、`collective/trust.json`、`collective/s3.env`（0600，`s3_sync.load_env_file` 格式）与 `collective/bundle_cache/`，字节不变不重写；未开通 / 404 / 连不上 / 响应不合法 → 什么都不动。设备 id = `sn-<序列号>`（仅在新建 DeviceStore 时生效）。
+- 每 15 分钟**脱离 tick** 启动一次 `s3_sync.py device-sync`（锁 `collective_logs/device-sync.lock`，上一次还在跑就跳过，600 s 超时），结果写 `collective_logs/device-sync.last.json`。替代 macOS 专用的 `install-device-agent`。
+- fleet diagnose 的 `knowledge` 字段（`knowledge_status.py`）显示：开通状态、最近一次 device-sync 时间与结果、频道（CANARY/RELEASED）、本地缓存包版本。
+
+**生产事件**（`lines/nalu/runtime/tools/nalu_knowledge_events.py`，经 `knowledge_event_log.record_event`）：S5 Q1 / S6 Q2 / 生成后 QA 每轮一条比率事实 + 每个失败码一条；S7 观众检测器、终审驳回与低分维度、成片门；HopsAPI 424 区分内容风控（同一任务 ≥2 次、期间其他任务成功）与故障（跨任务连续 424、无成功，记为 RUN_ANOMALY，不当经验）。全部去重、尽力而为，`NALU_KNOWLEDGE_EVENTS=off` 关闭。
+
+**服务器端**：`deploy/collective_collector/install_collector.sh --pin <sha>` 装好 collector（用户 nalucollect、venv、systemd 定时器：5 分钟 `collector_cycle.sh` = 登记机队设备 → `run-cycle` → 刷新看板状态；每天 18:00 UTC `collector_daily.sh` = `release_train.py daily`）。上线前（第二阶段，需真实凭证）：
+
+1. `/var/lib/nalu-collector/runtime/collective/env`（0600）放 5 行 S3 变量；
+2. `s3_sync.py bootstrap --runtime-root /var/lib/nalu-collector --tenant nalu --key-id pub-fleet`（新私钥；**覆盖**桶里 `trust.json`，只信任新 key）；
+3. `/etc/nalu-fleet/collective/` 放 `config.json`（tenant/line/object_store/engine_api_version/capabilities，不含密钥）、`trust.json`（第 2 步生成的）、`credentials.env`（设备用的桶凭证），重启 nalu-fleet；
+4. `install_collector.sh --pin <sha> --enable`；`POST /v1/admin/collective/canary {"devices": [...]}` 选灰度机。
+
+**发布列车**（`tools/collective_learning/release_train.py`，只在 collector 上跑）：≥3 台设备或 ≥5 集出现的问题才成为候选 → `export-review` 写评审请求、巡检（Claude）给出 `import-review` 结果（逐条 APPROVE+规则 / REJECT+理由）→ 每天至多一个包、至多 5 条新规则、总数上限 40，先发 CANARY → 24 h 后对比灰度与非灰度设备（Q1 准入率、Q2 通过率、每集重做轮数、每集内容拒单数；以及每条规则在已应用设备上的目标失败复发）：不更差 → 同一规则集重签为下一版本、标签 RELEASED 全量；明显更差 → 吊销该版本（CANARY 指针回退、撤销列表让所有缓存弃用）并记录原因 → 应用 ≥N 次而目标失败未下降的规则退役，下一包剔除。状态写 `/var/lib/nalu-fleet/collective/release_train_status.json`，看板「自动化运维」显示一行。
+
+**闸门**：`S3Channel.publish` 无 `release_gate` 拒签；新增/变更的指针条目逐条从桶里重读签名包、核 sha/摘要/标签，再由 service 核每条规则状态（CANARY 需 CANARY/RELEASED，RELEASED 需 RELEASED）。`baseline: true` 只对 `s3_sync.py import-baseline` 显式导入过的那一个版本生效，每租户一次。
+
 ## 3a. 对象存储（已定：自建 S3，MinIO / JuiceFS Gateway）
 
 线主 2026-10-29 决定：所有生产线统一接入同一个自建 S3；对象存储不再是待授权项。

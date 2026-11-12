@@ -854,7 +854,8 @@ class Service:
                           (principal.tenant_id, bundle_id, version)).fetchone():
                 raise Conflict("a revoked version cannot be released")
             manifest = json.loads(row[0])
-            blockers = self._bundle_rule_blockers(db, principal.tenant_id, manifest, channel)
+            blockers = self._bundle_rule_blockers(db, principal.tenant_id, manifest, channel,
+                                                  bundle_id=bundle_id, version=version)
             if blockers:
                 raise Conflict("bundle contains rules not eligible for this channel", {"blockers": blockers})
             prev = db.execute("SELECT version FROM channels WHERE tenant_id=? AND bundle_id=? AND channel=?",
@@ -873,15 +874,28 @@ class Service:
         return {"bundle_id": bundle_id, "channel": channel, "version": version,
                 "previous_version": prev[0] if prev else None}
 
+    @staticmethod
+    def _baseline_imported(db: sqlite3.Connection, tenant_id: str, bundle_id: str | None,
+                           version: str | None) -> bool:
+        if not bundle_id or version is None:
+            return False
+        return db.execute("SELECT 1 FROM baseline_imports WHERE tenant_id=? AND bundle_id=? AND version=?",
+                          (tenant_id, bundle_id, str(version))).fetchone() is not None
+
     def _bundle_rule_blockers(self, db: sqlite3.Connection, tenant_id: str, manifest: dict[str, Any],
-                              channel: str) -> list[str]:
+                              channel: str, *, bundle_id: str | None = None,
+                              version: str | None = None) -> list[str]:
         """Every rule in a bundle must already hold a state at least as strong as its channel.
 
-        A maintainer-approved baseline bundle (``manifest.baseline``) carries rules
-        that predate the candidate store; it is still publisher-only.
+        Audit 2026-11-12 §5.2: ``manifest.baseline`` alone no longer skips this check.  Only the
+        one bundle version an admin imported with :meth:`import_baseline` (rules that predate the
+        candidate store, approved once per tenant) is exempt; any other bundle carrying the flag
+        is checked rule by rule like every other bundle.
         """
-        if manifest.get("baseline") is True:
+        if manifest.get("baseline") is True and self._baseline_imported(db, tenant_id, bundle_id, version):
             return []
+        if channel not in ("CANARY", "RELEASED"):
+            return [f"CHANNEL_INVALID:{channel}"]
         allowed = {"CANARY": ("CANARY", "RELEASED"), "RELEASED": ("RELEASED",)}[channel]
         blockers = []
         for rule in manifest.get("rules") or []:
@@ -894,6 +908,60 @@ class Service:
             elif isinstance(rule, dict) and rule.get("rule_version") not in (None, rec["revision"]):
                 blockers.append(f"RULE_REVISION_MISMATCH:{rule_id}:{rule.get('rule_version')}!={rec['revision']}")
         return blockers
+
+    def release_blockers(self, tenant_id: str, *, bundle_id: str, version: str, channel: str,
+                         rules: list[Any]) -> list[str]:
+        """Why the signed ``rules`` of ``bundle_id@version`` may not sit behind ``channel`` (empty = may).
+
+        The single check the bucket pointer writer (``s3_sync.S3Channel.publish``) runs before it signs:
+        the service must hold the version, it must not be revoked, and every rule in the SIGNED bundle
+        (not only the manifest the service stored) must hold a state at least as strong as the channel.
+        """
+        db = self._db()
+        row = db.execute("SELECT manifest FROM bundles WHERE tenant_id=? AND bundle_id=? AND version=?",
+                         (tenant_id, bundle_id, str(version))).fetchone()
+        if not row:
+            return [f"BUNDLE_NOT_IN_SERVICE:{bundle_id}@{version}"]
+        if db.execute("SELECT 1 FROM revocations WHERE tenant_id=? AND bundle_id=? AND version=?",
+                      (tenant_id, bundle_id, str(version))).fetchone():
+            return [f"BUNDLE_REVOKED:{bundle_id}@{version}"]
+        manifest = json.loads(row[0])
+        signed = {"rules": [{"rule_id": r.get("rule_id"), "rule_version": r.get("rule_version")}
+                            if isinstance(r, dict) else r for r in (rules or [])]}
+        if manifest.get("baseline") is True:
+            signed["baseline"] = True
+        return self._bundle_rule_blockers(db, tenant_id, signed, channel, bundle_id=bundle_id, version=version)
+
+    @_audited
+    def import_baseline(self, principal: Principal, *, bundle_id: str, version: str, note: str) -> dict[str, Any]:
+        """The one explicit baseline import per tenant (admin only).
+
+        Marks ``bundle_id@version`` -- whose stored manifest must say ``baseline: true`` -- as the
+        tenant's approved baseline, so its rules (which predate the candidate store) may be released
+        without candidate records.  A second import for the same tenant is refused: later rules go
+        through candidate -> VALIDATED -> CANARY -> RELEASED like everything else.
+        """
+        self._require_role(principal, "import_baseline", ("admin",))
+        if not str(note or "").strip():
+            raise PayloadInvalid("note required (who approved the baseline and why)")
+        with self._tx() as db:
+            row = db.execute("SELECT manifest FROM bundles WHERE tenant_id=? AND bundle_id=? AND version=?",
+                             (principal.tenant_id, bundle_id, str(version))).fetchone()
+            if not row:
+                raise NotFound(f"bundle not found: {bundle_id}@{version}")
+            if json.loads(row[0]).get("baseline") is not True:
+                raise PayloadInvalid("bundle manifest is not marked baseline: true")
+            existing = db.execute("SELECT bundle_id, version, at FROM baseline_imports WHERE tenant_id=?",
+                                  (principal.tenant_id,)).fetchone()
+            if existing:
+                raise Conflict("the tenant's one-time baseline import already happened",
+                               {"bundle_id": existing[0], "version": existing[1], "at": existing[2]})
+            now = c.now_iso()
+            db.execute("INSERT INTO baseline_imports(tenant_id, bundle_id, version, actor, note, at) "
+                       "VALUES(?,?,?,?,?,?)", (principal.tenant_id, bundle_id, str(version),
+                                               principal.principal_id, str(note).strip()[:500], now))
+            self._audit(db, principal, "import_baseline", f"{bundle_id}@{version}", "OK", {"note": note})
+        return {"bundle_id": bundle_id, "version": str(version), "baseline_imported_at": now}
 
     @_audited
     def revoke_bundle(self, principal: Principal, *, bundle_id: str, version: str, reason: str) -> dict[str, Any]:

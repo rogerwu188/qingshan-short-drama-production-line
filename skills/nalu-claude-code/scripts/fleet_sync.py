@@ -10,6 +10,9 @@ the tick for long (short timeouts); a machine without network or without the ser
 * report: episode / stage / state / note, the newest CODE_BLOCKER report text when blocked, local credits,
   X2C local counts, engine commit, STATUS.md tail, and the HopsAPI account balance (GET /v1/account/credits,
   free, at most every 10 min).  No keys, no media.
+* collective knowledge base (audit 2026-11-12): ``collective_tick`` fetches this device's collective-learning config
+  from GET /v1/collective/provision (at most every 30 min) and starts a detached ``s3_sync.py device-sync`` (at most
+  every 15 min, skipped while one runs); see collective_provision.py.  Disabled on the server = nothing touched.
 * commands: diagnose (model-free health check) / agent_task (instruction for the StoryClaw agent) /
   resume (hand the message to Codex) / update (scripted: self_update, set up the pin from the updated
   AGENTS.md, resume a stopped episode when the engine moved) / pause / unpause / query.  Nothing else is executed.
@@ -195,6 +198,11 @@ def build_status(cp: Any, tick_result: dict) -> tuple[dict, str, str]:
         status["hopsapi_credits"] = hopsapi_credits(engine, runtime)
     except Exception:  # noqa: BLE001 -- the report never fails on the balance probe
         status["hopsapi_credits"] = None
+    try:
+        import collective_provision  # noqa: PLC0415
+        status["collective"] = collective_provision.report(runtime)
+    except Exception:  # noqa: BLE001
+        status["collective"] = None
     return status, blocker_text, tail
 
 
@@ -419,6 +427,18 @@ def run_command(cp: Any, cmd: dict) -> tuple[bool, dict, dict]:
     return False, {"error": f"COMMAND_NOT_ALLOWED:{ctype}"}, {}
 
 
+def collective_tick(cp: Any, token: str) -> dict:
+    """Provision the collective-learning config from the fleet and start a detached device-sync when due.
+    Never raises, never waits for the sync (collective_provision.py)."""
+    try:
+        import collective_provision  # noqa: PLC0415
+        engine, runtime = cp.roots()
+        return collective_provision.tick(runtime, engine,
+                                         lambda: _req("GET", "/v1/collective/provision", token=token))
+    except Exception as exc:  # noqa: BLE001
+        return {"error": type(exc).__name__}
+
+
 def sync(cp: Any, tick_result: dict) -> dict:
     """Run queued commands, then report.  Returns extra fields for the tick line (never raises)."""
     extra: dict = {}
@@ -443,6 +463,9 @@ def sync(cp: Any, tick_result: dict) -> dict:
             done.append(f"{cmd.get('type')}:{'ok' if ok else 'fail'}")
             if more.get("action") == "AGENT" and tick_result.get("action") != "AGENT":
                 extra.update(more)
+        kb = collective_tick(cp, token)
+        if kb:
+            extra["collective"] = kb
         status, blocker, tail = build_status(cp, {**tick_result, **extra})
         status["device_sn"] = sn
         _req("POST", "/v1/report", {"status": status, "blocker": blocker, "status_tail": tail}, token=token)

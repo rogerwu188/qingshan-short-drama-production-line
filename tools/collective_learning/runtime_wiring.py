@@ -343,13 +343,16 @@ def mirror_event_to_device_store(runtime_root: Path | str, row: dict[str, Any]) 
         run_id = f"{line}.{episode}.{config.get('batch_id') or 'LEGACY'}"
         evidence = dict(row.get("evidence") or {})
         evidence.setdefault("source", {"kind": "knowledge_event_log", "event_id": row.get("event_id")})
-        opportunity = {"applicable_units": max(1, len(unit_ids)), "observed_units": max(1, len(unit_ids))}
+        opportunity = row.get("opportunity") if isinstance(row.get("opportunity"), dict) else \
+            {"applicable_units": max(1, len(unit_ids)), "observed_units": max(1, len(unit_ids))}
+        event_kind = str(row.get("event_kind") or "FAILURE_OBSERVATION")
         findings = c.sensitive_findings({"symptom": row.get("symptom"), "evidence": evidence, "unit_ids": unit_ids})
         if findings:
             return {"status": "REFUSED", "codes": findings[:8]}
-        store = ds.DeviceStore(reports / "COLLECTIVE_DEVICE_STORE.sqlite", tenant_id=tenant, line_id=line)
+        store = ds.open_configured(reports / "COLLECTIVE_DEVICE_STORE.sqlite", tenant_id=tenant, line_id=line,
+                                   device_id=config.get("device_id"))
         event = store.record_observation(
-            run_id=run_id, episode_id=episode, stage=str(row.get("stage") or ""), event_kind="FAILURE_OBSERVATION",
+            run_id=run_id, episode_id=episode, stage=str(row.get("stage") or ""), event_kind=event_kind,
             unit_ids=unit_ids, visibility=str(config.get("event_visibility") or "LINE"),
             detected_by=str(row.get("detected_by") or "UNKNOWN"), symptom=str(row.get("symptom") or ""),
             evidence=evidence, opportunity=opportunity, source_event_id=str(row.get("event_id") or "") or None,

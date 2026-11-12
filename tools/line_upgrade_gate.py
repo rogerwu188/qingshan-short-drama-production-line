@@ -390,8 +390,9 @@ def collective_preflight(line: str, episode: str, runtime_root: Path, engine: Pa
     store_path = None
     selected_receipts: list[str] = []
     if config.get("device_store"):
-        store = device_store.DeviceStore(reports / "COLLECTIVE_DEVICE_STORE.sqlite",
-                                         tenant_id=config["tenant_id"], line_id=config["line_id"])
+        store = device_store.open_configured(reports / "COLLECTIVE_DEVICE_STORE.sqlite",
+                                             tenant_id=config["tenant_id"], line_id=config["line_id"],
+                                             device_id=config.get("device_id"))
         store_path = store.path
         if lock["lock_status"] == "CREATED":
             identity = {"tenant_id": config["tenant_id"], "line_id": config["line_id"],

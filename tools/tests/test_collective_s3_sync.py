@@ -28,6 +28,21 @@ ENV = {osm.ENV_ACCESS_KEY: "k", osm.ENV_SECRET_KEY: "s", "S3CTL_ENDPOINT_URL": "
        "S3CTL_BUCKET": "drama01", "S3CTL_PUBLIC_BASE_URL": "https://cdn.test/drama01"}
 
 
+def advance_rule(svc, tenant: str, rule: dict, to: str) -> dict:
+    """Walk ``rule`` through the candidate states the release gate requires (CANARY or RELEASED)."""
+    rev = s3.principal(tenant, "rev-t", "reviewer")
+    pub = s3.principal(tenant, "pub-t", "publisher")
+    cand = {k: v for k, v in rule.items() if k not in ("rule_id", "rule_version", "validation_scope", "application")}
+    cand.update(candidate_id=rule["rule_id"], revision=rule["rule_version"], status="CANDIDATE")
+    rec = svc.put_candidate(rev, cand, origin_line_id="line-x")
+    rec = svc.transition_candidate(rev, rule["rule_id"], to="VALIDATED", if_match=rec["etag"],
+                                   validation_scope="CROSS_CASE_EFFECT")
+    rec = svc.transition_candidate(pub, rule["rule_id"], to="CANARY", if_match=rec["etag"])
+    if to == "RELEASED":
+        rec = svc.transition_candidate(pub, rule["rule_id"], to="RELEASED", if_match=rec["etag"])
+    return rec
+
+
 class Fixture:
     def __init__(self, tmp: Path):
         self.tmp = tmp
@@ -237,13 +252,15 @@ class ChannelTest(unittest.TestCase):
         self.mirror_key = up["object_mirror"]["key"]
         self.channel = s3.S3Channel(fx.store, tenant_id=TENANT)
         self.channel.publish_trust(fx.trust)
+        advance_rule(fx.svc, TENANT, rule, "CANARY")
+        self.gate = s3.ServiceReleaseGate(fx.svc, TENANT)
         self.caps = {"model": SD2, "stage": "VIDEO_COMPILE", "engine_api_version": API}
 
     def test_publish_then_clean_device_resolves_verified_bundle(self):
         fx = self.fx
         pointer = self.channel.publish("CANARY", bundle_id="directing-dialogue", version="2",
                                        bundle_digest=self.envelope["digest"], payload_sha256=c.sha256_bytes(self.raw),
-                                       key_id="pub-1", private_raw=fx.private)
+                                       key_id="pub-1", private_raw=fx.private, release_gate=self.gate)
         self.assertEqual(pointer["sequence"], 1)
         self.assertEqual(self.mirror_key, "collective/tenant-t/bundles/directing-dialogue/2.json")
         clean = Path(tempfile.mkdtemp())
@@ -270,7 +287,7 @@ class ChannelTest(unittest.TestCase):
         fx = self.fx
         self.channel.publish("CANARY", bundle_id="directing-dialogue", version="2",
                              bundle_digest=self.envelope["digest"], payload_sha256=c.sha256_bytes(self.raw),
-                             key_id="pub-1", private_raw=fx.private)
+                             key_id="pub-1", private_raw=fx.private, release_gate=self.gate)
         key = "collective/tenant-t/channels/canary.json"
         pointer = json.loads(fx.store.get_bytes(key))
         pointer["body"]["bundles"]["directing-dialogue"]["version"] = "3"
@@ -282,7 +299,8 @@ class ChannelTest(unittest.TestCase):
         other_private, other_public = b.generate_keypair()
         bad = self.channel.publish("CANARY", bundle_id="directing-dialogue", version="2",
                                    bundle_digest=self.envelope["digest"], payload_sha256=c.sha256_bytes(self.raw),
-                                   key_id="pub-evil", private_raw=other_private)
+                                   key_id="pub-evil", private_raw=other_private,
+                                   release_gate=self.gate)
         with self.assertRaises(b.BundleError) as ctx:
             self.channel.fetch_into_cache(b.BundleCache(Path(tempfile.mkdtemp()), fx.trust), fx.trust, channel="CANARY")
         self.assertIn("SIGNER_UNKNOWN:pub-evil", ctx.exception.codes)
@@ -290,7 +308,7 @@ class ChannelTest(unittest.TestCase):
         fx.store.put_bytes(self.mirror_key, b'{"schema":"x"}', "application/json")
         self.channel.publish("CANARY", bundle_id="directing-dialogue", version="2",
                              bundle_digest=self.envelope["digest"], payload_sha256=c.sha256_bytes(self.raw),
-                             key_id="pub-1", private_raw=fx.private)
+                             key_id="pub-1", private_raw=fx.private, release_gate=self.gate)
         pull = self.channel.fetch_into_cache(b.BundleCache(Path(tempfile.mkdtemp()), fx.trust), fx.trust, channel="CANARY")
         self.assertEqual(pull["fetched"][0]["status"], "PAYLOAD_SHA_MISMATCH")
 
@@ -401,6 +419,7 @@ class BackgroundCollectorTest(unittest.TestCase):
         bundle = {"schema": c.BUNDLE_SCHEMA, "bundle_id": "directing-dialogue", "version": 3, "created_at": c.now_iso(),
                   "release_channel": "RELEASED", "compat": {"engine_api_versions": [API], "models": [SD2]},
                   "rules": [demo_rule()]}
+        advance_rule(svc, "t1", demo_rule(), "RELEASED")  # the pointer writer's release gate checks rule states
         env_ = b.sign_bundle(bundle, key_id=key_id, private_raw=private)
         raw = json.dumps(env_).encode()
         svc.upload_bundle(pub, {"bundle_id": "directing-dialogue", "version": "3", "digest": c.sha256_bytes(raw),

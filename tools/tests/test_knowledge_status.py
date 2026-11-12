@@ -167,5 +167,49 @@ class KnowledgeStatusTest(unittest.TestCase):
         self.assertTrue(hasattr(fleet_sync, "diagnose"))
 
 
+class FleetProvisionedStatusTest(KnowledgeStatusTest):
+    """Provisioning state, last device-sync, channel and cached pack in the diagnose ``knowledge`` field."""
+
+    def test_provisioned_device_reports_provisioning_sync_channel_and_pack(self):
+        import collective_provision as cprov
+        from tools.collective_learning import bundles as b
+        _, public = b.generate_keypair()
+        body = {"enabled": True, "channel": "CANARY", "device_id": "sn-x1",
+                "config": {"tenant_id": "nalu", "line_id": "nalu", "engine_api_version": "v1",
+                           "object_store": {"endpoint_url": "https://s3api.example.test", "bucket": "b",
+                                            "public_base_url": "https://pub.example.test/b"}},
+                "trust": b.make_trust_store({"pub": {"public_key_b64": public, "status": "ACTIVE",
+                                                     "roles": [b.KNOWLEDGE_PUBLISHER]}}),
+                "credentials": {"AWS_ACCESS_KEY_ID": ACCESS, "AWS_SECRET_ACCESS_KEY": SECRET}}
+        self.assertEqual(cprov.provision(self.runtime, lambda: (200, body), force=True)["status"], "PROVISIONED")
+        cache = self.reports / "collective" / "bundle_cache"
+        (cache / "index.json").write_text(json.dumps({"entries": [
+            {"bundle_id": "nalu-kb", "version": v, "digest": str(v) * 64, "release_channel": "CANARY",
+             "admitted_at": "2026-11-12T01:00:00+00:00", "source": "s3:x"} for v in (2, 3)]}))
+        logs = self.reports / "collective_logs"
+        logs.mkdir()
+        (logs / "device-sync.last.json").write_text(json.dumps({
+            "status": "OK", "finished_at": "2026-11-12T04:00:00Z", "rc": 0, "push": {"delivered": 3},
+            "pull": [{"channel": "CANARY", "status": "OK", "sequence": 7, "fetched": 1}],
+            "cache_entries": ["nalu-kb@3:CANARY"]}))
+        r = ks.report(self.engine, self.runtime, network=False)
+        c = r["collective"]
+        self.assertEqual((c["provisioning"]["provisioned"], c["provisioning"]["last_result"],
+                          c["provisioning"]["channel"]), (True, "OK", "CANARY"))
+        self.assertEqual((c["device_sync"]["status"], c["device_sync"]["at"]), ("OK", "2026-11-12T04:00:00Z"))
+        self.assertEqual((c["channel"], c["cached_pack"]), ("CANARY", "nalu-kb@3"))
+        self.assertTrue(c["sync_agent"]["fleet_tick"])
+        self.assertNotIn("NO_DEVICE_SYNC_AGENT", r["gaps"])
+        self.assertTrue(c["credentials"]["resolvable"])
+        s = ks.summary(r)
+        self.assertEqual((s["prov"], s["sync"], s["ch"], s["pack"]), ("OK", "OK", "CANARY", "nalu-kb@3"))
+        dump = json.dumps(r) + json.dumps(s)
+        self.assertNotIn(SECRET, dump)
+        self.assertNotIn(ACCESS, dump)
+        # a failing sync is a named gap
+        (logs / "device-sync.last.json").write_text(json.dumps({"status": "TIMEOUT"}))
+        self.assertIn("DEVICE_SYNC_TIMEOUT", ks.report(self.engine, self.runtime, network=False)["gaps"])
+
+
 if __name__ == "__main__":
     unittest.main()

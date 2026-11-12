@@ -39,6 +39,8 @@ fed by a candidate a human/agent authors from one or more ATTRIBUTED events here
 """
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import hashlib
 import json
 import re
@@ -54,6 +56,9 @@ STATUS_ATTRIBUTED = "ATTRIBUTED"
 STATUS_INCONCLUSIVE = "INCONCLUSIVE"
 ATTRIBUTION_STATUSES = (STATUS_UNATTRIBUTED, STATUS_ATTRIBUTED, STATUS_INCONCLUSIVE)
 CONFIDENCES = ("LOW", "MEDIUM", "HIGH")
+#: What a row observed.  FAILURE_OBSERVATION is the default (and the only kind the legacy CLI writes);
+#: SUCCESS_OBSERVATION lets the collective side compute rates (a stage that passed, with its unit count).
+EVENT_KINDS = ("FAILURE_OBSERVATION", "SUCCESS_OBSERVATION", "RUN_ANOMALY")
 
 
 def _now() -> str:
@@ -94,6 +99,19 @@ def _write_all(path: Path, rows: list[dict[str, Any]]) -> None:
     tmp.replace(path)
 
 
+@contextlib.contextmanager
+def _locked(path: Path):
+    """Serialise the read-all/rewrite-all cycle across processes (the pipeline and the submit tools may
+    record at the same moment; without this one of two concurrent rows was lost)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path.with_suffix(path.suffix + ".lock"), "a") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def _event_id(episode: str, stage: str, ordinal: int, fingerprint: str) -> str:
     digest = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:8]
     return f"EVT-{episode}-{stage}-{ordinal:04d}-{digest}"
@@ -110,8 +128,14 @@ def record_event(
     detected_by: str,
     unit_ids: list[str] | None = None,
     relpath: str = DEFAULT_RELPATH,
+    event_kind: str = "FAILURE_OBSERVATION",
+    opportunity: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Append one objective observation.  Returns the written row.
+
+    ``event_kind`` / ``opportunity`` (``{applicable_units, observed_units}``) let a producer record a
+    rate fact -- e.g. "Q1 admitted 12 of 12 units" as SUCCESS_OBSERVATION -- so the collective side has
+    a denominator; without them the row is a FAILURE_OBSERVATION over its unit_ids as before.
 
     ``symptom`` and ``evidence`` must be concrete (a gate name, a detector
     code, a measured value, a media/prompt sha) -- this is the fact a
@@ -132,30 +156,43 @@ def record_event(
         raise ValueError("EVENT_EVIDENCE_REQUIRED_NONEMPTY_OBJECT")
     if not str(detected_by or "").strip():
         raise ValueError("EVENT_DETECTED_BY_REQUIRED")
+    if event_kind not in EVENT_KINDS:
+        raise ValueError(f"EVENT_KIND_INVALID:{event_kind}")
+    if opportunity is not None:
+        applicable, observed = opportunity.get("applicable_units"), opportunity.get("observed_units")
+        if (not isinstance(applicable, int) or applicable < 1 or not isinstance(observed, int)
+                or observed < 0 or observed > applicable):
+            raise ValueError("EVENT_OPPORTUNITY_INVALID")
 
     path = events_path(Path(runtime_root), relpath)
-    rows = _read_all(path)
-    ordinal = sum(1 for row in rows if row.get("episode") == episode) + 1
-    fingerprint = json.dumps(
-        {"episode": episode, "stage": stage, "symptom": symptom_clean, "evidence": evidence,
-         "unit_ids": sorted(unit_ids or [])},
-        ensure_ascii=False, sort_keys=True)
-    row = {
-        "schema": SCHEMA,
-        "event_id": _event_id(episode, stage, ordinal, fingerprint),
-        "recorded_at": _now(),
-        "line": str(line or "").strip() or "UNKNOWN",
-        "episode": episode,
-        "stage": stage,
-        "unit_ids": sorted(set(str(u) for u in (unit_ids or []))),
-        "symptom": symptom_clean,
-        "evidence": evidence,
-        "detected_by": str(detected_by).strip(),
-        "attribution": {"status": STATUS_UNATTRIBUTED},
-        "attribution_history": [],
-    }
-    rows.append(row)
-    _write_all(path, rows)
+    with _locked(path):
+        rows = _read_all(path)
+        ordinal = sum(1 for row in rows if row.get("episode") == episode) + 1
+        fingerprint = json.dumps(
+            {"episode": episode, "stage": stage, "symptom": symptom_clean, "evidence": evidence,
+             "unit_ids": sorted(unit_ids or [])},
+            ensure_ascii=False, sort_keys=True)
+        row = {
+            "schema": SCHEMA,
+            "event_id": _event_id(episode, stage, ordinal, fingerprint),
+            "recorded_at": _now(),
+            "line": str(line or "").strip() or "UNKNOWN",
+            "episode": episode,
+            "stage": stage,
+            "unit_ids": sorted(set(str(u) for u in (unit_ids or []))),
+            "symptom": symptom_clean,
+            "evidence": evidence,
+            "detected_by": str(detected_by).strip(),
+            "attribution": {"status": STATUS_UNATTRIBUTED},
+            "attribution_history": [],
+        }
+        if event_kind != "FAILURE_OBSERVATION":
+            row["event_kind"] = event_kind
+        if opportunity is not None:
+            row["opportunity"] = {"applicable_units": int(opportunity["applicable_units"]),
+                                  "observed_units": int(opportunity["observed_units"])}
+        rows.append(row)
+        _write_all(path, rows)
     # Collective learning dual-write (2026-10-29): the same fact goes to the line's DeviceStore outbox
     # when the runtime opted in; inert otherwise, and a mirror failure never touches the record above.
     try:
@@ -175,16 +212,17 @@ def _update_attribution(
     runtime_root: Path, event_id: str, new_attribution: dict[str, Any], *, relpath: str,
 ) -> dict[str, Any]:
     path = events_path(Path(runtime_root), relpath)
-    rows = _read_all(path)
-    for row in rows:
-        if row.get("event_id") != event_id:
-            continue
-        previous = row.get("attribution") or {"status": STATUS_UNATTRIBUTED}
-        row.setdefault("attribution_history", [])
-        row["attribution_history"].append(previous)
-        row["attribution"] = new_attribution
-        _write_all(path, rows)
-        return row
+    with _locked(path):
+        rows = _read_all(path)
+        for row in rows:
+            if row.get("event_id") != event_id:
+                continue
+            previous = row.get("attribution") or {"status": STATUS_UNATTRIBUTED}
+            row.setdefault("attribution_history", [])
+            row["attribution_history"].append(previous)
+            row["attribution"] = new_attribution
+            _write_all(path, rows)
+            return row
     raise ValueError(f"EVENT_NOT_FOUND:{event_id}")
 
 

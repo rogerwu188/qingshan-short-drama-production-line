@@ -4940,6 +4940,34 @@ def apply_derived_start_frame_acceptance(ctx: Ctx, index: dict[str, Any], index_
             "effective_status": index.get("status")}
 
 
+def kb_events(fn: str, **kwargs: Any) -> dict[str, Any]:
+    """Collective knowledge-base event producer (runtime/tools/nalu_knowledge_events.py; audit 2026-11-12 §6).
+
+    Best-effort by construction: any failure is returned as a status and never reaches the stage that
+    called it; NALU_KNOWLEDGE_EVENTS=off disables it.  Returns a compact summary for the state file."""
+    try:
+        import nalu_knowledge_events as _kbe  # noqa: PLC0415
+        if not _kbe.enabled():
+            return {"status": "DISABLED"}
+        out = getattr(_kbe, fn)(RT, **kwargs)
+        events = out.get("events") if isinstance(out, dict) else None
+        if isinstance(events, list):
+            counts: dict[str, int] = {}
+            for row in events:
+                key = str((row or {}).get("status") or "?").lower()
+                counts[key] = counts.get(key, 0) + 1
+            return {"status": out.get("status"), **counts}
+        return {"status": (out or {}).get("status")}
+    except Exception as exc:  # noqa: BLE001 -- never into the stage
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:160]}"}
+
+
+def kb_review_rows(index: dict[str, Any], admitted_status: str) -> list[dict[str, Any]]:
+    return [{"unit_id": row.get("unit_id"), "passed": row.get("downstream_status") == admitted_status,
+             "codes": list(row.get("failures") or [])}
+            for row in (index.get("results") or []) if isinstance(row, dict)]
+
+
 def s5_q1(ctx: Ctx, res: StageResult) -> dict[str, Any]:
     """D-4 — keyframe Q1 admission through the engine's own admission gate.
 
@@ -5019,6 +5047,12 @@ def s5_q1(ctx: Ctx, res: StageResult) -> dict[str, Any]:
         "blockers": ([] if effective == "ALL_ADMITTED"
                      else ["Q1_NOT_ALL_ADMITTED"]),
     })
+    if index.get("results"):  # one rate fact per review round + one event per Q1 failure code
+        detail["knowledge_events"] = kb_events(
+            "record_review_round", episode=ctx.episode, stage="S5", kind="Q1",
+            round_key=detail["review_file_sha256"] or str(verdict.get("out") or ""),
+            rows=kb_review_rows(index, "ADMITTED_FOR_VIDEO_SUBMIT"),
+            evidence={"gate": "shot_media_admission_gate.KEYFRAME_Q1", "q1_status": effective})
     write_json(p.keyframe_admission, {
         "schema": "nalu.keyframe_q1_route_status.v1", "episode": ctx.episode,
         "recorded_at": now(), "recorded_by": TOOL_ID, **detail})
@@ -7477,6 +7511,12 @@ def s6_q2(ctx: Ctx, res: StageResult) -> dict[str, Any]:
                          for row in (index.get("results") or [])
                          if row.get("downstream_status") != "ADMITTED_FOR_ASSEMBLY"][:8]),
     })
+    if index.get("results"):
+        detail["knowledge_events"] = kb_events(
+            "record_review_round", episode=ctx.episode, stage="S6", kind="Q2",
+            round_key=detail["review_file_sha256"] or str(verdict.get("out") or ""),
+            rows=kb_review_rows(index, "ADMITTED_FOR_ASSEMBLY"),
+            evidence={"gate": "shot_media_admission_gate.VIDEO_ASSEMBLY", "q2_status": verdict.get("status")})
     res.receipts.extend([str(value) for value in (index.get("receipts") or [])])
     return detail
 
@@ -7541,6 +7581,14 @@ def s6_qa(ctx: Ctx, res: StageResult) -> dict[str, Any]:
         "blockers": ([] if verdict.get("status") == "ADMIT_ALL"
                      else [f"POST_GENERATION_QA_{verdict.get('status')}"]),
     })
+    summary = read_json(Path(str(verdict.get("out") or "")), {}) if verdict.get("out") else {}
+    if isinstance(summary, dict) and summary.get("units"):
+        detail["knowledge_events"] = kb_events(
+            "record_review_round", episode=ctx.episode, stage="S6", kind="POSTGEN",
+            round_key=sha256_file(Path(str(verdict["out"]))) or detail["review_file_sha256"],
+            rows=[{"unit_id": row.get("unit_id"), "passed": row.get("verdict") == "ADMIT",
+                   "codes": list(row.get("reasons") or [])} for row in summary["units"] if isinstance(row, dict)],
+            evidence={"gate": "post_generation_qa_runner", "qa_status": verdict.get("status")})
     res.receipts.append(str(verdict.get("out") or ""))
     return detail
 
@@ -8398,6 +8446,31 @@ def _evidence_missing_keys(failures: list[Any]) -> list[str] | None:
             return None
         keys.append(text.split(":", 2)[1])
     return keys
+
+
+def kb_final_review_reject(ctx: Ctx, final_audience: dict[str, Any]) -> dict[str, Any]:
+    """The rejected final-audience review as knowledge events: one reject fact plus one per dimension the
+    independent reviewer scored below 3 (finer clusters than "rejected").  Best-effort."""
+    try:
+        report = read_json(Path(str(final_audience.get("report") or "")), {}) if final_audience.get("report") else {}
+        report = report if isinstance(report, dict) else {}
+        dims = report.get("dimensions") if isinstance(report.get("dimensions"), dict) else {}
+        low = sorted(name for name, score in dims.items()
+                     if isinstance(score, (int, float)) and not isinstance(score, bool) and score < 3)
+        hard = report.get("hard_fail")
+        reasons = ([f"overall:{report.get('overall')}"] if report.get("overall") is not None else []) \
+            + [f"low:{name}" for name in low] + (["hard_fail"] if hard else [])
+        sha = final_audience.get("final_video_sha256") or report.get("media_sha256")
+        out = kb_events("record_final_cut", episode=ctx.episode, kind="S7_FINAL_REVIEW_REJECT", items=reasons,
+                        media_sha256=sha, evidence={"gate": "FINAL-AUDIENCE-REVIEW",
+                                                    "verdict": report.get("verdict")})
+        if low:
+            out = {"reject": out, "dimensions": kb_events(
+                "record_final_cut", episode=ctx.episode, kind="S7_FINAL_REVIEW_LOW", items=low,
+                media_sha256=sha, evidence={"gate": "FINAL-AUDIENCE-REVIEW"})}
+        return out
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:160]}"}
 
 
 def s7_default_release_acceptance(ctx: Ctx, final_qa: dict[str, Any], review_rejected: bool) -> dict[str, Any]:
@@ -9682,6 +9755,9 @@ def stage_s7(ctx: Ctx) -> StageResult:
         gate_result = read_json(p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_GATE.json", {}) or {}
         failing = _rga.failing_detectors(gate_result)
         final_sha = sha256_file(p.final_candidate) if p.final_candidate.is_file() else None
+        res.details["knowledge_events_detectors"] = kb_events(
+            "record_final_cut", episode=ctx.episode, kind="S7_DETECTOR", items=failing, media_sha256=final_sha,
+            evidence={"gate": "FINAL-CUT-AUDIENCE-DETECTORS"})
         orders_path = ctx.authority.get("orders_path")
         orders = (_rga._orders(orders_path,
                                expected_latest_seq=ctx.authority.get("latest_order_seq") or 0,
@@ -9716,6 +9792,8 @@ def stage_s7(ctx: Ctx) -> StageResult:
     final_audience = s7_final_audience_review(ctx, res)
     res.details["final_audience_review"] = final_audience
     review_rejected = "FINAL_AUDIENCE_REVIEW_REJECTED" in (final_audience.get("blockers") or [])
+    if review_rejected:
+        res.details["knowledge_events_final_review"] = kb_final_review_reject(ctx, final_audience)
     if final_audience["status"] != PASS and not review_rejected:
         res.status = (REVIEW_REQUIRED
                       if final_audience["status"] == REVIEW_REQUIRED else BLOCKED)
@@ -9725,6 +9803,13 @@ def stage_s7(ctx: Ctx) -> StageResult:
     # ------------------------------------------- 8. final-package QA (D-9/D-12)
     final_qa = s7_qa(ctx, res)
     res.details["final_qa"] = final_qa
+    failing_gates = [str(row.get("gate_id")) for row in (final_qa.get("stage_gate_rows") or [])
+                     if isinstance(row, dict) and row.get("gate_id") and row.get("status") != PASS]
+    if failing_gates:
+        res.details["knowledge_events_final_gates"] = kb_events(
+            "record_final_cut", episode=ctx.episode, kind="S7_FINAL_GATE", items=failing_gates,
+            media_sha256=sha256_file(p.final_candidate) if p.final_candidate.is_file() else None,
+            evidence={"gate": "final_qa_evidence_bundle"})
     res.status = PASS if (p.final_candidate.is_file()
                           and all(step["exit_code"] == 0 or step.get("accepted_by_line_owner_order") for step in steps)
                           and final_qa["status"] == PASS and not review_rejected) else BLOCKED
@@ -10472,6 +10557,11 @@ def run_episode(ctx: Ctx) -> int:
                        if key != "stdout_tail" or len(str(value)) < 2000}
                       for step in result.steps],
         })
+        if sid in ("S3", "S5", "S6"):  # HopsAPI 424s: content rejection (lesson) vs outage (anomaly)
+            row["knowledge_events_provider"] = kb_events(
+                "scan_provider_rejections", episode=ctx.episode,
+                stores={"image": ENGINE / "workflow/tasks/giggle_submit_transactions" / ctx.episode,
+                        "video": ENGINE / "workflow/tasks/giggle_video_submit_transactions" / ctx.episode})
         # Time/credit ledger (Roger 2026-09-25 §六, effective E09): one append-only event
         # per stage terminal status, reactive to what the loop already knows — no new timer.
         ledger_event = _time_ledger.append_event(
