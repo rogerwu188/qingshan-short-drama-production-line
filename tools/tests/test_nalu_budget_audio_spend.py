@@ -103,6 +103,28 @@ class AudioSpendTests(unittest.TestCase):
         self.assertEqual(spend["audio_credits"], 2)
         self.assertEqual(spend["subtotal_credits"], 13)
 
+    def test_decimal_string_statement_credits_are_counted(self) -> None:
+        # Field E09 2026-11-12: Giggle video statements carry charged_credits as "13.6"-style strings.
+        d = self.root / "workflow" / "nalu" / EP / "preproduction" / "reports"
+        d.mkdir(parents=True, exist_ok=True)
+        for name, task_id, amount in (("v1", "vid-1", "13.6"), ("v2", "vid-2", "23.8"), ("v3", "vid-3", "28.9")):
+            (d / f"{name}_credit_statement.json").write_text(json.dumps({
+                "episode": EP, "status": "PASS_BOUNDED", "event_description": "VideoGenerate",
+                "charged_credits": amount, "matched_count": 1,
+                "statement_rows": [{"project_id": task_id, "event_type": "Pay", "event_description": "VideoGenerate",
+                                    "created_at": "2026-11-12 10:00:00", "credit": "-" + amount}]}), encoding="utf-8")
+        (d / "bare_credit_statement.json").write_text(json.dumps({
+            "episode": EP, "status": "PASS_BOUNDED", "charged_credits": "5.5"}), encoding="utf-8")
+        spend = B.scan_non_video_spend(EP)
+        self.assertAlmostEqual(float(spend["batch_reconciled_credits"]), 71.8)
+
+    def test_statement_credits_coercion(self) -> None:
+        self.assertEqual(B._statement_credits("13.6"), 13.6)
+        self.assertEqual(B._statement_credits(" 7 "), 7)
+        self.assertEqual(B._statement_credits(4.5), 4.5)
+        for bad in (None, True, "abc", "NaN", "", [1]):
+            self.assertIsNone(B._statement_credits(bad))
+
     def test_credit_attempt_with_tts_task_id_moves_to_audio_leg(self) -> None:
         self._tx("jones.json", "t-tts")
         d = self.tasks / "voice_jobs"
