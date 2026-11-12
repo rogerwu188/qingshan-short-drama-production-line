@@ -42,6 +42,16 @@ class CharacterAssetSubmitterTests(unittest.TestCase):
                 if prior is not None:
                     os.environ["QINGSHAN_DURABLE_SUBMITTER_CONTEXT"] = prior
 
+    def test_recent_success_overrides_store_outage(self):
+        outage = {"blocker": "HOPSAPI_IMAGE_PROVIDER_OUTAGE"}
+        image_client = submitter.image_client
+        with patch.object(image_client, "recent_provider_outage", return_value=outage), \
+                patch.object(image_client, "recent_successful_task", return_value={"task_id": "t"}):
+            self.assertIsNone(submitter.store_outage(Path("/nonexistent")))
+        with patch.object(image_client, "recent_provider_outage", return_value=outage), \
+                patch.object(image_client, "recent_successful_task", return_value=None):
+            self.assertEqual(submitter.store_outage(Path("/nonexistent")), outage)
+
     def test_missing_task_id_keeps_provider_response_in_transaction(self):
         with tempfile.TemporaryDirectory(dir=submitter.ROOT) as temporary:
             root = Path(temporary)

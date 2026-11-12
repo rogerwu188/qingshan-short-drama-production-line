@@ -789,7 +789,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_qa_common.py",
-      "sha256": "3bcf0f829c19a5cc79d186fa0bf15a2b6a514e2580e6b3f6c0d5087489818a20"
+      "sha256": "81c365c9a355a7d871debc997344f89bd0b51040aca9406c9fe4d6928502e4de"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_selective_bgm.py",
@@ -6793,7 +6793,7 @@
     },
     {
       "path": "tools/submit_giggle_character_asset_plan.py",
-      "sha256": "6e2ce0421ddaee83178829503d8721db2e4d6dfe9b3a71971ac4f2239126f34a"
+      "sha256": "35199a7c8a646d576fd577bf4657ff6fcc8d7865cca00df53b0d68f72e44ea3e"
     },
     {
       "path": "tools/submit_giggle_image_manifest.py",
@@ -8581,7 +8581,7 @@
     },
     {
       "path": "tools/tests/test_q1_hard_continuation_units.py",
-      "sha256": "1d25e2809875f6bae40f90fed6f2092517b05c83c56457a3d247cb45eedbbf8b"
+      "sha256": "eeb826c6e95a02e10ce40306ac763d3dc0a49bbb590ecefae634fdac4994d479"
     },
     {
       "path": "tools/tests/test_q1_no_character_insert_detector.py",
@@ -9029,7 +9029,7 @@
     },
     {
       "path": "tools/tests/test_submit_giggle_character_asset_plan.py",
-      "sha256": "82bc7932d4b1bef5f3d4a89d2af617ec6bb69c21462b16c9a5460a94abd24f1d"
+      "sha256": "c7c69da57475520ba82a72d7c57616141341a15b3d07b2fa0ca416d527a9e087"
     },
     {
       "path": "tools/tests/test_submit_giggle_image_manifest.py",

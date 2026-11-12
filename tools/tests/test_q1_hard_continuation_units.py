@@ -52,6 +52,15 @@ class HardContinuationQ1Test(unittest.TestCase):
             own = {"reference_image_task_keys": ["E04-S02-05:KEYFRAME"], "editorial_shot_ids": ["E04-S02-05"]}
             self.assertEqual(exp._unit_first_shot_id(own), "E04-S02-05")
 
+    def test_first_shot_falls_back_to_grouping_plan(self):
+        # E04/E06 e014f61: the anchor-plan row of a hard-continuation unit has no editorial_shot_ids;
+        # the first shot must come from the grouping plan, or Q1 matches nothing for its real tail
+        anchor_row = {k: v for k, v in self.UNIT.items() if k != "editorial_shot_ids"}
+        with tempfile.TemporaryDirectory() as tmp:
+            exp = _expectations(Path(tmp), [anchor_row])
+            exp.grouping_units = {"E04-VU-009": {"unit_id": "E04-VU-009", "editorial_shot_ids": ["E04-S02-06"]}}
+            self.assertEqual(exp._unit_first_shot_id(anchor_row), "E04-S02-06")
+
     def test_hard_continuation_unit_is_not_a_q1_item(self):
         with tempfile.TemporaryDirectory() as tmp:
             exp = _expectations(Path(tmp), [self.UNIT])
