@@ -957,6 +957,23 @@ def monologue_group_durations(contract: dict[str, Any], separated: dict[str, tup
     return out
 
 
+def location_materials(location: Any, vcc: dict[str, Any], element_names: list[str],
+                       zone_names: list[str]) -> list[str]:
+    """材质细节 for one shot.
+
+    production_design verbatim on a forest-edge scene handed the image model 木构屋架、瓦顶、夯土院墙
+    and drew a hut where the space map declares no man-made object (E14 S11-03), so an exterior never
+    takes the built-interior clauses.  It used to get a fixed snow/forest/period list instead, which
+    put 积雪、松针、粗布 into a contemporary chapel entrance (Abandoned at the Altar E01-S03).  An
+    exterior now takes only what its own space map declares for the shot's zones.
+    """
+    if str(location or "").upper().endswith("-EXT"):
+        declared = [name for name in dict.fromkeys(element_names + zone_names) if name]
+        return [f"{name}的真实材质" for name in declared[:4]] or ["场景已声明的室外真实材质"]
+    return [value.strip() for value in re.split(r"[、，；]", str(vcc.get("production_design") or ""))
+            if value.strip()][:4] or ["夯土与粗布材质"]
+
+
 def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
                     index: SpaceIndex, engine: Engine, episode: str,
                     contract_path: Path, gsm_path: Path,
@@ -1201,16 +1218,8 @@ def build_editorial(contract: dict[str, Any], plan_rows: list[dict[str, Any]],
         ]
         if len(element_names) > 1:
             depth_layers.append(f"纵深补充：{element_names[1]}")
-        # 材质细节 used to take the first four clauses of production_design verbatim, which on a
-        # forest-edge scene handed the image model 木构屋架、瓦顶、夯土院墙 and drew a hut where the
-        # space map declares no man-made object at all (E14 S11-03, twice).  An exterior location
-        # gets the outdoor materials, never the built-interior ones.
-        _loc = str(row.get("location_id") or row.get("location") or "").upper()
-        if _loc.endswith("-EXT"):
-            materials = ["积雪", "树皮与松针", "雪面反光", "粗布与皮革"]
-        else:
-            materials = [value.strip() for value in re.split(r"[、，；]", str(vcc.get("production_design") or ""))
-                         if value.strip()][:4] or ["夯土与粗布材质"]
+        materials = location_materials(row.get("location_id") or row.get("location"), vcc,
+                                       element_names, zone_names)
         env_motion = [
             f"天候：{scene.get('weather')}（只做连续微动，不做特效）",
             f"光源微动：{scene.get('lighting')}",
