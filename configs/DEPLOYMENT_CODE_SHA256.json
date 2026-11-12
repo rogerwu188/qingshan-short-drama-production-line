@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2419,
+  "file_count": 2420,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -657,7 +657,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_episode_asset_requirements.py",
-      "sha256": "cc126d3e51092c2356a3f4f2a424d83f3f3ff1a039ead9f33964d18f2e4e5010"
+      "sha256": "bdbc8b70a550fc5ba33a445c468592e98562c0d875a2a12d920d13ca577833cf"
     },
     {
       "path": "lines/nalu/runtime/tools/build_final_cut_speaker_map.py",
@@ -7830,6 +7830,10 @@
     {
       "path": "tools/tests/test_frame_repeat_gate.py",
       "sha256": "a7b80f2d0a0f26f1e9f2a07376ee52f017827bac7b2a12b79bbc39865f83e19e"
+    },
+    {
+      "path": "tools/tests/test_full_plan_withholds_own_start_tail.py",
+      "sha256": "f75187269d4fda3dbf0b35b908fdb2de63f52e72662c16254f1f5e8ec50ab802"
     },
     {
       "path": "tools/tests/test_full_series_information_map.py",
