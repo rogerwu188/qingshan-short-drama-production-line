@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2426,
+  "file_count": 2427,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -993,7 +993,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/fleet_sync.py",
-      "sha256": "a07d171dc8670d44bd804837d03587569ab0cda29abae10522f1bca0ace5b2c6"
+      "sha256": "bef1d0487fb25910e80ec1212269187ccf89a5152721887d0ab23b88cd074d45"
     },
     {
       "path": "skills/nalu-claude-code/scripts/list_voices.sh",
@@ -9214,6 +9214,10 @@
     {
       "path": "tools/tests/test_video_sequence_rhythm_gate.py",
       "sha256": "934577920afc332025c19ca598fa4fd29dfcd74f04d94a7ce172313f7720b2bc"
+    },
+    {
+      "path": "tools/tests/test_video_space_scene_override.py",
+      "sha256": "f433255d06de6197ff96aa40064f28e0b42c3bfd454455556d865c2bbd4747f6"
     },
     {
       "path": "tools/tests/test_video_submission_entrypoint_contract_coverage.py",
