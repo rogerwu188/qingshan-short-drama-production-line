@@ -1656,6 +1656,32 @@ def submitted_without_tail_units(out_dir: Path, episode: str, contract: dict[str
             if isinstance(row, dict) and row.get("predecessor_tail_submitted") is False}
 
 
+def as_submitted_start_frame(out_dir: Path, episode: str, unit_id: str,
+                             search_dirs: list[Path]) -> dict[str, Any] | None:
+    """The image a bound take actually opened on (its first bound reference sha, ``start_frame_as_submitted``
+    in the S6 wave state), found by exact sha among ``search_dirs``.  A hard-continuation unit whose take was
+    submitted with an OLDER predecessor tail (the predecessor was redone afterwards) must keep opening on that
+    image, not on the new tail: the Q1 admission is bound to the old sha (fleet device 1101 E04 VU-020,
+    2026-11-12: Q1_ASSET_SHA_MISMATCH after the auto-redo of VU-019)."""
+    path = out_dir / "reports" / f"{episode}_S6_WAVE_STATE.json"
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8")).get("start_frame_as_submitted") or {} if path.is_file() else {}
+    except (OSError, ValueError):
+        return None
+    row = rows.get(unit_id)
+    refs = [str(v) for v in (row or {}).get("reference_sha256") or []] if isinstance(row, dict) else []
+    if not refs:
+        return None
+    for folder in search_dirs:
+        if not folder or not folder.is_dir():
+            continue
+        for candidate in sorted(folder.glob("*.png")):
+            if sha256_file(candidate) == refs[0]:
+                return {"path": str(candidate), "sha256": refs[0], "source": "BOUND_SUBMISSION_FIRST_REFERENCE",
+                        "task_id": row.get("task_id"), "transaction": row.get("transaction")}
+    return None
+
+
 def q2_redo_prompt_findings(out_dir: Path, episode: str, contract: dict[str, Any]) -> dict[str, list[str]]:
     """CAMERA_GRAMMAR_V1: unit -> ``h3_redo_findings`` of units the engine redid after an objective Q2 FAIL whose
     redo prompt states the measured problem (push-in; lab E08, owner 2026-10-29).  Read from the S6 wave state
@@ -2167,6 +2193,11 @@ def main() -> int:
                         unit["withheld_previous_unit_final_frame"] = {
                             **row, "reason": ("TAIL_REJECTED" if unit["unit_id"] in tail_rejected_units
                                               else "SUBMITTED_WITHOUT_PREDECESSOR_TAIL")}
+                        if unit["unit_id"] not in tail_rejected_units:
+                            submitted = as_submitted_start_frame(out_dir, episode, unit["unit_id"],
+                                                                 [keyframe_dir, tails])
+                            if submitted:
+                                unit["withheld_previous_unit_final_frame"]["as_submitted_start_frame"] = submitted
                     else:
                         unit["previous_unit_final_frame"] = row
             wave_units.append(unit)

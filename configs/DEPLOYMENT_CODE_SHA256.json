@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2417,
+  "file_count": 2418,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -673,7 +673,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "6c8b80f89f3e47563e57cddaade8a4bc8bdb2333d91e2fa6be0d48e80022b62a"
+      "sha256": "8d2c19681b0c601e8259d22f49d573e4cc50ea561988a7cf34eefbe3033ec1c4"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -3745,7 +3745,7 @@
     },
     {
       "path": "tools/build_video_unit_anchor_plan.py",
-      "sha256": "441085fafcc3820d77740d86d0a508674a1455401f3b3155a324d634ad17b585"
+      "sha256": "d775a951350749dd4a3fcbe3c7c3cf3798bcb51d9ea2696bde2455ce3db9e456"
     },
     {
       "path": "tools/build_video_unit_grouping_spec.py",
@@ -7750,6 +7750,10 @@
     {
       "path": "tools/tests/test_episode_video_generation_guard.py",
       "sha256": "bbb220f983fce7d6c76b973ecdc5e0c5e2952543d9dcd96a6d50f97655108c0b"
+    },
+    {
+      "path": "tools/tests/test_exterior_location_materials.py",
+      "sha256": "fb4fcbf3ebf9f115b30ba83b1f595ce46b22846f98238f8a4b3db23a387375b3"
     },
     {
       "path": "tools/tests/test_factory_cron_contract.py",
