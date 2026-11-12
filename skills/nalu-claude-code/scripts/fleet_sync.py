@@ -295,6 +295,8 @@ def diagnose(cp: Any) -> dict:
     env = {"NALU_ENGINE_ROOT": str(engine), "NALU_RUNTIME_ROOT": str(runtime)}
     out["codex_provider"] = _short(_run(["python3", str(scripts / "configure_codex.py"), "--verify"], 180, env), 1)
     out["cron_jobs"] = _cron_jobs()
+    # which account production bills (line owner 2026-11-12: never StoryClaw); provenance only, no values
+    out["billing_keys"] = _short(_run(["python3", str(scripts / "billing_key_guard.py"), "report"], 30, env), 1)
     return out
 
 

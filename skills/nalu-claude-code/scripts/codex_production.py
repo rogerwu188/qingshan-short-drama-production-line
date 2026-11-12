@@ -173,6 +173,8 @@ REVIEWER_PROMPT_VERSION = "2"
 
 def launch_reviewer(episode: str) -> dict[str, Any]:
     """Start (at most MAX_REVIEWER_ATTEMPTS times) the independent final-audience reviewer for one episode."""
+    if provider_is_storyclaw_billing():
+        return {"status": "BLOCKED", "reason": "CODEX_KEY_IS_STORYCLAW_BILLING"}
     env = codex_env()
     exe = codex_exe(env)
     if not exe or env is None:
@@ -252,6 +254,19 @@ def provider() -> dict[str, str] | None:
     except FileNotFoundError:
         return None
     return {"api_key": key} if key else None
+
+
+def provider_is_storyclaw_billing() -> bool:
+    """Line owner 2026-11-12: Codex bills the separate HopsAPI key from setup, never the StoryClaw account."""
+    p = provider()
+    if not p:
+        return False
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        from billing_key_guard import is_platform_key  # noqa: PLC0415
+    except ImportError:
+        return False
+    return is_platform_key(p.get("api_key"))
 
 
 def codex_env() -> dict[str, str] | None:
@@ -406,6 +421,8 @@ def runner(episode: str, log: str, last: str, argv_json: str) -> int:
 
 
 def launch(episode: str, prompt: str, resume_id: str | None) -> dict[str, Any]:
+    if provider_is_storyclaw_billing():
+        return {"status": "BLOCKED", "reason": "CODEX_KEY_IS_STORYCLAW_BILLING"}
     env = codex_env()
     exe = codex_exe(env)
     if not exe:
