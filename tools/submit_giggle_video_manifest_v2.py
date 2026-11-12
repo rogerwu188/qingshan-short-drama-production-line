@@ -1171,7 +1171,7 @@ def prior_bound(task: dict[str, Any], transaction_dir: Path) -> dict[str, Any] |
     if zero_cost_retryable(path, row):
         # The provider terminally failed this take at zero cost: nothing to harvest, nothing charged.
         # Release it (the failed take stays archived beside the transaction) and let this run POST.
-        released = release_zero_cost_terminal(path)
+        released = release_zero_cost_terminal(path, lock_held=True)  # submit_one holds the transaction lock
         if released is not None:
             row = released
     if row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id"):
