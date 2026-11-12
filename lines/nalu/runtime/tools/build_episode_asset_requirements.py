@@ -1110,6 +1110,16 @@ def extract_overlay(existing_path: Path, episode: str) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
+def keep_existing_prompt(path: Path, body: str, rewrite: bool) -> bool:
+    """WRITE-IF-MISSING, except a kept prompt that still carries an AUTHORING_REQUIRED_* sentinel
+    from an earlier incomplete run is a placeholder, not an operator edit: once the fresh body is
+    sentinel-free it is rewritten (fleet device 0841 E08, 2026-11-12: S2 PASS kept a sentinel
+    prompt for CHAR-012 and S3 paid for it)."""
+    if rewrite or not path.is_file():
+        return False
+    return not (AUTHORING in path.read_text(encoding="utf-8") and AUTHORING not in body)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--episode", required=True)
@@ -1166,7 +1176,7 @@ def main() -> int:
                 # 2026-09-13 (E02 identity round): derived prompts are WRITE-IF-MISSING — an operator
                 # correction inside an existing prompt (e.g. 【双树颜色·硬性】) is part of a paid
                 # row's fingerprint and must survive a requirements rebuild.  --rewrite-prompts forces.
-                if (prompt_dir / name).is_file() and not getattr(args, "rewrite_prompts", False):
+                if keep_existing_prompt(prompt_dir / name, body, getattr(args, "rewrite_prompts", False)):
                     prompts_kept.append(name)
                     continue
                 (prompt_dir / name).write_text(body, encoding="utf-8")
