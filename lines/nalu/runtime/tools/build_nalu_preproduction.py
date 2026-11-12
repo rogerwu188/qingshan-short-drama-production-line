@@ -75,6 +75,18 @@ VIDEO_MODEL_CONTRACTS = {
 MODEL_CONTRACT = dict(VIDEO_MODEL_CONTRACTS["seedance-2.0-pro"])
 
 
+def video_space_scene_override(task_map: dict[str, Any]) -> dict[str, str]:
+    """Carry a cross-cut shot's ``space_scene_id`` from its rendered subspace task into the S6 video task.
+
+    The video task copies the override scene's global map / room / zone, and
+    tools/global_space_layout_gate.py resolves the mapping by ``space_scene_id or scene_id``;
+    without it the complete-map gate checks those ids against the narrative scene and fails
+    (field E06 2026-11-12, VU014).
+    """
+    value = str(task_map.get("space_scene_id") or "")
+    return {"space_scene_id": value} if value else {}
+
+
 def select_video_model(episode: str) -> dict[str, Any]:
     """The episode's video model, chosen once and then sticky (nalu_video_model.py).
 
@@ -2364,6 +2376,7 @@ def main() -> int:
             "tool_type": "video_generation",
             "spatial_layout_stage": "VIDEO_GENERATION",
             "scene_id": unit["scene_id"],
+            **video_space_scene_override(task_map),
             "episode_global_space_map_id": index.episode_map_id,
             "global_space_map_id": task_map["global_space_map_id"],
             "room_id": task_map["room_id"],
