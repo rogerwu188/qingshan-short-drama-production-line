@@ -156,6 +156,10 @@ def live_bindings(
 #: new attempt, at most this many times per transaction (a provider that keeps refusing the same request is a
 #: content problem the executor handles by recomposing, which is a new fingerprint).
 ZERO_COST_TERMINAL_RETRY_LIMIT = 2
+#: The limit counts releases inside this window only (fleet 2026-11-12: a provider outage used up both releases
+#: in minutes and the hourly outage retry could never POST again).  Zero-cost takes cost nothing; the window
+#: keeps a refusing provider from being hammered, and a content refusal is still the executor's to recompose.
+ZERO_COST_RETRY_WINDOW_SECONDS = 3600
 ZERO_COST_ARCHIVE_INFIX = ".zero_cost_failed."
 RELEASED_STATE = "VERIFIED_ZERO_RETRYABLE"
 
@@ -171,10 +175,21 @@ def zero_cost_terminal_failure(row: dict[str, Any]) -> bool:
     return isinstance(cost, (int, float)) and not isinstance(cost, bool) and float(cost) == 0.0
 
 
-def zero_cost_retries_used(transaction: Path) -> int:
+def zero_cost_retries_used(transaction: Path, *, window_seconds: float | None = ZERO_COST_RETRY_WINDOW_SECONDS) -> int:
+    """Releases of this transaction (archived failed takes), within the last ``window_seconds`` when given."""
+    import time  # noqa: PLC0415
     transaction = Path(transaction)
-    return sum(1 for p in transaction.parent.glob("*")
-               if p.name.startswith(transaction.name + ZERO_COST_ARCHIVE_INFIX))
+    cutoff = time.time() - window_seconds if window_seconds else None
+    n = 0
+    for p in transaction.parent.glob("*"):
+        if not p.name.startswith(transaction.name + ZERO_COST_ARCHIVE_INFIX):
+            continue
+        try:
+            if cutoff is None or p.stat().st_mtime >= cutoff:
+                n += 1
+        except OSError:
+            continue
+    return n
 
 
 def zero_cost_retryable(transaction: Path, row: dict[str, Any]) -> bool:
@@ -221,7 +236,7 @@ def release_zero_cost_terminal(transaction: Path, *, now: str | None = None,
             "released_remote_terminal_state": row.get("remote_terminal_state"),
             "released_provider_failure": row.get("provider_failure"),
             "released_take_archive": archive.name,
-            "zero_cost_retries_used": zero_cost_retries_used(transaction),
+            "zero_cost_retries_total": zero_cost_retries_used(transaction, window_seconds=None),
         })
         temporary = transaction.with_suffix(transaction.suffix + ".part")
         temporary.write_text(json.dumps(released, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
