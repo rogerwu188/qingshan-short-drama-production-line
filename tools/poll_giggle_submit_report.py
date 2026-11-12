@@ -18,6 +18,7 @@ from giggle_api_client import query_task
 from submit_giggle_task_manifest import ensure_giggle_api_key
 from line_heartbeat import record_line_heartbeat
 import hopsapi_video_client as hopsapi
+import h3_fleet_queue
 
 ENGINE_ROOT = Path(__file__).resolve().parents[1]
 
@@ -209,8 +210,11 @@ def poll_one_hopsapi(row: dict[str, Any], label: str, named: str, out_dir: Path,
     settled = None
     path = _transaction_file(row)
     if path is not None and remote_status in {"completed", "failed", "cancelled"}:
+        # settlement also releases the task's H3 fleet-queue lease (tools/h3_fleet_queue.py)
         settled = hopsapi.record_settlement(path, str(row["task_id"]), status,
                                             now=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    elif path is not None:
+        h3_fleet_queue.renew_for_transaction(path, str(row["task_id"]))  # still rendering: keep the H3 slot
     return {
         **row,
         "provider": hopsapi.PROVIDER_HOPSAPI,
