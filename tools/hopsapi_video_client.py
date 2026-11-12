@@ -587,17 +587,26 @@ def download_video(url: str, destination: Path, fetch: Callable[[str], bytes] | 
             "ffprobe_verified": bool(probe)}
 
 
-def record_settlement(transaction: Path, task_id: str, status: dict[str, Any], *, now: str) -> dict[str, Any] | None:
+def record_settlement(transaction: Path, task_id: str, status: dict[str, Any], *, now: str,
+                      blocking: bool = True) -> dict[str, Any] | None:
     """Write the provider's settlement onto the durable transaction (under its flock).  The budget
     ledger reads ``provider_cost_credits`` from here (nalu_budget_ledger.scan_hopsapi_spend).
     Only the transaction bound to this exact task id is touched; a terminal failure records 0 credits
-    and ``remote_terminal_state`` (tools/video_live_binding treats it as not live)."""
+    and ``remote_terminal_state`` (tools/video_live_binding treats it as not live).
+
+    A terminal state also releases the row's H3 fleet-queue lease (``h3_lease``, tools/h3_fleet_queue.py):
+    marked on the row under the lock, the network release after the lock is dropped.  ``blocking=False``
+    returns None instead of waiting when another holder has the transaction lock (the queue's reaper)."""
     import fcntl  # noqa: PLC0415
     transaction = Path(transaction)
     if not transaction.is_file():
         return None
+    lease_to_release: dict[str, Any] | None = None
     with transaction.with_suffix(".lock").open("a") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return None
         row = json.loads(transaction.read_text(encoding="utf-8"))
         if str(row.get("task_id") or "") != str(task_id):
             return None
@@ -618,12 +627,24 @@ def record_settlement(transaction: Path, task_id: str, status: dict[str, Any], *
                 row["provider_failure"] = str(status["error"])[:500]
             if status.get("provider_code") is not None:
                 row["provider_failure_code"] = status["provider_code"]
-        else:
-            return row
+        lease = row.get("h3_lease")
+        open_lease = isinstance(lease, dict) and bool(lease.get("lease_id")) and not lease.get("released_at")
+        if remote not in TERMINAL_FAILED and not (remote == "completed" and status.get("cost") is not None) \
+                and not (remote == "completed" and open_lease):
+            return row  # still rendering (a completed row without cost only frees its H3 slot)
+        if open_lease:
+            lease.update({"released_at": now, "release_reason": remote})
+            lease_to_release = dict(lease)
         temporary = transaction.with_suffix(transaction.suffix + ".part")
         temporary.write_text(json.dumps(row, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         temporary.replace(transaction)
-        return row
+    if lease_to_release is not None:
+        try:
+            import h3_fleet_queue  # noqa: PLC0415
+        except ModuleNotFoundError:
+            from tools import h3_fleet_queue  # noqa: PLC0415
+        h3_fleet_queue.release(lease_to_release, str(remote))
+    return row
 
 
 def is_hopsapi_task_id(task_id: Any) -> bool:

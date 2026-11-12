@@ -79,6 +79,7 @@ try:
                                     zero_cost_retryable)
     from h3_provider_english_contract import is_director_v2_text
     import hopsapi_video_client as hopsapi
+    import h3_fleet_queue
 except ModuleNotFoundError:
     from tools.giggle_api_client import _image_list, _registered_asset, _request, paid_video_submission_context
     from tools.giggle_credit_statements import fetch_pay_statements, reconcile_rows
@@ -113,6 +114,7 @@ except ModuleNotFoundError:
                                           zero_cost_retryable)
     from tools.h3_provider_english_contract import is_director_v2_text
     from tools import hopsapi_video_client as hopsapi
+    from tools import h3_fleet_queue
 
 # Shot-scope upgrade (configs/PROMPT_SHOT_SCOPE_POLICY_V1.json): submit-boundary conflict gate
 # and loaded-module audit.  Inactive episodes/models never call either, so their request,
@@ -1171,9 +1173,12 @@ def prior_bound(task: dict[str, Any], transaction_dir: Path) -> dict[str, Any] |
     if zero_cost_retryable(path, row):
         # The provider terminally failed this take at zero cost: nothing to harvest, nothing charged.
         # Release it (the failed take stays archived beside the transaction) and let this run POST.
+        old_lease = row.get("h3_lease")
         released = release_zero_cost_terminal(path, lock_held=True)  # submit_one holds the transaction lock
         if released is not None:
             row = released
+            if isinstance(old_lease, dict) and not old_lease.get("released_at"):
+                h3_fleet_queue.release(old_lease, "failed")  # its H3 fleet slot, if settlement never freed it
     if row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id"):
         # Recover a failed secondary receipt write without another paid POST.
         if row.get("receipt") and row.get("provider_response"):
@@ -1568,6 +1573,25 @@ def _submit_one_hopsapi(task: dict[str, Any], receipt_dir: Path, transaction_dir
         duration=int(duration), audio=sent_audio_references(task),
     )["request_sha256"])
     require_no_silent_resubmission(task, transaction_dir, fingerprint)
+    # H3 fleet queue (owner 2026-11-12: 5 concurrent H3 tasks for the whole HopsAPI account).  Every check
+    # above has decided this run POSTs; wait here for a slot -- before the uploads, whose URLs expire, and
+    # before the intent, so a give-up is pre-intent and not charged.  The caller (submit_one) holds this
+    # transaction's flock; nothing below takes it again.
+    lease = h3_fleet_queue.acquire(str(task["task_key"]), str(task.get("episode") or Path(transaction_dir).name),
+                                   transaction=transaction) if hopsapi.is_h3(task.get("model")) else None
+    try:
+        return _post_hopsapi_with_lease(task, receipt_dir, transaction, fingerprint, prompt, duration,
+                                        request_binding, scope_evidence, lease)
+    finally:
+        # Not bound to a task id: the POST never happened or provably created nothing -> free the slot now.
+        # A lost create response ("keep") may have started a task: that lease runs out by itself (TTL).
+        if lease is not None and not lease.get("bound") and not lease.get("keep"):
+            h3_fleet_queue.release(lease, "submit_failed")
+
+
+def _post_hopsapi_with_lease(task: dict[str, Any], receipt_dir: Path, transaction: Path, fingerprint: str,
+                             prompt: str, duration: Any, request_binding: Any,
+                             scope_evidence: dict[str, Any] | None, lease: dict[str, Any] | None) -> dict[str, Any]:
     images, audios, encoding_notes = _hopsapi_reference_uploads(task)
     payload = hopsapi.build_omni_request(
         prompt=prompt, image_urls=[row["url"] for row in images], audio_urls=[row["url"] for row in audios],
@@ -1600,11 +1624,15 @@ def _submit_one_hopsapi(task: dict[str, Any], receipt_dir: Path, transaction_dir
     if scope_evidence is not None:
         intent["prompt_scope_conflict_gate"] = scope_evidence["gate"]
         intent["loaded_modules"] = scope_evidence["loaded_modules"]
+    if lease is not None:
+        intent["h3_lease"] = {k: v for k, v in lease.items() if k not in ("bound", "keep")}
     atomic_json(transaction, intent)
     try:
         with paid_video_submission_context():
             response = hopsapi.create_task(payload)
     except hopsapi.HopsapiNotCharged as exc:
+        if lease is not None:  # no task was created: the caller frees the slot (submit_failed)
+            intent["h3_lease"].update({"released_at": utc_now(), "release_reason": "submit_failed"})
         intent.update({
             "state": "VERIFIED_ZERO_RETRYABLE", "credit_status": "NOT_CHARGED_RETRYABLE",
             "response_received_at": utc_now(), "error": str(exc), "provider_response": exc.response,
@@ -1622,14 +1650,20 @@ def _submit_one_hopsapi(task: dict[str, Any], receipt_dir: Path, transaction_dir
                        "error": str(exc),
                        "operator_note": "HopsAPI has no idempotency key: check the HopsAPI console for a task "
                                         "created at intent_recorded_at before any new POST"})
+        if lease is not None:
+            lease["keep"] = True
+            intent["h3_lease"]["kept_until_expiry"] = True
         atomic_json(transaction, intent)
         raise
     task_id = str(response["task_id"])
+    if lease is not None:
+        lease["bound"] = True  # from here on the lease belongs to the task: settlement releases it
     receipt = receipt_dir / f"{task['task_key']}_submit_receipt.json"
     intent.update({"state": "SUBMITTED_TASK_ID_BOUND", "task_id": task_id, "receipt": portable(receipt),
                    "provider_response": response, "response_recorded_at": utc_now()})
     atomic_json(transaction, intent)
     atomic_json(receipt, response)
+    h3_fleet_queue.bind(lease, task_id, transaction)
     return {
         **task, "task_id": task_id, "state": "remote_running", "submitted_at": utc_now(),
         "provider": hopsapi.PROVIDER_HOPSAPI,

@@ -1336,10 +1336,12 @@ class Ctx:
     def paid_step(self, argv: list[Any], *, name: str, sid: str,
                   planned_credits: int, dry_argv: list[Any] | None = None,
                   note: str = "",
-                  extra_env: dict[str, str] | None = None) -> tuple[str, dict[str, Any]]:
+                  extra_env: dict[str, str] | None = None,
+                  timeout: int | None = 3600) -> tuple[str, dict[str, Any]]:
         """Run a paid step, or its precheck twin plus a printed plan.
 
         Returns (status, step).  status is PASS / DRY / HARD_STOP / BLOCKED.
+        ``timeout`` bounds the paid subprocess (the S6 video submitter passes video_submit_timeout_s()).
         """
         argv = [str(item) for item in argv]
         paid_env = dict(extra_env or {})
@@ -1406,7 +1408,7 @@ class Ctx:
                 step["precheck"] = twin
             return DRY, step
 
-        step = self.run(argv, name=name, paid=True, extra_env=paid_env)
+        step = self.run(argv, name=name, paid=True, extra_env=paid_env, timeout=timeout)
         step["planned_credits"] = planned_credits
         step["budget"] = budget
         # A reservation is released only once the spend is bound (submitter exited 0)
@@ -5278,6 +5280,18 @@ def video_submit_argv(ctx: Ctx, *, manifest: Path, concurrency: int) -> list[Any
             "--concurrency", concurrency, "--project-root", VIDEO_PROJECT_ROOT]
 
 
+def video_submit_timeout_s() -> int:
+    """Subprocess timeout of a paid video submit.  A MiniMax-H3 submit may wait in the fleet-wide H3 queue
+    (tools/h3_fleet_queue.py; NALU_H3_QUEUE_MAX_WAIT_S, default 4 h) before its POSTs: the step timeout must
+    outlast that wait plus the POSTs, or the kill could land in the middle of a create POST.  The waiting
+    itself is pre-intent and never charged; the queue gives up on its own with H3_FLEET_QUEUE_WAIT_TIMEOUT."""
+    try:
+        wait = int(os.environ.get("NALU_H3_QUEUE_MAX_WAIT_S") or 4 * 3600)
+    except ValueError:
+        wait = 4 * 3600
+    return max(3600, wait + 3600)
+
+
 def video_preflight_argv(ctx: Ctx) -> list[Any]:
     """`qingshan video-preflight` is literally the submitter with --precheck-only."""
     return [VENV, "-m", "qingshan_engine.cli", "video-preflight",
@@ -6781,6 +6795,7 @@ def run_ab_variant(ctx: Ctx, variant: Path) -> int:
             paid_argv = [VENV, ENGINE / "tools/submit_giggle_video_manifest_v2.py", "--manifest", auth_manifest,
                          "--out", paths["submit"], "--concurrency", 1, "--project-root", VIDEO_PROJECT_ROOT]
             status, submit = ctx.paid_step(paid_argv, name="ab_submit_giggle_video_manifest_v2", sid="S6",
+                                           timeout=video_submit_timeout_s(),
                                            planned_credits=planned, extra_env=submit_env,
                                            note=f"A/B variant {key}: D-11 copy {auth_manifest.name}; clip -> {paths['dir']}")
         else:
@@ -6815,6 +6830,7 @@ def run_ab_variant(ctx: Ctx, variant: Path) -> int:
                 dry_argv = [VENV, ENGINE / "tools/submit_giggle_video_manifest_v2.py", "--manifest", rehearsed,
                             "--out", scratch / "precheck.json", "--precheck-only", "--project-root", VIDEO_PROJECT_ROOT]
                 status, submit = ctx.paid_step(paid_argv, name="ab_submit_giggle_video_manifest_v2", sid="S6",
+                                               timeout=video_submit_timeout_s(),
                                                planned_credits=planned, dry_argv=dry_argv, extra_env=submit_env,
                                                note=f"A/B variant {key}; clip -> {paths['dir']}")
                 precheck = (submit or {}).get("precheck") or {}
@@ -7103,7 +7119,7 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
             paid_argv = video_submit_argv(ctx, manifest=auth_manifest, concurrency=concurrency)
             dry_argv = video_preflight_argv(ctx)
             status, submit = ctx.paid_step(
-                paid_argv, name="s6_submit_giggle_video_manifest_v2", sid="S6",
+                paid_argv, name="s6_submit_giggle_video_manifest_v2", sid="S6", timeout=video_submit_timeout_s(),
                 planned_credits=planned, dry_argv=dry_argv, extra_env=VIDEO_SUBMIT_ENV,
                 note=(f"Submitted file is the D-11 materialised copy {auth_manifest.name}.  "
                       + ("HopsAPI POST /v1/router/task/create (OmniVideo, MiniMax-H3; key HOPSAPI_API_KEY), "

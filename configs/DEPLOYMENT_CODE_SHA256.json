@@ -777,7 +777,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "bac3029ecd76aa76ff58f7c3e6ba257ac36e2be464eff531ec78ec955f9b37a2"
+      "sha256": "fc1daafc59dcda99b8d3b49ec92ffaf7d4e879b7666626eff0cba9d73d6b9c8e"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -5180,6 +5180,10 @@
       "sha256": "abda04f13088748b72f9d31e8e2acd753ae415f123e1593061e73edc362b4739"
     },
     {
+      "path": "tools/h3_fleet_queue.py",
+      "sha256": "1c10447a857113e0ad832d6cbce2f4ff49873cfdd53aa81e061cac139dff476e"
+    },
+    {
       "path": "tools/h3_native_audio_whitelist_gate.py",
       "sha256": "8fa7d3326bdfc486338912e1a90ba8ad219e999145566237fce68901c71aa411"
     },
@@ -5285,7 +5289,7 @@
     },
     {
       "path": "tools/hopsapi_video_client.py",
-      "sha256": "cdc7d2ee90d60aaac1ef3797ff41274c4c4e1e75027a2702f37b16c513f30369"
+      "sha256": "c4e48c666d8c9c4d54db28fd04e4b57e6f298c4b95461cab29ec04f03c362155"
     },
     {
       "path": "tools/hotfix_e16_expression_arcs.py",
@@ -5705,7 +5709,7 @@
     },
     {
       "path": "tools/poll_giggle_submit_report.py",
-      "sha256": "65e854854542bbbb0a1867613dcd0de81353127d7f3e8ac8ae5e7441e2e9ca91"
+      "sha256": "7e31387d7f9834514797c7255b60087df00142002569d24e2e63d9eb28415240"
     },
     {
       "path": "tools/portable_runtime.py",
@@ -6813,7 +6817,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "f681eeddbf5bd954e088f155a2c743dca64dd285630eea2c8a9406f885f6e0f9"
+      "sha256": "506314dcbfcd752961d68dc8c3931288fb4fffaf25d5b714f9d25213694119c9"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -7978,6 +7982,10 @@
     {
       "path": "tools/tests/test_h3_faceless_character_plate.py",
       "sha256": "6bf9dbd801d7dc775dcb60ee7dd6aad45e35d201f1787bfb8cb2c9a721e3022f"
+    },
+    {
+      "path": "tools/tests/test_h3_fleet_queue.py",
+      "sha256": "be065d85542c42ca7a0b7ba22fe4a2f8dec8763d512d67ac4aa4fe0d98a690a4"
     },
     {
       "path": "tools/tests/test_h3_native_audio_whitelist_gate.py",
