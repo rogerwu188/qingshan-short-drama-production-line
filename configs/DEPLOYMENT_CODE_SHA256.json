@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2418,
+  "file_count": 2419,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -673,7 +673,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "8d2c19681b0c601e8259d22f49d573e4cc50ea561988a7cf34eefbe3033ec1c4"
+      "sha256": "eb98e41f6d828cf41e1ca76c3bf43fa0b79399f3156cfd47b8ad62e9c44d8a66"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -7990,6 +7990,10 @@
     {
       "path": "tools/tests/test_h3_wardrobe_state_override.py",
       "sha256": "773c87207ae26bccbc78e1d833d31176ffa1cbee6d81fd3ecf6d9a58993c107c"
+    },
+    {
+      "path": "tools/tests/test_hard_continuation_as_submitted_start_frame.py",
+      "sha256": "a2de98a21099c12ffae1fbbb03801917f951409f7af9492d3fcf4440e35d1780"
     },
     {
       "path": "tools/tests/test_hard_continuation_tail_q1.py",

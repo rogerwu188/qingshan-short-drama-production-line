@@ -1682,6 +1682,24 @@ def as_submitted_start_frame(out_dir: Path, episode: str, unit_id: str,
     return None
 
 
+def withhold_own_start_tail(unit: dict[str, Any], prev_id: str, tails: Path, out_dir: Path, episode: str,
+                            keyframe_dir: Path, tail_rejected_units: set[str]) -> None:
+    """Record the predecessor tail on an own-start unit as withheld audit evidence (never a provider reference),
+    with the image its bound take was actually submitted with, when known."""
+    tail = tails / f"{prev_id}.png"
+    if not tail.is_file():
+        return
+    uid = unit["unit_id"]
+    unit["withheld_previous_unit_final_frame"] = {
+        "path": str(tail), "sha256": sha256_file(tail), "previous_unit_id": prev_id,
+        "source": "REAL_FINAL_FRAME_OF_HARVESTED_VIDEO",
+        "reason": "TAIL_REJECTED" if uid in tail_rejected_units else "SUBMITTED_WITHOUT_PREDECESSOR_TAIL"}
+    if uid not in tail_rejected_units:
+        submitted = as_submitted_start_frame(out_dir, episode, uid, [keyframe_dir, tails])
+        if submitted:
+            unit["withheld_previous_unit_final_frame"]["as_submitted_start_frame"] = submitted
+
+
 def q2_redo_prompt_findings(out_dir: Path, episode: str, contract: dict[str, Any]) -> dict[str, list[str]]:
     """CAMERA_GRAMMAR_V1: unit -> ``h3_redo_findings`` of units the engine redid after an objective Q2 FAIL whose
     redo prompt states the measured problem (push-in; lab E08, owner 2026-10-29).  Read from the S6 wave state
@@ -2187,19 +2205,13 @@ def main() -> int:
             if prev_id and tails is not None:
                 tail = tails / f"{prev_id}.png"
                 if tail.is_file():
-                    row = {"path": str(tail), "sha256": sha256_file(tail), "previous_unit_id": prev_id,
-                           "source": "REAL_FINAL_FRAME_OF_HARVESTED_VIDEO"}
                     if unit["unit_id"] in own_start_units:
-                        unit["withheld_previous_unit_final_frame"] = {
-                            **row, "reason": ("TAIL_REJECTED" if unit["unit_id"] in tail_rejected_units
-                                              else "SUBMITTED_WITHOUT_PREDECESSOR_TAIL")}
-                        if unit["unit_id"] not in tail_rejected_units:
-                            submitted = as_submitted_start_frame(out_dir, episode, unit["unit_id"],
-                                                                 [keyframe_dir, tails])
-                            if submitted:
-                                unit["withheld_previous_unit_final_frame"]["as_submitted_start_frame"] = submitted
+                        withhold_own_start_tail(unit, prev_id, tails, out_dir, episode, keyframe_dir,
+                                                tail_rejected_units)
                     else:
-                        unit["previous_unit_final_frame"] = row
+                        unit["previous_unit_final_frame"] = {
+                            "path": str(tail), "sha256": sha256_file(tail), "previous_unit_id": prev_id,
+                            "source": "REAL_FINAL_FRAME_OF_HARVESTED_VIDEO"}
             wave_units.append(unit)
         wave = copy.deepcopy(full)
         wave["schema"] = str(full.get("schema") or "qingshan.video_unit_grouping_plan.v1") + ".partial_ready.wave"
@@ -2222,6 +2234,20 @@ def main() -> int:
         for unit in grouping_x.get("units") or []:
             if unit.get("unit_id") in own_start_units:
                 unit["start_frame_source"] = "OWN_KEYFRAME_TAIL_REJECTED"
+        # the FULL plan carries no tail rows, so an own-start unit fell back to <tails>/<prev>.png and its canonical
+        # start-frame contract (read by review requests and the evidence writer) bound the predecessor's NEW tail
+        # while the wave contract bound the as-submitted image: one receipt could never satisfy both (fleet device
+        # 1284 E06 VU-006, 2026-11-12).  Withhold the tail here exactly as the wave does.
+        if args.real_final_frames:
+            _order = [str(u.get("unit_id")) for u in json.loads(full_plan_path.read_text(encoding="utf-8"))["units"]]
+            for unit in grouping_x.get("units") or []:
+                uid = str(unit.get("unit_id"))
+                if (uid in own_start_units and uid in _order and _order.index(uid) > 0
+                        and not unit.get("previous_unit_final_frame")
+                        and not unit.get("withheld_previous_unit_final_frame")):
+                    withhold_own_start_tail(unit, _order[_order.index(uid) - 1],
+                                            Path(args.real_final_frames).expanduser().resolve(),
+                                            out_dir, episode, keyframe_dir, tail_rejected_units)
         # A rolling wave is a SUBSET of the episode's units: pass the full plan so the
         # predecessor of its first (and of every non-adjacent) unit is the true predecessor,
         # not "none"/"the previous wave member".  Without this the wave classified every unit
