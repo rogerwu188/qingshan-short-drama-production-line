@@ -426,6 +426,16 @@ def _post_after_intent(row: dict, output_dir: Path, transaction: Path, intent: d
     return {"task_key": row["id"], "character_id": row["id"], "task_id": task_id, "status": "SUBMITTED", "receipt": portable_path(receipt_path), "transaction": portable_path(transaction), "recovered_from_transaction": False}
 
 
+def store_outage(store_root: Path) -> dict[str, Any] | None:
+    """The store's trailing 424 run as an outage, or None.  A HopsAPI image task that completed within
+    the health window proves the channel works, so the run is task rejections, not an outage (E01 S3,
+    2026-11-11: a same-batch success after the 424s still held the rewritten tasks).  Free."""
+    outage = image_client.recent_provider_outage(store_root)
+    if outage and image_client.recent_successful_task(store_root) is not None:
+        return None
+    return outage
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--plan", required=True)
@@ -475,7 +485,7 @@ def main() -> int:
     transaction_dir = ROOT / "workflow" / "tasks" / "giggle_submit_transactions" / episode_key
     transaction_dir.mkdir(parents=True, exist_ok=True)
     if not args.precheck_only and provider == image_client.PROVIDER_HOPSAPI:
-        outage = image_client.recent_provider_outage(transaction_dir.parent)
+        outage = store_outage(transaction_dir.parent)
         if outage:  # free, pre-intent: nothing is POSTed into an upstream 424 run
             raise SystemExit(f"HOPSAPI_IMAGE_PROVIDER_OUTAGE: 0 POSTed, 0 credits; upstream gpt-image-2 is "
                              f"returning 424 'Provider error' (not a reference/prompt defect); retry after "

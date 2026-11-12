@@ -769,6 +769,10 @@ class Expectations:
         if keys and (not self.shots or str(keys[0]).split(":")[0] in self.shots):
             return str(keys[0]).split(":")[0]
         shots = unit.get("editorial_shot_ids") or []
+        if not shots:
+            # anchor-plan rows of a hard-continuation unit carry no shot list; the grouping plan does
+            grouped = (getattr(self, "grouping_units", None) or {}).get(str(unit.get("unit_id"))) or {}
+            shots = grouped.get("editorial_shot_ids") or []
         return str(shots[0]) if shots else ""
 
     # ------------------------------------------------------------ action role
