@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2421,
+  "file_count": 2422,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -777,7 +777,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "063719f68b0c2a4ce8fd2c2cf76c72ec43df59742e30d1fff9875ac22bfe738b"
+      "sha256": "2914e061bd6069b7aff493e28fdfbb65a45900a30961abb1810a63559dfbe801"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -6805,7 +6805,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "9e75b611e378f20036b6e6616fe0cda676bc1a19afd13e42db7d92500a3e656c"
+      "sha256": "0c5f1225fe7c37a713037a1cae585919f29162572840c81ca6358318e9b15fdf"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -8776,6 +8776,10 @@
       "sha256": "b3f9ea140142eecf068ef0f757806744d35d355de5c155abf7eacddaa8f25888"
     },
     {
+      "path": "tools/tests/test_s7_reentry_keeps_review_bound_candidate.py",
+      "sha256": "e6d22f5b40952a7a83a1328c682a2ff78a90726854d7ac885ce222a3b4222485"
+    },
+    {
       "path": "tools/tests/test_s7_reuse_accepted_levelled_audio.py",
       "sha256": "d08383d64b9c3f75f92631b20c2899b28b27b2f2c79ee7a5c1e1ff8bb25111e0"
     },
@@ -9569,7 +9573,7 @@
     },
     {
       "path": "tools/video_live_binding.py",
-      "sha256": "0d155c72c462f5c65ccf354ae0c5adfe901b0cc3051554e89d8f7b74d9aa9394"
+      "sha256": "ce8af1e4a7058c549c024f7f6f594b3722ee670e0a6c9de006b498f269660887"
     },
     {
       "path": "tools/video_model_adapter.py",

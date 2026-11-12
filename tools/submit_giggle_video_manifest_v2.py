@@ -75,7 +75,8 @@ try:
     )
     from action_video_prompt_compiler import validate_action_contract
     from shot_media_admission_gate import compute_input_template_id, precheck_submission_inputs
-    from video_live_binding import attributed_task_ids, live_bindings
+    from video_live_binding import (attributed_task_ids, live_bindings, release_zero_cost_terminal,
+                                    zero_cost_retryable)
     from h3_provider_english_contract import is_director_v2_text
     import hopsapi_video_client as hopsapi
 except ModuleNotFoundError:
@@ -108,7 +109,8 @@ except ModuleNotFoundError:
     )
     from tools.action_video_prompt_compiler import validate_action_contract
     from tools.shot_media_admission_gate import compute_input_template_id, precheck_submission_inputs
-    from tools.video_live_binding import attributed_task_ids, live_bindings
+    from tools.video_live_binding import (attributed_task_ids, live_bindings, release_zero_cost_terminal,
+                                          zero_cost_retryable)
     from tools.h3_provider_english_contract import is_director_v2_text
     from tools import hopsapi_video_client as hopsapi
 
@@ -1166,6 +1168,12 @@ def prior_bound(task: dict[str, Any], transaction_dir: Path) -> dict[str, Any] |
     row = json.loads(path.read_text(encoding="utf-8"))
     if row.get("submission_fingerprint") != task_fingerprint(task):
         raise RuntimeError(f"{task['task_key']} transaction fingerprint mismatch")
+    if zero_cost_retryable(path, row):
+        # The provider terminally failed this take at zero cost: nothing to harvest, nothing charged.
+        # Release it (the failed take stays archived beside the transaction) and let this run POST.
+        released = release_zero_cost_terminal(path)
+        if released is not None:
+            row = released
     if row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id"):
         # Recover a failed secondary receipt write without another paid POST.
         if row.get("receipt") and row.get("provider_response"):
