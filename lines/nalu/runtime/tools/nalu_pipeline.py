@@ -8218,6 +8218,48 @@ def s7_voice_pitch_unify(ctx: Ctx, res: StageResult, steps: list[dict[str, Any]]
     return pitch_out, []
 
 
+def s7_candidate_source_bindings(ctx: Any) -> dict[str, Any]:
+    """The inputs that decide what the S7 cut contains: admitted unit clips, Q2 index, contract, grouping,
+    editorial and the authored S7 plans.  Equal bindings = the same cut, even when a re-render is not
+    byte-identical."""
+    p = ctx.p
+    files = {"q2_index": p.q2_index, "contract": p.contract, "grouping_plan": p.grouping_plan,
+             "editorial": p.editorial}
+    for suffix in ("UNIT_RECUT_PLAN.json", "VOICE_PITCH_UNIFY_SKIP.json", "BGM_PLAN.json", "BGM_SELECTION.json"):
+        files[suffix] = p.assembly / f"{ctx.episode}_{suffix}"
+    out: dict[str, Any] = {key: sha256_file(Path(str(path))) if Path(str(path)).is_file() else None
+                           for key, path in files.items()}
+    out["unit_clips"] = {mp4.name: sha256_file(mp4)
+                         for mp4 in sorted(Path(str(p.video_media)).glob(f"{ctx.episode}-VU-*.mp4"))}
+    out["music_mode"] = str(os.environ.get("NALU_S7_BED_MUSIC_MODE") or "wall_to_wall")
+    return out
+
+
+def _review_bound_candidate_to_retain(ctx: Any, bindings: dict[str, Any], new_sha: str | None) -> dict[str, Any] | None:
+    """The existing candidate, when an S7 re-entry must keep it instead of the fresh render.
+
+    Only when (a) the current candidate differs from the fresh chain output, (b) the independent final-audience
+    request names exactly the current candidate (a review is pending or submitted for it), and (c) the previous
+    chain manifest recorded that candidate with the same source bindings as now.  Anything else (changed clips,
+    order-driven re-cut, legacy manifest) re-renders as before.  The fresh output stays on disk as evidence."""
+    p = ctx.p
+    if not (new_sha and p.final_candidate.is_file()):
+        return None
+    current_sha = sha256_file(p.final_candidate)
+    if current_sha == new_sha:
+        return None
+    request = read_json(REVIEWS_ROOT / ctx.episode / "final_audience_request.json", {}) or {}
+    if ((request.get("media") or {}).get("sha256")) != current_sha:
+        return None
+    manifest = read_json(p.assembly / f"{ctx.episode}_FINAL_CANDIDATE_CHAIN.json", {}) or {}
+    if manifest.get("final_candidate_sha256") != current_sha or not manifest.get("source_bindings") \
+            or manifest.get("source_bindings") != bindings:
+        return None
+    return {"final_candidate_sha256": current_sha, "rerender_sha256": new_sha,
+            "review_request_id": request.get("request_id"),
+            "reason": "S7_REENTRY_SAME_SOURCES_REVIEW_BOUND_CANDIDATE"}
+
+
 def s7_post_level_audio_chain(ctx: Ctx, res: StageResult, steps: list[dict[str, Any]],
                               line_windows: Path) -> list[str]:
     """levelled release -> ambient bed + under-score -> final candidate (voice pitch unify ran BEFORE levelling).
@@ -8272,7 +8314,17 @@ def s7_post_level_audio_chain(ctx: Ctx, res: StageResult, steps: list[dict[str, 
 
     # the candidate = last stage output (byte copy; the stage files stay as evidence)
     final_sha = sha256_file(current)
-    if not (p.final_candidate.is_file() and sha256_file(p.final_candidate) == final_sha):
+    bindings = s7_candidate_source_bindings(ctx)
+    retained = _review_bound_candidate_to_retain(ctx, bindings, final_sha)
+    if retained is not None:
+        # field device …1284 E06 (2026-11-12): S7 re-entry re-rendered a non byte-identical cut (12090d <-> 84afdc)
+        # and replaced the candidate the independent reviewer had already been asked to watch, so its submitted
+        # verdict went stale before S7 could read it, every time.  Same admitted sources -> keep the reviewed cut.
+        final_sha = retained["final_candidate_sha256"]
+        res.details["reviewed_candidate_retained"] = retained
+        ctx.say(f"   == S7 re-entry: keeping review-bound candidate {final_sha[:12]} "
+                f"(re-render {retained['rerender_sha256'][:12]} is evidence only, sources unchanged)")
+    elif not (p.final_candidate.is_file() and sha256_file(p.final_candidate) == final_sha):
         _park_superseded(p.final_candidate)
         import shutil
         tmp = p.final_candidate.with_name(p.final_candidate.name + ".staging")
@@ -8285,6 +8337,8 @@ def s7_post_level_audio_chain(ctx: Ctx, res: StageResult, steps: list[dict[str, 
                 "levelled": str(p.final_levelled), "levelled_sha256": sha256_file(p.final_levelled),
                 "chain": chain, "final_candidate": str(p.final_candidate), "final_candidate_sha256": final_sha,
                 "line_windows_for_detectors": str(line_windows) if line_windows else None,
+                "source_bindings": bindings,
+                **({"reviewed_candidate_retained": retained} if retained else {}),
                 "authority": "Roger 2026-10-30 E12 成片审看 1b/1c"}
     write_json(p.assembly / f"{ctx.episode}_FINAL_CANDIDATE_CHAIN.json", manifest)
     res.details["final_candidate_chain"] = manifest
