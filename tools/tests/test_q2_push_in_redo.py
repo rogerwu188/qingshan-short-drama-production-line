@@ -232,7 +232,8 @@ class AutoRedoTest(unittest.TestCase):
                 p=SimpleNamespace(preprod=preprod, preprod_reports=preprod / "reports", contract=tmp / "contract.json",
                                   video_media=tmp / "video", q2_dir=q2_dir, video_transaction=tmp / "tx.json"))
             with mock.patch.object(npl, "episode_video_model", lambda _e: "MiniMax-H3"), \
-                    mock.patch.object(npl, "video_task_credits", lambda _m, s, _t: int(s * 2)):
+                    mock.patch.object(npl, "episode_video_resolution", lambda _e: "480p"), \
+                    mock.patch.object(npl, "video_task_credits", lambda _m, s, _t, _r: int(s * 2)):
                 result = npl.s6_q2_auto_redo(ctx)
             costs = {r["unit_id"]: r["cost"] for r in result["selected"]}
             self.assertEqual(costs, {"E08-VU-017": 10 + q2_auto_redo.OWN_KEYFRAME_CREDITS, "E08-VU-002": 8})

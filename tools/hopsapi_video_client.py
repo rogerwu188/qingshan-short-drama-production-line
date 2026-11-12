@@ -21,7 +21,8 @@ rollback switch and keeps the old path byte-for-byte.
 Facts from the paid probe (2026-10-29, ~/Desktop/nalu_lab_preview/hopsapi_probe/PROBE.md)
 ------------------------------------------------------------------------------------
 * POST {base}/router/task/create {task:"OmniVideo", model:"MiniMax-H3", input:{prompt, images[],
-  audios[], duration (int 4-15), resolution:"768p", aspect_ratio:"9:16", generate_audio:true}}
+  audios[], duration (int 4-15), resolution:"480p"|"768p" (fixed per episode by nalu_video_model),
+  aspect_ratio:"9:16", generate_audio:true}}
   -> top-level ``task_id`` (``tsk_…``).  No idempotency key exists: a lost response is never resent.
 * GET {base}/router/tasks/{id} -> integer status 0 queued, 1 processing, 2 success (settled,
   ``cost``), 3 failed (not charged), 4 cancelled (not charged); a failure may come back as HTTP 200
@@ -80,6 +81,16 @@ FREE_REFERENCE_IMAGES = 5
 DEFAULT_H3_CREDITS_PER_SECOND = Decimal("1.56")
 #: 6th+ reference image: list 1.8/output-second x 0.175, rounded up.
 DEFAULT_H3_EXTRA_IMAGE_CREDITS_PER_SECOND = Decimal("0.32")
+#: 480p list prices (hopsapi-minimax-h3 skill references/billing.md and docs.hopsapi.com MiniMax H3 pricing,
+#: checked 2026-11-12): ref-image output 6.2/s (768p: 8.9/s), 6th+ image 0.9/output-second (768p: 1.8).
+#: x account multiplier 0.175 -> 1.085 and 0.1575, rounded up.  Not yet confirmed by a paid 480p probe.
+#: Override: env HOPSAPI_H3_480P_CREDITS_PER_SECOND / HOPSAPI_H3_480P_EXTRA_IMAGE_CREDITS_PER_SECOND or
+#: qingshan.json generation.hopsapi_h3_480p_credits_per_second / ..._extra_image_credits_per_second.  Without
+#: a 480p override but with a 768p override, the 768p override is scaled by the list-price ratio (rounded up).
+DEFAULT_H3_480P_CREDITS_PER_SECOND = Decimal("1.09")
+DEFAULT_H3_480P_EXTRA_IMAGE_CREDITS_PER_SECOND = Decimal("0.16")
+H3_480P_LIST_RATIO = Decimal("6.2") / Decimal("8.9")
+H3_480P_EXTRA_IMAGE_LIST_RATIO = Decimal("0.9") / Decimal("1.8")
 HTTP_TIMEOUT_SECONDS = float(os.environ.get("HOPSAPI_HTTP_TIMEOUT_SECONDS", "60"))
 CREATE_TIMEOUT_SECONDS = float(os.environ.get("HOPSAPI_CREATE_TIMEOUT_SECONDS", "120"))
 UPLOAD_ATTEMPTS = 3
@@ -215,16 +226,40 @@ def _decimal_setting(env_name: str, config_key: str, default: Decimal,
     return default
 
 
-def h3_credits_per_second(config_path: str | Path | None = None, environ: dict[str, str] | None = None) -> Decimal:
-    return _decimal_setting("HOPSAPI_H3_CREDITS_PER_SECOND", "hopsapi_h3_credits_per_second",
+def _is_480p(resolution: Any) -> bool:
+    """Only an explicit 480p is priced at 480p; anything else (None, 768p) keeps the higher 768p price."""
+    return str(resolution or "").strip().lower() == "480p"
+
+
+def _scaled_480p(value_768p: Decimal, default_768p: Decimal, ratio: Decimal, default_480p: Decimal) -> Decimal:
+    if value_768p == default_768p:
+        return default_480p
+    return (value_768p * ratio).quantize(Decimal("0.01"), rounding=ROUND_CEILING)
+
+
+def h3_credits_per_second(config_path: str | Path | None = None, environ: dict[str, str] | None = None,
+                          resolution: Any = "768p") -> Decimal:
+    base = _decimal_setting("HOPSAPI_H3_CREDITS_PER_SECOND", "hopsapi_h3_credits_per_second",
                             DEFAULT_H3_CREDITS_PER_SECOND, config_path, environ)
+    if not _is_480p(resolution):
+        return base
+    return _decimal_setting("HOPSAPI_H3_480P_CREDITS_PER_SECOND", "hopsapi_h3_480p_credits_per_second",
+                            _scaled_480p(base, DEFAULT_H3_CREDITS_PER_SECOND, H3_480P_LIST_RATIO,
+                                         DEFAULT_H3_480P_CREDITS_PER_SECOND), config_path, environ)
 
 
 def h3_extra_image_credits_per_second(config_path: str | Path | None = None,
-                                      environ: dict[str, str] | None = None) -> Decimal:
-    return _decimal_setting("HOPSAPI_H3_EXTRA_IMAGE_CREDITS_PER_SECOND",
+                                      environ: dict[str, str] | None = None, resolution: Any = "768p") -> Decimal:
+    base = _decimal_setting("HOPSAPI_H3_EXTRA_IMAGE_CREDITS_PER_SECOND",
                             "hopsapi_h3_extra_image_credits_per_second",
                             DEFAULT_H3_EXTRA_IMAGE_CREDITS_PER_SECOND, config_path, environ)
+    if not _is_480p(resolution):
+        return base
+    return _decimal_setting("HOPSAPI_H3_480P_EXTRA_IMAGE_CREDITS_PER_SECOND",
+                            "hopsapi_h3_480p_extra_image_credits_per_second",
+                            _scaled_480p(base, DEFAULT_H3_EXTRA_IMAGE_CREDITS_PER_SECOND,
+                                         H3_480P_EXTRA_IMAGE_LIST_RATIO,
+                                         DEFAULT_H3_480P_EXTRA_IMAGE_CREDITS_PER_SECOND), config_path, environ)
 
 
 def _ceil(value: Decimal) -> int:
@@ -232,21 +267,22 @@ def _ceil(value: Decimal) -> int:
 
 
 def estimated_task_credits(seconds: float, image_count: int = 0, *, config_path: str | Path | None = None,
-                           environ: dict[str, str] | None = None) -> int:
-    """Conservative (rounded-up) credits one HopsAPI H3 768p task may cost."""
+                           environ: dict[str, str] | None = None, resolution: Any = "768p") -> int:
+    """Conservative (rounded-up) credits one HopsAPI H3 task may cost at ``resolution`` (480p / 768p)."""
     seconds_d = Decimal(str(max(float(seconds or 0), float(MIN_DURATION_SECONDS))))
-    total = seconds_d * h3_credits_per_second(config_path, environ)
+    total = seconds_d * h3_credits_per_second(config_path, environ, resolution)
     extra = max(0, int(image_count or 0) - FREE_REFERENCE_IMAGES)
-    total += Decimal(extra) * seconds_d * h3_extra_image_credits_per_second(config_path, environ)
+    total += Decimal(extra) * seconds_d * h3_extra_image_credits_per_second(config_path, environ, resolution)
     return _ceil(total)
 
 
 def estimated_batch_credits(total_seconds: float, tasks: int, *, config_path: str | Path | None = None,
-                            environ: dict[str, str] | None = None) -> int:
+                            environ: dict[str, str] | None = None, resolution: Any = "768p") -> int:
     """Planning price for ``tasks`` tasks totalling ``total_seconds``: rounded up, plus one credit of
     rounding headroom per task so it never undercuts the sum of per-task estimates."""
     floor_seconds = max(float(total_seconds or 0), float(MIN_DURATION_SECONDS * max(0, int(tasks or 0))))
-    return _ceil(Decimal(str(floor_seconds)) * h3_credits_per_second(config_path, environ)) + max(0, int(tasks or 0))
+    return (_ceil(Decimal(str(floor_seconds)) * h3_credits_per_second(config_path, environ, resolution))
+            + max(0, int(tasks or 0)))
 
 
 # --------------------------------------------------------------------------- #
@@ -655,15 +691,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="HopsAPI video provider helper (no network for these commands).")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("resolve-provider", help="print hopsapi|giggle (env > qingshan.json > key presence)")
-    est = sub.add_parser("estimate", help="planning credits for H3 768p via HopsAPI")
+    est = sub.add_parser("estimate", help="planning credits for H3 via HopsAPI")
     est.add_argument("--seconds", type=float, required=True)
     est.add_argument("--tasks", type=int, default=1)
+    est.add_argument("--resolution", choices=sorted(RESOLUTIONS), default="768p")
     args = parser.parse_args(argv)
     if args.cmd == "resolve-provider":
         print(video_provider())
         return 0
-    print(json.dumps({"planned_credits": estimated_batch_credits(args.seconds, args.tasks),
-                      "credits_per_second": str(h3_credits_per_second())}))
+    print(json.dumps({"planned_credits": estimated_batch_credits(args.seconds, args.tasks, resolution=args.resolution),
+                      "credits_per_second": str(h3_credits_per_second(resolution=args.resolution)),
+                      "resolution": args.resolution}))
     return 0
 
 

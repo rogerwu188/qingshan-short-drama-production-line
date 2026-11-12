@@ -314,6 +314,8 @@ def require_episode_video_model(manifest: dict[str, Any], manifest_path: Path) -
         checked[episode] = _vm.check_task_models(
             episode, tasks=rows, format_contract=manifest.get("format_contract"),
             allowed_video_models=manifest.get("allowed_video_models"), manifest_path=manifest_path)
+        # owner 2026-11-12: the H3 resolution is fixed per episode too (480p new, 768p already started)
+        _vm.check_task_resolutions(episode, tasks=rows, manifest_path=manifest_path)
     return checked or None
 
 
@@ -1134,9 +1136,10 @@ def validate_task(task: dict[str, Any]) -> None:
             )
         minimum_duration = 4
     elif model == "MiniMax-H3":
-        if resolution != "768p":
+        # provider-native 480p / 768p only; which one is fixed per episode (nalu_video_model, owner 2026-11-12)
+        if resolution not in ("480p", "768p"):
             raise ValueError(
-                f"{task['task_key']} must use MiniMax-H3 provider-native 768p; "
+                f"{task['task_key']} must use MiniMax-H3 provider-native 480p or 768p; "
                 "1080p and 2K must not be represented as native H3 output"
             )
         if len(references) > 9:
@@ -1263,13 +1266,16 @@ def estimated_video_credits(task: dict[str, Any]) -> int:
     """Exposure a bound-but-unreconciled task presents to the episode cap (K111).
 
     Priced per the provider's own schedule, matching nalu_pipeline.video_task_credits:
-    SD2 720p 20 credits/s; MiniMax-H3 768p 14 credits/s + 6 per task.  Over-estimating
+    SD2 720p 20 credits/s; MiniMax-H3 768p 14 credits/s + 6 per task (Giggle has no 480p price on
+    record, so the 768p figure stays the conservative upper bound there).  Over-estimating
     here would stop a healthy H3 episode early; under-estimating would hide exposure.
     """
     seconds = int(task.get("duration_seconds", 6))
     if hopsapi.task_uses_hopsapi(task):
-        # HopsAPI router (owner 2026-10-29): configurable per-second planning price, rounded up.
-        return hopsapi.estimated_task_credits(seconds, len(task.get("reference_images") or []))
+        # HopsAPI router (owner 2026-10-29): configurable per-second planning price, rounded up, at the
+        # task's own resolution (480p is cheaper).
+        return hopsapi.estimated_task_credits(seconds, len(task.get("reference_images") or []),
+                                              resolution=task.get("resolution"))
     if str(task.get("model") or "") == "MiniMax-H3":
         return int(round(seconds * 14)) + 6
     return int(seconds * 20)
@@ -1426,6 +1432,7 @@ def submit_one(task: dict[str, Any], receipt_dir: Path, transaction_dir: Path) -
         "submission_fingerprint": fingerprint, "state": "INTENT_RECORDED",
         "intent_recorded_at": utc_now(), "prompt_sha256": task["prompt_sha256"],
         "reference_sha256": task["reference_sha256"], "model": task["model"],
+        "resolution": task.get("resolution"),  # nalu_video_model reads the episode's resolution from here
         # Exposure while this task is bound but unreconciled (K111); priced by model
         # so an H3 episode is not stopped by an SD2-rate overestimate.
         "estimated_credits": estimated_video_credits(task),
@@ -1606,6 +1613,7 @@ def _post_hopsapi_with_lease(task: dict[str, Any], receipt_dir: Path, transactio
         "submission_fingerprint": fingerprint, "state": "INTENT_RECORDED",
         "intent_recorded_at": utc_now(), "prompt_sha256": task["prompt_sha256"],
         "reference_sha256": task["reference_sha256"], "model": task["model"],
+        "resolution": task.get("resolution"),  # nalu_video_model reads the episode's resolution from here
         "estimated_credits": estimated_video_credits(task),
         "retry_guard": "DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED",
         "request_binding": request_binding,

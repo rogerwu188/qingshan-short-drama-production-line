@@ -6316,13 +6316,21 @@ def episode_video_model(episode: str) -> str:
     return _vm.episode_video_model(episode)
 
 
-def video_task_credits(model: str, seconds: float, tasks: int) -> int:
+def episode_video_resolution(episode: str) -> str:
+    """The episode's fixed video resolution (nalu_video_model: H3 480p for new episodes, 768p for every
+    episode started before 2026-11-12; SD2 720p)."""
+    import nalu_video_model as _vm
+    return _vm.episode_video_resolution(episode)
+
+
+def video_task_credits(model: str, seconds: float, tasks: int, resolution: str | None = "768p") -> int:
     """Planning price: SD2 720p 20 credits/s; MiniMax-H3 768p 14 credits/s + 6 per task
-    (materialize_paid_authorization.H3_CREDITS_PER_SECOND / H3_CREDITS_PER_TASK) on Giggle; on the
-    HopsAPI router (owner 2026-10-29) the configurable per-second price (default 1.56 credits/s,
-    tools/hopsapi_video_client.estimated_batch_credits), rounded up."""
+    (materialize_paid_authorization.H3_CREDITS_PER_SECOND / H3_CREDITS_PER_TASK) on Giggle (no 480p price
+    on record: the 768p figure is kept as the conservative upper bound); on the HopsAPI router (owner
+    2026-10-29) the configurable per-second price at ``resolution`` (768p default 1.56 credits/s, 480p
+    1.09, tools/hopsapi_video_client.estimated_batch_credits), rounded up."""
     if model == "MiniMax-H3" and video_provider_for(model) == "hopsapi":
-        return _hopsapi().estimated_batch_credits(seconds, tasks)
+        return _hopsapi().estimated_batch_credits(seconds, tasks, resolution=resolution)
     if model == "MiniMax-H3":
         return int(round(seconds * _paid_order.H3_CREDITS_PER_SECOND)) + _paid_order.H3_CREDITS_PER_TASK * tasks
     return int(round(seconds * 20))
@@ -6348,7 +6356,8 @@ def s6_planned_credits_for_unbound(ctx: Ctx) -> int:
     bound_keys = s6_bound_task_keys(ctx, tasks, task_fingerprint)
     unbound = [t for t in tasks if str(t.get("task_key")) not in bound_keys]
     planned = video_task_credits(episode_video_model(ctx.episode),
-                                 sum(float(t.get("duration_seconds") or 0) for t in unbound), len(unbound))
+                                 sum(float(t.get("duration_seconds") or 0) for t in unbound), len(unbound),
+                                 episode_video_resolution(ctx.episode))
     ctx.say(f"   S6 planned credits: {planned} for {len(unbound)} unbound task(s) "
             f"({len(tasks) - len(unbound)} already bound in the durable store)")
     return planned
@@ -6631,7 +6640,8 @@ def ab_variant_failures(ctx: Ctx, path: Path, doc: dict[str, Any]) -> list[str]:
             failures.append(f"AB_VARIANT_REFERENCES_DIFFER_FROM_SOURCE:{origin_kind}")
         if str(origin.get("model") or "") != str(task.get("model") or ""):
             failures.append(f"AB_VARIANT_MODEL_DIFFERS_FROM_SOURCE:{origin_kind}")
-    planned = video_task_credits(str(task.get("model") or ""), float(task.get("duration_seconds") or 0), 1)
+    planned = video_task_credits(str(task.get("model") or ""), float(task.get("duration_seconds") or 0), 1,
+                                 task.get("resolution"))
     if doc.get("estimated_credits") != planned:
         failures.append(f"AB_VARIANT_ESTIMATE_MISMATCH:{doc.get('estimated_credits')}!={planned}")
     return failures
@@ -6781,7 +6791,8 @@ def run_ab_variant(ctx: Ctx, variant: Path) -> int:
                 ctx.say(f"   {line}")
             return finish(REVIEW_REQUIRED, [f"AB.prompt_finalization:REVIEW_REQUIRED:{refusal}"])
         planned = max(int(doc.get("estimated_credits") or 0),
-                      video_task_credits(str(task.get("model")), float(task.get("duration_seconds") or 0), 1))
+                      video_task_credits(str(task.get("model")), float(task.get("duration_seconds") or 0), 1,
+                                         task.get("resolution")))
         res.details["planned_credits"] = planned
         submit_env = dict(VIDEO_SUBMIT_ENV)
         if ctx.paid_enabled:
@@ -7091,7 +7102,8 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
             post_rows = [t for t in manifest_now.get("tasks") or [] if str(t.get("task_key")) in set(post_keys)]
             planned = min(planned, video_task_credits(
                 episode_video_model(ctx.episode),
-                sum(float(t.get("duration_seconds") or 0) for t in post_rows), len(post_rows)))
+                sum(float(t.get("duration_seconds") or 0) for t in post_rows), len(post_rows),
+                episode_video_resolution(ctx.episode)))
         provider = video_provider_for(episode_video_model(ctx.episode))
         key_env = video_key_env(episode_video_model(ctx.episode))
         res.details["video_provider"] = {**video_provider_info(), "effective": provider, "key_env": key_env}
@@ -7313,13 +7325,14 @@ def s6_q2_auto_redo(ctx: Ctx) -> dict[str, Any]:
     seconds = {str(t.get("unit_id") or t.get("task_key")): float(t.get("duration_seconds") or 0)
                for t in (read_json(ctx.p.video_transaction, {}) or {}).get("tasks") or []}
     model = episode_video_model(ctx.episode)
+    resolution = episode_video_resolution(ctx.episode)
 
     def unit_cost(uid: str) -> int:
         # video at the planning price (HopsAPI per-second estimate on the router) + an own keyframe only when the
         # failure needs a new start frame (a push-in redo keeps its start frame; owner 2026-10-29)
         keyframe = (image_batch_credits(ctx, 1) if _redo.needs_own_keyframe(_redo.objective_failures(rows.get(uid) or {}))
                     else 0)
-        return video_task_credits(model, seconds.get(uid, 6.0), 1) + keyframe
+        return video_task_credits(model, seconds.get(uid, 6.0), 1, resolution) + keyframe
 
     headroom = None
     if not ctx.dry:

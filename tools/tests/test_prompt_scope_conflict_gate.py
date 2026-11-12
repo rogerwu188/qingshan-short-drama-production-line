@@ -268,7 +268,7 @@ class SubmitterWiringTests(unittest.TestCase):
         self.assertEqual(self.post.call_args[0][1]["prompt"], text)
         self.assertEqual(set(self.intent(row)), {
             "schema", "task_key", "attempt_id", "submission_fingerprint", "state", "intent_recorded_at",
-            "prompt_sha256", "reference_sha256", "model", "retry_guard", "task_id", "receipt",
+            "prompt_sha256", "reference_sha256", "model", "resolution", "retry_guard", "task_id", "receipt",
             "provider_response", "response_recorded_at", "estimated_credits", "request_binding",
             "sent_reference_sha256",
         })

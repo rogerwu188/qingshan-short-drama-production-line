@@ -338,7 +338,8 @@ def write_editorial(work: Path, episode: str, contract_model, top_model=None) ->
     return path
 
 
-def nalu_manifest(episode: str, model: str, *, task_models=None, prompt: Path | None = None) -> dict:
+def nalu_manifest(episode: str, model: str, *, task_models=None, prompt: Path | None = None,
+                  h3_resolution: str = "768p") -> dict:
     """The shape build_nalu_preproduction writes (generated_by, allowed_video_models, format_contract, tasks)."""
     task_models = task_models or [model]
     return {
@@ -347,7 +348,7 @@ def nalu_manifest(episode: str, model: str, *, task_models=None, prompt: Path | 
         "format_contract": {"model": model}, "machine_gate_reports": ["x"],
         "tasks": [{"task_key": f"{episode}-VU-{i + 1:03d}", "unit_id": f"{episode}-VU-{i + 1:03d}",
                    "episode": episode, "model": m, "duration_seconds": 6,
-                   "resolution": "768p" if m == H3_ID else "720p", "aspect_ratio": "9:16",
+                   "resolution": h3_resolution if m == H3_ID else "720p", "aspect_ratio": "9:16",
                    "prompt_file": str(prompt) if prompt else "p.txt", "prompt_sha256": "0" * 64,
                    "reference_images": [], "reference_sha256": []}
                   for i, m in enumerate(task_models)],
@@ -438,18 +439,19 @@ class ExplicitVideoModelSelectionTests(unittest.TestCase):
             self.assertEqual(vm.configured_video_model(), H3_ID)
             contract = bnp.select_video_model("E91")
             self.assertEqual(contract["model"], H3_ID)
-            self.assertEqual(contract["resolution"], "768p")
+            self.assertEqual(contract["resolution"], "480p")  # owner 2026-11-12: new episodes default to 480p
             self.assertEqual(json.loads(vm.record_path("E91").read_text())["video_model"], H3_ID)
             # the builder writes the editorial manifest + transaction manifest from MODEL_CONTRACT
             write_editorial(work, "E91", bnp.MODEL_CONTRACT["model"], bnp.MODEL_CONTRACT["model"])
             prompt = tmp / "E91-VU-001.txt"
             prompt.write_text("subject_definitions:\n@Image1: h3\n", encoding="utf-8")
-            manifest = nalu_manifest("E91", bnp.MODEL_CONTRACT["model"], prompt=prompt)
+            manifest = nalu_manifest("E91", bnp.MODEL_CONTRACT["model"], prompt=prompt,
+                                     h3_resolution=bnp.MODEL_CONTRACT["resolution"])
             from tools import submit_giggle_video_manifest_v2 as video
             self.assertEqual(video.require_episode_video_model(manifest, tmp / "m.json"), {"E91": H3_ID})
             payload = capture_request_payload(video, manifest["tasks"][0], tmp)
             self.assertEqual(payload["model"], H3_ID)
-            self.assertEqual(payload["resolution"], "768p")
+            self.assertEqual(payload["resolution"], "480p")
             # a config flip after the lock never re-models the episode
             (runtime / "qingshan.json").write_text(json.dumps({"generation": {"video_model": SD2_ID}}))
             self.assertEqual(bnp.select_video_model("E91")["model"], H3_ID)

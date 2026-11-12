@@ -136,6 +136,8 @@ FORBIDDEN_MODEL = re.compile(
 FORBIDDEN_UNDER_H3 = re.compile(r"(seedance|\bh3\b(?<!MiniMax-H3))", re.IGNORECASE)
 # Observed Giggle pricing for MiniMax-H3 768p (E48: 14 credits/s + 6 per task; statements show
 # "SingleGenerateVideo ... MiniMax-H3").  Used for planning; actual charges come from the statements.
+# No Giggle 480p price is on record: 480p tasks on the Giggle rollback route are planned at this 768p
+# figure as a conservative upper bound.
 H3_CREDITS_PER_SECOND = 14
 H3_CREDITS_PER_TASK = 6
 VIDEO_MODEL_CONDITIONS = {SD2: "VIDEO_MODEL_SD2_ONLY", H3: "VIDEO_MODEL_H3_ONLY"}
@@ -422,15 +424,22 @@ def price(tasks: list[dict[str, Any]], *, video: bool, image_credits: int,
             config_path=RUNTIME_ROOT / "qingshan.json") == "hopsapi":
         # HopsAPI router (owner 2026-10-29): per-task rounded-up estimate at the configurable
         # per-second price; the actual charge is the settled per-task ``cost``.
+        # Each task is priced at its own resolution (fixed per episode, nalu_video_model: 480p new, 768p
+        # started); a task without one is priced at the higher 768p rate.
         hops = _hopsapi_client()
         seconds = sum(float(task.get("duration_seconds") or 0) for task in tasks)
+        resolutions = sorted({str(task.get("resolution") or "768p") for task in tasks}) or ["768p"]
+        rates = {res: hops.h3_credits_per_second(config_path=RUNTIME_ROOT / "qingshan.json", resolution=res)
+                 for res in resolutions}
         return {
             "basis": "HOPSAPI_VIDEO_SECONDS_ROUNDED_UP_PER_TASK", "seconds": seconds,
             "video_provider": "hopsapi",
-            "credits_per_second": str(hops.h3_credits_per_second(config_path=RUNTIME_ROOT / "qingshan.json")),
+            "credits_per_second": str(max(rates.values())),
+            "credits_per_second_by_resolution": {res: str(rate) for res, rate in rates.items()},
             "planned_credits": sum(hops.estimated_task_credits(
                 float(task.get("duration_seconds") or 0), len(task.get("reference_images") or []),
-                config_path=RUNTIME_ROOT / "qingshan.json") for task in tasks),
+                config_path=RUNTIME_ROOT / "qingshan.json", resolution=task.get("resolution") or "768p")
+                for task in tasks),
             "task_count": len(tasks),
         }
     if video and video_model == H3:

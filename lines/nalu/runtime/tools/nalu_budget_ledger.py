@@ -87,6 +87,14 @@ UNIT_PRICES = {
                     "rate configurable via HOPSAPI_H3_CREDITS_PER_SECOND / generation.hopsapi_h3_credits_per_second "
                     "(tools/hopsapi_video_client.py); actual charge = per-task cost on the settled query",
     },
+    "video_minimax_h3_480p_hopsapi": {
+        "credits_per_second": 1.09,
+        "credits_per_task": 0,
+        "evidence": "HopsAPI MiniMax H3 list price 480p ref-image 6.2/s (docs.hopsapi.com, hopsapi-minimax-h3 "
+                    "references/billing.md, checked 2026-11-12) x account multiplier 0.175 = 1.085, rounded up; "
+                    "no paid 480p probe yet; planning rate configurable via HOPSAPI_H3_480P_CREDITS_PER_SECOND / "
+                    "generation.hopsapi_h3_480p_credits_per_second; new episodes default to 480p (owner 2026-11-12)",
+    },
     "video_minimax_h3_768p": {
         "credits_per_second": 14,
         "credits_per_task": 6,

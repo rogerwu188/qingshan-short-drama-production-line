@@ -60,8 +60,11 @@ VIDEO_MODEL_CONTRACTS = {
         "aspect_ratio": "9:16",
         "route": "STANDARD_MULTI_REFERENCE",
     },
-    # configs/VIDEO_MODEL_CAPABILITY_REGISTRY_v1.json MINIMAX_H3_GIGGLE: 768p, 3-15 s, <=9 images,
+    # configs/VIDEO_MODEL_CAPABILITY_REGISTRY_v1.json MINIMAX_H3_GIGGLE: 480p/768p, 3-15 s, <=9 images,
     # audio references as public HTTPS URLs only.  The final cut is still rendered at 720x1280.
+    # resolution / native_raster below are the legacy (768p) values; select_video_model() overwrites them with
+    # the episode's own fixed resolution (nalu_video_model.episode_video_resolution, owner 2026-11-12: 480p
+    # from each device's next episode, 768p for every episode already started).
     "MiniMax-H3": {
         "model": "MiniMax-H3",
         "model_registry_key": "MINIMAX_H3_GIGGLE",
@@ -99,6 +102,10 @@ def select_video_model(episode: str) -> dict[str, Any]:
     K145: no default model.  A new episode without an explicit, supported ``generation.video_model``, or an
     episode whose lock / manifest is unreadable, invalid or conflicting, stops here before anything is
     compiled or locked (nalu_video_model.VideoModelSelectionError).
+
+    The H3 resolution is locked the same way (owner 2026-11-12): the lock records ``resolution`` from
+    ``generation.h3_resolution`` (default 480p) at the first build; an episode started before keeps 768p
+    whatever the engine version or config, so a mid-episode engine update or S2/S6 recompile never mixes.
     """
     import nalu_video_model as _vm
     try:
@@ -108,10 +115,20 @@ def select_video_model(episode: str) -> dict[str, Any]:
         # Always claim: the first write is atomic and exclusive, and an existing lock (also one another
         # build wrote after the read above) wins and is re-checked against the editorial manifest.
         chosen = _vm.claim_video_model(episode, chosen)
+        resolution = _vm.episode_video_resolution(episode)
     except _vm.VideoModelSelectionError as exc:
         raise SystemExit(f"VIDEO_MODEL_SELECTION_BLOCKED {exc}") from exc
     MODEL_CONTRACT.clear()
     MODEL_CONTRACT.update(VIDEO_MODEL_CONTRACTS[chosen])
+    if chosen == _vm.H3:
+        # the episode's fixed resolution (recorded at its first S2 build; 768p for an episode started before)
+        MODEL_CONTRACT["resolution"] = resolution
+        MODEL_CONTRACT["native_raster"] = _vm.H3_NATIVE_RASTERS[resolution]
+        if MODEL_CONTRACT["native_raster"] is None:
+            MODEL_CONTRACT["native_short_edge"] = _vm.H3_NATIVE_SHORT_EDGE[resolution]
+            MODEL_CONTRACT["native_raster_rule"] = ("provider 9:16 portrait output, short edge "
+                                                    f"{_vm.H3_NATIVE_SHORT_EDGE[resolution]}px; exact height "
+                                                    "observed and recorded by post-generation QA")
     return MODEL_CONTRACT
 _OPPOSITE_FACING = {
     "north": "south", "south": "north", "east": "west", "west": "east",
