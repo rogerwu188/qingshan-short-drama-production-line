@@ -219,13 +219,20 @@ def window_failures(shots: list[dict[str, Any]], runtime: float,
 
 # --------------------------------------------------------------------------- S7
 def place(lines: list[dict[str, Any]], shot_starts: dict[str, float],
-          speech: list[tuple[float, float]], *, picture_end: float | None = None
+          speech: list[tuple[float, float]], *, picture_end: float | None = None,
+          trimmed_units: dict[str, tuple[float, float]] | None = None
           ) -> tuple[list[dict[str, Any]], list[str]]:
     """Place V.O. lines on the final timeline.
 
     ``lines``: manifest rows in editorial order with ``duration_seconds``.
     ``speech``: in-video speech windows (final-timeline seconds) from the unit ASR.
+    ``trimmed_units``: shot_id -> (start, end) of its unit on the final timeline, only for units the
+    S7 performance cut made shorter than their authored shots.  A line that would run past that end
+    at its authored offset is pulled earlier (never before the unit start + lead-in or the previous
+    line + gap), matching
+    tools/performance_cut._vo_guard, which kept the unit long enough for its V.O. played back to back.
     """
+    trimmed_units = trimmed_units or {}
     rows: list[dict[str, Any]] = []
     failures: list[str] = []
     previous_end: float | None = None
@@ -236,6 +243,12 @@ def place(lines: list[dict[str, Any]], shot_starts: dict[str, float],
             failures.append(f"VOICE_OVER_SHOT_NOT_ON_TIMELINE:{sid}:{line['line_index']}")
             continue
         start = shot_starts[sid] + LEAD_IN_SECONDS
+        bounds = trimmed_units.get(sid)
+        if bounds is not None:
+            start = min(start, bounds[1] - MIN_SEPARATION_SECONDS - float(line["duration_seconds"]))
+            start = max(start, bounds[0] + LEAD_IN_SECONDS)
+            if previous_end is not None:
+                start = max(start, previous_end + LINE_GAP_SECONDS)
         if previous_shot == sid and previous_end is not None:
             start = max(start, previous_end + LINE_GAP_SECONDS)
         if previous_end is not None:

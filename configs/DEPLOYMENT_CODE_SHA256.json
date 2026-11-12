@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2425,
+  "file_count": 2426,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -665,7 +665,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_keyframe_manifest.py",
-      "sha256": "66eaf9996c28b43473f689733b892950875bf34bcdaeebcb517426784327990f"
+      "sha256": "a6c879dc36a9104d016f24f2e2fb030d9aea19b4b248197c896b5a60dde4f107"
     },
     {
       "path": "lines/nalu/runtime/tools/build_measured_edit_constraints.py",
@@ -761,7 +761,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_budget_ledger.py",
-      "sha256": "c984b57e930dede4d3fe63678cb6ceac246cc87b98e7453eed1627f568bffd52"
+      "sha256": "03d1a2e943def4e386773a207de573a95fc903100097a027c58c4803a13d4bc5"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_media_tools.py",
@@ -777,7 +777,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "2914e061bd6069b7aff493e28fdfbb65a45900a30961abb1810a63559dfbe801"
+      "sha256": "bac3029ecd76aa76ff58f7c3e6ba257ac36e2be464eff531ec78ec955f9b37a2"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -8116,6 +8116,10 @@
       "sha256": "508de80f03d6c9f230c37a4ed3de8d6b38c971452ac097f4e9dccf5a8a120ac3"
     },
     {
+      "path": "tools/tests/test_keyframe_space_scene_override.py",
+      "sha256": "80ceb968c7fedf496c200fe6afd919483a6150ea6ad7daf4b2a848c3cf8631c4"
+    },
+    {
       "path": "tools/tests/test_keyframe_visible_creature.py",
       "sha256": "25f0e9f2f9d76c78d8ea936469dc3911d13e333d89f6af47546cdb2960ac5ea1"
     },
@@ -8237,7 +8241,7 @@
     },
     {
       "path": "tools/tests/test_nalu_budget_audio_spend.py",
-      "sha256": "eb585d9bfb1161a47d83fdb3b54394fd8de4dc746ac4d6bef0b20e3484fa8152"
+      "sha256": "3e9c404d2d716a6b81f659e50bb2c75c8832406bd6b90f701d8456892a2b55ad"
     },
     {
       "path": "tools/tests/test_nalu_budget_reservation.py",
@@ -9265,7 +9269,7 @@
     },
     {
       "path": "tools/tests/test_voice_over_narration.py",
-      "sha256": "53670af174e65389e442c8d3093c4c3d3836c5ffad9be42015782d903606eb80"
+      "sha256": "39b8594022ec92917e415647dd7bb14b82fbb27eb336dda8479fcc6cbe0d0e3b"
     },
     {
       "path": "tools/tests/test_voice_reference_calibration.py",
@@ -9641,7 +9645,7 @@
     },
     {
       "path": "tools/voice_over_narration.py",
-      "sha256": "5719b36c1740cfa0d9bbe8dbcd1d5c2684aa0c286ce30b25ccc16ee4a821098f"
+      "sha256": "87aa704bf49afab3542b6e3596e133225fe9f2251896f65e49db8255d4ebe7fd"
     },
     {
       "path": "tools/voice_reference_sample.py",

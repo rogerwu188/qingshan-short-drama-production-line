@@ -8581,6 +8581,28 @@ def voice_over_speech_windows(project: dict[str, Any], unit_asr: dict[str, Any],
     return sorted(windows)
 
 
+def trimmed_unit_bounds(contract: dict[str, Any], grouping: dict[str, Any], project: dict[str, Any]
+                        ) -> dict[str, tuple[float, float]]:
+    """shot_id -> (start, end) of its unit clip on the final timeline, for units whose clip is shorter
+    than the sum of their shots' authored target_seconds (performance cut / tail trim)."""
+    clips = {str((clip.get("metadata") or {}).get("source_id") or ""): clip
+             for track in (project.get("timeline") or {}).get("videoTracks") or []
+             for clip in track.get("clips") or []}
+    target = {str(s.get("shot_id")): float(s.get("target_seconds") or 0.0) for s in contract.get("shots") or []}
+    out: dict[str, tuple[float, float]] = {}
+    for unit in grouping.get("units") or []:
+        clip = clips.get(str(unit.get("unit_id")))
+        if clip is None:
+            continue
+        sids = [str(sid) for sid in unit.get("editorial_shot_ids") or []]
+        start, duration = float(clip.get("start") or 0), float(clip.get("duration") or 0)
+        if duration <= 0 or duration + 1e-3 >= sum(target.get(sid, 0.0) for sid in sids):
+            continue
+        for sid in sids:
+            out[sid] = (start, start + duration)
+    return out
+
+
 def s7_voice_over(ctx: Ctx, res: StageResult, picture: Path, unit_asr: dict[str, Any]
                   ) -> tuple[Path, list[str]]:
     """Place and mix V.O. narration onto the rendered native cut (before burn-in subtitles).
@@ -8621,7 +8643,8 @@ def s7_voice_over(ctx: Ctx, res: StageResult, picture: Path, unit_asr: dict[str,
     speaking_units = {str(unit.get("unit_id")) for unit in grouping.get("units") or []
                       if spoken_shots & {str(sid) for sid in unit.get("editorial_shot_ids") or []}}
     rows, failures = _vo.place(ordered, shot_starts, voice_over_speech_windows(project, unit_asr, speaking_units),
-                               picture_end=media_seconds(picture))
+                               picture_end=media_seconds(picture),
+                               trimmed_units=trimmed_unit_bounds(read_json(p.contract, {}) or {}, grouping, project))
     if failures:
         return picture, failures
     mixed = p.assembly / f"{ctx.episode}_picture_native_vo.mp4"

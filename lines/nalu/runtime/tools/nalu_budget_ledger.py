@@ -373,6 +373,26 @@ def _statement_row_key(row: Any) -> tuple[str, ...] | None:
             str(row.get("created_at") or ""), credit)
 
 
+def _statement_credits(value: Any) -> int | float | None:
+    """``charged_credits`` of a batch credit statement as a number.
+
+    The Giggle video submitter persists Decimal amounts as strings ("13.6"); those statements were
+    silently skipped, so the budget check under-counted real spend (field E09 2026-11-12: 66.30 cr
+    missing while ``accounting_complete=true``).
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        try:
+            amount = Decimal(value.strip())
+        except (ArithmeticError, ValueError):
+            return None
+        return number(amount) if amount.is_finite() else None
+    return None
+
+
 def _is_parked(path: Path) -> bool:
     return any(part.startswith(PARKED_DIR_PREFIXES) for part in path.parts)
 
@@ -675,7 +695,7 @@ def scan_non_video_spend(
             continue
         if episode not in str(path) and str(payload.get("episode") or "").upper() != episode:
             continue
-        credits = payload.get("charged_credits")
+        credits = _statement_credits(payload.get("charged_credits"))
         # One provider Pay row is one charge, however many batch windows matched it.  Overlapping
         # windows of adjacent waves both archived the same row (lab E05 2026-10-26: 1eb26c4b's 48 cr
         # in wave 28's AND wave 29's statement, ledger 1382 vs 1334 provider truth).  Statements are

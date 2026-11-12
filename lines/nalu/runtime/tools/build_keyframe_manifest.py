@@ -1581,6 +1581,17 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
 # task compilation
 # --------------------------------------------------------------------------- #
 
+def _space_scene_override(sp_task: dict[str, Any]) -> dict[str, str]:
+    """A cross-cut shot's ``space_scene_id`` (contract.shot_scene_overrides) from the locked subspace task.
+
+    tools/global_space_layout_gate.py selects the scene mapping by ``space_scene_id or scene_id``; the
+    room/zone copied above already belong to the override scene, so dropping it failed SCENE-AUTHORITY-LOCK
+    (field E06 2026-11-12: three shots placed in E06-S05's space).
+    """
+    value = str(sp_task.get("space_scene_id") or "")
+    return {"space_scene_id": value} if value else {}
+
+
 def compile_task(inputs: Inputs, decision: dict[str, Any], prompt_dir: Path,
                  keyframe_dir: Path, gate_ref: str, model: str, resolution: str,
                  dropped: list[dict[str, str]], task_version: str = "V1") -> dict[str, Any]:
@@ -1747,6 +1758,7 @@ def compile_task(inputs: Inputs, decision: dict[str, Any], prompt_dir: Path,
         "subspace_layout": deepcopy(sp_task.get("subspace_layout")),
         "blocking": deepcopy(sp_task.get("blocking")),
         "space_chain_id": sp_task.get("space_chain_id"),
+        **_space_scene_override(sp_task),
         # entry-only keyframe contract (tools/keyframe_entry_state_gate.py)
         "pipeline_rectification_version": "E51_V1",
         "source_shot_contract": source_shot_contract,

@@ -284,6 +284,35 @@ class PlacementTests(unittest.TestCase):
         _, failures = vo.place(self.LINES, {"S1": 10.0, "S2": 20.0}, [(12.5, 13.0)], picture_end=30.0)
         self.assertEqual(failures, ["VOICE_OVER_OVERLAPS_DIALOGUE:S1:1"])
 
+    def test_trimmed_grouped_unit_packs_its_voice_over_inside_the_kept_clip(self):
+        # Field case (E01 VU-019): two 4 s silent V.O. shots cut to a 5.092 s clip; next unit speaks at 71.820.
+        lines = [{"shot_id": "A", "line_index": 0, "text": "a", "duration_seconds": 2.357},
+                 {"shot_id": "B", "line_index": 0, "text": "b", "duration_seconds": 1.985}]
+        starts = {"A": 66.728, "B": 70.728}
+        speech = [(71.820, 74.300)]
+        _, failures = vo.place(lines, starts, speech, picture_end=120.0)
+        self.assertEqual(failures, ["VOICE_OVER_OVERLAPS_DIALOGUE:B:0"])
+        bounds = {"A": (66.728, 71.820), "B": (66.728, 71.820)}
+        rows, failures = vo.place(lines, starts, speech, picture_end=120.0, trimmed_units=bounds)
+        self.assertEqual(failures, [])
+        self.assertEqual([(r["start"], r["end"]) for r in rows], [(67.028, 69.385), (69.635, 71.62)])
+
+    def test_trimmed_bounds_never_pull_a_line_before_its_unit(self):
+        lines = [{"shot_id": "A", "line_index": 0, "text": "a", "duration_seconds": 3.0}]
+        rows, _ = vo.place(lines, {"A": 10.0}, [], picture_end=30.0, trimmed_units={"A": (10.0, 12.0)})
+        self.assertEqual(rows[0]["start"], 10.3)
+
+    def test_trimmed_unit_bounds_only_list_shortened_units(self):
+        import nalu_pipeline as pipeline  # noqa: PLC0415
+        contract = {"shots": [{"shot_id": s, "target_seconds": 4} for s in ("A", "B", "C")]}
+        grouping = {"units": [{"unit_id": "U1", "editorial_shot_ids": ["A", "B"]},
+                              {"unit_id": "U2", "editorial_shot_ids": ["C"]}]}
+        project = {"timeline": {"videoTracks": [{"clips": [
+            {"start": 0.0, "duration": 5.092, "metadata": {"source_id": "U1"}},
+            {"start": 5.092, "duration": 4.0, "metadata": {"source_id": "U2"}}]}]}}
+        self.assertEqual(pipeline.trimmed_unit_bounds(contract, grouping, project),
+                         {"A": (0.0, 5.092), "B": (0.0, 5.092)})
+
     def test_past_picture_end_blocks(self):
         _, failures = vo.place(self.LINES[:1], {"S1": 10.0}, [], picture_end=11.0)
         self.assertEqual(failures, ["VOICE_OVER_RUNS_PAST_PICTURE_END:S1:0"])
