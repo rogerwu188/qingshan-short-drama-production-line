@@ -175,7 +175,7 @@ $P $S/publish_x2creel.py categories                       # 可用分类：玄�
 $P $S/publish_x2creel.py publish --episode <EP> --title "<剧名>" --description "<简报 synopsis>" --category "<简报 genre>"
 $P $S/publish_x2creel.py status                           # 本地记录 + X2C 审核状态
 ```
-- 第一集创建 X2C 项目（封面默认取成片第 1.5 秒画面，也可 `--cover <图>`）；之后每集自动追加到同一个项目，`--title/--description/--category`
+- 第一集创建 X2C 项目（封面默认用系列海报 `$NALU_RUNTIME_ROOT/series/cover/cover.jpg`，没有才取成片第 1.5 秒画面，也可 `--cover <图>`）；之后每集自动追加到同一个项目，`--title/--description/--category`
   可省略。项目 id 与已发的集记在 `$NALU_RUNTIME_ROOT/distribution/x2creel.json`，同一集重跑返回 `ALREADY_PUBLISHED`，不会重复发。
 - **按集号顺序发，一次只追加一集**：X2C 追加集按「已过审集数 + 1」发号，有集还在 `pending_review` 时再追加，新集会拿到同一个号并
   静默顶掉它。脚本发前先查远端：有待审集就返回 `DEFERRED_PENDING_REVIEW`（什么都没发），记一行「发行暂缓：等待第 N 集过审」进
@@ -196,6 +196,8 @@ $P $S/publish_x2creel.py status                           # 本地记录 + X2C �
   `ALREADY_PUBLISHED`，`--resend` 原样重发（X2C 回 200 `idempotent:true`）；同集换了成片返回 `EPISODE_ALREADY_SENT_WITH_OTHER_VIDEO`，
   **不许改 series_key 或集号绕过**，记【需要处理】。`X2C_MATRIX_API_URL` 未设时用 X2C **生产环境**（`https://ukbyfmmerxhlghlhbxtz.supabase.co/functions/v1/matrix-api/v1`，设备映射在这里；线主 2026-11-05）；
   测试环境 `https://pdypbtafttzriqdnpmta.supabase.co/functions/v1/matrix-api/v1` 只在显式设置时使用，它查不到生产登记的设备（返回 404 `DEVICE_NOT_FOUND`）。`X2C_API_MODE=open` 强制旧接口。
+
+- **系列海报封面**（线主 2026-11-13）：心跳发行前自动跑 `tools/series_poster.py`：每部剧只生成一次无字主视觉（HopsAPI gpt-image-2，一张，参考主角 S3 身份牌/正脸，约 1–2 积分，记进当集图片事务与账本；需 `qingshan.json` `generation.paid_requests_enabled`，`NALU_SERIES_POSTER_ART=off` 或 `generation.series_poster_art: false` 关闭），剧名由程序用随仓库的 OFL 字体排版（不让 AI 写字），产出 `series/cover/cover.jpg`（X2C）和 `cover_thumb.jpg`（看板）。失败只回落取帧，不阻塞发行。手动：`$P $NALU_ENGINE_ROOT/tools/series_poster.py ensure --episode <EP>`（`--no-paid` 只排版）、`status`。线主自己的主视觉放到 `series/cover/poster_art.png` 即被采用（不付费）。X2C 矩阵 API 没有改封面的接口，`status`/`list` 也不返回封面：已发行的剧从下一集起每集带新封面，X2C 是否更新项目封面需在 X2C 后台人工确认（记在 `x2c_matrix.json` 的 `poster_cover_first_sent`）。
 
 ## 7. 连续产剧
 一集 `FINAL_CUT_READY` 后，`tick` 自己接续下一集（线主 + 老板 2026-11-10），直到原著改编完或达到线主指定的集数：

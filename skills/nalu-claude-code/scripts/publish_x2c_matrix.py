@@ -18,7 +18,8 @@ https://ukbyfmmerxhlghlhbxtz.supabase.co/functions/v1/matrix-api/v1, where the d
 https://pdypbtafttzriqdnpmta.supabase.co/functions/v1/matrix-api/v1).  Key: $X2C_API_KEY or $NALU_RUNTIME_ROOT/credentials/x2c_api_key, never printed.
 
 publish: upload-url + PUT for the video (default the clean final <EP>_final_9x16.mp4 — X2C adds ads
-itself) and the cover (default a frame grab), then /distribution/publish for the series' first episode
+itself) and the cover (default the series poster $NALU_RUNTIME_ROOT/series/cover/cover.jpg from
+tools/series_poster.py, else a frame grab), then /distribution/publish for the series' first episode
 and /distribution/add-episodes for every later one.  title / description / hashtags default to the
 brief ($NALU_RUNTIME_ROOT/briefs/<EP>_PRODUCTION_BRIEF.json: title, synopsis, hashtags);
 episode_number = brief episode_display_number, else the EP number; duration_seconds = ffprobe of the
@@ -265,7 +266,7 @@ def cmd_publish(a: argparse.Namespace) -> dict[str, Any]:
     if row and row.get("request"):
         endpoint, body = row["endpoint"], row["request"]  # identical body: X2C's idempotent path
     else:
-        cover = Path(a.cover).expanduser() if getattr(a, "cover", "") else px.cover_from_video(video)
+        cover, cover_source = px.pick_cover(getattr(a, "cover", ""), video, title)
         ctype = px.mime(cover)
         if ctype not in ("image/jpeg", "image/png"):
             return {"status": "BLOCKED", "reason": f"COVER_TYPE_UNSUPPORTED:{ctype}"}
@@ -283,7 +284,15 @@ def cmd_publish(a: argparse.Namespace) -> dict[str, Any]:
             body["hashtags"] = tags
         endpoint = "distribution/add-episodes" if series.get("project_id") else "distribution/publish"
         row = {"episode_number": int(number), "video_sha256": digest, "published_video": str(video),
-               "endpoint": endpoint, "request": body, "prepared_at": datetime.now(timezone.utc).isoformat()}
+               "endpoint": endpoint, "request": body, "prepared_at": datetime.now(timezone.utc).isoformat(),
+               "cover_source": cover_source, "cover_sha256": px.sha256(cover)}
+        # X2C's matrix API has no cover-update endpoint and status/list return no cover field (matrix-openapi
+        # V1.3.0): cover_url rides on every episode.  Record when the series poster first went out after a
+        # frame-grab cover, so whether X2C's project page picked it up can be checked by hand.
+        if cover_source == "SERIES_POSTER" and series.get("project_id") and not series.get("poster_cover_first_sent"):
+            series["poster_cover_first_sent"] = {"episode": a.episode, "endpoint": endpoint,
+                                                 "cover_sha256": row["cover_sha256"],
+                                                 "reflected_by_x2c": "UNKNOWN_NO_COVER_FIELD_IN_STATUS_OR_LIST"}
         series["episodes"][a.episode] = row
         state["current_series"] = key
         save_state(state)  # saved before sending: a retry re-sends this exact body
@@ -301,7 +310,7 @@ def cmd_publish(a: argparse.Namespace) -> dict[str, Any]:
             "episode_number": res.get("episode_number", number), "account_id": res.get("account_id"),
             "routing_status": res.get("routing_status"), "review_status": res.get("review_status"),
             "x2c_status": res.get("review_status"), "published_video": str(video), "published_variant": "FINAL",
-            "duration_seconds": body.get("duration_seconds")}
+            "duration_seconds": body.get("duration_seconds"), "cover_source": row.get("cover_source")}
 
 
 def _project_for(state: dict[str, Any], key: str | None) -> tuple[str | None, str | None]:

@@ -617,6 +617,26 @@ def current_episode() -> str | None:
     return max(eps, key=episode_key) if eps else None
 
 
+def ensure_poster(ep: str, brief: dict[str, Any]) -> dict[str, Any] | None:
+    """The series poster cover (tools/series_poster.py) right before an episode goes to X2C: key art once per
+    series (one paid gpt-image-2 image, only with generation.paid_requests_enabled + HopsAPI), the title set
+    locally.  Never blocks the publish: without a cover the publisher falls back to its frame grab."""
+    engine, runtime = roots()
+    try:
+        if str(engine / "tools") not in sys.path:
+            sys.path.insert(0, str(engine / "tools"))
+        import series_poster  # noqa: PLC0415
+        result = series_poster.ensure_series_cover(engine, runtime, ep, brief)
+    except Exception as exc:  # noqa: BLE001
+        result = {"status": "ERROR", "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
+    art = (result.get("art") or {}).get("status") if isinstance(result.get("art"), dict) else None
+    if art in ("ART_GENERATED", "ART_ADOPTED") or result.get("status") == "RENDERED":
+        note(f"系列海报封面 {ep}：{result.get('status')}（{art or '缓存'}，{result.get('placement') or ''}）")
+    elif art in ("ART_RESPONSE_LOST", "ART_FAILED") or result.get("status") == "ERROR":
+        note(f"系列海报封面 {ep} 未生成（{art or result.get('error')}），本集用成片取帧作封面")
+    return result
+
+
 def publish_next() -> dict[str, Any] | None:
     """Send the earliest finished-but-unsent episode (one per tick, in episode order).
 
@@ -640,6 +660,7 @@ def publish_next() -> dict[str, Any] | None:
         return None
     ep = min(ready, key=episode_key)
     brief = read_json(runtime / "briefs" / f"{ep}_PRODUCTION_BRIEF.json")
+    poster = ensure_poster(ep, brief)
     args = argparse.Namespace(episode=ep, title=str(brief.get("title") or ""),
                               description=str(brief.get("synopsis") or ""), category=str(brief.get("genre") or ""),
                               lang=str(brief.get("genre_lang") or brief.get("dialogue_language") or "zh"), video="", cover="")
@@ -653,6 +674,9 @@ def publish_next() -> dict[str, Any] | None:
         except ValueError:
             out = {"status": "ERROR", "detail": str(exc.code)[:300]}
     out.setdefault("episode", ep)
+    if poster is not None:
+        out.setdefault("series_poster", {k: poster.get(k) for k in ("status", "placement") if poster.get(k)}
+                       | ({"art": poster["art"].get("status")} if isinstance(poster.get("art"), dict) else {}))
     st = out.get("status")
     if st == "PUBLISHED":
         variant = "含尾贴广告版" if out.get("published_variant") == "AD" else "正片版（无广告版）"

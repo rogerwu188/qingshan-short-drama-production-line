@@ -134,6 +134,9 @@
 !/assets/ads/README.md
 !/assets/ads/*.mp4
 !/assets/ads/*.meta.json
+!/assets/fonts/
+/assets/fonts/*
+!/assets/fonts/poster/
 !/lines/
 # Per-episode one-off scripts, generated registries and local working
 # media inside a line's runtime tree are local production state, not

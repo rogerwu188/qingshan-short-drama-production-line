@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2451,
+  "file_count": 2453,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -965,7 +965,7 @@
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "5390ada5fb5e77e147a61435d8a9a5c39097d78cc20829823446c1d10a8a115d"
+      "sha256": "f068f19c02196defc6791e7343b39555c5c1add75a2197b7e19855c917b554c5"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
@@ -981,7 +981,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "b615e935ee891720051df650b29df1e19c1700c007d8509da8d2ba3623d60678"
+      "sha256": "6914de0cbfea7fa321de2b52b7e52620e8cbeab60f08fb9c965895a7b38af4cf"
     },
     {
       "path": "skills/nalu-claude-code/scripts/collective_provision.py",
@@ -1001,7 +1001,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/fleet_sync.py",
-      "sha256": "6595ad44b87cda0437434d7db353a43395e12c26eb2eba804e0e4dfcd5d9234b"
+      "sha256": "8354b0ed31416b5f43d23b7ec75eee993152ed53132af993e25b8e2ece8ce62d"
     },
     {
       "path": "skills/nalu-claude-code/scripts/knowledge_status.py",
@@ -1029,11 +1029,11 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/publish_x2c_matrix.py",
-      "sha256": "b2994a0a6718ef62388c5ced1fdc7782d635d9880f196adab22f3cb8025dbb84"
+      "sha256": "d63af1b8007cc03835775548ded28fc8ac7c411916f5760dff2359a1cecaeee1"
     },
     {
       "path": "skills/nalu-claude-code/scripts/publish_x2creel.py",
-      "sha256": "8b2563f85b44b0104d5f20066633e70ec51cc82ea1599cec79411f9cb1482667"
+      "sha256": "d22dab2a565b5663a20b2fbd6bc2db199af2d3290ed65696d402302e6a3afefd"
     },
     {
       "path": "skills/nalu-claude-code/scripts/self_update.sh",
@@ -6596,6 +6596,10 @@
       "sha256": "e816d7e3c4ce38ce784000fbd224458d7a3cb6d3643fc32475f4bae65de3d451"
     },
     {
+      "path": "tools/series_poster.py",
+      "sha256": "f2ecfdc7ab299dcb56525a98908e33a22133e361b37dff0f136bbfe5b4fab354"
+    },
+    {
       "path": "tools/shot_duration_policy.py",
       "sha256": "2df9ab1c2cba7b7277c805062b4a2af5b5f7acead60f81247f98d307d2952471"
     },
@@ -8950,6 +8954,10 @@
     {
       "path": "tools/tests/test_seedance2_prompt_compiler.py",
       "sha256": "0d66a505f17ecfed346606ee3c0230f2ed6a3dd16155a1f73e8bf85892f535a8"
+    },
+    {
+      "path": "tools/tests/test_series_poster.py",
+      "sha256": "d7007ec6f2b4d7a3db175c06bd9921c1330009c330d1b76ff28d7f37e3534974"
     },
     {
       "path": "tools/tests/test_shared_video_execution_compiler.py",
