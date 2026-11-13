@@ -9089,6 +9089,55 @@ def s7_leading_burst_mute(ctx: Ctx, res: StageResult, picture: Path,
     return out
 
 
+def s7_silent_unit_stray_speech_mute(ctx: Ctx, res: StageResult, picture: Path) -> Path:
+    """Mute the murmur H3 adds to some silent units (fleet 2026-11-13: dialogue:unexpected_native_*_speech_present
+    on 10 devices), on the rendered native cut, BEFORE the L-cut mix so a bridged speaker line is never touched.
+
+    The windows are the S6 real-speech segments of units with no scripted line (tools/silent_unit_stray_speech.py),
+    used only when the QA record measured the clip on disk now.  Ambience outside the windows is kept; 30 ms ramps;
+    video stream copied, duration unchanged.  Every episode (not only CAMERA_GRAMMAR_V1): it is free and only acts
+    where S6 measured stray speech.  Report <EP>_SILENT_UNIT_STRAY_SPEECH.json; any failure only skips the mute
+    (recorded), never blocks S7."""
+    import silent_unit_stray_speech as _stray
+    p = ctx.p
+    report_path = p.assembly / f"{ctx.episode}_SILENT_UNIT_STRAY_SPEECH.json"
+    try:
+        clips = {mp4.stem: mp4 for mp4 in sorted(p.video_media.glob(f"{ctx.episode}-VU-*.mp4"))}
+        records = {uid: read_json(p.postgen_dir / uid / f"{uid}_POST_GENERATION_QA.json", None) for uid in clips}
+        report = _stray.plan(clips, {k: v for k, v in records.items() if isinstance(v, dict)}, sha256_file)
+        windows = _stray.timeline_windows(report, read_json(p.agentcut_project, {}) or {})
+        report.update({"episode": ctx.episode, "source_picture": str(picture), "timeline_windows": windows})
+        if not windows:
+            write_json(report_path, report)
+            res.details["silent_unit_stray_speech"] = {"report": str(report_path), "muted_units": 0}
+            return picture
+        out = p.assembly / f"{ctx.episode}_picture_native_straymute.mp4"
+        argv = [_media.require_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-i", str(picture),
+                "-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy", "-af", _stray.mix_filter(windows),
+                "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", str(out)]
+        run = subprocess.run(argv, capture_output=True, text=True, check=False)
+        res.steps.append({"name": "s7_silent_unit_stray_speech_mute", "exit_code": run.returncode, "argv": argv,
+                          "log": "in-process ffmpeg", "stderr_tail": tail(run.stderr)})
+        if run.returncode != 0 or not out.is_file() or _video_stream_hash(picture) != _video_stream_hash(out):
+            out.unlink(missing_ok=True)
+            report["status"] = "SKIPPED_MIX_FAILED"
+            write_json(report_path, report)
+            res.details["silent_unit_stray_speech"] = {"report": str(report_path), "status": report["status"]}
+            return picture
+        report.update({"status": "APPLIED", "output_picture": str(out), "output_picture_sha256": sha256_file(out),
+                       "video_stream_bit_exact": True})
+        write_json(report_path, report)
+    except Exception as exc:  # noqa: BLE001 -- the mute is a polish step, never a blocker
+        write_json(report_path, {"schema": _stray.SCHEMA, "episode": ctx.episode,
+                                 "status": f"SKIPPED_ERROR:{type(exc).__name__}:{exc}"})
+        res.details["silent_unit_stray_speech"] = {"report": str(report_path), "status": "SKIPPED_ERROR"}
+        return picture
+    res.receipts.append(str(report_path))
+    res.details["silent_unit_stray_speech"] = {"report": str(report_path), "muted_units": report["muted_units"],
+                                               "picture": str(out)}
+    return out
+
+
 def s7_sound_bridge_mix(ctx: Ctx, res: StageResult, picture: Path) -> tuple[Path, list[str]]:
     """Mix each applied L-cut's speaker audio over the reaction picture (native ducked); video copied.
 
@@ -9407,8 +9456,10 @@ def stage_s7(ctx: Ctx) -> StageResult:
     # 5a. L-cuts (CAMERA_GRAMMAR_V1, authored sound bridges): the speaker's line plays on over the
     # reaction picture; no applied bridge -> the native picture continues unchanged.
     # 5a0. leading vocal burst (CAMERA_GRAMMAR_V1): muted on the native cut before the L-cut mix.
+    # 5a00. stray H3 murmur in silent units (every episode; S6 real-speech windows): muted before the L-cut mix.
     native_source, bridge_blockers = s7_sound_bridge_mix(
-        ctx, res, s7_leading_burst_mute(ctx, res, p.picture_native, trimmed_asr))
+        ctx, res, s7_silent_unit_stray_speech_mute(
+            ctx, res, s7_leading_burst_mute(ctx, res, p.picture_native, trimmed_asr)))
     if bridge_blockers:
         res.steps.extend(steps)
         res.blockers = bridge_blockers

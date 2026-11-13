@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2447,
+  "file_count": 2449,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -781,7 +781,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "bad41c5d8d254f9ee4d5b4243488947121a753bf0d6ee189f8eb879eb7a68417"
+      "sha256": "ba97a1d4542022f91c56ae04d40581bb3991c0b4e722266fda7d956378ad11a5"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -825,7 +825,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/post_generation_qa_runner.py",
-      "sha256": "778c73984c0d66de4441ff7aee7aa686c8d957b31ce78de263992026d2ac0e9a"
+      "sha256": "e276cf382794f57ef55f237d72f43a5ac469d4204c9d2c2997301c0a65e0dc28"
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_finalize.py",
@@ -5189,7 +5189,7 @@
     },
     {
       "path": "tools/h3_director_prompt_v2.py",
-      "sha256": "686f9a81e7a88633bfe73cdf6d5badf40966366536c27da424edd944d145c1e9"
+      "sha256": "cc4ad63251469b7c83a4441f9121b9f21503e71de5b71db5d057ba54692d4171"
     },
     {
       "path": "tools/h3_english_contract_io.py",
@@ -6612,6 +6612,10 @@
       "sha256": "52d6041ab89e233a6323f60ab596ebadd5fe8eac0c827edaa3603740e43ed5ad"
     },
     {
+      "path": "tools/silent_unit_stray_speech.py",
+      "sha256": "f719e5d608cbf87b76eb7a0681111e656ce97dd17cb1f4da50398508716fbd41"
+    },
+    {
       "path": "tools/sound_cue_contract.py",
       "sha256": "97066e88fc29b0b6d3ccac81ba6c5f48e871e2c275145515bc43dd4ac43d3549"
     },
@@ -8001,7 +8005,7 @@
     },
     {
       "path": "tools/tests/test_h3_director_prompt_v2.py",
-      "sha256": "083b1d16908d33d46e752b366eacb9f87570cd048a8c05e37c55edc6aec9f00d"
+      "sha256": "38b7b7daed5fbc67cf5a00f891d4d112f2fbe59a07046f3d9ac1c685663bbeb0"
     },
     {
       "path": "tools/tests/test_h3_director_v2_delivery.py",
@@ -8958,6 +8962,10 @@
     {
       "path": "tools/tests/test_shot_space_camera_constraint_gate.py",
       "sha256": "c629e9fbd1c8951beb29befc949df8f6a8453e26125de15a8f298e07b9d54f05"
+    },
+    {
+      "path": "tools/tests/test_silent_unit_stray_speech.py",
+      "sha256": "e23813ee6110337a5483e96281fb2fccb8914a2c6398ec54cff1fae44b5b385a"
     },
     {
       "path": "tools/tests/test_sound_cue_contract.py",

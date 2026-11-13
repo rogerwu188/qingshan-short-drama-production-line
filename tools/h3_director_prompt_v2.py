@@ -114,7 +114,18 @@ _OPENING_FRAME_ROLES = {"ADMITTED_NEW_EVENT_ENTRY_STATE", "CONTINUITY_DERIVED_EN
 _NEGATED_MOVES = re.compile(r"\bno (?:pan|zoom|drift|dolly|tilt|track|push|pull|follow)\b", re.IGNORECASE)
 TOPOLOGY_V2 = "Every hand stays attached to its owner's body; no extra, isolated or severed limbs"
 _ECHO_FILLER = {"visible", "subtle", "motion", "consistent", "with", "and", "the", "continuous", "slight"}
+#: fleet 2026-11-13 (device 1037 E06: 7 of 21 units PLOT_DEFECT_P1:BURNED_IN_SUBTITLES): H3 writes the spoken line into
+#: the frame.  The V1 renderer states its anti-text rule first (E12 K031/K143); V2 must start with "References:", so
+#: the rule is named in full here and repeated right after the dialogue literal (SPOKEN_NOT_WRITTEN_*).
 NEVER_V2 = "captions, subtitles, letters or logos on screen; a second copy of anyone"
+#: CAMERA_GRAMMAR_V1 (stamped) units; unstamped units stay byte-identical
+NEVER_V2_STAMPED = ("captions, subtitles, speech bubbles or any written words, letters or numbers on screen; logos or "
+                    "watermarks; a second copy of anyone")  # keeps the scope-gate marker "captions, subtitles"
+#: said once after the dialogue literal(s): the words exist as sound only.  No all-caps label (H3 voices labels).
+SPOKEN_NOT_WRITTEN_ONE = ("The line is only heard: the picture stays clean, with no subtitle, caption or written "
+                          "word of it.")
+SPOKEN_NOT_WRITTEN_MANY = ("The lines are only heard: the picture stays clean, with no subtitles, captions or "
+                           "written words of them.")
 
 
 # ----------------------------------------------------------------------------------------------------------
@@ -980,6 +991,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
             dialogue_lines.append(row["gaze"])
         dialogue_lines.append(v1.ONLY_THIS_LINE if stamped else
                               "After the line nobody speaks; the remaining time is room tone.")
+        if stamped:
+            dialogue_lines.append(SPOKEN_NOT_WRITTEN_ONE)
     else:
         dialogue_lines = ["Dialogue (in this order, each line exactly once, lips in sync; only the named speaker "
                           "talks):"]
@@ -990,11 +1003,13 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
                                   + (f" {row['gaze']}" if row.get("gaze") else ""))
         dialogue_lines.append(v1.ONLY_THESE_LINES if stamped else
                               "After the last line nobody speaks; the remaining time is room tone.")
+        if stamped:
+            dialogue_lines.append(SPOKEN_NOT_WRITTEN_MANY)
     if redo_notes and dialogue_rows:  # a redo note is said once per prompt, never inside each Delivery
         dialogue_lines.append(" ".join(redo_notes))
 
     # --- never -----------------------------------------------------------------------------------------
-    negatives = [NEVER_V2, "any person, hand or body part" if not subjects else
+    negatives = [NEVER_V2_STAMPED if stamped else NEVER_V2, "any person, hand or body part" if not subjects else
                  ("anyone beyond the listed people and background figures" if (unbound_total or background_total)
                   else "anyone else in frame")]
     for value in contract.get("negative_constraints") or []:
