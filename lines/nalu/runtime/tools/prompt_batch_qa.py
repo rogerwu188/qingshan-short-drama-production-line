@@ -180,6 +180,18 @@ def mentions_hide_coat(text: str) -> bool:
     return False
 
 
+def keyframe_contract_cast(spec) -> list[str]:
+    """Names the keyframe must show: the shot cast minus people hidden at entry and minus
+    offscreen speakers.  bind_dialogue_cast appends a speaker who is not in the visible cast as
+    OFFSCREEN_VOICE_ONLY; the keyframe renderer gives him no plate, no allowed-cast entry and no
+    wardrobe line, so the gate must not demand them (1144 E02 VU029: an empty insert with an
+    offscreen line could never register)."""
+    names = [c["character"] for c in (spec.get("cast") or [])
+             if c.get("first_frame_visible", True) is not False
+             and str(c.get("face_visibility") or "") != "OFFSCREEN_VOICE_ONLY"]
+    return list(dict.fromkeys(names))
+
+
 def wardrobe_expectation(spec, name, bible_row):
     overrides = spec.get('wardrobe_state_overrides') or {}
     ids = [c.get('character_id') for c in spec.get('cast', [])
@@ -366,9 +378,7 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
         chk("kf_entry_state_verbatim", shot["entry_state"] in kf_text, shot["entry_state"])
         # Keep the authored display alias used by the rendered prompt; the
         # wardrobe bible above resolves 白鲤/白鲤郡主 explicitly.
-        cast_names = [c["character"] for c in shot["prompt_spec"]["cast"]
-                      if c.get("first_frame_visible", True) is not False]
-        cast_names = list(dict.fromkeys(cast_names))
+        cast_names = keyframe_contract_cast(shot["prompt_spec"])
         allowed = re.search(r"本帧允许入画的人物[^\n：]*：([^\n；]*)", kf_text)   # 「；另有本帧可见的生物…」不是人物名单
         allowed_names = [x.lstrip("、，, ") for x in re.findall(r"([^（）]+)（[^）]+）", allowed.group(1))] if allowed else []
         chk("kf_visible_cast_equals_contract", sorted(allowed_names) == sorted(cast_names), f"{allowed_names} vs {cast_names}")

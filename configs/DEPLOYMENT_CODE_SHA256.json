@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2442,
+  "file_count": 2443,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -837,7 +837,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_qa.py",
-      "sha256": "cfea8bf48b161ed1771e5664b985257b2c313e4262acb5191ebcdeba7f550252"
+      "sha256": "bae699f90a2dbbab177a4ec124f9cfc75067b074ab486d0ff2b7a991f63a1c48"
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_register.py",
@@ -8846,6 +8846,10 @@
     {
       "path": "tools/tests/test_s7_audio_smoothing.py",
       "sha256": "ae1a100aec20a27f95b83717e5bb3b13875739579bd7354659275feaf5d441d4"
+    },
+    {
+      "path": "tools/tests/test_s7_reentry_keeps_order_bound_candidate.py",
+      "sha256": "e1a9aa56d3537c6ff5e5929265f62fb96280a345e6a4f2995b1ec1ebab4769ab"
     },
     {
       "path": "tools/tests/test_s7_reentry_keeps_review_bound_candidate.py",
