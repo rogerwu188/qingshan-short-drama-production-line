@@ -63,6 +63,7 @@ chown -R root:root "$ENGINE"
 
 install -m 755 "$HERE/collector_cycle.sh" "$OPT/collector_cycle.sh"
 install -m 755 "$HERE/collector_daily.sh" "$OPT/collector_daily.sh"
+install -m 755 "$HERE/collector_review_bridge.sh" "$OPT/collector_review_bridge.sh"
 [ -f "$ETC/release_train.json" ] || install -m 644 "$HERE/release_train.example.json" "$ETC/release_train.json"
 for unit in nalu-collective-cycle.service nalu-collective-cycle.timer nalu-collective-daily.service nalu-collective-daily.timer; do
   install -m 644 "$HERE/systemd/$unit" "/etc/systemd/system/$unit"

@@ -16,4 +16,5 @@ cd "$ENGINE"
 rc=$?
 "$PY" tools/collective_learning/release_train.py status --runtime-root "$RUNTIME" --tenant nalu \
   --config "$CFG" --cohort "$SHARED/cohort.json" --status-out "$SHARED/release_train_status.json" >/dev/null
+"$OPT/collector_review_bridge.sh"
 exit $rc

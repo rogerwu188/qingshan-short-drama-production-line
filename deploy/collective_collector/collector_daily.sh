@@ -14,3 +14,4 @@ cd "$ENGINE"
   --cohort "$SHARED/cohort.json" --status-out "$SHARED/release_train_status.json" \
   > "$RUNTIME/runtime/collective/release_train_daily.last.json"
 "$PY" tools/collective_learning/s3_sync.py run-cycle --runtime-root "$RUNTIME" --tenant nalu --interval 300 >/dev/null
+"$OPT/collector_review_bridge.sh"
