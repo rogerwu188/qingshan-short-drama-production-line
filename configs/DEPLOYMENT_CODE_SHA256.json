@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2443,
+  "file_count": 2444,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -837,7 +837,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_qa.py",
-      "sha256": "bae699f90a2dbbab177a4ec124f9cfc75067b074ab486d0ff2b7a991f63a1c48"
+      "sha256": "2797acec68b75e152540e15084468472ff95251a8ebc3cf8e15afb6cd09869cb"
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_register.py",
@@ -6601,7 +6601,7 @@
     },
     {
       "path": "tools/shot_media_admission_gate.py",
-      "sha256": "9af8f94d5d9d51c75fd52cb34fc1265c3a54b3ed8175aa11f7bd172b29fc5b0c"
+      "sha256": "96f610fcd4e14d0e31c2a3a68d3690b25e68c6c19d23f7b7be06ee75866464e9"
     },
     {
       "path": "tools/shot_prompt_professionalism_gate.py",
@@ -8606,6 +8606,10 @@
     {
       "path": "tools/tests/test_prompt_batch_qa_hide_coat.py",
       "sha256": "d1c246be24e27c408f3edd8730b835faf1388c851796c12c426ba633a482d5cb"
+    },
+    {
+      "path": "tools/tests/test_prompt_batch_qa_offscreen_speaker.py",
+      "sha256": "5a3c0adaf43242929868d594d172410d1b9f95fbfac54e01b79fbf073f3a7f51"
     },
     {
       "path": "tools/tests/test_prompt_batch_qa_sheet_identity.py",
