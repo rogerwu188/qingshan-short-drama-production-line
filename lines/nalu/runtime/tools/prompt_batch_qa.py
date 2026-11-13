@@ -118,6 +118,29 @@ def _locked_dialogue_policy_active(contract: dict) -> bool:
     return _ldc.active(contract)
 
 
+#: A whole line that is one Latin word (a name called out: "Seraphina.").
+_ONE_WORD_LINE = re.compile(r"[A-Za-z\u00C0-\u024F'\u2019-]+[.!?,\u2026]*")
+
+
+def _spoken_in(spoken: str, text: str) -> bool:
+    """Whether ``spoken`` occurs in ``text`` as a line rather than as the tail of a prose sentence.
+
+    2026-11-13 (miniPC ...1122 E03): the line "Seraphina." of another shot matched the renderer's own
+    identity prose "never draw a second Seraphina." in 15 of 28 units.  A one-word line counts only
+    where it stands alone -- not directly continuing a word of the same sentence.  Longer lines keep
+    the plain substring test.
+    """
+    if not _ONE_WORD_LINE.fullmatch(spoken):
+        return spoken in text
+    start = text.find(spoken)
+    while start != -1:
+        before = text[:start].rstrip(" \t")
+        if not before or not before[-1].isalnum():
+            return True
+        start = text.find(spoken, start + 1)
+    return False
+
+
 def foreign_dialogue(text: str, dialogue_by_shot: dict, unit_shots: list) -> list[str]:
     """A transition never exempts out-of-scope dialogue from pre-submit QA."""
     local = {spoken_part(line) for sid in unit_shots
@@ -134,7 +157,7 @@ def foreign_dialogue(text: str, dialogue_by_shot: dict, unit_shots: list) -> lis
                    for line in lines
                    if spoken_part(line) not in local
                    and len(spoken_part(line)) > 4
-                   and spoken_part(line) in remaining})
+                   and _spoken_in(spoken_part(line), remaining)})
 
 
 #: Tokens that mean "an outer garment made of hide": 兽皮大衣 / 裘氅 / 兽皮短袄 / 皮袄.

@@ -534,7 +534,18 @@ def precheck_submission_inputs(
                     )
     elif semantic_policy:
         entity_rows: dict[str, list[dict[str, Any]]] = {}
-        for row in bindings:
+        # A prop plate withheld from the provider (transmitted=false, declared reason) is not in
+        # reference_image_sequence, so `bindings` does not carry it; its retained binding is still the
+        # prop's authority and holds the evidence (device ...0736 E09 S5, 2026-11-13: the anchor check
+        # above accepted the excluded mask, this loop then reported its evidence missing).
+        excluded_prop_rows = [
+            row for row in task.get("reference_bindings") or []
+            if isinstance(row, dict) and row.get("transmitted") is False
+            and str(row.get("transport_excluded_reason") or "").strip()
+            and (str(row.get("role") or "").upper() in PROP_ROLES
+                 or str(row.get("entity_id") or "").startswith("PROP-"))
+        ]
+        for row in [*bindings, *excluded_prop_rows]:
             entity_id = str(row.get("entity_id") or "")
             if entity_id in characters or entity_id in props:
                 entity_rows.setdefault(entity_id, []).append(row)
