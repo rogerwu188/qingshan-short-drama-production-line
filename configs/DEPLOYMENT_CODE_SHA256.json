@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2450,
+  "file_count": 2451,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -1001,7 +1001,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/fleet_sync.py",
-      "sha256": "1cc638c8d97e33672b5510bcf0214f0a6561bfb61f2feaa1fdcbee7a61e76017"
+      "sha256": "6595ad44b87cda0437434d7db353a43395e12c26eb2eba804e0e4dfcd5d9234b"
     },
     {
       "path": "skills/nalu-claude-code/scripts/knowledge_status.py",
@@ -7870,6 +7870,10 @@
     {
       "path": "tools/tests/test_fleet_hopsapi_balance.py",
       "sha256": "b3c35e6bc0d6084e1820309828951095dd05cb4431cc10f3df415eacd2a3f48b"
+    },
+    {
+      "path": "tools/tests/test_fleet_series_cover.py",
+      "sha256": "8f18a23ea6ff108412985a4d5b56856a9e0864ca51b79a2113c148ad77217c67"
     },
     {
       "path": "tools/tests/test_fleet_sync.py",
