@@ -60,6 +60,26 @@ class LintTests(unittest.TestCase):
                                              has_dialogue=True, authored_camera_text="中近景固定机位")
         self.assertEqual(r["status"], "FAIL", r)
 
+    def test_eyeline_sentence_camera_does_not_follow_the_gaze_is_not_a_move(self):
+        # the speaking-unit eyeline sentence forbids a follow; it does not ask for one (fleet 0030 E12)
+        from tools.camera_grammar_policy import speaker_gaze_sentence
+        from tools.h3_provider_english_contract import CAMERA_LOCK_NEVER, CAMERA_LOCK_TRIPOD
+        prompt = ("Camera:\nMedium close-up. " + CAMERA_LOCK_TRIPOD + "\n" + speaker_gaze_sentence("Helen", "right", "Holmes")
+                  + "\n\nNever: subtitles; music; " + CAMERA_LOCK_NEVER + ".")
+        self.assertEqual(lint.move_tokens(prompt), [])
+        r = lint.dialogue_unit_locked_camera(prompt, has_dialogue=True, authored_camera_text="中近景固定机位")
+        self.assertEqual(r["status"], "PASS", r)
+        # the whole DIRECTOR_PROMPT_V2 render of a stamped speaking unit carries the sentence and no move token
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import test_h3_director_prompt_v2 as v2t
+        text, _ = v2t.render()
+        self.assertIn("the camera does not follow the gaze.", text)
+        self.assertNotIn("follow the", lint.move_tokens(text))
+        # a follow the prompt asks for still fails
+        r = lint.dialogue_unit_locked_camera("Camera:\nThe camera follows her to the door.", has_dialogue=True,
+                                             authored_camera_text="中近景固定机位")
+        self.assertEqual(r["status"], "FAIL", r)
+
     def test_single_direction_and_silent_beats(self):
         self.assertEqual(lint.single_direction([{"motion_family": "DOLLY", "motion_direction": "PUSH_IN"},
                                                 {"motion_family": "DOLLY", "motion_direction": "PULL_OUT"}])["status"], "FAIL")
