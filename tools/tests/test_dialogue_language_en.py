@@ -256,6 +256,17 @@ class EnglishSubtitleTests(unittest.TestCase):
         self.assertEqual("".join(cues), text)
         self.assertTrue(all(len(burnin.wrap(c).split("\\N")) <= 2 for c in cues))
 
+    def test_split_cues_survives_a_non_monotone_fit(self) -> None:
+        # fleet 0069 E03 S7: KeyError in split_cues.  A chunk can fail to fit while a longer one fits
+        # (one over-wide row vs. two wrapped rows); the cheapest-split scan stopped at the first miss
+        # and never reached the end the cue count had been computed for.
+        fits = lambda chunk: len(chunk.split(" ")) in (1, 3)
+        self.assertEqual(burnin.split_cues("a b c d e f", fits, "en"), ["a b c", "d e f"])
+        cues = burnin.split_cues("a b c d e f g", fits, "en")
+        self.assertEqual(" ".join(cues), "a b c d e f g")
+        self.assertEqual(len(cues), 3)
+        self.assertTrue(all(fits(cue) for cue in cues))
+
     def test_assignment_matches_english_segments(self) -> None:
         lines = [{"text": "Where were you last night?"}, {"text": "At home, alone."}]
         segs = [{"start": 0.1, "end": 1.0, "text": "Where were you"},

@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2446,
+  "file_count": 2447,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -653,7 +653,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_burnin_subtitles.py",
-      "sha256": "b5d54c08d4eb29a30fe28019ca5c90c30cd1461588f2763486352aa45d09fcbd"
+      "sha256": "ceba7658e16619d8ec90544aa81df1ca5f02a6c9090ba1c494b3f3850efc3764"
     },
     {
       "path": "lines/nalu/runtime/tools/build_episode_asset_requirements.py",
@@ -7585,7 +7585,7 @@
     },
     {
       "path": "tools/tests/test_dialogue_language_en.py",
-      "sha256": "776f39bff48f75f38fa6402aa630d3a9a87432d6d015198fade8b7d77877e2aa"
+      "sha256": "769875b1016daa194b6b096a21e345511e903a09802aa353f5f2b3f6ad6d62ee"
     },
     {
       "path": "tools/tests/test_dialogue_register_gate.py",
@@ -8482,6 +8482,10 @@
     {
       "path": "tools/tests/test_noncontact_sound.py",
       "sha256": "3ed87eb8880d5e36245ea121aab0d59316ca046e8d803254171d90615bab6cf6"
+    },
+    {
+      "path": "tools/tests/test_offscreen_voice_empty_unit_anchor.py",
+      "sha256": "7c384cb75f1eb5017b156b933e9f6ae91d8984fd0559dffd88c2f9ec2dc45ca5"
     },
     {
       "path": "tools/tests/test_opening_anchor_chain_gate_structured_state.py",
