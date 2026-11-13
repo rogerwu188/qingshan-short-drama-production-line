@@ -39,11 +39,13 @@ NEGATED_MOVE = re.compile(
 ZH_NEGATED_MOVE = re.compile(r"(不得|不要|不|禁止|无)(推近|推进|推拉|拉远|拉出|拉镜|横摇|竖摇|摇镜|跟拍|跟随|横移|环绕|升降|手持|变焦|运镜|机位移动)")
 
 
-NEG_SECTION = re.compile(r"^negative_constraints:.*$", re.MULTILINE)
+#: the line that lists what the clip must not show: V1 ``negative_constraints:`` and DIRECTOR_PROMPT_V2 ``Never:``
+#: (the strict camera lock appends "zooming in, pushing in, dollying in, ..." to it — fleet 0030 E12, 2026-11-13)
+NEG_SECTION = re.compile(r"^(?:negative_constraints|Never):.*$", re.MULTILINE)
 
 
 def strip_negated_moves(text: str) -> str:
-    """Drop the prompt's negative-constraints line (it NAMES moves to forbid: "unmotivated orbit") and every
+    """Drop the prompt's negative-constraints / ``Never:`` line (it NAMES moves to forbid: "unmotivated orbit") and every
     negated move phrase, so only moves the prompt asks for remain."""
     text = NEG_SECTION.sub("", text or "")
     return ZH_NEGATED_MOVE.sub("", NEGATED_MOVE.sub("", text))

@@ -47,6 +47,19 @@ class LintTests(unittest.TestCase):
                                              has_dialogue=True, authored_camera_text="特写固定机位秦铭")
         self.assertEqual(r["status"], "PASS", r)
 
+    def test_v2_never_line_with_strict_camera_lock_is_not_a_move(self):
+        # DIRECTOR_PROMPT_V2 strict camera lock: the Never line names the forbidden moves (fleet 0030 E12)
+        from tools.h3_provider_english_contract import CAMERA_LOCK_NEVER, CAMERA_LOCK_TRIPOD
+        prompt = ("Camera:\nMedium close-up. " + CAMERA_LOCK_TRIPOD + "\n\n"
+                  "Never: subtitles; anyone else in frame; music; " + CAMERA_LOCK_NEVER + ".")
+        self.assertEqual(lint.move_tokens(prompt), [])
+        r = lint.dialogue_unit_locked_camera(prompt, has_dialogue=True, authored_camera_text="中近景固定机位")
+        self.assertEqual(r["status"], "PASS", r)
+        # a move asked for outside the Never line still fails
+        r = lint.dialogue_unit_locked_camera("Camera:\nThe camera is pushing in on her face.\n\n" + prompt.split("\n\n", 1)[1],
+                                             has_dialogue=True, authored_camera_text="中近景固定机位")
+        self.assertEqual(r["status"], "FAIL", r)
+
     def test_single_direction_and_silent_beats(self):
         self.assertEqual(lint.single_direction([{"motion_family": "DOLLY", "motion_direction": "PUSH_IN"},
                                                 {"motion_family": "DOLLY", "motion_direction": "PULL_OUT"}])["status"], "FAIL")
