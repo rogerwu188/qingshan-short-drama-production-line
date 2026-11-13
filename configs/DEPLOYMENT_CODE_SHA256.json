@@ -685,7 +685,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/camera_move_lint.py",
-      "sha256": "6061df48f0ccd3cc95ec800a87afbe5da04e1746565c52e88aed4ea8d079a30b"
+      "sha256": "90a419b45cc562f92e1ae567c3816d487d9fad1464d0cb2a7570de8f45ee6fbb"
     },
     {
       "path": "lines/nalu/runtime/tools/character_reference_sheet.py",
@@ -8237,7 +8237,7 @@
     },
     {
       "path": "tools/tests/test_locked_dialogue_camera_policy.py",
-      "sha256": "ef81a4085997166f44da7f0a626a7a04d62883d9b0ffdc3c12dd503d48e7df7f"
+      "sha256": "802ff66452a2c8afb9be1599c905d62d725bd528e8bf9819a7352b1d368e2cca"
     },
     {
       "path": "tools/tests/test_long_take_score_gate.py",
