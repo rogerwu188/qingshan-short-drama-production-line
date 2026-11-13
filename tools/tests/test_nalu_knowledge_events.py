@@ -285,7 +285,7 @@ class PipelineHookTest(unittest.TestCase):
 
     def test_stage_s7_and_stage_loop_call_the_producers(self) -> None:
         source = (TOOLS / "nalu_pipeline.py").read_text(encoding="utf-8")
-        for needle in ('kind="S7_DETECTOR"', 'kind="S7_FINAL_GATE"', "kb_final_review_reject(ctx, final_audience)",
+        for needle in ('kind="S7_DETECTOR"', '"record_final_gates"', "kb_final_review_reject(ctx, final_audience)",
                        '"scan_provider_rejections"'):
             self.assertIn(needle, source)
 

@@ -7,8 +7,12 @@ whatever the service's channel table says, through the release gate).
 
 Flow (all thresholds in ``DEFAULTS``, overridable with ``--config``):
 
-1. clusters     lesson-type FAILURE events grouped by ``evidence.failure_type`` (round/rate facts and provider
-                outages are never lessons).  A cluster is eligible when seen on >= ``min_devices`` independent
+1. clusters     lesson-type FAILURE events grouped by ``cluster_key`` (``evidence.cluster_key`` when the producer
+                gave one -- ``<failure_type>|<detail_category>`` -- else ``evidence.failure_type``, so old thin
+                events keep their cluster ids).  Round/rate facts, provider outages, ``default_accepted`` facts
+                (unless ``include_default_accepted``) and engine/threshold items (``lesson_class``, plus the
+                legacy run-level technical types) are never lessons; engine items are listed separately in the
+                review request.  A cluster is eligible when seen on >= ``min_devices`` independent
                 devices (``Service._independent_sources``: copies and replays collapse) OR >= ``min_episodes``
                 distinct (device, episode) pairs.
 2. review hook  ``export-review`` writes the eligible, unhandled clusters to a review-request JSON; the reviewer
@@ -80,9 +84,22 @@ DEFAULTS: dict[str, Any] = {
     "retire_min_applied": 20,
     "retire_min_episodes": 3,
     "retire_min_drop": 0.0,
+    "include_default_accepted": False,
+    "review_samples_per_cluster": 3,
 }
 ROUND_TYPES = ("Q1_ROUND", "Q2_ROUND", "POSTGEN_ROUND")
 NOT_LESSON_PREFIXES = ("PROVIDER_OUTAGE",)
+#: producer lesson_class values that a prompt rule cannot fix (engine thresholds, the reviewer's own evidence)
+ENGINE_LESSON_CLASSES = ("ENGINE_THRESHOLD", "ENGINE_BOOKKEEPING", "REVIEW_EVIDENCE_INVALID")
+#: failure types recorded before producers tagged lesson_class (2026-11-13 review): raster / duration / container
+#: checks on provider output and the S7 mix loudness -- engine/threshold items whatever event carried them
+LEGACY_ENGINE_TYPES = frozenset({
+    "POSTGEN_FAIL:RESOLUTION", "POSTGEN_FAIL:DURATION", "POSTGEN_FAIL:ASPECT_RATIO", "POSTGEN_FAIL:CODEC",
+    "POSTGEN_FAIL:SAMPLE_RATE", "POSTGEN_FAIL:FRAME_RATE", "POSTGEN_FAIL:AUDIO_STREAM", "POSTGEN_FAIL:AV_SYNC",
+    "S7_DETECTOR:loudness"})
+ENGINE_ITEM_NOTE = ("Engine / threshold items: run-level technical mismatches (provider raster or duration vs the "
+                    "engine's tolerance, container checks, the engine's own mix loudness).  A prompt rule cannot "
+                    "fix them; they go to the engine maintainers.  Listed for information only -- do not decide.")
 DEFAULT_SCOPE = {"DIRECTING_HEURISTIC": "REAL_MEDIA_REVIEW", "MODEL_CONSTRAINT": "REAL_MEDIA_REVIEW",
                  "ENGINEERING_INVARIANT": "DETERMINISTIC_REGRESSION", "EXECUTION_POLICY": "DETERMINISTIC_REGRESSION"}
 RULE_FIELDS = ("category", "scope", "trigger", "recommendation", "exceptions", "known_counterexamples",
@@ -116,11 +133,52 @@ def failure_type(event: dict[str, Any]) -> str:
     return str(evidence.get("failure_type") or f"{event.get('stage')}:{event.get('detected_by')}")
 
 
-def is_lesson(event: dict[str, Any]) -> bool:
+def _evidence(event: dict[str, Any]) -> dict[str, Any]:
+    return event.get("evidence") if isinstance(event.get("evidence"), dict) else {}
+
+
+def cluster_key(event: dict[str, Any]) -> str:
+    """The clustering key: the producer's ``cluster_key`` (``<failure_type>|<detail_category>``) when it is
+    consistent with the event's failure type, else the failure type itself (old events: unchanged clusters)."""
+    ft = failure_type(event)
+    key = _evidence(event).get("cluster_key")
+    if isinstance(key, str) and (key == ft or key.startswith(ft + "|")) and len(key) <= 200:
+        return key
+    return ft
+
+
+def is_engine_item(event: dict[str, Any]) -> bool:
+    return (str(_evidence(event).get("lesson_class") or "") in ENGINE_LESSON_CLASSES
+            or failure_type(event) in LEGACY_ENGINE_TYPES)
+
+
+def is_lesson(event: dict[str, Any], include_default_accepted: bool = False) -> bool:
     if event.get("event_kind") != "FAILURE_OBSERVATION":
         return False
     ft = failure_type(event)
-    return ft not in ROUND_TYPES and not ft.startswith(NOT_LESSON_PREFIXES)
+    if ft in ROUND_TYPES or ft.startswith(NOT_LESSON_PREFIXES) or is_engine_item(event):
+        return False
+    return include_default_accepted or _evidence(event).get("default_accepted") is not True
+
+
+def evidence_sample(event: dict[str, Any]) -> dict[str, Any]:
+    """One concrete, reviewer-readable sample of an event: where it happened, the symptom, and the producer's
+    first unit sample (unit, scene/shot label, reason, measured-vs-threshold detail, excerpt) or S7 detail."""
+    ev = _evidence(event)
+    out: dict[str, Any] = {"device": event.get("device_id"), "episode": event.get("episode_id"),
+                           "stage": event.get("stage"), "symptom": str(event.get("symptom") or "")[:300]}
+    for key in ("failure_code", "detail_category", "item", "asset_kind", "units_failed", "units_in_round",
+                "default_accepted", "accepted_order_seq"):
+        if ev.get(key) not in (None, ""):
+            out[key] = ev[key]
+    samples = ev.get("samples")
+    if isinstance(samples, list) and samples and isinstance(samples[0], dict):
+        out["unit_samples"] = samples[:2]
+    elif isinstance(samples, list) and samples:  # old thin events: raw reason strings
+        out["reasons"] = [str(x)[:160] for x in samples[:3]]
+    if isinstance(ev.get("detail"), dict):
+        out["detail"] = ev["detail"]
+    return out
 
 
 def cluster_id(ftype: str) -> str:
@@ -212,12 +270,14 @@ class Train:
     def clusters(self) -> list[dict[str, Any]]:
         since = self.now() - float(self.cfg["lookback_days"]) * 86400
         groups: dict[str, list[dict[str, Any]]] = {}
+        include_accepted = bool(self.cfg.get("include_default_accepted"))
         for event in self.events(since=since):
-            if is_lesson(event):
-                groups.setdefault(failure_type(event), []).append(event)
+            if is_lesson(event, include_accepted):
+                groups.setdefault(cluster_key(event), []).append(event)
         out = []
         db = self.service._db()
-        for ftype, events in sorted(groups.items()):
+        for key, events in sorted(groups.items()):
+            ftype = failure_type(events[0])
             events.sort(key=lambda e: e["_at"])
             ids = [e["event_id"] for e in events]
             sources = self.service._independent_sources(db, self.tenant, ids)
@@ -227,18 +287,53 @@ class Train:
                 if e.get("symptom") not in symptoms:
                     symptoms.append(str(e.get("symptom")))
             out.append({
-                "cluster_id": cluster_id(ftype), "failure_type": ftype,
+                "cluster_id": cluster_id(key), "failure_type": ftype, "cluster_key": key,
+                "detail_category": key[len(ftype) + 1:] if key != ftype else None,
                 "stages": sorted({str(e.get("stage")) for e in events}),
                 "devices": sources["independent_sources"], "episodes": len(episodes), "event_count": len(events),
                 "first_seen": _iso(events[0]["_at"]), "last_seen": _iso(events[-1]["_at"]),
                 "sample_symptoms": symptoms[:5],
                 "sample_evidence": [{k: v for k, v in (e.get("evidence") or {}).items() if k != "failure_type"}
                                     for e in events[-3:]],
+                "evidence_samples": self._evidence_samples(events),
                 "models": sorted({str(e.get("provider_model_version")) for e in events})[:5],
                 "event_ids": ids[-50:],
                 "eligible": (sources["independent_sources"] >= int(self.cfg["min_devices"])
                              or len(episodes) >= int(self.cfg["min_episodes"])),
             })
+        return out
+
+    def _evidence_samples(self, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Up to ``review_samples_per_cluster`` concrete samples, newest first, one per device where possible."""
+        limit = max(1, int(self.cfg.get("review_samples_per_cluster") or 3))
+        picked, devices = [], set()
+        for pass_ in (0, 1):
+            for event in reversed(events):
+                if len(picked) >= limit:
+                    break
+                if event in picked or (pass_ == 0 and event.get("device_id") in devices):
+                    continue
+                picked.append(event)
+                devices.add(event.get("device_id"))
+        return [evidence_sample(e) for e in picked]
+
+    def engine_items(self) -> list[dict[str, Any]]:
+        """Engine / threshold facts (not lessons) grouped by cluster key: counts and two samples each."""
+        since = self.now() - float(self.cfg["lookback_days"]) * 86400
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for event in self.events(since=since):
+            if event.get("event_kind") == "FAILURE_OBSERVATION" and is_engine_item(event):
+                groups.setdefault(cluster_key(event), []).append(event)
+        out = []
+        for key, events in sorted(groups.items()):
+            events.sort(key=lambda e: e["_at"])
+            out.append({"cluster_key": key, "failure_type": failure_type(events[0]),
+                        "lesson_class": _evidence(events[-1]).get("lesson_class") or "LEGACY_ENGINE_TYPE",
+                        "devices": len({e.get("device_id") for e in events}),
+                        "episodes": len({(e.get("device_id"), e.get("episode_id")) for e in events}),
+                        "event_count": len(events), "last_seen": _iso(events[-1]["_at"]),
+                        "samples": [evidence_sample(e) for e in events[-2:]]})
+        out.sort(key=lambda row: (-row["devices"], -row["episodes"], row["cluster_key"]))
         return out
 
     # ------------------------------------------------------------------ 2. review hook
@@ -253,9 +348,9 @@ class Train:
         targeted = set()
         for row in state["clusters"].values():
             if row.get("status") in ("VALIDATED", "CANARY", "RELEASED"):
-                targeted.add(row.get("failure_type"))
+                targeted.add(row.get("cluster_key") or row.get("failure_type"))
         clusters = [cl for cl in self.clusters() if cl["eligible"] and cl["cluster_id"] not in handled
-                    and cl["failure_type"] not in targeted]
+                    and cl["cluster_key"] not in targeted and cl["failure_type"] not in targeted]
         if not clusters:
             state["open_review"] = None
             self.save(state)
@@ -276,8 +371,12 @@ class Train:
                 "exceptions (required for DIRECTING_HEURISTIC), verification, cost_class, evidence_level, "
                 "validation_scope, application {carrier: BEAT_DIRECTION|NEGATIVE_CONSTRAINT|CHECK_ONLY, "
                 "prompt_clause: {zh, en}}.  At most batch_max approvals ship per day; extra approvals wait in the "
-                "backlog.  Never put money, gates, authority or secrets into a clause."),
+                "backlog.  Never put money, gates, authority or secrets into a clause.  Each cluster's "
+                "evidence_samples carry the concrete cause (unit, scene/shot label, measured vs threshold, "
+                "transcript / reviewer-note excerpt); detail_category is the normalised cause the cluster is "
+                "keyed on.  engine_items are NOT clusters: information only."),
             "clusters": clusters,
+            "engine_items": {"note": ENGINE_ITEM_NOTE, "items": self.engine_items()[:30]},
         }
         out_dir = self.dir / "review_requests"
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -312,7 +411,8 @@ class Train:
             if not reason:
                 outcomes.append({"cluster_id": cid, "status": "REASON_REQUIRED"})
                 continue
-            base = {"failure_type": cl["failure_type"], "reviewer": reviewer, "reason": reason[:500],
+            base = {"failure_type": cl["failure_type"], "cluster_key": cl.get("cluster_key") or cl["failure_type"],
+                    "reviewer": reviewer, "reason": reason[:500],
                     "request_id": request_id, "decided_at": _iso(self.now()), "devices": cl["devices"],
                     "episodes": cl["episodes"]}
             if verdict == "REJECT":
@@ -355,7 +455,8 @@ class Train:
         candidate.setdefault("known_counterexamples", [])
         candidate.update({"candidate_id": rule_id, "revision": 1, "status": "CANDIDATE",
                           "event_ids": list(cl.get("event_ids") or [])[-50:],
-                          "target_failure_types": [cl["failure_type"]], "cluster_id": cl["cluster_id"],
+                          "target_failure_types": [cl.get("cluster_key") or cl["failure_type"]],
+                          "cluster_id": cl["cluster_id"],
                           "application": application,
                           "review": {"reviewer": rev.principal_id, "reason": reason[:500], "request_id": request_id}})
         # the rule must also be valid inside a signed pack (carrier, clause language, executable keys)
@@ -535,7 +636,8 @@ class Train:
                     continue
                 after = e["_at"] >= first[dev]
                 (after_eps if after else before_eps).add((dev, e.get("episode_id")))
-                if failure_type(e) in targets and e.get("event_kind") == "FAILURE_OBSERVATION":
+                if (failure_type(e) in targets or cluster_key(e) in targets) \
+                        and e.get("event_kind") == "FAILURE_OBSERVATION":
                     if after:
                         after_hits += 1
                     else:

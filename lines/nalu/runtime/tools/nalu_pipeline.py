@@ -4963,9 +4963,25 @@ def kb_events(fn: str, **kwargs: Any) -> dict[str, Any]:
 
 
 def kb_review_rows(index: dict[str, Any], admitted_status: str) -> list[dict[str, Any]]:
+    # ``source`` = the raw index row: the event layer takes the reviewer's defect codes/notes and the
+    # scene/shot label from it (never paths) so a cluster carries causes, not just gate names
     return [{"unit_id": row.get("unit_id"), "passed": row.get("downstream_status") == admitted_status,
-             "codes": list(row.get("failures") or [])}
+             "codes": list(row.get("failures") or []), "source": row}
             for row in (index.get("results") or []) if isinstance(row, dict)]
+
+
+def kb_postgen_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
+    """Post-generation QA units for the knowledge events; a rejected unit carries its QA record (measured vs
+    threshold, ASR transcript, reviewer defects) as ``source``."""
+    rows = []
+    for row in summary.get("units") or []:
+        if not isinstance(row, dict):
+            continue
+        passed = row.get("verdict") == "ADMIT"
+        record = (read_json(Path(str(row["record"])), {}) or {}) if not passed and row.get("record") else {}
+        rows.append({"unit_id": row.get("unit_id"), "passed": passed, "codes": list(row.get("reasons") or []),
+                     **({"source": record} if isinstance(record, dict) and record else {})})
+    return rows
 
 
 def s5_q1(ctx: Ctx, res: StageResult) -> dict[str, Any]:
@@ -7586,8 +7602,7 @@ def s6_qa(ctx: Ctx, res: StageResult) -> dict[str, Any]:
         detail["knowledge_events"] = kb_events(
             "record_review_round", episode=ctx.episode, stage="S6", kind="POSTGEN",
             round_key=sha256_file(Path(str(verdict["out"]))) or detail["review_file_sha256"],
-            rows=[{"unit_id": row.get("unit_id"), "passed": row.get("verdict") == "ADMIT",
-                   "codes": list(row.get("reasons") or [])} for row in summary["units"] if isinstance(row, dict)],
+            rows=kb_postgen_rows(summary),
             evidence={"gate": "post_generation_qa_runner", "qa_status": verdict.get("status")})
     res.receipts.append(str(verdict.get("out") or ""))
     return detail
@@ -8494,13 +8509,15 @@ def kb_final_review_reject(ctx: Ctx, final_audience: dict[str, Any]) -> dict[str
         reasons = ([f"overall:{report.get('overall')}"] if report.get("overall") is not None else []) \
             + [f"low:{name}" for name in low] + (["hard_fail"] if hard else [])
         sha = final_audience.get("final_video_sha256") or report.get("media_sha256")
+        review_report = str(final_audience.get("report") or "") or None
         out = kb_events("record_final_cut", episode=ctx.episode, kind="S7_FINAL_REVIEW_REJECT", items=reasons,
                         media_sha256=sha, evidence={"gate": "FINAL-AUDIENCE-REVIEW",
-                                                    "verdict": report.get("verdict")})
+                                                    "verdict": report.get("verdict")},
+                        review_report=review_report)
         if low:
             out = {"reject": out, "dimensions": kb_events(
                 "record_final_cut", episode=ctx.episode, kind="S7_FINAL_REVIEW_LOW", items=low,
-                media_sha256=sha, evidence={"gate": "FINAL-AUDIENCE-REVIEW"})}
+                media_sha256=sha, evidence={"gate": "FINAL-AUDIENCE-REVIEW"}, review_report=review_report)}
         return out
     except Exception as exc:  # noqa: BLE001
         return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:160]}"}
@@ -9839,9 +9856,6 @@ def stage_s7(ctx: Ctx) -> StageResult:
         gate_result = read_json(p.assembly / f"{ctx.episode}_FINAL_CUT_AUDIENCE_GATE.json", {}) or {}
         failing = _rga.failing_detectors(gate_result)
         final_sha = sha256_file(p.final_candidate) if p.final_candidate.is_file() else None
-        res.details["knowledge_events_detectors"] = kb_events(
-            "record_final_cut", episode=ctx.episode, kind="S7_DETECTOR", items=failing, media_sha256=final_sha,
-            evidence={"gate": "FINAL-CUT-AUDIENCE-DETECTORS"})
         orders_path = ctx.authority.get("orders_path")
         orders = (_rga._orders(orders_path,
                                expected_latest_seq=ctx.authority.get("latest_order_seq") or 0,
@@ -9851,6 +9865,11 @@ def stage_s7(ctx: Ctx) -> StageResult:
             orders, episode=ctx.episode, gate_id="FINAL-CUT-AUDIENCE-DETECTORS",
             failing=failing, media_sha256=final_sha, media_item_id="loudness",
             expected_issuer=ctx.authority.get("line_owner_id") or "", engine_root=ENGINE)
+        # recorded after the order lookup: a FAIL an order already carried is flagged default_accepted
+        res.details["knowledge_events_detectors"] = kb_events(
+            "record_final_cut", episode=ctx.episode, kind="S7_DETECTOR", items=failing, media_sha256=final_sha,
+            evidence={"gate": "FINAL-CUT-AUDIENCE-DETECTORS"}, detector_report=str(detector_report),
+            accepted_order_seq=(order or {}).get("seq"))
         if order is None:
             res.steps.extend(steps)
             res.blockers = ["FINAL_CUT_AUDIENCE_DETECTORS_FAIL:" + str(gate_step.get("stdout_tail") or "")[-400:]]
@@ -9889,17 +9908,22 @@ def stage_s7(ctx: Ctx) -> StageResult:
     res.details["final_qa"] = final_qa
     failing_gates = [str(row.get("gate_id")) for row in (final_qa.get("stage_gate_rows") or [])
                      if isinstance(row, dict) and row.get("gate_id") and row.get("status") != PASS]
-    if failing_gates:
-        res.details["knowledge_events_final_gates"] = kb_events(
-            "record_final_cut", episode=ctx.episode, kind="S7_FINAL_GATE", items=failing_gates,
-            media_sha256=sha256_file(p.final_candidate) if p.final_candidate.is_file() else None,
-            evidence={"gate": "final_qa_evidence_bundle"})
     res.status = PASS if (p.final_candidate.is_file()
                           and all(step["exit_code"] == 0 or step.get("accepted_by_line_owner_order") for step in steps)
                           and final_qa["status"] == PASS and not review_rejected) else BLOCKED
+    release: dict[str, Any] = {}
     if res.status != PASS:
         release = s7_default_release_acceptance(ctx, final_qa, review_rejected)
         res.details["final_release_acceptance"] = release
+    if failing_gates:
+        # classified in the event layer: never-invoked / bookkeeping / combined-verdict rows are not failures of
+        # their own; a FAIL the default-terms release order already carried is flagged default_accepted
+        res.details["knowledge_events_final_gates"] = kb_events(
+            "record_final_gates", episode=ctx.episode, summary_path=final_qa.get("stage_gate_summary"),
+            rows=final_qa.get("stage_gate_rows") or [],
+            media_sha256=sha256_file(p.final_candidate) if p.final_candidate.is_file() else None,
+            accepted_order_seq=release.get("order_seq") if release.get("status") == PASS else None)
+    if res.status != PASS:
         if release.get("status") != PASS:
             res.blockers = release.get("blockers") or [value for value in (final_qa.get("blockers") or [])] or \
                 ["FINAL_PACKAGE_QA_NOT_PASS"]
