@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2444,
+  "file_count": 2446,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -673,7 +673,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "4a0bf6fcd2ed38fe51edf46b2ed91f905ee3508191a1255f371f31c99885f1e1"
+      "sha256": "7f4021a8515ecaf7387002da4a5ae3c7b5c9184ee0218f9578b7e6966cd0320a"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -7796,6 +7796,10 @@
       "sha256": "bbb220f983fce7d6c76b973ecdc5e0c5e2952543d9dcd96a6d50f97655108c0b"
     },
     {
+      "path": "tools/tests/test_excluded_prop_semantic_evidence.py",
+      "sha256": "8df1c74cb9956d636b90040c92907a193ae7792d839b735ff7ad43bbb94bbf89"
+    },
+    {
       "path": "tools/tests/test_exterior_location_materials.py",
       "sha256": "fb4fcbf3ebf9f115b30ba83b1f595ce46b22846f98238f8a4b3db23a387375b3"
     },
@@ -8602,6 +8606,10 @@
     {
       "path": "tools/tests/test_prompt_batch_foreign_dialogue_clause.py",
       "sha256": "063fe244b134ee6d44ce20e1700e6c63afeede5efaff83ea8a4f8056b6d9686e"
+    },
+    {
+      "path": "tools/tests/test_prompt_batch_foreign_dialogue_one_word.py",
+      "sha256": "6997da151c50eeb1b96db857375bb5f2e4601d3deb29bad9c9e8e5b8ebea52ee"
     },
     {
       "path": "tools/tests/test_prompt_batch_qa_hide_coat.py",
