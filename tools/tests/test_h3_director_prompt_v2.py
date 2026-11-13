@@ -149,7 +149,8 @@ class DirectorPromptV2Shape(unittest.TestCase):
         self.assertIn("Beta listens without speaking, holding Alpha's gaze.", text)
         self.assertIn("Sound: Low air-conditioning hum. Cloth rustle from this action. One sleeve brush. "
                       "No background music.", text)
-        self.assertIn("Never: captions, subtitles, letters or logos on screen; a second copy of anyone; "
+        self.assertIn("Never: captions, subtitles, speech bubbles or any written words, letters or numbers on screen; "
+                      "logos or watermarks; a second copy of anyone; "
                       "anyone else in frame; music; zooming in, pushing in, dollying in, moving closer to the "
                       "face, tightening the frame.", text)  # default strict camera lock (locked, single take)
         self.assertIn("Key prop: gray long table.", text)

@@ -244,7 +244,9 @@ def missing_plot_review_checks(policy: dict[str, Any]) -> tuple[dict[str, Any], 
 #: strings the model emits when there is no speech; never treated as Mandarin dialogue
 ASR_HALLUCINATION_PATTERNS = ("字幕", "by索", "索兰娅", "独播", "YoYo", "Television",
                               "Exclusive", "订阅", "点赞", "转发", "明镜", "Amara",
-                              "subtitle", "谢谢观看", "请不吝")
+                              "subtitle", "谢谢观看", "请不吝",
+                              # whisper's song-credit boilerplate on music/ambience (lab 化缘 E01-VU-008: 「詞曲 李宗盛」)
+                              "词曲", "詞曲", "作词", "作詞", "李宗盛")
 DURATION_TOLERANCE_SECONDS = 0.35
 #: MiniMax-H3 returns clips somewhat longer than requested (400334 《画皮》 E01, 2026-10-16: twelve 4 s units
 #: came back 4.459 s, all FAIL at +-0.35 s, and the failed-unit redesign has no paid route).  For an H3 raster
@@ -861,6 +863,7 @@ def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, 
     failures = list(payload.get("failures") or [])
     adjudications: list[dict[str, Any]] = []
     machine_adjudications: list[dict[str, Any]] = []
+    advisories: list[str] = []
     # nalu D-18a: whisper emits traditional characters at times (陸哥 / 讓我看一看); an
     # orthographic variant is RECORDED, never rejected (policy) — normalise t2s first.
     t2s = _script_normalise(str(payload.get("transcript") or ""), language)
@@ -877,6 +880,16 @@ def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, 
         machine_adjudications.append(verify)
         if verify.get("real_speech_segments") == []:
             failures = [v for v in failures if v != codes["unexpected"]]
+        elif verify.get("real_speech_segments"):
+            # H3 murmurs in some silent units although the prompt says nobody speaks (fleet 2026-11-13, 10
+            # devices).  A reroll repeats the same prompt; the murmur is muted on the native cut at S7 instead
+            # (tools/silent_unit_stray_speech.py, free).  Recorded, not rejected, while it is a minority of the clip.
+            stray = engine_module("silent_unit_stray_speech").assess(
+                verify["real_speech_segments"], payload.get("duration_seconds"))
+            machine_adjudications.append(stray)
+            if stray["mutable"]:
+                failures = [v for v in failures if v != codes["unexpected"]]
+                advisories.append(f"dialogue:{codes['unexpected']}:MUTED_AT_S7:{stray['speech_seconds']:g}s")
     # nalu D-18d (E04 VU-012): the engine gate primes whisper with initial_prompt=<expected text>;
     # on some clips that primed decode degenerates to a single replacement char ("\ufffd") and the
     # gate reports native_mandarin_speech_missing although the line is spoken.  Re-verify with an
@@ -967,6 +980,8 @@ def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, 
         "gate_report": str(report),
         "gate_status": payload.get("status"),
         "failures": failures,
+        "advisories": advisories,
+        "duration_seconds": payload.get("duration_seconds"),
         "machine_adjudications": machine_adjudications,
         "homophone_adjudications": adjudications,
         "homophone_rule": "RECORDED_NOT_REJECTED",
@@ -1289,7 +1304,8 @@ def run(episode: str, *, review_path: Path | None = None,
             "voice_consistency_qa": voice,
             # Roger 2026-11-07: None = not a COMBAT unit; NOT_MEASURED = pose backend missing (plot review decides)
             "combat_execution_qa": combat,
-            "advisories": ([f"{speech_rate['code']}:{speech_rate.get('ratio')}" ] if speech_rate.get("tier") in {"MINOR", "ADVISORY"} else [])
+            "advisories": list(dialogue.get("advisories") or [])
+                          + ([f"{speech_rate['code']}:{speech_rate.get('ratio')}" ] if speech_rate.get("tier") in {"MINOR", "ADVISORY"} else [])
                           + ([f"voice:UNVERIFIED:{value}" for value in voice.get("unverified") or []]
                              if voice and voice.get("status") == "UNVERIFIED" else [])
                           + ([f"combat_execution:NOT_MEASURED:{combat.get('reason')}"]
