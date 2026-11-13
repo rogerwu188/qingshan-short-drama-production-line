@@ -232,6 +232,34 @@ def slot_point(polygon: list[list[float]], index: int, total: int) -> list[float
     return [round((x0 + x1) / 2, 2), round(y0 + step * (index + 1), 2)]
 
 
+def offscreen_voice_anchor(block: dict[str, Any] | None, task: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Where an off-screen voice owner sits on the map: zone_id / position / facing.
+
+    The space gate (global_space_layout_gate.evaluate_task) requires every blocking row to carry a
+    zone inside the subspace, a position and a facing.  A voice-only speaker has no slot of his own,
+    so he borrows one: a visible character's, else a visible prop's, else the camera's own position
+    in the task's primary zone.  The last two cover an empty insert (no visible cast) that carries
+    an off-screen line: with nobody to borrow from, the row used to be written without a zone and
+    the unit blocked at video preflight with id_zone_position_or_facing_invalid (field device 1144
+    E02-VU-029, 2026-11-13).
+    """
+    block = block or {}
+    for collection in ("characters", "props"):
+        for row in block.get(collection) or []:
+            if row.get("zone_id") and row.get("position") and row.get("facing"):
+                return {key: copy.deepcopy(row[key]) for key in ("zone_id", "position", "facing")}
+    task = task or {}
+    layout = task.get("subspace_layout") or {}
+    zone_id = task.get("zone_id") or next(iter(layout.get("zone_ids") or []), None)
+    position = layout.get("camera_position")
+    if not position and layout.get("polygon"):
+        position = slot_point(layout["polygon"], 0, 1)
+    facing = layout.get("camera_facing")
+    if zone_id and position and facing:
+        return {"zone_id": zone_id, "position": copy.deepcopy(position), "facing": facing}
+    return None
+
+
 def first_clause(text: str) -> str:
     parts = [row for row in re.split(r"[，。？！、；：\n“”‘’\"']+", str(text or "")) if row.strip()]
     return max(parts, key=len).strip() if parts else str(text or "").strip()
@@ -3242,8 +3270,7 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             local_cast = [m for m in spec.get("cast") or [] if m.get("character_id")]
             for member in local_cast:
                 eid = str(member["character_id"])
-                anchor = next((dict(r) for r in space["blocking"]["characters"]
-                               if r.get("zone_id") and r.get("position") and r.get("facing")), None)
+                anchor = offscreen_voice_anchor(space["blocking"], shot_map)
                 for phase in ("blocking", "action_end_blocking"):
                     if any(str(r.get("character_id")) == eid for r in space[phase]["characters"]):
                         continue
@@ -3476,8 +3503,7 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
         for eid, member in cast_by_id.items():
             if eid in have_c:
                 continue
-            anchor_row = next((r for r in start_block.get("characters") or []
-                               if r.get("zone_id") and r.get("position") and r.get("facing")), None)
+            anchor_row = offscreen_voice_anchor(start_block, task)
             row = {"character_id": eid,
                    "screen_slot": str(member.get("screen_slot") or "OFFSCREEN"),
                    "depth_plane": str(member.get("depth_plane") or "DEFINED_BY_EDITORIAL_BEAT"),
