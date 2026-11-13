@@ -226,7 +226,9 @@ def build_ffmpeg_command(project_path: Path, output_override: Path | None = None
         filters.append(
             f"[{v_index}:v:0]trim=start={v_in:.6f}:duration={duration:.6f},"
             f"setpts=PTS-STARTPTS,{_fit_filter(video_path, width, height, aspect_cache)},"
-            f"fps={fps:g},format=yuv420p{exact}[v{index}]"
+            # scale keeps the display aspect by rewriting SAR (e.g. 5120:5117) and some sources carry no SAR
+            # at all (0:1); concat refuses segments whose SAR differs, so every segment is forced to square pixels
+            f"setsar=1,fps={fps:g},format=yuv420p{exact}[v{index}]"
         )
         if crossfade_seconds > 0:
             audio_rows.append({"input": a_index, "path": audio_path, "in": a_in, "volume": volume,

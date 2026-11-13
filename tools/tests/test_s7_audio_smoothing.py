@@ -141,10 +141,10 @@ class CrossfadeTest(unittest.TestCase):
             graph = command[command.index("-filter_complex") + 1]
             self.assertEqual(graph, ";".join([
                 "[0:v:0]trim=start=0.000000:duration=3.000000,setpts=PTS-STARTPTS,scale=720:1280:"
-                "force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2:black,fps=24,format=yuv420p[v0]",
+                "force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=24,format=yuv420p[v0]",
                 "[0:a:0]atrim=start=0.000000:duration=3.000000,asetpts=PTS-STARTPTS,aresample=48000,volume=0.78[a0]",
                 "[1:v:0]trim=start=0.000000:duration=3.000000,setpts=PTS-STARTPTS,scale=720:1280:"
-                "force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2:black,fps=24,format=yuv420p[v1]",
+                "force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=24,format=yuv420p[v1]",
                 "[1:a:0]atrim=start=0.000000:duration=3.000000,asetpts=PTS-STARTPTS,aresample=48000,volume=0.78[a1]",
                 "[v0][a0][v1][a1]concat=n=2:v=1:a=1[vout][aout]"]))
 
