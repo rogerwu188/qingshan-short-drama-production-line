@@ -6181,7 +6181,7 @@
     },
     {
       "path": "tools/render_portable_timeline.py",
-      "sha256": "4804d15ae7a2741a78dfdf2cad12b03d2a950c8f28d09f06f4b5e4d3e7e44866"
+      "sha256": "0e8e459b7c1f5430cbf1bb9be4cb8d4eb037d90b75963bffecb398e81037a1cd"
     },
     {
       "path": "tools/render_qa_e40_u05_v4_local_authority.py",
@@ -8769,7 +8769,7 @@
     },
     {
       "path": "tools/tests/test_render_portable_timeline.py",
-      "sha256": "333079966b2030430ab98eb59e203715d01423939317d65ff4bf199bdc9c078b"
+      "sha256": "83f053f8e8450ef3d06e6708db6a483c463678c1b3f5ae789ae80e8dcb5c6a11"
     },
     {
       "path": "tools/tests/test_repair_frozen_ranges.py",
@@ -8845,7 +8845,7 @@
     },
     {
       "path": "tools/tests/test_s7_audio_smoothing.py",
-      "sha256": "b3f9ea140142eecf068ef0f757806744d35d355de5c155abf7eacddaa8f25888"
+      "sha256": "ae1a100aec20a27f95b83717e5bb3b13875739579bd7354659275feaf5d441d4"
     },
     {
       "path": "tools/tests/test_s7_reentry_keeps_review_bound_candidate.py",
