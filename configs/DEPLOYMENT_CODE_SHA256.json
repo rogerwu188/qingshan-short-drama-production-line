@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2449,
+  "file_count": 2450,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -765,7 +765,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_knowledge_events.py",
-      "sha256": "515dfd4b45d214b028856a30f2cd3a56888f622cc6a9387ddabba30f0b8ab093"
+      "sha256": "a38a9fa3266b23f6b221b1895115f008511e1809323799acf78addafe1444ffe"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_media_tools.py",
@@ -781,7 +781,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "ba97a1d4542022f91c56ae04d40581bb3991c0b4e722266fda7d956378ad11a5"
+      "sha256": "6edf763e55fdc65a2f0cbfc74fb397636d606e7d70c02dc1a36ed62fd4bfb09c"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -3893,7 +3893,7 @@
     },
     {
       "path": "tools/collective_learning/release_train.py",
-      "sha256": "bd235fa12f7c3d91f63f9ea64582354ad92cadb1f44005f2bb0283af1e25895a"
+      "sha256": "60c3937591ae52d67a38c08463cdf9038e2d9896082d6ca0f2c655beb0b6df2f"
     },
     {
       "path": "tools/collective_learning/runtime_wiring.py",
@@ -8360,8 +8360,12 @@
       "sha256": "f34ade930c448fe3cb0164589470008339f3d7d3199008f17d6dab44e05f3345"
     },
     {
+      "path": "tools/tests/test_nalu_knowledge_event_evidence.py",
+      "sha256": "c6482cbedf2b8580cca04452d33a0b94111a7a8aa40749f65543558ea3aa6f87"
+    },
+    {
       "path": "tools/tests/test_nalu_knowledge_events.py",
-      "sha256": "9ddd5ad7b9419218210769e846aa023846ad9a2b5aaf2ec6e2a17f5225af28b1"
+      "sha256": "7b8527bacd72e94c89d3887c3936551c6e583b0af01e6a36b43c6ace577214ac"
     },
     {
       "path": "tools/tests/test_nalu_media_tools.py",
