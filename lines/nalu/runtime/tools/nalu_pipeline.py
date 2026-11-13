@@ -8317,13 +8317,37 @@ def s7_candidate_source_bindings(ctx: Any) -> dict[str, Any]:
     return out
 
 
+def _order_bound_candidate_seq(ctx: Any, candidate_sha: str) -> int | None:
+    """seq of the newest active line-owner GATE_FAIL_ACCEPTANCE order of this episode bound (media_sha256 or any
+    media_sha256_by_item value) to exactly this candidate; None without a readable order inbox.  This only keeps
+    the cut on disk: each gate still validates issuer, receipt and detectors itself before it continues."""
+    authority = getattr(ctx, "authority", None) or {}
+    orders_path = authority.get("orders_path")
+    if not orders_path or getattr(ctx, "authority_blockers", None) or not candidate_sha:
+        return None
+    orders = _rga._orders(orders_path, expected_latest_seq=authority.get("latest_order_seq") or 0, engine_root=ENGINE)
+    best = None
+    for row in orders:
+        dec = row.get("decision") or {}
+        if (str(row.get("status") or "") != "active" or dec.get("kind") != _rga.KIND
+                or str(dec.get("episode") or "") != ctx.episode):
+            continue
+        by_item = dec.get("media_sha256_by_item") if isinstance(dec.get("media_sha256_by_item"), dict) else {}
+        if candidate_sha != str(dec.get("media_sha256") or "") and candidate_sha not in {str(v) for v in by_item.values()}:
+            continue
+        seq = int(row.get("seq") or 0)
+        best = seq if best is None or seq > best else best
+    return best
+
+
 def _review_bound_candidate_to_retain(ctx: Any, bindings: dict[str, Any], new_sha: str | None) -> dict[str, Any] | None:
     """The existing candidate, when an S7 re-entry must keep it instead of the fresh render.
 
     Only when (a) the current candidate differs from the fresh chain output, (b) the independent final-audience
-    request names exactly the current candidate (a review is pending or submitted for it), and (c) the previous
-    chain manifest recorded that candidate with the same source bindings as now.  Anything else (changed clips,
-    order-driven re-cut, legacy manifest) re-renders as before.  The fresh output stays on disk as evidence."""
+    request names exactly the current candidate (a review is pending or submitted for it) OR an active line-owner
+    gate-acceptance order of this episode is bound to its sha256, and (c) the previous chain manifest recorded
+    that candidate with the same source bindings as now.  Anything else (changed clips, order-driven re-cut,
+    legacy manifest) re-renders as before.  The fresh output stays on disk as evidence."""
     p = ctx.p
     if not (new_sha and p.final_candidate.is_file()):
         return None
@@ -8331,15 +8355,24 @@ def _review_bound_candidate_to_retain(ctx: Any, bindings: dict[str, Any], new_sh
     if current_sha == new_sha:
         return None
     request = read_json(REVIEWS_ROOT / ctx.episode / "final_audience_request.json", {}) or {}
-    if ((request.get("media") or {}).get("sha256")) != current_sha:
+    review_bound = ((request.get("media") or {}).get("sha256")) == current_sha
+    # field device …0736 E08 (2026-11-13): the S7 gates that FAIL before the review request exists (loudness,
+    # camera motion, audience detectors) continue only on an order bound to the candidate's exact sha256.  The
+    # next entry re-rendered a non byte-identical cut, so the order just recorded never matched and S7 looped.
+    order_seq = None if review_bound else _order_bound_candidate_seq(ctx, current_sha)
+    if not review_bound and order_seq is None:
         return None
     manifest = read_json(p.assembly / f"{ctx.episode}_FINAL_CANDIDATE_CHAIN.json", {}) or {}
     if manifest.get("final_candidate_sha256") != current_sha or not manifest.get("source_bindings") \
             or manifest.get("source_bindings") != bindings:
         return None
+    if review_bound:
+        return {"final_candidate_sha256": current_sha, "rerender_sha256": new_sha,
+                "review_request_id": request.get("request_id"),
+                "reason": "S7_REENTRY_SAME_SOURCES_REVIEW_BOUND_CANDIDATE"}
     return {"final_candidate_sha256": current_sha, "rerender_sha256": new_sha,
-            "review_request_id": request.get("request_id"),
-            "reason": "S7_REENTRY_SAME_SOURCES_REVIEW_BOUND_CANDIDATE"}
+            "acceptance_order_seq": order_seq,
+            "reason": "S7_REENTRY_SAME_SOURCES_ORDER_BOUND_CANDIDATE"}
 
 
 def s7_post_level_audio_chain(ctx: Ctx, res: StageResult, steps: list[dict[str, Any]],
