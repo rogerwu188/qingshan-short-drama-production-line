@@ -154,6 +154,89 @@ def hopsapi_credits(engine: Path, runtime: Path, *, now: float | None = None) ->
     return out
 
 
+COVER_CHECK_S = 1800
+COVER_WIDTH = 360
+COVER_MAX_BYTES = 150_000  # base64 of it must fit the fleet service body limit (256 KiB)
+
+
+def _final_cuts(engine: Path, runtime: Path) -> list[Path]:
+    """Final cuts of this line, newest first: promoted deliverables, else the latest S7 candidates."""
+    found: list[Path] = []
+    for root in (runtime / "runtime" / "deliverables", runtime / "deliverables"):
+        found += [p for p in root.glob("*/*_final_9x16.mp4") if p.is_file()]
+    if not found:
+        found += [p for p in (engine / "workflow" / "nalu").glob("*/assembly/*final_candidate*9x16*.mp4") if p.is_file()]
+    return sorted(found, key=lambda p: p.stat().st_mtime, reverse=True)
+
+
+def series_cover(engine: Path, runtime: Path) -> tuple[bytes, dict] | None:
+    """A dashboard cover for this series (line owner 2026-11-13, option A: a still from the latest final cut, free).
+    Three candidate frames (30 / 45 / 60 % in), 360 px wide JPEG; the most detailed one wins (largest JPEG: not a
+    black, faded or flat frame).  None when there is no final cut yet or ffmpeg is missing."""
+    import shutil  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+    cuts = _final_cuts(engine, runtime)
+    ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
+    if not cuts or not ffmpeg or not ffprobe:
+        return None
+    src = cuts[0]
+    rc, out = _run([ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(src)], 30)
+    try:
+        duration = float(out.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return None
+    best: bytes = b""
+    with tempfile.TemporaryDirectory() as tmp:
+        for i, frac in enumerate((0.30, 0.45, 0.60)):
+            jpg = Path(tmp) / f"c{i}.jpg"
+            _run([ffmpeg, "-v", "error", "-y", "-ss", f"{duration * frac:.2f}", "-i", str(src), "-frames:v", "1",
+                  "-vf", f"scale={COVER_WIDTH}:-2", "-q:v", "5", str(jpg)], 60)
+            data = jpg.read_bytes() if jpg.is_file() else b""
+            if len(data) > len(best) and len(data) <= COVER_MAX_BYTES:
+                best = data
+    if not best:
+        return None
+    return best, {"source": src.name, "episode": src.name.split("_", 1)[0]}
+
+
+def cover_tick(cp: Any, token: str, *, now: float | None = None) -> str | None:
+    """Upload the series cover when the final cut it comes from changed (checked every COVER_CHECK_S)."""
+    import base64  # noqa: PLC0415
+    import hashlib  # noqa: PLC0415
+    import time  # noqa: PLC0415
+    engine, runtime = cp.roots()
+    now = time.time() if now is None else now
+    state_path = runtime / "series" / ".fleet_cover.json"
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        state = {}
+    if now - float(state.get("checked") or 0) < COVER_CHECK_S:
+        return None
+    state["checked"] = now
+    cuts = _final_cuts(engine, runtime)
+    key = f"{cuts[0]}|{cuts[0].stat().st_size}|{int(cuts[0].stat().st_mtime)}" if cuts else ""
+    result = "NO_FINAL_CUT" if not cuts else "UNCHANGED"
+    if cuts and key != state.get("uploaded_key"):
+        cover = series_cover(engine, runtime)
+        if cover is None:
+            result = "NO_FRAME"
+        else:
+            data, meta = cover
+            code, _ = _req("POST", "/v1/cover", {"episode": meta["episode"], "source": meta["source"],
+                                                  "sha256": hashlib.sha256(data).hexdigest(),
+                                                  "image_b64": base64.b64encode(data).decode("ascii")}, token=token)
+            result = f"UPLOADED:{code}"
+            if code == 200:
+                state["uploaded_key"] = key
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+    except OSError:
+        pass
+    return result
+
+
 def build_status(cp: Any, tick_result: dict) -> tuple[dict, str, str]:
     engine, runtime = cp.roots()
     ep = cp.current_episode() or ""
@@ -466,6 +549,12 @@ def sync(cp: Any, tick_result: dict) -> dict:
         kb = collective_tick(cp, token)
         if kb:
             extra["collective"] = kb
+        try:
+            cover = cover_tick(cp, token)
+            if cover:
+                extra["cover"] = cover
+        except Exception:  # noqa: BLE001 -- a cover is cosmetic; never break the report
+            pass
         status, blocker, tail = build_status(cp, {**tick_result, **extra})
         status["device_sn"] = sn
         _req("POST", "/v1/report", {"status": status, "blocker": blocker, "status_tail": tail}, token=token)
