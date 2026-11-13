@@ -136,8 +136,11 @@ def split_cues(text: str, fits, language: str = "zh") -> list[str]:
     for k in range(1, n + 1):
         for i, (c0, _) in best[k - 1].items():
             for j in range(i + 1, T + 1):
+                # ``fits`` is not monotone (a one-row chunk of wide glyphs can overflow while the same
+                # chunk plus a word wraps to two rows that fit), so a miss must not end the scan: the
+                # BFS above counted cues over every reachable boundary.
                 if not ok(i, j):
-                    break
+                    continue
                 c = c0 + cost(i, j)
                 if c < best[k].get(j, (INF, None))[0]:
                     best[k][j] = (c, i)
