@@ -1,8 +1,8 @@
 [Unit]
-Description=NALU collective learning release train, daily 18:00 UTC (10:00 Pacific)
+Description=NALU collective learning release train, every 6 h (00/06/12/18 UTC; line owner 2026-11-13)
 
 [Timer]
-OnCalendar=*-*-* 18:00:00 UTC
+OnCalendar=*-*-* 00/6:00:00 UTC
 Persistent=true
 
 [Install]

@@ -188,6 +188,20 @@ class PackTest(Harness):
 
 
 class EvaluationTest(Harness):
+    def test_pack_interval_is_configurable(self) -> None:
+        # line owner 2026-11-13: review every 6 h -> a new pack may follow 6 h after the last one (not one per day)
+        self.train.cfg["pack_min_interval_hours"] = 6
+        self.ship_canary(1)
+        state = self.train.state()
+        state["packs"][-1]["status"] = "PROMOTED"  # decided early; only the interval holds the next pack back
+        self.train.save(state)
+        self.spread("Q1_REJECT:NEXT", ["sn-c1", "sn-r1", "sn-r2"])
+        self.approve_all(self.request())
+        self.clock[0] = T0 + 2 * 3600
+        self.assertEqual(self.train.build_pack()["status"], "PACK_INTERVAL_NOT_ELAPSED")
+        self.clock[0] = T0 + 7 * 3600
+        self.assertEqual(self.train.build_pack()["status"], "PUBLISHED_TO_CANARY")
+
     def test_waits_24h_then_promotes_when_not_worse(self) -> None:
         self.ship_canary(1)
         self.clock[0] = T0 + 3600
@@ -208,7 +222,7 @@ class EvaluationTest(Harness):
         self.assertEqual(out["metrics"]["canary"]["q1_admission_rate"], 0.9)
         st = self.train.status()
         self.assertEqual((st["active_rules"], st["released_version"]), (1, 2))
-        self.assertIn("昨日批次 已全量", st["summary_zh"])
+        self.assertIn("上一批次 已全量", st["summary_zh"])
         # the next day's pack starts from the released rules
         self.spread("Q1_REJECT:NEXT", ["sn-c1", "sn-r1", "sn-r2"])
         self.approve_all(self.request())
@@ -326,7 +340,7 @@ class CliTest(Harness):
         self.assertEqual(out["review"]["status"], "EXPORTED")
         status = json.loads(status_out.read_text())
         self.assertEqual(status["new_candidates_pending_review"], 1)
-        self.assertEqual(status["summary_zh"], "新增候选 1 · 灰度中 0 · 昨日批次 无 · 退役 0")
+        self.assertEqual(status["summary_zh"], "新增候选 1 · 灰度中 0 · 上一批次 无 · 退役 0")
         # registration lets the collector ingest the cohort's inbox batches
         self.assertEqual(self.svc._read("SELECT role FROM principals WHERE principal_id='sn-c1'"), [("device_writer",)])
 

@@ -34,7 +34,7 @@ Flow (all thresholds in ``DEFAULTS``, overridable with ``--config``):
                 devices did not drop (after vs before first application) is DEPRECATED and left out of the next pack.
 
 Status: ``status.json`` (and ``--status-out``) -- the dashboard line
-"新增候选 N · 灰度中 M · 昨日批次 已全量/已回滚 · 退役 K".
+"新增候选 N · 灰度中 M · 上一批次 已全量/已回滚 · 退役 K".
 """
 from __future__ import annotations
 
@@ -73,6 +73,8 @@ DEFAULTS: dict[str, Any] = {
     "batch_max": 5,
     "max_active_rules": 40,
     "canary_hours": 24,
+    #: line owner 2026-11-13: review every 6 h instead of daily -> at most one new pack per this many hours
+    "pack_min_interval_hours": 24,
     "max_canary_hours": 72,
     "min_canary_episodes": 3,
     "min_control_episodes": 3,
@@ -532,9 +534,9 @@ class Train:
         now = self.now()
         if self._canary_pack(state):
             return {"status": "CANARY_IN_FLIGHT", "version": self._canary_pack(state)["version"]}
-        today = _iso(now)[:10]
-        if any(str(p.get("created_at") or "")[:10] == today and p.get("label") == "CANARY" for p in state["packs"]):
-            return {"status": "DAILY_PACK_ALREADY_BUILT"}
+        gap_s = float(self.cfg.get("pack_min_interval_hours", 24)) * 3600
+        if any(p.get("label") == "CANARY" and (_epoch(p.get("created_at")) or 0) > now - gap_s for p in state["packs"]):
+            return {"status": "PACK_INTERVAL_NOT_ELAPSED"}
         kept = [r for r in state["released_rules"] if r not in (state.get("retire_pending") or [])
                 and (self.candidate(r) or {}).get("state") == "RELEASED"]
         slots = max(0, int(self.cfg["max_active_rules"]) - len(kept))
@@ -838,7 +840,7 @@ class Train:
             "retired_total": len(state.get("retired") or []), "retired_7d": len(retired_7d),
             "cohort": {"canary_devices": sum(1 for v in self.cohort.values() if v == "CANARY"),
                        "devices": len(self.cohort)},
-            "summary_zh": f"新增候选 {pending} · 灰度中 {m} · 昨日批次 {last_text} · 退役 {len(state.get('retired') or [])}",
+            "summary_zh": f"新增候选 {pending} · 灰度中 {m} · 上一批次 {last_text} · 退役 {len(state.get('retired') or [])}",
         }
         (self.dir / "status.json").write_text(json.dumps(status, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
         return status
