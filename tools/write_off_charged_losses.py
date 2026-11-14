@@ -28,6 +28,7 @@ import json
 import os
 import tempfile
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +79,25 @@ def parse_time(value: Any) -> datetime | None:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def charged_amount(value: Any) -> int | float:
+    """``charged_credits`` of a credit statement as a number.
+
+    giggle_credit_statements writes a whole amount as an int and a fractional one as a
+    string ("42.5"; H3 video is priced in half credits).  ``int("42.5")`` raised, so a
+    proven charge could not be written off at all (field E04 2026-11-14).  The amount is
+    kept exact; an unreadable or negative value records 0, as a missing one always did.
+    """
+    if isinstance(value, bool) or value is None:
+        return 0
+    try:
+        amount = Decimal(str(value).strip())
+    except (InvalidOperation, ValueError):
+        return 0
+    if not amount.is_finite() or amount < 0:
+        return 0
+    return int(amount) if amount == amount.to_integral_value() else float(amount)
 
 
 def transaction_paths(root: Path) -> dict[str, list[Path]]:
@@ -146,7 +166,7 @@ def main() -> int:
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     eligible: list[dict[str, Any]] = []
     refused: list[dict[str, Any]] = []
-    batch_credits: dict[str, int] = {}
+    batch_credits: dict[str, int | float] = {}
 
     for row in rows:
         key = str(row.get("task_key") or "").strip()
@@ -192,7 +212,7 @@ def main() -> int:
                 refused.append({"task_key": key, "reason": "TRANSACTION_OUTSIDE_STATEMENT_WINDOW"})
                 continue
             batch_key = str(statement_path)
-            batch_credits[batch_key] = int(statement.get("charged_credits") or 0)
+            batch_credits[batch_key] = charged_amount(statement.get("charged_credits"))
             eligible.append({
                 "task_key": key, "path": path,
                 "written_off_credits": None,
