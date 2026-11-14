@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2454,
+  "file_count": 2457,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -653,7 +653,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_burnin_subtitles.py",
-      "sha256": "ceba7658e16619d8ec90544aa81df1ca5f02a6c9090ba1c494b3f3850efc3764"
+      "sha256": "f2d282245a4588f773e7862c18c8128cb4b1eba5935c9ca2575042cc8c9ea8db"
     },
     {
       "path": "lines/nalu/runtime/tools/build_episode_asset_requirements.py",
@@ -781,7 +781,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "6edf763e55fdc65a2f0cbfc74fb397636d606e7d70c02dc1a36ed62fd4bfb09c"
+      "sha256": "38f9a5ca84e57183feffba89ab79b9a1a50256e65dba605f85cc339eaa7be109"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -3789,7 +3789,7 @@
     },
     {
       "path": "tools/burned_text_cover.py",
-      "sha256": "8403545efce6c787672820459598fdf3cf3fbfcb6c05687db344dcd86fb05d1c"
+      "sha256": "4fb404ca21c2460503c7d66d1431e651f34070174d20f877df289d9980a892b7"
     },
     {
       "path": "tools/camera_grammar_policy.py",
@@ -5178,6 +5178,10 @@
     {
       "path": "tools/grouped_transition_contract.py",
       "sha256": "0f4d6d443f2a12e9b6f80fc799f05eea7d162198e47bfc0f9daf2c1ebe66582e"
+    },
+    {
+      "path": "tools/h3_compile_anchor_freshness.py",
+      "sha256": "8d4b3ea89f4c3d63392fd1c55c024006f99b12db2ea8beaedba2787c0f5013b8"
     },
     {
       "path": "tools/h3_constraint_ab_variant.py",
@@ -7316,6 +7320,10 @@
       "sha256": "b19f6238cb39cea7da2d9141edef26fad5fbe0cdbdb8fc2a5bbd4b4affc19ce3"
     },
     {
+      "path": "tools/tests/test_burned_text_cover_follows_text.py",
+      "sha256": "2eedb9e6242ea6cd95c8a6f217b05bdd62dd72e83b305ac4a5206a0fc43b3350"
+    },
+    {
       "path": "tools/tests/test_burnin_subtitle_time_mapping.py",
       "sha256": "9a375eb5837fd34eb2a753a6509f0ac0d804c4eeed1838e71d1718ff5ce387db"
     },
@@ -7994,6 +8002,10 @@
     {
       "path": "tools/tests/test_grouping_respects_cuts.py",
       "sha256": "9507bd31975693a1ea7004e50d9d800fa458d81a7b5f564870e793c3548cae5b"
+    },
+    {
+      "path": "tools/tests/test_h3_compile_anchor_freshness.py",
+      "sha256": "80b330e874f0bf13d5c71fca54f6d58261c1bbb91f38e987a3454e97bce308f3"
     },
     {
       "path": "tools/tests/test_h3_crossmodal_speaker_gate.py",

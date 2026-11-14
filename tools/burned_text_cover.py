@@ -100,6 +100,33 @@ def scan(hits: list[Hit], cfg: dict[str, Any]) -> list[list[float]]:
     return merge_intervals(times, step=1.0 / s["fps"], gap=s["merge_gap_s"], pad=s["pad_s"])
 
 
+def interval_bands(hits: list[Hit], cfg: dict[str, Any], intervals: list[list[float]],
+                   *, episode: str | None = None) -> list[dict[str, float]]:
+    """The band to cover during each burned-text run: the episode's band widened to the text read in that run.
+
+    The band is where H3 usually burns the line, measured on other episodes; one clip can put it elsewhere.
+    Fleet 2026-11-14 (a device at E13 S7): the scan found the burned 「能难倒我？」 at 18.25-19.0 s with its box
+    at y 0.884-0.927, the blur covered only the E13 band y 0.66-0.81, and the verify refused the episode on
+    the same hit at every re-run (H3_BURNED_TEXT_STILL_VISIBLE, no acceptance route).  The run's own hits
+    say where the text is, so the cover of that run reaches them; runs whose text sits in the band are unchanged.
+    The verify is unchanged: text still readable outside the episode's band fails as before.
+    """
+    s, base = cfg["scan"], band_for(episode, cfg)
+    margin = float(s.get("band_margin", 0.012))
+    bands = []
+    for start, end in intervals:
+        band = dict(base)
+        for t, text, conf, x0, y0, x1, y1 in hits:
+            if not (start <= t <= end) or conf < s["min_confidence"] or cjk_count(text) < s["min_cjk_chars"]:
+                continue
+            if not (y1 >= s["search_y0"] and y0 <= s["search_y1"]):
+                continue
+            band = {"y0": min(band["y0"], y0 - margin), "y1": max(band["y1"], y1 + margin),
+                    "x0": min(band["x0"], x0 - margin), "x1": max(band["x1"], x1 + margin)}
+        bands.append({k: round(min(1.0, max(0.0, v)), 4) for k, v in band.items()})
+    return bands
+
+
 def caption_at(captions: list[dict[str, Any]], t: float) -> str:
     return next((str(c.get("text") or "") for c in captions
                  if float(c.get("start", 0)) <= t <= float(c.get("end", 0))), "")
@@ -192,10 +219,22 @@ def verify(hits: list[Hit], captions: list[dict[str, Any]], cfg: dict[str, Any],
                     "screen; scene signage away from the burn band is the period/anachronism gate's business"}
 
 
+def load_covered(path: Path | None) -> list[tuple[float, float, dict[str, float]]]:
+    """(start, end, band) per burned-text run of a scan output; [] for none or a scan without bands."""
+    if not path or not Path(path).is_file():
+        return []
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    intervals, bands = data.get("intervals") or [], data.get("bands") or []
+    if len(bands) != len(intervals):
+        return []
+    return [(float(s), float(e), dict(b)) for (s, e), b in zip(intervals, bands)]
+
+
 def main(argv: list[str] | None = None, *, ocr: Callable[[Path, float], list[Hit]] = ocr_frames) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     sp = sub.add_parser("scan"); sp.add_argument("video", type=Path); sp.add_argument("--out", type=Path, required=True)
+    sp.add_argument("--episode", default=None, help="episode whose own band is the base of each run's cover band")
     vp = sub.add_parser("verify"); vp.add_argument("video", type=Path)
     vp.add_argument("--captions", type=Path, required=True, help="build_burnin_subtitles report (rows: text/start/end)")
     vp.add_argument("--out", type=Path, required=True)
@@ -204,9 +243,11 @@ def main(argv: list[str] | None = None, *, ocr: Callable[[Path, float], list[Hit
     a = ap.parse_args(argv)
     cfg = policy()
     if a.cmd == "scan":
-        intervals = scan(ocr(a.video, cfg["scan"]["fps"]), cfg)
+        hits = ocr(a.video, cfg["scan"]["fps"])
+        intervals = scan(hits, cfg)
         out = {"schema": "qingshan.h3_burned_text_intervals.v1", "policy_id": POLICY_ID, "video": str(a.video),
-               "intervals": intervals, "seconds": round(sum(e - s for s, e in intervals), 3)}
+               "intervals": intervals, "seconds": round(sum(e - s for s, e in intervals), 3),
+               "bands": interval_bands(hits, cfg, intervals, episode=a.episode)}
     else:
         rows = json.loads(a.captions.read_text(encoding="utf-8")).get("rows") or []
         out = {**verify(ocr(a.video, cfg["verify"]["fps"]), rows, cfg, episode=a.episode),
