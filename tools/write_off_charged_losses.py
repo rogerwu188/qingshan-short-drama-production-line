@@ -7,6 +7,10 @@ recorded as a loss, the transaction is settled as CHARGED_WRITTEN_OFF_BY_ORDER, 
 fingerprint is never resubmitted.  The charge stays in the books because the ledger counts
 archived ``*_credit_statement.json`` files; this tool changes transaction STATE only.
 
+Video units (line owner ruling A, 2026-11-11): the video submitter follows a write-off with ONE
+new attempt of the unit and archives the written-off row beside the transaction
+(``submit_giggle_video_manifest_v2.written_off_retry_open``); a second write-off stays blocked.
+
 Evidence rules, all checked before anything is written:
 
 * every named transaction exists and is in an unresolved state;
