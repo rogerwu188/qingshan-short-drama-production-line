@@ -133,6 +133,18 @@ class CaptionPlateTests(unittest.TestCase):
         self.assertIn('E13', policy['bar_rgba_by_episode'])
         self.assertLess(policy['bar_rgba_by_episode']['E13'][3], policy['bar_rgba'][3])
 
+    def test_the_default_bar_is_fully_opaque(self):
+        # Fleet 2026-11-14 (E12 S7): at alpha 235 the burned line still read through the bar and the verify
+        # refused the episode (H3_BURNED_TEXT_STILL_VISIBLE, hits only inside the band).  A dark BAR that is
+        # meant to hide text must hide it completely; weaker bars exist only as explicit per-episode entries.
+        policy = json.loads((pathlib.Path(__file__).resolve().parents[2]
+                             / 'configs/H3_BURNED_TEXT_COVER_V1.json').read_text(encoding='utf-8'))
+        self.assertEqual(policy['bar_rgba'][3], 255)
+        styles = policy.get('cover_style_by_episode') or {}
+        for episode, rgba in (policy.get('bar_rgba_by_episode') or {}).items():
+            if rgba[3] < 255:
+                self.assertEqual(styles.get(episode), 'BLUR', episode)
+
     def test_the_caption_plate_is_never_painted_dark(self):
         # The caption keeps its transparent plate (E13 note 「字幕底以前都是透明的」): nothing in the caption
         # block may paint a background.  It does sit INSIDE the cover band once a cover exists, so the burned
