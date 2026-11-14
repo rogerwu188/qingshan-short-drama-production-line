@@ -117,6 +117,46 @@ class CodexExecutorTests(unittest.TestCase):
         (self.runtime / "series/PAUSED").write_text("")
         self.assertEqual(self.cp.tick()["reason"], "PAUSED")
 
+    def _exit_with_error(self, message, ep="E06"):
+        self.write_provider()
+        out = self.run_episode("中途退出", ep)
+        with open(out["log"], "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "error", "message": message}) + "\n")
+
+    def test_rate_limited_exit_is_resumed_by_the_system_tick_after_backoff(self):
+        # fleet 2026-11-14: 19/20 devices exited on a 429 and waited hours for the 6-hourly agent heartbeat
+        self._exit_with_error("exceeded retry limit, last status: 429 Too Many Requests")
+        resumed = []
+        saved = self.cp.resume
+        self.cp.resume = lambda ep, msg: resumed.append((ep, msg)) or {"status": "STARTED"}
+        try:
+            t = self.cp.tick(system=True)
+            self.assertTrue(t["reason"].startswith("PROVIDER_RATE_LIMIT_BACKOFF"), t)
+            self.assertNotEqual(t.get("action"), "AGENT_PENDING")
+            self.assertEqual(resumed, [])
+            d = self.cp.run_dir("E06")
+            session = self.cp.read_json(d / "session.json")
+            session["rate_limit_resume_after"] = 0  # backoff elapsed
+            self.cp.write_json(d / "session.json", session)
+            self.cp.tick(system=True)
+            self.assertEqual(len(resumed), 1)
+            self.assertIn("429", resumed[0][1])
+            self.assertEqual(self.cp.read_json(d / "session.json")["rate_limit_resumes"], 1)
+        finally:
+            self.cp.resume = saved
+
+    def test_exhausted_account_still_goes_to_the_agent(self):
+        self._exit_with_error("402 insufficient balance", "E07")
+        t = self.cp.tick(system=True)
+        self.assertEqual(t["action"], "AGENT_PENDING")
+        self.assertTrue(t["reason"].startswith("PROVIDER_ERROR"))
+
+    def test_backoff_is_jittered_and_capped(self):
+        first = [self.cp.rate_limit_backoff_s(1) for _ in range(20)]
+        self.assertTrue(all(300 <= x <= 900 for x in first))
+        self.assertGreater(len({round(x) for x in first}), 1)
+        self.assertTrue(all(x <= 1800 for x in (self.cp.rate_limit_backoff_s(n) for n in range(1, 12))))
+
     def test_finished_episode_starts_the_next_one_without_the_agent(self):
         # line owner + boss 2026-11-10: update between episodes, then Codex writes the next dispatch and produces
         self.write_provider()
