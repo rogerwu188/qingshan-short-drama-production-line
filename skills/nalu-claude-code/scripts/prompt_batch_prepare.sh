@@ -7,6 +7,13 @@ cd $E; export NALU_WORK_ROOT=$E/workflow/nalu
 # narration-only shot is checked as on-screen dialogue and fails vp_dialogue_verbatim (field device …1324 E03,
 # 2026-11-08).  Set it per QA call only -- never in this shell, where nalu_pipeline S1 would demand a private project.json.
 QA_ENV="env -u GIGGLE_API_KEY NALU_POLICY_PROFILE=CURRENT_PORTABLE"
+# The H3 compile anchor plan is written by S2, before S3 locks this episode's new characters; while it still
+# lists a missing identity plate / prop card and no keyframe exists, re-run S2 (free, offline) so plan_compile
+# sees the locked plates instead of stopping on H3_SPEAKER_SUBJECT_BINDING_MISSING (devices 1144 E03, 0069 E06).
+if STALE=$($E/.qingshan-venv/bin/python tools/h3_compile_anchor_freshness.py --episode $EP --preproduction-dir $E/workflow/nalu/$EP/preproduction); then
+  echo "refreshing S2: $STALE"
+  $E/.qingshan-venv/bin/python lines/nalu/runtime/tools/nalu_pipeline.py run --episode $EP --from S2 --until S2 --force 2>&1 | grep "=> " || true
+fi
 $E/.qingshan-venv/bin/python lines/nalu/runtime/tools/nalu_pipeline.py run --episode $EP --from S5 --until S5 2>&1 | grep "=> " || true
 "$(cd "$(dirname "$0")" && pwd)/plan_compile.sh" $EP | tail -1
 REP=$E/workflow/nalu/$EP/preproduction/reports; mkdir -p $REP/prompt_batch_qa

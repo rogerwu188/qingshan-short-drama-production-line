@@ -1025,7 +1025,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/prompt_batch_prepare.sh",
-      "sha256": "af35d8cfb5fe7eb276defe33348f1077de094b384426c1b4619f2d608660ee00"
+      "sha256": "5317cb21e923a1ba108b2e9b03ee7465eb01a07c076d34380a6448f87b3dc8e6"
     },
     {
       "path": "skills/nalu-claude-code/scripts/publish_x2c_matrix.py",
