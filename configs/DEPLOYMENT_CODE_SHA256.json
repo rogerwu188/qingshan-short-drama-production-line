@@ -277,7 +277,7 @@
     },
     {
       "path": "configs/H3_BURNED_TEXT_COVER_V1.json",
-      "sha256": "b851b9a7f165146ddca950c446c4c7492e47b2337744cde657d9c6da59345d4d"
+      "sha256": "a3c9f6cce72c2a73cfefdf6acf526d94ff2eea9e2fda62c751fcb9c75a4c2d73"
     },
     {
       "path": "configs/IMAGE_MODEL_CAPABILITY_REGISTRY_v1.json",
@@ -7313,7 +7313,7 @@
     },
     {
       "path": "tools/tests/test_burned_text_cover.py",
-      "sha256": "acb4817161235a8ac791775ec6ccb2abcfe8ecac5e110edd0899955aa54c39b6"
+      "sha256": "9d23821b41f75d78556c050c3bf079b607df76547c93855003dd3119e1813fd9"
     },
     {
       "path": "tools/tests/test_burnin_subtitle_time_mapping.py",
