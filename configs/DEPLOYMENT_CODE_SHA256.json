@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2453,
+  "file_count": 2454,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -3789,7 +3789,7 @@
     },
     {
       "path": "tools/burned_text_cover.py",
-      "sha256": "1ab14a8814c8a15f5f2eb1db71d90c5b2b91e096f609617aeb1b1f9a26aec75a"
+      "sha256": "8403545efce6c787672820459598fdf3cf3fbfcb6c05687db344dcd86fb05d1c"
     },
     {
       "path": "tools/camera_grammar_policy.py",
@@ -7313,7 +7313,7 @@
     },
     {
       "path": "tools/tests/test_burned_text_cover.py",
-      "sha256": "9d23821b41f75d78556c050c3bf079b607df76547c93855003dd3119e1813fd9"
+      "sha256": "b19f6238cb39cea7da2d9141edef26fad5fbe0cdbdb8fc2a5bbd4b4affc19ce3"
     },
     {
       "path": "tools/tests/test_burnin_subtitle_time_mapping.py",
@@ -8734,6 +8734,10 @@
     {
       "path": "tools/tests/test_reference_image_compression.py",
       "sha256": "60d8915cc9c3671d20ea8b55142c365065f9ad6914dda632629d9d6cc140a738"
+    },
+    {
+      "path": "tools/tests/test_reference_override_prop_binding.py",
+      "sha256": "d9951834d0e373652c4a3eda736ff1ffabcc10a10b93810322fbb1a628e78dcc"
     },
     {
       "path": "tools/tests/test_reference_purpose_remapping.py",

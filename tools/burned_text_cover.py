@@ -105,6 +105,25 @@ def caption_at(captions: list[dict[str, Any]], t: float) -> str:
                  if float(c.get("start", 0)) <= t <= float(c.get("end", 0))), "")
 
 
+def reads_as_part_of(caption: str, read: str, min_ratio: float) -> bool:
+    """True when ``read`` is one stretch of ``caption``, allowing for OCR misreads.
+
+    A long caption is drawn on several rows and OCR returns one hit per row, so a hit is a PIECE of the
+    caption and a whole-caption ratio is low by construction; one misread character then also defeats the
+    exact-substring test (fleet 2026-11-14 E12 S7: the row 「看着就是家里横惯了的二世祖，」 of a 47-character
+    caption read as 「…工世祖」/「…云世祖」, ratio 0.43, and 「呜呜」 read as 「呜鸣」, ratio 0.17 -- five hits,
+    all our own caption on the opaque bar, and S7 stopped).  Compare against every window of the same length.
+    """
+    cap = "".join(CJK.findall(caption or ""))
+    if not read or not cap:
+        return False
+    if read in cap:
+        return True
+    n = min(len(read), len(cap))
+    return any(difflib.SequenceMatcher(None, cap[i:i + n], read).ratio() >= min_ratio
+               for i in range(len(cap) - n + 1))
+
+
 def verify(hits: list[Hit], captions: list[dict[str, Any]], cfg: dict[str, Any],
            *, episode: str | None = None) -> dict[str, Any]:
     """Every CJK hit must sit inside the bar and read as the caption on screen at that moment."""
@@ -135,7 +154,8 @@ def verify(hits: list[Hit], captions: list[dict[str, Any]], cfg: dict[str, Any],
         candidates = [c for c in dict.fromkeys(caption_at(captions, t + d) for d in (-half, 0.0, half)) if c] or [""]
         read = "".join(CJK.findall(text))
         ratio = max(difflib.SequenceMatcher(None, "".join(CJK.findall(c)), read).ratio() for c in candidates)
-        if ratio < v["inside_bar_min_similarity"] and not any(read in "".join(CJK.findall(c)) for c in candidates):
+        if ratio < v["inside_bar_min_similarity"] and not any(
+                reads_as_part_of(c, read, v["inside_bar_min_similarity"]) for c in candidates):
             mismatched.append({**row, "caption_on_screen": expected, "similarity": round(ratio, 2)})
     outside, ignored = [], []
     half = 0.5 / float(v["fps"])
