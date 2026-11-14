@@ -653,7 +653,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_burnin_subtitles.py",
-      "sha256": "f2d282245a4588f773e7862c18c8128cb4b1eba5935c9ca2575042cc8c9ea8db"
+      "sha256": "2862190ec2647b0e4e0a05ca7ff7708eab8dc894b59a7d8de89ec3510599d58a"
     },
     {
       "path": "lines/nalu/runtime/tools/build_episode_asset_requirements.py",

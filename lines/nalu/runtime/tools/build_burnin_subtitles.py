@@ -282,6 +282,30 @@ def voice_over_captions(contract: dict, placement: dict | None) -> dict[int, dic
     return out
 
 
+def contract_lines_by_unit(contract: dict, shot2unit: dict[str, str], id2name: dict[str, str],
+                           voice_over: dict[int, dict]) -> tuple[dict[str, list[dict]], list[dict]]:
+    """(unit_id -> its contract lines in order, lines whose shot belongs to no video unit).
+
+    A line on a shot that no unit of the grouping plan carries has no clip and no audio in the cut, so there is
+    nothing to time a caption from: it is reported (``unmapped_dialogue_lines``), never burned in, and the rest of
+    the episode is still captioned.  V.O. narration (``voice_over``) is timed from the S7 placement, not here.
+    """
+    lines_by_unit: dict[str, list[dict]] = {}
+    unmapped: list[dict] = []
+    for index, d in enumerate((contract.get("audio_contract") or {}).get("dialogue_units") or []):
+        if index in voice_over:
+            continue  # V.O. narration: not in the unit's native audio, timed from the S7 placement
+        shot_id = str(d.get("shot_id") or "")
+        speaker = id2name.get(str(d.get("speaker_id") or ""), str(d.get("speaker_id") or ""))
+        unit_id = shot2unit.get(shot_id)
+        if unit_id is None:
+            unmapped.append({"shot_id": shot_id, "speaker": speaker, "text": d.get("text"),
+                             "reason": "DIALOGUE_SHOT_IN_NO_VIDEO_UNIT"})
+            continue
+        lines_by_unit.setdefault(unit_id, []).append({"shot_id": d["shot_id"], "speaker": speaker, "text": d["text"]})
+    return lines_by_unit, unmapped
+
+
 def cover_geometries(covered: list[tuple[float, float, dict[str, float]]], intervals: list[list[float]],
                      base: tuple[int, int, int, int], width: int, height: int) -> list[tuple[int, int, int, int]]:
     """Pixel (y, h, x0, x1) of the cover of each burned-text run, in the order of ``intervals``.
@@ -333,14 +357,9 @@ def main() -> int:
     grouping = json.loads(a.grouping.read_text(encoding="utf-8"))
     id2name = {e["character_id"]: e["canonical_name"] for e in contract["character_entities"]}
     shot2unit = {s: u["unit_id"] for u in grouping["units"] for s in u["editorial_shot_ids"]}
-    lines_by_unit: dict[str, list[dict]] = {}
     voice_over = voice_over_captions(contract, json.loads(a.voice_over_placement.read_text(encoding="utf-8"))
                                      if a.voice_over_placement else None)
-    for index, d in enumerate(contract["audio_contract"]["dialogue_units"]):
-        if index in voice_over:
-            continue  # V.O. narration: not in the unit's native audio, timed from the S7 placement below
-        lines_by_unit.setdefault(shot2unit[d["shot_id"]], []).append(
-            {"shot_id": d["shot_id"], "speaker": id2name[d["speaker_id"]], "text": d["text"]})
+    lines_by_unit, unmapped_lines = contract_lines_by_unit(contract, shot2unit, id2name, voice_over)
     recut_subs: dict[str, dict] = {}
     if a.unit_recut and a.unit_recut.is_file():
         for ruid, row in ((json.loads(a.unit_recut.read_text(encoding="utf-8")) or {}).get("units") or {}).items():
@@ -528,6 +547,7 @@ def main() -> int:
            "video": str(a.out_video), "ffmpeg_exit": proc.returncode, "stderr": proc.stderr[-800:], "rows": report,
            "text_source": "generation contract dialogue_units (verbatim)", "timing_source": str(a.asr),
            "unit_recut": str(a.unit_recut) if a.unit_recut else None, "unit_recut_dropped_lines": recut_dropped,
+           "unmapped_dialogue_lines": unmapped_lines,
            "font": font_name, "font_file": font_file, "font_source": font_source,
            **({"cover_band": {k: cover[k] for k in ("y", "h", "x0", "x1")}, "cover_intervals": cover["intervals"],
                "cover_style": cover.get("style"), "cover_bands": cover.get("bands") or [],
@@ -536,7 +556,8 @@ def main() -> int:
         out["language"] = a.language
     if a.out_report:
         a.out_report.write_text(json.dumps(out, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({k: out[k] for k in ("captions", "ffmpeg_exit", "video")}, ensure_ascii=False))
+    print(json.dumps({k: out[k] for k in ("captions", "ffmpeg_exit", "video")}
+                     | ({"unmapped_dialogue_lines": len(unmapped_lines)} if unmapped_lines else {}), ensure_ascii=False))
     return 0 if proc.returncode == 0 else 2
 
 if __name__ == "__main__":
