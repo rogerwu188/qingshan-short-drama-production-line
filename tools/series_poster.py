@@ -72,9 +72,9 @@ THUMB_MAX_BYTES = 150_000
 TASK_KEY = "SERIES-POSTER-ART"
 IMAGE_STORE_DIRNAME = "giggle_submit_transactions"
 MAX_ATTEMPTS = 2  # the first attempt + the existing one-redo rule
-#: 9:16 at the largest size the provider documents as non-experimental (2560 long side); the redo uses the
-#: probe-verified 1152x2048.  Override: env NALU_POSTER_ART_SIZE / generation.series_poster_art_size.
-DEFAULT_ART_SIZE = "1440x2560"
+#: probe-verified 1152x2048 (about 1 credit; line owner 2026-11-13 chose it over 1440x2560, about 1.9).
+#: Override: env NALU_POSTER_ART_SIZE / generation.series_poster_art_size.
+DEFAULT_ART_SIZE = "1152x2048"
 REDO_ART_SIZE = "1152x2048"
 ART_QUALITY = "high"
 PROBE_PIXELS = 1152 * 2048
