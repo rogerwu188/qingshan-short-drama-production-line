@@ -8196,6 +8196,53 @@ def s7_camera_motion_gate(ctx: Ctx, res: StageResult) -> dict[str, Any] | None:
     return step
 
 
+BURNED_TEXT_COVER_GATE_ID = "H3-BURNED-TEXT-COVER"
+BURNED_TEXT_COVER_DETECTOR = "H3_BURNED_TEXT_STILL_VISIBLE"
+
+
+def s7_burned_text_cover_acceptance(ctx: Ctx, res: StageResult, subbed: Path, cover_check: Path,
+                                    verify_step: dict[str, Any]) -> dict[str, Any] | None:
+    """The line-owner order that carries a FAILed H3 burned-text cover verify, or None (S7 stays blocked).
+
+    The verify is a quality verdict on the subtitled picture: text the OCR still reads in or near the burn
+    band.  It had no acceptance route, so a residual hit stopped the episode at every re-run whatever the
+    line owner ruled (fleet 2026-11-14, a device at E13 S7: 「安安安」 read inside the bar at 1.0-2.0 s; the
+    device recorded an order on the final-cut audience gate, which S7 only consults after this step).  Same
+    mechanism as FINAL-CUT-CAMERA-MOTION: the report keeps its FAIL and its hits, and the stage continues
+    only on a source-receipted order for gate H3-BURNED-TEXT-COVER, detector H3_BURNED_TEXT_STILL_VISIBLE,
+    bound to the sha256 of this exact subtitled picture (media item H3_BURNED_TEXT_STILL_VISIBLE).
+    A verify that did not produce a FAIL report (crash, missing file) is not a quality verdict and is never carried.
+    """
+    report = read_json(cover_check, {}) or {}
+    if str(report.get("status") or "") != "FAIL" or not Path(subbed).is_file():
+        return None
+    failing = [BURNED_TEXT_COVER_DETECTOR]
+    media_sha = sha256_file(subbed)
+    orders_path = ctx.authority.get("orders_path")
+    orders = (_rga._orders(orders_path, expected_latest_seq=ctx.authority.get("latest_order_seq") or 0, engine_root=ENGINE)
+              if orders_path and not ctx.authority_blockers else [])
+    order = _rga.find_acceptance(orders, episode=ctx.episode, gate_id=BURNED_TEXT_COVER_GATE_ID, failing=failing,
+                                 media_sha256=media_sha, media_item_id=BURNED_TEXT_COVER_DETECTOR,
+                                 expected_issuer=ctx.authority.get("line_owner_id") or "", engine_root=ENGINE)
+    if order is None:
+        res.details["burned_text_cover_acceptance_hint"] = {
+            "gate_id": BURNED_TEXT_COVER_GATE_ID, "detector": BURNED_TEXT_COVER_DETECTOR,
+            "media_item_id": BURNED_TEXT_COVER_DETECTOR, "media": str(subbed), "media_sha256": media_sha}
+        return None
+    record = _rga.acceptance_record(order, episode=ctx.episode, gate_id=BURNED_TEXT_COVER_GATE_ID, failing=failing,
+                                    media_sha256=media_sha, media_item_id=BURNED_TEXT_COVER_DETECTOR,
+                                    gate_result_path=str(cover_check))
+    acceptance_path = ctx.p.assembly / "final_qa" / f"{ctx.episode}_H3_BURNED_TEXT_COVER_ACCEPTANCE.json"
+    acceptance_path.parent.mkdir(parents=True, exist_ok=True)
+    acceptance_path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+    verify_step["accepted_by_line_owner_order"] = order.get("seq")
+    res.details["burned_text_cover_acceptance"] = {**record, "record_path": str(acceptance_path)}
+    res.receipts.append(str(acceptance_path))
+    ctx.say(f"   !! H3 burned-text cover verify stays FAIL; continuing on line-owner order "
+            f"seq={order.get('seq')} {order.get('order')!s:.40} -> {acceptance_path.name}")
+    return record
+
+
 def s7_unit_recut(ctx: Ctx, res: StageResult) -> tuple[Path | None, list[str]]:
     """Render the authored unit re-cut plan (assembly/<EP>_UNIT_RECUT_PLAN.json) into derived clips.
 
@@ -9528,7 +9575,8 @@ def stage_s7(ctx: Ctx) -> StageResult:
                                "--out", cover_check], name="s7_burned_text_verify")
         steps.append(verify_step)
         res.details["burned_text_cover"] = read_json(cover_check, {}) or {}
-        if verify_step["exit_code"] != 0:
+        if verify_step["exit_code"] != 0 and s7_burned_text_cover_acceptance(
+                ctx, res, subbed, cover_check, verify_step) is None:
             res.steps.extend(steps)
             res.blockers = ["H3_BURNED_TEXT_STILL_VISIBLE"]
             return res
