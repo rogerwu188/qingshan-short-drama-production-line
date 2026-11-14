@@ -6597,7 +6597,7 @@
     },
     {
       "path": "tools/series_poster.py",
-      "sha256": "f2ecfdc7ab299dcb56525a98908e33a22133e361b37dff0f136bbfe5b4fab354"
+      "sha256": "56aa8ca23ccf9b158ef7bc34823cd747eb22cf7c4fc4fa2f59072e50e91694f7"
     },
     {
       "path": "tools/shot_duration_policy.py",
