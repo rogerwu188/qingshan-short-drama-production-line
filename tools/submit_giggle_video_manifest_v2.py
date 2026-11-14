@@ -1166,6 +1166,41 @@ def validate_task(task: dict[str, Any]) -> None:
         raise ValueError(f"{task['task_key']} dependent task lacks exact predecessor tail")
 
 
+WRITTEN_OFF_STATE = "CHARGED_WRITTEN_OFF_BY_ORDER"
+WRITTEN_OFF_ARCHIVE_SUFFIX = ".charged_written_off.1"
+
+
+def written_off_retry_open(path: Path, row: dict[str, Any]) -> bool:
+    """True when a charged, written-off attempt may be followed by its ONE new attempt.
+
+    Line owner ruling A (2026-11-11): a charge whose task id can never be recovered is written off
+    (K073, tools/write_off_charged_losses.py) and the unit is submitted once more as a new attempt
+    inside the episode cap.  The video submitter had no such path (field E04 2026-11-14): the
+    recompiled task has the same fingerprint, so the written-off row blocked the unit for good.
+
+    The written-off row is kept verbatim beside the transaction (not ``*.json``, so no store scan
+    reads it as a live row); the charge itself stays counted through the archived credit statement.
+    The archive is what limits this to one retry: it names the attempt that was written off, and a
+    row written off AGAIN (another attempt id / write-off time) is refused.  Nothing is consumed by
+    a run that stops before its intent record -- the live row is still the archived one.
+    """
+    stamp = str(row.get("written_off_at") or "")
+    if row.get("state") != WRITTEN_OFF_STATE or not stamp:
+        return False
+    identity = [row.get("attempt_id"), stamp]
+    archive = path.with_name(path.name + WRITTEN_OFF_ARCHIVE_SUFFIX)
+    if archive.is_file():
+        try:
+            kept = json.loads(archive.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        return isinstance(kept, dict) and [kept.get("attempt_id"), str(kept.get("written_off_at") or "")] == identity
+    temporary = archive.with_name(archive.name + ".part")
+    temporary.write_text(json.dumps(row, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(archive)
+    return True
+
+
 def prior_bound(task: dict[str, Any], transaction_dir: Path) -> dict[str, Any] | None:
     path = transaction_path(transaction_dir, task)
     if not path.is_file():
@@ -1197,6 +1232,12 @@ def prior_bound(task: dict[str, Any], transaction_dir: Path) -> dict[str, Any] |
         return recovered
     # VERIFIED_ZERO_NO_REMOTE_TASK: a lost HopsAPI response the billing usage API proved created no
     # billed task (tools/hopsapi_usage.py reconcile); a new attempt may POST.
+    if row.get("state") == WRITTEN_OFF_STATE:
+        # Charged and written off by order: one new attempt, then never again (written_off_retry_open).
+        if written_off_retry_open(path, row):
+            return None
+        raise RuntimeError(f"{task['task_key']} blocked by transaction state {WRITTEN_OFF_STATE} "
+                           "(the one new attempt after a write-off is already used)")
     if row.get("state") not in {"VERIFIED_ZERO_RETRYABLE", "VERIFIED_ZERO_NO_REMOTE_TASK", "WRITTEN_OFF_UNATTRIBUTABLE_RETRYABLE"}:
         raise RuntimeError(f"{task['task_key']} blocked by transaction state {row.get('state')}")
     return None

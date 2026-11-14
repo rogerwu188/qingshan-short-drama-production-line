@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2457,
+  "file_count": 2459,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -6845,7 +6845,7 @@
     },
     {
       "path": "tools/submit_giggle_video_manifest_v2.py",
-      "sha256": "f1d283ad08d9138533b6331d0c8fee829f1253fbd514123c9b83da638a4ba566"
+      "sha256": "8c103c5fbc8d97142c200c9508fdedb3919f410125cd6a5bb680753fb0dd5a5e"
     },
     {
       "path": "tools/summarize_e40_u12_v63_status_chain.py",
@@ -7322,6 +7322,10 @@
     {
       "path": "tools/tests/test_burned_text_cover_follows_text.py",
       "sha256": "2eedb9e6242ea6cd95c8a6f217b05bdd62dd72e83b305ac4a5206a0fc43b3350"
+    },
+    {
+      "path": "tools/tests/test_burnin_orphan_dialogue_line.py",
+      "sha256": "d939046b00687cf26fb4d1ccc4a976b5d2ff425bd216bfb0ae5a522220e9b7d8"
     },
     {
       "path": "tools/tests/test_burnin_subtitle_time_mapping.py",
@@ -9332,6 +9336,10 @@
       "sha256": "788fb4f7b9b4ad9bca363aaebbb6b2683f024de5c11f5c6c30a13f0f93267c64"
     },
     {
+      "path": "tools/tests/test_video_retry_once_after_charged_write_off.py",
+      "sha256": "bffe7d32825e5aec2e0b4080c42fd23165acee18b758ea2d17b7064dc23e6bc2"
+    },
+    {
       "path": "tools/tests/test_video_sequence_rhythm_gate.py",
       "sha256": "934577920afc332025c19ca598fa4fd29dfcd74f04d94a7ce172313f7720b2bc"
     },
@@ -9789,7 +9797,7 @@
     },
     {
       "path": "tools/write_off_charged_losses.py",
-      "sha256": "768cd33b8e1b7e792de06f884a89b5ad3d72918d372a41f04ebcadfc688d2eaf"
+      "sha256": "d30bc80f3b57159a7c09792abcf4fa577efcf9a5ec4af0a5d24ec00ac0057667"
     },
     {
       "path": "tools/writer_arc_ledger.py",
