@@ -236,6 +236,35 @@ class H3NativeRasterQaTests(unittest.TestCase):
                                               h3_resolution="768p")
             self.assertEqual(legacy["checks"]["resolution"]["status"], "FAIL")  # a 768p episode never takes 480p
 
+    def test_480p_episode_accepts_a_768p_delivery_but_not_the_reverse(self):
+        above = self.qa.h3_delivered_above_episode
+        self.assertEqual(above(768, 1344, "480p"), "768p")
+        self.assertEqual(above(768, 1366, "480p"), "768p")
+        for args in ((768, 1344, "768p"), (768, 1344, None), (480, 854, "480p"), (480, 854, "768p"),
+                     (720, 1280, "480p"), (768, 1024, "480p")):
+            self.assertIsNone(above(*args), args)
+        self.assertFalse(self.qa.h3_native_raster(768, 1344, "480p"))  # the raster rule itself is unchanged
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg not installed")
+    def test_technical_checks_pass_a_768p_clip_in_a_480p_episode(self):
+        # fleet device ...0334 E03: every unit of a 480p episode came back 768x1344, 4 s units as 4.458 s
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            path = out / "big.mp4"
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=768x1344:rate=24",
+                            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "2.45",
+                            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(path)],
+                           check=True)
+            got = self.qa.technical_checks("U1", path, 2.0, out / "U1", h3_resolution="480p")["checks"]
+            self.assertEqual(got["resolution"]["status"], "PASS", got["resolution"])
+            self.assertEqual(got["resolution"]["delivered_above_episode_resolution"], "768p")
+            self.assertEqual(got["resolution"]["measured"], "768x1344")
+            self.assertEqual(got["aspect_ratio"]["status"], "PASS")
+            self.assertEqual(got["duration"]["status"], "PASS", got["duration"])  # H3 overrun on a native raster
+            sd2 = self.qa.technical_checks("U2", path, 2.0, out / "U2", h3_resolution=None)["checks"]
+            self.assertEqual(sd2["resolution"]["status"], "PASS")  # unknown resolution: either raster, as before
+            self.assertNotIn("delivered_above_episode_resolution", sd2["resolution"])
+
 
 if __name__ == "__main__":
     unittest.main()

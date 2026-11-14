@@ -272,6 +272,21 @@ def h3_native_raster(width: int, height: int, resolution: str | None = None) -> 
     return False
 
 
+def h3_delivered_above_episode(width: int, height: int, resolution: str | None) -> str | None:
+    """"768p" when a 480p episode's clip came back as the provider's larger native 768p raster, else None.
+
+    Fleet device ...0334 E03 (2026-11-14): 31 units requested at 480p (episode lock, manifest and every
+    transaction say 480p) were all delivered 768x1344.  The technical check failed every one of them on
+    resolution (and the 4 s units on the H3 duration overrun, which is only accepted for a native raster);
+    post-generation QA has no acceptance-order route, so the only way forward was 31 paid redos of clips
+    that are not defective.  A delivery ABOVE the episode's resolution is a native H3 clip: the final cut is
+    rescaled to the delivery raster either way.  The other direction stays a failure (a 768p episode never
+    takes a 480p clip)."""
+    if resolution == "480p" and h3_native_raster(width, height, "768p"):
+        return "768p"
+    return None
+
+
 def episode_h3_resolution(episode: str) -> str | None:
     """The episode's fixed H3 resolution (nalu_video_model); None for SD2 or when it cannot be resolved
     (the lock/selection gates own that failure -- QA then accepts either H3 raster as before)."""
@@ -428,8 +443,9 @@ def technical_checks(unit_id: str, media: Path, planned_duration: float | None,
                planned_seconds=None, note="no planned duration declared for this unit")
     else:
         delta = abs(duration - float(planned_duration))
-        h3_raster = bool(video) and h3_native_raster(int(video.get("width") or 0), int(video.get("height") or 0),
-                                                     h3_resolution)
+        _w, _h = (int(video.get("width") or 0), int(video.get("height") or 0)) if video else (0, 0)
+        h3_raster = bool(video) and (h3_native_raster(_w, _h, h3_resolution)
+                                     or h3_delivered_above_episode(_w, _h, h3_resolution) is not None)
         over = duration - float(planned_duration)
         ok = delta <= DURATION_TOLERANCE_SECONDS or (h3_raster and 0 < over <= H3_DURATION_OVERRUN_SECONDS)
         record("duration", "PASS" if ok else "FAIL",
@@ -445,7 +461,8 @@ def technical_checks(unit_id: str, media: Path, planned_duration: float | None,
     # 768-wide portrait frame between the two is accepted; MiniMax-H3 480p (owner 2026-11-12, new episodes)
     # is a 9:16 portrait with a 480 short edge (h3_native_raster).  Only the episode's own H3 resolution is
     # accepted when it is known.  The final cut is rescaled to TARGET either way.
-    h3_native = h3_native_raster(width, height, h3_resolution)
+    delivered_above = h3_delivered_above_episode(width, height, h3_resolution)
+    h3_native = h3_native_raster(width, height, h3_resolution) or delivered_above is not None
     native_ok = (width, height) == (TARGET["width"], TARGET["height"]) or h3_native
     h3_expected = {"768p": "768x1344..1366", "480p": "480(+-16)x(1.70..1.80 x width)"}
     record("resolution", "PASS" if native_ok else "FAIL", measured=f"{width}x{height}",
@@ -453,7 +470,10 @@ def technical_checks(unit_id: str, media: Path, planned_duration: float | None,
                      + (f"{h3_expected[h3_resolution]} (MiniMax-H3 {h3_resolution})" if h3_resolution in h3_expected
                         else "768x1344..1366 / 480p 9:16 (MiniMax-H3)")),
            **({"h3_resolution": h3_resolution} if h3_resolution else {}),
-           **({"observed_native_raster": f"{width}x{height}"} if h3_native else {}))
+           **({"observed_native_raster": f"{width}x{height}"} if h3_native else {}),
+           **({"delivered_above_episode_resolution": delivered_above,
+               "note": "provider delivered its larger native raster for a 480p request; accepted, "
+                       "the final cut is rescaled"} if delivered_above else {}))
     ratio = (width / height) if height else 0.0
     expected_ratio = TARGET["width"] / TARGET["height"]
     record("aspect_ratio", "PASS" if abs(ratio - expected_ratio) < 0.01 or h3_native else "FAIL",
