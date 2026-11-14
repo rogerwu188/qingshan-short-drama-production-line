@@ -195,3 +195,28 @@ class EpisodeBandTests(unittest.TestCase):
         captions = [{"start": 88.5, "end": 91.1, "text": "比山中的凶禽猛兽危害还大，"}]
         self.assertEqual(btc.verify(hits, captions, cfg, episode="E13")["status"], "FAIL")
         self.assertEqual(btc.verify(hits, captions, cfg, episode="E14")["status"], "PASS")
+
+
+class WrappedCaptionRowTests(unittest.TestCase):
+    """Fleet 2026-11-14 E12 S7: one OCR row of our own wrapped caption, with a misread character, is the caption."""
+
+    LONG = "她不挑事，不代表怕事。这些小孩看着就是家里横惯了的二世祖，打架经验哪里及得上矿区混的老手鹿竹。"
+    CAPTIONS = [{"text": "师……师兄，是她欺负我！呜呜……", "start": 35.9, "end": 37.2},
+                {"text": LONG, "start": 45.0, "end": 53.4}]
+
+    def test_a_misread_row_of_a_long_caption_passes(self):
+        hits = [(51.5, "看着就是家里横惯了的工世祖，", 0.9, 0.09, 0.698, 0.871, 0.735),
+                (52.5, "看着就是家里横惯了的云世祖", 0.9, 0.09, 0.698, 0.863, 0.736),
+                (36.5, "呜鸣", 0.9, 0.375, 0.735, 0.51, 0.777)]
+        out = btc.verify(hits, self.CAPTIONS, CFG, episode="E12")
+        self.assertEqual(out["status"], "PASS", out["text_inside_bar_not_the_caption"])
+
+    def test_other_words_inside_the_bar_still_fail(self):
+        hits = [(51.5, "画面残留的另一句旧台词内容", 0.9, 0.09, 0.698, 0.871, 0.735)]
+        out = btc.verify(hits, self.CAPTIONS, CFG, episode="E12")
+        self.assertEqual(out["status"], "FAIL")
+        self.assertEqual(len(out["text_inside_bar_not_the_caption"]), 1)
+
+    def test_text_where_no_caption_is_shown_still_fails(self):
+        hits = [(40.0, "看着就是家里横惯了的二世祖", 0.9, 0.09, 0.698, 0.871, 0.735)]
+        self.assertEqual(btc.verify(hits, self.CAPTIONS, CFG, episode="E12")["status"], "FAIL")
