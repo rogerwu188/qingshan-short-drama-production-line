@@ -105,6 +105,31 @@ class WriteOffToolTests(unittest.TestCase):
         self.assertEqual(tx["charge_evidence"]["unmapped_pay_rows"], 7)
         self.assertEqual(tx["retry_guard"], "DO_NOT_RESUBMIT_THIS_FINGERPRINT")
 
+    def test_fractional_charge_written_as_a_string_is_written_off(self) -> None:
+        """Field E04 2026-11-14: four H3 videos charged 42.5; the statement stores "42.5"."""
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            paths = self._layout(root, statement={**STATEMENT, "charged_credits": "42.5"})
+            dry = self._run(root, paths, apply=False)
+            self.assertEqual(dry["eligible_count"], 1)
+            self.assertEqual(dry["refused_count"], 0)
+            self.assertEqual(list(dry["batch_charged_credits"].values()), [42.5])
+            report = self._run(root, paths, apply=True)
+            tx = json.loads((root / "tx" / "E99-S01-01-KEYFRAME-V1__deadbeef.json")
+                            .read_text(encoding="utf-8"))
+        self.assertEqual(report["eligible_count"], 1)
+        self.assertEqual(tx["state"], "CHARGED_WRITTEN_OFF_BY_ORDER")
+        self.assertEqual(tx["charge_evidence"]["charged_credits"], 42.5)
+
+    def test_whole_charge_written_as_a_string_stays_an_integer(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            paths = self._layout(root, statement={**STATEMENT, "charged_credits": "77"})
+            dry = self._run(root, paths, apply=False)
+        value = list(dry["batch_charged_credits"].values())[0]
+        self.assertEqual(value, 77)
+        self.assertIsInstance(value, int)
+
     def test_statement_sha_mismatch_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)

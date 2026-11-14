@@ -9425,7 +9425,7 @@
     },
     {
       "path": "tools/tests/test_write_off_charged_losses.py",
-      "sha256": "c3a8f54b1b87f1a57bb26039735ed8e26773373599e39a241cc7960a2440ac93"
+      "sha256": "d9fbc9905f575f15fcb263372830ca7a69edd9b0c319a7a685b8291111d7ceb5"
     },
     {
       "path": "tools/tests/test_writer_arc_ledger.py",
@@ -9789,7 +9789,7 @@
     },
     {
       "path": "tools/write_off_charged_losses.py",
-      "sha256": "be1e3f51173350f5e5090368596a6f4600cb3b852b58fc21b55a21273921bf34"
+      "sha256": "768cd33b8e1b7e792de06f884a89b5ad3d72918d372a41f04ebcadfc688d2eaf"
     },
     {
       "path": "tools/writer_arc_ledger.py",
