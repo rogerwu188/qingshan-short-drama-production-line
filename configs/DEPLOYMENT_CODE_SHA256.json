@@ -3893,7 +3893,7 @@
     },
     {
       "path": "tools/collective_learning/release_train.py",
-      "sha256": "60c3937591ae52d67a38c08463cdf9038e2d9896082d6ca0f2c655beb0b6df2f"
+      "sha256": "20ec60a3fb0b067b011688c200a1d6e03583b48ba37c61ba1d9072a74977410c"
     },
     {
       "path": "tools/collective_learning/runtime_wiring.py",
@@ -7401,7 +7401,7 @@
     },
     {
       "path": "tools/tests/test_collective_release_train.py",
-      "sha256": "a6a1fbe043b76b95c639a3da1c9793870da679f06c021b1ef62c0240b38fa401"
+      "sha256": "4de37b2d5d4e2a8261f9e6457d18123229d5c9514b4e401b82d972612d2e546a"
     },
     {
       "path": "tools/tests/test_collective_s3_sync.py",
