@@ -23,7 +23,8 @@ sent) while ``pending_videos`` is non-empty; the caller retries on a later heart
 held by another local episode is reported as EPISODE_NUMBER_COLLISION.  The first ``publish`` creates the project; every later episode is appended to it.  The default
 video is the tail-ad version $NALU_RUNTIME_ROOT/deliverables/<EP>/<EP>_final_9x16_AD.mp4 when S7 produced
 one (and it is not older than the final), else <EP>_final_9x16.mp4; the result and the state record which
-file was sent (``published_variant`` AD|FINAL).  The default cover is a frame taken from it with ffmpeg.
+file was sent (``published_variant`` AD|FINAL).  The default cover is the series poster
+($NALU_RUNTIME_ROOT/series/cover/cover.jpg, tools/series_poster.py), else a frame taken from it with ffmpeg.
 
 Matrix mode (DEFAULT since 2026-11-06; a series already sent through the old open-api keeps it until it ends) every
 command is handled by publish_x2c_matrix.py (X2C "StoryClaw 设备矩阵 API"; see that file); X2C_API_MODE=open
@@ -139,6 +140,31 @@ def cover_from_video(video: Path) -> Path:
     return out
 
 
+def series_poster_cover(title: str | None = None) -> Path | None:
+    """$NALU_RUNTIME_ROOT/series/cover/cover.jpg (tools/series_poster.py) when it exists and was typeset
+    for this series' title; None otherwise."""
+    cover = runtime() / "series" / "cover" / "cover.jpg"
+    if not cover.is_file() or not 0 < cover.stat().st_size <= 5 * 1024 * 1024:
+        return None
+    try:
+        meta = json.loads((cover.parent / "cover.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if title and str(meta.get("title") or "").strip()[:100] != str(title).strip()[:100]:
+        return None
+    return cover
+
+
+def pick_cover(explicit: str, video: Path, title: str | None = None) -> tuple[Path, str]:
+    """(cover, source): --cover, else the series poster, else a frame 1.5 s into the video."""
+    if explicit:
+        return Path(explicit).expanduser(), "EXPLICIT"
+    poster = series_poster_cover(title)
+    if poster is not None:
+        return poster, "SERIES_POSTER"
+    return cover_from_video(video), "FRAME_GRAB"
+
+
 def mime(path: Path) -> str:
     return {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp",
             ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}.get(path.suffix.lower(),
@@ -213,7 +239,7 @@ def cmd_publish(a: argparse.Namespace) -> dict[str, Any]:
     files = [{"file_type": "video", "file_name": f"{a.episode}.mp4", "content_type": mime(video)}]
     cover = None
     if not state.get("project_id"):
-        cover = Path(a.cover).expanduser() if a.cover else cover_from_video(video)
+        cover, _source = pick_cover(a.cover, video, a.title)
         files.insert(0, {"file_type": "cover", "file_name": f"cover{cover.suffix or '.jpg'}", "content_type": mime(cover)})
     if state.get("project_id"):
         remote = call("distribution/query", project_id=state["project_id"])

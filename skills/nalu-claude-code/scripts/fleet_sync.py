@@ -200,7 +200,8 @@ def series_cover(engine: Path, runtime: Path) -> tuple[bytes, dict] | None:
 
 
 def cover_tick(cp: Any, token: str, *, now: float | None = None) -> str | None:
-    """Upload the series cover when the final cut it comes from changed (checked every COVER_CHECK_S)."""
+    """Upload the series cover when it changed (checked every COVER_CHECK_S): the series poster thumbnail
+    ``series/cover/cover_thumb.jpg`` when present (tools/series_poster.py), else a still of the latest final cut."""
     import base64  # noqa: PLC0415
     import hashlib  # noqa: PLC0415
     import time  # noqa: PLC0415
@@ -214,6 +215,27 @@ def cover_tick(cp: Any, token: str, *, now: float | None = None) -> str | None:
     if now - float(state.get("checked") or 0) < COVER_CHECK_S:
         return None
     state["checked"] = now
+    thumb = runtime / "series" / "cover" / "cover_thumb.jpg"  # the series poster (tools/series_poster.py)
+    try:
+        poster = thumb.read_bytes() if thumb.is_file() else b""
+    except OSError:
+        poster = b""
+    if poster and poster.startswith(b"\xff\xd8") and len(poster) <= COVER_MAX_BYTES:
+        digest = hashlib.sha256(poster).hexdigest()
+        key = f"poster:{digest}"
+        result = "UNCHANGED"
+        if key != state.get("uploaded_key"):
+            code, _ = _req("POST", "/v1/cover", {"episode": "SERIES_POSTER", "source": thumb.name, "sha256": digest,
+                                                  "image_b64": base64.b64encode(poster).decode("ascii")}, token=token)
+            result = f"UPLOADED_POSTER:{code}"
+            if code == 200:
+                state["uploaded_key"] = key
+        try:
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            state_path.write_text(json.dumps(state), encoding="utf-8")
+        except OSError:
+            pass
+        return result
     cuts = _final_cuts(engine, runtime)
     key = f"{cuts[0]}|{cuts[0].stat().st_size}|{int(cuts[0].stat().st_mtime)}" if cuts else ""
     result = "NO_FINAL_CUT" if not cuts else "UNCHANGED"
