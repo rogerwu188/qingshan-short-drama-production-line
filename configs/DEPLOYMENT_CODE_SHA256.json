@@ -673,7 +673,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "7f4021a8515ecaf7387002da4a5ae3c7b5c9184ee0218f9578b7e6966cd0320a"
+      "sha256": "2bb422689e2946bc925200d5b644eaf2c7c102753e4d56479f5f3ec913b671ee"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",

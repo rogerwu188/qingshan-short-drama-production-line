@@ -2957,6 +2957,38 @@ def h3_prop_label(prop_id: str) -> str:
             .strip().title() or "Prop")
 
 
+#: machine id namespaces provider_scope_projection.binding_role_for classifies as PROP (never an identity)
+_PROP_ENTITY_PREFIXES = ("PROP-", "OBJ-", "SET-", "CREATURE-", "ANIMAL-")
+
+
+def _override_names_a_prop(extra: dict[str, Any]) -> bool:
+    return str(extra.get("character_id") or "").strip().upper().startswith(_PROP_ENTITY_PREFIXES)
+
+
+def override_reference_role(extra: dict[str, Any]) -> str:
+    """reference_roles entry of one identity_reference_overrides.json row.  The declared role wins; the
+    default follows the entity namespace, so a prop row is never labelled an identity plate."""
+    return str(extra.get("role") or (H3_PROP_PLATE_ROLE if _override_names_a_prop(extra)
+                                     else "CHARACTER_IDENTITY_REFERENCE"))
+
+
+def override_reference_binding(extra: dict[str, Any], *, path: str, sha256: str,
+                               english_names: bool) -> dict[str, Any]:
+    """Entity binding of one identity_reference_overrides.json row.  The file was written for characters
+    and every row was bound CHARACTER_REFERENCE; a row naming a prop (fleet device ...1342 E04-VU-011,
+    PROP-TABLE, 2026-11-14: the prop's shot has no keyframe among the unit's references, so the locked
+    prop card was added through this file) then failed shot_media_admission_gate with
+    REFERENCE_ROLE_NAMESPACE_CONFLICT at every S6 precheck.  The binding role follows the id namespace."""
+    entity_id = extra["character_id"]
+    if _override_names_a_prop(extra):
+        return {"entity_id": entity_id, "role": H3_PROP_PLATE_ROLE, "path": path,
+                **({"provider_entity_label": h3_prop_label(entity_id)} if english_names else {}),
+                "sha256": sha256, "source": "REFERENCE_OVERRIDE_LOCKED_PROP_CARD"}
+    return {"entity_id": entity_id, "role": "CHARACTER_REFERENCE", "path": path,
+            **({"provider_entity_label": h3_identity_label(entity_id)} if english_names else {}),
+            "sha256": sha256, "source": "IDENTITY_REFERENCE_OVERRIDE_LOCKED_PLATE"}
+
+
 def _locked_prop_plate(prop_id: str, *, episode: str) -> Path | None:
     """The LOCKED (qa PASS) card of a prop from this episode's scoped asset library, sha-verified; None
     when the prop has no such card.  Nothing is fabricated: an unverifiable artifact is a missing card."""
@@ -3386,12 +3418,10 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
             if str(extra_path) not in task["reference_images"]:
                 task["reference_images"].append(str(extra_path))
                 task["reference_sha256"].append(extra_sha)
-                task["reference_roles"].append(str(extra.get("role") or "CHARACTER_IDENTITY_REFERENCE"))
+                task["reference_roles"].append(override_reference_role(extra))
             if extra["character_id"] not in bound:
-                bindings.append({"entity_id": extra["character_id"], "role": "CHARACTER_REFERENCE", "path": str(extra_path),
-                                 **({"provider_entity_label": h3_identity_label(extra["character_id"])}
-                                    if _H3_ENGLISH_NAMES else {}),
-                                 "sha256": extra_sha, "source": "IDENTITY_REFERENCE_OVERRIDE_LOCKED_PLATE"})
+                bindings.append(override_reference_binding(
+                    extra, path=str(extra_path), sha256=extra_sha, english_names=bool(_H3_ENGLISH_NAMES)))
                 bound.add(extra["character_id"])
             task.setdefault("identity_reference_overrides", []).append({**extra, "sha256": extra_sha})
         # seq=7 condition 4 (Roger 2026-09-13, E02+) as RE-STATED by Roger 2026-09-18 (identity chain ③):
