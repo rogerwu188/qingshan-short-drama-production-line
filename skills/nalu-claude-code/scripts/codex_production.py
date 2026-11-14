@@ -31,6 +31,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -39,7 +40,21 @@ HERE = Path(__file__).resolve().parent
 STATUS_RE = re.compile(r"NALU_STATUS:\s*(\{.*\})")
 KEY_ENV = "HOPS_API_KEY"
 QUOTA_RE = re.compile(r"\b(401|402|403|429)\b|quota|insufficient|balance|余额|额度|invalid[_ ]api[_ ]key", re.I)
+#: A transient provider throttle, not an exhausted account: the system tick resumes Codex itself after a jittered
+#: backoff (fleet 2026-11-14: 19/20 devices exited on "exceeded retry limit, last status: 429 Too Many Requests"
+#: and sat idle waiting for the 6-hourly agent heartbeat).  Hard quota / auth errors still go to the agent.
+RATE_LIMIT_RE = re.compile(r"\b429\b|too many requests|rate[ _-]?limit", re.I)
+HARD_QUOTA_RE = re.compile(r"\b(401|402|403)\b|insufficient|balance|余额|额度|quota exceeded|invalid[_ ]api[_ ]key", re.I)
+RATE_LIMIT_MAX_RESUMES = 12
 MAX_NO_STATUS_RESUMES = 3
+
+
+def rate_limit_backoff_s(attempt: int) -> float:
+    """Jittered backoff before the n-th (1-based) automatic resume after a provider throttle: 5-15 min, growing
+    to at most 30 min, so a throttled fleet does not come back in lockstep."""
+    import random  # noqa: PLC0415
+    base = 300 * (2 ** max(0, attempt - 1))
+    return min(base * random.uniform(1.0, 3.0), 1800 * random.uniform(0.85, 1.0))
 
 
 def roots() -> tuple[Path, Path]:
@@ -795,12 +810,31 @@ def tick(system: bool = False) -> dict[str, Any]:
     res["state"] = state
     res["nalu_status"] = ns or None
     notify_key = f"{session.get('log')}|{state}"
-    if state is not None and session.get("no_status_resumes"):
+    if state is not None and (session.get("no_status_resumes") or session.get("rate_limit_resumes")):
         session["no_status_resumes"] = 0
+        session["rate_limit_resumes"] = 0
         write_json(d / "session.json", session)
     if state is None:
         err = " ".join(str(x) for x in (info.get("last_error"), info.get("result")) if x)
-        if QUOTA_RE.search(err):
+        if RATE_LIMIT_RE.search(err) and not HARD_QUOTA_RE.search(err):
+            n = int(session.get("rate_limit_resumes") or 0)
+            if n < RATE_LIMIT_MAX_RESUMES:
+                due = session.get("rate_limit_resume_after")
+                if due is None:
+                    session["rate_limit_resume_after"] = time.time() + rate_limit_backoff_s(n + 1)
+                    write_json(d / "session.json", session)
+                if time.time() < float(session["rate_limit_resume_after"]):
+                    res["reason"] = f"PROVIDER_RATE_LIMIT_BACKOFF:{int(float(session['rate_limit_resume_after']) - time.time())}s"
+                    return res
+                out = resume(ep, "上一轮模型接口限流（429）退出，属临时限流。请从当前阶段继续，已完成/已绑定的任务只收割不重提。")
+                session = read_json(d / "session.json")
+                session["rate_limit_resumes"] = n + 1
+                session.pop("rate_limit_resume_after", None)
+                write_json(d / "session.json", session)
+                did.append(f"resume_after_rate_limit:{out.get('status')}")
+                return res
+            reason = f"PROVIDER_ERROR:{err[:200]}"
+        elif QUOTA_RE.search(err):
             reason = f"PROVIDER_ERROR:{err[:200]}"
         elif int(session.get("no_status_resumes") or 0) < MAX_NO_STATUS_RESUMES:
             out = resume(ep, "继续，并在最后输出 NALU_STATUS 行")
