@@ -282,6 +282,25 @@ def voice_over_captions(contract: dict, placement: dict | None) -> dict[int, dic
     return out
 
 
+def cover_geometries(covered: list[tuple[float, float, dict[str, float]]], intervals: list[list[float]],
+                     base: tuple[int, int, int, int], width: int, height: int) -> list[tuple[int, int, int, int]]:
+    """Pixel (y, h, x0, x1) of the cover of each burned-text run, in the order of ``intervals``.
+
+    ``covered`` is the scan's (start, end, band-as-frame-fractions) per run; when it does not line up with
+    ``intervals`` (an older scan output) every run takes ``base``, the episode's band.  A cover never shrinks below ``base``.
+    """
+    if len(covered) != len(intervals):
+        return [base for _ in intervals]
+    out = []
+    for _start, _end, band in covered:
+        y0 = max(0, int(round(band["y0"] * height))); y1 = min(height, int(-(-band["y1"] * height // 1)))
+        x0 = max(0, int(round(band["x0"] * width))); x1 = min(width, int(-(-band["x1"] * width // 1)))
+        y0, x0 = min(y0, base[0]), min(x0, base[2])
+        y1, x1 = max(y1, base[0] + base[1]), max(x1, base[3])
+        out.append((y0, y1 - y0, x0, x1))
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--episode", required=True); ap.add_argument("--project", required=True, type=Path)
@@ -442,25 +461,39 @@ def main() -> int:
                                if a.cover_intervals else [])}
         style = str(((_pol.get("cover_style_by_episode") or {}).get(a.episode) or _pol.get("cover_style") or "BAR")).upper()
         cover["style"] = style
+        # Each burned-text run is covered over its own band: the episode's band widened to where the scan read
+        # the text in that run (burned_text_cover.interval_bands; fleet 2026-11-14, an E13 line burned at
+        # y 0.88-0.93 under the E13 band 0.66-0.81 stayed readable and S7 stopped).  A scan without bands, or
+        # a run inside the band, is covered exactly as before.  The caption keeps the episode's band.
+        geometry = cover_geometries(_btc.load_covered(a.cover_intervals) if a.cover_intervals else [],
+                                    cover["intervals"], (cover["y"], cover["h"], cover["x0"], cover["x1"]), W, H)
+        cover["bands"] = [{"y": g[0], "h": g[1], "x0": g[2], "x1": g[3]} for g in geometry]
         if style == "BLUR" and cover["intervals"]:
             # Line owner 2026-11-01 (E13: 字幕黑底 / 两排字幕): hide the burned line by blurring the burn band during the
             # burned-text runs instead of painting a dark bar; our caption is drawn over the same band, so one line
             # of text shows and the plate stays see-through.
-            when = "+".join(f"between(t,{float(b_s):.3f},{float(b_e):.3f})" for b_s, b_e in cover["intervals"])
-            bw = cover["x1"] - cover["x0"]
             radius = int(_pol.get("blur_radius") or 22)
-            chain.append(f"[0:v]split=2[base][cut];[cut]crop={bw}:{cover['h']}:{cover['x0']}:{cover['y']},"
-                         f"boxblur={radius}:3[blur];[base][blur]overlay=x={cover['x0']}:y={cover['y']}:"
-                         f"enable='{when}'[b1]")
+            groups: dict[tuple[int, int, int, int], list[list[float]]] = {}
+            for geom, run in zip(geometry, cover["intervals"]):
+                groups.setdefault(geom, []).append(run)
+            for j, ((gy, gh, gx0, gx1), runs) in enumerate(groups.items()):
+                when = "+".join(f"between(t,{float(b_s):.3f},{float(b_e):.3f})" for b_s, b_e in runs)
+                src = "[0:v]" if j == 0 else f"[b{j}]"
+                chain.append(f"{src}split=2[base{j}][cut{j}];[cut{j}]crop={gx1 - gx0}:{gh}:{gx0}:{gy},"
+                             f"boxblur={radius}:3[blur{j}];[base{j}][blur{j}]overlay=x={gx0}:y={gy}:"
+                             f"enable='{when}'[b{j + 1}]")
         else:
             # the bar alone over every burned-text run (captions are drawn on the same bar on top of it)
-            bar = Image.new("RGBA", (W, cover["h"]), (0, 0, 0, 0))
-            ImageDraw.Draw(bar).rectangle((cover["x0"], 0, cover["x1"], cover["h"] - 1), fill=rgba)
-            bar_png = png_dir / "cover_bar.png"; bar.save(bar_png)
-            for j, (b_s, b_e) in enumerate(cover["intervals"]):
-                inputs += ["-i", str(bar_png)]
+            bar_pngs: dict[tuple[int, int, int, int], Path] = {}
+            for j, ((gy, gh, gx0, gx1), (b_s, b_e)) in enumerate(zip(geometry, cover["intervals"])):
+                if (gy, gh, gx0, gx1) not in bar_pngs:
+                    bar = Image.new("RGBA", (W, gh), (0, 0, 0, 0))
+                    ImageDraw.Draw(bar).rectangle((gx0, 0, gx1, gh - 1), fill=rgba)
+                    bar_png = png_dir / ("cover_bar.png" if not bar_pngs else f"cover_bar_{len(bar_pngs) + 1}.png")
+                    bar.save(bar_png); bar_pngs[(gy, gh, gx0, gx1)] = bar_png
+                inputs += ["-i", str(bar_pngs[(gy, gh, gx0, gx1)])]
                 src = "[0:v]" if not chain else f"[b{j}]"
-                chain.append(f"{src}[{len(inputs) // 2}:v]overlay=x=0:y={cover['y']}:enable='between(t,{float(b_s):.3f},{float(b_e):.3f})'[b{j + 1}]")
+                chain.append(f"{src}[{len(inputs) // 2}:v]overlay=x=0:y={gy}:enable='between(t,{float(b_s):.3f},{float(b_e):.3f})'[b{j + 1}]")
     first_src = f"[b{len(chain)}]" if chain else "[0:v]"
     for i, (s_t, e_t, ln) in enumerate(events):
         rows = wrap_text(ln["text"]).split("\\N")
@@ -497,7 +530,7 @@ def main() -> int:
            "unit_recut": str(a.unit_recut) if a.unit_recut else None, "unit_recut_dropped_lines": recut_dropped,
            "font": font_name, "font_file": font_file, "font_source": font_source,
            **({"cover_band": {k: cover[k] for k in ("y", "h", "x0", "x1")}, "cover_intervals": cover["intervals"],
-               "cover_style": cover.get("style"),
+               "cover_style": cover.get("style"), "cover_bands": cover.get("bands") or [],
                "policy_id": "H3_BURNED_TEXT_COVER_V1"} if cover else {})}
     if english:
         out["language"] = a.language

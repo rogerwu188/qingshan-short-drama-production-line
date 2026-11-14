@@ -9500,7 +9500,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
     if _btc.active(read_json(p.contract, {}) or {}, episode=ctx.episode):
         cover_json = p.assembly / f"{ctx.episode}_H3_BURNED_TEXT_INTERVALS.json"
         scan_step = ctx.run([VENV, ENGINE / "tools/burned_text_cover.py", "scan", captioned_source,
-                             "--out", cover_json], name="s7_burned_text_scan")
+                             "--episode", ctx.episode, "--out", cover_json], name="s7_burned_text_scan")
         steps.append(scan_step)
         if scan_step["exit_code"] != 0 or not cover_json.is_file():
             res.steps.extend(steps)
