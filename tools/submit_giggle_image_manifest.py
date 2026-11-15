@@ -128,6 +128,42 @@ def transaction_path(transaction_dir: Path, task: dict[str, Any]) -> Path:
     return transaction_dir / f"{task['task_key']}__{fingerprint[:16]}.json"
 
 
+WRITTEN_OFF_STATE = "CHARGED_WRITTEN_OFF_BY_ORDER"
+WRITTEN_OFF_ARCHIVE_SUFFIX = ".charged_written_off.1"
+
+
+def written_off_retry_open(path: Path, row: dict[str, Any]) -> bool:
+    """True when a written-off image attempt may be followed by its ONE new attempt.
+
+    Line owner ruling A (2026-11-11): a lost response whose task id can never be recovered is written
+    off (K073, tools/write_off_charged_losses.py) and the task is submitted once more as a new attempt
+    inside the episode cap.  The video submitter got this path on 2026-11-14; the image submitter did
+    not (field E14 2026-11-15, one S5 keyframe after an HTTP 502): the task keeps its fingerprint, so
+    the written-off row refused it for good.
+
+    Same rule as submit_giggle_video_manifest_v2.written_off_retry_open: the written-off row is kept
+    verbatim beside the transaction (not ``*.json``, so no store scan reads it as a live row), and
+    that archive is what limits this to one retry -- it names the attempt that was written off, and a
+    row written off AGAIN (another attempt id / write-off time) is refused.  A run that stops before
+    its intent record uses nothing up.  No write-off time or an unreadable archive fails closed.
+    """
+    stamp = str(row.get("written_off_at") or "")
+    if row.get("state") != WRITTEN_OFF_STATE or not stamp:
+        return False
+    identity = [row.get("attempt_id"), stamp]
+    archive = path.with_name(path.name + WRITTEN_OFF_ARCHIVE_SUFFIX)
+    if archive.is_file():
+        try:
+            kept = json.loads(archive.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        return isinstance(kept, dict) and [kept.get("attempt_id"), str(kept.get("written_off_at") or "")] == identity
+    temporary = archive.with_name(archive.name + ".part")
+    temporary.write_text(json.dumps(row, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(archive)
+    return True
+
+
 def prior_submission_result(task: dict[str, Any], transaction_dir: Path) -> dict[str, Any] | None:
     path = transaction_path(transaction_dir, task)
     current_fingerprint = submission_fingerprint(task)
@@ -178,6 +214,14 @@ def prior_submission_result(task: dict[str, Any], transaction_dir: Path) -> dict
         }
     # VERIFIED_ZERO_NO_REMOTE_TASK: a lost HopsAPI response the billing usage API proved created no
     # billed task (tools/hopsapi_usage.py reconcile); a new attempt may POST.
+    if state == WRITTEN_OFF_STATE:
+        # Written off by order: one new attempt, then never again (written_off_retry_open).
+        if written_off_retry_open(path, transaction):
+            return None
+        raise DuplicateSubmissionBlocked(
+            f"{task_key} duplicate submit blocked by transaction state {state} "
+            "(the one new attempt after a write-off is already used)"
+        )
     if state not in {"NOT_CHARGED_RETRYABLE", "VERIFIED_ZERO_NO_REMOTE_TASK", "WRITTEN_OFF_UNATTRIBUTABLE_RETRYABLE"}:
         raise DuplicateSubmissionBlocked(
             f"{task_key} duplicate submit blocked by transaction state {state}"

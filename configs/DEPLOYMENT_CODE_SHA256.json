@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2460,
+  "file_count": 2461,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -6837,7 +6837,7 @@
     },
     {
       "path": "tools/submit_giggle_image_manifest.py",
-      "sha256": "379f6fe252894bd9a9ef7fd7b6edb63d1749b8bbaa6878d152f2f8ea30e7cb78"
+      "sha256": "d70bb86ce764b7b69675fc74e256cf42c89275fe526081ce1936dff13e47d5f4"
     },
     {
       "path": "tools/submit_giggle_task_manifest.py",
@@ -8468,6 +8468,10 @@
       "sha256": "f716ef5b96193c8ace9dae844a42ac603be842b35b5ba1790637c3fe7887f400"
     },
     {
+      "path": "tools/tests/test_nalu_s6_final_pass_derived_order_acceptance.py",
+      "sha256": "ed76e1ba27267cac713263f51cd13a55064421adaf1a7e5e62c6104d75cd02cb"
+    },
+    {
       "path": "tools/tests/test_nalu_s7_candidate_promotion.py",
       "sha256": "d08e1dc27014c33e8d6e1156a698de8137852430c64d7ace3dc546b5ca0856dc"
     },
@@ -9801,7 +9805,7 @@
     },
     {
       "path": "tools/write_off_charged_losses.py",
-      "sha256": "d30bc80f3b57159a7c09792abcf4fa577efcf9a5ec4af0a5d24ec00ac0057667"
+      "sha256": "db65fb004fc37bac630ce83747774778565738d134ec47b4f5dea95b4fa1e9f5"
     },
     {
       "path": "tools/writer_arc_ledger.py",
