@@ -97,6 +97,40 @@ def spoken_text(dialogue: Any) -> str:
     )
 
 
+def _spoken_chars(text: Any) -> int:
+    return len([
+        ch for ch in _clean(text)
+        if not unicodedata.category(ch).startswith(("P", "Z", "C"))
+    ])
+
+
+def _voice_over_split(contract: dict[str, Any]) -> dict[int, tuple[str, int]]:
+    """``shots`` index -> (in-video spoken text, V.O. spoken characters) for shots carrying V.O. narration.
+
+    A VOICE_ONLY_NO_PLATE narrator's line is not bound to its shot: voice_over_narration.window_failures
+    lets it run on over the following shots that carry no line.  Empty when the contract has no V.O.
+    speaker or the split is off (legacy profile), so every other contract is measured as before.
+    """
+    try:
+        from tools import voice_over_narration as _vo
+    except ImportError:  # run as a script from tools/
+        import voice_over_narration as _vo  # type: ignore
+    entities = contract.get("character_entities") or []
+    ids = _vo.voice_over_character_ids(entities)
+    if not ids:
+        return {}
+    language = _vo.contract_language(contract)
+    out: dict[int, tuple[str, int]] = {}
+    for index, shot in enumerate(contract.get("shots") or []):
+        if not isinstance(shot, dict):
+            continue
+        dialogue = _clean((shot.get("prompt_spec") or {}).get("dialogue"))
+        in_video, rows = _vo.separate_voice_over(dialogue, entities, language, vo_ids=ids)
+        if rows:
+            out[index] = (spoken_text(in_video), sum(_spoken_chars(row.get("text")) for row in rows))
+    return out
+
+
 def _shot_prose(shot: dict[str, Any]) -> str:
     spec = shot.get("prompt_spec") or {}
     action = spec.get("action") or {}
@@ -318,8 +352,22 @@ def check_dialogue_density(
             }
         )
 
+    voice_over = _voice_over_split(contract)
+    carry = 0.0  # V.O. seconds still to be heard after the shot that carries the line
     for row in timeline:
-        speech = min(len(row["spoken"]) / cps, row["seconds"]) if row["spoken"] else 0.0
+        if row["index"] in voice_over:
+            in_video, vo_chars = voice_over[row["index"]]
+            speech = min(len(in_video) / cps, row["seconds"])
+            narration = vo_chars / cps
+            heard = min(narration, row["seconds"] - speech)
+            speech += heard
+            carry = narration - heard
+        elif row["spoken"]:
+            speech = min(len(row["spoken"]) / cps, row["seconds"])
+            carry = 0.0
+        else:
+            speech = min(carry, row["seconds"]) if carry > 1e-9 else 0.0
+            carry -= speech
         speech_total += speech
         per_shot.append({"shot_id": row["shot_id"], "speech_seconds": round(speech, 2)})
         if speech > 0:

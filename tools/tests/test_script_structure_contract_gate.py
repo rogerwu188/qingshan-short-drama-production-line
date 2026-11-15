@@ -182,6 +182,52 @@ class HookTests(unittest.TestCase):
         self.assertEqual(gate.check_hook(contract)["failures"], [])
 
 
+class VoiceOverDensityTests(unittest.TestCase):
+    """A V.O. line runs on over the following silent shots (voice_over_narration window rule)."""
+
+    def contract(self):
+        contract = positive_contract()
+        contract["character_entities"].append({
+            "character_id": "CHAR-N", "canonical_name": "旁白", "aliases": [],
+            "identity_source": {"mode": "VOICE_ONLY_NO_PLATE"}})
+        for row in contract["shots"]:
+            row["prompt_spec"]["dialogue"] = ""
+        return contract
+
+    def density(self, contract, profile="CURRENT_PORTABLE"):
+        from unittest import mock
+        with mock.patch.dict("os.environ", {"NALU_POLICY_PROFILE": profile}):
+            return gate.check_dialogue_density(contract, None)["measurements"]
+
+    def test_voice_over_line_carries_into_following_silent_shots(self):
+        contract = self.contract()
+        seconds = [float(row["target_seconds"]) for row in contract["shots"]]
+        contract["shots"][0]["prompt_spec"]["dialogue"] = "旁白：" + "台" * int((seconds[0] + 2.0) * 4)
+        measured = self.density(contract)
+        self.assertEqual(measured["speech_seconds_estimate"], seconds[0] + 2.0)
+        self.assertEqual(measured["per_shot_speech"][0]["speech_seconds"], seconds[0])
+        self.assertEqual(measured["per_shot_speech"][1]["speech_seconds"], 2.0)
+        self.assertEqual(measured["per_shot_speech"][2]["speech_seconds"], 0.0)
+
+    def test_carry_stops_at_the_next_spoken_shot_and_at_episode_end(self):
+        contract = self.contract()
+        seconds = [float(row["target_seconds"]) for row in contract["shots"]]
+        contract["shots"][0]["prompt_spec"]["dialogue"] = "旁白：" + "台" * 400
+        contract["shots"][2]["prompt_spec"]["dialogue"] = "甲：台台台台"
+        measured = self.density(contract)
+        self.assertEqual(measured["speech_seconds_estimate"], seconds[0] + seconds[1] + 1.0)
+        contract["shots"][2]["prompt_spec"]["dialogue"] = ""
+        self.assertEqual(self.density(contract)["coverage"], 1.0)
+
+    def test_in_video_line_and_legacy_profile_stay_capped_at_their_shot(self):
+        contract = self.contract()
+        seconds = float(contract["shots"][0]["target_seconds"])
+        contract["shots"][0]["prompt_spec"]["dialogue"] = "甲：" + "台" * 400
+        self.assertEqual(self.density(contract)["speech_seconds_estimate"], seconds)
+        contract["shots"][0]["prompt_spec"]["dialogue"] = "旁白：" + "台" * 400
+        self.assertEqual(self.density(contract, "LEGACY_EPISODE_COMPAT")["speech_seconds_estimate"], seconds)
+
+
 class DialogueDensityTests(unittest.TestCase):
     def test_silent_run_inside_action_beat_uses_action_limit(self):
         contract = positive_contract()
