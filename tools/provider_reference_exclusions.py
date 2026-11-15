@@ -26,6 +26,12 @@ Semantics (file level): every binding whose file matches a declaration keeps its
 prompt's reference-use block are compiled from the transmitted bindings only.  Character identity plates
 (face / supplemental face views) can never be excluded: that is refused with
 ``PROVIDER_REFERENCE_EXCLUSION_IDENTITY_REFUSED``.  Without a declaration file nothing changes.
+
+The episode global space map and the shot's subspace map are mandatory transport
+(tools/global_space_layout_gate.py refuses a task that withholds either).  A declaration that selects a
+file serving one of those roles is therefore NOT applied to that task: the file stays transmitted and the
+bindings are left exactly as without a declaration (device ...1342 E07 S5, 2026-11-15: the isolation
+helper declared the episode map and a subspace map, and the layout gate then refused every S5 task).
 """
 
 from __future__ import annotations
@@ -41,6 +47,8 @@ FILE_NAME = "provider_reference_exclusions.json"
 IDENTITY_ROLES = {"character", "character_reference", "identity"}
 IDENTITY_KINDS = {"CHARACTER_IDENTITY_PLATE"}
 PLACE_MAP_ADVISORY = "PLACE_MAP_TRANSPORT_EXCLUDED"
+# tools/global_space_layout_gate.py: only the place map (role global_space_map) may be withheld.
+MANDATORY_SPATIAL_ROLES = {"episode_global_space_map", "subspace_layout"}
 SHA_RE = re.compile(r"[0-9a-f]{64}")
 
 
@@ -51,6 +59,10 @@ class ExclusionError(ValueError):
 def is_identity_binding(row: dict[str, Any]) -> bool:
     role = str(row.get("role") or "").lower()
     return role in IDENTITY_ROLES or str(row.get("kind") or "") in IDENTITY_KINDS
+
+
+def is_mandatory_spatial_binding(row: dict[str, Any]) -> bool:
+    return str(row.get("role") or "") in MANDATORY_SPATIAL_ROLES
 
 
 def is_transmitted(row: dict[str, Any]) -> bool:
@@ -155,7 +167,9 @@ def apply_exclusions(bindings: list[dict[str, Any]], declaration: dict[str, Any]
 
     File level: a declaration that selects one binding excludes the FILE, so every binding sharing that
     path is marked too (otherwise the file would still be sent).  Any identity binding on an excluded
-    file raises ``ExclusionError`` (PROVIDER_REFERENCE_EXCLUSION_IDENTITY_REFUSED)."""
+    file raises ``ExclusionError`` (PROVIDER_REFERENCE_EXCLUSION_IDENTITY_REFUSED).  A file that serves a
+    mandatory spatial role (episode global space map / subspace map) is never withheld: a declaration
+    selecting it is not applied and every binding on that file stays transmitted."""
     rows = [dict(row) for row in bindings]
     if not declaration:
         return rows, []
@@ -165,6 +179,9 @@ def apply_exclusions(bindings: list[dict[str, Any]], declaration: dict[str, Any]
         for row in rows:
             if _entry_matches(entry, row):
                 excluded_paths.setdefault(str(row.get("path") or ""), entry)
+    mandatory_paths = {str(row.get("path") or "") for row in rows if is_mandatory_spatial_binding(row)}
+    for path in mandatory_paths:
+        excluded_paths.pop(path, None)
     if not excluded_paths:
         return rows, []
     source = declaration.get("_source_path") or FILE_NAME
@@ -177,7 +194,7 @@ def apply_exclusions(bindings: list[dict[str, Any]], declaration: dict[str, Any]
             raise ExclusionError(
                 f"PROVIDER_REFERENCE_EXCLUSION_IDENTITY_REFUSED:{task_key}:{row.get('role')}/{row.get('entity_id')}: "
                 "a character identity plate can never be withheld from the provider; remove this entry from "
-                f"{source} (only place/subspace/global maps, scene, wardrobe and prop plates may be excluded)")
+                f"{source} (only the place map, scene, wardrobe and prop plates may be excluded)")
         row["transmitted"] = False
         row["transport_excluded_reason"] = str(entry.get("reason"))
         row["transport_exclusion_ref"] = str(source)

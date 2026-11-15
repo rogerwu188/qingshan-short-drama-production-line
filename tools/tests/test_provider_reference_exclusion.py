@@ -106,8 +106,22 @@ class ApplyExclusions(Fixture):
         self.assertEqual([r["role"] for r in rows if r.get("transmitted") is False], ["global_space_map"])
 
     def test_file_level_exclusion_covers_shared_path(self):
-        rows, _ = pre.apply_exclusions(self.bindings(), declaration(entry(sha256=self.subspace["sha256"])))
-        self.assertEqual({r["role"] for r in rows if r.get("transmitted") is False}, {"subspace_layout", "scene"})
+        rows = self.bindings() + [{"role": "scene", "entity_id": "LOC-HUT-2", **self.prop}]
+        rows, _ = pre.apply_exclusions(rows, declaration(entry(asset_id="PROP-BUN")))
+        self.assertEqual({r["role"] for r in rows if r.get("transmitted") is False}, {"prop", "scene"})
+
+    def test_mandatory_spatial_maps_are_never_withheld(self):
+        # device ...1342 E07 S5 (2026-11-15): the declaration named the episode map and a subspace map
+        doc = declaration(entry(sha256=self.episode_map["sha256"]), entry(path=self.subspace["path"]),
+                          entry(asset_id="GSM-NALU-HUT"))
+        rows, applied = pre.apply_exclusions(self.bindings(), doc, task_key="T")
+        self.assertEqual([r["role"] for r in rows if r.get("transmitted") is False], ["global_space_map"])
+        self.assertEqual([a["role"] for a in applied], ["global_space_map"])
+        untouched = [r for r in rows if r["role"] != "global_space_map"]
+        self.assertEqual(untouched, [r for r in self.bindings() if r["role"] != "global_space_map"])
+        only_mandatory = declaration(entry(sha256=self.episode_map["sha256"]), entry(sha256=self.subspace["sha256"]))
+        rows, applied = pre.apply_exclusions(self.bindings(), only_mandatory)
+        self.assertEqual((rows, applied), (self.bindings(), []))
 
     def test_identity_plate_exclusion_is_refused(self):
         with self.assertRaisesRegex(pre.ExclusionError, "IDENTITY_REFUSED"):
@@ -196,12 +210,21 @@ class LayoutGate(Fixture):
         self.assertEqual([a["code"] for a in report["advisories"]], [pre.PLACE_MAP_ADVISORY])
 
     def test_global_or_subspace_excluded_fails(self):
-        for selector, reason in ((self.episode_map["sha256"], "episode_global_space_map_transport_excluded_not_allowed"),
-                                 (self.subspace["sha256"], "subspace_layout_transport_excluded_not_allowed")):
-            rows, _ = pre.apply_exclusions(self.bindings(), declaration(entry(sha256=selector)))
+        for index, reason in ((0, "episode_global_space_map_transport_excluded_not_allowed"),
+                              (2, "subspace_layout_transport_excluded_not_allowed")):
+            rows = copy.deepcopy(self.bindings())
+            rows[index].update({"transmitted": False, "transport_excluded_reason": "X"})
             report = self.run_gate(rows)
             self.assertEqual(report["status"], "FAIL")
             self.assertIn(reason, [f.get("reason") for f in report["failures"]])
+
+    def test_declared_global_and_subspace_stay_transmitted_and_pass(self):
+        doc = declaration(entry(sha256=self.episode_map["sha256"]), entry(sha256=self.subspace["sha256"]),
+                          entry(asset_id="GSM-NALU-HUT"))
+        rows, _ = pre.apply_exclusions(self.bindings(), doc)
+        report = self.run_gate(rows)
+        self.assertEqual(report["status"], "PASS", report["failures"])
+        self.assertEqual([a["code"] for a in report["advisories"]], [pre.PLACE_MAP_ADVISORY])
 
     def test_missing_global_still_fails(self):
         rows = [r for r in self.bindings() if r["role"] != "episode_global_space_map"]
@@ -338,6 +361,26 @@ class IsolationHelper(Fixture):
         # the declaration then drives the builder path
         rows, applied = pre.apply_exclusions(self.bindings(), doc)
         self.assertEqual([a["role"] for a in applied], ["global_space_map"])
+
+    def test_mandatory_spatial_rejection_is_reported_not_declared(self):
+        # device ...1342 E07 S5: episode map, place map and subspace map all 424 while the wardrobe passes
+        transport = FakeTransport(rejected={self.episode_map["path"], self.place_map["path"], self.subspace["path"]})
+        report, declaration_path, _ = self.run_isolate(transport)
+        self.assertEqual(report["verdict"], "REFERENCE_ISOLATED")
+        self.assertEqual({row["path"] for row in report["mandatory_spatial_rejected"]},
+                         {self.episode_map["path"], self.subspace["path"]})
+        doc = pre.load_declaration(declaration_path, episode="E01")
+        self.assertEqual([e["sha256"] for e in doc["exclusions"]], [self.place_map["sha256"]])
+        rows, _ = pre.apply_exclusions(self.bindings(), doc)
+        self.assertEqual([r["role"] for r in rows if r.get("transmitted") is False], ["global_space_map"])
+
+    def test_only_mandatory_spatial_rejected_declares_nothing(self):
+        transport = FakeTransport(rejected={self.episode_map["path"]})
+        report, declaration_path, _ = self.run_isolate(transport)
+        self.assertEqual(report["verdict"], "MANDATORY_SPATIAL_REFERENCE_REJECTED")
+        self.assertEqual(report["declare"], [])
+        self.assertIsNone(report["declaration"])
+        self.assertFalse(declaration_path.exists())
 
     def test_outage_declares_nothing(self):
         transport = FakeTransport(outage=True)

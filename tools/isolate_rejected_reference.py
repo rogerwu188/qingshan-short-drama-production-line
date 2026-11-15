@@ -23,6 +23,12 @@ reference passes is written to ``$NALU_RUNTIME_ROOT/preproduction/<EP>/provider_
 declaration); when none fails the rejection is the prompt, not a reference (no declaration).  Identity
 plates are never probed or declared.
 
+The episode global space map and the shot's subspace map are probed but never declared: they are mandatory
+transport (tools/global_space_layout_gate.py), so a declaration would only make the layout gate refuse
+every S5 task (device ...1342 E07 S5, 2026-11-15).  They are reported under ``mandatory_spatial_rejected``
+(verdict ``MANDATORY_SPATIAL_REFERENCE_REJECTED`` when nothing else is declared); the file keeps being
+sent, and the way out is a new render of that map or a later retry, not an exclusion.
+
 Without ``--paid`` it only prints the plan (references, probe count, planned credits) -- no network.
 """
 
@@ -259,6 +265,17 @@ def isolate(*, episode: str, task: dict[str, Any], transaction_dir: Path, declar
     decision = decide(results, tries)
     entries = []
     by_path = {ref["path"]: ref for ref in refs}
+    mandatory = [path for path in decision["declare"]
+                 if pre.MANDATORY_SPATIAL_ROLES & {str(role) for role in by_path[path].get("roles") or []}]
+    if mandatory:
+        decision["declare"] = [path for path in decision["declare"] if path not in mandatory]
+        decision["mandatory_spatial_rejected"] = [
+            {"path": path, "sha256": by_path[path].get("sha256"), "roles": by_path[path].get("roles"),
+             "probe_transactions": [row.get("transaction") for row in results[path]],
+             "note": "mandatory spatial transport: not declared, still transmitted; re-render this map or retry later"}
+            for path in mandatory]
+        if not decision["declare"]:
+            decision["verdict"] = "MANDATORY_SPATIAL_REFERENCE_REJECTED"
     for path in decision["declare"]:
         ref = by_path[path]
         rows = results[path]
@@ -339,7 +356,8 @@ def main(argv: list[str] | None = None) -> int:
     report["zero_cost_424_attempts"] = rejections
     out = args.out or transaction_dir.parent.parent / "reference_isolation" / episode / f"{args.task_key}.json"
     atomic_json(out, report)
-    print(json.dumps({k: report[k] for k in ("verdict", "declaration", "task_key")}, ensure_ascii=False))
+    print(json.dumps({k: report.get(k) for k in ("verdict", "declaration", "task_key", "mandatory_spatial_rejected")
+                      if k != "mandatory_spatial_rejected" or report.get(k)}, ensure_ascii=False))
     return 0
 
 
