@@ -60,3 +60,31 @@ def resolve_source_interval(row, source, planned_duration):
         "timeline_delta_seconds": round(end - start - planned_duration, 6),
         "interval_validated": True, "applied_to_project": False, "render_verified": False,
     }
+
+
+def yield_to_performance_cut(payload, performance_cut):
+    """Drop the constraint rows of units that carry no on-screen scripted line.
+
+    A measured edit trims a unit to the speech the S6 dialogue QA heard in it.  That is only right
+    when the speech is the unit's scripted on-screen line.  In a unit with no on-screen line (the
+    performance cut's kind SILENT: ambience, or a unit that only carries V.O. narration) whatever
+    was heard is unscripted speech or the video model voicing the narration, which the performance
+    cut removes -- and when the unit carries V.O. it keeps the unit long enough for that narration
+    (VO_HOLD).  The measured interval used to win in the AgentCut build: E13-VU-013 held 0-4.796 s
+    for a 4.296 s narration, the measured in-point 3.74 s turned that into a 1.056 s clip, and S7
+    stopped on VOICE_OVER_OVERLAPS_DIALOGUE with no way out.  Such a unit follows the performance
+    cut alone; the dropped rows stay in the payload under ``yielded_to_performance_cut``.
+
+    Returns (payload, dropped unit ids).  ``performance_cut`` is the <EP>_PERFORMANCE_CUT.json report.
+    """
+    silent = {str(row.get("unit_id")) for row in (performance_cut or {}).get("units") or []
+              if row.get("kind") == "SILENT"}
+    rows = list((payload or {}).get("units") or [])
+    dropped = [row for row in rows if str(row.get("unit_id")) in silent]
+    if not dropped:
+        return payload, []
+    out = dict(payload)
+    out["units"] = [row for row in rows if str(row.get("unit_id")) not in silent]
+    out["yielded_to_performance_cut"] = list(payload.get("yielded_to_performance_cut") or []) + [
+        dict(row, reason="NO_ON_SCREEN_SCRIPTED_LINE") for row in dropped]
+    return out, [str(row["unit_id"]) for row in dropped]
