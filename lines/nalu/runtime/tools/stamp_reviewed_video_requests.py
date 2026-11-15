@@ -42,10 +42,15 @@ def resolve(value: str) -> Path:
 
 
 
-def _every_bound_take_has_another_prompt(transaction_dir: Path, task_key: str, prompt_sha256: str) -> bool:
-    """True only when every provider-bound transaction of this task records a prompt_sha256 and none of
-    them is this prompt.  A take without a recorded prompt sha is unknown and keeps the refusal (the
-    duplicate guard stays fail-closed); a take bound to this same prompt is an identical-prompt reroll."""
+def _every_bound_take_is_another_request(transaction_dir: Path, task_key: str, prompt_sha256: str,
+                                         reference_sha256: list[str] | None = None) -> bool:
+    """True only when every provider-bound transaction of this task was a different request: it records a
+    prompt_sha256 that is not this prompt, or it records this prompt with a different reference set (a new
+    start frame: the engine's Q2 face-count / speaker-framing redo regenerates the unit's own keyframe and
+    keeps the reviewed prompt).  A take without a recorded prompt sha is unknown and keeps the refusal (the
+    duplicate guard stays fail-closed), and so does a same-prompt take whose references are unrecorded or
+    equal to the current ones: that is an identical-request reroll (K130)."""
+    current_refs = [str(v) for v in (reference_sha256 or [])]
     seen = False
     for path in sorted(Path(transaction_dir).glob(f"{task_key}__*.json")):
         try:
@@ -56,8 +61,12 @@ def _every_bound_take_has_another_prompt(transaction_dir: Path, task_key: str, p
             continue
         seen = True
         bound = str(row.get("prompt_sha256") or "")
-        if not bound or bound == prompt_sha256:
+        if not bound:
             return False
+        if bound == prompt_sha256:
+            bound_refs = [str(v) for v in (row.get("reference_sha256") or [])]
+            if not bound_refs or not current_refs or bound_refs == current_refs:
+                return False
     return seen
 
 def main(argv=None) -> int:
@@ -124,7 +133,12 @@ def main(argv=None) -> int:
             # EVERY bound take's prompt_sha256; a take bound to this same prompt keeps the refusal
             # (no identical-prompt reroll, K130).
             others = prd.bound_under_other_fingerprint(transaction_dir, key, task_fingerprint(task))
-            if others and _every_bound_take_has_another_prompt(transaction_dir, key, task_sha):
+            # Q2 auto-redo gap (field device ...1324 E16 VU-016, 2026-11-15): a face-count redo keeps the
+            # reviewed prompt and shoots from a regenerated own keyframe, so the prompt sha equals the bound
+            # take's and the single-unit redo wave was refused before any POST.  A different recorded
+            # reference set is a changed request, not a reroll.
+            if others and _every_bound_take_is_another_request(
+                    transaction_dir, key, task_sha, task.get("reference_sha256")):
                 task["supersedes_submission_fingerprints"] = others
                 out["supersedes_declared"][key] = others
 

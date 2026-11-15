@@ -115,5 +115,32 @@ class VideoStampTests(unittest.TestCase):
         self.assertNotIn("supersedes_submission_fingerprints", out["VU-002"])
 
 
+    def test_same_prompt_redo_from_a_new_start_frame_declares_the_earlier_take(self):
+        """Field device ...1324 E16 VU-016 (2026-11-15): the engine's Q2 face-count redo regenerated the unit's
+        own keyframe and kept the reviewed prompt; the redo wave was refused BOUND_UNDER_OTHER_FINGERPRINT.
+        A bound take with this prompt but a different recorded reference set is superseded; the same
+        references, or a take that recorded none, is an identical-request reroll and is not."""
+        store = self.tmp / "workflow/tasks/giggle_video_submit_transactions/E99"
+        store.mkdir(parents=True)
+        for unit, refs in (("VU-001", ["old-frame"]), ("VU-002", ["new-frame"]), ("VU-003", None)):
+            row = {"submission_fingerprint": f"old-{unit}", "state": "SUBMITTED_TASK_ID_BOUND", "task_id": "t",
+                   "prompt_sha256": _sha("reviewed")}
+            if refs is not None:
+                row["reference_sha256"] = refs
+            (store / f"{unit}-VIDEO-V1__old.json").write_text(json.dumps(row), encoding="utf-8")
+        tasks = []
+        for unit in ("VU-001", "VU-002", "VU-003"):
+            task = self._task(unit, "reviewed")
+            task["reference_sha256"] = ["new-frame"]
+            tasks.append(task)
+        rows = [{"unit_id": unit, "status": "UNCHANGED", "sha256": _sha("reviewed")}
+                for unit in ("VU-001", "VU-002", "VU-003")]
+        rc, out = self._run(tasks, rows)
+        self.assertEqual(rc, 0)
+        self.assertEqual(out["VU-001"].get("supersedes_submission_fingerprints"), ["old-VU-001"])
+        self.assertNotIn("supersedes_submission_fingerprints", out["VU-002"])
+        self.assertNotIn("supersedes_submission_fingerprints", out["VU-003"])
+
+
 if __name__ == "__main__":
     unittest.main()
