@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2469,
+  "file_count": 2470,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -6569,7 +6569,7 @@
     },
     {
       "path": "tools/script_structure_contract_gate.py",
-      "sha256": "2503d84859df3f05bf22d62891b263fc944edfff7ccd64fab00949da1643ee99"
+      "sha256": "cdeed6cf79b8d1ec850c400d3e36c8aa9085c05891c7cc72407d4cb87bae1639"
     },
     {
       "path": "tools/sd2_background_ecology_contract.py",
@@ -8476,6 +8476,10 @@
       "sha256": "7f7816b2f0fa414dc93131863675b08aecb0e8ab6b1a4f32a7d9153c3302b2aa"
     },
     {
+      "path": "tools/tests/test_nalu_s5_harvest_bound_after_failed_submit.py",
+      "sha256": "e60605aa697b0bb443195a58d0e818a4017d365691cfb2ba0dfaf26f52d3868b"
+    },
+    {
       "path": "tools/tests/test_nalu_s5_keyframe_needs_post.py",
       "sha256": "2de618ae37c4f92df8dd7bb1493afcf017abe1399fd1d0cb22b419e8bcce11da"
     },
@@ -8981,7 +8985,7 @@
     },
     {
       "path": "tools/tests/test_script_structure_contract_gate.py",
-      "sha256": "9cd8673261d0a056e7898be572df3b060ef9ca2f3bca1588f3e335df31a96e78"
+      "sha256": "a2f440ee888d7c6e6e05aa1c83f2be8c7c6c3fbfd0215dad731cbc5620240a51"
     },
     {
       "path": "tools/tests/test_sd2_background_ecology_contract.py",
