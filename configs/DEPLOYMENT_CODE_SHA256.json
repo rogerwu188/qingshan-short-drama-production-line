@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2464,
+  "file_count": 2465,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -5421,7 +5421,7 @@
     },
     {
       "path": "tools/isolate_rejected_reference.py",
-      "sha256": "dbaeed2d29ccaf06680fc66fed4044596826505dd377420150d95d749dead3b4"
+      "sha256": "4ccbba91d847f5fec00924810b7be00c17f18d1945615b000c2e5e038128c028"
     },
     {
       "path": "tools/keyframe_entry_scene_projection.py",
@@ -5821,7 +5821,7 @@
     },
     {
       "path": "tools/provider_reference_exclusions.py",
-      "sha256": "4f3c891b4377a843f283e07ff210881a0ce43fbe20a55aec6bb0e887ab7c6a63"
+      "sha256": "35bbe52ce1aec3ff29d791d3c15b05a846626311e2d37575e00f577926293cec"
     },
     {
       "path": "tools/provider_request_digest.py",
@@ -8132,6 +8132,10 @@
       "sha256": "7fa2f30f890277fad31078271ac32471e2972d52b8fecdc57c7525a4780ec785"
     },
     {
+      "path": "tools/tests/test_image_harvest_unreachable_after_key_change.py",
+      "sha256": "611b64fa3b87637677ae9c7c304146550c52bd4e3a40a60a0a270110032a5bb4"
+    },
+    {
       "path": "tools/tests/test_image_model_adapter_concealed_identity.py",
       "sha256": "3129d42eaeef1976985521cb77a4afbb3dcb8279777407bc0091f2c7bbd39bb7"
     },
@@ -8705,7 +8709,7 @@
     },
     {
       "path": "tools/tests/test_provider_reference_exclusion.py",
-      "sha256": "fe23e76f4f5f406b85629edc1e09f9a693d3bb87b959d4071b2f05e8287a7c6e"
+      "sha256": "77ead9a736157e2c0acbb3a08aece12ae1f7e767ee74d5424fbc1f6a09c03040"
     },
     {
       "path": "tools/tests/test_provider_request_binding.py",
