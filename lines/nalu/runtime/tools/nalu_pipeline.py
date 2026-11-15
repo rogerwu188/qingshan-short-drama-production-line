@@ -5900,6 +5900,44 @@ def derived_units_pending_q1(ctx: Ctx) -> list[tuple[str, str]]:
     return out
 
 
+def accept_done_derived_start_frames(ctx: Ctx) -> dict[str, Any]:
+    """S6 final pass: apply the line owner's recorded acceptance to a tail-sourced start frame whose clip
+    is ALREADY on disk.
+
+    The order overlays (apply_roger_q1_acceptance, apply_derived_start_frame_acceptance) ran only inside
+    the wave loop, for units still waiting to be submitted.  Once every clip existed the loop was skipped
+    and the full compile's video preflight read the unit's Q1 admission as FAIL_NOT_ADMITTED, so the
+    episode stopped on INPUT_COMPLETENESS_FAILED:SEMANTIC_ANCHOR_EVIDENCE_INVALID with a valid sha-bound
+    order in the box and no step left that reads it (device 1101 E10 VU-020, 2026-11-14, orders seq
+    195/196).
+
+    Free and never a review request: the Q1 admission is rebuilt from the reviewer's existing answers for
+    this exact still (unchanged FAIL), then the same two overlays decide.  No valid answer for the bytes
+    on disk, or no matching order: nothing changes and the preflight reports as before."""
+    pending = [(uid, shot) for uid, shot in derived_units_pending_q1(ctx)
+               if (ctx.p.video_media / f"{uid}.mp4").is_file()]
+    if not pending:
+        return {}
+    out: dict[str, Any] = {"units": [uid for uid, _ in pending]}
+    review_path, _covered, unanswered = merge_keyframe_answers(ctx, [shot for _, shot in pending])
+    if review_path is None:
+        out.update({"status": "NO_VALID_REVIEW_FOR_STILL_ON_DISK", "unanswered": unanswered})
+        return out
+    build_step = qa_run(ctx, [KEYFRAME_Q1, "build", "--episode", ctx.episode, "--review", review_path],
+                        name="s6_q1_build_admission_derived_done")
+    out["build_exit_code"] = build_step.get("exit_code")
+    index_path = Path(str((qa_json(build_step) or {}).get("out") or ""))
+    index = read_json(index_path, {}) or {}
+    if not index:
+        out["status"] = "Q1_BUILD_WROTE_NO_INDEX"
+        return out
+    out["q1_gate_order_acceptance"] = apply_roger_q1_acceptance(ctx, index, index_path)
+    out["start_frame_order_acceptance"] = apply_derived_start_frame_acceptance(ctx, index, index_path)
+    still = [uid for uid, _ in derived_units_pending_q1(ctx) if (ctx.p.video_media / f"{uid}.mp4").is_file()]
+    out.update({"still_not_admitted": still, "status": "ADMITTED" if not still else "NOT_ADMITTED"})
+    return out
+
+
 def stage_s6(ctx: Ctx) -> StageResult:
     """Rolling-wave video stage (2026-09-13): wave N = units whose video is not yet on disk
     and whose predecessor tail (when the anchor plan demands one) has been extracted.  Each
@@ -6261,7 +6299,13 @@ def stage_s6(ctx: Ctx) -> StageResult:
     ctx.say("-- S6 final pass: all unit videos on disk; full compile + post-generation QA")
     # final pass = every unit with its real predecessor tail bound (the wave block of the builder
     # binds tails only for listed units), submit step SKIPPED: nothing may be POSTed here.
+    done_derived = accept_done_derived_start_frames(ctx)
+    if done_derived:
+        ctx.say(f"-- S6 final pass: start frames of finished units re-checked against line-owner orders: "
+                f"{done_derived.get('status')} {done_derived.get('units')}")
     result = _stage_s6_body(ctx, ready_units=[uid for uid, _, _ in deps], run_qa=True, final_pass=True)
+    if done_derived:
+        result.details["done_derived_start_frame_acceptance"] = done_derived
     # CAMERA_GRAMMAR_V1 engine redo: the Q2 sub-stage parked clips for their one controlled redo; run the wave
     # loop again in this same pass (own keyframe, single-unit wave) instead of waiting for an operator decision
     if (result.details.get("q2_admission") or {}).get("q2_auto_redo_parked") and not getattr(ctx, "_q2_auto_redo_reentered", False):

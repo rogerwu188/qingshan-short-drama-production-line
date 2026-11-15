@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2459,
+  "file_count": 2460,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -781,7 +781,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "00af0126b5dec278f811349ce3debc9284efac8705ad7a64da674c2a78851d5d"
+      "sha256": "43837a69fa7e876379f257800c312a534905d39f3344520cf2917cbcf0b5fdbe"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -7322,6 +7322,10 @@
     {
       "path": "tools/tests/test_burned_text_cover_follows_text.py",
       "sha256": "2eedb9e6242ea6cd95c8a6f217b05bdd62dd72e83b305ac4a5206a0fc43b3350"
+    },
+    {
+      "path": "tools/tests/test_burned_text_cover_order_acceptance.py",
+      "sha256": "0d2093e91e05ddbf830af3da2b326bcab024cd48e471bc0cb2bcd2f2f79b9758"
     },
     {
       "path": "tools/tests/test_burnin_orphan_dialogue_line.py",
