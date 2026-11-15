@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2466,
+  "file_count": 2468,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -781,7 +781,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "3fc6c700332802805ecc476d62cc7721f8c7b61cbeeeb0878e1bb3aafae2e7e9"
+      "sha256": "d27b42554cca082c649422b76e492fc10b1da2ec01697447ef6fb5394aaf1312"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -8452,6 +8452,10 @@
       "sha256": "87847922ecf74298bf7f806e8b98f6dbe4c04407c08d759eb5c509289fe3dbf6"
     },
     {
+      "path": "tools/tests/test_nalu_redo_wave_stale_tail.py",
+      "sha256": "6a01ae6ae30a0830c9137dceb0868383ade8b26672cc9c08b5d0433c8d36fef4"
+    },
+    {
       "path": "tools/tests/test_nalu_release_unposted_waves.py",
       "sha256": "7126c6c58f681607a923e0f9e24b07986a95ae2e78518aac15b38ca5bb592541"
     },
@@ -8686,6 +8690,10 @@
     {
       "path": "tools/tests/test_prompt_batch_qa_sheet_identity.py",
       "sha256": "e7f6324705cf3d486397dd07cee77ceb75feb003bde88ebde1c9752c395e7f65"
+    },
+    {
+      "path": "tools/tests/test_prompt_batch_register_monologue_reuse.py",
+      "sha256": "97849de9331c7c5eecb5daedd8037eb0c919efd76431fde7af27238356faa4bb"
     },
     {
       "path": "tools/tests/test_prompt_batch_register_no_write_on_problem.py",
