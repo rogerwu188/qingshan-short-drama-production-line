@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2462,
+  "file_count": 2463,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -5309,7 +5309,7 @@
     },
     {
       "path": "tools/hopsapi_video_client.py",
-      "sha256": "ed539d7ca49b372ae74d698adf46693605951b31c26fa0312bba669a8c3e7edc"
+      "sha256": "06c7e87060c929ebe730bd2d6d8dbff0bba8a2c55685e766f7fbf8e50f82bdd8"
     },
     {
       "path": "tools/hotfix_e16_expression_arcs.py",
@@ -5729,7 +5729,7 @@
     },
     {
       "path": "tools/poll_giggle_submit_report.py",
-      "sha256": "7e31387d7f9834514797c7255b60087df00142002569d24e2e63d9eb28415240"
+      "sha256": "0c79ce5f2226d1358bea254199eeebbe7bbe9f7b16ebe03aabe22e9362427e83"
     },
     {
       "path": "tools/portable_runtime.py",
@@ -8286,6 +8286,10 @@
     {
       "path": "tools/tests/test_measured_edit_recall_guard.py",
       "sha256": "85a3d21426bd28e95eae6ceebd95ca84089cd9a8203ed394efefd2b09481a2ed"
+    },
+    {
+      "path": "tools/tests/test_measured_edit_yields_to_performance_cut.py",
+      "sha256": "4e793d28574206588b26a645c7c97928cff3e952f290a2b07f5494a8e8540cef"
     },
     {
       "path": "tools/tests/test_mechanical_default_gate.py",

@@ -683,6 +683,78 @@ def record_settlement(transaction: Path, task_id: str, status: dict[str, Any], *
     return row
 
 
+#: Same state tools/hopsapi_usage.py writes for an unattributable lost create: counted by the budget ledger at
+#: ``written_off_credits`` (nalu_budget_ledger.scan_hopsapi_spend), not live (tools/video_live_binding), and the
+#: submitter may POST a new attempt (submit_giggle_video_manifest_v2.prior_bound).
+UNREACHABLE_WRITEOFF_STATE = "WRITTEN_OFF_UNATTRIBUTABLE_RETRYABLE"
+UNREACHABLE_FALLBACK_CREDITS = 15.0
+
+
+def write_off_task_unreachable_after_key_change(transaction: Path, task_id: str, *, now: str,
+                                                error: str = "") -> dict[str, Any] | None:
+    """A bound task the provider answers ``404 Task not found`` for, created under ANOTHER key.
+
+    Field E09 2026-11-15 (and E13 the same day): the fleet's HopsAPI key was replaced by one of a
+    different account while tasks were rendering.  The new key can never see those tasks, so the poll
+    raised on the 404, every re-entry found the wave "live-bound" and polled again, and the unit had no
+    way forward.  The old account still renders and bills the task; the clip is unrecoverable here.
+
+    Written off only on proof, all checked under the transaction lock:
+
+    * the row is still ``SUBMITTED_TASK_ID_BOUND`` to exactly this task id, unsettled and not terminal;
+    * its create intent recorded a key fingerprint, a key is set now, and the two differ.
+
+    A 404 under the SAME key (or a row without a recorded fingerprint) is never written off: None is
+    returned and the caller keeps failing as before.  The row becomes ``WRITTEN_OFF_UNATTRIBUTABLE_RETRYABLE``
+    with the planned price as ``written_off_credits`` (line owner ruling A, 2026-11-11: counted as spend, one
+    new attempt may POST); the unreachable id stays on the row and its H3 lease is released."""
+    import fcntl  # noqa: PLC0415
+    transaction = Path(transaction)
+    current_key = key_fingerprint()
+    if not transaction.is_file() or not current_key:
+        return None
+    lease_to_release: dict[str, Any] | None = None
+    with transaction.with_suffix(".lock").open("a") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            row = json.loads(transaction.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        created_key = str(row.get("hopsapi_key_fingerprint") or "")
+        if not isinstance(row, dict) or str(row.get("task_id") or "") != str(task_id) \
+                or row.get("state") != "SUBMITTED_TASK_ID_BOUND" or not created_key or created_key == current_key \
+                or row.get("remote_terminal_state") or row.get("provider_cost_credits") is not None:
+            return None
+        planned = row.get("estimated_credits")
+        credits = (float(planned) if isinstance(planned, (int, float)) and not isinstance(planned, bool)
+                   and planned > 0 else UNREACHABLE_FALLBACK_CREDITS)
+        row.setdefault("state_history", []).append({"state": row.get("state"), "until": now})
+        row.update({
+            "state": UNREACHABLE_WRITEOFF_STATE, "retry_guard": "RETRY_ALLOWED_NEW_ATTEMPT",
+            "credit_status": "ASSUMED_CHARGED_TASK_UNREACHABLE_AFTER_KEY_CHANGE",
+            "written_off_credits": credits, "written_off_at": now,
+            "unreachable_task": {"task_id": str(task_id), "created_key_fingerprint": created_key,
+                                 "queried_key_fingerprint": current_key, "observed_at": now,
+                                 "error": str(error)[:300]},
+            "operator_note": ("the provider answers 404 for this task under the current key and the task was "
+                              "created under another key: assumed charged at the planned price (counted as "
+                              "spend), a new attempt may POST (line owner ruling A 2026-11-11)")})
+        lease = row.get("h3_lease")
+        if isinstance(lease, dict) and lease.get("lease_id") and not lease.get("released_at"):
+            lease.update({"released_at": now, "release_reason": "failed"})
+            lease_to_release = dict(lease)
+        temporary = transaction.with_suffix(transaction.suffix + ".part")
+        temporary.write_text(json.dumps(row, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(transaction)
+    if lease_to_release is not None:
+        try:
+            import h3_fleet_queue  # noqa: PLC0415
+        except ModuleNotFoundError:
+            from tools import h3_fleet_queue  # noqa: PLC0415
+        h3_fleet_queue.release(lease_to_release, "failed")
+    return row
+
+
 def is_hopsapi_task_id(task_id: Any) -> bool:
     return str(task_id or "").startswith("tsk_")
 
