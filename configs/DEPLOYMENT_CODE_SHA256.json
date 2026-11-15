@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2470,
+  "file_count": 2471,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -1001,7 +1001,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/fleet_sync.py",
-      "sha256": "8354b0ed31416b5f43d23b7ec75eee993152ed53132af993e25b8e2ece8ce62d"
+      "sha256": "6ec5f36df28a13595112a03e163932714c62e1c41d0cfc51f487103663c46aa0"
     },
     {
       "path": "skills/nalu-claude-code/scripts/knowledge_status.py",
@@ -7897,7 +7897,7 @@
     },
     {
       "path": "tools/tests/test_fleet_sync.py",
-      "sha256": "733e7805b670e21458d27b7ad643d3cc5506f902ebe7061ac40e843616e5bc09"
+      "sha256": "43aa7c17aa8e6a2338fea2cf5f993bba54e752e26807d781960a760c55b1d79c"
     },
     {
       "path": "tools/tests/test_frame_cadence_audit.py",
@@ -8490,6 +8490,10 @@
     {
       "path": "tools/tests/test_nalu_s6_final_pass_derived_order_acceptance.py",
       "sha256": "9fad187dda5116eedaddde1821d97b33610dca52fcc039e99ddc61c660a2244f"
+    },
+    {
+      "path": "tools/tests/test_nalu_s6_final_pass_own_keyframe_order_acceptance.py",
+      "sha256": "fc186e0d597c6b6071d97cb98921d1b647fe396574df6187fcaa3a9b07e00c16"
     },
     {
       "path": "tools/tests/test_nalu_s7_candidate_promotion.py",
