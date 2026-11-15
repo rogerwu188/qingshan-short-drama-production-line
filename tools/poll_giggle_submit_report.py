@@ -191,7 +191,33 @@ def poll_one_hopsapi(row: dict[str, Any], label: str, named: str, out_dir: Path,
                      download: bool) -> dict[str, Any]:
     """GET the HopsAPI task, download + verify a completed clip to the exact path the Giggle harvest
     uses, and record the settled ``cost`` (or 0 for status 3/4) on the durable transaction."""
-    status = hopsapi.query_task(str(row["task_id"]))
+    try:
+        status = hopsapi.query_task(str(row["task_id"]))
+    except hopsapi.HopsapiHTTPError as exc:
+        # 404 for a task created under another key (the fleet key was replaced mid-render, field E09
+        # 2026-11-15): the clip can never be harvested here.  Written off on that proof only; any other
+        # 404 still fails the run as before.
+        path = _transaction_file(row)
+        written = None
+        if exc.status == 404 and path is not None:
+            written = hopsapi.write_off_task_unreachable_after_key_change(
+                path, str(row["task_id"]), error=str(exc),
+                now=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+        if written is None:
+            raise
+        return {
+            **row,
+            "provider": hopsapi.PROVIDER_HOPSAPI,
+            "remote_status": "unreachable_after_key_change",
+            "provider_status_code": 404,
+            "provider_cost_credits": None,
+            "written_off_credits": written.get("written_off_credits"),
+            "transaction_state": written.get("state"),
+            "provider_failure": str(exc)[:300],
+            "result_url_count": 0,
+            "downloaded_files": [],
+            "download_verification": [],
+        }
     remote_status = status["remote_status"]
     urls = status["urls"]
     files: list[str] = []
