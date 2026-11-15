@@ -138,17 +138,19 @@ def row_provider(row: dict[str, Any]) -> str:
             else image_client.PROVIDER_GIGGLE)
 
 
-def kept_completed_harvest(raw_path: Path, output: Path, earlier: dict[str, Any] | None = None) -> dict[str, Any] | None:
+def kept_completed_harvest(raw_path: Path, output: Path, earlier: dict[str, Any] | None = None,
+                           settled: bool = False) -> dict[str, Any] | None:
     """The task status an earlier tick saved, when it was ``completed`` and its plate was harvested.
 
     Harvested means the plate is still at its harvest pathname, or -- once the pipeline's normal
     materialisation moved it out (apply_keyframe_renames) -- the previous status report still carries
-    this exact task as completed with the sha256 of the plate it downloaded.
+    this exact task as completed with the sha256 of the plate it downloaded, or (``settled``) the
+    durable transaction carries the completed settlement this tool writes only after the download.
     """
     if not raw_path.is_file():
         return None
     on_disk = output.is_file() and output.stat().st_size > 0
-    if not on_disk and not harvested_earlier(earlier):
+    if not on_disk and not harvested_earlier(earlier) and not settled:
         return None
     try:
         kept = json.loads(raw_path.read_text(encoding="utf-8"))
@@ -162,6 +164,24 @@ def kept_completed_harvest(raw_path: Path, output: Path, earlier: dict[str, Any]
 def harvested_earlier(earlier: dict[str, Any] | None) -> bool:
     return bool(isinstance(earlier, dict) and earlier.get("remote_status") == "completed"
                 and earlier.get("sha256") and earlier.get("output_path"))
+
+
+def settled_completed(row: dict[str, Any], task_id: str) -> bool:
+    """The row's durable transaction is bound to exactly this task and carries a completed settlement.
+
+    harvest_one_hopsapi records a completed settlement only once the plate is on disk, so this outlives
+    the status report, which holds the rows of the latest batch only (device 0334 E05 2026-11-15: the S6
+    own-keyframe batches replaced the report, then an S5 re-entry recovered a task of the previous key)."""
+    if not row.get("transaction"):
+        return False
+    try:
+        saved = json.loads(resolve(row["transaction"]).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    cost = saved.get("provider_cost_credits") if isinstance(saved, dict) else None
+    return (isinstance(saved, dict) and str(saved.get("task_id") or "") == str(task_id)
+            and saved.get("provider_remote_status") == "completed"
+            and isinstance(cost, (int, float)) and not isinstance(cost, bool))
 
 
 def earlier_results(status_report: Path | None) -> dict[str, dict[str, Any]]:
@@ -203,6 +223,7 @@ def harvest_one_hopsapi(row: dict[str, Any], episode: str, output_dir: Path, raw
     """GET the HopsAPI task (free), download + verify a completed image, record the settlement."""
     task_id = str(row["task_id"])
     raw_path = raw_dir / f"{safe(row['task_key'])}_{task_id}.json"
+    settled = False
     try:
         status = image_client.query_task(task_id)
     except image_client.hops.HopsapiHTTPError as exc:
@@ -212,8 +233,9 @@ def harvest_one_hopsapi(row: dict[str, Any], episode: str, output_dir: Path, raw
         # still fails the tick -- now naming the task.
         if exc.status != 404:
             raise
+        settled = settled_completed(row, task_id)
         kept = kept_completed_harvest(raw_path, output_dir / f"{episode}_{safe(row['task_key'])}_{task_id}.png",
-                                      earlier)
+                                      earlier, settled)
         if kept is None:
             return unreachable_after_key_change(row, task_id, exc)
         status = kept  # harvested by an earlier tick: the plate and its settled cost are on disk
@@ -231,6 +253,11 @@ def harvest_one_hopsapi(row: dict[str, Any], episode: str, output_dir: Path, raw
             # downloading: carry the earlier tick's record of the plate it took (same task id).
             item.update({"output_path": earlier["output_path"], "sha256": earlier["sha256"],
                          "bytes": earlier.get("bytes"), "plate_state": "MOVED_AFTER_EARLIER_HARVEST"})
+        elif not output.is_file() and settled:
+            # device 0334 E05 2026-11-15: same 404, but a later batch had replaced the status report.
+            # The settled transaction proves the earlier harvest; no path or sha is claimed here -- the
+            # pipeline's rename accepts the keyframe already at its destination or reports it missing.
+            item.update({"plate_state": "MOVED_AFTER_EARLIER_HARVEST", "harvest_proof": "SETTLED_TRANSACTION"})
         else:
             if not output.is_file():
                 image_client.download_image(str(status["urls"][0]), output)

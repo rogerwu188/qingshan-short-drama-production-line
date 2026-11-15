@@ -157,6 +157,50 @@ class ImageHarvestUnreachableAfterKeyChangeTest(unittest.TestCase):
         with self.assertRaises(hops.HopsapiError):
             self.poll([self.row(key, KEPT, path)], query, self.root / "absent_status.json")
 
+    def test_moved_plate_is_kept_on_the_settled_transaction_when_the_report_was_replaced(self) -> None:
+        """Device 0334 E05: a later batch replaced the status report, then S5 recovered the old task."""
+        key = "E05-S01-02-KEYFRAME-V1"
+        path = self.transaction(key, KEPT, provider_cost_credits=0.9, provider_remote_status="completed")
+        before = path.read_text(encoding="utf-8")
+        raw = self.raw / f"{key}_{KEPT}.json"
+        raw.write_text(json.dumps({"provider": "hopsapi", "task_id": KEPT, "remote_status": "completed",
+                                   "urls": ["https://example.invalid/e.png"], "cost": 0.9}), encoding="utf-8")
+        status_report = self.root / "E05_KEYFRAME_HARVEST_STATUS.json"
+        status_report.write_text(json.dumps({"results": [
+            {"task_id": LIVE, "remote_status": "completed", "sha256": "0" * 64, "output_path": "x.png"}]}),
+            encoding="utf-8")
+
+        def query(_task_id):
+            raise not_found()
+
+        with mock.patch.object(image_client, "download_image") as download:
+            with mock.patch.object(image_client, "query_task", side_effect=query):
+                payload = harvest.poll_once(self.report([self.row(key, KEPT, path)]), self.out, self.raw, None,
+                                            status_report)
+        download.assert_not_called()
+        item = payload["results"][0]
+        self.assertEqual(item["remote_status"], "completed")
+        self.assertEqual(item["plate_state"], "MOVED_AFTER_EARLIER_HARVEST")
+        self.assertEqual(item["harvest_proof"], "SETTLED_TRANSACTION")
+        self.assertNotIn("output_path", item)
+        self.assertEqual(item["credit"], 0.9)
+        self.assertTrue(payload["all_completed"])
+        self.assertEqual(path.read_text(encoding="utf-8"), before)
+
+    def test_settlement_of_another_task_does_not_vouch_for_this_one(self) -> None:
+        key = "E05-S01-03-KEYFRAME-V1"
+        path = self.transaction(key, LIVE, provider_cost_credits=0.9, provider_remote_status="completed",
+                                hopsapi_key_fingerprint=hops.key_fingerprint())
+        raw = self.raw / f"{key}_{KEPT}.json"
+        raw.write_text(json.dumps({"provider": "hopsapi", "task_id": KEPT, "remote_status": "completed",
+                                   "urls": ["https://example.invalid/f.png"], "cost": 0.9}), encoding="utf-8")
+
+        def query(_task_id):
+            raise not_found()
+
+        with self.assertRaises(hops.HopsapiError):
+            self.poll([self.row(key, KEPT, path)], query)
+
     def test_404_under_the_same_key_still_fails_and_names_the_task(self) -> None:
         key = "E08-S01-04-KEYFRAME-V1"
         path = self.transaction(key, LOST, hopsapi_key_fingerprint=hops.key_fingerprint())
