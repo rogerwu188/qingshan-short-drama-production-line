@@ -31,7 +31,9 @@ except ModuleNotFoundError:  # Imported as tools.harvest_giggle_image_batch.
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TERMINAL = {"completed", "failed", "error", "cancelled", "timeout", "completed_without_url"}
+#: a bound HopsAPI task the current key can never see (created under a replaced key): written off, terminal
+UNREACHABLE_STATUS = "unreachable_after_key_change"
+TERMINAL = {"completed", "failed", "error", "cancelled", "timeout", "completed_without_url", UNREACHABLE_STATUS}
 CREDIT_KEYS = {
     "credit", "credits", "credit_cost", "credits_cost", "consumed_credit",
     "consumed_credits", "credit_used", "credits_used", "used_credit",
@@ -136,13 +138,61 @@ def row_provider(row: dict[str, Any]) -> str:
             else image_client.PROVIDER_GIGGLE)
 
 
+def kept_completed_harvest(raw_path: Path, output: Path) -> dict[str, Any] | None:
+    """The task status an earlier tick saved, when it was ``completed`` and its plate is still on disk."""
+    if not raw_path.is_file() or not output.is_file() or output.stat().st_size <= 0:
+        return None
+    try:
+        kept = json.loads(raw_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(kept, dict) or kept.get("remote_status") != "completed" or not kept.get("urls"):
+        return None
+    return kept
+
+
+def unreachable_after_key_change(row: dict[str, Any], task_id: str, exc: Exception) -> dict[str, Any]:
+    """A 404 for a bound image task that was never harvested.
+
+    Written off only on the proof hopsapi_video_client.write_off_task_unreachable_after_key_change
+    checks (row still bound to this task, unsettled, created under ANOTHER key): the row becomes
+    WRITTEN_OFF_UNATTRIBUTABLE_RETRYABLE at its planned price (counted as spend, line owner ruling A
+    2026-11-11) and the next S5 re-entry POSTs one new attempt.  Otherwise the error is re-raised with
+    the task named, so the failing task is no longer anonymous."""
+    written = None
+    if row.get("transaction"):
+        written = image_client.hops.write_off_task_unreachable_after_key_change(
+            resolve(row["transaction"]), task_id, error=str(exc),
+            now=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    if written is None:
+        raise image_client.hops.HopsapiError(
+            f"IMAGE_TASK_QUERY_404:{row.get('task_key')}:{task_id}:{str(exc)[:200]}") from exc
+    return {**row, "provider": image_client.PROVIDER_HOPSAPI, "remote_status": UNREACHABLE_STATUS,
+            "provider_status_code": 404, "credit": written.get("written_off_credits"),
+            "credit_status": "WRITTEN_OFF_UNATTRIBUTABLE", "transaction_state": written.get("state"),
+            "provider_error": str(exc)[:300], "failure_class": "HOPSAPI_TASK_UNREACHABLE_AFTER_KEY_CHANGE"}
+
+
 def harvest_one_hopsapi(row: dict[str, Any], episode: str, output_dir: Path, raw_dir: Path,
                         studio_project_id: str | None = None) -> dict[str, Any]:
     """GET the HopsAPI task (free), download + verify a completed image, record the settlement."""
     task_id = str(row["task_id"])
-    status = image_client.query_task(task_id)
     raw_path = raw_dir / f"{safe(row['task_key'])}_{task_id}.json"
-    atomic_json(raw_path, {"provider": image_client.PROVIDER_HOPSAPI, **status})
+    try:
+        status = image_client.query_task(task_id)
+    except image_client.hops.HopsapiHTTPError as exc:
+        # 404 after the fleet key was replaced by a key of another account (field E08 2026-11-15, same
+        # incident as the video poll's): one row's 404 killed the whole tick, the status report stayed
+        # stale and S5 had no way forward.  Any other HTTP error, or a 404 neither branch can prove,
+        # still fails the tick -- now naming the task.
+        if exc.status != 404:
+            raise
+        kept = kept_completed_harvest(raw_path, output_dir / f"{episode}_{safe(row['task_key'])}_{task_id}.png")
+        if kept is None:
+            return unreachable_after_key_change(row, task_id, exc)
+        status = kept  # harvested before the key changed: the plate and its settled cost are on disk
+    else:
+        atomic_json(raw_path, {"provider": image_client.PROVIDER_HOPSAPI, **status})
     remote = str(status.get("remote_status") or "unknown")
     item: dict[str, Any] = {**row, "provider": image_client.PROVIDER_HOPSAPI, "remote_status": remote,
                             "raw_response": str(raw_path)}
@@ -279,6 +329,7 @@ def poll_once(submit_report: Path, output_dir: Path, raw_dir: Path,
         "credit_unknown_success_count": sum(item["credit_status"] == "UNKNOWN_API_FIELD_MISSING" for item in results),
         "credit_reconciliation": credit_reconciliation,
         "provider_error_424_count": sum(item.get("failure_class") == "HOPSAPI_PROVIDER_ERROR_424" for item in results),
+        "unreachable_after_key_change_count": sum(item["remote_status"] == UNREACHABLE_STATUS for item in results),
         "results": results,
     }
 
@@ -313,6 +364,11 @@ def main() -> int:
             print(f"HOPSAPI_IMAGE_PROVIDER_OUTAGE: {payload['provider_error_424_count']} task(s) settled as the "
                   "uncharged upstream 424 'Provider error' (0 credits) — provider-side, not a reference/prompt "
                   "defect; rerun the same stage after the cooldown (the submitter retires them and re-POSTs)",
+                  file=sys.stderr, flush=True)
+        if payload["unreachable_after_key_change_count"]:
+            print(f"HOPSAPI_IMAGE_TASK_UNREACHABLE_AFTER_KEY_CHANGE: {payload['unreachable_after_key_change_count']} "
+                  "bound task(s) answer 404 under the current key and were created under another key — written "
+                  "off at the planned price; rerun the same stage (the submitter POSTs one new attempt each)",
                   file=sys.stderr, flush=True)
         if not args.watch or payload["all_terminal"]:
             return 0 if payload["all_completed"] else 2 if payload["all_terminal"] else 0
