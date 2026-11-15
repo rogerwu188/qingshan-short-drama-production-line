@@ -343,6 +343,13 @@ def disk_pin() -> str:
 
 
 def _run(argv: list[str], timeout: int, extra_env: dict | None = None) -> tuple[int, str]:
+    """rc and the last 2000 characters of stdout (enough for a status line or a log tail)."""
+    rc, out = _run_full(argv, timeout, extra_env)
+    return rc, out[-2000:]
+
+
+def _run_full(argv: list[str], timeout: int, extra_env: dict | None = None) -> tuple[int, str]:
+    """rc and the whole stdout, for output that is parsed (a cut-off JSON document is not JSON)."""
     try:
         import codex_production  # noqa: PLC0415 -- the same tool directories (and newest node) the executor uses
         dirs = codex_production.tool_dirs()
@@ -355,7 +362,7 @@ def _run(argv: list[str], timeout: int, extra_env: dict | None = None) -> tuple[
     env = {**os.environ, **(extra_env or {}), "PATH": ":".join([*dirs, os.environ.get("PATH", "")])}
     try:
         done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=env)
-        return done.returncode, (done.stdout or "")[-2000:]
+        return done.returncode, done.stdout or ""
     except (OSError, subprocess.SubprocessError) as exc:
         return -1, f"{type(exc).__name__}: {exc}"
 
@@ -432,13 +439,19 @@ def _short(rc_out: tuple[int, str], lines: int = 3) -> dict:
 
 def _cron_jobs() -> list[dict]:
     """name / enabled / model / last status of the OpenClaw scheduled tasks (no prompts, no keys), or []."""
-    rc, out = _run(["openclaw", "cron", "list", "--json"], 30)
+    # the whole stdout: the job list carries every prompt and is far longer than _run's 2000-character tail, so
+    # the cut-off document was never JSON and agent_task could not find the heartbeat job to kick (…1324, …0030,
+    # …0841 2026-11-15: heartbeat_kick null, the task waited for the 6-hourly heartbeat)
+    rc, out = _run_full(["openclaw", "cron", "list", "--json"], 30)
     if rc != 0:
         return [{"error": f"openclaw cron list rc={rc}", "tail": out.strip()[-200:]}]
+    starts = [i for i in (out.find("{"), out.find("[")) if i >= 0]
     try:
-        data = json.loads(out)
+        data, _ = json.JSONDecoder().raw_decode(out[min(starts):]) if starts else (None, 0)
     except ValueError:
-        return [{"error": "openclaw cron list: not JSON"}]
+        data = None
+    if data is None:
+        return [{"error": "openclaw cron list: not JSON", "chars": len(out)}]
     jobs = data.get("jobs") if isinstance(data, dict) else data
     rows = []
     for job in jobs if isinstance(jobs, list) else []:

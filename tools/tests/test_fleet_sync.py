@@ -72,9 +72,12 @@ class FleetSyncTest(unittest.TestCase):
 
     def test_diagnose_and_agent_task_are_scripted(self):
         import json
-        saved = fleet_sync._run
-        fleet_sync._run = lambda argv, timeout, extra_env=None: (0, json.dumps({"jobs": [
-            {"id": "hb1", "name": "NALU 生产心跳", "enabled": True, "payload": {"model": "storyclaw/claude-haiku-5-5"},
+        # the real list carries every job's prompt: far longer than the 2000-character tail _run keeps, and the
+        # CLI may print a notice first (…1324 2026-11-15: "not JSON", so the heartbeat was never kicked)
+        saved = fleet_sync._run_full
+        fleet_sync._run_full = lambda argv, timeout, extra_env=None: (0, "config notice\n" + json.dumps({"jobs": [
+            {"id": "hb1", "name": "NALU 生产心跳", "enabled": True,
+             "payload": {"model": "storyclaw/claude-haiku-5-5", "message": "提示词" * 3000},
              "state": {"lastStatus": "ok"}}]}) if argv[:2] == ["openclaw", "cron"] and "list" in argv else "ok")
         try:
             with tempfile.TemporaryDirectory() as d:
@@ -89,8 +92,9 @@ class FleetSyncTest(unittest.TestCase):
                 task = json.loads((Path(d) / "series" / "FLEET_AGENT_TASK.json").read_text(encoding="utf-8"))
                 self.assertIn("重写 Giggle key", task["message"])
                 self.assertFalse(fleet_sync.run_command(cp, {"type": "agent_task", "payload": {}})[0])
+                self.assertLessEqual(len(fleet_sync._run(["openclaw", "cron", "list", "--json"], 30)[1]), 2000)
         finally:
-            fleet_sync._run = saved
+            fleet_sync._run_full = saved
 
     def test_fleet_pin_is_remembered_for_the_next_episode(self):
         import os
