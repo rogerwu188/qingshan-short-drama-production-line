@@ -4274,6 +4274,7 @@ def stage_s5(ctx: Ctx) -> StageResult:
                 "--manifest", p.keyframe_manifest,
                 "--out", p.preprod_reports / f"{ctx.episode}_KEYFRAME_PRECHECK.json",
                 "--precheck-only"]
+    submit_started = time.time() - 1  # mtime granularity
     status, submit = ctx.paid_step(
         paid_argv, name="s5_submit_giggle_image_manifest", sid="S5",
         planned_credits=planned, dry_argv=dry_argv,
@@ -4369,10 +4370,49 @@ def stage_s5(ctx: Ctx) -> StageResult:
             res.blockers.append("HOPSAPI_IMAGE_TASK_REJECTED:" + ",".join(str(row.get("task_key")) for row in rejected))
             res.details["provider_rejected_tasks"] = rejected
             res.details["canary_rotation"] = submit_report.get("canary_rotation")
+        harvest_bound_after_failed_submit(ctx, res, submit, submit_report, harvest_argv, submit_started)
         return res
 
     # 4) S5.q1 — keyframe Q1 admission (D-4)
     return s5_finish_q1(ctx, res)
+
+
+def bound_rows_of_failed_submit(submit_report: dict[str, Any]) -> list[str]:
+    """Task keys a failed image submit left bound at the provider and still worth polling.
+
+    A row counts when it carries a task id and the same report does not list that task as refused
+    (a refused task's id is already terminal and uncharged).
+    """
+    refused = {str(row.get("task_key")) for key in ("provider_rejected_tasks", "failures")
+               for row in (submit_report.get(key) or []) if isinstance(row, dict)}
+    return [str(row.get("task_key")) for row in (submit_report.get("results") or [])
+            if isinstance(row, dict) and row.get("task_id") and str(row.get("task_key")) not in refused]
+
+
+def harvest_bound_after_failed_submit(ctx: Ctx, res: StageResult, submit: dict[str, Any],
+                                      submit_report: dict[str, Any], harvest_argv: list[Any],
+                                      submit_started: float) -> list[str]:
+    """Poll the tasks a failed keyframe submit left bound, so a refused task cannot freeze the rest.
+
+    Device ...0334 E05 S6 (2026-11-15): two keyframes were refused at POST three rounds running, so
+    the submit failed each time and the thirteen tasks bound in the same batch were never polled --
+    nothing could finish until every task passed in one round.  Query-only: no POST, the stage
+    stays BLOCKED on the submit and the rename waits for a full batch; next round the submitter
+    recovers the settled tasks and re-POSTs only the ones the provider failed.
+
+    Exit 2 with a report written by this very run is the submitter's own FAIL verdict.  An
+    authority refusal, a timeout or a crash leaves an older report behind, which is not polled.
+    """
+    report_path = ctx.p.keyframe_submit
+    fresh = (submit.get("exit_code") == 2 and report_path.is_file()
+             and report_path.stat().st_mtime >= submit_started)
+    bound = bound_rows_of_failed_submit(submit_report) if fresh else []
+    if bound:
+        harvest = ctx.run(harvest_argv, name="s5_harvest_bound_after_failed_submit", paid=True)
+        res.steps.append(harvest)
+        res.details["bound_harvest_after_failed_submit"] = {
+            "bound_task_keys": bound, "exit_code": harvest["exit_code"]}
+    return bound
 
 
 def materialise_monologue_reuse_keyframes(ctx: Ctx) -> list[dict[str, Any]]:
