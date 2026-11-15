@@ -3207,6 +3207,28 @@ def render_h3_final_prompts(transaction: dict[str, Any], *, out_dir: Path, root:
             "blocking_check": ";".join(blocking) or None}
 
 
+def offscreen_only_speaker_ids(specs: list[dict[str, Any]], name2char: dict[str, str] | None = None) -> list[str]:
+    """Cast members a unit only ever hears: OFFSCREEN_VOICE_ONLY in a shot and shown in none.
+
+    finalize_video_tasks keeps such a speaker in both blocking ledgers (the action contract needs every
+    declared entity there) but leaves her out of canonical_characters, the keyframe bindings and the
+    identity plates, and shot_media_admission_gate reads the blocking ledgers too -- so the unit stopped
+    at video preflight with MISSING_ANCHOR_FOR_CANONICAL_ENTITY for a person who is never in frame
+    (field E11-VU-005, device 1101, 2026-11-15: an object insert with an offscreen line).  She is
+    declared exempt from identity authority, the gate's existing field, like a never-face character."""
+    name2char = name2char or {}
+
+    def cid(member: dict[str, Any]) -> str:
+        return str(member.get("character_id") or name2char.get(str(member.get("character")), "") or "")
+
+    def offscreen(member: dict[str, Any]) -> bool:
+        return str(member.get("face_visibility") or "") == "OFFSCREEN_VOICE_ONLY"
+
+    rows = [member for spec in specs or [] for member in (spec.get("cast") or []) if isinstance(member, dict)]
+    shown = {cid(member) for member in rows if not offscreen(member)}
+    return sorted({cid(member) for member in rows if offscreen(member)} - shown - {""})
+
+
 def semantic_refs_by_shot(refs: list[dict[str, Any]], shot_ids: list[str]) -> dict[str, dict[str, Any]]:
     """The semantic reference image of each shot: its own keyframe, and for a hard-continuation unit
     the previous unit's real final frame stands in for the first shot, whose keyframe S5 deferred to
@@ -3373,6 +3395,10 @@ def finalize_video_tasks(transaction: dict[str, Any], compiled_units: dict[str, 
         plate_order = [cid for cid in plate_order if cid not in episode_never_face]
         if never_face_ids:
             task["identity_authority_exempt_character_ids"] = never_face_ids
+        # an offscreen-only speaker is in the blocking ledgers but never in frame: no face to anchor
+        offscreen_speaker_ids = offscreen_only_speaker_ids(specs, name2char)
+        if offscreen_speaker_ids:
+            task["identity_authority_exempt_character_ids"] = sorted(set(never_face_ids) | set(offscreen_speaker_ids))
         unit_states = unit_reference_states(specs)
         props = sorted({str(p.get("prop_id") or name2prop.get(str(p.get("prop")), ""))
                         for spec in specs for p in spec.get("props") or []} - {""})
