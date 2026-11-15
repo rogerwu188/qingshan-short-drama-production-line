@@ -6013,9 +6013,44 @@ def derived_units_pending_q1(ctx: Ctx) -> list[tuple[str, str]]:
     return out
 
 
+def own_done_units_q1_rejected(ctx: Ctx) -> list[tuple[str, str]]:
+    """(unit_id, first_shot_id) of units that start from their OWN keyframe, already have their clip, and
+    whose Q1 judged the keyframe now on disk and did not admit it.
+
+    Device 0334 E05 VU-024 (2026-11-15): a re-review of all 31 keyframes failed S04-01 on
+    PERIOD-ANACHRONISM-LOCK after its clip existed, the default acceptance was recorded for that exact sha
+    (seq 120), and nothing read it: the final pass only re-checked tail-sourced units, and S5 short-circuited
+    on an ALL_ADMITTED index the final pass itself had just rewritten for two derived stills.  Only a row
+    Q1 wrote for these exact bytes counts; a unit Q1 never judged, or whose keyframe changed since, is not
+    touched here."""
+    plan = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json", {}) or {}
+    derived = tail_sourced_units(ctx)
+    out = []
+    for unit in plan.get("units") or []:
+        uid = str(unit.get("unit_id") or "")
+        shots = unit.get("editorial_shot_ids") or []
+        if not uid or not shots or uid in derived or not (ctx.p.video_media / f"{uid}.mp4").is_file():
+            continue
+        keyframe = ctx.p.keyframes / f"{shots[0]}-keyframe-v1.png"
+        if not keyframe.is_file():
+            continue
+        q1 = read_json(ctx.p.preprod_reports / "qa" / "q1" / uid / "admission_result.json", {}) or {}
+        if (not q1 or q1.get("downstream_status") == "ADMITTED_FOR_VIDEO_SUBMIT"
+                or q1.get("asset_sha256") != sha256_file(keyframe)):
+            continue
+        out.append((uid, str(shots[0])))
+    return out
+
+
+def done_units_pending_q1(ctx: Ctx) -> list[tuple[str, str]]:
+    """Units with a clip on disk whose start frame has no Q1 admission: tail-sourced ones, then own-keyframe ones."""
+    return ([(uid, shot) for uid, shot in derived_units_pending_q1(ctx)
+             if (ctx.p.video_media / f"{uid}.mp4").is_file()] + own_done_units_q1_rejected(ctx))
+
+
 def accept_done_derived_start_frames(ctx: Ctx) -> dict[str, Any]:
-    """S6 final pass: apply the line owner's recorded acceptance to a tail-sourced start frame whose clip
-    is ALREADY on disk.
+    """S6 final pass: apply the line owner's recorded acceptance to a start frame whose clip is ALREADY on
+    disk -- a tail-sourced one, or (2026-11-15) the unit's own keyframe, see own_done_units_q1_rejected.
 
     The order overlays (apply_roger_q1_acceptance, apply_derived_start_frame_acceptance) ran only inside
     the wave loop, for units still waiting to be submitted.  Once every clip existed the loop was skipped
@@ -6027,8 +6062,7 @@ def accept_done_derived_start_frames(ctx: Ctx) -> dict[str, Any]:
     Free and never a review request: the Q1 admission is rebuilt from the reviewer's existing answers for
     this exact still (unchanged FAIL), then the same two overlays decide.  No valid answer for the bytes
     on disk, or no matching order: nothing changes and the preflight reports as before."""
-    pending = [(uid, shot) for uid, shot in derived_units_pending_q1(ctx)
-               if (ctx.p.video_media / f"{uid}.mp4").is_file()]
+    pending = done_units_pending_q1(ctx)
     if not pending:
         return {}
     out: dict[str, Any] = {"units": [uid for uid, _ in pending]}
@@ -6046,7 +6080,7 @@ def accept_done_derived_start_frames(ctx: Ctx) -> dict[str, Any]:
         return out
     out["q1_gate_order_acceptance"] = apply_roger_q1_acceptance(ctx, index, index_path)
     out["start_frame_order_acceptance"] = apply_derived_start_frame_acceptance(ctx, index, index_path)
-    still = [uid for uid, _ in derived_units_pending_q1(ctx) if (ctx.p.video_media / f"{uid}.mp4").is_file()]
+    still = [uid for uid, _ in done_units_pending_q1(ctx)]
     out.update({"still_not_admitted": still, "status": "ADMITTED" if not still else "NOT_ADMITTED"})
     return out
 

@@ -69,7 +69,8 @@ class FinalPassDerivedOrderAcceptanceTests(unittest.TestCase):
 
             orders = [_order(tmp, sha)] if with_order else []
             ctx = types.SimpleNamespace(
-                episode="E10", p=types.SimpleNamespace(preprod_reports=reports, video_media=video),
+                episode="E10", p=types.SimpleNamespace(preprod_reports=reports, video_media=video,
+                                                      preprod=tmp / "preprod", keyframes=kf.parent),
                 authority_blockers=[],
                 authority={"orders_path": tmp / "ORDERS.json", "latest_order_seq": 196, "line_owner_id": "owner"})
             names = ("ENGINE", "continuity_derived_units", "hard_continuation_units", "merge_keyframe_answers",
