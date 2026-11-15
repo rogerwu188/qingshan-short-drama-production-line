@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2461,
+  "file_count": 2462,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -781,7 +781,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "43837a69fa7e876379f257800c312a534905d39f3344520cf2917cbcf0b5fdbe"
+      "sha256": "3fc6c700332802805ecc476d62cc7721f8c7b61cbeeeb0878e1bb3aafae2e7e9"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -5501,7 +5501,7 @@
     },
     {
       "path": "tools/measured_edit_constraints.py",
-      "sha256": "e18e4cc924da67a13490a5133d4e09e495f89c4d2fc32be95ab45e561de2eb55"
+      "sha256": "1f6213ba1e6349160e1dc5e9bb96b380b2738be92730be23856bb5c4293f3b80"
     },
     {
       "path": "tools/measured_edit_policy.py",
@@ -8142,6 +8142,10 @@
     {
       "path": "tools/tests/test_image_reference_count_guard.py",
       "sha256": "308e6935d8a8a4216e266e69d0cc66f9004bbb1da46c37379a2d933cd3547d13"
+    },
+    {
+      "path": "tools/tests/test_image_retry_once_after_charged_write_off.py",
+      "sha256": "bed5635895671396fb5762f9c5ed958a2e675834c2b1a8b6914466595d61d393"
     },
     {
       "path": "tools/tests/test_image_submission_entrypoint_contract_coverage.py",

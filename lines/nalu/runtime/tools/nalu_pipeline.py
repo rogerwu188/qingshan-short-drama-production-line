@@ -9033,6 +9033,27 @@ def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
     return trimmed, (report_path if report["trimmed_units"] else None)
 
 
+def s7_measured_edit_yield_to_performance_cut(ctx: Ctx, res: StageResult, constraints_file: Path | None) -> list[str]:
+    """Units without an on-screen scripted line follow the performance cut, not the measured edit.
+
+    The measured-edit constraints are built from the S6 dialogue QA before the performance cut runs,
+    and the AgentCut build applies the measured in-point first, so a V.O.-only unit the performance
+    cut held for its narration (VO_HOLD) was cut down to the speech heard in it and S7 stopped on
+    VOICE_OVER_OVERLAPS_DIALOGUE (E13 VU-010 / VU-013).  Drops those rows from the constraints file
+    (kept under ``yielded_to_performance_cut``) and returns the unit ids.  No performance-cut report
+    (episode outside CAMERA_GRAMMAR_V1) or no constraints file: nothing changes."""
+    perf_path = ctx.p.assembly / f"{ctx.episode}_PERFORMANCE_CUT.json"
+    if constraints_file is None or not Path(constraints_file).is_file() or not perf_path.is_file():
+        return []
+    import measured_edit_constraints as _mec  # noqa: PLC0415 - engine tools dir is on sys.path
+    payload, dropped = _mec.yield_to_performance_cut(read_json(constraints_file, {}) or {},
+                                                     read_json(perf_path, {}) or {})
+    if dropped:
+        write_json(Path(constraints_file), payload)
+        res.details["measured_edit_yielded_to_performance_cut"] = dropped
+    return dropped
+
+
 def s7_push_in_compensation(ctx: Ctx, res: StageResult, contract: dict[str, Any]) -> Path | None:
     """CAMERA_GRAMMAR_V1 only (line owner 2026-10-26, lab Holmes E06): remove the push-in H3 still adds to
     locked-camera units (tools/push_in_compensation.py).  Each locked unit's largest face is measured on 9 frames
@@ -9474,6 +9495,8 @@ def stage_s7(ctx: Ctx) -> StageResult:
     except Exception as exc:  # noqa: BLE001
         res.blockers = [f"SUBTITLE_ASR_FAILED:{type(exc).__name__}:{exc}"]
         return res
+    if trimmed_asr is not None:  # the performance cut ran: silent / V.O.-only units follow it alone
+        s7_measured_edit_yield_to_performance_cut(ctx, res, constraints_file)
     if tail_trim is not None:
         build_argv += ["--dialogue-tail-trim", tail_trim]
         res.details["commands"]["build_agentcut"] = q(build_argv)
