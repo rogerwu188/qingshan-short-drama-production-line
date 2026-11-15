@@ -10,6 +10,8 @@ archived ``*_credit_statement.json`` files; this tool changes transaction STATE 
 Video units (line owner ruling A, 2026-11-11): the video submitter follows a write-off with ONE
 new attempt of the unit and archives the written-off row beside the transaction
 (``submit_giggle_video_manifest_v2.written_off_retry_open``); a second write-off stays blocked.
+Keyframe / image tasks get the same single new attempt
+(``submit_giggle_image_manifest.written_off_retry_open``).
 
 Evidence rules, all checked before anything is written:
 
