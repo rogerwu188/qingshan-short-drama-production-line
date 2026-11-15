@@ -390,7 +390,13 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
         unit = units.get(uid) or units[row.get("parent_unit_id")]
         checks = []
         derived = (row["keyframe_prompt"].get("derivation") or {}).get("kind")
-        if derived:
+        if derived == "MONOLOGUE_SAME_SETUP_KEYFRAME_REUSE":
+            # same speaker, same locked setup after a cutaway: the start frame is the reuse source's
+            # keyframe (exact bytes).  That prompt is checked in the source unit's own row.
+            _d = row["keyframe_prompt"]["derivation"]
+            checks.append({"id": "kf_prompt_monologue_same_setup_reuse", "status": "PASS",
+                           "detail": f"{derived}: keyframe checks not applicable here; start frame is the exact keyframe of {_d.get('reuse_source_shot_id')} ({_d.get('reuse_source_unit_id')}), checked in that unit's row"})
+        elif derived:
             checks.append({"id": "kf_prompt_continuity_derived_from_previous_unit", "status": "PASS",
                            "detail": f"{derived}: keyframe checks not applicable; start frame is materialised from {row['keyframe_prompt']['derivation'].get('previous_unit_id')} real tail"})
         def chk(cid, ok, detail=""):

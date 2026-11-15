@@ -50,6 +50,21 @@ def rel(path: Path) -> str:
         return str(resolved)
 
 
+MONOLOGUE_REUSE_MODE = "MONOLOGUE_SAME_SETUP_KEYFRAME_REUSE"
+
+
+def monologue_reuse_sources(keyframe_manifest_path: Path) -> dict:
+    """shot_id -> its MONOLOGUE_SAME_SETUP_KEYFRAME_REUSE row from the keyframe manifest report's
+    decision_table (build_keyframe_manifest.monologue_keyframe_reuse).  Empty when there is no report."""
+    report_path = keyframe_manifest_path.with_name(keyframe_manifest_path.stem + "_report.json")
+    try:
+        table = json.loads(report_path.read_text(encoding="utf-8")).get("decision_table") or []
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return {str(r.get("shot_id")): r for r in table
+            if isinstance(r, dict) and r.get("reuse_mode") == MONOLOGUE_REUSE_MODE and r.get("reuse_source")}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--episode", required=True)
@@ -72,6 +87,7 @@ def main() -> int:
     planned_index = json.loads((pre / f"{ep}_GROUPED_SEEDANCE_MANIFEST_PLANNING_V1.planned_prompts.json").read_text(encoding="utf-8"))
     planned = {row["unit_id"]: row for row in planned_index["rows"]}
     kf_by_shot = {t["shot_id"]: t for t in keyframes["tasks"]}
+    monologue_reuse = monologue_reuse_sources(keyframe_manifest_path)
     anchor_path = pre / f"{ep}_VIDEO_UNIT_ANCHOR_PLAN_V1.json"
     anchors = {u["unit_id"]: u for u in (json.loads(anchor_path.read_text(encoding="utf-8")).get("units") or [])} if anchor_path.is_file() else {}
     qa_dir = Path(args.qa_dir)
@@ -85,6 +101,26 @@ def main() -> int:
                 aliases[shot_id] = uid
         first = kf_by_shot.get(shots[0])
         derivation = None
+        if not first and shots[0] in monologue_reuse:
+            # CAMERA_GRAMMAR_V1 monologue group: this unit continues the same speaker's earlier take
+            # after a cutaway and starts from THAT take's keyframe (exact bytes, no paid image).  Its
+            # authored still is the reuse source's keyframe prompt -- not the cutaway that happens
+            # to precede it (Lycan King E05 2026-11-15: VU-004/007/017 were bound to the listener
+            # reaction).  A source that is itself such a reuse is followed to the keyframe it names.
+            reuse_row, source, hops = monologue_reuse[shots[0]], "", 0
+            while reuse_row and hops < 6:
+                source = str(reuse_row.get("reuse_source") or "")
+                if source in kf_by_shot:
+                    break
+                reuse_row = monologue_reuse.get(source)
+                hops += 1
+            first = kf_by_shot.get(source)
+            if first:
+                source_unit = next((u["unit_id"] for u in grouping["units"]
+                                    if (u.get("editorial_shot_ids") or [None])[0] == source), None)
+                derivation = {"kind": MONOLOGUE_REUSE_MODE, "reuse_source_shot_id": source,
+                              "reuse_source_unit_id": source_unit or monologue_reuse[shots[0]].get("reuse_source_unit_id"),
+                              "keyframe_prompt_of_unit": source_unit or monologue_reuse[shots[0]].get("reuse_source_unit_id")}
         if not first:
             # E02+ anchor policy v4: a unit whose opening anchor is CONTINUITY_DERIVED (materialised
             # from the previous unit's real tail at S6) has no keyframe task of its own.  The nearest
