@@ -138,9 +138,17 @@ def row_provider(row: dict[str, Any]) -> str:
             else image_client.PROVIDER_GIGGLE)
 
 
-def kept_completed_harvest(raw_path: Path, output: Path) -> dict[str, Any] | None:
-    """The task status an earlier tick saved, when it was ``completed`` and its plate is still on disk."""
-    if not raw_path.is_file() or not output.is_file() or output.stat().st_size <= 0:
+def kept_completed_harvest(raw_path: Path, output: Path, earlier: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """The task status an earlier tick saved, when it was ``completed`` and its plate was harvested.
+
+    Harvested means the plate is still at its harvest pathname, or -- once the pipeline's normal
+    materialisation moved it out (apply_keyframe_renames) -- the previous status report still carries
+    this exact task as completed with the sha256 of the plate it downloaded.
+    """
+    if not raw_path.is_file():
+        return None
+    on_disk = output.is_file() and output.stat().st_size > 0
+    if not on_disk and not harvested_earlier(earlier):
         return None
     try:
         kept = json.loads(raw_path.read_text(encoding="utf-8"))
@@ -149,6 +157,22 @@ def kept_completed_harvest(raw_path: Path, output: Path) -> dict[str, Any] | Non
     if not isinstance(kept, dict) or kept.get("remote_status") != "completed" or not kept.get("urls"):
         return None
     return kept
+
+
+def harvested_earlier(earlier: dict[str, Any] | None) -> bool:
+    return bool(isinstance(earlier, dict) and earlier.get("remote_status") == "completed"
+                and earlier.get("sha256") and earlier.get("output_path"))
+
+
+def earlier_results(status_report: Path | None) -> dict[str, dict[str, Any]]:
+    """Rows of the previous status report by task id (a failed tick never overwrites that report)."""
+    if status_report is None or not status_report.is_file():
+        return {}
+    try:
+        rows = (json.loads(status_report.read_text(encoding="utf-8")) or {}).get("results") or []
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return {str(row["task_id"]): row for row in rows if isinstance(row, dict) and row.get("task_id")}
 
 
 def unreachable_after_key_change(row: dict[str, Any], task_id: str, exc: Exception) -> dict[str, Any]:
@@ -174,7 +198,8 @@ def unreachable_after_key_change(row: dict[str, Any], task_id: str, exc: Excepti
 
 
 def harvest_one_hopsapi(row: dict[str, Any], episode: str, output_dir: Path, raw_dir: Path,
-                        studio_project_id: str | None = None) -> dict[str, Any]:
+                        studio_project_id: str | None = None,
+                        earlier: dict[str, Any] | None = None) -> dict[str, Any]:
     """GET the HopsAPI task (free), download + verify a completed image, record the settlement."""
     task_id = str(row["task_id"])
     raw_path = raw_dir / f"{safe(row['task_key'])}_{task_id}.json"
@@ -187,24 +212,33 @@ def harvest_one_hopsapi(row: dict[str, Any], episode: str, output_dir: Path, raw
         # still fails the tick -- now naming the task.
         if exc.status != 404:
             raise
-        kept = kept_completed_harvest(raw_path, output_dir / f"{episode}_{safe(row['task_key'])}_{task_id}.png")
+        kept = kept_completed_harvest(raw_path, output_dir / f"{episode}_{safe(row['task_key'])}_{task_id}.png",
+                                      earlier)
         if kept is None:
             return unreachable_after_key_change(row, task_id, exc)
-        status = kept  # harvested before the key changed: the plate and its settled cost are on disk
+        status = kept  # harvested by an earlier tick: the plate and its settled cost are on disk
     else:
+        earlier = None  # the provider answered: the normal path below decides, as before
         atomic_json(raw_path, {"provider": image_client.PROVIDER_HOPSAPI, **status})
     remote = str(status.get("remote_status") or "unknown")
     item: dict[str, Any] = {**row, "provider": image_client.PROVIDER_HOPSAPI, "remote_status": remote,
                             "raw_response": str(raw_path)}
     if remote == "completed" and status.get("urls"):
         output = output_dir / f"{episode}_{safe(row['task_key'])}_{task_id}.png"
-        if not output.is_file():
-            image_client.download_image(str(status["urls"][0]), output)
-        digest = sha256(output)
-        item.update({"output_path": str(output), "sha256": digest, "bytes": output.stat().st_size})
-        archived = studio_archive(output, episode, row, raw_path, studio_project_id, digest)
-        if archived is not None:
-            item["studio_archive"] = archived
+        if not output.is_file() and harvested_earlier(earlier):
+            # field E08 2026-11-15 (device 1271): harvest -> the pipeline moved the plate to its keyframe
+            # path -> S5 re-entry -> GET 404.  The task cannot be re-queried and nothing needs
+            # downloading: carry the earlier tick's record of the plate it took (same task id).
+            item.update({"output_path": earlier["output_path"], "sha256": earlier["sha256"],
+                         "bytes": earlier.get("bytes"), "plate_state": "MOVED_AFTER_EARLIER_HARVEST"})
+        else:
+            if not output.is_file():
+                image_client.download_image(str(status["urls"][0]), output)
+            digest = sha256(output)
+            item.update({"output_path": str(output), "sha256": digest, "bytes": output.stat().st_size})
+            archived = studio_archive(output, episode, row, raw_path, studio_project_id, digest)
+            if archived is not None:
+                item["studio_archive"] = archived
     elif remote == "completed":
         item["remote_status"] = remote = "completed_without_url"
     cost = status.get("cost")
@@ -253,6 +287,7 @@ def harvest_one(
     raw_dir: Path,
     batch_credit: int | float | None,
     studio_project_id: str | None = None,
+    earlier: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Query one submitted image task and download its plate when complete.
 
@@ -261,7 +296,7 @@ def harvest_one(
     once by the caller and passed in unchanged.
     """
     if row_provider(row) == image_client.PROVIDER_HOPSAPI:
-        return harvest_one_hopsapi(row, episode, output_dir, raw_dir, studio_project_id)
+        return harvest_one_hopsapi(row, episode, output_dir, raw_dir, studio_project_id, earlier)
     task_id = row["task_id"]
     response = query_task(SimpleNamespace(task_id=task_id))
     raw_path = raw_dir / f"{safe(row['task_key'])}_{task_id}.json"
@@ -297,14 +332,20 @@ def harvest_one(
 
 
 def poll_once(submit_report: Path, output_dir: Path, raw_dir: Path,
-              studio_project_id: str | None = None) -> dict[str, Any]:
+              studio_project_id: str | None = None, status_report: Path | None = None) -> dict[str, Any]:
     source = json.loads(submit_report.read_text(encoding="utf-8"))
     episode = safe(str(source.get("episode") or "EPISODE"))
     rows = source.get("results") or []
     batch_credit, credit_reconciliation = batch_credit_assignment(source, len(rows))
     workers = harvest_workers()
+    before = earlier_results(status_report)
+
+    def earlier_of(row: dict[str, Any]) -> dict[str, Any] | None:
+        return before.get(str(row.get("task_id") or ""))
+
     if workers <= 1 or len(rows) <= 1:
-        results = [harvest_one(row, episode, output_dir, raw_dir, batch_credit, studio_project_id) for row in rows]
+        results = [harvest_one(row, episode, output_dir, raw_dir, batch_credit, studio_project_id, earlier_of(row))
+                   for row in rows]
     else:
         # Query the whole batch concurrently; results stay in submit-report order so
         # the status file and its counts are stable.  Any row's exception fails the
@@ -312,7 +353,8 @@ def poll_once(submit_report: Path, output_dir: Path, raw_dir: Path,
         from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
 
         with ThreadPoolExecutor(max_workers=min(workers, len(rows))) as pool:
-            futures = [pool.submit(harvest_one, row, episode, output_dir, raw_dir, batch_credit, studio_project_id)
+            futures = [pool.submit(harvest_one, row, episode, output_dir, raw_dir, batch_credit, studio_project_id,
+                                   earlier_of(row))
                        for row in rows]
             results = [future.result() for future in futures]
     counts: dict[str, int] = {}
@@ -357,7 +399,7 @@ def main() -> int:
     raw_dir = resolve(args.raw_dir)
     status_report = resolve(args.status_report)
     while True:
-        payload = poll_once(submit_report, output_dir, raw_dir, args.studio_archive_project)
+        payload = poll_once(submit_report, output_dir, raw_dir, args.studio_archive_project, status_report)
         atomic_json(status_report, payload)
         print(json.dumps({"status_counts": payload["status_counts"], "all_terminal": payload["all_terminal"]}, ensure_ascii=False), flush=True)
         if payload["all_terminal"] and payload["provider_error_424_count"]:

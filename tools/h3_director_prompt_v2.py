@@ -389,6 +389,21 @@ def _visible_in_spec(spec: dict[str, Any], entity_id: str) -> bool:
                for prop in spec.get("props") or [])
 
 
+def offscreen_only_entity_ids(unit: dict[str, Any]) -> set[str]:
+    """Entities a shot of this unit declares offscreen (cast OFFSCREEN_VOICE_ONLY or an OFFSCREEN
+    presence) and no shot of it shows."""
+    specs = [spec for spec in unit.get("ordered_prompt_specs") or [] if isinstance(spec, dict)]
+    declared: set[str] = set()
+    for spec in specs:
+        role = spec.get("role_semantic_disambiguation") or {}
+        declared |= {str(cid) for cid, presence in (role.get("entity_presence") or {}).items()
+                     if "OFFSCREEN" in str(presence or "").upper()}
+        declared |= {str(member.get("character_id") or member.get("character") or "")
+                     for member in spec.get("cast") or []
+                     if str(member.get("face_visibility") or "").upper() == "OFFSCREEN_VOICE_ONLY"}
+    return {cid for cid in declared if cid and not any(_visible_in_spec(spec, cid) for spec in specs)}
+
+
 def _side(label: str, framing: str) -> str:
     match = re.search(re.escape(label) + r"\s+(?:is\s+|stands\s+|sits\s+|kneels\s+)?(?:on|at|to)\s+(?:the\s+)?"
                       r"(?:frame\s+|screen\s+)?(left|right|center|centre)\b", framing, re.IGNORECASE)
@@ -543,6 +558,10 @@ def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: se
     scope_bindings = {int(row["reference_index"]): row for row in scope.get("reference_identity_bindings") or []
                       if row.get("reference_index") is not None}
     face_only = v1.face_only_identity_paths(unit)  # PIXEL_CROP transports
+    # field E11 2026-11-15 (device 1101, VU-005/006): an object insert with an offscreen line has NOBODY on
+    # screen, so ``onscreen`` is empty and the speaker's sheet was described as "already in @Image1" next to
+    # "Who is in frame: nobody".  A declared offscreen-only entity is out of frame whatever ``onscreen`` holds.
+    offscreen_only = offscreen_only_entity_ids(unit)
     lines = []
     for index, raw in enumerate(refs, 1):
         ref = raw if isinstance(raw, dict) else {"path": str(raw)}
@@ -565,7 +584,7 @@ def _reference_lines(unit: dict[str, Any], plan: dict[str, Any], *, onscreen: se
                     else f"@Image{index} is {entity}'s face only: a face crop; clothing and headwear come from "
                          "@Image1 and the wardrobe text, never from this crop." if face_crop
                     else f"@Image{index} is {entity}'s {body}.")
-            if entity_id and onscreen and entity_id not in onscreen:
+            if entity_id and ((onscreen and entity_id not in onscreen) or entity_id in offscreen_only):
                 line += f" It is for identity only: {entity} stays out of frame in this clip."
             elif index > 1:
                 # a face reference of someone already in the opening frame is that SAME person, not a second

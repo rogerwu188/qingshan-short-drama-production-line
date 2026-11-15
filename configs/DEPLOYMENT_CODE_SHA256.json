@@ -673,7 +673,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/build_nalu_preproduction.py",
-      "sha256": "2bb422689e2946bc925200d5b644eaf2c7c102753e4d56479f5f3ec913b671ee"
+      "sha256": "d4841f7c9f95af7f718390fe26eca04a732b9f5f8d15d6a8bd73c5a642843b3c"
     },
     {
       "path": "lines/nalu/runtime/tools/build_voice_cast.py",
@@ -5193,7 +5193,7 @@
     },
     {
       "path": "tools/h3_director_prompt_v2.py",
-      "sha256": "cc4ad63251469b7c83a4441f9121b9f21503e71de5b71db5d057ba54692d4171"
+      "sha256": "963709510e77f22c3071d7c7613e91410c7edbf96c8eddeec4ba9f27047494c5"
     },
     {
       "path": "tools/h3_english_contract_io.py",
@@ -5293,7 +5293,7 @@
     },
     {
       "path": "tools/harvest_giggle_image_batch.py",
-      "sha256": "4fbd9e32b5bf1dd2999f0b582af2239788adda4e8b5ceabd68002b2efb1bda08"
+      "sha256": "df57e43662f2c9d7a69d66a747a6e9666e514330a0692fcd14c052346fa04bd8"
     },
     {
       "path": "tools/harvest_giggle_image_submit.py",
@@ -8133,7 +8133,7 @@
     },
     {
       "path": "tools/tests/test_image_harvest_unreachable_after_key_change.py",
-      "sha256": "611b64fa3b87637677ae9c7c304146550c52bd4e3a40a60a0a270110032a5bb4"
+      "sha256": "7b42cdbbeb5149de6ae85b9a9d4bc2ec00d6f3cc273c570b1566b52422ff7539"
     },
     {
       "path": "tools/tests/test_image_model_adapter_concealed_identity.py",

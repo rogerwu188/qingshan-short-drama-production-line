@@ -418,6 +418,18 @@ def bind_entry_supports(characters, props, bindings):
     return result
 
 
+def blocking_cast(spec: dict[str, Any]) -> list[dict[str, Any]]:
+    """Cast rows that get a blocking slot (and so a keyframe plate and an allowed-in-frame entry).
+
+    Not a person hidden at entry, and not an AUTHORED offscreen speaker: bind_dialogue_cast adds an
+    offscreen speaker after this point, but a writer may keep the row in cast with
+    face_visibility=OFFSCREEN_VOICE_ONLY (field E11 2026-11-15, device 1101: the keyframe of an object
+    insert then allowed her in frame and kf_visible_cast_equals_contract could never pass)."""
+    return [row for row in spec.get("cast") or []
+            if row.get("character_id") and row.get("first_frame_visible", True) is not False
+            and str(row.get("face_visibility") or "") != "OFFSCREEN_VOICE_ONLY"]
+
+
 def build_subspace_tasks(contract: dict[str, Any], index: SpaceIndex,
                          episode: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     hints = index.angle_shot_hints()
@@ -466,8 +478,7 @@ def build_subspace_tasks(contract: dict[str, Any], index: SpaceIndex,
         if not visible:
             visible = [str(element["element_id"]) for element in index.elements(room_id)]
 
-        cast = [row for row in ((shot.get("prompt_spec") or {}).get("cast") or [])
-                if row.get("character_id") and row.get("first_frame_visible", True) is not False]  # hidden at entry: no blocking slot
+        cast = blocking_cast(shot.get("prompt_spec") or {})
         facing = _OPPOSITE_FACING.get(str(camera.get("facing") or "north"), "south")
         char_rows = [{
             "character_id": str(row["character_id"]),
