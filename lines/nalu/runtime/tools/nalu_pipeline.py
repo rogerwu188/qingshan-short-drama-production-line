@@ -5381,15 +5381,88 @@ def unit_dependency_order(ctx: Ctx) -> list[tuple[str, str | None, bool]]:
 
 
 def _units_with_bound_submission(ctx: Ctx) -> set[str]:
-    """Unit ids that have a SUBMITTED_TASK_ID_BOUND record in the durable submit store."""
+    """Unit ids that have a SUBMITTED_TASK_ID_BOUND record in the durable submit store.
+
+    A record bound BEFORE the unit's clip was last parked for a redo (video/_superseded*|_rejected*|
+    _parked*|_archive*/<unit>.mp4, same rule as tools/video_live_binding) is the take that was parked,
+    not a POST of the wave being looked at: device 0030 E15 (2026-11-15) parked 22 clips for a redo,
+    the redo wave 25 was opened and never POSTed, and the old takes' records kept it frozen forever.
+    A record with no timestamp, or a unit that was never parked, counts as bound exactly as before."""
     store_dir = ENGINE / "workflow/tasks/giggle_video_submit_transactions" / ctx.episode
     bound: set[str] = set()
+    if str(ENGINE) not in sys.path:
+        sys.path.insert(0, str(ENGINE))
+    try:
+        from tools.video_live_binding import bound_at as _bound_at, park_time as _park_time
+    except Exception:  # noqa: BLE001 - without the helper every bound record counts (old behaviour)
+        _bound_at = _park_time = None
+    parked_at: dict[str, float | None] = {}
     for path in (store_dir.glob("*.json") if store_dir.is_dir() else []):
         row = read_json(path, {}) or {}
         if row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id"):
             text = json.dumps(row, ensure_ascii=False)
-            bound.update(re.findall(rf"{re.escape(ctx.episode)}-VU-\d+", text))
+            stamp = _bound_at(row) if _bound_at else None
+            for uid in set(re.findall(rf"{re.escape(ctx.episode)}-VU-\d+", text)):
+                if stamp is not None and _park_time is not None:
+                    if uid not in parked_at:
+                        parked_at[uid] = _park_time(uid, [ctx.p.video_media])
+                    if parked_at[uid] is not None and stamp <= parked_at[uid]:
+                        continue
+                bound.add(uid)
     return bound
+
+
+def park_stale_real_final_frames(ctx: Ctx, unit_ids: list[str]) -> list[dict[str, Any]]:
+    """A real final frame is only real while the clip it was cut from is the unit's current clip.
+
+    Readiness, the derived-keyframe copy and the wave compile all test ``real_final_frames/<unit>.png``
+    for existence.  When a clip is parked for a redo its old tail stayed behind, so the tail-chained
+    successor was planned into the same wave as its predecessor and bound to the tail of a clip that no
+    longer exists (device 0030 E15 VU-002 -> VU-003, 2026-11-15).  The tail of a unit with no clip on
+    disk is moved aside (never deleted); the tail of a unit whose clip changed is re-extracted; a
+    tail-sourced start frame that was copied from a tail which is no longer current is moved aside with
+    its sidecar and start-frame receipt, unless that unit already has a clip.  Free; never POSTs."""
+    tails = ctx.p.preprod / "real_final_frames"
+    out: list[dict[str, Any]] = []
+    if getattr(ctx, "dry", False):
+        return out
+
+    def _park(paths: list[Path], park_dir: Path) -> list[str]:
+        moved = []
+        for path in paths:
+            if path.is_file():
+                park_dir.mkdir(parents=True, exist_ok=True)
+                os.replace(path, park_dir / path.name)
+                moved.append(str(path))
+        return moved
+
+    for uid in unit_ids:
+        tail = tails / f"{uid}.png"
+        if not tail.is_file():
+            continue
+        clip = ctx.p.video_media / f"{uid}.mp4"
+        marker = tail.with_suffix(".source.sha256")
+        if not clip.is_file():
+            moved = _park([tail, marker], tails / f"_superseded_{ctx.run_id}")
+            out.append({"unit_id": uid, "status": "TAIL_PARKED_CLIP_NOT_ON_DISK", "parked": moved})
+        elif marker.is_file() and marker.read_text(encoding="utf-8").strip() != sha256_file(clip):
+            row = extract_real_final_frame(ctx, uid)  # parks the stale tail itself, then re-extracts
+            out.append({"unit_id": uid, "status": "TAIL_REEXTRACTED_CLIP_CHANGED", "extract": row.get("status")})
+    for uid, info in tail_sourced_units(ctx).items():
+        dst: Path = info["keyframe_path"]; prev = info.get("previous_unit_id")
+        sidecar = dst.with_suffix(".derived.json")
+        if not prev or not dst.is_file() or not sidecar.is_file() or (ctx.p.video_media / f"{uid}.mp4").is_file():
+            continue
+        source_sha = str((read_json(sidecar, {}) or {}).get("source_sha256") or "")
+        tail = tails / f"{prev}.png"
+        if (ctx.p.video_media / f"{prev}.mp4").is_file():
+            if not source_sha or not tail.is_file() or sha256_file(tail) == source_sha:
+                continue
+        receipt = ENGINE / "reports/start_frame_evidence" / f"{uid}_start_frame_evidence.json"
+        moved = _park([dst, sidecar, receipt], dst.parent / f"_superseded_{ctx.run_id}_stale_tail")
+        out.append({"unit_id": uid, "status": "DERIVED_START_FRAME_PARKED_TAIL_NOT_CURRENT",
+                    "previous_unit_id": prev, "parked": moved})
+    return out
 
 
 def release_unposted_waves(ctx: Ctx, wave_state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -5980,6 +6053,10 @@ def stage_s6(ctx: Ctx) -> StageResult:
         # CAMERA_GRAMMAR_V1: a §4/§5 redo after an objective speaker-framing / face-count FAIL first parks the
         # start frame that made the failed clip; a speaking unit only takes a tail that passes the objective
         # speaker check; either way the unit's own keyframe comes from the S5 keyframe path (one image each).
+        stale_tails = park_stale_real_final_frames(ctx, [uid for uid, _, _ in deps])
+        if stale_tails:
+            ctx.say("-- S6: real final frames no longer current: "
+                    + ", ".join(f"{r['unit_id']} ({r['status']})" for r in stale_tails))
         redo_switched = redo_switch_start_frames(ctx)
         if redo_switched:
             ctx.say("-- S6: controlled redo switches start frame to own keyframe: "
