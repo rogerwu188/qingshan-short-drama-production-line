@@ -5293,7 +5293,7 @@
     },
     {
       "path": "tools/harvest_giggle_image_batch.py",
-      "sha256": "df57e43662f2c9d7a69d66a747a6e9666e514330a0692fcd14c052346fa04bd8"
+      "sha256": "5cde08497f8b106827c129145e283194184e9114ef92484033f75f00d046d7d8"
     },
     {
       "path": "tools/harvest_giggle_image_submit.py",
@@ -8133,7 +8133,7 @@
     },
     {
       "path": "tools/tests/test_image_harvest_unreachable_after_key_change.py",
-      "sha256": "7b42cdbbeb5149de6ae85b9a9d4bc2ec00d6f3cc273c570b1566b52422ff7539"
+      "sha256": "3b43c60e3a21c7ee01f34e0e4d054a93397ff2b6debff68eca02b0d33638c048"
     },
     {
       "path": "tools/tests/test_image_model_adapter_concealed_identity.py",
