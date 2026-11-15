@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2465,
+  "file_count": 2466,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -837,11 +837,11 @@
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_qa.py",
-      "sha256": "2797acec68b75e152540e15084468472ff95251a8ebc3cf8e15afb6cd09869cb"
+      "sha256": "ab6ed6ede7ebbae181b57099cf94eb1807f9e7654041f051c28804c2566ef3e9"
     },
     {
       "path": "lines/nalu/runtime/tools/prompt_batch_register.py",
-      "sha256": "d6410d72fb378ec747e1b22888612b25337780b83170e5587ca75345d5ad92f6"
+      "sha256": "cee1a8a28f99888329f5c9a4d8f54caaa87d956bcd0c498330595742f1af2c12"
     },
     {
       "path": "lines/nalu/runtime/tools/q2_auto_redo.py",
@@ -8534,6 +8534,10 @@
     {
       "path": "tools/tests/test_noncontact_sound.py",
       "sha256": "3ed87eb8880d5e36245ea121aab0d59316ca046e8d803254171d90615bab6cf6"
+    },
+    {
+      "path": "tools/tests/test_offscreen_speaker_object_insert.py",
+      "sha256": "b7074df49873a75b50c553b79536a44b9d6b740236490df93f172d4d3c2f7271"
     },
     {
       "path": "tools/tests/test_offscreen_voice_empty_unit_anchor.py",
