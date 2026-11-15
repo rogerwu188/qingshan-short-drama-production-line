@@ -55,11 +55,11 @@ class ImageHarvestUnreachableAfterKeyChangeTest(unittest.TestCase):
     def row(self, key: str, task_id: str, transaction: Path) -> dict:
         return {"task_key": key, "task_id": task_id, "provider": "hopsapi", "transaction": str(transaction)}
 
-    def poll(self, rows, query):
+    def poll(self, rows, query, status_report=None):
         with mock.patch.object(image_client, "query_task", side_effect=query), \
                 mock.patch.object(image_client, "download_image",
                                   side_effect=lambda url, dest: Path(dest).write_bytes(b"png-bytes")):
-            return harvest.poll_once(self.report(rows), self.out, self.raw)
+            return harvest.poll_once(self.report(rows), self.out, self.raw, None, status_report)
 
     def test_unharvested_task_of_another_key_is_written_off_and_the_tick_survives(self) -> None:
         lost = self.transaction("E08-S01-01-KEYFRAME-V1", LOST)
@@ -106,6 +106,56 @@ class ImageHarvestUnreachableAfterKeyChangeTest(unittest.TestCase):
         self.assertTrue(payload["all_completed"])
         self.assertEqual(json.loads(raw.read_text(encoding="utf-8")), kept)
         self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["state"], "SUBMITTED_TASK_ID_BOUND")
+
+    def test_reentry_after_the_plate_was_materialised_keeps_the_earlier_harvest(self) -> None:
+        """harvest -> apply_keyframe_renames moved the plate -> S5 re-entry -> GET 404 (device 1271 E08)."""
+        key = "E08-S03-01-KEYFRAME-V1"
+        path = self.transaction(key, KEPT, hopsapi_key_fingerprint=hops.key_fingerprint())
+        status_report = self.root / "E08_KEYFRAME_HARVEST_STATUS.json"
+        answer = {"task_id": KEPT, "status_code": 200, "remote_status": "completed",
+                  "urls": ["https://example.invalid/c.png"], "cost": 0.9, "provider_code": None, "error": None}
+        rows = [self.row(key, KEPT, path)]
+        first = self.poll(rows, lambda _task_id: dict(answer), status_report)
+        harvest.atomic_json(status_report, first)
+        plate = Path(first["results"][0]["output_path"])
+        digest = first["results"][0]["sha256"]
+        keyframe = self.root / "keyframes" / "E08-S03-01-keyframe-v1.png"
+        keyframe.parent.mkdir()
+        os.replace(plate, keyframe)  # the pipeline's normal materialisation
+
+        def query(_task_id):
+            raise not_found()
+
+        with mock.patch.object(image_client, "download_image") as download:
+            with mock.patch.object(image_client, "query_task", side_effect=query):
+                payload = harvest.poll_once(self.report(rows), self.out, self.raw, None, status_report)
+        download.assert_not_called()
+        item = payload["results"][0]
+        self.assertEqual(item["remote_status"], "completed")
+        self.assertEqual(item["sha256"], digest)
+        self.assertEqual(item["plate_state"], "MOVED_AFTER_EARLIER_HARVEST")
+        self.assertEqual(item["credit"], 0.9)
+        self.assertTrue(payload["all_completed"])
+        self.assertFalse(plate.exists())
+        self.assertNotIn("unreachable_task", json.loads(path.read_text(encoding="utf-8")))
+        # the carried record survives a further re-entry too
+        harvest.atomic_json(status_report, payload)
+        with mock.patch.object(image_client, "query_task", side_effect=query):
+            again = harvest.poll_once(self.report(rows), self.out, self.raw, None, status_report)
+        self.assertEqual(again["results"][0]["sha256"], digest)
+
+    def test_moved_plate_without_an_earlier_harvest_record_is_not_assumed(self) -> None:
+        key = "E08-S03-02-KEYFRAME-V1"
+        path = self.transaction(key, KEPT, hopsapi_key_fingerprint=hops.key_fingerprint())
+        raw = self.raw / f"{key}_{KEPT}.json"
+        raw.write_text(json.dumps({"provider": "hopsapi", "task_id": KEPT, "remote_status": "completed",
+                                   "urls": ["https://example.invalid/d.png"], "cost": 0.9}), encoding="utf-8")
+
+        def query(_task_id):
+            raise not_found()
+
+        with self.assertRaises(hops.HopsapiError):
+            self.poll([self.row(key, KEPT, path)], query, self.root / "absent_status.json")
 
     def test_404_under_the_same_key_still_fails_and_names_the_task(self) -> None:
         key = "E08-S01-04-KEYFRAME-V1"
