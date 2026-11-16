@@ -268,6 +268,73 @@ def briefing_markdown(brief: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+#: The compact briefing the producer actually reads (Codex cost, device …1144 E08/E09 2026-11-16: the 62 KB
+#: briefing plus the 334 KB registry and the failure memory were re-read at the start of every episode and then
+#: re-sent with every one of ~650 model round trips).  <= 5 KB: the rules no gate enforces (the author is the only
+#: line of defence) first, then the failure causes of the authoring stages, newest first; the full briefing stays
+#: on disk next to it for look-ups.
+SHORT_BRIEFING_MAX_BYTES = 5000
+SHORT_LINE_MAX = 140
+#: share of the page the unenforced rules may take, so the authoring failure causes always get the rest
+UNENFORCED_SHARE = 0.45
+#: authoring-side stages: what the writer can still avoid while writing the canon, the layers and the prompt_specs
+AUTHORING_STAGES = {"S1", "S2", "prompt", "pipeline", "DIRECTOR", "CONTINUITY", "ACTION", "PACING", "STYLE",
+                    "TIMING", "EDITING", "VISIBILITY", "S1-S5", "S1/S6", "S2_PREPRODUCTION"}
+UNENFORCED = ("GUIDANCE_ONLY", "INTEGRATION_PENDING")
+
+
+def _k_number(row: dict[str, Any]) -> int:
+    digits = "".join(ch for ch in str(row.get("id") or row.get("knowledge_id") or "") if ch.isdigit())
+    return int(digits) if digits else 0
+
+
+def _short(text: Any) -> str:
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= SHORT_LINE_MAX else text[:SHORT_LINE_MAX - 1] + "…"
+
+
+def briefing_short_markdown(brief: dict[str, Any], full_md: str, max_bytes: int = SHORT_BRIEFING_MAX_BYTES) -> str:
+    """<= ``max_bytes`` (UTF-8): unenforced rules, then authoring-stage failure causes, then the rest, newest first."""
+    rules = list(brief["context"]["rules"])
+    unenforced = sorted((r for r in rules if r.get("status") in UNENFORCED),
+                        key=lambda r: (r.get("stage") not in AUTHORING_STAGES, -_k_number(r)))
+    seen = {r["id"] for r in unenforced}
+    memory = sorted((m for m in brief["failure_memory"] if m.get("knowledge_id") not in seen),
+                    key=lambda m: (m.get("stage") not in AUTHORING_STAGES, -_k_number(m)))
+    head = [f"# {brief['episode']} knowledge briefing — short ({brief['line']})", "",
+            f"Registry v{brief['registry_version']}: {brief['rule_count']} rules, {len(brief['failure_memory'])} "
+            "failure causes. Causes not to repeat, not text to copy. Most rules are enforced by engine gates; this "
+            "page keeps what the author must avoid. Full list (do not read it whole): "
+            f"`{full_md}` — look one up with `rg -n '<K-id or FAILURE_CODE>' {full_md}`.", ""]
+    sections = [("## Write it right (no gate enforces these)",
+                 [f"- {r['id']} [{r['stage']}] {_short(r.get('do_not_repeat') or r.get('rule'))}" for r in unenforced]),
+                ("## Failure causes to avoid (authoring stages first, newest first)",
+                 [f"- {m['knowledge_id']} `{m['failure_code']}` [{m['stage']}] {_short(m['do_not_repeat'])}"
+                  for m in memory])]
+    out = list(head)
+    size = lambda lines: len(("\n".join(lines) + "\n").encode("utf-8"))  # noqa: E731
+    omitted = 0
+    reserve = 80  # the closing line
+    room = max_bytes - size(head) - reserve
+    caps = [int(room * UNENFORCED_SHARE), None]
+    for (title, rows), cap in zip(sections, caps):
+        if not rows:
+            continue
+        limit = max_bytes - reserve if cap is None else size(out) + cap
+        if size(out + ["", title]) > limit:
+            omitted += len(rows)
+            continue
+        out += [title] if out[-1] == "" else ["", title]
+        for line in rows:
+            if size(out + [line]) <= limit:
+                out.append(line)
+            else:
+                omitted += 1
+    if omitted:
+        out += ["", f"({omitted} more in the full briefing.)"]
+    return "\n".join(out) + "\n"
+
+
 # --------------------------------------------------------------------------- commands
 def preflight(line: str, episode: str, runtime_root: Path, engine: Path = ROOT, *,
               scan: list[Path] | None = None, declared: list[Path] | None = None,
@@ -291,14 +358,17 @@ def preflight(line: str, episode: str, runtime_root: Path, engine: Path = ROOT, 
     reports = _reports(runtime_root)
     briefing_json = reports / f"{episode}_KNOWLEDGE_BRIEFING.json"
     briefing_md = reports / f"{episode}_KNOWLEDGE_BRIEFING.md"
+    briefing_short = reports / f"{episode}_KNOWLEDGE_BRIEFING_SHORT.md"
     knowledge: dict[str, Any]
     try:
         brief = knowledge_briefing(engine, line, episode, stage)
         brief["engine_head"] = fresh.get("head")
         _write_json(briefing_json, brief)
         briefing_md.write_text(briefing_markdown(brief), encoding="utf-8")
+        briefing_short.write_text(briefing_short_markdown(brief, str(briefing_md)), encoding="utf-8")
         knowledge = {"status": "READ", "knowledge_status_semantics": READ_SEMANTICS,
                      "briefing": str(briefing_json), "briefing_md": str(briefing_md),
+                     "briefing_short_md": str(briefing_short),
                      "briefing_sha256": _sha_file(briefing_json),
                      "registry_sha256": brief["registry_sha256"], "rule_count": brief["rule_count"],
                      "failure_memory_rows": len(brief["failure_memory"]),

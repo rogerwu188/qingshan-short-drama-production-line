@@ -7,11 +7,13 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "skills/nalu-claude-code/scripts"
 sys.path.insert(0, str(SCRIPTS))
+sys.path.insert(0, str(SCRIPTS.parents[2] / "lines/nalu/runtime/tools"))
 
 FAKE_CODEX = r"""#!/bin/sh
 # fake codex: --version, or `exec [resume] ... -o <file> ...`; replies with $FAKE_REPLY
@@ -355,6 +357,147 @@ class CodexExecutorTests(unittest.TestCase):
             self.assertTrue(any(d.startswith("resume_no_status") for d in t["did"]))
             self.reap(json.loads((self.runtime / "claude_code/E04/session.json").read_text())["pid"])
         self.assertEqual(self.cp.tick()["action"], "AGENT")
+
+    # ---------------------------------------------------------------- Codex cost cut (2026-11-16)
+    def _waiting_s6(self, ep="E08"):
+        import paid_run_status as prs  # noqa: PLC0415
+        self.write_provider()
+        self.run_episode(f'等云端\nNALU_STATUS: {{"episode":"{ep}","state":"WAITING_REMOTE","stage":"S6"}}', ep)
+        self.set_stages(ep, {"S5": {"status": "PASS"}, "S6": {"status": "BLOCKED",
+                                                              "blockers": ["VIDEO_NOT_ALL_COMPLETED"]}})
+        prs.record(self.runtime, ep, "S6", "S6", 1, "/x.log", time.time() - 2)
+        self.age(ep, 1000)
+        return prs
+
+    def age(self, ep, seconds):
+        """Move this Codex turn and its paid-run record ``seconds`` into the past."""
+        import paid_run_status as prs  # noqa: PLC0415
+        from datetime import datetime, timedelta  # noqa: PLC0415
+        d = self.cp.run_dir(ep)
+        session = self.cp.read_json(d / "session.json")
+        session["started_at"] = (datetime.fromisoformat(session["started_at"]) - timedelta(seconds=seconds)).isoformat()
+        self.cp.write_json(d / "session.json", session)
+        last = prs.runs_dir(self.runtime, ep) / "last.json"
+        rec = json.loads(last.read_text())
+        rec["finished_at"] -= seconds - 10
+        last.write_text(json.dumps(rec))
+
+    def set_stages(self, ep, stages):
+        path = self.runtime / "runtime/pipeline_state" / f"{ep}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"stages": stages}))
+
+    def _patch(self, name, fn):
+        saved = getattr(self.cp, name)
+        setattr(self.cp, name, fn)
+        self.addCleanup(setattr, self.cp, name, saved)
+
+    def test_waiting_remote_is_followed_by_the_tick_without_codex(self):
+        prs = self._waiting_s6()
+        resumed, reruns = [], []
+        self._patch("resume", lambda ep, msg: resumed.append(msg) or {"status": "STARTED"})
+        self._patch("launch_paid_rerun", lambda ep, a, b: reruns.append((ep, a, b)) or {"status": "STARTED", "pid": 1})
+        last = prs.runs_dir(self.runtime, "E08") / "last.json"
+        rec = json.loads(last.read_text())
+        rec["finished_at"] = time.time() - 5
+        last.write_text(json.dumps(rec))
+        t = self.cp.tick(system=True)
+        self.assertEqual(t["reason"], "REMOTE_WAIT_BACKOFF", t)          # the 240 s interval has not passed
+        rec["finished_at"] -= 300
+        last.write_text(json.dumps(rec))
+        t = self.cp.tick(system=True)
+        self.assertEqual(t["reason"], "REMOTE_WAIT_RERUN_STARTED", t)
+        self.assertEqual(reruns, [("E08", "S6", "S6")])                 # the SAME paid command, by the tick
+        self.assertEqual(self.cp.tick(system=True)["reason"], "REMOTE_WAIT_RERUN_STARTING")
+        self.assertEqual(resumed, [])                                    # no model round trip while waiting
+        lock = self.runtime / "runtime/.paid_E08.lock"
+        lock.mkdir()
+        (lock / "pid").write_text(str(os.getpid()))
+        self.assertEqual(self.cp.tick(system=True)["reason"], "REMOTE_WAIT_IN_FLIGHT")
+        shutil.rmtree(lock)
+        # the re-run finished with a wave review to answer: Codex is woken with the reason
+        self.set_stages("E08", {"S6": {"status": "REVIEW_REQUIRED", "blockers": ["S6.q2:REVIEW_REQUIRED"]}})
+        prs.record(self.runtime, "E08", "S6", "S6", 1, "/x.log", time.time() - 2)
+        t = self.cp.tick(system=True)
+        self.assertEqual(len(resumed), 1, t)
+        self.assertIn("S6_REVIEW_REQUIRED", resumed[0])
+        self.assertIn("paid_stage.sh --status E08", resumed[0])
+
+    def test_a_tick_rerun_that_left_no_record_wakes_codex(self):
+        self._waiting_s6("E09")
+        resumed = []
+        self._patch("resume", lambda ep, msg: resumed.append(msg) or {"status": "STARTED"})
+        d = self.cp.run_dir("E09")
+        session = self.cp.read_json(d / "session.json")
+        session["remote_wait"] = {"key": session["log"], "reruns": 1, "last_rerun_at": time.time() - 150}
+        self.cp.write_json(d / "session.json", session)
+        self.cp.tick(system=True)
+        self.assertEqual(len(resumed), 1)
+        self.assertIn("TICK_RERUN_ENDED_WITHOUT_A_RECORD", resumed[0])
+
+    def test_rerun_cap_wakes_codex(self):
+        self._waiting_s6("E10")
+        resumed = []
+        self._patch("resume", lambda ep, msg: resumed.append(msg) or {"status": "STARTED"})
+        d = self.cp.run_dir("E10")
+        session = self.cp.read_json(d / "session.json")
+        session["remote_wait"] = {"key": session["log"], "reruns": 90}
+        self.cp.write_json(d / "session.json", session)
+        self.cp.tick(system=True)
+        self.assertIn("REMOTE_WAIT_CAP", resumed[0])
+
+    def _rollout(self, thread_id, input_tokens):
+        home = self.home / ".codex/sessions/2026/11/16"
+        home.mkdir(parents=True, exist_ok=True)
+        rows = [{"type": "event_msg", "payload": {"type": "token_count", "info": {
+            "total_token_usage": {"input_tokens": 9_000_000}, "last_token_usage": {"input_tokens": n}}}}
+            for n in (217_000, input_tokens)]
+        (home / f"rollout-2026-11-16T00-00-00-{thread_id}.jsonl").write_text(
+            "\n".join(json.dumps(r) for r in rows) + "\n")
+
+    def test_large_thread_resumes_in_a_fresh_thread_with_a_handoff(self):
+        self.write_provider()
+        os.environ["FAKE_REPLY"] = '等云端\nNALU_STATUS: {"episode":"E11","state":"WAITING_REMOTE"}'
+        out = self.cp.start("E11", "派单附加说明：第 11 集，原著第 40-42 章。")
+        self.reap(out["pid"])
+        self.set_stages("E11", {"S5": {"status": "PASS"}, "S6": {"status": "BLOCKED", "blockers": ["Q2_FAIL:VU-7"]}})
+        (self.runtime / "runtime/SUPERVISOR_ORDERS.json").write_text(json.dumps({"latest_order_seq": 41, "orders": [
+            {"seq": 41, "status": "active", "decision": {"kind": "GATE_FAIL_ACCEPTANCE", "episode": "E11",
+                                                         "gate_id": "ACTION-ROLE-EVIDENCE", "detectors": ["VU-3:x"]}}]}))
+        d = self.cp.run_dir("E11")
+        session = self.cp.read_json(d / "session.json")
+        session["no_status_resumes"] = 2
+        self.cp.write_json(d / "session.json", session)
+        self._rollout("th-1", 650_000)
+
+        out = self.cp.resume("E11", "继续")
+        self.reap(out["pid"])
+        self.assertIsNone(out["resumed_from"])                           # a new thread, not `exec resume`
+        self.assertEqual(out["fresh_thread"]["from_thread"], "th-1")
+        prompt = Path(out["log"]).with_suffix(".prompt.md").read_text(encoding="utf-8")
+        for needle in ("合同", "新线程接手", "650000", "S6 BLOCKED", "Q2_FAIL:VU-7", "seq=41", "ACTION-ROLE-EVIDENCE",
+                       "派单附加说明：第 11 集", "paid_stage.sh --status E11", "NALU_STATUS"):
+            self.assertIn(needle, prompt)
+        session = self.cp.read_json(d / "session.json")
+        self.assertEqual(session["no_status_resumes"], 2)               # the resume caps still count
+        self.assertEqual(session["fresh_threads"][-1]["from_thread"], "th-1")
+        self.assertEqual(session["codex_thread_id"], "th-1")             # the runner records the new thread's id
+
+    def test_small_thread_is_resumed_in_place(self):
+        self.write_provider()
+        self.run_episode('等\nNALU_STATUS: {"episode":"E12","state":"WAITING_REMOTE"}', "E12")
+        self._rollout("th-1", 250_000)
+        out = self.cp.resume("E12", "继续")
+        self.reap(out["pid"])
+        self.assertEqual(out["resumed_from"], "th-1")
+        os.environ["NALU_CODEX_FRESH_THREAD_TOKENS"] = "200000"         # configurable threshold
+        out = self.cp.resume("E12", "继续")
+        self.reap(out["pid"])
+        self.assertIsNone(out["resumed_from"])
+        os.environ["NALU_CODEX_FRESH_THREAD_TOKENS"] = "0"              # 0 = never
+        out = self.cp.resume("E12", "继续")
+        self.reap(out["pid"])
+        self.assertEqual(out["resumed_from"], "th-1")
 
 
 if __name__ == "__main__":

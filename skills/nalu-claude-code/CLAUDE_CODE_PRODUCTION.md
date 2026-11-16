@@ -19,6 +19,23 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 - 付费命令只用一个入口：`./lines/nalu/runtime/tools/paid_stage.sh <EP> <FROM> <UNTIL>`（它自己读 `.env`；你不要 `cat`/打印 `.env`）。
 - 查 key 是否存在只用 `./lines/nalu/runtime/tools/paid_stage.sh --check <EP>`（只报有/无与预算，不打印值）或引擎工具自己的报错；不要用 `grep`/`cat`/`env`/`printenv`/`echo $X` 去「确认」key。
 
+## 0.1 省 token 纪律（Codex 费用，线主 2026-11-16）
+每一次模型往返都会把整段对话重发一遍（设备 …1144 E08/E09：每集约 650 次往返，S6 等待循环、进程探测、整份读日志占一半以上，真正写作只有 17 次）。以下是硬规则，不影响任何质量判断：
+- **不轮询、不探进程**：不用 `sleep`、`ps`、`pgrep`、`while` 循环等待或查看引擎/流水线的子进程（`vlm_review_protocol.py`、`video_q2_builder.py` 等）。
+  要看进行中的工作只跑一次 `./lines/nalu/runtime/tools/paid_stage.sh --status <EP>`（免费、不需要 key：付费运行在不在跑、上一次运行的结论与日志路径、各阶段状态）。
+- **远端等待交给系统心跳**：`paid_stage.sh` 的最后一行是 `NEXT: END_TURN_WAIT_FOR_TICK` 时（提供方还在渲染/排队、H3 租约在等、0 成本故障的重试已排上），
+  **立即**按 §6 报 `WAITING_REMOTE`（stage 写该阶段）结束本轮，不要 sleep 后重跑。系统心跳每 3 分钟免费跟进：同一条 `paid_stage.sh <EP> <FROM> <UNTIL>`
+  由它重跑（同一订单、预算上限、事务存储，什么都不绕过），阶段需要判断（QA FAIL 要记单、阶段 PASS 可进下一阶段、阻塞）时它会恢复你并说明原因。
+  最后一行是 `NEXT: ACT (...)` 就照常处理。一次付费运行预计很长（S6 波次可能等 H3 排队数小时）时，可以后台启动
+  （`nohup ./lines/nalu/runtime/tools/paid_stage.sh <EP> S6 S6 >/dev/null 2>&1 &`）后直接报 `WAITING_REMOTE` 结束本轮，心跳会跟进到它结束。
+- **工具输出要短**：`paid_stage.sh` 只打印流水线输出的最后 30 行和完整日志路径（`$NALU_RUNTIME_ROOT/runtime/paid_runs/<EP>/`）。
+  读日志只用 `tail -n 40` 或 `rg -n '<关键词>' <日志> | head -20`；JSON 用 `jq` 取字段（如 `jq '.stages.S6 | {status, blockers}' runtime/pipeline_state/<EP>.json`）。
+  不 `cat`/`pprint`/`ls -R` 整个目录，不整份打开超过 20 KB 的文件（先 `wc -c`；大文件按行号 `sed -n 'A,Bp'` 或 `rg` 取需要的部分）。
+- **知识只读短版**：知识库的读法是本集 S1 写好的 `<EP>_KNOWLEDGE_BRIEFING_SHORT.md`（≤5 KB：引擎门禁不替你拦的规则 + 写作阶段的失败原因）。
+  不要整份读 `configs/ENGINEERING_KNOWLEDGE_V1.json`、`knowledge/failure_memory.jsonl`、完整的 `<EP>_KNOWLEDGE_BRIEFING.md`；要查某条 K 号或失败码用 `rg -n`。
+  本合同已经整份在你的开工提示里，**不要再打开合同文件**；`SKILL.md` 只读派单点名的那一节（`rg -n '^## ' <文件>` 找行号后 `sed -n`）。
+  §2.0 点名的写作材料（模板、WRITER_CONTRACT、H3 改编指南）每集照读一次，同一线程里不要重读。
+
 ## 1. 绝对规则
 - 不写假 PASS；审核必须实际看图/看帧后作答（用 Read 打开图片；视频先用 ffmpeg 抽帧拼成联系表再看）。
 - 默认条款（§3、§5）覆盖付费、版权、预算追加和质量接受；只有本合同明确写了「停下」的情况才结束本轮问线主（见 §6）。
@@ -39,7 +56,7 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
    （来源与 manifest 规则）、H3 改编指南 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md`（有就读）——**先读 §0：改编成观众看得懂的视频，不是逐句搬原著**（检验：关掉原著只看镜头和台词，每场能说出发生了什么；线主 2026-11-02）、派单里的 `SOURCE_SELECTION.md`
    和本集章节（`sources/<作品>/<SOURCE_INDEX.json 的 canonical_reading_script>/chNNNN.md`）。只按原文改编，原文缺的不凭记忆补写。
    开工提示末尾若有「本集导演经验」一节（集体知识库，2026-11-16）：写派单、正典、四层和每个镜头的 prompt_spec 前先读完，
-   打开其中的 S1 知识简报；导演规则照写（与线主派单冲突时以派单为准），「参考写法」只学结构与分寸，不抄内容、不沿用角色A/B。
+   打开其中的 S1 知识简报（`<EP>_KNOWLEDGE_BRIEFING_SHORT.md`，见 §0.1）；导演规则照写（与线主派单冲突时以派单为准），「参考写法」只学结构与分寸，不抄内容、不沿用角色A/B。
 2. `workflow/claude_writer_agent/scripts/<EP>_NARRATIVE_CANONICAL_v1.md`：只写事实、可表演的动作和**逐字台词**，按
    `## <EP>-S01｜<LOC-ID>｜<时间>｜线A` 分场；不写机位、灯光、资产。一集 4–6 场、约 26–32 个镜头、镜头合计约 115–120 秒（S7 剪掉 H3 头尾多出的话后成片约 110 秒、约 1 分 50 秒，含片头片尾；线主 2026-10-27：每集约 2 分钟、留广告位，不超过 1 分 55 秒；2026-10-29 实验集 E08 剪裁吃掉 27 s）——靠多写镜头和剧情拉长，不靠拉长单个镜头（对白镜仍 4–5 秒）；台词决定时长（中文每 4 个汉字约 1 秒；
    英文约每秒 2.5 个词）。英文剧台词与旁白直接写英文；只有声音没有形象的旁白角色写成「旁白角色名：台词」，简报里照常列出、
@@ -201,7 +218,7 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
   需要环境变量 `HOPSAPI_API_KEY`（与 Codex 同一个 key；可选 `HOPSAPI_BASE_URL`、`HOPSAPI_CONSOLE_URL`），**S6 没有它就停在 `VIDEO_PROVIDER_KEY_MISSING`**；
   配音（S4）、配乐（S6 BGM）仍走 Giggle，`GIGGLE_API_KEY` 照旧必需（图片已改走 HopsAPI，见上）。计划价约 1.56 积分/秒（向上取整，可用 `HOPSAPI_H3_CREDITS_PER_SECOND` 调），
   实际扣费是每个任务完成时 HopsAPI 返回的 `cost`（与 Giggle 积分同单位），收割时写进事务、记入本集预算账本。回滚到 Giggle：`NALU_VIDEO_PROVIDER=giggle`
-  或运行时 `qingshan.json` 的 `generation.video_provider: "giggle"`（Giggle 价：每任务约 14 积分/秒 + 6 积分）。HopsAPI 只接受 4–15 s 整数秒，3 s 单元会在提交前被拒（不扣费），重编到 4 s 再提交。`VIDEO_NOT_ALL_COMPLETED` 是正常等待：`sleep 240` 后再跑同一命令，最多连续等 30 分钟；仍未完成就结束本轮报 `WAITING_REMOTE`。
+  或运行时 `qingshan.json` 的 `generation.video_provider: "giggle"`（Giggle 价：每任务约 14 积分/秒 + 6 积分）。HopsAPI 只接受 4–15 s 整数秒，3 s 单元会在提交前被拒（不扣费），重编到 4 s 再提交。`VIDEO_NOT_ALL_COMPLETED` 是正常等待：`paid_stage.sh` 最后一行会是 `NEXT: END_TURN_WAIT_FOR_TICK`，立即报 `WAITING_REMOTE` 结束本轮（§0.1），由系统心跳重跑同一命令、收割成片，波次需要审核或阶段 PASS 时再恢复你；不要 `sleep` 后自己重跑。
 - S6 预检报 `MISSING_ANCHOR_FOR_CANONICAL_ENTITY`（多人单元，常见于 E01）：多人关键帧只给一个角色当人物参考，其余角色需要自己的身份牌，而 E01 的身份牌不在锁定资产库里。用引擎支持的覆盖文件补：`$NALU_RUNTIME_ROOT/preproduction/<EP>/identity_reference_overrides.json` 写 `{"units": {"<unit_id>": [{"character_id": "CHAR-…", "path": "<该角色 S3 已过审的正脸身份牌绝对路径>", "role": "CHARACTER_IDENTITY_REFERENCE"}]}}`（只补缺锚的角色），再重跑 S6 编译与预检。这不是绕门，不写 CODE_BLOCKER。
   其后 q1_derived（上一单元尾帧作起始帧）、post_gen_plot（用 `$T/review_fill/asr_units.py` 转写核对台词；同音字只记录）、video_q2。
   Q2 中 OCR 读出的低置信乱码（背景招牌/标签纹理、道具上的手写字）在 `observed_text_strings` 写 `NOISE:<文本>`；动作幅度/表情细节不算缺陷。
@@ -220,6 +237,7 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
   --gate-id <门禁 ID> --detector <…> [--media <item>=<文件>] --context "<失败事实：门禁、帧号/单元、原因、已重做次数>" \
   --orders $NALU_RUNTIME_ROOT/runtime/SUPERVISOR_ORDERS.json --recorded-by claude-code
 ```
+- **同一门禁的多个单元记成一张订单**：`--detector` 与 `--media` 都可重复，同一 `--gate-id` 下每个单元各加一组，一次调用、一个 seq（不要一单元一调用）；不同门禁仍各记一张。
 - 关键帧（S5/S6 派生）：`--gate-id PERIOD-ANACHRONISM-LOCK --detector <shot_id>:PERIOD-ANACHRONISM-LOCK`（身份类用 `CHARACTER-IDENTITY-ADMISSION`、`<shot_id>:<CHAR-ID>`；给不出 `<CHAR-ID>` 的身份失败（无人物镜头出现未登记人物、人脸测不到而判 UNCERTAIN 等）用 `<shot_id>:CHARACTER-IDENTITY-ADMISSION`；
   动作/状态交接用 `ACTION-SHOT-DESIGN-AND-STATE-HANDOFF`、`<shot_id>:ACTION-SHOT-DESIGN-AND-STATE-HANDOFF`），`--media <shot_id>=<关键帧/尾帧>`。
   **一张图同时挂多个门禁**（派生起始帧常见：身份 + 动作/状态交接）：每个失败门禁各记一条订单，绑同一张图；少一个门禁就不会放行。
@@ -276,7 +294,7 @@ $P $T/record_supervisor_order.py --owner-id <owner_id，缺省 owner> --seq <下
 ## 6. 每轮结束的固定格式（编排代理只读这一行）
 本轮最后一行必须是：
 `NALU_STATUS: {"episode":"<EP>","state":"<STATE>","stage":"<S?>","question":"<给线主的中文问题，没有则空>","credits_ledger":<账本数>,"final_mp4":"<路径或空>","note":"<一句话>"}`
-STATE 取值：`OWNER_DECISION_REQUIRED`（需要线主原话）· `WAITING_REMOTE`（等云端渲染，编排代理稍后用「继续」恢复）·
+STATE 取值：`OWNER_DECISION_REQUIRED`（需要线主原话）· `WAITING_REMOTE`（等云端渲染/排队；系统心跳免费重跑同一付费阶段，需要判断时带原因恢复你，见 §0.1）·
 `BLOCKED`（需要人修复的环境/代码问题，note 写清）· `FINAL_REVIEW_REQUIRED`（S7 停在独立终审，见 §7）·
 `FINAL_CUT_READY`（成片已在 deliverables，S7 PASS，S8 或发行待做）· `ERROR`。
 被恢复时如果收到「继续」，就从 `runtime/pipeline_state/<EP>.json` 的当前阶段接着做。
@@ -291,7 +309,7 @@ note 写请求路径；编排代理安排审核者（SKILL.md §5），提交后
 `--detector final:<项>`，`--media final=<候选片>`，`--order` 写「默认条款自动接受：质量问题不阻塞连续生产（短剧工作流）」——再继续；
 审核者的判词、评分报告和所有 FAIL 原样保留，`note` 写判词要点。本线从不产出的 5 项终包证据（`final_package_manifest`、`ci_report`、`render_plan`、`audio_provenance_manifest`、`watch_report`）缺失引起的门 FAIL 由引擎列进同一张清单，照常记单，不要去补造这些文件；其余证据缺失（引擎报 `FINAL_EVIDENCE_MISSING:<门>`）不是质量 FAIL，不能这样放行，报 `BLOCKED`。**判断由引擎做，不由你做**：引擎报 `FINAL_RELEASE_DEFAULT_ACCEPTANCE_ORDER_REQUIRED` 时，清单里的每一项（包括 `gate_execution_failed`、上面 5 项证据缺失）都已判定可以记单，照清单逐项记，不要自己再剔除或以「证据缺失」为由停下；只有 `FINAL_EVIDENCE_MISSING` 才停（实地设备 …1324 E02，2026-11-07：清单 20 项，Codex 自行判为证据缺失而停了 1 小时以上）。
 
-HopsAPI 图片任务成批以 `status 3 / code 424 "Provider error (request id: aitk-…)"`、0 credits 失败（日志/阻塞含 `HOPSAPI_IMAGE_PROVIDER_OUTAGE`）= 上游 gpt-image-2 通道故障（提交器只在通道确实坏了时才报：≥2 个不同任务 424，且 60 分钟内库里没有任何 HopsAPI 图片任务成功，且中性无参考图健康探针也 424；探针约 0.1–0.2 credits、结论缓存 15 分钟），不是参考图/提示词问题（E10/E11 实测：同字节请求先失败后成功，无参考图的 Txt2Img 也同样失败）。不要改参考图、提示词或写 CODE_BLOCKER；免费、不扣费：`sleep 600` 后原样重跑同一 `paid_stage.sh <EP> <Sx> <Sx>`（提交器自己会先发一个探针任务、冷却期内拒绝整批 POST），连续 6 次仍是 424 才以 `BLOCKED` 结束，note 写 `HOPSAPI_IMAGE_PROVIDER_OUTAGE`。
+HopsAPI 图片任务成批以 `status 3 / code 424 "Provider error (request id: aitk-…)"`、0 credits 失败（日志/阻塞含 `HOPSAPI_IMAGE_PROVIDER_OUTAGE`）= 上游 gpt-image-2 通道故障（提交器只在通道确实坏了时才报：≥2 个不同任务 424，且 60 分钟内库里没有任何 HopsAPI 图片任务成功，且中性无参考图健康探针也 424；探针约 0.1–0.2 credits、结论缓存 15 分钟），不是参考图/提示词问题（E10/E11 实测：同字节请求先失败后成功，无参考图的 Txt2Img 也同样失败）。不要改参考图、提示词或写 CODE_BLOCKER；免费、不扣费：`paid_stage.sh` 最后一行是 `NEXT: END_TURN_WAIT_FOR_TICK` 时报 `WAITING_REMOTE` 结束本轮，系统心跳每 10 分钟原样重跑同一 `paid_stage.sh <EP> <Sx> <Sx>`（提交器自己会先发一个探针任务、冷却期内拒绝整批 POST），连续 6 次仍是 424 才以 `REMOTE_WAIT_CAP` 恢复你：那时以 `BLOCKED` 结束，note 写 `HOPSAPI_IMAGE_PROVIDER_OUTAGE`。
 例外：**通道正常**（有任务同期能过 / 近期有成功 / 健康探针通过）时，任何 424 都只是该任务被拒（阻塞/日志含 `HOPSAPI_IMAGE_TASK_REJECTED:<task_key>`，提交报告 `provider_rejected_tasks` / failures 里 `PROVIDER_REJECTED_TASK`）= 该任务的提示词/参数被内容过滤拒绝，不是故障（设备 …1324 E01 实测：偷馒头的孩子 + 破棉絮参考图）。提交器探针 424 后会换一个参考图最不同的任务再探，过了就放行整批、只把被拒的任务记为拒绝（连续 5 个被拒后也照样提交其余任务，每个任务每轮都会 POST 一次）；通道正常时多个任务被拒也不是故障（设备 …1324 E01：6 岁矿工家庭女孩的故事多镜头被拒）。不要等冷却：把该任务的提示词中性改写（未成年 + 贫困/暴力措辞是已知触发），重跑同一阶段。
 某一个参考图被拒（设备 …1324 E01 S5 实测：地点俯视图 `GSM-NALU-HUT_V1.png` 单图 Img2Img 每次 424，头像/集全景图单图都能过；每个 S5 任务都绑它，整集 0/35）：中性改写提示词后仍是同一类 0 成本 424、且多个任务都绑同一张非身份参考图时，按下面走，不写 CODE_BLOCKER：
 1. 定位（付费、低质量单图探针，走付费入口）：`lines/nalu/runtime/tools/paid_stage.sh <EP> --isolate-reference <TASK_KEY>`（免费看计划：`nalu_pipeline.py isolate-reference --episode <EP> --task-key <TASK_KEY>`）。每张非身份参考图先各探 1 次，只对 424 的再探第 2 次（第一轮全部 424 就不再探）；只有它 2 次都 424、其它参考图能过，才写声明。全部失败 = 故障（按上面冷却），全部能过 = 提示词/画面内容被拒：按 H3_SCRIPT_ADAPTATION_GUIDE §1b 改构图（不是只改措辞）再提交，改构图后仍被拒就换成空镜或物件特写，按 §5 默认条款记录继续。

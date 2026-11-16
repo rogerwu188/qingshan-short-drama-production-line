@@ -142,7 +142,7 @@ class AuthoringInjectionTest(unittest.TestCase):
         self.assertIn(EXPO_ZH, section)                       # genre 悬疑 matches the brief
         for absent in ("Keep the English lines short", "感情戏先给眼神", "视频阶段规则", "the face stays in frame"):
             self.assertNotIn(absent, section)
-        self.assertIn("_KNOWLEDGE_BRIEFING.md", section)       # Codex is pointed at the S1 briefing
+        self.assertIn("_KNOWLEDGE_BRIEFING_SHORT.md", section)  # Codex is pointed at the <= 5 KB S1 briefing (not the 62 KB one)
         self.assertTrue(Path(prepared["briefing"]).is_file())
         self.assertIn("参考写法", section)
         used = [r["rule_id"] for r in prepared["rules"]]

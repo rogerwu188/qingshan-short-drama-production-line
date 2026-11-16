@@ -301,6 +301,8 @@ def image_batch_credits(ctx: "Ctx", images: int) -> int:
     return max(0, int(images or 0)) * per
 
 TERMINAL_OK = {PASS, SKIPPED}
+COMPACT_OUTPUT = os.environ.get("NALU_COMPACT_OUTPUT", "").strip() == "1"
+COMPACT_LINE_RE = re.compile(r"^\s*(?:-- S\d|S\d => |!!)")
 
 
 # --------------------------------------------------------------------------- #
@@ -1107,7 +1109,10 @@ class Ctx:
     # ---------------------------------------------------------------- logging
     def log(self, line: str) -> None:
         stamped = f"[{now()}] {line}"
-        print(stamped, flush=True)
+        # NALU_COMPACT_OUTPUT=1 (set for the Codex executor, 2026-11-16): the run log keeps every line; the terminal
+        # gets only stage starts/results, so a model reading the output does not re-send pages of step lines.
+        if not COMPACT_OUTPUT or COMPACT_LINE_RE.match(line):
+            print(stamped, flush=True)
         with open(self.run_log, "a", encoding="utf-8") as handle:
             handle.write(stamped + "\n")
 
@@ -11063,7 +11068,12 @@ def run_episode(ctx: Ctx) -> int:
             "episode": ctx.episode, "recorded_at": now(),
             "paid_enabled": ctx.paid_enabled,
             "commands": ctx.planned_commands})
+        if COMPACT_OUTPUT:
+            print(f"planned paid commands not executed ({len(ctx.planned_commands)}): "
+                  f"{ctx.p.logs / f'{ctx.run_id}_planned_paid_commands.json'}")
 
+    if COMPACT_OUTPUT:
+        print(f"full run log: {ctx.run_log}")
     print_status(ctx)
     return exit_code
 

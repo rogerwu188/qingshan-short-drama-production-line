@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2475,
+  "file_count": 2478,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -781,7 +781,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "d4e3c3eac0cd8423ce8739461b8f667e4656947cad76c12f5f6ab7940c90543f"
+      "sha256": "69827eab870bd1842ce9403853de0ea757489a70efebe31c0c83052dae22a6c1"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -820,8 +820,12 @@
       "sha256": "96a8a79a968dbcfbb3dfd22810f17f4c4b94cf8db7e8d5e53b4097eb60b66a02"
     },
     {
+      "path": "lines/nalu/runtime/tools/paid_run_status.py",
+      "sha256": "0c5070decb37ea28d45710815448034235b893da5e090577775cc15cbf8d5333"
+    },
+    {
       "path": "lines/nalu/runtime/tools/paid_stage.sh",
-      "sha256": "37a641017c8c6938054f134a9e7d9aca282a66137fa37f9d161b5ebe47a230b0"
+      "sha256": "ed8dcce79bb38b517b870bd004b65b839b2dc150655492846eb4d1ff30891afb"
     },
     {
       "path": "lines/nalu/runtime/tools/post_generation_qa_runner.py",
@@ -961,11 +965,11 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "dab79afccfe07bd8bd59bca01acb63ece20fc7969f3c5b07cf235495c45fe5d0"
+      "sha256": "4e0b9d2664d3e0352b8f74eba425a52ae9bb3387265b447f0aaa1f5a495aa980"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
-      "sha256": "f068f19c02196defc6791e7343b39555c5c1add75a2197b7e19855c917b554c5"
+      "sha256": "a1e8f2b663106b9f42e3f4b9c0d6ff6a9b711c454031107a2924dffdfde40700"
     },
     {
       "path": "skills/nalu-claude-code/scripts/apply_runtime_fixups.py",
@@ -981,7 +985,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "f23f3b32d7625e85e26cf426cdb1389be22261f7b8d3a02a02a4d5be0047a3c1"
+      "sha256": "e892fdc7375d0189843f17dd4594dffed0b05b259c0b234d29add3fb9c96a80d"
     },
     {
       "path": "skills/nalu-claude-code/scripts/collective_provision.py",
@@ -3857,7 +3861,7 @@
     },
     {
       "path": "tools/collective_learning/authoring.py",
-      "sha256": "6bbfde21334bed46c57ab88fd893ac8c0f4ab10be3369d1fcc7bd4cf389b2925"
+      "sha256": "a1396a9d8b9cf960fa5ad9d3f586ba55d9c6fd06944af9ce228f15ceda9f55e1"
     },
     {
       "path": "tools/collective_learning/bundles.py",
@@ -5477,7 +5481,7 @@
     },
     {
       "path": "tools/line_upgrade_gate.py",
-      "sha256": "a321058989dd5a52d93181d0c25214e2f84ef936b9627f5529b30162c076f1fc"
+      "sha256": "3675b861d02974e2d29dd1bab6fd535211ba630f5404bd1af8c5dcf8a5ba18fa"
     },
     {
       "path": "tools/local_lora_memory_sync.py",
@@ -7397,7 +7401,7 @@
     },
     {
       "path": "tools/tests/test_collective_authoring_exemplars.py",
-      "sha256": "bd954c022c7812801c64328ce2b61f92decd2f7669e67736153845412f799a95"
+      "sha256": "28ccfe993f381fbc018c1212edd7a99dce8e4eed75f870f081f28a1ca3bec4b5"
     },
     {
       "path": "tools/tests/test_collective_bundles.py",
@@ -8376,8 +8380,12 @@
       "sha256": "21ec68213c7e5c4c86a97f7e5310dfbadd35edba53fc1472e8666514a1d27364"
     },
     {
+      "path": "tools/tests/test_nalu_codex_cost_cut.py",
+      "sha256": "ed77045377b43854f56156d528a996bfc9cb668dd3bbe5aaae45d5f1d32becf2"
+    },
+    {
       "path": "tools/tests/test_nalu_codex_executor.py",
-      "sha256": "4eb8bc916875fb18f60668a24f123cc5b076d44000f4c0b5c3329fb3c5ae91c8"
+      "sha256": "d536d9da77fde979f9b959b4f54524fd74380ebec8e454a4623cb4b3deaf856b"
     },
     {
       "path": "tools/tests/test_nalu_current_policy_profile.py",
@@ -8498,6 +8506,10 @@
     {
       "path": "tools/tests/test_nalu_s5_keyframe_needs_post.py",
       "sha256": "2de618ae37c4f92df8dd7bb1493afcf017abe1399fd1d0cb22b419e8bcce11da"
+    },
+    {
+      "path": "tools/tests/test_nalu_s5_reopens_s3_for_unlocked_asset.py",
+      "sha256": "716e291c999caf7ddbfc7b6cc5b361d5db8ed6a9230e8e7e2791dc87022ec476"
     },
     {
       "path": "tools/tests/test_nalu_s6_derived_start_frame_acceptance.py",

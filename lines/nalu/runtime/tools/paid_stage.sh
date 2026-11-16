@@ -31,6 +31,17 @@
 #
 #   paid_stage.sh --check <EPISODE>            print the budget position, spend nothing
 #
+#   paid_stage.sh --status <EPISODE>
+#       Free, no credentials: a few lines on in-flight work (paid lock holder, the last paid run's verdict and
+#       log, each stage's status, the newest pipeline log line).  Use it instead of ps/pgrep/tail loops.
+#
+# OUTPUT (Codex cost, 2026-11-16): the pipeline's full output goes to
+# $NALU_RUNTIME_ROOT/runtime/paid_runs/<EP>/<ts>_<label>.log; only its last NALU_PAID_STAGE_TAIL_LINES (30) lines
+# and the log path are printed (NALU_PAID_STAGE_STREAM=1 streams everything as before).  A stage run ends with ONE
+# line from paid_run_status.py: `NEXT: END_TURN_WAIT_FOR_TICK (...)` when the stage only waits on the provider
+# (report WAITING_REMOTE and end the turn: the system tick re-runs this same command and resumes the producer when
+# something needs judgement), or `NEXT: ACT (...)`.
+#
 #   paid_stage.sh <EPISODE> --isolate-reference <TASK_KEY>
 #       Single-reference HopsAPI probes (low quality) for ONE S5 task whose request settled as the
 #       zero-cost 424, through the S5 paid step (order, budget reservation, durable store); a reference
@@ -59,6 +70,7 @@ die() { printf 'paid_stage: %s\n' "$*" >&2; exit "${2:-3}"; }
 usage() {
   printf 'usage: paid_stage.sh <EPISODE> <FROM_STAGE> <UNTIL_STAGE>\n' >&2
   printf '       paid_stage.sh --check <EPISODE>\n' >&2
+  printf '       paid_stage.sh --status <EPISODE>\n' >&2
   printf '       paid_stage.sh <EPISODE> --ab-variant <variant_manifest.json>\n' >&2
   printf '       paid_stage.sh <EPISODE> --isolate-reference <TASK_KEY>\n' >&2
   exit 2
@@ -68,7 +80,12 @@ usage() {
 CHECK_ONLY=0
 AB_VARIANT=""
 ISOLATE_TASK=""
-if [ "$1" = "--check" ]; then CHECK_ONLY=1; EPISODE="$2"
+if [ "$1" = "--status" ]; then
+  [ $# -eq 2 ] || usage
+  case "$2" in E[0-9][0-9]) ;; *) die "episode must look like E11, got '$2'" 2 ;; esac
+  PY="$VENV"; [ -x "$PY" ] || PY=python3
+  exec "$PY" "$HERE/paid_run_status.py" status --episode "$2"
+elif [ "$1" = "--check" ]; then CHECK_ONLY=1; EPISODE="$2"
 elif [ "$2" = "--isolate-reference" ]; then
   [ $# -eq 3 ] && [ -n "$3" ] || usage
   case "$3" in *[!A-Za-z0-9_.-]*|-*) usage ;; esac
@@ -218,25 +235,51 @@ LOCK="$NALU_RUNTIME_ROOT/runtime/.paid_${EPISODE}.lock"
 if ! mkdir "$LOCK" 2>/dev/null; then
   holder="$(cat "$LOCK/pid" 2>/dev/null || true)"
   if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
-    die "another paid run for $EPISODE is active (pid $holder); refusing to start a second one" 4
+    printf 'paid_stage: another paid run for %s is active (pid %s); refusing to start a second one\n' "$EPISODE" "$holder" >&2
+    echo "NEXT: END_TURN_WAIT_FOR_TICK (paid run pid $holder in flight; check with paid_stage.sh --status $EPISODE, do not poll)"
+    exit 4
   fi
   rm -rf "$LOCK"; mkdir "$LOCK"   # stale lock from a crashed run
 fi
 echo $$ > "$LOCK/pid"
 trap 'rm -rf "$LOCK"' EXIT
 
+# Compact output: the full pipeline output goes to a log file, Codex sees only its tail (device …1144 E08: single
+# outputs up to 321 KB, re-read 142 times in one episode).
+RUNS_DIR="$NALU_RUNTIME_ROOT/runtime/paid_runs/$EPISODE"
+TAIL_LINES="${NALU_PAID_STAGE_TAIL_LINES:-30}"
+case "$TAIL_LINES" in ''|*[!0-9]*) TAIL_LINES=30 ;; esac
+RC=0
+RUN_LOG=""
+run_capped() {  # run_capped <label> <argv...>
+  mkdir -p "$RUNS_DIR"
+  RUN_LOG="$RUNS_DIR/$(date -u +%Y%m%dT%H%M%SZ)_$1.log"; shift
+  RC=0
+  if [ "${NALU_PAID_STAGE_STREAM:-0}" = 1 ]; then
+    "$@" 2>&1 | tee "$RUN_LOG" || RC=$?
+  else
+    "$@" > "$RUN_LOG" 2>&1 || RC=$?
+    total="$(wc -l < "$RUN_LOG" | tr -d ' ')"
+    if [ "${total:-0}" -gt "$TAIL_LINES" ]; then
+      echo "paid_stage: ($((total - TAIL_LINES)) earlier lines only in the full log)"
+    fi
+    tail -n "$TAIL_LINES" "$RUN_LOG" | cut -c1-400
+  fi
+  echo "paid_stage: exit=$RC full log: $RUN_LOG"
+}
+
 if [ -n "$AB_VARIANT" ]; then
   echo "paid_stage: $EPISODE A/B variant $AB_VARIANT --paid (order seq=$NALU_PAID_ORDER_SEQ, owner=$NALU_LINE_OWNER_ID)"
-  "$VENV" "$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_pipeline.py" ab-variant \
+  run_capped "ab_variant" "$VENV" "$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_pipeline.py" ab-variant \
     --episode "$EPISODE" --variant "$AB_VARIANT" --paid
-  exit $?
+  exit "$RC"
 fi
 
 if [ -n "$ISOLATE_TASK" ]; then
   echo "paid_stage: $EPISODE isolate-reference $ISOLATE_TASK --paid (order seq=$NALU_PAID_ORDER_SEQ, owner=$NALU_LINE_OWNER_ID)"
-  "$VENV" "$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_pipeline.py" isolate-reference \
+  run_capped "isolate_${ISOLATE_TASK}" "$VENV" "$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_pipeline.py" isolate-reference \
     --episode "$EPISODE" --task-key "$ISOLATE_TASK" --paid
-  exit $?
+  exit "$RC"
 fi
 
 # NALU_PAID_FORCE=1 re-runs a stage whose input fingerprint says PASS (e.g. S5 after a free S2 rebuild added a
@@ -245,5 +288,10 @@ fi
 FORCE_ARGS=()
 if [ "${NALU_PAID_FORCE:-0}" = "1" ]; then FORCE_ARGS=(--force); fi
 echo "paid_stage: $EPISODE $FROM_STAGE..$UNTIL_STAGE --paid ${FORCE_ARGS[*]:-} (order seq=$NALU_PAID_ORDER_SEQ, owner=$NALU_LINE_OWNER_ID)"
-"$VENV" "$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_pipeline.py" run \
+STARTED="$(date +%s)"
+run_capped "${FROM_STAGE}_${UNTIL_STAGE}" "$VENV" "$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_pipeline.py" run \
   --episode "$EPISODE" --from "$FROM_STAGE" --until "$UNTIL_STAGE" --paid ${FORCE_ARGS[@]+"${FORCE_ARGS[@]}"}
+# the last line: NEXT: END_TURN_WAIT_FOR_TICK (only the provider is working) or NEXT: ACT (something to judge)
+"$VENV" "$HERE/paid_run_status.py" record --episode "$EPISODE" --from "$FROM_STAGE" --until "$UNTIL_STAGE" \
+  --rc "$RC" --log "$RUN_LOG" --started "$STARTED" || echo "NEXT: ACT (PAID_RUN_RECORD_FAILED: read the tail above)"
+exit "$RC"

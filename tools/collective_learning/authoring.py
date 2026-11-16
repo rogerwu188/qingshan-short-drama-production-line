@@ -239,8 +239,13 @@ def prepare(*, engine: Path, runtime: Path, episode: str, line: str = "nalu",
                                            config=config.get("exemplars") if isinstance(config.get("exemplars"),
                                                                                        dict) else None)
         knowledge = receipt.get("knowledge") if isinstance(receipt.get("knowledge"), dict) else {}
-        briefing = knowledge.get("briefing_md") if knowledge.get("status") == "READ" else None
-        briefing = briefing if briefing and Path(briefing).is_file() else None
+        # the <= 5 KB short briefing when preflight wrote one (Codex cost 2026-11-16), else the full one
+        briefing = None
+        if knowledge.get("status") == "READ":
+            for key in ("briefing_short_md", "briefing_md"):
+                if knowledge.get(key) and Path(knowledge[key]).is_file():
+                    briefing = knowledge[key]
+                    break
         labels = sorted({f"{b.get('bundle_id')}@{b.get('version')} {b.get('release_channel')}"
                          for b in collective.get("bundles") or []})
         section, used_rules, used_ex, deferred = render_section(rules=rules, exemplars=chosen, briefing=briefing,

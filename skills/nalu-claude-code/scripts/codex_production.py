@@ -111,7 +111,9 @@ CODEX_ADAPTER = """
 - 视频先用 ffmpeg 抽帧拼联系表，再用 view_image 看。
 - **只看缩小后的图**：任何图片（关键帧、身份牌、联系表）先用 ffmpeg 缩到长边 ≤1280 px、存成 JPEG（`-q:v 4`）再 view_image；
   不要直接 view_image 原尺寸 PNG（E02 曾被 128 MB 的全尺寸 PNG 请求体卡成死循环）。
-- 编辑文件用 apply_patch 或 shell；长等待用 `sleep 240`（合同 §4 S6）。
+- 编辑文件用 apply_patch 或 shell。**不要用 `sleep`/`ps`/`pgrep`/`while` 轮询等待**：付费阶段的最后一行是
+  `NEXT: END_TURN_WAIT_FOR_TICK` 时，按合同 §6 报 `WAITING_REMOTE` 结束本轮，系统心跳会免费重跑并在需要你判断时叫醒你；
+  要看进行中的工作只跑一次 `./lines/nalu/runtime/tools/paid_stage.sh --status <EP>`（合同 §0.1）。
 - 审核协议 `vlm_review_protocol.py` 在代码里强制 `reviewer` 必须是 `claude-code-nalu-vlm`、`review_method` 必须是
   `CLAUDE_VLM_STRUCTURED_REVIEW`：这是本线「机器审核者」的协议常量，照填；每条审核答案的 observation 末尾加「（执行者：Codex）」以便溯源。
 - 记订单时 `--recorded-by codex`（不要写 claude-code）。
@@ -284,6 +286,7 @@ def codex_env() -> dict[str, str] | None:
     env.setdefault("NALU_WORK_ROOT", str(engine / "workflow" / "nalu"))
     env.setdefault("NALU_QA_WORKERS", "1")
     env.setdefault("NALU_Q2_WORKERS", "1")
+    env.setdefault("NALU_COMPACT_OUTPUT", "1")   # nalu_pipeline prints stage lines only; the run log keeps the rest
     lookup = ":".join([*tool_dirs(), env.get("PATH", "")])
     # codex is `#!/usr/bin/env node`: the first node on PATH runs it, so the newest node's directory goes first.
     # …1101: a recorded /usr/bin (node v12) sat ahead of nvm's v22 and every cron resume died at codex.js:2.
@@ -420,7 +423,7 @@ def runner(episode: str, log: str, last: str, argv_json: str) -> int:
     return rc
 
 
-def launch(episode: str, prompt: str, resume_id: str | None) -> dict[str, Any]:
+def launch(episode: str, prompt: str, resume_id: str | None, *, keep_counters: bool = False) -> dict[str, Any]:
     env = codex_env()
     exe = codex_exe(env)
     if not exe:
@@ -451,7 +454,8 @@ def launch(episode: str, prompt: str, resume_id: str | None) -> dict[str, Any]:
     if not resume_id:
         session.pop("codex_thread_id", None)
         session["session_id"] = None
-        session["no_status_resumes"] = 0
+        if not keep_counters:  # a fresh hand-off thread continues the same episode: its resume caps still count
+            session["no_status_resumes"] = 0
     write_json(d / "session.json", session)
     return {"status": "STARTED", "engine": "codex", "pid": proc.pid, "log": str(log), "resumed_from": resume_id}
 
@@ -586,6 +590,7 @@ def start(episode: str, brief: str = "") -> dict[str, Any]:
     prompt = build_prompt(episode, brief, section)
     out = launch(episode, prompt, None)
     if out.get("status") == "STARTED":
+        save_start_context(episode, brief, section)
         series = roots()[1] / "series"
         series.mkdir(parents=True, exist_ok=True)
         (series / "CURRENT_EPISODE").write_text(episode + "\n", encoding="utf-8")
@@ -663,6 +668,9 @@ def resume(episode: str, message: str) -> dict[str, Any]:
         return {"status": "BLOCKED", "reason": "NO_CODEX_SESSION_TO_RESUME_RUN_start_FIRST"}
     session["codex_thread_id"] = sid
     write_json(d / "session.json", session)
+    fresh = fresh_thread_decision(sid)
+    if fresh["fresh"]:
+        return resume_in_fresh_thread(episode, message, sid, fresh)
     return launch(episode, message + "\n（提醒：本轮最后一行仍须是 NALU_STATUS 单行 JSON。）", sid)
 
 
@@ -673,6 +681,282 @@ def status(episode: str) -> dict[str, Any]:
             "engine": session.get("engine") or "claude", "pid": session.get("pid"), "log": session.get("log"),
             "session_id": session.get("codex_thread_id") or session.get("session_id"),
             "codex": info, "pipeline": pipeline_status(episode)}
+
+
+# ------------------------------------------------------------------------------------- remote waits (no model)
+# Device …1144 E08/E09 (2026-11-16): ~half of Codex's ~650 round trips per episode were an S6 wait loop -- re-run
+# `paid_stage.sh <EP> S6 S6` after `sleep 240`, probe the pipeline's children with ps/pgrep, tail the run log --
+# and every round trip re-sent the whole conversation.  Now Codex ends its turn at WAITING_REMOTE as soon as
+# paid_stage.sh prints `NEXT: END_TURN_WAIT_FOR_TICK`; the system tick (every 3 min, no model) follows the paid run
+# and re-runs the SAME `paid_stage.sh <EP> <FROM> <UNTIL>` (same order, cap, durable store: nothing is bypassed)
+# until the stage needs judgement, then resumes Codex.
+REMOTE_WAIT_QUIET = ("IN_FLIGHT", "BACKOFF", "RERUN_STARTED", "RERUN_STARTING")
+RERUN_START_GRACE_S = 120   # paid_stage.sh's own preflight (reconciliation, budget check) before it takes the lock
+
+
+def _load_engine_tool(name: str) -> Any:
+    """An engine line tool as a module (``lines/nalu/runtime/tools/<name>.py``), or None."""
+    import importlib.util  # noqa: PLC0415
+    engine, _ = roots()
+    path = engine / "lines" / "nalu" / "runtime" / "tools" / f"{name}.py"
+    if not path.is_file():  # the engine this script ships in
+        path = HERE.parents[2] / "lines" / "nalu" / "runtime" / "tools" / f"{name}.py"
+    if not path.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location(f"_nalu_{name}", path)
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+    except Exception:  # noqa: BLE001 -- a broken tool must not stop the tick; the old path (resume) still works
+        return None
+    return mod
+
+
+def _epoch(stamp: Any) -> float | None:
+    try:
+        return datetime.fromisoformat(str(stamp).replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def launch_paid_rerun(episode: str, from_stage: str, until_stage: str) -> dict[str, Any]:
+    """Re-run ``paid_stage.sh <EP> <FROM> <UNTIL>`` detached (the command Codex re-ran after ``sleep 240``)."""
+    if not re.fullmatch(r"S[1-8]", str(from_stage)) or not re.fullmatch(r"S[1-8]", str(until_stage)):
+        return {"status": "REFUSED", "reason": f"STAGE_RANGE:{from_stage}..{until_stage}"}
+    engine, runtime = roots()
+    script = engine / "lines" / "nalu" / "runtime" / "tools" / "paid_stage.sh"
+    if not script.is_file():
+        return {"status": "REFUSED", "reason": "PAID_STAGE_MISSING"}
+    out_dir = runtime / "runtime" / "paid_runs" / episode
+    out_dir.mkdir(parents=True, exist_ok=True)
+    env = {k: v for k, v in os.environ.items() if k != KEY_ENV}
+    env.setdefault("NALU_ENGINE_ROOT", str(engine))
+    env.setdefault("NALU_RUNTIME_ROOT", str(runtime))
+    with open(out_dir / "tick_rerun.out", "a", encoding="utf-8") as fh:
+        fh.write(f"--- {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')} tick re-run "
+                 f"{episode} {from_stage}..{until_stage}\n")
+        fh.flush()
+        proc = subprocess.Popen(["/bin/bash", str(script), episode, from_stage, until_stage], cwd=str(engine),
+                                stdout=fh, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env,
+                                start_new_session=True)
+    return {"status": "STARTED", "pid": proc.pid, "output": str(out_dir / "tick_rerun.out")}
+
+
+def _tail(path: Path, n: int = 5) -> list[str]:
+    try:
+        return [ln[:300] for ln in path.read_text(encoding="utf-8", errors="replace").splitlines() if ln.strip()][-n:]
+    except OSError:
+        return []
+
+
+def remote_wait_step(ep: str, session: dict[str, Any]) -> dict[str, Any]:
+    """The tick's free WAITING_REMOTE step.  Returns ``action`` in REMOTE_WAIT_QUIET (stay quiet), ``NO_RECORD``
+    (nothing recorded by a paid run this turn: resume Codex as before) or ``RESUME`` (``reason``: wake Codex)."""
+    prs = _load_engine_tool("paid_run_status")
+    if prs is None:
+        return {"action": "NO_RECORD", "reason": "PAID_RUN_STATUS_UNAVAILABLE"}
+    _, runtime = roots()
+    d = run_dir(ep)
+    rw = session.get("remote_wait") if isinstance(session.get("remote_wait"), dict) else {}
+    if rw.get("key") != session.get("log"):   # a new Codex turn: a fresh wait
+        rw = {"key": session.get("log"), "reruns": 0}
+    dec = prs.tick_decision(runtime, ep, since=_epoch(session.get("started_at")), reruns_done=int(rw["reruns"]))
+    if dec["action"] != "IN_FLIGHT" and rw.get("last_rerun_at"):
+        rec = prs.last_record(runtime, ep)
+        if float(rec.get("finished_at") or 0) < float(rw["last_rerun_at"]):   # our re-run has not recorded yet
+            if time.time() - float(rw["last_rerun_at"]) < RERUN_START_GRACE_S:
+                return {"action": "RERUN_STARTING"}
+            tail = _tail(runtime / "runtime" / "paid_runs" / ep / "tick_rerun.out")
+            dec = {"action": "RESUME", "reason": "TICK_RERUN_ENDED_WITHOUT_A_RECORD", "output_tail": tail}
+    if dec["action"] == "RERUN":
+        out = launch_paid_rerun(ep, str(dec.get("from")), str(dec.get("until")))
+        if out.get("status") == "STARTED":
+            rw.update(reruns=int(rw["reruns"]) + 1, last_rerun_at=time.time())
+            session["remote_wait"] = rw
+            write_json(d / "session.json", session)
+            return {"action": "RERUN_STARTED", "from": dec.get("from"), "until": dec.get("until"),
+                    "reruns": rw["reruns"], "pid": out.get("pid"), "reason": dec.get("reason")}
+        dec = {"action": "RESUME", "reason": f"TICK_RERUN_NOT_STARTED:{out.get('reason')}"}
+    if session.get("remote_wait") != rw:
+        session["remote_wait"] = rw
+        write_json(d / "session.json", session)
+    return {**dec, "reruns": int(rw["reruns"])}
+
+
+def wake_message(ep: str, wait: dict[str, Any]) -> str:
+    rec = wait.get("record") or {}
+    lines = [f"系统心跳在你结束上一轮后替你跟进了远端等待（免费重跑 {wait.get('reruns', 0)} 次，没有经过你）。"
+             f"现在需要你判断：{wait.get('reason')}。"]
+    if rec:
+        lines.append(f"最近一次付费运行：{rec.get('from')}..{rec.get('until')} exit={rec.get('exit_code')}，"
+                     f"阶段 {rec.get('stage')} {rec.get('status')}，阻塞 {', '.join(rec.get('blockers') or []) or '无'}；"
+                     f"完整日志 {rec.get('log')}（只用 `tail -n 40` 或 `rg` 取需要的行，不要整份读）。")
+    if wait.get("output_tail"):
+        lines.append("心跳重跑的输出末尾：\n" + "\n".join(wait["output_tail"]))
+    lines.append(f"先跑一次 `./lines/nalu/runtime/tools/paid_stage.sh --status {ep}`（不要 ps/pgrep/sleep），然后按合同继续。")
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------------- fresh thread on resume
+# Same study: resuming one Codex thread 4 times grew every model step from ~217K to 650-720K input tokens, so the
+# later steps cost ~3x.  A resume whose previous thread already sends more than NALU_CODEX_FRESH_THREAD_TOKENS
+# (default 300K, 0 = never) per step starts a NEW thread seeded with the contract and a compact hand-off built from
+# engine state.  Nothing durable lives in the thread: paid tasks are bound in the transaction store, orders and
+# receipts on disk, and the pipeline skips PASS stages -- so a fresh thread repeats no paid work.
+FRESH_THREAD_ENV = "NALU_CODEX_FRESH_THREAD_TOKENS"
+DEFAULT_FRESH_THREAD_TOKENS = 300_000
+ROLLOUT_TAIL_BYTES = 8 * 1024 * 1024
+HANDOFF_BRIEF_MAX = 6000
+
+
+def fresh_thread_threshold() -> int:
+    try:
+        return max(0, int(os.environ.get(FRESH_THREAD_ENV) or DEFAULT_FRESH_THREAD_TOKENS))
+    except ValueError:
+        return DEFAULT_FRESH_THREAD_TOKENS
+
+
+def codex_home() -> Path:
+    return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+
+
+def thread_last_input_tokens(thread_id: str) -> tuple[int | None, str | None]:
+    """Input tokens of the thread's LAST model step, from Codex's own rollout file
+    (``~/.codex/sessions/**/rollout-*-<thread_id>.jsonl``, ``token_count`` events with ``last_token_usage``)."""
+    if not thread_id or not re.fullmatch(r"[A-Za-z0-9_-]+", thread_id):
+        return None, None
+    try:
+        files = sorted((codex_home() / "sessions").rglob(f"rollout-*{thread_id}.jsonl"),
+                       key=lambda p: p.stat().st_mtime)
+    except OSError:
+        return None, None
+    for path in reversed(files):
+        try:
+            with path.open("rb") as fh:
+                fh.seek(0, os.SEEK_END)
+                fh.seek(max(0, fh.tell() - ROLLOUT_TAIL_BYTES))
+                lines = fh.read().decode("utf-8", "replace").splitlines()
+        except OSError:
+            continue
+        for line in reversed(lines):
+            if '"token_count"' not in line:
+                continue
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            payload = ev.get("payload") if isinstance(ev.get("payload"), dict) else ev
+            info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
+            last = info.get("last_token_usage") if isinstance(info.get("last_token_usage"), dict) else {}
+            if isinstance(last.get("input_tokens"), int):
+                return last["input_tokens"], str(path)
+    return None, None
+
+
+def fresh_thread_decision(thread_id: str) -> dict[str, Any]:
+    threshold = fresh_thread_threshold()
+    if not threshold:
+        return {"fresh": False, "threshold": 0}
+    tokens, source = thread_last_input_tokens(thread_id)
+    return {"fresh": bool(tokens and tokens > threshold), "last_input_tokens": tokens, "threshold": threshold,
+            "source": source}
+
+
+def save_start_context(episode: str, brief: str, section: str) -> None:
+    """Keep the start brief and the 本集导演经验 section so a fresh hand-off thread carries them again."""
+    d = run_dir(episode)
+    for name, text in (("start_brief.md", brief), ("knowledge_guidance.section.md", section)):
+        path = d / name
+        if text:
+            path.write_text(text, encoding="utf-8")
+        else:
+            path.unlink(missing_ok=True)
+
+
+def _read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def build_handoff(episode: str, message: str, old_thread: str, decision: dict[str, Any]) -> str:
+    """A compact (~3-8 KB) hand-off from engine state: where the episode stands, what is open, where things are."""
+    engine, runtime = roots()
+    d = run_dir(episode)
+    session = read_json(d / "session.json")
+    info = parse_log(Path(session.get("log") or ""))
+    out = [f"## 新线程接手（引擎自动生成）",
+           f"上一线程 `{old_thread}` 最后一步的输入已有 {decision.get('last_input_tokens')} tokens（阈值 "
+           f"{decision.get('threshold')}），为省费用换成新线程。你是在**继续**生产 {episode}，不是从头开始：已 PASS 的阶段"
+           "流水线会跳过，已绑定的付费任务只收割不重提，订单与回执都在磁盘上。上面的合同就是全文——不要再去读合同文件、"
+           "SKILL.md、`configs/ENGINEERING_KNOWLEDGE_V1.json` 或 `knowledge/failure_memory.jsonl` 全文；要查哪条用 `rg` 按行取。",
+           "", "### 本次恢复的原因", message.strip()]
+    ns = info.get("nalu_status")
+    if ns:
+        out += ["", "### 上一线程最后的 NALU_STATUS", json.dumps(ns, ensure_ascii=False)[:800]]
+    last = (info.get("result") or info.get("last_assistant_text") or "").strip()
+    if last:
+        out += ["", "### 上一线程最后一条消息（节选）", last[-1500:]]
+    stages = pipeline_status(episode)
+    if stages:
+        out += ["", f"### 流水线状态（runtime/pipeline_state/{episode}.json）"]
+        for sid, row in stages.items():
+            blockers = ", ".join(str(b) for b in row.get("blockers") or [])
+            out.append(f"- {sid} {row.get('status')}" + (f"：{blockers[:300]}" if blockers else ""))
+    prs = _load_engine_tool("paid_run_status")
+    if prs is not None:
+        try:
+            out += ["", "### 付费运行（paid_stage.sh --status）"] + prs.status_lines(runtime, episode)
+        except Exception:  # noqa: BLE001 -- the hand-off is best effort
+            pass
+    orders = read_json(runtime / "runtime" / "SUPERVISOR_ORDERS.json").get("orders") or []
+    mine = [o for o in orders if isinstance(o, dict)
+            and episode in json.dumps(o.get("decision") or o.get("scope") or {}, ensure_ascii=False)][-6:]
+    if mine:
+        out += ["", f"### 本集最近的订单（runtime/SUPERVISOR_ORDERS.json，latest seq "
+                    f"{read_json(runtime / 'runtime' / 'SUPERVISOR_ORDERS.json').get('latest_order_seq')}）"]
+        for o in mine:
+            dec = o.get("decision") or {}
+            out.append(f"- seq={o.get('seq')} {o.get('type') or dec.get('kind')} gate={dec.get('gate_id')} "
+                       f"detectors={len(dec.get('detectors') or [])} status={o.get('status')}")
+    reports = engine / "workflow" / "nalu" / episode / "preproduction" / "reports"
+    blockers = sorted(reports.glob("*CODE_BLOCKER*.md"), key=lambda p: p.stat().st_mtime) if reports.is_dir() else []
+    if blockers:
+        out += ["", "### 最近的代码阻塞报告", str(blockers[-1])]
+    out += ["", "### 关键路径",
+            f"- 派单 {runtime / 'briefs' / f'{episode}_DISPATCH.md'}；简报 {runtime / 'briefs' / f'{episode}_PRODUCTION_BRIEF.json'}",
+            f"- 叙事正典 {engine / 'workflow' / 'claude_writer_agent' / 'scripts' / f'{episode}_NARRATIVE_CANONICAL_v1.md'}",
+            f"- 报告 {reports}；审核 {runtime / 'runtime' / 'reviews' / episode}",
+            f"- 流水线日志 {runtime / 'runtime' / 'pipeline_logs' / episode}；付费运行 {runtime / 'runtime' / 'paid_runs' / episode}",
+            f"- 进度 {runtime / 'series' / 'STATUS.md'}"]
+    brief = _read_text(d / "start_brief.md").strip()
+    if brief:
+        out += ["", "### 开工附加说明（原文）",
+                brief if len(brief) <= HANDOFF_BRIEF_MAX else brief[:HANDOFF_BRIEF_MAX] + f"\n…（全文 {d / 'start_brief.md'}）"]
+    out += ["", f"先跑一次 `./lines/nalu/runtime/tools/paid_stage.sh --status {episode}` 和 "
+                f"`env -u GIGGLE_API_KEY -u HOPSAPI_API_KEY $NALU_ENGINE_ROOT/.qingshan-venv/bin/python "
+                f"lines/nalu/runtime/tools/nalu_pipeline.py status --episode {episode}`，然后从当前阶段按合同继续。",
+            "（提醒：本轮最后一行仍须是 NALU_STATUS 单行 JSON。）"]
+    return "\n".join(out)
+
+
+def resume_in_fresh_thread(episode: str, message: str, old_thread: str, decision: dict[str, Any]) -> dict[str, Any]:
+    d = run_dir(episode)
+    handoff = build_handoff(episode, message, old_thread, decision)
+    section = _read_text(d / "knowledge_guidance.section.md").strip()
+    prompt = build_prompt(episode, "", handoff + (f"\n\n{section}" if section else ""))
+    out = launch(episode, prompt, None, keep_counters=True)
+    if out.get("status") == "STARTED":
+        session = read_json(d / "session.json")
+        session.setdefault("fresh_threads", []).append(
+            {"from_thread": old_thread, "last_input_tokens": decision.get("last_input_tokens"),
+             "threshold": decision.get("threshold"), "log": out.get("log"),
+             "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
+        write_json(d / "session.json", session)
+        out["fresh_thread"] = {"from_thread": old_thread, "last_input_tokens": decision.get("last_input_tokens"),
+                               "handoff_chars": len(handoff)}
+    return out
 
 
 # ------------------------------------------------------------------------------------------------ tick
@@ -920,8 +1204,17 @@ def tick(system: bool = False) -> dict[str, Any]:
         else:
             reason = f"NO_STATUS_AFTER_{MAX_NO_STATUS_RESUMES}_RESUMES"
     elif state == "WAITING_REMOTE":
-        out = resume(ep, "继续")
-        did.append(f"resume_waiting_remote:{out.get('status')}")
+        # remote work (S6 rendering, H3 queue, zero-cost provider outage) is followed here for free; Codex is woken
+        # only when the stage needs judgement (paid_run_status.tick_decision; device …1144 E08/E09 cost study)
+        wait = remote_wait_step(ep, session)
+        res["remote_wait"] = {k: v for k, v in wait.items() if k != "record"}
+        if wait["action"] in REMOTE_WAIT_QUIET:
+            res["reason"] = f"REMOTE_WAIT_{wait['action']}"
+            if wait["action"] == "RERUN_STARTED":
+                did.append(f"paid_rerun:{wait.get('from')}..{wait.get('until')}:{wait.get('reruns')}")
+            return res
+        out = resume(ep, "继续" if wait["action"] == "NO_RECORD" else wake_message(ep, wait))
+        did.append(f"resume_waiting_remote:{wait['action']}:{out.get('status')}")
         if out.get("status") == "STARTED":
             return res
         # the resume itself failed (e.g. CODEX_NOT_INSTALLED under the cron): surface it instead of silently
