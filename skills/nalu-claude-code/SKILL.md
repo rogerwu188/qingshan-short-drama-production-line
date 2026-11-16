@@ -142,12 +142,13 @@ python3 $S/codex_production.py report                                # 给线主
 - 上一集出片后的下一集由 `tick` 自己接续（§7），不再交给你；只有失败时才以 `NEXT_EPISODE_<原因>` 交给你一次。
 - `AGENT`：看 `reason` 和 `nalu_status`，按下面处理；同一个情况脚本只交给你一次，之后的心跳返回 `NONE`。
 `tick` 自己做的事：按集号顺序发行已出片未发行的集（一次一集，有待审集时暂缓，见 §6）；Codex 会话结束但没给 `NALU_STATUS` 时
-续跑最多 3 次；`WAITING_REMOTE` 续跑；以前用 Claude Code 起的、已停下的集改用 Codex 接着跑；`series/PAUSED` 存在时什么都不做。
+续跑最多 3 次；`WAITING_REMOTE` 时免费跟进远端等待（付费运行在跑就等，提供方仍在渲染就自己重跑同一 `paid_stage.sh`，需要判断时才带原因恢复 Codex）；
+恢复时上一线程每步输入已超过 `NALU_CODEX_FRESH_THREAD_TOKENS`（默认 300000）就换新线程，用引擎状态写的交接说明接上；以前用 Claude Code 起的、已停下的集改用 Codex 接着跑；`series/PAUSED` 存在时什么都不做。
 `AGENT` 时的处理（`state` 即 `nalu_status.state`）：
 - 在跑时（`status` 为 `RUNNING`）：不打扰。
 - `IDLE` + `OWNER_DECISION_REQUIRED`：只剩少数情况会出现（Giggle key 缺失/失效、追加一次后预算仍不够、新的付费类别）。
   把 `question` 原样转给线主，**本项目暂停**等回复；线主回复后用 `resume --message "线主原话：<逐字>"`。不得替线主回答。
-- `IDLE` + `WAITING_REMOTE`：5 分钟后 `resume --message "继续"`。
+- `IDLE` + `WAITING_REMOTE`：系统 tick 自己跟进（见上），不用你恢复；只有 `RESUME_FAILED:<原因>` 交给你时才处理该原因。
 - fleet 指令（`resume` / `update` / `pause` / `unpause` / `query` / `diagnose`）全部由脚本执行，你不用处理；只有 `agent_task`（维护者给代理的环境 / 凭据修复指令）会在心跳以 `AGENT` / `FLEET_AGENT_TASK` 交给你一次，原文在 `fleet_agent_task` 字段，照做即可。其余：`update` = `self_update.sh` 不带 --restart → 读**更新后**磁盘 AGENTS.md 的 pin 跑 `setup_host.sh` → 引擎 HEAD 变了且本集是 BLOCKED / FINAL_REVIEW_REQUIRED 就 resume（`fleet_sync.scripted_update`）。旧版本交回的 `FLEET_UPDATE` 按同样顺序处理一次。
 - `BLOCKED_RECHECK_UPDATE`（BLOCKED 后每小时交给你一次），按这个顺序，**不要带 `--restart`**（重启网关会打断本轮，
   引擎就停在旧版；实地设备 …1324 E02，2026-11-07）：

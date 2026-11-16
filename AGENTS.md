@@ -170,7 +170,9 @@ H3 剧本改编：MiniMax-H3 集的写手按 `docs/knowledge/H3_SCRIPT_ADAPTATIO
    与 `knowledge/failure_memory.jsonl`（`failure_code` → `do_not_repeat`）。这两份是**原因**，不是模板：
    读的是「哪类错不要再犯」，**不是**照搬旧集的镜头表或台词。收工侧写 K 号（§8）与开工侧读 K 号是同一件事的两端，
    只有写没有读，本集就会重犯已经付过学费的错。Roger 2026-10-01。
-   **自动化**：任何生产线开工前调 `tools/line_upgrade_gate.py preflight`（写 `<EP>_KNOWLEDGE_BRIEFING.md` 给写手读，并检查引擎是否落后 origin/main、是否有未声明的 overlay 遮蔽引擎模块）；nalu 线由 S1 自动调用。协议见 `docs/knowledge/LINE_UPGRADE_PROTOCOL.md`。
+   **自动化**：任何生产线开工前调 `tools/line_upgrade_gate.py preflight`（写 `<EP>_KNOWLEDGE_BRIEFING.md` 与 ≤5 KB 的
+   `<EP>_KNOWLEDGE_BRIEFING_SHORT.md`（门禁不替写手拦的规则 + 写作阶段失败原因）给写手读；无人值守的 Codex 产线读短版即满足本条，
+   全量文件按 K 号/失败码用 `rg` 查，不整份读——每次模型往返都会重发已读内容，见 nalu 合同 §0.1，并检查引擎是否落后 origin/main、是否有未声明的 overlay 遮蔽引擎模块）；nalu 线由 S1 自动调用。协议见 `docs/knowledge/LINE_UPGRADE_PROTOCOL.md`。
 1. 读源章、写 `E0N_NARRATIVE_CANONICAL_v1.md`（头部逐字引上一集 canonical 末段 5 行；声明观众已知不复证；选择性配乐节点）。
 2. 写 `build_e0N_layers.py`：逐集构建器内嵌本集镜头表与逐字台词，属**作品文本，不入库**（`.gitignore` 已拦）。
    按 `lines/nalu/docs/DEPLOY_NEW_MACHINE.md` §5 的骨架自写，或从上一集的本地副本（若本机有）改写数据块
