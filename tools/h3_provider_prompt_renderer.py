@@ -340,6 +340,33 @@ def _combat_plan(plan: dict[str, Any] | None) -> bool:
     return bool((plan or {}).get("combat_execution_required"))
 TRIPOD_CLAUSE = "The camera is on a tripod for the whole take"
 NO_SPEECH_BEAT_CLAUSE = "No speech in this beat: {who} keeps the mouth closed, no voice, no murmur, no breath words."
+# E14 2026-11-16 (fleet 1037, VU-001): a silent shot whose scripted action IS a mouth action ("opens her mouth in a
+# large yawn") was also told "every visible person keeps the mouth closed for the entire clip" -- two instructions
+# that cannot both hold.  When the translated action text names such an action the no-speech rule keeps forbidding
+# speech and lip movement for words, and exempts exactly that scripted action.
+_SILENT_MOUTH_ACTION = re.compile(
+    r"\b(?:yawn\w*|gasp\w*|laugh\w*|scream\w*|cough\w*|sneez\w*|chew\w*|bit(?:e|es|ing)|eat(?:s|ing)?|"
+    r"drink(?:s|ing)?|sip(?:s|ping)?|kiss(?:es|ing)?|lick(?:s|ing)?|"
+    r"opens?\s+(?:(?:her|his|their|its|the)\s+)?mouth|mouth\s+(?:falls?|drops?|hangs?|gapes?)\s+open|"
+    r"open[- ]mouthed|jaw\s+drops?)\b", re.I)
+MOUTH_ACTION_EXEMPTION = "the mouth opens only for the scripted non-speech action described in the action beats"
+NO_SPEECH_BEAT_MOUTH_ACTION_CLAUSE = (
+    "No speech in this beat: {who} forms no words, no voice, no murmur, no breath words; " + MOUTH_ACTION_EXEMPTION + ".")
+
+
+def _strings(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [text for item in value.values() for text in _strings(item)]
+    if isinstance(value, (list, tuple)):
+        return [text for item in value for text in _strings(item)]
+    return []
+
+
+def scripted_mouth_action(translated: Any) -> bool:
+    """True when the provider-language action text scripts a non-speech mouth action (yawn, bite, gasp...)."""
+    return any(_SILENT_MOUTH_ACTION.search(text) for text in _strings(translated))
 SHORT_LINE_CLAUSE = "Deliver this short line unhurried, over at least one full second, with a natural pause before and after it."
 SHORT_LINE_MAX_CHARS = 4
 
@@ -1238,7 +1265,8 @@ def _beat(
         # K138 (Roger 2026-10-30 item 1a): H3 vocalises a beat that carries no dialogue literal — babble,
         # English or homophone gibberish — unless told, beat by beat, that nobody speaks here
         who = speaker_label or "every visible person"
-        clause = NO_SPEECH_BEAT_CLAUSE.format(who=who)
+        clause = (NO_SPEECH_BEAT_MOUTH_ACTION_CLAUSE if scripted_mouth_action(translated)
+                  else NO_SPEECH_BEAT_CLAUSE).format(who=who)
         line += " " + clause
         evidence[f"{prefix}.NO_SPEECH"] = clause
     # A ladder beat's per-shot syntax already carries the movement; repeating the unit-wide microexpression,
@@ -1684,11 +1712,18 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         # identity/audio relation is resolved by canonical character id.
         clause_evidence[f"VOICE_BINDING.{index}"] = line
     if not any(beat.get("dialogue") for beat in action_beats):
-        vocal_rule = (
-            "SUBJECT_1 keeps a naturally closed mouth for the complete clip."
-            if positive_single_subject
-            else "No human speech event; every visible person keeps the mouth closed for the entire clip."
-        )
+        if scripted_mouth_action(contract.get("beats")):
+            vocal_rule = (
+                f"SUBJECT_1 never speaks or forms words; {MOUTH_ACTION_EXEMPTION}."
+                if positive_single_subject
+                else f"No human speech event; nobody speaks or forms words; {MOUTH_ACTION_EXEMPTION}."
+            )
+        else:
+            vocal_rule = (
+                "SUBJECT_1 keeps a naturally closed mouth for the complete clip."
+                if positive_single_subject
+                else "No human speech event; every visible person keeps the mouth closed for the entire clip."
+            )
     else:
         vocal_rule = (
             "SPEAKER_1 performs the literal inside the d-tag as synchronized native speech."
