@@ -4080,6 +4080,23 @@ def keyframe_needs_post(ctx: Ctx, index: dict[str, Any]) -> tuple[list[str], lis
     return need, done
 
 
+def s5_unlocked_identity_assets(tasks: list[dict[str, Any]], needs_post: list[str]) -> list[str]:
+    """Identity / prop assets a keyframe that still needs a POST binds, but the asset library has not locked.
+
+    Device ...0030 E19 (2026-11-16): the script was revised after S3 had passed and the new text added a
+    prop.  S3 has no input fingerprint, so it stayed SKIPPED_ALREADY_PASS; the keyframe manifest bound the
+    prop as PENDING_ASSET_LIBRARY_ARTIFACT and S5 then died in the stamper and the submitter on the awaited
+    file, with no route back to S3 through the paid entry.  Only tasks that are about to be POSTed count:
+    a keyframe already admitted at its current image is not touched by a binding that went pending later.
+    """
+    wanted = set(needs_post)
+    return sorted({str(row.get("entity_id") or "")
+                   for task in tasks if str(task.get("task_key") or "") in wanted
+                   for row in (task.get("pending_bindings") or [])
+                   if isinstance(row, dict) and row.get("binding_status") == "PENDING_ASSET_LIBRARY_ARTIFACT"}
+                  - {""})
+
+
 def s5_q1_not_all_admitted(ctx: Ctx) -> bool:
     """A later Q1 review that rejected keyframes must re-open a passed S5 (lab E11: an honest re-review
     rejected 16/27 keyframes but S5 still reported SKIPPED_ALREADY_PASS from the earlier stale review)."""
@@ -4233,6 +4250,19 @@ def stage_s5(ctx: Ctx) -> StageResult:
                 f"{len(needs_post)} still need a POST: {needs_post}")
     res.details["d46_needs_post"] = needs_post
     res.details["d46_already_admitted"] = keyframes_done
+    unlocked_assets = s5_unlocked_identity_assets(tasks, needs_post)
+    if unlocked_assets:
+        # Free, before any authorisation or POST: the submitter would refuse these tasks on the awaited
+        # file anyway.  Re-open S3 so the paid entry can produce and lock the asset (rounds + D-46 there
+        # POST only what the library does not hold yet).
+        ctx.stage_state("S3")["reopen_required"] = {"by": "S5", "at": now(), "assets": unlocked_assets}
+        ctx.save_state()
+        res.status = BLOCKED
+        res.blockers.append("IDENTITY_ASSET_NOT_LOCKED:" + ",".join(unlocked_assets))
+        res.details["unlocked_identity_assets"] = unlocked_assets
+        res.details["hint"] = (f"S3 is re-opened: run paid_stage.sh {ctx.episode} S3 S5 so S3 generates and "
+                               "locks these assets (only the missing ones are POSTed), then S5 continues.")
+        return res
     planned = ctx.planned_credits("S5")
     res.details["image_provider"] = image_provider_info()
     if res.details["image_provider"]["provider"] == "hopsapi":
@@ -10919,7 +10949,8 @@ def run_episode(ctx: Ctx) -> int:
         fingerprint = FINGERPRINTS.get(sid, lambda _c: None)(ctx)
         if (not ctx.force and row.get("status") in TERMINAL_OK
                 and (fingerprint is None or fingerprint == row.get("input_fingerprint"))
-                and not (sid == "S5" and (s5_keyframes_missing(ctx) or s5_q1_not_all_admitted(ctx)))):
+                and not (sid == "S5" and (s5_keyframes_missing(ctx) or s5_q1_not_all_admitted(ctx)))
+                and not (sid == "S3" and row.get("reopen_required"))):
             ctx.say(f"\n-- {sid} {STAGE_TITLES[sid]}: SKIPPED (already PASS, inputs unchanged)")
             row["status"] = SKIPPED
             ctx.save_state()
@@ -10927,6 +10958,7 @@ def run_episode(ctx: Ctx) -> int:
         ctx.say(f"\n-- {sid} {STAGE_TITLES[sid]}")
         row["attempts"] = int(row.get("attempts") or 0) + 1
         row["started_at"] = now()
+        row.pop("reopen_required", None)   # S5 sets it again if the asset is still not locked
         try:
             result = STAGE_FUNCS[sid](ctx)
         except _media.MediaToolBlocked as exc:
