@@ -46,6 +46,9 @@ EVENT_KINDS = (
     "USER_CORRECTION",
     "FIX_RESULT",
     "RUN_ANOMALY",
+    # A unit/episode that passed its QA on the first attempt in a well-reviewed episode (structural directing
+    # fields only; see collective_learning.exemplars).  Not a rate kind and never clustered into a lesson.
+    "SUCCESS_EXEMPLAR",
 )
 # Kinds that describe how often something happened in a population of units,
 # so a rate needs a denominator.
@@ -377,7 +380,7 @@ def validate_attribution(review: dict[str, Any]) -> dict[str, Any]:
 
 # --------------------------------------------------------------------------- candidate
 SCOPE_KEYS = ("models", "model_modes", "engine_compat", "stages", "scene_types", "aspect_ratios",
-              "languages", "shot_intents", "requires", "privacy")
+              "languages", "shot_intents", "requires", "privacy", "genres")
 
 
 def validate_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
@@ -614,6 +617,9 @@ SCOPE_TO_CAPABILITY = {
     "aspect_ratios": "aspect_ratio",
     "languages": "language",
     "shot_intents": "shot_intent",
+    # the episode's X2C category (normalised by the caller); a unit/video compile does not know it, so a
+    # genre-scoped rule never matches there (unknown conditions do not match everything)
+    "genres": "genre",
 }
 
 

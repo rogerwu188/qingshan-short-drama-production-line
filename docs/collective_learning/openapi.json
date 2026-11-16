@@ -135,7 +135,8 @@
               "SUCCESS_OBSERVATION",
               "USER_CORRECTION",
               "FIX_RESULT",
-              "RUN_ANOMALY"
+              "RUN_ANOMALY",
+              "SUCCESS_EXEMPLAR"
             ]
           },
           "visibility": {
@@ -512,6 +513,9 @@
                 "type": "string"
               },
               "shot_intent": {
+                "type": "string"
+              },
+              "genre": {
                 "type": "string"
               }
             }

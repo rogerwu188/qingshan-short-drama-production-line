@@ -135,6 +135,13 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        "genres": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },

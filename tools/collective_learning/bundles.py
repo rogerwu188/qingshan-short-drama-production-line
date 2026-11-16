@@ -5,7 +5,8 @@ Knowledge bundle (``qingshan.collective.knowledge_bundle.v1``) -- DATA ONLY:
      compat: {engine_api_versions: [...], models: [...]},
      rules: [{rule_id, rule_version, category, scope, trigger, recommendation, exceptions,
               known_counterexamples, verification, cost_class, evidence_level, validation_scope,
-              impact_scope?, application?: {carrier, prompt_clause: {zh?, en?}}}]}
+              impact_scope?, application?: {carrier, prompt_clause: {zh?, en?}}}],
+     exemplars?: [success exemplar, ...]}          # the 成功样例库 bundle (rules: []); see exemplars.py
 
 Signed envelope (``qingshan.collective.signed_bundle.v1``):
     {schema, bundle, digest = sha256(canonical_json(bundle)),
@@ -57,7 +58,10 @@ SKILL_PUBLISHER = "SKILL_PUBLISHER"
 CHANNELS = ("CANARY", "RELEASED")
 # A device enrolled in CANARY also accepts RELEASED; a RELEASED device never takes CANARY.
 CHANNEL_ACCEPTS = {"RELEASED": {"RELEASED"}, "CANARY": {"CANARY", "RELEASED"}}
-CARRIERS = ("BEAT_DIRECTION", "NEGATIVE_CONSTRAINT", "CHECK_ONLY")
+#: DIRECTING_GUIDANCE: a directing lesson for the AUTHOR (Codex writing the dispatch, script, storyboard and shot
+#: prompt_specs), injected into the episode start prompt by ``authoring`` -- never into a provider video prompt.
+CARRIERS = ("BEAT_DIRECTION", "NEGATIVE_CONSTRAINT", "CHECK_ONLY", "DIRECTING_GUIDANCE")
+AUTHORING_CARRIERS = ("DIRECTING_GUIDANCE",)
 EXECUTABLE_KEYS = ("skill", "skills", "executable", "code", "python", "shell", "script", "exec", "entrypoint")
 
 
@@ -160,6 +164,10 @@ def validate_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
     for key in EXECUTABLE_KEYS:
         if key in bundle:
             failures.append(f"BUNDLE_CANNOT_CARRY_EXECUTABLE:{key}")
+    if "exemplars" in bundle:
+        # 成功样例库: data only, privacy-checked entry by entry (exemplars.validate_exemplar)
+        from .exemplars import library_blockers  # noqa: PLC0415
+        failures.extend(library_blockers(bundle))
     rules = bundle.get("rules")
     if not isinstance(rules, list):
         failures.append("RULES_MUST_BE_LIST")
@@ -475,6 +483,21 @@ def lock_ref(lock: dict[str, Any]) -> dict[str, Any]:
     """The small reference a task carries to its run lock."""
     return {"path": lock["lock_path"], "sha256": lock["lock_sha256"], "run_id": lock["run_id"],
             "knowledge_bundle_digest": lock["knowledge_bundle_digest"]}
+
+
+def locked_exemplars(lock_path_value: Path, cache: BundleCache) -> list[dict[str, Any]]:
+    """The exemplar library entries of every locked bundle that carries one, re-verified from the cache."""
+    lock = json.loads(Path(lock_path_value).read_text(encoding="utf-8"))
+    out: list[dict[str, Any]] = []
+    for entry in lock.get("knowledge_bundles") or []:
+        if entry.get("label") == BUILTIN_LABEL:
+            continue
+        bundle = cache.load(entry["digest"])
+        for row in bundle.get("exemplars") or []:
+            if isinstance(row, dict):
+                out.append({**row, "_bundle_digest": entry["digest"], "_bundle": f"{entry['bundle_id']}@"
+                            f"{entry['version']}"})
+    return out
 
 
 def locked_rules(lock_path_value: Path, cache: BundleCache) -> list[dict[str, Any]]:

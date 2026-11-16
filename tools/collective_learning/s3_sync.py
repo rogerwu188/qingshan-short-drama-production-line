@@ -263,8 +263,10 @@ class ServiceReleaseGate:
         self.service, self.tenant_id = service, tenant_id
 
     def blockers(self, channel: str, bundle: dict[str, Any], *, bundle_id: str, version: str) -> list[str]:
+        from .exemplars import library_blockers  # noqa: PLC0415 -- 成功样例库 entries: privacy + shape, again
         return self.service.release_blockers(self.tenant_id, bundle_id=bundle_id, version=str(version),
-                                             channel=channel, rules=list(bundle.get("rules") or []))
+                                             channel=channel, rules=list(bundle.get("rules") or [])) \
+            + library_blockers(bundle)
 
 
 class S3Channel:

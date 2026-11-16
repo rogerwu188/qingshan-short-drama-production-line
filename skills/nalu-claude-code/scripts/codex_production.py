@@ -507,20 +507,94 @@ def pipeline_status(episode: str) -> dict[str, Any]:
             for sid, row in stages.items()}
 
 
-def build_prompt(episode: str, brief: str) -> str:
+def build_prompt(episode: str, brief: str, guidance: str = "") -> str:
     return (f"你是 NALU 短剧生产线的生产执行者。严格按照下面的生产合同执行集 {episode}。\n\n"
             + contract_path().read_text(encoding="utf-8") + "\n" + CODEX_ADAPTER
-            + (f"\n\n## 本次线主/编排代理附加说明\n{brief}" if brief else ""))
+            + (f"\n\n## 本次线主/编排代理附加说明\n{brief}" if brief else "")
+            + (f"\n\n{guidance}" if guidance else ""))
+
+
+# ---------------------------------------------------------------------------------- collective knowledge
+# 2026-11-16 (owner-approved): the collective knowledge base reaches the AUTHOR, not only the S2 video prompts.
+# tools/collective_learning/authoring.py (run with the engine venv: it verifies signed bundles) runs the S1
+# line-upgrade preflight early -- which writes this episode's knowledge briefing and its run knowledge lock, kept
+# unchanged by S1 -- and returns the 「本集导演经验」 section (directing rules + 成功样例库 exemplars + the briefing
+# path, <= 1500 chars).  No COLLECTIVE_LEARNING_CONFIG.json, no applicable knowledge or any error: no section,
+# the prompt is byte-identical to before.
+GUIDANCE_TIMEOUT_S = 180
+
+
+def _engine_python(engine: Path) -> str:
+    venv = engine / ".qingshan-venv" / "bin" / "python"
+    return str(venv) if venv.is_file() else sys.executable
+
+
+def _collective_configured(runtime: Path) -> bool:
+    rt = runtime / "runtime"
+    return any((d / "COLLECTIVE_LEARNING_CONFIG.json").is_file()
+               for d in (rt / "runtime" / "reports", rt / "reports"))
+
+
+def knowledge_guidance(episode: str) -> dict[str, Any]:
+    """The prepared guidance for ``episode`` (``section`` may be empty).  Never raises."""
+    engine, runtime = roots()
+    tool = engine / "tools" / "collective_learning" / "authoring.py"
+    if not _collective_configured(runtime) or not tool.is_file():
+        return {"status": "INACTIVE", "section": ""}
+    out = run_dir(episode) / "knowledge_guidance.prepared.json"
+    try:
+        out.unlink(missing_ok=True)
+        proc = subprocess.run([_engine_python(engine), str(tool), "prepare", "--engine-root", str(engine),
+                               "--runtime-root", str(runtime), "--episode", episode, "--out", str(out)],
+                              cwd=str(engine), capture_output=True, text=True, timeout=GUIDANCE_TIMEOUT_S)
+        prepared = read_json(out)
+        if proc.returncode != 0 or not prepared:
+            return {"status": "ERROR", "section": "", "error": (proc.stderr or proc.stdout or "")[-300:]}
+        prepared["_path"] = str(out)
+        return prepared
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"status": "ERROR", "section": "", "error": f"{type(exc).__name__}:{str(exc)[:200]}"}
+
+
+def record_guidance(episode: str, prepared: dict[str, Any], prompt_with: str, prompt_without: str) -> dict[str, Any]:
+    """APPLIED receipts for the injected rules (the prompt was actually sent).  Never raises."""
+    if not prepared.get("section") or not prepared.get("_path"):
+        return {"status": "NOTHING_INJECTED"}
+    engine, _ = roots()
+    d = run_dir(episode)
+    with_path, without_path = d / "knowledge_guidance.prompt_with.md", d / "knowledge_guidance.prompt_without.md"
+    try:
+        with_path.write_text(prompt_with, encoding="utf-8")
+        without_path.write_text(prompt_without, encoding="utf-8")
+        proc = subprocess.run([_engine_python(engine), str(engine / "tools" / "collective_learning" / "authoring.py"),
+                               "record", "--prepared", prepared["_path"], "--prompt-with", str(with_path),
+                               "--prompt-without", str(without_path)],
+                              cwd=str(engine), capture_output=True, text=True, timeout=GUIDANCE_TIMEOUT_S)
+        lines = [ln for ln in (proc.stdout or "").splitlines() if ln.strip()]
+        return json.loads(lines[-1]) if lines else {"status": "ERROR", "error": (proc.stderr or "")[-300:]}
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}"}
+    finally:
+        without_path.unlink(missing_ok=True)  # the receipt keeps its digest; the copy is not needed
 
 
 def start(episode: str, brief: str = "") -> dict[str, Any]:
     if not contract_path().is_file():
         return {"status": "BLOCKED", "reason": f"CONTRACT_MISSING:{contract_path()}"}
-    out = launch(episode, build_prompt(episode, brief), None)
+    guidance = knowledge_guidance(episode)
+    section = str(guidance.get("section") or "")
+    prompt = build_prompt(episode, brief, section)
+    out = launch(episode, prompt, None)
     if out.get("status") == "STARTED":
         series = roots()[1] / "series"
         series.mkdir(parents=True, exist_ok=True)
         (series / "CURRENT_EPISODE").write_text(episode + "\n", encoding="utf-8")
+        if section:
+            out["knowledge_guidance"] = {"chars": len(section), "status": guidance.get("status"),
+                                         "rules": [r.get("rule_id") for r in guidance.get("rules") or []],
+                                         "exemplars": guidance.get("exemplar_ids") or [],
+                                         "record": record_guidance(episode, guidance, prompt,
+                                                                   build_prompt(episode, brief))}
     return out
 
 

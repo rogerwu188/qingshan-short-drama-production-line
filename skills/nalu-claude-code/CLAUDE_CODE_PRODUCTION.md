@@ -38,6 +38,8 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 1. 先读：`agent_factory/claude_writer_v2/templates/NARRATIVE_CANONICAL.template.md`、`agent_factory/storyclaw_portable/WRITER_CONTRACT.md`
    （来源与 manifest 规则）、H3 改编指南 `docs/knowledge/H3_SCRIPT_ADAPTATION_GUIDE.md`（有就读）——**先读 §0：改编成观众看得懂的视频，不是逐句搬原著**（检验：关掉原著只看镜头和台词，每场能说出发生了什么；线主 2026-11-02）、派单里的 `SOURCE_SELECTION.md`
    和本集章节（`sources/<作品>/<SOURCE_INDEX.json 的 canonical_reading_script>/chNNNN.md`）。只按原文改编，原文缺的不凭记忆补写。
+   开工提示末尾若有「本集导演经验」一节（集体知识库，2026-11-16）：写派单、正典、四层和每个镜头的 prompt_spec 前先读完，
+   打开其中的 S1 知识简报；导演规则照写（与线主派单冲突时以派单为准），「参考写法」只学结构与分寸，不抄内容、不沿用角色A/B。
 2. `workflow/claude_writer_agent/scripts/<EP>_NARRATIVE_CANONICAL_v1.md`：只写事实、可表演的动作和**逐字台词**，按
    `## <EP>-S01｜<LOC-ID>｜<时间>｜线A` 分场；不写机位、灯光、资产。一集 4–6 场、约 26–32 个镜头、镜头合计约 115–120 秒（S7 剪掉 H3 头尾多出的话后成片约 110 秒、约 1 分 50 秒，含片头片尾；线主 2026-10-27：每集约 2 分钟、留广告位，不超过 1 分 55 秒；2026-10-29 实验集 E08 剪裁吃掉 27 s）——靠多写镜头和剧情拉长，不靠拉长单个镜头（对白镜仍 4–5 秒）；台词决定时长（中文每 4 个汉字约 1 秒；
    英文约每秒 2.5 个词）。英文剧台词与旁白直接写英文；只有声音没有形象的旁白角色写成「旁白角色名：台词」，简报里照常列出、

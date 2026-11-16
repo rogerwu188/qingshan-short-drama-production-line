@@ -8765,6 +8765,20 @@ def kb_final_review_reject(ctx: Ctx, final_audience: dict[str, Any]) -> dict[str
         return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:160]}"}
 
 
+def kb_success_exemplars(ctx: Ctx, final_audience: dict[str, Any]) -> dict[str, Any]:
+    """成功样例库 capture (nalu_knowledge_events.record_success_exemplars): the episode's scene-type profile, and --
+    when the independent review scored the cut well -- the first-pass units and praised practices as
+    SUCCESS_EXEMPLAR events.  Best-effort; never changes what S7 decides."""
+    try:
+        brief = read_json(RUNTIME / "briefs" / f"{ctx.episode}_PRODUCTION_BRIEF.json", {}) or {}
+        return kb_events("record_success_exemplars", episode=ctx.episode, manifest_path=str(ctx.p.grouped_seedance),
+                         review_report=str(final_audience.get("report") or "") or None,
+                         language=ctx_language(ctx), genre=str(brief.get("genre") or ""),
+                         media_sha256=final_audience.get("final_video_sha256"))
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:160]}"}
+
+
 def s7_default_release_acceptance(ctx: Ctx, final_qa: dict[str, Any], review_rejected: bool) -> dict[str, Any]:
     """Release a finished cut whose final review or final-package gates did not PASS, on one line-owner order.
 
@@ -10163,6 +10177,8 @@ def stage_s7(ctx: Ctx) -> StageResult:
     review_rejected = "FINAL_AUDIENCE_REVIEW_REJECTED" in (final_audience.get("blockers") or [])
     if review_rejected:
         res.details["knowledge_events_final_review"] = kb_final_review_reject(ctx, final_audience)
+    if final_audience["status"] == PASS or review_rejected:
+        res.details["knowledge_events_exemplars"] = kb_success_exemplars(ctx, final_audience)
     if final_audience["status"] != PASS and not review_rejected:
         res.status = (REVIEW_REQUIRED
                       if final_audience["status"] == REVIEW_REQUIRED else BLOCKED)
