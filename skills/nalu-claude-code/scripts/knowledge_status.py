@@ -174,6 +174,21 @@ def store_stats(path: Path) -> dict[str, Any]:
     return out
 
 
+def exemplar_stats(cache_dir: Path) -> dict[str, Any]:
+    """The newest cached 成功样例库 bundle per channel label and its entry count (read-only, no verification:
+    the lock/injection path verifies; this only reports)."""
+    index = _read_json(cache_dir / "index.json")
+    entries = [e for e in (index.get("entries") if isinstance(index, dict) else None) or []
+               if isinstance(e, dict) and EXEMPLAR_BUNDLE_MARK in str(e.get("bundle_id"))]
+    if not entries:
+        return {"bundle": None, "count": 0}
+    newest = max(entries, key=lambda e: int(e.get("version") or 0))
+    doc = _read_json(cache_dir / "objects" / f"{newest.get('digest')}.json")
+    rows = ((doc or {}).get("bundle") or {}).get("exemplars") if isinstance(doc, dict) else None
+    return {"bundle": f"{newest.get('bundle_id')}@{newest.get('version')}", "label": newest.get("release_channel"),
+            "count": len(rows) if isinstance(rows, list) else 0}
+
+
 def cache_stats(cache_dir: Path) -> dict[str, Any]:
     index = _read_json(cache_dir / "index.json")
     entries = index.get("entries") if isinstance(index, dict) else None
@@ -218,11 +233,17 @@ def last_device_sync(reports: Path) -> dict[str, Any]:
             "cache_entries": last.get("cache_entries") or []}
 
 
+EXEMPLAR_BUNDLE_MARK = "exemplar"
+GUIDANCE_TITLE = "## 本集导演经验"
+
+
 def cached_pack(cache: dict[str, Any]) -> str | None:
-    """Newest ``bundle@version`` in the verified cache."""
+    """Newest rule ``bundle@version`` in the verified cache (the 成功样例库 bundle is reported separately)."""
     best: tuple[int, str] | None = None
     for name in cache.get("bundles") or []:
         bundle, _, version = str(name).rpartition("@")
+        if EXEMPLAR_BUNDLE_MARK in bundle:
+            continue
         try:
             key = (int(version), name)
         except ValueError:
@@ -289,6 +310,7 @@ def episode_run(runtime: Path, reports: Path, episode: str | None) -> dict[str, 
     out["lock_files"] = len(locks)
     counts: dict[str, int] = {}
     provider_applied = 0
+    authoring_applied = 0
     for lock in locks:
         sidecar = lock.with_suffix(".adoption.jsonl")
         try:
@@ -304,17 +326,44 @@ def episode_run(runtime: Path, reports: Path, episode: str | None) -> dict[str, 
             counts[st] = counts.get(st, 0) + 1
             if st == "APPLIED" and row.get("evidence_scope") == "PROVIDER_REQUEST":
                 provider_applied += 1
+            if st == "APPLIED" and row.get("stage") == "SCRIPT_AUTHORING":
+                authoring_applied += 1
     out["adoption"] = counts
     out["provider_request_applied"] = provider_applied
-    # Injection target: provider (H3/SD2) prompt contracts -- not Codex prompts.  APPLIED receipts are the
-    # only proof a cloud rule changed a prompt; there is no marker string in the prompt text itself.
-    out["kb_injected_in_provider_prompts"] = counts.get("APPLIED", 0) > 0
+    out["authoring_applied"] = authoring_applied
+    # Two injection targets: provider (H3/SD2) prompt contracts at S2 compile, and Codex's episode start prompt
+    # (the 「本集导演经验」 section, stage SCRIPT_AUTHORING).  APPLIED receipts are the proof for both.
+    out["kb_injected_in_provider_prompts"] = counts.get("APPLIED", 0) - authoring_applied > 0
+    out["authoring_guidance"] = authoring_guidance(runtime, reports, episode)
     brief = runtime / "briefs" / f"{episode}_DISPATCH.md"
     try:
         text = brief.read_text(encoding="utf-8")
         out["codex_dispatch_mentions_briefing"] = "KNOWLEDGE_BRIEFING" in text
     except OSError:
         out["codex_dispatch_mentions_briefing"] = None
+    return out
+
+
+def authoring_guidance(runtime: Path, reports: Path, episode: str) -> dict[str, Any]:
+    """Did this episode's Codex start prompt carry the 「本集导演经验」 section?  The guidance record written at
+    injection plus the prompt file itself (newest ``claude_code/<EP>/run_*.prompt.md`` that is not a resume)."""
+    record = _read_json(reports / f"{episode}_AUTHORING_GUIDANCE.json")
+    out: dict[str, Any] = {"recorded": isinstance(record, dict)}
+    if isinstance(record, dict):
+        out.update({"status": record.get("status"), "at": record.get("injected_at"), "chars": record.get("chars"),
+                    "rules": len(record.get("rule_ids") or []), "exemplars": len(record.get("exemplar_ids") or []),
+                    "briefing_referenced": bool(record.get("briefing"))})
+    prompts = sorted((runtime / "claude_code" / episode).glob("run_*.prompt.md"))
+    starts = []
+    for path in prompts:
+        try:
+            head = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if head.startswith("你是 NALU 短剧生产线的生产执行者"):
+            starts.append(head)
+    out["start_prompt_found"] = bool(starts)
+    out["last_start_prompt_has_guidance"] = (GUIDANCE_TITLE in starts[-1]) if starts else None
     return out
 
 
@@ -380,6 +429,8 @@ def report(engine: Path, runtime: Path, *, episode: str | None = None, network: 
     collective["provisioning"] = provisioning(runtime)
     collective["device_sync"] = last_device_sync(reports)
     collective["cached_pack"] = cached_pack(collective.get("cache") or {})
+    collective["exemplars"] = exemplar_stats(_p(config["cache_dir"])) if config.get("cache_dir") else \
+        {"bundle": None, "count": 0}
 
     out: dict[str, Any] = {"schema": SCHEMA, "at": _now(), "episode": episode,
                            "local_kb": local_kb(engine, reports, episode), "collective": collective,
@@ -424,7 +475,7 @@ def verdict(r: dict[str, Any]) -> tuple[str, list[str]]:
         gaps.append("NO_BRIEFING_THIS_EPISODE")
     if not c["config_present"]:
         return "NOT_CONFIGURED", gaps
-    if run.get("kb_injected_in_provider_prompts"):
+    if run.get("kb_injected_in_provider_prompts") or run.get("authoring_applied"):
         return "ACTIVE_APPLIED", gaps
     if run.get("collective_status") == "LOCKED":
         return ("LOCKED_NOT_APPLIED" if run.get("lock_bundles") else "LOCKED_EMPTY"), gaps
@@ -448,11 +499,13 @@ def summary(r: dict[str, Any]) -> dict[str, Any]:
          "ob": f"{outbox.get('PENDING', 0)}p/{outbox.get('DELIVERED', 0)}d",
          "lock": run.get("collective_status") or "-", "appl": (run.get("adoption") or {}).get("APPLIED", 0),
          "brief": int(bool((r["local_kb"].get("briefing") or {}).get("present"))),
-         "rules": r["local_kb"].get("registry_rules"), "chan": chan}
+         "rules": r["local_kb"].get("registry_rules"), "chan": chan,
+         "ex": (c.get("exemplars") or {}).get("count", 0),
+         "gd": int(bool(((run.get("authoring_guidance") or {}).get("last_start_prompt_has_guidance"))))}
     text = json.dumps(s, ensure_ascii=False, separators=(",", ":"))
     if len(text) <= 240:
         return s
-    short = {k: s[k] for k in ("v", "cfg", "prov", "sync", "ch", "pack", "lock", "appl")}
+    short = {k: s[k] for k in ("v", "cfg", "prov", "sync", "ch", "pack", "lock", "appl", "ex", "gd")}
     return short if len(json.dumps(short, ensure_ascii=False, separators=(",", ":"))) <= 240 else \
         {"v": r["verdict"], "cfg": s["cfg"], "lock": s["lock"], "appl": s["appl"]}
 

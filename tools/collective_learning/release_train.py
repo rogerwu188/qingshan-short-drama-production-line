@@ -33,6 +33,15 @@ Flow (all thresholds in ``DEFAULTS``, overridable with ``--config``):
 5. retirement   a released rule APPLIED >= ``retire_min_applied`` times whose target failure rate on the applying
                 devices did not drop (after vs before first application) is DEPRECATED and left out of the next pack.
 
+6. exemplars    成功样例库: SUCCESS_EXEMPLAR events (first-pass units / praised practices of well-reviewed episodes,
+                privacy-scrubbed on the device) are clustered by scene type, near-duplicates merged, the best
+                ``exemplar_per_type`` per type kept (most devices, then episodes, then review score), capped at
+                ``exemplar_max`` and signed as the separate bundle ``exemplar_bundle_id`` (``rules: []`` + ``exemplars``)
+                through the same release gate and channels: CANARY first, RELEASED after ``exemplar_canary_hours``.
+                No approval step (the entries are advisory reference text that already passed objective QA and an
+                independent review); the open review request lists the pending library changes and the patrol may
+                veto entries (``exemplar_veto``: ids) -- a veto revokes the canary pack and the ids never return.
+
 Status: ``status.json`` (and ``--status-out``) -- the dashboard line
 "新增候选 N · 灰度中 M · 上一批次 已全量/已回滚 · 退役 K".
 """
@@ -88,6 +97,15 @@ DEFAULTS: dict[str, Any] = {
     "retire_min_drop": 0.0,
     "include_default_accepted": False,
     "review_samples_per_cluster": 3,
+    #: 成功样例库 (exemplars.py): a separate signed bundle, auto-curated from SUCCESS_EXEMPLAR events, CANARY first,
+    #: RELEASED after ``exemplar_canary_hours`` unless the patrol vetoes entries in its review result
+    "exemplar_bundle_id": "nalu-exemplars",
+    "exemplars_enabled": True,
+    "exemplar_lookback_days": 60,
+    "exemplar_canary_hours": 24,
+    "exemplar_min_interval_hours": 24,
+    "exemplar_per_type": 2,
+    "exemplar_max": 60,
 }
 ROUND_TYPES = ("Q1_ROUND", "Q2_ROUND", "POSTGEN_ROUND")
 NOT_LESSON_PREFIXES = ("PROVIDER_OUTAGE",)
@@ -353,7 +371,8 @@ class Train:
                 targeted.add(row.get("cluster_key") or row.get("failure_type"))
         clusters = [cl for cl in self.clusters() if cl["eligible"] and cl["cluster_id"] not in handled
                     and cl["cluster_key"] not in targeted and cl["failure_type"] not in targeted]
-        if not clusters:
+        exemplar_changes = self._exemplar_review_section(state)
+        if not clusters and not exemplar_changes:
             state["open_review"] = None
             self.save(state)
             return {"status": "NOTHING_TO_REVIEW", "clusters": 0}
@@ -371,13 +390,23 @@ class Train:
                 "rule can prevent; give the rule: category (DIRECTING_HEURISTIC|MODEL_CONSTRAINT|"
                 "ENGINEERING_INVARIANT|EXECUTION_POLICY), scope {models, stages, ...}, trigger, recommendation, "
                 "exceptions (required for DIRECTING_HEURISTIC), verification, cost_class, evidence_level, "
-                "validation_scope, application {carrier: BEAT_DIRECTION|NEGATIVE_CONSTRAINT|CHECK_ONLY, "
-                "prompt_clause: {zh, en}}.  At most batch_max approvals ship per day; extra approvals wait in the "
-                "backlog.  Never put money, gates, authority or secrets into a clause.  Each cluster's "
-                "evidence_samples carry the concrete cause (unit, scene/shot label, measured vs threshold, "
-                "transcript / reviewer-note excerpt); detail_category is the normalised cause the cluster is "
-                "keyed on.  engine_items are NOT clusters: information only."),
+                "validation_scope, application {carrier: BEAT_DIRECTION|NEGATIVE_CONSTRAINT|CHECK_ONLY|"
+                "DIRECTING_GUIDANCE, prompt_clause: {zh, en}}.  BEAT_DIRECTION / NEGATIVE_CONSTRAINT clauses go "
+                "into the provider video prompt (scope.stages [VIDEO_COMPILE]).  DIRECTING_GUIDANCE is a lesson "
+                "for the AUTHOR -- Codex writing the dispatch, script, storyboard and shot prompt_specs -- injected "
+                "into its episode start prompt (scope.stages [SCRIPT_AUTHORING]; optional scope.languages [zh|en] "
+                "and scope.genres [X2C category name]); use it when the fix is how the episode is written, e.g. "
+                "\"open every episode on an on-screen conflict in the first 3 s\" or \"keep expository dialogue "
+                "under 3 lines per scene\" (category DIRECTING_HEURISTIC, with exceptions).  At most batch_max "
+                "approvals ship per day; extra approvals wait in the backlog.  Never put money, gates, authority "
+                "or secrets into a clause.  Each cluster's evidence_samples carry the concrete cause (unit, "
+                "scene/shot label, measured vs threshold, transcript / reviewer-note excerpt); detail_category is "
+                "the normalised cause the cluster is keyed on.  engine_items are NOT clusters: information only.  "
+                "exemplar_changes (when present) lists the auto-curated 成功样例库 canary: no decision needed; "
+                "to veto entries add \"exemplar_veto\": [exemplar_id, ...] (+ \"exemplar_veto_reason\") to the "
+                "result."),
             "clusters": clusters,
+            **({"exemplar_changes": exemplar_changes} if exemplar_changes else {}),
             "engine_items": {"note": ENGINE_ITEM_NOTE, "items": self.engine_items()[:30]},
         }
         out_dir = self.dir / "review_requests"
@@ -385,6 +414,8 @@ class Train:
         path = out_dir / f"{request_id}.json"
         path.write_text(json.dumps(request, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
         state["open_review"] = request_id
+        if exemplar_changes:
+            state.setdefault("exemplars", {})["reviewed_in"] = request_id
         self._log(state, "export_review", request_id=request_id, clusters=len(clusters))
         self.save(state)
         return {"status": "EXPORTED", "request_id": request_id, "path": str(path), "clusters": len(clusters)}
@@ -434,15 +465,22 @@ class Train:
             state["clusters"][cid] = {**base, "status": "VALIDATED", "rule_id": rule_id}
             state.setdefault("backlog", []).append(rule_id)
             outcomes.append({"cluster_id": cid, "status": "VALIDATED", "rule_id": rule_id})
+        veto = [str(x) for x in result.get("exemplar_veto") or [] if str(x).strip()]
+        if veto:
+            outcomes.append({"exemplar_veto": self._exemplar_veto(
+                state, veto, str(result.get("exemplar_veto_reason") or "patrol veto"), reviewer)})
         state["open_review"] = None
         results_dir = self.dir / "review_results"
         results_dir.mkdir(parents=True, exist_ok=True)
         (results_dir / f"{request_id}.json").write_text(json.dumps(result, ensure_ascii=False, indent=1) + "\n",
                                                          encoding="utf-8")
         self._log(state, "import_review", request_id=request_id,
-                  outcomes={k: sum(1 for o in outcomes if o["status"] == k) for k in {o["status"] for o in outcomes}})
+                  outcomes={k: sum(1 for o in outcomes if o.get("status") == k)
+                            for k in {o["status"] for o in outcomes if "status" in o}})
         self.save(state)
-        return {"status": "IMPORTED", "request_id": request_id, "outcomes": outcomes,
+        return {"status": "IMPORTED", "request_id": request_id, "outcomes": [o for o in outcomes if "status" in o],
+                **({"exemplar_veto": next(o["exemplar_veto"] for o in outcomes if "exemplar_veto" in o)}
+                   if veto else {}),
                 "backlog": len(state["backlog"])}
 
     def _create_candidate(self, rev: svc_mod.Principal, cl: dict[str, Any], rule: dict[str, Any], reason: str,
@@ -491,10 +529,13 @@ class Train:
     def _canary_pack(self, state: dict[str, Any]) -> dict[str, Any] | None:
         return next((p for p in reversed(state["packs"]) if p.get("status") == "CANARY"), None)
 
-    def _next_version(self, state: dict[str, Any]) -> int:
+    def _next_version(self, state: dict[str, Any], bundle_id: str | None = None) -> int:
+        bundle_id = bundle_id or self.cfg["bundle_id"]
         rows = self.service._read("SELECT version FROM bundles WHERE tenant_id=? AND bundle_id=?",
-                                  (self.tenant, self.cfg["bundle_id"]))
-        known = [int(v) for (v,) in rows if str(v).isdigit()] + [int(p["version"]) for p in state["packs"]]
+                                  (self.tenant, bundle_id))
+        packs = state["packs"] if bundle_id == self.cfg["bundle_id"] else \
+            (state.get("exemplars") or {}).get("packs") or []
+        known = [int(v) for (v,) in rows if str(v).isdigit()] + [int(p["version"]) for p in packs]
         return max(known, default=0) + 1
 
     def _ship(self, version: int, label: str, rule_ids: list[str], channels: list[str], note: str) -> dict[str, Any]:
@@ -587,6 +628,8 @@ class Train:
         out = {k: {"episodes": set(), "q1_units": 0, "q1_failed": 0, "q2_units": 0, "q2_failed": 0,
                    "redo_rounds": 0, "content_rejections": 0, "devices": set()} for k in ("canary", "control")}
         for event in self.events(since=since, until=until):
+            if event.get("event_kind") == "SUCCESS_EXEMPLAR":
+                continue  # library input, not a production-rate fact
             m = out[self._cohort_of(event.get("device_id"))]
             m["episodes"].add((event.get("device_id"), event.get("episode_id")))
             m["devices"].add(event.get("device_id"))
@@ -796,7 +839,7 @@ class Train:
     def daily(self) -> dict[str, Any]:
         out: dict[str, Any] = {"at": _iso(self.now())}
         steps = (("cohort", self.register_cohort), ("evaluate", self.evaluate), ("retire", self.retire),
-                 ("build_pack", self.build_pack), ("review", self.export_review))
+                 ("build_pack", self.build_pack), ("exemplars", self.exemplar_step), ("review", self.export_review))
         for name, fn in steps:
             try:
                 out[name] = fn()
@@ -825,6 +868,7 @@ class Train:
         if last and (_epoch(last.get("decided_at")) or 0) >= now - 48 * 3600:
             last_text = "已全量" if last["status"] == "PROMOTED" else "已回滚"
         m = len(canary.get("new_rules") or []) if canary else 0
+        exemplar_status = self._exemplar_status(state)
         status = {
             "schema": STATUS_SCHEMA, "at": _iso(now), "tenant": self.tenant, "bundle_id": self.cfg["bundle_id"],
             "new_candidates_pending_review": pending, "open_review_request": state.get("open_review"),
@@ -840,10 +884,154 @@ class Train:
             "retired_total": len(state.get("retired") or []), "retired_7d": len(retired_7d),
             "cohort": {"canary_devices": sum(1 for v in self.cohort.values() if v == "CANARY"),
                        "devices": len(self.cohort)},
-            "summary_zh": f"新增候选 {pending} · 灰度中 {m} · 上一批次 {last_text} · 退役 {len(state.get('retired') or [])}",
+            "exemplars": exemplar_status,
+            "summary_zh": f"新增候选 {pending} · 灰度中 {m} · 上一批次 {last_text} · 退役 {len(state.get('retired') or [])}"
+                          + (f" · 样例 {exemplar_status['count']}" if exemplar_status["count"] else ""),
         }
         (self.dir / "status.json").write_text(json.dumps(status, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
         return status
+
+
+    # ------------------------------------------------------------------ 6. 成功样例库
+    def exemplar_rows(self) -> list[dict[str, Any]]:
+        since = self.now() - float(self.cfg["exemplar_lookback_days"]) * 86400
+        rows = []
+        for event in self.events(since=since):
+            if event.get("event_kind") != "SUCCESS_EXEMPLAR":
+                continue
+            exemplar = _evidence(event).get("exemplar")
+            if isinstance(exemplar, dict):
+                rows.append({"exemplar": exemplar, "device_id": event.get("device_id"),
+                             "episode_id": event.get("episode_id")})
+        return rows
+
+    def curate_exemplars(self, state: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        from . import exemplars as ex_mod  # noqa: PLC0415
+        state = state or self.state()
+        return ex_mod.curate(self.exemplar_rows(),
+                             config={"per_type": int(self.cfg["exemplar_per_type"]),
+                                     "practice_per_type": int(self.cfg["exemplar_per_type"]),
+                                     "max_exemplars": int(self.cfg["exemplar_max"])},
+                             vetoed=(state.get("exemplars") or {}).get("vetoed") or [])
+
+    def _ship_exemplars(self, version: int, label: str, library: list[dict[str, Any]], channels: list[str],
+                        note: str) -> dict[str, Any]:
+        """Sign the library as ``exemplar_bundle_id@version`` (``rules: []``) and release it on ``channels``."""
+        if self.publisher_key is None:
+            raise TrainError("PUBLISHER_KEY_UNAVAILABLE")
+        bundle_id = str(self.cfg["exemplar_bundle_id"])
+        models = sorted({str((e.get("tags") or {}).get("model")) for e in library
+                         if (e.get("tags") or {}).get("model") not in (None, "", c.UNKNOWN)} | set(self.cfg["models"]))
+        bundle = {"schema": c.BUNDLE_SCHEMA, "bundle_id": bundle_id, "version": int(version),
+                  "created_at": _iso(self.now()), "release_channel": label,
+                  "compat": {"engine_api_versions": list(self.cfg["engine_api_versions"]), "models": models},
+                  "rules": [], "exemplars": library}
+        key_id, private = self.publisher_key()
+        envelope = b.sign_bundle(bundle, key_id=key_id, private_raw=private)
+        raw = json.dumps(envelope, ensure_ascii=False).encode("utf-8")
+        self.service.upload_bundle(self.pub, {
+            "bundle_id": bundle_id, "version": str(version), "digest": c.sha256_bytes(raw),
+            "payload_b64": base64.b64encode(raw).decode("ascii"), "signature_b64": envelope["signature"]["value_b64"],
+            "key_id": key_id,
+            "manifest": {"scope": {"models": models, "stages": ["SCRIPT_AUTHORING"]}, "rules": [],
+                         "exemplars": len(library), "release_train": note[:200]}})
+        for channel in channels:
+            self.service.release(self.pub, bundle_id=bundle_id, version=str(version), channel=channel, note=note[:200])
+        return {"version": int(version), "label": label, "count": len(library), "digest": envelope["digest"],
+                "channels": channels, "ids": [e["exemplar_id"] for e in library]}
+
+    def exemplar_step(self) -> dict[str, Any]:
+        """Promote a canary library whose veto window passed; otherwise curate and ship a changed library."""
+        from . import exemplars as ex_mod  # noqa: PLC0415
+        if not self.cfg.get("exemplars_enabled", True):
+            return {"status": "DISABLED"}
+        state = self.state()
+        ex = state.setdefault("exemplars", {})
+        packs = ex.setdefault("packs", [])
+        now = self.now()
+        canary = next((p for p in reversed(packs) if p.get("status") == "CANARY"), None)
+        if canary:
+            hours = (now - (_epoch(canary.get("canary_at")) or now)) / 3600
+            if hours < float(self.cfg["exemplar_canary_hours"]):
+                return {"status": "CANARY_IN_FLIGHT", "version": canary["version"], "hours_on_canary": round(hours, 1)}
+            version = self._next_version(state, str(self.cfg["exemplar_bundle_id"]))
+            shipped = self._ship_exemplars(version, "RELEASED", canary["library"], ["RELEASED", "CANARY"],
+                                           f"exemplar library canary {canary['version']} promoted (no veto)")
+            canary.update({"status": "PROMOTED", "promoted_as": version, "decided_at": _iso(now)})
+            packs.append({**{k: v for k, v in shipped.items() if k != "ids"}, "status": "RELEASED",
+                          "created_at": _iso(now), "library": canary["library"], "promoted_from": canary["version"],
+                          "digest_library": canary["digest_library"]})
+            ex["released_digest"] = canary["digest_library"]
+            ex["packs"] = packs[-10:]
+            self._log(state, "exemplars_promote", from_version=canary["version"], to_version=version,
+                      count=shipped["count"])
+            self.save(state)
+            return {"status": "PROMOTED", "canary_version": canary["version"], "released_version": version,
+                    "count": shipped["count"]}
+        gap = float(self.cfg["exemplar_min_interval_hours"]) * 3600
+        if any((_epoch(p.get("created_at")) or 0) > now - gap for p in packs if p.get("label") == "CANARY"):
+            return {"status": "INTERVAL_NOT_ELAPSED"}
+        library = self.curate_exemplars(state)
+        digest = ex_mod.library_digest(library)
+        released = next((p for p in reversed(packs) if p.get("status") == "RELEASED"), None)
+        if digest == ex.get("released_digest") or (not library and released is None):
+            return {"status": "UNCHANGED", "count": len(library)}
+        before = {e["exemplar_id"] for e in (released or {}).get("library") or []}
+        after = {e["exemplar_id"] for e in library}
+        version = self._next_version(state, str(self.cfg["exemplar_bundle_id"]))
+        shipped = self._ship_exemplars(version, "CANARY", library, ["CANARY"],
+                                       f"exemplar library: +{len(after - before)} -{len(before - after)}")
+        packs.append({**{k: v for k, v in shipped.items() if k != "ids"}, "status": "CANARY", "created_at": _iso(now),
+                      "canary_at": _iso(now), "library": library, "digest_library": digest,
+                      "added": sorted(after - before), "removed": sorted(before - after)})
+        ex["packs"] = packs[-10:]
+        self._log(state, "exemplars_canary", version=version, added=len(after - before), removed=len(before - after))
+        self.save(state)
+        return {"status": "PUBLISHED_TO_CANARY", "version": version, "count": len(library),
+                "added": len(after - before), "removed": len(before - after)}
+
+    def _exemplar_review_section(self, state: dict[str, Any]) -> dict[str, Any] | None:
+        """The pending canary library's changes, once per canary pack (never a blocking decision)."""
+        from . import exemplars as ex_mod  # noqa: PLC0415
+        ex = state.get("exemplars") or {}
+        canary = next((p for p in reversed(ex.get("packs") or []) if p.get("status") == "CANARY"), None)
+        if not canary or canary.get("reviewed"):
+            return None
+        by_id = {e["exemplar_id"]: e for e in canary.get("library") or []}
+        canary["reviewed"] = True
+        return {"bundle": f"{self.cfg['exemplar_bundle_id']}@{canary['version']}", "count": canary.get("count"),
+                "promotes_after_hours": float(self.cfg["exemplar_canary_hours"]),
+                "note": ("Auto-curated from first-pass units of well-reviewed episodes (privacy-scrubbed on the "
+                         "device, re-validated here).  No decision needed; veto entries with exemplar_veto."),
+                "added": [ex_mod.summarize(by_id[i]) for i in canary.get("added") or [] if i in by_id][:30],
+                "removed": list(canary.get("removed") or [])[:30]}
+
+    def _exemplar_veto(self, state: dict[str, Any], ids: list[str], reason: str, reviewer: str) -> dict[str, Any]:
+        ex = state.setdefault("exemplars", {})
+        ex["vetoed"] = sorted(set(ex.get("vetoed") or []) | set(ids))[-500:]
+        out: dict[str, Any] = {"vetoed": ids, "revoked_canary": None}
+        canary = next((p for p in reversed(ex.get("packs") or []) if p.get("status") == "CANARY"), None)
+        if canary and set(ids) & {e["exemplar_id"] for e in canary.get("library") or []}:
+            try:
+                self.service.revoke_bundle(self.pub, bundle_id=str(self.cfg["exemplar_bundle_id"]),
+                                           version=str(canary["version"]), reason=f"patrol veto: {reason}"[:300])
+            except svc_mod.ServiceError as exc:
+                out["revoke_error"] = exc.code
+            canary.update({"status": "VETOED", "decided_at": _iso(self.now()), "veto_reason": reason[:300]})
+            canary["created_at"] = _iso(0)  # the corrected library may ship on the next step, no interval wait
+            out["revoked_canary"] = canary["version"]
+        self._log(state, "exemplars_veto", ids=ids, reviewer=reviewer, revoked=out["revoked_canary"])
+        return out
+
+    def _exemplar_status(self, state: dict[str, Any]) -> dict[str, Any]:
+        packs = (state.get("exemplars") or {}).get("packs") or []
+        released = next((p for p in reversed(packs) if p.get("status") == "RELEASED"), None)
+        canary = next((p for p in reversed(packs) if p.get("status") == "CANARY"), None)
+        return {"bundle_id": self.cfg["exemplar_bundle_id"], "count": (released or {}).get("count") or 0,
+                "released_version": (released or {}).get("version"),
+                "canary": {"version": canary["version"], "count": canary.get("count"), "since": canary.get("canary_at")}
+                if canary else None,
+                "vetoed": len((state.get("exemplars") or {}).get("vetoed") or [])}
 
 
 # --------------------------------------------------------------------------- CLI
@@ -887,7 +1075,7 @@ def main(argv: list[str] | None = None, *, out=None) -> int:
     parser = argparse.ArgumentParser(prog="release_train", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("cmd", choices=["clusters", "export-review", "import-review", "build-pack", "evaluate",
-                                        "retire", "register-cohort", "daily", "status"])
+                                        "retire", "register-cohort", "exemplars", "daily", "status"])
     parser.add_argument("--runtime-root", required=True)
     parser.add_argument("--tenant", required=True)
     parser.add_argument("--config", help="JSON overriding DEFAULTS (thresholds, bundle id, models)")
@@ -913,6 +1101,8 @@ def main(argv: list[str] | None = None, *, out=None) -> int:
             result = train.evaluate()
         elif args.cmd == "retire":
             result = train.retire()
+        elif args.cmd == "exemplars":
+            result = train.exemplar_step()
         elif args.cmd == "register-cohort":
             result = {"status": "OK", **train.register_cohort()}
         elif args.cmd == "daily":

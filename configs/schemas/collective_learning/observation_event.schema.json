@@ -72,7 +72,8 @@
         "SUCCESS_OBSERVATION",
         "USER_CORRECTION",
         "FIX_RESULT",
-        "RUN_ANOMALY"
+        "RUN_ANOMALY",
+        "SUCCESS_EXEMPLAR"
       ]
     },
     "occurred_at": {

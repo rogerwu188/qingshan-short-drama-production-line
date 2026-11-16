@@ -832,3 +832,162 @@ def scan_provider_rejections(rt: Path, *, episode: str, stores: dict[str, Path])
 def enabled() -> bool:
     """NALU_KNOWLEDGE_EVENTS=off disables every producer (kill switch; default on)."""
     return str(os.environ.get("NALU_KNOWLEDGE_EVENTS") or "").strip().lower() not in ("off", "0", "false")
+
+
+# --------------------------------------------------------------------------- 成功样例库 capture (S7)
+SUCCESS_EXEMPLAR = "SUCCESS_EXEMPLAR"
+#: failure-event prefixes that mean "this unit needed another attempt" (Q1 keyframe, Q2 video, post-gen QA)
+REDO_PREFIXES = ("Q1_", "Q2_", "POSTGEN_")
+QA_ROUND_TYPES = ("Q2_ROUND", "POSTGEN_ROUND")
+
+
+def _exemplars():
+    try:
+        from tools.collective_learning import exemplars  # noqa: PLC0415
+    except ImportError:
+        import sys as _sys  # noqa: PLC0415
+        _sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+        from tools.collective_learning import exemplars  # noqa: PLC0415
+    return exemplars
+
+
+def exemplar_config(rt: Path) -> dict[str, Any]:
+    """Capture thresholds: exemplars.DEFAULTS, overridden by ``exemplars`` in COLLECTIVE_LEARNING_CONFIG.json and
+    by NALU_EXEMPLAR_MIN_OVERALL."""
+    cfg = dict(_exemplars().DEFAULTS)
+    config = _read(reports_dir(rt) / "COLLECTIVE_LEARNING_CONFIG.json")
+    if isinstance(config.get("exemplars"), dict):
+        cfg.update({k: v for k, v in config["exemplars"].items() if k in cfg})
+    env = os.environ.get("NALU_EXEMPLAR_MIN_OVERALL")
+    if env:
+        with contextlib.suppress(ValueError):
+            cfg["min_overall"] = float(env)
+    return cfg
+
+
+def redo_history(rt: Path, episode: str) -> dict[str, Any]:
+    """From this episode's recorded review rounds: every unit id a Q1/Q2/post-gen failure named, and whether a
+    Q2 or post-generation round was recorded at all (without one, "first pass" cannot be claimed)."""
+    failed: set[str] = set()
+    rounds: set[str] = set()
+    for row in _kel().events(Path(rt), episode=episode):
+        ft = str((row.get("evidence") or {}).get("failure_type") or "")
+        if ft in QA_ROUND_TYPES:
+            rounds.add(ft)
+        if (row.get("event_kind") or "FAILURE_OBSERVATION") == "FAILURE_OBSERVATION" and ft.startswith(REDO_PREFIXES):
+            failed.update(str(u) for u in row.get("unit_ids") or [])
+    return {"failed_units": failed, "rounds": sorted(rounds)}
+
+
+def _first_pass(unit: dict[str, Any], failed: set[str]) -> bool:
+    ids = {str(unit.get("unit_id") or "")} | {str(s) for s in unit.get("editorial_shot_ids") or []}
+    if ids & failed:
+        return False
+    attempt = unit.get("paid_attempt")
+    if isinstance(attempt, int) and not isinstance(attempt, bool) and attempt > 1:
+        return False
+    if isinstance(attempt, dict) and isinstance(attempt.get("attempt"), int) and attempt["attempt"] > 1:
+        return False
+    return True
+
+
+def record_success_exemplars(rt: Path, *, episode: str, manifest_path: str | None, review_report: str | None,
+                             language: str, genre: str, model: str | None = None,
+                             media_sha256: str | None = None) -> dict[str, Any]:
+    """S7, after the independent final-audience review: record what went well (best-effort, never raises).
+
+    * always: ``<reports>/EXEMPLAR_SCENE_PROFILE.json`` -- this episode's scene-type counts (local only), which
+      the next episode's authoring injection uses to pick matching exemplars;
+    * when the review is a PASS with ``overall >= min_overall``, no hard fail and every dimension
+      ``>= min_dimension``: one SUCCESS_EXEMPLAR event per chosen unit that passed Q1, Q2 and post-gen QA on the
+      first attempt (no failure event named it, no paid re-attempt), at most ``max_shots_per_episode``, one per
+      scene type first; plus one EPISODE_PRACTICE per dimension scored ``>= practice_min_score`` (the
+      reviewer's own reason, scrubbed).  Every exemplar is built and scrubbed by
+      ``tools/collective_learning/exemplars.py`` and refused on any sensitive or control-language hit."""
+    out: dict[str, Any] = {"status": "OK", "events": []}
+    try:
+        ex = _exemplars()
+        cfg = exemplar_config(rt)
+        manifest = _read(manifest_path)
+        units = [u for u in manifest.get("units") or [] if isinstance(u, dict)]
+        report = _read(review_report)
+        model = str(model or next((u.get("model") for u in units if u.get("model")), "") or "UNKNOWN")
+        candidates = []
+        counts: dict[str, dict[str, int]] = {}
+        for unit in units:
+            specs = [s for s in unit.get("ordered_prompt_specs") or [] if isinstance(s, dict)]
+            if not specs:
+                continue
+            tags = ex.unit_tags(unit, specs[0], language=language, genre=genre, model=model)
+            for field in ("action_type", "shot_size", "setting", "time_of_day"):
+                counts.setdefault(field, {})
+                counts[field][tags[field]] = counts[field].get(tags[field], 0) + 1
+            candidates.append((unit, tags))
+        if counts:
+            reports = reports_dir(rt)
+            reports.mkdir(parents=True, exist_ok=True)
+            (reports / "EXEMPLAR_SCENE_PROFILE.json").write_text(json.dumps(
+                {"schema": "nalu.exemplar_scene_profile.v1", "episode": episode, "at": _now(), "language": language,
+                 "genre": genre, "units": len(candidates), "counts": counts}, ensure_ascii=False, indent=1) + "\n",
+                encoding="utf-8")
+        dims = {k: float(v) for k, v in (report.get("dimensions") or {}).items()
+                if isinstance(v, (int, float)) and not isinstance(v, bool)}
+        overall = report.get("overall")
+        if not isinstance(overall, (int, float)) or isinstance(overall, bool):
+            return {**out, "status": "NO_REVIEW_SCORE"}
+        if (report.get("verdict") != "PASS" or report.get("hard_fail") or float(overall) < float(cfg["min_overall"])
+                or any(v < float(cfg["min_dimension"]) for v in dims.values())):
+            return {**out, "status": "BELOW_THRESHOLD", "overall": overall, "min_overall": cfg["min_overall"]}
+        sha = str(media_sha256 or report.get("media_sha256") or "NO_MEDIA")
+        history = redo_history(rt, episode)
+        out["first_pass_basis"] = history["rounds"]
+        if not history["rounds"]:
+            out["shots"] = "NO_QA_HISTORY"
+        else:
+            picked, seen_types = [], set()
+            first_pass = [(u, t) for u, t in candidates if _first_pass(u, history["failed_units"])]
+            for pass_ in (0, 1):
+                for unit, tags in first_pass:
+                    key = (tags["action_type"], tags["shot_size"], tags["setting"])
+                    if len(picked) >= int(cfg["max_shots_per_episode"]) or unit in picked:
+                        continue
+                    if pass_ == 0 and key in seen_types:
+                        continue
+                    seen_types.add(key)
+                    picked.append(unit)
+            out["first_pass_units"] = len(first_pass)
+            for unit in picked:
+                row = ex.shot_exemplar(unit, language=language, genre=genre, model=model, overall=float(overall),
+                                       dimensions=dims)
+                if row is None:
+                    out["events"].append({"status": "SKIPPED", "unit_id": unit.get("unit_id"), "reason": "SCRUBBED_EMPTY"})
+                    continue
+                out["events"].append(_emit_exemplar(rt, episode, row, sha, [unit.get("unit_id")]))
+        cast = [(r.get("character_id") or r.get("character"), r.get("character")) for u, _ in candidates
+                for s in (u.get("ordered_prompt_specs") or [])[:1] if isinstance(s, dict)
+                for r in s.get("cast") or [] if isinstance(r, dict)]
+        cast += [(r.get("entity_id"), r.get("provider_entity_label")) for u, _ in candidates
+                 for r in u.get("reference_images") or [] if isinstance(r, dict) and r.get("provider_entity_label")]
+        reasons = report.get("dimension_reasons") if isinstance(report.get("dimension_reasons"), dict) else {}
+        praised = sorted((d for d, v in dims.items() if v >= float(cfg["practice_min_score"])), key=lambda d: -dims[d])
+        for dim in praised[: int(cfg["practices_per_episode"])]:
+            row = ex.practice_exemplar(dim, dims[dim], reasons.get(dim), language=language, genre=genre, model=model,
+                                       overall=float(overall), cast_names=cast)
+            if row is not None:
+                out["events"].append(_emit_exemplar(rt, episode, row, sha, []))
+    except Exception as exc:  # noqa: BLE001
+        out = {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}", "events": out.get("events")}
+    return out
+
+
+def _emit_exemplar(rt: Path, episode: str, row: dict[str, Any], sha: str, unit_ids: list[Any]) -> dict[str, Any]:
+    ex = _exemplars()
+    tags = row.get("tags") or {}
+    what = (f"{tags.get('action_type')} {tags.get('shot_size')} {tags.get('setting')}" if row["kind"] == "SHOT"
+            else f"praised {(row.get('practice') or {}).get('dimension')}")
+    return emit(rt, episode=episode, stage="S7", failure_type=SUCCESS_EXEMPLAR,
+                symptom=f"success exemplar ({row['kind']}): {what}, final review {row['final_review']['overall']}",
+                evidence={"exemplar": row, "cluster_key": f"{SUCCESS_EXEMPLAR}|{ex.type_key(row)}",
+                          "final_candidate_sha256": sha if sha != "NO_MEDIA" else None},
+                dedupe_key=f"{episode}:exemplar:{row['exemplar_id']}:{sha}", unit_ids=unit_ids,
+                event_kind=SUCCESS_EXEMPLAR)

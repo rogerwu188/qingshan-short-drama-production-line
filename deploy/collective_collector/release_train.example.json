@@ -15,5 +15,12 @@
  "max_canary_hours": 48,
  "rate_margin": 0.1,
  "retire_min_applied": 20,
- "pack_min_interval_hours": 6
+ "pack_min_interval_hours": 6,
+ "exemplar_bundle_id": "nalu-exemplars",
+ "exemplars_enabled": true,
+ "exemplar_lookback_days": 60,
+ "exemplar_canary_hours": 24,
+ "exemplar_min_interval_hours": 24,
+ "exemplar_per_type": 2,
+ "exemplar_max": 60
 }

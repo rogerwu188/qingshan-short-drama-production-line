@@ -58,7 +58,8 @@ ATTRIBUTION_STATUSES = (STATUS_UNATTRIBUTED, STATUS_ATTRIBUTED, STATUS_INCONCLUS
 CONFIDENCES = ("LOW", "MEDIUM", "HIGH")
 #: What a row observed.  FAILURE_OBSERVATION is the default (and the only kind the legacy CLI writes);
 #: SUCCESS_OBSERVATION lets the collective side compute rates (a stage that passed, with its unit count).
-EVENT_KINDS = ("FAILURE_OBSERVATION", "SUCCESS_OBSERVATION", "RUN_ANOMALY")
+#: SUCCESS_EXEMPLAR = a first-pass unit / praised practice from a well-reviewed episode (collective exemplar library).
+EVENT_KINDS = ("FAILURE_OBSERVATION", "SUCCESS_OBSERVATION", "RUN_ANOMALY", "SUCCESS_EXEMPLAR")
 
 
 def _now() -> str:

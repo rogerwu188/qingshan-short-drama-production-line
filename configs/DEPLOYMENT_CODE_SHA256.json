@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2471,
+  "file_count": 2475,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -385,11 +385,11 @@
     },
     {
       "path": "configs/schemas/collective_learning/knowledge_candidate.schema.json",
-      "sha256": "dd137da8132a70106ce83b8bc719b9904b370f6f3e9394aaee1b749ded4dccf5"
+      "sha256": "8eab7d7f65e2e7d128556f09ef2ba8a4be0e2be986dd3e33290788f401a257af"
     },
     {
       "path": "configs/schemas/collective_learning/observation_event.schema.json",
-      "sha256": "cb94ac278b5fdf5eaaf8932489afe03e9345dacea490d2c1b22b766f356a917c"
+      "sha256": "f4db788d8c27def3ca8d1c31ac4498ed41c275f8dc479ec2e2276303379c823d"
     },
     {
       "path": "configs/schemas/collective_learning/release_state.schema.json",
@@ -765,7 +765,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_knowledge_events.py",
-      "sha256": "a38a9fa3266b23f6b221b1895115f008511e1809323799acf78addafe1444ffe"
+      "sha256": "dbaf4dab735b7d629078352191b57a5c61da75c30892e7601926f2181c777774"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_media_tools.py",
@@ -781,7 +781,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "cce77672e6acd0dc35f269d3079de183aa3d73547ddd39b3bf47873d5690918f"
+      "sha256": "c3c4ad332e8c8ec6a9bcc626b0edf944a3117e382c5f2b6d71ac7446a2bf5376"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -961,7 +961,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "9dcaaca09a3a81ad9f5952bf2575c3c92da452b57f116105de341f85080c5939"
+      "sha256": "dab79afccfe07bd8bd59bca01acb63ece20fc7969f3c5b07cf235495c45fe5d0"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -981,7 +981,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "56508a06e16deeb32c52082624b223d88e474b4e7477789096d9d8bd1467da1f"
+      "sha256": "f23f3b32d7625e85e26cf426cdb1389be22261f7b8d3a02a02a4d5be0047a3c1"
     },
     {
       "path": "skills/nalu-claude-code/scripts/collective_provision.py",
@@ -1005,7 +1005,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/knowledge_status.py",
-      "sha256": "3875dc8fdeb03f37aa8172a7d1a289a8ba258e3ff83c313df0e238d99396df0c"
+      "sha256": "d9d211893e1fb4deb3ee0487464e3f0963d7c8d270b9f2a75991d5880754e0d7"
     },
     {
       "path": "skills/nalu-claude-code/scripts/list_voices.sh",
@@ -3856,12 +3856,16 @@
       "sha256": "8596f8792c5860171fa910623e19f38fc9de191dcb9d4e80cd39ebb02b4b6dfd"
     },
     {
+      "path": "tools/collective_learning/authoring.py",
+      "sha256": "6bbfde21334bed46c57ab88fd893ac8c0f4ab10be3369d1fcc7bd4cf389b2925"
+    },
+    {
       "path": "tools/collective_learning/bundles.py",
-      "sha256": "e106146c1f51fb767c66a035c482825a6ee8c1508535736f3d3ddfdbaa6a48c3"
+      "sha256": "a88bad838d286da52a34b90df4954da1f4e06e8449787ff9df35a5a0aa73a8b0"
     },
     {
       "path": "tools/collective_learning/contracts.py",
-      "sha256": "1b36910b41bf78824995a5360585fa8b88e9da8a0bc5e690eaaea315996f79d8"
+      "sha256": "a0692eb3f948795be66c8f4cdfac096913e58235826d78f85f3185e8eff5f5d1"
     },
     {
       "path": "tools/collective_learning/device_store.py",
@@ -3870,6 +3874,10 @@
     {
       "path": "tools/collective_learning/director_score.py",
       "sha256": "f844d8bf7cb975402d75f5f7dc356c74f104eef2f05233305371862d0ebcd200"
+    },
+    {
+      "path": "tools/collective_learning/exemplars.py",
+      "sha256": "899de727caf792d0e6042cb988932b2a6a104ac110b0aa39d8903fba76d2bf26"
     },
     {
       "path": "tools/collective_learning/http_api.py",
@@ -3893,7 +3901,7 @@
     },
     {
       "path": "tools/collective_learning/release_train.py",
-      "sha256": "20ec60a3fb0b067b011688c200a1d6e03583b48ba37c61ba1d9072a74977410c"
+      "sha256": "663c9a026b3639342e874fb1bf637d1d9a1643eda19bef6fa0d248c2b9e7cd55"
     },
     {
       "path": "tools/collective_learning/runtime_wiring.py",
@@ -3901,11 +3909,11 @@
     },
     {
       "path": "tools/collective_learning/s3_sync.py",
-      "sha256": "0bd9e2dcaa2aa73f978f6c146157237d9366c79e3ca84aab0f001b3882d6f1ee"
+      "sha256": "e395ff0ba42a38a56e1c31b28fd67cafd86b8549283979e8e9947de75a42781d"
     },
     {
       "path": "tools/collective_learning/selection.py",
-      "sha256": "dffff5868f03b13505ce5e26b5ca298438a11fc3c2a40ca47d66a18965fe030a"
+      "sha256": "dc89a076a845e040010330d502f99a2bd8118d9c516ea521e2689faf458bf591"
     },
     {
       "path": "tools/collective_learning/service.py",
@@ -5441,7 +5449,7 @@
     },
     {
       "path": "tools/knowledge_event_log.py",
-      "sha256": "124b935d38caf144e0f51e4723160aedadb165aa9554406a859172fbd86bf90d"
+      "sha256": "4d85a01d992b70072169b0cad225e7755ea25b8b4c7ca399bee273a41d91ffdc"
     },
     {
       "path": "tools/knowledge_loop_case.py",
@@ -7388,6 +7396,10 @@
       "sha256": "e9dbbd62bddc64f76e93a0f0475e9c448125e512f14d22742e59b97964f7a433"
     },
     {
+      "path": "tools/tests/test_collective_authoring_exemplars.py",
+      "sha256": "bd954c022c7812801c64328ce2b61f92decd2f7669e67736153845412f799a95"
+    },
+    {
       "path": "tools/tests/test_collective_bundles.py",
       "sha256": "b4d63a8f42526668cffaec2de69d6f07bb8cf7318987833cf45c63609d5cd451"
     },
@@ -8074,6 +8086,10 @@
     {
       "path": "tools/tests/test_h3_shot_scope_v1.py",
       "sha256": "5a1f1f2741b9af2cfbaa54626256b6902b1eb4fa0dec5df10cd4125d3a531554"
+    },
+    {
+      "path": "tools/tests/test_h3_silent_mouth_action_vocal_rule.py",
+      "sha256": "6a9266c182478f5431cb67426f459df1d72ae63185bbd22d7ce5eecf75a58461"
     },
     {
       "path": "tools/tests/test_h3_tail_reference_scope.py",

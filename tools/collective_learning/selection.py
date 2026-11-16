@@ -130,6 +130,10 @@ def select_for_unit(unit: dict[str, Any], rules: list[dict[str, Any]], *, stage:
                               "reason": "SCENE_INTENT_PRECEDENCE:" + ",".join(hit)})
             continue
         carrier = (rule.get("application") or {}).get("carrier", "CHECK_ONLY")
+        if carrier == "DIRECTING_GUIDANCE":
+            # advice for the author at the script/storyboard stage (authoring.py), never provider prompt text
+            decisions.append({**base, "state": "NOT_APPLICABLE", "reason": "AUTHORING_CARRIER_NOT_A_VIDEO_PROMPT_CLAUSE"})
+            continue
         if carrier == "CHECK_ONLY":
             candidates.append({**base, "carrier": carrier, "check_id": (rule.get("application") or {}).get("check_id"),
                                "rank": _rank(rule, caps), "rule": rule})
