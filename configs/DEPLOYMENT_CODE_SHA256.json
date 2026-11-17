@@ -6693,7 +6693,7 @@
     },
     {
       "path": "tools/storyclaw_audio_provider.py",
-      "sha256": "6b453bcb8beb2cf3731f191c3aaaa6aef6cd8c58f9ffd918e339218c8e7109a0"
+      "sha256": "70acfdb065413e9ed2a6bf604e4f286c764cf5a2f99e1a478158132623962145"
     },
     {
       "path": "tools/storyclaw_bridge_config.py",
@@ -9181,7 +9181,7 @@
     },
     {
       "path": "tools/tests/test_storyclaw_audio_provider.py",
-      "sha256": "57dd9dd7a7ed13eb195590c43c0e0b5cd00787ee594d0dd4c2038051dd044113"
+      "sha256": "1982a1434baa955e37c3c6d7bcfef5c257cde5d348604e3fc074eda2a50b830a"
     },
     {
       "path": "tools/tests/test_storyclaw_bootstrap.py",

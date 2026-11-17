@@ -148,6 +148,22 @@ def _safe_request_summary(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _same_paid_order(persisted: Any, current: dict[str, str]) -> bool:
+    """An existing transaction stays bound to the paid order that posted it.
+
+    The orders-file digest moves whenever any later order is appended (a quality
+    acceptance, for instance), so it is not compared here: this path never POSTs,
+    it only resumes the task the same paid order already paid for.  The stored
+    authority is left as it was written at POST time.
+    """
+    if not isinstance(persisted, dict):
+        return False
+    return all(
+        str(persisted.get(key) or "") == current[key]
+        for key in ("config_lock", "authorization_ref", "order_seq")
+    )
+
+
 def _paid_authority_from_env() -> dict[str, str]:
     """Require StoryClaw's config lock plus the exact line-owner order binding."""
     values = {
@@ -631,7 +647,7 @@ def generate_audio(
                 raise DuplicateSubmissionBlocked(
                     "transaction path is already bound to a different audio request"
                 )
-            if persisted.get("paid_authority") != paid_authority:
+            if not _same_paid_order(persisted.get("paid_authority"), paid_authority):
                 raise DuplicateSubmissionBlocked(
                     "transaction paid authority differs from the current line-owner order"
                 )
