@@ -5317,7 +5317,7 @@
     },
     {
       "path": "tools/hopsapi_usage.py",
-      "sha256": "42fdbd10a4a4fd57261c694b0b2eb53d6a20ab533611eb3f2efe60fe9b4ff6ed"
+      "sha256": "5306a451ae9519f2f605e4c13598ac926bb9aaac87f50495bf23dad0cdc09da1"
     },
     {
       "path": "tools/hopsapi_video_client.py",
@@ -8125,7 +8125,7 @@
     },
     {
       "path": "tools/tests/test_hopsapi_usage_reconcile.py",
-      "sha256": "649df8567971e42f95c32a30152897a32536ec5b99cfc3366f231c050c2a7d81"
+      "sha256": "d8cf93245a1f786fda57a661b844145ac77bb43f6cea35d9b4045f5bdbe4903b"
     },
     {
       "path": "tools/tests/test_hopsapi_video_transport.py",

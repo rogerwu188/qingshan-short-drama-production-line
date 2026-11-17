@@ -72,7 +72,15 @@ BOUND_STATE = "SUBMITTED_TASK_ID_BOUND"
 #: planned price -- counted in the ledger as spend -- and a new attempt may POST.
 AUTO_WRITEOFF_STATE = "WRITTEN_OFF_UNATTRIBUTABLE_RETRYABLE"
 WRITEOFF_FALLBACK_CREDITS = {"video": 15.0, "image": 2.0}
-RECONCILABLE_STATES = {LOST_STATE, MANUAL_STATE}
+#: A submitter killed between the intent record and the create response (SIGKILL / command timeout: no
+#: exception handler runs) leaves the transaction at INTENT_RECORDED with no task id.  The POST may or may
+#: not have left, exactly like a lost response, but nothing ever settled it: the submitter guard refused the
+#: fingerprint forever and this tool did not look at it (device ...0069 E15 S5, 2026-11-17: 19 / 21 keyframes
+#: bound, two stuck).  It is reconciled by the same rules after the same grace period; the write happens
+#: under the transaction's flock and only if the attempt is still unbound, so a live submitter is never
+#: overtaken.  The neutral health probe keeps its own never-re-POST rule and is left alone.
+INTERRUPTED_STATE = "INTENT_RECORDED"
+RECONCILABLE_STATES = {LOST_STATE, MANUAL_STATE, INTERRUPTED_STATE}
 STORES = {"video": "giggle_video_submit_transactions", "image": "giggle_submit_transactions"}
 USAGE_MODELS = {"video": hops.H3_MODEL, "image": "gpt-image-2"}
 GRACE_SECONDS = {"video": int(os.environ.get("HOPSAPI_USAGE_GRACE_VIDEO_SECONDS", "1200")),
@@ -233,7 +241,7 @@ def lost_transactions(tasks_root: Path, kind: str, episode: str | None = None) -
         for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
             payload = _load(path)
             if payload and _is_hopsapi(payload) and payload.get("state") in RECONCILABLE_STATES \
-                    and not payload.get("task_id"):
+                    and not payload.get("task_id") and not payload.get("hopsapi_health_probe"):
                 found.append((path, payload))
     return found
 

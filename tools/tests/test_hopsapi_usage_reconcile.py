@@ -252,6 +252,36 @@ class ReconcileTest(unittest.TestCase):
         self.assertEqual(fake.calls[0]["query"]["model"], "gpt-image-2")
         self.assertEqual(self.load(path)["state"], usage.VERIFIED_ZERO_STATE)
 
+    def test_interrupted_intent_without_task_id_is_reconciled_like_a_lost_response(self):
+        # device ...0069 E15 S5 (2026-11-17): the submitter died between the intent record and the create
+        # response, so two keyframes stayed INTENT_RECORDED with no task id and nothing could settle them
+        stuck = self.tx("E11-S04-04-KEYFRAME-V1", kind="image", state="INTENT_RECORDED",
+                        intent_recorded_at=at(12), retry_guard="DO_NOT_RESUBMIT_UNTIL_LEDGER_RECONCILED")
+        self.tx("E11-S04-03-KEYFRAME-V1", kind="image", state="SUBMITTED_TASK_ID_BOUND",
+                task_id="tsk_bound_img", intent_recorded_at=at(12))
+        self.assertEqual(usage.pending_lost("E11", self.root), 1)
+        report = self.run_reconcile(FakeUsage(rows=[row("tsk_bound_img", 11, model="gpt-image-2")]))
+        self.assertEqual(report["kinds"]["image"]["status"], usage.VERIFIED_ZERO_STATE)
+        data = self.load(stuck)
+        self.assertEqual(data["state"], usage.VERIFIED_ZERO_STATE)
+        self.assertEqual(data["retry_guard"], "RETRY_ALLOWED_NEW_ATTEMPT")
+        self.assertEqual(data["state_history"][0]["state"], "INTENT_RECORDED")
+
+    def test_interrupted_intent_waits_for_the_grace_period_and_probe_is_left_alone(self):
+        fresh = self.tx("E11-S05-03-KEYFRAME-V1", kind="image", state="INTENT_RECORDED",
+                        intent_recorded_at=at(3))
+        fake = FakeUsage()
+        report = self.run_reconcile(fake)
+        self.assertEqual(report["kinds"]["image"]["status"], "PENDING_GRACE")
+        self.assertEqual(fake.calls, [])
+        self.assertEqual(self.load(fresh)["state"], "INTENT_RECORDED")
+        fresh.unlink()
+        probe = self.tx("HOPSAPI-HEALTH-PROBE", kind="image", state="INTENT_RECORDED",
+                        intent_recorded_at=at(30), hopsapi_health_probe=True)
+        self.assertEqual(usage.pending_lost("E11", self.root), 0)
+        self.assertEqual(self.run_reconcile(fake)["kinds"]["image"]["status"], "NOTHING_TO_RECONCILE")
+        self.assertEqual(self.load(probe)["state"], "INTENT_RECORDED")
+
     def test_nothing_lost_means_no_network(self):
         self.tx("E11-VU-013", state="SUBMITTED_TASK_ID_BOUND", task_id=SIB)
         fake = FakeUsage()
