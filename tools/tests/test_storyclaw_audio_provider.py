@@ -252,6 +252,94 @@ class StoryClawAudioProviderTest(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertEqual(result["taskId"], "resume-task")
 
+    def _bind_task_then_lose_query(self, root, transaction):
+        with patch.dict(os.environ, self._paid_env(), clear=True), patch.object(
+            MODULE,
+            "_api_post",
+            return_value={"code": 200, "data": {"task_id": "resume-task"}},
+        ), patch.object(
+            MODULE, "_api_query", side_effect=TimeoutError("query unavailable")
+        ), patch.object(MODULE.time, "sleep", return_value=None):
+            with self.assertRaisesRegex(MODULE.AudioProviderError, "rerun to resume"):
+                MODULE.generate_bgm(
+                    "quiet instrumental bed",
+                    root / "audio",
+                    transaction=transaction,
+                    paid=True,
+                )
+
+    def test_bound_task_resumes_after_a_later_order_is_appended(self):
+        """A later order (e.g. a quality acceptance) changes the orders-file digest only."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            transaction = root / "resume.json"
+            self._bind_task_then_lose_query(root, transaction)
+            stored = json.loads(transaction.read_text(encoding="utf-8"))["paid_authority"]
+
+            def download(_url, destination, *, overwrite):
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(b"bgm")
+                return {
+                    "path": str(destination),
+                    "size": 3,
+                    "sha256": MODULE._sha256_file(destination),
+                    "contentType": "audio/mpeg",
+                }
+
+            env = self._paid_env()
+            env["NALU_SUPERVISOR_ORDERS_SHA256"] = "b" * 64
+            with patch.dict(os.environ, env, clear=True), patch.object(
+                MODULE, "_api_post"
+            ) as second_post, patch.object(
+                MODULE,
+                "_api_query",
+                return_value={
+                    "code": 200,
+                    "data": {"status": "completed", "urls": ["https://signed.example/bgm.mp3"]},
+                },
+            ), patch.object(MODULE, "_download", side_effect=download), patch.object(
+                MODULE.time, "sleep", return_value=None
+            ):
+                result = MODULE.generate_bgm(
+                    "quiet instrumental bed",
+                    root / "audio",
+                    transaction=transaction,
+                    paid=True,
+                )
+            second_post.assert_not_called()
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["taskId"], "resume-task")
+            self.assertEqual(
+                json.loads(transaction.read_text(encoding="utf-8"))["paid_authority"],
+                stored,
+            )
+
+    def test_bound_task_still_refuses_a_different_paid_order(self):
+        for key, value in (
+            ("NALU_PAID_ORDER_SEQ", "2"),
+            ("NALU_PAID_AUTHORIZATION_REF", "ORDER-TEST-2"),
+        ):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                transaction = root / "resume.json"
+                self._bind_task_then_lose_query(root, transaction)
+                env = self._paid_env()
+                env[key] = value
+                with patch.dict(os.environ, env, clear=True), patch.object(
+                    MODULE, "_api_post"
+                ) as post, patch.object(MODULE, "_api_query") as query:
+                    with self.assertRaisesRegex(
+                        MODULE.DuplicateSubmissionBlocked, "paid authority differs"
+                    ):
+                        MODULE.generate_bgm(
+                            "quiet instrumental bed",
+                            root / "audio",
+                            transaction=transaction,
+                            paid=True,
+                        )
+                post.assert_not_called()
+                query.assert_not_called()
+
     def test_bgm_compatible_result_has_all_candidates(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
