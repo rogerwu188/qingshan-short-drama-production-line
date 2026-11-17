@@ -1957,6 +1957,11 @@ def stage_s1(ctx: Ctx) -> StageResult:
                                              "report": str(selfcheck_out), "exit_code": selfcheck_step["exit_code"]}
     if not selfcheck_ok:
         res.blockers = list(getattr(res, "blockers", []) or []) + [f"WRITER_SELFCHECK_SEQ29_FAIL:{code}" for code in (selfcheck.get("failures") or [])[:8]]
+    # The register gate decided the stage but was shown nowhere: S1 came back BLOCKED with blockers [] and the
+    # executor had to find the gate's own JSON to learn why (fleet device 0899 E17/E18, 1037 E16, 2026-11-17).
+    res.details["dialogue_register_gate"] = dialogue_register_summary(dialogue_register, dialogue_register_path)
+    if not dialogue_register_ok:
+        res.blockers = list(getattr(res, "blockers", []) or []) + dialogue_register_blockers(dialogue_register)
     if capability_blocks:
         res.blockers = list(getattr(res, "blockers", []) or []) + [f"WRITER_CAPABILITY_STEP_OWED:{code}" for code in capability_blocks]
     res.details["layers"] = {"source": ctx.p.layers_source, "paths": {k: str(v) for k, v in p.layers().items()}}
@@ -2032,6 +2037,23 @@ def stage_s1(ctx: Ctx) -> StageResult:
     }
     res.receipts.append(str(s1_receipt))
     return res
+
+
+def dialogue_register_blockers(report: dict[str, Any]) -> list[str]:
+    """S1 blocker codes for a failed DIALOGUE_REGISTER_V1 gate.  The gate's ``failures`` are rule totals
+    (``DIALOGUE_SOURCE_VERBATIM:13``), never dialogue text, so they are safe to show as they are."""
+    codes = [str(code) for code in (report.get("failures") or []) if isinstance(code, str) and code.strip()]
+    if not codes:
+        return [f"DIALOGUE_REGISTER_FAIL:{str(report.get('status') or 'NO_REPORT')}"]
+    return [f"DIALOGUE_REGISTER_FAIL:{code}" for code in codes[:8]]
+
+
+def dialogue_register_summary(report: dict[str, Any], report_path: Path) -> dict[str, Any]:
+    return {"status": report.get("status"), "exit_code": report.get("exit_code"),
+            "failures": [str(code) for code in (report.get("failures") or []) if isinstance(code, str)][:12],
+            "report": str(report_path) if Path(report_path).is_file() else None,
+            "fix": "rewrite the listed lines in the writer's own files as speech the character would say; "
+                   "the canonical script is the line authority, the novel's wording is not"}
 
 
 # --------------------------------------------------------------------------- #
