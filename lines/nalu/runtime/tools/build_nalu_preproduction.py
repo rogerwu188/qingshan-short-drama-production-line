@@ -2402,6 +2402,13 @@ def main() -> int:
             int(u.get("planned_reference_image_count") or 0) for u in compile_anchor.get("units") or [])
         compile_anchor_path = write_json(anchor_path.with_name(anchor_path.name.replace(
             "ANCHOR_PLAN", "ANCHOR_PLAN_H3_COMPILE")), compile_anchor)
+        if _full_anchor is not None:
+            # A rolling wave rewrites the FULL grouping plan and the FULL gated anchor plan on every run, but
+            # the full compile copy (read by plan_compile.sh and the fight-scope compile) was written only by
+            # S2.  When the grouping moved after S5 that copy still described the old units, so the planning
+            # compile failed with H3_SPEAKER_SUBJECT_BINDING_MISSING and the planning manifest could not be
+            # brought back in line with the grouping (fleet device 1101 E15, 2026-11-17).  Keep it current.
+            write_full_h3_compile_anchor(_full_anchor[1], full_plan_path, editorial, episode=episode)
         stage("4.3h_h3_identity_references", "PASS" if not (missing_plates or missing_cards) else "BLOCKED",
               blocking_check=(f"H3_LOCKED_IDENTITY_PLATE_MISSING:{','.join(missing_plates)}" if missing_plates
                               else f"H3_LOCKED_PROP_CARD_MISSING:{','.join(missing_cards)}" if missing_cards else None),
@@ -2897,6 +2904,24 @@ def faceless_character_ids(editorial: dict[str, Any]) -> set[str]:
                 str(member.get("face_visibility") or "").upper().endswith("FACE_OUT_OF_FRAME")
             seen[cid] = seen.get(cid, True) and faceless
     return {cid for cid, faceless in seen.items() if faceless}
+
+
+def write_full_h3_compile_anchor(full_anchor_path: Path, full_plan_path: Path, editorial: dict[str, Any],
+                                 *, episode: str) -> Path:
+    """Rewrite ``<EP>_VIDEO_UNIT_ANCHOR_PLAN_H3_COMPILE_V1.json`` from the current FULL gated anchor plan
+    and the current FULL grouping plan (same content rules as the wave copy)."""
+    compile_anchor = json.loads(Path(full_anchor_path).read_text(encoding="utf-8"))
+    full_plan = json.loads(Path(full_plan_path).read_text(encoding="utf-8"))
+    compile_anchor["h3_identity_plates_missing"] = append_h3_identity_plates(
+        compile_anchor, full_plan, editorial, episode=episode)
+    compile_anchor["h3_prop_reference_cards_missing"] = append_h3_prop_plates(
+        compile_anchor, full_plan, editorial, episode=episode)
+    compile_anchor["source_gated_anchor_plan_sha256"] = sha256_file(Path(full_anchor_path))
+    compile_anchor["planned_reference_image_count"] = sum(
+        int(u.get("planned_reference_image_count") or 0) for u in compile_anchor.get("units") or [])
+    full_anchor_path = Path(full_anchor_path)
+    return write_json(full_anchor_path.with_name(full_anchor_path.name.replace(
+        "ANCHOR_PLAN", "ANCHOR_PLAN_H3_COMPILE")), compile_anchor)
 
 
 def append_h3_identity_plates(anchor_plan: dict[str, Any], plan: dict[str, Any], editorial: dict[str, Any],
