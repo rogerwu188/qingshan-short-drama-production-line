@@ -4085,6 +4085,26 @@ def keyframe_needs_post(ctx: Ctx, index: dict[str, Any]) -> tuple[list[str], lis
     return need, done
 
 
+def s5_keyframes_to_post(ctx: Ctx, q1_index: Path) -> tuple[list[str], list[str]]:
+    """keyframe_needs_post over the Q1 index on disk, after the line-owner acceptance orders are applied to it.
+
+    Device ...1101 E15 (2026-11-17): Q1 failed five stills on CHARACTER-IDENTITY-ADMISSION and the default
+    acceptance orders were recorded for those exact images (seq 432-436).  The order overlay only ran in
+    s5_q1, after the paid submit, so the next S5 entry read the raw FAIL rows as "re-roll these five", tried to
+    POST them and died in the submitter (KEYFRAME_SUBMIT_FAILED) before the overlay was ever reached, while S6
+    refused the units on Q1_START_FRAME_NOT_ADMITTED.  An accepted still is not re-rendered: the overlay
+    (free, sha-bound, source-receipted orders only) runs first, and a row without a matching order still
+    means a POST."""
+    index = read_json(q1_index, {}) or {}
+    if any(row.get("status") != "PASS" and row.get("downstream_status") != "ADMITTED_FOR_VIDEO_SUBMIT"
+           for row in index.get("results") or []):
+        accepted = apply_line_owner_q1_acceptance(ctx, index, q1_index).get("accepted_unit_ids") or []
+        if accepted:
+            ctx.say(f"   S5: {len(accepted)} Q1-rejected keyframe(s) are accepted by a line-owner order bound to "
+                    f"the current image and are not re-rendered: {accepted}")
+    return keyframe_needs_post(ctx, index)
+
+
 def s5_unlocked_identity_assets(tasks: list[dict[str, Any]], needs_post: list[str]) -> list[str]:
     """Identity / prop assets a keyframe that still needs a POST binds, but the asset library has not locked.
 
@@ -4247,8 +4267,7 @@ def stage_s5(ctx: Ctx) -> StageResult:
     # D-46 for S5: authorise a POST only for shots with no admitted keyframe of the CURRENT image.
     # S6 excludes tasks whose clip is on disk; S5 had no such rule, so every prompt byte that moved
     # in a free rebuild turned all 50 tasks into "new" ones.  See keyframe_needs_post().
-    _q1_now = read_json(q1_index, {}) or {}
-    needs_post, keyframes_done = keyframe_needs_post(ctx, _q1_now)
+    needs_post, keyframes_done = s5_keyframes_to_post(ctx, q1_index)
     if keyframes_done and needs_post:
         ctx.say(f"   D-46: {len(keyframes_done)} keyframe task(s) already admitted at the current "
                 f"image sha and are excluded from the authorised copy; "

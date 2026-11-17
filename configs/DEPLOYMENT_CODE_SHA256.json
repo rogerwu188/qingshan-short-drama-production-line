@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2478,
+  "file_count": 2479,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -781,7 +781,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "69827eab870bd1842ce9403853de0ea757489a70efebe31c0c83052dae22a6c1"
+      "sha256": "577eca52e22afbe6ac252ad23a5ea5a3185843c39d81805d5f0ef40a69beadd0"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -8498,6 +8498,10 @@
     {
       "path": "tools/tests/test_nalu_s4_concurrency.py",
       "sha256": "7f7816b2f0fa414dc93131863675b08aecb0e8ab6b1a4f32a7d9153c3302b2aa"
+    },
+    {
+      "path": "tools/tests/test_nalu_s5_accepted_keyframe_not_reposted.py",
+      "sha256": "096660625e5102fed5f7cc4637e9e710fdc14d9e514a11b45b9b8823ff020cd4"
     },
     {
       "path": "tools/tests/test_nalu_s5_harvest_bound_after_failed_submit.py",
