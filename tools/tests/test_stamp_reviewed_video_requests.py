@@ -142,5 +142,44 @@ class VideoStampTests(unittest.TestCase):
         self.assertNotIn("supersedes_submission_fingerprints", out["VU-003"])
 
 
+    def test_redo_whose_own_take_failed_at_zero_cost_still_declares_the_original_take(self):
+        """Field device ...0926 E14 VU-001/020 (2026-11-17): the reviewed redo was submitted, the provider
+        failed it at zero cost, and on the next S6 entry the redo's own still-bound transaction (same prompt,
+        same references) read as an identical-request reroll, so the supersede of the ORIGINAL take was
+        dropped and the zero-cost retry was refused BOUND_UNDER_OTHER_FINGERPRINT.  The task's own transaction
+        is not another take; a DIFFERENT-fingerprint take of the identical request still keeps the refusal."""
+        store = self.tmp / "workflow/tasks/giggle_video_submit_transactions/E99"
+        store.mkdir(parents=True)
+        tasks = []
+        for unit in ("VU-001", "VU-002"):
+            task = self._task(unit, "reviewed redo")
+            task["reference_sha256"] = ["new-frame"]
+            tasks.append(task)
+        own = {t["unit_id"]: stamp.task_fingerprint(t) for t in tasks}
+        # VU-001: original billed take (old frame) + the redo's own failed-at-zero-cost bound row.
+        (store / "VU-001-VIDEO-V1__old.json").write_text(json.dumps(
+            {"submission_fingerprint": "old-VU-001", "state": "SUBMITTED_TASK_ID_BOUND", "task_id": "t0",
+             "prompt_sha256": _sha("reviewed redo"), "reference_sha256": ["old-frame"]}), encoding="utf-8")
+        (store / "VU-001-VIDEO-V1__own.json").write_text(json.dumps(
+            {"submission_fingerprint": own["VU-001"], "state": "SUBMITTED_TASK_ID_BOUND", "task_id": "t1",
+             "remote_terminal_state": "failed", "prompt_sha256": _sha("reviewed redo"),
+             "reference_sha256": ["new-frame"]}), encoding="utf-8")
+        # VU-002: same own row, but the other take is the identical request under a drifted fingerprint.
+        (store / "VU-002-VIDEO-V1__old.json").write_text(json.dumps(
+            {"submission_fingerprint": "old-VU-002", "state": "SUBMITTED_TASK_ID_BOUND", "task_id": "t0",
+             "prompt_sha256": _sha("reviewed redo"), "reference_sha256": ["new-frame"]}), encoding="utf-8")
+        (store / "VU-002-VIDEO-V1__own.json").write_text(json.dumps(
+            {"submission_fingerprint": own["VU-002"], "state": "SUBMITTED_TASK_ID_BOUND", "task_id": "t1",
+             "prompt_sha256": _sha("reviewed redo"), "reference_sha256": ["new-frame"]}), encoding="utf-8")
+        rows = [{"unit_id": unit, "status": "UNCHANGED", "sha256": _sha("reviewed redo")}
+                for unit in ("VU-001", "VU-002")]
+        rc, out = self._run(tasks, rows)
+        self.assertEqual(rc, 0)
+        self.assertEqual(out["VU-001"].get("supersedes_submission_fingerprints"), ["old-VU-001"])
+        self.assertNotIn("supersedes_submission_fingerprints", out["VU-002"])
+        # The declaration does not move the fingerprint the own transaction is keyed by.
+        self.assertEqual(stamp.task_fingerprint(out["VU-001"]), own["VU-001"])
+
+
 if __name__ == "__main__":
     unittest.main()
