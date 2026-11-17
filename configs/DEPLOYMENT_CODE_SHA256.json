@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2481,
+  "file_count": 2482,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -825,7 +825,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/paid_stage.sh",
-      "sha256": "ed8dcce79bb38b517b870bd004b65b839b2dc150655492846eb4d1ff30891afb"
+      "sha256": "5c8591f75f7b44d73846e67086870dbb639aff1982e040b699f2fd7f260d9abe"
     },
     {
       "path": "lines/nalu/runtime/tools/post_generation_qa_runner.py",
@@ -6693,7 +6693,7 @@
     },
     {
       "path": "tools/storyclaw_audio_provider.py",
-      "sha256": "ecd66ce149c2851af74566a393f2499046ff38135c2b53a9e88455fbabbe8599"
+      "sha256": "5b0a056fdfb4085805c0afea2a66eac6344f8c65d99844511e9990c2f1c3b8e2"
     },
     {
       "path": "tools/storyclaw_bridge_config.py",
@@ -7145,7 +7145,7 @@
     },
     {
       "path": "tools/tests/test_audio_unbound_intent_write_off.py",
-      "sha256": "4532e7f60663734c6d166399d7c0078adf64ebe553211979770fad4482cb18ed"
+      "sha256": "c65c5f1e2f1626032e518e1f07b90575e20a4b2e44a0554c96c72dc96242041e"
     },
     {
       "path": "tools/tests/test_audit_e18r_agentcut_final_asr.py",
@@ -8970,6 +8970,10 @@
     {
       "path": "tools/tests/test_s6_final_pass_as_submitted.py",
       "sha256": "53e220c6c472650bdd4fbff1a6c2f38100cd8a2cefdde3daa525df6a93409598"
+    },
+    {
+      "path": "tools/tests/test_s6_redo_identical_to_parked_take.py",
+      "sha256": "9b86468cfddea31a9b9947155eacd1fa1bef947b2e20fe8851d4586bcec54de7"
     },
     {
       "path": "tools/tests/test_s6_resume_budget_and_tails.py",
