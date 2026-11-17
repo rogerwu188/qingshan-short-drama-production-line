@@ -6766,6 +6766,48 @@ def s6_bound_task_keys(ctx: Ctx, tasks: list[dict[str, Any]], task_fingerprint) 
     return keys
 
 
+def s6_redo_identical_to_parked_take(ctx: Ctx, tasks: list[dict[str, Any]], task_fingerprint) -> list[str]:
+    """Task keys with no clip on disk whose ONLY binding is the take that was parked for a redo.
+
+    Fleet device ...1205 E13 (2026-11-17): seven QA-rejected clips were parked for a controlled redo
+    but the redo requests were byte-identical to the parked takes.  The exact-fingerprint match in
+    s6_bound_task_keys read each unit as "already bound -> poll only", the new wave had no submit
+    report, the poll child died on FileNotFoundError, the parent reported VIDEO_NOT_ALL_COMPLETED,
+    release_unposted_waves (which ignores a take bound before the park) released the wave, and the
+    heartbeat repeated that 90 times over nine hours.  An identical request is never POSTed again
+    (K130), so nothing could ever arrive.  Such a unit is: clip missing, a clip of it parked, every
+    bound record of its current fingerprint older than the park, and no live binding."""
+    store_dir = video_store_dir(ctx.episode)
+    if not store_dir.is_dir():
+        return []
+    if str(ENGINE) not in sys.path:
+        sys.path.insert(0, str(ENGINE))
+    from tools.video_live_binding import bound_at, park_time  # engine, read-only
+    video_dirs = [ctx.p.video_media] + ([ctx.p.work / AB_VIDEO_DIRNAME] if getattr(ctx.p, "work", None) else [])
+    stale = []
+    for t in tasks:
+        key = str(t.get("task_key"))
+        if (ctx.p.video_media / f"{key}.mp4").is_file():
+            continue
+        parked = park_time(key, video_dirs)
+        if parked is None:
+            continue
+        fingerprint = task_fingerprint(t)
+        stamps = []
+        for path in store_dir.glob(f"{key}__*.json"):
+            row = read_json(path, {}) or {}
+            if (row.get("state") == "SUBMITTED_TASK_ID_BOUND" and row.get("task_id")
+                    and str(row.get("submission_fingerprint")) == fingerprint):
+                stamps.append(bound_at(row))
+        if not stamps or any(stamp is None or stamp > parked for stamp in stamps):
+            continue
+        declared = [str(v) for v in (t.get("supersedes_submission_fingerprints") or [])]
+        if s6_live_bindings(ctx, key, exclude_fingerprints=declared):
+            continue
+        stale.append(key)
+    return stale
+
+
 #: tools/video_live_binding.ALT_TAKES_DIRNAME: a second live take of a unit is harvested here,
 #: never over the unit's assembly clip and never into a park directory.
 S6_ALT_TAKES_DIRNAME = "_alt_takes"
@@ -7467,6 +7509,23 @@ def _stage_s6_body(ctx: Ctx, *, ready_units=None, run_qa: bool = True,
             res.blockers.append(f"VIDEO_PROVIDER_KEY_MISSING:{provider}:{key_env}")
             return res
         if not post_keys:
+            if needs_post and not p.video_submit.is_file():
+                # No report to poll from.  When that is because the "bound" take is the one parked for
+                # a redo, say so instead of crashing in the poll child and waiting on nothing.
+                from tools.submit_giggle_video_manifest_v2 import task_fingerprint as _fingerprint
+                identical = s6_redo_identical_to_parked_take(
+                    ctx, [t for t in manifest_now.get("tasks") or [] if str(t.get("task_key")) in set(needs_post)],
+                    _fingerprint)
+                if identical:
+                    res.status = BLOCKED
+                    res.blockers.append("REDO_REQUEST_IDENTICAL_TO_PARKED_TAKE:" + ",".join(identical))
+                    res.details["redo_identical_to_parked_take"] = {
+                        "units": identical, "posts": 0,
+                        "fix": "the clip was parked for a redo but the request is byte-identical to the parked "
+                               "take, and an identical request is never POSTed again (K130).  Change the "
+                               "unit's prompt or start frame for the rejection reason through the reviewed "
+                               "prompt finalization, then re-enter S6.  This is not a remote wait."}
+                    return res
             ctx.say("   every task without a clip is already bound to a remote task: poll only, no authorisation")
             status = PASS
         else:

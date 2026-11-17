@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2480,
+  "file_count": 2481,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -781,7 +781,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "9b89573e90fb26484dfda9f4e940295b4eadf0f1f5f4c6b9dabc4838f6a170f0"
+      "sha256": "66cfc7228205a9c7fbcd49fd31556c5667f0120dddb7062c728c7441d10799b0"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -7142,6 +7142,10 @@
     {
       "path": "tools/tests/test_audio_source_binding_gate.py",
       "sha256": "fb248d54cb922c4f9076ef0e0134928f204c2db1369ed39f279c961ec417c5ed"
+    },
+    {
+      "path": "tools/tests/test_audio_unbound_intent_write_off.py",
+      "sha256": "4532e7f60663734c6d166399d7c0078adf64ebe553211979770fad4482cb18ed"
     },
     {
       "path": "tools/tests/test_audit_e18r_agentcut_final_asr.py",
