@@ -43,13 +43,21 @@ def resolve(value: str) -> Path:
 
 
 def _every_bound_take_is_another_request(transaction_dir: Path, task_key: str, prompt_sha256: str,
-                                         reference_sha256: list[str] | None = None) -> bool:
+                                         reference_sha256: list[str] | None = None,
+                                         own_fingerprint: str | None = None) -> bool:
     """True only when every provider-bound transaction of this task was a different request: it records a
     prompt_sha256 that is not this prompt, or it records this prompt with a different reference set (a new
     start frame: the engine's Q2 face-count / speaker-framing redo regenerates the unit's own keyframe and
     keeps the reviewed prompt).  A take without a recorded prompt sha is unknown and keeps the refusal (the
     duplicate guard stays fail-closed), and so does a same-prompt take whose references are unrecorded or
-    equal to the current ones: that is an identical-request reroll (K130)."""
+    equal to the current ones: that is an identical-request reroll (K130).
+
+    The task's own transaction (``own_fingerprint``) is not one of the "other" takes and is skipped: it is
+    this very request, and the submitter's ``prior_bound`` already decides it (poll the live take, or release
+    a zero-cost terminal failure for one new attempt).  Field device ...0926 E14 VU-001/020 (2026-11-17): the
+    redo's own take failed at the provider at zero cost, its still-bound row then read as a same-prompt
+    reroll here, the supersede of the ORIGINAL take was no longer declared on recompile, and the authorised
+    zero-cost retry was refused BOUND_UNDER_OTHER_FINGERPRINT before any POST."""
     current_refs = [str(v) for v in (reference_sha256 or [])]
     seen = False
     for path in sorted(Path(transaction_dir).glob(f"{task_key}__*.json")):
@@ -58,6 +66,8 @@ def _every_bound_take_is_another_request(transaction_dir: Path, task_key: str, p
         except (OSError, ValueError):
             continue
         if not (row.get("state") == "SUBMITTED_TASK_ID_BOUND" or row.get("task_id")):
+            continue
+        if own_fingerprint and str(row.get("submission_fingerprint") or "") == own_fingerprint:
             continue
         seen = True
         bound = str(row.get("prompt_sha256") or "")
@@ -132,13 +142,14 @@ def main(argv=None) -> int:
             # VU-014/015/017/018.  The redo is deliberate exactly when the current prompt differs from
             # EVERY bound take's prompt_sha256; a take bound to this same prompt keeps the refusal
             # (no identical-prompt reroll, K130).
-            others = prd.bound_under_other_fingerprint(transaction_dir, key, task_fingerprint(task))
+            own = task_fingerprint(task)
+            others = prd.bound_under_other_fingerprint(transaction_dir, key, own)
             # Q2 auto-redo gap (field device ...1324 E16 VU-016, 2026-11-15): a face-count redo keeps the
             # reviewed prompt and shoots from a regenerated own keyframe, so the prompt sha equals the bound
             # take's and the single-unit redo wave was refused before any POST.  A different recorded
             # reference set is a changed request, not a reroll.
             if others and _every_bound_take_is_another_request(
-                    transaction_dir, key, task_sha, task.get("reference_sha256")):
+                    transaction_dir, key, task_sha, task.get("reference_sha256"), own_fingerprint=own):
                 task["supersedes_submission_fingerprints"] = others
                 out["supersedes_declared"][key] = others
 

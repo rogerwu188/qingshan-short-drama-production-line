@@ -901,7 +901,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/stamp_reviewed_video_requests.py",
-      "sha256": "73fbf2fbdde8d914bed77a6236fd1eda377e007f4e5319d60e38940eeea6d6a6"
+      "sha256": "93750c6a622f17d2fa6a36c5f2a94ab84901180cab33ac71f99135d36665e6a0"
     },
     {
       "path": "lines/nalu/runtime/tools/start_frame_evidence_writer.py",
@@ -9149,7 +9149,7 @@
     },
     {
       "path": "tools/tests/test_stamp_reviewed_video_requests.py",
-      "sha256": "1e0e14a1a56c06c5b5279c881f86fe1ea49d84588c862eb80be84cb16af98e25"
+      "sha256": "e23759ec1473fd0103838d541394fc05da90b0312c67db2a73f32100c7630664"
     },
     {
       "path": "tools/tests/test_start_frame_contract_tail_media.py",
