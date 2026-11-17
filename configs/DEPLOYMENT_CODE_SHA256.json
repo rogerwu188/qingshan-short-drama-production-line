@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2479,
+  "file_count": 2480,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -761,7 +761,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_budget_ledger.py",
-      "sha256": "b4842893c6ace778dd9366a02c2e6266f09d33d4b700045ee467559b8e67d5bd"
+      "sha256": "f8fa86f308e9cd08a00346e87eb7b78386ca2cf15e1ae868d7a60d7c3be76ad0"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_knowledge_events.py",
@@ -781,7 +781,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "b46fd41ca5721952e67a87090da8d690d75020389ef3035fc2bb161beaeec976"
+      "sha256": "9b89573e90fb26484dfda9f4e940295b4eadf0f1f5f4c6b9dabc4838f6a170f0"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -965,7 +965,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "4716fda53d0933ffd2b8e74450feb5231ddb502f85151447ea7ffa823aecc46b"
+      "sha256": "dd0f6e4d8b4c21d34a35f0eeaa8b70b0aee4932426c3f39dbed50970dfe69cec"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -6693,7 +6693,7 @@
     },
     {
       "path": "tools/storyclaw_audio_provider.py",
-      "sha256": "70acfdb065413e9ed2a6bf604e4f286c764cf5a2f99e1a478158132623962145"
+      "sha256": "ecd66ce149c2851af74566a393f2499046ff38135c2b53a9e88455fbabbe8599"
     },
     {
       "path": "tools/storyclaw_bridge_config.py",
@@ -9506,6 +9506,10 @@
     {
       "path": "tools/tests/test_wardrobe_variant_registration_gate.py",
       "sha256": "fab4c232aaf51cfb577d4de020d8533b839256ff9091a911185383f71f57c286"
+    },
+    {
+      "path": "tools/tests/test_wave_full_h3_compile_anchor_and_s1_register_blocker.py",
+      "sha256": "76e443d0f7be0b5e974562a2b69c5781220238fc9c33b0185433493b18e390c7"
     },
     {
       "path": "tools/tests/test_weak_media_admission.py",
