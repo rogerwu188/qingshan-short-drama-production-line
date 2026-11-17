@@ -124,6 +124,107 @@ def _transaction_lock(path: Path) -> Iterator[None]:
         yield
 
 
+#: A speech POST whose process died mid-request (INTENT_RECORDED) or whose response never arrived
+#: (RESPONSE_LOST) binds no task id.  The provider has no idempotency key, so the same transaction is
+#: never re-posted, and the budget ledger fails closed on it (AUDIO_UNRESOLVED_TRANSACTIONS) -- with no
+#: way out, the episode stopped for good (fleet device 0899 E18 S4, 2026-11-17).  Line-owner standing
+#: ruling A (2026-11-11, K073 family): write the lost request off, count its price as spent, and allow
+#: ONE new attempt.  ``settle_unbound_speech`` does exactly that once the request is provably over (its
+#: transaction lock is free and the grace period has passed): the record is archived beside the live
+#: path as ``<name>.written_off_1.json`` (the ledger counts it at the unit price) and the live path is
+#: released.  A second unbound request of the same line is never settled here and stays blocked.
+UNBOUND_STATES = ("INTENT_RECORDED", "RESPONSE_LOST")
+WRITTEN_OFF_STATE = "WRITTEN_OFF_UNBOUND_COUNTED_AS_SPENT"
+WRITTEN_OFF_SUFFIX = ".written_off_1.json"
+UNBOUND_GRACE_SECONDS = 600
+
+
+def _parse_utc(value: Any) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def settle_unbound_speech(paths: list[Path], *, now: datetime | None = None,
+                          grace_seconds: int | None = None) -> list[dict[str, Any]]:
+    """Write off speech transactions that recorded an intent but never bound a task id.
+
+    One row per unbound transaction found: WRITTEN_OFF_RETRY_OPEN (archived, live path released),
+    PENDING_GRACE (too recent; ``eligible_at``), IN_FLIGHT (its process still holds the lock) or
+    ALREADY_WRITTEN_OFF_ONCE (second loss of the same line: stays blocked).  Never calls the provider."""
+    moment = now or datetime.now(timezone.utc)
+    grace = UNBOUND_GRACE_SECONDS if grace_seconds is None else int(grace_seconds)
+    rows: list[dict[str, Any]] = []
+    for path in sorted({Path(item) for item in paths}):
+        if path.name.endswith(WRITTEN_OFF_SUFFIX) or path.is_symlink() or not path.is_file():
+            continue
+        try:
+            record = _read_transaction(path)
+        except AudioProviderError:
+            continue
+        if (record.get("capability") != SPEECH_CAPABILITY or record.get("state") not in UNBOUND_STATES
+                or str(record.get("task_id") or "").strip()):
+            continue
+        row: dict[str, Any] = {"transaction": str(path), "state": record.get("state")}
+        rows.append(row)
+        lock = path.with_name(path.name + ".lock")
+        if lock.is_symlink():
+            row["status"] = "IN_FLIGHT"
+            continue
+        with lock.open("a", encoding="utf-8") as handle:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                row["status"] = "IN_FLIGHT"
+                continue
+            try:
+                record = _read_transaction(path)
+            except AudioProviderError:
+                row["status"] = "IN_FLIGHT"
+                continue
+            if record.get("state") not in UNBOUND_STATES or str(record.get("task_id") or "").strip():
+                rows.pop()
+                continue
+            stamps = [stamp for stamp in (_parse_utc(record.get("intent_recorded_at")),
+                                          _parse_utc(record.get("response_lost_at"))) if stamp]
+            if not stamps:
+                row["status"] = "PENDING_GRACE"
+                row["eligible_at"] = None
+                continue
+            ready_at = datetime.fromtimestamp(max(s.timestamp() for s in stamps) + grace, timezone.utc)
+            if moment < ready_at:
+                row["status"] = "PENDING_GRACE"
+                row["eligible_at"] = ready_at.isoformat().replace("+00:00", "Z")
+                continue
+            archive = path.with_name(path.name[: -len(".json")] + WRITTEN_OFF_SUFFIX)
+            if archive.exists():
+                try:
+                    same = _read_transaction(archive).get("transaction_id") == record.get("transaction_id")
+                except AudioProviderError:
+                    same = False
+                if not same:
+                    row["status"] = "ALREADY_WRITTEN_OFF_ONCE"
+                    continue
+            else:
+                _atomic_json(archive, {
+                    **record,
+                    "state": WRITTEN_OFF_STATE,
+                    "written_off": {
+                        "at": _utc_now(),
+                        "previous_state": record.get("state"),
+                        "basis": "no task id was bound; the request price is counted as spent",
+                        "ruling": "line-owner standing ruling A 2026-11-11 (K073 family)",
+                        "new_attempts_allowed": 1,
+                    },
+                })
+            path.unlink()
+            row["status"] = "WRITTEN_OFF_RETRY_OPEN"
+            row["archived_as"] = str(archive)
+    return rows
+
+
 def _read_transaction(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))

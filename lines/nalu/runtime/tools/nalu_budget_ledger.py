@@ -182,6 +182,9 @@ AUDIO_CHARGED_STATES = {"TERMINAL_COMPLETED", "COMPLETED", "TASK_ID_BOUND_QUERY_
 #: a POST may have happened with no task id bound: spend unknowable, the check fails closed
 AUDIO_UNRESOLVED_STATES = {"INTENT_RECORDED", "RESPONSE_LOST", "RESPONSE_LOST_PENDING_LEDGER_RECONCILIATION"}
 AUDIO_TERMINAL_FAILED_STATES = {"TERMINAL_FAILED", "PROVIDER_FAILED"}
+#: an unbound speech request written off by tools/storyclaw_audio_provider.settle_unbound_speech
+#: (line-owner ruling A): no task id will ever exist, its unit price is spent for good.
+AUDIO_WRITTEN_OFF_STATE = "WRITTEN_OFF_UNBOUND_COUNTED_AS_SPENT"
 
 
 def utc_now() -> str:
@@ -563,6 +566,12 @@ def scan_audio_spend(directories: list[Path], *, statement_net: dict[str, Decima
         state = str(payload.get("state") or "UNKNOWN")
         task_id = str(payload.get("task_id") or "").strip()
         if task_id and task_id in seen:
+            continue
+        if not task_id and state == AUDIO_WRITTEN_OFF_STATE:
+            exact += unit
+            rows.append({"source": str(path), "task_id": None, "state": state,
+                         "capability": payload.get("capability"), "credits": number(unit),
+                         "method": "WRITTEN_OFF_UNBOUND_UNIT_PRICE"})
             continue
         if not task_id:
             if state in AUDIO_UNRESOLVED_STATES or state not in AUDIO_TERMINAL_FAILED_STATES:
@@ -1041,7 +1050,8 @@ def _spend_evidence(episode: str, bgm_transactions_dir: Path | None = None) -> l
         state = str(payload.get("state") or "UNKNOWN")
         charge = _transaction_charge(payload)
         credits = (charge if charge is not None
-                   else audio_unit if state in AUDIO_CHARGED_STATES and payload.get("task_id") else None)
+                   else audio_unit if (state in AUDIO_CHARGED_STATES and payload.get("task_id")
+                                       or state == AUDIO_WRITTEN_OFF_STATE) else None)
         rows.append({"source": str(path), "state": state, "credits": credits,
                      "at": _parse_utc(payload.get("intent_recorded_at")),
                      "in_flight": state in AUDIO_UNRESOLVED_STATES})
