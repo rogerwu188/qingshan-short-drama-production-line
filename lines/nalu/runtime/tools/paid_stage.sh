@@ -218,6 +218,16 @@ if [ -f "$RECON" ] && [ -n "${HOPSAPI_API_KEY:-}" ]; then
   "$VENV" "$RECON" reconcile "$EPISODE" >/dev/null 2>&1 || echo "paid_stage: reconciliation skipped/failed (non-fatal); budget check decides" >&2
 fi
 
+# A speech request that never bound a task id is written off (unit price counted as spent, one new attempt)
+# BEFORE this preflight refuses it with AUDIO_UNRESOLVED_TRANSACTIONS: the pipeline's own settlement sits behind
+# this check and never ran (fleet device 0899 E18 S4, 2026-11-17).  Real paid runs only; never calls the provider.
+AUDIO_PROVIDER="$ENGINE_ROOT/tools/storyclaw_audio_provider.py"
+if [ "$CHECK_ONLY" = 0 ] && [ -f "$AUDIO_PROVIDER" ]; then
+  SETTLED="$("$VENV" "$AUDIO_PROVIDER" settle-unbound-speech --episode "$EPISODE" 2>/dev/null)" \
+    || echo "paid_stage: unbound speech settlement skipped/failed (non-fatal); budget check decides" >&2
+  case "${SETTLED:-}" in *'"status"'*) echo "paid_stage: unbound speech requests for $EPISODE: $SETTLED" ;; esac
+fi
+
 LEDGER="$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_budget_ledger.py"
 if [ -f "$LEDGER" ]; then
   echo "paid_stage: budget position for $EPISODE"

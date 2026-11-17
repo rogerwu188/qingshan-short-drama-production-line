@@ -114,6 +114,35 @@ class UnboundSpeechWriteOffTests(unittest.TestCase):
         body = source[source.index("    def budget_check("):source.index("    def budget_release(")]
         self.assertLess(body.index("self.settle_unbound_audio(label=label)"), body.index("BUDGET_LEDGER"))
 
+    def test_cli_settles_one_episode_only(self) -> None:
+        import contextlib, io, os, time
+        path = self._tx("a.json", intent_recorded_at="2026-11-17T12:09:00Z")
+        other = self.dir.parent.parent / "E19" / "voice_over"
+        other.mkdir(parents=True)
+        foreign = other / "b.json"
+        foreign.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+        root = self.dir.parent.parent.parent
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            rc = P.main(["settle-unbound-speech", "--episode", "E18", "--transactions-root", str(root)])
+        self.assertEqual(rc, 0)
+        result = json.loads(buffer.getvalue())
+        self.assertEqual([row["status"] for row in result["rows"]], ["WRITTEN_OFF_RETRY_OPEN"])
+        self.assertFalse(path.exists())
+        self.assertTrue((self.dir / "a.written_off_1.json").is_file())
+        self.assertTrue(foreign.is_file())
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(P.main(["settle-unbound-speech", "--episode", "../x",
+                                     "--transactions-root", str(root)]), 2)
+            self.assertEqual(P.main(["settle-unbound-speech", "--episode", "E18",
+                                     "--transactions-root", str(root / "missing")]), 0)
+
+    def test_paid_entry_settles_before_its_own_budget_preflight(self) -> None:
+        source = (ROOT / "lines" / "nalu" / "runtime" / "tools" / "paid_stage.sh").read_text(encoding="utf-8")
+        settle = source.index("settle-unbound-speech --episode")
+        self.assertLess(settle, source.index('"$LEDGER" --check'))
+        self.assertIn('[ "$CHECK_ONLY" = 0 ] && [ -f "$AUDIO_PROVIDER" ]', source)
+
 
 if __name__ == "__main__":
     unittest.main()

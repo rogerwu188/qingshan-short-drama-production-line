@@ -913,7 +913,26 @@ def _parser() -> argparse.ArgumentParser:
     speech.add_argument("--poll-interval", type=float, default=5)
     speech.add_argument("--timeout", type=float, default=120)
     speech.add_argument("--overwrite", action="store_true")
+    settle = sub.add_parser(
+        "settle-unbound-speech",
+        help="Write off one episode's speech requests that never bound a task id (no provider call)",
+    )
+    settle.add_argument("--episode", required=True)
+    settle.add_argument("--transactions-root",
+                        default=str(ROOT / "workflow" / "tasks" / "giggle_audio_transactions"))
     return parser
+
+
+def settle_unbound_speech_for_episode(episode: str, transactions_root: str | Path) -> dict[str, Any]:
+    """``settle_unbound_speech`` over every transaction of one episode under ``transactions_root``.
+
+    The paid entry (paid_stage.sh) runs its own budget preflight before the pipeline starts; without
+    this the pipeline's settlement never got a chance to run (fleet device 0899 E18 S4, 2026-11-17)."""
+    root = Path(transactions_root).expanduser()
+    paths = [path for path in root.rglob("*.json")
+             if episode in path.relative_to(root).parts] if root.is_dir() else []
+    rows = settle_unbound_speech(paths) if paths else []
+    return {"ok": True, "episode": episode, "rows": rows}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -926,6 +945,10 @@ def main(argv: list[str] | None = None) -> int:
                 if not out.is_absolute():
                     raise AudioProviderError("--out must be an absolute path")
                 _atomic_json(out, result)
+        elif args.command == "settle-unbound-speech":
+            if not re.fullmatch(r"E\d{2,3}", args.episode):
+                raise AudioProviderError("--episode must look like E18")
+            result = settle_unbound_speech_for_episode(args.episode, args.transactions_root)
         elif args.command == "speech-generate":
             result = generate_speech(
                 args.text,
