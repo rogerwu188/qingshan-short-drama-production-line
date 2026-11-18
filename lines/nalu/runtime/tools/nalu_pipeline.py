@@ -8396,7 +8396,8 @@ def s7_final_audience_review(ctx: Ctx, res: StageResult) -> dict[str, Any]:
             if detail.get(key):
                 res.receipts.append(str(detail[key]))
         if detail.get("report"):  # advisory DIRECTOR_SCORE_V1 outputs, only when the reviewer wrote them
-            for suffix in ("DIRECTOR_EVALUATION.json", "DIRECTOR_EVALUATION.md", "NEXT_EPISODE_PLAN.json"):
+            for suffix in ("DIRECTOR_EVALUATION.json", "DIRECTOR_EVALUATION.md", "NEXT_EPISODE_PLAN.json",
+                           "CRAFT_STANDARD.json"):  # + the advisory craft-standard block (never a gate)
                 extra = Path(str(detail["report"])).parent / f"{ctx.episode}_{suffix}"
                 if extra.is_file():
                     res.receipts.append(str(extra))
@@ -8976,6 +8977,29 @@ def kb_success_exemplars(ctx: Ctx, final_audience: dict[str, Any]) -> dict[str, 
         return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:160]}"}
 
 
+def kb_craft_standard_gaps(ctx: Ctx, final_audience: dict[str, Any]) -> dict[str, Any]:
+    """NALU_CRAFT_STANDARD_v1 (owner 2026-11-17): the independent reviewer's top craft gaps
+    (``<EP>_CRAFT_STANDARD.json`` beside the score report) as ``CRAFT_STD_GAP|<item id>`` knowledge events
+    (nalu_knowledge_events.record_craft_gaps).  The cast names and dialogue lines are passed only so the scrubber
+    can keep them OUT of the events.  Best-effort; never changes what S7 decides."""
+    try:
+        report = str(final_audience.get("report") or "")
+        craft = Path(report).parent / f"{ctx.episode}_CRAFT_STANDARD.json" if report else None
+        if craft is None or not craft.is_file():
+            return {"status": "NO_CRAFT_STANDARD_BLOCK"}
+        contract = read_json(ctx.p.contract, {}) or {}
+        name_keys = ("canonical_name", "name", "display_name", "name_en", "english_name", "character")
+        cast = [(row.get("character_id"), row.get(key)) for row in contract.get("character_entities") or []
+                if isinstance(row, dict) for key in name_keys if row.get(key)]
+        lines = [str(row.get("text") or "") for row in (contract.get("audio_contract") or {}).get("dialogue_units") or []
+                 if isinstance(row, dict) and row.get("text")]
+        return kb_events("record_craft_gaps", episode=ctx.episode, craft_path=str(craft),
+                         media_sha256=final_audience.get("final_video_sha256"), language=ctx_language(ctx),
+                         cast_names=cast, dialogue_lines=lines)
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:160]}"}
+
+
 def s7_default_release_acceptance(ctx: Ctx, final_qa: dict[str, Any], review_rejected: bool) -> dict[str, Any]:
     """Release a finished cut whose final review or final-package gates did not PASS, on one line-owner order.
 
@@ -9322,6 +9346,50 @@ def _unit_energy_db(path: Path, hop: float = 0.02) -> list[float] | None:
     return out
 
 
+def _unit_motion_energy(path: Path, width: int = 64, height: int = 112) -> list[float] | None:
+    """Per frame pair: mean absolute grey-level difference (0-255) of a ``width`` x ``height`` grey downscale of a unit
+    clip (free, local ffmpeg; the craft-standard peak-window trim).  None when the clip cannot be decoded."""
+    if not path.is_file():
+        return None
+    run = subprocess.run([_media.require_ffmpeg(), "-v", "error", "-i", str(path), "-an", "-vf",
+                          f"scale={width}:{height}:flags=area,format=gray", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+                         capture_output=True, check=False)
+    size = width * height
+    if run.returncode != 0 or len(run.stdout) < 2 * size:
+        return None
+    count = len(run.stdout) // size
+    try:
+        import numpy as _np_motion  # noqa: PLC0415 -- the engine venv ships numpy
+        frames = _np_motion.frombuffer(run.stdout[:count * size], dtype=_np_motion.uint8).reshape(count, size)
+        diffs = _np_motion.abs(frames[1:].astype(_np_motion.int16) - frames[:-1].astype(_np_motion.int16))
+        return [round(float(v), 4) for v in diffs.mean(axis=1)]
+    except ImportError:  # pragma: no cover
+        data = run.stdout
+        return [round(sum(abs(data[i * size + j] - data[(i - 1) * size + j]) for j in range(size)) / size, 4)
+                for i in range(1, count)]
+
+
+def s7_peak_window_trim(ctx: Ctx, perf: dict[str, Any], contract: dict[str, Any],
+                        grouping: dict[str, Any]) -> dict[str, Any]:
+    """NALU_CRAFT_STANDARD_v1 S-03/S-05 (line owner 2026-11-17, option A): cut each eligible silent unit of the
+    performance-cut plan to its v1 on-screen length around the take's motion peak (tools/performance_cut
+    .apply_peak_windows; motion measured here on the unit clip, free).  The unit total never goes below the brief's
+    target_seconds x NALU_S7_PEAK_TRIM_RUNTIME_FLOOR_RATIO (0.9); NALU_S7_PEAK_TRIM=off or contract
+    ``"s7_peak_trim": "OFF"`` disables it.  Never raises: an error leaves the plan as it was."""
+    import performance_cut as _perf
+    try:
+        enabled = _perf.peak_trim_enabled(contract)
+        candidates = _perf.peak_candidates(perf, contract, grouping) if enabled else []
+        motion = {c["unit_id"]: _unit_motion_energy(ctx.p.video_media / f"{c['unit_id']}.mp4") for c in candidates}
+        brief = read_json(RUNTIME / "briefs" / f"{ctx.episode}_PRODUCTION_BRIEF.json", {}) or {}
+        target = float(brief.get("target_seconds") or SCRIPT_DEFAULT_TARGET_SECONDS)
+        floor = round(target * _perf.runtime_floor_ratio(), 3)
+        return _perf.apply_peak_windows(perf, contract, grouping, motion, runtime_floor_seconds=floor,
+                                        enabled=enabled)
+    except Exception as exc:  # noqa: BLE001 -- a pacing polish, never a blocker
+        return {"status": f"SKIPPED_ERROR:{type(exc).__name__}:{str(exc)[:160]}"}
+
+
 def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
                           ) -> tuple[dict[str, Any] | None, Path | None]:
     """CAMERA_GRAMMAR_V1 only (line owner 2026-10-23): cut each dialogue unit 0.5 s after its last line.
@@ -9370,6 +9438,8 @@ def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
             vo_seconds.setdefault(uid, []).append(float(row["duration_seconds"]))
     perf = _perf.plan(contract, grouping, asr, clip_seconds, {k: v for k, v in energy.items() if v},
                       report, head, vo_seconds)
+    # craft standard v1 (owner 2026-11-17, option A): silent units cut to their v1 length around the motion peak
+    peak = s7_peak_window_trim(ctx, perf, contract, grouping)
     perf_path = p.assembly / f"{ctx.episode}_PERFORMANCE_CUT.json"
     write_json(perf_path, perf)
     report, head = _perf.merge(report, head, perf)
@@ -9381,7 +9451,9 @@ def s7_dialogue_tail_trim(ctx: Ctx, res: StageResult, contract: dict[str, Any]
         "before_total_seconds": perf["before_total_seconds"], "after_total_seconds": perf["after_total_seconds"],
         "units": [{k: r.get(k) for k in ("unit_id", "before_in", "before_out", "after_in", "after_out", "reasons")}
                   for r in perf["units"] if r.get("reasons")],
-        "warnings": perf["warnings"]}
+        "warnings": perf["warnings"],
+        "peak_trim": {k: peak.get(k) for k in ("status", "candidates", "peak_units", "head_units", "scale",
+                                               "removed_seconds", "before_total_seconds", "after_total_seconds")}}
     if perf["warnings"]:
         res.details.setdefault("warnings", []).extend(perf["warnings"])
     res.details["dialogue_tail_trim"] = {"report": str(report_path), "trimmed_units": report["trimmed_units"],
@@ -10376,6 +10448,7 @@ def stage_s7(ctx: Ctx) -> StageResult:
         res.details["knowledge_events_final_review"] = kb_final_review_reject(ctx, final_audience)
     if final_audience["status"] == PASS or review_rejected:
         res.details["knowledge_events_exemplars"] = kb_success_exemplars(ctx, final_audience)
+        res.details["knowledge_events_craft_standard"] = kb_craft_standard_gaps(ctx, final_audience)
     if final_audience["status"] != PASS and not review_rejected:
         res.status = (REVIEW_REQUIRED
                       if final_audience["status"] == REVIEW_REQUIRED else BLOCKED)

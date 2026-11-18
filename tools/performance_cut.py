@@ -20,6 +20,9 @@ is cut like a human editor would cut it -- only at its head and tail, never insi
   present only the longest contiguous window without speech is kept (SILENT_SPEECH_WINDOW).  A unit carrying V.O.
   lines keeps at least the V.O. it carries when the following placement would otherwise run into dialogue.
   Speech is never muted under moving lips: it is cut away or kept.
+* silent unit with no speech (craft standard v1, owner 2026-11-17 option A; ``apply_peak_windows``): cut to the v1
+  on-screen length (a reaction after a payoff 1.5-2.5 s, other silent shots 2-3 s) around the take's motion peak
+  (PEAK_WINDOW), or its head when the take has no clear peak (HEAD_WINDOW); never below the episode runtime floor.
 * every unit keeps at least MIN_KEEP_SECONDS; a cut that would go below keeps MIN_KEEP_SECONDS centred on the line
   (speaking) / the cleanest window (silent) and records a viewer-visible warning (MIN_LENGTH_HOLD; never blocks).
 
@@ -33,6 +36,7 @@ from __future__ import annotations
 
 import difflib
 import functools
+import math
 import re
 from typing import Any
 
@@ -64,7 +68,8 @@ VO_LINE_GAP = 0.25          # tools/voice_over_narration.LINE_GAP_SECONDS
 VO_SEPARATION = 0.2         # tools/voice_over_narration.MIN_SEPARATION_SECONDS
 
 REASONS = ("TRIM_TAIL_UNSCRIPTED", "TRIM_HEAD_UNSCRIPTED", "DROP_REPEAT", "SILENT_SPEECH_WINDOW", "MIN_LENGTH_HOLD",
-           "TRIM_HEAD_TO_LINE", "TRIM_TAIL_TO_LINE")  # the last two: plain [first word - lead, last word + pad]
+           "TRIM_HEAD_TO_LINE", "TRIM_TAIL_TO_LINE",  # these two: plain [first word - lead, last word + pad]
+           "PEAK_WINDOW", "HEAD_WINDOW")  # silent units cut to the craft-standard length (apply_peak_windows)
 
 try:  # traditional -> simplified (faster-whisper often answers zh in traditional characters)
     import opencc as _opencc  # type: ignore
@@ -444,28 +449,31 @@ def plan(contract: dict[str, Any], grouping: dict[str, Any], unit_asr: dict[str,
             "warnings": [w for r in rows for w in r["warnings"]], "units": rows}
 
 
+def _vo_fits(rows: list[dict[str, Any]], speaking: dict[str, dict[str, Any]]) -> bool:
+    """True when the V.O. cascade (placed from each V.O. unit's start, tools/voice_over_narration.place) never
+    reaches in-video dialogue and ends inside the picture."""
+    start, prev_end = 0.0, None
+    for row in rows:
+        dur = float(row["after_out"] or 0) - float(row["after_in"] or 0)
+        if row["unit_id"] in speaking:
+            r = speaking[row["unit_id"]]
+            s0 = start + max(0.0, r["line_start_seconds"] - row["after_in"])
+            if prev_end is not None and prev_end > s0:
+                return False
+        for i, sec in enumerate(row.get("vo_seconds") or []):
+            t = start + VO_LEAD_IN if i == 0 else prev_end + VO_LINE_GAP
+            if prev_end is not None:
+                t = max(t, prev_end + VO_SEPARATION)
+            prev_end = t + float(sec)
+        start += dur
+    return prev_end is None or prev_end <= start + 1e-6
+
+
 def _vo_guard(rows: list[dict[str, Any]], speaking: dict[str, dict[str, Any]]) -> None:
     """V.O. lines are placed from their unit's start and cascade (tools/voice_over_narration.place); a silent unit
     shortened under its V.O. pushes the narration into the next units.  When that cascade would reach in-video
     dialogue, the V.O. unit keeps at least what its own V.O. needs (least-speech window of that length)."""
-    def simulate() -> bool:
-        start, prev_end = 0.0, None
-        for row in rows:
-            dur = float(row["after_out"] or 0) - float(row["after_in"] or 0)
-            if row["unit_id"] in speaking:
-                r = speaking[row["unit_id"]]
-                s0 = start + max(0.0, r["line_start_seconds"] - row["after_in"])
-                if prev_end is not None and prev_end > s0:
-                    return False
-            for i, sec in enumerate(row.get("vo_seconds") or []):
-                t = start + VO_LEAD_IN if i == 0 else prev_end + VO_LINE_GAP
-                if prev_end is not None:
-                    t = max(t, prev_end + VO_SEPARATION)
-                prev_end = t + float(sec)
-            start += dur
-        return prev_end is None or prev_end <= start + 1e-6
-
-    if simulate():
+    if _vo_fits(rows, speaking):
         return
     for row in rows:
         if row.get("kind") == "SILENT" and row.get("vo_seconds") and row["reasons"]:
@@ -477,6 +485,229 @@ def _vo_guard(rows: list[dict[str, Any]], speaking: dict[str, dict[str, Any]]) -
                 row.update(after_in=a, after_out=b)
                 row["warnings"].append(f"VO_HOLD:{row['unit_id']}:kept {b - a:.2f} s for its V.O.; "
                                        "on-screen speech may remain under the narration")
+
+
+# --------------------------------------------------------------------------- peak-window trim (craft standard v1)
+# NALU_CRAFT_STANDARD_v1 S-03 / S-05 / C-08 (line owner 2026-11-17, option A: no added cost, shot count unchanged).
+# H3 renders every unit at >= 4 s; a silent unit with no speech in it used to play its whole take (no head/tail cut
+# applies to it).  Here each eligible silent unit is cut to the on-screen length v1 asks for -- a reaction after a
+# payoff 1.5-2.5 s, any other silent shot 2-3 s (the authored target_seconds clamped into that range) -- and the kept
+# window is placed where the take's motion peaks (frame-difference energy measured locally by the S7 caller; free,
+# no provider call), the peak at PEAK_POSITION of the window so the cut lands just after the beat.  A take with no
+# clear peak keeps its head (HEAD_WINDOW: v1 tells the author to start the action on frame 0).  Never touched:
+# speaking units, silent units already cut for speech, units carrying V.O., multi-shot units, the episode's last
+# unit (the cliffhanger), and anything that would shorten the episode below ``runtime_floor_seconds`` (the trims are
+# scaled down to the remaining budget, never below it) or push a V.O. line into dialogue.
+PEAK_WINDOW = "PEAK_WINDOW"
+HEAD_WINDOW = "HEAD_WINDOW"
+BEAT_ROLES = ("SETUP", "PAYOFF", "REACTION")
+REACTION_SECONDS = (1.5, 2.5, 2.0)    # min, max, default when no target_seconds was authored
+SILENT_SECONDS = (2.0, 3.0, 2.5)
+PEAK_POSITION = 0.65                  # where the motion peak sits inside the kept window (0 = start, 1 = end)
+PEAK_SMOOTH_SECONDS = 0.25
+PEAK_SKIP_HEAD_SECONDS = 0.1          # the first frame pairs of a take carry decoder / start-frame settle
+PEAK_MIN_RISE = 1.0                   # peak above the take's median motion (mean |frame diff|, 0-255 grey levels)
+PEAK_MIN_RATIO = 1.8                  # ... and at least this many times the median
+BRIDGE_MARGIN_SECONDS = 0.5           # a reaction carrying an L-cut keeps the bridged line + this much
+RUNTIME_FLOOR_RATIO = 0.9             # of the brief's target_seconds (S7 caller): the unit total never goes below
+PEAK_TRIM_ENV = "NALU_S7_PEAK_TRIM"
+PEAK_TRIM_RUNTIME_FLOOR_ENV = "NALU_S7_PEAK_TRIM_RUNTIME_FLOOR_RATIO"
+
+
+def peak_trim_enabled(contract: dict[str, Any] | None = None, environ: dict[str, str] | None = None) -> bool:
+    """On by default; ``NALU_S7_PEAK_TRIM=off`` or contract ``"s7_peak_trim": "OFF"`` / false turns it off."""
+    import os  # noqa: PLC0415
+    env = os.environ if environ is None else environ
+    if str(env.get(PEAK_TRIM_ENV) or "").strip().lower() in ("off", "0", "false", "no"):
+        return False
+    flag = (contract or {}).get("s7_peak_trim")
+    return not (flag is False or str(flag or "").strip().upper() in ("OFF", "FALSE", "0", "NO"))
+
+
+def runtime_floor_ratio(environ: dict[str, str] | None = None) -> float:
+    import os  # noqa: PLC0415
+    env = os.environ if environ is None else environ
+    try:
+        value = float(env.get(PEAK_TRIM_RUNTIME_FLOOR_ENV) or RUNTIME_FLOOR_RATIO)
+    except ValueError:
+        return RUNTIME_FLOOR_RATIO
+    return min(1.5, max(0.0, value))
+
+
+def beat_role(shot: dict[str, Any] | None) -> str:
+    """The shot's optional ``beat_role`` (``prompt_spec.beat_role`` or top level): SETUP | PAYOFF | REACTION | ''."""
+    shot = shot or {}
+    spec = shot.get("prompt_spec") if isinstance(shot.get("prompt_spec"), dict) else {}
+    value = str(spec.get("beat_role") or shot.get("beat_role") or "").strip().upper()
+    return value if value in BEAT_ROLES else ""
+
+
+def target_length(role: str, authored: Any) -> float:
+    """On-screen seconds v1 asks for: a reaction 1.5-2.5 s, any other silent shot 2-3 s (authored value clamped)."""
+    lo, hi, default = REACTION_SECONDS if role == "REACTION" else SILENT_SECONDS
+    try:
+        value = float(authored)
+    except (TypeError, ValueError):
+        value = 0.0
+    return default if value <= 0 else min(hi, max(lo, value))
+
+
+def _smooth(values: list[float], k: int) -> list[float]:
+    if k <= 1 or len(values) <= 2:
+        return list(values)
+    half = k // 2
+    out = []
+    for i in range(len(values)):
+        seg = values[max(0, i - half):i + half + 1]
+        out.append(sum(seg) / len(seg))
+    return out
+
+
+def peak_window(motion: list[float] | None, duration: float, length: float) -> dict[str, Any]:
+    """Where to keep ``length`` seconds of a ``duration``-second take.  ``motion[i]`` = mean absolute grey-level
+    difference between frames i and i+1 (evenly spaced over the take).  Returns {start, end, signal: PEAK|WEAK,
+    peak_at, rise, ratio}; WEAK (no motion, too few frames, a flat take) keeps the head [0, length]."""
+    duration, length = float(duration), min(float(length), float(duration))
+    weak = {"start": 0.0, "end": round(length, 3), "signal": "WEAK"}
+    values = [float(v) for v in (motion or []) if isinstance(v, (int, float)) and math.isfinite(float(v))]
+    if len(values) < 6 or duration <= 0 or length >= duration:
+        return {**weak, "reason": "TOO_FEW_FRAMES" if len(values) < 6 else "NOTHING_TO_TRIM"}
+    step = duration / (len(values) + 1)
+    smooth = _smooth(values, max(1, int(round(PEAK_SMOOTH_SECONDS / step))))
+    skip = min(len(smooth) - 1, int(math.ceil(PEAK_SKIP_HEAD_SECONDS / step)))
+    body = smooth[skip:]
+    median = sorted(body)[len(body) // 2]
+    index = skip + max(range(len(body)), key=lambda i: (body[i], -i))
+    peak = smooth[index]
+    rise, ratio = peak - median, peak / max(median, 0.05)
+    detail = {"rise": round(rise, 3), "ratio": round(ratio, 3), "median": round(median, 3)}
+    if rise < PEAK_MIN_RISE or ratio < PEAK_MIN_RATIO:
+        return {**weak, **detail, "reason": "FLAT_MOTION"}
+    peak_at = (index + 1) * step
+    start = min(max(0.0, peak_at - PEAK_POSITION * length), duration - length)
+    if start < MIN_CUT_SECONDS:
+        start = 0.0
+    return {"start": round(start, 3), "end": round(start + length, 3), "signal": "PEAK",
+            "peak_at": round(peak_at, 3), **detail}
+
+
+def _ordered_shots(grouping: dict[str, Any]) -> list[str]:
+    return [str(s) for unit in grouping.get("units") or [] for s in unit.get("editorial_shot_ids") or []]
+
+
+def peak_candidates(report: dict[str, Any], contract: dict[str, Any], grouping: dict[str, Any]
+                    ) -> list[dict[str, Any]]:
+    """Units the peak-window trim may cut: [{unit_id, shot_id, role, length, current}] in timeline order."""
+    shots = {str(s.get("shot_id")): s for s in contract.get("shots") or [] if isinstance(s, dict)}
+    order = _ordered_shots(grouping)
+    unit_shots = {str(u.get("unit_id")): [str(s) for s in u.get("editorial_shot_ids") or []]
+                  for u in grouping.get("units") or []}
+    last_unit = str((grouping.get("units") or [{}])[-1].get("unit_id")) if grouping.get("units") else None
+    out = []
+    for row in report.get("units") or []:
+        uid = str(row.get("unit_id"))
+        sids = unit_shots.get(uid) or []
+        if (row.get("kind") != "SILENT" or row.get("reasons") or row.get("vo_seconds") or len(sids) != 1
+                or uid == last_unit or not row.get("original_seconds")
+                or row.get("status") not in ("NO_SPEECH", "ASR_HALLUCINATION_IGNORED")):
+            continue
+        sid = sids[0]
+        shot = shots.get(sid) or {}
+        pos = order.index(sid) if sid in order else -1
+        previous = shots.get(order[pos - 1]) if pos > 0 else None
+        role = beat_role(shot)
+        if role != "REACTION" and beat_role(previous) == "PAYOFF":
+            role = "REACTION"   # the silent shot right after a payoff is its reaction (S-05)
+        length = target_length(role, shot.get("target_seconds"))
+        spec = shot.get("prompt_spec") if isinstance(shot.get("prompt_spec"), dict) else {}
+        transition = spec.get("transition") if isinstance(spec.get("transition"), dict) else {}
+        try:
+            bridge = float(transition.get("sound_bridge_from_previous_seconds") or 0.0)
+        except (TypeError, ValueError):
+            bridge = 0.0
+        if bridge > 0:
+            length = max(length, bridge + BRIDGE_MARGIN_SECONDS)
+        length = max(length, MIN_KEEP_SECONDS)
+        current = float(row["after_out"]) - float(row["after_in"])
+        if length >= current - MIN_CUT_SECONDS:
+            continue
+        out.append({"unit_id": uid, "shot_id": sid, "role": role or "SILENT", "length": round(length, 3),
+                    "current": round(current, 3)})
+    return out
+
+
+def _recount(report: dict[str, Any]) -> None:
+    rows = report.get("units") or []
+    for row in rows:
+        orig = row.get("original_seconds") or 0.0
+        row["changed"] = bool(row["reasons"]) and (abs(row["after_in"] - (row["before_in"] or 0.0)) > 1e-6
+                                                   or abs(row["after_out"] - (row["before_out"] or 0.0)) > 1e-6)
+        row["kept_seconds"] = round(row["after_out"] - row["after_in"], 3) if orig else None
+    after_total = round(sum(float(r["after_out"] or 0) - float(r["after_in"] or 0) for r in rows), 3)
+    report["after_total_seconds"] = after_total
+    report["removed_seconds"] = round(float(report.get("before_total_seconds") or 0.0) - after_total, 3)
+    report["changed_units"] = sum(1 for r in rows if r["changed"])
+
+
+def apply_peak_windows(report: dict[str, Any], contract: dict[str, Any], grouping: dict[str, Any],
+                       motion: dict[str, list[float] | None], *, runtime_floor_seconds: float | None = None,
+                       enabled: bool = True) -> dict[str, Any]:
+    """Cut eligible silent units to their v1 length around the motion peak (see the block comment above).
+
+    Mutates ``report`` (a :func:`plan` result) in place -- rows get ``reasons`` [PEAK_WINDOW|HEAD_WINDOW] and the new
+    in/out, so :func:`merge` writes them into the build inputs -- and returns the summary also kept under
+    ``report["peak_trim"]``.  ``motion``: unit -> per-frame motion energy (None/missing = weak signal)."""
+    summary: dict[str, Any] = {"enabled": bool(enabled), "rule": {
+        "reaction_seconds": list(REACTION_SECONDS[:2]), "silent_seconds": list(SILENT_SECONDS[:2]),
+        "peak_position": PEAK_POSITION, "min_rise": PEAK_MIN_RISE, "min_ratio": PEAK_MIN_RATIO,
+        "runtime_floor_seconds": runtime_floor_seconds}, "units": []}
+    report["peak_trim"] = summary
+    if not enabled:
+        summary["status"] = "DISABLED"
+        return summary
+    candidates = peak_candidates(report, contract, grouping)
+    total = float(report.get("after_total_seconds") or 0.0)
+    planned = sum(c["current"] - c["length"] for c in candidates)
+    scale = 1.0
+    if runtime_floor_seconds is not None and planned > 0:
+        budget = max(0.0, total - float(runtime_floor_seconds))
+        scale = min(1.0, budget / planned)
+    summary.update(candidates=len(candidates), planned_removal_seconds=round(planned, 3),
+                   before_total_seconds=round(total, 3), scale=round(scale, 4))
+    if not candidates or scale <= 0:
+        summary["status"] = "NOTHING_TO_TRIM" if not candidates else "RUNTIME_FLOOR"
+        return summary
+    rows = {str(r.get("unit_id")): r for r in report.get("units") or []}
+    saved = {}
+    for cand in candidates:
+        row = rows[cand["unit_id"]]
+        length = cand["current"] - (cand["current"] - cand["length"]) * scale
+        if cand["current"] - length < MIN_CUT_SECONDS:
+            continue
+        win = peak_window((motion or {}).get(cand["unit_id"]), float(row["original_seconds"]), length)
+        saved[cand["unit_id"]] = (row["after_in"], row["after_out"], list(row["reasons"]))
+        row.update(after_in=float(win["start"]), after_out=float(win["end"]),
+                   reasons=[PEAK_WINDOW if win["signal"] == "PEAK" else HEAD_WINDOW],
+                   beat_role=cand["role"], peak_window=win)
+        summary["units"].append({**cand, "kept_seconds": round(win["end"] - win["start"], 3), **win})
+    speaking = {str(r["unit_id"]): r for r in report.get("units") or []
+                if r.get("kind") == "SPEAKING" and r.get("status") == "MATCHED"}
+    ordered = report.get("units") or []
+    if any(r.get("vo_seconds") for r in ordered) and not _vo_fits(ordered, speaking):
+        for uid, (a, b, reasons) in saved.items():   # a shorter picture would push narration into dialogue
+            rows[uid].update(after_in=a, after_out=b, reasons=reasons)
+            rows[uid].pop("peak_window", None)
+            rows[uid].pop("beat_role", None)
+        summary.update(status="REVERTED_VO_CASCADE", units=[])
+        _recount(report)
+        return summary
+    _recount(report)
+    summary.update(status="APPLIED" if summary["units"] else "NOTHING_TO_TRIM",
+                   after_total_seconds=report["after_total_seconds"],
+                   peak_units=sum(1 for u in summary["units"] if u["signal"] == "PEAK"),
+                   head_units=sum(1 for u in summary["units"] if u["signal"] == "WEAK"),
+                   removed_seconds=round(total - report["after_total_seconds"], 3))
+    return summary
 
 
 # ------------------------------------------------------------------------------------------------ apply

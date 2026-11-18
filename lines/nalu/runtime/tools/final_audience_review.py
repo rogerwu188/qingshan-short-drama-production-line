@@ -16,6 +16,11 @@ This tool deliberately separates two roles:
     dimensions, and timestamped visible events.  Only this command can create
     ``*_AUDIENCE_SCORE_REPORT.json`` and ``*_FINAL_CUT_EVENT_LEDGER.json``.
 
+Craft standard v1 (line owner 2026-11-17): the request also carries ``craft_standard_request`` (the core items
+of ``lines/nalu/standards/NALU_CRAFT_STANDARD_v1`` and pacing numbers measured on the cut) and the same reviewer
+may fill an optional ``craft_standard`` answer block.  It is parsed leniently into ``<EP>_CRAFT_STANDARD.json``
+after the gates were evaluated; a missing or malformed block never changes validity, verdict or exit code.
+
 The command always preserves an honest reviewer verdict.  A rejected film
 still gets its report and ledger; the audience and final-cut gates are then
 evaluated and the command exits non-zero so S7 remains blocked.
@@ -36,6 +41,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import nalu_craft_standard as _craft  # noqa: E402
 import nalu_paths as _np  # noqa: E402
 from nalu_qa_common import (  # noqa: E402
     ENGINE,
@@ -369,6 +375,12 @@ def prepare(*, episode: str, video: Path, metrics_path: Path, contact_sheet: Pat
     build_contact_sheet(video, shots, contact_sheet,
                         contact_sheet.parent / f".{episode}_audience_frames")
 
+    try:  # advisory: a failure here only leaves the block out
+        craft_request = _craft.reviewer_request(
+            _craft.measure_pacing(shots, _asr, float(metrics.get("duration_seconds") or 0.0)), ENGINE)
+    except Exception:  # noqa: BLE001
+        craft_request = {}
+
     refs = {
         "final_video": {"path": str(video), "sha256": video_sha},
         "objective_metrics": {"path": str(metrics_path.resolve()), "sha256": _sha(metrics_path)},
@@ -428,6 +440,7 @@ def prepare(*, episode: str, video: Path, metrics_path: Path, contact_sheet: Pat
             "completeness": "Are subtitles, sound, beginning, ending, and story handoff complete?",
         },
         "subjective_checks_required": list(SUBJECTIVE_CHECKS),
+        **({"craft_standard_request": craft_request} if craft_request else {}),
         "answer_contract": {
             "schema": ANSWERS_SCHEMA,
             "request_sha256": "sha256 of this exact request file",
@@ -454,6 +467,8 @@ def prepare(*, episode: str, video: Path, metrics_path: Path, contact_sheet: Pat
                         "what": "externally visible event at this exact time"}],
             "problems": [{"severity": "P0|P1|P2|P3", "shot_index": 0,
                           "at_seconds": 0.0, "issue": "observed defect", "fix": "specific recut"}],
+            **({"craft_standard": "OPTIONAL, see craft_standard_request.answer_block (advisory, never a gate)"}
+               if craft_request else {}),
         },
         "producer_may_submit_answers": False,
         "timeout_autopass_allowed": False,
@@ -796,6 +811,32 @@ def _record_evaluation_in_device_store(runtime_root: Path | None, evaluation: di
         return {"status": "FAILED", "error": f"{type(exc).__name__}:{exc}"}
 
 
+def _record_craft_standard(request: dict[str, Any], request_sha: str, answers: dict[str, Any],
+                           report_path: Path) -> dict[str, Any]:
+    """Advisory: the reviewer's optional ``craft_standard`` block, parsed leniently, plus the measured pacing, written
+    to ``<EP>_CRAFT_STANDARD.json`` next to the score report.  Runs after the gates; never raises, never gates."""
+    craft_request = request.get("craft_standard_request")
+    if not isinstance(craft_request, dict):
+        return {"status": "NOT_REQUESTED"}
+    try:
+        summary = request.get("objective_summary") or {}
+        parsed = _craft.parse_block(answers.get("craft_standard"),
+                                    duration=float(summary.get("duration_seconds") or 0.0) or None,
+                                    shot_count=len(request.get("shots") or []) or None,
+                                    measured=craft_request.get("measured_pacing") or {})
+        parsed["bindings"] = {"episode": request.get("episode"), "request_sha256": request_sha,
+                              "final_video_sha256": (request.get("media") or {}).get("sha256"),
+                              "reviewer_model": (answers.get("reviewer") or {}).get("model")}
+        path = report_path.parent / f"{request.get('episode')}_CRAFT_STANDARD.json"
+        _atomic_json(path, parsed)
+        return {"status": parsed["status"], "path": str(path), "sha256": _sha(path),
+                "top_gaps": [g["item_id"] for g in parsed.get("top_gaps") or []],
+                "layer_scores": {k: v.get("score") for k, v in (parsed.get("layer_scores") or {}).items()},
+                "notes": (parsed.get("notes") or [])[:10], "authority": "ADVISORY_NOT_A_GATE"}
+    except Exception as exc:  # noqa: BLE001 -- never changes the review's exit code
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:160]}"}
+
+
 def submit(*, request_path: Path, answers_path: Path, report_path: Path,
            ledger_path: Path, audience_gate_path: Path,
            quality_gate_path: Path, plan_index_root: Path | None = None,
@@ -942,6 +983,8 @@ def submit(*, request_path: Path, answers_path: Path, report_path: Path,
         "quality_gate_status": quality_result.get("gate_status"),
         "verdict": verdict,
     }
+    if "craft_standard" in answers:  # optional craft-standard block: advisory, after the gates, never changes the code
+        result["craft_standard"] = _record_craft_standard(request, request_sha, answers, report_path)
     if director_evaluation is not None:
         # Advisory outputs written after the gates were evaluated, so they cannot
         # influence them; the exit code below is the gates' alone.
