@@ -226,6 +226,10 @@ if [ "$CHECK_ONLY" = 0 ] && [ -f "$AUDIO_PROVIDER" ]; then
   SETTLED="$("$VENV" "$AUDIO_PROVIDER" settle-unbound-speech --episode "$EPISODE" 2>/dev/null)" \
     || echo "paid_stage: unbound speech settlement skipped/failed (non-fatal); budget check decides" >&2
   case "${SETTLED:-}" in *'"status"'*) echo "paid_stage: unbound speech requests for $EPISODE: $SETTLED" ;; esac
+  # Same rule for a selective-BGM music request (BGM_UNRESOLVED_TRANSACTIONS; fleet 0891 E15 / 1144 E13, 2026-11-18).
+  SETTLED_BGM="$("$VENV" "$AUDIO_PROVIDER" settle-unbound-bgm --episode "$EPISODE" 2>/dev/null)" \
+    || echo "paid_stage: unbound music settlement skipped/failed (non-fatal); budget check decides" >&2
+  case "${SETTLED_BGM:-}" in *'"status"'*) echo "paid_stage: unbound music requests for $EPISODE: $SETTLED_BGM" ;; esac
 fi
 
 LEDGER="$ENGINE_ROOT/lines/nalu/runtime/tools/nalu_budget_ledger.py"

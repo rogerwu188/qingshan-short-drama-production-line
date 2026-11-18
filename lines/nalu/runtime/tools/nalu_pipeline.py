@@ -1315,6 +1315,32 @@ class Ctx:
         self.say(f"   unbound speech requests: {[row.get('status') for row in rows]} ({out.name})")
         return rows
 
+    def settle_unbound_bgm(self, *, label: str) -> list[dict[str, Any]] | None:
+        """The same write-off for this episode's selective-BGM music requests.
+
+        Fleet devices 0891 E15 and 1144 E13 (2026-11-18): one music POST each came back without a
+        task id (RESPONSE_LOST); the budget check refused every re-entry with
+        BGM_UNRESOLVED_TRANSACTIONS and nothing could release it.  Only on a real paid run; never
+        calls the provider."""
+        if getattr(self, "dry", True) or not getattr(self, "paid_enabled", False):
+            return None
+        tx_dir = selective_bgm_transaction_dir(self)
+        paths = sorted(tx_dir.glob("*.json")) if tx_dir.is_dir() else []
+        if not paths:
+            return None
+        if str(ENGINE / "tools") not in sys.path:
+            sys.path.insert(0, str(ENGINE / "tools"))
+        import storyclaw_audio_provider  # noqa: PLC0415 - engine tool, no provider call here
+        rows = storyclaw_audio_provider.settle_unbound_speech(
+            paths, capability=storyclaw_audio_provider.BGM_CAPABILITY)
+        if not rows:
+            return None
+        out = self.p.logs / f"{self.run_id}_bgm_unbound_settle_{label}.json"
+        out.write_text(json.dumps({"episode": self.episode, "rows": rows}, ensure_ascii=False, indent=2) + "\n",
+                       encoding="utf-8")
+        self.say(f"   unbound music requests: {[row.get('status') for row in rows]} ({out.name})")
+        return rows
+
     def budget_check(self, planned_credits: int, *, label: str,
                      reserve: bool = False) -> dict[str, Any]:
         """MANDATORY before every paid step.  Non-zero exit == HARD_STOP.
@@ -1332,6 +1358,10 @@ class Ctx:
             self.settle_unbound_audio(label=label)
         except Exception as exc:  # noqa: BLE001 - never fatal: the ledger still fails closed
             self.say(f"   unbound speech settlement skipped: {type(exc).__name__}: {str(exc)[:200]}")
+        try:
+            self.settle_unbound_bgm(label=label)
+        except Exception as exc:  # noqa: BLE001 - never fatal: the ledger still fails closed
+            self.say(f"   unbound music settlement skipped: {type(exc).__name__}: {str(exc)[:200]}")
         bgm_transactions = selective_bgm_transaction_dir(self)
         argv = [VENV, BUDGET_LEDGER, "--check", "--episode", self.episode,
                 "--planned-credits", int(planned_credits),
