@@ -761,7 +761,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_budget_ledger.py",
-      "sha256": "f8fa86f308e9cd08a00346e87eb7b78386ca2cf15e1ae868d7a60d7c3be76ad0"
+      "sha256": "a1977191ff93297e7ea7cad7c37dff5ef7bb356c2beee8fb32c4ba7c434ef748"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_knowledge_events.py",
@@ -781,7 +781,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_pipeline.py",
-      "sha256": "66cfc7228205a9c7fbcd49fd31556c5667f0120dddb7062c728c7441d10799b0"
+      "sha256": "2265e76107a9c5d29fb30ac8dc79608fa958b0d55ea87b1235c17522703cd40e"
     },
     {
       "path": "lines/nalu/runtime/tools/nalu_policy_profile.py",
@@ -825,7 +825,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/paid_stage.sh",
-      "sha256": "5c8591f75f7b44d73846e67086870dbb639aff1982e040b699f2fd7f260d9abe"
+      "sha256": "eeff28d433147dcda094117f208a5824a1990bfbacc1d5ee92143bc8d6b4e671"
     },
     {
       "path": "lines/nalu/runtime/tools/post_generation_qa_runner.py",
@@ -965,7 +965,7 @@
     },
     {
       "path": "skills/nalu-claude-code/CLAUDE_CODE_PRODUCTION.md",
-      "sha256": "dd0f6e4d8b4c21d34a35f0eeaa8b70b0aee4932426c3f39dbed50970dfe69cec"
+      "sha256": "7a2cc61c4665382bceb36df9487f35fcd0f18b78fbe13f58066c709f3e5d0e9f"
     },
     {
       "path": "skills/nalu-claude-code/SKILL.md",
@@ -6693,7 +6693,7 @@
     },
     {
       "path": "tools/storyclaw_audio_provider.py",
-      "sha256": "5b0a056fdfb4085805c0afea2a66eac6344f8c65d99844511e9990c2f1c3b8e2"
+      "sha256": "a3248448dbd41a60b0565111cce7afda4f030434a7062c62cf7f7a29aa865f43"
     },
     {
       "path": "tools/storyclaw_bridge_config.py",

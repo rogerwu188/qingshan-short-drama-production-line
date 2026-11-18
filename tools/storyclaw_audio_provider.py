@@ -148,8 +148,14 @@ def _parse_utc(value: Any) -> datetime | None:
 
 
 def settle_unbound_speech(paths: list[Path], *, now: datetime | None = None,
-                          grace_seconds: int | None = None) -> list[dict[str, Any]]:
+                          grace_seconds: int | None = None,
+                          capability: str = SPEECH_CAPABILITY) -> list[dict[str, Any]]:
     """Write off speech transactions that recorded an intent but never bound a task id.
+
+    ``capability=BGM_CAPABILITY`` applies the same rule to selective-BGM music requests (same
+    transaction schema and store layout): fleet devices 0891 E15 and 1144 E13, 2026-11-18, each had one
+    music POST answered without a task id (RESPONSE_LOST) and every paid re-entry refused with
+    BGM_UNRESOLVED_TRANSACTIONS -- the speech way out did not cover music.
 
     One row per unbound transaction found: WRITTEN_OFF_RETRY_OPEN (archived, live path released),
     PENDING_GRACE (too recent; ``eligible_at``), IN_FLIGHT (its process still holds the lock) or
@@ -164,7 +170,7 @@ def settle_unbound_speech(paths: list[Path], *, now: datetime | None = None,
             record = _read_transaction(path)
         except AudioProviderError:
             continue
-        if (record.get("capability") != SPEECH_CAPABILITY or record.get("state") not in UNBOUND_STATES
+        if (record.get("capability") != capability or record.get("state") not in UNBOUND_STATES
                 or str(record.get("task_id") or "").strip()):
             continue
         row: dict[str, Any] = {"transaction": str(path), "state": record.get("state")}
@@ -920,6 +926,13 @@ def _parser() -> argparse.ArgumentParser:
     settle.add_argument("--episode", required=True)
     settle.add_argument("--transactions-root",
                         default=str(ROOT / "workflow" / "tasks" / "giggle_audio_transactions"))
+    settle_bgm = sub.add_parser(
+        "settle-unbound-bgm",
+        help="Write off one episode's music requests that never bound a task id (no provider call)",
+    )
+    settle_bgm.add_argument("--episode", required=True)
+    settle_bgm.add_argument("--transactions-root",
+                            default=str(ROOT / "workflow" / "tasks" / "giggle_bgm_transactions"))
     return parser
 
 
@@ -932,6 +945,15 @@ def settle_unbound_speech_for_episode(episode: str, transactions_root: str | Pat
     paths = [path for path in root.rglob("*.json")
              if episode in path.relative_to(root).parts] if root.is_dir() else []
     rows = settle_unbound_speech(paths) if paths else []
+    return {"ok": True, "episode": episode, "rows": rows}
+
+
+def settle_unbound_bgm_for_episode(episode: str, transactions_root: str | Path) -> dict[str, Any]:
+    """The same write-off for one episode's selective-BGM store (``<root>/[<scope>/]<episode>/``)."""
+    root = Path(transactions_root).expanduser()
+    paths = [path for path in root.rglob("*.json")
+             if episode in path.relative_to(root).parts] if root.is_dir() else []
+    rows = settle_unbound_speech(paths, capability=BGM_CAPABILITY) if paths else []
     return {"ok": True, "episode": episode, "rows": rows}
 
 
@@ -949,6 +971,10 @@ def main(argv: list[str] | None = None) -> int:
             if not re.fullmatch(r"E\d{2,3}", args.episode):
                 raise AudioProviderError("--episode must look like E18")
             result = settle_unbound_speech_for_episode(args.episode, args.transactions_root)
+        elif args.command == "settle-unbound-bgm":
+            if not re.fullmatch(r"E\d{2,3}", args.episode):
+                raise AudioProviderError("--episode must look like E18")
+            result = settle_unbound_bgm_for_episode(args.episode, args.transactions_root)
         elif args.command == "speech-generate":
             result = generate_speech(
                 args.text,

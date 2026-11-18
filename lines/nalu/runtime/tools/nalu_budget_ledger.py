@@ -767,6 +767,15 @@ def scan_non_video_spend(
                 continue  # a parked copy of a task already counted
             bgm_seen.add(bgm_task)
         state = str(payload.get("state") or "UNKNOWN")
+        if not bgm_task and state == AUDIO_WRITTEN_OFF_STATE:
+            # A music request that never bound a task id, written off by
+            # storyclaw_audio_provider.settle_unbound_speech(capability=BGM): its per-task price is
+            # spent for good (line-owner standing ruling A) and it no longer blocks the check.
+            bgm_total += BGM_PROVISIONAL_CREDITS_PER_TASK
+            bgm_rows.append({"source": str(path), "task_id": None,
+                             "credits": number(BGM_PROVISIONAL_CREDITS_PER_TASK),
+                             "statement_status": "WRITTEN_OFF_UNBOUND_UNIT_PRICE", "isolation": None})
+            continue
         if state in BGM_PROVISIONAL_STATES:
             bgm_provisional_total += BGM_PROVISIONAL_CREDITS_PER_TASK
             bgm_provisional_rows.append({
@@ -1027,7 +1036,8 @@ def _spend_evidence(episode: str, bgm_transactions_dir: Path | None = None) -> l
                 net = (payload.get("credit") or {}).get("net_charged_credits")
                 if state in {"COMPLETED", "TERMINAL_COMPLETED"} and isinstance(net, (int, float)):
                     credits = Decimal(str(net))
-                elif state in BGM_PROVISIONAL_STATES or state in {"COMPLETED", "TERMINAL_COMPLETED"}:
+                elif state in BGM_PROVISIONAL_STATES or state in {"COMPLETED", "TERMINAL_COMPLETED"} \
+                        or state == AUDIO_WRITTEN_OFF_STATE:
                     credits = BGM_PROVISIONAL_CREDITS_PER_TASK
             elif state == "SUBMITTED_TASK_ID_BOUND" and payload.get("task_id"):
                 if directory.parent.name == IMAGE_TRANSACTION_DIRNAME and not is_hopsapi_transaction(payload):
