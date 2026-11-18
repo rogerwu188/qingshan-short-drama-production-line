@@ -151,6 +151,10 @@ def reviewer_prompt(episode: str, request: Path, answers: Path, process_id: str,
 3. 逐镜（`shots` 里每一个 shot_index）写你自己看到的内容；八项打 1–5 分并写依据；整体分单独给（不是平均）；
    每个 `subjective_checks_required` 给布尔值和依据；把观众看得见的剧情事件按时间写进 events；问题按 P0–P3 写进 problems。
    如实判断：有穿帮就判低分，判拒（REJECT_RECUT）也是正常结论，不要为了通过而改判。
+   请求里有 `craft_standard_request` 时，同一遍里再填答案的可选块 `craft_standard`（格式见其 `answer_block`）：两层各 1–5 分，
+   每条 CORE 条目 PASS/GAP/NA 加带数字的依据，最多 3 个 top gap（条目 id、时间或镜号、带数字的指标、修法、fix_owner
+   writer|engine|S7），以及爽点时间、钩子时间、悬念时间。`measured_pacing` 里的数是在成片上量出来的，直接用，不要自己估。
+   修法写成剪辑/写作方向，不引用台词、不写人名。这一块只记分不拦片，填错也不影响提交。
 4. 按 `answer_contract` 写答案 JSON 到 `{answers}`，其中：
    `reviewer.agent_id` = `storyclaw-final-audience-reviewer`，`reviewer.role` = `independent_final_audience_reviewer`，
    `reviewer.model` = `{REVIEWER_MODEL_ID}`，`reviewer.process_id` = `{process_id}`，`reviewer.reviewed_at` = 当前 UTC ISO 时间；
@@ -511,10 +515,26 @@ def pipeline_status(episode: str) -> dict[str, Any]:
             for sid, row in stages.items()}
 
 
-def build_prompt(episode: str, brief: str, guidance: str = "") -> str:
+def craft_standard_section() -> str:
+    """NALU_CRAFT_STANDARD_v1 (line owner 2026-11-17, option A): the compressed zh standard as its OWN section of the
+    start prompt (<= 1500 chars, lines/nalu/runtime/tools/nalu_craft_standard.codex_section), separate from the
+    collective 「本集导演经验」 section and its own 1500-char cap.  '' when the engine has no standard or
+    NALU_CRAFT_STANDARD=off.  Never raises."""
+    mod = _load_engine_tool("nalu_craft_standard")
+    if mod is None:
+        return ""
+    try:
+        return str(mod.codex_section(roots()[0]) or "")
+    except Exception:  # noqa: BLE001 -- the start prompt must never fail on an advisory section
+        return ""
+
+
+def build_prompt(episode: str, brief: str, guidance: str = "", craft: str | None = None) -> str:
+    craft = craft_standard_section() if craft is None else craft
     return (f"你是 NALU 短剧生产线的生产执行者。严格按照下面的生产合同执行集 {episode}。\n\n"
             + contract_path().read_text(encoding="utf-8") + "\n" + CODEX_ADAPTER
             + (f"\n\n## 本次线主/编排代理附加说明\n{brief}" if brief else "")
+            + (f"\n\n{craft}" if craft else "")
             + (f"\n\n{guidance}" if guidance else ""))
 
 
@@ -587,7 +607,8 @@ def start(episode: str, brief: str = "") -> dict[str, Any]:
         return {"status": "BLOCKED", "reason": f"CONTRACT_MISSING:{contract_path()}"}
     guidance = knowledge_guidance(episode)
     section = str(guidance.get("section") or "")
-    prompt = build_prompt(episode, brief, section)
+    craft = craft_standard_section()
+    prompt = build_prompt(episode, brief, section, craft)
     out = launch(episode, prompt, None)
     if out.get("status") == "STARTED":
         save_start_context(episode, brief, section)
@@ -599,7 +620,9 @@ def start(episode: str, brief: str = "") -> dict[str, Any]:
                                          "rules": [r.get("rule_id") for r in guidance.get("rules") or []],
                                          "exemplars": guidance.get("exemplar_ids") or [],
                                          "record": record_guidance(episode, guidance, prompt,
-                                                                   build_prompt(episode, brief))}
+                                                                   build_prompt(episode, brief, "", craft))}
+        if craft:
+            out["craft_standard"] = {"chars": len(craft)}
     return out
 
 

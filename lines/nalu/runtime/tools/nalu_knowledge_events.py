@@ -24,6 +24,10 @@ Event vocabulary (``evidence.failure_type``; the collector clusters on it):
                                          other tasks completed around it: content risk control, a lesson
   PROVIDER_OUTAGE:<image|video>          RUN_ANOMALY: an unbroken run of 424s across several tasks with no
                                          completion in between -- an outage, recorded but never a lesson
+  CRAFT_STD_GAP                          one per top gap the independent final reviewer gave against
+                                         NALU_CRAFT_STANDARD_v1 (cluster ``CRAFT_STD_GAP|<item id>``, stage
+                                         SCRIPT_AUTHORING for a writer fix, STORYBOARD_AUTHORING for engine / S7);
+                                         item id, numbers and a scrubbed fix line only (``record_craft_gaps``)
 
 Evidence quality (first daily review 2026-11-13 rejected all 46 clusters as too thin / bookkeeping):
 
@@ -543,6 +547,36 @@ def record_final_cut(rt: Path, *, episode: str, kind: str, items: Iterable[Any],
                                        + (f": {hint}" if hint else ""),
                                evidence=ev, dedupe_key=f"{episode}:{kind}:{code}:{sha}"))
         return {"status": "OK", "events": events}
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}", "events": events}
+
+
+def record_craft_gaps(rt: Path, *, episode: str, craft_path: str | None, media_sha256: str | None = None,
+                      language: str = "zh", cast_names: Iterable[Any] = (),
+                      dialogue_lines: Iterable[str] = ()) -> dict[str, Any]:
+    """The final reviewer's craft-standard top gaps (``<EP>_CRAFT_STANDARD.json`` written by
+    final_audience_review submit) as FAILURE_OBSERVATION events, deduped per gap item and final-cut sha, so the
+    collector's default clustering turns a recurring gap into a review candidate.  Privacy: the bucket is publicly
+    readable -- the event carries the item id, numbers and a fix line scrubbed by exemplars.scrub_text (cast names
+    -> 角色A/B, quotes -> 「…」, no dialogue run, sensitive_findings clean).  Best-effort, never raises."""
+    events: list[dict[str, Any]] = []
+    try:
+        parsed = _read(craft_path)
+        if not parsed.get("top_gaps"):
+            return {"status": "NO_GAPS" if parsed else "NO_CRAFT_STANDARD_BLOCK", "events": events}
+        import nalu_craft_standard as _craft  # noqa: PLC0415 -- same directory
+        ex = _exemplars()
+        from tools.collective_learning import contracts as _c  # noqa: PLC0415
+        roles = ex.role_map(list(cast_names), "zh" if str(language).startswith("zh") else "en")
+        specs = _craft.gap_events(parsed, roles=roles, dialogue_lines=dialogue_lines, scrub_text=ex.scrub_text,
+                                  clean_field=ex._clean_field, sensitive=_c.sensitive_findings)
+        sha = str(media_sha256 or (parsed.get("bindings") or {}).get("final_video_sha256") or "NO_MEDIA")
+        for spec in specs:
+            evidence = {**spec["evidence"], "final_candidate_sha256": sha if sha != "NO_MEDIA" else None}
+            events.append(emit(rt, episode=episode, stage=spec["stage"], failure_type=spec["failure_type"],
+                               symptom=spec["symptom"], evidence=evidence,
+                               dedupe_key=f"{episode}:{spec['failure_type']}:{spec['item_id']}:{sha}"))
+        return {"status": "OK", "gaps": len(parsed.get("top_gaps") or []), "events": events}
     except Exception as exc:  # noqa: BLE001
         return {"status": "ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}", "events": events}
 

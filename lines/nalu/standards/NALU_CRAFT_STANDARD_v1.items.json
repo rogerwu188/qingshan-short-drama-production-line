@@ -1,0 +1,471 @@
+{
+ "schema": "nalu.craft_standard_items.v1",
+ "standard_version": "NALU_CRAFT_STANDARD_v1",
+ "standard_md": "lines/nalu/standards/NALU_CRAFT_STANDARD_v1.md",
+ "authority": "line owner 2026-11-17 option A: scoring + guidance only, never a gate",
+ "layers": {
+  "PACING_STRUCTURE": "S",
+  "CLARITY_GRAMMAR": "C"
+ },
+ "verdicts": [
+  "PASS",
+  "GAP",
+  "NA"
+ ],
+ "fix_owners": [
+  "writer",
+  "engine",
+  "S7"
+ ],
+ "payoff_types_zh": [
+  "打脸/反击",
+  "身份揭示",
+  "局势反转",
+  "羞辱回报",
+  "秘密曝光",
+  "威胁升级"
+ ],
+ "pacing_targets": {
+  "mean_shot_seconds_max": 3.2,
+  "silent_shot_seconds_max": 4.0,
+  "payoff_gap_seconds_max": 25,
+  "payoff_every_seconds": 25,
+  "hook_by_seconds": 2.0,
+  "cliffhanger_last_seconds": 3.0,
+  "reaction_seconds": [
+   1.5,
+   2.5
+  ],
+  "other_silent_seconds": [
+   2.0,
+   3.0
+  ]
+ },
+ "codex_compressed_zh": "【NALU 成片标准 v1｜竖屏爽剧节奏优先｜写四层时逐条自查】\n节奏（核心）\nS-01 第一帧就是冲突、羞辱、揭示或危险正在发生，从戏中间进；第一镜不写空镜、建立镜或片名，台词第0秒开口。\nS-02 每15–25秒一个爽点（打脸/反击、身份揭示、局势反转、羞辱回报、秘密曝光、威胁升级），全集≥⌊时长/25⌋个（110秒约4个），第一个≤25秒。每个爽点之前必须有一个挑衅或铺垫镜。大纲列爽点表：秒数、类型、铺垫镜、爽点镜、反应镜。\nS-03 成片平均镜长2–3秒，无台词镜不超过约4秒。无台词镜target_seconds写1.5–3：H3按4秒生成，S7从尾部剪掉多余部分，所以动作从第0帧开始，峰值落在所写时长内（写「已扬起的手落下」，不写「抬手、停顿、落下」）。同机位连续台词约8秒就插一个1.5–2秒的反应镜。\nS-04 进场晚、离场早：不拍进门、寒暄、道别、赶路；换地点直接硬切；每场在翻转处结束。\nS-05 每个爽点后紧接输家或旁观者的CU反应，1.5–2.5秒，REACTION_CUT；listener_reaction_en写具体动作。\nS-06 最后2–3秒就是揭示或威胁本身，可以写被打断的半句，然后切黑；不解决、不抒情、不淡出。\nS-07 第2集起：5秒内兑现上集悬念，10秒内加码；不写前情提要。\nS-08 一句台词中文≤约12–15字、英文≤约8–10词，句句对抗；交代信息只用指控或揭示；不自报情绪。\nS-09 主角5秒内入局，15秒内立起本集目标和对手。S-10 爽点力度逐个加码，最大的放在最后三分之一。\n清晰（核心）\nC-01 以MCU/CU为主（约70%以上）；不写建立镜，WIDE全集≤3镜且必须有戏；爽点给本场最紧的景别。\nC-02 脸在上1/3；双人用过肩前后叠放；start_framing写清画面范围。\nC-03 一镜一个动词；打斗只拍对峙、出手前一瞬、结果。\nC-04 每镜≤2人；「当众」用1–2个旁观者CU加群声；不拍人群、无主的手、文字、特效。\nC-05 说话时看着听者、略偏离镜头；写dialogue_listener_screen_side；说话镜里不转头看窗或门。\nC-06 一场内左右位置不换，运动方向不反转。\nC-07 说话镜只拍说话人；正反打；双人同框只在无对白时；反应镜写sound_bridge做L-cut。\nC-08 每个切都写transition_mode并有理由；跨镜动作从中途接上。\nC-09 每场写「价值 起→终」，翻转镜就是本场最后一镜。\nC-10 每镜写一句目的，写不出就删。\nC-11 每句单独写delivery_en；赢家冷，输家写具体的崩溃动作；动作先写眼神。\nC-12/13 长相和服装只写在人物字段；每场一个动机光源；暗场写照亮轮廓的余光。\nC-14 默认LOCKED，推近只给最大的爽点。C-15 插入镜只拍证据，前一镜有人看。",
+ "items": [
+  {
+   "id": "S-01",
+   "layer": "PACING_STRUCTURE",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "1–2 秒钩子，从戏中间进",
+   "title_en": "1-2 s hook, enter mid-scene",
+   "principle_zh": "第一帧就有冲突、羞辱、揭示或危险正在发生，从场景中途切入，没有任何铺垫镜。",
+   "principle_en": "Frame one: a conflict, insult, reveal or danger already under way; enter mid-scene, no setup shot.",
+   "reviewer_check_zh": "0–2.0 s 内的第一个冲突事件（事件时间戳）。第一个冲突事件晚于 2.0 s，或者第一镜是空镜、建立镜，记为 gap。",
+   "codex_zh": "第一镜的 `action` 从动作中途写起（`first_frame_motion_state` 写已经在动），台词第 0 s 开口，或者第 0 s 有身体冲击。第一镜不写 WIDE、空镜或片名；片名卡放在钩子之后。第一镜 `target_seconds` 写 2–3。",
+   "director_score_dimensions": [
+    "pacing_information"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "S-02",
+   "layer": "PACING_STRUCTURE",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "爽点节拍：每 15–25 秒一个，有铺垫才算",
+   "title_en": "A set-up payoff every 15-25 s",
+   "principle_zh": "大约每 15–25 秒一个爽点或转折，全集至少 ⌊D/25⌋ 个（110 s 约 4 个），相邻两个间隔不超过 25 s。每个爽点之前必须有一个**挑衅或铺垫镜**，即把观众情绪压下去的那一下。",
+   "principle_en": "A payoff or turn every 15–25 s (≥ ⌊D/25⌋, ~4 per 110 s); each must be set up by an earlier provocation.",
+   "reviewer_check_zh": "从事件账本里标出每个爽点的时间和类型，每个要有一句话说明「它兑现的是哪一次挑衅（时间戳）」。爽点数量不足、或者任意两个间隔超过 25 s，记 gap，写法如「S-02：38–71 s 无爽点（33 s）」。没有铺垫的爽点不计数。",
+   "codex_zh": "大纲列一张爽点表：`{秒数, 类型(6 类之一), 铺垫镜号, 爽点镜号, 反应镜号}`，秒数按镜头时长累计。第一个爽点不晚于 25 s；铺垫和爽点之间不超过 3 场。",
+   "director_score_dimensions": [
+    "pacing_information",
+    "emotion_continuation"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "S-03",
+   "layer": "PACING_STRUCTURE",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "剪辑节奏：平均镜长 2–3 秒，没台词不超过约 4 秒",
+   "title_en": "Cut rhythm: 2-3 s average, silent shots under ~4 s",
+   "principle_zh": "成片里的平均镜长约 2–3 秒；**没有正在说的台词，任何镜头都不停留超过约 4 秒**。动作镜剪在峰值。",
+   "principle_en": "Average on-screen shot ~2–3 s; nothing holds past ~4 s unless a line is still being spoken; action shots are cut at the peak.",
+   "reviewer_check_zh": "用逐镜时间窗算出平均镜长和最长镜头（客观数据）。平均镜长超过 3.2 s，或者有无台词镜超过 4.0 s，记 gap，写法如「S-03：shot 14 无台词停 6.1 s @52.0 s」「平均 3.8 s」。",
+   "codex_zh": "",
+   "director_score_dimensions": [
+    "pacing_information",
+    "editing_action_continuity"
+   ],
+   "default_fix_owner": "S7"
+  },
+  {
+   "id": "S-04",
+   "layer": "PACING_STRUCTURE",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "进场晚、离场早",
+   "title_en": "Enter late, leave early",
+   "principle_zh": "每场从铺垫之后开始，在转折处结束；不拍进门、寒暄、告别、赶路。",
+   "principle_en": "Enter late, leave early: start after the setup, end on the turn; no walk-ins, greetings, goodbyes or travel.",
+   "reviewer_check_zh": "数一数「进门 / 落座 / 问候 / 道别 / 走路去某地」的镜头和它们的时长（记时间）；场景在转折之后还继续了几秒（超过 2 s 记 gap）。",
+   "codex_zh": "每场第一镜是冲突已经开始的状态，最后一镜是转折镜（或者转折后的反应镜），然后直接切下一场；换地点靠硬切，不写走过去的镜头；时间跳跃靠台词或一张字幕交代。",
+   "director_score_dimensions": [
+    "pacing_information",
+    "narrative_causality"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "S-05",
+   "layer": "PACING_STRUCTURE",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "爽点后接反应特写",
+   "title_en": "Reaction close-up after every payoff",
+   "principle_zh": "每个爽点后紧接输家或旁观者的震惊反应，用 CU，1.5–2.5 s。",
+   "principle_en": "After every payoff, cut to the loser's or onlookers' shocked reaction in close-up.",
+   "reviewer_check_zh": "每个爽点后 3 s 内有没有反应特写（是/否，记爽点时间）？反应是不是只是在「听」，没有可读的情绪？",
+   "codex_zh": "在爽点镜后面写一个无对白镜，`shot_scale: CLOSE_UP`，`REACTION_CUT`，`target_seconds` 1.5–2.5；`listener_reaction_en` 写具体的身体动作（笑容僵住、杯子停在嘴边）。旁观者最多 2 人，或者只给 1 人的 CU，不拍人群（C-04）。可以用 `sound_bridge_from_previous_seconds` 让爽点那句台词盖在反应上。",
+   "director_score_dimensions": [
+    "performance_interaction",
+    "emotion_continuation"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "S-06",
+   "layer": "PACING_STRUCTURE",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "结尾悬念：最后 2–3 秒，切在揭示上",
+   "title_en": "Cliffhanger: cut on the reveal in the last 2-3 s",
+   "principle_zh": "最后 2–3 秒是揭示或威胁本身，必要时在台词中途切黑；不解决，不抒情，不淡出。",
+   "principle_en": "The last 2–3 s are the reveal or threat itself; cut on it, mid-line if needed. No resolution, no mood fade.",
+   "reviewer_check_zh": "沿用 `tail_5s_hook_intact`，另外看揭示或威胁是否落在最后 3 s 内（时间戳）。揭示之后还有超过 1.5 s 的余韵或解决，记 gap。",
+   "codex_zh": "最后一镜写揭示或威胁的那一下，`target_seconds` 2–3，台词可以写成被打断的半句（「你根本不是我——」），引擎按最后一个台词字后 0.4 s 剪；接着直接进片尾卡，不写情绪空镜。",
+   "director_score_dimensions": [
+    "emotion_continuation"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "S-07",
+   "layer": "PACING_STRUCTURE",
+   "severity": "CORE",
+   "applies_from_episode": 2,
+   "title_zh": "开场 3–5 秒兑现上集悬念，然后立刻加码",
+   "title_en": "Pay off the previous cliffhanger in 3-5 s, then escalate",
+   "principle_zh": "开头 3–5 秒回应上集的结尾悬念，紧接着抛出一个更大的问题或威胁。",
+   "principle_en": "The first 3–5 s pay off the previous cliffhanger, then escalate at once.",
+   "reviewer_check_zh": "上集结尾的问题（读上集事件账本）在第几秒得到回应（超过 5 s 记 gap）；10 s 内有没有新的加码（是/否）？",
+   "codex_zh": "大纲写 `prev_cliffhanger → payoff_shot (≤5 s) → escalation_shot (≤10 s)`；兑现镜可以和 S-01 的钩子合成一镜；不复述上集，不放「前情提要」。",
+   "director_score_dimensions": [
+    "emotion_continuation",
+    "pacing_information"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "S-08",
+   "layer": "PACING_STRUCTURE",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "台词：短、冲，信息只能以指控或揭示出现",
+   "title_en": "Short, punchy, accusatory dialogue",
+   "principle_zh": "一句台词中文约 12–15 字以内、英文约 8–10 词以内；每一句都在对抗；交代信息只能以指控或揭示的方式出现，人物不自报情绪。",
+   "principle_en": "Short, punchy, conflict-driven lines (≤ ~12–15 zh chars / ~8–10 en words); exposition only as an accusation or reveal; no one names their own feelings.",
+   "reviewer_check_zh": "数一数超长句（超过 15 字 / 10 词）、说明性台词、自报情绪的台词（记时间）；字幕有没有超过 2 行。三类合计超过 3 句，记 gap。",
+   "codex_zh": "超长的台词在自然停顿处拆成两句；「你也知道，三年前……」改成「三年前是你推她下楼的！」；禁止「我好伤心 / I'm so scared」这类台词；情绪写进 `delivery_en` 和身体动作。参考值（不打分）：画内台词约占成片时长的 45–65%。",
+   "director_score_dimensions": [
+    "sound_dialogue",
+    "narrative_causality"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "S-09",
+   "layer": "PACING_STRUCTURE",
+   "severity": "NICE",
+   "applies_from_episode": 1,
+   "title_zh": "5 秒内主角入局，15 秒内立起目标与对手",
+   "title_en": "Protagonist in by 5 s, goal and antagonist by 15 s",
+   "principle_zh": "主角在 5 秒内正脸出场、处于困境；15 秒内观众知道这一集他要什么、谁在挡。",
+   "principle_en": "Protagonist on screen in a predicament by 5 s; the episode's goal and antagonist clear by 15 s.",
+   "reviewer_check_zh": "主角正脸首次出现的时间；15 s 时能否用一句话说出本集的目标和对手（是/否）？",
+   "codex_zh": "第一或第二镜的 `cast` 包含主角，用 MCU 或 CU；大纲首行写 `本集目标: <主角> 要 <X>，<对手> 挡`。",
+   "director_score_dimensions": [
+    "narrative_causality"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "S-10",
+   "layer": "PACING_STRUCTURE",
+   "severity": "NICE",
+   "applies_from_episode": 1,
+   "title_zh": "爽点逐级加码",
+   "title_en": "Each payoff outbids the last",
+   "principle_zh": "每个爽点的力度要高过上一个（筹码更大、当众范围更广、威胁更近），最大的一个放在最后三分之一，然后接悬念。",
+   "principle_en": "Each payoff outbids the last; the biggest lands in the final third, right before the cliffhanger.",
+   "reviewer_check_zh": "按时间顺序给爽点排强度；有没有回落（记时间），最大的爽点在第几秒？",
+   "codex_zh": "爽点表里给每个爽点标 `强度 1–5`，要求单调不减；最大的一个放在 0.65D 之后。",
+   "director_score_dimensions": [
+    "emotion_continuation"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "C-01",
+   "layer": "CLARITY_GRAMMAR",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "景别为冲突服务，不建立镜",
+   "title_en": "Shot size serves the conflict, no establishing shots",
+   "principle_zh": "以 MCU 和 CU 为主；不写建立镜，空间关系靠冲突中的第一个双人镜交代；WIDE 只在空间本身就是戏的时候用；爽点和揭示给本场最紧的景别。",
+   "principle_en": "MCU/CU dominate; no establishing shots, geography comes from the first two-shot inside the conflict; WIDE only when space is the story; the payoff gets the tightest shot.",
+   "reviewer_check_zh": "统计各景别的镜数；爽点、揭示是否是本场最紧的景别（是/否）；有没有无戏的远景或建立镜（记镜号）。",
+   "codex_zh": "`shot_scale` 分布：CU 和 MCU 占约 70% 以上；`WIDE`/`MEDIUM_WIDE` 全集不超过 3 镜，且必须有戏（追逐、对峙距离、怪物出现）；交代空间用 `MEDIUM` 的过肩双人镜，人物已经在冲突里。同一景别连续不超过 3 镜。",
+   "director_score_dimensions": [
+    "composition_camera_motivation"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "C-02",
+   "layer": "CLARITY_GRAMMAR",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "竖屏构图与视线落点",
+   "title_en": "Vertical framing and eye-trace",
+   "principle_zh": "脸在上三分之一，留出视线空间；双人只用前后叠放的过肩镜，不左右贴边；切点前后观众的注视位置尽量不跳。",
+   "principle_en": "Face in the upper third with look-room; two-shots stack front/back; keep the viewer's eye in place across a cut.",
+   "reviewer_check_zh": "在接触表上找人脸被切、人物过小、左右贴边的镜头（记镜号）；抽查对白切点，看人脸的位置有没有大幅跳动。",
+   "codex_zh": "`start_framing` 写成画面范围（\"mid-chest up, face in upper third, looking frame-left\"）；正反打两镜的人脸都放在中上区域。",
+   "director_score_dimensions": [
+    "composition_camera_motivation"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "C-03",
+   "layer": "CLARITY_GRAMMAR",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "一镜一拍",
+   "title_en": "One unit, one beat",
+   "principle_zh": "一个单元只做一件看得清的事；换机位、换视角就切。",
+   "principle_en": "One unit, one clear action beat; a new angle is a cut.",
+   "reviewer_check_zh": "逐镜看有没有两拍以上、动作没收住、或者中途换了主体（记镜号）。",
+   "codex_zh": "一镜一个动词主干；打斗只拍对峙、出手前一瞬和结果（K172）；对白镜只拍说话，不夹带动作。",
+   "director_score_dimensions": [
+    "editing_action_continuity"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "C-04",
+   "layer": "CLARITY_GRAMMAR",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "只拍 AI 拍得好的东西",
+   "title_en": "Shoot only what AI renders well",
+   "principle_zh": "每镜最多 2 个可见人物；不拍人群、无主的手、画面文字、复杂特效；拍结果和反应。",
+   "principle_en": "≤ 2 visible people; no crowds, ownerless hands, on-screen text or complex VFX; shoot outcome and reaction.",
+   "reviewer_check_zh": "有没有超过 2 个人、多出来的人或手、乱码文字、变形（逐镜记录，计入 anti_ai）。",
+   "codex_zh": "「当众」的效果用 1–2 个旁观者的 CU 加上群声来实现，不拍满屋的人；按桶分配（图形和文字进字幕卡）；登记人物的手出镜时写清袖口；遵守 §1b 的内容安全规定。",
+   "director_score_dimensions": [
+    "composition_camera_motivation"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "C-05",
+   "layer": "CLARITY_GRAMMAR",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "视线",
+   "title_en": "Eyeline",
+   "principle_zh": "说话时眼睛看着听者，略偏离镜头、朝向听者那一侧，不直视镜头；正反打的两镜视线方向相反。",
+   "principle_en": "Eyes on the listener, just off-lens toward their side; shot/reverse singles look to opposite sides.",
+   "reviewer_check_zh": "每组正反打的视线是否相对（是/否）；有没有直视镜头、或者说话时镜头摇走（记镜号）。",
+   "codex_zh": "写 `dialogue_listener_screen_side`；说话镜里不写转头看窗或门；「看某样东西」另起一个镜头。",
+   "director_score_dimensions": [
+    "performance_interaction"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "C-06",
+   "layer": "CLARITY_GRAMMAR",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "180° 轴线与屏幕方向",
+   "title_en": "180-degree line and screen direction",
+   "principle_zh": "一场之内人物的左右位置不换；运动方向在镜头之间保持一致；要越轴，先给一个中性镜或插入镜。",
+   "principle_en": "Hold the line and screen direction; cross only via a neutral or insert shot.",
+   "reviewer_check_zh": "一场内 A 是否始终在同一侧（记越轴的镜号）；运动方向有没有反转（记切点）。",
+   "codex_zh": "同一对人在一场里 `camera_side` 固定，`dialogue_listener_screen_side` 全场一致；追逐的 `motion_direction` 不能反过来。",
+   "director_score_dimensions": [
+    "editing_action_continuity"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "C-07",
+   "layer": "CLARITY_GRAMMAR",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "对白覆盖：一镜一个说话人，正反打",
+   "title_en": "Dialogue coverage: one speaker per shot, shot/reverse",
+   "principle_zh": "说话镜只拍说话人（单人镜，或者带一点对方肩膀的过肩镜）；正反打一来一回；双人同框只用在无对白的时刻；用 L-cut 让台词盖到反应上。",
+   "principle_en": "One speaker per shot in singles or OTS; alternate shot/reverse; two-shots only when silent; L-cuts carry lines onto reactions.",
+   "reviewer_check_zh": "有没有双人同框、一人说话的镜头（记镜号）；对白场是不是全程一个双人中景（是/否）。",
+   "codex_zh": "说话镜 `cast` 里只有说话人一张正脸；同一人的连续几句放进同一个锁定的 `camera_plan` 加 `CONTINUOUS_ACTION`；反应镜写 `sound_bridge_from_previous_seconds` 0.3–1.0。不要求先给一个无声双人镜，第一镜就是冲突（S-01）。",
+   "director_score_dimensions": [
+    "performance_interaction",
+    "editing_action_continuity"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "C-08",
+   "layer": "CLARITY_GRAMMAR",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "每一刀都有理由，剪在峰值",
+   "title_en": "Every cut motivated, action cut at the peak",
+   "principle_zh": "每个切点都在回应一个看、一个反应、一个新信息或动作的延续；动作镜剪在峰值，跨镜动作从中途接上。",
+   "principle_en": "Every cut is motivated (Rule of Six: emotion first); action shots cut at the peak, matched mid-motion.",
+   "reviewer_check_zh": "逐个切点说出理由，说不出的记为 jump（记时间）；动作有没有在峰值前被剪断，或者峰值之后还拖着（记镜号）。",
+   "codex_zh": "每个切写 `transition_mode`（MOTIVATED / REACTION / MATCH / HARD）；动作写成从第 0 帧开始、到峰值为止（配合 S-03）；跨镜动作，后一镜从同一个动作的中途开始。",
+   "director_score_dimensions": [
+    "editing_action_continuity"
+   ],
+   "default_fix_owner": "S7"
+  },
+  {
+   "id": "C-09",
+   "layer": "CLARITY_GRAMMAR",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "每场一个价值翻转，并且在翻转处结束",
+   "title_en": "Every scene flips a value and ends on the flip",
+   "principle_zh": "每一场至少翻转一个价值（正转负或负转正），并且就在翻转处结束；一场约 15–30 s。",
+   "principle_en": "Every scene flips a value and ends on the flip; scenes run ~15–30 s.",
+   "reviewer_check_zh": "逐场写出翻转和它发生的秒数；没有翻转的场、或者翻转之后还拖了超过 2 s，记 gap。",
+   "codex_zh": "每场写 `价值: 起 → 终` 和翻转镜号；翻转镜就是本场最后一镜，或者倒数第二镜（最后一镜是反应镜）。",
+   "director_score_dimensions": [
+    "narrative_causality"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "C-10",
+   "layer": "CLARITY_GRAMMAR",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "每个镜头都有可读的目的",
+   "title_en": "Every shot has a readable purpose",
+   "principle_zh": "把叙述、概括、心理活动改写成有冲突、有反应的戏；每一镜都要能说出它是为什么存在的。",
+   "principle_en": "Dramatize, don't illustrate: every shot has a purpose a first-time viewer can name.",
+   "reviewer_check_zh": "静音那一遍里，逐镜说出它的作用；说不出的镜头数和合计时长。",
+   "codex_zh": "每镜写一句目的（挑衅 / 爽点 / 反应 / 信息 / 威胁），写不出来就删；原著的时间跨度用一句台词或一张字幕带过。",
+   "director_score_dimensions": [
+    "narrative_causality"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "C-11",
+   "layer": "CLARITY_GRAMMAR",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "表演：眼睛先行，反应要大但不做鬼脸",
+   "title_en": "Performance: eyes lead, big reactions, no mugging",
+   "principle_zh": "情绪先到眼睛，再到嘴上；主角收着演，爽点之后的反应可以大（震惊、僵住），但不做鬼脸；每一句台词有自己的音调走向。",
+   "principle_en": "Eyes lead; the protagonist plays it cool, reactions after a payoff may be big (shock, freeze) but never mugging; each line has its own pitch arc.",
+   "reviewer_check_zh": "声音那一遍：是不是整集一个调、同一说话人一个模板（是/否）；画面那一遍：有没有鬼脸、表情和台词情绪对不上（记镜号）。",
+   "codex_zh": "每句写自己的 `delivery_en`（情绪、音调走向、重音、力度），不按说话人套模板；赢家写 \"cold, low, unhurried\"，输家写具体的崩溃动作；动作先写眼神。",
+   "director_score_dimensions": [
+    "performance_interaction",
+    "sound_dialogue"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "C-12",
+   "layer": "CLARITY_GRAMMAR",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "人物身份与服装连续",
+   "title_en": "Identity and wardrobe continuity",
+   "principle_zh": "同一个人的脸、发型、服装、伤疤、配饰在每一镜里都一致；两个主体一眼就能分开。",
+   "principle_en": "Same face, hair, wardrobe, scars and props in every shot; subjects read apart at a glance.",
+   "reviewer_check_zh": "沿用 `identity_color_consistent`，另外记录漂移的镜号。",
+   "codex_zh": "长相和服装写在人物字段里（英文剧写英文）；场景字段不写人物特征（K056）；残缺特征每一镜都要写。",
+   "director_score_dimensions": [
+    "editing_action_continuity"
+   ],
+   "default_fix_owner": "engine"
+  },
+  {
+   "id": "C-13",
+   "layer": "CLARITY_GRAMMAR",
+   "severity": "CORE",
+   "applies_from_episode": 1,
+   "title_zh": "空间、道具与光线连续",
+   "title_en": "Space, prop and light continuity",
+   "principle_zh": "同一场的背景、道具形状、光源方向和色温一致；暗场也看得清人。",
+   "principle_en": "Within a scene, background, prop shapes, light direction and colour hold; dark scenes still read.",
+   "reviewer_check_zh": "相邻镜头之间的背景、光、道具有没有跳变（记切点）；有没有接近全黑的帧（记时间）。",
+   "codex_zh": "`scenes[].lighting` 写一个具体的动机光源；近景写背景锁；暗场写清楚照亮轮廓的余光（NO_BLACK）；道具形状在第一次出现时就写死。",
+   "director_score_dimensions": [
+    "editing_action_continuity"
+   ],
+   "default_fix_owner": "engine"
+  },
+  {
+   "id": "C-14",
+   "layer": "CLARITY_GRAMMAR",
+   "severity": "NICE",
+   "applies_from_episode": 1,
+   "title_zh": "运镜要有动机：推近只给爽点和揭示",
+   "title_en": "Motivated camera moves, push-ins only for payoffs",
+   "principle_zh": "默认锁定机位；运镜只用于跟拍、揭示、强调；一集最多 1–2 次推近，只给最大的爽点或揭示。",
+   "principle_en": "Lock off by default; move only to follow, reveal or emphasise; one or two push-ins per episode, on the biggest payoff or reveal.",
+   "reviewer_check_zh": "数运镜次数，标出每次的动机；无动机的漂移和推近记镜号。",
+   "codex_zh": "`motion_family: LOCKED` 是默认值；推近写 `DOLLY PUSH_IN`，并在镜注里写明理由；不扫空景。",
+   "director_score_dimensions": [
+    "composition_camera_motivation"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "C-15",
+   "layer": "CLARITY_GRAMMAR",
+   "severity": "NICE",
+   "applies_from_episode": 1,
+   "title_zh": "插入镜只用作证据",
+   "title_en": "Inserts only as evidence",
+   "principle_zh": "插入镜只拍推动剧情的物件（证据、信物、威胁），并且之前有人看过去；不拍氛围空镜。",
+   "principle_en": "Inserts show evidence, tokens or threats a character has just looked at; never atmosphere.",
+   "reviewer_check_zh": "每个插入镜，前面有没有人看、它交代了什么；纯氛围的空镜数量和合计时长（记 gap）。",
+   "codex_zh": "插入镜前一镜写人物看向那一侧；`target_seconds` 1.5–2；无人、无手；道具之前已经交代过。",
+   "director_score_dimensions": [
+    "narrative_causality"
+   ],
+   "default_fix_owner": "writer"
+  },
+  {
+   "id": "C-16",
+   "layer": "CLARITY_GRAMMAR",
+   "severity": "NICE",
+   "applies_from_episode": 1,
+   "title_zh": "声音：台词清楚，用声音桥接",
+   "title_en": "Sound: clear dialogue, sound bridges",
+   "principle_zh": "台词清楚可懂，一个人一种声线；L-cut 让台词盖到反应上；配乐铺在台词下面，不抢台词。",
+   "principle_en": "Intelligible dialogue, one voice per character; L-cuts carry lines; score stays under dialogue.",
+   "reviewer_check_zh": "声音那一遍：有没有听不清的句子、声线变化、配乐盖住台词（记时间）。",
+   "codex_zh": "用 `sound_bridge_from_previous_seconds`；`audio_contract.bgm` 不写，或者写成整集一条 cue（沿用本线默认）。不写逐个爽点的音效 cue，原因见 §4 冲突 4。",
+   "director_score_dimensions": [
+    "sound_dialogue"
+   ],
+   "default_fix_owner": "engine"
+  }
+ ]
+}

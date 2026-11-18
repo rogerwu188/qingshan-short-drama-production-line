@@ -132,20 +132,22 @@ reactions. Keep the source's plot, lines and jokes. Principles and examples: `do
 blocking check; direct the episode the way people watch films:
 
 - The camera does not have to move. A no-dialogue shot may be `LOCKED` or a slow `DOLLY` `PUSH_IN` when someone
-  performs inside the frame, or when it is a short atmosphere/insert shot. Do not move the camera to avoid a
+  performs inside the frame, or when it is a short evidence insert. Do not move the camera to avoid a
   static shot, and do not alternate directions for their own sake.
 - Move the camera only for a reason: follow a moving subject, reveal what comes next, emphasise a beat, or a
   character's point of view. Never sweep across empty space or let the subject leave frame and return.
-- Open every new location with an establishing framing (`shot_scale` `WIDE` or `MEDIUM_WIDE`) within its first
-  two shots; at most two consecutive shots at the same `shot_scale`.
+- No establishing shots (NALU_CRAFT_STANDARD_v1 C-01, line owner 2026-11-17): enter every location inside the
+  conflict; the first two-shot of the conflict (an over-the-shoulder `MEDIUM`) gives the geography. `MCU`/`CU`
+  dominate; `WIDE` / `MEDIUM_WIDE` at most ~3 per episode and only when the space itself is the drama (a chase, the
+  distance of a stand-off, the creature appearing). At most three consecutive shots at the same `shot_scale`.
 - Do not cut on every line of a dialogue scene, and do not put two people in frame while one of them speaks
   (line owner 2026-10-23; four lab runs: H3 turns/pushes the camera to the speaker, drops the listener, and ghosts
   or duplicates a person who is both in the opening frame and a face reference). One H3 unit carries one speaker.
   (1) Speaking shots show only the speaker: a single, or an over-the-shoulder with a sliver of the listener, speaker
   centred and the only front face; one speaker's consecutive lines stay in one shot. (2) Two-shots only when nobody
-  speaks: opening geography, silent stand-off, physical reaction. (3) Rhythm: open on a silent two-shot, play the lines
-  in singles, cut tighter only at an emotional turn, give the hardest line the tightest shot, cut to a listener's
-  silent reaction only when the reaction is the story. (4) L-cut: a silent reaction shot that directly follows a
+  speaks: a silent stand-off, a physical reaction. (3) Rhythm: the first shot is already the conflict (no silent
+  two-shot first), play the lines in singles, cut tighter at the turn, give the hardest line the tightest shot, and
+  after every payoff cut to the loser's or an onlooker's silent close-up reaction. (4) L-cut: a silent reaction shot that directly follows a
   dialogue shot (next unit) may set `prompt_spec.transition.sound_bridge_from_previous_seconds` (0.3–2.0): S7 cuts the
   speaker's picture that much earlier and lets the line (and its subtitle) finish over the reaction, the reaction's own
   sound ducked to ambience. Omit it for a plain cut. Vertical silent two-shots: stack them front/back
@@ -175,12 +177,18 @@ blocking check; direct the episode the way people watch films:
   `camera_height`, `camera_side`, `motion_family: LOCKED`, `motion_direction`, `start_framing` identical) and
   `CONTINUOUS_ACTION` between them — never author a cut between two consecutive lines of one speaker. (Several lines
   of one speaker in one shot, one `Name：line` per row, are also fine; timed by their sum.) The grouper makes them one
-  video unit of at most 12 s (H3 maximum 15 s). A longer monologue is split into groups of at most 12 s: between
-  groups write a silent 4 s cutaway (listener reaction or prop insert, `MOTIVATED_CUT` / `REACTION_CUT`), then
-  return to the SAME setup (same `camera_plan`, `MOTIVATED_CUT` in); the engine reuses the earlier group's keyframe
-  (no new image). A change of speaker, of camera setup or an authored cut starts a new unit. Warnings only:
+  video unit of at most 12 s (H3 maximum 15 s). After about 8 s of one speaker's
+  same-setup lines write a silent 1.5–2 s listener reaction (or evidence insert; `MOTIVATED_CUT` / `REACTION_CUT`,
+  `target_seconds` 1.5–2: generated at 4 s, S7 keeps the window where it peaks), then return to the SAME setup (same
+  `camera_plan`, `MOTIVATED_CUT` in); the engine reuses the earlier group's keyframe (no new image). The engine still
+  splits a take at 12 s at the latest (H3 maximum 15 s). A change of speaker, of camera setup or an authored cut starts a new unit. Warnings only:
   grouping `writer_warning: MONOLOGUE_CUTAWAY_REQUIRED`, self-check `R12_MONOLOGUE_CUT_BETWEEN_LINES`,
   `R12_MONOLOGUE_OVER_12S_ADD_CUTAWAY`.
+- Optional `prompt_spec.beat_role` (NALU_CRAFT_STANDARD_v1 S-02/S-05): `SETUP` (the provocation a payoff answers),
+  `PAYOFF` (the visible power / information flip), `REACTION` (the silent close-up right after a payoff). S7 cuts a
+  silent reaction to 1.5–2.5 s and any other silent shot to 2–3 s around the take's motion peak (free; never below
+  the episode's runtime floor). Write silent action from frame 0 so the peak lands inside that window. Omitted =
+  treated as an ordinary silent shot.
 - Write the cuts the script implies: `internal_transition_authoring.transition_mode` `MOTIVATED_CUT` /
   `REACTION_CUT` / `MATCH_CUT` / `HARD_CUT` (or a scene change) makes the next video unit open on its own
   keyframe, a clean cut; continuous modes keep the previous unit's real tail as the start frame.
