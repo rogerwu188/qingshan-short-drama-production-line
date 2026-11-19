@@ -76,6 +76,8 @@ from nalu_qa_common import (  # noqa: E402
     run_id, sha256_file, write_json,
 )
 
+import render_style as _render_style  # noqa: E402  per-series live_action | anime
+
 TOOL_ID = "vlm_review_protocol.v1"
 
 PASS_ANSWERS = {"PASS", "YES", "NOT_APPLICABLE"}
@@ -769,7 +771,10 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
 
     keyframe_refs = _manifest_index("keyframe_manifest")
     video_refs = _manifest_index("grouped_seedance")
-    questionnaire = QUESTIONNAIRES[kind]
+    # render_style=anime: the photographic-realism question becomes the art-style question and the anime character-
+    # consistency question is added (the identity evidence InsightFace cannot give for anime faces)
+    style = _render_style.resolve_runtime(episode, contract=getattr(exp, "contract", None))
+    questionnaire = _render_style.style_questionnaire(kind, QUESTIONNAIRES[kind], style)
     vocabulary = {
         "characters": exp.character_ids() + sorted(exp.character_name_to_id()),
         "props": sorted({str(row.get("prop"))
@@ -980,6 +985,7 @@ def build_request(kind: str, episode: str, *, items_filter: list[str] | None = N
         "created_by": TOOL_ID,
         "visual_post_qa_profile": visual_qa_profile,
         "visual_post_qa_policy": policy_snapshot(visual_qa_profile),
+        **({"render_style": _render_style.ANIME} if style == _render_style.ANIME else {}),
         "reviewer_contract": _script_reviewer_contract() if kind == "script_review" else {
             "reviewer": REVIEWER_ID,
             "review_method": REVIEW_METHOD,
@@ -1078,13 +1084,15 @@ def example_answers(request: dict[str, Any]) -> dict[str, Any]:
 #: support, so it is refused (item 4).  Questions not listed here are unaffected.
 REFERENCE_CLAIM_QUESTIONS: dict[str, dict[str, tuple[str, ...]]] = {
     "keyframe": {
-        "IDENTITY": ("each_visible_character_identity_recognisable",),
+        # render_style=anime adds the character-consistency question: an identity claim, so it needs the plates too
+        "IDENTITY": ("each_visible_character_identity_recognisable", "anime_character_design_matches_card"),
         "WARDROBE": ("wardrobe_matches_bible",),
         "SPACE": ("space_anchors_match",),
         "PROP": ("props_exactly_as_declared",),
     },
     "video_q2": {
-        "IDENTITY": ("each_visible_character_identity_recognisable",),
+        # render_style=anime adds the character-consistency question: an identity claim, so it needs the plates too
+        "IDENTITY": ("each_visible_character_identity_recognisable", "anime_character_design_matches_card"),
         "WARDROBE": ("wardrobe_matches_bible",),
         "SPACE": ("space_anchors_match",),
         "PROP": ("props_present_and_end_state_as_declared",),
@@ -1333,6 +1341,7 @@ def submit(request_path: Path, answers_path: Path, *, out: Path | None = None,
         "answers_path": str(answers_path),
         "answers_sha256": sha256_file(answers_path),
         "questionnaire": request["questionnaire"],
+        **({"render_style": request["render_style"]} if request.get("render_style") else {}),
         "visual_post_qa_profile": request.get('visual_post_qa_profile', 'STRICT'),
         "visual_post_qa_policy": request.get('visual_post_qa_policy'),
         "validation": {

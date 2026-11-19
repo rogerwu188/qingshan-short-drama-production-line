@@ -34,7 +34,21 @@ PROMPT = (
 def sha(p): return hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()
 
 
+def anime_refusal(episode=None):
+    """render_style=anime (render_style.py): a drawn series has no real-photo period look -- its identity cards
+    are generated from the character descriptions -- so this real-face tool refuses instead of spending."""
+    import render_style as _render_style
+    if _render_style.resolve_runtime(episode) == _render_style.ANIME:
+        return {"status": "NOT_APPLICABLE", "render_style": "anime",
+                "reason": "anime identity cards are generated from the description; no real-photo period look"}
+    return None
+
+
 def run(cids, dry, note=""):
+    refusal = anime_refusal()
+    if refusal:
+        print(json.dumps(refusal, ensure_ascii=False))
+        return []
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     rows = []
     for cid in cids:

@@ -66,6 +66,8 @@ from nalu_qa_common import (  # noqa: E402
     manifest_references, now, portable, read_json, sha256_file, write_json,
 )
 
+import render_style as _render_style  # noqa: E402  per-series live_action | anime
+
 TOOL_ID = "keyframe_q1_builder.v1"
 KIND = "KEYFRAME_VIDEO_SUBMIT"
 REQUEST_SCHEMA = "qingshan.shot_media_admission_request.v2"
@@ -776,10 +778,41 @@ def measure_still_identity(episode: str, keyframes: dict[str, Path],
 measure_corpus_identity = measure_still_identity
 
 
+def anime_identity_verification(item: dict[str, Any], questionnaire: dict[str, Any], asset_sha: str,
+                                declared: list[str], *, scope: str) -> tuple[dict[str, Any], list[str], str]:
+    """render_style=anime: the structured VLM anime character-consistency review is the identity method.
+
+    InsightFace is NOT_APPLICABLE (JA-01 probe: a different anime character scored 0.587 > the 0.45 pass, the speaker
+    was detected on 1 of 9 frames), so FACE_COUNT_ZERO / DECLARED_CHARACTER_FACE_NOT_FOUND / NO_EMBEDDING_SAMPLE
+    never arise.  The reviewer's cast and identity answers stay the semantic checks, and the anime question
+    (hair colour and style, eye colour, outfit, accessories vs the locked plates) must be answered PASS."""
+    keys = (*GATE_QUESTIONS[IDENTITY_GATE], _render_style.VLM_IDENTITY_QUESTION)
+    checks = _checks(item, questionnaire, keys)
+    failures = [row["question_id"] for row in checks if row["answer"] != "PASS"]
+    failures += [f for f in _render_style.vlm_identity_failures(item.get("answers"), characters_declared=True)
+                 if _render_style.VLM_IDENTITY_QUESTION not in failures]
+    observed = (item.get("observed") or {}).get("observed_visible_characters") or []
+    verification = {
+        "method": _render_style.VLM_IDENTITY_METHOD,
+        "render_style": _render_style.ANIME,
+        "measurement_scope": scope,
+        "decision": "PASS" if not failures else "FAIL",
+        "canonical_characters": sorted(declared),
+        "observed_visible_characters": observed,
+        "output_sha256": asset_sha,
+        "checks": checks,
+        "failures": failures,
+        "insightface": _render_style.not_applicable_measurement("INSIGHTFACE_COSINE_V1"),
+        "note": "anime: identity judged by the reviewer against the locked plates (hair, eyes, outfit, accessories)",
+    }
+    return verification, failures, _render_style.VLM_IDENTITY_METHOD
+
+
 def build_identity_verification(item: dict[str, Any], questionnaire: dict[str, Any],
                                 asset_sha: str, required_characters: list[str],
                                 measurement: dict[str, Any],
                                 declared_characters: list[str] | None = None,
+                                *, render_style: str | None = None,
                                 ) -> tuple[dict[str, Any], list[str], str]:
     """Return (objective_verification, failures, method_used).
 
@@ -790,6 +823,9 @@ def build_identity_verification(item: dict[str, Any], questionnaire: dict[str, A
     """
     checks = _checks(item, questionnaire, GATE_QUESTIONS[IDENTITY_GATE])
     declared = list(declared_characters if declared_characters is not None else required_characters)
+    if declared and _render_style.is_anime(render_style):
+        return anime_identity_verification(item, questionnaire, asset_sha, declared,
+                                           scope="SINGLE_STILL_PER_KEYFRAME")
     if declared and not required_characters:
         failures = [row["question_id"] for row in checks if row["answer"] != "PASS"]
         observed = (item.get("observed") or {}).get("observed_visible_characters") or []
@@ -1068,7 +1104,12 @@ def materialise(episode: str, submitted: dict[str, Any],
         visible[item["item_id"]] = face_measurable_ids(request_item)
 
     still_registry = still_gate_registry()
-    measurement = measure_still_identity(episode, keyframes, visible)
+    anime = (_render_style.is_anime(submitted.get("render_style"))
+             or _render_style.resolve_runtime(episode, contract=getattr(exp, "contract", None)) == _render_style.ANIME)
+    style = _render_style.ANIME if anime else _render_style.LIVE_ACTION
+    # render_style=anime: no InsightFace run (NOT_APPLICABLE, never a FACE_COUNT_ZERO / face-not-found failure)
+    measurement = (_render_style.not_applicable_measurement("INSIGHTFACE_COSINE_V1", per_keyframe={})
+                   if anime else measure_still_identity(episode, keyframes, visible))
     write_json(p.qa_root / f"{episode}_KEYFRAME_IDENTITY_MEASUREMENT.json", measurement)
 
     # OCR startup dominates a rebuild, so run every still's audit once up front, in
@@ -1118,7 +1159,8 @@ def materialise(episode: str, submitted: dict[str, Any],
         required_all = list(expectations.get("required_visible_character_ids") or [])
         required = face_measurable_ids(request_item)  # D-16: frontal, measurable faces only
         identity_v, identity_f, identity_method = build_identity_verification(
-            item, questionnaire, asset_sha, required, measurement, declared_characters=required_all)
+            item, questionnaire, asset_sha, required, measurement, declared_characters=required_all,
+            render_style=style)
         exempt = {str(row.get("character_id")): str(row.get("face_visibility"))
                   for row in expectations.get("cast") or []
                   if row.get("character_id") in required_all and row.get("character_id") not in required}
@@ -1133,7 +1175,9 @@ def materialise(episode: str, submitted: dict[str, Any],
             for row in (measurement.get("per_keyframe", {}).get(item_id) or [])
             if row.get("character_id")
         })
-        identity_v["measurement_evidence"] = "ENGINE_INSIGHTFACE_PER_KEYFRAME_ROWS" if identity_v["measured_character_ids"] else "NO_FACE_MEASURED"
+        identity_v["measurement_evidence"] = (
+            "VLM_ANIME_CHARACTER_CONSISTENCY_REVIEW" if anime else
+            "ENGINE_INSIGHTFACE_PER_KEYFRAME_ROWS" if identity_v["measured_character_ids"] else "NO_FACE_MEASURED")
         identity_v["not_measurable_by_pose"] = exempt
         identity_v["not_measurable_policy"] = ("Roger 2026-09-18 (identity chain ④) narrows D-16: 3/4, profile, head-down, "
                                                "turned and shadowed faces ARE measured (a face the detector cannot find is "

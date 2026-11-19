@@ -84,6 +84,7 @@ from __future__ import annotations
 import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
+import render_style as _render_style  # per-series live_action | anime
 import argparse
 import hashlib
 import json
@@ -312,17 +313,19 @@ def gsm_elements(room: dict[str, Any]) -> list[str]:
 # --------------------------------------------------------------------------- #
 # prompt bodies — byte-exact E01 format
 # --------------------------------------------------------------------------- #
-def style_block(vcc: dict[str, Any]) -> str:
+def style_block(vcc: dict[str, Any], render_style: str | None = None) -> str:
     palette = vcc["palette_system"]
+    anime = _render_style.normalise(render_style) == _render_style.ANIME
     return "\n".join([
         f"【视觉文化档案】{vcc['profile_id']}",
         f"世界：{vcc['story_world']}",
         f"美术：{vcc['production_design']}",
         f"色彩：底色{palette['base']}；点色{palette['accent']}；肤色{palette['skin']}",
         f"光线：{vcc['lighting_language']}",
-        f"质感：{vcc['image_texture']}",
+        f"质感：{_render_style.IMAGE_TEXTURE_ZH if anime else vcc['image_texture']}",
         "画幅：9:16 竖构图。画面内不得出现任何文字、字幕、水印、logo。",
         "【严格禁止】" + "；".join(vcc["forbidden_influences"]),
+        *([_render_style.IMAGE_STYLE_BLOCK_ZH] if anime else []),
     ])
 
 
@@ -352,7 +355,8 @@ def character_prompt(row: dict[str, Any], wardrobe_desc: str, style: str) -> tup
     return body, source_action
 
 
-def location_prompt(row: dict[str, Any], place: dict[str, Any], room: dict[str, Any], style: str) -> tuple[str, str]:
+def location_prompt(row: dict[str, Any], place: dict[str, Any], room: dict[str, Any], style: str,
+                    render_style: str | None = None) -> tuple[str, str]:
     spec = row["specification"]
     loc = row["asset_id"]
     lighting = spec["lighting_variants_required"][0]
@@ -362,7 +366,8 @@ def location_prompt(row: dict[str, Any], place: dict[str, Any], room: dict[str, 
         f"【场景基准参考图】{row['label']}（{loc}）",
         f"所属空间图：{place['global_space_map_id']} / 房间 {room['room_id']}",
         "第一张参考图是本地渲染的俯视拓扑图，只作为空间布局与相对位置的依据；"
-        "输出必须是实拍质感的场景照片，不得画成地图、示意图、平面图或带任何标注线条。",
+        + (_render_style.LOCATION_OUTPUT_ZH if _render_style.normalise(render_style) == _render_style.ANIME else
+           "输出必须是实拍质感的场景照片，不得画成地图、示意图、平面图或带任何标注线条。"),
         "",
         source_action,
         "",
@@ -431,6 +436,7 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
     contract = load_json(contract_path)
     manifest = load_json(manifest_path)
     vcc = contract["visual_culture_contract"]
+    render_style = _render_style.resolve_runtime(episode, contract=contract)
     overlay = load_json(Path(args.overlay).resolve()) if args.overlay else {}
     if overlay and overlay.get("schema") != OVERLAY_SCHEMA:
         raise SystemExit(f"--overlay schema must be {OVERLAY_SCHEMA}")
@@ -455,8 +461,10 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
         "palette_accent": vcc["palette_system"]["accent"],
         "palette_skin": vcc["palette_system"]["skin"],
         "lighting_language": vcc["lighting_language"],
-        "image_texture": vcc["image_texture"],
+        "image_texture": (_render_style.IMAGE_TEXTURE_ZH if render_style == _render_style.ANIME
+                          else vcc["image_texture"]),
         "forbidden_influences": vcc["forbidden_influences"],
+        **({"render_style": _render_style.ANIME} if render_style == _render_style.ANIME else {}),
     }
 
     chars = {str(row["character_id"]): row for row in contract.get("character_entities") or []}
@@ -957,7 +965,7 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
     }
 
     # ---------------------------------------------------------------- prompts
-    style = style_block(vcc)
+    style = style_block(vcc, render_style)
     prompts: dict[str, str] = {}
     prompt_rows: list[dict[str, Any]] = []
     reused_ids = {row["asset_id"] for row in reuse_decisions if row["decision"] == "REUSED"}
@@ -987,7 +995,7 @@ def build(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, str], dic
                             "resolution": "PROMPT_SKIPPED_NO_GLOBAL_SPACE_MAP_ENTRY",
                             "sentinel": AUTHORING + "GLOBAL_SPACE_MAP_PLACE_FOR_LOCATION"})
             continue
-        body, action = location_prompt(row, place_room[0], place_room[1], style)
+        body, action = location_prompt(row, place_room[0], place_room[1], style, render_style)
         name = prompt_filename(episode, loc)
         prompts[name] = body
         prompt_rows.append({"asset_id": loc, "kind": "LOCATION", "file": name,

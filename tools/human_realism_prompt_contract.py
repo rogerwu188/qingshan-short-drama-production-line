@@ -10,6 +10,12 @@ from typing import Any
 CONTRACT_VERSION = "1.0.0"
 
 
+def applies(render_style: Any = None) -> bool:
+    """The human-realism contract governs live-action only; render_style=anime is NOT_APPLICABLE (a cel-shaded
+    frame must not be asked for pores, skin microtexture or lens optics, and is never checked for them)."""
+    return str(render_style or "live_action").strip().lower().replace("-", "_") != "anime"
+
+
 def _lens_for(scale: str) -> tuple[str, str, str]:
     value = scale.lower()
     if re.search(r"特写|近景|close|portrait", value):
@@ -41,8 +47,11 @@ def build_keyframe_realism_block(
     action: str,
     expression_arc: str | None = None,
     eyeline_target: str | None = None,
+    render_style: Any = None,
 ) -> str:
-    """Compile one narrative-first anti-plastic character keyframe clause."""
+    """Compile one narrative-first anti-plastic character keyframe clause ('' for render_style=anime)."""
+    if not applies(render_style):
+        return ""
     if not character_ids:
         return (
             "【真人质感合同 v1】本镜无人脸特写；仍保持真实镜头曝光、材料粗糙度、空气透视与自然动态范围，"
@@ -68,8 +77,11 @@ def build_keyframe_realism_block(
     )
 
 
-def build_expression_realism_block(*, expression_arc: str, action: str, framing: str) -> str:
-    """Turn an emotion label into a physically supported performance chain."""
+def build_expression_realism_block(*, expression_arc: str, action: str, framing: str,
+                                   render_style: Any = None) -> str:
+    """Turn an emotion label into a physically supported performance chain ('' for render_style=anime)."""
+    if not applies(render_style):
+        return ""
     lens, aperture, depth = _lens_for(framing)
     return (
         "【真人微表演】"
@@ -83,8 +95,10 @@ def build_expression_realism_block(*, expression_arc: str, action: str, framing:
     )
 
 
-def validate_human_realism_prompt(text: str) -> list[dict[str, str]]:
-    """Validate only the explicitly adopted realism contract vocabulary."""
+def validate_human_realism_prompt(text: str, render_style: Any = None) -> list[dict[str, str]]:
+    """Validate only the explicitly adopted realism contract vocabulary (nothing for render_style=anime)."""
+    if not applies(render_style):
+        return []
     checks = {
         "skin_microtexture": r"毛孔.*汗毛|汗毛.*毛孔",
         "facial_asymmetry": r"不对称|非对称",

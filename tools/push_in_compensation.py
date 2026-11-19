@@ -200,6 +200,18 @@ def probe(path: Path, ffprobe: str = "ffprobe") -> dict[str, Any]:
             "frames": int(stream.get("nb_read_packets") or 0), "duration": float(data["format"]["duration"])}
 
 
+def applies(render_style: Any = None) -> bool:
+    """The compensation measures InsightFace face widths: live-action only.  render_style=anime is NOT_APPLICABLE
+    (anime faces are barely detected -- JA-01 probe: the speaker on 1 of 9 frames -- so a measured "push-in" would be
+    noise, and the crop it drives would be a guess)."""
+    return str(render_style or "live_action").strip().lower().replace("-", "_") != "anime"
+
+
+def not_applicable_report(episode: str, render_style: Any) -> dict[str, Any]:
+    return {"schema": SCHEMA, "episode": episode, "status": "NOT_APPLICABLE", "render_style": str(render_style),
+            "reason": "InsightFace face measurement is not applicable to anime faces", "compensated_units": []}
+
+
 def face_backend() -> Any:
     """The engine's own FaceAnalysis (buffalo_l, CPU) - the same one Q2 uses."""
     try:

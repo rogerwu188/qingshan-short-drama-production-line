@@ -894,9 +894,16 @@ def compile_h3_english_machine_audio_rescue_prompt(unit: dict[str, Any]) -> str:
         role_semantic_compact_prompt_block(spec.get("role_semantic_disambiguation") or {})
         for spec in specs
     ]
+    try:
+        from tools import render_style as _render_style
+    except ModuleNotFoundError:  # pragma: no cover
+        import render_style as _render_style  # type: ignore
+    anime = _render_style.is_anime(unit)
     lines = [
+        _render_style.H3_RESCUE_HEADER if anime else
         "H3 LIVE-ACTION SHORT-DRAMA AUDIO RESCUE. MACHINE METADATA IS NEVER SPOKEN.",
-        f"FORMAT=VERTICAL_9_16;DURATION={duration:g}s;REAL_TIME=1X;STYLE=LIVE_ACTION_ANCIENT_CHINA.",
+        f"FORMAT=VERTICAL_9_16;DURATION={duration:g}s;REAL_TIME=1X;"
+        + (f"{_render_style.H3_RESCUE_STYLE}." if anime else "STYLE=LIVE_ACTION_ANCIENT_CHINA."),
         f"VISUAL_SEQUENCE={order}.",
         "REFERENCES_LOCK=IDENTITY|WARDROBE|LOCATION|PROPS|SCREEN_DIRECTION|LIGHTING.",
         "CONTINUITY=NO_IDENTITY_SWAP|NO_WARDROBE_SWAP|NO_MAP_JUMP|NO_DIRECTION_REVERSAL|NO_PROP_REASSIGNMENT.",

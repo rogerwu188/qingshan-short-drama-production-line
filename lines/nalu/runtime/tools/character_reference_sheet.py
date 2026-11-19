@@ -35,6 +35,9 @@ for _entry in (str(_ENGINE_ROOT), str(_ENGINE_ROOT / "tools")):
     if _entry not in sys.path:
         sys.path.append(_entry)
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import render_style as _render_style  # noqa: E402  (per-series live_action | anime)
+
 SHEET_VIEW = "MULTIVIEW_REFERENCE_SHEET"
 FIELD = "character_reference_sheet"
 POLICY_ID = "MULTIVIEW_SHEET_V1"
@@ -77,7 +80,8 @@ def trait_clause(appearance: str) -> str:
 
 
 def sheet_prompt(entity: dict[str, Any], *, state: str | None = None, state_description: str = "",
-                 wardrobe: str = "") -> str:
+                 wardrobe: str = "", render_style: str | None = None) -> str:
+    anime = _render_style.normalise(render_style) == _render_style.ANIME
     name = str(entity.get("english_name") or entity.get("canonical_name") or entity.get("character_id") or "")
     appearance = str(entity.get("appearance_en") or entity.get("appearance_ch1") or entity.get("appearance") or "")
     parts = [
@@ -89,11 +93,13 @@ def sheet_prompt(entity: dict[str, Any], *, state: str | None = None, state_desc
         "全身背面。四个视图大小协调、互不重叠。",
         "纯净中性灰色背景，无环境、无道具、无其他人物、无动物；无文字、无标签、无编号、无水印。均匀柔和的照明，只为记录长相与服装，"
         "不做戏剧化打光。",
-        "【参考图】参考图是同一人物已锁定的身份照：脸型骨骼、五官、发型、肤色、体型与服装必须与参考图完全一致，同一个人；"
-        "只改变排版与朝向，不改变人物。",
+        (_render_style.SHEET_REFERENCE_CLAUSE_ZH if anime else
+         "【参考图】参考图是同一人物已锁定的身份照：脸型骨骼、五官、发型、肤色、体型与服装必须与参考图完全一致，同一个人；"
+         "只改变排版与朝向，不改变人物。"),
         trait_clause(appearance),
         (f"【本图状态·必须呈现】{state_description.rstrip('。.')}。该状态在每个视图中都必须清楚可见、位置一致。"
          if state and state_description else ""),
+        _render_style.IMAGE_STYLE_BLOCK_ZH if anime else "",
     ]
     return "\n\n".join(part for part in parts if part) + "\n"
 
@@ -142,8 +148,9 @@ def _harvested(plates_dir: Path | None, episode: str, row_id: str) -> Path | Non
 
 
 def plan_rows(contract: dict[str, Any], library: dict[str, Any], *, episode: str, prompt_dir: Path,
-              plates_dir: Path | None, new_subject_ids: set[str]) -> tuple[list[dict[str, Any]], list[dict[str, Any]],
-                                                                          list[dict[str, Any]]]:
+              plates_dir: Path | None, new_subject_ids: set[str],
+              render_style: str | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]],
+                                                       list[dict[str, Any]]]:
     """(plan rows, deferred rows, skipped rows) for the sheets this episode still needs.
 
     References: the character's own harvested base + headshot plates of this episode (a new character), else
@@ -172,7 +179,9 @@ def plan_rows(contract: dict[str, Any], library: dict[str, Any], *, episode: str
             if not prompt_path.is_file():  # written once: the plan binds its byte sha256
                 prompt_path.parent.mkdir(parents=True, exist_ok=True)
                 prompt_path.write_text(sheet_prompt(entity, state=state, state_description=description,
-                                                    wardrobe=wardrobe_by_id.get(cid, "")), encoding="utf-8")
+                                                    wardrobe=wardrobe_by_id.get(cid, ""),
+                                                    render_style=render_style or _render_style.from_contract(contract)),
+                                       encoding="utf-8")
             base = _harvested(plates_dir, episode, cid)
             head = _harvested(plates_dir, episode, f"{cid}__FRONT_NEUTRAL_HEADSHOT")
             if base is None:
@@ -217,10 +226,14 @@ def harvested_sheets(plates_dir: Path, episode: str) -> list[tuple[str, str, Pat
 
 
 def register(library_path: Path, plates_dir: Path, episode: str,
-             measure: Callable[[Path, Path], float | None] | None = None) -> list[dict[str, Any]]:
+             measure: Callable[[Path, Path], float | None] | None = None,
+             render_style: str | None = None) -> list[dict[str, Any]]:
     """Record harvested sheets on their library rows; returns one report row per sheet.
 
-    ``measure(sheet, headshot)`` returns the best face cosine (None = runtime unavailable)."""
+    ``measure(sheet, headshot)`` returns the best face cosine (None = runtime unavailable).  render_style=anime: the
+    face cosine is NOT_APPLICABLE (InsightFace cannot separate anime characters); the sheet is registered as
+    NOT_MEASURED and its on-model check is the VLM identity review."""
+    anime = _render_style.normalise(render_style) == _render_style.ANIME
     if not library_path.is_file():
         return []
     library = json.loads(library_path.read_text(encoding="utf-8"))
@@ -237,12 +250,15 @@ def register(library_path: Path, plates_dir: Path, episode: str,
         if current.get("sha256") == sha:
             continue
         head = _locked_view(row, "FRONT_NEUTRAL_HEADSHOT") or _harvested(plates_dir, episode, f"{cid}__FRONT_NEUTRAL_HEADSHOT")
-        cosine = measure(path, head) if (measure and head is not None) else None
+        cosine = measure(path, head) if (measure and head is not None and not anime) else None
         status = "NOT_MEASURED" if cosine is None else ("PASS" if cosine >= MIN_FACE_COSINE else "FAIL_FACE_MISMATCH")
+        measurement = {"method": "INSIGHTFACE_MAX_FACE_COSINE_VS_LOCKED_HEADSHOT", "cosine": cosine,
+                       "threshold": MIN_FACE_COSINE, "headshot": str(head) if head else None}
+        if anime:
+            measurement.update({"decision": "NOT_APPLICABLE", "render_style": _render_style.ANIME,
+                                "reason": _render_style.INSIGHTFACE_NOT_APPLICABLE_REASON})
         entry = {"path": str(path), "sha256": sha, "episode": episode, "view": SHEET_VIEW, "state": key,
-                 "status": status, "identity_measurement": {
-                     "method": "INSIGHTFACE_MAX_FACE_COSINE_VS_LOCKED_HEADSHOT", "cosine": cosine,
-                     "threshold": MIN_FACE_COSINE, "headshot": str(head) if head else None},
+                 "status": status, "identity_measurement": measurement,
                  "role": "H3_FACE_AND_BODY_REFERENCE_NOT_IDENTITY_AUTHORITY"}
         row.setdefault("reference_sheets", {})[key] = entry
         changed = True

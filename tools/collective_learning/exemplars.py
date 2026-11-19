@@ -185,11 +185,27 @@ def unit_tags(unit: dict[str, Any], spec: dict[str, Any], *, language: str, genr
             "cast_count": len(cast), "dialogue": dialogue}
 
 
+#: render_style tag (2026-11-19): only an anime exemplar carries ``tags.render_style = "anime"``; an untagged exemplar
+#: is live-action, so every existing exemplar (and its id) is unchanged and the two styles never mix in selection.
+RENDER_STYLE_TAG = "render_style"
+ANIME = "anime"
+LIVE_ACTION = "live_action"
+
+
+def exemplar_render_style(ex: dict[str, Any]) -> str:
+    return ANIME if str((ex.get("tags") or {}).get(RENDER_STYLE_TAG) or "").lower() == ANIME else LIVE_ACTION
+
+
+def _style_tags(tags: dict[str, Any], render_style: Any) -> dict[str, Any]:
+    return {**tags, RENDER_STYLE_TAG: ANIME} if str(render_style or "").lower() == ANIME else tags
+
+
 def type_key(ex: dict[str, Any]) -> str:
     tags = ex.get("tags") or {}
+    style = "ANIME|" if exemplar_render_style(ex) == ANIME else ""
     if ex.get("kind") == "EPISODE_PRACTICE":
-        return f"PRACTICE|{tags.get('language')}|{(ex.get('practice') or {}).get('dimension')}"
-    return "|".join(str(tags.get(k)) for k in ("language", "action_type", "shot_size", "setting"))
+        return f"{style}PRACTICE|{tags.get('language')}|{(ex.get('practice') or {}).get('dimension')}"
+    return style + "|".join(str(tags.get(k)) for k in ("language", "action_type", "shot_size", "setting"))
 
 
 # --------------------------------------------------------------------------- builders (device)
@@ -215,7 +231,8 @@ def _leaks_dialogue(text: str, lines: list[str]) -> bool:
 
 
 def shot_exemplar(unit: dict[str, Any], *, language: str, genre: str, model: str, overall: float,
-                  dimensions: dict[str, Any] | None = None, qa: dict[str, str] | None = None) -> dict[str, Any] | None:
+                  dimensions: dict[str, Any] | None = None, qa: dict[str, str] | None = None,
+                  render_style: Any = None) -> dict[str, Any] | None:
     """One SHOT exemplar from a grouped unit's first prompt spec (scrubbed, validated) or None."""
     specs = [s for s in unit.get("ordered_prompt_specs") or [] if isinstance(s, dict)]
     if not specs:
@@ -236,7 +253,7 @@ def shot_exemplar(unit: dict[str, Any], *, language: str, genre: str, model: str
     plan = spec.get("camera_plan") if isinstance(spec.get("camera_plan"), dict) else {}
     action = spec.get("action") if isinstance(spec.get("action"), dict) else {}
     performance = spec.get("performance") if isinstance(spec.get("performance"), dict) else {}
-    tags = unit_tags(unit, spec, language=language, genre=genre, model=model)
+    tags = _style_tags(unit_tags(unit, spec, language=language, genre=genre, model=model), render_style)
     camera_bits = [tags["shot_size"], tags["camera_move"].replace(":", " ")]
     if plan.get("camera_height"):
         camera_bits.append(str(plan["camera_height"]))
@@ -281,7 +298,7 @@ def shot_exemplar(unit: dict[str, Any], *, language: str, genre: str, model: str
 
 
 def practice_exemplar(dimension: str, score: float, reason: Any, *, language: str, genre: str, model: str,
-                      overall: float, cast_names: Iterable[Any] = ()) -> dict[str, Any] | None:
+                      overall: float, cast_names: Iterable[Any] = (), render_style: Any = None) -> dict[str, Any] | None:
     """One EPISODE_PRACTICE: what the independent reviewer praised in a high-scoring dimension."""
     if dimension not in PRACTICE_DIMENSIONS:
         return None
@@ -290,8 +307,8 @@ def practice_exemplar(dimension: str, score: float, reason: Any, *, language: st
     if len(note) < 8 or not _clean_field(note):
         return None
     body = {"schema": EXEMPLAR_SCHEMA, "kind": "EPISODE_PRACTICE",
-            "tags": {"language": str(language or "zh")[:8], "genre": genre_key(genre) or "UNKNOWN",
-                     "model": str(model or c.UNKNOWN)[:TAG_MAX]},
+            "tags": _style_tags({"language": str(language or "zh")[:8], "genre": genre_key(genre) or "UNKNOWN",
+                                 "model": str(model or c.UNKNOWN)[:TAG_MAX]}, render_style),
             "practice": {"dimension": dimension, "note": note},
             "qa": {"q1": "NOT_RUN", "q2": "NOT_RUN", "postgen": "NOT_RUN"},
             "final_review": {**_review_block(overall, None), "dimension_score": round(float(score), 2)}}
@@ -499,13 +516,14 @@ def summarize(ex: dict[str, Any]) -> dict[str, Any]:
 # --------------------------------------------------------------------------- selection (device)
 def select_for_episode(library: list[dict[str, Any]], *, language: str, genre: str = "", model: str = "",
                        scene_hints: dict[str, dict[str, int]] | None = None,
-                       config: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+                       config: dict[str, Any] | None = None, render_style: Any = None) -> list[dict[str, Any]]:
     """2-3 exemplars for this episode: same language (required), genre/model/upcoming scene types preferred,
     different action types where possible (a writer learns more from two kinds than from two of one)."""
     cfg = {**DEFAULTS, **(config or {})}
     hints = scene_hints or {}
     want_genre = genre_key(genre)
     lang = str(language or "zh")[:8]
+    want_style = ANIME if str(render_style or "").lower() == ANIME else LIVE_ACTION
 
     def score(ex: dict[str, Any]) -> tuple:
         tags = ex.get("tags") or {}
@@ -529,7 +547,8 @@ def select_for_episode(library: list[dict[str, Any]], *, language: str, genre: s
             validate_exemplar({k: v for k, v in ex.items() if not str(k).startswith("_")})  # _bundle: cache note
         except c.ContractError:
             continue
-        if (ex.get("tags") or {}).get("language") == lang:
+        # same language AND same render style: an anime episode never learns from live-action shots, nor back
+        if (ex.get("tags") or {}).get("language") == lang and exemplar_render_style(ex) == want_style:
             pool.append(ex)
     shots = sorted((e for e in pool if e["kind"] == "SHOT"), key=score)
     practices = sorted((e for e in pool if e["kind"] == "EPISODE_PRACTICE"), key=score)

@@ -217,6 +217,18 @@ def unreachable_after_key_change(row: dict[str, Any], task_id: str, exc: Excepti
             "provider_error": str(exc)[:300], "failure_class": "HOPSAPI_TASK_UNREACHABLE_AFTER_KEY_CHANGE"}
 
 
+#: a multi-view turnaround sheet lays four views side by side: its sides are content, never cropped
+NO_ASPECT_NORMALISATION_MARKERS = ("MULTIVIEW_REFERENCE_SHEET",)
+
+
+def wants_true_9_16(row: dict[str, Any]) -> bool:
+    """A 9:16 request (keyframes, identity cards, plates) whose landed image must be a true 9:16 before H3."""
+    if str(row.get("aspect_ratio") or "9:16").strip() != "9:16":
+        return False
+    key = str(row.get("task_key") or "")
+    return not any(marker in key for marker in NO_ASPECT_NORMALISATION_MARKERS)
+
+
 def harvest_one_hopsapi(row: dict[str, Any], episode: str, output_dir: Path, raw_dir: Path,
                         studio_project_id: str | None = None,
                         earlier: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -261,6 +273,8 @@ def harvest_one_hopsapi(row: dict[str, Any], episode: str, output_dir: Path, raw
         else:
             if not output.is_file():
                 image_client.download_image(str(status["urls"][0]), output)
+                if wants_true_9_16(row):  # gpt-image-2 returns 2:3 for a 9:16 request (normalise_portrait_9_16)
+                    item["aspect_normalisation"] = image_client.normalise_portrait_9_16(output)
             digest = sha256(output)
             item.update({"output_path": str(output), "sha256": digest, "bytes": output.stat().st_size})
             archived = studio_archive(output, episode, row, raw_path, studio_project_id, digest)

@@ -75,6 +75,7 @@ from tools.initial_asset_library import (  # noqa: E402
 from tools.visual_culture_contract import DEFAULT_CONTRACT as QINGSHAN_VISUAL_CULTURE_CONTRACT, prompt_block_zh as qingshan_visual_prompt_block  # noqa: E402
 from tools.visual_culture_contract import ACTIVE_FROM_EPISODE as QINGSHAN_ACTIVE_FROM_EPISODE  # noqa: E402
 from tools.visual_culture_contract import authored_world_prompt_block, is_authored_world  # noqa: E402
+import render_style as _render_style  # noqa: E402  (runtime tools dir: per-series live_action | anime)
 
 #: 2026-10-16 (miniPC 《画皮》 E01 CODE_BLOCKER): every identity plate got the qingshan Northern-Song
 #: wuxia block, so a late-Ming/Qing story was asked for Song dress and lamellar armour.  The qingshan
@@ -131,7 +132,32 @@ def _episode_number(episode: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def culture_lock_for(episode: str, generation_contract: dict[str, Any] | None = None) -> tuple[dict[str, Any], str]:
+def culture_lock_for(episode: str, generation_contract: dict[str, Any] | None = None, *,
+                     render_style: str | None = None) -> tuple[dict[str, Any], str]:
+    """(row culture contract, prompt lock block); live-action exactly as before, an anime series (render_style,
+    resolved from the contract / brief / qingshan.json when not given) gets the anime texture, an anime ban list
+    in place of the live-action one and the lock followed by the anime art-style block."""
+    style = _render_style.normalise(render_style) or _render_style.resolve_runtime(
+        episode, contract=generation_contract)
+    contract, block = _culture_lock_for(episode, generation_contract)
+    if style != _render_style.ANIME:
+        return contract, block
+    anime_contract = {**contract, "render_style": _render_style.ANIME}
+    if str(contract.get("era_lock") or "").upper() == "AUTHORED_WORLD":
+        anime_contract["image_texture"] = _render_style.IMAGE_TEXTURE_EN
+        anime_contract["forbidden_influences"] = list(dict.fromkeys(
+            [value for value in contract.get("forbidden_influences") or []
+             if value not in AUTHORED_WORLD_FALLBACK_CONTRACT["forbidden_influences"]]
+            + list(_render_style.FORBIDDEN_INFLUENCES_EN)))
+        language = (generation_contract or {}).get("dialogue_language") if isinstance(generation_contract, dict) else None
+        lang = "en" if str(language or "").strip().lower()[:2] in ("en", "ja", "ko") else "zh"
+        return anime_contract, authored_world_prompt_block(anime_contract, language=lang,
+                                                           render_style=_render_style.ANIME)
+    anime_contract["image_texture"] = _render_style.IMAGE_TEXTURE_ZH
+    return anime_contract, _render_style.anime_lock(block) + "\n" + _render_style.IMAGE_STYLE_BLOCK_ZH
+
+
+def _culture_lock_for(episode: str, generation_contract: dict[str, Any] | None = None) -> tuple[dict[str, Any], str]:
     """(row culture contract, prompt lock block) for an episode's identity plates.
 
     The generation contract decides first: a declared authored world (era_lock AUTHORED_WORLD, or an English line
@@ -761,6 +787,7 @@ def build_plan(
     authorization_ref: str,
     plates_dir: Path | None = None,
     generation_contract: dict[str, Any] | None = None,
+    render_style: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     """Rows for the character-asset submitter.
 
@@ -776,7 +803,14 @@ def build_plan(
         base plate exists on disk.  The orchestrator re-runs this tool after
         each harvest, so views land in the next round.
     Returns (plan, unbuildable, deferred).
+
+    render_style=anime: a character card is generated from its description only (an operator's real face photo
+    is not a reference for a drawn character), and the other views keep the anime character design.
     """
+    style = _render_style.normalise(render_style) or _render_style.resolve_runtime(
+        episode, contract=generation_contract)
+    anime = style == _render_style.ANIME
+    same_identity_clause = _render_style.SAME_IDENTITY_CLAUSE_ZH if anime else SAME_IDENTITY_CLAUSE
     rows: list[dict[str, Any]] = []
     unbuildable: list[dict[str, Any]] = []
     deferred: list[dict[str, Any]] = []
@@ -784,6 +818,8 @@ def build_plan(
     for subject in subjects:
         subject_id = subject["subject_id"]
         sources = by_subject.get(subject_id) or []
+        if anime and subject["kind"] == "CHARACTER":
+            sources = []  # anime: the card comes from the description, never from a real photo
         preserve = subject_id in preserve_ids
         source_suffix = '_PRESERVE_ORIGINAL_V1' if preserve else ''
         if subject["kind"] != "CHARACTER":
@@ -879,7 +915,7 @@ def build_plan(
             prompt = ensure_prompt_file(
                 prompt_dir / f"{episode}-{subject_id}__{view}{source_suffix}.txt",
                 view_prompt_text(base_text, view, reference_clause=(
-                    source_clauses(sources, preserve_original=preserve)[1] if dual else SAME_IDENTITY_CLAUSE)))
+                    source_clauses(sources, preserve_original=preserve)[1] if dual else same_identity_clause)))
             if base_plate is None:
                 deferred.append({
                     "id": f"{subject_id}__{view}", "subject_id": subject_id, "view": view,
@@ -924,7 +960,9 @@ def build_plan(
         "deferred_view_rows": deferred,
         "new_asset_groups": rows,
     }
-    contract, block = culture_lock_for(episode, generation_contract)
+    if anime:
+        plan["render_style"] = _render_style.ANIME
+    contract, block = culture_lock_for(episode, generation_contract, render_style=style)
     for row in plan["new_asset_groups"]:
         # The submitter validates the culture contract on each transport row,
         # not only inside the asset-requirements specification.  Carry the
@@ -1098,6 +1136,7 @@ def main() -> int:
 
     gate_report_path = Path(args.gate_report_out)
     reused_subjects = verified_requirement_reuse(requirements)
+    style = _render_style.resolve_runtime(episode, contract=contract)
     plan, unbuildable, deferred = build_plan(
         [subject for subject in subjects if subject['subject_id'] not in reused_subjects],
         by_subject,
@@ -1107,6 +1146,7 @@ def main() -> int:
         authorization_ref=args.authorization_ref.strip(),
         plates_dir=Path(args.plates_dir) if args.plates_dir else None,
         generation_contract=contract,
+        render_style=style,
     )
     # CAMERA_GRAMMAR_V1: one multi-view reference sheet per character (+ one per declared state variant), once
     # per series; nothing for any other contract (character_reference_sheet.active).
@@ -1115,9 +1155,10 @@ def main() -> int:
     sheet_rows, sheet_deferred, sheet_skipped = _sheet.plan_rows(
         contract, load_json(series_library_path) if series_library_path and series_library_path.is_file() else library,
         episode=episode, prompt_dir=prompt_dir, plates_dir=Path(args.plates_dir) if args.plates_dir else None,
-        new_subject_ids={s["subject_id"] for s in subjects if s["subject_id"] not in reused_subjects})
+        new_subject_ids={s["subject_id"] for s in subjects if s["subject_id"] not in reused_subjects},
+        render_style=style)
     if sheet_rows or sheet_deferred or sheet_skipped:
-        culture, block = culture_lock_for(episode, contract)
+        culture, block = culture_lock_for(episode, contract, render_style=style)
         for row in sheet_rows:
             row["visual_culture_contract"] = dict(culture)
             apply_culture_lock(row, block)

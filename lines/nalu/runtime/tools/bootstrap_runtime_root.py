@@ -43,6 +43,9 @@ def main() -> int:
     ap.add_argument("--runtime-root", required=True)
     ap.add_argument("--line-id", default="my-line")
     ap.add_argument("--work", default="")
+    ap.add_argument("--render-style", choices=("live_action", "anime"), default="live_action",
+                    help="anime: identity cards are drawn from the character descriptions (no real source photo); "
+                         "recorded as qingshan.json project.render_style when that file exists")
     a = ap.parse_args()
     root = Path(a.runtime_root).expanduser().resolve()
     created, kept = [], []
@@ -66,14 +69,27 @@ def main() -> int:
             shutil.copy2(src, dst); created.append(f"runtime/configs/{name}")
         elif dst.exists():
             kept.append(f"runtime/configs/{name}")
+    anime = a.render_style == "anime"
+    if anime:  # render_style.py: an anime series needs no real face photo
+        config_path = root / "qingshan.json"
+        if config_path.is_file():
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            if (config.get("project") or {}).get("render_style") != "anime":
+                config.setdefault("project", {})["render_style"] = "anime"
+                config_path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+                created.append("qingshan.json project.render_style=anime")
     todo = [
-        "runtime/character_sources/<CHAR-ID>__SOURCE_V2_TANG.png  (one frontal photo per character; register with tools/intake_character_sources.py)",
+        ("render_style=anime: NO character photo is needed -- identity cards are generated from each character's "
+         "description; set qingshan.json project.render_style=\"anime\" (or visual_culture_contract.render_style)"
+         if anime else
+         "runtime/character_sources/<CHAR-ID>__SOURCE_V2_TANG.png  (one frontal photo per character; register with tools/intake_character_sources.py)"),
         "sources/<work>/  (licensed source text; ingest with ingest tooling, NALU_SOURCE_TXT)",
         "brand/  (9:16 end card PNG / 3 s mp4 used by S7)",
         "$ENGINE_ROOT/.env  (GIGGLE_API_KEY, GIGGLE_API_BASE) and $ENGINE_ROOT/qingshan.json (generation.paid_requests_enabled = second money lock)",
         "runtime/voice_catalog.json  (pick a provider voice per speaking character after `agentcut speech-voices`)",
     ]
-    print(json.dumps({"status": "PASS", "runtime_root": str(root), "created": created, "kept_existing": kept,
+    print(json.dumps({"status": "PASS", "runtime_root": str(root), "render_style": a.render_style,
+                      "created": created, "kept_existing": kept,
                       "owner_inputs_todo": todo,
                       "next": "export NALU_RUNTIME_ROOT=<runtime_root> NALU_ENGINE_ROOT=<engine checkout>; "
                               "python3 nalu_pipeline.py status --episode E01"}, ensure_ascii=False, indent=2))

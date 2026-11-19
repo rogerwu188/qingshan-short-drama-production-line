@@ -336,7 +336,7 @@ def find_standing_rule(orders: list[dict[str, Any]], *, episode: str, gate_id: s
 
 def standing_rule_condition(*, failed_gates: list[str], identity_failures: list[str],
                             identity_gate_id: str, decisions: list[dict[str, Any]],
-                            declared_characters: list[str]) -> dict[str, Any]:
+                            declared_characters: list[str], render_style: str | None = None) -> dict[str, Any]:
     """Re-derive the NO_FACE_PIXELS_IN_STILL condition from one still's own measurements.
 
     ``identity_failures`` are the identity gate's raw failure codes, not "<item>:<char>"
@@ -367,6 +367,11 @@ def standing_rule_condition(*, failed_gates: list[str], identity_failures: list[
         "other_failing_gates": other_gates,
         "declared_characters": sorted(declared_characters),
     }
+    if str(render_style or "").strip().lower() == "anime":
+        # render_style=anime: identity is the VLM character-consistency review, so a face-detector "no face pixels"
+        # code is not evidence of anything and this rule never admits (or refuses) on it
+        return {**condition, "covered": False, "render_style": "anime",
+                "reason": "NO_FACE_RULE_NOT_APPLICABLE_RENDER_STYLE_ANIME"}
     if not no_face:
         return {**condition, "covered": False, "reason": "NO_NO_FACE_PIXELS_FAILURE"}
     if measured:

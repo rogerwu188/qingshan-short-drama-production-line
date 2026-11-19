@@ -7,6 +7,7 @@ from typing import Any
 
 
 SCHEMA = "qingshan.keyframe_output_identity_gate.v1"
+ANIME_VLM_METHOD = "VLM_ANIME_CHARACTER_CONSISTENCY_V1"
 
 
 def evaluate(
@@ -37,11 +38,15 @@ def evaluate(
             if not row:
                 failures.append({"shot_id": shot, "entity_id": entity_id, "reason": "IDENTITY_OUTPUT_EVIDENCE_MISSING"})
                 continue
-            if row.get("method") != "INSIGHTFACE_COSINE_V1":
+            # the method the transport declared: InsightFace, or for render_style=anime the structured VLM anime
+            # character-consistency review (no cosine threshold: its PASS is the reviewer's on-model answer)
+            declared = str(contract.get("output_identity_verification_method") or "INSIGHTFACE_COSINE_V1")
+            anime = declared == ANIME_VLM_METHOD and row.get("method") == ANIME_VLM_METHOD
+            if row.get("method") != "INSIGHTFACE_COSINE_V1" and not anime:
                 failures.append({"shot_id": shot, "entity_id": entity_id, "reason": "IDENTITY_OUTPUT_METHOD_MISMATCH"})
             if row.get("output_sha256") != output_sha:
                 failures.append({"shot_id": shot, "entity_id": entity_id, "reason": "IDENTITY_OUTPUT_SHA_MISMATCH"})
-            if row.get("status") != "PASS" or row.get("threshold_pass") is not True:
+            if row.get("status") != "PASS" or (row.get("threshold_pass") is not True and not anime):
                 failures.append({"shot_id": shot, "entity_id": entity_id, "reason": "IDENTITY_OUTPUT_NOT_VERIFIED"})
     return {
         "schema": SCHEMA,

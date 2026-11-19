@@ -92,7 +92,13 @@ def episode_profile(runtime: Path, episode: str) -> dict[str, str]:
                          key=lambda p: _episode_key(p.name.split("_")[0]))
         brief = _read(earlier[-1]) if earlier else {}
     language = str(brief.get("dialogue_language") or brief.get("genre_lang") or "").strip().lower()
-    return {"language": language, "genre": str(brief.get("genre") or "").strip()}
+    # render_style (lines/nalu/runtime/tools/render_style.py): the brief, else qingshan.json project.render_style
+    style = str(brief.get("render_style") or "").strip().lower()
+    if not style:
+        project = (_read(Path(runtime) / "qingshan.json") or {}).get("project") or {}
+        style = str(project.get("render_style") or "").strip().lower() if isinstance(project, dict) else ""
+    return {"language": language, "genre": str(brief.get("genre") or "").strip(),
+            "render_style": "anime" if style == "anime" else "live_action"}
 
 
 def scene_hints(reports: Path) -> dict[str, dict[str, int]]:
@@ -242,6 +248,7 @@ def prepare(*, engine: Path, runtime: Path, episode: str, line: str = "nalu",
         library = bundles.locked_exemplars(run.lock_path, run.cache)
         chosen = ex_mod.select_for_episode(library, language=language, genre=profile["genre"],
                                            model=str(caps["model"]), scene_hints=scene_hints(reports),
+                                           render_style=profile.get("render_style"),
                                            config=config.get("exemplars") if isinstance(config.get("exemplars"),
                                                                                        dict) else None)
         knowledge = receipt.get("knowledge") if isinstance(receipt.get("knowledge"), dict) else {}

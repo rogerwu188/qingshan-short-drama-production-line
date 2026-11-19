@@ -93,6 +93,12 @@ def scene_authorities(sheet: dict, state: dict) -> dict[str, dict]:
     return authorities
 
 
+#: render_style=anime (lines/nalu/runtime/tools/render_style.PROMPT_BATCH_FRAME_EN, kept verbatim here)
+ANIME_FRAME_LINE = ("Create exactly one continuous 2D anime frame (modern Japanese TV anime, cel-shaded, clean line "
+                    "art, not photorealistic, not 3D) with one camera position and one decisive dramatic moment; "
+                    "no collage, panels, split screen, storyboard sheet, contact sheet, or inset image. ")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--sheet", required=True, type=Path)
@@ -105,7 +111,10 @@ def main() -> int:
     parser.add_argument("--max-retries", type=int, default=1)
     parser.add_argument("--storyboard-plan", type=Path)
     parser.add_argument("--storyboard-sheet-gate-report", type=Path)
+    parser.add_argument("--render-style", choices=("live_action", "anime"), default="live_action",
+                        help="anime: the keyframe frame line asks for a 2D anime frame instead of a photographic one")
     args = parser.parse_args()
+    anime = args.render_style == "anime"
 
     sheet = json.loads(args.sheet.read_text(encoding="utf-8"))
     state = json.loads(args.scene_state.read_text(encoding="utf-8"))
@@ -181,8 +190,9 @@ def main() -> int:
         ) if storyboard_row else ""
         prompt = (
             f"{episode} {beat_id} script-locked cinematic keyframe, vertical 9:16. "
-            "Create exactly one continuous photographic frame with one camera position and one decisive dramatic moment; no collage, panels, split screen, storyboard sheet, contact sheet, or inset image. "
-            f"Location: {authority['location']}; time: {authority['time_of_day']}; weather: {authority['weather']}; "
+            + (ANIME_FRAME_LINE if anime else
+               "Create exactly one continuous photographic frame with one camera position and one decisive dramatic moment; no collage, panels, split screen, storyboard sheet, contact sheet, or inset image. ")
+            + f"Location: {authority['location']}; time: {authority['time_of_day']}; weather: {authority['weather']}; "
             f"palette: {authority['palette']}. Beat: {beat.get('name', '')}. "
             f"Location binding: {compact(authority['location_prompt_tokens'])}. "
             f"Must show: {compact(beat.get('must_show'))}. New information: {compact(beat.get('new_information'))}. "

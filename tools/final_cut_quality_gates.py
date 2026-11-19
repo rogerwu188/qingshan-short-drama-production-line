@@ -49,6 +49,9 @@ MAX_DOMINANT_LOCATION_PCT = 60.0
 # Craft dimensions are scored. `completeness` is deliberately absent: it is a
 # compliance checklist (G4b), not a measure of whether the episode is good, and
 # including it in a mean is what let 3.4/3.3 pass as 3.7.
+#: render_style=anime (2026-11-19): ``anti_ai`` keeps its key and this floor; the review request redefines what it asks
+#: (clean cel-shaded stylization intended; warping, off-model frames, mid-clip style drift penalised --
+#: lines/nalu/runtime/tools/render_style.ANTI_AI_QUESTION_ANIME), so no new dimension and no new gate.
 CRAFT_DIMENSIONS = ("story", "continuation", "pacing", "opening", "clarity", "visual", "anti_ai")
 MIN_CRAFT_DIMENSION = 3.5
 COMPLIANCE_PREREQUISITES = ("identity_color_consistent", "opening_3s_hook")
