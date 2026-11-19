@@ -4113,7 +4113,7 @@
     },
     {
       "path": "tools/compile_video_unit_plan.py",
-      "sha256": "cecca112535dedab3261f8ef9b8c01bdd04e0d03387e63bcd4acb6fdc45a461d"
+      "sha256": "b2cfc4b4e80f28fb86c26f719836ed3eba3900cf3e15d3626c9e0a52ddfaa5fa"
     },
     {
       "path": "tools/concat_mp4s.swift",
@@ -7557,7 +7557,7 @@
     },
     {
       "path": "tools/tests/test_compile_video_unit_plan.py",
-      "sha256": "3b332e7806a825bf25e73dd91340cbfaedffea8378f7e8f63f0bac2ba2d6b896"
+      "sha256": "af13a6e49e2b9abe96b8e746e35bd35c86a5dd23d44700d930f6d0d559f694f6"
     },
     {
       "path": "tools/tests/test_concurrent_dispatch.py",
