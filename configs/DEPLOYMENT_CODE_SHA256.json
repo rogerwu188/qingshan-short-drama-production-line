@@ -5861,7 +5861,7 @@
     },
     {
       "path": "tools/provider_scope_projection.py",
-      "sha256": "a921c4626516b91d56edace9f43cd8c03a437c1b5ae7f248acbb0ff1e4a38662"
+      "sha256": "3207ac770a296bd3ad6ec44017e8e14c99a1dda68711505b98169e30f9dd29e1"
     },
     {
       "path": "tools/provider_semantic_coverage.py",
@@ -6641,7 +6641,7 @@
     },
     {
       "path": "tools/shot_media_admission_gate.py",
-      "sha256": "96f610fcd4e14d0e31c2a3a68d3690b25e68c6c19d23f7b7be06ee75866464e9"
+      "sha256": "17c899131e776dfeb753e7f3be9dbcc6d3ecf6f8493b58891d6bb1d35b7932aa"
     },
     {
       "path": "tools/shot_prompt_professionalism_gate.py",
@@ -9113,7 +9113,7 @@
     },
     {
       "path": "tools/tests/test_shot_media_admission_gate.py",
-      "sha256": "e3c41f1a1a50e8f4b6977b717f7a2bc740fdb1c1f203ce095b8a5f222fe75c15"
+      "sha256": "b20ddb20cbbfe13ab0ed6832f531d123f84b0e8b5d088123fbf1e23c7cd31265"
     },
     {
       "path": "tools/tests/test_shot_prompt_professionalism_gate.py",

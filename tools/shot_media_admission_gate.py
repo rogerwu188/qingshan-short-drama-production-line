@@ -16,9 +16,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from tools.provider_scope_projection import binding_role_for
+    from tools.provider_scope_projection import binding_role_for, namespace_known
 except ModuleNotFoundError:  # pragma: no cover - flat sys.path deployments
-    from provider_scope_projection import binding_role_for
+    from provider_scope_projection import binding_role_for, namespace_known
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -426,6 +426,10 @@ def precheck_submission_inputs(
         # nothing downstream used to notice, because only role-less ids and
         # file SHAs were ever compared.
         namespace_role = binding_role_for(entity_id, None)
+        known_namespace = namespace_known(entity_id)
+        if not known_namespace:
+            # an unprefixed id has no namespace to contradict: the declared role is the only evidence
+            namespace_role = binding_role
         if binding_role != namespace_role:
             # The role claim and the id namespace disagree about what this
             # plate is.  An explicit role that contradicts the namespace is the

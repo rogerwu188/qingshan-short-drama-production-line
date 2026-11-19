@@ -230,6 +230,32 @@ class ShotMediaAdmissionGateTests(unittest.TestCase):
         }
         self.assertEqual(precheck_submission_inputs(task)["status"], "PASS")
 
+    def test_precheck_trusts_declared_scene_role_for_unprefixed_id(self):
+        """JA-01 E01 on 1485 (2026-11-19): a writer scene id without LOC- (ROYAL_HALL) bound as a scene plate was
+        read as a character by the namespace fallback and failed every keyframe with a namespace conflict."""
+        task = {
+            "canonical_characters": ["CHAR-A"],
+            "canonical_props": [],
+            "reference_image_sequence": [
+                {"role": "character", "entity_id": "CHAR-A", "path": "a.png"},
+                {"role": "scene", "entity_id": "ROYAL_HALL", "path": "hall.png"},
+            ],
+        }
+        report = precheck_submission_inputs(task)
+        self.assertNotIn("REFERENCE_ROLE_NAMESPACE_CONFLICT:ROYAL_HALL", json.dumps(report))
+        self.assertEqual(report["status"], "PASS")
+
+    def test_precheck_still_flags_prefixed_namespace_conflict(self):
+        task = {
+            "canonical_characters": ["CHAR-A"],
+            "canonical_props": [],
+            "reference_image_sequence": [
+                {"role": "character", "entity_id": "CHAR-A", "path": "a.png"},
+                {"role": "scene", "entity_id": "CHAR-A", "path": "swapped.png"},
+            ],
+        }
+        self.assertIn("REFERENCE_ROLE_NAMESPACE_CONFLICT:CHAR-A", json.dumps(precheck_submission_inputs(task)))
+
     def test_semantic_keyframe_policy_rejects_label_only_contact_sheet(self):
         task = {
             "media_stage": "KEYFRAME",

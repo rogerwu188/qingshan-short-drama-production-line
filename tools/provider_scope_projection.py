@@ -97,13 +97,28 @@ def binding_role_for(entity_id: str, role: Any = None) -> str:
     # SPACE-<scene> is the acting entity of an all-environment unit (build_nalu_preproduction empty_unit): it sits in
     # canonical_props and is bound as OBJECT_REFERENCE, so it must not fall through to IDENTITY (field device …1324
     # E03-VU-008, 2026-11-08: REFERENCE_ROLE_NAMESPACE_CONFLICT:SPACE-E03-S02 at every S6 precheck)
-    if entity.startswith(("PROP-", "OBJ-", "SET-", "CREATURE-", "ANIMAL-", "SPACE-")):  # beings bind as prop plates (PROP-TIGER worked; lab 化神 CREATURE-CRANE)
+    if entity.startswith(PROP_PREFIXES):  # beings bind as prop plates (PROP-TIGER worked; lab 化神 CREATURE-CRANE)
         return "PROP"
     # EGSM- is the per-episode global space map (nalu, e.g. EGSM-AQ-E04); it was falling through to
     # IDENTITY and failed every keyframe of 401286 《阿Q正传》 E04 (2026-10-16)
-    if entity.startswith(("GSM-", "EGSM-", "LOC-", "SUBSPACE-", "ROOM-", "ZONE-", "FIXED-", "ANGLE-")):
+    if entity.startswith(NON_IDENTITY_PREFIXES):
         return "NON_IDENTITY"
     return "IDENTITY"
+
+
+NON_IDENTITY_PREFIXES = ("GSM-", "EGSM-", "LOC-", "SUBSPACE-", "ROOM-", "ZONE-", "FIXED-", "ANGLE-")
+PROP_PREFIXES = ("PROP-", "OBJ-", "SET-", "CREATURE-", "ANIMAL-", "SPACE-")
+
+
+def namespace_known(entity_id: str) -> bool:
+    """True when the id carries a machine namespace prefix (CHAR- / PROP- family / location family).
+
+    An unprefixed id (a writer-authored scene id such as ROYAL_HALL, JA-01 E01 on 1485, 2026-11-19) says nothing
+    about what it is; the role-less fallback above treats it as IDENTITY only for legacy projections.  Callers that
+    compare a declared role with the namespace must skip the comparison for these ids and trust the declared role,
+    instead of adding one more prefix per incident (SET-, SPACE-, EGSM- each failed a device this way)."""
+    entity = str(entity_id or "").strip().upper()
+    return entity.startswith(("CHAR-",) + PROP_PREFIXES + NON_IDENTITY_PREFIXES)
 
 
 # Identity tiers a character catalog row may declare.  Only NAMED roles carry a
