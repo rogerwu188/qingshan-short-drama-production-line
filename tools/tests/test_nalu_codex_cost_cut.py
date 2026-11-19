@@ -205,6 +205,37 @@ class PaidStageOutputTest(unittest.TestCase):
         self.assertTrue(out.stdout.strip().splitlines()[-1].startswith("NEXT: END_TURN_WAIT_FOR_TICK"))
 
 
+class PaidStageSelfDetachTest(PaidStageOutputTest):
+    """Device …1485 (2026-11-19): runs started from the producer's exec tool died with its process group; the
+    stage now re-launches itself under setsid -w.  A shim setsid records that the child ran detached."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        root = Path(self.tmp.name)
+        shim_dir = root / "shim"
+        shim_dir.mkdir()
+        self.setsid_log = root / "setsid.log"
+        shim = shim_dir / "setsid"
+        shim.write_text('#!/bin/bash\n[ "$1" = "-w" ] && shift\n'
+                        'echo "detached=$NALU_PAID_STAGE_DETACHED args=$*" >> "$SETSID_LOG"\nexec "$@"\n')
+        shim.chmod(0o755)
+        self.env["PATH"] = f"{shim_dir}:{self.env['PATH']}"
+        self.env["SETSID_LOG"] = str(self.setsid_log)
+
+    def test_stage_runs_in_its_own_session_and_keeps_output_and_exit_code(self) -> None:
+        out = self.run_stage("E08", "S6", "S6", FAKE_MODE="wait")
+        self.assertEqual(out.returncode, 1, out.stderr)
+        self.assertTrue(out.stdout.strip().splitlines()[-1].startswith("NEXT: END_TURN_WAIT_FOR_TICK"))
+        logged = self.setsid_log.read_text()
+        self.assertEqual(logged.count("detached=1"), 1)                    # exactly one re-launch, no loop
+        self.assertIn("E08 S6 S6", logged)
+
+    def test_status_and_opt_out_stay_in_process(self) -> None:
+        self.run_stage("--status", "E08")
+        self.run_stage("E08", "S6", "S6", FAKE_MODE="pass", NALU_PAID_STAGE_NO_DETACH="1")
+        self.assertFalse(self.setsid_log.exists())
+
+
 class CompactPipelineOutputTest(unittest.TestCase):
     def test_compact_mode_prints_stage_lines_only_and_logs_everything(self) -> None:
         import nalu_pipeline as np_  # noqa: PLC0415
