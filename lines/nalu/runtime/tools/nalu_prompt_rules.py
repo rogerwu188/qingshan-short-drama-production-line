@@ -120,6 +120,79 @@ def min_dialogue_seconds(text: str, cps: float | None, language: str = "zh") -> 
     return math.ceil(raw / DLG_ROUND_S - 1e-9) * DLG_ROUND_S
 
 
+# --------------------------------------------------------------------------- one Korean / Japanese line timing
+# static_design_gate R8 (the minimum) and nalu_writer_selfcheck_seq29 5a (minimum + 1.0 s template tolerance) must
+# time a Korean / Japanese line identically, or no target_seconds satisfies both (device 0080, KO-01 E01 2026-11-19:
+# R8 counted a romanised speaker label letter by letter at the zh rate -- 4.0 s -- while 5a capped the same
+# 3-syllable line at 2.5 s).  Both rules call ``dialogue_min_seconds``; zh / en lines return None and keep each
+# rule's historical path byte-identically.
+_KO_SCRIPT_RE = re.compile("[가-힣]")
+_JA_SCRIPT_RE = re.compile("[ぁ-ゖァ-ヺ]")
+#: a ``Speaker：line`` / ``Speaker: line`` label is stripped when its separator sits inside this window
+SPEAKER_LABEL_WINDOW = 24
+
+
+def _dialogue_rows(dialogue: Any) -> list[str]:
+    if isinstance(dialogue, (list, tuple)):
+        rows = [str(x.get("text") if isinstance(x, dict) else x) for x in dialogue]
+    else:
+        rows = str(dialogue or "").splitlines()
+    return [row.strip() for row in rows if str(row).strip()]
+
+
+def spoken_dialogue_text(dialogue: Any) -> str:
+    """The words actually spoken: every row's ``Speaker：`` / ``Speaker:`` label removed (a label may be a
+    romanised name such as ``Won U-gyeong``), rows joined by one space."""
+    out = []
+    for row in _dialogue_rows(dialogue):
+        for sep in ("：", ":"):
+            at = row.find(sep)
+            if 0 <= at < SPEAKER_LABEL_WINDOW:
+                row = row[at + 1:].strip()
+                break
+        out.append(row)
+    return " ".join(out)
+
+
+def dialogue_timing_language(spoken: Any, declared: Any = None) -> str | None:
+    """"ko" / "ja" when the spoken line is Korean / Japanese, else None (the caller's zh / en path).
+
+    The script decides first (a Hangul / kana line is Korean / Japanese whatever the contract says); a ja / ko
+    contract also times its script-less lines (a kanji-only Japanese line) in its own language."""
+    import lang_profile as _lang  # noqa: PLC0415 - runtime tools dir is on sys.path
+    text = str(spoken or "")
+    if _KO_SCRIPT_RE.search(text):
+        return "ko"
+    if _JA_SCRIPT_RE.search(text):
+        return "ja"
+    code = _lang.language_code(declared)
+    return code if code in ("ja", "ko") else None
+
+
+def dialogue_rate(delivery: Any) -> float | None:
+    """The shot's authored ja / ko rate (``dialogue_delivery.speech_units_per_second``), None for the
+    lang_profile default.  The same field dialogue_cut_safety and speaking_unit_duration read."""
+    value = (delivery or {}).get("speech_units_per_second") if isinstance(delivery, dict) else None
+    try:
+        rate = float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+    return rate if rate and rate > 0 else None
+
+
+def dialogue_min_seconds(dialogue: Any, delivery: Any = None, declared_language: Any = None) -> float | None:
+    """Shared minimum shot length of a Korean / Japanese dialogue shot (R8 floor == seq29 5a ``derived``):
+    spoken units (Korean syllables / Japanese characters) / rate + 0.5 s, rounded up to 0.5 s.  None for a
+    zh / en line.  A line inside the writer's S-08 length (ko <= 18 syllables, ja <= 22 characters) at the
+    default rate needs at most 4.5 s, inside the 5 s speaking-unit maximum; a longer line is split by the
+    writer (speaking_unit_duration WRITER_SPLIT_REQUIRED), never fixed by stretching the shot."""
+    spoken = spoken_dialogue_text(dialogue)
+    language = dialogue_timing_language(spoken, declared_language)
+    if language is None:
+        return None
+    return min_dialogue_seconds(spoken, dialogue_rate(delivery), language)
+
+
 def apply(shot: dict, ctx: dict) -> tuple[str, list[str], list[str]]:
     act = str(shot.get("action") or "")
     text_all = act + str(shot.get("entry") or "") + str(shot.get("exit") or "")
