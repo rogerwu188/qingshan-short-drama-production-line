@@ -1,6 +1,8 @@
 import copy
+import os
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -189,8 +191,31 @@ class CompileVideoUnitPlanTest(unittest.TestCase):
                 for i, shot in enumerate(shots)
             ],
         }
-        with self.assertRaisesRegex(ValueError, "one-to-one"):
+        with mock.patch.dict(os.environ, {"NALU_CRAFT_STANDARD": "off"}), \
+                self.assertRaisesRegex(ValueError, "one-to-one"):
             compile_grouping_spec(production, spec)
+
+    def test_craft_standard_allows_short_one_to_one_units(self):
+        """NALU_CRAFT_STANDARD_v1 (default on): short single-beat units are the standard, not a refusal."""
+        shots = [
+            {"shot_id": f"S{i:02d}", "scene_id": "SC", "duration_seconds": 4}
+            for i in range(12)
+        ]
+        production = {"episode": "E99", "runtime_seconds": 48, "source": {"script_sha256": "abc"}, "shots": shots}
+        spec = {
+            "episode": "E99", "source_script_sha256": "abc",
+            "groups": [
+                {"unit_id": f"U{i:02d}", "editorial_shot_ids": [shot["shot_id"]],
+                 "narrative_beat": "beat", "duration_exception_reason": "craft standard single beat",
+                 "camera_plan": locked_camera(f"beat-{i}")}
+                for i, shot in enumerate(shots)
+            ],
+        }
+        with mock.patch.dict(os.environ, {"NALU_CRAFT_STANDARD": "on"}):
+            try:
+                compile_grouping_spec(production, spec)
+            except ValueError as exc:  # later contract checks may still apply; the grouping refusals must not
+                self.assertNotRegex(str(exc), "one-to-one|sub-preferred")
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -98,6 +99,11 @@ def compile_grouping_spec(production: dict[str, Any], spec: dict[str, Any]) -> d
     # CAMERA_GRAMMAR_V1 grouping cuts where the writer cut: near 1:1 units and short authored shots are
     # expected there, and a shot below the provider minimum is padded (project_provider_slots), not refused.
     cut_grammar = spec.get("grouping_policy") == "CAMERA_GRAMMAR_V1"
+    # NALU_CRAFT_STANDARD_v1 (line owner 2026-11-17/19): fast 爽剧 pacing asks the writer for short single-beat
+    # shots at the provider minimum, so the legacy "group into 5-8 s units" refusals are skipped while the
+    # standard is on (NALU_CRAFT_STANDARD=off restores them).  Same billed seconds; hard 3-12 s limits stay.
+    short_cuts_ok = cut_grammar or str(os.environ.get("NALU_CRAFT_STANDARD", "on")).strip().lower() not in (
+        "off", "0", "false", "no")
     groups = spec.get("groups")
     if not isinstance(groups, list) or not groups:
         raise ValueError("grouping spec must contain semantic groups")
@@ -188,9 +194,9 @@ def compile_grouping_spec(production: dict[str, Any], spec: dict[str, Any]) -> d
     short_exception_count = sum(
         1 for unit in units if unit["duration_seconds"] < preferred_minimum
     )
-    if len(shots) >= 12 and len(units) == len(shots) and not cut_grammar:
+    if len(shots) >= 12 and len(units) == len(shots) and not short_cuts_ok:
         raise ValueError("editorial shots may not map one-to-one to video units; semantic grouping is required")
-    if len(units) >= 8 and short_exception_count / len(units) > 0.25 and not cut_grammar:
+    if len(units) >= 8 and short_exception_count / len(units) > 0.25 and not short_cuts_ok:
         raise ValueError("too many sub-preferred video units; regroup continuous editorial beats")
 
     validate_transition_sequence(units)
