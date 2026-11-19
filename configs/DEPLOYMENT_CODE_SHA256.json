@@ -745,7 +745,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/lang_profile.py",
-      "sha256": "6da43b1f287bdf90ef1a695a903a18f0121da67eba177c782fd8d52383da4bb4"
+      "sha256": "caf6c74fde0c1f8b19208f3f698ca154802cd5a3f866a4b7485e8ffaa9c9d6e0"
     },
     {
       "path": "lines/nalu/runtime/tools/library_lock_non_plate.py",
@@ -5765,7 +5765,7 @@
     },
     {
       "path": "tools/portable_runtime.py",
-      "sha256": "b7409290f6c925618927f69581dc4c17ddcea0f727a6255cd40747343c154be9"
+      "sha256": "3dedf4c8ffb6076630ba9caca3c63cf52aa1d7fcd2dbeab8cefe47b53f14c809"
     },
     {
       "path": "tools/pose_transition_anchor_gate.py",
@@ -7657,7 +7657,7 @@
     },
     {
       "path": "tools/tests/test_dialogue_language_ja_ko.py",
-      "sha256": "ad47840e150f2994867f86c2fcef2428da7aa6fa4003c2e0401c8c90d511bdbb"
+      "sha256": "4563de4e048c0b85e108c0cf11e968eaed05969220d11763e732f2eb92a28393"
     },
     {
       "path": "tools/tests/test_dialogue_register_gate.py",

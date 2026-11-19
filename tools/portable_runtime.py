@@ -117,8 +117,21 @@ def resolve_whisper_model(
 
 #: per-language preferred faster-whisper model (lang_profile.whisper_model); owner 2026-11-18: Japanese
 #: ASR uses "medium" rather than a lower recall floor.  Kept here as plain data so this module stays import-free.
-LANGUAGE_WHISPER_MODELS = {"ja": "medium"}
 LANGUAGE_WHISPER_FALLBACK = "small"
+#: Opt-in bigger model per language.  ja -> medium was the default (owner 2026-11-18) until device …1485
+#: JA-01 E01 (2026-11-19): on the mini-PC CPU medium made S6 post-gen QA take ~45 min for 28 units and then
+#: stall on single units.  The gates prime Whisper with the expected line, and primed `small` recalled the
+#: Japanese reference lines at 1.0 (same as medium), so small is the default again; NALU_WHISPER_JA_MODEL=medium
+#: restores the bigger model on a host that can afford it.
+WHISPER_JA_ENV = "NALU_WHISPER_JA_MODEL"
+
+
+def _language_whisper_models() -> dict[str, str]:
+    ja = str(os.environ.get(WHISPER_JA_ENV) or "").strip()
+    return {"ja": ja} if ja and ja != LANGUAGE_WHISPER_FALLBACK else {}
+
+
+LANGUAGE_WHISPER_MODELS = _language_whisper_models()
 
 
 def language_whisper_model(language: object, explicit: str | os.PathLike[str] | None = None) -> tuple[str, str]:
@@ -128,7 +141,7 @@ def language_whisper_model(language: object, explicit: str | os.PathLike[str] | 
     if explicit or os.environ.get(WHISPER_ENV):
         return resolve_whisper_model(explicit)
     code = str(language or "").strip().lower().replace("_", "-").split("-")[0]
-    preferred = LANGUAGE_WHISPER_MODELS.get(code)
+    preferred = _language_whisper_models().get(code)
     if preferred:
         cached = _cached_whisper_snapshot(preferred)
         # a snapshot whose model.bin is not there yet is a download still in flight (setup_host.sh /
@@ -142,7 +155,7 @@ def language_whisper_model(language: object, explicit: str | os.PathLike[str] | 
 def language_whisper_model_name(language: object) -> str:
     """``"small"`` for zh / en / ko (the historical literal); ja -> the cached medium snapshot when present."""
     code = str(language or "").strip().lower().replace("_", "-").split("-")[0]
-    if code not in LANGUAGE_WHISPER_MODELS:
+    if code not in _language_whisper_models():
         return LANGUAGE_WHISPER_FALLBACK
     return language_whisper_model(code)[0]
 

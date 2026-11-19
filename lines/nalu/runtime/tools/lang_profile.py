@@ -125,7 +125,8 @@ PROFILES: dict[str, LangProfile] = {
         speech_re=re.compile(f"[{HAN}{KANA}々A-Za-z0-9０-９]"), rate=6.0,
         separators=("：", ":"), joiner="",
         # owner 2026-11-18: Japanese ASR uses a bigger Whisper model rather than a lower recall floor
-        whisper="ja", whisper_model="medium", h3_tag="Japanese", endcard="つづく",
+        whisper="ja", whisper_model="small",  # medium is opt-in (NALU_WHISPER_JA_MODEL; device …1485 2026-11-19)
+        h3_tag="Japanese", endcard="つづく",
         voice_locale_text="ja-JP Japanese, standard Tokyo accent, no accent processing, no pitch shifting",
         calibration=("えっ、本当に？もう一度言って！三日も待ったのに、それだけなの？",
                      "どうしてこうなったの？さっきまで普通だったのに、全部変わっちゃった！"),

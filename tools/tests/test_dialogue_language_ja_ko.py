@@ -57,7 +57,7 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual((ko.locale, ko.whisper, ko.h3_tag, ko.unit, ko.joiner), ("ko-KR", "ko", "Korean", "char", " "))
         self.assertEqual((ja.rate, ko.rate), (6.0, 5.0))
         self.assertEqual((ja.endcard, ko.endcard), ("つづく", "다음 화에 계속"))
-        self.assertEqual(ja.whisper_model, "medium")
+        self.assertEqual(ja.whisper_model, "small")
         self.assertEqual(ko.whisper_model, "small")
         self.assertIn("ja-JP Japanese", ja.voice_locale_text)
         self.assertIn("ko-KR Korean", ko.voice_locale_text)
@@ -169,7 +169,13 @@ class AsrComparisonTests(unittest.TestCase):
                 snap.mkdir(parents=True)
                 self.assertEqual(portable_runtime.language_whisper_model_name("ja"), "small")  # still downloading
                 (snap / "model.bin").write_bytes(b"x")
-                self.assertEqual(Path(portable_runtime.language_whisper_model_name("ja")).name, "abc")
+                # small is the default even with medium installed (…1485: medium stalled S6 post-gen QA)
+                self.assertEqual(portable_runtime.language_whisper_model_name("ja"), "small")
+                os.environ[portable_runtime.WHISPER_JA_ENV] = "medium"  # opt-in on a host that can afford it
+                try:
+                    self.assertEqual(Path(portable_runtime.language_whisper_model_name("ja")).name, "abc")
+                finally:
+                    os.environ.pop(portable_runtime.WHISPER_JA_ENV, None)
                 self.assertEqual(portable_runtime.language_whisper_model_name("zh"), "small")
                 self.assertEqual(portable_runtime.language_whisper_model_name("ko"), "small")
 
