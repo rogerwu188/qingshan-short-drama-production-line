@@ -49,6 +49,11 @@ WORK = Path(_np.WORK_ROOT).expanduser().resolve()  # one definition in nalu_path
 # character sheet of one person.
 V2_IDENTITY_LINE = r"^@Image\d+ is (?:.+'s (?:face and body|look)\.|a character sheet of one person: )"
 
+
+# Keyframe 「地点：<location>｜房间：<room>」 and 「→ <global space map> → SUBSPACE」: any authored id format.
+KF_LOCATION_RE = re.compile(r"地点：([A-Za-z0-9_.-]+)｜房间：([A-Za-z0-9_.-]+)")
+KF_GSM_RE = re.compile(r"→ ([A-Za-z0-9_.-]+) → SUBSPACE")
+
 def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -457,8 +462,10 @@ def digest(ep: str, out: Path, **input_paths) -> dict:
         if scope_removals:
             chk("kf_lighting_participants_scoped_to_cast", True,
                 ",".join(sorted({r["name"] for r in scope_removals})))
-        loc = re.search(r"地点：(LOC-[A-Z0-9-]+)｜房间：(ROOM-[A-Z0-9-]+)", kf_text)
-        gm = re.search(r"→ (GSM-[A-Z0-9-]+) → SUBSPACE", kf_text)
+        # Any authored id format (JA-01 E01 on 1485, 2026-11-19: ROYAL_HALL / ROYAL_HALL_1 have no LOC-/ROOM-
+        # prefix and contain "_"): the old prefix-only patterns failed every keyframe of such a series.
+        loc = KF_LOCATION_RE.search(kf_text)
+        gm = KF_GSM_RE.search(kf_text)
         chk("kf_location_matches_scene", bool(loc) and loc.group(1) == sc["location_id"], loc.group(1) if loc else "")
         chk("kf_room_exists_in_gsm", bool(loc and gm and loc.group(2) in kf_text), f"{gm.group(1) if gm else ''}/{loc.group(2) if loc else ''}")
         chk("kf_no_completion_state_leak", shot["completion_state"] not in section(kf_text, "entry_state") , shot["completion_state"][:30])
