@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2492,
+  "file_count": 2494,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -833,7 +833,7 @@
     },
     {
       "path": "lines/nalu/runtime/tools/paid_stage.sh",
-      "sha256": "eeff28d433147dcda094117f208a5824a1990bfbacc1d5ee92143bc8d6b4e671"
+      "sha256": "59af462ff5eda096bb0da14eed328d11a7c0b5325aabbe5cd739e6db1393a079"
     },
     {
       "path": "lines/nalu/runtime/tools/post_generation_qa_runner.py",
@@ -4660,6 +4660,10 @@
       "sha256": "917f94a61f9c8262a22fc5df1e94746e04020362032d95a9a7845436819e401d"
     },
     {
+      "path": "tools/ffmpeg_caps.py",
+      "sha256": "60adfdf4dcfeabaa25674b08c89b0f4e18da224051d3a66fc2fd03672fc42e21"
+    },
+    {
       "path": "tools/fight_cut_plan_gate.py",
       "sha256": "29c30ed9bd914e3a7d24a69db6e0649122830a0a6743c9d58b6019504697d8af"
     },
@@ -7884,6 +7888,10 @@
       "sha256": "0f5848c69315af1209e5c3d0e33d18be140a1c04ad1ee92d8d04c18ebfb4f7cf"
     },
     {
+      "path": "tools/tests/test_ffmpeg_caps.py",
+      "sha256": "22ef3a03b2740a11b0b7e02bdc08b78f5dab0ecb3c21d9a6dde6a441eb0d9ead"
+    },
+    {
       "path": "tools/tests/test_fight_cut_plan_gate.py",
       "sha256": "29a2a8529619cc0a8b322b331b3553e9fc4e51da5721e42918f876aea07de592"
     },
@@ -8421,7 +8429,7 @@
     },
     {
       "path": "tools/tests/test_nalu_codex_cost_cut.py",
-      "sha256": "ed77045377b43854f56156d528a996bfc9cb668dd3bbe5aaae45d5f1d32becf2"
+      "sha256": "dc8e1acb43f0db9219d51711569bffef2964e0b8f11db21818c390eb84df3fda"
     },
     {
       "path": "tools/tests/test_nalu_codex_executor.py",

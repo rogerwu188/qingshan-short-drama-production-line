@@ -65,6 +65,26 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$HERE/../../../.." && pwd)"
 VENV="${NALU_VENV_PYTHON:-$ENGINE_ROOT/.qingshan-venv/bin/python}"
 
+# SELF-DETACH (device …1485 JA-01 E01, 2026-11-19): a paid_stage.sh run started from the producer's exec tool
+# was killed together with that tool's process group when the producer's turn ended -- three S6/S7 runs died
+# mid-step with no exit line, no traceback and no OOM, while every run started under setsid finished.  The run
+# therefore re-launches itself in its own session (setsid -w); this caller waits, prints its output and returns
+# its exit code.  If the caller is killed the run carries on and the system tick follows it (paid lock + record).
+# --status / --check stay in-process (free, instant).  NALU_PAID_STAGE_NO_DETACH=1 or no setsid: as before.
+if [ "${NALU_PAID_STAGE_DETACHED:-0}" != "1" ] && [ "${NALU_PAID_STAGE_NO_DETACH:-0}" != "1" ] \
+    && [ "${1:-}" != "--status" ] && [ "${1:-}" != "--check" ] && [ $# -ge 2 ] \
+    && command -v setsid >/dev/null 2>&1; then
+  DETACH_DIR="${NALU_RUNTIME_ROOT:-$HOME/nalu_runtime}/runtime/paid_runs/_detached"
+  mkdir -p "$DETACH_DIR"
+  DETACH_OUT="$DETACH_DIR/$(date -u +%Y%m%dT%H%M%SZ)_$$.out"
+  : > "$DETACH_OUT"
+  NALU_PAID_STAGE_DETACHED=1 setsid -w bash "${BASH_SOURCE[0]}" "$@" > "$DETACH_OUT" 2>&1 < /dev/null &
+  DETACH_RC=0
+  wait "$!" || DETACH_RC=$?
+  cat "$DETACH_OUT"   # already capped (run_capped): the tail, the full-log path and the NEXT line
+  exit "$DETACH_RC"
+fi
+
 die() { printf 'paid_stage: %s\n' "$*" >&2; exit "${2:-3}"; }
 
 usage() {
