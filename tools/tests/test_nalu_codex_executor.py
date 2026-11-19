@@ -483,6 +483,22 @@ class CodexExecutorTests(unittest.TestCase):
         self.assertEqual(session["fresh_threads"][-1]["from_thread"], "th-1")
         self.assertEqual(session["codex_thread_id"], "th-1")             # the runner records the new thread's id
 
+    def test_provider_rejected_resume_hands_off_to_a_fresh_thread(self):
+        """Device …1485 (2026-11-19): codex-cli 0.170 sent `additional_tools` on exec resume and HopsAPI refused
+        every resume before the first token; the next resume must start a fresh thread instead."""
+        self.write_provider()
+        self.run_episode('等\nNALU_STATUS: {"episode":"E13","state":"WAITING_REMOTE"}', "E13")
+        self._rollout("th-1", 120_000)                                    # small thread: no size hand-off
+        d = self.cp.run_dir("E13")
+        session = self.cp.read_json(d / "session.json")
+        with open(session["log"], "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "turn.failed", "error": {"message": "Invalid value: 'additional_tools'.",
+                                 "type": "invalid_request_error", "param": "input[0].type"}}) + "\n")
+        out = self.cp.resume("E13", "继续")
+        self.reap(out["pid"])
+        self.assertIsNone(out["resumed_from"])
+        self.assertEqual(out["fresh_thread"]["from_thread"], "th-1")
+
     def test_small_thread_is_resumed_in_place(self):
         self.write_provider()
         self.run_episode('等\nNALU_STATUS: {"episode":"E12","state":"WAITING_REMOTE"}', "E12")

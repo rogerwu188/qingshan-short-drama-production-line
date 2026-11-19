@@ -1,7 +1,7 @@
 {
   "schema": "qingshan.deployment_code_integrity.v1",
   "scope": "PUBLIC_REUSABLE_ENGINE_NOT_PRIVATE_RUNTIME",
-  "file_count": 2491,
+  "file_count": 2492,
   "files": [
     {
       "path": "agent_factory/AGENTS.md",
@@ -1001,7 +1001,7 @@
     },
     {
       "path": "skills/nalu-claude-code/scripts/codex_production.py",
-      "sha256": "1a67e8a22fbbc9340e5ccaf5fb4f70b90b7cab57124bf61bc271234882547261"
+      "sha256": "f22e3cbab4c51b98ded92dba98387463b82cd66e022930757560b943d85ffa53"
     },
     {
       "path": "skills/nalu-claude-code/scripts/collective_provision.py",
@@ -8272,6 +8272,10 @@
       "sha256": "6ccc854f08e892ad02d0e58f8d8598b113780678103af1e2f1fe72e709fe9e55"
     },
     {
+      "path": "tools/tests/test_kf_location_id_format.py",
+      "sha256": "b1a1e9de20486f4e2fd2db75bceccaaff9ec8dbf4a530cb1a2fcfaa96d94716b"
+    },
+    {
       "path": "tools/tests/test_knowledge_consumption_ledger.py",
       "sha256": "9327493f6b4880d42c2aca40ba5517e80caf0c2831217b0a3afbfba7faa0f654"
     },
@@ -8421,7 +8425,7 @@
     },
     {
       "path": "tools/tests/test_nalu_codex_executor.py",
-      "sha256": "d536d9da77fde979f9b959b4f54524fd74380ebec8e454a4623cb4b3deaf856b"
+      "sha256": "37097c3faa5daab5430810a08700fe8f6a6ea0b6fdab67191912f421810cf903"
     },
     {
       "path": "tools/tests/test_nalu_craft_standard.py",
