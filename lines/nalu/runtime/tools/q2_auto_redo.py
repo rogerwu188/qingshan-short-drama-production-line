@@ -51,6 +51,9 @@ def redo_findings(state: dict[str, Any] | None, unit_id: str) -> list[str]:
 
 
 def objective_failures(prepare_row: dict[str, Any]) -> list[str]:
+    # render_style=anime: these are InsightFace measurements, NOT_APPLICABLE to anime faces -- never a paid redo
+    if str((prepare_row or {}).get("render_style") or "").lower() == "anime":
+        return []
     return [key for key in FAILURE_PRIORITY if ((prepare_row or {}).get(key) or {}).get("status") == "FAIL"]
 
 

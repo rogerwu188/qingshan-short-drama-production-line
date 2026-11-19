@@ -42,6 +42,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import nalu_craft_standard as _craft  # noqa: E402
+import render_style as _render_style  # noqa: E402  per-series live_action | anime
 import nalu_paths as _np  # noqa: E402
 from nalu_qa_common import (  # noqa: E402
     ENGINE,
@@ -299,10 +300,37 @@ def _existing_request_matches(request_path: Path, *, video_sha: str,
     return request
 
 
+def dimension_questions(render_style: str | None = None) -> dict[str, str]:
+    """The reviewer's question per scored dimension.  render_style=anime REDEFINES ``anti_ai`` (same key, same 3.5
+    floor in final_cut_quality_gates / audience_score_gate): clean cel-shaded stylization is intended, warping,
+    off-model frames and mid-clip style drift are penalised."""
+    anime = _render_style.normalise(render_style) == _render_style.ANIME
+    return {
+        "story": "Does the finished cut tell a coherent and satisfying story?",
+        "continuation": "Does it create a clear reason to continue to the next episode?",
+        "pacing": "Does visible story progress occur without dead stretches?",
+        "opening": "Do the first 3 and 10 seconds earn attention?",
+        "clarity": "Can a first-time viewer follow who acts, why, and what changes?",
+        "visual": "Are composition, continuity, diversity, and legibility release-ready?",
+        "anti_ai": (_render_style.ANTI_AI_QUESTION_ANIME if anime else
+                    "Does the film avoid obvious AI drift, repetition, warping, and synthetic rhythm?"),
+        "completeness": "Are subtitles, sound, beginning, ending, and story handoff complete?",
+    }
+
+
+def _episode_render_style(episode: str) -> str:
+    """contract -> brief -> qingshan.json (render_style.py); live_action when nothing can be read."""
+    try:
+        contract = read_json(QaPaths(episode).contract)
+    except (Exception, SystemExit):  # noqa: BLE001
+        contract = None
+    return _render_style.resolve_runtime(episode, contract=contract if isinstance(contract, dict) else None)
+
+
 def prepare(*, episode: str, video: Path, metrics_path: Path, contact_sheet: Path,
             request_path: Path, asr_path: Path, detector_path: Path,
             technical_path: Path, subtitle_report_path: Path,
-            producer_process_id: str) -> dict[str, Any]:
+            producer_process_id: str, render_style: str | None = None) -> dict[str, Any]:
     video = video.resolve()
     metrics_path = metrics_path.resolve()
     contact_sheet = contact_sheet.resolve()
@@ -381,6 +409,10 @@ def prepare(*, episode: str, video: Path, metrics_path: Path, contact_sheet: Pat
     except Exception:  # noqa: BLE001
         craft_request = {}
 
+    # render_style=anime: the anti_ai dimension is REDEFINED (same key, same 3.5 floor) -- clean cel-shaded stylization
+    # is intended; warping, off-model frames and mid-clip style drift are what it scores (render_style.py)
+    style = _render_style.normalise(render_style) or _episode_render_style(episode)
+    anime = style == _render_style.ANIME
     refs = {
         "final_video": {"path": str(video), "sha256": video_sha},
         "objective_metrics": {"path": str(metrics_path.resolve()), "sha256": _sha(metrics_path)},
@@ -402,6 +434,7 @@ def prepare(*, episode: str, video: Path, metrics_path: Path, contact_sheet: Pat
         "prepared_at": _now(),
         "prepared_by": TOOL_ID,
         "producer_process_id": producer_process_id,
+        **({"render_style": _render_style.ANIME} if anime else {}),
         "reviewer_contract": {
             "agent_id": REVIEWER_AGENT_ID,
             "role": REVIEWER_ROLE,
@@ -429,16 +462,7 @@ def prepare(*, episode: str, video: Path, metrics_path: Path, contact_sheet: Pat
             "sound": "listen to the complete soundtrack without picture; judge speech, mix, and rhythm",
         },
         "shots": shots,
-        "dimension_questions": {
-            "story": "Does the finished cut tell a coherent and satisfying story?",
-            "continuation": "Does it create a clear reason to continue to the next episode?",
-            "pacing": "Does visible story progress occur without dead stretches?",
-            "opening": "Do the first 3 and 10 seconds earn attention?",
-            "clarity": "Can a first-time viewer follow who acts, why, and what changes?",
-            "visual": "Are composition, continuity, diversity, and legibility release-ready?",
-            "anti_ai": "Does the film avoid obvious AI drift, repetition, warping, and synthetic rhythm?",
-            "completeness": "Are subtitles, sound, beginning, ending, and story handoff complete?",
-        },
+        "dimension_questions": dimension_questions(style),
         "subjective_checks_required": list(SUBJECTIVE_CHECKS),
         **({"craft_standard_request": craft_request} if craft_request else {}),
         "answer_contract": {
@@ -1095,6 +1119,8 @@ def main() -> int:
     prepare_parser.add_argument("--technical-gate", type=Path)
     prepare_parser.add_argument("--subtitle-report", type=Path)
     prepare_parser.add_argument("--producer-process-id", required=True)
+    prepare_parser.add_argument("--render-style", choices=("live_action", "anime"), default=None,
+                                help="the series render style (default: resolved from contract / brief / qingshan.json)")
 
     submit_parser = sub.add_parser("submit", help="validate independent review and materialise evidence")
     submit_parser.add_argument("--episode", required=True)
@@ -1129,6 +1155,7 @@ def main() -> int:
                 technical_path=args.technical_gate or defaults["technical"],
                 subtitle_report_path=args.subtitle_report or defaults["subtitles"],
                 producer_process_id=args.producer_process_id,
+                render_style=args.render_style,
             )
             print(json.dumps(result, ensure_ascii=False))
             return 0

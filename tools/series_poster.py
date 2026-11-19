@@ -816,7 +816,58 @@ def find_lead_references(engine: Path, runtime: Path, episode: str, brief: dict[
     return out
 
 
+def _render_style_module():
+    try:
+        from tools import render_style as module  # noqa: PLC0415
+    except ModuleNotFoundError:  # pragma: no cover - flat tools/ on sys.path
+        import render_style as module  # type: ignore[no-redef]  # noqa: PLC0415
+    return module
+
+
+def poster_render_style(brief: dict[str, Any], runtime: Path | None = None) -> str:
+    """The series render style for the key art: brief ``render_style``, else ``qingshan.json project.render_style``."""
+    module = _render_style_module()
+    config = read_json(Path(runtime) / "qingshan.json", {}) if runtime else {}
+    return module.resolve(None, brief, config)
+
+
 def build_art_prompt(ident: dict[str, Any], references: list[dict[str, Any]], *, band: str = "bottom") -> str:
+    if str(ident.get("render_style") or "") == "anime":
+        return build_anime_art_prompt(ident, references, band=band)
+    return _build_art_prompt(ident, references, band=band)
+
+
+def build_anime_art_prompt(ident: dict[str, Any], references: list[dict[str, Any]], *, band: str = "bottom") -> str:
+    """render_style=anime: the same poster contract (lead large and on-model, clean title zone, no text) in the anime
+    wording that held in the JA-01 probe; no film-still / shallow-depth-of-field photography language."""
+    module = _render_style_module()
+    lead = [r for r in references if r["role"] == "LEAD"]
+    second = [r for r in references if r["role"] == "SECOND_LEAD"]
+    lead_refs = " and ".join(f"reference image {references.index(r) + 1}" for r in lead)
+    cast = (f"The hero of the poster is the anime character in {lead_refs}: keep that exact character design -- hair "
+            "colour and hairstyle, eye colour, outfit and accessories; the face is large, clean and clearly visible (a "
+            "dramatic close-up or three-quarter portrait), the emotional centre of the image.")
+    if second:
+        cast += (f" The character in reference image {references.index(second[0]) + 1} (same exact design) appears "
+                 "smaller, behind or beside the hero, recognisable.")
+    zone = "bottom 30%" if band != "top" else "top 30%"
+    synopsis = ident.get("synopsis", "")[:420]
+    return (
+        module.POSTER_OPENING_EN
+        + f"Genre and mood: {genre_mood(ident)}. "
+        + (f"Visual style: {ident['style']}. " if ident.get("style") else "")
+        + (f"Story: {synopsis} " if synopsis else "")
+        + cast + " "
+        + module.POSTER_COMPOSITION_EN
+        + f"Leave the {zone} of the image as a clean, low-detail area that fades smoothly into deep shadow (a "
+        "dark gradient zone) with no faces, no hands, no bright objects and no busy detail, so a title can be "
+        "added there later. "
+        "ABSOLUTELY NO TEXT anywhere: no title, no letters, no words, no Chinese characters, no numbers, no "
+        "captions, no credits block, no logos, no watermarks, no signatures, no subtitles, no typography."
+    )
+
+
+def _build_art_prompt(ident: dict[str, Any], references: list[dict[str, Any]], *, band: str = "bottom") -> str:
     lead = [r for r in references if r["role"] == "LEAD"]
     second = [r for r in references if r["role"] == "SECOND_LEAD"]
     lead_refs = " and ".join(f"reference image {references.index(r) + 1}" for r in lead)
@@ -971,6 +1022,7 @@ def ensure_art(engine: Path, runtime: Path, episode: str, brief: dict[str, Any],
     """Make sure the series has key art; at most MAX_ATTEMPTS create POSTs per series, ever.  Free when cached."""
     engine, runtime = Path(engine), Path(runtime)
     ident = series_identity(brief)
+    ident["render_style"] = poster_render_style(brief, runtime)
     out = cover_dir(runtime)
     art_path, manifest_path = out / ART_NAME, out / ART_MANIFEST
     manifest = read_json(manifest_path, {}) or {}

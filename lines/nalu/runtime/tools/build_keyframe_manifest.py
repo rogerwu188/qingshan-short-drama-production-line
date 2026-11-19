@@ -38,6 +38,7 @@ import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (e
 _sys.path.insert(0, str(_np.ENGINE_ROOT))  # for tools.* imports
 from tools.image_model_policy import ACTIVE_IMAGE_MODEL  # noqa: E402  (Roger 2026-10-30 seq=54)
 import studio_asset_resolve as _studio  # noqa: E402  studio asset library: recorded sha256 -> local original
+import render_style as _render_style  # noqa: E402  per-series live_action | anime
 import argparse
 import hashlib
 import json
@@ -375,6 +376,10 @@ class Inputs:
         self.gate_bundle = load_json(self.gate_bundle_path)
 
         self.visual_culture = self.contract.get("visual_culture_contract") or {}
+        # render_style (render_style.py): an anime series' prompts say 2D anime, never 实拍 / 真实材质
+        self.render_style = _render_style.resolve_runtime(episode, contract=self.contract)
+        if self.render_style == _render_style.ANIME:
+            self.visual_culture = _render_style.stamp(self.visual_culture, self.render_style)
         # v4 adapters encode the authored visual-culture lock by the complete
         # profile fields and do not repeat a redundant ``status`` key.  Accept
         # that canonical shape while still requiring every lock-bearing field;
@@ -891,7 +896,8 @@ def scene_binding(inputs: Inputs, shot: dict[str, Any], subspace_row: dict[str, 
         "awaited_path": bound["path"],
         "transport_note": (
             "俯视拓扑图承担唯一 scene 参考位，只提供空间布局与相对位置；"
-            "输出必须是实拍质感画面，不得画成地图、示意图、平面图或带任何标注线条。"
+            + (_render_style.TOPOLOGY_OUTPUT_ZH if _render_style.is_anime(getattr(inputs, "render_style", None)) else
+               "输出必须是实拍质感画面，不得画成地图、示意图、平面图或带任何标注线条。")
         ),
     })
     return row
@@ -1088,6 +1094,9 @@ def _exterior_lighting(text: str) -> str:
     return text.strip("；")
 
 
+from tools import visual_culture_contract as _vcc  # noqa: E402
+
+
 def visual_culture_block(contract: dict[str, Any], *, exterior: bool = False) -> str:
     """World/美术/色彩/光线/质感 for one shot.
 
@@ -1104,7 +1113,7 @@ def visual_culture_block(contract: dict[str, Any], *, exterior: bool = False) ->
         f"美术：{_exterior_design(str(contract.get('production_design') or '')) if exterior else contract.get('production_design')}",
         f"色彩：底色{palette.get('base')}；点色{palette.get('accent')}；肤色{palette.get('skin')}",
         f"光线：{_exterior_lighting(str(contract.get('lighting_language') or '')) if exterior else contract.get('lighting_language')}",
-        f"质感：{contract.get('image_texture')}",
+        f"质感：{_vcc.image_texture(contract) if _render_style.is_anime(contract) else contract.get('image_texture')}",
         "画幅：9:16 竖构图。画面内不得出现任何文字、字幕、水印、logo。"
         # the period ban belongs to the East-Asian period lock; an AUTHORED_WORLD contract (Victorian London,
         # sci-fi, modern) must not be told 禁欧洲 (holmes lab E01 2026-10-23)
@@ -1413,10 +1422,12 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
     # an extend-word (持续/保持/连续) the line is dropped and recorded rather than
     # rewritten, because a keyframe prompt must never invite continuation.  Lines
     # that carry the shot's actual authority are required and must be clean.
+    anime = _render_style.is_anime(getattr(inputs, "render_style", None))
     segments: list[tuple[str, str, bool]] = [
         ("header",
-         f"用途：{inputs.episode} 逐镜关键帧（entry_state 首帧）。竖屏 9:16 实拍质感单帧电影画面，"
-         "不是拼贴板、人物设定卡、分镜表、平面图或空间示意图。", True),
+         f"用途：{inputs.episode} 逐镜关键帧（entry_state 首帧）。"
+         + (_render_style.KEYFRAME_HEADER_STYLE_ZH if anime else "竖屏 9:16 实拍质感单帧电影画面，")
+         + "不是拼贴板、人物设定卡、分镜表、平面图或空间示意图。", True),
         ("slate", f"镜号：{shot_id}｜场：{shot.get('scene_id')}｜视频单元：{decision.get('video_unit_id')}", True),
         ("blank1", "", True),
         ("entry_head", "【entry_state（逐字绑定；本帧唯一允许表现的状态）】", True),
@@ -1498,6 +1509,7 @@ def build_prompt(inputs: Inputs, shot_id: str, bindings: list[dict[str, Any]],
          "不得画出本镜动作的结果态、动作进行中的瞬间，或任何在 entry_state 之后才成立的状态。", True),
         ("hard_cast", "未列入允许入画名单的人物、动物不得出现；不得增删、合并或复制人物。", True),
         ("hard_realism",
+         _render_style.KEYFRAME_HARD_STYLE_ZH if anime else
          "真实透视、人物脚底落地、可信人体解剖与真实材质；单帧静止画面，无运动模糊特效。", True),
         ("blank10", "", True),
         ("negative_head", "【严格禁止】", True),
@@ -1624,8 +1636,10 @@ def compile_task(inputs: Inputs, decision: dict[str, Any], prompt_dir: Path,
     bindings, reference_exclusions = _pre.apply_exclusions(
         bindings, getattr(inputs, "provider_reference_exclusions", None), task_key=task_key)
     prompt = build_prompt(inputs, shot_id, bindings, character_ids, decision, dropped)
+    anime = _render_style.is_anime(getattr(inputs, "render_style", None))
     identity_sequence, identity_transport, prompt = compile_labeled_flat_identity_transport(
-        task_key, _pre.transmitted_bindings(bindings), prompt
+        task_key, _pre.transmitted_bindings(bindings), prompt,
+        **({"output_identity_verification_method": _render_style.VLM_IDENTITY_METHOD} if anime else {}),
     )
     # Protected identity/spatial bindings may prevent cap_non_character_bindings
     # from reaching its target. Never serialize an unsupported provider request.
@@ -1734,6 +1748,7 @@ def compile_task(inputs: Inputs, decision: dict[str, Any], prompt_dir: Path,
         "prompt_sha256": sha256_text(prompt),
         "prompt_contract": prompt_contract,
         "identity_reference_transport": identity_transport,
+        **({"render_style": _render_style.ANIME} if anime else {}),
         "provider_scope_projection": provider_scope,
         "visual_culture_contract": {
             **deepcopy(inputs.visual_culture),

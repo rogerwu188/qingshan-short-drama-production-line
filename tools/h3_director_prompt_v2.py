@@ -75,6 +75,10 @@ try:
 except ModuleNotFoundError:  # pragma: no cover
     import h3_provider_prompt_renderer as v1  # type: ignore
     import speaking_unit_duration as _sud  # type: ignore
+try:
+    from tools import render_style as _render_style
+except ModuleNotFoundError:  # pragma: no cover
+    import render_style as _render_style  # type: ignore
 
 SCHEMA = "qingshan.minimax_h3_director_prompt.v2"
 CJK = re.compile(r"[㐀-鿿]")
@@ -697,7 +701,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
             props = [_en(p.get("english_name") or p.get("prop"), 80) for spec in unit.get("ordered_prompt_specs") or []
                      for p in spec.get("props") or []]
             props = list(dict.fromkeys(p for p in props if p))
-            return [f"Who is in frame: nobody — a photographic insert of {_join_names(props) if props else 'the object described below'}; "
+            insert = "an anime insert" if _render_style.is_anime(unit) else "a photographic insert"
+            return [f"Who is in frame: nobody — {insert} of {_join_names(props) if props else 'the object described below'}; "
                     "no people, no hands, no body parts."]
         noun = ("person" if total == 1 else "people") if not beings else (
             "being" if total == 1 and not people else "beings" if not people else "subjects")
@@ -794,10 +799,15 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
             env_rows.append(value)
     if env_rows:
         setting_lines.append(" ".join(_sentence(v) for v in env_rows))
+    anime = _render_style.is_anime(unit)
+    if anime:  # render_style=anime: the art style first, as an ordinary sentence (no all-caps label)
+        setting_lines.insert(0, _sentence("Art style: " + _render_style.H3_ART_STYLE_LINE.split(": ", 1)[1].replace("NOT ", "not ")))
     look = v1.h3_visual_culture_block(unit)
-    if stamped and look == v1.H3_NEUTRAL_PERIOD_LOCK:  # no all-caps label H3 could voice (owner 2026-11-01)
+    neutral_lock = _render_style.anime_lock(v1.H3_NEUTRAL_PERIOD_LOCK) if anime else v1.H3_NEUTRAL_PERIOD_LOCK
+    world_lock = _render_style.anime_lock(v1.H3_AUTHORED_WORLD_LOCK) if anime else v1.H3_AUTHORED_WORLD_LOCK
+    if stamped and look == neutral_lock:  # no all-caps label H3 could voice (owner 2026-11-01)
         look = _cap(ALL_CAPS_LABEL.sub("", look, count=1).strip())
-    if look != v1.H3_AUTHORED_WORLD_LOCK:  # period locks carry real constraints; the authored-world one is filler
+    if look != world_lock:  # period locks carry real constraints; the authored-world one is filler
         setting_lines.append(_sentence("Look: " + look.rstrip(".")))
     # the identity/prop anchor names the cast (stated in "Who is in frame"), the key props (a setting fact) and
     # a reference-lock boilerplate sentence (the References block): only the props are left to state here
@@ -1038,6 +1048,8 @@ def render_director_v2(unit: dict[str, Any], plan: dict[str, Any], contract: dic
     if wuxia.get("status") == "SELECTED":
         negatives.extend(scrub(v) for v in wuxia.get("negative_constraints_en") or [] if scrub(v))
     negatives.append("music")
+    if anime:
+        negatives.extend(_render_style.H3_NEGATIVES)
     if camera_lock:
         negatives.append(CAMERA_LOCK_NEVER)
     never_line = "Never: " + "; ".join(dict.fromkeys(negatives)) + "."

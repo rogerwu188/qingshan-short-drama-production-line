@@ -927,7 +927,7 @@ def _first_pass(unit: dict[str, Any], failed: set[str]) -> bool:
 
 def record_success_exemplars(rt: Path, *, episode: str, manifest_path: str | None, review_report: str | None,
                              language: str, genre: str, model: str | None = None,
-                             media_sha256: str | None = None) -> dict[str, Any]:
+                             media_sha256: str | None = None, render_style: str | None = None) -> dict[str, Any]:
     """S7, after the independent final-audience review: record what went well (best-effort, never raises).
 
     * always: ``<reports>/EXEMPLAR_SCENE_PROFILE.json`` -- this episode's scene-type counts (local only), which
@@ -946,6 +946,11 @@ def record_success_exemplars(rt: Path, *, episode: str, manifest_path: str | Non
         units = [u for u in manifest.get("units") or [] if isinstance(u, dict)]
         report = _read(review_report)
         model = str(model or next((u.get("model") for u in units if u.get("model")), "") or "UNKNOWN")
+        # render_style: the caller's, else the units' own stamp (an anime unit's visual_culture_contract carries it)
+        if not render_style:
+            render_style = next((str((u.get("visual_culture_contract") or {}).get("render_style") or "")
+                                 for u in units if isinstance(u.get("visual_culture_contract"), dict)
+                                 and (u.get("visual_culture_contract") or {}).get("render_style")), "") or None
         candidates = []
         counts: dict[str, dict[str, int]] = {}
         for unit in units:
@@ -992,7 +997,7 @@ def record_success_exemplars(rt: Path, *, episode: str, manifest_path: str | Non
             out["first_pass_units"] = len(first_pass)
             for unit in picked:
                 row = ex.shot_exemplar(unit, language=language, genre=genre, model=model, overall=float(overall),
-                                       dimensions=dims)
+                                       dimensions=dims, render_style=render_style)
                 if row is None:
                     out["events"].append({"status": "SKIPPED", "unit_id": unit.get("unit_id"), "reason": "SCRUBBED_EMPTY"})
                     continue
@@ -1006,7 +1011,7 @@ def record_success_exemplars(rt: Path, *, episode: str, manifest_path: str | Non
         praised = sorted((d for d, v in dims.items() if v >= float(cfg["practice_min_score"])), key=lambda d: -dims[d])
         for dim in praised[: int(cfg["practices_per_episode"])]:
             row = ex.practice_exemplar(dim, dims[dim], reasons.get(dim), language=language, genre=genre, model=model,
-                                       overall=float(overall), cast_names=cast)
+                                       overall=float(overall), cast_names=cast, render_style=render_style)
             if row is not None:
                 out["events"].append(_emit_exemplar(rt, episode, row, sha, []))
     except Exception as exc:  # noqa: BLE001

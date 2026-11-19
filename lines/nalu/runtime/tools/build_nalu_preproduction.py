@@ -28,6 +28,7 @@ import nalu_policy_profile as _policy_profile
 import nalu_series_scope as _series_scope
 import nalu_prompt_rules as _npr
 import lang_profile as _lang  # zh/en/ja/ko dialogue-language profile
+import render_style as _render_style  # per-series live_action | anime
 if str(_pathlib.Path(__file__).resolve().parents[4] / "tools") not in _sys.path:
     _sys.path.append(str(_pathlib.Path(__file__).resolve().parents[4] / "tools"))
 import voice_over_narration as _vo  # V.O. narration: VOICE_ONLY_NO_PLATE lines stay out of the video
@@ -2526,6 +2527,10 @@ def main() -> int:
         "--out", str(out_dir / f"{prefix}GROUPED_SEEDANCE_MANIFEST_V1.json"),
         "--final-prompt-dir", str(prompt_dir),  # nalu e13b: strict final prompts + index
         *(["--dialogue-language", args.language] if args.language != "zh" else []),
+        # render_style=anime (render_style.py): stamped onto every unit's visual_culture_contract, so every H3 render
+        # of the unit (compile, finalize, submit) writes the anime prompt; live-action passes nothing (unchanged)
+        *(["--render-style", "anime"] if _render_style.resolve_runtime(
+            str(args.episode), contract=contract) == _render_style.ANIME else []),
         # A rolling wave is a slice of the episode: COMBAT_EXCHANGE_V1 adds a declared fight up over the
         # full grouping plan (planning-only compile), not over the few units in the wave (E15 2026-11-07).
         *_fight_scope_args(plan, out_dir, prefix),

@@ -41,6 +41,25 @@ DEFAULT_CONTRACT: dict[str, Any] = {
 }
 
 
+try:
+    from tools import render_style as _render_style
+except ModuleNotFoundError:  # pragma: no cover - flat tools/ on sys.path
+    import render_style as _render_style  # type: ignore[no-redef]
+
+
+def _style(contract: Any, render_style: Any = None) -> str:
+    """The render style a prompt block is written in: the explicit argument, else the contract's own field."""
+    return _render_style.normalise(render_style) or _render_style.from_contract(contract) or _render_style.DEFAULT_STYLE
+
+
+def image_texture(contract: dict[str, Any] | None, *, render_style: Any = None, language: str = "zh") -> str:
+    """The 质感 / texture line: the writer's ``image_texture`` for live-action (verbatim), the anime texture for an
+    anime series (render_style; a live-action "真人实拍 / real materials" texture would fight the art style)."""
+    if _style(contract, render_style) == _render_style.ANIME:
+        return _render_style.IMAGE_TEXTURE_ZH if str(language or "zh").startswith("zh") else _render_style.IMAGE_TEXTURE_EN
+    return str((contract or {}).get("image_texture") or "") if isinstance(contract, dict) else ""
+
+
 #: ``visual_culture_contract.era_lock`` values a writer may declare.
 ERA_LOCK_AUTHORED_WORLD = "AUTHORED_WORLD"
 ERA_LOCK_EAST_ASIAN_PERIOD = "EAST_ASIAN_PERIOD"
@@ -74,8 +93,19 @@ def is_authored_world(contract: dict[str, Any] | None, *, dialogue_language: Any
     return str(dialogue_language or "zh").strip().lower().startswith("en")
 
 
-def authored_world_prompt_block(contract: dict[str, Any] | None, *, language: Any = "en") -> str:
-    """Image-prompt world lock derived from an authored contract: no culture defaults, no East-Asian bans."""
+def authored_world_prompt_block(contract: dict[str, Any] | None, *, language: Any = "en",
+                                render_style: Any = None) -> str:
+    """Image-prompt world lock derived from an authored contract: no culture defaults, no East-Asian bans.
+    An anime series (render_style) gets the same lock followed by the anime art-style block."""
+    block = _authored_world_prompt_block(contract, language=language)
+    if _style(contract, render_style) != _render_style.ANIME:
+        return block
+    zh = str(language or "").strip().lower().startswith("zh")
+    return (_render_style.anime_lock(block) + "\n"
+            + (_render_style.IMAGE_STYLE_BLOCK_ZH if zh else _render_style.IMAGE_STYLE_BLOCK_EN))
+
+
+def _authored_world_prompt_block(contract: dict[str, Any] | None, *, language: Any = "en") -> str:
     c = contract if isinstance(contract, dict) else {}
     profile = str(c.get("profile_id") or "AUTHORED_WORLD").strip()
     world = str(c.get("story_world") or "").strip().rstrip(".。")
@@ -100,7 +130,12 @@ def bind_visual_culture_contract(payload: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def prompt_block_zh(contract: dict[str, Any] | None = None) -> str:
+def prompt_block_zh(contract: dict[str, Any] | None = None, *, render_style: Any = None) -> str:
+    block = _prompt_block_zh(contract)
+    return _render_style.anime_lock(block) if block and _style(contract, render_style) == _render_style.ANIME else block
+
+
+def _prompt_block_zh(contract: dict[str, Any] | None = None) -> str:
     if not isinstance(contract, dict):
         return ""
     c = contract
@@ -110,7 +145,12 @@ def prompt_block_zh(contract: dict[str, Any] | None = None) -> str:
     )
 
 
-def prompt_block_en(contract: dict[str, Any] | None = None) -> str:
+def prompt_block_en(contract: dict[str, Any] | None = None, *, render_style: Any = None) -> str:
+    block = _prompt_block_en(contract)
+    return _render_style.anime_lock(block) if block and _style(contract, render_style) == _render_style.ANIME else block
+
+
+def _prompt_block_en(contract: dict[str, Any] | None = None) -> str:
     if not isinstance(contract, dict):
         return ""
     if contract.get("provider_scene_domain") == "REALITY_NORTHERN_SONG":

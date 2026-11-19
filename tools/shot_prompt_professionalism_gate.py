@@ -173,7 +173,9 @@ def validate_task(task: dict) -> dict:
             if tool_type == "image_generation"
             else validate_video_prompt(text, require_establishing=task.get("inherits_establishing_coverage") is not True)
         )
-        if task.get("prompt_realism_contract_version"):
+        # render_style=anime: the human-realism contract is NOT_APPLICABLE (no realism clause required)
+        anime = str(task.get("render_style") or "").strip().lower() == "anime"
+        if task.get("prompt_realism_contract_version") and not anime:
             if task.get("prompt_realism_contract_version") != CONTRACT_VERSION:
                 failures.append(_fail("human_realism_contract_version", "unsupported human-realism prompt contract version"))
             else:

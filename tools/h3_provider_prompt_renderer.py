@@ -70,6 +70,10 @@ try:
 except ModuleNotFoundError:
     from provider_contract_boundary import is_being_prop
 try:
+    from tools import render_style as _render_style
+except ModuleNotFoundError:
+    import render_style as _render_style
+try:
     from tools.prompt_shot_scope_policy import active_for as shot_scope_active_for
 except ModuleNotFoundError:
     from prompt_shot_scope_policy import active_for as shot_scope_active_for
@@ -1357,6 +1361,12 @@ def authored_world(unit: dict[str, Any]) -> bool:
 
 
 def h3_visual_culture_block(unit: dict[str, Any]) -> str:
+    """The period / world lock line; an anime unit (render_style) gets the same lock in anime wording."""
+    block = _h3_visual_culture_block(unit)
+    return _render_style.anime_lock(block) if _render_style.is_anime(unit) else block
+
+
+def _h3_visual_culture_block(unit: dict[str, Any]) -> str:
     try:
         from tools.visual_culture_contract import ACTIVE_FROM_EPISODE
     except ImportError:  # pragma: no cover - direct-script import path
@@ -1808,15 +1818,19 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
     }
     if profile in profile_constraints:
         negatives.append(profile_constraints[profile])
-    genre = "live-action short drama"
+    anime = _render_style.is_anime(unit)
+    genre = _render_style.H3_GENRE if anime else "live-action short drama"
+    if anime:
+        negatives.extend(_render_style.H3_NEGATIVES)
     roster_variants = [""]
     insert_without_people = False
     if director_active(unit, plan) and not positive_single_subject:
         people, beings, plain_props = _director_subjects(unit, plan)
         if not people and not beings:
             insert_without_people = True  # no person to duplicate: the anti-duplicate line would invite one
-            genre = (f"a single photographic insert shot of {' and '.join(plain_props) or 'the object described below'}; "
-                     "no people, no hands, no body parts")
+            insert_props = ' and '.join(plain_props) or 'the object described below'
+            genre = (_render_style.h3_insert_genre(insert_props) if anime else
+                     f"a single photographic insert shot of {insert_props}; no people, no hands, no body parts")
         else:
             crowd = bool(background_total or unbound_total or scope.get("anonymous_role_descriptors"))
             roster_variants = [_director_roster(people, beings, crowd=crowd, compact=compact)
@@ -1849,6 +1863,8 @@ def render_h3_prompt(unit: dict[str, Any], plan: dict[str, Any]) -> tuple[str, d
         "subject_definitions:", *reference_lines,
         "population_scope: " + population_scope + ".",
         *([roster] if roster else []),
+        # render_style=anime (JA-01 probe 2026-11-19): the art-style line held 2D cel-shaded anime through the clip
+        *([_render_style.H3_ART_STYLE_LINE] if anime else []),
         f"summary: [reference generation + keyframe completion] {plan['duration_seconds']:g}s vertical 9:16 {genre}; {contract['identity_prop_fact']}; {contract['space_weather_fact']}.",
         "visual_culture: " + h3_visual_culture_block(unit),
         *( ["persistent_state_lock: " + persistent_state_lock + "."] if persistent_state_lock else [] ),

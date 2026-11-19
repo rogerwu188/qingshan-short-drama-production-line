@@ -25,10 +25,18 @@ NATIVE_LOCK_MODE = "PROVIDER_NATIVE_IDENTITY_LOCK"
 IDENTITY_PLATE_MODE = "IDENTITY_ONLY_PLATE"
 
 
+#: exact-output identity verifiers a flat transport may declare: InsightFace for live-action, the structured VLM
+#: anime character-consistency review for render_style=anime (InsightFace cannot separate anime characters)
+OUTPUT_IDENTITY_METHODS = ("INSIGHTFACE_COSINE_V1", "VLM_ANIME_CHARACTER_CONSISTENCY_V1")
+
+
 def compile_labeled_flat_identity_transport(
-    task_key: str, reference_bindings: list[dict[str, Any]], prompt_body: str
+    task_key: str, reference_bindings: list[dict[str, Any]], prompt_body: str,
+    *, output_identity_verification_method: str = "INSIGHTFACE_COSINE_V1",
 ) -> tuple[list[dict[str, Any]], dict[str, Any], str]:
     """Compile a provider-flat sequence without pretending it is a hard lock."""
+    if output_identity_verification_method not in OUTPUT_IDENTITY_METHODS:
+        raise ValueError(f"OUTPUT_IDENTITY_METHOD_UNSUPPORTED:{output_identity_verification_method}")
     # Spatial resolution order is not the provider's reference-array order.
     # Keep every map, but lead with identity images and reindex prose atomically.
     old_paths = list(dict.fromkeys(str(r.get('path') or '') for r in reference_bindings))
@@ -107,13 +115,15 @@ def compile_labeled_flat_identity_transport(
     block = "\n".join([
         f"【身份权威参考映射 {token}】",
         *authority_lines,
-        "注意：本接口只传输扁平参考图，上述映射是生成约束而不是身份准入证明；最终输出必须另做 exact-SHA InsightFace 身份比对。",
+        ("注意：本接口只传输扁平参考图，上述映射是生成约束而不是身份准入证明；最终输出必须另做 exact-SHA InsightFace 身份比对。"
+         if output_identity_verification_method == "INSIGHTFACE_COSINE_V1" else
+         "注意：本接口只传输扁平参考图，上述映射是生成约束而不是身份准入证明；最终输出必须另做 exact-SHA 动画角色一致性（VLM）比对。"),
     ])
     contract = {
         "schema": "qingshan.identity_reference_transport.v1",
         "mode": FLAT_IDENTITY_MODE,
         "transport_guarantee": "SOFT_REFERENCE_REQUIRES_EXACT_OUTPUT_GATE",
-        "output_identity_verification_method": "INSIGHTFACE_COSINE_V1",
+        "output_identity_verification_method": output_identity_verification_method,
         "exact_output_sha_required": True,
         "authority_map": authority_map,
         "authority_prompt_token": token,
@@ -214,7 +224,10 @@ def validate_identity_reference_transport(
             failures.append("FLAT_REFERENCE_TRANSPORT_UNSUPPORTED")
         if contract.get("transport_guarantee") != "SOFT_REFERENCE_REQUIRES_EXACT_OUTPUT_GATE":
             failures.append("FLAT_REFERENCE_FALSELY_CLAIMS_IDENTITY_LOCK")
-        if contract.get("output_identity_verification_method") != "INSIGHTFACE_COSINE_V1":
+        method = contract.get("output_identity_verification_method")
+        # the VLM anime verifier only for a task that declares render_style=anime; everything else InsightFace
+        anime_task = str(task.get("render_style") or "").strip().lower() == "anime"
+        if method != "INSIGHTFACE_COSINE_V1" and not (anime_task and method == "VLM_ANIME_CHARACTER_CONSISTENCY_V1"):
             failures.append("EXACT_OUTPUT_IDENTITY_VERIFIER_NOT_DECLARED")
         if contract.get("exact_output_sha_required") is not True:
             failures.append("EXACT_OUTPUT_SHA_IDENTITY_BINDING_NOT_REQUIRED")

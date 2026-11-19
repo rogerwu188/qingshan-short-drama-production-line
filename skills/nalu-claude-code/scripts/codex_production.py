@@ -520,7 +520,19 @@ def pipeline_status(episode: str) -> dict[str, Any]:
             for sid, row in stages.items()}
 
 
-def craft_standard_section() -> str:
+def render_style_for(episode: str | None) -> str:
+    """The series' render style for the start prompt (render_style.py: contract field is not written yet at start,
+    so the episode brief, then the runtime qingshan.json project.render_style).  Never raises."""
+    mod = _load_engine_tool("render_style")
+    if mod is None:
+        return "live_action"
+    try:
+        return str(mod.resolve_runtime(episode, runtime_root=roots()[1]))
+    except Exception:  # noqa: BLE001
+        return "live_action"
+
+
+def craft_standard_section(episode: str | None = None) -> str:
     """NALU_CRAFT_STANDARD_v1 (line owner 2026-11-17, option A): the compressed zh standard as its OWN section of the
     start prompt (<= 1500 chars, lines/nalu/runtime/tools/nalu_craft_standard.codex_section), separate from the
     collective 「本集导演经验」 section and its own 1500-char cap.  '' when the engine has no standard or
@@ -529,13 +541,16 @@ def craft_standard_section() -> str:
     if mod is None:
         return ""
     try:
+        style = render_style_for(episode) if episode else "live_action"
+        if style == "anime":  # the short anime note (anime acting, one consistent character design)
+            return str(mod.codex_section(roots()[0], render_style=style) or "")
         return str(mod.codex_section(roots()[0]) or "")
     except Exception:  # noqa: BLE001 -- the start prompt must never fail on an advisory section
         return ""
 
 
 def build_prompt(episode: str, brief: str, guidance: str = "", craft: str | None = None) -> str:
-    craft = craft_standard_section() if craft is None else craft
+    craft = craft_standard_section(episode) if craft is None else craft
     return (f"你是 NALU 短剧生产线的生产执行者。严格按照下面的生产合同执行集 {episode}。\n\n"
             + contract_path().read_text(encoding="utf-8") + "\n" + CODEX_ADAPTER
             + (f"\n\n## 本次线主/编排代理附加说明\n{brief}" if brief else "")
@@ -612,7 +627,7 @@ def start(episode: str, brief: str = "") -> dict[str, Any]:
         return {"status": "BLOCKED", "reason": f"CONTRACT_MISSING:{contract_path()}"}
     guidance = knowledge_guidance(episode)
     section = str(guidance.get("section") or "")
-    craft = craft_standard_section()
+    craft = craft_standard_section(episode)
     prompt = build_prompt(episode, brief, section, craft)
     out = launch(episode, prompt, None)
     if out.get("status") == "STARTED":

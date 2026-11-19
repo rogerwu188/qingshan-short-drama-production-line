@@ -75,6 +75,8 @@ from nalu_qa_common import (  # noqa: E402
     read_json, sha256_file, write_json,
 )
 
+import render_style as _render_style  # noqa: E402  per-series live_action | anime
+
 TOOL_ID = "identity_qa_lock.v1"
 GATE_ID = "CHARACTER-IDENTITY-ADMISSION"
 LIBRARY_SCHEMA = "ai_drama.production_asset_library.v1"
@@ -201,6 +203,23 @@ def measure_plate_identity(asset_id: str, plates: list[Path],
 
     result["decision"] = "PASS" if not result["failures"] else "FAIL"
     return result
+
+
+def anime_identity_measurement(item: dict[str, Any]) -> dict[str, Any]:
+    """render_style=anime: INSIGHTFACE_COSINE_V1 is NOT_APPLICABLE (it cannot separate anime characters: JA-01 probe,
+    different-character cosine 0.587 > 0.45 pass).  The identity evidence is the reviewer's structured answer to the
+    anime character-consistency question (hair colour and style, eye colour, outfit, accessories vs the card); a
+    missing or failing answer fails the lock exactly as a failed cosine did, a passing one never needs a face."""
+    answers = item.get("answers") or {}
+    failures = _render_style.vlm_identity_failures(answers)
+    measurement = _render_style.not_applicable_measurement("INSIGHTFACE_COSINE_V1")
+    measurement["vlm_identity"] = {
+        "method": _render_style.VLM_IDENTITY_METHOD, "question_id": _render_style.VLM_IDENTITY_QUESTION,
+        "answer": answers.get(_render_style.VLM_IDENTITY_QUESTION), "reviewer": REVIEWER_ID,
+        "decision": "FAIL" if failures else "PASS", "failures": failures}
+    if failures:
+        measurement.update({"decision": "FAIL", "failures": failures})
+    return measurement
 
 
 # --------------------------------------------------------------------------- #
@@ -368,6 +387,8 @@ def materialise(episode: str, submitted: dict[str, Any],
     rights_basis = rights_basis or submitted.get("rights_basis")
     adjudications = read_json(
         Path(f"{_np.RUNTIME_ROOT}") / "runtime/identity_source_likeness_adjudications" / f"{episode}.json", {}) or {}
+    anime = (_render_style.is_anime(submitted.get("render_style"))
+             or _render_style.resolve_runtime(episode, contract=getattr(exp, "contract", None)) == _render_style.ANIME)
 
     targets = [path for path in (p.identity_library, p.asset_library) if path.is_file()]
     if not targets:
@@ -409,6 +430,7 @@ def materialise(episode: str, submitted: dict[str, Any],
                         "reason": "non-character subject has no face to embed",
                         "failures": []}
                        if category != "characters"
+                       else anime_identity_measurement(item) if anime
                        else measure_plate_identity(asset_id, plates, source))
 
         # A scoped, evidence-bearing advisory may explain a source-view mismatch

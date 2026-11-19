@@ -91,6 +91,8 @@ from nalu_qa_common import (  # noqa: E402
     now, portable, read_json, require_ffmpeg, require_ffprobe, sha256_file, write_json,
 )
 
+import render_style as _render_style  # noqa: E402  per-series live_action | anime
+
 TOOL_ID = "video_q2_builder.v1"
 KIND = "VIDEO_ASSEMBLY"
 REQUEST_SCHEMA = "qingshan.shot_media_admission_request.v2"
@@ -1143,9 +1145,23 @@ def start_frame_speaker_verdict(expectations: dict[str, Any], frame: dict[str, A
             "measurement": {k: v for k, v in row.items() if k != "speaker_similarity"}}
 
 
+def _episode_render_style(episode: str) -> str:
+    """The episode's render style (contract -> brief -> qingshan.json); live_action when nothing can be read."""
+    try:
+        contract = read_json(QaPaths(episode).contract, None)
+    except (Exception, SystemExit):  # noqa: BLE001 -- a test double / partial runtime has no scope
+        contract = None
+    return _render_style.resolve_runtime(episode, contract=contract)
+
+
 def check_start_frame(episode: str, unit_id: str, image: Path,
                       expectations: dict[str, Any] | None = None) -> dict[str, Any]:
     """Measure one candidate start frame (a previous unit's tail) for ``unit_id``."""
+    if _episode_render_style(episode) == _render_style.ANIME:
+        # render_style=anime: the speaker / face-count measurement is InsightFace -> NOT_APPLICABLE, the tail stays
+        return {"unit_id": unit_id, "image": str(image), "method": START_FRAME_CHECK_METHOD,
+                "status": "NOT_APPLICABLE", "verdict": "ACCEPT", "render_style": _render_style.ANIME,
+                "reason": "RENDER_STYLE_ANIME_FACE_MEASUREMENT_NOT_APPLICABLE"}
     if expectations is None:
         item = next((row for row in Expectations(episode).video_unit_items() if row["unit_id"] == unit_id), None)
         if item is None:
@@ -1251,6 +1267,9 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
              if not units or item["unit_id"] in set(units)]
     # CAMERA_GRAMMAR_V1 only: objective face count (see FACE_COUNT_METHOD); other episodes unchanged.
     face_count_on = engine_module("camera_grammar_policy").active(exp.contract, episode=episode)
+    # render_style=anime: every InsightFace measurement (identity, face count, speaker framing, push-in) is
+    # NOT_APPLICABLE -- recorded, never a FAIL, never an auto-redo (render_style.py)
+    anime = _render_style.resolve_runtime(episode, contract=getattr(exp, "contract", None)) == _render_style.ANIME
     grouping_units = {str(u.get("unit_id")): u for u in (exp.grouping.get("units") or []) if isinstance(u, dict)}
 
     def prepare_unit(index: int) -> dict[str, Any]:
@@ -1305,11 +1324,11 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
                     for frame in extraction.get("frames") or []]
         declared_all = list(item["expectations"].get("required_visible_character_ids") or [])
         measurable, exempt = pose_scoped_ids(item)
-        identity = measure_unit_identity(
-            episode, unit_id, extraction.get("frames") or [], measurable, out_dir)
+        identity = (_render_style.not_applicable_measurement("INSIGHTFACE_COSINE_V1") if anime else
+                    measure_unit_identity(episode, unit_id, extraction.get("frames") or [], measurable, out_dir))
         identity["declared_character_ids_all"] = sorted(declared_all)
         identity["not_measurable_by_pose"] = exempt
-        if not measurable and declared_all:
+        if not measurable and declared_all and not anime:
             identity["status"] = "ALL_DECLARED_NOT_MEASURABLE_BY_POSE"
         row = {
             "unit_id": unit_id,
@@ -1324,7 +1343,13 @@ def prepare(episode: str, *, frames: int = DEFAULT_FRAMES,
             "identity": identity,
             "closed_set_size": len(forbidden),
         }
-        if face_count_on:
+        if anime:
+            row["render_style"] = _render_style.ANIME
+            if face_count_on:
+                row["face_count"] = _render_style.not_applicable_measurement(FACE_COUNT_METHOD)
+                row["speaker_framing"] = _render_style.not_applicable_measurement(SPEAKER_FRAMING_METHOD)
+                row["push_in"] = _render_style.not_applicable_measurement(PUSH_IN_METHOD)
+        elif face_count_on:
             unit_frames = extraction.get("frames") or []
             detections = detect_unit_faces(unit_frames)
             row["face_count"] = measure_face_count(item["expectations"], unit_frames, detections)
@@ -1477,11 +1502,37 @@ def build_period_verification(item: dict[str, Any], questionnaire: dict[str, Any
     return verification, failures
 
 
+def anime_identity_verification(item: dict[str, Any], questionnaire: dict[str, Any], asset_sha: str,
+                                declared_ids: list[str]) -> tuple[dict[str, Any], list[str], str]:
+    """render_style=anime: the reviewer's structured anime character-consistency review over the clip is the identity
+    method; InsightFace (identity, face count, speaker framing) is NOT_APPLICABLE and never fails or redoes a unit."""
+    keys = (*GATE_QUESTIONS[IDENTITY_GATE], _render_style.VLM_IDENTITY_QUESTION)
+    checks = _checks(item, questionnaire, keys)
+    failures = [row["question_id"] for row in checks if row["answer"] != "PASS"]
+    if _render_style.VLM_IDENTITY_QUESTION not in failures:
+        failures += _render_style.vlm_identity_failures(item.get("answers"), characters_declared=True)
+    verification = {
+        "method": _render_style.VLM_IDENTITY_METHOD,
+        "render_style": _render_style.ANIME,
+        "measurement_scope": "VIDEO_UNIT_REVIEWED_CLIP",
+        "decision": "PASS" if not failures else "FAIL",
+        "canonical_characters": sorted(declared_ids),
+        "observed_visible_characters": (item.get("observed") or {}).get("observed_visible_characters") or [],
+        "output_sha256": asset_sha,
+        "checks": checks,
+        "failures": failures,
+        "insightface": _render_style.not_applicable_measurement("INSIGHTFACE_COSINE_V1"),
+    }
+    return verification, failures, _render_style.VLM_IDENTITY_METHOD
+
+
 def build_identity_verification(item: dict[str, Any], questionnaire: dict[str, Any],
                                 asset_sha: str, declared_ids: list[str],
-                                measurement: dict[str, Any]
+                                measurement: dict[str, Any], *, render_style: str | None = None,
                                 ) -> tuple[dict[str, Any], list[str], str]:
-    """INSIGHTFACE_COSINE_V1 per unit, or the registry's no-character method."""
+    """INSIGHTFACE_COSINE_V1 per unit, or the registry's no-character method (anime: the VLM review)."""
+    if declared_ids and _render_style.is_anime(render_style):
+        return anime_identity_verification(item, questionnaire, asset_sha, declared_ids)
     checks = _checks(item, questionnaire, GATE_QUESTIONS[IDENTITY_GATE])
     if not declared_ids:
         failures = [row["question_id"] for row in checks if row["answer"] != "PASS"]
@@ -1929,6 +1980,8 @@ def materialise(episode: str, submitted: dict[str, Any],
         read_json(path, {}) or {} for path in
         sorted(p.postgen_dir.glob("*/*_POST_GENERATION_QA.json"))] if row.get("unit_id")}
 
+    anime = (_render_style.is_anime(submitted.get("render_style"))
+             or _render_style.resolve_runtime(episode, contract=getattr(exp, "contract", None)) == _render_style.ANIME)
     rows: list[dict[str, Any]] = []
     for item in submitted.get("items") or []:
         unit_id = item["item_id"]
@@ -1969,12 +2022,14 @@ def materialise(episode: str, submitted: dict[str, Any],
         period_v, period_f = build_period_verification(
             item, questionnaire, ocr_rows, forbidden_terms)
         identity_v, identity_f, identity_method = build_identity_verification(
-            item, questionnaire, asset_sha, declared, identity_measurement)
+            item, questionnaire, asset_sha, declared, identity_measurement,
+            render_style=_render_style.ANIME if anime else None)
         action_checks = _checks(item, questionnaire, GATE_QUESTIONS[ACTION_GATE])
         action_failed = [row["question_id"] for row in action_checks if row["answer"] != "PASS"]
         # CAMERA_GRAMMAR_V1 objective face count (absent from prepare.json otherwise): a count FAIL makes
         # cast_exactly_as_declared fail in both gates that ask it, whatever the reviewer answered.
-        face_count = prepared.get("face_count")
+        # render_style=anime: the face count / speaker framing / push-in rows are NOT_APPLICABLE records (never FAIL)
+        face_count = None if anime else prepared.get("face_count")
         if apply_face_count(face_count, action_checks, action_failed):
             if identity_f is not identity_v.get("failures"):
                 identity_f = list(identity_f)
@@ -1984,7 +2039,7 @@ def materialise(episode: str, submitted: dict[str, Any],
             identity_v["face_count"] = face_count
         # CAMERA_GRAMMAR_V1 objective speaker framing (absent otherwise): the declared on-screen speaker
         # cramped / cut at the frame edge / out of frame in >= 1/3 of the frames fails the same question.
-        speaker_framing = prepared.get("speaker_framing")
+        speaker_framing = None if anime else prepared.get("speaker_framing")
         if apply_speaker_framing(speaker_framing, action_checks, action_failed):
             if identity_f is not identity_v.get("failures"):
                 identity_f = list(identity_f)
@@ -1994,7 +2049,7 @@ def materialise(episode: str, submitted: dict[str, Any],
             identity_v["speaker_framing"] = speaker_framing
         # CAMERA_GRAMMAR_V1 objective push-in (absent otherwise): a locked camera whose face grew > 50 % fails the
         # camera-axis question in both gates that ask it (the scene gate below), whatever the reviewer answered.
-        push_in = prepared.get("push_in")
+        push_in = None if anime else prepared.get("push_in")
         apply_push_in(push_in, action_checks, action_failed)
         action_v = {
             "method": "VLM_STRUCTURED_STATE_QA_V1",

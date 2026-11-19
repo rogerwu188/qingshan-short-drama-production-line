@@ -1427,6 +1427,9 @@ def main() -> int:
                              "<file>.REQUEST.json and the compile stops with H3_ENGLISH_CONTRACT_REQUIRED")
     parser.add_argument("--dialogue-language", choices=("zh", "en", "ja", "ko"), default="zh",
                         help="episode dialogue language resolved by nalu_pipeline (default zh)")
+    parser.add_argument("--render-style", choices=("live_action", "anime"), default=None,
+                        help="series render style resolved by the line (lines/nalu/runtime/tools/render_style.py); "
+                             "anime is stamped onto every unit's visual_culture_contract.render_style")
     parser.add_argument("--planned-prompt-dir", type=Path,
                         help="with --planning-only: write <unit_id>.txt planned prompts here and a "
                              "<out>.planned_prompts.json index next to --out")
@@ -1445,6 +1448,8 @@ def main() -> int:
               "decision_owner": vc.get("decision_owner") or "WRITER_DIRECTOR",
               "source_ref": vc.get("source_ref") or "E59_GENERATION_CONTRACT_v1.json#visual_culture_contract",
               "forbidden_influences": list(dict.fromkeys(list(vc.get("forbidden_influences") or []) + ["欧洲中世纪骑士", "西式板甲", "黑金奇幻"]))}
+    if isinstance(vc, dict) and args.render_style == "anime":
+        vc = {**vc, "render_style": "anime"}  # every compiled unit carries it (H3 renders read the unit)
     if bool(args.fight_scope_grouping_plan) != bool(args.fight_scope_anchor_plan):
         raise SystemExit("--fight-scope-grouping-plan and --fight-scope-anchor-plan must be given together")
     fight_scope = ((load(args.fight_scope_grouping_plan), load(args.fight_scope_anchor_plan))

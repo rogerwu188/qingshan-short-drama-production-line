@@ -42,6 +42,10 @@ P0_OBJECTIVE_METHODS = {
 }
 NO_CHARACTER_IDENTITY_METHOD = "STRUCTURED_NO_VISIBLE_CHARACTER_V1"
 POSE_EXEMPT_STILL_IDENTITY_METHOD = "REVIEWER_STRUCTURED_IDENTITY_POSE_EXEMPT_D16"  # nalu e14
+#: render_style=anime (owner + boss 2026-11-19): InsightFace cannot separate anime characters, so the identity
+#: P0 evidence is the reviewer's structured anime character-consistency review (render_style.py)
+ANIME_VLM_IDENTITY_METHOD = "VLM_ANIME_CHARACTER_CONSISTENCY_V1"
+ANIME_VLM_IDENTITY_QUESTION = "anime_character_design_matches_card"
 ADVISORY_STATUSES = {"ADVISORY", "ADVISORY_NOT_A_GATE", "DIAGNOSTIC", "WARNING"}
 PASS_STATUSES = {"PASS", "PASS_EXACT_SHA", "PASS_ORIGINAL_RESOLUTION"}
 FAILURE_ATTRIBUTIONS = frozenset({
@@ -157,6 +161,27 @@ def _objective_p0_pass(
             for row in checks
         ):
             return False, "p0_no_character_structured_checks_not_pass"
+        return True, ""
+    if (
+        gate_id == "CHARACTER-IDENTITY-ADMISSION"
+        and method == ANIME_VLM_IDENTITY_METHOD
+    ):
+        # only an anime evidence row, with declared characters and the anime question itself answered PASS
+        if str(verification.get("render_style") or "").lower() != "anime":
+            return False, "p0_anime_vlm_identity_requires_render_style_anime"
+        if not list(verification.get("canonical_characters") or []):
+            return False, "p0_anime_vlm_identity_requires_declared_characters"
+        checks = verification.get("checks") or []
+        anime_rows = [row for row in checks if row.get("question_id") == ANIME_VLM_IDENTITY_QUESTION]
+        if not anime_rows:
+            return False, "p0_anime_vlm_identity_evidence_missing"
+        if any(str(row.get("reviewer_answer") or row.get("answer") or "").upper() not in {"PASS", "YES"}
+               for row in anime_rows):
+            return False, "p0_anime_vlm_identity_not_confirmed"
+        if any(str(row.get("answer") or row.get("status") or "").upper() != "PASS" for row in checks):
+            return False, "p0_anime_vlm_identity_structured_checks_not_pass"
+        if str(verification.get("decision") or "").upper() != "PASS":
+            return False, "p0_objective_decision_not_pass"
         return True, ""
     if (
         gate_id == "CHARACTER-IDENTITY-ADMISSION"

@@ -94,7 +94,8 @@ MAX_EDGE = 3840
 MAX_RATIO = 3.0
 MIN_PIXELS = 655_360
 MAX_PIXELS = 8_294_400
-#: engine aspect -> provider pixel size (long side 2048).  9:16 1152x2048 is probe-verified.
+#: engine aspect -> provider pixel size (long side 2048).  9:16 1152x2048 is ACCEPTED by the provider, but the image
+#: it returns is 1024x1536 (2:3; JA-01 probe 2026-11-19) -- see normalise_portrait_9_16.
 SIZE_BY_ASPECT = {
     "9:16": "1152x2048",
     "16:9": "2048x1152",
@@ -491,6 +492,62 @@ def download_image(url: str, destination: Path, fetch: Callable[[str], bytes] | 
     temporary.replace(destination)
     return {"path": str(destination), "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
             "mime_type": mime, "size": list(size) if size else None}
+
+
+# --------------------------------------------------------------------------- #
+# aspect normalisation (owner 2026-11-19, JA-01 anime probe)
+# --------------------------------------------------------------------------- #
+#: gpt-image-2 answers a 1152x2048 (9:16) request with 1024x1536 (2:3): it has no true 9:16 size.  H3 renders 9:16
+#: (768x1344), so a 2:3 keyframe made H3 re-compose its opening frame (probe: both characters faced the camera at 0 s
+#: and turned to each other by 0.5 s).  The landed image is therefore normalised locally, for free, BEFORE anything
+#: hashes, reviews or uploads it: the 2:3 frame is centre-cropped to 9:16 (864x1536 from 1024x1536).  Only the
+#: sides go (7.8 % each), never the top, so heads are never cut; the payload, its fingerprint and the price are
+#: unchanged, and Q1 reviews exactly the frame H3 receives.
+PORTRAIT_9_16 = 9 / 16
+ASPECT_TOLERANCE = 0.005
+#: a landed image wider than this is not a near-9:16 answer (e.g. a square): it is left as is and reported
+MAX_SIDE_CROP_FRACTION = 0.20
+
+
+def normalise_portrait_9_16(path: Path | str) -> dict[str, Any]:
+    """Centre-crop a landed portrait image to a true 9:16 in place (PNG, lossless).  Never raises.
+
+    Returns ``{"status": UNCHANGED | CROPPED | SKIPPED_*, "original_size", "size", "method"}``.  A frame taller than
+    9:16 keeps its top (heads) and loses only bottom rows."""
+    path = Path(path)
+    try:
+        from PIL import Image  # noqa: PLC0415
+    except ImportError:
+        return {"status": "SKIPPED_PILLOW_UNAVAILABLE"}
+    try:
+        with Image.open(path) as image:
+            image.load()
+            width, height = image.size
+            ratio = width / float(height)
+            result: dict[str, Any] = {"original_size": [width, height], "target_aspect": "9:16"}
+            if abs(ratio - PORTRAIT_9_16) <= ASPECT_TOLERANCE:
+                return {**result, "status": "UNCHANGED", "size": [width, height]}
+            if ratio > PORTRAIT_9_16:
+                target_w = int(round(height * PORTRAIT_9_16))
+                target_w -= target_w % 2
+                removed = (width - target_w) / float(width)
+                if removed > MAX_SIDE_CROP_FRACTION:
+                    return {**result, "status": "SKIPPED_NOT_A_NEAR_PORTRAIT_FRAME", "size": [width, height],
+                            "side_crop_fraction_needed": round(removed, 4)}
+                left = (width - target_w) // 2
+                box, method = (left, 0, left + target_w, height), "CENTRE_CROP_SIDES"
+            else:
+                target_h = int(round(width / PORTRAIT_9_16))
+                target_h -= target_h % 2
+                box, method = (0, 0, width, target_h), "TOP_ANCHORED_CROP_BOTTOM"
+            cropped = image.crop(box)
+            temporary = path.with_suffix(path.suffix + ".part")
+            cropped.save(temporary, format="PNG")
+        temporary.replace(path)
+        return {**result, "status": "CROPPED", "method": method, "crop_box": list(box),
+                "size": [box[2] - box[0], box[3] - box[1]]}
+    except Exception as exc:  # noqa: BLE001 -- normalisation must never lose a paid image
+        return {"status": "SKIPPED_ERROR", "error": f"{type(exc).__name__}:{str(exc)[:200]}"}
 
 
 def terminal_failed_binding(transaction: dict[str, Any]) -> bool:

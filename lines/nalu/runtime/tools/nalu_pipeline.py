@@ -1003,6 +1003,23 @@ def ctx_language(ctx: Any) -> str:
     return getattr(ctx, "language", None) or "zh"
 
 
+def resolve_render_style(contract: Any, config: Any, episode: str | None = None) -> str:
+    """The series' render style ("live_action" | "anime", render_style.py): generation contract
+    ``visual_culture_contract.render_style`` -> production brief ``render_style`` -> runtime config
+    ``project.render_style`` -> "live_action"."""
+    import render_style as _rs
+    style = _rs.from_contract(contract)
+    if style:
+        return style
+    brief = read_json(_rs.brief_path(RUNTIME, episode), None) if episode else None
+    return _rs.resolve(None, brief, config)
+
+
+def ctx_render_style(ctx: Any) -> str:
+    """The run's resolved render style (Ctx.render_style); stage test doubles without it are live-action."""
+    return getattr(ctx, "render_style", None) or "live_action"
+
+
 def ctx_language_locale(ctx: Any) -> str:
     return DIALOGUE_LANGUAGE_LOCALES[ctx_language(ctx)]
 
@@ -1105,6 +1122,19 @@ class Ctx:
         self.state = self.load_state()
         self.planned_commands: list[dict[str, Any]] = []
         self._language: str | None = None
+        self._render_style: str | None = None
+
+    @property
+    def render_style(self) -> str:
+        """The series' render style ("live_action" | "anime"), resolved once per run by resolve_render_style.
+        Not cached until the generation contract exists (S1 writes it)."""
+        if self._render_style is None:
+            contract = read_json(self.p.contract, None) if self.p.contract.is_file() else None
+            style = resolve_render_style(contract, self.config, self.episode)
+            if contract is None:
+                return style
+            self._render_style = style
+        return self._render_style
 
     @property
     def language(self) -> str:
@@ -2821,6 +2851,8 @@ def s3_register_reference_sheets(ctx: Ctx) -> list[dict[str, Any]]:
         plates = ctx.p.identity_harvest_dir
         if not _sheet.harvested_sheets(plates, ctx.episode):
             return []
+        if ctx_render_style(ctx) == "anime":  # InsightFace is NOT_APPLICABLE to anime faces (render_style.py)
+            return _sheet.register(library_path, plates, ctx.episode, measure=None, render_style="anime")
         return _sheet.register(library_path, plates, ctx.episode, measure=_sheet.insightface_measure())
     except Exception as exc:  # noqa: BLE001 - advisory step
         return [{"status": "REGISTRATION_ERROR", "error": f"{type(exc).__name__}: {exc}"}]
@@ -4101,7 +4133,10 @@ def s3_admission(ctx: Ctx, res: StageResult, *, harvested_dir: Path) -> dict[str
     except Exception:
         insight = False
     detail["insightface_runtime_available"] = insight
-    if not insight:
+    if ctx_render_style(ctx) == "anime":  # render_style.py: identity is the VLM review, InsightFace NOT_APPLICABLE
+        detail["objective_method"] = "VLM_ANIME_CHARACTER_CONSISTENCY_V1"
+        detail["render_style"] = "anime"
+    elif not insight:
         blockers.append("D-2_INSIGHTFACE_RUNTIME_UNAVAILABLE")
     detail["manifest_builder"] = None
     blockers.append("D-3_IDENTITY_ADMISSION_MANIFEST_BUILDER_ABSENT")
@@ -4960,7 +4995,8 @@ def apply_line_owner_q1_acceptance(ctx: Ctx, index: dict[str, Any], index_path: 
                 # the per-still decisions live in the evidence file's objective_verification, not in
                 # the index-level identity report (whose source_ids are shaped E11:STILL:<item>)
                 decisions=list(verified.get("decisions") or []),
-                declared_characters=[str(c) for c in verified.get("declared_visible_character_ids") or []])
+                declared_characters=[str(c) for c in verified.get("declared_visible_character_ids") or []],
+                render_style=ctx_render_style(ctx))
             if not condition.get("covered"):
                 rule_refused.append({"item_id": item_id, "unit_id": uid, "condition": condition,
                                      "evidence_path": evidence_path})
@@ -5973,7 +6009,10 @@ def exempt_harvested_bound_takes(ctx: Ctx, unbound: list[str], fin_report: dict[
 
 def check_tail_start_frame(ctx: Ctx, unit_id: str, tail: Path) -> dict[str, Any]:
     """Objective speaker framing + face count of a candidate tail start frame (video_q2_builder
-    start-frame-check, free).  A check that did not run never rejects (the tail stays, as before)."""
+    start-frame-check, free).  A check that did not run never rejects (the tail stays, as before).
+    render_style=anime: the check is InsightFace, NOT_APPLICABLE -> ACCEPT without running."""
+    if ctx_render_style(ctx) == "anime":
+        return {"verdict": "ACCEPT", "status": "NOT_APPLICABLE", "reason": "RENDER_STYLE_ANIME", "render_style": "anime"}
     step = qa_run(ctx, [VIDEO_Q2, "start-frame-check", "--episode", ctx.episode, "--unit", unit_id,
                         "--image", tail], name=f"s6_tail_start_frame_check_{unit_id}")
     verdict = qa_json(step) or {}
@@ -7760,6 +7799,8 @@ def s6_q2_auto_redo(ctx: Ctx) -> dict[str, Any]:
     start frame + the measured problem in the prompt for a push-in; single-unit wave).  Never blocks."""
     if not _camera_grammar_on(ctx):
         return {"status": "NOT_APPLICABLE"}
+    if ctx_render_style(ctx) == "anime":  # InsightFace failures do not exist for anime: no engine redo (render_style.py)
+        return {"status": "NOT_APPLICABLE", "reason": "RENDER_STYLE_ANIME"}
     import q2_auto_redo as _redo
     grouping = read_json(ctx.p.preprod / f"{ctx.episode}_VIDEO_UNIT_GROUPING_PLAN_V1.json", {}) or {}
     order = [str(u.get("unit_id") or "") for u in grouping.get("units") or [] if u.get("unit_id")]
@@ -8389,7 +8430,8 @@ def s7_final_audience_review(ctx: Ctx, res: StageResult) -> dict[str, Any]:
         prepare_step = qa_run(
             ctx,
             [FINAL_AUDIENCE_REVIEW, "prepare", "--episode", ctx.episode,
-             "--producer-process-id", producer_process_id],
+             "--producer-process-id", producer_process_id,
+             *(["--render-style", "anime"] if ctx_render_style(ctx) == "anime" else [])],
             name="s7_final_audience_review_prepare",
         )
         res.steps.append(prepare_step)
@@ -9514,6 +9556,10 @@ def s7_push_in_compensation(ctx: Ctx, res: StageResult, contract: dict[str, Any]
         return None
     p = ctx.p
     report_path = p.assembly / f"{ctx.episode}_PUSH_IN_COMPENSATION.json"
+    if not _pic.applies(ctx_render_style(ctx)):  # InsightFace face widths: NOT_APPLICABLE to anime
+        write_json(report_path, _pic.not_applicable_report(ctx.episode, ctx_render_style(ctx)))
+        res.details["push_in_compensation"] = {"report": str(report_path), "status": "NOT_APPLICABLE"}
+        return None
     try:
         clips = {mp4.stem: mp4 for mp4 in sorted(p.video_media.glob(f"{ctx.episode}-VU-*.mp4"))}
         windows = _pic.cut_windows(

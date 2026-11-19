@@ -87,11 +87,35 @@ def normalise_item_id(value: Any) -> str | None:
 
 
 # --------------------------------------------------------------------------- Codex start prompt
-def codex_section(engine: Path | None = None, *, limit: int = MAX_CODEX_SECTION_CHARS) -> str:
+def _anime_note() -> str:
+    """render_style.CODEX_NOTE_ZH, loaded by path (this module is loaded by path itself, stdlib only)."""
+    import importlib.util  # noqa: PLC0415
+    try:
+        spec = importlib.util.spec_from_file_location("nalu_render_style_for_craft",
+                                                      Path(__file__).resolve().parent / "render_style.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)  # type: ignore[union-attr]
+        return str(module.CODEX_NOTE_ZH)
+    except Exception:  # noqa: BLE001 -- the start prompt must never fail on an advisory section
+        return ""
+
+
+def codex_section(engine: Path | None = None, *, limit: int = MAX_CODEX_SECTION_CHARS,
+                  render_style: str | None = None) -> str:
     """The standard's own section of Codex's start prompt (<= ``limit`` chars) or '' when off / missing.
 
     The compressed zh standard plus where to look things up: the full text is grepped by item id, never read whole
-    (PR #250: no large files re-read)."""
+    (PR #250: no large files re-read).  render_style=anime appends the short anime note (anime acting conventions,
+    one consistent character design) inside the same cap; live-action is unchanged."""
+    if str(render_style or "").strip().lower() == "anime":
+        note = _anime_note()
+        if note:
+            standard = _codex_section(engine, limit=limit - len(note) - 2)
+            return f"{standard}\n\n{note}" if standard else note
+    return _codex_section(engine, limit=limit)
+
+
+def _codex_section(engine: Path | None = None, *, limit: int = MAX_CODEX_SECTION_CHARS) -> str:
     if not enabled():
         return ""
     standard = load_items(engine)
