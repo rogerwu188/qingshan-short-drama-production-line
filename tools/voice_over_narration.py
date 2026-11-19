@@ -94,9 +94,9 @@ def speaker_index(entities: Any) -> dict[str, str]:
 
 
 def partition_line(line: str, language: str = "zh") -> tuple[str, str, str]:
-    """``speaker：text``; English may also use an ASCII colon (as build_nalu_preproduction)."""
+    """``speaker：text``; English / Japanese / Korean may also use an ASCII colon (as build_nalu_preproduction)."""
     speaker, separator, spoken = line.partition("：")
-    if not separator and language == "en":
+    if not separator and language in ("en", "ja", "ko"):
         speaker, separator, spoken = line.partition(":")
     return speaker, separator, spoken
 
@@ -161,7 +161,11 @@ def in_video_dialogue(dialogue: str, entities: Any, language: str = "zh") -> str
 
 
 def contract_language(contract: dict[str, Any]) -> str:
-    value = str((contract or {}).get("dialogue_language") or "").strip().lower()
+    """zh (default) / en / ja / ko from the contract's ``dialogue_language`` (``ja-JP`` -> ja)."""
+    value = str((contract or {}).get("dialogue_language") or "").strip().lower().replace("_", "-")
+    for code in ("ja", "ko"):
+        if value == code or value.startswith(code + "-"):
+            return code
     return "en" if value.startswith("en") else "zh"
 
 

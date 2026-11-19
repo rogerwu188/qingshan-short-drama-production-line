@@ -27,6 +27,7 @@ import studio_asset_resolve as _studio  # studio asset library: recorded sha256 
 import nalu_policy_profile as _policy_profile
 import nalu_series_scope as _series_scope
 import nalu_prompt_rules as _npr
+import lang_profile as _lang  # zh/en/ja/ko dialogue-language profile
 if str(_pathlib.Path(__file__).resolve().parents[4] / "tools") not in _sys.path:
     _sys.path.append(str(_pathlib.Path(__file__).resolve().parents[4] / "tools"))
 import voice_over_narration as _vo  # V.O. narration: VOICE_ONLY_NO_PLATE lines stay out of the video
@@ -302,7 +303,8 @@ class Engine:
         self.language = "zh"
 
     def set_dialogue_language(self, language: str) -> None:
-        """English dialogue counts words (limit 20) instead of characters (limit 30)."""
+        """English dialogue counts words (limit 20) instead of characters (limit 30); Japanese counts
+        characters and Korean syllables at their own limits (multimodal_character_binding_guard.dialogue_limit)."""
         self.language = language
         if language != "zh":
             self.dialogue_limit = self._dialogue_limit_for(language)
@@ -621,9 +623,9 @@ def build_subspace_tasks(contract: dict[str, Any], index: SpaceIndex,
 # editorial seedance manifest (E-4 / E-5 / E-10)
 # --------------------------------------------------------------------------- #
 def _speaker_partition(line: str, language: str = "zh") -> tuple[str, str, str]:
-    """``speaker：text``; English dialogue may also use an ASCII colon."""
+    """``speaker：text``; English / Japanese / Korean dialogue may also use an ASCII colon."""
     speaker, separator, spoken = line.partition("：")
-    if not separator and language == "en":
+    if not separator and language in ("en", "ja", "ko"):
         speaker, separator, spoken = line.partition(":")
     return speaker, separator, spoken
 
@@ -645,7 +647,7 @@ def split_dialogue(dialogue: str, limit: int, length: Any,
         if not separator or length(spoken) <= limit:
             output.append(line)
             continue
-        marks_pattern = r"[，、；。！？,.;!?]" if language == "en" else r"[，、；。！？]"
+        marks_pattern = r"[，、；。！？,.;!?]" if language in ("en", "ja", "ko") else r"[，、；。！？]"
         marks = [match.end() for match in re.finditer(marks_pattern, spoken)]
         target = len(spoken) / 2
         cut = min(marks, key=lambda value: abs(value - target)) if marks else None
@@ -657,7 +659,8 @@ def split_dialogue(dialogue: str, limit: int, length: Any,
             })
             continue
         head, tail = spoken[:cut], spoken[cut:]
-        if language == "en":
+        spaced = language == "en" or _lang.profile(language).joiner == " "  # en / ko write spaces between words
+        if spaced:
             # keep the authored text exactly; only the inter-word space moves to the line break
             head, tail = head.rstrip(" "), spoken[len(head.rstrip(" ")):].lstrip(" ")
         output.append(f"{speaker}：{head}")
@@ -668,7 +671,7 @@ def split_dialogue(dialogue: str, limit: int, length: Any,
             "split_at_character_index": cut,
             "resulting_lines": [f"{speaker}：{head}", f"{speaker}：{tail}"],
             "resulting_spoken_lengths": [length(head), length(tail)],
-            "text_preserved_exactly": (head + tail == spoken if language != "en"
+            "text_preserved_exactly": (head + tail == spoken if not spaced
                                        else " ".join((head + " " + tail).split()) == " ".join(spoken.split())),
             "status": "SPLIT_AT_EXISTING_PUNCTUATION_BOUNDARY",
         })
@@ -872,7 +875,7 @@ def bind_dialogue_cast(dialogue, cast, entities, language="zh"):
         speaker, separator, spoken = _speaker_partition(line, language)
         if not separator or not speaker.strip():
             raise ValueError("DIALOGUE_SPEAKER_UNRESOLVED")
-        if language == "en":
+        if language in ("en", "ja", "ko"):
             spoken = spoken.lstrip(" ")
         cid = names.get(speaker.strip())
         if not cid:
@@ -1958,7 +1961,7 @@ def main() -> int:
     parser.add_argument("--shot-scope-policy",
                         help="override configs/PROMPT_SHOT_SCOPE_POLICY_V1.json (offline what-if only; "
                              "the committed config stays the production switch)")
-    parser.add_argument("--language", choices=("zh", "en"), default="zh",
+    parser.add_argument("--language", choices=("zh", "en", "ja", "ko"), default="zh",
                         help="episode dialogue language resolved by nalu_pipeline (default zh)")
     args = parser.parse_args()
 
@@ -2721,7 +2724,11 @@ def _join_continuation_lines(speaker: str, spoken: str) -> str:
         if line:
             fragments.append(line)
     han = any("\u4e00" <= ch <= "\u9fff" for ch in "".join(fragments))
-    return ("" if han else " ").join(fragments)
+    # Japanese joins without a space like Chinese (kana-only fragments have no Han); Korean keeps the space
+    joined = "".join(fragments)
+    kana = bool(_lang.KANA_RE.search(joined))
+    hangul = bool(_lang.HANGUL_RE.search(joined))
+    return ("" if (han or kana) and not hangul else " ").join(fragments)
 
 
 _ASSET_LIBRARY_CACHE: dict[str, dict[str, Any]] = {}

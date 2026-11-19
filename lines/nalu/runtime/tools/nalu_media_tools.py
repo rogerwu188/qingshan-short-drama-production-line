@@ -56,6 +56,36 @@ LATIN_FONT_PATHS = (
 )
 
 
+#: Japanese / Korean text (2026-11-18): prefer a face drawn for the language (Noto Sans CJK JP / KR, Hiragino,
+#: Apple SD Gothic Neo); the Noto Sans CJK collection carries kana and Hangul too and is the Linux fallback,
+#: then the generic CJK resolver.  Never a Chinese-only face first: PingFang / STHeiti lack Hangul.
+LANGUAGE_FONT_ENV_NAMES = {"ja": ("QINGSHAN_JA_FONT", "NALU_JA_FONT"), "ko": ("QINGSHAN_KO_FONT", "NALU_KO_FONT")}
+_NOTO_CJK_COLLECTIONS = (
+    Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+    Path("/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc"),
+    Path("/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc"),
+    Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),
+)
+LANGUAGE_FONT_PATHS = {
+    "ja": (
+        Path("/usr/share/fonts/opentype/noto/NotoSansCJKjp-Regular.otf"),
+        Path("/usr/share/fonts/noto-cjk/NotoSansCJKjp-Regular.otf"),
+        *_NOTO_CJK_COLLECTIONS,
+        Path("/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc"),
+        Path("/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc"),
+        Path("/System/Library/Fonts/Hiragino Sans GB.ttc"),
+    ),
+    "ko": (
+        Path("/usr/share/fonts/opentype/noto/NotoSansCJKkr-Regular.otf"),
+        Path("/usr/share/fonts/noto-cjk/NotoSansCJKkr-Regular.otf"),
+        *_NOTO_CJK_COLLECTIONS,
+        Path("/usr/share/fonts/truetype/nanum/NanumGothic.ttf"),
+        Path("/System/Library/Fonts/AppleSDGothicNeo.ttc"),
+        Path("/Library/Fonts/Arial Unicode.ttf"),
+    ),
+}
+
+
 def _executable(path: str | os.PathLike[str]) -> Path | None:
     candidate = Path(path).expanduser()
     if candidate.is_file() and os.access(candidate, os.X_OK):
@@ -189,5 +219,36 @@ def resolve_latin_font(
         font = _regular_file(path)
         if font is not None:
             return str(font), "COMMON_EXISTING_PATH"
+    font_file, source = resolve_cjk_font(environ=environ)
+    return font_file, f"CJK_FALLBACK:{source}"
+
+
+def resolve_language_font(
+    language: str,
+    *,
+    environ: Mapping[str, str] | None = None,
+    candidates: tuple[Path, ...] | None = None,
+) -> tuple[str, str]:
+    """The subtitle / title font for a dialogue language: en -> resolve_latin_font, zh -> resolve_cjk_font
+    (both unchanged); ja / ko -> $QINGSHAN_JA_FONT / $QINGSHAN_KO_FONT, a language face, the Noto Sans CJK
+    collection, else the generic CJK font (which also carries kana and Hangul on Linux hosts)."""
+    code = str(language or "zh").strip().lower().replace("_", "-").split("-")[0]
+    if code == "en":
+        return resolve_latin_font(environ=environ)
+    if code not in LANGUAGE_FONT_PATHS:
+        return resolve_cjk_font(environ=environ)
+    environment = os.environ if environ is None else environ
+    for env_name in LANGUAGE_FONT_ENV_NAMES[code]:
+        raw = str(environment.get(env_name) or "").strip()
+        if not raw:
+            continue
+        font = _regular_file(raw)
+        if font is None:
+            raise MediaToolBlocked(f"BLOCKED_{code.upper()}_FONT:{env_name}={raw!r} is not a readable font file")
+        return str(font), env_name
+    for path in LANGUAGE_FONT_PATHS[code] if candidates is None else candidates:
+        font = _regular_file(path)
+        if font is not None:
+            return str(font), f"COMMON_EXISTING_PATH:{code}"
     font_file, source = resolve_cjk_font(environ=environ)
     return font_file, f"CJK_FALLBACK:{source}"

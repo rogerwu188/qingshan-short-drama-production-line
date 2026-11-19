@@ -66,6 +66,9 @@ def is_authored_world(contract: dict[str, Any] | None, *, dialogue_language: Any
     mode = declared_era_lock(contract)
     if mode:
         return mode == ERA_LOCK_AUTHORED_WORLD
+    # Japanese / Korean lines (2026-11-18) are never the Song-China period lock: their world is authored
+    if str(dialogue_language or "").strip().lower()[:2] in ("ja", "ko"):
+        return True
     if episode_number is not None and episode_number >= ACTIVE_FROM_EPISODE:
         return False
     return str(dialogue_language or "zh").strip().lower().startswith("en")

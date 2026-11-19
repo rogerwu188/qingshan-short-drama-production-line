@@ -115,6 +115,38 @@ def resolve_whisper_model(
     return requested, "model_identifier"
 
 
+#: per-language preferred faster-whisper model (lang_profile.whisper_model); owner 2026-11-18: Japanese
+#: ASR uses "medium" rather than a lower recall floor.  Kept here as plain data so this module stays import-free.
+LANGUAGE_WHISPER_MODELS = {"ja": "medium"}
+LANGUAGE_WHISPER_FALLBACK = "small"
+
+
+def language_whisper_model(language: object, explicit: str | os.PathLike[str] | None = None) -> tuple[str, str]:
+    """The Whisper model for a dialogue language: an explicit value / $QINGSHAN_WHISPER_MODEL wins; a language
+    with a preferred bigger model (ja -> medium) uses it only when a local snapshot exists (never a multi-GB
+    download in the middle of a run; setup_host.sh pre-fetches it), else the historical "small"."""
+    if explicit or os.environ.get(WHISPER_ENV):
+        return resolve_whisper_model(explicit)
+    code = str(language or "").strip().lower().replace("_", "-").split("-")[0]
+    preferred = LANGUAGE_WHISPER_MODELS.get(code)
+    if preferred:
+        cached = _cached_whisper_snapshot(preferred)
+        # a snapshot whose model.bin is not there yet is a download still in flight (setup_host.sh /
+        # apply_runtime_fixups.py fetch it in the background): use the historical model until it completes
+        if cached is not None and (Path(cached) / "model.bin").is_file():
+            return str(cached), f"huggingface_cache_language_preferred:{preferred}"
+        return LANGUAGE_WHISPER_FALLBACK, f"language_preferred_{preferred}_not_installed_fallback"
+    return resolve_whisper_model(None)
+
+
+def language_whisper_model_name(language: object) -> str:
+    """``"small"`` for zh / en / ko (the historical literal); ja -> the cached medium snapshot when present."""
+    code = str(language or "").strip().lower().replace("_", "-").split("-")[0]
+    if code not in LANGUAGE_WHISPER_MODELS:
+        return LANGUAGE_WHISPER_FALLBACK
+    return language_whisper_model(code)[0]
+
+
 def runtime_probe(root: Path | None = None) -> dict[str, object]:
     result: dict[str, object] = {}
     for binary in ("ffmpeg", "ffprobe"):

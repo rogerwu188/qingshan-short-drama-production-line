@@ -259,6 +259,24 @@ def cover_tick(cp: Any, token: str, *, now: float | None = None) -> str | None:
     return result
 
 
+DIALOGUE_LANGUAGES = ("zh", "en", "ja", "ko")
+
+
+def dialogue_language(runtime: Path) -> str | None:
+    """The series' spoken-dialogue language for the fleet dashboard's 中文/英文/日文/韩文剧 groups:
+    ``<runtime>/qingshan.json`` ``project.language`` ("zh-CN" / "en-US" / "ja-JP" / "ko-KR" / "ja" ...) as the
+    2-letter code, the same normalisation as nalu_pipeline.resolve_dialogue_language.  None when it is not set
+    or unreadable (the server then falls back to its series-title heuristic); never raises."""
+    try:
+        cfg = json.loads((runtime / "qingshan.json").read_text(encoding="utf-8"))
+        project = cfg.get("project") if isinstance(cfg, dict) else None
+        value = project.get("language") if isinstance(project, dict) else None
+        text = str(value or "").strip().lower().replace("_", "-")
+        return next((c for c in DIALOGUE_LANGUAGES if text == c or text.startswith(c + "-")), None)
+    except Exception:  # noqa: BLE001 -- a missing / broken config only costs the dashboard grouping
+        return None
+
+
 def build_status(cp: Any, tick_result: dict) -> tuple[dict, str, str]:
     engine, runtime = cp.roots()
     ep = cp.current_episode() or ""
@@ -298,6 +316,7 @@ def build_status(cp: Any, tick_result: dict) -> tuple[dict, str, str]:
         "credits_episode": spent.get(ep), "credits_total": round(sum(spent.values()), 2),
         "pipeline": pipeline, "x2c": x2c, "engine_sha": _engine_sha(engine),
         "final_review": (tick_result.get("final_review") or {}).get("status"),
+        "dialogue_language": dialogue_language(runtime),
     }
     try:
         status["hopsapi_credits"] = hopsapi_credits(engine, runtime)

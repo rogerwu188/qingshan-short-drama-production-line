@@ -441,8 +441,16 @@ def _to_simplified(text: str) -> str:
     return _T2S.convert(text) if _T2S else text
 
 
-def normalise_subtitle_text(text: str) -> str:
-    """Punctuation/whitespace-free, lower-cased, simplified-script text for character-level comparison."""
+def normalise_subtitle_text(text: str, language: str = "zh") -> str:
+    """Punctuation/whitespace-free, lower-cased, simplified-script text for character-level comparison.
+
+    Japanese / Korean (2026-11-18): never traditional -> simplified (it would rewrite Japanese kanji);
+    Japanese katakana is folded to hiragana so a script choice of the ASR is not a mismatch."""
+    if language in ("ja", "ko"):
+        value = _SUBTITLE_NORMALISE.sub("", str(text or "")).lower()
+        if language == "ja":
+            value = "".join(chr(ord(ch) - 0x60) if "\u30a1" <= ch <= "\u30f6" else ch for ch in value)
+        return value
     return _to_simplified(_SUBTITLE_NORMALISE.sub("", str(text or ""))).lower()
 
 
@@ -500,7 +508,7 @@ def _readback_words(segments: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
 # post-generation QA runner strips); never counted as speech heard
 ASR_HALLUCINATION_PATTERNS = ("字幕", "by索", "索兰娅", "独播", "YoYo", "Television", "Amara", "点赞", "订阅", "转发",
                               "打赏", "明镜", "优优", "字幕组", "subtitles by")
-_SPEECHLIKE = re.compile(r"[\u3400-\u9fff\u3040-\u30ffA-Za-z]")
+_SPEECHLIKE = re.compile(r"[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7a3A-Za-z]")
 
 
 READBACK_PROMPT_ZH = "以下是普通话对白，简体中文。"
@@ -562,7 +570,7 @@ def _seq_similarity(expected: Sequence[Any], heard: Sequence[Any]) -> float:
     return max(ratio, coverage, best_partial)
 
 
-def cue_similarity(expected: str, heard: str) -> float:
+def cue_similarity(expected: str, heard: str, language: str = "zh") -> float:
     """Similarity of a subtitle cue to what was heard around it, 0..1.
 
     Characters and toneless pinyin are both compared and the better one counts: whisper's confusions on
@@ -575,6 +583,8 @@ def cue_similarity(expected: str, heard: str) -> float:
     if not heard:
         return 0.0
     score = _seq_similarity(expected, heard)
+    if language in ("ja", "ko"):  # pinyin homophones are a Chinese rescue only
+        return round(score, 3)
     pe, ph = _pinyin(expected), _pinyin(heard)
     if pe and ph:
         score = max(score, _seq_similarity(pe, ph))
@@ -583,7 +593,7 @@ def cue_similarity(expected: str, heard: str) -> float:
 
 def decide_subtitle_agreement(cues: Sequence[dict[str, Any]] | None, readback: Sequence[dict[str, Any]] | None, *,
                               similarity: float, window_s: float, min_agreement: float,
-                              outside_max_s: float = 1.0) -> dict[str, Any]:
+                              outside_max_s: float = 1.0, language: str = "zh") -> dict[str, Any]:
     """Sentence-by-sentence agreement between the burned subtitles and an ASR read-back of the final mix.
 
     Metric A (what the subtitle promises is heard): for each cue, the read-back tokens whose midpoint lies in
@@ -613,9 +623,9 @@ def decide_subtitle_agreement(cues: Sequence[dict[str, Any]] | None, readback: S
         for i in picked:
             covered[i] = True
         heard = "".join(words[i]["text"] for i in picked)
-        expected = normalise_subtitle_text(cue["text"])
-        got = normalise_subtitle_text(heard)
-        ratio = cue_similarity(expected, got)
+        expected = normalise_subtitle_text(cue["text"], language)
+        got = normalise_subtitle_text(heard, language)
+        ratio = cue_similarity(expected, got, language)
         ok = ratio >= similarity
         matched += 1 if ok else 0
         rows.append({"start": round(float(cue["start"]), 2), "end": round(float(cue["end"]), 2), "similarity": ratio,
@@ -736,7 +746,8 @@ def group_readback_windows(windows: Sequence[Sequence[float]] | None, min_s: flo
 
 
 def load_or_run_readback(media: Path, cache: Path | None, *, model: str,
-                         windows: Sequence[Sequence[float]] | None = None) -> tuple[list[dict[str, Any]], str]:
+                         windows: Sequence[Sequence[float]] | None = None,
+                         language: str = "zh") -> tuple[list[dict[str, Any]], str]:
     """Reuse a cached read-back bound to this media's sha256; otherwise transcribe (per chunk of release
     segments when given) and write the cache incrementally, so a killed run resumes from the last finished chunk."""
     windows = group_readback_windows(windows) if windows else None
@@ -773,6 +784,7 @@ def load_or_run_readback(media: Path, cache: Path | None, *, model: str,
 
     todo = list(windows)[resume_from:] if windows else None
     segments = readback_transcribe(media, model=model, windows=todo,
+                                   **({"language": language} if language != "zh" else {}),
                                    on_window_done=(lambda i, rows: _persist(resume_from + i, rows, True)) if todo else None)
     _persist(len(windows) - 1 if windows else 0, segments, False)
     segments = rows_prefix + segments
@@ -887,7 +899,8 @@ def evaluate_from_measurements(m: dict[str, Any], options: dict[str, Any] | None
         "subtitle_asr_agreement": decide_subtitle_agreement(
             m.get("subtitle_cues"), m.get("readback_segments"),
             similarity=opts["subtitle_match_similarity"], window_s=opts["subtitle_match_window_s"],
-            min_agreement=opts["subtitle_agreement_min"], outside_max_s=opts["outside_cue_speech_max_s"]),
+            min_agreement=opts["subtitle_agreement_min"], outside_max_s=opts["outside_cue_speech_max_s"],
+            **({"language": m["language"]} if m.get("language") in ("ja", "ko") else {})),
         "loudness": decide_loudness(m.get("integrated_lufs"), m.get("true_peak_dbtp"), segments,
                                     release_lufs=opts["release_lufs"], tolerance=opts["release_lufs_tolerance"],
                                     release_tp=opts["release_tp"], window_range=opts["window_lufs_range"],
@@ -1128,6 +1141,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         help="cache for the whole-mix ASR read-back (subtitle_asr_agreement); reused when its media_sha256 "
                              "matches --media, written after a fresh transcription")
     parser.add_argument("--readback-model", default=DEFAULTS["readback_asr_model"])
+    parser.add_argument("--language", choices=("zh", "ja", "ko"), default="zh",
+                        help="dialogue language of the subtitle read-back (ja / ko since 2026-11-18; default zh as before)")
     parser.add_argument("--no-readback", action="store_true",
                         help="skip the read-back transcription (subtitle_asr_agreement reports UNVERIFIED)")
     args = parser.parse_args(argv)
@@ -1163,7 +1178,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             _story, _action = load_story_windows(args.story_segments)
             readback_windows = sorted(_story + _action) or None
         readback_segments, readback_source = load_or_run_readback(media, args.readback_asr_json, model=args.readback_model,
-                                                                  windows=readback_windows)
+                                                                  windows=readback_windows, language=args.language)
     ocr_texts = ocr_frames(media, duration or 0.0, every=DEFAULTS["ocr_every_seconds"],
                            min_confidence=DEFAULTS["ocr_min_confidence"]) if (lexicon and duration) else None
     story_windows, action_windows = load_story_windows(args.story_segments) if args.story_segments else ([], [])
@@ -1186,6 +1201,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "subtitle_texts": subtitle_texts,
         "subtitle_cues": subtitle_cues,
         "readback_segments": readback_segments,
+        **({"language": args.language} if args.language != "zh" else {}),
         "ocr_texts": ocr_texts,
         "mascot_scores": scores,
         "brand_available": bool(args.brand_dir),

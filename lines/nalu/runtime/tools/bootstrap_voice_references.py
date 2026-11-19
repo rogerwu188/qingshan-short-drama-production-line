@@ -45,6 +45,7 @@ from __future__ import annotations
 import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))  # nalu_paths lives in tools/
 import nalu_paths as _np  # portable ENGINE_ROOT / RUNTIME_ROOT / VENV_PYTHON (env or auto-detect)
+import lang_profile as _lang  # zh/en/ja/ko dialogue-language profile
 import argparse
 import hashlib
 import json
@@ -82,7 +83,10 @@ SYLLABLES_PER_SECOND = 4.2
 WORDS_PER_SECOND = 2.7
 EN_FLOOR_WORDS = 8
 EN_CEILING_WORDS = 27
-LANGUAGE_LOCALES = {"zh": "zh-CN", "en": "en-US"}
+LANGUAGE_LOCALES = {"zh": "zh-CN", "en": "en-US", "ja": "ja-JP", "ko": "ko-KR"}
+#: Japanese / Korean reads count characters / syllables at the lang_profile rate (6.0 / 5.0 per second) with a
+#: 3-10 s window of 18-60 / 15-50 units
+CJK_EXTRA_LANGUAGES = ("ja", "ko")
 ENGLISH_WORD = re.compile(r"[A-Za-z0-9]+(?:['\u2019][A-Za-z0-9]+)*")
 AUDIO_UNIT_PRICE_CREDITS = 2
 
@@ -106,9 +110,11 @@ def atomic_json(path: Path, payload: Any) -> None:
 
 
 def spoken_length(value: str, language: str = "zh") -> int:
-    """zh: Han/alnum characters; en: words."""
+    """zh: Han/alnum characters; en: words; ja: kana/kanji characters; ko: Hangul syllables."""
     if language == "en":
         return len(ENGLISH_WORD.findall(value))
+    if language in CJK_EXTRA_LANGUAGES:
+        return _lang.speech_units(value, language)
     return len(HAN_ALNUM.findall(value))
 
 
@@ -137,7 +143,7 @@ def extract_dialogue(contract: dict[str, Any], language: str = "zh") -> list[dic
             if not line:
                 continue
             speaker, separator, spoken = line.partition("：")
-            if not separator and language == "en":
+            if not separator and language in ("en", "ja", "ko"):
                 speaker, separator, spoken = line.partition(":")
             if not separator:
                 raise ValueError(f"{shot.get('shot_id')} dialogue is not speaker：text: {line}")
@@ -165,7 +171,7 @@ def choose_sample_text(
     floor, use all of it and return a risk flag.  Nothing is invented.
     """
     flags: list[str] = []
-    joiner = " " if language == "en" else ""
+    joiner = " " if language == "en" else _lang.profile(language).joiner
     in_range = [line for line in lines if floor_chars <= spoken_length(line, language) <= ceiling_chars]
     if in_range:
         best = max(in_range, key=lambda line: (spoken_length(line, language), -lines.index(line)))
@@ -185,7 +191,8 @@ def choose_sample_text(
 
 
 def estimated_seconds(text: str, speed: float, language: str = "zh") -> float:
-    rate = WORDS_PER_SECOND if language == "en" else SYLLABLES_PER_SECOND
+    rate = (WORDS_PER_SECOND if language == "en"
+            else _lang.profile(language).rate if language in CJK_EXTRA_LANGUAGES else SYLLABLES_PER_SECOND)
     return round(spoken_length(text, language) / (rate * max(speed, 0.01)), 2)
 
 
@@ -303,6 +310,7 @@ def build_brief(
         "risk_flags": sample_flags + speed_flags + duration_flags,
         "voice_selection_criteria": {
             "language": ("en-US English, no accent processing, no pitch shifting" if language == "en"
+                         else _lang.profile(language).voice_locale_text if language in CJK_EXTRA_LANGUAGES
                          else "zh-CN Mandarin, no accent processing, no pitch shifting"),
             "sex": sex,
             "apparent_age_range": age,
@@ -616,7 +624,7 @@ def main() -> int:
     parser.add_argument("--speed", type=float, default=1.0)
     parser.add_argument("--floor-chars", type=int, help="Minimum spoken length of sample_text (fix for R-8); default 12 chars (zh) / 8 words (en)")
     parser.add_argument("--ceiling-chars", type=int, help="default 42 chars (zh) / 27 words (en)")
-    parser.add_argument("--language", choices=("zh", "en"), default="zh",
+    parser.add_argument("--language", choices=("zh", "en", "ja", "ko"), default="zh",
                         help="dialogue language resolved by nalu_pipeline (default zh)")
     parser.add_argument("--probe-speaker-contract", action="store_true")
     parser.add_argument("--dry-run", action="store_true", default=True, help="Always on. This tool has no submit path.")
@@ -625,9 +633,11 @@ def main() -> int:
     episode = args.episode.strip().upper()
     language = args.language
     if args.floor_chars is None:
-        args.floor_chars = EN_FLOOR_WORDS if language == "en" else 12
+        args.floor_chars = (EN_FLOOR_WORDS if language == "en" else _lang.profile(language).reference_floor
+                            if language in CJK_EXTRA_LANGUAGES else 12)
     if args.ceiling_chars is None:
-        args.ceiling_chars = EN_CEILING_WORDS if language == "en" else 42
+        args.ceiling_chars = (EN_CEILING_WORDS if language == "en" else _lang.profile(language).reference_ceiling
+                              if language in CJK_EXTRA_LANGUAGES else 42)
     contract = load_json(Path(args.generation_contract))
     requirements = load_json(Path(args.asset_requirements))
     skeleton = load_json(Path(args.voice_skeleton)) if args.voice_skeleton else {}

@@ -11,6 +11,11 @@ import re
 from pathlib import Path
 from typing import Any
 
+try:
+    from tools import lang_profile as _lang
+except ImportError:  # pragma: no cover - flat sys.path deployments
+    import lang_profile as _lang
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -132,6 +137,8 @@ DIALOGUE_CHARACTER_LIMIT = 30
 # English-dialogue tasks count words instead: 30 Mandarin characters ~ 7 s at 4.2 cps,
 # ~ 19 words at 2.7 words/s, rounded to 20.
 DIALOGUE_WORD_LIMIT_EN = 20
+# Japanese characters / Korean syllables at the same ~7 s (lang_profile rates 6.0 / 5.0 per second).
+DIALOGUE_UNIT_LIMITS = {"ja": 42, "ko": 36}
 GENERIC_TTS_PATTERN = re.compile(r"(?:Azure|Edge\s*TTS|[A-Za-z-]+Neural)", re.I)
 AGENTCUT_VOICE_EXEMPTIONS = {"chenji", "baili"}
 POSE_FIRST_PATTERN = re.compile(r"先摆(?:出)?姿势|摆好姿势再|定格起手|pose[- ]first", re.I)
@@ -183,10 +190,14 @@ def _dialogue_length(text: str, language: str = "zh") -> int:
     (English dialogue: count words)."""
     if language == "en":
         return len(re.findall(r"[A-Za-z0-9]+(?:['\u2019][A-Za-z0-9]+)*", text))
+    if language in DIALOGUE_UNIT_LIMITS:  # ja characters / ko syllables (lang_profile)
+        return _lang.speech_units(text, language)
     return len(re.findall(r"[\u3400-\u9fffA-Za-z0-9]", text))
 
 
 def dialogue_limit(language: str = "zh") -> int:
+    if language in DIALOGUE_UNIT_LIMITS:
+        return DIALOGUE_UNIT_LIMITS[language]
     return DIALOGUE_WORD_LIMIT_EN if language == "en" else DIALOGUE_CHARACTER_LIMIT
 
 

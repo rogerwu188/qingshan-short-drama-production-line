@@ -69,6 +69,7 @@ from typing import Any, Callable, Iterable
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import nalu_policy_profile as _policy_profile  # noqa: E402
+import lang_profile as _lang  # noqa: E402  zh/en/ja/ko dialogue-language profile
 
 from nalu_qa_common import (  # noqa: E402
     DIALOGUE_QA_POLICY, ENGINE, REROLL_POLICY, REVIEWER_ID,
@@ -665,12 +666,37 @@ def _t2s(text: str) -> str:
 #: already written) — a recorded gate_exit_code that must not vary run to run.
 _ASR_LOCK = threading.RLock()
 _WHISPER = None
+#: ja / ko models (ja prefers a locally installed "medium", owner 2026-11-18), keyed by model reference;
+#: zh / en keep the single historical "small" instance above
+_WHISPER_BY_MODEL: dict[str, Any] = {}
 
 
-def _whisper_model_locked():
+def _whisper_model_name(language: str = "zh") -> str:
+    if language not in ("ja", "ko"):
+        return "small"
+    try:
+        from portable_runtime import language_whisper_model_name  # engine tools/ on sys.path
+    except ImportError:  # pragma: no cover
+        try:
+            sys.path.insert(0, str(ENGINE / "tools"))
+            from portable_runtime import language_whisper_model_name
+        except ImportError:
+            return "small"
+    return language_whisper_model_name(language)
+
+
+def _whisper_model_locked(language: str = "zh"):
     """The in-process faster-whisper model, loaded once.  Call with _ASR_LOCK held; the
     model is used from that lock only (the transcribe generator does its work on iteration)."""
     global _WHISPER
+    if language in ("ja", "ko"):
+        name = _whisper_model_name(language)
+        if name == "small" and _WHISPER is not None:
+            return _WHISPER
+        if name not in _WHISPER_BY_MODEL:
+            from faster_whisper import WhisperModel  # type: ignore
+            _WHISPER_BY_MODEL[name] = WhisperModel(name, device="cpu", compute_type="int8")
+        return _WHISPER_BY_MODEL[name]
     if _WHISPER is None:
         from faster_whisper import WhisperModel  # type: ignore
         _WHISPER = WhisperModel("small", device="cpu", compute_type="int8")
@@ -682,9 +708,11 @@ def _has_chinese(value: str) -> bool:
 
 
 def _has_speech_text(value: str, language: str = "zh") -> bool:
-    """zh: any CJK ideograph; en: any Latin letter."""
+    """zh: any CJK ideograph; en: any Latin letter; ja: kana or kanji; ko: Hangul."""
     if language == "en":
         return any(("a" <= ch <= "z") or ("A" <= ch <= "Z") for ch in value)
+    if language in ("ja", "ko"):
+        return bool(_lang.normalise(value, language))
     return _has_chinese(value)
 
 
@@ -695,7 +723,7 @@ def _script_normalise(text: str, language: str = "zh") -> str:
 
 def _speech_codes(language: str = "zh") -> dict[str, str]:
     """The source_video_dialogue_gate failure codes for this language."""
-    if language == "en":
+    if language in ("en", "ja", "ko"):  # source_video_dialogue_gate reports the language-neutral codes
         return {"missing": "native_speech_missing",
                 "unexpected": "unexpected_native_speech_present"}
     return {"missing": "native_mandarin_speech_missing",
@@ -707,7 +735,7 @@ def _verify_no_speech(media: Path, language: str = "zh") -> dict[str, Any]:
     try:
         rows = []
         with _ASR_LOCK:
-            model = _whisper_model_locked()
+            model = _whisper_model_locked(language)
             segments, _info = model.transcribe(str(media), language=language, beam_size=5, vad_filter=True,
                                                word_timestamps=True)
             for seg in segments:
@@ -789,7 +817,7 @@ def _rate_segments(media: Path, segments: list[dict[str, Any]],
         return rows
     try:
         with _ASR_LOCK:
-            model = _whisper_model_locked()
+            model = _whisper_model_locked(language)
             segs, _info = model.transcribe(str(media), language=language, beam_size=1, vad_filter=True,
                                            word_timestamps=True)
             timed = [{"start": round(float(seg.start), 2), "end": round(float(seg.end), 2),
@@ -809,7 +837,7 @@ def _reverify_dialogue(media: Path, expected_texts: list[str], language: str = "
     import re as _re
     try:
         with _ASR_LOCK:
-            model = _whisper_model_locked()
+            model = _whisper_model_locked(language)
             segments, _info = model.transcribe(str(media), language=language, beam_size=1, vad_filter=True,
                                                word_timestamps=True)
             rows = [{"start": round(float(seg.start), 2), "end": round(float(seg.end), 2),
@@ -819,7 +847,7 @@ def _reverify_dialogue(media: Path, expected_texts: list[str], language: str = "
                     for seg in segments]
     except Exception as exc:  # noqa: BLE001
         return {"status": "REVERIFY_FAILED", "error": f"{type(exc).__name__}: {exc}", "recall": None}
-    transcript = (" " if language == "en" else "").join(r["text"] for r in rows)
+    transcript = (" " if language == "en" else _lang.profile(language).joiner).join(r["text"] for r in rows)
     if any(pat.lower() in transcript.lower() for pat in ASR_HALLUCINATION_PATTERNS):
         return {"status": "STILL_HALLUCINATION", "transcript": transcript, "segments": rows, "recall": 0.0}
     from collections import Counter
@@ -832,6 +860,18 @@ def _reverify_dialogue(media: Path, expected_texts: list[str], language: str = "
         hit = sum(min(n, cg.get(w, 0)) for w, n in ce.items())
         return {"status": "REVERIFIED", "method": "faster-whisper small int8, language=en, beam_size=1, vad_filter=True; lowercase word recall",
                 "transcript": transcript, "segments": rows, "recall": round(hit / max(1, len(exp_w)), 3)}
+    if language in ("ja", "ko"):
+        # character recall on the lang_profile normalisation (ja: katakana -> hiragana, never t2s;
+        # ko: Hangul syllables, word spaces dropped)
+        exp = _lang.normalise("".join(expected_texts), language); got = _lang.normalise(transcript, language)
+        if not exp:
+            return {"status": "NO_EXPECTED_TEXT", "transcript": transcript, "segments": rows, "recall": None}
+        ce, cg = Counter(exp), Counter(got)
+        hit = sum(min(n, cg.get(ch, 0)) for ch, n in ce.items())
+        return {"status": "REVERIFIED",
+                "method": f"faster-whisper {_whisper_model_name(language)} int8, language={language}, beam_size=1, "
+                          "vad_filter=True; character recall after lang_profile normalisation",
+                "transcript": transcript, "segments": rows, "recall": round(hit / max(1, len(exp)), 3)}
     clean = lambda t: _re.sub(r"[^\u4e00-\u9fff0-9a-zA-Z]", "", _t2s(str(t)))
     exp = clean("".join(expected_texts)); got = clean(transcript)
     if not exp:
@@ -856,8 +896,9 @@ def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, 
     # (2026-09-13: "秦铭：陆哥。" vs transcript "陆哥" scored 0.5 and rejected E01-VU-011)
     def spoken_only(value: Any) -> str:
         text = str(value or "")
-        if language == "en":
-            # English plots write "Name: line" (ASCII colon); names run longer than CJK names.
+        if language in ("en", "ja", "ko"):
+            # English plots write "Name: line" (ASCII colon); names run longer than CJK names
+            # (Japanese / Korean plots may use either colon).
             head = text[:32]
             for mark in ("：", ":"):
                 if mark in head:
@@ -873,7 +914,10 @@ def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, 
             "--video", media, "--dialogue-json", dialogue_json, "--out", report,
             "--minimum-recall", minimum_recall, "--ffprobe", require_ffprobe(),
             "--language", language]
-    if asr.get("model"):
+    if language in ("ja", "ko"):
+        # the policy's "small" is the zh / en model; ja prefers a locally installed "medium" (owner 2026-11-18)
+        argv += ["--model", _whisper_model_name(language)]
+    elif asr.get("model"):
         argv += ["--model", asr["model"]]
     if not expected_dialogue:
         argv += ["--require-no-dialogue"]
@@ -919,7 +963,7 @@ def dialogue_check(unit_id: str, media: Path, expected_dialogue: list[dict[str, 
             and not _has_speech_text(str(payload.get("transcript") or ""), language):
         verify = _verify_no_speech(media, language)
         gate = engine_module("source_video_dialogue_gate")
-        joiner = " " if language == "en" else ""
+        joiner = " " if language == "en" else _lang.profile(language).joiner
         expected_join = joiner.join(spoken_only(row.get("spoken_text")) for row in expected_dialogue)
         second = joiner.join(r["text"] for r in (verify.get("segments") or []))
         second_recall = gate.recall(expected_join, _script_normalise(second, language), language) if second else 0.0
@@ -1589,7 +1633,7 @@ def main() -> int:
     rn.add_argument("--remeasure", action="store_true",
                     help="measure every unit again even when its clip and inputs are unchanged")
     rn.add_argument("--unit", action="append", default=[])
-    rn.add_argument("--language", choices=("zh", "en"), default="zh",
+    rn.add_argument("--language", choices=("zh", "en", "ja", "ko"), default="zh",
                     help="dialogue language resolved by nalu_pipeline (default zh)")
     args = parser.parse_args()
 

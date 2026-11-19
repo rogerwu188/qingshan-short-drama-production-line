@@ -65,6 +65,8 @@ def title_lines(brief: dict[str, Any], episode: str, language: str) -> tuple[str
     number = display_number(brief, episode)
     if language == "en":
         head = f"EPISODE {number:02d}" if number is not None else str(episode)
+    elif language in ("ja", "ko"):  # 第N話 / 제N화 (lang_profile.episode_label)
+        head = {"ja": f"第{number}話", "ko": f"제{number}화"}[language] if number is not None else str(episode)
     else:
         head = f"第{zh_number(number)}集" if number is not None else str(episode)
     return series, (f"{head} · {ep_title}" if ep_title else head)
@@ -73,6 +75,8 @@ def title_lines(brief: dict[str, Any], episode: str, language: str) -> tuple[str
 def resolve_font(language: str) -> tuple[str, str]:
     if language == "en":
         return _media.resolve_latin_font()
+    if language in ("ja", "ko"):  # a face that carries kana / Hangul (Noto Sans CJK JP / KR, Hiragino, SD Gothic)
+        return _media.resolve_language_font(language)
     return _media.resolve_cjk_font()
 
 

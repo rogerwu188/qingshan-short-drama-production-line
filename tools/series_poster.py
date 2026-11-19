@@ -174,6 +174,35 @@ FONTS: dict[str, dict[str, list[tuple[str, int | None]]]] = {
            "hard": [("BebasNeue-Regular.ttf", None)],
            "plain": [("PlayfairDisplay-wght.ttf", 800)]},
 }
+#: Japanese / Korean (2026-11-18): no bundled face carries kana / Hangul, so these chains name host faces by
+#: absolute path: the language's own Noto CJK cut first, then the Noto Sans CJK collection (Linux; it carries kana
+#: and Hangul), then macOS faces.  A missing file is skipped by pick_font's coverage check, never an error.
+HOST_FONTS: dict[str, dict[str, list[tuple[str, int | None]]]] = {
+    "ja": {"brush": [("/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc", None),
+                     ("/System/Library/Fonts/ヒラギノ明朝 ProN.ttc", None)],
+           "elegant": [("/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc", None),
+                       ("/System/Library/Fonts/ヒラギノ丸ゴ ProN W4.ttc", None)],
+           "hard": [("/usr/share/fonts/opentype/noto/NotoSansCJK-Black.ttc", None),
+                    ("/System/Library/Fonts/ヒラギノ角ゴシック W8.ttc", None)],
+           "plain": [("/usr/share/fonts/opentype/noto/NotoSansCJKjp-Bold.otf", None),
+                     ("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", None),
+                     ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", None),
+                     ("/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc", None),
+                     ("/System/Library/Fonts/ヒラギノ角ゴシック W7.ttc", None)]},
+    "ko": {"brush": [("/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc", None),
+                     ("/System/Library/Fonts/Supplemental/AppleMyungjo.ttf", None)],
+           "elegant": [("/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc", None),
+                       ("/System/Library/Fonts/Supplemental/AppleMyungjo.ttf", None)],
+           "hard": [("/usr/share/fonts/opentype/noto/NotoSansCJK-Black.ttc", None),
+                    ("/System/Library/Fonts/AppleSDGothicNeo.ttc", None)],
+           "plain": [("/usr/share/fonts/opentype/noto/NotoSansCJKkr-Bold.otf", None),
+                     ("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", None),
+                     ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", None),
+                     ("/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc", None),
+                     ("/System/Library/Fonts/AppleSDGothicNeo.ttc", None),
+                     ("/Library/Fonts/Arial Unicode.ttf", None)]},
+}
+
 #: colours: fill gradient top -> bottom, stroke, glow (None = no glow)
 PALETTES: dict[str, dict[str, Any]] = {
     "brush": {"fill": ((255, 243, 196), (224, 168, 74)), "stroke": (43, 11, 5), "glow": (190, 60, 30)},
@@ -184,16 +213,22 @@ PALETTES: dict[str, dict[str, Any]] = {
 UPPERCASE_EN = {"brush", "hard"}
 
 
+def font_chains(lang: str) -> dict[str, list[tuple[str, int | None]]]:
+    """Bundled chains (zh / en) or host chains (ja / ko)."""
+    return FONTS[lang] if lang in FONTS else HOST_FONTS[lang]
+
+
 def style_for(genre: str = "", style_text: str = "", language: str = "zh") -> dict[str, Any]:
     """{slot, language, fonts, palette, uppercase} for the series' genre + style + language."""
-    lang = "en" if _lang_code(language) == "en" else "zh"
+    code = _lang_code(language)
+    lang = code if code in ("en", "ja", "ko") else "zh"
     haystack = f"{genre} {style_text}".lower()
     slot = STYLE_DEFAULT
     for name, words in STYLE_RULES:
         if any(word in haystack for word in words):
             slot = name
             break
-    return {"slot": slot, "language": lang, "fonts": list(FONTS[lang][slot]), "palette": PALETTES[slot],
+    return {"slot": slot, "language": lang, "fonts": list(font_chains(lang)[slot]), "palette": PALETTES[slot],
             "uppercase": lang == "en" and slot in UPPERCASE_EN}
 
 
@@ -252,7 +287,7 @@ def font_covers(spec: tuple[str, int | None], text: str) -> bool:
 def pick_font(style: dict[str, Any], text: str, *, plain: bool = False) -> tuple[str, int | None]:
     """The first font in the chain (style -> bundled plain -> host CJK) that covers every character."""
     lang = style["language"]
-    chain = ([] if plain else list(style["fonts"])) + list(FONTS[lang]["plain"])
+    chain = ([] if plain else list(style["fonts"])) + list(font_chains(lang)["plain"])
     if lang == "en":
         chain += list(FONTS["zh"]["plain"])  # an English title with CJK characters
     chain += _system_cjk_fonts()
@@ -265,7 +300,8 @@ def pick_font(style: dict[str, Any], text: str, *, plain: bool = False) -> tuple
 # --------------------------------------------------------------------------- #
 # layout: wrap + fit
 # --------------------------------------------------------------------------- #
-_CJK = re.compile(r"[　-〿㐀-鿿豈-﫿＀-￯]")
+#: wrap by character: CJK punctuation, kana (Japanese titles carry no spaces), Han; Hangul titles wrap at spaces
+_CJK = re.compile(r"[\u3000-\u303f\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uff00-\uffef]")
 _BREAK_AFTER = set("·•:：,，、!！?？;；—-")
 
 

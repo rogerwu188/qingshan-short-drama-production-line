@@ -74,6 +74,13 @@ def derived_dialogue_seconds(dialogue: str, cps: float | None) -> float:
     if not re.search(r"[\u3400-\u9fff]", spoken) and re.search(r"[A-Za-z]", spoken):
         spoken = spoken.split(":", 1)[1] if ":" in spoken[:24] else spoken
         return npr.min_dialogue_seconds(spoken, None, "en")
+    # Korean (Hangul) / Japanese (kana) lines: timed by syllables / characters (lang_profile); a Chinese line
+    # never carries either script and is unchanged
+    script = ("ko" if re.search("[\uac00-\ud7a3]", spoken)
+              else "ja" if re.search("[\u3041-\u3096\u30a1-\u30fa]", spoken) else None)
+    if script:
+        spoken = spoken.split(":", 1)[1] if ":" in spoken[:24] else spoken
+        return npr.min_dialogue_seconds(spoken, None, script)
     return npr.min_dialogue_seconds(spoken, cps)
 
 

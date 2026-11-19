@@ -8,6 +8,11 @@ import math
 import re
 from typing import Any
 
+try:
+    from tools import lang_profile as _lang
+except ImportError:  # pragma: no cover - flat sys.path deployments
+    import lang_profile as _lang
+
 
 SCHEMA = "qingshan.dialogue_cut_safety.v3_quarter_second_boundary_handle"
 DEFAULT_SAFETY_PAD_SECONDS = 0.32
@@ -21,7 +26,7 @@ ENGLISH_WORD = re.compile(r"[A-Za-z0-9]+(?:['\u2019][A-Za-z0-9]+)*")
 def spoken_text(raw: object, language: str = "zh") -> str:
     text = str(raw or "").strip()
     _, separator, words = text.partition("：")
-    if not separator and language == "en":
+    if not separator and language in ("en", "ja", "ko"):
         _, separator, words = text.partition(":")
     return words.strip() if separator else text
 
@@ -29,6 +34,7 @@ def spoken_text(raw: object, language: str = "zh") -> str:
 def estimated_spoken_seconds(
     raw: object, *, chinese_characters_per_second: float = DEFAULT_CHINESE_CHARACTERS_PER_SECOND,
     language: str = "zh", english_words_per_second: float = DEFAULT_ENGLISH_WORDS_PER_SECOND,
+    speech_units_per_second: float | None = None,
 ) -> float:
     words = spoken_text(raw, language)
     if not words:
@@ -40,6 +46,15 @@ def estimated_spoken_seconds(
         count = len(ENGLISH_WORD.findall(words))
         punctuation = len(re.findall(r"[,.!?;:]", words))
         return round(count / wps + punctuation * 0.16, 3)
+    if language in ("ja", "ko"):
+        # Japanese characters / Korean syllables (lang_profile rate 6.0 / 5.0 per second), plus the same
+        # punctuation pause; Korean word spaces are not speech
+        ups = float(speech_units_per_second or _lang.profile(language).rate)
+        if ups <= 0:
+            raise ValueError("speech_units_per_second must be positive")
+        count = _lang.speech_units(words, language)
+        punctuation = len(re.findall(r"[，。！？；、,.!?;…]", words))
+        return round(count / ups + punctuation * 0.16, 3)
     cps = float(chinese_characters_per_second)
     if cps <= 0:
         raise ValueError("chinese_characters_per_second must be positive")
@@ -78,9 +93,11 @@ def compile_dialogue_windows(unit: dict[str, Any]) -> list[dict[str, Any]]:
                 delivery.get("english_words_per_second")
                 or DEFAULT_ENGLISH_WORDS_PER_SECOND
             )
+            ups = delivery.get("speech_units_per_second")
             duration = estimated_spoken_seconds(
                 raw, chinese_characters_per_second=cps,
                 language=language, english_words_per_second=wps,
+                **({"speech_units_per_second": float(ups)} if ups and language in ("ja", "ko") else {}),
             )
             available_end = min(beat_end, dialogue_deadline if index == len(specs) - 1 else beat_end)
             start = cursor + 0.12
@@ -102,6 +119,9 @@ def compile_dialogue_windows(unit: dict[str, Any]) -> list[dict[str, Any]]:
             if language == "en":
                 rows[-1]["dialogue_language"] = language
                 rows[-1]["english_words_per_second"] = wps
+            elif language in ("ja", "ko"):
+                rows[-1]["dialogue_language"] = language
+                rows[-1]["speech_units_per_second"] = float(ups or _lang.profile(language).rate)
         cursor = beat_end
     return rows
 

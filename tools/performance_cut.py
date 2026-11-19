@@ -40,6 +40,11 @@ import math
 import re
 from typing import Any
 
+try:
+    from tools import lang_profile as _lang
+except ImportError:  # pragma: no cover - flat sys.path deployments
+    import lang_profile as _lang
+
 SCHEMA = "nalu.performance_cut.v1"
 HEAD_LEAD = 0.15
 TAIL_PAD = 0.4
@@ -83,7 +88,13 @@ def _simp(text: str) -> str:
 
 
 def _is_cjk(ch: str) -> bool:
-    return "一" <= ch <= "鿿"
+    """Han (zh, as before), kana (ja) or a Hangul syllable (ko)."""
+    return _lang.is_cjk_token(ch)
+
+
+def _fold(ch: str) -> str:
+    """Katakana -> hiragana so a script/ASR script choice is not a mismatch; other characters unchanged."""
+    return chr(ord(ch) - 0x60) if "\u30a1" <= ch <= "\u30f6" else ch
 
 
 def _norm_en(word: str) -> str:
@@ -100,7 +111,7 @@ def script_tokens(lines: list[str], cjk_mode: bool) -> list[str]:
     for line in lines:
         body = _body(line)
         if cjk_mode:
-            out.extend(ch for ch in _simp(body) if _is_cjk(ch))
+            out.extend(_fold(ch) for ch in _simp(body) if _is_cjk(ch))
         else:
             out.extend(w for w in (_norm_en(w) for w in re.split(r"\s+|[-—–]", body)) if w)
     return out
@@ -116,7 +127,7 @@ def heard_tokens(segments: list[dict[str, Any]], cjk_mode: bool) -> list[dict[st
                 continue
             ws, we, text = float(word["start"]), float(word["end"]), str(word.get("word") or "")
             if cjk_mode:
-                chars = [ch for ch in _simp(text) if _is_cjk(ch)]
+                chars = [_fold(ch) for ch in _simp(text) if _is_cjk(ch)]
                 for i, ch in enumerate(chars):
                     step = (we - ws) / len(chars)
                     out.append({"tok": ch, "start": round(ws + i * step, 3), "end": round(ws + (i + 1) * step, 3)})
@@ -382,8 +393,8 @@ def plan(contract: dict[str, Any], grouping: dict[str, Any], unit_asr: dict[str,
                      for sid in shot_ids}
         texts = [str(ln.get("text") or "") for sid in shot_ids for ln in on_screen[sid]]
         joined = "".join(texts)
-        cjk_mode = language.startswith("zh") or (bool(re.search(r"[一-鿿]", joined))
-                                                 and not re.search(r"[A-Za-z]", joined))
+        cjk_mode = language[:2] in ("zh", "ja", "ko") or (any(_is_cjk(ch) for ch in joined)
+                                                          and not re.search(r"[A-Za-z]", joined))
         if texts:
             row["kind"] = "SPEAKING"
             row["expected_text"] = " / ".join(texts)

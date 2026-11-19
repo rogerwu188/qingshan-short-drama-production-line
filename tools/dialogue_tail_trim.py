@@ -36,6 +36,11 @@ import difflib
 import re
 from typing import Any
 
+try:
+    from tools import lang_profile as _lang
+except ImportError:  # pragma: no cover - flat sys.path deployments
+    import lang_profile as _lang
+
 SCHEMA = "nalu.dialogue_tail_trim.v1"
 TAIL_SECONDS = 0.5
 MIN_UNIT_SECONDS = 1.5
@@ -54,7 +59,8 @@ ENERGY_FLOOR_DB = -45.0
 
 
 def _cjk(text: str) -> str:
-    return "".join(ch for ch in str(text) if "一" <= ch <= "鿿")
+    """Han characters (zh, as before); kana folded to hiragana (ja) and Hangul syllables (ko) too."""
+    return "".join(_lang.cjk_tokens(text))
 
 
 def _words(text: str) -> list[str]:
@@ -151,7 +157,7 @@ def plan(contract: dict[str, Any], grouping: dict[str, Any], unit_asr: dict[str,
             continue
         expected = str(last_lines[-1].get("text") or "")
         row["expected_text"] = expected
-        cjk_mode = language.startswith("zh") or (bool(_cjk(expected)) and not _words(expected))
+        cjk_mode = language[:2] in ("zh", "ja", "ko") or (bool(_cjk(expected)) and not _words(expected))
         segs = [s for s in unit_asr.get(uid) or [] if s.get("end") is not None and str(s.get("text") or "").strip()]
         if not segs:
             row["reason"] = "NO_ASR_SEGMENTS"

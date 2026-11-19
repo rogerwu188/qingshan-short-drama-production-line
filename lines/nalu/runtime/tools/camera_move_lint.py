@@ -107,7 +107,7 @@ def single_direction(per_shot_plans: list[dict]) -> dict:
 # --------------------------------------------------------------------------- silent beats (K138)
 #: the renderer's per-beat sentence for a beat of a dialogue unit that carries no dialogue literal
 NO_SPEECH_SENTENCE = "No speech in this beat"
-D_TAG = re.compile(r"<d>\[(?:Chinese|English)\]")
+D_TAG = re.compile(r"<d>\[(?:Chinese|English|Japanese|Korean)\]")
 BEAT_LINE = re.compile(r"^\[\d+(?:\.\d+)?s-\d+(?:\.\d+)?s\]", re.MULTILINE)
 
 

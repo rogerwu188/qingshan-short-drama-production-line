@@ -53,6 +53,9 @@ def active_for(episode: str) -> bool:
 
 
 def _norm(text: str, language: str = "zh") -> str:
+    if language in ("ja", "ko"):  # kana (folded to hiragana) + kanji / Hangul; never t2s
+        import lang_profile as _lang  # noqa: PLC0415 - runtime tools dir is on sys.path
+        return _lang.normalise(text, language)
     if language == "en":
         return re.sub(r"[\W_]+", "", str(text or "").lower())
     try:
@@ -69,7 +72,7 @@ def expected_lines(expected_dialogue: list[dict[str, Any]], name_to_id: dict[str
     for row in expected_dialogue:
         raw = str(row.get("spoken_text") or "")
         name, sep, words = raw.partition("：")
-        if not sep and language == "en":
+        if not sep and language in ("en", "ja", "ko"):
             name, sep, words = raw.partition(":")
         if not sep:
             continue

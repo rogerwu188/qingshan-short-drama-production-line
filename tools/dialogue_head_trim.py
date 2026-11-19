@@ -30,6 +30,11 @@ import difflib
 import re
 from typing import Any
 
+try:
+    from tools import lang_profile as _lang
+except ImportError:  # pragma: no cover - flat sys.path deployments
+    import lang_profile as _lang
+
 SCHEMA = "nalu.dialogue_head_trim.v1"
 HEAD_LEAD_SECONDS = 0.15
 MIN_UNIT_SECONDS = 1.5
@@ -48,8 +53,8 @@ def _norm(word: str) -> str:
 def _line_tokens(text: str) -> list[str]:
     """Scripted line -> tokens (en words; zh characters).  A leading ``Speaker：`` is not part of the line."""
     body = re.split(r"[：:]", str(text), maxsplit=1)[-1] if re.match(r"^[^：:]{1,24}[：:]", str(text)) else str(text)
-    if re.search(r"[一-鿿]", body) and not re.search(r"[A-Za-z]", body):
-        return [ch for ch in body if "一" <= ch <= "鿿"]
+    if _lang.cjk_tokens(body) and not re.search(r"[A-Za-z]", body):
+        return _lang.cjk_tokens(body)  # zh: Han characters as before; ja kana (as hiragana) / ko Hangul too
     return [w for w in (_norm(w) for w in re.split(r"\s+|[-—–]", body)) if w]
 
 
@@ -62,7 +67,7 @@ def asr_words(segments: list[dict[str, Any]], cjk_mode: bool = False) -> list[di
                 continue
             text = str(word.get("word") or "").strip()
             if cjk_mode:
-                chars = [ch for ch in text if "一" <= ch <= "鿿"]
+                chars = _lang.cjk_tokens(text)
                 for ch in chars:
                     out.append({"start": float(word["start"]), "end": float(word["end"]), "word": ch, "norm": ch})
                 continue
@@ -128,8 +133,8 @@ def plan(contract: dict[str, Any], grouping: dict[str, Any], unit_asr: dict[str,
             continue
         expected = str(first_lines[0].get("text") or "")
         row["expected_text"] = expected
-        cjk_mode = language.startswith("zh") or (bool(re.search(r"[一-鿿]", expected))
-                                                 and not re.search(r"[A-Za-z]", expected))
+        cjk_mode = language[:2] in ("zh", "ja", "ko") or (bool(_lang.cjk_tokens(expected))
+                                                          and not re.search(r"[A-Za-z]", expected))
         want = _line_tokens(expected)
         heard = asr_words(unit_asr.get(uid) or [], cjk_mode)
         if not heard:

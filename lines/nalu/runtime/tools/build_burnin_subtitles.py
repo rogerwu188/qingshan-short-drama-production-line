@@ -16,6 +16,11 @@ weights, word-boundary wrap at ~42 chars and at most 2 lines, style "EN" at 36 p
 caption to fit the frame width) with nalu_media_tools.resolve_latin_font (QINGSHAN_LATIN_FONT /
 NALU_LATIN_FONT, common system paths, else the CJK font, which also carries Latin glyphs).
 
+--language ja (2026-11-18): similarity on kana (folded to hiragana) + kanji, character timing weights,
+character wrap like zh (15 per row); --language ko: similarity on Hangul syllables, syllable weights,
+wrap at word spaces (~18 characters, at most 2 rows, shrunk per caption to fit).  Both use
+nalu_media_tools.resolve_language_font (Noto Sans CJK JP / KR, Hiragino, Apple SD Gothic Neo, else the CJK font).
+
 --split-long-captions (CAMERA_GRAMMAR_V1 episodes; lab E02 VU-001): a line whose wrapped rows do not
 fit the frame at the normal font size (more than 2 rows, or a row wider than the frame) becomes
 several sequential cues of at most 2 rows each, preferring clause punctuation as the break; the
@@ -30,12 +35,13 @@ caption is built exactly as before.
 
   build --episode EP --project <agentcut project> --asr <per-unit asr json> --contract <generation contract>
         --grouping <grouping plan> --source <picture_native.mp4> --out-ass <.ass> --out-video <subbed.mp4>
-        [--language zh|en] [--voice-over-placement <EP>_voice_over_placement.json]
+        [--language zh|en|ja|ko] [--voice-over-placement <EP>_voice_over_placement.json]
 """
 from __future__ import annotations
 import sys as _sys, pathlib as _pathlib
 _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[0]))
 import nalu_media_tools as _media
+import lang_profile as _lang
 
 import argparse, difflib, json, math, re, subprocess, sys
 from pathlib import Path
@@ -55,12 +61,16 @@ def latin(text: str) -> str:
     return "".join(ch for ch in text.lower() if ("a" <= ch <= "z") or ch.isdigit())
 
 def speech(text: str, language: str = "zh") -> str:
+    if language in ("ja", "ko"):
+        return _lang.normalise(text, language)
     return latin(text) if language == "en" else cjk(text)
 
 def weight(text: str, language: str = "zh") -> int:
     """Timing weight of one line: CJK characters (zh) or words (en)."""
     if language == "en":
         return len(re.findall(r"[A-Za-z0-9]+(?:['\u2019][A-Za-z0-9]+)*", text))
+    if language in ("ja", "ko"):
+        return _lang.speech_units(text, language)
     return len(cjk(text))
 
 def sim(a: str, b: str, language: str = "zh") -> float:
@@ -95,6 +105,14 @@ def wrap_en(text: str, width: int = EN_WRAP_CHARS) -> str:
                               -int(words[i - 1][-1:] in ",.;:!?")))
     return " ".join(words[:best]) + "\\N" + " ".join(words[best:])
 
+KO_WRAP_CHARS = 18
+
+
+def wrap_ko(text: str, width: int = KO_WRAP_CHARS) -> str:
+    """Korean: word-space wrap like English (never inside a word), at most 2 rows."""
+    return wrap_en(text, width)
+
+
 CUE_BREAK_PUNCT = ",.;:!?—，。！？；：、"
 
 
@@ -105,7 +123,7 @@ def split_cues(text: str, fits, language: str = "zh") -> list[str]:
     splits with that count the one with the most even cue lengths wins, a break right after clause
     punctuation being preferred.  A line that already fits is returned unchanged as a single cue.
     """
-    english = language == "en"
+    english = language in ("en", "ko")  # space-separated tokens (Korean wraps at word spaces too)
     text = " ".join(text.split()) if english else text.strip()
     if not text or fits(text):
         return [text] if text else []
@@ -192,7 +210,7 @@ def assign(lines: list[dict], segs: list[dict], clip_dur: float,
            language: str = "zh") -> list[tuple[dict, float, float]]:
     """Return (line, local_start, local_end) per line."""
     segs = [s for s in segs if speech(s["text"], language)]
-    joiner = " " if language == "en" else ""
+    joiner = " " if language == "en" else _lang.profile(language).joiner
     if not lines:
         return []
     if not segs:
@@ -332,7 +350,7 @@ def main() -> int:
     ap.add_argument("--grouping", required=True, type=Path); ap.add_argument("--source", required=True, type=Path)
     ap.add_argument("--out-ass", required=True, type=Path); ap.add_argument("--out-video", required=True, type=Path)
     ap.add_argument("--out-report", type=Path); ap.add_argument("--pad", type=float, default=0.08)
-    ap.add_argument("--language", choices=("zh", "en"), default="zh")
+    ap.add_argument("--language", choices=("zh", "en", "ja", "ko"), default="zh")
     ap.add_argument("--voice-over-placement", type=Path,
                     help="<EP>_voice_over_placement.json: V.O. narration lines are timed from it, never ASR-assigned")
     ap.add_argument("--split-long-captions", action="store_true",
@@ -347,9 +365,13 @@ def main() -> int:
                          "must be the derived clip's (the pipeline transcribes it, in=0)")
     a = ap.parse_args()
     english = a.language == "en"
-    style, font_size = ("EN", EN_FONT_SIZE) if english else ("ZH", 42)
-    wrap_text = wrap_en if english else wrap
-    font_file, font_source = _media.resolve_latin_font() if english else _media.resolve_cjk_font()
+    korean = a.language == "ko"
+    style, font_size = (("EN", EN_FONT_SIZE) if english else ("KO", 40) if korean
+                        else ("JA", 42) if a.language == "ja" else ("ZH", 42))
+    wrap_text = wrap_en if english else wrap_ko if korean else wrap
+    font_file, font_source = (_media.resolve_latin_font() if english
+                              else _media.resolve_language_font(a.language) if a.language in ("ja", "ko")
+                              else _media.resolve_cjk_font())
     font_name = Path(font_file).stem
     project = json.loads(a.project.read_text(encoding="utf-8"))
     asr = json.loads(a.asr.read_text(encoding="utf-8"))
@@ -521,8 +543,8 @@ def main() -> int:
         img = Image.new("RGBA", (W, LINE_H * len(rows) + 24), (0, 0, 0, 0)); d = ImageDraw.Draw(img)
         top = 8
         cap_font = font
-        if english:
-            # Latin rows run wider than 15-char CJK rows: shrink this caption to fit the frame
+        if english or korean:
+            # Latin / word-wrapped Hangul rows run wider than 15-char CJK rows: shrink this caption to fit the frame
             widest = max(d.textlength(row, font=font) for row in rows)
             if widest > W - 40:
                 cap_font = ImageFont.truetype(font_file, max(22, int(font_size * (W - 40) / widest)))
@@ -552,7 +574,7 @@ def main() -> int:
            **({"cover_band": {k: cover[k] for k in ("y", "h", "x0", "x1")}, "cover_intervals": cover["intervals"],
                "cover_style": cover.get("style"), "cover_bands": cover.get("bands") or [],
                "policy_id": "H3_BURNED_TEXT_COVER_V1"} if cover else {})}
-    if english:
+    if english or a.language in ("ja", "ko"):
         out["language"] = a.language
     if a.out_report:
         a.out_report.write_text(json.dumps(out, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

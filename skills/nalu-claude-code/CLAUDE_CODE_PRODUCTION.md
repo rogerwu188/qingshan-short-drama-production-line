@@ -61,7 +61,13 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
    要看某条全文用 `rg -n -A8 '^### <条目号>' lines/nalu/standards/NALU_CRAFT_STANDARD_v1.md`，不整份读。只评分、不拦片。
 2. `workflow/claude_writer_agent/scripts/<EP>_NARRATIVE_CANONICAL_v1.md`：只写事实、可表演的动作和**逐字台词**（「逐字」指正典是成片台词的唯一定稿，下游各层一字不差照正典用；**不是照抄原著**：台词要改成角色自己会说出口的话，与原著章节连续 8 个字以上相同会被 S1 台词门 `DIALOGUE_REGISTER_V1` 拦下，被拦就改台词后重跑 S1，这不是合同冲突，不必停下等裁定），按
    `## <EP>-S01｜<LOC-ID>｜<时间>｜线A` 分场；不写机位、灯光、资产。一集 4–6 场、约 26–32 个镜头、镜头合计约 115–120 秒（S7 剪掉 H3 头尾多出的话后成片约 110 秒、约 1 分 50 秒，含片头片尾；线主 2026-10-27：每集约 2 分钟、留广告位，不超过 1 分 55 秒；2026-10-29 实验集 E08 剪裁吃掉 27 s）——靠多写镜头和剧情拉长，不靠拉长单个镜头（对白镜仍 4–5 秒）；台词决定时长（中文每 4 个汉字约 1 秒；
-   英文约每秒 2.5 个词）。英文剧台词与旁白直接写英文；只有声音没有形象的旁白角色写成「旁白角色名：台词」，简报里照常列出、
+   英文约每秒 2.5 个词；日文约每秒 6 字；韩文约每秒 5 个音节）。英文剧台词与旁白直接写英文；
+   **日文剧 / 韩文剧**（派单 `dialogue_language` 为 `ja` / `ko`，2026-11-18）台词与旁白直接写日文 / 韩文，口语、短句：一句说出来约 3.5 s
+   ≈ 日文 20–24 字（假名 + 汉字，按字数算）、韩文 16–20 个音节（空格不算）；成片标准 S-08 的单句上限约日文 18–22 字、韩文 14–18 个音节。
+   人物名在简报 `characters`、`--character` 的 slug 和英文合同里一律用罗马字（日文 Hepburn 罗马字如 `Sato Haruki`，韩文 Revised
+   Romanization 如 `Kim Min-jun`），台词里照原文写日文 / 韩文名；说话人分隔用全角「：」（半角 `:` 也认）；韩文词间照常空格，日文不加空格。
+   日文 / 韩文剧不做繁简转换，原著 PDF 是文字层时 intake 会用 `pdftotext` 读（`tools/intake_source_text.py --language ja|ko`，
+   章节默认按「第N話 / 第N章」「제N장 / N화」切）。只有声音没有形象的旁白角色写成「旁白角色名：台词」，简报里照常列出、
    `appearance` 写「voice only」，登记为 `VOICE_ONLY_NO_PLATE`。没有人脸又不说话的可见存在（怪物、雕像、无五官人形）登记为
    `non_character_entities`（`kind: CREATURE`，`creature_card`，`note` 用英文一句话写清长相），不列成人物、也不当道具（H3 改编指南 §3）。E02 起开头承接上一集结尾状态，不重演上一集。
 3. `$NALU_RUNTIME_ROOT/briefs/<EP>_PRODUCTION_BRIEF.json`：字段同编排代理 SKILL.md §4（episode/title/owner_id/style/target_seconds/
@@ -70,7 +76,8 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
    `characters`、`locations` 由你按原著写。已出现的角色和地点逐字沿用原 ID 和设定，只追加新的。
 4. `$P $S/apply_runtime_fixups.py --runtime-root $NALU_RUNTIME_ROOT --character <名>=<CHAR-ID>:<slug> ... --cap <预算> --language <dialogue_language>`，
    再 `$P $S/make_endcard.py --runtime-root $NALU_RUNTIME_ROOT --title <剧名> --subtitle "第N集 · <集名>" --language <dialogue_language>`
-   （英文剧 `--subtitle "EPISODE 01 · <episode title>" --language en`）。
+   （英文剧 `--subtitle "EPISODE 01 · <episode title>" --language en`；日文剧 `--subtitle "第1話 · <話タイトル>" --language ja`
+   （片尾写「つづく」）；韩文剧 `--subtitle "제1화 · <제목>" --language ko`（片尾写「다음 화에 계속」））。
 避开已知坑：首帧要看得见的道具别设计成「从怀里掏出」；古装灯写「无罩敞口油盏」；每个说话角色男女/音色要能区分；不写全黑画面。
 
 ## 2. 四层剧本（免费）
@@ -78,8 +85,8 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
 `<EP>_DIRECTING_SCRIPT_v1.md`、`<EP>_GENERATION_CONTRACT_v1.json`（qingshan.generation_contract.v3）、`<EP>_manifest_v1.json`，
 以及 `$NALU_RUNTIME_ROOT/preproduction/<EP>/{asset_requirements_overlay.json,new_location_place_spec.json,view_reference_policy.json}`。
 然后 `run --until S3`，直到 S1 PASS、S2 PASS、S3 DRY_PLANNED。必须满足（门禁源码在 `$T` 与 `tools/`，报错就读源码改剧本，不改门禁）：
-- 对白镜时长 = 汉字数/4 + 0.5，向上取整到 0.5，不再额外加长；无对白镜 ≤ 5 s；单元（同场连续镜头）4–8 s 可切分。
-- 对白镜只比台词长 0.5–1.0 s（线主 2026-10-23）：`target_seconds` = 说话时长（中文约 4 字/秒，英文约 2.5 词/秒）+ 0.5–1.0 s，不给对白镜加长——H3 会用乱码般的假语言填满多出来的时间（CAMERA_GRAMMAR_V1 的集 S7 会剪在最后一句后约 0.5 s）；要停顿或反应就另写一个无对白的反应镜。
+- 对白镜时长 = 汉字数/4 + 0.5（日文 字数/6、韩文 音节数/5、英文 词数/2.7），向上取整到 0.5，不再额外加长；无对白镜 ≤ 5 s；单元（同场连续镜头）4–8 s 可切分。
+- 对白镜只比台词长 0.5–1.0 s（线主 2026-10-23）：`target_seconds` = 说话时长（中文约 4 字/秒，英文约 2.5 词/秒，日文约 6 字/秒，韩文约 5 音节/秒）+ 0.5–1.0 s，不给对白镜加长——H3 会用乱码般的假语言填满多出来的时间（CAMERA_GRAMMAR_V1 的集 S7 会剪在最后一句后约 0.5 s）；要停顿或反应就另写一个无对白的反应镜。
 - H3 约束语言：**生产一律英文**（线主 2026-11-02，武松 E01：中文对白时 H3 会把中文约束句当台词念出来）；合同里写 `"h3_constraint_language": "zh"` 会被忽略，不要写。以下仅供 A/B 工具：原 A/B（线主 2026-10-26）只把服务方专家的几句约束（一镜到底/机位固定、无其他人声、
   只说这一句、防重复人物）换成专家原文中文，其余描述、台词标签、表演说明不变，仅 CAMERA_GRAMMAR_V1 单元生效。对比测试单个单元不必改合同：
   `$P tools/h3_constraint_ab_variant.py --manifest <preproduction>/<EP>_VIDEO_TRANSACTION_MANIFEST_V1.json --unit <EP>-VU-00X --prompt-dir <preproduction>/video_prompts --out <preproduction>/<EP>-VU-00X-ZH_AB.json`
@@ -155,7 +162,7 @@ OpenClaw 编排代理已经替你完成：引擎克隆与依赖安装、运行�
   时长规则（S2 免费检查，不满足即 `VOICE_OVER_WINDOW_TOO_SHORT:<镜>:<需要>:<可用>`）：需要 = 0.3 s 起始留白 + 每句旁白时长
   （中文汉字数/4、英文词数/2.7，各 +0.5 后向上取整到 0.5）+ 句间 0.25 s；可用 = 本镜开始 → 下一个有画内对白或旁白的镜头开始（或集尾）。
   旁白可以盖过后面的无对白镜，但不能压到画内对白上（S7 实测重叠即 `VOICE_OVER_OVERLAPS_DIALOGUE`）。只含旁白的镜头按无对白镜写（要有动作/运镜）。
-- H3 视频提示词的视觉锁：中文剧默认是「东亚古代」锁（禁现代物件）；英文剧默认按作者自己的世界（只跟参考图和事实走，不限时代、不禁现代物件）。
+- H3 视频提示词的视觉锁：中文剧默认是「东亚古代」锁（禁现代物件）；英文剧、日文剧、韩文剧默认按作者自己的世界（只跟参考图和事实走，不限时代、不禁现代物件）。
   需要反过来时在 `visual_culture_contract.era_lock` 写 `AUTHORED_WORLD`（如中文现代/科幻剧）或 `EAST_ASIAN_PERIOD`。
 - `runtime/nalu_entity_registry.json` 每个说话角色一行（`$S/apply_runtime_fixups.py --character 名=CHAR-ID:slug`，§2.0 已跑；新增角色时补跑）。
 
@@ -193,6 +200,18 @@ $P $T/record_paid_production_order.py --orders $NALU_RUNTIME_ROOT/runtime/SUPERV
 - **S4 配音**：`$S/list_voices.sh voices.json` 拉音色目录（免费 GET、不扣积分；供应商仍要鉴权，脚本内部自己读 `.env`，你不要直接跑 `storyclaw_audio_provider.py speech-voices`——无 key 会 exit=1，这不是阻塞），给每个说话角色挑 voice_id 写 `runtime/voice_catalog.json`（键=拼音 slug）。同场两人参考音 F0 必须差 ≥ 25%（男女搭配最稳；男声挑「沉稳/醇厚」类）。换音色：旧 registry 行移到 `superseded_rows`，旧参考音目录和 `workflow/tasks/giggle_audio_transactions/**/speech/<slug>.json` 移到 `_superseded`。
   - 配音 / 旁白事务停在 `INTENT_RECORDED` 或 `RESPONSE_LOST` 且没有 task_id（提交进程被打断或响应丢失），预算检查报 `AUDIO_UNRESOLVED_TRANSACTIONS`：不要手改或删除事务文件。等意向记录满 10 分钟后经正式入口重入 S4，引擎在预算检查前自动把这笔记损（按单价 2 积分计为已花，原记录存为同目录 `<名>.written_off_1.json`）并允许这一句补提一次（线主常设裁定 A）；`pipeline_logs/<EP>/*_audio_unbound_settle_*.json` 里是 `PENDING_GRACE` 就等到 `eligible_at` 再重入。同一句第二次丢失不再自动处理，写 CODE_BLOCKER。付费提交一律脱离会话后台启动，别让会话超时打断它。
   - 配乐（S6 选择性 BGM）事务同理：`workflow/tasks/giggle_bgm_transactions/**/<EP>/<key>.json` 停在 `RESPONSE_LOST` / `INTENT_RECORDED` 且没有 task_id，预算检查报 `BGM_UNRESOLVED_TRANSACTIONS`：不要手改或删除事务文件，也不用找供应商对账。满 10 分钟后经正式入口重入 S6，引擎在预算检查前自动记损（按每首 8 积分计为已花，原记录存为 `<key>.written_off_1.json`）并允许这一首补提一次；同一首第二次丢失写 CODE_BLOCKER。
+  - **日文剧 / 韩文剧的音色（2026-11-18）**：Giggle 音色目录只有中文和英文，但同一个 speech 接口接受 MiniMax 系统音色 id
+    （`Japanese_*` / `Korean_*`），不在目录里也照常用，直接写进 `voice_catalog.json` 的 `voice_id`。已实测可用：`Japanese_GentleButler`（日，男，温和管家）、
+    `Korean_CalmGentleman`（韩，男，沉稳绅士）。下列为 MiniMax 公开系统音色 id，**未在本线实测**（第一次用某个 id 时先看 S4 参考音的免费识别结果，
+    报错或识别不出就换一个）：日文 `Japanese_IntellectualSenior`、`Japanese_DecisivePrincess`、`Japanese_LoyalKnight`、`Japanese_DominantMan`、
+    `Japanese_SeriousCommander`、`Japanese_ColdQueen`、`Japanese_DependableWoman`、`Japanese_KindLady`、`Japanese_CalmLady`、`Japanese_OptimisticYouth`、
+    `Japanese_GenerousIzakayaOwner`、`Japanese_SportyStudent`、`Japanese_InnocentBoy`、`Japanese_GracefulMaiden`；韩文 `Korean_SweetGirl`、
+    `Korean_CheerfulBoyfriend`、`Korean_EnchantingSister`、`Korean_ShyGirl`、`Korean_ReliableSister`、`Korean_StrictBoss`、`Korean_SassyGirl`、
+    `Korean_ElegantPrincess`、`Korean_BraveYouth`、`Korean_CalmLady`、`Korean_IntellectualSenior`、`Korean_LonelyWarrior`、`Korean_MatureLady`、
+    `Korean_InnocentBoy`、`Korean_ColdYoungMan`、`Korean_DominantMan`、`Korean_GentleBoss`、`Korean_ColdGirl`、`Korean_HaughtyLady`、
+    `Korean_IntellectualMan`、`Korean_CaringWoman`、`Korean_WiseTeacher`、`Korean_ConfidentBoss`、`Korean_PossessiveMan`、`Korean_GentleWoman`。
+    **不要**为找音色去调带付费参数的 `list_voices`；`list_voices.sh` 的免费目录里没有日韩音色是正常的。`casting_rationale` 照写（id 名里的形容词 + 角色为什么合适）；
+    参考句用剧本外、带起伏的日文 / 韩文句子（与本集台词重复时 CAMERA_GRAMMAR_V1 的 S4 会自动换成引擎内置的日 / 韩校准句），读 3–10 秒（日文约 18–60 字、韩文约 15–50 个音节）。
   - **选角规则（线主 2026-10-22，不是门禁）**：通读整个目录（约 170 条，字段 voice_id / voice_name / style / gender / age / language），每个角色拿 gender、age、style 标签去对角色的年龄、身份、性格和整部剧的调子，选标签最贴的一条；旁白/播报类角色可用播音腔，普通角色优先选与性格相符的演绎/戏剧类 style，不用播音腔。同场说话人要一听就分得开。每个角色在 `voice_catalog.json` 行里写一句 `casting_rationale`（voice_name + 标签 + 为什么）。参考音不用中性朗读：在该行加 `reference_sample{text=一句不在本集剧本里、自带起伏的校准句（有问有叹，如「真的吗？你再说一遍！我等了整整三天，原来就为了这一句？」/ "What? Say that again! Three whole days I waited, and this is all you bring me?"；旧的平句「天快黑了…」读什么情绪都平，CAMERA_GRAMMAR_V1 的 S4 会自动换掉）, purpose:"VOICE_REFERENCE_ONLY", author, source_ref=该角色情绪最重的那场戏的镜头 id, speed 1.0–1.5, emotion=该角色最强烈的情绪}`；年龄标签按真实年龄用：「children」只给十岁以下，十二到十六岁的少年用同性别 youth 里偏年轻的声音（童声会把少年读成小孩甚至像女孩）；参考句绝不能是剧本台词（H3 会把参考音里的词串进别的单元，说出「像英文又不是英文」的乱码）：用一句剧本外的句子，按该角色情绪最外露、音调起伏最大的那场戏的情绪拉满读——H3 照参考音学语调，参考平，生成就平；CAMERA_GRAMMAR_V1 合同里 S4 遇到与本集台词相同的参考句会自动换成校准句并记录原因；情绪拉满后若音高明显超出该性别年龄（男孩读成女声），降一档情绪重读（speech-generate 的 `--emotion` 写一个基本情绪词：angry / sad / fearful / disgusted / surprised / happy（化神 E04 太玄写成「angry, stern and forceful」配平句，参考音只有 3 个半音起伏，他的台词全集最平）；文本须读 3–10 秒，太短就换一句更长的剧本外句子）。
 - **视频模型是 MiniMax-H3**（线主 2026-10-13：一律 H3，不用 seedance；每集第一次 S2 构建时记在
   `$NALU_RUNTIME_ROOT/preproduction/<EP>/video_model.json`，之后固定）。H3 的视频提示词是英文，由每个单元的英文合同生成：

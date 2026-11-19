@@ -105,11 +105,16 @@ def _spoken_words(text: str) -> int:
 def min_dialogue_seconds(text: str, cps: float | None, language: str = "zh") -> float:
     """seq=29 规则 5a：台词秒数 + 0.5 s，向上取整到 0.5 s（10 字 @5.0 字/秒 → 2.5 s）。
 
-    ``language="en"`` counts words at ``cps`` words/s (default 2.7); the default
-    ``zh`` path is unchanged."""
+    ``language="en"`` counts words at ``cps`` words/s (default 2.7); ``ja`` / ``ko`` count characters /
+    syllables (lang_profile); the default ``zh`` path is unchanged."""
     import math
     if language == "en":
         raw = _spoken_words(text) / float(cps or DEFAULT_EN_WPS) + DLG_LEAD_S + DLG_TAIL_S
+    elif language in ("ja", "ko"):
+        # Japanese characters / Korean syllables at ``cps`` units/s (default: lang_profile rate 6.0 / 5.0)
+        import lang_profile as _lang  # noqa: PLC0415 - runtime tools dir is on sys.path
+        raw = (_lang.speech_units(text, language) / float(cps or _lang.profile(language).rate)
+               + DLG_LEAD_S + DLG_TAIL_S)
     else:
         raw = _spoken_chars(text) / float(cps or DEFAULT_CPS) + DLG_LEAD_S + DLG_TAIL_S
     return math.ceil(raw / DLG_ROUND_S - 1e-9) * DLG_ROUND_S

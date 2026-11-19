@@ -1241,8 +1241,11 @@ def compile_manifest(grouping: dict[str, Any], anchors: dict[str, Any], editoria
             adjusted = False
             # English dialogue: the same +20% / dense-beat allowances on words per second
             # (2.7 wps default -> 3.3 -> 4.0); Chinese keeps 5.8 / 7.2 cps exactly as before.
+            # Japanese characters / Korean syllables: the same 1.38x / 1.71x of the lang_profile rate (6.0 / 5.0).
             rate_key, fit_rate, dense_rate = (
                 ("english_words_per_second", 3.3, 4.0) if dialogue_language == "en"
+                else ("speech_units_per_second", 8.3, 10.3) if dialogue_language == "ja"
+                else ("speech_units_per_second", 6.9, 8.6) if dialogue_language == "ko"
                 else ("chinese_characters_per_second", 5.8, 7.2))
             for spec in compiled_unit.get("ordered_prompt_specs") or []:
                 delivery = spec.get("dialogue_delivery") or {}
@@ -1422,7 +1425,7 @@ def main() -> int:
                         help="answers file of per-unit English contracts for MiniMax-H3 units "
                              "(tools/h3_english_contract_io.py); missing/stale units are written to "
                              "<file>.REQUEST.json and the compile stops with H3_ENGLISH_CONTRACT_REQUIRED")
-    parser.add_argument("--dialogue-language", choices=("zh", "en"), default="zh",
+    parser.add_argument("--dialogue-language", choices=("zh", "en", "ja", "ko"), default="zh",
                         help="episode dialogue language resolved by nalu_pipeline (default zh)")
     parser.add_argument("--planned-prompt-dir", type=Path,
                         help="with --planning-only: write <unit_id>.txt planned prompts here and a "

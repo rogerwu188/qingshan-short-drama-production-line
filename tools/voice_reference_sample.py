@@ -3,6 +3,22 @@ from copy import deepcopy
 import math
 import re
 
+try:
+    from tools import lang_profile as _lang
+except ImportError:  # pragma: no cover - flat sys.path deployments
+    import lang_profile as _lang
+
+
+def _script_language(text):
+    """ko (Hangul) / ja (kana) / en (Latin without CJK) / zh: the language a reference text is read in."""
+    if _lang.HANGUL_RE.search(text):
+        return 'ko'
+    if _lang.KANA_RE.search(text):
+        return 'ja'
+    if not re.search(r'[\u3400-\u9fff]', text) and re.search(r'[A-Za-z]', text):
+        return 'en'
+    return 'zh'
+
 
 def apply_reference_sample(brief, voice):
     sample=(voice or {}).get('reference_sample')
@@ -17,7 +33,11 @@ def apply_reference_sample(brief, voice):
     if not math.isfinite(speed) or not 1.0<=speed<=1.5:
         raise ValueError('REFERENCE_SAMPLE_SPEED_INVALID')
     # a text with no CJK is English: ~2.7 words/s (bootstrap_voice_references' rate), not letters at 4.2/s
-    if not re.search(r'[\u3400-\u9fff]', text) and re.search(r'[A-Za-z]', text):
+    script=_script_language(text)
+    if script in ('ja','ko'):  # characters / syllables at the lang_profile rate (6.0 / 5.0 per second)
+        chars=_lang.speech_units(text, script)
+        seconds=round(chars/(_lang.profile(script).rate*speed),2)
+    elif script=='en':
         chars=len(re.findall(r"[A-Za-z0-9']+", text))
         seconds=round(chars/(2.7*speed),2)
     else:
@@ -46,6 +66,8 @@ CALIBRATION_SENTENCES = {
     'zh': ('真的吗？你再说一遍！我等了整整三天，原来就为了这一句？', '怎么会这样？刚才还好好的，现在全都变了！'),
     'en': ('What? Say that again! Three whole days I waited, and this is all you bring me?',
            'How could this happen? A minute ago it was fine, and now everything has changed!'),
+    'ja': _lang.PROFILES['ja'].calibration,
+    'ko': _lang.PROFILES['ko'].calibration,
 }
 #: the earlier flat calibration sentences (a calm reminder read with any emotion stays flat): an authored sample
 #: that copied one of them from the writer docs is replaced like a script line
@@ -55,7 +77,8 @@ FLAT_CALIBRATION_SENTENCES = ('天快黑了，我们还是趁早回去吧，路�
 
 
 def _norm(text):
-    return re.sub(r'[^0-9a-z㐀-鿿]+', '', str(text or '').lower())
+    # kana / Hangul are speech too (a Japanese / Korean script line must still be recognised as one)
+    return re.sub(r'[^0-9a-z㐀-鿿\u3041-\u3096\u30a1-\u30fa\u30fc\uac00-\ud7a3]+', '', str(text or '').lower())
 
 
 def _in_dialogue(text, dialogue_lines):
@@ -78,6 +101,8 @@ def calibration_sample(brief, dialogue_lines, language='zh'):
         return brief
     if language == 'en':
         chars, rate = len(re.findall(r"[A-Za-z0-9']+", text)), 2.7
+    elif language in ('ja', 'ko'):
+        chars, rate = _lang.speech_units(text, language), _lang.profile(language).rate
     else:
         chars, rate = sum(c.isalnum() for c in text), 4.2
     speed = float(brief.get('speed') or 1.0)
